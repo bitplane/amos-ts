@@ -15,6 +15,9 @@ import {
   XPKERR_MISSINGLIB,
   XPKERR_NOCRYPT,
   XPKERR_NOMEM,
+  XPKERR_SMALLBUF,
+  XPKERR_SUBTOOOLD,
+  XPKERR_BADPASSWORD,
   XPKERR_PASSWORD,
   XPKERR_TRUNCATED,
   XPK_DEFAULT_CHUNK,
@@ -37,6 +40,7 @@ import {
   NUKE_WINDOW,
   XPKERR_BIGBUF,
   XPKSTREAMF_LONGHDRS,
+  XPKSTREAMF_PASSWORD,
   XPK_LONGHDR_ABOVE,
 } from './xpkmaster'
 
@@ -68,6 +72,40 @@ const noise = (n: number, seed = 1): Uint8Array => {
     x >>>= 0
     return (x >>> 16) & 0xff
   })
+}
+
+/**
+ * Total bits an optimal Huffman code spends on these counts.
+ *
+ * Textbook, with no tie-break rule at all: join the two smallest, repeat. The
+ * total is the same whatever order ties come out in, which is why this can
+ * check `xpkHUFF`'s tree without matching its `bhi` comparisons.
+ */
+const huffmanBits = (freq: Int32Array): number => {
+  type Node = { f: number; kids: [Node, Node] | null; sym: number }
+  const pool: Node[] = []
+  for (let s = 0; s < 256; s++) if (freq[s]! > 0) pool.push({ f: freq[s]!, kids: null, sym: s })
+  if (pool.length === 0) return 0
+  // the one-value chunk, where $4de hands out a single 0 bit and a textbook
+  // Huffman would hand out none
+  if (pool.length === 1) return freq[pool[0]!.sym]!
+  while (pool.length > 1) {
+    pool.sort((a, b) => a.f - b.f)
+    const x = pool.shift()!
+    const y = pool.shift()!
+    pool.push({ f: x.f + y.f, kids: [x, y], sym: -1 })
+  }
+  let total = 0
+  const walk = (n: Node, d: number): void => {
+    if (n.kids === null) {
+      total += n.f * d
+      return
+    }
+    walk(n.kids[0], d + 1)
+    walk(n.kids[1], d + 1)
+  }
+  walk(pool[0]!, 0)
+  return total
 }
 
 /** the code an XpkError carried, or a marker when nothing threw */
@@ -178,17 +216,17 @@ describe('xpkExamine on a real XPKF header', () => {
   })
 
   it('an uninstalled compressor fails at examine, not at the first chunk', () => {
-    // $608 opens compressors/xpkHUFF.library during the probe; $cf4 turns the
+    // $608 opens compressors/xpkIMPL.library during the probe; $cf4 turns the
     // failure into MISSINGLIB. Nothing has been decoded at this point.
-    expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('FEAL', 100)))).toBe(XPKERR_MISSINGLIB)
-    // RLEN, NUKE, CBR0 and BLZW used to be on this list and are now
+    // RLEN, NUKE, CBR0, BLZW and HUFF used to be on this list and are now
     // installed, which is the point of keeping it
     expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('CBR0', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('BLZW', 100)))).toBe(0)
+    expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(0)
   })
 
   it('reads the lengths and versions the master reads', () => {
@@ -209,7 +247,7 @@ describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
   it('shares LIBS:Compressors/ with the four packers that pack', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW'])
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -289,7 +327,7 @@ describe('xpkPack writes the stream $1092/$1260 write', () => {
   })
 
   it('refuses a method with no library, and NONE refuses to encrypt', () => {
-    expect(codeOf(() => xpkPack(body, 'HUFF'))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkPack(body, 'IMPL'))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkPack(body, 'NONE', 'secret'))).toBe(XPKERR_NOCRYPT)
   })
 })
@@ -1113,6 +1151,275 @@ describe('against the real xpkBLZW.library 3.0', () => {
   })
 })
 
+describe('xpkHUFF.library, ported whole', () => {
+  const HUFF = XPK_PACKERS.get('HUFF')!
+  const pack = (b: Uint8Array, pw?: string): Uint8Array | null => HUFF.packChunk(b, 0, pw)
+  /** 200 As, 120 Bs and 80 Cs, three distinct frequencies so no tie-break can hide */
+  const ABC = Uint8Array.from({ length: 400 }, (_, i) => (i < 200 ? 65 : i < 320 ? 66 : 67))
+
+  it('opens a chunk with a version word and a password check', () => {
+    const p = pack(ABC)!
+    // $5e4 writes the zero word and $616 the check longword, and $6ca leaves
+    // both of them in clear. With no password the check is the seed itself.
+    expect(Array.from(p.subarray(0, 6))).toEqual([0x00, 0x00, 0xab, 0xad, 0xca, 0xfe])
+  })
+
+  it('ships the code table, 256 entries, and $ff for a byte value that never occurs', () => {
+    const p = pack(ABC)!
+    // $650: one $ff per unused value. A code cannot be 256 bits long over 256
+    // values, so $ff can never be a real length byte.
+    expect(Array.from(p.subarray(6, 6 + 65)).every((b) => b === 0xff)).toBe(true)
+    // A is the commonest, so it takes the one-bit code, and B and C take two.
+    // $5a6 stores bits MINUS ONE, and $5c6 left-shifts the tail so the bits
+    // sit at the top of the byte.
+    expect(Array.from(p.subarray(6 + 65, 6 + 65 + 6))).toEqual([0, 0b10000000, 1, 0b01000000, 1, 0b00000000])
+    // 253 unused values at a byte each, three used at two bytes, then
+    // 200 one-bit codes and 200 two-bit codes, which is 75 whole bytes
+    expect(p.length).toBe(6 + 253 + 6 + 75)
+  })
+
+  it('gives a chunk of one byte value a single-bit code, which is $4de', () => {
+    // the list has one node, so there is no pair to join: the library hangs
+    // that leaf off a parent as the 0 branch and calls the parent the root
+    const p = pack(new Uint8Array(500).fill(65))!
+    expect(p[6 + 65]).toBe(0) // bits - 1
+    expect(p[6 + 65 + 1]).toBe(0) // and the bit itself is 0
+    expect(Array.from(HUFF.unpackChunk(p, 500))).toEqual(Array.from(new Uint8Array(500).fill(65)))
+  })
+
+  it('spends exactly as many bits as an independent Huffman would', () => {
+    // `ancient` cannot check this one. HUFF ships its table, so ANY consistent
+    // tree decodes and the oracle has nothing to object to in a worse one.
+    // What IS checkable is that the tree is optimal, so this weighs the total
+    // bits the port spends against a plain textbook Huffman over the same
+    // counts. Different tie-breaks move which symbol gets which length; they
+    // cannot move the total.
+    for (const body of [ABC, ascii('the quick brown fox. '.repeat(400)), FREQ_SKEW, new Uint8Array(900).fill(9)]) {
+      const freq = new Int32Array(256)
+      for (const b of body) freq[b]!++
+      const p = pack(body)!
+      let ours = 0
+      let o = 6
+      for (let s = 0; s < 256; s++) {
+        if (p[o] === 0xff) {
+          o++
+          continue
+        }
+        const bits = p[o]! + 1
+        ours += bits * freq[s]!
+        o += 1 + ((bits + 7) >> 3)
+      }
+      const best = huffmanBits(freq)
+      expect(ours).toBe(best)
+    }
+  })
+
+  const FREQ_SKEW = Uint8Array.from({ length: 20_000 }, (_, i) => (i % 100 < 90 ? 32 : (i * 7) & 0xff))
+
+  it('is the only packer here with a cipher, and says so in the stream', () => {
+    // $a009 against BLZW's $8009 and the other three's 9, and HUFF is the only
+    // one that ever fetches xsp_Password at $20(a2)
+    const body = ascii('the quick brown fox jumps over the lazy dog. '.repeat(400))
+    const s = xpkPack(body, 'HUFF', 'hunter2')
+    expect(xpkExamine(s, 'hunter2').flags & XPKSTREAMF_PASSWORD).toBe(XPKSTREAMF_PASSWORD)
+    expect(Array.from(xpkUnpack(s, 'hunter2'))).toEqual(Array.from(body))
+    // the four without one still refuse, which is what XPK_NO_CRYPT is for
+    for (const m of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW']) {
+      expect(codeOf(() => xpkPack(body, m, 'hunter2')), m).toBe(XPKERR_NOCRYPT)
+    }
+  })
+
+  it('will not read an encrypted chunk with the wrong password, or none', () => {
+    const body = ascii('the quick brown fox jumps over the lazy dog. '.repeat(400))
+    const s = xpkPack(body, 'HUFF', 'hunter2')
+    // $7ba tests the check longword before a byte is decoded
+    expect(codeOf(() => xpkUnpack(s, 'hunter3'))).toBe(XPKERR_BADPASSWORD)
+    // and the master's own probe at $576 gets there first when there is none
+    expect(codeOf(() => xpkUnpack(s))).toBe(XPKERR_PASSWORD)
+    // xsh_Initial would otherwise hand back sixteen bytes of the plaintext
+    expect(Array.from(s.subarray(16, 32)).every((b) => b === 0)).toBe(true)
+  })
+
+  it('enciphers everything past the six-byte head and nothing before it', () => {
+    const clear = pack(ABC)!
+    const sealed = pack(ABC, 'k')!
+    expect(sealed.length).toBe(clear.length)
+    expect(Array.from(sealed.subarray(0, 2))).toEqual([0, 0])
+    expect(rd32(sealed, 2)).not.toBe(0xabadcafe)
+    // $6ea chains each byte off the CIPHER byte before it, so one plaintext
+    // run does not come out as one ciphertext run
+    expect(Array.from(sealed.subarray(6, 40))).not.toEqual(Array.from(clear.subarray(6, 40)))
+    expect(Array.from(HUFF.unpackChunk(sealed, 400, 'k'))).toEqual(Array.from(ABC))
+  })
+
+  it('rejects a version word it does not know, which is $784', () => {
+    const p = pack(ABC)!
+    for (const bad of [1, 0x100, 0xffff]) {
+      const broken = p.slice()
+      broken[0] = bad >> 8
+      broken[1] = bad & 0xff
+      expect(codeOf(() => HUFF.unpackChunk(broken, 400)), `${bad}`).toBe(XPKERR_SUBTOOOLD)
+    }
+  })
+
+  it('round-trips, enciphered and not, at every shape the tree can take', () => {
+    const cases: Array<[string, Uint8Array]> = [
+      ['one value', new Uint8Array(2000).fill(0)],
+      ['two values', Uint8Array.from({ length: 5000 }, (_, i) => (i % 3 ? 1 : 2))],
+      ['all 256, flat', Uint8Array.from({ length: 20_000 }, (_, i) => i & 0xff)],
+      ['skewed', FREQ_SKEW],
+      ['text', ascii('the quick brown fox jumps over the lazy dog. '.repeat(400))],
+      ['incompressible', noise(30_000)],
+    ]
+    for (const [name, body] of cases) {
+      for (const pw of [undefined, '', 'k', 'a passphrase longer than most chunks care about']) {
+        // $730 splits the one overrun exit two ways: EXPANSION with no
+        // password, SMALLBUF with one, because an enciphered chunk cannot be
+        // handed back raw
+        let p: Uint8Array | null = null
+        try {
+          p = pack(body, pw)
+        } catch (e) {
+          expect((e as XpkError).code, `${name} / ${pw}`).toBe(XPKERR_SMALLBUF)
+          expect(pw, `${name}`).not.toBeUndefined()
+          continue
+        }
+        if (p === null) {
+          expect(pw, `${name}`).toBeUndefined()
+          continue
+        }
+        expect(Array.from(HUFF.unpackChunk(p, body.length, pw)), `${name} / ${pw}`).toEqual(Array.from(body))
+      }
+    }
+  })
+
+  it('answers SMALLBUF rather than EXPANSION once a password is set', () => {
+    // $71a frees and then splits on xsp_Password: an enciphered chunk cannot
+    // be handed back raw, so there is nothing for the master to fall back to
+    expect(pack(noise(30_000))).toBe(null)
+    expect(codeOf(() => pack(noise(30_000), 'k'))).toBe(XPKERR_SMALLBUF)
+  })
+
+  it('is the third packer that makes the master write LONG chunk headers', () => {
+    expect(HUFF.maxChunk).toBe(0xfffe)
+    expect(HUFF.defaultChunk).toBe(0xfffe)
+    expect(HUFF.minChunk).toBe(1)
+    expect(HUFF.defaultChunk!).toBeGreaterThan(XPK_LONGHDR_ABOVE)
+    const body = ascii('AMOS Professional '.repeat(20_000))
+    const s = xpkPack(body, 'HUFF')
+    expect(xpkExamine(s).flags & XPKSTREAMF_LONGHDRS).toBe(XPKSTREAMF_LONGHDRS)
+    expect(rd32(s, 36 + 8)).toBe(0xfffe) // xch_ULen, a longword in this form
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
+  })
+})
+
+describe('against the real xpkHUFF.library 0.61', () => {
+  const LIB = join(fixtures, 'libs', 'xpkhuff.library')
+  const load = (): Uint8Array => loadHunks(new Uint8Array(readFileSync(LIB)), 0).image
+
+  it.skipIf(!existsSync(LIB))('names itself, and hangs ten entries off a longword table', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    let tag = -1
+    for (let o = 0; o + 26 <= img.length; o += 2) if (u16(o) === 0x4afc && u32(o + 2) === o) tag = o
+    expect(tag).toBe(0xc4)
+    expect(str(u32(tag + 14))).toBe('xpkHUFF.library')
+    // rt_IdString ends in the author's university email address, so only the
+    // part in front of it is written out here. The $a0 after "$DATE:" is a
+    // Latin-1 non-breaking space, as in CBR0's strings. Three of them here,
+    // at 15, 17 and 30, and they are left exactly where he put them -- along
+    // with the double space before the 8.
+    const id = str(u32(tag + 18))
+    expect(id.startsWith('xpkHUFF.library\u00a0V\u00a00.61 ($DATE:\u00a0Sat Aug  8 19:58:02 1992 by M.Zimmermann (')).toBe(
+      true,
+    )
+    expect(id.endsWith('))')).toBe(true)
+    expect(id.length).toBe(105)
+
+    const vectors = u32(u32(tag + 22) + 4)
+    expect(vectors).toBe(0x170)
+    const lvo = (n: number): number => u32(vectors + (n / 6 - 1) * 4)
+    expect(lvo(30)).toBe(0x3e0) // XpkPackerInfo
+    expect(lvo(36)).toBe(0x3ea) // XpkPackChunk
+    expect(lvo(54)).toBe(0x3fa) // XpkUnpackChunk
+    // -42 XpkPackFree and -48 XpkPackReset are one `rts` each
+    expect(at(img, lvo(42))).toBe(0x4e)
+    expect(at(img, lvo(42) + 1)).toBe(0x75)
+    expect(lvo(48)).toBe(lvo(42) + 2)
+    expect(u32(vectors + 10 * 4)).toBe(0xffffffff)
+  })
+
+  it.skipIf(!existsSync(LIB))('fills its XpkInfo in at $224, at library base + $26', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    const HUFF = XPK_PACKERS.get('HUFF')!
+    // XpkPackerInfo is `move.l a6,d0 / addi.l #$26,d0 / rts`, so there is no
+    // static to read: $224 onward is the run of moves that builds it
+    expect(u32(0x3e4)).toBe(0x26) // the immediate of the `addi.l #$26,d0`
+    expect(str(0x2d4)).toBe('HUFF')
+    // "Huffman\xa0V\xa00.61", non-breaking spaces and all
+    expect(str(0x2dc)).toBe(HUFF.longName)
+    expect(HUFF.longName.charCodeAt(9)).toBe(0xa0)
+    expect(str(0x2ec)).toBe('Dynamic huffman crunch algorithm, cache optimized byte decrunch algorithm')
+    expect(u32(0x258)).toBe(0x48554646) // xpi_ID, 'HUFF'
+    // $a009: BLZW's $8009 with bit 13 added, and HUFF is the only one here
+    // that reads xsp_Password
+    expect(u32(0x260)).toBe(0xa009)
+    expect(u32(0x268)).toBe(HUFF.maxChunk)
+    expect(u32(0x270)).toBe(HUFF.minChunk)
+    expect(u32(0x278)).toBe(HUFF.defaultChunk)
+    // the four progress strings, and then xpi_DefMode
+    expect(str(0x338)).toBe('Crunching')
+    expect(str(0x344)).toBe('Decrunching')
+    expect(str(0x350)).toBe('Crunched')
+    expect(str(0x35c)).toBe('Decrunched')
+    expect(u16(0x2a0)).toBe(50)
+  })
+
+  it.skipIf(!existsSync(LIB))('sizes both work buffers to exactly what the format needs', () => {
+    const img = load()
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const HUFF = XPK_PACKERS.get('HUFF')!
+    // $418, the packer's AllocMem. $220 leaves, $2240 internal nodes, $4220
+    // the root pointer, $4224 the 256 code pointers, $5224 the codes.
+    const pack = u32(0x41a)
+    expect(pack).toBe(0x7324)
+    expect(0x2240 - 0x220).toBeGreaterThanOrEqual(256 * 0x20) // room for every leaf
+    expect(0x4220 - 0x2240).toBeGreaterThanOrEqual(255 * 0x20) // and every join
+    expect(0x5224 - 0x4224).toBeGreaterThanOrEqual(256 * 4) // one pointer a value
+    // a code over 256 values runs to 255 bits, so 32 bytes plus its length
+    expect(pack - 0x5224).toBe(256 * 33)
+
+    // $742, the unpacker's. $26 is the trie and $141c the buffer it deciphers
+    // into, and both come out exact.
+    const unpack = u32(0x744)
+    expect(unpack).toBe(0x1141a)
+    expect(0x141c - 0x26).toBe(511 * 10) // 256 leaves and 255 forks, ten bytes each
+    expect(unpack - 0x141c).toBe(HUFF.maxChunk)
+
+    // and the two cipher seeds, $abadcafe and $c0de, in both halves
+    expect(u32(0x5ee)).toBe(0xabadcafe)
+    expect(u32(0x79a)).toBe(0xabadcafe)
+    expect((at(img, 0x5fa) << 8) | at(img, 0x5fb)).toBe(0xc0de)
+    expect((at(img, 0x7a0) << 8) | at(img, 0x7a1)).toBe(0xc0de)
+  })
+})
+
 /**
  * `ancient` as an independent reader, which is the only check this file has
  * ever had that is not itself.
@@ -1172,16 +1479,17 @@ describe('against ancient, an independent XPK implementation', () => {
     for (const [name, body] of CASES) {
       const raw = join(dir, 'raw')
       writeFileSync(raw, body)
-      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW']) {
+      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF']) {
         const packed = join(dir, method)
         const stream = xpkPack(body, method)
         writeFileSync(packed, stream)
         const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
-        // ancient will not NAME a BLZW stream whose chunks all came back raw,
-        // though the next line shows it decodes one perfectly well. Every
-        // other method names itself off the header alone. Recorded, not
-        // settled: it is ancient's identify path, and our streams are fine.
-        if (method === 'BLZW' && !anyPacked(stream)) {
+        // ancient will not NAME a BLZW or HUFF stream whose chunks all came
+        // back raw, though the next line shows it decodes one perfectly well.
+        // NONE, RLEN, NUKE and CBR0 all name themselves off the header alone.
+        // Recorded, not settled: it is ancient's identify path, and the
+        // streams themselves are fine.
+        if ((method === 'BLZW' || method === 'HUFF') && !anyPacked(stream)) {
           expect(id, `${name} / ${method}`).toContain('<invalid>')
         } else {
           expect(id, `${name} / ${method}`).toContain(`XPK-${method}`)
@@ -1199,13 +1507,13 @@ describe('against ancient, an independent XPK implementation', () => {
     // master's probe at $450 tests the magic, the checksum and the flags and
     // has no ULen test in it that this port has found, so the disagreement is
     // recorded rather than settled. It holds for the twelve-byte header form
-    // CBR0 and BLZW ask for too.
+    // CBR0, BLZW and HUFF ask for too.
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
-    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW']) {
+    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF']) {
       const stream = xpkPack(new Uint8Array(0), method)
       const long = (xpkExamine(stream).flags & XPKSTREAMF_LONGHDRS) !== 0
       expect(stream.length, method).toBe(36 + (long ? 12 : 8))
-      expect(long, method).toBe(method === 'CBR0' || method === 'BLZW')
+      expect(long, method).toBe(method !== 'NONE' && method !== 'RLEN' && method !== 'NUKE')
       expect(xpkExamine(stream).uLen).toBe(0)
       expect(xpkUnpack(stream).length).toBe(0)
       const packed = join(dir, method)

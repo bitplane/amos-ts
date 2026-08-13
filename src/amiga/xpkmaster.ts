@@ -60,15 +60,21 @@
  * any method. The master's probe at `$450` tests the magic, the checksum and
  * the flags, and has no ULen test in it that this port has found.
  *
- * A BLZW stream whose chunks all came back RAW. `ancient identify` calls it
- * `<invalid>` where the other four name themselves off the same header, and
- * then `ancient verify` decodes the very same file and matches. So it is the
- * naming that fails, not the reading.
+ * A BLZW or HUFF stream whose chunks all came back RAW. `ancient identify`
+ * calls it `<invalid>` where NONE, RLEN, NUKE and CBR0 all name themselves off
+ * the same header, and then `ancient verify` decodes the very same file and
+ * matches. So it is the naming that fails, not the reading.
+ *
+ * One thing `ancient` cannot check at all, and it is worth saying where.
+ * HUFF ships its code table inside the chunk, so any consistent tree decodes
+ * and the oracle has no opinion on whether the tree is the one the library
+ * would have built. The two tie-breaks at `$4b8` and `$53c` are read off the
+ * disassembly and checked only against a textbook Huffman's total bit count.
  *
  * ## The compressors that are here
  *
  * `XPK_PACKERS` is the registry standing in for `LIBS:Compressors/`, and all
- * five entries in it are ported whole from the binary rather than stubbed.
+ * six entries in it are ported whole from the binary rather than stubbed.
  *
  * `NONE`, from `xpkNONE.library` 1.0, 592 bytes of code of which the two the
  * master calls are 24 instructions:
@@ -97,10 +103,14 @@
  * ratio-triggered dictionary reset, and the only one that reads `xsp_Mode`.
  * See `XPK_BLZW`.
  *
+ * `HUFF`, from `xpkHUFF.library` 0.61, 2,560 bytes: static Huffman with the
+ * code table shipped in the chunk, and the only one of the nine with a
+ * cipher. See `XPK_HUFF`.
+ *
  * Every other method resolves through `OpenLibrary("compressors/xpk%.4s.library")`
  * at `$c9a`, and when that fails the master sets XPKERR_MISSINGLIB and gives
- * up. That is what this port does for HUFF, FEAL, IDEA and IMPL,
- * and it is not a shortcut. It is what a real Amiga does with an empty
+ * up. That is what this port does for FEAL, IDEA and IMPL, and it is not a
+ * shortcut. It is what a real Amiga does with an empty
  * `LIBS:Compressors/`, which is the machine EasyLife's own guide describes:
  * "the XPK libraries are not included in this distribution, you must obtain
  * the XPK compression archive separately".
@@ -1615,6 +1625,389 @@ const blzwUnpack = (data: Uint8Array, uLen: number): Uint8Array => {
 }
 
 /**
+ * `xpkHUFF.library` 0.61, whole. 2,560 bytes of code, M. Zimmermann, 8 August
+ * 1992, and the only one of the nine with a cipher in it.
+ *
+ * Static Huffman over the 256 byte values, with the code table shipped in the
+ * chunk. It calls itself "Huffman V\xa00.61" -- with a Latin-1 non-breaking
+ * space, as CBR0's author also used -- and "Dynamic huffman crunch
+ * algorithm, cache optimized byte decrunch algorithm". The second half of
+ * that is literal: `$8a0` unrolls all eight bits of an input byte into
+ * straight-line code, sixteen `movea.l`/`move.w`/`bpl` triples with no loop
+ * around them.
+ *
+ * A chunk opens with six bytes:
+ *
+ *     +0  a zero word. `$784` rejects anything else with XPKERR_SUBTOOOLD,
+ *         so it is a format version and this is version zero.
+ *     +2  the password check, `$abadcafe` when there is no password
+ *
+ * Then 256 table entries, one per byte value: `$ff` for a value that never
+ * occurs, otherwise a length byte holding bits-1 followed by `ceil(bits/8)`
+ * bytes of code, MSB first and the last byte left-shifted so the bits sit at
+ * the top. Then the body, the same bits back to back.
+ *
+ * Everything from offset 6 on is enciphered when a password is given. Neither
+ * the version word nor the check longword is.
+ *
+ * `xpi_Flags` is `$a009`. That is BLZW's `$8009` plus bit 13, and HUFF is the
+ * only one of the five here that ever fetches `xsp_Password` at `$20(a2)`, so
+ * bit 13 marking a cipher is the reading this port takes. `xpi_MaxChunk` and
+ * `xpi_DefChunk` are both 65534, over the 65000 at `$aec`, which makes HUFF
+ * the third long-header packer.
+ */
+const XPK_HUFF: XpkPacker = {
+  name: 'HUFF',
+  longName: 'Huffman V\u00a00.61',
+  maxChunk: 0xfffe,
+  minChunk: 1,
+  defaultChunk: 0xfffe,
+  packChunk: (data, _mode, password) => huffPack(data, password),
+  unpackChunk: (data, uLen, password) => huffUnpack(data, uLen, password),
+}
+
+/** the password as the library sees it: Latin-1 bytes, and a NUL ends it */
+const huffKey = (password: string): Uint8Array => {
+  const end = password.indexOf('\0')
+  const s = end < 0 ? password : password.slice(0, end)
+  return Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff)
+}
+
+/**
+ * `$5ec` in the packer and `$798` in the unpacker, the same eleven
+ * instructions twice.
+ *
+ * Two passes over the password. `d1` is seeded `$c0de` and only its low byte
+ * is ever reloaded, so every character enters the arithmetic as `$c000 + ch`
+ * rather than as itself. The `swap` between the passes is what puts the first
+ * pass's result in the high word and hands the second pass `$abad`.
+ */
+const huffCheck = (key: Uint8Array): number => {
+  let hi = 0xabad
+  let lo = 0xcafe
+  for (const ch of key) lo = (lo + 0xc000 + ch) & 0xffff
+  ;[hi, lo] = [lo, hi]
+  for (const ch of key) {
+    lo ^= 0xc000 | ch
+    lo = ((lo << 8) | (lo >>> 8)) & 0xffff // rol.w #$8,d0
+  }
+  return ((hi << 16) | lo) >>> 0
+}
+
+/**
+ * `$6ca` enciphers and `$7d2` undoes it, over everything from offset 6 on.
+ *
+ * The keystream is the password repeated, and each byte then chains off the
+ * CIPHER byte before it. `$6de` and `$7da` both seed that chain with the
+ * password's first character read without advancing, so the first plaintext
+ * byte is not simply XORed.
+ */
+const huffCrypt = (buf: Uint8Array, from: number, to: number, key: Uint8Array, encipher: boolean): void => {
+  let k = 0
+  let prev = key[0] ?? 0
+  for (let i = from; i < to; i++) {
+    // $6e6 and $7e2: the NUL is what wraps the key, so an empty password
+    // gives a keystream of zeroes rather than dividing by nothing
+    if (k >= key.length) k = 0
+    const ks = key[k++] ?? 0
+    if (encipher) {
+      const c = (((buf[i]! ^ ks) & 0xff) + prev) & 0xff
+      buf[i] = c
+      prev = c
+    } else {
+      const c = buf[i]!
+      buf[i] = ((c - prev) ^ ks) & 0xff
+      prev = c
+    }
+  }
+}
+
+/**
+ * `$414`, XpkPackChunk's worker.
+ *
+ * The tree is built the slow, obvious way, and the order it does it in is the
+ * whole of the format. Leaves go into the array at `$220` in symbol order,
+ * one per byte value that occurs. `$4a6` then sorts them by repeatedly
+ * scanning for the largest remaining frequency and pushing it onto the front
+ * of a list, which leaves the list ascending. The comparison at `$4b8` is
+ * `bhi`, so a tie keeps the LAST node scanned, and pushing reverses that:
+ * within one frequency the list runs lowest symbol first.
+ *
+ * `$4f4` then takes the two at the head, gives the first branch 0 and the
+ * second branch 1, and re-inserts their parent. `$53c` is `bhi` again, so the
+ * new parent goes in FRONT of every node it ties with. Get either tie-break
+ * backwards and the codes still decode, they are just not the codes the
+ * library writes.
+ */
+const huffPack = (data: Uint8Array, password?: string): Uint8Array | null => {
+  const inLen = data.length
+  const outBufLen = xpkPackBufLen(inLen)
+  const key = password === undefined ? null : huffKey(password)
+  /** `$71a`: an encrypted chunk cannot be stored raw, so it cannot answer EXPANSION */
+  const giveUp = (): null => {
+    if (key !== null) throw new XpkError(XPKERR_SMALLBUF)
+    return null
+  }
+  // $5d4, which the master's own buffer size can never fail
+  if (outBufLen <= 6) return giveUp()
+
+  // $450: 256 words, and the count is a word so it wraps at 65536. xpi_MaxChunk
+  // is 65534, so through the master it cannot.
+  const freq = new Uint16Array(256)
+  for (const b of data) freq[b] = (freq[b]! + 1) & 0xffff
+
+  // node arrays, standing in for the 32-byte records at $220 and $2240
+  const NIL = -1
+  const LOOSE = -2 // the library's -1 at record+0, before the node joins the list
+  const nFreq = new Int32Array(512)
+  const nSym = new Int32Array(512)
+  const nNext = new Int32Array(512).fill(NIL)
+  const nUp = new Int32Array(512).fill(NIL)
+  const nSide = new Int32Array(512).fill(-1)
+
+  // $46c: a leaf per byte value that occurs, in symbol order
+  let leaves = 0
+  for (let sym = 0; sym < 256; sym++) {
+    if (freq[sym] === 0) continue
+    nSym[leaves] = sym
+    nFreq[leaves] = freq[sym]!
+    nNext[leaves] = LOOSE
+    leaves++
+  }
+  if (leaves === 0) return giveUp()
+
+  // $4a6: extract the largest still loose, push it on the front, repeat
+  let head = NIL
+  for (;;) {
+    let best = NIL
+    let bestFreq = 0
+    for (let i = 0; i < leaves; i++) {
+      if (nNext[i] === LOOSE && nFreq[i]! >= bestFreq) {
+        bestFreq = nFreq[i]!
+        best = i
+      }
+    }
+    if (best === NIL) break
+    nNext[best] = head
+    head = best
+  }
+
+  let free = leaves // the arena the library puts at $2240
+  let root: number
+  if (nNext[head] === NIL) {
+    // $4de: one distinct byte value in the whole chunk, so the tree is a
+    // parent with one child and the code is a single 0 bit
+    nSide[head] = 0
+    nUp[head] = free
+    root = free++
+  } else {
+    let a0 = head
+    for (;;) {
+      if (nNext[a0] === NIL) {
+        root = a0
+        break
+      }
+      const a2 = free++
+      const a1 = nNext[a0]!
+      nSide[a0] = 0
+      nSide[a1] = 1
+      nFreq[a2] = (nFreq[a0]! + nFreq[a1]!) & 0xffff
+      nUp[a0] = a2
+      nUp[a1] = a2
+      a0 = nNext[a1]!
+      // $530..$560, the re-insert, and every branch of it ends with a0 at the
+      // head of what is left
+      if (a0 === NIL) {
+        a0 = a2
+      } else if (nFreq[a2]! <= nFreq[a0]!) {
+        nNext[a2] = a0
+        a0 = a2
+      } else {
+        let a3 = a0
+        for (;;) {
+          if (nNext[a3] === NIL) {
+            nNext[a3] = a2
+            break
+          }
+          const a4 = a3
+          a3 = nNext[a3]!
+          if (nFreq[a2]! > nFreq[a3]!) continue
+          nNext[a4] = a2
+          nNext[a2] = a3
+          break
+        }
+      }
+    }
+  }
+  nSide[root] = -1 // $56a, the $ffff that stops the walk up
+
+  // $574: one code per leaf, read off the sides on the way to the root
+  const codeLen = new Int32Array(256)
+  const codeBits: Array<Uint8Array | null> = new Array(256).fill(null)
+  for (let i = 0; i < leaves; i++) {
+    const bits: number[] = []
+    for (let p = i; nSide[p]! >= 0; p = nUp[p]!) bits.push(nSide[p]!)
+    bits.reverse() // the library pushes on the stack and pops, which is this
+    const packed = new Uint8Array((bits.length + 7) >> 3)
+    for (let k = 0; k < bits.length; k++) if (bits[k] === 1) packed[k >> 3]! |= 0x80 >> (k & 7)
+    codeLen[nSym[i]!] = bits.length
+    codeBits[nSym[i]!] = packed
+  }
+
+  const out = new Uint8Array(outBufLen)
+  let o = 0
+  // $5e4 and $616, the six bytes that are never enciphered
+  put16(out, 0, 0)
+  put32(out, 2, key === null ? 0xabadcafe : huffCheck(key))
+  o = 6
+
+  // $618: the table, and $636 checks the expansion limit after every byte
+  const limit = inLen // a4 = OutBuf + InLen
+  for (let sym = 0; sym < 256; sym++) {
+    const bits = codeBits[sym] ?? null
+    if (bits === null) {
+      out[o++] = 0xff // $650, and no code can be 256 bits long so this is free
+      if (o >= limit) return giveUp()
+      continue
+    }
+    out[o++] = codeLen[sym]! - 1
+    if (o >= limit) return giveUp()
+    for (const b of bits) {
+      out[o++] = b
+      if (o >= limit) return giveUp()
+    }
+  }
+
+  // $65c: the body
+  let acc = 0
+  let held = 0
+  for (const sym of data) {
+    const bits = codeBits[sym]!
+    const n = codeLen[sym]!
+    for (let k = 0; k < n; k++) {
+      acc = ((acc << 1) | ((bits[k >> 3]! >> (7 - (k & 7))) & 1)) & 0xff
+      if (++held === 8) {
+        out[o++] = acc
+        held = 0
+        if (o >= limit) return giveUp()
+      }
+    }
+  }
+  if (held !== 0) {
+    // $6a6: the tail bits go to the TOP of the byte, which is what lets the
+    // decoder read them with the same shift-left it uses everywhere else
+    if (o >= limit) return giveUp()
+    out[o++] = (acc << (8 - held)) & 0xff
+  }
+
+  if (key !== null) huffCrypt(out, 6, o, key, true)
+  return out.subarray(0, o)
+}
+
+/**
+ * `$73e`, XpkUnpackChunk's worker.
+ *
+ * The code table is turned back into a binary trie of ten-byte nodes at
+ * `$26`, and the arena is exactly 511 of them, which is the most a code over
+ * 256 values can need. A node's first word is `$ff00 | symbol` on a leaf and
+ * zero on a fork, so `move.w (a2),d3 / bpl` reads the symbol and tests for a
+ * leaf in one go.
+ */
+const huffUnpack = (data: Uint8Array, uLen: number, password?: string): Uint8Array => {
+  // $784, before the password is looked at
+  if (u16(data, 0) !== 0) throw new XpkError(XPKERR_SUBTOOOLD)
+
+  let body = data.subarray(6)
+  if (password !== undefined) {
+    const key = huffKey(password)
+    // $7ba: the check is over the password alone, so a wrong one is caught
+    // before a byte is decoded
+    if (huffCheck(key) !== u32(data, 2)) throw new XpkError(XPKERR_BADPASSWORD)
+    body = body.slice()
+    huffCrypt(body, 0, body.length, key, false)
+  }
+
+  // $802: 511 nodes, node 0 being the root
+  const NODES = 511
+  const left = new Int32Array(NODES).fill(-1)
+  const right = new Int32Array(NODES).fill(-1)
+  const leaf = new Int32Array(NODES).fill(-1)
+  let free = 1
+  let p = 0
+  for (let sym = 0; sym < 256; sym++) {
+    const n = at(body, p++)
+    if (n === 0xff) continue // $824, a byte value the chunk never uses
+    let node = 0
+    let acc = 0
+    let held = 0
+    for (let k = 0; k <= n; k++) {
+      if (held === 0) {
+        acc = at(body, p++)
+        held = 8
+      }
+      const kid = (acc & 0x80) !== 0 ? right : left
+      acc = (acc << 1) & 0xff
+      held--
+      if (kid[node] === -1) {
+        // DEVIATION: the library has no ceiling here and a table asking for a
+        // 512th node writes over the buffer it decrypted into. This is where
+        // that stops, and a table that deep cannot have come from $574.
+        if (free >= NODES) throw new XpkError(XPKERR_CORRUPTPKD)
+        kid[node] = free
+        node = free++
+      } else {
+        node = kid[node]!
+      }
+    }
+    leaf[node] = sym // $872
+  }
+
+  const out = new Uint8Array(uLen)
+  let o = 0
+  let node = 0
+  /** one bit down the trie, answering whether it landed on a leaf */
+  const step = (bit: number): boolean => {
+    node = (bit !== 0 ? right : left)[node]!
+    if (node < 0) throw new XpkError(XPKERR_CORRUPTPKD)
+    if (leaf[node]! < 0) return false
+    // DEVIATION: $8a0 has no bound at all and leans on XPK_MARGIN. Stopping
+    // here turns an overrun into the CORRUPTPKD the master would raise anyway.
+    if (o >= uLen) throw new XpkError(XPKERR_CORRUPTPKD)
+    out[o++] = leaf[node]!
+    node = 0
+    return true
+  }
+
+  // $88a: all but the last body byte, eight bits at a time and no counting
+  for (let i = p; i < body.length - 1; i++) {
+    const b = at(body, i)
+    for (let k = 7; k >= 0; k--) step((b >> k) & 1)
+  }
+
+  // $9a4: and the last byte by symbol count instead, because its low bits are
+  // the padding $6a6 shifted in. `d0` there is the shortfall the fast loop
+  // left, and the `dbra` counts symbols out rather than bits.
+  const missing = uLen - o
+  let held = 0
+  let acc = 0
+  let q = Math.max(p, body.length - 1)
+  for (let n = 0; n < missing; n++) {
+    for (;;) {
+      if (held === 0) {
+        // a well formed chunk always finishes inside its last byte, so a
+        // second refill here means the body was cut short
+        if (q > body.length) throw new XpkError(XPKERR_CORRUPTPKD)
+        acc = at(body, q++)
+        held = 8
+      }
+      held--
+      if (step((acc >> held) & 1)) break
+    }
+  }
+  return out
+}
+
+/**
  * The modelled `LIBS:Compressors/`.
  *
  * A caller may add to this. Anything absent gets XPKERR_MISSINGLIB, which is
@@ -1626,6 +2019,7 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
   [XPK_NUKE.name, XPK_NUKE],
   [XPK_CBR0.name, XPK_CBR0],
   [XPK_BLZW.name, XPK_BLZW],
+  [XPK_HUFF.name, XPK_HUFF],
 ])
 
 /**
@@ -1882,7 +2276,11 @@ export function xpkPack(data: Uint8Array, method: string, password?: string): Ui
   }
 
   const chunk = xpkChunkSize(packer)
-  const flags = chunk > XPK_LONGHDR_ABOVE ? XPKSTREAMF_LONGHDRS : 0
+  let flags = chunk > XPK_LONGHDR_ABOVE ? XPKSTREAMF_LONGHDRS : 0
+  // $10f6: the stream has to say it is encrypted, or nothing on the read side
+  // will ask for the password. HUFF is the only packer here that gets this far
+  // with one, since XPK_NO_CRYPT turned the other four away above.
+  if (password !== undefined) flags |= XPKSTREAMF_PASSWORD
   const long = (flags & XPKSTREAMF_LONGHDRS) !== 0
   const hdrSize = chunkHeaderSize(flags)
 
