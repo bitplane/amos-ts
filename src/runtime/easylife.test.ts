@@ -1971,7 +1971,7 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
   it('an uninstalled compressor is XPK error -15, through message 20', () => {
     // "Can't find required XPK library" -- exactly what an Amiga with an empty
     // LIBS:Compressors/ says, and the four methods below are all real ones.
-    for (const m of ['FEAL', 'HUFF.50', 'IMPL', 'BLZW.99']) {
+    for (const m of ['FEAL', 'HUFF.50', 'IMPL', 'IDEA']) {
       expect(
         failXpk(OPEN + `Reserve As Data 9,32\nElxpk Save 9 To "ram:b","${m}"\n`),
       ).toMatch(/^An Xpk Error Has Occured/)

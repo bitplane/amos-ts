@@ -14,6 +14,7 @@ import {
   XPKERR_CORRUPTPKD,
   XPKERR_MISSINGLIB,
   XPKERR_NOCRYPT,
+  XPKERR_NOMEM,
   XPKERR_PASSWORD,
   XPKERR_TRUNCATED,
   XPK_DEFAULT_CHUNK,
@@ -29,6 +30,7 @@ import {
   xpkPack,
   xpkParseMethod,
   xpkUnpack,
+  BLZW_HASH,
   NUKE_BITS,
   NUKE_BASE,
   NUKE_GROUP,
@@ -49,6 +51,24 @@ const rd32 = (b: Uint8Array, o: number): number =>
   ((at(b, o) << 24) | (at(b, o + 1) << 16) | (at(b, o + 2) << 8) | at(b, o + 3)) >>> 0
 const ascii = (s: string): Uint8Array =>
   new Uint8Array([...s].map((c) => c.charCodeAt(0)))
+/**
+ * Bytes no packer here can shrink.
+ *
+ * A xorshift and not `i * 2654435761`, which is what the NUKE tests use: that
+ * multiply loses precision in a double and comes out compressible to a tenth,
+ * which is fine for those tests and useless for BLZW's expansion guard.
+ */
+const noise = (n: number, seed = 1): Uint8Array => {
+  let x = seed >>> 0
+  return Uint8Array.from({ length: n }, () => {
+    x ^= x << 13
+    x >>>= 0
+    x ^= x >>> 17
+    x ^= x << 5
+    x >>>= 0
+    return (x >>> 16) & 0xff
+  })
+}
 
 /** the code an XpkError carried, or a marker when nothing threw */
 const codeOf = (fn: () => unknown): number => {
@@ -158,16 +178,17 @@ describe('xpkExamine on a real XPKF header', () => {
   })
 
   it('an uninstalled compressor fails at examine, not at the first chunk', () => {
-    // $608 opens compressors/xpkBLZW.library during the probe; $cf4 turns the
+    // $608 opens compressors/xpkHUFF.library during the probe; $cf4 turns the
     // failure into MISSINGLIB. Nothing has been decoded at this point.
-    expect(codeOf(() => xpkExamine(header('BLZW', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(XPKERR_MISSINGLIB)
-    expect(codeOf(() => xpkExamine(header('CBR0', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
-    // RLEN, NUKE and CBR0 used to be on this list and are now installed,
-    // which is the point of keeping it
+    expect(codeOf(() => xpkExamine(header('FEAL', 100)))).toBe(XPKERR_MISSINGLIB)
+    // RLEN, NUKE, CBR0 and BLZW used to be on this list and are now
+    // installed, which is the point of keeping it
     expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(0)
+    expect(codeOf(() => xpkExamine(header('CBR0', 100)))).toBe(0)
+    expect(codeOf(() => xpkExamine(header('BLZW', 100)))).toBe(0)
   })
 
   it('reads the lengths and versions the master reads', () => {
@@ -187,8 +208,8 @@ describe('xpkExamine on a real XPKF header', () => {
 describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
-  it('shares LIBS:Compressors/ with the three packers that pack', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0'])
+  it('shares LIBS:Compressors/ with the four packers that pack', () => {
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -268,7 +289,7 @@ describe('xpkPack writes the stream $1092/$1260 write', () => {
   })
 
   it('refuses a method with no library, and NONE refuses to encrypt', () => {
-    expect(codeOf(() => xpkPack(body, 'BLZW'))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkPack(body, 'HUFF'))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkPack(body, 'NONE', 'secret'))).toBe(XPKERR_NOCRYPT)
   })
 })
@@ -753,9 +774,10 @@ describe('xpkCBR0.library, ported whole', () => {
     }
   })
 
-  it('is the only packer here that makes the master write LONG chunk headers', () => {
+  it('was the first packer here to make the master write LONG chunk headers', () => {
     // xpi_DefChunk is 65532 and $aec switches to twelve-byte headers over
-    // 65000, so CBR0 is what exercises that half of the writer at all
+    // 65000. CBR0 is what opened that half of the writer up; BLZW has since
+    // joined it from the other side, with a default of 131072.
     expect(CBR0.defaultChunk).toBe(0xfffc)
     expect(CBR0.defaultChunk!).toBeGreaterThan(XPK_LONGHDR_ABOVE)
     const body = Uint8Array.from({ length: 200_000 }, (_, i) => (i >> 8) & 0xff)
@@ -763,7 +785,7 @@ describe('xpkCBR0.library, ported whole', () => {
     expect(xpkExamine(s).flags & XPKSTREAMF_LONGHDRS).toBe(XPKSTREAMF_LONGHDRS)
     expect(rd32(s, 36 + 8)).toBe(65_532) // xch_ULen, a longword in this form
     expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
-    // and the other three stay in the short form
+    // and the three under 65000 stay in the short form
     for (const m of ['NONE', 'RLEN', 'NUKE']) {
       expect(xpkExamine(xpkPack(body, m)).flags & XPKSTREAMF_LONGHDRS, m).toBe(0)
     }
@@ -839,6 +861,258 @@ describe('against the real xpkCBR0.library 1.0', () => {
   })
 })
 
+describe('xpkBLZW.library, ported whole', () => {
+  const BLZW = XPK_PACKERS.get('BLZW')!
+  const pack = (b: Uint8Array, mode = 0): Uint8Array | null => BLZW.packChunk(b, mode)
+  const width = (p: Uint8Array): number => (p[0]! << 8) | p[1]!
+  const stack = (p: Uint8Array): number => (p[2]! << 8) | p[3]!
+  /** something that fills the dictionary at every one of the seven widths */
+  const FILLS = Uint8Array.from({ length: 131_072 }, (_, i) => ((i * 2654435761) >>> 24) & (i & 0x3f ? 0xff : 0x0f))
+
+  it('refuses 127 bytes and takes 128, which is also its xpi_MinChunk', () => {
+    // $450 is `moveq #$7f,d2 / cmp.l d2,d0 / bls $65a`, and $65a returns zero,
+    // which $336 turns into XPKERR_EXPANSION
+    expect(pack(new Uint8Array(127).fill(3))).toBe(null)
+    expect(pack(new Uint8Array(128).fill(3))).not.toBe(null)
+    expect(BLZW.minChunk).toBe(128)
+  })
+
+  it('takes its code width from the mode, and it is the only packer here that reads one', () => {
+    // $2f6 is `mode * 7 / 100 + 9` clamped to 9..15, so the seven widths sit
+    // on boundaries at 15, 29, 43, 58, 72 and 86. The header word shows it
+    // only once the dictionary has filled, because $5ae is what writes it.
+    for (const [mode, bits] of [
+      [0, 9],
+      [14, 9],
+      [15, 10],
+      [28, 10],
+      [29, 11],
+      [42, 11],
+      [43, 12],
+      [57, 12],
+      [58, 13],
+      [71, 13],
+      [72, 14],
+      [85, 14],
+      [86, 15],
+      [99, 15],
+    ] as const) {
+      expect(width(pack(FILLS, mode)!), `mode ${mode}`).toBe(bits)
+    }
+    // and the clamp holds at both ends, since `mulu.w` reads the low word only
+    expect(width(pack(FILLS, 0x10000)!)).toBe(9)
+    expect(width(pack(FILLS, 65_535)!)).toBe(15)
+  })
+
+  it('opens a chunk with two words it writes last, at $636', () => {
+    // 200 bytes of one character is the whole of LZW in miniature: a literal,
+    // then every code the encoder has just built. 65, 259, 260, 261 and up.
+    // The strings run 1, 2, 3 ... 19 characters, which is 190 bytes, and the
+    // last 10 go out as the code for a ten-character run.
+    expect(Array.from(pack(new Uint8Array(200).fill(65))!)).toEqual([
+      0x00, 0x09, 0x00, 0x14, 0x20, 0xc0, 0xe0, 0x90, 0x58, 0x34, 0x1e, 0x11, 0x09, 0x85, 0x42, 0xe1, 0x90, 0xd8,
+      0x74, 0x3e, 0x21, 0x11, 0x89, 0x44, 0xe2, 0x90, 0xb8, 0x00,
+    ])
+    // $63e rounds the longest string down to four after $53a counted it as
+    // the length plus three, which makes it a round UP to four: the longest
+    // string here is 19 characters and the decoder stacks 18 of them.
+    expect(stack(pack(new Uint8Array(200).fill(65))!)).toBe(20)
+  })
+
+  it('never grows a chunk, because the output buffer IS the expansion guard', () => {
+    // $45e rounds the input length down to 32 and allocates that much, $484
+    // clears it, and $582 gives up eight bytes short of the end. So the only
+    // two answers are a chunk shorter than the input and XPKERR_EXPANSION.
+    for (const n of [128, 1000, 40_000]) expect(pack(noise(n)), `${n}`).toBe(null)
+    // and where it does pack, it is always under the input length
+    for (const n of [130, 1000, 40_000]) {
+      const p = pack(ascii('AMOS '.repeat(n)).subarray(0, n))!
+      expect(p.length, `${n}`).toBeLessThan(n)
+    }
+  })
+
+  it('round-trips through every path the format has', () => {
+    const cases: Array<[string, Uint8Array]> = [
+      ['one repeated byte', new Uint8Array(5000).fill(0x5a)],
+      ['text', ascii('the quick brown fox jumps over the lazy dog. '.repeat(300))],
+      // KwKwK: the encoder names the entry it built one code ago
+      ['runs that outrun the dictionary', Uint8Array.from({ length: 30_000 }, (_, i) => (i % 300 < 290 ? 1 : i & 0xff))],
+      // fills the dictionary and then walks the ratio down until $5f0 resets it
+      ['compressible then not', FILLS.slice(0, 60_000)],
+      ['incompressible tail', (() => {
+        const good = ascii('AMOS Professional 2.0 '.repeat(2000))
+        const b = new Uint8Array(good.length + 20_000)
+        b.set(good)
+        b.set(noise(20_000), good.length)
+        return b
+      })()],
+    ]
+    for (const [name, body] of cases) {
+      for (const mode of [0, 43, 99]) {
+        const p = pack(body, mode)
+        if (p === null) continue
+        expect(Array.from(BLZW.unpackChunk(p, body.length)), `${name} / ${mode}`).toEqual(Array.from(body))
+      }
+    }
+  })
+
+  it('resets the dictionary when its own ratio falls, which is $5c6', () => {
+    // The heuristic `compress` uses, transcribed: once the dictionary is full,
+    // every 256th new string measures (input << 8) / output since the last
+    // mark and starts over when that has dropped. Good data followed by bad
+    // is what makes it fire, and at nine bits it fires forty times over this
+    // input. The length is pinned because `ancient` cannot see an encoder
+    // that emits too MUCH: both decoders stop at ULen. Thirty-four resets
+    // went into this number.
+    const good = ascii('AMOS Professional 2.0 '.repeat(3000))
+    const bad = noise(40_000)
+    const body = new Uint8Array(good.length + bad.length)
+    body.set(good)
+    body.set(bad, good.length)
+    const p = pack(body)!
+    expect(p.length).toBe(51_210)
+    expect(width(p)).toBe(9)
+    expect(Array.from(BLZW.unpackChunk(p, body.length))).toEqual(Array.from(body))
+  })
+
+  it('is the second packer that makes the master write LONG chunk headers', () => {
+    // xpi_DefChunk 131072 is over the 65000 that $aec switches on, and unlike
+    // CBR0 there is no xpi_MaxChunk pulling it back: $7fffffff is the ceiling.
+    expect(BLZW.defaultChunk).toBe(131_072)
+    expect(BLZW.maxChunk).toBe(0x7fffffff)
+    expect(BLZW.defaultChunk!).toBeGreaterThan(XPK_LONGHDR_ABOVE)
+    const body = ascii('AMOS Professional '.repeat(20_000))
+    const s = xpkPack(body, 'BLZW')
+    expect(xpkExamine(s).flags & XPKSTREAMF_LONGHDRS).toBe(XPKSTREAMF_LONGHDRS)
+    expect(rd32(s, 36 + 8)).toBe(131_072) // xch_ULen, a longword in this form
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
+  })
+
+  it('rejects a header claiming a width it could never have written', () => {
+    // $786 is the reason the port deviates here. The library turns the header
+    // word straight into an AllocMem of `(4 << maxbits) + stackSize` and
+    // answers XPKERR_NOMEM when that fails. Rejecting the width reaches the
+    // same answer without asking for two gigabytes first.
+    const p = pack(new Uint8Array(500).fill(1))!
+    for (const bad of [0, 8, 16, 31]) {
+      const broken = p.slice()
+      broken[0] = bad >> 8
+      broken[1] = bad & 0xff
+      expect(codeOf(() => BLZW.unpackChunk(broken, 500)), `${bad}`).toBe(XPKERR_NOMEM)
+    }
+  })
+
+  it('reports a chunk that decodes to the wrong length, which $376 is', () => {
+    const p = pack(new Uint8Array(500).fill(1))!
+    expect(codeOf(() => BLZW.unpackChunk(p, 499))).toBe(XPKERR_CORRUPTPKD)
+    expect(codeOf(() => BLZW.unpackChunk(p, 501))).toBe(XPKERR_CORRUPTPKD)
+  })
+
+  it('has no cipher, so a password is NOCRYPT rather than ignored', () => {
+    expect(codeOf(() => xpkPack(ascii('secret'), 'BLZW', 'hunter2'))).toBe(XPKERR_NOCRYPT)
+  })
+})
+
+describe('against the real xpkBLZW.library 3.0', () => {
+  const LIB = join(fixtures, 'libs', 'xpkblzw.library')
+  const load = (): Uint8Array => loadHunks(new Uint8Array(readFileSync(LIB)), 0).image
+
+  it.skipIf(!existsSync(LIB))('names itself, and hangs ten entries off a longword table', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    // the RomTag is at $36, so find it the way the CBR0 test does rather than
+    // assuming $4: the match word points back at itself
+    let tag = -1
+    for (let o = 0; o + 26 <= img.length; o += 2) if (u16(o) === 0x4afc && u32(o + 2) === o) tag = o
+    expect(tag).toBe(0x36)
+    expect(at(img, tag + 11)).toBe(3) // rt_Version, and it says 3 where NUKE says 1
+    expect(str(u32(tag + 14))).toBe('xpkBLZW.library')
+    expect(str(u32(tag + 18))).toBe('xpkBLZW.library V3.0 - Copyright 1992 Bryan Ford')
+    expect(str(4)).toBe('xpkBLZW.library V3.0 - Copyright 1992 Bryan Ford')
+
+    // and it uses the longword form, not CBR0's word-relative one
+    const vectors = u32(u32(tag + 22) + 4)
+    expect(vectors).toBe(0x60)
+    const lvo = (n: number): number => u32(vectors + (n / 6 - 1) * 4)
+    expect(lvo(30)).toBe(0x11a) // XpkPackerInfo
+    expect(lvo(36)).toBe(0x2ec) // XpkPackChunk
+    expect(lvo(54)).toBe(0x352) // XpkUnpackChunk
+    // -42 and -60 share one entry, and -48 shares $116 with -24
+    expect(lvo(42)).toBe(lvo(60))
+    expect(lvo(48)).toBe(lvo(24))
+    expect(u32(vectors + 10 * 4)).toBe(0xffffffff) // ten entries, then the end
+  })
+
+  it.skipIf(!existsSync(LIB))('keeps a static XpkInfo at $122, which $11a lea\'s', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    const BLZW = XPK_PACKERS.get('BLZW')!
+    // XpkPackerInfo is `lea $122(pc),a0 / move.l a0,d0 / rts`, three
+    // instructions and no init code, where CBR0 fills its struct in at run time
+    const info = 0x122
+    expect(u16(0x11a)).toBe(0x41fa) // lea d16(pc),a0
+    expect(0x11a + 2 + u16(0x11c)).toBe(info)
+    expect(u16(info)).toBe(1)
+    expect(u16(info + 4)).toBe(0) // the master version it needs, tested at $d20
+    // the word at +2 reads 3 where NUKE and NONE both read 0. What the master
+    // does with it is not settled here.
+    expect(u16(info + 2)).toBe(3)
+    expect(str(u32(info + 8))).toBe('BLZW 3.0')
+    expect(str(u32(info + 0xc))).toBe(BLZW.longName)
+    expect(str(u32(info + 0x10))).toBe(
+      "Fast compression and decompression, ratio much like 'compress' or 'zoo'",
+    )
+    expect(u32(info + 0x14)).toBe(0x424c5a57) // xi_ID, 'BLZW'
+    // $8009 where NONE, RLEN, NUKE and CBR0 all read 9. IMPL is the only other
+    // one with the top bit set, and what it means is not settled here either.
+    expect(u32(info + 0x18)).toBe(0x8009)
+    expect(u32(info + 0x1c)).toBe(BLZW.maxChunk)
+    expect(u32(info + 0x20)).toBe(BLZW.minChunk)
+    expect(u32(info + 0x24)).toBe(BLZW.defaultChunk)
+  })
+
+  it.skipIf(!existsSync(LIB))('carries the hash table sizes and the mode arithmetic this port reads off it', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    // $65e, seven words, one per code width, and $66c multiplies by six
+    for (let i = 0; i < 7; i++) {
+      expect(u16(0x65e + i * 2), `bits ${9 + i}`).toBe(BLZW_HASH[i])
+      // each is a prime just over 1.25 times the code space, which is what
+      // leaves the rehash at $516 a fifth of the table to land in
+      expect(BLZW_HASH[i]! / (1 << (9 + i))).toBeGreaterThan(1.25)
+      expect(BLZW_HASH[i]! / (1 << (9 + i))).toBeLessThan(1.26)
+    }
+    // $2f6..$302, the three immediates that turn xsp_Mode into a code width
+    expect(u16(0x2f6)).toBe(0xc4fc) // mulu.w #imm,d2
+    expect(u16(0x2f8)).toBe(7)
+    expect(u16(0x2fa)).toBe(0x84fc) // divu.w #imm,d2
+    expect(u16(0x2fc)).toBe(100)
+    expect(u16(0x2fe)).toBe(0xd47c) // add.w #imm,d2
+    expect(u16(0x300)).toBe(9)
+    // $6ba..$6c4, END, RESET and WIDEN as three dictionary entries whose sign
+    // bit is what the `subq.w #$3,d7 / bvs` at $728 picks out
+    expect(u16(0x6bc)).toBe(0x8000)
+    expect(u16(0x6c0)).toBe(0x8001)
+    expect(u16(0x6c6)).toBe(0x8002)
+    // and the slot counter at $69a, `(1 << maxbits) - $103`
+    expect(u16(0x69c)).toBe(0x103)
+  })
+})
+
 /**
  * `ancient` as an independent reader, which is the only check this file has
  * ever had that is not itself.
@@ -866,22 +1140,52 @@ describe('against ancient, an independent XPK implementation', () => {
     ['one byte', new Uint8Array([65])],
     ['a run past the 127 cap', new Uint8Array(400).fill(0x5a)],
     ['a literal past the 127 cap', Uint8Array.from({ length: 300 }, (_, i) => i & 0xff)],
-    ['incompressible', Uint8Array.from({ length: 40_000 }, (_, i) => (i * 2654435761) >>> 24)],
+    ['incompressible', noise(40_000)],
     ['one long run', new Uint8Array(100_000)],
     ['several chunks', Uint8Array.from({ length: 90_000 }, (_, i) => i % 251)],
     ['runs and literals mixed', Uint8Array.from({ length: 65_536 }, (_, i) => (i % 97 < 60 ? 7 : (i * 31) & 0xff))],
+    ['good then bad, which resets BLZW', (() => {
+      const good = ascii('AMOS Professional 2.0 '.repeat(3000))
+      const b = new Uint8Array(good.length + 40_000)
+      b.set(good)
+      b.set(noise(40_000), good.length)
+      return b
+    })()],
   ]
+
+  /** whether any chunk in the stream came back type 1, XPKCHUNK_PACKED */
+  const anyPacked = (s: Uint8Array): boolean => {
+    const long = (xpkExamine(s).flags & XPKSTREAMF_LONGHDRS) !== 0
+    for (let o = 36; o < s.length; ) {
+      const type = at(s, o)
+      if (type === XPKCHUNK_END) return false
+      if (type === XPKCHUNK_PACKED) return true
+      const [cLen, uLen] = long ? [rd32(s, o + 4), rd32(s, o + 8)] : [(at(s, o + 4) << 8) | at(s, o + 5), 0]
+      void uLen
+      o += (long ? 12 : 8) + ((cLen + 3) & ~3)
+    }
+    return false
+  }
 
   it.skipIf(!HAS_ANCIENT)('decodes every stream xpkPack writes, for every installed method', () => {
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
     for (const [name, body] of CASES) {
       const raw = join(dir, 'raw')
       writeFileSync(raw, body)
-      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0']) {
+      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW']) {
         const packed = join(dir, method)
-        writeFileSync(packed, xpkPack(body, method))
+        const stream = xpkPack(body, method)
+        writeFileSync(packed, stream)
         const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
-        expect(id, `${name} / ${method}`).toContain(`XPK-${method}`)
+        // ancient will not NAME a BLZW stream whose chunks all came back raw,
+        // though the next line shows it decodes one perfectly well. Every
+        // other method names itself off the header alone. Recorded, not
+        // settled: it is ancient's identify path, and our streams are fine.
+        if (method === 'BLZW' && !anyPacked(stream)) {
+          expect(id, `${name} / ${method}`).toContain('<invalid>')
+        } else {
+          expect(id, `${name} / ${method}`).toContain(`XPK-${method}`)
+        }
         const out = execFileSync('ancient', ['verify', packed, raw], { encoding: 'utf8' })
         expect(out, `${name} / ${method}`).toContain('Files match!')
       }
@@ -894,14 +1198,14 @@ describe('against ancient, an independent XPK implementation', () => {
     // it under ANY method, so this is the container and not one codec. The
     // master's probe at $450 tests the magic, the checksum and the flags and
     // has no ULen test in it that this port has found, so the disagreement is
-    // recorded rather than settled. It holds for CBR0's twelve-byte header
-    // form too, which is the one thing that was new to test here.
+    // recorded rather than settled. It holds for the twelve-byte header form
+    // CBR0 and BLZW ask for too.
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
-    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0']) {
+    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW']) {
       const stream = xpkPack(new Uint8Array(0), method)
       const long = (xpkExamine(stream).flags & XPKSTREAMF_LONGHDRS) !== 0
       expect(stream.length, method).toBe(36 + (long ? 12 : 8))
-      expect(long, method).toBe(method === 'CBR0')
+      expect(long, method).toBe(method === 'CBR0' || method === 'BLZW')
       expect(xpkExamine(stream).uLen).toBe(0)
       expect(xpkUnpack(stream).length).toBe(0)
       const packed = join(dir, method)

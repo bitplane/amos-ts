@@ -50,17 +50,25 @@
  * round-tripping against an encoder `ancient` has already blessed, which is
  * weaker, and it is why NUKE was written encoder first.
  *
- * One disagreement survives and is recorded rather than settled: a stream of
- * NOTHING. `xpkPack` of an empty input is 44 bytes, a header and an END chunk,
- * well formed by every test here — `xsh_CLen` is $24, the header XORs to zero,
- * and `xpkExamine` reads it back as ULen 0. `ancient` will not identify it
- * under either method. The master's probe at `$450` tests the magic, the
- * checksum and the flags, and has no ULen test in it that this port has found.
+ * Two disagreements survive and are recorded rather than settled, and both
+ * are in `ancient`'s identify path rather than in a codec.
+ *
+ * A stream of NOTHING. `xpkPack` of an empty input is a header and an END
+ * chunk, 44 bytes in the short header form and 48 in the long one, well
+ * formed by every test here — `xsh_CLen` is $24, the header XORs to zero, and
+ * `xpkExamine` reads it back as ULen 0. `ancient` will not identify it under
+ * any method. The master's probe at `$450` tests the magic, the checksum and
+ * the flags, and has no ULen test in it that this port has found.
+ *
+ * A BLZW stream whose chunks all came back RAW. `ancient identify` calls it
+ * `<invalid>` where the other four name themselves off the same header, and
+ * then `ancient verify` decodes the very same file and matches. So it is the
+ * naming that fails, not the reading.
  *
  * ## The compressors that are here
  *
  * `XPK_PACKERS` is the registry standing in for `LIBS:Compressors/`, and all
- * three entries in it are ported whole from the binary rather than stubbed.
+ * five entries in it are ported whole from the binary rather than stubbed.
  *
  * `NONE`, from `xpkNONE.library` 1.0, 592 bytes of code of which the two the
  * master calls are 24 instructions:
@@ -79,12 +87,19 @@
  *
  * `NUKE`, from `xpkNUKE.library` 1.0, 2,804 bytes: an LZ77 over four
  * interleaved bit streams whose literal bytes are stored at the back of the
- * chunk in reverse. See `XPK_NUKE`, which is the biggest of the three by a
- * long way and the one worth reading first.
+ * chunk in reverse. See `XPK_NUKE`, the one worth reading first.
+ *
+ * `CBR0`, from `xpkCBR0.library` 1.0, 1,208 bytes: byte-run coding with both
+ * counts biased and no terminator, and the first one whose chunks are big
+ * enough to make the master write long headers. See `XPK_CBR0`.
+ *
+ * `BLZW`, from `xpkBLZW.library` 3.0, 1,940 bytes: LZW with `compress`'s
+ * ratio-triggered dictionary reset, and the only one that reads `xsp_Mode`.
+ * See `XPK_BLZW`.
  *
  * Every other method resolves through `OpenLibrary("compressors/xpk%.4s.library")`
  * at `$c9a`, and when that fails the master sets XPKERR_MISSINGLIB and gives
- * up. That is what this port does for HUFF, BLZW, FEAL, IDEA, IMPL and CBR0,
+ * up. That is what this port does for HUFF, FEAL, IDEA and IMPL,
  * and it is not a shortcut. It is what a real Amiga does with an empty
  * `LIBS:Compressors/`, which is the machine EasyLife's own guide describes:
  * "the XPK libraries are not included in this distribution, you must obtain
@@ -295,7 +310,7 @@ export interface XpkPacker {
  *     $a9e  if chunk < xpi_MinChunk, chunk = xpi_MinChunk
  *     $ac2  if xpi_MaxChunk and chunk > it, chunk = xpi_MaxChunk
  *
- * All three packers here declare a default, which is why this is not the
+ * Every packer here declares a default, which is why this is not the
  * `min(32768, maxChunk)` this file used to compute: NONE asks for 32000, not
  * the master's 32768, so even the do-nothing packer moves the chunk boundary.
  */
@@ -1200,6 +1215,406 @@ const cbr0Unpack = (data: Uint8Array, uLen: number): Uint8Array => {
 }
 
 /**
+ * The hash table sizes, `$65e`, one word per code width from 9 to 15.
+ *
+ * Each is a prime a little over 1.25 times `1 << bits`, so the table is at
+ * most four fifths full when the dictionary fills. `$66c` multiplies the
+ * entry count by six, because a slot is three words: the character, the
+ * prefix code, and the code the pair was given.
+ */
+export const BLZW_HASH = [641, 1283, 2579, 5147, 10243, 20483, 40961]
+
+/**
+ * `xpkBLZW.library` 3.0, whole. 1,940 bytes of code, Bryan Ford, 1992.
+ *
+ * LZW, and the first packer here whose two halves are genuinely different
+ * programs rather than one algorithm run backwards. It calls itself "Bryan's
+ * turbo-charged LZW" and describes itself as "Fast compression and
+ * decompression, ratio much like 'compress' or 'zoo'", which is fair: the
+ * dictionary reset at `$5c6` is the `compress` ratio heuristic, transcribed.
+ *
+ * A chunk opens with two words that the encoder writes LAST, at `$636..$64a`:
+ *
+ *     +0  the widest code the stream ever reaches
+ *     +2  the longest string the encoder built, rounded up to four
+ *
+ * `$786` turns those into one allocation, `(4 << maxbits) + stackSize`, which
+ * is the decoder's dictionary with its output stack sitting underneath.
+ *
+ * The mode is the only sub-library setting in this file that changes the
+ * output. `$2f6` is `mode * 7 / 100 + 9` clamped to 9..15, so "BLZW" is
+ * nine-bit codes and "BLZW.99" is fifteen.
+ *
+ * Codes 256, 257 and 258 are END, RESET and WIDEN. The decoder stores them as
+ * dictionary entries `$8000`, `$8001` and `$8002` at `$6ba..$6c4`, alongside
+ * the 256 leaves it wrote as `$ff00+i`, and then tells the four kinds apart
+ * with the overflow flag rather than a comparison. `subq.w #$3,d7` overflows
+ * only for `$8000..$8002`; two `addq.w #$1,d7 / bvc` pairs walk those three
+ * apart. It is the neatest thing in any of these nine libraries.
+ *
+ * `xpi_Flags` is `$8009` where NONE, RLEN, NUKE and CBR0 all read 9. IMPL is
+ * the only other one with the top bit set, and what it means is not settled
+ * here.
+ */
+const XPK_BLZW: XpkPacker = {
+  name: 'BLZW',
+  longName: "Bryan's turbo-charged LZW",
+  maxChunk: 0x7fffffff,
+  minChunk: 128,
+  defaultChunk: 131072,
+  packChunk: (data, mode) => blzwPack(data, mode),
+  unpackChunk: (data, uLen) => blzwUnpack(data, uLen),
+}
+
+/** `$2f6`, the mode to a code width. `mulu.w` reads the low word of `xsp_Mode` and no more. */
+const blzwMaxBits = (mode: number): number => {
+  const n = Math.floor(((mode & 0xffff) * 7) / 100) + 9
+  return n < 9 ? 9 : n > 15 ? 15 : n
+}
+
+/**
+ * `$448`, XpkPackChunk's worker.
+ *
+ * The output buffer doubles as the expansion guard. `$45e` rounds the input
+ * length down to 32, `$484` clears that many bytes of output with a `movem.l`
+ * of eight zeroed registers, and `$582` gives up the moment the write cursor
+ * reaches eight bytes short of the end. So the packer can never return a
+ * chunk longer than the input, and the clear is what lets the writer OR each
+ * code into place instead of masking.
+ *
+ * The hash is `(char << (maxbits - 8)) ^ prefix` as a word (`$4f6..$4fc`),
+ * and a miss rehashes by `slot - entries + 1` wrapping (`$516`), not by one.
+ * That step is never zero and never a multiple of a prime table size, so the
+ * probe reaches every slot, and BLZW_HASH keeps a fifth of them free.
+ */
+const blzwPack = (data: Uint8Array, mode: number): Uint8Array | null => {
+  const inLen = data.length
+  // $450: 128 bytes is the floor, and xpi_MinChunk declares the same number
+  if (inLen <= 0x7f) return null
+
+  const maxbits = blzwMaxBits(mode)
+  const entries = BLZW_HASH[maxbits - 9]!
+  const shift = maxbits - 8 // a6
+
+  const outCap = inLen & ~31 // $45e
+  const out = new Uint8Array(outCap) // $484
+  const limit = outCap - 8 // $464
+
+  const hChar = new Int16Array(entries) // word0, -1 is empty
+  const hPrev = new Uint16Array(entries) // word1, the prefix code
+  const hCode = new Uint16Array(entries) // word2, the code this pair was given
+
+  let cursor = 4 // a1, past the two header words
+  let bitPos = 32 // d2
+  let maxLen = 0 // $e(a7)
+  let headWidth = 0 // out[0..1], written only when the dictionary fills
+  let bust = false
+
+  // $4d2 and $4ce and $4d6, which $5f0 comes back to
+  let width = 9 // a3
+  let next = 0x103 // d3
+  let threshold = 0x200 // $0(a7)
+  let best = 0 // $2(a7)
+  let markIn = 0 // $14(a7)
+  let markOut = 0 // $18(a7)
+  let ip = 0 // a0
+  let full = false
+
+  /** `$57c`. `d2 + width` never exceeds 32, so the shifted code always fits the longword. */
+  const emit = (code: number): void => {
+    bitPos -= width
+    if (bitPos < 0) {
+      cursor += 2
+      // $582, and $8(a7) inside the subroutine is $4(a7) outside it: the bsr
+      // pushed four bytes. The bail at $576 pops them before giving up.
+      if (cursor >= limit) {
+        bust = true
+        return
+      }
+      bitPos += 16
+    }
+    put32(out, cursor, (u32(out, cursor) | ((code << bitPos) >>> 0)) >>> 0)
+  }
+
+  // $4bc, which is also where a reset lands
+  for (;;) {
+    hChar.fill(-1) // $4c6
+    width = 9
+    next = 0x103
+    threshold = 0x200
+    full = false
+
+    let prefix = at(data, ip++) // $4de
+    let strLen = 4 // $4e2, so it counts the length plus three
+    let restart = false
+
+    while (ip < inLen) {
+      const ch = at(data, ip++) // $4f4
+      let slot = ((ch << shift) ^ prefix) & 0xffff
+      const step = slot - entries + 1 // $518, in slots rather than the library's bytes
+      let hit = false
+      while (hChar[slot]! >= 0) {
+        if (hPrev[slot] === prefix && hChar[slot] === ch) {
+          // $4ea: the string extends, so the code it already has becomes the prefix
+          prefix = hCode[slot]!
+          strLen++
+          hit = true
+          break
+        }
+        slot += step
+        if (slot < 0) slot += entries
+      }
+      if (hit) continue
+
+      // $53a: an empty slot, so this string is new
+      if (strLen > maxLen) maxLen = strLen
+      hCode[slot] = next & 0xffff // $548
+
+      if (full) {
+        // $5c6: `subq.b #$1,d3` counts the low byte of a d3 that $5b6 set to
+        // -1, so the ratio is measured once every 256 new strings.
+        next = (next & ~0xff) | ((next - 1) & 0xff)
+        if ((next & 0xff) === 0) {
+          // $5ca: (input since the mark) * 256 / (output since the mark)
+          const num = (ip - markIn) * 0x100
+          const den = cursor - markOut
+          const q = Math.floor(num / den)
+          // DEVIATION: `divu.w` leaves d6 untouched and sets V when the
+          // quotient will not fit a word, and nothing here tests V. The
+          // worst case the master can hand over is a whole xpi_DefChunk of
+          // one repeated byte, and that peaks at 57573 out of 65535, so the
+          // overflow is out of reach through xpkPack.
+          const ratio = q > 0xffff ? num & 0xffff : q
+          if (ratio >= best) {
+            // $5e0: still improving, so move the mark up
+            markIn = ip
+            markOut = cursor
+            best = ratio
+          } else if (inLen - ip > 0x7f) {
+            // $5f0: the ratio fell. Flush both live codes, say RESET, and
+            // start the dictionary again. $5f2 will not bother for a tail of
+            // 127 bytes or fewer.
+            emit(prefix)
+            if (bust) return null
+            emit(ch)
+            if (bust) return null
+            emit(0x101)
+            if (bust) return null
+            restart = true
+            break
+          }
+        }
+      } else {
+        hPrev[slot] = prefix // $54c
+        hChar[slot] = ch // $54e
+        next++
+        if (next >= threshold) {
+          // $592
+          if (width === maxbits) {
+            // $5ae: the dictionary is full for good. The header takes the
+            // width here, because a later reset walks `width` back to nine.
+            headWidth = maxbits
+            full = true
+            next = 0xffffffff
+            markIn = ip
+            markOut = cursor
+            best = 0
+          } else if (prefix >= threshold) {
+            // $598: hold the widen back until a code actually needs it
+            emit(0x102)
+            if (bust) return null
+            width++
+            threshold = (threshold << 1) & 0xffff
+          }
+        }
+      }
+
+      // $558
+      const code = prefix
+      prefix = ch
+      emit(code)
+      if (bust) return null
+      strLen = 4
+    }
+
+    if (restart) continue
+
+    // $612
+    if (prefix >= threshold) {
+      emit(0x102)
+      if (bust) return null
+      width++
+    }
+    emit(prefix)
+    if (bust) return null
+    emit(0x100)
+    if (bust) return null
+    cursor += 4 // $634
+    break
+  }
+
+  // $63e: the decoder's stack only ever holds the string minus its first
+  // character, and strLen counted the length plus three, so this is a round
+  // up to four and not a fudge.
+  put16(out, 2, maxLen & 0xfffc)
+  // $646: zero means the dictionary never filled, and the width it stopped at
+  // is all the decoder needs to size itself
+  put16(out, 0, headWidth === 0 ? width : headWidth)
+  return out.subarray(0, cursor)
+}
+
+/**
+ * `$690`, XpkUnpackChunk's worker.
+ *
+ * One dictionary of four-byte entries and one stack that grows down into the
+ * bytes below it. An entry is either a leaf, whose first word is negative and
+ * whose low byte is the character, or a pair: the character in the first word
+ * and TWICE the prefix code in the second, so `$70a` can index with one
+ * `adda.l` instead of a shift.
+ *
+ * `$6f6` compares the code against the free pointer and pushes the last
+ * character when it runs past. That is the KwKwK case, and it is only ever
+ * taken at the moment the dictionary fills, because everywhere else the entry
+ * the encoder is about to name has already been built at the top of the loop.
+ */
+const blzwUnpack = (data: Uint8Array, uLen: number): Uint8Array => {
+  const maxbits = u16(data, 0) // $694
+  const stackSize = u16(data, 2) // $6a4
+  // DEVIATION: the library asks AllocMem for `(4 << maxbits) + stackSize` and
+  // answers XPKERR_NOMEM when that fails, so a header claiming 31 bits is a
+  // failed allocation on a real machine. Here it is a rejected header, which
+  // reaches the same answer without asking for two gigabytes first.
+  if (maxbits < 9 || maxbits > 15) throw new XpkError(XPKERR_NOMEM)
+
+  const slots = 1 << maxbits
+  const dChar = new Int16Array(slots) // word0
+  const dPrev = new Uint16Array(slots) // word1, twice the prefix code
+  for (let i = 0; i < 0x100; i++) dChar[i] = 0xff00 | i // $6b0, a leaf carrying its own character
+  dChar[0x100] = -0x8000 // $6ba, `move.w #$8000,(a2)`, END
+  dChar[0x101] = -0x7fff // $6be, $8001, RESET
+  dChar[0x102] = -0x7ffe // $6c4, $8002, WIDEN
+
+  const out = new Uint8Array(uLen)
+  const stack = new Uint8Array(stackSize)
+  let o = 0
+  let sp = stackSize // a4, and a4 back at a5 is an empty stack
+
+  let bitPos = 32 // the low word of d0
+  let ip = 4 // a0, which the two `move.w (a0)+` header reads left past the header
+  let width = 9 // a2, a code width kept in an address register
+  let mask = 0x1ff // d2
+  let free = 0x103 // a6
+  let room = slots - 0x103 // d1, out of the high word of d0
+  let prev = 0 // d4, kept as a plain code where the library doubles it
+  let firstCh = 0 // d6, the first character of the string just written
+
+  /** `$6de`, MSB first, out of a longword window whose cursor only ever moves by two */
+  const read = (): number => {
+    bitPos -= width
+    if (bitPos < 0) {
+      ip += 2
+      bitPos += 16
+    }
+    return (u32(data, ip) >>> bitPos) & mask
+  }
+  const push = (b: number): void => {
+    // DEVIATION: the library has no floor here and would write below its own
+    // allocation. A stream whose header understates the stack is corrupt, and
+    // this catches it here rather than in the caller's heap.
+    if (sp === 0) throw new XpkError(XPKERR_CORRUPTPKD)
+    stack[--sp] = b
+  }
+  const emit = (b: number): void => {
+    // DEVIATION: the library writes past the end and lets $376 notice after
+    // the fact. Stopping here reaches the same XPKERR_CORRUPTPKD.
+    if (o >= uLen) throw new XpkError(XPKERR_CORRUPTPKD)
+    out[o++] = b
+  }
+
+  // $6d4 enters at the reset, so the chunk starts the same way it restarts
+  let advance = false
+  let store = false
+  let code = 0
+  for (let started = false; ; ) {
+    if (started) {
+      if (advance) {
+        // $6d8: the entry the previous code earned, built now that the
+        // string after it has given up its first character
+        if (store) {
+          dChar[free] = firstCh
+          dPrev[free] = prev * 2
+          free++
+        }
+        prev = code // $6dc
+      }
+      code = read()
+      let idx = code
+      if (code >= free) {
+        // $6f6: the encoder named an entry this side has not built yet
+        push(firstCh)
+        idx = prev
+      }
+      let w0 = dChar[idx]!
+      if (w0 >= 0) {
+        // $706: walk the prefix chain, stacking a character a link
+        do {
+          push(w0 & 0xff)
+          idx = dPrev[idx]! >>> 1
+          w0 = dChar[idx]!
+        } while (w0 >= 0)
+        emit(w0 & 0xff) // $714, the leaf, which goes out first
+        firstCh = w0 & 0xff
+        while (sp < stackSize) emit(stack[sp++]!) // $718
+      } else if (w0 < -0x7ffd) {
+        // $728: `subq.w #$3,d7` overflows for $8000, $8001 and $8002 alone
+        if (w0 === -0x8000) break // $74e, END
+        if (w0 === -0x7ffe) {
+          // $746, WIDEN. `bra $6de` skips both the entry store and the
+          // prefix update, so the code after it lands on the prefix the code
+          // before it left.
+          width++
+          mask = mask * 2 + 1
+          advance = false
+          continue
+        }
+        advance = false // $752, RESET
+        started = false
+        continue
+      } else {
+        // a leaf on the first read, so the stack holds one pushed byte at most
+        emit(w0 & 0xff) // $72e
+        firstCh = w0 & 0xff
+        if (sp < stackSize) emit(stack[sp++]!) // $736
+      }
+      // $71e and $738, both `dbra d1`: the store stops when the slots do
+      advance = true
+      room--
+      store = room >= 0
+      if (!store) room = 0
+      continue
+    }
+
+    // $752
+    started = true
+    width = 9
+    mask = 0x1ff
+    free = 0x103
+    room = slots - 0x103
+    code = read() // $76e
+    prev = code
+    firstCh = code
+    emit(code & 0xff) // $77a
+    advance = false
+    store = false
+  }
+
+  // $376: the library decodes into the master's buffer and only then checks
+  // that it produced exactly what the chunk header promised
+  if (o !== uLen) throw new XpkError(XPKERR_CORRUPTPKD)
+  return out
+}
+
+/**
  * The modelled `LIBS:Compressors/`.
  *
  * A caller may add to this. Anything absent gets XPKERR_MISSINGLIB, which is
@@ -1210,6 +1625,7 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
   [XPK_RLEN.name, XPK_RLEN],
   [XPK_NUKE.name, XPK_NUKE],
   [XPK_CBR0.name, XPK_CBR0],
+  [XPK_BLZW.name, XPK_BLZW],
 ])
 
 /**
@@ -1218,13 +1634,13 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
  * Read from the code rather than from a flag word: NONE's whole pack entry is
  * `moveq #$ef,d0 / rts`, RLEN's touches nothing in XpkSubParams past `$c(a2)`,
  * NUKE's reads `$34(a2)` and then only `(a2)`, `$4`, `$8` and `$c`, and CBR0's
- * reads those same four and nothing else. No password pointer, at `$20(a2)`,
- * is ever fetched by any of them. XpkInfo carries a flags
- * longword ($18 into the struct) whose bit assignments this port has not
- * established, and it reads 9 for all three, so it could not tell them apart
- * even if it were understood.
+ * reads those same four and nothing else. BLZW adds `$1c(a2)`, the mode, and
+ * stops there. No password pointer, at `$20(a2)`, is ever fetched by any of
+ * them. XpkInfo carries a flags longword ($18 into the struct) whose bit
+ * assignments this port has not established; it reads 9 for four of these
+ * five and $8009 for BLZW, and neither value lines up with having a cipher.
  */
-const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name, XPK_NUKE.name, XPK_CBR0.name])
+const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name, XPK_NUKE.name, XPK_CBR0.name, XPK_BLZW.name])
 
 /** one byte, zero past the end -- a short read is a truncated file, not a crash */
 const at = (b: Uint8Array, o: number): number => b[o] ?? 0
