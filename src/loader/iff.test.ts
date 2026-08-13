@@ -108,5 +108,9 @@ describe('Save Iff / Save / Pload / Picture / Mask Iff (round-trip on disk)', ()
     })
     rt.runHeadless(1_000)
     expect(out.trim()).toBe('P! 8')
+    // NOT "Data": +Lib.s:4288 reserves with `Rlea L_BkAsm,0`, so the Data
+    // BIT is set but the eight-byte name says what the bank holds
+    expect(rt.memBanks.get(7)!.name.trimEnd()).toBe('Asm')
+    expect(rt.memBanks.get(7)!.flags & 1).toBe(1)
   })
 })

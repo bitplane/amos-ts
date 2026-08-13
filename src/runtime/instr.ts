@@ -3455,9 +3455,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- memory / banks ----
-    'reserve as data': reserve('Datas', true),
+    // InResData/InResWork +Lib.s:2437-2454 each `Rlea` a name out of the
+    // eight-byte table at +Lib.s:3644-3658, where BkDat is "Data    ". The
+    // shipped AMOSPro.Lib agrees: "Sprites Icons   Music   Amal    Menu
+    // Data    Work    Asm     Iff     Loading!", one run of eight-byte
+    // fields at $9514. AMOS 1.x said "Datas   " in the same slot -- every
+    // AMOS/RAMOS 1.00 to 1.36 binary in the corpus, and only those -- which
+    // is why 1.x-era programs carry Datas banks. This is the Pro port.
+    'reserve as data': reserve('Data', true),
     'reserve as work': reserve('Work', false),
-    'reserve as chip data': reserve('Datas', true, true),
+    'reserve as chip data': reserve('Data', true, true),
     'reserve as chip work': reserve('Work', false, true),
     erase(it) {
       // InErase +Lib.s:2210 has no error path — a missing bank is a no-op
@@ -3647,7 +3654,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         kind: 'memory',
         number: num,
         memType: bank.flags & 0x02 ? 1 : 0, // Bnk_BitChip
-        name: bank.flags & 0x01 ? 'Datas' : 'Work',
+        // Ppload names nothing: ppBnk_Load pokes only the number and the
+        // flags (+CompExt.s:539-548) and the name is already there, having
+        // come out of the crunched payload with the rest of the bank
+        name: bank.name ?? '',
         flags: bank.flags,
         data: bank.data,
       })
@@ -3661,7 +3671,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (efficiency < 0 || efficiency >= 5) throw new AmosError('Illegal function call', 23)
       const bank = rt.memBanks.get(num)
       if (!bank) throw new AmosError('bank not reserved', 36)
-      const file = writePpBank({ number: num, flags: bank.flags | (bank.memType ? 0x02 : 0), data: bank.data })
+      const file = writePpBank({
+        number: num,
+        flags: bank.flags | (bank.memType ? 0x02 : 0),
+        name: bank.name,
+        data: bank.data,
+      })
       if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected')
     },
     'sam raw'(it) {
@@ -4250,7 +4265,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     pload(it) {
       // InPLoad +Lib.s:4254: load the code hunk of an AmigaDOS executable
-      // into bank n as a Data bank (n<0 = chip RAM)
+      // into bank n as a Data bank (n<0 = chip RAM).
+      //
+      // The name is NOT "Data". +Lib.s:4288 reserves with `Rlea L_BkAsm,0`,
+      // so a Ploaded bank is called "Asm     " -- the Data BIT is set, and
+      // the name says what the bank holds rather than which bit is on.
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
@@ -4266,7 +4285,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const data = extractCodeHunk(bytes)
       if (!data) throw new AmosError('file format not recognised')
       const num = Math.abs(n)
-      rt.memBanks.set(num, { kind: 'memory', number: num, memType: n < 0 ? 1 : 0, name: 'Datas   ', flags: 0, data })
+      rt.memBanks.set(num, { kind: 'memory', number: num, memType: n < 0 ? 1 : 0, name: 'Asm', flags: 1, data })
     },
   }
 

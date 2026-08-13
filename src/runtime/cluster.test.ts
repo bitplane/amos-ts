@@ -1069,7 +1069,7 @@ describe('blocks, clones, flips', () => {
 describe('memory model', () => {
   it('List Bank prints the Bnk.List line format (+Lib.s:8616)', () => {
     const { out } = run('Reserve As Data 6,100\nReserve As Chip Work 12,50\nList Bank')
-    expect(out).toBe(' 6 - Datas    S: $01600000 L: 100\n12 - Work     S: $01C00000 L: 50\n')
+    expect(out).toBe(' 6 - Data     S: $01600000 L: 100\n12 - Work     S: $01C00000 L: 50\n')
   })
 
   it('Reserve validates the number and length (RsBqX)', () => {

@@ -1851,6 +1851,11 @@ export class Runtime {
     // error; flags bit 0 = Bnk_BitData (+Equ.s:1865): Data banks survive
     // Erase Temp, Work banks (bit clear) do not
     if (length <= 0 || n <= 0 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+    // The name field is EIGHT bytes and Bnk.Reserve copies exactly eight
+    // (`moveq #7,d0` +Lib.s:8501), but a bank's name is held here the way
+    // the loader holds one -- trailing spaces off (amosfile.ts:165) -- so
+    // that a reserved bank and a loaded one compare the same way. The
+    // padding is the FILE format's, and belongs to whatever writes a file.
     this.memBanks.set(n, { kind: 'memory', number: n, memType: chip ? 1 : 0, name, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
   }
   // ---- resource banks (Interface language) ----

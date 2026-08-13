@@ -1531,7 +1531,8 @@ export const FAITHFUL = new Set<string>([
   // Batch 3, `BankCmd` plus `Bank To Chip` -- routines 19 to 32 and 142, over
   // the shared loader 167. Two things a reading could miss and this one did
   // not: `Bank As Work`/`Bank As Data` also RENAME the bank, comparing a
-  // longword against an eight-byte field so "Datas" becomes "Works"; and
+  // longword against an eight-byte field, so an AMOS 1.x "Datas   " bank
+  // comes out "Works   " with its fifth character still on it; and
   // `Image Width` answers the stored word times 16, checked against real
   // object banks in the corpus rather than assumed. `Bank Load`'s four
   // arities share one token name and settle the shape themselves. This batch
@@ -7228,6 +7229,11 @@ export const NOTES: Record<string, string> = {
     "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's " +
     "pre-scan heuristic, so packed size may differ",
   "ppload":
+    "The bank's NAME is inside the crunched payload, not in the PPbk header: B_Copie2Buffer (+CompExt.s:800-808) " +
+    "backs up eight bytes from the bank's data pointer onto the name Bnk.Reserve wrote there, and B_Length sizes " +
+    "the copy to match, so a saved memory bank is name-then-data and Ppload takes the name off the front. An " +
+    "object bank has none -- B_Length's other branch is commented 'Pas le nom' (+CompExt.s:782) -- and this port " +
+    "refuses those anyway. " +
     "PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte) " +
     "and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS " +
     "source, so this is a from-format reimplementation of a verified-correct decoder rather than a source port.",

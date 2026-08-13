@@ -34,6 +34,19 @@ describe('AMOS "PPbk" bank wrapper (+CompExt.s:686-767)', () => {
     expect(back.number).toBe(6)
     expect(back.flags).toBe(0x0004)
     expect(Array.from(back.data)).toEqual(Array.from(data))
+    // flag bit 2 is Bnk_BitBob, and an object bank carries no name
+    expect(back.name).toBeUndefined()
+  })
+
+  it('carries a memory bank\'s name in the PAYLOAD, where +CompExt.s puts it', () => {
+    const data = Uint8Array.from([1, 2, 3, 4])
+    const file = writePpBank({ number: 6, flags: 0x0001, name: 'Data', data })
+    const back = parsePpBank(file)
+    expect(back.name).toBe('Data')
+    expect(Array.from(back.data)).toEqual([1, 2, 3, 4])
+    // the header's length field counts the name too: it is B_Length's answer,
+    // which for a memory bank is the node length less eight
+    expect(new DataView(file.buffer).getUint32(8)).toBe(4 + 8)
   })
 })
 
@@ -60,5 +73,21 @@ describe('Ppsave / Ppload keywords (+CompExt.s)', () => {
       'Print Peek$(Start(7),8);Length(7)',
     ].join('\n')
     expect(run(prog)).toBe('ABCDABCD 1024\n')
+  })
+
+  it('and the name rides along, because Ppload never sets one', () => {
+    // ppBnk_Load pokes the number and the flags into the node and stops
+    // (+CompExt.s:539-548). Every other byte of the header, the name
+    // included, came out of the cruncher.
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    const rt = new Runtime(
+      tokenize(['Reserve As Data 6,64', 'Ppsave "DH0:b.pp",6', 'Ppload "DH0:b.pp",7'].join('\n'), table, extensions),
+      table,
+      { extensions, fs, maxSteps: 300_000 },
+    )
+    mustFinish(rt.runHeadless(1_000))
+    expect(rt.memBanks.get(7)!.name).toBe(rt.memBanks.get(6)!.name)
+    expect(rt.memBanks.get(7)!.name.trimEnd()).toBe('Data')
   })
 })

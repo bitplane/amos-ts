@@ -1984,8 +1984,12 @@ function setDataBit(rt: Runtime, which: number, data: boolean): void {
   bank.flags = data ? bank.flags | BNK.DATA : bank.flags & ~BNK.DATA
   // `cmpi.l #"Data",my_BkName(a0)` then `move.l #"Work",my_BkName(a0)`: a
   // LONGWORD against an EIGHT-byte field, so it is the first four characters
-  // that are compared and the first four that are overwritten. A bank named
-  // "Datas   " matches and comes out "Works   ", trailing s and all
+  // that are compared and the first four that are overwritten.
+  //
+  // Under AMOS Professional that is invisible, because Pro names the bank
+  // "Data    " (+Lib.s:3650) and four characters is the whole name. It shows
+  // on a bank AMOS 1.x reserved, which is called "Datas   ": that matches,
+  // and comes out "Works   " with the trailing s still on it.
   const want = data ? 'Work' : 'Data'
   if (bank.name.slice(0, 4) === want) bank.name = (data ? 'Data' : 'Work') + bank.name.slice(4)
 }

@@ -356,11 +356,27 @@ describe('Explode: Bank As Work and Bank As Data', () => {
       ['Reserve As Data 7,100', 'Reserve As Work 8,100', 'Bank As Work 7', 'Bank As Data 8'].join('\n'),
     )
     mustFinish(b.rt.runHeadless(2_000))
-    // `Reserve As Data` names the bank "Datas", and the compare is a
-    // LONGWORD against an eight-byte field: the first four characters match
-    // "Data", the first four are overwritten, and the s survives
-    expect(b.rt.memBanks.get(7)!.name).toBe('Works')
+    expect(b.rt.memBanks.get(7)!.name).toBe('Work')
     expect(b.rt.memBanks.get(8)!.name).toBe('Data')
+  })
+
+  it('and it renames FOUR characters of eight, which a Datas bank shows', () => {
+    // `cmpi.l #"Data",my_BkName(a0)` then `move.l #"Work",my_BkName(a0)` is a
+    // longword against an EIGHT-byte field. Under AMOS Professional nothing
+    // notices, because Pro's own name is exactly four characters ("Data    ",
+    // +Lib.s:3650). Under AMOS 1.x it was "Datas   " -- every AMOS and RAMOS
+    // binary from 1.00 to 1.36 -- and such a bank reaches Pro whenever a
+    // 1.x-era file is loaded. Then the s survives the rename.
+    const bank = new Uint8Array(12 + 8 + 4)
+    bank.set([...'AmBk'].map((c) => c.charCodeAt(0)))
+    new DataView(bank.buffer).setUint16(4, 6) // number
+    // LB_Bank +Lib.s:4090 subtracts the eight name bytes back off, so the
+    // longword is 4 of data plus 8, with bit 31 for Bnk_BitData
+    new DataView(bank.buffer).setUint32(8, 0x8000000c)
+    bank.set([...'Datas   '].map((c) => c.charCodeAt(0)), 12)
+    const b = boot('Load "RAM:old.abk"\nBank As Work 6', withFile('old.abk', bank))
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.memBanks.get(6)!.name).toBe('Works')
   })
 
   it('and a bank whose first four characters are neither keeps its name', () => {
@@ -436,7 +452,7 @@ describe('Explode: Bank To Chip', () => {
     const b = boot('Reserve As Data 6,4\nPoke Start(6),88\nBank To Chip 6\nPrint Peek(Start(6));" ";Number(6)')
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim().replace(/\s+/g, ' ')).toBe('88 6')
-    expect(b.rt.memBanks.get(6)!.name).toBe('Datas')
+    expect(b.rt.memBanks.get(6)!.name).toBe('Data')
   })
 })
 
