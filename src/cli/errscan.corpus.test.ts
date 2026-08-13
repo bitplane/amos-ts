@@ -17,13 +17,13 @@
  * The scan reads the corpus at `../amos-files`, which is not part of this
  * repository, so the suite skips when it is absent.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { sitesIn } from './errscan'
+import { corpusFile, corpusIndex, haveCorpus } from './corpus'
 import { allExtensions } from '../ext/registry'
 
-const CHECKSUMS = '../amos-files/index/checksums.sha256'
-const have = existsSync(CHECKSUMS)
+const have = haveCorpus()
 
 interface Scanned {
   id: string
@@ -31,16 +31,13 @@ interface Scanned {
   sites: ReturnType<typeof sitesIn>
 }
 
+// runs at COLLECTION, even under describe.skipIf -- see ./corpus.ts
 function scan(): Scanned[] {
-  const index = new Map<string, string>()
-  for (const line of readFileSync(CHECKSUMS, 'utf8').split('\n')) {
-    const m = /^([0-9a-f]{64})\s+(.*)$/.exec(line)
-    if (m && !index.has(m[1]!)) index.set(m[1]!, `../amos-files/${m[2]!}`)
-  }
+  const index = corpusIndex()
   const out: Scanned[] = []
   for (const ext of allExtensions()) {
-    const file = index.get(ext.sha256)
-    if (file === undefined || !existsSync(file)) continue
+    const file = corpusFile(ext.sha256, index)
+    if (file === null) continue
     const sites = sitesIn(ext.id, new Uint8Array(readFileSync(file)))
     if (sites.length > 0) out.push({ id: ext.id, slot: ext.defaultSlot, sites })
   }

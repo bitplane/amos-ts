@@ -18,14 +18,14 @@
  * Reads the corpus at `../amos-files`, which is not part of this repository,
  * so the suite skips when it is absent.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { firstCodeHunk } from '../tokens/libtok'
+import { corpusFile, haveCorpus } from '../cli/corpus'
 import { extensionById } from '../ext/registry'
 import { AMON_SINE, amonAtan } from './amon'
 
-const CHECKSUMS = '../amos-files/index/checksums.sha256'
-const have = existsSync(CHECKSUMS)
+const have = haveCorpus()
 
 /** where each release's routine 0 puts its `lea (pc)`, and where the sine table sits in the zone */
 const RELEASES = [
@@ -33,16 +33,12 @@ const RELEASES = [
   { id: 'amon-1.03', zone: 0x23c, sine: 0x9d4 },
 ] as const
 
+// runs at COLLECTION, even under describe.skipIf -- see ../cli/corpus.ts
 function codeOf(id: string): Uint8Array | null {
   const ext = extensionById(id)
   if (!ext) return null
-  const index = new Map<string, string>()
-  for (const line of readFileSync(CHECKSUMS, 'utf8').split('\n')) {
-    const m = /^([0-9a-f]{64})\s+(.*)$/.exec(line)
-    if (m && !index.has(m[1]!)) index.set(m[1]!, `../amos-files/${m[2]!}`)
-  }
-  const file = index.get(ext.sha256)
-  if (file === undefined || !existsSync(file)) return null
+  const file = corpusFile(ext.sha256)
+  if (file === null) return null
   return firstCodeHunk(new Uint8Array(readFileSync(file)))
 }
 
