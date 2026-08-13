@@ -4,15 +4,15 @@ A TypeScript reimplementation of the AMOS Professional interpreter and runtime,
 so old AMOS games can run on the web.
 
 Reference source: [AMOS-Professional-Official](https://github.com/Francaoz/AMOS-Professional-Official)
-(68000 assembly, MIT licence). The strategy is **not** to translate the assembly,
-but to reimplement the language and runtime from it:
+(68000 assembly, MIT licence). The strategy is **not** to translate the
+assembly. It is to reimplement the language and runtime from it:
 
-- `.AMOS` files are *tokenized* programs plus resource banks — we load and
-  interpret the token stream directly.
+- `.AMOS` files are *tokenized* programs plus resource banks, so this loads and
+  interprets the token stream directly.
 - The token table in `+Lib.s` is the authoritative instruction inventory.
-- The Amiga hardware layer (`+W.s`) is replaced with Canvas/WebAudio.
+- The Amiga hardware layer (`+W.s`) is replaced with Canvas and WebAudio.
 
-Run it now at **[amos.bitplane.net](https://amos.bitplane.net)** — drop a
+Run it now at **[amos.bitplane.net](https://amos.bitplane.net)**. Drop a
 `.AMOS` file in and it plays. Every release is also pinned at
 `amos.bitplane.net/v/<version>/`, so a page can embed one build and keep it.
 
@@ -34,13 +34,13 @@ const rt = new Runtime(tokenize('Print "Hello" : Print 42', table, exts), table,
   onText: (t) => (out += t),
 })
 rt.runHeadless(1000)
-console.log(out)   // "Hello\n 42\n" — the space before 42 is AMOS's, not a
+console.log(out)   // "Hello\n 42\n". The space before 42 is AMOS's, not a
                    // typo: it writes one before every non-negative number
 ```
 
 `runHeadless(n)` runs up to `n` steps and returns a status: `ended`, `blocked`
 (waiting on input, a `Wait`, or a resource still loading) or `running` if it
-hit the step cap. Nothing in the runtime blocks the thread — a driver calls it
+hit the step cap. Nothing in the runtime blocks the thread. A driver calls it
 once per frame at 50 Hz, which is what the browser player does.
 
 To load a real program, `parseAmosFile` gives you its token stream and banks.
@@ -53,33 +53,40 @@ src/
   tokens/    token table, detokenizer (listings from tokenized programs)
   interp/    the interpreter: values, variables, control flow, instructions
   runtime/   the "virtual Amiga": screens, bobs, sprites, AMAL, audio, input
-  amiga/     the modelled machine and OS beneath it — Paula, the blitter,
+  amiga/     the modelled machine and OS beneath it. Paula, the blitter,
              graphics.library, dos.library, the ProTracker replay, the VFS
   ext/       the extension registry: identities, token tables, citations
   coverage/  what is implemented and how well it is known (status.ts)
   cli/       node CLI tools (list/unpack/inspect AMOS files)
   web/       browser runner
-fixtures/    gitignored — real .AMOS programs and .Abk banks for testing
+fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
 docs/
   extensions/  the extension slot model, identification and evidence tiers
   amos3d/      the AMOS 3D file formats and engine, recovered from the binary
 ```
 
-Two generated files sit at the top level: `KEYWORDS.md`, the per-keyword
-coverage manifest (`npx tsx src/cli/genmanifest.ts`), and `UNIMPLEMENTED.md`,
-the narrative gap list — including the honesty list of everywhere the port
-knowingly differs from the original, split into what can still be closed and
-what cannot.
+`CLAUDE.md` holds the working rules: how evidence is ranked, what a quotation
+may and may not do, and what each coverage classification claims.
+
+One generated file sits at the top level. `KEYWORDS.md` is the per-keyword
+coverage manifest, written by `npx tsx src/cli/genmanifest.ts` from
+`src/coverage/status.ts`. `UNIMPLEMENTED.md` beside it is written by hand: it
+is the narrative gap list, and it carries the honesty list of everywhere the
+port knowingly differs from the original, split into what can still be closed
+and what cannot.
 
 ## Commands
 
 ```
-npm test           # vitest
+npm test           # vitest, with the coverage gate at teardown
 npm run typecheck  # tsc --noEmit
-npm run lint       # oxlint — correctness and suspicious rules only
+npm run lint       # oxlint, correctness and suspicious rules only
 npm run build      # vite lib build to dist/
 npm run cli -- src/cli/<tool>.ts <args>   # run a CLI tool via tsx
 ```
+
+`npm test` runs the faithfulness gate after vitest prints its summary, so read
+the exit code. A run can report every test passing and still exit 1.
 
 CLI tools in `src/cli/`:
 
@@ -87,37 +94,43 @@ CLI tools in `src/cli/`:
 |---|---|
 | `amoslist.ts` | detokenized listing plus banks |
 | `amosrun.ts` | run a program headless (`.AMOS` or a plain-text listing) |
-| `amoscat.ts` | detokenize to stdout — usable as an `rg --pre` preprocessor to grep AMOS source |
+| `amoscat.ts` | detokenize to stdout, usable as an `rg --pre` preprocessor to grep AMOS source |
 | `runreport.ts` | the interpreter coverage census, and the regression oracle |
 | `scan.ts` | corpus parse census |
-| `genmanifest.ts` | regenerate `KEYWORDS.md` from `src/coverage/status.ts` |
-| `genextdoc.ts` | regenerate the registry table in `docs/extensions/README.md` |
-| `gentable.ts`, `genext.ts` | regenerate token tables from the original libraries |
 | `extscan.ts` | which extension each slot in a collection of programs held |
 | `libscan.ts` | what each `.Lib` in a collection contains (`--gap` vs the registry) |
 | `libdemand.ts` | rank extensions by how many programs identify to them |
+| `libcat.ts` | catalogue a directory of `.Lib` files by identity |
+| `libpool.ts` | pool several collections and report what is new |
+| `versweep.ts` | which registered extensions are a later release of something already ported |
 | `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
 | `muidis.ts` | MUI: resolve a class's method to its routine in `muimaster.library` and disassemble it (`--tree` for the class tree) |
+| `m68k.ts` | the capstone bridge the three disassemblers share |
+| `oscalls.ts` | which AmigaOS library functions an extension actually calls |
+| `errscan.ts` | every `L_ErrorExt` call site in a binary, the registers set up, and the slot it states |
 | `extaudit.ts` | which of an extension's implemented keywords have been read against its binary |
 | `citecheck.ts` | every `routine N ($ADDR)` citation still names the code it claims to |
 | `contested.ts` | keyword names two ported products both claim, and who answers |
-| `libcat.ts` | catalogue a directory of `.Lib` files by identity |
-| `libpool.ts` | pool several collections and report what is new |
 | `adfx.ts` | read an Amiga floppy image |
-| `nodefs.ts`, `walk.ts` | the node filesystem and corpus-walking helpers the others share |
+| `craftx.ts` | unpack the CRAFT installer disk's `Data` blobs |
+| `nodefs.ts`, `walk.ts`, `mdtable.ts` | the filesystem, corpus-walking and table helpers the others share |
 
 The `gen*` tools regenerate checked-in data from the original material, and are
 listed separately because running one is a deliberate act. They group by what
 they read, which is what decides whether they can be chained:
 
-- `npm run gentables` — everything whose input is the AMOS Professional source
-  tree or `fixtures/`: `gentable.ts`, `genext.ts`, `genedmsg.ts`,
-  `genmouse.ts`, `genamoscalls.ts`, `genpiconfig.ts`, `genptrig.ts`. Each
-  takes the tree's path as its first argument and defaults to
+- `npm run gentables` covers everything whose input is the AMOS Professional
+  source tree or `fixtures/`: `gentable.ts`, `genext.ts`, `genedmsg.ts`,
+  `genmouse.ts`, `genamoscalls.ts`, `genpiconfig.ts`, `genptrig.ts`. Each takes
+  the tree's path as its first argument and defaults to
   `../AMOS-Professional-Official`.
-- `npm run gendocs` — `genmanifest.ts` and `genextdoc.ts`, which read the
-  committed tables rather than the libraries, so they work without `fixtures/`.
+- `npm run gendocs` covers `genmanifest.ts`, which writes `KEYWORDS.md`, and
+  `genextdoc.ts`, which splices the registry table into
+  `docs/extensions/README.md`. Both read the committed tables rather than the
+  libraries, so they work without `fixtures/`.
+- `gendecrunch.ts` and `genmui.ts` each read one library and write one
+  `.gen.ts`: `decrunch.library`'s identification tables, and MUI 3.8's headers.
 - `genfont.ts`, `genjdcrypt.ts` and `genlocale.ts` are one-off imports from
   material that is neither: a PSF console font, JD's own unpacked source, and
   an AROS checkout. Run each by hand with its path when that source changes.
@@ -127,167 +140,162 @@ Disassembly tools need `python3` with `capstone`.
 ## Status
 
 **Core AMOS Professional is complete**, and so is every extension the port has
-started. All twenty core areas in `KEYWORDS.md` read 100% — language, screens,
+started. All twenty core areas in `KEYWORDS.md` read 100%: language, screens,
 drawing, menus, banks, text-io, objects, input, files, flow, memory, system,
-interface, AMAL, copper, palette, rainbows, windows and zones — as do
-fifty-three extension releases, among them AMCAF, the JD family, EasyLife,
-TOME, TURBO Plus, Personnal, LDos, AMOS 3D, MED, EME and P61. Nothing is
-half-ported: the remainder are extensions not yet begun.
+interface, AMAL, copper, palette, rainbows, windows and zones. So do 69
+extension releases. Nothing is half-ported, and no row in the manifest sits
+between 0% and 100%. What remains is extensions not yet begun.
 
-**3736 keywords implemented, 3628 of them faithful** — verified against the 68k
-source, corroborated by byte-exact artifacts and by the official manual where
-they agree. The order matters and is the project's governing rule: the code
-that shipped outranks the prose about it, and documentation is evidence only
-where there is no binary to read. That rule applies to this file too, which is
-why the numbers above are the ones `KEYWORDS.md` last generated rather than a
-remembered figure. `npm test` says how many tests it took; a count here would
-be stale by the next commit.
+**4,673 keywords implemented, 4,529 of them faithful.** Faithful means checked
+against the 68k source or against the library binary, corroborated by
+byte-exact artifacts. The order matters and is the project's governing rule:
+the code that shipped outranks the prose about it, and documentation is
+evidence only where there is no binary to read. Documentation alone never makes
+a keyword faithful. That rule applies to this file too, which is why the
+numbers above come from the manifest rather than from memory.
 
 **Every extension a stock AMOS Professional installs is complete**: Music (49,
 including `Say` and the mouth stream), Compact, Compiler, Requester, and
-IOPorts (38 — Serial, Printer and Parallel, with `Printer Dump` rendering a
-page and `Serial Open` reaching real hardware through Web Serial).
+IOPorts (38, covering Serial, Printer and Parallel, with `Printer Dump`
+rendering a page and `Serial Open` reaching real hardware through Web Serial).
 
-The third-party extensions are the bulk of it. The largest: **AMCAF** (280
-across 1.40 and 1.50), **EasyLife** (156 across 1.0, 1.09 and 1.10), **TURBO
-Plus** (153 across three versions), **Personnal**
-(128 across 1.0b and 1.1), **LDos** (85 across 2.5 and 2.6), **jd-prt** (69),
-**TOME** (67), **PowerBobs** (65), **AMOS 3D** (64, the engine reverse-engineered
-from `c3d.lib` — see `docs/amos3d/README.md`), **EME 3.0** (59) and **JD** (56).
-`KEYWORDS.md` has the full table; the short version is that no row sits between
-0% and 100%.
+The third-party extensions are the bulk of it. The largest are **AMCAF** (280,
+across 1.40 and 1.50), **EasyLife** (156, across four releases), **TURBO Plus**
+(152, across three), **CRAFT** (138), **JD** (133, across three), **Explode**
+(131), **Personnal** (125), **Personal** (107), **The Game** (103) and **LDos**
+(85, across 2.5 and 2.6). **AMOS 3D** (64) is the engine reverse-engineered
+from `c3d.lib`, documented in `docs/amos3d/README.md`. `KEYWORDS.md` has the
+full table.
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 513 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 565 corpus programs headless.
 
 | | |
 |---|---|
-| run to a stop | 489 |
-| **run with nothing skipped** | **440 (90%)** |
-| hit something unimplemented | 49 |
+| ran to a stop | 539 |
+| **ran to a stop with nothing skipped** | **485 (90%)** |
+| hit something unimplemented | 54 |
 
-Read the second row, not the "ended with nothing skipped" line the tool
-prints. That line counts only programs that *terminate*, and most AMOS
-programs are games and demos that never do — 235 hit the step cap and 141
-block waiting on input, both of which are correct behaviour, not failure.
+Read the second row, not the "ended with nothing skipped" line the tool prints.
+That line counts only the 119 programs that *terminate*, and most AMOS programs
+are games and demos that never do. 245 hit the step cap and 147 block waiting
+on input, both of which are correct behaviour rather than failure.
 
-That 90% is closer to a ceiling than it looks. Ranked by programs blocked
-rather than occurrences, the top gaps are `dreg` (30 programs), `doscall` (14),
-`call` and `areg` (4 each) — all of them **n/a by policy**, because this port
-reads 68k machine code and never executes it. No keyword work moves them.
+Ranked by programs blocked rather than by occurrences, the 54 divide into two
+groups and nothing else. The 68k and host escapes are **n/a by policy**,
+because this port reads 68k machine code and never executes it: `dreg` (30
+programs), `doscall` (14), `call` and `areg` (4 each). No keyword work moves
+those. Everything else is the Intuition family, which is parked behind the
+Intuition port: `iscreen_open` (9), `itext` (7), `iget$` (4), `reserve
+igadget` (4), and a long tail of one and two program entries.
 
-`--by-program` says what the 49 are blocked on, but it counts programs per
-keyword rather than partitioning them, so its rows overlap and cannot be
-added up. Partitioned, the 49 are: **36 blocked with no extension keyword
-involved** — overwhelmingly `dreg`/`areg`/`doscall`/`call`, the host and 68k
-escapes that are n/a by policy — and **13 that reach an extension, every one
-of which is that extension's own bundled program**: Intuition 1.3b's test
-suite (`inttest`, `inttest1`..`6`, `bug1`, `bug2`, `bcollin`, `intuiviewer`,
-`test0`) and OS DevKit 1.61's `os_help`. No program in the corpus that
-someone wrote to *use* is blocked on an extension.
+Hit counts are no guide here. `igadget read` is skipped 141,835 times across 3
+programs, all of them self-tests looping, while `iscreen_open` blocks three
+times as many programs on 11 hits.
 
-Hit counts are no guide at all here: `igadget read` is skipped 141,835 times
-across 3 programs, all of them those same self-tests looping.
+`--by-program` counts programs per keyword rather than partitioning them, so
+its rows overlap and cannot be added up.
 
 **Reach is not correctness.** All of the above measures whether a program hits
-a missing keyword. It says nothing about whether the pixels are right — see
+a missing keyword. It says nothing about whether the pixels are right. See
 `UNIMPLEMENTED.md` for every place the port knowingly falls short of the
 original, split into what can still be closed and what cannot.
 
 ### Subsystems
 
-- **Loader** — `.AMOS` containers (all signature variants seen in the wild)
+- **Loader.** `.AMOS` containers, in every signature variant seen in the wild,
   and banks: `AmSp`/`AmIc` sprites, `AmBk` memory banks (Pac.Pic., Samples,
-  Music, Amal, Data...), IFF ILBM, Pac.Pic (ported line-by-line from
-  `UnPack_Bitmap`), and the Compact packer, which re-packs every corpus
-  picture byte for byte.
-- **Tokens** — token tables extracted from the compiled AMOS Pro 2.00
-  libraries (hunk file → `AP20` header → `C_Tk` table). The detokenizer
-  reproduces editor-style listings; the tokenizer goes the other way, so tests
-  are written in AMOS source.
-- **Interpreter** — values, AMOS precedence and type rules, all control flow,
+  Music, Amal, Data and the rest), IFF ILBM, Pac.Pic ported line by line from
+  `UnPack_Bitmap`, and the Compact packer, which re-packs every corpus picture
+  byte for byte.
+- **Tokens.** Token tables extracted from the compiled AMOS Pro 2.00 libraries
+  (hunk file, then `AP20` header, then `C_Tk` table). The detokenizer
+  reproduces editor-style listings and the tokenizer goes the other way, so
+  tests are written in AMOS source.
+- **Interpreter.** Values, AMOS precedence and type rules, all control flow,
   procedures with the real scoping rules, Data/Read/Restore with computed
-  labels, error trapping, Input/Print. Control flow is recomputed by a prescan
-  rather than trusting inline branch links. Never blocks: `Wait`, `Wait Key`,
-  `Wait Vbl` and `Input` set a `blocked` state the 50 Hz driver releases.
-- **Display** — done to 100%, and **planar**. Screens and bank images are
-  Amiga bitplanes, with a chunky view derived from them, so `Logbase` pokes,
-  bitplane extensions and a copper list aiming planes anywhere all address
-  the real bytes rather than a translation. There is ONE renderer: the
-  display is produced by interpreting the copper list — system-generated or a
-  user's — walking BPLCON0/1/2/3, DDF/DIW, modulos, DMACON, the palette and
-  the sprite pointers per scanline. Screens, drawing, palette, rainbows,
-  menus, windows, zones, dual playfield, HAM/EHB, hardware and STOS
+  labels, error trapping, Input and Print. A prescan recomputes control flow
+  rather than trusting inline branch links. Nothing blocks the thread: `Wait`,
+  `Wait Key`, `Wait Vbl` and `Input` set a `blocked` state the 50 Hz driver
+  releases.
+- **Display.** Complete, and **planar**. Screens and bank images are Amiga
+  bitplanes with a chunky view derived from them, so `Logbase` pokes, bitplane
+  extensions and a copper list aiming planes anywhere all address the real
+  bytes rather than a translation. There is ONE renderer: the display comes
+  from interpreting the copper list, system-generated or the program's own,
+  walking BPLCON0/1/2/3, DDF/DIW, modulos, DMACON, the palette and the sprite
+  pointers per scanline. That covers screens, drawing, palette, rainbows,
+  menus, windows, zones, dual playfield, HAM and EHB, hardware and STOS
   animation, and the composited mouse pointer from the machine mouse bank.
-- **Audio** — done. The three players (music bank, MOD tracker, MED) and the
+- **Audio.** Complete. The three players (music bank, MOD tracker, MED) and the
   wavetable synth, ported from `+Music.s` over an `AudioSink`, with the
-  faithful read-and-clear Vumeter, voice stealing and reclaim, Sam Swap
+  read-and-clear Vumeter, voice stealing and reclaim, Sam Swap
   double-buffering and the LED filter.
-- **AMAL** — the animation language reimplemented from TokAMAL/Animeur,
+- **AMAL.** The animation language reimplemented from TokAMAL and Animeur,
   including bank programs and PLay's recorded movements.
-- **AMOS 3D** — the object format cracked from the binary (`.3DO`/`.3DT`/
-  `.3DS`), the transform chain, camera, visibility, zones and collision, and
-  our own scanline rasteriser. `docs/amos3d/README.md` documents the formats.
-- **Dialog / Interface** — the resource banks, the dialog engine and the full
+- **AMOS 3D.** The object format cracked from the binary (`.3DO`, `.3DT`,
+  `.3DS`), the transform chain, camera, visibility, zones and collision, and a
+  scanline rasteriser of our own. `docs/amos3d/README.md` documents the
+  formats.
+- **Dialog and Interface.** The resource banks, the dialog engine and the full
   `Start_FSel` file selector.
-- **Browser runner** (`npm run dev`) — load a `.AMOS` file and watch it run at
+- **Browser runner** (`npm run dev`). Load a `.AMOS` file and watch it run at
   50 fps with keyboard, mouse and joystick. The Files panel is a file manager
   over the same virtual filesystem the program sees: drop in files, folders or
   zips, then rename, delete, make drawers, relabel volumes and drag rows
   between drawers.
 
-Format notes recovered so far (verified against the corpus, and the
-assembly in `+Lib.s`/`+Edit.s`):
+Format notes recovered so far, verified against the corpus and against the
+assembly in `+Lib.s` and `+Edit.s`:
 
-- Token ids are byte offsets into the library token table; entries end in
-  `$FF`, or `$FE`/`$FD` when an unnamed arg-count/function-form variant
+- Token ids are byte offsets into the library token table. Entries end in
+  `$FF`, or `$FE`/`$FD` when an unnamed arg-count or function-form variant
   entry follows.
 - Operators have ids that are negative offsets from the end of the editor's
-  operator table (`=` is $FFA2, `+` is $FFC0, ...).
-- Control flow tokens (`If`, `Else`, `For`, `Repeat`, `While`, `Do`,
-  `Data`, `Else If`) carry a 2-byte inline branch link; `On`/`Exit`/
-  `Exit If` carry 4 bytes; `Lvo()` caches a 6-byte vector offset;
-  `Procedure` carries size/seed/flags and its size links to `End Proc`.
-- `@_apml_@` marks machine-code procedures: raw 68k code follows inline in
-  the token stream, which real AMOS `jsr`s directly. The loader captures the
-  block and skips to `End Proc`; **this port never executes 68k**, so calling
-  one is an error. Reading and disassembling 68k is a different matter and is
-  how much of the extension work was done.
+  operator table (`=` is $FFA2, `+` is $FFC0, and so on).
+- Control flow tokens (`If`, `Else`, `For`, `Repeat`, `While`, `Do`, `Data`,
+  `Else If`) carry a 2-byte inline branch link. `On`, `Exit` and `Exit If`
+  carry 4 bytes, `Lvo()` caches a 6-byte vector offset, and `Procedure` carries
+  size, seed and flags, its size linking to `End Proc`.
+- `@_apml_@` marks machine-code procedures: raw 68k code follows inline in the
+  token stream, which real AMOS `jsr`s directly. The loader captures the block
+  and skips to `End Proc`. **This port never executes 68k**, so calling one is
+  an error. Reading and disassembling 68k is a different matter, and is how
+  much of the extension work was done.
 
 Language semantics recovered from the assembly and the corpus:
 
-- `Print`/`Str$` write a leading space before non-negative numbers
-  (`LongToAsc` "avec signe" in `+Lib.s`) — which is why the corpus is full
-  of the `Str$(X)-" "` idiom: string subtraction removes occurrences of
-  the right operand from the left.
-- `Int()` on floats is a floor (`SPFloor`), not truncation; assignment to
-  an integer variable truncates.
-- `True` is -1, comparisons return -1/0; `/` between integers is integer
+- `Print` and `Str$` write a leading space before non-negative numbers
+  (`LongToAsc` "avec signe" in `+Lib.s`), which is why the corpus is full of
+  the `Str$(X)-" "` idiom. String subtraction removes occurrences of the right
+  operand from the left.
+- `Int()` on floats is a floor (`SPFloor`) rather than a truncation, while
+  assignment to an integer variable truncates.
+- `True` is -1 and comparisons return -1 or 0. `/` between integers is integer
   division.
-- Programs saved without the editor's Test pass store procedure calls and
-  label targets as plain variable tokens — the interpreter falls back to
-  procedure/label lookup for bare names.
-- `Restore`/`Gosub` accept computed string expressions as label names
-  (e.g. `Restore "Rn"+Mid$(Str$(N),2)`).
+- Programs saved without the editor's Test pass store procedure calls and label
+  targets as plain variable tokens, so the interpreter falls back to procedure
+  and label lookup for bare names.
+- `Restore` and `Gosub` accept computed string expressions as label names, for
+  instance `Restore "Rn"+Mid$(Str$(N),2)`.
 
 ## Fixtures
 
-`fixtures/` is not committed — the AMOS libraries and the commercial
-extensions are not ours to redistribute. Put `.AMOS`/`.Abk` files there, e.g.
-the Amos-Professional-AGA-Releases corpus, or your own old games. The corpus
-integration test and `src/cli/gentable.ts` expect `fixtures/official-amos`
-(the `AMOS/` release tree from AMOS-Professional-Official) and
-`fixtures/aga-releases`; extension libraries go in
-`fixtures/extensions/<id>/`.
+`fixtures/` is not committed, because the AMOS libraries and the commercial
+extensions are not ours to redistribute. Put `.AMOS` and `.Abk` files there,
+whether that is the Amos-Professional-AGA-Releases corpus or your own old
+games. The corpus integration test and `src/cli/gentable.ts` expect
+`fixtures/official-amos` (the `AMOS/` release tree from
+AMOS-Professional-Official) and `fixtures/aga-releases`. Extension libraries go
+in `fixtures/extensions/<id>/`.
 
 Two notes for anyone searching the corpus. Tokenized `.AMOS` files are binary,
-so a plain `grep -r` will silently skip them if your `grep` is ugrep — pass
-`-a`, and run a positive control before believing a negative result. And
+so a plain `grep -r` silently skips them if your `grep` is ugrep. Pass `-a`,
+and run a positive control before believing a negative result. And
 `src/cli/amoscat.ts` detokenizes to stdout, so it works as an `rg --pre`
-preprocessor and greps AMOS source rather than token streams — write a one-line
-wrapper that `exec`s it and point `--pre` at that. (There used to be a `bin/`
-script for this; it ran `dist/amoscat.cjs`, which no build ever produced.)
+preprocessor and greps AMOS source rather than token streams. Write a one-line
+wrapper that `exec`s it and point `--pre` at that.
 
 ## Releasing
 
@@ -297,18 +305,18 @@ library goes to npm (`publish.yml`) and the player to amos.bitplane.net
 (`release.yml`), at `/`, `/v/latest/` and an immutable `/v/<version>/`.
 
 CI runs on every push and pull request, but `fixtures/` is not committed, so
-most of the suite skips there — see above. **CI catches build breaks, not
-fidelity regressions.** Those need a local run with the corpus in place, plus
-the census.
+most of the suite skips there. **CI catches build breaks, not fidelity
+regressions.** Those need a local run with the corpus in place, plus the
+census.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 Speech is [narrator-ts](https://www.npmjs.com/package/narrator-ts) (MIT), a
 reimplementation of the Amiga `narrator.device` and `translator.library`. It
-ships a free rebuilt voice, not the Amiga's own tables, which are not
-redistributable — so `Say` speaks, but it does not sound like a real Amiga.
+ships a free rebuilt voice rather than the Amiga's own tables, which are not
+redistributable, so `Say` speaks without sounding like a real Amiga.
 
 This repository contains no AMOS Professional code or data. The reference
 assembly is read from
