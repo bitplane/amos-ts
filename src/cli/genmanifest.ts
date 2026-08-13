@@ -59,12 +59,19 @@ const coreImplemented = new Set(
  * them from, so without this list they report 0% while working. Listed
  * explicitly, because the alternative is the flat name-matching that made
  * every other row unreliable.
+ *
+ * music-omega-1.0 is here for the same reason and not by extension of it: 29
+ * of its 32 named keywords ARE the stock 1.3 Music library, at the same ids
+ * with the same specs, and are served by the same runtime layer. Its own
+ * ExtensionImpl adds the three that were appended to it and nothing else, so
+ * without this line the row reads 9% while every keyword in it works.
  */
 const CORE_EXTENSIONS = new Set([
   'amospro-compact-2.0',
   'amospro-request-2.0',
   'amospro-compiler-2.0',
   'amospro-music-2.0',
+  'music-omega-1.0',
 ])
 
 /**

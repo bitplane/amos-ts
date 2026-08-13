@@ -113,6 +113,13 @@ export const FAITHFUL = new Set<string>([
   'sam swapped',
   'sload',
   'ssave',
+  // The two Omega keywords whose routines are short enough to read whole:
+  // Starset is 28 bytes and Starstop 46, and both are cited instruction by
+  // instruction in musicomega.ts. Starplay is not here on purpose -- its own
+  // 200 bytes are read, but the replay behind it is this port's rather than
+  // the library's 1.6KB of it, which is the definition of approximated.
+  'starset',
+  'starstop',
   // faithfulness pass: Inc/Dec/Add operate on the variable long with
   // 32-bit wrap (InInc/InDec/InAdd +ILib.s:4382-4423, base-To-top wrap
   // both directions); Wait errors on negatives and Wait 0 is the
@@ -5169,6 +5176,44 @@ export const NOTES: Record<string, string> = {
     "was briefly recorded here as a defect, which was this port reading the 1.3 build out of a file it had " +
     "mislabelled -- the installer's Data0 blob holds FOUR libraries behind a four-word length table, and " +
     "parseAmosLibOld stops at the first code hunk.",
+
+  // ---- Music (Omega) 1.0, slot 1 -------------------------------------------
+  // Three keywords appended to APD230's Music.Lib for one PD disc. Addresses
+  // are music-omega-1.0's own; everything below `set talk` ($01fa) is the
+  // stock 1.3 library and is classified with the rest of Music, above.
+  starset:
+    "Routine 84 ($28b6), twenty-eight bytes. `movea.l (a3)+,a0 / movea.l (a3)+,a1`, so the LAST argument pops " +
+    "first and a1 is the module: it goes to $924(a3) raw, unparsed and unchecked, and nothing looks at it until " +
+    "Starplay. The first-popped argument is a bank NODE -- `adda.l #$18,a0` before `move.l a0,$928(a3)` is the " +
+    "24-byte header Bnk_Reserve puts in front of a bank's data (+Lib.s:8494) -- and it names a table of " +
+    "120-byte entries the row engine indexes at $752 with `mulu.w #$78,d0 / add.l $928(a6),d0`, testing each " +
+    "for 'AM' ($414d) and taking a length from the word at +6 shifted down two. So a pattern's sample slot may " +
+    "be an AMOS sample instead of one of the module's. That arm is unreached by the only program that calls " +
+    "any of this: techno.amos writes `Starset Start(13),` and elides the second argument, which arrives as " +
+    "EntNul ($80000000, +Equ.s:67) and makes the base $80000018. resolveAddr answers null for it here, so the " +
+    "arm stays shut for a defensible reason rather than by luck.",
+  starstop:
+    "Routine 85 ($28d2), forty-six bytes, and byte for byte the same eleven instructions as the interrupt's " +
+    "own stop arm at $524 -- four `clr.w` over AUD0VOL through AUD3VOL, `move.w #$f,$dff096` with bit 15 clear " +
+    "so audio DMA goes off, and `clr.b $920(a3)`. It takes no argument and tests nothing, so stopping a player " +
+    "that never started still silences AMOS's own music. techno.amos calls it before Starset for that reason, " +
+    "and once more at the end. What it does NOT do is undo Starplay's `ori.b #$2,$bfe001` ($2990), so the " +
+    "low-pass filter and the power LED stay off after the music stops.",
+  starplay:
+    "Routine 86 ($2900), 200 bytes. `Starplay ONEPATTERN,POSITION,ROW,LOOP`, masked rather than checked: " +
+    "`andi.b #$1` on the first and last, `andi.b #$7f` on the position, `andi.w #$3f` then four `add.w d0,d0` " +
+    "on the row, because the library holds a row as its byte offset into the pattern and recognises the end of " +
+    "one by $400. Then the 31-sample MOD layout, read on faith with no signature test: $3b8(a0) is the " +
+    "128-byte order table, scanned by a `dbra` that always runs all 128 whatever the song length says; its " +
+    "maximum plus one is the pattern count, times 1024 their size, and $43c(a0) plus that the first sample. " +
+    "Each of the 31 headers gets `clr.l (a2)` at its sample's head and `clr.b $2(a0)` in the header itself, " +
+    "which throws the FINETUNE away -- parseMod reads finetune, so a module that uses it plays in tune here " +
+    "and slightly out of tune on the machine. Speed is set to 5, where ProTracker's own default is 6. " +
+    "Approximated for one reason: the row engine at $54e..$b62 is not reproduced. This port runs " +
+    "../amiga/protracker.ts and imposes the library's position rules on top of it, read off $66c to $6d2, so " +
+    "the two agree about notes, samples, volumes and speed and are not known to agree about every command. " +
+    "DEVIATION: the library plays a bank that is not a module as noise; parseMod requires \"M.K.\" or \"M!K!\" " +
+    "at 1080 and this refuses quietly instead of synthesising what one Amiga made of one piece of memory.",
 
   // ---- MusiCRAFT 1.0, slot 19 ----------------------------------------------
   // Addresses are AMOSPro_MusiCRAFT.Lib's. Routine 0 is $11e..$13c4 and is the

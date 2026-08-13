@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1182 qualifying notes live in `src/coverage/status.ts`, which this file
+1184 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -109,6 +109,7 @@ is.
 | memory               |       14 |       12 |            2 |       0 |     100% |
 | menus                |       24 |       24 |            0 |       0 |     100% |
 | misc-1.0             |       12 |        9 |            0 |       0 |     100% |
+| music-omega-1.0      |       32 |       31 |            1 |       0 |     100% |
 | musicraft-1.0        |       12 |       11 |            1 |       0 |     100% |
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
@@ -142,7 +143,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7362 |     4529 |          144 |    2626 |      64% |
+| **total**            |     7394 |     4560 |          145 |    2626 |      64% |
 
 ## Not applicable, by what would retire it
 
@@ -338,6 +339,10 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## misc-1.0 (100%)
 
 - **n/a** (3): `multi off`, `multi on`, `pal on`
+
+## music-omega-1.0 (100%)
+
+- **approximated** (1): `starplay`
 
 ## musicraft-1.0 (100%)
 

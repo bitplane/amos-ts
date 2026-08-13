@@ -363,6 +363,7 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/amcaf.ts': ['amcaf-1.50', 'amcaf-1.40'],
   'src/runtime/craft.ts': ['craft-1.0'],
   'src/runtime/musicraft.ts': ['musicraft-1.0'],
+  'src/runtime/musicomega.ts': ['music-omega-1.0'],
   // the core's Sload/Ssave answer for AMCAF's too, and their doc block cites
   // AMCAF's routines 106 and 107 to record where the two diverge -- so the
   // core file is checked against AMCAF's binary for those two citations

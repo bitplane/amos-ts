@@ -34,6 +34,7 @@ import {
   musicraftStop,
   newMusicraftState,
 } from './musicraft'
+import { makeMusicOmegaInstructions, newMusicOmegaState } from './musicomega'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5882,6 +5883,21 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     qualified: ['pal spread', 'open workbench', 'amos pri', 'file type'],
   },
   {
+    /*
+     * The three keywords appended to APD426's Music.Lib, at the same slot 1
+     * the stock library holds. Everything below `set talk` ($01fa) is that
+     * library and is already registered by the core Music layer, so this
+     * entry adds three names and no more. See musicomega.ts for why the
+     * registry needs the identity at all: the ids collide with `sload` and
+     * `sam swapped`, which AMOS Pro put at the same offsets.
+     */
+    ids: ['music-omega-1.0'],
+    init: (rt) => {
+      rt.musicOmega = newMusicOmegaState(rt)
+    },
+    instructions: makeMusicOmegaInstructions,
+  },
+  {
     // MusiCRAFT 1.0 at slot 19 --- CRAFT's companion, and the same author's.
     // The slot is no longer only observed: routine 0 is `move.l a4,$218(a5)`,
     // and `$f8 + 18*16` IS $218 on the ExtAdr layout, so the binary says 19
@@ -6027,8 +6043,10 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     // the speech slice of the Music extension: Say, and the mouth stream.
     // EME 3.0 keeps all of it at the same ids and specs — the AMOS Pro build
-    // has the whole seven, the AMOS 1.3 one only Say and Set Talk
-    ids: ['amospro-music-2.0', 'eme-3.0', 'eme-3.0-demo'],
+    // has the whole seven, the AMOS 1.3 one only Say and Set Talk, and
+    // music-omega-1.0 is an AMOS 1.3 one: `!say` $01e4 and `set talk` $01fa,
+    // the last two entries before its own three were appended
+    ids: ['amospro-music-2.0', 'eme-3.0', 'eme-3.0-demo', 'music-omega-1.0'],
     init: (rt) => {
       rt.speech = newSpeechState()
     },

@@ -1,0 +1,29 @@
+{
+  "id": "music-omega-1.0",
+  "name": "Music (Omega)",
+  "version": "1.3",
+  "author": "unknown, over Mandarin/Jawx's AMOS 1.3 Music",
+  "source": "binary",
+  "library": "Music.Lib",
+  "sha256": "711e50b62c69a3dd5501c11620870c2adba89f84514cbfaeec4d19f4b07bd73a",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "disassembly",
+  "docs": [
+    "startup-sequence"
+  ],
+  "titleStrings": [
+    "Music player V 1.3",
+    "New Music extension V1.3"
+  ],
+  "observedSlots": [
+    1
+  ],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD426/AMOS_System.",
+    "note": "The disc's s/startup-sequence signs the disk and dates it: '© Omega Demos Inc. 1991/92', 'Release Version. #1.1', 'Release Date 26/03/92', for a demo called Golden Ages that it boots through RAMOS 1.3. Whether Omega wrote the three appended routines or took them from somewhere is not recorded anywhere on the disc; the library carries no author string of its own and no copyright, only the two banners the stock 1.3 build already has.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A patched copy of the stock AMOS 1.3 Music.Lib, not a new extension. 42 entries, 32 named, of which 29 are the 1.3 library's at the same ids with the same specs; the binary still calls itself 'Music player V 1.3' and 'New Music extension V1.3'. Somebody appended three starfield keywords after the last stock entry (set talk, $01fa) and extended the jump table to routines 84, 85 and 86, leaving 73 to 83 unused: starset $0210, starstop $0220, starplay $022e. They are NOT Stars 2.33's, which spells everything Stars Blast / Stars Reset / Stars Vbl and has no entry under any of these names.\n\nNot one disc's problem. The demand table in docs/extensions/README.md counted this table as `music-68451de1`, an UNREGISTERED lead, in TEN corpus programs; registering it moves those ten off amospro-music-2.0, which drops from 2309 programs to 2293. So libdemand had already found it and the registry had not.\n\nRegistered because the ids collide with keywords AMOS Pro later put at the same offsets, and the collision was producing wrong output rather than no output. AMOS Pro Music 2.0 continues past $01fa with sload at $0210 (spec I0t0,0) and sam swapped at $0220 (spec 00, a FUNCTION), and has nothing at $022e. identifySlot called APD426's slot 1 amospro-music-2.0 [probable, source-evidence], which is the only sane guess from the ids alone, so amoslist rendered techno.amos's 'Starstop' as a bare 'Sam Swapped' statement and its 'Starset X,Y' as 'Sload Start(13),' with a dangling comma where sload's string argument should be. Two of the three read as plausible AMOS. The third, starplay, printed as {ext1:$022e} only because Europress never reused that id.\n\nThe version field is what the file says about itself. The id's '1.0' is this fork's ordinal and is not a number the library claims anywhere.",
+  "recommendedSlot": 1
+}

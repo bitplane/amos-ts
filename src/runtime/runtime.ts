@@ -45,6 +45,7 @@ import type { MakeState } from './make'
 import type { ToolsState } from './tools'
 import type { CraftState } from './craft'
 import { musicraftVbl, type MusicraftState } from './musicraft'
+import { musicOmegaVbl, type MusicOmegaState } from './musicomega'
 import type { OpalState } from './opal'
 import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
@@ -1210,6 +1211,8 @@ export class Runtime {
   craft!: CraftState
   /** MusiCRAFT 1.0's replayer, its vumeters and its voice mask, slot 19 */
   musicraft!: MusicraftState
+  /** the module player appended to APD426's Music.Lib, slot 1 */
+  musicOmega!: MusicOmegaState
   /**
    * The eight `Dev Open` channels and the IORequests they hand out.
    *
@@ -4378,6 +4381,9 @@ export class Runtime {
     // VblRout slot, so it runs behind AMOS's own music — which is what lets it
     // have the last word on the vumeter bytes AMOS just wrote
     musicraftVbl(this)
+    // the Omega player is an ordinary AMOS VblRout entry in the same library
+    // as AMOS's own music, so it runs in front of nothing and behind nothing
+    musicOmegaVbl(this)
     // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits
