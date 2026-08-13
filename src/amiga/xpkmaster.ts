@@ -60,10 +60,10 @@
  * any method. The master's probe at `$450` tests the magic, the checksum and
  * the flags, and has no ULen test in it that this port has found.
  *
- * A BLZW or HUFF stream whose chunks all came back RAW. `ancient identify`
- * calls it `<invalid>` where NONE, RLEN, NUKE and CBR0 all name themselves off
- * the same header, and then `ancient verify` decodes the very same file and
- * matches. So it is the naming that fails, not the reading.
+ * A BLZW, HUFF or IMPL stream whose chunks all came back RAW. `ancient
+ * identify` calls it `<invalid>` where NONE, RLEN, NUKE and CBR0 all name
+ * themselves off the same header, and then `ancient verify` decodes the very
+ * same file and matches. So it is the naming that fails, not the reading.
  *
  * One thing `ancient` cannot check at all, and it is worth saying where.
  * HUFF ships its code table inside the chunk, so any consistent tree decodes
@@ -74,7 +74,7 @@
  * ## The compressors that are here
  *
  * `XPK_PACKERS` is the registry standing in for `LIBS:Compressors/`, and all
- * six entries in it are ported whole from the binary rather than stubbed.
+ * seven entries in it are ported whole from the binary rather than stubbed.
  *
  * `NONE`, from `xpkNONE.library` 1.0, 592 bytes of code of which the two the
  * master calls are 24 instructions:
@@ -107,19 +107,27 @@
  * code table shipped in the chunk, and the only one of the nine with a
  * cipher. See `XPK_HUFF`.
  *
+ * `IMPL`, from `xpkIMPL.library` 0.18.77, 3,824 bytes and the largest of the
+ * nine: the Imploder, wrapped. A packed chunk is a whole `IMP!` file, magic
+ * and header and tail, so the codec sits in ./imploder.ts next to the
+ * exploder AMCAF carries and `XPK_IMPL` is the wrapper over it. Nineteen
+ * vectors, nine more than XPK asks for, and the extra four are the crunch and
+ * decrunch entry points with and without the header.
+ *
  * Every other method resolves through `OpenLibrary("compressors/xpk%.4s.library")`
  * at `$c9a`, and when that fails the master sets XPKERR_MISSINGLIB and gives
- * up. That is what this port does for FEAL, IDEA and IMPL, and it is not a
+ * up. That is what this port does for FEAL and IDEA, and it is not a
  * shortcut. It is what a real Amiga does with an empty
  * `LIBS:Compressors/`, which is the machine EasyLife's own guide describes:
  * "the XPK libraries are not included in this distribution, you must obtain
  * the XPK compression archive separately".
  *
- * But it is a CHOICE and not a limit, which was stated wrongly here until
- * 2026-08-12: nine of those sub-libraries are held, 1,040 to 4,052 bytes
- * apiece, in `COMPRESSORS/` on all three Library volumes of the AMOS PD
- * Library CD 1994 — BLZW, CBR0, FEAL, HUFF, IDEA, IMPL, NONE, NUKE and RLEN.
- * Porting them is work nobody has done, not evidence nobody has.
+ * The two that are left are a CHOICE and not a limit, which was stated
+ * wrongly here until 2026-08-12: nine of those sub-libraries are held, 1,040
+ * to 4,052 bytes apiece, in `COMPRESSORS/` on all three Library volumes of
+ * the AMOS PD Library CD 1994. Seven are ported. FEAL and IDEA are block
+ * ciphers rather than compressors and are out of scope for a BASIC runtime,
+ * so they stay MISSINGLIB with their binaries sitting right there.
  *
  * ## The errors are plain Errors
  *
@@ -129,6 +137,7 @@
  * hands the raw number straight back to the program, so the number IS the
  * interface there.
  */
+import { explodeChecked, turboImplode } from './imploder'
 import { pp20Crunch, pp20Decrunch } from './powerpacker'
 
 /**
@@ -2008,6 +2017,78 @@ const huffUnpack = (data: Uint8Array, uLen: number, password?: string): Uint8Arr
 }
 
 /**
+ * `xpkIMPL.library` 0.18.77, the Imploder wearing an XPK coat.
+ *
+ * Alone among the six, this one does not carry a codec at all. Both entry
+ * points copy InBuf to OutBuf (`$1ee`, `CopyMemQuick` and then the odd bytes
+ * by hand) and work IN PLACE from there, and a packed chunk is a complete
+ * `IMP!` file down to the magic, which `$d60` tests before it will decode.
+ * So the codec lives in ../amiga/imploder.ts beside the AMCAF-derived
+ * exploder that reads the same format, and this is the wrapper.
+ *
+ * `xpi_DefChunk` is 65536, over the master's 65000 threshold, so IMPL is the
+ * fourth packer here whose streams carry long chunk headers.
+ */
+const XPK_IMPL: XpkPacker = {
+  name: 'IMPL',
+  longName: 'Turbo Implode 0.18',
+  maxChunk: 524288,
+  minChunk: 64,
+  defaultChunk: 65536,
+  packChunk: (data, mode) => turboImplode(data, implEffort(data.length, mode)),
+  unpackChunk: (data, uLen) => implUnpack(data, uLen),
+}
+
+/**
+ * `$168`, the mode and the chunk length to one of twelve effort levels.
+ *
+ * Two tables and two rules, and the input length decides as much as the mode
+ * does. Both tables descend and both are scanned for the first entry the
+ * length reaches, giving an index of 0 for a short chunk and 11 for a long
+ * one, so a big chunk gets a wide window whatever the caller asked for.
+ *
+ * Mode 100 takes the coarser table at `$43a` and is then left alone. Every
+ * other mode takes the finer one at `$46a` and is scaled by `mode + 1` per
+ * cent, which is why mode 99 and mode 100 are not neighbours: 99 scales an
+ * index off one table, 100 reads the other table raw.
+ */
+const implEffort = (inLen: number, mode: number): number => {
+  const pct = mode & 0xffff
+  // $43a and $46a. The last entry of each is never compared: the loop runs
+  // eleven times and gives up with the index at 0.
+  const table =
+    pct === 100
+      ? [500_000, 195_000, 90_000, 42_000, 19_000, 10_500, 6000, 3400, 1800, 800, 380]
+      : [84_224, 45_568, 24_832, 11_520, 6400, 3840, 2048, 1152, 576, 288, 144]
+  let n = 0
+  for (let i = 0; i < 11; i++) {
+    // $1ae is `bcc` and $17c is `bhi`, so mode 100 takes an entry it equals
+    // and the others do not
+    if (pct === 100 ? inLen >= table[i]! : inLen > table[i]!) {
+      n = 11 - i
+      break
+    }
+  }
+  // $18a: the split multiply is only there to keep a 32-bit product out of a
+  // `mulu.w`, and with n at most 11 the quotient never leaves the low word
+  return pct === 100 ? n : Math.floor((n * (pct + 1)) / 100)
+}
+
+/** `$224`, which is `$1ee` and then IMPL `$d60` over the copy */
+const implUnpack = (data: Uint8Array, uLen: number): Uint8Array => {
+  let out: Uint8Array
+  try {
+    out = explodeChecked(data)
+  } catch {
+    // $23e: one error for a bad magic, a bad code and a reader that stopped
+    // in the wrong place alike
+    throw new XpkError(XPKERR_CORRUPTPKD)
+  }
+  if (out.length !== uLen) throw new XpkError(XPKERR_CORRUPTPKD)
+  return out
+}
+
+/**
  * The modelled `LIBS:Compressors/`.
  *
  * A caller may add to this. Anything absent gets XPKERR_MISSINGLIB, which is
@@ -2020,6 +2101,7 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
   [XPK_CBR0.name, XPK_CBR0],
   [XPK_BLZW.name, XPK_BLZW],
   [XPK_HUFF.name, XPK_HUFF],
+  [XPK_IMPL.name, XPK_IMPL],
 ])
 
 /**
@@ -2029,12 +2111,24 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
  * `moveq #$ef,d0 / rts`, RLEN's touches nothing in XpkSubParams past `$c(a2)`,
  * NUKE's reads `$34(a2)` and then only `(a2)`, `$4`, `$8` and `$c`, and CBR0's
  * reads those same four and nothing else. BLZW adds `$1c(a2)`, the mode, and
- * stops there. No password pointer, at `$20(a2)`, is ever fetched by any of
- * them. XpkInfo carries a flags longword ($18 into the struct) whose bit
- * assignments this port has not established; it reads 9 for four of these
- * five and $8009 for BLZW, and neither value lines up with having a cipher.
+ * stops there, and IMPL reads the mode too and then hands `(a2)`, `$4`, `$8`
+ * and `$c` to a compressor that takes no key. No password pointer, at
+ * `$20(a2)`, is ever fetched by any of them.
+ *
+ * XpkInfo carries a flags longword ($18 into the struct) whose bit
+ * assignments this port has not established. It reads 9 for NONE, RLEN, NUKE
+ * and CBR0, $8009 for BLZW and IMPL, and $a009 for HUFF. Bit 13 sits with
+ * the one packer here that has a cipher and with none of the six that do not,
+ * which is the only reading of that word with evidence behind it.
  */
-const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name, XPK_NUKE.name, XPK_CBR0.name, XPK_BLZW.name])
+const XPK_NO_CRYPT = new Set([
+  XPK_NONE.name,
+  XPK_RLEN.name,
+  XPK_NUKE.name,
+  XPK_CBR0.name,
+  XPK_BLZW.name,
+  XPK_IMPL.name,
+])
 
 /** one byte, zero past the end -- a short read is a truncated file, not a crash */
 const at = (b: Uint8Array, o: number): number => b[o] ?? 0

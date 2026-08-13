@@ -1216,9 +1216,9 @@ describe('Explode: the XPK half, which reports its errors', () => {
 
   it('a sub-library this port has not got is XPKERR_NOFUNC, recorded not raised', () => {
     // the same answer a machine without that sub-library installed gives.
-    // NUKE, BLZW and HUFF were the examples here until they were ported;
-    // IMPL is still missing.
-    const out = run('Reserve As Work 4,64 : Xpk Pack 4,"IMPL",50 : Print Xpk Errn;" ";Xpk Err$')
+    // NUKE, BLZW, HUFF and IMPL were the examples here until they were
+    // ported. IDEA and FEAL are ciphers and out of scope.
+    const out = run('Reserve As Work 4,64 : Xpk Pack 4,"IDEA",50 : Print Xpk Errn;" ";Xpk Err$')
     expect(out.startsWith('-1 ')).toBe(true)
   })
 

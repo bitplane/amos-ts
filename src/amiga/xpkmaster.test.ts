@@ -51,6 +51,7 @@ const PP_FIXTURE = join(fixtures, 'powerpacker', 'OctaMEDPlayer.guide.pp')
 const bytes = (...v: number[]): Uint8Array => new Uint8Array(v)
 /** one byte, and never `undefined` -- these tests index fixed-size headers */
 const at = (b: Uint8Array, i: number): number => b[i] ?? 0
+const rd16 = (b: Uint8Array, o: number): number => (at(b, o) << 8) | at(b, o + 1)
 const rd32 = (b: Uint8Array, o: number): number =>
   ((at(b, o) << 24) | (at(b, o + 1) << 16) | (at(b, o + 2) << 8) | at(b, o + 3)) >>> 0
 const ascii = (s: string): Uint8Array =>
@@ -216,12 +217,12 @@ describe('xpkExamine on a real XPKF header', () => {
   })
 
   it('an uninstalled compressor fails at examine, not at the first chunk', () => {
-    // $608 opens compressors/xpkIMPL.library during the probe; $cf4 turns the
+    // $608 opens compressors/xpkIDEA.library during the probe; $cf4 turns the
     // failure into MISSINGLIB. Nothing has been decoded at this point.
-    expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkExamine(header('IDEA', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('FEAL', 100)))).toBe(XPKERR_MISSINGLIB)
-    // RLEN, NUKE, CBR0, BLZW and HUFF used to be on this list and are now
-    // installed, which is the point of keeping it
+    // RLEN, NUKE, CBR0, BLZW, HUFF and IMPL used to be on this list and are
+    // now installed, which is the point of keeping it
     expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('CBR0', 100)))).toBe(0)
@@ -246,8 +247,8 @@ describe('xpkExamine on a real XPKF header', () => {
 describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
-  it('shares LIBS:Compressors/ with the four packers that pack', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF'])
+  it('shares LIBS:Compressors/ with the six packers that pack', () => {
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF', 'IMPL'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -327,7 +328,7 @@ describe('xpkPack writes the stream $1092/$1260 write', () => {
   })
 
   it('refuses a method with no library, and NONE refuses to encrypt', () => {
-    expect(codeOf(() => xpkPack(body, 'IMPL'))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkPack(body, 'IDEA'))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkPack(body, 'NONE', 'secret'))).toBe(XPKERR_NOCRYPT)
   })
 })
@@ -1115,8 +1116,8 @@ describe('against the real xpkBLZW.library 3.0', () => {
       "Fast compression and decompression, ratio much like 'compress' or 'zoo'",
     )
     expect(u32(info + 0x14)).toBe(0x424c5a57) // xi_ID, 'BLZW'
-    // $8009 where NONE, RLEN, NUKE and CBR0 all read 9. IMPL is the only other
-    // one with the top bit set, and what it means is not settled here either.
+    // $8009 where NONE, RLEN, NUKE and CBR0 all read 9. IMPL reads the same
+    // $8009 and HUFF $a009, and only bit 13 lines up with anything.
     expect(u32(info + 0x18)).toBe(0x8009)
     expect(u32(info + 0x1c)).toBe(BLZW.maxChunk)
     expect(u32(info + 0x20)).toBe(BLZW.minChunk)
@@ -1420,6 +1421,293 @@ describe('against the real xpkHUFF.library 0.61', () => {
   })
 })
 
+describe('xpkIMPL.library, ported whole', () => {
+  const IMPL = XPK_PACKERS.get('IMPL')!
+  const pack = (b: Uint8Array, mode = 0): Uint8Array | null => IMPL.packChunk(b, mode)
+  const trip = (b: Uint8Array, mode = 0): number[] => {
+    const p = pack(b, mode)
+    return p === null ? [...b] : [...IMPL.unpackChunk(p, b.length)]
+  }
+
+  it('says it is Turbo Implode 0.18 and asks for a 65536 chunk', () => {
+    expect(IMPL.longName).toBe('Turbo Implode 0.18')
+    expect(IMPL.maxChunk).toBe(524_288)
+    expect(IMPL.minChunk).toBe(64)
+    expect(IMPL.defaultChunk).toBe(65_536)
+  })
+
+  it('writes a whole IMP! file into the chunk, magic and all', () => {
+    // $c96 lays the magic down over the first four bytes of the crunched
+    // stream, and $d60 refuses to decode a chunk that does not open with it.
+    // No other packer here ships a container inside the container.
+    const p = pack(ascii('AMOS Professional '.repeat(200)))!
+    expect(String.fromCharCode(...p.subarray(0, 4))).toBe('IMP!')
+    expect(rd32(p, 4)).toBe(3600) // the unpacked length, again
+    // and the tail sits at the crunched length, 46 bytes short of the end
+    expect(rd32(p, 8) + 46).toBe(p.length)
+  })
+
+  it('refuses anything under 64 bytes, which is its own xpi_MinChunk', () => {
+    // $a44, and the master never sends a smaller chunk because $a9e raises
+    // the chunk size to xpi_MinChunk first
+    expect(pack(new Uint8Array(63).fill(7))).toBe(null)
+    expect(pack(ascii('AMOS Professional '.repeat(20)).subarray(0, 200))).not.toBe(null)
+  })
+
+  it('refuses input it cannot beat by 54 bytes, tail included', () => {
+    // $c6e. The 46-byte tail is written INTO the input buffer past the
+    // crunched stream, so a chunk that saved less than that has nowhere to
+    // put it.
+    expect(pack(noise(4000))).toBe(null)
+    expect(pack(noise(200))).toBe(null)
+  })
+
+  it('also refuses input it compressed TOO well, which reads like a bug', () => {
+    // $c5e turns down a crunched stream under twelve bytes, because the
+    // twelve the header displaces have to come from somewhere. 400 zeros go
+    // out in two matches and about six bytes, so they are unpackable; a
+    // thousand of them reach twelve on the nose and pack to 58.
+    expect(pack(new Uint8Array(400))).toBe(null)
+    const long = pack(new Uint8Array(1000))!
+    expect(long.length).toBe(58)
+    expect(rd32(long, 8)).toBe(12)
+  })
+
+  it('round-trips runs, text, ramps and the boundary sizes', () => {
+    for (const n of [64, 65, 127, 128, 2047, 2048, 2049, 5000]) {
+      expect(trip(new Uint8Array(n).fill(0x5a)), `run ${n}`).toEqual([...new Uint8Array(n).fill(0x5a)])
+      const text = ascii('The quick brown fox jumps over the lazy dog. '.repeat(n)).subarray(0, n)
+      expect(trip(text), `text ${n}`).toEqual([...text])
+      const ramp = Uint8Array.from({ length: n }, (_, i) => i & 0x3f)
+      expect(trip(ramp), `ramp ${n}`).toEqual([...ramp])
+    }
+  })
+
+  it('crosses the 2048-byte line where it stops scanning and starts hashing', () => {
+    // $b04: above $800 the library builds 65536 buckets and a node per window
+    // position and walks chains at $6d2; at or below it, $7a4 compares every
+    // position in the window against the current byte. They are different
+    // searches, so the output differs across the line even though the input
+    // barely does.
+    const body = (n: number): Uint8Array => ascii('AMOS Pro '.repeat(400)).subarray(0, n)
+    const under = pack(body(2048))!
+    const over = pack(body(2049))!
+    expect(under.length).toBeLessThan(2048)
+    expect(over.length).toBeLessThan(2049)
+    expect([...IMPL.unpackChunk(under, 2048)]).toEqual([...body(2048)])
+    expect([...IMPL.unpackChunk(over, 2049)]).toEqual([...body(2049)])
+  })
+
+  it('reads the mode and the length together, so a big chunk gets a wide window', () => {
+    // $168. Mode 0 scales the table index by one per cent and floors it away,
+    // so the smallest window wins; mode 99 keeps the index whole. The two
+    // land on different offset tables and so on different output.
+    const body = ascii('Sed ut perspiciatis unde omnis iste natus error sit voluptatem. '.repeat(300))
+    const lazy = pack(body, 0)!
+    const keen = pack(body, 99)!
+    // the twelve offset-bit counts are the last twelve bytes of the file
+    expect([...lazy.subarray(lazy.length - 12)]).not.toEqual([...keen.subarray(keen.length - 12)])
+    expect([...IMPL.unpackChunk(lazy, body.length)]).toEqual([...body])
+    expect([...IMPL.unpackChunk(keen, body.length)]).toEqual([...body])
+  })
+
+  it('mode 100 reads a different table and is not mode 99 plus one', () => {
+    // $170 branches on the mode being exactly 100 and takes the coarser table
+    // at $43a with no scaling at all, so the two modes are not neighbours.
+    const body = ascii('Turbo Implode '.repeat(1200))
+    const a = pack(body, 99)!
+    const b = pack(body, 100)!
+    expect([...a.subarray(a.length - 12)]).not.toEqual([...b.subarray(b.length - 12)])
+  })
+
+  it('derives its offset bases so the three arms leave no gap', () => {
+    // $ab8: base = 1 << bits, then every entry from four up adds the one four
+    // places below. That is what makes arm `0`, arm `10` and arm `11` cover a
+    // contiguous run of offsets, and the last four bases -- which are
+    // computed and then never written to the file -- come out at the window.
+    // mode 100 and 600,000 bytes is the only way to the twelfth table: $1a8
+    // wants half a million before it hands out the top index
+    const body = new Uint8Array(600_000).fill(3)
+    const p = pack(body, 100)!
+    const bits = [...p.subarray(p.length - 12)]
+    const base = bits.map((b) => 1 << b)
+    for (let i = 4; i < 12; i++) base[i]! += base[i - 4]!
+    for (let tab = 0; tab < 4; tab++) {
+      expect(rd16(p, p.length - 28 + tab * 2), `arm 0 cap, table ${tab}`).toBe(base[tab])
+      expect(rd16(p, p.length - 28 + 8 + tab * 2), `arm 10 cap, table ${tab}`).toBe(base[tab + 4])
+    }
+    // 135680 is IMP_WINDOW's last entry, and table 3 is the only one that
+    // reaches it
+    expect(base[11]).toBe(135_680)
+  })
+
+  it('pads an odd stream and says so in bit 15 of the seed word', () => {
+    // $c86: the tail is read as longwords, so an odd crunched length gets a
+    // zero byte and the decoder is told to step back over it. Both parities
+    // turn up across a spread of run lengths.
+    const seen = new Set<boolean>()
+    for (let n = 64; n < 400; n++) {
+      const p = pack(Uint8Array.from({ length: n }, (_, i) => (i * i) & 0x1f))
+      if (p === null) continue
+      const tail = rd32(p, 8)
+      expect(tail % 2).toBe(0)
+      seen.add((rd16(p, tail + 16) & 0x8000) !== 0)
+    }
+    expect([...seen].sort()).toEqual([false, true])
+  })
+
+  it('answers CORRUPTPKD for a chunk that is not an IMP! file', () => {
+    // $d66 falls straight to `moveq #0,d0` on a bad magic, and $23e turns
+    // that into $f2
+    expect(codeOf(() => IMPL.unpackChunk(new Uint8Array(64).fill(9), 64))).toBe(XPKERR_CORRUPTPKD)
+  })
+
+  it('answers CORRUPTPKD when the reader does not land exactly on byte zero', () => {
+    // $dd8, the one whole-stream integrity test the format has: a corrupted
+    // bit leaves the read pointer short or long, and anything but zero is a
+    // refusal. AMCAF's own decruncher makes no such test.
+    const body = ascii('AMOS Professional '.repeat(300))
+    const p = pack(body)!
+    const bent = Uint8Array.from(p)
+    bent[20] = bent[20]! ^ 0x55
+    expect(codeOf(() => IMPL.unpackChunk(bent, body.length))).toBe(XPKERR_CORRUPTPKD)
+  })
+
+  it('goes through xpkPack whole, in long-header chunks', () => {
+    // 65536 is over the master's 65000 line at $aec, so IMPL is the fourth
+    // packer here whose streams carry twelve-byte chunk headers
+    const body = ascii('AMOS Professional 2.0 '.repeat(9000))
+    const s = xpkPack(body, 'IMPL')
+    expect(xpkExamine(s).flags & XPKSTREAMF_LONGHDRS).toBe(XPKSTREAMF_LONGHDRS)
+    expect(xpkExamine(s).uLen).toBe(body.length)
+    expect(s.length).toBeLessThan(body.length / 20)
+    expect([...xpkUnpack(s)]).toEqual([...body])
+  })
+
+  it('has no cipher, and says so', () => {
+    // nothing in $15e or $224 fetches xsp_Password at $20(a2)
+    expect(codeOf(() => xpkPack(new Uint8Array(200), 'IMPL', 'secret'))).toBe(XPKERR_NOCRYPT)
+  })
+})
+
+describe('against the real xpkIMPL.library 0.18', () => {
+  const LIB = join(fixtures, 'libs', 'xpkimpl.library')
+  const load = (): Uint8Array => loadHunks(new Uint8Array(readFileSync(LIB)), 0).image
+
+  it.skipIf(!existsSync(LIB))('exports nineteen vectors, nine more than the XPK API asks for', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    let tag = -1
+    for (let o = 0; o + 26 <= img.length; o += 2) if (u16(o) === 0x4afc && u32(o + 2) === o) tag = o
+    expect(tag).toBe(4)
+    expect(str(u32(tag + 14))).toBe('xpkIMPL.library')
+    // plain spaces throughout, unlike CBR0 and HUFF, and it ends in a CR LF
+    expect(str(u32(tag + 18))).toBe('xpkIMPL 0.18.77 (26-Sep-92 15:15:23)\r\n')
+
+    const vectors = u32(u32(tag + 22) + 4)
+    expect(vectors).toBe(0x6c)
+    const lvo = (n: number): number => u32(vectors + (n / 6 - 1) * 4)
+    expect(lvo(30)).toBe(0x156) // XpkPackerInfo
+    expect(lvo(36)).toBe(0x15e) // XpkPackChunk
+    expect(lvo(54)).toBe(0x224) // XpkUnpackChunk
+    // and then the codec itself, which nothing in XPK reaches. $4a6 is what
+    // XpkPackChunk calls after copying the input, $d60 what XpkUnpackChunk
+    // does; $49c and $da0 are the same two with the IMP! header left off.
+    expect(lvo(96)).toBe(0x49c)
+    expect(lvo(102)).toBe(0xda0)
+    expect(lvo(108)).toBe(0x4a6)
+    expect(lvo(114)).toBe(0xd60)
+    expect(u32(vectors + 19 * 4)).toBe(0xffffffff)
+  })
+
+  it.skipIf(!existsSync(LIB))('keeps a static XpkInfo at $270', () => {
+    const img = load()
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    const IMPL = XPK_PACKERS.get('IMPL')!
+    // XpkPackerInfo is `lea $270(pc),a0 / move.l a0,d0 / rts`
+    expect(str(u32(0x278))).toBe('IMPL')
+    expect(str(u32(0x27c))).toBe(IMPL.longName)
+    expect(str(u32(0x280))).toBe('A well-known compressor with dynamic compression modes')
+    expect(u32(0x284)).toBe(0x494d504c) // xpi_ID, 'IMPL'
+    expect(u32(0x288)).toBe(0x8009) // BLZW's flags exactly, and no bit 13
+    expect(u32(0x28c)).toBe(IMPL.maxChunk)
+    expect(u32(0x290)).toBe(IMPL.minChunk)
+    expect(u32(0x294)).toBe(IMPL.defaultChunk)
+    // the four progress strings, in packing / unpacking / packed / unpacked
+    // order, and then xpi_DefMode
+    expect(str(u32(0x298))).toBe('Imploding')
+    expect(str(u32(0x29c))).toBe('Exploding')
+    expect(str(u32(0x2a0))).toBe('Imploded')
+    expect(str(u32(0x2a4))).toBe('Exploded')
+    expect(u16(0x2a8)).toBe(100)
+    // six modes, 10 30 50 75 99 100, each 42 bytes with its label inline
+    let m = u32(0x2ac)
+    const upto: number[] = []
+    for (let i = 0; i < 8 && m !== 0; i++) {
+      upto.push(u32(m + 4))
+      m = u32(m)
+    }
+    expect(upto).toEqual([10, 30, 50, 75, 99, 100])
+    // and the label is inline in the struct rather than a pointer, which is
+    // what makes each one 42 bytes
+    expect(str(u32(0x2ac) + 0x20)).toBe('0.1 * max')
+  })
+
+  it.skipIf(!existsSync(LIB))('carries the same code tables the exploder reads out of the file', () => {
+    const img = load()
+    // IMPL $ee0 and $ee4: LEN_BASE and LEN_BITS, byte for byte what
+    // ../amiga/imploder.ts read out of AMCAF's inlined decruncher at $86a2
+    expect([...img.subarray(0xee0, 0xee4)]).toEqual([6, 10, 10, 18])
+    expect([...img.subarray(0xee4, 0xef0)]).toEqual([1, 1, 1, 1, 2, 3, 3, 4, 4, 5, 7, 14])
+    // and the packer's own copy at $4c8, with the run bases and caps in front
+    // of it as twelve words at $4b0
+    expect([...img.subarray(0x4c8, 0x4d4)]).toEqual([1, 1, 1, 1, 2, 3, 3, 4, 4, 5, 7, 14])
+    const words: number[] = []
+    for (let i = 0; i < 12; i++) words.push((at(img, 0x4b0 + i * 2) << 8) | at(img, 0x4b0 + i * 2 + 1))
+    expect(words).toEqual([2, 2, 2, 2, 6, 10, 10, 18, 22, 42, 138, 16402])
+    // the twelve length codes, value at $4d2 and bit count at $4d6
+    expect([...img.subarray(0x4d4, 0x4d8)]).toEqual([0, 2, 6, 14])
+    expect([...img.subarray(0x4d8, 0x4dc)]).toEqual([1, 2, 3, 4])
+  })
+
+  it.skipIf(!existsSync(LIB))('sizes its window table to its offset tables, exactly', () => {
+    const img = load()
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    // $4dc, twelve window sizes, and $50c, twelve offset-bit tables. The
+    // widest offset table `k` can encode is what window `k` is, to the byte,
+    // which is what says the two tables are a matched pair and not two
+    // guesses. It only comes out for table 3: the shorter matches never
+    // reach the far end of the window.
+    for (let k = 0; k < 12; k++) {
+      const bits = [...img.subarray(0x50c + k * 12, 0x50c + k * 12 + 12)]
+      const base = bits.map((b) => 1 << b)
+      for (let i = 4; i < 12; i++) base[i]! += base[i - 4]!
+      expect(base[11], `table ${k}`).toBe(u32(0x4dc + k * 4))
+    }
+    // 65536 buckets of a longword each, keyed on two whole bytes, which is
+    // why $71e can start comparing at the third. $5dc builds the size as
+    // `moveq #4,d0 / swap d0` rather than an immediate, so the number itself
+    // is only readable where $694 frees it again.
+    expect([at(img, 0x5dc), at(img, 0x5dd), at(img, 0x5de), at(img, 0x5df)]).toEqual([0x70, 0x04, 0x48, 0x40])
+    expect(u32(0x696)).toBe(0x40000)
+  })
+})
+
 /**
  * `ancient` as an independent reader, which is the only check this file has
  * ever had that is not itself.
@@ -1479,17 +1767,17 @@ describe('against ancient, an independent XPK implementation', () => {
     for (const [name, body] of CASES) {
       const raw = join(dir, 'raw')
       writeFileSync(raw, body)
-      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF']) {
+      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF', 'IMPL']) {
         const packed = join(dir, method)
         const stream = xpkPack(body, method)
         writeFileSync(packed, stream)
         const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
-        // ancient will not NAME a BLZW or HUFF stream whose chunks all came
-        // back raw, though the next line shows it decodes one perfectly well.
-        // NONE, RLEN, NUKE and CBR0 all name themselves off the header alone.
-        // Recorded, not settled: it is ancient's identify path, and the
-        // streams themselves are fine.
-        if ((method === 'BLZW' || method === 'HUFF') && !anyPacked(stream)) {
+        // ancient will not NAME a BLZW, HUFF or IMPL stream whose chunks all
+        // came back raw, though the next line shows it decodes one perfectly
+        // well. NONE, RLEN, NUKE and CBR0 all name themselves off the header
+        // alone. Recorded, not settled: it is ancient's identify path, and
+        // the streams themselves are fine.
+        if (method !== 'NONE' && method !== 'RLEN' && method !== 'NUKE' && method !== 'CBR0' && !anyPacked(stream)) {
           expect(id, `${name} / ${method}`).toContain('<invalid>')
         } else {
           expect(id, `${name} / ${method}`).toContain(`XPK-${method}`)
@@ -1507,9 +1795,9 @@ describe('against ancient, an independent XPK implementation', () => {
     // master's probe at $450 tests the magic, the checksum and the flags and
     // has no ULen test in it that this port has found, so the disagreement is
     // recorded rather than settled. It holds for the twelve-byte header form
-    // CBR0, BLZW and HUFF ask for too.
+    // CBR0, BLZW, HUFF and IMPL ask for too.
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
-    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF']) {
+    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0', 'BLZW', 'HUFF', 'IMPL']) {
       const stream = xpkPack(new Uint8Array(0), method)
       const long = (xpkExamine(stream).flags & XPKSTREAMF_LONGHDRS) !== 0
       expect(stream.length, method).toBe(36 + (long ? 12 : 8))

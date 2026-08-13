@@ -4109,9 +4109,9 @@ export const NOTES: Record<string, string> = {
     "stores the result whether or not it is zero so `Bxpkerror$` can be read straight after. The argument that " +
     "goes NULL when empty is the PASSWORD -- the `tst.w d0 / bne / suba.l a0,a0` guard is on the last one popped, " +
     "and the tag it fills is the one the unpack list also carries. NOTE: an empty METHOD leaves xpkmaster to pick " +
-    "its configured default on the machine; here it is taken as NONE, because src/amiga/xpkmaster.ts registers " +
-    "only the NONE packer. A named method this port has no sub-library for fails with XPKERR_NOMETHOD, which is " +
-    "what a machine missing that sub-library does too.",
+    "its configured default on the machine; here it is taken as NONE, which is the one method that cannot fail. " +
+    "src/amiga/xpkmaster.ts registers seven -- NONE, RLEN, NUKE, CBR0, BLZW, HUFF and IMPL -- and a named method " +
+    "outside that set fails with XPKERR_NOMETHOD, which is what a machine missing that sub-library does too.",
 
   // ---- LSerial 2.1, slot 11 ------------------------------------------------
   "lser open":
