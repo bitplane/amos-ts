@@ -127,7 +127,7 @@ import type { AudioSink } from './host'
 export type { AudioSink } from './host'
 
 export interface AudioEvent {
-  kind: 'play' | 'stop' | 'volume' | 'freq' | 'loop' | 'filter'
+  kind: 'play' | 'stop' | 'volume' | 'freq' | 'loop' | 'filter' | 'waveform'
   voice: number
   freq?: number
   length?: number
@@ -210,6 +210,19 @@ export class NullAudio implements AudioSink {
       s.loopStart = loopStart
       s.loopEnd = end
     }
+  }
+
+  /**
+   * The bytes change under a voice that keeps playing — see `AudioSink`.
+   *
+   * `voiceState.pcm` is replaced so a test reads the waveform the voice is on
+   * NOW, and `playing` is deliberately not touched: a `setWaveform` on a
+   * stopped voice is what the machine does when it rewrites a buffer whose
+   * DMA is off, and it stays stopped.
+   */
+  setWaveform(voice: number, pcm: Int8Array): void {
+    this.events.push({ kind: 'waveform', voice, length: pcm.length })
+    this.voiceState[voice]!.pcm = pcm
   }
 
   setFilter(on: boolean): void {

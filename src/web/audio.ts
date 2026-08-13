@@ -133,6 +133,45 @@ export class WebAudioSink implements AudioSink {
     }
   }
 
+  /**
+   * DEVIATION: this restarts the voice where the machine does not, and it is
+   * audible.
+   *
+   * On the Amiga a THX voice is a chip buffer whose bytes get rewritten under
+   * a DMA that never stops, so the waveform changes with the phase unbroken.
+   * An `AudioBufferSourceNode` has no such operation — its buffer cannot be
+   * swapped after `start()` — so the nearest thing available is a fresh source
+   * at the same rate and volume, which restarts the phase and clicks.
+   *
+   * A THX instrument sweeping its filter changes waveform every frame, so this
+   * is fifty restarts a second on that voice. Doing it properly needs an
+   * AudioWorklet that owns the sample loop, which is #116's territory rather
+   * than this sink's. `NullAudio` models the real thing, so nothing about the
+   * PORT's faithfulness rests on this.
+   */
+  setWaveform(voice: number, pcm: Int8Array): void {
+    const slot = this.voices[voice]!
+    if (!this.ctx || !slot.src || slot.rate <= 0) return
+    const rate = slot.rate
+    const freq = slot.src.playbackRate.value * rate
+    this.stop(voice)
+    const buffer = this.ctx.createBuffer(1, pcm.length, rate)
+    const ch = buffer.getChannelData(0)
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i]! / 128
+    const src = this.ctx.createBufferSource()
+    src.buffer = buffer
+    src.playbackRate.value = freq / rate
+    src.loop = true
+    src.loopStart = 0
+    src.loopEnd = pcm.length / rate
+    const gain = slot.gain
+    if (!gain) return
+    src.connect(gain)
+    src.start()
+    slot.src = src
+    slot.length = pcm.length
+  }
+
   setFilter(on: boolean): void {
     this.filterOn = on
     if (this.master) this.routeFilter()

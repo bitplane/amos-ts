@@ -49,9 +49,18 @@ function tinyModule(rows: Step[], opts: { positions?: number; restart?: number }
     const word = ((r.note ?? 0) << 10) | ((r.ins ?? 0) << 4) | (r.cmd ?? 0)
     body.push(word >> 8, word & 0xff, r.arg ?? 0)
   }
-  // 22 instrument bytes: byte 0 is the volume, byte 1 the wave length, no playlist
-  const ins = [0x40, 0x05, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  // 22 instrument bytes, then ONE playlist entry.
+  //
+  // Byte 0 is the volume, byte 1 the wave length, 2..8 the ADSR, $14 the
+  // playlist speed and $15 its length. The entry is note 1, waveform 1
+  // (triangle), no commands: a THX instrument with no playlist entry never
+  // writes $16(a0), so its note comes out a semitone flat forever --- which
+  // is what the machine does and not something to build a test on.
+  const ins = [0x40, 0x05, 1, 0x40, 1, 0x40, 100, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1]
   body.push(...ins)
+  // bits 0-5 note = 1, bits 7-9 waveform = 1
+  const entry = (1 << 7) | 1
+  body.push(entry >> 8, entry & 0xff, 0, 0)
   const nameOffset = 14 + body.length
   const songLength = positions
   const head = [
@@ -169,12 +178,12 @@ describe('the track commands', () => {
   })
 
   it('8 writes a byte that nothing in either replayer reads', () => {
-    const { p, audio } = player(tinyModule([{ note: 25, ins: 1, cmd: 8, arg: 0x20 }, {}]))
+    const { p } = player(tinyModule([{ note: 25, ins: 1, cmd: 8, arg: 0x20 }, {}]))
     p.tick()
     expect(p.masterVolume).toBe(0x20)
     // $0(a6) is not one of the five terms of the chain at $148e, so the
-    // command cannot be heard --- AUDxVOL is the instrument's $40 either way
-    expect(audio.events.filter((e) => e.kind === 'volume' && e.voice === 0)[0]!.volume).toBe(0x40)
+    // command cannot be heard --- the voice comes up at full scale either way
+    expect(p.channels[0]!.outVolume).toBe(0x40)
   })
 
   it('B jumps to a DECIMAL position', () => {
@@ -224,29 +233,29 @@ describe('the track commands', () => {
       const { p } = player(tinyModule([{ cmd: 0xc, arg: 0x60 }]))
       p.tick()
       expect(p.channels.map((c) => c.volumeC)).toEqual([0x10, 0x10, 0x10, 0x10])
-      // and leaves $1d, the first range's field, alone
-      expect(p.channels[0]!.volume).toBe(0)
     })
 
     it('sets $21(a0) on this channel alone from $a0', () => {
       const { p } = player(tinyModule([{ cmd: 0xc, arg: 0xb0 }]))
       p.tick()
-      expect(p.channels.map((c) => c.volumeC)).toEqual([0x10, 0, 0, 0])
+      // the other three keep the $40 that `move.w #$40,$20(a1)` gave them
+      expect(p.channels.map((c) => c.volumeC)).toEqual([0x10, 0x40, 0x40, 0x40])
     })
 
     it('does nothing in the gaps the two subtractions leave', () => {
       const { p } = player(tinyModule([{ cmd: 0xc, arg: 0x4a }]))
       p.tick()
-      expect(p.channels.map((c) => c.volumeC)).toEqual([0, 0, 0, 0])
-      expect(p.channels[0]!.volume).toBe(0)
+      expect(p.channels.map((c) => c.volumeC)).toEqual([0x40, 0x40, 0x40, 0x40])
     })
   })
 
   describe('E is two sub-commands bounded by the speed', () => {
     it('takes a note cut inside the row', () => {
+      // the row handler sets it to 3 and the between-tick pass, later in the
+      // SAME frame, has already counted one off
       const { p } = player(tinyModule([{ cmd: 0xe, arg: 0xc3 }]))
       p.tick()
-      expect([p.channels[0]!.cutTick, p.channels[0]!.cutting]).toEqual([3, true])
+      expect([p.channels[0]!.cutTick, p.channels[0]!.cutting]).toEqual([2, true])
     })
 
     it('ignores a tick the row will never reach', () => {
@@ -257,10 +266,12 @@ describe('the track commands', () => {
     })
 
     it('cancels a note delay that is already in flight rather than restarting it', () => {
-      const { p } = player(tinyModule([{ cmd: 0xe, arg: 0xd2 }, { cmd: 0xe, arg: 0xd2 }]))
+      // the delay fires inside the between-tick pass at $1008, which calls the
+      // row handler back --- and THAT is what clears the flag, at $bee
+      const { p } = player(tinyModule([{ cmd: 0xe, arg: 0xd2 }, {}, {}, {}]))
       p.tick()
-      expect(p.channels[0]!.delaying).toBe(true)
-      run(p, 6)
+      expect([p.channels[0]!.delaying, p.channels[0]!.delayTick]).toEqual([true, 1])
+      run(p, 2)
       expect(p.channels[0]!.delaying).toBe(false)
     })
   })
@@ -276,19 +287,38 @@ describe('what reaches the sink', () => {
     expect(freqs[0]!.freq).toBeCloseTo(3546895 / 856, 6)
   })
 
-  it('writes AUDxVOL on a change and not on every frame', () => {
+  it('holds AUDxVOL steady once the envelope has settled', () => {
+    // attack 1 frame to $40, decay 1 frame back to $40, then 100 of sustain
     const { p, audio } = player(tinyModule([{ note: 25, ins: 1 }, {}, {}, {}]))
     run(p, 30)
     const vols = audio.events.filter((e) => e.kind === 'volume' && e.voice === 0)
-    // one write at the first frame, and nothing after it
-    expect(vols.length).toBe(1)
-    expect(vols[0]!.volume).toBe(0x40)
+    // the first value arrives with play(); after that only changes are written
+    expect(p.channels[0]!.outVolume).toBe(0x40)
+    expect(vols.length).toBeLessThanOrEqual(1)
   })
 
-  it('does not call play(), because THX never restarts a voice', () => {
+  it('starts a voice with play() ONCE and changes it with setWaveform after', () => {
+    // `$1de` switches the DMA on at init and `$1618` only ever rewrites the
+    // buffer under it, so a second play() would be a restart the machine never
+    // does. A filter sweep changes the waveform every frame.
     const { p, audio } = player(tinyModule([{ note: 25, ins: 1 }, { note: 30, ins: 1 }]))
     run(p, 24)
-    expect(audio.events.some((e) => e.kind === 'play')).toBe(false)
+    const v0 = audio.events.filter((e) => e.voice === 0)
+    expect(v0.filter((e) => e.kind === 'play').length).toBe(1)
+    // and it comes after the period, which is the order $1618 writes them:
+    // `move.w $64(a0),$6(a3)` is AUDxPER and the buffer copy follows it
+    expect(v0.slice(0, 2).map((e) => e.kind)).toEqual(['freq', 'play'])
+    expect(v0[1]!.length).toBe(640)
+    // every later change is a rewrite under the running DMA
+    expect(v0.filter((e) => e.kind === 'waveform').length).toBeGreaterThan(0)
+  })
+
+  it('gives every voice a 640-byte buffer, whatever the wave length', () => {
+    const { p, audio } = player(tinyModule([{ note: 25, ins: 1 }, {}, {}, {}]))
+    run(p, 12)
+    for (const e of audio.events) {
+      if (e.kind === 'play' || e.kind === 'waveform') expect(e.length).toBe(640)
+    }
   })
 
   it('takes the instrument volume on a note, over whatever command C set', () => {
@@ -298,5 +328,190 @@ describe('what reaches the sink', () => {
     run(p, 6)
     // `move.b $0(a3),$1d(a0)` at $d46 --- byte 0 of the instrument, $40 here
     expect(p.channels[0]!.volume).toBe(0x40)
+  })
+})
+
+/**
+ * The synthesis half: the envelope, the playlist and the waveform.
+ *
+ * `insModule` builds a module whose single instrument can be dictated field by
+ * field, because every one of these is a property of the instrument rather
+ * than of the song.
+ */
+function insModule(header: Partial<Record<number, number>>, entries: number[][] = [[1, 1, 0, 0]]): ThxModule {
+  const body: number[] = [1, 0, 0, 0, 0, 0, 0, 0]
+  // one row: note 25, instrument 1
+  const w = (25 << 10) | (1 << 4)
+  body.push(w >> 8, w & 0xff, 0, 0, 0, 0)
+  const ins = new Array<number>(22).fill(0)
+  ins[0] = 0x40 // volume
+  ins[1] = 5 // wave length
+  ins[0x14] = 1 // one frame an entry
+  for (const [k, v] of Object.entries(header)) ins[Number(k)] = v!
+  ins[0x15] = entries.length
+  body.push(...ins)
+  for (const [note, wave, cmdA, cmdB] of entries) {
+    // bits 0-5 note, bit 6 "absolute", bits 7-9 waveform, 10-12 command A,
+    // 13-15 command B. The note is masked to 0x7f so bit 6 survives.
+    const word0 = (note! & 0x7f) | ((wave! & 7) << 7) | (((cmdA! >> 8) & 7) << 10) | (((cmdB! >> 8) & 7) << 13)
+    body.push(word0 >> 8, word0 & 0xff, cmdA! & 0xff, cmdB! & 0xff)
+  }
+  const nameOffset = 14 + body.length
+  return thxParse(Uint8Array.from([
+    0x54, 0x48, 0x58, 0, nameOffset >> 8, nameOffset & 0xff, 0x80, 1, 0, 0, 2, 1, 1, 0, ...body, 0, 0,
+  ]))
+}
+
+describe('the envelope', () => {
+  it('starts SILENT and climbs, which is why a THX note has an attack', () => {
+    // attack: 4 frames up to $40
+    const { p } = player(insModule({ 2: 4, 3: 0x40, 4: 1, 5: 0x40, 6: 100 }))
+    const ch = p.channels[0]!
+    expect(ch.envVolume).toBe(0)
+    const seen: number[] = []
+    for (let i = 0; i < 5; i++) {
+      p.tick()
+      seen.push(ch.envVolume >> 8)
+    }
+    // (0x40 << 8) / 4 = $1000 a frame, so $10, $20, $30 then the SNAP to $40
+    expect(seen).toEqual([0x10, 0x20, 0x30, 0x40, 0x40])
+  })
+
+  it('snaps to the declared level rather than wherever the ramp got to', () => {
+    // 3 frames to $40 is $1555 a frame, which lands on $3f.xx and not $40
+    const { p } = player(insModule({ 2: 3, 3: 0x40, 4: 1, 5: 0x40, 6: 100 }))
+    const ch = p.channels[0]!
+    p.tick()
+    p.tick()
+    expect(ch.envVolume >> 8).toBe(0x2a)
+    p.tick()
+    // the third frame would reach $3f, and the snap makes it exactly $40
+    expect(ch.envVolume).toBe(0x40 << 8)
+  })
+
+  it('runs attack, decay, sustain and release in that order', () => {
+    const { p } = player(insModule({ 2: 1, 3: 0x40, 4: 1, 5: 0x20, 6: 2, 7: 1, 8: 0 }))
+    const ch = p.channels[0]!
+    const seen: number[] = []
+    for (let i = 0; i < 6; i++) {
+      p.tick()
+      seen.push(ch.envVolume >> 8)
+    }
+    // attack to $40, decay to $20, two frames of sustain holding it, release to 0
+    expect(seen).toEqual([0x40, 0x20, 0x20, 0x20, 0, 0])
+  })
+})
+
+describe('the playlist', () => {
+  it('picks the waveform, one-based so zero can mean "keep the last"', () => {
+    const { p } = player(insModule({}, [[1, 1, 0, 0], [1, 0, 0, 0], [1, 4, 0, 0]]))
+    const ch = p.channels[0]!
+    p.tick()
+    expect(ch.waveKind).toBe(0)
+    p.tick()
+    expect(ch.waveKind).toBe(0)
+    p.tick()
+    expect(ch.waveKind).toBe(3)
+  })
+
+  it('adds its note to the track\'s rather than replacing it', () => {
+    // the track plays note 25; a playlist note of 1 is no offset at all
+    const plain = player(insModule({}, [[1, 1, 0, 0]]))
+    plain.p.tick()
+    expect(plain.p.channels[0]!.period).toBe(THX_PERIODS[25])
+    // and 13 is twelve semitones up, one octave
+    const up = player(insModule({}, [[13, 1, 0, 0]]))
+    up.p.tick()
+    expect(up.p.channels[0]!.period).toBe(THX_PERIODS[37])
+  })
+
+  it('takes the note absolutely when bit 6 is set', () => {
+    // note 1 with the fixed bit is note 1, not the track's note
+    const m = insModule({}, [[1 | 0x40, 1, 0, 0]])
+    const { p } = player(m)
+    p.tick()
+    expect(p.channels[0]!.fixedNote).toBe(true)
+    expect(p.channels[0]!.period).toBe(THX_PERIODS[1])
+  })
+
+  it('STOPS at its last entry rather than looping', () => {
+    const { p } = player(insModule({}, [[1, 1, 0, 0], [1, 4, 0, 0]]))
+    const ch = p.channels[0]!
+    p.tick()
+    p.tick()
+    expect([ch.waveKind, ch.playPos]).toEqual([3, 2])
+    // ten more frames and it is still on the last waveform
+    run(p, 10)
+    expect([ch.waveKind, ch.playPos]).toEqual([3, 2])
+  })
+
+  it('loops when command 5 jumps back, which is the only way it does', () => {
+    // The argument is the ZERO-based entry to resume at. `$15c0` stores
+    // `arg - 1` and `$15c8` points four bytes short, and the `addi.b #$1` and
+    // `addi.l #$4` at the end of the same pass put both back --- so command 5
+    // with 0 goes to the first entry and with its OWN index sticks on itself.
+    const { p } = player(insModule({}, [[1, 1, 0, 0], [1, 4, 0x500, 0]]))
+    const ch = p.channels[0]!
+    p.tick()
+    expect(ch.waveKind).toBe(0)
+    p.tick()
+    expect(ch.waveKind).toBe(3)
+    p.tick()
+    expect(ch.waveKind).toBe(0)
+  })
+
+  it('command 5 pointing at its own entry is a one-entry loop, not a jump back', () => {
+    const { p } = player(insModule({}, [[1, 1, 0, 0], [1, 4, 0x501, 0]]))
+    const ch = p.channels[0]!
+    run(p, 6)
+    expect(ch.waveKind).toBe(3)
+    expect(ch.playPos).toBe(1)
+  })
+
+  it('command 7 sets the frames an entry lasts', () => {
+    const { p } = player(insModule({}, [[1, 1, 0x703, 0], [1, 4, 0, 0]]))
+    const ch = p.channels[0]!
+    p.tick()
+    expect(ch.playSpeed).toBe(3)
+    run(p, 2)
+    // still the first entry's waveform: the second is three frames away
+    expect(ch.waveKind).toBe(0)
+    p.tick()
+    expect(ch.waveKind).toBe(3)
+  })
+})
+
+describe('the waveform that reaches the sink', () => {
+  it('is the triangle of the instrument\'s own wave length, tiled to 640', () => {
+    const { p, audio } = player(insModule({ 1: 1 }, [[1, 1, 0, 0]]))
+    p.tick()
+    const wave = audio.voiceState[0]!.pcm!
+    expect(wave.length).toBe(640)
+    // wave length 1 is the 8-byte triangle, and 640 is 80 whole copies of it
+    expect(Array.from(wave.subarray(0, 8))).toEqual([0, 64, 127, 64, 0, -64, -128, -64])
+    expect(Array.from(wave.subarray(8, 16))).toEqual([0, 64, 127, 64, 0, -64, -128, -64])
+  })
+
+  it('is a different 640 bytes every frame for noise', () => {
+    const { p, audio } = player(insModule({}, [[1, 4, 0, 0]]))
+    p.tick()
+    const first = Array.from(audio.voiceState[0]!.pcm!)
+    p.tick()
+    const second = Array.from(audio.voiceState[0]!.pcm!)
+    expect(first).not.toEqual(second)
+    expect(second.length).toBe(640)
+  })
+
+  it('changes when the filter position moves, and that is the whole point', () => {
+    // playlist command 0 sets the filter position outright
+    const dark = player(insModule({}, [[1, 1, 0x001, 0]]))
+    dark.p.tick()
+    const a = Array.from(dark.audio.voiceState[0]!.pcm!.subarray(0, 8))
+    const bright = player(insModule({}, [[1, 1, 0x03f, 0]]))
+    bright.p.tick()
+    const b = Array.from(bright.audio.voiceState[0]!.pcm!.subarray(0, 8))
+    expect(a).not.toEqual(b)
+    // and neither is the dry triangle
+    expect(a).not.toEqual([0, 127, 0, -128, 0, 127, 0, -128])
   })
 })

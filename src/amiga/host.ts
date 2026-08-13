@@ -47,6 +47,21 @@ export interface AudioSink {
   setFrequency(voice: number, freqHz: number): void
   /** re-point the repeat region of the playing sample; loopStart -1 = play out and stop */
   setLoop(voice: number, loopStart: number, loopEnd?: number): void
+  /**
+   * Replace the bytes of the LOOPING sample without restarting it.
+   *
+   * What a synth replayer does every frame: THX keeps a 640-byte chip buffer
+   * per voice looping forever and overwrites its contents when the waveform
+   * changes, so the phase runs on unbroken (`$1618` of `AMOSPro_Jotre.Lib`
+   * rewrites the buffer in place and never touches the DMA bit). `play()`
+   * cannot express that — it restarts from sample 0, which at fifty waveform
+   * changes a second is a click each time.
+   *
+   * Optional because only `thxplay.ts` needs it. A sink that leaves it out
+   * gets the sequencing and the volumes and a waveform that never changes,
+   * which is wrong but not silent.
+   */
+  setWaveform?(voice: number, pcm: Int8Array): void
   /** the power-LED low-pass filter ($BFE001 bit 1); on = filter engaged */
   setFilter(on: boolean): void
 }
