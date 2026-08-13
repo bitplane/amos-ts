@@ -17,7 +17,6 @@ import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL, noteFor } from '../coverage/status'
 
-
 /**
  * Where the manifest lives, resolved from THIS file rather than from the
  * working directory. `writeFileSync('KEYWORDS.md')` wrote wherever it was
@@ -31,17 +30,9 @@ const rt = new Runtime(tokenize('', table), table, {})
 // slot-qualified handlers (`ext13:sprite col`) implement the keyword after
 // the colon; see Names.qualified
 const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
+
 /**
- * A keyword a port registers only when a particular RELEASE is bound is still
- * implemented, and `rt` above has no bindings — so the alias maps have to be
- * asked directly. jd-prt 1.1 spells all 58 of its keywords without the `Jd `
- * prefix 1.3 added, and without this the manifest called a finished port 0%.
- *
- * coverage.test.ts carries the same rule; the two must agree, or the release
- * gate and the published manifest disagree about what exists.
- */
-/**
- * The CORE's implemented names --- the interpreter's own builtins and the
+ * The CORE's implemented names: the interpreter's own builtins, and the
  * runtime layers that are not an extension port.
  */
 const coreImplemented = new Set(
@@ -50,34 +41,24 @@ const coreImplemented = new Set(
     ...Object.keys(FUNCS),
     ...Object.keys(RAWFUNCS),
     ...Object.keys(makeRawFunctions(rt)),
-    // the runtime's own layer --- screens, bobs, menus, banks and the rest of
+    // the runtime's own layer: screens, bobs, menus, banks and the rest of
     // AMOS proper. NOT the extension layers, which are credited per identity
-    // below; merging the two is what made the measure wrong.
+    // below. Merging the two is what made the measure wrong.
     ...Object.keys(makeInstructions(rt)),
     ...Object.keys(makeFunctions(rt)),
   ].map(unqualify),
 )
 
 /**
- * What each EXTENSION implements, keyed by registry identity.
- *
- * This used to be one flat set merged across every port, and the merge was a
- * lie: `FAITHFUL` is a set of NAMES, so an extension that had never been
- * ported was credited with any keyword whose name a ported one happened to
- * share. p61-1.2 reported 22% with no binding at all, because Personnal 1.1
- * has a `P61 Play` and a `P61 Stop` of its own. An extension with no
- * ExtensionImpl now implements nothing, whatever its table is called.
- */
-/**
  * The official extensions the INTERPRETER implements rather than a port.
  *
- * Compact, Request, Compiler and most of Music shipped in the AMOS Pro box
- * and their keywords live in the runtime's own layer, not behind an
- * ExtensionImpl --- `Pack`, `Unpack`, `Request`, `Music`, `Play` and the rest
- * are simply part of what this interpreter does. They have no `ids` binding
- * to credit them from, so without this they would report 0% while working
- * perfectly. Listed explicitly, because the alternative is the flat
- * name-matching that made every other row unreliable.
+ * Compact, Request, Compiler and most of Music shipped in the AMOS Pro box.
+ * Their keywords live in the runtime's own layer rather than behind an
+ * ExtensionImpl, because `Pack`, `Unpack`, `Request`, `Music` and `Play` are
+ * part of what this interpreter does. They have no `ids` binding to credit
+ * them from, so without this list they report 0% while working. Listed
+ * explicitly, because the alternative is the flat name-matching that made
+ * every other row unreliable.
  */
 const CORE_EXTENSIONS = new Set([
   'amospro-compact-2.0',
@@ -86,11 +67,26 @@ const CORE_EXTENSIONS = new Set([
   'amospro-music-2.0',
 ])
 
+/**
+ * What each EXTENSION implements, keyed by registry identity.
+ *
+ * An extension with no ExtensionImpl implements nothing, whatever its table
+ * is called. One flat set merged across every port credits an extension with
+ * any keyword whose NAME a ported one happens to share, which reported
+ * p61-1.2 at 22% with no binding at all, because Personnal 1.1 has a `P61
+ * Play` and a `P61 Stop` of its own.
+ */
 const extImplemented = new Map<string, Set<string>>()
 for (const impl of extensionImpls()) {
   const names = [
     ...Object.keys(impl.instructions?.(rt) ?? {}),
     ...Object.keys(impl.functions?.(rt) ?? {}),
+    // a port registers some keywords only when a particular RELEASE is bound,
+    // and `rt` has no bindings, so the alias maps are read directly. jd-prt
+    // 1.1 spells all 58 of its keywords without the `Jd ` prefix 1.3 added,
+    // and without this the manifest called a finished port 0%.
+    // coverage.test.ts carries the same rule and the two must agree, or the
+    // release gate and the published manifest disagree about what exists.
     ...Object.values(impl.aliases ?? {}).flatMap((m) => Object.keys(m)),
     // keywords the port deliberately leaves to the core handler, because the
     // extension's own author copied them from a core library and said so.
@@ -339,21 +335,30 @@ export function buildManifest(): string {
 
   let md = `# Keyword coverage manifest
 
-GENERATED by \`src/cli/genmanifest.ts\` — do not edit.
+GENERATED by \`src/cli/genmanifest.ts\`. Do not edit.
 
-This is the INDEX: which keywords exist, and how each one is classified. A
-keyword is **faithful** only when its behaviour was verified against the
-original 68k source, the official manual, or byte-exact artifacts;
-**approximated** means implemented and tested against our own understanding.
-Percentages exclude n/a (editor-internal tokens).
+This is the index. It says which keywords exist and how each one is
+classified. Three classifications:
 
-The evidence is not here and never was — the classification, the assembly
-citations and the ${noted} qualifying notes all live in
-\`src/coverage/status.ts\`, which is the source this file is generated FROM.
-Those notes used to be inlined here too, which took the file past 400KB of one
-enormous line per area; GitHub declines to render a file that size, so the
-prose nobody could read was also stopping anyone reading the table. Look a
-keyword up in \`status.ts\` for why it is classified the way it is.
+**faithful** means the behaviour was checked against the shipped assembler
+source, against the library binary, or against a byte-exact artifact.
+Documentation alone never qualifies. A keyword whose only evidence is a manual
+cannot be faithful, because there is nothing to check the port against, and
+\`src/ext/registry.ts\` applies the same rule to the extension that owns it.
+
+**approximated** means the keyword runs, is tested, and differs from the
+original in a way its note names.
+
+**n/a** means the keyword is not a port target. It carries no verification
+obligation and sits outside the percentages, so the reason recorded in
+\`status.ts\` is the only thing holding it up. That reason must say what the
+keyword IS, never what this port lacks.
+
+The evidence is not here. The classification, the assembly citations and the
+${noted} qualifying notes live in \`src/coverage/status.ts\`, which this file
+is generated from. They were inlined here once and took it past 400KB, one
+line per area, which GitHub declines to render. Look a keyword up in
+\`status.ts\` for why it is classified the way it is.
 
 ## Summary
 
