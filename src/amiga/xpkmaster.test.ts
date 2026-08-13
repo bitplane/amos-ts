@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -490,5 +492,77 @@ describe('against the real xpkRLEN.library 1.0', () => {
     expect(u32(info + 0x20)).toBe(0) // min
     expect(u32(info + 0x24)).toBe(32000) // default
     expect(new TextDecoder('latin1').decode(img)).toContain('xpkRLEN.library')
+  })
+})
+
+/**
+ * `ancient` as an independent reader, which is the only check this file has
+ * ever had that is not itself.
+ *
+ * Everything above proves the port agrees with the binary as this port read
+ * it, or that the writer and reader here agree with each other. Neither
+ * catches a misreading, and the header says so: no XPKF stream exists in the
+ * corpus, so there is no artefact. Teemu Suutari's `ancient` implements the
+ * XPK container and 72 methods, RLEN and NONE among them, from its own
+ * reading. When our stream decodes correctly under it, the container and the
+ * codec are confirmed by somebody who did not read our disassembly.
+ */
+describe('against ancient, an independent XPK implementation', () => {
+  const HAS_ANCIENT = ((): boolean => {
+    try {
+      execFileSync('ancient', { stdio: 'pipe' })
+      return true
+    } catch (e) {
+      // it exits non-zero with no arguments; only ENOENT means it is absent
+      return (e as NodeJS.ErrnoException).code !== 'ENOENT'
+    }
+  })()
+
+  const CASES: Array<[string, Uint8Array]> = [
+    ['one byte', new Uint8Array([65])],
+    ['a run past the 127 cap', new Uint8Array(400).fill(0x5a)],
+    ['a literal past the 127 cap', Uint8Array.from({ length: 300 }, (_, i) => i & 0xff)],
+    ['incompressible', Uint8Array.from({ length: 40_000 }, (_, i) => (i * 2654435761) >>> 24)],
+    ['one long run', new Uint8Array(100_000)],
+    ['several chunks', Uint8Array.from({ length: 90_000 }, (_, i) => i % 251)],
+    ['runs and literals mixed', Uint8Array.from({ length: 65_536 }, (_, i) => (i % 97 < 60 ? 7 : (i * 31) & 0xff))],
+  ]
+
+  it.skipIf(!HAS_ANCIENT)('decodes every stream xpkPack writes, for both installed methods', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
+    for (const [name, body] of CASES) {
+      const raw = join(dir, 'raw')
+      writeFileSync(raw, body)
+      for (const method of ['NONE', 'RLEN']) {
+        const packed = join(dir, method)
+        writeFileSync(packed, xpkPack(body, method))
+        const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
+        expect(id, `${name} / ${method}`).toContain(`XPK-${method}`)
+        const out = execFileSync('ancient', ['verify', packed, raw], { encoding: 'utf8' })
+        expect(out, `${name} / ${method}`).toContain('Files match!')
+      }
+    }
+  })
+
+  it.skipIf(!HAS_ANCIENT)('and disagrees about exactly one thing: a stream of nothing', () => {
+    // 36 bytes of header and an eight-byte END chunk, well formed -- CLen is
+    // $24, the header XORs to zero, and xpkExamine reads it back as ULen 0.
+    // ancient will not identify it under either method, so this is the
+    // container and not RLEN. The master's probe at $450 tests the magic, the
+    // checksum and the flags and has no ULen test in it that this port has
+    // found, so the disagreement is recorded rather than settled.
+    const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
+    for (const method of ['NONE', 'RLEN']) {
+      const stream = xpkPack(new Uint8Array(0), method)
+      expect(stream.length).toBe(44)
+      expect(xpkExamine(stream).uLen).toBe(0)
+      expect(xpkUnpack(stream).length).toBe(0)
+      const packed = join(dir, method)
+      writeFileSync(packed, stream)
+      // the refusal goes to stderr, where a successful identify goes to stdout
+      const r = spawnSync('ancient', ['identify', packed], { encoding: 'utf8' })
+      expect(r.stdout).toBe('')
+      expect(r.stderr).toContain('Unknown or invalid compression format')
+    }
   })
 })

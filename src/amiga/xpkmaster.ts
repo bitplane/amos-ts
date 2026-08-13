@@ -24,19 +24,32 @@
  * Kinds 1 and 3 are complete here and both are artefact-verified: kind 1 is
  * any file, and kind 3 runs on `./powerpacker.ts`, whose decoder is already
  * checked against genuine PowerPacker output. **Forty PP20 files exist in the
- * corpus. Zero XPKF files do.** So the kind-2 container below is read off the
- * binary in both directions and is mutually consistent — the writer at `$1260`
- * lays down exactly what the reader at `$e04` takes apart — but no shipped
- * artefact confirms it, and a round-trip test only proves this file agrees
- * with itself. That is a weaker claim than the rest of this directory makes
- * and it is deliberately stated rather than buried.
+ * corpus. Zero XPKF files do.** The count was re-checked on 2026-08-13 rather
+ * than assumed: twenty-one corpus files contain those four bytes and not one
+ * is a stream. The master itself in six copies, `C/STP` in three, Explode's
+ * library, source and Dok, the checksum index, and seven AMOS programs and
+ * banks carrying the string as data — `spinvaders.AMOS` opens "AMOS Basic
+ * V1.00", `mus1.abk` opens "AmBs", `files.mod` opens `$000003f3`.
  *
- * The XPKF count was re-checked on 2026-08-13 rather than assumed. Twenty-one
- * corpus files contain those four bytes and not one is a stream: the master
- * itself in six copies, `C/STP` in three, Explode's library, source and Dok,
- * the checksum index, and seven AMOS programs and banks that carry the string
- * as data. `spinvaders.AMOS` opens "AMOS Basic V1.00", `mus1.abk` opens
- * "AmBs", `files.mod` opens `$000003f3`.
+ * So the kind-2 container is read off the binary in both directions and is
+ * mutually consistent — the writer at `$1260` lays down exactly what the
+ * reader at `$e04` takes apart. This file used to say that was as far as the
+ * evidence went, because a round-trip only proves a file agrees with itself.
+ *
+ * It goes further now. Teemu Suutari's `ancient` implements the XPK container
+ * and 72 methods from its own reading of the format, NONE and RLEN among
+ * them, and `ancient verify` decodes every stream `xpkPack` writes back to
+ * the bytes that went in — seven bodies over both methods, across the 127
+ * caps, several chunks, incompressible input and a 100,000-byte run. That is
+ * an independent reader agreeing with this one, which is the check no artefact
+ * was available for. See the test file; it skips when `ancient` is absent.
+ *
+ * One disagreement survives and is recorded rather than settled: a stream of
+ * NOTHING. `xpkPack` of an empty input is 44 bytes, a header and an END chunk,
+ * well formed by every test here — `xsh_CLen` is $24, the header XORs to zero,
+ * and `xpkExamine` reads it back as ULen 0. `ancient` will not identify it
+ * under either method. The master's probe at `$450` tests the magic, the
+ * checksum and the flags, and has no ULen test in it that this port has found.
  *
  * ## The compressors that are here
  *
