@@ -1721,15 +1721,52 @@ describe('against the real xpkIMPL.library 0.18', () => {
  * codec are confirmed by somebody who did not read our disassembly.
  */
 describe('against ancient, an independent XPK implementation', () => {
-  const HAS_ANCIENT = ((): boolean => {
-    try {
-      execFileSync('ancient', { stdio: 'pipe' })
-      return true
-    } catch (e) {
-      // it exits non-zero with no arguments; only ENOENT means it is absent
-      return (e as NodeJS.ErrnoException).code !== 'ENOENT'
-    }
-  })()
+  // `ancient --version` prints to stderr and exits 255, as does a bare
+  // `ancient`, so the build is scraped rather than asked for. ENOENT is the
+  // only answer that means the binary is absent.
+  const probe = spawnSync('ancient', ['--version'], { encoding: 'utf8' })
+  const HAS_ANCIENT = (probe.error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT'
+  const ORACLE = (/Ancient v([\d.]+)/.exec(probe.stderr ?? '') ?? [])[1] ?? null
+
+  /**
+   * Builds of `ancient` these expectations have actually been run against.
+   *
+   * Everything this describe pins is observed output, not documented output:
+   * `Files match!`, `XPK-<method>`, and the `<invalid>` disagreement below,
+   * which is a quirk of the identify path rather than a promise. Upstream
+   * moves it. 2.2.0 changed the ids of clone formats and 2.3.0 lowered the
+   * decompression-bomb limits, so a new build can change what a stream is
+   * called without anything here being wrong.
+   *
+   * XPK itself is not the risk. 2.1.0's notes close with "XPK PPMQ (This
+   * concludes XPK, yay!)", so every method registered here has been in since
+   * then. Only the wording around them drifts.
+   *
+   * An unlisted build fails by name, so version drift reads as version drift
+   * instead of as a codec mismatch forty lines further down.
+   */
+  const CHECKED = ['2.3.0']
+
+  /**
+   * Whether a machine without the oracle is a skip or a failure.
+   *
+   * A skip and a pass are the same colour. CI installs `ancient` and sets
+   * this, so deleting that step turns the run red rather than quietly
+   * removing the only external check these codecs have. Locally it is unset
+   * and the tests below skip, because a contributor without the binary
+   * should not be blocked by it.
+   */
+  const REQUIRED = process.env.AMOS_ORACLE === '1'
+
+  it('is installed wherever it is required', () => {
+    if (!REQUIRED) return
+    expect(HAS_ANCIENT, 'AMOS_ORACLE=1 but `ancient` is not on PATH').toBe(true)
+  })
+
+  it.skipIf(!HAS_ANCIENT)('records which build produced the evidence', () => {
+    expect(ORACLE, `\`ancient --version\` said: ${JSON.stringify(probe.stderr?.slice(0, 80))}`).not.toBe(null)
+    expect(CHECKED, `ancient ${ORACLE} has not been checked against the expectations in this file`).toContain(ORACLE)
+  })
 
   const CASES: Array<[string, Uint8Array]> = [
     ['one byte', new Uint8Array([65])],

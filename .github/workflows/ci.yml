@@ -20,6 +20,18 @@ jobs:
       - run: npm run build
       - run: npm run build:web
 
+      # Teemu Suutari's `ancient` decodes the XPK container and 72 methods
+      # from his own reading of them, so it is the only reader of our streams
+      # that did not come from our disassembly. Every other check in
+      # src/amiga/xpkmaster.test.ts is the port agreeing with itself.
+      #
+      # It is GPL and packaged, which is what separates it from `fixtures/`
+      # below: those files cannot legally be here, this one just has to be
+      # installed. There is no reason for the single external check these
+      # codecs have to run on one laptop.
+      - name: Install the codec oracle
+        run: sudo apt-get update && sudo apt-get install -y ancient
+
       # `fixtures/` is gitignored — the AMOS libraries and the commercial
       # extensions are not ours to redistribute — so every test that diffs
       # against a real program or bank skips here. The faithfulness gate in
@@ -29,7 +41,14 @@ jobs:
       # So this is a build-break catch, not a fidelity proof. Proving
       # fidelity still needs a local run with the corpus in place, and the
       # census (src/cli/runreport.ts) needs it too.
+      #
+      # AMOS_ORACLE=1 makes a missing `ancient` a failure rather than a skip.
+      # Without it the step above could be deleted and this job would stay
+      # green for ever, since a skipped test and a passing test are the same
+      # colour.
       - run: npm test
+        env:
+          AMOS_ORACLE: '1'
 
       # Whether the published package works is a different question from
       # whether the tests pass, and the suite cannot answer it: the tests
