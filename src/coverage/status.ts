@@ -3811,7 +3811,7 @@ export const NOTES: Record<string, string> = {
     "not.b d0 / cmp.l d0,d6 / Rbhi routine 206` -- so 256 and -1 are both error 23.",
   "str count":
     "Routines 16 ($f94) and 17 ($fa8). DEFECT: the arguments are the other way round from the manual, which says " +
-    "\"Str Count(search$, string$)\" and \"counts how many times does the search$ occur in the string$\". Routine 16 " +
+    "\"=Str Count(search$,string$)\" and \"counts how many times does the search$ occur in the string$\". Routine 16 " +
     "pops the LAST argument into a2 and the first into a0; routine 17 reads a2's length word as the needle and " +
     "scans a0 -- so the FIRST argument is the string being searched. The author's own Dir_Read_Special.AMOS " +
     "writes `Str Count(A$,\"*\")` with A$ the path, which is the binary's order, so the help is what is wrong. " +
@@ -4039,7 +4039,7 @@ export const NOTES: Record<string, string> = {
     "five IntuiTexts by hand in a 1K buffer at $4f2(a5) -- topaz.font 8, left edge 15, ten pixels apart, laid out " +
     "by `d4 = d2*10+5` counting DOWN as the arguments pop right to left so they read top to bottom -- then calls " +
     "intuition.library's AutoRequest at `jsr -$15c(a6)`, width `60 + widest*8` and height `47 + top`. The manual: " +
-    "\"Texte (1-5), Ja-Text und Nein-Text / Bool-Requester / Ergebnis: -1/0 = ja/nein\". APPROXIMATED on the " +
+    "\"Texte (1-5), Ja-Text und Nein-Text\", \"Bool-Requester\", \"-1/0 = ja/nein\". APPROXIMATED on the " +
     "modelled requester (runtime/requester.ts); the topaz font, the pixel geometry and the Workbench screen are " +
     "the chrome that is lost. NOTE: the defaults are conditional and easy to miss. The scanner at $2846 answers " +
     "a0 = -1 when it used a default and 0 when the argument was non-empty, and JA$ only gets its \"Retry\" " +
@@ -4112,7 +4112,7 @@ export const NOTES: Record<string, string> = {
     "right to left, so the name is read first and the baud rate last, and only io_SerFlags is written BEFORE the " +
     "open -- which the doc explains, \"it is always best to decide if access shall be shared or exclusive when " +
     "opening the device\". Errors 0, 1 and 2 in order: already open, empty name, OpenDevice failed. NOTE: the " +
-    "doc's own \"BUF_SIZE MUST be >512 bytes\" is not checked anywhere.",
+    "doc's own \"BUF_SIZE - Internal buffer for device. MUST be >512 bytes\" is not checked anywhere.",
   "lser get":
     "Routine 9 ($938), 226 bytes. DEFECT: `cmp.l #$0,d3 / bhi` is UNSIGNED, so a count of zero is refused (error " +
     "4, \"Invalid read size!\") and a NEGATIVE one passes as a number near four billion. DEVIATION: on the " +
@@ -4149,8 +4149,9 @@ export const NOTES: Record<string, string> = {
     "where every other shifted letter gives 1 to 25. NOTE: 'h' with CTRL is singled out and becomes $7f, DEL, " +
     "rather than backspace -- which is what a VT100 host expects.",
   "lxpr":
-    "Routine 13 ($a9e), 7,220 bytes -- a whole XPR host in one keyword, which the doc explains: \"the AMOS " +
-    "compiler treats all functions as local, as it datas\", so splitting the twenty-two callbacks would have " +
+    "Routine 13 ($a9e), 7,220 bytes -- a whole XPR host in one keyword, which the doc explains: \"the inner " +
+    "workings of the AMOS compiler which treats all functions as local, as it datas\", so splitting the " +
+    "twenty-two callbacks would have " +
     "linked the XPR block into every program using any other Lserial command. APPROXIMATED. The dispatch on the " +
     "fourth argument is exact and reproduced -- 5 READ, 6 WRITE (checked first, as the doc says), 2 OPEN, 3 " +
     "CLOSE, 4 SETUP, 0 SEND, 1 RECEIVE, 7 CUSTOMIZE, anything else error 8 -- as are the NUL-termination checks " +
@@ -4796,7 +4797,7 @@ export const NOTES: Record<string, string> = {
   "memory fill":
     "Both fill loops in routine 140 ($4810) decrement the count after writing and continue while it is not yet " +
     "negative, so the region is inclusive of the END address: Memory Fill a To b writes b-a+1 bytes. The manual's " +
-    "own example, \"Memory Fill Start(6) to Bank End (6),A$\", therefore writes one byte past the bank, because " +
+    "own example, \"Memory Fill Start(6) to Bank End (6), A$\", therefore writes one byte past the bank, because " +
     "Bank End is already one past the last byte.",
   "byte hunt":
     "Byte Hunt and Word Hunt are the same ninety bytes at two operand sizes, and three things follow that the " +
@@ -5876,8 +5877,8 @@ export const NOTES: Record<string, string> = {
     "either use the negative code with the same instruction or the same key code along with the Bank Code Ror " +
     "command' -- so a negative count rotates the other way",
   "bank to chip":
-    "Routine 27. The manual's warning belongs to the hardware and not to us: \"Do not try to replay musics or " +
-    "sounds that resist in fast ram\"",
+    "Routine 27. The manual's warning belongs to the hardware and not to us: \"Do not try to replay musicis " +
+    "or sounds that resist in fast ram\" -- the guide's own spelling of musics.",
   "current time":
     "Routine 321 ($70e0 in 1.50): `DateStamp()` into the extension's own block, then `move.w $6(a2),d3 / swap d3 " +
     "/ move.w $a(a2),d3` -- the LOW WORDS of ds_Minute and ds_Tick, the two high words dropped rather than " +
@@ -7925,7 +7926,7 @@ export const NOTES: Record<string, string> = {
   "elf char":
     "Routines 26/27 into 40 ($160a), which walks A$ per source character rather than comparing one code -- " +
     "`move.w (a2),d7` then a `dbra` from the LAST character of the set down to the first. NOTE: the guide's " +
-    "\"Illegal Function Call: Either A$ is an empty string, or A is not between 0 and 255\" is half right.",
+    "\"Illegal Function Call\", \"Either A$ is an empty string, or A is not between 0 and 255\" is half right.",
   "elf last asc":
     "Routines 22/23 into 38 ($15da), over the backward setup at routine 37 ($15ac). P of 0, or past the length, " +
     "starts at the end, which the guide gets right.",
@@ -8018,8 +8019,8 @@ export const NOTES: Record<string, string> = {
     "`move.l $f8(a6),d1` overwriting d0 before anything reads it, and `St Free All` passes 0 anyway.",
   "st dup":
     "Routine 267 ($384c): read the type word, `ELST_New` with d1 = 0 so NO clear, then `move.l (a2)+,(a1)+` over " +
-    "size/4 longwords -- the whole instance, header included. The guide: \"equivilent to (But faster than) S2=St " +
-    "New(St Type(S1)) : St Copy S1 To S2\", and the difference is exactly the four-byte header St Copy skips",
+    "size/4 longwords -- the whole instance, header included. The guide: \"equivilent to (But faster than): " +
+    "S2=St New(St Type(S1)) : St Copy S1 To S2\", and the difference is exactly the four-byte header St Copy skips",
   "st copy":
     "Routine 268 ($387a). NOTE: routine 3 is `moveq #$17,d0 / Rjmp L_Error`, AMOS 23 -- message 39 \"Cannot copy " +
     "between structures of different types\" is in the extension's own table and NOTHING raises it.",

@@ -550,8 +550,8 @@ const libStrings = (file: string): string => {
   return out.join(' ').replace(/"/g, "'").replace(/\s+/g, ' ').toLowerCase()
 }
 
-/** every vendored document and library belonging to the extensions a file cites */
-const corpusFor = (file: string): string => {
+/** every vendored document and library belonging to a set of extensions */
+const corpusForIds = (ids: readonly string[]): string => {
   let corpus = ''
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
@@ -565,14 +565,64 @@ const corpusFor = (file: string): string => {
       else if (isProse(p)) corpus += ' ' + bothHyphenations(readFileSync(p, 'latin1'))
     }
   }
-  for (const id of CITED_BY[file] ?? []) {
+  for (const id of ids) {
     const d = join(extFixtures, id)
     if (existsSync(d)) walk(d)
   }
+  return corpus
+}
+
+/** reading a whole extension's documents costs real time; do each set once */
+const corpusCache = new Map<string, string>()
+const cachedCorpusForIds = (ids: readonly string[]): string => {
+  const key = [...ids].sort().join(',')
+  let hit = corpusCache.get(key)
+  if (hit === undefined) {
+    hit = corpusForIds(ids)
+    corpusCache.set(key, hit)
+  }
+  return hit
+}
+
+/** every vendored document and library belonging to the extensions a file cites */
+const corpusFor = (file: string): string => {
+  let corpus = corpusForIds(CITED_BY[file] ?? [])
   for (const extra of EXTRA_DOCS[file] ?? []) {
     corpus += ' ' + bothHyphenations(readFileSync(join(root, 'fixtures', extra), 'latin1'))
   }
   return corpus
+}
+
+/**
+ * The document-attributed quotes in one passage that the corpus does not hold.
+ *
+ * Split out from the comment-block walker so a bare string can be checked too.
+ * The coverage notes in src/coverage/status.ts are string literals rather than
+ * `/** ... *\/` blocks, so the walker never saw them, and they are where most
+ * of the quoting in this repo happens.
+ */
+const unsourcedIn = (body: string, corpus: string): string[] => {
+  const bad: string[] = []
+  const segs = body.split(/(?<!\\)"/).map((s) => s.replace(/\\"/g, '"'))
+  let prevAttributed = false
+  for (let k = 1; k < segs.length; k += 2) {
+    const lead = segs[k - 1]!.toLowerCase()
+    let attributed = ATTRIBUTION.test(lead.slice(lead.lastIndexOf('.') + 1))
+    // a run of quotes joined by punctuation shares the one attribution
+    if (!attributed && prevAttributed && lead.trim().length <= 12 && !lead.includes('.')) attributed = true
+    prevAttributed = attributed
+    const q = segs[k]!.replace(/\s+/g, ' ').trim()
+    if (q.length < 15 || q.includes('`')) continue
+    if (!attributed) continue
+    // both elision markers, and any square bracket is the quoter's insertion
+    const probes = q
+      .split(/\[[^\]]*\]|\.\.\./)
+      .map((x) => x.trim().replace(/"/g, "'").toLowerCase())
+      .filter((x) => x.length >= 4)
+    const use = probes.length > 0 ? probes : [q.toLowerCase()]
+    if (!use.every((probe) => corpus.includes(probe))) bad.push(q.slice(0, 90))
+  }
+  return bad
 }
 
 /** every quote in `file` attributed to a document, and whether the document has it */
@@ -593,25 +643,7 @@ const unsourcedQuotes = (file: string, corpus: string): string[] => {
       .join(' ')
       // `\$` and `\"` are JSDoc escapes rather than characters of the quote
       .replace(/\\\$/g, '$')
-    const segs = body.split(/(?<!\\)"/).map((s) => s.replace(/\\"/g, '"'))
-    let prevAttributed = false
-    for (let k = 1; k < segs.length; k += 2) {
-      const lead = segs[k - 1]!.toLowerCase()
-      let attributed = ATTRIBUTION.test(lead.slice(lead.lastIndexOf('.') + 1))
-      // a run of quotes joined by punctuation shares the one attribution
-      if (!attributed && prevAttributed && lead.trim().length <= 12 && !lead.includes('.')) attributed = true
-      prevAttributed = attributed
-      const q = segs[k]!.replace(/\s+/g, ' ').trim()
-      if (q.length < 15 || q.includes('`')) continue
-      if (!attributed) continue
-      // both elision markers, and any square bracket is the quoter's insertion
-      const probes = q
-        .split(/\[[^\]]*\]|\.\.\./)
-        .map((x) => x.trim().replace(/"/g, "'").toLowerCase())
-        .filter((x) => x.length >= 4)
-      const use = probes.length > 0 ? probes : [q.toLowerCase()]
-      if (!use.every((probe) => corpus.includes(probe))) bad.push(`${file}:${start + 1} ${q.slice(0, 90)}`)
-    }
+    for (const q of unsourcedIn(body, corpus)) bad.push(`${file}:${start + 1} ${q}`)
     block = []
   }
   for (let i = 0; i < lines.length; i++) {
@@ -634,4 +666,67 @@ describe.skipIf(!existsSync(extFixtures))('quotes attributed to a document are v
       expect(unsourcedQuotes(file, corpusFor(file))).toEqual([])
     })
   }
+})
+
+/**
+ * The same rule over the COVERAGE NOTES, which were never checked.
+ *
+ * `unsourcedQuotes` walks `/** ... *\/` blocks. The 1,405 notes in
+ * src/coverage/status.ts are string literals in a Record, so they were
+ * invisible to it, and they are where most of the quoting happens: a note
+ * exists to say how this port differs from what a document promised, so it
+ * quotes the document.
+ *
+ * The gap was proved by breaking one on purpose. Reverting `st erase`'s
+ * quotation to the tidied "It is OK", where EasyLifeSTRUCT.guide says "If is
+ * OK", left the whole suite green. Tidying an author's typo inside quotation
+ * marks is the one thing the quoting rule exists to prevent.
+ *
+ * A note is checked against the documents of the extension that OWNS its
+ * keyword, resolved through the registry the same way src/cli/citecheck.ts
+ * does. A core AMOS keyword has no extension corpus and is skipped: the AMOS
+ * Professional manual is not vendored, so there would be nothing to check
+ * against and every quote would fail.
+ */
+describe.skipIf(!existsSync(extFixtures))('quotes in the coverage notes are verbatim', () => {
+  /** keyword name -> the registered extensions that define it */
+  const owners = new Map<string, string[]>()
+  for (const ids of Object.values(CITED_BY)) {
+    for (const id of ids) {
+      for (const t of extensionById(id)?.tokens ?? []) {
+        const name = t.name.trim().replace(/^!/, '').toLowerCase()
+        if (name === '') continue
+        const list = owners.get(name) ?? []
+        if (!list.includes(id)) list.push(id)
+        owners.set(name, list)
+      }
+    }
+  }
+
+  it('every document-attributed quote in NOTES is in a vendored document', () => {
+    const bad: string[] = []
+    for (const [keyword, note] of Object.entries({ ...NOTES })) {
+      const ids = (owners.get(keyword.toLowerCase()) ?? []).filter((id) => existsSync(join(extFixtures, id)))
+      if (ids.length === 0) continue
+      // `\$` in a note is the TypeScript escape, not a character of the quote
+      const body = note.replace(/\\\$/g, '$')
+      for (const q of unsourcedIn(body, cachedCorpusForIds(ids))) bad.push(`${keyword}: ${q}`)
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('and there are enough of them for that to mean something', () => {
+    // the check is only worth having if it is reaching the notes at all; an
+    // owner-resolution bug would empty the set and pass silently
+    let attributed = 0
+    for (const [keyword, note] of Object.entries(NOTES)) {
+      if ((owners.get(keyword.toLowerCase()) ?? []).length === 0) continue
+      const segs = note.split(/(?<!\\)"/)
+      for (let k = 1; k < segs.length; k += 2) {
+        const lead = segs[k - 1]!.toLowerCase()
+        if (ATTRIBUTION.test(lead.slice(lead.lastIndexOf('.') + 1)) && segs[k]!.trim().length >= 15) attributed++
+      }
+    }
+    expect(attributed).toBeGreaterThan(60)
+  })
 })
