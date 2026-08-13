@@ -33,6 +33,9 @@ import {
   NUKE_BASE,
   NUKE_GROUP,
   NUKE_WINDOW,
+  XPKERR_BIGBUF,
+  XPKSTREAMF_LONGHDRS,
+  XPK_LONGHDR_ABOVE,
 } from './xpkmaster'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -159,9 +162,10 @@ describe('xpkExamine on a real XPKF header', () => {
     // failure into MISSINGLIB. Nothing has been decoded at this point.
     expect(codeOf(() => xpkExamine(header('BLZW', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkExamine(header('CBR0', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
-    // RLEN and NUKE used to be on this list and are now installed, which is
-    // the point of keeping it
+    // RLEN, NUKE and CBR0 used to be on this list and are now installed,
+    // which is the point of keeping it
     expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
     expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(0)
   })
@@ -183,8 +187,8 @@ describe('xpkExamine on a real XPKF header', () => {
 describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
-  it('shares LIBS:Compressors/ with the two packers that pack', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE'])
+  it('shares LIBS:Compressors/ with the three packers that pack', () => {
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE', 'CBR0'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -678,6 +682,163 @@ describe('against the real xpkNUKE.library 1.0', () => {
   })
 })
 
+describe('xpkCBR0.library, ported whole', () => {
+  const CBR0 = XPK_PACKERS.get('CBR0')!
+  const pack = (b: Uint8Array): number[] | null => {
+    const p = CBR0.packChunk(b, 0)
+    return p === null ? null : Array.from(p)
+  }
+  const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
+
+  it('biases both counts, so 0 is one literal and -1 is two repeats', () => {
+    // $1ea writes `neg(d4 - $7e)` for literals and $22a writes `d4 - $7e`
+    // straight, which is what makes one positive and the other negative.
+    // "aaabbbb" is a run of three then a run of four, and nothing else.
+    expect(pack(ascii('aaabbbb'))).toEqual([0xfe, 97, 0xfd, 98])
+    expect(pack(ascii('aaa'))).toEqual([0xfe, 97])
+  })
+
+  it('has no terminator, unlike RLEN, so a chunk decodes until its input ends', () => {
+    // RLEN's $274 spends a byte on a zero; CBR0's $2a6 loops on `a1 < InEnd`
+    expect(pack(ascii('aaa'))).not.toContain(0)
+    expect(CBR0.unpackChunk(Uint8Array.from([0xfe, 97]), 3)).toEqual(fill(3, 97))
+  })
+
+  it('caps a run at 128, not RLEN 127, and spends two bytes on a lone last byte', () => {
+    // the dbra at $21a starts from 127 and falls through on the 128th match
+    expect(pack(fill(128, 97))).toEqual([0x81, 97])
+    // 129 is that run plus $1a8's `00 <byte>`, the only place a count of 0 is
+    // written. Getting $238 wrong makes this emit the run's last byte twice,
+    // which no round-trip notices because both decoders stop at ULen.
+    expect(pack(fill(129, 97))).toEqual([0x81, 97, 0, 97])
+    expect(pack(fill(256, 97))).toEqual([0x81, 97, 0x81, 97])
+  })
+
+  it('stops a literal run before the byte that starts a run', () => {
+    // $1d8 tests a1[1] against a1[0] and breaks out BEFORE copying, so the
+    // first byte of the repeat belongs to the run and not to the literals
+    expect(pack(ascii('abcdeffffffff'))).toEqual([4, 97, 98, 99, 100, 101, 0xf9, 102])
+  })
+
+  it('gives up the moment the output reaches the input length', () => {
+    // $1cc tests the write cursor against OutBuf + InLen on every literal
+    // byte, so unlike RLEN it can never return a chunk that grew
+    expect(pack(ascii('abcde'))).toBe(null)
+    expect(pack(ascii('a'))).toBe(null)
+    const noise = Uint8Array.from({ length: 20_000 }, (_, i) => (i * 2654435761) >>> 24)
+    expect(pack(noise)).toBe(null)
+  })
+
+  it('packs an empty chunk to an empty result, which is a SUCCESS not EXPANSION', () => {
+    // $252: clr.l $10(a0) / moveq #0,d0. NONE would have said EXPANSION here.
+    expect(pack(new Uint8Array(0))).toEqual([])
+  })
+
+  it('refuses more than $fffc bytes with BIGBUF, its own declared maximum', () => {
+    // $17a, and again at $28e on the way back out
+    expect(codeOf(() => CBR0.packChunk(fill(0xfffd, 0), 0))).toBe(XPKERR_BIGBUF)
+    expect(CBR0.packChunk(fill(0xfffc, 0), 0)).not.toBe(null)
+  })
+
+  it('round-trips, including the counts either side of every cap', () => {
+    const cases: Uint8Array[] = [new Uint8Array(0), ascii('aaa')]
+    for (const n of [1, 2, 3, 127, 128, 129, 255, 256, 257]) {
+      cases.push(fill(n, 0x5a), ascii(`${'q'.repeat(n)}z${'q'.repeat(n)}`))
+      cases.push(Uint8Array.from({ length: n }, (_, i) => (i >> 3) & 0xff))
+    }
+    for (const src of cases) {
+      const packed = CBR0.packChunk(src, 0)
+      if (packed === null) continue
+      expect(Array.from(CBR0.unpackChunk(packed, src.length)), `${src.length} bytes`).toEqual(Array.from(src))
+    }
+  })
+
+  it('is the only packer here that makes the master write LONG chunk headers', () => {
+    // xpi_DefChunk is 65532 and $aec switches to twelve-byte headers over
+    // 65000, so CBR0 is what exercises that half of the writer at all
+    expect(CBR0.defaultChunk).toBe(0xfffc)
+    expect(CBR0.defaultChunk!).toBeGreaterThan(XPK_LONGHDR_ABOVE)
+    const body = Uint8Array.from({ length: 200_000 }, (_, i) => (i >> 8) & 0xff)
+    const s = xpkPack(body, 'CBR0')
+    expect(xpkExamine(s).flags & XPKSTREAMF_LONGHDRS).toBe(XPKSTREAMF_LONGHDRS)
+    expect(rd32(s, 36 + 8)).toBe(65_532) // xch_ULen, a longword in this form
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
+    // and the other three stay in the short form
+    for (const m of ['NONE', 'RLEN', 'NUKE']) {
+      expect(xpkExamine(xpkPack(body, m)).flags & XPKSTREAMF_LONGHDRS, m).toBe(0)
+    }
+  })
+
+  it('has no cipher, so a password is NOCRYPT rather than ignored', () => {
+    expect(codeOf(() => xpkPack(ascii('secret'), 'CBR0', 'hunter2'))).toBe(XPKERR_NOCRYPT)
+  })
+})
+
+describe('against the real xpkCBR0.library 1.0', () => {
+  const LIB = join(fixtures, 'libs', 'xpkcbr0.library')
+
+  it.skipIf(!existsSync(LIB))('names itself, and hangs its entries off a word-relative table', () => {
+    const img = loadHunks(new Uint8Array(readFileSync(LIB)), 0).image
+    const u16 = (o: number): number => (at(img, o) << 8) | at(img, o + 1)
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    // the RomTag is at $4c, not $4 as in the other three: find it by the
+    // match word pointing back at itself
+    let tag = -1
+    for (let o = 0; o + 26 <= img.length; o += 2) if (u16(o) === 0x4afc && u32(o + 2) === o) tag = o
+    expect(tag).toBe(0x4c)
+    expect(str(u32(tag + 14))).toBe('xpkCBR0.library')
+    // $a0, a Latin-1 non-breaking space, is this author's word separator and
+    // it is left exactly as he wrote it -- here, and in the $VER string at $4
+    // where he also spells it "Hypenosis"
+    expect(str(u32(tag + 18))).toBe('xpkCBR0\u00a0V1.0 (23-Aug-1992)')
+    expect(str(4)).toBe(
+      '$VER:\u00a0xpkCBR0.library\u00a0V1.0 \u00a9\u00a0by\u00a0Bilbo\u00a01st\u00a0of' +
+        '\u00a0Hypenosis\u00a0on\u00a023-Aug-1992.',
+    )
+
+    // RTF_AUTOINIT's second form: the vector table opens with $ffff and the
+    // entries are word offsets from the table, where NONE, RLEN and NUKE all
+    // use longword pointers
+    const vectors = u32(u32(tag + 22) + 4)
+    expect(u16(vectors)).toBe(0xffff)
+    const lvo = (n: number): number => vectors + u16(vectors + 2 + (n / 6 - 1) * 2)
+    expect(lvo(30)).toBe(0x15e) // XpkPackerInfo
+    expect(lvo(36)).toBe(0x168) // XpkPackChunk
+    expect(lvo(54)).toBe(0x27e) // XpkUnpackChunk
+    expect(u16(vectors + 2 + 10 * 2)).toBe(0xffff) // ten entries, then the end
+  })
+
+  it.skipIf(!existsSync(LIB))('builds its XpkInfo in code, and $358 holds the numbers', () => {
+    const img = loadHunks(new Uint8Array(readFileSync(LIB)), 0).image
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    const str = (o: number): string => {
+      let s = ''
+      for (let k = o; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    // XpkPackerInfo is `move.l a6,d0 / addi.l #$28,d0 / rts`, so the struct is
+    // at library base + $28 and there is nothing static to read. $358 onward
+    // is a run of `move.l #imm,off(a1)` filling it, and these are the
+    // immediates -- each sits two bytes into its instruction.
+    expect(u32(0x38c)).toBe(0x43425230) // xi_ID, 'CBR0'
+    expect(u32(0x394)).toBe(9) // xi_Flags, the same 9 all four declare
+    expect(u32(0x39c)).toBe(XPK_PACKERS.get('CBR0')!.maxChunk)
+    expect(u32(0x3a4)).toBe(0) // xi_MinChunk
+    expect(u32(0x3ac)).toBe(XPK_PACKERS.get('CBR0')!.defaultChunk)
+    // and the three strings it lea's in at $372, $37a and $382
+    expect(str(0x410)).toBe('CBR0')
+    expect(str(0x418)).toBe(XPK_PACKERS.get('CBR0')!.longName)
+    expect(str(0x434)).toBe('fast and simple compression of data containing many repeating equal bytes')
+  })
+})
+
 /**
  * `ancient` as an independent reader, which is the only check this file has
  * ever had that is not itself.
@@ -716,7 +877,7 @@ describe('against ancient, an independent XPK implementation', () => {
     for (const [name, body] of CASES) {
       const raw = join(dir, 'raw')
       writeFileSync(raw, body)
-      for (const method of ['NONE', 'RLEN', 'NUKE']) {
+      for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0']) {
         const packed = join(dir, method)
         writeFileSync(packed, xpkPack(body, method))
         const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
@@ -728,16 +889,19 @@ describe('against ancient, an independent XPK implementation', () => {
   })
 
   it.skipIf(!HAS_ANCIENT)('and disagrees about exactly one thing: a stream of nothing', () => {
-    // 36 bytes of header and an eight-byte END chunk, well formed -- CLen is
-    // $24, the header XORs to zero, and xpkExamine reads it back as ULen 0.
-    // ancient will not identify it under either method, so this is the
-    // container and not RLEN. The master's probe at $450 tests the magic, the
-    // checksum and the flags and has no ULen test in it that this port has
-    // found, so the disagreement is recorded rather than settled.
+    // 36 bytes of header and an END chunk, well formed -- the header XORs to
+    // zero and xpkExamine reads it back as ULen 0. ancient will not identify
+    // it under ANY method, so this is the container and not one codec. The
+    // master's probe at $450 tests the magic, the checksum and the flags and
+    // has no ULen test in it that this port has found, so the disagreement is
+    // recorded rather than settled. It holds for CBR0's twelve-byte header
+    // form too, which is the one thing that was new to test here.
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
-    for (const method of ['NONE', 'RLEN', 'NUKE']) {
+    for (const method of ['NONE', 'RLEN', 'NUKE', 'CBR0']) {
       const stream = xpkPack(new Uint8Array(0), method)
-      expect(stream.length).toBe(44)
+      const long = (xpkExamine(stream).flags & XPKSTREAMF_LONGHDRS) !== 0
+      expect(stream.length, method).toBe(36 + (long ? 12 : 8))
+      expect(long, method).toBe(method === 'CBR0')
       expect(xpkExamine(stream).uLen).toBe(0)
       expect(xpkUnpack(stream).length).toBe(0)
       const packed = join(dir, method)

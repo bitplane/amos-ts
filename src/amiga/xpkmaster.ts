@@ -1017,6 +1017,189 @@ const nukePack = (data: Uint8Array): Uint8Array | null => {
 }
 
 /**
+ * `xpkCBR0.library` 1.0, whole. 1,208 bytes of code, and the first one here
+ * that is compiled C rather than hand-written assembler: it has a redundant
+ * `jsr` to an empty routine in it (`$266` calls `$27c`, which is one `rts`),
+ * and it uses `bhi` in one bounds test and `bls` in the next for the same
+ * comparison.
+ *
+ * Its `$VER` string at `$4` separates almost every word with $a0, a Latin-1
+ * non-breaking space, and reads "$VER:\xa0xpkCBR0.library\xa0V1.0 \xa9\xa0by
+ * \xa0Bilbo\xa01st\xa0of\xa0Hypenosis\xa0on\xa023-Aug-1992." -- his
+ * spelling of Hypenosis, kept.
+ *
+ * Its XpkInfo is not a static. `XpkPackerInfo` at `$15e` is `move.l a6,d0 /
+ * addi.l #$28,d0`, and `$358` fills the struct in at library base + $28
+ * during init, so the strings are only reachable through the `lea`s at `$372`,
+ * `$37a` and `$382`. It calls itself "Cmp Byte Run 0 Packer V1.0" and offers
+ * one mode, "normal".
+ *
+ * Byte-run length coding, which is RLEN's idea with three differences that
+ * matter. The control byte is signed, as RLEN's is, but the counts are
+ * biased and there is no terminator:
+ *
+ *     0..127     that many PLUS ONE literal bytes follow
+ *     -1..-127   one byte follows, repeated (1 - n) times, so 2 to 128
+ *     -128       never emitted; the one hole in the encoding
+ *
+ * So a chunk decodes until its input runs out rather than until a zero byte,
+ * which is why `$1b8` spends two bytes on a lone trailing byte (`00 <byte>`)
+ * where RLEN would have folded it into a literal run.
+ *
+ * The third difference is the one with consequences elsewhere. CBR0 declares
+ * `xpi_DefChunk` 65532, over the master's 65000 at `$aec`, so it is the only
+ * packer here whose streams carry TWELVE-byte chunk headers and the
+ * XPKSTREAMF_LONGHDRS flag. Nothing else exercises that half of the writer.
+ *
+ * The packer gives up the moment its output reaches the input length (`$1cc`
+ * tests the write cursor against `OutBuf + InLen` on every literal byte), so
+ * unlike RLEN it can never hand back a chunk that grew.
+ */
+const XPK_CBR0: XpkPacker = {
+  name: 'CBR0',
+  longName: 'Cmp Byte Run 0 Packer V1.0',
+  maxChunk: 0xfffc,
+  defaultChunk: 0xfffc,
+  packChunk: (data) => cbr0Pack(data),
+  unpackChunk: (data, uLen) => cbr0Unpack(data, uLen),
+}
+
+/**
+ * `$168`, XpkPackChunk.
+ *
+ * Two limits ride along the whole way. `d2` is `OutBuf + xsp_OutBufLen + 256`
+ * and raises SMALLBUF; `d3` is `OutBuf + InLen` and raises EXPANSION. Since
+ * the master always hands over a buffer at least as long as the input, `d3`
+ * is reached first and the SMALLBUF path is unreachable through the master.
+ * It is here because a direct caller is not the master.
+ */
+const cbr0Pack = (data: Uint8Array): Uint8Array | null => {
+  const inLen = data.length
+  // $252: an empty chunk is a SUCCESS with a zero-length result, not EXPANSION
+  if (inLen === 0) return new Uint8Array(0)
+  // $17a: its own xpi_MaxChunk, checked again on the way in
+  if (inLen > 0xfffc) throw new XpkError(XPKERR_BIGBUF)
+
+  const outBufLen = xpkPackBufLen(inLen)
+  const out = new Uint8Array(outBufLen)
+  const hard = outBufLen + 0x100 // d2
+  const exp = inLen // d3
+  let i = 0 // a1
+  let o = 0 // a2
+
+  for (;;) {
+    // $198
+    if (i >= inLen) break
+    let b = at(data, i)
+
+    if (i + 1 >= inLen) {
+      // $1a8: the last byte of the chunk, spent as a one-byte literal run
+      if (o + 2 > hard) throw new XpkError(XPKERR_SMALLBUF)
+      if (o + 2 > exp) return null
+      out[o++] = 0
+      out[o++] = b
+      break
+    }
+
+    if (at(data, i + 1) === b) {
+      // $202: a run, and the count is written WITHOUT the negate the literal
+      // side applies, which is what makes it come out negative
+      if (o + 2 > hard) throw new XpkError(XPKERR_SMALLBUF)
+      if (o + 2 > exp) return null
+      let d4 = 0x7f
+      let last = false
+      for (;;) {
+        const eq = at(data, i) === b
+        i++
+        if (!eq) {
+          // $22a: the byte that broke the run is put back
+          out[o++] = (d4 - 0x7e) & 0xff
+          out[o++] = b
+          i--
+          break
+        }
+        if (i >= inLen) {
+          // $238, and this one does NOT loop: it falls into the exit at $242.
+          // The `subq.w #$1,a1` that follows the store is dead, which is how
+          // the routine avoids emitting the run's last byte a second time.
+          out[o++] = (d4 - 0x7f) & 0xff
+          out[o++] = b
+          last = true
+          break
+        }
+        // $21a's dbra, which falls through at 128 bytes
+        if (--d4 === -1) {
+          out[o++] = (d4 - 0x7e) & 0xff
+          out[o++] = b
+          break
+        }
+      }
+      if (last) break
+      continue
+    }
+
+    // $1c4: a literal run, with the count byte held back at `o` until the
+    // length is known and the bytes going down one past it
+    let w = o + 1
+    let d4 = 0x7f
+    let done = false
+    for (;;) {
+      // $1cc and $1d2, both `bls` where the run path above used `bhi`
+      if (hard <= w) throw new XpkError(XPKERR_SMALLBUF)
+      if (exp <= w) return null
+      // $1d8: stop BEFORE the byte that starts a run, so the run path gets it
+      if (at(data, i + 1) === b) break
+      out[w++] = at(data, i++)
+      if (i >= inLen) {
+        // $1f6, one less decrement than the other exit has had
+        out[o] = -((d4 - 0x7f) & 0xff) & 0xff
+        o = w
+        done = true
+        break
+      }
+      b = at(data, i)
+      if (--d4 === -1) break
+    }
+    if (done) break
+    // $1ea
+    out[o] = -((d4 - 0x7e) & 0xff) & 0xff
+    o = w
+  }
+  return out.subarray(0, o)
+}
+
+/**
+ * `$27e`, XpkUnpackChunk.
+ *
+ * `moveq #$0,d3 / move.b (a1)+,d3` leaves the control byte UNSIGNED in `d3`
+ * and tests the sign with `bmi` off the move, so the run branch then reads
+ * the count back with `neg.b`: $ff becomes 1 and a `dbra` of 1 copies twice.
+ */
+const cbr0Unpack = (data: Uint8Array, uLen: number): Uint8Array => {
+  const out = new Uint8Array(uLen)
+  if (data.length === 0) return out
+  if (data.length > 0xfffc) throw new XpkError(XPKERR_BIGBUF)
+  let i = 0
+  let o = 0
+  // DEVIATION: the library guards the output at `OutBuf + $c(a0) + 256`, and
+  // on the unpack side the master sets `$c(a0)` to the unpacked length, so it
+  // will write 256 bytes into XPK_MARGIN before raising SMALLBUF. Here the
+  // output is exactly `uLen` and a stream claiming more is truncated, which
+  // is the same choice RLEN's unpacker made.
+  while (i < data.length && o < uLen) {
+    const c = at(data, i++)
+    if ((c & 0x80) !== 0) {
+      const v = at(data, i++)
+      const n = -c & 0xff
+      for (let k = 0; k <= n && o < uLen; k++) out[o++] = v
+    } else {
+      for (let k = 0; k <= c && o < uLen; k++) out[o++] = at(data, i++)
+    }
+  }
+  return out
+}
+
+/**
  * The modelled `LIBS:Compressors/`.
  *
  * A caller may add to this. Anything absent gets XPKERR_MISSINGLIB, which is
@@ -1026,6 +1209,7 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
   [XPK_NONE.name, XPK_NONE],
   [XPK_RLEN.name, XPK_RLEN],
   [XPK_NUKE.name, XPK_NUKE],
+  [XPK_CBR0.name, XPK_CBR0],
 ])
 
 /**
@@ -1033,13 +1217,14 @@ export const XPK_PACKERS = new Map<string, XpkPacker>([
  *
  * Read from the code rather than from a flag word: NONE's whole pack entry is
  * `moveq #$ef,d0 / rts`, RLEN's touches nothing in XpkSubParams past `$c(a2)`,
- * and NUKE's reads `$34(a2)` and then only `(a2)`, `$4`, `$8` and `$c`. No
- * password pointer is ever fetched by any of them. XpkInfo carries a flags
+ * NUKE's reads `$34(a2)` and then only `(a2)`, `$4`, `$8` and `$c`, and CBR0's
+ * reads those same four and nothing else. No password pointer, at `$20(a2)`,
+ * is ever fetched by any of them. XpkInfo carries a flags
  * longword ($18 into the struct) whose bit assignments this port has not
  * established, and it reads 9 for all three, so it could not tell them apart
  * even if it were understood.
  */
-const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name, XPK_NUKE.name])
+const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name, XPK_NUKE.name, XPK_CBR0.name])
 
 /** one byte, zero past the end -- a short read is a truncated file, not a crash */
 const at = (b: Uint8Array, o: number): number => b[o] ?? 0
