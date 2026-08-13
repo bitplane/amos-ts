@@ -21,7 +21,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
+import { NullAudio } from './paula'
 import { isThxModule, thxParse, thxWalkEnd } from './thx'
+import { ThxPlayer } from './thxplay'
 
 const have = haveCorpus()
 
@@ -85,6 +87,46 @@ describe.skipIf(!have)('the nine THX modules in the corpus', () => {
           expect(pos.length).toBe(4)
           for (const ch of pos) expect(ch.track).toBeLessThan(mod.tracks.length)
         }
+      })
+
+      /**
+       * Play the whole song once.
+       *
+       * What this really checks is that every track number a position hands
+       * out, and every instrument number a step carries, resolves. The
+       * replayer indexes the track array with no bounds test at all
+       * (`mulu.w d1,d0 / add.w $446(a6),d0 / mulu.w #$3,d0` at $b8c), so a
+       * reading that was off by one would walk into the wrong array — here,
+       * on real material, rather than in some later stage on a fixture.
+       *
+       * The cap is four times the nominal length, which leaves room for a
+       * command F to slow the song down without leaving room for a jump loop
+       * to run forever.
+       */
+      it.skipIf(bytes === null)('sequences the whole song without leaving the module', () => {
+        const mod = thxParse(bytes!)
+        const p = new ThxPlayer(() => new NullAudio())
+        p.load(mod)
+        const cap = mod.songLength * mod.trackLength * 6 * 4
+        // collected rather than asserted per frame: `extra` runs 8,160 of them
+        // and an expect() a channel would be 32,000 assertions for one song
+        const bad: string[] = []
+        let frames = 0
+        while (!p.ended && frames < cap) {
+          p.tick()
+          frames++
+          if (p.position >= mod.songLength) bad.push(`frame ${frames}: position ${p.position}`)
+          if (p.row >= mod.trackLength) bad.push(`frame ${frames}: row ${p.row}`)
+          for (const ch of p.channels) {
+            if (ch.track >= mod.tracks.length) bad.push(`frame ${frames}: track ${ch.track}`)
+            if (ch.instrument > mod.instruments.length) bad.push(`frame ${frames}: instrument ${ch.instrument}`)
+          }
+        }
+        expect(bad.slice(0, 5)).toEqual([])
+        expect(p.ended).toBe(true)
+        // and it wrapped to the restart position rather than stopping
+        expect(p.playing).toBe(true)
+        expect(p.position).toBe(mod.restart)
       })
 
       it.skipIf(bytes === null)('names every instrument it declares', () => {
