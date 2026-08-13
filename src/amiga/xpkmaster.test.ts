@@ -1740,12 +1740,15 @@ describe('against ancient, an independent XPK implementation', () => {
    *
    * XPK itself is not the risk. 2.1.0's notes close with "XPK PPMQ (This
    * concludes XPK, yay!)", so every method registered here has been in since
-   * then. Only the wording around them drifts.
+   * then.
    *
-   * An unlisted build fails by name, so version drift reads as version drift
-   * instead of as a codec mismatch forty lines further down.
+   * In the event the two builds agree on all of it. CI installed 2.1.0 and
+   * both tests below passed unaltered, `<invalid>` included, while this list
+   * held 2.3.0 alone and failed by name. That is the arrangement working:
+   * version drift reads as version drift rather than as a codec mismatch
+   * forty lines further down, and the codecs still get checked meanwhile.
    */
-  const CHECKED = ['2.3.0']
+  const CHECKED = ['2.1.0', '2.3.0']
 
   /**
    * Whether a machine without the oracle is a skip or a failure.
