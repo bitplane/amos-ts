@@ -31,11 +31,20 @@
  * with itself. That is a weaker claim than the rest of this directory makes
  * and it is deliberately stated rather than buried.
  *
- * ## The one compressor that is here
+ * The XPKF count was re-checked on 2026-08-13 rather than assumed. Twenty-one
+ * corpus files contain those four bytes and not one is a stream: the master
+ * itself in six copies, `C/STP` in three, Explode's library, source and Dok,
+ * the checksum index, and seven AMOS programs and banks that carry the string
+ * as data. `spinvaders.AMOS` opens "AMOS Basic V1.00", `mus1.abk` opens
+ * "AmBs", `files.mod` opens `$000003f3`.
  *
- * `XPK_PACKERS` is the registry standing in for `LIBS:Compressors/`. It holds
- * `NONE`, ported in full from `xpkNONE.library` 1.0 (592 bytes of code, of
- * which the two entries that matter are 24 instructions). Nothing is stubbed:
+ * ## The compressors that are here
+ *
+ * `XPK_PACKERS` is the registry standing in for `LIBS:Compressors/`, and both
+ * entries in it are ported whole from the binary rather than stubbed.
+ *
+ * `NONE`, from `xpkNONE.library` 1.0, 592 bytes of code of which the two the
+ * master calls are 24 instructions:
  *
  *   LVO -36 XpkPackChunk    `moveq #$ef,d0; rts`  — always XPKERR_EXPANSION
  *   LVO -54 XpkUnpackChunk  `CopyMem(In, Out, InLen)`
@@ -46,10 +55,13 @@
  * reached for a stream it wrote — every chunk is type 0 — which is why its
  * being a bare copy costs nothing.
  *
+ * `RLEN`, from `xpkRLEN.library` 1.0, 952 bytes: a signed control byte and its
+ * payload, and the first entry here that actually compresses. See `XPK_RLEN`.
+ *
  * Every other method resolves through `OpenLibrary("compressors/xpk%.4s.library")`
  * at `$c9a`, and when that fails the master sets XPKERR_MISSINGLIB and gives
- * up. That is what this port does for NUKE, HUFF, BLZW, FEAL, IDEA, CBR0 and
- * RLEN, and it is not a shortcut — it is what a real Amiga does with an empty
+ * up. That is what this port does for NUKE, HUFF, BLZW, FEAL, IDEA, IMPL and
+ * CBR0, and it is not a shortcut — it is what a real Amiga does with an empty
  * `LIBS:Compressors/`, which is the machine EasyLife's own guide describes:
  * "the XPK libraries are not included in this distribution, you must obtain
  * the XPK compression archive separately".
@@ -260,12 +272,147 @@ const XPK_NONE: XpkPacker = {
 }
 
 /**
+ * The output buffer the master hands a sub-library for one chunk, at `$1114`:
+ *
+ *     move.l d7,d0 / moveq #$20,d1 / jsr divide     ULen / 32
+ *     move.l d7,d1 / add.l d0,d1                    ULen + ULen/32
+ *     andi.w #$fffc,d1                              rounded down to four
+ *     moveq #$40,d0 / lsl.l #$2,d0 / add.l d0,d1    plus 256
+ *
+ * A sub-library that would overrun it answers XPKERR_EXPANSION, so the size
+ * is part of every packer's behaviour and not the master's private business.
+ * Note the `andi.w`: the mask is a WORD operation and leaves the high half
+ * alone, which is only harmless because a chunk is never 64K or more.
+ */
+const xpkPackBufLen = (uLen: number): number => ((uLen + ((uLen / 32) | 0)) & ~3) + 256
+
+/**
+ * `xpkRLEN.library` 1.0, whole. Its own XpkInfo calls it "Run Length 1.0" and
+ * "Fast and simple compression usable for simple data".
+ *
+ * One control byte, read signed, then its payload:
+ *
+ *     0        end of stream
+ *     1..127   that many literal bytes follow
+ *     -1..-127 one byte follows, repeated that many times
+ *
+ * The unpacker at `$2f8` is nothing more than that loop, and it is the half
+ * with no bounds check anywhere: no output limit, no input limit, and it
+ * stops only on a zero byte. It also never writes `$10(a2)`, where NONE does
+ * — the master already knows the length from the chunk header, so RLEN does
+ * not bother telling it.
+ *
+ * Reading the packer at `$1be` is what pins the format down, because the
+ * three-byte lookahead is the whole of its decision:
+ *
+ *     move.b $1(a0),d0 / move.b (a0),d1 / cmp.b d0,d1 / bne
+ *     cmp.b  $2(a0),d0 / bne              three the same, so a run
+ *
+ * A literal is flushed when a run starts, when it reaches 127, or when the
+ * input runs out; a run counts from three and stops at 127 or at the end of
+ * the input. Worst case is one length byte per 127 literals, so a 32000-byte
+ * chunk of incompressible data grows by 253 and the guard at `$21a` — output
+ * plus the pending literal plus four against the end of the buffer — can
+ * never fire against a buffer `xpkPackBufLen` sized. It is reproduced anyway,
+ * because a caller may hand this packer a buffer the master would not.
+ *
+ * DEVIATION: the lookahead reads `a0[1]` and `a0[2]` with no bounds check, so
+ * on the last two bytes of a chunk it reads past the input. When the bytes
+ * that happen to follow match, the library emits a run of three and steps the
+ * cursor three past the end. Here the lookahead is false past the input, which
+ * makes those bytes a literal. Nothing else can differ: at the exact end both
+ * paths flush and terminate, so only the final two positions are affected.
+ */
+const XPK_RLEN: XpkPacker = {
+  name: 'RLEN',
+  longName: 'Run Length 1.0',
+  // XpkInfo+$1c and +$24, both 32000. The master reads +$24 as the chunk size
+  // it wants ($a7e, falling back to $8000 when zero) and then clamps it to
+  // +$1c ($ac2). +$20, the minimum, is zero.
+  maxChunk: 32000,
+  packChunk(data) {
+    const outMax = xpkPackBufLen(data.length)
+    const out = new Uint8Array(outMax)
+    let o = 0
+    let cursor = 0
+    let litStart = 0
+    for (;;) {
+      const run =
+        cursor + 2 < data.length && data[cursor] === data[cursor + 1] && data[cursor + 1] === data[cursor + 2]
+      const litLen = cursor - litStart
+      // $21a: out + pending + 4 against the buffer end, before anything is written
+      if (o + litLen + 4 > outMax) return null
+      if (run || litLen === 127 || cursor === data.length) {
+        if (litLen > 0) {
+          out[o++] = litLen
+          out.set(data.subarray(litStart, cursor), o)
+          o += litLen
+        }
+        // $274: the terminator goes down only when the cursor is at the end
+        if (cursor === data.length) {
+          out[o++] = 0
+          break
+        }
+        litStart = cursor
+      }
+      if (!run) {
+        cursor++
+        continue
+      }
+      // $294: three already, then one more for each byte that repeats the last
+      let n = 3
+      while (cursor + n < data.length && data[cursor + n] === data[cursor + n - 1] && n < 127) n++
+      out[o++] = -n & 0xff
+      out[o++] = data[cursor]!
+      cursor += n
+      litStart = cursor
+    }
+    return out.subarray(0, o)
+  },
+  unpackChunk(data, uLen) {
+    const out = new Uint8Array(uLen)
+    let p = 0
+    let o = 0
+    for (;;) {
+      // `ext.w d6 / ext.l d6` at $316 -- the control byte is signed
+      const n = ((data[p++] ?? 0) << 24) >> 24
+      if (n === 0) break
+      if (n > 0) {
+        for (let i = 0; i < n && o < uLen; i++) out[o++] = data[p++] ?? 0
+      } else {
+        const b = data[p++] ?? 0
+        for (let i = 0; i < -n && o < uLen; i++) out[o++] = b
+      }
+      // DEVIATION: the machine's loop has no output limit and no input limit
+      // and would run off both. A stream that decodes to more than the chunk
+      // header promised is truncated here instead.
+      if (o >= uLen || p > data.length) break
+    }
+    return out
+  },
+}
+
+/**
  * The modelled `LIBS:Compressors/`.
  *
  * A caller may add to this. Anything absent gets XPKERR_MISSINGLIB, which is
  * what `$c9a` sets when its `OpenLibrary` returns zero.
  */
-export const XPK_PACKERS = new Map<string, XpkPacker>([[XPK_NONE.name, XPK_NONE]])
+export const XPK_PACKERS = new Map<string, XpkPacker>([
+  [XPK_NONE.name, XPK_NONE],
+  [XPK_RLEN.name, XPK_RLEN],
+])
+
+/**
+ * The packers that have no cipher, and answer XPKERR_NOCRYPT to a password.
+ *
+ * Read from the code rather than from a flag word: NONE's whole pack entry is
+ * `moveq #$ef,d0 / rts`, and RLEN's touches nothing in XpkSubParams past
+ * `$c(a2)` — no password pointer is ever fetched by either. XpkInfo carries
+ * a flags longword ($18 into the struct, 9 for RLEN) whose bit assignments
+ * this port has not established, so it is not what this decision rests on.
+ */
+const XPK_NO_CRYPT = new Set([XPK_NONE.name, XPK_RLEN.name])
 
 /** one byte, zero past the end -- a short read is a truncated file, not a crash */
 const at = (b: Uint8Array, o: number): number => b[o] ?? 0
@@ -500,9 +647,9 @@ export function xpkPack(data: Uint8Array, method: string, password?: string): Ui
   const { name, mode } = xpkParseMethod(method)
   const packer = XPK_PACKERS.get(name)
   if (packer === undefined) throw new XpkError(XPKERR_MISSINGLIB)
-  if (password !== undefined && name === XPK_NONE.name) {
+  if (password !== undefined && XPK_NO_CRYPT.has(name)) {
     // $2efc's message, and the only sensible answer from a packer that has no
-    // cipher: NONE's XpkInfo advertises none.
+    // cipher. See XPK_NO_CRYPT for how that is decided.
     throw new XpkError(XPKERR_NOCRYPT)
   }
 

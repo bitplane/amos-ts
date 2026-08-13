@@ -153,7 +153,9 @@ describe('xpkExamine on a real XPKF header', () => {
     // failure into MISSINGLIB. Nothing has been decoded at this point.
     expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(XPKERR_MISSINGLIB)
-    expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
+    // RLEN used to be on this list and is now installed, which is the point
+    expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
   })
 
   it('reads the lengths and versions the master reads', () => {
@@ -173,8 +175,8 @@ describe('xpkExamine on a real XPKF header', () => {
 describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
-  it('is the only compressor installed', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE'])
+  it('shares LIBS:Compressors/ with the one packer that packs', () => {
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -376,5 +378,117 @@ describe('against the real xpkmaster.library 2.2', () => {
     const out = xpkUnpack(file)
     expect(out.length).toBe(7907)
     expect(new TextDecoder('latin1').decode(out).startsWith('@DATABASE')).toBe(true)
+  })
+})
+
+describe('xpkRLEN.library, ported whole', () => {
+  const RLEN = XPK_PACKERS.get('RLEN')!
+  const pack = (b: Uint8Array): number[] => Array.from(RLEN.packChunk(b, 50) ?? [])
+  const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
+
+  it('emits a run as a negated count and one byte', () => {
+    // "aaabbbb": $294 counts from three, then one per byte that repeats the
+    // last, and $2b6 writes `neg.l d6` as a byte before the byte itself
+    expect(pack(ascii('aaabbbb'))).toEqual([0xfd, 97, 0xfc, 98, 0])
+  })
+
+  it('emits anything shorter than three equal bytes as a literal, even when it grows', () => {
+    // the lookahead at $1f2 wants a0[0] == a0[1] == a0[2]; two is not enough
+    expect(pack(ascii('abcdef'))).toEqual([6, 97, 98, 99, 100, 101, 102, 0])
+    expect(pack(ascii('aab'))).toEqual([3, 97, 97, 98, 0])
+  })
+
+  it('caps a run at 127 and starts another', () => {
+    // `moveq #$7f,d0 / cmp.l d0,d6 / bge` stops the count at 127
+    expect(pack(fill(200, 97))).toEqual([0x81, 97, 0xb7, 97, 0])
+  })
+
+  it('caps a literal at 127 and starts another', () => {
+    // `moveq #$7f,d2 / cmp.l d2,d1 / beq $244` flushes at exactly 127
+    const distinct = Uint8Array.from({ length: 130 }, (_, i) => i)
+    const out = pack(distinct)
+    expect(out[0]).toBe(127)
+    expect(out[128]).toBe(3)
+    expect(out).toHaveLength(1 + 127 + 1 + 3 + 1)
+    expect(out[out.length - 1]).toBe(0)
+  })
+
+  it('terminates an empty chunk with the zero byte and nothing else', () => {
+    expect(pack(new Uint8Array(0))).toEqual([0])
+  })
+
+  it('round-trips through the unpacker at $2f8', () => {
+    const cases = [
+      ascii(''),
+      ascii('a'),
+      ascii('aa'),
+      ascii('aaa'),
+      ascii('The quick brown fox. '.repeat(40)),
+      fill(5000, 0),
+      Uint8Array.from({ length: 3000 }, (_, i) => (i * 7919) & 0xff),
+    ]
+    for (const src of cases) {
+      const packed = RLEN.packChunk(src, 50)!
+      expect(packed, `packing ${src.length} bytes`).not.toBeNull()
+      expect(Array.from(RLEN.unpackChunk(packed, src.length))).toEqual(Array.from(src))
+    }
+  })
+
+  it('compresses repetition and only grows incompressible data by 1 in 127', () => {
+    // 30000 = 236 runs of 127 and one of 28, two bytes each, then the zero
+    expect(pack(fill(30_000, 0x5a))).toHaveLength(237 * 2 + 1)
+    const noise = Uint8Array.from({ length: 30_000 }, (_, i) => (i * 2654435761) >>> 24)
+    expect(RLEN.packChunk(noise, 50)!.length).toBeLessThan(30_000 + 30_000 / 127 + 8)
+  })
+
+  it('narrows the master chunk to 32000, which is its XpkInfo default AND its maximum', () => {
+    // $a7e reads XpkInfo+$24 for the size it wants and $ac2 clamps to +$1c;
+    // both are 32000 here, against the master's own $8000 fallback at $a8c
+    expect(RLEN.maxChunk).toBe(32000)
+    expect(XPK_DEFAULT_CHUNK).toBeGreaterThan(RLEN.maxChunk!)
+    const s = xpkPack(fill(70_000, 1), 'RLEN')
+    expect(xpkExamine(s).uLen).toBe(70_000)
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(fill(70_000, 1)))
+  })
+
+  it('has no cipher, so a password is NOCRYPT rather than ignored', () => {
+    expect(codeOf(() => xpkPack(ascii('secret'), 'RLEN', 'hunter2'))).toBe(XPKERR_NOCRYPT)
+  })
+
+  it('packs a real stream the master can read back', () => {
+    const body = ascii('aaaaaaaaaa bbbbbbbbbb cccccccccc '.repeat(300))
+    const s = xpkPack(body, 'RLEN')
+    expect(String.fromCharCode(at(s, 8), at(s, 9), at(s, 10), at(s, 11))).toBe('RLEN')
+    expect(s.length).toBeLessThan(body.length / 2)
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
+  })
+})
+
+describe('against the real xpkRLEN.library 1.0', () => {
+  const LIB = join(fixtures, 'libs', 'xpkrlen.library')
+
+  it.skipIf(!existsSync(LIB))('is what its own XpkInfo says it is', () => {
+    const raw = new Uint8Array(readFileSync(LIB))
+    const hunks = loadHunks(raw, 0)
+    const data = hunks.hunks.find((h) => h.kind === 'data')!
+    const img = hunks.image
+    const u32 = (o: number): number => ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    // XpkPackerInfo at $17e is `lea $3a(a6),a4 / lea $88(a4),a0`, and $3a is
+    // where routine 0 copies the data hunk to. So XpkInfo is data + $88.
+    const info = data.base + 0x88
+    const str = (rel: number): string => {
+      let s = ''
+      for (let k = data.base + rel; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    expect(img[info + 1]).toBe(1) // xi_Version
+    expect(img[info + 5]).toBe(0) // the master version it needs, tested at $d20
+    expect(str(u32(info + 8))).toBe('RLEN')
+    expect(str(u32(info + 0xc))).toBe(XPK_PACKERS.get('RLEN')!.longName)
+    expect(str(u32(info + 0x10))).toBe('Fast and simple compression usable for simple data')
+    expect(u32(info + 0x1c)).toBe(XPK_PACKERS.get('RLEN')!.maxChunk) // max
+    expect(u32(info + 0x20)).toBe(0) // min
+    expect(u32(info + 0x24)).toBe(32000) // default
+    expect(new TextDecoder('latin1').decode(img)).toContain('xpkRLEN.library')
   })
 })

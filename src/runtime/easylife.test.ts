@@ -1971,11 +1971,28 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
   it('an uninstalled compressor is XPK error -15, through message 20', () => {
     // "Can't find required XPK library" -- exactly what an Amiga with an empty
     // LIBS:Compressors/ says, and the four methods below are all real ones.
-    for (const m of ['NUKE', 'HUFF.50', 'RLEN', 'BLZW.99']) {
+    for (const m of ['NUKE', 'HUFF.50', 'IMPL', 'BLZW.99']) {
       expect(
         failXpk(OPEN + `Reserve As Data 9,32\nElxpk Save 9 To "ram:b","${m}"\n`),
       ).toMatch(/^An Xpk Error Has Occured/)
     }
+  })
+
+  it('RLEN is installed now, and Elxpk Save writes a stream Load reads back', () => {
+    // it was on the list above until xpkRLEN.library was ported. A mode suffix
+    // rides along untouched: RLEN reads no mode, having only "normal".
+    const b = bootFs(
+      OPEN +
+        'Reserve As Data 9,320\n' +
+        'Elmem Start(9),"aaaaaaaaaaaaaaaaaaaa"\n' +
+        'Elxpk Save 9 To "ram:r","RLEN.50"\n' +
+        'Elxpk Load "ram:r" To 10\n' +
+        'Print Elmem$(Start(10),20);Length(10)\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    // 320 unpacked plus the master's 256-byte output margin at $332, which is
+    // what Elxpk Load reserves and is unrelated to which packer wrote it
+    expect(b.out()).toBe('aaaaaaaaaaaaaaaaaaaa 576\n')
   })
 
   it('Elxpk Error keeps the code the raise reported, and clears on success', () => {
