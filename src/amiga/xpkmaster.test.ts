@@ -29,6 +29,10 @@ import {
   xpkPack,
   xpkParseMethod,
   xpkUnpack,
+  NUKE_BITS,
+  NUKE_BASE,
+  NUKE_GROUP,
+  NUKE_WINDOW,
 } from './xpkmaster'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -151,13 +155,15 @@ describe('xpkExamine on a real XPKF header', () => {
   })
 
   it('an uninstalled compressor fails at examine, not at the first chunk', () => {
-    // $608 opens compressors/xpkNUKE.library during the probe; $cf4 turns the
+    // $608 opens compressors/xpkBLZW.library during the probe; $cf4 turns the
     // failure into MISSINGLIB. Nothing has been decoded at this point.
-    expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkExamine(header('BLZW', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkExamine(header('IMPL', 100)))).toBe(XPKERR_MISSINGLIB)
-    // RLEN used to be on this list and is now installed, which is the point
+    // RLEN and NUKE used to be on this list and are now installed, which is
+    // the point of keeping it
     expect(codeOf(() => xpkExamine(header('RLEN', 100)))).toBe(0)
+    expect(codeOf(() => xpkExamine(header('NUKE', 100)))).toBe(0)
   })
 
   it('reads the lengths and versions the master reads', () => {
@@ -177,8 +183,8 @@ describe('xpkExamine on a real XPKF header', () => {
 describe('xpkNONE.library, ported whole', () => {
   const NONE = XPK_PACKERS.get('NONE')
 
-  it('shares LIBS:Compressors/ with the one packer that packs', () => {
-    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN'])
+  it('shares LIBS:Compressors/ with the two packers that pack', () => {
+    expect([...XPK_PACKERS.keys()]).toEqual(['NONE', 'RLEN', 'NUKE'])
   })
 
   it('LVO -36 XpkPackChunk always refuses: moveq #$ef,d0', () => {
@@ -213,9 +219,11 @@ describe('xpkPack writes the stream $1092/$1260 write', () => {
     expect(Array.from(s.subarray(16, 32))).toEqual(Array.from(body.subarray(0, 16)))
   })
 
-  it('stays in the word-length header form, because 32768 is under 65000', () => {
+  it('stays in the word-length header form, because 32000 is under 65000', () => {
     const s = xpkPack(body, 'NONE')
     expect(at(s, 32) & 1).toBe(0) // XPKSTREAMF_LONGHDRS clear
+    // $aec picks the header width off the settled chunk size, and no packer
+    // held here asks for anything near it
     expect(XPK_DEFAULT_CHUNK).toBeLessThan(65000)
   })
 
@@ -239,20 +247,24 @@ describe('xpkPack writes the stream $1092/$1260 write', () => {
     expect(Array.from(s.subarray(36 + 8 + 5, 36 + 8 + 8))).toEqual([0, 0, 0])
   })
 
-  it('splits at 32768 bytes and each chunk carries its own checksum', () => {
-    const big = new Uint8Array(XPK_DEFAULT_CHUNK + 1000)
+  it("splits at 32000, NONE's own xpi_DefChunk, not at the master's 32768", () => {
+    // $a7e reads the packer's default FIRST and only falls back to $8000 when
+    // it is zero. NONE's XpkInfo at data+$96 asks for 32000, so even the
+    // packer that does nothing moves the chunk boundary.
+    const big = new Uint8Array(32000 + 1000)
     for (let i = 0; i < big.length; i++) big[i] = (i * 7) & 0xff
     const s = xpkPack(big, 'NONE')
     expect(at(s, 36)).toBe(XPKCHUNK_RAW)
     expect(xpkHeaderChecksum(s, 36, 8)).toBe(0)
-    const second = 36 + 8 + XPK_DEFAULT_CHUNK
+    const second = 36 + 8 + 32000
     expect(at(s, second)).toBe(XPKCHUNK_RAW)
     expect(xpkHeaderChecksum(s, second, 8)).toBe(0)
     expect((at(s, second + 4) << 8) | at(s, second + 5)).toBe(1000)
+    expect(XPK_DEFAULT_CHUNK).toBe(32768)
   })
 
   it('refuses a method with no library, and NONE refuses to encrypt', () => {
-    expect(codeOf(() => xpkPack(body, 'NUKE'))).toBe(XPKERR_MISSINGLIB)
+    expect(codeOf(() => xpkPack(body, 'BLZW'))).toBe(XPKERR_MISSINGLIB)
     expect(codeOf(() => xpkPack(body, 'NONE', 'secret'))).toBe(XPKERR_NOCRYPT)
   })
 })
@@ -495,6 +507,177 @@ describe('against the real xpkRLEN.library 1.0', () => {
   })
 })
 
+describe('xpkNUKE.library, ported whole', () => {
+  const NUKE = XPK_PACKERS.get('NUKE')!
+  const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
+  const trip = (b: Uint8Array): Uint8Array | null => {
+    const packed = NUKE.packChunk(b, 50)
+    return packed === null ? null : NUKE.unpackChunk(packed, b.length)
+  }
+
+  it('stores literals BACKWARDS, so the chunk ends with the byte it starts with', () => {
+    // $46a writes each literal with `move.b (a0)+,-(a1)` from the top of the
+    // buffer down, and $984 slides that block to sit right after the codes.
+    // The decoder reads it with `move.b -(a4),(a0)+`. So the LAST byte of a
+    // packed chunk is the FIRST literal emitted, which is always input byte 0
+    // -- there is nothing for the first position to match against.
+    for (const body of [ascii('hello, and hello again, and hello once more'), fill(4000, 0x5a)]) {
+      const packed = NUKE.packChunk(body, 50)!
+      expect(packed).not.toBeNull()
+      expect(packed[packed.length - 1]).toBe(body[0])
+    }
+  })
+
+  it('pads with $fb until the chunk is a whole number of longwords', () => {
+    // $97e. The decoder pulls the nibble stream with `move.l (a5)+,d4`, so the
+    // packed length has to be a multiple of four whatever the code and literal
+    // halves came to.
+    for (let n = 1; n < 400; n += 7) {
+      const packed = NUKE.packChunk(fill(n, 0x41), 50)
+      if (packed !== null) expect(packed.length % 4, `${n} bytes in`).toBe(0)
+    }
+  })
+
+  it('round-trips across the length boundaries the encoder switches on', () => {
+    // 3 and 4 change the distance group ($36c); 6 leaves the two-bit code for
+    // the nibble escape at $764; 21 and 22 are where that escape needs a
+    // second nibble ($792 subtracts fifteen at a time)
+    const cases: Uint8Array[] = [new Uint8Array(0), ascii('a'), ascii('ab')]
+    for (const len of [2, 3, 4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 300]) {
+      // a phrase, a gap, then the same phrase, so the match is exactly `len`
+      const s = 'x'.repeat(len)
+      cases.push(ascii(`${s}<gap>${s}`), ascii(`${s} qwertyuiop ${s}`))
+    }
+    for (const src of cases) {
+      const out = trip(src)
+      if (out === null) continue // EXPANSION is a legal answer for short input
+      expect(Array.from(out), `${src.length} bytes`).toEqual(Array.from(src))
+    }
+  })
+
+  it('answers EXPANSION rather than growing a chunk, which $2f4 also insists on', () => {
+    // the guard is `cmp.l $4(a2),d0 / ble`, so a tie is accepted and only a
+    // genuine expansion is refused
+    expect(NUKE.packChunk(new Uint8Array([0x42]), 50)).toBe(null)
+    expect(NUKE.packChunk(new Uint8Array(0), 50)).toBe(null)
+    const noise = Uint8Array.from({ length: 30_000 }, (_, i) => (i * 2654435761) >>> 24)
+    const packed = NUKE.packChunk(noise, 50)
+    if (packed !== null) expect(packed.length).toBeLessThanOrEqual(noise.length)
+  })
+
+  it('beats RLEN on text, which is the whole reason it exists', () => {
+    const body = ascii('the quick brown fox jumps over the lazy dog. '.repeat(400))
+    const nuke = NUKE.packChunk(body, 50)!
+    const rlen = XPK_PACKERS.get('RLEN')!.packChunk(body, 50)!
+    // RLEN cannot see a repeat it is not sitting on, so it stores the lot
+    expect(rlen.length).toBeGreaterThan(body.length)
+    expect(nuke.length).toBeLessThan(body.length / 20)
+  })
+
+  it('narrows the master chunk to 30000 and declares the only minimum here', () => {
+    // XpkInfo+$1c, +$20 and +$24. NUKE is the first packer in this registry
+    // with a floor, and $a9e applies it BEFORE $ac2 applies the ceiling.
+    expect(NUKE.maxChunk).toBe(30_000)
+    expect(NUKE.minChunk).toBe(10)
+    expect(NUKE.defaultChunk).toBe(30_000)
+    const body = Uint8Array.from({ length: 70_000 }, (_, i) => (i >> 5) & 0xff)
+    const s = xpkPack(body, 'NUKE')
+    // three chunks: 30000, 30000, 10000
+    expect((at(s, 36 + 6) << 8) | at(s, 36 + 7)).toBe(30_000)
+    expect(Array.from(xpkUnpack(s))).toEqual(Array.from(body))
+  })
+
+  it('never looks further back than its own NUKE_BASE[15]', () => {
+    // $8a6 reads the window straight out of the last distance base, so bucket
+    // 15 is unreachable from this encoder however far apart the repeats are.
+    // A copy at 20,000 bytes' distance is stored twice rather than referenced.
+    expect(NUKE_WINDOW).toBe(NUKE_BASE[15]! - 1)
+    const tag = ascii('a distinctive run of bytes nothing else will match')
+    const body = new Uint8Array(20_000 + tag.length * 2)
+    body.set(tag, 0)
+    body.set(tag, 20_000)
+    const packed = NUKE.packChunk(body, 50)!
+    expect(Array.from(NUKE.unpackChunk(packed, body.length))).toEqual(Array.from(body))
+  })
+
+  it('has no cipher, so a password is NOCRYPT rather than ignored', () => {
+    expect(codeOf(() => xpkPack(ascii('secret'), 'NUKE', 'hunter2'))).toBe(XPKERR_NOCRYPT)
+  })
+})
+
+describe('against the real xpkNUKE.library 1.0', () => {
+  const LIB = join(fixtures, 'libs', 'xpknuke.library')
+  const load = (): { img: Uint8Array; code: number; data: number } => {
+    const hunks = loadHunks(new Uint8Array(readFileSync(LIB)), 0)
+    return {
+      img: hunks.image,
+      code: hunks.hunks.find((h) => h.kind === 'code')!.base,
+      data: hunks.hunks.find((h) => h.kind === 'data')!.base,
+    }
+  }
+
+  it.skipIf(!existsSync(LIB))('is what its own XpkInfo says it is', () => {
+    const { img, data } = load()
+    const u32 = (o: number): number =>
+      ((at(img, o) << 24) | (at(img, o + 1) << 16) | (at(img, o + 2) << 8) | at(img, o + 3)) >>> 0
+    // XpkPackerInfo is `lea $3a(a6),a4 / lea $a6(a4),a0`, so XpkInfo is data + $a6
+    const info = data + 0xa6
+    const str = (rel: number): string => {
+      let s = ''
+      for (let k = data + rel; at(img, k) !== 0; k++) s += String.fromCharCode(at(img, k))
+      return s
+    }
+    expect(img[info + 1]).toBe(1) // xi_Version
+    expect(img[info + 5]).toBe(0) // the master version it needs, tested at $d20
+    expect(str(u32(info + 8))).toBe('NUKE')
+    expect(str(u32(info + 0xc))).toBe(XPK_PACKERS.get('NUKE')!.longName)
+    expect(str(u32(info + 0x10))).toBe('A relatively efficient packer that unpacks very quickly')
+    expect(u32(info + 0x1c)).toBe(XPK_PACKERS.get('NUKE')!.maxChunk)
+    expect(u32(info + 0x20)).toBe(XPK_PACKERS.get('NUKE')!.minChunk)
+    expect(u32(info + 0x24)).toBe(XPK_PACKERS.get('NUKE')!.defaultChunk)
+  })
+
+  it.skipIf(!existsSync(LIB))('carries the three decode tables this port reads off it', () => {
+    const { img, code } = load()
+    const w = (o: number): number => (at(img, code + o) << 8) | at(img, code + o + 1)
+    for (let i = 0; i < 16; i++) {
+      expect(w(0x3d4 + i * 2), `bits[${i}]`).toBe(NUKE_BITS[i])
+      expect(w(0x3f4 + i * 2), `base[${i}]`).toBe(NUKE_BASE[i])
+      // $414 holds a jump offset into the copy chain at $9fc, and the three
+      // values in it are what make the nibble a length as well as a bucket
+      expect(w(0x414 + i * 2), `jmp[${i}]`).toBe(i < 4 ? 0x20 : i < 10 ? 0x1e : 0)
+    }
+  })
+
+  it.skipIf(!existsSync(LIB))("carries the encoder's four tables, and they agree with the decoder's", () => {
+    const { img, code } = load()
+    const w = (o: number): number => (at(img, code + o) << 8) | at(img, code + o + 1)
+    // $36c, indexed by min(length - 1, 3)
+    for (let i = 0; i < 4; i++) expect(w(0x36c + i * 2), `group[${i}]`).toBe(NUKE_GROUP[i])
+    for (let i = 0; i < 16; i++) {
+      // $374 is a bucket width, and it is 1 << the decoder's bit count. That
+      // is not assumed here, it is the reason NUKE_SIZE is not a table.
+      expect(w(0x374 + i * 2), `size[${i}]`).toBe(1 << NUKE_BITS[i]!)
+      expect(w(0x394 + i * 2), `bits[${i}]`).toBe(NUKE_BITS[i])
+      // $3b4 maps a bucket to its nibble, and it is the identity
+      expect(w(0x3b4 + i * 2), `nibble[${i}]`).toBe(i)
+    }
+    // and every base is the one below it plus that bucket's width, inside
+    // each of the three groups
+    for (const [lo, hi] of [
+      [0, 3],
+      [4, 9],
+      [10, 15],
+    ] as const) {
+      expect(NUKE_BASE[lo]).toBe(0)
+      for (let i = lo; i < hi; i++) expect(NUKE_BASE[i + 1]).toBe(NUKE_BASE[i]! + (1 << NUKE_BITS[i]!))
+    }
+    // $8a6: the encoder's window IS the last base, read at run time
+    expect(w(0x412)).toBe(NUKE_BASE[15])
+    expect(NUKE_WINDOW).toBe(w(0x412) - 1)
+  })
+})
+
 /**
  * `ancient` as an independent reader, which is the only check this file has
  * ever had that is not itself.
@@ -528,12 +711,12 @@ describe('against ancient, an independent XPK implementation', () => {
     ['runs and literals mixed', Uint8Array.from({ length: 65_536 }, (_, i) => (i % 97 < 60 ? 7 : (i * 31) & 0xff))],
   ]
 
-  it.skipIf(!HAS_ANCIENT)('decodes every stream xpkPack writes, for both installed methods', () => {
+  it.skipIf(!HAS_ANCIENT)('decodes every stream xpkPack writes, for every installed method', () => {
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
     for (const [name, body] of CASES) {
       const raw = join(dir, 'raw')
       writeFileSync(raw, body)
-      for (const method of ['NONE', 'RLEN']) {
+      for (const method of ['NONE', 'RLEN', 'NUKE']) {
         const packed = join(dir, method)
         writeFileSync(packed, xpkPack(body, method))
         const id = execFileSync('ancient', ['identify', packed], { encoding: 'utf8' })
@@ -552,7 +735,7 @@ describe('against ancient, an independent XPK implementation', () => {
     // checksum and the flags and has no ULen test in it that this port has
     // found, so the disagreement is recorded rather than settled.
     const dir = mkdtempSync(join(tmpdir(), 'amos-xpk-'))
-    for (const method of ['NONE', 'RLEN']) {
+    for (const method of ['NONE', 'RLEN', 'NUKE']) {
       const stream = xpkPack(new Uint8Array(0), method)
       expect(stream.length).toBe(44)
       expect(xpkExamine(stream).uLen).toBe(0)

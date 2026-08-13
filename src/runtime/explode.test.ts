@@ -1215,16 +1215,16 @@ describe('Explode: the XPK half, which reports its errors', () => {
   })
 
   it('a sub-library this port has not got is XPKERR_NOFUNC, recorded not raised', () => {
-    // the same answer a machine without that sub-library installed gives
-    const out = run('Reserve As Work 4,64 : Xpk Pack 4,"NUKE",50 : Print Xpk Errn;" ";Xpk Err$')
+    // the same answer a machine without that sub-library installed gives.
+    // NUKE was the example here until it was ported; BLZW is still missing.
+    const out = run('Reserve As Work 4,64 : Xpk Pack 4,"BLZW",50 : Print Xpk Errn;" ";Xpk Err$')
     expect(out.startsWith('-1 ')).toBe(true)
   })
 
-  it('and the one packer that IS registered goes through', () => {
-    // XPK_NONE, the "----" pass-through -- the only sub-library here,
-    // because a real one is a separate binary the corpus has not got
-    const name = [...XPK_PACKERS.keys()][0]!
-    expect(run(`Reserve As Work 4,64 : Xpk Pack 4,"${name}",50 : Print Xpk Errn`)).toBe('0')
+  it('and every packer that IS registered goes through', () => {
+    for (const name of XPK_PACKERS.keys()) {
+      expect(run(`Reserve As Work 4,64 : Xpk Pack 4,"${name}",50 : Print Xpk Errn`), name).toBe('0')
+    }
   })
 })
 

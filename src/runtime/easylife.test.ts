@@ -1971,7 +1971,7 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
   it('an uninstalled compressor is XPK error -15, through message 20', () => {
     // "Can't find required XPK library" -- exactly what an Amiga with an empty
     // LIBS:Compressors/ says, and the four methods below are all real ones.
-    for (const m of ['NUKE', 'HUFF.50', 'IMPL', 'BLZW.99']) {
+    for (const m of ['CBR0', 'HUFF.50', 'IMPL', 'BLZW.99']) {
       expect(
         failXpk(OPEN + `Reserve As Data 9,32\nElxpk Save 9 To "ram:b","${m}"\n`),
       ).toMatch(/^An Xpk Error Has Occured/)
@@ -1998,7 +1998,7 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
   it('Elxpk Error keeps the code the raise reported, and clears on success', () => {
     // $b6 is written before the branch to message 20, so the number outlives
     // the error -- which is the whole point of the keyword.
-    const bad = bootFs(OPEN + 'Reserve As Data 9,32\nElxpk Save 9 To "ram:b","NUKE"\n')
+    const bad = bootFs(OPEN + 'Reserve As Data 9,32\nElxpk Save 9 To "ram:b","CBR0"\n')
     expect(() => bad.rt.runHeadless(2000)).toThrow(/An Xpk Error Has Occured/)
     expect(bad.rt.easylife.xpkError).toBe(-15) // XPKERR_MISSINGLIB
 
