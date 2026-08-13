@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -154,5 +157,42 @@ describe('coverage manifest consistency', () => {
     expect(fake).toEqual([])
     const contradiction = [...NA].filter((n) => implementedPlain.has(n))
     expect(contradiction).toEqual([])
+  })
+
+  /**
+   * UNIMPLEMENTED.md names the extensions that are not begun, and the set it
+   * names must be the set that reads 0%.
+   *
+   * This is an assertion rather than a generator on purpose. The prose beside
+   * each row says what the extension is waiting on, which is a judgement and
+   * has to be written; the LIST is a fact and must not be. Kept apart, the
+   * document drifts in one direction only, and it did: thirteen extensions
+   * were ported without leaving the not-implemented list, and ten more were
+   * registered at 0% without joining it, so the table described neither the
+   * past nor the present.
+   *
+   * A row leaving the table is the ratchet. A row that should have left and
+   * did not is the failure this catches, at the commit that ports it.
+   */
+  it('UNIMPLEMENTED.md names exactly the extensions that read 0%', () => {
+    const doc = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'UNIMPLEMENTED.md')
+    if (!existsSync(doc)) return
+    const text = readFileSync(doc, 'utf8')
+
+    const zero = allExtensions()
+      .filter((e) => {
+        const names = e.tokens
+          .map((t) => t.name.replace(/^!/, '').trim().toLowerCase())
+          .filter((n) => n !== '')
+        return names.length > 0 && names.every((n) => !implemented.has(n) && !NA.has(n))
+      })
+      .map((e) => e.id)
+
+    // Each row names the registry id in backticks. Matching on the id rather
+    // than the prose name is the difference between a check and a nuisance:
+    // an id is the extension's actual identity and cannot be spelled two
+    // ways, where "MAXS Door Handler" and `maxsdoor-0.20` are the same row.
+    const missing = zero.filter((id) => !text.includes(`\`${id}\``))
+    expect(missing, 'these read 0% and UNIMPLEMENTED.md does not list them').toEqual([])
   })
 })

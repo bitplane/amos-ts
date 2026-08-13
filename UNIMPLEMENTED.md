@@ -8,47 +8,27 @@ mechanism underneath it is not. Everything described below is one of those.
 
 ## Where the port stands
 
-Core AMOS Professional is complete — the display pipeline, the audio pipeline,
+Core AMOS Professional is complete: the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
-selector are all at 100%. So is every extension a stock installation ships
-(Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
-TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
-BUtility. `KEYWORDS.md` has the per-row counts.
+selector all read 100%. So does every extension a stock installation ships,
+and every third-party one the port has started.
 
-**Every row in the manifest reads 0% or 100%**: an extension is finished or it
-has not been begun. That is the ratchet working, and it is the number to watch
-— a row appearing in the middle means a thread was left hanging. The Game
-Extension 0.9 was the one exception for as long as it took to port, because
-sixty-one of its 103 keywords sit behind GMS and the rest do not, so it went
-in batches; it reads 100% now and the exception is closed.
+**Every row in the manifest reads 0% or 100%.** An extension is finished or it
+has not been begun, and that is the number to watch. A row appearing in the
+middle means a thread was left hanging.
 
-`KEYWORDS.md`'s total row carries the implemented and faithful counts. They
-are not repeated here, because a hand-copied total is a total that drifts.
+`KEYWORDS.md` carries the counts. They are not repeated here, because a
+hand-copied total is a total that drifts, and this file has proved it twice.
 
 ### The census
 
-`npx tsx src/cli/runreport.ts --all` runs all 513 corpus programs headless.
-**489 run to a stop, and 440 of those — 90% — do it without hitting a single
-unimplemented keyword.** That second figure is the coverage measure.
+The figures live in `README.md`, beside the command that produces them, and
+are deliberately not repeated here. Two copies is how this file came to say
+513 programs while README said the same thing differently and the truth was
+565.
 
-The tool also prints "ended with nothing skipped" (90). Ignore it: it counts
-only programs that *terminate*, and most AMOS programs are games and demos
-that never do. Of the 489, 235 hit the step cap and 141 block waiting on
-input — both correct behaviour, not failure.
-
-`--by-program` ranks the remaining 49 by how many programs each gap blocks,
-rather than by how often it is reached. The two orders are not the same and
-the difference is large: `igadget read` tops the occurrence list at 141,835
-hits and blocks three programs, while `dreg` blocks thirty on sixty-one hits
-and `iscreen_open` blocks nine on eleven. Occurrence counts are a measure of
-how hot a gap is, never of how much it costs.
-
-Those rows overlap and must not be summed. Partitioned, the 49 are **36 with
-no extension keyword involved at all** — almost entirely the n/a host and 68k
-escapes below — and **13 that are an extension's own bundled programs**
-(Intuition 1.3b's test suite and OS DevKit 1.61's `os_help`), which the next
-section takes apart.
+What belongs here is the part README does not carry: what the programs that
+stop are stopping on. That is the section at the end.
 
 ## Not implemented
 
@@ -62,70 +42,48 @@ it is how much of the extension work was done. The `Dev *` family and
 `Open Port` are NOT among them: they drive AMOS's own device layer, which is
 modelled, over the four devices this port has a back end for.
 
-Between them `dreg` (29 programs) and `doscall` (14) are the two widest gaps
+Between them `dreg` (30 programs) and `doscall` (14) are the two widest gaps
 in the census, and neither is closable.
 
 ### Third-party extensions
 
-**Registered and detokenising, not implemented.** These programs list and load
-with real keyword names instead of `{ext12:$02d4}`, then stop at the first
-extension keyword. The count is keywords with no handler at all:
+These are registered and detokenising but not implemented, so a program lists
+and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
+the first extension keyword. The count is keywords with no handler at all.
+
+Seventeen rows read 0%, and they divide by what is in the way rather than by
+size. `src/coverage/coverage.test.ts` checks that the rows below are exactly
+the rows reading 0%, so a ported extension cannot quietly stay on the list.
+
+Blocked on a back-end nothing here models:
 
 | extension | missing | what it is waiting on |
 |---|---|---|
-| OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list. `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts of it nothing here models |
-| GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
-| Intuition 1.3b | 183 | nothing in `src/amiga` — the back-end landed. What it lacks is a binary: the archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the one row where a port has no code to read |
-| D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
-| BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
+| OS DevKit 1.61 (`os-devkit-1.61`) | 1047 | a wrapper over most of AmigaOS. It needs the back-end, not the list: `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts nothing here models |
+| IntuiExtend 2.01b / 1.6 (`intuiextend-2.01b`, `intuiextend-1.6`) | 301 / 294 | Intuition. 2.01b rebuilt its table, so the two share 45 names of 294 and almost none at the same id, which is why they are two rows |
+| GUI 2.10 / 1.61 / 1.5b (`gui-2.10`, `gui-1.61`, `gui-1.5b`) | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
+| Int 1.0 (`int-1.0`) | 62 | Intuition |
+| BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
-**JD Intuition 1.3 came off this table, and it took two methods and a flood
-fill.** All 33 read 100%: 32 faithful and `Jd Intevent` approximated. The row
-above said it was waiting on "nothing in `src/amiga`", and that was nearly
-right — `Intuition` already had OpenWindow, CloseWindow, the window list, the
-layer chain and the IDCMP queue, all of it put there for EasyLife's `Eliconify
-Begin`. What was missing was a way to open a screen that is not the Workbench,
-`RastPort.flood`, and boolean gadgets on a window. Three additions, and the
-back-end is what the GUI family and Intuition 1.3b will want next.
+Blocked on nothing but the work. Every one of these holds a readable binary,
+so the evidence is there and the row is simply not begun:
 
-`Flood` is the one worth recording. It loops forever without a visited set,
-because in outline mode a filled pixel is still "not the outline pen" and so
-still qualifies to spread — which is exactly why the machine demands a TmpRas
-and why jd-int allocates a raster around every call. The scratch bitmap IS the
-visited map. An earlier draft of the comment here claimed nothing needed it.
+| extension | missing | evidence held |
+|---|---|---|
+| DME 2.0 (`dme-2.0`) | 184 | disassembly |
+| SymBase 0.94 (`symbase-0.94`) | 51 | disassembly |
+| D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
+| DBench 0.42 (`dbench-0.42`) | 23 | disassembly |
+| MAXS Door Handler 0.20 (`maxsdoor-0.20`) | 21 | the author's own source |
+| OrgAsm 1.0 (`orgasm-1.0`) | 13 | disassembly |
+| Display 0.01 (`display-0.01`) | 6 | disassembly |
+| THX 0.6 (`thx-0.6`) | 6 | disassembly |
 
-The reading turned up two places the manual is wrong and four defects. `Jd Open
-Intscreen` does not take X and Y whatever the manual says — routine 5 writes
-zeros into LeftEdge and TopEdge and spends the four arguments on Width, Height,
-**Depth** and **ViewModes**. `Jd Intcolour` takes two arguments and writes a
-palette entry, where the manual gives one and calls it the drawing colour.
-`Jd Intscreen Width` and `Jd Intscreen Height` are off by one field each,
-reading TopEdge and Width where they want Width and Height; the same binary
-confirms the struct layout by taking the ViewPort at `$2c` and the RastPort at
-`$54`. `Jd Intfill` skips the null check every other drawing keyword makes,
-sizes its TmpRas at a flat 40,960 bytes whatever it allocated, and then frees
-the raster by reading two words of its own pixels as the dimensions.
+And one row on its own, blocked on evidence rather than on work or a back-end:
 
-And one thing that is not a defect but reads like one: `Jd Intfill` is Flood in
-outline mode, and nothing in the extension sets `rp_AOlPen`. The boundary is
-therefore always colour 0, whatever pen the program drew its outline in, so a
-region cleared to 0 cannot be filled at all and an outline in pen 1 does not
-bound anything. That is what the code does.
-
-**Delta 1.6 came off this table in two steps, and the first step was free.**
-All 46 read 100%: 41 faithful, four approximated and `Jsr` n/a. It is the
-clearest case yet of a gap that was never a gap. 1.6 read 0% while 26 of its
-46 keywords were already implemented and already faithful, because 1.6
-*appended* — every one of 1.4's token entries sits at the id 1.6 gives the
-same keyword, none moved and none absent — and no `ExtensionImpl` had named
-the later identity. One string in `ids:` moved the row to 57% and turned the
-remaining twenty into work that could be seen. That failure mode had bitten
-twice before — EME 3.0 at 17% and `serial-1.2` at 0% — and it is now a check
-rather than an eye: `versweep.ts`, standing in `versweep.test.ts`. (It has NOT
-bitten five times. `p61-1.2` at 22% and `amcaf-1.50` at 2% were the opposite
-failure, coverage credited by keyword name to extensions nobody had written a
-line of, and #226 fixed the measure. Both stories end in a wrong percentage
-and that is all they share.)
+| extension | missing | what it is waiting on |
+|---|---|---|
+| Intuition 1.3b (`intuition-1.3b`) | 183 | a binary. Nothing in `src/amiga` is in the way, the back-end landed. The archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the only row where a port has no code to read |
 
 **The sweep's answer is that nothing else is waiting.** No registered release
 shares every id it has in common with a ported one and goes unnamed, so there
@@ -133,7 +91,7 @@ is no second Delta in the registry. Nor is there one in the corpus: `libcat`
 over all 502 `.Lib` files finds 28 variants of registered libraries, and every
 variant carrying keywords the registered release lacks is an AMOSTools stub —
 a token table with the code stripped out. The one readable exception is not a
-version at all; it is three paragraphs down.
+version at all, and it is the hybrid described at the end of this section.
 
 Getting the criterion right took the test rather than the thinking. The first
 version required a candidate to be a strict SUPERSET of the bound release,
@@ -165,433 +123,6 @@ and `Starplay` at ids 528, 544 and 558. They are not Stars 2.33's, which names
 everything `Stars Blast`, `Stars Reset` and so on; somebody merged a starfield
 routine into their copy of Music.Lib. It is a registration question rather than
 a binding one, and it is queued.
-
-The twenty are mostly AmigaOS: WBenchToFront and WBenchToBack, LockPubScreenList
-and its partner, FindTask and RemTask, DisplayBeep and DisplayAlert, three
-reqtools requesters and one from `req.library`. Four the guide's own contents
-marks "- PRIVATE -", and three of those turned out to be Poke, Doke and Loke
-with the arguments the other way round — `Moveb DATA,ADDRESS`. The fourth is
-`Jsr ADDRESS`, which is the jump and nothing else, so it is n/a rather than
-approximated.
-
-Two things had to be settled from the binary before any of it could be
-written. The first was the error path: routine 66 loads `moveq #$e,d2` and
-reading that 14 as a string length — which it looks exactly like — makes the
-message table unreadable and `d0` appear to be ignored. It is the extension
-slot, zero-based, as it is in seven other ports here, and `d0` indexes nine
-NUL-separated messages. Eight callers set it, each to a distinct value, and
-each lands on the right string. Three of the nine have no caller at all, which
-is why the guide wraps every reqtools example in
-`If Exist("LIBS:reqtools.library")` and warns "Else you will have GURU" — the
-library never checks that its libraries opened.
-
-The second was `rtPaletteRequestA`'s offset. Recalling the reqtools FD put it
-at -84, which would have made routine 43 a call into the wrong function with
-the title in the wrong register — a defect that is not there. The real FD
-ships in GUI 2.10's own `Tools/FD` directory in the corpus, and two private
-password entries and `rtFontRequestA` push the palette requester to -102 with
-its title in A2, which is exactly what the routine does.
-
-The best defect is `Delta Hard Reset`. It loads ExecBase into a6, never uses
-it, and clears absolute `$2a` instead of `$2a(a6)` — which is ColdCapture, the
-vector the ROM jumps through, and the only reason to load ExecBase at all. The
-relocation table proves the address is literal: 24 longwords are relocated and
-neither `$2a` nor the `$fc0000` it jumps to is among them.
-
-Reading 1.6 also settled something about 1.4. The nine string functions build
-their strings at address zero in 1.4 (below), and 1.6 fixed that — not
-deliberately, but because the release moved every absolute reference to
-`movea.l $1d8(a5),ax / adda.w #offset,ax` so the library works from its slot
-base, and the string functions came right on the way past. Which exposes the
-defect underneath: the author reserved two ten-byte buffers side by side and
-builds into the first, so `Delta About$` is twenty-four bytes going into
-twenty, and the four that do not fit land on whatever follows. In 1.6 that is
-the first longword of `Delta Decrunch`, whose `move.l (a3)+,d0 / tst.w d0`
-becomes the `Fnz!` the string ends with and decodes as `not.w $7a21(a6)`.
-Neither is reproduced — there is no vector table here to overwrite and no code
-memory for a string to land in — and both are now written down where the
-keyword is.
-
-One keyword disagrees between the two releases and this port cannot tell them
-apart. `Delta Decrunch` raises AMOS's numbered errors in 1.4 and the
-extension's own messages in 1.6, from the same two checks. An `ExtensionImpl`
-has no way to ask which identity is bound, so the port keeps 1.4's and says so.
-
-**Craft 1.0 came off this table, and it is worth saying what it cost.**
-All 138 are read: 135 faithful, one approximated and two named n/a. The
-prediction above turned out right — it names no library at all, and every
-back-end its eight groups touch was already here — but the account of what
-that meant was too cheap. "Its help file is crunched" hid a whole recovery
-job: the disk ships an Installer and seven opaque blobs, and the packer behind
-them is an in-house one, `\SOLARIS/`, that had to be read out of a compiled
-AMOS program before a single line of the 42KB manual or any of the forty
-example programs could be looked at. That is `src/amiga/solaris.ts`, and it
-paid for itself in every batch after it.
-
-Two of the eight groups are subsystems rather than keyword lists. The turtle
-is a fixed-point engine — a Taylor cosine, an integer Newton square root, a
-nine-term arcsine over a coefficient table — transcribed register by register,
-because the position is 16.16 and only its integer half reaches the screen, so
-the rounding *is* the behaviour. `Tr Exec` is a whole interpreted language
-inside one keyword, and its grammar exists nowhere but the twenty-two-entry
-table at `$1c88`. The fractal generator is a second fixed-point engine at a
-different scale.
-
-Thirteen defects came out of the reading, none of them in the manual, and one
-of them hangs the machine: `Tr Distance` to the turtle's own position spins on
-a carry that two zero deltas cannot produce. The others range from a crossed
-pair of omitted-parameter fallbacks in `Tr Set Home` to `Fr Step`'s
-two-argument form never storing its second number, and `Fr Mandelbrot` refusing an
-iteration count `Fr Julia` accepts. Two hardware registers came into the memory
-map along the way, CIA-A port A and POTGOR, because `=Hw Mouse Key` reads the
-silicon and a program that Peeks the same addresses has to agree with it.
-
-The one keyword that is not faithful is `Mem Type`, approximated for the
-reason AMCAF's `Pt Bank` already is: a real machine decides chip against fast
-by where an address IS, and this port models memory type as a flag on the
-bank. `Multi On` and `Multi Off` are n/a for the reason JD's and MISC 1.0's
-identical pair already are.
-
-**MusiCRAFT 1.0 came off it the day after, and cost almost nothing.**
-All 12 are read: 11 faithful and `=St Base` approximated. It is CRAFT's
-companion by the same author on the same disk, and the reason it was cheap is
-that most of it was already written: routine 0 is 4,774 of its 5,648 bytes and
-is a stock PT2.1A replayer, so it goes over `src/amiga/protracker.ts` the way
-AMCAF, P61, MED, GameSupport and SLN do, and the work is reading what it
-*adds*. Two words on the channel structure, four vumeter bytes that decay by
-`St Vumeter Speed` and are copied into AMOS's own every frame, a pause word,
-and no CIA tempo — every `Fxx` is a speed, exactly as in SLN's.
-
-It also settled its own slot. `move.l a4,$218(a5)` in routine 0 is
-`$f8 + 18*16`, so 19 is the binary's word and not just three example programs'.
-The one defect is a stub that shipped: `St Volume` is declared with no
-parameters and pops one anyway, and `=St Get Volume` answers a constant 64, so
-there is no volume control in the extension at all.
-
-**GameSupport 1.2 came off this table, and it is worth saying what it cost.**
-All 37 read 100% and all 37 are faithful. Three of its five groups turned out
-to be a shim over `GSDrivers/` modules their author described in the future
-tense and never released — the Sega-pad driver behind `Gscontrollertype` and
-`Gsreadsega`, and the whole chunky-to-planar block — and for those the
-library-absent arm is not a stub but what every real machine ran. One keyword,
-`Gscallmod`, is `jsr` into 68k code and waits on an interpreter this port does
-not have; it is the only structural deviation in the extension. `Gsiconify`
-waits on `workbench.library`'s AppIcon half and a blocking `WaitPort`, and
-answers 1 — the routine's own error result — until then. Everything else is
-data, and is done.
-
-**SLN 2.0 came off this table too.** All 70 read 100% --- 68 faithful, one
-approximated and one n/a --- and it was the cheapest large row on the board
-for the reason the table said: `sln_extII.s` is the author's own assembler
-source and, unlike `GameSupport.s`, it is the whole extension. What it cost
-was not archaeology but arithmetic. **Fourteen defects shipped in it**, every
-one confirmed in the binary before it was reproduced, and they are the reason
-this row took as long as it did: `S Mouse Button` reads the floppy
-disk-change line where it meant the fire button, so it can never report a
-press; `S Ainit`'s free reads array ZERO's address with array N's size, so
-re-initialising one array hands another's memory back; the two-dimensional
-bound check compares Y against the X limit and never checks X at all; `S
-Aclear` counts bytes and writes longwords; `S Aerase` re-allocates a one-byte
-array instead of erasing; `S Delete` decides file-versus-directory on a stale
-register four bytes past the AMOS string; `S Disk State` answers -2 for an
-empty drive where its own comment promises 0; and every trackdisk error is
-reported as the message below the right one. The one structural gap is
-`S Iinit`, whose eight VBL hooks are 68k machine code --- the table is kept
-exactly and nothing is ever entered. `S Mask$` is n/a because the author says
-so on the line itself: *"This command is non-existent!!! DO NOT USE."*
-
-Two things landed outside the extension. `AmigaFS.volume` and
-`AdfVolume.image`/`invalidate` open a raw path past the filesystem, because
-`S Disk Read` is `trackdisk.device` CMD_READ at a byte offset and an ADF *is*
-the sector image it wants --- so a mounted disk is served byte for byte and
-`S Disk Rename` really does rewrite the root block. And `Protracker` gained
-`trigVolPercent`, the percentage SLN's replayer applies at the instrument
-trigger and nowhere else.
-
-**Opal 1.1 came off this table, and the note it carried — "OpalVision
-hardware" — was the wrong reason to keep it there.** All 78 read; 63 are
-faithful. The row moved because the documentation turned out to exist: Opal
-Technology published its whole developer kit on Aminet in September 1993 as
-`driver/video/devdocs.lha`, and it holds `opal.library`'s AutoDocs, the
-*OpalVision Programmers Technical Reference Manual*, the include files, the FD
-file and the v4.3 library binary. Its `AMOS/` directory contains `Opal.lib`,
-`Opal.s` and `Opal.Readme` byte for byte identical to the extension fixture,
-so the shim and the library it calls come from one publisher and one author.
-
-The card is modelled in `src/amiga/opalvision.ts`: twelve 128K memory
-segments, a 290-instruction line coprocessor, the twenty-bit control line
-register, the playfield and priority stencils, and the frame buffer's
-contents, which are there because `DownLoadFrame24` reads them back.
-
-**The pixel layout is the finding, and no document in the kit states it.** An
-OpalVision plane holds *two* bits per pixel, four pixels to a byte, so 24-bit
-colour is twelve planes and not twenty-four — doubled in hires, where the even
-and odd pixels sit in different banks. `WritePixel24` and `CreateScreen24` in
-the shipped binary settle it, and once you know it three lines of documentation
-that read as errors turn out to be exact: the AutoDoc's *"BitPlanes will
-contain 4, 8, 12, 16 or 24 entries"* is precisely the five values the depth
-calculation can return, *"This value is not always width/8"* is true because it
-is never width/8, and the two stencils land on planes 4 and 8.
-
-Two more layouts were recovered the same way. The `OVTN` thumbnail chunk —
-4320 bytes of 48 x 30 x 12, and the scaler that fills it — appears in no
-document at all, and `DownLoadFrame24` has neither an AutoDoc entry nor a
-mention in the manual; the FD file gives its signature and hunk $53ca gives
-its behaviour.
-
-**Eight defects are reproduced**, three in the extension and five in the
-library. The extension never checks whether `opal.library` opened, so its one
-error message — *"Can't Open Opal.Library"* — is unreachable and a machine
-with no card gurus on the first keyword; `Ovcopperrefresh` declares an
-argument its routine never pops; and `Ovopenscreen24` sets two thirds of the
-default pen and writes both bytes through address zero when the open failed.
-In the library, `MaxFrames` over-reports in 15-bit mode, the thumbnail scaler
-bounds its rows against the horizontal limit, a thumbnail of an 8-bit screen
-comes out with red copied from green, taking a thumbnail zeroes the source
-screen's draw offsets, and fast format plus a mask writes a short `BODY`
-length. `src/runtime/opal.ts` catalogues all eight — including the five that
-belong to `src/amiga/opalvision.ts`, because `DEFECT:` may not live in that
-directory.
-
-**`Ovsavejpeg24` closed the row**, and it cost a codec rather than a keyword:
-`src/amiga/jpeg.ts` is a baseline encoder and decoder, the decoder being what
-lets the JPEG half of `Ovloadimage24` load instead of answering
-`OL_ERR_FORMATUNKNOWN`. The library's JPEG code turns out to be the
-Independent JPEG Group's, v4-era, compiled with SAS/C into the library's
-fourth hunk, so almost nothing there had to be guessed — the Annex K tables
-are in the binary at `$d41a`, `$d49a` and `$d27b`, `jpeg_set_quality` is at
-hunk 3 `$2668` and `jpeg_add_quant_table` at `$25da`, and the 4:2:0 sampling
-and marker order are readable at `$2740` and `$1d16`. Two of the library's own
-habits are reproduced rather than tidied: it emits a Huffman table per
-component instead of per table, so the two chrominance definitions go out
-three times between them, and the APP0 "thumbnail" is Opal's `OVTN` chunk
-declared to JFIF as the 48 × 30 RGB it is not.
-
-One piece is deliberately not the library's: the forward DCT. Matching IJG's
-integer transform bit for bit would make output byte-identical to an Amiga's
-and buys nothing, since nothing here reads a JPEG back except this decoder, so
-the file is a conformant baseline JPEG that differs in the low bits of some
-coefficients. The decoder replicates chrominance where libjpeg uses a triangle
-filter, which is the other place a picture can land a few levels off. Both
-keywords are approximated for those reasons and for no others. Everything else
-about image files is complete: the IFF loader takes 24-bit, OpalVision fast
-format, palette mapped, HAM and Extra Half Brite, and the writer reproduces
-hunk `$a39c` chunk for chunk.
-
-**Make Lib 1.30 came off this table as well**, and it is the small row that
-paid for something larger. All 32 read 100% and all 32 are faithful. Its
-anonymous author wrote it because *"AMOSPro is missing usable memory
-allocation routines and it doesn't have any routines to handle lists and nodes
-at all"*, so it is `AllocMem`, `AllocVec`, a `malloc` with its own free-all,
-eight of exec's list routines, a C-shaped `stdio` over `dos.library`, and
-three graphics keywords belonging to neither. The manual documents every
-keyword, which makes it one of the few rows where the binary and its own
-description can be read against each other line by line — and they disagree
-four times, the binary winning each time. `Ma Fopen`'s third mode is not `"a"`
-but *every character that is not R or W*, empty strings included. `Ma Fread`,
-`Ma Fwrite` and `Ma Fseek` each branch past the instruction that would have
-written their result when the file handle is zero, so all three hand back
-their own last argument: a write that never happened reports every byte sent.
-`Ma Point` is not AMOS's `Point` — no clip window, and it walks `EcCurrent`
-where AMOS walks `EcLogic`. And `Ma Realloc(0,n)` never writes a return value
-at all. One defect is the binary's alone: `Ma Paste Icon` takes the plane
-count from the SCREEN and never reads the icon's own, four bytes into the
-record it has just loaded, so a one-plane icon on a four-plane screen paints
-three planes of its neighbours.
-
-What it paid for is `MemPool` in `src/amiga/exec.ts`. First-fit `AllocMem`
-over one mapped buffer was written inside `sln.ts` with a note saying it would
-move if a second extension ever wanted it; Make, whose whole first half is
-`Ma Malloc` and exec lists, is that second extension, so it moved. Where the
-pool is *mapped* stayed with the caller, because a memory region is the
-caller's declaration and not exec's.
-
-**Tools 1.01 came off it too**, and it is the row where the *undocumented*
-half was the interesting one. All 33 read 100% and all 33 are faithful. Tor
-Erik Ottinsen's AmigaGuide covers twenty-two — a byte array kept in a memory
-bank, a cursor you point at memory and then read and write through, `Range`,
-an `Encode`/`Decode` pair and a checksum — and says of the other eleven:
-*"internal commands used by my so far unreleased GUI System. These are
-internal commands of no use for anybody except me. I therefore choose to leave
-them undocumented."* They are not stubs. `Oui Init` reserves `(N+1)` records of
-thirty-two bytes with the bank's first two bytes holding a count and a maximum,
-and the four accessors between them describe the record completely: fourteen
-words of fields, a live flag at `+$1a`, and a pointer to a string at `+$1c`.
-Writing that down is most of what porting them was.
-
-Two defects. **`Array Dim SX,SY` stores `SX+1` as the row stride and then
-multiplies X by it**, so the array you get is indexed `[0..SY][0..SX]` — the
-dimensions are the other way round from the guide's own `Dim _ARRAY(SX,SY)`
-and from AMOS's, and it only stays inside its own allocation while `SX <= SY`.
-Nothing bounds-checks anything, and the index is a word displacement, so it
-wraps negative at 32768 and writes before the bank. And **`Oui New` never
-increments the count**, so every call writes element 1 — which turns out to be
-deliberate rather than missed, because `Oui Set Data 0,n` is exactly the byte
-the count lives in and the count reads as a cursor the caller drives.
-
-`Set Crypt` is one instruction, `eori.b #$ff`, with the length word left in
-clear; `Encode` and `Decode` are a real stream cipher with a 15-bit LCG and a
-running sum that makes the keystream depend on a byte's position. `range` is
-slot-qualified, because Range 2.6/2.9Plus claims the name too — which the
-guide half-admits: *"a somewhat optimized version of the Range command in the
-Shuffle Extension"*.
-
-**Delta 1.4 came off it, and the row was wrong about why it was there.** It
-sat under "`intuition.library`" because it was grouped with Delta 1.6. It needs
-nothing: fourteen instructions that poke the hardware and twelve functions that
-return constants, and the only `intuition.library` string in the binary is in a
-routine past the last keyword that nothing calls. All 26 read 100%, all
-faithful.
-
-What it turned out to be is somebody else's extension with constants bolted on.
-**Five of its fourteen instructions are Misc 1.0's routines instruction for
-instruction** — `Delta Drive Motor On`/`Off` is `Dled On`/`Dled Off`, `Delta
-Mouse Off` is `Mouse Off`, `Delta Change Disk` is `Disk Wait`, `Delta Wait Fire`
-is `Firewait` — and `Delta Reset` is Misc's `Reset`. Same constants, same order,
-same 500-iteration delay calling the same push-sixteen-registers-and-pop-them-
-back subroutine, same `FindName` for a task called "Validator". Misc ships its
-source and Delta does not, so this half of the extension arrives with a witness,
-inverted drive-motor defect and all. That inversion is why `Runtime.driveMotor`
-exists now: two extensions write the same CIA-B port-B bit and neither knows
-about the other, which is exactly the test `spriteDma` and `videoOff` already
-passed.
-
-Its own defects are better than the borrowed ones. **Every one of 1.4's nine
-string functions builds its string at address zero.** They use `movea.w
-(buffer).L` where `lea` was wanted, so they read the *word at* their twenty-byte
-buffer instead of loading its address — it is zero — and write there. It works,
-because the pointer handed back is read the same wrong way and is zero too, so
-the caller finds the string exactly where it was put. The price is the 68000's
-exception vectors: `Delta About$` is twenty-four bytes, which is vectors 0 to 5.
-1.6 fixed the addressing and inherited a different problem with the same
-twenty-four bytes; see the Delta 1.6 section above.
-**`Delta Inter On` does nothing at all** — INTENA's bit 15 chooses set or clear
-and the write has it clear, so it clears the bits present in `$0000` — while
-`Delta Inter Off` works, so interrupts can be turned off and not back on. And
-**`Delta Decrunch XX` sets colour one**, because `move.l d0,$dff180` writes two
-registers and the argument is a word.
-
-**LSerial 2.1 came off it too.** All 15 read 100% — 14 faithful, `Lxpr`
-approximated. Niklas Sjöberg wrote it because AMOS's own serial would not
-survive a close and a reopen (*"in 1.2/1.3 it worked, but only sometimes and
-only a little :-)"*), and twelve of the fifteen are a thin, honest layer over
-exec's `DoIO`/`SendIO`/`CheckIO` on three `IOExtSer` requests — which made them
-cheap, because `rt.host.serial` and the `SerialLineParams` contract were
-already there for IOPorts.
-
-`Lxpr` is the one that is not. It is 7,220 bytes and a whole XPR host in a
-single keyword, and the doc says why it is a single keyword: *"the AMOS compiler
-treats all functions as local, as it datas"*, so splitting the twenty-two
-callbacks would have linked the XPR block into every program that used any other
-`Lserial` command. Its dispatch, its NUL-termination checks and every arm that
-does not need a library are exact; what cannot happen is a transfer, because no
-`xpr*.library` is modelled — and `XPROPEN` correctly reports that, which is what
-a machine without one does.
-
-Two defects. `Lser Get`'s size guard is unsigned, so it refuses a count of zero
-and lets a negative one through as a number near four billion. And `Linkey$`'s
-control-key fold uses `bcc` where it needed `bhi`, so CONTROL with a *shifted* Z
-gives `Chr$(250)` where every other shifted letter gives 1 to 25. The build held
-here is the unregistered one, and all ten of its error paths flash the screen
-white and print *" UNREGISTERED SHAREWARE version of LSerial!  Author really
-should register!"* on the Workbench screen before raising. The error is
-reproduced; the nag is not.
-
-**BUtility 1.21 came off it.** All 15 read 100%: ten faithful, five
-approximated. It is a facade over three third-party libraries — reqtools for
-requesters, asl for the system file requester, xpkmaster for compression — so
-it is thin, and the interesting part is which library each keyword reaches.
-
-Three of the fifteen are XPK and need nothing: `src/amiga/xpkmaster.ts` is a
-real port of the stream format that EasyLife already drives, and a method with
-no sub-library registered fails with XPKERR_NOMETHOD exactly as a machine
-missing that sub-library does. Six are buffer reads. Two are file requesters
-and take AMOS's own selector, the substitution LDos's `Lfreq` uses for
-req.library — approximated for the substitution, not for the plumbing.
-
-The last three are `rtEZRequest`, `rtGetLong` and `rtGetString`, and they run
-on `src/runtime/requester.ts`. That module writes Interface-language dialog
-scripts and runs them on a temporary channel the way `Dialog Box` does. The
-grammar is the default resource bank's own Path:/Name: dialog (program 3), the
-one shipped dialog that draws with `IN`/`GB`/`GS`/`PR` primitives rather than
-9-patches out of a bank whose image numbering is not ours — so the same script
-renders against any bank a program has loaded. AMOS Professional's editor
-ships an alert, a numeric input and a string input as dialog scripts of its own
-(`AMOSPro_Editor_Resource.Abk` program 0, labels 1, 12, 34 and 39), which is
-what makes this AMOS's way of building a requester rather than an invention.
-
-Three defects, none of them in the doc. `Baslfile$` copies the ASL requester's
-name into data+$16 — the buffer `Breqfile$` reads — before answering it, and
-`Basldir$` and `Breqdir$` share data+$118 the same way, so reqtools and asl are
-not separate namespaces and whichever ran last wins. `Bgetstrreq` copies its
-default into the 256-byte buffer at data+$274 with an unbounded loop and stores
-the body pointer *before* checking that Max chars is in 1..255, so an
-out-of-range call raises with the copy already done — and a default longer than
-the buffer writes over the EZRequest tag list that begins at data+$374. And
-every one of the fifteen NUL-terminates its string arguments in place with
-`clr.b (a0,d0.w)`, one byte past the last character, in AMOS's own workspace.
-
-`src/amiga/exec.ts` models all three libraries — xpkmaster v4, reqtools v38,
-asl v37 — which is what makes the five "not opened" arms unreachable rather
-than pretended.
-
-**This table has been wrong before, and the fix is to read it off
-`KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro
-Colours, AGA 1.0, Misc 1.0 and LDos 2.6 as unported when all six read 100% —
-six stale rows out of nine, because the table is hand-maintained and the
-manifest is generated. `KEYWORDS.md` is the source of truth; this is a
-commentary on it.
-
-**EasyLife is complete, and this document used to say otherwise.** All four
-releases read 100% — 1.0 (72), 1.09 and 1.10 (156 each), 1.44 (108) — with
-`iconify amos` the single approximation. The note that used to sit here called
-it "part-ported, and what is left of it is the MUI block", which files a
-DEPENDENCY as a gap in the dependent. EasyLife's own half of MUI is the
-four-LVO trampoline and the string pool that keeps AMOS strings alive across
-a taglist (`src/runtime/elmui.ts`, routines 231, 232, 238 and 241), and that
-half is finished. `muimaster.library` is a separate product by another author,
-installed separately, and EasyLife is built to run without it — message 23 is
-`Could Not Open MUI Master Library V8+ (MUI V2.1+)`. It gets its own section
-below rather than a footnote here. The iconify four came off this list when
-`OpenWindow` landed, and they are the first keywords in the port to open a
-real Intuition window.
-
-Two rows above still name Intuition, and neither is blocked by it. The gate
-that used to hold five of them — **`intuition.library`, and a display path
-that can show a window** — is open, and the answer turned out to be one AMOS
-already had. `display.ts` is a single
-copper-list interpreter, so an Intuition screen has to express itself as
-copper registers plus `BPLxPT` rather than as a second `Screen` — and AMOS
-opens screens BASIC cannot name for exactly that reason (EcFonc 8, EcEdit 9,
-EcFsel 10, EcReq 11, +Equ.s:792). The Workbench screen is one more of those,
-at slot 12. `src/amiga/intuition.ts` has OpenWorkBench, CloseWorkBench,
-WBenchToFront/Back, OpenWindow and CloseWindow on `src/amiga/layers.ts`,
-with the system gadgets and an IDCMP port.
-
-**What the GUI trio actually wants is `gadtools.library`**, and the table used
-to say `intuition.library` because nobody had looked. All three name
-`gadtools.library` and `asl.library` in their strings and none of them names
-Intuition — GadTools is the OS 2.0 toolkit that builds gadgets and menus on
-top of Intuition, so it is one layer up and it is the layer that is missing.
-355 keywords sit behind it, the second-largest block on the board.
-
-**Intuition's census weight is an artefact, and this document used to report
-it as the largest remaining gap.** It is not. Twelve corpus programs reach an
-Intuition keyword and all twelve are Intuition's own bundled test suite —
-`inttest1`..`6`, `bug1`, `bug2`, `bcollin`, `intuiviewer`, `test0` — which
-arrived in `fixtures/extensions/intuition-1.3b/progs/` with the extension
-archive. Zero programs written to *use* it are in the corpus, and the huge
-occurrence counts are those self-tests looping.
-
-What holds it now is not the back-end but the evidence. Its 183 keywords are
-windows, gadgets, menus and requesters, and `src/amiga/intuition.ts` can serve
-those — but no `.Lib` for this extension has been found. The archive is
-`itokens.s`, `cmdlist` and the author's own twelve test programs, so the token
-table, the parameter specs and the `L_` routine names are all there and the
-routine bodies are nowhere. That makes it the one registered extension at
-`manual` tier, and the only one where a port would be reading names rather
-than code. **Check Aminet before accepting that** — the corpus machine's
-absence is not the world's.
 
 ### muimaster.library — surveyed, and parked behind Intuition
 
@@ -909,24 +440,31 @@ having.
 
 ## Remaining census stoppers
 
-Of the 488 programs, 478 reach a stop. Where the other work goes:
+Re-measure with `npx tsx src/cli/runreport.ts --all` rather than trusting the
+counts below; they are a snapshot, and the point of the list is the shape.
 
-- **step cap (235)**: games and demos running their main loop happily until
-  the cap. The census cannot "win" a game.
-- **blocked (141)**: waiting on input or the mouse forever — accessories and
-  demos idling in event loops. Correct behaviour.
-- **errors (16 kinds, 24 programs)**: `bank not reserved` (3), `Next without
-  For` (2) and screens the program closed before drawing on them (2) all error
-  on real AMOS too. Archive gaps are the largest group: one `Object file not
-  found` (`tinycube.3DO` is in no archive found so far, which is what stops the
-  AMOS 3D demo Spunt's Village), `file not found` (3, all EasyLife demos) and
-  four TOME programs asking for `TOME_GOODIES:` directories and a
-  `levels/level1.map` that no archive here carries.
-- The remaining nine programs are **undiagnosed**, and are the honest tail of
-  this list rather than a verdict: `dialog syntax error` (2), `Disc error` (2),
-  `dialog function call error`, `variable expected`, `wrong number of
-  parameters for TEST1`, `Illegal function call` and `music bank not found`.
-  Five of the nine are EasyLife demos, which is where to start.
+Of 565 programs, 539 run to a stop: 245 hit the step cap, 147 block on input
+and 147 end. Neither of the first two is a failure. A game running its main
+loop cannot be "won" by a census, and an accessory idling on the mouse is
+behaving correctly.
+
+Of the 147 that end, 27 end on a runtime error, in 18 kinds. They sort into
+three groups and only the last is ours:
+
+- **Correct on a real Amiga too.** `bank not reserved` (3), `Next without For`
+  (2) and screens the program closed before drawing on them (2). AMOS raises
+  these as well.
+- **Archive gaps, the largest group.** One `Object file not found`, because
+  `tinycube.3DO` is in no archive found so far, which is what stops the AMOS
+  3D demo Spunt's Village. `file not found` (3, all EasyLife demos), and five
+  TOME programs wanting `TOME_GOODIES:` directories and a `levels/level1.map`
+  that nothing here carries.
+- **Undiagnosed, which is the honest tail.** `dialog syntax error` (2), `Disc
+  error` (2), `dialog function call error`, `variable expected`, `wrong number
+  of parameters for TEST1`, `Illegal function call` (2), `division by zero`,
+  `music bank not found`, and one loader read of 538,976,288 bytes that is
+  plainly a length read out of the wrong place. Several are EasyLife demos,
+  which is where to start.
 
 `runreport` names the first program to hit each error, so this list can be
 rebuilt rather than remembered.
