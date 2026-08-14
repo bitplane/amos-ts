@@ -40,11 +40,23 @@ export function unsquash(buf: Uint8Array): Uint8Array {
   }
 
   const origLen = rdLong()
+  // A length of zero is not a squashed block, and this used to RETURN one --
+  // an empty Uint8Array, before the checksum was so much as looked at. Any
+  // file ending in a zero longword decoded "successfully" to nothing, which
+  // three of APD426's IFF 8SVX sample banks do. The checksum cannot catch it
+  // either: their tails are zeros, so the stored checksum and the first bit
+  // word are both zero and they cancel. What settles it is that `squash`
+  // below refuses to emit anything that is not at least 33 bytes smaller than
+  // its input, so no encoder ever produces a block whose original length is 0.
+  if (origLen === 0) notSquashed()
   const out = new Uint8Array(origLen)
-  if (origLen === 0) return out
   let a2 = origLen // output write cursor, moves backward
   let d5 = rdLong() // checksum accumulator (seeded with the stored checksum)
   let d0 = rdLong() // current bit-word
+  // and every bit word carries a guard bit, so a zero one is not a bit word.
+  // This is the same test one step earlier: it rejects a run of zeros before
+  // the decoder starts walking off the end of the buffer looking for tokens.
+  if (d0 === 0) notSquashed()
   d5 = (d5 ^ d0) >>> 0
 
   // pull one bit from the low end of d0; refill from the previous word when

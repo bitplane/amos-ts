@@ -79,6 +79,22 @@ describe('Squasher II codec (+CompExt.s:1027-1558)', () => {
     expect(() => unsquash(packed)).toThrow(/squashed/i)
   })
 
+  it('a block that was never squashed is rejected, zeros and all', () => {
+    // APD426's insert_disk_II.amos carries four IFF 8SVX sample banks. Three
+    // of them end in a run of zeros, so the original length reads 0, the
+    // stored checksum reads 0, the first bit word reads 0 and the checksum
+    // cancels against it. Unsquash used to hand those back as an empty
+    // Uint8Array and call it a success.
+    const iff = new Uint8Array(64)
+    iff.set([0x46, 0x4f, 0x52, 0x4d, 0, 0, 0, 0x38, 0x38, 0x53, 0x56, 0x58]) // FORM....8SVX
+    expect(() => unsquash(iff)).toThrow(/squashed/i)
+    // and the guard bit is what rules out the first bit word being zero, so a
+    // non-zero length over a zero word is refused before the decoder walks
+    const zeroWord = new Uint8Array(16)
+    new DataView(zeroWord.buffer).setUint32(12, 100) // a plausible length
+    expect(() => unsquash(zeroWord)).toThrow(/squashed/i)
+  })
+
   it('keeps the checksum long and original length in the trailer', () => {
     const input = new Uint8Array(500).fill(0x20)
     const packed = squash(input)!

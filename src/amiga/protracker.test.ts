@@ -282,6 +282,29 @@ const run = (p: Protracker, n: number): void => {
   for (let i = 0; i < n; i++) p.tick()
 }
 
+describe('which signatures parseMod takes', () => {
+  /** the smallest thing with the shape: one pattern, one position, no samples */
+  const bare = (sig: string): Uint8Array => {
+    const b = new Uint8Array(1084 + 1024)
+    b[950] = 1 // song length
+    b.set([...sig].map((c) => c.charCodeAt(0)), 1080)
+    return b
+  }
+
+  it('takes ProTracker\'s two and Startrekker\'s four-channel one', () => {
+    for (const sig of ['M.K.', 'M!K!', 'FLT4']) expect(parseMod(bare(sig)), sig).not.toBeNull()
+  })
+
+  it('refuses FLT8, which is eight channels interleaved and needs a mixer', () => {
+    expect(parseMod(bare('FLT8'))).toBeNull()
+    expect(parseMod(bare('    '))).toBeNull()
+  })
+
+  it('refuses anything shorter than a header', () => {
+    expect(parseMod(new Uint8Array(1083))).toBeNull()
+  })
+})
+
 describe('the tick', () => {
   /**
    * `P61_Init` leaves `P61_cn` at 0 and the speed at 6, and `P61_Music` tests

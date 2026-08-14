@@ -121,7 +121,23 @@ export const PT_ROWS = 64
 const EMPTY_ROW: PtRow = { note: 0, instrument: 0, command: 0, info: 0 }
 
 /**
- * Read an `M.K.` module.
+ * The four-byte signatures this reads, all of them 31-sample four-channel
+ * modules with the same layout.
+ *
+ * `M.K.` is ProTracker's and `M!K!` is what it writes once the pattern count
+ * passes 64. `FLT4` is Startrekker's, and it is the same file: four channels,
+ * 31 samples, 1024-byte patterns. Startrekker's EIGHT-channel `FLT8` is NOT
+ * here, because it interleaves two four-channel pattern halves and would need
+ * the mixer this port does not have.
+ *
+ * FLT4 is in the list because the corpus forced it. APD426's `golden_ages` and
+ * `techno.amos` each carry a squashed module in bank 14, `golden intro` and
+ * `sunrider`, and both are FLT4. Before this they read as "not a module".
+ */
+const MOD_SIGNATURES = ['M.K.', 'M!K!', 'FLT4']
+
+/**
+ * Read a four-channel, 31-sample module.
  *
  * The layout is fixed and public: 20 bytes of song name, 31 sample headers of
  * 30 (a 22-byte name, the length in WORDS, finetune, volume, repeat point and
@@ -137,7 +153,7 @@ const EMPTY_ROW: PtRow = { note: 0, instrument: 0, command: 0, info: 0 }
 export function parseMod(data: Uint8Array): PtSong | null {
   if (data.length < 1084) return null
   const sig = String.fromCharCode(...data.subarray(1080, 1084))
-  if (sig !== 'M.K.' && sig !== 'M!K!') return null
+  if (!MOD_SIGNATURES.includes(sig)) return null
 
   const rd = (o: number): number => ((data[o] ?? 0) << 8) | (data[o + 1] ?? 0)
 
