@@ -13,6 +13,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
+import { thxModuleFile } from '../testing/thxmodule'
 import { THX_BANK_NAME, THX_ERRORS } from './thx'
 import { Runtime } from './runtime'
 
@@ -23,28 +24,10 @@ const thx = extensionById('thx-0.6')!
 const extensions = new Map([[THX_SLOT, thx.table]])
 
 /**
- * The smallest module the parser accepts: one position, one two-row track, one
- * instrument, no subsongs. Byte 3 is the version and must be ZERO — see
- * ../amiga/thx.ts on why this extension rejects anything else and Jotre does
- * not.
+ * Byte 3 is the version and must be ZERO here — see ../amiga/thx.ts on why
+ * this extension rejects anything else and Jotre does not.
  */
-function moduleFile(subSongs = 0, version = 0): Uint8Array {
-  const body: number[] = []
-  for (let i = 0; i < subSongs; i++) body.push(0, 0)
-  body.push(1, 0, 0, 0, 0, 0, 0, 0)
-  body.push(0, 0, 0, 0, 0, 0)
-  body.push(0x40, 0x05, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-  const nameOffset = 14 + body.length
-  return Uint8Array.from([
-    0x54, 0x48, 0x58, version,
-    nameOffset >> 8, nameOffset & 0xff,
-    0x80, 1,
-    0, 0,
-    2, 1, 1, subSongs,
-    ...body,
-    0, 0,
-  ])
-}
+const moduleFile = (subSongs = 0, version = 0): Uint8Array => thxModuleFile({ subSongs, version })
 
 interface Boot {
   rt: Runtime

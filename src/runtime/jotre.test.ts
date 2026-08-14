@@ -4,6 +4,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
+import { thxModuleFile } from '../testing/thxmodule'
 import { Runtime } from './runtime'
 import { JOTRE_ERRORS, JOTRE_PLAYING, JOTRE_READY, jotreVbl } from './jotre'
 
@@ -42,9 +43,40 @@ function run(src: string): Boot {
 /** a THX module the way the Guide says to make one: Bloaded into a data bank */
 const MODULE = 'Reserve As Data 1,64\nPoke Start(1),84\nPoke Start(1)+1,72\nPoke Start(1)+2,88\nPoke Start(1)+3,2\n'
 
+/**
+ * The same bank, holding a module the parser will actually walk.
+ *
+ * The Guide's own route is `Bload` into a reserved bank, and there is no
+ * keyword here that reads a file — Jotre never touches the filesystem — so the
+ * bank is filled directly and the program plays `Start(1)`.
+ */
+function bootModule(src: string, file: Uint8Array = thxModuleFile({ version: 2 })): Boot {
+  const b = boot(src)
+  b.rt.reserveBank(1, file.length, 'THXMod', true, false)
+  b.rt.memBanks.get(1)!.data.set(file)
+  return b
+}
+
+function runModule(src: string, file: Uint8Array = thxModuleFile({ version: 2 })): Boot {
+  const b = bootModule(src, file)
+  mustFinish(b.rt.runHeadless(2000))
+  return b
+}
+
+/**
+ * N real frames.
+ *
+ * `Wait n` will not do: runHeadless fast-forwards it by moving the tick to
+ * `until - 1`, so no frame runs and the VBL hook never fires.
+ */
+const VBLS = (n: number): string => `For I=1 To ${String(n)} : Wait Vbl : Next I\n`
+
 describe('Jotre 1.0 — the THX shim', () => {
   it('routine 0 leaves the flag byte clear', () => {
-    expect(boot('').rt.jotre).toEqual({ flags: 0, module: 0, subSong: 0, version: 0, volume: 0 })
+    const { rt } = boot('')
+    expect([rt.jotre.flags, rt.jotre.module, rt.jotre.subSong]).toEqual([0, 0, 0])
+    expect([rt.jotre.version, rt.jotre.volume, rt.jotre.parsed]).toEqual([0, 0, null])
+    expect(rt.jotre.player.playing).toBe(false)
   })
 
   it('Init Thx sets bit 0 and a second one is error 2 (routine 4, $2e1a)', () => {
@@ -122,5 +154,67 @@ describe('Jotre 1.0 — the THX shim', () => {
     expect(run('Init Thx\nVolume Thx 255').rt.jotre.volume).toBe(255)
     expect(run('Init Thx\nVolume Thx 256').rt.jotre.volume).toBe(0)
     expect(run('Init Thx\nVolume Thx -1').rt.jotre.volume).toBe(255)
+  })
+
+  describe('the replayer behind the shim', () => {
+    it('Play Thx parses the bank and starts the song', () => {
+      const { rt } = runModule('Init Thx\nPlay Thx Start(1),0')
+      expect(rt.jotre.parsed).not.toBeNull()
+      expect(rt.jotre.player.playing).toBe(true)
+    })
+
+    it('accepts a version byte thx-0.6 would refuse, because it cleared it first', () => {
+      // the module is built at version 2. `clr.b $3(a0)` runs before the
+      // compare, so the parse sees a zero and ../runtime/thx.ts's `bytes[3]
+      // !== 0` test has no counterpart here
+      const { rt } = runModule('Init Thx\nPlay Thx Start(1),0')
+      expect(rt.jotre.version).toBe(2)
+      expect(rt.jotre.parsed!.version).toBe(0)
+    })
+
+    it('the VBL gate wants BOTH bits, and steps the song when it has them', () => {
+      const { rt } = runModule('Init Thx\nPlay Thx Start(1),0')
+      // one two-row track at the default speed of six: six frames a row
+      for (let i = 0; i < 6; i++) rt.frame()
+      expect(rt.jotre.player.row).toBe(1)
+    })
+
+    it('Stop Thx stops the engine and Play Thx starts it again', () => {
+      const { rt } = runModule(`Init Thx\nPlay Thx Start(1),0\n${VBLS(6)}Stop Thx`)
+      expect(rt.jotre.player.playing).toBe(false)
+      const at = rt.jotre.player.row
+      for (let i = 0; i < 12; i++) rt.frame()
+      expect(rt.jotre.player.row).toBe(at)
+    })
+
+    it('DEFECT: Deinit Thx leaves PLAYING set, and the gate is what stops the frame', () => {
+      // bit 0 is gone, so `jotreVbl` refuses even though bit 1 says otherwise
+      const { rt } = runModule(`Init Thx\nPlay Thx Start(1),0\n${VBLS(6)}Deinit Thx`)
+      expect(rt.jotre.flags).toBe(JOTRE_PLAYING)
+      expect(jotreVbl(rt.jotre)).toBe(false)
+      // and StopSong DID run on the way past, so the engine is stopped too
+      expect(rt.jotre.player.playing).toBe(false)
+    })
+
+    it('Volume Thx writes the replayer global, and Init Thx puts it back to $40', () => {
+      // `move.b #$40,$1(a6)` at $776 is the last thing InitPlayer does
+      expect(run('Init Thx').rt.jotre.player.playerVolume).toBe(0x40)
+      const { rt } = run('Init Thx\nVolume Thx 99')
+      expect(rt.jotre.player.playerVolume).toBe(99)
+      // 99 is past the chain's unity of 64 and nothing here clamps the TERM,
+      // which is the loudness thx-0.6's author complained about
+      expect(rt.jotre.player.playerVolume).toBeGreaterThan(64)
+    })
+
+    it('an error-3 Play Thx leaves the running song alone, where thx-0.6 would not', () => {
+      const b = bootModule('Init Thx\nPlay Thx Start(1),0\nReserve As Data 2,64\nPlay Thx Start(2),0')
+      expect(() => b.rt.runHeadless(2000)).toThrow(JOTRE_ERRORS[3])
+      // routine 6 tests InitModule's -1 and raises, so StartSong never runs
+      // and the engine still holds the first module. thx-0.6 never tests the
+      // return code at all and calls StartSong over the rubbish --- see
+      // ./thx.ts, where that is one of the author's declared defects
+      expect(b.rt.jotre.player.playing).toBe(true)
+      expect(b.rt.jotre.parsed).not.toBeNull()
+    })
   })
 })

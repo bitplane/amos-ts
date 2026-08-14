@@ -69,16 +69,22 @@
  *     +$2bd0  the sub-song byte
  *     +$2bd1  the error code routine 3 reports
  *
- * ## What is here and what is not
+ * ## What is here
  *
- * The shim is complete: every flag, every error, and both orderings that
- * matter. The SYNTHESIS is not — THX is a synth tracker, not a sampler, and
- * its engine is ten kilobytes of 68k in this file with no published source.
- * That is the same boundary MED 7.1 draws at octaplayer.library, and it is
- * tracked separately.
+ * All of it. Every flag, every error, both orderings that matter, and the
+ * synthesis — the ten kilobytes of replayer this file links in are
+ * ../amiga/thxplay.ts, read off THIS binary rather than off thx-0.6's, so the
+ * offsets that engine cites ($a3a, $b60, $14c8, $1618) are offsets into
+ * `AMOSPro_Jotre.Lib`. Its waveform bank is ../amiga/thxwaves.ts.
  *
- * One thing the shim does is genuinely observable without any of that, and it
- * is reproduced: `InitModule` at $802 opens
+ * The two AMOS front ends therefore drive the same engine from two different
+ * shims, which is not quite what the machine does: each library links its own
+ * copy of the replayer and each has its own state. One `ThxPlayer` per
+ * extension keeps that separation, so a program using both gets two
+ * independent songs and eight voices' worth of contention, exactly as it would
+ * have.
+ *
+ * `InitModule` at $802 opens
  *
  *     move.b $3(a0), $43e(a6)      stash the module's version byte
  *     clr.b  $3(a0)                and ZERO it, in the caller's memory
@@ -93,6 +99,8 @@
  * Deliberately not copied here or into any commit.
  */
 import { AmosError } from '../interp/values'
+import { thxParse, type ThxModule } from '../amiga/thx'
+import { ThxPlayer } from '../amiga/thxplay'
 import type { Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
@@ -135,8 +143,17 @@ export interface JotreState {
   subSong: number
   /** the version byte InitModule stashes out of the module's byte 3 */
   version: number
-  /** what Volume Thx wrote through the pointer at block+$24 */
+  /**
+   * The replayer's global volume at state+$1, which is what `Volume Thx`
+   * writes through the pointer at block+$24 and what InitPlayer sets to $40.
+   * Mirrored here so a test can read the byte; the engine's own copy is
+   * `player.playerVolume`, and the two are written together.
+   */
   volume: number
+  /** what the bank at block+$2bcc parsed to, or null when it did not parse */
+  parsed: ThxModule | null
+  /** the replayer this library links, at block+$8 through block+$1c */
+  player: ThxPlayer
 }
 
 /**
@@ -144,12 +161,14 @@ export interface JotreState {
  * static data in the hunk, so its flag byte starts at whatever the file holds,
  * which is zero.
  */
-export const newJotreState = (): JotreState => ({
+export const newJotreState = (rt: Runtime): JotreState => ({
   flags: 0,
   module: 0,
   subSong: 0,
   version: 0,
   volume: 0,
+  parsed: null,
+  player: new ThxPlayer(() => rt.host.audio),
 })
 
 /**
@@ -161,12 +180,18 @@ export const newJotreState = (): JotreState => ({
  * BOTH bits, so a module that was started and then stopped is not stepped,
  * and neither is one whose player was removed.
  *
- * NOTE: there is no THX synthesis here, so the interrupt has nothing to do
- * beyond what the gate above already says. The gate itself is reproduced
- * because it is what `Stop Thx` and `Deinit Thx` are observable through.
+ * The gate is the whole reason `Stop Thx` and `Deinit Thx` are observable at
+ * all, and it is stricter than the engine's own: `ThxPlayer.tick` returns on
+ * `playing` too, so a stopped song is refused twice. That matters after a
+ * `Deinit Thx`, whose defective mask leaves the PLAYING bit set — bit 0 is
+ * gone, so this gate is what actually stops the frame.
+ *
+ * Returns whether the interrupt entry ran, which is what the tests read.
  */
 export function jotreVbl(st: JotreState | undefined): boolean {
-  return !!st && (st.flags & (JOTRE_READY | JOTRE_PLAYING)) === (JOTRE_READY | JOTRE_PLAYING)
+  if (!st || (st.flags & (JOTRE_READY | JOTRE_PLAYING)) !== (JOTRE_READY | JOTRE_PLAYING)) return false
+  st.player.tick()
+  return true
 }
 
 /** the `andi.l #$1 / cmpi.l #$1 / bne -> error 1` four keywords open with */
@@ -197,15 +222,35 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
      * state and 63 waveform sets of 6,520 — see ../amiga/thxwaves.ts, which
      * builds all of it.
      *
-     * NOTE: nothing is charged for either allocation here. PowerBobs' own
+     * DEVIATION: nothing is charged for either allocation. PowerBobs' own
      * AllocMems are not charged either, and for the same reason: no keyword
      * hands the address back, so the only observable would be `Fast Free`.
+     * The cost is what makes the Guide warn about it, and a program that
+     * checks `Fast Free` before deciding whether to init sees 412,144 bytes it
+     * should not have.
+     *
+     * DEVIATION: `S:thxWaves.Location` is never read. InitPlayer at $460 opens
+     * that file, reads a path out of it, opens THAT and reads $64488 = 410,760
+     * bytes, setting a flag only on a full-length read (`cmpi.l #$64488,d0 /
+     * seq.b $69e(a5)`); a miss falls through to the generator at $57c. The file
+     * is a CACHE of what the generator produces and it is in no corpus disk, so
+     * the generate path is the one that runs on real installations too.
+     * `thxwaves.ts` is that path, and the arithmetic agrees to the byte: 63
+     * sets of 6,520 is exactly 410,760.
+     *
+     * The waveform bank is built lazily on the first note rather than here,
+     * which is a difference nothing can observe: 410,760 bytes take a moment
+     * to compute either way, and no keyword reports when.
      */
     'init thx'() {
       const s = st()
       if (s.flags & JOTRE_READY) jotreErr(2)
       s.flags = 0
       s.flags |= JOTRE_READY
+      // `move.b #$40,$1(a6)` at $776 --- InitPlayer ends by setting the global
+      // volume to unity, so an `Init Thx` undoes a previous `Volume Thx`
+      s.volume = 0x40
+      s.player.playerVolume = 0x40
     },
 
     /**
@@ -223,6 +268,10 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
       needReady(s)
       // `andi.l #$2 / cmpi.l #$2 / bne` --- StopSong only when playing
       // (the bit it does not then clear)
+      if (s.flags & JOTRE_PLAYING) s.player.stop()
+      // EndPlayer at block+$1c runs either way. It is two FreeMems and nothing
+      // else, and this port charges for neither allocation, so it has nothing
+      // to undo --- the song was already stopped above if there was one.
       s.flags &= 0xfe
     },
 
@@ -262,6 +311,18 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
       s.version = d[at + 3]!
       d[at + 3] = 0
       if (d[at] !== 0x54 || d[at + 1] !== 0x48 || d[at + 2] !== 0x58) jotreErr(3)
+      // the rest of InitModule, which ../amiga/thx.ts walks. It is parsed from
+      // the ZEROED bytes, because that is what the routine reads: it cleared
+      // byte 3 four instructions ago and every later offset is unchanged
+      try {
+        s.parsed = thxParse(d.subarray(at))
+      } catch {
+        // InitModule checks the magic and nothing else, so a short or
+        // malformed module walks off the end of the bank rather than
+        // reporting. There is no error 3 to raise for it and none is raised.
+      }
+      // StartSong at block+$10, with the sub-song in d0 and 0 in d1
+      if (s.parsed) s.player.load(s.parsed, s.subSong)
       s.flags |= JOTRE_PLAYING
     },
 
@@ -276,6 +337,7 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
     'stop thx'() {
       const s = st()
       needReady(s)
+      s.player.stop()
       s.flags &= 0xfd
     },
 
@@ -291,13 +353,21 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
      *
      * The Guide gives the range as *"anything between 0 (silent) to 63 (very
      * loud)"* and the routine enforces none of it: `move.b` takes the low byte
-     * of whatever was passed, so 64 and -1 both land.
+     * of whatever was passed, so 64 and -1 both land. thx-0.6's `Thx Volume`
+     * added a 0..63 check at V0.6 for exactly this reason; Jotre never did, so
+     * `Volume Thx 255` reaches the volume chain as 255 and the last multiply
+     * of $149c is `mulu.w` by that. Only the RESULT is clamped, at 64, so 255
+     * is a gain of four and every voice already at 16 or above comes out at
+     * full scale. That is the effect thx-0.6's author heard from the other
+     * side and fixed in his own shim: *"I noticed that the music became louder
+     * when using 'Thx Volume 99'"*.
      */
     'volume thx'(it) {
       const s = st()
       const v = it.evalInt()
       needReady(s)
       s.volume = v & 0xff
+      s.player.playerVolume = s.volume
     },
   }
 }

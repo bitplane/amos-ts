@@ -7790,19 +7790,28 @@ export const NOTES: Record<string, string> = {
     "branch it takes on an Amiga where the command could not run",
   "init thx":
     "routine 4. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the " +
-    "replayer. This wil grab 414768 bytes of public memory.\" (\"wil\" is the author's.) NOTE: nothing is " +
-    "charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword hands the " +
-    "address back, so the only observable would be Fast Free",
+    "replayer. This wil grab 414768 bytes of public memory.\" (\"wil\" is the author's.) The figure is close " +
+    "and not right: InitPlayer at $460 asks for $649f0 = 412,144 public and $a00 = 2,560 chip. DEVIATION: " +
+    "nothing is charged for either, for the same reason PowerBobs' AllocMems are not --- no keyword hands the " +
+    "address back, so the only observable would be Fast Free. DEVIATION: S:thxWaves.Location is never read. " +
+    "It caches the 410,760 bytes the generator at $57c produces, it is on no corpus disk, and 63 waveform sets " +
+    "of 6,520 is that figure exactly --- so the generate path is the one that runs here and on the machine",
   "deinit thx":
     "routine 5. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit " +
     "0 ONLY and leaves PLAYING set.",
   "play thx":
-    "routine 6. The Guide's usage is `Play Thx Start(Bank),SubSong`, so the address really is an AMOS bank's",
+    "routine 6. The Guide's usage is `Play Thx Start(Bank),SubSong`, so the address really is an AMOS bank's. " +
+    "InitModule at $802 stashes the module's version byte and ZEROES it in the caller's memory before the " +
+    "compare, which is how every version is accepted and why playing a bank twice is not the same as playing " +
+    "it once. StartSong then runs the engine, which is the replayer read off this binary --- ../amiga/thxplay.ts",
   "stop thx":
-    "routine 7.",
+    "routine 7. StopSong, then $FD, which is the right mask for the bit it means. It does not test bit 1 " +
+    "first, so stopping what never started calls StopSong anyway",
   "volume thx":
     "routine 8. The Guide gives the range as \"anything between 0 (silent) to 63 (very loud)\" and the routine " +
-    "enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land",
+    "enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land. The byte is the " +
+    "replayer's global at state+$1 and only the RESULT of the chain is clamped, so 255 is a gain of four and " +
+    "every voice at 16 or above comes out at full scale --- the loudness thx-0.6 fixed in its own shim at V0.6",
   "thx play":
     "routine 2. The bank is resolved first and a miss is error 36; then InitModule, whose result is NOT tested, " +
     "and StartSong. DEFECT (the author's, declared): \"There is also no routine to check, if the bank you " +

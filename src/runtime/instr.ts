@@ -5937,7 +5937,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // per-frame gate is stepped from Runtime.frame(). See jotre.ts.
     ids: ['jotre-1.0'],
     init: (rt) => {
-      rt.jotre = newJotreState()
+      rt.jotre = newJotreState(rt)
     },
     instructions: makeJotreInstructions,
     errors: JOTRE_ERRORS,
