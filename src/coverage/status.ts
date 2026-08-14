@@ -7194,8 +7194,8 @@ export const NOTES: Record<string, string> = {
   "jd array$ clear":
     "Does nothing to a string array. Source: +|jd.s:6053.",
   "jd time$":
-    "Reads the clock chip at $DC0000, modelled by ../amiga/battclock.ts, which holds what it was written " +
-    "instead of counting on its own. Source: +|jd.s:1207.",
+    "Reads the clock chip at $DC0000, modelled by ../amiga/battclock.ts as an offset from the host clock, " +
+    "so a chip that has been set goes on running. Source: +|jd.s:1207.",
   "jd date$":
     "Calls DateStamp at -192 and does its own leap-year loop, so unlike Jd Time$ it never sees the clock " +
     "chip and Jd Setclock cannot move it. Source: +|jd.s:1234.",

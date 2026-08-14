@@ -291,15 +291,16 @@ function jdClockFields(text: string, sep: string, swapLast: boolean): JdClockPar
  * Six characters into six clock registers: `move.b (a0)+,d0 / sub.b #48,d0 /
  * ext.w d0 / move.w d0,(a1)+ / add.l #2,a1`, six times (+|jd.s:1082, :1163).
  *
- * The read first is not in the routine. It is this port's chip refreshing
- * itself from the host clock while it still can, so the six registers this
- * does not touch hold the real date rather than zeros. See
+ * The read first is not in the routine. It brings the modelled chip up to the
+ * current time before six of its twelve registers are overwritten, so the
+ * other six carry on from where they were rather than from zero. See
  * ../amiga/battclock.ts.
  */
 function jdWriteClock(rt: Runtime, first: number, digits: number[]): void {
   const bc = rt.machine.battclock
-  bc.read(rt.host.clock.now())
-  for (let i = 0; i < 6; i++) bc.write(first + i, digits[i]! - 48)
+  const now = rt.host.clock.now()
+  bc.read(now)
+  for (let i = 0; i < 6; i++) bc.write(first + i, digits[i]! - 48, now)
 }
 
 /** sortable YYYYMMDD from a "DD.MM.YYYY" string, for the Actual Date$ compare */

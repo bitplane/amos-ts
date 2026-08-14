@@ -883,11 +883,6 @@ describe('Explode: the clock and the drives', () => {
     expect(run('Set Hard Time "??:00:00"\nPrint Hard Time$')).toBe('??:00:00')
   })
 
-  it('the chip holds what it was given, where hardware would count on', () => {
-    // ../amiga/battclock.ts records the deviation: reads reseed from the host
-    // clock until a program writes, and hold for good afterwards
-    expect(run('Set Hard Time "00:00:00"\nWait Vbl\nWait Vbl\nPrint Hard Time$')).toBe('00:00:00')
-  })
 
   it('Drive State is 0 for a drive that is not there', () => {
     expect(run('Print Drive State(3)', emptyFs())).toBe('0')

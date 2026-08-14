@@ -58,21 +58,25 @@
  * does not decode A0 and A1: all four bytes of a longword are the same
  * register. That is why this file holds registers rather than an address space.
  *
- * ## DEVIATION: the chip does not run
+ * ## It runs, as an offset from the host clock
  *
- * On the machine this counts on its own, off its own crystal. Here it holds
- * what it was given. Until a program writes a register the read reseeds from
- * the host clock, so a program that only reads sees the real time, which is
- * what every existing reader wanted. After a write it holds the written value
- * for good, so `Set Hard Time` then `=Hard Time$` a minute later reports the
- * same second where hardware would have moved on.
+ * The chip counts on its own crystal, so setting it does not stop it. A write
+ * therefore stores the DIFFERENCE between what the registers now say and what
+ * the host clock says, and every later read is the host clock plus that
+ * offset. Set it back an hour and it is an hour behind for good, ticking.
+ * Until the first write there is no offset and reads come straight off the
+ * host, which is what every reader of an unset chip wanted.
  *
- * The alternative was to advance the written value by the elapsed real time,
- * and it cannot be done honestly: a program is free to write 65 seconds
- * (../runtime/jd.ts records how `Jd Setclock` does exactly that), and there is
- * no reading of the chip that says what nonsense counts up to.
+ * One case cannot run, and it is reachable rather than theoretical. A program
+ * may write registers that are not a time: `Set Hard Time "??:00:00"` puts 15
+ * in both hour registers, and ../runtime/jd.ts records how `Jd Setclock`
+ * transposes the seconds. Sixty-five seconds is a value the chip's counter
+ * chain cannot reach and has no defined way out of, so there is no honest
+ * answer to what it counts up to. Those registers are held exactly as written
+ * instead, which is also what keeps the round trip through
+ * `addi.w #"0",d2` visible: nibble 15 goes in and "?" comes back out.
  */
-import { type Civil, type DateStamp, civilFromStamp } from './datestamp'
+import { DAY_MS, STAMP_EPOCH, type Civil, type DateStamp, civilFromStamp, stampToDate } from './datestamp'
 
 /** where the chip is decoded, and the longword stride between its registers */
 export const BATTCLOCK_BASE = 0x00dc_0000
@@ -99,18 +103,41 @@ export class BattClock {
    * Whether a program has written a register.
    *
    * False is "this chip is showing the machine's real time", which is the state
-   * every reader saw before writes were modelled at all.
+   * it is in until something sets it.
    */
   written = false
 
   /**
+   * Milliseconds between this chip and the host clock, or null when the
+   * registers hold something no calendar does and the chip cannot run.
+   */
+  private offset: number | null = null
+
+  /**
    * The registers, as a reader sees them.
    *
-   * Reseeded from `now` until a program writes one. The array is the live one,
-   * so a caller reads it and does not keep it.
+   * The array is the live one, so a caller reads it and does not keep it.
    */
   read(now: DateStamp): Uint8Array {
     if (!this.written) this.seed(civilFromStamp(now.days, now.mins, now.ticks))
+    else if (this.offset !== null) {
+      // all of this is UTC, deliberately. `stampToDate` reads a DateStamp's
+      // fields as UTC and `dateToStamp` writes them back as LOCAL, so a round
+      // trip through the pair moves the clock by the host's zone offset. A
+      // DateStamp is wall time with no zone, and so is this chip.
+      const ms = stampToDate(now).getTime() + this.offset
+      const d = new Date(ms)
+      const days = Math.floor((ms - STAMP_EPOCH) / DAY_MS)
+      this.seed({
+        year: d.getUTCFullYear(),
+        month: d.getUTCMonth() + 1,
+        day: d.getUTCDate(),
+        hour: d.getUTCHours(),
+        min: d.getUTCMinutes(),
+        sec: d.getUTCSeconds(),
+        weekday: ((days % 7) + 7) % 7,
+      })
+    }
     return this.regs
   }
 
@@ -120,17 +147,51 @@ export class BattClock {
    * The value is masked to four bits because the register IS four bits. That is
    * not tidying: Explode's `Set Hard Time "1A:00:00"` computes `'A' - '0'` = 17
    * and hands it over, and the chip keeps 1.
+   *
+   * `now` is here because setting a running clock is a change of OFFSET and
+   * not of value. A caller writes its six registers one at a time, so this
+   * recomputes after each; only the state after the last one is ever read.
    */
-  write(reg: number, value: number): void {
+  write(reg: number, value: number, now: DateStamp): void {
     if (reg < 0 || reg >= BATTCLOCK_REGISTERS) return
     this.written = true
     this.regs[reg] = value & 15
+    this.offset = this.deltaFrom(now)
   }
 
-  /** `ResetBattClock` (-6): every register zero, and it stays that way */
+  /**
+   * `ResetBattClock` (-6): every register zero.
+   *
+   * Which is not a date. There is no month 0 and no day 0, so a reset chip
+   * holds its zeros until something sets it, the same as one fresh out of the
+   * packet.
+   */
   reset(): void {
     this.written = true
+    this.offset = null
     this.regs.fill(0)
+  }
+
+  /**
+   * What the registers say, less what the host clock says, in milliseconds.
+   *
+   * Null when the twelve digits are not a time the chip could have counted to.
+   * The year is two digits, so the century comes from the host: a machine
+   * running in 1994 reads a written 94 as 1994.
+   */
+  private deltaFrom(now: DateStamp): number | null {
+    const r = this.regs
+    const pair = (at: number): number => r[at + 1]! * 10 + r[at]!
+    const [sec, min, hour] = [pair(0), pair(2), pair(4)]
+    const [day, month, yy] = [pair(6), pair(8), pair(10)]
+    if (sec > 59 || min > 59 || hour > 23) return null
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null
+    const host = civilFromStamp(now.days, now.mins, now.ticks)
+    const at = Date.UTC(Math.floor(host.year / 100) * 100 + yy, month - 1, day, hour, min, sec)
+    // Date.UTC rolls a day the month does not have into the next one, so 31
+    // April comes back as 1 May. That is a date the chip cannot hold either.
+    if (new Date(at).getUTCDate() !== day) return null
+    return at - stampToDate(now).getTime()
   }
 
   /** the twelve calendar registers from a civil time, units digit first */

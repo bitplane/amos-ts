@@ -1709,9 +1709,10 @@ const fontBase = (slot: number): number => (HEAP_BASE + HEAP_RESERVED - (slot + 
 function setHardClock(rt: Runtime, text: string, top: number): void {
   if (text.length !== 8) funcCall()
   const bc = rt.machine.battclock
-  bc.read(rt.host.clock.now())
+  const now = rt.host.clock.now()
+  bc.read(now)
   const at = [0, 1, 3, 4, 6, 7]
-  for (let i = 0; i < 6; i++) bc.write(top - i, text.charCodeAt(at[i]!) - 48)
+  for (let i = 0; i < 6; i++) bc.write(top - i, text.charCodeAt(at[i]!) - 48, now)
 }
 
 /**
@@ -2485,10 +2486,9 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
      * Hard Date$ then SWAPS the first and last pairs after the fact, because
      * the clock stores year-month-day and the manual promises DD-MM-YY.
      *
-     * Both read ../amiga/battclock.ts. Until a program writes the chip that
-     * reseeds from the host clock on every read, so a program that only asks
-     * the time gets the real one; after a `Set Hard Time` it gets back what it
-     * wrote, transposed digits and all.
+     * Both read ../amiga/battclock.ts. An unset chip answers straight from the
+     * host clock, and a set one answers the host clock plus the difference the
+     * write recorded, so it goes on running from wherever it was put.
      */
     'hard time$': (): Value => VS(hardString(hardDigits(rt, 0), ':')),
     'hard date$': (): Value => VS(swapEnds(hardString(hardDigits(rt, BATTCLOCK_DATE_REG), '-'))),
