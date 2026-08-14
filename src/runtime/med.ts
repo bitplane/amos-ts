@@ -2,8 +2,14 @@
  * The MED/OctaMED player behind Med Load/Play/Stop/Cont.
  *
  * The AMOS side (+Music.s:4456-4745) is thin plumbing over the external
- * medplayer.library (_MEDPlayModule and friends), which is NOT part of
- * the AMOS source. The keyword semantics here are ported faithfully —
+ * medplayer.library (_MEDPlayModule and friends), which is not part of
+ * the AMOS source but IS in the corpus, in sixteen places and three
+ * builds. docs/medplayer/README.md is the read; src/cli/libdis.ts gets
+ * from an LVO in +Music.s:2281-2293 to the code behind it. Everything
+ * below that this file calls an approximation now has an answer there,
+ * and #122, #123 and #124 are the work of applying them.
+ *
+ * The keyword semantics here are ported faithfully —
  * bank handling, MMD0/MMD1 magic check with bank erase on failure
  * (error 189), Med Play stopping samples/tracker/med first, Med Cont
  * resuming only when stopped, MedCheck killing the music when the bank
@@ -29,15 +35,22 @@ import { AMIGA_PERIODS, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
 
 /**
- * The vibrato waveform.
+ * The vibrato waveform, and it is the WRONG one.
  *
- * NOTE: this port carried its own copy of these thirty-two numbers with no
- * citation, and there is no OctaMED replayer source to cite one from —
- * medplayer.library is not part of AMOS. They are the ProTracker table value
- * for value, which is what a four-channel MMD replay would be expected to use
- * and what AMOS's own Music extension uses at +Music.s:2146, so it points at
- * the shared one. The evidence for the numbers is no better than it was; there
- * is one fewer place for them to disagree.
+ * This was ProTracker's table on the reasoning that a four-channel MMD replay
+ * would use the shared one, since medplayer.library was thought unreadable.
+ * It is readable and it disagrees. Its table is 32 SIGNED bytes at $21087a of
+ * the AMOS Professional build, a full symmetric sine peaking at +/-127, where
+ * ProTracker's is an unsigned quarter-wave peaking at 255:
+ *
+ *   0, 25, 49, 71, 90, 106, 117, 125, 127, 125, 117, 106, 90, 71, 49, 25,
+ *   0, -25, -49, -71, -90, -106, -117, -125, -127, -125, -117, -106, -90,
+ *   -71, -49, -25
+ *
+ * The same 32 bytes are in all three medplayer builds and in octaplayer and
+ * octamixplayer, so one table serves the family. Swapping it changes what
+ * every vibrato sounds like, so it goes with the rest of the effect work in
+ * #122 rather than on its own. docs/medplayer/README.md has the read.
  */
 const SINUS = PT_SINE
 
