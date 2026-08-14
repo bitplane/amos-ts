@@ -115,6 +115,11 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // OpenLibrary answer 0, which is the case MED 7.1 already handles and
   // reports in its own words. See runtime/medext.ts.
   ['medplayer.library', 7],
+  // the joyport and timer halves, modelled by ../amiga/lowlevel.ts. Two ports
+  // open it: GameSupport with OpenLibrary, and TFT 0.7's `Init Tick Timer`
+  // with OldOpenLibrary at -408, which carries no version at all. 40 is the
+  // release the library first shipped in and neither caller asks for more.
+  ['lowlevel.library', 40],
   // the XPK compression master --- ../amiga/xpkmaster.ts is a real port of the
   // stream format and the packer registry, and EasyLife already drives it.
   // Version 4 because that is what BUtility's routine 0 asks for.

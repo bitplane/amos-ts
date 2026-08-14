@@ -279,3 +279,102 @@ describe('the hardware mouse readers ($8ec, $8f8)', () => {
     expect(out.trim()).toBe('5')
   })
 })
+
+describe('TFT 0.7, the build that lives inside its own installer', () => {
+  const tft07 = extensionById('tft-0.7')!
+  const exts07 = new Map([
+    ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+    [TFT_SLOT, tft07.table] as const,
+  ])
+
+  /** the same harness with 0.7 BOUND, which is what `Cpu Clear` asks about */
+  function run07(src: string, frames = 200): { out: string; rt: Runtime } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts07), table, {
+      maxSteps: 2_000_000,
+      extensions: exts07,
+      extBindings: new Map([[TFT_SLOT, tft07]]),
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(frames))
+    return { out, rt }
+  }
+  const val07 = (expr: string): string => run07(`Print ${expr}`).out.trim()
+  /** N real frames: runHeadless fast-forwards `Wait n` and runs none */
+  const VBLS = (n: number): string => `For I=1 To ${String(n)} : Wait Vbl : Next I\n`
+
+  it('shares 0.6\'s table up to id 392 and parts company after it', () => {
+    const a = extensionById('tft-0.6')!.tokens
+    const b = tft07.tokens
+    for (let i = 0; i < 23; i++) expect([b[i]!.id, b[i]!.name, b[i]!.spec]).toEqual([a[i]!.id, a[i]!.name, a[i]!.spec])
+    // id 408 is routine 27 in both, and a FUNCTION in one and an INSTRUCTION
+    // in the other, so a program is portable between the builds only this far
+    expect([a[23]!.id, a[23]!.name, a[23]!.spec]).toEqual([408, 'init cpu clear', '00,0,0'])
+    expect([b[23]!.id, b[23]!.name, b[23]!.spec]).toEqual([408, 'init cpu clear long', 'I0,0,0'])
+  })
+
+  it('Init Cpu Clear Long fills the pointer 0.6 could never fill', () => {
+    // routine 26 tests +$132 and raises error 12 on zero, and no keyword in
+    // 0.6 writes it. Routine 27 in 0.7 does.
+    expect(() => run07('Cpu Clear $20000')).toThrow(/error 12/)
+    expect(() => run07('Init Cpu Clear Long 0,10,20\nCpu Clear $20000')).not.toThrow()
+  })
+
+  it('DEFECT: and the routine it installs clears nothing', () => {
+    // the instruction it repeats comes out of a table at data+$142 that no
+    // routine ever writes, so the generated code is a prologue, a run of zero
+    // longwords and an rts
+    const { rt } = run07('Reserve As Data 1,64\nFill Start(1) To Start(1)+63,$FFFFFFFF\nInit Cpu Clear Long 0,4,8\nCpu Clear Start(1)')
+    const bank = rt.memBanks.get(1)!
+    expect([...bank.data.slice(0, 8)]).toEqual([255, 255, 255, 255, 255, 255, 255, 255])
+  })
+
+  it('Init Cpu Clear Long checks its arguments and reports nothing', () => {
+    // `cmp.w #$0,d1 / bls`, `cmp.w #$0,d2 / bls`, `cmp.w #$0,d0 / blt`, then
+    // `cmp.w #$e,d1` with no modulo and `cmp.w #$d,d1` with one. Every failure
+    // leaves +$132 zero, so Cpu Clear still raises 12.
+    for (const args of ['0,0,10', '0,10,0', '-1,10,10', '0,15,10', '1,14,10']) {
+      expect(() => run07(`Init Cpu Clear Long ${args}\nCpu Clear $20000`), args).toThrow(/error 12/)
+    }
+    // 14 longwords is the limit without a modulo and 13 with one
+    expect(() => run07('Init Cpu Clear Long 0,14,10\nCpu Clear $20000')).not.toThrow()
+    expect(() => run07('Init Cpu Clear Long 1,13,10\nCpu Clear $20000')).not.toThrow()
+  })
+
+  it('the three other stubs pop their arguments and do nothing', () => {
+    // routine 28 is eight bytes, routine 31 is six, routine 32 is ten
+    expect(run07('Init Cpu Clear Word 1,2,3\nPrint "ok"').out.trim()).toBe('ok')
+    expect(run07('Make Tangens List 4,256\nPrint "ok"').out.trim()).toBe('ok')
+    // and Get Tangens hands the FIRST argument straight back
+    expect(val07('Get Tangens(1234,99)')).toBe('1234')
+    expect(val07('Get Tangens(-7,0)')).toBe('-7')
+  })
+
+  it('Init Cpu Clear Word does NOT install a routine, which is the point of it', () => {
+    expect(() => run07('Init Cpu Clear Word 0,10,20\nCpu Clear $20000')).toThrow(/error 12/)
+  })
+
+  it('Clear Cache is a flush with nothing to flush', () => {
+    expect(run07('Clear Cache\nPrint "ok"').out.trim()).toBe('ok')
+  })
+
+  it('the Tick Timer pair is lowlevel.library ElapsedTime, at frame granularity', () => {
+    // error 16 until Init Tick Timer has opened the library
+    expect(() => run07('Print Get Tick Timer')).toThrow(/error 16/)
+    // ElapsedTime reports the gap since the PREVIOUS call, in 1/65536 of a
+    // second, and Init Tick Timer makes that call once to prime the context
+    const ten = Number(run07(`Init Tick Timer\n${VBLS(10)}Print Get Tick Timer`).out.trim())
+    expect(ten).toBe(Math.floor((10 * 65536) / 50))
+    // and the second read measures from the first, not from the start. The
+    // expected value is the difference of the two floors and not the floor of
+    // the difference, which is one unit smaller: the context holds a rounded
+    // reading, so the rounding is taken twice
+    const b = run07(`Init Tick Timer\n${VBLS(10)}A=Get Tick Timer\n${VBLS(4)}Print Get Tick Timer`)
+    expect(Number(b.out.trim())).toBe(Math.floor((14 * 65536) / 50) - Math.floor((10 * 65536) / 50))
+  })
+
+  it('DEVIATION: a gap shorter than a frame reads zero', () => {
+    // the E clock would give about 200us; the vertical blank gives 20ms
+    expect(run07('Init Tick Timer\nPrint Get Tick Timer').out.trim()).toBe('0')
+  })
+})

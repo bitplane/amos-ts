@@ -5532,7 +5532,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  */
 const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
-    ids: ['tft-0.6'],
+    ids: ['tft-0.6', 'tft-0.7'],
     init: (rt) => {
       rt.tft = newTftState()
     },

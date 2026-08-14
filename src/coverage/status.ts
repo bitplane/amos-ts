@@ -599,10 +599,12 @@ export const FAITHFUL = new Set<string>([
   'lstrcmp',
   'lprot conv',
 
-  // --- TFT 0.6 (third-party extension, by Turgut Temucin) ---
+  // --- TFT 0.6 and 0.7 (third-party extension, by Turgut Temucin) ---
   // Its doc is a syntax list the author never finished, so these are verified
   // against the 5,480-byte binary read end to end, with the demos' own
-  // comments for the semantics; see src/runtime/tft.ts.
+  // comments for the semantics; see src/runtime/tft.ts. 0.7 adds seven names
+  // and is read from a 6,592-byte code hunk, and four of the seven are STUBS
+  // in the library -- routines that pop their arguments and return.
   'get high word',
   'get low word',
   'var mask',
@@ -623,6 +625,13 @@ export const FAITHFUL = new Set<string>([
   'cpu clear ntsc',
   'init cpu clear',
   'tft error$',
+  // 0.7 only. The four stubs are faithful because doing nothing IS the
+  // routine; `clear cache` is a cache flush on a machine with no cache.
+  'init cpu clear long',
+  'init cpu clear word',
+  'make tangens list',
+  'get tangens',
+  'clear cache',
 
   // --- JVP-NoKids 1.01 (third-party extension, by Jens Vang Petersen) ---
   // Source tier: the author shipped 26KB of commented assembler beside the
@@ -6818,7 +6827,34 @@ export const NOTES: Record<string, string> = {
   "get high word":
     "Faithful, and it is not what the doc says. Evidence: routine 6 ($7ae).",
   "cpu clear":
-    "Faithful, which here means it always fails. Evidence: Routine 26 ($12c8).",
+    "Faithful, which under 0.6 means it always fails: nothing in that build can fill the routine pointer at " +
+    "+$132, so error 12 is the only outcome. Under 0.7 `Init Cpu Clear Long` fills it and this calls what was " +
+    "built there, which changes no memory. Evidence: routine 26 ($12c8 in 0.6, $13f6 in 0.7).",
+  "init cpu clear long":
+    "0.7, routine 27 ($146c). DEFECT reproduced: it allocates and installs a routine that clears nothing, " +
+    "because the instruction it repeats is read from a table at data+$142 that no routine in the library ever " +
+    "writes. So the generated code is a prologue, a run of zero longwords, and an rts. NOT reproduced is the " +
+    "AllocMem failure path, error 14, because nothing here runs out of memory.",
+  "init cpu clear word":
+    "0.7, routine 28 ($15ba). Eight bytes: three `move.l (a3)+` and an `rts`. The word-sized generator was " +
+    "never written and the doc does not say so.",
+  "make tangens list":
+    "0.7, routine 31 ($1632). Six bytes: two `move.l (a3)+` and an `rts`. The author's doc marks it (Not yet), " +
+    "and the token table carries an entry for it anyway.",
+  "get tangens":
+    "0.7, routine 32 ($1638). Ten bytes, and `move.l d0,d3` hands the FIRST argument straight back. Marked " +
+    "(Not yet) in the doc and spelled Get Tanges there; the table spells it get tangens.",
+  "clear cache":
+    "0.7, routine 30 ($15fc). `jsr -$27c(a6)` is exec CacheClearU at -636, gated on ExecBase LIB_VERSION being " +
+    "36 or above. Nothing to flush here and the gate cannot fire: this port executes no 68k and the machine it " +
+    "models is an A1200.",
+  "init tick timer":
+    "0.7, routine 35 ($16aa). OldOpenLibrary at -408 on lowlevel.library, then ElapsedTime at -102 to prime " +
+    "the context. DEVIATION: the clock is the vertical blank counter, so the granularity is 20ms where the CIA " +
+    "E clock would give about 200us. Shared with Gstimer -- see ../amiga/lowlevel.ts.",
+  "get tick timer":
+    "0.7, routine 36 ($1716). ElapsedTime at -102 again, which reports the gap since the previous call. Same " +
+    "20ms granularity as Init Tick Timer, and error 16 until that has run.",
   "init cpu clear":
     "Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is " +
     "never initialised, and every failed validation branches straight to the exit that returns it, so most inputs " +

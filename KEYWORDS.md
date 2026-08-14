@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1189 qualifying notes live in `src/coverage/status.ts`, which this file
+1191 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -133,6 +133,7 @@ is.
 | system               |       41 |       28 |            0 |       0 |     100% |
 | text-io              |       37 |       36 |            1 |       0 |     100% |
 | tft-0.6              |       22 |       20 |            0 |       0 |     100% |
+| tft-0.7              |       28 |       24 |            2 |       0 |     100% |
 | the-game-0.9         |      103 |       97 |            6 |       0 |     100% |
 | thx-0.6              |        6 |        6 |            0 |       0 |     100% |
 | tome-3.1             |       34 |       33 |            1 |       0 |     100% |
@@ -143,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7394 |     4572 |          145 |    2620 |      64% |
+| **total**            |     7422 |     4596 |          147 |    2620 |      64% |
 
 ## Not applicable, by what would retire it
 
@@ -392,6 +393,11 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## tft-0.6 (100%)
 
+- **n/a** (2): `mfm luecke`, `mfm read`
+
+## tft-0.7 (100%)
+
+- **approximated** (2): `get tick timer`, `init tick timer`
 - **n/a** (2): `mfm luecke`, `mfm read`
 
 ## the-game-0.9 (100%)

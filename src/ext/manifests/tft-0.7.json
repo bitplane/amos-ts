@@ -1,0 +1,24 @@
+{
+  "id": "tft-0.7",
+  "name": "TFT",
+  "version": "0.7",
+  "author": "Turgut Temucin",
+  "source": "binary",
+  "library": "AMOSPro_tft.Lib",
+  "sha256": "efc2bed460b83646a8cf8d42dcaca1172d4d6ffd83823e103f690a3f57686471",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "disassembly",
+  "docs": [
+    "TFT_Extension.doc"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet, dev/amos, TFT_Extension, retrieved into the corpus at sources/aminet-dev-amos/files/TFT_Extension/. The archive ships NO .Lib: the library is carried inside `Install`, a 29,432-byte AmigaOS LoadSeg executable that asks for a registration code and copies the result into APSystem. Install is a compiled AMOS program and the library is one of its banks -- hunk 9's data at $5900 opens with a sixteen-byte bank header ending in the eight characters `Data    `, and the library's own HUNK_HEADER starts at $5910 and runs to the end of the hunk, 6,628 bytes.",
+    "note": "The version sweep (#73) did not see this one because it reads .Lib files and this library is not a .Lib on disk.",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "28 named keywords against 0.6's 22, and NOT a superset. The first 23 entries are byte-identical to 0.6 -- same ids, same specs, same routine numbers, through `cpu clear` at id 392. At id 408 the two disagree about what a keyword IS: 0.6 has `init cpu clear`, spec `00,0,0`, a FUNCTION on routine 27; 0.7 has `init cpu clear long`, spec `I0,0,0`, an INSTRUCTION on the same routine 27, with `init cpu clear word` added beside it on 28. So a program is portable between the two builds up to id 392 and not past it. Seven names are new: `init cpu clear long`, `init cpu clear word`, `clear cache`, `make tangens list`, `get tangens`, `init tick timer`, `get tick timer`. The author's doc dates this 10.10.1997 against 0.6's 4.7.1997 and marks the tangens pair \"(Not yet)\", which the table contradicts -- both have entries and routines. Its own name for `clear cache` is \"Cache Clear\" and for `get tangens` is \"Get Tanges\"; the table is what the tokeniser uses. Routine numbers 15, 16, 29, 33 and 34 are used by the code and absent from the table. Slot from Andrew Burton's AMOS Extensions List, as for 0.6.",
+  "recommendedSlot": 25
+}

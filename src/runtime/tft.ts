@@ -52,7 +52,18 @@
  */
 import { AmosError, VI, VS, int } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
+import { elapsedTime } from '../amiga/lowlevel'
+import { libraryPresent } from '../amiga/exec'
+import { sw16 } from './word'
 import type { Runtime } from './runtime'
+
+/**
+ * The E clock reading `elapsedTime` measures against, in 1/65536 of a second.
+ *
+ * The vertical blank counter at PAL 50 Hz, which is the same source
+ * GameSupport's `Gstimer` uses. See ../amiga/lowlevel.ts for what it costs.
+ */
+const tftTicks = (rt: Runtime): number => Math.floor((rt.interp.tick * 65536) / 50)
 
 /** one bitplane of a 320-pixel screen, 200 lines — `adda.w #$1f40` at $b2a */
 const NTSC_BYTES = 0x1f40
@@ -74,6 +85,14 @@ export interface TftState {
   busy: boolean
   /** +$38 and +$3c, five of them, counting VBLs upward while running */
   timers: { count: number; running: boolean }[]
+  /**
+   * 0.7 only: what `Init Cpu Clear Long` left at +$132, +$136, +$13a and
+   * +$13e. Null while +$132 is zero, which is what `Cpu Clear` tests.
+   */
+  cpuClear: { size: number; total: number; modulo: number } | null
+  /** 0.7 only: +$19c, lowlevel.library's base, and +$188, the EClockVal */
+  lowlevel: boolean
+  clock: { last: number }
 }
 
 export const newTftState = (): TftState => ({
@@ -81,7 +100,24 @@ export const newTftState = (): TftState => ({
   scrollReady: false,
   busy: false,
   timers: Array.from({ length: 5 }, () => ({ count: 0, running: false })),
+  cpuClear: null,
+  lowlevel: false,
+  clock: { last: 0 },
 })
+
+/**
+ * Which build is bound.
+ *
+ * 0.7 shares 0.6's first 23 table entries exactly, ids and routine numbers
+ * alike, and then diverges: id 408 is a FUNCTION called `init cpu clear` in
+ * 0.6 and an INSTRUCTION called `init cpu clear long` in 0.7, both on routine
+ * 27. Seven names are 0.7's alone, so most of the split falls out of the token
+ * table. `Cpu Clear` is the one keyword both tables name whose behaviour moved.
+ */
+function isTft07(rt: Runtime): boolean {
+  for (const def of rt.extBindings?.values() ?? []) if (def.id === 'tft-0.7') return true
+  return false
+}
 
 /**
  * One VBL. "Bis zu 5 zusaetzliche VBL gesteuerte Timer" (timer.amos), and its
@@ -157,8 +193,140 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
     'cpu clear'(it) {
       const adr = it.evalInt()
       if (adr <= LOW_LIMIT) throw new AmosError('TFT error 10: address must be above $1000')
-      throw new AmosError('TFT error 12: no Cpu Clear routine has been installed')
+      // 0.6 has nothing that can ever fill +$132, so error 12 is the only
+      // outcome. 0.7 added `Init Cpu Clear Long`, which fills it, and then
+      // this calls the routine that was generated there. See that keyword for
+      // why calling it changes no memory.
+      if (!isTft07(rt) || !st().cpuClear) {
+        throw new AmosError('TFT error 12: no Cpu Clear routine has been installed')
+      }
     },
+
+    /**
+     * Init Cpu Clear Long lines,length,modulo — routine 27 ($146c), 0.7's
+     * replacement for 0.6's broken `Init Cpu Clear` function.
+     *
+     * It GENERATES a routine and installs it at +$132, which is the field
+     * `Cpu Clear` reads and raised error 12 on for the whole of 0.6. `Rbsr
+     * routine 29` ($15c2) frees the previous one first: `FreeMem` at -210 with
+     * the size kept at +$136, then both fields zeroed.
+     *
+     * The names are the author's, and the code disagrees with them. Popping
+     * `(a3)+` three times gives d0, d1, d2, and what the routine does with
+     * them is: d2 is the REPEAT COUNT, d1 is the number of longwords written
+     * per repeat, and d0 is a further count of longwords skipped per repeat.
+     * `mulu.w #$4,d7 / mulu.w d2,d7` puts `(d1 + d0) * 4 * d2` at +$13a as the
+     * byte total and `d0 * 4` at +$13e. So the doc's `_lines,_length,_modulo`
+     * has the ends the wrong way round.
+     *
+     * The checks: d1 and d2 must be above zero, d0 must not be negative, and
+     * d1 is capped at 14 with no modulo (`cmp.w #$e,d1`) or 13 with one
+     * (`cmp.w #$d,d1`). A failed check leaves everything alone and reports
+     * nothing. A failed AllocMem is error 14.
+     *
+     * DEFECT: the generated routine clears nothing, and 0.7 did not fix 0.6's
+     * bug so much as hide its symptom. The instruction it repeats is a
+     * longword read out of a table at data+$142 indexed by d1, and NOTHING IN
+     * THE LIBRARY EVER WRITES THAT TABLE. Routine 0 clears +$0 to +$34, +$38
+     * to +$60 and +$132 to +$13e, and stops. So the template is zero, and the
+     * routine that gets built is `suba.l a1,a1` ($93c9), then d2 copies of
+     * `ori.b #$0,d0` (a zero longword), then `rts` ($4e75). It runs, it
+     * touches no memory, and `Cpu Clear` stops raising error 12.
+     */
+    'init cpu clear long'(it) {
+      const lines = it.evalInt()
+      it.expect(',')
+      const length = it.evalInt()
+      it.expect(',')
+      const modulo = it.evalInt()
+      // routine 29 first, whatever happens next
+      st().cpuClear = null
+      // the guards are all `cmp.w`, so they see the low word
+      const [d0, d1, d2] = [sw16(lines), sw16(length), sw16(modulo)]
+      if (d1 <= 0 || d2 <= 0 || d0 < 0) return
+      if (d0 === 0 ? d1 > 14 : d1 > 13) return
+      // the routine it builds is two bytes of prologue, six per repeat with a
+      // modulo and four without, then two for the `rts`
+      st().cpuClear = {
+        size: d2 * (d0 > 0 ? 6 : 4) + 4,
+        total: (d1 + d0) * 4 * d2,
+        modulo: d0 * 4,
+      }
+    },
+
+    /**
+     * Init Cpu Clear Word lines,length,modulo — routine 28 ($15ba), and it is
+     * eight bytes:
+     *
+     *     move.l (a3)+, d0
+     *     move.l (a3)+, d1
+     *     move.l (a3)+, d2
+     *     rts
+     *
+     * Three arguments popped and nothing done with them. The word-sized
+     * generator was never written, and unlike the tangens pair the author's
+     * own doc does not admit it.
+     */
+    'init cpu clear word'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Clear Cache — routine 30 ($15fc). `move.w $22(a6),d7` is ExecBase's
+     * LIB_VERSION and `cmp.w #$24,d7 / blt` refuses below Kickstart 36 with
+     * error 13; at 36 and above it is `jsr -$27c(a6)`, exec's `CacheClearU` at
+     * -636. The author's doc writes the name the other way round, "Cache Clear
+     * !!!! OS V36>", and the token table is what the tokeniser reads.
+     *
+     * Nothing to flush, and error 13 never fires. This port executes no 68k,
+     * so there is no instruction cache to make coherent, and the machine it
+     * models is an A1200, whose LIB_VERSION is well past 36 — the same
+     * reasoning `Aga Detect` in ./amcaf.ts turns into an unconditional answer.
+     * The keyword is a working no-op rather than an unimplemented one.
+     */
+    'clear cache'() {
+      /* CacheClearU on a machine with no instruction cache to clear */
+    },
+
+    /**
+     * Make Tangens List shift,entries — routine 31 ($1632), and it is six
+     * bytes: two `move.l (a3)+` and an `rts`. The author's own doc marks it
+     * "(Not yet)", which the table contradicts by carrying an entry for it,
+     * and the routine settles the disagreement: the entry exists and does
+     * nothing.
+     */
+    'make tangens list'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Init Tick Timer — routine 35 ($16aa).
+     *
+     * `OldOpenLibrary` at -408 on the name at +$1a0, which is the only library
+     * name in the binary: `lowlevel.library`. The base goes to +$19c and a
+     * failure is error 15. Then the EClockVal at +$188 is zeroed and
+     * `jsr -$66(a6)` primes it: -102 is `ElapsedTime`, the same call
+     * GameSupport's `Gstimer` makes, so both keywords share
+     * ../amiga/lowlevel.ts and its deviation about granularity.
+     *
+     * Routine 0's tear-down closes the library again, `jsr -$19e(a6)` at $372,
+     * which is `CloseLibrary` at -414.
+     */
+    'init tick timer'() {
+      if (!libraryPresent('lowlevel.library')) {
+        throw new AmosError('TFT error 15: lowlevel.library could not be opened')
+      }
+      st().lowlevel = true
+      st().clock.last = 0
+      elapsedTime(st().clock, tftTicks(rt))
+    },
+
     /**
      * Qsort adr,first,last — routine 20 ($998). Hoare partition over an array
      * of 32-bit values, the pivot taken from the middle element and the
@@ -275,7 +443,46 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
 }
 
 export function makeTftFunctions(rt: Runtime): Record<string, Func> {
+  const st = (): TftState => rt.tft
   return {
+    /**
+     * =Get Tangens(angle,multi) — routine 32 ($1638), ten bytes:
+     *
+     *     move.l (a3)+, d0
+     *     move.l (a3)+, d1
+     *     moveq  #$0, d2
+     *     move.l d0, d3
+     *     rts
+     *
+     * Both arguments popped, `d2`/`d3` set to the integer return pair, and
+     * `d3` is the FIRST argument straight back out. The author's doc marks it
+     * "(Not yet)" and spells the name "Get Tanges"; the routine agrees about
+     * the state of the thing and the table disagrees about the spelling.
+     */
+    'get tangens'(_, a) {
+      return VI(int(a[0] ?? VI(0)))
+    },
+
+    /**
+     * =Get Tick Timer — routine 36 ($1716). `Rbsr routine 34`, then error 16
+     * if +$19c is zero, then `ElapsedTime` at -102 on the context at +$188.
+     *
+     * The call returns the time since the LAST call, in 1/65536 of a second,
+     * and overwrites the context. So `Init Tick Timer` then a first
+     * `Get Tick Timer` measures the gap between the two, which is what the
+     * demo uses it for: "Diese beiden Befehle dienen zur ermitlung von
+     * zeitabstaenden."
+     *
+     * DEVIATION: ../amiga/lowlevel.ts measures against the vertical blank at
+     * 50 Hz where the machine reads the CIA E clock at about 709 kHz, so
+     * anything shorter than a frame answers 0. Totals over a real interval are
+     * right. GameSupport's `Gstimer` shares both the call and the deviation.
+     */
+    'get tick timer'() {
+      if (!st().lowlevel) throw new AmosError('TFT error 16: Init Tick Timer has not been called')
+      return VI(elapsedTime(st().clock, tftTicks(rt)))
+    },
+
     /**
      * Get High Word(v) — routine 6 ($7ae). NOT a memory read, despite the
      * doc writing it `Get High Word(_adr)`: `and.l #$ffff0000,d3 / swap d3`
