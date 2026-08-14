@@ -130,10 +130,24 @@ The per-track routine at `$210d3c` splits before it does anything:
 So **`medplayer.library` sounds four Paula tracks and sends everything above
 them to MIDI**. An eight-track MMD is not eight voices here.
 
-Paula effects dispatch through a 16-word table at `$210daa`, base `$210dea`;
-MIDI effects through one at `$21122e`, base `$21126e`. The MIDI handlers build
-three-byte messages (`$e0` pitch bend for `1` and `2`, `$d0` channel pressure
-for `D`, `$a0` for `A`, `$b0` for `4` and `E`) and send them from `$cc(a6)`.
+There are **two** dispatch points, not one, and both tables are 32 entries
+wide because MMD1 stores five bits of command (`andi.w #$1f,d6`, `$210996`):
+
+| when | table | jump base | reached from |
+|---|---|---|---|
+| the row | `$2109fe` | `$210a3e` | `$2109f6` |
+| every tick, the row's included | `$210daa` | `$210dea` | `$210da2` |
+
+The row path falls into the tick path at `$210d30` with the counter freshly
+cleared, which is the only way the tick handlers' `tst.b d3` branches are ever
+reached with a zero. Commands `8`, `9`, `B`, `C`, `E` and `F` have no tick half
+and land on the do-nothing exit at `$211072`; `0`, `1`, `2`, `4`, `5`, `6`, `7`,
+`A` and `D` have no row half and land on `$210bfa`.
+
+MIDI effects dispatch through their own table at `$21122e`, base `$21126e`. The
+handlers build three-byte messages (`$e0` pitch bend for `1` and `2`, `$d0`
+channel pressure for `D`, `$a0` for `A`, `$b0` for `4` and `E`) and send them
+from `$cc(a6)`.
 
 Six things in the Paula set that the port cannot have guessed:
 
@@ -146,8 +160,7 @@ Six things in the Paula set that the port cannot have guessed:
 A full symmetric sine of amplitude 127, where ProTracker's is an unsigned
 quarter-wave peaking at 255. The same 32 bytes appear in all three medplayer
 builds and in `octaplayer` and `octamixplayer`, so one table serves the family.
-`med.ts` currently uses `PT_SINE` and its comment says there is nothing to cite.
-There is now, and it disagrees.
+`med.ts` carries it, and `med.test.ts` reads it back out of the binary.
 
 **Arpeggio cycles low, high, base.** `$210e52` takes `d3 mod 3`: remainder 0
 adds the low nibble, remainder 1 the high nibble, remainder 2 nothing.
@@ -190,14 +203,37 @@ waveform pointer array.
 That is the shape. Decoding what each of the 32 commands does is #124's job,
 not this read's.
 
+## Notes are five octaves, and the port derives the table
+
+Sixteen finetuned period tables sit at `$212088`, 192 bytes apart. `$21035c`
+picks one with the track's finetune and `$210370` indexes it with the note,
+after `$21033a` has wrapped the note into 0..62 by whole octaves.
+
+Each table is 60 real entries and then the top octave three times over, so the
+three notes the wrap still allows fold back rather than read off the end.
+Finetune 0 is ProTracker's row 0 with its first octave multiplied by four and
+its second by two, which `med.ts` derives and `med.test.ts` checks word for
+word against the binary. The other fifteen rows are MED's own arithmetic and
+part company with ProTracker's finetuned rows by up to 13 counts, 0.45%.
+
+The port used to clamp every note into ProTracker's three octaves, so anything
+in the bottom two played at the wrong pitch. The shipped `Med_Module` reaches
+into them.
+
+## Volume is scaled once, not at every write
+
+`$211484` walks the sixteen tracks at song offset `$302` and stores
+`(trackvol * mastervol) >> 4` per track. A note's volume is then
+`svol * that >> 8` (`$2109d0`), and 64 against 64 gives 256, which is unity.
+The volume slide at `$210f76` and the tremolo both work on that already-scaled
+number, so a slide on a quiet track behaves differently from a slide on a loud
+one. Scaling at the point of writing the register, which is the obvious way to
+build it, gets that wrong.
+
 ## What this changes
 
-- **#122**, the missing effects: both dispatch tables are located and every
-  handler with them. The vibrato table, the arpeggio order, `A` equalling `D`
-  and `C`'s decimal conversion are corrections to what is already there, not
-  additions.
-- **#123**, sub-tick tempo: the mapping is exact and above, including the one
-  table entry that breaks its own pattern.
+- **#122**, the effects: done. Both tables are ported entry by entry.
+- **#123**, sub-tick tempo: done.
 - **#124**, synthsounds: two interpreters, four addresses, 32 commands to read.
 - **#116** is untouched. Four Paula tracks is all this library ever does, so
   anything wider still needs the mixer.

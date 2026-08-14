@@ -571,8 +571,12 @@ describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Exampl
     expect(rt.music.med.on).toBe(true)
     const plays = audio.events.filter((e) => e.kind === 'play')
     expect(plays.length).toBeGreaterThan(2)
+    // MED's table is five octaves, two of them below ProTracker's: note 1 is
+    // period 3424, four times 856 ($212088 of medplayer-1f2ca57f). This module
+    // reaches into the second of them, and clamping it into ProTracker's three
+    // is what the replay used to do.
     for (const p of plays) {
-      expect(p.freq!).toBeGreaterThanOrEqual(periodToHz(856) - 1)
+      expect(p.freq!).toBeGreaterThanOrEqual(periodToHz(3424) - 1)
       expect(p.freq!).toBeLessThanOrEqual(periodToHz(113) + 1)
     }
   })
