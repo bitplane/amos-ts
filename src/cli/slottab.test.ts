@@ -85,7 +85,7 @@ describe.runIf(haveCorpus())('a compiled program in the corpus', () => {
     expect(t?.offset).toBe(0x17838)
     expect(mainLibrary(t!)).toBe('AMOSPro.Lib')
     const slots = configSlots(t!)
-    // the five stock slots the parse validates against (+Interpreter_Config.s:124-129)
+    // the five stock slots the parse validates against (+Interpreter_Config.s:152-157)
     expect(slots.get(1)).toBe('AMOSPro_Music.lib')
     expect(slots.get(2)).toBe('AMOSPro_Compact.Lib')
     expect(slots.get(3)).toBe('AMOSPro_Request.Lib')

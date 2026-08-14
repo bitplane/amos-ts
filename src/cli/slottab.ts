@@ -3,16 +3,16 @@
  * the extension slot list, out of any file that carries one.
  *
  * The config's text zone is a run of variable-length messages. The `EdT`
- * macro (+Interpreter_Config.s:7-12) emits `dc.b 0`, a length byte, then the
- * characters, and Sys_GetMessage (+B.s:560-577) walks them with
+ * macro (+Interpreter_Config.s:35-40) emits `dc.b 0`, a length byte, then the
+ * characters, and Sys_GetMessage (+B.s:588-605) walks them with
  * `lea 2(a0,d1.w),a0`, stopping when the length byte reads $ff. Nothing is
  * NUL-terminated: the zero that looks like a string's terminator is the next
  * entry's first header byte.
  *
- * Messages are numbered from 1 (`Txt1`, +Interpreter_Config.s:107) and the
- * table holds 47 of them (`EdT 47`, :161). Libraries_Load takes the main
- * library's filename from message 14 (+B.s:2119), then walks d2 = 1..26
- * reading message d2+15 for each extension slot (+B.s:2127-2138). So:
+ * Messages are numbered from 1 (`Txt1`, +Interpreter_Config.s:135) and the
+ * table holds 47 of them (`EdT 47`, :189). Libraries_Load takes the main
+ * library's filename from message 14 (+B.s:2147), then walks d2 = 1..26
+ * reading message d2+15 for each extension slot (+B.s:2155-2166). So:
  *
  *   slot n is message 15+n, for n in 1..26.
  *
@@ -33,7 +33,7 @@
  * entry renumbers every slot, which is worse than not reading the table.
  *
  * What does anchor it is message 46, the editor's cursor-flash colour list
- * (+Interpreter_Config.s:158). It is a run of `(rgb,delay)` groups, the
+ * (+Interpreter_Config.s:186). It is a run of `(rgb,delay)` groups, the
  * colours vary and the shape does not, and nothing else in an AMOS binary
  * looks like it. Walking back exactly 45 entries from it lands on message 1.
  *
@@ -44,10 +44,10 @@
 /** Messages in the config's text zone, `EdT 1` to `EdT 47`. */
 export const CONFIG_MESSAGES = 47
 
-/** Message 14 names the main library (+B.s:2119). */
+/** Message 14 names the main library (+B.s:2147). */
 export const MAIN_LIBRARY_MESSAGE = 14
 
-/** Extension slots AMOS Pro loads (+B.s:2138, `cmp.w #27,d2`). */
+/** Extension slots AMOS Pro loads (+B.s:2166, `cmp.w #27,d2`). */
 export const MAX_SLOT = 26
 
 /** The cursor-flash colour list, the one message with a fixed shape. */

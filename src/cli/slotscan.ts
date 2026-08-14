@@ -57,7 +57,7 @@ function stem(text: string): string {
  * The library a config entry names, reduced for comparison.
  *
  * An entry is a filename and then a command line, split at the first space by
- * Sys_AddPathCom (+B.s:515-530), which hands the tail to the library:
+ * Sys_AddPathCom (+B.s:543-558), which hands the tail to the library:
  * `AMOSPro_3D.Lib -fWork:AMOS_Pro/APSystem/` is AMOS 3D being told where its
  * data lives. The filename half may be a full AmigaDOS path, as it is in the
  * twenty configs that load SymBase out of `AmosPro_Tutorial:Extensions/`.
