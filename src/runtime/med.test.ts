@@ -295,3 +295,186 @@ describe('the MED effect commands', () => {
     expect(freqOf(plain.audio).length).toBe(freqOf(st.audio).length + 1)
   })
 })
+
+/**
+ * A synthsound instrument, which carries no sample at all: two byte scripts
+ * and a handful of short waveforms, and the interpreters at $2105d6 turn them
+ * into a voice.
+ */
+interface Syn {
+  vol: number[]
+  wf: number[]
+  waves: number[][]
+  volspeed?: number
+  wfspeed?: number
+  /** type $fffe, where waveforms[0] is a sampled header instead */
+  hybrid?: boolean
+}
+
+function mmd0syn(rows: number[][], syn: Syn, song: Record<string, number> = {}): Uint8Array {
+  const base = mmd0(rows, song)
+  const SYN = base.length
+  const WAVES = SYN + 0x216
+  const sizes = syn.waves.map((w) => (syn.hybrid ? 6 : 2) + w.length)
+  const d = new Uint8Array(WAVES + sizes.reduce((a, b) => a + b, 0))
+  d.set(base)
+  const w = (o: number, n: number): void => { d[o] = (n >> 8) & 0xff; d[o + 1] = n & 0xff }
+  const l = (o: number, n: number): void => { w(o, (n >>> 16) & 0xffff); w(o + 2, n & 0xffff) }
+  // smplarr[0] points at the SynthInstr rather than at a sample
+  const SMPLARR = 0x40 + 0x340 + 4
+  l(SMPLARR, SYN)
+  w(SYN + 4, syn.hybrid ? 0xfffe : 0xffff)
+  d[SYN + 0x12] = syn.volspeed ?? 1
+  d[SYN + 0x13] = syn.wfspeed ?? 1
+  syn.vol.forEach((b, i) => { d[SYN + 0x16 + i] = b })
+  syn.wf.forEach((b, i) => { d[SYN + 0x96 + i] = b })
+  let at = WAVES
+  syn.waves.forEach((wave, i) => {
+    l(SYN + 0x116 + i * 4, at)
+    if (syn.hybrid) {
+      l(at, wave.length) // a sample header: length, type, then the samples
+      wave.forEach((b, k) => { d[at + 6 + k] = b & 0xff })
+      at += 6 + wave.length
+    } else {
+      w(at, wave.length / 2) // a waveform header: the length in WORDS
+      wave.forEach((b, k) => { d[at + 2 + k] = b & 0xff })
+      at += 2 + wave.length
+    }
+  })
+  return d
+}
+
+const RAMP = [...Array(32)].map((_, i) => i * 4 - 64)
+const END = 0x8b // command B, which halts either list where it stands
+
+describe('MED synthsounds', () => {
+  const NOTE = 25
+
+  it('sounds a waveform the list selects, and takes its volume from the other', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [40, END],
+      wf: [0, END],
+      waves: [RAMP],
+    }))
+    p.vbl()
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays).toHaveLength(1)
+    expect(plays[0]!.length).toBe(32)
+    expect(plays[0]!.loop).toBe(true)
+    expect(audio.voiceState[0]!.volume).toBe(40)
+  })
+
+  it('swaps the waveform without restarting the voice ($210748)', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [40, END],
+      wf: [0, 1, 0, 1, END],
+      waves: [RAMP, RAMP.slice(0, 16)],
+    }))
+    p.vbl()
+    expect(audio.events.filter((e) => e.kind === 'play')).toHaveLength(1)
+    expect(audio.events.filter((e) => e.kind === 'waveform').length).toBeGreaterThanOrEqual(3)
+    expect(audio.voiceState[0]!.pcm!.length).toBe(16)
+  })
+
+  it('walks an arpeggio run and loops back at the ARE ($2107a2)', () => {
+    // ARP, the offsets 4 7 12, ARE, then halt. None of them is the note
+    // itself, which the voice already sounds at.
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [40, END],
+      wf: [0, 0x8c, 4, 7, 12, 0x8d, END],
+      waves: [RAMP],
+    }, { tempo2: 32 }))
+    for (let i = 0; i < 2; i++) p.vbl()
+    const at = (semi: number): number => periodToHz(medPeriod(NOTE - 1 + semi - 24, 0))
+    const freqs = audio.events.filter((e) => e.kind === 'freq').map((e) => e.freq!)
+    // the run repeats, so the first six heard are two turns of it
+    expect(freqs.slice(0, 6)).toEqual([at(4), at(7), at(12), at(4), at(7), at(12)])
+  })
+
+  it('is an octave and a half below a sampled note at the same pitch', () => {
+    // $210574 biases the period table by $30 bytes for a pure synth and
+    // $210358 does not for a sample, so the same note number is not the
+    // same note
+    const s = playing(mmd0syn([[NOTE, 1, 0, 0]], { vol: [40, END], wf: [0, END], waves: [RAMP] }))
+    s.p.vbl()
+    const synth = s.audio.events.find((e) => e.kind === 'play')!.freq!
+    const q = playing(mmd0([[NOTE, 1, 0, 0]]))
+    q.p.vbl()
+    const sample = q.audio.events.find((e) => e.kind === 'play')!.freq!
+    expect(synth).toBeCloseTo(periodToHz(medPeriod(NOTE - 1 - 24, 0)), 5)
+    expect(sample).toBeCloseTo(periodToHz(medPeriod(NOTE - 1, 0)), 5)
+  })
+
+  it('lets each list jump the other one ($2106b0 and $210804)', () => {
+    // the waveform list picks a waveform then sends the volume list to 2,
+    // where the volume is 7 rather than the 40 at 0
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [40, END, 7, END],
+      wf: [0, 0x8a, 2, END],
+      waves: [RAMP],
+    }))
+    for (let i = 0; i < 2; i++) p.vbl()
+    expect(audio.voiceState[0]!.volume).toBe(7)
+  })
+
+  it('steps the volume with CHU and CHD, clamped to 0 and 64 ($2105f6)', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [0, 0x83, 10, END], // start at 0, then climb by ten a step
+      wf: [0, END],
+      waves: [RAMP],
+    }, { tempo2: 32 }))
+    for (let i = 0; i < 3; i++) p.vbl()
+    const vols = audio.events.filter((e) => e.kind === 'volume').map((e) => e.volume ?? -1)
+    expect(vols.slice(0, 3)).toEqual([10, 20, 30])
+    expect(Math.max(...vols)).toBe(64)
+  })
+
+  it('runs a waveform as a volume envelope and stops after 128 bytes ($2106bc)', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [0x84, 0, END], // EN waveform 0
+      wf: [0, END],
+      waves: [RAMP],
+    }, { tempo2: 32 }))
+    p.vbl()
+    const vols = audio.events.filter((e) => e.kind === 'volume').map((e) => e.volume ?? -1)
+    // ((sample + 128) & 255) >> 2 over the ramp -8, -4, 0, 4 ...
+    expect(vols.slice(0, 3)).toEqual([16, 17, 18])
+  })
+
+  it('overrides a volume slide, because the list writes $2(a5) every tick', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0xa, 0x05]], {
+      vol: [40, END],
+      wf: [0, END],
+      waves: [RAMP],
+    }, { tempo2: 32 }))
+    for (let i = 0; i < 2; i++) p.vbl()
+    expect(audio.voiceState[0]!.volume).toBe(40)
+  })
+
+  it('plays a hybrid from waveforms[0] and still runs its scripts ($210568)', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0, 0]], {
+      vol: [33, END],
+      wf: [END],
+      waves: [RAMP],
+      hybrid: true,
+    }))
+    p.vbl()
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays).toHaveLength(1)
+    expect(plays[0]!.length).toBe(32)
+    // the volume list still runs, so 33 and not the instrument's own 64
+    expect(audio.voiceState[0]!.volume).toBe(33)
+    // no $30 bias on a hybrid: it took the sampled path at $21033a
+    expect(plays[0]!.freq).toBeCloseTo(periodToHz(medPeriod(NOTE - 1, 0)), 5)
+  })
+
+  it('starts the waveform list where command E on the row says ($2105c4)', () => {
+    const { p, audio } = playing(mmd0syn([[NOTE, 1, 0xe, 0x02]], {
+      vol: [40, END],
+      wf: [0, END, 1, END],
+      waves: [RAMP, RAMP.slice(0, 8)],
+    }))
+    p.vbl()
+    expect(audio.events.find((e) => e.kind === 'play')!.length).toBe(8)
+  })
+})

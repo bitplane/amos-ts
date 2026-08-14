@@ -23,10 +23,10 @@
  *   library sounds four Paula voices whatever the block holds. That part
  *   is faithful. The MIDI handlers themselves have nowhere to send a
  *   message, so `Med Midi On` still stores its flag and stops.
- * - Synthsounds and hybrids, the negative-type instruments, are silent.
- *   $211072 and $21107e call the synth step when $26(a5) is set; #124 is
- *   the two bytecode interpreters behind it.
  * - The audio filter, F$f8 and F$f9, which is a bit of $bfe001.
+ *
+ * Synthsounds and hybrids ARE here, and they are the two bytecode
+ * interpreters at $2105d6 rather than an approximation of them.
  */
 
 import { AmosError } from '../interp/values'
@@ -195,6 +195,40 @@ interface MedVoice {
    *  nothing writes nothing */
   outPeriod: number
   outVol: number
+
+  // The synth half. $4d(a5) is 0 for a sampled instrument, 1 for a pure
+  // synth and -1 for a hybrid, which is the sign $2102ca tests to decide
+  // whether a finished note stops the DMA.
+  synth: number // $4d
+  syn: number // $26, the SynthInstr offset in the module
+  baseNote: number // $4b, the note the waveform list arpeggios around
+  /** -24 for a pure synth: $210574 biases the period table by $30 bytes */
+  synBias: number
+  volPc: number // $31
+  volWait: number // $34
+  volSpeed: number // $48
+  volCount: number // $2e
+  volOut: number // $4c
+  volStep: number // $4a
+  envPtr: number // $3c
+  envLoop: number // $56
+  envPos: number // $5a
+  wfPc: number // $33
+  wfStart: number // what command E left in $33 before the note cleared it
+  wfWait: number // $35
+  wfSpeed: number // $49
+  wfCount: number // $2f
+  periodStep: number // $38
+  periodAcc: number // $3a
+  synVibDepth: number // $41
+  synVibSpeed: number // $37
+  synVibPos: number // $46
+  /** $42, and -1 is the built-in table at $21087a it is initialised to */
+  synVibWave: number
+  arpPtr: number // $2a
+  arpLoop: number // $2c
+  /** whether the sink has a buffer for this voice yet */
+  sounding: boolean
 }
 
 const newVoice = (): MedVoice => ({
@@ -204,7 +238,23 @@ const newVoice = (): MedVoice => ({
   portTarget: 0, portSpeed: 0, decay: 0, decayRun: 0,
   vibPos: 0, tremPos: 0, tremDepth: 0, tremSpeed: 0, tremVol: -1,
   outPeriod: -1, outVol: -1,
+  synth: 0, syn: 0, baseNote: 0, synBias: 0,
+  volPc: 0, volWait: 0, volSpeed: 1, volCount: 0, volOut: 0, volStep: 0,
+  envPtr: 0, envLoop: 0, envPos: 0,
+  wfPc: 0, wfStart: 0, wfWait: 0, wfSpeed: 1, wfCount: 0,
+  periodStep: 0, periodAcc: 0,
+  synVibDepth: 0, synVibSpeed: 0, synVibPos: 0, synVibWave: -1,
+  arpPtr: 0, arpLoop: 0, sounding: false,
 })
+
+/** SynthInstr, whose fields the two interpreters index from a0 */
+const SYN_VOLSPEED = 0x12
+const SYN_WFSPEED = 0x13
+const SYN_VOLTABLE = 0x16
+const SYN_WFTABLE = 0x96
+const SYN_WAVEFORMS = 0x116
+/** a script byte at or above this is a command, and the low nibble selects it */
+const SYN_CMD = 0x80
 
 export interface MedHost {
   audio: AudioSink
@@ -549,7 +599,8 @@ export class MedPlayer {
    * `strans` ($210bda, $210e78).
    */
   private notePeriod(v: number, note: number): number {
-    return medPeriod(note - 1 + this.transp + this.voices[v]!.strans, this.voices[v]!.finetune)
+    const V = this.voices[v]!
+    return medPeriod(note - 1 + this.transp + V.strans + V.synBias, V.finetune)
   }
 
   /**
@@ -584,7 +635,7 @@ export class MedPlayer {
       case 0xc:
         this.setVolume(v, d)
         return false
-      case 0xe: // $210ad4: MIDI preset for this track, tracks 0..3 only
+      case 0xe: // $210ad4: where a synth's waveform list starts, tracks 0..3
         return false
       case 0xf:
         return this.commandF(v, note)
@@ -680,25 +731,52 @@ export class MedPlayer {
     const V = this.voices[v]!
     const instr = V.instr
     if (instr === 0 || instr > 63) return
-    const ptr = this.l(this.smplarr + (instr - 1) * 4)
+    let ptr = this.l(this.smplarr + (instr - 1) * 4)
     if (!ptr) return
-    const length = this.l(ptr)
-    const type = (this.w(ptr + 4) << 16) >> 16
-    if (type < 0 || length === 0) return // synthsound/hybrid: silent, see #124
-    const d = this.data!
-    const start = ptr + 6
-    const end = Math.min(d.length, start + length)
-    if (start >= end) return
-    const pcm = new Int8Array(d.buffer, d.byteOffset + start, end - start)
-    const rec = this.song + (instr - 1) * 8
-    const rep = this.w(rec) * 2
-    const replen = this.w(rec + 2) * 2
+    V.baseNote = note - 1 + this.transp + V.strans // $210558
     V.period = this.notePeriod(v, note)
     V.periodFine = 0
     V.vibPos = 0 // $210324
     V.decayRun = 0 // $21031a
     V.decay = V.decaySet // $21031e
     V.hold = V.holdSet !== 0 ? V.holdSet : -1
+    // $210560: type $ffff is a synthsound and $fffe a hybrid, which carries a
+    // sampled waveform in waveforms[0] and runs the same two scripts over it
+    const type = (this.w(ptr + 4) << 16) >> 16
+    V.synth = 0
+    V.syn = 0
+    V.synBias = 0
+    if (type === -1 || type === -2) {
+      V.syn = ptr
+      if (type === -2) {
+        V.synth = -1 // $210568, `st.b $4d(a5)`
+        ptr = this.l(ptr + SYN_WAVEFORMS)
+      } else {
+        V.synth = 1 // $210574
+        V.synBias = -24 // the `suba.w #$30,a1` on the period table
+        V.period = this.notePeriod(v, note)
+      }
+    }
+    const rec = this.song + (instr - 1) * 8
+    const rep = this.w(rec) * 2
+    const replen = this.w(rec + 2) * 2
+    if (V.syn !== 0) this.synthNoteOn(v)
+    // A pure synth has no sample to start: $2102ca leaves its DMA running and
+    // the waveform list points it somewhere. Here the first waveform the list
+    // selects starts the voice and every one after it swaps the buffer.
+    if (V.synth > 0) {
+      V.sounding = false
+      V.outPeriod = -1
+      V.outVol = -1
+      return
+    }
+    const length = this.l(ptr)
+    if (length === 0) return
+    const d = this.data!
+    const start = ptr + 6
+    const end = Math.min(d.length, start + length)
+    if (start >= end) return
+    const pcm = new Int8Array(d.buffer, d.byteOffset + start, end - start)
     let loopStart = -1
     let loopEnd = pcm.length
     if (replen > 2 && rep + replen <= pcm.length) {
@@ -707,7 +785,30 @@ export class MedPlayer {
     }
     V.outPeriod = V.period
     V.outVol = V.vol
+    V.sounding = true
     this.host.audio.play(v, pcm, periodToHz(V.period), V.vol, loopStart, loopEnd)
+  }
+
+  /**
+   * $21059e: the note-on clear, which wipes $2a through $41 and then puts back
+   * the four fields that are not zero.
+   */
+  private synthNoteOn(v: number): void {
+    const V = this.voices[v]!
+    V.arpPtr = V.arpLoop = 0
+    V.volCount = V.wfCount = 0
+    V.volPc = V.wfPc = 0
+    V.volWait = V.wfWait = 0
+    V.periodStep = V.periodAcc = 0
+    V.envPtr = V.envLoop = V.envPos = 0
+    V.synVibDepth = V.synVibSpeed = V.synVibPos = 0
+    V.synVibWave = -1 // $2105b2, the effect vibrato's own table at $21087a
+    V.volSpeed = this.b(V.syn + SYN_VOLSPEED) // $2105be loads both as a word
+    V.wfSpeed = this.b(V.syn + SYN_WFSPEED)
+    V.volStep = 0
+    // $2105c4: command E on this row is the waveform list's start position,
+    // put back after the clear
+    if (V.cmd === 0xe) V.wfPc = V.data
   }
 
   /**
@@ -735,7 +836,10 @@ export class MedPlayer {
       }
     }
     if (V.period <= 0) return
-    const period = this.tickCommand(v)
+    let period = this.tickCommand(v)
+    // $211072 and $21107e: a synth instrument runs its two scripts between the
+    // effect and the register write, and the scripts have the last word
+    if (V.syn !== 0) period = this.synthStep(v, period)
     this.writeVoice(v, period)
   }
 
@@ -901,6 +1005,254 @@ export class MedPlayer {
     V.tremPos = (V.tremPos + V.tremSpeed) & 0xff
     V.tremVol = Math.max(0, Math.min(64, V.vol + delta))
     return V.period
+  }
+
+  /**
+   * One step of a synth instrument, $2105d6 through $210878.
+   *
+   * Two independent interpreters run here, each with its own program counter,
+   * its own speed counter and its own wait: the volume list over `volTable`
+   * at $16 of the SynthInstr, and the waveform list over `wfTable` at $96.
+   * Each can jump the other's program counter, which is how a MED synth
+   * instrument keeps its pitch and its volume in step.
+   *
+   * The volume the list produces REPLACES the note's ($2106fe writes $4c(a5)
+   * straight into $2(a5)), so a volume slide or a tremolo on a synth track is
+   * overwritten the same tick it is computed.
+   */
+  private synthStep(v: number, period: number): number {
+    const V = this.voices[v]!
+    let d5 = period
+    // the volume list's speed gate, $2105e2
+    if (--V.volCount <= 0) {
+      V.volCount = V.volSpeed
+      if (V.volStep !== 0) V.volOut = Math.max(0, Math.min(64, V.volOut + V.volStep))
+      if (V.envPtr !== 0) {
+        // $21060a: the envelope reads one byte of a waveform per step and
+        // scales it into 0..63. 128 bytes in, it either loops or stops.
+        V.volOut = ((this.b(V.envPtr) + 0x80) & 0xff) >> 2
+        V.envPtr++
+        if (++V.envPos >= 0x80) {
+          V.envPos = 0
+          V.envPtr = V.envLoop
+        }
+      }
+      this.volList(v)
+    }
+    V.vol = V.volOut // $2106fe
+    // the waveform list's own gate, $210708
+    if (--V.wfCount <= 0) {
+      V.wfCount = V.wfSpeed
+      if (V.periodStep !== 0) V.periodAcc = (V.periodAcc + V.periodStep) & 0xffff
+      const reset = this.wfList(v)
+      if (reset) d5 = V.period
+    }
+    // the arpeggio run, $210818
+    if (V.arpPtr !== 0) {
+      const step = (this.b(V.syn + SYN_WFTABLE + V.arpPtr) << 24) >> 24
+      d5 = medPeriod(V.baseNote + step + V.synBias, V.finetune)
+      let next = V.arpPtr + 1
+      if (this.b(V.syn + SYN_WFTABLE + next) >= SYN_CMD) next = V.arpLoop
+      V.arpPtr = next
+    }
+    // the synth's own vibrato, $210842, which reads the position four bits up
+    // where the effect vibrato reads it two, and scales by 256 not 32
+    if (V.synVibDepth !== 0) {
+      const pos = (V.synVibPos >> 4) & 0x1f
+      const wave = V.synVibWave < 0 ? MED_SINUS[pos]! : (this.b(V.synVibWave + pos) << 24) >> 24
+      d5 += (wave * V.synVibDepth) >> 8
+      V.synVibPos = (V.synVibPos + V.synVibSpeed) & 0xffff
+    }
+    d5 = (d5 + ((V.periodAcc << 16) >> 16)) & 0xffff
+    // DEFECT: $21086e reads `cmp.w #$71,d5 / bge / moveq #$71,d1`, and d1 is
+    // not the period. The clamp writes a register nothing looks at, so a synth
+    // period runs straight past 113 and Paula is handed whatever comes out.
+    return (d5 << 16) >> 16
+  }
+
+  /**
+   * The volume list, $210630. A script byte below $80 is the volume itself; a
+   * byte at or above it is a command whose low nibble selects the handler, and
+   * the interpreter keeps going within the same step until it reaches a data
+   * byte, a wait or the halt.
+   */
+  private volList(v: number): void {
+    const V = this.voices[v]!
+    if (V.volWait !== 0 && --V.volWait > 0) return
+    const table = V.syn + SYN_VOLTABLE
+    let pc = V.volPc & 0xff
+    // DEVIATION: the library will spin forever on a list that jumps to itself,
+    // because nothing counts its steps. This gives up after 256.
+    for (let guard = 0; guard < 256; guard++) {
+      const b = this.b(table + pc)
+      if (b < SYN_CMD) {
+        V.volOut = b
+        V.volPc = (pc + 1) & 0xff
+        return
+      }
+      const arg = this.b(table + pc + 1)
+      switch (b & 0xf) {
+        case 0x0: // $21068a: this list's speed
+          V.volSpeed = arg
+          pc += 2
+          break
+        case 0x1: // $210692: wait
+          V.volWait = arg
+          V.volPc = (pc + 2) & 0xff
+          return
+        case 0x2: // $2106a4: step the volume down each step
+          V.volStep = -((arg << 24) >> 24)
+          pc += 2
+          break
+        case 0x3: // $21069c: step it up
+          V.volStep = (arg << 24) >> 24
+          pc += 2
+          break
+        case 0x4: // $2106bc: run a waveform as the envelope, once
+        case 0x5: // $2106d2: and again, looping
+          V.envPtr = this.l(V.syn + SYN_WAVEFORMS + arg * 4) + 2
+          V.envLoop = (b & 0xf) === 5 ? V.envPtr : 0
+          V.envPos = 0
+          pc += 2
+          break
+        case 0x6: // $2106de: no envelope
+          V.envPtr = 0
+          pc += 1
+          break
+        case 0xa: // $2106b0: jump the WAVEFORM list
+          V.wfPc = arg
+          V.wfWait = 0
+          pc += 2
+          break
+        case 0xe: // $210684
+          pc = arg
+          break
+        case 0xb: // $2106f8: halt, by storing the pc back on top of itself
+        case 0xf:
+          V.volPc = pc & 0xff
+          return
+        default: // $2106fa: a byte and a step, and nothing else
+          V.volPc = (pc + 1) & 0xff
+          return
+      }
+    }
+    V.volPc = pc & 0xff
+  }
+
+  /**
+   * The waveform list, $210716. Returns true when the list reset the pitch,
+   * which is the one thing it does to the period directly ($2107f8).
+   */
+  private wfList(v: number): boolean {
+    const V = this.voices[v]!
+    if (V.wfWait !== 0 && --V.wfWait > 0) return false
+    const table = V.syn + SYN_WFTABLE
+    let pc = V.wfPc & 0xff
+    let reset = false
+    for (let guard = 0; guard < 256; guard++) {
+      const b = this.b(table + pc)
+      if (b < SYN_CMD) {
+        // $210742: a data byte points the voice's DMA at that waveform
+        this.setWaveform(v, b)
+        V.wfPc = (pc + 1) & 0xff
+        return reset
+      }
+      const arg = this.b(table + pc + 1)
+      switch (b & 0xf) {
+        case 0x0: // $2107b4
+          V.wfSpeed = arg
+          pc += 2
+          break
+        case 0x1: // $2107be
+          V.wfWait = arg
+          V.wfPc = (pc + 2) & 0xff
+          return reset
+        case 0x2: // $2107e0: the period climbs by this much each step
+          V.periodStep = arg
+          pc += 2
+          break
+        case 0x3: // $2107ee: and falls
+          V.periodStep = (-arg << 16) >> 16
+          pc += 2
+          break
+        case 0x4: // $2107c8: vibrato depth
+          V.synVibDepth = arg
+          pc += 2
+          break
+        case 0x5: // $2107d2: vibrato speed, stored one higher than written
+          V.synVibSpeed = (arg + 1) & 0xff
+          pc += 2
+          break
+        case 0x6: // $2107f8: back to the note's own period
+          V.periodAcc = 0
+          reset = true
+          pc += 1
+          break
+        case 0x7: // $210786: a waveform to shape the vibrato with
+          V.synVibWave = this.l(V.syn + SYN_WAVEFORMS + arg * 4) + 2
+          pc += 2
+          break
+        case 0xa: // $210804: jump the VOLUME list
+          V.volPc = arg
+          V.volWait = 0
+          pc += 2
+          break
+        case 0xc: {
+          // $2107a2: the arpeggio. The run of data bytes that follows becomes
+          // the note offsets, and the list carries on past the ARE that ends
+          // it, so the run costs the interpreter nothing per step.
+          V.arpPtr = V.arpLoop = (pc + 1) & 0xff
+          let j = pc + 1
+          while (j < 0x100 && this.b(table + j) < SYN_CMD) j++
+          pc = j + 1
+          break
+        }
+        case 0xd: // $21073a: the end of an arpeggio run, and a no-op reaching it
+          pc += 1
+          break
+        case 0xe: // $21079c
+          pc = arg
+          break
+        case 0xb: // $210812: halt
+        case 0xf:
+          V.wfPc = pc & 0xff
+          return reset
+        default: // $210814: a wasted step
+          V.wfPc = (pc + 1) & 0xff
+          return reset
+      }
+    }
+    V.wfPc = pc & 0xff
+    return reset
+  }
+
+  /**
+   * $210748: a waveform's first word is its length in words and its samples
+   * follow, and the list writes them to AUDxLEN and AUDxLC.
+   *
+   * DEVIATION: on the machine those registers reload the DMA at the end of the
+   * current pass, so a waveform swap never restarts the voice. `setWaveform`
+   * is the sink's version of that ($117 added it for THX) and it is optional,
+   * so a sink without one gets a `play` and an audible click.
+   */
+  private setWaveform(v: number, n: number): void {
+    const V = this.voices[v]!
+    const ptr = this.l(V.syn + SYN_WAVEFORMS + n * 4)
+    if (ptr === 0) return
+    const words = this.w(ptr)
+    const d = this.data!
+    const start = ptr + 2
+    const end = Math.min(d.length, start + words * 2)
+    if (words === 0 || start >= end) return
+    const pcm = new Int8Array(d.buffer, d.byteOffset + start, end - start)
+    if (V.sounding && this.host.audio.setWaveform) {
+      this.host.audio.setWaveform(v, pcm)
+      return
+    }
+    V.sounding = true
+    V.outPeriod = V.period
+    V.outVol = V.vol
+    this.host.audio.play(v, pcm, periodToHz(V.period), V.vol, 0, pcm.length)
   }
 
   /**

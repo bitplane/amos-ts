@@ -1,10 +1,10 @@
 # medplayer.library
 
 `src/runtime/med.ts` implements the `Med *` keywords of the stock Music
-extension. Its replay was written from the published MMD0/MMD1 format, on the
-stated grounds that the player itself "is NOT part of the AMOS source". That is
-true and it was never the question. The library is in the corpus, in sixteen
-places, and this is what it says.
+extension. Its replay was once written from the published MMD0/MMD1 format, on
+the stated grounds that the player itself "is NOT part of the AMOS source".
+That is true and it was never the question. The library is in the corpus, in
+sixteen places, this is what it says, and the port now follows it.
 
 ## What is held
 
@@ -93,10 +93,8 @@ rate is 50.01 Hz, which is a PAL frame, and the secondary tempo still divides
 it into lines the same way it does outside BPM mode (`$2108de`, `cmp.b
 $301(a4),d3`). Nothing forces the secondary tempo in either mode: `F` with data
 1 to `$f0` writes `song->deftempo` at `$210a4e` and calls `MEDSetTempo`, and
-that is all it does.
-
-`F` with data 1 to `$f0` sets the primary tempo and calls straight into this
-(`$210a4e`), so the range is 1 to 240 and `$f1` upward are the specials.
+that is all it does. So the primary tempo range is 1 to 240 and `$f1` upward
+are the specials.
 
 The result is written as two bytes to a CIA timer, low then high, through
 pointers at `$11c(a6)` and `$120(a6)`. `$211660` sets those up: it opens
@@ -149,7 +147,7 @@ handlers build three-byte messages (`$e0` pitch bend for `1` and `2`, `$d0`
 channel pressure for `D`, `$a0` for `A`, `$b0` for `4` and `E`) and send them
 from `$cc(a6)`.
 
-Six things in the Paula set that the port cannot have guessed:
+Six things in the Paula set that no reading of the format would give you:
 
 **The vibrato table is not ProTracker's.** It is 32 signed bytes at `$21087a`:
 
@@ -185,23 +183,62 @@ clamping volume to 0..64.
 ## Synthsounds are two little bytecode interpreters
 
 `$211072` and `$21107e` both test `$26(a5)` and, when it is set, call `$2105d6`.
-That is the synth instrument's per-frame step, and it runs two independent
-command lists:
+That is the synth instrument's per-tick step, and it runs two independent
+command lists, each with its own program counter, wait and speed counter:
 
-- the **waveform list**, dispatched at `$210660` through a 16-entry table at
-  `$210664`, base `$210684`
-- the **volume list**, dispatched at `$210762` through a table at `$210766`,
-  base `$210786`
+- the **volume list**, over `volTable` at `$16` of the SynthInstr, dispatched
+  at `$210660` through the table at `$210664`, base `$210684`
+- the **waveform list**, over `wfTable` at `$96`, dispatched at `$210762`
+  through the table at `$210766`, base `$210786`
 
-Each list is a byte script with its own program counter and its own speed
-counter (`$2e(a5)` counts down to `$48(a5)`). Values below `$80` are data and
-values at or above `$80` are commands, taken as `d1 & 15` into the table. The
-volume list's own arithmetic is at `$2107a2` onward; `$21073a` is the waveform
-change, reading a pointer from `$78(a0, d1.w * 4)`, which is the instrument's
-waveform pointer array.
+The struct settles which is which: `$210648` reads `$15(a0,d0.w)` after one
+increment, which is `volTable`, and it is `$4c(a5)` (the volume) that a data
+byte sets. `$210704` then adds `$9e` to `a0` so the same `-$9` and `$78`
+displacements reach `wfTable` and the `waveforms` array at `$116`.
 
-That is the shape. Decoding what each of the 32 commands does is #124's job,
-not this read's.
+A script byte below `$80` is data and one at or above it is a command, `& 15`
+into the table. The interpreter keeps going within the same tick until it
+reaches a data byte, a wait or the halt, so a run of commands costs nothing.
+
+| | volume list | waveform list |
+|---|---|---|
+| `0` | this list's speed | this list's speed |
+| `1` | wait n steps | wait n steps |
+| `2` | step the volume down | period climbs each step |
+| `3` | step the volume up | period falls each step |
+| `4` | a waveform as the envelope | vibrato depth |
+| `5` | the same, looping | vibrato speed, stored one higher |
+| `6` | no envelope | back to the note's period |
+| `7` | a step and nothing else | a waveform to shape the vibrato |
+| `A` | jump the WAVEFORM list | jump the VOLUME list |
+| `C` | a step and nothing else | arpeggio: the data run that follows |
+| `D` | a step and nothing else | the end of an arpeggio run |
+| `E` | jump | jump |
+| `B` `F` | halt where it stands | halt where it stands |
+
+`B` and `F` halt by storing the program counter back on top of itself
+(`subq.b #1,d0`), so the list reads the same byte forever.
+
+Three things that decide how a synth sounds and are not in any documentation:
+
+**The volume list REPLACES the note's volume.** `$2106fe` writes `$4c(a5)`
+into `$2(a5)` on every tick, gate or no gate, so a volume slide or a tremolo
+on a synth track is overwritten the same tick it is computed.
+
+**A pure synth reads the period table 24 notes lower.** `$210574` does
+`suba.w #$30,a1` before storing the table pointer, where the sampled path at
+`$210358` stores it as it is. So the same note number is not the same note.
+A hybrid takes the sampled path and gets no bias.
+
+**DEFECT: the period clamp does nothing.** `$21086e` reads
+`cmp.w #$71,d5 / bge / moveq #$71,d1`, and `d1` is not the period. The clamp
+writes a register nothing looks at, so a synth period runs straight past 113
+and Paula is handed whatever comes out.
+
+A hybrid is type `$fffe`: `$210568` follows `waveforms[0]` to a sampled header
+and plays it the ordinary way, then `$2104ce` runs the synth init anyway, so
+both scripts drive a sampled voice. And `$2102ca` is why a pure synth's DMA is
+never stopped between notes, where a hybrid's is.
 
 ## Notes are five octaves, and the port derives the table
 
@@ -234,7 +271,7 @@ build it, gets that wrong.
 
 - **#122**, the effects: done. Both tables are ported entry by entry.
 - **#123**, sub-tick tempo: done.
-- **#124**, synthsounds: two interpreters, four addresses, 32 commands to read.
+- **#124**, synthsounds: done. Both interpreters and all 32 commands.
 - **#116** is untouched. Four Paula tracks is all this library ever does, so
   anything wider still needs the mixer.
 
