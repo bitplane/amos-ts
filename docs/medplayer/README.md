@@ -57,20 +57,43 @@ about MED timing.
 |---|---|---|---|---|---|---|---|---|---|---|
 | timer | 2417 | 4833 | 7250 | 9666 | 12083 | 14500 | 16916 | 19332 | **21436** | 24163 |
 
-Every step is 2416 or 2417 except the ninth, which is 314 short of the
-progression and cannot be derived from anything. That is the reason to read the
+The line is `tempo * 14500/6`, which makes each tempo that many times the rate
+of tempo 1, and nine of the ten sit within four counts of it. The ninth is 314
+below it and cannot be derived from anything. That is the reason to read the
 binary rather than reimplement the documented behaviour.
 
-**Above 10 the timer is `470000 / tempo`.** The constant lives at `$c2(a6)` in
-the player's state block and is initialised to 470000; `$2116ce` compares
-`ExecBase+$212` against 50 and, when it is not 50, overwrites it with 474326.
-So 470000 is PAL and 474326 is NTSC.
+`MEDSetTempo` is reached through the stub at `$21020e`, which is what LVO `-66`
+points at: it pushes `a6`, `bsr`s to `$2111a4` and returns.
+
+**Above 10 the timer is `470000 / tempo`.** The constant lives at `$c2` of the
+player's state block and is initialised to 470000; `$2116ce` compares
+`ExecBase+$212` against 50 and, when it is not 50, overwrites it with 474326
+(`move.l #$73cd6,$c2(a4)`). So 470000 is PAL and 474326 is NTSC.
 
 **In BPM mode the timer is `1773447 / (tempo * lines-per-beat)`.** Mode comes
 from `flags2` bit 5 of the song (`$300(a0)`), and lines-per-beat is the low
-five bits of the same byte, plus one. The BPM constant is `$53a(a6)`, 1773447
-for PAL and 1789772 for NTSC. `d408da50` contains neither constant, so BPM mode
+five bits of the same byte, plus one. The BPM constant is `$53a`, 1773447 for
+PAL and 1789772 for NTSC. `d408da50` contains neither constant, so BPM mode
 arrived after that build.
+
+**BPM mode then divides the interrupt by four**, which is what makes the
+numbers mean beats. `$211638` reads `flags2` at play time and `seq`s the result
+into `$538(a6)`, so that byte is `$ff` outside BPM mode and 0 inside it. The
+tick entry at `$2108a2` starts
+
+    tst.b   $538(a6)
+    bmi.b   $2108b8         ; $ff: every interrupt is a tick
+    subq.b  #$1, $538(a6)
+    ble.b   $2108b2
+    bra.w   $2110ea         ; three interrupts in four do nothing
+    move.b  #$4, $538(a6)
+
+Without that four, 125 beats over 4 lines would tick at 200 Hz. With it the
+rate is 50.01 Hz, which is a PAL frame, and the secondary tempo still divides
+it into lines the same way it does outside BPM mode (`$2108de`, `cmp.b
+$301(a4),d3`). Nothing forces the secondary tempo in either mode: `F` with data
+1 to `$f0` writes `song->deftempo` at `$210a4e` and calls `MEDSetTempo`, and
+that is all it does.
 
 `F` with data 1 to `$f0` sets the primary tempo and calls straight into this
 (`$210a4e`), so the range is 1 to 240 and `$f1` upward are the specials.
@@ -83,10 +106,17 @@ are taken it rewrites the fourth byte of its own resource name from `a` to `b`
 four CIA timers it can get, and `$1d1(a6)` records which.
 
 To turn a timer value into a rate, divide the CIA clock by it. That clock is
-`PAULA_CLOCK_PAL / 5` = 709379, which is the standard relation and not
-something this library states. Tempo 6 then ticks at 48.9 Hz, near enough a PAL
-frame, which is why the port's "33 is one tick per vbl" reads roughly right and
-is wrong in the third digit everywhere else.
+`PAULA_CLOCK_PAL / 5` = 709379, which the library never states, and its own
+NTSC switch is what settles it: scale 470000 by `PAULA_CLOCK_NTSC /
+PAULA_CLOCK_PAL` and you get 474326.46, and scale 1773447 the same way and you
+get 1789771.995. Those round to the exact two constants `$2116ce` writes. Both
+PAL constants are the NTSC ones divided by the Paula clock ratio, so the
+divisor is the Paula clock over five and the resulting tick rate is the same on
+either machine. `src/runtime/med.test.ts` asserts both.
+
+Tempo 6 then ticks at 48.92 Hz and tempo 33 at 49.81, near a PAL frame and not
+on it. `src/runtime/med.ts` carries the fraction across frames rather than
+rounding to one.
 
 ## Effects: there are two tables, and tracks 4 and up are MIDI
 

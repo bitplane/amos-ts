@@ -16,10 +16,10 @@
  * vanishes — but the replay itself is a REIMPLEMENTATION from the
  * public MMD0/MMD1 module format:
  *
- * - playseq/blocks stepped at tempo2 ticks per line; the primary tempo
- *   is scaled as ticks-per-vbl (33 = one tick per PAL vbl; the BPM
- *   flag maps 125 BPM to one tick per vbl), approximating the
- *   library's CIA timer with vbl granularity
+ * - playseq/blocks stepped at tempo2 ticks per line, with the tick rate
+ *   taken from the library's own CIA timer arithmetic (medTickHz below)
+ *   and accumulated across vbls, so a rate that is not a whole number of
+ *   ticks per frame keeps its fractional part instead of rounding
  * - sampled instruments only — synthsounds and hybrids (negative type)
  *   are silent; IFF multi-octave samples play their first octave
  * - the common effect subset: 0 arpeggio, 1/2 period slides,
@@ -31,8 +31,85 @@
 
 import { AmosError } from '../interp/values'
 import { PT_SINE } from '../amiga/notes'
-import { AMIGA_PERIODS, periodToHz } from '../amiga/paula'
+import { AMIGA_PERIODS, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
+
+/**
+ * The CIA timer periods for primary tempos 1 to 10, read out of the table at
+ * $2111e0 of medplayer-1f2ca57f. `MEDSetTempo` ($2111a4) indexes it with
+ * `cmp.w #$a,d0 / bhi` and sends 11 upward to a divide instead.
+ *
+ * The line the table follows is `tempo * 14500/6`, so each tempo is that many
+ * times the rate of tempo 1, and nine of the ten entries sit within four
+ * counts of it. The ninth is 21436 where the line says 21750. It is 314 low,
+ * nothing derives it, and a replay written from the published MMD format gets
+ * that one tempo wrong with no way to find out.
+ */
+const TEMPO_TIMER = [2417, 4833, 7250, 9666, 12083, 14500, 16916, 19332, 21436, 24163]
+
+/** $c2(a6). $2116ce swaps in 474326 when `ExecBase+$212` is not 50, so this is PAL. */
+const TEMPO_CLOCK = 470000
+/** $53a(a6), the BPM numerator. 1789772 on NTSC, by the same swap. */
+const BPM_CLOCK = 1773447
+
+/**
+ * The CIA clock, which is the one number this arithmetic needs and the
+ * library never states.
+ *
+ * Its own NTSC switch is the proof that this is the right identification:
+ * `Math.round(470000 * PAULA_CLOCK_NTSC / PAULA_CLOCK_PAL)` is 474326 and the
+ * same scaling of 1773447 is 1789772, which are exactly the two constants
+ * $2116ce writes. Both PAL constants are the NTSC ones divided by the Paula
+ * clock ratio, so the divisor is the Paula clock over five and the resulting
+ * tick rate is the same on either machine. `med.test.ts` asserts both.
+ */
+const CIA_CLOCK = PAULA_CLOCK_PAL / 5
+
+/** one runtime frame; `vbl()` is called from the 50Hz step (runtime.ts) */
+const VBL_HZ = 50
+
+/**
+ * Ticks a single frame may run, so a nonsense tempo cannot spin `vbl()`.
+ * The real ceiling is 5.9, at tempo 1, and 15.4 in BPM mode at 240 beats
+ * over 32 lines.
+ */
+const MAX_TICKS_PER_VBL = 32
+
+/**
+ * The CIA timer period `MEDSetTempo` writes: low byte through $11c(a6), high
+ * byte through $120(a6), which is a 16-bit period however it was reached.
+ *
+ * `linesPerBeat` is read even outside BPM mode because the caller has it; the
+ * non-BPM branches never look at it.
+ */
+export function medTimer(tempo: number, bpm: boolean, linesPerBeat: number): number {
+  // $2111f4: `andi.w #$1f / addq.b #1 / mulu.w / divu.w`. The multiply cannot
+  // reach 16 bits here, since tempo tops out at 240 and lines-per-beat at 32.
+  if (bpm) return Math.floor(BPM_CLOCK / (tempo * linesPerBeat))
+  if (tempo >= 1 && tempo <= 10) return TEMPO_TIMER[tempo - 1]!
+  return Math.floor(TEMPO_CLOCK / tempo)
+}
+
+/**
+ * How often the replay steps, in Hz.
+ *
+ * The tick is the CIA clock over the timer period, and in BPM mode over four
+ * more. $2108a2 is where that four comes from: `$538(a6)` is set by `seq`
+ * when `Med Play` reads `flags2` ($211638), so it holds $ff outside BPM mode
+ * and `bmi` jumps the gate entirely. In BPM mode it holds 0, the gate counts
+ * down and reloads with 4, and three interrupts in every four return having
+ * done nothing. That four is what makes 125 beats over 4 lines come out at
+ * 50.01 Hz rather than 200.
+ */
+export function medTickHz(tempo: number, bpm: boolean, linesPerBeat: number): number {
+  // DEVIATION: tempo 0 runs `subq.b #1,d0` to $ff and reads 510 bytes past
+  // the table ($2111be), and a tempo big enough to divide to 0 asks the CIA
+  // for a period it has no encoding for. Neither is a rate, so both stop the
+  // clock here rather than inventing one.
+  const timer = medTimer(tempo, bpm, linesPerBeat)
+  if (!Number.isFinite(timer) || timer <= 0) return 0
+  return CIA_CLOCK / timer / (bpm ? 4 : 1)
+}
 
 /**
  * The vibrato waveform, and it is the WRONG one.
@@ -90,6 +167,8 @@ export class MedPlayer {
   private songlen = 0
   private tempo = 33 // primary tempo (deftempo)
   private bpm = false
+  /** flags2 low five bits plus one ($2111f8); only BPM mode reads it */
+  private lpb = 4
   private tempo2 = 6 // ticks per line
   private transp = 0 // playtransp
   private mastervol = 64
@@ -200,9 +279,13 @@ export class MedPlayer {
     const s = this.song
     this.numblocks = this.w(s + 504)
     this.songlen = Math.max(1, this.w(s + 506))
+    // DEVIATION: deftempo 0 is the off-the-table read medTickHz describes, so
+    // it is replaced here with a tempo that ticks at about a PAL frame.
     this.tempo = this.w(s + 0x2fc) || 33
     this.transp = (this.b(s + 0x2fe) << 24) >> 24
-    this.bpm = (this.b(s + 0x300) & 0x20) !== 0 // flags2 FLAG2_BPM
+    const flags2 = this.b(s + 0x300)
+    this.bpm = (flags2 & 0x20) !== 0 // FLAG2_BPM, $2111b0 `btst #5,$300(a0)`
+    this.lpb = (flags2 & 0x1f) + 1
     this.tempo2 = this.b(s + 0x301) || 6
     this.mastervol = this.b(s + 0x312) || 64
     this.seqPos = 0
@@ -245,8 +328,10 @@ export class MedPlayer {
       this.data = null
       return
     }
-    // CIA timer approximated at vbl granularity
-    this.acc += this.bpm ? this.tempo / 125 : this.tempo / 33
+    // The CIA fires between frames, so the fraction is carried rather than
+    // rounded: tempo 33 is 49.81 Hz, not 50, and the two part company after
+    // four minutes of a module that never changes tempo.
+    this.acc = Math.min(this.acc + medTickHz(this.tempo, this.bpm, this.lpb) / VBL_HZ, MAX_TICKS_PER_VBL)
     while (this.acc >= 1) {
       this.acc -= 1
       this.tick()
