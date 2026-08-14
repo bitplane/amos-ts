@@ -62,7 +62,7 @@ import type { ObjectBank } from './objects'
 import { MemPool } from '../amiga/exec'
 import { openDiskFont } from '../amiga/diskfont'
 import { ID_VALIDATING, ID_WRITE_PROTECTED } from '../amiga/dos'
-import { civilFromStamp } from '../amiga/datestamp'
+import { BATTCLOCK_DATE_REG } from '../amiga/battclock'
 import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
@@ -1039,18 +1039,22 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
      * "0" from each, so "12x34x56" sets the same time as "12:34:56" and
      * "1A:00:00" writes a nibble of 17.
      *
-     * The nibbles go into the battery clock's registers backwards — `move.b
-     * d1,(a1) / lea -4(a1),a1` from $DC0017 downward, one nibble per
-     * longword. Set Hard Date swaps the day and year fields round in a
-     * scratch buffer first, because the clock stores year-month-day.
+     * The nibbles go into the battery clock's registers backwards, `move.b
+     * d1,(a1) / lea -4(a1),a1` from $DC0017 downward, one nibble per longword.
+     * Set Hard Date swaps the day and year fields round in a scratch buffer
+     * first, because the registers run day, month, year upward from $DC0018
+     * and the writer walks them down from $DC002F.
      *
-     * DEVIATION: there is no battery clock in this port to write to, and the
-     * host's own clock is not this program's to set. The pair validate their
-     * argument and change nothing, so a program that sets the clock and reads
-     * it back gets the host's time; see `hard time$`.
+     * Both write ../amiga/battclock.ts, which is the chip and not the host
+     * clock: setting this does NOT move `Date$` or `Time$`, because on the
+     * machine nothing reads the battery clock after `SetClock LOAD` at boot.
      */
-    'set hard time': (it) => setHardClock(it.evalStr()),
-    'set hard date': (it) => setHardClock(it.evalStr()),
+    'set hard time': (it) => setHardClock(rt, it.evalStr(), 5),
+    'set hard date'(it) {
+      const s = it.evalStr()
+      if (s.length !== 8) funcCall()
+      setHardClock(rt, swapEnds(s), 11)
+    },
 
     /**
      * `Drive Busy drv,arg` — routine 122 ($2388): the drive's motor.
@@ -1653,15 +1657,6 @@ function rsErase(rt: Runtime, n: number): void {
  */
 const EXPLODE_TITLE = 'Explode V2.01 (c)1995-2002 Volker Stepp'
 
-/** two digits, which is all `L_HardTimeDate`'s BCD nibbles can make */
-const two = (n: number): string => String(n % 100).padStart(2, '0')
-
-/** the host clock, broken down the way the two Hard readers present it */
-function nowCivil(rt: Runtime): ReturnType<typeof civilFromStamp> {
-  const { days, mins, ticks } = rt.host.clock.now()
-  return civilFromStamp(days, mins, ticks)
-}
-
 /**
  * `ExtNb equ 7-1` — the extension's own slot, zero-based as routine 0 leaves
  * it in d0, and where its data zone is mapped. Spelled out rather than
@@ -1695,16 +1690,67 @@ function fntSlot(n: number): number {
 const fontBase = (slot: number): number => (HEAP_BASE + HEAP_RESERVED - (slot + 1) * 0x100) | 0
 
 /**
- * `Set Hard Time` and `Set Hard Date`'s shared validation — routines 17 and
- * 18, which check the LENGTH and nothing else.
+ * `Set Hard Time` and `Set Hard Date`, routines 17 and 18, through
+ * `L_SetTimeDate` (routine 176, AMOSPro_Explode_Lib.s:4158).
  *
- * `cmpi.w #8,(a0)+ / Rbne L_IFunc`: exactly eight characters. The separators
- * are never looked at, because `L_SetTimeDate` reads positions 0,1 3,4 6,7
- * and skips whatever is between them.
+ * `cmpi.w #8,(a0)+ / Rbne L_IFunc`: exactly eight characters, and that is the
+ * only check. The separators are never looked at, because the writer reads
+ * positions 0,1 3,4 6,7 and `tst.b (a0)+` past whatever is between them, so
+ * "12x34x56" sets the same time as "12:34:56".
+ *
+ * `top` is the highest register the writer starts at: `lea $DC0017,a1` for the
+ * time is register 5 and `lea $DC002F,a1` for the date is register 11, and it
+ * steps DOWN one register per digit with `lea -4(a1),a1`.
+ *
+ * The digit is `subi.b #"0",d1` and nothing else, so "1A:00:00" hands the chip
+ * 17 and the four-bit register keeps 1. The read is seeded first because the
+ * six registers this does NOT write were already counting on the machine.
  */
-function setHardClock(text: string): void {
+function setHardClock(rt: Runtime, text: string, top: number): void {
   if (text.length !== 8) funcCall()
+  const bc = rt.machine.battclock
+  bc.read(rt.host.clock.now())
+  const at = [0, 1, 3, 4, 6, 7]
+  for (let i = 0; i < 6; i++) bc.write(top - i, text.charCodeAt(at[i]!) - 48)
 }
+
+/**
+ * Six registers as six characters, highest register first.
+ *
+ * `L_HardTimeDate` (routine 166, :3905) reads `move.l (a0)+,d2 / andi.w #15,d2
+ * / addi.w #"0",d2` and stores each with `move.b d2,-(a1)`, filling its buffer
+ * backwards from Name1+16. Adding "0" rather than indexing a digit table is
+ * why a nibble of 10 to 15 prints as ":;<=>?" instead of being rejected.
+ */
+function hardDigits(rt: Runtime, first: number): string {
+  const regs = rt.machine.battclock.read(rt.host.clock.now())
+  let out = ''
+  for (let i = 5; i >= 0; i--) out += String.fromCharCode(48 + regs[first + i]!)
+  return out
+}
+
+/**
+ * The eight characters routine 166 lays out: two digits, a separator, twice
+ * more.
+ *
+ * Its `.2` loop runs three times and writes nine bytes, so the third separator
+ * lands one past the length word's own count of 8. Harmless, and not modelled:
+ * the string is eight characters here because that is what the length says.
+ */
+const hardString = (d: string, sep: string): string =>
+  `${d.slice(0, 2)}${sep}${d.slice(2, 4)}${sep}${d.slice(4, 6)}`
+
+/**
+ * `L16`'s `move.w 2(a0),d0 / move.w 8(a0),2(a0) / move.w d0,8(a0)`: the first
+ * two characters and the last two change places.
+ *
+ * It is applied to the FORMATTED string, after the length word, which is what
+ * `2(a0)` and `8(a0)` are counting from. `Hard Date$` needs it because the
+ * registers run day, month, year upward and the reader takes them downward, so
+ * what comes out is "YY-MM-DD" and the manual promises DD-MM-YY. `Set Hard
+ * Date` does the same swap the other way round, in Name1, before writing.
+ */
+const swapEnds = (s: string): string => s.slice(6, 8) + s.slice(2, 6) + s.slice(0, 2)
 
 /**
  * The mouse-or-key answer `=Pause` and `=Wait Loop` share.
@@ -2439,18 +2485,13 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
      * Hard Date$ then SWAPS the first and last pairs after the fact, because
      * the clock stores year-month-day and the manual promises DD-MM-YY.
      *
-     * DEVIATION: `$DC0000` is the A2000/A3000 battery clock and this port
-     * has no chip there. Both answer from the host clock, which is what a
-     * program asking the time wants; `Set Hard Time` cannot change it.
+     * Both read ../amiga/battclock.ts. Until a program writes the chip that
+     * reseeds from the host clock on every read, so a program that only asks
+     * the time gets the real one; after a `Set Hard Time` it gets back what it
+     * wrote, transposed digits and all.
      */
-    'hard time$': (): Value => {
-      const c = nowCivil(rt)
-      return VS(`${two(c.hour)}:${two(c.min)}:${two(c.sec)}`)
-    },
-    'hard date$': (): Value => {
-      const c = nowCivil(rt)
-      return VS(`${two(c.day)}-${two(c.month)}-${two(c.year % 100)}`)
-    },
+    'hard time$': (): Value => VS(hardString(hardDigits(rt, 0), ':')),
+    'hard date$': (): Value => VS(swapEnds(hardString(hardDigits(rt, BATTCLOCK_DATE_REG), '-'))),
 
     /**
      * =Drive State(drv) — routine 120 ($227c): four answers about a floppy.

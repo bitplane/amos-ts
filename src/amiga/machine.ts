@@ -98,6 +98,7 @@
  * changes it. Adding an eject/insert event with no caller would be guessing
  * at the shape, so the seam is named here and left empty.
  */
+import { BattClock } from './battclock'
 
 /**
  * What a reset destroys.
@@ -132,6 +133,17 @@ export interface ResetRequest {
  */
 export class Machine {
   power: PowerState = 'on'
+
+  /**
+   * The battery clock at $DC0000, if one is fitted, and here one always is.
+   *
+   * The strongest case there is for a Machine field: the chip has its own
+   * battery, so it keeps time with the power off, and a reset is not even the
+   * event it is built to survive. Two extensions poke it directly, Explode's
+   * four `Hard` keywords and JD's `Jd Setclock` / `Jd Setdate` / `Jd Time$`.
+   * See ./battclock.ts for the register map and what does NOT read it.
+   */
+  readonly battclock = new BattClock()
 
   /**
    * `RNF_WILDSTAR` — whether `*` is a synonym for `#?` in DOS patterns.

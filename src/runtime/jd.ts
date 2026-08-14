@@ -65,6 +65,7 @@ import { JD_CRYPT } from './jd-crypt.gen'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
+import { BATTCLOCK_DATE_REG } from '../amiga/battclock'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
 import { makeJdSlides } from './jdcolour'
 import { ST_FILE, ST_USERDIR } from '../amiga/dos'
@@ -204,9 +205,101 @@ function writeLong(rt: Runtime, addr: number, v: number): void {
 const arrayDim = (rt: Runtime, base: number): number => readWord(rt, base + 2)
 const setArrayDim = (rt: Runtime, base: number, v: number): void => writeWord(rt, base + 2, v)
 
-/** the host clock as a Date, which is where Date$ and Time$ both come from */
+/** the host clock as a Date, which is where Date$ comes from */
 function stampDate(rt: Runtime): Date {
   return stampToDate(rt.host.clock.now())
+}
+
+/** what `ttmmjj` and `tt` hold once `Jd Setclock` or `Jd Setdate` has parsed */
+interface JdClockParse {
+  /** `ttmmjj` (+|jd.s:481), six characters, one per clock register */
+  digits: number[]
+  /** `tt` (:482), the words `test` and `test3` compare */
+  check: number[]
+}
+
+/**
+ * The three fields `Jd Setclock` and `Jd Setdate` share, and the one place
+ * they differ.
+ *
+ * Fields one and two go through `copy` / `copy3` (:1104, :1179), which are the
+ * same routine with ':' and '.'. Each stores the pair into `ttmmjj` REVERSED,
+ * units first, because that is the order the chip's registers run in, and into
+ * `tt` in the order it was typed, because that is what the range check
+ * compares. A single digit takes `one_b` (:1115): it becomes "0d" and the
+ * separator is stepped over with `add.l #1,a0`, so "1:2:03" is accepted.
+ *
+ * The third field is where they part. `Jd Setdate` uses `copy4` (:1196), which
+ * stores units-first like the other two and writes nothing to `tt`.
+ * `Jd Setclock` uses `copy2` (:1123), and `swapLast` is that routine:
+ *
+ *     copy:   move.b d1,(a1)  / move.b d0,1(a1)    units, tens
+ *     copy2:  move.b d1,1(a1) / move.b d0,(a1)     tens, units
+ *
+ * DEFECT: the seconds pair goes in the wrong way round, and the range check
+ * sees it the wrong way round too. `Jd Setclock "12:34:56"` puts "65" in front
+ * of `test`'s `cmp.w #'59'`, so it aborts and sets nothing; "12:34:50" passes
+ * and reaches the chip as five seconds rather than fifty. Every seconds value
+ * ending in 6 to 9 is rejected and the rest are transposed. Hours and minutes
+ * are correct, and so is all of `Jd Setdate`. Both 4.6 and 5.3 have it.
+ *
+ * A parse that cannot go on returns null. On the machine that is `error:
+ * move.l (sp)+,d0 / rts` (:1121), which discards the return address so the
+ * `rts` lands in the routine's own caller: nothing is written and nothing is
+ * reported.
+ */
+function jdClockFields(text: string, sep: string, swapLast: boolean): JdClockParse | null {
+  // `move.w (a0)+,d0 / tst.w d0 / beq no_param` — an empty string is not an
+  // error, it is a keyword that does nothing
+  if (text === '') return null
+  const digits: number[] = []
+  const check: number[] = []
+  let i = 0
+  for (let f = 0; f < 2; f++) {
+    if (i >= text.length) return null
+    const c0 = text.charCodeAt(i++)
+    if (text[i] === sep) {
+      i++
+      digits.push(c0, 0x30)
+      check.push((0x30 << 8) | c0)
+      continue
+    }
+    if (i >= text.length) return null
+    const c1 = text.charCodeAt(i++)
+    // `cmp.b #sep,(a0)+ / bne error` — consumed either way, checked after
+    if (text[i++] !== sep) return null
+    digits.push(c1, c0)
+    check.push((c0 << 8) | c1)
+  }
+  // `cmp.b #0,(a0)+ / bne error`: the last field is two characters and the
+  // byte after them ends the string. On the machine that is AMOS's buffer
+  // being NUL-terminated rather than the length word, which this never reads
+  // again after the `tst.w`.
+  if (text.length - i !== 2) return null
+  const c0 = text.charCodeAt(i)
+  const c1 = text.charCodeAt(i + 1)
+  if (swapLast) {
+    digits.push(c0, c1)
+    check.push((c1 << 8) | c0)
+  } else {
+    digits.push(c1, c0)
+  }
+  return { digits, check }
+}
+
+/**
+ * Six characters into six clock registers: `move.b (a0)+,d0 / sub.b #48,d0 /
+ * ext.w d0 / move.w d0,(a1)+ / add.l #2,a1`, six times (+|jd.s:1082, :1163).
+ *
+ * The read first is not in the routine. It is this port's chip refreshing
+ * itself from the host clock while it still can, so the six registers this
+ * does not touch hold the real date rather than zeros. See
+ * ../amiga/battclock.ts.
+ */
+function jdWriteClock(rt: Runtime, first: number, digits: number[]): void {
+  const bc = rt.machine.battclock
+  bc.read(rt.host.clock.now())
+  for (let i = 0; i < 6; i++) bc.write(first + i, digits[i]! - 48)
 }
 
 /** sortable YYYYMMDD from a "DD.MM.YYYY" string, for the Actual Date$ compare */
@@ -1560,21 +1653,27 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Jd Time$ — routine 6 (+|jd.s:1205). "HH:MM:SS", eight characters.
+     * =Jd Time$ — routine 6 (+|jd.s:1207). "HH:MM:SS", eight characters.
      *
-     * DEVIATION: worth knowing — this does NOT ask the operating system. It
-     * reads the battery-backed clock chip at $DC0000 directly, nibble by
-     * nibble — an MSM6242B, which only exists on a machine that has one
-     * fitted. On an A500 without a clock the routine returns whatever the
-     * unmapped address space answers. Here it comes from the host clock, so it
-     * is always the real time, which is the useful reading of a hardware clock
-     * that is present.
+     * Worth knowing: this does NOT ask the operating system. `lea $dc0000,a2`
+     * and it reads the clock chip nibble by nibble, where `Jd Date$` two
+     * routines below calls DateStamp. So `Jd Setclock` moves this and leaves
+     * that alone, which is the pair's real behaviour and not an artifact here.
+     *
+     * `dz` (routine 29, :2107) reads registers 0 to 5 with `move.w (a2)+,d0`,
+     * and the stride is 4 rather than 2 because `bin_to_dec` ends at
+     * `bin_dec6`'s `add.l #2,a2` (:2157). That routine renders each nibble as
+     * a DECIMAL NUMBER, so a register holding 10 to 15 emits two characters
+     * into the six-byte `hms` (:479) and shifts everything after it. Only
+     * Explode's `Set Hard Time` can put a nibble that high in there.
      */
     'jd time$'(): Value {
-      const d = stampDate(rt)
-      return VS(
-        `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')}`,
-      )
+      const regs = rt.machine.battclock.read(rt.host.clock.now())
+      let hms = ''
+      for (let i = 0; i < 6; i++) hms += String(regs[i]!)
+      // the layout reads hms back at 5,4 3,2 1,0 whatever landed there
+      const c = (n: number): string => hms[n] ?? ''
+      return VS(`${c(5)}${c(4)}:${c(3)}${c(2)}:${c(1)}${c(0)}`)
     },
 
     /**
@@ -1819,14 +1918,37 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
 
 
     /**
-     * Jd Setdate and Jd Setclock are NOT here on purpose — see NA in
-     * coverage/status.ts. They write the battery-backed clock chip at
-     * $DC0000 nibble by nibble (routines 5 and 4, +|jd.s:1146, :1070), and an
-     * n/a keyword must have no handler at all: registering one that parses
-     * and shrugs would count as implemented and say so in KEYWORDS.md.
-     * Without one they reach the unimplemented path, which is what every
-     * other n/a keyword in this port does.
+     * Jd Setclock "hh:mm:ss" and Jd Setdate "tt.mm.jj", routines 4 and 5
+     * (+|jd.s:1072, :1148).
+     *
+     * Both write ../amiga/battclock.ts, the chip at $DC0000: six registers
+     * from $dc0000 for the time and six from $dc0018 for the date, `move.w
+     * d0,(a1)+ / add.l #2,a1` (:1086, :1161). Neither raises anything. An
+     * empty string is `tst.w d0 / beq no_param`, and every failure inside the
+     * parsers is `error: move.l (sp)+,d0 / rts` (:1121), which pops the return
+     * address and lands back in the CALLER, so the keyword silently does
+     * nothing rather than reporting.
+     *
+     * Neither moves `Jd Date$`, which reads DateStamp. On the machine nothing
+     * consults the battery clock after `SetClock LOAD` at boot. `Jd Time$`
+     * does move, because that one reads the chip.
      */
+    'jd setclock'(it) {
+      const t = jdClockFields(it.evalStr(), ':', true)
+      // `test` (:1135) against '23', '59', '59' as signed words, then `test_t`
+      // (:1095) reverses the three words so the seconds reach registers 0-1
+      if (!t || t.check[0]! > 0x3233 || t.check[1]! > 0x3539 || t.check[2]! > 0x3539) return
+      const d = [...t.digits.slice(4, 6), ...t.digits.slice(2, 4), ...t.digits.slice(0, 2)]
+      jdWriteClock(rt, 0, d)
+    },
+    'jd setdate'(it) {
+      // test3 (:1173) checks the day against '31' and the month against '12',
+      // and the year not at all. There is no test_t here, which is the whole
+      // difference between this routine and the one above.
+      const t = jdClockFields(it.evalStr(), '.', false)
+      if (!t || t.check[0]! > 0x3331 || t.check[1]! > 0x3132) return
+      jdWriteClock(rt, BATTCLOCK_DATE_REG, t.digits)
+    },
 
     /**
      * Jd Diskchange --- routine 42 (+|jd.s:2479). Spins on `$bfe001 & 16`, the

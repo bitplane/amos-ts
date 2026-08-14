@@ -1839,6 +1839,12 @@ export const FAITHFUL = new Set<string>([
   'jd compare',
   'jd time$',
   'jd date$',
+  // both write the clock chip at $DC0000, which ../amiga/battclock.ts now
+  // models, so the pair left the `hardware` n/a group. Setclock transposes the
+  // seconds and rejects any that end in 6 to 9; Setdate does neither. See the
+  // NOTES and jd.ts's jdClockFields.
+  'jd setclock',
+  'jd setdate',
   'jd count',
   'jd paste$',
   'jd limit',
@@ -3223,15 +3229,6 @@ export const NA = new Set<string>([
   // track it read. Not even trackdisk.device -- the hardware itself.
   'mfm read',
   'mfm luecke',
-  // JD: both write the battery-backed clock chip at $DC0000 directly, nibble
-  // by nibble into an MSM6242B that may not even be fitted (+|jd.s:1070,
-  // :1146) — not a request to the operating system to change the date. There
-  // is no host equivalent, and setting the machine's clock is not something a
-  // page should be able to do. Reading it (Jd Date$, Jd Time$) is unaffected.
-  // No handler is registered for either: an n/a keyword with a handler would
-  // count as implemented, which coverage.test.ts checks.
-  'jd setdate',
-  'jd setclock',
   // JD: Multi Off and Multi On are exec's Forbid and Permit (`jsr -132(a6)`
   // and `-138`, +|jd.s:5925, :5933) — the OS multitasking switch, not an AMOS
   // setting. There is one task here and nothing to forbid, so there is no
@@ -3376,8 +3373,9 @@ export const NA_GROUPS: Record<NaGroup, string> = {
     'Taking the 68000 ILLEGAL trap on purpose, to drop into a machine-code debugger. There is none, and ' +
     'crashing the interpreter is not a service.',
   hardware:
-    'Hardware below the layer this port models: the drive head through CIA-B, a battery clock at $DC0000, ' +
-    'AMAL machine code patched in place. Virtual hardware at that depth would retire the group.',
+    'Hardware below the layer this port models: the drive head through CIA-B, AMAL machine code patched in ' +
+    'place. Modelling the chip is what retires a row, which is why the battery clock at $DC0000 is not one: ' +
+    'it is ../amiga/battclock.ts.',
   multitasking:
     "exec's Forbid and Permit. There is one task here and nothing to forbid.",
   syntax:
@@ -3421,8 +3419,6 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   // below the modelled layer
   'mfm read': 'hardware',
   'mfm luecke': 'hardware',
-  'jd setdate': 'hardware',
-  'jd setclock': 'hardware',
   'set 68020 amal': 'hardware',
   // Forbid / Permit
   'multi off': 'multitasking',
@@ -7198,9 +7194,17 @@ export const NOTES: Record<string, string> = {
   "jd array$ clear":
     "Does nothing to a string array. Source: +|jd.s:6053.",
   "jd time$":
-    "Reads the host clock, where the routine reads the hardware. Source: +|jd.s:1205.",
+    "Reads the clock chip at $DC0000, modelled by ../amiga/battclock.ts, which holds what it was written " +
+    "instead of counting on its own. Source: +|jd.s:1207.",
   "jd date$":
-    "See Jd Time$: the hardware clock chip at $DC0000, answered from the host clock here",
+    "Calls DateStamp at -192 and does its own leap-year loop, so unlike Jd Time$ it never sees the clock " +
+    "chip and Jd Setclock cannot move it. Source: +|jd.s:1234.",
+  "jd setclock":
+    "DEFECT reproduced: copy2 stores the seconds pair the opposite way round to copy, so the range check " +
+    "rejects any seconds ending in 6 to 9 and the rest reach the chip transposed. Source: +|jd.s:1123.",
+  "jd setdate":
+    "Writes the clock chip, which no reader of the system date consults until SetClock LOAD at the next " +
+    "boot. Source: +|jd.s:1148.",
   "jd spread":
     "The end state, not the animation. What is lost is the motion between those two states, which is the " +
     "port-wide timing deviation (#87) rather than a JD one",

@@ -9,6 +9,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { AdfVolume } from '../amiga/adf'
+import { fixedClock } from '../amiga/host'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
 import { NodeVolume } from '../cli/nodefs'
@@ -451,14 +452,116 @@ describe('JD: date and time (+|jd.s:1070-1300, 4346-4700)', () => {
     expect(val('Jd Day Of Year(1,3,1995)')).toBe('60')
   })
 
-  it('Setdate and Setclock are n/a, with no handler at all', () => {
-    // they poke the RTC chip at $DC0000; NA in status.ts, and an n/a keyword
-    // must not be dispatched — coverage.test.ts holds the two lists apart
-    expect(NA.has('jd setdate')).toBe(true)
-    expect(NA.has('jd setclock')).toBe(true)
-    const funcs = makeAllInstructions(bootJd())
-    expect('jd setdate' in funcs).toBe(false)
-    expect('jd setclock' in funcs).toBe(false)
+})
+
+describe('JD: the clock chip at $DC0000 (+|jd.s:1072, :1148, :1207)', () => {
+  /** the same run with a clock that does not tick under the assertions */
+  function runFixed(src: string): { out: string; rt: Runtime } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+      host: { clock: fixedClock() },
+    })
+    mustFinish(rt.runHeadless(500))
+    return { out, rt }
+  }
+
+  it('Time$ reads the chip and Date$ does not, so only one of them moves', () => {
+    // FIXED_DATE is 12 July 1994, 14:30:00
+    expect(runFixed('Print Jd Time$;" ";Jd Date$').out.trim()).toBe('14:30:00 12.07.1994')
+    // `Jd Setclock` writes the chip; `Jd Date$` is `jsr -192(a6)`, DateStamp,
+    // which nothing here can move. On the machine the two only ever meet at
+    // `SetClock LOAD` in the startup-sequence.
+    const b = runFixed('Jd Setclock "09:15:00" : Print Jd Time$;" ";Jd Date$')
+    expect(b.out.trim()).toBe('09:15:00 12.07.1994')
+  })
+
+  it('DEFECT: Setclock transposes the seconds, because copy2 stores them reversed', () => {
+    // `copy` writes units then tens (:1110); `copy2` writes tens then units
+    // (:1130). Only the seconds go through copy2.
+    expect(runFixed('Jd Setclock "12:34:50" : Print Jd Time$').out.trim()).toBe('12:34:05')
+    // and a single-digit field is `one_b` (:1116), which pads with "0" and
+    // steps over the separator: this sets 30 seconds, not 3
+    expect(runFixed('Jd Setclock "1:2:03" : Print Jd Time$').out.trim()).toBe('01:02:30')
+  })
+
+  it('DEFECT: and the range check sees the transposition too', () => {
+    // "56" reaches `test`'s third `cmp.w #\'59\'` as "65", so the whole
+    // keyword aborts through `error: move.l (sp)+,d0 / rts` (:1121) and the
+    // chip keeps the time it had. Every seconds value ending in 6 to 9 goes
+    // the same way.
+    for (const s of ['12:34:56', '12:34:57', '12:34:09']) {
+      expect(runFixed(`Jd Setclock "${s}" : Print Jd Time$`).out.trim()).toBe('14:30:00')
+    }
+    // 05 is the same digits the other way round and it gets through
+    expect(runFixed('Jd Setclock "12:34:05" : Print Jd Time$').out.trim()).toBe('12:34:50')
+  })
+
+  it('Setclock reports nothing at all when it gives up', () => {
+    // no error is raised on any path: an out-of-range hour, a wrong
+    // separator, a short argument and an empty string all leave the chip alone
+    for (const s of ['24:00:00', '12-34-05', '12:34:0', '']) {
+      expect(runFixed(`Jd Setclock "${s}" : Print Jd Time$`).out.trim()).toBe('14:30:00')
+    }
+  })
+
+  it('Setdate writes the six date registers, and does NOT transpose', () => {
+    // `copy4` (:1196) stores units-first the way `copy` does, so the year is
+    // the only place the two routines could have diverged and they do not
+    const { rt } = runFixed('Jd Setdate "24.12.94"')
+    // registers 6 to 11: day units, day tens, month units, month tens, year
+    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([4, 2, 2, 1, 4, 9])
+  })
+
+  it('Setdate checks the day and the month, and the year not at all', () => {
+    // `test3` (:1173) is two compares, against \'31\' and \'12\'. An abort
+    // leaves the chip untouched, which is not the same as writing it back:
+    // nothing was written, so it is still reseeding from the host clock
+    for (const s of ['32.01.94', '01.13.94']) {
+      const { rt } = runFixed(`Jd Setdate "${s}"`)
+      expect(rt.machine.battclock.written).toBe(false)
+    }
+    // a year outside any calendar is written without complaint
+    const { rt } = runFixed('Jd Setdate "01.01.99"')
+    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([1, 0, 1, 0, 9, 9])
+  })
+
+  it('JD writes the chip and Explode reads it, because there is only one', () => {
+    // the whole reason ../amiga/battclock.ts is in the machine layer and not
+    // in either port: `Jd Setdate` walks registers 6 to 11 upward from
+    // $dc0018 and Explode's routine 166 reads the same six downward from
+    // $DC002F, and they have to agree
+    const explode = extensionById('explode-2.01')!
+    const both = new Map([
+      [22, jd.table],
+      [7, explode.table],
+    ])
+    let out = ''
+    const src = 'Jd Setdate "24.12.94" : Jd Setclock "09:15:05" : Print Hard Date$;" ";Hard Time$'
+    const rt = new Runtime(tokenize(src, table, both), table, {
+      extensions: both,
+      extBindings: new Map([
+        [22, jd],
+        [7, explode],
+      ]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+      host: { clock: fixedClock() },
+    })
+    mustFinish(rt.runHeadless(500))
+    // the date survives the round trip; the seconds do not, and that is JD's
+    // transposition showing up in the other extension's reader
+    expect(out.trim()).toBe('24-12-94 09:15:50')
+  })
+
+  it('Setclock leaves the date half alone, and Setdate the time half', () => {
+    // each writes six registers, and the other six are the ones the chip was
+    // already showing. That is why jdWriteClock reads before it writes.
+    const { rt } = runFixed('Jd Setclock "09:15:00"')
+    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([2, 1, 7, 0, 4, 9])
   })
 })
 

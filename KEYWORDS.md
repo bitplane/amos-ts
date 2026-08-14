@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1186 qualifying notes live in `src/coverage/status.ts`, which this file
+1189 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -86,9 +86,9 @@ is.
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
 | intuition-1.3b       |      183 |        0 |            0 |     183 |       0% |
-| jd-4.6               |      125 |      120 |            0 |       0 |     100% |
-| jd-5.3               |      130 |      125 |            0 |       0 |     100% |
-| jd-5.9               |      133 |      128 |            0 |       0 |     100% |
+| jd-4.6               |      125 |      122 |            0 |       0 |     100% |
+| jd-5.3               |      130 |      127 |            0 |       0 |     100% |
+| jd-5.9               |      133 |      130 |            0 |       0 |     100% |
 | jd-colour-1.4        |       44 |       44 |            0 |       0 |     100% |
 | jd-colour-2.0        |       56 |       54 |            2 |       0 |     100% |
 | jd-int-1.3           |       33 |       32 |            1 |       0 |     100% |
@@ -143,7 +143,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7394 |     4566 |          145 |    2620 |      64% |
+| **total**            |     7394 |     4572 |          145 |    2620 |      64% |
 
 ## Not applicable, by what would retire it
 
@@ -163,11 +163,11 @@ Taking the 68000 ILLEGAL trap on purpose, to drop into a machine-code debugger. 
 
 `debug`, `jd private`, `pdebug`
 
-### hardware (5)
+### hardware (3)
 
-Hardware below the layer this port models: the drive head through CIA-B, a battery clock at $DC0000, AMAL machine code patched in place. Virtual hardware at that depth would retire the group.
+Hardware below the layer this port models: the drive head through CIA-B, AMAL machine code patched in place. Modelling the chip is what retires a row, which is why the battery clock at $DC0000 is not one: it is ../amiga/battclock.ts.
 
-`jd setclock`, `jd setdate`, `mfm luecke`, `mfm read`, `set 68020 amal`
+`mfm luecke`, `mfm read`, `set 68020 amal`
 
 ### multitasking (4)
 
@@ -290,15 +290,15 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## jd-4.6 (100%)
 
-- **n/a** (5): `jd multi off`, `jd multi on`, `jd private`, `jd setclock`, `jd setdate`
+- **n/a** (3): `jd multi off`, `jd multi on`, `jd private`
 
 ## jd-5.3 (100%)
 
-- **n/a** (5): `jd multi off`, `jd multi on`, `jd private`, `jd setclock`, `jd setdate`
+- **n/a** (3): `jd multi off`, `jd multi on`, `jd private`
 
 ## jd-5.9 (100%)
 
-- **n/a** (5): `jd multi off`, `jd multi on`, `jd private`, `jd setclock`, `jd setdate`
+- **n/a** (3): `jd multi off`, `jd multi on`, `jd private`
 
 ## jd-colour-2.0 (100%)
 

@@ -859,6 +859,36 @@ describe('Explode: the clock and the drives', () => {
     expect(() => run('Set Hard Date "01-02-034"')).toThrow(/function call/i)
   })
 
+  it('what Set Hard writes is what Hard reads back, both halves', () => {
+    // routine 176 walks DOWN from $DC0017 and routine 166 reads UP from
+    // $DC0000, so a round trip through the chip is the only check that the two
+    // agree about which register is which
+    expect(run('Set Hard Time "12:34:56"\nPrint Hard Time$')).toBe('12:34:56')
+    expect(run('Set Hard Date "24-12-94"\nPrint Hard Date$')).toBe('24-12-94')
+    // and one does not disturb the other: the date half is still the host's
+    expect(run('Set Hard Time "12:34:56"\nPrint Hard Date$').length).toBe(8)
+  })
+
+  it('a separator is not looked at on the way in OR on the way out', () => {
+    // "12x34x56" sets the same time as "12:34:56", and the reader always
+    // writes ":" because routine 15 passes it in d0
+    expect(run('Set Hard Time "12x34x56"\nPrint Hard Time$')).toBe('12:34:56')
+  })
+
+  it('a digit past 9 is kept as four bits and prints past "9"', () => {
+    // `subi.b #"0",d1` on "A" is 17 and the register holds 1. "?" is 15,
+    // which survives, and `addi.w #"0",d2` prints it as "?" again -- there is
+    // no digit table anywhere in routine 166
+    expect(run('Set Hard Time "1A:00:00"\nPrint Hard Time$')).toBe('11:00:00')
+    expect(run('Set Hard Time "??:00:00"\nPrint Hard Time$')).toBe('??:00:00')
+  })
+
+  it('the chip holds what it was given, where hardware would count on', () => {
+    // ../amiga/battclock.ts records the deviation: reads reseed from the host
+    // clock until a program writes, and hold for good afterwards
+    expect(run('Set Hard Time "00:00:00"\nWait Vbl\nWait Vbl\nPrint Hard Time$')).toBe('00:00:00')
+  })
+
   it('Drive State is 0 for a drive that is not there', () => {
     expect(run('Print Drive State(3)', emptyFs())).toBe('0')
   })

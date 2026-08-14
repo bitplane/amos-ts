@@ -130,6 +130,7 @@ really does differ from the real one and saying where is the whole job.
 | `controller.ts` | what is plugged into a gameport |
 | `lowlevel.ts` | `lowlevel.library`, the joyport half |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
+| `battclock.ts` | the battery clock at $DC0000: sixteen BCD nibbles, and nothing reads it after boot |
 | `vfs.ts` | `AmigaFS`: volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |
 | `adf.ts` | an OFS/FFS floppy image, which `AdfVolume` mounts into `vfs.ts` |
