@@ -52,8 +52,11 @@ and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
 Eleven rows read 0%, and they divide by what is in the way rather than by
-size. `src/coverage/coverage.test.ts` checks that the rows below are exactly
-the rows reading 0%, so a ported extension cannot quietly stay on the list.
+size. One more row is listed with them and does NOT read 0%: DME 2.0 is
+part-done, and it stays here until every one of its keywords lands.
+`src/coverage/coverage.test.ts` checks both directions — every 0% row is
+named, and no row is named that is FINISHED — so a ported extension cannot
+quietly stay on the list and a half-built one cannot quietly leave it.
 
 Blocked on a back-end nothing here models:
 
@@ -66,8 +69,9 @@ Blocked on a back-end nothing here models:
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
-Blocked on nothing but the work. Every one of these holds a readable binary,
-so the evidence is there and the row is simply not begun:
+Blocked on nothing but the work. Both hold a readable binary, so the evidence
+is there — and after today there are only two of them, where this table held
+eight in the morning:
 
 | extension | missing | evidence held |
 |---|---|---|
