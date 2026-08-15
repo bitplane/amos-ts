@@ -484,10 +484,25 @@ export class Protracker {
    * Play` start the counter AT the speed ($35e) and get a row on the first
    * vertical blank instead of the sixth.
    *
-   * The below-test is the default because it is what the mt_ family does and
-   * what five of the six arms have always had here. `F00` would make it fire
-   * every tick, so the zero is guarded: on the machine that speed freezes the
-   * song on its last row, playing on, rather than racing through it.
+   * The below-test is the default because it is what the mt_ family does.
+   * Three of the six arms have now been read and all three agree with it:
+   *
+   *   GameSupport 1.2   `cmp.b $211b74(pc),d0 / bcs` at $210964
+   *   ptreplay.library  `cmp.b -$e(a5),d0 / bcs`     at $210a08
+   *   Music Omega 1.0   `cmp.b $7f4(a6),d0 / blt`    at $210554
+   *
+   * Omega's is signed where the other two are unsigned, which can only part
+   * company at a speed above 127 and does not here.
+   *
+   * AMCAF's is UNREAD. Its own replayer has never been disassembled — see the
+   * note on `AmcafPt.replay` — so it runs on this default while its stepping
+   * is transcribed from Player 6.1A, whose test is the equality. Those two
+   * statements disagree and nothing has been read that settles it; the
+   * difference shows only on `F00` or a speed lowered past the counter.
+   *
+   * `F00` would make the below-test fire every tick, so the zero is guarded:
+   * on the machine that speed freezes the song on its last row, playing on,
+   * rather than racing through it.
    */
   private rowDue(): boolean {
     if (this.speedIsEquality) return this.counter === this.speed

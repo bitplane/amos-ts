@@ -404,10 +404,35 @@ difference.
 **Some encoders are not in the AMOS source.** `ppsave`/`squash` write valid
 files that an independent reference decoder reads, but the original crunchers'
 encoders were never published, so byte-exact parity is unverifiable. Both
-*decoders* are faithful. `med play` is the same case — medplayer.library is
-not in the source either. `Pack`/`Spack` are the opposite and worth the
+*decoders* are faithful. `med play` USED to be listed here on the same
+grounds and is not one: medplayer.library is not in the AMOS source, but it is
+in the corpus in three builds, and the replay is ported from the one AMOS
+Professional ships with. `docs/medplayer/README.md` is the read.
+`Pack`/`Spack` are the opposite and worth the
 contrast: `extensions/+Compact.s` *is* in the tree, so the packer is a port
 and re-packs every corpus picture byte for byte.
+
+**The audio back end, now that it renders.** `src/amiga/mixer.ts` sums the
+four voices to PCM and every replayer has been rendered and compared with an
+independent player where one exists: MED and both MOD engines against ffmpeg's
+libopenmpt, P61 against the same after unpacking its patterns back into a MOD.
+Four things are knowingly short of that.
+
+- **The LED filter is two one-poles at 3.3kHz.** The machine's is a two-pole
+  Butterworth around an op-amp and no schematic was read, so the slope is right
+  and the knee is soft. The bit that switches it is the machine's.
+- **THX's synthesis answers to nothing.** No program on this machine reads the
+  format. Its parser, period table, waveform generator and sequencer are each
+  checked against something outside the reading that produced them
+  (`thx.corpus.test.ts`); the envelopes, playlists and filter sweep are not.
+- **AMCAF's row test is unread.** Six libraries share one ProTracker replay and
+  they do not all decide when a row falls due the same way. Player 6.1A tests
+  the speed with `beq` and the mt_ family with `bcs`; GameSupport, ptreplay and
+  Music Omega have been read and agree with the mt_ default, and AMCAF's own
+  replayer has never been disassembled.
+- **The browser does not use the mixer yet.** `web/audio.ts` still schedules a
+  buffer source per voice, so a waveform swapped mid-note restarts it. See the
+  note on `AudioSink.setWaveform`.
 
 Smaller ones: `resource$` reads the interpreter-config messages, still a
 transcription and sparse where the original is (the editor tables below −1001
