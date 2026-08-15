@@ -201,6 +201,43 @@ export interface Host {
    * its own failure branch when nothing does.
    */
   process?: ProcessHost
+  /**
+   * A public exec message port another task published, found by name.
+   *
+   * One caller so far and it is a whole extension: MAXS Door Handler 0.20's
+   * `M_PortOpen(node)` does `FindPort("DoorControlN")` and every one of its
+   * other twenty keywords is a `PutMsg`/`WaitPort`/`GetMsg` round trip on
+   * whatever it found. Nothing else on this machine publishes a port, so a
+   * host without this is an Amiga with the BBS not running — which the
+   * extension's author specified completely, since every routine tests
+   * `MAXDoorPort` for zero and returns zero without sending.
+   *
+   * The name is the whole address, as `FindPort` takes it. `send` gets the
+   * message BYTES and replies in place, because that is what a reply is here:
+   * the sender's own 106 bytes come back with `Command` and `Data` written
+   * over.
+   */
+  ports?: PortHost
+}
+
+/** Public message ports, by the name `FindPort` looks them up under. */
+export interface PortHost {
+  /** `FindPort(name)` — undefined when no task has published that name */
+  find?(name: string): PortHandle | undefined
+}
+
+/** A public port that will take a message and reply to it. */
+export interface PortHandle {
+  /**
+   * `PutMsg` then the sender's `WaitPort`/`GetMsg`, as one call.
+   *
+   * Splitting them would model a wait this port cannot perform: there is one
+   * thread here and it has to return to the frame loop, which is the same
+   * limit MUI's `Wait()` runs into. A door blocks on its reply and does
+   * nothing else while it waits, so collapsing the round trip loses nothing a
+   * program could observe.
+   */
+  send(message: Uint8Array): void
 }
 
 /** A serial port the host has opened on the program's behalf. */

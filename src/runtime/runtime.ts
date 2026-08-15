@@ -27,6 +27,7 @@ import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import type { DisplayExtState } from './displayext'
+import type { MaxsDoorState } from './maxsdoor'
 import { jotreVbl, type JotreState } from './jotre'
 import { thxVbl, type ThxState } from './thx'
 import type { JdIntState } from './jdint'
@@ -637,6 +638,8 @@ export class Runtime {
   range!: RangeState
   /** Display 0.01: the two copper lists it builds and the bank word between them */
   displayExt!: DisplayExtState
+  /** MAXS Door Handler 0.20: the 106-byte DoorMsg and the two message ports */
+  maxsDoor!: MaxsDoorState
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are

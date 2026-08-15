@@ -2504,6 +2504,28 @@ export const FAITHFUL = new Set<string>([
   'wait mouse',
   'wait joy',
   'clear banks',
+  // --- MAXS Door Handler 0.20, slot 16: Ari Tsironis's BBS door protocol,
+  // SOURCE tier (_MAXSDoorHandler.s ships with it); see maxsdoor.ts. The four
+  // that write back into the caller's string are NOT here --- they carry the
+  // right message and answer the right carrier state, and the variable they
+  // fill on the machine is untouched.
+  'm_portopen',
+  'm_portclose',
+  'm_bbstext',
+  'm_localtext',
+  'm_modemchar',
+  'm_screenchar',
+  'm_bbschar',
+  'm_twituser',
+  'm_showfile',
+  'm_checkfile',
+  'm_editfile',
+  'm_getusernum',
+  'm_newaccess',
+  'm_addtime',
+  'm_dofunction',
+  'm_changeuserdata',
+  'm_getkey',
   // --- Display 0.01, slot 24: "JB"'s 2011 copper-list helper; see
   // displayext.ts. The other two keywords are NOT here: both write exactly
   // the words the machine's list carries, and this port's renderer reads one
@@ -7893,6 +7915,63 @@ export const NOTES: Record<string, string> = {
   "clear banks":
     "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`, which is `L_Bnk_EffAll` --- erase every bank. " +
     "Source: +B.s:2698.",
+  m_portopen:
+    "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
+    "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +
+    "or CreatePort failed --- the author's two `beq.s L1_InitError` arms are not distinguishable from outside. " +
+    "Nothing publishes that port here unless a host does (`Host.ports`), so the answer is normally zero, which " +
+    "is what a door gets when MAX's is not running.",
+  m_portclose:
+    "routine 2 (`L2`), the table's one instruction: command 20, End. It sends only if the port was found and " +
+    "deletes the reply port either way --- `L2_TryReply` and `L2_NoPort` are separate tests, so a failed open " +
+    "followed by a close is clean.",
+  m_bbstext: "routine 3 (`L3`), command 1: text to the modem AND the sysop's screen, `Data = 0` for no carriage return.",
+  m_localtext: "routine 4 (`L4`), command 2: the sysop's screen only.",
+  m_modemchar: "routine 5 (`L5`), command 3, the character in `Data`.",
+  m_screenchar: "routine 6 (`L6`), command 4.",
+  m_bbschar: "routine 7 (`L7`), command 5: both at once.",
+  m_prompttext:
+    "routine 8 (`L8`), command 6. `Data` is the length of the input string capped at 79, and that is how many " +
+    "bytes MAX's may write back. APPROXIMATED: the reply comes back by writing over the CALLER'S VARIABLE --- " +
+    "AMOS passes a pointer to the string descriptor on the `(a3)` stack and `L8_InpLoop` copies into it --- and " +
+    "a Func here receives values, not references, so the variable is unchanged. The token spec is `02,2`, an " +
+    "integer result, so the RETURN is the carrier state on both machines and only the variable differs; the " +
+    "reply text is in `rt.maxsDoor.msg`.",
+  m_sprompttext:
+    "routine 9 (`L9`), command 7: the same routine with the command changed. The S is silent --- MAX's echoes " +
+    "nothing, which is how a door asks for a password. Same write-back approximation as `M_Prompttext`.",
+  m_getchar:
+    "routine 10 (`L10`), command 8, HotKey: prints a prompt and waits for one of the characters given. Its copy " +
+    "back is `dbne` where the other two are `dbra`, so it stops at the first NUL as well as at the length. It " +
+    "never sets `Data`, so MAX's is handed whatever the last reply left there --- the author's, not an omission " +
+    "here. Same write-back approximation as `M_Prompttext`.",
+  m_twituser: "routine 11 (`L11`), command 9. No arguments and no `Data`: the BBS decides what happens to a twit.",
+  m_showfile: "routine 12 (`L12`), command 10: MAX's sends an ASCII or ANSI file down the line.",
+  m_checkfile:
+    "routine 13 (`L13`), command 11 with `Data = 1`. Answers the file status out of `Data` unless the carrier " +
+    "state came back 20, which is the caller having hung up.",
+  m_editfile: "routine 14 (`L14`), command 12 with `Data = 99`, the line limit the author fixed.",
+  m_getusernum: "routine 15 (`L15`), command 13, GetSNum: one number out of the caller's record, or 20 if the carrier dropped.",
+  m_getuserstr:
+    "routine 16 (`L16`), command 14, GetSVar. DEFECT, in the author's own hand: `move.w (a4)+,d4 / cmpi.w #40,d4 " +
+    "/ ble.s L16_NoPort`, a branch to the EXIT, so a string of 40 characters or fewer answers 0 and never sends. " +
+    "Every other length check in the file clamps; this one refuses, and it refuses the case its own comment " +
+    "describes. Same write-back approximation as `M_Prompttext`.",
+  m_newaccess: "routine 17 (`L17`), command 15.",
+  m_addtime: "routine 18 (`L18`), command 21, NewTime.",
+  m_dofunction:
+    "routine 19 (`L19`), command `func + 100`: MAX's own function table reached straight through. DEFECT: " +
+    "`L19_StrLoop` is the one string copy with no `cmpi.w #78,d0` before it, so a path over 79 characters walks " +
+    "off `String` and over `Carrier`. Bounded here by the 106 bytes, because there is nothing after them to reach.",
+  m_changeuserdata:
+    "routine 20 (`L20`), command 200. The odd one: the value is a LONG written into the first four bytes of " +
+    "`String` (`move.l d0,(a0)`) and `Data` takes the type instead, so the field that carries a number " +
+    "everywhere else carries the selector here.",
+  m_getkey:
+    "routine 21 (`L21`), command 201: a keypress with no return needed. The answer is packed, and the author drew " +
+    "it in the source as `RETURN 0xRXXXXXKK  KK = KEY` --- `Data` comes back 1 for remote and 0 for local, " +
+    "`lsl.l #31` puts that at the top, and the character is the first byte of `String` ORed in at the bottom. A " +
+    "remote 'A' is $80000041 and a local one is $41. A dropped carrier answers 20 before any of it.",
   dlcopswap:
     "routine 1 ($1ee). Alternates the two copper lists and writes the chosen one to COP1LC. The word at " +
     "block+$02 says which to show NEXT, not which is showing, so `Dlmergedisplay` leaves it at 1 having just " +

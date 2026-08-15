@@ -40,6 +40,7 @@ import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEa
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
 import { makeDisplayExtInstructions, makeDisplayExtFunctions, newDisplayExtState } from './displayext'
+import { makeMaxsDoorInstructions, makeMaxsDoorFunctions, newMaxsDoorState } from './maxsdoor'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
 import { THX_ERRORS, makeThxFunctions, makeThxInstructions, newThxState } from './thx'
@@ -5816,6 +5817,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // name to be one this port already defines, which is what stops the list
     // rotting into a wish
     qualified: ['range', 'bank name', 'bank name$'],
+  },
+  {
+    // MAXS Door Handler 0.20 at slot 16 --- Ari Tsironis's door protocol for
+    // MAX's BBS, SOURCE tier (_MAXSDoorHandler.s ships with it). Twenty-one
+    // keywords over one 106-byte message. See maxsdoor.ts.
+    ids: ['maxsdoor-0.20'],
+    init: (rt) => {
+      rt.maxsDoor = newMaxsDoorState()
+    },
+    instructions: makeMaxsDoorInstructions,
+    functions: makeMaxsDoorFunctions,
   },
   {
     // Display 0.01 at slot 24 --- "JB"'s 2011 copper-list helper, the youngest

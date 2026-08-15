@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1193 qualifying notes live in `src/coverage/status.ts`, which this file
+1196 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -104,7 +104,7 @@ is.
 | locale-0.26          |       20 |       20 |            0 |       0 |     100% |
 | lserial-2.1          |       15 |       14 |            1 |       0 |     100% |
 | make-1.30            |       32 |       32 |            0 |       0 |     100% |
-| maxsdoor-0.20        |       21 |        0 |            0 |      21 |       0% |
+| maxsdoor-0.20        |       21 |       17 |            4 |       0 |     100% |
 | med-7.1              |       28 |       27 |            1 |       0 |     100% |
 | memory               |       14 |       12 |            2 |       0 |     100% |
 | menus                |       24 |       24 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4600 |          149 |    2614 |      64% |
+| **total**            |     7422 |     4617 |          153 |    2593 |      65% |
 
 ## Not applicable, by what would retire it
 
@@ -332,6 +332,10 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## lserial-2.1 (100%)
 
 - **approximated** (1): `lxpr`
+
+## maxsdoor-0.20 (100%)
+
+- **approximated** (4): `m_getchar`, `m_getuserstr`, `m_prompttext`, `m_sprompttext`
 
 ## med-7.1 (100%)
 
