@@ -534,7 +534,11 @@ export class Fc14 {
     ch.volSpeedReload = ch.volSpeed
     const freq = song.volSequences[volSeq + 1] ?? 0
     ch.vibSpeed = song.volSequences[volSeq + 2] ?? 0
-    ch.volume = 0x40
+    // `move.b #$40,$2e(a0)` at $210ace is the VIBRATO flag byte, not the
+    // volume. A note starts on whatever volume the last one left behind, and
+    // the volume sequence overwrites it on the first tick that reads --- which
+    // is the tick after the row when the sequence speed is 1, and later when
+    // it is not
     ch.vibDepth = song.volSequences[volSeq + 3] ?? 0
     ch.vibValue = ch.vibDepth
     ch.vibDelay = song.volSequences[volSeq + 4] ?? 0
