@@ -13,13 +13,15 @@
  * Paananen". SOURCE tier — every field below is read off `P61_Init` and
  * `P61_takenorm` rather than inferred from a file.
  *
- * NOTE, and it decides what this file can claim: there is NO P61 module in
- * the corpus. Not one of the 6,400 programs in the archive carries the "P61A"
- * signature, and the distribution ships only the library, the doc and this
- * source. So the decoder is faithful to the assembly and UNVERIFIED against
- * a real module — the tests below can only show it agrees with the reading
- * that produced it. A hand-made fixture would prove nothing more, which is
- * why none is presented as if it did.
+ * There IS a P61 module in the corpus, in memory bank 3 of DOOM Productions'
+ * `P61_Example.amos`, 7,244 bytes named `P61mod`. A signature search misses it
+ * because the signature is optional and this one has none, which is what the
+ * note here used to conclude from. `p61.corpus.test.ts` reads it.
+ *
+ * That module is what showed the sample flags were being read wrong, and it
+ * showed it by being LISTENED to: the rhythm was right and the instruments
+ * were noise. The arithmetic then settles it, since a sample table has to
+ * account for the file it sits in.
  *
  * ## The header
  *
@@ -30,13 +32,19 @@
  *   +0  word  where the sample data starts, used only when the caller does
  *             not pass the samples separately
  *   +2  byte  low seven bits: how many PATTERNS
- *   +3  byte  bit 7  the samples are four-bit delta packed
+ *   +3  byte  bit 7  the samples carry a running difference, decoded IN PLACE
+ *                    and the same size (`P61_kook`)
  *             bit 6  a separate sample buffer is wanted, and +4 is a LONG
  *                    holding how big
  *             low 5  how many SAMPLES
  *
  * The sample table follows at +8 when bit 6 is set and +4 when it is not,
  * which is exactly the room that longword takes.
+ *
+ * The FOUR-BIT packing is a per-sample flag and not that bit 7: it is bit 7 of
+ * each entry's finetune byte, and it only unpacks on the buffered path, where
+ * `.lo` reads one byte and writes two into the caller's buffer. The two
+ * schemes are exclusive per sample, `tst.b (a2) / bmi` choosing between them.
  *
  * ## The replay
  *
@@ -131,6 +139,22 @@ export function unpackDelta(src: Uint8Array, at: number, words: number): Int8Arr
 }
 
 /**
+ * `P61_kook`'s in-place decode: every byte but the first becomes the running
+ * difference from the one before it.
+ *
+ *     move.b (a5)+,d2 / sub.b (a5),d2 / move.b d2,(a5)+
+ *
+ * Same size in as out, which is what separates it from the four-bit unpack.
+ */
+export function runningDifference(pcm: Int8Array): void {
+  let v = pcm[0] ?? 0
+  for (let i = 1; i < pcm.length; i++) {
+    v = ((v - pcm[i]!) << 24) >> 24
+    pcm[i] = v
+  }
+}
+
+/**
  * Read a module's structure.
  *
  * `samples` is where the sample data lives when it was handed over separately;
@@ -183,14 +207,28 @@ export function parseP61(data: Uint8Array, samples: Uint8Array | null = null): P
       })
       continue
     }
-    const thisPacked = packedSamples && (ft & 0x80) !== 0
+    // Two schemes, and they are chosen by two different bits.
+    //
+    // A BUFFERED module (bit 6 of byte 3) has every sample copied into the
+    // caller's chip buffer, and bit 7 of the finetune byte says this one is
+    // four-bit delta packed on the way there: `.lo` at $158 of
+    // 610.2_devpac3.asm, one byte in and two out. `AMOSPro_P61A.Lib.s:166` is
+    // the caller, allocating `4(a0)` bytes of MEMF_CLEAR chip for it.
+    //
+    // Bit 7 of byte 3 is something else entirely: a running difference over
+    // the module's own bytes, in place and the same size (`P61_kook` at $12e),
+    // and it applies to the samples whose finetune bit 7 is CLEAR.
+    const nibblePacked = buffered && (ft & 0x80) !== 0
     let pcm: Int8Array
-    if (thisPacked) {
+    if (nibblePacked) {
       pcm = unpackDelta(sampleData, pcmAt, len)
       pcmAt += len // a packed sample occupies `len` BYTES, not words
     } else {
       pcm = new Int8Array(len * 2)
       for (let k = 0; k < len * 2; k++) pcm[k] = (sampleData[pcmAt + k] ?? 0) << 24 >> 24
+      // `tst.b (a2) / bmi` skips a sample whose finetune bit 7 is set, and
+      // `subq #2,d0 / bmi` skips anything shorter than two words
+      if (packedSamples && (ft & 0x80) === 0 && len >= 2) runningDifference(pcm)
       pcmAt += len * 2
     }
     out.push({
@@ -200,7 +238,7 @@ export function parseP61(data: Uint8Array, samples: Uint8Array | null = null): P
       repeatWords: rep < 0 ? 1 : len - rep,
       volume: vol,
       finetune: ft & 0xf,
-      packed: thisPacked,
+      packed: nibblePacked,
       aliasOf: null,
     })
   }
