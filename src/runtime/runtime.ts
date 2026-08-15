@@ -123,7 +123,7 @@ import {
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
-import { NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
+import { FRAME_DISPATCHES, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
 import { MusicPlayer } from './music'
 
 /**
@@ -383,7 +383,13 @@ export interface RuntimeOptions {
   extBindings?: Map<number, Extension>
   onUnimplemented?: 'throw' | 'skip'
   maxSteps?: number
-  /** statements executed per frame() before yielding (default 20000) */
+  /**
+   * Statements a `frame()` runs before yielding. Defaults to `FRAME_DISPATCHES`.
+   *
+   * Lower it and a program that polls between vertical blanks gets less done
+   * per frame, which is the whole point; raise it and BASIC outruns the
+   * display. It is not a performance knob, it is how fast the machine was.
+   */
   frameBudget?: number
   /** mirror of all console text output (for transcripts/CLIs) */
   onText?: (text: string) => void
@@ -3944,7 +3950,7 @@ export class Runtime {
   private onText: ((text: string) => void) | undefined
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
-    this.frameBudget = opts.frameBudget ?? 20_000
+    this.frameBudget = opts.frameBudget ?? FRAME_DISPATCHES
     // before makeAllInstructions below: the ports' slot-qualified keywords are
     // bound from this
     this.extBindings = opts.extBindings ?? null

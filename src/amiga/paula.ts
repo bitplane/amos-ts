@@ -76,6 +76,67 @@ export const MIN_PERIOD = 124
 export const VBL_HZ = 50
 
 /**
+ * The 68000's clock on a PAL machine: half the Paula clock, to the hertz.
+ *
+ * `PAULA_CLOCK_PAL / 2` is 3,546,895 and the CPU runs at 7,093,790 — the same
+ * crystal, and the reason both numbers are exact rather than nominal.
+ */
+export const CPU_CLOCK_PAL = PAULA_CLOCK_PAL * 2
+
+/**
+ * CPU cycles in one vertical blank: 141,876 on a PAL A500.
+ *
+ * What the 68000 had between one display frame and the next, before chip DMA
+ * took its share. Everything a program did in a frame came out of this.
+ */
+export const CYCLES_PER_FRAME = Math.round(CPU_CLOCK_PAL / VBL_HZ)
+
+/**
+ * Cycles AMOS spends dispatching ONE statement, doing nothing else.
+ *
+ * The interpreter's inner loop is `+ILib.s:505-540` and with `Debug` off the
+ * steady-state path through it is seven instructions:
+ *
+ *     move.w  (a6)+,d0                MOVE.W (An)+,Dn           8
+ *     bne.s   _Inst                   Bcc.b taken              10
+ *     move.l  a6,d7                   MOVE.L An,Dn              4
+ *     move.w  0(a4,d0.w),d1           MOVE.W (d8,An,Xn),Dn     14
+ *     move.l  -LB_Size(a4,d1.w),a0    MOVEA.L (d8,An,Xn),An    20
+ *     jsr     (a0)                    JSR (An)                 16
+ *     rts                             RTS                      16
+ *
+ * a6 is the token stream, a4 the token table, and the routine it lands in is
+ * the keyword. Every one of those figures is the published 68000 timing and
+ * none of them is a measurement — the 68000 has no cache and no prefetch
+ * queue worth the name, so straight-line code costs what the table says.
+ *
+ * DEVIATION: chip RAM wait states are not in it. A token stream in chip
+ * memory loses cycles to display DMA, more of them the more bitplanes are on,
+ * so this is the fast-RAM figure and the floor.
+ */
+export const CYCLES_PER_DISPATCH = 88
+
+/**
+ * Statements a frame can hold, and the port's default frame budget: 1,612.
+ *
+ * `CYCLES_PER_FRAME / CYCLES_PER_DISPATCH`, which is the number of statements
+ * a PAL A500 could dispatch in one vertical blank IF every keyword body took
+ * no time at all. It is therefore a CEILING and not an estimate.
+ *
+ * The real figure is lower and by an unknown factor, for two reasons neither
+ * of which is settled here: a keyword body costs something, and one statement
+ * of this port is more than one of AMOS's dispatches — `A=A+1` is an
+ * assignment routine plus the tokens its expression walks. Counting those is
+ * the rest of the cost model.
+ *
+ * It replaced 20,000, which was nothing but a default that worked. That is
+ * twelve times a whole frame's dispatch on its own, so any program polling
+ * between vertical blanks ran BASIC at least twelve times too fast, and the
+ * browser's audio starved because one frame of it cost 27ms of wall clock.
+ */
+export const FRAME_DISPATCHES = Math.floor(CYCLES_PER_FRAME / CYCLES_PER_DISPATCH)
+
+/**
  * AUDxVOL is six bits and saturates at 64, which is unity gain — NOT 63.
  * AMOS's keywords use 0..63 and so never reach full scale, which is a fact
  * about AMOS rather than about Paula.
