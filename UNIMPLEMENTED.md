@@ -63,6 +63,7 @@ Blocked on a back-end nothing here models:
 | IntuiExtend 2.01b / 1.6 (`intuiextend-2.01b`, `intuiextend-1.6`) | 301 / 294 | Intuition. 2.01b rebuilt its table, so the two share 45 names of 294 and almost none at the same id, which is why they are two rows |
 | GUI 2.10 / 1.61 / 1.5b (`gui-2.10`, `gui-1.61`, `gui-1.5b`) | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
 | Int 1.0 (`int-1.0`) | 62 | Intuition |
+| OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
 Blocked on nothing but the work. Every one of these holds a readable binary,
@@ -75,7 +76,6 @@ so the evidence is there and the row is simply not begun:
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 | DBench 0.42 (`dbench-0.42`) | 23 | disassembly |
 | MAXS Door Handler 0.20 (`maxsdoor-0.20`) | 21 | the author's own source |
-| OrgAsm 1.0 (`orgasm-1.0`) | 13 | disassembly |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:
 
