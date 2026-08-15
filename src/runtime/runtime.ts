@@ -26,6 +26,7 @@ import type { DumpState } from './dump'
 import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
+import type { DisplayExtState } from './displayext'
 import { jotreVbl, type JotreState } from './jotre'
 import { thxVbl, type ThxState } from './thx'
 import type { JdIntState } from './jdint'
@@ -634,6 +635,8 @@ export class Runtime {
   fileId!: FileIdState
   /** Range 2.6/2.9Plus: the Case latch, the float-bob counter and Game Area */
   range!: RangeState
+  /** Display 0.01: the two copper lists it builds and the bank word between them */
+  displayExt!: DisplayExtState
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are

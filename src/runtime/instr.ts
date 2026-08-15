@@ -39,6 +39,7 @@ import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleSt
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
+import { makeDisplayExtInstructions, makeDisplayExtFunctions, newDisplayExtState } from './displayext'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
 import { THX_ERRORS, makeThxFunctions, makeThxInstructions, newThxState } from './thx'
@@ -5815,6 +5816,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // name to be one this port already defines, which is what stops the list
     // rotting into a wish
     qualified: ['range', 'bank name', 'bank name$'],
+  },
+  {
+    // Display 0.01 at slot 24 --- "JB"'s 2011 copper-list helper, the youngest
+    // extension registered here. Six keywords over a dual-playfield list it
+    // builds itself in two chip buffers. See displayext.ts.
+    ids: ['display-0.01'],
+    init: (rt) => {
+      rt.displayExt = newDisplayExtState(rt)
+    },
+    instructions: makeDisplayExtInstructions,
+    functions: makeDisplayExtFunctions,
   },
   {
     // First 0.1 at slot 22 --- Pedro Gil's 248-byte first extension. Three

@@ -188,6 +188,13 @@ describe('coverage manifest consistency', () => {
    *
    * A row leaving the table is the ratchet. A row that should have left and
    * did not is the failure this catches, at the commit that ports it.
+   *
+   * IT ONLY CAUGHT ONE OF THE TWO for a while, which is how `thx-0.6` sat in
+   * the table at 100% for three commits: the assertion checked that every 0%
+   * row is NAMED and never that every named row is 0%. Both directions are
+   * checked now, and the second one reads only table rows — a `| ... |` line
+   * with a registry id in backticks — because the prose around the tables
+   * names ported extensions on purpose.
    */
   it('UNIMPLEMENTED.md names exactly the extensions that read 0%', () => {
     const doc = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'UNIMPLEMENTED.md')
@@ -209,5 +216,21 @@ describe('coverage manifest consistency', () => {
     // ways, where "MAXS Door Handler" and `maxsdoor-0.20` are the same row.
     const missing = zero.filter((id) => !text.includes(`\`${id}\``))
     expect(missing, 'these read 0% and UNIMPLEMENTED.md does not list them').toEqual([])
+
+    // `zero` is the wrong measure for the other direction: DME shares `Nop`
+    // with AMCAF and IntuiExtend shares seven names with EasyLife, so an
+    // extension nobody has begun still has implemented names. What settles it
+    // is what the percentage settles it by — whether any port DECLARES the
+    // identity (#226) — so an extension is off the list exactly when an
+    // ExtensionImpl names it.
+    const ported = new Set(extensionImpls().flatMap((i) => i.ids))
+    const ids = new Set(allExtensions().map((e) => e.id))
+    const listed = new Set<string>()
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('|')) continue
+      for (const [, id] of line.matchAll(/`([^`]+)`/g)) if (ids.has(id!)) listed.add(id!)
+    }
+    const stale = [...listed].filter((id) => ported.has(id))
+    expect(stale, 'UNIMPLEMENTED.md still lists these and they are ported').toEqual([])
   })
 })

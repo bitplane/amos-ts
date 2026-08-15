@@ -51,7 +51,7 @@ These are registered and detokenising but not implemented, so a program lists
 and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
-Seventeen rows read 0%, and they divide by what is in the way rather than by
+Fifteen rows read 0%, and they divide by what is in the way rather than by
 size. `src/coverage/coverage.test.ts` checks that the rows below are exactly
 the rows reading 0%, so a ported extension cannot quietly stay on the list.
 
@@ -76,8 +76,6 @@ so the evidence is there and the row is simply not begun:
 | DBench 0.42 (`dbench-0.42`) | 23 | disassembly |
 | MAXS Door Handler 0.20 (`maxsdoor-0.20`) | 21 | the author's own source |
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | disassembly |
-| Display 0.01 (`display-0.01`) | 6 | disassembly |
-| THX 0.6 (`thx-0.6`) | 6 | disassembly |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:
 

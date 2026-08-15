@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1191 qualifying notes live in `src/coverage/status.ts`, which this file
+1193 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -60,7 +60,7 @@ is.
 | dbench-0.42          |       23 |        0 |            0 |      23 |       0% |
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       41 |            4 |       0 |     100% |
-| display-0.01         |        6 |        0 |            0 |       6 |       0% |
+| display-0.01         |        6 |        4 |            2 |       0 |     100% |
 | dme-2.0              |      184 |        0 |            0 |     184 |       0% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
 | dump-1.0             |        8 |        7 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4596 |          147 |    2620 |      64% |
+| **total**            |     7422 |     4600 |          149 |    2614 |      64% |
 
 ## Not applicable, by what would retire it
 
@@ -252,6 +252,10 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 - **approximated** (4): `delta req palette`, `delta reqtools get number`,
   `delta reqtools palette`, `delta reqtools requester`
 - **n/a** (1): `jsr`
+
+## display-0.01 (100%)
+
+- **approximated** (2): `dlmergedisplay`, `dlscreenoffset`
 
 ## dump-1.0 (100%)
 

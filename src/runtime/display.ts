@@ -911,23 +911,15 @@ export class Display {
           }
           if (idx === 0 && bplH[0]! >= 0 && bplL[0]! >= 0) {
             const ad = (((bplH[0]! << 16) | bplL[0]!) >>> 0)
+            const hit = this.screenSlot(ad)
             screen = null
-            if (
-              ad >= Runtime.SCREEN_CHIP_BASE &&
-              ad < Runtime.SCREEN_CHIP_BASE + Runtime.SCREEN_SLOTS * Runtime.SCREEN_CHIP_SLOT
-            ) {
-              const rel = ad - Runtime.SCREEN_CHIP_BASE
-              const s = this.rt.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
-              if (s) {
-                let within = rel % Runtime.SCREEN_CHIP_SLOT
-                usePhy = within >= Runtime.SCREEN_PHY_OFFSET
-                if (usePhy) within -= Runtime.SCREEN_PHY_OFFSET
-                screen = s
-                ptr = within
-                planeOff.fill(within)
-                planeScr.fill(null)
-                planePhy.fill(false)
-              }
+            if (hit) {
+              usePhy = hit.phy
+              screen = hit.s
+              ptr = hit.within
+              planeOff.fill(hit.within)
+              planeScr.fill(null)
+              planePhy.fill(false)
             }
           }
         } else if (reg >= 0x120 && reg <= 0x13e) {
@@ -1234,20 +1226,51 @@ export class Display {
    * buffer and another at the physical one — which is what a program does to
    * show a composite of both — rendered entirely from one of them.
    */
-  private resolvePlanePtr(ad: number): { s: Screen; off: number; phy: boolean } | null {
-    if (
-      ad < Runtime.SCREEN_CHIP_BASE ||
-      ad >= Runtime.SCREEN_CHIP_BASE + Runtime.SCREEN_SLOTS * Runtime.SCREEN_CHIP_SLOT
-    )
+  /**
+   * How far BEFORE a bitmap a plane pointer may legitimately sit.
+   *
+   * A list that scrolls horizontally fetches one extra word at the left, aims
+   * the plane a word short of the bitmap, and makes the difference up in
+   * BPLCON1's pixel delay. Display 0.01 does exactly that — `subi.l #$2,d5`
+   * at $480 biases every plane, and $5b4 sets the delay to `16 - (x and 15)`
+   * — and it is the pointer for `x and 15 = 0`, which is where a scroll
+   * starts. Resolving it strictly put it in the PREVIOUS screen slot, so the
+   * screen was not found at all and the display stayed blank.
+   *
+   * Two bytes is the whole tolerance: one word is what one extra fetch is.
+   * The slot is 1MB and the physical half starts 512KB in, so shifting every
+   * pointer by two before the slot arithmetic cannot reach a real bitmap —
+   * the largest one this port opens is 320KB.
+   */
+  private static readonly PRE_FETCH = 2
+
+  /**
+   * Which screen slot an address names, and where in that screen's bitmap.
+   *
+   * `within` may be as low as -PRE_FETCH; every reader bounds-checks its own
+   * byte, so a negative offset reads as zero rather than as somebody else's
+   * memory. That is the right answer here: on the machine those two bytes
+   * hold whatever precedes the bitmap and the delay hides them behind the
+   * display window.
+   */
+  private screenSlot(ad: number): { s: Screen; within: number; phy: boolean } | null {
+    const a = ad + Display.PRE_FETCH
+    if (a < Runtime.SCREEN_CHIP_BASE || a >= Runtime.SCREEN_CHIP_BASE + Runtime.SCREEN_SLOTS * Runtime.SCREEN_CHIP_SLOT)
       return null
-    const rel = ad - Runtime.SCREEN_CHIP_BASE
+    const rel = a - Runtime.SCREEN_CHIP_BASE
     const s = this.rt.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
     if (!s) return null
     let within = rel % Runtime.SCREEN_CHIP_SLOT
     const phy = within >= Runtime.SCREEN_PHY_OFFSET
     if (phy) within -= Runtime.SCREEN_PHY_OFFSET
-    if (within < 0 || within >= s.depth * s.planeSize) return null
-    return { s, off: within, phy }
+    return { s, within: within - Display.PRE_FETCH, phy }
+  }
+
+  private resolvePlanePtr(ad: number): { s: Screen; off: number; phy: boolean } | null {
+    const hit = this.screenSlot(ad)
+    if (!hit) return null
+    if (hit.within < -Display.PRE_FETCH || hit.within >= hit.s.depth * hit.s.planeSize) return null
+    return { s: hit.s, off: hit.within, phy: hit.phy }
   }
 
   resolveScreenId(id: number, write = false): { s: Screen; buf: Uint8Array } {

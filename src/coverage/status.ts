@@ -2504,6 +2504,14 @@ export const FAITHFUL = new Set<string>([
   'wait mouse',
   'wait joy',
   'clear banks',
+  // --- Display 0.01, slot 24: "JB"'s 2011 copper-list helper; see
+  // displayext.ts. The other two keywords are NOT here: both write exactly
+  // the words the machine's list carries, and this port's renderer reads one
+  // field short of them. The NOTES say which field and what it costs.
+  'dlcopswap',
+  'dlscreenbase',
+  'dldepth',
+  'dlcheckaga',
   // --- FileID 1.0, slot 25: Haiko Lemser's FileID.library wrapper, SOURCE
   // tier (FileID.s ships with it); see fileid.ts.
   'id get high id',
@@ -7885,6 +7893,36 @@ export const NOTES: Record<string, string> = {
   "clear banks":
     "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`, which is `L_Bnk_EffAll` --- erase every bank. " +
     "Source: +B.s:2698.",
+  dlcopswap:
+    "routine 1 ($1ee). Alternates the two copper lists and writes the chosen one to COP1LC. The word at " +
+    "block+$02 says which to show NEXT, not which is showing, so `Dlmergedisplay` leaves it at 1 having just " +
+    "shown list A. EVERY custom register in this library is written at $DDFxxx rather than $DFFxxx --- $ddf080 " +
+    "here, $ddf096 twice in routine 5, and no $DFF anywhere in the hunk. Bits 8 down to 1 select the register, " +
+    "so an Amiga decodes it as COP1LC and the author had no reason to notice.",
+  dlscreenbase:
+    "routine 2 ($21c): `move.l (a3)+,d1 / Rjsr L_GetEc / move.l a0,d3`. The screen control block, which is what " +
+    "`Screen Base` answers for the current screen (ScOnAd, FnScreenBase +Lib.s:8798); this one takes a number.",
+  dldepth: "routine 3 ($22a): `Rjsr L_GetEc / move.w $50(a0),d3` --- EcNPlan, the screen's bitplane count.",
+  dlcheckaga:
+    "routine 4 ($23a) asks nothing at run time: routine 0 tested lib_Version >= 39 and gb_ChipRevBits0 bit 2 " +
+    "(`cmpi.w #$27,$14(a0)`, `btst.b #$2,$ec(a0)`) and left 6 or 8 at block+$04, and this compares that word " +
+    "with 8. The modelled machine is an A1200, so -1, on the same footing as AMCAF's `Aga Detect`.",
+  dlmergedisplay:
+    "routine 5 ($258), 760 bytes: builds a dual-playfield copper list over two screens in each of the two chip " +
+    "buffers, list A off EcPhysic and list B off EcLogic (`move.l $18(a0),$10(a1)`, $2dc). APPROXIMATED for one " +
+    "field. It writes BPLCON3 = $1000 for four planes a playfield and $c00 for three ($328/$336), which is " +
+    "PF2OF, where playfield 2's pens begin; Personnal's own source writes the same pair and calls $1000 \"pour " +
+    "2nd pf palette\" (+AMOSPro_Personnal.Lib.s:643). This renderer takes playfield 2 from pen 8 whatever " +
+    "BPLCON3 says --- right for three planes each, and eight pens low for four, where the machine uses 16-31. " +
+    "No AGA register reference is vendored here, so the field is recorded rather than guessed at.",
+  dlscreenoffset:
+    "routine 6 ($550) patches a list already built rather than rebuilding one, and patches the HIDDEN one --- " +
+    "the bank word picks it ($5a2). Whole words go into the plane pointers as `y * rowBytes + (x and $fff0)/8` " +
+    "and the remainder into BPLCON1 as `16 - (x and 15)`, low nibble for playfield 1 and high for playfield 2 " +
+    "($5ca). The two halves meet at the boundary because `x and 15 = 0` takes the pointer back two bytes " +
+    "instead ($600), the displacement a delay of sixteen would be. APPROXIMATED: this port's renderer adds " +
+    "BPLCON1's low nibble to where the fetch lands and ignores the high one (`dataStart`, display.ts), so " +
+    "playfield 2 scrolls in whole words here and smoothly on the machine. Playfield 1 is exact.",
   "id get high id":
     "L3: FiGetHighID(), the highest type number the installed library knows.",
   "id get string":
