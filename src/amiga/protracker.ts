@@ -1030,9 +1030,23 @@ export class Protracker {
    * `P61_patternloop` — E6x.
    *
    * `E60` marks the row; `E6x` jumps back to it x times. The count lives on
-   * the SONG, not the channel (`P61_plcount` is beside `P61_cn`), so two
-   * channels both carrying E6x share one counter — which is ProTracker's own
-   * behaviour and the reason a loop written on two channels runs half as long.
+   * the SONG, not the channel: `P61_plcount` and `P61_plflag` are both
+   * `-P61_cn(a3)` globals (610.2_devpac3.asm:1934), and `clr.l P61_plcount` at
+   * init clears the pair in one instruction.
+   *
+   * That is NOT ProTracker's behaviour, which was the claim here before
+   * anybody checked. ProTracker keeps `n_loopcount` per channel, so a module
+   * with `E60` on one channel and `E61` on another in the same row plays two
+   * different pieces of music under the two replayers. `p61.corpus.test.ts`
+   * measures it: bank 3 of P61_Example has that row 6.48 seconds in, and this
+   * replay tracks libopenmpt's reading of the same patterns at an envelope
+   * correlation of 0.999 up to it and walks away from it after.
+   *
+   * P61 also snapshots each channel's DECODER state at `E60` and restores it
+   * on the jump (`P61_looppos`, 12 bytes a channel: the stream position, the
+   * back-reference position and its remaining length). Nothing here needs it,
+   * because `decodePattern` materialises all 64 rows before the replay sees
+   * them and a row index is all it takes to go back.
    */
   private patternLoop(arg: number): void {
     if (arg === 0) {

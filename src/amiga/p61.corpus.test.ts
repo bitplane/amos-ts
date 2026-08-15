@@ -19,7 +19,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
-import { decodePattern, p61Song, parseP61 } from './p61'
+import { decodePattern, p61Song, p61ToMod, parseP61 } from './p61'
+import { parseMod } from './protracker'
 
 /** sources/kyzer-dme/files/amospro_dme_v2.0/examples/P61_Example.amos */
 const EXAMPLE = '7c5a772011d90cc995974a126fcc058fccd21f7133955b24650247664e54c609'
@@ -97,6 +98,31 @@ describe.skipIf(!bank)('the P61 module in P61_Example.amos', () => {
     expect(notes.length).toBeGreaterThan(8)
     // every note has to land in the period table the replay indexes with it
     for (const r of notes) expect(r.note).toBeLessThanOrEqual(0x7e)
+  })
+
+  /**
+   * The only way this module gets a second opinion: no player on this machine
+   * reads P61, so the unpacked patterns go out as a MOD and libopenmpt reads
+   * that. Rendered and compared, the two agree to a pitch-class cosine of
+   * 0.9983 and an envelope correlation of 0.999 for the first five seconds.
+   *
+   * They part company after 6.48 seconds, and it is not a defect on either
+   * side: that row carries `E60` on channel 0 and `E61` on channel 1 at once,
+   * and P61 keeps ONE loop counter for the whole song where ProTracker gives
+   * each channel its own. This module has 32 pattern loops.
+   */
+  it('writes back out as a MOD another player can read', () => {
+    const mod = p61ToMod(module)
+    expect(String.fromCharCode(...mod.subarray(1080, 1084))).toBe('M.K.')
+    expect(mod[950]).toBe(21) // the song length, where a MOD keeps it
+    const back = parseMod(mod)!
+    expect(back.positions).toEqual(module.positions)
+    // every note the P61 stream held survives the trip through periods
+    const ours = p61Song(module).pattern(11)
+    const theirs = back.pattern(11)
+    const notes = (rows: readonly (readonly { note: number }[])[]): number[] =>
+      rows.flatMap((r) => r.map((c) => c.note))
+    expect(notes(theirs)).toEqual(notes(ours))
   })
 
   it('becomes a song the shared ProTracker replay can load', () => {

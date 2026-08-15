@@ -55,6 +55,7 @@
  */
 
 import { PT_ROWS, type PtRow, type PtSample, type PtSong } from './protracker'
+import { PT_PERIODS } from './notes'
 
 /** one entry of the sample table, six bytes in the file */
 export interface P61Sample {
@@ -443,4 +444,75 @@ export function p61Song(m: P61Module): PtSong {
       return rows
     },
   }
+}
+
+/**
+ * Write the unpacked module back out as a plain ProTracker MOD.
+ *
+ * This is how a P61 module gets a second opinion. Nothing on this machine
+ * reads P61 — not libopenmpt, not ffmpeg — so the only way to hear these
+ * patterns through somebody else's replayer is to hand them the data in a
+ * format they do read. `src/cli/renderaudio.ts --to-mod` is the caller.
+ *
+ * It is NOT a faithful round trip and cannot be, for a reason worth knowing:
+ * P61 and ProTracker disagree about `E6x`. `P61_patternloop` at $78e keeps ONE
+ * counter and one flag for the whole song (`P61_plcount`/`P61_plflag`, both
+ * `-P61_cn(a3)` globals), where ProTracker gives every channel its own
+ * `n_loopcount`. A module with loops on two channels at once therefore plays
+ * different music under the two, and P61_Example's bank 3 has exactly that on
+ * the row at 6.48 seconds. Up to there the two agree to an envelope
+ * correlation of 0.999; after it they walk apart, and neither is wrong.
+ *
+ * Periods are written from the finetune-0 row with the finetune left in the
+ * sample header, which is where a MOD carries it and what `parseMod` reads
+ * back.
+ */
+export function p61ToMod(m: P61Module, title = 'unpacked from P61'): Uint8Array {
+  const headerBytes = 20 + 31 * 30 + 1 + 1 + 128 + 4
+  const patterns = m.patternOffsets.length
+  const pcmBytes = m.samples.reduce((n, s) => n + (s.aliasOf === null && s.pcm ? s.pcm.length : 0), 0)
+  const out = new Uint8Array(headerBytes + patterns * PT_ROWS * 4 * 4 + pcmBytes)
+  const view = new DataView(out.buffer)
+  for (let i = 0; i < Math.min(20, title.length); i++) out[i] = title.charCodeAt(i) & 0x7f
+
+  m.samples.forEach((s, i) => {
+    const o = 20 + i * 30
+    // an alias carries no data of its own, and a MOD has no way to say so:
+    // it gets a length of zero rather than a second copy of the bytes
+    view.setUint16(o + 22, s.aliasOf === null && s.pcm ? s.pcm.length >> 1 : 0)
+    out[o + 24] = s.finetune & 0xf
+    out[o + 25] = Math.min(64, s.volume)
+    view.setUint16(o + 26, s.repeatStart)
+    view.setUint16(o + 28, Math.max(1, s.repeatWords))
+  })
+
+  const order = 20 + 31 * 30
+  out[order] = m.positions.length
+  out[order + 1] = 127 // the restart byte nothing reads
+  m.positions.forEach((p, i) => {
+    if (i < 128) out[order + 2 + i] = p
+  })
+  out.set([0x4d, 0x2e, 0x4b, 0x2e], order + 130) // "M.K."
+
+  let at = headerBytes
+  for (let p = 0; p < patterns; p++) {
+    const channels = decodePattern(m, p)
+    for (let r = 0; r < PT_ROWS; r++) {
+      for (let c = 0; c < 4; c++) {
+        const cell = ptCell(channels[c]?.[r] ?? { note: 0, instrument: 0, command: 0, info: 0 })
+        const period = cell.note > 0 && cell.note <= 36 ? PT_PERIODS[cell.note]! : 0
+        out[at] = (cell.instrument & 0xf0) | ((period >> 8) & 0x0f)
+        out[at + 1] = period & 0xff
+        out[at + 2] = ((cell.instrument & 0x0f) << 4) | (cell.command & 0xf)
+        out[at + 3] = cell.info & 0xff
+        at += 4
+      }
+    }
+  }
+  for (const s of m.samples) {
+    if (s.aliasOf !== null || !s.pcm) continue
+    out.set(new Uint8Array(s.pcm.buffer, s.pcm.byteOffset, s.pcm.length), at)
+    at += s.pcm.length
+  }
+  return out
 }

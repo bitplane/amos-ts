@@ -22,7 +22,7 @@ import { VBL_HZ } from '../amiga/paula'
 import { Protracker, parseMod } from '../amiga/protracker'
 import { ThxPlayer } from '../amiga/thxplay'
 import { thxParse } from '../amiga/thx'
-import { p61Song, parseP61 } from '../amiga/p61'
+import { p61Song, p61ToMod, parseP61 } from '../amiga/p61'
 import { MedPlayer } from '../runtime/med'
 import { Runtime } from '../runtime/runtime'
 import { TokenTable } from '../tokens/stream'
@@ -170,7 +170,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
     return i >= 0 ? args[i + 1] : undefined
   }
   const flags = new Set<string>()
-  for (const name of ['--engine', '--seconds', '--rate', '--filter', '--gain']) {
+  for (const name of ['--engine', '--seconds', '--rate', '--filter', '--gain', '--to-mod']) {
     const v = opt(name)
     if (v !== undefined) flags.add(v)
   }
@@ -179,9 +179,25 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   if (!file || !out) {
     console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|track|medext]')
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
+    console.error('       renderaudio <module.p61> - --to-mod out.mod')
     process.exit(1)
   }
   const data = new Uint8Array(readFileSync(file))
+  // P61 is the one format no other player on this machine reads. Writing the
+  // unpacked patterns back out as a MOD is how it gets a second opinion at
+  // all: see `p61ToMod`, including what the round trip cannot preserve.
+  const toMod = opt('--to-mod')
+  if (toMod !== undefined) {
+    const m = parseP61(data)
+    if (!m) {
+      console.error(`${file}: not a P61 module`)
+      process.exit(1)
+    }
+    const mod = p61ToMod(m)
+    writeFileSync(toMod, mod)
+    console.log(`${toMod}: ${mod.length} bytes, ${m.patternOffsets.length} patterns, ${m.samples.length} samples`)
+    process.exit(0)
+  }
   const engine = (opt('--engine') as Engine | undefined) ?? detectEngine(data)
   if (!engine) {
     console.error(`${file}: no engine recognises this. Name one with --engine.`)
