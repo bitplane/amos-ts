@@ -23,7 +23,11 @@ import { describe, expect, it } from 'vitest'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { NullAudio } from './paula'
 import { isThxModule, thxParse, thxWalkEnd } from './thx'
-import { ThxPlayer } from './thxplay'
+import { THX_MAX_NOTE, THX_PERIODS, ThxPlayer } from './thxplay'
+import {
+  THX_NOISE_BYTES, THX_OFF_NOISE, THX_OFF_SAWTOOTHS, THX_OFF_SQUARES, THX_OFF_TRIANGLES,
+  THX_SAWTOOTH_SIZES, THX_SQUARE_BYTES, THX_SQUARE_COUNT, THX_TRIANGLE_SIZES, thxWaveSet,
+} from './thxwaves'
 
 const have = haveCorpus()
 
@@ -161,5 +165,125 @@ describe.skipIf(!have)('the nine THX modules in the corpus', () => {
   it('use track lengths of 8, 16 and 32 and nothing else', () => {
     const parsed = MODULES.map((m) => moduleBytes(m.sha)).filter((b) => b !== null)
     expect([...new Set(parsed.map((b) => thxParse(b).trackLength))].sort((a, c) => a - c)).toEqual([8, 16, 32])
+  })
+})
+
+/**
+ * What can be checked when no other player exists.
+ *
+ * #130 gave MED, both MOD engines and P61 an independent reading to be
+ * compared with. THX gets none: libopenmpt refuses the format, nothing else on
+ * this machine reads it, and the one npm package named for it is an empty
+ * placeholder. So these are the checks that answer to something other than the
+ * reading that produced the code.
+ *
+ * The synthesis itself — envelopes, playlists, the filter sweep — is NOT
+ * covered by any of them, and nothing here pretends otherwise.
+ */
+describe.skipIf(!have)('THX, checked without a second player', () => {
+  const parsed = MODULES.map((m) => ({ name: m.name, bytes: moduleBytes(m.sha) })).filter((m) => m.bytes !== null)
+
+  it('has a period table that is equal temperament, whatever the binary says', () => {
+    // 84 words read out of two libraries. A mistyped one would break the ratio
+    // between neighbouring semitones; integer periods alone cost 0.4% at the
+    // top of the table, where one count is nearly a percent.
+    let worst = 0
+    for (let n = 2; n <= THX_MAX_NOTE; n++) {
+      worst = Math.max(worst, Math.abs(THX_PERIODS[n - 1]! / THX_PERIODS[n]! - Math.pow(2, 1 / 12)))
+    }
+    expect(worst).toBeLessThan(0.005)
+    expect(THX_PERIODS[1]).toBe(3424) // 856 * 4, ProTracker's C-1 two octaves down
+    expect(THX_PERIODS[THX_MAX_NOTE]).toBe(113)
+  })
+
+  it('generates triangles that rise and fall in equal steps', () => {
+    const set = thxWaveSet()
+    let at = THX_OFF_TRIANGLES
+    for (const n of THX_TRIANGLE_SIZES) {
+      const w = [...set.slice(at, at + n)]
+      const steps = w.slice(1).map((v, i) => v - w[i]!)
+      expect(Math.max(...w), `triangle ${n} peak`).toBe(127)
+      expect(Math.min(...w), `triangle ${n} trough`).toBe(-128)
+      // one distinct rise and one distinct fall, give or take the wrap
+      expect(new Set(steps.filter((s) => s > 0)).size, `triangle ${n} rises`).toBeLessThanOrEqual(2)
+      expect(new Set(steps.filter((s) => s < 0)).size, `triangle ${n} falls`).toBeLessThanOrEqual(2)
+      at += n
+    }
+  })
+
+  it('generates sawtooths that are one straight line', () => {
+    const set = thxWaveSet()
+    let at = THX_OFF_SAWTOOTHS
+    for (const n of THX_SAWTOOTH_SIZES) {
+      const w = [...set.slice(at, at + n)]
+      const steps = new Set(w.slice(1).map((v, i) => v - w[i]!))
+      expect(w[0], `sawtooth ${n} starts at the bottom`).toBe(-128)
+      expect(steps.size, `sawtooth ${n} is linear`).toBe(1)
+      at += n
+    }
+  })
+
+  it('generates thirty-two pulse widths, each two levels and nothing between', () => {
+    const set = thxWaveSet()
+    const widths: number[] = []
+    for (let i = 0; i < THX_SQUARE_COUNT; i++) {
+      const at = THX_OFF_SQUARES + i * THX_SQUARE_BYTES
+      const w = [...set.slice(at, at + THX_SQUARE_BYTES)]
+      expect(new Set(w).size, `square ${i} levels`).toBe(2)
+      widths.push(w.filter((v) => v > 0).length)
+    }
+    // 2 to 64 of 128, rising by two: the pulse width sweep an instrument uses
+    expect(widths[0]).toBe(2)
+    expect(widths[THX_SQUARE_COUNT - 1]).toBe(64)
+    expect(widths.every((w, i) => i === 0 || w > widths[i - 1]!)).toBe(true)
+  })
+
+  it('generates noise that changes sign about half the time', () => {
+    const set = thxWaveSet()
+    const noise = [...set.slice(THX_OFF_NOISE, THX_OFF_NOISE + THX_NOISE_BYTES)]
+    let flips = 0
+    for (let i = 1; i < noise.length; i++) if (Math.sign(noise[i]!) !== Math.sign(noise[i - 1]!)) flips++
+    expect(flips / noise.length).toBeGreaterThan(0.4)
+    expect(flips / noise.length).toBeLessThan(0.6)
+    expect(new Set(noise).size).toBeGreaterThan(200)
+  })
+
+  /**
+   * The sequencer against the parser: two readings of two different parts of
+   * the format, and they have to agree about where the song is.
+   *
+   * The one thing that legitimately differs is command $3. Tone portamento
+   * slides towards a note without taking it, so the channel keeps the note it
+   * had, and every mismatch across all nine modules is one of those: 114 in
+   * Urban Shuffle, 18 in Inside, 12 in Extra, none anywhere else.
+   */
+  it('walks all nine songs exactly where the score says, portamento aside', () => {
+    for (const { name, bytes } of parsed) {
+      const m = thxParse(bytes!)
+      const player = new ThxPlayer(() => new NullAudio())
+      player.load(m)
+      let unexplained = 0
+      let rows = 0
+      let last = ''
+      for (let frame = 0; frame < 2000 && !player.ended; frame++) {
+        const at = `${player.position}:${player.row}`
+        const position = player.position
+        const row = player.row
+        player.tick()
+        if (at === last) continue
+        last = at
+        rows++
+        for (let c = 0; c < 4; c++) {
+          const where = m.positions[position]?.[c]
+          const step = m.tracks[where?.track ?? 0]?.[row]
+          const channel = player.channels[c]!
+          expect(channel.transpose, `${name} pos ${position} ch ${c} transpose`).toBe(where?.transpose ?? 0)
+          if (!step || step.note === 0 || step.command === 3) continue
+          if (channel.note !== step.note) unexplained++
+        }
+      }
+      expect(rows, `${name} rows walked`).toBeGreaterThan(30)
+      expect(unexplained, `${name} notes the player did not take`).toBe(0)
+    }
   })
 })
