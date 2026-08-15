@@ -159,3 +159,45 @@ describe('PaulaMixer: the LED filter', () => {
     expect(out[399]!).toBeCloseTo(0.5, 3)
   })
 })
+
+describe('a loop that runs past its sample', () => {
+  /**
+   * DME 2.0's own ProTracker example has them, and the first render of it
+   * came out silent from 6.886 seconds onward.
+   *
+   * Paula takes AUDxLEN in words and cannot know how long the caller's buffer
+   * is: aim it past the end on the machine and the DMA reads whatever chip
+   * RAM follows, which is somebody else's data and audible garbage. There is
+   * no memory after the buffer here, so `pcm[pos | 0]` was `undefined`,
+   * `undefined * gain` was NaN, and the NaN then sat in the LED filter's
+   * state for every sample after it. One bad read silenced the rest.
+   */
+  it('play() clamps a loop end past the buffer instead of reading off the end', () => {
+    const m = new PaulaMixer({ rate: 44100, filter: false })
+    const pcm = Int8Array.from([64, -64, 64, -64])
+    // a loop the caller says is four times longer than the sample
+    m.play(0, pcm, 8000, 64, 0, 16)
+    const out = m.render(2000)
+    expect(out.every((s) => Number.isFinite(s))).toBe(true)
+    expect(out.some((s) => s !== 0)).toBe(true)
+  })
+
+  it('setLoop() clamps the same way, which it did not before', () => {
+    const m = new PaulaMixer({ rate: 44100, filter: false })
+    m.play(0, Int8Array.from([32, -32]), 8000, 64, 0)
+    m.setLoop(0, 0, 9999)
+    const out = m.render(2000)
+    expect(out.every((s) => Number.isFinite(s))).toBe(true)
+  })
+
+  it('and one NaN would have poisoned the LED filter for the whole render', () => {
+    // the filter is two cascaded one-poles: its state feeds itself, so a
+    // single non-finite input never washes out. This is why 2,403 bad
+    // samples became 1,019,349
+    const m = new PaulaMixer({ rate: 44100 })
+    m.setFilter(true)
+    m.play(0, Int8Array.from([64, -64, 64, -64]), 8000, 64, 0, 64)
+    const out = m.render(4000)
+    expect(out.every((s) => Number.isFinite(s))).toBe(true)
+  })
+})

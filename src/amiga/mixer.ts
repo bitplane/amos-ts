@@ -123,6 +123,24 @@ export interface MixerOptions {
  * state a player test reads. What it adds is `render`, and the clock that
  * makes rendering mean anything.
  */
+/**
+ * A loop end the sample can actually reach.
+ *
+ * Paula takes AUDxLEN in words and does not know how long the caller's sample
+ * is: point it past the end and the DMA reads whatever chip RAM follows,
+ * which on the machine is somebody else's data and audible garbage. There is
+ * no memory after the buffer HERE, so the read came back `undefined`,
+ * `undefined * gain` was NaN, and the NaN then sat in the LED filter's state
+ * for the rest of the render — one bad sample silenced everything after it.
+ *
+ * Found by rendering DME 2.0's own ProTracker example, whose loops run past
+ * their samples: 2,403 NaN samples with the filter off and 1,019,349 with it
+ * on, from 6.886s onward. `setWaveform` had this clamp from the start and the
+ * other two entry points did not.
+ */
+const clampLoopEnd = (loopEnd: number, length: number): number =>
+  loopEnd > length ? length : loopEnd < 0 ? 0 : loopEnd
+
 export class PaulaMixer implements AudioSink {
   readonly rate: number
   /** the LED filter, which is CIA-A's PRA bit 1 rather than Paula's own */
@@ -256,7 +274,7 @@ export class PaulaMixer implements AudioSink {
     V.step = Math.max(0, freqHz) / this.rate
     V.gain = clampVolume(volume) / MAX_VOLUME / 128
     V.loopStart = loopStart
-    V.loopEnd = loopEnd ?? pcm.length
+    V.loopEnd = clampLoopEnd(loopEnd ?? pcm.length, pcm.length)
     V.playing = pcm.length > 0
   }
 
@@ -287,7 +305,7 @@ export class PaulaMixer implements AudioSink {
     const V = this.voices[voice]
     if (!V) return
     V.loopStart = loopStart
-    V.loopEnd = loopEnd ?? V.pcm?.length ?? 0
+    V.loopEnd = clampLoopEnd(loopEnd ?? V.pcm?.length ?? 0, V.pcm?.length ?? 0)
   }
 
   /**
