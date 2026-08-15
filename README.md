@@ -1,20 +1,22 @@
 # amos-ts
 
-A TypeScript reimplementation of the AMOS Professional interpreter and runtime,
-so old AMOS games can run on the web.
+A TypeScript reimplementation of [AMOS Pro](https://github.com/Francaoz/AMOS-Professional-Official),
+so you can embed your old games into web pages.
 
-Reference source: [AMOS-Professional-Official](https://github.com/Francaoz/AMOS-Professional-Official)
-(68000 assembly, MIT licence). The strategy is **not** to translate the
-assembly. It is to reimplement the language and runtime from it:
+Keyword supports most of the extensions I could find, but mostly hasn't been
+play tested. Timings are a bit wrong etc.
 
-- `.AMOS` files are *tokenized* programs plus resource banks, so this loads and
-  interprets the token stream directly.
-- The token table in `+Lib.s` is the authoritative instruction inventory.
-- The Amiga hardware layer (`+W.s`) is replaced with Canvas and WebAudio.
+Run it now at **[amos.bitplane.net](https://amos.bitplane.net)** - drop a
+file (.amos, .adf, .zip etc) and see how it plays.
 
-Run it now at **[amos.bitplane.net](https://amos.bitplane.net)**. Drop a
-`.AMOS` file in and it plays. Every release is also pinned at
-`amos.bitplane.net/v/<version>/`, so a page can embed one build and keep it.
+The project is under heavy development, so hotlink latest at risk of breakage.
+Releases are pinned at `amos.bitplane.net/v/<version>/`, or build your own or
+whatever.
+
+You can see some of my old games [here](https://bitplane.net/dev/amos) for now,
+I'll add a gallery to the main site in future.
+
+---
 
 ## Install
 
