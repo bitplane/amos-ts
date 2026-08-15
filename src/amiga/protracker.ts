@@ -1036,11 +1036,14 @@ export class Protracker {
    *
    * That is NOT ProTracker's behaviour, which was the claim here before
    * anybody checked. ProTracker keeps `n_loopcount` per channel, so a module
-   * with `E60` on one channel and `E61` on another in the same row plays two
-   * different pieces of music under the two replayers. `p61.corpus.test.ts`
-   * measures it: bank 3 of P61_Example has that row 6.48 seconds in, and this
-   * replay tracks libopenmpt's reading of the same patterns at an envelope
-   * correlation of 0.999 up to it and walks away from it after.
+   * with `E60` on one channel and `E61` on another in the same row can play
+   * two different pieces of music under the two replayers.
+   *
+   * How much that is worth on a real module is unmeasured. It was blamed for
+   * a divergence between this replay and libopenmpt on P61_Example's bank 3,
+   * and that divergence turned out to be `decodeChannel` inserting a row at
+   * every back-reference: with the decoder fixed the two agree at an envelope
+   * correlation of 0.998 across the whole file, pattern loops and all.
    *
    * P61 also snapshots each channel's DECODER state at `E60` and restores it
    * on the jump (`P61_looppos`, 12 bytes a channel: the stream position, the

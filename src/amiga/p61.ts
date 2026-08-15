@@ -294,68 +294,106 @@ export function parseP61(data: Uint8Array, samples: Uint8Array | null = null): P
  * stored once and pointed at, and `sub.l d0,a2` walks the reader backwards
  * into data it has already passed.
  */
+/**
+ * One channel of one pattern, decoded row by row the way `P61_takenorm` and
+ * `P61_jedi` do it between them ($53a and $4e6).
+ *
+ * The replayer decodes ONE row per tick into a four-byte cell and keeps three
+ * pieces of state per channel: `P61_ChaPos` in the main stream, `P61_TempPos`
+ * inside a back-reference, and `P61_Pack`, the compression byte of the row it
+ * last read. This walks the same three.
+ *
+ * The compression byte is a count in the low six bits and a mode in the top
+ * two, and the two halves of the mode are handled in completely different
+ * places, which is what makes this worth spelling out:
+ *
+ *   00  the next `n` rows are EMPTY, and `n` sits in `P61_Pack` counting
+ *   80  the next `n` rows REPEAT this cell, same counter
+ *   40  this row and `n` more come from `dist` bytes back, one-byte distance
+ *   c0  the same, two-byte distance
+ *
+ * THIS ROW, in the back-reference cases. `.proccomp` sets `TempLen` and then
+ * falls into `P61_jedi`, which decodes over the cell it has just written from
+ * the main stream. So the entry carrying a back-reference is a placeholder
+ * that never sounds, and reading it as a row inserts a row the module does not
+ * have and drops the last row of the run it points at.
+ *
+ * DEVIATION: a back-reference inside a back-reference. `P61_jedi` stores the
+ * compression byte and returns, so the `P61_Pack` logic sees it next row and
+ * `bmi` tests bit 7 alone: inside a run, `40` behaves as empty rows and `c0`
+ * as repeats, and the distance is never read. Reproduced here, because a
+ * packer that emits one would otherwise desynchronise the whole channel.
+ */
 export function decodeChannel(stream: Uint8Array, start: number, rows: number): P61Row[] {
-  const out: P61Row[] = []
-  let at = start
-  // the back-reference return address, `P61_TempPos` in the channel block
-  let ret = -1
-  let left = 0
-
   const empty = (): P61Row => ({ note: 0, instrument: 0, command: 0, info: 0 })
+  const byte = (at: number): number => stream[at] ?? 0
 
-  while (out.length < rows && at >= 0 && at < stream.length) {
-    const b0 = stream[at++]!
+  /** one entry, wherever the reader happens to be pointing */
+  const entry = (p: number): { row: P61Row; at: number; comp: number } => {
+    const b0 = byte(p++)
     let row = empty()
     if ((b0 & 0x60) !== 0x60) {
-      const b1 = stream[at++] ?? 0
-      const b2 = stream[at++] ?? 0
-      row = {
-        note: b0 & 0x7e,
-        instrument: ((b0 & 1) << 4) | (b1 >> 4),
-        command: b1 & 0xf,
-        info: b2,
-      }
+      const b1 = byte(p++)
+      const b2 = byte(p++)
+      row = { note: b0 & 0x7e, instrument: ((b0 & 1) << 4) | (b1 >> 4), command: b1 & 0xf, info: b2 }
     } else if ((b0 & 0x70) !== 0x70) {
-      row = { note: 0, instrument: 0, command: b0 & 0xf, info: stream[at++] ?? 0 }
+      row = { note: 0, instrument: 0, command: b0 & 0xf, info: byte(p++) }
     } else if ((b0 & 0x78) !== 0x78) {
-      // `d1 = ((b0 & 7) << 8 | next) << 4` --- the note lands in the same
-      // bits of the word the full entry uses, so the mask is the same
-      const w = ((((b0 & 7) << 8) | (stream[at++] ?? 0)) << 4) & 0xffff
+      // `moveq #7,d1 / and d0,d1 / lsl #8,d1 / move.b (a2)+,d1 / lsl #4,d1`,
+      // stored as a word, so the note lands in the bits `.all` puts it in
+      const w = ((((b0 & 7) << 8) | byte(p++)) << 4) & 0xffff
       row = { note: (w >> 8) & 0x7e, instrument: (((w >> 8) & 1) << 4) | ((w & 0xff) >> 4), command: 0, info: 0 }
     }
-    out.push(row)
+    // `tst.b d0 / bpl`: only an entry with bit 7 set carries one
+    const comp = (b0 & 0x80) !== 0 ? byte(p++) : -1
+    return { row, at: p, comp }
+  }
 
-    if ((b0 & 0x80) === 0) continue
-    const c = stream[at++] ?? 0
-    const kind = c & 0xc0
-    const n = c & 0x3f
-    if (kind === 0x00) {
-      for (let i = 0; i < n && out.length < rows; i++) out.push(empty())
-    } else if (kind === 0x80) {
-      for (let i = 0; i < n && out.length < rows; i++) out.push({ ...row })
-    } else {
-      // a back-reference: remember where to come back to, then rewind
-      let dist: number
-      if (kind === 0x40) dist = stream[at++] ?? 0
-      else {
-        dist = ((stream[at] ?? 0) << 8) | (stream[at + 1] ?? 0)
-        at += 2
-      }
-      ret = at
-      left = n
-      at -= dist
+  const out: P61Row[] = []
+  let chaPos = start
+  let tempPos = 0
+  let tempLen = 0
+  let pack = 0
+  let cell = empty()
+  let guard = 0
+
+  while (out.length < rows && guard++ < rows * 8) {
+    // `move.b P61_Pack(a5),d0 / and.b #$3f,d0 / beq P61_takeone`
+    if ((pack & 0x3f) !== 0) {
+      const same = (pack & 0x80) !== 0 // `tst.b P61_Pack / bmi .keepsame`
+      pack = (pack - 1) & 0xff
+      out.push(same ? { ...cell } : empty())
+      continue
     }
-    if (left > 0 && ret >= 0) {
-      // the referenced run is decoded by looping round again; when it is
-      // spent the reader returns to where the reference was found
-      const before = out.length
-      const run = decodeChannel(stream, at, Math.min(left, rows - out.length))
-      for (const r of run) if (out.length < rows) out.push(r)
-      if (out.length === before) break // no progress: a malformed stream
-      at = ret
-      ret = -1
-      left = 0
+    if (tempLen !== 0) {
+      // `subq.b #1,P61_TempLen+1(a5)` and on through P61_jedi
+      tempLen--
+      const e = entry(tempPos)
+      tempPos = e.at
+      cell = e.row
+      if (e.comp >= 0) pack = e.comp
+      out.push({ ...cell })
+      continue
     }
+    const e = entry(chaPos)
+    chaPos = e.at
+    const kind = e.comp >= 0 ? e.comp & 0xc0 : -1
+    if (kind === 0x40 || kind === 0xc0) {
+      // `clr.b 3(a5)` throws the pack byte away, and the entry with it
+      tempLen = e.comp & 0x3f
+      let dist = byte(chaPos++)
+      if (kind === 0xc0) dist = (dist << 8) | byte(chaPos++)
+      tempPos = chaPos - dist
+      const back = entry(tempPos)
+      tempPos = back.at
+      cell = back.row
+      if (back.comp >= 0) pack = back.comp
+      out.push({ ...cell })
+      continue
+    }
+    cell = e.row
+    if (e.comp >= 0) pack = e.comp
+    out.push({ ...cell })
   }
   while (out.length < rows) out.push(empty())
   return out
@@ -454,14 +492,13 @@ export function p61Song(m: P61Module): PtSong {
  * patterns through somebody else's replayer is to hand them the data in a
  * format they do read. `src/cli/renderaudio.ts --to-mod` is the caller.
  *
- * It is NOT a faithful round trip and cannot be, for a reason worth knowing:
- * P61 and ProTracker disagree about `E6x`. `P61_patternloop` at $78e keeps ONE
- * counter and one flag for the whole song (`P61_plcount`/`P61_plflag`, both
- * `-P61_cn(a3)` globals), where ProTracker gives every channel its own
- * `n_loopcount`. A module with loops on two channels at once therefore plays
- * different music under the two, and P61_Example's bank 3 has exactly that on
- * the row at 6.48 seconds. Up to there the two agree to an envelope
- * correlation of 0.999; after it they walk apart, and neither is wrong.
+ * It is not a guaranteed round trip: P61 and ProTracker disagree about `E6x`,
+ * since `P61_patternloop` keeps ONE counter for the whole song where
+ * ProTracker gives every channel its own. On the three modules measured so far
+ * that difference does not show — all three track libopenmpt's reading of the
+ * same patterns at an envelope correlation of 0.74 to 0.998 — but a module
+ * that leans on simultaneous loops would part company, and the ratio and lag
+ * `audiocmp.ts` reports are how it would announce itself.
  *
  * Periods are written from the finetune-0 row with the finetune left in the
  * sample header, which is where a MOD carries it and what `parseMod` reads

@@ -1,38 +1,47 @@
 /**
- * A real P61 module, which this file's own header used to say did not exist.
+ * Three real P61 modules, which this file's own header used to say did not
+ * exist. A signature search found none because the signature is OPTIONAL —
+ * `cmp.l #"P61A",(a0)+ / beq / subq.l #4,a0` rewinds when it is absent — and
+ * not one of the three has it. They are memory banks inside AMOS programs:
  *
- * The claim was that no P61 module is in the corpus because nothing in it
- * carries the `P61A` signature. The signature is OPTIONAL — `cmp.l #"P61A",
- * (a0)+ / beq / subq.l #4,a0` rewinds when it is absent — and DOOM
- * Productions' own `P61_Example.amos` carries one without it, in memory bank
- * 3, named `P61mod`. Seven thousand bytes of module that a signature search
- * cannot see.
+ *   DOOM Productions' P61_Example.amos, bank 3 "P61mod", 7,244 bytes
+ *   8ohms_11.AMOS, banks 5 and 6, both named "Tracker", 204,736 and 8,408
  *
- * It matters because the decoder was written from `610.2_devpac3.asm` and
- * checked against nothing but that reading, and the reading had the sample
- * flags wrong. What caught it was listening: the rhythm was right and the
- * instruments were noise. What PROVES it is the arithmetic below, where the
- * sample area lands nine bytes short of the end of the file instead of 2,356
- * bytes past it.
+ * The second program was found by sweeping the corpus for the invariant this
+ * file tests below rather than for a name or a magic number, which is the only
+ * thing that works on a format with neither.
+ *
+ * They matter because the decoder was written from `610.2_devpac3.asm` and
+ * checked against nothing but that reading. Two bugs came out of listening to
+ * the first of them: the sample flags, and then `decodeChannel` inserting a
+ * row at every back-reference, which moved 63.5% of the module's cells.
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
-import { decodePattern, p61Song, p61ToMod, parseP61 } from './p61'
+import { decodePattern, p61Song, p61ToMod, parseP61, type P61Module } from './p61'
 import { parseMod } from './protracker'
 
 /** sources/kyzer-dme/files/amospro_dme_v2.0/examples/P61_Example.amos */
-const EXAMPLE = '7c5a772011d90cc995974a126fcc058fccd21f7133955b24650247664e54c609'
+const DOOM = '7c5a772011d90cc995974a126fcc058fccd21f7133955b24650247664e54c609'
+/** sources/aminet-amos-elsewhere/files/8ohms_11_src/8ohms_11.AMOS */
+const EIGHT_OHMS = 'd2f9b4cc1c6d3b69a2d0d9550bfef45c8cea8ae395e2d8409bf754cf0ec85652'
 
-const bank = ((): Uint8Array | null => {
+function bankOf(sha: string, want: number): Uint8Array | null {
   if (!haveCorpus()) return null
-  const path = corpusFile(EXAMPLE)
+  const path = corpusFile(sha)
   if (!path) return null
   const file = parseAmosFile(new Uint8Array(readFileSync(path)))
-  const found = file?.banks.find((b) => 'data' in b && b.name === 'P61mod')
+  const found = file?.banks.find((b) => 'data' in b && (b as { number?: number }).number === want)
   return found && 'data' in found ? (found.data as Uint8Array) : null
-})()
+}
+
+const bank = bankOf(DOOM, 3)
+const others: Array<[string, Uint8Array | null]> = [
+  ['8ohms bank 5', bankOf(EIGHT_OHMS, 5)],
+  ['8ohms bank 6', bankOf(EIGHT_OHMS, 6)],
+]
 
 describe.skipIf(!bank)('the P61 module in P61_Example.amos', () => {
   const data = bank!
@@ -130,5 +139,72 @@ describe.skipIf(!bank)('the P61 module in P61_Example.amos', () => {
     expect(song.positions).toHaveLength(21)
     expect(song.samples).toHaveLength(9)
     expect(song.pattern(0).length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The two checks that do not come from the reading that produced the decoder.
+ *
+ * A sample table has to account for the buffer it sits in, and tracker music
+ * is quantised: a note lands on an even row far more often than an odd one,
+ * because that is what an eighth note is. A decode that has slipped scores
+ * about a half, which is what you get from putting notes down at random.
+ */
+describe.skipIf(!bank || others.some(([, b]) => !b))('every P61 module in the corpus', () => {
+  const all: Array<[string, P61Module]> = [
+    ['P61_Example bank 3', parseP61(bank!)!],
+    ...others.map(([name, d]) => [name, parseP61(d!)!] as [string, P61Module]),
+  ]
+  const sizes = new Map<string, number>([
+    ['P61_Example bank 3', bank!.length],
+    ['8ohms bank 5', others[0]![1]!.length],
+    ['8ohms bank 6', others[1]![1]!.length],
+  ])
+
+  it('parses all three, none of them signed', () => {
+    expect(all).toHaveLength(3)
+    for (const [name, m] of all) {
+      expect(m.patternOffsets.length, name).toBeGreaterThan(0)
+      expect(m.positions.length, name).toBeGreaterThan(0)
+      expect(m.positions.every((p) => p < m.patternOffsets.length), name).toBe(true)
+    }
+  })
+
+  it('accounts for every file to within 32 bytes', () => {
+    for (const [name, m] of all) {
+      const data = name === 'P61_Example bank 3' ? bank! : others.find(([n]) => n === name)![1]!
+      const start = (data[0]! << 8) | data[1]!
+      const consumed = m.samples.reduce((n, s) => n + (s.aliasOf !== null ? 0 : s.packed ? s.words : s.words * 2), 0)
+      expect(start + consumed, `${name} sample area`).toBeLessThanOrEqual(sizes.get(name)!)
+      expect(sizes.get(name)! - (start + consumed), `${name} slack`).toBeLessThanOrEqual(32)
+    }
+  })
+
+  it('puts more than half its notes on even rows, which is what quantised music does', () => {
+    for (const [name, m] of all) {
+      let even = 0
+      let notes = 0
+      for (let p = 0; p < m.patternOffsets.length; p++) {
+        for (const channel of decodePattern(m, p)) {
+          for (const [row, cell] of channel.entries()) {
+            if (cell.note === 0) continue
+            notes++
+            if (row % 2 === 0) even++
+          }
+        }
+      }
+      expect(notes, `${name} notes`).toBeGreaterThan(200)
+      // 56% to 71% measured; the decoder that inserted a row at every
+      // back-reference scored 43%, 50% and 48% -- at or below chance
+      expect(even / notes, `${name} on even rows`).toBeGreaterThan(0.55)
+    }
+  })
+
+  it('writes each one out as a MOD another player can read', () => {
+    for (const [name, m] of all) {
+      const mod = p61ToMod(m)
+      expect(String.fromCharCode(...mod.subarray(1080, 1084)), name).toBe('M.K.')
+      expect(parseMod(mod)!.positions, name).toEqual(m.positions)
+    }
   })
 })
