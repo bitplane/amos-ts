@@ -51,7 +51,7 @@ These are registered and detokenising but not implemented, so a program lists
 and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
-Fourteen rows read 0%, and they divide by what is in the way rather than by
+Twelve rows read 0%, and they divide by what is in the way rather than by
 size. `src/coverage/coverage.test.ts` checks that the rows below are exactly
 the rows reading 0%, so a ported extension cannot quietly stay on the list.
 
@@ -72,9 +72,7 @@ so the evidence is there and the row is simply not begun:
 | extension | missing | evidence held |
 |---|---|---|
 | DME 2.0 (`dme-2.0`) | 184 | disassembly |
-| SymBase 0.94 / DBench 0.42 (`symbase-0.94`, `dbench-0.42`) | 36 / 8 | UNDER WAY, and the only row here that is. Lázár Zoltán's xBase engine, one product at two ages: the file format and the channel core have landed and the field accessors and record operations have not. It leaves this table when the last batch does, and `coverage.test.ts` measures that by whether every named keyword is implemented rather than by whether a port claims the identity |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
-| DBench 0.42 (`dbench-0.42`) | 23 | disassembly |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:
 

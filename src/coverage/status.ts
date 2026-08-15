@@ -2526,6 +2526,59 @@ export const FAITHFUL = new Set<string>([
   'm_dofunction',
   'm_changeuserdata',
   'm_getkey',
+  // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
+  // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
+  // and `Db Putn` are NOT here --- the first two want an open file handle
+  // this port has no model for, and the third renders negatives through a
+  // routine-72 arm that has not been read.
+  'db use',
+  'db close',
+  'db sel',
+  'db select',
+  'db select first',
+  'db select next',
+  'db opencount',
+  'db state',
+  'db address',
+  'db reccount',
+  'db recno',
+  'db recle',
+  'db fieldno',
+  'db goto',
+  'db skip',
+  'db flen',
+  'db ftype',
+  'db field$',
+  'db field',
+  'db get$',
+  'db get',
+  'db getf',
+  'db put$',
+  'db put',
+  'db putf',
+  'db saved on',
+  'db saved off',
+  'db recsaved',
+  'db cutspace on',
+  'db cutspace off',
+  'db setdeleted on',
+  'db setdeleted off',
+  'db delete',
+  'db recall',
+  'db deleted',
+  'db append',
+  'db append blank',
+  'db append from',
+  'db swap',
+  'db pack',
+  'db zap',
+  'db sort',
+  'db header update',
+  'db header update off',
+  'db locate',
+  'db continue',
+  'db found',
+  'db found$',
   // --- Display 0.01, slot 24: "JB"'s 2011 copper-list helper; see
   // displayext.ts. The other two keywords are NOT here: both write exactly
   // the words the machine's list carries, and this port's renderer reads one
@@ -3304,6 +3357,13 @@ export const NA = new Set<string>([
   // debugger trap Pdebug and Jd Private use. There is no system copper list
   // here to hand the display back to and no debugger to drop into.
   'debug',
+  // SymBase 0.94 routine 57 ($10bc) is four instructions: `move.l (a3)+,d3 /
+  // moveq #$0,d2 / illegal #$4afc / rts`. It pops its argument, sets up an
+  // integer return and executes the 68000's debugger trap --- the same
+  // instruction `Debug`, `Pdebug` and `Jd Private` use. Whatever the author
+  // meant `Db Alias` to be, what it IS is an ILLEGAL, and the guide's node
+  // list does not document it.
+  'db alias',
   // syntax-only phrases: the token table points these at L_Syntax, which
   // is not an implementation — it is the routine that says "this token
   // cannot start a statement". They exist so the tokenizer has a symbol
@@ -3453,6 +3513,7 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'trans screen dynamic': 'm68k',
   // deliberate ILLEGAL
   pdebug: 'debugger-trap',
+  'db alias': 'debugger-trap',
   'jd private': 'debugger-trap',
   debug: 'debugger-trap',
   // below the modelled layer
