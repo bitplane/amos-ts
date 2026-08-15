@@ -112,6 +112,8 @@ CLI tools in `src/cli/`:
 | `extaudit.ts` | which of an extension's implemented keywords have been read against its binary |
 | `citecheck.ts` | every `routine N ($ADDR)` citation still names the code it claims to |
 | `contested.ts` | keyword names two ported products both claim, and who answers |
+| `renderaudio.ts` | play a module through its replayer and the mixer, and write a WAV |
+| `audiocmp.ts` | compare two rendered WAVs: pitch classes, octave bands, tempo ratio |
 | `adfx.ts` | read an Amiga floppy image |
 | `craftx.ts` | unpack the CRAFT installer disk's `Data` blobs |
 | `nodefs.ts`, `walk.ts`, `mdtable.ts` | the filesystem, corpus-walking and table helpers the others share |

@@ -283,6 +283,8 @@ export class Protracker {
   bpm = 125
   /** `P61_Tempo`: with it false, a speed of 32 or more is still a speed */
   ciaTempo = true
+  /** Player 6.1A's `beq` on the speed rather than the mt_ family's `bcs` — see `rowDue` */
+  speedIsEquality = false
 
   /** `P61_Pos`, `P61_Patt`, `P61_CRow` */
   pos = 0
@@ -468,14 +470,34 @@ export class Protracker {
    * even run the master volume, and a fade that was in flight freezes rather
    * than completing.
    */
+  /**
+   * Whether this tick plays a row, which the six libraries sharing this replay
+   * do not all decide the same way.
+   *
+   * Player 6.1A is `cmp P61_speed(pc),d4 / beq P61_playtime`
+   * (610.2_devpac3.asm:764), an EQUALITY on a word: a speed the counter steps
+   * PAST is a speed it never matches again until the word wraps.
+   *
+   * MusiCRAFT's own replay is `addq.b #1,(a0) / move.b (a0),d0 / cmp.b
+   * $13ae(pc),d0 / bcs` at $3d6 of `AMOSPro_MusiCRAFT.Lib`, an unsigned
+   * below-test: at or over the speed plays a row. That is what lets its `St
+   * Play` start the counter AT the speed ($35e) and get a row on the first
+   * vertical blank instead of the sixth.
+   *
+   * The below-test is the default because it is what the mt_ family does and
+   * what five of the six arms have always had here. `F00` would make it fire
+   * every tick, so the zero is guarded: on the machine that speed freezes the
+   * song on its last row, playing on, rather than racing through it.
+   */
+  private rowDue(): boolean {
+    if (this.speedIsEquality) return this.counter === this.speed
+    return this.speed > 0 && this.counter >= this.speed
+  }
+
   tick(): void {
     if (!this.playing || !this.song) return
     this.counter = (this.counter + 1) & 0xffff
-    // `cmp P61_speed(pc),d4 / beq` is an EQUALITY test on a word, and `F00`
-    // stores a speed of 0 that the rising counter can never equal — so the
-    // row tick stops firing and the song freezes on its last row, playing on.
-    // Reproduced: it is how a module ends without silence.
-    if (this.speed > 0 && this.counter >= this.speed) {
+    if (this.rowDue()) {
       this.counter = 0
       this.playRow()
     } else {

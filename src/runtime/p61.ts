@@ -103,7 +103,12 @@ export const newP61State = (): P61State => ({
 /** the replay, made on first use */
 function replayOf(rt: Runtime): Protracker {
   const s = rt.p61
-  if (!s.replay) s.replay = new Protracker(() => rt.audio)
+  if (!s.replay) {
+    s.replay = new Protracker(() => rt.audio)
+    // this arm IS Player 6.1A, whose row test is the `beq` at
+    // 610.2_devpac3.asm:764 rather than the mt_ family's below-test
+    s.replay.speedIsEquality = true
+  }
   return s.replay
 }
 
