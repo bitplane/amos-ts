@@ -125,6 +125,7 @@ really does differ from the real one and saying where is the whole job.
 | `p61.ts` | the Player 6.1A packed module format, onto that replay |
 | `soundfx.ts` | the SoundFX 1.3 format and replay, off `DME_SoundFX1.3.library` |
 | `fc14.ts` | FutureComposer 1.4: the sequences, the envelopes and the wavetable |
+| `fc13waves.ts` | FutureComposer 1.0-1.3's 47 built-in waveforms, generated rather than shipped |
 | `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `thxplay.ts` | the THX replay: the song, the envelopes, the playlists, the voices |
 | `thxwaves.ts` | the 6,520-byte THX waveform set and its 63 filtered copies |
