@@ -41,9 +41,9 @@
  * then one 32-byte descriptor per field (name in 10 bytes plus a NUL, type,
  * four reserved for an address the file does not use, length, decimals), then
  * `$0D` or `$0D $00`, then the records. Every multi-byte number is
- * little-endian, which is the guide's "reversed byte order" and the reason
- * routine 6 spends six instructions on `rol.w #$8` before it can use any of
- * them.
+ * little-endian — the `Dbhead` node says so of the record count, *"a byte-ok
+ * fordított sorrendben"* — and that is why routine 6 spends six instructions
+ * on `rol.w #$8` before it can use any of them.
  *
  * **The header is authoritative, not the file length.** Book.dbf ends its
  * data with `$1a` at 3,314, exactly `HeadLe + RecNo * RecLe`, and then

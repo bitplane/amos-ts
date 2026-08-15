@@ -41,6 +41,7 @@ import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
 import { makeDisplayExtInstructions, makeDisplayExtFunctions, newDisplayExtState } from './displayext'
 import { makeMaxsDoorInstructions, makeMaxsDoorFunctions, newMaxsDoorState } from './maxsdoor'
+import { makeSymBaseInstructions, makeSymBaseFunctions, newSymBaseState, SYMBASE_ERRORS } from './symbase'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
 import { THX_ERRORS, makeThxFunctions, makeThxInstructions, newThxState } from './thx'
@@ -5817,6 +5818,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // name to be one this port already defines, which is what stops the list
     // rotting into a wish
     qualified: ['range', 'bank name', 'bank name$'],
+  },
+  {
+    // SymBase 0.94 and DBench 0.42 at slot 21 --- Lazar Zoltan's xBase engine,
+    // one product at two ages. Batch 2 of four: channels and navigation. See
+    // symbase.ts, and dbf.ts for the file format under it.
+    ids: ['symbase-0.94', 'dbench-0.42'],
+    init: (rt) => {
+      rt.symbase = newSymBaseState(rt)
+    },
+    instructions: makeSymBaseInstructions,
+    functions: makeSymBaseFunctions,
+    errors: SYMBASE_ERRORS,
   },
   {
     // MAXS Door Handler 0.20 at slot 16 --- Ari Tsironis's door protocol for

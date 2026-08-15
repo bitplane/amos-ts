@@ -28,6 +28,7 @@ import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import type { DisplayExtState } from './displayext'
 import type { MaxsDoorState } from './maxsdoor'
+import type { SymBaseState } from './symbase'
 import { jotreVbl, type JotreState } from './jotre'
 import { thxVbl, type ThxState } from './thx'
 import type { JdIntState } from './jdint'
@@ -640,6 +641,8 @@ export class Runtime {
   displayExt!: DisplayExtState
   /** MAXS Door Handler 0.20: the 106-byte DoorMsg and the two message ports */
   maxsDoor!: MaxsDoorState
+  /** SymBase 0.94 / DBench 0.42: the open channels and the data zone */
+  symbase!: SymBaseState
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are

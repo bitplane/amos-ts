@@ -57,7 +57,7 @@ is.
 | craft-1.0            |      138 |      135 |            1 |       0 |     100% |
 | ctext-1.0            |        6 |        6 |            0 |       0 |     100% |
 | d-sam-1.01           |       50 |        0 |            0 |      50 |       0% |
-| dbench-0.42          |       23 |        0 |            0 |      23 |       0% |
+| dbench-0.42          |       23 |        0 |           14 |       9 |      61% |
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       41 |            4 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
@@ -129,7 +129,7 @@ is.
 | sln-2.0              |       70 |       68 |            1 |       0 |     100% |
 | stars-2.33           |       11 |       11 |            0 |       0 |     100% |
 | sticks-1.01b         |       16 |       16 |            0 |       0 |     100% |
-| symbase-0.94         |       51 |        0 |            0 |      51 |       0% |
+| symbase-0.94         |       51 |        0 |           15 |      36 |      29% |
 | system               |       41 |       28 |            0 |       0 |     100% |
 | text-io              |       37 |       36 |            1 |       0 |     100% |
 | tft-0.6              |       22 |       20 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4617 |          153 |    2593 |      65% |
+| **total**            |     7422 |     4617 |          182 |    2564 |      65% |
 
 ## Not applicable, by what would retire it
 
@@ -246,6 +246,12 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `mem type`
 - **n/a** (2): `multi off`, `multi on`
+
+## dbench-0.42 (61%)
+
+- **approximated** (14): `db address`, `db close`, `db fieldno`, `db goto`, `db opencount`,
+  `db reccount`, `db recle`, `db recno`, `db sel`, `db select`, `db select first`,
+  `db select next`, `db state`, `db use`
 
 ## delta-1.6 (100%)
 
@@ -389,6 +395,12 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `s iinit`
 - **n/a** (1): `s mask$`
+
+## symbase-0.94 (29%)
+
+- **approximated** (15): `db address`, `db close`, `db fieldno`, `db goto`, `db opencount`,
+  `db reccount`, `db recle`, `db recno`, `db sel`, `db select`, `db select first`,
+  `db select next`, `db skip`, `db state`, `db use`
 
 ## system (100%)
 

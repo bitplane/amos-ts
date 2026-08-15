@@ -219,11 +219,21 @@ describe('coverage manifest consistency', () => {
 
     // `zero` is the wrong measure for the other direction: DME shares `Nop`
     // with AMCAF and IntuiExtend shares seven names with EasyLife, so an
-    // extension nobody has begun still has implemented names. What settles it
-    // is what the percentage settles it by — whether any port DECLARES the
-    // identity (#226) — so an extension is off the list exactly when an
-    // ExtensionImpl names it.
-    const ported = new Set(extensionImpls().flatMap((i) => i.ids))
+    // extension nobody has begun still has implemented names. Nor is "some
+    // port DECLARES this identity" right, because a port under construction
+    // declares it before it is done — SymBase is four batches and reads 29%
+    // in the middle of them. A row has to leave this table when it is
+    // FINISHED, so the measure is every named keyword implemented or n/a.
+    const ported = new Set(
+      allExtensions()
+        .filter((e) => {
+          const names = e.tokens
+            .map((t) => t.name.replace(/^!/, '').trim().toLowerCase())
+            .filter((n) => n !== '')
+          return names.length > 0 && names.every((n) => implemented.has(n) || NA.has(n))
+        })
+        .map((e) => e.id),
+    )
     const ids = new Set(allExtensions().map((e) => e.id))
     const listed = new Set<string>()
     for (const line of text.split('\n')) {
