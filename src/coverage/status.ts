@@ -2595,6 +2595,20 @@ export const FAITHFUL = new Set<string>([
   'fc14 song pos',
   'fc14 vu',
   'fc14 end',
+  // The FutureComposer 1.0-1.3 block over ../amiga/fc13.ts, off
+  // DME_FC1.3.library. `Fc13 Play` is NOT here --- two of the replayer's 47
+  // built-in waveforms are this port's shape rather than the library's.
+  'fc13 load',
+  'fc13 stop',
+  'fc13 cont',
+  'fc13 volume',
+  'fc13 voice',
+  'fc13 next patt',
+  'fc13 prev patt',
+  'fc13 song length',
+  'fc13 song pos',
+  'fc13 vu',
+  'fc13 end',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8200,6 +8214,48 @@ export const NOTES: Record<string, string> = {
   "fc14 end":
     "routine 168 ($5b74) into LVO -72 ($210308), read and cleared, 255 for the same `move.b #$ff,d3` reason. " +
     "The flag is raised at $2109f8 when a voice's sequence pointer reaches the end, so any of the four can " +
+    "raise it.",
+  "fc13 load":
+    "routine 171 ($5bea), the same nine steps as the 1.4 twin with a Work bank named \"FC1.3   \" ($5c78). The " +
+    "tag is `cmpi.l #$534d4f44,(a2)` --- \"SMOD\" at offset zero --- and a mismatch erases the bank and raises " +
+    "message 35 where 1.4 raises 37.",
+  "fc13 play":
+    "routine 174 ($5cd4) pushes $80000000 into routine 175, which opens DME_FC1.3.library (routine 176, message " +
+    "36) and checks the eight bank-name bytes as \"FC1.\" and \"3   \". The replay is src/amiga/fc13.ts, off the " +
+    "library's 4,532-byte second hunk. The header is a hundred bytes where 1.4's is 180, the sample table has " +
+    "ten-byte entries where 1.4's has sixteen (`d0*2 + d0*8` at $210b84), the sample chain adds `len*2` with no " +
+    "gap where 1.4 adds two, the period table is 84 words where 1.4's is 128, and the frequency sequence has " +
+    "six commands to 1.4's nine. APPROXIMATED for one thing, and it is not in the extension at all: a 1.3 " +
+    "module carries no wavetables, so all 47 waveforms come from the library, and src/amiga/fc13waves.ts " +
+    "regenerates 45 of them byte for byte and approximates 42 and 43. The example module names none of those " +
+    "two.",
+  "fc13 stop": "routine 173 ($5cb4): the flag at $7c(a0), then LVO -36 ($21019e). In 1.3 the play flag at $210dbc is its own word rather than the tick counter, so the counter survives the stop.",
+  "fc13 cont":
+    "routine 178 ($5dcc) into LVO -42 ($2101c8): the saved master back and the play flag up, without touching " +
+    "either the position or the counter. `tst.b $7c(a0) / bne` makes a second continue a no-op.",
+  "fc13 volume":
+    "routine 185 ($5f08): 0..64 checked twice over, then LVO -78 ($210326) does the same " +
+    "`mulu.w #$40 / lsr.w #$6` identity the other two libraries do, because the veneer is one file wrapped " +
+    "three times.",
+  "fc13 voice": "routine 186 ($5f3a) checks nothing and hands the whole longword to LVO -84 ($210340).",
+  "fc13 next patt":
+    "routine 181 ($5e62) into LVO -54 ($210274), and message 32 where the 1.4 twin uses 47. DEFECT: it does not " +
+    "advance, for the reason 1.4's does not. $210298 is `subq.w #$1,d1` followed immediately by " +
+    "`addq.w #$1,d1`, a pair that cancels, so the position written back is the position read.",
+  "fc13 prev patt":
+    "routine 182 ($5e88) into LVO -60 ($21020c): the position back one, floored at zero twice over, and the " +
+    "same message 32 guard.",
+  "fc13 song length":
+    "routine 179 ($5df2) calls no vector either: it checks the bank name and divides the long at module+$4 by " +
+    "thirteen, so it answers without the library open.",
+  "fc13 song pos":
+    "routine 180 ($5e32) into LVO -48 ($2101ec), which is `$6(a0)` over thirteen less one --- `$6(a0)` is the " +
+    "offset of the NEXT step, which is why the subtraction is there. Guarded by $7d(a2), so 0 before the first " +
+    "`Fc13 Play`.",
+  "fc13 vu": "routine 183 ($5eae), 0..3, into LVO -66 ($2102e8), which reads the byte and clears it.",
+  "fc13 end":
+    "routine 184 ($5ee0) into LVO -72 ($210304), read and cleared, 255 for the same `move.b #$ff,d3` reason. " +
+    "The flag is raised at $2109fe when a voice's sequence pointer reaches the end, so any of the four can " +
     "raise it.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +

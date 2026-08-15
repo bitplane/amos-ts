@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DME_ERRORS, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -657,5 +657,86 @@ describe('the FutureComposer 1.4 block', () => {
     const { rt } = run([FLOAD, 'Fc14 Play 7', 'Fc14 Stop', 'Fc14 Cont'], FC14)
     expect(rt.dme.fc14Playing).toBe(true)
     expect(rt.dme.fc14.position).toBe(0)
+  })
+})
+
+/**
+ * The FutureComposer 1.0-1.3 block. Every routine is the 1.4 one with a
+ * character of the bank name changed and a different error number, so these
+ * check the two things that actually differ.
+ */
+const FC13_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0x64 + 13 + 64)
+  for (const [i, c] of [...'SMOD'].entries()) out[i] = c.charCodeAt(0)
+  out[7] = 13 // one sequence step
+  out[0x0b] = 0x64 + 13 // the patterns start after it
+  out[0x0f] = 64
+  out[0x64 + 0x0c] = 3 // the speed
+  return out
+})()
+
+const FC13 = { 'a.fc': FC13_MOD }
+const TLOAD = 'Fc13 Load "Work:a.fc",7'
+
+describe('the FutureComposer 1.0-1.3 block', () => {
+  it('Fc13 Load reserves a bank named "FC1.3   " and tests "SMOD" at offset zero', () => {
+    // `cmpi.l #$534d4f44,(a2)` at $5c56
+    const { rt } = run([TLOAD], FC13)
+    expect(rt.memBanks.get(7)!.name.padEnd(8).slice(0, 8)).toBe(FC13_BANK_NAME)
+    const wrong = FC13_MOD.slice()
+    wrong[3] = 0x45
+    expect(() => run([TLOAD], { 'a.fc': wrong })).toThrow(DME_ERRORS[35])
+  })
+
+  it('Fc13 Play checks the bank NAME, not the module', () => {
+    expect(() => run(['Reserve As Work 7,1024', 'Fc13 Play 7'], {})).toThrow(DME_ERRORS[35])
+    expect(() => run([TLOAD, 'Fc13 Play 7'], FC13)).not.toThrow()
+  })
+
+  it('=Fc13 Song Length divides the long at +$4 by thirteen', () => {
+    run([TLOAD, 'Print Fc13 Song Length(7)'], FC13)
+    expect(out()).toEqual(['1'])
+  })
+
+  it('=Fc13 Song Pos answers zero until something has played', () => {
+    run(['Print Fc13 Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Fc13 Volume takes 0..64 and raises outside it', () => {
+    expect(() => run([TLOAD, 'Fc13 Volume 65'], FC13)).toThrow()
+    const { rt } = run([TLOAD, 'Fc13 Play 7', 'Fc13 Volume 20'], FC13)
+    expect(rt.dme.fc13.master).toBe(20)
+  })
+
+  it('Fc13 Voice passes the whole longword through, unchecked', () => {
+    const { rt } = run([TLOAD, 'Fc13 Play 7', 'Fc13 Voice 9'], FC13)
+    expect(rt.dme.fc13.enabled).toBe(9)
+  })
+
+  it('Fc13 Next Patt and Prev Patt raise message 32, where the 1.4 pair raise 47', () => {
+    expect(() => run(['Fc13 Next Patt'], {})).toThrow(DME_ERRORS[32])
+    expect(() => run(['Fc13 Prev Patt'], {})).toThrow(DME_ERRORS[32])
+  })
+
+  it('=Fc13 Vu refuses a channel outside 0..3', () => {
+    expect(() => run([TLOAD, 'Fc13 Play 7', 'Print Fc13 Vu(4)'], FC13)).toThrow()
+    expect(() => run([TLOAD, 'Fc13 Play 7', 'Print Fc13 Vu(-1)'], FC13)).toThrow()
+  })
+
+  it('=Fc13 End answers 255 and clears, the way the other four do', () => {
+    const { rt } = run([TLOAD, 'Fc13 Play 7'], FC13)
+    rt.dme.fc13.end = true
+    expect(rt.dme.fc13.readEnd()).toBe(true)
+    expect(rt.dme.fc13.readEnd()).toBe(false)
+    run([TLOAD, 'Fc13 Play 7', 'Print Fc13 End'], FC13)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Fc13 Cont keeps the counter as well as the position, because the flag is its own word', () => {
+    const { rt } = run([TLOAD, 'Fc13 Play 7', 'Fc13 Stop', 'Fc13 Cont'], FC13)
+    expect(rt.dme.fc13Playing).toBe(true)
+    expect(rt.dme.fc13.position).toBe(0)
+    expect(rt.dme.fc13.counter).toBe(3)
   })
 })

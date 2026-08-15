@@ -14,18 +14,20 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four were the first batch, over engines this port already had. Two of
- * the external ones have followed, each read out of its own library in
- * `libs/`: `sfx13` over ../amiga/soundfx.ts and `fc14` over ../amiga/fc14.ts,
- * 12 and 12 keywords. The other nine replayer libraries are #146.
+ * Those four were the first batch, over engines this port already had. Three
+ * of the external ones have followed, each read out of its own library in
+ * `libs/`: `sfx13` over ../amiga/soundfx.ts, `fc14` over ../amiga/fc14.ts and
+ * `fc13` over ../amiga/fc13.ts, 12 keywords each. The other eight replayer
+ * libraries are #146.
  *
  * ## Evidence
  *
  * DISASSEMBLY tier over `AMOSPro_DOOM_Music.Lib`, with `DME_V2.0.guide`
  * (74,389 bytes) beside it. Every citation is an address in the code hunk,
  * except the `$21xxxx` ones, which belong to whichever replayer library the
- * keyword drives --- both `DME_SoundFX1.3.library` and `DME_FC1.4.library`
- * relocate to $210000, and their own files say which is which.
+ * keyword drives --- `DME_SoundFX1.3.library`, `DME_FC1.4.library` and
+ * `DME_FC1.3.library` all relocate to $210000, and their own files say which
+ * is which.
  *
  * ## Two things routine 0 says
  *
@@ -84,6 +86,7 @@ import { thxParse } from '../amiga/thx'
 import { parseP61, p61Song } from '../amiga/p61'
 import { SFX_LENGTH_AT, SFX_MAGIC, SFX_MAGIC_AT, SoundFx, parseSfx } from '../amiga/soundfx'
 import { FC14_MAGIC, FC14_STEP_BYTES, Fc14, parseFc14 } from '../amiga/fc14'
+import { FC13_MAGIC, FC13_STEP_BYTES, Fc13, parseFc13 } from '../amiga/fc13'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -121,6 +124,8 @@ export const SAM_MAX_HZ = 0x7530
 export const SFX_BANK_NAME = 'SFX1.3  '
 /** the bank `Fc14 Load` reserves ($5908), tested as "FC1." and "4   " ($5a90) */
 export const FC14_BANK_NAME = 'FC1.4   '
+/** the bank `Fc13 Load` reserves ($5c78), tested as "FC1." and "3   " ($5d0a) */
+export const FC13_BANK_NAME = 'FC1.3   '
 
 /**
  * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
@@ -246,6 +251,13 @@ export interface DmeState {
   fc14Playing: boolean
   fc14Started: boolean
 
+  /** the FutureComposer 1.0-1.3 replay, the third of the eleven */
+  fc13: Fc13
+  /** `$72(a2)`, `$7c(a2)` and `$7d(a2)`, the same three fields one block back */
+  fc13Bank: number
+  fc13Playing: boolean
+  fc13Started: boolean
+
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
   samVolume: number
@@ -279,6 +291,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc14Bank: 0,
     fc14Playing: false,
     fc14Started: false,
+    fc13: new Fc13(() => rt?.host.audio),
+    fc13Bank: 0,
+    fc13Playing: false,
+    fc13Started: false,
     samBank: 0,
     samVolume: 0x40,
   }
@@ -1075,6 +1091,103 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.fc14Playing) dmeErr(47)
       s.fc14.prevPattern()
     },
+
+    /**
+     * Fc13 Load file$, bank — routine 171 ($5bea), the same nine steps once
+     * more, with the bank named "FC1.3   " ($5c78) and the tag `cmpi.l
+     * #$534d4f44` --- "SMOD" --- at offset zero.
+     */
+    'fc13 load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.fc13Bank && s.fc13Playing) {
+        s.fc13Playing = false
+        s.fc13.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.fc13Bank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, FC13_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(0, 4)) !== FC13_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(35)
+      }
+    },
+
+    /**
+     * Fc13 Play bank — routine 174 ($5cd4) pushing $80000000 into routine 175,
+     * which checks the BANK NAME ("FC1." and "3   " at -$8 and -$4) rather
+     * than the module, exactly as the other two pairs do.
+     */
+    'fc13 play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.fc13Playing = false
+      s.fc13.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.fc13Bank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== FC13_BANK_NAME) dmeErr(35)
+      const song = parseFc13(b!.data)
+      if (!song) dmeErr(35)
+      s.fc13.load(song!)
+      s.fc13Playing = true
+      s.fc13Started = true
+    },
+
+    /** Fc13 Stop — routine 173 ($5cb4): the flag at $7c(a0), then LVO -36 */
+    'fc13 stop'() {
+      const s = st()
+      if (!s.fc13Playing) return
+      s.fc13Playing = false
+      s.fc13.stop()
+    },
+
+    /** Fc13 Cont — routine 178 ($5dcc): `tst.b $7c(a0) / bne`, position untouched */
+    'fc13 cont'() {
+      const s = st()
+      if (s.fc13Playing) return
+      if (!s.fc13Started) return
+      s.fc13Playing = true
+      s.fc13.cont()
+    },
+
+    /** Fc13 Volume n — routine 185 ($5f08): 0..64, and outside it AMOS error 23 */
+    'fc13 volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().fc13.master = v
+    },
+
+    /** Fc13 Voice mask — routine 186 ($5f3a), unchecked, straight to LVO -84 */
+    'fc13 voice'(it) {
+      st().fc13.setVoices(it.evalInt())
+    },
+
+    /**
+     * Fc13 Next Patt / Fc13 Prev Patt — routines 181 ($5e62) and 182 ($5e88),
+     * both message 32 where the 1.4 pair use 47.
+     *
+     * DEFECT: `Fc13 Next Patt` does not advance, for the same reason 1.4's
+     * does not. LVO -54 at $210298 is `subq.w #$1,d1` immediately followed by
+     * `addq.w #$1,d1`, a pair that cancels, so the position it writes back is
+     * the position it read. Reproduced in ../amiga/fc13.ts.
+     */
+    'fc13 next patt'() {
+      const s = st()
+      if (!s.fc13Playing) dmeErr(32)
+      s.fc13.nextPattern()
+    },
+    'fc13 prev patt'() {
+      const s = st()
+      if (!s.fc13Playing) dmeErr(32)
+      s.fc13.prevPattern()
+    },
   }
 }
 
@@ -1307,6 +1420,33 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Fc14 End — routine 168 ($5b74), read and cleared, and 255 for the same reason */
     'fc14 end': () => VI(st().fc14.readEnd() ? 0xff : 0),
+
+    /**
+     * =Fc13 Song Length(bank) — routine 179 ($5df2), the 1.4 routine with one
+     * character of the bank name changed: it calls no vector either, and
+     * divides the long at module+$4 by thirteen.
+     */
+    'fc13 song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== FC13_BANK_NAME) dmeErr(35)
+      const d = bank!.data
+      const len = (((d[4] ?? 0) << 24) | ((d[5] ?? 0) << 16) | ((d[6] ?? 0) << 8) | (d[7] ?? 0)) >>> 0
+      return VI(Math.floor(len / FC13_STEP_BYTES))
+    },
+
+    /** =Fc13 Song Pos — routine 180 ($5e32), guarded by $7d(a2) and 0 before the first play */
+    'fc13 song pos': () => VI(st().fc13Started ? st().fc13.position : 0),
+
+    /** =Fc13 Vu(n) — routine 183 ($5eae), 0..3, read and cleared */
+    'fc13 vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 4) badCall()
+      return VI(st().fc13.readVu(n))
+    },
+
+    /** =Fc13 End — routine 184 ($5ee0), read and cleared, and 255 for the same reason */
+    'fc13 end': () => VI(st().fc13.readEnd() ? 0xff : 0),
   }
 }
 
@@ -1331,4 +1471,5 @@ export function dmeVbl(rt: Runtime): void {
   // INSIDE the replayer ($210668) rather than only removing the interrupt
   if (s.sfxPlaying) s.sfx.tick()
   if (s.fc14Playing) s.fc14.tick()
+  if (s.fc13Playing) s.fc13.tick()
 }

@@ -115,6 +115,17 @@ export const FC14_PATTERN_BYTES = 64
 export const FC14_SEQUENCE_BYTES = 64
 /** where the sequence starts, and so how long the header is */
 export const FC14_HEADER_BYTES = 0xb4
+/**
+ * The eight bytes at $210f82 both sequence pointers start on.
+ *
+ * `InitModule` points `$a(a0)` and `$12(a0)` here rather than at sequence 0,
+ * so a voice that has not had a note yet runs THIS: as a frequency sequence a
+ * note offset of one and then silence, as a volume sequence a volume of one
+ * falling to nothing, and `$e1` at the end of both to hold there.
+ * `DME_FC1.3.library` carries the same eight bytes at $210f16.
+ */
+export const FC14_IDLE_SEQUENCE = Uint8Array.of(1, 0, 0, 0, 0, 0, 0, 0xe1)
+
 /** ten real samples, then eighty wavetables, in one sixteen-byte-entry table */
 export const FC14_SAMPLES = 10
 export const FC14_WAVES = 80
@@ -239,13 +250,20 @@ interface Voice {
   /** `$08` and `$09`: the pattern row's two bytes */
   note: number
   instrument: number
-  /** `$0a` and `$10`: the volume sequence and how far into it */
+  /**
+   * `$0a` and `$10`: the volume sequence and how far into it.
+   *
+   * `volData` is which BUFFER the pointer is in, because before the first note
+   * it is the library's own eight idle bytes rather than the module's.
+   */
+  volData: Uint8Array
   volSeq: number
   volAt: number
   /** `$0e` and `$0f`: the volume slide's step and its count */
   volSlide: number
   volSlideCount: number
-  /** `$12` and `$32`: the frequency sequence and how far into it */
+  /** `$12` and `$32`: the frequency sequence, its buffer and how far into it */
+  freqData: Uint8Array
   freqSeq: number
   freqAt: number
   /** `$16` and `$2c`: the step's sound transpose and its transpose */
@@ -287,17 +305,27 @@ interface Voice {
   sample: Fc14Sample | null
   /** `$48`: three at a trigger, and the relatch happens when it reaches two */
   relatch: number
+  /**
+   * AUDxPER as the hardware still holds it, which is last tick's period.
+   *
+   * Not a field of the library's block. It exists because `$e2` restarts a
+   * channel in the middle of a tick, before the period this tick computed has
+   * been written, and `play()` wants a frequency at that moment. Asking
+   * `period()` again there would step the vibrato and the portamento twice.
+   */
+  periodOut: number
 }
 
 const newVoice = (): Voice => ({
   seqAt: 0, portaStep: 0, portaCount: 0, seqNext: FC14_STEP_BYTES,
-  note: 0, instrument: 0, volSeq: 0, volAt: 0, volSlide: 0, volSlideCount: 0,
-  freqSeq: 0, freqAt: 0, soundTranspose: 0, transpose: 0,
+  note: 0, instrument: 0, volData: FC14_IDLE_SEQUENCE, volSeq: 0, volAt: 0, volSlide: 0, volSlideCount: 0,
+  freqData: FC14_IDLE_SEQUENCE, freqSeq: 0, freqAt: 0, soundTranspose: 0, transpose: 0,
   volSpeed: 1, volSpeedReload: 1, volWait: 0, freqWait: 0,
   vibSpeed: 0, vibDepth: 0, vibValue: 0, vibDelay: 0,
   pattern: 0, patternAt: 0, toggleVol: 0, togglePorta: 0, toggleSlide: 0,
   freqValue: 0, volume: 0, vibFlags: 0, patternPorta: 0,
   seqEnd: 0, portaPeriod: 0, repeatStart: 0, repeatWords: 0, sample: null, relatch: 0,
+  periodOut: FC14_MAX_PERIOD,
 })
 
 /** signed and unsigned byte views, because the replayer leans on both */
@@ -543,7 +571,9 @@ export class Fc14 {
     ch.vibValue = ch.vibDepth
     ch.vibDelay = song.volSequences[volSeq + 4] ?? 0
     ch.vibFlags = 0x40
+    ch.volData = song.volSequences
     ch.volSeq = volSeq + 5
+    ch.freqData = song.freqSequences
     ch.freqSeq = freq * FC14_SEQUENCE_BYTES
     ch.freqAt = 0
     ch.volWait = 0
@@ -556,11 +586,13 @@ export class Fc14 {
   private sequencePass(v: number, ch: Voice): { period: number; volume: number } {
     this.frequencySequence(v, ch)
     this.volumeSequence(ch)
-    return { period: this.period(ch), volume: ch.volume }
+    ch.periodOut = this.period(ch)
+    return { period: ch.periodOut, volume: ch.volume }
   }
 
   private frequencySequence(v: number, ch: Voice): void {
     const song = this.song!
+    const seq = ch.freqData
     // a wait is spent before anything is read, and $e8 comes back here
     for (let guard = 0; guard < 64; guard++) {
       if (ch.freqWait !== 0) {
@@ -568,14 +600,14 @@ export class Fc14 {
         return
       }
       const at = ch.freqSeq + ch.freqAt
-      let d0 = song.freqSequences[at] ?? 0
+      let d0 = seq[at] ?? 0
       if (d0 === 0xe1) return
       if (d0 === 0xe0) {
-        const to = (song.freqSequences[at + 1] ?? 0) & 0x3f
+        const to = (seq[at + 1] ?? 0) & 0x3f
         ch.freqAt = to
-        d0 = song.freqSequences[ch.freqSeq + to] ?? 0
+        d0 = seq[ch.freqSeq + to] ?? 0
       }
-      const arg = (n: number): number => song.freqSequences[ch.freqSeq + ch.freqAt + n] ?? 0
+      const arg = (n: number): number => seq[ch.freqSeq + ch.freqAt + n] ?? 0
       if (d0 === 0xe2 || d0 === 0xe4) {
         this.setSample(v, ch, arg(1), d0 === 0xe2)
         if (d0 === 0xe2) {
@@ -587,6 +619,7 @@ export class Fc14 {
         this.setSubSample(v, ch, arg(1), arg(2))
         ch.freqAt += 3
       } else if (d0 === 0xe7) {
+        ch.freqData = song.freqSequences
         ch.freqSeq = arg(1) * FC14_SEQUENCE_BYTES
         ch.freqAt = 0
         continue
@@ -604,7 +637,7 @@ export class Fc14 {
         ch.vibDepth = arg(2)
       }
       // whatever the command did, the byte now under the pointer is the value
-      ch.freqValue = song.freqSequences[ch.freqSeq + ch.freqAt] ?? 0
+      ch.freqValue = ch.freqData[ch.freqSeq + ch.freqAt] ?? 0
       ch.freqAt += 1
       return
     }
@@ -668,12 +701,15 @@ export class Fc14 {
       this.sink.setLoop(v, loopStart, loopEnd)
       return
     }
-    this.sink?.play(v, pcm, periodToHz(Math.max(1, this.period(ch)), PAULA_CLOCK), clampVolume((Math.min(0x40, ch.volume) * this.master) >> 6), loopStart, loopEnd)
+    // AUDxPER as the tick left it. The command writes DMACON and the sample
+    // pointers and nothing else, and the period this tick computes is written
+    // later, after the frequency sequence has finished
+    this.sink?.play(v, pcm, periodToHz(Math.max(1, ch.periodOut), PAULA_CLOCK), clampVolume((Math.min(0x40, ch.volume) * this.master) >> 6), loopStart, loopEnd)
   }
 
   /** $210ca8: the volume sequence, its slide, and the two toggles that halve them */
   private volumeSequence(ch: Voice): void {
-    const song = this.song!
+    const seq = ch.volData
     if (ch.volWait !== 0) {
       ch.volWait -= 1
       return
@@ -684,22 +720,22 @@ export class Fc14 {
       ch.volSpeed = ch.volSpeedReload
       for (let guard = 0; guard < 64; guard++) {
         const at = ch.volSeq + ch.volAt
-        const d0 = song.volSequences[at] ?? 0
+        const d0 = seq[at] ?? 0
         if (d0 === 0xe1) return
         if (d0 === 0xea) {
-          ch.volSlide = song.volSequences[at + 1] ?? 0
-          ch.volSlideCount = song.volSequences[at + 2] ?? 0
+          ch.volSlide = seq[at + 1] ?? 0
+          ch.volSlideCount = seq[at + 2] ?? 0
           ch.volAt += 3
           break
         }
         if (d0 === 0xe8) {
           ch.volAt += 2
-          ch.volWait = song.volSequences[at + 1] ?? 0
+          ch.volWait = seq[at + 1] ?? 0
           return
         }
         if (d0 === 0xe0) {
           // MINUS FIVE, because `$a(a0)` already skipped the five-byte header
-          ch.volAt = u8(((song.volSequences[at + 1] ?? 0) & 0x3f) - 5)
+          ch.volAt = u8(((seq[at + 1] ?? 0) & 0x3f) - 5)
           continue
         }
         ch.volume = d0
