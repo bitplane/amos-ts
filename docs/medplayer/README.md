@@ -241,22 +241,40 @@ and plays it the ordinary way, then `$2104ce` runs the synth init anyway, so
 both scripts drive a sampled voice. And `$2102ca` is why a pure synth's DMA is
 never stopped between notes, where a hybrid's is.
 
-## Notes are five octaves, and the port derives the table
+## Notes are five octaves, and the row is entered 24 words in
 
 Sixteen finetuned period tables sit at `$212088`, 192 bytes apart. `$21035c`
 picks one with the track's finetune and `$210370` indexes it with the note,
 after `$21033a` has wrapped the note into 0..62 by whole octaves.
 
-Each table is 60 real entries and then the top octave three times over, so the
-three notes the wrap still allows fold back rather than read off the end.
+Each table is 60 real entries and then the top octave three times over, so a
+note past the end lands in the top octave again rather than off the table.
 Finetune 0 is ProTracker's row 0 with its first octave multiplied by four and
 its second by two, which `med.ts` derives and `med.test.ts` checks word for
 word against the binary. The other fifteen rows are MED's own arithmetic and
 part company with ProTracker's finetuned rows by up to 13 counts, 0.45%.
 
-The port used to clamp every note into ProTracker's three octaves, so anything
-in the bottom two played at the wrong pitch. The shipped `Med_Module` reaches
-into them.
+**A row is not entered at its first word.** The sixteen pointers live at
+`$212ca8` (`$121c(a6)`, and a6 is the player struct at `$211a8c`), and every
+one of them is `$212088 + 48 + row * 192`. So note 0 of a sampled instrument is
+word 24, which is ProTracker's 856, and the two octaves below it are reachable
+only by the pure synth path, where `$21058c` takes the same 48 bytes straight
+back off:
+
+    021057a  lea.l      $121c(a6), a1
+    021057e  move.b     $b(a5), d0        ; finetune, signed
+    0210588  movea.l    (a1, d0.w), a1
+    021058c  suba.w     #$30, a1          ; the synth's two octaves
+    0210596  move.w     (a1, d1.w), d1    ; and NO wrap: $21033a is not on this path
+
+The array is indexed with a signed finetune, so it runs -8 to +7 around
+`$121c(a6)` and the eight longs below it are rows 8 to 15. That is what
+`finetune & 0xf` comes to.
+
+Reading the table from word 0 instead put every sampled note two octaves down.
+It survived a full test suite because the tests checked the derivation against
+the table and never against the pointer, and it took rendering a real module
+next to another player's to hear it.
 
 ## Volume is scaled once, not at every write
 

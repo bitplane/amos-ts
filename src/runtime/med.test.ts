@@ -102,22 +102,36 @@ describe.skipIf(!existsSync(LIB))('against medplayer.library itself', () => {
   })()
   /** the sixteen finetuned period tables, 96 words apiece */
   const period = (fine: number, note: number): number => image.at(0x212088 + fine * 0xc0 + note * 2)
+  /**
+   * Where each row is entered. $121c(a6) is the middle of a sixteen-long array
+   * because $21035c indexes it with a SIGNED finetune, so -8 through -1 are
+   * the eight longs below it and are rows 8 through 15.
+   */
+  const rowPtr = (fine: number): number =>
+    (image.at(0x212ca8 + fine * 4) << 16) | image.at(0x212ca8 + fine * 4 + 2)
 
-  it('derives finetune 0 word for word over all 60 notes', () => {
+  it('derives every one of row 0_s 96 words', () => {
     const off = []
-    for (let n = 0; n < 60; n++) if (medPeriod(n, 0) !== period(0, n)) off.push(n)
+    for (let k = 0; k < 96; k++) if (medPeriod(k - 24, 0) !== period(0, k)) off.push(k)
     expect(off).toEqual([])
-    expect(medPeriod(0, 0)).toBe(3424) // 856 * 4, two octaves below ProTracker
   })
 
-  it('folds notes 60 to 62 back an octave, as the table itself does', () => {
-    for (let n = 60; n <= 62; n++) expect(medPeriod(n, 0)).toBe(period(0, n))
+  it('starts a sampled note 24 words in, which is where $212c88 points', () => {
+    // sixteen rows of $212088 + 48 + row * 192, and a negative finetune is the
+    // top half of the table, which is what `finetune & 0xf` comes to
+    for (let f = -8; f < 8; f++) expect(rowPtr(f)).toBe(0x212088 + 48 + (f & 0xf) * 192)
+    expect(medPeriod(0, 0)).toBe(856) // ProTracker's C-1, for anything sampled
+    expect(medPeriod(-24, 0)).toBe(3424) // and what a pure synth reads there
+  })
+
+  it('holds the top octave three more times, which is what a high note lands in', () => {
+    for (let k = 60; k < 96; k++) expect(period(0, k)).toBe(period(0, 48 + ((k - 60) % 12)))
   })
 
   it('is within 13 counts on the fifteen finetunes it derives instead', () => {
     let worst = 0
     for (let f = 1; f < 16; f++) {
-      for (let n = 0; n < 60; n++) worst = Math.max(worst, Math.abs(medPeriod(n, f) - period(f, n)))
+      for (let k = 0; k < 96; k++) worst = Math.max(worst, Math.abs(medPeriod(k - 24, f) - period(f, k)))
     }
     // 0.45% at the extreme, about eight cents; the DEVIATION in med.ts
     expect(worst).toBe(13)
@@ -260,7 +274,7 @@ describe('the MED effect commands', () => {
     const freqs = up.audio.events.filter((e) => e.kind === 'freq').map((e) => e.freq!)
     expect(Math.max(...freqs)).toBeCloseTo(periodToHz(113), 5)
     // $210e26 has no upper clamp, so a long slide down passes 856 unhindered
-    const down = playing(mmd0([[NOTE, 1, 0x2, 0x40]]))
+    const down = playing(mmd0([[NOTE, 1, 0x2, 0x40]], { tempo2: 32 }))
     for (let i = 0; i < 20; i++) down.p.vbl()
     const low = down.audio.events.filter((e) => e.kind === 'freq').map((e) => e.freq!)
     expect(Math.min(...low)).toBeLessThan(periodToHz(856))
@@ -332,11 +346,13 @@ function mmd0syn(rows: number[][], syn: Syn, song: Record<string, number> = {}):
   w(SYN + 4, syn.hybrid ? 0xfffe : 0xffff)
   d[SYN + 0x12] = syn.volspeed ?? 1
   d[SYN + 0x13] = syn.wfspeed ?? 1
+  w(SYN + 0x14, syn.waves.length) // wforms, which bounds the relocation loop
   syn.vol.forEach((b, i) => { d[SYN + 0x16 + i] = b })
   syn.wf.forEach((b, i) => { d[SYN + 0x96 + i] = b })
   let at = WAVES
   syn.waves.forEach((wave, i) => {
-    l(SYN + 0x116 + i * 4, at)
+    // relative to the INSTRUMENT, which is what $212daa relocates them by
+    l(SYN + 0x116 + i * 4, at - SYN)
     if (syn.hybrid) {
       l(at, wave.length) // a sample header: length, type, then the samples
       wave.forEach((b, k) => { d[at + 6 + k] = b & 0xff })
@@ -543,7 +559,7 @@ describe('the MED clock', () => {
 
 describe('a MED module as PCM', () => {
   it('renders sound, rather than a list of things the replayer asked for', () => {
-    const mod = mmd0([[25, 1, 0xc, 0x40]])
+    const mod = mmd0([[1, 1, 0xc, 0x40]])
     // the builder leaves the instrument silent; a ramp is something to hear
     for (let i = 0; i < 64; i++) mod[mod.length - 64 + i] = i * 2 - 64
     const out: number[] = []

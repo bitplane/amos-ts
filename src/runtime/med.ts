@@ -132,6 +132,10 @@ export const MED_SINUS: readonly number[] = [
  * its first octave multiplied by four and its second by two, which this
  * derives and `med.test.ts` checks against the binary to the word.
  *
+ * `note` is the index off the row pointer the note-on stored at $4e(a5), so 0
+ * is ProTracker's C-1 for a sampled instrument and 24 notes lower for a pure
+ * synth. `PT_ROW_OFFSET` is the 48 bytes that difference is.
+ *
  * DEVIATION: rows 1 to 15 are NOT ProTracker's finetuned rows. MED computed
  * its own and they part company by up to 13 counts, 0.45%, or about eight
  * cents at the extreme. Carrying the library's 1,536 words would mean copying
@@ -140,18 +144,35 @@ export const MED_SINUS: readonly number[] = [
  * that never sets one, is exact.
  */
 export function medPeriod(note: number, finetune: number): number {
-  // $21033a wraps by whole octaves until the note is 0..62, then $210370
-  // indexes with no adjustment at all.
-  let n = note
-  while (n < 0) n += 12
-  if (n > 62) n -= 12
+  // The row pointer is 48 bytes INTO the row. $212c88 holds the sixteen of
+  // them and every one is $212088 + 48 + finetune * 192, so note 0 of a
+  // sampled instrument is word 24, which is ProTracker's 856. The two octaves
+  // below it are reachable only by the pure synth path, which subtracts the 48
+  // straight back off ($21058c).
+  let n = note + PT_ROW_OFFSET
   const row = (finetune & 0xf) * PT_PERIODS_PER_ROW + 1
   // 60 real entries and then 36 more, which are the top octave three times
-  // over, so the three notes the wrap still allows fold back an octave
+  // over: a note past the end of the table lands in the top octave again
   if (n >= 60) n = 48 + ((n - 60) % 12)
+  if (n < 0) n = 0
   if (n < 12) return PT_PERIODS[row + n]! * 4
   if (n < 24) return PT_PERIODS[row + n - 12]! * 2
   return PT_PERIODS[row + n - 24]!
+}
+
+/**
+ * $21033a: add an octave until the note is positive, then take ONE off if it
+ * is past 62. A loop up and a single step down, which is what the code does
+ * (`bra.b $21033a` on the way up, fall-through on the way down).
+ *
+ * The sampled path runs this and the pure synth path never reaches it, so a
+ * synth note is whatever the row holds at that index.
+ */
+export function medNoteWrap(note: number): number {
+  let n = note
+  while (n < 0) n += 12
+  if (n > 62) n -= 12
+  return n
 }
 
 /**
@@ -249,6 +270,13 @@ const SYN_VOLSPEED = 0x12
 const SYN_WFSPEED = 0x13
 const SYN_VOLTABLE = 0x16
 const SYN_WFTABLE = 0x96
+/**
+ * Words the sixteen row pointers at $212c88 start into their row: 48 bytes,
+ * so a sampled note 0 is ProTracker's 856 and not the table's first word.
+ */
+const PT_ROW_OFFSET = 24
+
+const SYN_WFORMS = 0x14
 const SYN_WAVEFORMS = 0x116
 /** a script byte at or above this is a command, and the low nibble selects it */
 const SYN_CMD = 0x80
@@ -620,7 +648,11 @@ export class MedPlayer {
    */
   private notePeriod(v: number, note: number): number {
     const V = this.voices[v]!
-    return medPeriod(note - 1 + this.transp + V.strans + V.synBias, V.finetune)
+    const n = note - 1 + this.transp + V.strans
+    // A pure synth is the one caller that never runs the wrap at $21033a: it
+    // is sent straight to $210574, where the only arithmetic is the 48 bytes
+    // `synBias` stands for.
+    return medPeriod(V.synth > 0 ? n + V.synBias : medNoteWrap(n), V.finetune)
   }
 
   /**
@@ -634,8 +666,10 @@ export class MedPlayer {
     switch (V.cmd) {
       case 0x3: // $210bd0: portamento target, and the note never restarts
         if (note !== 0) {
+          // $210be6 guards on the index and then reads $4e(a5), the row
+          // pointer the last note-on left, so a synth track gets the synth one
           const idx = note - 1 + this.transp + V.strans
-          if (idx >= 0) V.portTarget = medPeriod(idx, V.finetune)
+          if (idx >= 0) V.portTarget = medPeriod(idx + V.synBias, V.finetune)
         }
         if (d !== 0) V.portSpeed = d
         return true
@@ -754,7 +788,6 @@ export class MedPlayer {
     let ptr = this.l(this.smplarr + (instr - 1) * 4)
     if (!ptr) return
     V.baseNote = note - 1 + this.transp + V.strans // $210558
-    V.period = this.notePeriod(v, note)
     V.periodFine = 0
     V.vibPos = 0 // $210324
     V.decayRun = 0 // $21031a
@@ -770,13 +803,16 @@ export class MedPlayer {
       V.syn = ptr
       if (type === -2) {
         V.synth = -1 // $210568, `st.b $4d(a5)`
-        ptr = this.l(ptr + SYN_WAVEFORMS)
+        ptr = this.waveform(ptr, 0)
+        if (ptr === 0) return
       } else {
         V.synth = 1 // $210574
-        V.synBias = -24 // the `suba.w #$30,a1` on the period table
-        V.period = this.notePeriod(v, note)
+        V.synBias = -PT_ROW_OFFSET // the `suba.w #$30,a1` on the row pointer
       }
     }
+    // after the type is known, because the row pointer a pure synth stores at
+    // $4e(a5) is 48 bytes below the one every other instrument stores
+    V.period = this.notePeriod(v, note)
     const rec = this.song + (instr - 1) * 8
     const rep = this.w(rec) * 2
     const replen = this.w(rec + 2) * 2
@@ -1130,7 +1166,7 @@ export class MedPlayer {
           break
         case 0x4: // $2106bc: run a waveform as the envelope, once
         case 0x5: // $2106d2: and again, looping
-          V.envPtr = this.l(V.syn + SYN_WAVEFORMS + arg * 4) + 2
+          V.envPtr = this.waveform(V.syn, arg) + 2
           V.envLoop = (b & 0xf) === 5 ? V.envPtr : 0
           V.envPos = 0
           pc += 2
@@ -1209,7 +1245,7 @@ export class MedPlayer {
           pc += 1
           break
         case 0x7: // $210786: a waveform to shape the vibrato with
-          V.synVibWave = this.l(V.syn + SYN_WAVEFORMS + arg * 4) + 2
+          V.synVibWave = this.waveform(V.syn, arg) + 2
           pc += 2
           break
         case 0xa: // $210804: jump the VOLUME list
@@ -1255,9 +1291,29 @@ export class MedPlayer {
    * is the sink's version of that ($117 added it for THX) and it is optional,
    * so a sink without one gets a `play` and an audible click.
    */
+  /**
+   * Waveform `n` of the synth instrument at `syn`, as an offset in the module.
+   *
+   * The pointer stored at $116 is relative to the INSTRUMENT and not to the
+   * module, which is the one place `MEDRelocModule` departs from the rule the
+   * rest of the format follows. $212dba is the primitive every other pointer
+   * goes through, `add.l d1,(a0)+` with d1 the module base; the waveform loop
+   * at $212daa is `add.l d3,(a3)+` and d3 is the instrument's own address,
+   * just relocated one instruction earlier at $212d92.
+   *
+   * It relocates `wforms` of them ($14, `move.w $14(a3),d2`), which is why the
+   * waveform data starts immediately after that many longs rather than after a
+   * fixed 64. DEVIATION: past that count the library adds nothing and follows
+   * the raw value into the bottom of the module. This reads it as absent.
+   */
+  private waveform(syn: number, n: number): number {
+    if (n < 0 || n >= this.w(syn + SYN_WFORMS)) return 0
+    return syn + this.l(syn + SYN_WAVEFORMS + n * 4)
+  }
+
   private setWaveform(v: number, n: number): void {
     const V = this.voices[v]!
-    const ptr = this.l(V.syn + SYN_WAVEFORMS + n * 4)
+    const ptr = this.waveform(V.syn, n)
     if (ptr === 0) return
     const words = this.w(ptr)
     const d = this.data!
