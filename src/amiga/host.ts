@@ -62,6 +62,27 @@ export interface AudioSink {
    * which is wrong but not silent.
    */
   setWaveform?(voice: number, pcm: Int8Array): void
+  /**
+   * Run output forward to `t` seconds, so that the writes after this call
+   * happen THEN and not at the top of the frame.
+   *
+   * Every other method here says what changed and none said when, which is
+   * enough for a sink that hands four voices to somebody else's mixer and not
+   * enough for one that renders. MED's CIA interrupt fires between 24 and 500
+   * times a second (`runtime/med.ts`), so a frame holds anywhere from a
+   * fraction of a tick to ten of them, and the sound is different depending on
+   * where inside the frame each one landed.
+   *
+   * `t` is seconds since the run started, monotonic and shared by every
+   * caller. A replayer with sub-frame timing names each tick's instant;
+   * `Runtime.frame()` closes the frame at the end. A time already passed is a
+   * no-op, which is what happens when two interrupts write out of order.
+   *
+   * Optional, and absent means the old behaviour exactly: everything in a
+   * frame happens at once. `WebAudioSink` schedules Web Audio nodes and has
+   * its own clock, so it does not implement this.
+   */
+  runTo?(t: number): void
   /** the power-LED low-pass filter ($BFE001 bit 1); on = filter engaged */
   setFilter(on: boolean): void
 }

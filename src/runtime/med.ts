@@ -31,7 +31,7 @@
 
 import { AmosError } from '../interp/values'
 import { PT_PERIODS, PT_PERIODS_PER_ROW } from '../amiga/notes'
-import { PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
+import { PAULA_CLOCK_PAL, VBL_HZ, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
 
 /**
@@ -64,9 +64,6 @@ const BPM_CLOCK = 1773447
  * tick rate is the same on either machine. `med.test.ts` asserts both.
  */
 const CIA_CLOCK = PAULA_CLOCK_PAL / 5
-
-/** one runtime frame; `vbl()` is called from the 50Hz step (runtime.ts) */
-const VBL_HZ = 50
 
 /**
  * Ticks a single frame may run, so a nonsense tempo cannot spin `vbl()`.
@@ -287,7 +284,12 @@ export class MedPlayer {
   private seqPos = 0
   private line = 0
   private tickCount = 0
-  private acc = 0
+  /**
+   * When the CIA next fires, in seconds on the sink's clock. Below the frame
+   * being played it is pulled up to the frame's start, which is what a player
+   * that was stopped, positioned, or never started yet needs.
+   */
+  private next = -Infinity
   /**
    * $52a: 0 for none, 1 for a break that advances the position, and -1 when
    * `Bxx` has already written the position ($210c5c tests the sign).
@@ -413,7 +415,7 @@ export class MedPlayer {
     this.seqPos = 0
     this.line = 0
     this.tickCount = 0
-    this.acc = 0
+    this.next = -Infinity
     this.breakKind = 0
     this.keepLine = false
     this.lineJump = this.loopLine = this.loopCount = this.lineDelay = 0
@@ -449,13 +451,31 @@ export class MedPlayer {
       this.data = null
       return
     }
-    // The CIA fires between frames, so the fraction is carried rather than
-    // rounded: tempo 33 is 49.81 Hz, not 50, and the two part company after
-    // four minutes of a module that never changes tempo.
-    this.acc = Math.min(this.acc + medTickHz(this.tempo, this.bpm, this.lpb) / VBL_HZ, MAX_TICKS_PER_VBL)
-    while (this.acc >= 1) {
-      this.acc -= 1
+    // The CIA fires on its own clock and not on the frame's, so each interrupt
+    // is placed at the instant it happens rather than counted into a frame's
+    // worth: tempo 33 is 49.81 Hz, not 50, and the two part company after four
+    // minutes of a module that never changes tempo.
+    const end = this.host.tick() / VBL_HZ
+    const start = end - 1 / VBL_HZ
+    if (this.next < start) this.next = start
+    if (medTickHz(this.tempo, this.bpm, this.lpb) <= 0) return
+    let ticks = 0
+    while (this.next < end) {
+      if (++ticks > MAX_TICKS_PER_VBL) {
+        this.next = end
+        break
+      }
+      this.host.audio.runTo?.(this.next)
       this.tick()
+      // AFTER the tick, because `Fxx` writes the CIA's reload latch and the
+      // timer is already counting down the interval it was given. The new
+      // period takes effect at the underflow, which is the next fire.
+      const hz = medTickHz(this.tempo, this.bpm, this.lpb)
+      if (hz <= 0) {
+        this.next = end
+        break
+      }
+      this.next += 1 / hz
     }
   }
 

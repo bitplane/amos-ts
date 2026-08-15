@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadHunks } from '../amiga/hunk'
 import { NullAudio, PAULA_CLOCK_NTSC, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
+import { PaulaMixer } from '../amiga/mixer'
 import { MED_SINUS, MedPlayer, medPeriod, medTickHz, medTimer } from './med'
 
 /**
@@ -184,9 +185,14 @@ function mmd0(rows: number[][], song: Partial<Record<'flags' | 'flags2' | 'tempo
 
 function playing(mod: Uint8Array): { p: MedPlayer; audio: NullAudio } {
   const audio = new NullAudio()
+  // runtime.ts increments the frame counter before the replayers run, so
+  // `tick()` is the number of the frame being played. The player reads it once
+  // per vbl and nowhere else, so counting the calls is the same number, and a
+  // second reader would show up as time jumping rather than as a silent pass.
+  let frame = 0
   const p = new MedPlayer({
     audio,
-    tick: () => 0,
+    tick: () => ++frame,
     getBank: () => ({ name: 'Med', data: mod }),
   })
   p.play(7, 0)
@@ -476,5 +482,88 @@ describe('MED synthsounds', () => {
     }))
     p.vbl()
     expect(audio.events.find((e) => e.kind === 'play')!.length).toBe(8)
+  })
+})
+
+/**
+ * The CIA timer, as instants rather than as a rate.
+ *
+ * `MEDSetTempo` programs CIA-B timer A and the interrupt fires when it fires,
+ * which is almost never on a frame boundary. What the player owes the sink is
+ * the moment of each one, and `AudioSink.runTo` is where it says so.
+ */
+class Instants extends NullAudio {
+  readonly at: number[] = []
+  override runTo(t: number): void {
+    this.at.push(t)
+    super.runTo(t)
+  }
+}
+
+function ticking(mod: Uint8Array): { p: MedPlayer; audio: Instants } {
+  const audio = new Instants()
+  let frame = 0
+  const p = new MedPlayer({ audio, tick: () => ++frame, getBank: () => ({ name: 'Med', data: mod }) })
+  p.play(7, 0)
+  return { p, audio }
+}
+
+describe('the MED clock', () => {
+  const NOTE = 25
+
+  it('fires a CIA period apart, and not once a frame', () => {
+    const { p, audio } = ticking(mmd0([[NOTE, 1, 0, 0]]))
+    for (let i = 0; i < 3; i++) p.vbl()
+    const gap = 1 / medTickHz(1, false, 4)
+    for (let i = 1; i < audio.at.length; i++) {
+      expect(audio.at[i]! - audio.at[i - 1]!).toBeCloseTo(gap, 12)
+    }
+    // 293.49 Hz over three frames of the 50Hz step
+    expect(audio.at).toHaveLength(18)
+    expect(audio.at[0]).toBe(0)
+  })
+
+  it('runs a tempo the frame cannot divide without dropping or gaining a tick', () => {
+    // tempo 33 is 49.809 Hz, so twelve seconds of it is 598 interrupts. The
+    // player that counted ticks into a frame ran 600, one per frame.
+    const { p, audio } = ticking(mmd0([[NOTE, 1, 0, 0]], { deftempo: 33 }))
+    for (let i = 0; i < 600; i++) p.vbl()
+    expect(audio.at).toHaveLength(Math.floor(12 * medTickHz(33, false, 4)) + 1)
+    expect(audio.at).toHaveLength(598)
+  })
+
+  it('keeps every instant inside the frame that ran it, and moving forward', () => {
+    const { p, audio } = ticking(mmd0([[NOTE, 1, 0, 0]], { deftempo: 8 }))
+    for (let i = 0; i < 20; i++) p.vbl()
+    expect(audio.at[0]).toBe(0)
+    expect(Math.max(...audio.at)).toBeLessThan(20 / 50)
+    expect([...audio.at].sort((a, b) => a - b)).toEqual(audio.at)
+  })
+})
+
+describe('a MED module as PCM', () => {
+  it('renders sound, rather than a list of things the replayer asked for', () => {
+    const mod = mmd0([[25, 1, 0xc, 0x40]])
+    // the builder leaves the instrument silent; a ramp is something to hear
+    for (let i = 0; i < 64; i++) mod[mod.length - 64 + i] = i * 2 - 64
+    const out: number[] = []
+    const mix = new PaulaMixer({ rate: 8000, filter: false, onBlock: (b) => out.push(...b) })
+    let frame = 0
+    const p = new MedPlayer({ audio: mix, tick: () => ++frame, getBank: () => ({ name: 'Med', data: mod }) })
+    p.play(7, 0)
+    for (let i = 0; i < 5; i++) {
+      p.vbl()
+      mix.runTo((i + 1) / 50) // what runtime.ts does at the end of a frame
+    }
+    expect(mix.frames).toBe(800)
+    const left = out.filter((_, i) => i % 2 === 0)
+    const right = out.filter((_, i) => i % 2 === 1)
+    // track 0 is voice 0, which is wired to the left channel and to nothing
+    // else, and C40 is volume 40 of 64 against a ramp that peaks at 62
+    expect(right.every((s) => s === 0)).toBe(true)
+    expect(Math.max(...left)).toBeCloseTo((62 / 128) * (40 / 64), 6)
+    // the instrument has no repeat, and 64 bytes at 4143 Hz is 15.4ms against
+    // a row that lasts 20.4ms, so a quarter of the output is it having ended
+    expect(left.filter((s) => s !== 0)).toHaveLength(610)
   })
 })

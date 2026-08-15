@@ -113,8 +113,9 @@ divisor is the Paula clock over five and the resulting tick rate is the same on
 either machine. `src/runtime/med.test.ts` asserts both.
 
 Tempo 6 then ticks at 48.92 Hz and tempo 33 at 49.81, near a PAL frame and not
-on it. `src/runtime/med.ts` carries the fraction across frames rather than
-rounding to one.
+on it. `src/runtime/med.ts` places each interrupt at the instant it happens on
+the sink's clock (`AudioSink.runTo`), so twelve seconds of tempo 33 is 598
+ticks and not the 600 a frame counter gives it.
 
 ## Effects: there are two tables, and tracks 4 and up are MIDI
 

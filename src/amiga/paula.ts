@@ -35,9 +35,9 @@
  * format AMOS invented and parses in `GetSam`; Paula never sees it. Same rule
  * that keeps `bobBltcon0` out of `blitter.ts`.
  *
- * Mixing is absent, deliberately. Nothing here renders samples: `AudioSink`
- * is the boundary beneath this layer (`host.ts`), WebAudio implements it in
- * the browser and `NullAudio` records it headless. What Paula contributes is
+ * Mixing is next door, in `mixer.ts`. `AudioSink` is the boundary beneath this
+ * layer (`host.ts`): WebAudio implements it in the browser, `NullAudio`
+ * records it headless, and `PaulaMixer` renders it. What Paula contributes is
  * the arithmetic every caller was repeating and the state a test can read.
  *
  * The note tables are one level further down again, in `notes.ts`, which
@@ -63,6 +63,17 @@ export const PAULA_CLOCK = PAULA_CLOCK_PAL
  * ~28.6kHz. AMOS clamps to exactly this in `SPl0` (+Music.s:3316-3322).
  */
 export const MIN_PERIOD = 124
+
+/**
+ * Vertical blanks a second, which is what turns a frame number into a time
+ * for `AudioSink.runTo`.
+ *
+ * Here because the sink's clock is in seconds and everything driving it counts
+ * frames, so somebody has to state the rate. The machine's is a shade off 50;
+ * AMOS's own `Timer` counts frames rather than seconds and so never notices,
+ * and 50 is the figure every player in this port is written against.
+ */
+export const VBL_HZ = 50
 
 /**
  * AUDxVOL is six bits and saturates at 64, which is unity gain — NOT 63.
@@ -136,6 +147,14 @@ export interface AudioEvent {
   loopStart?: number
   loopEnd?: number
   filter?: boolean
+  /**
+   * When it happened, in seconds, as `runTo` last left the clock.
+   *
+   * Zero for every event until somebody calls `runTo`, which is the honest
+   * answer for a caller that never says when: with no clock, everything in a
+   * frame does happen at once.
+   */
+  at?: number
 }
 
 /**
@@ -159,6 +178,8 @@ export class NullAudio implements AudioSink {
   events: AudioEvent[] = []
   /** the LED filter, which is CIA-A's PRA bit 1 rather than Paula's own */
   filter = true
+  /** the clock `runTo` moves; every event is stamped with it */
+  now = 0
   voiceState: VoiceState[] = [0, 1, 2, 3].map(() => ({
     playing: false,
     pcm: null,
@@ -168,10 +189,20 @@ export class NullAudio implements AudioSink {
     loopEnd: 0,
   }))
 
+  /** the recorder's own `runTo`: it renders nothing, so it only keeps the time */
+  runTo(t: number): void {
+    if (t > this.now) this.now = t
+  }
+
+  private emit(e: AudioEvent): void {
+    e.at = this.now
+    this.events.push(e)
+  }
+
   play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
     const end = loopEnd ?? pcm.length
     const vol = clampVolume(volume)
-    this.events.push({
+    this.emit({
       kind: 'play', voice, freq: freqHz, length: pcm.length, volume: vol,
       loop: loopStart >= 0, loopStart, loopEnd: end,
     })
@@ -185,7 +216,7 @@ export class NullAudio implements AudioSink {
   }
 
   stop(voice: number): void {
-    this.events.push({ kind: 'stop', voice })
+    this.emit({ kind: 'stop', voice })
     const s = this.voiceState[voice]!
     s.playing = false
     s.pcm = null
@@ -193,19 +224,19 @@ export class NullAudio implements AudioSink {
 
   setVolume(voice: number, volume: number): void {
     const vol = clampVolume(volume)
-    this.events.push({ kind: 'volume', voice, volume: vol })
+    this.emit({ kind: 'volume', voice, volume: vol })
     this.voiceState[voice]!.volume = vol
   }
 
   setFrequency(voice: number, freqHz: number): void {
-    this.events.push({ kind: 'freq', voice, freq: freqHz })
+    this.emit({ kind: 'freq', voice, freq: freqHz })
     this.voiceState[voice]!.freq = freqHz
   }
 
   setLoop(voice: number, loopStart: number, loopEnd?: number): void {
     const s = this.voiceState[voice]!
     const end = loopEnd ?? s.pcm?.length ?? 0
-    this.events.push({ kind: 'loop', voice, loopStart, loopEnd: end })
+    this.emit({ kind: 'loop', voice, loopStart, loopEnd: end })
     if (s.playing) {
       s.loopStart = loopStart
       s.loopEnd = end
@@ -221,12 +252,12 @@ export class NullAudio implements AudioSink {
    * DMA is off, and it stays stopped.
    */
   setWaveform(voice: number, pcm: Int8Array): void {
-    this.events.push({ kind: 'waveform', voice, length: pcm.length })
+    this.emit({ kind: 'waveform', voice, length: pcm.length })
     this.voiceState[voice]!.pcm = pcm
   }
 
   setFilter(on: boolean): void {
-    this.events.push({ kind: 'filter', voice: -1, filter: on })
+    this.emit({ kind: 'filter', voice: -1, filter: on })
     this.filter = on
   }
 }

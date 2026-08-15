@@ -123,7 +123,7 @@ import {
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
-import { NullAudio, periodToHz, samPeriod } from '../amiga/paula'
+import { NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
 import { MusicPlayer } from './music'
 
 /**
@@ -4452,6 +4452,12 @@ export class Runtime {
     this.stepDialogs()
     this.stepFsel()
     this.stepReadText()
+    // The frame is over, so the sound in it is too: a rendering sink runs out
+    // to here and starts the next frame at this instant. Last rather than
+    // beside the replayers because the interpreter has just run, and a program
+    // calling Sam Play or Volume writes Paula from inside the frame, not
+    // before it. See AudioSink.runTo.
+    this.audio.runTo?.(this.interp.tick / VBL_HZ)
     return result
   }
 
