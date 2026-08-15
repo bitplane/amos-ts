@@ -14,11 +14,11 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four were the first batch, over engines this port already had. Three
+ * Those four were the first batch, over engines this port already had. Four
  * of the external ones have followed, each read out of its own library in
- * `libs/`: `sfx13` over ../amiga/soundfx.ts, `fc14` over ../amiga/fc14.ts and
- * `fc13` over ../amiga/fc13.ts, 12 keywords each. The other eight replayer
- * libraries are #146.
+ * `libs/`: `sfx13` over ../amiga/soundfx.ts, `fc14` over ../amiga/fc14.ts,
+ * `fc13` over ../amiga/fc13.ts and `db` over ../amiga/digiplay.ts --- 12, 12,
+ * 12 and 15 keywords. The other seven replayer libraries are #146.
  *
  * ## Evidence
  *
@@ -87,6 +87,9 @@ import { parseP61, p61Song } from '../amiga/p61'
 import { SFX_LENGTH_AT, SFX_MAGIC, SFX_MAGIC_AT, SoundFx, parseSfx } from '../amiga/soundfx'
 import { FC14_MAGIC, FC14_STEP_BYTES, Fc14, parseFc14 } from '../amiga/fc14'
 import { FC13_MAGIC, FC13_STEP_BYTES, Fc13, parseFc13 } from '../amiga/fc13'
+import { DIGI_MAGIC, parseDigi } from '../amiga/digi'
+import { DigiPlayer } from '../amiga/digiplay'
+import { VBL_HZ } from '../amiga/paula'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -126,6 +129,8 @@ export const SFX_BANK_NAME = 'SFX1.3  '
 export const FC14_BANK_NAME = 'FC1.4   '
 /** the bank `Fc13 Load` reserves ($5c78), tested as "FC1." and "3   " ($5d0a) */
 export const FC13_BANK_NAME = 'FC1.3   '
+/** the bank `Db Load` reserves ($4e02), tested as "Digi" and "Mod " ($4e94) */
+export const DIGI_BANK_NAME = 'DigiMod '
 
 /**
  * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
@@ -251,6 +256,16 @@ export interface DmeState {
   fc14Playing: boolean
   fc14Started: boolean
 
+  /** the DigiBooster 1.x replay, the fourth of the eleven */
+  digi: DigiPlayer
+  /** `$a2(a2)`, `$ac(a2)`, `$ad(a2)` and `$ae(a2)`: bank, playing, unpaused, started */
+  digiBank: number
+  digiPlaying: boolean
+  digiUnpaused: boolean
+  digiStarted: boolean
+  /** where the tick clock has got to, because DigiBooster's rate is the module's */
+  digiTime: number
+
   /** the FutureComposer 1.0-1.3 replay, the third of the eleven */
   fc13: Fc13
   /** `$72(a2)`, `$7c(a2)` and `$7d(a2)`, the same three fields one block back */
@@ -291,6 +306,12 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc14Bank: 0,
     fc14Playing: false,
     fc14Started: false,
+    digi: new DigiPlayer(() => rt?.host.audio),
+    digiBank: 0,
+    digiPlaying: false,
+    digiUnpaused: false,
+    digiStarted: false,
+    digiTime: 0,
     fc13: new Fc13(() => rt?.host.audio),
     fc13Bank: 0,
     fc13Playing: false,
@@ -1188,6 +1209,152 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.fc13Playing) dmeErr(32)
       s.fc13.prevPattern()
     },
+
+    /**
+     * Db Load file$, bank --- routine 104 ($4d70), the same nine steps with a
+     * bank named "DigiMod " ($4e02) and `cmpi.l #$44494749` --- "DIGI" --- at
+     * offset zero.
+     */
+    'db load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.digiBank && s.digiPlaying) {
+        s.digiPlaying = false
+        s.digi.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.digiBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, DIGI_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(0, 4)) !== DIGI_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(49)
+      }
+    },
+
+    /**
+     * Db Play bank --- routine 107 ($4e5e) pushing $80000000 into routine 108,
+     * which checks the bank NAME ("Digi" and "Mod " at -$8 and -$4).
+     *
+     * The longword under the bank is a start position that $4ebe passes to
+     * LVO -30 in d0, and $210194 does not read it. Nothing here does either.
+     *
+     * DEFECT: every sample of a version 1.0 to 1.3 module plays a finetune
+     * step flat, about twelve cents. $2107b2 clears all 31 finetune bytes for
+     * exactly the versions $10 to $13, and $210f60 then does `subq.b #$1,d2`
+     * on the byte it reads back --- so DigiBooster's stored finetune is
+     * ONE-BASED and a cleared field means -1 rather than neutral. The lookup
+     * at $210f96 duly picks row 7 of the sixteen at $212980 for every sample
+     * of every module this extension can load. It is uniform, so it transposes
+     * a tune rather than detuning it against itself, which is presumably how
+     * it shipped. Reproduced in ../amiga/digiplay.ts.
+     */
+    'db play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.digiPlaying = false
+      s.digi.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.digiBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== DIGI_BANK_NAME) dmeErr(49)
+      const song = parseDigi(b!.data)
+      if (!song) dmeErr(49)
+      s.digi.load(song!)
+      s.digiPlaying = true
+      s.digiUnpaused = true
+      s.digiStarted = true
+      s.digiTime = 0
+    },
+
+    /** Db Stop --- routine 106 ($4e3e): the flag at $ac(a0), then LVO -36 */
+    'db stop'() {
+      const s = st()
+      if (!s.digiPlaying) return
+      s.digiPlaying = false
+      s.digiUnpaused = false
+      s.digi.stop()
+    },
+
+    /** Db Pause --- routine 113 ($4fce): `$ad(a0)` down, then LVO -48 ($210226) */
+    'db pause'() {
+      const s = st()
+      if (!s.digiUnpaused) return
+      s.digiUnpaused = false
+      s.digi.playing = false
+      for (let v = 0; v < 4; v++) rt.host.audio?.setVolume(v, 0)
+    },
+
+    /** Db Cont --- routine 114 ($4ff2): `$ad(a0)` up, then LVO -54 ($210276) */
+    'db cont'() {
+      const s = st()
+      if (s.digiUnpaused) return
+      if (!s.digiStarted) return
+      s.digiUnpaused = true
+      s.digiPlaying = true
+      s.digi.cont()
+    },
+
+    /**
+     * Db Mix On / Db Mix Off --- routines 115 ($5018) and 116 ($5044), both
+     * into LVO -60 ($2102bc), which writes one byte at $21097c.
+     *
+     * Both raise message 51 WHILE A MODULE IS PLAYING (`tst.b $ac(a0) / bne`),
+     * so the mode is a thing to choose before `Db Play` and not during.
+     */
+    'db mix on'() {
+      const s = st()
+      if (s.digiPlaying) dmeErr(51)
+      s.digi.mixing = true
+    },
+    'db mix off'() {
+      const s = st()
+      if (s.digiPlaying) dmeErr(51)
+      s.digi.mixing = false
+    },
+
+    /** Db Volume n --- routine 117 ($5070): 0..64, then LVO -66 ($2102a2) */
+    'db volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().digi.master = v
+    },
+
+    /**
+     * Db Boost Rate n --- routine 118 ($50a2): 0..100, then LVO -72 ($2102cc).
+     *
+     * $211396 multiplies the base of 64 at $210978 by it and divides by a
+     * hundred, so 75 (the library's own default) plays a module at three
+     * quarters of full scale and 100 at all of it.
+     */
+    'db boost rate'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 100) badCall()
+      st().digi.boost = v
+    },
+
+    /**
+     * Db Next Patt / Db Prev Patt --- routines 121 ($5138) and 122 ($515e),
+     * message 57 when nothing is playing, and neither goes through the
+     * position-clamping the other players' pairs do: LVO -90 ($2102fe) is
+     * `addq.b #$1` on one byte and LVO -96 ($210316) a `subq.b` floored at
+     * zero. Both clear the row.
+     */
+    'db next patt'() {
+      const s = st()
+      if (!s.digiPlaying) dmeErr(57)
+      s.digi.nextPattern()
+    },
+    'db prev patt'() {
+      const s = st()
+      if (!s.digiPlaying) dmeErr(57)
+      s.digi.prevPattern()
+    },
   }
 }
 
@@ -1447,6 +1614,30 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Fc13 End — routine 184 ($5ee0), read and cleared, and 255 for the same reason */
     'fc13 end': () => VI(st().fc13.readEnd() ? 0xff : 0),
+
+    /**
+     * =Db Song Length(bank) — routine 119 ($50d4), which calls no vector: it
+     * checks the bank name and reads ONE BYTE at module+$2f.
+     */
+    'db song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== DIGI_BANK_NAME) dmeErr(49)
+      return VI(bank!.data[0x2f] ?? 0)
+    },
+
+    /** =Db Song Pos — routine 111 ($4f6e) into LVO -42 ($210206), a byte at $210958 */
+    'db song pos': () => VI(st().digiStarted ? st().digi.position : 0),
+
+    /** =Db Patt Pos — routine 112 ($4f9e) into LVO -84 ($210216), the row at $210959 */
+    'db patt pos': () => VI(st().digiStarted ? st().digi.row & 0xff : 0),
+
+    /**
+     * =Digi End — routine 120 ($5110) into LVO -78 ($2102dc), read and
+     * cleared, 255 for the same `move.b #$ff,d3` reason the other four have.
+     * The keyword is spelt `Digi End` and every other one in the block `Db`.
+     */
+    'digi end': () => VI(st().digi.readEnd() ? 0xff : 0),
   }
 }
 
@@ -1472,4 +1663,13 @@ export function dmeVbl(rt: Runtime): void {
   if (s.sfxPlaying) s.sfx.tick()
   if (s.fc14Playing) s.fc14.tick()
   if (s.fc13Playing) s.fc13.tick()
+  // DigiBooster's CIA rate is the module's own and `Fxx` above $1f moves it,
+  // so its ticks are counted against the frame rather than one to a frame
+  if (s.digiPlaying && s.digiUnpaused) {
+    s.digiTime += 1 / VBL_HZ
+    for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {
+      s.digi.tick()
+      s.digiTime -= 1 / s.digi.tickHz
+    }
+  }
 }

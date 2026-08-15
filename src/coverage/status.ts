@@ -2609,6 +2609,23 @@ export const FAITHFUL = new Set<string>([
   'fc13 song pos',
   'fc13 vu',
   'fc13 end',
+  // The DigiBooster 1.x block over ../amiga/digiplay.ts, off
+  // DME_DigiBooster.library. `Db Play` is NOT here --- the pair-mix is
+  // rendered at the mixer's rate rather than into a chip-RAM ring.
+  'db load',
+  'db stop',
+  'db pause',
+  'db cont',
+  'db mix on',
+  'db mix off',
+  'db volume',
+  'db boost rate',
+  'db next patt',
+  'db prev patt',
+  'db song length',
+  'db song pos',
+  'db patt pos',
+  'digi end',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8257,6 +8274,53 @@ export const NOTES: Record<string, string> = {
     "routine 184 ($5ee0) into LVO -72 ($210304), read and cleared, 255 for the same `move.b #$ff,d3` reason. " +
     "The flag is raised at $2109fe when a voice's sequence pointer reaches the end, so any of the four can " +
     "raise it.",
+  "db load":
+    "routine 104 ($4d70), the same nine steps as the other four loaders with a Work bank named " +
+    "\"DigiMod \" ($4e02). The tag is `cmpi.l #$44494749,(a2)` --- \"DIGI\" at offset zero, the first four " +
+    "bytes of the twenty-byte banner \"DIGI Booster module\" --- and a mismatch erases the bank and raises " +
+    "message 49.",
+  "db play":
+    "routine 107 ($4e5e) pushes $80000000 into routine 108, which opens DME_DigiBooster.library (routine 109, " +
+    "message 50) and checks the bank name as \"Digi\" and \"Mod \". The replay is src/amiga/digiplay.ts over " +
+    "src/amiga/digi.ts and src/amiga/digimix.ts: ProTracker's cell packing, effect set, finetune table and " +
+    "vibrato sine unchanged --- all 576 entries of the library's table at $212980 are notes.ts's PT_PERIODS " +
+    "reordered, and the 32 bytes at $212092 are PT_SINE exactly --- with eight channels, an extra octave off " +
+    "bit 12 of the period word, and `E8x` extending `9xx`'s sample offset by a nibble. APPROXIMATED for the " +
+    "output stage: the library pairs channels two to a Paula voice and renders each pair into a chip-RAM ring " +
+    "at the first channel's own sample rate ($2115dc copies, $212562 mixes), and this port runs the same " +
+    "volume table and the same 16.16 resampler a tick at a time into the mixer instead of into a triple " +
+    "buffer. What it does NOT approximate is the arithmetic: the table clips each side at plus or minus 64 " +
+    "rather than scaling it, so a loud module distorts here exactly as it did.",
+  "db stop": "routine 106 ($4e3e): the flag at $ac(a0), then LVO -36 ($2101ca), which cuts the DMA and saves the master.",
+  "db pause":
+    "routine 113 ($4fce): `$ad(a0)` down, then LVO -48 ($210226), which stops the tick and clears all four " +
+    "AUDxVOL registers without touching the position. A second pause is a no-op.",
+  "db cont": "routine 114 ($4ff2): `$ad(a0)` up, then LVO -54 ($210276), the saved master back and the position untouched.",
+  "db mix on":
+    "routine 115 ($5018) into LVO -60 ($2102bc), one byte at $21097c. It raises message 51 WHILE A MODULE IS " +
+    "PLAYING (`tst.b $ac(a0) / bne`), so the mode is chosen before `Db Play` rather than during it.",
+  "db mix off": "routine 116 ($5044), the same vector with d0 zero, and the same message 51 guard.",
+  "db volume": "routine 117 ($5070): 0..64 checked twice over, then LVO -66 ($2102a2), which is the same `mulu.w #$40 / lsr.w #$6` identity the other libraries' veneers have.",
+  "db boost rate":
+    "routine 118 ($50a2): 0..100, then LVO -72 ($2102cc), a word at $21097a. $211396 multiplies the base of 64 " +
+    "at $210978 by it and divides by a hundred, then scales both of a pair's volumes by the result with " +
+    "`lsr.w #$6`. The library's own default is 75, so a module plays at three quarters of full scale unless " +
+    "the program says otherwise.",
+  "db next patt":
+    "routine 121 ($5138) into LVO -90 ($2102fe), and message 57 when nothing is playing. Unlike the other " +
+    "players' pairs it does advance: $210302 is a plain `addq.b #$1` on the position byte with no clamp at " +
+    "all, and it clears the row.",
+  "db prev patt": "routine 122 ($515e) into LVO -96 ($210316): `subq.b #$1` floored at zero, the row cleared, and the same message 57 guard.",
+  "db song length":
+    "routine 119 ($50d4) calls no vector: it checks the bank name and reads ONE BYTE at module+$2f, where the " +
+    "other four song-length keywords divide a longword. So it answers without the library open.",
+  "db song pos": "routine 111 ($4f6e) into LVO -42 ($210206), the byte at $210958. Guarded by $ae(a2), so 0 before the first `Db Play`.",
+  "db patt pos":
+    "routine 112 ($4f9e) into LVO -84 ($210216), the byte at $210959 --- the row inside the pattern, 0 to 63. " +
+    "`=Ptm Patt Pos` has to shift its answer down a nibble and this one does not.",
+  "digi end":
+    "routine 120 ($5110) into LVO -78 ($2102dc), read and cleared, 255 for the same `move.b #$ff,d3` reason " +
+    "the other four have. The keyword is spelt `Digi End` where every other one in the block is `Db`.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

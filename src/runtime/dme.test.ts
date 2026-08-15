@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DIGI_BANK_NAME, DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -738,5 +738,90 @@ describe('the FutureComposer 1.0-1.3 block', () => {
     expect(rt.dme.fc13Playing).toBe(true)
     expect(rt.dme.fc13.position).toBe(0)
     expect(rt.dme.fc13.counter).toBe(3)
+  })
+})
+
+/**
+ * The DigiBooster block. Fifteen keywords, the widest of the five, and the
+ * only one whose song length is a byte rather than a divided longword.
+ */
+const DIGI_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0x624 + 0x800)
+  for (const [i, c] of [...'DIGI Booster module'].entries()) out[i] = c.charCodeAt(0)
+  out[0x18] = 0x10 // version 1.0
+  out[0x19] = 8 // channels
+  out[0x2e] = 0 // one pattern
+  out[0x2f] = 1 // one step of song
+  return out
+})()
+
+const DIGI = { 'a.dig': DIGI_MOD }
+const DLOAD = 'Db Load "Work:a.dig",7'
+
+describe('the DigiBooster 1.x block', () => {
+  it('Db Load reserves a bank named "DigiMod " and tests "DIGI" at offset zero', () => {
+    const { rt } = run([DLOAD], DIGI)
+    expect(rt.memBanks.get(7)!.name.padEnd(8).slice(0, 8)).toBe(DIGI_BANK_NAME)
+    const wrong = DIGI_MOD.slice()
+    wrong[0] = 0x64
+    expect(() => run([DLOAD], { 'a.dig': wrong })).toThrow(DME_ERRORS[49])
+  })
+
+  it('Db Play checks the bank NAME, not the module', () => {
+    expect(() => run(['Reserve As Work 7,4096', 'Db Play 7'], {})).toThrow(DME_ERRORS[49])
+    expect(() => run([DLOAD, 'Db Play 7'], DIGI)).not.toThrow()
+  })
+
+  it('=Db Song Length reads ONE BYTE at +$2f, where the other four divide a longword', () => {
+    run([DLOAD, 'Print Db Song Length(7)'], DIGI)
+    expect(out()).toEqual(['1'])
+  })
+
+  it('=Db Song Pos and =Db Patt Pos answer zero until something has played', () => {
+    run(['Print Db Song Pos', 'Print Db Patt Pos'], {})
+    expect(out()).toEqual(['0', '0'])
+  })
+
+  it('Db Volume takes 0..64 and Db Boost Rate takes 0..100', () => {
+    expect(() => run([DLOAD, 'Db Volume 65'], DIGI)).toThrow()
+    expect(() => run([DLOAD, 'Db Boost Rate 101'], DIGI)).toThrow()
+    expect(() => run([DLOAD, 'Db Boost Rate -1'], DIGI)).toThrow()
+    const { rt } = run([DLOAD, 'Db Play 7', 'Db Volume 20', 'Db Boost Rate 100'], DIGI)
+    expect(rt.dme.digi.master).toBe(20)
+    expect(rt.dme.digi.boost).toBe(100)
+  })
+
+  it('Db Mix On and Db Mix Off raise message 51 WHILE a module is playing', () => {
+    // `tst.b $ac(a0) / bne` at $5024 and $5050: the mode is a thing to pick
+    // before Db Play rather than during it
+    const { rt } = run([DLOAD, 'Db Mix Off'], DIGI)
+    expect(rt.dme.digi.mixing).toBe(false)
+    expect(() => run([DLOAD, 'Db Play 7', 'Db Mix On'], DIGI)).toThrow(DME_ERRORS[51])
+    expect(() => run([DLOAD, 'Db Play 7', 'Db Mix Off'], DIGI)).toThrow(DME_ERRORS[51])
+  })
+
+  it('Db Next Patt and Db Prev Patt raise message 57 when nothing is playing', () => {
+    expect(() => run(['Db Next Patt'], {})).toThrow(DME_ERRORS[57])
+    expect(() => run(['Db Prev Patt'], {})).toThrow(DME_ERRORS[57])
+  })
+
+  it('Db Pause holds the position and Db Cont takes it back', () => {
+    const { rt } = run([DLOAD, 'Db Play 7', 'Db Pause', 'Db Cont'], DIGI)
+    expect(rt.dme.digiUnpaused).toBe(true)
+    expect(rt.dme.digi.position).toBe(0)
+  })
+
+  it('=Digi End answers 255 and clears, and is the one keyword spelt Digi', () => {
+    const { rt } = run([DLOAD, 'Db Play 7'], DIGI)
+    rt.dme.digi.end = true
+    expect(rt.dme.digi.readEnd()).toBe(true)
+    expect(rt.dme.digi.readEnd()).toBe(false)
+    run([DLOAD, 'Db Play 7', 'Print Digi End'], DIGI)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Db Stop leaves the replay silent', () => {
+    const { rt } = run([DLOAD, 'Db Play 7', 'Db Stop'], DIGI)
+    expect(rt.dme.digiPlaying).toBe(false)
   })
 })

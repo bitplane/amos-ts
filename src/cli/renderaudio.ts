@@ -26,6 +26,8 @@ import { p61Song, p61ToMod, parseP61 } from '../amiga/p61'
 import { SoundFx, parseSfx } from '../amiga/soundfx'
 import { Fc14, parseFc14 } from '../amiga/fc14'
 import { Fc13, parseFc13 } from '../amiga/fc13'
+import { DigiPlayer } from '../amiga/digiplay'
+import { parseDigi } from '../amiga/digi'
 import { MedPlayer } from '../runtime/med'
 import { Runtime } from '../runtime/runtime'
 import { TokenTable } from '../tokens/stream'
@@ -34,7 +36,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine = 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'fc13' | 'track' | 'medext'
+export type Engine = 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'track' | 'medext'
 
 /**
  * What the first bytes say it is.
@@ -50,6 +52,7 @@ export function detectEngine(d: Uint8Array): Engine | null {
   if (tag(0) === 'P61A') return 'p61'
   if (tag(0) === 'FC14') return 'fc14'
   if (tag(0) === 'SMOD') return 'fc13'
+  if (tag(0) === 'DIGI') return 'digi'
   // SoundFX 1.3's magic sits at 60, behind the fifteen sample lengths, and is
   // the only thing DME_SoundFX1.3.library checks
   if (d.length > 0x294 && tag(0x3c) === 'SONG') return 'sfx'
@@ -95,6 +98,18 @@ export function renderModule(
     for (let f = 0; f < frames; f++) {
       fc.tick()
       mix.runTo((f + 1) / VBL_HZ)
+    }
+  } else if (engine === 'digi') {
+    const song = parseDigi(data)
+    if (!song) throw new Error('not a DigiBooster 1.x module')
+    const dp = new DigiPlayer(() => mix)
+    dp.load(song)
+    // the CIA rate is the module's own, and `Fxx` above $1f moves it
+    let t = 0
+    while (t < opts.seconds) {
+      dp.tick()
+      t += 1 / dp.tickHz
+      mix.runTo(t)
     }
   } else if (engine === 'fc13') {
     const song = parseFc13(data)
@@ -212,7 +227,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const files = args.filter((a) => !a.startsWith('--') && !flags.has(a))
   const [file, out] = files
   if (!file || !out) {
-    console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|fc13|track|medext]')
+    console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|fc13|digi|track|medext]')
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('       renderaudio <module.p61> - --to-mod out.mod')
     process.exit(1)
