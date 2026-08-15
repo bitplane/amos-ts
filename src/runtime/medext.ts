@@ -293,7 +293,9 @@ function newPlayer(rt: Runtime): MedPlayer {
     get audio() {
       return rt.audio
     },
-    tick: () => rt.interp.tick,
+    // rt.frames, not interp.tick: `Timer = 0` is an ordinary statement and the
+    // CIA clock cannot be allowed to run backwards when a game uses it
+    tick: () => rt.frames,
     getBank: () => (st.module ? bank : null),
   })
 }

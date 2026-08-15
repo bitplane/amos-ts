@@ -522,6 +522,19 @@ export class Runtime {
   amalErrPos = 0
   // ---- audio ----
   audio: AudioSink = new NullAudio()
+  /**
+   * Vertical blanks since this Runtime started, and NOT `interp.tick`.
+   *
+   * `Timer = 0` is an ordinary AMOS statement and `builtins.ts` implements it
+   * as `it.tick = it.evalInt()`, so the program-visible timer runs backwards
+   * whenever a game resets it — which is most games, most seconds. Anything
+   * using it as a CLOCK stops dead at that point: the audio sink refuses a
+   * time it has already passed, and MED's CIA never fires again.
+   *
+   * This one only ever counts up. `interp.tick` stays what it was, because
+   * `Wait` and `=Timer` are supposed to see what the program wrote.
+   */
+  frames = 0
   samBankNum = 5
   /** per-voice default volume (EnvDVol); MusDef sets 56 (+Music.s:918) */
   voices = [{ volume: 56 }, { volume: 56 }, { volume: 56 }, { volume: 56 }]
@@ -548,7 +561,7 @@ export class Runtime {
       get musicVolume() {
         return rt.musicVolume
       },
-      tick: () => rt.interp.tick,
+      tick: () => rt.frames,
       beam: () => rt.interp.beamWord(),
       musicBank: () => {
         const b = rt.memBanks.get(3)
@@ -4379,6 +4392,7 @@ export class Runtime {
    */
   frame(): RunResult {
     this.interp.tick++
+    this.frames++
     // MusInt is the first VBL routine (Mus_Cold +Music.s:848)
     this.music.vbl()
     // MED 7.1 drives its own copy of the replayer, off its own module rather
@@ -4457,7 +4471,7 @@ export class Runtime {
     // beside the replayers because the interpreter has just run, and a program
     // calling Sam Play or Volume writes Paula from inside the frame, not
     // before it. See AudioSink.runTo.
-    this.audio.runTo?.(this.interp.tick / VBL_HZ)
+    this.audio.runTo?.(this.frames / VBL_HZ)
     return result
   }
 

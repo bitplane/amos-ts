@@ -124,6 +124,7 @@ class AmosMixer extends AudioWorkletProcessor {
     this.at = 0
     this.depth = 0
     this.since = 0
+    this.starved = 0
     this.port.onmessage = (e) => {
       const m = e.data
       if (m.pcm) {
@@ -133,7 +134,7 @@ class AmosMixer extends AudioWorkletProcessor {
       if (typeof m.trim === 'number') {
         while (this.depth > m.trim && this.blocks.length > 1) {
           const head = this.blocks.shift()
-          this.depth -= (head.length >> 1) - this.at
+          this.depth -= (head.length - this.at) >> 1
           this.at = 0
         }
       }
@@ -152,6 +153,7 @@ class AmosMixer extends AudioWorkletProcessor {
       if (head === undefined) {
         left[i] = 0
         right[i] = 0
+        this.starved++
         continue
       }
       left[i] = head[this.at] * this.gain
@@ -167,7 +169,7 @@ class AmosMixer extends AudioWorkletProcessor {
     // about every 50ms, so the estimate on the other side stays honest
     if (this.since >= 2048) {
       this.since = 0
-      this.port.postMessage({ depth: this.depth })
+      this.port.postMessage({ depth: this.depth, starved: this.starved })
     }
     return true
   }
@@ -193,6 +195,8 @@ export class MixerSink implements AudioSink {
   private queue: AudioQueue | null = null
   private fallback: WebAudioSink | null = null
   private starting = false
+  /** frames the device was handed silence for because the queue was empty */
+  private starved = 0
   /** the mixer's clock has not been put on the runtime's yet */
   private needsStart = false
 
@@ -223,8 +227,9 @@ export class MixerSink implements AudioSink {
       }
       const node = new AudioWorkletNode(ctx, 'amos-mixer', { numberOfInputs: 0, outputChannelCount: [2] })
       node.port.onmessage = (e: MessageEvent): void => {
-        const depth = (e.data as { depth?: number }).depth
-        if (typeof depth === 'number') this.queue?.report(depth)
+        const m = e.data as { depth?: number; starved?: number }
+        if (typeof m.depth === 'number') this.queue?.report(m.depth)
+        if (typeof m.starved === 'number') this.starved = m.starved
       }
       node.port.postMessage({ gain: MASTER_GAIN })
       node.connect(ctx.destination)
@@ -252,12 +257,23 @@ export class MixerSink implements AudioSink {
   }
 
   /** how deep the queue is running, for anyone who wants to show it */
-  get status(): { depth: number; dropped: number; trims: number; worklet: boolean } {
+  get status(): {
+    depth: number
+    dropped: number
+    trims: number
+    starved: number
+    worklet: boolean
+    starting: boolean
+  } {
     return {
       depth: this.queue?.depth ?? 0,
       dropped: this.queue?.dropped ?? 0,
       trims: this.queue?.trims ?? 0,
+      // counted where it happens, because a hole the queue caused and a hole
+      // the device starved for look identical from the speaker
+      starved: this.starved,
       worklet: this.node !== null,
+      starting: this.starting && this.node === null && this.fallback === null,
     }
   }
 
@@ -308,7 +324,11 @@ export class MixerSink implements AudioSink {
    */
   runTo(t: number): void {
     if (this.fallback || !this.mixer) return
-    if (this.needsStart) {
+    // A clock that goes BACKWARDS is a new machine, not an error: loading a
+    // program or resetting builds a fresh Runtime whose frame count starts at
+    // zero again. Rebasing keeps the sound; refusing every time it had already
+    // passed is silence from the reset onwards.
+    if (this.needsStart || t < this.mixer.time) {
       this.mixer.startAt(t)
       this.needsStart = false
       return
