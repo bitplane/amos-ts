@@ -430,9 +430,12 @@ Four things are knowingly short of that.
   the speed with `beq` and the mt_ family with `bcs`; GameSupport, ptreplay and
   Music Omega have been read and agree with the mt_ default, and AMCAF's own
   replayer has never been disassembled.
-- **The browser does not use the mixer yet.** `web/audio.ts` still schedules a
-  buffer source per voice, so a waveform swapped mid-note restarts it. See the
-  note on `AudioSink.setWaveform`.
+- **The browser's worklet is untested.** `web/mixersink.ts` renders through
+  `PaulaMixer` and feeds an AudioWorklet, and there is no browser in this repo
+  to run it in. The queue policy that decides what to send, drop and trim is
+  covered; the thirty-line processor is not, which is why it holds a queue and
+  a cursor and no decisions. It falls back to the old buffer-source sink when
+  the worklet will not start.
 
 Smaller ones: `resource$` reads the interpreter-config messages, still a
 transcription and sparse where the original is (the editor tables below −1001

@@ -129,8 +129,14 @@ export class PaulaMixer implements AudioSink {
   filter: boolean
   /** seconds rendered so far, which is what `runTo` runs to */
   time = 0
-  /** frames rendered so far; `time * rate` without the rounding */
+  /** frames rendered so far, counting from wherever `startAt` put the clock */
   frames = 0
+  /**
+   * Where the clock was started, in FRAMES rather than seconds: subtracting
+   * two nearby times before the multiply is what loses the sample. At 600
+   * seconds, `(600.02 - 600) * 44100` is 881.99999 and floors to 881.
+   */
+  private originFrames = 0
 
   private readonly onBlock: ((stereo: Float32Array) => void) | undefined
   private readonly lp: FilterState
@@ -167,10 +173,23 @@ export class PaulaMixer implements AudioSink {
     // against the absolute clock, not against the last call. Summing 587
     // deltas of 1/587 lands a whole frame short at 44100, because each one is
     // a binary fraction that is not quite what it says.
-    const n = Math.floor(t * this.rate) - this.frames
+    const n = Math.floor(t * this.rate) - this.originFrames - this.frames
     if (n <= 0) return
     const block = this.render(n)
     this.onBlock?.(block)
+  }
+
+  /**
+   * Put the clock at `t` without rendering the gap.
+   *
+   * A browser has no audio device until the first user gesture, and a program
+   * can have been running for minutes by then. Without this the first `runTo`
+   * after the device appears asks for every sample since the program started.
+   */
+  startAt(t: number): void {
+    this.originFrames = Math.floor(t * this.rate)
+    this.time = t
+    this.frames = 0
   }
 
   /**

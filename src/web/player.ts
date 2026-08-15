@@ -50,6 +50,7 @@ import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { systemClock } from '../amiga/host'
 import { Machine, type ResetKind } from '../amiga/machine'
 import { WebAudioSink } from './audio'
+import { MixerSink } from './mixersink'
 import { WebSerialHost, available as serialAvailable } from './serial'
 
 /** the release this player was built from; 'dev' outside a release build */
@@ -118,6 +119,16 @@ export interface PlayerOptions {
    * does not, so it asks.
    */
   joystick?: { port1?: JoyKeys; port0?: JoyKeys }
+  /**
+   * Take the old buffer-source sink instead of rendering through `PaulaMixer`.
+   *
+   * An escape hatch, not a preference: the mixer is the faithful one, and it
+   * already falls back on its own when the AudioWorklet will not start. This
+   * is for the case where the worklet starts and is WORSE than a fallback —
+   * an underrunning device, a browser whose Blob URLs are blocked by a policy
+   * that does not throw. Nothing in this repo sets it.
+   */
+  bufferSourceAudio?: boolean
   /** run as soon as a program is loaded, rather than showing the start overlay */
   autoplay?: boolean
   /** text for the start overlay */
@@ -207,7 +218,11 @@ export function pickProgram(paths: string[], run?: string): { path?: string; amb
 
 export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): Player {
   const table = new TokenTable(CORE_TOKENS)
-  const audio = new WebAudioSink()
+  // PaulaMixer through an AudioWorklet, which is the only way a waveform
+  // swapped mid-note and a register write partway through a frame survive to
+  // the speaker. `MixerSink` falls back to `WebAudioSink` on its own if the
+  // worklet will not start, so nothing here has to choose. See mixersink.ts.
+  const audio = opts.bufferSourceAudio === true ? new WebAudioSink() : new MixerSink()
   // one per player. Constructing it is free and prompts nothing — it only
   // collects the ports the user has already granted to this origin.
   const serialHost = new WebSerialHost()
