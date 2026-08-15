@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DIGI_BANK_NAME, DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -823,5 +823,108 @@ describe('the DigiBooster 1.x block', () => {
   it('Db Stop leaves the replay silent', () => {
     const { rt } = run([DLOAD, 'Db Play 7', 'Db Stop'], DIGI)
     expect(rt.dme.digiPlaying).toBe(false)
+  })
+})
+
+/**
+ * The MED block, which is the one external player that needed no new engine:
+ * `DME_Med.library` is medplayer.library behind DOOM's veneer, and #121 read
+ * medplayer.library itself.
+ */
+const MMD_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0x400)
+  for (const [i, c] of [...'MMD0'].entries()) out[i] = c.charCodeAt(0)
+  out[0x33] = 2 // extra_songs
+  out[0x22f] = 9 // the sequence length MMD0 and MMD1 keep here
+  return out
+})()
+
+const MMD = { 'a.med': MMD_MOD }
+const MLOAD = 'Dmed Load "Work:a.med",7'
+
+describe('the MED block', () => {
+  it('Dmed Load reserves a DATA bank named "Med     ", and the only FAST one', () => {
+    const { rt } = run([MLOAD], MMD)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(DMED_BANK_NAME)
+    // `moveq #$1,d1` at $64ea: Bnk_BitData with no Bnk_BitChip, where the
+    // other eight loaders in this extension all pass 3
+    expect(b.flags).toBe(1)
+    expect(b.memType).toBe(0)
+    const wrong = MMD_MOD.slice()
+    wrong[2] = 0x58
+    expect(() => run([MLOAD], { 'a.med': wrong })).toThrow(DME_ERRORS[7])
+  })
+
+  it('Dmed Play checks the bank NAME, not the module', () => {
+    expect(() => run(['Reserve As Chip Work 7,1024', 'Dmed Play 7'], {})).toThrow(DME_ERRORS[7])
+    expect(() => run([MLOAD, 'Dmed Play 7'], MMD)).not.toThrow()
+  })
+
+  it('=Dmed Song Length reads $22f, and $5d instead when the tag is MMD2', () => {
+    // routine 212 ($6794): `cmpi.l #$4d4d4432,(a2)` picks the field
+    run([MLOAD, 'Print Dmed Song Length(7)'], MMD)
+    expect(out()).toEqual(['9'])
+    const mmd2 = MMD_MOD.slice()
+    mmd2[3] = '2'.charCodeAt(0)
+    mmd2[0x5d] = 5
+    run(['Dmed Load "Work:b.med",7', 'Print Dmed Song Length(7)'], { 'b.med': mmd2 })
+    expect(out()).toEqual(['5'])
+  })
+
+  it('=Dmed Subsongs is the extra_songs byte at $33', () => {
+    run([MLOAD, 'Print Dmed Subsongs(7)'], MMD)
+    expect(out()).toEqual(['2'])
+  })
+
+  it('=Dmed Song Pos and =Dmed Patt Pos answer zero until something has played', () => {
+    run(['Print Dmed Song Pos', 'Print Dmed Patt Pos'], {})
+    expect(out()).toEqual(['0', '0'])
+  })
+
+  it('Dmed Volume takes 0..64 and lands on the player, not the module', () => {
+    expect(() => run([MLOAD, 'Dmed Volume 65'], MMD)).toThrow()
+    const { rt } = run([MLOAD, 'Dmed Play 7', 'Dmed Volume 20'], MMD)
+    expect(rt.dme.dmed!.masterVolume).toBe(20)
+  })
+
+  it('Dmed Next Patt and Dmed Prev Patt raise message 52 when nothing is playing', () => {
+    expect(() => run(['Dmed Next Patt'], {})).toThrow(DME_ERRORS[52])
+    expect(() => run(['Dmed Prev Patt'], {})).toThrow(DME_ERRORS[52])
+  })
+
+  it('=Dmed Vu refuses a channel outside 0..3 and reads-and-clears inside it', () => {
+    expect(() => run([MLOAD, 'Dmed Play 7', 'Print Dmed Vu(4)'], MMD)).toThrow()
+    const { rt } = run([MLOAD, 'Dmed Play 7'], MMD)
+    rt.dme.dmedVu[1] = 40
+    run([MLOAD, 'Dmed Play 7', 'Print Dmed Vu(1)'], MMD)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Dmed Stop and Dmed Cont turn the one flag the veneer keeps', () => {
+    const { rt } = run([MLOAD, 'Dmed Play 7', 'Dmed Stop'], MMD)
+    expect(rt.dme.dmedPlaying).toBe(false)
+    const back = run([MLOAD, 'Dmed Play 7', 'Dmed Stop', 'Dmed Cont'], MMD)
+    expect(back.rt.dme.dmedPlaying).toBe(true)
+  })
+})
+
+describe('what every DME loader asks Bnk_Reserve for', () => {
+  it('reserves a DATA bank in CHIP, because `moveq #$3,d1` is both bits', () => {
+    // Bnk_BitData is bit 0 and Bnk_BitChip bit 1 (banks.ts, out of +Equ.s), so
+    // a module bank survives `Erase Temp` and the DMA can reach it. Every one
+    // of these said Work and fast until the MED loader's `moveq #$1,d1` was
+    // read beside them
+    const cases: [string, Record<string, Uint8Array>][] = [
+      [SLOAD, SFX],
+      [FLOAD, FC14],
+      [TLOAD, FC13],
+      [DLOAD, DIGI],
+    ]
+    for (const [load, files] of cases) {
+      const { rt } = run([load], files)
+      const b = rt.memBanks.get(Number(load.slice(load.lastIndexOf(',') + 1)))!
+      expect([load, b.flags, b.memType]).toEqual([load, 1, 1])
+    }
   })
 })

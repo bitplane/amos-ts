@@ -2626,6 +2626,21 @@ export const FAITHFUL = new Set<string>([
   'db song pos',
   'db patt pos',
   'digi end',
+  // The MED block over ../runtime/med.ts, off DME_Med.library --- the one
+  // external player that needed no new engine, because #121 read
+  // medplayer.library itself. All twelve, `Dmed Play` included.
+  'dmed load',
+  'dmed play',
+  'dmed stop',
+  'dmed cont',
+  'dmed volume',
+  'dmed next patt',
+  'dmed prev patt',
+  'dmed song length',
+  'dmed subsongs',
+  'dmed song pos',
+  'dmed patt pos',
+  'dmed vu',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8321,6 +8336,36 @@ export const NOTES: Record<string, string> = {
   "digi end":
     "routine 120 ($5110) into LVO -78 ($2102dc), read and cleared, 255 for the same `move.b #$ff,d3` reason " +
     "the other four have. The keyword is spelt `Digi End` where every other one in the block is `Db`.",
+  "dmed load":
+    "routine 204 ($64be), the same nine steps with a CHIP bank named \"Med     \" ($65a2). The tag is not " +
+    "checked here at all: $6544 calls LVO -30 and then LVO -36, and a nonzero answer from the second erases " +
+    "the bank and raises message 0. This port checks MMD0 to MMD3 at offset zero instead, because the check " +
+    "lives inside the library and the library is medplayer.",
+  "dmed play":
+    "routine 207 ($6606) pushes $80000000 into routine 208, which opens DME_Med.library (routine 209, message " +
+    "50) and checks the bank name as \"Med \" and four spaces, then calls LVO -78 with the sub-song and LVO " +
+    "-48 with the module. THE ENGINE WAS ALREADY HERE: DME_Med.library is medplayer.library behind DOOM " +
+    "Productions' veneer, and src/runtime/med.ts was read out of medplayer.library itself for the Music " +
+    "extension. So this is the one external replayer in the extension that needed no new port --- the " +
+    "keywords are a shim over `MedPlayer`, and the two it wanted that AMOS's own MED keywords do not " +
+    "(a master volume and a sequence step) went in beside them.",
+  "dmed stop": "routine 206 ($65e6): the flag at $52(a0), then LVO -66.",
+  "dmed cont": "routine 211 ($6734): `tst.b $52(a0) / bne` and then LVO -72, so a second continue is a no-op.",
+  "dmed volume":
+    "routine 216 ($6852): 0..64 checked twice over, then LVO -84. `play` loads the master from the module's " +
+    "own byte at song+$312, so only a volume set AFTER the play sticks.",
+  "dmed next patt": "routine 217 ($6884) into LVO -90, and message 52 when nothing is playing. The line goes back to zero and the position wraps at the song length.",
+  "dmed prev patt": "routine 218 ($68aa) into LVO -96, the same guard the other way.",
+  "dmed song length":
+    "routine 212 ($6762) calls no vector, and reads a DIFFERENT BYTE depending on the tag: " +
+    "`cmpi.l #$4d4d4432,(a2)` sends MMD2 to $5d and MMD0, MMD1 and MMD3 to $22f.",
+  "dmed subsongs": "routine 213 ($67ca), the `extra_songs` byte at $33 of the MMD header, which is the field `=Med Get Sub Songs` reads in the MED 7.1 port.",
+  "dmed song pos":
+    "routine 214 ($6806), and it calls no vector either: it takes the bank's address and reads `pseqnum` at " +
+    "$2e, which medplayer.library writes back into the module's own header as it plays. Guarded by $54(a2), " +
+    "so 0 before the first `Dmed Play`.",
+  "dmed patt pos": "routine 215 ($682c), the same shape reading `pline` at $2c.",
+  "dmed vu": "routine 219 ($68d0), 0..3, into LVO -102, read and cleared. `MedPlayer` gained the `onVu` hook `Protracker` already had, because the vu bytes belong to the veneer rather than to the replayer.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

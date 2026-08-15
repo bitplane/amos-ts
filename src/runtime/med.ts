@@ -288,6 +288,16 @@ export interface MedHost {
 }
 
 export class MedPlayer {
+  /**
+   * Told the volume of every trigger, so a caller can keep vu bytes.
+   *
+   * `Protracker` has the same hook for the same reason: the vu meters belong
+   * to whoever wraps the replayer rather than to the replayer. AMOS's own
+   * `Vumeter` reads them, and so does `=Dmed Vu` through
+   * `DME_Med.library`'s veneer.
+   */
+  onVu: ((voice: number, volume: number) => void) | undefined
+
   private host: MedHost
   /** Med_Bank (+Music.s:2274): default 7 */
   bank = 7
@@ -449,6 +459,40 @@ export class MedPlayer {
     this.lineJump = this.loopLine = this.loopCount = this.lineDelay = 0
     this.voices = [0, 1, 2, 3].map(newVoice)
     this.on = true
+  }
+
+  /**
+   * The master volume, which `DME_Med.library` exposes at LVO -84 and AMOS's
+   * own Music extension does not.
+   *
+   * `play()` loads it from the module's own byte at song+$312, so setting it
+   * after a `play` is the only order that sticks --- which is what routine 216
+   * ($6852) does.
+   */
+  set masterVolume(v: number) {
+    this.mastervol = Math.max(0, Math.min(0x40, v))
+  }
+
+  get masterVolume(): number {
+    return this.mastervol
+  }
+
+  /**
+   * Step the sequence position, which is LVO -90 and -96 of
+   * `DME_Med.library`'s veneer.
+   *
+   * The line goes back to zero and the position wraps at the song length,
+   * which is what `advanceLine` does when a block runs out --- this is the
+   * same move without waiting for the block.
+   */
+  seek(delta: number): void {
+    if (!this.data) return
+    let pos = this.seqPos + delta
+    if (pos < 0) pos = Math.max(0, this.songlen - 1)
+    if (pos >= this.songlen) pos = 0
+    this.seqPos = pos
+    this.line = 0
+    this.tickCount = 0
   }
 
   /** InMedStop (+Music.s:4588) */
@@ -843,6 +887,7 @@ export class MedPlayer {
     V.outVol = V.vol
     V.sounding = true
     this.host.audio.play(v, pcm, periodToHz(V.period), V.vol, loopStart, loopEnd)
+    this.onVu?.(v, V.vol)
   }
 
   /**

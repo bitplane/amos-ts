@@ -14,11 +14,14 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four were the first batch, over engines this port already had. Four
- * of the external ones have followed, each read out of its own library in
- * `libs/`: `sfx13` over ../amiga/soundfx.ts, `fc14` over ../amiga/fc14.ts,
- * `fc13` over ../amiga/fc13.ts and `db` over ../amiga/digiplay.ts --- 12, 12,
- * 12 and 15 keywords. The other seven replayer libraries are #146.
+ * Those four were the first batch, over engines this port already had. Five
+ * of the external ones have followed: `sfx13` over ../amiga/soundfx.ts, `fc14`
+ * over ../amiga/fc14.ts, `fc13` over ../amiga/fc13.ts and `db` over
+ * ../amiga/digiplay.ts, each read out of its own library in `libs/`, and then
+ * `dmed` --- which needed no new engine at all, because `DME_Med.library` is
+ * medplayer.library behind the same veneer and ../runtime/med.ts was read out
+ * of medplayer.library itself for the Music extension. 12, 12, 12, 15 and 12
+ * keywords. The other six replayer libraries are #146.
  *
  * ## Evidence
  *
@@ -90,6 +93,7 @@ import { FC13_MAGIC, FC13_STEP_BYTES, Fc13, parseFc13 } from '../amiga/fc13'
 import { DIGI_MAGIC, parseDigi } from '../amiga/digi'
 import { DigiPlayer } from '../amiga/digiplay'
 import { VBL_HZ } from '../amiga/paula'
+import { MedPlayer } from './med'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -131,6 +135,26 @@ export const FC14_BANK_NAME = 'FC1.4   '
 export const FC13_BANK_NAME = 'FC1.3   '
 /** the bank `Db Load` reserves ($4e02), tested as "Digi" and "Mod " ($4e94) */
 export const DIGI_BANK_NAME = 'DigiMod '
+/** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
+export const DMED_BANK_NAME = 'Med     '
+/** `cmpi.l #$4d4d4432,(a2)` at $6794: MMD2 keeps its sequence count elsewhere */
+export const MMD2_TAG = 'MMD2'
+/** MMD0 and MMD1 count their sequence at $22f, MMD2 at $5d */
+export const DMED_SEQLEN_AT = 0x22f
+export const MMD2_SEQLEN_AT = 0x5d
+
+/**
+ * What every `* Load` in this extension asks `L_Bnk_Reserve` for.
+ *
+ * `moveq #$3,d1` --- Bnk_BitData and Bnk_BitChip together (banks.ts, out of
+ * +Equ.s) --- on eight of the nine loaders, so a module bank is a DATA bank in
+ * CHIP ram: it survives `Erase Temp` and the DMA can reach it. Only `Dmed
+ * Load` differs, with `moveq #$1,d1` at $64ea and no chip bit, because
+ * medplayer.library relocates the module into chip itself.
+ *
+ * All eight said Work and fast here until DigiBooster's neighbour was read.
+ */
+export const DME_BANK_FLAGS = { data: true, chip: true }
 
 /**
  * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
@@ -256,6 +280,21 @@ export interface DmeState {
   fc14Playing: boolean
   fc14Started: boolean
 
+  /**
+   * MED, the fifth --- and the only one whose engine this port already had.
+   *
+   * `DME_Med.library` is medplayer.library behind DOOM's veneer, and #121 read
+   * medplayer.library itself for the Music extension. So `dmed *` is a shim
+   * over `MedPlayer` rather than another replayer.
+   */
+  dmed: MedPlayer | null
+  /** `$48(a2)`, `$52(a2)` and `$54(a2)`: the bank, playing, and ever-played */
+  dmedBank: number
+  dmedPlaying: boolean
+  dmedStarted: boolean
+  /** the four vu bytes the veneer keeps, read and cleared */
+  dmedVu: Uint8Array
+
   /** the DigiBooster 1.x replay, the fourth of the eleven */
   digi: DigiPlayer
   /** `$a2(a2)`, `$ac(a2)`, `$ad(a2)` and `$ae(a2)`: bank, playing, unpaused, started */
@@ -306,6 +345,11 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc14Bank: 0,
     fc14Playing: false,
     fc14Started: false,
+    dmed: null,
+    dmedBank: 0,
+    dmedPlaying: false,
+    dmedStarted: false,
+    dmedVu: new Uint8Array(4),
     digi: new DigiPlayer(() => rt?.host.audio),
     digiBank: 0,
     digiPlaying: false,
@@ -328,6 +372,30 @@ export function newDmeState(rt?: Runtime): DmeState {
     if (voice >= 0 && voice < 4) st.p61Vu[voice] = volume & 0xff
   }
   return st
+}
+
+/**
+ * The `MedPlayer` the `dmed` block drives, made on first use.
+ *
+ * It reads the module out of the bank `Dmed Load` filled, which is what makes
+ * `MedCheck` mean the right thing: freeing or replacing that bank stops the
+ * replay, exactly as it does for AMOS's own `Med Play` off bank 3.
+ */
+function medFor(rt: Runtime, s: DmeState): MedPlayer {
+  if (s.dmed) return s.dmed
+  const player = new MedPlayer({
+    get audio() {
+      return rt.audio
+    },
+    tick: () => rt.frames,
+    getBank: () => rt.memBanks.get(s.dmedBank) ?? null,
+  })
+  player.onVu = (voice, volume) => {
+    if (voice >= 0 && voice < 4) s.dmedVu[voice] = volume & 0xff
+  }
+  player.bank = s.dmedBank
+  s.dmed = player
+  return player
 }
 
 /** routine 92 ($4c86): `moveq #$17,d0 / Rjmp L_Error` */
@@ -386,7 +454,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.ptmBank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, PTM_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, PTM_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       const tag = String.fromCharCode(...data.subarray(PTM_TAG_AT, PTM_TAG_AT + 4))
@@ -526,7 +594,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.thxBank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, THX_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, THX_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       const tag = String.fromCharCode(...data.subarray(0, 4))
@@ -647,7 +715,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.p61Bank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, P61_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, P61_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       if (!parseP61(data)) {
@@ -892,7 +960,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.sfxBank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, SFX_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, SFX_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       if (String.fromCharCode(...data.subarray(SFX_MAGIC_AT, SFX_MAGIC_AT + 4)) !== SFX_MAGIC) {
@@ -1031,7 +1099,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.fc14Bank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, FC14_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, FC14_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       if (String.fromCharCode(...data.subarray(0, 4)) !== FC14_MAGIC) {
@@ -1132,7 +1200,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.fc13Bank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, FC13_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, FC13_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       if (String.fromCharCode(...data.subarray(0, 4)) !== FC13_MAGIC) {
@@ -1229,7 +1297,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
       s.digiBank = bank
       const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
-      rt.reserveBank(bank, size, DIGI_BANK_NAME, false, false)
+      rt.reserveBank(bank, size, DIGI_BANK_NAME, true, true)
       const data = rt.memBanks.get(bank)!.data
       data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
       if (String.fromCharCode(...data.subarray(0, 4)) !== DIGI_MAGIC) {
@@ -1354,6 +1422,100 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       const s = st()
       if (!s.digiPlaying) dmeErr(57)
       s.digi.prevPattern()
+    },
+
+    /**
+     * Dmed Load file$, bank --- routine 204 ($64be), the bank named "Med     "
+     * ($65a2) and CHIP, and the tag checked by the LIBRARY rather than here:
+     * $6544 calls LVO -30 and then -36, and a nonzero answer from the second
+     * erases the bank and raises message 0.
+     */
+    'dmed load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.dmedBank && s.dmedPlaying) {
+        s.dmedPlaying = false
+        s.dmed?.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.dmedBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, DMED_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (!/^MMD[0-3]$/.test(String.fromCharCode(...data.subarray(0, 4)))) {
+        rt.eraseBank(bank)
+        dmeErr(7)
+      }
+    },
+
+    /**
+     * Dmed Play bank --- routine 207 ($6606) pushing $80000000 into routine
+     * 208, which checks the bank NAME ("Med " and four spaces at -$8 and -$4)
+     * and then calls LVO -78 with the sub-song in d0 and LVO -48 with the
+     * module.
+     *
+     * The engine is `MedPlayer`, read out of medplayer.library itself for the
+     * Music extension (#121). `DME_Med.library` is that replayer behind DOOM's
+     * veneer, so this is the one external player that needed no new engine.
+     */
+    'dmed play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.dmedPlaying = false
+      s.dmed?.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.dmedBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== DMED_BANK_NAME) dmeErr(7)
+      s.dmedBank = bank
+      const player = medFor(rt, s)
+      player.play(0, 0)
+      s.dmedPlaying = true
+      s.dmedStarted = true
+    },
+
+    /** Dmed Stop --- routine 206 ($65e6): the flag at $52(a0), then LVO -66 */
+    'dmed stop'() {
+      const s = st()
+      if (!s.dmedPlaying) return
+      s.dmedPlaying = false
+      s.dmed?.stop()
+    },
+
+    /** Dmed Cont --- routine 211 ($6734): `tst.b $52(a0) / bne`, then LVO -72 */
+    'dmed cont'() {
+      const s = st()
+      if (s.dmedPlaying) return
+      if (!s.dmedStarted) return
+      s.dmedPlaying = true
+      s.dmed?.cont()
+    },
+
+    /** Dmed Volume n --- routine 216 ($6852): 0..64, then LVO -84 */
+    'dmed volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      const s = st()
+      medFor(rt, s).masterVolume = v
+    },
+
+    /**
+     * Dmed Next Patt / Dmed Prev Patt --- routines 217 ($6884) and 218
+     * ($68aa), message 52 when nothing is playing, into LVO -90 and -96.
+     */
+    'dmed next patt'() {
+      const s = st()
+      if (!s.dmedPlaying) dmeErr(52)
+      medFor(rt, s).seek(1)
+    },
+    'dmed prev patt'() {
+      const s = st()
+      if (!s.dmedPlaying) dmeErr(52)
+      medFor(rt, s).seek(-1)
     },
   }
 }
@@ -1638,6 +1800,48 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
      * The keyword is spelt `Digi End` and every other one in the block `Db`.
      */
     'digi end': () => VI(st().digi.readEnd() ? 0xff : 0),
+
+    /**
+     * =Dmed Song Length(bank) — routine 212 ($6762), which calls no vector and
+     * reads a DIFFERENT BYTE depending on the tag: `cmpi.l #$4d4d4432,(a2)`
+     * sends MMD2 to $5d and everything else to $22f.
+     */
+    'dmed song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== DMED_BANK_NAME) dmeErr(7)
+      const d = bank!.data
+      const mmd2 = String.fromCharCode(...d.subarray(0, 4)) === MMD2_TAG
+      return VI(d[mmd2 ? MMD2_SEQLEN_AT : DMED_SEQLEN_AT] ?? 0)
+    },
+
+    /** =Dmed Subsongs(bank) — routine 213 ($67ca), the `extra_songs` byte at $33 */
+    'dmed subsongs': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== DMED_BANK_NAME) dmeErr(7)
+      return VI(bank!.data[0x33] ?? 0)
+    },
+
+    /**
+     * =Dmed Song Pos and =Dmed Patt Pos — routines 214 ($6806) and 215
+     * ($682c), and NEITHER calls a vector: both take the bank's address and
+     * read the module's own header, `pseqnum` at $2e and `pline` at $2c, which
+     * medplayer.library writes back as it plays. Guarded by $54(a2), so both
+     * answer zero before the first `Dmed Play`.
+     */
+    'dmed song pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPseqnum ?? 0) : 0),
+    'dmed patt pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPline ?? 0) : 0),
+
+    /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
+    'dmed vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 4) badCall()
+      const s = st()
+      const v = s.dmedVu[n] ?? 0
+      s.dmedVu[n] = 0
+      return VI(v)
+    },
   }
 }
 
@@ -1665,6 +1869,8 @@ export function dmeVbl(rt: Runtime): void {
   if (s.fc13Playing) s.fc13.tick()
   // DigiBooster's CIA rate is the module's own and `Fxx` above $1f moves it,
   // so its ticks are counted against the frame rather than one to a frame
+  // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
+  if (s.dmedPlaying) s.dmed?.vbl()
   if (s.digiPlaying && s.digiUnpaused) {
     s.digiTime += 1 / VBL_HZ
     for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {
