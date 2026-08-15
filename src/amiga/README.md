@@ -127,6 +127,7 @@ really does differ from the real one and saying where is the whole job.
 | `fc14.ts` | FutureComposer 1.4: the sequences, the envelopes and the wavetable |
 | `fc13.ts` | FutureComposer 1.0-1.3: the same machine one revision earlier, over waveforms it does not carry |
 | `digi.ts` | the DigiBooster 1.x module format: the packed patterns and the chained samples |
+| `digimix.ts` | DigiBooster's mixer: two channels into one Paula voice, at the first one's rate |
 | `fc13waves.ts` | FutureComposer 1.0-1.3's 47 built-in waveforms, generated rather than shipped |
 | `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `thxplay.ts` | the THX replay: the song, the envelopes, the playlists, the voices |
