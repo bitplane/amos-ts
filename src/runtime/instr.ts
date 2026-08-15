@@ -5831,6 +5831,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeDmeInstructions,
     functions: makeDmeFunctions,
     errors: DME_ERRORS,
+    // Ten names DME shares with two extensions that were ported first, and
+    // not one of them at a shared id --- which is what put DME on versweep's
+    // `renumbered` list. THX 0.6 (slot 20) and P61 1.2 keep the bare keys
+    // because they got here first; DME answers under its own slot.
+    qualified: [
+      'thx play',
+      'thx stop',
+      'thx load',
+      'thx volume',
+      'thx subsongs',
+      'thx end',
+      'p61 play',
+      'p61 stop',
+      'p61 pause',
+      'p61 volume',
+    ],
   },
   {
     // SymBase 0.94 and DBench 0.42 at slot 21 --- Lazar Zoltan's xBase engine,

@@ -61,7 +61,7 @@ is.
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       41 |            4 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
-| dme-2.0              |      184 |       13 |            1 |     169 |       8% |
+| dme-2.0              |      184 |       38 |            5 |     140 |      23% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
 | dump-1.0             |        8 |        7 |            1 |       0 |     100% |
 | easylife-1.0         |       72 |       71 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4698 |          157 |    2504 |      66% |
+| **total**            |     7422 |     4723 |          161 |    2475 |      66% |
 
 ## Not applicable, by what would retire it
 
@@ -258,9 +258,9 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (2): `dlmergedisplay`, `dlscreenoffset`
 
-## dme-2.0 (8%)
+## dme-2.0 (23%)
 
-- **approximated** (1): `ptm cia speed`
+- **approximated** (5): `dme sam freq`, `dme sam play`, `ptm cia speed`, `thx cont`, `thx vu`
 - **n/a** (1): `nop`
 
 ## dump-1.0 (100%)

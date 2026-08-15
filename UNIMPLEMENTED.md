@@ -71,7 +71,7 @@ so the evidence is there and the row is simply not begun:
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 169 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. The ProTracker block has landed and `thx`, `p61` and `dme sam` have not; the eleven `libs/` replayers are a project of their own |
+| DME 2.0 (`dme-2.0`) | 140 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. ALL FOUR HAVE LANDED — ProTracker, THX, Player 6.1A and the sampler — and what is left is the eleven `libs/` replayers, which are a project of their own |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:

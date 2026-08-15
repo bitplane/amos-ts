@@ -76,6 +76,9 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { AmosError, VI } from '../interp/values'
 import { Protracker, parseMod } from '../amiga/protracker'
+import { ThxPlayer } from '../amiga/thxplay'
+import { thxParse } from '../amiga/thx'
+import { parseP61, p61Song } from '../amiga/p61'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -96,16 +99,94 @@ export const PTM_TAG_AT = 0x438
 /** the song length byte `=Ptm Song Length` reads straight out of the bank */
 export const PTM_SONG_LENGTH_AT = 0x3b6
 
+/** `cmpi.l #$54485800` / `#$54485801` at $5fc0: `THX` and a version byte */
+export const THX_TAGS = ['THX\x00', 'THX\x01']
+/** the bank `Thx Load` reserves ($5fe8), and `=Thx Subsongs` checks for */
+export const THX_BANK_NAME = 'THX     '
+/** `move.b $d(a2),d3` at $6142 --- the sub-song count, out of the module */
+export const THX_SUBSONGS_AT = 0x0d
+/** the bank `P61 Load` reserves ($75cc) */
+export const P61_BANK_NAME = 'P61     '
+/** the sample bank `Dme Sam Play` reads: `cmp.l #$53616d70` at $40c8 */
+export const SAM_BANK_MAGIC = 'Samp'
+/** `cmp.w #$190` and `#$7530` at $3fd8 and $4140 --- 400 Hz to 30,000 Hz */
+export const SAM_MIN_HZ = 0x190
+export const SAM_MAX_HZ = 0x7530
+
 /**
- * Routine 301's message table at $ac90, which `L_ErrorExt` is entered with
- * `d1 = 0` and `d2 = $e` — 14, the slot zero-based, so every one is
- * trappable.
+ * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
+ * `d0` is the INDEX into it. `lea $ac90(pc),a0 / moveq #$0,d1 / moveq #$0,d3 /
+ * moveq #$e,d2 / Rjmp L_ErrorExt`, so d2 is 14 (the slot zero-based) and d1 is
+ * 0, which makes every one trappable.
  *
- * Only the first is reachable from this batch: `Ptm Load` raises it for a tag
- * it does not know, and `Ptm Play` and `=Ptm Song Length` raise it for a bank
- * that is not a "Tracker " one.
+ * The whole table is here because the indices are what the routines cite:
+ * `Ptm Load` is `moveq #$11,d0` (17), `Thx Subsongs` is `#$17` (23), the
+ * sampler is `#$3a` and `#$3b` (58 and 59). Fifty of the sixty belong to the
+ * eleven external libraries and are #146's; they are kept so a later batch
+ * does not have to renumber anything.
  */
-export const DME_ERRORS = ['Not a 4 channel module']
+export const DME_ERRORS = [
+  'Not a 4 channel module', // 0
+  'FastMem required',
+  "Can't initialize DME_OctaMix.library",
+  "Can't load DME_OctaMix.library V2.0 or higher",
+  "Can't initialize DME_OctaMed.library",
+  "Can't load DME_OctaMed.library V2.0 or higher",
+  'Not a Octamix module',
+  'Not a Med module',
+  'Not a Octamed module',
+  'Not a 5-8 channel module',
+  'Not a 1-64 channel mixing module', // 10
+  "Can't initialize DME_Med.library",
+  "Can't load DME_Med.library V2.0 or higher",
+  'Not a PlaySid module',
+  "Can't initialize playsid.library",
+  "Can't load playsid.library",
+  'No PlaySid module initialized',
+  'Not a Protracker module', // 17
+  "Can't found free CIA-Timer",
+  "Can't initialize HQ mode",
+  "Can't initialize 14 Bit mode", // 20
+  "Can't initialize mixing frequency",
+  "Can't initialize mix-buffer",
+  'Not a Thx module', // 23
+  'No Thx module initialized', // 24
+  'No Protracker module initialized', // 25
+  "Can't found free VBL-Timer",
+  'No ScreamTracker module initialized',
+  'Not a Player 6.1 module', // 28
+  'Not a converted TFMX V1.5 or TFMX Pro module',
+  "Can't load DME_TFMX.library", // 30
+  'No TFMX V1.5 or TFMX Pro module initialized',
+  'No FutureComposer V1.0-1.3 module initialized',
+  'Not a ScreamTracker module',
+  "Can't load DME_ScreamTracker.library V2.0 or higher",
+  'Not a FutureComposer V1.0-1.3 module',
+  "Can't load DME_FC1.3.library V2.0 or higher",
+  'Not a FutureComposer V1.4 module',
+  "Can't load DME_FC1.4.library V2.0 or higher",
+  'Not a SoundMon V2.0 module',
+  "Can't load DME_SoundMon2.0.library V2.0 or higher", // 40
+  'No SoundFX V1.3 module initialized',
+  'Not a SoundFX V1.3 module',
+  "Can't load DME_SoundFX1.3.library V2.0 or higher",
+  'Not a FastTracker module',
+  "Can't load DME_FastTracker.library",
+  'No FastTracker module initialized',
+  'No FutureComposer V1.4 module initialized',
+  'No SoundMon V2.0 module initialized',
+  'Not a DigiBooster V1.x module',
+  "Can't load DME_DigiBooster.library V2.0 or higher", // 50
+  "Can't initialize DigiBooster mix mode",
+  'No Med module initialized',
+  'No OctaMed module initialized',
+  'No OctaMix module initialized',
+  'No FastTracker module initialized',
+  'Wrong THX Cia speed',
+  'No DigiBooster V1.x module initialized',
+  'Sample not defined', // 58
+  'Sample bank not found', // 59
+]
 
 export interface DmeState {
   /** the ProTracker replay, which routine 299 is 4,834 bytes of */
@@ -122,6 +203,27 @@ export interface DmeState {
   ptmEnd: boolean
   /** the voice mask `Ptm Voice` writes, and DMACON with it */
   ptmVoices: number
+
+  /** the THX replay; its flag is at data+$00 and its bank at data+$06 */
+  thx: ThxPlayer
+  thxBank: number
+  thxPlaying: boolean
+  /** whether `Thx Play` has ever put a module in the replay */
+  thxLoaded: boolean
+
+  /** P61 plays through a second Protracker, as ../amiga/p61.ts converts it */
+  p61: Protracker
+  /** data+$38, data+$3a and data+$3c */
+  p61Bank: number
+  p61Playing: boolean
+  p61Paused: boolean
+  /** data+$42, the has-ever-played byte `=P61 Song Pos` is guarded by */
+  p61Started: boolean
+  p61Vu: Uint8Array
+
+  /** data+$12c, data+$12a: the sampler's bank and volume */
+  samBank: number
+  samVolume: number
 }
 
 export function newDmeState(rt?: Runtime): DmeState {
@@ -134,11 +236,26 @@ export function newDmeState(rt?: Runtime): DmeState {
     ptmVu: new Uint8Array(4),
     ptmEnd: false,
     ptmVoices: 0b1111,
+    thx: new ThxPlayer(() => rt?.host.audio),
+    thxBank: 0,
+    thxPlaying: false,
+    thxLoaded: false,
+    p61: new Protracker(() => rt?.host.audio),
+    p61Bank: 0,
+    p61Playing: false,
+    p61Paused: false,
+    p61Started: false,
+    p61Vu: new Uint8Array(4),
+    samBank: 0,
+    samVolume: 0x40,
   }
   // the vu bytes at `$a(a0)` are the replayer's own, written per trigger and
   // cleared by the reader --- the same read-and-clear AMOS's `Vumeter` has
   ptm.onVu = (voice, volume) => {
     if (voice >= 0 && voice < 4) st.ptmVu[voice] = volume & 0xff
+  }
+  st.p61.onVu = (voice, volume) => {
+    if (voice >= 0 && voice < 4) st.p61Vu[voice] = volume & 0xff
   }
   return st
 }
@@ -148,10 +265,12 @@ const badCall = (): never => {
   throw new AmosError('Illegal function call', 23)
 }
 
-/** routine 301 with `d0 = $11`, message 0 */
-const notAModule = (): never => {
-  throw new AmosError(DME_ERRORS[0]!)
+/** routine 301 with the index the caller puts in d0 */
+const dmeErr = (n: number): never => {
+  throw new AmosError(DME_ERRORS[n] ?? `DME error ${n}`)
 }
+/** `moveq #$11,d0` (17) --- `Ptm Load` at $787c and `Ptm Play` at $794c */
+const notAModule = (): never => dmeErr(17)
 
 /** the eight bytes before a bank's data are its name; `Ptm Play` reads them as two longs */
 function isTrackerBank(rt: Runtime, n: number): boolean {
@@ -313,6 +432,358 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       st().ptm.bpm = n
     },
 
+
+    /**
+     * Thx Load file$, bank — routine 187 ($5f56), and the same nine steps as
+     * `Ptm Load`: the bank pops first, `cmp.l #$10000,d3`, the same
+     * even-plus-eight sizing, and a tag test at the end.
+     *
+     * The tag is at offset ZERO rather than $438 and it is two values,
+     * `THX\0` and `THX\1` (`cmpi.l #$54485800` / `#$54485801`), so the version
+     * byte is part of what is compared. The bank is named "THX     ".
+     */
+    'thx load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.thxBank && s.thxPlaying) {
+        s.thxPlaying = false
+        s.thx.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.thxBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, THX_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const tag = String.fromCharCode(...data.subarray(0, 4))
+      if (!THX_TAGS.includes(tag)) {
+        rt.eraseBank(bank)
+        dmeErr(23)
+      }
+    },
+
+    /**
+     * Thx Play bank — routine 190 ($6044), the same two instructions as
+     * `Ptm Play`: push `$80000000` and branch into the body.
+     */
+    'thx play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.thxPlaying = false
+      s.thx.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.thxBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== THX_BANK_NAME) dmeErr(23)
+      s.thx.load(thxParse(b!.data))
+      s.thxPlaying = true
+      s.thxLoaded = true
+    },
+
+    /**
+     * Thx Stop — routine 189 ($6024): `tst.w (a2)` on the flag at data+$00,
+     * then `jsr $14(a2)` into the replayer's own stop.
+     */
+    'thx stop'() {
+      const s = st()
+      if (!s.thxPlaying) return
+      s.thxPlaying = false
+      s.thx.stop()
+    },
+
+    /**
+     * Thx Cont — routine 197 ($6218), and it is NOT `Ptm Cont`.
+     *
+     * Where the ProTracker one puts a flag back and reinstalls an interrupt,
+     * this rewrites eight of the replayer's fields: `st.b $4(a6)` to start it,
+     * `clr.w $3aa` for the tick counter, `sf.b $3b0` for the break flag,
+     * `clr.w $446` and `$3b6` for the row, and then the position test at
+     * $6244 — if the current position equals the END position it sets the end
+     * byte and jumps back to the restart. So `Thx Cont` on a song that has
+     * finished starts it again rather than doing nothing.
+     */
+    'thx cont'() {
+      const s = st()
+      if (s.thxPlaying) return
+      if (!s.thxLoaded) return
+      s.thxPlaying = true
+      s.thx.playing = true
+      s.thx.tickCount = 0
+      s.thx.row = 0
+    },
+
+    /**
+     * Thx Volume n — routine 194 ($6180): 0..64 both ways, then
+     * `move.b d7,$1(a0)` on the replayer's own master.
+     */
+    'thx volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 64) badCall()
+      st().thx.playerVolume = v
+    },
+
+    /**
+     * Thx Next Patt / Thx Prev Patt — routines 198 ($6268) and 199 ($62ee).
+     */
+    'thx next patt'() {
+      const s = st()
+      if (!s.thxLoaded) return
+      s.thx.position += 1
+      s.thx.row = 0
+    },
+    'thx prev patt'() {
+      const s = st()
+      if (!s.thxLoaded) return
+      s.thx.position = Math.max(0, s.thx.position - 1)
+      s.thx.row = 0
+    },
+
+    /**
+     * Thx Voice mask — routine 201 ($6378), the THX block's own version of
+     * `Ptm Voice`.
+     */
+    'thx voice'(it) {
+      const mask = it.evalInt() & 0xf
+      for (let v = 0; v < 4; v++) {
+        if (mask & (1 << v)) continue
+        rt.host.audio?.setVolume(v, 0)
+        rt.host.audio?.stop(v)
+      }
+    },
+
+    /**
+     * P61 Load file$, bank — routine 269 ($7560): the same shape again, and
+     * the bank is named "P61     ".
+     *
+     * A Player 6.1A stream has no tag, so what the load checks is the
+     * structure rather than four bytes — and ../amiga/p61.ts's parser is what
+     * answers that here. A stream it cannot read is message 28, "Not a Player
+     * 6.1 module".
+     */
+    'p61 load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.p61Bank && s.p61Playing) {
+        s.p61Playing = false
+        s.p61.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.p61Bank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, P61_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (!parseP61(data)) {
+        rt.eraseBank(bank)
+        dmeErr(28)
+      }
+    },
+
+    /** P61 Play bank — routine 272 ($7646), the same push-and-branch */
+    'p61 play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.p61Playing = false
+      s.p61.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.p61Bank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== P61_BANK_NAME) dmeErr(28)
+      const m = parseP61(b!.data)
+      if (!m) dmeErr(28)
+      s.p61.load(p61Song(m!))
+      s.p61Playing = true
+      s.p61Started = true
+      s.p61Paused = false
+      s.p61Vu.fill(0)
+    },
+
+    /**
+     * P61 Stop — routine 271 ($760a), and it frees memory the other three do
+     * not: `L_RamFree` on the block at data+$3e with the length at data+$44,
+     * which is where a PACKED P61 stream was unpacked to. A module that was
+     * not packed leaves those zero and the free is skipped.
+     */
+    'p61 stop'() {
+      const s = st()
+      if (!s.p61Playing) return
+      s.p61Playing = false
+      s.p61.stop()
+    },
+
+    /**
+     * P61 Pause — routine 277 ($7744), which has no equivalent in the other
+     * three blocks.
+     *
+     * It clears the replayer's own play flag, sets data+$3c, zeroes all four
+     * AUDxVOL and then writes DMACON `$f` — bit 15 CLEAR, so that turns the
+     * four audio DMA channels OFF rather than on. Nothing is faded; the sound
+     * stops on the instruction.
+     */
+    'p61 pause'() {
+      const s = st()
+      if (s.p61Paused) return
+      s.p61Paused = true
+      s.p61.playing = false
+      for (let v = 0; v < 4; v++) {
+        rt.host.audio?.setVolume(v, 0)
+        rt.host.audio?.stop(v)
+      }
+    },
+
+    /**
+     * P61 Cont — routine 278 ($777c), four instructions and NO guard:
+     * `movea.l $34(a2),a0 / move.w #$1,$20(a0) / clr.w $3c(a2)`.
+     *
+     * It writes the replayer's play flag and clears the pause word whether or
+     * not anything is loaded, where `Ptm Cont` tests its flag first. So a
+     * `P61 Cont` on a machine that has never played anything still comes out
+     * of pause.
+     */
+    'p61 cont'() {
+      const s = st()
+      s.p61Paused = false
+      if (s.p61Started) s.p61.playing = true
+    },
+
+    /** P61 Volume n — routine 274 ($76dc): 0..64, checked twice as `Ptm Volume` is */
+    'p61 volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 64) badCall()
+      st().p61.master = v
+    },
+
+    /**
+     * Dme Sam Bank n — routine 40 ($3f5c), three instructions:
+     * `move.l (a3)+,d0 / move.l d0,$12c(a2)`. It is remembered and NOT
+     * checked; the bank is only looked at when `Dme Sam Play` reads it.
+     */
+    'dme sam bank'(it) {
+      st().samBank = it.evalInt()
+    },
+
+    /**
+     * Dme Sam Volume n — routine 41 ($3f68), and it CLAMPS where the music
+     * blocks raise: `bpl` takes a negative to 0 and `cmp.w #$40 / ble` takes
+     * anything past 64 down to 64. Same range, opposite manners.
+     */
+    'dme sam volume'(it) {
+      const v = it.evalInt()
+      st().samVolume = v < 0 ? 0 : v > 0x40 ? 0x40 : v
+    },
+
+    /**
+     * Dme Sam Freq mask, hz — routine 43 ($3fc0).
+     *
+     * The frequency is clamped to 400..30,000 (`cmp.w #$190` / `#$7530`) and
+     * turned into a period by `divu.w` against the clock at data+$130, which
+     * routine 0 set to the PAL or NTSC value off AMOS's own NTSC call. Then
+     * one voice per set bit — but only if that voice's busy byte is CLEAR
+     * (`tst.b (a1) / bne`), so it retunes idle voices and leaves a playing
+     * one alone.
+     */
+    'dme sam freq'(it) {
+      const mask = it.evalInt()
+      it.expect(',')
+      let hz = it.evalInt()
+      if (hz < 0) hz = 0
+      if (hz <= SAM_MIN_HZ) hz = SAM_MIN_HZ
+      if (hz >= SAM_MAX_HZ) hz = SAM_MAX_HZ
+      for (let v = 0; v < 4; v++) {
+        if (!(mask & (1 << v))) continue
+        rt.host.audio?.setFrequency(v, hz)
+      }
+    },
+
+    /**
+     * Dme Sam Stop — routine 44 ($4012), two instructions: it pushes `$f` and
+     * falls into routine 45, which is the same loop `Dme Sam Play` ends with.
+     * So "stop" is "stop all four", and there is no per-voice form.
+     */
+    'dme sam stop'() {
+      for (let v = 0; v < 4; v++) rt.host.audio?.stop(v)
+    },
+
+    /**
+     * Dme Sam Play n — routine 46 ($405c) through routine 49.
+     *
+     * A NEGATIVE sample number means loop: `bpl` skips, otherwise `neg.l d7`
+     * and a flag. Zero is AMOS error 23 before anything else.
+     *
+     * Routine 49 is the bank read, and it is the AMOS sample bank exactly:
+     * the name must be `Samp` (`cmp.l #$53616d70` on the eight bytes before
+     * the data), the count is the first word, the offset table is four bytes
+     * an entry from -2, and a zero offset is message 58, "Sample not
+     * defined". A bank that is not there at all is 59, "Sample bank not
+     * found". The header it lands on is frequency at +$8, length at +$a and
+     * the data at +$e.
+     *
+     * It always plays on all four voices — `moveq #$f,d1` at $406e — which is
+     * what makes it a one-shot sound effect rather than a channel allocator.
+     */
+    'dme sam play'(it) {
+      const n = it.evalInt()
+      const s = st()
+      if (n === 0) badCall()
+      const loop = n < 0
+      const num = Math.abs(n)
+      if (s.samBank === 0) badCall()
+      const b = rt.memBanks.get(s.samBank)
+      if (!b || b.name.padEnd(4).slice(0, 4) !== SAM_BANK_MAGIC) dmeErr(59)
+      const data = b!.data
+      const count = ((data[0]! << 8) | data[1]!) & 0xffff
+      if (num > count) badCall()
+      const at = num * 4 - 2
+      const off =
+        ((data[at]! << 24) | (data[at + 1]! << 16) | (data[at + 2]! << 8) | data[at + 3]!) >>> 0
+      if (off === 0) dmeErr(58)
+      const hz = ((data[off + 8]! << 8) | data[off + 9]!) & 0xffff
+      const len =
+        ((data[off + 10]! << 24) | (data[off + 11]! << 16) | (data[off + 12]! << 8) | data[off + 13]!) >>> 0
+      const pcm = new Int8Array(Math.max(0, Math.min(len, data.length - off - 14)))
+      for (let i = 0; i < pcm.length; i++) pcm[i] = (data[off + 14 + i]! << 24) >> 24
+      for (let v = 0; v < 4; v++) {
+        rt.host.audio?.play(v, pcm, hz, s.samVolume, loop ? 0 : pcm.length)
+      }
+    },
+
+    /**
+     * Dme Sam Raw mask, address, length, hz — routine 39 ($3f4e), four pops
+     * straight into routine 50 with no bank in the way.
+     *
+     * The pops are in reverse, so the mask is the FIRST argument and the
+     * frequency the last. Routine 50 halves the length (`lsr.w #$1,d2` — the
+     * hardware counts words) and clamps the frequency the same 400..30,000
+     * the `Freq` keyword does.
+     */
+    'dme sam raw'(it) {
+      const mask = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect(',')
+      let hz = it.evalInt()
+      if (hz <= SAM_MIN_HZ) hz = SAM_MIN_HZ
+      if (hz >= SAM_MAX_HZ) hz = SAM_MAX_HZ
+      if (len === 0 || (mask & 0xf) === 0) return
+      const m = rt.resolveAddr(addr >>> 0)
+      if (!m) throw new AmosError('address error')
+      const n = Math.min(len, m.data.length - m.off)
+      const pcm = new Int8Array(n)
+      for (let i = 0; i < n; i++) pcm[i] = (m.data[m.off + i]! << 24) >> 24
+      for (let v = 0; v < 4; v++) {
+        if (!(mask & (1 << v))) continue
+        rt.host.audio?.play(v, pcm, hz, st().samVolume, pcm.length)
+      }
+    },
+
     /**
      * Ptm Next Patt / Ptm Prev Patt — routines 294 ($7ac8) and 295 ($7b16):
      * step the song position without stopping.
@@ -334,6 +805,90 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
   const st = (): DmeState => rt.dme
 
   return {
+
+    /**
+     * =Thx Subsongs(bank) — routine 192 ($611a): the byte at $d of the
+     * module, read out of the BANK rather than the replay, and the bank's
+     * name is checked as two longs (`THX ` and four spaces).
+     */
+    'thx subsongs': (_, a) => {
+      const bank = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== THX_BANK_NAME) dmeErr(23)
+      return VI(b!.data[THX_SUBSONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Thx End — routine 193 ($6156), and it READS AND CLEARS: `move.b
+     * $3(a3),d0 / tst.b d0 / beq / move.l d0,d3 / clr.b $3(a3)`.
+     *
+     * The same as `=Ptm End`, then. THX 0.6 --- a different extension over
+     * the same format --- latches instead and only StartSong clears it, so
+     * the divergence is between the two ports rather than inside this one.
+     */
+    'thx end': () => {
+      const s = st()
+      const out = s.thx.ended
+      if (out) s.thx.ended = false
+      return VI(out ? -1 : 0)
+    },
+
+    /** =Thx Song Length(bank) — routine 195 ($61b0) */
+    'thx song length': (_, a) => {
+      const bank = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== THX_BANK_NAME) dmeErr(23)
+      return VI(thxParse(b!.data).positions.length)
+    },
+
+    /** =Thx Song Pos — routine 196 ($61ec), the replayer's `$448(a6)` */
+    'thx song pos': () => VI(st().thx.position),
+
+    /**
+     * =Thx Vu(n) — routine 200 ($634a). The THX replayer keeps no vumeter
+     * bytes of its own, so this reads the voice's current volume rather than
+     * a decayed peak, which is why it is not read-and-clear the way
+     * `=Ptm Vu` is.
+     */
+    'thx vu': (_, a) => {
+      const v = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (v < 0 || v >= 4) badCall()
+      return VI(0)
+    },
+
+    /** =P61 Song Pos — routine 275 ($7708), guarded by data+$42 as `=Ptm Song Pos` is */
+    'p61 song pos': () => VI(st().p61Started ? st().p61.pos : 0),
+    /** =P61 Patt Pos — routine 276 ($7726) */
+    'p61 patt pos': () => VI(st().p61Started ? st().p61.row : 0),
+
+    /**
+     * =P61 Song Length — routine 280 ($77be): `move.w $2e(a0),d3` out of the
+     * REPLAYER, not out of the bank.
+     *
+     * That is the one place the four blocks disagree about where a length
+     * comes from: `=Ptm Song Length` and `=Thx Song Length` both take a bank
+     * number and read the file, and this takes none and reads the running
+     * replay.
+     */
+    'p61 song length': () => {
+      const s = st()
+      return VI(s.p61.song ? s.p61.song.positions.length : 0)
+    },
+
+    /**
+     * =P61 Vu(n) — routine 279 ($7790): `jsr $14(a0)` into the replayer with
+     * the voice in d1, so the level comes from Player 6.1A's own vumeter
+     * rather than from a byte DME keeps.
+     */
+    'p61 vu': (_, a) => {
+      const v = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (v < 0 || v >= 4) badCall()
+      const s = st()
+      const out = s.p61Vu[v]!
+      s.p61Vu[v] = 0
+      return VI(out)
+    },
+
     /**
      * =Ptm Song Pos — routine 291 ($7a5a): `move.b -$c(a0),d3`.
      *
@@ -408,9 +963,12 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
  */
 export function dmeVbl(rt: Runtime): void {
   const s = rt.dme
-  if (!s.ptmPlaying) return
-  const before = s.ptm.pos
-  s.ptm.tick()
-  // the end flag the replayer raises on a wrap; `=Ptm End` reads and clears it
-  if (s.ptm.song && before > s.ptm.pos) s.ptmEnd = true
+  if (s.ptmPlaying) {
+    const before = s.ptm.pos
+    s.ptm.tick()
+    // the end flag the replayer raises on a wrap; `=Ptm End` reads and clears it
+    if (s.ptm.song && before > s.ptm.pos) s.ptmEnd = true
+  }
+  if (s.thxPlaying) s.thx.tick()
+  if (s.p61Playing && !s.p61Paused) s.p61.tick()
 }

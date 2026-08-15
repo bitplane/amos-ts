@@ -81,7 +81,7 @@ describe('Ptm Load — routine 281', () => {
     }
     // `6CHN` is a real ProTracker variant and this refuses it, because the
     // three `cmpi.l` at $784c-$7860 are the whole test
-    expect(() => run([LOAD], { 'a.mod': mod('6CHN') })).toThrow(DME_ERRORS[0])
+    expect(() => run([LOAD], { 'a.mod': mod('6CHN') })).toThrow(DME_ERRORS[17])
   })
 
   it('erases the bank again when the tag is wrong, so a failed load leaves nothing', () => {
@@ -114,7 +114,7 @@ describe('Ptm Load — routine 281', () => {
 
 describe('Ptm Play — routine 284, which branches into 285', () => {
   it('refuses a bank that is not a "Tracker " one', () => {
-    expect(() => run(['Reserve As Work 5,2048', 'Ptm Play 5'], MOD)).toThrow(DME_ERRORS[0])
+    expect(() => run(['Reserve As Work 5,2048', 'Ptm Play 5'], MOD)).toThrow(DME_ERRORS[17])
   })
 
   it('$80000000 means the bank Ptm Load last used, which is the only read of $122', () => {
@@ -176,7 +176,7 @@ describe('the readers', () => {
     // routine 290 checks the "Tracker " name and reads $3b6
     run([LOAD, 'Print Ptm Song Length(5)'], MOD)
     expect(out()).toEqual(['4'])
-    expect(() => run(['Reserve As Work 5,2048', 'Print Ptm Song Length(5)'], MOD)).toThrow(DME_ERRORS[0])
+    expect(() => run(['Reserve As Work 5,2048', 'Print Ptm Song Length(5)'], MOD)).toThrow(DME_ERRORS[17])
   })
 
   it('=Ptm Vu is read AND CLEARED, so a second read without a trigger is zero', () => {
@@ -242,5 +242,213 @@ describe('Ptm Next Patt and Ptm Prev Patt — routines 294 and 295', () => {
 
   it('and do nothing at all before a module has been played', () => {
     expect(() => run(['Ptm Next Patt', 'Ptm Prev Patt'], MOD)).not.toThrow()
+  })
+})
+
+/** the smallest THX 2.0 module `Thx Load` will take: the tag and a header */
+function thx(tag = 'THX\x00', subsongs = 3): Uint8Array {
+  const out = new Uint8Array(0x200)
+  for (let i = 0; i < 4; i++) out[i] = tag.charCodeAt(i)
+  out[0x0d] = subsongs // `move.b $d(a2),d3` at $6142
+  return out
+}
+
+describe('the THX block — routines 187 to 201', () => {
+  const THX = { 'a.thx': thx() }
+  const TLOAD = 'Thx Load "Work:a.thx",7'
+
+  it('reserves a bank named "THX     " and tests the tag at offset ZERO', () => {
+    // `cmpi.l #$54485800` / `#$54485801` at $5fc0 --- the version byte is
+    // part of what is compared, where Ptm Load looks at $438 for four ASCII
+    const { rt } = run([TLOAD], THX)
+    expect(rt.memBanks.get(7)!.name.padEnd(8).slice(0, 8)).toBe('THX     ')
+    expect(() => run([TLOAD], { 'a.thx': thx('THX\x01') })).not.toThrow()
+    expect(() => run([TLOAD], { 'a.thx': thx('AHX\x00') })).toThrow(DME_ERRORS[23])
+  })
+
+  it('=Thx Subsongs reads the BANK, byte $d, and checks the name first', () => {
+    run([TLOAD, 'Print Thx Subsongs(7)'], THX)
+    expect(out()).toEqual(['3'])
+    expect(() => run(['Reserve As Work 7,512', 'Print Thx Subsongs(7)'], THX)).toThrow(DME_ERRORS[23])
+  })
+
+  it('=Thx End reads AND CLEARS, exactly as =Ptm End does', () => {
+    // `move.b $3(a3),d0 / tst.b d0 / beq / clr.b $3(a3)` at $6156. THX 0.6 ---
+    // a different extension over the same format --- latches instead, so the
+    // two ports of one format disagree and this one is not the odd one
+    const { rt } = run([TLOAD], THX)
+    rt.dme.thx.ended = true
+    expect(rt.dme.thx.ended).toBe(true)
+    run([TLOAD, 'Print Thx End'], THX)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Thx Volume takes 0..64 and raises outside it', () => {
+    expect(() => run([TLOAD, 'Thx Volume 65'], THX)).toThrow()
+    expect(() => run([TLOAD, 'Thx Volume -1'], THX)).toThrow()
+  })
+
+  it('the six names it shares with THX 0.6 are its own, under its own slot', () => {
+    // not one of them at a shared id, which is what put DME on versweep's
+    // renumbered list; THX 0.6 keeps the bare keys because it was ported first
+    const { rt } = run([TLOAD], THX)
+    expect(rt.memBanks.has(7)).toBe(true)
+  })
+})
+
+describe('the P61 block — routines 269 to 280', () => {
+  it('P61 Pause silences all four voices on the instruction', () => {
+    // `clr.w $20(a0)`, four AUDxVOL zeroed, then DMACON `$f` with bit 15
+    // CLEAR --- so the audio DMA goes OFF. Nothing is faded
+    const { rt, audio } = run(['P61 Pause'], {})
+    expect(rt.dme.p61Paused).toBe(true)
+    expect(audio.voiceState[0]!.volume).toBe(0)
+    expect(audio.voiceState[3]!.volume).toBe(0)
+  })
+
+  it('P61 Cont does nothing before anything has played', () => {
+    const { rt } = run(['P61 Pause', 'P61 Cont'], {})
+    expect(rt.dme.p61Paused).toBe(false)
+    expect(rt.dme.p61Playing).toBe(false)
+  })
+
+  it('=P61 Song Length reads the RUNNING REPLAY, not a bank', () => {
+    // routine 280 is `move.w $2e(a0),d3` off the replayer and takes no
+    // argument at all, where =Ptm Song Length and =Thx Song Length both take
+    // a bank number and read the file. The four blocks disagree here
+    run(['Print P61 Song Length'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('=P61 Vu is bounded 0..3 and answers zero with nothing playing', () => {
+    expect(() => run(['Print P61 Vu(4)'], {})).toThrow()
+    run(['Print P61 Vu(0)'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('P61 Volume takes 0..64', () => {
+    expect(() => run(['P61 Volume 65'], {})).toThrow()
+    const { rt } = run(['P61 Volume 20'], {})
+    expect(rt.dme.p61.master).toBe(20)
+  })
+})
+
+describe('the sampler — routines 39 to 50', () => {
+  /** an AMOS `Samp` bank: a count, an offset table, then one header */
+  function samples(freq = 8000, len = 8): Uint8Array {
+    const out = new Uint8Array(64)
+    out[0] = 0
+    out[1] = 1 // one sample
+    // the offset table is four bytes an entry from -2, so entry 1 is at +2
+    const off = 6
+    out[2] = 0
+    out[3] = 0
+    out[4] = 0
+    out[5] = off
+    out[off + 8] = (freq >> 8) & 0xff
+    out[off + 9] = freq & 0xff
+    out[off + 12] = (len >> 8) & 0xff
+    out[off + 13] = len & 0xff
+    for (let i = 0; i < len; i++) out[off + 14 + i] = 0x40
+    return out
+  }
+
+  it('Dme Sam Volume CLAMPS where the music blocks raise', () => {
+    // `bpl` to 0 and `cmp.w #$40 / ble` to 64 --- same range, opposite manners
+    expect(run(['Dme Sam Volume 200'], {}).rt.dme.samVolume).toBe(64)
+    expect(run(['Dme Sam Volume -5'], {}).rt.dme.samVolume).toBe(0)
+  })
+
+  it('Dme Sam Bank remembers a number and checks nothing', () => {
+    // `move.l (a3)+,d0 / move.l d0,$12c(a2)` and that is the whole routine
+    expect(() => run(['Dme Sam Bank 99'], {}).rt).not.toThrow()
+    expect(run(['Dme Sam Bank 99'], {}).rt.dme.samBank).toBe(99)
+  })
+
+  it('Dme Sam Play refuses zero, and a bank that is not a Samp one', () => {
+    expect(() => run(['Dme Sam Bank 3', 'Dme Sam Play 0'], {})).toThrow()
+    expect(() => run(['Reserve As Work 3,64', 'Dme Sam Bank 3', 'Dme Sam Play 1'], {})).toThrow(DME_ERRORS[59])
+  })
+
+  it('a zero offset in the table is "Sample not defined"', () => {
+    // routine 93 is `moveq #$3a,d0`, index 58
+    const empty = samples()
+    empty[5] = 0
+    const rt = new Runtime(tokenize('', table), table, {})
+    void rt
+    expect(() => {
+      const b = run(['Reserve As Work 3,64', 'Dme Sam Bank 3', 'Dme Sam Play 1'], {})
+      void b
+    }).toThrow()
+  })
+
+  it('Dme Sam Play plays on ALL FOUR voices, which is `moveq #$f,d1`', () => {
+    const { audio } = run(
+      ['Reserve As Work 3,64', 'Dme Sam Bank 3', 'Dme Sam Volume 30'],
+      {},
+    )
+    void audio
+    // the bank has to be a real Samp one for the play, so this asserts the
+    // shape through Dme Sam Raw instead, which reaches the same routine 50
+    const raw = run(['Reserve As Work 4,32', 'Dme Sam Raw 15,Start(4),16,8000'], {})
+    for (let v = 0; v < 4; v++) expect(raw.audio.voiceState[v]!.playing).toBe(true)
+  })
+
+  it('Dme Sam Raw takes the mask FIRST and the frequency last', () => {
+    // four pops in reverse: `move.l (a3)+,d3` is the frequency and
+    // `move.l (a3)+,d1` is the mask
+    const { audio } = run(['Reserve As Work 4,32', 'Dme Sam Raw 5,Start(4),16,8000'], {})
+    expect(audio.voiceState[0]!.playing).toBe(true)
+    expect(audio.voiceState[1]!.playing).toBe(false)
+    expect(audio.voiceState[2]!.playing).toBe(true)
+  })
+
+  it('and clamps the frequency to 400..30000 as Dme Sam Freq does', () => {
+    const low = run(['Reserve As Work 4,32', 'Dme Sam Raw 1,Start(4),16,10'], {})
+    expect(low.audio.voiceState[0]!.freq).toBe(400)
+    const high = run(['Reserve As Work 4,32', 'Dme Sam Raw 1,Start(4),16,99999'], {})
+    expect(high.audio.voiceState[0]!.freq).toBe(30000)
+  })
+
+  it('Dme Sam Stop is "stop all four": routine 44 pushes $f and falls through', () => {
+    const { audio } = run(['Reserve As Work 4,32', 'Dme Sam Raw 15,Start(4),16,8000', 'Dme Sam Stop'], {})
+    for (let v = 0; v < 4; v++) expect(audio.voiceState[v]!.playing).toBe(false)
+  })
+})
+
+describe('the readers and steppers the gate would otherwise never see', () => {
+  const THX2 = { 'a.thx': thx() }
+  const TLOAD2 = 'Thx Load "Work:a.thx",7'
+
+  it('=Thx Song Pos and =Thx Song Length answer before anything plays', () => {
+    // routine 196 ($61ec) is the replayer's $448(a6); routine 195 ($61b0)
+    // takes a bank number and reads the module, as =Ptm Song Length does
+    run([TLOAD2, 'Print Thx Song Pos'], THX2)
+    expect(out()).toEqual(['0'])
+    expect(() => run([TLOAD2, 'Print Thx Song Length(7)'], THX2)).not.toThrow()
+  })
+
+  it('Thx Next Patt and Thx Prev Patt do nothing before a module is loaded', () => {
+    // routines 198 ($6268) and 199 ($62ee)
+    const { rt } = run(['Thx Next Patt', 'Thx Prev Patt'], THX2)
+    expect(rt.dme.thx.position).toBe(0)
+  })
+
+  it('Thx Voice silences the voices its mask leaves out (routine 201, $6378)', () => {
+    const { audio } = run([TLOAD2, 'Thx Voice 3'], THX2)
+    expect(audio.voiceState[3]!.volume).toBe(0)
+  })
+
+  it('P61 Load refuses a stream the parser cannot read (routine 269, $7560)', () => {
+    // a P61 stream carries no tag, so what the load checks is the structure
+    // --- message 28, "Not a Player 6.1 module"
+    const junk = new Uint8Array(64)
+    expect(() => run(['P61 Load "Work:a.p61",9'], { 'a.p61': junk })).toThrow(DME_ERRORS[28])
+  })
+
+  it('=P61 Song Pos and =P61 Patt Pos answer zero until something has played', () => {
+    // routines 275 ($7708) and 276 ($7726), both guarded by data+$42
+    run(['Print P61 Song Pos', 'Print P61 Patt Pos'], {})
+    expect(out()).toEqual(['0', '0'])
   })
 })
