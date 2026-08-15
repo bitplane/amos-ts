@@ -16,9 +16,11 @@
  *
  * ## Identity, off the binary
  *
- * `$VER: 1.0` at $312c and, at $30c2, `NuJolly: THX Extension V1.0, 68k Code
+ * `$VER: 1.0` at $312c and, at $30c4, `Jolly: THX Extension V1.0, 68k Code
  * By Thomas Verduin (Alias: Protonic)` — which settles an author the manifest
- * had as "unknown". The Guide credits the parts: *"Jotre was coded by
+ * had as "unknown". $30c2 is the `rts` before it, `4e 75`, and reading the
+ * string from there is where this used to say "NuJolly"; Display 0.01 carries
+ * the same two bytes before both of its strings, which is how it was found. The Guide credits the parts: *"Jotre was coded by
  * Protonic/Jolly, the Guide and the intro where created by Cloak/Jolly and
  * Jazz/Jolly, and Thx was coded by Dexter/Abyss"*. A second `$VER` at $196,
  * `THX-Sound_System_BinaryPlayer_2.00 (Aug 97)`, belongs to the replayer.
