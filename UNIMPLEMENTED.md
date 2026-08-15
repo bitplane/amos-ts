@@ -51,7 +51,7 @@ These are registered and detokenising but not implemented, so a program lists
 and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
-Twelve rows read 0%, and they divide by what is in the way rather than by
+Eleven rows read 0%, and they divide by what is in the way rather than by
 size. `src/coverage/coverage.test.ts` checks that the rows below are exactly
 the rows reading 0%, so a ported extension cannot quietly stay on the list.
 
@@ -71,7 +71,7 @@ so the evidence is there and the row is simply not begun:
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 184 | disassembly |
+| DME 2.0 (`dme-2.0`) | 169 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. The ProTracker block has landed and `thx`, `p61` and `dme sam` have not; the eleven `libs/` replayers are a project of their own |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:

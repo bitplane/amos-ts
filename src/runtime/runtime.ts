@@ -29,6 +29,7 @@ import type { RangeState } from './range'
 import type { DisplayExtState } from './displayext'
 import type { MaxsDoorState } from './maxsdoor'
 import type { SymBaseState } from './symbase'
+import { dmeVbl, type DmeState } from './dme'
 import { jotreVbl, type JotreState } from './jotre'
 import { thxVbl, type ThxState } from './thx'
 import type { JdIntState } from './jdint'
@@ -643,6 +644,8 @@ export class Runtime {
   maxsDoor!: MaxsDoorState
   /** SymBase 0.94 / DBench 0.42: the open channels and the data zone */
   symbase!: SymBaseState
+  /** DME 2.0: the ProTracker replay and the flags routine 0 allocates */
+  dme!: DmeState
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are
@@ -4432,6 +4435,7 @@ export class Runtime {
     // THX 0.6 takes the FIRST free VblRout slot rather than a fixed one, and
     // its hook gates on one flag --- see thx.ts on the nine-slot search
     thxVbl(this.thx)
+    dmeVbl(this)
     // The Game's tracker keywords are ptreplay.library, which runs off a CIA
     // timer on the machine and off the frame here -- see thegame.ts
     thegameVbl(this)

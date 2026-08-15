@@ -35,8 +35,8 @@ describe('version sweep', () => {
   })
 
   /**
-   * `renumbered` is reported and not bound, and these four are why the reason
-   * is worth printing rather than dropping.
+   * `renumbered` is reported and not bound, and these three are why the
+   * reason is worth printing rather than dropping.
    *
    * Not one of them is a version pair. They are different extensions that
    * happen to share one to three keyword NAMES with something ported —
@@ -45,15 +45,16 @@ describe('version sweep', () => {
    * what a rebuilt table looks like too. The sweep cannot tell those apart
    * and does not try; it says "read the binary" and names the file to read.
    *
-   * Explode was the fifth until 2026-08-12, when it stopped being a candidate
-   * at all: the sweep only looks at extensions NO port claims, and Explode
-   * now has one. Its names reaching CText was the collision this list used to
-   * illustrate.
+   * Two have left the list the same way, and it is the same way each time:
+   * the sweep only looks at extensions NO port claims. Explode went on
+   * 2026-08-12 (its names reaching CText were the collision this list used to
+   * illustrate) and DME 2.0 followed when its ProTracker block landed --- its
+   * four `p61 *` and six `thx *` names collide with two ported extensions and
+   * share not one id with either, which is what put it here.
    */
   it('the renumbered candidates are name collisions, not releases', () => {
     const renumbered = sweep().filter((c) => c.moved > 0)
     expect(renumbered.map((c) => c.id).sort()).toEqual([
-      'dme-2.0',
       'intuiextend-1.6',
       'intuiextend-2.01b',
       'intuition-1.3b',

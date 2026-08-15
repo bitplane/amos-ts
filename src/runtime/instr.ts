@@ -42,6 +42,7 @@ import { makeFirstInstructions } from './first'
 import { makeDisplayExtInstructions, makeDisplayExtFunctions, newDisplayExtState } from './displayext'
 import { makeMaxsDoorInstructions, makeMaxsDoorFunctions, newMaxsDoorState } from './maxsdoor'
 import { makeSymBaseInstructions, makeSymBaseFunctions, newSymBaseState, SYMBASE_ERRORS } from './symbase'
+import { makeDmeInstructions, makeDmeFunctions, newDmeState, DME_ERRORS } from './dme'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
 import { THX_ERRORS, makeThxFunctions, makeThxInstructions, newThxState } from './thx'
@@ -5818,6 +5819,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // name to be one this port already defines, which is what stops the list
     // rotting into a wish
     qualified: ['range', 'bank name', 'bank name$'],
+  },
+  {
+    // DME 2.0 at slot 15 --- Thomas Reetz's DOOM Music Extension, fifteen
+    // formats in one library. Batch 1 of two: the ProTracker block over
+    // ../amiga/protracker.ts, plus the 37 `nop` rows. See dme.ts.
+    ids: ['dme-2.0'],
+    init: (rt) => {
+      rt.dme = newDmeState(rt)
+    },
+    instructions: makeDmeInstructions,
+    functions: makeDmeFunctions,
+    errors: DME_ERRORS,
   },
   {
     // SymBase 0.94 and DBench 0.42 at slot 21 --- Lazar Zoltan's xBase engine,

@@ -2526,6 +2526,23 @@ export const FAITHFUL = new Set<string>([
   'm_dofunction',
   'm_changeuserdata',
   'm_getkey',
+  // --- DME 2.0, slot 15: Thomas Reetz's DOOM Music Extension, batch 1 of two.
+  // The ProTracker block over ../amiga/protracker.ts; see dme.ts. `Ptm Cia
+  // Speed` is NOT here --- there is no CIA timer to divide, so it sets a
+  // tempo where the original sets a divisor.
+  'ptm load',
+  'ptm play',
+  'ptm stop',
+  'ptm cont',
+  'ptm volume',
+  'ptm voice',
+  'ptm song pos',
+  'ptm patt pos',
+  'ptm song length',
+  'ptm vu',
+  'ptm end',
+  'ptm next patt',
+  'ptm prev patt',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -3432,6 +3449,17 @@ export const NA = new Set<string>([
   // 1, S Mouse On) can never be reached, because the spec never lets it parse
   // as a statement. No handler is registered.
   's mask$',
+  // DME 2.0: thirty-seven rows called `nop`, pointing at thirty-seven
+  // different routines --- 2 through 38, and all of them a bare `rts` in the
+  // 74 bytes at $3f04..$3f4e. One spare jump-table slot per format block, so
+  // 2.1 could add a keyword without moving anybody's ids. It is `S Mask$`'s
+  // shape from the other side: the spec is "0", an integer RESULT, so AMOS
+  // parses `Nop` as a FUNCTION and the function routine is -1, while the
+  // instruction routine each row does carry can never be reached because the
+  // spec never lets it parse as a statement. AMCAF spells `Nop` too and means
+  // a real instruction by it; that one is implemented and this is not the
+  // same keyword. No handler is registered.
+  'nop',
   // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
   'compile',
   'cmpcall',
@@ -3527,6 +3555,7 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'jd multi on': 'multitasking',
   // broken in the original
   's mask$': 'dead-vector',
+  nop: 'dead-vector',
   't planes': 'dead-vector',
   'pal on': 'dead-vector',
   // reserved words with nothing behind them
@@ -7976,6 +8005,51 @@ export const NOTES: Record<string, string> = {
   "clear banks":
     "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`, which is `L_Bnk_EffAll` --- erase every bank. " +
     "Source: +B.s:2698.",
+  "ptm load":
+    "routine 281 ($77de). The bank number pops FIRST despite being written last, and `cmp.l #$10000,d3` makes a " +
+    "bank at or past 65,536 AMOS error 23. It reserves a Work bank named \"Tracker \" sized as the file rounded " +
+    "up to even plus eight, then checks the tag at $438 against `M.K.`, `M!K!` and `FLT4` and nothing else --- so " +
+    "a 6CHN or 8CHN module is refused. A tag it does not know has its bank ERASED again (`L_Bnk_Eff`, $7876) " +
+    "before the error, so a failed load leaves nothing behind. Reloading the bank that is playing stops it first; " +
+    "reloading a different one does not.",
+  "ptm play":
+    "routine 284 ($78de) is two instructions: it PUSHES $80000000 as the play parameter and branches into " +
+    "routine 285, which compares the program's own argument against the same constant, so `Ptm Play $80000000` " +
+    "means the bank `Ptm Load` last used --- the only read of the remembered $122(a2) anywhere. It stops whatever " +
+    "is playing, sets the CIA divisor to 125 whatever the module said (`move.w #$7d,$0(a0)`), and refuses a bank " +
+    "that is not named \"Tracker \".",
+  "ptm stop": "routine 283 ($78bc): the flag at $128(a2), the CIA interrupt (routine 298) and the replay.",
+  "ptm cont":
+    "routine 288 ($79d6): the flag back and the interrupt reinstalled, WITHOUT touching the position. " +
+    "`tst.b $128(a2) / bne` --- already playing is a no-op, so a double continue cannot restart anything.",
+  "ptm volume":
+    "routine 286 ($7952), and the range is checked twice. `Rbmi routine 92` refuses a negative and " +
+    "`cmp.l #$40,d7 / Rbhi` refuses past 64, and then two more branches clamp into 0..64 that can no longer fire.",
+  "ptm voice":
+    "routine 287 ($797c): the low four bits say which voices the music may use. A CLEAR bit gets AUDxVOL zeroed " +
+    "directly ($a8/$b8/$c8/$d8 off $dff000) and its enable byte cleared, then `ori.w #$8000,d0 / move.w d0,$96` " +
+    "writes DMACON whole --- so bits above 3 would reach DMACON's other fields and nothing masks them.",
+  "ptm cia speed":
+    "routine 289 ($79ec), the only CIA-tempo keyword in the extension. `cmp.l #$1f,d7 / Rbls` and " +
+    "`cmp.l #$ff,d7 / Rbhi` make the range 32..255, and setting the speed it already has is a no-op. " +
+    "APPROXIMATED: on the machine this is a CIA timer divisor, and routines 297/298 hang the replayer off CIA-B " +
+    "with the clock off GfxBase's DisplayFlags ($1b0f87 PAL, $1b4f4d NTSC). There is no interrupt here to hang " +
+    "one off, so the replay runs on the frame and this sets its bpm --- the same tempo, one layer up.",
+  "ptm song pos": "routine 291 ($7a5a): `move.b -$c(a0),d3`, guarded by the has-ever-played byte at $129(a2) and answering 0 before the first play.",
+  "ptm patt pos": "routine 292 ($7a7a): `move.w -$4(a0),d3 / lsr.w #$4` --- the replayer keeps the row in the high nibble of a word.",
+  "ptm song length":
+    "routine 290 ($7a1e) reads the BANK rather than the running replay, so it answers for a module that has never " +
+    "been played. It checks the \"Tracker \" name first and raises \"Not a 4 channel module\" without it; the " +
+    "byte is at $3b6, which is a ProTracker module's own song-length field.",
+  "ptm vu":
+    "routine 293 ($7a9c): `move.b $a(a0,d7.w),d3` then `clr.b` on the same byte, so it is READ AND CLEARED and a " +
+    "second read without a trigger between answers zero. `Rbmi` and `cmp.l #$4,d7 / Rbcc` bound it to 0..3.",
+  "ptm end":
+    "routine 296 ($7b5e): `cmpi.w #$ff,$e(a0)` and `clr.w $e(a0)` on the way out. Cleared by the read, which is " +
+    "the OPPOSITE of THX 0.6's `Thx End` --- that one latches until StartSong. The same question asked of two " +
+    "formats in one extension has two answers.",
+  "ptm next patt": "routine 294 ($7ac8): the song position forward one, without stopping.",
+  "ptm prev patt": "routine 295 ($7b16): and back one.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

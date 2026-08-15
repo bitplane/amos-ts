@@ -498,6 +498,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/symbase.test.ts': ['symbase-0.94'],
   'src/runtime/dbf.ts': ['symbase-0.94', 'dbench-0.42'],
   'src/runtime/dbf.test.ts': ['symbase-0.94'],
+  'src/runtime/dme.ts': ['dme-2.0'],
+  'src/runtime/dme.test.ts': ['dme-2.0'],
   'src/runtime/displayext.test.ts': ['display-0.01'],
   'src/runtime/first.test.ts': ['first-0.1'],
   'src/runtime/fileid.ts': ['fileid-1.0'],

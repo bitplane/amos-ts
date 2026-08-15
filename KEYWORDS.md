@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1196 qualifying notes live in `src/coverage/status.ts`, which this file
+1197 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -39,8 +39,8 @@ is.
 | aga-1.0              |       24 |       24 |            0 |       0 |     100% |
 | amal                 |       13 |       13 |            0 |       0 |     100% |
 | amal-stos            |       10 |       10 |            0 |       0 |     100% |
-| amcaf-1.40           |      268 |      247 |           21 |       0 |     100% |
-| amcaf-1.50           |      280 |      258 |           21 |       0 |     100% |
+| amcaf-1.40           |      268 |      246 |           21 |       0 |     100% |
+| amcaf-1.50           |      280 |      257 |           21 |       0 |     100% |
 | amon-1.03            |       18 |       18 |            0 |       0 |     100% |
 | amon-1.04            |       24 |       24 |            0 |       0 |     100% |
 | amos3d-1.0           |       64 |       60 |            4 |       0 |     100% |
@@ -61,7 +61,7 @@ is.
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       41 |            4 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
-| dme-2.0              |      184 |        0 |            0 |     184 |       0% |
+| dme-2.0              |      184 |       13 |            1 |     169 |       8% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
 | dump-1.0             |        8 |        7 |            1 |       0 |     100% |
 | easylife-1.0         |       72 |       71 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4687 |          156 |    2519 |      66% |
+| **total**            |     7422 |     4698 |          157 |    2504 |      66% |
 
 ## Not applicable, by what would retire it
 
@@ -182,11 +182,11 @@ Reserved words that are part of somebody else's grammar, or have no construct in
 
 `as`, `follow`, `follow off`, `screen size`
 
-### dead-vector (3)
+### dead-vector (4)
 
 The keyword does not work in the original either: a null vector, a jump past the end of the table, or a label that falls into the wrong routine. There is no behaviour to be faithful TO.
 
-`pal on`, `s mask$`, `t planes`
+`nop`, `pal on`, `s mask$`, `t planes`
 
 ### editor (14)
 
@@ -202,6 +202,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
   `command name$`, `disk type`, `extbase`, `pt cinstr`, `pt cnote`, `pt cpattern`, `pt cpos`,
   `pt data base`, `rnp`, `scrn bitmap`, `scrn layer`, `scrn layerinfo`, `scrn rastport`,
   `scrn region`, `vec rot x`, `vec rot y`, `vec rot z`
+- **n/a** (1): `nop`
 
 ## amcaf-1.50 (100%)
 
@@ -209,7 +210,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
   `command name$`, `disk type`, `extbase`, `pt cinstr`, `pt cnote`, `pt cpattern`, `pt cpos`,
   `pt data base`, `rnp`, `scrn bitmap`, `scrn layer`, `scrn layerinfo`, `scrn rastport`,
   `scrn region`, `vec rot x`, `vec rot y`, `vec rot z`
-- **n/a** (1): `trans screen dynamic`
+- **n/a** (2): `nop`, `trans screen dynamic`
 
 ## amos3d-1.0 (100%)
 
@@ -256,6 +257,11 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## display-0.01 (100%)
 
 - **approximated** (2): `dlmergedisplay`, `dlscreenoffset`
+
+## dme-2.0 (8%)
+
+- **approximated** (1): `ptm cia speed`
+- **n/a** (1): `nop`
 
 ## dump-1.0 (100%)
 
