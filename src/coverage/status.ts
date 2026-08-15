@@ -2581,6 +2581,20 @@ export const FAITHFUL = new Set<string>([
   'sfx13 song pos',
   'sfx13 vu',
   'sfx13 end',
+  // The FutureComposer 1.4 block over ../amiga/fc14.ts, off DME_FC1.4.library.
+  // `Fc14 Play` is NOT here --- the `$e9` sub-sample command writes four bytes
+  // at AUDxLEN, which lands AUDxPER as well, and that half is not modelled.
+  'fc14 load',
+  'fc14 stop',
+  'fc14 cont',
+  'fc14 volume',
+  'fc14 voice',
+  'fc14 next patt',
+  'fc14 prev patt',
+  'fc14 song length',
+  'fc14 song pos',
+  'fc14 vu',
+  'fc14 end',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8144,6 +8158,49 @@ export const NOTES: Record<string, string> = {
     "routine 136 ($5482) into LVO -60 ($21029a), read and cleared. It answers 255 rather than -1: " +
     "`moveq #$0,d3 / move.b #$ff,d3` writes one byte into a longword already zeroed, and `=Ptm End` and " +
     "`=Thx End` are written the same way in the same binary.",
+  "fc14 load":
+    "routine 155 ($587a), the ninth copy of the same nine steps: the bank pops first, `cmp.l #$10000,d3`, a " +
+    "Work bank named \"FC1.4   \" sized even plus eight, an erase before the error. The tag is " +
+    "`cmpi.l #$46433134,(a2)` --- \"FC14\" at offset ZERO, where SoundFX puts its magic at 60.",
+  "fc14 play":
+    "routine 158 ($5964) pushes $80000000 into routine 159, which opens DME_FC1.4.library (routine 160, message " +
+    "38) and checks the eight bank-name bytes as \"FC1.\" and \"4   \" rather than the module. The replay is " +
+    "src/amiga/fc14.ts, off the library's 4,260-byte second hunk: a thirteen-byte sequence step, 64-byte " +
+    "patterns of 32 two-byte rows, and per note a frequency sequence and a volume sequence that run a byte a " +
+    "tick. The wavetable is not separate machinery --- samples 0-9 and wavetables 10-89 share one sixteen-byte " +
+    "entry table at $211092 and `$e4` swaps between them without restarting the DMA, which is exactly what " +
+    "`AudioSink.setWaveform` was added for. APPROXIMATED for one thing: the `$e9` sub-sample command does " +
+    "`move.l $4(a2),$4(a3)`, four bytes at AUDxLEN, so it lands AUDxPER too. Nothing in the container makes " +
+    "that a sensible period and no module here uses the command, so the length alone is written.",
+  "fc14 stop": "routine 157 ($5944): the flag at $88(a0), then LVO -36 ($21019e), which clears the tick counter that doubles as the play flag.",
+  "fc14 cont":
+    "routine 162 ($5a5c) into LVO -42 ($2101cc): the saved master back and the counter to one, without touching " +
+    "the position. `tst.b $88(a0) / bne` makes a second continue a no-op.",
+  "fc14 volume":
+    "routine 169 ($5b9c): 0..64 checked twice over, then LVO -78 ($21032a) does the same " +
+    "`mulu.w #$40 / lsr.w #$6` identity SoundFX's does. The veneer is shared between the two libraries.",
+  "fc14 voice": "routine 170 ($5bce) checks nothing and hands the whole longword to LVO -84 ($210344).",
+  "fc14 next patt":
+    "routine 165 ($5af6) into LVO -54 ($210278), and message 47 when nothing is playing. DEFECT: it does not " +
+    "advance. $21029c is `subq.w #$1,d1` followed immediately by `addq.w #$1,d1`, a pair that cancels, so the " +
+    "position written back is the position read --- all the keyword does is clamp a position past the end to " +
+    "zero and set `$28` to $40, which makes the next row pass re-take the CURRENT step. The `Prev` twin has the " +
+    "same cancelling pair and then a real `subq`, which is what the missing instruction here would have been.",
+  "fc14 prev patt":
+    "routine 166 ($5b1c) into LVO -60 ($210210): the position back one, floored at zero twice over, and the " +
+    "same message 47 guard.",
+  "fc14 song length":
+    "routine 163 ($5a86) calls no vector: it checks the bank name and divides the long at module+$4 by " +
+    "thirteen, the sequence in bytes over the size of a step. So it answers without the library open.",
+  "fc14 song pos":
+    "routine 164 ($5ac6) into LVO -48 ($2101f0), which is `$6(a0)` over thirteen less one --- and `$6(a0)` is " +
+    "the offset of the NEXT step, which is why the subtraction is there. Guarded by $89(a2), so 0 before the " +
+    "first `Fc14 Play`.",
+  "fc14 vu": "routine 167 ($5b42), 0..3, into LVO -66 ($2102ec), which reads the byte and clears it.",
+  "fc14 end":
+    "routine 168 ($5b74) into LVO -72 ($210308), read and cleared, 255 for the same `move.b #$ff,d3` reason. " +
+    "The flag is raised at $2109f8 when a voice's sequence pointer reaches the end, so any of the four can " +
+    "raise it.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

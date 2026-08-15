@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DME_ERRORS, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DME_ERRORS, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -569,5 +569,93 @@ describe('the SoundFX 1.3 block', () => {
     // routine 138 ($54dc) has no range test at all
     const { rt } = run([SLOAD, 'Sfx13 Play 6', 'Sfx13 Voice 5'], SFX)
     expect(rt.dme.sfx.voices).toBe(5)
+  })
+})
+
+/**
+ * The FutureComposer 1.4 block. The extension layer again, not the replay:
+ * ../amiga/fc14.test.ts has that.
+ */
+const FC14_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0xb4 + 13 + 64)
+  for (const [i, c] of [...'FC14'].entries()) out[i] = c.charCodeAt(0)
+  out[7] = 13 // one sequence step
+  out[0x0b] = 0xb4 + 13 // the patterns start after it
+  out[0x0f] = 64
+  out[0xb4 + 0x0c] = 3 // the speed
+  return out
+})()
+
+const FC14 = { 'a.fc': FC14_MOD }
+const FLOAD = 'Fc14 Load "Work:a.fc",7'
+
+describe('the FutureComposer 1.4 block', () => {
+  it('Fc14 Load reserves a bank named "FC1.4   " and tests "FC14" at offset ZERO', () => {
+    // `cmpi.l #$46433134,(a2)` at $58e6, where SoundFX tests offset 60
+    const { rt } = run([FLOAD], FC14)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(FC14_BANK_NAME)
+    // 257 bytes rounds up to even and then takes the eight-byte bank header
+    expect(FC14_MOD.length & 1).toBe(1)
+    expect(b.data.length).toBe(FC14_MOD.length + 1 + 8)
+    const wrong = FC14_MOD.slice()
+    wrong[3] = 0x33
+    expect(() => run([FLOAD], { 'a.fc': wrong })).toThrow(DME_ERRORS[37])
+  })
+
+  it('Fc14 Play checks the bank NAME, not the module', () => {
+    expect(() => run(['Reserve As Work 7,1024', 'Fc14 Play 7'], {})).toThrow(DME_ERRORS[37])
+    expect(() => run([FLOAD, 'Fc14 Play 7'], FC14)).not.toThrow()
+  })
+
+  it('=Fc14 Song Length divides the long at +$4 by thirteen', () => {
+    // routine 163 ($5aae): `move.l $4(a2),d3 / divu.w #$d,d3`, and it calls
+    // no library vector at all
+    run([FLOAD, 'Print Fc14 Song Length(7)'], FC14)
+    expect(out()).toEqual(['1'])
+  })
+
+  it('=Fc14 Song Pos answers zero until something has played', () => {
+    run(['Print Fc14 Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Fc14 Volume takes 0..64 and raises outside it', () => {
+    expect(() => run([FLOAD, 'Fc14 Volume 65'], FC14)).toThrow()
+    expect(() => run([FLOAD, 'Fc14 Volume -1'], FC14)).toThrow()
+    const { rt } = run([FLOAD, 'Fc14 Play 7', 'Fc14 Volume 20'], FC14)
+    expect(rt.dme.fc14.master).toBe(20)
+  })
+
+  it('Fc14 Voice passes the whole longword through, unchecked', () => {
+    const { rt } = run([FLOAD, 'Fc14 Play 7', 'Fc14 Voice 9'], FC14)
+    expect(rt.dme.fc14.voices).not.toHaveLength(0)
+    expect(rt.dme.fc14.enabled).toBe(9)
+  })
+
+  it('Fc14 Next Patt and Prev Patt raise message 47 when nothing is playing', () => {
+    expect(() => run(['Fc14 Next Patt'], {})).toThrow(DME_ERRORS[47])
+    expect(() => run(['Fc14 Prev Patt'], {})).toThrow(DME_ERRORS[47])
+  })
+
+  it('=Fc14 Vu refuses a channel outside 0..3', () => {
+    expect(() => run([FLOAD, 'Fc14 Play 7', 'Print Fc14 Vu(4)'], FC14)).toThrow()
+    expect(() => run([FLOAD, 'Fc14 Play 7', 'Print Fc14 Vu(-1)'], FC14)).toThrow()
+  })
+
+  it('=Fc14 End answers 255 and clears, the way the other three do', () => {
+    // routine 168 ($5b90): `moveq #$0,d3 / move.b #$ff,d3` into LVO -72
+    const { rt } = run([FLOAD, 'Fc14 Play 7'], FC14)
+    rt.dme.fc14.end = true
+    expect(rt.dme.fc14.readEnd()).toBe(true)
+    expect(rt.dme.fc14.readEnd()).toBe(false)
+    run([FLOAD, 'Fc14 Play 7', 'Print Fc14 End'], FC14)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Fc14 Cont after Fc14 Stop keeps the position', () => {
+    const { rt } = run([FLOAD, 'Fc14 Play 7', 'Fc14 Stop', 'Fc14 Cont'], FC14)
+    expect(rt.dme.fc14Playing).toBe(true)
+    expect(rt.dme.fc14.position).toBe(0)
   })
 })

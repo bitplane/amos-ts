@@ -75,7 +75,7 @@ eight in the morning:
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 128 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. ALL FOUR HAVE LANDED — ProTracker, THX, Player 6.1A and the sampler — and so has the first of the external ones, SoundFX 1.3, read out of `DME_SoundFX1.3.library` into `src/amiga/soundfx.ts`. Ten replayer libraries left, which are a project of their own |
+| DME 2.0 (`dme-2.0`) | 116 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. ALL FOUR HAVE LANDED — ProTracker, THX, Player 6.1A and the sampler — and so have the first two of the external ones: SoundFX 1.3 into `src/amiga/soundfx.ts` and FutureComposer 1.4 into `src/amiga/fc14.ts`, each read out of its own library in `libs/`. Nine replayer libraries left, which are a project of their own |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:

@@ -14,16 +14,18 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four were the first batch, over engines this port already had. The
- * fifth block here is `sfx13`, and it is the first EXTERNAL one: 12 keywords
- * over ../amiga/soundfx.ts, which was written from `DME_SoundFX1.3.library`
- * in `libs/`. The other ten replayer libraries are #146.
+ * Those four were the first batch, over engines this port already had. Two of
+ * the external ones have followed, each read out of its own library in
+ * `libs/`: `sfx13` over ../amiga/soundfx.ts and `fc14` over ../amiga/fc14.ts,
+ * 12 and 12 keywords. The other nine replayer libraries are #146.
  *
  * ## Evidence
  *
  * DISASSEMBLY tier over `AMOSPro_DOOM_Music.Lib`, with `DME_V2.0.guide`
  * (74,389 bytes) beside it. Every citation is an address in the code hunk,
- * except the `$21xxxx` ones, which are `DME_SoundFX1.3.library` relocated.
+ * except the `$21xxxx` ones, which belong to whichever replayer library the
+ * keyword drives --- both `DME_SoundFX1.3.library` and `DME_FC1.4.library`
+ * relocate to $210000, and their own files say which is which.
  *
  * ## Two things routine 0 says
  *
@@ -81,6 +83,7 @@ import { ThxPlayer } from '../amiga/thxplay'
 import { thxParse } from '../amiga/thx'
 import { parseP61, p61Song } from '../amiga/p61'
 import { SFX_LENGTH_AT, SFX_MAGIC, SFX_MAGIC_AT, SoundFx, parseSfx } from '../amiga/soundfx'
+import { FC14_MAGIC, FC14_STEP_BYTES, Fc14, parseFc14 } from '../amiga/fc14'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -116,6 +119,8 @@ export const SAM_MIN_HZ = 0x190
 export const SAM_MAX_HZ = 0x7530
 /** the bank `Sfx13 Load` reserves ($5214), and the name `Sfx13 Play` insists on */
 export const SFX_BANK_NAME = 'SFX1.3  '
+/** the bank `Fc14 Load` reserves ($5908), tested as "FC1." and "4   " ($5a90) */
+export const FC14_BANK_NAME = 'FC1.4   '
 
 /**
  * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
@@ -234,6 +239,13 @@ export interface DmeState {
   /** `$a1(a2)`: a module has been played at least once, which guards `=Sfx13 Song Pos` */
   sfxStarted: boolean
 
+  /** the FutureComposer 1.4 replay, the second of the eleven external libraries */
+  fc14: Fc14
+  /** `$7e(a2)`, `$88(a2)` and `$89(a2)`, the same three fields one block along */
+  fc14Bank: number
+  fc14Playing: boolean
+  fc14Started: boolean
+
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
   samVolume: number
@@ -263,6 +275,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     sfxBank: 0,
     sfxPlaying: false,
     sfxStarted: false,
+    fc14: new Fc14(() => rt?.host.audio),
+    fc14Bank: 0,
+    fc14Playing: false,
+    fc14Started: false,
     samBank: 0,
     samVolume: 0x40,
   }
@@ -958,6 +974,107 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.sfxPlaying) dmeErr(41)
       s.sfx.prevPattern()
     },
+
+    /**
+     * Fc14 Load file$, bank — routine 155 ($587a), the same nine steps again,
+     * with the bank named "FC1.4   " ($5908) and the tag `cmpi.l #$46433134`
+     * at offset ZERO rather than at $3c.
+     */
+    'fc14 load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.fc14Bank && s.fc14Playing) {
+        s.fc14Playing = false
+        s.fc14.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.fc14Bank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, FC14_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(0, 4)) !== FC14_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(37)
+      }
+    },
+
+    /**
+     * Fc14 Play bank — routine 158 ($5964) pushing $80000000 into routine 159,
+     * which checks the BANK NAME ("FC1." and "4   " at -$8 and -$4) rather
+     * than the module, exactly as the SoundFX pair do.
+     */
+    'fc14 play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.fc14Playing = false
+      s.fc14.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.fc14Bank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== FC14_BANK_NAME) dmeErr(37)
+      const song = parseFc14(b!.data)
+      if (!song) dmeErr(37)
+      s.fc14.load(song!)
+      s.fc14Playing = true
+      s.fc14Started = true
+    },
+
+    /** Fc14 Stop — routine 157 ($5944): the flag at $88(a0), then LVO -36 */
+    'fc14 stop'() {
+      const s = st()
+      if (!s.fc14Playing) return
+      s.fc14Playing = false
+      s.fc14.stop()
+    },
+
+    /** Fc14 Cont — routine 162 ($5a5c): `tst.b $88(a0) / bne`, position untouched */
+    'fc14 cont'() {
+      const s = st()
+      if (s.fc14Playing) return
+      if (!s.fc14Started) return
+      s.fc14Playing = true
+      s.fc14.cont()
+    },
+
+    /** Fc14 Volume n — routine 169 ($5b9c): 0..64, and outside it AMOS error 23 */
+    'fc14 volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().fc14.master = v
+    },
+
+    /** Fc14 Voice mask — routine 170 ($5bce), unchecked, straight to LVO -84 */
+    'fc14 voice'(it) {
+      st().fc14.setVoices(it.evalInt())
+    },
+
+    /**
+     * Fc14 Next Patt / Fc14 Prev Patt — routines 165 ($5af6) and 166 ($5b1c),
+     * both message 47 when nothing is playing.
+     *
+     * DEFECT: `Fc14 Next Patt` does not advance. LVO -54 at $21029c is
+     * `subq.w #$1,d1` immediately followed by `addq.w #$1,d1`, a pair that
+     * cancels, so the position it writes back is the position it read. All it
+     * does is clamp a position past the end to zero and set `$28` to $40,
+     * which makes the next row pass re-take the CURRENT step. The `Prev` twin
+     * two vectors along has the same cancelling pair AND a real `subq` after
+     * it, which is what the missing instruction here would have looked like.
+     * Reproduced in ../amiga/fc14.ts.
+     */
+    'fc14 next patt'() {
+      const s = st()
+      if (!s.fc14Playing) dmeErr(47)
+      s.fc14.nextPattern()
+    },
+    'fc14 prev patt'() {
+      const s = st()
+      if (!s.fc14Playing) dmeErr(47)
+      s.fc14.prevPattern()
+    },
   }
 }
 
@@ -1162,6 +1279,34 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
      * `Sfx13 Next Patt` walking off the end does not raise it.
      */
     'sfx13 end': () => VI(st().sfx.readEnd() ? 0xff : 0),
+
+    /**
+     * =Fc14 Song Length(bank) — routine 163 ($5a86), and like `=Sfx13 Song
+     * Length` it calls no vector: it checks the bank name and then divides the
+     * long at module+$4 by thirteen, which is the sequence in bytes over the
+     * size of a step.
+     */
+    'fc14 song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== FC14_BANK_NAME) dmeErr(37)
+      const d = bank!.data
+      const len = (((d[4] ?? 0) << 24) | ((d[5] ?? 0) << 16) | ((d[6] ?? 0) << 8) | (d[7] ?? 0)) >>> 0
+      return VI(Math.floor(len / FC14_STEP_BYTES))
+    },
+
+    /** =Fc14 Song Pos — routine 164 ($5ac6), guarded by $89(a2) and 0 before the first play */
+    'fc14 song pos': () => VI(st().fc14Started ? st().fc14.position : 0),
+
+    /** =Fc14 Vu(n) — routine 167 ($5b42), 0..3, read and cleared */
+    'fc14 vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 4) badCall()
+      return VI(st().fc14.readVu(n))
+    },
+
+    /** =Fc14 End — routine 168 ($5b74), read and cleared, and 255 for the same reason */
+    'fc14 end': () => VI(st().fc14.readEnd() ? 0xff : 0),
   }
 }
 
@@ -1185,4 +1330,5 @@ export function dmeVbl(rt: Runtime): void {
   // SoundFX keeps its own play flag, because `Sfx13 Stop` clears the flag
   // INSIDE the replayer ($210668) rather than only removing the interrupt
   if (s.sfxPlaying) s.sfx.tick()
+  if (s.fc14Playing) s.fc14.tick()
 }

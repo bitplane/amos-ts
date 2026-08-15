@@ -24,6 +24,7 @@ import { ThxPlayer } from '../amiga/thxplay'
 import { thxParse } from '../amiga/thx'
 import { p61Song, p61ToMod, parseP61 } from '../amiga/p61'
 import { SoundFx, parseSfx } from '../amiga/soundfx'
+import { Fc14, parseFc14 } from '../amiga/fc14'
 import { MedPlayer } from '../runtime/med'
 import { Runtime } from '../runtime/runtime'
 import { TokenTable } from '../tokens/stream'
@@ -32,7 +33,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine = 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'track' | 'medext'
+export type Engine = 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'track' | 'medext'
 
 /**
  * What the first bytes say it is.
@@ -46,6 +47,7 @@ export function detectEngine(d: Uint8Array): Engine | null {
   if (tag(0) === 'MMD0' || tag(0) === 'MMD1' || tag(0) === 'MMD2' || tag(0) === 'MMD3') return 'med'
   if (tag(0, 3) === 'THX' || tag(0, 3) === 'HVL') return 'thx'
   if (tag(0) === 'P61A') return 'p61'
+  if (tag(0) === 'FC14') return 'fc14'
   // SoundFX 1.3's magic sits at 60, behind the fifteen sample lengths, and is
   // the only thing DME_SoundFX1.3.library checks
   if (d.length > 0x294 && tag(0x3c) === 'SONG') return 'sfx'
@@ -81,6 +83,15 @@ export function renderModule(
     player.load(thxParse(data))
     for (let f = 0; f < frames; f++) {
       player.tick()
+      mix.runTo((f + 1) / VBL_HZ)
+    }
+  } else if (engine === 'fc14') {
+    const song = parseFc14(data)
+    if (!song) throw new Error('not a FutureComposer 1.4 module')
+    const fc = new Fc14(() => mix)
+    fc.load(song)
+    for (let f = 0; f < frames; f++) {
+      fc.tick()
       mix.runTo((f + 1) / VBL_HZ)
     }
   } else if (engine === 'sfx') {
@@ -190,7 +201,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const files = args.filter((a) => !a.startsWith('--') && !flags.has(a))
   const [file, out] = files
   if (!file || !out) {
-    console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|track|medext]')
+    console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|track|medext]')
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('       renderaudio <module.p61> - --to-mod out.mod')
     process.exit(1)
