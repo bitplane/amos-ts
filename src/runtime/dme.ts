@@ -5,7 +5,7 @@
  * distance the widest audio surface in the registry. DOOM Productions was the
  * author's demo group; the game has nothing to do with it.
  *
- * ## Batch 1 of two: the ProTracker block
+ * ## Which formats are in this binary and which are not
  *
  * Twelve of the fifteen formats are separate Amiga libraries the extension
  * opens by name — each has its own versioned error string in the hunk, from
@@ -14,15 +14,16 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four are also the four this port already has engines for. This batch
- * is the ProTracker block over ../amiga/protracker.ts, plus the 37 `nop`
- * rows; `thx`, `p61` and `dme sam` are the rest of #145 and the eleven
- * external libraries are #146.
+ * Those four were the first batch, over engines this port already had. The
+ * fifth block here is `sfx13`, and it is the first EXTERNAL one: 12 keywords
+ * over ../amiga/soundfx.ts, which was written from `DME_SoundFX1.3.library`
+ * in `libs/`. The other ten replayer libraries are #146.
  *
  * ## Evidence
  *
  * DISASSEMBLY tier over `AMOSPro_DOOM_Music.Lib`, with `DME_V2.0.guide`
- * (74,389 bytes) beside it. Every citation is an address in the code hunk.
+ * (74,389 bytes) beside it. Every citation is an address in the code hunk,
+ * except the `$21xxxx` ones, which are `DME_SoundFX1.3.library` relocated.
  *
  * ## Two things routine 0 says
  *
@@ -79,6 +80,7 @@ import { Protracker, parseMod } from '../amiga/protracker'
 import { ThxPlayer } from '../amiga/thxplay'
 import { thxParse } from '../amiga/thx'
 import { parseP61, p61Song } from '../amiga/p61'
+import { SFX_LENGTH_AT, SFX_MAGIC, SFX_MAGIC_AT, SoundFx, parseSfx } from '../amiga/soundfx'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -112,6 +114,8 @@ export const SAM_BANK_MAGIC = 'Samp'
 /** `cmp.w #$190` and `#$7530` at $3fd8 and $4140 --- 400 Hz to 30,000 Hz */
 export const SAM_MIN_HZ = 0x190
 export const SAM_MAX_HZ = 0x7530
+/** the bank `Sfx13 Load` reserves ($5214), and the name `Sfx13 Play` insists on */
+export const SFX_BANK_NAME = 'SFX1.3  '
 
 /**
  * Routine 301's message table at $ac90 — sixty strings, NUL-separated, and
@@ -221,6 +225,15 @@ export interface DmeState {
   p61Started: boolean
   p61Vu: Uint8Array
 
+  /** the SoundFX 1.3 replay, which is a separate library rather than in-hunk */
+  sfx: SoundFx
+  /** `$96(a2)`, the bank `Sfx13 Load` last filled */
+  sfxBank: number
+  /** `$a0(a2)`: playing, which the stop and cont pair test before acting */
+  sfxPlaying: boolean
+  /** `$a1(a2)`: a module has been played at least once, which guards `=Sfx13 Song Pos` */
+  sfxStarted: boolean
+
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
   samVolume: number
@@ -246,6 +259,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     p61Paused: false,
     p61Started: false,
     p61Vu: new Uint8Array(4),
+    sfx: new SoundFx(() => rt?.host.audio),
+    sfxBank: 0,
+    sfxPlaying: false,
+    sfxStarted: false,
     samBank: 0,
     samVolume: 0x40,
   }
@@ -798,6 +815,149 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.ptmStarted || !s.ptm.song) return
       s.ptm.setPosition(Math.max(s.ptm.pos - 1, 0))
     },
+
+    /**
+     * Sfx13 Load file$, bank — routine 123 ($5184), and the same nine steps
+     * as `Ptm Load` down to the instruction.
+     *
+     * The bank is named "SFX1.3  " ($5214) and the tag test is one compare:
+     * `cmpi.l #$534f4e47,$3c(a2)`, "SONG" at offset 60. There is no second
+     * form. SoundFX also exists with a 31-instrument "SO31" header and this
+     * extension refuses it, so one variant is the whole format here.
+     */
+    'sfx13 load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.sfxBank && s.sfxPlaying) {
+        s.sfxPlaying = false
+        s.sfx.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.sfxBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, SFX_BANK_NAME, false, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(SFX_MAGIC_AT, SFX_MAGIC_AT + 4)) !== SFX_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(42)
+      }
+    },
+
+    /**
+     * Sfx13 Play bank — routine 126 ($5270), the same push-and-branch into
+     * routine 127.
+     *
+     * Routine 127 opens the library first (routine 128, message 43 if that
+     * fails), stops whatever is playing, and then checks the BANK NAME rather
+     * than the module: `cmpi.l #$53465831,-$8(a2)` and `#$2e332020,-$4(a2)`
+     * are "SFX1" and ".3  ", the eight bytes in front of the bank data. So a
+     * bank filled by hand with a valid module but the wrong name is message
+     * 42, and one named right with rubbish in it plays.
+     *
+     * Two of the replayer's own bugs are catalogued here rather than in
+     * ../amiga/soundfx.ts, which is where they are reproduced: that directory
+     * carries deviations and never defects (../amiga/README.md).
+     *
+     * DEFECT: the sample clear at $21061e never runs. It guards `clr.l (a1)`
+     * with `cmpa.l $210b0a.l,a1 / bge`, and no instruction in the 2,960 bytes
+     * ever writes $210b0a --- a scan of the relocated image finds the one read
+     * and no write. It stays zero, every sample pointer is above zero, and the
+     * branch is always taken. So an unlooped sample ends by looping its own
+     * first word rather than a zeroed one, which is a drone whenever the
+     * composer did not start the sample silent.
+     *
+     * DEFECT: the arpeggio's table search at $2107e4 has no test for the
+     * $ffff terminator that the slide's search at $210772 does have, so a
+     * period the table does not hold walks off the end of the data hunk. This
+     * port stops on the base period instead, which is the closest thing to
+     * what the composer heard that does not read past an array.
+     */
+    'sfx13 play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.sfxPlaying = false
+      s.sfx.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.sfxBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SFX_BANK_NAME) dmeErr(42)
+      const song = parseSfx(b!.data)
+      if (!song) dmeErr(42)
+      s.sfx.load(song!)
+      s.sfxPlaying = true
+      s.sfxStarted = true
+    },
+
+    /** Sfx13 Stop — routine 125 ($5250): the flag, then LVO -36 */
+    'sfx13 stop'() {
+      const s = st()
+      if (!s.sfxPlaying) return
+      s.sfxPlaying = false
+      s.sfx.stop()
+    },
+
+    /**
+     * Sfx13 Cont — routine 130 ($536e): `tst.b $a0(a2) / bne`, so continuing
+     * something already playing is a no-op, and the position is untouched.
+     */
+    'sfx13 cont'() {
+      const s = st()
+      if (s.sfxPlaying) return
+      if (!s.sfxStarted) return
+      s.sfxPlaying = true
+      s.sfx.cont()
+    },
+
+    /**
+     * Sfx13 Volume n — routine 137 ($54aa): `cmp.l #$0,d7 / Rblt` and
+     * `cmp.l #$40,d7 / Rbhi`, so 0 to 64 and anything else is AMOS error 23.
+     *
+     * The library then does `mulu.w #$40,d0 / lsr.w #$6,d0` ($210232), which
+     * is the value back again — 64 up and 64 down. Reproduced as the identity
+     * it is, because the multiply overflows a word above 1,023 and nothing
+     * can get there through the range check.
+     *
+     * DEFECT: `Sfx13 Volume 0` silences every voice on the next note rather
+     * than that note. The volume routine at $2103b0 tests the scaled result
+     * and, when it is zero, clears all FOUR of $dff0a8, $b8, $c8 and $d8
+     * instead of this channel's. Each other voice stays silent until its own
+     * next trigger. It fires for any note that scales to zero, and a master of
+     * 0 makes every note do it. Reproduced in ../amiga/soundfx.ts.
+     */
+    'sfx13 volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().sfx.master = v
+    },
+
+    /**
+     * Sfx13 Voice mask — routine 138 ($54dc), and it checks NOTHING: the
+     * whole longword goes to LVO -84, which tests bits 0 to 3 and then writes
+     * the value to DMACON with bit 15 set.
+     */
+    'sfx13 voice'(it) {
+      st().sfx.setVoices(it.evalInt())
+    },
+
+    /**
+     * Sfx13 Next Patt / Sfx13 Prev Patt — routines 133 ($5404) and 134
+     * ($542a), and both raise message 41 when nothing is playing rather than
+     * returning quietly, which is what the `ptm` pair do.
+     */
+    'sfx13 next patt'() {
+      const s = st()
+      if (!s.sfxPlaying) dmeErr(41)
+      s.sfx.nextPattern()
+    },
+    'sfx13 prev patt'() {
+      const s = st()
+      if (!s.sfxPlaying) dmeErr(41)
+      s.sfx.prevPattern()
+    },
   }
 }
 
@@ -822,6 +982,8 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
      * =Thx End — routine 193 ($6156), and it READS AND CLEARS: `move.b
      * $3(a3),d0 / tst.b d0 / beq / move.l d0,d3 / clr.b $3(a3)`.
      *
+     * `move.l d0,d3` with d0 a zero-extended byte, so 255 again.
+     *
      * The same as `=Ptm End`, then. THX 0.6 --- a different extension over
      * the same format --- latches instead and only StartSong clears it, so
      * the divergence is between the two ports rather than inside this one.
@@ -830,7 +992,7 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       const s = st()
       const out = s.thx.ended
       if (out) s.thx.ended = false
-      return VI(out ? -1 : 0)
+      return VI(out ? 0xff : 0)
     },
 
     /** =Thx Song Length(bank) — routine 195 ($61b0) */
@@ -938,8 +1100,12 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Ptm End — routine 296 ($7b5e): `cmpi.w #$ff,$e(a0)`, -1 when the song
-     * has wrapped, and `clr.w $e(a0)` on the way out.
+     * =Ptm End — routine 296 ($7b5e): `cmpi.w #$ff,$e(a0)` when the song has
+     * wrapped, and `clr.w $e(a0)` on the way out.
+     *
+     * It answers 255, not -1: `moveq #$0,d3 / move.b #$ff,d3` writes one byte
+     * into a longword the `moveq` has already zeroed. `=Thx End` and
+     * `=Sfx13 End` are all three written that way.
      *
      * Cleared by the read, which is the opposite of THX 0.6's `Thx End` —
      * that one latches and only StartSong clears it, so the same question
@@ -949,8 +1115,53 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       const s = st()
       const out = s.ptmEnd
       s.ptmEnd = false
-      return VI(out ? -1 : 0)
+      return VI(out ? 0xff : 0)
     },
+
+    /**
+     * =Sfx13 Song Length — routine 131 ($5394), and it calls no library
+     * vector: it takes the bank's address, checks the eight name bytes in
+     * front of it against "SFX1" and ".3  ", and reads the byte at module+$212.
+     *
+     * So this one answers without the library loaded and without anything
+     * playing, which none of the other three do.
+     */
+    'sfx13 song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== SFX_BANK_NAME) dmeErr(42)
+      return VI(bank!.data[SFX_LENGTH_AT] ?? 0)
+    },
+
+    /**
+     * =Sfx13 Song Pos — routine 132 ($53d4): guarded by the has-ever-played
+     * byte at `$a1(a2)`, and 0 before the first `Sfx13 Play`.
+     */
+    'sfx13 song pos': () => VI(st().sfxStarted ? st().sfx.pos : 0),
+
+    /**
+     * =Sfx13 Vu(n) — routine 135 ($5450). `Rbmi` and `cmp.l #$4,d7 / Rbcc`,
+     * so 0 to 3 and anything else is AMOS error 23.
+     *
+     * The library's LVO -48 reads the byte and clears it in one go
+     * (`move.b (a2,d7.w),d1 / clr.b (a2,d7.w)`), so asking twice between two
+     * notes gives the number and then zero.
+     */
+    'sfx13 vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 4) badCall()
+      return VI(st().sfx.readVu(n))
+    },
+
+    /**
+     * =Sfx13 End — routine 136 ($5482), read and cleared, and 255 rather than
+     * -1: `moveq #$0,d3 / move.b #$ff,d3` leaves the top three bytes zero.
+     * `=Ptm End` and `=Thx End` are written the same way in the same binary.
+     *
+     * The library sets the flag only where the position WRAPS at $210918, and
+     * `Sfx13 Next Patt` walking off the end does not raise it.
+     */
+    'sfx13 end': () => VI(st().sfx.readEnd() ? 0xff : 0),
   }
 }
 
@@ -971,4 +1182,7 @@ export function dmeVbl(rt: Runtime): void {
   }
   if (s.thxPlaying) s.thx.tick()
   if (s.p61Playing && !s.p61Paused) s.p61.tick()
+  // SoundFX keeps its own play flag, because `Sfx13 Stop` clears the flag
+  // INSIDE the replayer ($210668) rather than only removing the interrupt
+  if (s.sfxPlaying) s.sfx.tick()
 }

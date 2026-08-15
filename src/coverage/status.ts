@@ -2565,6 +2565,22 @@ export const FAITHFUL = new Set<string>([
   'dme sam volume',
   'dme sam stop',
   'dme sam raw',
+  // The SoundFX 1.3 block over ../amiga/soundfx.ts, off
+  // `DME_SoundFX1.3.library`. `Sfx13 Play` is NOT here --- the replayer's
+  // arpeggio search has no terminator test and walks off the end of the data
+  // hunk on a period its table does not hold, and that is a DEVIATION rather
+  // than a defect because there is no result there to copy.
+  'sfx13 load',
+  'sfx13 stop',
+  'sfx13 cont',
+  'sfx13 volume',
+  'sfx13 voice',
+  'sfx13 next patt',
+  'sfx13 prev patt',
+  'sfx13 song length',
+  'sfx13 song pos',
+  'sfx13 vu',
+  'sfx13 end',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8072,6 +8088,62 @@ export const NOTES: Record<string, string> = {
     "formats in one extension has two answers.",
   "ptm next patt": "routine 294 ($7ac8): the song position forward one, without stopping.",
   "ptm prev patt": "routine 295 ($7b16): and back one.",
+  "sfx13 load":
+    "routine 123 ($5184), the same nine steps as `Ptm Load`: the bank pops first, `cmp.l #$10000,d3`, a Work " +
+    "bank named \"SFX1.3  \" sized as the file rounded up to even plus eight, and an erase before the error. The " +
+    "tag test is ONE compare --- `cmpi.l #$534f4e47,$3c(a2)`, \"SONG\" at offset 60. SoundFX also exists in a " +
+    "31-instrument \"SO31\" form and there is no branch for it anywhere in the extension, so this library plays " +
+    "exactly one variant of the format.",
+  "sfx13 play":
+    "routine 126 ($5270) pushes $80000000 and branches into routine 127, which opens DME_SoundFX1.3.library " +
+    "(routine 128, message 43 on failure) and then checks the BANK NAME rather than the module: " +
+    "`cmpi.l #$53465831,-$8(a2)` and `#$2e332020,-$4(a2)` are \"SFX1\" and \".3  \". A bank holding a valid " +
+    "module under another name is message 42, and one named right with rubbish in it plays. The replay is " +
+    "src/amiga/soundfx.ts, off the library's own 1,516-byte data hunk. DEFECT: the sample clear at $21061e never " +
+    "runs, because it guards `clr.l (a1)` with `cmpa.l $210b0a.l,a1 / bge` and nothing ever writes $210b0a --- so " +
+    "an unlooped sample ends by repeating its own first word rather than a zeroed one. APPROXIMATED for the " +
+    "other one: the arpeggio's table search at $2107e4 has no test for the $ffff terminator that the slide's " +
+    "search at $210772 does have, so a period the table does not hold walks off the end of the hunk. There is no " +
+    "result there to reproduce, so this stops on the base period.",
+  "sfx13 stop":
+    "routine 125 ($5250) into LVO -36 ($2101aa), which clears the play flag at $210b00, zeroes all four AUDxVOL " +
+    "and writes DMACON $000f. It saves the master volume at $8(a2) and leaves 64 behind when it was zero, which " +
+    "`Sfx13 Cont` then undoes --- so the 64 is only ever visible while nothing is playing.",
+  "sfx13 cont":
+    "routine 130 ($536e) into LVO -78 ($2101d8): the saved master back, the flag on, and NOT the position. " +
+    "`tst.b $a0(a2) / bne` makes continuing something already playing a no-op.",
+  "sfx13 volume":
+    "routine 137 ($54aa): `cmp.l #$0,d7 / Rblt` and `cmp.l #$40,d7 / Rbhi`, so 0..64 and anything else is AMOS " +
+    "error 23. LVO -54 then does `mulu.w #$40,d0 / lsr.w #$6,d0`, which is the value back again. DEFECT: the " +
+    "volume routine at $2103b0 tests the SCALED volume and, when it is zero, clears all four of $dff0a8, $b8, " +
+    "$c8 and $d8 rather than this channel's --- so a master of 0, or any note that scales to 0, silences every " +
+    "voice until each is triggered again.",
+  "sfx13 voice":
+    "routine 138 ($54dc) checks NOTHING: the whole longword goes to LVO -84 ($2102bc), which tests bits 0 to 3, " +
+    "zeroes the AUDxVOL of each clear one, and then writes the value to DMACON with bit 15 set. Bit 15 set means " +
+    "it can only turn DMA on, so a disabled voice keeps running and is silenced by the volume write alone.",
+  "sfx13 next patt":
+    "routine 133 ($5404) into LVO -66 ($210242): the row offset cleared and the position forward one, wrapping " +
+    "on equality with the song length. It does NOT raise the end flag, which only $210918 does. Unlike " +
+    "`Ptm Next Patt` it RAISES when nothing is playing --- `tst.b $a0(a2) / beq` into message 41.",
+  "sfx13 prev patt":
+    "routine 134 ($542a) into LVO -72 ($210274): `subq.l #$1,(a0) / bge`, so position 0 goes to length-1. The " +
+    "same message 41 guard.",
+  "sfx13 song length":
+    "routine 131 ($5394) calls no library vector at all: it takes the bank's address, checks the eight name " +
+    "bytes in front of it against \"SFX1\" and \".3  \", and reads the byte at module+$212. So this one answers " +
+    "without the library open and without anything playing, which none of the other three readers do.",
+  "sfx13 song pos":
+    "routine 132 ($53d4) into LVO -42 ($2101fc), guarded by the has-ever-played byte at $a1(a2) and answering 0 " +
+    "before the first `Sfx13 Play`.",
+  "sfx13 vu":
+    "routine 135 ($5450), bounded to 0..3 by `Rbmi` and `cmp.l #$4,d7 / Rbcc`. LVO -48 does " +
+    "`move.b (a2,d7.w),d1 / clr.b (a2,d7.w)`, so it is READ AND CLEARED and a second ask between two notes " +
+    "answers zero. The byte it reads is the note's volume already scaled by the master.",
+  "sfx13 end":
+    "routine 136 ($5482) into LVO -60 ($21029a), read and cleared. It answers 255 rather than -1: " +
+    "`moveq #$0,d3 / move.b #$ff,d3` writes one byte into a longword already zeroed, and `=Ptm End` and " +
+    "`=Thx End` are written the same way in the same binary.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

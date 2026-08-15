@@ -15,7 +15,8 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DME_ERRORS, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT } from './dme'
+import { DME_ERRORS, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -450,5 +451,123 @@ describe('the readers and steppers the gate would otherwise never see', () => {
     // routines 275 ($7708) and 276 ($7726), both guarded by data+$42
     run(['Print P61 Song Pos', 'Print P61 Patt Pos'], {})
     expect(out()).toEqual(['0', '0'])
+  })
+})
+
+/**
+ * The SoundFX 1.3 block, and the extension layer of it: the bank name, the
+ * one tag test, the two guards that raise instead of returning quietly.
+ *
+ * The format itself and the replay are ../amiga/soundfx.test.ts.
+ */
+const SFX_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(SFX_PATTERNS_AT + 0x400 + 8)
+  for (const [i, c] of [...'SONG'].entries()) out[0x3c + i] = c.charCodeAt(0)
+  // one instrument of eight bytes, one position, one pattern
+  out[3] = 8
+  const rec = 0x48 + 30
+  out[rec + 1] = 4 // one-shot words
+  out[rec + 3] = 0x40 // volume
+  out[rec + 7] = 1 // repeat length
+  out[SFX_LENGTH_AT] = 1
+  // C-2 at period 428 on channel 0, instrument 1
+  out[SFX_PATTERNS_AT] = 0x01
+  out[SFX_PATTERNS_AT + 1] = 0xac
+  out[SFX_PATTERNS_AT + 2] = 0x10
+  return out
+})()
+
+const SFX = { 'a.sfx': SFX_MOD }
+const SLOAD = 'Sfx13 Load "Work:a.sfx",6'
+
+describe('the SoundFX 1.3 block', () => {
+  it('Sfx13 Load reserves a bank named "SFX1.3  ", sized even plus eight', () => {
+    const { rt } = run([SLOAD], SFX)
+    const b = rt.memBanks.get(6)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(SFX_BANK_NAME)
+    expect(b.data.length).toBe(SFX_MOD.length + 8)
+  })
+
+  it('the tag test is "SONG" at offset 60 and nothing else — no SO31 path', () => {
+    // `cmpi.l #$534f4e47,$3c(a2)` at $51f0, one compare and one branch
+    const wrong = SFX_MOD.slice()
+    for (const [i, c] of [...'SO31'].entries()) wrong[0x3c + i] = c.charCodeAt(0)
+    expect(() => run([SLOAD], { 'a.sfx': wrong })).toThrow(DME_ERRORS[42])
+  })
+
+  it('a refused module leaves no bank behind, because L_Bnk_Eff runs first', () => {
+    const junk = new Uint8Array(0x400)
+    const { rt } = (() => {
+      try {
+        return run([SLOAD], { 'a.sfx': junk })
+      } catch {
+        return { rt: null }
+      }
+    })() as { rt: Runtime | null }
+    expect(rt?.memBanks.get(6)).toBeUndefined()
+  })
+
+  it('Sfx13 Play checks the BANK NAME, not the module', () => {
+    // routine 127 reads the eight bytes in front of the data as "SFX1" and
+    // ".3  ", so a Work bank holding a valid module under another name fails
+    expect(() => run(['Reserve As Work 6,1024', 'Sfx13 Play 6'], {})).toThrow(DME_ERRORS[42])
+    expect(() => run([SLOAD, 'Sfx13 Play 6'], SFX)).not.toThrow()
+  })
+
+  it('=Sfx13 Song Length reads the byte at $212 without the library or a play', () => {
+    // routine 131 calls no vector at all
+    run([SLOAD, 'Print Sfx13 Song Length(6)'], SFX)
+    expect(out()).toEqual(['1'])
+  })
+
+  it('=Sfx13 Song Pos answers zero until something has played', () => {
+    run(['Print Sfx13 Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('=Sfx13 Vu reads the byte away, so the second ask of one voice is zero', () => {
+    // the row lands on the sixth tick, so the note is on by frame 6
+    run([SLOAD, 'Sfx13 Play 6', 'For I=0 To 9 : Wait Vbl : Next I', 'Print Sfx13 Vu(0)', 'Print Sfx13 Vu(0)'], SFX)
+    expect(out()).toEqual(['64', '0'])
+  })
+
+  it('=Sfx13 Vu refuses a channel outside 0..3', () => {
+    expect(() => run([SLOAD, 'Sfx13 Play 6', 'Print Sfx13 Vu(4)'], SFX)).toThrow()
+    expect(() => run([SLOAD, 'Sfx13 Play 6', 'Print Sfx13 Vu(-1)'], SFX)).toThrow()
+  })
+
+  it('=Sfx13 End answers 255 and clears, the way =Ptm End and =Thx End do', () => {
+    // `moveq #$0,d3 / move.b #$ff,d3` at $549e — one byte into a zeroed long
+    const { rt } = run([SLOAD, 'Sfx13 Play 6'], SFX)
+    rt.dme.sfx.end = true
+    expect(rt.dme.sfx.readEnd()).toBe(true)
+    expect(rt.dme.sfx.readEnd()).toBe(false)
+    run([SLOAD, 'Sfx13 Play 6', 'Print Sfx13 End'], SFX)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Sfx13 Volume takes 0..64 and raises outside it', () => {
+    expect(() => run([SLOAD, 'Sfx13 Volume 65'], SFX)).toThrow()
+    expect(() => run([SLOAD, 'Sfx13 Volume -1'], SFX)).toThrow()
+    const { rt } = run([SLOAD, 'Sfx13 Play 6', 'Sfx13 Volume 32'], SFX)
+    expect(rt.dme.sfx.master).toBe(32)
+  })
+
+  it('Sfx13 Next Patt raises when nothing is playing, where Ptm Next Patt returns', () => {
+    // routine 133 ($5404): `tst.b $a0(a2) / beq` into message 41
+    expect(() => run(['Sfx13 Next Patt'], {})).toThrow(DME_ERRORS[41])
+    expect(() => run(['Sfx13 Prev Patt'], {})).toThrow(DME_ERRORS[41])
+  })
+
+  it('Sfx13 Cont after Sfx13 Stop keeps the position', () => {
+    const { rt } = run([SLOAD, 'Sfx13 Play 6', 'Sfx13 Stop', 'Sfx13 Cont'], SFX)
+    expect(rt.dme.sfxPlaying).toBe(true)
+    expect(rt.dme.sfx.pos).toBe(0)
+  })
+
+  it('Sfx13 Voice passes the whole longword through, unchecked', () => {
+    // routine 138 ($54dc) has no range test at all
+    const { rt } = run([SLOAD, 'Sfx13 Play 6', 'Sfx13 Voice 5'], SFX)
+    expect(rt.dme.sfx.voices).toBe(5)
   })
 })
