@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -926,5 +926,68 @@ describe('what every DME loader asks Bnk_Reserve for', () => {
       const b = rt.memBanks.get(Number(load.slice(load.lastIndexOf(',') + 1)))!
       expect([load, b.flags, b.memType]).toEqual([load, 1, 1])
     }
+  })
+})
+
+/** The BP SoundMon block: four channels, a synth, and no mixer. */
+const SMON_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0x400)
+  for (const [i, c] of [...'V.2'].entries()) out[0x1a + i] = c.charCodeAt(0)
+  out[0x1d] = 4 // four waveform tables
+  out[0x1f] = 2 // two song steps
+  return out
+})()
+
+const SMON = { 'a.bp': SMON_MOD }
+const MLOAD2 = 'Smon Load "Work:a.bp",7'
+
+describe('the BP SoundMon block', () => {
+  it('Smon Load reserves a DATA and CHIP bank named "SoundMon"', () => {
+    const { rt } = run([MLOAD2], SMON)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(SMON_BANK_NAME)
+    expect([b.flags, b.memType]).toEqual([1, 1])
+    const wrong = SMON_MOD.slice()
+    wrong[0x1c] = '3'.charCodeAt(0)
+    expect(() => run([MLOAD2], { 'a.bp': wrong })).toThrow(DME_ERRORS[39])
+  })
+
+  it('=Smon Song Length reads the WORD at $1e, not a byte', () => {
+    run([MLOAD2, 'Print Smon Song Length(7)'], SMON)
+    expect(out()).toEqual(['2'])
+  })
+
+  it('=Smon Song Pos answers zero until something has played', () => {
+    run(['Print Smon Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Smon Volume takes 0..64 and Smon Voice takes anything', () => {
+    expect(() => run([MLOAD2, 'Smon Volume 65'], SMON)).toThrow()
+    const { rt } = run([MLOAD2, 'Smon Play 7', 'Smon Volume 20', 'Smon Voice 9'], SMON)
+    expect(rt.dme.smon.master).toBe(20)
+    expect(rt.dme.smon.enabled).toBe(9)
+  })
+
+  it('Smon Next Patt and Smon Prev Patt raise message 48 when nothing is playing', () => {
+    expect(() => run(['Smon Next Patt'], {})).toThrow(DME_ERRORS[48])
+    expect(() => run(['Smon Prev Patt'], {})).toThrow(DME_ERRORS[48])
+  })
+
+  it('=Smon Vu refuses a channel outside 0..3, and =Smon End clears', () => {
+    expect(() => run([MLOAD2, 'Smon Play 7', 'Print Smon Vu(4)'], SMON)).toThrow()
+    const { rt } = run([MLOAD2, 'Smon Play 7'], SMON)
+    rt.dme.smon.end = true
+    expect(rt.dme.smon.readEnd()).toBe(true)
+    expect(rt.dme.smon.readEnd()).toBe(false)
+    run([MLOAD2, 'Smon Play 7', 'Print Smon End'], SMON)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Smon Stop and Smon Cont turn the one flag the veneer keeps', () => {
+    const { rt } = run([MLOAD2, 'Smon Play 7', 'Smon Stop'], SMON)
+    expect(rt.dme.smonPlaying).toBe(false)
+    const back = run([MLOAD2, 'Smon Play 7', 'Smon Stop', 'Smon Cont'], SMON)
+    expect(back.rt.dme.smonPlaying).toBe(true)
   })
 })

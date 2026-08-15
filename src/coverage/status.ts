@@ -2641,6 +2641,20 @@ export const FAITHFUL = new Set<string>([
   'dmed song pos',
   'dmed patt pos',
   'dmed vu',
+  // The BP SoundMon block over ../amiga/soundmonplay.ts, off
+  // DME_SoundMon2.0.library. `Smon Play` is NOT here --- no second reader for
+  // the format exists on this machine, so the synth is unverified against one.
+  'smon load',
+  'smon stop',
+  'smon cont',
+  'smon volume',
+  'smon voice',
+  'smon next patt',
+  'smon prev patt',
+  'smon song length',
+  'smon song pos',
+  'smon vu',
+  'smon end',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8366,6 +8380,35 @@ export const NOTES: Record<string, string> = {
     "so 0 before the first `Dmed Play`.",
   "dmed patt pos": "routine 215 ($682c), the same shape reading `pline` at $2c.",
   "dmed vu": "routine 219 ($68d0), 0..3, into LVO -102, read and cleared. `MedPlayer` gained the `onVu` hook `Protracker` already had, because the vu bytes belong to the veneer rather than to the replayer.",
+  "smon load":
+    "routine 139 ($54f8), the same nine steps with a DATA and CHIP bank named \"SoundMon\" ($558c). Its tag " +
+    "test is LOOSER than the library's: $5564 reads the LONG at $1a and clears the low byte before comparing " +
+    "with \"V.2\\0\", so the waveform count at $1d is not part of it, where $21060a checks the three " +
+    "characters and stops.",
+  "smon play":
+    "routine 142 ($55e8) pushes $80000000 into routine 143, which opens DME_SoundMon2.0.library (routine 144, " +
+    "message 40) and checks the bank name as \"Soun\" and \"dMon\". The replay is src/amiga/soundmonplay.ts " +
+    "over src/amiga/soundmon.ts: four channels straight onto Paula, its own 48-word period table at $210e82 " +
+    "(four octaves, and NOT ProTracker's --- 760 against 762, 680 against 678), ten row commands, and the " +
+    "synth. An instrument is either sampled or three modulator scripts, and the third of those REWRITES THE " +
+    "PLAYING WAVEFORM: each voice keeps a 32-byte backup ($210b1a), and a table byte becomes a width of 0 to " +
+    "31 whose bytes are the backup NEGATED ($210ce0 forward, $210cd2 back). Sweeping the width sweeps a " +
+    "pulse, and that is the format's sound. APPROXIMATED only in the sense that nothing on this machine reads " +
+    "BP SoundMon a second time --- libopenmpt does not and soundmonplay.library off Aminet is a PowerPC " +
+    "binary --- so the synth is checked against the instructions and against invariants rather than against a " +
+    "recording, as THX's is.",
+  "smon stop": "routine 141 ($55c8): the flag at $94(a0), then LVO -36 ($2101d8).",
+  "smon cont": "routine 154 ($5854): `tst.b $94(a0) / bne` and then LVO -84 ($210208), the saved master back with the position untouched.",
+  "smon volume": "routine 152 ($5806): 0..64 checked twice over, then LVO -72 ($2102c6), the same veneer the SoundFX and FutureComposer libraries carry.",
+  "smon voice": "routine 153 ($5838) checks nothing and hands the whole longword to LVO -78 ($2102e0).",
+  "smon next patt": "routine 148 ($5760) into LVO -48 ($21025c), and message 48 when nothing is playing. It advances the position by one and clears the row.",
+  "smon prev patt": "routine 149 ($5786) into LVO -54 ($21023c): back one, floored at zero, and the same guard.",
+  "smon song length":
+    "routine 146 ($56f4) calls no vector: it checks the bank name and reads the WORD at module+$1e, which is " +
+    "the step count `InitModule` sizes everything after the header with.",
+  "smon song pos": "routine 147 ($5730) into LVO -42 ($21022c), guarded by $95(a2) so it answers 0 before the first `Smon Play`.",
+  "smon vu": "routine 150 ($57ac), 0..3, into LVO -60 ($210288), which reads the byte and clears it.",
+  "smon end": "routine 151 ($57de) into LVO -66 ($2102a4), read and cleared, 255 for the same `move.b #$ff,d3` reason the other five have.",
   m_portopen:
     "routine 1 (`L1`): clears the 106-byte DoorMsg, builds the port name by writing the node digit over offset 11 " +
     "of `\"DoorControl\",0,0`, and calls FindPort inside Forbid/Permit. Zero means either FindPort found nothing " +

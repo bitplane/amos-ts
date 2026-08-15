@@ -94,6 +94,8 @@ import { DIGI_MAGIC, parseDigi } from '../amiga/digi'
 import { DigiPlayer } from '../amiga/digiplay'
 import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
+import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
+import { SoundMon } from '../amiga/soundmonplay'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -135,6 +137,8 @@ export const FC14_BANK_NAME = 'FC1.4   '
 export const FC13_BANK_NAME = 'FC1.3   '
 /** the bank `Db Load` reserves ($4e02), tested as "Digi" and "Mod " ($4e94) */
 export const DIGI_BANK_NAME = 'DigiMod '
+/** the bank `Smon Load` reserves ($558c), tested as "Soun" and "dMon" ($561e) */
+export const SMON_BANK_NAME = 'SoundMon'
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
 export const DMED_BANK_NAME = 'Med     '
 /** `cmpi.l #$4d4d4432,(a2)` at $6794: MMD2 keeps its sequence count elsewhere */
@@ -295,6 +299,13 @@ export interface DmeState {
   /** the four vu bytes the veneer keeps, read and cleared */
   dmedVu: Uint8Array
 
+  /** BP SoundMon 2.0, the sixth --- four channels and a synth, no mixer */
+  smon: SoundMon
+  /** `$8a(a2)`, `$94(a2)` and `$95(a2)` */
+  smonBank: number
+  smonPlaying: boolean
+  smonStarted: boolean
+
   /** the DigiBooster 1.x replay, the fourth of the eleven */
   digi: DigiPlayer
   /** `$a2(a2)`, `$ac(a2)`, `$ad(a2)` and `$ae(a2)`: bank, playing, unpaused, started */
@@ -345,6 +356,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc14Bank: 0,
     fc14Playing: false,
     fc14Started: false,
+    smon: new SoundMon(() => rt?.host.audio),
+    smonBank: 0,
+    smonPlaying: false,
+    smonStarted: false,
     dmed: null,
     dmedBank: 0,
     dmedPlaying: false,
@@ -1517,6 +1532,98 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.dmedPlaying) dmeErr(52)
       medFor(rt, s).seek(-1)
     },
+
+    /**
+     * Smon Load file$, bank --- routine 139 ($54f8), the bank "SoundMon"
+     * ($558c) and DATA plus CHIP.
+     *
+     * Its tag test is LOOSER than the library's: $5564 reads the LONG at $1a
+     * and clears the low byte before comparing with "V.2\0", so the waveform
+     * count at $1d is not part of it, where $21060a checks the three
+     * characters and nothing else.
+     */
+    'smon load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.smonBank && s.smonPlaying) {
+        s.smonPlaying = false
+        s.smon.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.smonBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, SMON_BANK_NAME, true, true)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(SMON_MAGIC_AT, SMON_MAGIC_AT + 3)) !== SMON_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(39)
+      }
+    },
+
+    /** Smon Play bank --- routine 142 ($55e8) into routine 143, on the bank NAME */
+    'smon play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.smonPlaying = false
+      s.smon.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.smonBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SMON_BANK_NAME) dmeErr(39)
+      const song = parseSmon(b!.data)
+      if (!song) dmeErr(39)
+      s.smon.load(song!)
+      s.smonPlaying = true
+      s.smonStarted = true
+    },
+
+    /** Smon Stop --- routine 141 ($55c8): the flag at $94(a0), then LVO -36 */
+    'smon stop'() {
+      const s = st()
+      if (!s.smonPlaying) return
+      s.smonPlaying = false
+      s.smon.stop()
+    },
+
+    /** Smon Cont --- routine 154 ($5854): `tst.b $94(a0) / bne`, then LVO -84 */
+    'smon cont'() {
+      const s = st()
+      if (s.smonPlaying) return
+      if (!s.smonStarted) return
+      s.smonPlaying = true
+      s.smon.cont()
+    },
+
+    /** Smon Volume n --- routine 152 ($5806): 0..64, then LVO -72 */
+    'smon volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().smon.master = v
+    },
+
+    /** Smon Voice mask --- routine 153 ($5838), unchecked, straight to LVO -78 */
+    'smon voice'(it) {
+      st().smon.setVoices(it.evalInt())
+    },
+
+    /**
+     * Smon Next Patt / Smon Prev Patt --- routines 148 ($5760) and 149
+     * ($5786), message 48 when nothing is playing, into LVO -48 and -54.
+     */
+    'smon next patt'() {
+      const s = st()
+      if (!s.smonPlaying) dmeErr(48)
+      s.smon.nextPattern()
+    },
+    'smon prev patt'() {
+      const s = st()
+      if (!s.smonPlaying) dmeErr(48)
+      s.smon.prevPattern()
+    },
   }
 }
 
@@ -1833,6 +1940,32 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     'dmed song pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPseqnum ?? 0) : 0),
     'dmed patt pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPline ?? 0) : 0),
 
+    /**
+     * =Smon Song Length(bank) — routine 146 ($56f4), which calls no vector and
+     * reads the WORD at module+$1e, the step count `InitModule` uses to size
+     * everything after the header.
+     */
+    'smon song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== SMON_BANK_NAME) dmeErr(39)
+      const d = bank!.data
+      return VI(((d[0x1e] ?? 0) << 8) | (d[0x1f] ?? 0))
+    },
+
+    /** =Smon Song Pos — routine 147 ($5730) into LVO -42, guarded by $95(a2) */
+    'smon song pos': () => VI(st().smonStarted ? st().smon.position : 0),
+
+    /** =Smon Vu(n) — routine 150 ($57ac), 0..3, into LVO -60, read and cleared */
+    'smon vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 4) badCall()
+      return VI(st().smon.readVu(n))
+    },
+
+    /** =Smon End — routine 151 ($57de) into LVO -66, read and cleared, and 255 */
+    'smon end': () => VI(st().smon.readEnd() ? 0xff : 0),
+
     /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
     'dmed vu': (_, a) => {
       const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
@@ -1869,6 +2002,7 @@ export function dmeVbl(rt: Runtime): void {
   if (s.fc13Playing) s.fc13.tick()
   // DigiBooster's CIA rate is the module's own and `Fxx` above $1f moves it,
   // so its ticks are counted against the frame rather than one to a frame
+  if (s.smonPlaying) s.smon.tick()
   // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
   if (s.dmedPlaying) s.dmed?.vbl()
   if (s.digiPlaying && s.digiUnpaused) {
