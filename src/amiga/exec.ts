@@ -107,13 +107,19 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // Version 7 because MED 7.1 opens all three of its players with
   // `moveq #$7,d0` and takes anything below as absent.
   //
-  // Its two siblings are deliberately NOT here. `octaplayer.library`
-  // (5-8 channel MMD2) and `octamixplayer.library` (0-64 channel MMD3) mix
-  // several voices into each of Paula's four in software, and this port has
-  // no mixer — paula.ts says so in as many words. Listing them would be
-  // claiming a back-end that does not exist; leaving them out makes
-  // OpenLibrary answer 0, which is the case MED 7.1 already handles and
-  // reports in its own words. See runtime/medext.ts.
+  // Its two siblings are NOT here, because neither is ported yet.
+  // `octaplayer.library` (5-8 channel MMD2) and `octamixplayer.library`
+  // (0-64 channel MMD3) mix several voices into each of Paula's four in
+  // software. That used to be the reason they were excluded, and it has
+  // stopped being true: digimix.ts pairs two channels into a voice and
+  // s3mmix.ts sums twelve at a fixed rate. What is missing now is the work,
+  // not the back-end. Both replayers are in fixtures under libs/medplayer,
+  // and DOOM Productions wrapped both — DME_OctaMed.library shares 73% of
+  // its bytes with octaplayer and DME_OctaMix 70% with octamixplayer — so
+  // each has two independent copies to read. What actually blocks them is
+  // that no MMD2 or MMD3 module exists anywhere in the corpus. Leaving them
+  // out makes OpenLibrary answer 0, which is the case MED 7.1 already
+  // handles and reports in its own words. See runtime/medext.ts.
   ['medplayer.library', 7],
   // the joyport and timer halves, modelled by ../amiga/lowlevel.ts. Two ports
   // open it: GameSupport with OpenLibrary, and TFT 0.7's `Init Tick Timer`
