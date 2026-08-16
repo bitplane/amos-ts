@@ -360,6 +360,10 @@ export function checkSelfCitation(
  * The order matters only for the failure message; a citation passes on any.
  */
 export const CITED_BY: Record<string, string[]> = {
+  // the one file in src/amiga that cites extension routines, and it has to:
+  // the four-player adaptor is not in any hardware document here, so what it
+  // puts on which pin is read out of the three extensions that read it
+  'src/amiga/parallel.ts': ['sticks-1.01b', 'ercole-1.7', 'amcaf-1.50', 'amcaf-1.40'],
   'src/runtime/amcaf.ts': ['amcaf-1.50', 'amcaf-1.40'],
   'src/runtime/craft.ts': ['craft-1.0'],
   'src/runtime/musicraft.ts': ['musicraft-1.0'],

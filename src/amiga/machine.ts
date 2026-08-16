@@ -118,12 +118,14 @@
  * inactive, which is what a machine with no drive selected reports.
  */
 import { BattClock } from './battclock'
-import { CiaA, CiaB, type ParallelLines, type SerialLines } from './cia'
+import { CiaA, CiaB } from './cia'
 import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
 import type { Device, Slot } from './device'
 import { joyDatOf, potgor } from './gameport'
 import { Keyboard } from './keyboard'
 import { Mouse, mouseAsButtons } from './mouse'
+import type { ParallelDevice } from './parallel'
+import type { SerialDevice } from './serialport'
 import { FloppyDrive, driveName, newDrives } from './trackdisk'
 
 /**
@@ -191,7 +193,7 @@ export class Machine {
       const n = this.ciab.selected
       return n === null ? null : (this.drives[n]?.lines() ?? null)
     },
-    parallel: () => this.parallel,
+    parallel: () => this.parallel?.lines() ?? null,
   })
 
   /**
@@ -213,22 +215,21 @@ export class Machine {
    * what it controls arrives when there is a drive to control.
    */
   readonly ciab = new CiaB({
-    parallel: () => this.parallel,
-    serial: () => this.serial,
+    parallel: () => this.parallel?.lines() ?? null,
+    serial: () => this.serial?.lines() ?? null,
   })
 
   /**
    * What is on the parallel port, or null for an empty connector.
    *
-   * A four-player joystick adaptor is the one thing this port has evidence
-   * for, and it puts a stick on each nibble of CIA-A PRB. A printer is on the
-   * same cable and puts its three status lines on CIA-B PRA. Nothing here
-   * attaches either yet, so both read as an unconnected port.
+   * A four-player joystick adaptor and a printer are both `./parallel.ts`,
+   * and they are the same eleven pins read two ways: the adaptor's two extra
+   * fire buttons ARE the printer's BUSY and SELECT lines.
    */
-  parallel: ParallelLines | null = null
+  parallel: ParallelDevice | null = null
 
   /** what is on the serial port, or null for an empty connector */
-  serial: SerialLines | null = null
+  serial: SerialDevice | null = null
 
   constructor() {
     // the keyboard's serial line into CIA-A, which is the only thing that
@@ -288,8 +289,8 @@ export class Machine {
       { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse },
       { id: 'port0', label: 'gameport 0', takes: 'gameport', device: controllerDevice(this.ports[0]) },
       { id: 'port1', label: 'gameport 1', takes: 'gameport', device: controllerDevice(this.ports[1]) },
-      { id: 'par', label: 'parallel port', takes: 'parallel', device: null },
-      { id: 'ser', label: 'serial port', takes: 'serial', device: null },
+      { id: 'par', label: 'parallel port', takes: 'parallel', device: this.parallel },
+      { id: 'ser', label: 'serial port', takes: 'serial', device: this.serial },
       // a drive is fitted whether or not a disk is in it, so the DEVICE is
       // the drive. What is IN it is the volume, which is the other node type
       // AmigaDOS keeps for exactly this reason -- see ./trackdisk.ts.

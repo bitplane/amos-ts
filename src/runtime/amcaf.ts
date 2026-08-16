@@ -8836,10 +8836,11 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * (routine 14) and Pfire (routine 16) are the same registers read one bit
      * at a time, answering $ff rather than a bitmap.
      *
-     * NOTE: there is no adaptor. This is the hardware Sticks already models,
-     * and Sticks answers "no adaptor" honestly rather than pretending; these
-     * agree with it and read as nothing pressed. What IS reproduced is the
-     * argument check, which the port did not have before -- see `fourPlayer`.
+     * This is the hardware Sticks and Ercole read too, and all three go
+     * through the same two registers, so an empty connector reads as nothing
+     * pressed and `FourPlayerAdaptor` in ../amiga/parallel.ts moves all of
+     * them at once. AMCAF and Ercole agree on which pin carries which
+     * player's fire; Sticks does not, and the adaptor follows the two.
      */
     pjoy: (_, a) => VI(fourPlayer(rt, i0(a, 0))),
     pjup: (_, a) => VI(pjDir(rt, i0(a, 0), 0)),

@@ -148,6 +148,8 @@ really does differ from the real one and saying where is the whole job.
 | `mouse.ts` | the three mouse buttons, which are pins on CIA-A and POTGOR |
 | `gameport.ts` | JOY0DAT and JOY1DAT, the quadrature counter registers |
 | `controller.ts` | what is plugged into a gameport |
+| `parallel.ts` | what is plugged into the parallel port: the four-player adaptor and a printer |
+| `serialport.ts` | what is plugged into the serial port, which is its three input handshake lines |
 | `lowlevel.ts` | `lowlevel.library`, the joyport half |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `battclock.ts` | the battery clock at $DC0000: sixteen BCD nibbles, and nothing reads it after boot |

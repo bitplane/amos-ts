@@ -29,9 +29,10 @@
  *  2. **A parallel-port adaptor** for players three and four. Every `Stick *`
  *     direction and fire keyword reads it. The manual calls it the "serial
  *     port"; the registers say otherwise — CIA-A PRB is the parallel data
- *     register and CIA-B PRA bits 0-1 are BUSY and POUT, also parallel. There
- *     is no adaptor here, so these report an unused port, exactly as IOPorts
- *     reports a serial port with no cable in it.
+ *     register and CIA-B PRA bits 0-1 are BUSY and POUT, also parallel. The
+ *     cable is `FourPlayerAdaptor` in ../amiga/parallel.ts; with none plugged
+ *     in these report an unused port, exactly as IOPorts reports a serial
+ *     port with no cable in it.
  *  3. **Analog paddles** on POTnDAT, via `Stick Scan`/`Stick X`/`Stick Y`.
  *     Nothing is attached to those either.
  *
@@ -295,10 +296,10 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
      * independently, agreeing bit for bit. The range check is `cmp.w` on a long
      * that was popped whole, so only the low word is examined.
      *
-     * NOTE: nothing drives the parallel port here, and an unused one floats
-     * high, which is "not pressed" on every line. That answer is now computed
-     * off the register rather than stated: attach a four-player adaptor to
-     * ../amiga/machine.ts and these four start working.
+     * An unused connector floats high, which is "not pressed" on every line,
+     * and that is the answer when nothing is attached. `FourPlayerAdaptor` in
+     * ../amiga/parallel.ts drives the same eight pins, so these four report
+     * players 3 and 4 the moment one is plugged into `Machine.parallel`.
      */
     'stick up'(_, a): Value {
       return VI(stickDir(port(int(a[0]!)), 0))
@@ -326,7 +327,14 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       if (a.length > 1) funcCall()
       const n = port(int(a[0]!))
       // BUSY is bit 0 and POUT bit 1, and both are ACTIVE HIGH per cia.i:128
-      // and :129, so an unattached port reads them set and answers 0
+      // and :129, so an unattached port reads them set and answers 0.
+      //
+      // Sticks is alone in reading these two. AMCAF's routine 16 and Ercole's
+      // =Ext Fire both take SELECT for player 3 and BUSY for player 4, so
+      // ../amiga/parallel.ts drives those and leaves POUT floating. With an
+      // adaptor attached this answers PLAYER 4's button for port 0 and
+      // nothing at all for port 1. Two independent readings against one, and
+      // Sticks' manual also has the wrong connector.
       const v = rt.machine.ciab.pra()
       return VI((v & (n === 0 ? CIAF_PRTRBUSY : CIAF_PRTRPOUT)) === 0 ? -1 : 0)
     },

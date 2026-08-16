@@ -59,9 +59,9 @@
  * Three of these read hardware this port has no source for, and all three
  * already have a settled answer here:
  *
- *   - the four-player adaptor on CIA-A PRB and CIA-B PRA. Sticks models the
- *     same registers and answers "no adaptor"; AMCAF's `Pjoy` family does the
- *     same. `Ext Joy` and `Ext Fire` agree with them.
+ *   - the four-player adaptor on CIA-A PRB and CIA-B PRA. Sticks and AMCAF's
+ *     `Pjoy` family read the same registers, and `Ext Joy` and `Ext Fire`
+ *     agree with them; the cable itself is ../amiga/parallel.ts.
  *   - paddles on POT0DAT/POT1DAT. Sticks' `Stick X`/`Stick Y` read the same
  *     two registers and answer 0 because no conversion ever starts.
  *   - the pot-pin buttons. Sticks' `Multi Joy` says only button A can report
@@ -315,9 +315,10 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * register agrees with; Sticks' manual calls the same hardware the serial
      * port and is wrong.
      *
-     * NOTE: no adaptor. The lines idle high, `not.b` makes that zero, and zero
-     * is no direction — the same answer Sticks and AMCAF's `Pjoy` give, and
-     * now the same REGISTER, so all three change together if one is attached.
+     * With no adaptor the lines idle high, `not.b` makes that zero, and zero
+     * is no direction — the same answer Sticks and AMCAF's `Pjoy` give, off
+     * the same REGISTER, so all three move together when `FourPlayerAdaptor`
+     * goes into `Machine.parallel`.
      */
     'ext joy': (_, a): Value => {
       const n = peripheral(int(a[0]!), 2)
@@ -332,7 +333,9 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * the parallel port's BUSY and POUT handshake lines. -1 when the bit is
      * CLEAR, which is a button pulling a pulled-up line down.
      *
-     * NOTE: no adaptor, so both lines idle high and both answer 0.
+     * AMCAF's routine 16 picks the same two pins for the same two players,
+     * which is why ../amiga/parallel.ts drives SELECT and BUSY and leaves
+     * POUT alone. With no adaptor both lines idle high and both answer 0.
      */
     'ext fire': (_, a): Value => {
       const n = peripheral(int(a[0]!), 2)

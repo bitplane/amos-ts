@@ -1780,18 +1780,20 @@ export function makeRangeFunctions(rt: Runtime): Record<string, Func> {
      * port's handshake lines: `andi.b #$5 / eori.b #$4`, so it answers -1
      * unless BUSY is low and SEL is high together.
      *
-     * NOTE: nothing is attached and the lines idle high, so $bfd000 reads
-     * $ff, `$ff & 5` is 5, the eor makes 1, and this answers -1 — busy. That
-     * is what a disconnected parallel port really looks like, and it is the
-     * same register Ercole's `Ext Fire` reads. Both go through
-     * ../amiga/cia.ts, so attaching a printer moves all four keywords at once.
+     * With nothing attached the lines idle high, so $bfd000 reads $ff,
+     * `$ff & 5` is 5, the eor makes 1, and this answers -1 — busy. That is
+     * what a disconnected parallel port really looks like. `Printer` in
+     * ../amiga/parallel.ts drives the two pins and this answers 0 while it is
+     * online and idle; a `FourPlayerAdaptor` drives them too, because a fire
+     * button and a printer's BUSY line are the same wire.
      */
     'busy printer': (): Value =>
       VI(((rt.machine.ciab.pra() & (CIAF_PRTRBUSY | CIAF_PRTRSEL)) ^ CIAF_PRTRSEL) !== 0 ? -1 : 0),
 
     /**
      * =No Paper — routine 55 ($d3e), bit 1 of the same register, -1 when it is
-     * SET. Idle-high makes that -1 too.
+     * SET. Idle-high makes that -1 too. So does a four-player adaptor, which
+     * never drives POUT: the answer is "no paper" because there is no printer.
      */
     'no paper': (): Value => VI((rt.machine.ciab.pra() & CIAF_PRTRPOUT) !== 0 ? -1 : 0),
 
