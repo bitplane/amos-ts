@@ -88,6 +88,40 @@
  * the end, and restarts at the loop point for the entire buffer if it has.
  * A sample that would run out a third of the way through therefore repeats up
  * to a buffer early, which at tempo 6 is 20 ms.
+ *
+ * ## The other mixer, which is not here
+ *
+ * `DME_OctaMix.library` is octamixplayer, the 1-to-64 channel one behind the
+ * fifteen `omix` keywords, and it is a different machine rather than a bigger
+ * version of this. It is mapped and not ported, so the map is here:
+ *
+ *   $2130f4  Play, and `tst.b $300(a1) / bpl` refuses a module without
+ *            FLAG2_MIX. That is why none of OctaMED Professional 6's 187
+ *            modules will load: all 187 are MMD2 and none has the bit.
+ *   $213610  AUDxPER from `$369e99 / freq`, and $369e99 is 3,579,545, the
+ *            NTSC Paula clock. It appears eight times and the PAL clock
+ *            appears nowhere, so on a PAL machine every rate and every pitch
+ *            is 0.92% low. medplayer asks ExecBase which machine it is on at
+ *            $2116ce; this library never asks.
+ *   $21364c  14-bit: AUD0 and AUD1 stay at volume 64, AUD2 and AUD3 drop to
+ *            1, and the converter at $21171c shifts each sample's low byte
+ *            right two to fit the 6 bits that leaves.
+ *   $211612  `btst #$0,$213(a0)` on flags3 chooses stereo, and $218/$219 are
+ *            the echo type and depth. Four interrupt-and-convert pairs at
+ *            $21169a, $2116ec, $211752 and $2117b4 cover mono and stereo
+ *            against 8-bit and 14-bit.
+ *   $2115f2  samples per tick: `(470000 / tempo) * rate / 709376`, where
+ *            709376 is `16 * $ad30` and the CIA clock is 709,379. It uses
+ *            that divide for EVERY tempo, where medplayer's $2111e0 table
+ *            covers 1 to 10, so tempo 6 is 9 Hz here and 49 Hz there.
+ *   $2115c6  and in BPM mode `10 * rate / (linesPerBeat * tempo)`, in 16.16.
+ *   $21039c  the per-channel mix, which needs a 68020: `mulu.l d3,d0:d1` and
+ *            `divu.l d1,d0`. Each channel is $4c bytes and `jsr (a4)` at
+ *            $2103ec enters one of a set of specialised inner loops.
+ *
+ * The mixer is not ported because nothing on this machine or in the corpus
+ * holds a module it would accept, so there would be nothing to check it
+ * against but the instructions.
  */
 
 import { PAULA_CLOCK_PAL } from './paula'
