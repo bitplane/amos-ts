@@ -120,10 +120,11 @@
 import { BattClock } from './battclock'
 import { CiaA, CiaB, type ParallelLines, type SerialLines } from './cia'
 import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
-import type { Slot } from './device'
+import type { Device, Slot } from './device'
 import { joyDatOf, potgor } from './gameport'
 import { Keyboard } from './keyboard'
 import { Mouse, mouseAsButtons } from './mouse'
+import { FloppyDrive, driveName, newDrives } from './trackdisk'
 
 /**
  * What a reset destroys.
@@ -183,9 +184,25 @@ export class Machine {
   readonly cia = new CiaA({
     fire0: () => (this.portButtons(0) & BTN_RED) !== 0,
     fire1: () => (this.portButtons(1) & BTN_RED) !== 0,
-    disk: () => null,
+    disk: () => {
+      // the lines belong to whichever unit CIA-B port B has pulled low, and
+      // to none of them when it has pulled none: an Amiga with every /SELn
+      // high reads all four inactive. `cia.i`:133-136.
+      const n = this.ciab.selected
+      return n === null ? null : (this.drives[n]?.lines() ?? null)
+    },
     parallel: () => this.parallel,
   })
+
+  /**
+   * The four floppy drives, DF0: to DF3:.
+   *
+   * Four because CIA-B port B has four /SELn lines and a fifth drive has no
+   * wire to be selected by. They are always present and usually empty, which
+   * is the distinction ./trackdisk.ts exists to draw: a drive is a slot and a
+   * disk is what goes in it, and the port had only ever had the disk.
+   */
+  readonly drives: FloppyDrive[] = newDrives()
 
   /**
    * CIA-B: the printer and serial handshake lines, and the four drive control
@@ -273,6 +290,15 @@ export class Machine {
       { id: 'port1', label: 'gameport 1', takes: 'gameport', device: controllerDevice(this.ports[1]) },
       { id: 'par', label: 'parallel port', takes: 'parallel', device: null },
       { id: 'ser', label: 'serial port', takes: 'serial', device: null },
+      // a drive is fitted whether or not a disk is in it, so the DEVICE is
+      // the drive. What is IN it is the volume, which is the other node type
+      // AmigaDOS keeps for exactly this reason -- see ./trackdisk.ts.
+      ...this.drives.map((d) => ({
+        id: driveName(d.unit).toLowerCase(),
+        label: `${driveName(d.unit)}:`,
+        takes: 'floppy' as const,
+        device: d as Device,
+      })),
     ]
   }
 

@@ -3360,20 +3360,24 @@ export class Runtime {
       if (m) m.data[m.off] = val & 0xff
     }
     if (name.toLowerCase() === 'trackdisk.device') {
-      const vol = this.vfs?.volume(`DF${unit}`)
-      const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
-      const image = adf?.image
+      const drive = this.machine.drives[unit]
+      const disk = drive?.medium ?? null
       // TDERR_DiskChanged is 29; an empty drive is what a program tests for
-      if (!image) return { actual: 0, error: 29 }
+      if (!disk) return { actual: 0, error: 29 }
+      const image = disk.image
       let moved = 0
       // CMD_READ is 2, CMD_WRITE 3 and CMD_UPDATE 4
       if (cmd === 2) {
         for (; moved < length && offset + moved < image.length; moved++) setByte(data + moved, image[offset + moved]!)
       } else if (cmd === 3) {
+        // TDERR_WriteProt is 28. The tab is on the DRIVE, and a drive that
+        // reads one refuses before the medium is touched: the write did not
+        // partly happen, so io_Actual stays at zero.
+        if (drive?.writeProtected) return { actual: 0, error: 28 }
         for (; moved < length && offset + moved < image.length; moved++) image[offset + moved] = byte(data + moved)
-        adf?.invalidate?.()
+        disk.invalidate?.()
       } else if (cmd === 4) {
-        adf?.invalidate?.()
+        disk.invalidate?.()
       }
       return { actual: moved, error: 0 }
     }
@@ -4111,6 +4115,11 @@ export class Runtime {
     this.interp.onProgramPop = (host) => this.restoreProgramBanks(host)
     this.table = table
     this.fs = this.host.fs ?? null
+    // the filesystem and the machine have to agree about what is in the
+    // drives, and there is one answer: the drives themselves. Without this
+    // `DF0:` would be a mount name again and a disk could be in the drive
+    // and not on the device list. See ../amiga/trackdisk.ts.
+    if (this.vfs) this.vfs.drives = this.machine.drives
     if (this.host.audio) this.audio = this.host.audio
     // one wire from CIA-A PRA bit 1 to Paula's filter, so the three ways of
     // reaching that bit -- `Led On`, `Change Led`, `Poke $BFE001` -- all

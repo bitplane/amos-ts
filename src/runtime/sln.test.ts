@@ -16,6 +16,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { AdfVolume } from '../amiga/adf'
+import { Machine } from '../amiga/machine'
 import { SLN_ERRORS } from './sln'
 import { Runtime } from './runtime'
 
@@ -788,7 +789,10 @@ function relabel(img: Uint8Array, label: string): Uint8Array {
 function bootDisk(src: string, image: Uint8Array | null): Boot {
   const fs = new AmigaFS()
   fs.mountMemory('RAM')
-  if (image) fs.mount('DF0', new AdfVolume(image))
+  // the disk goes in drive 0, which is what `S Disk Open 0` selects -- a name
+  // in the mount table is not a drive. See ../amiga/trackdisk.ts.
+  const machine = new Machine()
+  if (image) machine.drives[0]!.insert(new AdfVolume(image))
   let printed = ''
   const rt = new Runtime(tokenize(src, table, extensions), table, {
     extensions,
@@ -796,6 +800,7 @@ function bootDisk(src: string, image: Uint8Array | null): Boot {
     maxSteps: 200_000,
     onText: (t) => (printed += t),
     fs,
+    machine,
   })
   return { rt, out: () => printed }
 }
@@ -922,12 +927,28 @@ describe('SLN: trackdisk.device', () => {
     expect(send.rt.sln.disk.motor).toBe(true)
   })
 
-  it('=S Disk Prot State and =S Disk Changes answer for a drive nothing ejects', () => {
+  it('=S Disk Prot State and =S Disk Changes read the DRIVE, not the image', () => {
     // TD_PROTSTATUS's io_Actual byte sign-extended, and TD_CHANGENUM's
     // zero-extended --- 'Note: Do not extend byte' on the line that does not.
-    // Nothing here write-protects an image or ejects a disk.
+    // Both live on ../amiga/trackdisk.ts: an ADF carries no write-protect tab
+    // and cannot count how many times it has been swapped.
     expect(diskNum('S Disk Open 0 : Print S Disk Prot State', blankAdf())).toBe(0)
-    expect(diskNum('S Disk Open 0 : Print S Disk Changes', blankAdf())).toBe(0)
+    // one insertion is one change; the counter moves on removal too
+    expect(diskNum('S Disk Open 0 : Print S Disk Changes', blankAdf())).toBe(1)
+  })
+
+  it('and the tab answers once a disk goes in write-protected', () => {
+    const b = bootDisk('S Disk Open 0 : Print S Disk Prot State', blankAdf())
+    b.rt.machine.drives[0]!.writeProtected = true
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('1')
+  })
+
+  it('and TD_MOTOR reaches the drive, which is what CIA-A reads for /RDY', () => {
+    const b = bootDisk('S Disk Open 0 : S Motor On', blankAdf())
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.machine.drives[0]!.motorOn).toBe(true)
+    expect(b.rt.machine.drives[0]!.lines().ready).toBe(true)
   })
 
   it('S Disk Send Write defers the write, and leaves the motor on', () => {

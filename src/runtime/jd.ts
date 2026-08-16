@@ -323,16 +323,13 @@ function dateField(v: string, from: number, to: number): number {
  * The sector image of a JD drive unit, or null when that drive is empty.
  *
  * `L_opend` (routine 52) is `OpenDevice("trackdisk.device", unit, ...)`, so
- * the unit IS the keyword's `device` argument. An ADF *is* the sectors a
- * caller reaching trackdisk past the filesystem wants, which is why
+ * the unit IS the keyword's `device` argument, and it selects a DRIVE
+ * (../amiga/trackdisk.ts) rather than a mounted name. An ADF *is* the sectors
+ * a caller reaching trackdisk past the filesystem wants, which is why
  * `AdfVolume.image` exists; SLN's `S Disk Read` takes the same path.
  */
 function jdDisk(rt: Runtime, unit: number): { image: Uint8Array; invalidate?: () => void } | null {
-  const vol = rt.vfs?.volume(`DF${unit}`)
-  const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
-  if (!adf?.image) return null
-  const inv = adf.invalidate
-  return inv ? { image: adf.image, invalidate: inv.bind(adf) } : { image: adf.image }
+  return rt.machine.drives[unit]?.medium ?? null
 }
 
 /** the root block's checksum: clear it, subtract all 128 longs, store (t_checksum2) */
@@ -1952,16 +1949,29 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Jd Diskchange --- routine 42 (+|jd.s:2479). Spins on `$bfe001 & 16`, the
-     * disk-change line, until a disk is swapped; then a 500-iteration delay
-     * and a loop over ExecBase's TaskReady ($196) and TaskWait ($1a4) lists
-     * with `FindName` on "Validate", until the filesystem's validator has
-     * gone.
+     * Jd Diskchange --- routine 42 (+|jd.s:2479, $3e86). Spins on CIA-A PRA
+     * until a bit clears, then a 500-iteration delay and a loop over
+     * ExecBase's TaskReady ($196) and TaskWait ($1a4) lists with `FindName`
+     * on "Validate", until the filesystem's validator has gone.
      *
-     * DEVIATION: it returns instead of waiting. There is no drive to swap a
-     * disk in and no Validator task to outlive, so the alternative is to block
-     * for ever. This is the same decision Delta 1.4's `Delta Change Disk` and
-     * Misc 1.0's `Disk Wait` take, and for the same reason.
+     * DEFECT: the bit is the wrong one.
+     *
+     *     0003e86  move.b $bfe001.l, d0
+     *     0003e8c  andi.b #$10, d0
+     *     0003e90  bne.w  $3e86
+     *
+     * `$10` is bit 4, which `hardware/cia.i`:113 names `CIAB_DSKTRACK0`, "disk
+     * on track 00". The disk-change line is bit 2, `CIAB_DSKCHANGE` at
+     * `cia.i`:115, and `$04`. So a keyword named Diskchange waits for the head
+     * to reach cylinder 0 of whichever drive is selected, and never looks at
+     * the line it is named after. The port had this recorded as "the
+     * disk-change line" until ../amiga/cia.ts made the bit numbers checkable.
+     *
+     * DEVIATION: it returns instead of waiting, whichever bit it is. This
+     * machine has four drives (../amiga/trackdisk.ts) and no user to put a
+     * disk in one, and no Validator task to outlive, so the alternative is to
+     * block for ever. Same decision as Delta 1.4's `Delta Change Disk` and
+     * Misc 1.0's `Disk Wait`, and for the same reason.
      */
     'jd diskchange'() {
       /* nothing to wait for: see the DEVIATION above */

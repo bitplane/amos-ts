@@ -1,5 +1,6 @@
 import type { AmosFS } from './fs'
-import { FFS_BLOCK_DATA, ID_DOS_DISK, ID_VALIDATED } from './dos'
+import { FFS_BLOCK_DATA, ID_DOS_DISK, ID_VALIDATED, ID_WRITE_PROTECTED } from './dos'
+import type { FloppyDrive } from './trackdisk'
 
 /**
  * An Amiga-flavoured virtual filesystem:
@@ -302,8 +303,23 @@ export class AmigaFS implements AmosFS {
   /** original-case assign names for device enumeration */
   private assignDisplay = new Map<string, string>()
 
+  /**
+   * Every volume name a program can reach.
+   *
+   * A drive with a disk in it contributes TWO: `DF0` and the disk's own
+   * label, which is what a real device list holds and why both resolve. An
+   * empty drive contributes nothing, because a DEVICE node with no volume
+   * behind it is not somewhere a path can go.
+   */
   volumeNames(): string[] {
-    return [...this.volumes.values()].map((v) => v.name)
+    const out = [...this.volumes.values()].map((v) => v.name)
+    for (const d of this.drives) {
+      const medium = d.medium
+      if (!medium) continue
+      out.push(`DF${d.unit}`)
+      if (medium.label !== '') out.push(medium.label)
+    }
+    return out
   }
 
   assignNames(): string[] {
@@ -371,7 +387,7 @@ export class AmigaFS implements AmosFS {
         p = assigned.replace(/\/?$/, '/') + m[2]!
         continue
       }
-      if (this.strayVolume === 'currentDir' && !this.volumes.has(dev)) {
+      if (this.strayVolume === 'currentDir' && !this.hasVolume(dev)) {
         // the volume is gone; try what is left against where we are
         const rest = m[2]!.replace(/^\/+/, '')
         const here = this.resolveIn(this.currentDir, rest)
@@ -390,7 +406,7 @@ export class AmigaFS implements AmosFS {
     const bm = /^([^:/]*):(.*)$/.exec(base)
     if (!bm) return null
     const volKey = bm[1]!.toLowerCase()
-    const vol = this.volumes.get(volKey)
+    const vol = this.entryOf(volKey)
     if (!vol) return null
     const segs: string[] = bm[2]!.split('/').filter((s) => s !== '')
     // apply the path: empty components climb to the parent (AmigaDOS);
@@ -434,7 +450,7 @@ export class AmigaFS implements AmosFS {
     const bm = /^([^:/]*):(.*)$/.exec(base)
     if (!bm) return null
     const volKey = bm[1]!.toLowerCase()
-    const vol = this.volumes.get(volKey)
+    const vol = this.entryOf(volKey)
     if (!vol) return null
     const segs = bm[2]!.split('/').filter((s) => s !== '')
     for (const seg of rest.split('/')) if (seg !== '') segs.push(seg)
@@ -442,8 +458,68 @@ export class AmigaFS implements AmosFS {
     return this.existsResolved(r) !== null ? r : null
   }
 
+  /**
+   * The four floppy drives, when this filesystem is attached to a machine.
+   *
+   * Empty for a filesystem with no machine behind it, which is most of them:
+   * the CLI, the census and nearly every test mount a tree and never touch a
+   * drive. See `driveOf` for what having them changes.
+   */
+  drives: readonly FloppyDrive[] = []
+
+  /**
+   * The drive a volume name reaches, if any.
+   *
+   * Two names find one disk, and AmigaDOS keeps two node kinds for exactly
+   * that (`dosextens.i`:279-281): the DEVICE node is `DF0` and is there with
+   * the drive empty, and the VOLUME node is the disk's own label and is there
+   * only while the disk is. So `DF0:` matches by unit and `Workbench3.1:`
+   * matches by label, and both land on the same medium.
+   *
+   * An EMPTY drive matches nothing, including its own unit name: a DEVICE
+   * node with no volume behind it is not somewhere a path can go, and the
+   * name falls through to the mount table instead. That fall-through is what
+   * lets a caller with no machine still mount a tree under `DF0` and have it
+   * work, which is what the CLI and most tests do.
+   *
+   * A label wins over a mounted volume of the same name, because a disk
+   * physically in the drive is the more specific answer. Nothing in this port
+   * produces that collision yet.
+   */
+  private driveOf(key: string): FloppyDrive | null {
+    for (const d of this.drives) if (`df${d.unit}` === key && d.medium) return d
+    for (const d of this.drives) {
+      const label = d.medium?.label.toLowerCase()
+      if (label !== undefined && label !== '' && label === key) return d
+    }
+    return null
+  }
+
+  /**
+   * The volume a name reaches, and the spelling to echo back for it.
+   *
+   * The name matters because it is what a canonical path is built from: a
+   * disk reached as `df0` must print as `DF0:` and the same disk reached by
+   * its label must print as the label, exactly as a real machine does with
+   * its two node kinds.
+   */
+  private entryOf(key: string): { name: string; vol: Volume } | null {
+    const drive = this.driveOf(key)
+    const medium = drive?.medium
+    if (drive && medium) {
+      const unit = `df${drive.unit}` === key
+      return { name: unit ? `DF${drive.unit}` : medium.label, vol: medium }
+    }
+    return this.volumes.get(key) ?? null
+  }
+
   private volumeOf(key: string): Volume | null {
-    return this.volumes.get(key)?.vol ?? null
+    return this.entryOf(key)?.vol ?? null
+  }
+
+  /** is this name a volume at all? A drive with no disk in it is NOT. */
+  private hasVolume(key: string): boolean {
+    return this.volumeOf(key) !== null
   }
 
   /**
@@ -466,6 +542,12 @@ export class AmigaFS implements AmosFS {
     const key = name.toLowerCase().replace(/:$/, '')
     const vol = this.volumeOf(key)
     if (!vol?.dosInfo) return null
+    // the write-protect tab is the DRIVE's, which is why AdfVolume declines
+    // to answer and reports the validation state instead. With a drive
+    // underneath there is finally somewhere for it to come from, and
+    // ID_WRITE_PROTECTED outranks ID_VALIDATED: a protected disk is still a
+    // valid one, and the field holds one value.
+    const protectedBy = this.driveOf(key)?.writeProtected === true
     let bytes = 0
     const dir = this.overlay.root.dirs.get(key)
     if (dir) {
@@ -475,7 +557,9 @@ export class AmigaFS implements AmosFS {
       }
       walk(dir)
     }
-    return vol.dosInfo(bytes)
+    const info = vol.dosInfo(bytes)
+    if (info && protectedBy) return { ...info, diskState: ID_WRITE_PROTECTED }
+    return info
   }
 
   volume(name: string): Volume | null {
@@ -514,9 +598,23 @@ export class AmigaFS implements AmosFS {
     return (this.hidden(r) ? null : this.volumeOf(r.volume)?.read(r.segs)) ?? null
   }
 
+  /**
+   * Is this volume behind a write-protected drive?
+   *
+   * Every write in this filesystem lands in the overlay rather than in the
+   * volume, so nothing was ever refused for being read-only. A tab is
+   * different: the DRIVE refuses, before the filesystem sees the request, and
+   * a program gets its error rather than a write that quietly goes nowhere
+   * observable.
+   */
+  private protectedDisk(volumeKey: string): boolean {
+    return this.driveOf(volumeKey)?.writeProtected === true
+  }
+
   writeFile(path: string, data: Uint8Array): boolean {
     const r = this.resolve(path)
     if (!r) return false
+    if (this.protectedDisk(r.volume)) return false
     this.overlay.write([r.volume, ...r.segs], data)
     return true
   }
@@ -541,7 +639,7 @@ export class AmigaFS implements AmosFS {
    */
   deleteFile(path: string): boolean {
     const r = this.resolve(path)
-    if (!r || r.segs.length === 0) return false
+    if (!r || r.segs.length === 0 || this.protectedDisk(r.volume)) return false
     const kind = this.exists(path)
     if (kind === null) return false
     if (kind === 'dir' && (this.listDir(path) ?? []).length > 0) return false
@@ -554,6 +652,7 @@ export class AmigaFS implements AmosFS {
   deleteAll(path: string): boolean {
     const r = this.resolve(path)
     if (!r || r.segs.length === 0 || this.exists(path) === null) return false
+    if (this.protectedDisk(r.volume)) return false
     this.erase(r)
     return true
   }
@@ -579,7 +678,7 @@ export class AmigaFS implements AmosFS {
     const a = this.resolve(from)
     const b = this.resolve(to)
     if (!a || !b || a.segs.length === 0 || b.segs.length === 0) return false
-    if (a.volume !== b.volume) return false
+    if (a.volume !== b.volume || this.protectedDisk(a.volume)) return false
     const kind = this.exists(a.canonical)
     if (kind === null) return false
     const sameName = this.tomb(a) === this.tomb(b)
@@ -634,7 +733,7 @@ export class AmigaFS implements AmosFS {
 
   mkdir(path: string): boolean {
     const r = this.resolve(path)
-    if (!r) return false
+    if (!r || this.protectedDisk(r.volume)) return false
     this.overlay.mkdir([r.volume, ...r.segs])
     return true
   }

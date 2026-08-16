@@ -9,6 +9,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { AdfVolume } from '../amiga/adf'
+import { Machine } from '../amiga/machine'
 import { fixedClock } from '../amiga/host'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
@@ -1455,12 +1456,16 @@ describe('JD: the raw floppy, on the ADF underneath AmigaFS', () => {
   function withDisk(src: string, image = disk()): { rt: Runtime; out: () => string; image: Uint8Array } {
     let out = ''
     const fs = new AmigaFS()
-    fs.mount('DF0', new AdfVolume(image))
+    // JD's sector keywords open trackdisk.device on a UNIT, so the disk goes
+    // into drive 0 rather than under a name. See ../amiga/trackdisk.ts.
+    const machine = new Machine()
+    machine.drives[0]!.insert(new AdfVolume(image))
     const rt = new Runtime(tokenize(src, table, exts), table, {
       extensions: exts,
       extBindings: new Map([[22, jd]]),
       maxSteps: 500_000,
       fs,
+      machine,
       onText: (t) => (out += t),
     })
     mustFinish(rt.runHeadless(500))
@@ -1580,12 +1585,14 @@ describe('JD: the whole-disk writes', () => {
   function go(src: string, image: Uint8Array): { out: string; image: Uint8Array } {
     let out = ''
     const fs = new AmigaFS()
-    fs.mount('DF0', new AdfVolume(image))
+    const machine = new Machine()
+    machine.drives[0]!.insert(new AdfVolume(image))
     const rt = new Runtime(tokenize(src, table, exts), table, {
       extensions: exts,
       extBindings: new Map([[22, jd]]),
       maxSteps: 500_000,
       fs,
+      machine,
       onText: (t) => (out += t),
     })
     mustFinish(rt.runHeadless(500))

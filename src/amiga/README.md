@@ -153,7 +153,9 @@ really does differ from the real one and saying where is the whole job.
 | `battclock.ts` | the battery clock at $DC0000: sixteen BCD nibbles, and nothing reads it after boot |
 | `vfs.ts` | `AmigaFS`: volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |
+| `trackdisk.ts` | the four floppy DRIVES: the slot a disk goes into, its write-protect tab and its four status lines |
 | `adf.ts` | an OFS/FFS floppy image, which `AdfVolume` mounts into `vfs.ts` |
+
 | `localelib.ts` | `locale.library`: catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
 | `dos.ts` | `dos.library`'s FileInfoBlock: entry types, protection bits, offsets |

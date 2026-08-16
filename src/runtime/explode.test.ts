@@ -884,8 +884,14 @@ describe('Explode: the clock and the drives', () => {
   })
 
 
-  it('Drive State is 0 for a drive that is not there', () => {
-    expect(run('Print Drive State(3)', emptyFs())).toBe('0')
+  it('Drive State tells an empty drive from one that is not there', () => {
+    // the four answers count DOWN from 0 with `subq #1` per test, so they are
+    // ordered by how much is true: 0 no such drive, -1 no disc, -2 write
+    // protected, -3 writable. A machine has four drives, DF0: to DF3:, so
+    // unit 3 is present and empty and unit 4 does not exist. This read 0 for
+    // both until ../amiga/trackdisk.ts drew that line.
+    expect(run('Print Drive State(3)', emptyFs())).toBe('-1')
+    expect(run('Print Drive State(4)', emptyFs())).toBe('0')
   })
 
   it('Drive Busy asks for a drive that has no motor here', () => {

@@ -13,25 +13,34 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { AmigaFS } from '../amiga/vfs'
 import { AdfVolume } from '../amiga/adf'
+import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { DEV_MAX, DEV_MODELLED } from './device'
 
 const table = new TokenTable(CORE_TOKENS)
 
-function boot(src: string, fs?: AmigaFS): { rt: Runtime; out: () => string } {
+function boot(src: string, fs?: AmigaFS, machine?: Machine): { rt: Runtime; out: () => string } {
   let out = ''
   const rt = new Runtime(tokenize(src, table), table, {
     maxSteps: 500_000,
     ...(fs ? { fs } : {}),
+    ...(machine ? { machine } : {}),
     onText: (t) => (out += t),
   })
   return { rt, out: () => out }
 }
 
-const run = (src: string, fs?: AmigaFS): string => {
-  const b = boot(src, fs)
+const run = (src: string, fs?: AmigaFS, machine?: Machine): string => {
+  const b = boot(src, fs, machine)
   mustFinish(b.rt.runHeadless(500))
   return b.out().trim()
+}
+
+/** a machine with `img` in drive 0, which is what trackdisk.device unit 0 is */
+function withDisk(img: Uint8Array): Machine {
+  const m = new Machine()
+  m.drives[0]!.insert(new AdfVolume(img))
+  return m
 }
 
 /** the smallest image AdfVolume will mount */
@@ -136,8 +145,6 @@ describe('Dev Do against trackdisk', () => {
   it('CMD_READ moves the sector into the buffer the program named', () => {
     const img = disk()
     img[3 * 512] = 0x41
-    const fs = new AmigaFS()
-    fs.mount('DF0', new AdfVolume(img))
     const out = run(
       [
         'Reserve As Work 10,600',
@@ -147,15 +154,14 @@ describe('Dev Do against trackdisk', () => {
         'Dev Do 0,2',
         'Print Peek(Start(10))',
       ].join('\n'),
-      fs,
+      undefined,
+      withDisk(img),
     )
     expect(out).toBe('65')
   })
 
   it('CMD_WRITE moves it back, and the filesystem is told', () => {
     const img = disk()
-    const fs = new AmigaFS()
-    fs.mount('DF0', new AdfVolume(img))
     run(
       [
         'Reserve As Work 10,600',
@@ -165,7 +171,8 @@ describe('Dev Do against trackdisk', () => {
         'Loke B+36,512 : Loke B+40,Start(10) : Loke B+44,5*512',
         'Dev Do 0,3',
       ].join('\n'),
-      fs,
+      undefined,
+      withDisk(img),
     )
     expect(img[5 * 512]).toBe(90)
   })

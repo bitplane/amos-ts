@@ -1966,9 +1966,10 @@ export const FAITHFUL = new Set<string>([
   'jd moff click',
   'jd moff key',
   'jd double click',
-  // the sector-level floppy access, on `AdfVolume.image` -- an ADF IS the
-  // sectors trackdisk hands back, which is the path SLN's S Disk Read takes.
-  // Read Sector carries a DEFECT and Diskchange a DEVIATION; see NOTES.
+  // the sector-level floppy access, on the disk in the DRIVE the unit names
+  // (../amiga/trackdisk.ts) -- an ADF IS the sectors trackdisk hands back,
+  // which is the path SLN's S Disk Read takes. Read Sector and Diskchange
+  // each carry a DEFECT, and Diskchange a DEVIATION as well; see NOTES.
   'jd read sector',
   'jd write sector',
   'jd relabel',
@@ -4251,10 +4252,13 @@ export const NOTES: Record<string, string> = {
     "drive number is always 0 to 3, so the test never fires and the sector is never checked at all. Write Sector " +
     "was written from the same template and tests d0, which is right.",
   "jd diskchange":
-    "Routine 42 (+|jd.s:2479): spins on `$bfe001 & 16`, the disk-change line, then waits out the filesystem's " +
-    "Validate task by scanning ExecBase's TaskReady and TaskWait lists with FindName. DEVIATION: it returns " +
-    "instead of waiting. There is no drive to swap a disk in and no Validator to outlive, so the alternative is " +
-    "to block for ever -- the same decision Delta 1.4's Delta Change Disk and Misc 1.0's Disk Wait take.",
+    "Routine 42 (+|jd.s:2479, $3e86): spins on CIA-A PRA, then waits out the filesystem's Validate task by " +
+    "scanning ExecBase's TaskReady and TaskWait lists with FindName. DEFECT: `andi.b #$10,d0` is bit 4, which " +
+    "hardware/cia.i:113 names CIAB_DSKTRACK0, 'disk on track 00'. The disk-change line is bit 2, CIAB_DSKCHANGE " +
+    "at cia.i:115, and $04. A keyword named Diskchange therefore waits for the head to reach cylinder 0 and " +
+    "never reads the line it is named after. DEVIATION: it returns instead of waiting, whichever bit it is -- " +
+    "there is no user to put a disk in a drive and no Validator to outlive, so the alternative is to block for " +
+    "ever, which is the same decision Delta 1.4's Delta Change Disk and Misc 1.0's Disk Wait take.",
 
   "jd install":
     "Routine 105 (+|jd.s:4692): the fixed boot block at `bbd` copied into the shared `bb` buffer and handed to " +
@@ -5951,8 +5955,9 @@ export const NOTES: Record<string, string> = {
     "dance: `Lock(name, -2)` at `-$54` with `moveq #$fe,d2` for SHARED_LOCK, `Info(lock, $168(a5))` at `-$72` " +
     "into the extension block's own first bytes, and `UnLock` at `-$5a`. A failed Lock is routine 391 (error 81) " +
     "and a failed Info routine 392 (error 94). The manual reserves -1 for a drive with no disk -- 'If no disk is in the drive, it " +
-    "normally should return -1, but I'm afraid...'. NOTE: nothing modelled here is write protected, " +
-    "mid-validation or in use, so a volume that resolves answers 0.",
+    "normally should return -1, but I'm afraid...'. A disk in a drive whose write-protect tab is open answers " +
+    "the write-protected code, because ../amiga/trackdisk.ts holds the tab and AmigaFS.volumeInfo reports it; " +
+    "nothing modelled here is mid-validation or in use.",
   "io error$":
     "Routine 173 is a four-byte `Rbra routine 383`, and 383 ($a508) opens with a Kickstart check -- `Rbsr routine " +
     "372` is `movea.l $4.w,a0 / move.w $14(a0),d0`, exec.library's LIB_VERSION, against `cmp.w #$25,d0`. " +
@@ -6902,14 +6907,17 @@ export const NOTES: Record<string, string> = {
     "wrong --- NOT 1 is -2, so an empty drive answers -2. A program written to the comment and testing `= 0` " +
     "never sees an empty drive at all.",
   "s disk prot state":
-    "Routine 75 --- TD_PROTSTATUS and the same io_Actual byte sign-extended, without the NOT. Nothing " +
-    "write-protects a mounted image here, so this answers 0, which is the true answer for the drives this port " +
-    "has.",
+    "Routine 75 --- TD_PROTSTATUS and the same io_Actual byte sign-extended, without the NOT. The tab is on the " +
+    "DRIVE and not on the image, which is why an ADF cannot answer this and why ../amiga/trackdisk.ts holds it: " +
+    "a disk inserted write-protected answers non-zero and one that is not answers 0. The non-zero value is 1 " +
+    "rather than $ff, matching the byte S Disk State assumes trackdisk leaves for TD_CHANGESTATE; both " +
+    "sign-extend to a true answer and neither value is stated by anything held here.",
   "s disk changes":
     "Routine 76 --- TD_CHANGENUM, the low byte of io_Actual ZERO-extended, with the source's own note 'Do not " +
     "extend byte'. The comment above it calls the answer 'number of disk changes*2', which is an observation " +
     "about trackdisk rather than anything the routine does: the counter moves on insertion and on removal " +
-    "alike. Nothing ejects a disk here, so it does not move.",
+    "alike, so a swap moves it twice. ../amiga/trackdisk.ts counts them, and inserting the first disk is " +
+    "already one.",
   "s num tracks":
     "Routine 77 --- TD_GETNUMTRACKS, the low byte of io_Actual zero-extended. A double-density Amiga floppy is " +
     "80 cylinders of two heads, so 160; the byte is why a high-density disk's 320 would come back as 64.",

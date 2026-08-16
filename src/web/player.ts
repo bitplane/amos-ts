@@ -460,8 +460,21 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
      */
     const adf = isAdf(bytes) ? new AdfVolume(bytes) : null
     const fromName = name.replace(/\.(zip|tar|tar\.gz|tgz|adf)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
-    const vol = adf?.label.replace(/[:/]/g, '_').trim() || fromName
-    vfs.mount(vol, adf ?? volumeFromEntries(entries))
+    const label = adf?.label.replace(/[:/]/g, '_').trim() ?? ''
+    const vol = label || fromName
+    if (adf) {
+      // A floppy image goes into DRIVE 0, which is what makes `DF0:` and the
+      // disk's own label both resolve to it: one disk, two names, the way
+      // AmigaDOS keeps a DEVICE node and a VOLUME node for the same drive.
+      // See ../amiga/trackdisk.ts.
+      machine.drives[0]!.insert(adf)
+      // An unlabelled disk has no VOLUME node to be reached by, and they
+      // exist. The host's filename is the only name it has, so it is mounted
+      // under that as well and the assigns below have something to point at.
+      if (label === '') vfs.mount(vol, adf)
+    } else {
+      vfs.mount(vol, volumeFromEntries(entries))
+    }
     // and into DH0: as well, keeping the layout, so a program's own relative
     // loads resolve exactly as they did on the machine it was written on
     for (const e of entries) {

@@ -13,6 +13,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { AdfVolume } from '../amiga/adf'
+import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -35,12 +36,16 @@ function disk(): Uint8Array {
 function run(src: string, image?: Uint8Array): string {
   let out = ''
   const fs = new AmigaFS()
-  if (image) fs.mount('DF0', new AdfVolume(image))
+  // a disk goes in a DRIVE, not under a name: ../amiga/trackdisk.ts, and
+  // trackdisk.device asks the machine for unit 0
+  const machine = new Machine()
+  if (image) machine.drives[0]!.insert(new AdfVolume(image))
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[6, ldos]]),
     maxSteps: 500_000,
     fs,
+    machine,
     onText: (t) => (out += t),
   })
   mustFinish(rt.runHeadless(500))

@@ -74,6 +74,7 @@
  * so the table is kept faithfully and nothing is ever entered. See `slnVbl`.
  */
 import type { Runtime } from './runtime'
+import type { FloppyDrive } from '../amiga/trackdisk'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, int, str, type Value } from '../interp/values'
 import { MemPool } from '../amiga/exec'
@@ -1034,8 +1035,21 @@ function slnTrackError(rt: Runtime, ioError: number): never {
   return slnError(ioError - 11)
 }
 
-/** TD_MOTOR: `move.w #9,28(a1) / move.l #1,36(a1) / DoIO` */
+/** the DRIVE this channel opened, or null for a unit that does not exist */
+function slnDrive(rt: Runtime): FloppyDrive | null {
+  return rt.machine.drives[rt.sln.disk.unit] ?? null
+}
+
+/**
+ * TD_MOTOR: `move.w #9,28(a1) / move.l #1,36(a1) / DoIO`.
+ *
+ * The motor is the DRIVE's, so this sets it there. `sln.disk.motor` is a view
+ * of that: the extension asked and the drive is what holds the answer, which
+ * matters now that CIA-A's /RDY line reads it.
+ */
 function slnMotor(rt: Runtime, on: boolean): void {
+  const d = slnDrive(rt)
+  if (d) d.motorOn = on
   rt.sln.disk.motor = on
 }
 
@@ -1046,17 +1060,13 @@ function slnMotor(rt: Runtime, on: boolean): void {
  * past it, and `AdfVolume.invalidate` is what says so.
  */
 function diskUpdate(rt: Runtime): void {
-  const vol = rt.vfs?.volume(`DF${rt.sln.disk.unit}`)
-  ;(vol as { invalidate?: () => void } | null)?.invalidate?.()
+  slnDrive(rt)?.medium?.invalidate?.()
 }
 
 /** the sector image of the unit's disk, or null for an empty drive */
 function diskImage(rt: Runtime): Uint8Array | null {
-  const st = rt.sln
-  if (!st.disk.open) return null
-  const vol = rt.vfs?.volume(`DF${st.disk.unit}`)
-  const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
-  return adf?.image ?? null
+  if (!rt.sln.disk.open) return null
+  return slnDrive(rt)?.medium?.image ?? null
 }
 
 /** `L_TrackCheck`, routine 36 — `btst #13,Status`, and error 8 if it is clear */
@@ -2161,12 +2171,17 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
     /**
      * Routine 75 — `=S Disk Prot State`: TD_PROTSTATUS, and the same io_Actual
      * byte sign-extended, without the NOT. Non-zero means write protected.
-     * Nothing here write-protects a mounted image, so this answers 0 — which
-     * is the true answer for the drives this port has.
+     *
+     * The tab lives on the DRIVE (`../amiga/trackdisk.ts`), which is why an
+     * ADF cannot answer this and why the port used to return a flat 0. The
+     * non-zero value is 1 rather than $ff, which is the same byte `S Disk
+     * State` above assumes trackdisk leaves for TD_CHANGESTATE; either would
+     * sign-extend to a true answer and neither is stated by anything held
+     * here.
      */
     's disk prot state': (): Value => {
       trackCheck(rt)
-      return VI(0)
+      return VI(slnDrive(rt)?.writeProtected === true ? 1 : 0)
     },
     /**
      * Routine 76 — `=S Disk Changes`: TD_CHANGENUM, the low byte of io_Actual
@@ -2174,11 +2189,11 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
      * line that does not. The comment above it calls the answer *"number of
      * disk changes*2"*, which is an observation about trackdisk rather than
      * anything the routine does: the counter goes up on insertion and on
-     * removal alike. Nothing ejects a disk here, so it does not move.
+     * removal alike, which is what `FloppyDrive.changes` counts.
      */
     's disk changes': (): Value => {
       trackCheck(rt)
-      return VI(0)
+      return VI((slnDrive(rt)?.changes ?? 0) & 0xff)
     },
     /**
      * Routine 77 — `=S Num Tracks`: TD_GETNUMTRACKS, the low byte of io_Actual

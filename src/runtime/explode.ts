@@ -1068,16 +1068,20 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
      * and so is its own reply port link. Anything else using Name1 across
      * the `WaitPort` would corrupt it, and `WaitPort` is not a short wait.
      *
-     * DEVIATION: nothing here has a drive motor. The drive number is turned
-     * into a name the same way (`addi.l #48,d6` then a byte into "DFx:") and
-     * a volume that is not mounted does nothing, which is what a failed
-     * DeviceProc does.
+     * The drive number is turned into a name the same way (`addi.l #48,d6`
+     * then a byte into "DFx:"), and a unit with no drive behind it does
+     * nothing, which is what a failed DeviceProc does.
+     *
+     * DEVIATION: this asks the drive for its motor and gets an answer that
+     * nothing spins. `../amiga/trackdisk.ts` holds the state, and the state
+     * is all there is: there is no rotation here to be up to speed.
      */
     'drive busy'(it) {
       const drv = it.evalInt()
       it.expect(',')
       it.evalInt()
-      rt.vfs?.volume(`DF${String.fromCharCode((drv + 48) & 0xff)}`)
+      const unit = (drv + 48 - 48) & 0xff
+      void rt.machine.drives[unit]?.motorOn
     },
 
     /**
@@ -2505,11 +2509,15 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
      * the device, which is the tidy-up a program would otherwise hear.
      */
     'drive state': (_, a): Value => {
-      const vol = rt.vfs?.volume(`DF${int(a[0]!) & 0xff}`)
-      if (!vol) return VI(0)
-      const info = rt.vfs?.volumeInfo(`DF${int(a[0]!) & 0xff}`)
-      if (!info) return VI(-1)
-      return VI(info.diskState === ID_WRITE_PROTECTED ? -2 : -3)
+      // the four answers finally separate. Before there were drives, a unit
+      // with nothing mounted and a unit that does not exist were the same
+      // null, so an empty DF0: reported 0 -- "no such drive" -- rather than
+      // -1. A machine has four drives whether or not disks are in them.
+      const unit = int(a[0]!) & 0xff
+      const drive = rt.machine.drives[unit]
+      if (!drive) return VI(0)
+      if (drive.empty) return VI(-1)
+      return VI(drive.writeProtected ? -2 : -3)
     },
 
     /**

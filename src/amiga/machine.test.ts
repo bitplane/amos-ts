@@ -49,10 +49,12 @@ describe('the machine: what is plugged in', () => {
   it('lists every connector, and an empty one is an empty slot', () => {
     const m = new Machine()
     const ids = m.hardware().map((s) => s.id)
-    expect(ids).toEqual(['clock', 'keyboard', 'mouse', 'port0', 'port1', 'par', 'ser'])
+    expect(ids).toEqual(['clock', 'keyboard', 'mouse', 'port0', 'port1', 'par', 'ser', 'df0', 'df1', 'df2', 'df3'])
     // the two cables have nothing on them, which is what CIA-A PRB reading
-    // $ff and CIA-B PRA reading $ff mean
+    // $ff and CIA-B PRA reading $ff mean. The four drives ARE fitted, empty:
+    // a drive is a slot and the disk is what goes in it.
     expect(m.hardware().filter((s) => !fitted(s)).map((s) => s.id)).toEqual(['par', 'ser'])
+    expect(m.drives.every((d) => d.empty)).toBe(true)
     // a port autosenses to a one-button stick, so both come up occupied
     expect(m.hardware().filter(fitted).map((s) => s.device!.name)).toEqual([
       'A501 battery clock',
@@ -60,6 +62,10 @@ describe('the machine: what is plugged in', () => {
       'mouse',
       'joystick',
       'joystick',
+      'floppy drive',
+      'floppy drive',
+      'floppy drive',
+      'floppy drive',
     ])
     m.ports[1].type = CTRL_NONE
     expect(m.hardware().find((s) => s.id === 'port1')!.device).toBeNull()
