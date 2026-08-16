@@ -828,7 +828,7 @@ import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { stcCrunch, stcDecrunch } from '../amiga/stonecracker'
-import { counterDelta, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
+import { counterDelta, joyDatX, joyDatY } from '../amiga/gameport'
 import { execute } from '../amiga/process'
 import {
   JPF_BUTTON_BLUE,
@@ -3655,7 +3655,7 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      */
     'g x mouse': () => {
       const s = st()
-      const w = mouseDat(rt.input.mouseX, rt.input.mouseY)
+      const w = rt.machine.joyDat(0)
       // the first poll establishes the baseline rather than reporting the
       // whole free-running counter as one movement, which is what GMS's own
       // first read does and what ../runtime/gamesupport.ts calls seeding
@@ -3681,7 +3681,7 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      */
     'g y mouse': () => {
       const s = st()
-      const w = mouseDat(rt.input.mouseX, rt.input.mouseY)
+      const w = rt.machine.joyDat(0)
       if (!s.seeded) {
         s.prevX = joyDatX(w)
         s.prevY = joyDatY(w)

@@ -52,7 +52,11 @@
  * jittering between 0 and 3 rather than nothing at all. That is a real
  * behaviour and this file reproduces it rather than answering zero.
  */
-import { DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, type Controller } from './controller'
+import { BTN_BLUE, BTN_PLAY, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, type Controller } from './controller'
+
+/** the two counter registers, `custom.i`:23-24 */
+export const JOY0DAT = 0x00df_f00a
+export const JOY1DAT = 0x00df_f00c
 
 /** the horizontal counter — the low byte of either register */
 export const joyDatX = (w: number): number => w & 0xff
@@ -99,4 +103,53 @@ export function counterDelta(now: number, prev: number): number {
   if (d >= 0x80) return d - 0x100
   if (d < -0x80) return d + 0x100
   return d
+}
+
+// -- POTGOR, the other half of the same nine pins -------------------------
+
+/**
+ * POTGOR at $DFF016, the pot-port input register.
+ *
+ * Pins 5 and 9 of each connector, which a digital stick uses for its second
+ * and third buttons and a mouse for its right and middle. The first button is
+ * not here: that is pin 6, and pin 6 goes to CIA-A (`./cia.ts`).
+ *
+ * Two bits per pin, an OUT and a DATA, in that order upward. The OUT bits are
+ * whatever POTGO at $DFF034 last drove and read back as 1 here, because
+ * nothing in this port writes POTGO. The DATA bits are ACTIVE LOW like every
+ * other button line on the machine.
+ *
+ * The address is `Consts.s`:102 on APD336 of the AMOS PD Library CD. The bit
+ * positions are the Hardware Reference Manual's and are NOT citable from
+ * anything vendored here, so what pins them down is a reader: CRAFT's
+ * `=Hw Mouse Key` (routine 190, $313a) does `btst #$a` for the right button
+ * and `btst #$8` for the middle, both on port 0, which fixes DATLY and DATLX.
+ * Port 1's pair sits four bits up and has no reader yet.
+ */
+export const POTGOR = 0x00df_f016
+
+/** port 0 pin 9, the second button */
+export const POTGOR_DATLY = 1 << 10
+/** port 0 pin 5, the third button */
+export const POTGOR_DATLX = 1 << 8
+/** port 1 pin 9 */
+export const POTGOR_DATRY = 1 << 14
+/** port 1 pin 5 */
+export const POTGOR_DATRX = 1 << 12
+
+/**
+ * The word a program reads, from each port's held buttons in
+ * `./controller.ts`'s packing.
+ *
+ * RED is absent on purpose: it is pin 6 and it is CIA-A's. A caller passing a
+ * mouse's buttons maps them first, which `./mouse.ts` does, because a mouse
+ * and a pad number their buttons differently and the pins do not care.
+ */
+export function potgor(port0Buttons: number, port1Buttons: number): number {
+  let v = 0xffff
+  if ((port0Buttons & BTN_BLUE) !== 0) v &= ~POTGOR_DATLY
+  if ((port0Buttons & BTN_PLAY) !== 0) v &= ~POTGOR_DATLX
+  if ((port1Buttons & BTN_BLUE) !== 0) v &= ~POTGOR_DATRY
+  if ((port1Buttons & BTN_PLAY) !== 0) v &= ~POTGOR_DATRX
+  return v
 }

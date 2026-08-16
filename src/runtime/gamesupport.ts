@@ -94,7 +94,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { sw16 } from './word'
-import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
+import { counterDelta, joyDatX, joyDatY } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
 import { libraryPresent } from '../amiga/exec'
 import { Protracker, parseMod } from '../amiga/protracker'
@@ -378,8 +378,7 @@ function getB(rt: Runtime, addr: number): number {
  * ones, 0 to 3, exactly as the hardware would — so `Gsmousedx(1)` is not
  * silently dead; it just cannot see a second mouse there.
  */
-const joyDat = (rt: Runtime, port: number): number =>
-  port === 0 ? mouseDat(rt.input.mouseX, rt.input.mouseY) : joyDatOf(rt.input.ports[1])
+const joyDat = (rt: Runtime, port: number): number => rt.machine.joyDat(port === 0 ? 0 : 1)
 
 function seedCounters(rt: Runtime, st: GameSupportState): void {
   for (const p of [0, 1]) {

@@ -172,7 +172,12 @@ export interface InputState {
   lastScan: number
   /** shift byte captured with the last Inkey$ (SScan high byte) */
   lastShift: number
-  /** mouse in AMOS hardware coords (lowres pixel + 128/50 origin) */
+  /**
+   * Mouse in AMOS hardware coords (lowres pixel + 128/50 origin).
+   *
+   * The machine's mouse. These two are also JOY0DAT's counters modulo 256,
+   * which is why they live on the device: see `../amiga/mouse.ts`.
+   */
   mouseX: number
   mouseY: number
   /**
@@ -235,6 +240,18 @@ export const newInputState = (machine: Machine | (() => Machine) = new Machine()
     set mouseK(v: number) {
       m().mouse.buttons = v
     },
+    get mouseX(): number {
+      return m().mouse.x
+    },
+    set mouseX(v: number) {
+      m().mouse.x = v
+    },
+    get mouseY(): number {
+      return m().mouse.y
+    },
+    set mouseY(v: number) {
+      m().mouse.y = v
+    },
     get ports(): [Controller, Controller] {
       return m().ports
     },
@@ -255,12 +272,13 @@ export const newInputState = (machine: Machine | (() => Machine) = new Machine()
 }
 
 /** the part that is this program's rather than the machine's */
-const newInputRest = (): Omit<InputState, 'ports' | 'joy' | 'joy0' | 'keys' | 'sdr' | 'mouseK'> => ({
+const newInputRest = (): Omit<
+  InputState,
+  'ports' | 'joy' | 'joy0' | 'keys' | 'sdr' | 'mouseK' | 'mouseX' | 'mouseY'
+> => ({
   keyQueue: [],
   lastScan: 0,
   lastShift: 0,
-  mouseX: 128 + 160,
-  mouseY: 50 + 100,
   mouseClickOld: 0,
   funcKeys: [],
 })

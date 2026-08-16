@@ -122,7 +122,6 @@
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { AMOS_ERRORS, AmosError, VI, funcCall, int, type Value } from '../interp/values'
-import { joyDatOf, mouseDat } from '../amiga/gameport'
 import { sdrKeycode } from '../amiga/keyboard'
 
 /**
@@ -236,8 +235,7 @@ function amonDelta(now: number, prev: number): number {
 }
 
 /** JOY0DAT/JOY1DAT, the register a port has on it — port 0 carries the mouse */
-const joyDat = (rt: Runtime, port: 0 | 1): number =>
-  port === 0 ? mouseDat(rt.input.mouseX, rt.input.mouseY) : joyDatOf(rt.input.ports[1])
+const joyDat = (rt: Runtime, port: 0 | 1): number => rt.machine.joyDat(port)
 
 /**
  * Everything the four graphics keywords need out of `$52c(a5)`.

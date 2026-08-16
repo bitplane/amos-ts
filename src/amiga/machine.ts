@@ -121,8 +121,9 @@ import { BattClock } from './battclock'
 import { CiaA } from './cia'
 import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
 import type { Slot } from './device'
+import { joyDatOf, potgor } from './gameport'
 import { Keyboard } from './keyboard'
-import { MOUSE_LEFT, Mouse } from './mouse'
+import { Mouse, mouseAsButtons } from './mouse'
 
 /**
  * What a reset destroys.
@@ -180,8 +181,8 @@ export class Machine {
    * both at once. ./mouse.ts sets out why and what removes it.
    */
   readonly cia = new CiaA({
-    fire0: () => this.mouse.down(MOUSE_LEFT) || (this.ports[0].buttons & BTN_RED) !== 0,
-    fire1: () => (this.ports[1].buttons & BTN_RED) !== 0,
+    fire0: () => (this.portButtons(0) & BTN_RED) !== 0,
+    fire1: () => (this.portButtons(1) & BTN_RED) !== 0,
     disk: () => null,
   })
 
@@ -191,6 +192,37 @@ export class Machine {
     this.keyboard.onByte = (b) => {
       this.cia.sdr = b
     }
+  }
+
+  /**
+   * Every button held on one connector, in `./controller.ts`'s packing.
+   *
+   * The one place the port-0 DEVIATION is resolved: a mouse and `ports[0]`
+   * are both on that connector here, so their buttons meet, and every pin
+   * reader below asks this instead of picking one of the two. Which pin each
+   * bit reaches is `./cia.ts` for RED and `./gameport.ts` for the rest.
+   */
+  portButtons(port: 0 | 1): number {
+    const c = this.ports[port].buttons
+    return port === 0 ? c | mouseAsButtons(this.mouse) : c
+  }
+
+  /**
+   * JOY0DAT or JOY1DAT, the counters that port's device drives.
+   *
+   * Port 0 answers for the MOUSE and port 1 for the stick, which is a stock
+   * Amiga and is what all three extensions that read these registers already
+   * assumed with a private copy of this line each. The port-0 deviation shows
+   * here as well: a controller in `ports[0]` drives `Joy(0)` and does not
+   * appear in JOY0DAT, because the connector cannot really hold both.
+   */
+  joyDat(port: 0 | 1): number {
+    return port === 0 ? this.mouse.dat() : joyDatOf(this.ports[1])
+  }
+
+  /** POTGOR at $DFF016: pins 5 and 9 of both connectors */
+  potgor(): number {
+    return potgor(this.portButtons(0), this.portButtons(1))
   }
 
   /**

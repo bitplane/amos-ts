@@ -710,6 +710,44 @@ describe('two joystick ports (FJ +Lib.s:13716)', () => {
   })
 })
 
+describe('the gameport registers a program can reach', () => {
+  const peek = (src: string): Runtime => {
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000 })
+    mustFinish(rt.runHeadless(1_000))
+    return rt
+  }
+
+  it('JOY0DAT carries the mouse counters, which are its position mod 256', () => {
+    // ../amiga/gameport.ts has modelled these since GameSupport needed them
+    // and nothing could reach them by address: `Deek($DFF00A)` fell through
+    // to the bank scan and answered whatever was there
+    const rt = new Runtime(tokenize('A=Deek($DFF00A)', table), table, { maxSteps: 200_000 })
+    rt.input.mouseX = 0x1234
+    rt.input.mouseY = 0x5678
+    mustFinish(rt.runHeadless(1_000))
+    // the counters are eight bits each, Y in the high byte
+    expect(Number((rt.interp as unknown as { frames: { vars: Map<string, { n: number }> }[] }).frames[0]!.vars.get('a')!.n)).toBe(
+      0x7834,
+    )
+  })
+
+  it('JOY1DAT carries the stick, and a stick reads small because it is quadrature', () => {
+    const rt = new Runtime(tokenize('A=Deek($DFF00C)', table), table, { maxSteps: 200_000 })
+    rt.input.joy = 8 // right
+    mustFinish(rt.runHeadless(1_000))
+    const a = Number((rt.interp as unknown as { frames: { vars: Map<string, { n: number }> }[] }).frames[0]!.vars.get('a')!.n)
+    // right is bit 1, and bit 0 is right XOR down, so a bare right is 3
+    expect(a).toBe(3)
+  })
+
+  it('POTGOR answers for both ports now, not only the mouse', () => {
+    const rt = peek('Rem')
+    rt.machine.ports[1].buttons = 2 // BTN_BLUE, port 1 pin 9
+    expect(rt.machine.potgor() & (1 << 14)).toBe(0)
+    expect(rt.machine.potgor() & (1 << 10)).toBe(1 << 10)
+  })
+})
+
 describe('input is a view of the machine, not a copy of it', () => {
   const boot = (machine?: Machine): Runtime =>
     new Runtime(tokenize('Rem', table), table, machine ? { machine } : {})

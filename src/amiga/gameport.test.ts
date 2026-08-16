@@ -8,8 +8,32 @@
  * is the only check that can catch the encoding being self-consistently wrong.
  */
 import { describe, expect, it } from 'vitest'
-import { DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, newController, type Controller } from './controller'
-import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from './gameport'
+import {
+  BTN_BLUE,
+  BTN_PLAY,
+  BTN_RED,
+  DIR_DOWN,
+  DIR_LEFT,
+  DIR_RIGHT,
+  DIR_UP,
+  newController,
+  type Controller,
+} from './controller'
+import {
+  JOY0DAT,
+  JOY1DAT,
+  POTGOR,
+  POTGOR_DATLX,
+  POTGOR_DATLY,
+  POTGOR_DATRX,
+  POTGOR_DATRY,
+  counterDelta,
+  joyDatOf,
+  joyDatX,
+  joyDatY,
+  mouseDat,
+  potgor,
+} from './gameport'
 
 /** the HRM's decode, written out as the manual writes it */
 const decode = (w: number): number => {
@@ -92,5 +116,40 @@ describe('counterDelta', () => {
     // the boundary the binary picks: -128 is NOT wrapped, +128 becomes -128
     expect(counterDelta(0, 128)).toBe(-128)
     expect(counterDelta(128, 0)).toBe(-128)
+  })
+})
+
+describe('POTGOR at $DFF016, pins 5 and 9 of both connectors', () => {
+  it('reads $ffff with nothing held: the data bits are active low', () => {
+    expect(potgor(0, 0)).toBe(0xffff)
+  })
+
+  it('clears bit 10 for port 0 pin 9, which is CRAFT routine 190 btst #$a', () => {
+    expect(potgor(BTN_BLUE, 0)).toBe(0xffff & ~POTGOR_DATLY)
+  })
+
+  it('clears bit 8 for port 0 pin 5, which is the same routine btst #$8', () => {
+    expect(potgor(BTN_PLAY, 0)).toBe(0xffff & ~POTGOR_DATLX)
+  })
+
+  it('answers for port 1 as well, four bits up, which nothing read before', () => {
+    expect(potgor(0, BTN_BLUE | BTN_PLAY)).toBe(0xffff & ~(POTGOR_DATRY | POTGOR_DATRX))
+  })
+
+  it('leaves RED out of it, because pin 6 goes to CIA-A instead', () => {
+    expect(potgor(BTN_RED, BTN_RED)).toBe(0xffff)
+  })
+
+  it('leaves the four OUT bits set, because nothing here writes POTGO', () => {
+    // bits 9, 11, 13 and 15 read back what $DFF034 last drove
+    expect(potgor(0xff, 0xff) & 0b1010_1010_0000_0000).toBe(0b1010_1010_0000_0000)
+  })
+})
+
+describe('the register addresses, off custom.i:23-24', () => {
+  it('puts JOY1DAT two bytes above JOY0DAT', () => {
+    expect(JOY1DAT - JOY0DAT).toBe(2)
+    expect(JOY0DAT & 0xfff).toBe(0x00a)
+    expect(POTGOR & 0xfff).toBe(0x016)
   })
 })

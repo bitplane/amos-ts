@@ -201,6 +201,34 @@ export function byteRegister(
   }
 }
 
+/**
+ * A read-only hardware register, one or two bytes, big-endian.
+ *
+ * POTGOR and the two JOYxDAT counters: the chip drives them and a write goes
+ * to a different address entirely (POTGO at $DFF034), so there is nothing to
+ * honour and a write lands in a buffer the next read overwrites. That is the
+ * same silent loss `byteRegister` exists to stop, and it is correct here for
+ * the one reason it was wrong there: on the machine the write does nothing
+ * either.
+ */
+export function readOnlyRegister(name: string, base: number, size: 1 | 2, read: () => number): MemRegion {
+  const buf = new Uint8Array(size)
+  return {
+    name,
+    base,
+    reserved: size,
+    live: () => size,
+    resolve: (off) => {
+      const v = read()
+      if (size === 2) {
+        buf[0] = (v >> 8) & 0xff
+        buf[1] = v & 0xff
+      } else buf[0] = v & 0xff
+      return { data: buf, off }
+    },
+  }
+}
+
 /** bound a resolved pair by its buffer, the check every slot resolver repeats */
 export function within(data: Uint8Array, off: number): Resolved | null {
   return off < data.length ? { data, off } : null

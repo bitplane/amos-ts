@@ -15,7 +15,7 @@ import { Boopsi } from '../amiga/boopsi'
 import { MuiMaster } from '../amiga/muimaster'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
-import { bufferRegion, byteRegister, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
+import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
@@ -92,6 +92,7 @@ import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
 import { CIAA_PRA, CIAA_SDR } from '../amiga/cia'
+import { JOY0DAT, JOY1DAT, POTGOR } from '../amiga/gameport'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import {
@@ -1699,28 +1700,21 @@ export class Runtime {
         return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
       },
     },
-    {
-      /*
-       * POTGOR, the pot-port input register, and the other half of `=Hw Mouse
-       * Key`: bit 10 is DATLY and bit 8 DATLX on port 0, which the mouse wires
-       * to its RIGHT and MIDDLE buttons. ACTIVE LOW again, and the four `OUT`
-       * bits below them read back as whatever POTGO last set, which is nothing
-       * here.
-       *
-       * A word, at $dff016. The port's own mouse has two buttons that a host
-       * reports and a third that nothing does, so the middle one is always up.
-       */
-      name: 'POTGOR',
-      base: 0xdff016,
-      reserved: 2,
-      live: () => 2,
-      resolve: (off) => {
-        let v = 0xffff
-        if (this.input.mouseK & 2) v &= ~(1 << 10)
-        if (this.input.mouseK & 4) v &= ~(1 << 8)
-        return { data: Uint8Array.of((v >> 8) & 0xff, v & 0xff), off }
-      },
-    },
+    /*
+     * POTGOR, the pot-port input register, and the other half of `=Hw Mouse
+     * Key`. Composed by ../amiga/gameport.ts, which owns the bit positions
+     * and now answers for BOTH ports: the version here read port 0 only,
+     * because a mouse was the only thing anything asked it about.
+     */
+    /*
+     * The two quadrature counters. ../amiga/gameport.ts has modelled them
+     * since GameSupport needed them and nothing could reach them by address,
+     * so `Deek($DFF00C)` fell through to the bank scan. Read-only: a write
+     * goes to POTGO at $DFF034, which nothing here has a use for.
+     */
+    readOnlyRegister('JOY0DAT', JOY0DAT, 2, () => this.machine.joyDat(0)),
+    readOnlyRegister('JOY1DAT', JOY1DAT, 2, () => this.machine.joyDat(1)),
+    readOnlyRegister('POTGOR', POTGOR, 2, () => this.machine.potgor()),
     bufferRegion('Explode heap', Runtime.EXPLODE_HEAP_BASE, Runtime.EXPLODE_HEAP_RESERVED, () =>
       this.explode ? this.explode.pool.buffer : null,
     ),
