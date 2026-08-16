@@ -74,37 +74,14 @@
  * at `$10(a4)` is the one $211ac6 computes from the module's `c2spd`. Nothing
  * in the pitch path is an Amiga number.
  *
- * ## The sequencer, which this port does not have yet
+ * ## The sequencer
  *
- * Mapped so the engine can be written against addresses rather than guessed
- * at. `a5` is $2126e8 throughout, a channel is $38 bytes from `$110(a5)`, and
- * its voice is the $1c bytes from `$810(a5)` that `s3mmix.ts` describes.
- *
- *   $211936  the row, unpacked in place. Lead byte: low five bits the channel,
- *            bit 5 a note and instrument, bit 6 a volume, bit 7 a command and
- *            parameter. A command byte with bit 7 set is DROPPED and its
- *            parameter kept, which $211978 does deliberately.
- *   $21199c  the per-channel row pass: the instrument, then the note, then the
- *            volume, then one handler out of the table at $211cc2.
- *   $2118ea  the per-tick pass, the same walk against the table at $211cf8.
- *   $211bd2  the row and order advance.
- *   $211c96  eight ticks at zero volume and the voice is stopped ($1e(a2)).
- *
- * The two tables are 27 words of self-relative displacement, indexed by the
- * command 1..26 with 0 for none. Both send everything unlisted to the `rts` at
- * $211d2e, and R and I reach it from both tables, so tremolo and tremor are
- * not implemented at all:
- *
- *   row   A $211d30  B $211d4e  C $211d98  D $211dd4  E $211e54  F $211e8c
- *         J $212026  O $2120b6  Q $212106  S $2121aa  T $212392  V $2123bc
- *   tick  D $211dd4  E $211e54  F $211e8c  G $211f0a  H $211f5c  J $212026
- *         K $2120ae  L $2120a6  Q $212106  S $2121aa  U $211fc8
- *
- * Where the state lives: `$a4` the row, `$a6` and `$a8` a pending break,
- * `$c8` the order, `$b0` the speed, `$92` the order count, `$94` the pattern
- * count, `$9c` the pattern pointer table, `$cc` the packed row, `$2127ae` the
- * global volume, `$78` the master. A channel's volume is clamped to $3f at
- * $211a5a and $211b4a, one short of the volume table's 65 rows.
+ * `s3mplay.ts` holds it. Two things belong here rather than there, because
+ * they are facts about the FORMAT as this library reads it: a row is 32
+ * channels wide and indexed by the raw channel, because $211946 masks the
+ * lead byte with $1f and multiplies by the channel block's $38; and $211978
+ * DROPS a command byte with bit 7 set while keeping its parameter, so a cell
+ * can carry a parameter that belongs to the command before it.
  */
 
 /** `cmpi.l #$5343524d,$2c(a2)` in routine 64 --- the extension's only test */
@@ -163,6 +140,8 @@ export interface S3mSong {
   patterns: S3mCell[][][]
   /** which of the 32 are on, in order */
   channels: number[]
+  /** the 32 bytes at $40 as they stand, which is what the pan scan at $211530 reads */
+  settings: Uint8Array
   speed: number
   tempo: number
   globalVolume: number
@@ -193,20 +172,25 @@ const empty = (): S3mCell => ({ note: 0, instrument: 0, volume: -1, command: 0, 
  * Every row is a run of cells ended by a zero byte. The lead byte carries the
  * channel in its low five bits and three flags above it: $20 a note and an
  * instrument, $40 a volume, $80 a command and its parameter.
+ *
+ * A row is all 32 channels wide, not just the enabled ones, because the lead
+ * byte names a RAW channel: $211946 masks it with $1f and multiplies by the
+ * channel block's $38, so a module whose enabled channels have gaps still
+ * lands its cells where the replayer looks for them.
  */
-function unpackPattern(d: Uint8Array, at: number, channels: number): S3mCell[][] {
+function unpackPattern(d: Uint8Array, at: number): S3mCell[][] {
   const rows: S3mCell[][] = []
   // the pattern opens with its own packed length, and the data starts after it
   const end = Math.min(d.length, at + 2 + rd16(d, at))
   let p = at + 2
   for (let r = 0; r < S3M_ROWS; r++) {
-    const row: S3mCell[] = [...Array(channels)].map(empty)
+    const row: S3mCell[] = [...Array(S3M_CHANNELS)].map(empty)
     for (;;) {
       if (p >= end) break
       const lead = d[p++] ?? 0
       if (lead === 0) break
       const ch = lead & 0x1f
-      const cell = ch < channels ? row[ch]! : empty()
+      const cell = row[ch]!
       if (lead & 0x20) {
         cell.note = d[p++] ?? 0
         cell.instrument = d[p++] ?? 0
@@ -280,7 +264,8 @@ export function parseS3m(data: Uint8Array): S3mSong | null {
   const patterns: S3mCell[][][] = []
   for (let p = 0; p < patCount; p++) {
     const at = rd16(data, patAt + p * 2) << 4
-    patterns.push(at === 0 ? [...Array(S3M_ROWS)].map(() => channels.map(empty)) : unpackPattern(data, at, channels.length))
+    const blank = (): S3mCell[] => [...Array(S3M_CHANNELS)].map(empty)
+    patterns.push(at === 0 ? [...Array(S3M_ROWS)].map(blank) : unpackPattern(data, at))
   }
 
   const speed = data[0x31] ?? 0
@@ -291,6 +276,7 @@ export function parseS3m(data: Uint8Array): S3mSong | null {
     samples,
     patterns,
     channels,
+    settings: data.slice(0x40, 0x40 + S3M_CHANNELS),
     speed: speed === 0 ? S3M_DEFAULT_SPEED : speed,
     tempo: tempo <= S3M_MIN_TEMPO ? S3M_DEFAULT_TEMPO : tempo,
     globalVolume: data[0x30] ?? 0,

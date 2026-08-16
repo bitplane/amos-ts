@@ -144,7 +144,8 @@ describe.skipIf(!data)('the module in fixtures', () => {
   it('unpacks 64 rows of twelve from every pattern', () => {
     for (const p of song.patterns) {
       expect(p).toHaveLength(S3M_ROWS)
-      for (const r of p) expect(r).toHaveLength(12)
+      // 32 wide, because the lead byte names a raw channel and can skip
+      for (const r of p) expect(r).toHaveLength(32)
     }
   })
 
