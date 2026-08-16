@@ -314,8 +314,8 @@ export class AmigaFS implements AmosFS {
   volumeNames(): string[] {
     const out = [...this.volumes.values()].map((v) => v.name)
     for (const d of this.drives) {
-      const medium = d.medium
-      if (!medium) continue
+      const medium = d?.medium
+      if (!d || !medium) continue
       out.push(`DF${d.unit}`)
       if (medium.label !== '') out.push(medium.label)
     }
@@ -459,13 +459,15 @@ export class AmigaFS implements AmosFS {
   }
 
   /**
-   * The four floppy drives, when this filesystem is attached to a machine.
+   * The floppy drives, when this filesystem is attached to a machine.
    *
    * Empty for a filesystem with no machine behind it, which is most of them:
    * the CLI, the census and nearly every test mount a tree and never touch a
-   * drive. See `driveOf` for what having them changes.
+   * drive. See `driveOf` for what having them changes. A null is a unit with
+   * no drive on its /SELn line, which is not the same as a drive with no disk
+   * in it and matches nothing here either way.
    */
-  drives: readonly FloppyDrive[] = []
+  drives: readonly (FloppyDrive | null)[] = []
 
   /**
    * The drive a volume name reaches, if any.
@@ -487,10 +489,10 @@ export class AmigaFS implements AmosFS {
    * produces that collision yet.
    */
   private driveOf(key: string): FloppyDrive | null {
-    for (const d of this.drives) if (`df${d.unit}` === key && d.medium) return d
+    for (const d of this.drives) if (d && `df${d.unit}` === key && d.medium) return d
     for (const d of this.drives) {
-      const label = d.medium?.label.toLowerCase()
-      if (label !== undefined && label !== '' && label === key) return d
+      const label = d?.medium?.label.toLowerCase()
+      if (d && label !== undefined && label !== '' && label === key) return d
     }
     return null
   }

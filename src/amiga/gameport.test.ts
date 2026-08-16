@@ -44,7 +44,7 @@ const decode = (w: number): number => {
   return (right ? DIR_RIGHT : 0) | (left ? DIR_LEFT : 0) | (down ? DIR_DOWN : 0) | (up ? DIR_UP : 0)
 }
 
-const stick = (dirs: number): Controller => ({ ...newController(), dirs })
+const stick = (dirs: number): Controller => Object.assign(newController(), { dirs })
 
 describe('a digital joystick on JOYnDAT', () => {
   it('round-trips every one of the sixteen direction combinations', () => {

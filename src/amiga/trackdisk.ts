@@ -226,3 +226,17 @@ export const newDrives = (): FloppyDrive[] =>
 
 /** `DF0`, `DF1`, ... — the DEVICE node's name, which never changes */
 export const driveName = (unit: number): string => `DF${unit}`
+
+/**
+ * The unit a slot id names, or null if it does not name one.
+ *
+ * The inverse of `driveName` lowercased, which is what `Machine.hardware`
+ * puts in `Slot.id`. Null rather than -1 so a caller cannot index with it by
+ * accident.
+ */
+export function driveUnit(id: string): number | null {
+  const m = /^df([0-9])$/.exec(id)
+  if (!m) return null
+  const unit = Number(m[1])
+  return unit < TD_UNITS ? unit : null
+}

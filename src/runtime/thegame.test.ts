@@ -337,7 +337,7 @@ describe('the host and OS keywords', () => {
    */
   it('=G Cd32 repacks ReadJoyPort rather than passing it through', () => {
     const rt = boot('Print G Cd32(1)', withRam())
-    rt.input.ports[1] = { ...rt.input.ports[1]!, dirs: DIR_UP, buttons: BTN_RED }
+    Object.assign(rt.input.ports[1]!, { dirs: DIR_UP, buttons: BTN_RED })
     // up is ReadJoyPort bit 3 and G Cd32 bit 0; red is bit 22 and bit 4
     expect(printed(rt)).toEqual([0x001 | 0x010])
   })

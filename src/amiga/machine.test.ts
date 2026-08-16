@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from './cia'
-import { BTN_RED, CTRL_GAMEPAD, CTRL_MOUSE, CTRL_NONE } from './controller'
+import { CIAF_GAMEPORT0, CIAF_GAMEPORT1, CIAF_PRTRSEL } from './cia'
+import { BTN_RED, CTRL_GAMEPAD, CTRL_MOUSE, CTRL_NONE, Controller } from './controller'
 import { fitted } from './device'
-import { keyboardSdr } from './keyboard'
+import { Keyboard, keyboardSdr } from './keyboard'
 import { Machine } from './machine'
 import { MOUSE_LEFT } from './mouse'
+import { FourPlayerAdaptor } from './parallel'
+import { SerialCable } from './serialport'
 
 describe('the machine: power and reset', () => {
   it('starts on, with nothing pending', () => {
@@ -54,7 +56,7 @@ describe('the machine: what is plugged in', () => {
     // $ff and CIA-B PRA reading $ff mean. The four drives ARE fitted, empty:
     // a drive is a slot and the disk is what goes in it.
     expect(m.hardware().filter((s) => !fitted(s)).map((s) => s.id)).toEqual(['par', 'ser'])
-    expect(m.drives.every((d) => d.empty)).toBe(true)
+    expect(m.drives.every((d) => d?.empty)).toBe(true)
     // a port autosenses to a one-button stick, so both come up occupied
     expect(m.hardware().filter(fitted).map((s) => s.device!.name)).toEqual([
       'A501 battery clock',
@@ -83,6 +85,72 @@ describe('the machine: what is plugged in', () => {
     const m = new Machine()
     m.ports[1].type = CTRL_MOUSE
     expect(m.hardware().find((s) => s.id === 'port1')!.device!.name).toBe('mouse')
+  })
+})
+
+describe('the machine: attaching and detaching', () => {
+  it('puts a controller in a gameport and takes it out again', () => {
+    const m = new Machine()
+    const pad = new Controller(CTRL_GAMEPAD)
+    expect(m.attach('port1', pad)).toBe(true)
+    expect(m.ports[1]).toBe(pad)
+    expect(m.slot('port1')!.device!.name).toBe('CD32 pad')
+    expect(m.detach('port1')).toBe(pad)
+    // an empty gameport still has to answer the pins, and CTRL_NONE is what
+    // an unconnected port reports
+    expect(m.ports[1].type).toBe(CTRL_NONE)
+    expect(m.slot('port1')!.device).toBeNull()
+  })
+
+  it('puts a four-player adaptor on the parallel port, and its fires reach CIA-B', () => {
+    const m = new Machine()
+    const adaptor = new FourPlayerAdaptor()
+    expect(m.attach('par', adaptor)).toBe(true)
+    adaptor.sticks[0]!.buttons = BTN_RED
+    expect(m.ciab.pra() & CIAF_PRTRSEL).toBe(0)
+    expect(m.detach('par')).toBe(adaptor)
+    expect(m.ciab.pra() & CIAF_PRTRSEL).toBe(CIAF_PRTRSEL)
+  })
+
+  it('unfits a drive, which is a different thing from ejecting its disk', () => {
+    const m = new Machine()
+    const drive = m.drives[1]!
+    expect(m.detach('df1')).toBe(drive)
+    expect(m.drives[1]).toBeNull()
+    // the /SELn line is still there with nothing on it, so the slot stays
+    expect(m.slot('df1')!.device).toBeNull()
+    expect(m.attach('df1', drive)).toBe(true)
+    expect(m.drives[1]).toBe(drive)
+  })
+
+  it('refuses a device that does not fit the connector', () => {
+    const m = new Machine()
+    expect(m.attach('df0', new Controller())).toBe(false)
+    expect(m.attach('port0', new FourPlayerAdaptor())).toBe(false)
+    expect(m.attach('nosuchthing', new Controller())).toBe(false)
+    expect(m.slot('nosuchthing')).toBeNull()
+  })
+
+  it('refuses the three that are fixed, and says so before being asked', () => {
+    const m = new Machine()
+    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['clock', 'keyboard', 'mouse'])
+    expect(m.detach('keyboard')).toBeNull()
+    expect(m.detach('clock')).toBeNull()
+    expect(m.attach('keyboard', new Keyboard())).toBe(false)
+  })
+
+  it('replaces what is already in a socket, because a swap is one action', () => {
+    const m = new Machine()
+    const first = new SerialCable('one')
+    const second = new SerialCable('two')
+    m.attach('ser', first)
+    expect(m.attach('ser', second)).toBe(true)
+    expect(m.serial).toBe(second)
+  })
+
+  it('answers null when detaching a socket that was already empty', () => {
+    const m = new Machine()
+    expect(m.detach('par')).toBeNull()
   })
 })
 

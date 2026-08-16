@@ -108,25 +108,37 @@
  * separate the moment there are two programs: a keystroke exists once, and
  * `Inkey$` CONSUMING it is per program. See `../interp/interp.ts`.
  *
+ * ## Attaching and detaching
+ *
+ * `hardware()` describes the tree and `attach`/`detach` change it, both keyed
+ * by the slot id the description carries. The typed fields stay the truth:
+ * code that wants drive 2 writes `machine.drives[2]`, and the string-keyed
+ * pair exists for a caller holding an id it read out of a slot — which is
+ * every hardware page there will ever be.
+ *
+ * Three slots refuse. The keyboard and the mouse are the host's own and are
+ * always present, and the clock is not removable because that needs an answer
+ * to what $DC0000 reads with no A501 fitted, which nothing vendored here
+ * gives. `Slot.fixed` says so, so a page can leave the button off rather than
+ * find out by being told no.
+ *
  * ## Not modelled yet
  *
- * Drives. "Insert a disk" is a machine event too and belongs beside these,
- * but nothing asks for it yet: the web player mounts a volume once and never
- * changes it. Adding an eject/insert event with no caller would be guessing
- * at the shape, so the seam is named here and left empty. CIA-A already has
- * the hole it fits: `disk()` answers null and the four status lines read
- * inactive, which is what a machine with no drive selected reports.
+ * Change notification. Nothing here fires an event when a disk goes in or a
+ * controller is swapped, so a page that draws the tree redraws it from
+ * `hardware()` rather than being told. That is enough for a frame loop and it
+ * is guessing at the shape for anything else.
  */
 import { BattClock } from './battclock'
 import { CiaA, CiaB } from './cia'
-import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
+import { BTN_RED, CTRL_NONE, Controller, controllerDevice, newController } from './controller'
 import type { Device, Slot } from './device'
 import { joyDatOf, potgor } from './gameport'
 import { Keyboard } from './keyboard'
 import { Mouse, mouseAsButtons } from './mouse'
-import type { ParallelDevice } from './parallel'
-import type { SerialDevice } from './serialport'
-import { FloppyDrive, driveName, newDrives } from './trackdisk'
+import { ParallelDevice } from './parallel'
+import { SerialDevice } from './serialport'
+import { TD_UNITS, FloppyDrive, driveName, driveUnit, newDrives } from './trackdisk'
 
 /**
  * What a reset destroys.
@@ -197,14 +209,19 @@ export class Machine {
   })
 
   /**
-   * The four floppy drives, DF0: to DF3:.
+   * The floppy drives, DF0: to DF3:, indexed by unit.
    *
-   * Four because CIA-B port B has four /SELn lines and a fifth drive has no
-   * wire to be selected by. They are always present and usually empty, which
-   * is the distinction ./trackdisk.ts exists to draw: a drive is a slot and a
-   * disk is what goes in it, and the port had only ever had the disk.
+   * Four positions because CIA-B port B has four /SELn lines and a fifth
+   * drive has no wire to be selected by. A null is a unit with no drive on
+   * its line, which is most Amigas: an A500 shipped with DF0: alone. All four
+   * are fitted here because a port with every drive is the useful default and
+   * `Machine.detach` is how a host says otherwise.
+   *
+   * A drive with no disk in it is a drive, not a null. That is the
+   * distinction ./trackdisk.ts exists to draw, and the difference Explode's
+   * `=Drive State` reports as 0 against -1.
    */
-  readonly drives: FloppyDrive[] = newDrives()
+  readonly drives: (FloppyDrive | null)[] = newDrives()
 
   /**
    * CIA-B: the printer and serial handshake lines, and the four drive control
@@ -284,27 +301,109 @@ export class Machine {
    */
   hardware(): Slot[] {
     return [
-      { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock },
-      { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard },
+      { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock, fixed: true },
+      { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard, fixed: true },
       // `mouse` and `port0` are one nine-pin connector on the machine and two
       // rows here, which is the deviation ./mouse.ts describes shown rather
       // than hidden: a tree that listed one of them would be claiming a
       // choice this port has not made yet.
-      { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse },
-      { id: 'port0', label: 'gameport 0', takes: 'gameport', device: controllerDevice(this.ports[0]) },
-      { id: 'port1', label: 'gameport 1', takes: 'gameport', device: controllerDevice(this.ports[1]) },
-      { id: 'par', label: 'parallel port', takes: 'parallel', device: this.parallel },
-      { id: 'ser', label: 'serial port', takes: 'serial', device: this.serial },
+      { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse, fixed: true },
+      {
+        id: 'port0',
+        label: 'gameport 0',
+        takes: 'gameport',
+        device: controllerDevice(this.ports[0]),
+        fixed: false,
+      },
+      {
+        id: 'port1',
+        label: 'gameport 1',
+        takes: 'gameport',
+        device: controllerDevice(this.ports[1]),
+        fixed: false,
+      },
+      { id: 'par', label: 'parallel port', takes: 'parallel', device: this.parallel, fixed: false },
+      { id: 'ser', label: 'serial port', takes: 'serial', device: this.serial, fixed: false },
       // a drive is fitted whether or not a disk is in it, so the DEVICE is
       // the drive. What is IN it is the volume, which is the other node type
-      // AmigaDOS keeps for exactly this reason -- see ./trackdisk.ts.
-      ...this.drives.map((d) => ({
-        id: driveName(d.unit).toLowerCase(),
-        label: `${driveName(d.unit)}:`,
+      // AmigaDOS keeps for exactly this reason -- see ./trackdisk.ts. The
+      // four rows are the four /SELn lines and are always all here; the drive
+      // on the end of one is what comes and goes, because an A500 shipped
+      // with DF0: alone and the other three were things you bought.
+      ...Array.from({ length: TD_UNITS }, (_, unit) => ({
+        id: driveName(unit).toLowerCase(),
+        label: `${driveName(unit)}:`,
         takes: 'floppy' as const,
-        device: d as Device,
+        device: (this.drives[unit] ?? null) as Device | null,
+        fixed: false,
       })),
     ]
+  }
+
+  /** the connector with this id, or null if the machine has no such thing */
+  slot(id: string): Slot | null {
+    return this.hardware().find((s) => s.id === id) ?? null
+  }
+
+  /**
+   * Put a device in a connector.
+   *
+   * False when there is no such connector, when it is one of the three that
+   * cannot be changed, or when the device does not fit — a `takes` of
+   * `floppy` will not accept a mouse, which is the point of the field.
+   * Attaching to an occupied socket REPLACES what was there, because
+   * swapping a joystick for a pad is one action on the page and should not
+   * need two calls.
+   *
+   * The typed fields stay the truth. This is the string-keyed way in, for a
+   * caller holding a slot id it read out of `hardware()`; code that knows it
+   * wants drive 2 still writes `machine.drives[2]`.
+   */
+  attach(id: string, device: Device): boolean {
+    const slot = this.slot(id)
+    if (!slot || slot.fixed || device.kind !== slot.takes) return false
+    if (id === 'port0' || id === 'port1') {
+      if (!(device instanceof Controller)) return false
+      this.ports[id === 'port0' ? 0 : 1] = device
+      return true
+    }
+    if (id === 'par') {
+      if (!(device instanceof ParallelDevice)) return false
+      this.parallel = device
+      return true
+    }
+    if (id === 'ser') {
+      if (!(device instanceof SerialDevice)) return false
+      this.serial = device
+      return true
+    }
+    const unit = driveUnit(id)
+    if (unit === null || !(device instanceof FloppyDrive)) return false
+    this.drives[unit] = device
+    return true
+  }
+
+  /**
+   * Empty a connector, and hand back what was in it.
+   *
+   * Null when there was nothing there, when the id is unknown, and when the
+   * slot is fixed. A gameport empties to a `CTRL_NONE` controller rather than
+   * to nothing, because something has to answer the pins and `CTRL_NONE` is
+   * what an unconnected port reports.
+   */
+  detach(id: string): Device | null {
+    const slot = this.slot(id)
+    if (!slot || slot.fixed || !slot.device) return null
+    const was = slot.device
+    if (id === 'port0' || id === 'port1') this.ports[id === 'port0' ? 0 : 1] = new Controller(CTRL_NONE)
+    else if (id === 'par') this.parallel = null
+    else if (id === 'ser') this.serial = null
+    else {
+      const unit = driveUnit(id)
+      if (unit === null) return null
+      this.drives[unit] = null
+    }
+    return was
   }
 
   /**

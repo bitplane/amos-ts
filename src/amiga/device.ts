@@ -77,6 +77,16 @@ export interface Slot {
   readonly takes: DeviceKind
   /** what is in it, or null for an empty socket */
   readonly device: Device | null
+  /**
+   * Whether what is in it can come out.
+   *
+   * Three slots here cannot be emptied and say so rather than refusing
+   * quietly, so a page knows not to draw the button. The keyboard and the
+   * mouse are the host's own and are always present; the clock is not
+   * removable yet because that needs an answer to what $DC0000 reads with no
+   * A501 fitted, which nothing vendored here gives.
+   */
+  readonly fixed: boolean
 }
 
 /** is anything in it? */

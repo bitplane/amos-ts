@@ -51,6 +51,7 @@ import { systemClock } from '../amiga/host'
 import { Machine, type ResetKind } from '../amiga/machine'
 import { WebAudioSink } from './audio'
 import { MixerSink } from './mixersink'
+import { SerialCable } from '../amiga/serialport'
 import { WebSerialHost, available as serialAvailable } from './serial'
 
 /** the release this player was built from; 'dev' outside a release build */
@@ -288,6 +289,24 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    * for one. See ../amiga/machine.ts.
    */
   const machine = new Machine()
+
+  /**
+   * Put a cable in the serial connector once the page has a real port.
+   *
+   * Without this the machine's serial slot reads empty while `Serial Open` is
+   * talking to actual hardware, and CIA-B's three handshake lines answer
+   * "nothing plugged in" at $bfd000. Called after a grant rather than every
+   * frame; a port the browser had already granted to this origin shows up
+   * when `WebSerialHost`'s startup refresh finishes, which is why the frame
+   * loop asks as well.
+   */
+  function syncSerialSlot(): void {
+    const has = serialHost.granted > 0
+    if (has === (machine.serial !== null)) return
+    if (has) machine.attach('ser', new SerialCable('host serial port'))
+    else machine.detach('ser')
+  }
+
   let error = ''
   let running = opts.autoplay !== false
   let focused = false
@@ -538,6 +557,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   function loop(now: number): void {
     if (!alive) return
     raf = requestAnimationFrame(loop)
+    syncSerialSlot()
     // Never catch up. The debt is capped at a single frame, so a hitch costs
     // time rather than being replayed at speed afterwards — running a burst
     // to clear a deficit is what throws a player across the screen.
@@ -615,8 +635,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       container.focus()
     },
     serialSupported: serialAvailable(),
-    requestSerialPort(): Promise<boolean> {
-      return serialHost.requestAccess()
+    async requestSerialPort(): Promise<boolean> {
+      const got = await serialHost.requestAccess()
+      syncSerialSlot()
+      return got
     },
     destroy(): void {
       alive = false

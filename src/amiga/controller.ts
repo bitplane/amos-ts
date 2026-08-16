@@ -84,13 +84,34 @@ export const BTN_REVERSE = 32
 export const BTN_PLAY = 64
 export const BTN_MASK = BTN_RED | BTN_BLUE | BTN_YELLOW | BTN_GREEN | BTN_FORWARD | BTN_REVERSE | BTN_PLAY
 
-export interface Controller {
+/**
+ * What is in one gameport.
+ *
+ * A class rather than a struct because it IS the device: `Machine.attach`
+ * puts one of these in a connector, and a `Device` is what goes in a socket.
+ * `type` stays a mutable field because a host that autosenses can change its
+ * mind about what it has without the connector emptying.
+ */
+export class Controller implements Device {
+  readonly kind = 'gameport' as const
+
   /** one of the `CTRL_*` values */
   type: number
+
   /** `DIR_*` bits currently held */
-  dirs: number
+  dirs = 0
+
   /** `BTN_*` bits currently held */
-  buttons: number
+  buttons = 0
+
+  constructor(type: number = CTRL_JOYSTICK) {
+    this.type = type
+  }
+
+  /** what a hardware page prints, which is the TYPE and nothing else */
+  get name(): string {
+    return CTRL_NAMES[this.type] ?? CTRL_NAMES[CTRL_UNKNOWN]!
+  }
 }
 
 /**
@@ -100,9 +121,9 @@ export interface Controller {
  * settles on: AROS's `llPortOpen` tries the gamepad shift, and when it comes
  * back with stuck bits — which is what an empty port and an ordinary stick
  * both give — it falls back to `JP_TYPE_JOYSTK`. A host that knows better
- * says so by setting `type`.
+ * says so by passing a type.
  */
-export const newController = (): Controller => ({ type: CTRL_JOYSTICK, dirs: 0, buttons: 0 })
+export const newController = (type?: number): Controller => new Controller(type)
 
 /** is this button down? */
 export function buttonDown(c: Controller, button: number): boolean {
@@ -117,6 +138,10 @@ export function buttonDown(c: Controller, button: number): boolean {
  * autosense pattern matches, which is a real state and not an error.
  */
 export const CTRL_NAMES: Readonly<Record<number, string>> = {
+  // `CTRL_NONE` is the empty socket rather than a device, so `controllerDevice`
+  // answers null for it and this name is never printed by a hardware page. It
+  // is here so `Controller.name` has something to say about one held loose.
+  [CTRL_NONE]: 'nothing',
   [CTRL_GAMEPAD]: 'CD32 pad',
   [CTRL_MOUSE]: 'mouse',
   [CTRL_JOYSTICK]: 'joystick',
@@ -126,11 +151,10 @@ export const CTRL_NAMES: Readonly<Record<number, string>> = {
 /**
  * The controller as `./device.ts` sees it, or null for an empty port.
  *
- * A view rather than a second object: `CTRL_NONE` IS the empty socket, so the
- * device list and the register readers cannot disagree about whether
- * something is plugged in.
+ * The controller itself and not a second object: `CTRL_NONE` IS the empty
+ * socket, so the device list and the register readers cannot disagree about
+ * whether something is plugged in.
  */
 export function controllerDevice(c: Controller): Device | null {
-  if (c.type === CTRL_NONE) return null
-  return { kind: 'gameport', name: CTRL_NAMES[c.type] ?? CTRL_NAMES[CTRL_UNKNOWN]! }
+  return c.type === CTRL_NONE ? null : c
 }
