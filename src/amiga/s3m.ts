@@ -73,6 +73,38 @@
  * ScreamTracker's own, `$369d80` = 14,317,056 / 4 at $211874, and the period
  * at `$10(a4)` is the one $211ac6 computes from the module's `c2spd`. Nothing
  * in the pitch path is an Amiga number.
+ *
+ * ## The sequencer, which this port does not have yet
+ *
+ * Mapped so the engine can be written against addresses rather than guessed
+ * at. `a5` is $2126e8 throughout, a channel is $38 bytes from `$110(a5)`, and
+ * its voice is the $1c bytes from `$810(a5)` that `s3mmix.ts` describes.
+ *
+ *   $211936  the row, unpacked in place. Lead byte: low five bits the channel,
+ *            bit 5 a note and instrument, bit 6 a volume, bit 7 a command and
+ *            parameter. A command byte with bit 7 set is DROPPED and its
+ *            parameter kept, which $211978 does deliberately.
+ *   $21199c  the per-channel row pass: the instrument, then the note, then the
+ *            volume, then one handler out of the table at $211cc2.
+ *   $2118ea  the per-tick pass, the same walk against the table at $211cf8.
+ *   $211bd2  the row and order advance.
+ *   $211c96  eight ticks at zero volume and the voice is stopped ($1e(a2)).
+ *
+ * The two tables are 27 words of self-relative displacement, indexed by the
+ * command 1..26 with 0 for none. Both send everything unlisted to the `rts` at
+ * $211d2e, and R and I reach it from both tables, so tremolo and tremor are
+ * not implemented at all:
+ *
+ *   row   A $211d30  B $211d4e  C $211d98  D $211dd4  E $211e54  F $211e8c
+ *         J $212026  O $2120b6  Q $212106  S $2121aa  T $212392  V $2123bc
+ *   tick  D $211dd4  E $211e54  F $211e8c  G $211f0a  H $211f5c  J $212026
+ *         K $2120ae  L $2120a6  Q $212106  S $2121aa  U $211fc8
+ *
+ * Where the state lives: `$a4` the row, `$a6` and `$a8` a pending break,
+ * `$c8` the order, `$b0` the speed, `$92` the order count, `$94` the pattern
+ * count, `$9c` the pattern pointer table, `$cc` the packed row, `$2127ae` the
+ * global volume, `$78` the master. A channel's volume is clamped to $3f at
+ * $211a5a and $211b4a, one short of the volume table's 65 rows.
  */
 
 /** `cmpi.l #$5343524d,$2c(a2)` in routine 64 --- the extension's only test */
