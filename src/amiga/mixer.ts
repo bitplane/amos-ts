@@ -72,6 +72,11 @@
 import type { AudioSink } from './host'
 import { MAX_VOLUME, clampVolume } from './paula'
 
+/** the coefficient of a one-pole low-pass at `hz`, sampled at `rate` */
+export function onePole(hz: number, rate: number): number {
+  return 1 - Math.exp((-2 * Math.PI * hz) / rate)
+}
+
 /** frames per second of output. 44100 unless the host names its own. */
 export const DEFAULT_MIX_RATE = 44100
 
@@ -94,6 +99,33 @@ export const VOICE_CHANNEL: readonly number[] = [0, 1, 1, 0]
  */
 export const LED_FILTER_HZ = 3300
 
+/**
+ * Which machine's output stage, because the LED filter is not the only one.
+ *
+ * Every Amiga has a fixed RC low-pass after the DAC that no program can
+ * switch, and it is not the same part in every model. This mattered the
+ * moment a format arrived that plays everything through one buffer clocked at
+ * 15,625 Hz: OctaMED's 5-8 channel mode puts Paula's images from 12.8 kHz up,
+ * and with only the LED filter above them there is nothing else to take them
+ * out.
+ *
+ * MODELLED, and this file's least defensible pair of numbers. No schematic
+ * was read for either. The corners are the ones the community quotes, and the
+ * RC pairs that produce them are 360R with 0.1uF for the older machines and
+ * about 680R with 6800pF for AGA. Distrust these before you distrust anything
+ * else here.
+ */
+export type AmigaAudioModel = 'a500' | 'a1200'
+
+/**
+ * The fixed pole, in Hz, one per model.
+ *
+ * The AGA number is high enough to be nearly nothing --- a one-pole at 30 kHz
+ * is 1 dB down at 15 kHz --- which is why an A1200 playing 8-channel OctaMED
+ * is bright and an A500 playing the same file is not.
+ */
+export const FIXED_FILTER_HZ: Readonly<Record<AmigaAudioModel, number>> = { a500: 4400, a1200: 30000 }
+
 interface MixVoice {
   pcm: Int8Array | null
   /** where the DMA is, in samples, fractional because the rates disagree */
@@ -109,7 +141,7 @@ interface MixVoice {
   end: number
 }
 
-/** a one-pole low-pass, twice, per channel */
+/** a one-pole low-pass per channel, and the LED's is two of them in series */
 interface FilterState {
   a: number
   z: [number, number, number, number]
@@ -125,6 +157,13 @@ export interface MixerOptions {
   onBlock?: (stereo: Float32Array) => void
   /** the LED filter's starting state; the machine boots with it engaged */
   filter?: boolean
+  /**
+   * Which machine's fixed output pole. Defaults to `a1200`, which is what
+   * this port rendered for years before the pole was modelled at all: at 30
+   * kHz it barely moves anything, so nothing that was signed off by ear
+   * changed under it.
+   */
+  model?: AmigaAudioModel
 }
 
 /**
@@ -167,8 +206,12 @@ export class PaulaMixer implements AudioSink {
    */
   private originFrames = 0
 
+  /** which machine's fixed pole, and it is not switchable on the machine */
+  readonly model: AmigaAudioModel
+
   private readonly onBlock: ((stereo: Float32Array) => void) | undefined
   private readonly lp: FilterState
+  private readonly fixed: FilterState
   private readonly voices: MixVoice[] = [0, 1, 2, 3].map(() => ({
     pcm: null,
     pos: 0,
@@ -184,7 +227,9 @@ export class PaulaMixer implements AudioSink {
     this.rate = opts.rate ?? DEFAULT_MIX_RATE
     this.filter = opts.filter ?? true
     this.onBlock = opts.onBlock
-    this.lp = { a: 1 - Math.exp((-2 * Math.PI * LED_FILTER_HZ) / this.rate), z: [0, 0, 0, 0] }
+    this.model = opts.model ?? 'a1200'
+    this.lp = { a: onePole(LED_FILTER_HZ, this.rate), z: [0, 0, 0, 0] }
+    this.fixed = { a: onePole(FIXED_FILTER_HZ[this.model], this.rate), z: [0, 0, 0, 0] }
   }
 
   // ---- the clock ---------------------------------------------------------
@@ -232,7 +277,10 @@ export class PaulaMixer implements AudioSink {
     const out = new Float32Array(n * 2)
     for (let v = 0; v < 4; v++) this.mixVoice(this.voices[v]!, VOICE_CHANNEL[v]!, out, n)
     this.frames += n
-    if (this.filter) this.applyFilter(out, n)
+    // the LED filter first because that is the order the board has them in,
+    // though two filters in series do not care
+    if (this.filter) this.applyFilter(out, n, this.lp, 2)
+    this.applyFilter(out, n, this.fixed, 1)
     return out
   }
 
@@ -272,20 +320,24 @@ export class PaulaMixer implements AudioSink {
     V.pos = pos
   }
 
-  /** two one-poles per channel, state carried between blocks */
-  private applyFilter(out: Float32Array, n: number): void {
-    const a = this.lp.a
-    const z = this.lp.z
-    let [l0, l1, r0, r1] = z
+  /** `poles` one-poles per channel, state carried between blocks */
+  private applyFilter(out: Float32Array, n: number, f: FilterState, poles: 1 | 2): void {
+    const a = f.a
+    let [l0, l1, r0, r1] = f.z
     for (let i = 0; i < n; i++) {
       l0 += a * (out[i * 2]! - l0)
-      l1 += a * (l0 - l1)
-      out[i * 2] = l1
       r0 += a * (out[i * 2 + 1]! - r0)
+      if (poles === 1) {
+        out[i * 2] = l0
+        out[i * 2 + 1] = r0
+        continue
+      }
+      l1 += a * (l0 - l1)
       r1 += a * (r0 - r1)
+      out[i * 2] = l1
       out[i * 2 + 1] = r1
     }
-    this.lp.z = [l0, l1, r0, r1]
+    f.z = [l0, l1, r0, r1]
   }
 
   // ---- the registers -----------------------------------------------------

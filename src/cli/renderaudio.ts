@@ -3,6 +3,7 @@
  *
  *   npm run cli -- src/cli/renderaudio.ts <module> <out.wav> [--engine E]
  *                  [--seconds N] [--rate N] [--filter on|off] [--gain G]
+ *                  [--machine a500|a1200]
  *
  * Written for #130, which exists because pointing this at one MED module and
  * comparing the result with another player's found two bugs in an afternoon
@@ -17,7 +18,7 @@
  * read THX, and nothing on this machine does.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { PaulaMixer } from '../amiga/mixer'
+import { PaulaMixer, type AmigaAudioModel } from '../amiga/mixer'
 import { VBL_HZ } from '../amiga/paula'
 import { Protracker, parseMod } from '../amiga/protracker'
 import { ThxPlayer } from '../amiga/thxplay'
@@ -76,10 +77,15 @@ export function detectEngine(d: Uint8Array): Engine | null {
 export function renderModule(
   data: Uint8Array,
   engine: Engine,
-  opts: { seconds: number; rate: number; filter: boolean },
+  opts: { seconds: number; rate: number; filter: boolean; model: AmigaAudioModel },
 ): Float32Array {
   const blocks: Float32Array[] = []
-  const mix = new PaulaMixer({ rate: opts.rate, filter: opts.filter, onBlock: (b) => blocks.push(b) })
+  const mix = new PaulaMixer({
+    rate: opts.rate,
+    filter: opts.filter,
+    model: opts.model,
+    onBlock: (b) => blocks.push(b),
+  })
   const frames = Math.round(opts.seconds * VBL_HZ)
 
   if (engine === 'mod' || engine === 'p61') {
@@ -258,7 +264,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
     return i >= 0 ? args[i + 1] : undefined
   }
   const flags = new Set<string>()
-  for (const name of ['--engine', '--seconds', '--rate', '--filter', '--gain', '--to-mod']) {
+  for (const name of ['--engine', '--seconds', '--rate', '--filter', '--gain', '--to-mod', '--machine']) {
     const v = opt(name)
     if (v !== undefined) flags.add(v)
   }
@@ -269,6 +275,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
       'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|track|medext]',
     )
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
+    console.error('                   [--machine a500|a1200]')
     console.error('       renderaudio <module.p61> - --to-mod out.mod')
     process.exit(1)
   }
@@ -296,8 +303,10 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const rate = parseInt(opt('--rate') ?? '44100', 10)
   const seconds = Number(opt('--seconds') ?? 30)
   const filter = opt('--filter') !== 'off'
+  // the fixed analog pole, which the machine has no switch for and this does
+  const model: AmigaAudioModel = opt('--machine') === 'a500' ? 'a500' : 'a1200'
   const gain = Number(opt('--gain') ?? 0.5)
-  const pcm = renderModule(data, engine, { seconds, rate, filter })
+  const pcm = renderModule(data, engine, { seconds, rate, filter, model })
   writeFileSync(out, wavBytes(pcm, rate, gain))
 
   let peak = 0
@@ -310,6 +319,6 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   console.log(
     `${out}: ${engine}, ${(pcm.length / 2 / rate).toFixed(2)}s, ` +
       `peak ${peak.toFixed(3)} of 2.0, RMS ${(20 * Math.log10(rms * gain)).toFixed(1)}dB, ` +
-      `filter ${filter ? 'on' : 'off'}${peak * gain > 1 ? ', CLIPPED' : ''}`,
+      `filter ${filter ? 'on' : 'off'}, ${model}${peak * gain > 1 ? ', CLIPPED' : ''}`,
   )
 }

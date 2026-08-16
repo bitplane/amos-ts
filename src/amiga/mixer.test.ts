@@ -8,7 +8,7 @@
  * a slightly different tone.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_MIX_RATE, PaulaMixer, VOICE_CHANNEL } from './mixer'
+import { DEFAULT_MIX_RATE, FIXED_FILTER_HZ, PaulaMixer, VOICE_CHANNEL, onePole } from './mixer'
 
 /** the left channel of a rendered block */
 const left = (b: Float32Array): number[] => [...b].filter((_, i) => i % 2 === 0)
@@ -222,5 +222,54 @@ describe('a loop that runs past its sample', () => {
     m.play(0, Int8Array.from([64, -64, 64, -64]), 8000, 64, 0, 64)
     const out = m.render(4000)
     expect(out.every((s) => Number.isFinite(s))).toBe(true)
+  })
+})
+
+
+/**
+ * The pole the LED filter is not.
+ *
+ * `dry()` renders at 8,000, where a 30 kHz one-pole has a coefficient of
+ * 1 - 5.8e-11 and disappears into Float32, which is why every exact case above
+ * still reads exactly. At 44,100 it does not disappear.
+ */
+describe('PaulaMixer: the fixed pole every Amiga has', () => {
+  it('is 4,400 Hz on an A500 and 30,000 on an A1200', () => {
+    expect(FIXED_FILTER_HZ.a500).toBe(4400)
+    expect(FIXED_FILTER_HZ.a1200).toBe(30000)
+    expect(onePole(FIXED_FILTER_HZ.a1200, 44100)).toBeGreaterThan(onePole(FIXED_FILTER_HZ.a500, 44100))
+  })
+
+  it('defaults to the A1200, which is what this port rendered before it existed', () => {
+    expect(new PaulaMixer({ rate: 44100 }).model).toBe('a1200')
+  })
+
+  it('is one pole and not two: the first frame of a step IS the coefficient', () => {
+    for (const model of ['a500', 'a1200'] as const) {
+      const m = new PaulaMixer({ rate: 44100, filter: false, model })
+      m.play(0, new Int8Array([-128]), 44100, 64, 0, 1)
+      expect(left(m.render(1))[0]).toBeCloseTo(-onePole(FIXED_FILTER_HZ[model], 44100), 6)
+    }
+  })
+
+  it('passes DC either way, because that is what a low-pass is for', () => {
+    for (const model of ['a500', 'a1200'] as const) {
+      const m = new PaulaMixer({ rate: 44100, filter: false, model })
+      m.play(0, new Int8Array([64]), 44100, 64, 0, 1)
+      const out = left(m.render(4410))
+      expect(out[out.length - 1]).toBeCloseTo(0.5, 5)
+    }
+  })
+
+  it('takes more off an A500 than an A1200, which is the whole point', () => {
+    // a square wave at a quarter of the output rate, which is 11 kHz at 44,100
+    const square = new Int8Array([127, 127, -128, -128])
+    const energy = (model: 'a500' | 'a1200'): number => {
+      const m = new PaulaMixer({ rate: 44100, filter: false, model })
+      m.play(0, square, 44100, 64, 0, 4)
+      const out = left(m.render(4410)).slice(400)
+      return out.reduce((a, v) => a + v * v, 0)
+    }
+    expect(energy('a500')).toBeLessThan(energy('a1200') * 0.5)
   })
 })

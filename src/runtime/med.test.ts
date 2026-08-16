@@ -580,10 +580,11 @@ describe('a MED module as PCM', () => {
     expect(Math.max(...left)).toBeCloseTo((62 / 128) * (40 / 64), 6)
     // the instrument has no repeat, and 64 bytes at 4143 Hz is 15.4ms against
     // a row that lasts 20.4ms, so a quarter of the output is it having ended.
-    // 615 rather than 610 since the mixer began averaging the stair-step
-    // across each output frame: the ramp crosses zero at byte 32, and the
-    // frames straddling it are no longer exactly zero.
-    expect(left.filter((s) => s !== 0)).toHaveLength(615)
+    // The threshold is half of one sample byte at this volume, because the
+    // fixed analog pole has an infinite tail and "not exactly zero" stopped
+    // meaning "audible" the moment it was modelled.
+    const floor = 1 / 128 / 2
+    expect(left.filter((s) => Math.abs(s) > floor)).toHaveLength(610)
   })
 })
 
@@ -807,10 +808,12 @@ describe.skipIf(!existsSync(FUGUE))('a real MMD2 through the mixer', () => {
     expect(new Set(plays.map((e) => e.voice))).toEqual(new Set([0, 1, 2, 3]))
   })
 
-  it('reaches the byte\'s limits, which is where an unclamped add would wrap', () => {
+  it('reaches the byte\'s limits without ever going over them', () => {
     // 710 of 3,424,000 output samples land on -128 or 127 over a minute of
-    // this module, 0.02%. There is no clamp between the two tracks of a pair
-    // ($210974 is a bare `add.b`), so the rail is not a ceiling, it is a wrap.
+    // this module, 0.02%. Every one is a real sum: instrumenting $210974's
+    // bare `add.b` over the same run counts ZERO pairs outside a byte, which
+    // is this author never asking two loud tracks to share a voice rather
+    // than the mixer protecting him. It has no clamp to protect him with.
     const { p, audio } = octa(mod)
     let rail = 0
     let total = 0

@@ -145,6 +145,7 @@ describe.skipIf(!existsSync(MOD))('two replayers on one module', () => {
       seconds: 6,
       rate: 22050,
       filter: false,
+      model: 'a1200',
     })
 
   it('both make sound, and the same notes', () => {
