@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -991,3 +991,74 @@ describe('the BP SoundMon block', () => {
     expect(back.rt.dme.smonPlaying).toBe(true)
   })
 })
+
+/** ScreamTracker 3: twelve channels through a mixer, and a bank that is not chip. */
+const S3M_MOD = ((): Uint8Array => {
+  const out = new Uint8Array(0x400)
+  for (const [i, c] of [...'SCRM'].entries()) out[0x2c + i] = c.charCodeAt(0)
+  out[0x1d] = 0x10
+  out[0x20] = 3 // three orders, and the byte =S3m Song Length reads
+  out[0x31] = 6
+  out[0x32] = 125
+  for (let c = 0; c < 12; c++) out[0x40 + c] = c & 1 ? 8 : 0
+  for (let c = 12; c < 32; c++) out[0x40 + c] = 0xff
+  return out
+})()
+
+const S3M = { 'a.s3m': S3M_MOD }
+const S3LOAD = 'S3m Load "Work:a.s3m",7'
+
+describe('the ScreamTracker 3 block', () => {
+  it('reserves a DATA bank that is NOT chip, alone among the eleven', () => {
+    // `moveq #$1,d1` at $456c, where every other DME loader has `moveq #$3,d1`
+    const { rt } = run([S3LOAD], S3M)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(S3M_BANK_NAME)
+    expect([b.flags, b.memType]).toEqual([1, 0])
+  })
+
+  it('wants "SCRM" at $2c and erases the bank when it is not there', () => {
+    const wrong = S3M_MOD.slice()
+    wrong[0x2c] = 'X'.charCodeAt(0)
+    expect(() => run([S3LOAD], { 'a.s3m': wrong })).toThrow(DME_ERRORS[39])
+  })
+
+  it('=S3m Song Length reads a BYTE of a word field, and raises 33 not 39', () => {
+    run([S3LOAD, 'Print S3m Song Length(7)'], S3M)
+    expect(out()).toEqual(['3'])
+    expect(() => run(['Print S3m Song Length(9)'], S3M)).toThrow(DME_ERRORS[33])
+  })
+
+  it('=S3m Song Pos answers zero until something has played', () => {
+    run(['Print S3m Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('S3m Volume takes 0..64 and no more', () => {
+    expect(() => run([S3LOAD, 'S3m Volume 65'], S3M)).toThrow()
+    const { rt } = run([S3LOAD, 'S3m Play 7', 'S3m Volume 20'], S3M)
+    expect(rt.dme.s3m.master).toBe(20)
+  })
+
+  it('S3m Next Patt and S3m Prev Patt raise message 27 when nothing is playing', () => {
+    expect(() => run(['S3m Next Patt'], {})).toThrow(DME_ERRORS[27])
+    expect(() => run(['S3m Prev Patt'], {})).toThrow(DME_ERRORS[27])
+  })
+
+  it('=S3m Vu takes 0..31, four times the width of every other Vu here', () => {
+    expect(() => run([S3LOAD, 'S3m Play 7', 'Print S3m Vu(32)'], S3M)).toThrow()
+    const { rt } = run([S3LOAD, 'S3m Play 7'], S3M)
+    rt.dme.s3m.vu[31] = 40
+    expect(rt.dme.s3m.readVu(31)).toBe(40)
+    expect(rt.dme.s3m.readVu(31)).toBe(0)
+    run([S3LOAD, 'S3m Play 7', 'Print S3m Vu(0)'], S3M)
+  })
+
+  it('S3m Stop turns the flag the veneer keeps at $e6(a0)', () => {
+    const { rt } = run([S3LOAD, 'S3m Play 7', 'S3m Stop'], S3M)
+    expect(rt.dme.s3mPlaying).toBe(false)
+    const on = run([S3LOAD, 'S3m Play 7'], S3M)
+    expect(on.rt.dme.s3mPlaying).toBe(true)
+  })
+})
+

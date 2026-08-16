@@ -96,6 +96,8 @@ import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
 import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
+import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
+import { S3mPlayer } from '../amiga/s3mplay'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -139,6 +141,8 @@ export const FC13_BANK_NAME = 'FC1.3   '
 export const DIGI_BANK_NAME = 'DigiMod '
 /** the bank `Smon Load` reserves ($558c), tested as "Soun" and "dMon" ($561e) */
 export const SMON_BANK_NAME = 'SoundMon'
+/** `$53334d6d` then `$6f642020` at $4774: "S3Mmod" and two spaces */
+export const S3M_BANK_NAME = 'S3Mmod  '
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
 export const DMED_BANK_NAME = 'Med     '
 /** `cmpi.l #$4d4d4432,(a2)` at $6794: MMD2 keeps its sequence count elsewhere */
@@ -299,6 +303,13 @@ export interface DmeState {
   /** the four vu bytes the veneer keeps, read and cleared */
   dmedVu: Uint8Array
 
+  /** ScreamTracker 3, the seventh --- twelve channels through a 28 kHz mixer */
+  s3m: S3mPlayer
+  /** `$dc(a2)`, `$e6(a2)` and `$e7(a2)` */
+  s3mBank: number
+  s3mPlaying: boolean
+  s3mStarted: boolean
+
   /** BP SoundMon 2.0, the sixth --- four channels and a synth, no mixer */
   smon: SoundMon
   /** `$8a(a2)`, `$94(a2)` and `$95(a2)` */
@@ -360,6 +371,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     smonBank: 0,
     smonPlaying: false,
     smonStarted: false,
+    s3m: new S3mPlayer(() => rt?.host.audio),
+    s3mBank: 0,
+    s3mPlaying: false,
+    s3mStarted: false,
     dmed: null,
     dmedBank: 0,
     dmedPlaying: false,
@@ -1624,6 +1639,95 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (!s.smonPlaying) dmeErr(48)
       s.smon.prevPattern()
     },
+
+    /**
+     * S3m Load file$,bank --- routine 64 ($453c).
+     *
+     * The only DME loader that does NOT ask for chip: `moveq #$1,d1` at $456c
+     * is Data alone, because ScreamTracker mixes in software and Paula only
+     * ever sees the four buffers the library AllocVecs for itself. Every other
+     * format here reserves Data plus Chip.
+     */
+    's3m load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.s3mBank && s.s3mPlaying) {
+        s.s3mPlaying = false
+        s.s3m.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.s3mBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, S3M_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (String.fromCharCode(...data.subarray(S3M_MAGIC_AT, S3M_MAGIC_AT + 4)) !== S3M_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(39)
+      }
+    },
+
+    /**
+     * S3m Play [bank] --- routine 67 ($4632) into 68, on the bank NAME.
+     *
+     * DEFECT: three of ScreamTracker's commands are dead or wrong in this
+     * library and a module that uses them plays differently here than it does
+     * in ScreamTracker. `I` and `R` appear in neither dispatch table, so
+     * tremor and tremolo do nothing. `H`, `U` and `K` read the command byte at
+     * `$3(a2)` where the parameter is at `$4(a2)`, so `H` never bends at all
+     * and `U` runs at a fixed speed of one and depth of five. And `Bxx` only
+     * jumps when its target is AHEAD of the current order; backwards, $211d86
+     * discards the target and the song restarts from zero. `src/amiga/s3mplay.ts`
+     * carries the instructions.
+     */
+    's3m play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.s3mPlaying = false
+      s.s3m.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.s3mBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== S3M_BANK_NAME) dmeErr(39)
+      const song = parseS3m(b!.data)
+      if (!song) dmeErr(39)
+      s.s3m.load(song!)
+      s.s3mPlaying = true
+      s.s3mStarted = true
+    },
+
+    /** S3m Stop --- routine 66 ($4612): the flag at $e6(a0), then LVO -36 */
+    's3m stop'() {
+      const s = st()
+      if (!s.s3mPlaying) return
+      s.s3mPlaying = false
+      s.s3m.stop()
+    },
+
+    /**
+     * S3m Next Patt / S3m Prev Patt --- routines 73 ($47a6) and 74 ($47cc),
+     * message 27 when nothing is playing, into LVO -54 and -48.
+     */
+    's3m next patt'() {
+      const s = st()
+      if (!s.s3mPlaying) dmeErr(27)
+      s.s3m.nextPattern()
+    },
+    's3m prev patt'() {
+      const s = st()
+      if (!s.s3mPlaying) dmeErr(27)
+      s.s3m.prevPattern()
+    },
+
+    /** S3m Volume n --- routine 75 ($47f2): 0..64, then LVO -60 */
+    's3m volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().s3m.master = v
+    },
   }
 }
 
@@ -1966,6 +2070,31 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     /** =Smon End — routine 151 ($57de) into LVO -66, read and cleared, and 255 */
     'smon end': () => VI(st().smon.readEnd() ? 0xff : 0),
 
+    /**
+     * =S3m Song Length(bank) — routine 72 ($476a), which calls no vector and
+     * reads the BYTE at module+$20.
+     *
+     * That field is a WORD, and the low half is the one this reads: a module
+     * of 300 orders reports 44. Message 33 rather than 39 when the bank is not
+     * a module, which is the only place in the port that number is used.
+     */
+    's3m song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== S3M_BANK_NAME) dmeErr(33)
+      return VI(bank!.data[0x20] ?? 0)
+    },
+
+    /** =S3m Song Pos — routine 71 ($473a) into LVO -42, guarded by $e7(a2) */
+    's3m song pos': () => VI(st().s3mStarted ? st().s3m.position : 0),
+
+    /** =S3m Vu(n) — routine 76 ($4824), 0..31, into LVO -66, read and cleared */
+    's3m vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 32) badCall()
+      return VI(st().s3m.readVu(n))
+    },
+
     /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
     'dmed vu': (_, a) => {
       const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
@@ -2003,6 +2132,10 @@ export function dmeVbl(rt: Runtime): void {
   // DigiBooster's CIA rate is the module's own and `Fxx` above $1f moves it,
   // so its ticks are counted against the frame rather than one to a frame
   if (s.smonPlaying) s.smon.tick()
+  // ScreamTracker runs off a CIA at the module's tempo like DigiBooster, but
+  // its own tick is a buffer of mix rather than a register write, so one frame
+  // is one tick here and the tempo shows in the buffer length instead
+  if (s.s3mPlaying) s.s3m.vbl()
   // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
   if (s.dmedPlaying) s.dmed?.vbl()
   if (s.digiPlaying && s.digiUnpaused) {

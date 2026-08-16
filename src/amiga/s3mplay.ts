@@ -171,8 +171,16 @@ export class S3mPlayer {
   /** `$c6(a5)` at $2127ae, and `$78(a5)` */
   globalVolume = S3M_MAX_GLOBAL
   master = S3M_MAX_GLOBAL
-  /** `$72(a5)`: set when the order list wraps, which is what `S3m End` reads */
+  /** `$72(a5)`: set when the order list wraps */
   ended = false
+  /** `$76(a5)`: the position the keywords report and seek by, which is not `$c8` */
+  position = 0
+  /**
+   * `$2103d4`: 32 bytes, one per channel, written on a trigger and CLEARED by
+   * the read at $2103c6. So a `S3m Vu` that is never called keeps its last
+   * peak and one that is called every frame sees each note exactly once.
+   */
+  readonly vu = new Uint8Array(S3M_CHANNELS)
   playing = false
   /** `$4c(a5)`, and `T` rewrites it */
   samplesPerTick = s3mSamplesPerTick(S3M_MIX_RATE, 125)
@@ -287,13 +295,13 @@ export class S3mPlayer {
       }
     }
 
-    for (let c = 0; c < this.last; c++) this.rowChannel(this.channels[c]!, this.voices[c]!)
+    for (let c = 0; c < this.last; c++) this.rowChannel(c, this.channels[c]!, this.voices[c]!)
     this.advance()
     this.quietCheck()
   }
 
   /** $21199c, one channel */
-  private rowChannel(ch: S3mChannel, v: S3mVoice): void {
+  private rowChannel(c: number, ch: S3mChannel, v: S3mVoice): void {
     const song = this.song
     if (!song || ch.flags === 0) return
 
@@ -307,7 +315,7 @@ export class S3mPlayer {
         }
         // $2119cc: SDx defers the whole load to the tick it names
         const delayed = (ch.flags & 0x80) !== 0 && ch.command === S3M_CMD.S && (ch.param & 0xf0) === 0xd0
-        if (!delayed) this.loadInstrument(ch, v, n - 1)
+        if (!delayed) this.loadInstrument(c, ch, v, n - 1)
       }
       this.trigger(ch, v)
     }
@@ -325,15 +333,18 @@ export class S3mPlayer {
 
     if (ch.flags & 0x80) {
       if (ch.param !== 0) ch.memory = ch.param
-      this.rowEffect(ch, v)
+      this.rowEffect(c, ch, v)
     }
   }
 
   /** $2119e4: the instrument's pointers into the voice, and its volume */
-  private loadInstrument(ch: S3mChannel, v: S3mVoice, index: number): void {
+  private loadInstrument(c: number, ch: S3mChannel, v: S3mVoice, index: number): void {
     const s = this.song?.samples[index]
     if (!s) return
     ch.sample = index
+    // $211a40: the sample's own volume, capped at $3f, scaled by the master
+    // and dropped into the vu byte for this channel
+    this.vu[c] = ((Math.min(0x3f, s.volume) * this.master) >> 6) & 0xff
     v.loopAt = s.loopStart
     v.loopLength = s.loopEnd - s.loopStart
     // $211a5a: $f(a2) is the low byte of the volume word, so this IS the volume
@@ -400,7 +411,7 @@ export class S3mPlayer {
   // ------------------------------------------------------------- the effects
 
   /** the table at $211cc2 */
-  private rowEffect(ch: S3mChannel, v: S3mVoice): void {
+  private rowEffect(c: number, ch: S3mChannel, v: S3mVoice): void {
     switch (ch.command) {
       case S3M_CMD.A: return this.cmdSpeed(ch)
       case S3M_CMD.B: return this.cmdJump(ch)
@@ -411,7 +422,7 @@ export class S3mPlayer {
       case S3M_CMD.J: return this.cmdArpeggio(ch, v)
       case S3M_CMD.O: return this.cmdOffset(ch, v)
       case S3M_CMD.Q: return this.cmdRetrig(ch, v)
-      case S3M_CMD.S: return this.cmdSpecial(ch, v)
+      case S3M_CMD.S: return this.cmdSpecial(c, ch, v)
       case S3M_CMD.T: return this.cmdTempo(ch)
       case S3M_CMD.V: return this.cmdGlobal(ch)
       default: return
@@ -419,7 +430,7 @@ export class S3mPlayer {
   }
 
   /** the table at $211cf8 */
-  private tickEffect(ch: S3mChannel, v: S3mVoice): void {
+  private tickEffect(c: number, ch: S3mChannel, v: S3mVoice): void {
     switch (ch.command) {
       case S3M_CMD.D: return this.cmdVolumeSlide(ch, v)
       case S3M_CMD.E: return this.cmdPortaDown(ch, v)
@@ -436,7 +447,7 @@ export class S3mPlayer {
         return this.cmdVolumeSlide(ch, v)
       }
       case S3M_CMD.Q: return this.cmdRetrig(ch, v)
-      case S3M_CMD.S: return this.cmdSpecial(ch, v)
+      case S3M_CMD.S: return this.cmdSpecial(c, ch, v)
       case S3M_CMD.U: return this.cmdVibrato(ch, v, false)
       default: return
     }
@@ -654,11 +665,11 @@ export class S3mPlayer {
   }
 
   /** S, $2121aa: the only three of the sixteen sub-commands that exist */
-  private cmdSpecial(ch: S3mChannel, v: S3mVoice): void {
+  private cmdSpecial(c: number, ch: S3mChannel, v: S3mVoice): void {
     const kind = ch.param & 0xf0
     const n = ch.param & 0xf
     if (kind === 0xb0) return this.patternLoop(n)
-    if (kind === 0xd0) return this.noteDelay(ch, v, n)
+    if (kind === 0xd0) return this.noteDelay(c, ch, v, n)
     if (kind !== 0xc0) return
     // SCx, a note cut on the tick it names
     if (n !== this.tick) return
@@ -689,11 +700,11 @@ export class S3mPlayer {
   }
 
   /** SDx, $212236: the note the row pass skipped, played on the tick it names */
-  private noteDelay(ch: S3mChannel, v: S3mVoice, n: number): void {
+  private noteDelay(c: number, ch: S3mChannel, v: S3mVoice, n: number): void {
     if (n !== this.tick) return
     if ((ch.flags & 0x20) === 0) return
     const i = ch.instrument
-    if (i > 0 && i < 0x80 && i <= (this.song?.samples.length ?? 0)) this.loadInstrument(ch, v, i - 1)
+    if (i > 0 && i < 0x80 && i <= (this.song?.samples.length ?? 0)) this.loadInstrument(c, ch, v, i - 1)
     this.trigger(ch, v)
     v.volume = (ch.volume * this.globalVolume) >> 6
   }
@@ -714,8 +725,7 @@ export class S3mPlayer {
 
   /** $211bd2 */
   private advance(): void {
-    const song = this.song
-    if (!song) return
+    if (!this.song) return
     if (!this.breaking) {
       this.row++
       if (this.row < S3M_ROWS) return
@@ -723,7 +733,13 @@ export class S3mPlayer {
     this.breaking = false
     this.row = this.pendingRow
     this.pendingRow = 0
+    this.stepOrder()
+  }
 
+  /** $211bf6: the order walk on its own, which a seek re-enters */
+  private stepOrder(): void {
+    const song = this.song
+    if (!song) return
     for (;;) {
       this.order = w(this.order + 1)
       if (this.order >= song.orders.length || this.order < 0) {
@@ -734,7 +750,47 @@ export class S3mPlayer {
       const n = song.orders[this.order] ?? 0xff
       if (n !== 0xfe && n !== 0xff) break
     }
+    // $211c80: the reported position follows the order, and is not the same field
+    this.position = this.order
     this.pattern = this.patternFor(this.order)
+  }
+
+  /**
+   * LVO -60's target at $2108fc: the position, the speed back to the module's,
+   * the tick cleared, and then straight into the order walk.
+   */
+  setPosition(n: number): void {
+    const song = this.song
+    if (!song) return
+    this.position = n
+    this.order = w(n - 1)
+    this.speed = song.speed
+    this.tick = 0
+    this.stepOrder()
+  }
+
+  /**
+   * LVO -54 at $2106d6: the wrap is at the order count LESS TWO, so the last
+   * two entries are never reached by stepping forward, and a module of two
+   * orders or fewer moves nowhere at all.
+   */
+  nextPattern(): void {
+    const end = (this.song?.orders.length ?? 0) - 2
+    if (end < 0) return
+    const to = this.position + 1
+    this.setPosition(to >= end ? 0 : to)
+  }
+
+  /** LVO -48 at $2106fc, which floors at zero rather than wrapping */
+  prevPattern(): void {
+    this.setPosition(Math.max(0, this.position - 1))
+  }
+
+  /** LVO -66 at $2103b8: the byte is returned AND cleared */
+  readVu(n: number): number {
+    const v = this.vu[n & 0x1f] ?? 0
+    this.vu[n & 0x1f] = 0
+    return v
   }
 
   /** $211c96: a channel eight ticks into silence has its voice stopped */
@@ -760,7 +816,7 @@ export class S3mPlayer {
     else {
       for (let c = 0; c < this.last; c++) {
         const ch = this.channels[c]!
-        if (ch.flags & 0x80) this.tickEffect(ch, this.voices[c]!)
+        if (ch.flags & 0x80) this.tickEffect(c, ch, this.voices[c]!)
       }
     }
     this.render()
