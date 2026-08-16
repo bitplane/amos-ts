@@ -3535,17 +3535,28 @@ describe('four-player adaptor and second mouse', () => {
     expect(() => run([...setup, 'Rain Fade -1,$F00'])).toThrow()
   })
 
-  it('the parallel-port joysticks report nothing, as Sticks does for the same wires', () => {
-    // CIA-A PRB with no adaptor attached: an unused port reads as nothing
-    // pressed on the machine too
+  it('the parallel-port joysticks read nothing pressed, one keyword excepted', () => {
+    // CIA-A PRB with no adaptor attached idles at $ff, and the `btst` readers
+    // all call SET "not pressed"
     for (const j of [0, 1]) {
-      expect(p(`Pjoy(${j})`)).toBe('0')
       expect(p(`Pfire(${j})`)).toBe('0')
       expect(p(`Pjup(${j})`)).toBe('0')
       expect(p(`Pjdown(${j})`)).toBe('0')
       expect(p(`Pjleft(${j})`)).toBe('0')
       expect(p(`Pjright(${j})`)).toBe('0')
     }
+  })
+
+  it('DEFECT: Pjoy(0) answers UP on a machine with nothing plugged in', () => {
+    // routine 11 inverts the byte with `neg.b` (1.40 $1f64, 1.50 $20f2) where
+    // Pjup, Sticks and Ercole all use `btst` or `not.b`. `neg` is `not` plus
+    // one, so bit 0 of the result is bit 0 of the RAW byte, and $ff negated is
+    // $01 -- which the low nibble hands back as JOY_UP.
+    expect(p('Pjoy(0)')).toBe('1')
+    // the high nibble of $01 is 0, so port 1 escapes it
+    expect(p('Pjoy(1)')).toBe('0')
+    // and the extension disagrees with itself about that exact wire
+    expect(p('Pjup(0)')).toBe('0')
   })
 
   it("'j' must be either 0 or 1, which the manual states", () => {

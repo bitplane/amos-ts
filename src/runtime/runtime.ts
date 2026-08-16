@@ -91,7 +91,7 @@ import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
-import { CIAA_PRA, CIAA_SDR } from '../amiga/cia'
+import { CIAA_PRA, CIAA_PRB, CIAA_SDR, CIAB_DDRB, CIAB_PRA, CIAB_PRB } from '../amiga/cia'
 import { JOY0DAT, JOY1DAT, POTGOR } from '../amiga/gameport'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
@@ -1334,8 +1334,24 @@ export class Runtime {
    * same four writes instruction for instruction, down to the direction
    * register that makes both pairs the wrong way round — see miscext.ts, which
    * has the author's own source, and delta.ts, which does not.
+   *
+   * A view of CIA-B port B now (../amiga/cia.ts), because that is what all
+   * three extensions are writing: /MTR is bit 7 and the direction register is
+   * what decides whether the chip drives it. Six keywords, one line.
    */
-  driveMotor = false
+  get driveMotor(): boolean {
+    return this.machine.ciab.motorLine
+  }
+
+  set driveMotor(on: boolean) {
+    // the four instructions all six keywords share: assert /MTR with no unit
+    // selected, then pull /SEL0 low to latch it into drive 0, then decide with
+    // DDRB whether any of it is driven at all
+    const b = this.machine.ciab
+    b.writePrb(0x7f)
+    b.writePrb(0x77)
+    b.ddrb = on ? 0xff : 0x00
+  }
   /**
    * COP1LC, when something outside the interpreter has pointed it somewhere —
    * Personnal's Active Copper writes $dff080 with the list it built in a
@@ -1649,6 +1665,35 @@ export class Runtime {
    */
   private readonly memRegions: readonly MemRegion[] = [
     /*
+     * CIA-B port A and port B, and port B's direction register.
+     *
+     * PRA is the parallel port's three status lines and the serial port's
+     * three inputs; Range's `=Busy Printer` and `=No Paper` and Ercole's
+     * `Ext Fire` read it. PRB is the four floppy control lines, which six
+     * keywords across three extensions write and nothing reads. DDRB is why
+     * all six have their pairs named backwards.
+     */
+    byteRegister(
+      'CIA-B port A',
+      CIAB_PRA,
+      () => this.machine.ciab.pra(),
+      (v) => this.machine.ciab.writePra(v),
+    ),
+    byteRegister(
+      'CIA-B port B',
+      CIAB_PRB,
+      () => this.machine.ciab.prb(),
+      (v) => this.machine.ciab.writePrb(v),
+    ),
+    byteRegister(
+      'CIA-B port B direction',
+      CIAB_DDRB,
+      () => this.machine.ciab.ddrb,
+      (v) => {
+        this.machine.ciab.ddrb = v & 0xff
+      },
+    ),
+    /*
      * CIA-A port A, the byte ../amiga/cia.ts composes. Bit 6 is FIR0, the
      * LEFT mouse button, ACTIVE LOW, so a pressed button reads as a zero bit.
      *
@@ -1679,6 +1724,13 @@ export class Runtime {
      * takes a write to SDR, and what it does with one is shift it out to the
      * keyboard, which this machine has no wire for.
      */
+    /*
+     * CIA-A port B, the parallel port's eight data lines. Six of Sticks'
+     * keywords and Ercole's `Ext Joy` read it as a four-player joystick
+     * adaptor, one stick per nibble, `not.b`'d because a switch pulls a
+     * pulled-up line down. Nothing is on the cable, so it reads $ff.
+     */
+    readOnlyRegister('CIA-A port B', CIAA_PRB, 1, () => this.machine.cia.prb()),
     byteRegister(
       'CIA-A serial data',
       CIAA_SDR,

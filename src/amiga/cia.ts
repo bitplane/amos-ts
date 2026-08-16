@@ -11,9 +11,21 @@
  *     ciab port A ($bfd000)   serial handshake and printer status     (:121)
  *     ciab port B ($bfd100)   drive select, motor, step and side      (:131)
  *
- * Only port A of CIA-A is modelled, because only port A of CIA-A has a
- * reader. The other three are cited here so the next slice starts from the
- * include file rather than from memory.
+ * All four are modelled, because all four turned out to have readers. Port A
+ * of CIA-A carries the LED and the fire buttons; the other three carry a
+ * four-player adaptor, a printer and the floppy drives, and eleven keywords
+ * across five extensions read them:
+ *
+ *     ciaa PRB   Sticks' `Stick Joy` and its four direction keywords,
+ *                Ercole's `Ext Joy`, AMCAF's `Pjoy`
+ *     ciab PRA   Sticks' `Stick Fire`, Ercole's `Ext Fire`, Range's
+ *                `=Busy Printer` and `=No Paper`
+ *     ciab PRB   Misc's `Dled On`/`Off`, Delta's motor pair, JD's `Jd Dled`
+ *                pair, all six of which are the same four instructions
+ *
+ * Every one of those answered a constant before this file, worked out in
+ * prose from what an unattached port reads. They compute it now, which is the
+ * same answer today and a different one the moment something is attached.
  *
  * ## Why the register and not four separate flags
  *
@@ -53,10 +65,26 @@
  * the mouse button does nothing, exactly as on the machine.
  */
 
-/** the register addresses this port maps. $100 apart, per `cia.i`:22-36. */
+/**
+ * The register addresses this port maps.
+ *
+ * `cia.i`:22-36 gives the offsets, $100 apart, and the header says where the
+ * two chips sit: *"_ciaa is on an ODD address (e.g. the low byte) -- $bfe001"*
+ * and *"_ciab is on an EVEN address (e.g. the high byte) -- $bfd000"*. So a
+ * register's address is the chip's base plus its offset, and the odd/even
+ * split is what lets a `move.w` reach both chips in one instruction.
+ */
 export const CIAA_PRA = 0x00bf_e001
+/** ciaa port B: the parallel port's eight data lines */
+export const CIAA_PRB = 0x00bf_e101
 /** ciasdr, `$0c00` up from ciapra: the byte the keyboard clocked in */
 export const CIAA_SDR = 0x00bf_ec01
+/** ciab port A: serial handshake and printer status */
+export const CIAB_PRA = 0x00bf_d000
+/** ciab port B: drive select, motor, step and side */
+export const CIAB_PRB = 0x00bf_d100
+/** ciab's data direction register for port B, which six keywords write */
+export const CIAB_DDRB = 0x00bf_d300
 
 /**
  * ciaa port A bit masks, `cia.i`:141-149.
@@ -78,6 +106,48 @@ export const CIAF_GAMEPORT1 = 1 << 7
 export const CIAA_PRA_OUTPUTS = CIAF_OVERLAY | CIAF_LED
 
 /**
+ * ciab port A bit masks, `cia.i`:154-161.
+ *
+ * Five serial handshake lines and three printer status lines. Note which
+ * carry the include file's active-low asterisk and which do not: every serial
+ * line does, and NONE of the printer three do. So an unattached printer port
+ * floats high and that reads as busy, out of paper and selected all at once,
+ * which is exactly what Range's `=Busy Printer` and `=No Paper` answer.
+ */
+export const CIAF_PRTRBUSY = 1 << 0
+export const CIAF_PRTRPOUT = 1 << 1
+export const CIAF_PRTRSEL = 1 << 2
+export const CIAF_COMDSR = 1 << 3
+export const CIAF_COMCTS = 1 << 4
+export const CIAF_COMCD = 1 << 5
+export const CIAF_COMRTS = 1 << 6
+export const CIAF_COMDTR = 1 << 7
+
+/** DTR and RTS are the machine's to drive; the other six are pins */
+export const CIAB_PRA_OUTPUTS = CIAF_COMRTS | CIAF_COMDTR
+
+/**
+ * ciab port B bit masks, `cia.i`:164-171. The floppy control lines, and all
+ * eight active low.
+ *
+ * Every bit is an output, which is why this register has a data direction
+ * register that six keywords across three extensions write: releasing the
+ * lines lets them float inactive through their pull-ups, and that is how
+ * `Dled On` stops a motor without changing the data register at all.
+ */
+export const CIAF_DSKSTEP = 1 << 0
+export const CIAF_DSKDIREC = 1 << 1
+export const CIAF_DSKSIDE = 1 << 2
+export const CIAF_DSKSEL0 = 1 << 3
+export const CIAF_DSKSEL1 = 1 << 4
+export const CIAF_DSKSEL2 = 1 << 5
+export const CIAF_DSKSEL3 = 1 << 6
+export const CIAF_DSKMOTOR = 1 << 7
+
+/** the four unit-select lines, low to high */
+export const DSKSEL = [CIAF_DSKSEL0, CIAF_DSKSEL1, CIAF_DSKSEL2, CIAF_DSKSEL3] as const
+
+/**
  * The four status lines a floppy puts on CIA-A while it is the selected
  * drive, in positive logic. `pra()` inverts them.
  *
@@ -97,7 +167,36 @@ export interface DiskLines {
   changed: boolean
 }
 
-/** everything CIA-A port A reads that CIA-A does not own */
+/**
+ * The parallel port's eight data lines, as whatever is on the end drives
+ * them.
+ *
+ * The one thing this port has evidence for is the four-player adaptor, which
+ * puts a joystick on each nibble: Sticks' routine 5 does
+ * `move.b $bfe101,d3 / not.b d3` and takes the low nibble for port 0, and
+ * Ercole's `Ext Joy` is the same two instructions. `not.b` is there because
+ * the lines are pulled up and a switch pulls one DOWN, so an unattached port
+ * reads $ff and inverts to no directions at all.
+ */
+export interface ParallelLines {
+  /** the byte on the eight data pins, before any reader inverts it */
+  data: number
+  /** printer BUSY, and ACTIVE HIGH: `cia.i`:129 carries no asterisk */
+  busy: boolean
+  /** printer paper out, active high */
+  paperOut: boolean
+  /** printer SELECT, active high */
+  selected: boolean
+}
+
+/** the three serial input handshake lines, all active low */
+export interface SerialLines {
+  carrierDetect: boolean
+  clearToSend: boolean
+  dataSetReady: boolean
+}
+
+/** everything CIA-A reads that CIA-A does not own */
 export interface CiaAWires {
   /** gameport 0 pin 6 held down. A mouse's left button, a stick's only fire. */
   fire0(): boolean
@@ -105,13 +204,30 @@ export interface CiaAWires {
   fire1(): boolean
   /** the selected drive's lines, or null when no drive is selected */
   disk(): DiskLines | null
+  /** what is on the parallel port, or null for an empty connector */
+  parallel(): ParallelLines | null
 }
 
-/** wires for a machine with nothing plugged in: no buttons, no drive selected */
+/** everything CIA-B reads that CIA-B does not own */
+export interface CiaBWires {
+  /** the parallel port again: PRA carries its three status lines */
+  parallel(): ParallelLines | null
+  /** what is on the serial port, or null for an empty connector */
+  serial(): SerialLines | null
+}
+
+/** wires for a machine with nothing plugged in: no buttons, no drive, no cables */
 export const idleWires = (): CiaAWires => ({
   fire0: () => false,
   fire1: () => false,
   disk: () => null,
+  parallel: () => null,
+})
+
+/** the same for CIA-B */
+export const idleWiresB = (): CiaBWires => ({
+  parallel: () => null,
+  serial: () => null,
 })
 
 /**
@@ -189,5 +305,132 @@ export class CiaA {
     this.out = v & CIAA_PRA_OUTPUTS
     const now = this.ledBright
     if (now !== was) this.onLed?.(now)
+  }
+
+  /**
+   * Port B: the parallel port's eight data lines, floating high when nothing
+   * is on the end of the cable.
+   *
+   * Read-only here, because the machine only ever reads it in this port. A
+   * program printing would drive it, and printing goes through
+   * `printer.device` rather than through the register, so there is no writer
+   * to model until one appears.
+   */
+  prb(): number {
+    return this.wires.parallel()?.data ?? 0xff
+  }
+}
+
+/**
+ * CIA-B: the serial and printer handshake lines on port A, and the floppy
+ * control lines on port B.
+ *
+ * Port B is the interesting one, because it is entirely OUTPUTS and six
+ * keywords in three extensions drive it. Misc 1.0's `Dled On`, Delta's
+ * `Delta Drive Motor On` and JD's `Jd Dled Off` are the same four
+ * instructions:
+ *
+ *     move.b #$7f,$bfd100      /MTR low, no drive selected
+ *     move.b #$77,$bfd100      /MTR low and /SEL0 low: latch it into drive 0
+ *     move.b #$00,$bfd300      DDRB all INPUTS  -- the lines float, motor off
+ *     move.b #$ff,$bfd300      DDRB all OUTPUTS -- the $77 is driven, motor on
+ *
+ * The data register is identical in both directions and the DIRECTION
+ * register is what differs, which is why all three extensions have the pair
+ * named backwards. `../runtime/miscext.ts` carries the defect with its
+ * author's own source and its manual's bafflement.
+ */
+export class CiaB {
+  /** what was last written to port B's latch. All eight bits are outputs. */
+  private outB = 0xff
+
+  /**
+   * Which of port B's lines the chip is actually driving.
+   *
+   * $ff at boot: trackdisk.device wants every one of them driven and leaves
+   * DDRB that way, which is the state all six keywords above assume when they
+   * write $77 and expect it to reach the motor.
+   */
+  ddrb = 0xff
+
+  /** DTR and RTS, the two the machine drives on port A */
+  private outA = 0xff
+
+  constructor(private readonly wires: CiaBWires = idleWiresB()) {}
+
+  /** port A: three printer lines, three serial inputs, two driven outputs */
+  pra(): number {
+    let v = this.outA & CIAB_PRA_OUTPUTS
+    const p = this.wires.parallel()
+    // the printer three are ACTIVE HIGH, so an empty port reads all of them
+    if (!p || p.busy) v |= CIAF_PRTRBUSY
+    if (!p || p.paperOut) v |= CIAF_PRTRPOUT
+    if (!p || p.selected) v |= CIAF_PRTRSEL
+    const s = this.wires.serial()
+    if (!s || !s.dataSetReady) v |= CIAF_COMDSR
+    if (!s || !s.clearToSend) v |= CIAF_COMCTS
+    if (!s || !s.carrierDetect) v |= CIAF_COMCD
+    return v
+  }
+
+  writePra(v: number): void {
+    this.outA = v & CIAB_PRA_OUTPUTS
+  }
+
+  /**
+   * Port B as a program reads it back: the latch where DDRB drives, and a
+   * pulled-up high where it does not.
+   */
+  prb(): number {
+    return ((this.outB & this.ddrb) | ~this.ddrb) & 0xff
+  }
+
+  writePrb(v: number): void {
+    this.outB = v & 0xff
+  }
+
+  /** what the drives actually see, which is `prb()` and not the latch */
+  private lines(): number {
+    return this.prb()
+  }
+
+  /** is /MTR asserted? Active low, and only meaningful while DDRB drives it. */
+  get motorLine(): boolean {
+    return (this.lines() & CIAF_DSKMOTOR) === 0
+  }
+
+  /**
+   * The unit whose /SELn is low, or null when none is.
+   *
+   * The lowest-numbered wins if two are somehow asserted at once. On the
+   * machine that is a bus fight rather than a defined result, and picking one
+   * beats answering null for a state a program can reach.
+   */
+  get selected(): number | null {
+    const v = this.lines()
+    for (let n = 0; n < DSKSEL.length; n++) if ((v & DSKSEL[n]!) === 0) return n
+    return null
+  }
+
+  /**
+   * /SIDE, /DIR and /STEP, as asserted-or-not and no further.
+   *
+   * Which surface a low /SIDE picks and which way a low /DIR seeks are in the
+   * Hardware Reference Manual and in nothing vendored here, so this stops at
+   * the line. A drive is where that becomes a head and a cylinder, and there
+   * is no drive yet. `cia.i` gives the bit and the asterisk, which is all
+   * three of these claim.
+   */
+  get sideLine(): boolean {
+    return (this.lines() & CIAF_DSKSIDE) === 0
+  }
+
+  get directionLine(): boolean {
+    return (this.lines() & CIAF_DSKDIREC) === 0
+  }
+
+  /** a drive moves on the falling edge of this, not on the level */
+  get stepLine(): boolean {
+    return (this.lines() & CIAF_DSKSTEP) === 0
   }
 }

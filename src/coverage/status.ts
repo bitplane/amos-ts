@@ -5432,9 +5432,13 @@ export const NOTES: Record<string, string> = {
     "for a program to walk. APPROXIMATED",
   "pjoy":
     "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is " +
-    "checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this " +
-    "is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. The " +
-    "manual even ships a wiring diagram for building the cable",
+    "checked instead of the normal joysticks', with the same JOY_* bit layout. Routine 11 reads CIA-A PRB for " +
+    "the directions and CIA-B PRA for the fire, and there is no adaptor on the cable, so both idle high. " +
+    "DEFECT: it inverts with `neg.b` (1.40 $1f64, 1.50 $20f2) where Pjup and every other reader of the register " +
+    "uses `btst` or `not.b`. `neg` is `not` plus one, so bit 0 of the result is bit 0 of the RAW byte, and $ff " +
+    "negated is $01 -- which the low nibble hands back as JOY_UP. Pjoy(0) therefore answers 1 on a machine with " +
+    "nothing plugged in, while Pjup(0) on the same wire answers 0. Reproduced. The manual even ships a wiring " +
+    "diagram for building the cable",
   "xfire":
     "AMCAF: 'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library " +
     "is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the " +

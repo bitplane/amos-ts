@@ -46,10 +46,13 @@ describe('the machine: power and reset', () => {
 })
 
 describe('the machine: what is plugged in', () => {
-  it('lists five slots, and an empty gameport is an empty slot', () => {
+  it('lists every connector, and an empty one is an empty slot', () => {
     const m = new Machine()
     const ids = m.hardware().map((s) => s.id)
-    expect(ids).toEqual(['clock', 'keyboard', 'mouse', 'port0', 'port1'])
+    expect(ids).toEqual(['clock', 'keyboard', 'mouse', 'port0', 'port1', 'par', 'ser'])
+    // the two cables have nothing on them, which is what CIA-A PRB reading
+    // $ff and CIA-B PRA reading $ff mean
+    expect(m.hardware().filter((s) => !fitted(s)).map((s) => s.id)).toEqual(['par', 'ser'])
     // a port autosenses to a one-button stick, so both come up occupied
     expect(m.hardware().filter(fitted).map((s) => s.device!.name)).toEqual([
       'A501 battery clock',

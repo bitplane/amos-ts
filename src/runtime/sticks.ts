@@ -62,6 +62,7 @@ import type { Func, Instr } from '../interp/builtins'
 import { VI, funcCall, int, type Value } from '../interp/values'
 import { MAX_PORT, PORT_JOYSTICK, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
 import { JPF_BUTTON_BLUE, JPF_BUTTON_RED, readJoyPort } from '../amiga/lowlevel'
+import { CIAF_PRTRBUSY, CIAF_PRTRPOUT } from '../amiga/cia'
 
 /** one of the two mice: a tracked position and the box it is held inside */
 interface StickMouse {
@@ -215,6 +216,15 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
     return { red: (jp & JPF_BUTTON_RED) !== 0, blue: (jp & JPF_BUTTON_BLUE) !== 0 }
   }
 
+  /**
+   * One direction line of the four-player adaptor: `btst.b #n,$bfe101` where
+   * port 0 takes bits 0..3 and port 1 bits 4..7, and CLEAR means pressed.
+   *
+   * `moveq #$ff,d3` on the clear branch, so the answer is -1 and not 1.
+   */
+  const stickDir = (n: number, bit: number): number =>
+    (rt.machine.cia.prb() & (1 << (n * 4 + bit))) === 0 ? -1 : 0
+
   return {
     'multi joy'(_, a): Value {
       // =Multi Joy(jport) — routine 3 ($260). Directions come from JOYxDAT
@@ -256,8 +266,14 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       // =Stick Joy(jport) — routine 5 ($432), reading CIA-A PRB ($bfe101)
       // bits 0-3 for the directions. That is the parallel-port data register:
       // this is the four-player adaptor, not a normal joystick port.
-      port(int(a[0]!))
-      return VI(0)
+      //
+      // `move.b $bfe101,d3 / not.b d3`, then the low nibble for port 0 and
+      // `lsr.b #$4` for port 1. With nothing on the cable the byte is $ff and
+      // the inversion makes it 0, which is what this answered as a constant
+      // before ../amiga/cia.ts existed to be asked.
+      const n = port(int(a[0]!))
+      const b = ~rt.machine.cia.prb() & 0xff
+      return VI(n === 0 ? b & 0xf : b >> 4)
     },
     /**
      * =Stick Left / Right / Up / Down(jport) — routines 12 ($7ee), 13 ($826),
@@ -280,24 +296,21 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
      * that was popped whole, so only the low word is examined.
      *
      * NOTE: nothing drives the parallel port here, and an unused one floats
-     * high, which is "not pressed" on every line. Answering 0 is what the
-     * hardware would give, not a stand-in for it.
+     * high, which is "not pressed" on every line. That answer is now computed
+     * off the register rather than stated: attach a four-player adaptor to
+     * ../amiga/machine.ts and these four start working.
      */
     'stick up'(_, a): Value {
-      port(int(a[0]!))
-      return VI(0)
+      return VI(stickDir(port(int(a[0]!)), 0))
     },
     'stick down'(_, a): Value {
-      port(int(a[0]!))
-      return VI(0)
+      return VI(stickDir(port(int(a[0]!)), 1))
     },
     'stick left'(_, a): Value {
-      port(int(a[0]!))
-      return VI(0)
+      return VI(stickDir(port(int(a[0]!)), 2))
     },
     'stick right'(_, a): Value {
-      port(int(a[0]!))
-      return VI(0)
+      return VI(stickDir(port(int(a[0]!)), 3))
     },
     'stick fire'(_, a): Value {
       // =Stick Fire(jport) — routine 16 ($8ce), CIA-B PRA bits 0 and 1, which
@@ -311,8 +324,11 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       // available in this version". So the error is the shipped behaviour, not
       // a gap in this port.
       if (a.length > 1) funcCall()
-      port(int(a[0]!))
-      return VI(0)
+      const n = port(int(a[0]!))
+      // BUSY is bit 0 and POUT bit 1, and both are ACTIVE HIGH per cia.i:128
+      // and :129, so an unattached port reads them set and answers 0
+      const v = rt.machine.ciab.pra()
+      return VI((v & (n === 0 ? CIAF_PRTRBUSY : CIAF_PRTRPOUT)) === 0 ? -1 : 0)
     },
     /**
      * =Stick X / Stick Y(jport) — routines 7 ($4f8) and 8 ($520), and they are

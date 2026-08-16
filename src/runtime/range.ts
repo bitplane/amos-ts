@@ -136,6 +136,7 @@ import type { Runtime } from './runtime'
 import { PAULA_CLOCK_NTSC, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
 import type { BankImage } from './objects'
 import { openLibrary } from '../amiga/exec'
+import { CIAF_PRTRBUSY, CIAF_PRTRPOUT, CIAF_PRTRSEL } from '../amiga/cia'
 
 export interface RangeState {
   /** $a4 and $a8 — what `Case` and `Case$` last stored */
@@ -1782,15 +1783,17 @@ export function makeRangeFunctions(rt: Runtime): Record<string, Func> {
      * NOTE: nothing is attached and the lines idle high, so $bfd000 reads
      * $ff, `$ff & 5` is 5, the eor makes 1, and this answers -1 — busy. That
      * is what a disconnected parallel port really looks like, and it is the
-     * same register Ercole's `Ext Fire` reads.
+     * same register Ercole's `Ext Fire` reads. Both go through
+     * ../amiga/cia.ts, so attaching a printer moves all four keywords at once.
      */
-    'busy printer': (): Value => VI(-1),
+    'busy printer': (): Value =>
+      VI(((rt.machine.ciab.pra() & (CIAF_PRTRBUSY | CIAF_PRTRSEL)) ^ CIAF_PRTRSEL) !== 0 ? -1 : 0),
 
     /**
      * =No Paper — routine 55 ($d3e), bit 1 of the same register, -1 when it is
      * SET. Idle-high makes that -1 too.
      */
-    'no paper': (): Value => VI(-1),
+    'no paper': (): Value => VI((rt.machine.ciab.pra() & CIAF_PRTRPOUT) !== 0 ? -1 : 0),
 
     /**
      * =Bank Name$(n) — routine 60 ($ef4). `subq.l #$8,a2` again, then eight

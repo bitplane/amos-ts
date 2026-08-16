@@ -101,6 +101,7 @@ import type { Runtime } from './runtime'
 import { openLibrary } from '../amiga/exec'
 import { DOSTRUE, execute } from '../amiga/process'
 import { JPF_BUTTON_BLUE, readJoyPort } from '../amiga/lowlevel'
+import { CIAF_PRTRBUSY, CIAF_PRTRSEL } from '../amiga/cia'
 
 /**
  * Routine 17's message table at $656 — four NUL-separated strings, indexed
@@ -315,11 +316,13 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * port and is wrong.
      *
      * NOTE: no adaptor. The lines idle high, `not.b` makes that zero, and zero
-     * is no direction — the same answer Sticks and AMCAF's `Pjoy` give.
+     * is no direction — the same answer Sticks and AMCAF's `Pjoy` give, and
+     * now the same REGISTER, so all three change together if one is attached.
      */
     'ext joy': (_, a): Value => {
-      peripheral(int(a[0]!), 2)
-      return VI(0)
+      const n = peripheral(int(a[0]!), 2)
+      const b = ~rt.machine.cia.prb() & 0xff
+      return VI(n === 0 ? b & 0xf : b >> 4)
     },
 
     /**
@@ -332,8 +335,9 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * NOTE: no adaptor, so both lines idle high and both answer 0.
      */
     'ext fire': (_, a): Value => {
-      peripheral(int(a[0]!), 2)
-      return VI(0)
+      const n = peripheral(int(a[0]!), 2)
+      const v = rt.machine.ciab.pra()
+      return VI((v & (n === 0 ? CIAF_PRTRSEL : CIAF_PRTRBUSY)) === 0 ? -1 : 0)
     },
 
     /**

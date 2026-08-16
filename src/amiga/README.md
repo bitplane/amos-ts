@@ -143,7 +143,7 @@ really does differ from the real one and saying where is the whole job.
 | `thxplay.ts` | the THX replay: the song, the envelopes, the playlists, the voices |
 | `thxwaves.ts` | the 6,520-byte THX waveform set and its 63 filtered copies |
 | `device.ts` | what a slot is, what a device is, and the tree a hardware page draws |
-| `cia.ts` | CIA-A port A: the LED and filter bit, two fire buttons, four floppy lines |
+| `cia.ts` | both CIAs' peripheral ports: the LED, the fire buttons, the parallel and serial lines, the floppy control lines |
 | `keyboard.ts` | the byte the keyboard clocks into CIA-A's SDR, and its decode |
 | `mouse.ts` | the three mouse buttons, which are pins on CIA-A and POTGOR |
 | `gameport.ts` | JOY0DAT and JOY1DAT, the quadrature counter registers |

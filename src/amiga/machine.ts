@@ -118,7 +118,7 @@
  * inactive, which is what a machine with no drive selected reports.
  */
 import { BattClock } from './battclock'
-import { CiaA } from './cia'
+import { CiaA, CiaB, type ParallelLines, type SerialLines } from './cia'
 import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
 import type { Slot } from './device'
 import { joyDatOf, potgor } from './gameport'
@@ -184,7 +184,34 @@ export class Machine {
     fire0: () => (this.portButtons(0) & BTN_RED) !== 0,
     fire1: () => (this.portButtons(1) & BTN_RED) !== 0,
     disk: () => null,
+    parallel: () => this.parallel,
   })
+
+  /**
+   * CIA-B: the printer and serial handshake lines, and the four drive control
+   * lines.
+   *
+   * Nothing reads the drive lines yet, and six keywords WRITE them. That is
+   * the right way round for a slice: the register is the shared thing, and
+   * what it controls arrives when there is a drive to control.
+   */
+  readonly ciab = new CiaB({
+    parallel: () => this.parallel,
+    serial: () => this.serial,
+  })
+
+  /**
+   * What is on the parallel port, or null for an empty connector.
+   *
+   * A four-player joystick adaptor is the one thing this port has evidence
+   * for, and it puts a stick on each nibble of CIA-A PRB. A printer is on the
+   * same cable and puts its three status lines on CIA-B PRA. Nothing here
+   * attaches either yet, so both read as an unconnected port.
+   */
+  parallel: ParallelLines | null = null
+
+  /** what is on the serial port, or null for an empty connector */
+  serial: SerialLines | null = null
 
   constructor() {
     // the keyboard's serial line into CIA-A, which is the only thing that
@@ -244,6 +271,8 @@ export class Machine {
       { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse },
       { id: 'port0', label: 'gameport 0', takes: 'gameport', device: controllerDevice(this.ports[0]) },
       { id: 'port1', label: 'gameport 1', takes: 'gameport', device: controllerDevice(this.ports[1]) },
+      { id: 'par', label: 'parallel port', takes: 'parallel', device: null },
+      { id: 'ser', label: 'serial port', takes: 'serial', device: null },
     ]
   }
 

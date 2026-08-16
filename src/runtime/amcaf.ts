@@ -134,7 +134,7 @@ import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
 import { isObjectBank } from './banks'
-import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP } from '../interp/gameport'
+import { JOY_FIRE } from '../interp/gameport'
 import {
   JPF_BUTTON_BLUE,
   JPF_BUTTON_FORWARD,
@@ -145,6 +145,7 @@ import {
   JPF_BUTTON_YELLOW,
   readJoyPort,
 } from '../amiga/lowlevel'
+import { CIAF_PRTRBUSY, CIAF_PRTRSEL } from '../amiga/cia'
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
@@ -6977,26 +6978,87 @@ function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
  * ------------------------------------------------------------------ */
 
 /**
- * A parallel-port joystick's bits.
+ * A parallel-port joystick's bits, off CIA-A PRB and CIA-B PRA.
  *
- * Zero, always. The adaptor is a homemade cable on CIA-A PRB — the manual
- * even includes a wiring diagram — and there is none attached here, which is
- * the same answer `sticks.ts` gives for the same registers. Reporting nothing
- * pressed is what an unused port reads as on the machine too.
+ * The adaptor is a homemade cable on the parallel port and the manual even
+ * includes a wiring diagram. None is attached here, so the lines float high,
+ * and what a program sees then is NOT zero.
+ *
+ * DEFECT: routine 11 inverts with `neg.b` where every other reader of this
+ * register uses `not.b`, and the two differ by one:
+ *
+ *     0001f62  move.b  (a1), d3        $bfe101
+ *     0001f64  neg.b   d3
+ *     0001f76  andi.b  #$f, d3         port 0 -- the LOW nibble
+ *
+ * (1.40 $1f62 and 1.50 $20f0, byte for byte the same.) `neg` is `not` plus
+ * one, so bit 0 of the result is bit 0 of the ORIGINAL, un-inverted. With the
+ * port idle at $ff that makes `Pjoy(0)` answer 1, which is UP, on a machine
+ * with nothing plugged in at all.
+ *
+ * AMCAF contradicts itself about the same wire, which is what makes this a
+ * defect rather than a reading: `Pjup` (routine 14, $216a and $2188) tests the
+ * same bit 0 with `btst` and calls CLEAR pressed, so `Pjup(0)` says not
+ * pressed at the very moment `Pjoy(0)` says up. Sticks' `Stick Up` and
+ * Ercole's `Ext Joy` read the register the other way and agree with `Pjup`.
+ *
+ * Reproduced. The port answered a flat 0 before the registers were modelled,
+ * which hid it.
  */
-function fourPlayer(port: number): number {
-  // Routine 11 ($20d4) and its siblings all guard the port the same way:
-  //
-  //     move.l (a3)+, d0
-  //     beq.b  .port0            the WHOLE long tested against zero
-  //     cmp.b  #$1, d0           ...but only the low BYTE against one
-  //     Rbne   routine 157       -> routine 390, AMOS error 23
-  //
-  // DEFECT: the two halves of that check are not the same width, so Pjoy(257)
-  // is accepted as port 1 where Pjoy(256) is rejected, and the manual's "'j'
-  // must be either 0 or 1" holds only for the low byte. Reproduced.
+function fourPlayer(rt: Runtime, port: number): number {
+  const n = pjPort(port)
+  const neg = -rt.machine.cia.prb() & 0xff
+  let bits = n === 0 ? neg & 0xf : neg >> 4
+  if (pjFire(rt, n)) bits += JOY_FIRE
+  return bits
+}
+
+/**
+ * The argument check the whole family shares, and the port it resolves to.
+ *
+ *     move.l (a3)+, d0
+ *     beq.b  .port0            the WHOLE long tested against zero
+ *     cmp.b  #$1, d0           ...but only the low BYTE against one
+ *     Rbne   routine 157       -> routine 390, AMOS error 23
+ *
+ * DEFECT: the two halves are not the same width, so `Pjoy(257)` is accepted
+ * as port 1 where `Pjoy(256)` is rejected, and the manual's "'j' must be
+ * either 0 or 1" holds only for the low byte. Reproduced.
+ */
+function pjPort(port: number): 0 | 1 {
   if (port !== 0 && (port & 0xff) !== 1) amcafErr()
-  return 0
+  return port === 0 ? 0 : 1
+}
+
+/**
+ * One direction line: `btst.b #n,$bfe101`, port 0 on bits 0..3 and port 1 on
+ * bits 4..7, in the order up, down, left, right. CLEAR is pressed and the
+ * answer is `moveq #$ff`, so -1 rather than 1.
+ *
+ *     Pjup     routine 14, $2188 / $217e     bit 0 / bit 4
+ *     Pjdown   routine 15, $21b0 / $21a6     bit 1 / bit 5
+ *     Pjleft   routine 12, $2134 / $212a     bit 2 / bit 6
+ *     Pjright  routine 13, $215e / $2154     bit 3 / bit 7
+ *
+ * That is the same register and the same split Sticks' `Stick Up` family
+ * reads through its own routines 12 to 15, and Ercole's `Ext Joy` through its
+ * routine 8. Three extensions by three authors, read independently, agreeing
+ * bit for bit. Only `Pjoy` above disagrees, and it disagrees with its own
+ * extension.
+ */
+function pjDir(rt: Runtime, port: number, bit: number): number {
+  const n = pjPort(port)
+  return (rt.machine.cia.prb() & (1 << (n * 4 + bit))) === 0 ? -1 : 0
+}
+
+/**
+ * The fire line, which is not on the data register at all: CIA-B PRA, port 0
+ * on `btst.b #$2` (PRTRSEL) and port 1 on `btst.l d2` with d2 zero
+ * (PRTRBUSY). Routine 16 at $21d8 and $21d0, and `Pjoy` uses the same two.
+ */
+function pjFire(rt: Runtime, port: number): boolean {
+  const n = pjPort(port)
+  return (rt.machine.ciab.pra() & (n === 0 ? CIAF_PRTRSEL : CIAF_PRTRBUSY)) === 0
 }
 
 /**
@@ -8779,12 +8841,12 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * agree with it and read as nothing pressed. What IS reproduced is the
      * argument check, which the port did not have before -- see `fourPlayer`.
      */
-    pjoy: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_DIRECTIONS),
-    pjup: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_UP ? -1 : 0),
-    pjdown: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_DOWN ? -1 : 0),
-    pjleft: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_LEFT ? -1 : 0),
-    pjright: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_RIGHT ? -1 : 0),
-    pfire: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_FIRE ? -1 : 0),
+    pjoy: (_, a) => VI(fourPlayer(rt, i0(a, 0))),
+    pjup: (_, a) => VI(pjDir(rt, i0(a, 0), 0)),
+    pjdown: (_, a) => VI(pjDir(rt, i0(a, 0), 1)),
+    pjleft: (_, a) => VI(pjDir(rt, i0(a, 0), 2)),
+    pjright: (_, a) => VI(pjDir(rt, i0(a, 0), 3)),
+    pfire: (_, a) => VI(pjFire(rt, i0(a, 0)) ? -1 : 0),
 
     /**
      * =Xfire(port,button) — a second or later fire button. Routine 17 ($21e2),
