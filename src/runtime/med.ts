@@ -18,12 +18,12 @@
  * bits of command, and the per-tick table at $210daa. The pieces that are
  * NOT here, each because the machinery is missing rather than the reading:
  *
- * - MIDI. $210d4c sends a track marked MIDI to a second set of handlers,
- *   and $210d54 sends every track from index 4 up there as well, so this
- *   library sounds four Paula voices whatever the block holds. That part
- *   is faithful. The MIDI handlers themselves have nowhere to send a
- *   message, so `Med Midi On` still stores its flag and stops.
- * - The audio filter, F$f8 and F$f9, which is a bit of $bfe001.
+ * - MIDI, and only the half that would leave the machine. $210d4c sends a
+ *   track marked MIDI to a second set of handlers and $210d54 sends every
+ *   track from index 4 up there as well, so this library sounds four Paula
+ *   voices whatever the block holds. THAT part is faithful. The handlers
+ *   themselves have nowhere to send a message, so `Med Midi On` stores its
+ *   flag and stops.
  *
  * Synthsounds and hybrids ARE here, and they are the two bytecode
  * interpreters at $2105d6 rather than an approximation of them.
@@ -1085,8 +1085,14 @@ export class MedPlayer {
       case 0xfe: // $210a76: stop the whole player
         this.stop()
         return true
-      case 0xf8: // $211190/$21119a: the audio filter, which has no sound here
+      // $21119a and $211190: the LED filter, and the two are the way round the
+      // hardware bit is rather than the way round the names suggest. `bset`
+      // puts bit 1 of $bfe001 up, which turns the filter OFF.
+      case 0xf8:
+        this.host.audio.setFilter(false)
+        return false
       case 0xf9:
+        this.host.audio.setFilter(true)
         return false
       default:
         return false

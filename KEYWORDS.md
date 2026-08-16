@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1208 qualifying notes live in `src/coverage/status.ts`, which this file
+1202 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -39,8 +39,8 @@ is.
 | aga-1.0              |       24 |       24 |            0 |       0 |     100% |
 | amal                 |       13 |       13 |            0 |       0 |     100% |
 | amal-stos            |       10 |       10 |            0 |       0 |     100% |
-| amcaf-1.40           |      268 |      246 |           21 |       0 |     100% |
-| amcaf-1.50           |      280 |      257 |           21 |       0 |     100% |
+| amcaf-1.40           |      268 |      249 |           18 |       0 |     100% |
+| amcaf-1.50           |      280 |      260 |           18 |       0 |     100% |
 | amon-1.03            |       18 |       18 |            0 |       0 |     100% |
 | amon-1.04            |       24 |       24 |            0 |       0 |     100% |
 | amos3d-1.0           |       64 |       60 |            4 |       0 |     100% |
@@ -48,7 +48,7 @@ is.
 | amospro-compact-2.0  |        3 |        3 |            0 |       0 |     100% |
 | amospro-compiler-2.0 |       15 |       10 |            1 |       0 |     100% |
 | amospro-ioports-2.0  |       38 |       29 |            9 |       0 |     100% |
-| amospro-music-2.0    |       49 |       48 |            1 |       0 |     100% |
+| amospro-music-2.0    |       49 |       49 |            0 |       0 |     100% |
 | amospro-request-2.0  |        3 |        0 |            3 |       0 |     100% |
 | banks                |       20 |       19 |            1 |       0 |     100% |
 | bsdsocket-1.1.4      |       30 |        0 |            0 |      30 |       0% |
@@ -68,8 +68,8 @@ is.
 | easylife-1.09        |      156 |      156 |            0 |       0 |     100% |
 | easylife-1.10        |      156 |      156 |            0 |       0 |     100% |
 | easylife-1.44        |      108 |      108 |            0 |       0 |     100% |
-| eme-3.0              |       59 |       58 |            1 |       0 |     100% |
-| eme-3.0-demo         |       55 |       54 |            1 |       0 |     100% |
+| eme-3.0              |       59 |       59 |            0 |       0 |     100% |
+| eme-3.0-demo         |       55 |       55 |            0 |       0 |     100% |
 | ercole-1.7           |       11 |       11 |            0 |       0 |     100% |
 | explode-2.01         |      131 |      130 |            1 |       0 |     100% |
 | fileid-1.0           |        6 |        6 |            0 |       0 |     100% |
@@ -105,7 +105,7 @@ is.
 | lserial-2.1          |       15 |       14 |            1 |       0 |     100% |
 | make-1.30            |       32 |       32 |            0 |       0 |     100% |
 | maxsdoor-0.20        |       21 |       17 |            4 |       0 |     100% |
-| med-7.1              |       28 |       27 |            1 |       0 |     100% |
+| med-7.1              |       28 |       28 |            0 |       0 |     100% |
 | memory               |       14 |       12 |            2 |       0 |     100% |
 | menus                |       24 |       24 |            0 |       0 |     100% |
 | misc-1.0             |       12 |        9 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4822 |          169 |    2368 |      68% |
+| **total**            |     7422 |     4832 |          159 |    2368 |      68% |
 
 ## Not applicable, by what would retire it
 
@@ -184,7 +184,7 @@ Reserved words that are part of somebody else's grammar, or have no construct in
 
 ### dead-vector (4)
 
-The keyword does not work in the original either: a null vector, a jump past the end of the table, or a label that falls into the wrong routine. There is no behaviour to be faithful TO.
+Calling it CRASHES the original: a jump through a null vector, a jump past the end of the table, or a label that falls into a routine doing the opposite of its name. Not a keyword that quietly does nothing -- one that does nothing IS faithful when the port does nothing too, and `Rnc Unpack` and `Gscontrollertype` are both counted for exactly that. There is no behaviour to be faithful TO here, because a Guru is not behaviour a port can offer.
 
 `nop`, `pal on`, `s mask$`, `t planes`
 
@@ -198,18 +198,18 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## amcaf-1.40 (100%)
 
-- **approximated** (21): `amcaf base`, `amcaf length`, `amcaf version$`, `amos task`,
+- **approximated** (18): `amcaf base`, `amcaf length`, `amcaf version$`, `amos task`,
   `command name$`, `disk type`, `extbase`, `pt cinstr`, `pt cnote`, `pt cpattern`, `pt cpos`,
   `pt data base`, `rnp`, `scrn bitmap`, `scrn layer`, `scrn layerinfo`, `scrn rastport`,
-  `scrn region`, `vec rot x`, `vec rot y`, `vec rot z`
+  `scrn region`
 - **n/a** (1): `nop`
 
 ## amcaf-1.50 (100%)
 
-- **approximated** (21): `amcaf base`, `amcaf length`, `amcaf version$`, `amos task`,
+- **approximated** (18): `amcaf base`, `amcaf length`, `amcaf version$`, `amos task`,
   `command name$`, `disk type`, `extbase`, `pt cinstr`, `pt cnote`, `pt cpattern`, `pt cpos`,
   `pt data base`, `rnp`, `scrn bitmap`, `scrn layer`, `scrn layerinfo`, `scrn rastport`,
-  `scrn region`, `vec rot x`, `vec rot y`, `vec rot z`
+  `scrn region`
 - **n/a** (2): `nop`, `trans screen dynamic`
 
 ## amos3d-1.0 (100%)
@@ -226,10 +226,6 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (9): `parallel base`, `parallel error`, `parallel input$`, `printer base`,
   `printer error`, `printer online`, `serial base`, `serial error`, `serial status`
-
-## amospro-music-2.0 (100%)
-
-- **approximated** (1): `med play`
 
 ## amospro-request-2.0 (100%)
 
@@ -272,14 +268,6 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## easylife-1.0 (100%)
 
 - **approximated** (1): `iconify amos`
-
-## eme-3.0 (100%)
-
-- **approximated** (1): `med play`
-
-## eme-3.0-demo (100%)
-
-- **approximated** (1): `med play`
 
 ## explode-2.01 (100%)
 
@@ -344,10 +332,6 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## maxsdoor-0.20 (100%)
 
 - **approximated** (4): `m_getchar`, `m_getuserstr`, `m_prompttext`, `m_sprompttext`
-
-## med-7.1 (100%)
-
-- **approximated** (1): `med play`
 
 ## memory (100%)
 

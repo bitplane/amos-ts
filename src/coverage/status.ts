@@ -100,9 +100,13 @@ export const FAITHFUL = new Set<string>([
   'boom',
   // MED: the AMOS-side plumbing (+Music.s:4456-4745) — bank handling,
   // magic check + erase on failure (error 189), stop/cont/midi flag,
-  // MedCheck — is ported; the replay reimplements the public MMD0/MMD1
-  // format (medplayer.library is not in the AMOS source) — see NOTES
+  // MedCheck. The replay under it is medplayer.library's own, read out of
+  // the binary the corpus holds in sixteen places and three builds:
+  // ../runtime/med.ts ports both dispatch tables entry by entry, the CIA
+  // timing off the table at $2111e0, and the synthsounds as the two bytecode
+  // interpreters at $2105d6 rather than as an approximation of them.
   'med load',
+  'med play',
   'med stop',
   'med cont',
   'med midi on',
@@ -1392,6 +1396,9 @@ export const FAITHFUL = new Set<string>([
   'pic unpack', 'anim unpack', 'fpeek', 'speek',
   'word switch', 'mplot start plane', 'set deform value', 'full view',
   'p61 play', 'p61 stop', 'p61 mvolume', 'p61 mpos',
+  // Omd is octaplayer.library, which the corpus holds and ../runtime/med.ts
+  // now ports as MedPlayer's 'octaplayer' build, so these four load and PLAY
+  // rather than only tracking the flags routines 128 to 131 keep.
   'omd load', 'omd play', 'omd stop', 'omd free',
 
   // --- CText 1.32 (Aaron Fothergill / Shadow Software), read out of
@@ -1778,7 +1785,12 @@ export const FAITHFUL = new Set<string>([
   // Scanstr$ was APPROXIMATED on the belief that AMCAF shipped no name table.
   // It ships one, at $63f8, and routine 278 is now reproduced from it.
   'scanstr$',
+  // The three readers are fourteen instructions each off a cache routine 4
+  // fills, and routine 4 is transcribed rather than re-derived, so the
+  // rotation order is settled. They keep their notes: the backwards argument
+  // order and the divs.w overflow are DEFECTS reproduced, not gaps.
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
+  'vec rot x', 'vec rot y', 'vec rot z',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
   // slice 11: input. All of the parallel-port ones answer "no adaptor".
@@ -3661,8 +3673,11 @@ export const NA_GROUPS: Record<NaGroup, string> = {
     'Reserved words that are part of somebody else\'s grammar, or have no construct in the shipped grammar ' +
     'that reaches them. There is no routine behind the token.',
   'dead-vector':
-    'The keyword does not work in the original either: a null vector, a jump past the end of the table, or a ' +
-    'label that falls into the wrong routine. There is no behaviour to be faithful TO.',
+    'Calling it CRASHES the original: a jump through a null vector, a jump past the end of the table, or a ' +
+    'label that falls into a routine doing the opposite of its name. Not a keyword that quietly does nothing ' +
+    '-- one that does nothing IS faithful when the port does nothing too, and `Rnc Unpack` and ' +
+    '`Gscontrollertype` are both counted for exactly that. There is no behaviour to be faithful TO here, ' +
+    'because a Guru is not behaviour a port can offer.',
   editor:
     'The AMOS editor and the compiler overlay, neither of which exists here.',
 }
@@ -5297,8 +5312,10 @@ export const NOTES: Record<string, string> = {
     "task, so `If Amos Task<>0` takes the other branch here; Extbase answers a synthetic non-zero instead " +
     "precisely because that comparison is its documented use, and nothing documents one for this",
   "vec rot y":
-    "Routine 8 ($20aa), fourteen bytes: `movea.l $168(a5),a2 / move.w $30e(a2),d3 / ext.l d3`. APPROXIMATED " +
-    "refers to the rotation ORDER, which was not recovered; these three readers are exact",
+    "Routine 8 ($20aa), fourteen bytes: `movea.l $168(a5),a2 / move.w $30e(a2),d3 / ext.l d3`. The rotation " +
+    "ORDER is routine 4 ($1f96), transcribed instruction for instruction rather than re-derived as an Euler " +
+    "composition, and routine 3's pop order settles which argument is which axis: `(a3)+` takes the LAST " +
+    "first, so $306 holds az and routine 4 composes it first.",
   "vec rot z":
     "Routine 10 ($20c6), fourteen bytes: `move.w $310(a2),d3 / ext.l d3`, the third of the three adjacent cache " +
     "words.",
@@ -7454,9 +7471,6 @@ export const NOTES: Record<string, string> = {
   "track play":
     "the one-vbl repeat latch is modelled (see music); the pattern argument is ignored (\"not supported in this " +
     "version\" in the 68k too)",
-  "med play":
-    "the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled " +
-    "instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity",
   "med midi on":
     "flag stored; no MIDI output exists in the port",
   "sam swap":
@@ -8618,10 +8632,6 @@ export const NOTES: Record<string, string> = {
     "routines 3, 4 and 5 --- one keyword with three arities. APPROXIMATED: the engine itself (routines 9-19, " +
     "printer.device's graphics dump) is not reproduced, so the answer is message 2, \"Not a graphics printer.\" --- " +
     "the machine's own answer when the installed driver has no dump support, and the reason that message exists.",
-  "omd load":
-    "octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded",
-  "omd play":
-    "the OMD state machine only; no audio",
   "omd stop":
     "raises nothing of its own.",
   "omd free":

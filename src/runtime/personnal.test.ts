@@ -1849,3 +1849,78 @@ describe('Personnal: the sprite quartet, which does not work (L55-L58)', () => {
     expect(getWord(one, one.personnal.sprPtBase + 10)).toBe(one.personnal.spriteBase & 0xffff)
   })
 })
+
+describe('Omd: octaplayer behind four keywords', () => {
+  /** the smallest MMD0 octaplayer will take: one block, one looping instrument */
+  const mmd0 = (): Uint8Array => {
+    const d = new Uint8Array(0x600)
+    const w = (a: number, v: number): void => {
+      d[a] = (v >> 8) & 0xff
+      d[a + 1] = v & 0xff
+    }
+    const l = (a: number, v: number): void => {
+      w(a, (v >>> 16) & 0xffff)
+      w(a + 2, v & 0xffff)
+    }
+    for (const [i2, c] of [...'MMD0'].entries()) d[i2] = c.charCodeAt(0)
+    l(4, d.length)
+    l(8, 0x100)
+    l(0x10, 0x480)
+    l(0x18, 0x4a0)
+    w(0x100 + 2, 16)
+    d[0x100 + 6] = 64
+    w(0x100 + 504, 1)
+    w(0x100 + 506, 1)
+    w(0x100 + 0x2fc, 6)
+    d[0x100 + 0x301] = 6
+    for (let t = 0; t < 16; t++) d[0x100 + 0x302 + t] = 64
+    d[0x100 + 0x312] = 64
+    l(0x480, 0x490)
+    d[0x490] = 1
+    d[0x491] = 0
+    d[0x492] = 49
+    d[0x493] = 0x10
+    l(0x4a0, 0x4b0)
+    l(0x4b0, 0x40)
+    for (let i2 = 0; i2 < 0x40; i2++) d[0x4b6 + i2] = 50
+    return d
+  }
+
+  const withMod = (bytes = mmd0()): AmigaFS => {
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('Work')
+    vol.write(['a.med'], bytes)
+    fs.currentDir = 'Work:'
+    return fs
+  }
+
+  it('loads a module and refuses one that is not an MMD', () => {
+    // routine 128's error 22 is a zero from LoadModule, and a file octaplayer
+    // will not take answers zero as surely as one that is not there
+    const rt = run('Omd Load "Work:a.med"', withMod())
+    expect(rt.personnal.omdModule).toBe(1)
+    expect(() => run('Omd Load "Work:a.med"', withMod(new Uint8Array(64)))).toThrow()
+    expect(() => run('Omd Load "Work:nope.med"', withMod())).toThrow()
+  })
+
+  it('raises 23 for a second load and 25 for a play with no module', () => {
+    expect(() => run('Omd Load "Work:a.med"\nOmd Load "Work:a.med"', withMod())).toThrow()
+    expect(() => run('Omd Play', withMod())).toThrow()
+  })
+
+  it('actually plays, where it used to keep a flag and go quiet', () => {
+    const rt = run('Omd Load "Work:a.med"\nOmd Play\nWait Vbl\nWait Vbl', withMod())
+    expect(rt.personnal.omdPlaying).toBe(true)
+    // the default sink is a NullAudio, which records what the replayer asked
+    // for -- and before this it asked for nothing at all
+    const audio = rt.audio as unknown as { events: { kind: string }[] }
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  it('Omd Free drops the module and leaves the flag, as routine 131 does', () => {
+    const rt = run('Omd Load "Work:a.med"\nOmd Play\nOmd Free', withMod())
+    expect(rt.personnal.omdModule).toBe(0)
+    // routine 131 never touches the playing flag
+    expect(rt.personnal.omdPlaying).toBe(true)
+  })
+})

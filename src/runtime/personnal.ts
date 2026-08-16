@@ -29,6 +29,7 @@ import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
 import { P_COS, P_SIN, P_TAN } from './personnal-trig.gen'
 import { bltSize, mintermWord } from '../amiga/blitter'
+import { MedPlayer } from './med'
 
 /**
  * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
@@ -143,6 +144,13 @@ export interface PersonnalState {
   p61Playing: boolean
   omdModule: number
   omdPlaying: boolean
+  /**
+   * octaplayer's replay, which `MedPlayer` provides in its `octaplayer`
+   * build. Made on the first `Omd Load`, because most programs never call one.
+   */
+  omd: MedPlayer | null
+  /** the module bytes `Omd Load` read, which the player reads in place */
+  omdData: Uint8Array | null
   /** _Icons (+$50) — how many icons the AGA icon bank holds, 0 when unreserved */
   icons: number
   /** _IcBase (+$54) — its address, 0 when unreserved */
@@ -194,6 +202,8 @@ export function newPersonnalState(): PersonnalState {
     p61Playing: false,
     omdModule: 0,
     omdPlaying: false,
+    omd: null,
+    omdData: null,
     icons: 0,
     icBase: 0,
     spriteBase: 0,
@@ -2231,7 +2241,12 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const name = it.evalStr()
       const s = rt.personnal
       if (s.omdModule !== 0) err(23)
-      if ((rt.vfs?.readFile(name) ?? null) === null) err(22)
+      const bytes = rt.vfs?.readFile(name) ?? rt.fs?.read(name) ?? null
+      // LoadModule answering zero is error 22, and a file octaplayer will not
+      // take answers zero as surely as one that is not there
+      if (bytes === null) err(22)
+      if (!/^MMD[0-3]$/.test(String.fromCharCode(...bytes!.subarray(0, 4)))) err(22)
+      s.omdData = bytes
       s.omdModule = 1
     },
     /**
@@ -2243,6 +2258,19 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     'omd play'() {
       const s = rt.personnal
       if (s.omdModule === 0) err(25)
+      if (!s.omd) {
+        s.omd = new MedPlayer(
+          {
+            get audio() {
+              return rt.audio
+            },
+            tick: () => rt.frames,
+            getBank: () => (s.omdData ? { name: 'OctaMed ', data: s.omdData } : null),
+          },
+          'octaplayer',
+        )
+      }
+      s.omd.play(0, 0)
       s.omdPlaying = true
     },
     /**
@@ -2260,11 +2288,16 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const s = rt.personnal
       if (!s.omdPlaying) return
       s.omdPlaying = false
+      s.omd?.stop()
     },
     'omd free'() {
       const s = rt.personnal
       if (s.omdModule === 0) return
       s.omdModule = 0
+      // routine 131 does not touch the playing flag, so a module freed while
+      // playing leaves it set --- but the module it was reading has gone
+      s.omdData = null
+      s.omd?.stop()
     },
 
     /** Iff Convert addr (L39, +AMOSPro_Personnal.Lib.s:1688) — see `iffConvert`. */
@@ -3012,4 +3045,17 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
 /** Reset between programs, as the extension's data section starts. */
 export function personnalDefault(rt: Runtime): void {
   rt.personnal = newPersonnalState()
+}
+
+
+/**
+ * `Omd Play`'s replay, once a frame.
+ *
+ * octaplayer's own tick is the end of a DMA buffer rather than a CIA
+ * underflow, so `MedPlayer.vbl` runs it at whatever rate the module's tempo
+ * makes that buffer --- see `../amiga/mmd2mix.ts`.
+ */
+export function personnalVbl(rt: Runtime): void {
+  const s = rt.personnal
+  if (s.omdPlaying) s.omd?.vbl()
 }

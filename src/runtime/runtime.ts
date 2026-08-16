@@ -62,7 +62,7 @@ import { RexxPorts, type RexxMessage } from '../amiga/rexx'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
-import { type PersonnalState } from './personnal'
+import { personnalVbl, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
@@ -4436,6 +4436,8 @@ export class Runtime {
     // its hook gates on one flag --- see thx.ts on the nine-slot search
     thxVbl(this.thx)
     dmeVbl(this)
+    // Personnal's `Omd Play` is octaplayer, whose tick is a DMA buffer
+    personnalVbl(this)
     // The Game's tracker keywords are ptreplay.library, which runs off a CIA
     // timer on the machine and off the frame here -- see thegame.ts
     thegameVbl(this)
