@@ -62,37 +62,17 @@
  * The module in `fixtures/` enables twelve of them, which is why this format
  * needs a mixer where SoundFX, FutureComposer and SoundMon did not.
  *
- * ## What the replay will take
+ * ## The mixer
  *
- * A fixed-rate mixer, unlike DigiBooster's, whose pair-mix runs at whichever
- * of two channels leads. `move.l #$6d60,$21274a` at $21018e sets 28,000 Hz,
- * four 4KB chip buffers are AllocVec'd at $2101d8, and $21086e works the tick
- * out as `rate * 5 / (tempo * 2)` --- samples per tick, rounded to even.
+ * Twelve channels do not fit in four Paula voices, so this replayer sums them
+ * itself at 28,000 Hz and hands Paula a finished stream. `s3mmix.ts` holds it,
+ * along with the two tables that decide how it sounds and the byte-swapped
+ * 16.16 accumulator its per-sample body is built around.
  *
- * TWO TABLES decide the sound and both are unambiguous:
- *
- *   $2115f8  65 volumes x 256, `(sample * vol) >> 6` biased by $80. The mixer
- *            works in UNSIGNED bytes throughout, which is why the bias is
- *            there and why $2115f8 has two arms --- the module's `$2a` says
- *            whether its samples arrived signed or unsigned.
- *   $21158c  the accumulator back to a byte. One row per channel, 256 entries
- *            each, `(sum + row * 128 - channels * 128) / (channels - $6a)`
- *            clamped to +-127. So the divisor falls as more channels sound,
- *            which is a headroom policy rather than a clip.
- *
- * The mix itself is $210c46, an eight-way unrolled Duff's device entered by
- * `jmp $210cde(pc,d1.w)`, with a second routine at $210e48 for every channel
- * after the first. Its per-sample body is four instructions:
- *
- *   move.b (a0,d0.w),d2   the sample byte into the LOW byte of the table row
- *   movea.l d2,a1 / move.b (a1),d3   which makes the row+byte one lookup
- *   add.l d4,d0 / addx.w d5,d0       the position, and a carry
- *
- * NOT YET SETTLED: which half of `d0` is the integer index. `(a0,d0.w)` uses
- * the low word, `swap d4` at $210c80 puts the step's halves the other way up,
- * and the `addx.w` suggests the two halves are carried separately rather than
- * as one long. Getting that wrong transposes everything, so it is left for a
- * session that can derive it rather than guessed at here.
+ * The one thing worth reading here rather than there: the clock is
+ * ScreamTracker's own, `$369d80` = 14,317,056 / 4 at $211874, and the period
+ * at `$10(a4)` is the one $211ac6 computes from the module's `c2spd`. Nothing
+ * in the pitch path is an Amiga number.
  */
 
 /** `cmpi.l #$5343524d,$2c(a2)` in routine 64 --- the extension's only test */
