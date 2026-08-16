@@ -54,12 +54,15 @@ describe('the TFHD container', () => {
     expect(parseTfmx(stub(banner()))).not.toBeNull()
   })
 
-  it('checks the banner on type 0 and takes types 1 and 2 on trust', () => {
-    // $48d8 masks the type; $48fc only runs for type 0
+  it('checks the banner on type 0 and RELABELS rather than refusing', () => {
+    // $48d8 masks the type; $48fc only runs for type 0, and $491a writes a 1
+    // into $ca(a2) whether the test passed or not
     const junk = new Uint8Array(0x200)
-    expect(parseTfmx(stub(junk, 0))).toBeNull()
-    expect(parseTfmx(stub(junk, 1))).not.toBeNull()
-    expect(parseTfmx(stub(junk, 2))).not.toBeNull()
+    expect(parseTfmx(stub(junk, 0))?.label).toBe(1)
+    expect(parseTfmx(stub(banner(), 0))?.label).toBe(0)
+    expect(parseTfmx(stub(junk, 1))?.label).toBe(1)
+    expect(parseTfmx(stub(junk, 2))?.label).toBe(1)
+    // only a type outside 0..2 is message 29
     expect(parseTfmx(stub(junk, 3))).toBeNull()
   })
 

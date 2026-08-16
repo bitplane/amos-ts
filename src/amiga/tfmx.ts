@@ -34,11 +34,19 @@
  *   $0a  long     how long the mdat is, which is also where the smpl starts
  *   $0e  long     how long the smpl is
  *
- * The type decides how hard the loader looks. Type 0 must have "TFMX" and
- * "SONG" at the head of its mdat, checked at $48fc by a trick worth reading:
- * `move.l $6(a0),d0 / move.b $5(a0),d0 / ror.l #$8,d0` builds "SONG" out of
- * bytes 5 to 8, skipping the hyphen at 4. Types 1 and 2 skip the test
- * altogether, and anything else is message 29.
+ * The type decides how hard the loader looks, and what it does about the
+ * answer is the surprise. Type 0 is checked for "TFMX" and "SONG" at the head
+ * of its mdat, at $48fc, by a trick worth reading: `move.l $6(a0),d0 /
+ * move.b $5(a0),d0 / ror.l #$8,d0` builds "SONG" out of bytes 5 to 8,
+ * skipping the hyphen at 4. Types 1 and 2 skip the test altogether, and only
+ * a type outside 0..2 is message 29.
+ *
+ * A type 0 that FAILS the test is not refused. $4900's `bne` and $4918's
+ * `beq` both leave by $491a, which writes `move.b #$1,$ca(a2)` --- the
+ * container's type is rewritten to 1 in the extension's own state and the
+ * load succeeds. So the banner test decides a label and never a rejection,
+ * and the only way to fail `Tfmx Load` is a missing "TFHD" or a type of 3 or
+ * more.
  *
  * ## What the replayer is given
  *
@@ -70,6 +78,53 @@
  * `fixtures/` has exactly that --- a zero at index 2 with six live songs after
  * it --- and the walk answers SEVEN, which is neither the eight songs the
  * table holds nor the two the terminator would imply.
+ *
+ * `Tfmx Subsongs` adds one back at $4b84, but only when the walk answered
+ * something other than zero, so on this module it reads EIGHT and is right by
+ * accident: the walk stopped six songs early and the correction is a constant.
+ *
+ * ## The replay, mapped and not ported
+ *
+ * The engine behind `Tfmx Play` is not here. This is the map, so the next
+ * reading starts at the dispatch tables rather than at the romtag.
+ *
+ * `DME_TFMX.library` is 9,236 bytes and its ten custom LVOs are all veneer
+ * over one jump structure at $21056c: a word of 5,000 and then sixteen
+ * `bra.w`s from $210570.
+ *
+ *   LVO   veneer    entry             what it is
+ *   -$1e  $210178   +$1c, +$20 x4     Stop: InitPlayer, then mute each voice
+ *   -$24  $2101be   ---               SetModule: mdat to $212400, smpl to
+ *                                     $212404, subsong to $212408, and the
+ *                                     $2101e8 walk over $100
+ *   -$2a  $210200   +$14, +$c         StartSong, then CIA-B CRB bit 0
+ *   -$30  $210236   +$40              Cont
+ *   -$36  $210260   +$28              Volume, `mulu.w #$40 / lsr.w #$6`
+ *   -$3c  $210278   ---               Subsongs, a second and different walk
+ *   -$42  $2102e0   ---               Song Pos
+ *   -$48  $21035a   ---               Song Length: end word less start word
+ *   -$4e  $210336   ---               Prev Patt, clamped by $210388
+ *   -$54  $210312   ---               Next Patt
+ *
+ * The clock is CIA-B timer B, not the frame: $210aba divides $1b51f8, which
+ * is 1,790,456, by `tempo & $1ff`, and $2113f4 writes the halves to $bfd700
+ * and $bfd600, TBHI then TBLO. $bfdf00 is CRB and bit 0 starts it.
+ *
+ * Three dispatch tables and one data table carry the whole format:
+ *
+ *   $210776  sixteen pattern commands, for a lead byte of $f0 to $ff
+ *   $210bb0  FORTY-TWO macro commands, `cmp.w #$a8,d0 / bcc` guarding them
+ *   $210968  five trackstep escapes, reached through the $effe marker
+ *   $212380  64 period words, 1710 down to 113 over five and a bit octaves
+ *
+ * The state lives at fixed addresses rather than in an allocation. $211cbe is
+ * the player: $0 the mdat, $18 the current command longword, $1c the trackstep
+ * counter, $38 and $3c the trackstep and pattern tables, $48 and $4a the
+ * DMACON words the frame handler defers. $2121ca is the eight tracks, held as
+ * parallel arrays four bytes apart: $28 the pattern pointers, $48 the pattern
+ * numbers and transposes, $68 the positions. The four voices are $90 apart at
+ * $211d4a, $211dda, $211e6a and $211efa, and $8c of each is the AUDxPER the
+ * frame handler writes at $21063a.
  */
 
 /** `cmpi.l #$54464844,(a2)` at $48c4 */
@@ -84,6 +139,8 @@ export const TFMX_TEXT_COLS = 40
 export const TFMX_BANK_NAME = 'TFMXMod '
 /** `andi.l #$7f,d0` at $48d8: 0 is checked, 1 and 2 are taken on trust */
 export const TFMX_TYPES = [0, 1, 2] as const
+/** what $491a writes into `$ca(a2)` for a type 1, a type 2, and a failed type 0 */
+export const TFMX_TYPE_PLAIN = 1
 /** 32 subsongs, and `moveq #$1e,d2` at $2101e6 walks 31 of them */
 export const TFMX_SUBSONGS = 32
 export const TFMX_SONGSTART_AT = 0x100
@@ -119,6 +176,10 @@ export interface TfmxSong {
   smpl: Uint8Array
   /** `$8` of the container, whole, before the mask */
   type: number
+  /** whether the mdat carries "TFMX-SONG ", which only a type 0 is asked */
+  banner: boolean
+  /** what `$ca(a2)` ends up holding: 0 for a type 0 that passed, 1 otherwise */
+  label: number
 }
 
 const rd16 = (d: Uint8Array, a: number): number => ((d[a] ?? 0) << 8) | (d[a + 1] ?? 0)
@@ -148,8 +209,10 @@ export function hasTfmxBanner(mdat: Uint8Array): boolean {
 /**
  * `Tfmx Play`'s reads at $49fc through $4a12, over a bank rather than chip RAM.
  *
- * Returns null for anything the loader would have refused: a missing "TFHD", a
- * type outside 0..2, or a type 0 whose mdat does not carry the banner.
+ * Returns null for anything the loader would have refused, which is a missing
+ * "TFHD" or a type outside 0..2 and nothing else. A type 0 without the banner
+ * comes back with `banner` false and `label` 1, because that is what $491a
+ * leaves in the extension's state.
  */
 export function parseTfmx(data: Uint8Array): TfmxSong | null {
   if (data.length < 0x12) return null
@@ -166,8 +229,8 @@ export function parseTfmx(data: Uint8Array): TfmxSong | null {
 
   const mdat = data.subarray(mdatAt, mdatAt + mdatLen)
   const smpl = data.subarray(mdatAt + mdatLen, Math.min(data.length, mdatAt + mdatLen + smplLen))
-  if (kind === 0 && !hasTfmxBanner(mdat)) return null
   if (mdat.length < TFMX_DATA_AT) return null
+  const banner = hasTfmxBanner(mdat)
 
   const words = (at: number): number[] =>
     [...Array(TFMX_SUBSONGS)].map((_, i) => rd16(mdat, at + i * 2))
@@ -192,6 +255,8 @@ export function parseTfmx(data: Uint8Array): TfmxSong | null {
     mdat,
     smpl,
     type,
+    banner,
+    label: kind === 0 && banner ? 0 : TFMX_TYPE_PLAIN,
   }
 }
 
