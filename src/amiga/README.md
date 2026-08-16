@@ -135,6 +135,7 @@ really does differ from the real one and saying where is the whole job.
 | `s3mmix.ts` | its 28 kHz mixer: unsigned bytes throughout, and a byte-swapped 16.16 position |
 | `s3mplay.ts` | its replay: two dispatch tables, and a vibrato that reads the command byte |
 | `tfmx.ts` | the TFMX container and mdat: two files in one bank, and a subsong walk that miscounts |
+| `tfmxplay.ts` | its replay: three dispatch tables, a CIA-B clock, and a tempo that means two things |
 | `mmd2.ts` | OctaMED Pro's 5-8 channel format, where a block sets its own track count |
 | `mmd2mix.ts` | octaplayer's mixer: eight tracks into four voices, and a tempo that is a buffer length |
 | `fc13waves.ts` | FutureComposer 1.0-1.3's 47 built-in waveforms, generated rather than shipped |

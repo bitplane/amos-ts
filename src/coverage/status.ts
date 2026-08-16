@@ -2683,6 +2683,18 @@ export const FAITHFUL = new Set<string>([
   'omed song pos',
   'omed patt pos',
   'omed vu',
+  // The TFMX block over ../amiga/tfmxplay.ts, off DME_TFMX.library. `Tfmx
+  // Play` is NOT here: its note says why, and it is the same reason THX and
+  // SoundMon carry one.
+  'tfmx load',
+  'tfmx stop',
+  'tfmx cont',
+  'tfmx volume',
+  'tfmx next patt',
+  'tfmx prev patt',
+  'tfmx subsongs',
+  'tfmx song length',
+  'tfmx song pos',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8441,6 +8453,21 @@ export const NOTES: Record<string, string> = {
     "is packaged but not installed, and is a different replayer anyway --- so the mix is checked against the " +
     "instructions and against measurement (0.4% of samples on the +-127 rail, which is what a divisor of two " +
     "over six channels a side should give) rather than against a recording.",
+  "tfmx play":
+    "routine 80 ($49a4) pushes $80000000 into routine 81, on a bank named \"TFMXMod \" ($49da compares it as " +
+    "two longs). The replay is src/amiga/tfmxplay.ts, off DME_TFMX.library --- 9,236 bytes, the smallest of " +
+    "the eleven, and all ten of its custom LVOs are veneer over one jump structure at $21056c. Three dispatch " +
+    "tables carry the format and all three are transcribed entry by entry: sixteen pattern commands at " +
+    "$210776, FORTY-TWO macro commands at $210bb0, five trackstep escapes at $210968. The clock is CIA-B " +
+    "timer B off `$1b51f8 / tempo`, written high-then-low to $bfd700 and $bfd600, and a subsong's tempo word " +
+    "means two things: at 15 or below it is a speed and the CIA keeps 50 Hz, above 15 it is the divisor and " +
+    "the speed keeps what it had. APPROXIMATED because nothing on this machine reads TFMX a second time --- " +
+    "libopenmpt does not take it either --- so the engine is checked against the instructions, against the " +
+    "arithmetic, and against DME's own module walking its trackstep table, rather than against a recording. " +
+    "Two places are named rather than reproduced: $211262 reads the AM slew's running byte from the ABSOLUTE " +
+    "address $43 (`12 39 00 00 00 43`) where the matching write is `$43(a5)`, so the per-voice field is dead " +
+    "and this port seeds it with zero; and $2115da stirs its random word with $dff006, the raster position, " +
+    "which this layer has no reader for, so the tick count stands in and the sequence is deterministic.",
   "omed play":
     "routine 223 ($6a4a) pushes $80000000 into routine 224, on a bank named \"OctaMed \" ($6a80 compares it " +
     "as two longs). The replay is src/runtime/med.ts in its `octaplayer` build: DME_OctaMed.library shares " +

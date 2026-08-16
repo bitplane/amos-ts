@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1207 qualifying notes live in `src/coverage/status.ts`, which this file
+1208 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -61,7 +61,7 @@ is.
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       41 |            4 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
-| dme-2.0              |      184 |      128 |           12 |      43 |      77% |
+| dme-2.0              |      184 |      137 |           13 |      33 |      82% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
 | dump-1.0             |        8 |        7 |            1 |       0 |     100% |
 | easylife-1.0         |       72 |       71 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4813 |          168 |    2378 |      68% |
+| **total**            |     7422 |     4822 |          169 |    2368 |      68% |
 
 ## Not applicable, by what would retire it
 
@@ -258,10 +258,11 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (2): `dlmergedisplay`, `dlscreenoffset`
 
-## dme-2.0 (77%)
+## dme-2.0 (82%)
 
-- **approximated** (12): `db play`, `dme sam freq`, `dme sam play`, `fc13 play`, `fc14 play`,
-  `omed play`, `ptm cia speed`, `s3m play`, `sfx13 play`, `smon play`, `thx cont`, `thx vu`
+- **approximated** (13): `db play`, `dme sam freq`, `dme sam play`, `fc13 play`, `fc14 play`,
+  `omed play`, `ptm cia speed`, `s3m play`, `sfx13 play`, `smon play`, `tfmx play`, `thx cont`,
+  `thx vu`
 - **n/a** (1): `nop`
 
 ## dump-1.0 (100%)

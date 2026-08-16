@@ -94,6 +94,8 @@ import { DIGI_MAGIC, parseDigi } from '../amiga/digi'
 import { DigiPlayer } from '../amiga/digiplay'
 import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
+import { parseTfmx } from '../amiga/tfmx'
+import { TfmxPlayer } from '../amiga/tfmxplay'
 import { MMD_EXTRA_SONGS_AT } from '../amiga/mmd2'
 import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
@@ -146,6 +148,8 @@ export const SMON_BANK_NAME = 'SoundMon'
 export const S3M_BANK_NAME = 'S3Mmod  '
 /** the eight bytes at $69e6, checked as "Octa" and "Med " at -$8 and -$4 */
 export const OMED_BANK_NAME = 'OctaMed '
+/** the eight at $4942, compared as "TFMX" and "Mod " at -$8 and -$4 */
+export const TFMX_BANK = 'TFMXMod '
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
 export const DMED_BANK_NAME = 'Med     '
 /** `cmpi.l #$4d4d4432,(a2)` at $6794: MMD2 keeps its sequence count elsewhere */
@@ -307,6 +311,13 @@ export interface DmeState {
   dmedVu: Uint8Array
 
   /** ScreamTracker 3, the seventh --- twelve channels through a 28 kHz mixer */
+  /** `DME_TFMX.library`'s replay, over `src/amiga/tfmxplay.ts` */
+  tfmx: TfmxPlayer
+  /** `$b0(a2)`, the bank `Tfmx Load` last filled */
+  tfmxBank: number
+  tfmxPlaying: boolean
+  /** `$bc(a2)`, which nothing clears, so the readers answer after a stop */
+  tfmxStarted: boolean
   /**
    * `DME_OctaMed.library`'s replay, which is medplayer's with MMD2, eight
    * tracks and a mixer. `MedPlayer` in its `octaplayer` build is the engine.
@@ -385,6 +396,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     smonBank: 0,
     smonPlaying: false,
     smonStarted: false,
+    tfmx: new TfmxPlayer(() => rt?.host.audio),
+    tfmxBank: 0,
+    tfmxPlaying: false,
+    tfmxStarted: false,
     omed: null,
     omedBank: 0,
     omedPlaying: false,
@@ -1768,6 +1783,116 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Tfmx Load file$, bank --- routine 77 ($4856), the bank "TFMXMod " and
+     * DATA plus CHIP (`moveq #$3,d1` at $4884), rounded up to even.
+     *
+     * TFMX normally ships as a PAIR of files and an AMOS bank holds one, so
+     * DME wraps them in a container of its own. $48c4 wants "TFHD" and $48d8
+     * masks the type to seven bits.
+     *
+     * DEFECT: a type 0 whose mdat has no "TFMX-SONG " banner is not refused.
+     * $4900's `bne` and $4918's `beq` both leave by $491a, which writes
+     * `move.b #$1,$ca(a2)` and returns success --- the banner test decides a
+     * LABEL and never a rejection, so the only ways to fail this keyword are a
+     * missing "TFHD" and a type of 3 or more.
+     */
+    'tfmx load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.tfmxBank && s.tfmxPlaying) {
+        s.tfmxPlaying = false
+        s.tfmx.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.tfmxBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, TFMX_BANK, true, true)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (!parseTfmx(data)) {
+        rt.eraseBank(bank)
+        dmeErr(29)
+      }
+    },
+
+    /**
+     * Tfmx Play [bank] --- routine 80 ($49a4) pushing $80000000 into routine
+     * 81, which checks the bank NAME and then calls LVO -$24 with the mdat,
+     * the smpl and the subsong, and LVO -$2a to start it.
+     *
+     * $49fc hands the library three things and no more, and everything else
+     * the replay needs comes out of the mdat itself.
+     */
+    'tfmx play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.tfmxPlaying = false
+      s.tfmx.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.tfmxBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== TFMX_BANK) dmeErr(29)
+      const song = parseTfmx(b!.data)
+      if (!song) dmeErr(29)
+      s.tfmxBank = bank
+      s.tfmx.load(song!)
+      s.tfmx.play(0)
+      s.tfmxPlaying = true
+      s.tfmxStarted = true
+    },
+
+    /** Tfmx Stop --- routine 79 ($4984): the flag at $ba(a0), then LVO -$1e */
+    'tfmx stop'() {
+      const s = st()
+      if (!s.tfmxPlaying) return
+      s.tfmxPlaying = false
+      s.tfmx.stop()
+    },
+
+    /**
+     * Tfmx Cont --- routine 84 ($4aca): `tst.b $ba(a2) / bne`, then LVO -$30
+     * with the sub-song `Tfmx Play` remembered at `$be(a2)`.
+     */
+    'tfmx cont'() {
+      const s = st()
+      if (s.tfmxPlaying) return
+      if (!s.tfmxStarted) return
+      s.tfmxPlaying = true
+      s.tfmx.cont(0)
+    },
+
+    /**
+     * Tfmx Volume n --- routine 85 ($4af4): 0..64 checked here, and then
+     * $210264's `mulu.w #$40,d0 / lsr.w #$6,d0`, which is a round trip.
+     */
+    'tfmx volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().tfmx.volume = v
+    },
+
+    /**
+     * Tfmx Next Patt / Tfmx Prev Patt --- routines 90 ($4c58) and 89 ($4c32),
+     * message 31 when nothing is playing, into LVO -$54 and -$4e.
+     *
+     * Both go through $211960, which clamps the new trackstep against the
+     * SUBSONG's own first and last rather than the whole table's.
+     */
+    'tfmx next patt'() {
+      const s = st()
+      if (!s.tfmxPlaying) dmeErr(31)
+      s.tfmx.seek(1)
+    },
+    'tfmx prev patt'() {
+      const s = st()
+      if (!s.tfmxPlaying) dmeErr(31)
+      s.tfmx.seek(-1)
+    },
+
+    /**
      * Omed Load file$, bank --- routine 220 ($6902), the bank "OctaMed " and
      * DATA ALONE: `moveq #$1,d1` at $692e, the same choice `S3m Load` makes
      * and for the same reason. octaplayer mixes into four buffers it AllocVecs
@@ -2209,6 +2334,48 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     'dmed patt pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPline ?? 0) : 0),
 
     /**
+     * =Tfmx Subsongs(bank) — routine 86 ($4b26), which is the walk at $2101e8
+     * with one added at $4b84, and only when the walk answered something.
+     *
+     * The walk stops after the SECOND zero word it sees and answers one less
+     * than that zero's index, which is right only for a table ending in two
+     * zeroes. The module in `fixtures/` has a legitimate zero at index 2 with
+     * six live songs behind it, so the walk says seven and the correction
+     * makes it eight --- the right number, by a constant rather than by
+     * counting. `src/amiga/tfmx.ts` carries the walk.
+     */
+    'tfmx subsongs': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== TFMX_BANK) dmeErr(29)
+      const song = parseTfmx(bank!.data)
+      if (!song) dmeErr(29)
+      return VI(song!.subsongs === 0 ? 0 : song!.subsongs + 1)
+    },
+
+    /**
+     * =Tfmx Song Length(bank) — routine 87 ($4b96) into LVO -$48, which is
+     * $21035a: the subsong's end word less its start word, and nothing about
+     * how many rows it actually plays.
+     */
+    'tfmx song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== TFMX_BANK) dmeErr(29)
+      const song = parseTfmx(bank!.data)
+      if (!song) dmeErr(29)
+      // subsong 0, because `Tfmx Play` has no way to select another: routine
+      // 80 pushes $80000000 for it and routine 81 turns that into a zero
+      return VI((song!.end[0] ?? 0) - (song!.start[0] ?? 0))
+    },
+
+    /**
+     * =Tfmx Song Pos — routine 88 ($4c02) into LVO -$42, gated on `$bc(a2)`,
+     * the word `Tfmx Play` sets and nothing clears.
+     */
+    'tfmx song pos': () => VI(st().tfmxStarted ? st().tfmx.position : 0),
+
+    /**
      * =Omed Song Length(bank) — routine 226 ($6b4a), which calls no vector and
      * reads ONE BYTE out of the bank at a fixed offset.
      *
@@ -2366,6 +2533,9 @@ export function dmeVbl(rt: Runtime): void {
   // OctaMed is the same replay on a different clock: its tick is the end of a
   // DMA buffer rather than a CIA underflow, so `vbl` runs it at the buffer rate
   if (s.omedPlaying) s.omed?.vbl()
+  // TFMX is CIA-B timer B, 50 Hz by default and up to 500 when a subsong names
+  // a divisor, so its own `vbl` counts the interrupts a frame owes it
+  if (s.tfmxPlaying) s.tfmx.vbl()
   if (s.digiPlaying && s.digiUnpaused) {
     s.digiTime += 1 / VBL_HZ
     for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {

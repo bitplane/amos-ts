@@ -1210,3 +1210,109 @@ describe('the OctaMed block', () => {
     expect(audio.voiceState[0]!.pcm![0]).toBe(120)
   })
 })
+
+/**
+ * TFMX: two files in one bank, and a load that relabels rather than refuses.
+ *
+ * The container is DOOM Productions' own and everything inside it is Chris
+ * Hulsbeck's. `../amiga/tfmxplay.ts` is the replay and has its own tests
+ * against DME's real module; what these check is the veneer.
+ */
+const TFMX_MOD = ((): Uint8Array => {
+  const d = new Uint8Array(0x12 + 0x400)
+  const w = (a: number, v: number): void => {
+    d[a] = (v >> 8) & 0xff
+    d[a + 1] = v & 0xff
+  }
+  const l = (a: number, v: number): void => {
+    w(a, (v >>> 16) & 0xffff)
+    w(a + 2, v & 0xffff)
+  }
+  for (const [i, c] of [...'TFHD'].entries()) d[i] = c.charCodeAt(0)
+  l(4, 0x12) // where the mdat starts
+  d[8] = 0 // a type 0, which is the only one whose banner is looked at
+  l(0xa, 0x400) // how long it is
+  l(0xe, 0) // and no samples at all
+  for (const [i, c] of [...'TFMX-SONG '].entries()) d[0x12 + i] = c.charCodeAt(0)
+  // one subsong: trackstep 0 to 3, and a tempo of 6, which is a SPEED
+  w(0x12 + 0x100, 0)
+  w(0x12 + 0x140, 3)
+  w(0x12 + 0x180, 6)
+  // and a second start word of zero, which is what the walk counts
+  w(0x12 + 0x102, 0)
+  return d
+})()
+
+const TFMX = { 'a.tfm': TFMX_MOD }
+const TFLOAD = 'Tfmx Load "Work:a.tfm",7'
+
+describe('the TFMX block', () => {
+  it('reserves DATA and CHIP, where S3m and Omed take Data alone', () => {
+    // `moveq #$3,d1` at $4884, and $4888 rounds an odd length up before the
+    // eight bytes of header go on
+    const { rt } = run([TFLOAD], TFMX)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe('TFMXMod ')
+    expect([b.flags, b.memType]).toEqual([1, 1])
+  })
+
+  it('wants "TFHD" and refuses a type of three or more', () => {
+    const notTfhd = TFMX_MOD.slice()
+    notTfhd[0] = 'X'.charCodeAt(0)
+    expect(() => run([TFLOAD], { 'a.tfm': notTfhd })).toThrow(DME_ERRORS[29])
+    const type3 = TFMX_MOD.slice()
+    type3[8] = 3
+    expect(() => run([TFLOAD], { 'a.tfm': type3 })).toThrow(DME_ERRORS[29])
+  })
+
+  it('RELABELS a type 0 with no banner rather than refusing it', () => {
+    // $4900's bne and $4918's beq both leave by $491a, which writes a 1 into
+    // $ca(a2) and returns success
+    const noBanner = TFMX_MOD.slice()
+    noBanner[0x12] = 'X'.charCodeAt(0)
+    const { rt } = run([TFLOAD], { 'a.tfm': noBanner })
+    expect(rt.memBanks.get(7)).toBeDefined()
+  })
+
+  it('=Tfmx Subsongs adds one to a walk that stopped early', () => {
+    // the table here is 0, 0, so the walk answers 0 and the correction at
+    // $4b84 only fires for a non-zero answer
+    run([TFLOAD, 'Print Tfmx Subsongs(7)'], TFMX)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('=Tfmx Song Length is the end word less the start word', () => {
+    run([TFLOAD, 'Print Tfmx Song Length(7)'], TFMX)
+    expect(out()).toEqual(['3'])
+    expect(() => run(['Print Tfmx Song Length(9)'], TFMX)).toThrow(DME_ERRORS[29])
+  })
+
+  it('=Tfmx Song Pos answers zero until something has played', () => {
+    run(['Print Tfmx Song Pos'], {})
+    expect(out()).toEqual(['0'])
+  })
+
+  it('Tfmx Next Patt and Tfmx Prev Patt raise message 31 when idle', () => {
+    expect(() => run(['Tfmx Next Patt'], {})).toThrow(DME_ERRORS[31])
+    expect(() => run(['Tfmx Prev Patt'], {})).toThrow(DME_ERRORS[31])
+  })
+
+  it('Tfmx Volume takes 0..64 and no more', () => {
+    expect(() => run([TFLOAD, 'Tfmx Volume 65'], TFMX)).toThrow()
+    const { rt } = run([TFLOAD, 'Tfmx Play 7', 'Tfmx Volume 20'], TFMX)
+    expect(rt.dme.tfmx.volume).toBe(20)
+  })
+
+  it('Tfmx Stop and Tfmx Cont turn the flag at $ba(a0)', () => {
+    const off = run([TFLOAD, 'Tfmx Play 7', 'Tfmx Stop'], TFMX)
+    expect(off.rt.dme.tfmxPlaying).toBe(false)
+    const back = run([TFLOAD, 'Tfmx Play 7', 'Tfmx Stop', 'Tfmx Cont'], TFMX)
+    expect(back.rt.dme.tfmxPlaying).toBe(true)
+  })
+
+  it('runs its CIA at 50 Hz for a tempo of six, because six is a speed', () => {
+    const { rt } = run([TFLOAD, 'Tfmx Play 7'], TFMX)
+    expect(rt.dme.tfmx.tickHz).toBeCloseTo(50, 2)
+    expect(rt.dme.tfmxPlaying).toBe(true)
+  })
+})
