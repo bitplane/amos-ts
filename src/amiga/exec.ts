@@ -116,10 +116,14 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // not the back-end. Both replayers are in fixtures under libs/medplayer,
   // and DOOM Productions wrapped both — DME_OctaMed.library shares 73% of
   // its bytes with octaplayer and DME_OctaMix 70% with octamixplayer — so
-  // each has two independent copies to read. What actually blocks them is
-  // that no MMD2 or MMD3 module exists anywhere in the corpus. Leaving them
-  // out makes OpenLibrary answer 0, which is the case MED 7.1 already
-  // handles and reports in its own words. See runtime/medext.ts.
+  // each has two independent copies to read. Nor is either short of a module
+  // now: both carry the same four-way accept chain medplayer does
+  // (`cmpi.l #"MMD3"` down to `#"MMD0"`, at $3044 of octaplayer and $3f8e of
+  // octamixplayer), so the 187 MMD2 modules OctaMED Pro 6 shipped feed both.
+  // What separates the three libraries is how many tracks reach audio, not
+  // which files they take. Leaving them out makes OpenLibrary answer 0, which
+  // is the case MED 7.1 already handles and reports in its own words. See
+  // runtime/medext.ts.
   ['medplayer.library', 7],
   // the joyport and timer halves, modelled by ../amiga/lowlevel.ts. Two ports
   // open it: GameSupport with OpenLibrary, and TFT 0.7's `Init Tick Timer`
