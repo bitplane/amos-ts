@@ -77,6 +77,7 @@
  * `addi.w #"0",d2` visible: nibble 15 goes in and "?" comes back out.
  */
 import { DAY_MS, STAMP_EPOCH, type Civil, type DateStamp, civilFromStamp, stampToDate } from './datestamp'
+import type { Device } from './device'
 
 /** where the chip is decoded, and the longword stride between its registers */
 export const BATTCLOCK_BASE = 0x00dc_0000
@@ -95,7 +96,15 @@ export const BATTCLOCK_DATE_REG = 6
  * hardware exists at all: it survives a power cycle, so it has to outlive the
  * environment. See ./machine.ts.
  */
-export class BattClock {
+export class BattClock implements Device {
+  readonly kind = 'clock' as const
+  /**
+   * The A501's, because that is the board a 512K A500 got the clock on. A
+   * later machine has the same registers soldered to the motherboard, and
+   * nothing a program can read tells the two apart.
+   */
+  readonly name = 'A501 battery clock'
+
   /** the sixteen registers, low nibble each */
   readonly regs = new Uint8Array(BATTCLOCK_REGISTERS)
 

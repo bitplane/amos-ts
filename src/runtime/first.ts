@@ -59,8 +59,9 @@ export function makeFirstInstructions(rt: Runtime): Record<string, Instr> {
      * the same place they set it.
      */
     'change led'() {
+      // the sink follows the bit rather than being told separately: the CIA
+      // drives it, see ../amiga/cia.ts `onLed`
       rt.ledFilter = !rt.ledFilter
-      rt.audio.setFilter(rt.ledFilter)
     },
 
     /**

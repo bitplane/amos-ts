@@ -1466,12 +1466,34 @@ describe('CRAFT 1.0 — the hardware and the odds and ends (routines 190..204)',
     const b = boot('Print Hw Mouse Key;Peek($BFE001);Deek($DFF016)')
     b.rt.input.mouseK = 1 | 4
     mustFinish(b.rt.runHeadless(5000))
-    // left and middle down: CIA bit 6 clear, POTGOR bit 8 clear, bit 10 set
-    expect(b.out().trim()).toBe(`5 ${0xbf} ${0xffff & ~(1 << 8)}`)
+    // left and middle down: CIA bit 6 clear, POTGOR bit 8 clear, bit 10 set.
+    // The low two bits are OVL and LED, both clear on a booted machine with
+    // the filter engaged -- see ../amiga/cia.ts. They read as 1 until the
+    // chip was modelled, which made this $bf.
+    expect(b.out().trim()).toBe(`5 ${0xbc} ${0xffff & ~(1 << 8)}`)
   })
 
   it('and answers nothing at all with no button down', () => {
-    expect(val('Hw Mouse Key;Peek($BFE001);Deek($DFF016)')).toBe(`0 255 65535`)
+    expect(val('Hw Mouse Key;Peek($BFE001);Deek($DFF016)')).toBe(`0 252 65535`)
+  })
+
+  it('and a Poke to it reaches the filter, which is what Change Led is', () => {
+    // First 0.1's `Change Led` is `bchg.b #$1,$bfe001` (routine 3, $6c), so
+    // a program can do it by hand and the sink has to follow
+    const b = boot('Poke $BFE001,254\nPrint Peek($BFE001)')
+    mustFinish(b.rt.runHeadless(5000))
+    expect(b.out().trim()).toBe('254')
+    expect(b.rt.ledFilter).toBe(false)
+  })
+
+  it('and ignores a write to the six input pins, as the data direction register does', () => {
+    // bits 2 to 7 are pins. `move.b #$ff,$bfe001` sets OVL and LED and
+    // nothing else, so the mouse button does not become stuck down.
+    const b = boot('Poke $BFE001,255 : Print Peek($BFE001)')
+    mustFinish(b.rt.runHeadless(5000))
+    expect(b.out().trim()).toBe('255')
+    b.rt.input.mouseK = 1
+    expect(b.rt.machine.cia.pra()).toBe(0xff & ~(1 << 6))
   })
 
   it('the three Gr functions are the RastPort pens seen from outside', () => {

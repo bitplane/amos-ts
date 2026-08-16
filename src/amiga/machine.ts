@@ -91,14 +91,38 @@
  * `subq.w #1 / asl.l #4 / addi.l #$fc` and `jmp (a0)`), and The Game's
  * `G Reset` closes its eight game screens and re-initialises the engine.
  *
+ * ## What is plugged in
+ *
+ * The machine also owns its devices, and that arrived later than the reset
+ * state did. The keyboard's held keys and its serial byte, the mouse buttons
+ * and the two gameports were fields on `InputState` over in the interpreter,
+ * named after the AMOS keywords that read them rather than after the chips
+ * they are: `ledFilter` and the FIR0 bit synthesized inside the memory map
+ * were two halves of one byte on CIA-A, held apart, and neither name said
+ * CIA.
+ *
+ * `InputState` is still there and every keyword still reads it. It is a view
+ * now: `sdr`, `keys`, `mouseK` and `ports` resolve to the devices below, the
+ * way `joy` has always resolved to `ports[1]`. What stayed behind is the part
+ * that is genuinely the program's rather than the machine's, and the two
+ * separate the moment there are two programs: a keystroke exists once, and
+ * `Inkey$` CONSUMING it is per program. See `../interp/interp.ts`.
+ *
  * ## Not modelled yet
  *
  * Drives. "Insert a disk" is a machine event too and belongs beside these,
  * but nothing asks for it yet: the web player mounts a volume once and never
  * changes it. Adding an eject/insert event with no caller would be guessing
- * at the shape, so the seam is named here and left empty.
+ * at the shape, so the seam is named here and left empty. CIA-A already has
+ * the hole it fits: `disk()` answers null and the four status lines read
+ * inactive, which is what a machine with no drive selected reports.
  */
 import { BattClock } from './battclock'
+import { CiaA } from './cia'
+import { BTN_RED, controllerDevice, newController, type Controller } from './controller'
+import type { Slot } from './device'
+import { Keyboard } from './keyboard'
+import { MOUSE_LEFT, Mouse } from './mouse'
 
 /**
  * What a reset destroys.
@@ -133,6 +157,63 @@ export interface ResetRequest {
  */
 export class Machine {
   power: PowerState = 'on'
+
+  /** the keyboard's held keys. The byte it clocks out lands in `cia.sdr`. */
+  readonly keyboard = new Keyboard()
+
+  /** the three mouse buttons, which are pins on CIA-A and POTGOR */
+  readonly mouse = new Mouse()
+
+  /**
+   * The two gameports, indexed the way the hardware is: 0 is the mouse port,
+   * 1 the joystick port, which is `Joy()`'s numbering too.
+   */
+  readonly ports: [Controller, Controller] = [newController(), newController()]
+
+  /**
+   * CIA-A at $BFE001: the LED and audio filter bit, the two fire buttons, and
+   * four floppy status lines with no floppy behind them yet.
+   *
+   * The wires are supplied here because the chip reads pins and the pins
+   * belong to the devices above. FIR0 is the OR of the mouse's left button
+   * and port 0's fire, which is a DEVIATION this machine forces by holding
+   * both at once. ./mouse.ts sets out why and what removes it.
+   */
+  readonly cia = new CiaA({
+    fire0: () => this.mouse.down(MOUSE_LEFT) || (this.ports[0].buttons & BTN_RED) !== 0,
+    fire1: () => (this.ports[1].buttons & BTN_RED) !== 0,
+    disk: () => null,
+  })
+
+  constructor() {
+    // the keyboard's serial line into CIA-A, which is the only thing that
+    // writes SDR
+    this.keyboard.onByte = (b) => {
+      this.cia.sdr = b
+    }
+  }
+
+  /**
+   * What is plugged in, for a caller drawing the tree.
+   *
+   * A description and not a registry: the devices live in the typed fields
+   * above, because code that wants a controller wants `ports[1]` and not a
+   * lookup by string that could name a socket which is not there. Same
+   * relationship `InputState.joy` has to `ports[1]`.
+   */
+  hardware(): Slot[] {
+    return [
+      { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock },
+      { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard },
+      // `mouse` and `port0` are one nine-pin connector on the machine and two
+      // rows here, which is the deviation ./mouse.ts describes shown rather
+      // than hidden: a tree that listed one of them would be claiming a
+      // choice this port has not made yet.
+      { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse },
+      { id: 'port0', label: 'gameport 0', takes: 'gameport', device: controllerDevice(this.ports[0]) },
+      { id: 'port1', label: 'gameport 1', takes: 'gameport', device: controllerDevice(this.ports[1]) },
+    ]
+  }
 
   /**
    * The battery clock at $DC0000, if one is fitted, and here one always is.

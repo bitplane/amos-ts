@@ -62,6 +62,30 @@ describe('First 0.1 — four keywords in 248 bytes', () => {
     expect(b.audio.filter).toBe(true)
   })
 
+  it('and the bit is bit 1 of the byte, INVERTED: bright is a clear bit', () => {
+    // `cia.i`:116 states the sense outright --- "led light control
+    // (0==>bright)" --- and a bright LED is Paula's filter engaged. The two
+    // bits below it are OVL and nothing, both clear on a booted machine, so
+    // the byte with no button down is $fc.
+    const b = boot('Change Led')
+    expect(b.rt.machine.cia.pra() & 2).toBe(0)
+    expect(b.rt.machine.cia.pra()).toBe(0xfc)
+    b.rt.runHeadless(2000)
+    expect(b.rt.machine.cia.pra() & 2).toBe(2)
+  })
+
+  it('and a write to the byte drives the sink, whichever way it arrives', () => {
+    // three routes to one bit: `Led On`, `Change Led`, and a program poking
+    // the register. The sink used to be told separately at the first two
+    // call sites and not at all at the third.
+    const b = boot('Change Led')
+    b.rt.machine.cia.writePra(0xff)
+    expect(b.rt.ledFilter).toBe(false)
+    expect(b.audio.filter).toBe(false)
+    b.rt.machine.cia.writePra(0x00)
+    expect(b.audio.filter).toBe(true)
+  })
+
   it('Wait Mouse returns once the LEFT button is down (routine 4, $76)', () => {
     // `btst.b #$6,$bfe001 / beq (done)` --- the line is active low
     const b = boot('Wait Mouse\nPrint 7')

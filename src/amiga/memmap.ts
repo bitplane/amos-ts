@@ -154,6 +154,53 @@ export function slottedRegion(
   }
 }
 
+/**
+ * A one-byte hardware register: read through a function, written through
+ * another.
+ *
+ * Every other region here is backed by a buffer that IS the thing. A chip
+ * register is not: CIA-A PRA is six pins and two latched bits, so reading it
+ * runs a composition and writing it lands on two of the eight. The region
+ * used to hand back a freshly built `Uint8Array` per read, which answered
+ * reads correctly and swallowed every write, so `Poke $BFE001,x` went into a
+ * buffer nobody would look at again. On the machine that Poke is `bchg #1`,
+ * which is `Change Led`.
+ *
+ * The write goes through a Proxy on the indexed trap, the same technique the
+ * Varptr arena uses to push a write back into an AMOS variable. `read()` runs
+ * before every resolve so a read-modify-write sees the current pins.
+ */
+export function byteRegister(
+  name: string,
+  base: number,
+  read: () => number,
+  write: (v: number) => void,
+): MemRegion {
+  const buf = new Uint8Array(1)
+  const view = new Proxy(buf, {
+    set(t, prop, v): boolean {
+      if (prop === '0') {
+        write(Number(v) & 0xff)
+        // read back: the bits the chip did not accept are still the pins'
+        t[0] = read()
+        return true
+      }
+      ;(t as unknown as Record<string | symbol, unknown>)[prop] = v
+      return true
+    },
+  }) as Uint8Array
+  return {
+    name,
+    base,
+    reserved: 1,
+    live: () => 1,
+    resolve: (off, w) => {
+      buf[0] = read()
+      return { data: w ? view : buf, off }
+    },
+  }
+}
+
 /** bound a resolved pair by its buffer, the check every slot resolver repeats */
 export function within(data: Uint8Array, off: number): Resolved | null {
   return off < data.length ? { data, off } : null

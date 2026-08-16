@@ -41,9 +41,40 @@
  * Nor is the SP interrupt (ICR bit 3): the byte is simply latched when the
  * host reports the event, which is the observable part.
  */
+import type { Device } from './device'
 
-/** CIA-A's serial data register, where the keyboard byte lands. */
-export const CIAA_SDR = 0x00bf_ec01
+/**
+ * The keyboard itself: which keys are held, and the byte each event clocks
+ * out.
+ *
+ * The device holds no register. `sdr` is CIA-A's, not the keyboard's, so it
+ * lives on ./cia.ts and arrives there through `onByte`, which is the serial
+ * line drawn as a callback. That split is why `press` and `release` are
+ * methods rather than two lines at the call site: the port used to set
+ * `input.keys` and `input.sdr` next to each other in the Runtime, and a
+ * caller that updated one and forgot the other left the two disagreeing about
+ * a key that was down.
+ */
+export class Keyboard implements Device {
+  readonly kind = 'keyboard' as const
+  readonly name = 'keyboard'
+
+  /** Amiga scancodes currently down. What `Key State` reads. */
+  readonly held = new Set<number>()
+
+  /** where a clocked byte goes. `Machine` wires this to CIA-A's SDR. */
+  onByte: ((sdr: number) => void) | null = null
+
+  press(scancode: number): void {
+    this.held.add(scancode)
+    this.onByte?.(keyboardSdr(scancode, true))
+  }
+
+  release(scancode: number): void {
+    this.held.delete(scancode)
+    this.onByte?.(keyboardSdr(scancode, false))
+  }
+}
 
 /**
  * The byte the keyboard puts in SDR for one key event: rotate the keycode

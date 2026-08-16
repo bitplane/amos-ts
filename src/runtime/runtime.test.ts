@@ -3,6 +3,7 @@ import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
+import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { FONT8 } from './font.gen'
 
@@ -706,6 +707,51 @@ describe('two joystick ports (FJ +Lib.s:13716)', () => {
   it('a port above 1 is a function call error', () => {
     const rt = new Runtime(tokenize('X=Joy(2)', table), table, { maxSteps: 1000 })
     expect(() => rt.runHeadless(10)).toThrow(/function call/)
+  })
+})
+
+describe('input is a view of the machine, not a copy of it', () => {
+  const boot = (machine?: Machine): Runtime =>
+    new Runtime(tokenize('Rem', table), table, machine ? { machine } : {})
+
+  it('reads the four device fields off ../amiga/machine.ts', () => {
+    const rt = boot()
+    rt.machine.mouse.buttons = 3
+    expect(rt.input.mouseK).toBe(3)
+    rt.machine.keyboard.press(0x40)
+    expect(rt.input.keys.has(0x40)).toBe(true)
+    expect(rt.input.sdr).toBe(rt.machine.cia.sdr)
+    expect(rt.input.ports).toBe(rt.machine.ports)
+  })
+
+  it('writes through, so a keyword and a Peek see one byte', () => {
+    const rt = boot()
+    rt.input.mouseK = 1
+    // CIA-A PRA bit 6, active low
+    expect(rt.machine.cia.pra() & 0x40).toBe(0)
+  })
+
+  it('binds to the machine the caller SUPPLIED, not the one it replaced', () => {
+    // `input` is a field initialiser and `opts.machine` lands in the
+    // constructor, so a captured object would read a machine nobody has
+    const m = new Machine()
+    const rt = boot(m)
+    m.mouse.buttons = 2
+    expect(rt.input.mouseK).toBe(2)
+    expect(rt.machine).toBe(m)
+  })
+
+  it('shares devices across two Runtimes on one machine, and queues separately', () => {
+    // one keyboard, two programs. This is what `Multi On` needs and what the
+    // fields being plain data could not express.
+    const m = new Machine()
+    const a = boot(m)
+    const b = boot(m)
+    m.keyboard.press(0x20)
+    expect(a.input.keys.has(0x20)).toBe(true)
+    expect(b.input.keys.has(0x20)).toBe(true)
+    a.input.keyQueue.push({ ch: 'x', scan: 0x20 })
+    expect(b.input.keyQueue).toHaveLength(0)
   })
 })
 

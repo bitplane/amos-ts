@@ -3150,13 +3150,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
     // the bit is READ back by First 0.1's `Change Led`, a bchg, so the state
     // has to live somewhere rather than only being written at the sink
+    // the bit lives on ../amiga/cia.ts and drives the sink from there, so
+    // these set it and nothing else
     'led on': () => {
       rt.ledFilter = true
-      rt.audio.setFilter(true)
     },
     'led off': () => {
       rt.ledFilter = false
-      rt.audio.setFilter(false)
     },
 
     // ---- menus ----

@@ -22,7 +22,8 @@ import type { AmosIO } from './io'
 import { INSTR, FUNCS, RAWFUNCS } from './builtins'
 import type { Instr as InstrFn, Func as FuncFn } from './builtins'
 import { KEYWORD_PROBE } from '../coverage/probe'
-import { newController, type Controller } from '../amiga/controller'
+import type { Controller } from '../amiga/controller'
+import { Machine } from '../amiga/machine'
 import { applyJoyBits, joyBitsOf } from './gameport'
 
 export class AmosRuntimeError extends Error {
@@ -132,11 +133,32 @@ export type Block =
   // the speech library is 88K of tables, imported on the first Say
   | { type: 'speech' }
 
-/** Live input device state, owned by the runtime/driver and read by builtins. */
+/**
+ * Live input state: half the machine's hardware and half this program's
+ * place in it.
+ *
+ * Every field here used to be plain data on this object, which made two
+ * different things look like one. `keys`, `sdr`, `mouseK` and `ports` are
+ * DEVICES: there is one keyboard, one CIA-A serial register and two nine-pin
+ * connectors, and they belong to the machine whether a program is running or
+ * not. `keyQueue`, `lastScan`, `lastShift` and `mouseClickOld` are this
+ * program's CONSUMPTION of them: `Inkey$` taking a keystroke is not a
+ * hardware event, it is one reader deciding it has had that one.
+ *
+ * The split is not a tidiness argument, it is what breaks the moment there
+ * are two programs. One keyboard, two queues. On the machine that is exactly
+ * how it works, because keystrokes reach a program through Intuition's IDCMP
+ * and the queue is per window.
+ *
+ * So the device half is now a VIEW of `../amiga/machine.ts` rather than a
+ * copy of it, in the same way `joy` has always been a view of `ports[1]`.
+ * Nothing that reads this changed, and the interesting consequence is that
+ * `Peek($BFE001)` and `Mouse Key` finally read the same byte.
+ */
 export interface InputState {
   /** typed characters not yet consumed by Inkey$ / Wait Key */
   keyQueue: Array<{ ch: string; scan: number; shift?: number }>
-  /** Amiga scancodes currently held down (Key State) */
+  /** Amiga scancodes currently held down (Key State). The machine's keyboard. */
   keys: Set<number>
   /**
    * CIA-A's serial data register at $bfec01 — the last byte the keyboard
@@ -153,7 +175,13 @@ export interface InputState {
   /** mouse in AMOS hardware coords (lowres pixel + 128/50 origin) */
   mouseX: number
   mouseY: number
-  /** buttons currently held (bit 0 left, bit 1 right, bit 2 middle) */
+  /**
+   * Buttons currently held (bit 0 left, bit 1 right, bit 2 middle).
+   *
+   * The machine's mouse. These three bits are pins on two different chips —
+   * CIA-A PRA bit 6, POTGOR bits 10 and 8 — and `../amiga/mouse.ts` says
+   * which is which.
+   */
   mouseK: number
   /** button state at the last Mouse Click read, for edge detection */
   mouseClickOld: number
@@ -181,40 +209,58 @@ export interface InputState {
   funcKeys: string[]
 }
 
-export const newInputState = (): InputState => {
-  // held in a closure so the accessors below and the `ports` field are the
-  // same two objects rather than a copy each
-  const ports: [Controller, Controller] = [newController(), newController()]
+/**
+ * A view of one machine's input devices, plus this program's consumption
+ * state.
+ *
+ * The machine may be passed as a thunk, and the Runtime passes one: its
+ * `input` field is built before `opts.machine` has replaced the default, so a
+ * captured object would bind to a machine that gets thrown away.
+ */
+export const newInputState = (machine: Machine | (() => Machine) = new Machine()): InputState => {
+  const m = typeof machine === 'function' ? machine : (): Machine => machine
   return {
-    ports,
+    get keys(): Set<number> {
+      return m().keyboard.held
+    },
+    get sdr(): number {
+      return m().cia.sdr
+    },
+    set sdr(v: number) {
+      m().cia.sdr = v
+    },
+    get mouseK(): number {
+      return m().mouse.buttons
+    },
+    set mouseK(v: number) {
+      m().mouse.buttons = v
+    },
+    get ports(): [Controller, Controller] {
+      return m().ports
+    },
     get joy(): number {
-      return joyBitsOf(ports[1])
+      return joyBitsOf(m().ports[1])
     },
     set joy(bits: number) {
-      applyJoyBits(ports[1], bits)
+      applyJoyBits(m().ports[1], bits)
     },
     get joy0(): number {
-      return joyBitsOf(ports[0])
+      return joyBitsOf(m().ports[0])
     },
     set joy0(bits: number) {
-      applyJoyBits(ports[0], bits)
+      applyJoyBits(m().ports[0], bits)
     },
     ...newInputRest(),
   }
 }
 
-/** everything in InputState that is plain data, kept apart only for the spread above */
-const newInputRest = (): Omit<InputState, 'ports' | 'joy' | 'joy0'> => ({
+/** the part that is this program's rather than the machine's */
+const newInputRest = (): Omit<InputState, 'ports' | 'joy' | 'joy0' | 'keys' | 'sdr' | 'mouseK'> => ({
   keyQueue: [],
-  keys: new Set(),
-  // an idle machine has never received a byte; the routines that test it read
-  // 0 as "nothing", which is also what they read after a key comes back up
-  sdr: 0,
   lastScan: 0,
   lastShift: 0,
   mouseX: 128 + 160,
   mouseY: 50 + 100,
-  mouseK: 0,
   mouseClickOld: 0,
   funcKeys: [],
 })

@@ -15,7 +15,7 @@ import { Boopsi } from '../amiga/boopsi'
 import { MuiMaster } from '../amiga/muimaster'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
-import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
+import { bufferRegion, byteRegister, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
@@ -91,7 +91,7 @@ import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
-import { keyboardSdr } from '../amiga/keyboard'
+import { CIAA_PRA, CIAA_SDR } from '../amiga/cia'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import {
@@ -434,7 +434,14 @@ export type ScreenOwner = 'user' | 'amos' | 'game' | 'os'
 
 export class Runtime {
   readonly interp: Interp
-  readonly input: InputState = newInputState()
+  /**
+   * The machine's input devices, plus this program's consumption of them.
+   *
+   * Bound through a thunk because `opts.machine` replaces `this.machine`
+   * inside the constructor, which runs after this initialiser: capturing the
+   * object here would leave the view reading a machine nobody else has.
+   */
+  readonly input: InputState = newInputState(() => this.machine)
   screens = new Map<number, Screen>()
   /** z-order, back to front */
   order: number[] = []
@@ -653,8 +660,19 @@ export class Runtime {
    * First 0.1's `Change Led` is a `bchg`, so the bit has to be readable and
    * not just writable. True at boot, as the machine comes up with the filter
    * engaged and NullAudio already assumes.
+   *
+   * The bit lives on the chip now (../amiga/cia.ts) and this is a view of it,
+   * which is what makes `Poke $BFE001` reach the same place `Led On` does.
+   * Note the inversion: the register bit is 0 for a BRIGHT LED, so a `true`
+   * here is a clear bit.
    */
-  ledFilter = true
+  get ledFilter(): boolean {
+    return this.machine.cia.ledBright
+  }
+
+  set ledFilter(on: boolean) {
+    this.machine.cia.ledBright = on
+  }
 
   fileChans = new Map<
     number,
@@ -1629,26 +1647,45 @@ export class Runtime {
    * the overlap check cannot see a base that depends on a bank number.
    */
   private readonly memRegions: readonly MemRegion[] = [
-    {
-      /*
-       * CIA-A port A. Bit 6 is FIR0 — the LEFT mouse button, and ACTIVE LOW,
-       * so a pressed button reads as a zero bit.
-       *
-       * Here because CRAFT's `=Hw Mouse Key` (routine 190, $313a) reads it
-       * with `btst.b #$6,$bfe001.l` rather than asking the operating system,
-       * which is the whole point of the keyword: "it works whether the AMOS
-       * screen is displayed or not". A program can reach the same register
-       * with Peek, and now gets the same answer the keyword does.
-       *
-       * One byte. The rest of CIA-A is not modelled, so nothing else in the
-       * $bfe000 page resolves.
-       */
-      name: 'CIA-A port A',
-      base: 0xbfe001,
-      reserved: 1,
-      live: () => 1,
-      resolve: (off) => ({ data: Uint8Array.of(this.input.mouseK & 1 ? 0xbf : 0xff), off }),
-    },
+    /*
+     * CIA-A port A, the byte ../amiga/cia.ts composes. Bit 6 is FIR0, the
+     * LEFT mouse button, ACTIVE LOW, so a pressed button reads as a zero bit.
+     *
+     * Here because CRAFT's `=Hw Mouse Key` (routine 190, $313a) reads it with
+     * `btst.b #$6,$bfe001.l` rather than asking the operating system, which
+     * is the whole point of the keyword: "it works whether the AMOS screen is
+     * displayed or not". A program can reach the same register with Peek, and
+     * gets the same answer the keyword does.
+     *
+     * It answered `$ff` or `$bf` until the chip was modelled, and both of
+     * those have bit 1 set, so a program that peeked the byte was told the
+     * audio filter was off however many times `Led On` had run. Writes went
+     * nowhere at all.
+     */
+    byteRegister(
+      'CIA-A port A',
+      CIAA_PRA,
+      () => this.machine.cia.pra(),
+      (v) => this.machine.cia.writePra(v),
+    ),
+    /*
+     * CIA-A's serial data register, where the keyboard's byte lands.
+     *
+     * Three extensions read this address in the original and none of them
+     * could reach it here, because the port modelled the byte (keyboardSdr,
+     * ../amiga/keyboard.ts) and then never put it anywhere addressable.
+     * `Poke` to it is honoured for the same reason `Change Led` is: the chip
+     * takes a write to SDR, and what it does with one is shift it out to the
+     * keyboard, which this machine has no wire for.
+     */
+    byteRegister(
+      'CIA-A serial data',
+      CIAA_SDR,
+      () => this.machine.cia.sdr,
+      (v) => {
+        this.machine.cia.sdr = v
+      },
+    ),
     {
       // VPOSR/VHPOSR beam counters, synthesized per read from the pseudo-beam
       name: 'beam counters',
@@ -4029,6 +4066,11 @@ export class Runtime {
     this.table = table
     this.fs = this.host.fs ?? null
     if (this.host.audio) this.audio = this.host.audio
+    // one wire from CIA-A PRA bit 1 to Paula's filter, so the three ways of
+    // reaching that bit -- `Led On`, `Change Led`, `Poke $BFE001` -- all
+    // arrive. The first two used to call the sink themselves and the third
+    // could not, because the register was not writable.
+    this.machine.cia.onLed = (bright): void => this.audio.setFilter(bright)
     for (const bank of opts.banks ?? []) {
       if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
       else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
@@ -4377,14 +4419,12 @@ export class Runtime {
    */
   keyDown(scan: number): void {
     if (!scan) return
-    this.input.keys.add(scan)
-    this.input.sdr = keyboardSdr(scan, true)
+    this.machine.keyboard.press(scan)
   }
 
   keyUp(scan: number): void {
     if (!scan) return
-    this.input.keys.delete(scan)
-    this.input.sdr = keyboardSdr(scan, false)
+    this.machine.keyboard.release(scan)
   }
 
   /** Submit a line for a pending Input statement. */

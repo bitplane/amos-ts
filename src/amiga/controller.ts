@@ -46,6 +46,7 @@
  * controller — the same trade `../interp/gameport.ts` describes for the five
  * bits, one level richer.
  */
+import type { Device } from './device'
 
 /** what a port reports it has, in `lowlevel.library`'s vocabulary */
 export const CTRL_NONE = 0
@@ -106,4 +107,30 @@ export const newController = (): Controller => ({ type: CTRL_JOYSTICK, dirs: 0, 
 /** is this button down? */
 export function buttonDown(c: Controller, button: number): boolean {
   return (c.buttons & button) !== 0
+}
+
+/**
+ * What a hardware page calls each type.
+ *
+ * `lowlevel.library`'s own vocabulary, spelled out: `JP_TYPE_GAMECTLR` is the
+ * CD32 pad and `JP_TYPE_UNKNOWN` is a port that answered something no
+ * autosense pattern matches, which is a real state and not an error.
+ */
+export const CTRL_NAMES: Readonly<Record<number, string>> = {
+  [CTRL_GAMEPAD]: 'CD32 pad',
+  [CTRL_MOUSE]: 'mouse',
+  [CTRL_JOYSTICK]: 'joystick',
+  [CTRL_UNKNOWN]: 'unrecognised device',
+}
+
+/**
+ * The controller as `./device.ts` sees it, or null for an empty port.
+ *
+ * A view rather than a second object: `CTRL_NONE` IS the empty socket, so the
+ * device list and the register readers cannot disagree about whether
+ * something is plugged in.
+ */
+export function controllerDevice(c: Controller): Device | null {
+  if (c.type === CTRL_NONE) return null
+  return { kind: 'gameport', name: CTRL_NAMES[c.type] ?? CTRL_NAMES[CTRL_UNKNOWN]! }
 }
