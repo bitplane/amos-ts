@@ -42,7 +42,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
 export type Engine =
-  | 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'smon' | 's3m' | 'track' | 'medext'
+  | 'mod' | 'p61' | 'thx' | 'med' | 'omed' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'smon' | 's3m' | 'track' | 'medext'
 
 /**
  * What the first bytes say it is.
@@ -53,7 +53,11 @@ export type Engine =
  */
 export function detectEngine(d: Uint8Array): Engine | null {
   const tag = (at: number, n = 4): string => String.fromCharCode(...d.subarray(at, at + n))
-  if (tag(0) === 'MMD0' || tag(0) === 'MMD1' || tag(0) === 'MMD2' || tag(0) === 'MMD3') return 'med'
+  // MMD2 and MMD3 go to octaplayer, not medplayer: medplayer reads the
+  // MMD0-shaped playseq at song+$1fc and the track volumes at $302, and an
+  // MMD2 has a section table in the first and nothing in the second
+  if (tag(0) === 'MMD2' || tag(0) === 'MMD3') return 'omed'
+  if (tag(0) === 'MMD0' || tag(0) === 'MMD1') return 'med'
   if (tag(0, 3) === 'THX' || tag(0, 3) === 'HVL') return 'thx'
   if (tag(0) === 'P61A') return 'p61'
   if (tag(0) === 'FC14') return 'fc14'
@@ -159,13 +163,17 @@ export function renderModule(
       fx.tick()
       mix.runTo((f + 1) / VBL_HZ)
     }
-  } else if (engine === 'med') {
+  } else if (engine === 'med' || engine === 'omed') {
     let tick = 0
-    const player = new MedPlayer({
-      audio: mix,
-      tick: () => tick,
-      getBank: () => ({ name: 'Med', data }),
-    })
+    const octa = engine === 'omed'
+    const player = new MedPlayer(
+      {
+        audio: mix,
+        tick: () => tick,
+        getBank: () => ({ name: octa ? 'OctaMed ' : 'Med', data }),
+      },
+      octa ? 'octaplayer' : 'medplayer',
+    )
     player.play(7, 0)
     for (let f = 0; f < frames; f++) {
       tick++
@@ -258,7 +266,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const [file, out] = files
   if (!file || !out) {
     console.error(
-      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|fc13|digi|smon|s3m|track|medext]',
+      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|track|medext]',
     )
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('       renderaudio <module.p61> - --to-mod out.mod')

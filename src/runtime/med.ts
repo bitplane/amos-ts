@@ -948,6 +948,12 @@ export class MedPlayer {
 
   /** $211484: (trackvol * mastervol) >> 4, so 64 against 64 is 256, unity */
   private trackScale(v: number): number {
+    // octaplayer reads neither `trkvol` at $302 nor `mastervol` at $312 --
+    // neither offset appears anywhere in DME_OctaMed.library -- so the
+    // instrument's own volume is the whole of it. On an MMD2 that is not a
+    // detail: $302 belongs to the MMD0 tail and holds zeroes, and scaling by
+    // it would make every mixed track silent.
+    if (this.build === 'octaplayer') return 0x100
     return (this.b(this.song + 0x302 + v) * this.mastervol) >> 4
   }
 

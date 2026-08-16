@@ -735,6 +735,15 @@ describe('the octaplayer clock and mixer', () => {
     expect(audio.voiceState[0]!.pcm![0]).toBe(100)
   })
 
+  it('takes the instrument volume whole, because trkvol and mastervol are dead', () => {
+    // Neither $302 nor $312 appears anywhere in DME_OctaMed.library, and on an
+    // MMD2 both belong to the MMD0 tail and hold zeroes. Scaling by them made
+    // the whole render silent while every call-sequence test still passed.
+    const { p, audio } = octa(mmd2({ seqs: [[0]], blocks: [8] }))
+    p.vbl()
+    expect(audio.voiceState[0]!.volume).toBe(64)
+  })
+
   it('sounds four voices for eight tracks, and silence needs no buffer', () => {
     const { p, audio } = octa(mmd2({ seqs: [[0]], blocks: [8] }))
     p.vbl()
