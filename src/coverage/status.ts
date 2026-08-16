@@ -2655,6 +2655,18 @@ export const FAITHFUL = new Set<string>([
   'smon song pos',
   'smon vu',
   'smon end',
+  // The ScreamTracker 3 block over ../amiga/s3mplay.ts and ../amiga/s3mmix.ts,
+  // off DME_ScreamTracker.library. `S3m Play` is NOT here for the same reason
+  // `Smon Play` is not: the mixer's output has no second reader on this
+  // machine to check it against.
+  's3m load',
+  's3m stop',
+  's3m next patt',
+  's3m prev patt',
+  's3m volume',
+  's3m song length',
+  's3m song pos',
+  's3m vu',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8398,6 +8410,21 @@ export const NOTES: Record<string, string> = {
     "binary --- so the synth is checked against the instructions and against invariants rather than against a " +
     "recording, as THX's is.",
   "smon stop": "routine 141 ($55c8): the flag at $94(a0), then LVO -36 ($2101d8).",
+  "s3m play":
+    "routine 67 ($4632) pushes $80000000 into routine 68, on a bank named \"S3Mmod  \" ($4774 compares it as " +
+    "two longs). The replay is src/amiga/s3mplay.ts over src/amiga/s3mmix.ts: twelve channels summed in " +
+    "software at 28,000 Hz, because four Paula voices will not hold them. The mixer works in UNSIGNED bytes " +
+    "throughout --- silence is $80 ($210dd2) --- and its position at $14(a4) is a 16.16 accumulator stored " +
+    "with the halves SWAPPED, fraction high and index low, which is what lets `add.l` advance both at once " +
+    "and `addx.w` carry the fraction into the index ($210cee). The clock is ScreamTracker's own $369d80 = " +
+    "14,317,056/4 ($211874), not Paula's. Three commands are reproduced BROKEN because the library ships " +
+    "them so: I and R are in neither dispatch table, so tremor and tremolo do nothing; H, U and K read " +
+    "$3(a2) where the parameter is at $4(a2) (`10 2a 00 03` at $211f5c), so H never bends and U runs at a " +
+    "fixed speed of 1 and depth of 5; and $211d86 discards a BACKWARD Bxx's target, restarting the song. " +
+    "APPROXIMATED only in the sense that nothing on this machine plays an S3M a second time --- openmpt123 " +
+    "is packaged but not installed, and is a different replayer anyway --- so the mix is checked against the " +
+    "instructions and against measurement (0.4% of samples on the +-127 rail, which is what a divisor of two " +
+    "over six channels a side should give) rather than against a recording.",
   "smon cont": "routine 154 ($5854): `tst.b $94(a0) / bne` and then LVO -84 ($210208), the saved master back with the position untouched.",
   "smon volume": "routine 152 ($5806): 0..64 checked twice over, then LVO -72 ($2102c6), the same veneer the SoundFX and FutureComposer libraries carry.",
   "smon voice": "routine 153 ($5838) checks nothing and hands the whole longword to LVO -78 ($2102e0).",
