@@ -583,3 +583,246 @@ describe('a MED module as PCM', () => {
     expect(left.filter((s) => s !== 0)).toHaveLength(610)
   })
 })
+
+/**
+ * MMD2 and the octaplayer build, over DME_OctaMed.library.
+ *
+ * The module is built here because what is checked is the walk: section, then
+ * play sequence, then block. `../amiga/mmd2.test.ts` reads the same layout off
+ * three of OctaMED Professional 6's own files.
+ */
+function mmd2(opts: {
+  /** one entry per section, each a list of block numbers */
+  seqs: number[][]
+  /** how wide each block is; its line count is always two */
+  blocks?: number[]
+  deftempo?: number
+  flags?: number
+}): Uint8Array {
+  const d = new Uint8Array(0x2000)
+  const w = (a: number, v: number): void => {
+    d[a] = (v >> 8) & 0xff
+    d[a + 1] = v & 0xff
+  }
+  const l = (a: number, v: number): void => {
+    w(a, (v >>> 16) & 0xffff)
+    w(a + 2, v & 0xffff)
+  }
+  const blocks = opts.blocks ?? [1]
+  const SONG = 0x100
+  const PSEQTAB = 0x500
+  const SECTAB = 0x520
+  const BLOCKARR = 0x540
+  const SMPLARR = 0x560
+  const SAMPLE = 0x580
+  for (const [i, c] of [...'MMD2'].entries()) d[i] = c.charCodeAt(0)
+  l(4, d.length)
+  l(8, SONG)
+  l(0x10, BLOCKARR)
+  l(0x18, SMPLARR)
+
+  w(SONG + 2, 16) // instrument 1 loops, so a note survives a whole buffer
+  d[SONG + 6] = 64
+  w(SONG + 0x1f8, blocks.length)
+  w(SONG + 0x1fa, opts.seqs.length)
+  l(SONG + 0x1fc, PSEQTAB)
+  l(SONG + 0x200, SECTAB)
+  w(SONG + 0x208, 8)
+  w(SONG + 0x20a, opts.seqs.length)
+  w(SONG + 0x2fc, opts.deftempo ?? 6)
+  d[SONG + 0x2ff] = opts.flags ?? 0
+  d[SONG + 0x301] = 1 // one tick a line, so a vbl is a line
+  d[SONG + 0x312] = 64
+
+  // each section runs the play sequence of the same number
+  opts.seqs.forEach((seq, i) => {
+    const at = 0x600 + i * 0x80
+    l(PSEQTAB + i * 4, at)
+    w(SECTAB + i * 2, i)
+    w(at + 0x28, seq.length)
+    seq.forEach((b, k) => w(at + 0x2a + k * 2, b))
+  })
+  blocks.forEach((tracks, i) => {
+    const at = 0x800 + i * 0x100
+    l(BLOCKARR + i * 4, at)
+    w(at, tracks)
+    w(at + 2, 1) // two lines
+    // a note on every track of line 0, so a wide block is audibly wide
+    for (let t = 0; t < tracks; t++) {
+      d[at + 8 + t * 4] = 40 + i
+      d[at + 9 + t * 4] = 1
+    }
+  })
+  l(SMPLARR, SAMPLE)
+  l(SAMPLE, 64)
+  for (let i = 0; i < 64; i++) d[SAMPLE + 6 + i] = 50
+  return d
+}
+
+function octa(mod: Uint8Array): { p: MedPlayer; audio: NullAudio } {
+  const audio = new NullAudio()
+  let frame = 0
+  const p = new MedPlayer(
+    { audio, tick: () => ++frame, getBank: () => ({ name: 'OctaMed ', data: mod }) },
+    'octaplayer',
+  )
+  p.play(7, 0)
+  return { p, audio }
+}
+
+describe('the MMD2 walk', () => {
+  it('takes the block out of a play sequence the section table names', () => {
+    const { p } = octa(mmd2({ seqs: [[2, 0, 1]], blocks: [1, 2, 3] }))
+    expect(p.mmd2).toBe(true)
+    expect(p.hdrPblock).toBe(2)
+  })
+
+  it('reads a play sequence length from the sequence, not from the song', () => {
+    // $210ede's `cmp.w $28(a0),d4`, 40 bytes past a 32-character name
+    const { p } = octa(mmd2({ seqs: [[0, 0], [0, 0, 0, 0]] }))
+    for (let f = 0; f < 2; f++) p.vbl()
+    expect(p.hdrPseqnum).toBe(1)
+  })
+
+  it('moves to the next SECTION when the play sequence runs out', () => {
+    const { p } = octa(mmd2({ seqs: [[0], [1], [2]], blocks: [1, 2, 3] }))
+    const seen: number[] = []
+    for (let f = 0; f < 8; f++) {
+      seen.push(p.hdrPblock)
+      p.vbl()
+      p.vbl()
+    }
+    // one block a section, two lines each, and three sections that wrap
+    expect(seen.slice(0, 6)).toEqual([0, 1, 2, 0, 1, 2])
+  })
+
+  it('skips a play-sequence word with its top bit set', () => {
+    // $210e1e's `bpl`, which sends a marker back round the walk
+    const { p } = octa(mmd2({ seqs: [[0, 0x8000, 0x8001, 0]], blocks: [1, 2] }))
+    for (let f = 0; f < 2; f++) p.vbl()
+    expect(p.hdrPseqnum).toBe(3)
+  })
+
+  it('strides by the BLOCK\'s track count and not the song\'s', () => {
+    // "Cuku's Dead" holds blocks four, five, six and seven wide in one song
+    const { p, audio } = octa(mmd2({ seqs: [[0, 1]], blocks: [8, 2] }))
+    p.vbl()
+    expect(audio.voiceState.filter((v) => v.playing)).toHaveLength(4)
+  })
+})
+
+describe('the octaplayer clock and mixer', () => {
+  it('runs on the buffer length, so tempo 13 and tempo 33 are the same speed', () => {
+    const a = octa(mmd2({ seqs: [[0]], deftempo: 13 }))
+    const b = octa(mmd2({ seqs: [[0]], deftempo: 33 }))
+    a.p.vbl()
+    b.p.vbl()
+    const len = (x: NullAudio): number => x.events.find((e) => e.kind === 'play')!.length!
+    expect(len(a.audio)).toBe(400)
+    expect(len(b.audio)).toBe(400)
+  })
+
+  it('doubles the buffer for FLAG_SLOWHQ and keeps the rate', () => {
+    const { p, audio } = octa(mmd2({ seqs: [[0]], deftempo: 6, flags: 0x80 }))
+    p.vbl()
+    const e = audio.events.find((x) => x.kind === 'play')!
+    expect([e.length, Math.round(e.freq!)]).toEqual([640, 15625])
+  })
+
+  it('adds the two tracks of a pair with no scaling', () => {
+    const { p, audio } = octa(mmd2({ seqs: [[0]], blocks: [8] }))
+    p.vbl()
+    expect(audio.voiceState[0]!.pcm![0]).toBe(100)
+  })
+
+  it('sounds four voices for eight tracks, and silence needs no buffer', () => {
+    const { p, audio } = octa(mmd2({ seqs: [[0]], blocks: [8] }))
+    p.vbl()
+    expect(audio.voiceState.filter((v) => v.playing)).toHaveLength(4)
+    p.stop()
+    expect(audio.voiceState.filter((v) => v.playing)).toHaveLength(0)
+  })
+})
+
+describe('Omed Next Patt and Omed Prev Patt, which are not mirrors', () => {
+  it('forces the line to 63 going forward, whatever the block length', () => {
+    const { p } = octa(mmd2({ seqs: [[0, 1]], blocks: [1, 1] }))
+    p.octaNextPatt()
+    expect(p.hdrPline).toBe(0x3f)
+  })
+
+  it('leaves the line alone going back from line zero', () => {
+    // $210298 substitutes $3f for a zero line before the same subtraction
+    const { p } = octa(mmd2({ seqs: [[0, 1]], blocks: [1, 1] }))
+    p.octaPrevPatt()
+    expect(p.hdrPline).toBe(0)
+  })
+
+  it('steps the SECTION on an MMD2 without moving the block', () => {
+    // $21026c writes $c(a2) and leaves the cached $e(a2) alone, so the block
+    // only changes at the next natural section boundary --- and skips one
+    const { p } = octa(mmd2({ seqs: [[0], [1], [2]], blocks: [1, 2, 3] }))
+    expect(p.hdrPblock).toBe(0)
+    p.octaNextPatt()
+    expect(p.hdrPblock).toBe(0)
+  })
+})
+
+/**
+ * "Little Fugue In G Minor", one of the 187 MMD2s OctaMED Professional 6
+ * shipped, through the octaplayer build for four seconds of frames.
+ *
+ * Nothing here checks a waveform. What it checks is that the walk survives a
+ * real file: nine blocks of 132 to 205 lines over six tracks, at a deftempo of
+ * 13 that the buffer table flattens to its slowest entry.
+ */
+const FUGUE = 'fixtures/modules/dme/omed-fugue.mmd2'
+
+describe.skipIf(!existsSync(FUGUE))('a real MMD2 through the mixer', () => {
+  const mod = new Uint8Array(readFileSync(FUGUE))
+
+  it('fills every buffer at one length and one rate, and reaches four voices', () => {
+    const { p, audio } = octa(mod)
+    expect(p.mmd2).toBe(true)
+    // the voices enter one at a time, which is what a fugue is, so this needs
+    // a minute of frames before the fourth is heard from
+    for (let f = 0; f < 3000; f++) p.vbl()
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.length).toBeGreaterThan(1000)
+    // deftempo 13 is past the table, so every buffer is the slowest: 400 bytes
+    expect(new Set(plays.map((e) => e.length))).toEqual(new Set([400]))
+    expect(new Set(plays.map((e) => Math.round(e.freq!)))).toEqual(new Set([15625]))
+    expect(new Set(plays.map((e) => e.voice))).toEqual(new Set([0, 1, 2, 3]))
+  })
+
+  it('reaches the byte\'s limits, which is where an unclamped add would wrap', () => {
+    // 710 of 3,424,000 output samples land on -128 or 127 over a minute of
+    // this module, 0.02%. There is no clamp between the two tracks of a pair
+    // ($210974 is a bare `add.b`), so the rail is not a ceiling, it is a wrap.
+    const { p, audio } = octa(mod)
+    let rail = 0
+    let total = 0
+    for (let f = 0; f < 3000; f++) {
+      p.vbl()
+      for (const v of audio.voiceState) {
+        if (!v.playing || !v.pcm) continue
+        for (const b of v.pcm) {
+          total++
+          if (b === -128 || b === 127) rail++
+        }
+      }
+    }
+    expect(total).toBe(3424000)
+    expect(rail).toBe(710)
+  })
+
+  it('walks its nine blocks in the order the one play sequence names', () => {
+    const { p } = octa(mod)
+    const seen: number[] = []
+    for (let f = 0; f < 4000; f++) {
+      if (seen[seen.length - 1] !== p.hdrPblock) seen.push(p.hdrPblock)
+      p.vbl()
+    }
+    expect(seen.slice(0, 4)).toEqual([0, 1, 2, 3])
+  })
+})

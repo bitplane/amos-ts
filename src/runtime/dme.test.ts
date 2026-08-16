@@ -1062,3 +1062,151 @@ describe('the ScreamTracker 3 block', () => {
   })
 })
 
+
+/**
+ * OctaMED: MMD2, eight tracks, and two readers that assume a file layout.
+ *
+ * The module is built here for the same reason the ProTracker one is --- what
+ * these check is DME's veneer. `../amiga/mmd2.ts` and `../amiga/mmd2mix.ts`
+ * are read against OctaMED Professional's own files.
+ */
+const OMED_MOD = ((): Uint8Array => {
+  const d = new Uint8Array(0x600)
+  const w = (a: number, v: number): void => {
+    d[a] = (v >> 8) & 0xff
+    d[a + 1] = v & 0xff
+  }
+  const l = (a: number, v: number): void => {
+    w(a, (v >>> 16) & 0xffff)
+    w(a + 2, v & 0xffff)
+  }
+  for (const [i, c] of [...'MMD2'].entries()) d[i] = c.charCodeAt(0)
+  l(4, d.length)
+  l(8, 0x100) // song
+  l(0x10, 0x440) // blockarr
+  l(0x18, 0x490) // smplarr
+  l(0x20, 0x4c0) // expdata
+  d[0x33] = 2 // extra_songs, which =Omed Subsongs answers with
+
+  // play sequence 0 AT $34, which is what puts its length byte at $5d
+  w(0x5c, 3) // three positions
+  for (let i = 0; i < 3; i++) w(0x5e + i * 2, 0)
+
+  const song = 0x100
+  // instrument 1: a loop, because a one-shot shorter than the mix buffer is
+  // muted before its first byte is read ($2108fe's test spans a whole buffer)
+  w(song + 0, 0) // repeat, in words
+  w(song + 2, 16) // repeat length, in words
+  d[song + 6] = 64 // instrument 1's volume
+  w(song + 0x1f8, 1) // numblocks
+  w(song + 0x1fa, 1) // numsections
+  l(song + 0x1fc, 0x420) // playseqtable
+  l(song + 0x200, 0x430) // sectiontable
+  l(song + 0x204, 0x434) // trackvols
+  w(song + 0x208, 6) // numtracks
+  w(song + 0x20a, 1) // numpseqs
+  l(song + 0x20c, 0x438) // trackpans
+  w(song + 0x2fc, 6) // deftempo
+  d[song + 0x301] = 6 // tempo2
+  d[song + 0x312] = 64 // mastervol, which octaplayer never reads
+  d[song + 0x313] = 1 // numsamples
+
+  l(0x420, 0x34) // the one play sequence
+  w(0x430, 0) // section 0 runs play sequence 0
+  l(0x440, 0x450) // the one block
+
+  w(0x450, 6) // six tracks
+  w(0x452, 1) // two lines
+  // line 0: a note on track 0 and another on track 4, which share Paula 0
+  d[0x458] = 49
+  d[0x459] = 1
+  d[0x458 + 4 * 4] = 49
+  d[0x459 + 4 * 4] = 1
+
+  l(0x490, 0x4a0) // the one instrument
+  l(0x4a0, 0x20) // 32 bytes of sample
+  for (let i = 0; i < 0x20; i++) d[0x4a6 + i] = 60
+  return d
+})()
+
+const OMED = { 'a.med': OMED_MOD }
+const OLOAD = 'Omed Load "Work:a.med",7'
+
+describe('the OctaMed block', () => {
+  it('reserves DATA and not chip, because the mixer owns the buffers', () => {
+    // `moveq #$1,d1` at $692e, the same choice `S3m Load` makes
+    const { rt } = run([OLOAD], OMED)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe('OctaMed ')
+    expect([b.flags, b.memType]).toEqual([1, 0])
+  })
+
+  it('takes MMD0, MMD1 and MMD2 and refuses MMD3, which the library accepts', () => {
+    // $6964 compares three ids; $2159e0's chain in the library compares four
+    const mmd3 = OMED_MOD.slice()
+    mmd3[3] = '3'.charCodeAt(0)
+    expect(() => run([OLOAD], { 'a.med': mmd3 })).toThrow(DME_ERRORS[8])
+    const mmd0 = OMED_MOD.slice()
+    mmd0[3] = '0'.charCodeAt(0)
+    run([OLOAD], { 'a.med': mmd0 })
+  })
+
+  it('=Omed Song Length reads one byte at a fixed offset, and it is not a pointer', () => {
+    // $5d for an MMD2, which is the low byte of the first play sequence's
+    // length only because OctaMED puts that sequence at $34
+    run([OLOAD, 'Print Omed Song Length(7)'], OMED)
+    expect(out()).toEqual(['3'])
+    expect(() => run(['Print Omed Song Length(9)'], OMED)).toThrow(DME_ERRORS[8])
+  })
+
+  it('=Omed Subsongs is extra_songs at $33, one less than the file holds', () => {
+    run([OLOAD, 'Print Omed Subsongs(7)'], OMED)
+    expect(out()).toEqual(['2'])
+  })
+
+  it('=Omed Song Pos and =Omed Patt Pos answer zero until something has played', () => {
+    run(['Print Omed Song Pos', 'Print Omed Patt Pos'], {})
+    expect(out()).toEqual(['0', '0'])
+  })
+
+  it('Omed Hq On raises message 19 while a module is PLAYING', () => {
+    // $6c22's `tst.b $60(a0) / bne`: the flag decides AUDxPER and the buffer
+    // length together, so it cannot move under a running DMA
+    const { rt } = run([OLOAD, 'Omed Hq On', 'Omed Play 7'], OMED)
+    expect(rt.dme.omed?.hq).toBe(true)
+    expect(() => run([OLOAD, 'Omed Play 7', 'Omed Hq On'], OMED)).toThrow(DME_ERRORS[19])
+    expect(() => run([OLOAD, 'Omed Play 7', 'Omed Hq Off'], OMED)).toThrow(DME_ERRORS[19])
+  })
+
+  it('Omed Next Patt and Omed Prev Patt raise message 53 when nothing plays', () => {
+    expect(() => run(['Omed Next Patt'], {})).toThrow(DME_ERRORS[53])
+    expect(() => run(['Omed Prev Patt'], {})).toThrow(DME_ERRORS[53])
+  })
+
+  it('=Omed Vu takes 0..7, twice the width of the four-voice players', () => {
+    expect(() => run([OLOAD, 'Omed Play 7', 'Print Omed Vu(8)'], OMED)).toThrow()
+    const { rt } = run([OLOAD, 'Omed Play 7'], OMED)
+    rt.dme.omedVu[7] = 33
+    run([OLOAD, 'Omed Play 7', 'Print Omed Vu(0)'], OMED)
+  })
+
+  it('Omed Stop and Omed Cont turn the flag at $60(a0)', () => {
+    const off = run([OLOAD, 'Omed Play 7', 'Omed Stop'], OMED)
+    expect(off.rt.dme.omedPlaying).toBe(false)
+    const back = run([OLOAD, 'Omed Play 7', 'Omed Stop', 'Omed Cont'], OMED)
+    expect(back.rt.dme.omedPlaying).toBe(true)
+  })
+
+  it('mixes the two tracks of a pair into one Paula voice at 15,625 Hz', () => {
+    const { rt, audio } = run([OLOAD, 'Omed Play 7', 'Wait Vbl'], OMED)
+    expect(rt.dme.omedPlaying).toBe(true)
+    const played = audio.events.filter((e) => e.kind === 'play' && e.voice === 0)
+    expect(played.length).toBeGreaterThan(0)
+    // tempo 6, no HQ: 160 words is 320 bytes, and 15,625 / 320 is 48.83 Hz
+    expect(played[0]!.length).toBe(320)
+    expect(played[0]!.freq).toBeCloseTo(15625, 0)
+    // both tracks carry the same note off the same 60-valued sample, and the
+    // mixer adds them raw: 120, with no scaling and no clamp anywhere
+    expect(audio.voiceState[0]!.pcm![0]).toBe(120)
+  })
+})

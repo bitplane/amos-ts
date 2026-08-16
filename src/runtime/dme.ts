@@ -94,6 +94,7 @@ import { DIGI_MAGIC, parseDigi } from '../amiga/digi'
 import { DigiPlayer } from '../amiga/digiplay'
 import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
+import { MMD_EXTRA_SONGS_AT } from '../amiga/mmd2'
 import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
 import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
@@ -143,6 +144,8 @@ export const DIGI_BANK_NAME = 'DigiMod '
 export const SMON_BANK_NAME = 'SoundMon'
 /** `$53334d6d` then `$6f642020` at $4774: "S3Mmod" and two spaces */
 export const S3M_BANK_NAME = 'S3Mmod  '
+/** the eight bytes at $69e6, checked as "Octa" and "Med " at -$8 and -$4 */
+export const OMED_BANK_NAME = 'OctaMed '
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
 export const DMED_BANK_NAME = 'Med     '
 /** `cmpi.l #$4d4d4432,(a2)` at $6794: MMD2 keeps its sequence count elsewhere */
@@ -304,6 +307,17 @@ export interface DmeState {
   dmedVu: Uint8Array
 
   /** ScreamTracker 3, the seventh --- twelve channels through a 28 kHz mixer */
+  /**
+   * `DME_OctaMed.library`'s replay, which is medplayer's with MMD2, eight
+   * tracks and a mixer. `MedPlayer` in its `octaplayer` build is the engine.
+   */
+  omed: MedPlayer | null
+  /** `$56(a2)`, the bank `Omed Load` last filled */
+  omedBank: number
+  omedPlaying: boolean
+  omedStarted: boolean
+  /** the eight bytes at $21033c, which `=Omed Vu` reads and clears */
+  omedVu: Uint8Array
   s3m: S3mPlayer
   /** `$dc(a2)`, `$e6(a2)` and `$e7(a2)` */
   s3mBank: number
@@ -371,6 +385,11 @@ export function newDmeState(rt?: Runtime): DmeState {
     smonBank: 0,
     smonPlaying: false,
     smonStarted: false,
+    omed: null,
+    omedBank: 0,
+    omedPlaying: false,
+    omedStarted: false,
+    omedVu: new Uint8Array(8),
     s3m: new S3mPlayer(() => rt?.host.audio),
     s3mBank: 0,
     s3mPlaying: false,
@@ -425,6 +444,32 @@ function medFor(rt: Runtime, s: DmeState): MedPlayer {
   }
   player.bank = s.dmedBank
   s.dmed = player
+  return player
+}
+
+/**
+ * The `MedPlayer` the `omed` block drives, in its octaplayer build.
+ *
+ * `DME_OctaMed.library` shares 69.2% of its bytes with the medplayer build
+ * `med.ts` was read from, so this is the same replay with MMD2, eight tracks
+ * and `mmd2mix.ts` behind it rather than a second engine.
+ */
+function omedFor(rt: Runtime, s: DmeState): MedPlayer {
+  if (s.omed) return s.omed
+  const player = new MedPlayer(
+    {
+      get audio() {
+        return rt.audio
+      },
+      tick: () => rt.frames,
+      getBank: () => rt.memBanks.get(s.omedBank) ?? null,
+    },
+    'octaplayer',
+  )
+  player.onVu = (voice, volume) => {
+    if (voice >= 0 && voice < 8) s.omedVu[voice] = volume & 0xff
+  }
+  s.omed = player
   return player
 }
 
@@ -1722,6 +1767,125 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       s.s3m.prevPattern()
     },
 
+    /**
+     * Omed Load file$, bank --- routine 220 ($6902), the bank "OctaMed " and
+     * DATA ALONE: `moveq #$1,d1` at $692e, the same choice `S3m Load` makes
+     * and for the same reason. octaplayer mixes into four buffers it AllocVecs
+     * for itself, so nothing Paula reads ever lives in the module.
+     *
+     * The extension's own magic test at $6964 takes MMD2, MMD1 and MMD0 and
+     * NOT MMD3, which is narrower than the library behind it: $2159e0's accept
+     * chain compares all four ids, and so does octamixplayer's at $3f8e.
+     *
+     * Then two library calls. LVO -$24 must answer 1 or the module is not 5-8
+     * channel (message 9), and LVO -$2a answering 1 raises message 1,
+     * "FastMem required" ($69f0, `moveq #$1,d0`). This port has one address
+     * space and models a machine with fast memory, so the second never fires.
+     */
+    'omed load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.omedBank && s.omedPlaying) {
+        s.omedPlaying = false
+        s.omed?.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.omedBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, OMED_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      if (!/^MMD[0-2]$/.test(String.fromCharCode(...data.subarray(0, 4)))) {
+        rt.eraseBank(bank)
+        dmeErr(8)
+      }
+    },
+
+    /**
+     * Omed Play [bank] --- routine 223 ($6a4a) pushing $80000000 into routine
+     * 224, which checks the bank NAME and then calls LVO -$4e with the
+     * sub-song and LVO -$30 with the module.
+     *
+     * The sub-song is always that sentinel here, so `$6aa4`'s `moveq #$0,d0`
+     * is what reaches the library. DME declares a second, unnamed form at
+     * token $f2 with spec "I0,0" that would carry one; the port follows
+     * `Dmed Play` and wires only the named keyword, so `=Omed Subsongs` can
+     * count sub-songs that `Omed Play` has no way to select.
+     */
+    'omed play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.omedPlaying = false
+      s.omed?.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.omedBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== OMED_BANK_NAME) dmeErr(8)
+      s.omedBank = bank
+      const player = omedFor(rt, s)
+      player.play(bank, 0)
+      s.omedPlaying = true
+      s.omedStarted = true
+    },
+
+    /** Omed Stop --- routine 222 ($6a2a): the flag at $60(a0), then LVO -$42 */
+    'omed stop'() {
+      const s = st()
+      if (!s.omedPlaying) return
+      s.omedPlaying = false
+      s.omed?.stop()
+    },
+
+    /** Omed Cont --- routine 228 ($6be8): `tst.b $60(a0) / bne`, then LVO -$48 */
+    'omed cont'() {
+      const s = st()
+      if (s.omedPlaying) return
+      if (!s.omedStarted) return
+      s.omedPlaying = true
+      s.omed?.cont()
+    },
+
+    /**
+     * Omed Hq On / Omed Hq Off --- routines 229 ($6c16) and 230 ($6c42), both
+     * into LVO -$54, and both raise message 19 when something is PLAYING.
+     *
+     * `tst.b $60(a0) / bne` is the guard, so the quality is chosen before the
+     * module starts and never during it. That is not a policy: the flag
+     * decides AUDxPER and the buffer length together ($211ba2 and $211676), so
+     * changing it under a running DMA would change the tick rate mid-buffer.
+     */
+    'omed hq on'() {
+      const s = st()
+      if (s.omedPlaying) dmeErr(19)
+      omedFor(rt, s).hq = true
+    },
+    'omed hq off'() {
+      const s = st()
+      if (s.omedPlaying) dmeErr(19)
+      omedFor(rt, s).hq = false
+    },
+
+    /**
+     * Omed Next Patt / Omed Prev Patt --- routines 234 ($6cf2) and 235
+     * ($6d18), message 53 when nothing is playing, into LVO -$5a and -$60.
+     *
+     * Neither is a plain seek, and they are not each other's mirror. `med.ts`
+     * carries $210230 and $21028e instruction for instruction.
+     */
+    'omed next patt'() {
+      const s = st()
+      if (!s.omedPlaying) dmeErr(53)
+      omedFor(rt, s).octaNextPatt()
+    },
+    'omed prev patt'() {
+      const s = st()
+      if (!s.omedPlaying) dmeErr(53)
+      omedFor(rt, s).octaPrevPatt()
+    },
+
     /** S3m Volume n --- routine 75 ($47f2): 0..64, then LVO -60 */
     's3m volume'(it) {
       const v = it.evalInt()
@@ -2045,6 +2209,67 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     'dmed patt pos': () => VI(st().dmedStarted ? (st().dmed?.hdrPline ?? 0) : 0),
 
     /**
+     * =Omed Song Length(bank) — routine 226 ($6b4a), which calls no vector and
+     * reads ONE BYTE out of the bank at a fixed offset.
+     *
+     * Both offsets assume OctaMED Professional laid the file out the way it
+     * always does, and neither follows a pointer. $6b8a reads $22f, which is
+     * the low byte of `songlen` only if the song header sits at $34, right
+     * behind the 52-byte module header. $6b9e reads $5d, which is the low byte
+     * of the FIRST play sequence's length word only if that play sequence sits
+     * at $34 instead. All three MMD2s in `fixtures/` do: the byte reads 9, 18
+     * and 6, which are their play sequences to the entry.
+     *
+     * Being a byte, a song 256 positions long answers 0.
+     *
+     * The bank must be named "OctaMed " ($6b54 and $6b60 compare "Octa" and
+     * "Med " at -$8 and -$4) or the answer is message 8.
+     */
+    'omed song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMED_BANK_NAME) dmeErr(8)
+      const d = bank!.data
+      return VI(d[String.fromCharCode(...d.subarray(0, 4)) === 'MMD2' ? 0x5d : 0x22f] ?? 0)
+    },
+
+    /**
+     * =Omed Subsongs(bank) — routine 231 ($6c6e): the byte at $33, which is
+     * `extra_songs` in the module header and so one LESS than the number of
+     * songs the file holds.
+     */
+    'omed subsongs': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMED_BANK_NAME) dmeErr(8)
+      return VI(bank!.data[MMD_EXTRA_SONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Omed Song Pos / =Omed Patt Pos — routines 232 ($6caa) and 233 ($6cce).
+     *
+     * Both read the live header words `$2e` and `$2c` that the library keeps
+     * in the module while it plays, and both are gated on `$62(a2)`, the byte
+     * `Omed Play` sets and nothing clears --- so they answer zero before the
+     * first play and keep answering after a stop.
+     */
+    'omed song pos': () => VI(st().omedStarted ? (st().omed?.hdrPseqnum ?? 0) : 0),
+    'omed patt pos': () => VI(st().omedStarted ? (st().omed?.hdrPline ?? 0) : 0),
+
+    /**
+     * =Omed Vu(n) — routine 236 ($6d3e), 0..7 and `Rbcc` to message 23 above
+     * it, into LVO -$66. $210320 reads the byte and clears it in one go.
+     */
+    'omed vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 8) badCall()
+      const s = st()
+      const v = s.omedVu[n] ?? 0
+      s.omedVu[n] = 0
+      return VI(v)
+    },
+
+    /**
      * =Smon Song Length(bank) — routine 146 ($56f4), which calls no vector and
      * reads the WORD at module+$1e, the step count `InitModule` uses to size
      * everything after the header.
@@ -2138,6 +2363,9 @@ export function dmeVbl(rt: Runtime): void {
   if (s.s3mPlaying) s.s3m.vbl()
   // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
   if (s.dmedPlaying) s.dmed?.vbl()
+  // OctaMed is the same replay on a different clock: its tick is the end of a
+  // DMA buffer rather than a CIA underflow, so `vbl` runs it at the buffer rate
+  if (s.omedPlaying) s.omed?.vbl()
   if (s.digiPlaying && s.digiUnpaused) {
     s.digiTime += 1 / VBL_HZ
     for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {

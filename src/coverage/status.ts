@@ -2667,6 +2667,22 @@ export const FAITHFUL = new Set<string>([
   's3m song length',
   's3m song pos',
   's3m vu',
+  // The OctaMed block over ../runtime/med.ts in its octaplayer build and
+  // ../amiga/mmd2mix.ts, off DME_OctaMed.library. `Omed Play` is NOT here, for
+  // the reason its note gives: two words of the library's own state are never
+  // written and the port has to supply them.
+  'omed load',
+  'omed stop',
+  'omed cont',
+  'omed hq on',
+  'omed hq off',
+  'omed next patt',
+  'omed prev patt',
+  'omed song length',
+  'omed subsongs',
+  'omed song pos',
+  'omed patt pos',
+  'omed vu',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -8425,6 +8441,20 @@ export const NOTES: Record<string, string> = {
     "is packaged but not installed, and is a different replayer anyway --- so the mix is checked against the " +
     "instructions and against measurement (0.4% of samples on the +-127 rail, which is what a divisor of two " +
     "over six channels a side should give) rather than against a recording.",
+  "omed play":
+    "routine 223 ($6a4a) pushes $80000000 into routine 224, on a bank named \"OctaMed \" ($6a80 compares it " +
+    "as two longs). The replay is src/runtime/med.ts in its `octaplayer` build: DME_OctaMed.library shares " +
+    "69.2% of its bytes with the medplayer build that file was read from, and its sixteen period tables at " +
+    "$2123e2 are the same 3,264 bytes, so this is one replayer with two front ends rather than two ports. " +
+    "What is new is MMD2 (a section table and named play sequences past $1f8, walked at $211aca), eight " +
+    "tracks, and src/amiga/mmd2mix.ts --- track n+4 added onto track n one signed byte at a time with no " +
+    "volume table and no clamp ($210974), into four DMA buffers whose LENGTH is the tempo ($211648), so the " +
+    "AUD0 interrupt is the tick and tempos 10 and above all run at one speed. APPROXIMATED because two words " +
+    "of the library's own state are read and never written, in DME_OctaMed, in octaplayer-b27d6bb2 and in " +
+    "the 1994 octaplayer-a30420ff alike: $578, the mix loop's counter, which taken literally fills 20 bytes " +
+    "of a 220-to-800 byte buffer; and the four bytes at $172(a6) that $210858 copies into AUDxVOL, which " +
+    "taken literally silence every channel. The port fills the buffer and takes the volume from the sounding " +
+    "track, and mmd2mix.ts sets out why at the address.",
   "smon cont": "routine 154 ($5854): `tst.b $94(a0) / bne` and then LVO -84 ($210208), the saved master back with the position untouched.",
   "smon volume": "routine 152 ($5806): 0..64 checked twice over, then LVO -72 ($2102c6), the same veneer the SoundFX and FutureComposer libraries carry.",
   "smon voice": "routine 153 ($5838) checks nothing and hands the whole longword to LVO -78 ($2102e0).",

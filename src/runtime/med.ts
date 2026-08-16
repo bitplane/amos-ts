@@ -27,12 +27,45 @@
  *
  * Synthsounds and hybrids ARE here, and they are the two bytecode
  * interpreters at $2105d6 rather than an approximation of them.
+ *
+ * ## Two builds, one replay
+ *
+ * `MedPlayer` takes a build, because there are two libraries in this family
+ * and DME 2.0 drives both. `medplayer` is everything above. `octaplayer` is
+ * `DME_OctaMed.library`, which shares 69.2% of its bytes with the medplayer
+ * build this file was read from --- the sixteen period tables at its $2123e2
+ * are the same 3,264 bytes as medplayer's at $211fca --- and differs in
+ * exactly five ways, all of them read off the binary and none inferred:
+ *
+ * - It plays MMD2, whose song header grew a section table and an array of
+ *   named play sequences past $1f8. $211aca walks section, then play
+ *   sequence, then block; the MMD0 path at $211af8 is still one byte out of
+ *   `playseq[]`.
+ * - It sounds up to EIGHT tracks. Track n+4 is mixed on top of track n rather
+ *   than sent to MIDI, which is `mmd2mix.ts`.
+ * - Its tick is a DMA buffer and not a CIA timer, so the tempo range
+ *   collapses. `omedTickHz` replaces `medTickHz` for this build.
+ * - It never reads `trkvol` at $302 or `mastervol` at $312. Both are dead in
+ *   this build, which is checkable: neither offset appears anywhere in the
+ *   library.
+ * - `Omed Next Patt` and `Omed Prev Patt` are LVOs of their own ($210230 and
+ *   $21028e), and both force the line to 63 as well as moving the position.
  */
 
 import { AmosError } from '../interp/values'
 import { PT_PERIODS, PT_PERIODS_PER_ROW } from '../amiga/notes'
-import { PAULA_CLOCK_PAL, VBL_HZ, periodToHz } from '../amiga/paula'
+import { PAULA_CLOCK_PAL, VBL_HZ, clampVolume, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
+import { MMD2_PLAYSEQ_HEADER, MMD2_PLAYSEQ_LENGTH_AT } from '../amiga/mmd2'
+import {
+  OMED_FLAG_SLOWHQ,
+  OMED_TRACKS,
+  omedBufferWords,
+  omedMix,
+  omedMixRate,
+  omedTickHz,
+  type OmedSide,
+} from '../amiga/mmd2mix'
 
 /**
  * The CIA timer periods for primary tempos 1 to 10, read out of the table at
@@ -287,6 +320,19 @@ export interface MedHost {
   getBank: (n: number) => { name: string; data: Uint8Array } | null
 }
 
+/**
+ * Which library's front end this player wears.
+ *
+ * `medplayer` is four Paula voices on a CIA timer. `octaplayer` is
+ * `DME_OctaMed.library`: MMD2, up to eight tracks mixed two to a voice, and a
+ * tick that is the length of a DMA buffer.
+ */
+export type MedBuild = 'medplayer' | 'octaplayer'
+
+/** $210882, $210896, $2108aa, $2108be: four blocks, and $78 further on is the
+ *  second track of each pair */
+const OMED_PAIRS = 4
+
 export class MedPlayer {
   /**
    * Told the volume of every trigger, so a caller can keep vu bytes.
@@ -343,8 +389,38 @@ export class MedPlayer {
   private flags = 0 // song flags at $2ff
   private voices: MedVoice[] = [0, 1, 2, 3].map(newVoice)
 
-  constructor(host: MedHost) {
+  /** which library, and everything below that tests it cites its own address */
+  readonly build: MedBuild
+  /** `$3(a2)`: 0, 1 or 2, and `cmpi.b #$32,$3(a2)` is the MMD2 gate */
+  private fmt = 0
+  /** $1fa of an MMD2 song header, and $1fc, $200 and $208 beside it */
+  private sections = 0
+  private sectionTable = 0
+  private pseqTable = 0
+  /** `$c(a2)`, the section index, and `$e(a2)`, the byte offset $211ade caches */
+  private section = 0
+  private pseqAt = 0
+  /** the eight mixer sides, and the four buffers they are summed into */
+  private sides: OmedSide[] = []
+  private buffers: Int8Array[] = []
+  private pcm: Int8Array | null = null
+  /** the byte `Omed Hq On` writes through LVO -$54 */
+  hq = false
+
+  constructor(host: MedHost, build: MedBuild = 'medplayer') {
     this.host = host
+    this.build = build
+    if (build === 'octaplayer') this.resetMix()
+  }
+
+  private resetMix(): void {
+    this.sides = [...Array(OMED_TRACKS)].map(() => ({ at: 0, end: 0, loop: 0, period: 0 }))
+    this.buffers = [...Array(OMED_PAIRS)].map(() => new Int8Array(0))
+  }
+
+  /** how many tracks reach audio: four in medplayer whatever the block holds */
+  private get tracks(): number {
+    return this.build === 'octaplayer' ? OMED_TRACKS : 4
   }
 
   private w(off: number): number {
@@ -363,8 +439,19 @@ export class MedPlayer {
     return this.data?.[off] ?? 0
   }
 
+  /**
+   * Whether a note is four bytes and a block header eight.
+   *
+   * `sge.b d5` on `cmpi.b #$31,$3(a2)` at $210c7c is the test, so MMD1 and
+   * everything above it share one layout and MMD0 is the odd one.
+   */
   get mmd1(): boolean {
-    return this.data !== null && this.data[3] === 0x31
+    return this.fmt >= 1
+  }
+
+  /** `cmpi.b #$32,$3(a2)`: the sections-and-play-sequences header */
+  get mmd2(): boolean {
+    return this.fmt >= 2
   }
 
   /**
@@ -380,7 +467,7 @@ export class MedPlayer {
    * for them here instead. See medext.ts.
    */
   get hdrPblock(): number {
-    return this.data ? this.b(this.song + 508 + Math.min(this.seqPos, 255)) : 0
+    return this.data ? this.blockNumber() : 0
   }
 
   get hdrPline(): number {
@@ -411,12 +498,17 @@ export class MedPlayer {
     this.tempo = t
   }
 
+  /** "Med     " for medplayer, "OctaMed " for the DME_OctaMed veneer */
+  private get bankPrefix(): string {
+    return this.build === 'octaplayer' ? 'OctaMed' : 'Med'
+  }
+
   /** the bank verification half of InMedPlay2 (+Music.s:4628-4634) */
   checkBank(bankArg: number | null): number {
     let n = bankArg ?? this.bank
     if (n >= 0x01000000) n = Math.floor((n - 0x01000000) / 0x00100000)
     const bank = this.host.getBank(n)
-    if (!bank || !bank.name.startsWith('Med')) throw new AmosError('not a med module')
+    if (!bank || !bank.name.startsWith(this.bankPrefix)) throw new AmosError('not a med module')
     return n
   }
 
@@ -437,9 +529,21 @@ export class MedPlayer {
     this.song = this.l(base + 8)
     this.blockarr = this.l(base + 0x10)
     this.smplarr = this.l(base + 0x18)
+    // $211a80 rewrites a 'T' id to '0', so a MMDT plays as an MMD0
+    const id3 = this.b(base + 3)
+    this.fmt = id3 === 0x54 ? 0 : Math.max(0, Math.min(3, id3 - 0x30))
     const s = this.song
     this.numblocks = this.w(s + 504)
     this.songlen = Math.max(1, this.w(s + 506))
+    // MMD2 keeps $1fa for the SECTION count and hangs the play sequences off
+    // $1fc as an array of pointers, each with its own length word at $28
+    this.sections = this.mmd2 ? Math.max(1, this.w(s + 0x1fa)) : 0
+    this.sectionTable = this.mmd2 ? this.l(s + 0x200) : 0
+    this.pseqTable = this.mmd2 ? this.l(s + 0x1fc) : 0
+    // $208, the song's own track count, is deliberately not read: nothing in
+    // octaplayer reads it either, because the block header carries its own
+    this.section = 0
+    this.pseqAt = this.mmd2 ? this.w(this.sectionTable) * 4 : 0
     // DEVIATION: deftempo 0 is the off-the-table read medTickHz describes, so
     // it is replaced here with a tempo that ticks at about a PAL frame.
     this.tempo = this.w(s + 0x2fc) || 33
@@ -457,7 +561,11 @@ export class MedPlayer {
     this.breakKind = 0
     this.keepLine = false
     this.lineJump = this.loopLine = this.loopCount = this.lineDelay = 0
-    this.voices = [0, 1, 2, 3].map(newVoice)
+    this.voices = [...Array(this.tracks)].map(newVoice)
+    if (this.build === 'octaplayer') {
+      this.resetMix()
+      this.pcm = new Int8Array(bank.data.buffer, bank.data.byteOffset, bank.data.length)
+    }
     this.on = true
   }
 
@@ -488,8 +596,8 @@ export class MedPlayer {
   seek(delta: number): void {
     if (!this.data) return
     let pos = this.seqPos + delta
-    if (pos < 0) pos = Math.max(0, this.songlen - 1)
-    if (pos >= this.songlen) pos = 0
+    if (pos < 0) pos = Math.max(0, this.seqLength - 1)
+    if (pos >= this.seqLength) pos = 0
     this.seqPos = pos
     this.line = 0
     this.tickCount = 0
@@ -499,12 +607,101 @@ export class MedPlayer {
   stop(): void {
     if (!this.on) return
     this.on = false
+    if (this.build === 'octaplayer') this.resetMix()
     for (let v = 0; v < 4; v++) this.host.audio.stop(v)
+  }
+
+  /**
+   * $2107bc with the buffer swap spent: four pairs mixed, four buffers handed
+   * to Paula, once per tick.
+   *
+   * The library double-buffers because the DMA is reading one while the other
+   * fills. Here the buffer holds exactly one tick, so playing it from the top
+   * each tick is the same thing, which is the choice `digiplay.ts` makes for
+   * DigiBooster's pairs as well.
+   *
+   * DEVIATION: the volume is the sounding track's own. $210858 copies four
+   * bytes from `$172(a6)` into the four AUDxVOL registers and nothing in the
+   * library ever writes them, so a literal port sets every channel to zero on
+   * the first interrupt. `mmd2mix.ts` sets that out at length. The first track
+   * of a pair wins when both sound, because the pair is its Paula channel.
+   */
+  private emit(): void {
+    const pcm = this.pcm
+    if (!pcm) return
+    const words = omedBufferWords(this.tempo, this.hq, (this.flags & OMED_FLAG_SLOWHQ) !== 0)
+    const n = words * 2
+    const rate = omedMixRate(this.hq)
+    for (let v = 0; v < OMED_PAIRS; v++) {
+      const a = this.sides[v]!
+      const b = this.sides[v + OMED_PAIRS]!
+      const aLive = a.at !== 0 && a.period !== 0
+      const bLive = b.at !== 0 && b.period !== 0
+      if (!aLive && !bLive) {
+        this.host.audio.setVolume(v, 0)
+        continue
+      }
+      let buf = this.buffers[v]!
+      if (buf.length !== n) buf = this.buffers[v] = new Int8Array(n)
+      omedMix(buf, pcm, a, b, this.hq)
+      const lead = this.voices[aLive ? v : v + OMED_PAIRS]!
+      this.host.audio.play(v, buf, rate, clampVolume(lead.outVol), 0, n)
+    }
   }
 
   /** InMedCont (+Music.s:4732): only when positioned and stopped */
   cont(): void {
     if (this.data && !this.on) this.on = true
+  }
+
+  /**
+   * LVO -$5a, $210230: `Omed Next Patt`, and it is not `seek(1)`.
+   *
+   * It forces the line to 63 whatever the block's length, by adding `63 -
+   * pline` to the line rather than assigning. And on an MMD2 it steps the
+   * SECTION at `$c(a2)` and leaves the cached play-sequence offset at `$e(a2)`
+   * alone, so the block does not change now: the next time the play sequence
+   * runs out, $210dea increments the section again from where this left it and
+   * one section is skipped. Only the MMD0 arm moves the position itself.
+   */
+  octaNextPatt(): void {
+    const line = this.line
+    if (this.mmd2) {
+      let sec = this.section + 1
+      if (sec >= this.sections) sec = 0
+      this.section = sec
+    } else {
+      let pos = this.seqPos + 1
+      if (pos >= this.songlen) pos = 0
+      this.seqPos = pos
+    }
+    this.line = line + (0x3f - line)
+  }
+
+  /**
+   * LVO -$60, $21028e: `Omed Prev Patt`, which is not the mirror of the above.
+   *
+   * $210298 substitutes 63 for a line of zero before the same `63 - pline`
+   * arithmetic, so at the top of a block the line stays where it is. And the
+   * MMD2 arm DOES reload `$e(a2)` and the play sequence, which the forward one
+   * does not.
+   */
+  octaPrevPatt(): void {
+    const line = this.line === 0 ? 0x3f : this.line
+    if (this.mmd2) {
+      let pos = this.seqPos - 1
+      if (pos < 0) {
+        let sec = this.section - 1
+        if (sec < 0) sec = 0
+        this.section = sec
+        this.pseqAt = this.w(this.sectionTable + sec * 2) * 4
+        pos = 0
+      }
+      this.seqPos = pos
+    } else {
+      this.seqPos = Math.max(0, this.seqPos - 1)
+    }
+    this.line = this.line + (0x3f - line)
   }
 
   /** MedClose (+Music.s:4711) */
@@ -518,7 +715,7 @@ export class MedPlayer {
     if (!this.on) return
     // MedCheck (+Music.s:4567): the bank vanished or was replaced
     const bank = this.host.getBank(this.bankNum)
-    if (!bank || bank.data !== this.data || !bank.name.startsWith('Med')) {
+    if (!bank || bank.data !== this.data || !bank.name.startsWith(this.bankPrefix)) {
       this.stop()
       this.data = null
       return
@@ -530,7 +727,7 @@ export class MedPlayer {
     const end = this.host.tick() / VBL_HZ
     const start = end - 1 / VBL_HZ
     if (this.next < start) this.next = start
-    if (medTickHz(this.tempo, this.bpm, this.lpb) <= 0) return
+    if (this.tickHz() <= 0) return
     let ticks = 0
     while (this.next < end) {
       if (++ticks > MAX_TICKS_PER_VBL) {
@@ -539,16 +736,30 @@ export class MedPlayer {
       }
       this.host.audio.runTo?.(this.next)
       this.tick()
+      if (this.build === 'octaplayer') this.emit()
       // AFTER the tick, because `Fxx` writes the CIA's reload latch and the
       // timer is already counting down the interval it was given. The new
       // period takes effect at the underflow, which is the next fire.
-      const hz = medTickHz(this.tempo, this.bpm, this.lpb)
+      const hz = this.tickHz()
       if (hz <= 0) {
         this.next = end
         break
       }
       this.next += 1 / hz
     }
+  }
+
+  /**
+   * Where the two builds part company on time.
+   *
+   * medplayer asks CIA-B for an interval. octaplayer asks Paula for a buffer
+   * and lets its end interrupt be the tick, so the whole tempo scale is the
+   * ten-byte table at $212346 and nothing else.
+   */
+  private tickHz(): number {
+    if (this.build === 'octaplayer')
+      return omedTickHz(this.tempo, this.hq, (this.flags & OMED_FLAG_SLOWHQ) !== 0)
+    return medTickHz(this.tempo, this.bpm, this.lpb)
   }
 
   /**
@@ -570,7 +781,7 @@ export class MedPlayer {
       }
       if (!hold) this.playLine()
     }
-    for (let v = 0; v < 4; v++) this.tickEffect(v)
+    for (let v = 0; v < this.tracks; v++) this.tickEffect(v)
     if (++this.tickCount >= this.tempo2) {
       this.tickCount = 0
       if (!hold) this.advanceLine()
@@ -593,17 +804,66 @@ export class MedPlayer {
       return
     }
     if (!this.keepLine) target = 0
-    let pos = this.seqPos
-    if (this.breakKind >= 0) pos++
-    if (pos >= this.songlen) pos = 0
-    this.seqPos = pos
+    if (this.mmd2) this.advanceMmd2()
+    else {
+      let pos = this.seqPos
+      if (this.breakKind >= 0) pos++
+      if (pos >= this.songlen) pos = 0
+      this.seqPos = pos
+    }
     this.breakKind = 0
     this.keepLine = false
     this.line = target
   }
 
+  /**
+   * $210dcc: the play sequence first, the section only when it runs out.
+   *
+   * A play-sequence word with its top bit set is not a block. $210e1e's
+   * `bpl` sends it back to $210dcc, which advances again from wherever the
+   * walk now stands --- so a marker is skipped rather than played, and a
+   * sequence of nothing but markers would spin. The 256-turn guard is this
+   * port's, and the loop it protects is the library's.
+   */
+  private advanceMmd2(): void {
+    let step = this.breakKind >= 0
+    for (let guard = 0; guard < 256; guard++) {
+      let pos = this.seqPos + (step ? 1 : 0)
+      step = true
+      if (pos >= this.seqLength) {
+        let sec = this.section + 1
+        if (sec >= this.sections) sec = 0
+        this.section = sec
+        this.pseqAt = this.w(this.sectionTable + sec * 2) * 4
+        pos = 0
+      }
+      this.seqPos = pos
+      if ((this.w(this.l(this.pseqTable + this.pseqAt) + MMD2_PLAYSEQ_HEADER + pos * 2) & 0x8000) === 0) return
+    }
+  }
+
+  /**
+   * The block this position names.
+   *
+   * $211af8 is MMD0's: one BYTE out of `playseq[]`, which is why a song can
+   * hold 256 positions and no more. $211aca is MMD2's: the section index
+   * chooses a play sequence, and the play sequence's words start at $2a past
+   * a 32-character name.
+   */
+  private blockNumber(): number {
+    if (!this.mmd2) return this.b(this.song + 508 + Math.min(this.seqPos, 255))
+    const pseq = this.l(this.pseqTable + this.pseqAt)
+    return this.w(pseq + MMD2_PLAYSEQ_HEADER + this.seqPos * 2)
+  }
+
+  /** $210ee0 reads the length out of the play sequence itself, not the song */
+  private get seqLength(): number {
+    if (!this.mmd2) return this.songlen
+    return Math.max(1, this.w(this.l(this.pseqTable + this.pseqAt) + MMD2_PLAYSEQ_LENGTH_AT))
+  }
+
   private currentBlock(): number {
-    const seq = this.b(this.song + 508 + Math.min(this.seqPos, 255))
+    const seq = this.blockNumber()
     if (seq >= this.numblocks) return 0
     return this.l(this.blockarr + seq * 4)
   }
@@ -620,10 +880,16 @@ export class MedPlayer {
    * The row: instrument, then the command through the row-tick table at
    * $2109fe, then the note.
    *
-   * Only four tracks are read. `$210d54` sends track index 4 and up to the
-   * MIDI handler whatever the block holds, so an eight-track MMD is four
-   * Paula voices in this library and the rest is note data for a synthesiser
-   * that is not here.
+   * medplayer reads only four tracks. `$210d54` sends track index 4 and up to
+   * the MIDI handler whatever the block holds, so an eight-track MMD is four
+   * Paula voices in that library and the rest is note data for a synthesiser
+   * that is not here. octaplayer reads eight and mixes the second four onto
+   * the first.
+   *
+   * The stride is the BLOCK's own track count, not the song's: `move.w (a0),d7
+   * / mulu.w d7,d0` at $210eb8 reads it out of the block header every line,
+   * which is what lets one MMD2 hold blocks four, five, six and seven tracks
+   * wide. "Cuku's Dead" in `fixtures/` does exactly that.
    */
   private playLine(): void {
     const blk = this.currentBlock()
@@ -631,7 +897,7 @@ export class MedPlayer {
     const tracks = this.blockTracks(blk)
     const head = this.mmd1 ? 8 : 2
     const esize = this.mmd1 ? 4 : 3
-    for (let v = 0; v < Math.min(4, tracks); v++) {
+    for (let v = 0; v < Math.min(this.tracks, tracks); v++) {
       const off = blk + head + (this.line * tracks + v) * esize
       let note: number
       let instr: number
@@ -725,7 +991,7 @@ export class MedPlayer {
         this.tempo2 = (d & 0x1f) || 32
         return false
       case 0xb: // $210bb2: position jump, which sets the position itself
-        if (d <= this.songlen) {
+        if (d <= this.seqLength) {
           this.seqPos = d
           this.breakKind = -1
         }
@@ -886,7 +1152,17 @@ export class MedPlayer {
     V.outPeriod = V.period
     V.outVol = V.vol
     V.sounding = true
-    this.host.audio.play(v, pcm, periodToHz(V.period), V.vol, loopStart, loopEnd)
+    if (this.build === 'octaplayer') {
+      // AUDxLC, AUDxLEN and the loop pointer, as module offsets: the mixer
+      // reads the bank in place, exactly as $2108ee does
+      const side = this.sides[v]!
+      side.at = start
+      side.end = loopStart >= 0 ? start + loopEnd : end
+      side.loop = loopStart >= 0 ? start + loopStart : 0
+      side.period = V.period
+    } else {
+      this.host.audio.play(v, pcm, periodToHz(V.period), V.vol, loopStart, loopEnd)
+    }
     this.onVu?.(v, V.vol)
   }
 
@@ -1365,6 +1641,15 @@ export class MedPlayer {
     const start = ptr + 2
     const end = Math.min(d.length, start + words * 2)
     if (words === 0 || start >= end) return
+    if (this.build === 'octaplayer') {
+      const side = this.sides[v]!
+      side.at = start
+      side.end = end
+      side.loop = start
+      side.period = V.period
+      V.sounding = true
+      return
+    }
     const pcm = new Int8Array(d.buffer, d.byteOffset + start, end - start)
     if (V.sounding && this.host.audio.setWaveform) {
       this.host.audio.setWaveform(v, pcm)
@@ -1383,6 +1668,14 @@ export class MedPlayer {
    */
   private writeVoice(v: number, period: number): void {
     const V = this.voices[v]!
+    if (this.build === 'octaplayer') {
+      // $6(a2) and $7e(a2), which the mixer divides into rather than a
+      // register Paula reads: a mixed track has no AUDxPER of its own
+      this.sides[v]!.period = period
+      V.outVol = V.tremVol >= 0 ? V.tremVol : V.vol
+      V.tremVol = -1
+      return
+    }
     if (period !== V.outPeriod) {
       V.outPeriod = period
       if (period > 0) this.host.audio.setFrequency(v, periodToHz(period))
