@@ -175,6 +175,7 @@ describe('CIA-B port A: three printer lines and three serial inputs', () => {
     const b = new CiaB({
       parallel: () => ({ data: 0xff, busy: false, paperOut: false, selected: true }),
       serial: () => null,
+      motor: () => {},
     })
     expect(b.pra() & CIAF_PRTRBUSY).toBe(0)
     expect(b.pra() & CIAF_PRTRPOUT).toBe(0)
@@ -185,6 +186,7 @@ describe('CIA-B port A: three printer lines and three serial inputs', () => {
     const b = new CiaB({
       parallel: () => null,
       serial: () => ({ carrierDetect: true, clearToSend: false, dataSetReady: false }),
+      motor: () => {},
     })
     expect(b.pra() & CIAF_COMCD).toBe(0)
     expect(b.pra() & CIAF_COMCTS).toBe(CIAF_COMCTS)

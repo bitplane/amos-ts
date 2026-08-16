@@ -1072,16 +1072,18 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
      * then a byte into "DFx:"), and a unit with no drive behind it does
      * nothing, which is what a failed DeviceProc does.
      *
-     * DEVIATION: this asks the drive for its motor and gets an answer that
-     * nothing spins. `../amiga/trackdisk.ts` holds the state, and the state
-     * is all there is: there is no rotation here to be up to speed.
+     * DEVIATION: the state is all there is. `../amiga/trackdisk.ts` holds
+     * `motorOn` and /RDY follows it, so a program can watch the drive come
+     * up, but there is no rotation here to be up to speed and no delay before
+     * it is.
      */
     'drive busy'(it) {
       const drv = it.evalInt()
       it.expect(',')
-      it.evalInt()
+      const on = it.evalInt() !== 0
       const unit = (drv + 48 - 48) & 0xff
-      void rt.machine.drives[unit]?.motorOn
+      const drive = rt.machine.drives[unit]
+      if (drive) drive.motorOn = on
     },
 
     /**

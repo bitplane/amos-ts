@@ -123,7 +123,13 @@ export class FloppyDrive implements Device {
    */
   writeProtected = false
 
-  /** is the motor spinning? CIA-B PRB bit 7 latches this per unit. */
+  /**
+   * Is the motor spinning?
+   *
+   * Held here rather than read off the register because /MTR is one wire to
+   * four drives: a write that pulls this unit's /SELn low hands it the motor
+   * state and the drive keeps it. `../amiga/cia.ts`'s `latch` is the wire.
+   */
   motorOn = false
 
   /** where the head is, 0 to 79. /TRK0 is this being zero. */

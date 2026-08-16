@@ -208,12 +208,21 @@ export interface CiaAWires {
   parallel(): ParallelLines | null
 }
 
-/** everything CIA-B reads that CIA-B does not own */
+/** everything CIA-B reads that CIA-B does not own, and the one thing it drives */
 export interface CiaBWires {
   /** the parallel port again: PRA carries its three status lines */
   parallel(): ParallelLines | null
   /** what is on the serial port, or null for an empty connector */
   serial(): SerialLines | null
+  /**
+   * /MTR reaching the unit whose /SELn is low.
+   *
+   * The one OUTPUT in this interface, and the reason it is here: port B's
+   * eight lines are what the drives listen to, and a chip that writes them
+   * without anything hearing is half a wire. See `latch` below for why the
+   * unit is passed rather than the level being read.
+   */
+  motor(unit: number, on: boolean): void
 }
 
 /** wires for a machine with nothing plugged in: no buttons, no drive, no cables */
@@ -228,6 +237,7 @@ export const idleWires = (): CiaAWires => ({
 export const idleWiresB = (): CiaBWires => ({
   parallel: () => null,
   serial: () => null,
+  motor: () => {},
 })
 
 /**
@@ -344,14 +354,28 @@ export class CiaB {
   /** what was last written to port B's latch. All eight bits are outputs. */
   private outB = 0xff
 
+  private dir = 0xff
+
   /**
    * Which of port B's lines the chip is actually driving.
    *
    * $ff at boot: trackdisk.device wants every one of them driven and leaves
    * DDRB that way, which is the state all six keywords above assume when they
    * write $77 and expect it to reach the motor.
+   *
+   * An accessor rather than a field because changing it changes what the
+   * drives see, and the six keywords use it as their on/off switch: they
+   * leave $77 in the data register and flip the direction register underneath
+   * it.
    */
-  ddrb = 0xff
+  get ddrb(): number {
+    return this.dir
+  }
+
+  set ddrb(v: number) {
+    this.dir = v & 0xff
+    this.latch()
+  }
 
   /** DTR and RTS, the two the machine drives on port A */
   private outA = 0xff
@@ -382,11 +406,35 @@ export class CiaB {
    * pulled-up high where it does not.
    */
   prb(): number {
-    return ((this.outB & this.ddrb) | ~this.ddrb) & 0xff
+    return ((this.outB & this.dir) | ~this.dir) & 0xff
   }
 
   writePrb(v: number): void {
     this.outB = v & 0xff
+    this.latch()
+  }
+
+  /**
+   * Hand /MTR to the drive that is currently selected.
+   *
+   * /MTR is ONE wire to four drives, so it cannot be a level that each drive
+   * follows: that would spin all four together, and a program that reads DF1:
+   * while DF0: sits idle is ordinary. The only per-drive line on this port is
+   * /SELn, four of them at `cia.i`:133-136, so the motor state has to be
+   * taken by the drive being addressed and remembered there. That is what
+   * `../amiga/trackdisk.ts` holds `motorOn` for.
+   *
+   * The consequence is worth reading before it looks like a bug. The four
+   * writes every one of the six motor keywords makes end with the port turned
+   * back to inputs, at which point no /SELn is low and this does nothing —
+   * so `Dled On`, which is the one that turns the light OFF, leaves drive 0
+   * spinning from the $77 two instructions earlier. Misc 1.0's manual is
+   * describing exactly that when it says to use the other command "when the
+   * drive led doesn't stop reading".
+   */
+  private latch(): void {
+    const unit = this.selected
+    if (unit !== null) this.wires.motor(unit, this.motorLine)
   }
 
   /** what the drives actually see, which is `prb()` and not the latch */

@@ -210,13 +210,17 @@ export class Machine {
    * CIA-B: the printer and serial handshake lines, and the four drive control
    * lines.
    *
-   * Nothing reads the drive lines yet, and six keywords WRITE them. That is
-   * the right way round for a slice: the register is the shared thing, and
-   * what it controls arrives when there is a drive to control.
+   * Six keywords write the drive lines and now four drives listen to them:
+   * a write that pulls a /SELn low hands /MTR to that unit, which is the one
+   * output in `CiaBWires` and the reason `Poke $BFD100,$77` spins DF0.
    */
   readonly ciab = new CiaB({
     parallel: () => this.parallel?.lines() ?? null,
     serial: () => this.serial?.lines() ?? null,
+    motor: (unit, on) => {
+      const d = this.drives[unit]
+      if (d) d.motorOn = on
+    },
   })
 
   /**

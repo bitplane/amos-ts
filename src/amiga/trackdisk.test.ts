@@ -7,7 +7,7 @@
  * a device node and a volume node that having one finally makes real.
  */
 import { describe, expect, it } from 'vitest'
-import { CIAF_DSKCHANGE, CIAF_DSKPROT, CIAF_DSKRDY, CIAF_DSKTRACK0 } from './cia'
+import { CIAF_DSKCHANGE, CIAF_DSKMOTOR, CIAF_DSKPROT, CIAF_DSKRDY, CIAF_DSKTRACK0 } from './cia'
 import { Machine } from './machine'
 import { TD_CYLINDERS, TD_UNITS, type DiskMedium, FloppyDrive, driveName, newDrives } from './trackdisk'
 import { AmigaFS } from './vfs'
@@ -118,9 +118,12 @@ describe('the head', () => {
 })
 
 describe('CIA-A reads the SELECTED drive and no other', () => {
-  const select = (m: Machine, unit: number | null): void => {
-    // /SELn is bit 3+n on CIA-B port B and is ACTIVE LOW
-    m.ciab.writePrb(unit === null ? 0xff : 0xff & ~(1 << (3 + unit)))
+  const select = (m: Machine, unit: number | null, motor = false): void => {
+    // /SELn is bit 3+n on CIA-B port B and is ACTIVE LOW, and so is /MTR on
+    // bit 7. Selecting a unit hands it whatever /MTR reads at that moment,
+    // which is why the motor cannot be set behind the register's back.
+    const sel = unit === null ? 0xff : 0xff & ~(1 << (3 + unit))
+    m.ciab.writePrb(motor ? sel & ~CIAF_DSKMOTOR : sel)
   }
 
   it('answers all four lines inactive with no unit selected', () => {
@@ -136,9 +139,8 @@ describe('CIA-A reads the SELECTED drive and no other', () => {
   it('answers for unit 1 when unit 1 is selected, not unit 0', () => {
     const m = new Machine()
     m.drives[1]!.insert(medium('X'), { writeProtected: true })
-    m.drives[1]!.motorOn = true
     m.drives[1]!.step(true)
-    select(m, 1)
+    select(m, 1, true)
     const v = m.cia.pra()
     // ready and write protected are asserted, so both bits read LOW
     expect(v & CIAF_DSKRDY).toBe(0)
@@ -149,6 +151,53 @@ describe('CIA-A reads the SELECTED drive and no other', () => {
     // and unit 0 is empty, which is a completely different byte
     select(m, 0)
     expect(m.cia.pra() & CIAF_DSKRDY).toBe(CIAF_DSKRDY)
+  })
+})
+
+describe('the motor line, which is one wire to four drives', () => {
+  it('reaches the drive whose /SELn is low and no other', () => {
+    const m = new Machine()
+    // $7f: /MTR low, nothing selected. $77 adds /SEL0.
+    m.ciab.writePrb(0x7f)
+    expect(m.drives[0]!.motorOn).toBe(false)
+    m.ciab.writePrb(0x77)
+    expect(m.drives[0]!.motorOn).toBe(true)
+    expect(m.drives[1]!.motorOn).toBe(false)
+  })
+
+  it('leaves a drive spinning once it has been handed the motor', () => {
+    // a deselected drive keeps what it was given, which is the whole reason
+    // the state is on the drive and not read off the register
+    const m = new Machine()
+    m.ciab.writePrb(0x77)
+    m.ciab.writePrb(0xff)
+    expect(m.drives[0]!.motorOn).toBe(true)
+  })
+
+  it('stops it with a deasserted /MTR and the same unit selected', () => {
+    const m = new Machine()
+    m.ciab.writePrb(0x77)
+    m.ciab.writePrb(0xf7)
+    expect(m.drives[0]!.motorOn).toBe(false)
+  })
+
+  it('takes DDRB into account, because a line the chip is not driving floats', () => {
+    const m = new Machine()
+    m.ciab.writePrb(0x77)
+    m.ciab.ddrb = 0x00
+    // nothing is selected any more, so drive 0 keeps the motor it was handed
+    expect(m.drives[0]!.motorOn).toBe(true)
+    expect(m.ciab.motorLine).toBe(false)
+  })
+
+  it('spins the drive when a program pokes the register itself', () => {
+    // Misc 1.0, Delta 1.4 and JD all write these two bytes by hand
+    const m = new Machine()
+    m.drives[2]!.insert(medium('X'))
+    m.ciab.writePrb(0x7f)
+    m.ciab.writePrb(0x5f)
+    expect(m.drives[2]!.motorOn).toBe(true)
+    expect(m.drives[2]!.lines().ready).toBe(true)
   })
 })
 
