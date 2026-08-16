@@ -36,10 +36,21 @@
  *
  * ## What the chip does that this does
  *
- * - **Point sampling.** The DMA fetches one byte per period and holds it, so
+ * - **The stair-step.** The DMA fetches one byte per period and holds it, so
  *   the output is a stair-step and the harmonics that puts above Nyquist are
- *   the analog filter's business. Interpolating here would be a nicer sound
- *   and a different machine.
+ *   the analog filter's business. Interpolating between source bytes would be
+ *   a nicer sound and a different machine, and this does not do it.
+ *
+ *   What it does do is READ that stair-step correctly. Each output frame is
+ *   the average of the held bytes across the period it covers, weighted by how
+ *   long each one is held inside it, which is what a meter on the jack would
+ *   measure. Poking at one point per frame instead folds the step edges back
+ *   down into the audible band, and how much depends on how close the source
+ *   rate is to a factor of the output rate --- nothing the machine has any
+ *   say in. OctaMED's 5-8 channel mode is what found it: everything it plays
+ *   comes out of one buffer clocked at 15,625 Hz, 44,100 is 2.8224 of those,
+ *   and point sampling put 7 dB of broadband hash above 12.8 kHz that a render
+ *   at 62,500 --- an exact four times 15,625 --- did not have.
  * - **The stereo pairing.** Voices 0 and 3 are the left channel, 1 and 2 the
  *   right. Not a preference: they are separate DACs wired to separate jacks.
  * - **Volume is instant.** AUDxVOL takes effect at the next sample, and a
@@ -241,7 +252,21 @@ export class PaulaMixer implements AudioSink {
         pos = V.loopStart + ((pos - V.end) % len)
         V.end = V.loopEnd
       }
-      out[i * 2 + ch]! += pcm[pos | 0]! * V.gain
+      // the stair-step across this output frame, weighted by how long each
+      // byte is held inside it. A step of 1 or more cannot happen on a legal
+      // period -- MIN_PERIOD 124 is 28,604 Hz against a 44,100 output -- so
+      // the frame spans at most two source bytes and the closed form is exact.
+      const idx = pos | 0
+      const held = idx + 1 - pos
+      let value = pcm[idx]!
+      if (V.step > held && V.step <= 1) {
+        // the byte after this one, which at the end of a pass is whatever the
+        // DMA relatches to rather than a repeat of the last byte
+        const wrap = V.loopStart >= 0 && V.loopEnd > V.loopStart ? V.loopStart : idx
+        const next = idx + 1 >= V.end ? wrap : idx + 1
+        value = (value * held + pcm[next]! * (V.step - held)) / V.step
+      }
+      out[i * 2 + ch]! += value * V.gain
       pos += V.step
     }
     V.pos = pos

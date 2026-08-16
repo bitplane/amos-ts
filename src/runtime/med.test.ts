@@ -579,8 +579,11 @@ describe('a MED module as PCM', () => {
     expect(right.every((s) => s === 0)).toBe(true)
     expect(Math.max(...left)).toBeCloseTo((62 / 128) * (40 / 64), 6)
     // the instrument has no repeat, and 64 bytes at 4143 Hz is 15.4ms against
-    // a row that lasts 20.4ms, so a quarter of the output is it having ended
-    expect(left.filter((s) => s !== 0)).toHaveLength(610)
+    // a row that lasts 20.4ms, so a quarter of the output is it having ended.
+    // 615 rather than 610 since the mixer began averaging the stair-step
+    // across each output frame: the ramp crosses zero at byte 32, and the
+    // frames straddling it are no longer exactly zero.
+    expect(left.filter((s) => s !== 0)).toHaveLength(615)
   })
 })
 

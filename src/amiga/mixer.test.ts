@@ -38,6 +38,29 @@ describe('PaulaMixer: one voice', () => {
     expect(left(m.render(8))).toEqual([0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5])
   })
 
+  it('reads a frame that straddles two bytes as the time-weighted average', () => {
+    // 6,000 into 8,000 is three quarters of a byte a frame, so frame 1 covers
+    // the last quarter of byte 0 and the first half of byte 1. Poking at one
+    // point instead folds the step edge back down into the band, and how much
+    // depends on the ratio of the two rates rather than on anything the
+    // machine does.
+    const m = dry()
+    m.play(0, new Int8Array([64, -64, 0]), 6000, 64, -1, 3)
+    const out = left(m.render(4))
+    expect(out[0]).toBeCloseTo(0.5, 7)
+    expect(out[1]).toBeCloseTo((64 * 0.25 + -64 * 0.5) / 0.75 / 128, 7)
+    expect(out[2]).toBeCloseTo((-64 * 0.5 + 0 * 0.25) / 0.75 / 128, 7)
+    expect(out[3]).toBeCloseTo(0, 7)
+  })
+
+  it('holds the byte whole when the frame fits inside it', () => {
+    // the same arithmetic has to leave an exact ratio exactly alone, or every
+    // render this port already signed off by ear would have moved
+    const m = dry()
+    m.play(0, new Int8Array([127, -128]), 4000, 64, -1, 2)
+    expect(left(m.render(4))).toEqual([127 / 128, 127 / 128, -1, -1])
+  })
+
   it('plays the whole buffer before it loops, then repeats the loop region', () => {
     const m = dry()
     m.play(0, new Int8Array([1, 2, 3, 4]), 8000, 64, 2, 4)
