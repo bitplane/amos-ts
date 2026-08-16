@@ -70,13 +70,21 @@ Blocked on a back-end nothing here models:
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
 Blocked on nothing but the work. Both hold a readable binary, so the evidence
-is there — and after today there are only two of them, where this table held
-eight in the morning:
+is there:
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 116 | UNDER WAY. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk and are the four this port has engines for. ALL FOUR HAVE LANDED — ProTracker, THX, Player 6.1A and the sampler — and so have the first two of the external ones: SoundFX 1.3 into `src/amiga/soundfx.ts` and FutureComposer 1.4 into `src/amiga/fc14.ts`, each read out of its own library in `libs/`. Nine replayer libraries left, which are a project of their own |
+| DME 2.0 (`dme-2.0`) | 43 | UNDER WAY, at 77%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Four blocks of keywords left: TFMX (10), OctaMix (15), FastTracker (9) and PlaySID (9). TFMX is mapped to its three dispatch tables and is next; the other three are below |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
+
+Three of DME's four remaining blocks are blocked on something other than the
+work, which is why they are not simply next:
+
+| block | missing | what it is waiting on |
+|---|---|---|
+| OctaMix (`omix *`) | 15 | a module. `DME_OctaMix.library` refuses anything without `FLAG2_MIX` at $2130f4, and nothing in the 45,743-file corpus has the bit --- all 187 OctaMED Professional 6 modules are MMD2 without it. The library is mapped in `src/amiga/mmd2mix.ts`'s header rather than ported, because a port would have nothing to check against but its own reading |
+| FastTracker (`xm *`) | 9 | an `.xm` module. `DME_FastTracker.library` is held and readable at 26,324 bytes |
+| PlaySID (`sid *`) | 9 | a 6502 and a SID. `playsid.library` turned up on Aminet in `mus/play/PlaySID3.lha` and is in `fixtures/aminet/`, so the evidence is no longer the problem; the emulation is |
 
 And one row on its own, blocked on evidence rather than on work or a back-end:
 
