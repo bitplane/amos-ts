@@ -29,6 +29,9 @@ import { Fc13, parseFc13 } from '../amiga/fc13'
 import { DigiPlayer } from '../amiga/digiplay'
 import { parseDigi } from '../amiga/digi'
 import { SoundMon } from '../amiga/soundmonplay'
+import { parseS3m } from '../amiga/s3m'
+import { S3mPlayer } from '../amiga/s3mplay'
+import { S3M_MIX_RATE } from '../amiga/s3mmix'
 import { parseSmon } from '../amiga/soundmon'
 import { MedPlayer } from '../runtime/med'
 import { Runtime } from '../runtime/runtime'
@@ -38,7 +41,8 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine = 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'smon' | 'track' | 'medext'
+export type Engine =
+  | 'mod' | 'p61' | 'thx' | 'med' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'smon' | 's3m' | 'track' | 'medext'
 
 /**
  * What the first bytes say it is.
@@ -56,6 +60,7 @@ export function detectEngine(d: Uint8Array): Engine | null {
   if (tag(0) === 'SMOD') return 'fc13'
   if (tag(0) === 'DIGI') return 'digi'
   if (d.length > 0x200 && tag(0x1a, 3) === 'V.2') return 'smon'
+  if (d.length > 0x60 && tag(0x2c) === 'SCRM') return 's3m'
   // SoundFX 1.3's magic sits at 60, behind the fifteen sample lengths, and is
   // the only thing DME_SoundFX1.3.library checks
   if (d.length > 0x294 && tag(0x3c) === 'SONG') return 'sfx'
@@ -110,6 +115,19 @@ export function renderModule(
     for (let f = 0; f < frames; f++) {
       sm.tick()
       mix.runTo((f + 1) / VBL_HZ)
+    }
+  } else if (engine === 's3m') {
+    const song = parseS3m(data)
+    if (!song) throw new Error('not a ScreamTracker 3 module')
+    const sp = new S3mPlayer(() => mix)
+    sp.load(song)
+    // one buffer of mix a tick, and the tempo is in the buffer's length rather
+    // than in how often the tick comes round
+    let t = 0
+    while (t < opts.seconds) {
+      sp.vbl()
+      t += sp.samplesPerTick / S3M_MIX_RATE
+      mix.runTo(t)
     }
   } else if (engine === 'digi') {
     const song = parseDigi(data)
@@ -239,7 +257,9 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const files = args.filter((a) => !a.startsWith('--') && !flags.has(a))
   const [file, out] = files
   if (!file || !out) {
-    console.error('usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|fc13|digi|smon|track|medext]')
+    console.error(
+      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|sfx|fc14|fc13|digi|smon|s3m|track|medext]',
+    )
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('       renderaudio <module.p61> - --to-mod out.mod')
     process.exit(1)
