@@ -1136,7 +1136,10 @@ export class Display {
     })
     for (const bob of bobs) {
       const s = this.rt.screens.get(bob.screen)
-      const img = this.rt.spriteBank?.image(bob.image)
+      // BbA0 (+W.s:2059) runs `bsr Retourne` off the bob's own BbRetour word
+      // every pass, so a bob given Hrev()/Vrev() mirrors the bank image
+      // itself. The EOR inside makes the repeat a no-op.
+      const img = this.rt.spriteBank?.retourne(bob.image)
       if (!s || !img) continue
       const mode = this.rt.bobModes.get(bob.n) ?? 0
       const limit = this.rt.bobLimits.get(bob.n) ?? this.rt.bobLimits.get(-1)

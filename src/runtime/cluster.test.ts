@@ -1043,6 +1043,50 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(100, 50)).toBe(0)
   })
 
+  it('Paste Bob with Hrev mirrors the bank image and leaves it mirrored (Retourne)', () => {
+    // The idiom out of AMOSPro_Examples Help_68, which builds six left-facing
+    // walk frames from six right-facing ones:
+    //
+    //   Get Bob N+6,12,0 To 28,21
+    //   Hot Spot N+6,%10010 : Paste Bob 500,500,Hrev(N+6)
+    //
+    // The paste goes to 500,500 — off a 320-wide screen — purely for the side
+    // effect. TPatch (+W.s:848) opens with `bsr Retourne`, which mirrors the
+    // image IN THE BANK and records the new state in the top two bits of its
+    // hot spot word. Ronnio is then drawn as a plain hardware sprite, and
+    // `Sprite` never calls Retourne, so images 7-12 stay mirrored.
+    //
+    // A transient flipped copy draws the same off-screen paste and changes
+    // nothing, so the sprite walks left facing right.
+    const prog = [
+      'Cls 0 : Ink 5 : Plot 0,0',
+      'Get Bob 1,0,0 To 16,8', // one marked pixel at column 0
+      'Paste Bob 500,500,Hrev(1)', // off screen: only the flip matters
+    ].join('\n')
+    const { rt } = run(prog)
+    const img = rt.spriteBank!.image(1)!
+    expect(img.pixels[15]).toBe(5) // column 0 is now column 15, in the BANK
+    expect(img.pixels[0]).toBe(0)
+    expect(img.hotX).toBe(16) // width - hotX, as RBobX recomputes it
+    // and a Sprite drawn from it later gets the mirrored pixels, because the
+    // hardware sprite path never calls Retourne to put them back
+  })
+
+  it('Retourne is an EOR, so asking for the state it is already in does nothing', () => {
+    // `move.w 6(a1),d1 / and.w #$C000,d1 / eor.w d0,d1 / beq.s RetBobX`
+    // (+W.s:1680). Two Hrev pastes leave the image mirrored once, not twice.
+    const prog = [
+      'Cls 0 : Ink 5 : Plot 0,0',
+      'Get Bob 1,0,0 To 16,8',
+      'Paste Bob 500,500,Hrev(1)',
+      'Paste Bob 500,500,Hrev(1)',
+      'Cls 0',
+      'Paste Bob 100,100,Hrev(1)',
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(115, 100)).toBe(5)
+  })
+
   it('Hrev/Vrev Block mirror the stored block (RevBloc +W.s:12620)', () => {
     // a 4x4 block with a single marked pixel at its top-left corner
     const base = ['Cls 0', 'Ink 5 : Plot 10,10', 'Get Block 1,10,10,4,4']

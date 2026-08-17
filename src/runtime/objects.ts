@@ -38,6 +38,14 @@ export class BankImage {
   private readonly bm: BitMap
   /** set by No Mask: colour 0 draws */
   opaque = false
+  /**
+   * Which way this image is CURRENTLY mirrored, in the bits `Retourne` uses:
+   * $8000 horizontal, $4000 vertical. It lives in the top two bits of the
+   * stored hot spot X word on the Amiga (Spo4 +W.s:627 preserves them), and
+   * it is state of the bank rather than of any one draw. See
+   * `ObjectBank.retourne`.
+   */
+  flip = 0
 
   constructor(
     readonly width: number,
@@ -102,7 +110,6 @@ export class ObjectBank {
   /** 1-based image access, as in AMOS */
   images: BankImage[] = []
   palette: number[] = []
-  private flipCache = new Map<number, BankImage>()
 
   static fromSpriteBank(bank: SpriteBank): ObjectBank {
     const b = new ObjectBank()
@@ -112,46 +119,72 @@ export class ObjectBank {
   }
 
   /**
-   * Image lookup honouring Hrev/Vrev flip flags: bit 15 = horizontal,
-   * bit 14 = vertical (hot spots mirror too). Flips are cached.
+   * Image lookup. The Hrev/Vrev bits an image number may carry are masked
+   * off and NOT acted on here, because only two routines in AMOS flip
+   * anything and both go through `retourne`.
    */
   image(n: number): BankImage | undefined {
-    const flags = n & 0xc000
+    return this.images[(n & 0x3fff) - 1]
+  }
+
+  /**
+   * `Retourne` (+W.s:1676) — mirror image n into the state its number asks
+   * for, IN THE BANK, and answer it.
+   *
+   *	move.w	6(a1),d1
+   *	and.w	#$C000,d1	what it is now
+   *	eor.w	d0,d1		against what is wanted
+   *	beq.s	RetBobX		same: nothing to do
+   *	btst	#15,d1 -> RBobX
+   *	btst	#14,d1 -> RBobY
+   * RetBb2	...or.w d0,d1 / move.w d1,6(a1)		remember the new state
+   *
+   * The flip is destructive and it is cached in the bank, not in the draw.
+   * That is not an implementation detail a program cannot see: Help_68 turns
+   * six walking frames into six mirrored ones with
+   *
+   *	Get Bob N+6,12,0 To 28,21
+   *	Hot Spot N+6,%10010 : Paste Bob 500,500,Hrev(N+6)
+   *
+   * pasting off screen at 500,500 purely for the side effect, and then draws
+   * images 7-12 as plain hardware sprites when Ronnio walks left. A
+   * transient flipped copy leaves the bank untouched and the sprite never
+   * turns round.
+   *
+   * Because the test is an EOR against the current state, asking for no flip
+   * un-flips. Only Paste Bob/Paste Icon (TPatch +W.s:848) and the bob display
+   * loop (BbA0 +W.s:2059, off the bob's own BbRetour) ever call this;
+   * `Sprite` and everything else take the image as it stands.
+   */
+  retourne(n: number): BankImage | undefined {
     const base = this.images[(n & 0x3fff) - 1]
-    if (!base || flags === 0) return base
-    const cached = this.flipCache.get(n)
-    if (cached) return cached
-    // BobCalc +W.s:1408-1413: a flipped image's effective hot spot is
-    // width-hotX / height-hotY (no -1; width is the 16-padded pixel width)
-    const flipped = new BankImage(
-      base.width,
-      base.height,
-      base.depth,
-      flags & 0x8000 ? base.width - base.hotX : base.hotX,
-      flags & 0x4000 ? base.height - base.hotY : base.hotY,
-    )
-    flipped.opaque = base.opaque
+    if (!base) return base
+    const todo = (base.flip ^ (n & 0xc000)) & 0xc000
+    if (todo === 0) return base
+    // RBobX (+W.s:1702) and RBobY (+W.s:1733) recompute the hot spot as
+    // width-hotX / height-hotY, no -1, on the 16-padded pixel width
+    if (todo & 0x8000) base.hotX = base.width - base.hotX
+    if (todo & 0x4000) base.hotY = base.height - base.hotY
     // through the chunky view: a horizontal flip is a bit reversal per plane
     // row, which is not cheaper than this and is easier to get wrong
-    const src = base.pixels
-    const dst = flipped.pixelsW()
+    const src = Uint8Array.from(base.pixels)
+    const dst = base.pixelsW()
     for (let y = 0; y < base.height; y++) {
-      const sy = flags & 0x4000 ? base.height - 1 - y : y
+      const sy = todo & 0x4000 ? base.height - 1 - y : y
       for (let x = 0; x < base.width; x++) {
-        const sx = flags & 0x8000 ? base.width - 1 - x : x
+        const sx = todo & 0x8000 ? base.width - 1 - x : x
         dst[y * base.width + x] = src[sy * base.width + sx]!
       }
     }
-    flipped.flush()
-    this.flipCache.set(n, flipped)
-    return flipped
+    base.flush()
+    base.flip = n & 0xc000
+    return base
   }
 
   /** Get Bob: (re)create image n from screen pixels. */
   setImage(n: number, img: BankImage): void {
     while (this.images.length < n) this.images.push(blankImage())
     this.images[n - 1] = img
-    this.flipCache.clear()
   }
 
   /**
@@ -162,7 +195,6 @@ export class ObjectBank {
     if (n < 1) throw new AmosError('Illegal function call', 23)
     while (this.images.length < n - 1) this.images.push(blankImage())
     this.images.splice(n - 1, 0, blankImage())
-    this.flipCache.clear()
   }
 
   /**
@@ -173,7 +205,6 @@ export class ObjectBank {
   delete(n: number, m = n): boolean {
     if (n < 1 || m < n || m > this.images.length) throw new AmosError('Illegal function call', 23)
     this.images.splice(n - 1, m - n + 1)
-    this.flipCache.clear()
     return this.images.length > 0
   }
 }

@@ -2162,13 +2162,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // — Paste Bob draws at the raw top-left x,y, unlike Bob/Sprite
       const [x, y] = pair(it)
       it.expect(',')
-      const img = rt.spriteBank?.image(it.evalInt())
+      // TPatch (+W.s:848) starts with `bsr Retourne`, so the Hrev/Vrev bits
+      // on the number mirror the bank image in place before the paste
+      const img = rt.spriteBank?.retourne(it.evalInt())
       if (img) rt.blit(scr(), img, x, y, img.opaque)
     },
     'paste icon'(it) {
       const [x, y] = pair(it)
       it.expect(',')
-      const img = rt.iconBank?.image(it.evalInt())
+      const img = rt.iconBank?.retourne(it.evalInt())
       if (img) rt.blit(scr(), img, x, y, true)
     },
     'get bob': getObj('sprite'),
