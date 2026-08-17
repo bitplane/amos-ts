@@ -45,6 +45,7 @@
  * list what is available to run.
  */
 import { parseAmosFile } from '../../loader/amosfile'
+import { isAmosProgram } from '../../loader/program'
 import { parseSource, TokenTable } from '../../tokens/stream'
 import { CORE_TOKENS } from '../../tokens/tables.gen'
 import { identifyProgram, type Confidence } from '../../ext/identify'
@@ -83,8 +84,19 @@ export interface ProgramIndex {
   unidentified: ProgramUse[]
 }
 
-/** an AMOS program by content, or by name for a plain-text listing */
-const looksLikeProgram = (name: string): boolean => /\.amos$/i.test(name)
+/**
+ * An AMOS program by CONTENT, or by name for a plain-text listing.
+ *
+ * The header is the reliable half: `AMOS Basic` or `AMOS Pro` in the first
+ * sixteen bytes. Testing the name alone was a bug --- the AMOS editor saves
+ * under whatever name you typed and nothing adds an extension, so a backup off
+ * a real machine is full of programs called `Game` and `test2`, and every one
+ * of them was invisible here while the files tree listed it as runnable. The
+ * name test stays for the other direction: a plain-text listing has no header
+ * to find, which is the same rule `main.ts` uses for the tree.
+ */
+const looksLikeProgram = (name: string, bytes: Uint8Array): boolean =>
+  isAmosProgram(bytes) || (/\.amos$/i.test(name) && bytes.length > 0)
 
 /** every file in every mounted volume, depth first */
 function* walk(vfs: AmigaFS, dir: string, depth = 0): Generator<string> {
@@ -108,6 +120,14 @@ interface Reading {
 export interface ProgramIndexer {
   /** what is known right now, aggregated by extension */
   current(): ProgramIndex
+  /**
+   * Bumped whenever the index changes.
+   *
+   * So a view can ask "is what I drew still true" for the cost of an integer
+   * compare. A tab redrawing only when its tab is SHOWN goes stale in the one
+   * case that matters, which is files landing while you are looking at it.
+   */
+  readonly revision: number
   /** stop listening */
   stop(): void
 }
@@ -116,12 +136,13 @@ export function createProgramIndex(vfs: AmigaFS): ProgramIndexer {
   const core = new TokenTable(CORE_TOKENS)
   /** path -> what reading it found. The whole state; there is no other. */
   const known = new Map<string, Reading>()
+  let revision = 0
 
   function read(path: string): void {
     const name = path.split('/').pop() ?? path
-    if (!looksLikeProgram(name)) return
     const bytes = vfs.read(path)
-    if (!bytes) return
+    if (!bytes || !looksLikeProgram(name, bytes)) return
+    revision++
     try {
       const amos = parseAmosFile(bytes)
       const ids = amos.source.length === 0 ? new Map() : identifyProgram(parseSource(amos.source, core))
@@ -143,7 +164,10 @@ export function createProgramIndex(vfs: AmigaFS): ProgramIndexer {
 
   function forget(prefix: string): void {
     for (const path of [...known.keys()]) {
-      if (path === prefix || path.startsWith(prefix.endsWith(':') ? prefix : `${prefix}/`)) known.delete(path)
+      if (path === prefix || path.startsWith(prefix.endsWith(':') ? prefix : `${prefix}/`)) {
+        known.delete(path)
+        revision++
+      }
     }
   }
 
@@ -158,6 +182,9 @@ export function createProgramIndex(vfs: AmigaFS): ProgramIndexer {
   for (const vol of vfs.volumeNames()) volumeAdded(`${vol}:`)
 
   return {
+    get revision(): number {
+      return revision
+    },
     current(): ProgramIndex {
       const byExtension = new Map<string, ProgramUse[]>()
       const unidentified: ProgramUse[] = []

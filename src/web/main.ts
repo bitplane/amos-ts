@@ -531,7 +531,13 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
   },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
-  { id: 'extensions', label: 'Extensions', panel: extensions.panel, show: () => extensions.refresh() },
+  {
+    id: 'extensions',
+    label: 'Extensions',
+    panel: extensions.panel,
+    show: () => extensions.refresh(),
+    frame: () => extensions.refresh(),
+  },
   { id: 'libs', label: 'Libs', panel: libs.panel },
 ])
 

@@ -119,7 +119,15 @@ function rowFor(
 
 export interface ExtensionsTab {
   panel: HTMLElement
-  /** redraw, for when the filesystem has changed under it */
+  /**
+   * Redraw if the index has moved since the last one.
+   *
+   * Wired to the tab being SHOWN and to the frame loop both. Show alone left
+   * it stale in the one case that matters --- files landing while you are
+   * already looking at this tab --- and a frame loop alone would rebuild
+   * eighty-eight rows fifty times a second. The revision compare is what makes
+   * calling it every frame free.
+   */
   refresh(): void
 }
 
@@ -160,7 +168,10 @@ export function createExtensionsTab(
     return `${head} ${idx.scanned} programs read from the filesystem.${tail}`
   }
 
+  let drawnAt = -1
   const draw = (): void => {
+    if (index.revision === drawnAt) return
+    drawnAt = index.revision
     const idx = index.current()
     intro.textContent = say(idx)
     list.render(
