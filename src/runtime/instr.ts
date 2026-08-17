@@ -2175,15 +2175,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'get sprite': getObj('sprite'),
     'get icon': getObj('icon'),
     'put bob'(it) {
-      // InPutBob +Lib.s:12723: stamp a live displayed bob permanently into
-      // its screen background at its current position/image
+      // InPutBob (+Lib.s:12694) is `SyCall PutBob`, and `BobPut` (+W.s:1178)
+      // sets the bob's erase counter to its buffer count. It stamps nothing:
+      // the bob is left behind by SKIPPING its next erase, once per buffer.
+      // See Runtime.bobPut. Blitting a copy here instead put one in the
+      // logical buffer only, so it flickered on a double-buffered screen and
+      // the bob went on erasing itself normally.
       const n = it.evalInt()
       const bob = rt.bobs.get(n)
       if (!bob) return
-      const img = rt.spriteBank?.image(bob.image)
-      if (!img) return
       const s = rt.screens.get(bob.screen) ?? scr()
-      rt.blit(s, img, bob.x - img.hotX, bob.y - img.hotY, img.opaque)
+      rt.bobPut.set(n, s.doubleBuffered ? 2 : 1)
     },
     'put key'(it) {
       // InPutKey +Lib.s:13724: append a string to the keyboard buffer

@@ -556,6 +556,22 @@ export class Runtime {
     }
   }
 
+  /**
+   * `Put Bob`'s countdown, per bob: how many more erases to SKIP.
+   *
+   * Put Bob does not stamp anything. `BobPut` (+W.s:1178) is two
+   * instructions: find the bob and set `BbECpt` to `BbDecor`, the number of
+   * background buffers it has. The erase pass then tests that counter first
+   * (`tst.w BbECpt(a5) / bne.s BbE5`, +W.s:1884, commented "Compteur PUT
+   * BOB") and, when it is set, skips the erase and decrements instead.
+   *
+   * So the bob is simply left behind once in each buffer and normal updating
+   * resumes --- which is why moving it afterwards smears copies across the
+   * screen, and why one call does the right thing whether or not the screen
+   * is double buffered.
+   */
+  bobPut = new Map<number, number>()
+
   bobPlanes = new Map<number, number>()
   /** Set Bob's blitter control word, per bob (BbACon) */
   bobMinterms = new Map<number, number>()

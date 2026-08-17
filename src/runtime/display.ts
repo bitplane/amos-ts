@@ -1110,6 +1110,16 @@ export class Display {
       // other buffer's saves are still wanted, and putting them back HERE
       // would paint two-frame-old pixels into the wrong one.
       if (s && s.bufferId !== bg.buffer) continue
+      // Put Bob: skip this erase and count it off, which is what leaves the
+      // bob behind. +W.s:1884 tests the counter before erasing and +W.s:1921
+      // decrements it. The save goes with it, or it would be put back a frame
+      // later and undo the copy.
+      const put = this.rt.bobPut.get(bg.bob) ?? 0
+      if (put > 0) {
+        this.rt.bobPut.set(bg.bob, put - 1)
+        this.rt.bobSaved.delete(key)
+        continue
+      }
       if (s) {
         const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
@@ -1237,6 +1247,16 @@ export class Display {
       // other buffer's saves are still wanted, and putting them back HERE
       // would paint two-frame-old pixels into the wrong one.
       if (s && s.bufferId !== bg.buffer) continue
+      // Put Bob: skip this erase and count it off, which is what leaves the
+      // bob behind. +W.s:1884 tests the counter before erasing and +W.s:1921
+      // decrements it. The save goes with it, or it would be put back a frame
+      // later and undo the copy.
+      const put = this.rt.bobPut.get(bg.bob) ?? 0
+      if (put > 0) {
+        this.rt.bobPut.set(bg.bob, put - 1)
+        this.rt.bobSaved.delete(key)
+        continue
+      }
       if (s) {
         const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
