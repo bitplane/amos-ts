@@ -112,8 +112,8 @@ export function ensureLib(rt: Runtime): boolean {
         const [narrator, translator, voice, rules] = await Promise.all([
           import('narrator-ts'),
           import('narrator-ts/translator'),
-          import('narrator-ts/reference/voice-free.json', { with: { type: 'json' } }),
-          import('narrator-ts/reference/nrl-table.json', { with: { type: 'json' } }),
+          importJson(() => import('narrator-ts/reference/voice-free.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/voice-free.json')),
+          importJson(() => import('narrator-ts/reference/nrl-table.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/nrl-table.json')),
         ])
         s.lib = {
           speak: narrator.speak as SpeechLib['speak'],
@@ -136,6 +136,29 @@ export function ensureLib(rt: Runtime): boolean {
     })()
   }
   return false
+}
+
+/**
+ * Import a JSON module both ways, because the two hosts this runs on want
+ * opposite things.
+ *
+ * Node will not import JSON without `with { type: 'json' }` --- it is
+ * ERR_IMPORT_ATTRIBUTE_MISSING --- and Vite's dev server will not import it
+ * WITH one: it rewrites the specifier to a JS module and serves it as
+ * `text/javascript`, and a `type: 'json'` assertion against a response that
+ * is not `application/json` has to be rejected. Vite's production build
+ * strips the attribute, so only the dev server sees the second case.
+ *
+ * That is what made `Say` fail with "Can't open narrator" on the dev server
+ * while the built site and every test were fine: three environments, and the
+ * attribute is right in two of them.
+ */
+export async function importJson<T>(withAttr: () => Promise<T>, plain: () => Promise<T>): Promise<T> {
+  try {
+    return await withAttr()
+  } catch {
+    return await plain()
+  }
 }
 
 /** Latin-1 bytes, which is what the device reads. */

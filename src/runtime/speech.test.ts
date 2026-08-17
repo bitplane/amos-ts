@@ -7,6 +7,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { modelledLibraries, openLibrary } from '../amiga/exec'
+import { importJson } from './speech'
 
 const table = new TokenTable(CORE_TOKENS)
 // the speech keywords are the Music extension's, not core; slot 1 is its home
@@ -256,5 +257,44 @@ describe('the speech chain as the machine reaches it', () => {
     expect(fs.handlerNames()).toContain('SPEAK')
     // and not among the volumes, which three page walkers read through
     expect(fs.volumeNames()).not.toContain('SPEAK')
+  })
+})
+
+describe('importing the voice tables on two hosts that want opposite things', () => {
+  it('falls back to a plain import when the attribute is rejected', async () => {
+    // Node needs `with { type: 'json' }` (ERR_IMPORT_ATTRIBUTE_MISSING without
+    // it); Vite's dev server rewrites the specifier to a JS module served as
+    // text/javascript, and a type:'json' assertion against a response that is
+    // not application/json has to be rejected. Firefox refuses both tables on
+    // the dev server and takes the fallback, which is what made Say report
+    // "Can't open narrator" there while every test and the built site passed.
+    const tried: string[] = []
+    const got = await importJson(
+      () => {
+        tried.push('attr')
+        return Promise.reject(new Error('error loading dynamically imported module'))
+      },
+      () => {
+        tried.push('plain')
+        return Promise.resolve({ ok: true })
+      },
+    )
+    expect(tried).toEqual(['attr', 'plain'])
+    expect(got).toEqual({ ok: true })
+  })
+
+  it('does not reach for the fallback when the attribute works', async () => {
+    const tried: string[] = []
+    await importJson(
+      () => {
+        tried.push('attr')
+        return Promise.resolve({ ok: true })
+      },
+      () => {
+        tried.push('plain')
+        return Promise.resolve({ ok: false })
+      },
+    )
+    expect(tried).toEqual(['attr'])
   })
 })
