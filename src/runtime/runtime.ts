@@ -2941,7 +2941,7 @@ export class Runtime {
   private dialogLmb = false
 
   /** hardware mouse coords → coords on screen s (SyCall XyScr) */
-  private mouseOnScreen(s: Screen): { x: number; y: number } {
+  mouseOnScreen(s: Screen): { x: number; y: number } {
     return {
       x: s.hardToScreenX(this.input.mouseX),
       y: this.input.mouseY - s.displayY + s.offsetY,

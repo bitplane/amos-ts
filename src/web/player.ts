@@ -448,7 +448,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       return
     }
     if (rt.directScreen.isOpen) {
-      rt.directScreen.key(ch, scan)
+      rt.directScreen.key(ch, scan, e.shiftKey)
       e.preventDefault()
       return
     }

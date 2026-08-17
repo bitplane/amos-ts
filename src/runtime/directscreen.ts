@@ -18,17 +18,19 @@
  * `Es_BoutonsSx`, then thirteen 32x16 buttons from `Es_BoutonsX` with the
  * DIRECT one forced to x=0 and the WB one to the right edge.
  *
- * DEVIATION: the buttons are drawn and do nothing. Their routines are
- * `Bt_RoutIn` (+Edit.s:13895) --- close, hide and shrink the editor's window,
- * jump to the output position --- and they need the editor to act on. The
- * memory sliders want `Ed_MemoryDraw`'s live figures, and the slide from
- * `Es_Y1` to `Es_Y2` wants the position an editor remembers, so the height is
- * fixed and it sits on the bottom of whatever the program is displaying.
+ * The buttons work. `Esc_Bouton` (+Edit.s:8982) counts `Bt_Number` down: 1
+ * closes, 2 is `Ed_Wb`, 3 stores the OUT toggle and 4 upward are the ten
+ * function keys, plus ten more on the right mouse button.
+ *
+ * DEVIATION: the memory sliders want `Ed_MemoryDraw`'s live figures, and the
+ * slide from `Es_Y1` to `Es_Y2` wants the position an editor remembers, so
+ * the height is fixed and it sits on the bottom of whatever the program is
+ * displaying.
  */
 import { Screen } from './screen'
 import { AmosError } from '../interp/values'
 import { AmosRuntimeError } from '../interp/interp'
-import { ED_MESSAGES } from './edmessages.gen'
+import { ED_MESSAGES, ED_SYSTEME } from './edmessages.gen'
 import { EDITOR_RESOURCE_BANK, ED_PICS } from './edres.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseResourceBank, type ResourceGraphics } from '../loader/resource'
@@ -58,6 +60,27 @@ const BOTTOM_H = 8
 
 /** Esc_Appear builds `cmp.w #13,d6 / bls` worth of them (+Edit.s:9414) */
 const BUTTONS = 13
+
+/**
+ * What the ten function keys type, and whether they press Return after it.
+ *
+ * `Esc_BtFonc` (+Edit.s:9179) reads system message `24 + n` and copies it into
+ * the line editor, stopping at a backtick, which it strips. A message that HAD
+ * one falls through to `Esc_R` --- the Return path --- and one that did not
+ * goes back to the loop with the text sitting in the line, waiting to be
+ * finished. That is why half of them end in an open quote.
+ *
+ * `Ed_GetSysteme` is 1-based (GetMessage +B.s:590), so message 24 is
+ * ED_SYSTEME[23]: F1 is ListBank and Shift-F10 is System.
+ */
+const FKEY_BASE = 23
+
+function fkeyMacro(n: number): { text: string; run: boolean } | null {
+  const raw = ED_SYSTEME[FKEY_BASE + n - 1]
+  if (raw === undefined || raw === '') return null
+  const tick = raw.indexOf('`')
+  return tick < 0 ? { text: raw, run: false } : { text: raw.slice(0, tick), run: true }
+}
 
 /**
  * The editor's pictures, decoded once.
@@ -98,6 +121,20 @@ export class DirectScreen {
 
   private prevScreen = -1
   private line = ''
+  /**
+   * `Esc_Output` (+Equ.s:1840), the OUT button's remembered position.
+   *
+   * DEFECT: the machine's own. The only two instructions that touch it are the
+   * button writing its own state into it (+Edit.s:8994) and `Esc_BtGetOutput`
+   * reading it back out to redraw itself (:9313). Nothing else in the editor
+   * reads it, so the button remembers which way up it is and that is all it
+   * does. Reproduced rather than given a meaning it never had.
+   */
+  private output = 0
+  /** mouse buttons last frame, for the press edge Bt_Gere fires on */
+  private lastKeys = 0
+  /** the button under a held mouse, drawn in its down image */
+  private held = -1
   /** a line has been handed to the interpreter and has not come back */
   private running = false
   private up = false
@@ -176,7 +213,10 @@ export class DirectScreen {
     for (let i = 1; i <= BUTTONS; i++) {
       // two pictures per button, up then down; a button nobody has pressed
       // shows the up one, because Bt_Pos is 0 until Bt_EsCDraw adds to it
-      const image = ED_PICS.escapeButtons + (i - 1) * 2
+      // Bt_Pos picks between a button's two pictures: 1 while it is held, and
+      // for the OUT button the position it was left in (Esc_BtGetOutput)
+      const pos = this.held === i ? 1 : i === 3 ? this.output : 0
+      const image = ED_PICS.escapeButtons + (i - 1) * 2 + pos
       if (i === 1) put(image, 0, 0)
       else if (i === 2) put(image, WIDTH - BUTTON_W, 0)
       else {
@@ -214,7 +254,7 @@ export class DirectScreen {
    * while a line is still running: AMOS types into one buffer (`Ed_BufT`) and
    * the line that is in it owns the interpreter until it ends.
    */
-  key(ch: string, scan = 0): void {
+  key(ch: string, scan = 0, shift = false): void {
     if (!this.up || this.running) return
     const s = this.rt.screens.get(DirectScreen.EC_DIRECT)
     if (!s) return
@@ -225,6 +265,12 @@ export class DirectScreen {
     }
     if (ch === '\x1b' || scan === 0x45) {
       this.close()
+      return
+    }
+    // F1-F10 are $50-$59, and Shift takes them to F11-F20 (`Esc_Fonc`
+    // +Edit.s:9173: `and.b #Shf,d0 / add.w #10,d1`)
+    if (scan >= 0x50 && scan <= 0x59) {
+      this.fkey(scan - 0x50 + 1 + (shift ? 10 : 0))
       return
     }
     if (ch === '\b' || ch === '\x7f' || scan === 0x41) {
@@ -239,6 +285,54 @@ export class DirectScreen {
   }
 
   /**
+   * A function key, or the button that stands for one (Esc_BtFonc
+   * +Edit.s:9179). 1-20; the message goes into the line, and a message that
+   * ended in a backtick is run as if Return had been pressed after it.
+   */
+  fkey(n: number): void {
+    if (!this.up || this.running) return
+    const macro = fkeyMacro(n)
+    if (!macro) return
+    const s = this.rt.screens.get(DirectScreen.EC_DIRECT)
+    if (!s) return
+    // LEd_New replaces the line rather than appending to it
+    this.line = macro.text
+    this.redraw(s)
+    if (!macro.run) return
+    s.writeText('\n')
+    this.submit()
+  }
+
+  /**
+   * One of the thirteen buttons (Esc_Bouton +Edit.s:8982).
+   *
+   * `Bt_Number` counts from 1, and the routine walks it down: 1 is
+   * `Esc_Esc`, 2 is `Ed_Wb`, 3 stores the OUT toggle, and everything from 4
+   * on is a function key --- `.Pa3` leaves `d1` at n-4 and falls into
+   * `Esc_BtFonc`, with the RIGHT mouse button adding 10.
+   */
+  press(n: number, right = false): void {
+    if (!this.up) return
+    if (n === 1) {
+      this.close()
+      return
+    }
+    if (n === 2) {
+      // Ed_Wb (+Edit.s:11228) is `EcCalD AMOS_WB,0`, which is the same call
+      // InAmosToBack makes (+Lib.s:11367)
+      this.rt.amosToBack()
+      return
+    }
+    if (n === 3) {
+      this.output ^= 1
+      const s = this.rt.screens.get(DirectScreen.EC_DIRECT)
+      if (s) this.drawChrome(s, graphics())
+      return
+    }
+    this.fkey(n - 3 + (right ? 10 : 0))
+  }
+
+  /**
    * Called once a frame, to notice that the line has finished.
    *
    * The interpreter runs a typed line over as many frames as it takes --- a
@@ -246,9 +340,45 @@ export class DirectScreen {
    * whatever submitted it.
    */
   frame(): void {
-    if (!this.up || !this.running || this.rt.inDirect) return
+    if (!this.up) return
+    this.mouse()
+    if (!this.running || this.rt.inDirect) return
     this.running = false
     this.prompt()
+  }
+
+  /**
+   * The button strip under the mouse (Esc_MKey / Esc_MBoutons +Edit.s:8996).
+   *
+   * `Bt_Gere` fires on the press, and the button shows its down image while
+   * it is held, which is what `Bt_Pos` selects between the two pictures every
+   * button has.
+   */
+  private mouse(): void {
+    const s = this.rt.screens.get(DirectScreen.EC_DIRECT)
+    if (!s) return
+    const keys = this.rt.input.mouseK
+    const m = this.rt.mouseOnScreen(s)
+    const over = m.y >= 0 && m.y < TITLE_H ? this.buttonAt(m.x) : -1
+    const down = (keys & 3) !== 0 && over > 0 ? over : -1
+    if (down !== this.held) {
+      this.held = down
+      this.drawChrome(s, graphics())
+    }
+    // the press edge, not the release: Esc_MKey acts as soon as LEd_Loop
+    // reports the click
+    if ((keys & 3) !== 0 && (this.lastKeys & 3) === 0 && over > 0) this.press(over, (keys & 2) !== 0)
+    this.lastKeys = keys
+  }
+
+  /** which button covers this x, or -1 — the layout Esc_Appear lays out */
+  private buttonAt(x: number): number {
+    if (x < BUTTON_W) return 1
+    if (x >= WIDTH - BUTTON_W) return 2
+    const run = BUTTON_W + 4 * BUTTON_W
+    if (x < run) return -1
+    const i = Math.floor((x - run) / BUTTON_W) + 3
+    return i <= BUTTONS ? i : -1
   }
 
   /**

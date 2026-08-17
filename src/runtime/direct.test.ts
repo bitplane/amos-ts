@@ -308,3 +308,91 @@ describe('the editor resource bank (Ed_ResourceLoad +Edit.s:4738)', () => {
     expect(lit).toBeGreaterThan(1000)
   })
 })
+
+describe('the escape screen buttons (Esc_Bouton +Edit.s:8982)', () => {
+  function open(): Runtime {
+    const rt = new Runtime(tokenize('Screen Open 0,320,200,16,Lowres : Curs Off\nA=5\nStop', table), table, {})
+    for (let i = 0; i < 4; i++) rt.frame()
+    rt.directScreen.open()
+    return rt
+  }
+  const line = (rt: Runtime): string => (rt.directScreen as unknown as { line: string }).line
+
+  it('F1-F10 type the editor\'s twenty macros, F11-F20 on Shift', () => {
+    // Esc_BtFonc reads system message 24+n (+Edit.s:9179), and Ed_GetSysteme
+    // is 1-based, so F1 is ED_SYSTEME[23]
+    const rt = open()
+    rt.directScreen.key('', 0x53) // F4: "Dir$='", no backtick, so it waits
+    expect(line(rt)).toBe("Dir$='")
+    rt.directScreen.key('', 0x57) // F8: "Load Iff '"
+    expect(line(rt)).toBe("Load Iff '")
+    rt.directScreen.key('', 0x50, true) // Shift-F1 is F11: "Screen Close "
+    expect(line(rt)).toBe('Screen Close ')
+  })
+
+  it('runs the macro at once when it ended in a backtick', () => {
+    // `.Test` copies until the backtick, strips it and falls through to
+    // Esc_R --- the Return path. Half of them do and half wait.
+    const rt = open()
+    let out = ''
+    rt.onDirectText = (t) => (out += t)
+    rt.directScreen.key('', 0x51) // F2 is "Default`"
+    expect(line(rt)).toBe('')
+    for (let i = 0; i < 6; i++) rt.frame()
+    expect(rt.inDirect).toBe(false)
+  })
+
+  it('maps a click to the button under it and the button under it to a key', () => {
+    // 1 at the left edge, 2 pinned right, then the run from Es_BoutonsX;
+    // button n is function n-3 (`.Pa3` leaves d1 at n-4, 0-based)
+    const rt = open()
+    const at = (n: number): void => {
+      const s = rt.screens.get(9)!
+      const x = n === 1 ? 8 : n === 2 ? 640 - 16 : 160 + (n - 3) * 32 + 8
+      rt.input.mouseX = s.displayX + Math.floor(x / 2)
+      rt.input.mouseY = s.displayY + 8
+    }
+    at(7) // button 7 is function 4: "Dir$='"
+    rt.input.mouseK = 1
+    rt.frame()
+    expect(line(rt)).toBe("Dir$='")
+    rt.input.mouseK = 0
+    rt.frame()
+    // the right button adds ten: button 6 is normally F3 ("Dir`", which runs
+    // and clears the line) and becomes F13, which waits
+    at(6)
+    rt.input.mouseK = 2
+    rt.frame()
+    expect(line(rt)).toBe('Wind Open ')
+  })
+
+  it('button 1 shuts the screen, as Esc_Esc does', () => {
+    const rt = open()
+    const s = rt.screens.get(9)!
+    rt.input.mouseX = s.displayX + 4
+    rt.input.mouseY = s.displayY + 8
+    rt.input.mouseK = 1
+    rt.frame()
+    expect(rt.directScreen.isOpen).toBe(false)
+    expect(rt.currentIndex).toBe(0)
+  })
+
+  it('button 3 remembers which way up it is, and nothing else', () => {
+    // DEFECT: reproduced. Esc_Output is written by the button (+Edit.s:8994)
+    // and read back by the button (:9313), and nothing in the editor reads it
+    const rt = open()
+    const out = (): number => (rt.directScreen as unknown as { output: number }).output
+    expect(out()).toBe(0)
+    rt.directScreen.press(3)
+    expect(out()).toBe(1)
+    rt.directScreen.press(3)
+    expect(out()).toBe(0)
+  })
+
+  it('button 2 puts AMOS behind, which is what Ed_Wb calls', () => {
+    // Ed_Wb (+Edit.s:11228) is `EcCalD AMOS_WB,0`, the same call InAmosToBack
+    // makes (+Lib.s:11367)
+    const rt = open()
+    expect(() => rt.directScreen.press(2)).not.toThrow()
+  })
+})
