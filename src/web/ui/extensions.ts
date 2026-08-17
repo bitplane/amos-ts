@@ -91,11 +91,19 @@ function rowFor(
   return {
     key: e.id,
     label: `${e.name} ${e.version}`,
-    detail: uses.length > 0 ? `${e.author} — ${uses.length} program${uses.length === 1 ? '' : 's'}` : e.author,
+    detail: e.author,
     // the EXCEPTION is chipped, not the rule. 74 of 88 are ported, so marking
     // those would put a badge on almost every row and say nothing; marking the
     // fourteen that are not makes the tail of the list readable at a glance.
-    ...(ported ? {} : { chip: { text: 'not ported', tone: 'warn' as const } }),
+    chips: [
+      // the count is a number in a badge, not a phrase in the byline: the
+      // column is scanned down, and "3 programs" reads as prose where "3"
+      // reads as a quantity
+      ...(uses.length > 0
+        ? [{ text: String(uses.length), tone: 'none' as const, title: `${uses.length} program${uses.length === 1 ? '' : 's'} here use this extension` }]
+        : []),
+      ...(ported ? [] : [{ text: 'not ported', tone: 'warn' as const }]),
+    ],
     body: (host) => {
       const about = document.createElement('p')
       about.className = 'about'

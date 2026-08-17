@@ -437,16 +437,11 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
     const scan = SCAN[e.code] ?? 0
     const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
-    // Escape is the editor's, not the program's: it is what puts the direct
-    // mode screen up and takes it down (Esc_Appear / Esc_Hide, +Edit.s:9356).
-    // While it is up the keyboard belongs to the line being typed, so nothing
-    // reaches the program's queue --- there is no editor here to switch away
-    // from, and a game reading Inkey$ would otherwise eat what was typed.
-    if (e.code === 'Escape' && !rt.directScreen.isOpen) {
-      rt.directScreen.open()
-      e.preventDefault()
-      return
-    }
+    // Escape belongs to the PROGRAM. A game reads it like any other key and
+    // AMOS has no way to interrupt one with it --- direct mode is where a
+    // finished program leaves you, not something you drop into. Once the
+    // escape screen is up the keyboard is the line editor's, and Esc_Hide
+    // (+Edit.s:9528) is what Escape does there.
     if (rt.directScreen.isOpen) {
       rt.directScreen.key(ch, scan, e.shiftKey)
       e.preventDefault()
@@ -738,8 +733,17 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         if (!ended) {
           ended = true
           opts.onStatus?.('program ended')
+          // What direct mode IS: where a finished program leaves you. AMOS
+          // has no way to reach it from a running one --- Escape is an
+          // ordinary key a game can read --- so the escape screen goes up
+          // when the program stops and not before.
+          rt.directScreen.open()
         }
-        break
+        // and the machine has to keep turning under it: the line editor
+        // draws, a typed line runs over as many frames as it takes, and the
+        // audio clock advances. `Runtime.frame` runs no statements for a
+        // program that is done, so this costs nothing when nothing is typed.
+        if (!rt.directScreen.isOpen) break
       }
       try {
         rt.frame()

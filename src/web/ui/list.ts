@@ -42,7 +42,9 @@ export interface RowSpec {
   detail?: string
   /** the detail describes an empty socket rather than a thing */
   empty?: boolean
-  chip?: { text: string; tone?: Tone }
+  chip?: { text: string; tone?: Tone; title?: string }
+  /** several, when one badge cannot say it: rendered in order, right-aligned */
+  chips?: Array<{ text: string; tone?: Tone; title?: string }>
   actions?: readonly Action[]
   /**
    * What is in this slot, as a drop-down of everything that could be.
@@ -156,12 +158,19 @@ export function createList(host: HTMLElement): List {
         detail.textContent = row.detail ?? ''
         summary.appendChild(detail)
 
-        const chip = document.createElement('span')
-        if (row.chip) {
-          chip.className = `chip ${row.chip.tone ?? 'none'}`
-          chip.textContent = row.chip.text
+        const chips = row.chips ?? (row.chip ? [row.chip] : [])
+        if (chips.length === 0) {
+          // the empty span is load-bearing: the summary is a grid, and a row
+          // with no badge still has to occupy its column
+          summary.appendChild(document.createElement('span'))
         }
-        summary.appendChild(chip)
+        for (const c of chips) {
+          const chip = document.createElement('span')
+          chip.className = `chip ${c.tone ?? 'none'}`
+          chip.textContent = c.text
+          if (c.title !== undefined) chip.title = c.title
+          summary.appendChild(chip)
+        }
 
         const actions = document.createElement('span')
         actions.className = 'item-actions'
