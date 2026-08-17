@@ -1378,7 +1378,17 @@ export class Display {
         sp,
         yr: Math.max(0, sp.y - img.hotY),
         h: img.height + 1,
-        w: Math.max(1, Math.ceil(img.width / 16)),
+        /**
+         * How many channels it occupies.
+         *
+         * Sixteen pixels per channel, and a 16-COLOUR sprite takes two
+         * whatever its width, because that is an attached pair: `HsMAff`
+         * checks `HsYAct(a3)` and `HsYAct+8(a3)` before placing one and
+         * requires an even column. Sized on width alone, a 16-wide 16-colour
+         * sprite reserved one channel and the next sprite was handed the
+         * other half of the pair.
+         */
+        w: Math.max(img.depth > 2 ? 2 : 1, Math.ceil(img.width / 16)),
         multi: img.depth > 2,
       })
     }
@@ -1392,7 +1402,11 @@ export class Display {
         const col = (cur + tries) % 8
         if (!free[col]) continue
         if (c.multi && col % 2 !== 0) continue
-        if (c.yr < yAct[col]! || pAct[col]! + c.h > pMax) continue
+        // `>=`, not `>`. HsA6 does `add.w d2,d1 / cmp.w T_HsPMax(a5),d1 /
+        // bcc.s HsA10`, and `bcc` is unsigned greater-or-equal, so a column
+        // filled EXACTLY to HsPMax is already full. Accepting that last word
+        // put one more sprite in a column than the copper list has room for.
+        if (c.yr < yAct[col]! || pAct[col]! + c.h >= pMax) continue
         out.set(c.sp.n, col)
         // a wide sprite occupies consecutive channels, 16 pixels apart
         for (let k = 0; k < c.w && col + k < 8; k++) {
