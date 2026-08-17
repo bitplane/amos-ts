@@ -259,10 +259,17 @@ describe('display control', () => {
 })
 
 describe('Set Bob (InSetBob +Lib.s:12225 -> ResBOB +W.s:988)', () => {
-  it('back < 0 leaves a trail, back = 0 saves and restores the background', () => {
-    // a negative back clears BbDecor, so nothing is kept to put back
+  it('back < 0 blanks the rectangle, back = 0 saves and restores the background', () => {
+    // A negative back clears `BbDecor` --- the COUNT of background buffers ---
+    // so `Bob Clear` has nothing to put back and writes ZEROES over the bob's
+    // rectangle instead. This used to be read as "leaves a trail", which is
+    // the other thing a bob with no buffer could do, and TargetSystem.AMOS is
+    // what settled it: it sets fifty-four bobs to -1 over a black background
+    // and calls `Bob Clear` every frame, which is only a sensible program to
+    // write if that clears them. Trailing left 19,292 smeared pixels by frame
+    // 120 with nothing in the loop able to remove them. See display.ts.
     let rt = run(`Update Off\n${GRAB}\nSet Bob 1,-1,,\nBob 1,40,40,1\nBob Draw\nBob Clear`)
-    expect(rt.screen.point(42, 42)).toBe(5)
+    expect(rt.screen.point(42, 42)).toBe(0)
     rt = run(`Update Off\n${GRAB}\nSet Bob 1,0,,\nBob 1,40,40,1\nBob Draw\nBob Clear`)
     expect(rt.screen.point(42, 42)).toBe(0)
   })

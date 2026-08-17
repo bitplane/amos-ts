@@ -1104,15 +1104,19 @@ export class Display {
   updateBobs(): void {
     // restore, newest first
     const saved = [...this.rt.bobSaved.entries()].reverse()
-    for (const [n, bg] of saved) {
+    for (const [key, bg] of saved) {
       const s = this.rt.screens.get(bg.screen)
+      // a background belongs to the buffer it was taken from. After a swap the
+      // other buffer's saves are still wanted, and putting them back HERE
+      // would paint two-frame-old pixels into the wrong one.
+      if (s && s.bufferId !== bg.buffer) continue
       if (s) {
         const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
           px.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
         }
       }
-      this.rt.bobSaved.delete(n)
+      this.rt.bobSaved.delete(key)
     }
     // draw in priority order
     const bobs = [...this.rt.bobs.values()]
@@ -1142,7 +1146,29 @@ export class Display {
       const x2 = Math.min(s.width, dx + img.width)
       const y2 = Math.min(s.height, dy + img.height)
       if (x1 >= x2 || y1 >= y2) continue
-      if (mode >= 0) {
+      /**
+       * What `Bob Clear` will put back here, for all three `Set Bob` modes.
+       *
+       *   back = 0   the pixels underneath, saved and restored (the default)
+       *   back > 0   a solid fill of colour back-1
+       *   back < 0   ZEROES, so the rectangle is blanked
+       *
+       * DEVIATION: the negative case is inferred, not read. `ResBOB`
+       * (+W.s:975) sets `BbDecor` --- the COUNT of background buffers --- to 1,
+       * to 2 when the screen is double buffered, and to 0 for a negative back;
+       * the routine that consumes it at draw time lives in AMOS.library and is
+       * not in the vendored sources, so what a zero-buffer bob does on erase
+       * is not directly readable here.
+       *
+       * Blanking is what the callers say it must be. `TargetSystem.AMOS` sets
+       * fifty-four bobs to -1 over a black background and then calls
+       * `Bob Clear` every frame, which is only a sensible thing to write if
+       * `Bob Clear` clears them; treated as "no background, so leave a trail"
+       * it smeared 19,292 pixels of the screen by frame 120 and nothing in the
+       * loop could ever have removed them. Zero rather than a restore is also
+       * what costs no memory, which is the point of asking for no buffer.
+       */
+      {
         const w = x2 - x1
         const h = y2 - y1
         const data = new Uint8Array(w * h)
@@ -1150,10 +1176,19 @@ export class Display {
           for (let y = 0; y < h; y++) {
             data.set(s.pixels.subarray((y1 + y) * s.width + x1, (y1 + y) * s.width + x2), y * w)
           }
-        } else {
+        } else if (mode > 0) {
           data.fill((mode - 1) & 63)
         }
-        this.rt.bobSaved.set(bob.n, { screen: bob.screen, x: x1, y: y1, w, h, data })
+        this.rt.bobSaved.set(`${bob.n}|${s.bufferId}`, {
+          bob: bob.n,
+          screen: bob.screen,
+          buffer: s.bufferId,
+          x: x1,
+          y: y1,
+          w,
+          h,
+          data,
+        })
       }
       // Set Bob's plane mask restricts which bitplanes the bob writes, so a
       // bob can be confined to (say) the low two planes of a 16-colour screen
@@ -1196,15 +1231,19 @@ export class Display {
   /** restore all bob backgrounds now (Bob Clear) */
   clearBobs(): void {
     const saved = [...this.rt.bobSaved.entries()].reverse()
-    for (const [n, bg] of saved) {
+    for (const [key, bg] of saved) {
       const s = this.rt.screens.get(bg.screen)
+      // a background belongs to the buffer it was taken from. After a swap the
+      // other buffer's saves are still wanted, and putting them back HERE
+      // would paint two-frame-old pixels into the wrong one.
+      if (s && s.bufferId !== bg.buffer) continue
       if (s) {
         const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
           px.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
         }
       }
-      this.rt.bobSaved.delete(n)
+      this.rt.bobSaved.delete(key)
     }
   }
 

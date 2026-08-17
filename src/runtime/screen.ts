@@ -188,6 +188,19 @@ export class Screen {
   }
 
   /**
+   * Which buffer is logical right now, as an id that survives a swap.
+   *
+   * Double Buffer makes two bitmaps and `Screen Swap` exchanges them, so a
+   * caller that saved something out of the buffer it was drawing into needs to
+   * know whether that is still the buffer under the pen. One for a screen that
+   * was never double buffered, which is what makes the single-buffered path
+   * fall out rather than being special-cased.
+   */
+  get bufferId(): number {
+    return this.logBM.id
+  }
+
+  /**
    * The LOGICAL buffer as chunky bytes. READ-ONLY by contract — writing
    * through this will be lost the next time the planes are touched. Bulk
    * writers take `pixelsW()` instead, which says what it is doing.

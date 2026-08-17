@@ -494,7 +494,25 @@ export class Runtime {
   /** bob pipeline: auto update each frame (Bob Update On/Off) */
   bobUpdateOn = true
   /** saved background under each drawn bob, restored before redraw */
-  bobSaved = new Map<number, { screen: number; x: number; y: number; w: number; h: number; data: Uint8Array }>()
+  /**
+   * What is under each bob, keyed `bob|buffer`.
+   *
+   * The buffer is in the key because AMOS keeps one background PER BUFFER when
+   * a screen is double buffered, and its own source is explicit about it
+   * (`+W.s:975`): `btst #BitDble,EcFlags(a2)` then `addq.w #1,BbDecor(a0)` and
+   * a second slot in `BbDCur2`. Keyed by bob alone, a save taken from one
+   * buffer was restored into the other on the next frame, painting whatever
+   * had been under the bob two frames ago and leaving a trail that never
+   * cleared.
+   *
+   * Insertion order is load-bearing: both restores walk it reversed, so bobs
+   * are put back newest first and overlapping saves unwind in the order they
+   * were taken.
+   */
+  bobSaved = new Map<
+    string,
+    { bob: number; screen: number; buffer: number; x: number; y: number; w: number; h: number; data: Uint8Array }
+  >()
   /** Set Bob background modes: 0 save/restore, <0 none, >0 fill colour-1 */
   /**
    * The simulated machine's memory pools, in bytes.

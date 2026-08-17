@@ -2058,9 +2058,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'set bob'(it) {
       // Set Bob n,back,planes,mask (InSetBob +Lib.s:12225 -> ResBOB +W.s:988).
-      // back  -> BbEff: 0 save/restore, <0 leave a trail (a negative value
-      //          clears BbDecor so no background is kept), >0 restore with
-      //          solid colour back-1
+      // back  -> BbEff: 0 save/restore, <0 BLANK the rectangle on erase (a
+      //          negative value clears BbDecor, the count of background
+      //          buffers, so there is nothing to put back), >0 restore with
+      //          solid colour back-1. See ./display.ts for why the negative
+      //          case blanks rather than leaving the bob where it was.
       // planes-> BbAPlan, the bitplane write mask; omitted is -1, all planes
       // mask  -> BbACon, the blitter control word. Its SIGN chooses what it
       //          means (BbS1a +W.s:1425): 0 the default cookie-cut, negative

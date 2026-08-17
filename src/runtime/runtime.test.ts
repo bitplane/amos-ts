@@ -613,12 +613,15 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
-  it('Set Bob negative leaves a trail; Limit Bob confines movement', () => {
+  it('Set Bob negative blanks where it was; Limit Bob confines movement', () => {
+    // `back < 0` keeps no background buffer, so the erase writes zeroes over
+    // where the bob was rather than restoring or leaving it. See display.ts
+    // for why that is the reading and what TargetSystem.AMOS settled.
     const base = ['Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0']
     const trail = run([...base, 'Set Bob 1,-1,,', 'Bob 1,50,50,1'].join('\n'))
     trail.bobs.get(1)!.x = 100
     trail.frame()
-    expect(trail.screen.point(50, 50)).toBe(5) // old image not restored
+    expect(trail.screen.point(50, 50)).toBe(0) // blanked, not left behind
     expect(trail.screen.point(100, 50)).toBe(5)
     const lim = run([...base, 'Limit Bob 40,40 To 80,80', 'Bob 1,300,190,1'].join('\n'))
     const b = lim.bobs.get(1)!

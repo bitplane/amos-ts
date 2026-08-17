@@ -47,7 +47,21 @@ import {
 import { glyphBit, glyphMetrics } from './diskfont'
 import type { DiskFont } from './diskfont'
 
+/** every BitMap ever made, so two can be told apart by something stable */
+let nextBitMapId = 1
+
 export class BitMap {
+  /**
+   * Identity, for a caller holding data that belongs to ONE buffer.
+   *
+   * `Screen Swap` exchanges two BitMaps behind one screen, so "the logical
+   * buffer" is a different object from one frame to the next. Anything cached
+   * against a buffer --- bob backgrounds, which AMOS keeps one of per buffer
+   * (`+W.s:975`, `addq.w #1,BbDecor` under `btst #BitDble`) --- has to be able
+   * to say which one it came from.
+   */
+  readonly id = nextBitMapId++
+
   readonly planeSize: number
   /** the bitplanes, `depth` of them laid end to end */
   planes: Uint8Array
