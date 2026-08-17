@@ -122,6 +122,7 @@
  * really does travel inside a tag value. Addresses are never reused.
  */
 import type { RastPort } from './graphics'
+import { IDCMP_GADGETUP, type IntuiMessage } from './intuition'
 /**
  * The jump table, from `gadtools_lib.fd`.
  *
@@ -542,10 +543,53 @@ export const GADGET = {
   GadgetRender: 0x12,
   /** gg_SelectRender, +22 */
   SelectRender: 0x16,
+  /** gg_SpecialInfo, +34: `movea.l $22(a1),a0` at $33a6, a STRING's StringInfo */
+  SpecialInfo: 0x22,
+  /** gg_GadgetID, +38: `move.w $26(a1),d4` at $3356, straight off IAddress */
+  GadgetID: 0x26,
+  /** gg_UserData, +40: `movea.l $28(a1),a2` at $33c0, a LISTVIEW's own record */
+  UserData: 0x28,
 } as const
 
 /** GADGIMAGE, bit 2 of gg_Flags — `ori.w #$4,$c(a0)` at gui-1.61 $2482 */
 export const GADGIMAGE = 0x4
+
+/**
+ * GFLG_SELECTED, bit 7 of gg_Flags, which is where a CHECKBOX keeps its state.
+ *
+ * `gui-1.61` at $343a reads a checkbox by taking `$c(a1)`, the Flags, then
+ * `rol.b #$1,d1 / andi.b #$1,d1`. Rotating the low byte left by one and
+ * keeping bit 0 is bit 7 of that byte, which is $80. It reads the flag rather
+ * than the message's Code, so a checkbox's truth is in the gadget.
+ */
+export const GFLG_SELECTED = 0x80
+
+/**
+ * `struct IntuiMessage`, the five fields `gui-1.61` copies out at $32a4
+ * before replying:
+ *
+ *     move.l $14(a1),...   Class
+ *     move.w $18(a1),...   Code
+ *     move.w $1a(a1),...   Qualifier
+ *     move.l $1c(a1),...   IAddress
+ *     move.l $2c(a1),...   IDCMPWindow
+ *
+ * Twenty bytes of `struct Message` come first, which is what puts Class at
+ * 20. The port's own fields between IAddress and IDCMPWindow are MouseX,
+ * MouseY, Seconds and Micros, and nothing here reads them from a message, so
+ * they are placed by arithmetic rather than confirmed.
+ */
+export const INTUIMESSAGE = {
+  Class: 0x14,
+  Code: 0x18,
+  Qualifier: 0x1a,
+  IAddress: 0x1c,
+  MouseX: 0x20,
+  MouseY: 0x22,
+  Seconds: 0x24,
+  Micros: 0x28,
+  IDCMPWindow: 0x2c,
+} as const
 
 /**
  * Synthetic addresses, high and clear of the others in this port:
@@ -990,6 +1034,7 @@ export class GadTools {
   private readonly gadgets = new Map<number, Gadget>()
   private readonly visuals = new Map<number, VisualInfo>()
   private readonly strips = new Map<number, MenuStrip>()
+  private outstanding = 0
 
   /**
    * Strings and label arrays a caller wants to reach by address.
@@ -1331,6 +1376,122 @@ export class GadTools {
     if (subNum(number) === NOSUB) return strip.menus[menuNum(number)]?.items ?? []
     const parent = this.itemAddress(strip, fullMenuNum(menuNum(number), itemNum(number), NOSUB))
     return parent?.subItems ?? []
+  }
+
+  /**
+   * `GT_FilterIMsg(imsg)` (-102), the cooking every other message call is
+   * built on.
+   *
+   * A message whose IAddress names a gadget this instance issued is a
+   * gadtools gadget, and gadtools is what makes it mean something: it moves
+   * the gadget's state on and puts the new value in Code. A message naming
+   * anything else passes through untouched, which is what lets a program mix
+   * gadtools gadgets with its own.
+   *
+   * SOURCED: that IAddress is the Gadget, from `gui-1.61` $3352, which loads
+   * it and immediately reads GadgetID out of `$26(a1)`. That a CHECKBOX's
+   * state lives in GFLG_SELECTED rather than in Code, from $343a. That Code
+   * carries the menu number on MENUPICK, from $347a comparing it with
+   * MENUNULL.
+   *
+   * MODELLED: which kinds move on a click and by how much. A CHECKBOX
+   * toggles and a CYCLE advances, wrapping, because that is what those two
+   * controls are. gadtools' own rules for a mid-drag SLIDER, where it decides
+   * whether a MOUSEMOVE is worth a message at all, are not held here and are
+   * not invented: a SLIDER reports whatever level it currently has.
+   *
+   * Returns null when the message is gadtools' own business and the caller
+   * should not see it, which is the NULL a real GT_FilterIMsg returns.
+   */
+  filterIMsg(msg: IntuiMessage): IntuiMessage | null {
+    const g = this.gadget(msg.iaddress)
+    if (g === null) return msg
+    if (g.disabled) return null
+    switch (g.kind) {
+      case KIND.CHECKBOX:
+        if (msg.class === IDCMP_GADGETUP) g.checked = g.checked !== true
+        return { ...msg, code: g.checked === true ? 1 : 0 }
+      case KIND.CYCLE: {
+        const n = g.labels?.length ?? 0
+        if (msg.class === IDCMP_GADGETUP && n > 0) g.active = ((g.active ?? 0) + 1) % n
+        return { ...msg, code: g.active ?? 0 }
+      }
+      case KIND.MX:
+        return { ...msg, code: g.active ?? 0 }
+      case KIND.LISTVIEW:
+        return { ...msg, code: g.selected ?? 0 }
+      case KIND.SLIDER:
+        return { ...msg, code: g.level ?? 0 }
+      case KIND.SCROLLER:
+        return { ...msg, code: g.top ?? 0 }
+      default:
+        return msg
+    }
+  }
+
+  /**
+   * `GT_GetIMsg(iport)` (-72).
+   *
+   * Pops from the window's port and filters, and keeps going when the filter
+   * swallows one, so a caller only ever sees messages that mean something.
+   * Null when the port runs dry, which is what `gui-1.61` tests for twice:
+   * at $3288 in its event loop, and at $2d3a in the loop that empties a port
+   * before closing a window.
+   *
+   * `port` is anything with GetMsg, so this takes an `intuition.ts` Window
+   * without gadtools having to know what a window is.
+   */
+  getIMsg(port: { getMsg(): IntuiMessage | null }): IntuiMessage | null {
+    for (;;) {
+      const raw = port.getMsg()
+      if (raw === null) return null
+      const cooked = this.filterIMsg(raw)
+      if (cooked !== null) {
+        this.outstanding++
+        return cooked
+      }
+    }
+  }
+
+  /**
+   * `GT_ReplyIMsg(imsg)` (-78).
+   *
+   * Nothing here holds the message afterwards, so this exists to be COUNTED.
+   * A program that never replies leaks Intuition's free list on the machine
+   * and costs nothing here, and the same difference is already written down
+   * on `Window.getMsg`. Counting turns "did the caller reply" from invisible
+   * into testable, and both of gui-1.61's loops do reply.
+   */
+  replyIMsg(): void {
+    if (this.outstanding > 0) this.outstanding--
+  }
+
+  /** `GT_PostFilterIMsg(imsg)` (-108), the partner GT_FilterIMsg's caller owes */
+  postFilterIMsg(): void {
+    this.replyIMsg()
+  }
+
+  /** how many messages have been handed out and not replied to */
+  get unreplied(): number {
+    return this.outstanding
+  }
+
+  /**
+   * `GT_RefreshWindow(win, req)` (-84): redraw every gadtools gadget in a
+   * window, which is what a caller does after IDCMP_REFRESHWINDOW.
+   *
+   * Takes the chain rather than a window, because a window here has no idea
+   * which of its gadgets came from gadtools and the chain is what the caller
+   * kept from CreateContext.
+   */
+  refreshWindow(rp: RastPort, head: Gadget | null, dri: DrawInfo): number {
+    let n = 0
+    for (const g of this.chain(head)) {
+      if (g.freed || g.kind === KIND.GENERIC) continue
+      renderGadget(rp, g, dri)
+      n++
+    }
+    return n
   }
 
   private itemWidth(it: MenuItem, layout: MenuLayout): number {

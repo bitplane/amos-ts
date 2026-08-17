@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url'
 import {
   GADGIMAGE,
   GADGET,
+  GFLG_SELECTED,
+  INTUIMESSAGE,
   BARLABEL,
   DEFAULT_MENU_LAYOUT,
   GTBB_FRAMETYPE,
@@ -53,6 +55,8 @@ import {
 } from './gadtools'
 import type { DrawInfo, NewGadget, TagItem } from './gadtools'
 import type { DiskFont } from './diskfont'
+import { IDCMP_GADGETUP, IDCMP_MOUSEMOVE } from './intuition'
+import type { IntuiMessage } from './intuition'
 import { BitMap, RastPort } from './graphics'
 import { rowBytesFor } from './planar'
 import { FONT8 } from '../runtime/font.gen'
@@ -1010,6 +1014,188 @@ describe('menus', () => {
     gt.selectItem(s, fullMenuNum(0, 0, 0))
     expect(parent.subItems[1]!.checked).toBe(false)
     expect(parent.checked, 'the parent is not its own sub-item s sibling').toBe(true)
+  })
+})
+
+describe('messages', () => {
+  /** a port that hands out a queue, which is Window.getMsg's whole contract */
+  function fakePort(msgs: IntuiMessage[]): { getMsg(): IntuiMessage | null } {
+    return { getMsg: () => msgs.shift() ?? null }
+  }
+
+  function imsg(over: Partial<IntuiMessage> = {}): IntuiMessage {
+    return {
+      class: IDCMP_GADGETUP,
+      code: 0,
+      qualifier: 0,
+      mouseX: 0,
+      mouseY: 0,
+      seconds: 0,
+      micros: 0,
+      iaddress: 0,
+      ...over,
+    }
+  }
+
+  /** the five gui-1.61 copies out at $32a4, before it replies */
+  it('holds the IntuiMessage offsets gui-1.61 reads', () => {
+    expect(INTUIMESSAGE.Class).toBe(0x14)
+    expect(INTUIMESSAGE.Code).toBe(0x18)
+    expect(INTUIMESSAGE.Qualifier).toBe(0x1a)
+    expect(INTUIMESSAGE.IAddress).toBe(0x1c)
+    expect(INTUIMESSAGE.IDCMPWindow).toBe(0x2c)
+    // Class sits at 20 because struct Message comes first, and the four
+    // fields between IAddress and IDCMPWindow fill the gap exactly
+    expect(INTUIMESSAGE.Class).toBe(20)
+    expect(INTUIMESSAGE.IAddress + 4 + 2 + 2 + 4 + 4).toBe(INTUIMESSAGE.IDCMPWindow)
+  })
+
+  /** all three read straight off IAddress in gui-1.61's gadget path */
+  it('holds the Gadget offsets that path reads', () => {
+    expect(GADGET.SpecialInfo).toBe(0x22)
+    expect(GADGET.GadgetID).toBe(0x26)
+    expect(GADGET.UserData).toBe(0x28)
+    // rol.b #1 then mask 1 is bit 7 of the low byte
+    expect(GFLG_SELECTED).toBe(0x80)
+  })
+
+  it('passes a message naming nothing it issued straight through', () => {
+    const gt = new GadTools()
+    const m = imsg({ iaddress: 0xdead, code: 7 })
+    expect(gt.filterIMsg(m)).toBe(m)
+  })
+
+  /**
+   * A checkbox's truth is GFLG_SELECTED and not the message, so the filter
+   * moves the gadget and then reports it.
+   */
+  it('toggles a CHECKBOX and reports its new state in Code', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CHECKBOX, null, ng())!
+    expect(g.checked).toBe(false)
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(1)
+    expect(g.checked).toBe(true)
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(0)
+    expect(g.checked).toBe(false)
+  })
+
+  it('advances a CYCLE and wraps at the end of its labels', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CYCLE, null, ng(), [{ tag: TAG.GTCY_Labels, data: gt.listRef(['A', 'B', 'C']) }])!
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(1)
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(2)
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(0)
+    expect(contentOf(g)).toBe('A')
+  })
+
+  it('does not advance a CYCLE with no labels', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CYCLE, null, ng())!
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(0)
+    expect(g.active).toBe(0)
+  })
+
+  it('reports the current value of the kinds a click does not move', () => {
+    const gt = new GadTools()
+    const slider = gt.createGadget(KIND.SLIDER, null, ng(), [{ tag: TAG.GTSL_Level, data: 9 }])!
+    const scroller = gt.createGadget(KIND.SCROLLER, null, ng(), [{ tag: TAG.GTSC_Top, data: 4 }])!
+    expect(gt.filterIMsg(imsg({ iaddress: slider.address }))!.code).toBe(9)
+    expect(gt.filterIMsg(imsg({ iaddress: scroller.address }))!.code).toBe(4)
+    // and reading does not move them
+    expect(slider.level).toBe(9)
+    expect(scroller.top).toBe(4)
+  })
+
+  it('swallows a message for a disabled gadget', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CHECKBOX, null, ng())!
+    g.disabled = true
+    expect(gt.filterIMsg(imsg({ iaddress: g.address }))).toBeNull()
+    expect(g.checked, 'a swallowed click moves nothing').toBe(false)
+  })
+
+  /** only GADGETUP moves a control; a MOUSEMOVE over it reports, no more */
+  it('reports without moving on a class other than GADGETUP', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CHECKBOX, null, ng())!
+    expect(gt.filterIMsg(imsg({ iaddress: g.address, class: IDCMP_MOUSEMOVE }))!.code).toBe(0)
+    expect(g.checked).toBe(false)
+  })
+
+  it('GT_GetIMsg drains a port and answers null at the end', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.CHECKBOX, null, ng())!
+    const port = fakePort([imsg({ iaddress: g.address }), imsg({ iaddress: 0xbeef, code: 3 })])
+    expect(gt.getIMsg(port)!.code).toBe(1)
+    expect(gt.getIMsg(port)!.code).toBe(3)
+    expect(gt.getIMsg(port)).toBeNull()
+  })
+
+  /** the loop keeps going rather than handing the caller a null in the middle */
+  it('skips past what the filter swallows', () => {
+    const gt = new GadTools()
+    const dead = gt.createGadget(KIND.CHECKBOX, null, ng())!
+    dead.disabled = true
+    const live = gt.createGadget(KIND.SLIDER, null, ng(), [{ tag: TAG.GTSL_Level, data: 5 }])!
+    const port = fakePort([imsg({ iaddress: dead.address }), imsg({ iaddress: live.address })])
+    const got = gt.getIMsg(port)
+    expect(got).not.toBeNull()
+    expect(got!.code).toBe(5)
+    expect(gt.getIMsg(port)).toBeNull()
+  })
+
+  /**
+   * Nothing here holds a message after handing it out, so replying is
+   * counted rather than done. That makes "the caller replied" testable, which
+   * is the difference `Window.getMsg` already writes down as costing nothing
+   * in this port and a leak on the machine.
+   */
+  it('counts what has been handed out and not replied to', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.SLIDER, null, ng())!
+    const port = fakePort([imsg({ iaddress: g.address }), imsg({ iaddress: g.address })])
+    expect(gt.unreplied).toBe(0)
+    gt.getIMsg(port)
+    gt.getIMsg(port)
+    expect(gt.unreplied).toBe(2)
+    gt.replyIMsg()
+    expect(gt.unreplied).toBe(1)
+    gt.postFilterIMsg()
+    expect(gt.unreplied).toBe(0)
+    // replying more than was taken does not go negative
+    gt.replyIMsg()
+    expect(gt.unreplied).toBe(0)
+  })
+
+  /** gui-1.61's own drain at $2d30: GetIMsg, ReplyIMsg, round again until null */
+  it('empties a port the way gui-1.61 does before closing a window', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.SLIDER, null, ng())!
+    const port = fakePort([imsg({ iaddress: g.address }), imsg({ iaddress: g.address }), imsg({ iaddress: 0 })])
+    let drained = 0
+    for (;;) {
+      const m = gt.getIMsg(port)
+      if (m === null) break
+      gt.replyIMsg()
+      drained++
+    }
+    expect(drained).toBe(3)
+    expect(gt.unreplied).toBe(0)
+  })
+
+  it('GT_RefreshWindow redraws the chain and skips the context', () => {
+    const gt = new GadTools()
+    const ctx = gt.createContext()
+    const a = gt.createGadget(KIND.BUTTON, ctx, ng({ leftEdge: 0, topEdge: 0, width: 20, height: 10 }))!
+    const b = gt.createGadget(KIND.SLIDER, a, ng({ leftEdge: 0, topEdge: 12, width: 20, height: 10 }))!
+    const rp = port()
+    expect(gt.refreshWindow(rp, ctx, dri())).toBe(2)
+    expect(rp.point(0, 0)).toBe(PEN.SHINE)
+    expect(rp.point(0, 12)).toBe(PEN.SHINE)
+    // freeing from b onward leaves a alone, so one gadget is left to redraw
+    gt.freeGadgets(b)
+    expect(a.freed).toBe(false)
+    expect(gt.refreshWindow(rp, ctx, dri())).toBe(1)
   })
 })
 
