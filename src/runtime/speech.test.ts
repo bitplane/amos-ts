@@ -5,6 +5,8 @@ import { extensionById } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { modelledLibraries, openLibrary } from '../amiga/exec'
 
 const table = new TokenTable(CORE_TOKENS)
 // the speech keywords are the Music extension's, not core; slot 1 is its home
@@ -218,5 +220,41 @@ describe('SPEAK: the speech handler as a file', () => {
     const { rt } = await runFs('Append 1,"SPEAK:OPT/r"')
     expect(rt.fileChans.get(1)!.speak!.voice.raw).toBe(true)
     expect(rt.fileChans.get(1)!.out.length).toBe(0)
+  })
+})
+
+describe('when the narrator will not open (OpNar +Music.s:2443)', () => {
+  it('raises error 185, rather than saying nothing', async () => {
+    // `OpNarE` (:2508) is `move.w #7+178,d0 / Rjmp L_Error` --- one error for
+    // both halves, OpenDevice on narrator.device and OpenLibrary on
+    // translator.library. Going quiet is the one thing the machine does not
+    // do, and a silent Say is undiagnosable from outside.
+    const rt = new Runtime(tokenize('Say "hello"', table, exts), table, { extensions: exts, maxSteps: 500_000 })
+    rt.speech.failed = true
+    expect(() => rt.runHeadless(50)).toThrow("Can't open narrator")
+  })
+
+  it('names the same error the run-time table does', () => {
+    expect(ED_RUN_MESSAGES[185]).toBe("Can't open narrator")
+  })
+})
+
+describe('the speech chain as the machine reaches it', () => {
+  it('answers OpenLibrary for translator.library, which OpNar opens', () => {
+    // +Music.s:2489 opens it by name right after narrator.device. The port
+    // implements the translation, so answering zero would fail a program
+    // that checks, for a facility that is present.
+    expect(openLibrary('translator.library', 37)).toBeGreaterThan(0)
+    expect(modelledLibraries().some((l) => l.name === 'translator.library')).toBe(true)
+  })
+
+  it('lists SPEAK: as a device, because AmigaDOS has one device list', () => {
+    // a handler sits in it beside the drives; it is not a filesystem, so it
+    // is a name rather than a Volume
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    expect(fs.handlerNames()).toContain('SPEAK')
+    // and not among the volumes, which three page walkers read through
+    expect(fs.volumeNames()).not.toContain('SPEAK')
   })
 })

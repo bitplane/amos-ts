@@ -588,7 +588,8 @@ function devFirst(rt: Runtime, filter: string): string {
   // the whole filter then jokers against "NAME:" (FDev3)
   const first = filter.charAt(0).toUpperCase()
   const names = [
-    ...(first === 'A' ? [] : vfs.volumeNames()),
+    // a handler is a device: AmigaDOS has one list and SPEAK: is in it
+    ...(first === 'A' ? [] : [...vfs.volumeNames(), ...vfs.handlerNames()]),
     ...(first === 'D' ? [] : vfs.assignNames()),
   ].map((n) => `${n}:`)
   const entries = names

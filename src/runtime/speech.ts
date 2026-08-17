@@ -21,6 +21,16 @@ import { VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { AmosError } from '../interp/values'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+
+/**
+ * Error 185, `7+178` at `OpNarE` (+Music.s:2508). AMOS raises it when
+ * `OpenDevice` on narrator.device fails OR `OpenLibrary` on
+ * translator.library does, so one message covers both halves of the speech
+ * chain --- which is exactly the shape of this port's failure too, since
+ * narrator-ts supplies both.
+ */
+const NO_NARRATOR = ED_RUN_MESSAGES[185] ?? "Can't open narrator"
 
 /** narrator-ts, once the dynamic import has resolved. */
 export interface SpeechLib {
@@ -111,9 +121,15 @@ export function ensureLib(rt: Runtime): boolean {
           voice: (voice as { default: unknown }).default ?? voice,
           rules: (rules as { default: unknown }).default ?? rules,
         }
-      } catch {
-        // no narrator-ts in this build: Say becomes silent rather than fatal
+      } catch (e) {
+        // narrator-ts is not in this build, or its chunks did not load. The
+        // machine has an answer for that and it is not silence: `OpNar`
+        // (+Music.s:2443) raises `move.w #7+178,d0` --- error 185, "Can't
+        // open narrator" --- when either OpenDevice on narrator.device or
+        // OpenLibrary on translator.library fails. Recorded here and thrown
+        // by the keyword, because this runs on a promise nobody is awaiting.
         s.failed = true
+        console.error('amos-ts: narrator-ts did not load, Say will report error 185:', e)
       } finally {
         s.loading = false
       }
@@ -230,7 +246,9 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       const async = it.accept(',') ? it.evalInt() !== 0 : false
       const s = rt.speech
       if (!ensureLib(rt)) {
-        if (s.failed) return
+        // OpNarE (+Music.s:2508) is what a machine with no narrator does, and
+        // Say going quiet with no word said is the one thing it does not do
+        if (s.failed) throw new AmosError(NO_NARRATOR, 185)
         it.block({ type: 'speech' }, true)
         return
       }

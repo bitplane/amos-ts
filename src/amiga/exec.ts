@@ -206,6 +206,26 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
         'same standing here, and the same substitution.',
     },
   ],
+  // Text to phonemes, the first half of the machine's speech chain. `OpNar`
+  // (+Music.s:2489) opens it with OpenLibrary right after OpenDevice on
+  // narrator.device, and treats either failing as the same error --- 185,
+  // "Can't open narrator". Version 37 is the one Workbench 2 shipped.
+  //
+  // narrator.device itself is NOT here, and cannot be: it is opened with
+  // OpenDevice, and this map is only what OpenLibrary answers for. The port
+  // implements both halves through narrator-ts (see ../runtime/speech.ts),
+  // so answering for the half that is asked for this way is the honest
+  // position and refusing the other half would be a lie about the rest.
+  [
+    'translator.library',
+    {
+      version: 37,
+      about:
+        'English text to narrator phonemes, which is what Say and the SPEAK: handler translate with. ' +
+        'Modelled by narrator-ts, whose letter-to-sound rules are a rebuild from published ' +
+        'phonetics rather than Commodore\'s table.',
+    },
+  ],
   // GMS's core, modelled by ../runtime/thegame.ts: a GMS screen is a slot in
   // the machine's own screen table and a module call is a TypeScript call, so
   // the base only has to be non-zero. Version 2 because that is what The Game

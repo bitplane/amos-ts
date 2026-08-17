@@ -417,6 +417,27 @@ export class AmigaFS implements AmosFS {
     return out
   }
 
+  /**
+   * Devices that are handlers rather than filesystems.
+   *
+   * AmigaDOS keeps ONE device list and a handler sits in it beside the
+   * drives: `SPEAK:` is `L:Speak-Handler` behind a Mountlist entry, not a
+   * disc. It answers `Open` and nothing else --- no directory to list, no
+   * file to stat --- so it is a name here rather than a Volume.
+   *
+   * Deliberately not part of `volumeNames`, which has a second job: three
+   * places in the web page and the program index walk it to READ each volume,
+   * and a device with no filesystem behind it has nothing for them. The
+   * device list is the one caller that wants both, and it joins them itself.
+   *
+   * Only the handlers this port answers for. `SER:`, `PAR:` and `PRT:` are
+   * reached through their own keywords rather than through `Open`, so naming
+   * them would put devices in the list that `Open` would then refuse.
+   */
+  handlerNames(): string[] {
+    return ['SPEAK']
+  }
+
   assignNames(): string[] {
     return [...this.assigns.keys()].map((k) => this.assignDisplay.get(k) ?? k)
   }
