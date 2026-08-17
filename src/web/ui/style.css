@@ -264,7 +264,7 @@ button.led:focus-visible {
 
 .item > summary {
   display: grid;
-  grid-template-columns: 1.1rem 1.4rem minmax(7rem, 13rem) 1fr auto auto;
+  grid-template-columns: 1.1rem 1.4rem minmax(7rem, 16rem) 1fr auto auto;
   align-items: center;
   gap: 0.6rem;
   padding: 0.45rem 0.7rem;

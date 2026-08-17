@@ -29,6 +29,7 @@ import { mountTabs } from './ui/tabs'
 import { createStrip } from './ui/strip'
 import { createHardwareTab } from './ui/hardware'
 import type { InputSource } from './ui/catalogue'
+import { createExtensionsTab } from './ui/extensions'
 import { createLibsTab } from './ui/libs'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
@@ -502,8 +503,9 @@ statusEl = strip.status
 statusEl.textContent = held
 
 const hardware = createHardwareTab(player.machine, host)
+const extensions = createExtensionsTab()
 const libs = createLibsTab()
-document.getElementById('panels')!.append(hardware.panel, libs.panel)
+document.getElementById('panels')!.append(hardware.panel, extensions.panel, libs.panel)
 
 const tabs = mountTabs(document.getElementById('tabbar')!, [
   {
@@ -517,6 +519,7 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
   },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
+  { id: 'extensions', label: 'Extensions', panel: extensions.panel },
   { id: 'libs', label: 'Libs', panel: libs.panel },
 ])
 
