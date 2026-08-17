@@ -109,18 +109,7 @@ export function ensureLib(rt: Runtime): boolean {
     s.loading = true
     void (async () => {
       try {
-        const [narrator, translator, voice, rules] = await Promise.all([
-          import('narrator-ts'),
-          import('narrator-ts/translator'),
-          importJson(() => import('narrator-ts/reference/voice-free.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/voice-free.json')),
-          importJson(() => import('narrator-ts/reference/nrl-table.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/nrl-table.json')),
-        ])
-        s.lib = {
-          speak: narrator.speak as SpeechLib['speak'],
-          translate: translator.translate as SpeechLib['translate'],
-          voice: (voice as { default: unknown }).default ?? voice,
-          rules: (rules as { default: unknown }).default ?? rules,
-        }
+        s.lib = await loadSpeechLib()
       } catch (e) {
         // narrator-ts is not in this build, or its chunks did not load. The
         // machine has an answer for that and it is not silence: `OpNar`
@@ -136,6 +125,31 @@ export function ensureLib(rt: Runtime): boolean {
     })()
   }
   return false
+}
+
+/**
+ * Load narrator-ts and its two tables.
+ *
+ * Split out of `ensureLib` because it wants no Runtime, and one caller has
+ * none: the Libs tab's speech box drives `translator.library` directly so it
+ * can be tried without a program loaded. Both callers going through here is
+ * the point. The JSON import below has already broken once in a way that only
+ * showed on the dev server, and a test box that loaded the library its own
+ * way would have kept working through exactly that failure.
+ */
+export async function loadSpeechLib(): Promise<SpeechLib> {
+  const [narrator, translator, voice, rules] = await Promise.all([
+    import('narrator-ts'),
+    import('narrator-ts/translator'),
+    importJson(() => import('narrator-ts/reference/voice-free.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/voice-free.json')),
+    importJson(() => import('narrator-ts/reference/nrl-table.json', { with: { type: 'json' } }), () => import('narrator-ts/reference/nrl-table.json')),
+  ])
+  return {
+    speak: narrator.speak as SpeechLib['speak'],
+    translate: translator.translate as SpeechLib['translate'],
+    voice: (voice as { default: unknown }).default ?? voice,
+    rules: (rules as { default: unknown }).default ?? rules,
+  }
 }
 
 /**
@@ -162,7 +176,7 @@ export async function importJson<T>(withAttr: () => Promise<T>, plain: () => Pro
 }
 
 /** Latin-1 bytes, which is what the device reads. */
-function latin1(text: string): Uint8Array {
+export function latin1(text: string): Uint8Array {
   const out = new Uint8Array(text.length)
   for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff
   return out
