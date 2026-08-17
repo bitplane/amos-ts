@@ -7,14 +7,28 @@
  * never unmounted, because a program keeps running while you are looking at
  * something else — see ./ui/tabs.ts.
  */
-import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
+import { createPlayer, isAmosProgram, VERSION, type JoyKeys, type PortSource } from './player'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 import type { AmigaAudioModel } from '../amiga/mixer'
+/**
+ * The browser's pad string, trimmed to something that fits a row.
+ *
+ * Chrome hands back "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e
+ * Product: 0b13)" and Firefox uses a different shape entirely, so the vendor
+ * and product ids come off and the rest is left alone. Trimming rather than
+ * matching, because a table of known pads would be wrong for the next one.
+ */
+function shortPadName(id: string): string {
+  const trimmed = id.replace(/\s*\((?:STANDARD GAMEPAD\s*)?Vendor:.*?\)\s*$/i, '').trim()
+  return trimmed === '' ? id : trimmed
+}
+
 import { Keyboard } from '../amiga/keyboard'
 import { Mouse } from '../amiga/mouse'
 import { mountTabs } from './ui/tabs'
 import { createStrip } from './ui/strip'
 import { createHardwareTab } from './ui/hardware'
+import type { InputSource } from './ui/catalogue'
 import { createLibsTab } from './ui/libs'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
@@ -406,6 +420,37 @@ const host = {
   setKeys: (port: 0 | 1, keys: JoyKeys): void => {
     joyKeys[port] = keys
     player.setJoystick(port, keys)
+  },
+  // What can drive a gameport in a browser: the keyboard, and every pad the
+  // Gamepad API can see, named by the string it gives us. An empty pad list is
+  // a real answer and the row says so rather than offering "gamepad" whether
+  // or not one is plugged in, which is the state that used to be invisible.
+  sources: (): InputSource[] => [
+    { id: 'keyboard', label: 'keyboard', make: () => ({ kind: 'keyboard' }) },
+    ...player.gamepads().map((pad) => ({
+      id: `pad:${pad.index}`,
+      label: shortPadName(pad.id),
+      make: (): PortSource => ({ kind: 'gamepad', index: pad.index }),
+    })),
+  ],
+  sourceOf: (port: 0 | 1): string => {
+    const src = player.portSource(port)
+    return src.kind === 'keyboard' ? 'keyboard' : `pad:${src.index}`
+  },
+  setSource: (port: 0 | 1, source: InputSource): void => {
+    const chosen = source.make()
+    player.setPortSource(port, chosen)
+    // a port moving to a pad gives its keys back, or the arrows would go on
+    // driving a stick nobody is looking at
+    if (chosen.kind === 'keyboard') {
+      if (player.portSource(port).kind === 'keyboard' && joyKeys[port] === 'none') {
+        joyKeys[port] = port === 0 ? 'arrows' : 'wasd'
+      }
+      player.setJoystick(port, joyKeys[port])
+      player.setPortSource(port, chosen)
+    } else {
+      joyKeys[port] = 'none'
+    }
   },
   serialSupported: player.serialSupported,
   requestSerial: (): void => {

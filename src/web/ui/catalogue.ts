@@ -10,7 +10,7 @@
  * empty port is what detaching gives you and a "nothing" you attach would be
  * two ways to spell one state.
  */
-import { CTRL_GAMEPAD, CTRL_JOYSTICK, CTRL_MOUSE, Controller } from '../../amiga/controller'
+import { CTRL_JOYSTICK, CTRL_MOUSE, Controller } from '../../amiga/controller'
 import type { Device, Slot } from '../../amiga/device'
 import { AUDIO_NAMES, PaulaAudio } from '../../amiga/audio'
 import type { AmigaAudioModel } from '../../amiga/mixer'
@@ -21,7 +21,7 @@ import { Mouse } from '../../amiga/mouse'
 import { FourPlayerAdaptor, Printer } from '../../amiga/parallel'
 import { SerialCable } from '../../amiga/serialport'
 import { FloppyDrive, driveUnit } from '../../amiga/trackdisk'
-import type { JoyKeys } from '../player'
+import type { JoyKeys, PortSource } from '../player'
 
 /**
  * The key layouts a keyboard-driven port can carry.
@@ -37,18 +37,10 @@ export const BINDINGS: readonly { value: NamedKeys; label: string }[] = [
   { value: 'wasd', label: 'WASD' },
 ]
 
-/**
- * What is on the other end of the port, in the row's own words.
- *
- * The source is part of the device rather than a setting on the socket: a
- * keyboard joystick and a gamepad joystick are two different things you plug
- * in, and the Amiga sees an identical one-button stick from either. `'none'`
- * is the absence of a key layout, which is what makes a port gamepad-driven.
- */
-export function sourceLabel(keys: JoyKeys): string {
-  if (keys === 'none') return 'gamepad'
+/** how a keyboard-driven port describes its layout in the row */
+export function keysLabel(keys: JoyKeys): string {
   const named = BINDINGS.find((b) => b.value === keys)
-  return named ? `keyboard, ${named.label}` : 'keyboard, custom keys'
+  return named ? named.label : 'custom keys'
 }
 
 export interface Fitting {
@@ -56,15 +48,8 @@ export interface Fitting {
   id: string
   label: string
   make(): Device
-  /**
-   * For a gameport: which keys drive it once it is in.
-   *
-   * A stick with nothing on the other end of it is not much use, so the
-   * choice of device and the choice of what moves it are one action here.
-   * Real gamepads drive every port whatever this says, so `'none'` means
-   * gamepad only rather than dead.
-   */
-  keys?: JoyKeys
+  /** for a gameport: what will be driving it once it is in */
+  source?: InputSource
   /**
    * Ask the host for a real serial port instead of attaching directly.
    *
@@ -83,9 +68,26 @@ export interface Fitting {
   audioModel?: AmigaAudioModel
 }
 
+/**
+ * What can drive a gameport, as the host sees it right now.
+ *
+ * Host-supplied rather than listed here, because the list is not the same on
+ * every browser and will not be the same outside one. A touch overlay, a
+ * remote player and an OS adapter are all sources, and each is a host saying
+ * what it can offer rather than this file guessing.
+ */
+export interface InputSource {
+  /** stable within a host: `keyboard`, or `pad:0` */
+  id: string
+  label: string
+  make(): PortSource
+}
+
 /** what the page can offer, which is not the same on every browser */
 export interface CatalogueOptions {
   serialSupported: boolean
+  /** empty is a real answer: no pad plugged in, and the row should say so */
+  sources: readonly InputSource[]
 }
 
 /**
@@ -96,7 +98,7 @@ export interface CatalogueOptions {
  * way to empty it. Returning nothing at all for a fixed slot left the row with
  * no control, which reads as broken rather than as deliberate.
  */
-export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported: false }): Fitting[] {
+export function fittings(slot: Slot, opts: CatalogueOptions): Fitting[] {
   switch (slot.takes) {
     case 'cpu':
       // nothing here executes 68k, so these differ in name and clock rate and
@@ -123,12 +125,19 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
       if (slot.id === 'mouse') {
         return [{ id: 'browser-mouse', label: 'browser', make: () => new Mouse('browser') }]
       }
+      // the drop-down is the SOURCE now. Whether the Amiga sees a stick or a
+      // CD32 pad is a fact about the hardware, not about where the pulses come
+      // from, so it is a checkbox in the row rather than four combinations
+      // here. A CD32 pad in a game that does not know about it IS a two-button
+      // stick, which is why the two were never really different devices.
       return [
-        { id: 'joy-pad', label: 'gamepad joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'none' },
-        { id: 'joy-kb', label: 'keyboard joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'arrows' },
-        { id: 'cd32-pad', label: 'gamepad CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'none' },
-        { id: 'cd32-kb', label: 'keyboard CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'arrows' },
-        { id: 'mouse', label: 'mouse', make: () => new Controller(CTRL_MOUSE), keys: 'none' },
+        ...opts.sources.map((src) => ({
+          id: src.id,
+          label: src.label,
+          make: (): Device => new Controller(CTRL_JOYSTICK),
+          source: src,
+        })),
+        { id: 'mouse', label: 'mouse', make: () => new Controller(CTRL_MOUSE) },
       ]
     case 'parallel':
       return [
@@ -172,13 +181,11 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
 }
 
 /** the id a slot's drop-down should be sitting on, or '' for none of them */
-export function currentFitting(slot: Slot, keys: JoyKeys): string {
+export function currentFitting(slot: Slot, sourceId: string): string {
   const dev = slot.device
   if (!dev) return NOTHING
   if (slot.takes === 'gameport' && slot.id !== 'mouse') {
-    const driver = keys === 'none' ? 'pad' : 'kb'
-    if (dev.name === 'mouse') return 'mouse'
-    return dev.name === 'CD32 pad' ? `cd32-${driver}` : `joy-${driver}`
+    return dev.name === 'mouse' ? 'mouse' : sourceId
   }
   if (slot.takes === 'parallel') return dev.name === 'printer' ? 'printer' : 'fourplayer'
   // the two serial entries build the same class and are told apart by the name
@@ -187,7 +194,7 @@ export function currentFitting(slot: Slot, keys: JoyKeys): string {
   if (slot.takes === 'cpu') return dev.name
   if (slot.takes === 'audio') return dev instanceof PaulaAudio ? dev.model : ''
   if (slot.id === 'mouse') return 'browser-mouse'
-  return fittings(slot)[0]?.id ?? ''
+  return fittings(slot, { serialSupported: false, sources: [] })[0]?.id ?? ''
 }
 
 /** the option that empties a socket, which is what detach used to be */

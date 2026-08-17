@@ -12,9 +12,11 @@
  */
 import type { Machine } from '../../amiga/machine'
 import type { Slot } from '../../amiga/device'
+import { CTRL_GAMEPAD, CTRL_JOYSTICK, Controller } from '../../amiga/controller'
 import { FloppyDrive } from '../../amiga/trackdisk'
 import { createList, facts, type Action, type Choice, type List, type RowSpec } from './list'
-import { BINDINGS, NOTHING, currentFitting, fittings, iconFor, sourceLabel } from './catalogue'
+import { BINDINGS, NOTHING, currentFitting, fittings, iconFor, keysLabel } from './catalogue'
+import type { InputSource } from './catalogue'
 import type { JoyKeys } from '../player'
 import type { AmigaAudioModel } from '../../amiga/mixer'
 import { LED_FILTER_HZ, FIXED_FILTER_HZ } from '../../amiga/mixer'
@@ -34,6 +36,11 @@ import { BattClock } from '../../amiga/battclock'
 export interface PageHost {
   keys(port: 0 | 1): JoyKeys
   setKeys(port: 0 | 1, keys: JoyKeys): void
+  /** everything that could drive a gameport right now, pads included by name */
+  sources(): InputSource[]
+  /** which of them is driving this port, by `InputSource.id` */
+  sourceOf(port: 0 | 1): string
+  setSource(port: 0 | 1, source: InputSource): void
   serialSupported: boolean
   /** ask for a port; a grant attaches it, so this does not return a device */
   requestSerial(): void
@@ -72,8 +79,12 @@ function detailOf(host: PageHost, slot: Slot): { text: string; empty: boolean } 
   // a stick says what moves it, because that is the part a player has to know
   // and the alternative is expanding the row to find out
   const port = portOf(slot)
-  if (port !== null) {
-    return { text: `${slot.device.name}, ${sourceLabel(host.keys(port))}`, empty: false }
+  if (port !== null && slot.device.name !== 'mouse') {
+    const id = host.sourceOf(port)
+    const src = host.sources().find((s) => s.id === id)
+    const driver = src ? src.label : 'nothing to drive it'
+    const how = host.keys(port) === 'none' ? driver : `${driver}, ${keysLabel(host.keys(port))}`
+    return { text: `${slot.device.name}, ${how}`, empty: false }
   }
   return { text: slot.device.name, empty: false }
 }
@@ -222,6 +233,21 @@ function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElemen
       }
     }
 
+    // A CD32 pad is a two-button stick until a program clocks its extra
+    // buttons out through the shift register on pin 5, so this is a fact about
+    // the hardware rather than a permission: tick it and `ReadJoyPort` answers
+    // JP_TYPE_GAMECTLR and lets all seven through, leave it and `lowlevel.ts`
+    // masks the port down to red and blue, which are the only two a nine-pin
+    // connector has lines for.
+    const ctrl = slot.device instanceof Controller ? slot.device : null
+    if (ctrl && (ctrl.type === CTRL_JOYSTICK || ctrl.type === CTRL_GAMEPAD)) {
+      body.appendChild(
+        toggle('cd32 pad', ctrl.type === CTRL_GAMEPAD, 'seven buttons instead of two', (v) => {
+          ctrl.type = v ? CTRL_GAMEPAD : CTRL_JOYSTICK
+        }),
+      )
+    }
+
     // the layout, not the source: a gamepad-driven port has no keys to show,
     // and changing which device is in the socket is the row's own drop-down
     const port = portOf(slot)
@@ -258,7 +284,10 @@ function actionsFor(slot: Slot): Action[] {
  */
 function chooseFor(machine: Machine, host: PageHost, slot: Slot): RowSpec['choose'] {
   const port = portOf(slot)
-  const options: Choice[] = fittings(slot, { serialSupported: host.serialSupported }).map((f) => ({
+  const options: Choice[] = fittings(slot, {
+    serialSupported: host.serialSupported,
+    sources: host.sources(),
+  }).map((f) => ({
     id: f.id,
     label: f.label,
     run: () => {
@@ -275,7 +304,7 @@ function chooseFor(machine: Machine, host: PageHost, slot: Slot): RowSpec['choos
         return
       }
       if (!machine.attach(slot.id, f.make())) return
-      if (port !== null && f.keys !== undefined) host.setKeys(port, f.keys)
+      if (port !== null && f.source) host.setSource(port, f.source)
     },
   }))
   if (options.length === 0) return undefined
@@ -291,7 +320,7 @@ function chooseFor(machine: Machine, host: PageHost, slot: Slot): RowSpec['choos
       },
     })
   }
-  return { current: currentFitting(slot, port === null ? 'none' : host.keys(port)), options }
+  return { current: currentFitting(slot, port === null ? '' : host.sourceOf(port)), options }
 }
 
 function rowFor(machine: Machine, host: PageHost, slot: Slot): RowSpec {
@@ -327,10 +356,12 @@ function signature(machine: Machine, host: PageHost): string {
         ? `${drive.medium?.label ?? ''}|${drive.motorOn}|${drive.writeProtected}|${drive.cylinder}|${drive.changes}`
         : ''
       const port = portOf(slot)
-      const keys = port === null ? '' : String(host.keys(port))
+      const keys = port === null ? '' : `${String(host.keys(port))}|${host.sourceOf(port)}`
       const dev = slot.device
       const extra =
-        dev instanceof Cpu
+        dev instanceof Controller
+          ? String(dev.type)
+          : dev instanceof Cpu
           ? String(dev.ignoreClock)
           : dev instanceof PaulaAudio
             ? dev.model

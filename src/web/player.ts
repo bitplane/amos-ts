@@ -102,6 +102,26 @@ export const KB_WASD: Record<string, number> = {
 /** a keyboard-to-joystick mapping: a preset name, or DOM code -> bits */
 export type JoyKeys = 'arrows' | 'wasd' | 'none' | Record<string, number>
 
+/**
+ * What is driving one gameport.
+ *
+ * The SOURCE, not the device: whether the Amiga sees a joystick or a CD32 pad
+ * is `Controller.type` over on the machine, and it is a fact about what you
+ * plugged in. This is where the pulses come from.
+ *
+ * A union rather than a boolean because the list grows. A touch overlay and a
+ * remote player are both sources, and outside a browser an OS adapter is one
+ * too, so nothing here should be spelled "keyboard or not".
+ */
+export type PortSource = { kind: 'keyboard' } | { kind: 'gamepad'; index: number }
+
+/** a gamepad the browser can see, as a host page lists it */
+export interface GamepadInfo {
+  index: number
+  /** the browser's own string, usually naming the make and the USB ids */
+  id: string
+}
+
 function joyMap(k: JoyKeys | undefined): Record<string, number> {
   if (k === 'arrows') return KB_ARROWS
   if (k === 'wasd') return KB_WASD
@@ -171,8 +191,26 @@ export interface Player {
   reset(kind?: ResetKind): void
   /** power and pending-reset state, shared by every Runtime this builds */
   readonly machine: Machine
-  /** change a port's keyboard mapping after construction */
+  /**
+   * Change a port's keyboard mapping after construction.
+   *
+   * Kept for embedders, and it still says both things at once: a real mapping
+   * puts the port on the keyboard, and `'none'` hands it back to a gamepad.
+   * A host that wants to be explicit calls `setPortSource`.
+   */
   setJoystick(port: 0 | 1, keys: JoyKeys): void
+  /** which source drives a port, and which pad when it is a pad */
+  portSource(port: 0 | 1): PortSource
+  setPortSource(port: 0 | 1, source: PortSource): void
+  /**
+   * The gamepads the browser can see right now.
+   *
+   * A live poll rather than a cached list, because `navigator.getGamepads()`
+   * returns a fresh snapshot and a pad that has been unplugged leaves a null
+   * in the array rather than shortening it. Indexes are therefore stable and
+   * are what `PortSource` names.
+   */
+  gamepads(): GamepadInfo[]
   /** run flat out instead of at 50Hz — a development aid, not a feature */
   setTurbo(on: boolean): void
   /** which board's fixed output filter, ../amiga/audio.ts */
@@ -349,6 +387,15 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   ]
   const kbJoy = [0, 0]
 
+  /**
+   * Which source drives each port.
+   *
+   * A gamepad index rather than "the first one", so unplugging pad 0 does not
+   * silently hand pad 1 the port a player had chosen. An index that no longer
+   * answers reads as nothing held down, which is what an unplugged stick does.
+   */
+  const portSource: [PortSource, PortSource] = [{ kind: 'gamepad', index: 1 }, { kind: 'gamepad', index: 0 }]
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!focused || !rt) return
     audio.unlock()
@@ -446,7 +493,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   ]
 
   /**
-   * Feed one gameport from whatever the host attached to it.
+   * Feed one gameport from the source the host chose for it.
    *
    * `c.type` is NOT written here, and used to be. The old code set
    * CTRL_GAMEPAD whenever a real pad was plugged into the user's computer and
@@ -455,20 +502,20 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    * also meant a port could never be empty: `Machine.detach` sets CTRL_NONE
    * and the next frame put a stick straight back.
    *
-   * What drives a port is decided by what is in it. A keyboard-mapped port
-   * takes the keys, an unmapped one takes the pad, and an empty one takes
-   * nothing at all, which is the state a program checking for a connected
-   * controller has to be able to see.
+   * An empty port takes nothing at all, which is the state a program checking
+   * for a connected controller has to be able to see.
    */
-  function setPort(c: Controller, port: 0 | 1, gp: Gamepad | null): void {
+  function setPort(c: Controller, port: 0 | 1, pads: readonly (Gamepad | null)[]): void {
     if (c.type === CTRL_NONE) return
-    if (Object.keys(KB_PORT[port]!).length > 0) {
+    const src = portSource[port]
+    if (src.kind === 'keyboard') {
       // a keyboard stick is a one-button stick, and assigning the five bits
       // assigns the whole of one
       applyJoyBits(c, kbJoy[port]!)
       return
     }
     applyJoyBits(c, 0)
+    const gp = pads[src.index] ?? null
     if (!gp) return
     const ax = gp.axes
     if ((ax[1] ?? 0) < -0.5 || gp.buttons[12]?.pressed) c.dirs |= DIR_UP
@@ -618,8 +665,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       acc -= FRAME_MS
     }
     const pads = navigator.getGamepads?.() ?? []
-    setPort(rt.input.ports[1], 1, pads[0] ?? null)
-    setPort(rt.input.ports[0], 0, pads[1] ?? null)
+    setPort(rt.input.ports[1], 1, pads)
+    setPort(rt.input.ports[0], 0, pads)
     for (let i = 0; i < frames; i++) {
       if (rt.interp.done) break
       try {
@@ -667,6 +714,23 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     setJoystick(port: 0 | 1, keys: JoyKeys): void {
       KB_PORT[port] = joyMap(keys)
       kbJoy[port] = 0 // a bit held under the old mapping would stick
+      // an empty mapping is the caller saying "not the keyboard", and the only
+      // other source this player has is a pad
+      portSource[port] =
+        Object.keys(KB_PORT[port]!).length > 0 ? { kind: 'keyboard' } : { kind: 'gamepad', index: port === 1 ? 0 : 1 }
+    },
+    portSource(port: 0 | 1): PortSource {
+      return portSource[port]
+    },
+    setPortSource(port: 0 | 1, source: PortSource): void {
+      portSource[port] = source
+      kbJoy[port] = 0
+    },
+    gamepads(): GamepadInfo[] {
+      const pads = navigator.getGamepads?.() ?? []
+      const out: GamepadInfo[] = []
+      for (const [index, pad] of pads.entries()) if (pad) out.push({ index, id: pad.id })
+      return out
     },
     setTurbo(on: boolean): void {
       turbo = on
