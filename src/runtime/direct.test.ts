@@ -436,15 +436,20 @@ describe('the escape screen over a running program', () => {
     rt.directScreen.open()
     for (let i = 0; i < 10; i++) rt.frame()
     const s9 = rt.screens.get(9)!
+    // the editor's display covers the program, so the rainbow has nothing of
+    // it to colour --- and RainHide has masked the rainbow anyway
+    expect(rt.rainbowsOn).toBe(false)
+    // the text is pen 2, which nothing flashes; register 3 is the cursor's
+    // and IS expected to move
+    expect(s9.palette[2]).toBe(0x077)
     const { width, data } = rt.composite()
-    // the banner row: its pen is 3, which is the register the rainbow cycles
     const row = (s9.displayY + 20) * 2
-    let white = 0
+    let lit = 0
     for (let x = 0; x < width; x++) {
       const o = (row * width + x) * 4
-      if (data[o] === 255 && data[o + 1] === 255 && data[o + 2] === 255) white++
+      // $077 is 0,119,119
+      if (data[o] === 0 && data[o + 1] === 119 && data[o + 2] === 119) lit++
     }
-    expect(s9.palette[3]).toBe(0xfff)
-    expect(white).toBeGreaterThan(0)
+    expect(lit).toBeGreaterThan(0)
   })
 })

@@ -36,18 +36,13 @@ import { parseAmosFile } from '../loader/amosfile'
 import { parseResourceBank, type ResourceGraphics } from '../loader/resource'
 import type { Runtime } from './runtime'
 
-/**
- * `Es_MiniSy` (+Edit.s:137) is `Es_TitleSy+8` --- the title bar and one text
- * row, which is as small as the escape screen is allowed to get while it is
- * being dragged (`Esc_MEcran` clamps to it, :9038).
- */
-const MINI_HEIGHT = 24
 
-/** ten rows of the 8-pixel font, which is a slice and not a takeover */
-const ROWS = 10
-
-/** the editor's display is 640x256 hires (.Ed_Sx / .Ed_Sy, +Editor_Config.s:58) */
+/** the editor's display: .Ed_Sx x .Ed_Sy, 640x256 hires (+Editor_Config.s:58) */
 const WIDTH = 640
+const HEIGHT = 256
+
+/** what is left for text between the title strip and the bar at its foot */
+const ROWS = (HEIGHT - 16 - 8) / 8
 
 /** Es_TitleSy (+Edit.s:134): the bar the logo and the buttons sit in */
 const TITLE_H = 16
@@ -120,6 +115,13 @@ export class DirectScreen {
   static readonly EC_DIRECT = 9
 
   private prevScreen = -1
+  /** what Ed_Appear took away, for Ed_Hide to give back */
+  private saved: {
+    rainbows: boolean
+    colourBack: number
+    mouseLimit: Runtime['mouseLimit']
+    spriteUpdate: boolean
+  } | null = null
   private line = ''
   /**
    * `Esc_Output` (+Equ.s:1840), the OUT button's remembered position.
@@ -152,13 +154,14 @@ export class DirectScreen {
     // the bank is 8 colours hires (its own mode word), and taking its palette
     // is what makes the buttons the colours the editor drew them in
     // the title bar, the text rows, then the bar that closes the bottom
-    const height = Math.max(MINI_HEIGHT, TITLE_H + ROWS * 8 + BOTTOM_H)
-    const s = new Screen(DirectScreen.EC_DIRECT, WIDTH, height, g?.nColors ?? 8, g?.mode ?? 0x8000)
+    const s = new Screen(DirectScreen.EC_DIRECT, WIDTH, HEIGHT, g?.nColors ?? 8, g?.mode ?? 0x8000)
     s.bobBracket = this.rt.bobBracket
+    // the standard display position. This COVERS the program rather than
+    // overlapping it, which is the whole difference: EcEdit is the full
+    // 640x256 and Ed_Appear puts it first, so the program's screens are
+    // simply behind it and its rainbows have nothing of the editor to colour.
     s.displayX = 128
-    // on the bottom of whatever is being displayed, which is the nearest this
-    // port has to the Es_Y2 the editor remembers
-    s.displayY = Math.max(50, this.bottomLine() - height)
+    s.displayY = 50
     s.cls(0)
     if (g) for (let i = 0; i < 32; i++) s.palette[i] = g.palette[i]!
     s.cursorOn = true
@@ -172,16 +175,27 @@ export class DirectScreen {
     this.up = true
     this.line = ''
     this.running = false
+    this.edAppear()
     this.drawChrome(s, g)
     // Esc_Appear opens the text window two columns narrower than the screen
     // (`lsr.w #3,d4 / subq.w #2,d4`), which is the 16 pixels the right border
     // runs down
     // x and y are PIXELS here, columns and rows are characters
     const w = s.windOpen(1, 0, TITLE_H, WIDTH / 8 - 2, ROWS, 0)
-    // windOpen paints its area in the paper it opened with, so the editor's
-    // colours have to go on before the clear, not after
+    // Wo3a (+W.s:13735) gives a fresh window paper 1, pen 2 and cursor colour
+    // 3; the ground here is the black Ed_ColB sets rather than paper 1.
+    //
+    // The cursor does NOT flash, and that is the machine's answer rather than
+    // an omission. `Screen Open` flashes colour 3 on any screen deeper than a
+    // plane (+Lib.s:8989) and the window cursor is drawn in that register, so
+    // a PROGRAM's cursor fades --- but the editor opens its screens through
+    // the screen library rather than through the instruction, and the word
+    // Flash does not appear in +Edit.s once. `LEd_CuMarche` (+Lib.s:19810)
+    // prints ESC "C1", the ordinary Curs On, so direct mode gets an ordinary
+    // solid block while the program behind it keeps its fading one.
     w.paper = 0
-    w.pen = 3
+    w.pen = 2
+    w.cuCol = 3
     s.clw()
     for (const l of NOTICE) if (l !== '') s.writeText(`${l}\n`)
     s.writeText(`${BANNER}\n`)
@@ -233,7 +247,7 @@ export class DirectScreen {
     if (bottom) for (let bx = 0; bx < WIDTH; bx += bottom.width) put(ED_PICS.escape + 2, bx, s.height - BOTTOM_H)
   }
 
-  /** Esc_Hide (+Edit.s:9528) */
+  /** Esc_Hide (+Edit.s:9528), then Ed_Hide (:9606) */
   close(): void {
     if (!this.up) return
     this.up = false
@@ -241,9 +255,50 @@ export class DirectScreen {
       this.rt.exitDirect()
       this.running = false
     }
+    this.edHide()
     this.rt.closeScreen(DirectScreen.EC_DIRECT)
     if (this.prevScreen >= 0 && this.rt.screens.has(this.prevScreen)) this.rt.currentIndex = this.prevScreen
     this.prevScreen = -1
+  }
+
+  /**
+   * The rest of `Ed_Appear` (+Edit.s:9673), which `edHide` reverses by name.
+   *
+   * `SyCall AMALFrz` freezes AMAL, `StActHs` stops the hardware sprites,
+   * `StoreM` saves the mouse limits, `EcCalD RainHide,-1` masks every rainbow
+   * and `EcCall SColB` sets the ground to `Ed_ColB`, which the editor's own
+   * config gives as $000 (+Editor_Config.s:66).
+   *
+   * Each is something the program would otherwise go on doing to a display it
+   * no longer owns. The rainbows are the one that showed: a demo cycling
+   * colour 3 down the raster repainted the editor's text with it, and
+   * RainHide is the machine's answer rather than anything invented here.
+   */
+  private edAppear(): void {
+    this.saved = {
+      rainbows: this.rt.rainbowsOn,
+      colourBack: this.rt.colourBack,
+      mouseLimit: this.rt.mouseLimit,
+      spriteUpdate: this.rt.spriteUpdateOn,
+    }
+    this.rt.rainbowsOn = false
+    this.rt.colourBack = 0x000
+    this.rt.mouseLimit = null
+    this.rt.spriteUpdateOn = false
+    this.rt.freezeAll()
+  }
+
+  /** Ed_Hide (+Edit.s:9606): RainHide,0, the ground back to ColBack, the
+   *  mouse limits out of LimSave, then RecallM / ReActHs / AMALUFrz */
+  private edHide(): void {
+    const was = this.saved
+    if (!was) return
+    this.saved = null
+    this.rt.rainbowsOn = was.rainbows
+    this.rt.colourBack = was.colourBack
+    this.rt.mouseLimit = was.mouseLimit
+    this.rt.spriteUpdateOn = was.spriteUpdate
+    this.rt.unfreezeAll()
   }
 
   /**
@@ -430,16 +485,4 @@ export class DirectScreen {
     s.writeText(`> ${this.line}`)
   }
 
-  /**
-   * The bottom of the display in hardware lines: the lowest edge any screen
-   * that is being shown reaches, or a standard 200-line display's 250.
-   */
-  private bottomLine(): number {
-    let bottom = 0
-    for (const [n, s] of this.rt.screens) {
-      if (n === DirectScreen.EC_DIRECT || !s.visible) continue
-      bottom = Math.max(bottom, s.displayY + s.height)
-    }
-    return bottom > 0 ? bottom : 250
-  }
 }

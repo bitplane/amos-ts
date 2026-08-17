@@ -451,6 +451,16 @@ export class Runtime {
   order: number[] = []
   currentIndex = 0
   rainbows = new Map<number, Rainbow>()
+  /**
+   * `T_RainBow`: the master rainbow switch, which `RainHide` masks.
+   *
+   * `TRHide` (+W.s) is four instructions --- a negative argument saves
+   * `T_Rainbow` into `T_OldRain` and clears it, a non-negative one puts it
+   * back. `Ed_Appear` calls `RainHide,-1` when the editor takes the display
+   * and `Ed_Hide` calls `RainHide,0` on the way out, which is how a program's
+   * rainbows stop colouring the editor's own screen.
+   */
+  rainbowsOn = true
 
   /**
    * Personnal's memory registers. The extension builds its own copper list

@@ -24,7 +24,6 @@
  */
 import { EMPTY_PLANE, Runtime } from './runtime'
 import type { Rainbow } from './runtime'
-import { DirectScreen } from './directscreen'
 import { AmosError } from '../interp/values'
 import type { Screen } from './screen'
 import { BankImage } from './objects'
@@ -230,7 +229,8 @@ export class Display {
     // display, it has to say so itself.
     put(0x180)
     put(this.rt.colourBack & 0xfff)
-    const rbs = [...this.rt.rainbows.entries()]
+    // RainHide masks the lot without forgetting them (TRHide +W.s)
+    const rbs = (this.rt.rainbowsOn ? [...this.rt.rainbows.entries()] : [])
       .sort((a, b) => a[0] - b[0])
       .map(([, r]) => r)
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
@@ -429,16 +429,6 @@ export class Display {
         curRb = null
       }
       if (!curRb) curRb = rbs.find((r) => L >= r.dy && L < r.fy) ?? null
-      // DEVIATION: a rainbow does not paint over the direct-mode screen.
-      //
-      // On the machine the question cannot come up. A rainbow writes its
-      // register every line of its span whatever is in front, and that is
-      // right --- but Escape leaves the program's display entirely, so the
-      // escape screen is never over a running program's rainbow. This port
-      // shows it over the program on purpose, so you can read a variable
-      // while looking at what drew it, and the cost is this: a demo cycling
-      // colour 3 down the raster repainted the editor's own text with it.
-      if (curRb && this.rt.directScreen.isOpen && front?.index === DirectScreen.EC_DIRECT) continue
       if (curRb) {
         // at a band start the beam already sits at L after FiniCop — but only
         // if the band was actually written
