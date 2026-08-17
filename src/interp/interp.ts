@@ -28,11 +28,12 @@ import { applyJoyBits, joyBitsOf } from './gameport'
 
 export class AmosRuntimeError extends Error {
   constructor(
-    message: string,
+    /** the error on its own, without the line it happened on */
+    readonly text: string,
     readonly line: number,
     readonly listing: string,
   ) {
-    super(`${message} — at line ${line}: ${listing.trim()}`)
+    super(`${text} — at line ${line}: ${listing.trim()}`)
   }
 }
 
@@ -608,6 +609,22 @@ export class Interp {
   // ---- the program stack (Prg_Push/Prg_Pull, +Verif.s:4499/4530) ----------
 
   private progStack: Array<{ state: SavedProgram; host: unknown; direct?: boolean }> = []
+
+  /**
+   * Unwind a typed line without running it to its end (Esc_Hide +Edit.s:9536).
+   *
+   * The host calls this when the line has thrown: the program underneath is
+   * intact and has to be put back, including the `status` and `blocked` it
+   * was left with, or an error typed at a stopped program restarts it.
+   */
+  exitDirect(): void {
+    while (this.direct !== 0 && this.progStack.length > 0) {
+      const top = this.progStack[this.progStack.length - 1]!
+      if (!top.direct) break
+      this.progStack.pop()
+      this.restoreProgramState(top.state)
+    }
+  }
 
   /** called with the pusher's opaque state just before the pc is restored */
   onProgramPop: ((host: unknown) => void) | null = null

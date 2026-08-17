@@ -20,6 +20,7 @@ import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig, PI_DEFAULTS } from './piconfig.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { verifyDirect } from '../interp/direct'
+import { DirectScreen } from './directscreen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
@@ -4159,6 +4160,11 @@ export class Runtime {
     const io: AmosIO = {
       write: (text) => {
         this.onText?.(text)
+        // A typed line prints to the screen like anything else --- on the
+        // machine it prints to the editor's escape screen, which is a screen.
+        // A host that wants to show the answer in its own console gets a copy
+        // rather than a redirect.
+        if (this.interp.direct !== 0) this.onDirectText?.(text)
         this.screen.writeText(text)
       },
       locate: (x, y) => this.screen.locate(x, y),
@@ -4670,7 +4676,16 @@ export class Runtime {
     this.unblock()
     let result: RunResult
     if (!this.interp.done && this.interp.blocked === null) {
-      result = this.interp.run(this.frameBudget)
+      try {
+        result = this.interp.run(this.frameBudget)
+      } catch (e) {
+        // A mistake in a typed line belongs to whoever typed it. The escape
+        // screen prints it and asks for the next one; the program underneath
+        // never sees it, because `tst.w Direct(a5) / bne rErr1` (+ILib.s:1330)
+        // will not trap it either.
+        if (!this.directScreen.reportError(e)) throw e
+        result = { status: 'paused', steps: 0, unimplemented: this.interp.unimplemented }
+      }
     } else {
       result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
     }
@@ -4680,6 +4695,7 @@ export class Runtime {
     this.stepDialogs()
     this.stepFsel()
     this.stepReadText()
+    this.directScreen.frame()
     // The frame is over, so the sound in it is too: a rendering sink runs out
     // to here and starts the next frame at this instant. Last rather than
     // beside the replayers because the interpreter has just run, and a program
@@ -5137,6 +5153,26 @@ export class Runtime {
   /** true while a typed line is running (Direct +Edit.s:9362) */
   get inDirect(): boolean {
     return this.interp.direct !== 0
+  }
+
+  /**
+   * AMOS's escape screen: the slice of display a typed line is typed at.
+   *
+   * Built once and left, because opening it saves the program's current
+   * screen and closing it puts that back --- state that has to outlive any
+   * one visit.
+   */
+  readonly directScreen = new DirectScreen(this)
+
+  /** a copy of everything a typed line prints, for a host with its own console */
+  onDirectText: ((text: string) => void) | null = null
+
+  /**
+   * Abandon a typed line and put the program back, as `Esc_Hide` does
+   * (+Edit.s:9536). For a host that has to report an error and carry on.
+   */
+  exitDirect(): void {
+    this.interp.exitDirect()
   }
 
   /**

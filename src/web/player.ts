@@ -251,6 +251,16 @@ export interface Player {
    * the state this exists to distinguish.
    */
   isRunning(): boolean
+  /**
+   * Put AMOS's escape screen up, or take it down (Esc_Appear +Edit.s:9356).
+   *
+   * The program stops while it is there, but frames keep turning for a typed
+   * line, because that is what direct mode is: a program going nowhere and a
+   * line typed at it that runs. The Escape key does this; a host wanting its
+   * own button calls it.
+   */
+  toggleDirect(): void
+  readonly directOpen: boolean
   /** is a granted host port on the serial slot? */
   serialGranted(): boolean
   requestSerialPort(): Promise<boolean>
@@ -400,6 +410,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   let focused = false
   let turbo = false
 
+
   // ---- keyboard, scoped to focus ----
   const KB_PORT: [Record<string, number>, Record<string, number>] = [
     joyMap(opts.joystick?.port0),
@@ -425,9 +436,24 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       return
     }
     const scan = SCAN[e.code] ?? 0
+    const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
+    // Escape is the editor's, not the program's: it is what puts the direct
+    // mode screen up and takes it down (Esc_Appear / Esc_Hide, +Edit.s:9356).
+    // While it is up the keyboard belongs to the line being typed, so nothing
+    // reaches the program's queue --- there is no editor here to switch away
+    // from, and a game reading Inkey$ would otherwise eat what was typed.
+    if (e.code === 'Escape' && !rt.directScreen.isOpen) {
+      rt.directScreen.open()
+      e.preventDefault()
+      return
+    }
+    if (rt.directScreen.isOpen) {
+      rt.directScreen.key(ch, scan)
+      e.preventDefault()
+      return
+    }
     rt.keyDown(scan)
     for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! |= KB_PORT[p]![e.code]!
-    const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
     if (ch !== '') rt.pressKey(ch, scan)
     // only swallow the browser's own use of a key once we have the keyboard
     if (e.code === 'Space' || e.code === 'Backspace' || e.code === 'Tab' || e.code.startsWith('Arrow')) {
@@ -687,8 +713,15 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     acc += Math.min(now - last, FRAME_MS)
     last = now
     if (!rt || !running) return
+    // A program with the escape screen over it is going nowhere, but frames
+    // keep turning while a typed line runs --- a typed `Wait Vbl` really
+    // waits. It still composites either way, or the line being TYPED would
+    // not appear until it was run.
+    const stalled = rt.directScreen.isOpen && !rt.inDirect
     let frames = 0
-    if (turbo) {
+    if (stalled) {
+      acc = 0
+    } else if (turbo) {
       frames = 20
       acc = 0
     } else if (acc >= FRAME_MS) {
@@ -738,6 +771,14 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     canvas,
     vfs,
     dh0,
+    toggleDirect(): void {
+      if (!rt) return
+      if (rt.directScreen.isOpen) rt.directScreen.close()
+      else rt.directScreen.open()
+    },
+    get directOpen() {
+      return rt?.directScreen.isOpen ?? false
+    },
     get runtime() {
       return rt
     },
