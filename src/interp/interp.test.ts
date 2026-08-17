@@ -653,6 +653,42 @@ describe('error trapping', () => {
     expect(run(prog)).toBe('resumed 99\n') // main continues, frame stack restored
   })
 
+  it('On Error Proc takes the name token whatever its type, as OnEPrc does', () => {
+    // A saved .AMOS stores the procedure name after `On Error Proc` as a
+    // plain VARIABLE token ($0006), not as _TkPro ($0012) — checked against
+    // AMOSPro_Examples Help_71, whose stream reads `core | core | var:oops`.
+    // Our tokenizer knows the program's procedure names and emits procCall
+    // there, so nothing in this suite ever saw the case.
+    //
+    // AMOS does not consult the type. OnEPrc (+ILib.s:2076) steps over the
+    // Proc keyword and reads the label-table offset from the next word:
+    // `addq.l #4,a6 / move.w (a6)+,d0 / ... move.l 0(a2,d0.w),OnErrLine(a5)`.
+    //
+    // Resolving it as an expression instead evaluated OOPS as an undefined
+    // variable and armed the handler as "0", which stayed invisible until an
+    // error fired and reported "procedure not defined: 0" from a line nowhere
+    // near the one at fault.
+    const prog = [
+      'On Error Proc HANDLER',
+      'X=1/0',
+      'Print "resumed"',
+      'End',
+      'Procedure HANDLER',
+      '  Print "trapped"',
+      '  Resume Next',
+      'End Proc',
+    ].join('\n')
+    const lines = tokenize(prog, table)
+    const first = lines[0]!.tokens
+    const at = first.findIndex((t) => t.kind === 'procCall')
+    expect(at).toBeGreaterThan(-1) // the tokenizer's helpful kind...
+    first[at] = { ...first[at]!, kind: 'var' } as (typeof first)[number] // ...as the file really has it
+    const io = new BufferIO([])
+    const interp = new Interp(lines, table, { io, maxSteps: 100_000 })
+    interp.run()
+    expect(io.out).toBe('trapped\nresumed\n')
+  })
+
   it('Pop discards loop frames opened since the Gosub (InPop +ILib.s:2464)', () => {
     // after Pop inside a For, the loop frame is gone: Next has no For to
     // match, so it is a no-op and control falls straight through

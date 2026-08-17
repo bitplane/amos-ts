@@ -1165,6 +1165,23 @@ export class Interp {
   }
 
   /** Parse a Goto/Gosub/Restore target and return the label name. */
+  /**
+   * The name token that follows a keyword which takes one outright, with no
+   * expression fallback — `On Error Proc` is the case (OnEPrc +ILib.s:2076).
+   * Every flavour of name token is accepted because the original does not
+   * check: it steps over the keyword and reads the label-table offset from
+   * whatever word comes next. Saved files carry a procedure name here as a
+   * plain variable token, not as _TkPro.
+   */
+  parseNameToken(): string {
+    const t = this.tok()
+    if (t?.kind === 'var' || t?.kind === 'label' || t?.kind === 'labelRef' || t?.kind === 'procCall') {
+      this.advance()
+      return t.name
+    }
+    return this.parseLabelTarget()
+  }
+
   parseLabelTarget(): string {
     const t = this.tok()
     if (t?.kind === 'labelRef' || t?.kind === 'label' || t?.kind === 'procCall') {

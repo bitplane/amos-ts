@@ -640,7 +640,23 @@ export const INSTR: Record<string, Instr> = {
       return
     }
     if (it.accept('proc')) {
-      it.errorHandler = { kind: 'proc', target: it.parseLabelTarget().toLowerCase() }
+      // NOT GetLabel. InOnError's OnEPrc path (+ILib.s:2076) reads the name
+      // token straight out of the stream:
+      //
+      //	OnEPrc:	addq.l	#4,a6		step over the Proc keyword
+      //		move.w	(a6)+,d0	the label-table offset
+      //		move.b	(a6),d1 / ext.w d1 / lea 2(a6,d1.w),a6
+      //		move.l	LabHaut(a5),a2
+      //		move.l	0(a2,d0.w),OnErrLine(a5)
+      //
+      // It never looks at the token's TYPE, which matters because the editor
+      // saves a procedure name here as a plain variable token ($0006), not as
+      // _TkPro ($0012). Routing it through parseLabelTarget made
+      // `On Error Proc OOPS` evaluate OOPS as an undefined variable and store
+      // the handler as "0" — latent until an error actually fired, which in
+      // AMOSPro_Examples Help_71 is a bad record number, reported as
+      // "procedure not defined: 0" long after the line that broke it.
+      it.errorHandler = { kind: 'proc', target: it.parseNameToken().toLowerCase() }
       return
     }
     it.errorHandler = null // bare On Error switches trapping off
