@@ -1,0 +1,505 @@
+/*
+ * The standalone page's look.
+ *
+ * Committed to one dark theme rather than following the host, because the
+ * page's job is to frame a display the emulator owns: the canvas is the only
+ * thing here whose colours are the machine's, and a chrome that changed under
+ * it would make that harder to see rather than easier.
+ *
+ * The chrome deliberately does NOT look like Workbench. Intuition is being
+ * modelled, so before long a Workbench screen appears INSIDE the canvas, and
+ * grey bevels around a grey bevelled screen leave no way to tell which pixels
+ * the port drew. Flat, dark and monospace is the whole rule.
+ */
+
+:root {
+  /* neutrals biased warm off the accent, so the greys read as chosen */
+  --bg: #131210;
+  --panel: #1b1916;
+  --raised: #23201b;
+  --line: #35312a;
+  --line-soft: #292620;
+
+  --fg: #e6e0d6;
+  --dim: #9a938a;
+  --faint: #6b655c;
+
+  /* one accent, for anything focused or interactive */
+  --accent: #ffb020;
+  --accent-dim: #7a5613;
+
+  /* semantic state, which only ever means state */
+  --on: #7bd88f;
+  --off: #4a453e;
+  --warn: #e8b04b;
+  --bad: #e8695c;
+
+  --mono: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+
+  --fs-title: 1.25rem;
+  --fs-head: 0.95rem;
+  --fs-body: 0.85rem;
+  --fs-label: 0.72rem;
+
+  --gap: 0.75rem;
+  --radius: 3px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 0 3rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+.wrap {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* ---- masthead ------------------------------------------------------------ */
+
+#top {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#masthead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  padding: 0.6rem 0 0.5rem;
+}
+
+#brand {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
+
+#tagline {
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
+
+#version {
+  color: var(--faint);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+}
+
+#repo {
+  margin-left: auto;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: var(--fs-label);
+}
+
+#repo:hover {
+  color: var(--accent);
+}
+
+/* ---- tabs ---------------------------------------------------------------- */
+
+#tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: wrap;
+}
+
+.tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--fs-head);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--fg);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---- the always-visible machine strip ------------------------------------ */
+/*
+ * Stays put on every tab, because the machine keeps running while you are
+ * looking at something else. The drive lights are `FloppyDrive.motorOn`, which
+ * CIA-B's select latch sets, so they report the register rather than a guess.
+ */
+
+#strip {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-label);
+  color: var(--dim);
+}
+
+.led {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.led::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--off);
+}
+
+.led.lit {
+  color: var(--fg);
+}
+
+.led.lit::before {
+  background: var(--on);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--on) 70%, transparent);
+}
+
+.led.absent {
+  opacity: 0.35;
+}
+
+#strip .spacer {
+  margin-left: auto;
+}
+
+#status {
+  color: var(--dim);
+  min-height: 1.2em;
+}
+
+/* ---- tab panels ---------------------------------------------------------- */
+
+.panel {
+  padding-top: 1rem;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel-intro {
+  color: var(--dim);
+  margin: 0 0 0.9rem;
+  max-width: 68ch;
+}
+
+/* ---- disclosure list ----------------------------------------------------- */
+/*
+ * One component for three lists. Hardware and Libs put a single row in the
+ * body; the demos tab will put a grid of tiles in the same place.
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.item[open] {
+  border-color: var(--line);
+}
+
+.item > summary {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(7rem, 13rem) 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.item > summary:hover {
+  background: var(--raised);
+}
+
+.item > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.caret {
+  color: var(--faint);
+  transition: transform 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    transition: none;
+  }
+}
+
+.item[open] > summary .caret {
+  transform: rotate(90deg);
+}
+
+.item-label {
+  color: var(--fg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-detail {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-detail.empty {
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* state chip: form as well as text, so what is on reads at a glance */
+.chip {
+  font-size: var(--fs-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--off);
+  border-radius: 999px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.chip.on {
+  color: var(--on);
+  border-color: color-mix(in srgb, var(--on) 45%, transparent);
+}
+
+.chip.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.chip.bad {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+
+.chip.fixed {
+  color: var(--faint);
+  border-style: dashed;
+}
+
+.item-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.item-body {
+  border-top: 1px solid var(--line-soft);
+  padding: 0.7rem;
+  color: var(--dim);
+}
+
+.stub {
+  color: var(--faint);
+  font-style: italic;
+  margin: 0;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(6rem, max-content) 1fr;
+  gap: 0.15rem 0.9rem;
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-label);
+}
+
+.facts:last-child {
+  margin-bottom: 0;
+}
+
+.facts dt {
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- buttons and controls ------------------------------------------------ */
+
+button.act {
+  appearance: none;
+  background: var(--raised);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 0.1rem 0.5rem;
+  cursor: pointer;
+}
+
+button.act:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+button.act:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.act:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- the emulator tab ---------------------------------------------------- */
+
+#player {
+  width: 100%;
+  border: 2px solid var(--line);
+  background: #000;
+  line-height: 0;
+}
+
+/* the focus ring is the only cue that the player has the keyboard */
+#player.amos-focus {
+  border-color: var(--accent);
+}
+
+#bar {
+  display: flex;
+  gap: var(--gap);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+#bar label {
+  color: var(--dim);
+}
+
+#bar select,
+#bar input[type='file'] {
+  font: inherit;
+  font-size: var(--fs-label);
+  background: var(--raised);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.1rem 0.3rem;
+}
+
+body.dragging {
+  outline: 3px dashed var(--accent);
+  outline-offset: -6px;
+}
+
+/* ---- the files tree ------------------------------------------------------ */
+
+#fstree {
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre;
+  line-height: 1.35;
+}
+
+#fstree .vol {
+  color: var(--accent);
+}
+
+#fstree a {
+  color: #8cc8f0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+#fstree a.dir {
+  color: #cbc08a;
+  text-decoration: none;
+}
+
+/* the per-row rename/delete/new-drawer actions: out of the way until the row
+   is under the pointer, so the tree still reads as a tree */
+#fstree a.act {
+  color: var(--faint);
+  text-decoration: none;
+  margin-left: 8px;
+  visibility: hidden;
+}
+
+#fstree div:hover a.act {
+  visibility: visible;
+}
+
+#fstree a.act:hover {
+  color: var(--accent);
+}
+
+/* a drawer the dragged entry would move into */
+#fstree div.over {
+  background: var(--raised);
+  outline: 1px dashed var(--accent);
+}
+
+/* ---- narrow screens ------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .item > summary {
+    grid-template-columns: 1.1rem 1fr auto;
+    row-gap: 0.2rem;
+  }
+
+  .item-detail {
+    grid-column: 2 / -1;
+  }
+}

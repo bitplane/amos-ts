@@ -1,129 +1,49 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>amos-ts</title>
-    <style>
-      body {
-        background: #1a1a1a;
-        color: #ddd;
-        font-family: monospace;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 16px;
-      }
-      #player {
-        width: min(960px, 95vw);
-        border: 2px solid #444;
-        background: #000;
-        line-height: 0;
-      }
-      /* the focus ring is the only cue that the player has the keyboard */
-      #player.amos-focus {
-        border-color: #fa0;
-      }
-      #bar {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      #status {
-        color: #8c8;
-      }
-      #line {
-        width: min(640px, 95vw);
-        background: #000;
-        color: #fa0;
-        border: 1px solid #444;
-        padding: 4px 8px;
-        font-family: monospace;
-      }
-      body.dragging {
-        outline: 3px dashed #fa0;
-        outline-offset: -6px;
-      }
-      #files {
-        width: min(960px, 95vw);
-        border: 1px solid #444;
-        padding: 6px 10px;
-      }
-      #files summary {
-        cursor: pointer;
-        color: #8c8;
-      }
-      #fstree {
-        max-height: 40vh;
-        overflow-y: auto;
-        white-space: pre;
-        line-height: 1.35;
-      }
-      #fstree .vol {
-        color: #fa0;
-      }
-      #fstree a {
-        color: #8cf;
-        cursor: pointer;
-        text-decoration: underline;
-      }
-      #fstree a.dir {
-        color: #cc8;
-        text-decoration: none;
-      }
-      /* the per-row rename/delete/new-drawer actions: out of the way until
-         the row is under the pointer, so the tree still reads as a tree */
-      #fstree a.act {
-        color: #888;
-        text-decoration: none;
-        margin-left: 8px;
-        visibility: hidden;
-      }
-      #fstree div:hover a.act {
-        visibility: visible;
-      }
-      #fstree a.act:hover {
-        color: #fa0;
-      }
-      /* a drawer the dragged entry would move into */
-      #fstree div.over {
-        background: #333;
-        outline: 1px dashed #fa0;
-      }
-      #version {
-        margin-left: auto;
-        color: #555;
-        font-size: 0.85em;
-      }
-      #repo {
-        color: #888;
-        text-decoration: none;
-      }
-      #repo:hover {
-        color: #8cf;
-      }
-    </style>
+    <link rel="stylesheet" href="/src/web/ui/style.css" />
   </head>
   <body>
-    <div id="bar">
-      <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff,.adf" multiple />
-      <button id="restart">Restart</button>
-      <button id="serial" hidden title="Grant this page a serial port, so Serial Open reaches real hardware. Chromium only.">Serial port…</button>
-      <label><input type="checkbox" id="turbo" /> turbo</label>
-      <label title="Real gamepads always drive the joystick ports. Optionally map keys too.">Keyboard→Joy1
-        <select id="kb1"><option value="">off</option><option value="arrows">arrows</option><option value="wasd">WASD</option></select></label>
-      <label>Joy0
-        <select id="kb0"><option value="">off</option><option value="wasd">WASD</option><option value="arrows">arrows</option></select></label>
-      <span id="status"></span>
-      <span id="version" title="which build of the player this page loaded"></span>
-      <a id="repo" href="https://github.com/bitplane/amos-ts">github.com/bitplane/amos-ts</a>
-    </div>
-    <div id="player"></div>
-    <details id="files">
-      <summary>Files — drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page; drag a row onto a drawer to move it</summary>
-      <div id="fstree"></div>
-    </details>
+    <header id="top">
+      <div class="wrap">
+        <div id="masthead">
+          <span id="brand">amos-ts</span>
+          <span id="tagline">AMOS Professional, in a browser</span>
+          <span id="version" title="which build of the player this page loaded"></span>
+          <a id="repo" href="https://github.com/bitplane/amos-ts">github.com/bitplane/amos-ts</a>
+        </div>
+        <nav id="tabbar"></nav>
+        <div id="strip-host"></div>
+      </div>
+    </header>
+
+    <main class="wrap" id="panels">
+      <div id="panel-emulator">
+        <div id="bar">
+          <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff,.adf" multiple />
+          <button class="act" id="restart">Restart</button>
+          <button class="act" id="serial" hidden title="Grant this page a serial port, so Serial Open reaches real hardware. Chromium only.">Serial port…</button>
+          <label><input type="checkbox" id="turbo" /> turbo</label>
+          <label title="Real gamepads always drive the joystick ports. Optionally map keys too.">Keyboard→Joy1
+            <select id="kb1"><option value="">off</option><option value="arrows">arrows</option><option value="wasd">WASD</option></select></label>
+          <label>Joy0
+            <select id="kb0"><option value="">off</option><option value="wasd">WASD</option><option value="arrows">arrows</option></select></label>
+        </div>
+        <div id="player"></div>
+      </div>
+
+      <div id="panel-files">
+        <p class="panel-intro">
+          Drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page.
+          Drag a row onto a drawer to move it.
+        </p>
+        <div id="fstree"></div>
+      </div>
+    </main>
+
     <script type="module" src="/src/web/main.ts"></script>
   </body>
 </html>

@@ -193,6 +193,30 @@ export function libraryPresent(name: string): boolean {
   return MODELLED.has(basename(name))
 }
 
+/** one modelled library, as a page listing them wants to read it */
+export interface ModelledLibrary {
+  name: string
+  /** the highest version `OpenLibrary` will answer for */
+  version: number
+  /** the synthetic base it answers with, which nothing dereferences */
+  base: number
+}
+
+/**
+ * Every library `OpenLibrary` answers for.
+ *
+ * A view over `MODELLED` in its declaration order, which is also the order the
+ * bases are assigned in. Exported so the standalone page can list what is
+ * installed without keeping a second copy that drifts from this one.
+ */
+export function modelledLibraries(): ModelledLibrary[] {
+  return [...MODELLED].map(([name, version], i) => ({
+    name,
+    version,
+    base: BASE_ORIGIN + i * BASE_STRIDE,
+  }))
+}
+
 /**
  * CloseLibrary — nothing to release.
  *

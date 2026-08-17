@@ -2,11 +2,18 @@
  * Browser runner: load a .AMOS file (or plain-text listing), run it on the
  * Runtime at 50 frames a second, composite to a canvas, feed it keys and
  * mouse. `npm run dev` and open the page.
+ *
+ * The page is four tabs over one machine. Panels are built once and hidden,
+ * never unmounted, because a program keeps running while you are looking at
+ * something else — see ./ui/tabs.ts.
  */
 import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
+import { mountTabs } from './ui/tabs'
+import { createStrip } from './ui/strip'
+import { createHardwareTab } from './ui/hardware'
+import { createLibsTab } from './ui/libs'
 
-const statusEl = document.getElementById('status')!
 const fileEl = document.getElementById('file') as HTMLInputElement
 const turboEl = document.getElementById('turbo') as HTMLInputElement
 
@@ -15,13 +22,23 @@ const turboEl = document.getElementById('turbo') as HTMLInputElement
 // the previous /v/latest/ bundle. See src/version.ts.
 document.getElementById('version')!.textContent = `v${VERSION}`
 
+// The strip is built from the machine, which the player owns, so it cannot
+// exist before the player does. Status messages emitted during construction
+// are held rather than dropped.
+let statusEl: HTMLElement | null = null
+let held = ''
+function setStatus(text: string): void {
+  held = text
+  if (statusEl) statusEl.textContent = text
+}
+
 // The standalone page is a thin host over the same player the site publishes:
 // it adds a file picker, drag-and-drop, a filesystem panel and the joystick
 // dropdowns, and the player itself is exactly what an embedder gets.
 const player = createPlayer(document.getElementById('player')!, {
   autoplay: true,
-  onStatus: (t) => (statusEl.textContent = t),
-  onError: (m) => (statusEl.textContent = `error: ${m}`),
+  onStatus: setStatus,
+  onError: (m) => setStatus(`error: ${m}`),
 })
 const vfs = player.vfs
 const dh0 = player.dh0
@@ -81,7 +98,7 @@ function detectAmosInstall(): void {
   }
   const res = vfs.read(join(join(root.dir, root.sys), 'AMOSPro_Default_Resource.Abk'))
   if (res) player.setSystemResource(res)
-  statusEl.textContent = `AMOS Pro install detected at ${root.dir} — assigns created`
+  setStatus(`AMOS Pro install detected at ${root.dir}, assigns created`)
 }
 
 /** a dropped drawer named "fonts" becomes the FONTS: assign AvailFonts
@@ -129,7 +146,7 @@ async function receiveFile(name: string, bytes: Uint8Array, dir: string[], autoR
     await mountArchive(bytes, name)
   } else {
     dh0.write([...dir, name], bytes)
-    statusEl.textContent = `stored DH0:${[...dir, name].join('/')}`
+    setStatus(`stored DH0:${[...dir, name].join('/')}`)
     if (autoRun && /\.amos$/i.test(name)) {
       vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
       player.loadProgram(bytes, name, dir)
@@ -201,20 +218,20 @@ document.addEventListener('drop', (e) => {
   const single = entries.length === 1 && entries[0]!.isFile
   void (async () => {
     for (const entry of entries) await dropEntry(entry, [], single)
-    // a folder drop doesn't auto-run: point the user at the file panel
+    // a folder drop doesn't auto-run, so show the tree and say why
     if (!single && entries.length > 0) {
       detectAmosInstall()
       detectFontsDrawer()
-      filesEl.open = true
+      tabs.select('files')
       refreshFiles()
-      statusEl.textContent += ' — pick a .AMOS in the Files panel to run it'
+      setStatus(`${held}. Pick a .AMOS in the tree to run it`)
     }
   })()
 })
 
 // ---- the file manager panel ----
 
-const filesEl = document.getElementById('files') as HTMLDetailsElement
+const filesPanel = document.getElementById('panel-files')!
 const fstreeEl = document.getElementById('fstree')!
 
 /** an AMOS program by content, not name (some are extensionless on disk) */
@@ -242,7 +259,7 @@ const DRAG_TYPE = 'application/x-amos-path'
 /** report an operation and redraw; expanded paths that no longer exist
  * (renamed, moved, deleted) drop out of the open set here */
 function applied(r: FsResult): void {
-  statusEl.textContent = r.message
+  setStatus(r.message)
   for (const p of [...openDirs]) if (vfs.exists(p) !== 'dir') openDirs.delete(p)
   refreshFiles()
 }
@@ -278,7 +295,9 @@ interface RowOptions {
 }
 
 function refreshFiles(): void {
-  if (!filesEl.open) return
+  // the tree is rebuilt from the filesystem, so there is no point doing it for
+  // a panel nobody is looking at; the tab's show() catches up on the way in
+  if (filesPanel.hidden) return
   fstreeEl.textContent = ''
   const addLine = (depth: number, text: string, o: RowOptions = {}): void => {
     const line = document.createElement('div')
@@ -387,7 +406,6 @@ function refreshFiles(): void {
     walk(root, [], 1)
   }
 }
-filesEl.addEventListener('toggle', refreshFiles)
 
 // ---- the joystick dropdowns ----
 // Keyboard-to-joystick stays OFF unless asked for: a program that reads the
@@ -401,5 +419,35 @@ for (const [id, port] of [
   sel.addEventListener('change', apply)
   apply()
 }
+
+// ---- the tabs ----
+// Built last, because the strip and the hardware panel read the machine and
+// the machine belongs to the player.
+
+const strip = createStrip(player.machine)
+document.getElementById('strip-host')!.appendChild(strip.root)
+statusEl = strip.status
+statusEl.textContent = held
+
+const hardware = createHardwareTab(player.machine)
+const libs = createLibsTab()
+document.getElementById('panels')!.append(hardware.panel, libs.panel)
+
+const tabs = mountTabs(document.getElementById('tabbar')!, [
+  { id: 'emulator', label: 'Emulator', panel: document.getElementById('panel-emulator')! },
+  { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
+  { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
+  { id: 'libs', label: 'Libs', panel: libs.panel },
+])
+
+// The page's own loop, which is not the machine's: the player runs the Runtime
+// on its 50Hz clock and this only redraws what is on screen. The strip runs on
+// every tab because the machine keeps going while you are looking elsewhere.
+const tick = (): void => {
+  strip.frame()
+  tabs.frame()
+  requestAnimationFrame(tick)
+}
+requestAnimationFrame(tick)
 
 player.loadProgram(new TextEncoder().encode(DEMO), 'demo')
