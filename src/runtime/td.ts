@@ -14,9 +14,11 @@
  * in 29 relocatable hunks. `src/cli/tddis.ts` walks keyword to engine routine
  * and documents the whole dispatch; everything numeric here was read there.
  *
- * The 111-page user guide is a scan whose OCR renders "3D" as "30" throughout
- * and confuses l/I/1, so it is quoted for intent and never for numbers. The
- * two-page QuickCard is clean and is where the keyword shapes come from.
+ * The 111-page user guide (`AMOS_3D_User_Guide.ocr.txt`) is a scan whose OCR
+ * renders "3D" as "30" throughout and confuses l/I/1, so it is quoted for
+ * intent and never for numbers. The two-page QuickCard
+ * (`AMOS_3D_QuickCard.txt`) is clean and is where the keyword shapes come
+ * from.
  *
  * The thirteen demo programs that shipped on the disc are the third, and the
  * useful one: they exercise 31 of the 64 keywords and they are in the census,

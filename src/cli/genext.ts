@@ -35,12 +35,20 @@ const extDir = join(root, 'fixtures', 'extensions')
  * AMOSPro_Interpreter_Config assigns them (+Interpreter_Config.s:152-157 —
  * message 15+n holds the filename for slot n).
  */
-const STOCK: Array<{ id: string; name: string; slot: number; file: string; earlier?: string }> = [
+/**
+ * `desc` is the user-facing line the extensions tab prints. `earlier` is a
+ * finding --- why a build that exists is deliberately not registered --- and
+ * stays in this file rather than going into the table: it is documentation of
+ * a decision, not a description of the extension, and shipping it would put
+ * several kilobytes of reasoning into the web bundle.
+ */
+const STOCK: Array<{ id: string; name: string; slot: number; file: string; desc: string; earlier?: string }> = [
   {
     id: 'amospro-music-2.0',
     name: 'Music',
     slot: 1,
     file: 'AMOSPro_Music.Lib',
+    desc: 'Plays Soundtracker and MED modules, fires off samples, and carries the Say and Talk speech keywords.',
     earlier:
       'TWO earlier builds exist and neither is registered. AMOSPro_Music.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 49 keywords whose names are all in this table and whose token ids are identical to it. And the AMOS 1.3 Music.Lib $VER 1.62 from the Amiga Computing issue 66 coverdisk (sha256 aefa10082485f444c5b8b262399e7f07bd4d9f8aadef8033e4743407adfec068), 38 named keywords: it WAS registered for a while, as music-1.62, on the claim that its ids differ. They do not. All 51 of its table entries carry the same id, the same name and the same parameter spec as this one, which is a strict superset of it — the thirteen entries from $2ce (Mouth Width) to $384 (Med Midi On) are what AMOS Pro added. The only differences are ones no program can observe: the format\'s absent-routine marker ($ffff in a legacy table, routine 1 in an AP20 one) and two entries whose routine index is one lower (Sam Bank at $8a, and the unnamed $ac). So it could never uniquely explain a slot and could never outscore this entry — identifySlot given a pure-1.62 usage with legacy recorded arities answers amospro-music-2.0, because the specs it checks are the same and this entry holds the default slot. Registering it only added a tie that never resolved. Same treatment, and the same reason, as Compact 1.2 and Request 1.41 off that same coverdisk.',
   },
@@ -49,6 +57,7 @@ const STOCK: Array<{ id: string; name: string; slot: number; file: string; earli
     name: 'Compact',
     slot: 2,
     file: 'AMOSPro_Compact.Lib',
+    desc: 'Packs and unpacks memory banks in place, so a program can ship its data compressed.',
     earlier:
       'An earlier build exists and is deliberately NOT registered: Compact.Lib $VER 1.2 from the Amiga Computing issue 66 coverdisk, same three keyword names and the same token ids.',
   },
@@ -57,15 +66,23 @@ const STOCK: Array<{ id: string; name: string; slot: number; file: string; earli
     name: 'Request',
     slot: 3,
     file: 'AMOSPro_Request.Lib',
+    desc: 'Sends AmigaDOS system requesters to an AMOS screen instead of a Workbench window, or turns them off.',
     earlier:
       'An earlier build exists and is deliberately NOT registered: Request.Lib $VER 1.41 from the Amiga Computing issue 66 coverdisk, same three keyword names and the same token ids.',
   },
-  { id: 'amospro-compiler-2.0', name: 'Compiler', slot: 5, file: 'AMOSPro_Compiler.Lib' },
+  {
+    id: 'amospro-compiler-2.0',
+    name: 'Compiler',
+    slot: 5,
+    file: 'AMOSPro_Compiler.Lib',
+    desc: 'The runtime half of the AMOS Pro compiler, plus Squash and Unsquash for crunching a compiled program.',
+  },
   {
     id: 'amospro-ioports-2.0',
     name: 'IOPorts',
     slot: 6,
     file: 'AMOSPro_IOPorts.Lib',
+    desc: 'Serial and parallel port I/O: open a port, set its speed and framing, send and receive.',
     earlier:
       'An earlier build exists and is deliberately NOT registered: AMOSPro_IOPorts.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 39 entries, same names and same token ids. The AMOS 1.3 Serial.Lib 1.2 IS registered, as serial-1.2 — but NOT, as this note used to say, because AMOS Pro renumbered when it folded serial, parallel and printer together. It did not renumber: serial-1.2\'s nineteen entries are a byte-identical PREFIX of this table, same ids, names and specs, and the 26 parallel and printer entries were appended above $14c. It is registered because it is a build that was READ, not merely one that exists — the routines were checked against +IO_Ports.s on the same IOExtSer offsets and differ in exactly one thing, where the last argument arrives (AMOS Pro passes it in d3, the 1.3 build pops it off the stack), which is a calling-convention change between AMOS releases rather than a difference in behaviour. The port serves both identities from one implementation; see the `serial speed` note in status.ts and the ids list at instr.ts.',
   },
@@ -91,7 +108,7 @@ const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('he
 const infos: ExtensionInfo[] = []
 const tables = new Map<string, TokenEntry[]>()
 
-for (const { id, name, slot, file, earlier } of STOCK) {
+for (const { id, name, slot, file, desc } of STOCK) {
   const raw = readFileSync(join(sys, file))
   const lib = parseAmosLib(raw)
   tables.set(id, lib.tokens)
@@ -109,9 +126,7 @@ for (const { id, name, slot, file, earlier } of STOCK) {
     titleStrings: [],
     sha256: sha(raw),
     provenance: `AMOS Professional system disc (APSystem/${file}); slot ${slot} per +Interpreter_Config.s message ${15 + slot}.`,
-    notes:
-      'Ships with AMOS Professional and is assigned this slot by the stock interpreter config, so in practice it is always found there — but the slot is still only a config entry a user may change.' +
-      (earlier === undefined ? '' : ` ${earlier}`),
+    notes: desc,
   })
 }
 

@@ -395,6 +395,15 @@ button.act.use.unsure {
   color: var(--dim);
 }
 
+/* a description may name a keyword or point at its manual */
+.about code {
+  color: var(--fg);
+}
+
+.about a {
+  color: var(--accent);
+}
+
 .facts {
   display: grid;
   grid-template-columns: minmax(6rem, max-content) 1fr;

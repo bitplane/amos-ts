@@ -31,6 +31,7 @@
  * holds itself to: partial coverage is a state to leave, not one to record.
  */
 import { allExtensions, type Extension } from '../../ext/registry'
+import { renderMarkdown } from './markdown'
 import { extensionImpls } from '../../runtime/instr'
 import { createList, facts, type RowSpec } from './list'
 import type { ProgramIndex, ProgramIndexer, ProgramUse } from './programs'
@@ -98,7 +99,8 @@ function rowFor(
     body: (host) => {
       const about = document.createElement('p')
       about.className = 'about'
-      about.textContent = e.notes
+      // Markdown, so a description can point at the manual it is describing
+      renderMarkdown(about, e.notes)
       host.appendChild(about)
       host.appendChild(
         facts([

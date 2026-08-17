@@ -9,13 +9,22 @@
   "format": "legacy",
   "idBaseEvidence": "assumed",
   "evidence": "source",
-  "docs": ["AMOSPro_JD.Lib.MANUAL", "jd.s", "macros.s"],
-  "titleStrings": ["$VER: 4.6"],
-  "observedSlots": [22],
+  "docs": [
+    "AMOSPro_JD.Lib.MANUAL",
+    "jd.s",
+    "macros.s"
+  ],
+  "titleStrings": [
+    "$VER: 4.6"
+  ],
+  "observedSlots": [
+    22
+  ],
   "provenance": {
     "from": "AMOS PD Library CD, files/Aminet/JDLIB4_6.lha, extracted in place.",
     "note": "The version that answers slot 22's last unexplained ids. Twenty programs in the corpus -- five distinct ones, each present in three copies of the JD distribution -- identified to no registered table at slot 22, and the four ids they used that nothing explained ($011a in twelve of them, $00aa in six, $0884 and $00e8 in three each) are all in this table. 4.6 predates the 5.3 the port was written against by two months and numbers its tokens differently again, which is the same renumbering 5.9 does in the other direction. Its source is shipped UNPACKED, unlike 5.3's, and its header says 'This file is public domain'; `ExtNb equ 22-1` fixes the slot from the author's own build. The manual states extension number 22, version 4.6, 122 keywords, 19.07.1993.",
     "redistribution": "The SOURCE (jd.s) states it is public domain in the author's own words; that covers the source only, and the shipped binary carries no such statement. See jd-5.3 for the AMOS PD Library CD's own position. Kept as a fixture, which is gitignored."
   },
-  "notes": "No implementation of its own: dispatch is by name and this table's vocabulary is 4.6's spelling of the same library this port already serves for 5.3 and 5.9. Registering it is an identification fix, not a port -- it turns twenty corpus programs from 'unidentified at slot 22' into 'JD 4.6', which is what they are."
+  "findings": "No implementation of its own: dispatch is by name and this table's vocabulary is 4.6's spelling of the same library this port already serves for 5.3 and 5.9. Registering it is an identification fix, not a port -- it turns twenty corpus programs from 'unidentified at slot 22' into 'JD 4.6', which is what they are.",
+  "notes": "Version 4.6 fallback for JD."
 }

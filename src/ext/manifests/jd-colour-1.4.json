@@ -21,5 +21,6 @@
     "note": "Third of the JD set on APD599; assembler source present (SOURCES/|col.s) but no separate manual. Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing. Not to be confused with the unrelated \"AMOSPro Colours\" extension by Jan Normann Nielsen.",
     "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
-  "notes": "Palette manipulation: spread, greyscale, antique, false-colour, negative, complement, mixing. Source present so behaviour is readable; the manual covers JD and Prt but not this one. Slot 20's corpus ids are explained by this table except three, so observedSlots is left empty — likely a different build."
+  "findings": "Palette manipulation: spread, greyscale, antique, false-colour, negative, complement, mixing. Source present so behaviour is readable; the manual covers JD and Prt but not this one. Slot 20's corpus ids are explained by this table except three, so observedSlots is left empty — likely a different build.",
+  "notes": "Version 1.4 fallback for JD Colour."
 }

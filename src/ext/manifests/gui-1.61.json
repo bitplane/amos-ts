@@ -22,6 +22,7 @@
     "note": "Dated 31-03-97, so post-dates the commercial life of AMOS Pro. Wraps real Intuition/ASL gadgetry (gui open/gadgets/menus/requesters) and carries an unrelated TCP keyword family.",
     "redistribution": "Third-party extension, redistribution terms unverified. Kept as a fixture for identification only."
   },
-  "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.",
+  "findings": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.",
+  "notes": "Intuition-style windows, gadgets and menus for AMOS programs.",
   "recommendedSlot": 24
 }

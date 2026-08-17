@@ -19,6 +19,7 @@
     "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Four keywords in a 248-byte library: Change Led, Wait Mouse, Wait Joy, Clear Banks. The author's own summary is \"this extension only have 4 new commands, but this is my first extension for Amos pro\". Version off the binary: `AMOSPro First Extension by Pedro Gil v0.1` at $9a and `$VER: 0.1` at $c4. Slot off the binary too: routine 0 is `moveq #$15,d0 / rts` and stores nothing into a5 at all, and $15 is 21 — the slot less one, so 22. The readme agrees: \"put on slot 22 this name: AmosPro_First.lib\".",
+  "findings": "Four keywords in a 248-byte library: Change Led, Wait Mouse, Wait Joy, Clear Banks. The author's own summary is \"this extension only have 4 new commands, but this is my first extension for Amos pro\". Version off the binary: `AMOSPro First Extension by Pedro Gil v0.1` at $9a and `$VER: 0.1` at $c4. Slot off the binary too: routine 0 is `moveq #$15,d0 / rts` and stores nothing into a5 at all, and $15 is 21 — the slot less one, so 22. The readme agrees: \"put on slot 22 this name: AmosPro_First.lib\".",
+  "notes": "Four keywords: flip the power LED, and wait for the mouse, the joystick or a bank clear.",
   "recommendedSlot": 22
 }

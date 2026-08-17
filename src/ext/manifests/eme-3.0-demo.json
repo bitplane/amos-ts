@@ -17,5 +17,6 @@
     "note": "A demo build of EME 3.0, per its own $VER cookie, shipped on APD600. 53 of its 55 names are in the registered eme-3.0. EME replaces the stock Music.Lib in place, keeping the filename, which is why it arrives named Music.Lib.",
     "redistribution": "The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
-  "notes": "55 keywords, none ported. The demo/full distinction is the library's own; what it withholds has not been established."
+  "findings": "55 keywords, none ported. The demo/full distinction is the library's own; what it withholds has not been established.",
+  "notes": "Demo build of the Enhanced Music Extension."
 }

@@ -9,17 +9,22 @@
   "format": "legacy",
   "idBaseEvidence": "assumed",
   "evidence": "source",
-  "docs": ["AMOSPro_Personnal.Lib.s"],
+  "docs": [
+    "AMOSPro_Personnal.Lib.s"
+  ],
   "titleStrings": [
     "Amos1.3/AmosPro Personnal Extension V1.0b",
     "Amos 1.3 ET Amos Professionnal Personnal library",
     "Version SHAREWARE de demonstration : 1.0b"
   ],
-  "observedSlots": [13],
+  "observedSlots": [
+    13
+  ],
   "provenance": {
     "from": "AMOS-Professional-Official/extensions/Personal-1.1a",
     "note": "Distributed in a folder named 'Personal-1.1a' but the binary identifies itself as V1.0b and its own banner calls it the SHAREWARE demonstration version. The binary's self-report is taken as authoritative. Builds for both AMOS 1.3 and AMOS Professional.",
     "redistribution": "Shareware demonstration version; ships with the AMOS Professional source release."
   },
-  "notes": "Full assembler source ships alongside the binary (AMOSPro_Personnal.Lib.s, 4534 lines), so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. 111 entries, 110 named, 108 distinct names; `set color` and `copper base` each appear twice as arity variants. The source is NOT the binary beside it: its C_TITLE reads \"Amos1.3/AmosPro Personnal Extension V1.1\" / \"Version Enregistree COMPILABLE\" and its DLea/Dload macros are the ones commented \"COMPILABLES pour la version COMPLETE 1.1\", with the demo's deliberately broken variants commented out. It carries the same 111-entry table, none of the 18 keywords 1.1a adds, so it is the registered compilable build of this keyword set rather than a later one — which is why the file says 1.1 and the table says 1.0b. The banner credits FireWorks 1995; personnal-1.1's guide names Frederic Cordler. No program in the official corpus uses it, so the legacy id base is assumed rather than calibrated, but 68 programs in the wider collection sit at slot 13, which the source confirms as its home (ExtNb Equ 13-1). The registry id spells it \"personal\" where the extension spells itself \"Personnal\"; kept as-is because it keys the fixtures directory."
+  "findings": "Full assembler source ships alongside the binary (AMOSPro_Personnal.Lib.s, 4534 lines), so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. 111 entries, 110 named, 108 distinct names; `set color` and `copper base` each appear twice as arity variants. The source is NOT the binary beside it: its C_TITLE reads \"Amos1.3/AmosPro Personnal Extension V1.1\" / \"Version Enregistree COMPILABLE\" and its DLea/Dload macros are the ones commented \"COMPILABLES pour la version COMPLETE 1.1\", with the demo's deliberately broken variants commented out. It carries the same 111-entry table, none of the 18 keywords 1.1a adds, so it is the registered compilable build of this keyword set rather than a later one — which is why the file says 1.1 and the table says 1.0b. The banner credits FireWorks 1995; personnal-1.1's guide names Frederic Cordler. No program in the official corpus uses it, so the legacy id base is assumed rather than calibrated, but 68 programs in the wider collection sit at slot 13, which the source confirms as its home (ExtNb Equ 13-1). The registry id spells it \"personal\" where the extension spells itself \"Personnal\"; kept as-is because it keys the fixtures directory.",
+  "notes": "Version 1.0b fallback for Personnal."
 }

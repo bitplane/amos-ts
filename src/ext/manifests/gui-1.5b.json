@@ -17,5 +17,6 @@
     "note": "Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
     "redistribution": "Uploaded to Aminet, whose terms require the submitter to state distribution conditions. Kept as a fixture for identification and reference only."
   },
-  "notes": "48 keywords against 204 in 2.10, so the library grew fourfold after this. Explains three corpus programs at slot 24. None ported."
+  "findings": "48 keywords against 204 in 2.10, so the library grew fourfold after this. Explains three corpus programs at slot 24. None ported.",
+  "notes": "Early beta of the GUI extension."
 }

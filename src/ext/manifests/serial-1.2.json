@@ -17,5 +17,6 @@
     "note": "The AMOS 1.3 serial library, $VER 1.2. Its 15 named keywords are all in AMOS Pro's IOPorts, which absorbed serial, parallel and printer into one extension.",
     "redistribution": "Amiga Computing issue 66 coverdisk (November 1993), a commercial magazine cover-mount carrying a licensed AMOS 1.3 distribution. Kept as a fixture for identification and reference only."
   },
-  "notes": "Identifies AMOS 1.3-era programs. The serial keywords are ported as part of IOPorts."
+  "findings": "Identifies AMOS 1.3-era programs. The serial keywords are ported as part of IOPorts.",
+  "notes": "The AMOS 1.3 serial extension. Its keywords are the ones IOPorts carries in AMOS Pro."
 }
