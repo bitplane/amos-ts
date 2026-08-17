@@ -1,0 +1,830 @@
+/**
+ * `gadtools.library` — the gadget kinds, their tags, and the gadget list.
+ *
+ * Nineteen public functions over `intuition.ts`'s Window and `graphics.ts`'s
+ * RastPort. What it adds to Intuition is the part everyone rewrote by hand
+ * before Kickstart 2.0: a gadget that knows what KIND it is, so that a
+ * checkbox toggles and a slider slides without the program drawing either.
+ *
+ * ## Why it is here and not beside a port
+ *
+ * Two callers, neither of which owns it. `AMOSPro_GUI.Lib` 2.1 and
+ * `amospro_gui.lib` 1.61 both open it, and between them they are 307
+ * keywords. That is the rule in README.md, met before the file was written
+ * rather than after.
+ *
+ * ## The library itself is NOT held, and that matters
+ *
+ * gadtools is a ROM library from Kickstart 2.0 onward. No Kickstart image, no
+ * source and no `gadtools.h` is in the corpus or in fixtures, and every
+ * decode below therefore comes from the library's INTERFACE and from what its
+ * callers do across it, never from its implementation. That is a weaker
+ * footing than `lh.ts`, which was read instruction by instruction out of a
+ * binary, and this header is the place to say so.
+ *
+ * Three sources, and they agree everywhere they overlap:
+ *
+ * 1. **`fixtures/amigaos/FD-GUI210/gadtools_lib.fd`**, Commodore's own
+ *    function definitions, taken from GUI 2.10's own `Tools/FD/` directory in
+ *    the corpus (`sources/ultimate-amiga-amos-factory/files/gui210/GUI2/`).
+ *    `##bias 30`, so `CreateGadgetA` is -30 and each function is six lower.
+ *    It is the version GUI 2.10 was built against, which is why it was taken
+ *    from there rather than from an NDK.
+ *
+ * 2. **The two GUI binaries**, disassembled. They give the struct layouts,
+ *    which are otherwise exactly the thing a header would have to be trusted
+ *    for. `gui-1.61` at $23c6 does `moveq #$1e,d0` into `CopyMem` to copy a
+ *    caller's NewGadget, which fixes `sizeof(struct NewGadget)` at 30 without
+ *    anyone's word for it. At $246c it writes the result of CreateGadgetA at
+ *    `$12(a0)` and `$16(a0)` and sets bit 2 of `$c(a0)`, which are Gadget's
+ *    GadgetRender, SelectRender and Flags.
+ *
+ * 3. **`fixtures/extensions/os-devkit-1.61/docs/os_guides/os_gadtools_l.guide`**,
+ *    Fromentin Brice and Jens Vang Petersen's documentation for OS DevKit
+ *    1.61's own gadtools keywords. It prints every tag as a name AND a hex
+ *    value AND groups them under a kind: "The TAGs of gadgets : 'CYCLE'
+ *    TYPE=$7". That is where the numbers below come from.
+ *
+ * The third confirms the second twice over. `gui-1.61` at $24d6 recognises
+ * kind 7 and searches the caller's tag list for `$8008000E`; the guide's
+ * CYCLE section is TYPE=$7 and names `$8008000E` as GTCY_Labels. At $24c8 it
+ * recognises kind $c and searches for `$8008002D`; the guide's STRING section
+ * is TYPE=$C and names `$8008002D` as GTST_String. Two numbers each read off
+ * a binary that never saw the guide, and off a guide whose author never saw
+ * that binary.
+ *
+ * ## What the callers reach
+ *
+ * Fourteen of the nineteen, which is the whole reason this file is a
+ * reasonable size. Traced by finding `movea.l d16(aN),a6` for the slot each
+ * binary keeps GadToolsBase in, then walking forward to each `jsr d16(a6)` in
+ * the same straight-line run, so the base and the call are never guessed at
+ * across a branch:
+ *
+ *     LVO   function              1.61 at        2.10 at
+ *      -30  CreateGadgetA         $244c          $5956
+ *      -36  FreeGadgets           $2eb0          $6618
+ *      -42  GT_SetGadgetAttrsA    $2a06          $6110
+ *      -48  CreateMenusA          $25b8          $5af8
+ *      -54  FreeMenus             $2df4          $6518
+ *      -66  LayoutMenusA          $25e2          $5b22
+ *      -72  GT_GetIMsg            $2d34 $3282    —
+ *      -78  GT_ReplyIMsg          $2d3e          —
+ *      -84  GT_RefreshWindow      $291c          $5f9c
+ *     -102  GT_FilterIMsg         —              $3c26 $6c6c
+ *     -114  CreateContext         $2300          $5780
+ *     -120  DrawBevelBoxA         $2880          $2abe $5f02
+ *     -126  GetVisualInfoA        $220e          $5660
+ *     -132  FreeVisualInfo        $2ec4          $56fc $6630
+ *
+ * The base is `$d8` of the block at `$268(a5)` in 1.61 and `$124` in 2.10,
+ * both confirmed by the OpenLibrary that filled them: 1.61 at $980 and 2.10
+ * at $1344, each with the library name a fixed distance into the same block
+ * as `gadtools.library` is into the code hunk.
+ *
+ * Five functions are called by nothing here and are declared but not
+ * modelled: `LayoutMenuItemsA` (-60), `GT_BeginRefresh` (-90),
+ * `GT_EndRefresh` (-96), `GT_PostFilterIMsg` (-108) and
+ * `GT_GetGadgetAttrsA` (-174). They are in `LVO` because the table is the
+ * .fd's and truncating it would misrepresent the library.
+ *
+ * The two callers split on messages, which is worth recording because it is a
+ * real difference and not a version bump: 1.61 uses GT_GetIMsg and
+ * GT_ReplyIMsg, 2.10 pulls messages off the port itself and passes them
+ * through GT_FilterIMsg. Both are documented ways to run a gadtools message
+ * loop.
+ *
+ * ## The tag base is NOT gadtools' alone
+ *
+ * `asl.library` numbers its tags from the same $80080000, and the overlap is
+ * total rather than incidental: $80080028 is `GTSL_Level` to gadtools and
+ * `ASLFR_Screen` to asl, $8008002D is `GTST_String` and `ASLFR_DoMultiSelect`,
+ * $80080030 is `GTIN_MaxChars` and `ASLFO_FixedWidthOnly`. Both are in
+ * `os_misc1.guide` and `os_gadtools_l.guide` with those values.
+ *
+ * A longword in a binary therefore cannot be attributed to a library by its
+ * value. It has to be attributed by the call it travels to, and both GUI
+ * extensions open asl as well as gadtools, so both carry a mix. `gui-1.61`
+ * builds a tag list at $ec8 of $8008006D, $6E, $6F and $70 all set to 1 and
+ * hands it to `AllocAslRequest` with d0 = 2 at $95e; the guide names those
+ * four `ASLSM_DoWidth`, `ASLSM_DoHeight`, `ASLSM_DoDepth` and
+ * `ASLSM_DoOverscanType`, which is a screen-mode requester and nothing to do
+ * with a gadget. It also writes $80080001 at $37e2, which is
+ * `ASLFR_TitleText`.
+ *
+ * This was found by a test that assumed the opposite, and the assumption is
+ * worth naming because it is the obvious one to make twice.
+ *
+ * DEVIATION: gadgets and VisualInfos carry synthetic addresses from a high
+ * range, for the reason `boopsi.ts` gives at length: a caller receives one as
+ * a number and hands it back later, and `GTLV_ShowSelected` takes "a pointeur
+ * of one Gadtools 'STRING' gadget already created", so a gadget address
+ * really does travel inside a tag value. Addresses are never reused.
+ */
+/**
+ * The jump table, from `gadtools_lib.fd`.
+ *
+ * `##bias 30` and six bytes a vector, so entry N is at -(30 + 6N). The six
+ * `gadtoolsPrivate` slots between FreeVisualInfo and GT_GetGadgetAttrsA are
+ * why -138 to -168 are absent: they are in the .fd, under `##private`, and
+ * they are the reason GT_GetGadgetAttrsA lands at -174 rather than -138.
+ */
+export const LVO = {
+  CreateGadgetA: -30,
+  FreeGadgets: -36,
+  GT_SetGadgetAttrsA: -42,
+  CreateMenusA: -48,
+  FreeMenus: -54,
+  LayoutMenuItemsA: -60,
+  LayoutMenusA: -66,
+  GT_GetIMsg: -72,
+  GT_ReplyIMsg: -78,
+  GT_RefreshWindow: -84,
+  GT_BeginRefresh: -90,
+  GT_EndRefresh: -96,
+  GT_FilterIMsg: -102,
+  GT_PostFilterIMsg: -108,
+  CreateContext: -114,
+  DrawBevelBoxA: -120,
+  GetVisualInfoA: -126,
+  FreeVisualInfo: -132,
+  GT_GetGadgetAttrsA: -174,
+} as const
+
+/**
+ * `GT_TagBase`, which is `TAG_USER` ($80000000) plus $80000.
+ *
+ * Not asserted from a header. Every gadtools tag the two GUI binaries carry
+ * lies in $80080001..$80080070, and the guide prints the same values for the
+ * same names, so the base is where both put it.
+ */
+export const GT_TAG_BASE = 0x8008_0000
+
+/**
+ * The gadget kinds, from the guide's section headings, which state the number
+ * with the name: "The TAGs of gadgets : 'BUTTON' TYPE=$1".
+ *
+ * $A is missing from the guide and from this table because gadtools reserves
+ * it; SLIDER is $B. GENERIC is 0 and the guide has no section for it, since
+ * a generic gadget has no kind-specific tags to document. `gui-1.61` uses 0
+ * as its OWN marker rather than as a kind: at $232c a zero read out of the
+ * caller's gadget table sets bit 3 of `$82(a3)` and rewrites the kind to 1,
+ * so an "image button" is a BUTTON with GadgetRender and SelectRender filled
+ * in afterwards and GADGIMAGE set in Flags.
+ */
+export const KIND = {
+  GENERIC: 0x0,
+  BUTTON: 0x1,
+  CHECKBOX: 0x2,
+  INTEGER: 0x3,
+  LISTVIEW: 0x4,
+  MX: 0x5,
+  NUMBER: 0x6,
+  CYCLE: 0x7,
+  PALETTE: 0x8,
+  SCROLLER: 0x9,
+  SLIDER: 0xb,
+  STRING: 0xc,
+  TEXT: 0xd,
+} as const
+
+export type GadgetKind = (typeof KIND)[keyof typeof KIND]
+
+/** every kind the guide documents, in its own order, for iteration and tests */
+export const KINDS: readonly GadgetKind[] = [
+  KIND.GENERIC,
+  KIND.BUTTON,
+  KIND.CHECKBOX,
+  KIND.INTEGER,
+  KIND.LISTVIEW,
+  KIND.MX,
+  KIND.NUMBER,
+  KIND.CYCLE,
+  KIND.PALETTE,
+  KIND.SCROLLER,
+  KIND.SLIDER,
+  KIND.STRING,
+  KIND.TEXT,
+]
+
+/**
+ * The tags, with the guide's own hex beside each so a reader can check one
+ * without opening the file.
+ *
+ * Only gadtools' own are here. The guide also documents `GA_Disabled`
+ * ($8003000E), `GA_Immediate` ($80030015), `GA_RelVerify` ($80030016),
+ * `GA_TabCycle` ($80030024), `PGA_Freedom` ($80031001), `STRINGA_*`
+ * ($8003200D, $80032010, $80032013) and `LAYOUTA_Spacing` ($80038002), which
+ * are intuition's gadgetclass and strgclass tags passed straight through.
+ * Those belong with BOOPSI, not here.
+ */
+export const TAG = {
+  /** $80080004, CHECKBOX: the initial state, default FALSE */
+  GTCB_Checked: GT_TAG_BASE + 0x04,
+  /** $80080005, LISTVIEW: the topmost visible item, default 0 */
+  GTLV_Top: GT_TAG_BASE + 0x05,
+  /** $80080006, LISTVIEW: the list of nodes whose names are shown */
+  GTLV_Labels: GT_TAG_BASE + 0x06,
+  /** $80080007, LISTVIEW: read only, default FALSE */
+  GTLV_ReadOnly: GT_TAG_BASE + 0x07,
+  /** $80080008, LISTVIEW: scroller width, must be above 0, default 16 */
+  GTLV_ScrollWidth: GT_TAG_BASE + 0x08,
+  /** $80080009, MX: the NULL-terminated array of labels. Mandatory. */
+  GTMX_Labels: GT_TAG_BASE + 0x09,
+  /** $8008000A, MX: which choice is active, from 0, default 0 */
+  GTMX_Active: GT_TAG_BASE + 0x0a,
+  /** $8008000B, TEXT: the string to display, default 0 meaning empty */
+  GTTX_Text: GT_TAG_BASE + 0x0b,
+  /** $8008000C, TEXT: copy the text rather than hold the pointer (V37) */
+  GTTX_CopyText: GT_TAG_BASE + 0x0c,
+  /** $8008000D, NUMBER: the number to display, default 0 */
+  GTNM_Number: GT_TAG_BASE + 0x0d,
+  /** $8008000E, CYCLE: the NULL-terminated array of labels. Mandatory. */
+  GTCY_Labels: GT_TAG_BASE + 0x0e,
+  /** $8008000F, CYCLE: which choice is active, from 0, default 0 */
+  GTCY_Active: GT_TAG_BASE + 0x0f,
+  /** $80080010, PALETTE: bitplanes in the palette, default 1 */
+  GTPA_Depth: GT_TAG_BASE + 0x10,
+  /** $80080011, PALETTE: the pen initially selected, default 1 */
+  GTPA_Color: GT_TAG_BASE + 0x11,
+  /** $80080012, PALETTE: the first colour used, default 0 */
+  GTPA_ColorOffset: GT_TAG_BASE + 0x12,
+  /** $80080013, PALETTE: width of the selected-colour indicator */
+  GTPA_IndicatorWidth: GT_TAG_BASE + 0x13,
+  /** $80080014, PALETTE: height of the selected-colour indicator */
+  GTPA_IndicatorHeight: GT_TAG_BASE + 0x14,
+  /** $80080015, SCROLLER: the top visible edge, default 0 */
+  GTSC_Top: GT_TAG_BASE + 0x15,
+  /** $80080016, SCROLLER: the total represented, default 0 */
+  GTSC_Total: GT_TAG_BASE + 0x16,
+  /** $80080017, SCROLLER: how many are visible, default 2 */
+  GTSC_Visible: GT_TAG_BASE + 0x17,
+  /** $80080026, SLIDER: the minimum level, default 0 */
+  GTSL_Min: GT_TAG_BASE + 0x26,
+  /** $80080027, SLIDER: the maximum level, default 15 */
+  GTSL_Max: GT_TAG_BASE + 0x27,
+  /** $80080028, SLIDER: the current level, default 0 */
+  GTSL_Level: GT_TAG_BASE + 0x28,
+  /** $80080029, SLIDER: level width in characters, default 2 */
+  GTSL_MaxLevelLen: GT_TAG_BASE + 0x29,
+  /** $8008002A, SLIDER: a C format string for the level, default "%ld" */
+  GTSL_LevelFormat: GT_TAG_BASE + 0x2a,
+  /** $8008002B, SLIDER: where the level is drawn, a PLACETEXT_ value */
+  GTSL_LevelPlace: GT_TAG_BASE + 0x2b,
+  /** $8008002D, STRING: the initial content, default 0 meaning empty */
+  GTST_String: GT_TAG_BASE + 0x2d,
+  /** $8008002E, STRING: the maximum character count */
+  GTST_MaxChars: GT_TAG_BASE + 0x2e,
+  /** $8008002F, INTEGER: the initial content, default 0 */
+  GTIN_Number: GT_TAG_BASE + 0x2f,
+  /** $80080030, INTEGER: the maximum character count, default 10 */
+  GTIN_MaxChars: GT_TAG_BASE + 0x30,
+  /**
+   * $80080034, common: the VisualInfo, which DrawBevelBoxA needs and no
+   * gadget kind does.
+   *
+   * The NUMBER and the ROLE are read off `gui-1.61` at $2866, which walks the
+   * caller's tag list for $80080034 and, on a hit at $288c, overwrites its
+   * data with the extension's own VisualInfo at `$5c(a2)` before passing the
+   * list to DrawBevelBoxA at $2880. Nothing gets a pointer substituted into
+   * it unless it is meant to hold one.
+   *
+   * The NAME is not from any document held here: neither guide lists it, and
+   * `GT_VisualInfo` is what the rest of the world calls it. A reader who
+   * needs the name to be sourced should treat it as unsourced and the number
+   * as solid.
+   */
+  GT_VisualInfo: GT_TAG_BASE + 0x34,
+  /** $80080035, LISTVIEW: where the selected item is shown */
+  GTLV_ShowSelected: GT_TAG_BASE + 0x35,
+  /** $80080036, LISTVIEW: which string is selected, from 0, default 0 */
+  GTLV_Selected: GT_TAG_BASE + 0x36,
+  /** $80080039, TEXT: draw a recessed border, default FALSE */
+  GTTX_Border: GT_TAG_BASE + 0x39,
+  /** $8008003A, NUMBER: draw a recessed border, default FALSE */
+  GTNM_Border: GT_TAG_BASE + 0x3a,
+  /** $8008003B, SCROLLER: arrow size, 0 for none */
+  GTSC_Arrows: GT_TAG_BASE + 0x3b,
+  /**
+   * $8000803D, MX: spacing between the lines, default 1.
+   *
+   * The guide prints it with a 0 where every other gadtools tag it lists has
+   * an 8, and it is left as written rather than corrected to $8008003D. The
+   * guide is the source for these numbers, and tidying one because it looks
+   * wrong would put the other fifty in doubt by the same reasoning. Neither
+   * GUI binary carries either value, so nothing here can settle it and
+   * nothing here depends on it.
+   */
+  GTMX_Spacing: 0x8000_803d,
+  /** $80080040, common: the character marking the letter to underline (V37) */
+  GT_Underscore: GT_TAG_BASE + 0x40,
+  /** $80080044, CHECKBOX and MX: use the given size rather than the standard one (V39) */
+  GTCB_Scaled: GT_TAG_BASE + 0x44,
+  /** $80080046, PALETTE: colour count, overriding GTPA_Depth, default 2 (V39) */
+  GTPA_NumColors: GT_TAG_BASE + 0x46,
+  /** $80080047, MX: where the title is placed, a PLACETEXT_ value (V39) */
+  GTMX_TitlePlace: GT_TAG_BASE + 0x47,
+  /** $80080048, NUMBER and TEXT: the pen the text is drawn in (V39) */
+  GTNM_FrontPen: GT_TAG_BASE + 0x48,
+  /** $80080049, NUMBER and TEXT: the pen the background is drawn in (V39) */
+  GTNM_BackPen: GT_TAG_BASE + 0x49,
+  /** $8008004A, NUMBER and TEXT: a GTJ_ justification (V39) */
+  GTNM_Justification: GT_TAG_BASE + 0x4a,
+  /** $8008004B, NUMBER: a C format string for the number, default "%ld" (V39) */
+  GTNM_Format: GT_TAG_BASE + 0x4b,
+  /** $8008004C, NUMBER: the formatted length in characters, default 10 (V39) */
+  GTNM_MaxNumberLen: GT_TAG_BASE + 0x4c,
+  /** $8008004E, LISTVIEW: an item to bring into view, overriding GTLV_Top (V39) */
+  GTLV_MakeVisible: GT_TAG_BASE + 0x4e,
+  /** $80080050, SLIDER: the level's width in pixels (V39) */
+  GTSL_MaxPixelLen: GT_TAG_BASE + 0x50,
+  /** $80080051, SLIDER: a GTJ_ justification for the level (V39) */
+  GTSL_Justification: GT_TAG_BASE + 0x51,
+  /** $80080052, PALETTE: a table of pens to edit, one per colour (V39) */
+  GTPA_ColorTable: GT_TAG_BASE + 0x52,
+  /** $80080055, NUMBER and TEXT: clip the text to the gadget (V39) */
+  GTNM_Clipped: GT_TAG_BASE + 0x55,
+
+  /*
+   * The menu tags, from the guide's own `_men_tags` node rather than its
+   * gadget one. They go to CreateMenusA and LayoutMenusA, so they are here
+   * ahead of the menu commit that will use them.
+   */
+  /** $80080031, menus: the TextAttr for items and sub-items, else the screen's */
+  GTMN_TextAttr: GT_TAG_BASE + 0x31,
+  /** $80080032, menus: the pen the item text is drawn in, default 0 */
+  GTMN_FrontPen: GT_TAG_BASE + 0x32,
+  /** $80080041, menus: your own checkmark image, matching WA_Checkmark (V39) */
+  GTMN_Checkmark: GT_TAG_BASE + 0x41,
+  /** $80080042, menus: your own Amiga-key image, matching WA_AmigaKey (V39) */
+  GTMN_AmigaKey: GT_TAG_BASE + 0x42,
+  /**
+   * $80080043, menus: ask for this whenever the window asked for
+   * WA_NewLookMenus (V39). `gui-1.61` carries it at $25d6, six words before
+   * the LayoutMenusA at $25e2.
+   */
+  GTMN_NewLookMenus: GT_TAG_BASE + 0x43,
+} as const
+
+/** the GTJ_ justifications, from the guide's GTNM_Justification and GTTX_Justification */
+export const GTJ_LEFT = 0
+export const GTJ_RIGHT = 1
+export const GTJ_CENTER = 2
+
+/** the PLACETEXT_ positions, from the guide's GTMX_TitlePlace and GTSL_LevelPlace */
+export const PLACETEXT_ABOVE = 0x4
+export const PLACETEXT_BELOW = 0x8
+
+/** `struct TagItem`, the same pair `boopsi.ts` names. */
+export interface TagItem {
+  tag: number
+  data: number
+}
+
+/** TAG_DONE, which ends a list */
+export const TAG_DONE = 0
+
+/** the first `data` for `tag`, or `fallback` when the list does not carry it */
+export function findTag(tags: readonly TagItem[], tag: number, fallback: number): number {
+  for (const t of tags) {
+    if (t.tag === TAG_DONE) break
+    if (t.tag === tag) return t.data
+  }
+  return fallback
+}
+
+/**
+ * `sizeof(struct NewGadget)` is 30, and that is read rather than looked up:
+ * `gui-1.61` at $23c6 loads `moveq #$1e,d0` and calls exec's CopyMem (-624)
+ * to take a caller's NewGadget into its own `$194(a3)` before editing the
+ * copy's geometry.
+ *
+ * The field offsets follow from the type widths and are confirmed by what
+ * that routine then writes: `(a1)` and `$2(a1)` take LeftEdge and TopEdge
+ * after adding the window origin at `$1d0(a3)` and `$1ce(a3)`, and `$4(a1)`
+ * and `$6(a1)` take Width and Height. Four words, then four longwords and a
+ * word in between, is 30.
+ */
+export const NEWGADGET_SIZEOF = 30
+
+/** `struct NewGadget`, the description a caller fills in for CreateGadgetA */
+export interface NewGadget {
+  /** ng_LeftEdge, +0 */
+  leftEdge: number
+  /** ng_TopEdge, +2 */
+  topEdge: number
+  /** ng_Width, +4 */
+  width: number
+  /** ng_Height, +6 */
+  height: number
+  /** ng_GadgetText, +8 */
+  gadgetText: string
+  /** ng_GadgetID, +16 — what comes back in an IDCMP message */
+  gadgetID: number
+  /** ng_Flags, +18 */
+  flags: number
+  /** ng_VisualInfo, +22 — the address GetVisualInfoA handed out */
+  visualInfo: number
+  /** ng_UserData, +26 */
+  userData?: number
+}
+
+/**
+ * The Gadget offsets this port has evidence for.
+ *
+ * From `gui-1.61` $246c-$2482, which is the only place in either binary that
+ * writes into a Gadget gadtools returned: `move.l a1,$12(a0)` is
+ * GadgetRender, `move.l a1,$16(a0)` is SelectRender and `ori.w #$4,$c(a0)`
+ * is Flags with GADGIMAGE. The rest of the struct is not written by anything
+ * here and is therefore not asserted.
+ */
+export const GADGET = {
+  /** gg_Flags, +12 */
+  Flags: 0x0c,
+  /** gg_GadgetRender, +18 */
+  GadgetRender: 0x12,
+  /** gg_SelectRender, +22 */
+  SelectRender: 0x16,
+} as const
+
+/** GADGIMAGE, bit 2 of gg_Flags — `ori.w #$4,$c(a0)` at gui-1.61 $2482 */
+export const GADGIMAGE = 0x4
+
+/**
+ * Synthetic addresses, high and clear of the others in this port:
+ * `0x7f10_0000` is exec's library bases and `0x7e00_0000` is BOOPSI's
+ * objects. Eight apart, since a Gadget pointer is longword aligned and
+ * consecutive addresses would read as suspiciously dense.
+ */
+const GADGET_ORIGIN = 0x7d00_0000
+const VISUAL_ORIGIN = 0x7d80_0000
+const STRIDE = 8
+
+/**
+ * `struct VisualInfo`, which is opaque on the machine: GetVisualInfoA returns
+ * a pointer a caller may only pass back to gadtools and to
+ * `ng_VisualInfo`. Held here as what gadtools would have had to look up, so
+ * that rendering has the screen's pens without reaching for a screen.
+ */
+export interface VisualInfo {
+  /** the caller-visible handle */
+  readonly address: number
+  /** which screen it was taken from */
+  readonly screenSlot: number
+  /** the screen's depth, which bounds every pen below */
+  readonly depth: number
+  /** freed by FreeVisualInfo, so a stale handle can be told apart */
+  freed: boolean
+}
+
+/**
+ * One gadtools gadget: the kind, the geometry, and whatever state that kind
+ * carries.
+ *
+ * A single record with optional fields rather than a class per kind. gadtools
+ * itself does the same thing from the other end, with one `struct Gadget` and
+ * a SpecialInfo union, and a kind that carries no state at all (BUTTON) then
+ * costs nothing.
+ */
+export interface Gadget {
+  /** the caller-visible handle */
+  readonly address: number
+  readonly kind: GadgetKind
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  /** ng_GadgetText, which the guide's GT_Underscore marks a letter of */
+  text: string
+  /** ng_GadgetID, what an IDCMP GADGETUP carries back */
+  id: number
+  flags: number
+  userData: number
+  /** the VisualInfo the NewGadget named */
+  visualInfo: number
+  /** the next in the list CreateGadgetA chains, as CreateContext started it */
+  next: Gadget | null
+  /** disabled by GA_Disabled, which is intuition's tag rather than gadtools' */
+  disabled: boolean
+  /** freed by FreeGadgets */
+  freed: boolean
+  /** CHECKBOX: GTCB_Checked */
+  checked?: boolean
+  /** CYCLE and MX: GTCY_Labels / GTMX_Labels */
+  labels?: readonly string[]
+  /** CYCLE and MX: GTCY_Active / GTMX_Active */
+  active?: number
+  /** NUMBER and INTEGER: GTNM_Number / GTIN_Number */
+  number?: number
+  /** STRING: GTST_String */
+  string?: string
+  /** STRING and INTEGER: GTST_MaxChars / GTIN_MaxChars */
+  maxChars?: number
+  /** TEXT: GTTX_Text */
+  displayText?: string
+  /** SLIDER: GTSL_Min, GTSL_Max, GTSL_Level */
+  min?: number
+  max?: number
+  level?: number
+  /** SCROLLER: GTSC_Top, GTSC_Total, GTSC_Visible */
+  top?: number
+  total?: number
+  visible?: number
+  /** LISTVIEW: GTLV_Labels, GTLV_Top, GTLV_Selected */
+  listLabels?: readonly string[]
+  selected?: number
+  /** PALETTE: GTPA_Depth, GTPA_Color, GTPA_ColorOffset */
+  paletteDepth?: number
+  color?: number
+  colorOffset?: number
+}
+
+/**
+ * The defaults each kind starts with, every one of them the guide's own
+ * word: "Default to FALSE", "Default to 15", "Default to 2".
+ *
+ * Applied before the caller's tags, so a tag list that omits GTSL_Max leaves
+ * a slider running 0 to 15 exactly as the guide says it does. Kinds with no
+ * state of their own (GENERIC, BUTTON) are absent rather than empty.
+ */
+function kindDefaults(kind: GadgetKind): Partial<Gadget> {
+  switch (kind) {
+    case KIND.CHECKBOX:
+      return { checked: false }
+    case KIND.INTEGER:
+      // "Specify the initial content. Default to 0." and "Default to 10."
+      return { number: 0, maxChars: 10 }
+    case KIND.LISTVIEW:
+      return { listLabels: [], top: 0, selected: 0 }
+    case KIND.MX:
+      return { labels: [], active: 0 }
+    case KIND.NUMBER:
+      return { number: 0 }
+    case KIND.CYCLE:
+      return { labels: [], active: 0 }
+    case KIND.PALETTE:
+      // "Number of BitPlanes in the palette. Default to 1." and "Pen
+      // initially selected. Default to 1."
+      return { paletteDepth: 1, color: 1, colorOffset: 0 }
+    case KIND.SCROLLER:
+      // GTSC_Visible is the odd one: "Number visible in the 'SCROLLER'.
+      // Default to 2." where Top and Total both default to 0
+      return { top: 0, total: 0, visible: 2 }
+    case KIND.SLIDER:
+      // "Maximum level for 'SLIDER'. Default to 15."
+      return { min: 0, max: 15, level: 0 }
+    case KIND.STRING:
+      return { string: '' }
+    case KIND.TEXT:
+      return { displayText: '' }
+    default:
+      return {}
+  }
+}
+
+/**
+ * Which tags each kind reads.
+ *
+ * gadtools ignores a tag that is not this kind's, which is what makes one tag
+ * list usable across a row of different gadgets. The guide's sections are the
+ * grouping, so a tag appears here under exactly the kinds it is printed
+ * under: GTNM_Justification and GTNM_Clipped are documented for both NUMBER
+ * and TEXT and so belong to both.
+ */
+function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, string>, lists: Map<number, readonly string[]>): boolean {
+  const str = (): string => strings.get(data) ?? ''
+  const list = (): readonly string[] => lists.get(data) ?? []
+  switch (g.kind) {
+    case KIND.CHECKBOX:
+      if (tag === TAG.GTCB_Checked) return ((g.checked = data !== 0), true)
+      break
+    case KIND.INTEGER:
+      if (tag === TAG.GTIN_Number) return ((g.number = data), true)
+      if (tag === TAG.GTIN_MaxChars) return ((g.maxChars = data), true)
+      break
+    case KIND.LISTVIEW:
+      if (tag === TAG.GTLV_Labels) return ((g.listLabels = list()), true)
+      if (tag === TAG.GTLV_Top) return ((g.top = data), true)
+      if (tag === TAG.GTLV_Selected) return ((g.selected = data), true)
+      break
+    case KIND.MX:
+      if (tag === TAG.GTMX_Labels) return ((g.labels = list()), true)
+      if (tag === TAG.GTMX_Active) return ((g.active = data), true)
+      break
+    case KIND.NUMBER:
+      if (tag === TAG.GTNM_Number) return ((g.number = data), true)
+      break
+    case KIND.CYCLE:
+      if (tag === TAG.GTCY_Labels) return ((g.labels = list()), true)
+      if (tag === TAG.GTCY_Active) return ((g.active = data), true)
+      break
+    case KIND.PALETTE:
+      if (tag === TAG.GTPA_Depth) return ((g.paletteDepth = data), true)
+      if (tag === TAG.GTPA_Color) return ((g.color = data), true)
+      if (tag === TAG.GTPA_ColorOffset) return ((g.colorOffset = data), true)
+      break
+    case KIND.SCROLLER:
+      if (tag === TAG.GTSC_Top) return ((g.top = data), true)
+      if (tag === TAG.GTSC_Total) return ((g.total = data), true)
+      if (tag === TAG.GTSC_Visible) return ((g.visible = data), true)
+      break
+    case KIND.SLIDER:
+      if (tag === TAG.GTSL_Min) return ((g.min = data), true)
+      if (tag === TAG.GTSL_Max) return ((g.max = data), true)
+      if (tag === TAG.GTSL_Level) return ((g.level = data), true)
+      break
+    case KIND.STRING:
+      if (tag === TAG.GTST_String) return ((g.string = str()), true)
+      if (tag === TAG.GTST_MaxChars) return ((g.maxChars = data), true)
+      break
+    case KIND.TEXT:
+      if (tag === TAG.GTTX_Text) return ((g.displayText = str()), true)
+      break
+    default:
+      break
+  }
+  return false
+}
+
+/**
+ * `gadtools.library` as a caller sees it.
+ *
+ * One instance per opened library, so that FreeGadgets on one caller's
+ * context cannot reach another's. gadtools on the machine keeps no such
+ * separation, because a Gadget list IS the separation: everything below takes
+ * the head of a list and walks it.
+ */
+export class GadTools {
+  private nextGadget = GADGET_ORIGIN
+  private nextVisual = VISUAL_ORIGIN
+  private readonly gadgets = new Map<number, Gadget>()
+  private readonly visuals = new Map<number, VisualInfo>()
+
+  /**
+   * Strings and label arrays a caller wants to reach by address.
+   *
+   * A tag's `data` is a longword, so `GTST_String` and `GTCY_Labels` arrive
+   * as pointers on the machine. Nothing in this port has a byte array to
+   * point into, so a caller registers the value and passes back the token it
+   * gets. The alternative was a `string | number` union on every tag, which
+   * would have made the tag list stop looking like a tag list.
+   */
+  private readonly strings = new Map<number, string>()
+  private readonly lists = new Map<number, readonly string[]>()
+  private nextDatum = 1
+
+  /** register a string and get the number to put in a tag's `data` */
+  stringRef(s: string): number {
+    const at = this.nextDatum++
+    this.strings.set(at, s)
+    return at
+  }
+
+  /** register a NULL-terminated label array and get the number for its tag */
+  listRef(items: readonly string[]): number {
+    const at = this.nextDatum++
+    this.lists.set(at, items)
+    return at
+  }
+
+  /**
+   * `GetVisualInfoA(screen, taglist)` (-126).
+   *
+   * The tag list is `GTVI_NewWindow` and `GTVI_NWTags` on the machine, and
+   * neither GUI binary passes either: both call it with a screen and nothing
+   * else. Accepted and ignored rather than rejected, which is what gadtools
+   * does with a tag it has no use for.
+   */
+  getVisualInfo(screenSlot: number, depth: number): VisualInfo {
+    const vi: VisualInfo = {
+      address: this.nextVisual,
+      screenSlot,
+      depth,
+      freed: false,
+    }
+    this.nextVisual += STRIDE
+    this.visuals.set(vi.address, vi)
+    return vi
+  }
+
+  /** the VisualInfo behind an address, or null once freed or if never issued */
+  visualInfo(address: number): VisualInfo | null {
+    const vi = this.visuals.get(address)
+    return vi === undefined || vi.freed ? null : vi
+  }
+
+  /** `FreeVisualInfo(vi)` (-132). Freeing an unknown address does nothing. */
+  freeVisualInfo(address: number): void {
+    const vi = this.visuals.get(address)
+    if (vi !== undefined) vi.freed = true
+  }
+
+  /**
+   * `CreateContext(glistptr)` (-114).
+   *
+   * Returns the gadget a caller then passes as `previous` to its first
+   * CreateGadgetA. On the machine this is a real Gadget of no kind, which is
+   * why AddGList is given the context and not the first real gadget, and why
+   * FreeGadgets takes the context too.
+   */
+  createContext(): Gadget {
+    return this.newGadget(KIND.GENERIC, {
+      leftEdge: 0,
+      topEdge: 0,
+      width: 0,
+      height: 0,
+      gadgetText: '',
+      gadgetID: 0,
+      flags: 0,
+      visualInfo: 0,
+    })
+  }
+
+  /**
+   * `CreateGadgetA(kind, gad, ng, taglist)` (-30).
+   *
+   * Null when `previous` is already freed or when the NewGadget names a
+   * VisualInfo this never issued, which is gadtools' documented failure: it
+   * returns NULL and a caller is expected to stop building. `gui-1.61` at
+   * $245e does exactly that, `tst.l d0 / beq` straight out of the loop.
+   */
+  createGadget(kind: GadgetKind, previous: Gadget | null, ng: NewGadget, tags: readonly TagItem[] = []): Gadget | null {
+    if (previous !== null && previous.freed) return null
+    if (ng.visualInfo !== 0 && this.visualInfo(ng.visualInfo) === null) return null
+    const g = this.newGadget(kind, ng)
+    for (const t of tags) {
+      if (t.tag === TAG_DONE) break
+      applyTag(g, t.tag, t.data, this.strings, this.lists)
+    }
+    if (previous !== null) previous.next = g
+    return g
+  }
+
+  /**
+   * `GT_SetGadgetAttrsA(gad, win, req, taglist)` (-42).
+   *
+   * Returns how many tags were this kind's, which is a convenience this port
+   * adds: gadtools returns void. The count is what makes "a tag list shared
+   * across a row of gadgets" testable, and nothing can mistake it for the
+   * library's own answer because the library has none.
+   */
+  setGadgetAttrs(g: Gadget, tags: readonly TagItem[]): number {
+    if (g.freed) return 0
+    let taken = 0
+    for (const t of tags) {
+      if (t.tag === TAG_DONE) break
+      if (applyTag(g, t.tag, t.data, this.strings, this.lists)) taken++
+    }
+    return taken
+  }
+
+  /**
+   * `FreeGadgets(gad)` (-36). Walks the chain from the context down, so a
+   * caller frees the whole interface with the one pointer it kept.
+   */
+  freeGadgets(head: Gadget | null): number {
+    let n = 0
+    for (let g = head; g !== null; g = g.next) {
+      if (g.freed) continue
+      g.freed = true
+      n++
+    }
+    return n
+  }
+
+  /** the Gadget behind an address, or null once freed or if never issued */
+  gadget(address: number): Gadget | null {
+    const g = this.gadgets.get(address)
+    return g === undefined || g.freed ? null : g
+  }
+
+  /** every gadget in a chain, context first, for a caller that wants to walk it */
+  chain(head: Gadget | null): Gadget[] {
+    const out: Gadget[] = []
+    for (let g = head; g !== null; g = g.next) out.push(g)
+    return out
+  }
+
+  private newGadget(kind: GadgetKind, ng: NewGadget): Gadget {
+    const g: Gadget = {
+      address: this.nextGadget,
+      kind,
+      leftEdge: ng.leftEdge,
+      topEdge: ng.topEdge,
+      width: ng.width,
+      height: ng.height,
+      text: ng.gadgetText,
+      id: ng.gadgetID,
+      flags: ng.flags,
+      userData: ng.userData ?? 0,
+      visualInfo: ng.visualInfo,
+      next: null,
+      disabled: false,
+      freed: false,
+      ...kindDefaults(kind),
+    }
+    this.nextGadget += STRIDE
+    this.gadgets.set(g.address, g)
+    return g
+  }
+}
