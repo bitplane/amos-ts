@@ -105,7 +105,13 @@ function detectAmosInstall(): void {
     }
     return null
   }
-  const root = findRoot('DH0:', 0)
+  // every mounted volume, because a dropped drawer is now a volume of its own
+  // and an install dropped whole is no longer under DH0:
+  let root: { dir: string; sys: string } | null = null
+  for (const vol of vfs.volumeNames()) {
+    root = findRoot(`${vol}:`, 0)
+    if (root) break
+  }
   if (!root) return
   vfs.assign('AMOSPro', root.dir)
   vfs.assign('AMOSPro_System', join(root.dir, root.sys))
@@ -132,7 +138,11 @@ function detectFontsDrawer(): void {
     }
     return null
   }
-  const found = findFonts('DH0:', 0)
+  let found: string | null = null
+  for (const vol of vfs.volumeNames()) {
+    found = findFonts(`${vol}:`, 0)
+    if (found) break
+  }
   if (found) {
     vfs.assign('Fonts', found)
     const rt = player.runtime
@@ -158,18 +168,46 @@ if (import.meta.env.DEV) {
  * path inside DH0: (from folder drops), so a dropped game directory keeps
  * its layout and relative loads work. Auto-runs a .AMOS only when asked.
  */
-async function receiveFile(name: string, bytes: Uint8Array, dir: string[], autoRun: boolean): Promise<void> {
+async function receiveFile(
+  name: string,
+  bytes: Uint8Array,
+  dir: string[],
+  autoRun: boolean,
+  vol = 'DH0',
+): Promise<void> {
   if (/\.(zip|tar|gz|tgz|adf)$/i.test(name)) {
     await mountArchive(bytes, name)
   } else {
-    vfs.writeTo('DH0', [...dir, name], bytes)
-    setStatus(`stored DH0:${[...dir, name].join('/')}`)
+    vfs.writeTo(vol, [...dir, name], bytes)
+    setStatus(`stored ${vol}:${[...dir, name].join('/')}`)
     if (autoRun && /\.amos$/i.test(name)) {
-      vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
-      player.loadProgram(bytes, name, dir)
+      vfs.currentDir = dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`
+      player.loadProgram(bytes, name, dir, vol)
     }
   }
   refreshFiles()
+}
+
+/**
+ * A dropped DRAWER becomes a volume of its own name.
+ *
+ * Which is what it is. `AMOSPro_Examples/Examples/H-2/Help_26.AMOS` opens with
+ * `Load "AMOSPro_Examples:OBJECTS/BOBS.abk"`, and an Amiga program says
+ * `Volume:` because that is how it reaches its own data --- the name is part
+ * of the path the author wrote, not an accident of where somebody filed it.
+ *
+ * Flattening every drop into DH0: made that path resolve to nothing, so the
+ * bank never loaded and the program ran on with no images. Nothing errored:
+ * `Load` of a missing file is not fatal, so the screen just came up empty,
+ * which is the worst kind of wrong.
+ *
+ * Only the TOP level becomes a volume. Drawers inside it are drawers.
+ */
+function volumeNameFor(name: string): string {
+  // AmigaDOS volume names take spaces and most punctuation; a colon and a
+  // slash are the two that would re-split the path this is used to build
+  const clean = name.replace(/[:/]/g, '_').trim()
+  return clean === '' ? 'DH0' : clean
 }
 
 fileEl.addEventListener('change', () => {
@@ -184,17 +222,27 @@ fileEl.addEventListener('change', () => {
 
 // ---- drag and drop (files, folders, zips) ----
 
-async function dropEntry(entry: FileSystemEntry, dir: string[], single: boolean): Promise<void> {
+async function dropEntry(
+  entry: FileSystemEntry,
+  dir: string[],
+  single: boolean,
+  vol = 'DH0',
+): Promise<void> {
   if (entry.isFile) {
     const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej))
-    await receiveFile(entry.name, new Uint8Array(await file.arrayBuffer()), dir, single)
+    await receiveFile(entry.name, new Uint8Array(await file.arrayBuffer()), dir, single, vol)
   } else if (entry.isDirectory) {
+    // the outermost drawer of a drop is a volume; everything below it is a
+    // path inside that volume
+    const own = dir.length === 0 && vol === 'DH0' ? volumeNameFor(entry.name) : vol
+    const under = own === vol ? [...dir, entry.name] : dir
+    if (own !== vol) vfs.mountMemory(own)
     const reader = (entry as FileSystemDirectoryEntry).createReader()
     // readEntries returns batches of <=100 until empty
     for (;;) {
       const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))
       if (batch.length === 0) break
-      for (const e of batch) await dropEntry(e, [...dir, entry.name], false)
+      for (const e of batch) await dropEntry(e, under, false, own)
     }
   }
 }
@@ -492,9 +540,11 @@ player.machine.attach('mouse', new Mouse('browser'))
 // the machine belongs to the player.
 
 const strip = createStrip(player.machine, {
+  isRunning: () => player.isRunning(),
+  programName: () => player.programName,
   onReset: () => {
     player.restart()
-    setStatus('reset')
+    setStatus(`reset ${player.programName}`)
     tabs.select('play')
   },
 })

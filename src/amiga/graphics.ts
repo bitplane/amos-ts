@@ -415,7 +415,18 @@ export class RastPort {
     // an opaque plot does not, and that is the common one
     const needsOld = this.drawMode === 2 || this.mask !== 0xff
     const old = needsOld ? this.point(x, y) : 0
-    const v = this.masked(old, this.drawMode === 2 ? old ^ c : c)
+    // COMPLEMENT INVERTS THE DESTINATION AND IGNORES THE PEN. That is
+    // graphics.library's, not a choice here: AMOS's `Gr Writing n` is one
+    // instruction, `SetDrMd(rp, n)` (+Lib.s:10097), so the mode means what the
+    // library means by it.
+    //
+    // XORing the PEN instead looks right in a test --- drawing twice still
+    // returns to the ground either way --- and is wrong about the one thing a
+    // program can see, which is the COLOUR. AMOSPro_Examples' Help_13 plots
+    // snow with `Gr Writing 2 : Ink 1` over black; complementing gives colour
+    // 15, white, and XORing the pen gave colour 1, which its palette makes
+    // red. Red snow is how this was found.
+    const v = this.masked(old, this.drawMode === 2 ? ~old & this.colorMask() : c)
     this.bitMap.writePixel(x, y, v)
   }
 

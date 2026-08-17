@@ -127,12 +127,26 @@ describe('the planes are authoritative', () => {
     agree(s, 'write mask')
   })
 
-  it('COMPLEMENT mode xors what is in the planes', () => {
+  it('COMPLEMENT mode inverts the planes and ignores the pen', () => {
+    // graphics.library's, not a choice: `Gr Writing n` is one instruction,
+    // `SetDrMd(rp, n)` (+Lib.s:10097). COMPLEMENT complements the destination
+    // at every pixel drawn, whatever the pen is.
+    //
+    // This used to assert `old ^ pen`, which survives the obvious test ---
+    // drawing twice returns to the ground either way --- and is wrong about
+    // the only thing a program can see, the colour. Help_13 plots snow with
+    // `Gr Writing 2 : Ink 1` over black: complementing gives 15, white, and
+    // XORing the pen gave 1, which that program's palette makes red.
     const s = scr()
     s.plot(2, 2, 0b1010)
     s.grMode = 2
     s.plot(2, 2, 0b0110)
-    expect(fromPlanes(s, 2, 2)).toBe(0b1100)
+    expect(fromPlanes(s, 2, 2)).toBe(0b0101)
+    // and the pen genuinely does not matter
+    const t = scr()
+    t.grMode = 2
+    t.plot(3, 3, 0b0001)
+    expect(fromPlanes(t, 3, 3)).toBe(0b1111)
     agree(s, 'complement')
   })
 })

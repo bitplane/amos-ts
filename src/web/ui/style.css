@@ -219,6 +219,12 @@ button.led:focus-visible {
   margin-left: auto;
 }
 
+/* which program is loaded: never overwritten by a transient message */
+#progname {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 #status {
   color: var(--dim);
   min-height: 1.2em;

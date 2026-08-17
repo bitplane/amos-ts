@@ -180,7 +180,7 @@ export interface Player {
    */
   loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<void>
   /** run one program, with `dir` as its drawer inside DH0: */
-  loadProgram(bytes: Uint8Array, name: string, dir?: string[]): void
+  loadProgram(bytes: Uint8Array, name: string, dir?: string[], vol?: string): void
   /** rebuild the environment, keeping the filesystem: a cold reset */
   restart(): void
   /**
@@ -235,6 +235,22 @@ export interface Player {
    * Resolves false where there is no Web Serial, or if the user dismissed
    * the chooser. Programs run without it get the modelled port.
    */
+  /**
+   * The name of the program that is loaded, or '' before there is one.
+   *
+   * Survives a reset and survives the program ending, which is the point: a
+   * host that shows only a transient status line loses track of WHICH demo is
+   * on screen the moment anything else is worth saying.
+   */
+  readonly programName: string
+  /**
+   * Is a program still going?
+   *
+   * False once it runs off the end or hits `End`, and false before one is
+   * loaded. A host showing "running" whether or not anything is happening is
+   * the state this exists to distinguish.
+   */
+  isRunning(): boolean
   /** is a granted host port on the serial slot? */
   serialGranted(): boolean
   requestSerialPort(): Promise<boolean>
@@ -331,6 +347,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   let lastBytes: Uint8Array | null = null
   let lastName = ''
   let lastDir: string[] = []
+  /** the volume the last program came from, so a reset reloads it from there */
+  let lastVol = 'DH0'
   /**
    * The machine every Runtime here runs on.
    *
@@ -376,6 +394,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   }
 
   let error = ''
+  /** has this program's ending already been reported? */
+  let ended = false
   let running = opts.autoplay !== false
   let focused = false
   let turbo = false
@@ -526,14 +546,19 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   }
 
   // ---- loading ----
-  function loadProgram(bytes: Uint8Array, name: string, dir: string[] = []): void {
+  function loadProgram(bytes: Uint8Array, name: string, dir: string[] = [], vol = 'DH0'): void {
+    ended = false
     lastBytes = bytes
     lastName = name
     lastDir = dir
+    lastVol = vol
     error = ''
     try {
       const { lines, extensions, bindings, amos } = compileProgram(bytes, table)
-      vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
+      // the program's own drawer becomes current, so its relative loads
+      // resolve --- and on the VOLUME it came from, since a dropped drawer is
+      // mounted as one and `Load "Examples:x"` is how its author wrote it
+      vfs.currentDir = dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`
       rt = new Runtime(lines, table, {
         extensions,
         extBindings: bindings,
@@ -638,7 +663,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    */
   function reboot(kind: ResetKind): void {
     void kind
-    if (lastBytes) loadProgram(lastBytes, lastName, lastDir)
+    if (lastBytes) loadProgram(lastBytes, lastName, lastDir, lastVol)
   }
 
   // ---- the 50Hz loop ----
@@ -668,7 +693,17 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     setPort(rt.input.ports[1], 1, pads)
     setPort(rt.input.ports[0], 0, pads)
     for (let i = 0; i < frames; i++) {
-      if (rt.interp.done) break
+      // Say so, ONCE. A finished program looks exactly like a running one
+      // that is drawing nothing --- the canvas keeps its last frame and the
+      // loop keeps turning --- so there was no way to tell "the End ran" from
+      // "it has hung" or "it drew nothing".
+      if (rt.interp.done) {
+        if (!ended) {
+          ended = true
+          opts.onStatus?.('program ended')
+        }
+        break
+      }
       try {
         rt.frame()
       } catch (e) {
@@ -757,6 +792,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       container.focus()
     },
     serialSupported: serialAvailable(),
+    get programName(): string {
+      return lastName
+    },
+    isRunning(): boolean {
+      return rt !== null && !rt.interp.done && error === ''
+    },
     serialGranted,
     async requestSerialPort(): Promise<boolean> {
       const got = await serialHost.requestAccess()

@@ -2018,8 +2018,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'bob off'(it) {
       rt.clearBobs() // restore backgrounds, then drop
-      if (it.atStmtEnd()) rt.bobs.clear()
-      else rt.bobs.delete(it.evalInt())
+      if (it.atStmtEnd()) {
+        rt.bobs.clear()
+        // and every buffer's saves with them: clearBobs only put back the one
+        // under the pen, and a save left behind for a bob that no longer
+        // exists gets painted later over whatever has replaced it
+        rt.forgetBobSaves()
+      } else {
+        const n = it.evalInt()
+        rt.bobs.delete(n)
+        rt.forgetBobSaves(n)
+      }
     },
     'bob update'(it) {
       void it

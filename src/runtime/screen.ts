@@ -325,6 +325,16 @@ export class Screen {
    * zone matches nothing and reads back as four zeroes.
    */
   zones: Array<Zone | null> = []
+
+  /**
+   * Where each open `Zone$` tag started, by zone number.
+   *
+   * `Zone$(text$,n)` prints `ESC Z n` on BOTH sides of its text, so the first
+   * tag has to be remembered until the second arrives and the pair becomes a
+   * rectangle. Same bracket `Border$` uses through `ESC E`, which is why the
+   * two are siblings in `+Lib.s`.
+   */
+  private zoneOpen = new Map<number, { x: number; y: number }>()
   /**
    * EasyLife's multi-zone index, when `ElMz Reserve` has laid one over the
    * table above — see MultiZoneTable. Null the rest of the time, which is
@@ -1204,6 +1214,38 @@ export class Screen {
             }
             ti += 2
             break
+          /*
+           * A text zone, from `Zone$(text$,n)` (FnZoneD +Lib.s:14167).
+           *
+           * The tag is printed on both sides of the text: the first marks
+           * where the zone starts, the second closes it over everything
+           * between. Without this case the sequence fell through to `default`
+           * and the PARAMETER was printed as an ordinary character, which is
+           * what put a stray "1" at each end of `Zone$("CLICK HERE",1)` --- and
+           * left `Mouse Zone` with nothing to find, so the boxes in
+           * AMOSPro_Examples' Help_3 could not be clicked at all.
+           */
+          case 'Z': {
+            const z = arg(1)
+            const open = this.zoneOpen.get(z)
+            if (open === undefined) {
+              this.zoneOpen.set(z, { x: w.curX, y: w.curY })
+            } else {
+              this.zoneOpen.delete(z)
+              // screen pixels, and the far corner is EXCLUSIVE: `SySetZ`
+              // compares with unsigned `bhi`, so a zone must have width
+              if (z >= 1 && z <= this.zones.length && w.curX > open.x) {
+                this.zones[z - 1] = {
+                  x1: w.x + open.x * 8,
+                  y1: w.y + open.y * 8,
+                  x2: w.x + w.curX * 8,
+                  y2: w.y + (w.curY + 1) * 8,
+                }
+              }
+            }
+            ti += 2
+            break
+          }
           case 'D':
             w.cuCol = arg(1)
             ti += 2
@@ -1406,8 +1448,50 @@ export class Screen {
    * straight over the cursor, and that is what makes the cursor coverable.
    */
   console<T>(op: () => T): T {
-    // re-entrant: writeText -> putChar -> newline -> scrollUp are all console
-    // operations, and only the outermost may lift and replace the cursor
+    // AUTOBACK: with a double-buffered screen and `Autoback` non-zero, the
+    // operation runs ONCE PER BUFFER. That is `AutoPrt` (+W.s:15496), which
+    // tests `BitDble` in EcFlags, saves the window and cursor state, calls the
+    // routine, puts the state back, switches buffers with TAbk1/TAbk2 and
+    // calls it AGAIN.
+    //
+    // Without it the two buffers diverge the moment anything is printed, so
+    // `Screen Swap` alternates between what was written this frame and what
+    // was there before --- which is how AMOSPro_Examples' Help_26 came to
+    // show "double buffering engaged press" and "right mouse better mask"
+    // stacked on top of each other.
+    //
+    // Only at the outermost level: `writeText` -> `putChar` -> `newline` ->
+    // `scrollUp` are all console operations and the inner ones must not each
+    // mirror again.
+    if (this.consoleDepth === 0 && this.autoback !== 0 && this.phyBM !== null) {
+      const w = this.curWin
+      const snap = { ...w }
+      const encX = this.encX
+      const encY = this.encY
+      this.bracket(op)
+      // rewind, so the second pass draws the same thing rather than carrying
+      // on from where the first left off
+      Object.assign(w, snap)
+      this.encX = encX
+      this.encY = encY
+      this.swap()
+      try {
+        return this.bracket(op)
+      } finally {
+        this.swap()
+      }
+    }
+    return this.bracket(op)
+  }
+
+  /**
+   * One console operation, with the cursor lifted out and put back.
+   *
+   * Re-entrant: only the outermost call may lift and replace, because
+   * `writeText` -> `putChar` -> `newline` -> `scrollUp` are all console
+   * operations and the cursor must not be replaced half way down.
+   */
+  private bracket<T>(op: () => T): T {
     if (this.consoleDepth++ === 0) this.effCur()
     try {
       return op()

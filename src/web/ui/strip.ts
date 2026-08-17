@@ -30,6 +30,16 @@ function led(label: string): HTMLElement {
 export interface StripOptions {
   /** what a click on the power light does */
   onReset(): void
+  /**
+   * Is a program still going?
+   *
+   * A finished program looks exactly like a running one that is drawing
+   * nothing: the canvas keeps its last frame and the loop keeps turning. This
+   * is the only thing on the page that can tell the two apart.
+   */
+  isRunning(): boolean
+  /** which program is loaded, shown so a transient status cannot lose it */
+  programName(): string
 }
 
 export function createStrip(machine: Machine, opts: StripOptions): Strip {
@@ -45,6 +55,14 @@ export function createStrip(machine: Machine, opts: StripOptions): Strip {
   power.title = 'reset the machine'
   power.addEventListener('click', opts.onReset)
   root.appendChild(power)
+
+  const name = document.createElement('span')
+  name.id = 'progname'
+  root.appendChild(name)
+
+  const run = document.createElement('span')
+  run.className = 'chip'
+  root.appendChild(run)
 
   const lights = machine.drives.map((_, unit) => {
     const el = led(driveName(unit))
@@ -62,6 +80,14 @@ export function createStrip(machine: Machine, opts: StripOptions): Strip {
 
   const frame = (): void => {
     power.classList.toggle('lit', machine.power === 'on')
+    const prog = opts.programName()
+    if (name.textContent !== prog) name.textContent = prog
+
+    const going = opts.isRunning()
+    if (run.textContent !== (going ? 'running' : 'stopped')) {
+      run.textContent = going ? 'running' : 'stopped'
+      run.className = going ? 'chip on' : 'chip warn'
+    }
     for (const [unit, el] of lights.entries()) {
       const drive = machine.drives[unit] ?? null
       el.classList.toggle('absent', drive === null)

@@ -537,6 +537,25 @@ export class Runtime {
    * ResBOB +W.s:998 and handed to the blitter as BbDAPlan at +W.s:1271).
    * Omitted means -1, every plane.
    */
+  /**
+   * Drop a bob's saved backgrounds in EVERY buffer, for when the bob goes.
+   *
+   * `clearBobs` restores only the buffer under the pen and leaves the other
+   * one's save alone, because it is still wanted when that buffer comes round.
+   * Once the BOB is gone that save is orphaned, and restoring it later paints
+   * a rectangle of whatever the screen held two frames before whatever is
+   * there now. `Bob Off` after a `Cls` is how that surfaces: chunks of the old
+   * picture reappear on top of the new one.
+   *
+   * On the machine there is nothing to leak. The background buffers are part
+   * of the bob (`BbDecor` counts them, +W.s:975) and go when it does.
+   */
+  forgetBobSaves(n?: number): void {
+    for (const [key, bg] of this.bobSaved) {
+      if (n === undefined || bg.bob === n) this.bobSaved.delete(key)
+    }
+  }
+
   bobPlanes = new Map<number, number>()
   /** Set Bob's blitter control word, per bob (BbACon) */
   bobMinterms = new Map<number, number>()
