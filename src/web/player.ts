@@ -553,6 +553,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     lastDir = dir
     lastVol = vol
     error = ''
+    // Silence the four voices first. The sink is made once and shared by every
+    // Runtime, the way `machine` is, so building a new one leaves whatever was
+    // playing still playing --- a reset stopped the program and the music
+    // carried on forever. On the machine a reset clears DMACON, and the audio
+    // DMA bits go with it.
+    for (let v = 0; v < 4; v++) audio.stop(v)
     try {
       const { lines, extensions, bindings, amos } = compileProgram(bytes, table)
       // the program's own drawer becomes current, so its relative loads
