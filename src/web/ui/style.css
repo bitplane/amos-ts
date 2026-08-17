@@ -371,12 +371,6 @@ button.led:focus-visible {
   color: var(--dim);
 }
 
-.stub {
-  color: var(--faint);
-  font-style: italic;
-  margin: 0;
-}
-
 .facts {
   display: grid;
   grid-template-columns: minmax(6rem, max-content) 1fr;

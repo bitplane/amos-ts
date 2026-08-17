@@ -75,7 +75,17 @@ export const MOUSE_MIDDLE = 4
  */
 export class Mouse implements Device {
   readonly kind = 'gameport' as const
-  readonly name = 'mouse'
+  /**
+   * What is moving the pointer, since the slot already says "mouse".
+   *
+   * Same reasoning as `../amiga/keyboard.ts`: the connector is named by the
+   * machine and what is on the end of it is the host's to say.
+   */
+  readonly name: string
+
+  constructor(name = 'mouse') {
+    this.name = name
+  }
 
   /** `MOUSE_*` bits held down */
   buttons = 0

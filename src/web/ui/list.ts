@@ -188,16 +188,6 @@ export function createList(host: HTMLElement): List {
   }
 }
 
-/** a body that admits it is not built yet, rather than looking broken */
-export function stub(text: string): (host: HTMLElement) => void {
-  return (host) => {
-    const p = document.createElement('p')
-    p.className = 'stub'
-    p.textContent = text
-    host.appendChild(p)
-  }
-}
-
 /**
  * Name and value pairs, for the part of a body that is plain fact.
  *

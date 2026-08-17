@@ -118,7 +118,16 @@ export class BattClock implements Device {
    * later machine has the same registers soldered to the motherboard, and
    * nothing a program can read tells the two apart.
    */
-  readonly name = 'A501 battery clock'
+  /**
+   * The board, not the function.
+   *
+   * A hardware page puts this in a row already labelled "battery clock", so
+   * repeating that says nothing; what a reader does not know is WHICH board,
+   * and on a 512K A500 it is the A501 in the trapdoor. A later machine has the
+   * same registers soldered to the motherboard and nothing a program can read
+   * tells the two apart, which is why every one of them answers this.
+   */
+  readonly name = 'A501'
 
   /** the sixteen registers, low nibble each */
   readonly regs = new Uint8Array(BATTCLOCK_REGISTERS)

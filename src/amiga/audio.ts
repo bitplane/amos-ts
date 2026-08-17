@@ -26,9 +26,14 @@
 import type { Device } from './device'
 import type { AmigaAudioModel } from './mixer'
 
+/** what a hardware page calls each board's audio, in the order it offers them */
+export const AUDIO_NAMES: Readonly<Record<AmigaAudioModel, string>> = {
+  a500: 'A500 Paula',
+  a1200: 'A1200 Paula',
+}
+
 export class PaulaAudio implements Device {
   readonly kind = 'audio' as const
-  readonly name = 'Paula'
 
   /**
    * Which machine's output stage, which sets the fixed pole.
@@ -37,5 +42,21 @@ export class PaulaAudio implements Device {
    * and an A500 playing the same file is not, because the fixed pole is the
    * only thing above Paula's images at 12.8 kHz and up.
    */
-  model: AmigaAudioModel = 'a500'
+  model: AmigaAudioModel
+
+  constructor(model: AmigaAudioModel = 'a500') {
+    this.model = model
+  }
+
+  /**
+   * The board and not the chip.
+   *
+   * "Paula" alone would be true and useless, because both boards have one and
+   * the part that differs is the resistor and capacitor after it. Naming the
+   * machine makes the drop-down a choice between two things you could own
+   * rather than one thing with a hidden setting.
+   */
+  get name(): string {
+    return AUDIO_NAMES[this.model]
+  }
 }

@@ -10,6 +10,8 @@
 import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 import type { AmigaAudioModel } from '../amiga/mixer'
+import { Keyboard } from '../amiga/keyboard'
+import { Mouse } from '../amiga/mouse'
 import { mountTabs } from './ui/tabs'
 import { createStrip } from './ui/strip'
 import { createHardwareTab } from './ui/hardware'
@@ -431,6 +433,13 @@ const host = {
 // the hardware tab, where a port can be a gamepad stick or nothing at all.
 host.setKeys(0, 'arrows')
 host.setKeys(1, 'wasd')
+
+// The machine boots with a generic keyboard and mouse, because `src/amiga` has
+// no idea what is supplying them. This page does: it is a browser, so it says
+// so, and the hardware rows stop reading "keyboard" in a row already labelled
+// keyboard.
+player.machine.attach('keyboard', new Keyboard('browser'))
+player.machine.attach('mouse', new Mouse('browser'))
 
 // ---- the tabs ----
 // Built last, because the strip and the hardware panel read the machine and

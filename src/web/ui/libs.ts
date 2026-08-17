@@ -14,7 +14,7 @@
  * does not give.
  */
 import { modelledLibraries } from '../../amiga/exec'
-import { createList, facts, stub, type RowSpec } from './list'
+import { createList, facts, type RowSpec } from './list'
 
 const hex = (n: number): string => `$${n.toString(16)}`
 
@@ -32,7 +32,6 @@ function rowFor(lib: { name: string; version: number; base: number }): RowSpec {
           ['base', hex(lib.base)],
         ]),
       )
-      stub('What this library can do from here is still to come.')(host)
     },
   }
 }

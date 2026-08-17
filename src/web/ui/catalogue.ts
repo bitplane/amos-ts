@@ -12,7 +12,8 @@
  */
 import { CTRL_GAMEPAD, CTRL_JOYSTICK, CTRL_MOUSE, Controller } from '../../amiga/controller'
 import type { Device, Slot } from '../../amiga/device'
-import { PaulaAudio } from '../../amiga/audio'
+import { AUDIO_NAMES, PaulaAudio } from '../../amiga/audio'
+import type { AmigaAudioModel } from '../../amiga/mixer'
 import { BattClock } from '../../amiga/battclock'
 import { M68000, M68020, M68030, M68040 } from '../../amiga/cpu'
 import { Keyboard } from '../../amiga/keyboard'
@@ -72,6 +73,14 @@ export interface Fitting {
    * to be a button on the emulator bar and no longer needs to be.
    */
   hostSerial?: boolean
+  /**
+   * Which board's output stage this is.
+   *
+   * The mixer has to hear about it too, and the mixer is the host's, so the
+   * row calls through rather than attaching: see `hostSerial` for the same
+   * shape and the same reason.
+   */
+  audioModel?: AmigaAudioModel
 }
 
 /** what the page can offer, which is not the same on every browser */
@@ -100,13 +109,19 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
         { id: '68040', label: '68040', make: () => new M68040() },
       ]
     case 'audio':
-      return [{ id: 'paula', label: 'Paula', make: () => new PaulaAudio() }]
+      // the model IS the device here. Both boards have a Paula and what
+      // differs is the RC pair after it, so offering one "Paula" with a
+      // hidden board setting would hide the only thing that varies.
+      return [
+        { id: 'a500', label: AUDIO_NAMES.a500, make: () => new PaulaAudio('a500'), audioModel: 'a500' },
+        { id: 'a1200', label: AUDIO_NAMES.a1200, make: () => new PaulaAudio('a1200'), audioModel: 'a1200' },
+      ]
     case 'clock':
-      return [{ id: 'a501', label: 'A501 battery clock', make: () => new BattClock() }]
+      return [{ id: 'a501', label: 'A501', make: () => new BattClock() }]
     case 'gameport':
       // the mouse's own connector, which is fixed and holds the host pointer
       if (slot.id === 'mouse') {
-        return [{ id: 'browser-mouse', label: 'browser mouse', make: () => new Mouse() }]
+        return [{ id: 'browser-mouse', label: 'browser', make: () => new Mouse('browser') }]
       }
       return [
         { id: 'joy-pad', label: 'gamepad joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'none' },
@@ -124,7 +139,7 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
       return [
         // a cable with nothing on the far end. CIA-B's three handshake lines
         // still read as connected, which is what a cable IS to the machine.
-        { id: 'cable', label: 'serial cable', make: () => new SerialCable() },
+        { id: 'cable', label: 'cable', make: () => new SerialCable('cable') },
         // hidden where there is no Web Serial (Firefox, Safari, mobile)
         // rather than offered and failing, since nothing the user does there
         // could help
@@ -132,7 +147,7 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
           ? [
               {
                 id: 'webserial',
-                label: 'web serial port',
+                label: 'web serial',
                 make: (): Device => new SerialCable('host serial port'),
                 hostSerial: true,
               },
@@ -142,7 +157,7 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
     case 'keyboard':
       // what supplies the keystrokes. A browser today; a shell or a script is
       // the same slot with something else on the ribbon.
-      return [{ id: 'browser', label: 'browser keyboard', make: () => new Keyboard() }]
+      return [{ id: 'browser', label: 'browser', make: () => new Keyboard('browser') }]
     case 'floppy': {
       // the unit is which /SELn line the drive answers, so it comes from the
       // slot rather than being chosen
@@ -168,6 +183,7 @@ export function currentFitting(slot: Slot, keys: JoyKeys): string {
   // the host gave it, which is the only thing that survives the attach
   if (slot.takes === 'serial') return dev.name === 'host serial port' ? 'webserial' : 'cable'
   if (slot.takes === 'cpu') return dev.name
+  if (slot.takes === 'audio') return dev instanceof PaulaAudio ? dev.model : ''
   if (slot.id === 'mouse') return 'browser-mouse'
   return fittings(slot)[0]?.id ?? ''
 }

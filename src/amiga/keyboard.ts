@@ -57,7 +57,19 @@ import type { Device } from './device'
  */
 export class Keyboard implements Device {
   readonly kind = 'keyboard' as const
-  readonly name = 'keyboard'
+  /**
+   * What is supplying the keystrokes.
+   *
+   * Free text and settable, because the slot is already labelled "keyboard"
+   * and the interesting half is what is on the end of the ribbon: a browser
+   * today, a shell or a script later. The default is for a caller that has no
+   * opinion, which is every test.
+   */
+  readonly name: string
+
+  constructor(name = 'keyboard') {
+    this.name = name
+  }
 
   /** Amiga scancodes currently down. What `Key State` reads. */
   readonly held = new Set<number>()

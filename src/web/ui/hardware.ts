@@ -13,7 +13,7 @@
 import type { Machine } from '../../amiga/machine'
 import type { Slot } from '../../amiga/device'
 import { FloppyDrive } from '../../amiga/trackdisk'
-import { createList, facts, stub, type Action, type Choice, type List, type RowSpec } from './list'
+import { createList, facts, type Action, type Choice, type List, type RowSpec } from './list'
 import { BINDINGS, NOTHING, currentFitting, fittings, iconFor, sourceLabel } from './catalogue'
 import type { JoyKeys } from '../player'
 import type { AmigaAudioModel } from '../../amiga/mixer'
@@ -196,25 +196,23 @@ function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElemen
         ),
       )
     }
+    if (slot.device instanceof PaulaAudio) {
+      body.appendChild(
+        toggle(
+          'led filter',
+          machine.cia.ledBright,
+          'CIA-A PRA bit 1, the same bit that dims the power light',
+          (v) => {
+            machine.cia.ledBright = v
+          },
+        ),
+      )
+    }
     if (slot.takes === 'clock' && slot.device) {
       const when = host.clockTime()
       if (when) {
         body.appendChild(whenField('reads', when, (d) => host.setClockTime(d)))
       }
-    }
-    if (slot.device instanceof PaulaAudio) {
-      const audio = slot.device
-      body.appendChild(
-        picker(
-          'board',
-          [
-            { value: 'a500', label: 'A500 and earlier' },
-            { value: 'a1200', label: 'A1200 and AGA' },
-          ],
-          audio.model,
-          (v) => host.setAudioModel(v as AmigaAudioModel),
-        ),
-      )
     }
 
     // the layout, not the source: a gamepad-driven port has no keys to show,
@@ -226,12 +224,6 @@ function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElemen
       )
     }
 
-    stub(
-      slot.fixed
-        ? 'This connector cannot be emptied. Controls for what is on it are still to come.'
-        : 'Controls and tests for this connector are still to come.',
-    )(body)
-    void machine
   }
 }
 
@@ -267,6 +259,12 @@ function chooseFor(machine: Machine, host: PageHost, slot: Slot): RowSpec['choos
       // grant is what attaches the cable, so this one does not attach here
       if (f.hostSerial) {
         host.requestSerial()
+        return
+      }
+      // the mixer is the host's, and setting the model is what changes the
+      // device's own name, so this replaces the attach rather than following it
+      if (f.audioModel) {
+        host.setAudioModel(f.audioModel)
         return
       }
       if (!machine.attach(slot.id, f.make())) return
@@ -332,7 +330,8 @@ function signature(machine: Machine, host: PageHost): string {
             : dev instanceof BattClock
               ? String(dev.skewMs)
               : ''
-      return `${slot.id}:${dev?.name ?? ''}:${live}:${keys}:${extra}`
+      const led = dev instanceof PaulaAudio ? String(machine.cia.ledBright) : ''
+      return `${slot.id}:${dev?.name ?? ''}:${live}:${keys}:${extra}:${led}`
     })
     .join(';')
 }

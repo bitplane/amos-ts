@@ -64,9 +64,11 @@ describe('the machine: what is plugged in', () => {
     expect(m.drives.every((d) => d?.empty)).toBe(true)
     // a port autosenses to a one-button stick, so both come up occupied
     expect(m.hardware().filter(fitted).map((s) => s.device!.name)).toEqual([
+      // each name says what a page cannot get from the slot's own label: which
+      // board the audio is, which board the clock is, what is on the ribbon
       '68000',
-      'Paula',
-      'A501 battery clock',
+      'A500 Paula',
+      'A501',
       'keyboard',
       'mouse',
       'joystick',
