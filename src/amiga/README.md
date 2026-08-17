@@ -116,7 +116,7 @@ really does differ from the real one and saying where is the whole job.
 | `layers.ts` | `layers.library`: the layer chain, `Region`, and the damage list |
 | `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
-| `gadtools.ts` | `gadtools.library`: the thirteen gadget kinds, their tags, and the gadget list |
+| `gadtools.ts` | `gadtools.library`: the gadget kinds, their tags, the gadget list, and the bevel |
 | `muimaster.ts` | MUI's class factory: 64 classes, attributes, the object tree, notification |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |

@@ -19,21 +19,90 @@ import { fileURLToPath } from 'node:url'
 import {
   GADGIMAGE,
   GADGET,
+  GTBB_FRAMETYPE,
+  GTBB_RECESSED,
   GT_TAG_BASE,
   GadTools,
   KIND,
   KINDS,
   LVO,
   NEWGADGET_SIZEOF,
+  NUMDRIPENS,
+  PEN,
   TAG,
   TAG_DONE,
+  contentOf,
+  drawBevelBox,
   findTag,
+  frameOf,
+  renderGadget,
 } from './gadtools'
-import type { NewGadget, TagItem } from './gadtools'
+import type { DrawInfo, NewGadget, TagItem } from './gadtools'
+import type { DiskFont } from './diskfont'
+import { BitMap, RastPort } from './graphics'
+import { rowBytesFor } from './planar'
+import { FONT8 } from '../runtime/font.gen'
 
 const root = join(fileURLToPath(new URL('../..', import.meta.url)))
 const FD = join(root, 'fixtures/amigaos/FD-GUI210/gadtools_lib.fd')
 const GUIDE = join(root, 'fixtures/extensions/os-devkit-1.61/docs/os_guides/os_gadtools_l.guide')
+
+/**
+ * A DrawInfo with distinguishable pens.
+ *
+ * Every pen is its own index, so a test that reads a pixel back gets a number
+ * that names the ROLE it was drawn for rather than a colour that happens to
+ * match. Twelve pens is the V2 array, which is what `screenpen_str` ends at.
+ */
+function dri(over: Partial<DrawInfo> = {}): DrawInfo {
+  return { numPens: NUMDRIPENS, pens: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], depth: 2, ...over }
+}
+
+/** a RastPort deep enough to hold pen 11, so no pen aliases another */
+function port(w = 64, h = 32): RastPort {
+  const rp = new RastPort(new BitMap(w, h, 4, rowBytesFor(w)))
+  rp.font = topaz()
+  return rp
+}
+
+/**
+ * A topaz-metric 8x8 font, so the render tests actually put glyphs down.
+ *
+ * The same shape `runtime.ts` builds for Intuition and for the same reason:
+ * the real topaz is in Kickstart ROM and no ROM is held here, so the METRICS
+ * are topaz's (8 wide, 8 tall, baseline 6) and only the letterforms differ.
+ * A test comparing two renders needs ink on the page, and unmounted-font
+ * renders would agree by drawing nothing.
+ */
+let topazCache: DiskFont | null = null
+function topaz(): DiskFont {
+  if (topazCache !== null) return topazCache
+  const modulo = 256
+  const charData = new Uint8Array(modulo * 8)
+  const charLoc: Array<[number, number]> = []
+  for (let ch = 0; ch < 256; ch++) {
+    const g = FONT8[ch] ?? FONT8[32]!
+    for (let row = 0; row < 8; row++) charData[row * modulo + ch] = g[row]!
+    charLoc.push([ch * 8, 8])
+  }
+  topazCache = {
+    name: 'topaz.font',
+    ySize: 8,
+    style: 0,
+    flags: 0,
+    xSize: 8,
+    baseline: 6,
+    loChar: 0,
+    hiChar: 255,
+    proportional: false,
+    modulo,
+    charData,
+    charLoc,
+    charSpace: null,
+    charKern: null,
+  }
+  return topazCache
+}
 
 /** a NewGadget with the fields nothing under test cares about filled in */
 function ng(over: Partial<NewGadget> = {}): NewGadget {
@@ -206,19 +275,19 @@ describe('the struct sizes the GUI binaries state', () => {
 describe('VisualInfo', () => {
   it('hands out an address and answers to it', () => {
     const gt = new GadTools()
-    const vi = gt.getVisualInfo(12, 2)
+    const vi = gt.getVisualInfo(12, dri())
     expect(vi.address).toBeGreaterThan(0)
     expect(gt.visualInfo(vi.address)).toBe(vi)
     expect(vi.screenSlot).toBe(12)
-    expect(vi.depth).toBe(2)
+    expect(vi.drawInfo.depth).toBe(2)
   })
 
   it('forgets it after FreeVisualInfo, and never reuses the address', () => {
     const gt = new GadTools()
-    const a = gt.getVisualInfo(12, 2)
+    const a = gt.getVisualInfo(12, dri())
     gt.freeVisualInfo(a.address)
     expect(gt.visualInfo(a.address)).toBeNull()
-    const b = gt.getVisualInfo(12, 2)
+    const b = gt.getVisualInfo(12, dri())
     expect(b.address).not.toBe(a.address)
   })
 
@@ -258,7 +327,7 @@ describe('the gadget list', () => {
 
   it('accepts a VisualInfo it did issue, and refuses it once freed', () => {
     const gt = new GadTools()
-    const vi = gt.getVisualInfo(12, 2)
+    const vi = gt.getVisualInfo(12, dri())
     const ctx = gt.createContext()
     expect(gt.createGadget(KIND.BUTTON, ctx, ng({ visualInfo: vi.address }))).not.toBeNull()
     gt.freeVisualInfo(vi.address)
@@ -398,6 +467,265 @@ describe('tags', () => {
     expect(findTag(tags, TAG.GTSL_Min, -1)).toBe(3)
     expect(findTag(tags, TAG.GTSL_Max, -1)).toBe(-1)
     expect(findTag([{ tag: TAG_DONE, data: 0 }, ...tags], TAG.GTSL_Min, -1)).toBe(-1)
+  })
+})
+
+describe('the pen array', () => {
+  /**
+   * `screenpen_str` prints each pen with its byte offset, every entry a word,
+   * so the index is the offset halved. This restates that arithmetic rather
+   * than the indices, which is the part that would be wrong if someone
+   * miscounted.
+   */
+  it('indexes each pen at half its byte offset in the guide', () => {
+    const guideOffsets: Array<[keyof typeof PEN, number]> = [
+      ['DETAIL', 0x0000],
+      ['BLOCK', 0x0002],
+      ['TEXT', 0x0004],
+      ['SHINE', 0x0006],
+      ['SHADOW', 0x0008],
+      ['FILL', 0x000a],
+      ['FILLTEXT', 0x000c],
+      ['BACKGROUND', 0x000e],
+      ['HIGHLIGHTTEXT', 0x0010],
+      ['BARDETAIL', 0x0012],
+      ['BARBLOCK', 0x0014],
+      ['BARTRIM', 0x0016],
+    ]
+    for (const [name, offset] of guideOffsets) expect(PEN[name], name).toBe(offset / 2)
+    expect(NUMDRIPENS).toBe(guideOffsets.length)
+  })
+
+  /**
+   * dri_NumPens is a real limit: a V1 DrawInfo stops at HIGHLIGHTTEXTPEN and
+   * the three BAR pens are not in it. Reading past the end answers pen 0
+   * rather than undefined.
+   */
+  it('clamps a pen past dri_NumPens to pen 0', () => {
+    const rp = port(8, 4)
+    // a V1 array: nine pens, so BARTRIM is off the end
+    drawBevelBox(rp, 0, 0, 4, 4, { numPens: 9, pens: [7, 1, 2, 3, 4, 5, 6, 7, 8], depth: 2 })
+    expect(rp.point(0, 0)).toBe(3)
+    drawBevelBox(rp, 0, 0, 4, 4, { numPens: 2, pens: [7, 1], depth: 2 })
+    expect(rp.point(0, 0)).toBe(7)
+  })
+})
+
+describe('DrawBevelBoxA', () => {
+  /** raised: shine along the top and left, shadow along the bottom and right */
+  it('draws raised with shine above and shadow below', () => {
+    const rp = port()
+    drawBevelBox(rp, 4, 4, 10, 6, dri())
+    expect(rp.point(4, 4)).toBe(PEN.SHINE)
+    expect(rp.point(9, 4)).toBe(PEN.SHINE)
+    expect(rp.point(4, 7)).toBe(PEN.SHINE)
+    expect(rp.point(9, 9)).toBe(PEN.SHADOW)
+    expect(rp.point(13, 6)).toBe(PEN.SHADOW)
+  })
+
+  /**
+   * "If 'True' the colours are 'swaped' like a pushed button", which is the
+   * one thing about this drawing that two manuals both state.
+   */
+  it('swaps the two colours when recessed', () => {
+    const raised = port()
+    const sunk = port()
+    drawBevelBox(raised, 4, 4, 10, 6, dri())
+    drawBevelBox(sunk, 4, 4, 10, 6, dri(), { recessed: true })
+    for (const [x, y] of [
+      [4, 4],
+      [9, 4],
+      [4, 7],
+      [9, 9],
+      [13, 6],
+    ] as const) {
+      const a = raised.point(x, y)
+      const b = sunk.point(x, y)
+      expect([a, b].sort()).toEqual([PEN.SHINE, PEN.SHADOW])
+      expect(a).not.toBe(b)
+    }
+  })
+
+  it('draws nothing for an empty box', () => {
+    const rp = port()
+    drawBevelBox(rp, 4, 4, 0, 6, dri())
+    drawBevelBox(rp, 4, 4, 10, 0, dri())
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 20; x++) expect(rp.point(x, y)).toBe(0)
+  })
+
+  /**
+   * The tag-list entry point, which is what the GUI extensions call. Both
+   * substitute their own VisualInfo into the caller's list first, so a list
+   * naming a VisualInfo this instance never issued has to fail rather than
+   * draw in pens from nowhere.
+   */
+  it('resolves GT_VisualInfo out of the tag list', () => {
+    const gt = new GadTools()
+    const vi = gt.getVisualInfo(12, dri())
+    const rp = port()
+    expect(gt.drawBevelBoxA(rp, 2, 2, 8, 8, [{ tag: TAG.GT_VisualInfo, data: vi.address }])).toBe(true)
+    expect(rp.point(2, 2)).toBe(PEN.SHINE)
+  })
+
+  it('refuses a tag list with no VisualInfo, or a freed one', () => {
+    const gt = new GadTools()
+    const vi = gt.getVisualInfo(12, dri())
+    const rp = port()
+    expect(gt.drawBevelBoxA(rp, 2, 2, 8, 8, [])).toBe(false)
+    gt.freeVisualInfo(vi.address)
+    expect(gt.drawBevelBoxA(rp, 2, 2, 8, 8, [{ tag: TAG.GT_VisualInfo, data: vi.address }])).toBe(false)
+    expect(rp.point(2, 2)).toBe(0)
+  })
+
+  it('takes GTBB_Recessed through the tag list', () => {
+    const gt = new GadTools()
+    const vi = gt.getVisualInfo(12, dri())
+    const rp = port()
+    gt.drawBevelBoxA(rp, 2, 2, 8, 8, [
+      { tag: TAG.GT_VisualInfo, data: vi.address },
+      { tag: GTBB_RECESSED, data: 1 },
+    ])
+    expect(rp.point(2, 2)).toBe(PEN.SHADOW)
+  })
+
+  /**
+   * GTBB_FrameType is accepted and not acted on, because no document held
+   * here gives its values. Asserted rather than left as a comment, so that
+   * the day someone finds the values this test is what tells them where to
+   * look.
+   */
+  it('records GTBB_FrameType without changing what it draws', () => {
+    const a = port()
+    const b = port()
+    drawBevelBox(a, 2, 2, 8, 8, dri(), { frameType: 0 })
+    drawBevelBox(b, 2, 2, 8, 8, dri(), { frameType: 2 })
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) expect(b.point(x, y)).toBe(a.point(x, y))
+  })
+
+  it('names the recessed and frame-type tags the binaries carry', () => {
+    expect(GTBB_RECESSED).toBe(0x8008_0033)
+    expect(GTBB_FRAMETYPE).toBe(0x8008_004d)
+  })
+})
+
+describe('rendering a gadget', () => {
+  function built(kind: number, over: Partial<NewGadget> = {}, tags: TagItem[] = []) {
+    const gt = new GadTools()
+    return gt.createGadget(kind as never, null, ng({ leftEdge: 2, topEdge: 2, width: 20, height: 10, ...over }), tags)!
+  }
+
+  /**
+   * The one per-kind appearance any held document states: GTNM_Border and
+   * GTTX_Border both promise "a 'RECESSED' rectancle", and without the border
+   * there is no frame at all.
+   */
+  it('frames NUMBER and TEXT only when they ask for a border', () => {
+    for (const kind of [KIND.NUMBER, KIND.TEXT]) {
+      expect(frameOf(built(kind), false)).toBeNull()
+      expect(frameOf(built(kind), true)).toBe('recessed')
+    }
+  })
+
+  it('sinks the kinds that take typing and raises the controls', () => {
+    expect(frameOf(built(KIND.STRING))).toBe('recessed')
+    expect(frameOf(built(KIND.INTEGER))).toBe('recessed')
+    expect(frameOf(built(KIND.LISTVIEW))).toBe('recessed')
+    expect(frameOf(built(KIND.BUTTON))).toBe('raised')
+    expect(frameOf(built(KIND.CHECKBOX))).toBe('raised')
+    expect(frameOf(built(KIND.GENERIC))).toBeNull()
+  })
+
+  /**
+   * ng_GadgetText is the LABEL and the contents are what the kind shows in
+   * its own box. Keeping them apart is what makes GT_SetGadgetAttrsA useful:
+   * the label is drawn once, the contents on every change.
+   */
+  it('shows each kind s own contents rather than its label', () => {
+    const gt = new GadTools()
+    const cycle = gt.createGadget(KIND.CYCLE, null, ng({ gadgetText: 'Mode' }), [
+      { tag: TAG.GTCY_Labels, data: gt.listRef(['Lowres', 'Hires']) },
+      { tag: TAG.GTCY_Active, data: 1 },
+    ])!
+    expect(cycle.text).toBe('Mode')
+    expect(contentOf(cycle)).toBe('Hires')
+
+    const str = gt.createGadget(KIND.STRING, null, ng({ gadgetText: 'Name' }), [
+      { tag: TAG.GTST_String, data: gt.stringRef('RONNIE') },
+    ])!
+    expect(contentOf(str)).toBe('RONNIE')
+
+    const num = gt.createGadget(KIND.NUMBER, null, ng({ gadgetText: 'Score' }), [{ tag: TAG.GTNM_Number, data: 1234 }])!
+    expect(contentOf(num)).toBe('1234')
+
+    // a BUTTON's label IS its contents, since it has nowhere else to put it
+    expect(contentOf(gt.createGadget(KIND.BUTTON, null, ng({ gadgetText: 'OK' }))!)).toBe('OK')
+    // and a kind whose interior is imagery shows no text at all
+    expect(contentOf(gt.createGadget(KIND.PALETTE, null, ng())!)).toBe('')
+  })
+
+  it('paints the interior in BACKGROUNDPEN before the frame', () => {
+    const rp = port()
+    rp.rectFill(0, 0, 30, 20, 9)
+    // PALETTE, because its interior is imagery rather than text and so the
+    // whole inside should be background with nothing drawn over it
+    renderGadget(rp, built(KIND.PALETTE), dri())
+    expect(rp.point(2, 2)).toBe(PEN.SHINE)
+    expect(rp.point(21, 11)).toBe(PEN.SHADOW)
+    for (let y = 3; y < 11; y++) for (let x = 3; x < 21; x++) expect(rp.point(x, y)).toBe(PEN.BACKGROUND)
+    // outside the gadget is untouched
+    expect(rp.point(28, 18)).toBe(9)
+  })
+
+  it('draws a button s label inside its frame', () => {
+    const rp = port()
+    renderGadget(rp, built(KIND.BUTTON, { gadgetText: 'OK' }), dri())
+    let ink = 0
+    for (let y = 3; y < 11; y++) for (let x = 3; x < 21; x++) if (rp.point(x, y) === PEN.TEXT) ink++
+    expect(ink, 'OK should put ink inside the box').toBeGreaterThan(10)
+  })
+
+  /**
+   * The case that made the fill necessary: a shorter value drawn over a
+   * longer one has to cover it, and GT_SetGadgetAttrsA is how that happens.
+   */
+  it('covers a longer value when a shorter one replaces it', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.NUMBER, null, ng({ leftEdge: 0, topEdge: 0, width: 60, height: 10 }), [
+      { tag: TAG.GTNM_Number, data: 888_888 },
+    ])!
+    const inked = (rp: RastPort): number => {
+      let n = 0
+      for (let y = 1; y < 9; y++) for (let x = 1; x < 59; x++) if (rp.point(x, y) === PEN.TEXT) n++
+      return n
+    }
+
+    // both renders go to the SAME port, which is the situation that matters:
+    // the second has to cover what the first left behind
+    const rp = port()
+    renderGadget(rp, g, dri())
+    const six = inked(rp)
+    expect(six, 'six digits should have put ink down').toBeGreaterThan(20)
+
+    gt.setGadgetAttrs(g, [{ tag: TAG.GTNM_Number, data: 1 }])
+    renderGadget(rp, g, dri())
+    const one = inked(rp)
+    expect(one).toBeGreaterThan(0)
+    expect(one, 'one digit should leave less ink than six').toBeLessThan(six / 3)
+
+    // and it matches a clean render of the same gadget, so nothing survived
+    const clean = port()
+    renderGadget(clean, g, dri())
+    for (let y = 1; y < 9; y++) for (let x = 1; x < 59; x++) expect(rp.point(x, y)).toBe(clean.point(x, y))
+  })
+
+  it('draws nothing for a freed or empty gadget', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.BUTTON, null, ng({ leftEdge: 2, topEdge: 2, width: 10, height: 10 }))!
+    gt.freeGadgets(g)
+    const rp = port()
+    renderGadget(rp, g, dri())
+    renderGadget(rp, built(KIND.BUTTON, { width: 0 }), dri())
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) expect(rp.point(x, y)).toBe(0)
   })
 })
 

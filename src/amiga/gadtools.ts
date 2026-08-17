@@ -121,6 +121,7 @@
  * of one Gadtools 'STRING' gadget already created", so a gadget address
  * really does travel inside a tag value. Addresses are never reused.
  */
+import type { RastPort } from './graphics'
 /**
  * The jump table, from `gadtools_lib.fd`.
  *
@@ -375,6 +376,102 @@ export const GTJ_CENTER = 2
 export const PLACETEXT_ABOVE = 0x4
 export const PLACETEXT_BELOW = 0x8
 
+/**
+ * $80080033, bevel boxes: draw it recessed rather than raised.
+ *
+ * Three call sites, and they agree. `gui-2.10` at $2a9c builds a tag list of
+ * GT_VisualInfo and then, only when the value is non-zero, this tag with the
+ * last argument its keyword popped; GUI2.guide's `Gui Bbox x,y,xx,yy,mode`
+ * says "If mode is set to anything other than 0, then the box is drawn
+ * recessed". OS DevKit at $16aca does the same from the other end, patching
+ * this tag's data from `(a3)` and rewriting the tag itself to $80000000,
+ * TAG_IGNORE, when that data is zero. Its keyword is
+ * `_gt Bevel Box TYPE,X,Y,W,H,REC`, six arguments, and `(a3)` is the last of
+ * them, which is REC. And at $11a94 it passes a hardcoded 1.
+ *
+ * The name is not from a held document. The number and the meaning are.
+ */
+export const GTBB_RECESSED = GT_TAG_BASE + 0x33
+
+/**
+ * $8008004D, bevel boxes: which design to draw.
+ *
+ * The other half of the same template. OS DevKit's three-tag block at $16b04
+ * reads $80080033, $8008004D, $80080034, TAG_DONE, and the routine fills the
+ * second from `$14(a3)`, five longwords below the top of the argument stack
+ * and therefore the FIRST of the six, which is TYPE. The guide says only
+ * "TYPE = Type of the box (the design)..".
+ *
+ * No document held here gives the values. `drawBevelBox` therefore records
+ * the number it was handed and draws the one design, which is stated at the
+ * call rather than hidden.
+ */
+export const GTBB_FRAMETYPE = GT_TAG_BASE + 0x4d
+
+/**
+ * `TAG_IGNORE`, which OS DevKit writes over a tag whose data turned out to be
+ * zero rather than shuffling the list up. Worth naming because a caller doing
+ * the same thing is building a valid list, not a broken one.
+ */
+export const TAG_IGNORE = 0x8000_0000
+
+/**
+ * The DrawInfo pen array, from `os_refs.guide`'s `screenpen_str` node, which
+ * prints each pen with its byte offset in the array. Index is offset / 2,
+ * every entry being a word.
+ *
+ * The same document states the order a second time and independently, as the
+ * argument list of `_scr Id Def Dri Pens V1`: DETAILPEN, BLOCKPEN, TEXTPEN,
+ * SHINEPEN, SHADOWPEN, FILLPEN, FILLTEXTPEN, BACKGROUNDPEN,
+ * HIGHLIGHTTEXTPEN, with `V2` adding BARDETAILPEN, BARBLOCKPEN and
+ * BARTRIMPEN. Nine plus three is the twelve the offset table ends at.
+ */
+export const PEN = {
+  DETAIL: 0,
+  BLOCK: 1,
+  TEXT: 2,
+  SHINE: 3,
+  SHADOW: 4,
+  FILL: 5,
+  FILLTEXT: 6,
+  BACKGROUND: 7,
+  HIGHLIGHTTEXT: 8,
+  BARDETAIL: 9,
+  BARBLOCK: 10,
+  BARTRIM: 11,
+} as const
+
+/** how many pens the V2 array holds, which is where `screenpen_str` stops */
+export const NUMDRIPENS = 12
+
+/**
+ * `struct DrawInfo`, from `os_refs.guide`'s `drawinfo_str` node: 50 bytes,
+ * dri_Version at 0, dri_NumPens at 2, dri_Pens at 4, dri_Font at 8,
+ * dri_Depth at 12.
+ *
+ * Only the fields anything here reads. The pens are the whole reason this
+ * type exists: gadtools draws in the screen's colours and has no opinion
+ * about what they are.
+ */
+export interface DrawInfo {
+  /** dri_NumPens, which bounds every index below */
+  numPens: number
+  /** dri_Pens, in PEN order */
+  pens: readonly number[]
+  /** dri_Depth */
+  depth: number
+}
+
+/**
+ * There is deliberately no default pen array here.
+ *
+ * A pen array is the SCREEN's, and which colour plays SHINEPEN on a
+ * four-colour screen is a decision the screen's owner makes. README.md's rule
+ * is that this layer holds mechanism and the caller holds policy, and a
+ * default set of pens invented to make the module convenient would be policy
+ * wearing a constant's name. `getVisualInfo` takes the DrawInfo it is given.
+ */
+
 /** `struct TagItem`, the same pair `boopsi.ts` names. */
 export interface TagItem {
   tag: number
@@ -471,8 +568,8 @@ export interface VisualInfo {
   readonly address: number
   /** which screen it was taken from */
   readonly screenSlot: number
-  /** the screen's depth, which bounds every pen below */
-  readonly depth: number
+  /** the screen's DrawInfo, which is what rendering actually wants */
+  readonly drawInfo: DrawInfo
   /** freed by FreeVisualInfo, so a stale handle can be told apart */
   freed: boolean
 }
@@ -695,11 +792,11 @@ export class GadTools {
    * else. Accepted and ignored rather than rejected, which is what gadtools
    * does with a tag it has no use for.
    */
-  getVisualInfo(screenSlot: number, depth: number): VisualInfo {
+  getVisualInfo(screenSlot: number, drawInfo: DrawInfo): VisualInfo {
     const vi: VisualInfo = {
       address: this.nextVisual,
       screenSlot,
-      depth,
+      drawInfo,
       freed: false,
     }
     this.nextVisual += STRIDE
@@ -827,4 +924,196 @@ export class GadTools {
     this.gadgets.set(g.address, g)
     return g
   }
+
+  /**
+   * `DrawBevelBoxA(rport, left, top, width, height, taglist)` (-120).
+   *
+   * See `drawBevelBox` for what is and is not evidence about the pixels. This
+   * method exists so a caller can pass the tag list it already has, with the
+   * GT_VisualInfo resolved through the addresses this instance issued, which
+   * is exactly what both GUI extensions substitute into a caller's list
+   * before making the call.
+   */
+  drawBevelBoxA(rp: RastPort, left: number, top: number, width: number, height: number, tags: readonly TagItem[]): boolean {
+    const vi = this.visualInfo(findTag(tags, TAG.GT_VisualInfo, 0))
+    if (vi === null) return false
+    drawBevelBox(rp, left, top, width, height, vi.drawInfo, {
+      recessed: findTag(tags, GTBB_RECESSED, 0) !== 0,
+      frameType: findTag(tags, GTBB_FRAMETYPE, 0),
+    })
+    return true
+  }
+}
+
+/** what `drawBevelBox` reads out of a tag list, once the tags are resolved */
+export interface BevelOptions {
+  /** GTBB_Recessed: the colours swap, "like a pushed button" */
+  recessed?: boolean
+  /**
+   * GTBB_FrameType: accepted and not acted on.
+   *
+   * No document held here gives its values, so drawing a second design would
+   * mean inventing one and attributing it to gadtools. It is taken rather
+   * than rejected because a caller passing it is doing nothing wrong, and
+   * `gadtools.test.ts` asserts that two frame types produce identical pixels
+   * so the omission is a measured fact rather than a comment.
+   */
+  frameType?: number
+}
+
+/**
+ * `DrawBevelBoxA`, the one thing gadtools draws that is not a gadget.
+ *
+ * ## The evidence, and where it stops
+ *
+ * SOURCED: that recessed swaps the two colours. OS DevKit's guide says of its
+ * REC argument "If 'True' the colours are 'swaped' like a pushed button", and
+ * GUI 2.10's says of its `mode` "If mode is set to anything other than 0,
+ * then the box is drawn recessed". Two manuals, two extensions, same word.
+ *
+ * SOURCED: that the two colours are SHINEPEN and SHADOWPEN, in the sense that
+ * those are the two pens the DrawInfo array carries for exactly this purpose
+ * and no other pen pair could be meant. `os_refs.guide` gives them as indices
+ * 3 and 4.
+ *
+ * MODELLED: WHICH EDGES GET WHICH. Nothing held here states it. Workbench
+ * lights its interface from the top left, so raised takes shine along the top
+ * and left and shadow along the bottom and right, and recessed is that
+ * swapped. It is the convention every Amiga interface of the era used, and it
+ * is still a convention rather than something read off a binary or a page.
+ * This sentence is here so a reader knows which half to distrust.
+ *
+ * MODELLED: the box is one pixel thick. gadtools' own is two on a hires
+ * screen, and no measurement of it exists here.
+ */
+export function drawBevelBox(
+  rp: RastPort,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  dri: DrawInfo,
+  opts: BevelOptions = {},
+): void {
+  if (width <= 0 || height <= 0) return
+  const shine = penOf(dri, PEN.SHINE)
+  const shadow = penOf(dri, PEN.SHADOW)
+  const upper = opts.recessed === true ? shadow : shine
+  const lower = opts.recessed === true ? shine : shadow
+  const right = left + width - 1
+  const bottom = top + height - 1
+  rp.draw(left, top, right, top, upper)
+  rp.draw(left, top, left, bottom, upper)
+  rp.draw(left, bottom, right, bottom, lower)
+  rp.draw(right, top, right, bottom, lower)
+}
+
+/**
+ * One pen out of a DrawInfo, clamped to what the array actually holds.
+ *
+ * dri_NumPens is a real field and a real limit: a V1 DrawInfo carries nine
+ * pens and BARTRIMPEN is not one of them. Asking for a pen past the end
+ * answers pen 0 rather than undefined, since a caller that reads off the end
+ * of a struct on the machine gets whatever is there and not a crash.
+ */
+function penOf(dri: DrawInfo, index: number): number {
+  if (index >= dri.numPens) return dri.pens[0] ?? 0
+  return dri.pens[index] ?? 0
+}
+
+/**
+ * A gadget's frame: the bevel every kind sits in, and the direction it faces.
+ *
+ * SOURCED, and it is the only per-kind appearance any document held here
+ * states: the guide says of both GTNM_Border and GTTX_Border that "a
+ * 'RECESSED' rectancle will be poster about of gadget", so a NUMBER or TEXT
+ * gadget is recessed when it asks for a border and has no frame at all when
+ * it does not. STRING and INTEGER take typing, and gadtools draws a typing
+ * field recessed on every screenshot of the era.
+ *
+ * MODELLED: everything else. A BUTTON stands out, so it is raised, which is
+ * what "swaped like a pushed button" implies about which way a button faces
+ * when it is not pushed. The rest take a raised frame because they are
+ * controls rather than fields.
+ *
+ * Returns null for a kind that draws no frame, which is a real answer rather
+ * than a missing one: a bordered NUMBER and an unbordered NUMBER differ, and
+ * this is where that difference lives.
+ */
+export function frameOf(g: Gadget, bordered = false): 'raised' | 'recessed' | null {
+  switch (g.kind) {
+    case KIND.GENERIC:
+      return null
+    case KIND.NUMBER:
+    case KIND.TEXT:
+      return bordered ? 'recessed' : null
+    case KIND.STRING:
+    case KIND.INTEGER:
+    case KIND.LISTVIEW:
+      return 'recessed'
+    default:
+      return 'raised'
+  }
+}
+
+/**
+ * What a gadget shows: the string its kind puts inside its own box.
+ *
+ * Not the same as `Gadget.text`, which is ng_GadgetText and is the LABEL
+ * beside or above the gadget. A CYCLE's box shows whichever of its labels is
+ * active; a STRING's shows what has been typed into it; a NUMBER's shows its
+ * number. Splitting them is what lets a caller draw the label once and the
+ * contents on every change, which is the whole point of GT_SetGadgetAttrsA.
+ *
+ * Empty for the kinds whose interior is imagery rather than text.
+ */
+export function contentOf(g: Gadget): string {
+  switch (g.kind) {
+    case KIND.STRING:
+      return g.string ?? ''
+    case KIND.NUMBER:
+    case KIND.INTEGER:
+      return String(g.number ?? 0)
+    case KIND.TEXT:
+      return g.displayText ?? ''
+    case KIND.CYCLE:
+      return g.labels?.[g.active ?? 0] ?? ''
+    case KIND.LISTVIEW:
+      return g.listLabels?.[g.selected ?? 0] ?? ''
+    case KIND.BUTTON:
+      return g.text
+    default:
+      return ''
+  }
+}
+
+/**
+ * Render one gadget into a RastPort: its frame, then its contents.
+ *
+ * The interior is filled with BACKGROUNDPEN before anything is drawn on it,
+ * because a gadget redrawn after GT_SetGadgetAttrsA has to cover what the
+ * last value left behind, and a shorter number over a longer one is the case
+ * that shows it.
+ *
+ * See `frameOf` for which half of this is sourced. The contents are centred
+ * vertically on the box and inset one character from its left edge, which is
+ * MODELLED: nothing held here measures gadtools' text placement.
+ */
+export function renderGadget(rp: RastPort, g: Gadget, dri: DrawInfo, bordered = false): void {
+  if (g.freed || g.width <= 0 || g.height <= 0) return
+  const right = g.leftEdge + g.width - 1
+  const bottom = g.topEdge + g.height - 1
+  rp.rectFill(g.leftEdge, g.topEdge, right, bottom, penOf(dri, PEN.BACKGROUND))
+
+  const frame = frameOf(g, bordered)
+  if (frame !== null) {
+    drawBevelBox(rp, g.leftEdge, g.topEdge, g.width, g.height, dri, { recessed: frame === 'recessed' })
+  }
+
+  const body = contentOf(g)
+  if (body === '' || rp.font === null) return
+  const pen = penOf(dri, g.disabled ? PEN.SHADOW : PEN.TEXT)
+  const inset = frame === null ? 1 : 2
+  const baseline = g.topEdge + Math.floor((g.height - rp.font.ySize) / 2) + rp.font.baseline
+  rp.text(g.leftEdge + inset, baseline, body, pen)
 }
