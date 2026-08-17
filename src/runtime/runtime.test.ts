@@ -119,44 +119,44 @@ describe('drawing', () => {
     expect(rt.screen.point(40, 60)).toBe(1) // border colour 4 contained it
   })
 
-  it('Paint terminates under Gr Writing 2 when the fill changes nothing', () => {
+  it('Paint terminates when the fill colour is the colour it is filling', () => {
     // TPaint fills over a mask, not the screen (PMask, +W.s:4657; tested at
     // Pnt3/Pnt5, marked at Pnt7). Testing the pixels instead only terminates
-    // while a filled pixel stops matching the seed colour — and xor with
-    // pen 0 writes `old ^ 0`, so every pixel stays exactly as fillable as it
-    // was and the fill never ends.
+    // while a filled pixel stops matching the seed colour — and painting the
+    // paper colour onto the paper leaves every pixel exactly as fillable as
+    // it was, so the fill never ends.
     //
     // Not a contrived pen: _rndcircles2.amos on the AMOS PD Library CD
     // (APD503) cycles `C=C+1 : If C=64 Then C=0 : Ink C` around a Circle /
-    // Paint loop under Gr Writing 2, so it reaches Ink 0 every 64 tiles. It
-    // took 2 GB of heap in ten seconds.
-    const prog = [
-      'Ink 4 : Box 50,50 To 70,70',
-      'Gr Writing 2',
-      'Ink 0 : Paint 60,60',
-    ].join('\n')
+    // Paint loop, so it lands on the paper colour once a cycle. It took 2 GB
+    // of heap in ten seconds.
+    const prog = ['Ink 4 : Box 50,50 To 70,70', 'Ink 1 : Paint 60,60'].join('\n')
     const rt = run(prog)
-    // xor with 0 leaves the screen alone; the point is that it came back
+    // the point is that it came back at all
     expect(rt.screen.point(60, 60)).toBe(1)
     expect(rt.screen.point(51, 51)).toBe(1)
   })
 
-  it('Paint xors a region to zero when the pen matches what is there', () => {
-    // TPaint has no "seed is already the fill colour, skip it" exit — its only
-    // early outs are the four clip comparisons and a null tempras. Treating
-    // that as a no-op is a replace-mode assumption: under Gr Writing 2,
-    // painting c over c writes c ^ c = 0, which is how you blank a region.
-    const prog = ['Ink 4 : Bar 50,50 To 70,70', 'Gr Writing 2', 'Ink 4 : Paint 60,60'].join('\n')
-    const rt = run(prog)
-    expect(rt.screen.point(60, 60)).toBe(0)
-    expect(rt.screen.point(80, 60)).toBe(1) // outside the bar, still paper
-  })
-
-  it('Paint xors its fill under Gr Writing 2', () => {
+  it('Paint replaces under Gr Writing 2, because TPaint hardcodes its minterm', () => {
+    // The fill blit is configured once, `move.w #%0000101111001010,BltCon0`
+    // (+W.s:4568) = USEA|USEC|USED minterm $CA, "inside the mask take the pen,
+    // outside keep the destination". rp_DrawMode is offset 28 and TPaint reads
+    // 8, 25, 26 and 29 — never 28. So Gr Writing steers Plot, Draw and Bar and
+    // does not reach Paint at all.
     const prog = ['Ink 4 : Box 50,50 To 70,70', 'Gr Writing 2', 'Ink 7 : Paint 60,60'].join('\n')
     const rt = run(prog)
-    expect(rt.screen.point(60, 60)).toBe(1 ^ 7) // paper xor ink, not ink
+    expect(rt.screen.point(60, 60)).toBe(7) // the ink, not ~paper and not paper^ink
     expect(rt.screen.point(40, 60)).toBe(1) // the box still contained it
+  })
+
+  it('Paint over its own colour still writes that colour', () => {
+    // TPaint has no "seed is already the fill colour, skip it" exit — its only
+    // early outs are the four clip comparisons and a null tempras. The flood
+    // runs in full and repaints what was already there.
+    const prog = ['Ink 4 : Bar 50,50 To 70,70', 'Gr Writing 2', 'Ink 4 : Paint 60,60'].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(60, 60)).toBe(4)
+    expect(rt.screen.point(80, 60)).toBe(1) // outside the bar, still paper
   })
 
   it('Paint seeds one entry per run, so a large fill stays bounded', () => {

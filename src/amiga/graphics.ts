@@ -466,6 +466,31 @@ export class RastPort {
   }
 
   /**
+   * A span that replaces whatever is under it, whatever `Gr Writing` says.
+   *
+   * TPaint's fill blit is set up once and never touched again: `move.w
+   * #%0000101111001010,BltCon0` (+W.s:4568). That is USEA|USEC|USED with
+   * minterm $CA, "where the mask says yes take the pen, else keep the
+   * destination". rp_DrawMode lives at offset 28 of the RastPort and TPaint
+   * reads offsets 8, 25, 26 and 29 (AreaPtrn, FgPen, BgPen, AreaPtSz) and
+   * never 28. So Paint does not complement and does not XOR: it replaces,
+   * even under `Gr Writing 2`.
+   *
+   * The write mask is kept because TURBO's `Set Planes` is the only thing
+   * that narrows it and stock AMOS leaves it at all-ones, so honouring it
+   * here changes nothing this side of Turbo Plus.
+   */
+  hlineReplace(x1: number, x2: number, y: number, c = this.fgPen): void {
+    const saved = this.drawMode
+    this.drawMode = 0
+    try {
+      this.hline(x1, x2, y, c)
+    } finally {
+      this.drawMode = saved
+    }
+  }
+
+  /**
    * SetRast — every pixel of the bitmap to one pen, ignoring the clip.
    *
    * Plane-at-a-time rather than pixel-at-a-time: a pen's bit is either set

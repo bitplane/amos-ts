@@ -341,10 +341,11 @@ describe('TURBO objects: defining (Turbo_Object_doc.asc + disassembly)', () => {
         'Object Draw 1',
       ].join('\n'),
     )
-    // colour 3 in mode 2 is COMPLEMENT, so the line is drawn as an xor
-    // against the default paper of 1 — which is what proves the drawing
-    // mode took effect during the walk and not merely after it
-    expect(rt.screen.point(10, 5)).toBe(1 ^ 3)
+    // mode 2 is COMPLEMENT, which inverts the destination and ignores the
+    // pen, so the line comes out ~1 on a 4-plane screen rather than colour 3.
+    // Drawing it at all is what proves the mode took effect during the walk
+    // and not merely after it.
+    expect(rt.screen.point(10, 5)).toBe(~1 & 0xf)
     expect(rt.screen.ink).toBe(3)
     expect(rt.screen.grMode).toBe(2)
   })

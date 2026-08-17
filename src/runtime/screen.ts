@@ -940,11 +940,10 @@ export class Screen {
     if (target < 0) return
     const border = this.gBorder & this.colorMask()
     // outside the clip is not painted at all, as TPaint bails on the same
-    // four comparisons before it allocates anything (+W.s:4341-4348). They
-    // are its only early exits besides a null tempras — there is no test for
-    // the seed already being the fill colour, and there cannot usefully be
-    // one: under Gr Writing 2 painting c over c writes 0, which is a real
-    // change. Skipping it as a no-op is only right when plot() replaces.
+    // four comparisons before it allocates anything (+W.s:4341-4348). Those
+    // and a null tempras are its only early exits: it never tests whether the
+    // seed already holds the fill colour, so painting c over c still runs the
+    // whole flood and still writes c.
     if (!this.inClip(x, y)) return
 
     const cl = this.clip
@@ -980,7 +979,7 @@ export class Screen {
       let x2 = px
       while (x2 < cx1 && blocked[at(x2 + 1, py)] === 0) x2++
       for (let sx = x1; sx <= x2; sx++) blocked[at(sx, py)] = 1
-      this.hline(x1, x2, py, c)
+      this.rp.hlineReplace(x1, x2, py, c)
       // one seed where a run starts, not one per column: TPaint pushes only on
       // the transition into an available pixel, which is what the bclr/bset
       // #15,d5 edge flag at Pnt5/Pnt6 is tracking
