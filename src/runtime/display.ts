@@ -777,15 +777,22 @@ export class Display {
             // colour 0 in either playfield shows what is behind it.
             const n = words * 16
             for (let i = 0; i < n; i++) {
-              // DIW clips in colour clocks, so a hires pair shares one
-              const hx = dataStart + (hires ? i >> 1 : i)
-              if (hx < hstart || hx >= hstop) continue
-              let pf1 = 0
-              let pf2 = 0
-              // one byte per plane covers eight pixels, so the fetch happens
-              // on the byte boundary and the seven pixels after it read out of
+              // One byte per plane covers eight pixels, so the fetch happens on
+              // the byte boundary and the seven pixels after it read out of
               // locals. Resolving the buffers per pixel per plane — which is
               // what this did when it was written — cost 13-18ms a frame.
+              //
+              // It has to happen BEFORE the DIW clip below. The bitplane DMA
+              // keeps fetching whether or not the display window is open;
+              // clipping first meant a line whose first pixels fall outside
+              // the window skipped its own byte-0 fetch and then decoded
+              // pixels 2-7 out of the byte left in these locals — the LAST
+              // byte of the previous line. The right-hand edge of each row
+              // appeared down the left of the screen, which is how Read Text
+              // grew a copy of its scroll bar on the wrong side: its 640-wide
+              // screen sits at hardware X 129 against a DIW opening at 130,
+              // so exactly two pixels a line were clipped and every line
+              // started stale.
               if ((i & 7) === 0) {
                 for (let p = 0; p < nPlanes; p++) {
                   const at = pBase[p]! + (i >> 3)
@@ -793,6 +800,11 @@ export class Display {
                   pByte[p] = at >= 0 && at < buf.length ? buf[at]! : 0
                 }
               }
+              // DIW clips in colour clocks, so a hires pair shares one
+              const hx = dataStart + (hires ? i >> 1 : i)
+              if (hx < hstart || hx >= hstop) continue
+              let pf1 = 0
+              let pf2 = 0
               const bit = 0x80 >> (i & 7)
               for (let p = 0; p < nPlanes; p++) {
                 if ((pByte[p]! & bit) === 0) continue
