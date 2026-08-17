@@ -851,6 +851,58 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
     expect(out()).toBe(' 2\n')
   })
 
+  it('a matched KY empties the key buffer, so a live dialog does not repeat it', () => {
+    // .Pa4 (+Lib.s:24290) ends with `Rbsr L_Dia_ClearKey` — "Nettoyage du
+    // buffer" — before it simulates the press, and Dia_ClearKey is a flush:
+    // `SyCall ClearKey / clr.l T_ClLast`.
+    //
+    // A live channel only PEEKED, so the reader in AMOSPro_Examples Help_82
+    // re-fired its Down arrow every single frame and the Up arrow queued
+    // behind it never came up at all: three lines a press and no way back.
+    const src = [
+      'D$="SI64,32;BA0,0;BU2,0,0,10,10,0,0,1;[][BQ;]KY27,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Do : Wait Vbl : Loop',
+    ].join('\n')
+    const { rt } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.pressKey('\x1b', 0x45) // one Escape, ASCII 27
+    rt.frame()
+    expect(rt.input.keyQueue).toEqual([]) // eaten, not left to fire again
+  })
+
+  it('KY compares the qualifiers, each group as a boolean (Dia_Tests .KShf)', () => {
+    // Shf/Ctr/Alt/Ami are %11, %1000, %110000, %11000000 (+Equ.s:803) and each
+    // is tested `and.b #Shf,d2 / sne d2` against the same of the keystroke —
+    // so either Shift satisfies a Shift record, and no Shift fails it.
+    //
+    // The reader lists `KY $CC,$0`, `KY $CC,$3` and `KY $CC,$8` — plain, Shift
+    // and Ctrl Up — and ignoring the qualifier byte gave all three to the
+    // first record, because the scan stops at the first code match.
+    //
+    // A record that does not fit leaves the key alone, which is what makes
+    // this observable: no ClearKey, so the keystroke is still queued.
+    const src = [
+      'D$="SI64,32;BA0,0;BU2,0,0,10,10,0,0,1;[][BQ;]KY$CC,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Do : Wait Vbl : Loop',
+    ].join('\n')
+    const shifted = boot(src)
+    for (let i = 0; i < 3; i++) shifted.rt.frame()
+    shifted.rt.keyDown(0x60) // hold left Shift
+    shifted.rt.pressKey('', 0x4c) // Shift + Up
+    shifted.rt.frame()
+    expect(shifted.rt.input.keyQueue.length).toBe(1) // the plain record refused it
+
+    const plain = boot(src)
+    for (let i = 0; i < 3; i++) plain.rt.frame()
+    plain.rt.pressKey('', 0x4c) // Up on its own
+    plain.rt.frame()
+    expect(plain.rt.input.keyQueue).toEqual([]) // ...and took this one
+  })
+
   it('live dialogs report via Dialog(n) and erase themselves on quit (Dia_AutoTest)', () => {
     const src = [
       'Ink 3 : Bar 0,0 To 63,31',

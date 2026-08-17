@@ -2989,6 +2989,9 @@ export class Runtime {
     } else if (key) {
       if (d.runFlags & 4) exit++ // RU flag bit2: any key exits
       const ascii = key.ch.toUpperCase().charCodeAt(0) || 0
+      // The qualifiers that were held when the key arrived, which is what
+      // pressKey captures into the queue entry, as Inkey$ does for Scanshift.
+      const held = key.shift ?? 0
       for (const z of d.zones) {
         if (z.kind !== 'key') continue
         const kc = z.code!
@@ -2996,8 +2999,29 @@ export class Runtime {
         // code $FF = any key; bit7 = scancode match; else ASCII (uppercased)
         const hit = kc === 0xff || (kc & 0x80 ? (kc & 0x7f) === key.scan : kc === ascii)
         if (!hit) continue
-        // qualifier bytes (shift/amiga/ctrl/alt) are approximated as 0
-        if (z.ref) simulated = z.ref
+        // .KShf (+Lib.s:24260): four qualifier groups, each compared as a
+        // BOOLEAN rather than bit for bit — `and.b #Shf,d2 / sne d2` against
+        // the same of the keystroke — so either Shift satisfies a Shift
+        // record and no Shift fails it. Shf/Ctr/Alt/Ami are %11, %1000,
+        // %110000 and %11000000 (+Equ.s:803).
+        //
+        // Ignoring them made the reader's `KY $CC,$0` (plain Up) answer
+        // Shift+Up and Ctrl+Up as well, since it is the first record in the
+        // list and the scan of the shifted ones never got a look in.
+        const want = z.shift ?? 0
+        const sameQual = (m: number): boolean => ((want & m) !== 0) === ((held & m) !== 0)
+        if (!(sameQual(0x03) && sameQual(0x08) && sameQual(0x30) && sameQual(0xc0))) continue
+        // .Pa4: a KY with no zone attached falls through to the mouse tests
+        // WITHOUT clearing, so only a real hit eats the keystroke
+        if (!z.ref) break
+        simulated = z.ref
+        // Dia_ClearKey — "Nettoyage du buffer". The whole buffer, not one
+        // key: SyCall ClearKey then `clr.l T_ClLast`.
+        //
+        // Without it a live dialog only ever PEEKED, so the reader in Help_82
+        // re-fired its Down arrow every frame forever and the Up arrow queued
+        // behind it was never reached. Three lines a press, and no way back up.
+        this.input.keyQueue.length = 0
         break
       }
     }
