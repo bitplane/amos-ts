@@ -17,7 +17,7 @@ import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
 import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
-import { newPiConfig } from './piconfig.gen'
+import { newPiConfig, PI_DEFAULTS } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
@@ -527,9 +527,9 @@ export class Runtime {
   static readonly FAST_TOTAL = A1200_POOLS.fast
   /**
    * The nominal BASIC variable region Free reports against (TabBas-HiChaine).
-   * AMOS Pro's default buffer is 32K, grown by Set Buffer.
+   * `PI_DefSize` is the editor-editable default, grown by Set Buffer.
    */
-  static readonly VARIABLE_SPACE = 32 * 1024
+  static readonly VARIABLE_SPACE = PI_DEFAULTS.DefSize
 
   bobModes = new Map<number, number>()
   /**

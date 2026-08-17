@@ -88,9 +88,9 @@ export interface PiConfig {
 export const PI_DEFAULTS: PiConfig = {
   ParaTrap: 0,
   AdMouse: 0,
-  VNmMax: 1024,
-  TVDirect: 42,
-  DefSize: 1024,
+  VNmMax: 4096,
+  TVDirect: 252,
+  DefSize: 32768,
   DirSize: 30,
   DirMax: 128,
   PrtRet: 1,

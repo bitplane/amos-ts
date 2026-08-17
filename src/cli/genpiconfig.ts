@@ -65,7 +65,15 @@ for (const raw of lines) {
   if (/^\s*;/.test(line) || line.trim() === '') continue
 
   // label? directive? operand? trailing comment (with or without a '*')
-  const m = /^(\w*)\s+(dc|ds)\.([bwl])\s+([^*;]*?)(?:\s*[*;].*)?$/i.exec(line)
+  //
+  // The comment marker and the multiply sign are the same character, and
+  // telling them apart is what the operand group does: a '*' with a non-space
+  // on both sides is an operator, and one with whitespace before it starts
+  // the comment. Excluding '*' outright read `dc.w 42*6` as 42, which put
+  // PI_TVDirect, PI_VNmMax and PI_DefSize into the defaults at a fraction of
+  // their value. The offset walk could not catch it: a dc.l is four bytes
+  // whatever number is in it.
+  const m = /^(\w*)\s+(dc|ds)\.([bwl])\s+((?:[^*;]|(?<=\S)\*(?=\S))*?)(?:\s+[*;].*)?$/i.exec(line)
   if (!m) continue
   const [, label, kind, size, operand] = m
   const width = WIDTH[size!.toLowerCase()]!

@@ -20,6 +20,17 @@ describe('the interpreter config block (PI_*)', () => {
     expect([PI_DEFAULTS.DirSize, PI_DEFAULTS.DirMax]).toEqual([30, 128])
   })
 
+  it('carries the three buffer sizes the source writes as products', () => {
+    // `dc.l 1024*4`, `dc.w 42*6` and `dc.l 1024*32`. The generator's operand
+    // used to stop at the '*' --- the same character the trailing comment
+    // starts with --- and these three landed as 1024, 42 and 1024. Nothing
+    // caught it: the offset walk counts a dc.l as four bytes whatever number
+    // it holds, and no test read them.
+    expect(PI_DEFAULTS.VNmMax).toBe(4096)
+    expect(PI_DEFAULTS.TVDirect).toBe(252) // 42 direct-mode variables of 6 bytes
+    expect(PI_DEFAULTS.DefSize).toBe(32768)
+  })
+
   it('hands out an independent copy each time', () => {
     // the running interpreter edits its own block; the defaults must not move
     const a = newPiConfig()
@@ -46,7 +57,7 @@ describe('the interpreter config block (PI_*)', () => {
         .split('+')
         .reduce((sum, term) => sum + term.split('*').reduce((p, f) => p * Number(f.trim()), 1), 0)
     }
-    for (const name of ['FsSort', 'FsSize', 'FsStore', 'FsDSx', 'FsDSy', 'FsDWx', 'FsDWy', 'FsDVApp', 'RtSx', 'RtSy', 'RtSpeed', 'DirSize', 'DirMax'] as const) {
+    for (const name of ['FsSort', 'FsSize', 'FsStore', 'FsDSx', 'FsDSy', 'FsDWx', 'FsDWy', 'FsDVApp', 'RtSx', 'RtSy', 'RtSpeed', 'DirSize', 'DirMax', 'VNmMax', 'TVDirect', 'DefSize'] as const) {
       expect([name, PI_DEFAULTS[name]]).toEqual([name, stated(name)])
     }
   })
