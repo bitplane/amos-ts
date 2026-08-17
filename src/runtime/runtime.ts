@@ -18,6 +18,8 @@ import { FONT8 } from './font.gen'
 import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig, PI_DEFAULTS } from './piconfig.gen'
+import { tokenize } from '../tokens/tokenizer'
+import { verifyDirect } from '../interp/direct'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
@@ -5110,6 +5112,33 @@ export class Runtime {
     const mode = this.bobModes.get(b.n) ?? 0
     b.off = mode < 0 ? 0 : this.screens.get(b.screen)?.doubleBuffered ? 2 : 1
   }
+  /**
+   * Type one line at the running program, the editor's escape screen in one
+   * call (Ver_Direct +Verif.s:71).
+   *
+   * Tokenises the text against this program's own tables --- the extension
+   * ones included, or a typed extension keyword would not be a keyword ---
+   * checks the ten things direct mode will not verify, then hands the line to
+   * the interpreter with the variables left alone.
+   *
+   * It does not run the line. The caller's frame loop does that, and finds out
+   * the line is over when `interp.direct` goes back to 0: a typed `Wait Vbl`
+   * really does wait, and a typed `Input` really does ask.
+   */
+  enterDirect(text: string): void {
+    const lines = tokenize(text, this.table, this.interp.names.extensions, this.interp.program.procs.keys())
+    // AMOS types into a one-line buffer (Ed_BufT), so there is nothing to
+    // reject: pasting two lines is this port's problem, not the machine's
+    if (lines.length !== 1) throw new AmosError('Syntax error', 22)
+    verifyDirect(lines[0]!, this.interp.names)
+    this.interp.pushDirect(lines)
+  }
+
+  /** true while a typed line is running (Direct +Edit.s:9362) */
+  get inDirect(): boolean {
+    return this.interp.direct !== 0
+  }
+
   /**
    * A screen's TAbk1/TAbk4 pair, handed to every Screen this runtime opens.
    *

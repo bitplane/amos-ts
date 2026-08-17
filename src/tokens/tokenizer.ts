@@ -86,10 +86,25 @@ export class TokenizeError extends Error {
   }
 }
 
-export function tokenize(source: string, table: TokenTable, extensions?: Map<number, TokenTable>): TokenLine[] {
+export function tokenize(
+  source: string,
+  table: TokenTable,
+  extensions?: Map<number, TokenTable>,
+  /**
+   * Procedure names the source cannot declare for itself.
+   *
+   * A direct-mode line is one line, so `SHOUT` in it looks like a variable
+   * however many `Procedure SHOUT`s the program that is loaded contains. The
+   * editor has no such trouble: it tokenises against the whole program, which
+   * is why `V1_CallProc` (+Verif.s:3299) has a procedure-call token to reject
+   * at all.
+   */
+  knownProcs?: Iterable<string>,
+): TokenLine[] {
   const tables = buildTables(table, extensions)
   // procedure names must be known up front: calls can precede definitions
   const procNames = new Set<string>()
+  for (const name of knownProcs ?? []) procNames.add(name.toLowerCase())
   for (const m of source.matchAll(/^\s*procedure\s+([a-z_][a-z0-9_]*[$#]?)/gim)) {
     procNames.add(m[1]!.toLowerCase())
   }

@@ -340,6 +340,17 @@ interface SavedProgram {
   everyReturnDepth: number
   userFns: Interp['userFns']
   stmtStart: Addr
+  direct: number
+  /**
+   * Whether the pusher was stopped, and what it was waiting for.
+   *
+   * A Prun pushes mid-statement, so both are null there and this changes
+   * nothing. A direct line is typed at a program that has usually stopped or
+   * is blocked on a Wait, and that has to be true again when the line ends:
+   * the machine goes back to the editor, not on with the program.
+   */
+  status: Interp['status']
+  blocked: Block | null
 }
 
 const newFrame = (retAddr: Addr | null, loopBase: number, gosubBase: number): Frame => ({
@@ -508,7 +519,11 @@ export class Interp {
       } catch (e) {
         // a blocking statement unwound itself; pc is already rewound
         if (e === BLOCK_SIGNAL) break
-        if (e instanceof AmosError && this.errorHandler !== null && !this.inError) {
+        // `tst.w Direct(a5) / bne rErr1` (+ILib.s:1330) sits with the Trap and
+        // On Error Goto tests: an error in a typed line is never trapped, it
+        // is reported to whoever typed it. The same instruction refuses to
+        // trap errors 1000 and up, which are Edit and Direct themselves.
+        if (e instanceof AmosError && this.errorHandler !== null && !this.inError && this.direct === 0) {
           this.errCode = amosErrorCode(e)
           this.inError = true
           this.errStmt = { li: this.stmtStart.li, ti: this.stmtStart.ti }
@@ -581,7 +596,9 @@ export class Interp {
     // including the pc, so that program resumes after its Prun statement.
     if (status === 'ended' && returnToCaller && this.progStack.length > 0) {
       const top = this.progStack.pop()!
-      this.onProgramPop?.(top.host)
+      // a direct line is not another PROGRAM: it never swapped the banks, so
+      // there is nothing for the host to put back
+      if (!top.direct) this.onProgramPop?.(top.host)
       this.restoreProgramState(top.state)
       return
     }
@@ -590,7 +607,7 @@ export class Interp {
 
   // ---- the program stack (Prg_Push/Prg_Pull, +Verif.s:4499/4530) ----------
 
-  private progStack: Array<{ state: SavedProgram; host: unknown }> = []
+  private progStack: Array<{ state: SavedProgram; host: unknown; direct?: boolean }> = []
 
   /** called with the pusher's opaque state just before the pc is restored */
   onProgramPop: ((host: unknown) => void) | null = null
@@ -611,6 +628,52 @@ export class Interp {
     // replaceProgram resets breakHandler, errFrameDepth and everyReturnDepth
     this.replaceProgram(lines)
     this.progStack.push({ state, host })
+  }
+
+  /**
+   * `Direct(a5)`: the editor's escape screen is up and a typed line is running.
+   *
+   * Set by `Esc_Appear` (+Edit.s:9362) and cleared by `Esc_Hide` (:9538). The
+   * interpreter reads it in three places, all of them to NOT do something:
+   * menu keyboard shortcuts are not explored (+ILib.s:972), `GoMenu` does not
+   * branch to a menu handler (:1072), and an error is never trapped ---
+   * neither `On Error Goto` nor `Trap` (:1330). A mistake in a typed line is
+   * reported to the person who typed it.
+   */
+  direct = 0
+
+  /**
+   * Run one typed line against the program that is loaded (Ver_Direct
+   * +Verif.s:71).
+   *
+   * This is `pushProgram` minus the variable reset. `frames`, `globals` and
+   * `userFns` carry through untouched, which is the entire point: on the
+   * machine the variable arena belongs to the interpreter rather than to a
+   * program, and `ResDir` takes the direct slots out of the same `TabBas`. So
+   * a typed `Print SCORE` reads the running program's SCORE, and a typed
+   * `SCORE=0` writes it.
+   *
+   * The loops and gosubs do not carry through. A direct line is verified on
+   * its own (`Phase` 1, one buffer), so a `Next` typed at a program stopped
+   * inside a `For` has no loop to close and is a structure error, not a jump
+   * back into the program.
+   *
+   * `halt` pops the state back when the line ends, the same path a Prun'd
+   * program returns by.
+   */
+  pushDirect(lines: TokenLine[], host: unknown = null): void {
+    const state = this.saveProgramState()
+    ;(this as { program: Program }).program = prescan(lines, this.names)
+    this.pc = { li: 0, ti: 0 }
+    this.loops = []
+    this.gosubs = []
+    this.dataPtr = { li: 0, ti: 0 }
+    this.dataInStmt = false
+    this.branchElseIf = null
+    this.blocked = null
+    this.status = null
+    this.direct = 1
+    this.progStack.push({ state, host, direct: true })
   }
 
   private saveProgramState(): SavedProgram {
@@ -634,6 +697,9 @@ export class Interp {
       everyReturnDepth: this.everyReturnDepth,
       userFns: this.userFns,
       stmtStart: this.stmtStart,
+      direct: this.direct,
+      status: this.status,
+      blocked: this.blocked,
     }
   }
 
@@ -657,8 +723,9 @@ export class Interp {
     this.everyReturnDepth = s.everyReturnDepth
     this.userFns = s.userFns
     this.stmtStart = s.stmtStart
-    this.blocked = null
-    this.status = null
+    this.direct = s.direct
+    this.blocked = s.blocked
+    this.status = s.status
   }
 
   get done(): boolean {
