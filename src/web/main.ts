@@ -420,13 +420,17 @@ const host = {
   setClockTime: (when: Date): void => player.setClockTime(when),
 }
 
-// Port 1 comes up as a keyboard stick on the arrow keys, because it is what
-// `Joy(1)` reads and nearly every game polls it. The cost is real and known: a
-// program that reads the keyboard AND polls the joystick sees one keypress
-// twice, and the way out of that is the hardware tab, where port 1 can be a
-// gamepad stick or nothing at all.
-host.setKeys(0, 'none')
-host.setKeys(1, 'arrows')
+// Both ports come up as keyboard sticks, so a program that polls a joystick
+// finds one whichever it asks for: `Joy(1)` is what nearly every game reads
+// and `Joy(0)` is what the rest do, and there is no way to know which from
+// here. They take DIFFERENT keys, or one keyboard standing in for two sticks
+// would move both at once and a two-player game would be unplayable.
+//
+// The cost of the default is real and known --- a program that reads the
+// keyboard AND polls a stick sees one keypress twice --- and the way out is
+// the hardware tab, where a port can be a gamepad stick or nothing at all.
+host.setKeys(0, 'arrows')
+host.setKeys(1, 'wasd')
 
 // ---- the tabs ----
 // Built last, because the strip and the hardware panel read the machine and
