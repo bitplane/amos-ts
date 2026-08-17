@@ -204,6 +204,25 @@ describe('image banks and masks', () => {
     expect(out).toBe(' 3840\n')
   })
 
+  it('Get Bob rounds its width up to a whole word and zeroes the pixels past it', () => {
+    // Ritoune (+Lib.s:12711) makes the width x2-x1, then GetBob (+W.s:10011)
+    // does `add.w #15,d4 / lsr.w #4,d4` because the bob header counts WORDS,
+    // not pixels. The odd columns go through BltMaskD = `not MCls[w and 15]`,
+    // so they come out zero rather than carrying screen content.
+    //
+    // This is what Change Mouse needs: MChange checks `cmp.w #1,(a0)`, the
+    // stored word count, so Help_49's `Get Bob 1,0,0 To 15,63` has to be a
+    // 16-wide image or none of its 30 pointer shapes will install.
+    const rt = run(
+      ['Screen Open 0,320,200,4,Lowres', 'Cls 0', 'Ink 3 : Bar 0,0 To 19,9', 'Get Bob 1,0,0 To 15,8'].join('\n'),
+    )
+    const img = rt.spriteBank!.image(1)!
+    expect([img.width, img.height]).toEqual([16, 8])
+    expect(img.pixels[0]).toBe(3) // inside the requested 15
+    expect(img.pixels[14]).toBe(3)
+    expect(img.pixels[15]).toBe(0) // the 16th column was masked off, not grabbed
+  })
+
   it('the snapshot comes from the current screen, not the one being grabbed from', () => {
     // `.PaCopy` reads EcPal off ScOnAd — the current screen — where the
     // four-argument Get Bob grabs its pixels from the screen named in the

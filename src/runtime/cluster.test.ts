@@ -1624,6 +1624,18 @@ describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10669, 
     expect(rt.mouseShapeNo).toBe(1) // fell back, no error
   })
 
+  it('a 15-wide Get Bob still installs, because the bank stores it as one word', () => {
+    // AMOSPro_Examples Help_49 draws its pointers on a 4-colour screen and
+    // grabs them with `Get Bob 1,0,0 To 15,63`. Ritoune makes that 15 pixels
+    // wide and GetBob rounds it up to one word, which is exactly what MChange
+    // demands (`cmp.w #1,(a0)`). Reading the 15 as a pixel width instead
+    // rejected every one of the demo's 30 shapes.
+    const src = ['Screen Open 1,320,100,4,Lowres', 'Ink 2 : Bar 0,0 To 14,62', 'Get Bob 1,0,0 To 15,63', 'Change Mouse 4'].join('\n')
+    const { rt } = boot(src)
+    expect(rt.mouseShapeNo).toBe(4)
+    expect([rt.mouseShape!.width, rt.mouseShape!.height]).toEqual([16, 63])
+  })
+
   it('draws as hardware sprite 0 at the pointer position, hidden by Hide and Copper Off', () => {
     const { rt } = boot('Wait Vbl')
     rt.input.mouseX = 200

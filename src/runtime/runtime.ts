@@ -4298,11 +4298,20 @@ export class Runtime {
 
   /** Grab a rectangle of a screen as a new bank image (Get Bob). */
   grab(s: Screen, x1: number, y1: number, x2: number, y2: number): BankImage {
-    const w = Math.max(0, x2 - x1)
+    // Ritoune (+Lib.s:12711) makes the width x2-x1, and GetBob (+W.s:10011)
+    // rounds it up to whole words -- `add.w #15,d4 / lsr.w #4,d4` -- because
+    // the header stores a word count, not a pixel count. The odd pixels at
+    // the right are blitted through BltMaskD, which is `not MCls[w and 15]`,
+    // so they come out zero rather than carrying whatever was on the screen.
+    // Get Bob 1,0,0 To 15,63 is therefore a 16-wide image, which is what
+    // Change Mouse needs: MChange (+W.s) rejects any shape whose stored width
+    // is not exactly one word.
+    const req = Math.max(0, x2 - x1)
+    const w = (req + 15) & ~15
     const h = Math.max(0, y2 - y1)
     const pixels = new Uint8Array(w * h)
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
+      for (let x = 0; x < req; x++) {
         const v = s.point(x1 + x, y1 + y)
         pixels[y * w + x] = v < 0 ? 0 : v
       }
