@@ -80,3 +80,54 @@ describe('parseAmosFile: the argument is normalised', () => {
     expect(bank.data.buffer).toBe(raw.buffer)
   })
 })
+
+describe('sprite bank hot spots', () => {
+  /**
+   * An `AmSp` sprite bank holding one 16x1, one-plane image.
+   *
+   * A sprite bank is its own top-level magic rather than an `AmBk` carrying a
+   * name, which is what `parseBankList` dispatches on.
+   */
+  function spriteBank(hotX: number, hotY: number): Uint8Array {
+    const w = (v: number): number[] => [(v >>> 8) & 0xff, v & 0xff]
+    return new Uint8Array([
+      ...[...'AmSp'].map((c) => c.charCodeAt(0)),
+      ...w(1), // one image
+      ...w(1), // width in words
+      ...w(1), // height
+      ...w(1), // depth
+      ...w(hotX & 0xffff),
+      ...w(hotY & 0xffff),
+      0xff,
+      0x00, // one row of plane data
+      ...Array.from({ length: 32 }, () => [0, 0]).flat(), // the palette
+    ])
+  }
+
+  it('takes the flip flags out of the hot spot X word', () => {
+    // `HsSet` (+W.s:11570) masks the top two bits off before subtracting:
+    // `lsl.w #2,d0 / asr.w #2,d0`, commented `* Pas de retournement!`. So a
+    // mirrored image still has a small sensible hot spot, where reading the
+    // whole word put it 32,768 pixels away and the image simply vanished.
+    const f = parseAmosFile(spriteBank(0x8007, 10))
+    const bank = f.banks[0]!
+    if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
+    const s = bank.sprites[0]!
+    expect([s.hotX, s.hotY, s.hFlip, s.vFlip]).toEqual([7, 10, true, false])
+  })
+
+  it('sign-extends the hot spot X from bit 13, not bit 15', () => {
+    // fourteen bits: $3fff is -1 once the flags are off, not 16383
+    const f = parseAmosFile(spriteBank(0x3fff, -8))
+    const bank = f.banks[0]!
+    if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
+    expect([bank.sprites[0]!.hotX, bank.sprites[0]!.hotY]).toEqual([-1, -8])
+  })
+
+  it('still reads an ordinary hot spot inside the image', () => {
+    const f = parseAmosFile(spriteBank(7, 10))
+    const bank = f.banks[0]!
+    if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
+    expect([bank.sprites[0]!.hotX, bank.sprites[0]!.hotY]).toEqual([7, 10])
+  })
+})

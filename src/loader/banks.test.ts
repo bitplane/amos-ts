@@ -52,6 +52,8 @@ describe('sprite decoding', () => {
       depth: 2,
       hotX: 3,
       hotY: 4,
+      hFlip: false,
+      vFlip: false,
       data: new Uint8Array([
         0x80, 0x00, 0x80, 0x00, // plane 0, rows 0-1
         0x00, 0x01, 0x00, 0x01, // plane 1, rows 0-1
