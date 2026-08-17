@@ -555,6 +555,7 @@ export const GADGIMAGE = 0x4
  */
 const GADGET_ORIGIN = 0x7d00_0000
 const VISUAL_ORIGIN = 0x7d80_0000
+const STRIP_ORIGIN = 0x7dc0_0000
 const STRIDE = 8
 
 /**
@@ -744,6 +745,237 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
 }
 
 /**
+ * `struct NewMenu`, the flat array a caller builds a whole menu strip from.
+ *
+ * TWENTY BYTES, read off `gui-1.61`. Its walk at $257c sets a0 to entry+2,
+ * reads nm_Type through `move.b -$2(a0)`, nm_Label at `(a0)`, nm_CommKey at
+ * `$4(a0)`, and steps with `lea $14(a0),a0`. Twenty from nm_Label lands on
+ * the next entry's nm_Label, so the entry is twenty and the fields sit at 0,
+ * 2 and 6.
+ *
+ * The guide states the rest of the order from the other side, as the argument
+ * list of its own wrapper: `_gmn Set NEWMENU,TYPE,PTXT,COMKEY,FLAGS,MUTEXCL,
+ * USER`. Type, Label, CommKey, Flags, MutualExclude, UserData is 1+1 pad, 4,
+ * 4, 2, 4, 4, which is the same twenty.
+ */
+export const NEWMENU_SIZEOF = 20
+
+/** the field offsets that arithmetic gives */
+export const NEWMENU = {
+  Type: 0,
+  Label: 2,
+  CommKey: 6,
+  Flags: 10,
+  MutualExclude: 12,
+  UserData: 16,
+} as const
+
+/**
+ * `nm_Type`, from the guide's `_gmn Set`, which prints the numbers:
+ * "NM_TITLE = $1, NM_ITEM = $2, NM_SUB = $3, MENU_IMAGE = $80,
+ * IM_ITEM = $82, IM_SUB = $83".
+ *
+ * END is 0 and the guide does not name it, but `gui-1.61` does: its walk at
+ * $2584 is `tst.b d0 / beq`, so a zero type is what stops the array.
+ */
+export const NM = {
+  END: 0,
+  TITLE: 0x1,
+  ITEM: 0x2,
+  SUB: 0x3,
+  /** the bit that makes a type's label an Image rather than a string */
+  IMAGE: 0x80,
+  IM_ITEM: 0x82,
+  IM_SUB: 0x83,
+} as const
+
+/**
+ * `BARLABEL`, the separator: nm_Label of -1 rather than a string.
+ *
+ * Both sources say it. The guide's `_gmn Set` has "PTXT -> Pointer of text
+ * string or -1 for BARLABEL", and `gui-1.61` at $258a compares nm_Label with
+ * `#$ffffffff` and jumps past its string fixups when it matches.
+ */
+export const BARLABEL = -1
+
+/**
+ * `nm_Flags`, from the same `_gmn Set` list.
+ *
+ * NOTE THE COLLISION, which is the guide's and not a transcription slip: it
+ * prints NM_MENUDISABLED = $1 and CHECKIT = $1 in one list. They are the same
+ * bit read against different types. A TITLE's $1 disables the menu, an ITEM's
+ * $1 makes it checkable, and nothing but nm_Type tells them apart. Kept as
+ * two names because that is what a caller writes.
+ */
+export const MENU_FLAG = {
+  /** on a TITLE */
+  NM_MENUDISABLED: 0x1,
+  /** on an ITEM or SUB */
+  NM_ITEMDISABLED: 0x10,
+  /** on an ITEM or SUB: it carries a checkmark */
+  CHECKIT: 0x1,
+  /** on an ITEM or SUB: selecting it toggles rather than only setting */
+  MENUTOGGLE: 0x8,
+  /** on an ITEM or SUB: it starts checked */
+  CHECKED: 0x100,
+} as const
+
+/**
+ * MENUNULL, which an IDCMP MENUPICK carries when nothing was picked and which
+ * ends a NextSelect chain.
+ *
+ * `gui-1.61` at $fca reads `$20(a0)` out of the MenuItem ItemAddress returned
+ * and compares it with `#$ffff`. Offset 32 is MenuItem's NextSelect, the last
+ * field of the struct, so this is both the sentinel AND a confirmation of
+ * where NextSelect sits.
+ */
+export const MENUNULL = 0xffff
+
+/**
+ * How a menu number packs, read out of `gui-1.61` $f64-$f80. It takes the
+ * stored number apart three ways in a row:
+ *
+ *     move.w $ae(a1),d3
+ *     move.w d3,d1 / andi.w #$1f,d1              -> d4, the menu
+ *     move.w d3,d1 / ror.w #$5,d1  / andi.w #$3f,d1  -> d5, the item
+ *     move.w d3,d1 / ror.w #$8,d1  / ror.w #$3,d1 / andi.w #$1f,d1  -> d6, the sub
+ *
+ * Five bits of menu, six of item, five of sub, in that order from the bottom.
+ * `ror` rather than `lsr` puts the low bits round at the top, and the mask
+ * then drops them, so the two are the same here.
+ */
+export const MENU_SHIFT = 0
+export const MENU_MASK = 0x1f
+export const ITEM_SHIFT = 5
+export const ITEM_MASK = 0x3f
+export const SUB_SHIFT = 11
+export const SUB_MASK = 0x1f
+
+/** the "none" value of each field, which is its mask: all bits set */
+export const NOMENU = MENU_MASK
+export const NOITEM = ITEM_MASK
+export const NOSUB = SUB_MASK
+
+/** MENUNUM(n) */
+export function menuNum(n: number): number {
+  return n & MENU_MASK
+}
+
+/** ITEMNUM(n) */
+export function itemNum(n: number): number {
+  return (n >> ITEM_SHIFT) & ITEM_MASK
+}
+
+/** SUBNUM(n) */
+export function subNum(n: number): number {
+  return (n >> SUB_SHIFT) & SUB_MASK
+}
+
+/** FULLMENUNUM(menu, item, sub), the three packed back into one word */
+export function fullMenuNum(menu: number, item: number, sub: number): number {
+  return ((menu & MENU_MASK) | ((item & ITEM_MASK) << ITEM_SHIFT) | ((sub & SUB_MASK) << SUB_SHIFT)) & 0xffff
+}
+
+/** one entry of the array a caller hands CreateMenusA */
+export interface NewMenu {
+  /** nm_Type: one of NM.* */
+  type: number
+  /** nm_Label: the text, or BARLABEL for a separator */
+  label: string | typeof BARLABEL
+  /** nm_CommKey: the right-Amiga shortcut, one character */
+  commKey?: string
+  /** nm_Flags */
+  flags?: number
+  /** nm_MutualExclude */
+  mutualExclude?: number
+  /** nm_UserData */
+  userData?: number
+}
+
+/**
+ * `struct MenuItem`, as much of it as this port fills in.
+ *
+ * The geometry is what LayoutMenusA computes and what a hit test reads back.
+ * `nextSelect` is offset 32 and is the field `gui-1.61` checks against
+ * MENUNULL.
+ */
+export interface MenuItem {
+  label: string | typeof BARLABEL
+  commKey: string
+  flags: number
+  mutualExclude: number
+  userData: number
+  /** its own number within its parent, counting BARLABELs */
+  index: number
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  /** CHECKIT items only; CHECKED sets it */
+  checked: boolean
+  disabled: boolean
+  subItems: MenuItem[]
+}
+
+/** `struct Menu`: one title on the bar, and the items under it */
+export interface Menu {
+  label: string
+  flags: number
+  index: number
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  disabled: boolean
+  items: MenuItem[]
+}
+
+/** what CreateMenusA returns: the whole strip, plus whether it has been laid out */
+export interface MenuStrip {
+  readonly address: number
+  menus: Menu[]
+  laidOut: boolean
+  freed: boolean
+}
+
+/**
+ * The bar and item geometry LayoutMenusA computes.
+ *
+ * MODELLED, all of it. `_gmn Layout` is documented only as "initializes the
+ * necessary Menus structures for its trace", and nothing held here measures
+ * a real menu. What is reproduced is the SHAPE every Amiga menu has: titles
+ * laid left to right along a bar, each item column dropping from its title,
+ * every column as wide as its widest label. The numbers below are the
+ * defaults a caller can override rather than claims about Intuition.
+ */
+export interface MenuLayout {
+  /** the font cell, which everything else is counted in */
+  charWidth: number
+  charHeight: number
+  /** the bar's height */
+  barHeight: number
+  /** the gap either side of a title on the bar */
+  titlePad: number
+  /** room at the left of an item for its checkmark */
+  checkWidth: number
+  /** room at the right of an item for its command key */
+  commandWidth: number
+  /** a BARLABEL's height, which is not a text row */
+  barLabelHeight: number
+}
+
+/** topaz metrics, which is what every screen in this port is set in */
+export const DEFAULT_MENU_LAYOUT: MenuLayout = {
+  charWidth: 8,
+  charHeight: 8,
+  barHeight: 10,
+  titlePad: 8,
+  checkWidth: 24,
+  commandWidth: 24,
+  barLabelHeight: 2,
+}
+
+/**
  * `gadtools.library` as a caller sees it.
  *
  * One instance per opened library, so that FreeGadgets on one caller's
@@ -754,8 +986,10 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
 export class GadTools {
   private nextGadget = GADGET_ORIGIN
   private nextVisual = VISUAL_ORIGIN
+  private nextStrip = STRIP_ORIGIN
   private readonly gadgets = new Map<number, Gadget>()
   private readonly visuals = new Map<number, VisualInfo>()
+  private readonly strips = new Map<number, MenuStrip>()
 
   /**
    * Strings and label arrays a caller wants to reach by address.
@@ -923,6 +1157,205 @@ export class GadTools {
     this.nextGadget += STRIDE
     this.gadgets.set(g.address, g)
     return g
+  }
+
+  /**
+   * `CreateMenusA(newmenu, taglist)` (-48).
+   *
+   * Walks the flat array into the tree Intuition wants: a TITLE opens a menu,
+   * an ITEM hangs off the open one, a SUB off the open item. The array ends
+   * at the first NM.END, which is what `gui-1.61` at $2584 tests for with
+   * `tst.b d0 / beq` rather than reading a count.
+   *
+   * Null when the array is malformed, which gadtools also answers with NULL:
+   * an ITEM before any TITLE, or a SUB before any ITEM, has nowhere to go.
+   *
+   * The tag list is GTMN_TextAttr, GTMN_FrontPen and the two V39 imagery
+   * tags. None changes the tree, so it is accepted and kept for LayoutMenusA
+   * rather than acted on here.
+   */
+  createMenus(entries: readonly NewMenu[], tags: readonly TagItem[] = []): MenuStrip | null {
+    void tags
+    const menus: Menu[] = []
+    let menu: Menu | null = null
+    let item: MenuItem | null = null
+    for (const e of entries) {
+      if (e.type === NM.END) break
+      // MENU_IMAGE only says the label is an Image rather than a string, so
+      // IM_ITEM and NM_ITEM build the same node
+      const kind = e.type & ~NM.IMAGE
+      if (kind === NM.TITLE) {
+        menu = {
+          label: e.label === BARLABEL ? '' : e.label,
+          flags: e.flags ?? 0,
+          index: menus.length,
+          leftEdge: 0,
+          topEdge: 0,
+          width: 0,
+          height: 0,
+          disabled: ((e.flags ?? 0) & MENU_FLAG.NM_MENUDISABLED) !== 0,
+          items: [],
+        }
+        menus.push(menu)
+        item = null
+        continue
+      }
+      if (kind === NM.ITEM) {
+        if (menu === null) return null
+        item = this.newMenuItem(e, menu.items.length)
+        menu.items.push(item)
+        continue
+      }
+      if (kind === NM.SUB) {
+        if (item === null) return null
+        item.subItems.push(this.newMenuItem(e, item.subItems.length))
+        continue
+      }
+      return null
+    }
+    const strip: MenuStrip = { address: this.nextStrip, menus, laidOut: false, freed: false }
+    this.nextStrip += STRIDE
+    this.strips.set(strip.address, strip)
+    return strip
+  }
+
+  /**
+   * `LayoutMenusA(firstmenu, vi, taglist)` (-66).
+   *
+   * False when the strip or the VisualInfo is gone, which is the 0 the
+   * guide's `_gmn Layout` promises "(0 if Failure)". `gui-1.61` at $25e2
+   * calls it with a0 still holding CreateMenusA's result, a1 the VisualInfo
+   * and a2 a list of GTMN_NewLookMenus set to -1, which is the .fd's
+   * `(a0/a1/a2)` exactly.
+   *
+   * See `MenuLayout` for how much of the geometry is modelled. All of it.
+   */
+  layoutMenus(strip: MenuStrip, visualInfo: number, layout: MenuLayout = DEFAULT_MENU_LAYOUT): boolean {
+    if (strip.freed || this.visualInfo(visualInfo) === null) return false
+    let x = 0
+    for (const menu of strip.menus) {
+      menu.leftEdge = x
+      menu.topEdge = 0
+      menu.width = menu.label.length * layout.charWidth + layout.titlePad
+      menu.height = layout.barHeight
+      x += menu.width
+
+      // the column drops from the title and is as wide as its widest row
+      let widest = 0
+      for (const it of menu.items) widest = Math.max(widest, this.itemWidth(it, layout))
+      let y = layout.barHeight
+      for (const it of menu.items) {
+        it.leftEdge = menu.leftEdge
+        it.topEdge = y
+        it.width = widest
+        it.height = it.label === BARLABEL ? layout.barLabelHeight : layout.charHeight
+        y += it.height
+        let subWidest = 0
+        for (const s of it.subItems) subWidest = Math.max(subWidest, this.itemWidth(s, layout))
+        let sy = it.topEdge
+        for (const s of it.subItems) {
+          s.leftEdge = it.leftEdge + widest
+          s.topEdge = sy
+          s.width = subWidest
+          s.height = s.label === BARLABEL ? layout.barLabelHeight : layout.charHeight
+          sy += s.height
+        }
+      }
+    }
+    strip.laidOut = true
+    return true
+  }
+
+  /** `FreeMenus(menu)` (-54) */
+  freeMenus(strip: MenuStrip): boolean {
+    if (strip.freed) return false
+    strip.freed = true
+    return true
+  }
+
+  /** the strip behind an address, or null once freed or if never issued */
+  menuStrip(address: number): MenuStrip | null {
+    const s = this.strips.get(address)
+    return s === undefined || s.freed ? null : s
+  }
+
+  /**
+   * `ItemAddress(menustrip, menunumber)`, which is intuition's (-$90) rather
+   * than gadtools'. It is here because the menu tree is here and nothing else
+   * can walk it.
+   *
+   * Null for MENUNULL and for any field that names something absent, which is
+   * what `gui-1.61` guards against at $fca before reading NextSelect.
+   */
+  itemAddress(strip: MenuStrip, number: number): MenuItem | null {
+    if (strip.freed || number === MENUNULL) return null
+    const m = strip.menus[menuNum(number)]
+    if (m === undefined) return null
+    const i = m.items[itemNum(number)]
+    if (i === undefined) return null
+    const s = subNum(number)
+    if (s === NOSUB) return i
+    return i.subItems[s] ?? null
+  }
+
+  /**
+   * Selecting an item, with the mutual exclusion the guide describes.
+   *
+   * "you go to specify which items will be put in state no 'CHECKED' when
+   * this item will be selected", by a bit per item number in nm_MutualExclude,
+   * and its closing note is the one that catches people: "The 'BARLABEL'
+   * makes parties of Items count". A separator occupies a number, so the bits
+   * above it shift.
+   *
+   * Only CHECKIT items have anything to toggle. MENUTOGGLE decides whether
+   * picking an already-checked item clears it or leaves it set.
+   */
+  selectItem(strip: MenuStrip, number: number): MenuItem | null {
+    const it = this.itemAddress(strip, number)
+    if (it === null) return null
+    if ((it.flags & MENU_FLAG.CHECKIT) === 0) return it
+    it.checked = (it.flags & MENU_FLAG.MENUTOGGLE) !== 0 ? !it.checked : true
+    for (const other of this.siblingsOf(strip, number)) {
+      if (other === it) continue
+      if ((it.mutualExclude & (1 << other.index)) !== 0) other.checked = false
+    }
+    return it
+  }
+
+  /**
+   * The list an item's MutualExclude bits index into: its own list and not
+   * its parent's. A sub-item's mask names other sub-items, which is why a
+   * checked parent survives its child's exclusion.
+   */
+  private siblingsOf(strip: MenuStrip, number: number): readonly MenuItem[] {
+    if (subNum(number) === NOSUB) return strip.menus[menuNum(number)]?.items ?? []
+    const parent = this.itemAddress(strip, fullMenuNum(menuNum(number), itemNum(number), NOSUB))
+    return parent?.subItems ?? []
+  }
+
+  private itemWidth(it: MenuItem, layout: MenuLayout): number {
+    if (it.label === BARLABEL) return layout.checkWidth
+    const text = it.label.length * layout.charWidth
+    return layout.checkWidth + text + (it.commKey === '' ? 0 : layout.commandWidth)
+  }
+
+  private newMenuItem(e: NewMenu, index: number): MenuItem {
+    const flags = e.flags ?? 0
+    return {
+      label: e.label,
+      commKey: e.commKey ?? '',
+      flags,
+      mutualExclude: e.mutualExclude ?? 0,
+      userData: e.userData ?? 0,
+      index,
+      leftEdge: 0,
+      topEdge: 0,
+      width: 0,
+      height: 0,
+      checked: (flags & MENU_FLAG.CHECKIT) !== 0 && (flags & MENU_FLAG.CHECKED) !== 0,
+      disabled: (flags & MENU_FLAG.NM_ITEMDISABLED) !== 0,
+      subItems: [],
+    }
   }
 
   /**

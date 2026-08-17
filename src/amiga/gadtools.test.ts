@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url'
 import {
   GADGIMAGE,
   GADGET,
+  BARLABEL,
+  DEFAULT_MENU_LAYOUT,
   GTBB_FRAMETYPE,
   GTBB_RECESSED,
   GT_TAG_BASE,
@@ -26,7 +28,15 @@ import {
   KIND,
   KINDS,
   LVO,
+  MENUNULL,
+  MENU_FLAG,
   NEWGADGET_SIZEOF,
+  NEWMENU,
+  NEWMENU_SIZEOF,
+  NM,
+  NOITEM,
+  NOMENU,
+  NOSUB,
   NUMDRIPENS,
   PEN,
   TAG,
@@ -35,7 +45,11 @@ import {
   drawBevelBox,
   findTag,
   frameOf,
+  fullMenuNum,
+  itemNum,
+  menuNum,
   renderGadget,
+  subNum,
 } from './gadtools'
 import type { DrawInfo, NewGadget, TagItem } from './gadtools'
 import type { DiskFont } from './diskfont'
@@ -726,6 +740,276 @@ describe('rendering a gadget', () => {
     renderGadget(rp, g, dri())
     renderGadget(rp, built(KIND.BUTTON, { width: 0 }), dri())
     for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) expect(rp.point(x, y)).toBe(0)
+  })
+})
+
+describe('menus', () => {
+  /** the strip every test below builds on: two titles, items, subs and a bar */
+  function strip(gt = new GadTools()) {
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'Project' },
+      { type: NM.ITEM, label: 'Open', commKey: 'O' },
+      { type: NM.ITEM, label: BARLABEL },
+      { type: NM.ITEM, label: 'Quit', commKey: 'Q' },
+      { type: NM.TITLE, label: 'Edit' },
+      { type: NM.ITEM, label: 'Paste' },
+      { type: NM.SUB, label: 'Text' },
+      { type: NM.SUB, label: 'Graphics' },
+      { type: NM.END, label: '' },
+    ])!
+    return { gt, s }
+  }
+
+  /**
+   * The guide prints the type numbers in `_gmn Set`. NM_END is the one it
+   * does not name, and `gui-1.61` supplies it: its walk at $2584 is
+   * `tst.b d0 / beq`, so zero ends the array.
+   */
+  it('holds the type numbers the guide prints', () => {
+    expect(NM.TITLE).toBe(0x1)
+    expect(NM.ITEM).toBe(0x2)
+    expect(NM.SUB).toBe(0x3)
+    expect(NM.IMAGE).toBe(0x80)
+    expect(NM.IM_ITEM).toBe(0x82)
+    expect(NM.IM_SUB).toBe(0x83)
+    expect(NM.END).toBe(0)
+    // IM_ITEM and IM_SUB are the plain types with MENU_IMAGE set, which is
+    // what lets createMenus strip the bit and treat them the same
+    expect(NM.IM_ITEM).toBe(NM.ITEM | NM.IMAGE)
+    expect(NM.IM_SUB).toBe(NM.SUB | NM.IMAGE)
+  })
+
+  /**
+   * `lea $14(a0),a0` at gui-1.61 $25a6 steps from one nm_Label to the next,
+   * so the entry is twenty bytes. The guide's `_gmn Set` argument order fills
+   * exactly those twenty.
+   */
+  it('makes NewMenu twenty bytes, and its fields fill them', () => {
+    expect(NEWMENU_SIZEOF).toBe(20)
+    expect(NEWMENU.Type).toBe(0)
+    expect(NEWMENU.Label).toBe(2)
+    expect(NEWMENU.CommKey).toBe(6)
+    // Type + pad, Label, CommKey, Flags, MutualExclude, UserData
+    expect(1 + 1 + 4 + 4 + 2 + 4 + 4).toBe(NEWMENU_SIZEOF)
+    expect(NEWMENU.UserData + 4).toBe(NEWMENU_SIZEOF)
+  })
+
+  /**
+   * Read straight out of gui-1.61 $f64-$f80: mask $1f, then ror 5 and mask
+   * $3f, then ror 11 and mask $1f.
+   */
+  it('packs a menu number five, six and five bits', () => {
+    const n = fullMenuNum(3, 40, 17)
+    expect(menuNum(n)).toBe(3)
+    expect(itemNum(n)).toBe(40)
+    expect(subNum(n)).toBe(17)
+    // each field is exactly as wide as its mask
+    expect(menuNum(fullMenuNum(NOMENU, 0, 0))).toBe(0x1f)
+    expect(itemNum(fullMenuNum(0, NOITEM, 0))).toBe(0x3f)
+    expect(subNum(fullMenuNum(0, 0, NOSUB))).toBe(0x1f)
+    // and they do not bleed into each other
+    expect(itemNum(fullMenuNum(NOMENU, 0, NOSUB))).toBe(0)
+    expect(menuNum(fullMenuNum(0, NOITEM, NOSUB))).toBe(0)
+    expect(5 + 6 + 5).toBe(16)
+  })
+
+  /** MENUNULL is what gui-1.61 $fca compares NextSelect against */
+  it('treats MENUNULL as no selection', () => {
+    expect(MENUNULL).toBe(0xffff)
+    const { gt, s } = strip()
+    expect(s.menus.length).toBe(2)
+    expect(gt.itemAddress(s, MENUNULL)).toBeNull()
+  })
+
+  it('walks the flat array into a tree', () => {
+    const { s } = strip()
+    expect(s.menus.map((m) => m.label)).toEqual(['Project', 'Edit'])
+    expect(s.menus[0]!.items.map((i) => i.label)).toEqual(['Open', BARLABEL, 'Quit'])
+    expect(s.menus[1]!.items[0]!.subItems.map((i) => i.label)).toEqual(['Text', 'Graphics'])
+  })
+
+  /** "The 'BARLABEL' makes parties of Items count" */
+  it('counts a BARLABEL as an item, so Quit is number two', () => {
+    const { gt, s } = strip()
+    expect(gt.itemAddress(s, fullMenuNum(0, 1, NOSUB))!.label).toBe(BARLABEL)
+    expect(gt.itemAddress(s, fullMenuNum(0, 2, NOSUB))!.label).toBe('Quit')
+    expect(s.menus[0]!.items[2]!.index).toBe(2)
+  })
+
+  it('stops at NM_END and ignores what follows', () => {
+    const gt = new GadTools()
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'One' },
+      { type: NM.END, label: '' },
+      { type: NM.TITLE, label: 'Never' },
+    ])!
+    expect(s.menus.map((m) => m.label)).toEqual(['One'])
+  })
+
+  it('treats IM_ITEM as an ITEM, since MENU_IMAGE only changes the label', () => {
+    const gt = new GadTools()
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'M' },
+      { type: NM.IM_ITEM, label: 'Pic' },
+      { type: NM.IM_SUB, label: 'Sub' },
+    ])!
+    expect(s.menus[0]!.items[0]!.label).toBe('Pic')
+    expect(s.menus[0]!.items[0]!.subItems[0]!.label).toBe('Sub')
+  })
+
+  it('refuses an array with an item before any title', () => {
+    const gt = new GadTools()
+    expect(gt.createMenus([{ type: NM.ITEM, label: 'Orphan' }])).toBeNull()
+    expect(
+      gt.createMenus([
+        { type: NM.TITLE, label: 'M' },
+        { type: NM.SUB, label: 'Orphan' },
+      ]),
+    ).toBeNull()
+    expect(gt.createMenus([{ type: 0x7f, label: 'Nonsense' }])).toBeNull()
+  })
+
+  it('lays the bar out left to right and drops each column from its title', () => {
+    const { gt, s } = strip()
+    const vi = gt.getVisualInfo(12, dri())
+    expect(gt.layoutMenus(s, vi.address)).toBe(true)
+    const [project, edit] = s.menus
+    expect(project!.leftEdge).toBe(0)
+    expect(edit!.leftEdge).toBe(project!.width)
+    expect(project!.topEdge).toBe(0)
+    // items drop below the bar, each under its own title
+    expect(project!.items[0]!.topEdge).toBe(DEFAULT_MENU_LAYOUT.barHeight)
+    expect(project!.items[0]!.leftEdge).toBe(project!.leftEdge)
+    expect(edit!.items[0]!.leftEdge).toBe(edit!.leftEdge)
+    // and a column is one width throughout
+    const widths = new Set(project!.items.map((i) => i.width))
+    expect(widths.size).toBe(1)
+  })
+
+  /** a separator is not a text row, so it does not get a text row's height */
+  it('gives a BARLABEL less height than a labelled item', () => {
+    const { gt, s } = strip()
+    gt.layoutMenus(s, gt.getVisualInfo(12, dri()).address)
+    const items = s.menus[0]!.items
+    expect(items[1]!.height).toBe(DEFAULT_MENU_LAYOUT.barLabelHeight)
+    expect(items[0]!.height).toBe(DEFAULT_MENU_LAYOUT.charHeight)
+    // and the one below it starts where it ends
+    expect(items[2]!.topEdge).toBe(items[1]!.topEdge + items[1]!.height)
+  })
+
+  it('sub-items hang off the right of their column', () => {
+    const { gt, s } = strip()
+    gt.layoutMenus(s, gt.getVisualInfo(12, dri()).address)
+    const paste = s.menus[1]!.items[0]!
+    expect(paste.subItems[0]!.leftEdge).toBe(paste.leftEdge + paste.width)
+    expect(paste.subItems[0]!.topEdge).toBe(paste.topEdge)
+    expect(paste.subItems[1]!.topEdge).toBe(paste.topEdge + paste.subItems[0]!.height)
+  })
+
+  it('fails to lay out with a VisualInfo it never issued, or a freed strip', () => {
+    const { gt, s } = strip()
+    expect(gt.layoutMenus(s, 0xdead)).toBe(false)
+    expect(s.laidOut).toBe(false)
+    const vi = gt.getVisualInfo(12, dri())
+    gt.freeMenus(s)
+    expect(gt.layoutMenus(s, vi.address)).toBe(false)
+  })
+
+  it('FreeMenus once, and the strip stops answering', () => {
+    const { gt, s } = strip()
+    expect(gt.menuStrip(s.address)).toBe(s)
+    expect(gt.freeMenus(s)).toBe(true)
+    expect(gt.freeMenus(s)).toBe(false)
+    expect(gt.menuStrip(s.address)).toBeNull()
+    expect(gt.itemAddress(s, fullMenuNum(0, 0, NOSUB))).toBeNull()
+  })
+
+  it('ItemAddress answers null for a field naming something absent', () => {
+    const { gt, s } = strip()
+    expect(gt.itemAddress(s, fullMenuNum(0, 0, NOSUB))!.label).toBe('Open')
+    expect(gt.itemAddress(s, fullMenuNum(1, 0, 1))!.label).toBe('Graphics')
+    expect(gt.itemAddress(s, fullMenuNum(9, 0, NOSUB))).toBeNull()
+    expect(gt.itemAddress(s, fullMenuNum(0, 9, NOSUB))).toBeNull()
+    expect(gt.itemAddress(s, fullMenuNum(0, 0, 4))).toBeNull()
+  })
+
+  it('reads the flags into the item, per the guide s _gmn Set list', () => {
+    const gt = new GadTools()
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'M', flags: MENU_FLAG.NM_MENUDISABLED },
+      { type: NM.ITEM, label: 'On', flags: MENU_FLAG.CHECKIT | MENU_FLAG.CHECKED },
+      { type: NM.ITEM, label: 'Off', flags: MENU_FLAG.CHECKIT },
+      { type: NM.ITEM, label: 'Grey', flags: MENU_FLAG.NM_ITEMDISABLED },
+    ])!
+    expect(s.menus[0]!.disabled).toBe(true)
+    expect(s.menus[0]!.items[0]!.checked).toBe(true)
+    expect(s.menus[0]!.items[1]!.checked).toBe(false)
+    expect(s.menus[0]!.items[2]!.disabled).toBe(true)
+    // CHECKED without CHECKIT checks nothing: there is no checkmark to set
+    const bare = gt.createMenus([
+      { type: NM.TITLE, label: 'M' },
+      { type: NM.ITEM, label: 'X', flags: MENU_FLAG.CHECKED },
+    ])!
+    expect(bare.menus[0]!.items[0]!.checked).toBe(false)
+  })
+
+  /**
+   * The guide's own worked example, with its five items and its note that a
+   * BARLABEL takes a number. Item_01 carries MUTEXCL = %01100, which clears
+   * items 2 and 3 and leaves 0 and 4 alone.
+   */
+  it('clears the items a MutualExclude mask names', () => {
+    const gt = new GadTools()
+    const check = MENU_FLAG.CHECKIT | MENU_FLAG.CHECKED
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'Menu' },
+      { type: NM.ITEM, label: 'Item_00' },
+      { type: NM.ITEM, label: 'Item_01', flags: check, mutualExclude: 0b01100 },
+      { type: NM.ITEM, label: 'Item_02', flags: check, mutualExclude: 0b01010 },
+      { type: NM.ITEM, label: 'Item_03', flags: check, mutualExclude: 0b00110 },
+      { type: NM.ITEM, label: 'Item_04' },
+    ])!
+    const items = s.menus[0]!.items
+    expect(items.map((i) => i.checked)).toEqual([false, true, true, true, false])
+    gt.selectItem(s, fullMenuNum(0, 1, NOSUB))
+    // 01100 names items 2 and 3; 0 and 4 were never CHECKIT anyway
+    expect(items.map((i) => i.checked)).toEqual([false, true, false, false, false])
+  })
+
+  it('leaves a non-CHECKIT item alone and toggles only with MENUTOGGLE', () => {
+    const gt = new GadTools()
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'M' },
+      { type: NM.ITEM, label: 'Plain' },
+      { type: NM.ITEM, label: 'Sticky', flags: MENU_FLAG.CHECKIT },
+      { type: NM.ITEM, label: 'Toggle', flags: MENU_FLAG.CHECKIT | MENU_FLAG.MENUTOGGLE },
+    ])!
+    const [plain, sticky, toggle] = s.menus[0]!.items
+    gt.selectItem(s, fullMenuNum(0, 0, NOSUB))
+    expect(plain!.checked).toBe(false)
+    gt.selectItem(s, fullMenuNum(0, 1, NOSUB))
+    gt.selectItem(s, fullMenuNum(0, 1, NOSUB))
+    expect(sticky!.checked, 'without MENUTOGGLE, picking again keeps it set').toBe(true)
+    gt.selectItem(s, fullMenuNum(0, 2, NOSUB))
+    expect(toggle!.checked).toBe(true)
+    gt.selectItem(s, fullMenuNum(0, 2, NOSUB))
+    expect(toggle!.checked, 'MENUTOGGLE clears it on the second pick').toBe(false)
+  })
+
+  /** exclusion is within one list: a sub-item's mask names its siblings */
+  it('excludes among sub-items rather than reaching up to the items', () => {
+    const gt = new GadTools()
+    const check = MENU_FLAG.CHECKIT | MENU_FLAG.CHECKED
+    const s = gt.createMenus([
+      { type: NM.TITLE, label: 'M' },
+      { type: NM.ITEM, label: 'Parent', flags: check, mutualExclude: 0b11 },
+      { type: NM.SUB, label: 'A', flags: check, mutualExclude: 0b10 },
+      { type: NM.SUB, label: 'B', flags: check },
+    ])!
+    const parent = s.menus[0]!.items[0]!
+    gt.selectItem(s, fullMenuNum(0, 0, 0))
+    expect(parent.subItems[1]!.checked).toBe(false)
+    expect(parent.checked, 'the parent is not its own sub-item s sibling').toBe(true)
   })
 })
 
