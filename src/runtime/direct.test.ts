@@ -3,6 +3,10 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { EDITOR_RESOURCE_BANK, ED_PICS } from './edres.gen'
+import { ED_MESSAGES } from './edmessages.gen'
+import { parseAmosFile } from '../loader/amosfile'
+import { parseResourceBank } from '../loader/resource'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -262,5 +266,45 @@ describe('the escape screen (Esc_Appear +Edit.s:9356)', () => {
     rt.directScreen.key('\x1b', 0x45)
     expect(rt.directScreen.isOpen).toBe(false)
     expect(rt.currentIndex).toBe(0)
+  })
+})
+
+describe('the editor resource bank (Ed_ResourceLoad +Edit.s:4738)', () => {
+  it('decodes, and holds the pictures at the numbers the editor names', () => {
+    // +Edit.s:106-113 counts them out: Ed_Pics 1, Ed_BtPics +4, then twelve
+    // editor buttons of two, three memory pictures, the escape screen's
+    // three, and thirteen escape buttons of two
+    const parsed = parseAmosFile(EDITOR_RESOURCE_BANK)
+    const mem = parsed.banks.find((b) => 'data' in b) as { data: Uint8Array }
+    const g = parseResourceBank(mem.data).graphics!
+    expect(g.count).toBe(116)
+    expect(g.nColors).toBe(8)
+    // Es_Pics: the 128x16 title (Es_TitleSx x Es_TitleSy), the 16x8 right
+    // border tile and the 480x8 bottom bar
+    expect([g.image(ED_PICS.escape)!.width, g.image(ED_PICS.escape)!.height]).toEqual([128, 16])
+    expect([g.image(ED_PICS.escape + 1)!.width, g.image(ED_PICS.escape + 1)!.height]).toEqual([16, 8])
+    expect([g.image(ED_PICS.escape + 2)!.width, g.image(ED_PICS.escape + 2)!.height]).toEqual([480, 8])
+    // and 26 buttons at Es_BoutonsSx x Es_BoutonsSy, two per button
+    for (let i = 0; i < 26; i++) {
+      const p = g.image(ED_PICS.escapeButtons + i)!
+      expect([i, p.width, p.height]).toEqual([i, 32, 16])
+    }
+  })
+
+  it('puts the licence notice on the escape screen, in AMOS\'s own words', () => {
+    // the resource bank's licence asks for the copyright notice on the boot
+    // screen, and ED_MESSAGES 20-22 is what AMOS itself puts there. The two
+    // accented characters had to come out of the assembled binary: the
+    // vendored +Editor_Config.s has EF BF BD where they were.
+    expect(ED_MESSAGES[21]).toBe('By Fran\xe7ois Lionet')
+    expect(ED_MESSAGES[22]).toBe('\xa9 1992 Europress Software Ltd.')
+    const rt = new Runtime(tokenize('Stop', table), table, {})
+    rt.runHeadless(200)
+    rt.directScreen.open()
+    const s = rt.screens.get(9)!
+    // the title bar is the bank's, so it is not blank
+    let lit = 0
+    for (let y = 0; y < 16; y++) for (let x = 0; x < s.width; x++) if (s.point(x, y) !== 0) lit++
+    expect(lit).toBeGreaterThan(1000)
   })
 })

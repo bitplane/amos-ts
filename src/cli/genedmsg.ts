@@ -92,6 +92,42 @@ function block(from: string, to: string): string[] {
   return out
 }
 
+/**
+ * Put back the bytes the vendored source lost.
+ *
+ * `+Editor_Config.s` has `EdT 22,<By Fran...ois Lionet>` with the literal
+ * three bytes EF BF BD in it --- the UTF-8 replacement character, which the
+ * latin1 read here sees as three separate characters: whoever prepared the repository ran the file
+ * through a UTF-8 conversion, and every Latin-1 character above 127 came out
+ * the other side as the replacement character. Two messages are affected and
+ * they are the copyright notice, so they matter more than most.
+ *
+ * The assembled `AMOSPro_Editor_Config` still has them --- `By Fran\xe7ois`
+ * and `\xa9 1992 Europress` --- which is the project's ordinary rule that the
+ * binary wins when it and the source disagree. Each damaged message is looked
+ * up there by its intact halves, so a repair that cannot be proved is a build
+ * failure rather than a guess.
+ */
+const LOST = '\u00ef\u00bf\u00bd'
+
+function repairFromBinary(messages: string[]): string[] {
+  const damaged = messages.filter((m) => m.includes(LOST))
+  if (damaged.length === 0) return messages
+  const bin = readFileSync(join(root, 'AMOS/APSystem/AMOSPro_Editor_Config')).toString('latin1')
+  return messages.map((m) => {
+    if (!m.includes(LOST)) return m
+    // the same message with any single byte where the replacement character
+    // is, anchored on the text either side of it
+    const pattern = m
+      .split(LOST)
+      .map((part) => part.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&'))
+      .join('[\\s\\S]')
+    const hit = new RegExp(pattern).exec(bin)
+    if (!hit) throw new Error(`cannot repair ${JSON.stringify(m)} from AMOSPro_Editor_Config`)
+    return hit[0]
+  })
+}
+
 /** the prebuilt menu block: {pad, len, bytes} records, $FF ends it */
 function fromBinary(path: string): string[] {
   const b = readFileSync(join(root, path))
@@ -107,11 +143,11 @@ function fromBinary(path: string): string[] {
 }
 
 const tables = {
-  ED_SYSTEME: block('.Sys1', '.Sys2'),
+  ED_SYSTEME: repairFromBinary(block('.Sys1', '.Sys2')),
   EDM_MESSAGES: fromBinary('bin/Editor_Menus.asc'),
-  ED_MESSAGES: block('Ed1', 'Ed2'),
-  ED_TST_MESSAGES: block('.Test1', '.Test2'),
-  ED_RUN_MESSAGES: block('.Error1', '.Error2'),
+  ED_MESSAGES: repairFromBinary(block('Ed1', 'Ed2')),
+  ED_TST_MESSAGES: repairFromBinary(block('.Test1', '.Test2')),
+  ED_RUN_MESSAGES: repairFromBinary(block('.Error1', '.Error2')),
 }
 
 const lit = (s: string): string =>
