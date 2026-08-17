@@ -113,6 +113,33 @@ describe('extension registry (src/ext/registry.ts)', () => {
     }
   })
 
+  it("no manifest's notes open by restating what the port already computes", () => {
+    // `notes` is user-facing now: the extensions tab prints it whole, because
+    // it is where this project keeps its findings and those are worth reading.
+    // That makes a stale sentence in it a visible lie rather than a stale
+    // comment, and seven manifests opened with one --- "PORTED, 46/46
+    // keywords: 41 faithful, 4 approximated, 1 n/a; see src/runtime/delta.ts".
+    //
+    // Every number in that sentence is derived elsewhere and none of it moves
+    // when the port does. The row counts the keywords off the token table and
+    // reads "ported" off whether an ExtensionImpl declares the identity, so
+    // the prose was a second copy that could only ever fall behind.
+    //
+    // Deliberately narrow: it bans the OPENING claim and nothing else. Notes
+    // that mention porting mid-sentence are usually saying something real and
+    // uncomputable --- which keyword is approximated and why, or that two of
+    // CRAFT's keywords are n/a rather than unported --- and a wider rule would
+    // take those out with it.
+    const lead = /^\s*(PORTED\b|NOT PORTED\b|UNPORTED\b|\d+ keywords?,\s*(all\s+)?ported\b)/i
+    const manifests = join(root, 'src', 'ext', 'manifests')
+    const offenders: string[] = []
+    for (const f of readdirSync(manifests).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(manifests, f), 'utf8')) as { id: string; notes?: string }
+      if (lead.test(m.notes ?? '')) offenders.push(m.id)
+    }
+    expect(offenders, 'the extensions tab computes this; say what the port cannot').toEqual([])
+  })
+
   it('never claims manual or table evidence for an extension we hold a binary for', () => {
     // The governing rule, stated in ./registry.ts and docs/extensions/README.md:
     // the tier records the strongest evidence AVAILABLE, and a shipped library
