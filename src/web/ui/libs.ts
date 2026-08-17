@@ -13,25 +13,24 @@
  * `OpenLibrary` yet. Listing them here would mean claiming an answer the gate
  * does not give.
  */
-import { modelledLibraries } from '../../amiga/exec'
+import { modelledLibraries, type ModelledLibrary } from '../../amiga/exec'
 import { createList, facts, type RowSpec } from './list'
 
 const hex = (n: number): string => `$${n.toString(16)}`
 
-function rowFor(lib: { name: string; version: number; base: number }): RowSpec {
+function rowFor(lib: ModelledLibrary): RowSpec {
   return {
     key: lib.name,
     label: lib.name,
     detail: `version ${lib.version} or lower`,
-    chip: { text: 'opens', tone: 'on' },
     body: (host) => {
-      host.appendChild(
-        facts([
-          ['name', lib.name],
-          ['version', String(lib.version)],
-          ['base', hex(lib.base)],
-        ]),
-      )
+      const about = document.createElement('p')
+      about.className = 'about'
+      about.textContent = lib.about
+      host.appendChild(about)
+      // the name is the row's own label and the version is its detail column,
+      // so the base is the only thing here a reader cannot already see
+      host.appendChild(facts([['base', hex(lib.base)]]))
     },
   }
 }

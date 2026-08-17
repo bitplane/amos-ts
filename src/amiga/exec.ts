@@ -98,11 +98,33 @@ export function availMem(pools: MemoryPools, used: MemoryInUse, flags: number = 
  * bsdsocket.library, BUtility wants reqtools, asl and xpkmaster, and a port
  * that cannot say "absent" has to pretend instead.
  */
-const MODELLED: ReadonlyMap<string, number> = new Map([
+/** one entry: the newest version answered for, and what the library is */
+interface Modelled {
+  version: number
+  about: string
+}
+
+const MODELLED: ReadonlyMap<string, Modelled> = new Map([
   // catalogs, FormatDate, collation and case — ../amiga/localelib.ts
-  ['locale.library', 38],
+  [
+    'locale.library',
+    {
+      version: 38,
+      about:
+        'Catalogs, FormatDate, string collation and case conversion, for programs written to be ' +
+        'translated. Modelled by ./localelib.ts.',
+    },
+  ],
   // the filesystem, pattern matching and the DateStamp calendar
-  ['dos.library', 37],
+  [
+    'dos.library',
+    {
+      version: 37,
+      about:
+        "AmigaDOS itself: the filesystem, the #? pattern syntax, and the DateStamp calendar that " +
+        'counts days from 1 January 1978. Every file keyword in AMOS ends up here.',
+    },
+  ],
   // OctaMED's four-channel MMD0/MMD1 replayer, modelled by runtime/med.ts.
   // Version 7 because MED 7.1 opens all three of its players with
   // `moveq #$7,d0` and takes anything below as absent.
@@ -124,29 +146,80 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // which files they take. Leaving them out makes OpenLibrary answer 0, which
   // is the case MED 7.1 already handles and reports in its own words. See
   // runtime/medext.ts.
-  ['medplayer.library', 7],
+  [
+    'medplayer.library',
+    {
+      version: 7,
+      about:
+        "OctaMED's replayer for four-channel MMD0 and MMD1 modules. MED 7.1 opens it with " +
+        '`moveq #$7,d0` and treats anything older as absent. Its 5-8 and 0-64 channel siblings ' +
+        'are not modelled, so a program asking for those is told no.',
+    },
+  ],
   // the joyport and timer halves, modelled by ../amiga/lowlevel.ts. Two ports
   // open it: GameSupport with OpenLibrary, and TFT 0.7's `Init Tick Timer`
   // with OldOpenLibrary at -408, which carries no version at all. 40 is the
   // release the library first shipped in and neither caller asks for more.
-  ['lowlevel.library', 40],
+  [
+    'lowlevel.library',
+    {
+      version: 40,
+      about:
+        'One call that says what is in a gameport and what it is doing, so a program need not ' +
+        "decode JOY0DAT's quadrature or clock a CD32 pad's seven buttons out by hand. Added in " +
+        'AmigaOS 3.1 for games.',
+    },
+  ],
   // the XPK compression master --- ../amiga/xpkmaster.ts is a real port of the
   // stream format and the packer registry, and EasyLife already drives it.
   // Version 4 because that is what BUtility's routine 0 asks for.
-  ['xpkmaster.library', 4],
+  [
+    'xpkmaster.library',
+    {
+      version: 4,
+      about:
+        'The XPK compression container and the registry of packers behind it, so a program packs ' +
+        'and unpacks without knowing which algorithm did it. EasyLife and BUtility both drive it.',
+    },
+  ],
   // reqtools' and asl's file and text requesters, modelled by runtime/fsel.ts
   // and runtime/requester.ts: AMOS's own file selector and its Interface
   // dialog engine stand in for the windows, and every requester these two
   // libraries are asked for here has one. The versions are the ones BUtility
   // opens with -- v38 and v37, which are also the versions their own
   // documentation calls the first with the tag-list API used above.
-  ['reqtools.library', 38],
-  ['asl.library', 37],
+  [
+    'reqtools.library',
+    {
+      version: 38,
+      about:
+        "File, font and text requesters. AMOS's own file selector and its Interface dialog engine " +
+        'stand in for the windows, and every requester this library is asked for here has one.',
+    },
+  ],
+  [
+    'asl.library',
+    {
+      version: 37,
+      about:
+        "Commodore's own file and font requesters, which reqtools was written to improve on. The " +
+        'same standing here, and the same substitution.',
+    },
+  ],
   // GMS's core, modelled by ../runtime/thegame.ts: a GMS screen is a slot in
   // the machine's own screen table and a module call is a TypeScript call, so
   // the base only has to be non-zero. Version 2 because that is what The Game
   // Extension's `G Init Gms` demands, and the vendored library is V2.1.
-  ['dpkernel.library', 2],
+  [
+    'dpkernel.library',
+    {
+      version: 2,
+      about:
+        "The Games Master System's core, which a GMS program drives instead of AmigaOS. A GMS " +
+        "screen is a slot in the machine's own screen table here and a module call is a " +
+        'TypeScript call, so the base only ever has to be non-zero.',
+    },
+  ],
 ])
 
 /**
@@ -171,7 +244,7 @@ const BASE_STRIDE = 0x0001_0000
 export function openLibrary(name: string, version = 0): number {
   const key = basename(name)
   const have = MODELLED.get(key)
-  if (have === undefined || version > have) return 0
+  if (have === undefined || version > have.version) return 0
   return BASE_ORIGIN + [...MODELLED.keys()].indexOf(key) * BASE_STRIDE
 }
 
@@ -200,6 +273,8 @@ export interface ModelledLibrary {
   version: number
   /** the synthetic base it answers with, which nothing dereferences */
   base: number
+  /** what the library is, for a page listing it */
+  about: string
 }
 
 /**
@@ -210,10 +285,11 @@ export interface ModelledLibrary {
  * installed without keeping a second copy that drifts from this one.
  */
 export function modelledLibraries(): ModelledLibrary[] {
-  return [...MODELLED].map(([name, version], i) => ({
+  return [...MODELLED].map(([name, m], i) => ({
     name,
-    version,
+    version: m.version,
     base: BASE_ORIGIN + i * BASE_STRIDE,
+    about: m.about,
   }))
 }
 
