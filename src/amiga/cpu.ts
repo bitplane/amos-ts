@@ -31,6 +31,16 @@ export abstract class Cpu implements Device {
   /** clock rate in Hz, for a page to print. Nothing here counts cycles. */
   abstract readonly hz: number
 
+  get description(): string {
+    const mhz = (this.hz / 1_000_000).toFixed(5).replace(/0+$/, '').replace(/\.$/, '')
+    return (
+      `Motorola ${this.name} at ${mhz} MHz. This port runs no 68k machine code ` +
+      `at all, on purpose: an interpreter would let keywords pass without ` +
+      `anyone reading the routine behind them. So the choice changes what a ` +
+      `program asking the model is told, and nothing else.`
+    )
+  }
+
   /**
    * Run without waiting for the 50Hz frame clock.
    *

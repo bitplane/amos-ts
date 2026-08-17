@@ -129,6 +129,12 @@ export class BattClock implements Device {
    */
   readonly name = 'A501'
 
+  readonly description =
+    'Sixteen four-bit registers at $DC0000, on their own battery and crystal, ' +
+    'so the date survives the power being off. Nothing reads it except the ' +
+    'boot: SetClock LOAD copies it into the system time once, and DateStamp ' +
+    'answers from there afterwards.'
+
   /** the sixteen registers, low nibble each */
   readonly regs = new Uint8Array(BATTCLOCK_REGISTERS)
 

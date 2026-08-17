@@ -109,6 +109,11 @@ export class FloppyDrive implements Device {
    */
   readonly name = 'floppy drive'
 
+  readonly description =
+    'An 880K double-density mechanism, 80 cylinders a side. It answers one of ' +
+    "CIA-B's four /SELn lines and puts four status lines back on CIA-A: ready, " +
+    'track zero, write protect and disk change.'
+
   /** which /SELn line on CIA-B port B this drive answers, `cia.i`:133-136 */
   readonly unit: number
 

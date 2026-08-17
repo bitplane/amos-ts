@@ -24,7 +24,7 @@
  * was written on and heard on.
  */
 import type { Device } from './device'
-import type { AmigaAudioModel } from './mixer'
+import { FIXED_FILTER_HZ, type AmigaAudioModel } from './mixer'
 
 /** what a hardware page calls each board's audio, in the order it offers them */
 export const AUDIO_NAMES: Readonly<Record<AmigaAudioModel, string>> = {
@@ -58,5 +58,14 @@ export class PaulaAudio implements Device {
    */
   get name(): string {
     return AUDIO_NAMES[this.model]
+  }
+
+  get description(): string {
+    return (
+      `Four DMA voices, two to a stereo side, into this board's fixed RC ` +
+      `low-pass at ${FIXED_FILTER_HZ[this.model]} Hz. The 3.3 kHz LED filter ` +
+      `sits in front of it and is switchable: CIA-A PRA bit 1, the bit that ` +
+      `also dims the power light.`
+    )
   }
 }

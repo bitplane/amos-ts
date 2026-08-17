@@ -137,9 +137,11 @@ export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported:
       ]
     case 'serial':
       return [
-        // a cable with nothing on the far end. CIA-B's three handshake lines
-        // still read as connected, which is what a cable IS to the machine.
-        { id: 'cable', label: 'cable', make: () => new SerialCable('cable') },
+        // NOT a bare cable. `SerialCable` asserts DSR and CTS, which is a lead
+        // to something powered, so the label says so: a program that checks
+        // the handshake before sending sees a peer that is there and ready,
+        // and the bytes then go nowhere because there is no data path.
+        { id: 'peer', label: 'lead to a live peer', make: () => new SerialCable('live peer') },
         // hidden where there is no Web Serial (Firefox, Safari, mobile)
         // rather than offered and failing, since nothing the user does there
         // could help
@@ -181,7 +183,7 @@ export function currentFitting(slot: Slot, keys: JoyKeys): string {
   if (slot.takes === 'parallel') return dev.name === 'printer' ? 'printer' : 'fourplayer'
   // the two serial entries build the same class and are told apart by the name
   // the host gave it, which is the only thing that survives the attach
-  if (slot.takes === 'serial') return dev.name === 'host serial port' ? 'webserial' : 'cable'
+  if (slot.takes === 'serial') return dev.name === 'host serial port' ? 'webserial' : 'peer'
   if (slot.takes === 'cpu') return dev.name
   if (slot.takes === 'audio') return dev instanceof PaulaAudio ? dev.model : ''
   if (slot.id === 'mouse') return 'browser-mouse'

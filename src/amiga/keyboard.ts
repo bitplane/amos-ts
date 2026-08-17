@@ -67,6 +67,11 @@ export class Keyboard implements Device {
    */
   readonly name: string
 
+  readonly description =
+    'Clocks one byte into CIA-A\'s serial register at $BFEC01 on every press ' +
+    'AND every release, with the scancode inverted and rotated. A key going ' +
+    'down and the same key coming up are different bytes.'
+
   constructor(name = 'keyboard') {
     this.name = name
   }

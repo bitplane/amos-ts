@@ -64,6 +64,7 @@ import type { Device } from './device'
 export abstract class ParallelDevice implements Device {
   readonly kind = 'parallel' as const
   abstract readonly name: string
+  abstract readonly description: string
   /** what this device puts on the eleven lines `./cia.ts` reads */
   abstract lines(): ParallelLines
 }
@@ -88,6 +89,11 @@ function nibble(c: Controller): number {
 /** the four-player adaptor: players 3 and 4, one per nibble */
 export class FourPlayerAdaptor extends ParallelDevice {
   readonly name = 'four-player adaptor'
+
+  readonly description =
+    'Two more joysticks on the printer port. Their directions share the eight ' +
+    "data lines, a nibble each, and their fire buttons ARE the printer's SELECT " +
+    'and BUSY lines. Three extensions read it and they do not all agree which.'
 
   /**
    * The two sticks it carries, in the order the keywords number them: index
@@ -122,6 +128,11 @@ export class FourPlayerAdaptor extends ParallelDevice {
  */
 export class Printer extends ParallelDevice {
   readonly name = 'printer'
+
+  readonly description =
+    'Eight data lines out, and three status lines back: SELECT for online, ' +
+    'PAPEROUT and BUSY. All three are active HIGH, unlike almost everything ' +
+    'else on the CIAs.'
 
   /** SELECT: the printer is on and has paper in it, in its own opinion */
   online = true

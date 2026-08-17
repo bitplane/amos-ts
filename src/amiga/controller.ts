@@ -112,6 +112,10 @@ export class Controller implements Device {
   get name(): string {
     return CTRL_NAMES[this.type] ?? CTRL_NAMES[CTRL_UNKNOWN]!
   }
+
+  get description(): string {
+    return CTRL_ABOUT[this.type] ?? CTRL_ABOUT[CTRL_UNKNOWN]!
+  }
 }
 
 /**
@@ -137,6 +141,26 @@ export function buttonDown(c: Controller, button: number): boolean {
  * CD32 pad and `JP_TYPE_UNKNOWN` is a port that answered something no
  * autosense pattern matches, which is a real state and not an error.
  */
+/**
+ * What each kind of controller IS, for a page that lists one.
+ *
+ * The pin facts rather than the marketing: a stick is four switches and a
+ * button, and a CD32 pad puts its extra buttons on the fire line as a serial
+ * shift register, which is why it needs a clock pulse to be read at all.
+ */
+export const CTRL_ABOUT: Readonly<Record<number, string>> = {
+  [CTRL_NONE]: 'Nothing on the nine pins, so every direction and every button reads as released.',
+  [CTRL_JOYSTICK]:
+    'Four direction switches wired as two quadrature pairs, read through JOY0DAT or JOY1DAT, ' +
+    'and one fire button on a CIA-A pin.',
+  [CTRL_GAMEPAD]:
+    "The stick's four directions plus seven buttons, which the pad shifts out serially over the " +
+    'fire and second-button lines rather than adding pins for.',
+  [CTRL_MOUSE]:
+    'Two quadrature counters read as JOY0DAT, and buttons on CIA-A PRA bit 6 and POTGOR.',
+  [CTRL_UNKNOWN]: 'Something on the port that lowlevel.library could not identify.',
+}
+
 export const CTRL_NAMES: Readonly<Record<number, string>> = {
   // `CTRL_NONE` is the empty socket rather than a device, so `controllerDevice`
   // answers null for it and this name is never printed by a hardware page. It

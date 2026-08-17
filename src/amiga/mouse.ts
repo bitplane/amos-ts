@@ -83,6 +83,11 @@ export class Mouse implements Device {
    */
   readonly name: string
 
+  readonly description =
+    'Two quadrature counters read as JOY0DAT, which is why the position is ' +
+    'the count modulo 256 and wraps. The buttons are pins on two chips: left ' +
+    'on CIA-A PRA bit 6, right and middle on POTGOR bits 10 and 8.'
+
   constructor(name = 'mouse') {
     this.name = name
   }

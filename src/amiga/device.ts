@@ -66,10 +66,25 @@ export interface Device {
    * What a hardware page prints for the device itself, not for the socket.
    *
    * The name is the device's, so two floppies read the same here and are told
-   * apart by the slot they are in. Free text: a host that knows it has a
-   * Chinon FZ-357A says so, and one that does not says "floppy drive".
+   * apart by the slot they are in. It should say what the SLOT cannot: a row
+   * labelled "battery clock" holding a device called "battery clock" has spent
+   * two lines on one fact, so the clock answers "A501" instead.
+   *
+   * Free text: a host that knows it has a Chinon FZ-357A says so, and one that
+   * does not says "floppy drive".
    */
   readonly name: string
+
+  /**
+   * One or two sentences on what this thing IS, for a reader rather than for
+   * a caller.
+   *
+   * Required, so a device cannot be added without saying what it does, and
+   * held to the same rule as every doc comment here: name a register, an
+   * address, a rate or a count. "The keyboard is a keyboard" is not a
+   * description. `$DC0000`, "four DMA voices" and "7.09379 MHz" are.
+   */
+  readonly description: string
 }
 
 /**

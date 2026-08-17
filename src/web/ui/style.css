@@ -371,6 +371,12 @@ button.led:focus-visible {
   color: var(--dim);
 }
 
+.about {
+  margin: 0 0 0.7rem;
+  max-width: 68ch;
+  color: var(--dim);
+}
+
 .facts {
   display: grid;
   grid-template-columns: minmax(6rem, max-content) 1fr;

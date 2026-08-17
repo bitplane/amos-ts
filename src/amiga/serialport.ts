@@ -34,6 +34,7 @@ import type { Device } from './device'
 export abstract class SerialDevice implements Device {
   readonly kind = 'serial' as const
   abstract readonly name: string
+  abstract readonly description: string
   /** the three input lines, in positive logic. `./cia.ts` inverts them. */
   abstract lines(): SerialLines
 }
@@ -54,6 +55,11 @@ export class SerialCable extends SerialDevice {
   carrierDetect = false
   clearToSend = true
   dataSetReady = true
+
+  readonly description =
+    'A lead to something powered on the far end, which is what asserts DSR and ' +
+    'CTS at $BFD000; DCD stays clear because there is no modem to detect a ' +
+    'carrier. The handshake lines only: the data path is serial.device.'
 
   constructor(name = 'serial cable') {
     super()

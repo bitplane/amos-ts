@@ -161,10 +161,17 @@ function toggle(label: string, on: boolean, hint: string, set: (v: boolean) => v
 
 function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElement) => void {
   return (body) => {
-    const pairs: [string, string][] = [
-      ['slot', slot.id],
-      ['takes', slot.takes],
-    ]
+    // what it IS, before any of the numbers. `slot` and `takes` used to be the
+    // first two rows here and they are facts about this code rather than about
+    // the machine: a reader looking at "battery clock" already knows.
+    if (slot.device) {
+      const about = document.createElement('p')
+      about.className = 'about'
+      about.textContent = slot.device.description
+      body.appendChild(about)
+    }
+
+    const pairs: [string, string][] = []
     const drive = driveIn(slot)
     if (drive) {
       // the unit is which /SELn line the drive answers, cia.i:133-136
@@ -187,7 +194,7 @@ function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElemen
         ['fixed filter', `${FIXED_FILTER_HZ[slot.device.model]} Hz, no switch`],
       )
     }
-    body.appendChild(facts(pairs))
+    if (pairs.length > 0) body.appendChild(facts(pairs))
 
     if (cpu) {
       body.appendChild(
