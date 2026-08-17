@@ -407,18 +407,22 @@ function refreshFiles(): void {
   }
 }
 
-// ---- the joystick dropdowns ----
+// ---- what drives the gameports ----
 // Keyboard-to-joystick stays OFF unless asked for: a program that reads the
 // keyboard AND polls a joystick would otherwise see the same keypress twice.
-for (const [id, port] of [
-  ['kb1', 1],
-  ['kb0', 0],
-] as const) {
-  const sel = document.getElementById(id) as HTMLSelectElement
-  const apply = (): void => player.setJoystick(port, (sel.value || 'none') as JoyKeys)
-  sel.addEventListener('change', apply)
-  apply()
+// The choice moved to the hardware tab, where the port it applies to is the
+// row you are already looking at. The player has a setter and no getter, so
+// the current mapping is remembered here.
+const joyKeys: Record<0 | 1, JoyKeys> = { 0: 'none', 1: 'none' }
+const joy = {
+  keys: (port: 0 | 1): JoyKeys => joyKeys[port],
+  setKeys: (port: 0 | 1, keys: JoyKeys): void => {
+    joyKeys[port] = keys
+    player.setJoystick(port, keys)
+  },
 }
+joy.setKeys(0, 'none')
+joy.setKeys(1, 'none')
 
 // ---- the tabs ----
 // Built last, because the strip and the hardware panel read the machine and
@@ -429,7 +433,7 @@ document.getElementById('strip-host')!.appendChild(strip.root)
 statusEl = strip.status
 statusEl.textContent = held
 
-const hardware = createHardwareTab(player.machine)
+const hardware = createHardwareTab(player.machine, joy)
 const libs = createLibsTab()
 document.getElementById('panels')!.append(hardware.panel, libs.panel)
 

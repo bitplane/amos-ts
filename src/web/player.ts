@@ -36,8 +36,7 @@ import {
   BTN_RED,
   BTN_REVERSE,
   BTN_YELLOW,
-  CTRL_GAMEPAD,
-  CTRL_JOYSTICK,
+  CTRL_NONE,
   DIR_DOWN,
   DIR_LEFT,
   DIR_RIGHT,
@@ -415,15 +414,31 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     [9, BTN_PLAY],
   ]
 
-  function setPort(c: Controller, kb: number, gp: Gamepad | null): void {
-    // the keyboard preset first: it is a one-button stick, and assigning the
-    // five bits assigns the whole of one
-    applyJoyBits(c, kb)
-    if (!gp) {
-      c.type = CTRL_JOYSTICK
+  /**
+   * Feed one gameport from whatever the host attached to it.
+   *
+   * `c.type` is NOT written here, and used to be. The old code set
+   * CTRL_GAMEPAD whenever a real pad was plugged into the user's computer and
+   * CTRL_JOYSTICK when it was not, which made `lowlevel.library`'s
+   * `ReadJoyPort` report the PLAYER's hardware instead of the machine's. It
+   * also meant a port could never be empty: `Machine.detach` sets CTRL_NONE
+   * and the next frame put a stick straight back.
+   *
+   * What drives a port is decided by what is in it. A keyboard-mapped port
+   * takes the keys, an unmapped one takes the pad, and an empty one takes
+   * nothing at all, which is the state a program checking for a connected
+   * controller has to be able to see.
+   */
+  function setPort(c: Controller, port: 0 | 1, gp: Gamepad | null): void {
+    if (c.type === CTRL_NONE) return
+    if (Object.keys(KB_PORT[port]!).length > 0) {
+      // a keyboard stick is a one-button stick, and assigning the five bits
+      // assigns the whole of one
+      applyJoyBits(c, kbJoy[port]!)
       return
     }
-    c.type = CTRL_GAMEPAD
+    applyJoyBits(c, 0)
+    if (!gp) return
     const ax = gp.axes
     if ((ax[1] ?? 0) < -0.5 || gp.buttons[12]?.pressed) c.dirs |= DIR_UP
     if ((ax[1] ?? 0) > 0.5 || gp.buttons[13]?.pressed) c.dirs |= DIR_DOWN
@@ -573,8 +588,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       acc -= FRAME_MS
     }
     const pads = navigator.getGamepads?.() ?? []
-    setPort(rt.input.ports[1], kbJoy[1]!, pads[0] ?? null)
-    setPort(rt.input.ports[0], kbJoy[0]!, pads[1] ?? null)
+    setPort(rt.input.ports[1], 1, pads[0] ?? null)
+    setPort(rt.input.ports[0], 0, pads[1] ?? null)
     for (let i = 0; i < frames; i++) {
       if (rt.interp.done) break
       try {

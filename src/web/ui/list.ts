@@ -24,9 +24,17 @@ export interface Action {
   run(): void
 }
 
+/** one entry in a row's drop-down */
+export interface Choice {
+  label: string
+  run(): void
+}
+
 export interface RowSpec {
   /** stable across redraws: it is what remembers the row was open */
   key: string
+  /** one glyph in a column of its own, so the labels stay in line */
+  icon?: string
   label: string
   /** the second column: what is in the slot, or what the library answers */
   detail?: string
@@ -34,6 +42,15 @@ export interface RowSpec {
   empty?: boolean
   chip?: { text: string; tone?: Tone }
   actions?: readonly Action[]
+  /**
+   * A drop-down of things that could go here.
+   *
+   * Picking one runs it and the control springs back to its placeholder,
+   * because the redraw that follows is what reports the result. It never
+   * shows a selection, since what is in the slot is the row's own second
+   * column and two places saying it would be one place too many.
+   */
+  choose?: { placeholder: string; options: readonly Choice[] }
   /** fills the disclosure body. A row with no body does not open. */
   body?(host: HTMLElement): void
 }
@@ -57,6 +74,33 @@ function button(a: Action): HTMLButtonElement {
     a.run()
   })
   return b
+}
+
+function chooser(spec: NonNullable<RowSpec['choose']>): HTMLSelectElement {
+  const sel = document.createElement('select')
+  sel.className = 'act'
+
+  const placeholder = document.createElement('option')
+  placeholder.value = ''
+  placeholder.textContent = spec.placeholder
+  sel.appendChild(placeholder)
+
+  for (const [i, o] of spec.options.entries()) {
+    const opt = document.createElement('option')
+    opt.value = String(i)
+    opt.textContent = o.label
+    sel.appendChild(opt)
+  }
+
+  // the control sits inside the <summary>, where any click toggles the row
+  sel.addEventListener('click', (e) => e.stopPropagation())
+  sel.addEventListener('keydown', (e) => e.stopPropagation())
+  sel.addEventListener('change', () => {
+    const chosen = spec.options[Number(sel.value)]
+    sel.selectedIndex = 0
+    chosen?.run()
+  })
+  return sel
 }
 
 export function createList(host: HTMLElement): List {
@@ -89,6 +133,13 @@ export function createList(host: HTMLElement): List {
         caret.textContent = row.body ? '▶' : ''
         summary.appendChild(caret)
 
+        const icon = document.createElement('span')
+        icon.className = 'item-icon'
+        icon.textContent = row.icon ?? ''
+        // the glyph is a picture of the label, so it is not read out twice
+        icon.setAttribute('aria-hidden', 'true')
+        summary.appendChild(icon)
+
         const label = document.createElement('span')
         label.className = 'item-label'
         label.textContent = row.label
@@ -109,6 +160,7 @@ export function createList(host: HTMLElement): List {
         const actions = document.createElement('span')
         actions.className = 'item-actions'
         for (const a of row.actions ?? []) actions.appendChild(button(a))
+        if (row.choose && row.choose.options.length > 0) actions.appendChild(chooser(row.choose))
         summary.appendChild(actions)
 
         item.appendChild(summary)

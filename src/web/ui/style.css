@@ -244,12 +244,20 @@ a {
 
 .item > summary {
   display: grid;
-  grid-template-columns: 1.1rem minmax(7rem, 13rem) 1fr auto auto;
+  grid-template-columns: 1.1rem 1.4rem minmax(7rem, 13rem) 1fr auto auto;
   align-items: center;
   gap: 0.6rem;
   padding: 0.45rem 0.7rem;
   cursor: pointer;
   list-style: none;
+}
+
+/* fixed width so a two-cell emoji and an empty cell leave the labels in line */
+.item-icon {
+  width: 1.4rem;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .item > summary::-webkit-details-marker {
@@ -402,6 +410,42 @@ button.act:focus-visible {
   outline-offset: 1px;
 }
 
+/* the attach drop-down, sized to match the buttons beside it */
+select.act {
+  appearance: none;
+  background: var(--raised);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 0.1rem 1.2rem 0.1rem 0.5rem;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    right 0.55rem center,
+    right 0.35rem center;
+  background-size: 0.2rem 0.2rem;
+  background-repeat: no-repeat;
+}
+
+select.act:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+select.act:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* the popup itself is drawn by the platform, so it needs real colours */
+select.act option {
+  background: var(--raised);
+  color: var(--fg);
+}
+
 /* ---- the emulator tab ---------------------------------------------------- */
 
 #player {
@@ -437,6 +481,23 @@ button.act:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.1rem 0.3rem;
+}
+
+.hint {
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
+
+/* a labelled control inside a disclosure body */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--fs-label);
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.6rem;
 }
 
 body.dragging {
@@ -495,11 +556,11 @@ body.dragging {
 
 @media (max-width: 640px) {
   .item > summary {
-    grid-template-columns: 1.1rem 1fr auto;
+    grid-template-columns: 1.1rem 1.4rem 1fr auto;
     row-gap: 0.2rem;
   }
 
   .item-detail {
-    grid-column: 2 / -1;
+    grid-column: 3 / -1;
   }
 }
