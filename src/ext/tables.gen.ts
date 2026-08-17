@@ -8399,7 +8399,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "gui-1.5b",
     "name": "GUI",
     "version": "Beta 1.5",
-    "author": "unattributed",
+    "author": "Dairymen Soft",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "disassembly",
@@ -8409,7 +8409,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "a4ffb518a1d75c9b81ac7a693b9c7ca055b6efc6aa7dcfea83fbf906929f1324",
     "provenance": "aminet-dev-amos/files/snc004/SnC-4/AMOS_Extension/AMOSPro_GUI.Lib Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
-    "notes": "Early beta of the GUI extension."
+    "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus. Documented, unlike the 1.61 that followed it."
   },
   {
     "id": "gui-1.61",

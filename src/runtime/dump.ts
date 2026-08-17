@@ -9,10 +9,21 @@
  *
  * ## Evidence
  *
- * DISASSEMBLY tier and NOTHING ELSE. `Dump.Lib` is a 3,232-byte code hunk
- * dated November 1990 and the archive holds no doc, no readme and no source,
- * so every argument meaning below is read out of the code. That is unusual
- * here and it is why the argument order is spelled out rather than asserted.
+ * Disassembly, with the author's own readme beside it. `Dump.Lib` is a
+ * 3,232-byte code hunk dated November 1990, and every argument meaning below
+ * was read out of the code before `dump_readme` turned up --- 8,972 bytes
+ * shipped with the 1,432-byte AMOS 1.3 build in `Dump_1.0.lha`, a different
+ * library from this one and the same command set.
+ *
+ * It corroborates rather than corrects. The three arities are its three
+ * documented forms, the return is "the error returned by the printer on
+ * completion/abortion of the dump", and the flag word is printer.device's
+ * own: `$0004 FULLCOLS`, `$0008 FULLROWS`, `$0080 ASPECT` and the rest, which
+ * is what bare `=Dump` uses. The one thing it adds is the slot, and it does
+ * not agree with the number recorded for THIS build: "Enter the following at
+ * position 10 (this is vital - no other number will work!!!)". That is the
+ * 1.3 build's slot in the 1.3 config, so both numbers are kept rather than
+ * one overwriting the other.
  *
  * ## Identity, off the binary
  *

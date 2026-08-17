@@ -9,7 +9,9 @@
   "format": "legacy",
   "idBaseEvidence": "assumed",
   "evidence": "disassembly",
-  "docs": [],
+  "docs": [
+    "dump_readme"
+  ],
   "titleStrings": [],
   "observedSlots": [],
   "provenance": {
@@ -17,7 +19,7 @@
     "note": "No documentation found. A smaller 5-entry Dump.Lib also exists on APD036. Author identified from the Ultimate Amiga AMOS Factory archive listing (Dump Extension v1.0, archived by Lonewolf10); the binary carries no attribution. The binary calls itself version 1.1; the id keeps the 1.0 it was first registered under.",
     "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
-  "findings": "Two unrelated halves: Dump and Dump Err$ send a screen to a graphics printer, and six more drive trackdisk.device directly for sector reads and writes, track formatting and the two disk status queries. Disassembly tier and NOTHING else — the archive holds no doc, no readme and no source, so every argument meaning is read out of the code. VERSION CORRECTED off the binary: the title string at $c95 is `Dump v1.1 by Alex J. Grant & F.Lionet`, where this manifest recorded 1.0; the id keeps its original spelling. F. Lionet is AMOS's own author. SLOT CORRECTED off the binary too: routine 0 stores its block with `move.l a0,$228(a5)`, its REMOVE routine at `$230(a5)` (that entry's +$8), and returns `moveq #$13,d0` = 19 — so slot 20, where Andrew Burton's AMOS Extensions List said 10. Routine 0 can also refuse to install: it AllocMems $202 bytes for the sector buffer first and returns $ff when that fails.",
+  "findings": "Two unrelated halves: Dump and Dump Err$ send a screen to a graphics printer, and six more drive trackdisk.device directly for sector reads and writes, track formatting and the two disk status queries. Every argument meaning was read out of the code, and the author's own `dump_readme` has since turned up in `Dump_1.0.lha` beside a different, 1,432-byte AMOS 1.3 build of the same command set. It corroborates the three arities, the printer-error return and printer.device's SPECIAL_* flag word, and states a slot of 10 for that build against the 20 recorded for this one. VERSION CORRECTED off the binary: the title string at $c95 is `Dump v1.1 by Alex J. Grant & F.Lionet`, where this manifest recorded 1.0; the id keeps its original spelling. F. Lionet is AMOS's own author. SLOT CORRECTED off the binary too: routine 0 stores its block with `move.l a0,$228(a5)`, its REMOVE routine at `$230(a5)` (that entry's +$8), and returns `moveq #$13,d0` = 19 — so slot 20, where Andrew Burton's AMOS Extensions List said 10. Routine 0 can also refuse to install: it AllocMems $202 bytes for the sector buffer first and returns $ff when that fails.",
   "notes": "Two unrelated halves: dump a screen to a graphics printer, and read, write and format disk sectors directly.",
   "recommendedSlot": 20
 }

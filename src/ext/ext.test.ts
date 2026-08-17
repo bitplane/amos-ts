@@ -621,6 +621,11 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       // AMOS Pro install gives it
       12: 'turbo-plus-1.9',
       14: 'intuition-1.3b',
+      // D-Sam's own example program, which arrived with its documentation
+      // when the corpus was swept for the manuals this repo had written off.
+      // Its slot agrees three ways: the library states 15, its manifest
+      // recommends 15, and the author's own program uses 15.
+      15: 'd-sam-1.01',
       // The forty example programs off the CRAFT installer disk, which came
       // out of its packed blobs (../amiga/solaris.ts). They use 88 of CRAFT's
       // 138 ids between them, far and away the best fingerprint any
