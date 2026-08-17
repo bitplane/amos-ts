@@ -1873,3 +1873,44 @@ describe('function-argument To ranges (the "0,0T0" token specs)', () => {
     expect(run(src).out).toBe('-1 0\n')
   })
 })
+
+describe('the autoback bob bracket (TAbk1/TAbk4, +W.s:3577 and +W.s:3642)', () => {
+  /** the bar's 666 pixels, less whatever the bob's stale save painted back */
+  const barPixels = (rt: Runtime): number => {
+    const s = rt.screens.get(0)!
+    let n = 0
+    for (let y = 110; y <= 115; y++) for (let x = 90; x <= 200; x++) if (s.point(x, y) === 5) n++
+    return n
+  }
+
+  const prog = (autoback: string): string =>
+    [
+      'Screen Open 0,320,200,16,Lowres : Curs Off : Cls 0',
+      'Ink 7 : Bar 0,0 To 31,31 : Get Bob 1,0,0 To 32,32 : Cls 0',
+      'Double Buffer',
+      autoback,
+      'Bob 1,100,100,1',
+      'Wait Vbl : Wait Vbl : Wait Vbl',
+      // straight through the bob, then move it clear so its old rectangle is
+      // restored somewhere it no longer covers
+      'Ink 5 : Bar 90,110 To 200,115',
+      'Bob 1,240,100,1',
+      'Wait Vbl : Wait Vbl',
+    ].join('\n')
+
+  it('Autoback 2 erases the bobs first, so drawing under one survives', () => {
+    // Double Buffer writes EcAuto=2 (+W.s:2798) and TAbk1 then runs BobEff
+    // before the Bar reaches the screen, so the save the bob takes afterwards
+    // already has the bar in it
+    expect(barPixels(run(prog('Rem default')).rt)).toBe(666)
+  })
+
+  it('Autoback 1 does not, and the bob eats what was drawn under it', () => {
+    // `subq.w #1,d0 / ble.s TAbk1X` needs EcAuto at 2. The tutorial says so in
+    // as many words: Autoback 1 "ignores all bob operations" and "does not
+    // wait for the next vertical blank and is therfore much faster"
+    // (Tutorials/Autoback_&_Update.AMOS). 32 columns of six rows go back to
+    // what was under the bob when it moved there.
+    expect(barPixels(run(prog('Autoback 1')).rt)).toBe(666 - 32 * 6)
+  })
+})

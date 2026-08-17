@@ -2227,6 +2227,7 @@ export class Runtime {
           // that way came up solid white instead of the blue desktop.
           // OpenScreen BltClears the bitmap to pen 0, which is what a freshly
           // allocated one already is.
+          s.bobBracket = this.bobBracket
           this.screens.set(slot, s)
           this.order = this.order.filter((i) => i !== slot)
           // BEHIND everything: a Workbench screen that has just been opened
@@ -2340,6 +2341,7 @@ export class Runtime {
     // cut-down Fs_LowMemory selector if even that fails; neither the 32K
     // AvailMem cliff nor the retry is reachable here (NOTES).
     const s = new Screen(Runtime.EC_FSEL, this.pi.FsDSx, this.pi.FsDSy, res!.graphics?.nColors ?? 8, 0x8000)
+    s.bobBracket = this.bobBracket
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
@@ -2546,6 +2548,7 @@ export class Runtime {
     // the reader's screen is config-sized (PI_RtSx x PI_RtSy, +Lib.s:14790),
     // which happens to default to the 640x200 this used to hard-code
     const s = new Screen(Runtime.EC_FSEL, this.pi.RtSx, this.pi.RtSy, g?.nColors ?? 8, (g?.mode ?? 0x8000) & 0x8004)
+    s.bobBracket = this.bobBracket
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
@@ -4387,6 +4390,7 @@ export class Runtime {
       const c = this.defaultPalette[i]
       if (c !== undefined) s.palette[i] = c
     }
+    s.bobBracket = this.bobBracket
     this.screens.set(n, s)
     this.order = this.order.filter((i) => i !== n)
     this.order.push(n)
@@ -5087,6 +5091,32 @@ export class Runtime {
   }
   clearBobs(): void {
     this.display.clearBobs()
+  }
+  /**
+   * A screen's TAbk1/TAbk4 pair, handed to every Screen this runtime opens.
+   *
+   * TAbk1 (+W.s:3577) is `bsr WVbl / bsr BobEff` and TAbk4 (+W.s:3642) is
+   * `bsr BobAct / bsr BobAff`, so a drawing keyword sees a screen with no
+   * bobs on it and the bobs re-save afterwards.
+   *
+   * DEVIATION: TAbk1's `WVbl` is not modelled. A Print on a double buffered
+   * screen costs AMOS two vertical blanks --- one here and one in TAbk2B ---
+   * which is a large part of why the Sprites_v_Bobs tutorial calls bobs
+   * "considerably slower". Waiting here would be faithful and would also
+   * halve the frame rate of every program that prints, so the cost is left
+   * to the ordinary instruction budget for now.
+   */
+  readonly bobBracket = (op: () => void): void => {
+    if (this.bobs.size === 0) {
+      op()
+      return
+    }
+    this.clearBobs()
+    try {
+      op()
+    } finally {
+      this.updateBobs()
+    }
   }
   resolveScreenId(id: number, write = false): { s: Screen; buf: Uint8Array } {
     return this.display.resolveScreenId(id, write)

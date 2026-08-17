@@ -244,8 +244,20 @@ export class Screen {
   get planeSize(): number {
     return this.logBM.planeSize
   }
-  /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
-  autoback = 2
+  /**
+   * EcAuto, which `Autoback n` writes raw (`move.w d3,EcAuto(a0)`,
+   * InAutoback +Lib.s:9546).
+   *
+   *   0  nothing: draw into the logical buffer and leave it there
+   *   1  repeat the operation with the rastport pointed at the physical
+   *      buffer, so both hold the same picture (TAbk2A +W.s:3594)
+   *   2  the same, plus a bob erase before and a redraw after (TAbk1/TAbk4)
+   *
+   * A screen opens with 0 and `Double Buffer` writes 2 (+W.s:2798). Every
+   * test of it in the 68k is `tst.w EcAuto` or `subq.w #1,d0`, so a
+   * single-buffered screen takes the short path through all four hooks.
+   */
+  autoback = 0
   /**
    * The screen's own colour registers, 12-bit.
    *
@@ -599,6 +611,10 @@ export class Screen {
   doubleBuffer(): void {
     if (this.phyBM !== null) return
     this.phyBM = this.logBM.clone()
+    // EcDb1's tail: `bset #BitDble,EcFlags(a4)` then `move.w #2,EcAuto(a4)`
+    // (+W.s:2797). Double Buffer turns the full autoback on for you, and a
+    // program that wants the cheap one has to say Autoback 1 afterwards.
+    this.autoback = 2
   }
 
   /** Screen Swap: exchange logical and physical. A pointer swap now. */
@@ -733,6 +749,10 @@ export class Screen {
   }
 
   plot(x: number, y: number, c = this.ink): void {
+    this.gfx(() => this.plotInner(x, y, c))
+  }
+
+  private plotInner(x: number, y: number, c: number): void {
     if (!this.inClip(x, y)) return
     // COMPLEMENT and a partial write mask both need the old pixel; a plain
     this.rp.plot(x, y, c)
@@ -763,7 +783,7 @@ export class Screen {
 
   /** Draw, with Set Line's pattern — the graphics cursor is rp_cp_x/y */
   line(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
-    this.rp.draw(x1, y1, x2, y2, c)
+    this.gfx(() => this.rp.draw(x1, y1, x2, y2, c))
   }
 
   /**
@@ -772,6 +792,10 @@ export class Screen {
    * and the start corner pixel is not double-drawn.
    */
   box(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
+    this.gfx(() => this.boxInner(x1, y1, x2, y2, c))
+  }
+
+  private boxInner(x1: number, y1: number, x2: number, y2: number, c: number): void {
     let sy = y1 + 1
     if (sy >= y2) sy = y1 - 1
     this.rp.linePatCnt = 15
@@ -784,6 +808,10 @@ export class Screen {
   }
 
   bar(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
+    this.gfx(() => this.barInner(x1, y1, x2, y2, c))
+  }
+
+  private barInner(x1: number, y1: number, x2: number, y2: number, c: number): void {
     if (x1 > x2) [x1, x2] = [x2, x1]
     if (y1 > y2) [y1, y2] = [y2, y1]
     const cy1 = Math.max(0, y1)
@@ -812,7 +840,7 @@ export class Screen {
   }
 
   ellipse(cx: number, cy: number, rx: number, ry: number, c = this.ink, fill = false): void {
-    this.rp.ellipse(cx, cy, rx, ry, c, fill)
+    this.gfx(() => this.rp.ellipse(cx, cy, rx, ry, c, fill))
   }
 
   /**
@@ -864,6 +892,10 @@ export class Screen {
    * when Set Paint is on. Vertices are [x,y] pairs.
    */
   fillPolygon(pts: Array<[number, number]>, c = this.ink): void {
+    this.gfx(() => this.fillPolygonInner(pts, c))
+  }
+
+  private fillPolygonInner(pts: Array<[number, number]>, c: number): void {
     if (pts.length < 3) {
       for (let i = 0; i + 1 < pts.length; i++) this.line(pts[i]![0], pts[i]![1], pts[i + 1]![0], pts[i + 1]![1], c)
       return
@@ -936,6 +968,10 @@ export class Screen {
    * than its tempras outright (+W.s:4380).
    */
   paint(x: number, y: number, c = this.ink, borderMode = false): void {
+    this.gfx(() => this.paintInner(x, y, c, borderMode))
+  }
+
+  private paintInner(x: number, y: number, c: number, borderMode: boolean): void {
     const target = this.point(x, y)
     if (target < 0) return
     const border = this.gBorder & this.colorMask()
@@ -1000,6 +1036,10 @@ export class Screen {
    * It does NOT home the text cursor — only Clw (Cls with no argument) does.
    */
   cls(c = this.paper, x1 = 0, y1 = 0, x2 = this.width - 1, y2 = this.height - 1): void {
+    this.gfx(() => this.clsInner(c, x1, y1, x2, y2))
+  }
+
+  private clsInner(c: number, x1: number, y1: number, x2: number, y2: number): void {
     if (x1 === 0 && y1 === 0 && x2 === this.width - 1 && y2 === this.height - 1 && this.clip === null) {
       // whole screen: fill each plane outright rather than going row by row.
       // The write mask still applies — Cls through a partial planeMask has to
@@ -1107,6 +1147,10 @@ export class Screen {
 
   /** Graphics text (Text x,y,s$): y is the baseline, drawn with ink. */
   text(x: number, y: number, s: string): void {
+    this.gfx(() => this.textInner(x, y, s))
+  }
+
+  private textInner(x: number, y: number, s: string): void {
     const f = this.font
     if (!f) {
       for (let i = 0; i < s.length; i++) {
@@ -1441,12 +1485,57 @@ export class Screen {
   }
 
   /**
+   * TAbk1 before a drawing keyword and TAbk4 after it (+W.s:3577, +W.s:3642):
+   * erase every bob, draw, then recompute and redraw them.
+   *
+   * Nearly everything that marks the screen goes through this. `GfxF0`
+   * (+Lib.s:11286) wraps the graphics primitives, `AutoPrt` (+W.s:15523)
+   * wraps text, `EcCls` (+W.s:3690) wraps Cls, `TPatch` (+W.s:877) wraps
+   * Paste Bob and `ScrF1` (+Lib.s:10232) wraps the scrolls. Each tests
+   * `EcAuto` first and takes a plain call when it is zero.
+   *
+   * What it buys is that a bob's saved background is always the screen as the
+   * program last left it. Draw under a bob without erasing it first and the
+   * save still holds the pixels from before, so the next restore paints them
+   * back over the new ones --- print a line under four moving bobs and it
+   * comes back with four rectangles bitten out of it, which is what
+   * AMOSPro Tutorials' Sprites_v_Bobs showed.
+   *
+   * The Runtime installs this, because a Screen on its own has no bob list.
+   */
+  bobBracket: ((op: () => void) => void) | null = null
+  private bobDepth = 0
+
+  /**
+   * One drawing keyword, bracketed. Re-entrant because the primitives call
+   * each other: Box is four Draws and Polygon is a run of them, and AMOS
+   * brackets the KEYWORD, not each line the keyword happens to blit.
+   */
+  private gfx<T>(op: () => T): T {
+    if (this.bobDepth > 0 || this.bobBracket === null || this.autoback !== 2) return op()
+    this.bobDepth++
+    let out!: T
+    try {
+      this.bobBracket(() => {
+        out = op()
+      })
+    } finally {
+      this.bobDepth--
+    }
+    return out
+  }
+
+  /**
    * Run a console operation with the cursor lifted out of the bitmap and put
    * back after — the EffCur/AffCur bracket the 68k writes around each of them.
    * GRAPHICS operations deliberately do not use this: on the machine they draw
    * straight over the cursor, and that is what makes the cursor coverable.
    */
   console<T>(op: () => T): T {
+    return this.gfx(() => this.consoleInner(op))
+  }
+
+  private consoleInner<T>(op: () => T): T {
     // AUTOBACK: with a double-buffered screen and `Autoback` non-zero, the
     // operation runs ONCE PER BUFFER. That is `AutoPrt` (+W.s:15496), which
     // tests `BitDble` in EcFlags, saves the window and cursor state, calls the

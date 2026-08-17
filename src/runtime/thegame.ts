@@ -2221,6 +2221,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       // makes through it -- `movea.l $3c(a0),a1 / move.l d3,$4(a1)` -- is
       // RGBPalette's AmtColours, and there is no header on this side to hold
       if (s.gmsDefPalette) sc.palette = s.gmsDefPalette
+      sc.bobBracket = rt.bobBracket
       rt.screens.set(slot, sc)
       // Show(): in front, and AMOS is already behind
       rt.order = rt.order.filter((i) => i !== slot)
@@ -2733,6 +2734,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       sc.displayY = GMS_TOP_OF_SCREEN_Y
       for (let i = 0; i < img.palette.length && i < sc.palette.length; i++) sc.palette[i] = img.palette[i]!
       sc.pixelsW().set(img.pixels.subarray(0, sc.width * sc.height))
+      sc.bobBracket = rt.bobBracket
       rt.screens.set(slot, sc)
       rt.order = rt.order.filter((i) => i !== slot)
       rt.order.push(slot)

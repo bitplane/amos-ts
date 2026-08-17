@@ -673,6 +673,7 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
       const text2 = a[1]?.k === 'str' ? a[1]!.s : ''
       const prev = rt.screens.has(rt.currentIndex) ? rt.currentIndex : -1
       const scr = new Screen(GURU_SCREEN, GURU_WIDTH, GURU_HEIGHT, 2, 0x8000)
+      scr.bobBracket = rt.bobBracket
       rt.screens.set(GURU_SCREEN, scr)
       rt.order = rt.order.filter((i) => i !== GURU_SCREEN)
       rt.order.push(GURU_SCREEN)
