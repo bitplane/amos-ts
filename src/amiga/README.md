@@ -180,6 +180,7 @@ really does differ from the real one and saying where is the whole job.
 | `solaris.ts` | `\SOLARIS/`, the packer on the CRAFT installer disk |
 | `decrunchlib.ts` | `decrunch.library` 35.237, the format identification walk |
 | `decrunchlib.gen.ts` | its tables, generated from the library by `src/cli/gendecrunch.ts` |
+| `ilbm.ts` | IFF ILBM: BMHD/CMAP/CAMG/BODY, ByteRun1, and the EHB palette |
 | `jpeg.ts` | baseline JPEG, ISO/IEC 10918-1, Huffman and 8-bit tables |
 | `opalvision.ts` | OpalVision, Opal Technology's 24-bit framebuffer, and `opal.library` |
 | `gms.ts` | the Games Master System's module registry and jump tables |

@@ -1,11 +1,22 @@
-import { BinReader } from './binreader'
-import { rowBytesFor } from '../amiga/planar'
+import { BinReader } from '../loader/binreader'
+import { rowBytesFor } from './planar'
 
 /**
- * IFF ILBM picture loader (Load Iff): BMHD/CMAP/CAMG/BODY with ByteRun1
- * decompression, planar → chunky. HAM images decode as plain indexed
- * (wrong colours, honest limitation until a HAM composite exists); EHB
- * palettes get their upper 32 half-brightness entries computed.
+ * IFF ILBM: BMHD/CMAP/CAMG/BODY with ByteRun1 decompression, planar to
+ * chunky. HAM images decode as plain indexed (wrong colours, an honest
+ * limitation until a HAM composite exists); EHB palettes get their upper 32
+ * half-brightness entries computed.
+ *
+ * MOVED HERE from `src/loader`, which holds the AMOS file formats: .AMOS
+ * programs, banks, the resource bank, PacPic. ILBM is none of those. It is an
+ * Amiga interchange format that AMOS happens to read, and the test in
+ * README.md is met twice over: more than one caller needs it and none of them
+ * owns it. `Load Iff` and `Save Iff` are one caller, Explode another,
+ * TheGame a third, and `ilbm.datatype` in ./datatypes.ts is the fourth.
+ *
+ * The move also removed an outward import rather than adding one. This file
+ * already reached into `../amiga/planar` for `rowBytesFor`, which is the
+ * usual sign that something is on the wrong side of a line.
  */
 export interface IlbmImage {
   width: number

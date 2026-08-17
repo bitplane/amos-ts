@@ -385,7 +385,7 @@ export function createHardwareTab(machine: Machine, host: PageHost): HardwareTab
   const intro = document.createElement('p')
   intro.className = 'panel-intro'
   intro.textContent =
-    'Every connector the machine has, whether or not anything is in it. An empty socket is a socket, not a missing feature.'
+    'Use the drop-downs to select components, expand sections to configure it.'
   panel.appendChild(intro)
 
   const listHost = document.createElement('div')

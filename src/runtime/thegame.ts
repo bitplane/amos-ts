@@ -849,7 +849,7 @@ import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
 import { BankImage } from './objects'
-import { encodeIlbm, parseIlbm } from '../loader/iff'
+import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 
 /** an argument that arrived as a Value */
 const int = (v: unknown): number => Number((v as { n?: number } | undefined)?.n ?? 0) | 0

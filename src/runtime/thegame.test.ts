@@ -16,7 +16,7 @@ import { AmigaFS } from '../amiga/vfs'
 import { openLibrary } from '../amiga/exec'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
-import { encodeIlbm, parseIlbm } from '../loader/iff'
+import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
 import {
   PT_PLAY_VOLUME,

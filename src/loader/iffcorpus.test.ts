@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { parseIlbm, encodeIlbm } from './iff'
+import { parseIlbm, encodeIlbm } from '../amiga/ilbm'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures')
 

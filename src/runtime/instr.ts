@@ -99,7 +99,7 @@ import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdp
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
-import { encodeIlbm, parseIlbm } from '../loader/iff'
+import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../amiga/diskfont'
 import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
