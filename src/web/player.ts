@@ -591,7 +591,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // loads resolve exactly as they did on the machine it was written on
     for (const e of entries) {
       const segs = e.path.split('/').filter((s) => s !== '' && s !== '.')
-      if (segs.length > 0) dh0.write(segs, e.data)
+      if (segs.length > 0) vfs.writeTo('DH0', segs, e.data)
     }
     const programs = entries
       .filter((e) => /\.amos$/i.test(e.path) || isAmosProgram(e.data))

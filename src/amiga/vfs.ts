@@ -50,6 +50,20 @@ export interface VolumeInfo {
   diskType: number
 }
 
+/**
+ * Something appearing in or leaving the filesystem.
+ *
+ * A path ending in a colon is a whole VOLUME. Nothing else carries a payload:
+ * a listener that cares what changed reads it back, because the filesystem
+ * holds the bytes and duplicating them into an event would only create a
+ * second copy to disagree with.
+ */
+export interface FsEvent {
+  kind: 'add' | 'remove'
+  /** `DH0:Games/thing.amos`, or `DF0:` for a volume */
+  path: string
+}
+
 /** a pluggable read side; MemoryVolume also supports writes */
 export interface Volume {
   read(segs: string[]): Uint8Array | null
@@ -157,10 +171,22 @@ export class MemoryVolume implements Volume {
     return this.walk(segs) !== null ? 'dir' : null
   }
 
+  /**
+   * Told when something appears or goes away, if anybody asked.
+   *
+   * On the VOLUME rather than on `AmigaFS`, because there are two ways in and
+   * only this one is common to both: `AmigaFS.writeFile` lands in the overlay,
+   * which is one of these, and a host writing a dropped file calls
+   * `volume.write` on a mounted one directly. A listener on the filesystem's
+   * own methods would miss every file the page puts there.
+   */
+  onChange: ((segs: readonly string[], kind: 'add' | 'remove') => void) | null = null
+
   write(segs: string[], data: Uint8Array): void {
     const dir = this.walk(segs.slice(0, -1), true)!
     const name = segs[segs.length - 1]!
     dir.files.set(name.toLowerCase(), { name, data })
+    this.onChange?.(segs, 'add')
   }
 
   mkdir(segs: string[]): void {
@@ -171,7 +197,9 @@ export class MemoryVolume implements Volume {
     const dir = this.walk(segs.slice(0, -1))
     if (!dir) return false
     const key = segs[segs.length - 1]!.toLowerCase()
-    return dir.files.delete(key) || dir.dirs.delete(key)
+    const gone = dir.files.delete(key) || dir.dirs.delete(key)
+    if (gone) this.onChange?.(segs, 'remove')
+    return gone
   }
 }
 
@@ -218,6 +246,16 @@ export class AmigaFS implements AmosFS {
   private assigns = new Map<string, string>()
   /** all writes land here, shadowing read-only volumes */
   readonly overlay = new MemoryVolume()
+  private readonly watchers = new Set<(e: FsEvent) => void>()
+
+  constructor() {
+    // The overlay is where every write a PROGRAM makes lands, so it has to be
+    // heard from as well as the mounted volumes. Missing this was the whole
+    // event system covering dropped files and nothing a running program did.
+    // Its segs already carry the volume in front, which is the shape `join`
+    // takes.
+    this.overlay.onChange = (segs, kind) => this.emit(kind, AmigaFS.join(segs))
+  }
   private deleted = new Set<string>()
   /** AmigaDOS metadata per path; absent means the defaults */
   private metadata = new Map<string, FileMeta>()
@@ -282,9 +320,66 @@ export class AmigaFS implements AmosFS {
 
   // ---- setup (the JS side) ----
 
+  /**
+   * Be told when a file appears or goes away.
+   *
+   * Returns its own unsubscribe, because a caller that stops caring has to be
+   * able to say so without knowing what else is listening.
+   *
+   * A whole volume arriving is ONE event, with the volume root as its path.
+   * Mounting an ADF makes several hundred files appear at once, and finding
+   * out which would mean the walk a listener subscribed to avoid; the listener
+   * knows the path ends in a colon and can decide for itself.
+   */
+  watch(fn: (e: FsEvent) => void): () => void {
+    this.watchers.add(fn)
+    return () => this.watchers.delete(fn)
+  }
+
+  /**
+   * Tell the watchers, with the volume spelled the way it is mounted.
+   *
+   * The two write routes disagreed about case: a mounted volume reports under
+   * the name it was mounted with, and the overlay is keyed by the lowercased
+   * lookup key, so one file could arrive as `DH0:x` or `dh0:x` depending on
+   * which door it came through. A listener keying a map on the path would
+   * hold both and delete neither.
+   */
+  private emit(kind: 'add' | 'remove', path: string): void {
+    const colon = path.indexOf(':')
+    const vol = colon < 0 ? '' : path.slice(0, colon)
+    const named = this.volumes.get(vol.toLowerCase())?.name
+    const out = named === undefined ? path : named + path.slice(colon)
+    for (const fn of this.watchers) fn({ kind, path: out })
+  }
+
+  /** `['DH0', 'Games', 'x.amos']` -> `DH0:Games/x.amos` */
+  private static join(segs: readonly string[]): string {
+    const [vol, ...rest] = segs
+    return `${vol ?? ''}:${rest.join('/')}`
+  }
+
   mount(name: string, vol: Volume): void {
-    this.volumes.set(name.toLowerCase().replace(/:$/, ''), { name: name.replace(/:$/, ''), vol })
-    if (this.currentDir === '') this.currentDir = `${name.replace(/:$/, '')}:`
+    const bare = name.replace(/:$/, '')
+    this.volumes.set(bare.toLowerCase(), { name: bare, vol })
+    if (this.currentDir === '') this.currentDir = `${bare}:`
+    // a writable volume reports its own traffic, which is the half `writeFile`
+    // never sees. The segs it hands over are relative to the volume.
+    if (vol instanceof MemoryVolume && vol !== this.overlay) {
+      vol.onChange = (segs, kind) => this.emit(kind, AmigaFS.join([bare, ...segs]))
+    }
+    this.emit('add', `${bare}:`)
+  }
+
+  /** take a volume away, so a drive going empty is one event and not hundreds */
+  unmount(name: string): boolean {
+    const key = name.toLowerCase().replace(/:$/, '')
+    const had = this.volumes.get(key)
+    if (!had) return false
+    if (had.vol instanceof MemoryVolume) had.vol.onChange = null
+    this.volumes.delete(key)
+    this.emit('remove', `${had.name}:`)
+    return true
   }
 
   /** create an empty writable volume */
@@ -611,6 +706,32 @@ export class AmigaFS implements AmosFS {
    */
   private protectedDisk(volumeKey: string): boolean {
     return this.driveOf(volumeKey)?.writeProtected === true
+  }
+
+  /**
+   * Put a file INTO a mounted volume, rather than into the overlay.
+   *
+   * The difference from `writeFile` is where it lands, and both are wanted.
+   * `writeFile` is what a running program does: every write in this filesystem
+   * shadows the volume rather than modifying it, so an ADF is not edited under
+   * a program's feet. This is a host FILLING a volume it created, which is a
+   * different act --- an archive being unpacked into DH0: is that volume's
+   * contents, not an overlay on top of nothing.
+   *
+   * It exists so that act goes through the filesystem too. Both callers used
+   * to hold the `MemoryVolume` and write to it directly, which worked and left
+   * two doors into one house: anything watching the filesystem saw a program's
+   * writes and never saw the three hundred files a dropped archive brought.
+   */
+  writeTo(volume: string, segs: readonly string[], data: Uint8Array): boolean {
+    const key = volume.toLowerCase().replace(/:$/, '')
+    const target = this.volumes.get(key)?.vol
+    if (!(target instanceof MemoryVolume)) return false
+    if (this.protectedDisk(key)) return false
+    // the event comes from the volume, which is what makes it unbypassable:
+    // a caller that still reaches past this is seen anyway
+    target.write([...segs], data)
+    return true
   }
 
   writeFile(path: string, data: Uint8Array): boolean {

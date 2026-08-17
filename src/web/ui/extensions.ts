@@ -33,6 +33,7 @@
 import { allExtensions, type Extension } from '../../ext/registry'
 import { extensionImpls } from '../../runtime/instr'
 import { createList, facts, type RowSpec } from './list'
+import type { ProgramIndex, ProgramIndexer, ProgramUse } from './programs'
 
 /** the registry ids some `ExtensionImpl` answers for */
 function portedIds(): Set<string> {
@@ -52,12 +53,44 @@ function portedIds(): Set<string> {
 const keywordCount = (e: Extension): number =>
   e.tokens.filter((t) => t.name.replace(/^!/, '').trim() !== '').length
 
-function rowFor(e: Extension, tokens: number, ported: boolean): RowSpec {
+/**
+ * The programs in the filesystem that use this extension.
+ *
+ * Not a curated demo list. A tokenised program names its extensions only by
+ * slot and token id, and the ids are a fingerprint of one token table, so
+ * `identify.ts` can say which extension a program actually uses. Drop an
+ * archive and every row finds its own examples, because the programs say so.
+ */
+function usesList(uses: readonly ProgramUse[], run: (path: string) => void): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'uses'
+  for (const u of uses) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'act use'
+    b.textContent = u.name
+    // an ambiguous identification still exercises the extension IF the binding
+    // is right, so it is offered and marked rather than hidden
+    b.title = u.confidence === 'exact' ? u.path : `${u.path} (identified as ${u.confidence})`
+    if (u.confidence !== 'exact') b.classList.add('unsure')
+    b.addEventListener('click', () => run(u.path))
+    wrap.appendChild(b)
+  }
+  return wrap
+}
+
+function rowFor(
+  e: Extension,
+  tokens: number,
+  ported: boolean,
+  uses: readonly ProgramUse[],
+  run: (path: string) => void,
+): RowSpec {
   const slot = e.statedSlot ?? e.defaultSlot
   return {
     key: e.id,
     label: `${e.name} ${e.version}`,
-    detail: e.author,
+    detail: uses.length > 0 ? `${e.author} — ${uses.length} program${uses.length === 1 ? '' : 's'}` : e.author,
     // the EXCEPTION is chipped, not the rule. 74 of 88 are ported, so marking
     // those would put a badge on almost every row and say nothing; marking the
     // fourteen that are not makes the tail of the list readable at a glance.
@@ -79,15 +112,21 @@ function rowFor(e: Extension, tokens: number, ported: boolean): RowSpec {
           ['format', e.format],
         ]),
       )
+      if (uses.length > 0) host.appendChild(usesList(uses, run))
     },
   }
 }
 
 export interface ExtensionsTab {
   panel: HTMLElement
+  /** redraw, for when the filesystem has changed under it */
+  refresh(): void
 }
 
-export function createExtensionsTab(): ExtensionsTab {
+export function createExtensionsTab(
+  index: ProgramIndexer,
+  run: (path: string) => void,
+): ExtensionsTab {
   const panel = document.createElement('div')
 
   const ported = portedIds()
@@ -101,18 +140,34 @@ export function createExtensionsTab(): ExtensionsTab {
 
   const intro = document.createElement('p')
   intro.className = 'panel-intro'
-  intro.textContent =
-    `${rows.length} extensions are registered and detokenise, so a program using one lists ` +
-    `with real keyword names. ${ported.size} of those identities are answered by a port. ` +
-    `"Ported" means this port declares the extension's own identity, which is stricter than ` +
-    `sharing a keyword name with something already done.`
   panel.appendChild(intro)
 
   const listHost = document.createElement('div')
   panel.appendChild(listHost)
-  createList(listHost).render(
-    rows.map((e) => rowFor(e, keywordCount(e), ported.has(e.id))),
-  )
+  const list = createList(listHost)
 
-  return { panel }
+  const say = (idx: ProgramIndex): string => {
+    const head =
+      `${rows.length} extensions are registered and detokenise, so a program using one lists ` +
+      `with real keyword names. ${ported.size} of those identities are answered by a port, ` +
+      `which means this port declares the extension's own identity rather than merely sharing ` +
+      `a keyword name with it.`
+    if (idx.scanned === 0) return `${head} Drop an archive of AMOS programs and each row will list the ones that use it.`
+    const tail =
+      idx.unidentified.length > 0
+        ? ` ${idx.unidentified.length} hold a slot nothing in the registry explains, which is an extension still to be found.`
+        : ''
+    return `${head} ${idx.scanned} programs read from the filesystem.${tail}`
+  }
+
+  const draw = (): void => {
+    const idx = index.current()
+    intro.textContent = say(idx)
+    list.render(
+      rows.map((e) => rowFor(e, keywordCount(e), ported.has(e.id), idx.byExtension.get(e.id) ?? [], run)),
+    )
+  }
+
+  draw()
+  return { panel, refresh: draw }
 }

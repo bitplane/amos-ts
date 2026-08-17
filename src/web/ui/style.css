@@ -371,6 +371,18 @@ button.led:focus-visible {
   color: var(--dim);
 }
 
+.uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.6rem;
+}
+
+/* a program identified only as probable or ambiguous: offered, and marked */
+button.act.use.unsure {
+  border-style: dashed;
+}
+
 .about {
   margin: 0 0 0.7rem;
   max-width: 68ch;

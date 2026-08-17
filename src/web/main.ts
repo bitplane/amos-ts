@@ -30,6 +30,7 @@ import { createStrip } from './ui/strip'
 import { createHardwareTab } from './ui/hardware'
 import type { InputSource } from './ui/catalogue'
 import { createExtensionsTab } from './ui/extensions'
+import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
@@ -58,7 +59,6 @@ const player = createPlayer(document.getElementById('player')!, {
   onError: (m) => setStatus(`error: ${m}`),
 })
 const vfs = player.vfs
-const dh0 = player.dh0
 
 const DEMO = `Curs Off : Cls 0
 For C=1 To 15
@@ -162,7 +162,7 @@ async function receiveFile(name: string, bytes: Uint8Array, dir: string[], autoR
   if (/\.(zip|tar|gz|tgz|adf)$/i.test(name)) {
     await mountArchive(bytes, name)
   } else {
-    dh0.write([...dir, name], bytes)
+    vfs.writeTo('DH0', [...dir, name], bytes)
     setStatus(`stored DH0:${[...dir, name].join('/')}`)
     if (autoRun && /\.amos$/i.test(name)) {
       vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
@@ -503,7 +503,19 @@ statusEl = strip.status
 statusEl.textContent = held
 
 const hardware = createHardwareTab(player.machine, host)
-const extensions = createExtensionsTab()
+
+// Reads every .AMOS the filesystem gains and works out which extensions it
+// uses, so each extension row lists real programs that exercise it. Driven by
+// `AmigaFS.watch`, so dropping an archive costs one parse per program and
+// looking at the tab costs none.
+const programs = createProgramIndex(vfs)
+const extensions = createExtensionsTab(programs, (path) => {
+  const bytes = vfs.read(path)
+  if (!bytes) return
+  const segs = path.split(':')[1]?.split('/') ?? []
+  player.loadProgram(bytes, segs[segs.length - 1] ?? path, segs.slice(0, -1))
+  tabs.select('play')
+})
 const libs = createLibsTab()
 document.getElementById('panels')!.append(hardware.panel, extensions.panel, libs.panel)
 
@@ -519,7 +531,7 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
   },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
-  { id: 'extensions', label: 'Extensions', panel: extensions.panel },
+  { id: 'extensions', label: 'Extensions', panel: extensions.panel, show: () => extensions.refresh() },
   { id: 'libs', label: 'Libs', panel: libs.panel },
 ])
 

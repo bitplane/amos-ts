@@ -355,3 +355,67 @@ describe('running a game away from the machine it was written on', () => {
     expect(() => fs.assignDrives('DH0:game')).toThrow(/itself under a drive name/)
   })
 })
+
+describe('watching the filesystem', () => {
+  const enc2 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
+
+  it('reports a file put into a mounted volume, which writeFile never sees', () => {
+    // the case the event exists for. A host unpacking an archive writes INTO
+    // the volume; only a running program's writes go to the overlay, so a
+    // listener on the filesystem's own methods would miss every dropped file
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    const seen: string[] = []
+    fs.watch((e) => seen.push(`${e.kind} ${e.path}`))
+    fs.writeTo('DH0', ['Games', 'zybex.amos'], enc2('x'))
+    expect(seen).toEqual(['add DH0:Games/zybex.amos'])
+  })
+
+  it('reports a program writing through the filesystem too', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    const seen: string[] = []
+    fs.watch((e) => seen.push(`${e.kind} ${e.path}`))
+    // lands in the overlay rather than the volume, and still reports
+    fs.writeFile('DH0:notes.txt', enc2('hi'))
+    expect(seen).toEqual(['add DH0:notes.txt'])
+  })
+
+  it('makes a whole volume ONE event, because a mount is hundreds of files', () => {
+    const fs = new AmigaFS()
+    const seen: string[] = []
+    fs.watch((e) => seen.push(`${e.kind} ${e.path}`))
+    const vol = fs.mountMemory('DF0')
+    expect(seen).toEqual(['add DF0:'])
+    // and the volume is wired on the way in, so its own traffic reports
+    vol.write(['boot.amos'], enc2('x'))
+    expect(seen).toEqual(['add DF0:', 'add DF0:boot.amos'])
+  })
+
+  it('unmounts as one event and stops listening to what left', () => {
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('DF0')
+    const seen: string[] = []
+    fs.watch((e) => seen.push(`${e.kind} ${e.path}`))
+    expect(fs.unmount('DF0')).toBe(true)
+    expect(seen).toEqual(['remove DF0:'])
+    // a caller holding the ejected volume cannot go on reporting into a
+    // filesystem it is no longer part of
+    vol.write(['stray.amos'], enc2('x'))
+    expect(seen).toEqual(['remove DF0:'])
+    expect(fs.unmount('DF0')).toBe(false)
+  })
+
+  it('reports a delete, and lets a listener stop', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.writeFile('DH0:gone.txt', enc2('x'))
+    const seen: string[] = []
+    const stop = fs.watch((e) => seen.push(`${e.kind} ${e.path}`))
+    fs.deleteFile('DH0:gone.txt')
+    expect(seen).toEqual(['remove DH0:gone.txt'])
+    stop()
+    fs.writeFile('DH0:after.txt', enc2('x'))
+    expect(seen).toEqual(['remove DH0:gone.txt'])
+  })
+})
