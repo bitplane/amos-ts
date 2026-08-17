@@ -2028,17 +2028,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobs.set(n, { n, x, y, image, screen: cur?.screen ?? rt.currentIndex })
     },
     'bob off'(it) {
-      rt.clearBobs() // restore backgrounds, then drop
-      if (it.atStmtEnd()) {
-        rt.bobs.clear()
-        // and every buffer's saves with them: clearBobs only put back the one
-        // under the pen, and a save left behind for a bob that no longer
-        // exists gets painted later over whatever has replaced it
-        rt.forgetBobSaves()
-      } else {
-        const n = it.evalInt()
-        rt.bobs.delete(n)
-        rt.forgetBobSaves(n)
+      // Neither BobSOff (+W.s:1044) nor BobOff erases anything or frees
+      // anything. Both write -1 into BbAct and set BitBobs, and the update
+      // passes that follow do the work --- which is what gets the background
+      // back into BOTH buffers of a double buffered screen. Dropping the bob
+      // here instead left it painted in the buffer that was not on the pen,
+      // where it flickered on every swap for the rest of the program.
+      if (it.atStmtEnd()) for (const b of rt.bobs.values()) rt.stopBob(b)
+      else {
+        const b = rt.bobs.get(it.evalInt())
+        if (b) rt.stopBob(b)
       }
     },
     'bob update'(it) {

@@ -219,6 +219,18 @@ export interface Bob {
   y: number
   image: number
   screen: number
+  /**
+   * Update passes left before the bob is forgotten, or undefined while live.
+   *
+   * `Bob Off` frees nothing. `BobSOff` (+W.s:1044) writes -1 into `BbAct` and
+   * asks for an update; `BobAct` then reaches `BbDel` (+W.s:1301), which is
+   * `subq.w #1,BbDecor(a4) / bhi.s BbSort` --- one decrement per pass, and
+   * `DelBob` only when it runs out. `BbDecor` is the COUNT of background
+   * buffers, so a double buffered bob survives two passes without being
+   * redrawn, and the erase that runs before each of them (EffBob precedes
+   * ActBob, +ILib.s:1017) puts its background back in one buffer each time.
+   */
+  off?: number
 }
 
 export interface HwSprite {

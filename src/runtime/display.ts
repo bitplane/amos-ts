@@ -1140,8 +1140,27 @@ export class Display {
       }
       this.rt.bobSaved.delete(key)
     }
-    // draw in priority order
-    const bobs = [...this.rt.bobs.values()]
+    /**
+     * BbDel (+W.s:1301), which is where a stopped bob actually goes.
+     *
+     * It sits here rather than in `Bob Off` because the erase above has to
+     * run first: the vbl calls EffBob, then ActBob, then AffBob
+     * (+ILib.s:1017), so each pass puts one buffer's background back before
+     * the count moves. Two passes on a double buffered screen, and the bob
+     * is drawn on neither of them --- BbDel branches to BbSort, which skips
+     * the BbSN that would have put it in the priority list.
+     */
+    for (const bob of [...this.rt.bobs.values()]) {
+      if (bob.off === undefined) continue
+      if (--bob.off > 0) continue
+      this.rt.bobs.delete(bob.n)
+      // DelBob frees both background buffers whether or not they were used,
+      // so a save the passes did not reach goes with the bob (+W.s:1155)
+      this.rt.forgetBobSaves(bob.n)
+    }
+    // draw in priority order, minus the ones on their way out: BbDel ends at
+    // BbSort, which skips the BbSN that fills the priority table (+W.s:1313)
+    const bobs = [...this.rt.bobs.values()].filter((b) => b.off === undefined)
     bobs.sort((a, b) => {
       if (!this.rt.priorityOn) return a.n - b.n
       return this.rt.priorityReverse ? b.y - a.y : a.y - b.y

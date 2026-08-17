@@ -1914,3 +1914,51 @@ describe('the autoback bob bracket (TAbk1/TAbk4, +W.s:3577 and +W.s:3642)', () =
     expect(barPixels(run(prog('Autoback 1')).rt)).toBe(666 - 32 * 6)
   })
 })
+
+describe('Bob Off is a countdown, not a delete (BbDel +W.s:1301)', () => {
+  const off = (extra: string): string =>
+    [
+      'Screen Open 0,320,200,16,Lowres : Curs Off : Cls 0',
+      'Ink 7 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16 : Cls 0',
+      extra,
+      'Bob 1,100,100,1',
+      'Wait Vbl : Screen Swap : Wait Vbl',
+      'Wait Vbl : Screen Swap : Wait Vbl',
+      'Bob Off',
+      'Wait Vbl : Screen Swap : Wait Vbl',
+      'Print Point(100,100)',
+      'Screen Swap : Wait Vbl : Print Point(100,100)',
+      'Screen Swap : Wait Vbl : Print Point(100,100)',
+    ].join('\n')
+
+  it('takes two passes on a double buffered screen, and cleans both buffers', () => {
+    // BbDecor is 2 there (ResBOB +W.s:975), and the erase runs before the
+    // count moves, so each pass puts one buffer's background back. Dropping
+    // the bob at Bob Off left it painted in the other buffer for good, and
+    // it came back on every swap.
+    expect(run(off('Double Buffer')).out).toBe(' 0\n 0\n 0\n')
+  })
+
+  it('takes one pass when the screen is single buffered', () => {
+    expect(run(off('Rem single')).out).toBe(' 0\n 0\n 0\n')
+  })
+
+  it('does not draw the bob while it is counting down', () => {
+    // BbDel branches to BbSort, which skips the BbSN that fills the priority
+    // table, so the passes erase and never redraw. One Wait Vbl after Bob Off
+    // the bob is off the buffer under the pen even though it is still listed.
+    const { out } = run(
+      [
+        'Screen Open 0,320,200,16,Lowres : Curs Off : Cls 0',
+        'Ink 7 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16 : Cls 0',
+        'Double Buffer',
+        'Bob 1,100,100,1',
+        'Wait Vbl : Wait Vbl',
+        'Bob Off',
+        'Wait Vbl',
+        'Print Point(100,100)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0\n')
+  })
+})

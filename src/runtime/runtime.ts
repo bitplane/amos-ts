@@ -5093,6 +5093,24 @@ export class Runtime {
     this.display.clearBobs()
   }
   /**
+   * Mark a bob for removal, and say how many update passes that takes.
+   *
+   * The count is `BbDecor`, which `ResBOB` (+W.s:975) sets to 1, to 2 when
+   * the screen is double buffered, and to 0 for a `Set Bob n,-1` --- and
+   * which `BbDel` counts down. Zero frees on the first pass: `subq.w #1` on
+   * zero borrows, so the `bhi` that keeps the bob alive is not taken.
+   *
+   * DEVIATION: the count is taken now rather than at the bob's creation. A
+   * bob made before `Double Buffer` has BbDecor 1 on the machine and would
+   * keep one background for a screen with two, which this port cannot
+   * represent --- its saves are keyed by buffer, so it always has both.
+   */
+  stopBob(b: Bob): void {
+    if (b.off !== undefined) return
+    const mode = this.bobModes.get(b.n) ?? 0
+    b.off = mode < 0 ? 0 : this.screens.get(b.screen)?.doubleBuffered ? 2 : 1
+  }
+  /**
    * A screen's TAbk1/TAbk4 pair, handed to every Screen this runtime opens.
    *
    * TAbk1 (+W.s:3577) is `bsr WVbl / bsr BobEff` and TAbk4 (+W.s:3642) is
