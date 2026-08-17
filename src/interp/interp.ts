@@ -222,11 +222,16 @@ export interface InputState {
  * `input` field is built before `opts.machine` has replaced the default, so a
  * captured object would bind to a machine that gets thrown away.
  */
+/** what a machine with no keyboard on the ribbon is holding down */
+const NO_KEYS: Set<number> = new Set()
+
 export const newInputState = (machine: Machine | (() => Machine) = new Machine()): InputState => {
   const m = typeof machine === 'function' ? machine : (): Machine => machine
   return {
     get keys(): Set<number> {
-      return m().keyboard.held
+      // no keyboard plugged in means no key is down. One shared set rather
+      // than a new one per read: this is polled every frame by `Key State`.
+      return m().keyboard?.held ?? NO_KEYS
     },
     get sdr(): number {
       return m().cia.sdr

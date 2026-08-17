@@ -756,7 +756,7 @@ describe('input is a view of the machine, not a copy of it', () => {
     const rt = boot()
     rt.machine.mouse.buttons = 3
     expect(rt.input.mouseK).toBe(3)
-    rt.machine.keyboard.press(0x40)
+    rt.machine.keyboard!.press(0x40)
     expect(rt.input.keys.has(0x40)).toBe(true)
     expect(rt.input.sdr).toBe(rt.machine.cia.sdr)
     expect(rt.input.ports).toBe(rt.machine.ports)
@@ -785,7 +785,7 @@ describe('input is a view of the machine, not a copy of it', () => {
     const m = new Machine()
     const a = boot(m)
     const b = boot(m)
-    m.keyboard.press(0x20)
+    m.keyboard!.press(0x20)
     expect(a.input.keys.has(0x20)).toBe(true)
     expect(b.input.keys.has(0x20)).toBe(true)
     a.input.keyQueue.push({ ch: 'x', scan: 0x20 })

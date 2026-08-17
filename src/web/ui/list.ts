@@ -26,6 +26,8 @@ export interface Action {
 
 /** one entry in a row's drop-down */
 export interface Choice {
+  /** stable, and what `current` names */
+  id: string
   label: string
   run(): void
 }
@@ -43,14 +45,14 @@ export interface RowSpec {
   chip?: { text: string; tone?: Tone }
   actions?: readonly Action[]
   /**
-   * A drop-down of things that could go here.
+   * What is in this slot, as a drop-down of everything that could be.
    *
-   * Picking one runs it and the control springs back to its placeholder,
-   * because the redraw that follows is what reports the result. It never
-   * shows a selection, since what is in the slot is the row's own second
-   * column and two places saying it would be one place too many.
+   * One control instead of attach and detach both, because they were always
+   * the same action: emptying a socket is choosing "nothing" from the list,
+   * and a socket with no "nothing" in its list is one that cannot be emptied.
+   * `current` is the option in effect, or `''` when it is none of them.
    */
-  choose?: { placeholder: string; options: readonly Choice[] }
+  choose?: { current: string; options: readonly Choice[] }
   /** fills the disclosure body. A row with no body does not open. */
   body?(host: HTMLElement): void
 }
@@ -80,15 +82,21 @@ function chooser(spec: NonNullable<RowSpec['choose']>): HTMLSelectElement {
   const sel = document.createElement('select')
   sel.className = 'act'
 
-  const placeholder = document.createElement('option')
-  placeholder.value = ''
-  placeholder.textContent = spec.placeholder
-  sel.appendChild(placeholder)
+  // a slot holding something the list cannot name still has to show what it
+  // holds, so an unmatched `current` gets an entry of its own rather than
+  // silently selecting the first option and misreporting the machine
+  if (!spec.options.some((o) => o.id === spec.current)) {
+    const unknown = document.createElement('option')
+    unknown.value = ''
+    unknown.textContent = spec.current === '' ? '—' : spec.current
+    sel.appendChild(unknown)
+  }
 
-  for (const [i, o] of spec.options.entries()) {
+  for (const o of spec.options) {
     const opt = document.createElement('option')
-    opt.value = String(i)
+    opt.value = o.id
     opt.textContent = o.label
+    opt.selected = o.id === spec.current
     sel.appendChild(opt)
   }
 
@@ -96,9 +104,7 @@ function chooser(spec: NonNullable<RowSpec['choose']>): HTMLSelectElement {
   sel.addEventListener('click', (e) => e.stopPropagation())
   sel.addEventListener('keydown', (e) => e.stopPropagation())
   sel.addEventListener('change', () => {
-    const chosen = spec.options[Number(sel.value)]
-    sel.selectedIndex = 0
-    chosen?.run()
+    spec.options.find((o) => o.id === sel.value)?.run()
   })
   return sel
 }

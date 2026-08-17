@@ -12,6 +12,9 @@
  */
 import { CTRL_GAMEPAD, CTRL_JOYSTICK, CTRL_MOUSE, Controller } from '../../amiga/controller'
 import type { Device, Slot } from '../../amiga/device'
+import { BattClock } from '../../amiga/battclock'
+import { Keyboard } from '../../amiga/keyboard'
+import { Mouse } from '../../amiga/mouse'
 import { FourPlayerAdaptor, Printer } from '../../amiga/parallel'
 import { SerialCable } from '../../amiga/serialport'
 import { FloppyDrive, driveUnit } from '../../amiga/trackdisk'
@@ -46,6 +49,8 @@ export function sourceLabel(keys: JoyKeys): string {
 }
 
 export interface Fitting {
+  /** stable, and what `currentFitting` answers with */
+  id: string
   label: string
   make(): Device
   /**
@@ -59,35 +64,67 @@ export interface Fitting {
   keys?: JoyKeys
 }
 
-/** everything this page can put in the slot, or nothing for a fixed one */
+/**
+ * Everything this page can put in the slot.
+ *
+ * A fixed connector still gets its list. What makes it fixed is that the row
+ * adds no "nothing" to it, so the control shows what is there and offers no
+ * way to empty it. Returning nothing at all for a fixed slot left the row with
+ * no control, which reads as broken rather than as deliberate.
+ */
 export function fittings(slot: Slot): Fitting[] {
-  if (slot.fixed) return []
   switch (slot.takes) {
+    case 'clock':
+      return [{ id: 'a501', label: 'A501 battery clock', make: () => new BattClock() }]
     case 'gameport':
+      // the mouse's own connector, which is fixed and holds the host pointer
+      if (slot.id === 'mouse') {
+        return [{ id: 'browser-mouse', label: 'browser mouse', make: () => new Mouse() }]
+      }
       return [
-        { label: 'gamepad joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'none' },
-        { label: 'keyboard joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'arrows' },
-        { label: 'gamepad CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'none' },
-        { label: 'keyboard CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'arrows' },
-        { label: 'mouse', make: () => new Controller(CTRL_MOUSE), keys: 'none' },
+        { id: 'joy-pad', label: 'gamepad joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'none' },
+        { id: 'joy-kb', label: 'keyboard joystick', make: () => new Controller(CTRL_JOYSTICK), keys: 'arrows' },
+        { id: 'cd32-pad', label: 'gamepad CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'none' },
+        { id: 'cd32-kb', label: 'keyboard CD32 pad', make: () => new Controller(CTRL_GAMEPAD), keys: 'arrows' },
+        { id: 'mouse', label: 'mouse', make: () => new Controller(CTRL_MOUSE), keys: 'none' },
       ]
     case 'parallel':
       return [
-        { label: 'four-player adaptor', make: () => new FourPlayerAdaptor() },
-        { label: 'printer', make: () => new Printer() },
+        { id: 'fourplayer', label: 'four-player adaptor', make: () => new FourPlayerAdaptor() },
+        { id: 'printer', label: 'printer', make: () => new Printer() },
       ]
     case 'serial':
-      return [{ label: 'serial cable', make: () => new SerialCable() }]
+      return [{ id: 'cable', label: 'serial cable', make: () => new SerialCable() }]
+    case 'keyboard':
+      // what supplies the keystrokes. A browser today; a shell or a script is
+      // the same slot with something else on the ribbon.
+      return [{ id: 'browser', label: 'browser keyboard', make: () => new Keyboard() }]
     case 'floppy': {
       // the unit is which /SELn line the drive answers, so it comes from the
       // slot rather than being chosen
       const unit = driveUnit(slot.id)
-      return unit === null ? [] : [{ label: 'floppy drive', make: () => new FloppyDrive(unit) }]
+      return unit === null ? [] : [{ id: 'drive', label: 'floppy drive', make: () => new FloppyDrive(unit) }]
     }
     default:
       return []
   }
 }
+
+/** the id a slot's drop-down should be sitting on, or '' for none of them */
+export function currentFitting(slot: Slot, keys: JoyKeys): string {
+  const dev = slot.device
+  if (!dev) return NOTHING
+  if (slot.takes === 'gameport' && slot.id !== 'mouse') {
+    const driver = keys === 'none' ? 'pad' : 'kb'
+    if (dev.name === 'mouse') return 'mouse'
+    return dev.name === 'CD32 pad' ? `cd32-${driver}` : `joy-${driver}`
+  }
+  if (slot.takes === 'parallel') return dev.name === 'printer' ? 'printer' : 'fourplayer'
+  return fittings(slot)[0]?.id ?? ''
+}
+
+/** the option that empties a socket, which is what detach used to be */
+export const NOTHING = 'nothing'
 
 /**
  * The icon for a row.

@@ -6,14 +6,15 @@
  * registry: a connector added to the model becomes a row without this file
  * being edited, and a row can never describe a machine that is not there.
  *
- * `Slot.fixed` decides whether the row gets a detach button, so the page
- * leaves the control off rather than offering one and being refused.
+ * Each row is one drop-down of everything that could be in that connector,
+ * with "nothing" among them where the socket can be emptied. Attach, detach
+ * and a greyed-out button were three spellings of that one control.
  */
 import type { Machine } from '../../amiga/machine'
 import type { Slot } from '../../amiga/device'
 import { FloppyDrive } from '../../amiga/trackdisk'
-import { createList, facts, stub, type Action, type List, type RowSpec } from './list'
-import { BINDINGS, fittings, iconFor, sourceLabel } from './catalogue'
+import { createList, facts, stub, type Action, type Choice, type List, type RowSpec } from './list'
+import { BINDINGS, NOTHING, currentFitting, fittings, iconFor, sourceLabel } from './catalogue'
 import type { JoyKeys } from '../player'
 
 /**
@@ -62,12 +63,17 @@ function detailOf(joy: JoyHost, slot: Slot): { text: string; empty: boolean } {
   return { text: slot.device.name, empty: false }
 }
 
-/** one chip per row, most urgent first */
+/**
+ * One chip per row, most urgent first.
+ *
+ * No "fixed" chip any more: a socket that cannot be emptied says so by having
+ * no "nothing" in its drop-down, and a label repeating it was one place too
+ * many for the same fact.
+ */
 function chipOf(slot: Slot): RowSpec['chip'] {
   const drive = driveIn(slot)
   if (drive?.motorOn) return { text: 'motor', tone: 'on' }
   if (drive?.medium && drive.writeProtected) return { text: 'protected', tone: 'warn' }
-  if (slot.fixed) return { text: 'fixed', tone: 'fixed' }
   return undefined
 }
 
@@ -128,50 +134,57 @@ function bodyOf(machine: Machine, joy: JoyHost, slot: Slot): (host: HTMLElement)
 }
 
 /**
- * The two verbs, which are about different things.
+ * Eject, which is the only verb left beside the drop-down.
  *
- * EJECT takes the disk out and leaves the drive, which is what a person did to
- * a real machine every day. DETACH takes the drive off its /SELn line, which is
- * opening the case. Both exist because both are real, and the everyday one is
- * listed first.
+ * It survives because it is about the MEDIUM and the drop-down is about the
+ * DEVICE. Taking a disk out is what a person did to a real machine every day;
+ * taking the drive off its /SELn line is opening the case. A drive with a disk
+ * in it can do both, and they mean different things.
  */
-function actionsFor(machine: Machine, joy: JoyHost, slot: Slot): Action[] {
-  const out: Action[] = []
+function actionsFor(slot: Slot): Action[] {
   const drive = driveIn(slot)
-  if (drive?.medium) {
-    out.push({ label: 'eject', title: 'take the disk out, leaving the drive', run: () => drive.eject() })
-  }
-  if (!slot.fixed && slot.device) {
-    out.push({
-      label: 'detach',
-      title: 'unplug the device, leaving the connector',
+  return drive?.medium
+    ? [{ label: 'eject', title: 'take the disk out, leaving the drive', run: () => drive.eject() }]
+    : []
+}
+
+/**
+ * The drop-down, which used to be attach and detach and a `fixed` flag.
+ *
+ * Emptying a socket is choosing "nothing", so a socket that cannot be emptied
+ * is simply one whose list has no "nothing" in it. The page stops branching on
+ * `Slot.fixed` and the machine keeps it, because it still has to refuse.
+ */
+function chooseFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec['choose'] {
+  const port = portOf(slot)
+  const options: Choice[] = fittings(slot).map((f) => ({
+    id: f.id,
+    label: f.label,
+    run: () => {
+      if (!machine.attach(slot.id, f.make())) return
+      if (port !== null && f.keys !== undefined) joy.setKeys(port, f.keys)
+    },
+  }))
+  if (options.length === 0) return undefined
+  if (!slot.fixed) {
+    options.push({
+      id: NOTHING,
+      label: 'nothing',
       run: () => {
         machine.detach(slot.id)
-        // an unplugged port must give the keys back, or it goes on eating
-        // keystrokes a program is also reading and nothing on screen says why
-        const port = portOf(slot)
+        // an unplugged port has to give the keys back, or it goes on eating
+        // keystrokes a program is also reading with nothing on screen to say why
         if (port !== null) joy.setKeys(port, 'none')
       },
     })
   }
-  return out
+  return { current: currentFitting(slot, port === null ? 'none' : joy.keys(port)), options }
 }
 
 function rowFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec {
   const detail = detailOf(joy, slot)
   const chip = chipOf(slot)
-  const port = portOf(slot)
-  // an occupied socket has nothing to offer: a swap is detach then attach, so
-  // the two states never both show a drop-down
-  const options = slot.device
-    ? []
-    : fittings(slot).map((f) => ({
-        label: f.label,
-        run: () => {
-          if (!machine.attach(slot.id, f.make())) return
-          if (port !== null && f.keys !== undefined) joy.setKeys(port, f.keys)
-        },
-      }))
+  const choose = chooseFor(machine, joy, slot)
   return {
     key: slot.id,
     icon: iconFor(slot),
@@ -179,8 +192,8 @@ function rowFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec {
     detail: detail.text,
     empty: detail.empty,
     ...(chip ? { chip } : {}),
-    actions: actionsFor(machine, joy, slot),
-    ...(options.length > 0 ? { choose: { placeholder: 'attach…', options } } : {}),
+    actions: actionsFor(slot),
+    ...(choose ? { choose } : {}),
     body: bodyOf(machine, joy, slot),
   }
 }

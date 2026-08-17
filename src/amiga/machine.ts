@@ -116,11 +116,17 @@
  * pair exists for a caller holding an id it read out of a slot — which is
  * every hardware page there will ever be.
  *
- * Three slots refuse. The keyboard and the mouse are the host's own and are
- * always present, and the clock is not removable because that needs an answer
- * to what $DC0000 reads with no A501 fitted, which nothing vendored here
- * gives. `Slot.fixed` says so, so a page can leave the button off rather than
- * find out by being told no.
+ * `Slot.fixed` marks the connectors that cannot be emptied, so a page can
+ * leave the control off rather than find out by being told no. It means "this
+ * machine does not run without one" and not "the host owns it": the keyboard
+ * comes out, because an A500's is a separate assembly on a ribbon and every
+ * other model's is on a cable.
+ *
+ * Two are still fixed and for different reasons. The mouse is one half of the
+ * port-0 deviation ./mouse.ts describes, and removing it while `X Mouse` reads
+ * a pointer the machine never sees would be a half-detach. The clock needs an
+ * answer to what $DC0000 reads with no A501 fitted, which nothing vendored
+ * here gives.
  *
  * ## Not modelled yet
  *
@@ -174,8 +180,16 @@ export interface ResetRequest {
 export class Machine {
   power: PowerState = 'on'
 
-  /** the keyboard's held keys. The byte it clocks out lands in `cia.sdr`. */
-  readonly keyboard = new Keyboard()
+  /**
+   * The keyboard's held keys. The byte it clocks out lands in `cia.sdr`.
+   *
+   * Null is a real state and not a defensive one. An A500's keyboard is a
+   * separate assembly on a ribbon to the motherboard and every other model's
+   * is on a cable, so unplugging one is a thing people did; and from this
+   * port's side the slot holds whatever supplies the keystrokes, which is a
+   * browser today and could be a shell or a script later.
+   */
+  keyboard: Keyboard | null = new Keyboard()
 
   /** the three mouse buttons, which are pins on CIA-A and POTGOR */
   readonly mouse = new Mouse()
@@ -253,10 +267,24 @@ export class Machine {
   serial: SerialDevice | null = null
 
   constructor() {
-    // the keyboard's serial line into CIA-A, which is the only thing that
-    // writes SDR
-    this.keyboard.onByte = (b) => {
-      this.cia.sdr = b
+    this.wireKeyboard(this.keyboard)
+  }
+
+  /**
+   * The keyboard's serial line into CIA-A, which is the only thing that writes
+   * SDR.
+   *
+   * Unwiring on the way out matters: a caller that keeps the keyboard it
+   * detached would otherwise still be clocking bytes into a machine it is no
+   * longer plugged into.
+   */
+  private wireKeyboard(kb: Keyboard | null): void {
+    if (this.keyboard && this.keyboard !== kb) this.keyboard.onByte = null
+    this.keyboard = kb
+    if (kb) {
+      kb.onByte = (b) => {
+        this.cia.sdr = b
+      }
     }
   }
 
@@ -302,7 +330,7 @@ export class Machine {
   hardware(): Slot[] {
     return [
       { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock, fixed: true },
-      { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard, fixed: true },
+      { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard, fixed: false },
       // `mouse` and `port0` are one nine-pin connector on the machine and two
       // rows here, which is the deviation ./mouse.ts describes shown rather
       // than hidden: a tree that listed one of them would be claiming a
@@ -377,6 +405,11 @@ export class Machine {
       this.serial = device
       return true
     }
+    if (id === 'keyboard') {
+      if (!(device instanceof Keyboard)) return false
+      this.wireKeyboard(device)
+      return true
+    }
     const unit = driveUnit(id)
     if (unit === null || !(device instanceof FloppyDrive)) return false
     this.drives[unit] = device
@@ -398,6 +431,7 @@ export class Machine {
     if (id === 'port0' || id === 'port1') this.ports[id === 'port0' ? 0 : 1] = new Controller(CTRL_NONE)
     else if (id === 'par') this.parallel = null
     else if (id === 'ser') this.serial = null
+    else if (id === 'keyboard') this.wireKeyboard(null)
     else {
       const unit = driveUnit(id)
       if (unit === null) return null

@@ -131,12 +131,34 @@ describe('the machine: attaching and detaching', () => {
     expect(m.slot('nosuchthing')).toBeNull()
   })
 
-  it('refuses the three that are fixed, and says so before being asked', () => {
+  it('refuses the two that are fixed, and says so before being asked', () => {
     const m = new Machine()
-    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['clock', 'keyboard', 'mouse'])
-    expect(m.detach('keyboard')).toBeNull()
+    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['clock', 'mouse'])
+    expect(m.detach('mouse')).toBeNull()
     expect(m.detach('clock')).toBeNull()
-    expect(m.attach('keyboard', new Keyboard())).toBe(false)
+  })
+
+  it('unplugs the keyboard, and a machine with no keyboard holds no keys', () => {
+    // an A500's keyboard is a separate assembly on a ribbon and every other
+    // model's is on a cable, so this is a thing people did
+    const m = new Machine()
+    m.keyboard!.press(0x40)
+    expect(m.keyboard!.held.has(0x40)).toBe(true)
+    const was = m.detach('keyboard')
+    expect(was).toBeInstanceOf(Keyboard)
+    expect(m.keyboard).toBeNull()
+    expect(m.slot('keyboard')!.device).toBeNull()
+
+    // the one that was taken out must stop clocking bytes into the machine it
+    // is no longer plugged into
+    const sdr = m.cia.sdr
+    ;(was as Keyboard).press(0x20)
+    expect(m.cia.sdr).toBe(sdr)
+
+    const fresh = new Keyboard()
+    expect(m.attach('keyboard', fresh)).toBe(true)
+    fresh.press(0x20)
+    expect(m.cia.sdr).toBe(keyboardSdr(0x20, true))
   })
 
   it('replaces what is already in a socket, because a swap is one action', () => {
@@ -157,11 +179,11 @@ describe('the machine: attaching and detaching', () => {
 describe('the machine: the keyboard clocks into CIA-A', () => {
   it('puts the byte in SDR on the way down and again on the way up', () => {
     const m = new Machine()
-    m.keyboard.press(0x40)
-    expect(m.keyboard.held.has(0x40)).toBe(true)
+    m.keyboard!.press(0x40)
+    expect(m.keyboard!.held.has(0x40)).toBe(true)
     expect(m.cia.sdr).toBe(keyboardSdr(0x40, true))
-    m.keyboard.release(0x40)
-    expect(m.keyboard.held.has(0x40)).toBe(false)
+    m.keyboard!.release(0x40)
+    expect(m.keyboard!.held.has(0x40)).toBe(false)
     expect(m.cia.sdr).toBe(keyboardSdr(0x40, false))
     // a release and a press of one key are different bytes, which is what
     // TURBO's manual warns about

@@ -4474,12 +4474,12 @@ export class Runtime {
    */
   keyDown(scan: number): void {
     if (!scan) return
-    this.machine.keyboard.press(scan)
+    this.machine.keyboard?.press(scan)
   }
 
   keyUp(scan: number): void {
     if (!scan) return
-    this.machine.keyboard.release(scan)
+    this.machine.keyboard?.release(scan)
   }
 
   /** Submit a line for a pending Input statement. */
