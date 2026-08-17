@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { describeIf } from '../testing/fixture'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadHunks } from '../amiga/hunk'
@@ -791,7 +792,7 @@ describe('Omed Next Patt and Omed Prev Patt, which are not mirrors', () => {
  */
 const FUGUE = 'fixtures/modules/dme/omed-fugue.mmd2'
 
-describe.skipIf(!existsSync(FUGUE))('a real MMD2 through the mixer', () => {
+describeIf('a real MMD2 through the mixer', existsSync(FUGUE), () => {
   const mod = new Uint8Array(readFileSync(FUGUE))
 
   it('fills every buffer at one length and one rate, and reaches four voices', () => {

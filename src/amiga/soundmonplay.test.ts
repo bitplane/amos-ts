@@ -7,6 +7,7 @@
  * rather than a recording, the way `thxplay.test.ts` has to.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -48,8 +49,8 @@ describe('the period table at $210e82', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of SoundMon_Example.amos', () => {
-  const song = parseSmon(bank!)!
+describeWith('bank 3 of SoundMon_Example.amos', bank, (data) => {
+  const song = parseSmon(data)!
 
   const played = (ticks: number): { audio: NullAudio; sm: SoundMon } => {
     const audio = new NullAudio()

@@ -9,6 +9,7 @@
  * step flat.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -70,8 +71,8 @@ describe('the finetune, $210f76 and $210fac', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of DigiBooster_Example.amos', () => {
-  const song = parseDigi(bank!)!
+describeWith('bank 3 of DigiBooster_Example.amos', bank, (data) => {
+  const song = parseDigi(data)!
 
   const played = (ticks: number): NullAudio => {
     const audio = new NullAudio()

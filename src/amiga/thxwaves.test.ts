@@ -11,6 +11,7 @@
  * library is redistributed.
  */
 import { describe, expect, it } from 'vitest'
+import { describeIf } from '../testing/fixture'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -109,7 +110,7 @@ describe('the THX waveform set', () => {
   })
 })
 
-describe.skipIf(!haveJotre)('against the shipped Jotre library', () => {
+describeIf('against the shipped Jotre library', haveJotre, () => {
   const jotre = image(jotrePath)
 
   it('walks the set in the 45 group lengths at $3c2', () => {

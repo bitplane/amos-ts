@@ -7,6 +7,7 @@
  * two pointer tables start.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -94,11 +95,11 @@ describe('the header', () => {
 
 const data = fixture()
 
-describe.skipIf(!data)('the module in fixtures', () => {
-  const song = parseS3m(data!)!
+describeWith('the module in fixtures', data, (mod) => {
+  const song = parseS3m(mod)!
 
   it('is "Aryx by Kuki": 44 orders, 9 instruments, 12 patterns', () => {
-    expect(data!.length).toBe(20808)
+    expect(mod.length).toBe(20808)
     expect(song.name).toBe('Aryx by Kuki')
     expect(song.orders).toHaveLength(44)
     expect(song.samples).toHaveLength(9)
@@ -110,7 +111,7 @@ describe.skipIf(!data)('the module in fixtures', () => {
   it('enables TWELVE channels, which is why this format needs a mixer', () => {
     expect(song.channels).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     // the rest of the 32 are switched off with $ff
-    expect(data![0x40 + 12]).toBe(S3M_CHANNEL_OFF)
+    expect(mod[0x40 + 12]).toBe(S3M_CHANNEL_OFF)
   })
 
   it('accounts for the sample data, eleven bytes short of the file', () => {
@@ -126,7 +127,7 @@ describe.skipIf(!data)('the module in fixtures', () => {
   it('converts unsigned sample bytes, because Paula has no unsigned mode', () => {
     expect(song.sampleFormat).toBe(2)
     // an unsigned file's silence is $80, which must come out as zero
-    const raw = data!
+    const raw = mod
     const anyLoud = song.samples.some((s) => [...s.pcm].some((b) => b < 0))
     expect(anyLoud).toBe(true)
     expect(raw[0x2a]).toBe(2)

@@ -7,6 +7,7 @@
  * with it — the module still parses and plays noise.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -60,8 +61,7 @@ describe('the header', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of SoundMon_Example.amos', () => {
-  const data = bank!
+describeWith('bank 3 of SoundMon_Example.amos', bank, (data) => {
   const song = parseSmon(data)!
 
   it('is 7,368 bytes of "NEVERENDING", 105 steps and 35 waveform tables', () => {

@@ -7,6 +7,7 @@
  * starts: only sample 0 has an offset and the rest are a chain.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -80,8 +81,7 @@ describe('the header, off InitModule at $2105c0', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of FC14_Example.amos', () => {
-  const data = bank!
+describeWith('bank 3 of FC14_Example.amos', bank, (data) => {
   const song = parseFc14(data)!
 
   it('is 15,336 bytes of FC14 with 49 sequence steps', () => {

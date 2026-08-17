@@ -16,7 +16,8 @@
  * the first of them: the sample flags, and then `decodeChannel` inserting a
  * row at every back-reference, which moved 63.5% of the module's cells.
  */
-import { describe, expect, it } from 'vitest'
+import { expect, it } from 'vitest'
+import { describeIf, describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -43,8 +44,7 @@ const others: Array<[string, Uint8Array | null]> = [
   ['8ohms bank 6', bankOf(EIGHT_OHMS, 6)],
 ]
 
-describe.skipIf(!bank)('the P61 module in P61_Example.amos', () => {
-  const data = bank!
+describeWith('the P61 module in P61_Example.amos', bank, (data) => {
   const module = parseP61(data)!
 
   it('is a headerless P61 of 7,244 bytes, which is why no signature search found it', () => {
@@ -150,7 +150,7 @@ describe.skipIf(!bank)('the P61 module in P61_Example.amos', () => {
  * because that is what an eighth note is. A decode that has slipped scores
  * about a half, which is what you get from putting notes down at random.
  */
-describe.skipIf(!bank || others.some(([, b]) => !b))('every P61 module in the corpus', () => {
+describeIf('every P61 module in the corpus', !!bank && others.every(([, b]) => b), () => {
   const all: Array<[string, P61Module]> = [
     ['P61_Example bank 3', parseP61(bank!)!],
     ...others.map(([name, d]) => [name, parseP61(d!)!] as [string, P61Module]),

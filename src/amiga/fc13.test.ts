@@ -8,6 +8,7 @@
  * it, and the waveforms are not in the file at all.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -98,8 +99,7 @@ describe('the header, off InitModule at $2105b4', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of FC13_Example.amos', () => {
-  const data = bank!
+describeWith('bank 3 of FC13_Example.amos', bank, (data) => {
   const song = parseFc13(data)!
 
   it('is 4,936 bytes of SMOD with twelve sequence steps', () => {

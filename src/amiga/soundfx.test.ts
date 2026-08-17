@@ -7,6 +7,7 @@
  * here, since what they check is the layout arithmetic rather than any file.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -444,8 +445,7 @@ describe('the play flags', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of SoundFX13_Example.amos', () => {
-  const data = bank!
+describeWith('bank 3 of SoundFX13_Example.amos', bank, (data) => {
   const song = parseSfx(data)!
 
   it('is 35,900 bytes with "SONG" at $3c and 16 positions over 10 patterns', () => {

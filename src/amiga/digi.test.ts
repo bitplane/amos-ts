@@ -8,6 +8,7 @@
  * the last pattern, so getting either wrong still parses and plays noise.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -61,8 +62,7 @@ describe('the header', () => {
 
 const bank = exampleBank()
 
-describe.skipIf(!bank)('bank 3 of DigiBooster_Example.amos', () => {
-  const data = bank!
+describeWith('bank 3 of DigiBooster_Example.amos', bank, (data) => {
   const song = parseDigi(data)!
 
   it('is 127,244 bytes of version 1.0, eight channels, packed', () => {

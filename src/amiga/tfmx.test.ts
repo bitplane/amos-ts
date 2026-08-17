@@ -5,6 +5,7 @@
  * an AMOS bank holds one. Everything inside it is Chris Hülsbeck's.
  */
 import { describe, expect, it } from 'vitest'
+import { describeWith } from '../testing/fixture'
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { corpusFile, haveCorpus } from '../cli/corpus'
@@ -130,16 +131,16 @@ describe('the subsong walk at $2101e8', () => {
 
 const data = fixture()
 
-describe.skipIf(!data)('the module in fixtures', () => {
-  const song = parseTfmx(data!)!
+describeWith('the module in fixtures', data, (mod) => {
+  const song = parseTfmx(mod)!
 
   it('is a type 2 of 138,280 bytes: 9,712 of music and 128,542 of samples', () => {
-    expect(data!.length).toBe(138280)
+    expect(mod.length).toBe(138280)
     expect(song.type).toBe(2)
     expect(song.mdat).toHaveLength(9712)
     expect(song.smpl).toHaveLength(128542)
     // eight bytes of the bank are past the end of both
-    expect(18 + song.mdat.length + song.smpl.length).toBe(data!.length - 8)
+    expect(18 + song.mdat.length + song.smpl.length).toBe(mod.length - 8)
   })
 
   it('carries the newer three-offset layout', () => {
