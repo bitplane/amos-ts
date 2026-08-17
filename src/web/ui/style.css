@@ -1,5 +1,13 @@
 /*
- * The standalone page's look.
+ * The standalone page's look, which is bitplane.net's.
+ *
+ * This is a page on that site, so it wears the site. Every value below is
+ * lifted from what bitplane.net actually serves rather than sampled off a
+ * screenshot: the palette and `.slash` from /assets/css/style.css, the font
+ * stack and the inverting link hover from the terminal.css it sits on. Where
+ * this page needs a colour that site has no name for, the base16 palette in
+ * its /assets/css/code.css supplies it, so even the states are the site's own
+ * ink rather than something picked to go with it.
  *
  * Committed to one dark theme rather than following the host, because the
  * page's job is to frame a display the emulator owns: the canvas is the only
@@ -13,28 +21,46 @@
  */
 
 :root {
-  /* neutrals biased warm off the accent, so the greys read as chosen */
-  --bg: #131210;
-  --panel: #1b1916;
-  --raised: #23201b;
-  --line: #35312a;
-  --line-soft: #292620;
+  /* bitplane.net's --background-color, and two steps up from it for surfaces */
+  --bg: #151515;
+  --panel: #1b1b1b;
+  /* its --block-background-color, which is what code and blocks sit on there */
+  --raised: #252525;
+  --line: #353535;
+  --line-soft: #252525;
 
-  --fg: #e6e0d6;
-  --dim: #9a938a;
-  --faint: #6b655c;
+  /* its --font-color, and its --secondary-color for the quietest text */
+  --fg: #ffffff;
+  --dim: #b4b7ba;
+  --faint: #727578;
 
-  /* one accent, for anything focused or interactive */
-  --accent: #ffb020;
-  --accent-dim: #7a5613;
+  /* its --primary-color: every link on the site is this blue */
+  --accent: #1a95e0;
+  --accent-dim: #10527c;
 
-  /* semantic state, which only ever means state */
-  --on: #7bd88f;
-  --off: #4a453e;
-  --warn: #e8b04b;
-  --bad: #e8695c;
+  /* its .slash, the grey it prints brackets and pipes in */
+  --slash: #535353;
 
-  --mono: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+  /* its `h1..h6 { color: skyblue }`, which is where the page names itself */
+  --head: skyblue;
+
+  /*
+   * State, from the base16 palette in the site's own code.css. Using its
+   * syntax colours means a warning here is the same yellow a warning is in a
+   * listing there, which is a smaller thing to have to remember.
+   */
+  --on: #a1b56c;
+  --off: #3a3a3a;
+  --warn: #f7ca88;
+  --bad: #ab4642;
+
+  /* the filesystem tree, from the same base16 set: a file and a drawer */
+  --tree-file: #7cafc2;
+  --tree-dir: #f7ca88;
+
+  /* terminal.css's --font-stack, verbatim */
+  --mono: "Menlo", "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
+    "Courier New", monospace;
 
   --fs-title: 1.25rem;
   --fs-head: 0.95rem;
@@ -42,7 +68,7 @@
   --fs-label: 0.72rem;
 
   --gap: 0.75rem;
-  --radius: 3px;
+  --radius: 0;
 }
 
 * {
@@ -56,7 +82,7 @@ body {
   color: var(--fg);
   font-family: var(--mono);
   font-size: var(--fs-body);
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .wrap {
@@ -65,87 +91,150 @@ body {
   padding: 0 1rem;
 }
 
+/*
+ * The site's link, including the hover. terminal.css does not underline or
+ * tint on hover, it INVERTS: the blue becomes the ground and the text goes to
+ * the background colour. It is the most recognisable thing about the site and
+ * the cheapest to get wrong by softening it.
+ */
 a {
   color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a:hover {
+  background-color: var(--accent);
+  color: #000000;
+}
+
+a:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* the grey the site prints its punctuation in, so the words carry the line */
+.slash {
+  color: var(--slash);
 }
 
 /* ---- masthead ------------------------------------------------------------ */
 
+/*
+ * No band behind it. bitplane.net's header is the page's own background with
+ * a rule under the nav, and a tinted strip here was the thing that made this
+ * page look like somewhere else.
+ */
 #top {
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
 }
 
-#masthead {
+/* the site on the left, its rooms on the right, a rule underneath */
+#sitenav {
   display: flex;
+  justify-content: space-between;
   align-items: baseline;
-  gap: var(--gap);
-  flex-wrap: wrap;
-  padding: 0.6rem 0 0.5rem;
+  padding: 0.5rem 0 0.4rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-head);
 }
 
-#brand {
-  font-size: var(--fs-title);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--fg);
-}
-
-#tagline {
-  color: var(--faint);
-  font-size: var(--fs-label);
+/*
+ * `amos.bitplane.net` is two links and one colour. Splitting it lets the
+ * subdomain go to this site and the domain to its parent, which is what the
+ * two names mean, without the seam showing.
+ */
+#brand a {
+  color: var(--accent);
 }
 
 #version {
+  margin-left: 0.6rem;
   color: var(--faint);
   font-size: var(--fs-label);
   font-variant-numeric: tabular-nums;
 }
 
-#repo {
-  margin-left: auto;
-  color: var(--dim);
-  text-decoration: none;
-  font-size: var(--fs-label);
-}
-
-#repo:hover {
-  color: var(--accent);
+/*
+ * The page's own name, in the site's heading colour, under the site's name.
+ * That is the order bitplane.net puts them in and it is the order they
+ * matter: which site you are on, then which room of it.
+ */
+#title {
+  color: var(--head);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  margin: 0.7rem 0 0.3rem;
 }
 
 /* ---- tabs ---------------------------------------------------------------- */
 
+/*
+ * `[Play|Hardware|Files|Extensions|Libs]`, which is the one navigational
+ * idiom bitplane.net has. The outer brackets are generated, because nothing
+ * sits between them and a button; the pipes are real elements from
+ * ./tabs.ts, because a generated one would live inside the button it hangs
+ * off and the inversion below would paint straight through it.
+ *
+ * Selected is INVERTED, not underlined. The site's links inverting on hover
+ * is its loudest gesture, and a tab that is permanently in that state reads
+ * as "you are here" without inventing a second visual language for it.
+ */
 #tabbar {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 0;
   flex-wrap: wrap;
+  padding: 0.15rem 0 0.3rem;
+  font-size: var(--fs-head);
 }
 
+#tabbar::before {
+  content: '[';
+  color: var(--slash);
+}
+
+#tabbar::after {
+  content: ']';
+  color: var(--slash);
+}
+
+/*
+ * No horizontal padding on the button itself. The separators carry all the
+ * spacing, so the inverted highlight hugs the word exactly the way the site's
+ * link hover hugs its text, and there is no padding either side of a tab for
+ * that highlight to bleed into.
+ */
 .tab {
   appearance: none;
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--dim);
+  color: var(--accent);
   font: inherit;
-  font-size: var(--fs-head);
-  padding: 0.45rem 0.9rem;
+  font-size: inherit;
+  padding: 0.1rem 0;
   cursor: pointer;
 }
 
+/* ./tabs.ts emits these between the buttons, so the inverted highlight stops
+   at the word and the punctuation stays grey */
+.tab-sep {
+  margin: 0 0.4rem;
+}
+
 .tab:hover {
-  color: var(--fg);
+  background-color: var(--accent);
+  color: #000000;
 }
 
 .tab[aria-selected='true'] {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  background-color: var(--accent);
+  color: #000000;
 }
 
 .tab:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* ---- the always-visible machine strip ------------------------------------ */
@@ -341,7 +430,7 @@ button.led:focus-visible {
   text-transform: uppercase;
   padding: 0.05rem 0.4rem;
   border: 1px solid var(--off);
-  border-radius: 999px;
+  border-radius: var(--radius);
   color: var(--faint);
   white-space: nowrap;
 }
@@ -610,15 +699,40 @@ body.dragging {
   color: var(--accent);
 }
 
+/*
+ * The tree keeps its own two colours, because a file and a drawer are not the
+ * same kind of thing and the accent is already spoken for by the volume. Both
+ * are base16's, out of the site's code.css: its blue and its yellow.
+ */
 #fstree a {
-  color: #8cc8f0;
+  color: var(--tree-file);
   cursor: pointer;
   text-decoration: underline;
 }
 
 #fstree a.dir {
-  color: #cbc08a;
+  color: var(--tree-dir);
   text-decoration: none;
+}
+
+/*
+ * The tree's links are more specific than the page's `a:hover`, so without
+ * this the ground would invert and the text would stay put. Inverting on the
+ * link's OWN colour keeps the file/drawer distinction through the hover.
+ */
+#fstree a:hover {
+  background-color: var(--tree-file);
+  color: #000000;
+}
+
+#fstree a.dir:hover {
+  background-color: var(--tree-dir);
+  color: #000000;
+}
+
+#fstree a.act:hover {
+  background-color: var(--faint);
+  color: #000000;
 }
 
 /* the per-row rename/delete/new-drawer actions: out of the way until the row
@@ -666,7 +780,7 @@ input.speech-text {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius);
   padding: 0.25rem 0.45rem;
 }
 

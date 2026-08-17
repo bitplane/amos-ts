@@ -41,6 +41,23 @@ export function mountTabs(bar: HTMLElement, tabs: readonly Tab[]): TabHost {
 
   bar.setAttribute('role', 'tablist')
   for (const tab of tabs) {
+    /*
+     * The separator is a real element, not a `::before` on the button.
+     *
+     * It reads `[Play|Hardware|…]`, and the selected tab inverts. A generated
+     * pipe would sit inside the button it is generated on, so the inversion
+     * would paint straight through it and the bar would show a blue block
+     * with a pipe stranded in the middle of it. `aria-hidden` keeps the
+     * punctuation out of the tablist, which is the only reason to prefer
+     * generated content here and is cheaper to buy this way.
+     */
+    if (buttons.size > 0) {
+      const sep = document.createElement('span')
+      sep.className = 'slash tab-sep'
+      sep.textContent = '|'
+      sep.setAttribute('aria-hidden', 'true')
+      bar.appendChild(sep)
+    }
     const b = document.createElement('button')
     b.className = 'tab'
     b.type = 'button'

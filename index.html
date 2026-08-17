@@ -9,12 +9,24 @@
   <body>
     <header id="top">
       <div class="wrap">
-        <div id="masthead">
-          <span id="brand">amos-ts</span>
-          <span id="tagline">AMOS Professional, in a browser</span>
-          <span id="version" title="which build of the player this page loaded"></span>
-          <a id="repo" href="https://github.com/bitplane/amos-ts">github.com/bitplane/amos-ts</a>
-        </div>
+        <!--
+          The same shape bitplane.net wears: the site on the left, its rooms on
+          the right, and every bracket and pipe in .slash so the words are what
+          you read. This page is a room of that site, so it says so first.
+        -->
+        <nav id="sitenav">
+          <span id="brand"
+            ><a href="https://amos.bitplane.net/">amos.</a><a href="https://bitplane.net">bitplane.net</a
+            ><span id="version" title="which build of the player this page loaded"></span
+          ></span>
+          <span id="sitelinks"
+            ><span class="slash">[</span><a href="https://bitplane.net/dev/amos/">home</a
+            ><span class="slash">|</span><a href="https://github.com/bitplane/amos-ts">src</a
+            ><span class="slash">|</span><a href="https://www.npmjs.com/package/amos-ts">npm</a
+            ><span class="slash">]</span></span
+          >
+        </nav>
+        <h1 id="title">amos-ts</h1>
         <nav id="tabbar"></nav>
         <div id="strip-host"></div>
       </div>
