@@ -396,3 +396,55 @@ describe('the escape screen buttons (Esc_Bouton +Edit.s:8982)', () => {
     expect(() => rt.directScreen.press(2)).not.toThrow()
   })
 })
+
+describe('the escape screen over a running program', () => {
+  it('holds the interpreter and lets the rest of the machine run', () => {
+    // `Runtime.frame` keeps the copper, the bobs and the AUDIO CLOCK turning
+    // while the escape screen is up, because a stopped program leaves those
+    // running on the machine --- Paula does not stop because the editor is on
+    // screen. Stalling the whole frame starved the mixer, and a typed `Say`
+    // handed over 0.7 seconds of PCM that was never rendered.
+    const rt = new Runtime(tokenize('A=0\nDo\nInc A\nWait Vbl\nLoop', table), table, { maxSteps: 500_000 })
+    for (let i = 0; i < 10; i++) rt.frame()
+    rt.directScreen.open()
+    const frames = rt.frames
+    const a = () => (rt.interp.frames[0]!.vars.get('a') as { v: number } | undefined)
+    const before = a()
+    for (let i = 0; i < 20; i++) rt.frame()
+    // the machine advanced
+    expect(rt.frames).toBe(frames + 20)
+    // the program did not
+    expect(a()).toEqual(before)
+  })
+
+  it('keeps a program\'s rainbow off the escape screen', () => {
+    // DEVIATION: the reason is in display.ts. A rainbow writes its
+    // register every line of its span whatever is in front, which is right,
+    // and on the machine Escape leaves the program's display so the case
+    // never arises. Overlaying it here made a demo cycling colour 3 down the
+    // raster repaint the editor's own text with it.
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Curs Off : Cls 0',
+      'Set Rainbow 0,3,64,"(1,1,15)(1,-1,15)","(1,2,7)(1,-2,7)","(1,1,15)"',
+      'Rainbow 0,0,50,200',
+      'Do',
+      '  Wait Vbl',
+      'Loop',
+    ].join('\n')
+    const rt = new Runtime(tokenize(prog, table), table, { maxSteps: 500_000 })
+    for (let i = 0; i < 20; i++) rt.frame()
+    rt.directScreen.open()
+    for (let i = 0; i < 10; i++) rt.frame()
+    const s9 = rt.screens.get(9)!
+    const { width, data } = rt.composite()
+    // the banner row: its pen is 3, which is the register the rainbow cycles
+    const row = (s9.displayY + 20) * 2
+    let white = 0
+    for (let x = 0; x < width; x++) {
+      const o = (row * width + x) * 4
+      if (data[o] === 255 && data[o + 1] === 255 && data[o + 2] === 255) white++
+    }
+    expect(s9.palette[3]).toBe(0xfff)
+    expect(white).toBeGreaterThan(0)
+  })
+})

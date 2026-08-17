@@ -4675,7 +4675,14 @@ export class Runtime {
     starfieldVbl(this)
     this.unblock()
     let result: RunResult
-    if (!this.interp.done && this.interp.blocked === null) {
+    // The escape screen holds the PROGRAM, not the machine. Everything above
+    // and below this has already run --- the copper, the sprites, the bob
+    // pipeline, and the audio clock at the end --- because that is what a
+    // stopped program leaves running on the machine: Paula does not stop
+    // because the editor is on screen. Only the interpreter stands still, and
+    // only while no typed line is using it.
+    const held = this.directScreen.isOpen && this.interp.direct === 0
+    if (!held && !this.interp.done && this.interp.blocked === null) {
       try {
         result = this.interp.run(this.frameBudget)
       } catch (e) {

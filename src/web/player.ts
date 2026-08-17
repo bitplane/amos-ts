@@ -713,15 +713,13 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     acc += Math.min(now - last, FRAME_MS)
     last = now
     if (!rt || !running) return
-    // A program with the escape screen over it is going nowhere, but frames
-    // keep turning while a typed line runs --- a typed `Wait Vbl` really
-    // waits. It still composites either way, or the line being TYPED would
-    // not appear until it was run.
-    const stalled = rt.directScreen.isOpen && !rt.inDirect
+    // The escape screen does NOT stall this loop. `Runtime.frame` holds the
+    // interpreter on its own and lets the rest of the machine run, which is
+    // what a stopped program leaves behind: the audio clock keeps turning, so
+    // the 0.7 seconds of PCM a typed `Say` hands over actually gets rendered.
+    // Stalling here starved the mixer and made speech silent.
     let frames = 0
-    if (stalled) {
-      acc = 0
-    } else if (turbo) {
+    if (turbo) {
       frames = 20
       acc = 0
     } else if (acc >= FRAME_MS) {
