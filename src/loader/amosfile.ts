@@ -30,24 +30,10 @@ export interface Sprite {
   width: number
   height: number
   depth: number
-  /**
-   * Hot spot X, fourteen bits signed. The word's top two bits are flip flags
-   * rather than coordinate, which `parseSpriteBank` separates out.
-   */
+  /** hot spot X, a signed word; see parseSpriteBank for what it is NOT */
   hotX: number
-  /** hot spot Y, a plain signed word with no flags in it */
+  /** hot spot Y, a signed word */
   hotY: number
-  /**
-   * Draw the image mirrored, off bits 15 and 14 of the hot spot X word.
-   *
-   * DECODED BUT NOT DRAWN. AMOS flips in `Retourne` (+W.s:1644) and nothing
-   * here does, so an image whose bank asks to be mirrored comes out the right
-   * way round. Carried rather than discarded because throwing the bits away is
-   * what hid the whole feature: they used to be read as part of the
-   * coordinate, which put a flipped image thousands of pixels off screen.
-   */
-  hFlip: boolean
-  vFlip: boolean
   /** planar image data, width/16*2 * height * depth bytes */
   data: Uint8Array
 }
@@ -148,33 +134,35 @@ function parseSpriteBank(r: BinReader, kind: 'sprites' | 'icons'): SpriteBank {
     const widthWords = r.u16()
     const height = r.u16()
     const depth = r.u16()
-    // The two hot spot words are NOT the same shape, and reading both as plain
-    // unsigned coordinates was wrong twice over.
+    // SIGNED, both. A hot spot may sit outside its image --- a shot fired
+    // from the nose of a ship wants its origin ahead of the sprite --- and an
+    // unsigned read turned -1 into 65535, which positions the image about a
+    // thousand screens away and reads as "the sprite vanished" rather than as
+    // an off-by-one. No bank in the 557 images to hand uses one, so it was
+    // latent.
     //
-    // X carries FLAGS in its top two bits. `HsSet` (+W.s:11570) does
-    // `move.w 6(a1),d0 / lsl.w #2,d0 / asr.w #2,d0` before subtracting it,
-    // and the comment on that line is `* Pas de retournement!` --- no
-    // flipping. So the coordinate is fourteen bits, signed from bit 13, and
-    // bits 14 and 15 say whether the image is drawn mirrored. AMOS acts on
-    // them in `Retourne` (+W.s:1644, "Retourne un sprite, s'il faut" and
-    // "Retourne le bob en X"), which this port does not model at all: see
-    // `hFlip`/`vFlip` below, which are decoded and carried but not yet drawn.
+    // X is fourteen bits of it, not sixteen. `Hot Spot` writes the field as
+    // `and.w #$C000,6(a1) / and.w #$3FFF,d2 / or.w d2,6(a1)` (Spo4,
+    // +W.s:627), commented "Poke, en respectant les FLAGS" --- it preserves
+    // the top two bits rather than overwriting them, so they are not
+    // coordinate. `HsSet` reads it back the same way, `lsl.w #2,d0 / asr.w
+    // #2,d0` (+W.s:11570), sign-extending from bit 13.
     //
-    // Y is subtracted raw one instruction later (`sub.w 8(a1),d3`), so it is a
-    // plain signed word with no flags in it.
+    // Those two bits say which way the image is CURRENTLY flipped. `Retourne`
+    // (+W.s:1680) is the only thing that acts on them: it XORs the stored
+    // pair against the pair requested, mirrors the pixels for whichever bits
+    // differ, and pokes the new state back. That is a different thing from
+    // the flip a PROGRAM asks for, which rides on the image number via
+    // `Hrev()`/`Vrev()`/`Rev()` (`bset #15,d3`, FnHRev +Lib.s:12704) and
+    // which `ObjectBank.image` already strips and honours.
     //
-    // Both are SIGNED, which unsigned reads got wrong on their own: a hot spot
-    // may sit outside its image --- a shot fired from the nose of a ship wants
-    // its origin ahead of the sprite --- and -1 came back as 65535, which
-    // positions the image about a thousand screens away and reads as "the
-    // sprite vanished" rather than as an off-by-one.
-    const hotWord = r.u16()
-    const hotX = ((hotWord & 0x3fff) << 18) >> 18
-    const hFlip = (hotWord & 0x8000) !== 0
-    const vFlip = (hotWord & 0x4000) !== 0
+    // This port does not carry the per-image flipped state, so a bank saved
+    // while one of its images was mirrored loads as un-mirrored. Reaching
+    // that needs a program to flip an image and Bsave the bank afterwards.
+    const hotX = ((r.u16() & 0x3fff) << 18) >> 18
     const hotY = r.i16()
     const data = r.raw(widthWords * 2 * height * depth)
-    sprites.push({ width: widthWords * 16, height, depth, hotX, hotY, hFlip, vFlip, data })
+    sprites.push({ width: widthWords * 16, height, depth, hotX, hotY, data })
   }
   const palette: number[] = []
   for (let i = 0; i < 32; i++) palette.push(r.u16())

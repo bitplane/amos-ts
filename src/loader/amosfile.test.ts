@@ -104,24 +104,36 @@ describe('sprite bank hot spots', () => {
     ])
   }
 
-  it('takes the flip flags out of the hot spot X word', () => {
-    // `HsSet` (+W.s:11570) masks the top two bits off before subtracting:
-    // `lsl.w #2,d0 / asr.w #2,d0`, commented `* Pas de retournement!`. So a
-    // mirrored image still has a small sensible hot spot, where reading the
-    // whole word put it 32,768 pixels away and the image simply vanished.
-    const f = parseAmosFile(spriteBank(0x8007, 10))
-    const bank = f.banks[0]!
-    if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
-    const s = bank.sprites[0]!
-    expect([s.hotX, s.hotY, s.hFlip, s.vFlip]).toEqual([7, 10, true, false])
-  })
-
-  it('sign-extends the hot spot X from bit 13, not bit 15', () => {
-    // fourteen bits: $3fff is -1 once the flags are off, not 16383
-    const f = parseAmosFile(spriteBank(0x3fff, -8))
+  it('reads a hot spot outside the image as the negative it is', () => {
+    // `Hot Spot n,x,y` takes negatives and they are useful: a shot fired from
+    // the nose of a ship wants its origin ahead of the sprite. Read unsigned,
+    // -1 came back as 65535, which positions the image about a thousand
+    // screens away and looks like "the sprite vanished" rather than like an
+    // off-by-one, so nothing would have pointed at this line.
+    //
+    // X is fourteen bits of the word, so -1 is $3fff and $ffff is the same
+    // coordinate with both flip flags set.
+    const f = parseAmosFile(spriteBank(-1, -8))
     const bank = f.banks[0]!
     if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
     expect([bank.sprites[0]!.hotX, bank.sprites[0]!.hotY]).toEqual([-1, -8])
+  })
+
+  it('sign-extends the hot spot X from bit 13, because the top two bits are flags', () => {
+    // `Hot Spot n,x,y` pokes the field as `and.w #$C000,6(a1) / and.w
+    // #$3FFF,d2 / or.w d2,6(a1)` (Spo4, +W.s:627) --- "Poke, en respectant
+    // les FLAGS". It preserves the top two bits instead of writing them, so
+    // they are not part of the coordinate, and `HsSet` reads it back with
+    // `lsl.w #2,d0 / asr.w #2,d0` (+W.s:11570).
+    //
+    // The flags record which way the image is currently mirrored, which only
+    // `Retourne` (+W.s:1680) sets, and which is a different thing from the
+    // flip a program asks for through `Hrev()`/`Vrev()` on the image NUMBER.
+    // Taking them as coordinate put a mirrored image 32,768 pixels away.
+    const f = parseAmosFile(spriteBank(0x8007, 10))
+    const bank = f.banks[0]!
+    if (bank.kind !== 'sprites') throw new Error('expected a sprite bank')
+    expect([bank.sprites[0]!.hotX, bank.sprites[0]!.hotY]).toEqual([7, 10])
   })
 
   it('still reads an ordinary hot spot inside the image', () => {
