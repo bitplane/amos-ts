@@ -5038,8 +5038,7 @@ export const NOTES: Record<string, string> = {
   "printer error":
     "Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails",
   "printer online":
-    "Returns 0, meaning not online — and 0 is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure " +
-    "path as this note used to say.",
+    "Returns 0, meaning not online. That is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure path.",
   "printer base":
     "Returns 0 -- the PrinterData/IORequest address, which does not exist here.",
   "parallel error":
@@ -6098,7 +6097,7 @@ export const NOTES: Record<string, string> = {
     "parse on the machine, which is what one RootNode means.",
   "scanstr$":
     "Routine 278 (\\$63c8) reads a table of 105 NUL-terminated strings at \\$63f8..\\$65b6 -- the extension's own " +
-    "data, now extracted rather than invented. DEFECT: ten codes have an EMPTY entry (12, 14, 28, 44, 59, 71, 72, " +
+    "data, extracted. DEFECT: ten codes have an EMPTY entry (12, 14, 28, 44, 59, 71, 72, " +
     "73, 75, 104) and the routine refuses them with `tst.b (a0) / Rbeq routine 390`, AMOS error 23, where the " +
     "manual promises an empty string for a code with no name; the library contradicts its documentation and this " +
     "port follows the library.",
@@ -6293,7 +6292,7 @@ export const NOTES: Record<string, string> = {
   "pt sam freq":
     "Routine 246 ($5df6), and three things the manual's 'channel chan' hides.",
   "qsin":
-    "Routine 260 ($643a), and now FAITHFUL rather than APPROXIMATED because the table was found. DEFECT: the " +
+    "Routine 260 ($643a), against the extension's own table. DEFECT: the " +
     "expansion at $a2d8 copies 255 entries, writes $100 as the 256th and mirrors, which puts the PEAK at index " +
     "255 and 767 rather than 256 and 768 and leaves DOUBLED zeros at 0/1023 and 511/512.",
   "qcos":
