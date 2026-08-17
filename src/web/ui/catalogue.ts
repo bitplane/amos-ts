@@ -168,6 +168,7 @@ export function currentFitting(slot: Slot, keys: JoyKeys): string {
   // the host gave it, which is the only thing that survives the attach
   if (slot.takes === 'serial') return dev.name === 'host serial port' ? 'webserial' : 'cable'
   if (slot.takes === 'cpu') return dev.name
+  if (slot.id === 'mouse') return 'browser-mouse'
   return fittings(slot)[0]?.id ?? ''
 }
 

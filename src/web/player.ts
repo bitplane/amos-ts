@@ -177,6 +177,15 @@ export interface Player {
   setTurbo(on: boolean): void
   /** which board's fixed output filter, ../amiga/audio.ts */
   setAudioModel(model: AmigaAudioModel): void
+  /**
+   * The wall time the battery clock is showing, or null with no board fitted.
+   *
+   * Through the chip rather than `Date.now()` plus its skew: the skew is
+   * measured against a DateStamp, which carries no zone, so the arithmetic
+   * done outside would be the host's zone offset out.
+   */
+  clockTime(): Date | null
+  setClockTime(when: Date): void
   /** supply the AMOS Pro resource bank once it has been fetched */
   setSystemResource(bytes: Uint8Array): void
   /** take the keyboard (what clicking on it does) */
@@ -304,6 +313,11 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    * when `WebSerialHost`'s startup refresh finishes, which is why the frame
    * loop asks as well.
    */
+  // one clock for the machine, so the battery clock can be read and set
+  // without a Runtime existing: a host page draws its hardware before the
+  // first program is loaded
+  const hostClock = systemClock()
+
   function syncSerialSlot(): void {
     const has = serialHost.granted > 0
     if (has === (machine.serial !== null)) return
@@ -483,7 +497,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         banks: amos?.banks ?? [],
         audio,
         fs: vfs,
-        host: { clock: systemClock(), printer: printText, printerPage: printPage, serial: serialHost },
+        host: { clock: hostClock, printer: printText, printerPage: printPage, serial: serialHost },
       })
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
@@ -660,6 +674,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       // the machine's CPU is where the mode lives, so a hardware page reading
       // `machine.cpu.ignoreClock` and this setter cannot disagree
       machine.cpu.ignoreClock = on
+    },
+    clockTime(): Date | null {
+      return machine.battclock?.wallTime(hostClock.now()) ?? null
+    },
+    setClockTime(when: Date): void {
+      machine.battclock?.setTo(when, hostClock.now())
     },
     setAudioModel(model: AmigaAudioModel): void {
       machine.audio.model = model

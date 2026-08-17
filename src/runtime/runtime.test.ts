@@ -754,7 +754,7 @@ describe('input is a view of the machine, not a copy of it', () => {
 
   it('reads the four device fields off ../amiga/machine.ts', () => {
     const rt = boot()
-    rt.machine.mouse.buttons = 3
+    rt.machine.mouse!.buttons = 3
     expect(rt.input.mouseK).toBe(3)
     rt.machine.keyboard!.press(0x40)
     expect(rt.input.keys.has(0x40)).toBe(true)
@@ -774,7 +774,7 @@ describe('input is a view of the machine, not a copy of it', () => {
     // constructor, so a captured object would read a machine nobody has
     const m = new Machine()
     const rt = boot(m)
-    m.mouse.buttons = 2
+    m.mouse!.buttons = 2
     expect(rt.input.mouseK).toBe(2)
     expect(rt.machine).toBe(m)
   })

@@ -413,6 +413,11 @@ const host = {
   },
   setIgnoreClock: (on: boolean): void => player.setTurbo(on),
   setAudioModel: (model: AmigaAudioModel): void => player.setAudioModel(model),
+  // The chip keeps its own wall time as an offset from the host's, so reading
+  // it is the host clock plus that skew. A DateStamp is wall time with no
+  // zone and so is this, which is why both ends work in UTC.
+  clockTime: (): Date | null => player.clockTime(),
+  setClockTime: (when: Date): void => player.setClockTime(when),
 }
 
 // Port 1 comes up as a keyboard stick on the arrow keys, because it is what

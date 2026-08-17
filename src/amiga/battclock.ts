@@ -96,6 +96,21 @@ export const BATTCLOCK_DATE_REG = 6
  * hardware exists at all: it survives a power cycle, so it has to outlive the
  * environment. See ./machine.ts.
  */
+/**
+ * What the registers read with no board fitted.
+ *
+ * DEVIATION: zeros are a CHOICE and not a measurement. Nothing vendored here
+ * says what $DC0000 answers on a machine with no clock: the address decodes to
+ * a chip that is not in the socket, so a real A500 returns whatever the bus
+ * floats, which depends on the last cycle and on the machine. Zeros were
+ * picked because they surface as 00:00:00 on the 1st, which reads as obviously
+ * broken rather than as a plausible wrong time, and a caller that cannot tell
+ * "no clock" from "midnight" is the failure worth avoiding.
+ *
+ * Frozen, because it is handed to callers that expect `read()`'s live array.
+ */
+export const NO_BATTCLOCK: Uint8Array = new Uint8Array(BATTCLOCK_REGISTERS)
+
 export class BattClock implements Device {
   readonly kind = 'clock' as const
   /**
@@ -121,6 +136,42 @@ export class BattClock implements Device {
    * registers hold something no calendar does and the chip cannot run.
    */
   private offset: number | null = null
+
+  /**
+   * Set the chip to a wall time, as a host would rather than as a program can.
+   *
+   * The battery clock keeps its OWN time and nothing makes it agree with the
+   * machine it is in; a real one drifts, and one out of a drawer is years out.
+   * That is a state worth being able to reach, because `SetClock LOAD` in the
+   * startup-sequence is the only thing that copies this chip into the system
+   * time, and a program that reads it gets what the chip says.
+   *
+   * Same mechanism a write through the registers uses: an offset from the host
+   * clock, so the chip goes on ticking rather than freezing at the value set.
+   */
+  setTo(when: Date, now: DateStamp): void {
+    this.written = true
+    this.offset = when.getTime() - stampToDate(now).getTime()
+    this.read(now)
+  }
+
+  /**
+   * Milliseconds this chip is ahead of the host, 0 when it has never been set.
+   *
+   * Ahead of the HOST STAMP, which is not the same as ahead of `Date.now()`:
+   * a DateStamp is wall time with no zone, so the two differ by the host's
+   * zone offset. Anything wanting the time this chip reads should call
+   * `wallTime` rather than doing the arithmetic, which is a mistake this port
+   * made once already.
+   */
+  get skewMs(): number {
+    return this.offset ?? 0
+  }
+
+  /** the wall time this chip is showing, as a Date whose UTC fields are it */
+  wallTime(now: DateStamp): Date {
+    return new Date(stampToDate(now).getTime() + this.skewMs)
+  }
 
   /**
    * The registers, as a reader sees them.

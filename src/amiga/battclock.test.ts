@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { FIXED_DATE } from './host'
 import { BATTCLOCK_BASE, BATTCLOCK_DATE_REG, BATTCLOCK_STRIDE, BattClock } from './battclock'
+import { dateToStamp, stampToDate, type DateStamp } from './datestamp'
 
 /** FIXED_DATE is Tuesday 12 July 1994, 14:30:00 */
 const SEEDED = [0, 0, 0, 3, 4, 1, 2, 1, 7, 0, 4, 9]
@@ -93,5 +94,35 @@ describe('the battery clock at $DC0000', () => {
     // and Explode's `lea $DC002F,a1` is the last byte of register 11, the top
     // of the date half, which is where routine 176 starts writing downward
     expect(BATTCLOCK_BASE + 11 * BATTCLOCK_STRIDE + 3).toBe(0x00dc_002f)
+  })
+})
+
+describe('setting the clock from outside', () => {
+  /** the twelve digits as one string, highest unit last: the order the chip runs in */
+  const digits = (bc: BattClock, now: DateStamp): string =>
+    [...bc.read(now).slice(0, 12)].join('')
+
+  it('keeps running from the time it was set to, rather than freezing', () => {
+    // the same mechanism a register write uses: an offset from the host clock,
+    // so a chip set to 1994 is still in 1994 a minute of host time later
+    const bc = new BattClock()
+    const t0 = dateToStamp(new Date(Date.UTC(2026, 7, 17, 12, 0, 0)))
+    bc.setTo(new Date(Date.UTC(1994, 6, 12, 14, 30, 0)), t0)
+    expect(digits(bc, t0)).toBe(SEEDED.join(''))
+
+    const t1 = dateToStamp(new Date(Date.UTC(2026, 7, 17, 12, 1, 0)))
+    // one minute on: the minutes digit moves and nothing else does
+    expect(digits(bc, t1)).toBe([0, 0, 1, 3, 4, 1, 2, 1, 7, 0, 4, 9].join(''))
+  })
+
+  it('reports how far it is from the host, which is zero until it is set', () => {
+    const bc = new BattClock()
+    expect(bc.skewMs).toBe(0)
+    // an hour behind the HOST STAMP, which is not an hour behind Date.now():
+    // a DateStamp carries no zone, so the two differ by the host's offset
+    const now = dateToStamp(new Date(Date.UTC(2026, 7, 17, 12, 0, 0)))
+    bc.setTo(new Date(stampToDate(now).getTime() - 3600_000), now)
+    expect(bc.skewMs).toBe(-3600_000)
+    expect(bc.wallTime(now).getTime()).toBe(stampToDate(now).getTime() - 3600_000)
   })
 })

@@ -20,6 +20,7 @@ import type { AmigaAudioModel } from '../../amiga/mixer'
 import { LED_FILTER_HZ, FIXED_FILTER_HZ } from '../../amiga/mixer'
 import { Cpu } from '../../amiga/cpu'
 import { PaulaAudio } from '../../amiga/audio'
+import { BattClock } from '../../amiga/battclock'
 
 /**
  * The half of a connector that belongs to the browser, not to the machine.
@@ -39,6 +40,9 @@ export interface PageHost {
   /** the CPU's ignore-clock mode, which the frame loop also has to hear about */
   setIgnoreClock(on: boolean): void
   setAudioModel(model: AmigaAudioModel): void
+  /** the battery clock's wall time, which is its own and drifts from the host's */
+  clockTime(): Date | null
+  setClockTime(when: Date): void
 }
 
 /** which gameport a slot is, or null for the mouse's own fixed one */
@@ -108,6 +112,36 @@ function picker(label: string, options: readonly { value: string; label: string 
   return wrap
 }
 
+/**
+ * A datetime-local field, for the one device that keeps its own time.
+ *
+ * `datetime-local` because a battery clock has no zone: it is wall time, the
+ * same thing a DateStamp is, and offering a zone picker would invent a concept
+ * the chip does not have.
+ */
+function whenField(label: string, when: Date, set: (d: Date) => void): HTMLElement {
+  const wrap = document.createElement('label')
+  wrap.className = 'field'
+  const name = document.createElement('span')
+  name.textContent = label
+  const input = document.createElement('input')
+  input.type = 'datetime-local'
+  input.step = '1'
+  input.className = 'act'
+  // the control takes local wall time and the chip holds UTC wall time, so the
+  // string is built by hand rather than through toISOString, which would shift
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0')
+  input.value =
+    `${p(when.getUTCFullYear(), 4)}-${p(when.getUTCMonth() + 1)}-${p(when.getUTCDate())}` +
+    `T${p(when.getUTCHours())}:${p(when.getUTCMinutes())}:${p(when.getUTCSeconds())}`
+  input.addEventListener('change', () => {
+    const parsed = new Date(`${input.value}Z`)
+    if (!Number.isNaN(parsed.getTime())) set(parsed)
+  })
+  wrap.append(name, input)
+  return wrap
+}
+
 /** a labelled checkbox for the body */
 function toggle(label: string, on: boolean, hint: string, set: (v: boolean) => void): HTMLElement {
   const wrap = document.createElement('label')
@@ -161,6 +195,12 @@ function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElemen
           host.setIgnoreClock(v),
         ),
       )
+    }
+    if (slot.takes === 'clock' && slot.device) {
+      const when = host.clockTime()
+      if (when) {
+        body.appendChild(whenField('reads', when, (d) => host.setClockTime(d)))
+      }
     }
     if (slot.device instanceof PaulaAudio) {
       const audio = slot.device
@@ -285,7 +325,13 @@ function signature(machine: Machine, host: PageHost): string {
       const keys = port === null ? '' : String(host.keys(port))
       const dev = slot.device
       const extra =
-        dev instanceof Cpu ? String(dev.ignoreClock) : dev instanceof PaulaAudio ? dev.model : ''
+        dev instanceof Cpu
+          ? String(dev.ignoreClock)
+          : dev instanceof PaulaAudio
+            ? dev.model
+            : dev instanceof BattClock
+              ? String(dev.skewMs)
+              : ''
       return `${slot.id}:${dev?.name ?? ''}:${live}:${keys}:${extra}`
     })
     .join(';')

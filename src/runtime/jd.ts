@@ -62,6 +62,7 @@ import { AmosError, VF, VI, VS, int, num, str, type Value } from '../interp/valu
 import type { Func, Instr } from '../interp/builtins'
 import { decodeFFP } from '../tokens/stream'
 import { JD_CRYPT } from './jd-crypt.gen'
+import { NO_BATTCLOCK } from '../amiga/battclock'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
@@ -298,6 +299,10 @@ function jdClockFields(text: string, sep: string, swapLast: boolean): JdClockPar
  */
 function jdWriteClock(rt: Runtime, first: number, digits: number[]): void {
   const bc = rt.machine.battclock
+  // DEVIATION: with no clock board there is nothing to write to and the
+  // keyword returns having done nothing. The library cannot tell either: it
+  // pokes $DC0000 and never reads back. ../amiga/battclock.ts, NO_BATTCLOCK.
+  if (!bc) return
   const now = rt.host.clock.now()
   bc.read(now)
   for (let i = 0; i < 6; i++) bc.write(first + i, digits[i]! - 48, now)
@@ -1666,7 +1671,8 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * Explode's `Set Hard Time` can put a nibble that high in there.
      */
     'jd time$'(): Value {
-      const regs = rt.machine.battclock.read(rt.host.clock.now())
+      const bc = rt.machine.battclock
+      const regs = bc ? bc.read(rt.host.clock.now()) : NO_BATTCLOCK
       let hms = ''
       for (let i = 0; i < 6; i++) hms += String(regs[i]!)
       // the layout reads hms back at 5,4 3,2 1,0 whatever landed there

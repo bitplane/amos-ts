@@ -240,22 +240,26 @@ export const newInputState = (machine: Machine | (() => Machine) = new Machine()
       m().cia.sdr = v
     },
     get mouseK(): number {
-      return m().mouse.buttons
+      // nothing plugged in holds no button down
+      return m().mouse?.buttons ?? 0
     },
     set mouseK(v: number) {
-      m().mouse.buttons = v
+      const mouse = m().mouse
+      if (mouse) mouse.buttons = v
     },
+    // the pointer belongs to the counters rather than to the mouse, so it
+    // survives one being unplugged: ../amiga/machine.ts
     get mouseX(): number {
-      return m().mouse.x
+      return m().mouseX
     },
     set mouseX(v: number) {
-      m().mouse.x = v
+      m().mouseX = v
     },
     get mouseY(): number {
-      return m().mouse.y
+      return m().mouseY
     },
     set mouseY(v: number) {
-      m().mouse.y = v
+      m().mouseY = v
     },
     get ports(): [Controller, Controller] {
       return m().ports

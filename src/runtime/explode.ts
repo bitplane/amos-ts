@@ -62,7 +62,7 @@ import type { ObjectBank } from './objects'
 import { MemPool } from '../amiga/exec'
 import { openDiskFont } from '../amiga/diskfont'
 import { ID_VALIDATING, ID_WRITE_PROTECTED } from '../amiga/dos'
-import { BATTCLOCK_DATE_REG } from '../amiga/battclock'
+import { BATTCLOCK_DATE_REG, NO_BATTCLOCK } from '../amiga/battclock'
 import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
@@ -1715,6 +1715,11 @@ const fontBase = (slot: number): number => (HEAP_BASE + HEAP_RESERVED - (slot + 
 function setHardClock(rt: Runtime, text: string, top: number): void {
   if (text.length !== 8) funcCall()
   const bc = rt.machine.battclock
+  // DEVIATION: no clock board means nothing to set, and the keyword returns
+  // having done nothing. The length check still runs first, because that is
+  // the library's own and happens before it touches $DC0000.
+  // ../amiga/battclock.ts, NO_BATTCLOCK.
+  if (!bc) return
   const now = rt.host.clock.now()
   bc.read(now)
   const at = [0, 1, 3, 4, 6, 7]
@@ -1730,7 +1735,8 @@ function setHardClock(rt: Runtime, text: string, top: number): void {
  * why a nibble of 10 to 15 prints as ":;<=>?" instead of being rejected.
  */
 function hardDigits(rt: Runtime, first: number): string {
-  const regs = rt.machine.battclock.read(rt.host.clock.now())
+  const bc = rt.machine.battclock
+  const regs = bc ? bc.read(rt.host.clock.now()) : NO_BATTCLOCK
   let out = ''
   for (let i = 5; i >= 0; i--) out += String.fromCharCode(48 + regs[first + i]!)
   return out

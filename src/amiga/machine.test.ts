@@ -3,9 +3,10 @@ import { CIAF_GAMEPORT0, CIAF_GAMEPORT1, CIAF_PRTRSEL } from './cia'
 import { BTN_RED, CTRL_GAMEPAD, CTRL_MOUSE, CTRL_NONE, Controller } from './controller'
 import { fitted } from './device'
 import { Keyboard, keyboardSdr } from './keyboard'
+import { BattClock } from './battclock'
 import { M68020, M68030 } from './cpu'
 import { Machine } from './machine'
-import { MOUSE_LEFT } from './mouse'
+import { MOUSE_LEFT, Mouse } from './mouse'
 import { FourPlayerAdaptor } from './parallel'
 import { SerialCable } from './serialport'
 
@@ -137,13 +138,44 @@ describe('the machine: attaching and detaching', () => {
     expect(m.slot('nosuchthing')).toBeNull()
   })
 
-  it('refuses the two that are fixed, and says so before being asked', () => {
+  it('refuses only the two the machine cannot run without', () => {
+    // fixed means "this machine does not run without one". Everything on the
+    // outside of the case comes off, including the clock, which most Amigas
+    // never had, and the mouse.
     const m = new Machine()
-    // fixed means "this machine does not run without one", so the chip rows
-    // are on the list and the keyboard, which is on a ribbon, is not
-    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['cpu', 'audio', 'clock', 'mouse'])
-    expect(m.detach('mouse')).toBeNull()
-    expect(m.detach('clock')).toBeNull()
+    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['cpu', 'audio'])
+    expect(m.detach('cpu')).toBeNull()
+    expect(m.detach('audio')).toBeNull()
+  })
+
+  it('takes the clock board out, which most Amigas never had', () => {
+    const m = new Machine()
+    const was = m.detach('clock')
+    expect(was).toBe(m.slot('clock')!.device ?? was)
+    expect(m.battclock).toBeNull()
+    expect(m.slot('clock')!.device).toBeNull()
+    expect(m.attach('clock', new BattClock())).toBe(true)
+    expect(m.battclock).not.toBeNull()
+  })
+
+  it('unplugs the mouse, leaving the pointer where it was', () => {
+    // a mouse sends pulses and holds no position; the count is in Denise, so
+    // pulling the cable stops the pointer rather than moving it
+    const m = new Machine()
+    m.mouseX = 200
+    m.mouseY = 120
+    m.mouse!.buttons = MOUSE_LEFT
+    expect(m.detach('mouse')).toBeInstanceOf(Mouse)
+    expect(m.mouse).toBeNull()
+    expect(m.mouseX).toBe(200)
+    expect(m.mouseY).toBe(120)
+    // and no button is down, because nothing is holding one
+    expect(m.cia.pra() & CIAF_GAMEPORT0).toBe(CIAF_GAMEPORT0)
+
+    // a mouse plugged back in picks the pointer up where it is
+    expect(m.attach('mouse', new Mouse())).toBe(true)
+    expect(m.mouse!.x).toBe(200)
+    expect(m.mouse!.y).toBe(120)
   })
 
   it('unplugs the keyboard, and a machine with no keyboard holds no keys', () => {
@@ -202,7 +234,7 @@ describe('the machine: the keyboard clocks into CIA-A', () => {
 describe('the machine: FIR0 is one pin with two devices on it', () => {
   it('answers to the mouse button', () => {
     const m = new Machine()
-    m.mouse.buttons = MOUSE_LEFT
+    m.mouse!.buttons = MOUSE_LEFT
     expect(m.cia.pra() & CIAF_GAMEPORT0).toBe(0)
   })
 

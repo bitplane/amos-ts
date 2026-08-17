@@ -122,11 +122,9 @@
  * comes out, because an A500's is a separate assembly on a ribbon and every
  * other model's is on a cable.
  *
- * Two are still fixed and for different reasons. The mouse is one half of the
- * port-0 deviation ./mouse.ts describes, and removing it while `X Mouse` reads
- * a pointer the machine never sees would be a half-detach. The clock needs an
- * answer to what $DC0000 reads with no A501 fitted, which nothing vendored
- * here gives.
+ * The processor and Paula are fixed, and both can still be SWAPPED: fixed
+ * means the socket cannot be emptied, not that it cannot change, which is
+ * what an accelerator is.
  *
  * ## Not modelled yet
  *
@@ -141,7 +139,7 @@ import { CiaA, CiaB } from './cia'
 import { Cpu, M68000 } from './cpu'
 import { BTN_RED, CTRL_NONE, Controller, controllerDevice, newController } from './controller'
 import type { Device, Slot } from './device'
-import { joyDatOf, potgor } from './gameport'
+import { joyDatOf, mouseDat, potgor } from './gameport'
 import { Keyboard } from './keyboard'
 import { Mouse, mouseAsButtons } from './mouse'
 import { ParallelDevice } from './parallel'
@@ -193,8 +191,44 @@ export class Machine {
    */
   keyboard: Keyboard | null = new Keyboard()
 
-  /** the three mouse buttons, which are pins on CIA-A and POTGOR */
-  readonly mouse = new Mouse()
+  /**
+   * The mouse, or null with nothing on the connector.
+   *
+   * `X Mouse`, `Y Mouse` and `Mouse Key` already read this object rather than
+   * a copy — `InputState`'s three accessors resolve here — so unplugging it
+   * stops the pointer for the keywords and for the registers at once, which
+   * is the only version of "detached" worth having.
+   */
+  mouse: Mouse | null = new Mouse()
+
+  /**
+   * Where the counters are, which is not the same as where the mouse is.
+   *
+   * A mouse sends quadrature pulses and holds no position at all; the count
+   * lives in Denise and is what JOY0DAT reads. So unplugging one leaves the
+   * pointer exactly where it was rather than teleporting it, and this is the
+   * pair that survives. `Mouse.x`/`y` stay the host's way of driving it.
+   */
+  private counters: [number, number] = [128 + 160, 50 + 100]
+
+  /** the pointer, whether or not a mouse is on the end of it */
+  get mouseX(): number {
+    return this.mouse ? this.mouse.x : this.counters[0]
+  }
+
+  set mouseX(v: number) {
+    if (this.mouse) this.mouse.x = v
+    this.counters[0] = v
+  }
+
+  get mouseY(): number {
+    return this.mouse ? this.mouse.y : this.counters[1]
+  }
+
+  set mouseY(v: number) {
+    if (this.mouse) this.mouse.y = v
+    this.counters[1] = v
+  }
 
   /**
    * The two gameports, indexed the way the hardware is: 0 is the mouse port,
@@ -312,7 +346,7 @@ export class Machine {
    */
   portButtons(port: 0 | 1): number {
     const c = this.ports[port].buttons
-    return port === 0 ? c | mouseAsButtons(this.mouse) : c
+    return port === 0 && this.mouse ? c | mouseAsButtons(this.mouse) : c
   }
 
   /**
@@ -325,7 +359,9 @@ export class Machine {
    * appear in JOY0DAT, because the connector cannot really hold both.
    */
   joyDat(port: 0 | 1): number {
-    return port === 0 ? this.mouse.dat() : joyDatOf(this.ports[1])
+    // the counters keep their value with nothing plugged in, so this reads the
+    // pair rather than the device
+    return port === 0 ? mouseDat(this.mouseX, this.mouseY) : joyDatOf(this.ports[1])
   }
 
   /** POTGOR at $DFF016: pins 5 and 9 of both connectors */
@@ -345,13 +381,13 @@ export class Machine {
     return [
       { id: 'cpu', label: 'processor', takes: 'cpu', device: this.cpu, fixed: true },
       { id: 'audio', label: 'audio', takes: 'audio', device: this.audio, fixed: true },
-      { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock, fixed: true },
+      { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock, fixed: false },
       { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard, fixed: false },
       // `mouse` and `port0` are one nine-pin connector on the machine and two
       // rows here, which is the deviation ./mouse.ts describes shown rather
       // than hidden: a tree that listed one of them would be claiming a
       // choice this port has not made yet.
-      { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse, fixed: true },
+      { id: 'mouse', label: 'gameport 0 (mouse)', takes: 'gameport', device: this.mouse, fixed: false },
       {
         id: 'port0',
         label: 'gameport 0',
@@ -431,6 +467,20 @@ export class Machine {
       this.wireKeyboard(device)
       return true
     }
+    if (id === 'clock') {
+      if (!(device instanceof BattClock)) return false
+      this.battclock = device
+      return true
+    }
+    if (id === 'mouse') {
+      if (!(device instanceof Mouse)) return false
+      // a mouse plugged in takes the counters where they were left, because
+      // that is where the pointer is on the screen
+      device.x = this.counters[0]
+      device.y = this.counters[1]
+      this.mouse = device
+      return true
+    }
     // fixed, so `slot.fixed` above has already refused a detach; swapping the
     // chip for another is still allowed, which is what an accelerator is
     if (id === 'cpu') {
@@ -461,6 +511,11 @@ export class Machine {
     else if (id === 'par') this.parallel = null
     else if (id === 'ser') this.serial = null
     else if (id === 'keyboard') this.wireKeyboard(null)
+    else if (id === 'clock') this.battclock = null
+    else if (id === 'mouse') {
+      this.counters = [this.mouse!.x, this.mouse!.y]
+      this.mouse = null
+    }
     else {
       const unit = driveUnit(id)
       if (unit === null) return null
@@ -470,15 +525,22 @@ export class Machine {
   }
 
   /**
-   * The battery clock at $DC0000, if one is fitted, and here one always is.
+   * The battery clock at $DC0000, or null with no board fitted.
    *
-   * The strongest case there is for a Machine field: the chip has its own
-   * battery, so it keeps time with the power off, and a reset is not even the
-   * event it is built to survive. Two extensions poke it directly, Explode's
-   * four `Hard` keywords and JD's `Jd Setclock` / `Jd Setdate` / `Jd Time$`.
-   * See ./battclock.ts for the register map and what does NOT read it.
+   * Null is the commonest Amiga there was. A stock A500 has no clock at all
+   * and neither does an A1000, which the corpus says in a startup-sequence's
+   * own comment: "SetClock load ;load system time from real time clock (A1000
+   * owners should" / "replace the SetClock load with Date"
+   * (`sources/amos-pd-library-cd-1994/files/S/Startup1.3:12`). The chip has
+   * its own battery, so with one fitted it keeps time through a power cut and
+   * a reset is not even the event it is built to survive.
+   *
+   * Two extensions poke it directly, Explode's four `Hard` keywords and JD's
+   * `Jd Setclock` / `Jd Setdate` / `Jd Time$`. See ./battclock.ts for the
+   * register map, what does NOT read it, and what those keywords do when the
+   * board is absent.
    */
-  readonly battclock = new BattClock()
+  battclock: BattClock | null = new BattClock()
 
   /**
    * `RNF_WILDSTAR` — whether `*` is a synonym for `#?` in DOS patterns.

@@ -514,7 +514,7 @@ describe('JD: the clock chip at $DC0000 (+|jd.s:1072, :1148, :1207)', () => {
     // the only place the two routines could have diverged and they do not
     const { rt } = runFixed('Jd Setdate "24.12.94"')
     // registers 6 to 11: day units, day tens, month units, month tens, year
-    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([4, 2, 2, 1, 4, 9])
+    expect([...rt.machine.battclock!.regs.slice(6, 12)]).toEqual([4, 2, 2, 1, 4, 9])
   })
 
   it('Setdate checks the day and the month, and the year not at all', () => {
@@ -523,11 +523,11 @@ describe('JD: the clock chip at $DC0000 (+|jd.s:1072, :1148, :1207)', () => {
     // nothing was written, so it is still reseeding from the host clock
     for (const s of ['32.01.94', '01.13.94']) {
       const { rt } = runFixed(`Jd Setdate "${s}"`)
-      expect(rt.machine.battclock.written).toBe(false)
+      expect(rt.machine.battclock!.written).toBe(false)
     }
     // a year outside any calendar is written without complaint
     const { rt } = runFixed('Jd Setdate "01.01.99"')
-    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([1, 0, 1, 0, 9, 9])
+    expect([...rt.machine.battclock!.regs.slice(6, 12)]).toEqual([1, 0, 1, 0, 9, 9])
   })
 
   it('JD writes the chip and Explode reads it, because there is only one', () => {
@@ -562,7 +562,7 @@ describe('JD: the clock chip at $DC0000 (+|jd.s:1072, :1148, :1207)', () => {
     // each writes six registers, and the other six are the ones the chip was
     // already showing. That is why jdWriteClock reads before it writes.
     const { rt } = runFixed('Jd Setclock "09:15:00"')
-    expect([...rt.machine.battclock.regs.slice(6, 12)]).toEqual([2, 1, 7, 0, 4, 9])
+    expect([...rt.machine.battclock!.regs.slice(6, 12)]).toEqual([2, 1, 7, 0, 4, 9])
   })
 })
 
