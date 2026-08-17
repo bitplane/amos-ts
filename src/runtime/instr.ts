@@ -4993,14 +4993,32 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         for (let i = 0; i < n && c.pos < c.data.length; i++) out += String.fromCharCode(c.data[c.pos++]!)
         return VS(out)
       }
-      // Input$(n): n keys from the keyboard queue (non-blocking best effort)
+      // Input$(n): FnInputD1 +Lib.s:4695. AskD3 rejects a zero or negative
+      // length before the loop is reached (`tst.l d3 / Rbeq / Rbmi`), then
+      //
+      //   FInp1a: Rjsr L_Test_PaSaut / SyCall Inkey
+      //           tst.l d1 / beq.s FInp1a        no key yet: keep waiting
+      //           cmp.b #32,d1 / bcs.s FInp1a    below space: thrown away
+      //           move.b d1,(a1)+ / subq.w #1,d2 / bne.s FInp1a
+      //
+      // so it BLOCKS until n printable characters have been typed, silently
+      // drops Return, Backspace and the cursor keys, and echoes nothing.
       const n = int(a[0]!)
-      let out = ''
-      for (let i = 0; i < n; i++) {
+      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      for (;;) {
         const k = it.inp.keyQueue.shift()
         if (!k) break
-        out += k.ch
+        if (k.ch.length === 1 && k.ch >= ' ') rt.inputChars += k.ch
+        if (rt.inputChars.length >= n) break
       }
+      if (rt.inputChars.length < n) {
+        // Test_PaSaut yields to the interrupts each turn round the loop, so a
+        // frame passes and the whole statement runs again
+        it.block({ type: 'waitInput', mouse: false, key: true }, true)
+        return VS('')
+      }
+      const out = rt.inputChars.slice(0, n)
+      rt.inputChars = ''
       return VS(out)
     },
     'dir$'(_, a) {

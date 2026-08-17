@@ -224,6 +224,34 @@ describe('input state', () => {
     expect(two.rt.chrInp).toEqual([13, 10])
   })
 
+  it('Input$(n) waits for n printable keys, drops the rest, and echoes nothing', () => {
+    // FnInputD1 +Lib.s:4695 loops on Inkey until it has n bytes, skipping
+    // anything below space (`cmp.b #32,d1 / bcs.s FInp1a`). It never writes to
+    // the console, so what the typist sees is nothing at all.
+    let printed = ''
+    const rt = new Runtime(tokenize('A$=Input$(3) : Print A$', table), table, {
+      maxSteps: 100000,
+      onText: (s) => {
+        printed += s
+      },
+    })
+    rt.input.keyQueue.push({ ch: 'A', scan: 32 })
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.interp.blocked).not.toBeNull() // one key of three: still waiting
+    expect(printed).toBe('') // and nothing of the 'A' reached the screen
+    // the Return is eaten by `cmp.b #32,d1 / bcs.s FInp1a` and does not count
+    rt.input.keyQueue.push({ ch: '\r', scan: 68 }, { ch: 'B', scan: 53 }, { ch: 'C', scan: 51 })
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.interp.blocked).toBeNull()
+    expect(printed).toBe('ABC\n')
+  })
+
+  it('Input$(0) is an illegal function call, because AskD3 rejects it', () => {
+    // AskD3 +Lib.s:3785 reserves the string first: `tst.l d3 / Rbeq L_FonCall
+    // / Rbmi L_FonCall`, so the count never reaches the Inkey loop.
+    expect(() => run('A$=Input$(0)')).toThrow(/Illegal function call/)
+  })
+
   it('Clear Key empties the pending key queue', () => {
     const rt = new Runtime(tokenize('Clear Key', table), table, { maxSteps: 1000 })
     rt.input.keyQueue.push({ ch: 'a', scan: 32 }, { ch: 'b', scan: 53 })

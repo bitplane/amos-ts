@@ -4091,6 +4091,12 @@ export class Runtime {
     m.countLeft = m.groups[0]?.[2] || 0x10000
     m.speedLeft = m.groups[0]?.[0] ?? 1
   }
+  /**
+   * Characters collected so far by `Input$(n)`. FnInputD1 (+Lib.s:4695) is a
+   * busy loop over Inkey, so the keyword itself does the collecting and the
+   * statement re-runs each frame until it has n of them.
+   */
+  inputChars = ''
   /** line waiting to satisfy an Input statement */
   private pendingLine: string | null = null
   private promptShown = false
