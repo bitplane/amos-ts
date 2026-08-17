@@ -2013,7 +2013,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.accept(',')
       const y = optInt(it, cur?.y ?? 0)
       it.accept(',')
-      const image = optInt(it, cur?.image ?? 1)
+      // An omitted image leaves BbI alone (`cmp.l d7,d4 / beq.s CreBb8` at
+      // BobSet's CreBb7, +W.s), and a bob ResBOB has just made has BbI = 0: it
+      // sets BbNb, BbEc, the limits, BbAPlan, BbACon, BbDecor and BbEff, and
+      // never touches the image. Image 0 is not image 1 --- there is no image
+      // 0, so the bob does not draw at all.
+      //
+      // Defaulting to 1 put a copy of image 1 on screen for every bob a
+      // program stepped without ever having given it one. AMOSPro_Examples
+      // Help_70 runs `For N=1 To 21` while only creating bobs 8 to 21, so bobs
+      // 1-7 sat at 0,0 and stamped a "T" --- the first letter of
+      // THEOUTERLIMITS --- into the corner of the starfield.
+      const image = optInt(it, cur?.image ?? 0)
       rt.bobs.set(n, { n, x, y, image, screen: cur?.screen ?? rt.currentIndex })
     },
     'bob off'(it) {

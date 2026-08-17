@@ -1043,6 +1043,29 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(100, 50)).toBe(0)
   })
 
+  it('a bob given no image has image 0, which draws nothing (CreBb7 / ResBOB)', () => {
+    // `Bob n,x,y,` with the image omitted leaves BbI alone — `cmp.l d7,d4 /
+    // beq.s CreBb8` — and ResBOB never sets BbI when it makes the bob, so a
+    // brand new one is image 0. There is no image 0, so it does not draw.
+    //
+    // Defaulting to image 1 instead put a copy of image 1 wherever such a bob
+    // sat. AMOSPro_Examples Help_70 steps `For N=1 To 21` while only ever
+    // creating bobs 8 to 21, so bobs 1-7 stayed at 0,0 and stamped the "T" of
+    // THEOUTERLIMITS into the corner of its starfield.
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 15,7',
+      'Get Bob 1,0,0 To 16,8',
+      'Cls 0',
+      'Bob 1,40,40,', // never given an image
+      'Bob 2,80,40,1', // given one, for contrast
+      'Wait Vbl',
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.bobs.get(1)!.image).toBe(0)
+    expect(rt.screen.point(44, 44)).toBe(0) // nothing drawn
+    expect(rt.screen.point(84, 44)).toBe(5) // and the one with an image did
+  })
+
   it('Paste Bob with Hrev mirrors the bank image and leaves it mirrored (Retourne)', () => {
     // The idiom out of AMOSPro_Examples Help_68, which builds six left-facing
     // walk frames from six right-facing ones:
