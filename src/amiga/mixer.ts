@@ -206,8 +206,15 @@ export class PaulaMixer implements AudioSink {
    */
   private originFrames = 0
 
-  /** which machine's fixed pole, and it is not switchable on the machine */
-  readonly model: AmigaAudioModel
+  /**
+   * Which machine's fixed pole.
+   *
+   * Not switchable ON the machine: it is a resistor and a capacitor, and no
+   * program can reach it. Settable HERE because a host emulating one model or
+   * another is choosing which board it is emulating, which is a different act
+   * from a program flipping a bit. `setModel` is that act.
+   */
+  model: AmigaAudioModel
 
   private readonly onBlock: ((stereo: Float32Array) => void) | undefined
   private readonly lp: FilterState
@@ -230,6 +237,21 @@ export class PaulaMixer implements AudioSink {
     this.model = opts.model ?? 'a1200'
     this.lp = { a: onePole(LED_FILTER_HZ, this.rate), z: [0, 0, 0, 0] }
     this.fixed = { a: onePole(FIXED_FILTER_HZ[this.model], this.rate), z: [0, 0, 0, 0] }
+  }
+
+  /**
+   * Emulate a different board's output stage.
+   *
+   * The filter's HISTORY is kept rather than cleared: the four `z` terms are
+   * the last samples through it, and zeroing them mid-stream is a step to
+   * silence and back, which clicks. A changed corner takes effect over the
+   * next few samples instead, which is also what swapping the part in a
+   * running machine would sound like if you could.
+   */
+  setModel(model: AmigaAudioModel): void {
+    if (model === this.model) return
+    this.model = model
+    this.fixed.a = onePole(FIXED_FILTER_HZ[model], this.rate)
   }
 
   // ---- the clock ---------------------------------------------------------

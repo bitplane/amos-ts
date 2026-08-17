@@ -16,18 +16,29 @@ import { FloppyDrive } from '../../amiga/trackdisk'
 import { createList, facts, stub, type Action, type Choice, type List, type RowSpec } from './list'
 import { BINDINGS, NOTHING, currentFitting, fittings, iconFor, sourceLabel } from './catalogue'
 import type { JoyKeys } from '../player'
+import type { AmigaAudioModel } from '../../amiga/mixer'
+import { LED_FILTER_HZ, FIXED_FILTER_HZ } from '../../amiga/mixer'
+import { Cpu } from '../../amiga/cpu'
+import { PaulaAudio } from '../../amiga/audio'
 
 /**
- * What drives a gameport, which the page owns rather than the machine.
+ * The half of a connector that belongs to the browser, not to the machine.
  *
  * A key mapping is the host standing in for a stick nobody has plugged into
- * their computer. `Machine` knows about controllers and not about keyboards
- * being pressed into service as one, which is why this is an interface the
- * page passes in rather than something read off the slot.
+ * their computer, and a granted Web Serial port is the host lending out real
+ * hardware. `Machine` knows about controllers and cables and nothing about
+ * either, which is why this is an interface the page passes in rather than
+ * something read off the slot.
  */
-export interface JoyHost {
+export interface PageHost {
   keys(port: 0 | 1): JoyKeys
   setKeys(port: 0 | 1, keys: JoyKeys): void
+  serialSupported: boolean
+  /** ask for a port; a grant attaches it, so this does not return a device */
+  requestSerial(): void
+  /** the CPU's ignore-clock mode, which the frame loop also has to hear about */
+  setIgnoreClock(on: boolean): void
+  setAudioModel(model: AmigaAudioModel): void
 }
 
 /** which gameport a slot is, or null for the mouse's own fixed one */
@@ -46,7 +57,7 @@ const driveIn = (slot: Slot): FloppyDrive | null =>
  * the two-node split `dosextens.i` draws: the DEVICE node never goes away and
  * the VOLUME node comes and goes.
  */
-function detailOf(joy: JoyHost, slot: Slot): { text: string; empty: boolean } {
+function detailOf(host: PageHost, slot: Slot): { text: string; empty: boolean } {
   const drive = driveIn(slot)
   if (drive) {
     const disk = drive.medium
@@ -58,7 +69,7 @@ function detailOf(joy: JoyHost, slot: Slot): { text: string; empty: boolean } {
   // and the alternative is expanding the row to find out
   const port = portOf(slot)
   if (port !== null) {
-    return { text: `${slot.device.name}, ${sourceLabel(joy.keys(port))}`, empty: false }
+    return { text: `${slot.device.name}, ${sourceLabel(host.keys(port))}`, empty: false }
   }
   return { text: slot.device.name, empty: false }
 }
@@ -97,8 +108,25 @@ function picker(label: string, options: readonly { value: string; label: string 
   return wrap
 }
 
-function bodyOf(machine: Machine, joy: JoyHost, slot: Slot): (host: HTMLElement) => void {
-  return (host) => {
+/** a labelled checkbox for the body */
+function toggle(label: string, on: boolean, hint: string, set: (v: boolean) => void): HTMLElement {
+  const wrap = document.createElement('label')
+  wrap.className = 'field'
+  const box = document.createElement('input')
+  box.type = 'checkbox'
+  box.checked = on
+  box.addEventListener('change', () => set(box.checked))
+  const name = document.createElement('span')
+  name.textContent = label
+  const why = document.createElement('span')
+  why.className = 'field-hint'
+  why.textContent = hint
+  wrap.append(box, name, why)
+  return wrap
+}
+
+function bodyOf(machine: Machine, host: PageHost, slot: Slot): (body: HTMLElement) => void {
+  return (body) => {
     const pairs: [string, string][] = [
       ['slot', slot.id],
       ['takes', slot.takes],
@@ -113,14 +141,48 @@ function bodyOf(machine: Machine, joy: JoyHost, slot: Slot): (host: HTMLElement)
         ['disk changes', String(drive.changes)],
       )
     }
-    host.appendChild(facts(pairs))
+    const cpu = slot.device instanceof Cpu ? slot.device : null
+    if (cpu) {
+      // a rate to print and nothing that counts cycles: see ../../amiga/cpu.ts
+      pairs.push(['clock', `${(cpu.hz / 1_000_000).toFixed(5)} MHz`], ['executes', 'nothing'])
+    }
+    if (slot.device instanceof PaulaAudio) {
+      pairs.push(
+        ['voices', '4'],
+        ['led filter', `${LED_FILTER_HZ} Hz, CIA-A PRA bit 1`],
+        ['fixed filter', `${FIXED_FILTER_HZ[slot.device.model]} Hz, no switch`],
+      )
+    }
+    body.appendChild(facts(pairs))
+
+    if (cpu) {
+      body.appendChild(
+        toggle('ignore clock', cpu.ignoreClock, 'run flat out instead of at 50Hz', (v) =>
+          host.setIgnoreClock(v),
+        ),
+      )
+    }
+    if (slot.device instanceof PaulaAudio) {
+      const audio = slot.device
+      body.appendChild(
+        picker(
+          'board',
+          [
+            { value: 'a500', label: 'A500 and earlier' },
+            { value: 'a1200', label: 'A1200 and AGA' },
+          ],
+          audio.model,
+          (v) => host.setAudioModel(v as AmigaAudioModel),
+        ),
+      )
+    }
 
     // the layout, not the source: a gamepad-driven port has no keys to show,
     // and changing which device is in the socket is the row's own drop-down
     const port = portOf(slot)
-    if (port !== null && slot.device && joy.keys(port) !== 'none') {
-      host.appendChild(
-        picker('keys', BINDINGS, String(joy.keys(port)), (v) => joy.setKeys(port, v as JoyKeys)),
+    if (port !== null && slot.device && host.keys(port) !== 'none') {
+      body.appendChild(
+        picker('keys', BINDINGS, String(host.keys(port)), (v) => host.setKeys(port, v as JoyKeys)),
       )
     }
 
@@ -128,7 +190,7 @@ function bodyOf(machine: Machine, joy: JoyHost, slot: Slot): (host: HTMLElement)
       slot.fixed
         ? 'This connector cannot be emptied. Controls for what is on it are still to come.'
         : 'Controls and tests for this connector are still to come.',
-    )(host)
+    )(body)
     void machine
   }
 }
@@ -155,14 +217,20 @@ function actionsFor(slot: Slot): Action[] {
  * is simply one whose list has no "nothing" in it. The page stops branching on
  * `Slot.fixed` and the machine keeps it, because it still has to refuse.
  */
-function chooseFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec['choose'] {
+function chooseFor(machine: Machine, host: PageHost, slot: Slot): RowSpec['choose'] {
   const port = portOf(slot)
-  const options: Choice[] = fittings(slot).map((f) => ({
+  const options: Choice[] = fittings(slot, { serialSupported: host.serialSupported }).map((f) => ({
     id: f.id,
     label: f.label,
     run: () => {
+      // Web Serial's chooser needs the gesture that just happened, and a
+      // grant is what attaches the cable, so this one does not attach here
+      if (f.hostSerial) {
+        host.requestSerial()
+        return
+      }
       if (!machine.attach(slot.id, f.make())) return
-      if (port !== null && f.keys !== undefined) joy.setKeys(port, f.keys)
+      if (port !== null && f.keys !== undefined) host.setKeys(port, f.keys)
     },
   }))
   if (options.length === 0) return undefined
@@ -174,17 +242,17 @@ function chooseFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec['choose'
         machine.detach(slot.id)
         // an unplugged port has to give the keys back, or it goes on eating
         // keystrokes a program is also reading with nothing on screen to say why
-        if (port !== null) joy.setKeys(port, 'none')
+        if (port !== null) host.setKeys(port, 'none')
       },
     })
   }
-  return { current: currentFitting(slot, port === null ? 'none' : joy.keys(port)), options }
+  return { current: currentFitting(slot, port === null ? 'none' : host.keys(port)), options }
 }
 
-function rowFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec {
-  const detail = detailOf(joy, slot)
+function rowFor(machine: Machine, host: PageHost, slot: Slot): RowSpec {
+  const detail = detailOf(host, slot)
   const chip = chipOf(slot)
-  const choose = chooseFor(machine, joy, slot)
+  const choose = chooseFor(machine, host, slot)
   return {
     key: slot.id,
     icon: iconFor(slot),
@@ -194,7 +262,7 @@ function rowFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec {
     ...(chip ? { chip } : {}),
     actions: actionsFor(slot),
     ...(choose ? { choose } : {}),
-    body: bodyOf(machine, joy, slot),
+    body: bodyOf(machine, host, slot),
   }
 }
 
@@ -205,7 +273,7 @@ function rowFor(machine: Machine, joy: JoyHost, slot: Slot): RowSpec {
  * rebuild the DOM under the pointer and throw away focus. Comparing this
  * instead means a rebuild happens when something actually moved.
  */
-function signature(machine: Machine, joy: JoyHost): string {
+function signature(machine: Machine, host: PageHost): string {
   return machine
     .hardware()
     .map((slot) => {
@@ -214,8 +282,11 @@ function signature(machine: Machine, joy: JoyHost): string {
         ? `${drive.medium?.label ?? ''}|${drive.motorOn}|${drive.writeProtected}|${drive.cylinder}|${drive.changes}`
         : ''
       const port = portOf(slot)
-      const keys = port === null ? '' : String(joy.keys(port))
-      return `${slot.id}:${slot.device?.name ?? ''}:${live}:${keys}`
+      const keys = port === null ? '' : String(host.keys(port))
+      const dev = slot.device
+      const extra =
+        dev instanceof Cpu ? String(dev.ignoreClock) : dev instanceof PaulaAudio ? dev.model : ''
+      return `${slot.id}:${dev?.name ?? ''}:${live}:${keys}:${extra}`
     })
     .join(';')
 }
@@ -225,7 +296,7 @@ export interface HardwareTab {
   frame(): void
 }
 
-export function createHardwareTab(machine: Machine, joy: JoyHost): HardwareTab {
+export function createHardwareTab(machine: Machine, host: PageHost): HardwareTab {
   const panel = document.createElement('div')
 
   const intro = document.createElement('p')
@@ -240,10 +311,10 @@ export function createHardwareTab(machine: Machine, joy: JoyHost): HardwareTab {
 
   let last = ''
   const draw = (): void => {
-    const now = signature(machine, joy)
+    const now = signature(machine, host)
     if (now === last) return
     last = now
-    list.render(machine.hardware().map((slot) => rowFor(machine, joy, slot)))
+    list.render(machine.hardware().map((slot) => rowFor(machine, host, slot)))
   }
 
   draw()

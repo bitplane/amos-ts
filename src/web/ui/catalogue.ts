@@ -12,7 +12,9 @@
  */
 import { CTRL_GAMEPAD, CTRL_JOYSTICK, CTRL_MOUSE, Controller } from '../../amiga/controller'
 import type { Device, Slot } from '../../amiga/device'
+import { PaulaAudio } from '../../amiga/audio'
 import { BattClock } from '../../amiga/battclock'
+import { M68000, M68020, M68030, M68040 } from '../../amiga/cpu'
 import { Keyboard } from '../../amiga/keyboard'
 import { Mouse } from '../../amiga/mouse'
 import { FourPlayerAdaptor, Printer } from '../../amiga/parallel'
@@ -62,6 +64,19 @@ export interface Fitting {
    * gamepad only rather than dead.
    */
   keys?: JoyKeys
+  /**
+   * Ask the host for a real serial port instead of attaching directly.
+   *
+   * Web Serial's chooser needs a user gesture, which a running program has not
+   * got. Picking this from the row IS the gesture, which is why granting used
+   * to be a button on the emulator bar and no longer needs to be.
+   */
+  hostSerial?: boolean
+}
+
+/** what the page can offer, which is not the same on every browser */
+export interface CatalogueOptions {
+  serialSupported: boolean
 }
 
 /**
@@ -72,8 +87,20 @@ export interface Fitting {
  * way to empty it. Returning nothing at all for a fixed slot left the row with
  * no control, which reads as broken rather than as deliberate.
  */
-export function fittings(slot: Slot): Fitting[] {
+export function fittings(slot: Slot, opts: CatalogueOptions = { serialSupported: false }): Fitting[] {
   switch (slot.takes) {
+    case 'cpu':
+      // nothing here executes 68k, so these differ in name and clock rate and
+      // in nothing a program can observe. ../../amiga/cpu.ts says why that is
+      // a decision rather than a shortcut, and why the hierarchy exists now.
+      return [
+        { id: '68000', label: '68000', make: () => new M68000() },
+        { id: '68020', label: '68020', make: () => new M68020() },
+        { id: '68030', label: '68030', make: () => new M68030() },
+        { id: '68040', label: '68040', make: () => new M68040() },
+      ]
+    case 'audio':
+      return [{ id: 'paula', label: 'Paula', make: () => new PaulaAudio() }]
     case 'clock':
       return [{ id: 'a501', label: 'A501 battery clock', make: () => new BattClock() }]
     case 'gameport':
@@ -94,7 +121,24 @@ export function fittings(slot: Slot): Fitting[] {
         { id: 'printer', label: 'printer', make: () => new Printer() },
       ]
     case 'serial':
-      return [{ id: 'cable', label: 'serial cable', make: () => new SerialCable() }]
+      return [
+        // a cable with nothing on the far end. CIA-B's three handshake lines
+        // still read as connected, which is what a cable IS to the machine.
+        { id: 'cable', label: 'serial cable', make: () => new SerialCable() },
+        // hidden where there is no Web Serial (Firefox, Safari, mobile)
+        // rather than offered and failing, since nothing the user does there
+        // could help
+        ...(opts.serialSupported
+          ? [
+              {
+                id: 'webserial',
+                label: 'web serial port',
+                make: (): Device => new SerialCable('host serial port'),
+                hostSerial: true,
+              },
+            ]
+          : []),
+      ]
     case 'keyboard':
       // what supplies the keystrokes. A browser today; a shell or a script is
       // the same slot with something else on the ribbon.
@@ -120,6 +164,10 @@ export function currentFitting(slot: Slot, keys: JoyKeys): string {
     return dev.name === 'CD32 pad' ? `cd32-${driver}` : `joy-${driver}`
   }
   if (slot.takes === 'parallel') return dev.name === 'printer' ? 'printer' : 'fourplayer'
+  // the two serial entries build the same class and are told apart by the name
+  // the host gave it, which is the only thing that survives the attach
+  if (slot.takes === 'serial') return dev.name === 'host serial port' ? 'webserial' : 'cable'
+  if (slot.takes === 'cpu') return dev.name
   return fittings(slot)[0]?.id ?? ''
 }
 
@@ -139,6 +187,10 @@ export function iconFor(slot: Slot): string {
     return slot.id === 'mouse' || name === 'mouse' ? '🖱️' : '🕹️'
   }
   switch (slot.takes) {
+    case 'cpu':
+      return '🧠'
+    case 'audio':
+      return '🔊'
     case 'clock':
       return '⏰'
     case 'keyboard':

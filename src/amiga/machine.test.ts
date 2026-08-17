@@ -3,6 +3,7 @@ import { CIAF_GAMEPORT0, CIAF_GAMEPORT1, CIAF_PRTRSEL } from './cia'
 import { BTN_RED, CTRL_GAMEPAD, CTRL_MOUSE, CTRL_NONE, Controller } from './controller'
 import { fitted } from './device'
 import { Keyboard, keyboardSdr } from './keyboard'
+import { M68020, M68030 } from './cpu'
 import { Machine } from './machine'
 import { MOUSE_LEFT } from './mouse'
 import { FourPlayerAdaptor } from './parallel'
@@ -51,7 +52,10 @@ describe('the machine: what is plugged in', () => {
   it('lists every connector, and an empty one is an empty slot', () => {
     const m = new Machine()
     const ids = m.hardware().map((s) => s.id)
-    expect(ids).toEqual(['clock', 'keyboard', 'mouse', 'port0', 'port1', 'par', 'ser', 'df0', 'df1', 'df2', 'df3'])
+    expect(ids).toEqual([
+      'cpu', 'audio', 'clock', 'keyboard', 'mouse',
+      'port0', 'port1', 'par', 'ser', 'df0', 'df1', 'df2', 'df3',
+    ])
     // the two cables have nothing on them, which is what CIA-A PRB reading
     // $ff and CIA-B PRA reading $ff mean. The four drives ARE fitted, empty:
     // a drive is a slot and the disk is what goes in it.
@@ -59,6 +63,8 @@ describe('the machine: what is plugged in', () => {
     expect(m.drives.every((d) => d?.empty)).toBe(true)
     // a port autosenses to a one-button stick, so both come up occupied
     expect(m.hardware().filter(fitted).map((s) => s.device!.name)).toEqual([
+      '68000',
+      'Paula',
       'A501 battery clock',
       'keyboard',
       'mouse',
@@ -133,7 +139,9 @@ describe('the machine: attaching and detaching', () => {
 
   it('refuses the two that are fixed, and says so before being asked', () => {
     const m = new Machine()
-    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['clock', 'mouse'])
+    // fixed means "this machine does not run without one", so the chip rows
+    // are on the list and the keyboard, which is on a ribbon, is not
+    expect(m.hardware().filter((s) => s.fixed).map((s) => s.id)).toEqual(['cpu', 'audio', 'clock', 'mouse'])
     expect(m.detach('mouse')).toBeNull()
     expect(m.detach('clock')).toBeNull()
   })
@@ -211,5 +219,33 @@ describe('the machine: FIR0 is one pin with two devices on it', () => {
     m.ports[1].buttons = BTN_RED
     expect(m.cia.pra() & CIAF_GAMEPORT0).toBe(CIAF_GAMEPORT0)
     expect(m.cia.pra() & CIAF_GAMEPORT1).toBe(0)
+  })
+})
+
+describe('the machine: the two chip rows', () => {
+  it('swaps the processor without ever emptying the socket', () => {
+    // an accelerator is this slot with something else in it. `fixed` here
+    // means the machine does not run without one, not that it cannot change.
+    const m = new Machine()
+    expect(m.cpu.name).toBe('68000')
+    expect(m.attach('cpu', new M68020())).toBe(true)
+    expect(m.cpu.name).toBe('68020')
+    expect(m.detach('cpu')).toBeNull()
+    expect(m.cpu.name).toBe('68020')
+  })
+
+  it('carries the ignore-clock mode across a swap', () => {
+    // the mode belongs to the host's frame loop rather than to the chip, so
+    // changing chips must not quietly start pacing again
+    const m = new Machine()
+    m.cpu.ignoreClock = true
+    m.attach('cpu', new M68030())
+    expect(m.cpu.ignoreClock).toBe(true)
+  })
+
+  it('comes up as an A500 output stage, which is what AMOS was heard on', () => {
+    const m = new Machine()
+    expect(m.audio.model).toBe('a500')
+    expect(m.slot('audio')!.fixed).toBe(true)
   })
 })

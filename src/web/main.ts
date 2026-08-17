@@ -9,13 +9,13 @@
  */
 import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
+import type { AmigaAudioModel } from '../amiga/mixer'
 import { mountTabs } from './ui/tabs'
 import { createStrip } from './ui/strip'
 import { createHardwareTab } from './ui/hardware'
 import { createLibsTab } from './ui/libs'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
-const turboEl = document.getElementById('turbo') as HTMLInputElement
 
 // Which build the page is running. Small and out of the way, but it is the
 // only thing that distinguishes a fresh deploy from a CDN still handing out
@@ -160,27 +160,10 @@ fileEl.addEventListener('change', () => {
     void f.arrayBuffer().then((buf: ArrayBuffer) => receiveFile(f.name, new Uint8Array(buf), [], true))
   }
 })
-document.getElementById('restart')!.addEventListener('click', () => player.restart())
-
-// ---- serial ----
-// Web Serial's chooser needs a user gesture, which a running program has not
-// got — so granting is a button, and afterwards Serial Open finds the port on
-// its own. Hidden entirely where there is no Web Serial (Firefox, Safari,
-// mobile) rather than shown and failing, since nothing the user does there
-// could help.
-const serialEl = document.getElementById('serial') as HTMLButtonElement
-if (player.serialSupported) {
-  serialEl.hidden = false
-  serialEl.addEventListener('click', () => {
-    void player.requestSerialPort().then((ok) => {
-      serialEl.textContent = ok ? 'Serial port ✓' : 'Serial port…'
-      serialEl.title = ok
-        ? 'A port is granted. Serial Open will use it.'
-        : 'No port granted — Serial Open still works, on a port with nothing attached.'
-    })
-  })
-}
-turboEl.addEventListener('change', () => player.setTurbo(turboEl.checked))
+// The emulator bar is gone. Everything that was on it belongs to something
+// the page already lists: restart is the power light, turbo is a mode of the
+// CPU, the serial grant is what you attach to the serial port, and the file
+// picker sits with the filesystem.
 
 // ---- drag and drop (files, folders, zips) ----
 
@@ -381,6 +364,9 @@ function refreshFiles(): void {
                 if (!bytes) return
                 // run with the program's own directory current, like a disk boot
                 player.loadProgram(bytes, e.name, dir)
+                // and show it: a program started from the tree was otherwise
+                // running behind the panel you started it from
+                tabs.select('play')
               }
             : undefined,
           drag: full,
@@ -407,38 +393,65 @@ function refreshFiles(): void {
   }
 }
 
-// ---- what drives the gameports ----
-// Keyboard-to-joystick stays OFF unless asked for: a program that reads the
-// keyboard AND polls a joystick would otherwise see the same keypress twice.
-// The choice moved to the hardware tab, where the port it applies to is the
-// row you are already looking at. The player has a setter and no getter, so
-// the current mapping is remembered here.
+// ---- the half of the hardware that is the browser's ----
+// The gameport mappings and the Web Serial grant both live here rather than on
+// the machine, and both are chosen on the hardware tab now, on the row they
+// apply to. The player has setters and no getters, so the current state is
+// remembered alongside.
 const joyKeys: Record<0 | 1, JoyKeys> = { 0: 'none', 1: 'none' }
-const joy = {
+const host = {
   keys: (port: 0 | 1): JoyKeys => joyKeys[port],
   setKeys: (port: 0 | 1, keys: JoyKeys): void => {
     joyKeys[port] = keys
     player.setJoystick(port, keys)
   },
+  serialSupported: player.serialSupported,
+  requestSerial: (): void => {
+    void player.requestSerialPort().then((ok) => {
+      setStatus(ok ? 'serial port granted' : 'no serial port granted')
+    })
+  },
+  setIgnoreClock: (on: boolean): void => player.setTurbo(on),
+  setAudioModel: (model: AmigaAudioModel): void => player.setAudioModel(model),
 }
-joy.setKeys(0, 'none')
-joy.setKeys(1, 'none')
+
+// Port 1 comes up as a keyboard stick on the arrow keys, because it is what
+// `Joy(1)` reads and nearly every game polls it. The cost is real and known: a
+// program that reads the keyboard AND polls the joystick sees one keypress
+// twice, and the way out of that is the hardware tab, where port 1 can be a
+// gamepad stick or nothing at all.
+host.setKeys(0, 'none')
+host.setKeys(1, 'arrows')
 
 // ---- the tabs ----
 // Built last, because the strip and the hardware panel read the machine and
 // the machine belongs to the player.
 
-const strip = createStrip(player.machine)
+const strip = createStrip(player.machine, {
+  onReset: () => {
+    player.restart()
+    setStatus('reset')
+    tabs.select('play')
+  },
+})
 document.getElementById('strip-host')!.appendChild(strip.root)
 statusEl = strip.status
 statusEl.textContent = held
 
-const hardware = createHardwareTab(player.machine, joy)
+const hardware = createHardwareTab(player.machine, host)
 const libs = createLibsTab()
 document.getElementById('panels')!.append(hardware.panel, libs.panel)
 
 const tabs = mountTabs(document.getElementById('tabbar')!, [
-  { id: 'emulator', label: 'Emulator', panel: document.getElementById('panel-emulator')! },
+  {
+    id: 'play',
+    label: 'Play',
+    panel: document.getElementById('panel-emulator')!,
+    // the key handlers live on the player element and need focus, so a tab
+    // switch that did not take it left the arrows scrolling the page while a
+    // keyboard joystick sat there doing nothing
+    show: () => player.focus(),
+  },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
   { id: 'libs', label: 'Libs', panel: libs.panel },

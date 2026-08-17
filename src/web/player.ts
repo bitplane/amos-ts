@@ -50,6 +50,7 @@ import { systemClock } from '../amiga/host'
 import { Machine, type ResetKind } from '../amiga/machine'
 import { WebAudioSink } from './audio'
 import { MixerSink } from './mixersink'
+import type { AmigaAudioModel } from '../amiga/mixer'
 import { SerialCable } from '../amiga/serialport'
 import { WebSerialHost, available as serialAvailable } from './serial'
 
@@ -174,6 +175,8 @@ export interface Player {
   setJoystick(port: 0 | 1, keys: JoyKeys): void
   /** run flat out instead of at 50Hz — a development aid, not a feature */
   setTurbo(on: boolean): void
+  /** which board's fixed output filter, ../amiga/audio.ts */
+  setAudioModel(model: AmigaAudioModel): void
   /** supply the AMOS Pro resource bank once it has been fetched */
   setSystemResource(bytes: Uint8Array): void
   /** take the keyboard (what clicking on it does) */
@@ -185,6 +188,8 @@ export interface Player {
    * Resolves false where there is no Web Serial, or if the user dismissed
    * the chooser. Programs run without it get the modelled port.
    */
+  /** is a granted host port on the serial slot? */
+  serialGranted(): boolean
   requestSerialPort(): Promise<boolean>
   /** whether this browser has Web Serial at all (Chromium desktop, HTTPS) */
   readonly serialSupported: boolean
@@ -304,6 +309,18 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     if (has === (machine.serial !== null)) return
     if (has) machine.attach('ser', new SerialCable('host serial port'))
     else machine.detach('ser')
+  }
+
+  /**
+   * Whether a granted host port is on the slot.
+   *
+   * A host page drives the socket from its own hardware list now, so this only
+   * reports. It used to run every frame and put the cable back, which fought
+   * anyone choosing "nothing" on that row: the pick took, and a fiftieth of a
+   * second later the cable was in again.
+   */
+  function serialGranted(): boolean {
+    return serialHost.granted > 0
   }
 
   let error = ''
@@ -572,7 +589,6 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   function loop(now: number): void {
     if (!alive) return
     raf = requestAnimationFrame(loop)
-    syncSerialSlot()
     // Never catch up. The debt is capped at a single frame, so a hitch costs
     // time rather than being replayed at speed afterwards — running a burst
     // to clear a deficit is what throws a player across the screen.
@@ -641,6 +657,13 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     setTurbo(on: boolean): void {
       turbo = on
       acc = 0
+      // the machine's CPU is where the mode lives, so a hardware page reading
+      // `machine.cpu.ignoreClock` and this setter cannot disagree
+      machine.cpu.ignoreClock = on
+    },
+    setAudioModel(model: AmigaAudioModel): void {
+      machine.audio.model = model
+      if (audio instanceof MixerSink) audio.setModel(model)
     },
     setSystemResource(bytes: Uint8Array): void {
       systemResource = bytes
@@ -650,6 +673,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       container.focus()
     },
     serialSupported: serialAvailable(),
+    serialGranted,
     async requestSerialPort(): Promise<boolean> {
       const got = await serialHost.requestAccess()
       syncSerialSlot()

@@ -22,21 +22,17 @@
 
     <main class="wrap" id="panels">
       <div id="panel-emulator">
-        <div id="bar">
-          <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff,.adf" multiple />
-          <button class="act" id="restart">Restart</button>
-          <button class="act" id="serial" hidden title="Grant this page a serial port, so Serial Open reaches real hardware. Chromium only.">Serial port…</button>
-          <label><input type="checkbox" id="turbo" /> turbo</label>
-          <span class="hint">Sticks and what drives them are on the Hardware tab.</span>
-        </div>
         <div id="player"></div>
       </div>
 
       <div id="panel-files">
         <p class="panel-intro">
-          Drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page.
-          Drag a row onto a drawer to move it.
+          Drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page,
+          or pick them below. Drag a row onto a drawer to move it, and click a program to run it.
         </p>
+        <div id="filebar">
+          <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff,.adf" multiple />
+        </div>
         <div id="fstree"></div>
       </div>
     </main>

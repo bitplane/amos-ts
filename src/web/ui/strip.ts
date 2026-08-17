@@ -27,11 +27,23 @@ function led(label: string): HTMLElement {
   return el
 }
 
-export function createStrip(machine: Machine): Strip {
+export interface StripOptions {
+  /** what a click on the power light does */
+  onReset(): void
+}
+
+export function createStrip(machine: Machine, opts: StripOptions): Strip {
   const root = document.createElement('div')
   root.id = 'strip'
 
-  const power = led('power')
+  // the power light is the reset, because on the machine it was: the button
+  // beside it did this and the light is what told you it had happened
+  const power = document.createElement('button')
+  power.className = 'led power'
+  power.type = 'button'
+  power.textContent = 'power'
+  power.title = 'reset the machine'
+  power.addEventListener('click', opts.onReset)
   root.appendChild(power)
 
   const lights = machine.drives.map((_, unit) => {

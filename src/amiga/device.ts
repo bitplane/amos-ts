@@ -47,6 +47,17 @@ export type DeviceKind =
   | 'serial'
   /** the 25-pin parallel port, on CIA-A port B */
   | 'parallel'
+  /**
+   * The processor.
+   *
+   * Not a connector on any Amiga worth arguing about, but a fitted part all
+   * the same, and people did swap them: an accelerator in the trapdoor is
+   * exactly this slot with something else in it. A `takes` of `cpu` is what
+   * stops a floppy going there.
+   */
+  | 'cpu'
+  /** Paula's audio half and the analog stage after it */
+  | 'audio'
 
 export interface Device {
   /** which connector it fits. A mouse and a joystick are both `gameport`. */

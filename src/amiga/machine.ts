@@ -135,8 +135,10 @@
  * `hardware()` rather than being told. That is enough for a frame loop and it
  * is guessing at the shape for anything else.
  */
+import { PaulaAudio } from './audio'
 import { BattClock } from './battclock'
 import { CiaA, CiaB } from './cia'
+import { Cpu, M68000 } from './cpu'
 import { BTN_RED, CTRL_NONE, Controller, controllerDevice, newController } from './controller'
 import type { Device, Slot } from './device'
 import { joyDatOf, potgor } from './gameport'
@@ -266,6 +268,18 @@ export class Machine {
   /** what is on the serial port, or null for an empty connector */
   serial: SerialDevice | null = null
 
+  /**
+   * The processor.
+   *
+   * Never null: a machine with no CPU is not a machine with a part missing. It
+   * executes nothing here, and ./cpu.ts says at length why that is a decision
+   * rather than an omission.
+   */
+  cpu: Cpu = new M68000()
+
+  /** Paula's audio half, and which model's analog stage is after it */
+  readonly audio = new PaulaAudio()
+
   constructor() {
     this.wireKeyboard(this.keyboard)
   }
@@ -329,6 +343,8 @@ export class Machine {
    */
   hardware(): Slot[] {
     return [
+      { id: 'cpu', label: 'processor', takes: 'cpu', device: this.cpu, fixed: true },
+      { id: 'audio', label: 'audio', takes: 'audio', device: this.audio, fixed: true },
       { id: 'clock', label: 'battery clock', takes: 'clock', device: this.battclock, fixed: true },
       { id: 'keyboard', label: 'keyboard', takes: 'keyboard', device: this.keyboard, fixed: false },
       // `mouse` and `port0` are one nine-pin connector on the machine and two
@@ -376,9 +392,14 @@ export class Machine {
   /**
    * Put a device in a connector.
    *
-   * False when there is no such connector, when it is one of the three that
-   * cannot be changed, or when the device does not fit — a `takes` of
-   * `floppy` will not accept a mouse, which is the point of the field.
+   * False when there is no such connector, or when the device does not fit —
+   * a `takes` of `floppy` will not accept a mouse, which is the point of the
+   * field.
+   *
+   * `Slot.fixed` is NOT checked here, and that is the difference between the
+   * two verbs. Fixed means the socket cannot be EMPTIED, not that it cannot be
+   * changed: an accelerator is the processor slot with a different chip in it,
+   * and refusing that would be modelling a machine nobody sold.
    * Attaching to an occupied socket REPLACES what was there, because
    * swapping a joystick for a pad is one action on the page and should not
    * need two calls.
@@ -389,7 +410,7 @@ export class Machine {
    */
   attach(id: string, device: Device): boolean {
     const slot = this.slot(id)
-    if (!slot || slot.fixed || device.kind !== slot.takes) return false
+    if (!slot || device.kind !== slot.takes) return false
     if (id === 'port0' || id === 'port1') {
       if (!(device instanceof Controller)) return false
       this.ports[id === 'port0' ? 0 : 1] = device
@@ -408,6 +429,14 @@ export class Machine {
     if (id === 'keyboard') {
       if (!(device instanceof Keyboard)) return false
       this.wireKeyboard(device)
+      return true
+    }
+    // fixed, so `slot.fixed` above has already refused a detach; swapping the
+    // chip for another is still allowed, which is what an accelerator is
+    if (id === 'cpu') {
+      if (!(device instanceof Cpu)) return false
+      device.ignoreClock = this.cpu.ignoreClock
+      this.cpu = device
       return true
     }
     const unit = driveUnit(id)

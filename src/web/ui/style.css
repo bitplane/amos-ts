@@ -195,6 +195,26 @@ a {
   opacity: 0.35;
 }
 
+/* the power light is a button: it resets, which is what the one beside it did */
+button.led {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 0;
+  cursor: pointer;
+}
+
+button.led:hover {
+  color: var(--accent);
+}
+
+button.led:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 #strip .spacer {
   margin-left: auto;
 }
@@ -498,6 +518,51 @@ select.act option {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.field-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--faint);
+  opacity: 0.8;
+}
+
+.field input[type='checkbox'] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* the file picker, which now lives with the filesystem */
+#filebar {
+  margin-bottom: 0.8rem;
+}
+
+#filebar input[type='file'] {
+  font: inherit;
+  font-size: var(--fs-label);
+  color: var(--dim);
+}
+
+#filebar input[type='file']::file-selector-button {
+  font: inherit;
+  font-size: var(--fs-label);
+  background: var(--raised);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.15rem 0.6rem;
+  margin-right: 0.6rem;
+  cursor: pointer;
+}
+
+#filebar input[type='file']::file-selector-button:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
 }
 
 body.dragging {

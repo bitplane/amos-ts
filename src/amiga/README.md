@@ -165,6 +165,8 @@ really does differ from the real one and saying where is the whole job.
 | `speak.ts` | `SPEAK:`, the speech handler. MODELLED, see its own header |
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
+| `cpu.ts` | the processor as an identity and a clock rate; nothing here executes 68k |
+| `audio.ts` | Paula's audio half, and which board's fixed output filter is after it |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
 | `patternlib.ts` | `pattern.library` 5.00, a THIRD pattern grammar and not `dospattern`'s |
 | `xpkmaster.ts` | `xpkmaster.library` 2.2: the XPK container, and one compressor |

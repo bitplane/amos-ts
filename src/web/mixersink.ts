@@ -32,7 +32,7 @@
  * types. The processor source is a string in this bundle and becomes a Blob
  * URL at unlock, which needs neither.
  */
-import { PaulaMixer } from '../amiga/mixer'
+import { PaulaMixer, type AmigaAudioModel } from '../amiga/mixer'
 import type { AudioSink } from '../amiga/paula'
 import { WebAudioSink } from './audio'
 
@@ -192,6 +192,20 @@ export class MixerSink implements AudioSink {
   private ctx: AudioContext | null = null
   private node: AudioWorkletNode | null = null
   private mixer: PaulaMixer | null = null
+
+  /**
+   * Which board's output stage, kept here as well as on the mixer.
+   *
+   * The mixer does not exist until the worklet starts, and a host can choose
+   * the model before that, so the choice is remembered and applied when the
+   * mixer appears. See ../amiga/audio.ts for what the setting means.
+   */
+  private audioModel: AmigaAudioModel = 'a500'
+
+  setModel(model: AmigaAudioModel): void {
+    this.audioModel = model
+    this.mixer?.setModel(model)
+  }
   private queue: AudioQueue | null = null
   private fallback: WebAudioSink | null = null
   private starting = false
@@ -234,7 +248,7 @@ export class MixerSink implements AudioSink {
       node.port.postMessage({ gain: MASTER_GAIN })
       node.connect(ctx.destination)
       // the mixer runs at the DEVICE's rate, which is 48000 as often as 44100
-      this.mixer = new PaulaMixer({ rate: ctx.sampleRate, onBlock: (b) => this.push(b) })
+      this.mixer = new PaulaMixer({ rate: ctx.sampleRate, model: this.audioModel, onBlock: (b) => this.push(b) })
       this.queue = new AudioQueue(ctx.sampleRate)
       this.node = node
       this.ctx = ctx
