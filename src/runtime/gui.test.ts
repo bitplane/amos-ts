@@ -16,7 +16,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_TITLE_MAX, guiScale } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
@@ -1201,5 +1201,140 @@ describeWith('the public screen group', exampleBank(), (bank) => {
   it('Gui Pub Mode raises with no screens open, and Gui Pub Check answers 0', () => {
     expect(() => run('Gui Pub Mode 1,0', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
     expect(runOut('Print Gui Pub Check(1)', bank).out.trim()).toBe('0')
+  })
+})
+
+/**
+ * The screen group. These raise no pixels, for the same reason the windows do
+ * not; what is here is the geometry, the mode and the names every other
+ * keyword in the group reads back.
+ */
+describeWith('the screen group', exampleBank(), (bank) => {
+  const open = 'Gui Screen Open 1,640,256,16,$8000,"Test"'
+
+  /**
+   * The four size functions take NO argument and read the current screen,
+   * which their specs say too: a bare `0`.
+   */
+  it('opens one and answers about it as the current screen', () => {
+    const got = runOut(
+      `${open} : Print Gui Screen Width : Print Gui Screen Height : Print Gui Screen Depth : Print Gui Screen Colours`,
+      bank,
+    ).out
+    expect(got.trim().split('\n').map(Number)).toEqual([640, 256, 4, 16])
+  })
+
+  /**
+   * $4fa4 adds PAL_MONITOR_ID to any ModeID below $10000 on Kickstart 39 and
+   * up, so graphics.library's bare HIRES_KEY opens a PAL hires screen rather
+   * than failing.
+   */
+  it('turns a bare display key into a PAL mode', () => {
+    const rt = run(open, bank)
+    expect(rt.gui.screens.get(1)!.modeID).toBe(0x21000 + 0x8000)
+    // one that already names a monitor is left alone
+    const dblpal = run('Gui Screen Open 1,640,256,4,$A9004,"x"', bank)
+    expect(dblpal.gui.screens.get(1)!.modeID).toBe(0xa9004)
+  })
+
+  /**
+   * The colours become a depth by rotating right until bit 0 comes up set,
+   * which is a logarithm only for a power of two. Twelve colours quietly
+   * become two planes and four.
+   */
+  it('turns colours into planes by the rotate, not by a logarithm', () => {
+    for (const [colours, depth] of [[2, 1], [16, 4], [256, 8], [12, 2], [0, 2]] as const) {
+      const rt = run(`Gui Screen Open 1,320,200,${colours},0,"x"`, bank)
+      expect(rt.gui.screens.get(1)!.depth, `${colours} colours`).toBe(depth)
+    }
+  })
+
+  it('refuses screen number 0, and refuses a number twice', () => {
+    expect(() => run('Gui Screen Open 0,320,200,4,0,"x"', bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
+    expect(() => run(`${open} : ${open}`, bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_ALREADY_OPEN])
+  })
+
+  it('takes the font form too, which is the second of its two syntaxes', () => {
+    const rt = run('Gui Screen Open 1,640,256,4,0,"Test","topaz.font",11', bank)
+    const sc = rt.gui.screens.get(1)!
+    expect([sc.name, sc.fontName, sc.fontSize]).toEqual(['Test', 'topaz.font', 11])
+  })
+
+  /**
+   * "The opened screen became the current screen... if you've previously
+   * locked a public screen, it will be automatically unlocked", $5150.
+   */
+  it('opening a screen drops a public screen lock', () => {
+    const rt = run(`A=Gui Pub Screen("Workbench") : ${open}`, bank)
+    expect(rt.gui.pubLock).toBe(0)
+    expect(rt.gui.current!.number).toBe(1)
+  })
+
+  /** and a lock makes the Workbench current, because $2b0a writes `$1d2` too */
+  it('locking a public screen makes it the current one, and freeing puts it back', () => {
+    const locked = runOut(`${open} : A=Gui Pub Screen("Workbench") : Print Gui Screen Width`, bank).out
+    expect(Number(locked.trim())).toBe(640)
+    const rt = run(`Gui Screen Open 1,320,200,4,0,"x" : A=Gui Pub Screen("Workbench") : Gui Pub Free`, bank)
+    expect(rt.gui.current!.number).toBe(1)
+    expect(runOut('Gui Screen Open 1,320,200,4,0,"x" : A=Gui Pub Screen("Workbench") : Gui Pub Free : Print Gui Screen Width', bank).out.trim()).toBe('320')
+  })
+
+  it('answers Screen not opened with no screen and no lock', () => {
+    for (const kw of ['Print Gui Screen Width', 'Print Gui Screen Height', 'Print Gui Screen Depth', 'Print Gui Screen Colours']) {
+      expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+    }
+    expect(() => run('Print Gui Screen Base(1)', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+    expect(() => run('Gui Screen Close 1', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+  })
+
+  /**
+   * THREE arguments and the last two are absolute, against the guide's
+   * `Gui Screen Move deltaX,deltaY`. $39cc subtracts the screen's own
+   * LeftEdge and TopEdge before calling MoveScreen, which is the one that
+   * takes deltas.
+   */
+  it('Gui Screen Move takes a screen and a position, not two deltas', () => {
+    const rt = run(`${open} : Gui Screen Move 1,10,20 : Gui Screen Move 1,30,40`, bank)
+    const sc = rt.gui.screens.get(1)!
+    expect([sc.left, sc.top]).toEqual([30, 40])
+  })
+
+  /**
+   * DEFECT: $3892 passes error 15, "Screen already open", on a path that
+   * fails because the number is free. Every other screen lookup passes 17.
+   */
+  it('Gui Show Title raises the wrong error for a screen that is not there', () => {
+    expect(() => run('Gui Show Title 9,0', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_ALREADY_OPEN])
+    const rt = run(`${open} : Gui Show Title 1,0`, bank)
+    expect(rt.gui.screens.get(1)!.showTitle).toBe(false)
+  })
+
+  /** "By default the screen is set to private state" */
+  it('a screen opens private, and Gui Pub Mode changes it', () => {
+    expect(run(open, bank).gui.screens.get(1)!.isPublic).toBe(false)
+    expect(run(`${open} : Gui Pub Mode 1,1`, bank).gui.screens.get(1)!.isPublic).toBe(true)
+    expect(run(`${open} : Gui Pub Mode 1,1 : Gui Pub Mode 1,0`, bank).gui.screens.get(1)!.isPublic).toBe(false)
+  })
+
+  it('closing a screen forgets it and leaves no current one', () => {
+    const rt = run(`${open} : Gui Screen Close 1`, bank)
+    expect(rt.gui.screens.size).toBe(0)
+    expect(rt.gui.current).toBeNull()
+  })
+
+  /** each nibble times $11, packed as $00RRGGBB */
+  it('Gui Aga expands a 12-bit colour to 24', () => {
+    const got = runOut('Print Gui Aga($FFF) : Print Gui Aga($000) : Print Gui Aga($F80) : Print Gui Aga($08F)', bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([0xffffff, 0, 0xff8800, 0x0088ff])
+  })
+
+  it('Gui Os is the version every other version test here compares against', () => {
+    expect(Number(runOut('Print Gui Os', bank).out.trim())).toBe(GUI_OS_VERSION)
+    expect(GUI_OS_VERSION).toBeGreaterThanOrEqual(39)
+  })
+
+  /** ModeNotAvailable plus one, and this port has no display database */
+  it('Gui Monitor answers available for everything', () => {
+    expect(runOut('Print Gui Monitor($A9004)', bank).out.trim()).toBe('1')
   })
 })

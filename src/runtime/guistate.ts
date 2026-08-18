@@ -160,6 +160,66 @@ export const GUI_ZONE_SIZE = 8
  */
 export const PUB_SCREENS: readonly string[] = ['Workbench']
 
+/**
+ * What `Gui Os` answers, `$18a` of the extension's state.
+ *
+ * Nothing else in this port declares a Kickstart version. 40 is 3.1, which is
+ * the release `../amiga/exec.ts` already dates `lowlevel.library` to, and it
+ * is above the 39 `Gui Screen Open` tests for at $4f88 -- so this port takes
+ * the modern branch of every version test the extension makes.
+ */
+export const GUI_OS_VERSION = 40
+
+/**
+ * PAL_MONITOR_ID, which `Gui Screen Open` adds to a bare display key.
+ *
+ * $4fa4 is `addi.l #$21000,d3` on any ModeID below $10000, so passing $8000
+ * -- graphics.library's HIRES_KEY -- opens a PAL hires screen rather than
+ * failing. On a machine below OS 39 the same test refuses anything $21000 or
+ * above instead, at $4f90.
+ */
+export const PAL_MONITOR_ID = 0x0002_1000
+
+/** one screen `Gui Screen Open` made */
+export interface GuiScreen {
+  number: number
+  width: number
+  height: number
+  /** worked out from the colours asked for; see `depthForColours` */
+  depth: number
+  modeID: number
+  name: string
+  fontName: string
+  fontSize: number
+  left: number
+  top: number
+  /** `Gui Show Title`, and screens open with one */
+  showTitle: boolean
+  /** `Gui Pub Mode`: false is PRIVATE, which is what a screen opens as */
+  isPublic: boolean
+}
+
+/**
+ * How many bitplanes a colour count asks for, $4faa:
+ *
+ *     tst.l d2 / bgt .n / moveq #$4,d2
+ *     .n: ror.l #$1,d2 / addq.l #$1,d4 / btst.b #$0,d2 / beq .n
+ *
+ * It rotates right until bit 0 comes up set, counting the rotations. For a
+ * power of two that is the log, which is what a caller means. For anything
+ * else it is the position of the LOWEST set bit above bit 0, so 12 colours
+ * quietly become 2 planes and 4 colours. Zero or less is taken as 4.
+ */
+export function depthForColours(colours: number): number {
+  let v = (colours > 0 ? colours : 4) >>> 0
+  let n = 0
+  do {
+    v = ((v >>> 1) | (v << 31)) >>> 0
+    n++
+  } while ((v & 1) === 0 && n < 32)
+  return n
+}
+
 /** one detection zone, as `Gui Set Zone` writes it */
 export interface GuiZone {
   x1: number
@@ -282,6 +342,14 @@ export interface GuiWindow {
    * has to keep reporting that after a raise.
    */
   depth: number
+  /**
+   * Which GUI screen it opened on, or 0 for the Workbench.
+   *
+   * A window opens on `$1d2`, the current screen, which `Gui Screen Open` and
+   * `Gui Pub Screen` both set. `Gui Pub Check` counts what is on a screen by
+   * walking `Screen.FirstWindow`, and this is what stands in for that chain.
+   */
+  screen: number
   /** `Gui Titles`, and what `Gui Title$` reads back */
   title: string
   /** the second half of the same keyword, the screen's title while this window has it */
@@ -453,6 +521,31 @@ export class GuiState {
    * the program having counted anything.
    */
   pubListAt = -1
+  /**
+   * `Gui Screen Open`'s screens, by the number a program gave them.
+   *
+   * DEVIATION: they raise no pixels, for the same reason the windows do not.
+   * What is here is the geometry, the mode and the names, which is what every
+   * other keyword in the group reads back.
+   */
+  readonly screens = new Map<number, GuiScreen>()
+  /**
+   * `$1d2`, the CURRENT screen: whichever was opened or locked last.
+   *
+   * One longword serves both halves. `Gui Screen Open` writes it at the end
+   * of routine 232 and `Gui Pub Screen` writes it at $2b0a, so `Gui Screen
+   * Width` answers about a locked public screen just as readily as about one
+   * this program opened.
+   */
+  current: GuiScreen | null = null
+  /**
+   * `$1ca`, the last screen this program OPENED, which `Gui Pub Free` puts
+   * back into `$1d2` at $2b2a.
+   *
+   * So freeing a public screen lock does not leave the extension with no
+   * current screen; it leaves it with the one before the lock.
+   */
+  beforeLock: GuiScreen | null = null
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**
@@ -587,6 +680,7 @@ export class GuiState {
       rmb: true,
       topaz: !this.sensitive,
       depth: ++this.depthTop,
+      screen: this.current?.number ?? 0,
       title: design.title,
       screenTitle: design.screenName,
       mouseQueue: DEFAULT_MOUSE_QUEUE,

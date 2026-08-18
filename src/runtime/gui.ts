@@ -24,12 +24,13 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_TITLE_MAX, GuiState, PUB_SCREENS, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import type { GuiScreen } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import { TITLE_HEIGHT, WB_DEPTH, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 
 export function newGuiState(): GuiState {
@@ -103,6 +104,7 @@ export const GUI_ERR = {
   ILLEGAL_NUMBER_OF_ZONES: 33,
   ILLEGAL_FUNCTION_CALL: 34,
   ILLEGAL_SCREEN_PARAMETER: 14,
+  SCREEN_ALREADY_OPEN: 15,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -240,6 +242,48 @@ function sensitiveY(g: GuiState, win: number, v: number): number {
 }
 
 /**
+ * A GUI screen by its number, or "Screen not opened".
+ *
+ * Routine 259 at $7656 walks the list comparing `$c` of each record and
+ * answers 0 for a number it cannot find AND for any negative one, which it
+ * rejects at $765a before it looks. Every caller but two turns that 0 into
+ * error 17.
+ */
+function screenOf(g: GuiState, n: number): GuiScreen {
+  return g.screens.get(n) ?? guiError(GUI_ERR.SCREEN_NOT_OPENED)
+}
+
+/**
+ * The Workbench as one of these, which is what a `Gui Pub Screen` lock on it
+ * makes current.
+ *
+ * Number 0 so it can never collide with one `Gui Screen Open` made -- $217e
+ * refuses that number outright -- and hires 640x256x2, the same figures
+ * `../amiga/intuition.ts` opens its Workbench with.
+ */
+function workbenchScreen(): GuiScreen {
+  return {
+    number: 0,
+    width: WB_WIDTH,
+    height: WB_HEIGHT,
+    depth: WB_DEPTH,
+    modeID: PAL_MONITOR_ID | 0x8000,
+    name: 'Workbench',
+    fontName: '',
+    fontSize: 0,
+    left: 0,
+    top: 0,
+    showTitle: true,
+    isPublic: true,
+  }
+}
+
+/** the current screen, `$1d2`, or "Screen not opened" */
+function currentScreen(g: GuiState): GuiScreen {
+  return g.current ?? guiError(GUI_ERR.SCREEN_NOT_OPENED)
+}
+
+/**
  * The pointer in Workbench screen coordinates.
  *
  * `Gui Mouse X` reads `$12` of the Screen at `$1d2` and `Gui Mouse Y` reads
@@ -254,10 +298,12 @@ function sensitiveY(g: GuiState, win: number, v: number): number {
  * intuition does not let the pointer leave it and a program reading a
  * negative MouseX would be reading something the machine cannot produce.
  */
-function screenMouse(it: Interp): [number, number] {
+function screenMouse(it: Interp, g: GuiState): [number, number] {
   const x = (it.inp.mouseX - 128) * 2
   const y = it.inp.mouseY - WB_DISPLAY_Y
-  return [Math.max(0, Math.min(WB_WIDTH - 1, x)), Math.max(0, Math.min(WB_HEIGHT - 1, y))]
+  const w = g.current?.width ?? WB_WIDTH
+  const h = g.current?.height ?? WB_HEIGHT
+  return [Math.max(0, Math.min(w - 1, x)), Math.max(0, Math.min(h - 1, y))]
 }
 
 /**
@@ -816,8 +862,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui pub free': () => {
       const g = s()
+      if (g.pubLock === 0) return
       g.pubLock = 0
       g.pubName = ''
+      g.current = g.beforeLock
+      g.beforeLock = null
     },
 
     /**
@@ -878,10 +927,134 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * with `Gui Screen Open` not built every number is "Screen not opened".
      */
     'gui pub mode': (it) => {
-      it.evalInt()
+      const g = s()
+      const screen = screenOf(g, it.evalInt())
       it.expect(',')
-      it.evalInt()
-      guiError(GUI_ERR.SCREEN_NOT_OPENED)
+      screen.isPublic = it.evalInt() !== 0
+    },
+
+    /**
+     * `Gui Screen Open number,width,height,colours,ModeID,name$[,font$,size]`
+     * — "Opens an OS public screen, with the specified ModeID and name."
+     *
+     * The ModeID is fixed up on the way, and which way depends on the
+     * Kickstart: $4f88 compares `Gui Os` with 39, and above that anything
+     * below $10000 gets PAL_MONITOR_ID added at $4fa4 -- so passing $8000,
+     * graphics.library's bare HIRES_KEY, opens a PAL hires screen. Below 39
+     * the same test refuses a ModeID of $21000 or more outright.
+     *
+     * The colours become a depth by the rotate at $4faa, which is not a
+     * logarithm: see `depthForColours`.
+     *
+     * "The opened screen became the current screen... if you've previously
+     * locked a public screen, it will be automatically unlocked", which is
+     * $5150. "By default the screen is set to private state."
+     */
+    'gui screen open': (it) => {
+      const g = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      it.expect(',')
+      const colours = it.evalInt()
+      it.expect(',')
+      let modeID = it.evalInt()
+      it.expect(',')
+      const name = str(it.evalExpr())
+      let fontName = ''
+      let fontSize = 0
+      if (it.accept(',')) {
+        fontName = str(it.evalExpr())
+        it.expect(',')
+        fontSize = it.evalInt()
+      }
+      // $217e: the screen NUMBER is the only argument checked before the work
+      if (n === 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      if (GUI_OS_VERSION >= 39) {
+        if (modeID < 0x1_0000) modeID += PAL_MONITOR_ID
+      } else if (modeID >= PAL_MONITOR_ID) {
+        guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      }
+      // $4fd2: routine 259 again, and finding one is the error this time
+      if (g.screens.has(n)) guiError(GUI_ERR.SCREEN_ALREADY_OPEN)
+      const screen: GuiScreen = {
+        number: n,
+        width,
+        height,
+        depth: depthForColours(colours),
+        modeID,
+        name,
+        fontName,
+        fontSize,
+        left: 0,
+        top: 0,
+        showTitle: true,
+        isPublic: false,
+      }
+      g.screens.set(n, screen)
+      g.current = screen
+      g.pubLock = 0
+      g.pubName = ''
+    },
+
+    /**
+     * `Gui Screen Close number` — "If there are some windows opened on the
+     * screen, they will be automatically closed."
+     *
+     * "Screen not opened" for a number that names none, which routine 233
+     * raises with `moveq #$11,d7` before it does anything else.
+     */
+    'gui screen close': (it) => {
+      const g = s()
+      const screen = screenOf(g, it.evalInt())
+      g.screens.delete(screen.number)
+      if (g.current === screen) g.current = null
+    },
+
+    /**
+     * `Gui Screen Move screen,x,y`.
+     *
+     * THREE arguments, and the last two are absolute. The guide says
+     * `Gui Screen Move deltaX,deltaY` and "moves the screen by the specified
+     * pixels increments"; the token table's spec is `I0,0,0` and $39cc
+     * subtracts `Screen.LeftEdge` and `TopEdge` from what it was given before
+     * handing the difference to MoveScreen, which is the call that takes
+     * deltas. So this moves a screen TO a position, not BY one.
+     *
+     * "If the DeltaX and DeltaY variables you specify would move the screen
+     * in a way that violates any system restriction, the screen will be moved
+     * as far as possible" -- that clamp is intuition's and is not modelled,
+     * because nothing here displays a screen to clamp against.
+     */
+    'gui screen move': (it) => {
+      const g = s()
+      const screen = screenOf(g, it.evalInt())
+      it.expect(',')
+      screen.left = it.evalInt()
+      it.expect(',')
+      screen.top = it.evalInt()
+    },
+
+    /**
+     * `Gui Show Title screen,mode` — "Show/Hide the title bar of the
+     * specified screen ... If you hide the title bar, you can't drag the
+     * screen!"
+     *
+     * DEFECT: the wrong error. $3892 is `moveq #$f,d7` before the screen
+     * lookup, and 15 is "Screen already open" -- the message for a number
+     * that is taken, on a path that fails because the number is FREE. Every
+     * other keyword that looks a screen up passes 17.
+     */
+    'gui show title': (it) => {
+      const g = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const mode = it.evalInt()
+      const screen = g.screens.get(n)
+      if (screen === undefined) guiError(GUI_ERR.SCREEN_ALREADY_OPEN)
+      screen.showTitle = mode !== 0
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -1357,8 +1530,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `A=Gui Mouse X` and `A=Gui Mouse Y` — "the screen coordinates of the
      * mouse". See `screenMouse` for what stands in for the screen here.
      */
-    'gui mouse x': (it): Value => VI(screenMouse(it)[0]),
-    'gui mouse y': (it): Value => VI(screenMouse(it)[1]),
+    'gui mouse x': (it): Value => VI(screenMouse(it, s())[0]),
+    'gui mouse y': (it): Value => VI(screenMouse(it, s())[1]),
 
     /**
      * `A=Gui Mouse Wx` and `Wy` — the same, less the window's own corner.
@@ -1372,12 +1545,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * everything else drawing-shaped raises "Gfx output not defined".
      */
     'gui mouse wx': (it): Value => {
-      const w = target(s()) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
-      return VI(screenMouse(it)[0] - w.left)
+      const g = s()
+      const w = target(g) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      return VI(screenMouse(it, g)[0] - w.left)
     },
     'gui mouse wy': (it): Value => {
-      const w = target(s()) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
-      return VI(screenMouse(it)[1] - w.top)
+      const g = s()
+      const w = target(g) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      return VI(screenMouse(it, g)[1] - w.top)
     },
 
     /**
@@ -1593,6 +1768,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (!PUB_SCREENS.includes(name)) return VI(0)
       g.pubName = name
       g.pubLock = PUB_SCREENS.indexOf(name) + 1
+      // $2b0a stores the lock in `$1d2` as well, so the locked screen becomes
+      // the one `Gui Screen Width` and `Gui Mouse X` answer about
+      g.beforeLock = g.current
+      g.current = workbenchScreen()
       return VI(g.pubLock)
     },
 
@@ -1637,7 +1816,87 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * Zero for a screen that does not exist, which is not an error: routine
      * 259 answers 0 and $49ea takes the count with it.
      */
-    'gui pub check': (): Value => VI(0),
+    'gui pub check': (_, a): Value => {
+      const g = s()
+      const screen = g.screens.get(int(a[0]!))
+      if (screen === undefined) return VI(0)
+      return VI(Math.max(0, [...g.windows.values()].filter((w) => w.screen === screen.number).length - 1))
+    },
+
+    /**
+     * `A=Gui Screen Width` and `Gui Screen Height` — the CURRENT screen's,
+     * with no argument.
+     *
+     * All four of these read `$1d2` rather than taking a number, which their
+     * specs say too: a bare `0`. So they answer about whichever screen was
+     * opened or locked last, and "Screen not opened" when there has been
+     * neither. `Screen.Width` is at `$c` and `Height` at `$e`.
+     */
+    'gui screen width': (): Value => VI(currentScreen(s()).width),
+    'gui screen height': (): Value => VI(currentScreen(s()).height),
+
+    /**
+     * `A=Gui Screen Depth` — the bitplane count, read out of the BitMap
+     * rather than remembered: $2fe4 walks `Screen + $54` to the RastPort,
+     * `$4` of that to the BitMap and `$5` of that to Depth.
+     */
+    'gui screen depth': (): Value => VI(currentScreen(s()).depth),
+
+    /**
+     * `A=Gui Screen Colours` — 1 shifted left by that same depth, built by
+     * the `rol.l #$1` loop at $2d3c rather than by a table.
+     */
+    'gui screen colours': (): Value => VI(1 << currentScreen(s()).depth),
+
+    /**
+     * `V=Gui Screen Base(screen)` — "the start address in memory of the
+     * screen structure, so you can access directly to its informations".
+     *
+     * This one DOES take a number, and it is the Screen pointer routine 259
+     * found. DEVIATION: nothing here has an address, and the guide's own next
+     * sentence says what a program is expected to do with it -- "Don't modify
+     * it if you don't know what are you doing!" -- so this answers a number
+     * that is non-zero and stable for a screen and nothing more.
+     */
+    'gui screen base': (_, a): Value => VI(0x10_0000 + screenOf(s(), int(a[0]!)).number),
+
+    /**
+     * `A=Gui Monitor(modeID)` — "checks the specified monitor ID for its
+     * existence ... A=Gui Monitor($A9004)".
+     *
+     * graphics.library's ModeNotAvailable (-$31e), plus one. That call
+     * answers 0 when the mode is there and a NEGATIVE error code when it is
+     * not -- DI_AVAIL_NOMONITOR is -2 -- so the guide's "if the monitor is
+     * available, then the result returned will be 1, else it will be 0" is
+     * right about the 1 and wrong about the 0: an absent mode answers -1 or
+     * lower.
+     *
+     * DEVIATION: this port has no display database. Every mode answers
+     * available, which is the 1.
+     */
+    'gui monitor': (): Value => VI(1),
+
+    /**
+     * `A=Gui Aga(colour palette)` — "Convert an 8-bit palette value into AGA
+     * 32-bit."
+     *
+     * Each nibble of an AMOS $RGB colour times $11, so $f becomes $ff, packed
+     * back as $00RRGGBB by the three `move.b` and four rotates at $3a18.
+     *
+     * The top byte is never written. d5 goes into that sequence carrying
+     * whatever the interpreter last left in it, its byte 3 comes out at bits
+     * 24 to 31, and nothing clears it -- so on the machine the answer's high
+     * byte is register litter. This port has no litter to reproduce and
+     * answers with it zero.
+     */
+    'gui aga': (_, a): Value => {
+      const c = int(a[0]!)
+      const ch = (n: number): number => ((c >> n) & 0xf) * 0x11
+      return VI((ch(8) << 16) | (ch(4) << 8) | ch(0))
+    },
+
+    /** `A=Gui Os` — "the operating system version number", `$18a` */
+    'gui os': (): Value => VI(GUI_OS_VERSION),
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
