@@ -138,6 +138,26 @@ export const GUI_CENTRE_X = 1
 export const GUI_CENTRE_Y = 2
 
 /**
+ * What `Gui Reserve Zone` will take, `cmpi.l #$1388,d2` at $4082.
+ *
+ * The guide says otherwise: "There is no limit to the number of zones, except
+ * the amount of free memory." Five thousand is the limit, and asking for
+ * 5,001 is "Illegal number of zones".
+ */
+export const GUI_MAX_ZONES = 5000
+
+/** eight bytes a zone, `mulu.w #$8,d2`: four words, x, y, x1, y1 */
+export const GUI_ZONE_SIZE = 8
+
+/** one detection zone, as `Gui Set Zone` writes it */
+export interface GuiZone {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+/**
  * The font-sensitive scale, routines 41 and 42 at $21b4 and $21ca:
  *
  *     mulu.w $294(a0),d0 / addq.w #$4,d0 / divu.w #$8,d0
@@ -390,6 +410,18 @@ export class GuiState {
   iconifyGadget = 0
   /** how many times `Gui Beep` has been asked for; see the keyword */
   beeps = 0
+  /**
+   * `Gui Reserve Zone`'s blocks, by WINDOW NUMBER rather than by window.
+   *
+   * "When you close a window the zones ARE NOT erased! When you reopen the
+   * window the zones are already there so you don't need to redifine them!",
+   * which the guide says twice and which is the whole reason `Gui Free Zone`
+   * exists. The block hangs off `$3e` of the library's window record and the
+   * close at $6448 unlinks that record without freeing either.
+   */
+  readonly zones = new Map<number, GuiZone[]>()
+  /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
+  activeZone = 0
   private depthTop = 0
   private depthBottom = 0
   /**
@@ -670,6 +702,25 @@ export class GuiState {
   /** `Gui Window`: which window produced the last event */
   eventWindow(): number {
     return this.last?.window ?? 0
+  }
+
+  /**
+   * `Gui Mouse Zone(window,x,y)`, the hit test at $4c4e.
+   *
+   * First match wins and both edges are inclusive: the four tests are `bgt`
+   * on x1 and `blt` on x2, so a point on the border is inside. -1 when
+   * nothing contains it, which is the `moveq #$ff,d0` the loop falls out to.
+   *
+   * A reserved-but-never-set zone is all zeros, because the block is
+   * AllocVec'd MEMF_CLEAR, so it contains the point 0,0. That is not a
+   * special case in the test, it is what a zero rectangle means to it.
+   */
+  zoneAt(window: number, x: number, y: number): number {
+    const list = this.zones.get(window) ?? []
+    for (const [i, z] of list.entries()) {
+      if (x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2) return i
+    }
+    return -1
   }
 
   /** the gadget a window's design carries under `id`, or null */

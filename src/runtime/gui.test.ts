@@ -904,3 +904,102 @@ describeWith('the window management group', exampleBank(), (bank) => {
     expect(() => run('Gui Wait Vbl 3 : Gui Pause 2', bank)).not.toThrow()
   })
 })
+
+/**
+ * The zone group: five keywords over a block of rectangles that belongs to a
+ * window NUMBER rather than to a window, and outlives it.
+ */
+describeWith('the zone group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  it('reserves a block and sets a rectangle in it', () => {
+    const rt = run(`${open} : Gui Reserve Zone 1,4 : Gui Set Zone 1,2,10,20 To 30,40`, bank)
+    const list = rt.gui.zones.get(1)!
+    expect(list).toHaveLength(4)
+    expect(list[2]).toEqual({ x1: 10, y1: 20, x2: 30, y2: 40 })
+  })
+
+  /**
+   * The count is checked before the window: $407c and $4082 both raise before
+   * routine 244 runs, so a bad count on a closed window complains about the
+   * count.
+   */
+  it('checks the count first, and stops at five thousand', () => {
+    expect(() => run(`${open} : Gui Reserve Zone 1,0`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_NUMBER_OF_ZONES])
+    expect(() => run(`${open} : Gui Reserve Zone 1,5001`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_NUMBER_OF_ZONES])
+    expect(() => run(`${open} : Gui Reserve Zone 1,5000`, bank)).not.toThrow()
+    // the count wins over the window, which is not the usual order
+    expect(() => run(`Gui Reserve Zone 9,0`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_NUMBER_OF_ZONES])
+    expect(() => run(`Gui Reserve Zone 9,4`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  /** three different ways to be "Zone not reserved", all error 32 */
+  it('refuses a zone number that is negative, past the end, or unreserved', () => {
+    expect(() => run(`${open} : Gui Reserve Zone 1,4 : Gui Set Zone 1,-1,0,0 To 1,1`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ZONE_NOT_RESERVED])
+    expect(() => run(`${open} : Gui Reserve Zone 1,4 : Gui Set Zone 1,4,0,0 To 1,1`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ZONE_NOT_RESERVED])
+    expect(() => run(`${open} : Gui Set Zone 1,0,0,0 To 1,1`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ZONE_NOT_RESERVED])
+    // and the last legal one is count - 1
+    expect(() => run(`${open} : Gui Reserve Zone 1,4 : Gui Set Zone 1,3,0,0 To 1,1`, bank)).not.toThrow()
+  })
+
+  /**
+   * `cmp.w d2,d4 / Rble` at $4138: x1 must be STRICTLY greater than x. So one
+   * pixel is legal and zero is "Illegal function call". AMOS's own Set Zone
+   * checks neither end.
+   */
+  it('wants a rectangle with real width and height', () => {
+    const setup = `${open} : Gui Reserve Zone 1,2`
+    expect(() => run(`${setup} : Gui Set Zone 1,0,10,10 To 11,11`, bank)).not.toThrow()
+    expect(() => run(`${setup} : Gui Set Zone 1,0,10,10 To 10,11`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_FUNCTION_CALL])
+    expect(() => run(`${setup} : Gui Set Zone 1,0,10,10 To 11,10`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_FUNCTION_CALL])
+    expect(() => run(`${setup} : Gui Set Zone 1,0,10,10 To 5,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_FUNCTION_CALL])
+  })
+
+  /** first match wins, both edges are inclusive, and -1 for a miss */
+  it('Gui Mouse Zone finds the first zone containing the point, edges included', () => {
+    const setup = `${open} : Gui Reserve Zone 1,3 : Gui Set Zone 1,0,0,0 To 20,20 : Gui Set Zone 1,1,10,10 To 30,30 : Gui Set Zone 1,2,50,50 To 60,60`
+    const got = runOut(
+      `${setup} : Print Gui Mouse Zone(1,5,5) : Print Gui Mouse Zone(1,15,15) : Print Gui Mouse Zone(1,20,20) : Print Gui Mouse Zone(1,55,55) : Print Gui Mouse Zone(1,100,100)`,
+      bank,
+    ).out
+    // 15,15 is in both 0 and 1; the walk stops at 0
+    expect(got.trim().split('\n').map(Number)).toEqual([0, 0, 0, 2, -1])
+  })
+
+  /**
+   * The block is AllocVec'd MEMF_CLEAR, so a reserved-but-unset zone is the
+   * rectangle 0,0 to 0,0 and the hit test finds it at the origin. Not a
+   * special case; a zero rectangle is what that means to it.
+   */
+  it('a reserved but never set zone still contains the origin', () => {
+    const got = runOut(`${open} : Gui Reserve Zone 1,2 : Print Gui Mouse Zone(1,0,0) : Print Gui Mouse Zone(1,1,1)`, bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([0, -1])
+  })
+
+  it('Gui Mouse Zone on a window with no block raises rather than answering -1', () => {
+    expect(() => run(`${open} : Print Gui Mouse Zone(1,0,0)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ZONE_NOT_RESERVED])
+  })
+
+  /**
+   * "When you close a window the zones ARE NOT erased! When you reopen the
+   * window the zones are already there so you don't need to redifine them!"
+   * -- which is why `Gui Free Zone` exists at all.
+   */
+  it('zones outlive the window and only Gui Free Zone erases them', () => {
+    const kept = run(`${open} : Gui Reserve Zone 1,2 : Gui Set Zone 1,0,5,5 To 15,15 : A=Gui Close(1) : ${open}`, bank)
+    expect(kept.gui.zones.get(1)![0]).toEqual({ x1: 5, y1: 5, x2: 15, y2: 15 })
+
+    const freed = run(`${open} : Gui Reserve Zone 1,2 : Gui Free Zone 1`, bank)
+    expect(freed.gui.zones.has(1)).toBe(false)
+    // freeing a window that reserved nothing is not an error
+    expect(() => run(`${open} : Gui Free Zone 1`, bank)).not.toThrow()
+  })
+
+  it('Gui Zone reads its own word, separate from Gui Gadget s', () => {
+    const rt = run(open, bank)
+    expect(rt.gui.activeZone).toBe(0)
+    rt.gui.activeZone = 3
+    rt.gui.activeGadget = 7
+    expect(runOut(`${open} : Print Gui Zone`, bank).out.trim()).toBe('0')
+  })
+})

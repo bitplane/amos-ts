@@ -24,7 +24,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_TITLE_MAX, GuiState, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_TITLE_MAX, GuiState, guiScale, newWindowPort, packMenuNumber } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { GuiGadget } from './guibank'
@@ -99,6 +99,9 @@ export const GUI_ERR = {
   NOT_AN_INPUT_GADGET: 19,
   GADGET_NOT_DEFINED: 2,
   SCREEN_NOT_OPENED: 17,
+  ZONE_NOT_RESERVED: 32,
+  ILLEGAL_NUMBER_OF_ZONES: 33,
+  ILLEGAL_FUNCTION_CALL: 34,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -652,6 +655,75 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui wait vbl': (it) => {
       const n = it.atStmtEnd() ? 1 : it.evalInt()
       if (n > 0) it.block({ type: 'wait', until: it.tick + n })
+    },
+
+    /**
+     * `Gui Reserve Zone window,number of zones`.
+     *
+     * The count is checked FIRST, before the window: $407c is `tst.l d2 /
+     * Rble` and $4082 is `cmpi.l #$1388,d2 / Rbhi`, both raising "Illegal
+     * number of zones", and routine 244 only runs after. So asking window 9
+     * for zero zones complains about the zeros.
+     *
+     * Five thousand is the ceiling, which the guide denies: "There is no
+     * limit to the number of zones, except the amount of free memory."
+     *
+     * The block is AllocVec'd MEMF_CLEAR, so every zone starts as the
+     * rectangle 0,0 to 0,0 -- which contains the point 0,0. Reserving without
+     * setting is not the same as having no zones.
+     */
+    'gui reserve zone': (it) => {
+      const g = s()
+      const win = it.evalInt()
+      it.expect(',')
+      const count = it.evalInt()
+      if (count <= 0 || count > GUI_MAX_ZONES) guiError(GUI_ERR.ILLEGAL_NUMBER_OF_ZONES)
+      windowOf(g, win)
+      g.zones.set(win, Array.from({ length: count }, () => ({ x1: 0, y1: 0, x2: 0, y2: 0 })))
+    },
+
+    /**
+     * `Gui Free Zone window` — "Erase all the zones of the specified window".
+     *
+     * FreeVec at $40f2 and the pointer cleared at $40de, in that order, so
+     * freeing a window that never reserved any is not an error.
+     */
+    'gui free zone': (it) => {
+      const g = s()
+      const win = it.evalInt()
+      windowOf(g, win)
+      g.zones.delete(win)
+    },
+
+    /**
+     * `Gui Set Zone window,zone,x,y To x1,y1` — "used to define a rectangular
+     * area wich can be tested by the different Zone functions".
+     *
+     * Four checks in the binary's order: the window (10), then a negative
+     * zone number and a window with no block and a zone past the end, all
+     * three "Zone not reserved" (32), and last the rectangle. $4138 is `cmp.w
+     * d2,d4 / Rble`, so x1 must be STRICTLY greater than x and y1 than y --
+     * a zone one pixel wide is legal and a zero-width one is "Illegal
+     * function call". AMOS's own Set Zone checks neither.
+     */
+    'gui set zone': (it) => {
+      const g = s()
+      const win = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      windowOf(g, win)
+      const list = g.zones.get(win)
+      if (n < 0 || list === undefined || n >= list.length) guiError(GUI_ERR.ZONE_NOT_RESERVED)
+      if (x2 <= x1 || y2 <= y1) guiError(GUI_ERR.ILLEGAL_FUNCTION_CALL)
+      list[n] = { x1, y1, x2, y2 }
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -1285,6 +1357,31 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (n <= 0) guiError(GUI_ERR.SCREEN_NOT_OPENED)
       return VS(windowOf(s(), n).title)
     },
+
+    /**
+     * `A=Gui Mouse Zone(window,x,y)` — "Returns the number of zone at the
+     * specified mouse coordinates. If no zone are present, the value -1 is
+     * returned."
+     *
+     * A window that reserved nothing is "Zone not reserved" rather than -1:
+     * $416c tests the pointer and raises before the hit test runs.
+     */
+    'gui mouse zone': (_, a): Value => {
+      const g = s()
+      const win = int(a[0]!)
+      windowOf(g, win)
+      if (!g.zones.has(win)) guiError(GUI_ERR.ZONE_NOT_RESERVED)
+      return VI(g.zoneAt(win, int(a[1]!), int(a[2]!)))
+    },
+
+    /**
+     * `Z=Gui Zone` — "It works exactly like the Gui Gadget function, except
+     * it detects the window zones instead of the gadgets!"
+     *
+     * A different word from `Gui Gadget`'s, `$a0` against `$102`, so the two
+     * are read independently and one does not clear the other.
+     */
+    'gui zone': (): Value => VI(s().activeZone),
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
