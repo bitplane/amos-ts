@@ -79,7 +79,7 @@ is.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |        0 |            0 |      48 |       0% |
 | gui-1.61             |      103 |        0 |            0 |     103 |       0% |
-| gui-2.10             |      204 |        0 |           99 |     105 |      49% |
+| gui-2.10             |      204 |        0 |          108 |      96 |      53% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |            0 |      62 |       0% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          258 |    2269 |      69% |
+| **total**            |     7422 |     4832 |          267 |    2260 |      69% |
 
 ## Not applicable, by what would retire it
 
@@ -281,9 +281,9 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (2): `direct`, `edit`
 
-## gui-2.10 (49%)
+## gui-2.10 (53%)
 
-- **approximated** (99): `gui activate`, `gui actual`, `gui array`, `gui array down`,
+- **approximated** (108): `gui activate`, `gui actual`, `gui array`, `gui array down`,
   `gui array read`, `gui array up`, `gui bank`, `gui bar`, `gui bbox`, `gui beep`, `gui border`,
   `gui box`, `gui center`, `gui change`, `gui check`, `gui close`, `gui cls`, `gui clw`,
   `gui code`, `gui code$`, `gui draw`, `gui draw to`, `gui ellipse`, `gui event`, `gui exist`,
@@ -293,7 +293,9 @@ The AMOS editor and the compiler overlay, neither of which exists here.
   `gui mouse ey`, `gui mouse mode`, `gui mouse queue`, `gui mouse report`, `gui mouse wx`,
   `gui mouse wy`, `gui mouse x`, `gui mouse y`, `gui mouse zone`, `gui move`, `gui off`,
   `gui on`, `gui open`, `gui paint`, `gui paper`, `gui pause`, `gui pen`, `gui plot`,
-  `gui point`, `gui range`, `gui read`, `gui read$`, `gui remember off`, `gui remember on`,
+  `gui point`, `gui pub check`, `gui pub free`, `gui pub list`, `gui pub list free`,
+  `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`, `gui pub to front`,
+  `gui range`, `gui read`, `gui read$`, `gui remember off`, `gui remember on`,
   `gui reserve zone`, `gui reset`, `gui resize`, `gui rmb`, `gui selected`, `gui sensitive off`,
   `gui sensitive on`, `gui set`, `gui set mode`, `gui set zone`, `gui set$`, `gui sh`, `gui sw`,
   `gui sx`, `gui sy`, `gui text`, `gui title$`, `gui titles`, `gui to back`, `gui to front`,

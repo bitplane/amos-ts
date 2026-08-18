@@ -149,6 +149,17 @@ export const GUI_MAX_ZONES = 5000
 /** eight bytes a zone, `mulu.w #$8,d2`: four words, x, y, x1, y1 */
 export const GUI_ZONE_SIZE = 8
 
+/**
+ * The public screens this port has.
+ *
+ * Intuition always keeps the Workbench on the list, and nothing else here
+ * opens a screen yet -- `Gui Screen Open` is not built, and it is what would
+ * add to this. So the list has one name, and `Gui Pub List` walking it to the
+ * end after one entry is the machine's own behaviour on a Workbench with
+ * nothing else running.
+ */
+export const PUB_SCREENS: readonly string[] = ['Workbench']
+
 /** one detection zone, as `Gui Set Zone` writes it */
 export interface GuiZone {
   x1: number
@@ -420,6 +431,28 @@ export class GuiState {
    * close at $6448 unlinks that record without freeing either.
    */
   readonly zones = new Map<number, GuiZone[]>()
+  /**
+   * `$1ce`: the public screen `Gui Pub Screen` locked, or 0.
+   *
+   * A LOCK on the machine, which is a Screen pointer; a token here, because
+   * a program can only test it for zero and hand it back to `Gui Pub To
+   * Front`. `$1d2` follows it, which is why locking a public screen also
+   * changes what `Gui Mouse X` reads.
+   */
+  pubLock = 0
+  /** the name behind that lock, so `Gui Pub Free` can say what it let go of */
+  pubName = ''
+  /**
+   * `$1da`: how far `Gui Pub Name$` has walked, and whether the list is
+   * locked at all.
+   *
+   * -1 when no list is held. Zero or more is the index of the next name, and
+   * the walk frees the list itself when it runs off the end: $2b7a tests the
+   * node's ln_Succ and calls UnlockPubScreenList when it is zero. That is
+   * what makes the guide's loop terminate -- "Exit If PUB$(I)=''" -- without
+   * the program having counted anything.
+   */
+  pubListAt = -1
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**

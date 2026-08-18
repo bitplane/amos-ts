@@ -24,7 +24,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_TITLE_MAX, GuiState, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_TITLE_MAX, GuiState, PUB_SCREENS, guiScale, newWindowPort, packMenuNumber } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { GuiGadget } from './guibank'
@@ -102,6 +102,7 @@ export const GUI_ERR = {
   ZONE_NOT_RESERVED: 32,
   ILLEGAL_NUMBER_OF_ZONES: 33,
   ILLEGAL_FUNCTION_CALL: 34,
+  ILLEGAL_SCREEN_PARAMETER: 14,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -804,6 +805,85 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       rotateArray(rt, handle, it.evalInt(), false)
     },
 
+    /**
+     * `Gui Pub Free` — "You MUST always free a public screen when you have
+     * finished with it."
+     *
+     * UnlockPubScreen at $2b38, and $2b2a puts `$1d2` back from `$1ca`
+     * first -- so freeing the lock also puts the screen `Gui Mouse X` reads
+     * back to the one before it. Freeing when nothing is locked returns at
+     * $2b1e without complaint.
+     */
+    'gui pub free': () => {
+      const g = s()
+      g.pubLock = 0
+      g.pubName = ''
+    },
+
+    /**
+     * `Gui Pub List` — "obtain a list of all public screens currently opened
+     * on your Amiga".
+     *
+     * LockPubScreenList locks INTUITION while it is held, which is why the
+     * guide shouts: "ATTENTION: While you are reading the list of screens,
+     * the system is locked. You must read all the names as soon as you can!"
+     *
+     * Calling it twice does nothing the second time: $2b44 tests `$1da` and
+     * returns if a list is already held, so it cannot leak a second lock.
+     */
+    'gui pub list': () => {
+      const g = s()
+      if (g.pubListAt < 0) g.pubListAt = 0
+    },
+
+    /**
+     * `Gui Pub List Free` — "You MUST use this command when you have finished
+     * with the list."
+     *
+     * Clears the cursor and then unlocks, and does nothing when no list is
+     * held. Note that `Gui Pub Name$` frees the list ITSELF once it walks off
+     * the end, so the guide's own loop has already unlocked by the time this
+     * runs.
+     */
+    'gui pub list free': () => {
+      s().pubListAt = -1
+    },
+
+    /**
+     * `Gui Pub To Front SCREEN` — ScreenToFront (-$fc), where SCREEN is the
+     * lock `Gui Pub Screen` returned.
+     *
+     * A lock of zero or less is "Illegal screen parameter": `moveq #$e,d7`
+     * then `Rble` at $2bc4, before anything else. So the failure `Gui Pub
+     * Screen` reports with a 0 raises here rather than being ignored.
+     */
+    'gui pub to front': (it) => {
+      if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+    },
+
+    /** `Gui Pub To Back SCREEN` — ScreenToBack (-$f6), with the same guard */
+    'gui pub to back': (it) => {
+      if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+    },
+
+    /**
+     * `Gui Pub Mode screen number,mode` — "Change the public status of a
+     * screen".
+     *
+     * PubScreenStatus, and the mode is INVERTED on the way: $3fc6 turns mode
+     * 0 into the flag 1 and everything else into 0, because the flag is
+     * PSNF_PRIVATE. "If you set the mode to 0, the screen became PRIVATE."
+     *
+     * The screen is one of this extension's own, looked up by number, so
+     * with `Gui Screen Open` not built every number is "Screen not opened".
+     */
+    'gui pub mode': (it) => {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      guiError(GUI_ERR.SCREEN_NOT_OPENED)
+    },
+
     /** `Gui Off window` — lock a GUI, so it stops answering events */
     'gui off': (it) => {
       windowOf(s(), it.evalInt()).locked = true
@@ -1494,6 +1574,70 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * returns, so `Gui Array(0)` and `Gui Array(99)` answer the same thing.
      */
     'gui array': (): Value => VI(s().arrayIndex),
+
+    /**
+     * `LOCK=Gui Pub Screen(NAME$)` — "attempt to obtain access to the named
+     * public screen ... or else the value returned in LOCK will be 0".
+     *
+     * It frees the previous lock first, at $2af6, which is the guide's "If
+     * you try to lock another screen with Gui Pub Screen, the previous screen
+     * will be freed automatically". The lock also becomes the current screen:
+     * $2b0a writes it to `$1d2` as well as `$1ce`, and `$1d2` is what `Gui
+     * Mouse X` reads its coordinates out of.
+     */
+    'gui pub screen': (_, a): Value => {
+      const g = s()
+      const name = str(a[0]!)
+      g.pubLock = 0
+      g.pubName = ''
+      if (!PUB_SCREENS.includes(name)) return VI(0)
+      g.pubName = name
+      g.pubLock = PUB_SCREENS.indexOf(name) + 1
+      return VI(g.pubLock)
+    },
+
+    /**
+     * `A$=Gui Pub Name$` — "the next public screen name from the Amiga's
+     * list".
+     *
+     * The guide's own way of reading it, which is also the only safe one:
+     *
+     *     Gui Pub List
+     *     For I=0 To 31 : PUB$(I)=Gui Pub Name$ : Exit If PUB$(I)="" : Next
+     *     Gui Pub List Free
+     *
+     * Empty when no list is held, and empty at the end -- $2b7a finds the
+     * node whose ln_Succ is zero, which is the List's own tail sentinel,
+     * unlocks the list there and answers with AMOS's shared empty string. So
+     * the loop above terminates by itself and the `Gui Pub List Free` after
+     * it has nothing left to do.
+     */
+    'gui pub name$': (): Value => {
+      const g = s()
+      if (g.pubListAt < 0) return VS('')
+      const name = PUB_SCREENS[g.pubListAt]
+      if (name === undefined) {
+        g.pubListAt = -1
+        return VS('')
+      }
+      g.pubListAt++
+      return VS(name)
+    },
+
+    /**
+     * `C=Gui Pub Check(screen number)` — "Return the number of windows opened
+     * on the specified Screen".
+     *
+     * DEFECT: it counts one less than that. Routine 221 at $49de starts at
+     * `Screen.FirstWindow` and then counts NextWindow LINKS, so a screen with
+     * one window answers 0 and a screen with three answers 2. It also reads
+     * through a null FirstWindow, because the count begins by dereferencing
+     * it without a test -- an empty screen walks whatever is at address 0.
+     *
+     * Zero for a screen that does not exist, which is not an error: routine
+     * 259 answers 0 and $49ea takes the count with it.
+     */
+    'gui pub check': (): Value => VI(0),
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),

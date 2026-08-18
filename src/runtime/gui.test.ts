@@ -1129,3 +1129,77 @@ describeWith('the array group', demoBank(), (bank) => {
     expect(got.trim().split('\n').map(Number)).toEqual([0, 0])
   })
 })
+
+/**
+ * The public screen group.
+ *
+ * Intuition always keeps the Workbench public, and nothing else here opens a
+ * screen, so the list has one name on it. That is also what a real Workbench
+ * with nothing else running looks like.
+ */
+describeWith('the public screen group', exampleBank(), (bank) => {
+  it('locks the Workbench by name and refuses anything else', () => {
+    const got = runOut('Print Gui Pub Screen("Workbench") : Print Gui Pub Screen("Nonesuch")', bank).out
+    const [ok, no] = got.trim().split('\n').map(Number)
+    expect(ok).toBeGreaterThan(0)
+    expect(no).toBe(0)
+  })
+
+  /**
+   * "If you try to lock another screen with Gui Pub Screen, the previous
+   * screen will be freed automatically" -- $2af6 unlocks before it locks.
+   */
+  it('frees the previous lock before taking a new one', () => {
+    const rt = run('A=Gui Pub Screen("Workbench") : B=Gui Pub Screen("Nonesuch")', bank)
+    expect(rt.gui.pubLock).toBe(0)
+    expect(rt.gui.pubName).toBe('')
+  })
+
+  it('Gui Pub Free lets it go, and does nothing when nothing is held', () => {
+    const rt = run('A=Gui Pub Screen("Workbench") : Gui Pub Free', bank)
+    expect(rt.gui.pubLock).toBe(0)
+    expect(() => run('Gui Pub Free : Gui Pub Free', bank)).not.toThrow()
+  })
+
+  /**
+   * The guide's own loop, run as it is written. It terminates by itself
+   * because the walk answers "" at the tail, and frees the list there.
+   */
+  it('walks the list the way the guide says to', () => {
+    const out = runOut(
+      'Dim P$(31) : Gui Pub List : For I=0 To 31 : P$(I)=Gui Pub Name$ : Exit If P$(I)="" : Next : Gui Pub List Free : Print "[";P$(0);"]" : Print "[";P$(1);"]"',
+      bank,
+    ).out
+    expect(out.trim().split('\n')).toEqual(['[Workbench]', '[]'])
+  })
+
+  /** $2b44 tests the cursor and returns, so a second Gui Pub List is a no-op */
+  it('does not restart the walk if Gui Pub List is called twice', () => {
+    const out = runOut('Gui Pub List : A$=Gui Pub Name$ : Gui Pub List : Print "[";Gui Pub Name$;"]"', bank).out
+    expect(out.trim()).toBe('[]')
+  })
+
+  it('Gui Pub Name$ is empty when no list is held', () => {
+    expect(runOut('Print "[";Gui Pub Name$;"]"', bank).out.trim()).toBe('[]')
+  })
+
+  /** `moveq #$e,d7 / Rble` at $2bc4, before the call and before anything else */
+  it('Gui Pub To Front and To Back refuse a lock of zero or less', () => {
+    for (const kw of ['Gui Pub To Front 0', 'Gui Pub To Back 0', 'Gui Pub To Front -1']) {
+      expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
+    }
+    expect(() => run('A=Gui Pub Screen("Workbench") : Gui Pub To Front A', bank)).not.toThrow()
+  })
+
+  /**
+   * These two take one of this extension's OWN screens, by number through
+   * routine 259. With `Gui Screen Open` not built there are none, so Gui Pub
+   * Mode raises 17 and Gui Pub Check answers 0 -- which is what the binary
+   * does for a number that names nothing, since $49ea takes the zero count
+   * rather than erroring.
+   */
+  it('Gui Pub Mode raises with no screens open, and Gui Pub Check answers 0', () => {
+    expect(() => run('Gui Pub Mode 1,0', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+    expect(runOut('Print Gui Pub Check(1)', bank).out.trim()).toBe('0')
+  })
+})
