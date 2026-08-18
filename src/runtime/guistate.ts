@@ -220,6 +220,52 @@ export function depthForColours(colours: number): number {
   return n
 }
 
+/**
+ * icon.library's WBTOOL, the type `Gui App Icon` falls back to.
+ *
+ * `moveq #$3,d0 / jsr -$78(a6)` at $7712 is GetDefDiskObject, and it only
+ * runs when GetDiskObject on the path the program gave came back null. So a
+ * path that names nothing is not an error, it is the guide's "If you don't
+ * specify the icon path, the system default TOOL icon will be used."
+ */
+export const WBTOOL = 3
+
+/**
+ * One AppIcon, the node routine 260 AllocVecs at $768c.
+ *
+ * Twenty-six bytes plus the name: `$0` and `$4` are the list links, `$8` the
+ * id as a WORD, `$a` the window record it iconified, `$e` that record's
+ * second half, `$12` the AppIcon workbench.library handed back, `$16` the
+ * DiskObject and `$1a` the name text. The list itself hangs off `$1ac` and
+ * `$1b0` of the extension's state, head and tail.
+ */
+export interface GuiApp {
+  /**
+   * What `Gui Iconify` answers and `Gui Uniconify` takes back.
+   *
+   * DEVIATION: the machine returns the node's ADDRESS, which is what the
+   * guide's "Iconify ID" is. Nothing here has an address, and a program can
+   * only hand the number straight back, so this counts from 1.
+   */
+  handle: number
+  /** `$8`, and a WORD: `move.w d0,$8(a4)` truncates whatever it was given */
+  id: number
+  /** `$1a`: the text that appears under the icon */
+  name: string
+  /** the path GetDiskObject was given, which the guide says omits the .info */
+  icon: string
+  /**
+   * `$a` and `$e`: the window this iconified, or null for a plain
+   * `Gui App Icon`.
+   *
+   * Nulled by `Gui Uniconify` at $23ec before it re-opens, which is the test
+   * at the top of the same keyword: a second uniconify of one handle finds
+   * zero here. On the machine the node is freed by then too, so the guide's
+   * "a nice guru will visit you" is the honest description.
+   */
+  window: { number: number; gui: number; topaz: boolean } | null
+}
+
 /** one detection zone, as `Gui Set Zone` writes it */
 export interface GuiZone {
   x1: number
@@ -394,8 +440,14 @@ export interface GuiEvent {
   result: number
   /** what `Gui Code$` answers */
   text: string
-  /** which window, for `Gui Window` */
-  window: number
+  /**
+   * Which window, for `Gui Window`.
+   *
+   * Absent on an event that names none. The pump writes `$de` only where it
+   * has a window to write -- the AppIcon path at $7202 does not, and so `Gui
+   * Window` after an event -16 still answers whichever window spoke last.
+   */
+  window?: number
 }
 
 /**
@@ -449,6 +501,8 @@ export class GuiState {
   /** `$29c` and `$29e`: where the pointer was for the last event reported */
   eventX = 0
   eventY = 0
+  /** `$de`: which window the last event that named one came from */
+  private eventWin = 0
   /**
    * `Gui Sensitive On` / `Off`: bit 0 of `$85`, and it starts SET.
    *
@@ -487,6 +541,37 @@ export class GuiState {
    * those opened later!"
    */
   iconifyGadget = 0
+  /**
+   * `$1ac` and `$1b0`: every AppIcon this program has put up, oldest first.
+   *
+   * Keyed by handle rather than by id because two AppIcons may share an id
+   * and `Gui Iconify` hands back the node, not the number. `Gui App Remove`
+   * walks this in order and stops at the first id that matches, which is what
+   * the `move.l (a1),d1 / beq / bra` loop at $3caa does.
+   */
+  readonly apps = new Map<number, GuiApp>()
+  /** the next handle; see `GuiApp.handle` for why it is not an address */
+  private handles = 0
+  /**
+   * `$90`: which AppIcon the last event -16 named, for `Gui App Id`.
+   *
+   * Two steps at $71e6 and $720a, because AddAppIconA is given the NODE as
+   * its id and `'AMOS'` as its userdata. The pump first copies am_ID into
+   * `$90`, then -- only for am_Type 8, AMTYPE_APPICON -- dereferences it and
+   * replaces it with `$8` of the node, `ext.l`'d. So this is the word the
+   * program passed, SIGN-EXTENDED: `Gui App Icon -1` reports -1, and
+   * `Gui App Icon 65537` reports 1.
+   */
+  appId = 0
+  /**
+   * `$94` and `$98`: the file names `Gui App Name$` still has to hand out.
+   *
+   * DEVIATION: the machine holds an AppMessage's am_ArgList, pairs of lock
+   * and name, and builds each path on demand with NameFromLock (-$192) into
+   * the $400-byte buffer at `$2b8` and AddPart (-$372) on top. There are no
+   * locks here, so these arrive already joined.
+   */
+  readonly appNames: string[] = []
   /** how many times `Gui Beep` has been asked for; see the keyword */
   beeps = 0
   /**
@@ -788,6 +873,7 @@ export class GuiState {
     this.menuPending = false
     this.menuNumber = MENUNULL
     this.menuStrip = null
+    this.eventWin = 0
   }
 
   /** queue something for `Gui Wait` to find */
@@ -810,9 +896,12 @@ export class GuiState {
         this.last = null
         return GUI_EVENT.NOTHING
       }
-      if (this.windows.get(e.window)?.locked === true) continue
+      if (e.window !== undefined && this.windows.get(e.window)?.locked === true) continue
       this.last = e
-      this.selected = e.window
+      if (e.window !== undefined) {
+        this.eventWin = e.window
+        this.selected = e.window
+      }
       if (e.mouseX !== undefined) this.eventX = e.mouseX
       if (e.mouseY !== undefined) this.eventY = e.mouseY
       return e.code
@@ -835,9 +924,9 @@ export class GuiState {
     return this.last?.text ?? ''
   }
 
-  /** `Gui Window`: which window produced the last event */
+  /** `Gui Window`: which window produced the last event, `$de` */
   eventWindow(): number {
-    return this.last?.window ?? 0
+    return this.eventWin
   }
 
   /**
@@ -857,6 +946,47 @@ export class GuiState {
       if (x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2) return i
     }
     return -1
+  }
+
+  /**
+   * Put an AppIcon up: routine 260's node, linked at the tail.
+   *
+   * The id is truncated to a word on the way in, because `move.w d0,$8(a4)`
+   * at $76ea is where it lands.
+   */
+  addApp(id: number, name: string, icon: string, window: GuiApp['window']): GuiApp {
+    const app: GuiApp = { handle: ++this.handles, id: id & 0xffff, name, icon, window }
+    this.apps.set(app.handle, app)
+    return app
+  }
+
+  /**
+   * `Gui App Remove id`, routine 166 at $3c9e.
+   *
+   * A word compare, so 65537 removes AppIcon 1. Nothing happens when no id
+   * matches: the walk runs off the end and the keyword returns, and the guide
+   * gives this keyword no node of its own to say otherwise.
+   */
+  removeAppById(id: number): void {
+    for (const app of this.apps.values()) {
+      if (app.id === (id & 0xffff)) {
+        this.apps.delete(app.handle)
+        return
+      }
+    }
+  }
+
+  /**
+   * `Gui App Name$`, one name per call and the empty string when the queue is
+   * dry.
+   *
+   * `tst.l $98(a2) / beq` at $3adc answers `$662(a5)`, AMOS's own null
+   * string, without touching the queue. So calling it more times than
+   * `Gui Code` said is safe, which is worth knowing because the guide's two
+   * examples disagree about which event to count from.
+   */
+  nextAppName(): string {
+    return this.appNames.shift() ?? ''
   }
 
   /** the gadget a window's design carries under `id`, or null */

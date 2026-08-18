@@ -14,7 +14,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
+import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
 import { readGuiBank } from './guibank'
 import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
@@ -909,6 +909,124 @@ describeWith('the window management group', exampleBank(), (bank) => {
  * The zone group: five keywords over a block of rectangles that belongs to a
  * window NUMBER rather than to a window, and outlives it.
  */
+describeWith('the iconify group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /**
+   * "The number of the window just closed will be used as AppIcon number. So
+   * if you iconify the Window number 5, the AppIcon number 5 will be
+   * created." Routine 260 reads it out of `$c(a0)` over the `moveq #$0,d0`
+   * routine 53 arrived with.
+   */
+  it('Gui Iconify closes the window and names the AppIcon after it', () => {
+    const rt = run(`Gui Open 5,1 : W=Gui Iconify(5,"HELLO","")`, bank)
+    expect(rt.gui.windows.has(5)).toBe(false)
+    const apps = [...rt.gui.apps.values()]
+    expect(apps.length).toBe(1)
+    expect([apps[0]!.id, apps[0]!.name, apps[0]!.icon]).toEqual([5, 'HELLO', ''])
+    expect(apps[0]!.window).toEqual({ number: 5, gui: 0, topaz: false })
+  })
+
+  /** the handle is what `Gui Uniconify` takes, and it is not the window number */
+  it('Gui Iconify returns a handle, and Gui Uniconify opens the same window again', () => {
+    const rt = run(`Gui Open 5,1 : W=Gui Iconify(5,"HELLO","") : Gui Uniconify W`, bank)
+    expect(rt.gui.windows.has(5)).toBe(true)
+    expect(rt.gui.windows.get(5)!.gui).toBe(0)
+    // routine 261 frees the node once the window is back
+    expect(rt.gui.apps.size).toBe(0)
+  })
+
+  /** `move.w #$1,$60(a0)` at $23e0, with the old mode parked in the node */
+  it('Gui Uniconify forces the iconify gadget on and puts the mode back', () => {
+    const rt = run(`Gui Set Mode 0 : Gui Open 5,1 : W=Gui Iconify(5,"a","") : Gui Uniconify W`, bank)
+    expect(rt.gui.iconifyGadget).toBe(0)
+  })
+
+  /**
+   * `$42` of the record into `$48` at $2370, back out at $23a2, and the
+   * global sensitive bit cleared for the re-open so the window is rebuilt in
+   * topaz/8 the way it was.
+   */
+  it('a window laid out in topaz comes back in topaz', () => {
+    const rt = run(`Gui Sensitive Off : Gui Open 5,1 : Gui Sensitive On : W=Gui Iconify(5,"a","") : Gui Uniconify W`, bank)
+    expect(rt.gui.windows.get(5)!.topaz).toBe(true)
+    // and the flag itself is put back, which is the restore at $23fc
+    expect(rt.gui.sensitive).toBe(true)
+  })
+
+  /** the guide's guru, reached from the side the binary actually tests for */
+  it('uniconifying one handle twice raises Window not open', () => {
+    const src = `Gui Open 5,1 : W=Gui Iconify(5,"a","") : Gui Uniconify W : Gui Uniconify W`
+    expect(() => run(src, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+    expect(() => run('Gui Uniconify 99', bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  it('Gui Iconify raises Window not open for a window that is not', () => {
+    expect(() => run('W=Gui Iconify(9,"a","")', bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  /** "There is not limit to the number of appicons that you can create!" */
+  it('Gui App Icon puts one up without a window behind it', () => {
+    const rt = run('Gui App Icon 1,"AMOS","AMOSPro_System:AMOSPro" : Gui App Icon 2,"Two",""')
+    const apps = [...rt.gui.apps.values()]
+    expect(apps.map((a) => a.id)).toEqual([1, 2])
+    expect(apps[0]!.icon).toBe('AMOSPro_System:AMOSPro')
+    expect(apps[0]!.window).toBe(null)
+  })
+
+  /** `move.w d0,$8(a4)` at $76ea and `cmp.w $8(a1),d0` at $3cac, both words */
+  it('the AppIcon number is a word at both ends', () => {
+    const rt = run('Gui App Icon 65537,"a","" : Gui App Remove 1')
+    expect(rt.gui.apps.size).toBe(0)
+  })
+
+  it('Gui App Remove takes the first match and ignores a number it cannot find', () => {
+    const rt = run('Gui App Icon 1,"one","" : Gui App Icon 1,"two","" : Gui App Remove 1 : Gui App Remove 7')
+    expect([...rt.gui.apps.values()].map((a) => a.name)).toEqual(['two'])
+  })
+
+  /** am_Type minus 7 off `moveq #$f1,d4`: APPICON is 8, so -16 */
+  it('an AppIcon message answers -16, its number and its drop count', () => {
+    const rt = run('Rem')
+    guiPostAppIcon(rt, 3, ['Work:foo', 'Work:bar'], [10, 20])
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
+    expect(rt.gui.readCode()).toBe(2)
+    expect(rt.gui.appId).toBe(3)
+    expect(rt.gui.nextAppName()).toBe('Work:foo')
+    expect(rt.gui.nextAppName()).toBe('Work:bar')
+    // "If the user has just double-clicked your AppIcon, Gui Code returns 0"
+    expect(rt.gui.nextAppName()).toBe('')
+  })
+
+  /** `ext.l d0` at $7212 on the word the node kept */
+  it('Gui App Id sign-extends the number', () => {
+    const rt = run('Rem')
+    guiPostAppIcon(rt, -1, [])
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
+    expect(rt.gui.appId).toBe(-1)
+    expect(rt.gui.readCode()).toBe(0)
+  })
+
+  /** the pump writes `$de` only where it has a window, and $7202 does not */
+  it('an AppIcon message leaves Gui Window and Gui Selected alone', () => {
+    const rt = run(open, bank)
+    guiPost(rt, 1, GUI_EVENT.MOUSECLICK)
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.MOUSECLICK)
+    guiPostAppIcon(rt, 9, [])
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
+    expect(rt.gui.eventWindow()).toBe(1)
+    expect(rt.gui.selected).toBe(1)
+  })
+
+  /** and the position does travel, out of am_MouseX and am_MouseY at $71ec */
+  it('an AppIcon message carries the pointer position', () => {
+    const rt = run('Rem')
+    guiPostAppIcon(rt, 1, [], [33, 44])
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
+    expect([rt.gui.eventX, rt.gui.eventY]).toEqual([33, 44])
+  })
+})
+
 describeWith('the zone group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 

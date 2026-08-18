@@ -701,6 +701,93 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * `Gui Uniconify iconifyID` — open the window `Gui Iconify` closed.
+     *
+     * Routine 54 at $2390, which does not call `Gui Open` so much as become
+     * it: it walks the design block chain BACK from the record it kept,
+     * counting as it goes, and hands routine 239 that count as the GUI number
+     * and `$8` of the node as the window number. A record that is already
+     * first counts 1. So the window comes back on the same number, from the
+     * same design.
+     *
+     * The iconify gadget is forced on across the re-open -- `move.w #$1,$60`
+     * at $23e0, with the old mode parked in `$10` of the node -- so a window
+     * that was iconified can always be iconified again whatever `Gui Set
+     * Mode` says now.
+     *
+     * "Be sure to pass the correct Iconify ID returned by a previous call to
+     * Gui Iconify or a nice guru will visit you ;)". A handle that was
+     * already used is caught by the `tst.l $a(a2)` at $2396; one that was
+     * never issued is the guru.
+     *
+     * DEFECT: `Gui Uniconify` on a window that was NOT laid out in topaz/8
+     * overwrites the extension's two flag bytes with half of a pointer. The
+     * save at $23b2 copies `$84` into `$e` of the node only inside the topaz
+     * branch, and the restore at $23fc copies `$e` back unconditionally -- so
+     * on the ordinary path `$84` and `$85` are handed the high word of the
+     * window record's address, which is whatever AllocVec returned. `Gui
+     * Sensitive` and `Gui Remember` both live in those bits. Not reproduced:
+     * the value is an address, and this port has none.
+     *
+     * DEFECT: the `Rbeq routine 264` at $239a raises whatever error number
+     * d7 was already carrying, since nothing here loads it. After a
+     * successful `Gui Iconify` that is routine 244's `moveq #$a,d7`, which is
+     * error 10, and that is what this raises.
+     */
+    'gui uniconify': (it) => {
+      const g = s()
+      const app = g.apps.get(it.evalInt())
+      const from = app?.window
+      if (app === undefined || from === undefined || from === null) guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      const sensitive = g.sensitive
+      const mode = g.iconifyGadget
+      if (from.topaz) g.sensitive = false
+      g.iconifyGadget = 1
+      app.window = null
+      g.open(from.number, from.gui)
+      g.iconifyGadget = mode
+      g.sensitive = sensitive
+      g.apps.delete(app.handle)
+    },
+
+    /**
+     * `Gui App Icon number,name,icon path` — an AppIcon on the Workbench.
+     *
+     * AddAppIconA (-$3c) at $773e with `'AMOS'` as the userdata, the name
+     * copied into the node at `$1a` and the DiskObject from GetDiskObject on
+     * the path. "Please note that in the icon path you DON'T need to specify
+     * the .info extension", which is icon.library's rule rather than this
+     * extension's.
+     *
+     * DEVIATION: no icon is read and nothing appears. There is no Workbench
+     * screen under these windows yet, so what the keyword leaves is the node:
+     * a number, a name and a path that `Gui App Remove` can find again. The
+     * `moveq #$19,d7` at $3c90 raises error 25, "Unable to open AppIcon",
+     * when AllocVec or AddAppIconA fails, and neither can here.
+     */
+    'gui app icon': (it) => {
+      const g = s()
+      const id = it.evalInt()
+      it.expect(',')
+      const name = str(it.evalExpr())
+      it.expect(',')
+      const icon = str(it.evalExpr())
+      g.addApp(id, name, icon, null)
+    },
+
+    /**
+     * `Gui App Remove number` — take one down again.
+     *
+     * RemoveAppIcon (-$42), FreeDiskObject (-$5a) and FreeVec, in routine 261
+     * at $779a. Removing the AppIcon an iconified window is hiding behind
+     * leaves that window closed with its handle dangling, which is the guru
+     * `Gui Uniconify` warns about reached from the other end.
+     */
+    'gui app remove': (it) => {
+      s().removeAppById(it.evalInt())
+    },
+
+    /**
      * `Gui Set Mode mode` — "Enable or disable the presence of the iconify
      * (zoom) gagdet in the titlebar of your windows".
      *
@@ -1457,6 +1544,61 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
 
   return {
     /**
+     * `IconifyID=Gui Iconify(window,icon Name,icon path)` — close a window
+     * and leave an AppIcon in its place.
+     *
+     * Routine 53 at $234e closes the window through routine 245, the same
+     * guts `Gui Close` uses, and then hands the record it kept to routine 260
+     * with `moveq #$0,d0`. The zero never survives: routine 260 reads
+     * `$c(a0)` over it, which is the window's own number, and that is the
+     * guide's "if you iconify the Window number 5, the AppIcon number 5 will
+     * be created."
+     *
+     * The window record is NOT freed by that close. It is a block in the GUI
+     * bank, and keeping it is what lets `Gui Uniconify` find the design again
+     * by walking `$2` backwards.
+     *
+     * "If you don't specify the icon to be used, the system default TOOL icon
+     * will be used."
+     */
+    'gui iconify': (_, a): Value => {
+      const g = s()
+      const w = windowOf(g, int(a[0]!))
+      const from = { number: w.number, gui: w.gui, topaz: w.topaz }
+      g.closeWindow(w.number)
+      return VI(g.addApp(from.number, str(a[1]!), str(a[2]!), from).handle)
+    },
+
+    /**
+     * `I=Gui App Id` — which AppIcon the last event -16 named.
+     *
+     * `$90`, one longword, and the keyword is three instructions. "it returns
+     * the number of the used one like Gui Window returns the number of the
+     * used GUI."
+     *
+     * The number is the WORD the program gave `Gui App Icon`, sign-extended:
+     * AddAppIconA was handed the node as its id, so the pump has to
+     * dereference am_ID and read `$8` back out of it. See `GuiState.appId`.
+     */
+    'gui app id': (): Value => VI(s().appId),
+
+    /**
+     * `N$=Gui App Name$` — the next full path dropped on an AppIcon.
+     *
+     * "You've to call it as many time as the number of files dragged. In
+     * order to know how many icons has been dragged, you've to use as usual
+     * Gui Code". The guide's own example then tests for event -15 rather than
+     * the -16 the AppIcons section documents, because the same queue serves
+     * both: a drop on an AppWindow and a drop on an AppIcon arrive as the
+     * same AppMessage.
+     *
+     * Empty when the queue is dry, and the queue empties itself: the last
+     * name out replies the message and clears `$94`, `$98` and `$9c` at
+     * $3b46.
+     */
+    'gui app name$': (): Value => VS(s().nextAppName()),
+
+    /**
      * `A=Gui Close(window)`, answering one of four codes:
      *
      *     0 - Window Closed
@@ -2041,6 +2183,32 @@ export { GUI_EVENT }
  * drag'n'drop. Omitting it leaves the two state words holding the last
  * position that was reported, which is what the library does.
  */
+/**
+ * Deliver an AppMessage: event -15, -16 or -17, and the names that came with
+ * it.
+ *
+ * The pump's own arithmetic at $71f8 is one subtraction for all three:
+ * `moveq #$f1,d4` is -15, and am_Type minus 7 comes off it. AMTYPE_APPWINDOW
+ * is 7 and gives -15, AMTYPE_APPICON is 8 and gives -16, AMTYPE_APPMENUITEM
+ * is 9 and gives -17.
+ *
+ * `Gui Code` answers am_NumArgs, which is zero for a double-click and the
+ * count of dropped files otherwise, and those files are then read one at a
+ * time by `Gui App Name$`.
+ */
+export function guiPostAppIcon(rt: Runtime, id: number, names: readonly string[], at?: [number, number]): void {
+  const g = rt.gui
+  // $720a reads the node's word back out and sign-extends it
+  g.appId = ((id & 0xffff) << 16) >> 16
+  g.appNames.push(...names)
+  const e: GuiEvent = { code: GUI_EVENT.APPICON, result: names.length, text: '' }
+  if (at !== undefined) {
+    e.mouseX = at[0]
+    e.mouseY = at[1]
+  }
+  g.post(e)
+}
+
 export function guiPost(rt: Runtime, window: number, code: number, result = 0, text = '', at?: [number, number]): void {
   const e: GuiEvent = { code, result, text, window }
   if (at !== undefined) {
