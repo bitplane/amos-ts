@@ -632,6 +632,18 @@ export class GuiState {
    * locks here, so these arrive already joined.
    */
   readonly appNames: string[] = []
+  /**
+   * `$158` and `$15c`: fr_File and fr_Drawer, copied out of the ASL file
+   * requester at $75e2 and read back by `Gui File$` and `Gui Dir$`.
+   *
+   * Both are cleared at $75b8 BEFORE AslRequest runs, so a cancel leaves them
+   * empty -- "If CANCEL was selected on the requester, it will return an
+   * empty string" -- and a second cancel wipes what the first request found.
+   */
+  aslFile = ''
+  aslDir = ''
+  /** the dialog channel a `Gui Req` is blocked on, or null */
+  req: number | null = null
   /** how many times `Gui Beep` has been asked for; see the keyword */
   beeps = 0
   /**

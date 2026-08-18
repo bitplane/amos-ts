@@ -7,7 +7,7 @@
  * here so the correction cannot quietly come undone.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -22,7 +22,9 @@ import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
-import { describeWith } from '../testing/fixture'
+import { join } from 'node:path'
+import { AmigaFS } from '../amiga/vfs'
+import { describeIf, describeWith } from '../testing/fixture'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 24, the manifest's recommendedSlot */
@@ -909,6 +911,100 @@ describeWith('the window management group', exampleBank(), (bank) => {
  * The zone group: five keywords over a block of rectangles that belongs to a
  * window NUMBER rather than to a window, and outlives it.
  */
+/**
+ * The requester group needs AMOS's own dialog engine and its default resource
+ * bank, because that is what stands in for asl.library here.
+ */
+const DEFAULT_ABK = join(__dirname, '..', '..', 'fixtures', 'official-amos', 'APSystem', 'AMOSPro_Default_Resource.Abk')
+
+interface Boot {
+  rt: Runtime
+  out: () => string
+}
+
+function boot(src: string): Boot {
+  let printed = ''
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  fs.currentDir = 'RAM:'
+  const rt = new Runtime(tokenize(src, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[24, gui]]),
+    maxSteps: 300_000,
+    fs,
+    onText: (t) => (printed += t),
+  })
+  rt.loadSystemResource(readFileSync(DEFAULT_ABK))
+  return { rt, out: () => printed }
+}
+
+/** one frame, so the block is standing and a test can answer it itself */
+function park(b: Boot): void {
+  b.rt.frame()
+}
+
+describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
+  /** intuition numbers the rightmost gadget 0, which is also how a drain reads */
+  it('Gui Req answers 0 with nobody there to click', () => {
+    const b = boot('A=Gui Req("Title","Quit?","Yes|No") : Print A')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(0)
+  })
+
+  it('and answers the gadget that was pressed, counting from 1 on the left', () => {
+    const b = boot('A=Gui Req("Title","Quit?","One|Two|Three") : Print A')
+    park(b)
+    const chan = b.rt.gui.req
+    expect(chan).not.toBeNull()
+    b.rt.finishDialogRun(b.rt.dialogs.get(chan!)!, 2)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(2)
+  })
+
+  /** "you must manually place the Chr$(10) character at the places you wish" */
+  it('the message splits on Chr$(10) and the gadgets on the bar', () => {
+    const b = boot('A=Gui Req("T","Line one"+Chr$(10)+"Line two","One|Two")')
+    park(b)
+    const d = b.rt.dialogs.get(b.rt.gui.req!)!
+    expect([d.vars[0], d.vars[1]]).toEqual(['Line one', 'Line two'])
+    expect([d.vars[10], d.vars[11]]).toEqual(['One', 'Two'])
+  })
+
+  it('Gui Asl$ joins the drawer and the file, and splits them for the readers', () => {
+    const b = boot('A$=Gui Asl$("Pick","RAM:","x.txt","#?") : Print "["+A$+"]["+Gui File$+"]["+Gui Dir$+"]"')
+    park(b)
+    expect(b.rt.fsel).not.toBeNull()
+    b.rt.finishFselNow('RAM:Work/thing.txt')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[RAM:Work/thing.txt][thing.txt][RAM:Work]')
+  })
+
+  /** a volume keeps its colon and takes no slash, which is the $762e test */
+  it('a file in the root of a volume gets no separator of its own', () => {
+    const b = boot('A$=Gui Asl$("Pick","","","") : Print "["+A$+"]["+Gui Dir$+"]"')
+    park(b)
+    b.rt.finishFselNow('RAM:thing.txt')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[RAM:thing.txt][RAM:]')
+  })
+
+  /** "If CANCEL was hit, the string will remain empty", and so do both halves */
+  it('a cancel empties the two readers as well', () => {
+    const b = boot('A$=Gui Asl$("Pick","RAM:","keep.txt","") : Print "["+A$+"]["+Gui File$+"]["+Gui Dir$+"]"')
+    park(b)
+    b.rt.finishFselNow('')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[][][]')
+  })
+
+  /** they read `$158` and `$15c` and test nothing else, so this is legal */
+  it('Gui File$ and Gui Dir$ answer before anything has been requested', () => {
+    const b = boot('Print "["+Gui File$+"]["+Gui Dir$+"]"')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[][]')
+  })
+})
+
 describeWith('the colour group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 

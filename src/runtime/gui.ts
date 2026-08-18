@@ -32,6 +32,7 @@ import type { GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
+import { finishRequester, startRequester, type RequesterSpec } from './requester'
 
 export function newGuiState(): GuiState {
   return new GuiState()
@@ -201,6 +202,18 @@ function rotateArray(rt: Runtime, handle: number, start: number, up: boolean): v
     for (let i = last; i > start; i--) arr.data[i] = arr.data[i - 1]!
     arr.data[start] = end
   }
+}
+
+/**
+ * Drawer and file, joined the way $762e joins them.
+ *
+ * One separator, and none at all when the drawer already ends in ':' or '/'.
+ * The two `cmpi.b` at $762e and $7636 are the whole rule.
+ */
+function joinAsl(dir: string, file: string): string {
+  if (dir === '') return file
+  const last = dir[dir.length - 1]
+  return last === ':' || last === '/' ? dir + file : `${dir}/${file}`
 }
 
 /**
@@ -1666,6 +1679,103 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (GUI_OS_VERSION < 39 || g.current === null) return VI(-1)
       return VI(nearestPen(g.current.palette, int(a[0]!) & 0xff, int(a[1]!) & 0xff, int(a[2]!) & 0xff))
     },
+
+    /**
+     * `A=Gui Req(title$,message$,gadget$)` — EasyRequestArgs (-$24c) on the
+     * current window, with the three strings dropped straight into an
+     * EasyStruct at `$110`.
+     *
+     * Routine 22 is seven instructions: `move.w (a2)+,d0` three times to step
+     * over each AMOS length word, then routine 250 fills es_Title at `$8`,
+     * es_TextFormat at `$c` and es_GadgetFormat at `$10` and calls. So the
+     * "|" between gadgets and the Chr$(10) between lines are intuition's own
+     * separators, not this extension's.
+     *
+     * "If the right-most gadget is selected, then 0 will be returned" -- also
+     * intuition's, and the same numbering the port's own requester already
+     * answers in.
+     *
+     * APPROXIMATED: an Interface dialog stands in, as it does for BUtility's
+     * `Binforeq`. The title is lost with it: an EasyStruct has one and
+     * `AlertSpec` does not, because the AMOS dialog draws no window frame to
+     * put it in.
+     */
+    'gui req': (it, a): Value => {
+      const g = s()
+      const spec: RequesterSpec = { kind: 'alert', body: str(a[1]!), gadgets: str(a[2]!).split('|') }
+      if (g.req !== null) {
+        const r = finishRequester(rt, g.req, spec)
+        if (r === null) {
+          it.block({ type: 'dialog', channel: g.req }, true)
+          return VI(0)
+        }
+        g.req = null
+        return VI(r.ret)
+      }
+      const chan = startRequester(rt, spec)
+      if (chan === null) return VI(0)
+      g.req = chan
+      it.block({ type: 'dialog', channel: chan }, true)
+      return VI(0)
+    },
+
+    /**
+     * `A$=Gui Asl$(Title,directory,file,pattern)` — the ASL file requester.
+     *
+     * Routine 258 builds the tag list in the state block itself: ASL_Window
+     * and the current window, ASLFR_InitialPattern with the fourth argument,
+     * and ASLFR_Flags1 = 1 so the pattern gadget shows. The other three are
+     * added only when non-empty -- ASLFR_TitleText at $757e, ASLFR_InitialDrawer
+     * at $7590, ASLFR_InitialFile at $75a2 -- so an empty argument is not an
+     * empty title, it is no tag at all and asl.library's own default.
+     *
+     * The joined path is built at $75ee rather than taken from asl: fr_Drawer,
+     * then a '/' unless the drawer already ends in ':' or '/', then fr_File.
+     * That is why `Gui Dir$` never has a trailing slash and `Gui Asl$` always
+     * has exactly one separator.
+     *
+     * "Asl.library not found!" is error 13, the `moveq #$d,d7` at $7520.
+     *
+     * APPROXIMATED: AMOS's own file selector stands in, the way BUtility's
+     * `Baslfilereq` uses it. What a program can observe -- modal, a path or
+     * an empty string, and the two halves readable afterwards -- is the same;
+     * the chrome and the pattern gadget are not.
+     */
+    'gui asl$': (it, a): Value => {
+      const g = s()
+      if (rt.fsel !== null) {
+        if (!rt.fsel.done) {
+          it.block({ type: 'fsel' }, true)
+          return VS('')
+        }
+        const r = rt.fsel.result
+        rt.fsel = null
+        // $75b8 clears both before the request, so a cancel leaves them empty
+        if (r === '') return VS('')
+        const cut = Math.max(r.lastIndexOf('/'), r.lastIndexOf(':'))
+        g.aslFile = r.slice(cut + 1)
+        g.aslDir = cut < 0 ? '' : r[cut] === ':' ? r.slice(0, cut + 1) : r.slice(0, cut)
+        return VS(joinAsl(g.aslDir, g.aslFile))
+      }
+      g.aslFile = ''
+      g.aslDir = ''
+      const [title, dir, file, pattern] = [str(a[0]!), str(a[1]!), str(a[2]!), str(a[3]!)]
+      const start = pattern !== '' && /[#?*]/.test(pattern) ? (dir === '' ? pattern : `${dir}/${pattern}`) : dir
+      if (!rt.startFsel(start, file, title, '')) return VS('')
+      it.block({ type: 'fsel' }, true)
+      return VS('')
+    },
+
+    /**
+     * `A$=Gui File$` and `A$=Gui Dir$` — the two halves of the last request.
+     *
+     * Ten instructions each, and neither tests asl.library or the requester:
+     * they read `$158` and `$15c` and answer AMOS's null string when either
+     * is zero. So they are safe to call before anything has been selected,
+     * which is not true of the five `Gui Asl` screen readers.
+     */
+    'gui file$': (): Value => VS(s().aslFile),
+    'gui dir$': (): Value => VS(s().aslDir),
 
     /**
      * `IconifyID=Gui Iconify(window,icon Name,icon path)` — close a window
