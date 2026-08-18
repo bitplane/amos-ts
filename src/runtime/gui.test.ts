@@ -16,7 +16,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
@@ -657,5 +657,122 @@ describeWith('the mouse group', exampleBank(), (bank) => {
     for (const kw of ['Gui Mouse Queue 9,40', 'Gui Mouse Report 9,-1', 'Gui Rmb 9,0']) {
       expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
     }
+  })
+})
+
+/**
+ * The Window Sizes group, and the font-sensitive scale under it.
+ *
+ * BootSelector's window is 143x37 at the position its editor saved, and its
+ * three image gadgets are 48x37 at x = 0, 48 and 96 in the bank. Every number
+ * below is one of those put through the layout the library does at open.
+ */
+describeWith('the window sizes group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  it('Gui Width, Height, X and Y are the Window struct s four fields', () => {
+    const rt = run(open, bank)
+    const w = rt.gui.windows.get(1)!
+    const got = runOut(`${open} : Print Gui Width(1) : Print Gui Height(1) : Print Gui X(1) : Print Gui Y(1)`, bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([w.width, w.height, w.left, w.top])
+    expect([w.width, w.height]).toEqual([143, 37])
+  })
+
+  /**
+   * "excluding the window borders", which is BorderLeft + BorderRight off the
+   * width and BorderTop + BorderBottom off the height. The same four bytes
+   * `Gui Border` reports one at a time, so the two keywords have to agree.
+   */
+  it('Gui In Width and In Height take the four borders off', () => {
+    const got = runOut(
+      `${open} : Print Gui In Width(1) : Print Gui In Height(1) : Print Gui Border(1,0)+Gui Border(1,2) : Print Gui Border(1,1)+Gui Border(1,3)`,
+      bank,
+    ).out.trim().split('\n').map(Number)
+    expect(got[0]).toBe(143 - got[2]!)
+    expect(got[1]).toBe(37 - got[3]!)
+  })
+
+  /**
+   * A gadget's box as the layout left it: the bank's coordinate scaled, then
+   * the border added. With topaz/8 the scale is the identity, so the three
+   * images land at their stored 0, 48 and 96 plus BorderLeft.
+   */
+  it('Gui X Gad and friends read the laid-out gadget, border included', () => {
+    const got = runOut(
+      `${open} : Print Gui X Gad(1,1) : Print Gui X Gad(1,2) : Print Gui Y Gad(1,1) : Print Gui Gad Width(1,1) : Print Gui Gad Height(1,1)`,
+      bank,
+    ).out.trim().split('\n').map(Number)
+    const left = Number(runOut(`${open} : Print Gui Border(1,0)`, bank).out.trim())
+    const top = Number(runOut(`${open} : Print Gui Border(1,1)`, bank).out.trim())
+    expect(got[0]).toBe(0 + left)
+    expect(got[1]).toBe(48 + left)
+    expect(got[2]).toBe(0 + top)
+    expect([got[3], got[4]]).toEqual([48, 37])
+  })
+
+  /** routine 246 answers 2 for the gadget and lets 244's 10 through for the window */
+  it('a bad gadget is "Gadget not defined" and a closed window is not', () => {
+    expect(() => run(`${open} : Print Gui X Gad(1,9)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.GADGET_NOT_DEFINED])
+    expect(() => run(`${open} : Print Gui Gad Width(1,-1)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.GADGET_NOT_DEFINED])
+    expect(() => run(`${open} : Print Gui Y Gad(9,0)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  /**
+   * TWO arguments. The guide prints `A=Gui Sx(X)` and its worked example
+   * passes one, but the token table's spec is `00,0` and $28d8 pops a value
+   * and a window. A one-argument reading would not even parse.
+   */
+  it('Gui Sx and its three siblings take the window first', () => {
+    const spec = gui.table.entries.find((e) => e.name === 'gui sx')!.spec
+    expect(spec).toBe('00,0')
+    expect(() => run(`${open} : Print Gui Sx(1,10)`, bank)).not.toThrow()
+  })
+
+  /**
+   * With topaz/8 the scale is the identity -- `(v*8+4)/8` is v -- so `Gui Sw`
+   * and `Gui Sh` hand back what they were given, and `Gui Sx` is exact
+   * because it takes off the same BorderLeft it adds back.
+   */
+  it('scales by the identity while the font is topaz/8', () => {
+    const got = runOut(`${open} : Print Gui Sw(1,10) : Print Gui Sh(1,15) : Print Gui Sx(1,10)`, bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([10, 15, 10])
+    expect(runOut(`${open} : Print Gui X Font : Print Gui Y Font`, bank).out.trim().split('\n').map(Number)).toEqual([8, 8])
+  })
+
+  /**
+   * DEFECT: `Gui Sy` takes off ten and adds eleven back. $2908 is
+   * `subi.l #$a,d1` where GuiConv wrote `-11` and where $568a builds the
+   * border it adds as WBorTop + font height + 1. So the guide's own example,
+   * `Gui Bar Gui Sx(10),Gui Sy(15)`, lands one pixel low.
+   */
+  it('Gui Sy answers one more than it was given, and Gui Sx does not', () => {
+    const got = runOut(`${open} : Print Gui Sy(1,15) : Print Gui Sx(1,15)`, bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([16, 15])
+  })
+
+  /**
+   * The scale itself, tested away from the keywords because no font this port
+   * can reach is anything but topaz/8 yet. `+4` before an unsigned divide is
+   * rounding to nearest.
+   */
+  it('the scale rounds to nearest, which is what the +4 before the divide is', () => {
+    expect(guiScale(10, 8)).toBe(10)
+    // topaz/9: ten cells become eleven and a bit, rounded to eleven
+    expect(guiScale(10, 9)).toBe(11)
+    expect(guiScale(1, 12)).toBe(2)
+    expect(guiScale(0, 40)).toBe(0)
+  })
+
+  /**
+   * "Gui Sensitive Off makes your windows use the topaz/8 font". The flag is
+   * the extension's and a window copies it at open, so turning it off after a
+   * window is open changes nothing about that window.
+   */
+  it('Gui Sensitive is the extension s flag, copied into a window at open', () => {
+    expect(run(open, bank).gui.sensitive).toBe(true)
+    const rt = run(`Gui Sensitive Off : ${open} : Gui Sensitive On`, bank)
+    expect(rt.gui.sensitive).toBe(true)
+    expect(rt.gui.windows.get(1)!.topaz).toBe(true)
+    expect(run(open, bank).gui.windows.get(1)!.topaz).toBe(false)
   })
 })

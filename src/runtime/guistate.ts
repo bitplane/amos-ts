@@ -108,6 +108,30 @@ export const DEFAULT_GUI_BANK = 20
 export const DEFAULT_MOUSE_QUEUE = 5
 
 /**
+ * topaz/8, the font every stored coordinate in a GUI bank is measured in.
+ *
+ * It is the divisor of the font-sensitive scale at $21c0 and $21d6, and the
+ * size $573a and $5740 force when a window cannot be scaled: "Gui Sensitive
+ * Off makes your windows use the topaz/8 font as used when you create the GUI
+ * in GadToolsBox".
+ */
+export const TOPAZ_SIZE = 8
+
+/**
+ * The font-sensitive scale, routines 41 and 42 at $21b4 and $21ca:
+ *
+ *     mulu.w $294(a0),d0 / addq.w #$4,d0 / divu.w #$8,d0
+ *
+ * A coordinate times the character cell, over topaz/8's, rounded to nearest
+ * by the `+4` before an unsigned divide. So the two routines are one function
+ * with two different multipliers, which is why `Gui Sw` and `Gui Sh` are two
+ * keywords rather than one.
+ */
+export function guiScale(v: number, cell: number): number {
+  return Math.trunc((v * cell + 4) / TOPAZ_SIZE)
+}
+
+/**
  * `Gui Menu(4)`, the argument that is not a field.
  *
  * Routine 4 tests for it first, `cmp.w #$4,d0 / beq` at $1d00, and only then
@@ -186,6 +210,17 @@ export interface GuiWindow {
    * them in time".
    */
   mouseQueue: number
+  /**
+   * This window was laid out in topaz/8 rather than in the screen's font.
+   *
+   * `$42` of the library's window record, set at $5726 when either `Gui
+   * Sensitive Off` cleared the global flag OR the scaled window would not
+   * fit the screen -- the guide's "If the new sizes cause the window to not
+   * fit on-screen anymore, the command will be ignored by the system". The
+   * same branch forces the two font sizes back to 8. `Gui Sx` and its three
+   * siblings test this word and skip their scaling when it is set.
+   */
+  topaz: boolean
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
   /**
@@ -284,6 +319,26 @@ export class GuiState {
   eventX = 0
   eventY = 0
   /**
+   * `Gui Sensitive On` / `Off`: bit 0 of `$85`, and it starts SET.
+   *
+   * $1678 sets it during init, which is the guide's "This is the default
+   * setting". It is the extension's and not a window's: a window copies it
+   * into its own `topaz` at open and keeps that reading for its whole life.
+   */
+  sensitive = true
+  /**
+   * The character cell, `$294` and `$296`, taken from the screen's font at
+   * $56a6 and $56ac -- `tf_XSize` and `tf_YSize` of the RastPort's TextFont.
+   *
+   * DEVIATION: 8 and 8 here for both, because this port has no Workbench
+   * screen and so no Preferences font. That is topaz/8, which is what
+   * GadToolsBox designed in and what $573a forces when a window cannot be
+   * scaled, so every scale below comes out as the identity until a screen
+   * exists to read a font off.
+   */
+  fontWidth = TOPAZ_SIZE
+  fontHeight = TOPAZ_SIZE
+  /**
    * The library's own gadtools instance, which owns every menu strip.
    *
    * One per state rather than one per window, because a strip outlives the
@@ -344,6 +399,7 @@ export class GuiState {
       ranges: new Map(),
       reportMouse: false,
       rmb: true,
+      topaz: !this.sensitive,
       mouseQueue: DEFAULT_MOUSE_QUEUE,
       openedAt: this.opens++,
       strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,

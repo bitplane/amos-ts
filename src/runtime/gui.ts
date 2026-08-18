@@ -24,9 +24,10 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_EVENT, GuiState, packMenuNumber } from './guistate'
+import { GUI_EVENT, GuiState, guiScale, packMenuNumber } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
+import type { GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
@@ -96,6 +97,7 @@ export const GUI_ERR = {
   WINDOW_NOT_OPEN: 10,
   GFX_NOT_DEFINED: 11,
   NOT_AN_INPUT_GADGET: 19,
+  GADGET_NOT_DEFINED: 2,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -127,6 +129,44 @@ function designs(rt: Runtime, s: GuiState): void {
  */
 function target(g: GuiState): GuiWindow | null {
   return g.windows.get(g.actual) ?? g.windows.get(g.selected) ?? null
+}
+
+/**
+ * A gadget by number, or "Gadget not defined".
+ *
+ * Routine 246 at $6680 sets `moveq #$2,d7` twice: once before it tests for a
+ * negative number and once after the window lookup, so a bad gadget answers 2
+ * and a closed window answers the 10 routine 244 left behind. The order
+ * matters, because a program that asks about gadget -1 of a window that is
+ * not open gets 2 rather than 10.
+ */
+function gadgetOf(g: GuiState, win: number, id: number): { w: GuiWindow; gad: GuiGadget } {
+  if (id < 0) guiError(GUI_ERR.GADGET_NOT_DEFINED)
+  const w = windowOf(g, win)
+  const gad = g.gadget(w, id)
+  if (gad === null) guiError(GUI_ERR.GADGET_NOT_DEFINED)
+  return { w, gad }
+}
+
+/**
+ * What `Gui Sy` takes off before scaling: TEN, where the design used eleven.
+ *
+ * Named rather than written inline because it is the whole of a defect. See
+ * the keyword.
+ */
+const SY_DESIGN_TOP = 10
+
+/**
+ * The scale `Gui Sx` and `Gui Sw` apply, skipped for a window that was laid
+ * out in topaz/8: `tst.w $42(a1) / bne` at $28f0 jumps past the call.
+ */
+function sensitiveX(g: GuiState, win: number, v: number): number {
+  return windowOf(g, win).topaz ? v : guiScale(v, g.fontWidth)
+}
+
+/** the same for `Gui Sy` and `Gui Sh`, testing the same word at $2920 */
+function sensitiveY(g: GuiState, win: number, v: number): number {
+  return windowOf(g, win).topaz ? v : guiScale(v, g.fontHeight)
 }
 
 /**
@@ -388,6 +428,28 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       windowOf(s(), n).rmb = it.evalInt() !== 0
+    },
+
+    /**
+     * `Gui Sensitive On` — "make your GUI windows use your Workbench font
+     * settings for displaying". Bit 0 of `$85`, set at $2300.
+     *
+     * "This is the default setting", and $1678 sets the same bit during init,
+     * so the two agree.
+     */
+    'gui sensitive on': () => {
+      s().sensitive = true
+    },
+
+    /**
+     * `Gui Sensitive Off` — "makes your windows use the topaz/8 font as used
+     * when you create the GUI in GadToolsBox". $230c clears the bit.
+     *
+     * It takes effect at the next `Gui Open`: a window copies the flag into
+     * its own `$42` at $5726 and never looks at the global again.
+     */
+    'gui sensitive off': () => {
+      s().sensitive = false
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -902,6 +964,109 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui mouse ex': (): Value => VI(s().eventX),
     'gui mouse ey': (): Value => VI(s().eventY),
+
+    /**
+     * `A=Gui Width(window)` and `Gui Height(window)` — "the width of the
+     * specified window in pixels", borders and all.
+     *
+     * `Window.Width` at $8 and `Height` at $a, and `Gui X` and `Gui Y` are
+     * `LeftEdge` at $4 and `TopEdge` at $6 of the same struct.
+     */
+    'gui width': (_, a): Value => VI(windowOf(s(), int(a[0]!)).width),
+    'gui height': (_, a): Value => VI(windowOf(s(), int(a[0]!)).height),
+    'gui x': (_, a): Value => VI(windowOf(s(), int(a[0]!)).left),
+    'gui y': (_, a): Value => VI(windowOf(s(), int(a[0]!)).top),
+
+    /**
+     * `A=Gui In Width(window)` and `Gui In Height(window)` — the same "
+     * excluding the window borders".
+     *
+     * $2740 subtracts `$36(a0)` and `$38(a0)` from the width, which are
+     * BorderLeft and BorderRight, and $2780 subtracts `$37` and `$39` from
+     * the height, BorderTop and BorderBottom. The four bytes `Gui Border`
+     * reports one at a time.
+     */
+    'gui in width': (_, a): Value => VI(windowOf(s(), int(a[0]!)).width - WBORLEFT - WBORRIGHT),
+    'gui in height': (_, a): Value => VI(windowOf(s(), int(a[0]!)).height - TITLE_HEIGHT - WBORBOTTOM),
+
+    /**
+     * `A=Gui X Gad(window,gadget)` and its three siblings — the gadget's box
+     * "relative to the top-left of the window".
+     *
+     * These read the LAID-OUT Gadget rather than the bank's NewGadget, so
+     * they carry both the font scale and the border the layout pass added at
+     * $5906 and $5938. That is why the guide points at them from `Gui
+     * Sensitive On`: "the GUI will try to adapt itself to your workbench
+     * settings", and this is how a program finds out where things ended up.
+     */
+    'gui x gad': (_, a): Value => {
+      const g = s()
+      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
+      return VI(guiScale(gad.leftEdge, g.fontWidth) + WBORLEFT)
+    },
+    'gui y gad': (_, a): Value => {
+      const g = s()
+      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
+      return VI(guiScale(gad.topEdge, g.fontHeight) + TITLE_HEIGHT)
+    },
+    'gui gad width': (_, a): Value => {
+      const g = s()
+      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
+      return VI(guiScale(gad.width, g.fontWidth))
+    },
+    'gui gad height': (_, a): Value => {
+      const g = s()
+      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
+      return VI(guiScale(gad.height, g.fontHeight))
+    },
+
+    /**
+     * `A=Gui Sx(window,x)` — "the new X position of a point, when scaled as
+     * the gadgets are with Gui Sensitive On".
+     *
+     * TWO arguments, not one. The guide prints `A=Gui Sx(X)` and its worked
+     * example reads `Gui Bar Gui Sx(10),Gui Sy(15) To Gui Sx(25),Gui Sy(30)`,
+     * but the token table's spec is `00,0` and $28d8 pops a value AND a
+     * window before calling the window lookup. All four of these take the
+     * window first.
+     *
+     * The arithmetic is the layout pass run backwards then forwards: take off
+     * the border the design was drawn with, scale, add the border the window
+     * actually got. `subq.l #$4,d1` at $28dc is GuiConv's own `Deek(WORK)-4`.
+     */
+    'gui sx': (_, a): Value => VI(sensitiveX(s(), int(a[0]!), int(a[1]!) - WBORLEFT) + WBORLEFT),
+
+    /**
+     * `A=Gui Sy(window,y)` — the same for a Y coordinate.
+     *
+     * DEFECT: it takes off TEN where the design used ELEVEN. $2908 is
+     * `subi.l #$a,d1`, GuiConv writes `Doke _STRUCTS+2,Deek(WORK+6)-11`, and
+     * the border added back at $292a is `$298`, which $568a builds as
+     * WBorTop + the font's height + 1 -- 11 for a Workbench with topaz/8. So
+     * with the default font `Gui Sy(w,y)` answers y+1 rather than y, where
+     * `Gui Sx` beside it is exact. One pixel, and it grows with the font.
+     */
+    'gui sy': (_, a): Value => VI(sensitiveY(s(), int(a[0]!), int(a[1]!) - SY_DESIGN_TOP) + TITLE_HEIGHT),
+
+    /**
+     * `A=Gui Sw(window,width)` and `Gui Sh(window,height)` — "the pixel width
+     * rescaled by the font sensitivity routine".
+     *
+     * A size rather than a position, so neither takes a border off nor adds
+     * one back: $2934 and $295a are the scale alone.
+     */
+    'gui sw': (_, a): Value => VI(sensitiveX(s(), int(a[0]!), int(a[1]!))),
+    'gui sh': (_, a): Value => VI(sensitiveY(s(), int(a[0]!), int(a[1]!))),
+
+    /**
+     * `A=Gui X Font` and `Gui Y Font` — the character cell everything above
+     * is scaled by, `$294` and `$296`.
+     *
+     * They belong to the extension rather than to a window, and a window that
+     * could not be scaled has already forced them back to 8.
+     */
+    'gui x font': (): Value => VI(s().fontWidth),
+    'gui y font': (): Value => VI(s().fontHeight),
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),

@@ -79,7 +79,7 @@ is.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |        0 |            0 |      48 |       0% |
 | gui-1.61             |      103 |        0 |            0 |     103 |       0% |
-| gui-2.10             |      204 |        0 |           58 |     146 |      28% |
+| gui-2.10             |      204 |        0 |           76 |     128 |      37% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |            0 |      62 |       0% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          217 |    2310 |      69% |
+| **total**            |     7422 |     4832 |          235 |    2292 |      69% |
 
 ## Not applicable, by what would retire it
 
@@ -281,18 +281,21 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (2): `direct`, `edit`
 
-## gui-2.10 (28%)
+## gui-2.10 (37%)
 
-- **approximated** (58): `gui activate`, `gui actual`, `gui bank`, `gui bar`, `gui bbox`,
+- **approximated** (76): `gui activate`, `gui actual`, `gui bank`, `gui bar`, `gui bbox`,
   `gui border`, `gui box`, `gui check`, `gui close`, `gui cls`, `gui clw`, `gui code`,
-  `gui code$`, `gui draw`, `gui draw to`, `gui ellipse`, `gui event`, `gui exist`, `gui gadget`,
-  `gui gfx`, `gui ink`, `gui kind`, `gui lock`, `gui menu`, `gui menu check`, `gui menu off`,
-  `gui menu on`, `gui menu uncheck`, `gui mouse ex`, `gui mouse ey`, `gui mouse mode`,
-  `gui mouse queue`, `gui mouse report`, `gui mouse wx`, `gui mouse wy`, `gui mouse x`,
-  `gui mouse y`, `gui off`, `gui on`, `gui open`, `gui paint`, `gui paper`, `gui pen`,
-  `gui plot`, `gui point`, `gui range`, `gui read`, `gui read$`, `gui reset`, `gui rmb`,
-  `gui selected`, `gui set`, `gui set$`, `gui text`, `gui unlock`, `gui wait`, `gui window`,
-  `gui writing`
+  `gui code$`, `gui draw`, `gui draw to`, `gui ellipse`, `gui event`, `gui exist`,
+  `gui gad height`, `gui gad width`, `gui gadget`, `gui gfx`, `gui height`, `gui in height`,
+  `gui in width`, `gui ink`, `gui kind`, `gui lock`, `gui menu`, `gui menu check`,
+  `gui menu off`, `gui menu on`, `gui menu uncheck`, `gui mouse ex`, `gui mouse ey`,
+  `gui mouse mode`, `gui mouse queue`, `gui mouse report`, `gui mouse wx`, `gui mouse wy`,
+  `gui mouse x`, `gui mouse y`, `gui off`, `gui on`, `gui open`, `gui paint`, `gui paper`,
+  `gui pen`, `gui plot`, `gui point`, `gui range`, `gui read`, `gui read$`, `gui reset`,
+  `gui rmb`, `gui selected`, `gui sensitive off`, `gui sensitive on`, `gui set`, `gui set$`,
+  `gui sh`, `gui sw`, `gui sx`, `gui sy`, `gui text`, `gui unlock`, `gui wait`, `gui width`,
+  `gui window`, `gui writing`, `gui x`, `gui x font`, `gui x gad`, `gui y`, `gui y font`,
+  `gui y gad`
 
 ## input (100%)
 
