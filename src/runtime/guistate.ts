@@ -252,6 +252,31 @@ export interface GuiScreen {
    * fractions at $30be, so it is the shape the keywords already speak in.
    */
   palette: number[]
+  /**
+   * The screen's own BitMap, at `Screen+$2c` and reached through its RastPort
+   * at `$54`.
+   *
+   * `Gui Screen Copy`, `Gui Display Iff` and `Gui Clone` all work on it:
+   * $41d2 is `lea $54(a1),a1` for the destination and $4216 takes `$4` of
+   * that for the source's BitMap. A screen with no pixels could not answer
+   * any of the three.
+   */
+  rp: RastPort
+  /**
+   * `Gui Clone screen,True` has this screen showing AMOS's own BitMap.
+   *
+   * One flag rather than a swapped bitmap: the machine points the ViewPort at
+   * AMOS's planes with ChangeVPBitMap and gives them back on False, and what
+   * a program can see of that here is which picture the screen is showing.
+   */
+  cloned: boolean
+}
+
+/** a screen's RastPort, sized and coloured the way `Gui Screen Open` asked */
+export function newScreenPort(width: number, height: number, depth: number): RastPort {
+  const w = Math.max(1, width)
+  const h = Math.max(1, height)
+  return new RastPort(new BitMap(w, h, Math.max(1, Math.min(8, depth)), rowBytesFor(w)))
 }
 
 /**
@@ -302,6 +327,8 @@ export function workbenchScreen(): GuiScreen {
     showTitle: true,
     isPublic: true,
     palette: defaultPalette(WB_DEPTH),
+    rp: newScreenPort(WB_WIDTH, WB_HEIGHT, WB_DEPTH),
+    cloned: false,
   }
 }
 
@@ -849,6 +876,13 @@ export class GuiState {
    */
   readonly notifies = new Map<number, GuiNotify>()
   /**
+   * `Gui Remap`'s converted planes, one per image of the bank it last ran on.
+   *
+   * On the machine these are one AllocVec at `$bc` and routine 223 frees them
+   * before the next remap, which is why there is only ever one bank's worth.
+   */
+  readonly rtgPlanes: Array<{ width: number; height: number; planes: Uint8Array }> = []
+  /**
    * The catalog `Gui Catalog Open` attached to the current bank, and every
    * catalog still open by the id it handed back.
    *
@@ -863,6 +897,16 @@ export class GuiState {
   private readonly gadgetAddrs = new Map<string, number>()
   private nextGadgetAddr = GUI_GADGET_ORIGIN
   private nextNotifyId = GUI_NOTIFY_ORIGIN
+  /**
+   * `$2a8` to `$2b4`: what the last `Xfa Check` read out of an anim's header.
+   *
+   * Six fields, and the six reader keywords are one `move` each. `Xfa Check`
+   * fills them from XFA_HeadPtr's block at $3f34 -- the width word times
+   * eight, then the height word, the mode id longword, the depth and pack
+   * bytes and the frame count longword -- and nothing else writes them, so a
+   * program that never called `Xfa Check` reads zeroes.
+   */
+  xfa = { width: 0, height: 0, modeId: 0, depth: 0, pack: 0, frames: 0 }
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**

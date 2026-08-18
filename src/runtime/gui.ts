@@ -24,8 +24,12 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TOPAZ_SIZE, defaultPalette, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
+import type { RastPort } from '../amiga/graphics'
+import { encode, rowBytesFor } from '../amiga/planar'
+import { parseIlbm } from '../amiga/ilbm'
+import type { ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { Gui, GuiGadget } from './guibank'
@@ -112,6 +116,10 @@ export const GUI_ERR = {
   GUI_NOT_DEFINED: 3,
   GUI_NOT_OPEN: 7,
   UNABLE_TO_OPEN_FILE: 22,
+  XFA_NOT_AVAILABLE: 27,
+  IMAGE_NOT_RESERVED: 12,
+  UNABLE_TO_DISPLAY: 26,
+  BOBS_BANK_NOT_RESERVED: 31,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -440,6 +448,195 @@ function underNotify(watched: string, changed: string): boolean {
   if (w.endsWith(':')) return c.startsWith(w)
   return c.startsWith(`${w}/`)
 }
+
+/**
+ * `Xfa Play`'s and `Xfa Rtg Play`'s six arguments, read and dropped.
+ *
+ * Named rather than repeated, because the two routines are the same one
+ * twice: file name, four booleans for XFA_Play and the mode id that goes to
+ * OpenPlayStuff instead.
+ */
+function xfaArgs(it: Interp): void {
+  it.evalStr()
+  for (let i = 0; i < 5; i++) {
+    it.expect(',')
+    it.evalInt()
+  }
+}
+
+/**
+ * `DrawImage` of an AMOS image into a RastPort, which is what routine 256 at
+ * $746c builds a `struct Image` for.
+ *
+ * The header it reads is the AMOS one: a width word in SIXTEENS (`mulu.w
+ * #$10`), a height word, a depth word, then four bytes it steps over --
+ * the hot spot -- and the planes. The depth is clipped to the destination
+ * BitMap's own at $74aa, and PlanePick at `$21e` is `$ff00 rol depth`, so a
+ * pixel is masked to that many bits.
+ *
+ * DrawImage is opaque: colour 0 is drawn, not skipped, which is the one way
+ * this differs from AMOS's own `Paste Bob`.
+ */
+function drawAmosImage(
+  rp: RastPort,
+  img: { width: number; height: number; depth: number; pixels: Uint8Array },
+  x: number,
+  y: number,
+): void {
+  const depth = Math.min(img.depth, rp.bitMap.depth)
+  const mask = ((1 << depth) - 1) & 0xff
+  for (let iy = 0; iy < img.height; iy++) {
+    const ty = y + iy
+    if (ty < 0 || ty >= rp.bitMap.height) continue
+    for (let ix = 0; ix < img.width; ix++) {
+      const tx = x + ix
+      if (tx < 0 || tx >= rp.bitMap.width) continue
+      rp.putPixel(tx, ty, img.pixels[iy * img.width + ix]! & mask)
+    }
+  }
+}
+
+/**
+ * `ScrollRaster(rp, dx, dy, xMin, yMin, xMax, yMax)` -- graphics.library -396,
+ * which is the whole of `Gui Scroll`.
+ *
+ * The vacated edge goes to the RastPort's BgPen, which is what the real call
+ * does with a simple RastPort. Positive dx moves the picture LEFT, as
+ * graphics.library defines it and as the guide's "scrolls the area... by numx
+ * pixels" leaves open.
+ */
+function scrollRaster(rp: RastPort, dx: number, dy: number, x1: number, y1: number, x2: number, y2: number): void {
+  const w = x2 - x1 + 1
+  const h = y2 - y1 + 1
+  if (w <= 0 || h <= 0) return
+  const keep = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) keep[y * w + x] = rp.point(x1 + x, y1 + y)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const sx = x + dx
+      const sy = y + dy
+      const v = sx < 0 || sx >= w || sy < 0 || sy >= h ? rp.bgPen : keep[sy * w + sx]!
+      rp.putPixel(x1 + x, y1 + y, v)
+    }
+  }
+}
+
+/** `BltBitMapRastPort` with minterm $c0: a straight copy, clipped both ends */
+function bltRect(
+  src: RastPort,
+  sx: number,
+  sy: number,
+  dst: RastPort,
+  dx: number,
+  dy: number,
+  w: number,
+  h: number,
+): void {
+  const keep = new Uint8Array(Math.max(0, w) * Math.max(0, h))
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const px = sx + x
+      const py = sy + y
+      keep[y * w + x] = px < 0 || py < 0 || px >= src.bitMap.width || py >= src.bitMap.height ? 0 : src.point(px, py)
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    const ty = dy + y
+    if (ty < 0 || ty >= dst.bitMap.height) continue
+    for (let x = 0; x < w; x++) {
+      const tx = dx + x
+      if (tx < 0 || tx >= dst.bitMap.width) continue
+      dst.putPixel(tx, ty, keep[y * w + x]!)
+    }
+  }
+}
+
+/**
+ * `Gui Paste Icon` and `Gui Paste Bob`: routine 257's bounds and the draw.
+ *
+ * $74fa refuses a number of zero or below, $7502 compares it against the
+ * bank's own count word with `cmp.l d0,d1 / bgt`, and both answer error 12
+ * "Image not reserved". The index is `(n - 1) * 8` into the bank's pointer
+ * table, so the numbering is one-based.
+ */
+function pasteBankImage(rt: Runtime, it: Interp, bank: ObjectBank | null): void {
+  const n = it.evalInt()
+  it.expect(',')
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  const img = n <= 0 ? undefined : bank?.image(n)
+  if (img === undefined) guiError(GUI_ERR.IMAGE_NOT_RESERVED)
+  drawAmosImage(gfx(rt.gui).rp, img, x, y)
+}
+
+/**
+ * One end of `Gui Screen Copy`, which $419e and $41d6 resolve the same way:
+ * above zero a GUI screen, zero the current gfx output, below zero AMOS's own
+ * screen at `-$18ca(a5)`.
+ */
+function copyEnd(rt: Runtime, g: GuiState, n: number): RastPort {
+  if (n > 0) return screenOf(g, n).rp
+  if (n === 0) return gfx(g).rp
+  // AMOS's own current screen. Its RastPort here is the Screen's own, and a
+  // program with none open reaches the same `beq` the library does.
+  return rt.screen.rp
+}
+
+/**
+ * `Gui Remap`'s two passes over an RTG Bob bank: the pens, then the planes.
+ *
+ * The pen table at `+$8c` is written back into the BANK, which is where the
+ * image gadget code reads it from, so a program can see it with `Leek`. Bit
+ * 31 marks a colour FindColor answered for rather than one ObtainBestPenA
+ * reserved, exactly as $4ab0 sets it.
+ *
+ * The planes go into the state rather than into the bank, because on the
+ * machine they go into an AllocVec at `$bc` and only the POINTER is written
+ * back. There is no allocation to name here, so the table gets a handle from
+ * the same origin `Gui Gad Adr` mints from.
+ */
+function remapRtgBobs(g: GuiState, data: Uint8Array): void {
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  if (data.length < 0x10c) guiError(GUI_ERR.BOBS_BANK_NOT_RESERVED)
+  const images = dv.getUint32(0)
+  const colours = dv.getUint32(4)
+  if (images > 0x1000 || colours > 32 || 0x10c + images * 8 > data.length) {
+    guiError(GUI_ERR.BOBS_BANK_NOT_RESERVED)
+  }
+  const palette = g.current?.palette ?? []
+  const pens: number[] = []
+  for (let i = 0; i < colours; i++) {
+    const at = 0xc + i * 4
+    const r = data[at + 1] ?? 0
+    const gr = data[at + 2] ?? 0
+    const b = data[at + 3] ?? 0
+    const pen = nearestPen(palette, r, gr, b)
+    pens.push(pen)
+    // $4ab6 stores the longword whether it came from ObtainBestPenA or from
+    // FindColor; only the second carries bit 31
+    dv.setUint32(0x8c + i * 4, (pen | 0x8000_0000) >>> 0)
+  }
+  let chunky = 0x10c + images * 8
+  g.rtgPlanes.length = 0
+  for (let i = 0; i < images; i++) {
+    const at = 0x10c + i * 8
+    const w = dv.getUint16(at)
+    const h = dv.getUint16(at + 2)
+    const size = w * h
+    const rowBytes = rowBytesFor(w)
+    const planes = new Uint8Array(rowBytes * h * RTG_PLANES)
+    const mapped = new Uint8Array(size)
+    for (let k = 0; k < size; k++) mapped[k] = pens[data[chunky + k] ?? 0] ?? 0
+    encode(mapped, planes, rowBytes * h, rowBytes, RTG_PLANES, w, h)
+    g.rtgPlanes.push({ width: w, height: h, planes })
+    dv.setUint32(at + 4, g.gadgetAddress(-1, g.rtgPlanes.length - 1))
+    chunky += size
+  }
+}
+
+/** the eight planes $4aea builds pointers for, one `move.l` and a seven-turn loop */
+const RTG_PLANES = 8
 
 /**
  * Where `OpenCatalogA(NULL, name, NULL)` looks.
@@ -1009,6 +1206,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         showTitle: true,
         isPublic: false,
         palette: defaultPalette(depth),
+        rp: newScreenPort(sm.width, sm.height, depth),
+        cloned: false,
       })
       g.current = g.screens.get(n)!
       g.pubLock = 0
@@ -1402,6 +1601,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         showTitle: true,
         isPublic: false,
         palette: defaultPalette(depthForColours(colours)),
+        rp: newScreenPort(width, height, depthForColours(colours)),
+        cloned: false,
       }
       g.screens.set(n, screen)
       g.current = screen
@@ -2146,6 +2347,288 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui guide': (it) => {
       it.evalStr()
+    },
+
+    /**
+     * `Xfa Play file name,loop,auto pause,wait start,slow,mode id` and `Xfa
+     * Rtg Play`, its gfx-card twin — "Play the specified XFA animation file".
+     *
+     * XFA is Michele Puccini's delta-frame format for ClassX's X-DVE, and the
+     * guide gives it a chapter of its own: *"you will obtain 256 colours
+     * super-hires overscan 1472x566 50fps animations... if you believe in
+     * miracles"*. All nine keywords are xfa.library and nothing else.
+     *
+     * $3d66 and $3e36 are the same routine twice over, and `Tools/FD/xfa_lib.fd`
+     * in the GUI archive names every call in them:
+     *
+     *     XFA_LoadAnim  (-$8a)   header only with d0 = 0, then again with $ff
+     *     XFA_HeadPtr   (-$c6)   the header the first load read
+     *     XFA_AllocFrames (-$66) with the frame count out of `$a` of it
+     *     XFA_OpenPlayStuff (-$ba) / XFA_OpenCyberPlayStuff (-$102)
+     *     XFA_Play      (-$a8)   / XFA_CyberPlay             (-$fc)
+     *     XFA_ClosePlayStuff (-$c0) / XFA_CloseCyberPlayStuff (-$108)
+     *     XFA_FreeAnim  (-$6c)
+     *
+     * The five booleans go to XFA_Play in the order they are written; the
+     * SIXTH argument, mode id, goes to OpenPlayStuff instead, which is why it
+     * is popped first. Around the play, `-$8e(a5)` decides whether AMOS goes
+     * to the back and comes forward again — the same AMOS_WB pair `Gui Amiga
+     * Os` uses, with `-$90(a5)` set to $ffff and back to 0.
+     *
+     * Each stage loads its own error number into a3 before it tries: 27
+     * "xfa.library not available", 28 "Unable to load xfa file", 29 "Unable
+     * to allocate xfa frames", 30 "Unable to play xfa anim". $3e2e tests a3
+     * and raises only if it is not zero.
+     *
+     * DEVIATION: xfa.library is not modelled and is not in the corpus — the
+     * GUI archive ships its `.fd` and two tools, not the library, and there
+     * is no `.xfa` file anywhere to read the format off either. So this port
+     * takes the branch $3d80 takes on a machine that has not got it, which is
+     * the first error and the one the extension has a string for.
+     */
+    'xfa play': (it) => {
+      xfaArgs(it)
+      guiError(GUI_ERR.XFA_NOT_AVAILABLE)
+    },
+    'xfa rtg play': (it) => {
+      xfaArgs(it)
+      guiError(GUI_ERR.XFA_NOT_AVAILABLE)
+    },
+
+    /**
+     * `Gui Paste Block block,x,y`, `Gui Paste Icon icon,x,y` and `Gui Paste
+     * Bob image,x,y` — the same routine three times over a different bank.
+     *
+     * $20e4 walks AMOS's own block list at `-$189e(a5)` comparing `$8` of
+     * each node and takes `$14` for the image; $2118 and $2136 go through
+     * `L_Bnk_GetIcons` and `L_Bnk_GetBobs` and let routine 257 index them.
+     * All three then hand the image to routine 256, which builds a `struct
+     * Image` and calls DrawImage (-$72).
+     *
+     * "The palette of the block will only turn out correct if the screen
+     * palette has been set accordingly, using a command such as Gui Rgb" —
+     * nothing here touches the palette, and the colour is the bank's index
+     * masked to the destination's depth.
+     *
+     * Error 12 "Image not reserved" for a number no bank answers to, and 11
+     * "Gfx output not defined" from routine 256 when `$1bc` is empty. The
+     * gadget bound is `cmp.l d0,d1 / bgt` at $7502 against the bank's own
+     * count, and $74fa refuses zero and below before that.
+     */
+    'gui paste block': (it) => {
+      const n = it.evalInt()
+      it.expect(',')
+      const [x, y] = pair(it)
+      const b = rt.blocks.get(n)
+      if (b === undefined) guiError(GUI_ERR.IMAGE_NOT_RESERVED)
+      drawAmosImage(gfx(s()).rp, { width: b.w, height: b.h, depth: 8, pixels: b.pixels }, x, y)
+    },
+    'gui paste icon': (it) => {
+      pasteBankImage(rt, it, rt.iconBank)
+    },
+    'gui paste bob': (it) => {
+      pasteBankImage(rt, it, rt.spriteBank)
+    },
+
+    /**
+     * `Gui Scroll x,y to xx,yy,numx,numy` — "scrolls the area x,y to xx,yy by
+     * numx pixels horizontally, and numy pixels vertically".
+     *
+     * $2322 is six pops and one call: ScrollRaster (-$18c) on the RastPort at
+     * `$1bc`, with the registers in graphics.library's own order —
+     * `(rp,dx,dy,xMin,yMin,xMax,yMax)` in a1, d0/d1, d2/d3/d4/d5. So the
+     * LAST two arguments are the distance and the first four are the box,
+     * which is the opposite way round from how the guide's `Usage` line
+     * reads.
+     */
+    'gui scroll': (it) => {
+      const [x, y] = pair(it)
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect(',')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      scrollRaster(gfx(s()).rp, dx, dy, x, y, x2, y2)
+    },
+
+    /**
+     * `Gui Screen Copy src,x,y,width,height To dest,x2,y2`.
+     *
+     * No guide node. $418a resolves each end three ways, and the sign is what
+     * chooses: ABOVE zero is a GUI screen by number, through routine 259 and
+     * `lea $54`; ZERO is the current gfx output at `$1bc`; BELOW zero is
+     * AMOS's own screen at `-$18ca(a5)`. Then BltBitMapRastPort (-$25e) with
+     * minterm $c0 — the source end takes `$4` of its RastPort for the BitMap,
+     * the destination end stays a RastPort.
+     *
+     * Which means the two middle arguments are a SIZE and not a second
+     * corner: d4 and d5 land in BltBitMapRastPort's xSize and ySize.
+     *
+     * "Screen not opened" for a number that names no screen, and the same for
+     * either end that resolves to nothing.
+     */
+    'gui screen copy': (it) => {
+      const g = s()
+      const src = it.evalInt()
+      it.expect(',')
+      const sx = it.evalInt()
+      it.expect(',')
+      const sy = it.evalInt()
+      it.expect(',')
+      const w = it.evalInt()
+      it.expect(',')
+      const h = it.evalInt()
+      it.expect('to')
+      const dst = it.evalInt()
+      it.expect(',')
+      const [dx, dy] = pair(it)
+      bltRect(copyEnd(rt, g, src), sx, sy, copyEnd(rt, g, dst), dx, dy, w, h)
+    },
+
+    /**
+     * `Gui Display bank To screen,mode` — "Display the IFF file loaded in the
+     * bank, into the specified screen. If the screen already exist, it will
+     * be closed and reopened."
+     *
+     * Routine 146 is four instructions over routine 147, which is 562 bytes
+     * of hand-written ILBM reader: it walks the chunks at $351a, keeps BMHD's
+     * width, height, depth, compression and mask in the scratch at `$2b8`,
+     * remembers CMAP's address and CAMG's longword, and unpacks BODY. The
+     * mode word decides between reopening the screen from the BMHD ($35de,
+     * routine 233) and demanding that the picture FIT the one already open —
+     * `cmp.w $c(a0),d0 / bhi` with `moveq #$1a,d7`, "Unable to display
+     * picture".
+     *
+     * DEVIATION: `../amiga/ilbm.ts` does the reading here, and it is the
+     * better reader — it knows HAM and EHB, which routine 147 does not — so a
+     * picture this port draws may differ from what the extension's own
+     * unpacker would have made of it. The chunk set is the same five.
+     */
+    'gui display iff': (it) => {
+      const g = s()
+      const bankNo = it.evalInt()
+      it.expect('to')
+      const n = it.evalInt()
+      const mode = it.accept(',') ? it.evalInt() : 0
+      const held = rt.memBanks.get(bankNo)
+      if (held === undefined) guiError(GUI_ERR.BANK_NOT_RESERVED)
+      const screen = screenOf(g, n)
+      let img
+      try {
+        img = parseIlbm(Uint8Array.from(held.data))
+      } catch {
+        guiError(GUI_ERR.UNABLE_TO_DISPLAY)
+      }
+      if (mode !== 0) {
+        // $35de reopens the screen at the picture's own size and depth
+        screen.width = img.width
+        screen.height = img.height
+        screen.depth = img.depth
+        screen.rp = newScreenPort(img.width, img.height, img.depth)
+      } else if (img.width > screen.width || img.height > screen.height) {
+        guiError(GUI_ERR.UNABLE_TO_DISPLAY)
+      }
+      for (const [i, c] of img.palette.entries()) setColour(screen, i, expand12(c))
+      for (let y = 0; y < img.height && y < screen.rp.bitMap.height; y++) {
+        for (let x = 0; x < img.width && x < screen.rp.bitMap.width; x++) {
+          screen.rp.putPixel(x, y, img.pixels[y * img.width + x]!)
+        }
+      }
+    },
+
+    /**
+     * `Gui Save Iff screen number,file name` — "It allows you to save the
+     * specified screen as a IFF image."
+     *
+     * The guide is blunt about the catch and the binary agrees: *"IMPORTANT:
+     * This command requires the xfa.libray!"* $3ff6 loads `moveq #$1b,d7`
+     * before it looks at anything, tests `$140` and raises 27 if the library
+     * is not open. Only then does it look the screen up (17) and call
+     * XFA_SaveScreen (-$de).
+     *
+     * DEVIATION: no xfa.library here, so this is the first branch — the same
+     * one the nine `Xfa` keywords take, and this port could write the IFF
+     * perfectly well without it. See `Xfa Play`.
+     */
+    'gui save iff': (it) => {
+      it.evalInt()
+      it.expect(',')
+      it.evalStr()
+      guiError(GUI_ERR.XFA_NOT_AVAILABLE)
+    },
+
+    /**
+     * `Gui Clone GUI Screen,mode` — "Display the current AMOS screen into the
+     * GUI Screen... No copper hacks or bitplanes hacking.. it's a 100% OS
+     * friendly system".
+     *
+     * True is AllocDBufInfo (-$3c6), ChangeVPBitMap (-$3ae) pointing the GUI
+     * screen's ViewPort at AMOS's own BitMap, then WaitBlit, ScrollVPort,
+     * MakeScreen and RethinkDisplay. False gives the screen its own BitMap
+     * back and FreeDBufInfo (-$3cc). Under OS 39 there is no ChangeVPBitMap
+     * and $34d4 pokes the BitMap pointer into the RasInfo instead, which is
+     * the copper hack the guide says it does not do.
+     *
+     * Either way the palette is copied first, at $3442: the AMOS screen's
+     * colour count at `$64` and its table at `$66`, one SetRGB4 (-$120) a
+     * pen. Nothing puts them back, so `Gui Clone 1,False` restores the
+     * picture and leaves the colours.
+     *
+     * "Actually the Double buffer and the rainbows aren't supported, and this
+     * commands works only using the Amiga Chipset... with a Gfx Card it
+     * doesn't works!!"
+     */
+    'gui clone': (it) => {
+      const g = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const on = it.evalInt() !== 0
+      const screen = screenOf(g, n)
+      const from = rt.screen.palette
+      for (let i = 0; i < screen.palette.length && i < from.length; i++) {
+        setColour(screen, i, expand12(from[i]! & 0xfff))
+      }
+      screen.cloned = on
+    },
+
+    /**
+     * `Gui Remap bank` — "adapt the colour map of the specified RTG Bob bank
+     * with the colours of the current screen, so the images will looks
+     * correctly".
+     *
+     * The RTG Bob format is not guesswork: `Accessories/RTGBob.Amos` is
+     * shipped and detokenises, and it writes
+     *
+     *     +$00  LONG  images
+     *     +$04  LONG  colours
+     *     +$08  LONG  total chunky bytes
+     *     +$0c  32 x (0, R, G, B), the bob bank's palette at 8 bits a gun
+     *     +$8c  32 x LONG, empty -- where this keyword writes the pens
+     *     +$10c images x (WORD width, WORD height, LONG data)
+     *
+     * and appends every image's chunky pixels after it. `HD=12+32*8+
+     * Length(1)*8` is that header, and the bank is named "RTG Bobs".
+     *
+     * $4a5e resolves each colour with ObtainBestPenA (-$348) and falls back
+     * to FindColor (-$3f0) with bit 31 SET as a marker, which is how routine
+     * 223 later knows which pens it has to hand back. Then $4abe walks the
+     * image table converting each image's chunky bytes through that table
+     * into eight bitplanes and rewriting the table's pointer.
+     *
+     * DEFECT: one bank at a time, and the keyword does not say so. Routine
+     * 222 opens with routine 223, which releases the pens and frees the
+     * planes of whatever `$c0` still points at. So remapping a second bank
+     * silently un-remaps the first, and the guide's warning is about erasing
+     * a bank rather than about this.
+     */
+    'gui remap': (it) => {
+      const g = s()
+      const bank = rt.memBanks.get(it.evalInt())
+      if (bank === undefined) guiError(GUI_ERR.BANK_NOT_RESERVED)
+      remapRtgBobs(g, bank.data)
     },
 
     /** `Gui Text x,y,text$` */
@@ -3367,6 +3850,49 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * read: $4354 tests `$86` and leaves d3 at 0.
      */
     'gui user catalog': (): Value => VI(s().designs[0]?.userCatalog ?? 0),
+
+    /**
+     * `C=Xfa Check(file name)` — "return TRUE if the specified file is a XFA
+     * anim, otherwise returns 0".
+     *
+     * $3f06 loads the header alone — XFA_LoadAnim with d0 = 0 — and copies
+     * six fields out of XFA_HeadPtr's block into the state, where the six
+     * reader keywords find them:
+     *
+     *     +$0  WORD  width in BYTES, and $3f38 shifts it left three
+     *     +$2  WORD  height
+     *     +$4  LONG  screen mode id
+     *     +$8  BYTE  depth
+     *     +$9  BYTE  pack mode
+     *     +$a  LONG  frames
+     *
+     * Recorded because it is real evidence about a format nothing here can
+     * read yet, and it is what a future xfa.library port would fill in.
+     *
+     * It does NOT free the anim it loaded, and it raises nothing: a missing
+     * library and a file that is not an anim both leave d0 at zero. See `Xfa
+     * Play` for why that is the answer here.
+     */
+    'xfa check': (_, a): Value => {
+      void str(a[0]!)
+      return VI(0)
+    },
+
+    /**
+     * The six readers — `Xfa Width`, `Height`, `Mode Id`, `Depth`, `Pack` and
+     * `Frames`. One `move` each out of `$2a8` to `$2b4`, no library, no
+     * error, and zero until an `Xfa Check` has succeeded.
+     *
+     * "Returns the pixel width of the XFA animation file previously checked
+     * using the Xfa Check command" — width is stored in bytes and multiplied
+     * by eight on the way in, so what these answer is already pixels.
+     */
+    'xfa width': (): Value => VI(s().xfa.width),
+    'xfa height': (): Value => VI(s().xfa.height),
+    'xfa mode id': (): Value => VI(s().xfa.modeId),
+    'xfa depth': (): Value => VI(s().xfa.depth),
+    'xfa pack': (): Value => VI(s().xfa.pack),
+    'xfa frames': (): Value => VI(s().xfa.frames),
 
     /**
      * `A=Gui Border(window,border)` — the size of one of a window's four

@@ -24,6 +24,8 @@ import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
 import { join } from 'node:path'
 import { AmigaFS } from '../amiga/vfs'
+import { BankImage, ObjectBank } from './objects'
+import { encodeIlbm } from '../amiga/ilbm'
 import { describeIf, describeWith } from '../testing/fixture'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -2345,5 +2347,222 @@ Print Gui Wait : Print Gui Wait`
     // with help off both moves are reported, and neither writes a gadget
     expect(r.out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.MOUSEMOVE, GUI_EVENT.MOUSEMOVE])
     expect(w.strings.size).toBe(0)
+  })
+})
+
+/**
+ * The XFA group: nine keywords over xfa.library, which is not modelled and is
+ * not in the corpus either. What is testable is the branch a machine without
+ * it takes, which is the one the extension has an error string for.
+ */
+describe('the XFA group', () => {
+  it('both play keywords raise "xfa.library not available"', () => {
+    expect(() => run(`Xfa Play "RAM:a.xfa",0,0,0,0,0`)).toThrow(GUI_ERRORS[GUI_ERR.XFA_NOT_AVAILABLE])
+    expect(() => run(`Xfa Rtg Play "RAM:a.xfa",1,1,1,1,1`)).toThrow(GUI_ERRORS[GUI_ERR.XFA_NOT_AVAILABLE])
+    expect(GUI_ERRORS[GUI_ERR.XFA_NOT_AVAILABLE]).toBe('xfa.library not available')
+  })
+
+  /** $3f14 leaves d0 at zero and raises nothing at all */
+  it('Xfa Check answers 0 without raising', () => {
+    expect(val(`Xfa Check("RAM:a.xfa")`)).toBe(0)
+  })
+
+  /** six reads of `$2a8` to `$2b4`, which no check has filled in */
+  it('the six readers answer zero, and take no arguments', () => {
+    const out = runOut(
+      `Print Xfa Width : Print Xfa Height : Print Xfa Mode Id : Print Xfa Depth : Print Xfa Pack : Print Xfa Frames`,
+    ).out
+    expect(out.trim().split('\n').map(Number)).toEqual([0, 0, 0, 0, 0, 0])
+  })
+})
+
+/**
+ * The graphics group: the three pastes, the scroll, the two screen-to-screen
+ * copies and the two that need a library this port has not got.
+ */
+describeWith('the graphics group', exampleBank(), (bank) => {
+  const rp = (rt: Runtime) => rt.gui.windows.get(1)!.rp
+
+  /**
+   * An AMOS bob bank of one 16x2 image whose left half is colour 3.
+   *
+   * Sixteen wide because a bank image's row is measured in whole words --
+   * `bankRowBytesFor` truncates -- and an eight-wide one has no bytes at all.
+   */
+  function bobs(rt: Runtime): void {
+    const img = new BankImage(16, 2, 4, 0, 0)
+    img.planes.fill(0)
+    const row = img.rowBytes
+    for (let plane = 0; plane < 2; plane++) {
+      for (let y = 0; y < 2; y++) img.planes[plane * img.planeSize + y * row] = 0xff
+    }
+    // a planes write needs the chunky cache dropped, which the setter does
+    img.planes = Uint8Array.from(img.planes)
+    const b = new ObjectBank()
+    b.images = [img]
+    rt.spriteBank = b
+    rt.iconBank = b
+  }
+
+  it('Gui Paste Bob and Gui Paste Icon draw the bank image', () => {
+    for (const kw of ['Gui Paste Bob 1,4,4', 'Gui Paste Icon 1,4,4']) {
+      const r = runOut(`Gui Open 1,1 : Gui Gfx 0,1 : ${kw}`, bank, bobs)
+      expect(rp(r.rt).point(4, 4), kw).toBe(3)
+      expect(rp(r.rt).point(11, 5), kw).toBe(3)
+      expect(rp(r.rt).point(12, 5), kw).toBe(0)
+    }
+  })
+
+  /** $74fa refuses zero and below, $7502 the count: both are error 12 */
+  it('a number no bank answers to is "Image not reserved"', () => {
+    const src = 'Gui Open 1,1 : Gui Gfx 0,1 : Gui Paste Bob 9,0,0'
+    expect(() => runOut(src, bank, bobs)).toThrow(GUI_ERRORS[GUI_ERR.IMAGE_NOT_RESERVED])
+    expect(() => runOut(src.replace('9', '0'), bank, bobs)).toThrow(GUI_ERRORS[GUI_ERR.IMAGE_NOT_RESERVED])
+    expect(() => run('Gui Paste Block 1,0,0', bank)).toThrow(GUI_ERRORS[GUI_ERR.IMAGE_NOT_RESERVED])
+  })
+
+  /** routine 256 tests `$1bc` first, with `moveq #$b,d7` */
+  it('pasting with no Gfx output raises 11', () => {
+    expect(() => runOut('Gui Paste Bob 1,0,0', bank, bobs)).toThrow(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED])
+  })
+
+  /** DrawImage is opaque, so colour 0 in the image is drawn and not skipped */
+  it('the paste is opaque where AMOS s own Paste Bob is not', () => {
+    const clear = (rt: Runtime): void => {
+      // colour 5 in pixel 0 only: planes 0 and 2, top bit of the first byte
+      const img = new BankImage(16, 1, 4, 0, 0)
+      img.planes.fill(0)
+      img.planes[0] = 0x80
+      img.planes[2 * img.planeSize] = 0x80
+      img.planes = Uint8Array.from(img.planes)
+      const b = new ObjectBank()
+      b.images = [img]
+      rt.spriteBank = b
+    }
+    const r = runOut(`Gui Open 1,1 : Gui Gfx 0,1 : Gui Cls 7 : Gui Paste Bob 1,0,0`, bank, clear)
+    expect(rp(r.rt).point(0, 0)).toBe(5)
+    // pixels 1 to 3 are colour 0 in the image, and they overwrite the 7
+    expect(rp(r.rt).point(2, 0)).toBe(0)
+  })
+
+  /**
+   * ScrollRaster's registers put the DISTANCE last: `(rp,dx,dy,xMin,yMin,
+   * xMax,yMax)` against `Gui Scroll x,y to xx,yy,numx,numy`.
+   */
+  it('Gui Scroll moves the box by the last two arguments', () => {
+    const r = runOut(`Gui Open 1,1 : Gui Gfx 0,1 : Gui Ink 6 : Gui Plot 10,10 : Gui Scroll 0,0 To 40,20,4,0`, bank)
+    expect(rp(r.rt).point(6, 10)).toBe(6)
+    expect(rp(r.rt).point(10, 10)).toBe(0)
+  })
+
+  /** zero is the gfx output, above zero a GUI screen, below zero AMOS's own */
+  it('Gui Screen Copy moves a rectangle between the two ends', () => {
+    // sixteen colours, because a four-colour screen's RastPort is two planes
+    // deep and would keep only the bottom two bits of the 5
+    const src = `Gui Screen Open 1,320,200,16,0,"S" : Gui Open 1,1 : Gui Gfx 0,1
+Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
+    const r = runOut(src, bank)
+    const screen = r.rt.gui.screens.get(1)!
+    expect(screen.rp.point(20, 30)).toBe(5)
+    expect(screen.rp.point(23, 33)).toBe(5)
+    expect(screen.rp.point(24, 34)).toBe(0)
+  })
+
+  it('a screen number that names none is "Screen not opened"', () => {
+    expect(() => run('Gui Open 1,1 : Gui Gfx 0,1 : Gui Screen Copy 9,0,0,4,4 To 0,0,0', bank)).toThrow(
+      GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED],
+    )
+  })
+
+  /** "Display the IFF file loaded in the bank, into the specified screen" */
+  it('Gui Display Iff draws the bank s picture into the screen', () => {
+    const pic = encodeIlbm({
+      width: 8,
+      height: 4,
+      depth: 4,
+      mode: 0,
+      palette: [0x000, 0xf00, 0x0f0, 0x00f],
+      pixels: Uint8Array.from({ length: 32 }, (_, i) => (i % 4 === 0 ? 1 : 2)),
+    })
+    const put = (rt: Runtime): void => {
+      rt.memBanks.set(5, { kind: 'memory', number: 5, memType: 1, name: 'Work', flags: 0, data: pic })
+    }
+    const r = runOut(`Gui Screen Open 1,320,200,16,0,"S" : Gui Display Iff 5 To 1`, bank, put)
+    const screen = r.rt.gui.screens.get(1)!
+    expect(screen.rp.point(0, 0)).toBe(1)
+    expect(screen.rp.point(1, 0)).toBe(2)
+    // the CMAP goes into the screen's colours, 12 bits expanded to 24
+    expect(screen.palette[1]).toBe(expand12(0xf00))
+  })
+
+  /** `cmp.w $c(a0),d0 / bhi` with `moveq #$1a,d7` */
+  it('a picture too big for the screen is "Unable to display picture"', () => {
+    const pic = encodeIlbm({
+      width: 640,
+      height: 400,
+      depth: 2,
+      mode: 0,
+      palette: [0, 0xfff],
+      pixels: new Uint8Array(640 * 400),
+    })
+    const put = (rt: Runtime): void => {
+      rt.memBanks.set(5, { kind: 'memory', number: 5, memType: 1, name: 'Work', flags: 0, data: pic })
+    }
+    expect(() => runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 5 To 1`, bank, put)).toThrow(
+      GUI_ERRORS[GUI_ERR.UNABLE_TO_DISPLAY],
+    )
+    // and with the mode set, the screen is reopened at the picture's own size
+    const r = runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 5 To 1,1`, bank, put)
+    expect([r.rt.gui.screens.get(1)!.width, r.rt.gui.screens.get(1)!.height]).toEqual([640, 400])
+    expect(() => run('Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 9 To 1', bank)).toThrow(
+      GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED],
+    )
+  })
+
+  /** "IMPORTANT: This command requires the xfa.libray!", and $3ff6 agrees */
+  it('Gui Save Iff raises the xfa.library error before it looks at anything', () => {
+    expect(() => run('Gui Save Iff 9,"RAM:x.iff"', bank)).toThrow(GUI_ERRORS[GUI_ERR.XFA_NOT_AVAILABLE])
+  })
+
+  /** the palette is copied on the way in, and nothing puts it back */
+  it('Gui Clone copies the AMOS palette and does not restore it', () => {
+    const src = `Screen Open 0,320,200,16,Lowres : Palette $F00,$0F0
+Gui Screen Open 1,320,200,16,0,"S" : Gui Clone 1,True : Print Gui Colour(1)
+Gui Clone 1,False : Print Gui Colour(1) : Print Gui Screen Colours(1)`
+    const out = runOut(src, bank).out.trim().split('\n').map(Number)
+    expect(out[0]).toBe(expand12(0x0f0))
+    expect(out[1]).toBe(expand12(0x0f0))
+    expect(out[2]).toBe(16)
+    expect(() => run('Gui Clone 9,True', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+  })
+
+  /**
+   * `Accessories/RTGBob.Amos` writes the bank this reads: a twelve-byte
+   * header, 32 palette quads, 32 empty longwords for the pens and one
+   * (width, height, pointer) per image.
+   */
+  it('Gui Remap writes a pen into the bank for every colour', () => {
+    const data = new Uint8Array(0x10c + 8 + 4)
+    const dv = new DataView(data.buffer)
+    dv.setUint32(0, 1) // one image
+    dv.setUint32(4, 2) // two colours
+    dv.setUint32(8, 4)
+    // colour 0 black, colour 1 white, as (0, R, G, B)
+    data.set([0, 0, 0, 0], 0xc)
+    data.set([0, 0xff, 0xff, 0xff], 0x10)
+    dv.setUint16(0x10c, 4)
+    dv.setUint16(0x10e, 1)
+    data.set([1, 1, 0, 0], 0x114)
+    const put = (rt: Runtime): void => {
+      rt.memBanks.set(6, { kind: 'memory', number: 6, memType: 1, name: 'RTG Bobs', flags: 0, data })
+    }
+    const r = runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Rgb 1,255,255,255 : Gui Remap 6`, bank, put)
+    const out = new DataView(data.buffer)
+    // bit 31 is the marker $4ab0 sets on a FindColor answer
+    expect(out.getUint32(0x8c) >>> 31).toBe(1)
+    expect(out.getUint32(0x90) & 0x7fff_ffff).toBe(1)
+    expect(r.rt.gui.rtgPlanes).toHaveLength(1)
+    expect(r.rt.gui.rtgPlanes[0]!.width).toBe(4)
+    expect(() => run('Gui Remap 9', bank)).toThrow(GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED])
   })
 })
