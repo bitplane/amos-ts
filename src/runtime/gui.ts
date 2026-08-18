@@ -24,13 +24,13 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, defaultPalette, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { TITLE_HEIGHT, WB_DEPTH, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 
 export function newGuiState(): GuiState {
@@ -204,6 +204,43 @@ function rotateArray(rt: Runtime, handle: number, start: number, up: boolean): v
 }
 
 /**
+ * Write one ColorMap entry, growing nothing.
+ *
+ * SetRGB32 on an index past the end of the map is graphics.library's problem
+ * and it simply ignores it, so an entry that does not exist is not an error
+ * here either. Neither `Gui Rgb` tests the screen's depth.
+ */
+function setColour(screen: GuiScreen, index: number, rgb: number): void {
+  if (index < 0 || index >= screen.palette.length) return
+  screen.palette[index] = rgb
+}
+
+/**
+ * The pen `Gui Best` answers: the smallest sum of squared component
+ * differences, first one wins.
+ *
+ * ObtainBestPenA's own default is OBP_Precision PRECISION_IMAGE, which
+ * weights the three components for the eye rather than treating them alike.
+ * This does not, because the weights are graphics.library's and are not
+ * written down in anything this port can read.
+ */
+function nearestPen(palette: readonly number[], r: number, g: number, b: number): number {
+  let best = 0
+  let far = Infinity
+  for (const [i, c] of palette.entries()) {
+    const dr = ((c >> 16) & 0xff) - r
+    const dg = ((c >> 8) & 0xff) - g
+    const db = (c & 0xff) - b
+    const d = dr * dr + dg * dg + db * db
+    if (d < far) {
+      far = d
+      best = i
+    }
+  }
+  return best
+}
+
+/**
  * Resize a window and give it a RastPort the new size.
  *
  * `Gui Resize` and `Gui Change` both end in routine 240, the gadget relayout,
@@ -251,31 +288,6 @@ function sensitiveY(g: GuiState, win: number, v: number): number {
  */
 function screenOf(g: GuiState, n: number): GuiScreen {
   return g.screens.get(n) ?? guiError(GUI_ERR.SCREEN_NOT_OPENED)
-}
-
-/**
- * The Workbench as one of these, which is what a `Gui Pub Screen` lock on it
- * makes current.
- *
- * Number 0 so it can never collide with one `Gui Screen Open` made -- $217e
- * refuses that number outright -- and hires 640x256x2, the same figures
- * `../amiga/intuition.ts` opens its Workbench with.
- */
-function workbenchScreen(): GuiScreen {
-  return {
-    number: 0,
-    width: WB_WIDTH,
-    height: WB_HEIGHT,
-    depth: WB_DEPTH,
-    modeID: PAL_MONITOR_ID | 0x8000,
-    name: 'Workbench',
-    fontName: '',
-    fontSize: 0,
-    left: 0,
-    top: 0,
-    showTitle: true,
-    isPublic: true,
-  }
 }
 
 /** the current screen, `$1d2`, or "Screen not opened" */
@@ -701,6 +713,48 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * `Gui Rgb colour,value` or `Gui Rgb colour,red,green,blue` — set one
+     * entry of the current screen's ColorMap.
+     *
+     * Two routines behind one name, which is what the `!` on the token
+     * table's entry means: routine 130 at $2ff6 takes four arguments and
+     * routine 142 at $32d6 takes two. Both branch on `cmpi.w #$27,$18a` and
+     * both call SetRGB4 (-$120) below Kickstart 39 and SetRGB32 (-$354) at or
+     * above it. `$18a` here says 40, so this port always takes the second.
+     *
+     * The two forms are not the same keyword with a packed argument. The
+     * four-argument one clamps: negatives become 0 at $300c and the index is
+     * held under 64 at $302c or under 256 at $304e. The two-argument one
+     * clamps NOTHING, so `Gui Rgb -1,$ffffff` reaches SetRGB32 with -1.
+     *
+     * Nothing here scales. "So if you use a 32bit definition on a ECS
+     * machine, it will be automatically scaled to 4bit" is not what the
+     * `andi.l #$f` at $302e does: it MASKS. On a Kickstart 2 machine
+     * `Gui Rgb 0,128,0,0` would be black, where scaling would give half red.
+     * The claim is only true for the values whose low nibble happens to be
+     * right, which is why the guide's own example uses 255.
+     */
+    'gui rgb': (it) => {
+      const g = s()
+      const screen = g.current
+      const index = it.evalInt()
+      it.expect(',')
+      const first = it.evalInt()
+      if (!it.accept(',')) {
+        // routine 142: unpack $RRGGBB, and no clamp of any kind
+        if (screen !== null) setColour(screen, index, first & 0xff_ffff)
+        return
+      }
+      const green = it.evalInt()
+      it.expect(',')
+      const blue = it.evalInt()
+      // routine 130, in its own order: the index first, then the three bytes
+      if (screen === null) return
+      const n = Math.min(0xff, Math.max(0, index))
+      setColour(screen, n, ((first & 0xff) << 16) | ((green & 0xff) << 8) | (blue & 0xff))
+    },
+
+    /**
      * `Gui Uniconify iconifyID` — open the window `Gui Iconify` closed.
      *
      * Routine 54 at $2390, which does not call `Gui Open` so much as become
@@ -1079,6 +1133,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         top: 0,
         showTitle: true,
         isPublic: false,
+        palette: defaultPalette(depthForColours(colours)),
       }
       g.screens.set(n, screen)
       g.current = screen
@@ -1544,6 +1599,75 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
 
   return {
     /**
+     * `C=Gui Colour(colour number)` — read one entry back.
+     *
+     * "Return the colour's value of the specified colour number as the Amos
+     * Colour command", which is true of the GetRGB4 (-$246) branch and not of
+     * the other one: above Kickstart 39 this is GetRGB32 (-$384) into the
+     * $400-byte buffer at `$2b8`, and the three fractions are packed into a
+     * 24-bit $RRGGBB by the `rol.l #$8 / move.b` pair at $30be. AMOS's own
+     * `Colour` answers twelve bits, so on the machine this port models the
+     * two disagree.
+     *
+     * The pack reads the LOW byte of each fraction, `andi.l #$ff,d0`, where
+     * the component is nominally the top one. graphics.library replicates an
+     * 8-bit component through all four bytes of the fraction it hands back,
+     * so the two are the same number.
+     */
+    'gui colour': (_, a): Value => {
+      const g = s()
+      if (g.current === null) return VI(0)
+      return VI(g.current.palette[int(a[0]!)] ?? 0)
+    },
+
+    /**
+     * `R=Gui Red(RGB colour)`, `Gui Green` and `Gui Blue` — pull one
+     * component out of what `Gui Colour` answered.
+     *
+     * Three routines of about thirty bytes, and each is a rotate and a mask
+     * chosen by the same `cmpi.w #$27,$18a` test. Above 39 the rotates take
+     * the byte: 16 for red at $31f6, 8 for green at $3218 and none at all for
+     * blue, which is why routine 138 has a `nop` in it. Below 39 they take a
+     * nibble instead, at 8, 4 and 0.
+     *
+     * Nothing looks at a screen or a ColorMap. These are arithmetic on the
+     * number they were given, so `Gui Red($ff0000)` is 255 whether or not any
+     * screen is open.
+     */
+    'gui red': (_, a): Value => VI((int(a[0]!) >> 16) & 0xff),
+    'gui green': (_, a): Value => VI((int(a[0]!) >> 8) & 0xff),
+    'gui blue': (_, a): Value => VI(int(a[0]!) & 0xff),
+
+    /**
+     * `C=Gui Best(Red,Green,Blue)` — the nearest pen on the current screen.
+     *
+     * "This command require the OS3.x!!!!! othewise returns -1!", and the -1
+     * is the `moveq #$ff,d0` at $3828 that the whole body is skipped over
+     * below Kickstart 39.
+     *
+     * DEFECT: the pen is released before the keyword returns. $3854 is
+     * ObtainBestPenA and $385c is ReleasePen on the same ColorMap, with the
+     * result parked in d5 across the pair. So the guide's "a new one will be
+     * allocated, if available" allocates a pen and then gives it straight
+     * back: what the program is handed is a number that nothing is holding,
+     * and the next caller can take the same entry and put another colour in
+     * it. Not holding it is a choice rather than an oversight -- a keyword
+     * that never released would leak a pen per call -- but the guide's own
+     * example, `C=Gui Best(255,0,0) : Gui Ink C`, is exactly the use the
+     * release makes unsafe.
+     *
+     * DEVIATION: no pen is allocated here at all, so the answer is always the
+     * nearest entry already in the ColorMap. Nothing in this port allocates
+     * or shares pens, and with nothing else drawing on the screen the two
+     * only differ when the palette has a free entry to spend.
+     */
+    'gui best': (_, a): Value => {
+      const g = s()
+      if (GUI_OS_VERSION < 39 || g.current === null) return VI(-1)
+      return VI(nearestPen(g.current.palette, int(a[0]!) & 0xff, int(a[1]!) & 0xff, int(a[2]!) & 0xff))
+    },
+
+    /**
      * `IconifyID=Gui Iconify(window,icon Name,icon path)` — close a window
      * and leave an AppIcon in its place.
      *
@@ -1913,7 +2037,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       // $2b0a stores the lock in `$1d2` as well, so the locked screen becomes
       // the one `Gui Screen Width` and `Gui Mouse X` answer about
       g.beforeLock = g.current
-      g.current = workbenchScreen()
+      g.current = g.workbench
       return VI(g.pubLock)
     },
 

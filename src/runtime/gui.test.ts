@@ -16,7 +16,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, guiScale } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, expand12, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
@@ -909,6 +909,71 @@ describeWith('the window management group', exampleBank(), (bank) => {
  * The zone group: five keywords over a block of rectangles that belongs to a
  * window NUMBER rather than to a window, and outlives it.
  */
+describeWith('the colour group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /** $5586: the first window locks the default public screen into `$1d2` */
+  it('opening a window is what makes a screen current', () => {
+    expect(run('Rem').gui.current).toBe(null)
+    const rt = run(open, bank)
+    expect(rt.gui.current).toBe(rt.gui.workbench)
+  })
+
+  /**
+   * The four Preferences colours, expanded from twelve bits to twenty-four by
+   * replicating each nibble -- $0fff is white at both widths.
+   */
+  it('a screen opens with intuition s four colours', () => {
+    const out = runOut(`${open} : Print Gui Colour(1) : Print Gui Colour(3)`, bank).out.trim().split(/\s+/).map(Number)
+    expect(out).toEqual([0xffffff, 0xff8800])
+  })
+
+  it('Gui Rgb takes four arguments, and Gui Colour reads them back', () => {
+    const rt = run(`${open} : Gui Rgb 2,255,128,0`, bank)
+    expect(rt.gui.current!.palette[2]).toBe(0xff8000)
+    expect(Number(runOut(`${open} : Gui Rgb 2,255,128,0 : Print Gui Colour(2)`, bank).out)).toBe(0xff8000)
+  })
+
+  /** routine 142, the other half of the `!` entry: one packed $RRGGBB */
+  it('Gui Rgb also takes two, packed', () => {
+    const rt = run(`${open} : Gui Rgb 2,$FF8000`, bank)
+    expect(rt.gui.current!.palette[2]).toBe(0xff8000)
+  })
+
+  /**
+   * $302c and $304e clamp the four-argument form's index, and routine 142
+   * clamps nothing at all. Neither writes past the end of a two-plane map.
+   */
+  it('only the four-argument form clamps its index', () => {
+    const rt = run(`${open} : Gui Rgb -1,255,255,255`, bank)
+    // the negative became 0 at $300c, so entry 0 took it
+    expect(rt.gui.current!.palette[0]).toBe(0xffffff)
+
+    const two = run(`${open} : Gui Rgb -1,$FFFFFF`, bank)
+    expect(two.gui.current!.palette[0]).toBe(expand12(0x005a))
+  })
+
+  it('the three component functions are arithmetic, not a screen read', () => {
+    const out = runOut('Print Gui Red($FF8040) : Print Gui Green($FF8040) : Print Gui Blue($FF8040)').out
+    expect(out.trim().split(/\s+/).map(Number)).toEqual([255, 128, 64])
+  })
+
+  /** "So if you need the red...  C=Gui Best(255,0,0) : Gui Ink C" */
+  it('Gui Best answers the nearest pen already in the map', () => {
+    // colour 3 is $ff8800, which is nearer red than white, blue or near-black
+    const best = (r: number, g: number, b: number): number =>
+      Number(runOut(`${open} : Print Gui Best(${r},${g},${b})`, bank).out)
+    expect(best(255, 0, 0)).toBe(3)
+    expect(best(255, 255, 255)).toBe(1)
+    expect(best(0, 0, 0)).toBe(2)
+  })
+
+  /** it takes an exact entry over a near one, which is the whole point */
+  it('Gui Best finds a colour Gui Rgb put there', () => {
+    expect(Number(runOut(`${open} : Gui Rgb 2,0,255,0 : Print Gui Best(0,255,0)`, bank).out)).toBe(2)
+  })
+})
+
 describeWith('the iconify group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 

@@ -14,7 +14,7 @@
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
-import { WB_HEIGHT, WB_WIDTH } from '../amiga/intuition'
+import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget } from './guibank'
 
 /**
@@ -197,6 +197,66 @@ export interface GuiScreen {
   showTitle: boolean
   /** `Gui Pub Mode`: false is PRIVATE, which is what a screen opens as */
   isPublic: boolean
+  /**
+   * The ColorMap at `ViewPort+$4`, one entry per pen, as 24-bit $RRGGBB.
+   *
+   * Twenty-four bits because `$18a` says 40 and every colour keyword in this
+   * extension branches on `cmpi.w #$27` -- 39 -- taking the SetRGB32 side
+   * here. `Gui Colour` builds exactly this number out of three GetRGB32
+   * fractions at $30be, so it is the shape the keywords already speak in.
+   */
+  palette: number[]
+}
+
+/**
+ * A 12-bit $0RGB colour as 24-bit $RRGGBB, by replicating each nibble.
+ *
+ * What the hardware does with a 4-bit colour register on AGA, and what makes
+ * $0fff read back as $ffffff rather than $0f0f0f.
+ */
+export function expand12(v: number): number {
+  const n = (i: number): number => ((v >> (i * 4)) & 0xf) * 0x11
+  return (n(2) << 16) | (n(1) << 8) | n(0)
+}
+
+/**
+ * The colours a screen opens with: intuition's four, then black.
+ *
+ * DEVIATION: OpenScreen copies color0 to color3 out of Preferences and leaves
+ * everything above them as GetColorMap left it, which is zeroed. Nothing here
+ * reads the user's Preferences, so the four are `../amiga/intuition.ts`'s
+ * WB_PALETTE -- the same four that file already opens its Workbench with.
+ */
+export function defaultPalette(depth: number): number[] {
+  const pens = 1 << Math.max(1, Math.min(8, depth))
+  return Array.from({ length: pens }, (_, i) => expand12(WB_PALETTE[i] ?? 0))
+}
+
+/**
+ * The Workbench as a `GuiScreen`, which is what a `Gui Pub Screen` lock on it
+ * makes current.
+ *
+ * Number 0 so it can never collide with one `Gui Screen Open` made -- $217e
+ * refuses that number outright -- and hires 640x256x2, the same figures
+ * `../amiga/intuition.ts` opens its Workbench with. One per `GuiState`, so
+ * that `Gui Rgb` on a locked Workbench still reads back through `Gui Colour`.
+ */
+export function workbenchScreen(): GuiScreen {
+  return {
+    number: 0,
+    width: WB_WIDTH,
+    height: WB_HEIGHT,
+    depth: WB_DEPTH,
+    modeID: PAL_MONITOR_ID | 0x8000,
+    name: 'Workbench',
+    fontName: '',
+    fontSize: 0,
+    left: 0,
+    top: 0,
+    showTitle: true,
+    isPublic: true,
+    palette: defaultPalette(WB_DEPTH),
+  }
 }
 
 /**
@@ -623,6 +683,8 @@ export class GuiState {
    * this program opened.
    */
   current: GuiScreen | null = null
+  /** the Workbench, made once so that colours written to it stay written */
+  readonly workbench: GuiScreen = workbenchScreen()
   /**
    * `$1ca`, the last screen this program OPENED, which `Gui Pub Free` puts
    * back into `$1d2` at $2b2a.
@@ -778,6 +840,11 @@ export class GuiState {
       grY: 0,
     }
     this.windows.set(n, w)
+    // $5586: with no current screen, opening a window locks the default
+    // public one -- LockPubScreen (-$d2) with a null name -- and stores it in
+    // both `$1ca` and `$1d2`. So the first `Gui Open` is what gives every
+    // screen keyword something to answer about.
+    this.current ??= this.workbench
     this.selected = n
     // "When you open a window, this window becomes the current, selected
     // window", and with nothing else open it is also where graphics go
