@@ -20,17 +20,86 @@
  * row stays at 0% until the whole set is done, which is the rule that stops
  * this being mistaken for progress it is not.
  */
-import { VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
 import { GUI_EVENT, GuiState, packMenuNumber } from './guistate'
+import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiWindow } from './guistate'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 
 export function newGuiState(): GuiState {
   return new GuiState()
+}
+
+/**
+ * The extension's own error messages, packed NUL-separated at $7952 and
+ * indexed zero-based by d0 through `L_ErrorExt`. See
+ * `./extimpl.ts`'s `errors` for how that call works.
+ *
+ * Thirty-five of them, and the list is the only place several of this
+ * extension's rules are written down at all: the guide never says that
+ * drawing before `Gui Gfx` is an error, or that a bank has to be NAMED "Gui",
+ * or that `Gui Range` refuses a gadget that is not an integer or a string.
+ * Every one of those is a message here and a branch in the code that raises
+ * it.
+ *
+ * Spelling and punctuation are the author's. "This isn't a Integer/String
+ * Gadget" is his article, and the three exclamation marks are his too.
+ */
+export const GUI_ERRORS = [
+  'Program Interrupted',
+  'Unable to open window',
+  'Gadget not defined',
+  'Gui not defined',
+  'Gui already used',
+  'Bank not reserved',
+  'Not a Gui bank',
+  'Gui not open',
+  'Window already open',
+  'Illegal gadget value',
+  'Window not open',
+  'Gfx output not defined',
+  'Image not reserved',
+  'Asl.library not found!',
+  'Illegal screen parameter',
+  'Screen already open',
+  'Unable to open screen',
+  'Screen not opened',
+  'Wrong GUI bank version. Use the GUI converter 2.3',
+  "This isn't a Integer/String Gadget",
+  'Socket not opened!',
+  'Unable to send packet',
+  'Unable to open file',
+  'Channel already used!',
+  'Not enough memory!',
+  'Unable to open AppIcon',
+  'Unable to display picture',
+  'xfa.library not available',
+  'Unable to load xfa file',
+  'Unable to allocate xfa frames',
+  'Unable to play xfa anim',
+  'Bobs bank not reserved',
+  'Zone not reserved',
+  'Illegal number of zones',
+  'Illegal function call',
+] as const
+
+/** the indices this file raises, named where a bare number would not read */
+export const GUI_ERR = {
+  BANK_NOT_RESERVED: 5,
+  NOT_A_GUI_BANK: 6,
+  ILLEGAL_GADGET_VALUE: 9,
+  WINDOW_NOT_OPEN: 10,
+  GFX_NOT_DEFINED: 11,
+  NOT_AN_INPUT_GADGET: 19,
+} as const
+
+/** raise one, the way `L_ErrorExt` does: every extension error is trappable */
+function guiError(n: number): never {
+  throw new AmosError(GUI_ERRORS[n] ?? `GUI error ${n}`)
 }
 
 /**
@@ -50,12 +119,38 @@ function designs(rt: Runtime, s: GuiState): void {
  * Where the drawing keywords land: the window `Gui Gfx 0,n` named, or the
  * selected one before anything has.
  *
- * Null when nothing is open, and every drawing keyword returns quietly on
- * that rather than raising. The guide never says what drawing into no window
- * does and a program that tries has already lost its window some other way.
+ * On the machine this is one longword, `$1bc` of the extension's state, and
+ * it holds a RastPort rather than a window: `Gui Gfx 0,n` fills it from
+ * `Window.RPort` at $6820 and `Gui Gfx 1,n` from the screen's, which is why
+ * one variable serves both. Null here when neither has been set.
  */
 function target(g: GuiState): GuiWindow | null {
   return g.windows.get(g.actual) ?? g.windows.get(g.selected) ?? null
+}
+
+/**
+ * The same, but raising "Gfx output not defined" when there is none.
+ *
+ * Every drawing keyword tests `$1bc` and branches to the error with
+ * `moveq #$b,d7` -- `Gui Ink` at $1f92, `Gui Cls` at $20a2, `Gui Writing` at
+ * $261c, `Gui Text` at $25e2, `Gui Paint` at $2c20 and the rest. The guide
+ * never mentions it; the error string and the branch are the whole evidence
+ * that drawing before `Gui Gfx` is an error at all.
+ */
+function gfx(g: GuiState): GuiWindow {
+  return target(g) ?? guiError(GUI_ERR.GFX_NOT_DEFINED)
+}
+
+/**
+ * A window by its number, or "Window not open".
+ *
+ * The library's own lookup is routine 244 at $63ee. It walks the window list
+ * comparing `$c(a0)`, and it sets `moveq #$a,d7` on the way in, so every
+ * keyword that calls it and tests the result raises the same error 10 without
+ * naming it. Sixteen of them do.
+ */
+function windowOf(g: GuiState, n: number): GuiWindow {
+  return g.windows.get(n) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
 }
 
 /**
@@ -72,10 +167,10 @@ const READ_STRING_KINDS = new Set<number>([KIND.LISTVIEW, KIND.CYCLE, KIND.STRIN
  * program can actually set through this extension, so a bevel drawn here is
  * in the two colours the program chose rather than in two it never named.
  */
-function bevelPens(w: GuiWindow): DrawInfo {
+function bevelPens(w: GuiWindow, g: GuiState): DrawInfo {
   const pens = new Array<number>(12).fill(w.ink)
   pens[PEN.SHINE] = w.ink
-  pens[PEN.SHADOW] = w.paper
+  pens[PEN.SHADOW] = g.paper
   return { numPens: pens.length, pens, depth: w.rp.depth }
 }
 
@@ -213,14 +308,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
     'gui off': (it) => {
-      const w = s().windows.get(it.evalInt())
-      if (w !== undefined) w.locked = true
+      windowOf(s(), it.evalInt()).locked = true
     },
 
     /** `Gui On window` — unlock one */
     'gui on': (it) => {
-      const w = s().windows.get(it.evalInt())
-      if (w !== undefined) w.locked = false
+      windowOf(s(), it.evalInt()).locked = false
     },
 
     /**
@@ -237,6 +330,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui lock': (it) => {
       const g = s()
       const keep = it.evalInt()
+      windowOf(g, keep)
       for (const w of g.windows.values()) w.locked = w.number !== keep
     },
 
@@ -251,29 +345,39 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui ink': (it) => {
       const n = it.evalInt()
-      const w = target(s())
-      if (w !== null) w.ink = n
+      gfx(s()).ink = n
     },
 
-    /** `Gui Pen colour` — the text pen, which AMOS's own Pen also is */
+    /**
+     * `Gui Pen colour` — the FrontPen `Gui Text` draws with.
+     *
+     * It is not a window's and not a RastPort's: $260a writes one byte to
+     * `$290` of the extension's state and does nothing else. `Gui Text`
+     * copies it into an IntuiText at $25cc. So changing the Gfx output does
+     * not change the pen, which is the opposite of how `Gui Ink` behaves.
+     */
     'gui pen': (it) => {
-      const n = it.evalInt()
-      const w = target(s())
-      if (w !== null) w.ink = n
+      s().pen = it.evalInt() & 0xff
     },
 
-    /** `Gui Paper colour` */
+    /** `Gui Paper colour` — the BackPen of the same IntuiText, at `$28e` */
     'gui paper': (it) => {
-      const n = it.evalInt()
-      const w = target(s())
-      if (w !== null) w.paper = n
+      s().paper = it.evalInt() & 0xff
     },
 
-    /** `Gui Writing mode` — the drawing mode, kept and not yet acted on */
+    /**
+     * `Gui Writing mode` — both a state byte and a RastPort mode.
+     *
+     * $2616 stores it at `$292` for `Gui Text` to read as the IntuiText
+     * DrawMode, AND calls SetDrMd on the Gfx RastPort. So it is the one of
+     * the three that needs an output open, and the only one that raises
+     * "Gfx output not defined".
+     */
     'gui writing': (it) => {
       const n = it.evalInt()
-      const w = target(s())
-      if (w !== null) w.writing = n
+      const g = s()
+      gfx(g).writing = n
+      g.writing = n & 0xff
     },
 
     /**
@@ -287,8 +391,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui cls': (it) => {
       const c = it.evalInt()
-      const w = target(s())
-      if (w !== null) w.rp.setRast(c)
+      gfx(s()).rp.setRast(c)
     },
 
     /**
@@ -300,14 +403,14 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       const c = it.evalInt()
-      s().windows.get(n)?.rp.setRast(c)
+      // this one names its window, so it raises 10 rather than 11
+      windowOf(s(), n).rp.setRast(c)
     },
 
     /** `Gui Plot x,y` */
     'gui plot': (it) => {
       const [x, y] = pair(it)
-      const w = target(s())
-      if (w === null) return
+      const w = gfx(s())
       w.rp.plot(x, y, w.ink)
       w.grX = x
       w.grY = y
@@ -323,8 +426,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
-      const w = target(s())
-      if (w === null) return
+      const w = gfx(s())
       w.rp.draw(x1, y1, x2, y2, w.ink)
       w.grX = x2
       w.grY = y2
@@ -333,8 +435,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     /** `Gui Draw To x,y` — on from wherever the cursor was left */
     'gui draw to': (it) => {
       const [x, y] = pair(it)
-      const w = target(s())
-      if (w === null) return
+      const w = gfx(s())
       w.rp.draw(w.grX, w.grY, x, y, w.ink)
       w.grX = x
       w.grY = y
@@ -346,14 +447,23 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
-      const w = target(s())
-      if (w === null) return
+      const w = gfx(s())
       w.rp.rectFill(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), w.ink)
       w.grX = x1
       w.grY = y1
     },
 
-    /** `Gui Box x,y To x2,y2` — the outline of the same rectangle */
+    /**
+     * `Gui Box x,y To x2,y2` — the outline of the same rectangle.
+     *
+     * DEFECT: it is the only drawing keyword that does NOT check the Gfx
+     * output. $48f6 loads `$1bc(a1)` into a1 and writes `$24(a1)` and
+     * `$26(a1)` without testing it, where `Gui Bar` beside it tests and
+     * raises "Gfx output not defined". With no output open a1 is zero and
+     * those two writes land at absolute $24 and $26, inside the 68000's
+     * exception vectors. This port has no such address, so it draws nothing
+     * instead; what is reproduced is that it does not raise.
+     */
     'gui box': (it) => {
       const [x1, y1] = pair(it)
       it.expect('to')
@@ -379,8 +489,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const rx = it.evalInt()
       it.expect(',')
       const ry = it.evalInt()
-      const w = target(s())
-      if (w === null || rx <= 0 || ry <= 0) return
+      const w = gfx(s())
+      if (rx <= 0 || ry <= 0) return
       w.rp.ellipse(x, y, rx, ry, w.ink)
     },
 
@@ -398,8 +508,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui paint': (it) => {
       const [x, y] = pair(it)
-      const w = target(s())
-      if (w === null) return
+      const w = gfx(s())
       w.rp.flood(0, x, y, w.ink)
       w.grX = x
       w.grY = y
@@ -421,9 +530,9 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const height = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      const w = target(s())
-      if (w === null) return
-      drawBevelBox(w.rp, x, y, width, height, bevelPens(w), { recessed: mode !== 0 })
+      const g = s()
+      const w = gfx(g)
+      drawBevelBox(w.rp, x, y, width, height, bevelPens(w, g), { recessed: mode !== 0 })
     },
 
     /**
@@ -456,8 +565,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const value = it.evalInt()
       const g = s()
-      const w = g.windows.get(win)
-      if (w === undefined || g.gadget(w, id) === null) return
+      const w = windowOf(g, win)
+      // routine 241's two checks, in its order: the attribute first
+      // (`cmpi.l #$ffffffff,d3 / blt` at $603a), then the gadget
+      if (attr < -1) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      if (g.gadget(w, id) === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       if (attr === -1) {
         if (value === 0) w.ghosted.delete(id)
         else w.ghosted.add(id)
@@ -478,8 +590,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const text = str(it.evalExpr())
       const g = s()
-      const w = g.windows.get(win)
-      if (w === undefined || g.gadget(w, id) === null) return
+      const w = windowOf(g, win)
+      if (g.gadget(w, id) === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       w.strings.set(id, text)
     },
 
@@ -500,8 +612,17 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const lo = it.evalInt()
       it.expect(',')
       const hi = it.evalInt()
-      const w = s().windows.get(win)
-      if (w !== undefined) w.ranges.set(id, [lo, hi])
+      const g = s()
+      // $2524 compares the two before looking at anything else, and calls a
+      // reversed range "Illegal gadget value" rather than an illegal range
+      if (hi < lo) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      const w = windowOf(g, win)
+      const gad = g.gadget(w, id)
+      // "This isn't a Integer/String Gadget", though only INTEGER passes:
+      // `cmpi.l #$3,d0 / Rbne` at $2532 tests one kind, where `Gui Activate`
+      // beside it tests two
+      if (gad === null || gad.kind !== AMOS_KIND_INTEGER) guiError(GUI_ERR.NOT_AN_INPUT_GADGET)
+      w.ranges.set(id, [lo, hi])
     },
 
     /**
@@ -547,6 +668,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * `Gui Activate window,gadget` — "activate the specified input gadget
      * (wether it be a string/integer gadget) encouraging the user to type
      * something in".
+     *
+     * The two kinds are named by number at $2836 and $283e: 3 and $c, which
+     * are INTEGER and STRING. Anything else is "This isn't a Integer/String
+     * Gadget", and it is checked BEFORE the window is looked up -- routine
+     * 237 answers 0 for a window that is not open, and 0 is not 3 or 12, so a
+     * closed window reaches error 19 rather than error 10.
      */
     'gui activate': (it) => {
       const win = it.evalInt()
@@ -554,7 +681,9 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const id = it.evalInt()
       const g = s()
       const w = g.windows.get(win)
-      if (w !== undefined && g.gadget(w, id) !== null) g.activeGadget = id
+      const kind = w === undefined ? -1 : (g.gadget(w, id)?.kind ?? -1)
+      if (kind !== AMOS_KIND_INTEGER && kind !== AMOS_KIND_STRING) guiError(GUI_ERR.NOT_AN_INPUT_GADGET)
+      g.activeGadget = id
     },
 
     /** `Gui Text x,y,text$` */
@@ -562,9 +691,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const [x, y] = pair(it)
       it.expect(',')
       const text = str(it.evalExpr())
-      const w = target(s())
-      if (w === null || w.rp.font === null) return
-      w.rp.text(x, y, text, w.ink)
+      const g = s()
+      const w = gfx(g)
+      if (w.rp.font === null) return
+      // the IntuiText the keyword builds at $25bc takes its pens from the
+      // extension's state and not from the RastPort
+      w.rp.text(x, y, text, g.pen)
     },
   }
 }
@@ -649,19 +781,20 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /** `A=Gui Selected` — the currently selected window */
     'gui selected': (): Value => VI(s().selected),
 
-    /** `A=Gui Actual` — "the window number set by the Gui Gfx command" */
-    'gui actual': (): Value => VI(s().actual),
+    /**
+     * `A=Gui Actual` — "the window number set by the Gui Gfx command".
+     *
+     * -1 when no window is open at all: $2158 is `moveq #$ff,d3` and the
+     * window-list test at $215a leaves it there. The guide does not say so.
+     */
+    'gui actual': (): Value => VI(s().windows.size === 0 ? -1 : s().actual),
 
     /**
      * `INK=Gui Point(X,Y)` — "Works in exactly the same way as the Amos
      * command Point. It will simply returns the colour of the point at the
      * specified X,Y coordinates."
      */
-    'gui point': (_, a): Value => {
-      const w = target(s())
-      if (w === null) return VI(0)
-      return VI(w.rp.point(int(a[0]!), int(a[1]!)))
-    },
+    'gui point': (_, a): Value => VI(gfx(s()).rp.point(int(a[0]!), int(a[1]!))),
 
     /**
      * `A=Gui Read(window,gadget)` — "the current status of the specified
@@ -704,9 +837,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui read$': (_, a): Value => {
       const g = s()
-      const w = g.windows.get(int(a[0]!))
+      const w = windowOf(s(), int(a[0]!))
       const id = int(a[1]!)
-      if (w === undefined) return VS('')
       const gadget = g.gadget(w, id)
       if (gadget === null || !READ_STRING_KINDS.has(gadget.kind)) return VS('')
       const set = w.strings.get(id)
@@ -735,8 +867,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * number of the gadget is returned, else -1 is reported."
      */
     'gui check': (_, a): Value => {
-      const w = s().windows.get(int(a[0]!))
-      if (w === undefined) return VI(-1)
+      const w = windowOf(s(), int(a[0]!))
       const x = int(a[1]!)
       const y = int(a[2]!)
       for (const d of w.design.gadgets) {
@@ -763,9 +894,13 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * screen with a taller font would differ.
      */
     'gui border': (_, a): Value => {
-      const w = s().windows.get(int(a[0]!))
-      if (w === undefined) return VI(0)
-      return VI([WBORLEFT, TITLE_HEIGHT, WBORRIGHT, WBORBOTTOM][int(a[1]!)] ?? 0)
+      const n = int(a[1]!)
+      // 0 to 3 only, and $225e tests the range BEFORE looking the window up,
+      // so `Gui Border(9,7)` answers 0 where `Gui Border(9,0)` raises
+      if (n < 0 || n > 3) return VI(0)
+      void windowOf(s(), int(a[0]!))
+      // the four bytes at Window+$36: BorderLeft, Top, Right, Bottom
+      return VI([WBORLEFT, TITLE_HEIGHT, WBORRIGHT, WBORBOTTOM][n] ?? 0)
     },
   }
 }

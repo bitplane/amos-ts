@@ -14,12 +14,13 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { GUI_EVENT, guiPost } from './gui'
+import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
+import { firstCodeHunk } from '../tokens/libtok'
 import { describeWith } from '../testing/fixture'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -101,8 +102,10 @@ describe('the keywords reach the state', () => {
     expect(val('Gui Code')).toBe(-1)
   })
 
-  it('Gui Window, Gui Selected and Gui Actual all start at 0', () => {
-    for (const f of ['Gui Window', 'Gui Selected', 'Gui Actual']) expect(val(f), f).toBe(0)
+  it('Gui Window and Gui Selected start at 0, and Gui Actual at -1', () => {
+    for (const f of ['Gui Window', 'Gui Selected']) expect(val(f), f).toBe(0)
+    // $2158 loads -1 and the window-list test at $215a leaves it there
+    expect(val('Gui Actual')).toBe(-1)
   })
 
   /**
@@ -264,8 +267,24 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     expect(sides[1]).toBeGreaterThan(sides[3]!)
   })
 
-  it('drawing with no window open does nothing rather than failing', () => {
-    expect(() => run('Gui Ink 3 : Gui Plot 1,1 : Gui Cls 2', bank)).not.toThrow()
+  /**
+   * Every drawing keyword tests `$1bc`, the Gfx RastPort, and raises error 11
+   * when it is zero. The guide never mentions it; the string table and the
+   * `moveq #$b,d7` in front of each branch are the whole evidence.
+   */
+  it('drawing with no Gfx output raises rather than doing nothing', () => {
+    for (const kw of ['Gui Ink 3', 'Gui Plot 1,1', 'Gui Cls 2', 'Gui Bar 0,0 To 4,4', 'Gui Writing 1', 'Gui Text 0,0,"x"']) {
+      expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED])
+    }
+  })
+
+  /**
+   * DEFECT: `Gui Box` is the one that does not check. $48f6 loads `$1bc` into
+   * an address register and writes through it without testing, where `Gui
+   * Bar` beside it tests and raises.
+   */
+  it('Gui Box alone does not raise, because it never looks', () => {
+    expect(() => run('Gui Box 0,0 To 4,4', bank)).not.toThrow()
   })
 })
 
@@ -306,11 +325,11 @@ describeWith('the gadget group', exampleBank(), (bank) => {
     expect(on.gui.windows.get(1)!.ghosted.has(2)).toBe(false)
   })
 
-  it('does nothing for a gadget the design does not have', () => {
-    const rt = run(`${open} : Gui Set 1,9,0,5 : Gui Set 1,9,-1,1`, bank)
-    const w = rt.gui.windows.get(1)!
-    expect(w.attrs.has(9)).toBe(false)
-    expect(w.ghosted.size).toBe(0)
+  /** routine 241 checks the attribute first, then the gadget, both as error 9 */
+  it('raises Illegal gadget value for a gadget the design does not have', () => {
+    expect(() => run(`${open} : Gui Set 1,9,0,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
+    expect(() => run(`${open} : Gui Set 1,0,-2,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
+    expect(() => run(`Gui Set 9,0,0,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
   })
 
   /**
@@ -323,9 +342,9 @@ describeWith('the gadget group', exampleBank(), (bank) => {
     expect(out.trim()).toBe('[]')
   })
 
-  it('Gui Read$ is empty for a window or gadget that is not there', () => {
-    const out = runOut(`${open} : Print "[";Gui Read$(9,0);"]" : Print "[";Gui Read$(1,9);"]"`, bank).out
-    expect(out.trim().split('\n')).toEqual(['[]', '[]'])
+  it('Gui Read$ raises for a closed window and is empty for a missing gadget', () => {
+    expect(() => run(`${open} : Print Gui Read$(9,0)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+    expect(runOut(`${open} : Print "[";Gui Read$(1,9);"]"`, bank).out.trim()).toBe('[]')
   })
 
   /**
@@ -338,21 +357,26 @@ describeWith('the gadget group', exampleBank(), (bank) => {
     expect(out.trim().split('\n').map(Number)).toEqual([1, 2, 3, -1])
   })
 
-  it('Gui Check answers -1 for a window that is not open', () => {
-    expect(Number(runOut(`${open} : Print Gui Check(9,10,10)`, bank).out.trim())).toBe(-1)
+  it('Gui Check raises for a window that is not open', () => {
+    expect(() => run(`${open} : Print Gui Check(9,10,10)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
   })
 
-  /** "if you have done Gui Range 1,1,10,20... 5 will be set to 10" */
-  it('Gui Range records the clip an integer gadget is held to', () => {
-    const rt = run(`${open} : Gui Range 1,1,10,20`, bank)
-    expect(rt.gui.windows.get(1)!.ranges.get(1)).toEqual([10, 20])
+  /**
+   * "if you have done Gui Range 1,1,10,20... 5 will be set to 10", and the
+   * gadget has to be an INTEGER: `cmpi.l #$3,d0 / Rbne` at $2532. None of
+   * BootSelector's four is, so this design can only show the refusal.
+   */
+  it('Gui Range takes an INTEGER gadget and refuses anything else', () => {
+    expect(() => run(`${open} : Gui Range 1,1,10,20`, bank)).toThrow(GUI_ERRORS[GUI_ERR.NOT_AN_INPUT_GADGET])
+    // the reversed range is checked before the gadget, and answers 9 not 19
+    expect(() => run(`${open} : Gui Range 1,1,20,10`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
   })
 
-  it('Gui Activate names a gadget and Gui Gadget reads it back', () => {
-    const out = runOut(`${open} : Gui Activate 1,2 : Print Gui Gadget`, bank).out
-    expect(Number(out.trim())).toBe(2)
-    // a gadget the design lacks is not activated
-    expect(Number(runOut(`${open} : Gui Activate 1,9 : Print Gui Gadget`, bank).out.trim())).toBe(0)
+  /** INTEGER or STRING only, by number at $2836 and $283e; BootSelector has neither */
+  it('Gui Activate refuses a gadget that is not an INTEGER or a STRING', () => {
+    for (const id of [0, 1, 2, 3, 9]) {
+      expect(() => run(`${open} : Gui Activate 1,${id}`, bank), `gadget ${id}`).toThrow(GUI_ERRORS[GUI_ERR.NOT_AN_INPUT_GADGET])
+    }
   })
 })
 
@@ -450,5 +474,70 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
     item.flags |= MENU_FLAG.CHECKIT
     rt.gui.postMenu(1, USE)
     expect(item.checked).toBe(true)
+  })
+})
+
+/**
+ * The error table, re-read out of the library rather than restated.
+ *
+ * `AMOSPro_GUI.Lib` from the same archive the manifest names. The strings are
+ * packed NUL-separated in the code hunk and `L_ErrorExt` indexes them
+ * zero-based, so a transcription slip anywhere in the list shifts every
+ * message after it onto the wrong branch.
+ */
+const LIBRARY = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/AMOSPro_GUI.Lib'
+
+function errorStrings(): string[] | null {
+  if (!haveCorpus()) return null
+  try {
+    const code = firstCodeHunk(new Uint8Array(readFileSync(LIBRARY)))
+    if (code === null) return null
+    // $7952 is the address the `lea $7952(pc),a0` at $7940 loads, and $7c58
+    // is the byte after the last message's NUL: 774 bytes for 35 strings
+    const text = String.fromCharCode(...code.subarray(0x7952, 0x7c58))
+    return text.split('\0').slice(0, GUI_ERRORS.length)
+  } catch {
+    return null
+  }
+}
+
+describeWith('the error table', errorStrings(), (strings) => {
+  it('is the library s own thirty-five messages, in its own order', () => {
+    expect(GUI_ERRORS).toHaveLength(35)
+    expect([...GUI_ERRORS]).toEqual(strings)
+  })
+
+  /** the six this file raises by name have to be at the indices it uses */
+  it('has the named indices where the code branches to them', () => {
+    expect(GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED]).toBe('Bank not reserved')
+    expect(GUI_ERRORS[GUI_ERR.NOT_A_GUI_BANK]).toBe('Not a Gui bank')
+    expect(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE]).toBe('Illegal gadget value')
+    expect(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN]).toBe('Window not open')
+    expect(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED]).toBe('Gfx output not defined')
+    expect(GUI_ERRORS[GUI_ERR.NOT_AN_INPUT_GADGET]).toBe("This isn't a Integer/String Gadget")
+  })
+})
+
+describeWith('the three text pens', exampleBank(), (bank) => {
+  /**
+   * `Gui Pen`, `Gui Paper` and `Gui Writing` write one byte each into the
+   * EXTENSION's state at $290, $28e and $292, not into a window. `Gui Text`
+   * copies all three into an IntuiText at $25cc. So opening a second window
+   * does not reset them, where `Gui Ink` follows whichever RastPort is
+   * current because it is a SetAPen.
+   */
+  it('belong to the extension and survive a change of window', () => {
+    const rt = run('Gui Open 1,1 : Gui Pen 5 : Gui Paper 3 : Gui Open 2,1 : Gui Gfx 0,2', bank)
+    expect([rt.gui.pen, rt.gui.paper]).toEqual([5, 3])
+  })
+
+  /**
+   * `Gui Writing` is the one of the three that also calls SetDrMd, so it is
+   * the one that needs an output open. `Gui Pen` and `Gui Paper` touch no
+   * RastPort and raise nothing.
+   */
+  it('and only Writing needs a Gfx output', () => {
+    expect(() => run('Gui Pen 5 : Gui Paper 3', bank)).not.toThrow()
+    expect(() => run('Gui Writing 1', bank)).toThrow(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED])
   })
 })

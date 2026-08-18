@@ -168,11 +168,12 @@ export interface GuiWindow {
   strip: MenuStrip | null
   /** what the drawing keywords draw into; see GUI_WINDOW_DEPTH */
   rp: RastPort
-  /** `Gui Ink`, the colour every drawing keyword defaults to */
+  /**
+   * `Gui Ink`: SetAPen on this window's RastPort, which is why it is here and
+   * `GuiState.pen` is not.
+   */
   ink: number
-  /** `Gui Paper` */
-  paper: number
-  /** `Gui Writing`, the drawing mode */
+  /** `Gui Writing`: the SetDrMd half, the RastPort's own drawing mode */
   writing: number
   /** the graphics cursor `Gui Draw To` continues from */
   grX: number
@@ -215,6 +216,19 @@ export class GuiState {
   selected = 0
   /** `Gui Activate` sets it and `Gui Gadget` reads it */
   activeGadget = 0
+  /**
+   * The three bytes `Gui Text` builds its IntuiText from, at `$290`, `$28e`
+   * and `$292` of the extension's state.
+   *
+   * They belong to the EXTENSION rather than to a window: $260a, $25fe and
+   * $2616 each write one byte here and nothing per-window, and $25cc copies
+   * all three into the IntuiText. So switching the Gfx output leaves them
+   * alone, where `Gui Ink` follows the output because it is a SetAPen on
+   * whichever RastPort is current.
+   */
+  pen = 1
+  paper = 0
+  writing = 0
   /**
    * The library's own gadtools instance, which owns every menu strip.
    *
@@ -278,7 +292,6 @@ export class GuiState {
       strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,
       rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
       ink: 1,
-      paper: 0,
       writing: 0,
       grX: 0,
       grY: 0,

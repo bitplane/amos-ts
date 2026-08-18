@@ -39,6 +39,15 @@ export const AMOS_KIND_IMAGE = 0
 /** the converter's own, past the end of gadtools' set */
 export const AMOS_KIND_NUM = 14
 
+/**
+ * The two kinds a program can type into, which two keywords name by number:
+ * `Gui Activate` at $2836 and $283e takes either, `Gui Range` at $2532 takes
+ * only the first, and both answer "This isn't a Integer/String Gadget" when
+ * the kind is neither.
+ */
+export const AMOS_KIND_INTEGER = 3
+export const AMOS_KIND_STRING = 12
+
 /** the names GuiConv prints, index for index, with its empty slot 10 kept */
 export const AMOS_KIND_NAMES: readonly string[] = [
   'IMAGE',
