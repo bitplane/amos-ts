@@ -171,6 +171,7 @@ really does differ from the real one and saying where is the whole job.
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
 | `patternlib.ts` | `pattern.library` 5.00, a THIRD pattern grammar and not `dospattern`'s |
 | `xpkmaster.ts` | `xpkmaster.library` 2.2: the XPK container, and one compressor |
+| `xfdmaster.ts` | `xfdmaster.library`: is one file crunched, and the slaves that uncrunch it |
 | `process.ts` | `Execute()` and LoadSeg with CreateProc: starting a program that is not this one |
 | `icon.ts` | `icon.library`'s `.info` file: the DiskObject and its imagery |
 | `imploder.ts` | the Imploder's IMP! codec |
