@@ -79,7 +79,7 @@ is.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |        0 |            0 |      48 |       0% |
 | gui-1.61             |      103 |        0 |            0 |     103 |       0% |
-| gui-2.10             |      204 |        0 |            0 |     204 |       0% |
+| gui-2.10             |      204 |        0 |           17 |     187 |       8% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |            0 |      62 |       0% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          159 |    2368 |      68% |
+| **total**            |     7422 |     4832 |          176 |    2351 |      68% |
 
 ## Not applicable, by what would retire it
 
@@ -280,6 +280,12 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## flow (100%)
 
 - **approximated** (2): `direct`, `edit`
+
+## gui-2.10 (8%)
+
+- **approximated** (17): `gui actual`, `gui bank`, `gui close`, `gui code`, `gui code$`,
+  `gui event`, `gui exist`, `gui gfx`, `gui lock`, `gui off`, `gui on`, `gui open`, `gui reset`,
+  `gui selected`, `gui unlock`, `gui wait`, `gui window`
 
 ## input (100%)
 

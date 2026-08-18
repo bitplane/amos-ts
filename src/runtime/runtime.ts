@@ -8,6 +8,7 @@ import type { AmosIO } from '../interp/io'
 import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
+import type { GuiState } from './guistate'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
 import { Intuition, WB_SLOT } from '../amiga/intuition'
@@ -1326,6 +1327,8 @@ export class Runtime {
   amon!: AmonState
   /** Explode 2.01's eight Rs structures and the pool they live in, slot 7 */
   explode!: ExplodeState
+  /** GUI 2.10's bank, its open windows and its event queue */
+  gui!: GuiState
   /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */
   craft!: CraftState
   /** MusiCRAFT 1.0's replayer, its vumeters and its voice mask, slot 19 */

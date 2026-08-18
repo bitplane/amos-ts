@@ -92,6 +92,7 @@ import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './star
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
+import { makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -6520,6 +6521,20 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeJdColourFunctions,
     // the six slides are 4.6's too; see the JD entry above
     qualified: ['jd slide x', 'jd slide y', 'jd slide left', 'jd slide right', 'jd slide up', 'jd slide down'],
+  },
+  {
+    /*
+     * GUI 2.10 by Pietro Ghizzoni. Only the General group so far: the bank,
+     * open and close, and the event loop. The row stays 0% until the other
+     * 165 keywords land, which is the rule that stops a part-built port
+     * reading as a finished one.
+     */
+    ids: ['gui-2.10'],
+    init: (rt) => {
+      rt.gui = newGuiState()
+    },
+    instructions: makeGuiInstructions,
+    functions: makeGuiFunctions,
   },
   {
     // the printer companion, slot 21 by its own manual. 1.1 is served through

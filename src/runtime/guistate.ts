@@ -130,8 +130,12 @@ export class GuiState {
   designs: Gui[] = []
   /** open windows by their program-visible number */
   readonly windows = new Map<number, GuiWindow>()
-  /** `Gui Gfx` sets this; `Gui Actual` reads it */
+  /** `Gui Gfx 0,n` sets this; `Gui Actual` reads it */
   actual = 0
+  /** `Gui Gfx 1,n` points drawing at a screen instead of a window */
+  gfxToScreen = false
+  /** which screen, when it does */
+  gfxScreen = 0
   /** the most recently opened or clicked window, which `Gui Selected` reads */
   selected = 0
   /** events waiting to be reported */
