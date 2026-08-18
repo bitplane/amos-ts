@@ -24,15 +24,16 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, defaultPalette, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TOPAZ_SIZE, defaultPalette, depthForColours, guiScale, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
-import type { GuiGadget } from './guibank'
+import type { Gui, GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
+import { VBL_HZ } from '../amiga/paula'
 
 export function newGuiState(): GuiState {
   return new GuiState()
@@ -106,6 +107,9 @@ export const GUI_ERR = {
   ILLEGAL_FUNCTION_CALL: 34,
   ILLEGAL_SCREEN_PARAMETER: 14,
   SCREEN_ALREADY_OPEN: 15,
+  SOCKET_NOT_OPENED: 20,
+  GUI_NOT_DEFINED: 3,
+  GUI_NOT_OPEN: 7,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -295,6 +299,16 @@ const SY_DESIGN_TOP = 10
 const VAR_STRING = 2
 
 /**
+ * What AMOS pushes for an argument a program left out, and what four of these
+ * keywords test for by name.
+ *
+ * `cmpi.l #$80000000,d0` at $2882 in `Gui Len`, $2ede in `Gui Gad Tag`, $6406
+ * in the window lookup. Each has its own meaning for it: the current window,
+ * the current bank's design chain.
+ */
+const OMITTED = -0x8000_0000
+
+/**
  * The scale `Gui Sx` and `Gui Sw` apply, skipped for a window that was laid
  * out in topaz/8: `tst.w $42(a1) / bne` at $28f0 jumps past the call.
  */
@@ -345,6 +359,50 @@ function screenMouse(it: Interp, g: GuiState): [number, number] {
   const w = g.current?.width ?? WB_WIDTH
   const h = g.current?.height ?? WB_HEIGHT
   return [Math.max(0, Math.min(w - 1, x)), Math.max(0, Math.min(h - 1, y))]
+}
+
+/**
+ * One point of `Gui Line 3d`, projected: 128 over Z, offset by the eye.
+ *
+ * `asl.l #$7,d0 / divs.w d2,d0 / add.w d6,d0` at $3d16, twice per point.
+ * `divs.w` divides a longword by a WORD and returns a word quotient, and on
+ * overflow the 68000 sets V and writes nothing back — so a quotient outside
+ * -32768..32767 leaves the register holding the shifted numerator's low word,
+ * which is the shifted numerator itself. Modelled as the truncating divide
+ * plus the overflow case, because the two differ for x=1000,z=1 and a program
+ * can see the difference.
+ *
+ * DEFECT: the zero test in front of this is `tst.l`, longword, and the divide
+ * is `divs.w`, word. So a Z of 65536 passes the guard with a divisor of zero
+ * and takes the 68000's divide-by-zero trap. Answered as 0 here; a crash is
+ * not a value this port can hand back.
+ */
+function project3d(x: number, y: number, z: number, g: GuiState): [number, number] {
+  const axis = (v: number, eye: number): number => {
+    const num = (v << 7) | 0
+    const den = (z << 16) >> 16
+    const q = den === 0 ? 0 : Math.trunc(num / den)
+    // overflow: d0 keeps the shifted numerator, and `add.w` adds into its low
+    // half. Signed words throughout, which is what `add.w` leaves behind.
+    const kept = q >= -0x8000 && q <= 0x7fff ? q : num
+    return ((kept + eye) << 16) >> 16
+  }
+  return [axis(x, g.eyeX), axis(y, g.eyeY)]
+}
+
+/**
+ * Turn an elapsed `Gui Timer` request into the event -13 that reports it.
+ *
+ * $6b92 is the pump's timer arm: `and.l` the received signal mask against the
+ * request's bit, `bclr.b #$5,$85(a3)` so the next `Gui Timer` is allowed, and
+ * `moveq #$f3,d4` — $f3 sign-extended is -13. No window is written to `$de`
+ * on the way past, so `Gui Window` after a timer still names whichever window
+ * spoke last.
+ */
+function fireTimer(rt: Runtime, g: GuiState): void {
+  if (g.timerAt === null || rt.frames < g.timerAt) return
+  g.timerAt = null
+  g.post({ code: GUI_EVENT.TIMER, result: 0, text: '' })
 }
 
 /**
@@ -1670,6 +1728,126 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       g.activeGadget = id
     },
 
+    /**
+     * `Gui Amiga Os` — "Hide AMOS to a certain degree".
+     *
+     * The guide's list is long: Amos To Back, Amos Lock, Comp Test Off, Break
+     * Off, and the AMOS interrupt removed, so that "AMAL, Music, Samples and
+     * VBL interrupts" all stop working. Then the line that governs the whole
+     * keyword: *"Note that all this only takes effect when your program is
+     * compiled!"*
+     *
+     * $1d90 is that sentence as a branch. `cmpi.w #$1,-$16(a5) / bne` sends
+     * everything but a 1 down the long path at $1da4 — StopVBL through the
+     * SyCall table, the vector patch at `$8c`/`$a` of `-$1c(a5)`, `-$90(a5)`
+     * forced to $ffff, and ScreenToFront (-$fc) on the screen at `$1d2`. A 1
+     * takes four instructions instead: `moveq #$0,d1` and one AMOS_WB, which
+     * is `Amos To Back`.
+     *
+     * The word at `-$16(a5)` is the same one AMCAF guards every routine with,
+     * `tst.w -$16(a5) / bmi` into its "Nicht kompilierbar!" requester — see
+     * ./amcaf.ts's header. Negative there is the compiler; exactly 1 here is
+     * the interpreter. Two extensions, read apart, agree with the guide.
+     *
+     * This port is an interpreter, so the short path is the one it takes and
+     * `Amos To Back` is the whole keyword.
+     */
+    'gui amiga os': () => {
+      rt.amosToBack()
+    },
+
+    /**
+     * `Gui Eye 3d x,y` — "change the x,y position of the eye in the 3d
+     * space".
+     *
+     * Two words at `$2a4` and `$2a6` and nothing else: $3d4e pops both, moves
+     * them in word-wide, and returns. No screen is wanted, no window, no
+     * range check, and there is no reader but `Gui Line 3d`.
+     */
+    'gui eye 3d': (it) => {
+      const [x, y] = pair(it)
+      const g = s()
+      g.eyeX = (x << 16) >> 16
+      g.eyeY = (y << 16) >> 16
+    },
+
+    /**
+     * `Gui Line 3d x,y,z To x1,y1,z1` — "draw a line in a 3d space using the
+     * x,y,z coords... It's the equivalent of the Turbo Plus extension".
+     *
+     * The projection is four instructions per point, at $3d16 and $3d34:
+     *
+     *     asl.l #$7,d0 / divs.w d2,d0 / add.w d6,d0
+     *
+     * so a coordinate is multiplied by 128, divided by its own Z, and offset
+     * by the eye. 128 is the focal length and it is not settable. Then Move
+     * (-$f0) and Draw (-$f6) on the RastPort at `$1bc`.
+     *
+     * `divs.w` is a WORD divide of a longword, so an X above 511 with a Z of
+     * 1 overflows the quotient and the 68000 leaves the destination alone.
+     * Reproduced: the point stays where the previous divide left it.
+     *
+     * DEFECT: a Z of zero raises error 20, which is "Socket not opened!".
+     * $3d48 is `moveq #$14,d7` and the string at index $14 belongs to the TCP
+     * group. The guide does not mention the error at all, and there is no
+     * message in the table that would have been right — division by zero is
+     * not one of the extension's thirty-five.
+     *
+     * DEFECT: `$1bc` is dereferenced unguarded at $3d24. Every other drawing
+     * keyword tests it and raises 11; this one does not, so `Gui Line 3d`
+     * before `Gui Gfx` reads Move's arguments out of address zero. This port
+     * raises the 11 the rest of the group raises rather than modelling the
+     * read.
+     */
+    'gui line 3d': (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const z = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect(',')
+      const z2 = it.evalInt()
+      // both Z tests come first, and the far one is tested before the near
+      // one is even popped: $3cfc guards on d5 and $3d04 on d2
+      if (z2 === 0 || z === 0) guiError(GUI_ERR.SOCKET_NOT_OPENED)
+      const g = s()
+      const w = gfx(g)
+      const [px, py] = project3d(x, y, z, g)
+      const [qx, qy] = project3d(x2, y2, z2, g)
+      w.rp.draw(px, py, qx, qy, w.ink)
+      w.grX = qx
+      w.grY = qy
+    },
+
+    /**
+     * `Gui Timer seconds,micro seconds` — "send a timer request and returns
+     * immediately the control to your program... when the specified time
+     * period is elapsed Gui Wait will inform you (event -13)".
+     *
+     * $4314 fills the IORequest at `$108`: `$20` tv_secs, `$24` tv_micro,
+     * `$1c` io_Command = 9, which is TR_ADDREQUEST, then SendIO (-$1ce). Bit
+     * 5 of `$85` is the guard, and it is tested BEFORE anything is written —
+     * `btst.b #$5,$85(a0) / bne` at $431c returns without touching the
+     * request. That is the guide's *"Before sending a new timer request,
+     * you've to wait the end of the previous one otherwise it'll be
+     * ignored!"*, and "ignored" is exact: no error, no reply, nothing.
+     *
+     * DEVIATION: there is no timer.device under these windows. The request
+     * comes due on a frame count instead, at 50Hz, and `Gui Wait` and `Gui
+     * Event` are where it is noticed — which is where the machine notices it
+     * too, since the pump is what reads the reply port.
+     */
+    'gui timer': (it) => {
+      const [secs, micros] = pair(it)
+      const g = s()
+      if (g.timerAt !== null) return
+      g.timerAt = rt.frames + Math.round((secs + micros / 1_000_000) * VBL_HZ)
+    },
+
     /** `Gui Text x,y,text$` */
     'gui text': (it) => {
       const [x, y] = pair(it)
@@ -2019,14 +2197,22 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * therefore spins rather than sleeps, which costs frames and changes
      * nothing a program can observe about the events themselves.
      */
-    'gui wait': (): Value => VI(s().nextEvent()),
+    'gui wait': (): Value => {
+      const g = s()
+      fireTimer(rt, g)
+      return VI(g.nextEvent())
+    },
 
     /**
      * `A=Gui Event` — the same answers without waiting.
      *
      * "It returns the value -7 if nothing is happened..."
      */
-    'gui event': (): Value => VI(s().nextEvent()),
+    'gui event': (): Value => {
+      const g = s()
+      fireTimer(rt, g)
+      return VI(g.nextEvent())
+    },
 
     /**
      * `A=Gui Code` — the result code of the last event.
@@ -2529,6 +2715,164 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui gadget': (): Value => VI(s().activeGadget),
 
     /**
+     * `A=Gui Key Shift` — "the status of the shift keys", the same bitmap
+     * AMOS's own `Key Shift` answers with.
+     *
+     * One word at `$e4`, read and returned: $24d8 is four instructions. What
+     * makes the keyword interesting is where the word comes from, which is
+     * `GuiState.keyShift` and the mask the pump puts on it.
+     *
+     * DEFECT: bit 2, Caps Lock, is cleared before this can see it. See
+     * KEY_SHIFT_MASK in ./guistate.ts.
+     */
+    'gui key shift': (): Value => VI(s().keyShift),
+
+    /**
+     * `A=Gui Len(string,mode)` — "the length (in pixels) of the string. It
+     * works just like the AMOS command Text Length()".
+     *
+     * "mode" is a window number, and $2884 splits three ways on it. A
+     * negative one measures against the CURRENT SCREEN's RastPort, `$1d2`
+     * plus $54; an omitted one and a positive one both go through the window
+     * lookup, and a window laid out in topaz/8 skips graphics.library
+     * entirely — $28a2 is `move.w (a0)+,d0 / mulu.w #$8,d0`, the string's
+     * length byte count times eight. Everything else reaches TextLength
+     * (-$36) on the window's SCREEN, at `Window.WScreen` ($2e) plus $54,
+     * which is not the window's own RastPort.
+     *
+     * DEVIATION: all three answer the same number here. The screen font is
+     * `$294`, taken off the RastPort's TextFont at $56a6, and with no
+     * Preferences font to read this port holds it at topaz/8's 8. So the
+     * fixed and the measured path agree until a screen carries a real font.
+     * The error does not: a window number that is not open raises 10, and a
+     * negative one never looks.
+     */
+    'gui len': (_, a): Value => {
+      const g = s()
+      const text = str(a[0]!)
+      const mode = int(a[1]!)
+      if (mode !== OMITTED && mode < 0) return VI(text.length * g.fontWidth)
+      const w = mode === OMITTED ? target(g) : (g.windows.get(mode) ?? null)
+      if (w === null) guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      return VI(text.length * (w.topaz ? TOPAZ_SIZE : g.fontWidth))
+    },
+
+    /**
+     * `A=Gui Text Base` — "the number of pixels from the top of a character,
+     * and at the point from which it will be printed on the screen".
+     *
+     * `rp_TxBaseline`, the word at $3e of the RastPort at `$1bc`. Six for
+     * topaz/8, which is what this port's windows carry until a font is set on
+     * one.
+     *
+     * The error is the odd part. Every other `$1bc` reader loads `moveq
+     * #$b,d7` for "Gfx output not defined"; $2cce loads `moveq #$7,d7`, which
+     * is "Gui not open". One keyword out of a dozen, and the guide mentions
+     * neither.
+     */
+    'gui text base': (): Value => {
+      const w = target(s()) ?? guiError(GUI_ERR.GUI_NOT_OPEN)
+      // tf_Baseline; topaz/8's is 6, as ./instr.ts's `Text Base` also reads
+      return VI(w.rp.font?.baseline ?? 6)
+    },
+
+    /**
+     * `A=Gui Gad Adr(window,gadget)` — "the structure address of the
+     * specified gadget. Note: Its not a good idea to mess around with the
+     * structure values in memory unless you know what you are doing!"
+     *
+     * Routine 85 is three instructions over routine 246, the same lookup
+     * `Gui X Gad` and its three siblings use — and then it does not
+     * dereference what comes back. So the two keywords differ only in what
+     * happens when the lookup fails: $279e is `Rbeq routine 264` and raises
+     * "Gadget not defined", $2828 is `move.l d0,d3` and answers 0. A closed
+     * window, a negative gadget and a gadget past the end all answer 0 here
+     * and all raise 2 there.
+     *
+     * See GUI_GADGET_ORIGIN in ./guistate.ts for where the number comes from.
+     */
+    'gui gad adr': (_, a): Value => {
+      const g = s()
+      const win = int(a[0]!)
+      const id = int(a[1]!)
+      const w = win === OMITTED ? target(g) : (g.windows.get(win) ?? null)
+      if (w === null || id < 0) return VI(0)
+      const index = w.design.gadgets.findIndex((gad) => gad.id === id)
+      if (index < 0) return VI(0)
+      return VI(g.gadgetAddress(w.number, index))
+    },
+
+    /**
+     * `A=Gui Gad Tag(gui,gadget,bank,tag)` — the address of one gadget's tag
+     * data in the bank.
+     *
+     * The one keyword of 204 the guide has no node for. Routine 126 walks the
+     * bank the way ./guibank.ts does: the design chain by the word at +0, the
+     * tag area by the word at $1c, the gadget count at $22, then one
+     * terminated `(tag, data)` list per gadget. It answers the address of the
+     * DATA longword — $2f54 reads the tag with `move.l (a1)+,d0` and returns
+     * a1 after the post-increment — and 0 for a tag the gadget does not
+     * carry.
+     *
+     * `bank` omitted takes the chain head cached at `$86`, which is the bank
+     * `Gui Bank` or `Gui Open` last named.
+     *
+     * DEFECT: the last design in the chain cannot be reached. $2f18 reads the
+     * chain word before the `dbra`, and a zero one — which is exactly what
+     * ends a chain — branches to $2f26 with the counter still at or above
+     * zero, where `tst.w d1 / bge` raises "Gui not defined". So a bank
+     * holding one GUI, which is what the converter writes by default, has no
+     * design this keyword will answer about at all, and a bank holding three
+     * serves 1 and 2.
+     *
+     * DEFECT: the gadget bound is checked with `cmp.w` at $2f30 and walked
+     * with `cmp.l` at $2f4e. `Gui Gad Tag(1,65536,...)` passes a bound of, say,
+     * 12 on the low word and then counts 65,537 tag lists forward, off the end
+     * of the bank. Reproduced as far as it can be: the bound is the word
+     * compare, and running out of lists answers 0 rather than reading on.
+     *
+     * DEFECT: $2eee is `move.w a0,d0 / tst.l d0` on the
+     * address `L_Bnk_GetAdr` returned, so a bank landing on a $xxxx0000
+     * boundary reads as "Bank not reserved". On the machine that is one
+     * address in 65,536, and it is NOT reproduced here: `Runtime.bankBase` is
+     * `0x01000000 + n * 0x00100000` and every bank has a zero low word, so
+     * reproducing it would refuse all of them — the port's address scheme
+     * wearing the library's name.
+     */
+    'gui gad tag': (_, a): Value => {
+      const g = s()
+      const design = int(a[0]!)
+      const gadget = int(a[1]!)
+      const bank = int(a[2]!)
+      const tag = int(a[3]!) >>> 0
+      let list: Gui[]
+      let base: number
+      if (bank === OMITTED) {
+        list = g.designs
+        base = rt.bankBase(g.bank)
+      } else {
+        const held = rt.memBanks.get(bank)
+        list = held === undefined ? [] : readGuiBank(held.data)
+        base = rt.bankBase(bank)
+      }
+      if (list.length === 0) guiError(GUI_ERR.BANK_NOT_RESERVED)
+      if (design <= 0) guiError(GUI_ERR.GUI_NOT_DEFINED)
+      if (gadget < 0) guiError(GUI_ERR.GADGET_NOT_DEFINED)
+      // the walk stops one short of the end; see the defect above
+      if (design >= list.length) guiError(GUI_ERR.GUI_NOT_DEFINED)
+      const gui = list[design - 1]!
+      if (((gadget + 1) & 0xffff) > (gui.gadgets.length & 0xffff)) guiError(GUI_ERR.GADGET_NOT_DEFINED)
+      const tags = gui.gadgetTags[gadget]
+      if (tags === undefined) return VI(0)
+      const found = tags.findIndex((t) => t.tag === tag)
+      if (found < 0) return VI(0)
+      // each list before this one is its pairs plus the terminator longword
+      let at = 0
+      for (let i = 0; i < gadget; i++) at += (gui.gadgetTags[i]?.length ?? 0) * 8 + 4
+      return VI(base + gui.offset + gui.tagsAt + at + found * 8 + 4)
+    },
+
+    /**
      * `A=Gui Border(window,border)` — the size of one of a window's four
      * borders:
      *
@@ -2591,8 +2935,17 @@ export function guiPostAppIcon(rt: Runtime, id: number, names: readonly string[]
   g.post(e)
 }
 
-export function guiPost(rt: Runtime, window: number, code: number, result = 0, text = '', at?: [number, number]): void {
+export function guiPost(
+  rt: Runtime,
+  window: number,
+  code: number,
+  result = 0,
+  text = '',
+  at?: [number, number],
+  qualifier?: number,
+): void {
   const e: GuiEvent = { code, result, text, window }
+  if (qualifier !== undefined) e.qualifier = qualifier
   if (at !== undefined) {
     e.mouseX = at[0]
     e.mouseY = at[1]

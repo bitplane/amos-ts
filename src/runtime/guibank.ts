@@ -140,6 +140,13 @@ export interface Gui {
   version: number
   /** the raw tag area, kept so a caller can re-split it */
   tags: Uint8Array
+  /**
+   * Where that area starts, as the header's own word at +28.
+   *
+   * Kept because `Gui Gad Tag` hands back a POINTER into it, and a pointer
+   * needs the offset rather than the bytes.
+   */
+  tagsAt: number
   /** one tag list per gadget, in gadget order */
   gadgetTags: TagPair[][]
   /** the window's own OpenWindowTagList, which follows the gadgets' */
@@ -456,6 +463,7 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     hasMenus,
     version,
     tags: tagArea,
+    tagsAt,
     gadgetTags: split.gadgets,
     windowTags: split.window,
     menus,

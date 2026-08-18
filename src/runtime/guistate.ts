@@ -119,6 +119,41 @@ export const DEFAULT_MOUSE_QUEUE = 5
 export const TOPAZ_SIZE = 8
 
 /**
+ * What the pump keeps of an IntuiMessage's Qualifier: `andi.w #$7ffb` at
+ * $6cf8, applied to `$e4` the instruction after it is filled in.
+ *
+ * Two bits go. $8000 is IEQUALIFIER_RELATIVEMOUSE, which a GUI window never
+ * asks for. $0004 is IEQUALIFIER_CAPSLOCK.
+ *
+ * DEFECT: `Gui Key Shift` can never report Caps Lock. The guide's own bit
+ * table lists *"2     Caps Lock"* between the shifts and Ctrl, and the mask
+ * clears exactly that bit before any keyword can read it. The seven other
+ * rows work. Bits 8 to 14 survive too and the table does not mention them, so
+ * a value above 255 -- $4000 for a held left button -- is a legal answer.
+ */
+export const KEY_SHIFT_MASK = 0x7ffb
+
+/**
+ * Where `Gui Gad Adr`'s answers come from.
+ *
+ * DEVIATION: the keyword returns a `struct Gadget *`, read out of the window
+ * record's pointer array at `$46(a0,gadget*4)`. gadtools laid those out on
+ * the machine and this port lays out none, so the number is minted here
+ * instead: distinct per window and gadget index, stable for as long as the
+ * state lives, and nothing can be read back through it. `Gui Gad Tag` needs
+ * no such thing, because its answer points into the bank and a bank has a
+ * real address here.
+ *
+ * `0x7c00_0000` because the addresses above it are taken --- `0x7d00_0000` is
+ * `../amiga/gadtools.ts`'s own gadgets, `0x7e00_0000` BOOPSI's objects,
+ * `0x7f10_0000` exec's library bases --- and eight apart for the reason
+ * gadtools spaces its by eight: a Gadget is longword aligned and consecutive
+ * addresses would read as suspiciously dense.
+ */
+const GUI_GADGET_ORIGIN = 0x7c00_0000
+const GUI_GADGET_STRIDE = 8
+
+/**
  * How long a title `Gui Titles` will copy.
  *
  * The two buffers sit at `$3a` of the window record and $26f8 finds the
@@ -501,6 +536,15 @@ export interface GuiEvent {
   /** what `Gui Code$` answers */
   text: string
   /**
+   * The IntuiMessage's Qualifier, for `Gui Key Shift`.
+   *
+   * Absent on an event that is not an IntuiMessage. The timer signal at $6ba4
+   * and the AppMessage at $7202 both reach the reporting code without going
+   * past the `$e4` write, so neither disturbs what the last real message
+   * left there.
+   */
+  qualifier?: number
+  /**
    * Which window, for `Gui Window`.
    *
    * Absent on an event that names none. The pump writes `$de` only where it
@@ -719,6 +763,39 @@ export class GuiState {
    * current screen; it leaves it with the one before the lock.
    */
   beforeLock: GuiScreen | null = null
+  /**
+   * `$e4`: the Qualifier of the last IntuiMessage, which `Gui Key Shift`
+   * answers with.
+   *
+   * The pump writes it for EVERY message it takes, not only key ones:
+   * `move.w $1a(a1),$e4(a3)` at $6cf2 sits in the common IntuiMessage block,
+   * ahead of the class dispatch at $6d2a. So a click updates it too, and the
+   * guide's *"When Gui Wait report a Keyboard event"* describes when it is
+   * useful rather than when it is written.
+   */
+  keyShift = 0
+  /**
+   * `$2a4` and `$2a6`: where `Gui Line 3d` divides towards.
+   *
+   * Two words, and `Gui Eye 3d` is the only writer. They start at 0,0, which
+   * puts the vanishing point in the window's top-left corner.
+   */
+  eyeX = 0
+  eyeY = 0
+  /**
+   * The frame the outstanding `Gui Timer` request comes due on, or null for
+   * none.
+   *
+   * On the machine this is bit 5 of `$85` plus a timer.device IORequest that
+   * SendIO left running. `Gui Timer` refuses to start a second one while the
+   * bit is set -- the guide's *"Before sending a new timer request, you've to
+   * wait the end of the previous one otherwise it'll be ignored!"* -- and the
+   * pump clears it at $6ba4 on the way to reporting event -13.
+   */
+  timerAt: number | null = null
+  /** `Gui Gad Adr`'s handles, minted once per window and gadget index */
+  private readonly gadgetAddrs = new Map<string, number>()
+  private nextGadgetAddr = GUI_GADGET_ORIGIN
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**
@@ -971,7 +1048,24 @@ export class GuiState {
 
   /** queue something for `Gui Wait` to find */
   post(e: GuiEvent): void {
+    // $6cf2 and $6cf8: the pump copies the message's Qualifier into `$e4` and
+    // masks it as it takes the message, which is before the program ever asks
+    if (e.qualifier !== undefined) this.keyShift = e.qualifier & KEY_SHIFT_MASK
     this.pending.push(e)
+  }
+
+  /**
+   * `A=Gui Gad Adr(window,gadget)`'s answer for one gadget: a handle, minted
+   * on first ask and the same one every time after. See GUI_GADGET_ORIGIN.
+   */
+  gadgetAddress(win: number, index: number): number {
+    const key = `${win}:${index}`
+    const had = this.gadgetAddrs.get(key)
+    if (had !== undefined) return had
+    const made = this.nextGadgetAddr
+    this.nextGadgetAddr += GUI_GADGET_STRIDE
+    this.gadgetAddrs.set(key, made)
+    return made
   }
 
   /**

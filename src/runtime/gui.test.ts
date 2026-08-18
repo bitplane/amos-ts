@@ -1671,3 +1671,236 @@ describeWith('the screen group', exampleBank(), (bank) => {
     expect(runOut('Print Gui Monitor($A9004)', bank).out.trim()).toBe('1')
   })
 })
+
+/**
+ * The odds and ends: two 3d keywords, a timer, a qualifier and two pointers.
+ *
+ * Grouped by what is left rather than by what they share, which is how the
+ * guide's own "Miscellaneous commands" node groups them.
+ */
+describeWith('the 3d, timer and key group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+  const rp = (rt: Runtime) => rt.gui.windows.get(1)!.rp
+
+  /**
+   * 128 over Z: `asl.l #$7,d0 / divs.w d2,d0` at $3d16. With the eye at the
+   * default 0,0 a Z of 128 is the identity, so the line lands where a plain
+   * `Gui Draw` would put it.
+   */
+  it('Gui Line 3d divides by Z and offsets by the eye', () => {
+    const rt = run(`${open} : Gui Ink 4 : Gui Line 3d 0,0,128 To 20,0,128`, bank)
+    expect(rp(rt).point(10, 0)).toBe(4)
+    const w = rt.gui.windows.get(1)!
+    expect([w.grX, w.grY]).toEqual([20, 0])
+  })
+
+  it('a Z of 256 halves the coordinates', () => {
+    const rt = run(`${open} : Gui Ink 5 : Gui Line 3d 0,0,256 To 40,0,256`, bank)
+    expect(rt.gui.windows.get(1)!.grX).toBe(20)
+  })
+
+  it('Gui Eye 3d moves the vanishing point, in words', () => {
+    const rt = run(`${open} : Gui Eye 3d 30,12 : Gui Line 3d 0,0,128 To 0,0,128`, bank)
+    expect([rt.gui.eyeX, rt.gui.eyeY]).toEqual([30, 12])
+    const w = rt.gui.windows.get(1)!
+    expect([w.grX, w.grY]).toEqual([30, 12])
+  })
+
+  /**
+   * DEFECT: the error a zero Z raises is 20, "Socket not opened!", which
+   * belongs to the TCP group. $3d48 is `moveq #$14,d7` and nothing between
+   * there and `L_ErrorExt` reloads it.
+   */
+  it('a zero Z raises the TCP group s error', () => {
+    expect(() => run(`${open} : Gui Line 3d 0,0,0 To 1,1,1`, bank)).toThrow(GUI_ERRORS[GUI_ERR.SOCKET_NOT_OPENED])
+    expect(() => run(`${open} : Gui Line 3d 1,1,1 To 0,0,0`, bank)).toThrow(GUI_ERRORS[GUI_ERR.SOCKET_NOT_OPENED])
+    expect(GUI_ERRORS[GUI_ERR.SOCKET_NOT_OPENED]).toBe('Socket not opened!')
+  })
+
+  /**
+   * `Gui Line 3d` does not test `$1bc` where every other drawing keyword
+   * does, so on the machine this reads Move's arguments out of address zero.
+   * This port raises the group's own 11 instead.
+   */
+  it('Gui Line 3d with no Gfx output raises rather than reading zero', () => {
+    expect(() => run('Gui Line 3d 0,0,1 To 1,1,1', bank)).toThrow(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED])
+  })
+
+  /** "when the specified time period is elapsed Gui Wait will inform you (event -13)" */
+  it('Gui Timer comes due as event -13, once', () => {
+    const rt = run(`${open} : Gui Timer 0,0`, bank)
+    expect(rt.gui.timerAt).not.toBeNull()
+    // Gui Wait is where the pump would have found the reply
+    const { out } = runOut(`${open} : Gui Timer 0,0 : Print Gui Wait : Print Gui Wait`, bank)
+    expect(out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.TIMER, GUI_EVENT.NOTHING])
+  })
+
+  /**
+   * "Before sending a new timer request, you've to wait the end of the
+   * previous one otherwise it'll be ignored!" — and $431c tests the bit
+   * before it writes anything, so the second request is not merely refused,
+   * it leaves the first one's time standing.
+   */
+  it('a second Gui Timer while one is running is ignored', () => {
+    const { rt, out } = runOut(`${open} : Gui Timer 10,0 : Gui Timer 0,0 : Print Gui Wait`, bank)
+    // the ten-second request stands, so nothing is due yet
+    expect(Number(out.trim())).toBe(GUI_EVENT.NOTHING)
+    expect(rt.gui.timerAt! - rt.frames).toBeGreaterThan(400)
+  })
+
+  /** the timer names no window: $6ba4 reaches the report without writing `$de` */
+  it('a timer leaves Gui Window naming whoever spoke last', () => {
+    const { out } = runOut(`${open} : Gui Timer 0,0 : Print Gui Wait : Print Gui Window`, bank, (rt) => {
+      guiPost(rt, 1, 3)
+    })
+    // the injected gadget event is reported first and names window 1
+    expect(out.trim().split('\n').map(Number)).toEqual([3, 1])
+  })
+
+  /**
+   * `$e4` is the last IntuiMessage's Qualifier, masked with $7ffb at $6cf8.
+   *
+   * DEFECT: bit 2 is Caps Lock in the guide's own table and the mask clears
+   * it. Bits 8 to 14 are not in the table and survive.
+   */
+  it('Gui Key Shift reports the qualifier, less Caps Lock', () => {
+    const shift = (q: number): number =>
+      Number(runOut(`${open} : Print Gui Wait : Print Gui Key Shift`, bank, (rt) => {
+        guiPost(rt, 1, GUI_EVENT.KEY, 0, 'x', undefined, q)
+      }).out.trim().split('\n')[1])
+    expect(shift(0b0000_0011)).toBe(3)
+    expect(shift(0b0000_0100)).toBe(0)
+    expect(shift(0b0000_1111)).toBe(0b1011)
+    expect(shift(0x8000)).toBe(0)
+    expect(shift(0x4000)).toBe(0x4000)
+  })
+
+  /** an event that is not an IntuiMessage leaves the word standing */
+  it('a timer does not disturb Gui Key Shift', () => {
+    const { out } = runOut(
+      `${open} : Print Gui Wait : Gui Timer 0,0 : Print Gui Wait : Print Gui Key Shift`,
+      bank,
+      (rt) => {
+        guiPost(rt, 1, GUI_EVENT.KEY, 0, 'x', undefined, 8)
+      },
+    )
+    expect(out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.KEY, GUI_EVENT.TIMER, 8])
+  })
+
+  /**
+   * "It works just like the AMOS command Text Length()". Eight pixels a
+   * character until a screen carries a font that is not topaz/8.
+   */
+  it('Gui Len measures the string against the window s font', () => {
+    expect(Number(runOut(`${open} : Print Gui Len("Hello",1)`, bank).out.trim())).toBe(40)
+    expect(Number(runOut(`${open} : Print Gui Len("",1)`, bank).out.trim())).toBe(0)
+  })
+
+  /** a negative mode never looks a window up, so it cannot raise */
+  it('Gui Len with a negative mode measures on the screen instead', () => {
+    expect(Number(runOut(`${open} : Print Gui Len("Hello",-1)`, bank).out.trim())).toBe(40)
+    expect(() => run(`${open} : Print Gui Len("Hi",9)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  /**
+   * Worth a line of its own: $2cce loads `moveq #$7,d7` where every other
+   * `$1bc` reader loads 11, so this one keyword says "Gui not open".
+   */
+  it('Gui Text Base is topaz/8 s baseline, and has its own error', () => {
+    expect(Number(runOut(`${open} : Print Gui Text Base`, bank).out.trim())).toBe(6)
+    expect(() => run('Print Gui Text Base', bank)).toThrow(GUI_ERRORS[GUI_ERR.GUI_NOT_OPEN])
+  })
+})
+
+/**
+ * `Gui Gad Adr` and `Gui Gad Tag`, the two keywords that hand back addresses.
+ */
+describeWith('the address group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /** distinct, non-zero, and the same number every time it is asked for */
+  it('Gui Gad Adr answers one handle per gadget', () => {
+    const out = runOut(
+      `${open} : Print Gui Gad Adr(1,0) : Print Gui Gad Adr(1,1) : Print Gui Gad Adr(1,0)`,
+      bank,
+    ).out.trim().split('\n').map(Number)
+    expect(out[0]).toBeGreaterThan(0)
+    expect(out[1]).not.toBe(out[0])
+    expect(out[2]).toBe(out[0])
+  })
+
+  /**
+   * The one place it differs from `Gui X Gad`, which runs the same lookup:
+   * $2828 answers 0 where $279e raises "Gadget not defined".
+   */
+  it('Gui Gad Adr answers 0 where Gui X Gad raises', () => {
+    expect(val(`Gui Gad Adr(9,0)`, bank)).toBe(0)
+    expect(Number(runOut(`${open} : Print Gui Gad Adr(1,-1)`, bank).out.trim())).toBe(0)
+    expect(Number(runOut(`${open} : Print Gui Gad Adr(1,99)`, bank).out.trim())).toBe(0)
+    expect(() => run(`${open} : Print Gui X Gad(1,99)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.GADGET_NOT_DEFINED])
+  })
+
+  /**
+   * DEFECT: the last design in a chain is unreachable, so a bank holding one
+   * GUI has nothing this keyword will answer about. Both GUI banks in the
+   * corpus hold exactly one.
+   */
+  it('Gui Gad Tag refuses the only design in a one-design bank', () => {
+    expect(readGuiBank(bank)).toHaveLength(1)
+    expect(() => run(`${open} : Print Gui Gad Tag(1,0,20,$8008000B)`, bank)).toThrow(
+      GUI_ERRORS[GUI_ERR.GUI_NOT_DEFINED],
+    )
+  })
+
+  /**
+   * So the working path needs a chain of two, which is the same bank twice
+   * with the first one's Next field set to the distance between them.
+   */
+  const twin = ((): Uint8Array => {
+    const b = new Uint8Array(bank.length * 2)
+    b.set(bank, 0)
+    b.set(bank, bank.length)
+    b[0] = (bank.length >> 8) & 0xff
+    b[1] = bank.length & 0xff
+    return b
+  })()
+
+  it('the twin bank chains two designs', () => {
+    expect(readGuiBank(twin)).toHaveLength(2)
+  })
+
+  /**
+   * BootSelector's gadget 0 carries one tag, $8008000B, which is GTTX_Text.
+   * The answer is the address of its DATA longword: the tag area starts at
+   * +94 and the pair's data is four bytes into it.
+   */
+  it('Gui Gad Tag points at the tag s data inside the bank', () => {
+    const rt = new Runtime(tokenize('Rem', table, exts), table, { extensions: exts, extBindings: new Map([[24, gui]]) })
+    const want = rt.bankBase(20) + 94 + 4
+    expect(Number(runOut(`Print Gui Gad Tag(1,0,20,$8008000B)`, twin).out.trim())).toBe(want)
+  })
+
+  it('a tag the gadget does not carry answers 0', () => {
+    expect(Number(runOut(`Print Gui Gad Tag(1,0,20,$80080006)`, twin).out.trim())).toBe(0)
+    expect(Number(runOut(`Print Gui Gad Tag(1,1,20,$8008000B)`, twin).out.trim())).toBe(0)
+  })
+
+  it('Gui Gad Tag checks the bank, the design and the gadget in that order', () => {
+    expect(() => run(`Print Gui Gad Tag(1,0,21,0)`, twin)).toThrow(GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED])
+    expect(() => run(`Print Gui Gad Tag(0,0,20,0)`, twin)).toThrow(GUI_ERRORS[GUI_ERR.GUI_NOT_DEFINED])
+    expect(() => run(`Print Gui Gad Tag(1,-1,20,0)`, twin)).toThrow(GUI_ERRORS[GUI_ERR.GADGET_NOT_DEFINED])
+    expect(() => run(`Print Gui Gad Tag(1,4,20,0)`, twin)).toThrow(GUI_ERRORS[GUI_ERR.GADGET_NOT_DEFINED])
+    // design 2 is the last of the two, and the last is the one it cannot reach
+    expect(() => run(`Print Gui Gad Tag(2,0,20,0)`, twin)).toThrow(GUI_ERRORS[GUI_ERR.GUI_NOT_DEFINED])
+  })
+
+  /**
+   * DEFECT: the bound is `cmp.w` at $2f30 and the walk is `cmp.l` at $2f4e,
+   * so a gadget number whose low word is in range passes and then counts
+   * 65,537 lists forward. Answered as 0 here rather than read on past the
+   * bank.
+   */
+  it('a gadget number of 65536 passes the word-wide bound', () => {
+    expect(Number(runOut(`Print Gui Gad Tag(1,65535,20,0)`, twin).out.trim())).toBe(0)
+  })
+})
