@@ -1904,3 +1904,226 @@ describeWith('the address group', exampleBank(), (bank) => {
     expect(Number(runOut(`Print Gui Gad Tag(1,65535,20,0)`, twin).out.trim())).toBe(0)
   })
 })
+
+/**
+ * The file and stream group: six keywords over dos.library, and two over its
+ * notification.
+ *
+ * These need a writable filesystem rather than a GUI bank, so they run on
+ * their own machine with RAM: and CLIPS: mounted — the two volumes
+ * `../cli/nodefs.ts` and `../web/player.ts` give every program.
+ */
+describe('the file and stream group', () => {
+  interface Fsd {
+    rt: Runtime
+    fs: AmigaFS
+    out: () => string
+  }
+
+  function withFs(src: string): Fsd {
+    let printed = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.mountMemory('CLIPS')
+    fs.currentDir = 'RAM:'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, gui]]),
+      maxSteps: 300_000,
+      fs,
+      onText: (t) => (printed += t),
+    })
+    return { rt, fs, out: () => printed }
+  }
+
+  function ran(src: string): Fsd {
+    const f = withFs(src)
+    mustFinish(f.rt.runHeadless(500))
+    return f
+  }
+
+  /** "Works in the opposite to Gui Get$, by placing the string into the file" */
+  it('Gui Put writes a string and Gui Get$ reads it back', () => {
+    const f = ran(`Gui Put "RAM:cfg","hello world" : Print Gui Get$("RAM:cfg")`)
+    expect(f.out().trim()).toBe('hello world')
+    expect(f.fs.readFile('RAM:cfg')).toEqual(Uint8Array.from('hello world', (c) => c.charCodeAt(0)))
+  })
+
+  /** the length is the string's own word, so a zero byte is data */
+  it('Gui Put writes an embedded zero rather than stopping at it', () => {
+    const f = ran(`Gui Put "RAM:z","a"+Chr$(0)+"b" : Print Len(Gui Get$("RAM:z"))`)
+    expect(f.fs.readFile('RAM:z')).toEqual(Uint8Array.from([97, 0, 98]))
+    expect(f.out().trim()).toBe('3')
+  })
+
+  it('both raise "Unable to open file" and nothing else', () => {
+    expect(() => ran(`Print Gui Get$("RAM:nothing")`)).toThrow(GUI_ERRORS[GUI_ERR.UNABLE_TO_OPEN_FILE])
+    expect(() => ran(`Gui Put "NOSUCH:x","y"`)).toThrow(GUI_ERRORS[GUI_ERR.UNABLE_TO_OPEN_FILE])
+  })
+
+  /**
+   * DEVIATION: no shell. `Input()` answers zero and $327e takes the branch to
+   * the null string, which is the same branch a Workbench-launched program
+   * takes on the machine.
+   */
+  it('Gui Input$ is empty with no input stream', () => {
+    expect(ran('Print "["+Gui Input$+"]"').out().trim()).toBe('[]')
+  })
+
+  /**
+   * DEVIATION: the other way round -- $32bc tests the string's LENGTH and
+   * not the handle, so there is no null branch to take and the text goes to
+   * the console. An empty string does return without doing anything.
+   */
+  it('Gui Output writes to the console, and an empty string does not', () => {
+    expect(ran(`Gui Output "shell text"`).out()).toBe('shell text')
+    expect(ran(`Gui Output ""`).out()).toBe('')
+  })
+
+  /** FORM ???? FTXT CHRS ???? and the bytes, which is twenty bytes of header */
+  it('Gui Clip Write$ builds an IFF FTXT at CLIPS:0', () => {
+    const f = ran(`Gui Clip Write$ "abcd"`)
+    const got = f.fs.readFile('CLIPS:0')!
+    expect(got.length).toBe(24)
+    expect(String.fromCharCode(...got.subarray(0, 4))).toBe('FORM')
+    expect(String.fromCharCode(...got.subarray(8, 16))).toBe('FTXTCHRS')
+    const dv = new DataView(got.buffer, got.byteOffset, got.byteLength)
+    // 12 for FTXT, CHRS and the chunk size, plus the four bytes of text
+    expect(dv.getUint32(4)).toBe(16)
+    expect(dv.getUint32(16)).toBe(4)
+    expect(String.fromCharCode(...got.subarray(20))).toBe('abcd')
+  })
+
+  /**
+   * DEFECT: `(len + $d) & $fffe` at $48ae rounds an odd length up for IFF's
+   * pad byte, and the byte count is that plus 8 — one more than the `len +
+   * $14` AllocVec at $488a asked for. The file is still correct IFF.
+   */
+  it('an odd length writes one byte past the buffer it allocated', () => {
+    const f = ran(`Gui Clip Write$ "abcde"`)
+    const got = f.fs.readFile('CLIPS:0')!
+    // the buffer was 25 bytes and 26 were written
+    expect(got.length).toBe(26)
+    expect(new DataView(got.buffer, got.byteOffset, got.byteLength).getUint32(4)).toBe(18)
+    expect(got[25]).toBe(0)
+  })
+
+  it('Gui Clip Read$ reads its own writing back', () => {
+    expect(ran(`Gui Clip Write$ "round trip" : Print Gui Clip Read$`).out().trim()).toBe('round trip')
+    expect(ran(`Gui Clip Write$ "odd" : Print "["+Gui Clip Read$+"]"`).out().trim()).toBe('[odd]')
+  })
+
+  /** "Obviously it works only if some characters are present..." */
+  it('an empty or absent clipboard answers an empty string', () => {
+    expect(ran(`Print "["+Gui Clip Read$+"]"`).out().trim()).toBe('[]')
+    const f = withFs(`Print "["+Gui Clip Read$+"]"`)
+    f.fs.writeFile('CLIPS:0', Uint8Array.from('FORM....ILBM', (c) => c.charCodeAt(0)))
+    mustFinish(f.rt.runHeadless(500))
+    expect(f.out().trim()).toBe('[]')
+  })
+
+  /**
+   * Every chunk is read into the same buffer and only a CHRS moves the write
+   * pointer on, so the answer is the CHRS bodies run together and everything
+   * else is overwritten by what follows it.
+   */
+  it('several CHRS chunks join, and other chunks are skipped', () => {
+    const chunk = (id: string, body: string): number[] => {
+      const b = [...id].map((c) => c.charCodeAt(0))
+      const n = body.length
+      b.push((n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff)
+      b.push(...[...body].map((c) => c.charCodeAt(0)))
+      if (n & 1) b.push(0)
+      return b
+    }
+    const body = [...chunk('FVER', 'v1'), ...chunk('CHRS', 'one'), ...chunk('CHRS', 'two')]
+    const iff = Uint8Array.from([
+      ...[...'FORM'].map((c) => c.charCodeAt(0)),
+      0,
+      0,
+      0,
+      body.length + 4,
+      ...[...'FTXT'].map((c) => c.charCodeAt(0)),
+      ...body,
+    ])
+    const f = withFs(`Print "["+Gui Clip Read$+"]"`)
+    f.fs.writeFile('CLIPS:0', iff)
+    mustFinish(f.rt.runHeadless(500))
+    expect(f.out().trim()).toBe('[onetwo]')
+  })
+
+  /**
+   * DEFECT: `andi.l #$fffe` masks the READ length to sixteen bits while
+   * `adda.l d6,a3` moves the write pointer the full size. A CHRS of 70,000
+   * reads 4,464 bytes and advances 70,000, so the answer is 70,000 characters
+   * of which all but the first 4,464 were never written.
+   */
+  it('a CHRS over 64K reads short and steps long', () => {
+    const n = 70_000
+    const head = Uint8Array.from([
+      ...[...'FORM'].map((c) => c.charCodeAt(0)),
+      0, 0, 0, 0,
+      ...[...'FTXTCHRS'].map((c) => c.charCodeAt(0)),
+      (n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff,
+    ])
+    const iff = new Uint8Array(head.length + n)
+    iff.set(head, 0)
+    iff.fill(0x41, head.length)
+    const f = withFs(`A$=Gui Clip Read$ : Print Len(A$) : Print Asc(Mid$(A$,1,1)) : Print Asc(Mid$(A$,5000,1))`)
+    f.fs.writeFile('CLIPS:0', iff)
+    mustFinish(f.rt.runHeadless(500))
+    // (70000 + 1) AND $fffe is 4464, so only that many bytes were ever read
+    expect(f.out().trim().split('\n').map(Number)).toEqual([n, 0x41, 0])
+  })
+
+  /**
+   * "You can monitor a specified file or directory, and when something modify
+   * it you'll be informed (Gui Wait return -14, and Gui Code the notify ID."
+   */
+  it('Gui Notify reports a write as event -14 carrying its own id', () => {
+    const f = ran(
+      `N=Gui Notify("RAM:watched") : Print N : Gui Put "RAM:watched","x" : Print Gui Wait : Print Gui Code`,
+    )
+    const [id, event, code] = f.out().trim().split('\n').map(Number)
+    expect(id).toBeGreaterThan(0)
+    expect(event).toBe(GUI_EVENT.NOTIFY)
+    expect(code).toBe(id)
+  })
+
+  /** a directory watch answers for anything inside it */
+  it('a directory watch hears its own files', () => {
+    const f = ran(`N=Gui Notify("RAM:") : Gui Put "RAM:inside","x" : Print Gui Wait`)
+    expect(Number(f.out().trim())).toBe(GUI_EVENT.NOTIFY)
+  })
+
+  it('a write somewhere else is not reported', () => {
+    const f = ran(`N=Gui Notify("RAM:watched") : Gui Put "RAM:other","x" : Print Gui Wait`)
+    expect(Number(f.out().trim())).toBe(GUI_EVENT.NOTHING)
+  })
+
+  /**
+   * $3a34 and $3a3c: an empty name and one over $50 characters both answer 0
+   * without an error, because the node has only that much room for it.
+   */
+  it('Gui Notify refuses an empty name and one over 80 characters', () => {
+    const long = `RAM:${'x'.repeat(80)}`
+    const f = ran(`Print Gui Notify("") : Print Gui Notify("${long}")`)
+    expect(f.out().trim().split('\n').map(Number)).toEqual([0, 0])
+  })
+
+  it('Gui Rem Notify stops it, and an id it does not know is not an error', () => {
+    const f = ran(
+      `N=Gui Notify("RAM:watched") : Gui Rem Notify N : Gui Rem Notify 12345 : Gui Put "RAM:watched","x" : Print Gui Wait`,
+    )
+    expect(Number(f.out().trim())).toBe(GUI_EVENT.NOTHING)
+    expect(f.rt.gui.notifies.size).toBe(0)
+  })
+
+  /** "You can monitor as many files as you want", and each has its own id */
+  it('two watches answer with two ids', () => {
+    const f = ran(
+      `A=Gui Notify("RAM:one") : B=Gui Notify("RAM:two") : Gui Put "RAM:two","x" : E=Gui Wait : Print Gui Code=B`,
+    )
+    expect(Number(f.out().trim())).toBe(-1)
+  })
+})

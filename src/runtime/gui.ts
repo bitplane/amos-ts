@@ -110,6 +110,7 @@ export const GUI_ERR = {
   SOCKET_NOT_OPENED: 20,
   GUI_NOT_DEFINED: 3,
   GUI_NOT_OPEN: 7,
+  UNABLE_TO_OPEN_FILE: 22,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -388,6 +389,55 @@ function project3d(x: number, y: number, z: number, g: GuiState): [number, numbe
     return ((kept + eye) << 16) >> 16
   }
   return [axis(x, g.eyeX), axis(y, g.eyeY)]
+}
+
+/**
+ * Where `Gui Clip Read$` and `Gui Clip Write$` go: `CLIPS:0`, unit zero of
+ * the clipboard handler.
+ *
+ * The string is at $1c06 of the library and the state holds a copy at `$3ac`,
+ * which is the buffer both keywords pass to Open. No keyword changes it, so
+ * the clipboard is one fixed path.
+ */
+const CLIPBOARD_PATH = 'CLIPS:0'
+
+/** an AMOS string's bytes, which are latin-1 and may hold a zero */
+function toBytes(s: string): Uint8Array {
+  return Uint8Array.from({ length: s.length }, (_, i) => s.charCodeAt(i) & 0xff)
+}
+
+/** and back */
+function fromBytes(b: Uint8Array): string {
+  let out = ''
+  for (const c of b) out += String.fromCharCode(c)
+  return out
+}
+
+/** the four bytes at `at` as a big-endian longword, which is how IFF reads */
+function be32(b: Uint8Array, at: number): number {
+  return (((b[at] ?? 0) << 24) | ((b[at + 1] ?? 0) << 16) | ((b[at + 2] ?? 0) << 8) | (b[at + 3] ?? 0)) >>> 0
+}
+
+/** ASCII to a chunk id, so the four-letter names read as themselves */
+function fourcc(s: string): number {
+  return be32(toBytes(s), 0)
+}
+
+/**
+ * Does a filesystem event fall under a `Gui Notify` watch?
+ *
+ * AmigaDOS notifies on a file when that file is written, and on a directory
+ * when anything in it changes. `AmigaFS.watch` reports `DH0:Games/x.amos`,
+ * and the program named its path with whatever case and trailing slash it
+ * liked, so both sides are folded before they are compared.
+ */
+function underNotify(watched: string, changed: string): boolean {
+  const fold = (p: string): string => p.toLowerCase().replace(/\/+$/, '')
+  const w = fold(watched)
+  const c = fold(changed)
+  if (w === c) return true
+  if (w.endsWith(':')) return c.startsWith(w)
+  return c.startsWith(`${w}/`)
 }
 
 /**
@@ -1848,6 +1898,99 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       g.timerAt = rt.frames + Math.round((secs + micros / 1_000_000) * VBL_HZ)
     },
 
+    /**
+     * `Gui Put file$,string$` — "Place a string into a file".
+     *
+     * Open (MODE_NEWFILE, $3ee), Write, Close, and the routine at $3130 is
+     * nothing else. The length comes from the AMOS string's own word, so an
+     * embedded zero is written like any other byte, and the FILENAME is
+     * passed as a C string: `move.w (a0)+,d0` throws the length away and
+     * hands Open the characters, which work only because routine 249 puts a
+     * NUL after every string it builds.
+     *
+     * "Unable to open file" is the whole error handling. A Write that fails
+     * partway is not noticed.
+     */
+    'gui put': (it) => {
+      const name = it.evalStr()
+      it.expect(',')
+      const text = it.evalStr()
+      if (rt.vfs?.writeFile(name, toBytes(text)) !== true) guiError(GUI_ERR.UNABLE_TO_OPEN_FILE)
+    },
+
+    /**
+     * `Gui Output string` — "Send a line of text to the current output
+     * stream, for the example the Shell used to run the program".
+     *
+     * $32bc: an empty string returns without doing anything, and everything
+     * else is WriteChars (-$3ae), which writes to the process's own output
+     * without asking for a handle.
+     *
+     * DEVIATION: this port has no shell, so on the machine there would be no
+     * output stream and the text would be lost. It goes to the AMOS console
+     * instead, for the reason ./amcaf.ts gives at `Write Cli`: the routine
+     * does not test the handle, so there is no branch to take, and a program
+     * that used this to report something has somewhere to report it. Where a
+     * routine DOES test — craft's `Cli Print`, which is `beq` straight out —
+     * this port takes the null branch and drops the text.
+     */
+    'gui output': (it) => {
+      const text = it.evalStr()
+      if (text === '') return
+      it.write(text)
+    },
+
+    /**
+     * `Gui Clip Write$ string` — "Put the specified string in the system
+     * clipboard".
+     *
+     * $485e builds an IFF FORM FTXT by hand: FORM, the size, FTXT, CHRS, the
+     * length, then the bytes, into an AllocVec of `len + $14` — twenty bytes
+     * of header for exactly that much header. Then Write, Close, FreeVec.
+     *
+     * DEFECT: the write runs one byte past the allocation on every ODD
+     * length. $48ae computes the FORM size as `(len + $d) & $fffe`, which
+     * rounds an odd length up to include IFF's pad byte, and $48ba adds 8 for
+     * the FORM header itself to get the byte count. For len 5 that is 26
+     * bytes out of a 25-byte buffer. The FILE is correct IFF either way; what
+     * the machine appends as the pad is whatever followed the allocation,
+     * where this port appends a zero.
+     *
+     * A clipboard that will not open is not an error: $487c is `beq` to the
+     * exit. With no CLIPS: handler mounted that is every call, which is what
+     * an Amiga with no clipboard.device does too.
+     */
+    'gui clip write$': (it) => {
+      const text = it.evalStr()
+      const len = text.length & 0xffff
+      const form = (len + 0xd) & 0xfffe
+      const out = new Uint8Array(form + 8)
+      out.set(toBytes('FORM'), 0)
+      new DataView(out.buffer).setUint32(4, form)
+      out.set(toBytes('FTXTCHRS'), 8)
+      new DataView(out.buffer).setUint32(16, len)
+      out.set(toBytes(text).subarray(0, len), 20)
+      rt.vfs?.writeFile(CLIPBOARD_PATH, out)
+    },
+
+    /**
+     * `Gui Rem Notify id` — stop one of `Gui Notify`'s watches.
+     *
+     * No guide node; the contents list links to one that was never written.
+     * Routine 262 at $781c walks the chain from `$1a4` looking for the node
+     * whose address is the id, unlinks it, EndNotify (-$37e), FreeVec. An id
+     * it does not find is not an error and not anything else either — the
+     * walk falls off the end and the routine returns.
+     */
+    'gui rem notify': (it) => {
+      const id = it.evalInt()
+      const g = s()
+      const held = g.notifies.get(id)
+      if (held === undefined) return
+      held.stop()
+      g.notifies.delete(id)
+    },
+
     /** `Gui Text x,y,text$` */
     'gui text': (it) => {
       const [x, y] = pair(it)
@@ -2870,6 +3013,129 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       let at = 0
       for (let i = 0; i < gadget; i++) at += (gui.gadgetTags[i]?.length ?? 0) * 8 + 4
       return VI(base + gui.offset + gui.tagsAt + at + found * 8 + 4)
+    },
+
+    /**
+     * `A$=Gui Get$(file name)` — "Loads the file into the specified string.
+     * This command is good for config data and such. It does not require the
+     * Open In...Line Input#...Close commands".
+     *
+     * $3174 is Open (MODE_OLDFILE, $3ed), then the size by two Seeks —
+     * `Seek(f,0,1)` to the end and `Seek(f,0,-1)` back, whose return is the
+     * position it left, which is the length — then one Read into a string
+     * that routine 249 sized to it. "Unable to open file" for a file that is
+     * not there, and again if the string will not allocate.
+     *
+     * DEFECT: an AMOS string's length is a WORD. The allocation is the file's
+     * full size but routine 249 writes the length with `move.w d2,(a0)+` at
+     * $677e, so a file of 70,000 bytes lands in the heap whole under a string
+     * that reports 4,464 — the size AND $ffff. The bytes past that are
+     * unreachable through the string, which is what the mask does here.
+     */
+    'gui get$': (_, a): Value => {
+      const raw = rt.vfs?.readFile(str(a[0]!)) ?? rt.fs?.read(str(a[0]!)) ?? null
+      if (raw === null) guiError(GUI_ERR.UNABLE_TO_OPEN_FILE)
+      return VS(fromBytes(Uint8Array.from(raw).subarray(0, raw.length & 0xffff)))
+    },
+
+    /**
+     * `A$=Gui Input$` — "reads a line (requires a RETURN) from the current
+     * input, for example STDIN".
+     *
+     * $326e: Input() (-$36), FGets (-$150) into the state's own $400-byte
+     * scratch at `$2b8`, then the newline is turned into a NUL — $32a0 scans
+     * for $0a and writes the zero over it — and routine 249 measures what is
+     * left. So the RETURN does not come back with the line.
+     *
+     * DEVIATION: no shell, so `Input()` answers zero and $327e takes the
+     * `beq` to the null string at `$662(a5)`. That is the same branch a
+     * Workbench-launched program takes on the machine, and it is the one
+     * ./easylife.ts's `=Elin Exists` already reports a zero for.
+     */
+    'gui input$': (): Value => VS(''),
+
+    /**
+     * `C$=Gui Clip Read$` — "returns the current content of the system
+     * clipboard. Obviously it works only if some characters are present..."
+     *
+     * $477e opens `CLIPS:0`, reads twelve bytes and demands FTXT at +8, then
+     * walks the chunks. Every chunk's body is read into the SAME buffer and
+     * only a CHRS advances the write pointer, so the answer is the CHRS
+     * bodies run together and everything else is overwritten by whatever
+     * follows it. A nested FORM ends the walk.
+     *
+     * DEFECT: chunk sizes are truncated to sixteen bits on the READ but not on
+     * the pointer. $4818 is `andi.l #$fffe,d3` and the immediate is
+     * $0000fffe, so a CHRS of 100,000 bytes reads 34,464 while $4812's
+     * `adda.l d6,a3` moves the write pointer the full 100,000 — leaving
+     * 65,536 bytes of never-written buffer inside the answer, and the file
+     * position 65,536 bytes short of the next chunk. Reproduced, with zeroes
+     * where the machine would have whatever AllocVec left.
+     */
+    'gui clip read$': (): Value => {
+      const raw = rt.vfs?.readFile(CLIPBOARD_PATH) ?? null
+      if (raw === null || raw.length < 12) return VS('')
+      const b = Uint8Array.from(raw)
+      if (be32(b, 8) !== fourcc('FTXT')) return VS('')
+      const buf: number[] = []
+      // a3, the write pointer, and the file position beside it
+      let wp = 0
+      let fp = 12
+      // $47e6: eight bytes of header a chunk, and a short read ends the walk
+      while (fp + 8 <= b.length) {
+        const id = be32(b, fp)
+        const size = be32(b, fp + 4)
+        if (id === fourcc('FORM')) break
+        fp += 8
+        // $4818's `andi.l #$fffe` on the rounded-up size: a word-wide mask
+        const step = (size + 1) & 0xfffe
+        // $4808 captures the destination BEFORE $4812 advances the pointer
+        const dst = wp
+        if (id === fourcc('CHRS')) wp += size
+        for (let i = 0; i < step; i++) buf[dst + i] = b[fp + i] ?? 0
+        fp += step
+      }
+      let out = ''
+      for (let i = 0; i < wp; i++) out += String.fromCharCode(buf[i] ?? 0)
+      return VS(out)
+    },
+
+    /**
+     * `A=Gui Notify(file)` — "Start DOS notification on the specified
+     * file/dir... when something modify it you'll be informed (Gui Wait
+     * return -14, and Gui Code the notify ID".
+     *
+     * $3a2c refuses two names without an error of any kind: an empty one, and
+     * one longer than $50 characters — `cmpi.w #$50,d3 / bgt` — which is the
+     * room the node has for it after the $30 the header takes. Both answer 0.
+     * Then AllocVec, StartNotify (-$378) with nr_Flags 9, which is
+     * NRF_SEND_MESSAGE and NRF_WAIT_REPLY, to the extension's own port at
+     * `$c4`. A StartNotify that fails frees the node and answers 0 too.
+     *
+     * The id a program holds is the node's address, and $71ac reads it back
+     * out of the NotifyMessage's nm_NReq at `$1a` into `$cc`, which is what
+     * `Gui Code` answers. So the guide's "The Notify ID is the value returned
+     * by the Gui Notify command" is exact.
+     *
+     * DEVIATION: `AmigaFS.watch` reports a file appearing or going away, and
+     * a write over an existing file arrives as an `add`. That covers
+     * AmigaDOS's NOTIFY_ON_WRITE, which is what nr_Flags asks for. Metadata
+     * changes are not reported here and would be on the machine.
+     */
+    'gui notify': (_, a): Value => {
+      const path = str(a[0]!)
+      if (path === '' || path.length > 0x50) return VI(0)
+      const fs = rt.vfs
+      if (fs === null) return VI(0)
+      const g = s()
+      const id = g.notifyHandle()
+      const stop = fs.watch((e) => {
+        if (!underNotify(path, e.path)) return
+        // $71ac: no window is written to `$de`, so `Gui Window` is untouched
+        g.post({ code: GUI_EVENT.NOTIFY, result: id, text: '' })
+      })
+      g.notifies.set(id, { id, path, stop })
+      return VI(id)
     },
 
     /**

@@ -154,6 +154,16 @@ const GUI_GADGET_ORIGIN = 0x7c00_0000
 const GUI_GADGET_STRIDE = 8
 
 /**
+ * The same again for `Gui Notify`, whose id is the NotifyRequest's address.
+ *
+ * $8c apart because that is the node's size, `move.l #$8c,d0` at $3a4c, and a
+ * program that printed two ids would see the same spacing the machine's
+ * AllocVec would have given it.
+ */
+const GUI_NOTIFY_ORIGIN = 0x7c40_0000
+const GUI_NOTIFY_STRIDE = 0x8c
+
+/**
  * How long a title `Gui Titles` will copy.
  *
  * The two buffers sit at `$3a` of the window record and $26f8 finds the
@@ -334,6 +344,21 @@ export const WBTOOL = 3
  * DiskObject and `$1a` the name text. The list itself hangs off `$1ac` and
  * `$1b0` of the extension's state, head and tail.
  */
+/**
+ * One live `Gui Notify`, which is a StartNotify that has not been ended.
+ *
+ * `path` is what the program named, kept because the filesystem reports
+ * changes by path and the match is made here rather than by a handler.
+ */
+export interface GuiNotify {
+  /** what `Gui Code` answers on the event -14 this raises */
+  readonly id: number
+  /** the file or directory being watched, as the program spelled it */
+  readonly path: string
+  /** what `AmigaFS.watch` handed back, called by `Gui Rem Notify` */
+  readonly stop: () => void
+}
+
 export interface GuiApp {
   /**
    * What `Gui Iconify` answers and `Gui Uniconify` takes back.
@@ -793,9 +818,21 @@ export class GuiState {
    * pump clears it at $6ba4 on the way to reporting event -13.
    */
   timerAt: number | null = null
+  /**
+   * The DOS notifications `Gui Notify` has running, by the id it handed back.
+   *
+   * On the machine each is a NotifyRequest AllocVec'd at $3a4c, $8c bytes
+   * with the watched name copied to `$30`, chained through `$84`/`$88` off
+   * the head and tail at `$1a4`/`$1a8`. The id a program holds IS the node's
+   * address, which is what routine 262 compares against to unlink it. Here it
+   * is a number from the same origin `Gui Gad Adr` mints from, and the
+   * unsubscribe the filesystem handed back is kept beside it.
+   */
+  readonly notifies = new Map<number, GuiNotify>()
   /** `Gui Gad Adr`'s handles, minted once per window and gadget index */
   private readonly gadgetAddrs = new Map<string, number>()
   private nextGadgetAddr = GUI_GADGET_ORIGIN
+  private nextNotifyId = GUI_NOTIFY_ORIGIN
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**
@@ -1058,6 +1095,13 @@ export class GuiState {
    * `A=Gui Gad Adr(window,gadget)`'s answer for one gadget: a handle, minted
    * on first ask and the same one every time after. See GUI_GADGET_ORIGIN.
    */
+  /** the next `Gui Notify` id, which is where the node would have been */
+  notifyHandle(): number {
+    const made = this.nextNotifyId
+    this.nextNotifyId += GUI_NOTIFY_STRIDE
+    return made
+  }
+
   gadgetAddress(win: number, index: number): number {
     const key = `${win}:${index}`
     const had = this.gadgetAddrs.get(key)

@@ -76,6 +76,7 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
   // RAM: is always present on a real AMOS machine (the ram-handler) —
   // a writable, initially-empty volume
   fs.mountMemory('RAM')
+  fs.mountMemory('CLIPS') // the clipboard handler, which GUI 2.10 opens as CLIPS:0
   if (existsSync(fixturesRoot)) {
     fs.mount('AMOSPro', new NodeVolume(fixturesRoot))
     for (const raw of readdirSync(fixturesRoot, { encoding: 'buffer' })) {

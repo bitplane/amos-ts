@@ -318,6 +318,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   const dh0 = vfs.mountMemory('DH0')
   vfs.mountMemory('RAM') // the ram-handler is part of every AMOS machine
   vfs.mountMemory('ENV') // global environment variables live here
+  vfs.mountMemory('CLIPS') // the clipboard handler, which GUI 2.10 opens as CLIPS:0
   vfs.currentDir = 'DH0:'
 
   // ---- the display ----
