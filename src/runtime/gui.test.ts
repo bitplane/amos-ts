@@ -16,7 +16,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE, guiScale } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_TITLE_MAX, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
@@ -774,5 +774,133 @@ describeWith('the window sizes group', exampleBank(), (bank) => {
     expect(rt.gui.sensitive).toBe(true)
     expect(rt.gui.windows.get(1)!.topaz).toBe(true)
     expect(run(open, bank).gui.windows.get(1)!.topaz).toBe(false)
+  })
+})
+
+/**
+ * The window-management group: the eleven keywords that move, size, stack and
+ * name a window, plus the three that wait.
+ */
+describeWith('the window management group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /**
+   * WindowToFront is one call and ActivateWindow at $1eae is the other, so
+   * raising a window also selects it. `Gui To Back` has no second call and
+   * leaves the selection where it was.
+   */
+  it('Gui To Front raises AND activates; Gui To Back only lowers', () => {
+    const rt = run(`${open} : Gui Open 2,1 : Gui To Front 1`, bank)
+    expect(rt.gui.stack().map((w) => w.number)).toEqual([1, 2])
+    expect(rt.gui.selected).toBe(1)
+
+    const back = run(`${open} : Gui Open 2,1 : Gui To Back 2`, bank)
+    expect(back.gui.stack().map((w) => w.number)).toEqual([1, 2])
+    // still 2, because opening it selected it and lowering it did not change that
+    expect(back.gui.selected).toBe(2)
+  })
+
+  /** the stack is separate from the open order, which `Gui Close` still reports on */
+  it('raising a window does not change what Gui Close reports', () => {
+    const out = runOut(`${open} : Gui Open 2,1 : Gui To Front 1 : Print Gui Close(1)`, bank).out
+    // window 1 was opened first, so closing it is still code 1
+    expect(Number(out.trim())).toBe(GUI_CLOSE.FIRST)
+  })
+
+  it('Gui Move and Gui Resize each change their half', () => {
+    const rt = run(`${open} : Gui Move 1,50,60 : Gui Resize 1,200,120`, bank)
+    const w = rt.gui.windows.get(1)!
+    expect([w.left, w.top, w.width, w.height]).toEqual([50, 60, 200, 120])
+    // the RastPort follows the window, since the old one is the wrong size
+    expect([w.rp.width, w.rp.height]).toEqual([200, 120])
+  })
+
+  it('Gui Change does both in one call', () => {
+    const rt = run(`${open} : Gui Change 1,10,20,300,200`, bank)
+    const w = rt.gui.windows.get(1)!
+    expect([w.left, w.top, w.width, w.height]).toEqual([10, 20, 300, 200])
+  })
+
+  it('all three raise Window not open for a window that is not', () => {
+    for (const kw of ['Gui Move 9,1,1', 'Gui Resize 9,10,10', 'Gui Change 9,1,1,10,10', 'Gui To Front 9', 'Gui To Back 9']) {
+      expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+    }
+  })
+
+  /**
+   * "Gui Center True,False  The windows will be centered only the X coord",
+   * and the mask is read as a mask: the X centring is skipped only when it is
+   * exactly GUI_CENTRE_Y and the Y only when it is exactly GUI_CENTRE_X.
+   */
+  it('Gui Center takes each axis on its own, at the next open', () => {
+    const both = run(`Gui Center -1,-1 : ${open}`, bank).gui.windows.get(1)!
+    expect([both.left, both.top]).toEqual([(640 - 143) >> 1, (256 - 37) >> 1])
+
+    const xOnly = run(`Gui Center -1,0 : ${open}`, bank).gui.windows.get(1)!
+    const plain = run(open, bank).gui.windows.get(1)!
+    expect(xOnly.left).toBe((640 - 143) >> 1)
+    expect(xOnly.top).toBe(plain.top)
+
+    const yOnly = run(`Gui Center 0,-1 : ${open}`, bank).gui.windows.get(1)!
+    expect(yOnly.left).toBe(plain.left)
+    expect(yOnly.top).toBe((256 - 37) >> 1)
+
+    // both false clears the mask, and $3266 clears the flag bit with it
+    expect(run(`Gui Center -1,-1 : Gui Center 0,0 : ${open}`, bank).gui.windows.get(1)!.left).toBe(plain.left)
+  })
+
+  /**
+   * "Gui Remember On will make the system remember where exactly a window was
+   * when it was closed, so if it is opened again in the future, it will keep
+   * its old positions."
+   */
+  it('Gui Remember keeps a closed window s position for the next open', () => {
+    const kept = run(`Gui Remember On : ${open} : Gui Move 1,77,88 : A=Gui Close(1) : ${open}`, bank).gui.windows.get(1)!
+    expect([kept.left, kept.top]).toEqual([77, 88])
+
+    const forgotten = run(`${open} : Gui Move 1,77,88 : A=Gui Close(1) : ${open}`, bank).gui.windows.get(1)!
+    const plain = run(open, bank).gui.windows.get(1)!
+    expect([forgotten.left, forgotten.top]).toEqual([plain.left, plain.top])
+  })
+
+  /**
+   * The window opens with the title the bank gave it, which for BootSelector
+   * is GadToolsBox's own untouched default.
+   */
+  it('Gui Titles sets each title, and an empty string leaves one alone', () => {
+    expect(runOut(`${open} : Print Gui Title$(1)`, bank).out.trim()).toBe('Work Window')
+    expect(runOut(`${open} : Gui Titles 1,"Hello","Screen" : Print Gui Title$(1)`, bank).out.trim()).toBe('Hello')
+
+    const rt = run(`${open} : Gui Titles 1,"Hello","Screen" : Gui Titles 1,"","Other"`, bank)
+    const w = rt.gui.windows.get(1)!
+    expect([w.title, w.screenTitle]).toEqual(['Hello', 'Other'])
+  })
+
+  /** a hundred characters, which is the 101-byte buffer less its NUL */
+  it('and truncates a title to what the buffer holds', () => {
+    const long = 'x'.repeat(200)
+    const rt = run(`${open} : Gui Titles 1,"${long}",""`, bank)
+    expect(rt.gui.windows.get(1)!.title).toHaveLength(GUI_TITLE_MAX)
+  })
+
+  /**
+   * A number of zero or less names a SCREEN, which the guide never says.
+   * $402e branches on it and works out `$10000 - n`.
+   */
+  it('Gui Title$ of zero or less asks about a screen, not a window', () => {
+    for (const n of [0, -1, -3]) {
+      expect(() => run(`${open} : Print Gui Title$(${n})`, bank), `${n}`).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+    }
+  })
+
+  it('Gui Set Mode is one word for windows not yet opened', () => {
+    expect(run('Gui Set Mode 1', bank).gui.iconifyGadget).toBe(1)
+    expect(run('Rem', bank).gui.iconifyGadget).toBe(0)
+  })
+
+  it('Gui Beep asks for one, and Gui Wait Vbl takes a count or none', () => {
+    expect(run('Gui Beep : Gui Beep', bank).gui.beeps).toBe(2)
+    expect(() => run('Gui Wait Vbl', bank)).not.toThrow()
+    expect(() => run('Gui Wait Vbl 3 : Gui Pause 2', bank)).not.toThrow()
   })
 })

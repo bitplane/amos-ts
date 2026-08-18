@@ -14,6 +14,7 @@
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
+import { WB_HEIGHT, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget } from './guibank'
 
 /**
@@ -116,6 +117,25 @@ export const DEFAULT_MOUSE_QUEUE = 5
  * in GadToolsBox".
  */
 export const TOPAZ_SIZE = 8
+
+/**
+ * How long a title `Gui Titles` will copy.
+ *
+ * The two buffers sit at `$3a` of the window record and $26f8 finds the
+ * second one with `lea $65(a3),a3`, so each is 101 bytes: a hundred
+ * characters and the NUL $26ec writes after them.
+ */
+export const GUI_TITLE_MAX = 100
+
+/**
+ * `Gui Center`'s two bits, `$1a2`.
+ *
+ * $3252 sets bit 0 for the X argument and $325c adds 2 for the Y, and the two
+ * open-time tests read it as a mask rather than as a number: $5c70 skips the
+ * X centring when it is exactly 2 and $5cda skips the Y when it is exactly 1.
+ */
+export const GUI_CENTRE_X = 1
+export const GUI_CENTRE_Y = 2
 
 /**
  * The font-sensitive scale, routines 41 and 42 at $21b4 and $21ca:
@@ -224,6 +244,18 @@ export interface GuiWindow {
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
   /**
+   * Where it sits front to back, which `Gui To Front` and `Gui To Back` move.
+   *
+   * A separate number from `openedAt` because the two answer different
+   * questions: `Gui Close` reports on the order windows were OPENED in and
+   * has to keep reporting that after a raise.
+   */
+  depth: number
+  /** `Gui Titles`, and what `Gui Title$` reads back */
+  title: string
+  /** the second half of the same keyword, the screen's title while this window has it */
+  screenTitle: string
+  /**
    * The menu strip, built from the design's NewMenu array when it has one.
    *
    * The library keeps it at `$16` of its own window record and hands it to
@@ -327,6 +359,40 @@ export class GuiState {
    */
   sensitive = true
   /**
+   * `Gui Center`'s mask at `$1a2`, and `$85` bit 4 beside it, which the
+   * keyword keeps in step: $3266 clears the bit again when both arguments
+   * were false, so the bit carries nothing the mask does not.
+   */
+  centre = 0
+  /**
+   * `Gui Remember On` / `Off`: bit 2 of `$85`.
+   *
+   * "Gui Remember On will make the system remember where exactly a window was
+   * when it was closed, so if it is opened again in the future, it will keep
+   * its old positions."
+   */
+  remember = false
+  /**
+   * Those positions, by GUI number.
+   *
+   * DEVIATION: the machine keeps them IN THE BANK. $5c04 reads the top out of
+   * `$2e` of the GUI's Header Info block when the flag is set, where $5bf8
+   * reads `$2` without it. Holding them here instead means they survive a
+   * re-read of the bank, which on the machine would put the designed
+   * positions back.
+   */
+  readonly remembered = new Map<number, [number, number]>()
+  /**
+   * `Gui Set Mode`, one word at `$60`: whether a window gets an iconify
+   * gadget. "this command doesn't modify the windows already opened, but only
+   * those opened later!"
+   */
+  iconifyGadget = 0
+  /** how many times `Gui Beep` has been asked for; see the keyword */
+  beeps = 0
+  private depthTop = 0
+  private depthBottom = 0
+  /**
    * The character cell, `$294` and `$296`, taken from the screen's font at
    * $56a6 and $56ac -- `tf_XSize` and `tf_YSize` of the RastPort's TextFont.
    *
@@ -363,6 +429,49 @@ export class GuiState {
   last: GuiEvent | null = null
   private opens = 0
 
+  /**
+   * Where a window opens across, with `Gui Center`'s X bit applied.
+   *
+   * $5c76 is `move.w $c(a0),d0 / sub.l $14(a1),d0 / ror.l #$1,d0`, the screen
+   * width less the window's over two, and it is skipped when the centre mask
+   * is exactly GUI_CENTRE_Y.
+   *
+   * `ror` rather than `lsr`, which puts bit 0 up at bit 31 when the
+   * difference is odd. It costs nothing: the tag's data goes into
+   * NewWindow.TopEdge, which is a WORD, so the stray bit is truncated away
+   * before anything reads it. A slip, not a defect.
+   */
+  private openLeft(left: number, width: number): number {
+    if (this.centre === 0 || this.centre === GUI_CENTRE_Y) return left
+    return (WB_WIDTH - width) >> 1
+  }
+
+  /** the same down the screen, from $5ce0, skipped when the mask is GUI_CENTRE_X */
+  private openTop(top: number, height: number): number {
+    if (this.centre === 0 || this.centre === GUI_CENTRE_X) return top
+    return (WB_HEIGHT - height) >> 1
+  }
+
+  /**
+   * `Gui To Front window` — WindowToFront (-$138) and then ActivateWindow
+   * (-$1c2) at $1eae, which the guide does not mention. So raising a window
+   * also selects it.
+   */
+  toFront(w: GuiWindow): void {
+    w.depth = ++this.depthTop
+    this.selected = w.number
+  }
+
+  /** `Gui To Back window` — WindowToBack (-$132) alone, with no activate */
+  toBack(w: GuiWindow): void {
+    w.depth = --this.depthBottom
+  }
+
+  /** front to back, which is the order a renderer would draw them in reverse */
+  stack(): GuiWindow[] {
+    return [...this.windows.values()].sort((a, b) => b.depth - a.depth)
+  }
+
   /** `Gui Exist(window)`: false, or something truthy standing in for the address */
   exists(n: number): boolean {
     return this.windows.has(n)
@@ -384,14 +493,17 @@ export class GuiState {
     }
     const design = this.designs[guiIndex]
     if (design === undefined) return null
+    const width = box?.width ?? design.width
+    const height = box?.height ?? design.height
+    const kept = this.remember ? this.remembered.get(guiIndex) : undefined
     const w: GuiWindow = {
       number: n,
       gui: guiIndex,
       design,
-      left: box?.left ?? design.left,
-      top: box?.top ?? design.top,
-      width: box?.width ?? design.width,
-      height: box?.height ?? design.height,
+      left: box?.left ?? this.openLeft(kept?.[0] ?? design.left, width),
+      top: box?.top ?? this.openTop(kept?.[1] ?? design.top, height),
+      width,
+      height,
       locked: false,
       attrs: new Map(),
       strings: new Map(),
@@ -400,6 +512,9 @@ export class GuiState {
       reportMouse: false,
       rmb: true,
       topaz: !this.sensitive,
+      depth: ++this.depthTop,
+      title: design.title,
+      screenTitle: design.screenName,
       mouseQueue: DEFAULT_MOUSE_QUEUE,
       openedAt: this.opens++,
       strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,
@@ -427,6 +542,7 @@ export class GuiState {
   closeWindow(n: number): number {
     const w = this.windows.get(n)
     if (w === undefined) return GUI_CLOSE.CLOSED
+    if (this.remember) this.remembered.set(w.gui, [w.left, w.top])
     const others = [...this.windows.values()].filter((x) => x.number !== n)
     this.windows.delete(n)
     if (this.selected === n) this.selected = others[others.length - 1]?.number ?? 0

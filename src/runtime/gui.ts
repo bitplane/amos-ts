@@ -24,7 +24,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_EVENT, GuiState, guiScale, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_TITLE_MAX, GuiState, guiScale, newWindowPort, packMenuNumber } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiEvent, GuiWindow } from './guistate'
 import type { GuiGadget } from './guibank'
@@ -98,6 +98,7 @@ export const GUI_ERR = {
   GFX_NOT_DEFINED: 11,
   NOT_AN_INPUT_GADGET: 19,
   GADGET_NOT_DEFINED: 2,
+  SCREEN_NOT_OPENED: 17,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
@@ -146,6 +147,20 @@ function gadgetOf(g: GuiState, win: number, id: number): { w: GuiWindow; gad: Gu
   const gad = g.gadget(w, id)
   if (gad === null) guiError(GUI_ERR.GADGET_NOT_DEFINED)
   return { w, gad }
+}
+
+/**
+ * Resize a window and give it a RastPort the new size.
+ *
+ * `Gui Resize` and `Gui Change` both end in routine 240, the gadget relayout,
+ * and both keep the Gfx size in step when the window is the one `Gui Gfx`
+ * named. Nothing here draws yet, so what that comes to is a new bitmap.
+ */
+function resizeWindow(w: GuiWindow, width: number, height: number): void {
+  if (width === w.width && height === w.height) return
+  w.width = width
+  w.height = height
+  w.rp = newWindowPort(width, height)
 }
 
 /**
@@ -450,6 +465,193 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui sensitive off': () => {
       s().sensitive = false
+    },
+
+    /**
+     * `Gui To Front window` — "moves the specified window to the frontmost of
+     * the display".
+     *
+     * TWO calls, and the guide names one: WindowToFront (-$138) at $1ea6 and
+     * then ActivateWindow (-$1c2) at $1eae. So raising a window also makes it
+     * the active one, which `Gui Selected` reports.
+     */
+    'gui to front': (it) => {
+      const g = s()
+      g.toFront(windowOf(g, it.evalInt()))
+    },
+
+    /** `Gui To Back window` — WindowToBack (-$132) alone, and no activate */
+    'gui to back': (it) => {
+      const g = s()
+      g.toBack(windowOf(g, it.evalInt()))
+    },
+
+    /**
+     * `Gui Move window,x,y` — "move the specified window, to the new x and y
+     * coordinates specified".
+     *
+     * Routine 247 at $66b0 compares the packed LeftEdge/TopEdge longword with
+     * the pair asked for and returns without doing anything when they match.
+     * Otherwise it calls MoveWindow (-$a8), which takes DELTAS rather than
+     * coordinates, and then busy-waits at $66ee until intuition has actually
+     * moved it -- the call is asynchronous and the keyword is not.
+     */
+    'gui move': (it) => {
+      const g = s()
+      const w = windowOf(g, it.evalInt())
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      w.left = x
+      w.top = y
+    },
+
+    /**
+     * `Gui Resize window,width,height`.
+     *
+     * The same shape as `Gui Move`: compare the packed Width/Height longword,
+     * SizeWindow (-$120) with deltas, wait for it, then relay out the
+     * gadgets. It also updates the Gfx size at $22b6 when the window being
+     * resized is the one `Gui Gfx` named, and it records what was ASKED FOR
+     * where `Gui Change` beside it records what the window actually got.
+     */
+    'gui resize': (it) => {
+      const g = s()
+      const w = windowOf(g, it.evalInt())
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      resizeWindow(w, width, height)
+    },
+
+    /**
+     * `Gui Change window,x,y,width,height` — "Use it if you must quickly move
+     * and resize your window, instead of Gui Move followed by Gui Resize".
+     *
+     * ChangeWindowBox (-$1e6) takes all four absolutely, so this one needs no
+     * deltas and no wait loop.
+     */
+    'gui change': (it) => {
+      const g = s()
+      const w = windowOf(g, it.evalInt())
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      w.left = x
+      w.top = y
+      resizeWindow(w, width, height)
+    },
+
+    /**
+     * `Gui Center x,y` — "Switch on/off the ability to centre widows on the
+     * current screen", separately for each axis.
+     *
+     * Two bits at `$1a2`, and it takes effect at the next `Gui Open` rather
+     * than moving anything now.
+     */
+    'gui center': (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      s().centre = (x !== 0 ? GUI_CENTRE_X : 0) | (y !== 0 ? GUI_CENTRE_Y : 0)
+    },
+
+    /** `Gui Remember On` — bit 2 of `$85`, set at $2572 */
+    'gui remember on': () => {
+      s().remember = true
+    },
+
+    /**
+     * `Gui Remember Off` — "will simply set the window back to its original
+     * settings each time it is closed, as set in the GadToolsBox editor".
+     */
+    'gui remember off': () => {
+      s().remember = false
+    },
+
+    /**
+     * `Gui Titles window,window title$,screen title$`.
+     *
+     * "If you pass a empty string in one of the title string th old one will
+     * be left unchanged", and the binary does it by turning an empty string
+     * into -1 at $26b0 and $26ba, which is what SetWindowTitles (-$114) reads
+     * as "leave this one".
+     *
+     * Each title is copied into a 101-byte buffer at `$3a` of the window
+     * record, the second one found with `lea $65(a3),a3`, so a hundred
+     * characters is as much as either will hold.
+     */
+    'gui titles': (it) => {
+      const g = s()
+      const w = windowOf(g, it.evalInt())
+      it.expect(',')
+      const title = str(it.evalExpr())
+      it.expect(',')
+      const screen = str(it.evalExpr())
+      if (title !== '') w.title = title.slice(0, GUI_TITLE_MAX)
+      if (screen !== '') w.screenTitle = screen.slice(0, GUI_TITLE_MAX)
+    },
+
+    /**
+     * `Gui Set Mode mode` — "Enable or disable the presence of the iconify
+     * (zoom) gagdet in the titlebar of your windows".
+     *
+     * One word at `$60`, and the guide's own note is the reason it is here
+     * and not on a window: "this command doesn't modify the windows already
+     * opened, but only those opened later!"
+     */
+    'gui set mode': (it) => {
+      s().iconifyGadget = it.evalInt()
+    },
+
+    /**
+     * `Gui Beep` — DisplayBeep (-$60) with a NULL screen at $2558.
+     *
+     * The guide says "it will flash your current screen"; NULL means EVERY
+     * open screen, which is what intuition's own autodoc calls "beep all of
+     * the screens".
+     *
+     * DEVIATION: nothing flashes. These windows raise no pixels yet and the
+     * port has no Workbench screen to invert, so the call is counted instead.
+     * What the user would get on the machine also depends on their own
+     * Preferences, which the guide is careful to say: "or perform the playing
+     * of a sample, depending on how you have your workbench preferences set".
+     */
+    'gui beep': () => {
+      s().beeps++
+    },
+
+    /**
+     * `Gui Pause vbls` — "pause the program for the specified number of vbl's
+     * in a system friendly way, using 0% CPU time".
+     *
+     * dos.library's Delay (-$c6), which counts TICKS. A tick is a fiftieth of
+     * a second and so is a PAL vertical blank, which is why the guide can
+     * call them vbls and be right on the machine this was written for.
+     */
+    'gui pause': (it) => {
+      const n = it.evalInt()
+      if (n > 0) it.block({ type: 'wait', until: it.tick + n })
+    },
+
+    /**
+     * `Gui Wait Vbl [vbls]` — WaitTOF (-$10e), once or in a `dbra` loop.
+     *
+     * Two forms, which is what the `!` on the token table's name means: the
+     * bare one at $2314 waits once and routine 77 at $2754 waits the number
+     * given. "Gui Wait Vbl is exactly like the AMOS Wait Vbl command, except
+     * for intuition."
+     */
+    'gui wait vbl': (it) => {
+      const n = it.atStmtEnd() ? 1 : it.evalInt()
+      if (n > 0) it.block({ type: 'wait', until: it.tick + n })
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -1067,6 +1269,22 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui x font': (): Value => VI(s().fontWidth),
     'gui y font': (): Value => VI(s().fontHeight),
+
+    /**
+     * `T$=Gui Title$(window)` — "Returns the title of the specified window".
+     *
+     * A number of ZERO OR LESS names a SCREEN instead, which the guide does
+     * not say: $402e branches on `tst.l d0 / bgt`, works out `$10000 - n` to
+     * get the screen number, and reads the screen record's own title at $404c
+     * with "Screen not opened" for its error. Above zero it reads
+     * `Window.Title` at `$20`.
+     */
+    'gui title$': (_, a): Value => {
+      const n = int(a[0]!)
+      // no screens exist in this port yet, so every screen number is unopened
+      if (n <= 0) guiError(GUI_ERR.SCREEN_NOT_OPENED)
+      return VS(windowOf(s(), n).title)
+    },
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
