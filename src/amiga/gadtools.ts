@@ -958,6 +958,15 @@ export interface MenuItem {
   /** CHECKIT items only; CHECKED sets it */
   checked: boolean
   disabled: boolean
+  /**
+   * The next number in a multi-select chain, MENUNULL when there is none.
+   *
+   * Intuition fills it in when the user picks several items before letting go
+   * of the menu button, and a program walks it rather than waiting for more
+   * messages. `gui-2.10` reads it at $1d74 and stops on MENUNULL at $1d78,
+   * which is `Gui Menu(4)`.
+   */
+  nextSelect: number
   subItems: MenuItem[]
 }
 
@@ -1344,6 +1353,40 @@ export class GadTools {
   }
 
   /**
+   * `OnMenu(window, menunumber)` (-$c0) and `OffMenu` (-$b4), intuition's
+   * pair, here for the same reason `itemAddress` is: the tree is here.
+   *
+   * A number whose ITEMNUM is NOITEM names the MENU, and the whole column
+   * goes with it. Otherwise it names one item or sub-item.
+   *
+   * `gui-2.10` calls them straight off its own packer at $4246 and $4272,
+   * with nothing between the AMOS arguments and the library, so what the
+   * keyword can reach is exactly what intuition can.
+   */
+  onMenu(strip: MenuStrip, number: number): boolean {
+    return this.setMenuEnabled(strip, number, true)
+  }
+
+  /** `OffMenu(window, menunumber)` (-$b4) */
+  offMenu(strip: MenuStrip, number: number): boolean {
+    return this.setMenuEnabled(strip, number, false)
+  }
+
+  private setMenuEnabled(strip: MenuStrip, number: number, on: boolean): boolean {
+    if (strip.freed) return false
+    const menu = strip.menus[menuNum(number)]
+    if (menu === undefined) return false
+    if (itemNum(number) === NOITEM) {
+      menu.disabled = !on
+      return true
+    }
+    const it = this.itemAddress(strip, number)
+    if (it === null) return false
+    it.disabled = !on
+    return true
+  }
+
+  /**
    * Selecting an item, with the mutual exclusion the guide describes.
    *
    * "you go to specify which items will be put in state no 'CHECKED' when
@@ -1515,6 +1558,7 @@ export class GadTools {
       height: 0,
       checked: (flags & MENU_FLAG.CHECKIT) !== 0 && (flags & MENU_FLAG.CHECKED) !== 0,
       disabled: (flags & MENU_FLAG.NM_ITEMDISABLED) !== 0,
+      nextSelect: MENUNULL,
       subItems: [],
     }
   }

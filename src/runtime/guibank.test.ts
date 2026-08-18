@@ -18,7 +18,7 @@ import {
   readGuiBank,
 } from './guibank'
 import { AMOS_KIND_IMAGE, AMOS_KIND_NAMES, AMOS_KIND_NUM } from './guikinds'
-import { KIND } from '../amiga/gadtools'
+import { BARLABEL, KIND, NEWMENU_SIZEOF, NM } from '../amiga/gadtools'
 import { NEWGADGET_SIZEOF } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
@@ -175,6 +175,17 @@ describeWith('BootSelector.Amos bank 20', exampleBank(), (bank) => {
     expect(gui.labels.filter((l) => l === '')).not.toHaveLength(0)
   })
 
+  /**
+   * "Work Window" is GadToolsBox's own default title, so this window was
+   * never named. The screen name is empty for the matching reason: GuiConv
+   * replaces the editor's banner with an empty label rather than asking for a
+   * public screen that does not exist.
+   */
+  it('ends the chain on the untouched defaults', () => {
+    expect(gui.title).toBe('Work Window')
+    expect(gui.screenName).toBe('')
+  })
+
   it('keeps the tag area for the keywords to read', () => {
     expect(gui.tags.length).toBeGreaterThan(0)
     // gadtools tags are longwords from $80080000, and this bank carries some
@@ -276,5 +287,147 @@ describeWith('GuiDemo.Amos bank 20, every gadget kind', demoBank(), (bank) => {
     const plain = gui.gadgets.filter((g) => ![5, 7].includes(g.kind))
     for (const g of plain) expect(g.items, `kind ${g.kind}`).toEqual([])
     expect(gui.gadgets.filter((g) => g.progressBar)).toHaveLength(2)
+  })
+
+  /**
+   * The two labels after the gadgets, which is what settles the alignment of
+   * the walk that produced the names above. It has no menus, so `_WIND`'s
+   * pair is the whole tail.
+   *
+   * The screen name is the author's, misspelling included: he wrote
+   * "Dairymem Soft" here and "Dairymen Soft" in GuiConv's own banner.
+   */
+  it('ends on the window title and the screen the demo asks for', () => {
+    expect(gui.title).toBe('HotLinks Demo! Powerful & amusing :)')
+    expect(gui.screenName).toBe('AMOSPro Gui Extension \u00a91995-1997 Pietro Ghizzoni - Dairymem Soft')
+    expect(gui.menus).toEqual([])
+  })
+
+  /**
+   * The names, which read as a designed interface rather than as a shifted
+   * chain: GadToolsBox marks the keyboard shortcut with an underscore, and
+   * every one of them lands on a letter the label actually has.
+   */
+  it('reads the gadget names, underscores and all', () => {
+    expect(gui.gadgets.slice(0, 5).map((g) => g.name)).toEqual(['Clic_k Me!', '_Palette', '_Edit', '_CheckBox', '_Move Me!'])
+  })
+})
+
+/**
+ * The one bank in the corpus that carries MENUS.
+ *
+ * `DBench/DB_Information.abk` from Kyzer's DataBench, a standalone bank file
+ * rather than a bank inside a program, converter version 22. Nine gadgets,
+ * fifteen NewMenus and one IntuiText, and it is the only thing on this
+ * machine that can decide whether the menu half of the format was read right.
+ */
+const DBENCH = '../amos-files/sources/kyzer-dbench/files/DBench/DB_Information.abk'
+
+function dbenchBank(): Uint8Array | null {
+  if (!haveCorpus()) return null
+  try {
+    const b = new Uint8Array(readFileSync(DBENCH))
+    // a bare .abk is the twenty-byte AmBk header and then the bank body
+    if (String.fromCharCode(...b.subarray(0, 4)) !== 'AmBk') return null
+    return b.subarray(20)
+  } catch {
+    return null
+  }
+}
+
+describeWith('DB_Information.abk, the one bank with menus', dbenchBank(), (bank) => {
+  const gui = readGui(bank)!
+
+  /**
+   * Where the menus are is stated by GuiConv rather than searched for. It
+   * fills the structures block in two lines:
+   *
+   *     CREATE ["GADA",3,GP]: CREATE ["MEDA",4,MP]: _WIND
+   *     CREATE ["BBOX",1,BP]: TXTSTR=LOCSTR+1: CREATE ["ITXT",2,IP]
+   *
+   * so the block is nine NewGadgets, then the menus, then one BevelBox and
+   * one IntuiText. That is 9*30 + 16*20 + 8 + 24 = 622 bytes, and the header
+   * gives Gui Labels less Gui Structures as exactly 622.
+   */
+  it('finds the menus after the gadgets, and the block adds up', () => {
+    expect(gui.version).toBe(22)
+    expect(gui.hasMenus).toBe(true)
+    expect(gui.gadgets).toHaveLength(9)
+    expect(gui.menus).toHaveLength(15)
+    const structs = (bank[30]! << 8) | bank[31]!
+    const labels = (bank[32]! << 8) | bank[33]!
+    const bevel = (bank[36]! << 8) | bank[37]!
+    const itxt = (bank[38]! << 8) | bank[39]!
+    expect(bevel).toBe(1)
+    expect(itxt).toBe(1)
+    // the +1 is the all-zero NM_END record CREATE appends
+    expect(labels - structs).toBe(9 * NEWGADGET_SIZE + (gui.menus.length + 1) * NEWMENU_SIZEOF + bevel * 8 + itxt * 24)
+  })
+
+  /** three titles, and every other record hangs under one of them */
+  it('is DataBench s own menu bar', () => {
+    const shown = gui.menus.map((m) => (m.label === BARLABEL ? '--' : `${m.label}${m.commKey === undefined ? '' : `/${m.commKey}`}`))
+    expect(shown).toEqual([
+      'Project',
+      'Use/O',
+      'Close/W',
+      '--',
+      'About',
+      'Quit/Q',
+      'View',
+      'Browse/B',
+      'List/L',
+      'Functions',
+      'Import',
+      'Export',
+      '--',
+      'Index',
+      'Sort',
+    ])
+    expect(gui.menus.filter((m) => m.type === NM.TITLE)).toHaveLength(3)
+    expect(gui.menus.filter((m) => m.type === NM.ITEM)).toHaveLength(12)
+  })
+
+  /**
+   * A separator takes no label and a shortcut takes a second one, which is
+   * the pair of tests the library's fixup makes at $5ac8 and $5ad6. Getting
+   * either wrong shifts every label after it, and the two BARLABELs here are
+   * far enough apart that a shift would be visible in the names above.
+   */
+  it('spends one label a menu, none on a bar and two on a shortcut', () => {
+    expect(gui.menus.filter((m) => m.label === BARLABEL)).toHaveLength(2)
+    expect(gui.menus.filter((m) => m.commKey !== undefined)).toHaveLength(5)
+    for (const m of gui.menus) {
+      if (m.commKey === undefined) continue
+      expect(m.commKey).toHaveLength(1)
+    }
+  })
+
+  /**
+   * `_WIND` runs after the menus and adds the window's title and its public
+   * screen name. Those two are what proves the whole walk: a gadget or menu
+   * that consumed the wrong number of labels lands the title on some other
+   * string, and here it lands on a window title and a program's own screen.
+   */
+  it('ends the chain on the window title and the screen name', () => {
+    expect(gui.title).toBe('Information window')
+    expect(gui.screenName).toBe('Amos Xbase')
+    // the IntuiText's string is the one label left after those two
+    expect(gui.labels[gui.labels.length - 1]).toBe('Database information')
+  })
+
+  /** the gadget half of the same walk, which the title above vouches for */
+  it('reads the gadget names on the way past', () => {
+    expect(gui.gadgets.map((g) => g.name)).toEqual([
+      'Used databases',
+      '',
+      '',
+      'Use',
+      'Close',
+      'Browse',
+      'Record length:',
+      'Nr. of records:',
+      'Number of fields:',
+    ])
   })
 })

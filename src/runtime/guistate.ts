@@ -13,6 +13,7 @@
  */
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
+import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
 import type { Gui, GuiGadget } from './guibank'
 
 /**
@@ -98,6 +99,34 @@ export const GUI_CLOSE = {
 /** the bank GuiConv writes by default, and what `Gui Bank` starts at */
 export const DEFAULT_GUI_BANK = 20
 
+/**
+ * `Gui Menu(4)`, the argument that is not a field.
+ *
+ * Routine 4 tests for it first, `cmp.w #$4,d0 / beq` at $1d00, and only then
+ * looks at the pending flag. The guide's index line says only "Returns Menu
+ * code", so what the four arguments mean is the binary's.
+ */
+export const GUI_MENU_NEXT = 4
+
+/**
+ * The three menu keywords' argument packing, routine 224 at $4c10.
+ *
+ * Each of menu, item and sub arrives ONE-BASED and is decremented; anything
+ * that would land below -1 is clamped to -1 by the three `moveq #$ff` at
+ * $4c22, $4c2c and $4c36. So a zero argument means "none", and -1 is what
+ * intuition spells NOMENU, NOITEM and NOSUB.
+ *
+ * The rotates that follow put the three into the five, six and five bits
+ * intuition reads them out of. They also leave rubbish above bit 15 whenever
+ * one of the three was absent, because -1 rotates its whole sign into the top
+ * of the longword; MENUNUM and its two siblings mask that off, so packing
+ * into sixteen bits here is the same number the library passes.
+ */
+export function packMenuNumber(menu: number, item: number, sub: number): number {
+  const one = (v: number): number => (v < 1 ? -1 : v - 1)
+  return fullMenuNum(one(menu), one(item), one(sub))
+}
+
 /** one open window */
 export interface GuiWindow {
   /** the number the program opened it as, which is how every keyword names it */
@@ -129,6 +158,14 @@ export interface GuiWindow {
   ranges: Map<number, [number, number]>
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
+  /**
+   * The menu strip, built from the design's NewMenu array when it has one.
+   *
+   * The library keeps it at `$16` of its own window record and hands it to
+   * `SetMenuStrip` at $5dc0, and every menu keyword reaches it the same way:
+   * `Gui Menu Check` reloads `$16(a0)` at $429c and gives up when it is zero.
+   */
+  strip: MenuStrip | null
   /** what the drawing keywords draw into; see GUI_WINDOW_DEPTH */
   rp: RastPort
   /** `Gui Ink`, the colour every drawing keyword defaults to */
@@ -178,6 +215,25 @@ export class GuiState {
   selected = 0
   /** `Gui Activate` sets it and `Gui Gadget` reads it */
   activeGadget = 0
+  /**
+   * The library's own gadtools instance, which owns every menu strip.
+   *
+   * One per state rather than one per window, because a strip outlives the
+   * keyword that made it and `Gui Menu Check` has to find it again.
+   */
+  readonly gt = new GadTools()
+  /**
+   * The menu number the last MENUPICK carried, at `$ee` of the library's
+   * state, and whether one is waiting, which is bit 2 of `$84`.
+   *
+   * `Gui Menu` answers -1 when the bit is clear, so a program that asks
+   * without an event pending gets the same answer as one that asks for a
+   * field that does not exist.
+   */
+  menuNumber = MENUNULL
+  menuPending = false
+  /** the strip the pending number belongs to, `$f0` of the same state */
+  menuStrip: MenuStrip | null = null
   /** events waiting to be reported */
   readonly pending: GuiEvent[] = []
   /** the last event `Gui Wait` or `Gui Event` reported */
@@ -219,6 +275,7 @@ export class GuiState {
       ghosted: new Set(),
       ranges: new Map(),
       openedAt: this.opens++,
+      strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,
       rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
       ink: 1,
       paper: 0,
@@ -254,6 +311,63 @@ export class GuiState {
     return GUI_CLOSE.CLOSED
   }
 
+  /**
+   * Record a menu pick and queue the event for `Gui Wait`.
+   *
+   * The guide's own instruction for event -2: "A menu item has been selected.
+   * You've to use the Gui Menu function to know which item has been chosen."
+   * So the number goes into the state and the event carries only -2.
+   */
+  postMenu(window: number, number: number): void {
+    this.menuNumber = number
+    this.menuPending = true
+    this.menuStrip = this.windows.get(window)?.strip ?? null
+    if (this.menuStrip !== null) this.gt.selectItem(this.menuStrip, number)
+    this.post({ code: GUI_EVENT.MENU, result: -1, text: '', window })
+  }
+
+  /**
+   * `Gui Menu(n)`, routine 4 at $1cf6, which is four functions in one
+   * argument.
+   *
+   * 1, 2 and 3 take the pending number apart with the masks at $1d18, $1d20
+   * and $1d2e, and `addq.l #$1,d3` at $1d4e then makes each ONE-BASED. So a
+   * pick of the first item of the first menu answers 1,1,32: the sub field
+   * holds NOSUB, which is 31 masked, and 32 out of the addq. That is the
+   * value a program tests, not zero.
+   *
+   * Anything else answers -1, and so does asking with no event pending: the
+   * `moveq #$ff,d3` at $1cfa falls through the branch at $1d0c without the
+   * addq, and the $fe at $1d4c reaches the addq to make the same -1.
+   */
+  menuField(which: number): number {
+    if (which === GUI_MENU_NEXT) return this.nextMenuSelect()
+    if (!this.menuPending) return -1
+    const n = this.menuNumber
+    if (which === 1) return (n & MENU_MASK) + 1
+    if (which === 2) return ((n >> 5) & ITEM_MASK) + 1
+    if (which === 3) return ((n >> 11) & SUB_MASK) + 1
+    return -1
+  }
+
+  /**
+   * `Gui Menu(4)`: step to the next item of a multi-select, 1 if there was
+   * one and 0 if not.
+   *
+   * The $1d58 branch calls ItemAddress on the strip it kept, reads NextSelect
+   * out of `$20(a0)`, and stores it back over the pending number before
+   * setting the pending bit again. Zero when there is no strip, which is the
+   * `tst.l $f0(a1) / beq` at $1d5a.
+   */
+  nextMenuSelect(): number {
+    if (this.menuStrip === null) return 0
+    const it = this.gt.itemAddress(this.menuStrip, this.menuNumber)
+    if (it === null || it.nextSelect === MENUNULL) return 0
+    this.menuNumber = it.nextSelect
+    this.menuPending = true
+    return 1
+  }
+
   /** `Gui Reset`: close all the windows */
   reset(): void {
     this.windows.clear()
@@ -261,6 +375,9 @@ export class GuiState {
     this.last = null
     this.selected = 0
     this.actual = 0
+    this.menuPending = false
+    this.menuNumber = MENUNULL
+    this.menuStrip = null
   }
 
   /** queue something for `Gui Wait` to find */

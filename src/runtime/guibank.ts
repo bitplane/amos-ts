@@ -36,6 +36,7 @@
  * the tags and the labels, which is exactly what is needed to rebuild the
  * interface.
  */
+import { BARLABEL, NEWMENU_SIZEOF, NM, type NewMenu } from '../amiga/gadtools'
 import { AMOS_KIND_IMAGE, AMOS_KIND_NUM } from './guikinds'
 
 /** `HSIZE=70`, the per-GUI header GuiConv writes */
@@ -90,14 +91,16 @@ export interface GuiGadget {
   /**
    * The label beside the gadget, out of the label chain.
    *
-   * NOT PROVEN, unlike everything else here. `_ADDGAD` writes one name label
-   * per gadget before any payload, so the chain is names and payloads
-   * interleaved in gadget order and this walks it that way. What cannot be
-   * checked from the two banks held is whether a LISTVIEW consumes a label
-   * this walk does not know about: its GTLV_Labels tag is excluded from the
-   * converter's own payload test, yet reading GuiDemo either way gives a
-   * plausible set of names shifted by one. Nothing in the port depends on it,
-   * and `items` and `text` beside it are exact.
+   * `_ADDGAD` writes one name label per gadget before any payload, so the
+   * chain is names and payloads interleaved in gadget order and this walks it
+   * that way. The walk is checkable end to end because the chain does not
+   * stop at the gadgets: menu labels follow, then the window's title and its
+   * screen name. A walk that consumed one label too many or too few would
+   * land the title on the wrong string, and across the 23 GUIs in the corpus
+   * it lands on "Information window", "BookShelf", "HotKeys" and twenty more
+   * that read like titles. GuiDemo's names come out "Clic_k Me!",
+   * "_Palette", "_CheckBox", with the underscores GadToolsBox writes for the
+   * keyboard shortcut.
    */
   name: string
   /** LISTVIEW, MX and CYCLE: the items, which `Gui Read$` selects from */
@@ -141,6 +144,24 @@ export interface Gui {
   gadgetTags: TagPair[][]
   /** the window's own OpenWindowTagList, which follows the gadgets' */
   windowTags: TagPair[]
+  /**
+   * The NewMenu array, flat and ready for `CreateMenusA`, empty when the
+   * header's Menus Check is zero.
+   *
+   * Labels and command keys are already filled in from the chain; what the
+   * bank holds in nm_Label and nm_CommKey are the stale pointers -1, 0 and 1.
+   */
+  menus: NewMenu[]
+  /** the window's title, `_ADDLAB [WN$]` in `_WIND` */
+  title: string
+  /**
+   * The public screen the editor named.
+   *
+   * GadToolsBox writes its own banner there when the user named nothing, and
+   * GuiConv replaces exactly that string with an empty label:
+   * `If A$="GadToolsBox V2.0b © 1991-1993"+Chr$(0) Then A$=Chr$(2)`.
+   */
+  screenName: string
 }
 
 const u16 = (b: Uint8Array, at: number): number => (b[at]! << 8) | b[at + 1]!
@@ -221,10 +242,50 @@ class Labels {
 }
 
 /**
- * Walk the chain the way `_ADDGAD` wrote it: each gadget's NAME, then its
- * payload if its TAGS asked for one.
+ * Read the NewMenu array, which starts where the gadgets' NewGadgets end.
  *
- * A list payload is `N` strings closed by `Chr$(1)+Chr$(0)`, and N is
+ * The order inside the structures block is stated outright by the two lines
+ * of GuiConv that fill it:
+ *
+ *     CREATE ["GADA",3,GP]: CREATE ["MEDA",4,MP]: _WIND
+ *     CREATE ["BBOX",1,BP]: TXTSTR=LOCSTR+1: CREATE ["ITXT",2,IP]
+ *
+ * so gadgets, then menus, then bevel boxes, then IntuiTexts. The library
+ * reads it back in the same order with one moving cursor at `$3c(a3)`, which
+ * is why nothing carries an offset.
+ *
+ * `CREATE` appends a twenty-byte run of zeros after the last menu
+ * (`If MEN and T=4: Add _STRUCTS,20`) and the library's walk at $5ac0 stops
+ * on it: `move.b -$2(a0),d0 / tst.b d0 / beq`. A zero nm_Type is the end,
+ * which is NM_END.
+ */
+function readMenus(b: Uint8Array, at: number, limit: number): { menus: NewMenu[]; end: number } {
+  const menus: NewMenu[] = []
+  let p = at
+  while (p + NEWMENU_SIZEOF <= limit && b[p] !== NM.END) {
+    const m: NewMenu = {
+      type: b[p]!,
+      // -1 is BARLABEL. Anything else is a stale pointer, and the label
+      // itself comes out of the chain
+      label: (u32(b, p + 2) | 0) === BARLABEL ? BARLABEL : '',
+      flags: u16(b, p + 10),
+      mutualExclude: u32(b, p + 12) | 0,
+      userData: u32(b, p + 16),
+    }
+    // the field is 1 or 0 in a saved bank: present, not the character
+    if (u32(b, p + 6) !== 0) m.commKey = ''
+    menus.push(m)
+    p += NEWMENU_SIZEOF
+  }
+  // the NM_END record itself, which the library steps over the same way
+  return { menus, end: Math.min(limit, p + NEWMENU_SIZEOF) }
+}
+
+/**
+ * Walk the whole label chain in the order the converter wrote it.
+ *
+ * `_ADDGAD` writes each gadget's NAME, then its payload if its TAGS asked for
+ * one. A list payload is `N` strings closed by `Chr$(1)+Chr$(0)`, and N is
  * `userData + 1` because the converter stored `N-1`. A string payload is one
  * string. Everything else contributes only its name, which is why this walks
  * rather than indexes: the chain has no per-gadget marker, only order.
@@ -233,8 +294,22 @@ class Labels {
  * from: a list stops at the `Chr$(1)` whether or not `userData` agreed, so a
  * bank whose count is wrong loses one gadget's labels instead of every
  * gadget's after it.
+ *
+ * `_ADDMENU` follows, taking one label per menu unless nm_Label is BARLABEL
+ * and one more when nm_CommKey is set. That is the same pair of tests the
+ * library's fixup makes at $5ac8 and $5ad6 before calling the chain reader at
+ * $5a00, so a separator consumes nothing and a shortcut consumes two.
+ *
+ * `_WIND` runs last of the three and adds the window's title and its public
+ * screen name, in that order.
  */
-function readGadgetLabels(b: Uint8Array, at: number, gadgets: GuiGadget[], tags: TagPair[][]): void {
+function readLabels(
+  b: Uint8Array,
+  at: number,
+  gadgets: GuiGadget[],
+  tags: TagPair[][],
+  menus: NewMenu[],
+): { title: string; screenName: string } {
   const chain = new Labels(b, at)
   for (const [i, g] of gadgets.entries()) {
     g.name = chain.next()
@@ -251,6 +326,11 @@ function readGadgetLabels(b: Uint8Array, at: number, gadgets: GuiGadget[], tags:
       g.text = chain.next()
     }
   }
+  for (const m of menus) {
+    if (m.label !== BARLABEL) m.label = chain.next()
+    if (m.commKey !== undefined) m.commKey = chain.next()
+  }
+  return { title: chain.next(), screenName: chain.next() }
 }
 
 /** one tag and its data, as GuiConv writes them: two longwords */
@@ -341,7 +421,11 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
   for (const g of gadgets) if (g.kind === 13 && g.userData === 1) g.progressBar = true
   const tagArea = b.subarray(offset + tagsAt, offset + structsAt)
   const split = readTags(tagArea, count)
-  readGadgetLabels(b, offset + labelsAt, gadgets, split.gadgets)
+  const hasMenus = u16(b, offset + 40) !== 0
+  const menus = hasMenus
+    ? readMenus(b, offset + structsAt + count * NEWGADGET_SIZE, offset + labelsAt).menus
+    : []
+  const { title, screenName } = readLabels(b, offset + labelsAt, gadgets, split.gadgets, menus)
 
   let left = 0
   let top = 0
@@ -369,11 +453,14 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     gadgets,
     labels: new Labels(b, offset + labelsAt).rest(),
     imageGadgets,
-    hasMenus: u16(b, offset + 40) !== 0,
+    hasMenus,
     version,
     tags: tagArea,
     gadgetTags: split.gadgets,
     windowTags: split.window,
+    menus,
+    title,
+    screenName,
   }
 }
 

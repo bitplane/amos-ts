@@ -16,6 +16,8 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
+import { packMenuNumber } from './guistate'
+import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { describeWith } from '../testing/fixture'
@@ -351,5 +353,102 @@ describeWith('the gadget group', exampleBank(), (bank) => {
     expect(Number(out.trim())).toBe(2)
     // a gadget the design lacks is not activated
     expect(Number(runOut(`${open} : Gui Activate 1,9 : Print Gui Gadget`, bank).out.trim())).toBe(0)
+  })
+})
+
+/**
+ * The menu group, over the one bank on this machine that carries menus.
+ *
+ * `DBench/DB_Information.abk` from Kyzer's DataBench: three titles, twelve
+ * items, two of them separators. Nothing else held has a menu at all, so
+ * without it these five keywords could only be tested against a strip this
+ * repo made up.
+ */
+const DBENCH = '../amos-files/sources/kyzer-dbench/files/DBench/DB_Information.abk'
+
+function dbenchBank(): Uint8Array | null {
+  if (!haveCorpus()) return null
+  try {
+    const b = new Uint8Array(readFileSync(DBENCH))
+    if (String.fromCharCode(...b.subarray(0, 4)) !== 'AmBk') return null
+    return b.subarray(20)
+  } catch {
+    return null
+  }
+}
+
+describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+  /** menu 1 item 1 is "Use", the first thing under Project */
+  const USE = packMenuNumber(1, 1, 0)
+
+  it('builds the strip from the bank when the window opens', () => {
+    const rt = run(open, bank)
+    const strip = rt.gui.windows.get(1)!.strip!
+    expect(strip.menus.map((m) => m.label)).toEqual(['Project', 'View', 'Functions'])
+    expect(strip.menus[0]!.items).toHaveLength(5)
+  })
+
+  /**
+   * A zero argument means the field is absent, so item 0 names the whole
+   * menu. That is `OffMenu` with NOITEM, and intuition takes the column with
+   * the title.
+   */
+  it('Gui Menu Off takes a whole menu, and Gui Menu On gives it back', () => {
+    const rt = run(`${open} : Gui Menu Off 1,2,0,0`, bank)
+    const strip = rt.gui.windows.get(1)!.strip!
+    expect(strip.menus[1]!.disabled).toBe(true)
+    expect(strip.menus[0]!.disabled).toBe(false)
+    const back = run(`${open} : Gui Menu Off 1,2,0,0 : Gui Menu On 1,2,0,0`, bank)
+    expect(back.gui.windows.get(1)!.strip!.menus[1]!.disabled).toBe(false)
+  })
+
+  it('names one item when the third argument is given', () => {
+    const rt = run(`${open} : Gui Menu Off 1,1,2,0`, bank)
+    const items = rt.gui.windows.get(1)!.strip!.menus[0]!.items
+    expect(items[1]!.label).toBe('Close')
+    expect(items[1]!.disabled).toBe(true)
+    expect(items[0]!.disabled).toBe(false)
+  })
+
+  /**
+   * Check is `ori.w #$100` and uncheck is `andi.w #$ff`, so the two are not
+   * inverses in Flags even though they are in `checked`. See the DEFECT note
+   * on `gui menu uncheck`.
+   */
+  it('Gui Menu Check sets CHECKED, and Uncheck clears the whole high byte', () => {
+    const rt = run(`${open} : Gui Menu Check 1,1,1,0`, bank)
+    const item = rt.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
+    expect(item.checked).toBe(true)
+    expect(item.flags & MENU_FLAG.CHECKED).toBe(MENU_FLAG.CHECKED)
+
+    const rt2 = run(`${open} : Gui Menu Check 1,1,1,0 : Gui Menu Uncheck 1,1,1,0`, bank)
+    const item2 = rt2.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
+    expect(item2.checked).toBe(false)
+    expect(item2.flags & 0xff00).toBe(0)
+  })
+
+  it('does nothing at all for a window that is not open', () => {
+    expect(() => run(`${open} : Gui Menu Check 9,1,1,0`, bank)).not.toThrow()
+  })
+
+  /**
+   * The guide's whole account of event -2: "A menu item has been selected.
+   * You've to use the Gui Menu function to know which item has been chosen."
+   */
+  it('Gui Wait reports -2 and Gui Menu says which item', () => {
+    const rt = run(open, bank)
+    rt.gui.postMenu(1, USE)
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.MENU)
+    expect([rt.gui.menuField(1), rt.gui.menuField(2), rt.gui.menuField(3)]).toEqual([1, 1, 32])
+  })
+
+  /** picking a CHECKIT item is what turns its checkmark on, not the keyword */
+  it('a pick moves the item s own state, the way gadtools selectItem does', () => {
+    const rt = run(open, bank)
+    const item = rt.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
+    item.flags |= MENU_FLAG.CHECKIT
+    rt.gui.postMenu(1, USE)
+    expect(item.checked).toBe(true)
   })
 })

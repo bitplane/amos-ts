@@ -7,7 +7,8 @@
  * reading of the binary can disagree with something specific.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_GUI_BANK, GUI_CLOSE, GUI_EVENT, GuiState } from './guistate'
+import { DEFAULT_GUI_BANK, GUI_CLOSE, GUI_EVENT, GUI_MENU_NEXT, GuiState, packMenuNumber } from './guistate'
+import { BARLABEL, MENUNULL, NM, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
 import type { Gui } from './guibank'
 
 /** a design with `n` button gadgets, which is all these tests need of one */
@@ -37,6 +38,9 @@ function design(n: number, box = { left: 10, top: 20, width: 200, height: 100 })
     tags: new Uint8Array(0),
     gadgetTags: [],
     windowTags: [],
+    menus: [],
+    title: '',
+    screenName: '',
   }
 }
 
@@ -220,5 +224,124 @@ describe('the event loop', () => {
     const w = s.open(1, 0)!
     expect(s.gadget(w, 2)?.leftEdge).toBe(40)
     expect(s.gadget(w, 9)).toBeNull()
+  })
+})
+
+/** a two-title bar with a separator, a shortcut and two sub-items */
+function withMenus(): Gui {
+  const g = design(1)
+  g.menus = [
+    { type: NM.TITLE, label: 'Project' },
+    { type: NM.ITEM, label: 'Open', commKey: 'O' },
+    { type: NM.ITEM, label: BARLABEL },
+    { type: NM.ITEM, label: 'Quit', commKey: 'Q' },
+    { type: NM.TITLE, label: 'View' },
+    { type: NM.ITEM, label: 'Browse' },
+    { type: NM.SUB, label: 'By name' },
+    { type: NM.SUB, label: 'By date' },
+  ]
+  return g
+}
+
+/**
+ * Routine 224 at $4c10, which every menu keyword's arguments go through.
+ *
+ * The interesting half is what a zero does: `subq.l #1` then a clamp to -1,
+ * so nothing a program can write reaches a field as a positive number it did
+ * not mean. -1 is intuition's NOMENU, NOITEM and NOSUB.
+ */
+describe('the menu number the keywords pack', () => {
+  it('is one-based, and a zero means the field is absent', () => {
+    const n = packMenuNumber(1, 1, 1)
+    expect([menuNum(n), itemNum(n), subNum(n)]).toEqual([0, 0, 0])
+    const noSub = packMenuNumber(2, 3, 0)
+    expect([menuNum(noSub), itemNum(noSub), subNum(noSub)]).toEqual([1, 2, NOSUB])
+    const whole = packMenuNumber(3, 0, 0)
+    expect([menuNum(whole), itemNum(whole), subNum(whole)]).toEqual([2, NOITEM, NOSUB])
+  })
+
+  /** all three absent is MENUNULL, which is what an empty MENUPICK carries */
+  it('packs three absent fields into MENUNULL', () => {
+    expect(packMenuNumber(0, 0, 0)).toBe(MENUNULL)
+    expect([menuNum(MENUNULL), itemNum(MENUNULL), subNum(MENUNULL)]).toEqual([NOMENU, NOITEM, NOSUB])
+  })
+
+  /**
+   * The rotates in the binary spill the sign of a -1 field above bit 15 and
+   * intuition's own macros mask it off. Sixteen bits here is the same answer,
+   * which this states as arithmetic rather than as prose.
+   */
+  it('never needs more than sixteen bits', () => {
+    for (let m = 0; m <= 4; m++) {
+      for (let i = 0; i <= 4; i++) {
+        for (let sub = 0; sub <= 4; sub++) {
+          const n = packMenuNumber(m, i, sub)
+          expect(n, `${m},${i},${sub}`).toBe(n & 0xffff)
+        }
+      }
+    }
+  })
+})
+
+describe('menus', () => {
+  it('builds a strip when the design carries one, and none when it does not', () => {
+    const s = stateWith(withMenus(), design(1))
+    expect(s.open(1, 0)!.strip?.menus).toHaveLength(2)
+    expect(s.open(2, 1)!.strip).toBeNull()
+  })
+
+  /**
+   * `Gui Menu(1..3)` answers one-based, which is the `addq.l #$1,d3` at
+   * $1d4e. A pick of the first item of the first menu with no sub-item
+   * therefore reads 1, 1, 32: the sub field held NOSUB, and 31 plus one is
+   * 32 rather than 0.
+   */
+  it('takes the pending pick apart one-based, NOSUB included', () => {
+    const s = stateWith(withMenus())
+    s.open(1, 0)
+    s.postMenu(1, packMenuNumber(1, 1, 0))
+    expect(s.nextEvent()).toBe(GUI_EVENT.MENU)
+    expect([s.menuField(1), s.menuField(2), s.menuField(3)]).toEqual([1, 1, NOSUB + 1])
+  })
+
+  it('reads a sub-item back as the third field', () => {
+    const s = stateWith(withMenus())
+    s.open(1, 0)
+    s.postMenu(1, packMenuNumber(2, 1, 2))
+    expect([s.menuField(1), s.menuField(2), s.menuField(3)]).toEqual([2, 1, 2])
+  })
+
+  /**
+   * With no event pending the `moveq #$ff,d3` at $1cfa falls straight through
+   * to the exit, and an argument the chain at $1d36 does not recognise
+   * reaches the addq as -2. Both are -1.
+   */
+  it('answers -1 with nothing pending and for an argument it does not know', () => {
+    const s = stateWith(withMenus())
+    s.open(1, 0)
+    expect(s.menuField(1)).toBe(-1)
+    s.postMenu(1, packMenuNumber(1, 1, 0))
+    expect(s.menuField(9)).toBe(-1)
+  })
+
+  /** `Gui Menu(4)` walks NextSelect and stops on MENUNULL */
+  it('steps a multi-select and stops at the end of the chain', () => {
+    const s = stateWith(withMenus())
+    const w = s.open(1, 0)!
+    const first = s.gt.itemAddress(w.strip!, packMenuNumber(1, 1, 0))!
+    first.nextSelect = packMenuNumber(1, 3, 0)
+    s.postMenu(1, packMenuNumber(1, 1, 0))
+    expect(s.menuField(GUI_MENU_NEXT)).toBe(1)
+    expect([s.menuField(1), s.menuField(2)]).toEqual([1, 3])
+    expect(s.menuField(GUI_MENU_NEXT)).toBe(0)
+  })
+
+  it('forgets the pending pick when Gui Reset closes everything', () => {
+    const s = stateWith(withMenus())
+    s.open(1, 0)
+    s.postMenu(1, packMenuNumber(1, 1, 0))
+    s.reset()
+    expect(s.menuField(1)).toBe(-1)
+    expect(s.menuField(GUI_MENU_NEXT)).toBe(0)
   })
 })

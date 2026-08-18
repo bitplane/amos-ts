@@ -928,6 +928,38 @@ describe('menus', () => {
     expect(gt.itemAddress(s, fullMenuNum(0, 0, NOSUB))).toBeNull()
   })
 
+  /**
+   * OnMenu and OffMenu, intuition's pair. A number whose ITEMNUM is NOITEM
+   * names the MENU rather than an item, which is how `Gui Menu Off 1,2,0,0`
+   * takes a whole column.
+   */
+  it('OffMenu takes a menu when the item field is NOITEM, an item otherwise', () => {
+    const { gt, s } = strip()
+    expect(gt.offMenu(s, fullMenuNum(0, NOITEM, NOSUB))).toBe(true)
+    expect(s.menus[0]!.disabled).toBe(true)
+    expect(s.menus[0]!.items[0]!.disabled).toBe(false)
+    expect(gt.onMenu(s, fullMenuNum(0, NOITEM, NOSUB))).toBe(true)
+    expect(s.menus[0]!.disabled).toBe(false)
+
+    expect(gt.offMenu(s, fullMenuNum(0, 0, NOSUB))).toBe(true)
+    expect(s.menus[0]!.items[0]!.disabled).toBe(true)
+    expect(s.menus[0]!.disabled).toBe(false)
+  })
+
+  it('OnMenu and OffMenu answer false for a number naming nothing', () => {
+    const { gt, s } = strip()
+    expect(gt.offMenu(s, fullMenuNum(9, NOITEM, NOSUB))).toBe(false)
+    expect(gt.onMenu(s, fullMenuNum(0, 9, NOSUB))).toBe(false)
+    gt.freeMenus(s)
+    expect(gt.offMenu(s, fullMenuNum(0, NOITEM, NOSUB))).toBe(false)
+  })
+
+  /** NextSelect starts at MENUNULL, which is what ends a multi-select walk */
+  it('gives every item a NextSelect of MENUNULL to start with', () => {
+    const { s } = strip()
+    for (const m of s.menus) for (const it of m.items) expect(it.nextSelect).toBe(MENUNULL)
+  })
+
   it('ItemAddress answers null for a field naming something absent', () => {
     const { gt, s } = strip()
     expect(gt.itemAddress(s, fullMenuNum(0, 0, NOSUB))!.label).toBe('Open')

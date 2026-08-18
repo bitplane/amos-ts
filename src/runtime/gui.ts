@@ -24,9 +24,9 @@ import { VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
-import { GUI_EVENT, GuiState } from './guistate'
+import { GUI_EVENT, GuiState, packMenuNumber } from './guistate'
 import type { GuiWindow } from './guistate'
-import { drawBevelBox, KIND, PEN, type DrawInfo } from '../amiga/gadtools'
+import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 
 export function newGuiState(): GuiState {
@@ -59,6 +59,12 @@ function target(g: GuiState): GuiWindow | null {
 }
 
 /**
+ * The three kinds `Gui Read$` answers for, from the guide's own list.
+ * Everything else gets an empty string.
+ */
+const READ_STRING_KINDS = new Set<number>([KIND.LISTVIEW, KIND.CYCLE, KIND.STRING])
+
+/**
  * A DrawInfo for `Gui Bbox`, whose pens are the window's own ink and paper.
  *
  * DEVIATION: gadtools takes SHINEPEN and SHADOWPEN out of the screen's
@@ -66,12 +72,6 @@ function target(g: GuiState): GuiWindow | null {
  * program can actually set through this extension, so a bevel drawn here is
  * in the two colours the program chose rather than in two it never named.
  */
-/**
- * The three kinds `Gui Read$` answers for, from the guide's own list.
- * Everything else gets an empty string.
- */
-const READ_STRING_KINDS = new Set<number>([KIND.LISTVIEW, KIND.CYCLE, KIND.STRING])
-
 function bevelPens(w: GuiWindow): DrawInfo {
   const pens = new Array<number>(12).fill(w.ink)
   pens[PEN.SHINE] = w.ink
@@ -86,6 +86,46 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     const x = it.evalInt()
     it.expect(',')
     return [x, it.evalInt()]
+  }
+
+  /**
+   * The four arguments every menu keyword takes, in the order the library
+   * pops them: window first, then menu, item and sub through the packer.
+   *
+   * Null when the window is not open or carries no strip, which is the
+   * `tst.l d0 / Rbeq` at $423a and the `beq` at $42a0.
+   */
+  const menuArgs = (it: Parameters<Instr>[0]): { strip: MenuStrip; number: number } | null => {
+    const win = it.evalInt()
+    it.expect(',')
+    const menu = it.evalInt()
+    it.expect(',')
+    const item = it.evalInt()
+    it.expect(',')
+    const sub = it.evalInt()
+    const strip = s().windows.get(win)?.strip
+    if (strip === undefined || strip === null) return null
+    return { strip, number: packMenuNumber(menu, item, sub) }
+  }
+
+  const menuEnable = (it: Parameters<Instr>[0], on: boolean): void => {
+    const a = menuArgs(it)
+    if (a === null) return
+    const gt = s().gt
+    if (on) gt.onMenu(a.strip, a.number)
+    else gt.offMenu(a.strip, a.number)
+  }
+
+  const menuCheck = (it: Parameters<Instr>[0], on: boolean): void => {
+    const a = menuArgs(it)
+    if (a === null) return
+    const item = s().gt.itemAddress(a.strip, a.number)
+    if (item === null) return
+    // the binary works in Flags and nothing else: `ori.w #$100` to check,
+    // `andi.w #$ff` to uncheck, which clears three more bits with it
+    if (on) item.flags |= MENU_FLAG.CHECKED
+    else item.flags &= 0xff
+    item.checked = on
   }
 
   return {
@@ -465,6 +505,45 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * `Gui Menu On window,menu,item,sub` — "Activate a menu", which is
+     * intuition's `OnMenu` (-$c0) at $4250 with nothing between it and the
+     * three arguments but the packer at $4c10.
+     *
+     * The arguments are one-based and a zero means "none", so
+     * `Gui Menu On 1,2,0,0` enables the whole of the second menu and
+     * `Gui Menu On 1,2,3,0` enables its third item. See `packMenuNumber`.
+     */
+    'gui menu on': (it) => menuEnable(it, true),
+
+    /** `Gui Menu Off window,menu,item,sub` — `OffMenu` (-$b4) at $427c */
+    'gui menu off': (it) => menuEnable(it, false),
+
+    /**
+     * `Gui Menu Check window,menu,item,sub` — "Checkmark a menu item".
+     *
+     * $4284 does it by hand rather than through a library call: ItemAddress
+     * for the MenuItem, `ori.w #$100,$c(a0)` to set CHECKED in its Flags, and
+     * `ResetMenuStrip` to make intuition redraw the bar.
+     *
+     * It reads the strip out of `$16(a0)` first and gives up when it is zero,
+     * so a window whose design carries no menus is a no-op rather than an
+     * error.
+     */
+    'gui menu check': (it) => menuCheck(it, true),
+
+    /**
+     * `Gui Menu Uncheck window,menu,item,sub`.
+     *
+     * DEFECT: `andi.w #$ff,$c(a0)` at $4302 clears the WHOLE high byte of
+     * Flags, not just CHECKED. ISDRAWN, HIGHITEM and MENUTOGGLED go with it.
+     * Only MENUTOGGLED is a program-visible loss: an item the user had
+     * toggled forgets that it was, so the next pick sets it rather than
+     * clearing it. The other two intuition rebuilds on the next render. This
+     * port clears the same four bits.
+     */
+    'gui menu uncheck': (it) => menuCheck(it, false),
+
+    /**
      * `Gui Activate window,gadget` — "activate the specified input gadget
      * (wether it be a string/integer gadget) encouraging the user to type
      * something in".
@@ -552,6 +631,17 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
 
     /** `A=Gui Code$` — the string half, for STRING gadgets */
     'gui code$': (): Value => VS(s().readCodeText()),
+
+    /**
+     * `A=Gui Menu(n)` — which menu item the last event -2 named.
+     *
+     * "A menu item has been selected. You've to use the Gui Menu function to
+     * know which item has been chosen." The guide says no more, and routine
+     * 14 at $1e82 is one `Rbsr` into routine 4, where the four arguments live:
+     * 1 the menu, 2 the item, 3 the sub-item, 4 step to the next of a
+     * multi-select. All three fields come back ONE-BASED.
+     */
+    'gui menu': (_, a): Value => VI(s().menuField(int(a[0]!))),
 
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
