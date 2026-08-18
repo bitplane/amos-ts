@@ -172,3 +172,97 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(rt.gui.eventWindow()).toBe(1)
   })
 })
+
+describeWith('the drawing group', exampleBank(), (bank) => {
+  /** open a window and hand back the machine, so a test can read its pixels */
+  function drawn(body: string): Runtime {
+    return run(`Gui Open 1,1 : ${body}`, bank)
+  }
+  const rp = (rt: Runtime) => rt.gui.windows.get(1)!.rp
+
+  it('gives the window a bitmap of its own size', () => {
+    const rt = drawn('Rem')
+    expect([rp(rt).width, rp(rt).height]).toEqual([143, 37])
+  })
+
+  it('Gui Ink sets the colour every later keyword uses', () => {
+    const rt = drawn('Gui Ink 5 : Gui Plot 10,10')
+    expect(rt.gui.windows.get(1)!.ink).toBe(5)
+    expect(rp(rt).point(10, 10)).toBe(5)
+  })
+
+  it('Gui Cls fills the whole window', () => {
+    const rt = drawn('Gui Cls 3')
+    expect(rp(rt).point(0, 0)).toBe(3)
+    expect(rp(rt).point(142, 36)).toBe(3)
+  })
+
+  /** "Gui Clw will clear all of the graphics from the specified window" */
+  it('Gui Clw takes a window number and a colour', () => {
+    const rt = drawn('Gui Cls 3 : Gui Clw 1,7')
+    expect(rp(rt).point(5, 5)).toBe(7)
+  })
+
+  it('Gui Draw joins two points and leaves the cursor at the far end', () => {
+    const rt = drawn('Gui Ink 4 : Gui Draw 0,0 To 20,0 : Gui Draw To 20,10')
+    expect(rp(rt).point(10, 0)).toBe(4)
+    expect(rp(rt).point(20, 5)).toBe(4)
+    const w = rt.gui.windows.get(1)!
+    expect([w.grX, w.grY]).toEqual([20, 10])
+  })
+
+  it('Gui Bar fills and Gui Box outlines the same rectangle', () => {
+    const bar = drawn('Gui Ink 6 : Gui Bar 2,2 To 12,12')
+    expect(rp(bar).point(7, 7)).toBe(6)
+    const box = drawn('Gui Ink 6 : Gui Box 2,2 To 12,12')
+    expect(rp(box).point(7, 2)).toBe(6)
+    expect(rp(box).point(7, 7)).toBe(0)
+  })
+
+  it('Gui Ellipse draws, and refuses a zero radius', () => {
+    const rt = drawn('Gui Ink 2 : Gui Ellipse 40,18,20,10')
+    expect(rp(rt).point(60, 18)).toBe(2)
+    // a zero radius draws nothing rather than throwing
+    expect(() => drawn('Gui Ellipse 40,18,0,10')).not.toThrow()
+  })
+
+  it('Gui Paint floods from the point given', () => {
+    const rt = drawn('Gui Ink 1 : Gui Box 2,2 To 20,20 : Gui Ink 5 : Gui Paint 10,10')
+    expect(rp(rt).point(10, 10)).toBe(5)
+    // the outline is untouched, which is what stopped the flood
+    expect(rp(rt).point(2, 10)).toBe(1)
+  })
+
+  it('Gui Point reads a colour back', () => {
+    expect(Number(runOut('Gui Open 1,1 : Gui Ink 6 : Gui Plot 4,4 : Print Gui Point(4,4)', bank).out.trim())).toBe(6)
+    expect(Number(runOut('Gui Open 1,1 : Print Gui Point(4,4)', bank).out.trim())).toBe(0)
+  })
+
+  /**
+   * "If mode is set to anything other than 0, then the box is drawn
+   * recessed", which is the same sentence gadtools.ts reads for
+   * DrawBevelBoxA, because this is that call.
+   */
+  it('Gui Bbox draws a bevel and mode swaps it', () => {
+    const raised = drawn('Gui Ink 4 : Gui Paper 2 : Gui Bbox 4,4,20,10,0')
+    const sunk = drawn('Gui Ink 4 : Gui Paper 2 : Gui Bbox 4,4,20,10,1')
+    expect(rp(raised).point(4, 4)).toBe(4)
+    expect(rp(sunk).point(4, 4)).toBe(2)
+    // and the far corner is the other way round in each
+    expect(rp(raised).point(23, 13)).toBe(2)
+    expect(rp(sunk).point(23, 13)).toBe(4)
+  })
+
+  it('Gui Border answers the four sides in the guide s order', () => {
+    const out = runOut('Gui Open 1,1 : For I=0 To 3 : Print Gui Border(1,I) : Next', bank).out
+    const sides = out.trim().split('\n').map(Number)
+    expect(sides).toHaveLength(4)
+    // left and right are the same, and the top carries the title bar
+    expect(sides[0]).toBe(sides[2])
+    expect(sides[1]).toBeGreaterThan(sides[3]!)
+  })
+
+  it('drawing with no window open does nothing rather than failing', () => {
+    expect(() => run('Gui Ink 3 : Gui Plot 1,1 : Gui Cls 2', bank)).not.toThrow()
+  })
+})

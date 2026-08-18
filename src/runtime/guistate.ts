@@ -11,7 +11,22 @@
  * keywords, and the binary `AMOSPro_GUI.Lib` where the guide is silent. Every
  * event code below is the guide's own list, quoted at `GUI_EVENT`.
  */
+import { BitMap, RastPort } from '../amiga/graphics'
+import { rowBytesFor } from '../amiga/planar'
 import type { Gui, GuiGadget } from './guibank'
+
+/**
+ * How many bitplanes a GUI window gets.
+ *
+ * DEVIATION: on the machine a window has no bitmap of its own. It draws into
+ * its screen's, through a RastPort whose depth is the screen's, and GUI 2.10
+ * opens on the Workbench or on a public screen it did not choose. This port
+ * has no screen under these windows yet, so each carries its own eight-plane
+ * bitmap: eight because `Gui Ink` takes a colour index and nothing in the
+ * extension's own keywords can name one above 255, so a shallower bitmap
+ * would silently clamp an ink a program legitimately set.
+ */
+export const GUI_WINDOW_DEPTH = 8
 
 /**
  * The event codes `Gui Wait` answers with, verbatim from the guide.
@@ -102,6 +117,17 @@ export interface GuiWindow {
   strings: Map<number, string>
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
+  /** what the drawing keywords draw into; see GUI_WINDOW_DEPTH */
+  rp: RastPort
+  /** `Gui Ink`, the colour every drawing keyword defaults to */
+  ink: number
+  /** `Gui Paper` */
+  paper: number
+  /** `Gui Writing`, the drawing mode */
+  writing: number
+  /** the graphics cursor `Gui Draw To` continues from */
+  grX: number
+  grY: number
 }
 
 /** one thing that happened, waiting for `Gui Wait` to report it */
@@ -177,6 +203,12 @@ export class GuiState {
       values: new Map(),
       strings: new Map(),
       openedAt: this.opens++,
+      rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
+      ink: 1,
+      paper: 0,
+      writing: 0,
+      grX: 0,
+      grY: 0,
     }
     this.windows.set(n, w)
     this.selected = n
@@ -267,4 +299,11 @@ export class GuiState {
   gadget(w: GuiWindow, id: number): GuiGadget | null {
     return w.design.gadgets.find((g) => g.id === id) ?? null
   }
+}
+
+/** a window's own RastPort, sized to it and never smaller than one pixel */
+export function newWindowPort(width: number, height: number): RastPort {
+  const w = Math.max(1, width)
+  const h = Math.max(1, height)
+  return new RastPort(new BitMap(w, h, GUI_WINDOW_DEPTH, rowBytesFor(w)))
 }
