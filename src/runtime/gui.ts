@@ -33,6 +33,7 @@ import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } fro
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
+import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 
 export function newGuiState(): GuiState {
@@ -438,6 +439,74 @@ function underNotify(watched: string, changed: string): boolean {
   if (w === c) return true
   if (w.endsWith(':')) return c.startsWith(w)
   return c.startsWith(`${w}/`)
+}
+
+/**
+ * Where `OpenCatalogA(NULL, name, NULL)` looks.
+ *
+ * locale.library's own order is `PROGDIR:Catalogs/<language>/<name>` then
+ * `LOCALE:Catalogs/<language>/<name>`, and the language comes from the
+ * system's preferred list. `../amiga/language.ts`'s Language carries strings
+ * and no NAME, so this port cannot build the language leg -- it probes the
+ * bare name, which is what the guide's own worked example produces (`Cat
+ * Ram:Hello` writes `Hello.catalog` beside the program), and the two roots
+ * without it.
+ */
+const CATALOG_PATHS = (name: string): string[] => [name, `CATALOGS:${name}`, `LOCALE:Catalogs/${name}`]
+
+/**
+ * `Gui Help`'s side of a mouse move: write the array's string for whichever
+ * gadget the pointer is over into the display gadget.
+ *
+ * $6e4e onwards. The pointer's position and the window go through the same
+ * AMOS call `Gui Check` is, so the gadget is found the same way; `addq.l
+ * #$1,d3` turns its -1 for "over nothing" into a zero that $6e9c tests, and
+ * anything else indexes the array at `$42` from `+6` -- the AMOS array
+ * descriptor's data. A move that stays over the same gadget as last time
+ * costs nothing: $6e78 compares against `$40` and leaves.
+ */
+function helpMove(rt: Runtime, g: GuiState, w: GuiWindow, e: GuiEvent): void {
+  // `$29c` and `$29e` are the IntuiMessage's MouseX and MouseY, which are
+  // already the window's own coordinates -- the same pair `Gui Mouse Ex`
+  // reads and the same frame `Gui Check` takes its arguments in
+  const x = e.mouseX ?? 0
+  const y = e.mouseY ?? 0
+  let over = -1
+  for (const d of w.design.gadgets) {
+    if (x >= d.leftEdge && x < d.leftEdge + d.width && y >= d.topEdge && y < d.topEdge + d.height) {
+      over = d.id
+      break
+    }
+  }
+  if (over + 1 === w.helpLast) return
+  w.helpLast = over + 1
+  const arr = rt.dialogArrays.get(w.helpArray)
+  const cell = over < 0 || arr === undefined || arr.type !== VAR_STRING ? undefined : arr.data[over]
+  // $6e96 loads the null string first, so a gadget with no entry blanks it
+  w.strings.set(w.helpGadget, cell !== undefined && cell.k === 'str' ? cell.s : '')
+  void g
+}
+
+/**
+ * What `Gui Wait` and `Gui Event` answer: the next event, with the two things
+ * the pump does on the way past.
+ *
+ * A timer that has come due is turned into its -13 first. A mouse move over a
+ * window with `Gui Help` on runs the help and is then SWALLOWED unless `Gui
+ * Mouse Report` is on as well -- $6eb6 tests the whole flags word for 3 and
+ * $6ec0 branches back into the pump for the next message when it is not.
+ */
+function pumpEvent(rt: Runtime, g: GuiState): number {
+  fireTimer(rt, g)
+  for (;;) {
+    const code = g.nextEvent()
+    if (code !== GUI_EVENT.MOUSEMOVE) return code
+    const e = g.last
+    const w = e === null || e.window === undefined ? undefined : g.windows.get(e.window)
+    if (e === null || w === undefined || !w.helpOn) return code
+    helpMove(rt, g, w, e)
+    if (w.reportMouse) return code
+  }
 }
 
 /**
@@ -1991,6 +2060,94 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       g.notifies.delete(id)
     },
 
+    /**
+     * `Gui Catalog Close catalog-ID` — "Close the specified catalog. The
+     * memory allocated for the catalogs isn't deallocated automatically by
+     * the extension, and so at the end of the program, you must use this
+     * command."
+     *
+     * $3bde is CloseCatalog (-$24) and nothing else — no check that the id is
+     * one, no check that locale.library is open, no unlinking of the pointer
+     * the bank's designs still hold. The guide is blunt about the last of
+     * those: "NEVER close a catalog when there are some GUI using its
+     * strings!!!" and "some strange effects will appear if you use a
+     * incorrect value".
+     *
+     * DEFECT: the bank goes on pointing at the freed catalog. `$34` of every
+     * design still holds it, so a `Gui Catalog$` or a `Gui Open` after this
+     * reads freed memory. Here the pointer is dropped with the catalog, which
+     * is the behaviour the routine would have had if it had cleared the field
+     * — the same rendering ./locale.ts's `Close Catalog` chose for the same
+     * omission.
+     */
+    'gui catalog close': (it) => {
+      const g = s()
+      const id = it.evalInt()
+      const cat = g.catalogs.get(id)
+      if (cat === undefined) return
+      g.catalogs.delete(id)
+      if (g.catalog === cat) g.catalog = null
+    },
+
+    /**
+     * `Gui Help window,display gadget,array address` — "When the user move
+     * the mouse pointer over a gadget of your GUI, a message defined by you
+     * will be automatically displayed into the specified display gadget."
+     *
+     * $38ca sets WFLG_REPORTMOUSE in the window and adds 2 to the flags word
+     * at `$3e` of the Header Info block, then parks the array at `$42`, the
+     * display gadget at `$46` and zeroes the "last gadget" at `$40`. The
+     * guide's own way to turn it off is "call it again with the array address
+     * set to 0", and $38ea takes that branch on anything NOT GREATER than
+     * zero.
+     *
+     * Turning it off when it was never on returns without touching a thing:
+     * $38ee tests the flags word against 1 and leaves. Turning it ON twice
+     * adds the 2 only once, the same guard `Gui Mouse Report` has on bit 0.
+     *
+     * The guide's warning is not enforced anywhere: "Obviously the 'display
+     * gadget' MUST! be a TEXT or STRING gadegt!!!" is nowhere in the routine,
+     * and $6eb0 writes to whatever number it was given.
+     */
+    'gui help': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const display = it.evalInt()
+      it.expect(',')
+      const array = it.evalInt()
+      const w = windowOf(s(), win)
+      if (array > 0) {
+        if (!w.helpOn) w.helpOn = true
+      } else {
+        if (!w.helpOn) return
+        w.helpOn = false
+      }
+      w.helpArray = array > 0 ? array : 0
+      w.helpGadget = array > 0 ? display : 0
+      w.helpLast = 0
+    },
+
+    /**
+     * `Gui Guide document` — "This command allows you to display a AmigaGuide
+     * document. Your program is freezed until the amigaguide doc will be
+     * closed."
+     *
+     * $3930 opens amigaguide.library once and keeps the base at `$138`, then
+     * AllocVecs a $34-byte NewAmigaGuide, fills in `$4` with the document
+     * name and `$8` with the screen at `$1d2`, and calls -$36 and -$42 back
+     * to back — open the guide, wait, close it. A library that will not open
+     * is not an error: $395e takes the `beq` straight to the rts.
+     *
+     * DEVIATION: there is no amigaguide.library here, so this port takes the
+     * branch a machine without one takes and the keyword does nothing. That
+     * is a real path rather than a stub — the same shape as a clipboard with
+     * no CLIPS: handler — and the document name is still evaluated, which is
+     * all a program can observe.
+     */
+    'gui guide': (it) => {
+      it.evalStr()
+    },
+
     /** `Gui Text x,y,text$` */
     'gui text': (it) => {
       const [x, y] = pair(it)
@@ -2340,22 +2497,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * therefore spins rather than sleeps, which costs frames and changes
      * nothing a program can observe about the events themselves.
      */
-    'gui wait': (): Value => {
-      const g = s()
-      fireTimer(rt, g)
-      return VI(g.nextEvent())
-    },
+    'gui wait': (): Value => VI(pumpEvent(rt, s())),
 
     /**
      * `A=Gui Event` — the same answers without waiting.
      *
      * "It returns the value -7 if nothing is happened..."
      */
-    'gui event': (): Value => {
-      const g = s()
-      fireTimer(rt, g)
-      return VI(g.nextEvent())
-    },
+    'gui event': (): Value => VI(pumpEvent(rt, s())),
 
     /**
      * `A=Gui Code` — the result code of the last event.
@@ -3137,6 +3286,87 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       g.notifies.set(id, { id, path, stop })
       return VI(id)
     },
+
+    /**
+     * `C=Gui Catalog Open(catalog file,gui bank number)` — "Open the
+     * specified catalog file (if exist....) and automatically localize the
+     * specified GUI bank. The process is automatic.... if the system is
+     * localized in French, the command search the French catalog".
+     *
+     * $3b84 checks three things and answers 0 for any of them: the bank has
+     * to exist, its NAME has to be `Gui ` — `cmpi.l #$47756920,-$8(a0)`, the
+     * four bytes AMOS keeps in front of a bank — and locale.library has to be
+     * open at `$13c`. Then OpenCatalogA(NULL, name, NULL), which is the
+     * system's preferred language and no tags at all. The answer is the
+     * catalog, and $3bce walks the design chain writing it into `$34` of
+     * every one.
+     *
+     * "If the needed catalog is not available, the command return 0, and the
+     * built-in strings of the GUI bank will be used", which is the same
+     * branch.
+     *
+     * The guide's warning is worth keeping because it is a consequence of
+     * where the localisation happens: "You must localize your bank BEFORE
+     * open anyone of its GUI!!!" The strings are substituted while the window
+     * is BUILT, at $5a2c, so a window already open keeps the labels it was
+     * built with. See `GuiState.localise` for the numbering, which comes off
+     * GuiConv's own `_LOCALE` procedure.
+     */
+    'gui catalog open': (_, a): Value => {
+      const g = s()
+      const name = str(a[0]!)
+      const bank = int(a[1]!)
+      const held = rt.memBanks.get(bank)
+      if (held === undefined || held.name.trim() !== 'Gui') return VI(0)
+      const fs = rt.vfs
+      if (fs === null || name === '') return VI(0)
+      for (const path of CATALOG_PATHS(name)) {
+        const data = fs.readFile(path)
+        if (data === null) continue
+        const cat = parseCatalog(data)
+        if (cat === null) continue
+        const id = g.notifyHandle()
+        g.catalogs.set(id, cat)
+        g.catalog = cat
+        return VI(id)
+      }
+      return VI(0)
+    },
+
+    /**
+     * `A$=Gui Catalog$(number)` — "Returns the specified string held in the
+     * current loaded catalog. A catalog is like a Amos resource bank."
+     *
+     * $3cc0 reads `$34` off the design chain HEAD at `$86` — not off the
+     * design a window was opened from — and calls GetCatalogStr (-$48) with
+     * the null string at `$662(a5)` for its default. So an id the catalog
+     * does not carry answers empty rather than answering the bank's built-in
+     * string, which is what the window builder would have used.
+     *
+     * With no bank read yet, or no catalog attached, $3cca and the
+     * GetCatalogStr result both fall to the same empty answer.
+     *
+     * "The number of each string is indicated in the .ct (catalog translator)
+     * file created by the GUI Converter... the string number is indicated
+     * just after the MSG suffix."
+     */
+    'gui catalog$': (_, a): Value => VS(getCatalogStr(s().catalog, int(a[0]!), '')),
+
+    /**
+     * `C=Gui User Catalog` — "the number of the first user string defined in
+     * the catalog".
+     *
+     * One word, at +68 of the bank's head design, which GuiConv's `LOCUSR`
+     * fills in with `Doke WORK,USC` written to file offset 88 — the same
+     * field once the twenty-byte AmBk block is off the front. USC is
+     * `LOCSTR+1` at the moment the converter starts scanning the editor's
+     * listing for `GUILOCALE:`, so it is the number the first `Data` line
+     * after that marker got.
+     *
+     * Zero when the bank has no user strings, and zero when no bank has been
+     * read: $4354 tests `$86` and leaves d3 at 0.
+     */
+    'gui user catalog': (): Value => VI(s().designs[0]?.userCatalog ?? 0),
 
     /**
      * `A=Gui Border(window,border)` — the size of one of a window's four

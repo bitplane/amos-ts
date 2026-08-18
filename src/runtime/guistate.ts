@@ -16,6 +16,7 @@ import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
 import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget } from './guibank'
+import { getCatalogStr, type Catalog } from '../amiga/localelib'
 
 /**
  * How many bitplanes a GUI window gets.
@@ -475,6 +476,24 @@ export interface GuiWindow {
    */
   reportMouse: boolean
   /**
+   * `Gui Help` is on for this window: bit 1 of the same word `reportMouse` is
+   * bit 0 of, at `$3e` of the Header Info block.
+   *
+   * Two independent bits rather than a count. `Gui Mouse Report` adds and
+   * takes away 1 at $2e00 and $2dd6, testing bit 0 first so it cannot go
+   * twice; `Gui Help` adds and takes away 2 at $391c and $3902, testing
+   * against 1 for the same reason. The pump reads the whole word: 1 reports
+   * the move and does no help, 2 does the help and swallows the move, 3 does
+   * both.
+   */
+  helpOn: boolean
+  /** `$42` of that block: the string array `Gui Help` was given */
+  helpArray: number
+  /** `$46`: which gadget the help text is written into */
+  helpGadget: number
+  /** `$40`: the gadget the pointer was last over, so a move inside one is free */
+  helpLast: number
+  /**
    * `Gui Rmb`: WFLG_RMBTRAP, INVERTED. `Gui Rmb w,True` CLEARS the bit
    * ($2c12) and lets intuition pop its menus up; `Gui Rmb w,False` sets it
    * ($2c08) and the program gets a -11 instead. True here is the guide's
@@ -829,6 +848,17 @@ export class GuiState {
    * unsubscribe the filesystem handed back is kept beside it.
    */
   readonly notifies = new Map<number, GuiNotify>()
+  /**
+   * The catalog `Gui Catalog Open` attached to the current bank, and every
+   * catalog still open by the id it handed back.
+   *
+   * On the machine the pointer goes into `$34` of EVERY design in the bank --
+   * $3bce walks the chain writing it -- and the window builder reads it back
+   * off the head design at $5a36. One field here, because the port re-reads
+   * the bank rather than writing to it.
+   */
+  catalog: Catalog | null = null
+  readonly catalogs = new Map<number, Catalog>()
   /** `Gui Gad Adr`'s handles, minted once per window and gadget index */
   private readonly gadgetAddrs = new Map<string, number>()
   private nextGadgetAddr = GUI_GADGET_ORIGIN
@@ -945,8 +975,9 @@ export class GuiState {
       this.selected = n
       return existing
     }
-    const design = this.designs[guiIndex]
-    if (design === undefined) return null
+    const raw = this.designs[guiIndex]
+    if (raw === undefined) return null
+    const design = this.localise(raw)
     const width = box?.width ?? design.width
     const height = box?.height ?? design.height
     const kept = this.remember ? this.remembered.get(guiIndex) : undefined
@@ -964,6 +995,10 @@ export class GuiState {
       ghosted: new Set(),
       ranges: new Map(),
       reportMouse: false,
+      helpOn: false,
+      helpArray: 0,
+      helpGadget: 0,
+      helpLast: 0,
       rmb: true,
       topaz: !this.sensitive,
       depth: ++this.depthTop,
@@ -1095,6 +1130,41 @@ export class GuiState {
    * `A=Gui Gad Adr(window,gadget)`'s answer for one gadget: a handle, minted
    * on first ask and the same one every time after. See GUI_GADGET_ORIGIN.
    */
+  /**
+   * A design with its labels run through the catalog, or the design itself
+   * when there is none.
+   *
+   * The library does this while it BUILDS the window, at $5a2c, and writes
+   * the translation into the NewGadget it is filling in rather than back into
+   * the bank -- so the bank is untouched and every open translates again.
+   * That is why this clones.
+   *
+   * The numbering is a running counter loaded from the Header Info block's
+   * `$3a` at $5600 and bumped once per label the chain reader hands out, so
+   * it is exactly GuiConv's `_LOCALE` order: each gadget's name, then its
+   * payload, then the menus, then the window title and the screen title. The
+   * `Chr$(1)` that closes a list is consumed by the reader's padding scan at
+   * $5a68 and never gets a number of its own.
+   */
+  private localise(g: Gui): Gui {
+    const cat = this.catalog
+    if (cat === null) return g
+    let n = g.catalogBase
+    const tr = (s: string): string => getCatalogStr(cat, n++, s)
+    const gadgets = g.gadgets.map((gad) => {
+      const name = tr(gad.name)
+      const items = gad.payload === 'list' ? gad.items.map(tr) : gad.items
+      const text = gad.payload === 'text' ? tr(gad.text) : gad.text
+      return { ...gad, name, items, text }
+    })
+    const menus = g.menus.map((m) => {
+      const out = { ...m, label: typeof m.label === 'string' ? tr(m.label) : m.label }
+      if (out.commKey !== undefined) out.commKey = tr(out.commKey)
+      return out
+    })
+    return { ...g, gadgets, menus, title: tr(g.title), screenName: tr(g.screenName) }
+  }
+
   /** the next `Gui Notify` id, which is where the node would have been */
   notifyHandle(): number {
     const made = this.nextNotifyId

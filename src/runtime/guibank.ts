@@ -116,6 +116,16 @@ export interface GuiGadget {
    * The converter recognises the string, empties the label and sets UserData.
    */
   progressBar: boolean
+  /**
+   * Which of the four payload tags this gadget carries, if any.
+   *
+   * `_ADDGAD` writes a payload only for the four in PAYLOAD_TAGS and returns
+   * before writing anything otherwise, so this is what decides how many
+   * labels the gadget takes out of the chain -- and, since GuiConv's
+   * `_LOCALE` runs beside `_ADDLAB` call for call, how many catalog strings
+   * it accounts for.
+   */
+  payload: 'none' | 'list' | 'text'
 }
 
 /** one GUI in the bank; a bank may chain several */
@@ -138,6 +148,26 @@ export interface Gui {
   hasMenus: boolean
   /** the converter version at +48 */
   version: number
+  /**
+   * `Doke WORK+68,0  Rem  User Catalog$` -- the number of the first catalog
+   * string that came from the program's own listing rather than from the GUI.
+   *
+   * `LOCUSR` fills it in with `Doke WORK,USC` at file offset 88, which is +68
+   * of the header once the twenty-byte AmBk block is taken off. `Gui User
+   * Catalog` is the only reader.
+   */
+  userCatalog: number
+  /**
+   * `Doke WORK+58,GUISTR  Rem  # of Catalog Strings`, in the Header Info
+   * block -- the catalog number this GUI's FIRST label takes.
+   *
+   * Not a count, despite the comment: `GUISTR=LOCSTR+1` is set as each GUI's
+   * conversion starts, so it is the base the library loads into its running
+   * counter at $5600 before it walks the labels.
+   */
+  catalogBase: number
+  /** `Doke WORK+60,GUITXT`, the same for the IntuiText strings at `$1b6` */
+  intuiTextBase: number
   /** the raw tag area, kept so a caller can re-split it */
   tags: Uint8Array
   /**
@@ -421,6 +451,7 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
       items: [],
       text: '',
       progressBar: false,
+      payload: 'none',
     })
   }
 
@@ -428,6 +459,10 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
   for (const g of gadgets) if (g.kind === 13 && g.userData === 1) g.progressBar = true
   const tagArea = b.subarray(offset + tagsAt, offset + structsAt)
   const split = readTags(tagArea, count)
+  for (const [i, g] of gadgets.entries()) {
+    const tag = (split.gadgets[i] ?? []).find((t) => PAYLOAD_TAGS.has(t.tag))
+    g.payload = tag === undefined ? 'none' : LIST_TAGS.has(tag.tag) ? 'list' : 'text'
+  }
   const hasMenus = u16(b, offset + 40) !== 0
   const menus = hasMenus
     ? readMenus(b, offset + structsAt + count * NEWGADGET_SIZE, offset + labelsAt).menus
@@ -440,6 +475,8 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
   let height = 0
   let idcmp = 0
   let imageGadgets = 0
+  let catalogBase = 0
+  let intuiTextBase = 0
   if (infoAt > 0 && offset + infoAt + GUI_INFO_SIZE <= b.length) {
     const h = offset + infoAt
     left = s16(b, h)
@@ -448,6 +485,8 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     height = u16(b, h + 6)
     idcmp = u32(b, h + 52)
     imageGadgets = u16(b, h + 56)
+    catalogBase = u16(b, h + 58)
+    intuiTextBase = u16(b, h + 60)
   }
 
   return {
@@ -462,6 +501,9 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     imageGadgets,
     hasMenus,
     version,
+    userCatalog: u16(b, offset + 68),
+    catalogBase,
+    intuiTextBase,
     tags: tagArea,
     tagsAt,
     gadgetTags: split.gadgets,

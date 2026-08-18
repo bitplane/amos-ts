@@ -2127,3 +2127,223 @@ describe('the file and stream group', () => {
     expect(Number(f.out().trim())).toBe(-1)
   })
 })
+
+/**
+ * The locale group, plus the two help keywords that sit beside it in the
+ * guide's "Miscellaneous" node.
+ */
+describeWith('the locale group', exampleBank(), (bank) => {
+  /** a `FORM ... CTLG` with a LANG chunk and one STRS run, as parseCatalog reads */
+  function catalog(lang: string, strings: Array<[number, string]>): Uint8Array {
+    const bytes: number[] = []
+    const put = (s: string): void => {
+      bytes.push(...[...s].map((c) => c.charCodeAt(0)))
+    }
+    const be = (n: number): void => {
+      bytes.push((n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff)
+    }
+    const strs: number[] = []
+    for (const [id, text] of strings) {
+      strs.push((id >> 24) & 0xff, (id >> 16) & 0xff, (id >> 8) & 0xff, id & 0xff)
+      const len = text.length + 1
+      strs.push((len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff)
+      strs.push(...[...text].map((c) => c.charCodeAt(0)), 0)
+      // the ENTRY pads on to the next longword, which is separate from the length
+      while (strs.length % 4 !== 0) strs.push(0)
+    }
+    put('FORM')
+    be(0)
+    put('CTLG')
+    put('LANG')
+    be(lang.length + 1)
+    put(lang)
+    bytes.push(0)
+    if ((lang.length + 1) & 1) bytes.push(0)
+    put('STRS')
+    be(strs.length)
+    bytes.push(...strs)
+    const out = Uint8Array.from(bytes)
+    new DataView(out.buffer).setUint32(4, out.length - 8)
+    return out
+  }
+
+  function withCat(src: string, cat: Uint8Array | null, name = 'RAM:x.catalog'): { rt: Runtime; out: string } {
+    let printed = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.currentDir = 'RAM:'
+    if (cat !== null) fs.writeFile(name, cat)
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, gui]]),
+      maxSteps: 300_000,
+      fs,
+      onText: (t) => (printed += t),
+    })
+    rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Gui', flags: 0, data: bank })
+    mustFinish(rt.runHeadless(500))
+    return { rt, out: printed }
+  }
+
+  /**
+   * BootSelector's four gadgets carry no names at all and gadget 0 carries a
+   * TEXT payload of one space, so the chain runs: four empty names with the
+   * payload after the first, then the title, then the screen name.
+   */
+  it('the bank labels its gadgets and its window', () => {
+    const g = readGuiBank(bank)[0]!
+    expect(g.gadgets.map((x) => x.payload)).toEqual(['text', 'none', 'none', 'none'])
+    expect([g.title, g.screenName]).toEqual(['Work Window', ''])
+    expect(g.catalogBase).toBe(0)
+  })
+
+  /**
+   * The numbering is GuiConv's `_LOCALE` order: each gadget's name, then its
+   * payload, then the menus, then the window title and the screen title. So
+   * gadget 0's name is 0, its text is 1, the other three names are 2 to 4 and
+   * the window title is 5.
+   */
+  it('Gui Catalog Open localises the labels a window is built with', () => {
+    const cat = catalog('italiano', [
+      [1, 'Avvia'],
+      [5, 'Titolo'],
+      [3, 'Terzo'],
+    ])
+    const r = withCat(
+      `C=Gui Catalog Open("RAM:x.catalog",20) : Print C<>0 : Gui Open 1,1 : Print Gui Title$(1)`,
+      cat,
+    )
+    const lines = r.out.trim().split('\n')
+    expect(Number(lines[0])).toBe(-1)
+    expect(lines[1]).toBe('Titolo')
+    const d = r.rt.gui.windows.get(1)!.design
+    expect(d.gadgets[0]!.text).toBe('Avvia')
+    // number 3 is the SECOND unnamed gadget, because the payload took number 1
+    expect(d.gadgets[2]!.name).toBe('Terzo')
+    expect(d.gadgets[1]!.name).toBe('')
+    // and the bank itself is untouched, as it is on the machine
+    expect(readGuiBank(bank)[0]!.title).toBe('Work Window')
+  })
+
+  /** "You must localize your bank BEFORE open anyone of its GUI!!!" */
+  it('a window already open keeps the labels it was built with', () => {
+    const cat = catalog('italiano', [[5, 'Titolo']])
+    const r = withCat(`Gui Open 1,1 : C=Gui Catalog Open("RAM:x.catalog",20) : Print Gui Title$(1)`, cat)
+    expect(r.out.trim()).toBe('Work Window')
+  })
+
+  it('a missing catalog answers 0 and changes nothing', () => {
+    const r = withCat(`Print Gui Catalog Open("RAM:x.catalog",20) : Gui Open 1,1 : Print Gui Title$(1)`, null)
+    expect(r.out.trim().split('\n')).toEqual(['0', 'Work Window'])
+  })
+
+  /** `cmpi.l #$47756920,-$8(a0)`: the bank has to be NAMED Gui */
+  it('a bank that is not named Gui answers 0', () => {
+    let printed = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:x.catalog', catalog('italiano', [[0, 'Ciao']]))
+    const rt = new Runtime(tokenize(`Print Gui Catalog Open("RAM:x.catalog",20)`, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, gui]]),
+      fs,
+      onText: (t) => (printed += t),
+    })
+    rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Work', flags: 0, data: bank })
+    mustFinish(rt.runHeadless(500))
+    expect(printed.trim()).toBe('0')
+    // and a bank that is not reserved at all
+    expect(Number(runOut(`Print Gui Catalog Open("RAM:x.catalog",21)`, bank).out.trim())).toBe(0)
+  })
+
+  /**
+   * $3cc0 hands GetCatalogStr the null string for its default, so an id the
+   * catalog does not carry answers empty rather than the bank's own label.
+   */
+  it('Gui Catalog$ reads the attached catalog, and empty for anything else', () => {
+    const cat = catalog('italiano', [[21, 'Ventuno']])
+    const r = withCat(
+      `C=Gui Catalog Open("RAM:x.catalog",20) : Print "["+Gui Catalog$(21)+"]" : Print "["+Gui Catalog$(99)+"]"`,
+      cat,
+    )
+    expect(r.out.trim().split('\n')).toEqual(['[Ventuno]', '[]'])
+    expect(Number(runOut(`Print Len(Gui Catalog$(0))`, bank).out.trim())).toBe(0)
+  })
+
+  it('Gui Catalog Close drops it, and an id it does not know is not an error', () => {
+    const cat = catalog('italiano', [[5, 'Titolo']])
+    const r = withCat(
+      `C=Gui Catalog Open("RAM:x.catalog",20) : Gui Catalog Close 999 : Gui Catalog Close C : Gui Open 1,1 : Print Gui Title$(1)`,
+      cat,
+    )
+    expect(r.out.trim()).toBe('Work Window')
+    expect(r.rt.gui.catalogs.size).toBe(0)
+  })
+
+  /** the word at +68 of the head design, zero when the converter wrote none */
+  it('Gui User Catalog reads the bank header, and 0 with no bank', () => {
+    expect(Number(runOut(`Print Gui User Catalog`, bank).out.trim())).toBe(0)
+    expect(val('Gui User Catalog')).toBe(0)
+  })
+
+  /**
+   * "a message defined by you will be automatically displayed into the
+   * specified display gadget". Gadget 1's box is 0,0 to 48,37, so a move at
+   * 10,10 is over it and the array's element 1 is what appears.
+   */
+  const helpSrc = `Dim H$(3) : H$(0)="zero" : H$(1)="one" : H$(2)="two" : H$(3)="three"
+Gui Open 1,1 : Gui Help 1,0,Array(H$(0)) : Print Gui Wait`
+
+  it('Gui Help writes the array entry for the gadget under the pointer', () => {
+    const r = runOut(helpSrc, bank, (m) => {
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 10, mouseY: 10 })
+    })
+    expect(r.rt.gui.windows.get(1)!.strings.get(0)).toBe('one')
+    // the move was SWALLOWED: help is on and Gui Mouse Report is not
+    expect(Number(r.out.trim())).toBe(GUI_EVENT.NOTHING)
+  })
+
+  /** flags 3: $6eb6 reports the move as well as running the help */
+  it('with Gui Mouse Report on as well, the move is reported too', () => {
+    const src = helpSrc.replace('Gui Help 1,0', 'Gui Mouse Report 1,True : Gui Help 1,0')
+    const r = runOut(src, bank, (m) => {
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 10, mouseY: 10 })
+    })
+    expect(r.rt.gui.windows.get(1)!.strings.get(0)).toBe('one')
+    expect(Number(r.out.trim())).toBe(GUI_EVENT.MOUSEMOVE)
+  })
+
+  /**
+   * "Over nothing" is number 0 after the `addq.l #$1,d3` at $6e76, and `Gui
+   * Help` zeroed `$40` when it was switched on -- so the FIRST move over no
+   * gadget matches the remembered value at $6e78 and the display is never
+   * written at all. It blanks only after the pointer has been over something.
+   */
+  it('the first move over no gadget writes nothing, and a later one blanks', () => {
+    const one = runOut(helpSrc, bank, (m) => {
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 600, mouseY: 600 })
+    })
+    expect(one.rt.gui.windows.get(1)!.strings.get(0)).toBeUndefined()
+    const two = runOut(helpSrc, bank, (m) => {
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 10, mouseY: 10 })
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 600, mouseY: 600 })
+    })
+    expect(two.rt.gui.windows.get(1)!.strings.get(0)).toBe('')
+  })
+
+  /** "call it again with the array address set to 0" */
+  it('Gui Help with a zero array turns it off, and off twice is a no-op', () => {
+    const src = `Dim H$(3) : H$(1)="one"
+Gui Open 1,1 : Gui Help 1,0,Array(H$(0)) : Gui Help 1,0,0 : Gui Help 1,0,0
+Print Gui Wait : Print Gui Wait`
+    const r = runOut(src, bank, (m) => {
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 10, mouseY: 10 })
+      m.gui.post({ code: GUI_EVENT.MOUSEMOVE, result: 0, text: '', window: 1, mouseX: 20, mouseY: 20 })
+    })
+    const w = r.rt.gui.windows.get(1)!
+    expect(w.helpOn).toBe(false)
+    // with help off both moves are reported, and neither writes a gadget
+    expect(r.out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.MOUSEMOVE, GUI_EVENT.MOUSEMOVE])
+    expect(w.strings.size).toBe(0)
+  })
+})
