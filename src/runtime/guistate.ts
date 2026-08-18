@@ -112,9 +112,21 @@ export interface GuiWindow {
   height: number
   /** locked by `Gui Off`, which stops it answering events */
   locked: boolean
-  /** per-gadget state, indexed by the gadget's own id */
-  values: Map<number, number>
+  /**
+   * Per-gadget state, by gadget id, as the guide's own three attributes.
+   *
+   * "Some kinds of gadgets allows you to update up to 3 different attributes
+   * (0 to 2)". Attribute 0 is the value, 1 and 2 are the bounds a LISTVIEW,
+   * SCROLLER or SLIDER carries beside it, and what each means depends on the
+   * kind: attribute 2 is a slider's MAX and a scroller's VISIBLE.
+   */
+  attrs: Map<number, [number, number, number]>
+  /** what `Gui Set$` put in a STRING or TEXT gadget */
   strings: Map<number, string>
+  /** `Gui Set window,gadget,-1,1` ghosts a gadget so it cannot be selected */
+  ghosted: Set<number>
+  /** `Gui Range`, the clip an INTEGER gadget's input is held to */
+  ranges: Map<number, [number, number]>
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
   /** what the drawing keywords draw into; see GUI_WINDOW_DEPTH */
@@ -164,6 +176,8 @@ export class GuiState {
   gfxScreen = 0
   /** the most recently opened or clicked window, which `Gui Selected` reads */
   selected = 0
+  /** `Gui Activate` sets it and `Gui Gadget` reads it */
+  activeGadget = 0
   /** events waiting to be reported */
   readonly pending: GuiEvent[] = []
   /** the last event `Gui Wait` or `Gui Event` reported */
@@ -200,8 +214,10 @@ export class GuiState {
       width: box?.width ?? design.width,
       height: box?.height ?? design.height,
       locked: false,
-      values: new Map(),
+      attrs: new Map(),
       strings: new Map(),
+      ghosted: new Set(),
+      ranges: new Map(),
       openedAt: this.opens++,
       rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
       ink: 1,
@@ -298,6 +314,16 @@ export class GuiState {
   /** the gadget a window's design carries under `id`, or null */
   gadget(w: GuiWindow, id: number): GuiGadget | null {
     return w.design.gadgets.find((g) => g.id === id) ?? null
+  }
+
+  /** a gadget's three attributes, made on demand and zero until set */
+  attrsOf(w: GuiWindow, id: number): [number, number, number] {
+    let a = w.attrs.get(id)
+    if (a === undefined) {
+      a = [0, 0, 0]
+      w.attrs.set(id, a)
+    }
+    return a
   }
 }
 

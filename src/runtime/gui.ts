@@ -26,7 +26,7 @@ import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
 import { GUI_EVENT, GuiState } from './guistate'
 import type { GuiWindow } from './guistate'
-import { drawBevelBox, PEN, type DrawInfo } from '../amiga/gadtools'
+import { drawBevelBox, KIND, PEN, type DrawInfo } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 
 export function newGuiState(): GuiState {
@@ -66,6 +66,12 @@ function target(g: GuiState): GuiWindow | null {
  * program can actually set through this extension, so a bevel drawn here is
  * in the two colours the program chose rather than in two it never named.
  */
+/**
+ * The three kinds `Gui Read$` answers for, from the guide's own list.
+ * Everything else gets an empty string.
+ */
+const READ_STRING_KINDS = new Set<number>([KIND.LISTVIEW, KIND.CYCLE, KIND.STRING])
+
 function bevelPens(w: GuiWindow): DrawInfo {
   const pens = new Array<number>(12).fill(w.ink)
   pens[PEN.SHINE] = w.ink
@@ -380,6 +386,98 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       drawBevelBox(w.rp, x, y, width, height, bevelPens(w), { recessed: mode !== 0 })
     },
 
+    /**
+     * `Gui Set window,gadget,attribute,value`.
+     *
+     * The guide's own table decides what each attribute means, and it depends
+     * on the kind: attribute 0 is the value for every kind that has one,
+     * attribute 1 is a LISTVIEW's array, a SCROLLER's total or a SLIDER's
+     * MINIMUM, and attribute 2 is a LISTVIEW's top item, a SLIDER's MAXIMUM
+     * or a SCROLLER's VISIBLE size. One number, three meanings, chosen by
+     * what the gadget is.
+     *
+     * Attribute -1 is the odd one and is documented separately: "you just
+     * need to use the attribute -1 and the value 0/1 to" ghost a gadget, and
+     * the guide's examples read `Gui Set 1,5,-1,1 : Rem Gadget number 5 in
+     * win 1 is turned OFF`.
+     *
+     * DEVIATION: STRING and TEXT. Their attribute 0 wants a pointer -- "you
+     * MUST use Varptr(String) as value" -- and nothing here can dereference
+     * one into the string a program meant. That path is ignored rather than
+     * guessed at, and `Gui Set$` is the one that works, which is what the
+     * guide points at anyway: "It's a shortcut of the Gui Set command."
+     */
+    'gui set': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const id = it.evalInt()
+      it.expect(',')
+      const attr = it.evalInt()
+      it.expect(',')
+      const value = it.evalInt()
+      const g = s()
+      const w = g.windows.get(win)
+      if (w === undefined || g.gadget(w, id) === null) return
+      if (attr === -1) {
+        if (value === 0) w.ghosted.delete(id)
+        else w.ghosted.add(id)
+        return
+      }
+      if (attr < 0 || attr > 2) return
+      g.attrsOf(w, id)[attr as 0 | 1 | 2] = value
+    },
+
+    /**
+     * `Gui Set$ window,gadget,string` — the shortcut for a string or text
+     * gadget that does not need a Varptr.
+     */
+    'gui set$': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const id = it.evalInt()
+      it.expect(',')
+      const text = str(it.evalExpr())
+      const g = s()
+      const w = g.windows.get(win)
+      if (w === undefined || g.gadget(w, id) === null) return
+      w.strings.set(id, text)
+    },
+
+    /**
+     * `Gui Range window,gadget,minvalue,maxvalue` — "All the values entered
+     * by the user will be clipped in the specified range."
+     *
+     * The guide's example is worth keeping because it says which way the clip
+     * goes at both ends: "if you have done Gui Range 1,1,10,20, and the user
+     * inputs 5, it will automatically be set to 10. Similarly, if the user
+     * inputs 2273226, it will be set to 20."
+     */
+    'gui range': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const id = it.evalInt()
+      it.expect(',')
+      const lo = it.evalInt()
+      it.expect(',')
+      const hi = it.evalInt()
+      const w = s().windows.get(win)
+      if (w !== undefined) w.ranges.set(id, [lo, hi])
+    },
+
+    /**
+     * `Gui Activate window,gadget` — "activate the specified input gadget
+     * (wether it be a string/integer gadget) encouraging the user to type
+     * something in".
+     */
+    'gui activate': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const id = it.evalInt()
+      const g = s()
+      const w = g.windows.get(win)
+      if (w !== undefined && g.gadget(w, id) !== null) g.activeGadget = id
+    },
+
     /** `Gui Text x,y,text$` */
     'gui text': (it) => {
       const [x, y] = pair(it)
@@ -474,6 +572,82 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (w === null) return VI(0)
       return VI(w.rp.point(int(a[0]!), int(a[1]!)))
     },
+
+    /**
+     * `A=Gui Read(window,gadget)` — "the current status of the specified
+     * gadget", which is its attribute 0.
+     *
+     * "Gui Read is similar to Gui Code except it doesnt need to be called
+     * after the specified gadget is selected", so unlike `Gui Code` this does
+     * not reset itself.
+     */
+    'gui read': (_, a): Value => {
+      const g = s()
+      const w = g.windows.get(int(a[0]!))
+      const id = int(a[1]!)
+      if (w === undefined || g.gadget(w, id) === null) return VI(0)
+      return VI(g.attrsOf(w, id)[0])
+    },
+
+    /**
+     * `A$=Gui Read$(window,gadget)` — "the string held in the specified
+     * gadget", for three kinds:
+     *
+     *     LISTVIEW  Selected item
+     *     CYCLE     Selected item
+     *     STRING    Text entered
+     *
+     * "For all the other kind of gadgets a empty string will be returned."
+     *
+     * DEVIATION: LISTVIEW and CYCLE. Their selected item is a string out of
+     * a label array the bank carries in its tag area, and this port does not
+     * decode which array belongs to which gadget yet. What comes back is what
+     * `Gui Set$` put there, so a program that set its own text reads it and
+     * one relying on the design's labels reads nothing.
+     */
+    'gui read$': (_, a): Value => {
+      const g = s()
+      const w = g.windows.get(int(a[0]!))
+      const id = int(a[1]!)
+      if (w === undefined) return VS('')
+      const gadget = g.gadget(w, id)
+      if (gadget === null) return VS('')
+      if (!READ_STRING_KINDS.has(gadget.kind)) return VS('')
+      return VS(w.strings.get(id) ?? '')
+    },
+
+    /**
+     * `A=Gui Kind(window,gadget)` — the gadget type.
+     *
+     * The guide's list opens "0 - BUTTON (with image)", which is GuiConv's
+     * own kind 0 and gadtools' GENERIC, and is the fifth place this port has
+     * seen that substitution stated.
+     */
+    'gui kind': (_, a): Value => {
+      const g = s()
+      const w = g.windows.get(int(a[0]!))
+      if (w === undefined) return VI(-1)
+      return VI(g.gadget(w, int(a[1]!))?.kind ?? -1)
+    },
+
+    /**
+     * `A=Gui Check(window,x,y)` — "Checks the window at the specified X and Y
+     * coordinates to see if a gadget exists. If a gadget does exist, the
+     * number of the gadget is returned, else -1 is reported."
+     */
+    'gui check': (_, a): Value => {
+      const w = s().windows.get(int(a[0]!))
+      if (w === undefined) return VI(-1)
+      const x = int(a[1]!)
+      const y = int(a[2]!)
+      for (const d of w.design.gadgets) {
+        if (x >= d.leftEdge && x < d.leftEdge + d.width && y >= d.topEdge && y < d.topEdge + d.height) return VI(d.id)
+      }
+      return VI(-1)
+    },
+
+    /** `GAD=Gui Gadget` — the gadget a mouse or drag event named */
+    'gui gadget': (): Value => VI(s().activeGadget),
 
     /**
      * `A=Gui Border(window,border)` — the size of one of a window's four

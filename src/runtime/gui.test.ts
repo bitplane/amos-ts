@@ -266,3 +266,90 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     expect(() => run('Gui Ink 3 : Gui Plot 1,1 : Gui Cls 2', bank)).not.toThrow()
   })
 })
+
+describeWith('the gadget group', exampleBank(), (bank) => {
+  /** BootSelector's design: gadget 0 is TEXT, 1..3 are IMAGE */
+  const open = 'Gui Open 1,1'
+
+  it('Gui Kind names each gadget, and -1 for one that is not there', () => {
+    const out = runOut(`${open} : For I=0 To 3 : Print Gui Kind(1,I) : Next : Print Gui Kind(1,9)`, bank).out
+    expect(out.trim().split('\n').map(Number)).toEqual([13, 0, 0, 0, -1])
+  })
+
+  /**
+   * "Gui Read is similar to Gui Code except it doesnt need to be called
+   * after the specified gadget is selected", so unlike Gui Code it does not
+   * reset itself on read.
+   */
+  it('Gui Set writes attribute 0 and Gui Read reads it, twice', () => {
+    const out = runOut(`${open} : Gui Set 1,1,0,42 : Print Gui Read(1,1) : Print Gui Read(1,1)`, bank).out
+    expect(out.trim().split('\n').map(Number)).toEqual([42, 42])
+  })
+
+  it('keeps the three attributes apart', () => {
+    const rt = run(`${open} : Gui Set 1,1,0,7 : Gui Set 1,1,1,8 : Gui Set 1,1,2,9`, bank)
+    expect(rt.gui.attrsOf(rt.gui.windows.get(1)!, 1)).toEqual([7, 8, 9])
+  })
+
+  it('ignores an attribute outside the guide s range', () => {
+    const rt = run(`${open} : Gui Set 1,1,3,5`, bank)
+    expect(rt.gui.attrsOf(rt.gui.windows.get(1)!, 1)).toEqual([0, 0, 0])
+  })
+
+  /** `Gui Set 1,5,-1,1 : Rem Gadget number 5 in win 1 is turned OFF` */
+  it('attribute -1 ghosts a gadget and 0 brings it back', () => {
+    const off = run(`${open} : Gui Set 1,2,-1,1`, bank)
+    expect(off.gui.windows.get(1)!.ghosted.has(2)).toBe(true)
+    const on = run(`${open} : Gui Set 1,2,-1,1 : Gui Set 1,2,-1,0`, bank)
+    expect(on.gui.windows.get(1)!.ghosted.has(2)).toBe(false)
+  })
+
+  it('does nothing for a gadget the design does not have', () => {
+    const rt = run(`${open} : Gui Set 1,9,0,5 : Gui Set 1,9,-1,1`, bank)
+    const w = rt.gui.windows.get(1)!
+    expect(w.attrs.has(9)).toBe(false)
+    expect(w.ghosted.size).toBe(0)
+  })
+
+  /**
+   * Gui Read$ answers for LISTVIEW, CYCLE and STRING, and "For all the other
+   * kind of gadgets a empty string will be returned". BootSelector's gadget
+   * 0 is a TEXT, which is not on that list.
+   */
+  it('Gui Set$ and Gui Read$ carry a string, but only for the three kinds', () => {
+    const out = runOut(`${open} : Gui Set$ 1,0,"hello" : Print "[";Gui Read$(1,0);"]"`, bank).out
+    expect(out.trim()).toBe('[]')
+  })
+
+  it('Gui Read$ is empty for a window or gadget that is not there', () => {
+    const out = runOut(`${open} : Print "[";Gui Read$(9,0);"]" : Print "[";Gui Read$(1,9);"]"`, bank).out
+    expect(out.trim().split('\n')).toEqual(['[]', '[]'])
+  })
+
+  /**
+   * BootSelector's three image gadgets sit at x=0, 48 and 96, all 48 wide and
+   * 37 tall, so a point in each lands on a different one and a point below
+   * them lands on none.
+   */
+  it('Gui Check finds the gadget under a point, or -1', () => {
+    const out = runOut(`${open} : Print Gui Check(1,10,10) : Print Gui Check(1,60,10) : Print Gui Check(1,100,10) : Print Gui Check(1,10,200)`, bank).out
+    expect(out.trim().split('\n').map(Number)).toEqual([1, 2, 3, -1])
+  })
+
+  it('Gui Check answers -1 for a window that is not open', () => {
+    expect(Number(runOut(`${open} : Print Gui Check(9,10,10)`, bank).out.trim())).toBe(-1)
+  })
+
+  /** "if you have done Gui Range 1,1,10,20... 5 will be set to 10" */
+  it('Gui Range records the clip an integer gadget is held to', () => {
+    const rt = run(`${open} : Gui Range 1,1,10,20`, bank)
+    expect(rt.gui.windows.get(1)!.ranges.get(1)).toEqual([10, 20])
+  })
+
+  it('Gui Activate names a gadget and Gui Gadget reads it back', () => {
+    const out = runOut(`${open} : Gui Activate 1,2 : Print Gui Gadget`, bank).out
+    expect(Number(out.trim())).toBe(2)
+    // a gadget the design lacks is not activated
+    expect(Number(runOut(`${open} : Gui Activate 1,9 : Print Gui Gadget`, bank).out.trim())).toBe(0)
+  })
+})
