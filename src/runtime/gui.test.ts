@@ -2566,3 +2566,73 @@ Gui Clone 1,False : Print Gui Colour(1) : Print Gui Screen Colours(1)`
     expect(() => run('Gui Remap 9', bank)).toThrow(GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED])
   })
 })
+
+/**
+ * The TCP group: eighteen keywords over bsdsocket.library, which this port
+ * has no host capability for. What is testable is the answer every one of
+ * them gives with no Internet stack, and the guide documents each.
+ */
+describe('the TCP group', () => {
+  /** "-1 = Unable to alocate a socket", which is routine 227 failing to open */
+  it('Tcp Open and Tcp Listen answer -1 with no stack', () => {
+    expect(val(`Tcp Open("www.amiga.org",80,0)`)).toBe(-1)
+    expect(val(`Tcp Listen(80,0)`)).toBe(-1)
+  })
+
+  /** routine 226 carries `moveq #$14,d7`, and six keywords test its result */
+  it('the socket-taking keywords raise "Socket not opened!"', () => {
+    const each = [
+      'Print Tcp Send(0,0,0)',
+      'Print Tcp Send$(0,"x")',
+      'Print Tcp Read(0,0,0)',
+      'Print Tcp Read$(0)',
+      'Print Tcp Accept(0)',
+      'Tcp Set 0,1',
+      'Tcp Download 0 To "RAM:x",0',
+    ]
+    for (const src of each) {
+      expect(() => run(src), src).toThrow(GUI_ERRORS[GUI_ERR.SOCKET_NOT_OPENED])
+    }
+    expect(GUI_ERRORS[GUI_ERR.SOCKET_NOT_OPENED]).toBe('Socket not opened!')
+  })
+
+  /** $452e is `beq` to the exit with d3 already zeroed, so this one does not */
+  it('Tcp User is the one that answers 0 rather than raising', () => {
+    expect(val('Tcp User(0)')).toBe(0)
+    expect(val('Tcp Abort(0)')).toBe(0)
+  })
+
+  /** three words of state, and nothing has written any of them */
+  it('the three readers answer zero', () => {
+    const out = runOut('Print Tcp Socket : Print Tcp Total : Print Tcp Recvd : Print Tcp Error').out
+    expect(out.trim().split('\n').map(Number)).toEqual([0, 0, 0, 0])
+  })
+
+  /** $46f8 calls through a null library base; the empty string is the answer */
+  it('Tcp Host$ answers empty rather than reading address zero', () => {
+    expect(runOut('Print "["+Tcp Host$+"]"').out.trim()).toBe('[]')
+  })
+
+  /**
+   * $46d0 writes a NUL over the FOURTH byte of the buffer and parses the
+   * first three, so the "200" of "200 HELLO mail.server.com" is right by
+   * arithmetic rather than by parsing.
+   */
+  it('Tcp Response reads exactly three characters', () => {
+    expect(val('Tcp Response')).toBe(0)
+    const r = runOut('Print Tcp Response', undefined, (rt) => {
+      rt.gui.tcpLine = '200 HELLO mail.server.com'
+    })
+    expect(Number(r.out.trim())).toBe(200)
+    const four = runOut('Print Tcp Response', undefined, (rt) => {
+      rt.gui.tcpLine = '4004 too long'
+    })
+    expect(Number(four.out.trim())).toBe(400)
+  })
+
+  /** two token arities: no argument closes them all, one closes that socket */
+  it('Tcp Close takes a socket or nothing, and raises for neither', () => {
+    expect(() => run('Tcp Close')).not.toThrow()
+    expect(() => run('Tcp Close 3')).not.toThrow()
+  })
+})

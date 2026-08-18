@@ -79,7 +79,7 @@ is.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |        0 |            0 |      48 |       0% |
 | gui-1.61             |      103 |        0 |            0 |     103 |       0% |
-| gui-2.10             |      204 |        0 |          186 |      18 |      91% |
+| gui-2.10             |      204 |        0 |          204 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |            0 |      62 |       0% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          345 |    2182 |      70% |
+| **total**            |     7422 |     4832 |          363 |    2164 |      71% |
 
 ## Not applicable, by what would retire it
 
@@ -281,9 +281,9 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (2): `direct`, `edit`
 
-## gui-2.10 (91%)
+## gui-2.10 (100%)
 
-- **approximated** (186): `gui activate`, `gui actual`, `gui aga`, `gui amiga os`,
+- **approximated** (204): `gui activate`, `gui actual`, `gui aga`, `gui amiga os`,
   `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`, `gui array`,
   `gui array down`, `gui array read`, `gui array up`, `gui asl colours`, `gui asl depth`,
   `gui asl font`, `gui asl height`, `gui asl id`, `gui asl open`, `gui asl screen`,
@@ -313,8 +313,11 @@ The AMOS editor and the compiler overlay, neither of which exists here.
   `gui text base`, `gui timer`, `gui title$`, `gui titles`, `gui to back`, `gui to front`,
   `gui uniconify`, `gui unlock`, `gui user catalog`, `gui wait`, `gui wait vbl`, `gui width`,
   `gui window`, `gui writing`, `gui x`, `gui x font`, `gui x gad`, `gui y`, `gui y font`,
-  `gui y gad`, `gui zone`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`,
-  `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
+  `gui y gad`, `gui zone`, `tcp abort`, `tcp accept`, `tcp close`, `tcp download`, `tcp error`,
+  `tcp host$`, `tcp listen`, `tcp open`, `tcp read`, `tcp read$`, `tcp recvd`, `tcp response`,
+  `tcp send`, `tcp send$`, `tcp set`, `tcp socket`, `tcp total`, `tcp user`, `xfa check`,
+  `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`, `xfa play`,
+  `xfa rtg play`, `xfa width`
 
 ## input (100%)
 

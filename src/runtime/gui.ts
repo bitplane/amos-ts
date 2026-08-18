@@ -1,24 +1,38 @@
 /**
- * The GUI extension 2.10, by Pietro Ghizzoni — the General group.
+ * The GUI extension 2.10, by Pietro Ghizzoni — all 204 keywords.
  *
- * Twelve keywords that open a design from a bank, close it again, and run the
- * event loop every other keyword reports through. See ./guibank.ts for the
- * format the designs arrive in and ./guistate.ts for what a window is here.
+ * A GadToolsBox interface saved as an AMOS bank, opened as intuition windows
+ * with gadtools gadgets in them, plus screens, requesters, AppIcons, a
+ * clipboard, DOS notification, locale catalogs and a TCP/IP group. See
+ * ./guibank.ts for the format the designs arrive in and ./guistate.ts for
+ * what a window is here.
  *
  * ## Evidence
  *
- * `GUI2.guide`, which documents 202 of the extension's 204 keywords, and
- * `AMOSPro_GUI.Lib` where it is silent. Every code these answer is quoted at
- * the keyword that answers it.
+ * `GUI2.guide`, which documents 202 of the 204 keywords, and
+ * `AMOSPro_GUI.Lib` where it is silent — `Gui Gad Tag` and `Gui Rem Notify`
+ * have no node, and reading routine 126 shows why nobody wrote one. Two of
+ * the extension's own accessories are shipped as AMOS programs and
+ * detokenise, so `GuiConv.Amos` settles the catalog numbering and
+ * `RTGBob.Amos` the format `Gui Remap` reads. Every code these answer is
+ * quoted at the keyword that answers it.
  *
- * ## The part that is not built yet
+ * ## What is state and what is pixels
  *
- * Opening a window here fills in state and raises no pixels. gadtools and
- * intuition are both modelled and neither is wired to this yet, so a program
- * can open a GUI, read its gadgets and run its event loop, and see nothing.
- * That is a half-built keyword rather than a finished one, and the coverage
- * row stays at 0% until the whole set is done, which is the rule that stops
- * this being mistaken for progress it is not.
+ * Windows and screens carry a RastPort, so everything that draws — the
+ * pastes, the lines, the IFF display, the screen copies — really draws. What
+ * a program does NOT get is a window rendered by gadtools: the gadgets are
+ * read, laid out and answered for, and nothing paints their frames.
+ *
+ * ## The three libraries that are not here
+ *
+ * `xfa.library` (the nine `Xfa` keywords and `Gui Save Iff`),
+ * `amigaguide.library` (`Gui Guide`) and `bsdsocket.library` (the eighteen
+ * `Tcp` ones) are not modelled, and none of the three is in the corpus.
+ * Every one of those keywords takes the branch the routine takes on a
+ * machine without the library, which is a real path the extension carries
+ * error strings for rather than a stub. A host capability for any of the
+ * three would light its keywords up without changing them.
  */
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
@@ -31,7 +45,7 @@ import { encode, rowBytesFor } from '../amiga/planar'
 import { parseIlbm } from '../amiga/ilbm'
 import type { ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
-import type { GuiEvent, GuiWindow } from './guistate'
+import type { GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
@@ -637,6 +651,26 @@ function remapRtgBobs(g: GuiState, data: Uint8Array): void {
 
 /** the eight planes $4aea builds pointers for, one `move.l` and a seven-turn loop */
 const RTG_PLANES = 8
+
+/**
+ * What `Tcp Open` and `Tcp Listen` answer when routine 227 cannot allocate:
+ * `moveq #$ff,d3`, and the guide's "-1 = Unable to alocate a socket".
+ *
+ * The same number is `Tcp Accept`'s failure at $476c.
+ */
+const TCP_NO_SOCKET = -1
+
+/**
+ * A socket by its descriptor, or "Socket not opened!".
+ *
+ * Routine 226 at $4c88 walks the chain at `$2dc` comparing `$4` of each node
+ * and sets `moveq #$14,d7` on the way in, so the seven keywords that call it
+ * and test the result all raise 20 without naming it. `Tcp User` calls it and
+ * does NOT test, which is why it is the one that answers 0 instead.
+ */
+function socketOf(g: GuiState, fd: number): GuiSocket {
+  return g.sockets.get(fd) ?? guiError(GUI_ERR.SOCKET_NOT_OPENED)
+}
 
 /**
  * Where `OpenCatalogA(NULL, name, NULL)` looks.
@@ -2631,6 +2665,68 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       remapRtgBobs(g, bank.data)
     },
 
+    /**
+     * `Tcp Close` and `Tcp Close socket` — "If you call it without
+     * parameters, ALL the sockets will be closed and deallocated. Otherwise
+     * you can specify the number of the socket to be closed."
+     *
+     * Two token arities under one name. Routine 199 at $43d8 loops on the
+     * chain head at `$2dc` taking the FIRST node each time round, so it works
+     * even though routine 229 unlinks as it goes; routine 198 at $43d0 passes
+     * one number straight to the same unlink-and-CloseSocket.
+     *
+     * Neither raises. A socket number that names nothing walks off the end of
+     * the chain at $4dc4 and returns.
+     */
+    'tcp close': (it) => {
+      const g = s()
+      if (it.atStmtEnd()) {
+        g.sockets.clear()
+        return
+      }
+      g.sockets.delete(it.evalInt())
+    },
+
+    /**
+     * `Tcp Set socket,value` — "Set the user data of a socket."
+     *
+     * $4546 is the socket lookup and one `move.l d1,$24(a0)`. The lookup is
+     * routine 226, which carries `moveq #$14,d7` — error 20, "Socket not
+     * opened!" — so this is one of the seven keywords that raise it.
+     */
+    'tcp set': (it) => {
+      const sock = socketOf(s(), it.evalInt())
+      it.expect(',')
+      sock.user = it.evalInt()
+    },
+
+    /**
+     * `Tcp Download socket To file name,mode` — "allows you to automatically
+     * download data from the specified socket and save them into a file...
+     * All the operations are buffered & asynchronous and automatically
+     * handled by the extension."
+     *
+     * $45e0 opens the file MODE_READWRITE ($3ee) or MODE_OLDFILE ($3ed)
+     * depending on whether it already exists, Seeks to the end when the mode
+     * asks to resume, and AllocVecs a $2800-byte buffer. Two errors of its
+     * own: 22 "Unable to open file" and 24 "Not enough memory!". The mode is
+     * forced to a mask — `tst.l d5 / beq / moveq #$ff,d5` — so any non-zero
+     * value means resume.
+     *
+     * "mode = 0 The file will be overwritten with the new data. mode = 1 The
+     * new data will be added to the end of the file."
+     */
+    'tcp download': (it) => {
+      const g = s()
+      const sock = socketOf(g, it.evalInt())
+      it.expect('to')
+      const file = it.evalStr()
+      if (it.accept(',')) it.evalInt()
+      sock.download = file
+      g.tcpTotal = 0
+      g.tcpRecvd = 0
+    },
+
     /** `Gui Text x,y,text$` */
     'gui text': (it) => {
       const [x, y] = pair(it)
@@ -3893,6 +3989,208 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'xfa depth': (): Value => VI(s().xfa.depth),
     'xfa pack': (): Value => VI(s().xfa.pack),
     'xfa frames': (): Value => VI(s().xfa.frames),
+
+    /**
+     * `S=Tcp Open(URL$,port,user data)` — "establishes a connection with the
+     * specified URL$ at the specified port... this command returns
+     * immediately without waiting for the connection response".
+     *
+     * The whole group is bsdsocket.library and it is asynchronous: "Like all
+     * the other events, Gui Wait handles the TCP/IP events too and returns
+     * the value -9", with `Gui Code` carrying 1 to accept, 2 connected, 6
+     * downloaded, 8 readable, 16 writeable, 32 error, 64 closed.
+     *
+     * $4362 is three steps and the guide documents all three failures:
+     *
+     *     routine 227  OpenLibrary + socket(AF_INET, SOCK_STREAM)   -1
+     *     routine 230  gethostbyname (-$d2)                         -2
+     *     connect (-$36), and EINPROGRESS ($24) is SUCCESS here     -3
+     *
+     * "This command may fail, in this case it returns a negative value. -1 =
+     * Unable to alocate a socket, -2 = Unable to get host information, -3 =
+     * Unable to open connection."
+     *
+     * DEVIATION: there is no TCP/IP stack under this port, and there is no
+     * host capability that could supply one — `../amiga/host.ts` has files,
+     * audio, a printer and serial ports, and nothing that opens a socket. So
+     * routine 227's `jsr -$228(a6)` on "bsdsocket.library" answers zero, and
+     * -1 is what every `Tcp Open` and `Tcp Listen` returns. Every other
+     * keyword in the group then finds an empty socket chain, which is the
+     * same state a machine with no Internet stack is in. A socket capability
+     * would light all eighteen up without changing any of them.
+     */
+    'tcp open': (_, a): Value => {
+      void str(a[0]!)
+      void int(a[1]!)
+      void int(a[2]!)
+      return VI(TCP_NO_SOCKET)
+    },
+
+    /**
+     * `SOCK=Tcp Listen(Port,user data)` — "creates a new socket, and puts it
+     * in Listen mode using the specified port of your computer".
+     *
+     * $455c is `Tcp Open` with the ends swapped: allocate, gethostname
+     * (-$11a) into the scratch, resolve THAT with gethostbyname, bind (-$24)
+     * and listen (-$2a) with a backlog of 3. The three failure numbers are
+     * the same -1, -2 and -3.
+     *
+     * "When someone tries to open a connection with the specified port, Gui
+     * Wait will inform you (event -9, code 1)."
+     */
+    'tcp listen': (_, a): Value => {
+      void int(a[0]!)
+      void int(a[1]!)
+      return VI(TCP_NO_SOCKET)
+    },
+
+    /**
+     * `A=Tcp Send(socket number,address,length)` and `A=Tcp Send$(socket,
+     * string)` — "Send the specified number of bytes... The value returned is
+     * the number of bytes transferred."
+     *
+     * $43f0 and $441e are the same four instructions over `send` (-$42); the
+     * string form takes the length out of the AMOS string's own word rather
+     * than from an argument. Both look the socket up first, so both raise 20.
+     */
+    'tcp send': (_, a): Value => {
+      void socketOf(s(), int(a[0]!))
+      return VI(0)
+    },
+    'tcp send$': (_, a): Value => {
+      void socketOf(s(), int(a[0]!))
+      return VI(0)
+    },
+
+    /**
+     * `B=Tcp Read(socket,address,length)` — "Read the specified number of
+     * bytes from the socket... The value returned is the REAL number of bytes
+     * received. It returns -1 if no data is available."
+     *
+     * The guide is wrong about the -1. $4474 is `tst.l d0 / bge / moveq
+     * #$0,d0`, so `recv`'s -1 is turned into ZERO before it is stored at
+     * `$2c0` and returned. Nothing in the routine can answer -1.
+     *
+     * DEFECT: it writes `$2c0` on every call, which is what `Tcp Recvd`
+     * reads. So a `Tcp Read` between a download event and the `Tcp Recvd`
+     * that reports it overwrites the number the guide says to monitor.
+     */
+    'tcp read': (_, a): Value => {
+      void socketOf(s(), int(a[0]!))
+      return VI(0)
+    },
+
+    /**
+     * `T$=Tcp Line$(socket)` — the token is `tcp read$` — "Read a line of
+     * text (CR+LF terminated) from the socket. The CR+LF chars are not
+     * included in the string."
+     *
+     * $448a peeks 1,024 bytes with MSG_PEEK ($2 in d2 at $44c8), scans for a
+     * CR with an LF behind it, and only then reads that many bytes for real.
+     * A buffer with no CRLF in it answers the null string and takes nothing
+     * off the socket. The terminator IS counted into the read length and then
+     * written over with a NUL at $450e, which is how it stays out of the
+     * answer.
+     */
+    'tcp read$': (_, a): Value => {
+      void socketOf(s(), int(a[0]!))
+      return VS('')
+    },
+
+    /**
+     * `D=Tcp User(socket)` and `S=Tcp Accept(socket)`.
+     *
+     * `Tcp User` is the one socket-taking keyword that does NOT raise: $452e
+     * is `beq` to the exit with d3 already zeroed. `Tcp Accept` does raise,
+     * and answers -1 when accept (-$30) fails or the new node will not
+     * allocate — "Tcp Accept creates and returns a new socket associated to
+     * the remote client".
+     */
+    'tcp user': (_, a): Value => VI(s().sockets.get(int(a[0]!))?.user ?? 0),
+    'tcp accept': (_, a): Value => {
+      void socketOf(s(), int(a[0]!))
+      return VI(TCP_NO_SOCKET)
+    },
+
+    /**
+     * `T=Tcp Abort(socket)` — "doesn't close the network connection with the
+     * remote server but simply disable the automatic download".
+     *
+     * $493a clears the file, the buffer and the counts at `$30`, `$34` and
+     * `$38`, and answers what `$38` held — the download mode. "NOTE: Only on
+     * the specified socket the download is aborted".
+     *
+     * DEFECT: a socket it cannot find returns without setting d3 OR d2.
+     * $4942's `beq` jumps past both, so the answer is whatever the last
+     * function left in the value register and the TYPE is whatever was in d2
+     * — which for a string-returning caller means AMOS reads a string
+     * pointer out of an integer. Answered as 0 here.
+     */
+    'tcp abort': (_, a): Value => {
+      const sock = s().sockets.get(int(a[0]!))
+      if (sock === undefined) return VI(0)
+      sock.download = ''
+      return VI(0)
+    },
+
+    /**
+     * `S=Tcp Socket`, `BYTES=Tcp Total` and `BYTES=Tcp Recvd` — three words
+     * of state, one `move.l` each.
+     *
+     * `Tcp Socket` is `$2e4`, "the socket number associated to the last
+     * TCP/IP event". The other two are `$2e8` and `$2c0`, the running total
+     * and the last chunk of an automatic download.
+     */
+    'tcp socket': (): Value => VI(s().tcpSocket),
+    'tcp total': (): Value => VI(s().tcpTotal),
+    'tcp recvd': (): Value => VI(s().tcpRecvd),
+
+    /**
+     * `R=Tcp Response` — "returns automatically the value of the response
+     * code held in the string... Obviously you must use this command AFTER
+     * the Tcp Line$ command".
+     *
+     * $46c8 does not parse the line it was given. It writes a NUL over the
+     * FOURTH byte of the scratch buffer and hands the first three to
+     * dos.library's StrToLong (-$330), so "200 HELLO mail.server.com" answers
+     * 200 because the code happens to be three digits and a space.
+     *
+     * DEFECT: a response code that is not exactly three characters comes back
+     * wrong, and there is nothing in the guide's example to warn about it. A
+     * four-digit code answers its first three digits; a two-digit one answers
+     * the two digits and whatever the separator is.
+     */
+    'tcp response': (): Value => {
+      const line = s().tcpLine
+      const n = Number.parseInt(line.slice(0, 3), 10)
+      return VI(Number.isNaN(n) ? 0 : n)
+    },
+
+    /**
+     * `HOST$=Tcp Host$` — "simply returns the host name assigned to your
+     * computer", through gethostname (-$11a) into the $100-byte scratch.
+     *
+     * DEFECT: it does not test `$144`. $46f8 loads the socket base and calls
+     * through it whether or not bsdsocket.library ever opened, so on a
+     * machine with no Internet stack this jumps through address zero. `Tcp
+     * Error` beside it DOES test. The empty string is what the routine would
+     * have answered had it checked — $4708 loads the null string before the
+     * call and only overwrites it on success.
+     */
+    'tcp host$': (): Value => VS(''),
+
+    /**
+     * `E=Tcp Error` — "the error code associated to the event", which is
+     * bsdsocket.library's `Errno` (-$a2) and the guide prints the whole
+     * errno table for.
+     *
+     * DEFECT: with no library open $4972 branches to the `rts` without
+     * touching d3 OR d2, so the answer is the previous function's value AND
+     * its type. The same shape as `Tcp Abort`'s miss, and the two are the
+     * only places in the extension where a function can return a string
+     * pointer as an integer. Zero here.
+     */
+    'tcp error': (): Value => VI(0),
 
     /**
      * `A=Gui Border(window,border)` — the size of one of a window's four

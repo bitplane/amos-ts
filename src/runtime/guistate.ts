@@ -378,6 +378,22 @@ export const WBTOOL = 3
  * `path` is what the program named, kept because the filesystem reports
  * changes by path and the match is made here rather than by a handler.
  */
+/**
+ * One entry of the socket chain at `$2dc`, as routine 227 AllocVecs it.
+ *
+ * `$4` is the bsdsocket descriptor every keyword names it by, `$24` the user
+ * data `Tcp Open`'s third argument set and `Tcp Set` changes, and `$28` to
+ * `$38` the file, the buffer and the counts `Tcp Download` fills in.
+ */
+export interface GuiSocket {
+  /** `$4`, the number `Tcp Open` and `Tcp Listen` hand back */
+  readonly fd: number
+  /** `$24`, "a free value for the user" */
+  user: number
+  /** `$28`: the file `Tcp Download` is writing to, or empty */
+  download: string
+}
+
 export interface GuiNotify {
   /** what `Gui Code` answers on the event -14 this raises */
   readonly id: number
@@ -907,6 +923,23 @@ export class GuiState {
    * program that never called `Xfa Check` reads zeroes.
    */
   xfa = { width: 0, height: 0, modeId: 0, depth: 0, pack: 0, frames: 0 }
+  /**
+   * The TCP group's state: the socket list at `$2dc` and the four words the
+   * readers answer from.
+   *
+   * `sockets` is the chain routine 226 walks comparing `$4` of each node, and
+   * it is empty for as long as bsdsocket.library will not open -- which here
+   * is always. See ./gui.ts's `Tcp Open` for why the whole group is written
+   * against a stack that is not there.
+   */
+  readonly sockets = new Map<number, GuiSocket>()
+  /** `$2e4`, the socket the last event named, which `Tcp Socket` reads */
+  tcpSocket = 0
+  /** `$2e8` and `$2c0`: the download totals `Tcp Total` and `Tcp Recvd` read */
+  tcpTotal = 0
+  tcpRecvd = 0
+  /** the last line `Tcp Read$` left in the scratch, which `Tcp Response` parses */
+  tcpLine = ''
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**
