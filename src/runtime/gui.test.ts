@@ -16,6 +16,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost } from './gui'
 import { readGuiBank } from './guibank'
+import { DEFAULT_MOUSE_QUEUE } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
 import { parseAmosFile } from '../loader/amosfile'
@@ -539,5 +540,122 @@ describeWith('the three text pens', exampleBank(), (bank) => {
   it('and only Writing needs a Gfx output', () => {
     expect(() => run('Gui Pen 5 : Gui Paper 3', bank)).not.toThrow()
     expect(() => run('Gui Writing 1', bank)).toThrow(GUI_ERRORS[GUI_ERR.GFX_NOT_DEFINED])
+  })
+})
+
+/**
+ * The mouse group, ten keywords the guide documents fully and the binary
+ * settles the details of.
+ *
+ * Three of them read the pointer through a Screen this port has not opened,
+ * so what a screen coordinate IS here is `screenMouse`'s deviation and the
+ * numbers below follow from it: hardware X 128 and hardware line 44 are the
+ * top left of a hires 640x256 Workbench.
+ */
+describeWith('the mouse group', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /** put the pointer somewhere and read the two screen coordinates back */
+  function atHardware(x: number, y: number, src: string): number[] {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, gui]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Gui', flags: 0, data: bank })
+    rt.input.mouseX = x
+    rt.input.mouseY = y
+    mustFinish(rt.runHeadless(500))
+    return out.trim().split('\n').map(Number)
+  }
+
+  /**
+   * `Screen.MouseX` is at $12 and `MouseY` at $10, because the struct stores
+   * Y first. Hardware 128,44 is the Workbench's top left, and X doubles
+   * because the screen is hires.
+   */
+  it('Gui Mouse X and Y are the pointer on the Workbench screen', () => {
+    expect(atHardware(128, 44, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([0, 0])
+    expect(atHardware(228, 144, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([200, 100])
+  })
+
+  it('and are clamped to the screen, which is where intuition keeps them', () => {
+    expect(atHardware(0, 0, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([0, 0])
+    expect(atHardware(9999, 9999, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([639, 255])
+  })
+
+  /**
+   * BootSelector's window sits at the position its editor saved. Wx and Wy
+   * are the same pointer less that corner, and unlike X and Y they are not
+   * clamped: intuition lets a window's MouseX go negative when the pointer
+   * leaves it.
+   */
+  it('Gui Mouse Wx and Wy take the window s corner off', () => {
+    const rt = run(open, bank)
+    const w = rt.gui.windows.get(1)!
+    const got = atHardware(228, 144, `${open} : Print Gui Mouse Wx : Print Gui Mouse Wy`)
+    expect(got).toEqual([200 - w.left, 100 - w.top])
+  })
+
+  /** the `moveq #$a,d7` at $2a0a, which is 10 and not the drawing keywords' 11 */
+  it('Gui Mouse Wx raises Window not open with no Gfx window', () => {
+    expect(() => run('Print Gui Mouse Wx', bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+    expect(() => run('Print Gui Mouse Wy', bank)).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+  })
+
+  /**
+   * "you'll get the CURRENT mouse coord wich may be different from the point
+   * where the user has clicked" -- so Ex and Ey are the event's, taken from
+   * the IntuiMessage rather than from the pointer.
+   */
+  it('Gui Mouse Ex and Ey hold where the event happened, not where the pointer is', () => {
+    const rt = run(open, bank)
+    guiPost(rt, 1, GUI_EVENT.MOUSECLICK, 0, '', [77, 88])
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.MOUSECLICK)
+    expect([rt.gui.eventX, rt.gui.eventY]).toEqual([77, 88])
+    // an event with no position leaves the last one standing: nothing clears
+    // the two words
+    guiPost(rt, 1, GUI_EVENT.CLOSE)
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.CLOSE)
+    expect([rt.gui.eventX, rt.gui.eventY]).toEqual([77, 88])
+  })
+
+  it('Gui Mouse Mode is a word the pump reads, and takes anything', () => {
+    expect(run('Gui Mouse Mode 1', bank).gui.mouseMode).toBe(1)
+    expect(run('Gui Mouse Mode 0', bank).gui.mouseMode).toBe(0)
+  })
+
+  /** SetMouseQueue's argument, over intuition's own default of five */
+  it('Gui Mouse Queue is per window and starts at intuition s five', () => {
+    const rt = run(`${open} : Gui Open 2,1 : Gui Mouse Queue 1,40`, bank)
+    expect(rt.gui.windows.get(1)!.mouseQueue).toBe(40)
+    expect(rt.gui.windows.get(2)!.mouseQueue).toBe(DEFAULT_MOUSE_QUEUE)
+  })
+
+  it('Gui Mouse Report is WFLG_REPORTMOUSE, and off to begin with', () => {
+    expect(run(open, bank).gui.windows.get(1)!.reportMouse).toBe(false)
+    expect(run(`${open} : Gui Mouse Report 1,-1`, bank).gui.windows.get(1)!.reportMouse).toBe(true)
+    // the word beside the flag only ever tests bit 0, so a second True
+    // changes nothing and one False clears it
+    expect(run(`${open} : Gui Mouse Report 1,-1 : Gui Mouse Report 1,-1 : Gui Mouse Report 1,0`, bank).gui.windows.get(1)!.reportMouse).toBe(false)
+  })
+
+  /**
+   * The inversion, which is the one thing about this group a program can get
+   * backwards: True means intuition keeps the button and the menus still pop
+   * up. $2c12 CLEARS RMBTRAP for True.
+   */
+  it('Gui Rmb True leaves the button to intuition and False takes it', () => {
+    expect(run(open, bank).gui.windows.get(1)!.rmb).toBe(true)
+    expect(run(`${open} : Gui Rmb 1,False`, bank).gui.windows.get(1)!.rmb).toBe(false)
+    expect(run(`${open} : Gui Rmb 1,False : Gui Rmb 1,True`, bank).gui.windows.get(1)!.rmb).toBe(true)
+  })
+
+  it('every one that names a window raises when it is not open', () => {
+    for (const kw of ['Gui Mouse Queue 9,40', 'Gui Mouse Report 9,-1', 'Gui Rmb 9,0']) {
+      expect(() => run(kw, bank), kw).toThrow(GUI_ERRORS[GUI_ERR.WINDOW_NOT_OPEN])
+    }
   })
 })

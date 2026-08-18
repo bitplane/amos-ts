@@ -100,6 +100,14 @@ export const GUI_CLOSE = {
 export const DEFAULT_GUI_BANK = 20
 
 /**
+ * What intuition queues before it starts discarding, from the guide's own
+ * sentence at `Gui Mouse Queue`: "Usually intuition queue a maximum of 5
+ * mouse movements". It is intuition's default and not this extension's, so
+ * nothing in the binary writes it.
+ */
+export const DEFAULT_MOUSE_QUEUE = 5
+
+/**
  * `Gui Menu(4)`, the argument that is not a field.
  *
  * Routine 4 tests for it first, `cmp.w #$4,d0 / beq` at $1d00, and only then
@@ -156,6 +164,28 @@ export interface GuiWindow {
   ghosted: Set<number>
   /** `Gui Range`, the clip an INTEGER gadget's input is held to */
   ranges: Map<number, [number, number]>
+  /**
+   * `Gui Mouse Report`: WFLG_REPORTMOUSE, which $2dee sets and $2de8 clears
+   * straight in `Window.Flags` rather than through intuition's ReportMouse.
+   *
+   * The binary keeps a WORD beside it and tests only bit 0, so the counter it
+   * looks like cannot count: two `True`s in a row leave it at 1 and one
+   * `False` clears it. A boolean is what it is.
+   */
+  reportMouse: boolean
+  /**
+   * `Gui Rmb`: WFLG_RMBTRAP, INVERTED. `Gui Rmb w,True` CLEARS the bit
+   * ($2c12) and lets intuition pop its menus up; `Gui Rmb w,False` sets it
+   * ($2c08) and the program gets a -11 instead. True here is the guide's
+   * True, so it means "intuition handles it".
+   */
+  rmb: boolean
+  /**
+   * `Gui Mouse Queue`: SetMouseQueue's length. "Usually intuition queue a
+   * maximum of 5 mouse movements, and discard all the other if you don't read
+   * them in time".
+   */
+  mouseQueue: number
   /** the order it was opened in, which `Gui Close` reports on */
   openedAt: number
   /**
@@ -184,6 +214,16 @@ export interface GuiWindow {
 export interface GuiEvent {
   /** the gadget number, or one of GUI_EVENT */
   code: number
+  /**
+   * Where the pointer was, for `Gui Mouse Ex` and `Gui Mouse Ey`.
+   *
+   * The library copies `$20(a1)` and `$22(a1)` out of the IntuiMessage at
+   * $6d0a, which are its MouseX and MouseY. Absent on an event that carries
+   * no position, which leaves the last one standing exactly as the two state
+   * words do.
+   */
+  mouseX?: number
+  mouseY?: number
   /** what `Gui Code` answers, and -1 once read */
   result: number
   /** what `Gui Code$` answers */
@@ -229,6 +269,20 @@ export class GuiState {
   pen = 1
   paper = 0
   writing = 0
+  /**
+   * `Gui Mouse Mode`, one word at `$2a0`.
+   *
+   * Zero is the default and reports both halves of a click; anything else
+   * reports only the release. The pump at $709a tests it and then compares
+   * the raw code against $e8, $e9 and $ea -- SELECTUP, MENUUP and MIDDLEUP --
+   * letting those three through and swallowing everything else. That is the
+   * guide's "1 when you click the button, and another when you let go"
+   * reduced to one, and it is the UP that survives.
+   */
+  mouseMode = 0
+  /** `$29c` and `$29e`: where the pointer was for the last event reported */
+  eventX = 0
+  eventY = 0
   /**
    * The library's own gadtools instance, which owns every menu strip.
    *
@@ -288,6 +342,9 @@ export class GuiState {
       strings: new Map(),
       ghosted: new Set(),
       ranges: new Map(),
+      reportMouse: false,
+      rmb: true,
+      mouseQueue: DEFAULT_MOUSE_QUEUE,
       openedAt: this.opens++,
       strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,
       rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
@@ -416,6 +473,8 @@ export class GuiState {
       if (this.windows.get(e.window)?.locked === true) continue
       this.last = e
       this.selected = e.window
+      if (e.mouseX !== undefined) this.eventX = e.mouseX
+      if (e.mouseY !== undefined) this.eventY = e.mouseY
       return e.code
     }
   }

@@ -26,9 +26,10 @@ import type { Runtime } from './runtime'
 import { readGuiBank } from './guibank'
 import { GUI_EVENT, GuiState, packMenuNumber } from './guistate'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
-import type { GuiWindow } from './guistate'
+import type { GuiEvent, GuiWindow } from './guistate'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { TITLE_HEIGHT, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import type { Interp } from '../interp/interp'
 
 export function newGuiState(): GuiState {
   return new GuiState()
@@ -126,6 +127,27 @@ function designs(rt: Runtime, s: GuiState): void {
  */
 function target(g: GuiState): GuiWindow | null {
   return g.windows.get(g.actual) ?? g.windows.get(g.selected) ?? null
+}
+
+/**
+ * The pointer in Workbench screen coordinates.
+ *
+ * `Gui Mouse X` reads `$12` of the Screen at `$1d2` and `Gui Mouse Y` reads
+ * `$10`, which are `Screen.MouseX` and `Screen.MouseY` -- the two are stored
+ * Y first, which is why the offsets look swapped.
+ *
+ * DEVIATION: there is no Screen under these windows here. The pointer this
+ * port has is AMOS's, in hardware coordinates, so it is converted the way
+ * `Screen.hardToScreenX` converts for a hires 640-wide Workbench: twice the
+ * distance from the standard display origin at 128, and down from the
+ * Workbench's own top edge at line 44. Clamped to the screen box, because
+ * intuition does not let the pointer leave it and a program reading a
+ * negative MouseX would be reading something the machine cannot produce.
+ */
+function screenMouse(it: Interp): [number, number] {
+  const x = (it.inp.mouseX - 128) * 2
+  const y = it.inp.mouseY - WB_DISPLAY_Y
+  return [Math.max(0, Math.min(WB_WIDTH - 1, x)), Math.max(0, Math.min(WB_HEIGHT - 1, y))]
 }
 
 /**
@@ -300,10 +322,72 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       g.gfxToScreen = type !== 0
       if (type === 0) {
-        if (g.exists(n)) g.actual = n
+        // routine 251's window arm sets `moveq #$a,d7` at $67d8 before it
+        // looks, so naming a closed window here is "Window not open"
+        windowOf(g, n)
+        g.actual = n
       } else {
         g.gfxScreen = n
       }
+    },
+
+    /**
+     * `Gui Mouse Mode 0|1` — "Alter frequency of Mouse Click events".
+     *
+     * "by default you'll receive two -11 events, 1 when you click the button,
+     * and another when you let go. If you set Gui Mouse Mode to 1, this will
+     * change to just 1 event". $2ace stores the word and checks nothing; the
+     * pump at $709a is where it means anything, and the event it keeps is the
+     * RELEASE: $70a2 lets $e8, $e9 and $ea through, which are SELECTUP,
+     * MENUUP and MIDDLEUP.
+     */
+    'gui mouse mode': (it) => {
+      s().mouseMode = it.evalInt() & 0xffff
+    },
+
+    /**
+     * `Gui Mouse Queue window,limit` — "Expand mouse queue limit".
+     *
+     * Straight to intuition's `SetMouseQueue` (-$1f2) at $3886 with the
+     * window and the number. "Usually intuition queue a maximum of 5 mouse
+     * movements, and discard all the other if you don't read them in time!"
+     */
+    'gui mouse queue': (it) => {
+      const n = it.evalInt()
+      it.expect(',')
+      windowOf(s(), n).mouseQueue = it.evalInt()
+    },
+
+    /**
+     * `Gui Mouse Report window,mode` — "Activate events reports on every
+     * mouse movement", which is WFLG_REPORTMOUSE.
+     *
+     * The library sets and clears the bit in `Window.Flags` itself, `ori.l
+     * #$200,$18(a0)` at $2dee and an AND at $2de8, rather than calling
+     * intuition's ReportMouse. The word beside it at `$3e(a1)` looks like a
+     * nesting count and is not one: only bit 0 is ever tested, so two
+     * consecutive Trues leave it at one and a single False clears it.
+     */
+    'gui mouse report': (it) => {
+      const n = it.evalInt()
+      it.expect(',')
+      windowOf(s(), n).reportMouse = it.evalInt() !== 0
+    },
+
+    /**
+     * `Gui Rmb window,mode` — "Enable the use of the Right mouse button".
+     *
+     * INVERTED, and the guide says so in words while the binary says it in
+     * bits: "Gui Rmb 1,True   The RMB will be detected as normal by
+     * intuition" clears WFLG_RMBTRAP ($2c12), and False SETS it ($2c08) so
+     * the program gets a -11 instead. Its own closing warning is the
+     * consequence: "If YOU monitor the right mouse button, the menus aren't
+     * displayed!"
+     */
+    'gui rmb': (it) => {
+      const n = it.evalInt()
+      it.expect(',')
+      windowOf(s(), n).rmb = it.evalInt() !== 0
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -775,6 +859,50 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui menu': (_, a): Value => VI(s().menuField(int(a[0]!))),
 
+    /**
+     * `A=Gui Mouse X` and `A=Gui Mouse Y` — "the screen coordinates of the
+     * mouse". See `screenMouse` for what stands in for the screen here.
+     */
+    'gui mouse x': (it): Value => VI(screenMouse(it)[0]),
+    'gui mouse y': (it): Value => VI(screenMouse(it)[1]),
+
+    /**
+     * `A=Gui Mouse Wx` and `Wy` — the same, less the window's own corner.
+     * "The top-left coordinates of a window are 0,0."
+     *
+     * `Window.MouseX` and `MouseY`, at $e and $c of the Window intuition
+     * keeps up to date. The window is the Gfx one rather than the selected
+     * one: $2a0c reads `$1c2`, which `Gui Gfx` sets and `Gui Actual` reports
+     * the number of. Error 10 when there is none, from the `moveq #$a,d7` at
+     * $2a0a -- so this is the one pair that raises "Window not open" where
+     * everything else drawing-shaped raises "Gfx output not defined".
+     */
+    'gui mouse wx': (it): Value => {
+      const w = target(s()) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      return VI(screenMouse(it)[0] - w.left)
+    },
+    'gui mouse wy': (it): Value => {
+      const w = target(s()) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
+      return VI(screenMouse(it)[1] - w.top)
+    },
+
+    /**
+     * `A=Gui Mouse Ex` and `Ey` — where the pointer was when the last event
+     * happened, rather than where it is now.
+     *
+     * "if the user click the mouse you'll receive the -11 event, but if you
+     * try to get the mouse coords using Gui Mouse Wx you'll get the CURRENT
+     * mouse coord wich may be different from the point where the user has
+     * clicked." The guide lists three events that fill them in: -11 mouse
+     * click, -12 mouse move and -15 icon drag'n'drop.
+     *
+     * Two words at `$29c` and `$29e`, copied out of the IntuiMessage at
+     * $6d0a. They are never cleared, so after an event that carries no
+     * position they still hold the last one that did.
+     */
+    'gui mouse ex': (): Value => VI(s().eventX),
+    'gui mouse ey': (): Value => VI(s().eventY),
+
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
 
@@ -908,8 +1036,20 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
 /** the event codes, re-exported so the tests and later keyword groups share them */
 export { GUI_EVENT }
 
-/** what a caller outside the extension needs to raise an event */
-export function guiPost(rt: Runtime, window: number, code: number, result = 0, text = ''): void {
-  rt.gui.post({ code, result, text, window })
+/**
+ * What a caller outside the extension needs to raise an event.
+ *
+ * `at` is where the pointer was, which the three events the guide lists for
+ * `Gui Mouse Ex` carry: -11 mouse click, -12 mouse move and -15 icon
+ * drag'n'drop. Omitting it leaves the two state words holding the last
+ * position that was reported, which is what the library does.
+ */
+export function guiPost(rt: Runtime, window: number, code: number, result = 0, text = '', at?: [number, number]): void {
+  const e: GuiEvent = { code, result, text, window }
+  if (at !== undefined) {
+    e.mouseX = at[0]
+    e.mouseY = at[1]
+  }
+  rt.gui.post(e)
 }
 
