@@ -70,13 +70,49 @@ export interface GuiGadget {
   /** ng_Flags */
   flags: number
   /**
-   * ng_UserData.
+   * ng_UserData, which GuiConv gives THREE meanings depending on the kind.
    *
-   * For an image gadget this is the BOB NUMBER, which is GuiConv's own use of
-   * a field gadtools leaves to the caller: `Loke _STRUCTS+26,B0B`. The guide
-   * says the next bob after it is the selected state.
+   * gadtools leaves the field to the caller and Ghizzoni took it up for all
+   * three, in three different branches of `_ADDGAD`:
+   *
+   *   IMAGE            the BOB NUMBER, `Loke _STRUCTS+26,B0B`, and the guide
+   *                    says the next bob after it is the selected state
+   *   LISTVIEW, MX,    the ITEM COUNT LESS ONE, `Loke USER,N-1` in the LIST
+   *   CYCLE            branch, so eight items store seven
+   *   TEXT             1 when the gadget is a PROGRESS BAR, from the STRING
+   *                    branch's `If Upper$(S$)-Chr$(0)="PBAR" and
+   *                    LTYPE=_TEXT: S$=Chr$(0): Loke USER,1`
+   *
+   * The fields below carry each of those already read out, so a caller does
+   * not have to know which meaning is in force.
    */
   userData: number
+  /**
+   * The label beside the gadget, out of the label chain.
+   *
+   * NOT PROVEN, unlike everything else here. `_ADDGAD` writes one name label
+   * per gadget before any payload, so the chain is names and payloads
+   * interleaved in gadget order and this walks it that way. What cannot be
+   * checked from the two banks held is whether a LISTVIEW consumes a label
+   * this walk does not know about: its GTLV_Labels tag is excluded from the
+   * converter's own payload test, yet reading GuiDemo either way gives a
+   * plausible set of names shifted by one. Nothing in the port depends on it,
+   * and `items` and `text` beside it are exact.
+   */
+  name: string
+  /** LISTVIEW, MX and CYCLE: the items, which `Gui Read$` selects from */
+  items: string[]
+  /** STRING and TEXT: the default text the editor was given */
+  text: string
+  /**
+   * A TEXT gadget the editor was given the default string "PBAR".
+   *
+   * The guide describes it as the extension's own invention: "The
+   * gadtools.library don't allows you to create a progress bar gadget, but
+   * this kind of gadget is very usefull, and so i've created this for you!"
+   * The converter recognises the string, empties the label and sets UserData.
+   */
+  progressBar: boolean
 }
 
 /** one GUI in the bank; a bank may chain several */
@@ -99,8 +135,12 @@ export interface Gui {
   hasMenus: boolean
   /** the converter version at +48 */
   version: number
-  /** the raw tag area, which the keywords read per gadget */
+  /** the raw tag area, kept so a caller can re-split it */
   tags: Uint8Array
+  /** one tag list per gadget, in gadget order */
+  gadgetTags: TagPair[][]
+  /** the window's own OpenWindowTagList, which follows the gadgets' */
+  windowTags: TagPair[]
 }
 
 const u16 = (b: Uint8Array, at: number): number => (b[at]! << 8) | b[at + 1]!
@@ -112,31 +152,143 @@ const u32 = (b: Uint8Array, at: number): number =>
   ((b[at]! << 24) | (b[at + 1]! << 16) | (b[at + 2]! << 8) | b[at + 3]!) >>> 0
 
 /**
- * The label chain: NUL-terminated strings, each padded to an even length,
- * ending at a word of 768.
+ * The four tags that make a gadget carry a label payload at all.
  *
- * `_ADDLAB` writes an absent label as `Chr$(2)+Chr$(0)`, so a lone $02 is an
- * empty string rather than a control character, and the count of labels is
- * what ties them to the gadgets that have them.
+ * `_ADDGAD` sets its `TX` flag on exactly these, subtracting the tag base
+ * first: `If T=%1110 or T=%101101 or T=%1001 or T=%1011: TX=True`, which is
+ * $0e GTCY_Labels, $2d GTST_String, $09 GTMX_Labels and $0b GTTX_Text. If TX
+ * is still false the procedure returns before writing anything.
+ *
+ * GTLV_Labels ($06) IS NOT ON THAT LIST, and its absence is the whole reason
+ * a LISTVIEW has no items in the bank: its list comes from a program's own
+ * array at run time, through `Gui Set window,gadget,1,Array(...)`. The
+ * converter even zeroes the tag's data on the way past, `Leek(TG+4) and
+ * (T><...0110)`. Keying the payload off the KIND instead of off these tags
+ * gives a listview one phantom item stolen from the next gadget's name.
  */
-function readLabels(b: Uint8Array, at: number): string[] {
-  const out: string[] = []
-  let p = at
-  while (p + 2 <= b.length) {
-    if (u16(b, p) === LABEL_END) break
-    if (b[p] === LABEL_EMPTY && b[p + 1] === 0) {
-      out.push('')
-      p += 2
-      continue
-    }
-    let end = p
-    while (end < b.length && b[end] !== 0) end++
-    out.push(String.fromCharCode(...b.subarray(p, end)))
-    // past the NUL, then up to an even boundary as EVEN[] left it
-    p = end + 1
-    if ((p - at) % 2 === 1) p++
+const PAYLOAD_TAGS = new Set([0x8008_000e, 0x8008_002d, 0x8008_0009, 0x8008_000b])
+/** GTCY_Labels and GTMX_Labels: the payload is a list of items */
+const LIST_TAGS = new Set([0x8008_000e, 0x8008_0009])
+/** `S$=S$+Chr$(1)+Chr$(0)` closes a list payload */
+const LIST_END = 0x01
+
+/**
+ * A reader over the label chain.
+ *
+ * `_ADDLAB` writes each label as a NUL-terminated string padded to an even
+ * length, an absent one as `Chr$(2)+Chr$(0)`, and `Doke LABEL,768` ends the
+ * whole chain. So a lone $02 is an empty string rather than a control
+ * character.
+ */
+class Labels {
+  private p: number
+  constructor(
+    private readonly b: Uint8Array,
+    private readonly start: number,
+  ) {
+    this.p = start
   }
-  return out
+
+  atEnd(): boolean {
+    return this.p + 2 > this.b.length || u16(this.b, this.p) === LABEL_END
+  }
+
+  /** the byte a `next()` would start on, for the callers that peek */
+  peekByte(): number {
+    return this.b[this.p] ?? 0
+  }
+
+  next(): string {
+    if (this.atEnd()) return ''
+    if (this.b[this.p] === LABEL_EMPTY && this.b[this.p + 1] === 0) {
+      this.p += 2
+      return ''
+    }
+    let end = this.p
+    while (end < this.b.length && this.b[end] !== 0) end++
+    const s = String.fromCharCode(...this.b.subarray(this.p, end))
+    this.p = end + 1
+    if ((this.p - this.start) % 2 === 1) this.p++
+    return s
+  }
+
+  /** every label from here on, which is what a caller wanting the raw chain gets */
+  rest(): string[] {
+    const out: string[] = []
+    while (!this.atEnd()) out.push(this.next())
+    return out
+  }
+}
+
+/**
+ * Walk the chain the way `_ADDGAD` wrote it: each gadget's NAME, then its
+ * payload if its TAGS asked for one.
+ *
+ * A list payload is `N` strings closed by `Chr$(1)+Chr$(0)`, and N is
+ * `userData + 1` because the converter stored `N-1`. A string payload is one
+ * string. Everything else contributes only its name, which is why this walks
+ * rather than indexes: the chain has no per-gadget marker, only order.
+ *
+ * The terminator is what the count is checked against rather than trusted
+ * from: a list stops at the `Chr$(1)` whether or not `userData` agreed, so a
+ * bank whose count is wrong loses one gadget's labels instead of every
+ * gadget's after it.
+ */
+function readGadgetLabels(b: Uint8Array, at: number, gadgets: GuiGadget[], tags: TagPair[][]): void {
+  const chain = new Labels(b, at)
+  for (const [i, g] of gadgets.entries()) {
+    g.name = chain.next()
+    const payload = (tags[i] ?? []).find((t) => PAYLOAD_TAGS.has(t.tag))
+    if (payload === undefined) continue
+    if (LIST_TAGS.has(payload.tag)) {
+      const count = g.userData + 1
+      for (let n = 0; n < count && !chain.atEnd(); n++) {
+        if (chain.peekByte() === LIST_END) break
+        g.items.push(chain.next())
+      }
+      if (chain.peekByte() === LIST_END) chain.next()
+    } else {
+      g.text = chain.next()
+    }
+  }
+}
+
+/** one tag and its data, as GuiConv writes them: two longwords */
+export interface TagPair {
+  tag: number
+  data: number
+}
+
+/**
+ * Split the tag area into one list per gadget, and whatever follows.
+ *
+ * `_ADDGAD` writes each gadget's tags as (tag, data) longword pairs and
+ * closes the list with a single zero LONGWORD rather than a pair:
+ * `Loke _TAG,0: Add _TAG,4`. What is left after the last gadget's list is the
+ * WINDOW's own tag list, which is why a walk that stopped at the gadget count
+ * would leave 400-odd bytes unexplained. Its first tag is $80000064, which is
+ * Intuition's WA_Left.
+ */
+export function readTags(area: Uint8Array, count: number): { gadgets: TagPair[][]; window: TagPair[] } {
+  const dv = new DataView(area.buffer, area.byteOffset, area.byteLength)
+  let at = 0
+  const read = (): TagPair[] => {
+    const out: TagPair[] = []
+    for (;;) {
+      if (at + 4 > area.length) return out
+      const tag = dv.getUint32(at)
+      if (tag === 0) {
+        at += 4
+        return out
+      }
+      if (at + 8 > area.length) return out
+      out.push({ tag, data: dv.getUint32(at + 4) })
+      at += 8
+    }
+  }
+  const gadgets: TagPair[][] = []
+  for (let i = 0; i < count; i++) gadgets.push(read())
+  return { gadgets, window: read() }
 }
 
 /**
@@ -178,8 +330,18 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
       id: u16(b, s + 16),
       flags: u32(b, s + 18),
       userData: u32(b, s + 26),
+      name: '',
+      items: [],
+      text: '',
+      progressBar: false,
     })
   }
+
+  // a TEXT gadget the converter turned into a progress bar carries UserData 1
+  for (const g of gadgets) if (g.kind === 13 && g.userData === 1) g.progressBar = true
+  const tagArea = b.subarray(offset + tagsAt, offset + structsAt)
+  const split = readTags(tagArea, count)
+  readGadgetLabels(b, offset + labelsAt, gadgets, split.gadgets)
 
   let left = 0
   let top = 0
@@ -205,11 +367,13 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     height,
     idcmp,
     gadgets,
-    labels: readLabels(b, offset + labelsAt),
+    labels: new Labels(b, offset + labelsAt).rest(),
     imageGadgets,
     hasMenus: u16(b, offset + 40) !== 0,
     version,
-    tags: b.subarray(offset + tagsAt, offset + structsAt),
+    tags: tagArea,
+    gadgetTags: split.gadgets,
+    windowTags: split.window,
   }
 }
 

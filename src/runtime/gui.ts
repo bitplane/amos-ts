@@ -599,11 +599,18 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *
      * "For all the other kind of gadgets a empty string will be returned."
      *
-     * DEVIATION: LISTVIEW and CYCLE. Their selected item is a string out of
-     * a label array the bank carries in its tag area, and this port does not
-     * decode which array belongs to which gadget yet. What comes back is what
-     * `Gui Set$` put there, so a program that set its own text reads it and
-     * one relying on the design's labels reads nothing.
+     * A CYCLE selects out of the item list the bank carries, indexed by its
+     * attribute 0, which is what `Gui Code` reports when the user clicks it:
+     * "CYCLE - Currently selected item (in order of list, 0 is first entry)".
+     * Anything `Gui Set$` put there wins, since a program that set its own
+     * text meant it.
+     *
+     * DEVIATION: LISTVIEW. Its items are not in the bank and cannot be: the
+     * converter excludes GTLV_Labels from the tags that make a gadget carry a
+     * payload and zeroes its data on the way past, because a listview's list
+     * arrives at run time from a program's own array through `Gui Set
+     * window,gadget,1,Array(...)`. Until that attribute takes an array rather
+     * than a number, a LISTVIEW answers what `Gui Set$` gave it.
      */
     'gui read$': (_, a): Value => {
       const g = s()
@@ -611,9 +618,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       const id = int(a[1]!)
       if (w === undefined) return VS('')
       const gadget = g.gadget(w, id)
-      if (gadget === null) return VS('')
-      if (!READ_STRING_KINDS.has(gadget.kind)) return VS('')
-      return VS(w.strings.get(id) ?? '')
+      if (gadget === null || !READ_STRING_KINDS.has(gadget.kind)) return VS('')
+      const set = w.strings.get(id)
+      if (set !== undefined) return VS(set)
+      if (gadget.items.length > 0) return VS(gadget.items[g.attrsOf(w, id)[0]] ?? '')
+      return VS(gadget.text)
     },
 
     /**

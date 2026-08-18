@@ -187,3 +187,94 @@ describeWith('BootSelector.Amos bank 20', exampleBank(), (bank) => {
     expect(found).toBeGreaterThan(0)
   })
 })
+
+/**
+ * The GUI 1.62 demo, which is the only bank held that carries every gadget
+ * kind. `GuiExt162/GuiExtension/Demos/GuiDemo.Amos` off Aminet, 2,796 bytes
+ * in bank 20, and its converter version is 20 rather than the 40 BootSelector
+ * carries: an older writer the same reader handles.
+ */
+const DEMO = '../amos-files/sources/aminet-dev-amos/files/GuiExt162/GuiExtension/Demos/GuiDemo.Amos'
+
+function demoBank(): Uint8Array | null {
+  if (!haveCorpus()) return null
+  try {
+    const file = parseAmosFile(new Uint8Array(readFileSync(DEMO)))
+    const b = file?.banks.find((x) => 'data' in x && (x as { number?: number }).number === 20)
+    return b && 'data' in b ? (b.data as Uint8Array) : null
+  } catch {
+    return null
+  }
+}
+
+describeWith('GuiDemo.Amos bank 20, every gadget kind', demoBank(), (bank) => {
+  const gui = readGuiBank(bank)[0]!
+
+  it('is an older converter the same reader takes', () => {
+    expect(gui.version).toBe(20)
+    expect(gui.gadgets).toHaveLength(23)
+  })
+
+  /**
+   * The tag area splits into one list per gadget, each closed by a single
+   * zero LONGWORD rather than a pair, and what follows the last gadget is the
+   * WINDOW's own list. Its first tag is $80000064, Intuition's WA_Left, which
+   * is how the tail was identified as a window rather than a 24th gadget.
+   */
+  it('splits the tags per gadget, and the window s follow', () => {
+    expect(gui.gadgetTags).toHaveLength(23)
+    expect(gui.windowTags.length).toBeGreaterThan(10)
+    expect(gui.windowTags[0]!.tag).toBe(0x8000_0064)
+    // the first gadget is the listview, and its GTLV_Labels data is zeroed
+    const lv = gui.gadgetTags[0]!.find((t) => t.tag === 0x8008_0006)
+    expect(lv).toBeDefined()
+    expect(lv!.data).toBe(0)
+  })
+
+  /**
+   * CYCLE and MX carry their items in the bank, and `userData` is the count
+   * LESS ONE: `Loke USER,N-1`. Both gadgets store 7 and hold 8.
+   */
+  it('reads a CYCLE s and an MX s items, counted by userData', () => {
+    const cycle = gui.gadgets.find((g) => g.kind === 7)!
+    const mx = gui.gadgets.find((g) => g.kind === 5)!
+    expect(cycle.userData).toBe(7)
+    expect(cycle.items).toHaveLength(cycle.userData + 1)
+    expect(cycle.items).toEqual(['Only', 'Amiga', 'Makes it', 'Possible', 'And', 'AMOS', 'so', 'EASY!!!'])
+    expect(mx.userData).toBe(7)
+    expect(mx.items).toEqual(['0', '1', '2', '3', '4', '5', '6', '7'])
+  })
+
+  /**
+   * A LISTVIEW has NO items in the bank. GuiConv's payload test is on the
+   * tags and GTLV_Labels is not among them, because a listview's list arrives
+   * at run time from a program's array. Keying the payload off the KIND gives
+   * it one phantom item stolen from the next gadget's name.
+   */
+  it('gives a LISTVIEW no items at all', () => {
+    const lv = gui.gadgets.find((g) => g.kind === 4)!
+    expect(lv.items).toEqual([])
+    expect(lv.userData).toBe(0)
+  })
+
+  /**
+   * The progress bar is the extension's own: "Create a TEXT gadget with the
+   * Default string set to PBAR". The converter empties the label and sets
+   * UserData to 1, so a PBAR is a TEXT with no text and userData 1.
+   */
+  it('finds the two progress bars by what the converter left behind', () => {
+    const bars = gui.gadgets.filter((g) => g.progressBar)
+    expect(bars).toHaveLength(2)
+    for (const b of bars) {
+      expect(b.kind).toBe(13)
+      expect(b.userData).toBe(1)
+      expect(b.text).toBe('')
+    }
+  })
+
+  it('leaves every other gadget without items or a bar', () => {
+    const plain = gui.gadgets.filter((g) => ![5, 7].includes(g.kind))
+    for (const g of plain) expect(g.items, `kind ${g.kind}`).toEqual([])
+    expect(gui.gadgets.filter((g) => g.progressBar)).toHaveLength(2)
+  })
+})

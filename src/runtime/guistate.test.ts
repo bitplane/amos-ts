@@ -25,12 +25,18 @@ function design(n: number, box = { left: 10, top: 20, width: 200, height: 100 })
       id: i,
       flags: 0,
       userData: 0,
+      name: '',
+      items: [],
+      text: '',
+      progressBar: false,
     })),
     labels: [],
     imageGadgets: 0,
     hasMenus: false,
     version: 40,
     tags: new Uint8Array(0),
+    gadgetTags: [],
+    windowTags: [],
   }
 }
 
