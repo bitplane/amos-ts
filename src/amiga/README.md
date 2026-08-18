@@ -178,6 +178,7 @@ really does differ from the real one and saying where is the whole job.
 | `bytekiller.ts` | ByteKiller, decrunch only |
 | `stonecracker.ts` | StoneCracker 4.04 (`S404`), decrunch and crunch |
 | `lh.ts` | `lh.library` 1.8, LhDecode and LhEncode |
+| `lha.ts` | the LHA archive, its three header levels, and the lh5 codec |
 | `solaris.ts` | `\SOLARIS/`, the packer on the CRAFT installer disk |
 | `decrunchlib.ts` | `decrunch.library` 35.237, the format identification walk |
 | `decrunchlib.gen.ts` | its tables, generated from the library by `src/cli/gendecrunch.ts` |
