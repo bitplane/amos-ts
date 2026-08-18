@@ -1003,3 +1003,129 @@ describeWith('the zone group', exampleBank(), (bank) => {
     expect(runOut(`${open} : Print Gui Zone`, bank).out.trim()).toBe('0')
   })
 })
+
+/**
+ * The array group, and the listview it exists for.
+ *
+ * A listview shows only the non-empty elements of the array a program hands
+ * it, so its numbering and the array's diverge at the first blank. Every
+ * example here is the guide's own:
+ *
+ *     A$(0)="Hello" A$(1)="" A$(2)="World!" A$(3)="" A$(4)="Amiga RULEZ!"
+ *
+ * GuiDemo is the bank with a LISTVIEW in it; BootSelector has none.
+ */
+const DEMO = '../amos-files/sources/aminet-dev-amos/files/GuiExt162/GuiExtension/Demos/GuiDemo.Amos'
+
+function demoBank(): Uint8Array | null {
+  if (!haveCorpus()) return null
+  try {
+    const file = parseAmosFile(new Uint8Array(readFileSync(DEMO)))
+    const b = file?.banks.find((x) => 'data' in x && (x as { number?: number }).number === 20)
+    return b && 'data' in b ? (b.data as Uint8Array) : null
+  } catch {
+    return null
+  }
+}
+
+describeWith('the array group', demoBank(), (bank) => {
+  /** GuiDemo's listview is gadget 0, and it opens as GUI 1 */
+  const open = 'Gui Open 1,1'
+  const fill = 'Dim A$(4) : A$(0)="Hello" : A$(2)="World!" : A$(4)="Amiga RULEZ!"'
+  const attach = `${fill} : ${open} : Gui Set 1,0,1,Array(A$(0))`
+
+  it('finds the listview in the demo bank', () => {
+    const rt = run(open, bank)
+    expect(rt.gui.windows.get(1)!.design.gadgets[0]!.kind).toBe(4)
+  })
+
+  /**
+   * The bank carries no items for a listview, so before this commit the only
+   * answer was whatever `Gui Set$` had put there. Now the array is the source.
+   */
+  it('Gui Read$ reads the array, skipping the blanks', () => {
+    const got = runOut(
+      `${attach} : Print Gui Read$(1,0) : Gui Set 1,0,0,1 : Print Gui Read$(1,0) : Gui Set 1,0,0,2 : Print Gui Read$(1,0)`,
+      bank,
+    ).out
+    expect(got.trim().split('\n')).toEqual(['Hello', 'World!', 'Amiga RULEZ!'])
+  })
+
+  /** "if the user click on 'World!' Gui Read() returns 1. But the array is A$(2)" */
+  it('Gui Array Read maps a listview item back to its array element', () => {
+    const got = runOut(
+      `${attach} : Print Gui Array Read(1,0,0) : Print Gui Array Read(1,0,1) : Print Gui Array Read(1,0,2) : Print Gui Array Read(1,0,3)`,
+      bank,
+    ).out
+    expect(got.trim().split('\n').map(Number)).toEqual([0, 2, 4, -1])
+  })
+
+  it('and answers -1 for a listview that was never given an array', () => {
+    expect(runOut(`${open} : Print Gui Array Read(1,0,0)`, bank).out.trim()).toBe('-1')
+  })
+
+  /**
+   * The guide's first worked example, run as it is written:
+   *
+   *     Gui Array Up Array(A$(0)),0 : Rem the result is......
+   *     A$(0)="" A$(1)="World!" A$(2)="" A$(3)="Amiga RULEZ!" A$(4)="Hello"
+   */
+  it('Gui Array Up rotates, and the guide s own example comes out', () => {
+    const got = runOut(
+      `${fill} : Gui Array Up Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
+      bank,
+    ).out
+    expect(got.trim().split('\n')).toEqual(['[]', '[World!]', '[]', '[Amiga RULEZ!]', '[Hello]'])
+  })
+
+  /** "if you call it again....." */
+  it('and again, which is the line after it', () => {
+    const got = runOut(
+      `${fill} : Gui Array Up Array(A$(0)),0 : Gui Array Up Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
+      bank,
+    ).out
+    expect(got.trim().split('\n')).toEqual(['[World!]', '[]', '[Amiga RULEZ!]', '[Hello]', '[]'])
+  })
+
+  /**
+   * The second example, which is what the keyword is FOR: blank an element,
+   * rotate from it, and the hole ends up past the data.
+   *
+   *     A$(1)="" : Gui Array up Array(A$(0)),1
+   *     A$(0)="String1" A$(1)="String3" A$(2)="String4" A$(3)=""
+   */
+  it('rotates only the tail from the start position', () => {
+    const got = runOut(
+      `Dim A$(3) : A$(0)="String1" : A$(1)="String2" : A$(2)="String3" : A$(3)="String4" : A$(1)="" : Gui Array Up Array(A$(0)),1 : For I=0 To 3 : Print "[";A$(I);"]" : Next I`,
+      bank,
+    ).out
+    expect(got.trim().split('\n')).toEqual(['[String1]', '[String3]', '[String4]', '[]'])
+  })
+
+  it('Gui Array Down puts it back', () => {
+    const got = runOut(
+      `${fill} : Gui Array Up Array(A$(0)),0 : Gui Array Down Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
+      bank,
+    ).out
+    expect(got.trim().split('\n')).toEqual(['[Hello]', '[]', '[World!]', '[]', '[Amiga RULEZ!]'])
+  })
+
+  /**
+   * Out of bounds is silent both ways: $3340 returns on a negative start and
+   * $334c on one past the last index. Neither raises and neither touches the
+   * array.
+   */
+  it('does nothing at all for a start position out of range', () => {
+    const same = ['[Hello]', '[]', '[World!]', '[]', '[Amiga RULEZ!]']
+    for (const n of [-1, 4, 9]) {
+      const got = runOut(`${fill} : Gui Array Up Array(A$(0)),${n} : For I=0 To 4 : Print "[";A$(I);"]" : Next I`, bank).out
+      expect(got.trim().split('\n'), `start ${n}`).toEqual(same)
+    }
+  })
+
+  /** $3126 loads one word and returns; the argument is never read */
+  it('Gui Array ignores the argument it is given', () => {
+    const got = runOut(`${open} : Print Gui Array(0) : Print Gui Array(99)`, bank).out
+    expect(got.trim().split('\n').map(Number)).toEqual([0, 0])
+  })
+})

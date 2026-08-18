@@ -422,6 +422,15 @@ export class GuiState {
   readonly zones = new Map<number, GuiZone[]>()
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
+  /**
+   * `$1a0`: the ARRAY index of the listview item the last event named, which
+   * `Gui Array` reads.
+   *
+   * Not the same number as `Gui Code`'s, and that is the whole point of the
+   * keyword: the listview holds only the non-empty entries, so its item 1 can
+   * be the array's element 2.
+   */
+  arrayIndex = 0
   private depthTop = 0
   private depthBottom = 0
   /**
@@ -726,6 +735,22 @@ export class GuiState {
   /** the gadget a window's design carries under `id`, or null */
   gadget(w: GuiWindow, id: number): GuiGadget | null {
     return w.design.gadgets.find((g) => g.id === id) ?? null
+  }
+
+  /**
+   * The visible items of a LISTVIEW: the non-empty entries of the array a
+   * program gave it, in order.
+   *
+   * The library builds a `struct List` of Nodes, one per non-empty string,
+   * and keeps the source index in each node at `$e` -- which is what `Gui
+   * Array Read` walks at $3112. Skipping the empties is the behaviour the
+   * guide spells out with its own example: five elements, two of them empty,
+   * "the listview will be" three lines.
+   */
+  listItems(items: readonly string[]): Array<{ index: number; text: string }> {
+    const out: Array<{ index: number; text: string }> = []
+    for (const [i, t] of items.entries()) if (t !== '') out.push({ index: i, text: t })
+    return out
   }
 
   /** a gadget's three attributes, made on demand and zero until set */

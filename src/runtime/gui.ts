@@ -153,6 +153,54 @@ function gadgetOf(g: GuiState, win: number, id: number): { w: GuiWindow; gad: Gu
 }
 
 /**
+ * The string array a LISTVIEW was given, through `Gui Set window,gadget,1,
+ * Array(A$(0))`.
+ *
+ * "you MUST use Varptr(String) as value" for a string gadget and `Array()`
+ * for a listview, and both are addresses on the machine. This port's
+ * `Array()` hands back an opaque handle for a string array rather than an
+ * address, registered in `rt.dialogArrays`, so the handle stored in attribute
+ * 1 is looked up rather than dereferenced.
+ *
+ * Null when attribute 1 holds something that is not a live string array,
+ * which is every listview a program never gave one to.
+ */
+function listArray(rt: Runtime, g: GuiState, w: GuiWindow, id: number): string[] | null {
+  const arr = rt.dialogArrays.get(g.attrsOf(w, id)[1])
+  if (arr === undefined || arr.type !== VAR_STRING) return null
+  return arr.data.map((v) => (v.k === 'str' ? v.s : ''))
+}
+
+/**
+ * Rotate a string array by one, which is what both `Gui Array` keywords do.
+ *
+ * $335a and $338c are the two loops, and each ends by writing the value it
+ * saved at the far end -- so nothing is lost and neither is a shift. The
+ * bounds are the binary's: a negative start does nothing and so does a start
+ * past the last index, and neither raises.
+ *
+ * The machine reads the array's length from ONE WORD at `$2` of the
+ * descriptor, which is the first dimension. This rotates the whole flat
+ * array, which is the same thing for the one-dimensional arrays a listview
+ * takes and the only kind the guide's examples show.
+ */
+function rotateArray(rt: Runtime, handle: number, start: number, up: boolean): void {
+  const arr = rt.dialogArrays.get(handle)
+  if (arr === undefined || arr.type !== VAR_STRING) return
+  const last = arr.data.length - 1
+  if (start < 0 || start > last - 1) return
+  if (up) {
+    const first = arr.data[start]!
+    for (let i = start; i < last; i++) arr.data[i] = arr.data[i + 1]!
+    arr.data[last] = first
+  } else {
+    const end = arr.data[last]!
+    for (let i = last; i > start; i--) arr.data[i] = arr.data[i - 1]!
+    arr.data[start] = end
+  }
+}
+
+/**
  * Resize a window and give it a RastPort the new size.
  *
  * `Gui Resize` and `Gui Change` both end in routine 240, the gadget relayout,
@@ -173,6 +221,9 @@ function resizeWindow(w: GuiWindow, width: number, height: number): void {
  * the keyword.
  */
 const SY_DESIGN_TOP = 10
+
+/** `VarType` 2: a string array, which is the only kind these keywords take */
+const VAR_STRING = 2
 
 /**
  * The scale `Gui Sx` and `Gui Sw` apply, skipped for a window that was laid
@@ -724,6 +775,33 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       if (n < 0 || list === undefined || n >= list.length) guiError(GUI_ERR.ZONE_NOT_RESERVED)
       if (x2 <= x1 || y2 <= y1) guiError(GUI_ERR.ILLEGAL_FUNCTION_CALL)
       list[n] = { x1, y1, x2, y2 }
+    },
+
+    /**
+     * `Gui Array Up array address,start position` — "cycle upwards the
+     * contents of a string array, starting from the specified element".
+     *
+     * A ROTATION and not a shift: $335a saves the element at `start`, slides
+     * the rest down one, and writes the saved one in at the far end. The
+     * guide's worked example is the proof, and it is also the use it names:
+     * blank an element, rotate from it, and the hole ends up past the data
+     * where a listview will not show it.
+     *
+     * Nothing is checked but the bounds, and going out of them is silent: a
+     * negative start returns at $3340 and a start past the last index at
+     * $334c. The address is not checked at all.
+     */
+    'gui array up': (it) => {
+      const handle = it.evalInt()
+      it.expect(',')
+      rotateArray(rt, handle, it.evalInt(), true)
+    },
+
+    /** `Gui Array Down array address,start position` — the same the other way, $3368 */
+    'gui array down': (it) => {
+      const handle = it.evalInt()
+      it.expect(',')
+      rotateArray(rt, handle, it.evalInt(), false)
     },
 
     /** `Gui Off window` — lock a GUI, so it stops answering events */
@@ -1383,6 +1461,40 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui zone': (): Value => VI(s().activeZone),
 
+    /**
+     * `A=Gui Array Read(window,listview,element)` — "the number of the array
+     * associated to the specified element of the listview".
+     *
+     * A listview holds only the non-empty entries, so its numbering and the
+     * array's diverge as soon as one element is blank. The guide's example:
+     *
+     *     A$(0)="Hello" A$(1)="" A$(2)="World!" A$(3)="" A$(4)="Amiga RULEZ!"
+     *
+     * "if the user click on 'World!' Gui Read() returns 1. But the array is
+     * A$(2)". This answers 2.
+     *
+     * $3112 walks the node list the library built and reads `$e` of each,
+     * where it kept the source index. -1 when the element is past the end,
+     * from the `moveq #$ff,d3` at $30e6.
+     */
+    'gui array read': (_, a): Value => {
+      const g = s()
+      const w = windowOf(g, int(a[0]!))
+      const items = listArray(rt, g, w, int(a[1]!))
+      if (items === null) return VI(-1)
+      return VI(g.listItems(items)[int(a[2]!)]?.index ?? -1)
+    },
+
+    /**
+     * `A=Gui Array(element)` — "the equivalent of Gui Code, but returns the
+     * correct array value associated to the listview element".
+     *
+     * One word at `$1a0`, filled in when a listview event is decoded. It
+     * takes an argument the routine never reads: $3126 loads `$1a0` and
+     * returns, so `Gui Array(0)` and `Gui Array(99)` answer the same thing.
+     */
+    'gui array': (): Value => VI(s().arrayIndex),
+
     /** `A=Gui Window` — which window generated the last event */
     'gui window': (): Value => VI(s().eventWindow()),
 
@@ -1436,12 +1548,12 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * Anything `Gui Set$` put there wins, since a program that set its own
      * text meant it.
      *
-     * DEVIATION: LISTVIEW. Its items are not in the bank and cannot be: the
-     * converter excludes GTLV_Labels from the tags that make a gadget carry a
-     * payload and zeroes its data on the way past, because a listview's list
-     * arrives at run time from a program's own array through `Gui Set
-     * window,gadget,1,Array(...)`. Until that attribute takes an array rather
-     * than a number, a LISTVIEW answers what `Gui Set$` gave it.
+     * A LISTVIEW's items are not in the bank and cannot be: the converter
+     * excludes GTLV_Labels from the tags that make a gadget carry a payload
+     * and zeroes its data on the way past, because the list arrives at run
+     * time from a program's own array through `Gui Set
+     * window,gadget,1,Array(...)`. So this reads that array, skipping the
+     * empty elements the way the listview itself does.
      */
     'gui read$': (_, a): Value => {
       const g = s()
@@ -1449,6 +1561,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       const id = int(a[1]!)
       const gadget = g.gadget(w, id)
       if (gadget === null || !READ_STRING_KINDS.has(gadget.kind)) return VS('')
+      const array = gadget.kind === KIND.LISTVIEW ? listArray(rt, g, w, id) : null
+      if (array !== null) return VS(g.listItems(array)[g.attrsOf(w, id)[0]]?.text ?? '')
       const set = w.strings.get(id)
       if (set !== undefined) return VS(set)
       if (gadget.items.length > 0) return VS(gadget.items[g.attrsOf(w, id)[0]] ?? '')
