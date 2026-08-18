@@ -205,6 +205,22 @@ function rotateArray(rt: Runtime, handle: number, start: number, up: boolean): v
 }
 
 /**
+ * `Gui Asl Colours`: one left ROTATE of a longword per plane.
+ *
+ * `moveq #$1,d3`, the depth zero-extended into d2, `subq.l #$1,d2`, then
+ * `rol.l #$1,d3` in a `dbra`. Two things fall out of that. A depth of 0 makes
+ * the counter -1 and the `dbra` reads only its low word, so the loop turns
+ * 65,536 times -- a multiple of 32, which rotates the 1 all the way back to
+ * where it started and answers 1. And a depth of 32 or more wraps instead of
+ * overflowing, so 33 planes answer 2.
+ */
+function coloursForDepth(depth: number): number {
+  const d = depth & 0xffff
+  const turns = (d === 0 ? 0x1_0000 : d) % 32
+  return (1 << turns) >>> 0
+}
+
+/**
  * Drawer and file, joined the way $762e joins them.
  *
  * One separator, and none at all when the drawer already ends in ':' or '/'.
@@ -768,6 +784,61 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * `Gui Asl Open number,name` or `Gui Asl Open number,name,font,size` —
+     * open a screen from what the screenmode requester was left holding.
+     *
+     * Routine 124 is `Gui Screen Open` with the five geometry arguments taken
+     * out of `$150` instead of off the stack: width from `$4`, height from
+     * `$8`, DisplayID from `$0` and the colour count from the same rotate
+     * `Gui Asl Colours` uses. Then routine 232, the shared open. "It's the
+     * best way to open a user definable screen!"
+     *
+     * DEFECT: the `Rbeq routine 264` at $2e94 raises whatever d7 already
+     * held. Routine 232 loads four different error numbers and then restores
+     * d7 from the stack at $5198, and this keyword loads none of its own --
+     * where `Gui Screen Open` at least has a `moveq #$e,d7` standing. Error
+     * 14 is what this raises, because that is what the last screen keyword to
+     * fail would have left.
+     *
+     * DEFECT: `$150` is dereferenced before anything is checked, the same
+     * unguarded read the five field keywords make.
+     */
+    'gui asl open': (it) => {
+      const g = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const name = str(it.evalExpr())
+      let fontName = ''
+      let fontSize = 0
+      if (it.accept(',')) {
+        fontName = str(it.evalExpr())
+        it.expect(',')
+        fontSize = it.evalInt()
+      }
+      const sm = g.aslScreen
+      if (n === 0 || g.screens.has(n)) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      const depth = depthForColours(coloursForDepth(sm.depth))
+      g.screens.set(n, {
+        number: n,
+        width: sm.width,
+        height: sm.height,
+        depth,
+        modeID: sm.displayID,
+        name,
+        fontName,
+        fontSize,
+        left: 0,
+        top: 0,
+        showTitle: true,
+        isPublic: false,
+        palette: defaultPalette(depth),
+      })
+      g.current = g.screens.get(n)!
+      g.pubLock = 0
+      g.pubName = ''
+    },
+
+    /**
      * `Gui Uniconify iconifyID` — open the window `Gui Iconify` closed.
      *
      * Routine 54 at $2390, which does not call `Gui Open` so much as become
@@ -1131,8 +1202,15 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       } else if (modeID >= PAL_MONITOR_ID) {
         guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
       }
-      // $4fd2: routine 259 again, and finding one is the error this time
-      if (g.screens.has(n)) guiError(GUI_ERR.SCREEN_ALREADY_OPEN)
+      // $4fd2: routine 259 again, and finding one is a failure this time.
+      // DEFECT: it is not error 15. Routine 232 sets `moveq #$f,d7` and then
+      // branches to $5166, which falls into a `movem.l (a7)+,d1-d7` that puts
+      // d7 back the way the caller left it. All four numbers the routine
+      // loads -- 24 at $4f6c, 14 at $4f86, 15 here and 16 at $5060 -- go the
+      // same way, so `Gui Screen Open` raises the `moveq #$e,d7` from its own
+      // $217c for every reason it can fail. Three of the extension's own
+      // messages are unreachable through this keyword.
+      if (g.screens.has(n)) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
       const screen: GuiScreen = {
         number: n,
         width,
@@ -1679,6 +1757,76 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (GUI_OS_VERSION < 39 || g.current === null) return VI(-1)
       return VI(nearestPen(g.current.palette, int(a[0]!) & 0xff, int(a[1]!) & 0xff, int(a[2]!) & 0xff))
     },
+
+    /**
+     * `F=Gui Asl Screen` — the ASL screenmode requester, answering the
+     * DisplayID or -1.
+     *
+     * Routine 55 builds a two-tag list, ASL_Window and the current window,
+     * calls AslRequest (-$3c) and reads sm_DisplayID out of `$0` of the
+     * requester. "If the value returned is -1 then the user hit Cancel", and
+     * -1 is also what a missing asl.library or a missing requester answers:
+     * the `moveq #$ff,d0` at $241c stands until one of the two tests passes.
+     *
+     * DEVIATION: no requester opens. There is no asl.library here and no
+     * display database to fill one from -- nothing in this port names a
+     * screen mode -- so this answers cancel and leaves the four fields as
+     * they were. A program written the way the guide writes it, testing for
+     * -1 and stopping, does the right thing; one that ignores the -1 reads
+     * zeros out of the five readers below.
+     */
+    'gui asl screen': (): Value => VI(-1),
+
+    /**
+     * `A=Gui Asl Id`, `Gui Asl Width`, `Gui Asl Height`, `Gui Asl Depth` and
+     * `Gui Asl Colours` — the four fields the screenmode requester left.
+     *
+     * Fourteen to twenty-eight bytes each, and every one of them starts
+     * `movea.l $150(a0),a0` with no test at all. DEFECT: on a machine where
+     * AllocAslRequest failed, `$150` is zero and all five read from low
+     * memory. `Gui Asl Screen` tests it and these do not, which is the whole
+     * difference between them.
+     *
+     * `Gui Asl Colours` is a longword ROTATE rather than a shift, which is
+     * what makes a depth of 0 answer 1 after 65,536 turns and a depth of 33
+     * answer 2. See `coloursForDepth`.
+     */
+    'gui asl id': (): Value => VI(s().aslScreen.displayID),
+    'gui asl width': (): Value => VI(s().aslScreen.width),
+    'gui asl height': (): Value => VI(s().aslScreen.height),
+    'gui asl depth': (): Value => VI(s().aslScreen.depth),
+    'gui asl colours': (): Value => VI(coloursForDepth(s().aslScreen.depth)),
+
+    /**
+     * `A$=Gui Asl Font` — the ASL font requester, "including the .font
+     * extension".
+     *
+     * ta_Name out of `$8` of the FontRequester and ta_YSize out of `$c`,
+     * which `Gui Font Size` then reads back. The size is zeroed at $24a2 on
+     * every call that got as far as AslRequest, so a cancel leaves 0 beside
+     * the empty string.
+     *
+     * DEFECT: with asl.library or the requester missing, the two `beq` at
+     * $2474 and $247a jump to $24c2 — which is PAST the `move.l $662(a5),d1`
+     * at $249e that loads AMOS's null string. d1 is whatever it was, and
+     * `moveq #$2,d2` then tells the interpreter it is a string. Routine 258
+     * makes the same two tests and gets both right, raising error 13 for the
+     * library and answering the null string for the requester.
+     *
+     * DEVIATION: no requester opens, for the same reason as `Gui Asl Screen`.
+     */
+    'gui asl font': (): Value => {
+      s().aslFontSize = 0
+      return VS('')
+    },
+
+    /**
+     * `SIZE=Gui Font Size` — `$160`, five instructions and no test.
+     *
+     * A word, sign-extended, so it survives `Gui Asl Font` failing and reads
+     * 0 until one succeeds.
+     */
+    'gui font size': (): Value => VI(s().aslFontSize),
 
     /**
      * `A=Gui Req(title$,message$,gadget$)` — EasyRequestArgs (-$24c) on the

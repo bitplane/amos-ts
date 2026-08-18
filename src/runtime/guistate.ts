@@ -644,6 +644,20 @@ export class GuiState {
   aslDir = ''
   /** the dialog channel a `Gui Req` is blocked on, or null */
   req: number | null = null
+  /**
+   * `$150`: the ScreenModeRequester, always allocated and zeroed.
+   *
+   * AllocAslRequest at init hands back a cleared struct and asl fills it on
+   * the first request, so these are its four fields before anyone has picked
+   * anything -- sm_DisplayID at `$0`, sm_DisplayWidth at `$4`,
+   * sm_DisplayHeight at `$8` and sm_DisplayDepth at `$c`. Present rather than
+   * null because the five readers dereference `$150` without testing it.
+   */
+  readonly aslScreen = { displayID: 0, width: 0, height: 0, depth: 0 }
+  /** `$160`: the size `Gui Asl Font` last picked, and what `Gui Font Size` reads */
+  aslFontSize = 0
+  /** the font name that went with it, "including the .font extension" */
+  aslFontName = ''
   /** how many times `Gui Beep` has been asked for; see the keyword */
   beeps = 0
   /**

@@ -50,7 +50,7 @@ function run(src: string, bank?: Uint8Array): Runtime {
 }
 
 /** the same, keeping what the program printed */
-function runOut(src: string, bank?: Uint8Array): { rt: Runtime; out: string } {
+function runOut(src: string, bank?: Uint8Array, prep?: (rt: Runtime) => void): { rt: Runtime; out: string } {
   let out = ''
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
@@ -61,6 +61,7 @@ function runOut(src: string, bank?: Uint8Array): { rt: Runtime; out: string } {
   if (bank !== undefined) {
     rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Gui', flags: 0, data: bank })
   }
+  prep?.(rt)
   mustFinish(rt.runHeadless(500))
   return { rt, out }
 }
@@ -1005,6 +1006,56 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
   })
 })
 
+describe('the ASL screen and font group', () => {
+  /** "If the value returned is -1 then the user hit Cancel on the requester" */
+  it('Gui Asl Screen answers cancel, and the readers answer zeros', () => {
+    const out = runOut('Print Gui Asl Screen : Print Gui Asl Id : Print Gui Asl Width : Print Gui Asl Height : Print Gui Asl Depth').out
+    expect(out.trim().split(/\s+/).map(Number)).toEqual([-1, 0, 0, 0, 0])
+  })
+
+  /**
+   * The `dbra` reads a word, so a depth of 0 counts from -1 and turns 65,536
+   * times. That is a multiple of 32, and a longword rotate comes back to 1.
+   */
+  it('Gui Asl Colours rotates, so depth 0 answers 1 and depth 33 answers 2', () => {
+    const colours = (depth: number): number =>
+      Number(runOut('Print Gui Asl Colours', undefined, (rt) => (rt.gui.aslScreen.depth = depth)).out)
+    expect([1, 2, 4, 8].map(colours)).toEqual([2, 4, 16, 256])
+    expect(colours(0)).toBe(1)
+    expect(colours(33)).toBe(2)
+  })
+
+  it('Gui Asl Font answers cancel, and Gui Font Size 0 beside it', () => {
+    expect(runOut('Print "["+Gui Asl Font+"]" : Print Gui Font Size').out.trim()).toBe('[]\n 0')
+  })
+
+  /** routine 124 takes width, height, DisplayID and the colour count from `$150` */
+  it('Gui Asl Open opens a screen from what the requester was left holding', () => {
+    const rt = runOut('Gui Asl Open 3,"Picked"', undefined, (r) =>
+      Object.assign(r.gui.aslScreen, { displayID: 0x29000, width: 800, height: 600, depth: 3 }),
+    ).rt
+    const sc = rt.gui.screens.get(3)!
+    expect([sc.width, sc.height, sc.depth, sc.modeID, sc.name]).toEqual([800, 600, 3, 0x29000, 'Picked'])
+    expect(rt.gui.current).toBe(sc)
+  })
+
+  it('and takes a font name and size in its second form', () => {
+    const rt = run('Gui Asl Open 3,"Picked","topaz.font",11')
+    const sc = rt.gui.screens.get(3)!
+    expect([sc.fontName, sc.fontSize]).toEqual(['topaz.font', 11])
+  })
+
+  /**
+   * DEFECT: routine 232 restores d7 from the stack at $5198, and this keyword
+   * loads none of its own, so the number that reaches the error call is
+   * whatever the last failure left. 14 is what `Gui Screen Open` leaves.
+   */
+  it('Gui Asl Open raises Illegal screen parameter for a number it cannot use', () => {
+    expect(() => run('Gui Asl Open 0,"x"')).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
+    expect(() => run('Gui Asl Open 3,"x" : Gui Asl Open 3,"y"')).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
+  })
+})
+
 describeWith('the colour group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 
@@ -1530,7 +1581,10 @@ describeWith('the screen group', exampleBank(), (bank) => {
 
   it('refuses screen number 0, and refuses a number twice', () => {
     expect(() => run('Gui Screen Open 0,320,200,4,0,"x"', bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
-    expect(() => run(`${open} : ${open}`, bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_ALREADY_OPEN])
+    // DEFECT: not 15. Routine 232's `movem.l (a7)+,d1-d7` at $5198 puts the
+    // caller's d7 back, so the `moveq #$e,d7` at $217c is what reaches the
+    // error call however the open failed
+    expect(() => run(`${open} : ${open}`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_SCREEN_PARAMETER])
   })
 
   it('takes the font form too, which is the second of its two syntaxes', () => {
