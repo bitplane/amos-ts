@@ -153,12 +153,56 @@ describe('hardware and screen coordinate mapping', () => {
     expect(out).toBe('ok\n')
   })
 
+  /**
+   * `CXyScr` reads `EcWx(a0)`, the screen's own display X, and these four used
+   * to have 128 and 50 written into them instead. A screen moved with
+   * `Screen Display` is where the two answers part.
+   */
+  it('X Screen and Y Screen follow the screen s display position', () => {
+    const { out } = run(
+      [
+        'Screen Open 0,320,200,16,Lowres',
+        'Screen Display 0,200,100,320,200',
+        'Print X Screen(200);Y Screen(100);X Screen(210);Y Screen(110)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0 0 10 10\n')
+  })
+
+  /** `btst #2,EcCon0+1(a0) / asl.w #1,d2`, the Y half of the hires test for X */
+  it('a laced screen doubles the vertical step, as hires doubles the horizontal', () => {
+    const { out } = run(
+      [
+        'Screen Open 0,320,400,16,Lowres+Laced',
+        'Screen Display 0,128,50,320,400',
+        'Print Y Screen(60);Y Hard(20)',
+      ].join('\n'),
+    )
+    // ten hardware lines are twenty screen rows on an interlaced screen
+    expect(out).toBe(' 20 60\n')
+  })
+
   it('a hires screen halves the horizontal hardware step', () => {
     const { out } = run(
       'Screen Open 0,640,200,4,Hires : Screen Display 0,128,50,640,200 : Print X Screen(129);X Hard(2)',
     )
     // one hardware pixel is two screen pixels in hires, and back again
     expect(out).toBe(' 2 129\n')
+  })
+
+  /**
+   * `ZoEc` tests in hardware units, so an interlaced screen 400 rows tall
+   * occupies 200 hardware lines and not 400. Both readers doubled X and left
+   * Y alone, which put the bottom of the box twice as far down as it is.
+   */
+  it('Scin measures a laced screen s box in hardware lines', () => {
+    const prog = [
+      'Screen Open 0,320,400,16,Lowres+Laced',
+      'Screen Display 0,128,50,320,400',
+      'Print Scin(130,60);Scin(130,240);Scin(130,300)',
+    ].join('\n')
+    // line 240 is inside its 200 lines, 300 is past the bottom of them
+    expect(run(prog).out).toBe(' 0 0-1\n')
   })
 
   it('Scin reports which screen lies under a hardware point, topmost first', () => {

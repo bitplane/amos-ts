@@ -212,6 +212,31 @@ function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
  * return address and answer EntNul ($80000000) with d0 = 0, so the keyword
  * returns that as an integer instead of raising anything.
  */
+/**
+ * Is a hardware coordinate inside this screen's display box? `ZoEc`, +W.s:11128.
+ *
+ *     move.w d3,d1 / sub.w EcWx(a1),d1 / bcs .out
+ *     cmp.w  EcWTx(a1),d1 / bcc .out
+ *     move.w d4,d2 / add.w #EcYBase,d2 / sub.w EcWy(a1),d2 / bcs .out
+ *     cmp.w  EcWTy(a1),d2 / bcc .out
+ *
+ * The test is in HARDWARE units, against the display width and height, and
+ * the hires and laced doublings happen after it passes. Doubling first and
+ * comparing against the screen's own width and height is the same test ---
+ * `EcWTx` is the width in hardware pixels, which for a hires screen is half
+ * of it --- and it is how `hardToScreenX` already spells it, so the offset
+ * comes straight back off rather than being left out.
+ *
+ * `Scin` and `Mouse Screen` both used the doubled X and an UNdoubled Y, so an
+ * interlaced screen reported the pointer as over it for twice as many
+ * hardware lines as it occupies.
+ */
+function overScreen(s: Screen, hx: number, hy: number): boolean {
+  const sx = s.hardToScreenX(hx) - s.offsetX
+  const sy = s.hardToScreenY(hy) - s.offsetY
+  return sx >= 0 && sy >= 0 && sx < s.width && sy < s.height
+}
+
 function zoneScreen(rt: Runtime, a: import('../interp/values').Value[], full: number): Screen | null {
   if (a.length < full) return rt.screen
   const n = int(a[0]!)
@@ -4703,21 +4728,34 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     laced() {
       return VI(0x4)
     },
+    /**
+     * =X Screen(x) / =Y Screen(y) / =X Hard(x) / =Y Hard(y) --- `SyCall XyScr`
+     * and `SyCall XyHard` (+Lib.s:10743 onwards), which are `CXyScr` and
+     * `CXyHard` in +W.s.
+     *
+     * These four wrote the conversion out longhand with 128 and 50 in it,
+     * where the routine they name reads `EcWx(a0)` and `EcWy(a0)` --- the
+     * screen's own display position. `Screen Display` moves that, so the
+     * keywords disagreed with `Screen.hardToScreenX` beside them and with
+     * AMAL's XS/YS/XH/YH, which have gone through the helper all along. See
+     * ./screen.ts for the routines and for why the two directions are not
+     * inverses.
+     *
+     * The optional first argument is the screen number; `a[a.length - 1]` is
+     * the coordinate either way, and `scr()` is already the right screen
+     * because the two-argument form selected it.
+     */
     'x screen'(_, a) {
-      const x = int(a[a.length - 1]!)
-      return VI((x - 128) * (scr().hires ? 2 : 1) + scr().offsetX)
+      return VI(scr().hardToScreenX(int(a[a.length - 1]!)))
     },
     'y screen'(_, a) {
-      const y = int(a[a.length - 1]!)
-      return VI(y - 50 + scr().offsetY)
+      return VI(scr().hardToScreenY(int(a[a.length - 1]!)))
     },
     'x hard'(_, a) {
-      const x = int(a[a.length - 1]!)
-      return VI(Math.trunc((x - scr().offsetX) / (scr().hires ? 2 : 1)) + 128)
+      return VI(scr().screenToHardX(int(a[a.length - 1]!)))
     },
     'y hard'(_, a) {
-      const y = int(a[a.length - 1]!)
-      return VI(y - scr().offsetY + 50)
+      return VI(scr().screenToHardY(int(a[a.length - 1]!)))
     },
     'screen base'() {
       // FnScreenBase +Lib.s:8798: ScOnAd — the current screen's control
@@ -4917,9 +4955,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue
-        const sx = s.hardToScreenX(x) - s.offsetX
-        const sy = y - s.displayY
-        if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
+        if (overScreen(s, x, y)) return VI(s.index)
       }
       return VI(-1)
     },
@@ -5507,9 +5543,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue
-        const sx = s.hardToScreenX(it.inp.mouseX) - s.offsetX
-        const sy = it.inp.mouseY - s.displayY
-        if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
+        if (overScreen(s, it.inp.mouseX, it.inp.mouseY)) return VI(s.index)
       }
       return VI(-0x80000000) // GetSIn +W.s:10944 returns EntNul when over no screen
     },

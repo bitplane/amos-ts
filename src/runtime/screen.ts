@@ -722,30 +722,51 @@ export class Screen {
    */
 
   /**
-   * Hardware coordinates to this screen's own, and back (SyZoHd, and AMAL's
-   * X Screen / Y Screen / X Hard / Y Hard).
+   * Hardware coordinates to this screen's own, and back: `CXyScr` and
+   * `CXyHard` at +W.s:10787 and :10809, which `X Screen`, `Y Screen`,
+   * `X Hard` and `Y Hard` all reach through `SyCall XyScr` / `SyCall XyHard`,
+   * and which SyZoHd inlines to find a zone.
    *
-   * X is not symmetric with Y: a hires screen shows two pixels per colour
-   * clock, so hardware X scales by two coming in and divides (truncating)
-   * going out, while Y is a plain offset. Both then shift by the screen's own
-   * scroll offset.
+   *     CXyScr  sub.w EcWx(a0),d1 / btst #7,EcCon0(a0) / asl.w #1,d1
+   *             add.w EcVx(a0),d1
+   *             add.w #EcYBase,d2 / sub.w EcWy(a0),d2
+   *             btst #2,EcCon0+1(a0) / asl.w #1,d2 / add.w EcVy(a0),d2
    *
-   * This was written out longhand in eight places -- instr.ts x4, sticks.ts,
-   * turbo.ts, runtime.ts x2 -- plus the AmalHost.xy switch, which was the only
-   * caller of anything resembling a helper. Every field it needs belongs to a
-   * Screen, so it belongs here.
+   * Both axes double, and they double for different reasons: X when the
+   * screen is HIRES and Y when it is LACED. `EcYBase` is a $1000 bias that
+   * `displayY` here already carries unbiased, so the add and the subtract
+   * are one subtraction.
+   *
+   * The origin is the SCREEN's, `EcWx` and `EcWy`, and not a constant.
+   * `Screen Display` moves it, GMS moves it, and the file selector and the
+   * requester open their screens somewhere else again, so a version with 128
+   * and 50 written in is right only until a program moves a screen.
+   *
+   * ## Going back is not the inverse, and that is AMOS's asymmetry
+   *
+   * `CXyHard` shifts and adds `EcWX`, and never touches `EcVx`:
+   *
+   *     CXyHard tst.w EcCon0(a0) / bpl / asr.w #1,d1
+   *             add.w EcWX(a0),d1
+   *             btst #2,EcCon0+1(a0) / beq / asr.w #1,d2
+   *             add.w EcWY(a0),d2 / sub.w #EcYBase,d2
+   *
+   * So `X Hard(X Screen(h))` returns h only while the screen is unscrolled,
+   * and every worked example in the manual has it unscrolled. Reproduced
+   * rather than corrected: a program that scrolls and then round-trips gets
+   * what the machine gives it.
    */
   hardToScreenX(hx: number): number {
     return (hx - this.displayX) * (this.hires ? 2 : 1) + this.offsetX
   }
   hardToScreenY(hy: number): number {
-    return hy - this.displayY + this.offsetY
+    return (hy - this.displayY) * (this.laced ? 2 : 1) + this.offsetY
   }
   screenToHardX(sx: number): number {
-    return this.displayX + Math.trunc((sx - this.offsetX) / (this.hires ? 2 : 1))
+    return (this.hires ? sx >> 1 : sx) + this.displayX
   }
   screenToHardY(sy: number): number {
-    return this.displayY + (sy - this.offsetY)
+    return (this.laced ? sy >> 1 : sy) + this.displayY
   }
 
   plot(x: number, y: number, c = this.ink): void {

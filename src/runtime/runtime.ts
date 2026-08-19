@@ -2967,10 +2967,7 @@ export class Runtime {
 
   /** hardware mouse coords → coords on screen s (SyCall XyScr) */
   mouseOnScreen(s: Screen): { x: number; y: number } {
-    return {
-      x: s.hardToScreenX(this.input.mouseX),
-      y: this.input.mouseY - s.displayY + s.offsetY,
-    }
+    return { x: s.hardToScreenX(this.input.mouseX), y: s.hardToScreenY(this.input.mouseY) }
   }
 
   /** one round of zone tests; returns the exit count (Dia_Tests) */

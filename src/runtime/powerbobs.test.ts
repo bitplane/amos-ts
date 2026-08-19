@@ -634,6 +634,20 @@ describe('PowerBobs: the Psprite accessors (routines 24-27, 35-37, 43)', () => {
     run('Screen Open 0,320,200,8,Lowres : Print Yscr Mouse')
     expect(Number(printed.trim())).toBe(rt.input.mouseY - 50 + rt.screen.offsetY)
   })
+
+  /**
+   * `jsr $30(a0)` is AMOS's own routine, so a screen that has been moved has
+   * to give these and `X Screen` the same answer. It did not: both sides held
+   * a copy of the conversion with 128 and 50 written in.
+   */
+  it('and agree with X Screen after the screen has been moved', () => {
+    run('Screen Open 0,320,200,8,Lowres : Screen Display 0,200,100,320,200 : Print Xscr Mouse;X Screen(X Mouse)')
+    const [a, b] = printed.trim().split(/\s+/).map(Number)
+    expect(a).toBe(b)
+    run('Screen Open 0,320,200,8,Lowres : Screen Display 0,200,100,320,200 : Print Yscr Mouse;Y Screen(Y Mouse)')
+    const [c, d] = printed.trim().split(/\s+/).map(Number)
+    expect(c).toBe(d)
+  })
 })
 
 describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {

@@ -1383,10 +1383,17 @@ function psync(
   }
 }
 
-/** `jsr $30(a0)` — the hardware-to-screen conversion X Screen/Y Screen use. */
-const hardToScreenX = (rt: Runtime, x: number): number =>
-  (x - 128) * (rt.screen.hires ? 2 : 1) + rt.screen.offsetX
-const hardToScreenY = (rt: Runtime, y: number): number => y - 50 + rt.screen.offsetY
+/**
+ * `jsr $30(a0)` --- the hardware-to-screen conversion X Screen/Y Screen use.
+ *
+ * Literally that call, through the SyCall table at `-$4(a5)`, so it is AMOS's
+ * `CXyScr` and not a copy of it. This used to be a copy, with 128 and 50
+ * written in where the routine reads the screen's own `EcWx` and `EcWy`, and
+ * a program that had moved its screen with `Screen Display` got one answer
+ * from `Xscr Mouse` and a different one from `X Screen(X Mouse)`.
+ */
+const hardToScreenX = (rt: Runtime, x: number): number => rt.screen.hardToScreenX(x)
+const hardToScreenY = (rt: Runtime, y: number): number => rt.screen.hardToScreenY(y)
 
 /** the range check X Psprite and Y Psprite share, against Psprite Max */
 function psprField(rt: Runtime, n: number, read: (p: { y: number; x: number }) => number): Value {
