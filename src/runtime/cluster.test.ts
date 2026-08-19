@@ -1774,6 +1774,29 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(() => run('A$=Scan$(256)')).toThrow(/function call/)
   })
 
+  it('Exist is a Lock, so a volume and a drawer answer it (RExist +Lib.s:5733)', () => {
+    // RExist is `move.l Name1(a5),d1 / DosCall _LVOLock / beq FExF / UnLock /
+    // moveq #-1,d3`, and Lock() takes a volume, an assign or a drawer as
+    // happily as a file. Boing 3.0 spins in `Repeat ... Until Exist("boing:")`
+    // until this says yes, which is how a game waits for its own disk.
+    const prog = [
+      'Mkdir "DH0:sub"',
+      'Open Out 1,"DH0:f.dat" : Print #1,"x" : Close 1',
+      'Print Exist("DH0:")',
+      'Print Exist("dh0:")',
+      'Print Exist("DH0:sub")',
+      'Print Exist("DH0:f.dat")',
+      'Print Exist("DH0:nope")',
+      'Print Exist("NOSUCH:")',
+      'Print Exist("")',
+    ].join('\n')
+    expect(run(prog).out).toBe('-1\n-1\n-1\n-1\n 0\n 0\n 0\n')
+    // NomDisc refuses 108 characters or more before the Lock is ever reached
+    // (`cmp.w #108,d2 / Rbcc L_FonCall`, +Lib.s:6574), so a name too long to
+    // exist raises where a name that merely does not exist answers 0
+    expect(() => run(`Print Exist("DH0:${'x'.repeat(104)}")`)).toThrow(/function call/)
+  })
+
   it('Parent strips the last component of the current dir (InParent +Lib.s:4878)', () => {
     const prog = ['Mkdir "DH0:a"', 'Mkdir "DH0:a/b"', 'Dir$="DH0:a/b"', 'Parent', 'Print Dir$', 'Parent', 'Print Dir$'].join('\n')
     const { out } = run(prog)

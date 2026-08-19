@@ -309,3 +309,15 @@ describe('Amal n,# — programs stored in the bank', () => {
     expect(() => rt.runHeadless(100)).toThrow(/bank not reserved/)
   })
 })
+
+describe('For and Next count in either register file (AmFor/AmNxt +W.s:8869)', () => {
+  it('takes a global RA-RZ as well as an internal R0-R9', () => {
+    // AmFor reads the compiled register offset and branches on its SIGN:
+    // `move.w (a3)+,d0 / bpl.s AmFr0` uses T_AmRegs(a5), the globals, and a
+    // negative offset uses AmIRegs+NbInterne*2(a6), the internals. AmNxt does
+    // the same. Ant Wars II's barebones.AMOS steps its bob frames with
+    // `For RA=0 To 29`, which used to be a syntax error here.
+    expect(() => compileAmal('Loop: For RA=0 To 29; Let X=RA; Next RA; Jump Loop')).not.toThrow()
+    expect(() => compileAmal('Loop: For R0=0 To 29; Let X=R0; Next R0; Jump Loop')).not.toThrow()
+  })
+})

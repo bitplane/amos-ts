@@ -327,7 +327,13 @@ export function compileAmal(src: string): AmalProgram {
       case 'F': {
         if (inAuto) throw lx.err('For not allowed in autotest')
         const reg = parseReg(lx.next())
-        if (reg === null || reg.k !== 'R') throw lx.err('For needs an internal register R0-R9')
+        // AmFor (+W.s:8869) selects the register FILE by the sign of the
+        // compiled offset -- `move.w (a3)+,d0 / bpl.s AmFr0` takes
+        // `T_AmRegs(a5)`, the global RA-RZ, and a negative one takes
+        // `AmIRegs+NbInterne*2(a6)`, the internal R0-R9. Both are legal, and
+        // AmNxt repeats the same test. Ant Wars II's `barebones.AMOS` counts
+        // its bob frames with `For RA=0 To 29`.
+        if (reg === null || (reg.k !== 'R' && reg.k !== 'G')) throw lx.err('For needs a register')
         if (lx.next() !== '=') throw lx.err('= expected')
         const from = parseExpr()
         if (lx.next() !== 'T') throw lx.err('To expected')
@@ -339,7 +345,7 @@ export function compileAmal(src: string): AmalProgram {
       case 'N': {
         if (inAuto) throw lx.err('Next not allowed in autotest')
         const reg = parseReg(lx.next())
-        if (reg === null || reg.k !== 'R') throw lx.err('Next needs an internal register')
+        if (reg === null || (reg.k !== 'R' && reg.k !== 'G')) throw lx.err('Next needs a register')
         const forI = forStack.pop()
         if (forI === undefined) throw lx.err('Next without For')
         ops().push({ k: 'next', forI })
@@ -514,6 +520,24 @@ export class AmalChannel {
 
   get animating(): boolean {
     return this.anim !== null
+  }
+
+  /**
+   * The loop counter of a For/Next, from whichever register file it names.
+   *
+   * AmFor and AmNxt both branch on the sign of the compiled offset (+W.s:8869
+   * and 8882), so one loop can count in an internal register and the next in
+   * a global, and the two files never mix.
+   */
+  private loopReg(reg: Operand, host: AmalHost): number {
+    if (reg.k === 'R') return this.regs[reg.i]!
+    if (reg.k === 'G') return host.globals[reg.i]!
+    return 0
+  }
+
+  private setLoopReg(reg: Operand, v: number, host: AmalHost): void {
+    if (reg.k === 'R') this.regs[reg.i] = v
+    else if (reg.k === 'G') host.globals[reg.i] = v
   }
 
   private evalOperand(o: Operand, host: AmalHost): number {
@@ -722,16 +746,16 @@ export class AmalChannel {
         case 'for': {
           const from = this.eval(op.from, host)
           const to = this.eval(op.to, host)
-          if (op.reg.k === 'R') this.regs[op.reg.i] = from
+          this.setLoopReg(op.reg, from, host)
           this.forLimits.set(this.pc, to)
           this.pc++
           continue
         }
         case 'next': {
           const forOp = ops[op.forI]!
-          if (forOp.k === 'for' && forOp.reg.k === 'R') {
-            const v = sw16(this.regs[forOp.reg.i]! + 1)
-            this.regs[forOp.reg.i] = v
+          if (forOp.k === 'for') {
+            const v = sw16(this.loopReg(forOp.reg, host) + 1)
+            this.setLoopReg(forOp.reg, v, host)
             if ((this.forLimits.get(op.forI) ?? 0) >= v) {
               this.pc = op.forI + 1
               if (--budget <= 0) return

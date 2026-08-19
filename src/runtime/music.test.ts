@@ -411,8 +411,20 @@ describe('the MOD tracker', () => {
     expect(audio.events.filter((e) => e.kind === 'stop').length).toBeGreaterThanOrEqual(4)
   })
 
-  it('errors on a bank that is not a tracker module (+Music.s:4356)', () => {
-    expect(() => boot('Track Play', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/not a tracker module/i)
+  it('separates "bank not reserved" from "not a tracker module" (+Lib.s:8082 / +Music.s:4356)', () => {
+    // Bnk.OrAdr runs BEFORE the name compares and raises its own error:
+    // `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`. A bare Track Play is bank 6, so a
+    // program whose module sits anywhere else gets the bank error and never
+    // reaches the compares. Ant Wars 1.1 is that program, with its module in 7.
+    expect(() => boot('Track Play', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/bank not reserved/i)
+    // a bank that IS there and is misnamed reaches `cmp.l #"Trac",-8(a2)`
+    const misnamed: MemoryBank = { kind: 'memory', number: 6, memType: 1, name: 'Music', flags: 0, data: modFile() }
+    expect(() => boot('Track Play', misnamed).rt.runHeadless(2)).toThrow(/not a tracker module/i)
+    // and the compare is the whole 8-byte name, so a prefix is not enough
+    const nearly: MemoryBank = { kind: 'memory', number: 6, memType: 1, name: 'Traces', flags: 0, data: modFile() }
+    expect(() => boot('Track Play', nearly).rt.runHeadless(2)).toThrow(/not a tracker module/i)
+    // the real thing, named exactly "Tracker ", plays
+    expect(() => boot('Track Play', trackerBank()).rt.runHeadless(2)).not.toThrow()
   })
 
   it('Track Load pulls a file into the bank and Track Play uses it (InTrackLoad +Music.s:4120)', () => {

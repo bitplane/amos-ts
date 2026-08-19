@@ -1072,7 +1072,16 @@ export class MusicPlayer {
     // Bnk.OrAdr: an address inside the bank region names its bank
     if (n >= 0x01000000) n = Math.floor((n - 0x01000000) / 0x00100000)
     const bank = this.host.getBank(n)
-    if (!bank || !bank.name.startsWith('Trac')) throw new AmosError('not a tracker module')
+    // Bnk.OrAdr (+Lib.s:8082) comes FIRST and raises its own error: `cmp.l
+    // #1024,d0 / bge .Skip / Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`. So a bank
+    // that was never reserved is "bank not reserved", and only a bank that
+    // EXISTS and is misnamed reaches the two compares below. Ant Wars 1.1
+    // parks its module in bank 7 and calls a bare `Track Play`, which is bank
+    // 6 -- the game's own bug, and this is the error the machine gives it.
+    if (!bank) throw new AmosError('bank not reserved')
+    // `cmp.l #"Trac",-8(a2)` then `cmp.l #"ker ",-4(a2)`: the whole 8-byte
+    // bank name, trailing space and all, not a prefix
+    if (bank.name.padEnd(8).slice(0, 8) !== 'Tracker ') throw new AmosError('not a tracker module')
     // InSamStop0 + InTrackStop before the init
     for (let v = 0; v < 4; v++) this.host.audio.stop(v)
     this.trackStop()

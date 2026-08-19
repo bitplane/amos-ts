@@ -4978,8 +4978,45 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       void a
       return VI(rt.hardZoneAt(scr(), it.inp.mouseX, it.inp.mouseY))
     },
+    /**
+     * =Exist("name") -- FnExist +Lib.s:5733, four instructions over L_RExist.
+     *
+     *     Lib_Def RExist
+     *       Rbsr    L_NoReq            suppress AmigaDOS's insert-volume requester
+     *       move.l  Name1(a5),d1
+     *       DosCall _LVOLock
+     *       Rbsr    L_YesReq
+     *       move.l  d0,d1
+     *       beq.s   FExF
+     *       DosCall _LVOUnLock
+     *       moveq   #-1,d3
+     *
+     * A LOCK, not a read. Lock() succeeds on a file, a drawer, an assign and
+     * a VOLUME alike, which is why `Exist("Boing:")` is how a game asks
+     * whether its own disk is in the machine -- and why RExist brackets the
+     * call with NoReq/YesReq, so a missing volume answers false instead of
+     * popping "Please insert volume". Reading the name instead answered 0 for
+     * a drawer, an assign and a mounted disk, and Boing 3.0's DISKPRESENT
+     * procedure sat in `Repeat ... Until Exist("boing:")` for ever with the
+     * disk mounted, flashing a palette that is all zeros on alternate frames.
+     *
+     * An empty name answers false without locking: `tst.w (a2) / Rbeq
+     * L_FnFalse` in FnExist, ahead of NomDisc. 108 characters or more is an
+     * illegal function call, off NomDisc's own `cmp.w #108,d2 / Rbcc
+     * L_FonCall` (+Lib.s:6574) -- so a too-long name raises where an absent
+     * one answers 0.
+     *
+     * DEVIATION: nothing here can pop a system requester, so NoReq and YesReq
+     * have nothing to suppress.
+     */
     exist(_, a) {
-      return VI(rt.fs?.read(str(a[0]!)) !== null && rt.fs !== null ? -1 : 0)
+      const name = str(a[0]!)
+      if (name === '') return VI(0)
+      if (name.length >= 108) throw new AmosError('function call error', ERR.FUNC_CALL)
+      const vfs = rt.vfs
+      if (vfs) return VI(vfs.exists(name) !== null ? -1 : 0)
+      // a bare AmosFS is files and nothing else, so a read IS its Lock
+      return VI(rt.fs?.read(name) != null ? -1 : 0)
     },
     scin(_, a) {
       // ScIn(x,y): which screen is under this hardware coordinate?
