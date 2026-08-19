@@ -220,19 +220,62 @@ describe('JD Intuition: windows', () => {
     expect(closed.jdint.win).toBeNull()
   })
 
+  /**
+   * The plot inside the border is the one that survives the frame. Window
+   * coordinates start at the window's own top-left, which is its BORDER, and
+   * Intuition repaints that on every refresh --- so a program that plots at
+   * (0,0) of a bordered window has drawn on Intuition's pixels and loses them,
+   * on the machine and here.
+   */
   it('drawing goes into the window, offset by its top-left and clipped to it', () => {
     const rt = run(
       [
         'S=Jd Open Intscreen(320,200,3,0)',
         'W=Jd Open Intwindow(20,30,100,50,"t")',
         'Jd Intpen 5',
-        'Jd Intplot 0,0',
+        'Jd Intplot 6,14',
         'Jd Intplot 500,0',
       ].join('\n'),
     )
     const s = rt.screens.get(rt.intuition.slotOf(rt.jdint.screen)!)!
-    expect(s.rp.point(20, 30)).toBe(5) // window-relative 0,0
+    expect(s.rp.point(26, 44)).toBe(5) // window-relative 6,14
     expect(s.rp.point(0, 0)).toBe(0) // and not the screen's own origin
+  })
+
+  /**
+   * A window on a CUSTOM screen can be clicked.
+   *
+   * `Runtime.stepIntuition` drives one frame of Intuition from AMOS's own
+   * pointer, and it used to drive WB_SLOT alone --- so a window opened by
+   * `Jd Open Intscreen` plus `Jd Open Intwindow` rendered nothing and received
+   * nothing, whatever the user did. Both halves are checked here: the frame
+   * paints the title bar, and pressing the button over the window's body
+   * queues the MOUSEBUTTONS message `Jd Intevent` reads.
+   */
+  it('a window on a custom screen renders and receives the pointer', () => {
+    const b = boot(
+      [
+        'S=Jd Open Intscreen(320,200,3,0)',
+        'A=Jd Open Intwindow(10,20,120,60,"a")',
+        'B=Jd Open Intwindow(150,20,120,60,"b")',
+      ].join('\n'),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    const rt = b.rt
+    const slot = rt.intuition.slotOf(rt.jdint.screen)!
+    const s = rt.screens.get(slot)!
+    const a = rt.intuition.windows.find((x) => x.screenSlot === slot && x.leftEdge === 10)!
+    // an inactive window's bars are DetailPen and an active one's are
+    // BlockPen, so the title bar says which is which
+    expect(a.active).toBe(false)
+    expect(s.rp.point(60, 22)).toBe(0)
+
+    rt.input.mouseX = s.screenToHardX(60)
+    rt.input.mouseY = 50 + s.displayY - s.offsetY
+    rt.input.mouseK = 1
+    rt.frame()
+    expect(a.active).toBe(true)
+    expect(s.rp.point(60, 22)).toBe(1)
   })
 
   it('Jd Intmouse reads the window-relative pointer, 0 with no window', () => {

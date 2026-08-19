@@ -11,7 +11,7 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import type { GuiState } from './guistate'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
-import { Intuition, WB_SLOT } from '../amiga/intuition'
+import { Intuition } from '../amiga/intuition'
 import { Boopsi } from '../amiga/boopsi'
 import { MuiMaster } from '../amiga/muimaster'
 import type { DiskFont } from '../amiga/diskfont'
@@ -2301,22 +2301,31 @@ export class Runtime {
   }
 
   /**
-   * Drive Intuition for one frame: the pointer on the Workbench screen, then
+   * Drive Intuition for one frame: the pointer on each of its screens, then
    * whatever moved.
    *
    * Only when there is something to drive — no window means no Intuition to
-   * interact with, and the render() below would repaint a Workbench screen
-   * that nothing has touched. AMOS's own mouse coordinates and button mask
-   * are what feed it, because there is one pointer and AMOS already owns it.
+   * interact with, and the render() below would repaint a screen that nothing
+   * has touched. AMOS's own mouse coordinates and button mask are what feed
+   * it, because there is one pointer and AMOS already owns it.
+   *
+   * Every slot Intuition owns and not just the Workbench: `Wb Open Screen`
+   * opens a CUSTOMSCREEN and puts its windows on that, so driving WB_SLOT
+   * alone left those windows unable to receive a click at all. The pointer is
+   * converted per screen because each has its own resolution and display line,
+   * which is what `mouseOnScreen` takes off it.
    */
   private stepIntuition(): void {
     const int = this.intuitionBase
     if (!int || int.windows.length === 0) return
-    const s = this.screens.get(WB_SLOT)
-    if (!s) return
-    const m = this.mouseOnScreen(s)
-    int.handleInput(WB_SLOT, m.x, m.y, this.input.mouseK)
-    int.render(WB_SLOT)
+    const slots = new Set(int.windows.map((w) => w.screenSlot))
+    for (const slot of slots) {
+      const s = this.screens.get(slot)
+      if (!s) continue
+      const m = this.mouseOnScreen(s)
+      int.handleInput(slot, m.x, m.y, this.input.mouseK)
+      int.render(slot)
+    }
   }
 
   /**

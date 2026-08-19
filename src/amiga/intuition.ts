@@ -676,6 +676,22 @@ export class Intuition {
     if (backdrop) this.open.unshift(w)
     else this.open.push(w)
     if (slot === WB_SLOT) this.visitors++
+    // The interior, ONCE, at open. Intuition clears a new window's box and
+    // then leaves the contents to whoever opened it, and `renderFrame` used to
+    // repeat the clear on every refresh --- which is invisible while only the
+    // Workbench renders and nothing draws into a window there, and erases the
+    // program's own drawing the moment either changes. jd-int's `Jd Intplot`
+    // and Int 1.0's `Wb Draw` are both windows a program draws into.
+    const rp = this.host.screenRast(slot)
+    if (rp) {
+      const save = rp.snapshot()
+      rp.clip = null
+      rp.drawMode = 0
+      rp.areaPtrn = null
+      rp.mask = 0xff
+      rp.rectFill(r.minX, r.minY, r.maxX, r.maxY, 0)
+      rp.restore(save)
+    }
     this.dirty = true
     if ((nw.flags & WFLG_ACTIVATE) !== 0) this.activateWindow(w)
     return w
@@ -970,10 +986,19 @@ export class Intuition {
     rp.linePtrn = 0xffff
     rp.mask = 0xff
 
-    // the desktop, wherever no window covers it
-    const bg = Region.fromRect(li.bounds())
-    for (const l of li.layers) bg.clearRect(l.rect)
-    for (const r of bg.rects) rp.rectFill(r.minX, r.minY, r.maxX, r.maxY, 0)
+    // The desktop, wherever no window covers it, and ONLY on the Workbench.
+    //
+    // A custom screen's background belongs to whoever opened it: jd-int draws
+    // straight onto the screen's RastPort when no window is current, which is
+    // its documented fallback, and filling here would erase that every time a
+    // window moved. Intuition does not repaint a custom screen either --- it
+    // damages the uncovered region and leaves the owner to refresh it --- so
+    // the fill is the Workbench's backdrop rather than a rule about screens.
+    if (slot === WB_SLOT) {
+      const bg = Region.fromRect(li.bounds())
+      for (const l of li.layers) bg.clearRect(l.rect)
+      for (const r of bg.rects) rp.rectFill(r.minX, r.minY, r.maxX, r.maxY, 0)
+    }
 
     for (const w of this.open) {
       if (w.screenSlot !== slot) continue
@@ -1018,9 +1043,6 @@ export class Intuition {
     const x2 = x1 + w.width - 1
     const y2 = y1 + w.height - 1
 
-    // the interior. Intuition leaves a new window's contents to its owner;
-    // nothing owns these, so it is the background pen.
-    rp.rectFill(x1, y1, x2, y2, 0)
     if (w.borderless) return
 
     const fill = w.active ? w.blockPen : w.detailPen
