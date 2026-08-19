@@ -2541,9 +2541,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      *
      * DEFECT: `$1bc` is dereferenced unguarded at $3d24. Every other drawing
      * keyword tests it and raises 11; this one does not, so `Gui Line 3d`
-     * before `Gui Gfx` reads Move's arguments out of address zero. This port
-     * raises the 11 the rest of the group raises rather than modelling the
-     * read.
+     * before `Gui Gfx` hands Move a RastPort at address zero.
+     *
+     * DEVIATION: that is the one thing here not reproduced. This port raises
+     * the 11 the rest of the group raises, because there is no address zero
+     * to write through and answering nothing would hide the mistake instead
+     * of reporting it.
      */
     'gui line 3d': (it) => {
       const x = it.evalInt()

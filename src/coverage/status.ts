@@ -3505,6 +3505,23 @@ export const FAITHFUL = new Set<string>([
   'gui screen width', 'gui screen height', 'gui screen depth', 'gui screen colours',
   'gui aga', 'gui zone', 'gui mouse zone', 'gui reserve zone', 'gui free zone',
   'gui set zone',
+  // ---- the font scale, the activator and the three waits --------------------
+  // `Gui Sx` and `Gui Sy` take off four and ten before the scale and add back
+  // the borders the extension keeps at `$29a` and `$298`; `Gui Sw` and `Gui
+  // Sh` are the scale alone. All four skip it for a window laid out in
+  // topaz/8, `tst.w $42(a1) / bne`, which is the test the four gadget box
+  // readers share.
+  //
+  // `Gui Activate` checks the KIND before it looks the window up -- routine
+  // 237 answers 3 or $c, INTEGER or STRING, and anything else is error 19 --
+  // so a closed window reports the wrong gadget type rather than being shut.
+  //
+  // `Gui Wait Vbl` is WaitTOF once, or in a `dbra` loop for the counted form
+  // at routine 77; `Gui Pause` is dos Delay; `Gui Timer` fills the IORequest
+  // at `$108` and SendIOs it, and does nothing at all while bit 5 of `$85`
+  // says one is already pending.
+  'gui sx', 'gui sy', 'gui sw', 'gui sh', 'gui len', 'gui activate',
+  'gui wait vbl', 'gui pause', 'gui timer',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
