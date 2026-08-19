@@ -418,18 +418,34 @@ describeWith('the gadget group', exampleBank(), (bank) => {
    * reset itself on read.
    */
   it('Gui Set writes attribute 0 and Gui Read reads it, twice', () => {
-    const out = runOut(`${open} : Gui Set 1,1,0,42 : Print Gui Read(1,1) : Print Gui Read(1,1)`, bank).out
+    // gadget 0 is the bank's TEXT, which has one attribute; 1 to 3 are IMAGEs
+    const out = runOut(`${open} : Gui Set 1,0,0,42 : Print Gui Read(1,0) : Print Gui Read(1,0)`, bank).out
     expect(out.trim().split('\n').map(Number)).toEqual([42, 42])
   })
 
-  it('keeps the three attributes apart', () => {
-    const rt = run(`${open} : Gui Set 1,1,0,7 : Gui Set 1,1,1,8 : Gui Set 1,1,2,9`, bank)
-    expect(rt.gui.attrsOf(rt.gui.windows.get(1)!, 1)).toEqual([7, 8, 9])
+  /**
+   * The tag table at `$3b8` gives each KIND its attribute count, and
+   * `cmp.l d0,d3 / bge` at $60be refuses anything at or above it. A BUTTON
+   * and an IMAGE have none at all, so every attribute of one is error 9 --
+   * which is stricter than the guide's grid reads, and is the grid's empty
+   * rows stated as a rule.
+   */
+  it('refuses an attribute the gadget s kind does not have', () => {
+    // gadget 1 is an IMAGE: zero attributes, so even 0 raises
+    expect(() => run(`${open} : Gui Set 1,1,0,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
+    // gadget 0 is a TEXT: one attribute, so 0 is fine and 1 is not
+    expect(() => run(`${open} : Gui Set 1,0,0,5`, bank)).not.toThrow()
+    expect(() => run(`${open} : Gui Set 1,0,1,5`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
   })
 
-  it('ignores an attribute outside the guide s range', () => {
-    const rt = run(`${open} : Gui Set 1,1,3,5`, bank)
-    expect(rt.gui.attrsOf(rt.gui.windows.get(1)!, 1)).toEqual([0, 0, 0])
+  /**
+   * `tst.l d1 / bge` at $6066 and three `cmpi.w` after it: a negative value
+   * is legal only for INTEGER, SLIDER and NUMBER. 1.61's history dates the
+   * check --- "Fixed bug: You can now set/range an integer gadget to a
+   * negative value" --- and a TEXT gadget is not one of the three.
+   */
+  it('refuses a negative value for a kind whose tag is not signed', () => {
+    expect(() => run(`${open} : Gui Set 1,0,0,-1`, bank)).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
   })
 
   /** `Gui Set 1,5,-1,1 : Rem Gadget number 5 in win 1 is turned OFF` */
@@ -1577,6 +1593,18 @@ describeWith('the array group', demoBank(), (bank) => {
   it('finds the listview in the demo bank', () => {
     const rt = run('Rem')
     expect(rt.gui.windows.get(1)!.design.gadgets[0]!.kind).toBe(4)
+  })
+
+  /**
+   * A LISTVIEW is one of the three kinds the tag table gives THREE attributes
+   * --- GTLV_Selected, GTLV_Labels and GTLV_Top, in that order --- so this is
+   * where `Gui Set`'s 0, 1 and 2 are all legal at once. The other two are
+   * SCROLLER and SLIDER; every other kind has one or none.
+   */
+  it('keeps the listview s three attributes apart', () => {
+    const rt = run('Gui Set 1,0,0,7 : Gui Set 1,0,1,8 : Gui Set 1,0,2,9')
+    expect(rt.gui.attrsOf(rt.gui.windows.get(1)!, 0)).toEqual([7, 8, 9])
+    expect(() => run('Gui Set 1,0,3,1')).toThrow(GUI_ERRORS[GUI_ERR.ILLEGAL_GADGET_VALUE])
   })
 
   /**

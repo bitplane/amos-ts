@@ -3536,6 +3536,20 @@ export const FAITHFUL = new Set<string>([
   // distance in d0/d1, which is why the arguments read box-then-distance.
   'gui bank', 'gui close', 'gui reset', 'gui event', 'gui selected',
   'gui paste block', 'gui paste icon', 'gui paste bob', 'gui scroll',
+  // ---- Gui Set and its tag table ---------------------------------------------
+  // Routine 241 is the whole of both keywords: `Gui Set$` is twenty-two bytes
+  // that push the string, `moveq #$0,d3` and jump into it, so the two share
+  // every check.
+  //
+  // The checks are the reading. `$3b8` of the state holds a COUNT word and
+  // that many gadtools tags per KIND, and `cmp.l d0,d3 / bge` refuses an
+  // attribute at or above the count -- which makes the guide's empty grid rows
+  // a rule: an IMAGE and a BUTTON have no attributes, so `Gui Set win,btn,0,1`
+  // is error 9 and not a quiet nothing. LISTVIEW, SCROLLER and SLIDER are the
+  // three with all of 0, 1 and 2. And `tst.l d1 / bge` with three `cmpi.w`
+  // after it allows a NEGATIVE value only for INTEGER, SLIDER and NUMBER,
+  // which is the check 1.61's history dates.
+  'gui set', 'gui set$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

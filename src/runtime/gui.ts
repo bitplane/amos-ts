@@ -75,7 +75,7 @@ import type { ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
-import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
+import { drawBevelBox, KIND, MENU_FLAG, PEN, TAG, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
@@ -458,6 +458,52 @@ function tcpPacket(g: GuiState, type: number, channel: number, buffer: number, r
   g.packetsOut += 1
   return g.packetSerial
 }
+
+/**
+ * What `Gui Set` will set, per gadget kind, read out of the library's own
+ * table at `$3b8` of the state.
+ *
+ * Routine 241 walks it once per kind --- `move.w (a4)+,d0 / ext.l / lsl.l
+ * #$2,d0 / dbra d5` --- so each entry is a COUNT word followed by that many
+ * gadtools tag longwords, and the count IS how many attributes the kind has.
+ * `cmp.l d0,d3 / bge` at $60be then refuses anything at or above it.
+ *
+ * The table settles the guide's attribute grid from the other side, and it is
+ * stricter than the grid reads: a BUTTON and an IMAGE have NO attributes at
+ * all, so `Gui Set win,button,0,1` is error 9 rather than a quiet nothing.
+ * Kind 10 is gadtools' reserved slot and kind 14 is GuiConv's own NUM, and
+ * both are empty here too.
+ *
+ * Attribute -1 is not in the table: it is `move.l #$8003000e,$50(a3)` at
+ * $60cc, which is GA_Disabled, and it is legal for every kind.
+ */
+const GUI_SET_TAGS: readonly (readonly number[])[] = [
+  [], // 0 IMAGE
+  [], // 1 BUTTON
+  [TAG.GTCB_Checked], // 2 CHECKBOX
+  [TAG.GTIN_Number], // 3 INTEGER
+  [TAG.GTLV_Selected, TAG.GTLV_Labels, TAG.GTLV_Top], // 4 LISTVIEW
+  [TAG.GTMX_Active], // 5 MX
+  [TAG.GTNM_Number], // 6 NUMBER
+  [TAG.GTCY_Active], // 7 CYCLE
+  [TAG.GTPA_Color], // 8 PALETTE
+  [TAG.GTSC_Top, TAG.GTSC_Total, TAG.GTSC_Visible], // 9 SCROLLER
+  [], // 10, gadtools' reserved kind
+  [TAG.GTSL_Level, TAG.GTSL_Min, TAG.GTSL_Max], // 11 SLIDER
+  [TAG.GTST_String], // 12 STRING
+  [TAG.GTTX_Text], // 13 TEXT
+  [], // 14 NUM
+]
+
+/**
+ * The three kinds `Gui Set` will take a negative value for, `cmpi.w` against
+ * 3, $b and 6 at $606c, $6072 and $6078.
+ *
+ * INTEGER, SLIDER and NUMBER, which are the three whose tag is a signed
+ * quantity. 1.61's history dates the check: "Fixed bug: You can now
+ * set/range an integer gadget to a negative value."
+ */
+const SIGNED_KINDS: readonly number[] = [3, 11, 6]
 
 /**
  * The clamp every line and bar endpoint goes through, routine at $2036.
@@ -2354,16 +2400,22 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const value = it.evalInt()
       const g = s()
       const w = windowOf(g, win)
-      // routine 241's two checks, in its order: the attribute first
+      // routine 241's checks, in its order: the attribute first
       // (`cmpi.l #$ffffffff,d3 / blt` at $603a), then the gadget
       if (attr < -1) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
-      if (g.gadget(w, id) === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      const gad = g.gadget(w, id)
+      if (gad === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      // `tst.l d1 / bge` at $6066: a NEGATIVE value is legal only for the
+      // three kinds whose tag takes one, and the three are named by number
+      if (value < 0 && !SIGNED_KINDS.includes(gad.kind)) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       if (attr === -1) {
         if (value === 0) w.ghosted.delete(id)
         else w.ghosted.add(id)
         return
       }
-      if (attr < 0 || attr > 2) return
+      // `cmp.l d0,d3 / bge` at $60be against the count the tag table holds
+      // for this kind. A BUTTON has none, so every attribute of one raises
+      if (attr >= (GUI_SET_TAGS[gad.kind]?.length ?? 0)) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       g.attrsOf(w, id)[attr as 0 | 1 | 2] = value
     },
 
@@ -2379,7 +2431,14 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const text = str(it.evalExpr())
       const g = s()
       const w = windowOf(g, win)
-      if (g.gadget(w, id) === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      const gad = g.gadget(w, id)
+      if (gad === null) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
+      // routine 13 is twenty-two bytes: the string pointer plus two, the
+      // gadget, the window, `moveq #$0,d3` and then routine 241. So it is
+      // `Gui Set` with attribute 0 and it inherits every check that makes,
+      // including the tag table's --- a kind with no attributes refuses this
+      // too, and a BUTTON is one
+      if (GUI_SET_TAGS[gad.kind]?.length === 0) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       w.strings.set(id, text)
     },
 
