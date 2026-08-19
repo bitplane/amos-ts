@@ -3490,6 +3490,21 @@ export const FAITHFUL = new Set<string>([
   // 0..count-1 returns having done nothing at all.
   'gui menu', 'gui menu on', 'gui menu off', 'gui menu check', 'gui menu uncheck',
   'gui array', 'gui array read', 'gui array up', 'gui array down',
+  // ---- the screen readers and the zone table --------------------------------
+  // `Gui Screen Width` and `Height` are `$c` and `$e` of the Screen; `Depth`
+  // and `Colours` both reach the BitMap through `$54`+`$4` and read `$5`, and
+  // Colours turns it into a count with `moveq #$1,d3 / rol.l #$1,d3` repeated
+  // depth times -- a ROTATE, which is why a depth of 32 answers 1 and 33
+  // answers 2. `Gui Aga` multiplies each nibble by $11.
+  //
+  // The zone table is `$3e` of the window: `count*8 + 2` bytes with count-1 in
+  // the first word, 5000 zones at most (`cmpi.l #$1388,d2`), and `Gui Set
+  // Zone` refuses a zone above count-1 with `Rbhi` and a box whose far edge is
+  // not GREATER than its near one with `cmp.w d2,d4 / Rble` -- so a
+  // one-pixel-wide zone is illegal, not merely empty.
+  'gui screen width', 'gui screen height', 'gui screen depth', 'gui screen colours',
+  'gui aga', 'gui zone', 'gui mouse zone', 'gui reserve zone', 'gui free zone',
+  'gui set zone',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
