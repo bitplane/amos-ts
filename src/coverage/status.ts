@@ -3593,6 +3593,20 @@ export const FAITHFUL = new Set<string>([
   // an error. `Gui User Catalog` is `$44` of the bank base, header +68.
   'gui gad tag', 'gui clip read$', 'gui clip write$',
   'gui catalog open', 'gui catalog close', 'gui catalog$', 'gui user catalog',
+  // ---- the screen blit and the compiler switch -------------------------------
+  // `Gui Screen Copy` is BltBitMapRastPort (-$25e) with `moveq #$c0,d6`, a
+  // plain copy, and each end is resolved by SIGN: above zero a screen number,
+  // below zero AMOS's own RastPort at `-$18ca(a5)`, zero the Gfx output at
+  // `$1bc`. The two ends are not the same kind -- the destination is a
+  // RastPort and the source is that RastPort's BitMap, `movea.l $4(a0),a0` --
+  // which is what the library call wants.
+  //
+  // `Gui Screen Move` is MoveScreen, whose arguments are deltas, over a
+  // subtraction of the Screen's own LeftEdge and TopEdge, so the keyword is
+  // absolute. `Gui Amiga Os` is `cmpi.w #$1,-$16(a5) / bne`: an interpreter
+  // takes the four-instruction arm, one AMOS_WB, and everything the guide
+  // lists happens only on the compiled side.
+  'gui screen copy', 'gui screen move', 'gui screen close', 'gui amiga os',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

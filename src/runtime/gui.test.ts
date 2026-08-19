@@ -1259,6 +1259,20 @@ describeWith('the lock and remember flags', exampleBank(), (bank) => {
     expect(run(`${open} : Gui Off 1 : Gui On 1`, bank).gui.windows.get(1)!.locked).toBe(false)
   })
 
+  /**
+   * `Gui Amiga Os` under an interpreter is `Amos To Back` and nothing else.
+   * `cmpi.w #$1,-$16(a5) / bne` at $1d90 is the compiled/interpreted test and
+   * a 1 takes the four-instruction arm: `moveq #$0,d1` and one AMOS_WB. The
+   * long arm past it -- StopVBL, the vector patch, `-$90(a5)` forced to $ffff
+   * and a ScreenToFront -- is the compiler's, which is what the guide means by
+   * "note that all this only takes effect when your program is compiled".
+   */
+  it('Gui Amiga Os is Amos To Back under an interpreter', () => {
+    const rt = run(`${open} : Gui Amiga Os`, bank)
+    // the short arm does not lock, where 1.5b's `Gui Amiga` does
+    expect(rt.noFlip).toBe(false)
+  })
+
   /** bit 2 of `$85`, `bset` at $2572 and `bclr` at $257e */
   it('Gui Remember On and Off are one bit', () => {
     expect(run('Gui Remember On', bank).gui.remember).toBe(true)

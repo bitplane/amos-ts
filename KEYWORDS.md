@@ -79,7 +79,7 @@ is.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |       30 |           18 |       0 |     100% |
 | gui-1.61             |      103 |       60 |           43 |       0 |     100% |
-| gui-2.10             |      204 |      115 |           89 |       0 |     100% |
+| gui-2.10             |      204 |      119 |           85 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |           30 |      32 |      48% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5037 |          339 |    1983 |      73% |
+| **total**            |     7422 |     5041 |          335 |    1983 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -300,17 +300,16 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## gui-2.10 (100%)
 
-- **approximated** (89): `gui amiga os`, `gui app icon`, `gui app id`, `gui app name$`,
-  `gui app remove`, `gui asl colours`, `gui asl depth`, `gui asl font`, `gui asl height`,
-  `gui asl id`, `gui asl open`, `gui asl screen`, `gui asl width`, `gui asl$`, `gui beep`,
-  `gui best`, `gui border`, `gui clone`, `gui dir$`, `gui display iff`, `gui exist`,
-  `gui file$`, `gui font size`, `gui gad adr`, `gui guide`, `gui help`, `gui iconify`,
-  `gui in height`, `gui in width`, `gui input$`, `gui line 3d`, `gui monitor`,
-  `gui mouse report`, `gui mouse wx`, `gui mouse wy`, `gui mouse x`, `gui mouse y`,
-  `gui notify`, `gui open`, `gui pub check`, `gui pub free`, `gui pub list`,
-  `gui pub list free`, `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`,
-  `gui pub to front`, `gui read`, `gui read$`, `gui rem notify`, `gui remap`, `gui req`,
-  `gui save iff`, `gui screen base`, `gui screen close`, `gui screen copy`, `gui screen move`,
+- **approximated** (85): `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`,
+  `gui asl colours`, `gui asl depth`, `gui asl font`, `gui asl height`, `gui asl id`,
+  `gui asl open`, `gui asl screen`, `gui asl width`, `gui asl$`, `gui beep`, `gui best`,
+  `gui border`, `gui clone`, `gui dir$`, `gui display iff`, `gui exist`, `gui file$`,
+  `gui font size`, `gui gad adr`, `gui guide`, `gui help`, `gui iconify`, `gui in height`,
+  `gui in width`, `gui input$`, `gui line 3d`, `gui monitor`, `gui mouse report`,
+  `gui mouse wx`, `gui mouse wy`, `gui mouse x`, `gui mouse y`, `gui notify`, `gui open`,
+  `gui pub check`, `gui pub free`, `gui pub list`, `gui pub list free`, `gui pub mode`,
+  `gui pub name$`, `gui pub screen`, `gui pub to back`, `gui pub to front`, `gui read`,
+  `gui read$`, `gui rem notify`, `gui remap`, `gui req`, `gui save iff`, `gui screen base`,
   `gui screen open`, `gui title$`, `gui uniconify`, `gui wait`, `tcp abort`, `tcp accept`,
   `tcp close`, `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`,
   `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`,
