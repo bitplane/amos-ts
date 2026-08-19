@@ -5885,16 +5885,20 @@ function transWalk(rt: Runtime, each: (bits: number, row: number, col: number) =
   const src = transBank(rt, t.source, 0)
   if (!map || !src) amcafErr()
   const longs = t.width >>> 5
+  const md = map.data
+  const sd = src.data
+  const mb = map.base
+  const sb = src.base
   let m = 0
   for (let row = 0; row < t.height; row++) {
     for (let col = 0; col < longs; col++) {
       let bits = 0
       for (let i = 0; i < 16; i++) {
-        const hi = ((map[m]! << 8) | map[m + 1]!) ^ 0x8000
-        const lo = ((map[m + 2]! << 8) | map[m + 3]!) ^ 0x8000
+        const hi = ((md[mb + m]! << 8) | md[mb + m + 1]!) ^ 0x8000
+        const lo = ((md[mb + m + 2]! << 8) | md[mb + m + 3]!) ^ 0x8000
         m += 4
-        bits = ((bits << 1) | ((src[hi] ?? 0) & 1)) >>> 0
-        bits = ((bits << 1) | ((src[lo] ?? 0) & 1)) >>> 0
+        bits = ((bits << 1) | ((sd[sb + hi] ?? 0) & 1)) >>> 0
+        bits = ((bits << 1) | ((sd[sb + lo] ?? 0) & 1)) >>> 0
       }
       each(bits >>> 0, row, col)
     }
@@ -5902,11 +5906,32 @@ function transWalk(rt: Runtime, each: (bits: number, row: number, col: number) =
 }
 
 /** a bank's bytes, or null if it is not set, not memory, or too short */
-function transBank(rt: Runtime, n: number, need: number): Uint8Array | null {
+/**
+ * A trans map or source: a bank number, or an ADDRESS.
+ *
+ * Routine 1121 resolves a bank number to its address and passes anything
+ * else through as a pointer, which is why `Set Trans Source` takes either.
+ * Keeping only the bank number made the address form fail outright, and the
+ * address form is the whole point of the keyword: AMCAF's own ScreenTrans
+ * demo animates by sliding a 64K window through a 128K bank, one
+ * `Set Trans Source Start(9)+Y*256` per frame. Every call raised Illegal
+ * function call.
+ *
+ * `base` is where the window starts. Zero for a bank, so the bank case is
+ * byte for byte what it was.
+ */
+interface TransBuf {
+  data: Uint8Array
+  base: number
+}
+
+function transBank(rt: Runtime, n: number, need: number): TransBuf | null {
   if (!n) return null
   const b = rt.memBanks.get(n)
-  if (!b || b.kind !== 'memory' || b.data.length < need) return null
-  return b.data
+  if (b && b.kind === 'memory' && b.data.length >= need) return { data: b.data, base: 0 }
+  const m = rt.resolveAddr(n >>> 0)
+  if (!m || m.off + need > m.data.length) return null
+  return { data: m.data, base: m.off }
 }
 
 /* ------------------------------------------------------------------ *

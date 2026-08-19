@@ -9,10 +9,13 @@
  *
  * What it does with the bytes:
  *
- * - a floppy image goes into the first EMPTY drive, under its own volume
- *   label, and nothing is ejected to make room until all four are full. That
- *   is what you would physically do with a two-disk game, and it is why
- *   there is no special case for multi-disk sets anywhere in this port.
+ * - a floppy image goes into DF0: AND is mounted under its own label, and
+ *   the label STAYS mounted after the next disk pushes it out of the drive.
+ *   The drive is the convenience; the label is the truth. A two-disk game
+ *   whose first disk asks for `Disk2:data` finds it without anyone swapping
+ *   anything, because every disk that has ever been put in is still there
+ *   under its own name. Four drives was the hardware's limit and is not the
+ *   filesystem's, so nothing is evicted to make room for anything.
  * - an archive is unpacked by the player, which mounts it and copies it into
  *   DH0: so relative loads resolve.
  * - a program is compiled and run with its own drawer current, on its own
@@ -31,8 +34,14 @@ export interface LibraryHost {
   /** the machine's four drive positions; a null is a line with no drive on it */
   drives: readonly (FloppyDrive | null)[]
   loadProgram(bytes: Uint8Array, name: string, dir: string[], vol: string): void
-  /** for an archive: the player unpacks it, mounts it and finds its program */
-  loadArchive(bytes: Uint8Array, name: string): Promise<void>
+  /**
+   * For an archive: the player unpacks it, mounts it and picks its program.
+   * Answers everything it found and which one it started, because neither is
+   * visible from out here: an archive holding fifteen programs and one
+   * holding none both came back empty, and the page said "no AMOS program"
+   * for both.
+   */
+  loadArchive(bytes: Uint8Array, name: string): Promise<{ programs: string[]; ran: string | null }>
   /** run once the disk is in: assign detection, and anything else the page does */
   mounted?(): void
 }
@@ -44,6 +53,14 @@ export interface OpenSource {
   bytes: Uint8Array
   /** the volume and drawer it was read from, for a program run out of the tree */
   at?: { vol: string; dir: string[] }
+  /**
+   * Which drive to put a disk in. DF0: unless the caller says otherwise.
+   *
+   * Only a program that addresses `DF1:` by name needs anything else, and
+   * only the person clicking knows that it does, which is why this comes
+   * from a menu and not from a rule.
+   */
+  drive?: number
 }
 
 export interface OpenResult {
@@ -91,27 +108,22 @@ function fallbackName(file: string): string {
 
 export function createLibraryLoader(host: LibraryHost) {
   /**
-   * Put a disk in a drive and say which one it answers to.
+   * Put a disk in, and say what it answers to.
    *
-   * The first EMPTY drive, so a second disk joins the first rather than
-   * replacing it: that is how a two-disk game gets both halves in, with no
-   * code anywhere that knows what a two-disk game is. When all four are full
-   * the last is swapped, because something has to give and DF0: is the one a
-   * program is most likely to be reading from.
+   * Two things happen and they are separate. The disk goes in a DRIVE, DF0:
+   * unless the caller was told otherwise, which is what a program reading
+   * `DF0:` expects to find. And it is MOUNTED under its own volume label,
+   * which is permanent: the next disk replaces it in the drive and leaves
+   * the label alone. That is the whole multi-disk story, and no code
+   * anywhere knows what a multi-disk set is.
+   *
+   * An unlabelled disk has no VOLUME node to be reached by, and they exist,
+   * so it is mounted under its filename instead.
    */
-  function insert(adf: AdfVolume, file: string): string {
-    const label = adf.info.label
-    const volume = label === '' ? fallbackName(file) : label
-    // already in a drive: clicking it again means run it, not fill a second
-    // drive with the same disk
-    if (label !== '' && host.drives.some((d) => d?.medium?.label === label)) return volume
-    const free = host.drives.find((d) => d !== null && d.medium === null)
-    const drive = free ?? [...host.drives].reverse().find((d) => d !== null)
-    if (!drive) return volume
-    drive.insert(adf)
-    // an unlabelled disk has no VOLUME node to be reached by, and they exist,
-    // so it is mounted under the filename as well
-    if (label === '') host.vfs.mount(volume, adf)
+  function insert(adf: AdfVolume, file: string, unit = 0): string {
+    const volume = adf.info.label === '' ? fallbackName(file) : adf.info.label
+    host.vfs.mount(volume, adf)
+    host.drives[unit]?.insert(adf)
     return volume
   }
 
@@ -139,7 +151,7 @@ export function createLibraryLoader(host: LibraryHost) {
 
   async function open(src: OpenSource): Promise<OpenResult> {
     if (isAdf(src.bytes)) {
-      const volume = insert(new AdfVolume(src.bytes), src.name)
+      const volume = insert(new AdfVolume(src.bytes), src.name, src.drive ?? 0)
       host.mounted?.()
       const programs = programsIn(host.vfs, volume)
       return { kind: 'disk', volume, programs, ran: runOne(programs) }
@@ -153,10 +165,13 @@ export function createLibraryLoader(host: LibraryHost) {
       return { kind: 'program', volume: at.vol, programs: [full], ran: full }
     }
     // zip, lha, tar: no label and no filesystem of its own, so the player's
-    // archive path handles it, DH0: copy and all
-    await host.loadArchive(src.bytes, src.name)
+    // archive path handles it, DH0: copy and all. It picks the program too,
+    // and what it picked has to come back out: reporting `ran: null` for an
+    // archive that DID start something sent the page to the file tree saying
+    // "holds no AMOS program" while the thing ran behind it.
+    const found = await host.loadArchive(src.bytes, src.name)
     host.mounted?.()
-    return { kind: 'archive', volume: null, programs: [], ran: null }
+    return { kind: 'archive', volume: null, programs: found.programs, ran: found.ran }
   }
 
   return { open }

@@ -2013,7 +2013,22 @@ export class Screen {
     dx: number,
     dy: number,
   ): void {
-    Screen.copyBuf(src, src.pixels, x1, y1, x2, y2, dst, dst.pixels, dx, dy)
+    /*
+     * `pixelsW()` for the destination, NOT `pixels`.
+     *
+     * `pixels` is the chunky CACHE and is read-only by contract: writing
+     * through it leaves the planes untouched, and the next plane write
+     * invalidates the cache and takes the writes with it. `Screen Copy` and
+     * `Scroll` both land here, so both were being thrown away the moment
+     * anything drew afterwards.
+     *
+     * It is invisible until something draws on top. Delta's demo scrolls its
+     * message area up nine pixels and then prints one line into it, so every
+     * line landed on the same row and the six of them overprinted into one
+     * band of mush. The screen READ back correctly the whole time, which is
+     * what made it look like a display bug rather than a lost write.
+     */
+    Screen.copyBuf(src, src.pixels, x1, y1, x2, y2, dst, dst.pixelsW(), dx, dy)
   }
 
   /** blit between explicit buffers (Logic/Physic aware) */

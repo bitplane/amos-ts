@@ -129,6 +129,14 @@ function joyMap(k: JoyKeys | undefined): Record<string, number> {
   return k
 }
 
+/** what an archive turned out to hold, and what was started from it */
+export interface ArchiveResult {
+  /** every AMOS program in the archive, by path inside it */
+  programs: string[]
+  /** the one that was started, or null when the choice was not obvious */
+  ran: string | null
+}
+
 export interface PlayerOptions {
   /**
    * Keyboard to joystick, per hardware port. Port 1 is `Joy(1)`, which is
@@ -177,8 +185,12 @@ export interface Player {
    * Mount an archive and run the program in it. Directories are preserved and
    * the current directory becomes the drawer holding the program, so its
    * relative loads resolve — which is how most games find their data.
+   *
+   * Answers what it found: every AMOS program in the archive, and which one
+   * it started. A caller cannot work either out for itself, and a host that
+   * guessed reported "holds no AMOS program" for an archive holding fifteen.
    */
-  loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<void>
+  loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<ArchiveResult>
   /** run one program, with `dir` as its drawer inside DH0: */
   loadProgram(bytes: Uint8Array, name: string, dir?: string[], vol?: string): void
   /** rebuild the environment, keeping the filesystem: a cold reset */
@@ -610,7 +622,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
   }
 
-  async function loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<void> {
+  async function loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<ArchiveResult> {
     const entries = await readArchive(bytes)
     /**
      * A floppy image is mounted as itself rather than flattened: it has a
@@ -659,7 +671,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
           : `${name} holds ${pick.ambiguous?.length ?? 0} programs — name one: ${(pick.ambiguous ?? []).join(', ')}`
       error = why
       fail(why)
-      return
+      return { programs, ran: null }
     }
     const segs = pick.path.split('/').filter((s) => s !== '' && s !== '.')
     const dir = segs.slice(0, -1)
@@ -674,6 +686,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     vfs.assignDrives(dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`)
     const file = entries.find((e) => e.path === pick.path)!
     loadProgram(file.data, segs[segs.length - 1]!, dir)
+    return { programs, ran: pick.path }
   }
 
   /**

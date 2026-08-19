@@ -241,8 +241,20 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
       const modulo = it.evalInt()
       // routine 29 first, whatever happens next
       st().cpuClear = null
+      /*
+       * POP ORDER, not source order. `(a3)+` three times pops the LAST
+       * argument first, so d0 is `modulo` and d2 is `lines`. Taking them in
+       * the order they are written made d2 the modulo, and the demo passes
+       * `Init Cpu Clear Long 256,10,0`: d2 came out 0, the `d2 <= 0` guard
+       * returned without installing anything, and the `Cpu Clear` on the next
+       * line raised error 12 for the want of a routine.
+       *
+       * The arithmetic confirms which is which. With d2 = 256 and d1 = 10 the
+       * total is `(10 + 0) * 4 * 256` = 10,240 bytes, which is exactly one
+       * bitplane of the 320x256 screen the demo opens.
+       */
       // the guards are all `cmp.w`, so they see the low word
-      const [d0, d1, d2] = [sw16(lines), sw16(length), sw16(modulo)]
+      const [d0, d1, d2] = [sw16(modulo), sw16(length), sw16(lines)]
       if (d1 <= 0 || d2 <= 0 || d0 < 0) return
       if (d0 === 0 ? d1 > 14 : d1 > 13) return
       // the routine it builds is two bytes of prologue, six per repeat with a

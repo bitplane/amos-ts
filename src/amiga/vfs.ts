@@ -407,12 +407,24 @@ export class AmigaFS implements AmosFS {
    * behind it is not somewhere a path can go.
    */
   volumeNames(): string[] {
-    const out = [...this.volumes.values()].map((v) => v.name)
+    const out: string[] = []
+    // A name appears once. The same disk can be reachable as a mounted
+    // volume AND as the label of the disk in a drive, which is the normal
+    // state once a host mounts what it inserts; `entryOf` resolves the drive
+    // either way, so the second listing was a duplicate row and nothing else.
+    const seen = new Set<string>()
+    const add = (name: string): void => {
+      const key = name.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push(name)
+    }
+    for (const v of this.volumes.values()) add(v.name)
     for (const d of this.drives) {
       const medium = d?.medium
       if (!d || !medium) continue
-      out.push(`DF${d.unit}`)
-      if (medium.label !== '') out.push(medium.label)
+      add(`DF${d.unit}`)
+      if (medium.label !== '') add(medium.label)
     }
     return out
   }

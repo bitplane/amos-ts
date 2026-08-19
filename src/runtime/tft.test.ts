@@ -314,17 +314,34 @@ describe('TFT 0.7, the build that lives inside its own installer', () => {
   })
 
   it('Init Cpu Clear Long fills the pointer 0.6 could never fill', () => {
-    // routine 26 tests +$132 and raises error 12 on zero, and no keyword in
-    // 0.6 writes it. Routine 27 in 0.7 does.
+    /*
+     * routine 26 tests +$132 and raises error 12 on zero, and no keyword in
+     * 0.6 writes it. Routine 27 in 0.7 does.
+     *
+     * POP ORDER. Routine 27 at $146c pops `(a3)+` three times with no save
+     * first, and AMOS's first pop is the LAST argument, so d0 is `modulo`
+     * and d2 is `lines`. These cases used to be written the other way round
+     * and passed, because nothing here called it the way a program does:
+     * TFT's own Cpu_Pervormens_Test says `Init Cpu Clear Long 256,10,0` and
+     * got error 12 on the next line for the whole life of the port.
+     *
+     * The arithmetic is what settles it. `move.l d1,d7 / mulu.w #$4,d7 /
+     * mulu.w d2,d7` puts d1*4*d2 at +$13a as the byte total, and 10*4*256 is
+     * 10,240 --- one bitplane of the 320x256 screen the demo opens. The
+     * other reading gives zero. `cmp.w #$e,d1` also caps d1 at 14, which no
+     * line count would survive.
+     */
     expect(() => run07('Cpu Clear $20000')).toThrow(/error 12/)
-    expect(() => run07('Init Cpu Clear Long 0,10,20\nCpu Clear $20000')).not.toThrow()
+    expect(() => run07('Init Cpu Clear Long 20,10,0\nCpu Clear $20000')).not.toThrow()
+    // and the shape the extension's own demo uses
+    expect(() => run07('Init Cpu Clear Long 256,10,0\nCpu Clear $20000')).not.toThrow()
   })
 
   it('DEFECT: and the routine it installs clears nothing', () => {
     // the instruction it repeats comes out of a table at data+$142 that no
     // routine ever writes, so the generated code is a prologue, a run of zero
     // longwords and an rts
-    const { rt } = run07('Reserve As Data 1,64\nFill Start(1) To Start(1)+63,$FFFFFFFF\nInit Cpu Clear Long 0,4,8\nCpu Clear Start(1)')
+    const { rt } = run07('Reserve As Data 1,64\nFill Start(1) To Start(1)+63,$FFFFFFFF\nInit Cpu Clear Long 8,4,0\nCpu Clear Start(1)')
     const bank = rt.memBanks.get(1)!
     expect([...bank.data.slice(0, 8)]).toEqual([255, 255, 255, 255, 255, 255, 255, 255])
   })
@@ -333,12 +350,13 @@ describe('TFT 0.7, the build that lives inside its own installer', () => {
     // `cmp.w #$0,d1 / bls`, `cmp.w #$0,d2 / bls`, `cmp.w #$0,d0 / blt`, then
     // `cmp.w #$e,d1` with no modulo and `cmp.w #$d,d1` with one. Every failure
     // leaves +$132 zero, so Cpu Clear still raises 12.
-    for (const args of ['0,0,10', '0,10,0', '-1,10,10', '0,15,10', '1,14,10']) {
+    // written lines,length,modulo, which the routine pops as d2,d1,d0
+    for (const args of ['10,0,0', '0,10,0', '10,10,-1', '10,15,0', '10,14,1']) {
       expect(() => run07(`Init Cpu Clear Long ${args}\nCpu Clear $20000`), args).toThrow(/error 12/)
     }
     // 14 longwords is the limit without a modulo and 13 with one
-    expect(() => run07('Init Cpu Clear Long 0,14,10\nCpu Clear $20000')).not.toThrow()
-    expect(() => run07('Init Cpu Clear Long 1,13,10\nCpu Clear $20000')).not.toThrow()
+    expect(() => run07('Init Cpu Clear Long 10,14,0\nCpu Clear $20000')).not.toThrow()
+    expect(() => run07('Init Cpu Clear Long 10,13,1\nCpu Clear $20000')).not.toThrow()
   })
 
   it('the three other stubs pop their arguments and do nothing', () => {

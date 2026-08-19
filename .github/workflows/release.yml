@@ -8,10 +8,18 @@
 # identifies exactly which code runs.
 name: release
 
+# `npm run redeploy` fires the workflow_dispatch below on whatever branch you
+# are on, so a fix can be rebuilt over the version already published without
+# cutting a release for it. The version it publishes AS defaults to the latest
+# tag, which is what `/` and `/v/latest/` are already serving.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Publish as this version, e.g. 0.9.4 (default: the latest tag)"
+        required: false
 
 permissions:
   contents: write
@@ -21,6 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the whole history, because a dispatch run has to find the latest
+          # tag to know what version it is republishing
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -35,9 +47,20 @@ jobs:
 
       - run: npm run build:web
 
-      - name: Version from the tag
+      # A tag push publishes the tag. A dispatch publishes whatever it was
+      # asked for, or the latest tag, which is the version the site is
+      # already serving and so the one a rebuild should land on top of.
+      - name: Which version this is
         id: v
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          v="${{ inputs.version }}"
+          if [ -z "$v" ]; then
+            case "$GITHUB_REF_TYPE" in
+              tag) v="$GITHUB_REF_NAME" ;;
+              *)   v="$(git describe --tags --abbrev=0)" ;;
+            esac
+          fi
+          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
 
       # One publish, not three. The action starts an ssh-agent on a fixed
       # socket path, so calling it more than once in a job dies with

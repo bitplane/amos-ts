@@ -100,7 +100,7 @@ import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from '
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
-import { parseAmosFile } from '../loader/amosfile'
+import { parseAmosFile, parseSpriteBankBody } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../amiga/diskfont'
@@ -3706,8 +3706,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } catch {
         throw new AmosError('Not a powerpacked bank', 23)
       }
-      // bob/icon banks (flag bits 2/3) carry serialised objects — unsupported
-      if (bank.flags & 0x0c) throw new AmosError('Not a powerpacked bank', 23)
+      /*
+       * A bob or icon bank, Bnk_BitBob and Bnk_BitIcon (+Equ.s:1839-1840,
+       * which are BIT NUMBERS, so bits 2 and 3).
+       *
+       * These used to be refused as "carrying serialised objects", and what
+       * they carry is an ordinary sprite bank with no `AmSp` magic on the
+       * front: a count, then width-in-words, height and depth per image,
+       * which is how a bank sits in memory and so how `Ppsave` writes it.
+       * Renegades' `Ppload PATH$+"LOGO.ABK",1` is one 96x28 five-plane
+       * image and got "Not a powerpacked bank" for it.
+       */
+      if (bank.flags & 0x0c) {
+        const kind = bank.flags & 0x08 ? 'icons' : 'sprites'
+        let parsed
+        try {
+          parsed = parseSpriteBankBody(bank.data, kind)
+        } catch {
+          throw new AmosError('Not a powerpacked bank', 23)
+        }
+        if (kind === 'sprites') rt.spriteBank = ObjectBank.fromSpriteBank(parsed)
+        else rt.iconBank = ObjectBank.fromSpriteBank(parsed)
+        return
+      }
       const num = forced >= 0 ? forced : bank.number
       rt.memBanks.set(num, {
         kind: 'memory',

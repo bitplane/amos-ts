@@ -35,6 +35,7 @@ import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
 import { createBrowseTab } from './ui/browse'
 import { createLibraryLoader, type OpenSource } from './library'
+import { popupMenu } from './ui/menu'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
 
@@ -62,6 +63,11 @@ const player = createPlayer(document.getElementById('player')!, {
   onError: (m) => setStatus(`error: ${m}`),
 })
 const vfs = player.vfs
+
+// Under `npm run dev` only: a handle on the player from the console and from
+// a browser-driving script. Browser bugs need a browser, and the alternative
+// is reading pixels off the canvas and guessing which statement drew them.
+if (import.meta.env.DEV) (globalThis as unknown as { amos: unknown }).amos = player
 
 const DEMO = `Curs Off : Cls 0
 For C=1 To 15
@@ -364,6 +370,8 @@ interface RowOptions {
   drag?: string
   /** this row accepts a drop, moving the dragged entry into this drawer */
   drop?: string
+  /** right-click on the row */
+  menu?: (e: MouseEvent) => void
   actions?: [label: string, title: string, run: () => void][]
 }
 
@@ -379,6 +387,13 @@ function refreshFiles(): void {
     el.textContent = text
     if (o.cls) el.className = o.cls
     if (o.onClick) el.addEventListener('click', o.onClick)
+    if (o.menu) {
+      const menu = o.menu
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        menu(e)
+      })
+    }
     if (o.drag !== undefined) {
       const from = o.drag
       el.draggable = true
@@ -469,6 +484,21 @@ function refreshFiles(): void {
                 void openThing({ name: e.name, bytes, at: { vol: base.slice(0, -1), dir } })
               }
             : undefined,
+          menu: (ev) => {
+            // only a disk image has a drive to go in; an archive has no
+            // label and no filesystem of its own
+            const bytes = vfs.read(full)
+            if (!bytes || !isAdf(bytes)) return
+            popupMenu(
+              ev.clientX,
+              ev.clientY,
+              player.machine.drives.map((d, unit) => ({
+                label: `Put in DF${unit}:`,
+                detail: d?.medium?.label || (d?.medium ? '(no label)' : 'empty'),
+                run: () => void openThing({ name: e.name, bytes, at: { vol: base.slice(0, -1), dir }, drive: unit }),
+              })),
+            )
+          },
           drag: full,
           actions: [
             ['ren', 'rename', () => askRename(full)],
@@ -619,7 +649,9 @@ async function openThing(src: OpenSource): Promise<void> {
 
 const browse = createBrowseTab({
   onStatus: setStatus,
-  onOpen: (item, bytes) => openThing({ name: item.disk.path.split('/').pop() ?? item.name, bytes }),
+  onOpen: (item, bytes, drive) =>
+    openThing({ name: item.disk.path.split('/').pop() ?? item.name, bytes, ...(drive === undefined ? {} : { drive }) }),
+  drives: () => player.machine.drives.map((d) => d?.medium?.label || (d?.medium ? '(no label)' : null)),
 })
 document.getElementById('panels')!.append(browse.panel)
 
@@ -694,4 +726,17 @@ const tick = (): void => {
 }
 requestAnimationFrame(tick)
 
-player.loadProgram(new TextEncoder().encode(DEMO), 'demo')
+/*
+ * The boot demo is a FILE, and it starts the way any other file does.
+ *
+ * It used to be handed straight to `loadProgram`, which meant the one program
+ * the page always runs was the one program you could not look at, re-run or
+ * edit. Now it lives at RAM:amos_ts.amos, so it is in the file tree with
+ * everything else and clicking it there does exactly what booting did.
+ *
+ * `loader.open` and not `openThing`, because the tab is not ours to choose at
+ * boot: the URL fragment decides, and mountTabs has already read it.
+ */
+const demo = new TextEncoder().encode(DEMO)
+vfs.writeTo('RAM', ['amos_ts.amos'], demo)
+void loader.open({ name: 'amos_ts.amos', bytes: demo, at: { vol: 'RAM', dir: [] } })

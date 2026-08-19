@@ -217,9 +217,10 @@ a:focus-visible {
 }
 
 /* ./tabs.ts emits these between the buttons, so the inverted highlight stops
-   at the word and the punctuation stays grey */
+   at the word and the punctuation stays grey. No margin: the masthead's own
+   [home|src|npm] sets them tight against the words and this is the same bar. */
 .tab-sep {
-  margin: 0 0.4rem;
+  margin: 0;
 }
 
 .tab:hover {
@@ -830,7 +831,6 @@ code.speech-phonemes {
   margin: 0 0 0.8rem;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
   font-size: var(--fs-label);
   color: var(--dim);
 }
@@ -911,6 +911,52 @@ code.speech-phonemes {
 
 .browse-empty.bad {
   color: var(--bad);
+}
+
+/* ---- popup menu ---------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 12rem;
+  padding: 0.2rem 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 8px #000000;
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  width: 100%;
+  padding: 0.25rem 0.6rem;
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-label);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000000;
+}
+
+.menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.menu-detail {
+  color: var(--faint);
+}
+
+.menu-item:hover:not(:disabled) .menu-detail {
+  color: #000000;
 }
 
 /* ---- narrow screens ------------------------------------------------------ */

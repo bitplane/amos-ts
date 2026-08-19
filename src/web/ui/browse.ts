@@ -13,6 +13,7 @@
  * and a value import would pull it into the browser bundle.
  */
 import type { Library, LibraryFolder, LibraryItem } from '../../cli/genlibrary'
+import { popupMenu } from './menu'
 
 /**
  * Where the library is served from.
@@ -28,8 +29,14 @@ declare const __AMOS_LIBRARY__: string | undefined
 export const LIBRARY_BASE: string = typeof __AMOS_LIBRARY__ === 'string' ? __AMOS_LIBRARY__ : '/library/'
 
 export interface BrowseOptions {
-  /** the item's bytes, once they have arrived */
-  onOpen(item: LibraryItem, bytes: Uint8Array): void | Promise<void>
+  /**
+   * The item's bytes, once they have arrived. `drive` is set only when the
+   * reader picked one off the right-click menu; without it the disk goes in
+   * DF0: and is mounted under its own label like anything else.
+   */
+  onOpen(item: LibraryItem, bytes: Uint8Array, drive?: number): void | Promise<void>
+  /** what is in each drive now, for the menu to show */
+  drives(): readonly (string | null)[]
   onStatus(text: string): void
   /** overridden by the tests, which have no server */
   fetch?: typeof globalThis.fetch
@@ -84,12 +91,6 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
   const get = opts.fetch ?? globalThis.fetch.bind(globalThis)
   const panel = document.createElement('div')
 
-  const intro = document.createElement('p')
-  intro.className = 'panel-intro'
-  intro.textContent =
-    'Disks from the library. Click one and it goes into the drives under its own volume label. A disk holding a single program starts it; anything else drops you in the file tree to pick from. Nothing is fetched until you ask for it.'
-  panel.appendChild(intro)
-
   const host = document.createElement('div')
   panel.appendChild(host)
 
@@ -110,11 +111,24 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
    * "a picture with a name under it", and what tells them apart is what
    * happens when you click, which the facts line says.
    */
-  function tile(name: string, image: string | null, facts: string, title: string, go: () => void): HTMLElement {
+  function tile(
+    name: string,
+    image: string | null,
+    facts: string,
+    title: string,
+    go: () => void,
+    menu?: (e: MouseEvent) => void,
+  ): HTMLElement {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'card'
     b.title = title
+    if (menu) {
+      b.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        menu(e)
+      })
+    }
 
     const art = document.createElement('div')
     art.className = 'card-art'
@@ -152,12 +166,32 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     return b
   }
 
+  /**
+   * The drive menu for one disk.
+   *
+   * Only a disk image gets one: an archive has no label and no filesystem, so
+   * there is no drive for it to go in.
+   */
+  function driveMenu(e: MouseEvent, item: LibraryItem): void {
+    if (!/\.adf$/i.test(item.disk.path)) return
+    const inside = opts.drives()
+    popupMenu(
+      e.clientX,
+      e.clientY,
+      inside.map((held, unit) => ({
+        label: `Put in DF${unit}:`,
+        detail: held ?? 'empty',
+        run: () => void open(item, unit),
+      })),
+    )
+  }
+
   /** how many items are under a folder, counting every folder below it */
   function itemsUnder(folder: LibraryFolder): number {
     return folder.items.length + folder.folders.reduce((n, f) => n + itemsUnder(f), 0)
   }
 
-  async function open(item: LibraryItem): Promise<void> {
+  async function open(item: LibraryItem, drive?: number): Promise<void> {
     if (opening) return
     opening = true
     try {
@@ -172,7 +206,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
       if (bytes.length !== d.size) {
         throw new Error(`${d.path}: got ${bytes.length} bytes, the index says ${d.size}`)
       }
-      await opts.onOpen(item, bytes)
+      await opts.onOpen(item, bytes, drive)
     } catch (e) {
       opts.onStatus(`could not load ${item.name}: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -214,7 +248,10 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     here = stack
     const folder = stack[stack.length - 1]!
     host.textContent = ''
-    if (stack.length > 1) host.appendChild(breadcrumb())
+    // Always, root included. A breadcrumb that appears at the second level
+    // moves everything below it down by its own height the moment you click
+    // a folder, which is a special case paid for in the reader's eyes.
+    host.appendChild(breadcrumb())
 
     const grid = document.createElement('div')
     grid.className = 'browse-grid'
@@ -225,7 +262,16 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
       )
     }
     for (const item of folder.items) {
-      grid.appendChild(tile(item.name, item.image, factsFor(item), titleFor(item), () => void open(item)))
+      grid.appendChild(
+        tile(
+          item.name,
+          item.image,
+          factsFor(item),
+          titleFor(item),
+          () => void open(item),
+          (e) => driveMenu(e, item),
+        ),
+      )
     }
     host.appendChild(grid)
     if (folder.folders.length === 0 && folder.items.length === 0) message('nothing in here')

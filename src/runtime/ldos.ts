@@ -2083,7 +2083,17 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const name = str(a[0] ?? VS(''))
       if (name === '') throw new AmosError('You can not call with an empty argument!')
       if (!/\.font$/i.test(name)) return VI(0)
-      if (rt.vfs?.read('Fonts:' + name) == null) return VI(0)
+      /*
+       * A name that carries a path is used AS GIVEN, and only a bare one is
+       * resolved against FONTS:. That is what OpenDiskFont does with the
+       * TextAttr it is handed, and prefixing unconditionally turned
+       * FirePower's `Ldisk Font(DISK$+"Fonts/JRDMini.font",6)` into
+       * `Fonts:GAME:Fonts/JRDMini.font`, which resolves to nothing. The game
+       * answers a zero here with `End`, so it quit before drawing a frame
+       * while its music played on.
+       */
+      const path = /[:/]/.test(name) ? name : 'Fonts:' + name
+      if (rt.vfs?.read(path) == null) return VI(0)
       rt.discFontCache = null
       return VI(1)
     },

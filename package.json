@@ -57,7 +57,8 @@
     "contested": "tsx src/cli/contested.ts",
     "libcat": "tsx src/cli/libcat.ts",
     "lint": "oxlint",
-    "test:ci": "tsx src/cli/asci.ts"
+    "test:ci": "tsx src/cli/asci.ts",
+    "redeploy": "gh workflow run release.yml --ref \"$(git rev-parse --abbrev-ref HEAD)\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -37,6 +37,8 @@ let vfs: AmigaFS
 let drives: (FloppyDrive | null)[]
 let loaded: Loaded[]
 let archives: string[]
+/** what the stub player's loadArchive claims to have found and started */
+let archiveRuns: { programs: string[]; ran: string | null }
 let host: LibraryHost
 
 beforeEach(() => {
@@ -45,12 +47,14 @@ beforeEach(() => {
   vfs.drives = drives
   loaded = []
   archives = []
+  archiveRuns = { programs: [], ran: null }
   host = {
     vfs,
     drives,
     loadProgram: (_bytes, name, dir, vol) => loaded.push({ name, dir, vol }),
     loadArchive: async (_bytes, name) => {
       archives.push(name)
+      return archiveRuns
     },
   }
 })
@@ -59,44 +63,38 @@ beforeEach(() => {
 const inDrives = (): (string | null)[] => drives.map((d) => d?.medium?.label ?? null)
 
 describe('opening a disk', () => {
-  it('puts it in the first empty drive and answers to its own label', async () => {
+  it('puts it in DF0: and answers to its own label', async () => {
     const r = await createLibraryLoader(host).open({ name: 'boot.adf', bytes: disk('Boot') })
     expect(r).toMatchObject({ kind: 'disk', volume: 'Boot' })
+    expect(inDrives()).toEqual(['Boot', null, null, null])
     // both names, which is what a drive with a disk in it contributes to a
-    // real device list
+    // real device list, and each of them once
     expect(vfs.volumeNames()).toEqual(expect.arrayContaining(['DF0', 'Boot']))
+    expect(vfs.volumeNames().filter((v) => v === 'Boot')).toHaveLength(1)
   })
 
-  it('lets a second disk join the first rather than replacing it', async () => {
-    // This is the whole multi-disk story. Nothing in the port knows what a
-    // two-disk game is; you put the second disk in the second drive, which is
-    // what you would do at the machine.
+  it('leaves the label mounted after the next disk takes the drive', async () => {
+    /*
+     * The whole multi-disk story, and there is no multi-disk code anywhere.
+     * Four drives was the hardware's limit; the filesystem has no such limit,
+     * so a disk that has been put in stays reachable by name for ever. Disk 1
+     * asking for `Disk2:data` finds it with nobody swapping anything.
+     */
     const loader = createLibraryLoader(host)
     await loader.open({ name: 'a.adf', bytes: disk('DiskA') })
     await loader.open({ name: 'b.adf', bytes: disk('DiskB') })
-    expect(inDrives()).toEqual(['DiskA', 'DiskB', null, null])
+    // the drive is the convenience: last one in is what DF0: reads
+    expect(inDrives()).toEqual(['DiskB', null, null, null])
+    // the label is the truth, and both are still there
     expect(vfs.exists('DiskA:')).toBe('dir')
     expect(vfs.exists('DiskB:')).toBe('dir')
   })
 
-  it('does not fill a second drive with a disk that is already in one', async () => {
+  it('puts a disk in the drive it was told, for a program that names DF1:', async () => {
     const loader = createLibraryLoader(host)
-    await loader.open({ name: 'a.adf', bytes: disk('DiskA', ['Go.AMOS']) })
-    loaded.length = 0
-    await loader.open({ name: 'a.adf', bytes: disk('DiskA', ['Go.AMOS']) })
-    expect(inDrives()).toEqual(['DiskA', null, null, null])
-    // clicking it again runs what is on it, which is what clicking it looks
-    // like it should do
-    expect(loaded).toEqual([{ name: 'Go.AMOS', dir: [], vol: 'DiskA' }])
-  })
-
-  it('swaps the last drive once all four are full', async () => {
-    const loader = createLibraryLoader(host)
-    for (const n of ['A', 'B', 'C', 'D', 'E']) await loader.open({ name: `${n}.adf`, bytes: disk(`Disk${n}`) })
-    // DF0: is the one a program is most likely to be reading from, so the
-    // one that gives way is the far end
-    expect(inDrives()).toEqual(['DiskA', 'DiskB', 'DiskC', 'DiskE'])
-    expect(vfs.exists('DiskD:')).toBeNull()
+    await loader.open({ name: 'a.adf', bytes: disk('DiskA') })
+    await loader.open({ name: 'b.adf', bytes: disk('DiskB'), drive: 1 })
+    expect(inDrives()).toEqual(['DiskA', 'DiskB', null, null])
   })
 
   it('mounts an unlabelled disk under its filename', async () => {
@@ -105,6 +103,15 @@ describe('opening a disk', () => {
     const r = await createLibraryLoader(host).open({ name: 'no name.adf', bytes: disk('') })
     expect(r.volume).toBe('no_name')
     expect(vfs.exists('no_name:')).toBe('dir')
+  })
+
+  it('re-running a disk already in DF0: does not disturb anything', async () => {
+    const loader = createLibraryLoader(host)
+    await loader.open({ name: 'a.adf', bytes: disk('DiskA', ['Go.AMOS']) })
+    loaded.length = 0
+    await loader.open({ name: 'a.adf', bytes: disk('DiskA', ['Go.AMOS']) })
+    expect(inDrives()).toEqual(['DiskA', null, null, null])
+    expect(loaded).toEqual([{ name: 'Go.AMOS', dir: [], vol: 'DiskA' }])
   })
 
   it('runs the one program on it and says where it came from', async () => {
@@ -144,6 +151,29 @@ describe('opening an archive or a program', () => {
     const r = await createLibraryLoader(host).open({ name: 'AMCAF150Final.lha', bytes: text('-lh5- not a disk') })
     expect(r.kind).toBe('archive')
     expect(archives).toEqual(['AMCAF150Final.lha'])
+    expect(r.ran).toBeNull()
+  })
+
+  it('reports an archive it could not choose within, rather than claiming it is empty', async () => {
+    // Knights 2.42.zip holds fifteen programs and the page said it held none,
+    // because the archive branch reported an empty list whatever happened.
+    archiveRuns = { programs: ['KNIGHTS.AMOS', 'EDITOR.AMOS', 'SETUP.AMOS'], ran: null }
+    const r = await createLibraryLoader(host).open({ name: 'Knights.zip', bytes: text('PK not a disk') })
+    expect(r.ran).toBeNull()
+    expect(r.programs).toHaveLength(3)
+  })
+
+  it('reports what an archive started, so the page does not send you elsewhere', () => {
+    // AMOSPro_Delta.lha holds one program and the player runs it. Answering
+    // `ran: null` regardless made the page say "holds no AMOS program" and
+    // switch to the file tree while the demo ran behind it.
+    archiveRuns = { programs: ['amospro_delta.amos'], ran: 'amospro_delta.amos' }
+    return createLibraryLoader(host)
+      .open({ name: 'AMOSPro_Delta.lha', bytes: text('-lh5- not a disk') })
+      .then((r) => {
+        expect(r.ran).toBe('amospro_delta.amos')
+        expect(r.programs).toEqual(['amospro_delta.amos'])
+      })
   })
 
   it('runs a program on the volume it was read from, not on DH0:', async () => {

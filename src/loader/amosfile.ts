@@ -127,6 +127,18 @@ function parseBankList(r: BinReader, count: number, diagnostics: string[]): Bank
   return banks
 }
 
+/**
+ * A sprite bank's BODY, with no `AmSp`/`AmIc` magic in front of it.
+ *
+ * That is what a PowerPacked object bank decrunches to: `Ppsave` writes the
+ * bank as the loader would copy it out of memory, and in memory a bank is a
+ * count and its images with no magic anywhere. `Ppload` refused every one of
+ * them until this was reachable.
+ */
+export function parseSpriteBankBody(bytes: Uint8Array, kind: 'sprites' | 'icons'): SpriteBank {
+  return parseSpriteBank(new BinReader(bytes), kind)
+}
+
 function parseSpriteBank(r: BinReader, kind: 'sprites' | 'icons'): SpriteBank {
   const count = r.u16()
   const sprites: Sprite[] = []

@@ -95,6 +95,7 @@ import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { FIB_SIZEOF, ID_WRITE_PROTECTED, MAX_COMMENT, entryType, fibBytes, type FibFields } from '../amiga/dos'
+import { joinAmigaPath } from '../amiga/vfs'
 import type { VolumeInfo } from '../amiga/vfs'
 import type { Screen } from './screen'
 import { preferencesBytes } from '../amiga/intuition'
@@ -772,7 +773,16 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
         craftForget(rt)
         return VS('')
       }
-      craftPublish(rt, craftFields(rt, `${st.scan.dir}/${name}`))
+      /*
+       * `joinAmigaPath`, not a bare slash. `Dr Name$` keeps the path it was
+       * given, and a program is free to give it one that already ends in a
+       * separator: Frontal Assault opens its music directory as
+       * `Dr Name$(_MUSICDISK$)` with a trailing '/', and the first
+       * `Dr Next$` then looked up `GAME:Music//Bouncy`, which resolves to
+       * nothing and raised 205 on the first entry of the first directory it
+       * ever read. A volume root, `Dr Name$("DF0:")`, breaks the same way.
+       */
+      craftPublish(rt, craftFields(rt, joinAmigaPath(st.scan.dir, name)))
       return VS(name)
     },
 
