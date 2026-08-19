@@ -164,6 +164,6 @@ export function libAsExtension(lib: ScannedLib): Extension {
     provenance: `scanned from ${lib.file}`,
     notes: 'candidate from libscan — not a registry entry',
     tokens: lib.tokens,
-    table: new TokenTable(lib.tokens),
+    table: new TokenTable(lib.tokens, true),
   } as Extension
 }

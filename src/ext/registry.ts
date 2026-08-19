@@ -169,7 +169,7 @@ export function extensionById(id: string): Extension | undefined {
   const info = EXT_INFO.find((e) => e.id === id)
   const tokens = EXT_TABLES[id]
   if (!info || !tokens) return undefined
-  const ext: Extension = { ...info, tokens, table: new TokenTable(tokens) }
+  const ext: Extension = { ...info, tokens, table: new TokenTable(tokens, true) }
   cache.set(id, ext)
   return ext
 }

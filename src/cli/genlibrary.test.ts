@@ -75,7 +75,6 @@ afterAll(() => rmSync(root, { recursive: true, force: true }))
 describe('indexLibrary', () => {
   it('makes a folder of every drawer and an item of every archive', () => {
     const { library } = indexLibrary(root)
-    expect(library.version).toBe(3)
     // Empty/ holds nothing, so it is pruned; README.md is not a folder either
     expect(library.root.folders.map((f) => f.name)).toEqual(['Games'])
     expect(at(library.root, 'Games').image).toBe('Games.png')

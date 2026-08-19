@@ -127,20 +127,41 @@ export class TokenTable {
   private apmlIds = new Set<number>()
   private inlineBytes = new Map<number, number>()
 
-  constructor(readonly entries: TokenEntry[]) {
-    // Entries with an empty name are argument-count variants of the last
-    // named entry (the low special ids — variable, string, ... — excluded).
-    // "Empty" means nothing printable: the tokenizer never compares a
-    // variant's name — after a -2 terminator VerC4/VerC6 (+Verif.s:3193)
-    // steps over the routine words and skips the name bytes outright — so
-    // the filler is arbitrary. Every variant but one is a bare $80; Read
-    // Text's three-parameter form (+Lib.s:14701) writes $8C, a lone $0C.
+  /**
+   * @param isExtension an extension's own table rather than the core one
+   */
+  constructor(
+    readonly entries: TokenEntry[],
+    isExtension = false,
+  ) {
+    /*
+     * Entries with an empty name are argument-count variants of the last
+     * named entry. "Empty" means nothing printable: the tokenizer never
+     * compares a variant's name, because after a -2 terminator VerC4/VerC6
+     * (+Verif.s:3193) steps over the routine words and skips the name bytes
+     * outright, so the filler is arbitrary. Every variant but one is a bare
+     * $80; Read Text's three-parameter form (+Lib.s:14701) writes $8C, a
+     * lone $0C.
+     *
+     * WHERE the variants start differs by table. In the core table the ids
+     * below T.EXTENSION are the special low ones (variable, string, int) and
+     * are legitimately nameless, so the rule begins above them. An
+     * extension's own table numbers from zero, where only entry 0 is the
+     * header, and a variant can sit anywhere: GUI's `Gui Open window,gui`
+     * is $06 and its `window,gui,bank` form is $18.
+     *
+     * Getting that wrong is silent. `Names.of` hands the dispatcher an empty
+     * string, no handler matches it, and the statement is skipped with no
+     * error: GuiDemo.Amos ran its `Gui Open 1,1,20`, opened nothing, and
+     * failed on the next line with "Window not open".
+     */
+    const first = isExtension ? 0 : T.EXTENSION
     let lastName = ''
     for (const e of entries) {
       this.byId.set(e.id, e)
       const blank = e.name.trim() === ''
       if (!blank) lastName = e.name
-      const name = e.id > T.EXTENSION && blank ? lastName : e.name
+      const name = e.id > first && blank ? lastName : e.name
       this.names.set(e.id, name)
       const n = name.trim().replace(/^!/, '')
       if (n === 'rem' || n === "'") this.remIds.add(e.id)

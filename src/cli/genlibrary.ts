@@ -109,9 +109,19 @@ export interface LibraryFolder {
   items: LibraryItem[]
 }
 
+/**
+ * No version field.
+ *
+ * There was one, and it was bumped twice in an afternoon, and both times all
+ * it did was turn "the library republishes in a minute" into an error message
+ * on a working site. The two repositories publish independently, so a page
+ * and an index are ROUTINELY a few minutes out of step; a reader that refuses
+ * what it is given makes that a failure instead of a wait.
+ *
+ * The shape is self-describing. A folder has `folders` and `items`, and a
+ * page that cannot find them says so and carries on.
+ */
 export interface Library {
-  /** bumped when the shape changes, so an old page can say so rather than break */
-  version: 3
   root: LibraryFolder
 }
 
@@ -243,7 +253,7 @@ function scan(root: string, rel: string, name: string, inherited: string | null,
 /** Walk a library checkout and build its index. */
 export function indexLibrary(root: string): { library: Library; warnings: LibraryWarning[] } {
   const warnings: LibraryWarning[] = []
-  return { library: { version: 3, root: scan(root, '', '', null, warnings) }, warnings }
+  return { library: { root: scan(root, '', '', null, warnings) }, warnings }
 }
 
 /** every item in the tree, for counting and for the job log */

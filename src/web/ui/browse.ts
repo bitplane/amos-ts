@@ -53,9 +53,6 @@ function sizeText(bytes: number): string {
   return k >= 1024 ? `${(k / 1024).toFixed(1)}M` : `${Math.round(k)}K`
 }
 
-/** the index shape this page knows how to read */
-const VERSION = 3
-
 /**
  * The volume label a disk answers to once mounted, which is what a program
  * written to load `MyDisk:pic.iff` needs to be right. Shown on hover, so a
@@ -236,11 +233,15 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
 
   function render(library: Library): void {
     host.textContent = ''
-    if (library.version !== VERSION) {
-      message(`this page reads library index version ${VERSION} and the server sent ${library.version}`, 'bad')
+    // Read what you are given. The player and the library publish from
+    // different repositories on different triggers, so an index written by an
+    // older generator is a normal few minutes, not a fault. Say what is
+    // happening and let it fix itself.
+    const root = library?.root as LibraryFolder | undefined
+    if (!root) {
+      message('the published library index is older than this page; it updates when the library next publishes')
       return
     }
-    const root = library.root
     if (root.folders.length === 0 && root.items.length === 0) {
       message('the library is empty')
       return
