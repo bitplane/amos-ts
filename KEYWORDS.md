@@ -81,7 +81,7 @@ is.
 | gui-1.61             |      103 |        0 |          103 |       0 |     100% |
 | gui-2.10             |      204 |        0 |          204 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |        0 |            0 |      62 |       0% |
+| int-1.0              |       62 |        0 |           26 |      36 |      42% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          514 |    2013 |      73% |
+| **total**            |     7422 |     4832 |          540 |    1987 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -352,6 +352,15 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## input (100%)
 
 - **approximated** (1): `key speed`
+
+## int-1.0 (42%)
+
+- **approximated** (26): `wb bool gadget`, `wb close screen`, `wb close window`,
+  `wb current window`, `wb event`, `wb flash screen`, `wb item`, `wb menu`, `wb menu item`,
+  `wb menu on`, `wb menu sub item`, `wb menu title`, `wb move screen`, `wb move window`,
+  `wb open screen`, `wb open window`, `wb screen base`, `wb screen flags`, `wb screen num`,
+  `wb screen offset`, `wb sub item`, `wb titles`, `wb window base`, `wb window flags`,
+  `wb window ids`, `wb window num`
 
 ## interface (100%)
 

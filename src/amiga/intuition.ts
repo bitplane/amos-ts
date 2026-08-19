@@ -363,7 +363,7 @@ export class Window {
   constructor(
     readonly screenSlot: number,
     readonly layer: Layer,
-    readonly title: string,
+    public title: string,
     readonly idcmpFlags: number,
     flags: number,
     readonly detailPen: number,
@@ -505,6 +505,18 @@ export interface UserGadget {
   width: number
   height: number
   id: number
+  /**
+   * `gg_GadgetRender`, when the gadget has one: a `struct Border`'s pen and
+   * its vector, in the Border's own coordinates.
+   *
+   * Optional because the hit test never needed it and two callers still do
+   * not fill it in. `xy` is the flat pair list Border.XY points at, drawn as
+   * an open polyline from the gadget's top-left plus the Border's own offset,
+   * which is exactly what DrawBorder does.
+   */
+  border?: { leftEdge: number; topEdge: number; pen: number; xy: readonly number[] }
+  /** `gg_GadgetText`, a `struct IntuiText`: its pens, its offset and its text */
+  text?: { leftEdge: number; topEdge: number; frontPen: number; text: string }
 }
 
 export class Intuition {
@@ -1003,6 +1015,7 @@ export class Intuition {
     for (const w of this.open) {
       if (w.screenSlot !== slot) continue
       for (const r of w.layer.visible().rects) this.renderFrame(rp, w, r)
+      for (const r of w.layer.visible().rects) for (const g of w.gadgets) this.renderUserGadget(rp, w, g, r)
     }
     rp.restore(save)
   }
@@ -1077,6 +1090,42 @@ export class Intuition {
         const old = rp.font
         rp.font = font
         rp.text(textX, y1 + WBORTOP + font.baseline, w.title, ink)
+        rp.font = old
+      }
+    }
+  }
+
+  /**
+   * One of the window's own gadgets, which Intuition refreshes with the frame.
+   *
+   * A Border is an open polyline in the gadget's coordinates offset by the
+   * Border's own LeftEdge and TopEdge, and an IntuiText is drawn at the
+   * gadget's position plus the IntuiText's. Neither is a hit region: the
+   * gadget's own box is, which is why `gadgetAt` ignores both.
+   *
+   * A gadget with neither draws nothing, which is what a caller that only
+   * wanted somewhere to click gets.
+   */
+  private renderUserGadget(rp: RastPort, w: Window, g: UserGadget, clip: Rect): void {
+    if (g.border === undefined && g.text === undefined) return
+    rp.clip = { x1: clip.minX, y1: clip.minY, x2: clip.maxX, y2: clip.maxY }
+    const gx = w.leftEdge + g.leftEdge
+    const gy = w.topEdge + g.topEdge
+    const b = g.border
+    if (b !== undefined) {
+      const bx = gx + b.leftEdge
+      const by = gy + b.topEdge
+      for (let i = 0; i + 3 < b.xy.length; i += 2) {
+        rp.draw(bx + b.xy[i]!, by + b.xy[i + 1]!, bx + b.xy[i + 2]!, by + b.xy[i + 3]!, b.pen)
+      }
+    }
+    const t = g.text
+    if (t !== undefined && t.text !== '') {
+      const font = this.host.systemFont()
+      if (font) {
+        const old = rp.font
+        rp.font = font
+        rp.text(gx + t.leftEdge, gy + t.topEdge + font.baseline, t.text, t.frontPen)
         rp.font = old
       }
     }

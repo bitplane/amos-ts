@@ -93,6 +93,7 @@ import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
 import { GUI_ERRORS, guiRelease, makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
+import { INT_ERRORS, makeIntFunctions, makeIntInstructions, newIntState } from './int'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -6545,6 +6546,29 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeGuiInstructions,
     functions: makeGuiFunctions,
     errors: GUI_ERRORS,
+  },
+  {
+    /*
+     * Int 1.0 by D.J.Software, slot 25 by its own install note. The first
+     * batch: windows, screens, menus, boolean gadgets and the event loop,
+     * which are the keywords whose back end ../amiga/intuition.ts and
+     * ../amiga/gadtools.ts already were. The row stays 0% until the drawing
+     * and IFF groups land beside them.
+     */
+    ids: ['int-1.0'],
+    init: (rt) => {
+      rt.int = newIntState()
+    },
+    instructions: makeIntInstructions,
+    functions: makeIntFunctions,
+    errors: INT_ERRORS,
+    /*
+     * IntuiExtend spells two of these the same way and nobody has ported it,
+     * so answering them under the bare name would hand its programs Int's
+     * behaviour. Both are readers of a different thing: IntuiExtend's `Wb
+     * Screen Base` is its own screen list and Int's is the `$6d4` table.
+     */
+    qualified: ['wb current window', 'wb screen base'],
   },
   {
     // the printer companion, slot 21 by its own manual. 1.1 is served through
