@@ -390,8 +390,10 @@ function tcpOpen(rt: Runtime, g: GuiState, n: number, name: string, prefix: bool
   // port, so the prefixed form always fails here, which is what it does on
   // any machine without a stack mounted, and the branch the library carries
   // "Channel not opened!" for. `Tcp F Open` reaches the real file store.
-  const data = rt.vfs?.readFile(path) ?? null
-  if (data === null) return 0
+  if (prefix || rt.vfs === null) return 0
+  // MODE_READWRITE creates a file that is not there and truncates neither, so
+  // an absent name opens empty and the first write is what makes it
+  const data = rt.vfs.readFile(path) ?? new Uint8Array(0)
   g.channels.set(n, { path, data, pos: 0, dirty: false })
   return TCP_HANDLE_ORIGIN + n * 4
 }

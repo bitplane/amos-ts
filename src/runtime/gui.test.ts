@@ -3035,7 +3035,7 @@ describeWith('what 1.61 spells differently', demoBank(), (bank) => {
  *
  * Every one of the twenty-one keywords works on a file handle: `Tcp Open`
  * prepends `TCP:` to the name and `Tcp F Open` does not, and both then call
- * dos Open with MODE_OLDFILE. GuiNet.Amos, the demo shipped with 1.62, is the
+ * dos Open with MODE_READWRITE. GuiNet.Amos, the demo shipped with 1.62, is the
  * worked example. Its `AMINET=Tcp Open(1,"ftp.wustl.edu/80")` is AmiTCP's
  * handler syntax for a host and a port, and its own banner says "the TCP
  * commands are under development! This is only a preview!"
@@ -3060,26 +3060,26 @@ describe('the 1.61 TCP group', () => {
     return { rt, fs, out: () => printed }
   }
 
-  /** the name goes to dos Open unchanged, and a success is non-zero */
-  it('Tcp F Open opens a file that is there and answers 0 for one that is not', () => {
-    const r = withFs('Print Tcp F Open(1,"RAM:in.txt") : Print Tcp F Open(2,"RAM:gone.txt")', 'hello')
-    const [ok, missing] = r.out().trim().split('\n').map(Number)
+  /**
+   * The name goes to dos Open unchanged and a success is non-zero. The mode
+   * is `move.l #$3ec,d2`, MODE_READWRITE, which opens an existing file for
+   * update and creates one that is not there without truncating either --
+   * which is how GuiNet.Amos can name `Ram:Recent.html` and expect to write
+   * it. `Gui Get$` and `Gui Put` in the same library settle the numbering
+   * between them: $3ed is MODE_OLDFILE and $3ee MODE_NEWFILE.
+   */
+  it('Tcp F Open opens a file, and creates one that is not there', () => {
+    const r = withFs('Print Tcp F Open(1,"RAM:in.txt") : Print Tcp F Open(2,"RAM:new.txt")', 'hello')
+    const [ok, made] = r.out().trim().split('\n').map(Number)
     expect(ok).not.toBe(0)
-    expect(missing).toBe(0)
-    expect(r.rt.gui.channels.has(1)).toBe(true)
-    expect(r.rt.gui.channels.has(2)).toBe(false)
+    expect(made).not.toBe(0)
+    expect(r.rt.gui.channels.get(2)!.data).toHaveLength(0)
   })
 
-  /**
-   * MODE_OLDFILE is `move.l #$3ec,d2` and there is no other mode in the
-   * routine, so neither keyword can create a file. GuiNet.Amos's own
-   * `Tcp F Open(2,"Ram:Recent.html")` therefore answers 0 on a machine where
-   * that file is not already sitting there, and the demo goes on to use the
-   * channel anyway.
-   */
-  it('cannot create a file, which is what breaks the shipped demo', () => {
-    const r = withFs('Print Tcp F Open(2,"RAM:Recent.html")')
-    expect(Number(r.out().trim())).toBe(0)
+  /** and the new one reaches the file store once it is written and closed */
+  it('a file it created is there after Tcp Close', () => {
+    const r = withFs('A=Tcp F Open(2,"RAM:new.txt") : A=Tcp Put$(2,"made") : Tcp Close')
+    expect(String.fromCharCode(...r.fs.readFile('RAM:new.txt')!)).toBe('made')
   })
 
   /** `TCP:` is AmiTCP's handler and this port has no network to mount one on */

@@ -3550,6 +3550,18 @@ export const FAITHFUL = new Set<string>([
   // after it allows a NEGATIVE value only for INTEGER, SLIDER and NUMBER,
   // which is the check 1.61's history dates.
   'gui set', 'gui set$',
+  // ---- the file and stream pair, and the two window placements ---------------
+  // `Gui Get$` is Open (MODE_OLDFILE, $3ed), the size from a Seek to the end
+  // and back, an AMOS string of that size, one Read into it and a Close; `Gui
+  // Put` is Open (MODE_NEWFILE, $3ee), Write and Close, with the FILENAME
+  // first. The two settle the mode numbering the 1.6x TCP group needed: $3ec
+  // beside them is MODE_READWRITE, which creates.
+  //
+  // `Gui Output` is WriteChars (-$3ae) and returns on an empty string before
+  // it makes the call. `Gui Centre` is bit 4 of `$85` plus a two-bit word at
+  // `$1a2`, and it clears the bit again when both arguments were zero, so
+  // `Gui Centre 0,0` is the off switch rather than a centring on nothing.
+  'gui get$', 'gui put', 'gui output', 'gui center',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
