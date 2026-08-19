@@ -1246,6 +1246,25 @@ describe('the ASL screen and font group', () => {
   })
 })
 
+describeWith('Gui Title$ and its sign', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /**
+   * `tst.l d0 / bgt` at $402e picks the record type. Above zero it is the
+   * window's own `$20`; at or below it is `move.l #$10000,d0 / sub.w d1,d0`,
+   * a WORD subtract inside a longword, so the screen number is -n once the
+   * low word is taken -- 0 for `Gui Title$(0)` and 1 for `Gui Title$(-1)`.
+   */
+  it('a positive number is a window and zero or less is a screen', () => {
+    const got = runOut(`${open} : Gui Titles 1,"Win","Scr" : Print Gui Title$(1)`, bank)
+    expect(got.out.trim()).toBe('Win')
+
+    const screen = 'Gui Screen Open 1,320,200,4,0,"My Screen"'
+    expect(runOut(`${screen} : Print Gui Title$(-1)`, bank).out.trim()).toBe('My Screen')
+    expect(() => run(`${open} : A$=Gui Title$(0)`, bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
+  })
+})
+
 describeWith('the lock and remember flags', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 

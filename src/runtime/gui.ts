@@ -3920,18 +3920,23 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui y font': (): Value => VI(s().fontHeight),
 
     /**
-     * `T$=Gui Title$(window)` — "Returns the title of the specified window".
+     * `T$=Gui Title$(window)` --- "Returns the title of the specified window",
+     * and a number of ZERO OR LESS names a SCREEN instead, which the guide
+     * does not say.
      *
-     * A number of ZERO OR LESS names a SCREEN instead, which the guide does
-     * not say: $402e branches on `tst.l d0 / bgt`, works out `$10000 - n` to
-     * get the screen number, and reads the screen record's own title at $404c
-     * with "Screen not opened" for its error. Above zero it reads
-     * `Window.Title` at `$20`.
+     * $402e branches on `tst.l d0 / bgt`. Above zero it is `moveq #$7,d7`, the
+     * window lookup and `$20` of the intuition Window, which is Window.Title.
+     * At or below zero it is `move.l #$10000,d0 / sub.w d1,d0` --- a WORD
+     * subtract inside a longword, so the number handed to the screen lookup is
+     * `-n` once the low word is taken --- then `moveq #$11,d7`, "Screen not
+     * opened", and `$16` of the Screen, which is Screen.Title.
+     *
+     * So `Gui Title$(0)` is screen 0 and `Gui Title$(-1)` is screen 1. One
+     * keyword, two record types, chosen by a sign.
      */
     'gui title$': (_, a): Value => {
       const n = int(a[0]!)
-      // no screens exist in this port yet, so every screen number is unopened
-      if (n <= 0) guiError(GUI_ERR.SCREEN_NOT_OPENED)
+      if (n <= 0) return VS(screenOf(s(), (0x1_0000 - n) & 0xffff).name)
       return VS(windowOf(s(), n).title)
     },
 

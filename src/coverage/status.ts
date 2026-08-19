@@ -3623,6 +3623,24 @@ export const FAITHFUL = new Set<string>([
   // `Gui Read$` checks the window where `Gui Read` beside it does not, which
   // is what makes that omission an oversight rather than a house style.
   'gui screen open', 'gui read$',
+  // ---- the last of the readable ones ----------------------------------------
+  // `Gui Title$` picks its record type by SIGN. Above zero it is the window's
+  // `$20`, Window.Title; at or below it is `move.l #$10000,d0 / sub.w d1,d0`
+  // -- a WORD subtract inside a longword, so the screen number is -n once the
+  // low word is taken -- then the Screen's `$16`. `Gui Title$(0)` is screen 0
+  // and `Gui Title$(-1)` is screen 1, and the guide mentions none of it.
+  //
+  // `Gui Mouse Report` and `Gui Help` share one word at `$3e` of the Header
+  // Info block and use it as a COUNT: the first adds and subtracts 1, the
+  // second 2, and IDCMP_MOUSEMOVE is on while it is non-zero. Each also
+  // refuses to decrement what is not set, so turning either off twice is
+  // harmless. Two booleans hold the same information.
+  //
+  // `Gui File$` and `Gui Dir$` are ten instructions each over `$158` and
+  // `$15c` with AMOS's null string standing in for a zero, and neither tests
+  // asl.library or the requester -- which is what makes them safe to call
+  // before anything has been selected, unlike the five screenmode readers.
+  'gui title$', 'gui mouse report', 'gui help', 'gui file$', 'gui dir$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
