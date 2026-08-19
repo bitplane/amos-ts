@@ -3755,31 +3755,40 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `A=Gui X Gad(window,gadget)` and its three siblings — the gadget's box
      * "relative to the top-left of the window".
      *
-     * These read the LAID-OUT Gadget rather than the bank's NewGadget, so
-     * they carry both the font scale and the border the layout pass added at
-     * $5906 and $5938. That is why the guide points at them from `Gui
-     * Sensitive On`: "the GUI will try to adapt itself to your workbench
-     * settings", and this is how a program finds out where things ended up.
+     * Four routines of twenty-six bytes each, and every one of them is the
+     * gadget lookup and one word: `$4`, `$6`, `$8` and `$a` of the LAID-OUT
+     * Gadget, which are its LeftEdge, TopEdge, Width and Height. Not the
+     * bank's NewGadget. That is why the guide points at them from `Gui
+     * Sensitive On`: the layout pass has already applied the font scale and
+     * the border, and this is how a program finds out where things ended up.
+     *
+     * So the scale here has to be the one the layout used, which means the
+     * same test `Gui Sx` makes --- a window laid out in topaz/8 was not
+     * scaled and its gadgets report the design's own numbers.
      */
     'gui x gad': (_, a): Value => {
       const g = s()
-      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
-      return VI(guiScale(gad.leftEdge, g.fontWidth) + WBORLEFT)
+      const win = int(a[0]!)
+      const { gad } = gadgetOf(g, win, int(a[1]!))
+      return VI(sensitiveX(g, win, gad.leftEdge) + WBORLEFT)
     },
     'gui y gad': (_, a): Value => {
       const g = s()
-      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
-      return VI(guiScale(gad.topEdge, g.fontHeight) + TITLE_HEIGHT)
+      const win = int(a[0]!)
+      const { gad } = gadgetOf(g, win, int(a[1]!))
+      return VI(sensitiveY(g, win, gad.topEdge) + TITLE_HEIGHT)
     },
     'gui gad width': (_, a): Value => {
       const g = s()
-      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
-      return VI(guiScale(gad.width, g.fontWidth))
+      const win = int(a[0]!)
+      const { gad } = gadgetOf(g, win, int(a[1]!))
+      return VI(sensitiveX(g, win, gad.width))
     },
     'gui gad height': (_, a): Value => {
       const g = s()
-      const { gad } = gadgetOf(g, int(a[0]!), int(a[1]!))
-      return VI(guiScale(gad.height, g.fontHeight))
+      const win = int(a[0]!)
+      const { gad } = gadgetOf(g, win, int(a[1]!))
+      return VI(sensitiveY(g, win, gad.height))
     },
 
     /**
@@ -4158,16 +4167,29 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * `A=Gui Check(window,x,y)` — "Checks the window at the specified X and Y
+     * `A=Gui Check(window,x,y)` --- "Checks the window at the specified X and Y
      * coordinates to see if a gadget exists. If a gadget does exist, the
      * number of the gadget is returned, else -1 is reported."
+     *
+     * The walk at $2f8c reads the window's gadget pointer array forward from
+     * `$46` and answers the FIRST box the point falls in, as `$26` of that
+     * Gadget --- the GadgetID, not the index. A window with no gadgets is the
+     * `move.w $22(a0),d1 / beq` at $2f7e and answers the `moveq #$ff,d0`
+     * standing above it.
+     *
+     * The box test is INCLUSIVE on all four edges: `cmp.w d2,d4 / bgt` and
+     * `cmp.w d2,d6 / blt` against LeftEdge and LeftEdge+Width, so a point
+     * exactly on the far edge is inside. One pixel wider than the gadget is,
+     * on each side.
      */
     'gui check': (_, a): Value => {
       const w = windowOf(s(), int(a[0]!))
       const x = int(a[1]!)
       const y = int(a[2]!)
       for (const d of w.design.gadgets) {
-        if (x >= d.leftEdge && x < d.leftEdge + d.width && y >= d.topEdge && y < d.topEdge + d.height) return VI(d.id)
+        if (x >= d.leftEdge && x <= d.leftEdge + d.width && y >= d.topEdge && y <= d.topEdge + d.height) {
+          return VI(d.id)
+        }
       }
       return VI(-1)
     },

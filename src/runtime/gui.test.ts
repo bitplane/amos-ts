@@ -1215,6 +1215,35 @@ describe('the ASL screen and font group', () => {
   })
 })
 
+describeWith('the lock and remember flags', exampleBank(), (bank) => {
+  const open = 'Gui Open 1,1'
+
+  /**
+   * `Gui Off` and `Gui On` are one window each, where `Gui Lock` and
+   * `Gui Unlock` walk the whole list. A locked window's events are dropped by
+   * the pump rather than held.
+   */
+  it('Gui Off locks one window and Gui On gives it back', () => {
+    expect(run(`${open} : Gui Off 1`, bank).gui.windows.get(1)!.locked).toBe(true)
+    expect(run(`${open} : Gui Off 1 : Gui On 1`, bank).gui.windows.get(1)!.locked).toBe(false)
+  })
+
+  /** bit 2 of `$85`, `bset` at $2572 and `bclr` at $257e */
+  it('Gui Remember On and Off are one bit', () => {
+    expect(run('Gui Remember On', bank).gui.remember).toBe(true)
+    expect(run('Gui Remember On : Gui Remember Off', bank).gui.remember).toBe(false)
+  })
+
+  /** `$102`, four instructions: what the last mouse or drag event named */
+  it('Gui Gadget reads the word the pump wrote', () => {
+    expect(Number(runOut(`${open} : Print Gui Gadget`, bank).out.trim())).toBe(0)
+    const got = runOut(`${open} : Print Gui Gadget`, bank, (rt) => {
+      rt.gui.activeGadget = 5
+    })
+    expect(Number(got.out.trim())).toBe(5)
+  })
+})
+
 describeWith('the colour group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
 

@@ -3455,6 +3455,28 @@ export const FAITHFUL = new Set<string>([
   'gui code', 'gui code$', 'gui window', 'gui key shift', 'gui os',
   'gui x font', 'gui y font', 'gui mouse ex', 'gui mouse ey',
   'gui width', 'gui height', 'gui x', 'gui y',
+  // ---- the gadget readers and the window flags -----------------------------
+  // The four box readers are twenty-six bytes each: the gadget lookup and one
+  // word out of the LAID-OUT Gadget, `$4`, `$6`, `$8` and `$a`. Laid out, so
+  // the scale they carry has to be the one the layout pass used, which is the
+  // same `topaz` test `Gui Sx` makes and which this port was applying to only
+  // half of them.
+  //
+  // `Gui Check` walks the pointer array forward and answers `$26` of the first
+  // Gadget the point falls in --- the GadgetID and not the index --- with the
+  // box INCLUSIVE on all four edges, which is one pixel wider than the gadget
+  // on each side.
+  'gui x gad', 'gui y gad', 'gui gad width', 'gui gad height',
+  'gui kind', 'gui gadget', 'gui check', 'gui range',
+  // `Gui To Front` is WindowToFront AND ActivateWindow, which the 1.6 history
+  // dates ("Now Gui To Front activate the window too"); `Gui To Back` is
+  // WindowToBack alone. `Gui Resize` is SizeWindow with a delta and a spin on
+  // the packed Width/Height longword, `Gui Change` ChangeWindowBox with all
+  // four absolute. The four flag keywords are one bit each in `$85`: bit 0
+  // for Sensitive and bit 2 for Remember.
+  'gui to front', 'gui to back', 'gui move', 'gui resize', 'gui change',
+  'gui sensitive on', 'gui sensitive off', 'gui remember on', 'gui remember off',
+  'gui lock', 'gui unlock', 'gui on', 'gui off',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
