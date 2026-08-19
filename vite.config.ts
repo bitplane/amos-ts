@@ -1,4 +1,64 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type Plugin } from 'vitest/config'
+import { createReadStream, existsSync, statSync } from 'node:fs'
+import { join, normalize, resolve } from 'node:path'
+import { indexLibrary } from './src/cli/genlibrary'
+
+/**
+ * Serve bitplane/amos-library at /library/ under `npm run dev`.
+ *
+ * On the site those files are pushed by the library repository's own job and
+ * this plugin has no part in it. Locally there is no such job, so the Browse
+ * tab would have nothing to fetch and could only ever be tested by
+ * deploying, which is how you find out from production that the covers
+ * 404. The index is built per request rather than cached, so adding a
+ * disk to the checkout and reloading the page shows it.
+ *
+ * AMOS_LIBRARY names the checkout; ../amos-library is where it sits beside
+ * this one. With neither there the plugin stands down, and the tab says it
+ * found no library at the URL, which is the truth.
+ */
+function libraryDevServer(): Plugin {
+  const root = resolve(process.env.AMOS_LIBRARY ?? '../amos-library')
+  const TYPES: Record<string, string> = {
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.adf': 'application/octet-stream',
+    '.zip': 'application/zip',
+  }
+  return {
+    name: 'amos-library-dev',
+    configureServer(server) {
+      if (!existsSync(root)) {
+        server.config.logger.info(`amos-library: nothing at ${root}, the Browse tab will be empty`)
+        return
+      }
+      server.config.logger.info(`amos-library: serving ${root} at /library/`)
+      server.middlewares.use('/library', (req, res, next) => {
+        const rel = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '/').replace(/^\/+/, '')
+        if (rel === 'index.json') {
+          const { library, warnings } = indexLibrary(root)
+          for (const w of warnings) server.config.logger.warn(`amos-library: ${w.path}: ${w.message}`)
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(library))
+          return
+        }
+        // a dev server on localhost, but a path out of the library root is
+        // still a path out of the library root
+        const path = join(root, normalize(rel))
+        if (!path.startsWith(root) || !existsSync(path) || !statSync(path).isFile()) {
+          next()
+          return
+        }
+        const ext = /\.[^.]*$/.exec(path)?.[0]?.toLowerCase() ?? ''
+        res.setHeader('content-type', TYPES[ext] ?? 'application/octet-stream')
+        res.setHeader('content-length', String(statSync(path).size))
+        createReadStream(path).pipe(res)
+      })
+    },
+  }
+}
 
 /**
  * The npm library build: src/index.ts -> dist/amos-ts.js.
@@ -29,6 +89,7 @@ import { defineConfig } from 'vitest/config'
  * because the failure mode is silent.
  */
 export default defineConfig({
+  plugins: [libraryDevServer()],
   build: {
     lib: {
       entry: 'src/index.ts',

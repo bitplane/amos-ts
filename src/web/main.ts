@@ -32,6 +32,8 @@ import type { InputSource } from './ui/catalogue'
 import { createExtensionsTab } from './ui/extensions'
 import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
+import { createBrowseTab } from './ui/browse'
+import { createLibraryLoader } from './library'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
 
@@ -535,6 +537,49 @@ host.setKeys(1, 'wasd')
 player.machine.attach('keyboard', new Keyboard('browser'))
 player.machine.attach('mouse', new Mouse('browser'))
 
+// ---- the library ----
+/**
+ * Disks published to /library/, which is a different repository and a
+ * different job: bitplane/amos-library pushes them and their index, and a
+ * release of the player never touches them.
+ *
+ * The rules for putting one in the machine are in ./library.ts. What is left
+ * here is what only a page can do: say what happened, and decide which tab
+ * you end up looking at.
+ */
+const loader = createLibraryLoader({
+  vfs,
+  drives: player.machine.drives,
+  loadProgram: (bytes, name, dir, vol) => player.loadProgram(bytes, name, dir, vol),
+  loadArchive: (bytes, name) => player.loadArchive(bytes, name),
+  mounted: () => {
+    detectAmosInstall()
+    detectFontsDrawer()
+  },
+})
+
+const browse = createBrowseTab({
+  onStatus: setStatus,
+  async onOpen(item, disks) {
+    const r = await loader.open(disks)
+    if (r.ran !== null) {
+      tabs.select('play')
+      return
+    }
+    // Nothing to start. A system disk is not a game and this port has no
+    // AmigaDOS to boot one, so say what arrived and show it, rather than
+    // handing over to a canvas still running whatever was there before.
+    setStatus(
+      r.programs.length === 0
+        ? `${item.name}: ${r.volumes.join(', ')} mounted, no AMOS program on them`
+        : `${item.name}: ${r.volumes.join(', ')} mounted, ${r.programs.length} programs, pick one`,
+    )
+    tabs.select('files')
+    refreshFiles()
+  },
+})
+document.getElementById('panels')!.append(browse.panel)
+
 // ---- the tabs ----
 // Built last, because the strip and the hardware panel read the machine and
 // the machine belongs to the player.
@@ -570,6 +615,11 @@ const libs = createLibsTab()
 document.getElementById('panels')!.append(hardware.panel, extensions.panel, libs.panel)
 
 const tabs = mountTabs(document.getElementById('tabbar')!, [
+  // Browse first, so it is what the page opens on: a visitor with no .AMOS
+  // file of their own has something to run in one click. `mountTabs` takes
+  // the first tab as the default and the URL fragment overrides it, so
+  // #play still lands on the player.
+  { id: 'browse', label: 'Browse', panel: browse.panel, show: () => browse.show() },
   {
     id: 'play',
     label: 'Play',

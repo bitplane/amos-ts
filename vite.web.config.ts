@@ -18,7 +18,15 @@ import pkg from './package.json'
 export default defineConfig({
   // stamped into the bundle so a page can say which build it is running,
   // which is the only way to notice a CDN still serving an old /v/latest/
-  define: { __AMOS_VERSION__: JSON.stringify(pkg.version) },
+  define: {
+    __AMOS_VERSION__: JSON.stringify(pkg.version),
+    // Where the disk library is served from, and an ABSOLUTE path where
+    // everything else here is relative. The library is published once, by
+    // bitplane/amos-library's own job; the bundle is published three times.
+    // A relative 'library/' would have the copy under /v/0.9.1/ asking for
+    // /v/0.9.1/library/index.json, which is not there and never will be.
+    __AMOS_LIBRARY__: JSON.stringify('/library/'),
+  },
   base: './',
   build: {
     outDir: 'dist-web',
