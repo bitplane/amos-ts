@@ -3607,6 +3607,22 @@ export const FAITHFUL = new Set<string>([
   // takes the four-instruction arm, one AMOS_WB, and everything the guide
   // lists happens only on the compiled side.
   'gui screen copy', 'gui screen move', 'gui screen close', 'gui amiga os',
+  // ---- opening a screen, and reading a gadget's string ------------------------
+  // `Gui Screen Open` loads `moveq #$e,d7` ONCE, at $217c, and both of its
+  // error arms use it -- the number check before the work and the result check
+  // after -- so every way the keyword can fail reports 14, "Illegal screen
+  // parameter", and the three more specific messages routine 232 loads are
+  // unreachable through it. The DEFECT is at the keyword; this is the
+  // instruction it rests on. The eight-argument form at $2190 is the same
+  // routine with a TextAttr in front.
+  //
+  // The two scale helpers it shares sit right after it at $21b4 and $21ca:
+  // `mulu.w $294(a0),d0 / addq.w #$4,d0 / divu.w #$8,d0`, which is guiScale
+  // spelled out and is what `Gui Sx` and the gadget box readers go through.
+  //
+  // `Gui Read$` checks the window where `Gui Read` beside it does not, which
+  // is what makes that omission an oversight rather than a house style.
+  'gui screen open', 'gui read$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
