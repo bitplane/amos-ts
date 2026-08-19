@@ -14,8 +14,8 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { INT_ERR, INT_ERRORS } from './int'
-import { BARLABEL, NM } from '../amiga/gadtools'
-import { IDCMP_CLOSEWINDOW, WB_SLOT } from '../amiga/intuition'
+import { BARLABEL, NM, NOSUB, fullMenuNum } from '../amiga/gadtools'
+import { IDCMP_CLOSEWINDOW, IDCMP_MENUPICK, WB_SLOT } from '../amiga/intuition'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 25 — "alter extension number 25 to :APSystem/AMOSPro_Int.Lib" */
@@ -94,14 +94,27 @@ describe('Int 1.0: windows', () => {
     )
   })
 
-  it('opening the same number twice is This Window Is Already Opened', () => {
-    expect(() => run(`${open} : Wb Open Window 0,0,10,320,120,100,50,640,240`)).toThrow(
-      INT_ERRORS[INT_ERR.WINDOW_ALREADY_OPENED],
-    )
+  /**
+   * The error table carries "This Window Is Already Opened" at index 2 and
+   * NOTHING in the library loads a 2 -- routine 2's whole error surface is
+   * the 30 at $2366 and the 4 at $2374. So reopening a number opens a second
+   * window and writes it over the table entry, and the first stays on the
+   * screen with no keyword able to name it.
+   */
+  it('opening the same number twice leaks the first window', () => {
+    const rt = run(`${open} : Wb Open Window 0,40,60,100,80,10,10,320,200`)
+    expect(rt.int.windows.get(0)!.leftEdge).toBe(40)
+    // two are open on the Workbench; only the second can be reached
+    expect(rt.intuition.windows.filter((w) => w.screenSlot === WB_SLOT)).toHaveLength(2)
   })
 
   it('Wb Close Window takes it away again', () => {
     expect(run(`${open} : Wb Close Window 0`).int.windows.size).toBe(0)
+  })
+
+  /** routine 94: `clr.l (a3)+ / moveq #$1,d0` into the error dispatcher */
+  it('closing a window that is not open is This Window Can t Be Closed', () => {
+    expect(() => run('Wb Close Window 3')).toThrow(INT_ERRORS[1])
   })
 
   /**
@@ -164,6 +177,24 @@ describe('Int 1.0: screens', () => {
       INT_ERRORS[INT_ERR.SCREEN_NUMBER_TO_HIGH],
     )
     expect(() => run('Wb Screen Num 30')).toThrow(INT_ERRORS[INT_ERR.SCREEN_NUMBER_TO_HIGH])
+  })
+
+  /**
+   * `Wb Screen Offset` NEGATES both arguments -- `clr.l d2 / sub.l d0,d2` on
+   * each -- into the ViewPort's DxOffset and DyOffset before ScrollVPort, so
+   * the display moves the other way from what the argument reads like.
+   * `Wb Move Screen` is MoveScreen, whose arguments are deltas, on both axes.
+   */
+  it('Wb Screen Offset negates, and Wb Move Screen moves by a delta', () => {
+    const rt = run(`${screen} : Wb Screen Offset 10,4`)
+    const s0 = rt.screens.get(rt.intuition.slotOf(rt.int.screens.get(0)!)!)!
+    expect([s0.offsetX, s0.offsetY]).toEqual([-10, -4])
+
+    const moved = run(`${screen} : Wb Move Screen 8,6`)
+    const s1 = moved.screens.get(moved.intuition.slotOf(moved.int.screens.get(0)!)!)!
+    const fresh = run(screen)
+    const s2 = fresh.screens.get(fresh.intuition.slotOf(fresh.int.screens.get(0)!)!)!
+    expect([s1.displayX - s2.displayX, s1.displayY - s2.displayY]).toEqual([8, 6])
   })
 
   it('Wb Close Screen closes it, and Wb Screen Num -1 goes back to the Workbench', () => {
@@ -257,11 +288,28 @@ describe('Int 1.0: the event loop', () => {
   /**
    * `Wb Menu` is one-based and `Wb Item` and `Wb Sub Item` answer 0 for -1,
    * which is what the examples test: `If ITEM>0`.
+   *
+   * The pump writes ONE of the item and the sub-item and never both: the arm
+   * at $30b6 stores the item and returns, the arm at $30d0 stores the
+   * sub-item and returns. So after a sub-item pick `Wb Item` still reports
+   * whatever the last item pick left there.
    */
-  it('the three menu readers start at 0 and are one-based after a pick', () => {
-    const rt = run(open)
-    const st = rt.int
-    expect([st.menu, st.item, st.sub]).toEqual([-1, -1, -1])
+  it('the three menu readers decode a pick, one-based, and 0 for none', () => {
+    // the window has to have ASKED for MENUPICK, which `Wb Window Ids` is for
+    const menuOpen = `${FLAGS} : Wb Window Ids $100,$200,0,0,0,0,0,0,0 : Wb Open Window 0,0,10,320,120,100,50,640,240 : Wb Window Num 0`
+    const pick = (code: number): number[] => {
+      const b = boot(
+        [menuOpen, 'Repeat', 'EV=Wb Event', 'Until EV<>0', 'Print Wb Menu;Wb Item;Wb Sub Item'].join('\n'),
+      )
+      b.rt.runHeadless(1)
+      expect(b.rt.int.windows.get(0)!.post(IDCMP_MENUPICK, code)).toBe(true)
+      mustFinish(b.rt.runHeadless(2_000))
+      return b.out().trim().split(/\s+/).map(Number)
+    }
+    // menu 0, item 1, no sub-item
+    expect(pick(fullMenuNum(0, 1, NOSUB))).toEqual([1, 2, 0])
+    // menu 1, item 0, sub-item 2: the item arm is not taken, so it stays -1
+    expect(pick(fullMenuNum(1, 0, 2))).toEqual([2, 0, 3])
   })
 })
 

@@ -3641,6 +3641,40 @@ export const FAITHFUL = new Set<string>([
   // asl.library or the requester -- which is what makes them safe to call
   // before anything has been selected, unlike the five screenmode readers.
   'gui title$', 'gui mouse report', 'gui help', 'gui file$', 'gui dir$',
+  // ---- Int 1.0 at slot 25, the first batch --------------------------------
+  // Read off AMOSPRO_Int.Lib with the LVOs taken from GUI 2.10's own Tools/FD.
+  // Two documents ship with the extension and neither says what a keyword
+  // does, so the account is the routines plus the eighteen example programs,
+  // whose comments name every IDCMP bit and window flag the two mask keywords
+  // take.
+  //
+  // The reading corrected three. `Wb Open Window` has NO already-open check:
+  // the error table carries "This Window Is Already Opened" at index 2 and
+  // nothing in the library loads a 2, so reopening a number opens a second
+  // window over the first and leaks it. `Wb Close Window` DOES raise, routine
+  // 94's `moveq #$1,d0`, for a number the table holds nothing for. And
+  // `Wb Move Screen` passes both arguments to MoveScreen, where this port
+  // dropped the X.
+  //
+  // Three limits on two tables and they disagree: `Wb Open Window` takes 0 to
+  // 100 and `Wb Window Base` reads 0 to 21; `Wb Open Screen` takes 0 to 99 and
+  // `Wb Screen Base` reads all of them while `Wb Close Screen` and `Wb Screen
+  // Num` stop at 20. Both tables are 100 longwords wide.
+  //
+  // The menus are gadtools menus -- `Wb Menu On` is CreateMenusA and
+  // LayoutMenusA over a 20-byte NewMenu copy loop -- and the three builders
+  // differ only in which of the templates at `$684`, `$698` and `$6ac` they
+  // copy. `Wb Event` returns the IDCMP CLASS, except that GADGETUP returns the
+  // gadget's own id, and its MENUPICK arm writes the item OR the sub-item and
+  // never both.
+  'wb window flags', 'wb window ids', 'wb screen flags',
+  'wb window num', 'wb screen num', 'wb current window', 'wb screen base',
+  'wb open window', 'wb close window', 'wb move window', 'wb titles',
+  'wb open screen', 'wb close screen', 'wb screen offset', 'wb move screen',
+  'wb menu title', 'wb menu item', 'wb menu sub item', 'wb menu on',
+  'wb menu', 'wb item', 'wb sub item',
+  'wb bool gadget', 'wb gt string', 'wb set gt string', 'wb activate gt',
+  'wb event',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

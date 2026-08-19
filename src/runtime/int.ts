@@ -339,13 +339,19 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * The number is checked LAST, after OpenWindow has already succeeded:
      * `cmpi.l #$64,d1 / bgt` at $21f0 raises error 4 with the window open and
      * nothing holding it, so a bad number leaks the window it just made.
+     *
+     * There is no already-open check. The error table carries "This Window Is
+     * Already Opened" at index 2 and NOTHING in the library loads a 2 --- the
+     * whole of routine 2's error surface is the 30 at $2366 and the 4 at
+     * $2374. Reopening a number therefore opens a second window and writes it
+     * over the table entry, and the first one stays on the screen with no
+     * keyword able to name it. That leak is the behaviour.
      */
     'wb open window': (it) => {
       const st = s()
       const num = it.evalInt()
       const [x, y, width, height] = four(it, true)
       const [minW, minH, maxW, maxH] = four(it, true)
-      if (st.windows.has(num)) intError(INT_ERR.WINDOW_ALREADY_OPENED)
       const onCustom = st.screen !== -1 && st.screen !== 0 && rt.intuition.slotOf(st.screen) !== null
       const w = rt.intuition.openWindow({
         leftEdge: x,
@@ -385,7 +391,10 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const st = s()
       const num = it.evalInt()
       const w = st.windows.get(num)
-      if (w === undefined) return
+      // routine 94, which is `clr.l (a3)+ / moveq #$1,d0` into the error
+      // dispatcher: a number the table holds nothing for is "This Window
+      // Can't Be Closed" and not a quiet return
+      if (w === undefined) intError(1)
       st.strips.delete(num)
       rt.intuition.closeWindow(w)
       st.windows.delete(num)
@@ -424,11 +433,10 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const screenTitle = str(it.evalExpr())
       const w = windowOf(st, st.window)
       w.title = title
-      // DEVIATION: the screen title is dropped. SetWindowTitles sets what the
-      // SCREEN's bar reads while this window is active, and no screen here
-      // draws a bar at all --- ../amiga/intuition.ts renders windows onto a
-      // screen and leaves the screen's own furniture to the display.
-      void screenTitle
+      // Both strings are kept. The second is what the SCREEN's bar reads while
+      // this window is active and nothing here draws a screen bar, so it is
+      // recorded and not shown; dropping it would lose what the program said.
+      w.screenTitle = screenTitle
       rt.intuition.invalidate()
     },
 
@@ -524,7 +532,13 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       screen.offsetY = -y
     },
 
-    /** `Wb Move Screen x,y` --- MoveScreen (-$a2), which is a DELTA and not a position */
+    /**
+     * `Wb Move Screen x,y` --- MoveScreen (-$a2), whose arguments are DELTAS.
+     *
+     * Both of them: `move.l (a3)+,d1` takes the Y and `move.l (a3)+,d0` the X,
+     * and the call moves the screen by each. It works on `$de6`, the screen
+     * `Wb Screen Num` last selected, and does nothing at all when that is -1.
+     */
     'wb move screen': (it) => {
       const st = s()
       const dx = it.evalInt()
@@ -534,7 +548,7 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const slot = rt.intuition.slotOf(st.screen)
       const screen = slot === null ? undefined : rt.screens.get(slot)
       if (!screen) return
-      void dx
+      screen.displayX += dx
       screen.displayY += dy
     },
 

@@ -376,6 +376,17 @@ export class Window {
 
   flags: number
 
+  /**
+   * wd_ScreenTitle, the second string SetWindowTitles takes.
+   *
+   * It is what the SCREEN's bar reads while this window is active, and
+   * nothing here draws a screen bar --- so it is recorded rather than shown.
+   * Recorded because a keyword that sets it can be asked for it back, and
+   * because dropping half of a two-argument call loses information the
+   * program supplied.
+   */
+  screenTitle = ''
+
   get leftEdge(): number {
     return this.layer.rect.minX
   }
