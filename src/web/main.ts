@@ -23,6 +23,7 @@ function shortPadName(id: string): string {
   return trimmed === '' ? id : trimmed
 }
 
+import { isAdf } from '../amiga/adf'
 import { Keyboard } from '../amiga/keyboard'
 import { Mouse } from '../amiga/mouse'
 import { mountTabs } from './ui/tabs'
@@ -33,7 +34,7 @@ import { createExtensionsTab } from './ui/extensions'
 import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
 import { createBrowseTab } from './ui/browse'
-import { createLibraryLoader } from './library'
+import { createLibraryLoader, type OpenSource } from './library'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
 
@@ -115,11 +116,29 @@ function detectAmosInstall(): void {
     if (root) break
   }
   if (!root) return
-  vfs.assign('AMOSPro', root.dir)
-  vfs.assign('AMOSPro_System', join(root.dir, root.sys))
+  /*
+   * An assign must never shadow a real volume of the same name.
+   *
+   * `resolve` expands assigns BEFORE volumes, so assigning AMOSPro_System to
+   * `AMOSPro_System:APSystem` makes the name refer to a path beginning with
+   * itself, and the expansion spins until the cycle guard stops it. Every
+   * path on the disk then reads as missing, which looks like an empty disk
+   * rather than a broken assign: mounting the real AMOS Pro System floppy
+   * left the whole thing unreadable and reported "holds no AMOS program".
+   *
+   * These assigns are what a HARD DISK install has, where the drawer sits
+   * under DH0: and nothing is called AMOSPro_System. Off the floppies the
+   * labels already ARE the names, so there is nothing to add.
+   */
+  const volumes = new Set(vfs.volumeNames().map((v) => v.toLowerCase()))
+  const assign = (name: string, target: string): void => {
+    if (!volumes.has(name.toLowerCase())) vfs.assign(name, target)
+  }
+  assign('AMOSPro', root.dir)
+  assign('AMOSPro_System', join(root.dir, root.sys))
   for (const e of (vfs.listDir(root.dir) ?? []).filter((x) => x.isDir)) {
-    vfs.assign(`AMOSPro_${e.name}`, join(root.dir, e.name))
-    vfs.assign(e.name, join(root.dir, e.name))
+    assign(`AMOSPro_${e.name}`, join(root.dir, e.name))
+    assign(e.name, join(root.dir, e.name))
   }
   const res = vfs.read(join(join(root.dir, root.sys), 'AMOSPro_Default_Resource.Abk'))
   if (res) player.setSystemResource(res)
@@ -284,18 +303,22 @@ document.addEventListener('drop', (e) => {
 const filesPanel = document.getElementById('panel-files')!
 const fstreeEl = document.getElementById('fstree')!
 
-/** an AMOS program by content, not name (some are extensionless on disk) */
 /**
- * Can this entry be clicked to run?
+ * Can this entry be clicked?
  *
- * By header OR by name, which is the same rule the archive loader and the
- * file drop use — a plain-text listing has no header to identify it, so the
- * `.amos` extension is all there is to go on. Testing the header alone made
- * a listing look like inert data in the tree while the very same file, when
- * dropped on the window, ran fine.
+ * Anything ./library.ts can open, which is anything the player can: a
+ * program, a floppy image, or an archive. The tree used to offer only
+ * programs, so an .lha sitting in a drawer was inert while the very same
+ * file, dropped on the window, mounted fine. Same rule everywhere now, and
+ * the rule lives in one place.
+ *
+ * By header OR by name, because a plain-text listing has no header to
+ * identify it and a tokenised program may have no extension.
  */
-function isRunnable(name: string, bytes: Uint8Array | null): boolean {
-  return isAmosProgram(bytes) || (/\.amos$/i.test(name) && bytes !== null && bytes.length > 0)
+const OPENABLE = /\.(amos|adf|lha|lzh|zip|tar|tar\.gz|tgz)$/i
+function isOpenable(name: string, bytes: Uint8Array | null): boolean {
+  if (bytes === null || bytes.length === 0) return false
+  return isAmosProgram(bytes) || isAdf(bytes) || OPENABLE.test(name)
 }
 
 /** directories the user has expanded; volumes default open, subdirs closed */
@@ -423,32 +446,27 @@ function refreshFiles(): void {
         })
         if (open) walk(base, [...dir, e.name], depth + 1)
       } else {
-        const runnable = isRunnable(e.name, vfs.read(full))
-        addLine(depth, runnable ? e.name : `${e.name}  (${e.size})`, {
-          onClick: runnable
+        const openable = isOpenable(e.name, vfs.read(full))
+        addLine(depth, openable ? e.name : `${e.name}  (${e.size})`, {
+          onClick: openable
             ? () => {
                 const bytes = vfs.read(full)
                 if (!bytes) return
                 /*
-                 * Run it with its own drawer current, ON ITS OWN VOLUME.
-                 *
-                 * The volume is the half that used to be missing, because
-                 * `loadProgram` defaults to DH0: and every drop landed a
-                 * copy there as well, so the wrong answer happened to work.
-                 * A library disk is mounted as a floppy and copied nowhere,
-                 * so the same click set the current directory to a path on
-                 * a volume the program is not on. Nothing errored: relative
-                 * loads simply found nothing, which is what `Td Load "car1"`
-                 * reports as "Object file not found".
+                 * `at` is the half that used to be missing. `loadProgram`
+                 * defaults to DH0:, and every drop landed a copy there as
+                 * well, so the wrong answer happened to work. A library disk
+                 * is mounted as a floppy and copied nowhere, so the same
+                 * click set the current directory to a path on a volume the
+                 * program is not on. Nothing errored: relative loads simply
+                 * found nothing, which is what `Td Load "car1"` reports as
+                 * "Object file not found".
                  *
                  * It also decides what a leading colon means. `:` is the
                  * root of the CURRENT VOLUME, and the AMOS 3D demos are
                  * written that way throughout.
                  */
-                player.loadProgram(bytes, e.name, dir, base.slice(0, -1))
-                // and show it: a program started from the tree was otherwise
-                // running behind the panel you started it from
-                tabs.select('play')
+                void openThing({ name: e.name, bytes, at: { vol: base.slice(0, -1), dir } })
               }
             : undefined,
           drag: full,
@@ -573,25 +591,35 @@ const loader = createLibraryLoader({
   },
 })
 
+/**
+ * Open one thing and say what happened.
+ *
+ * The only part of this a page owns: which tab you end up looking at, and
+ * what the status line says. Everything about WHAT to do with the bytes is
+ * ./library.ts, and both the tree and the Browse tab come through here.
+ */
+async function openThing(src: OpenSource): Promise<void> {
+  const r = await loader.open(src)
+  if (r.ran !== null) {
+    tabs.select('play')
+    return
+  }
+  // Nothing to start. A system disk is not a game and this port has no
+  // AmigaDOS to boot one, so say what arrived and show it, rather than
+  // handing over to a canvas still running whatever was there before.
+  const where = r.volume === null ? src.name : `${r.volume}:`
+  setStatus(
+    r.programs.length === 0
+      ? `${where} is in, and holds no AMOS program`
+      : `${where} is in, ${r.programs.length} programs, pick one`,
+  )
+  tabs.select('files')
+  refreshFiles()
+}
+
 const browse = createBrowseTab({
   onStatus: setStatus,
-  async onOpen(item, disks) {
-    const r = await loader.open(disks)
-    if (r.ran !== null) {
-      tabs.select('play')
-      return
-    }
-    // Nothing to start. A system disk is not a game and this port has no
-    // AmigaDOS to boot one, so say what arrived and show it, rather than
-    // handing over to a canvas still running whatever was there before.
-    setStatus(
-      r.programs.length === 0
-        ? `${item.name}: ${r.volumes.join(', ')} mounted, no AMOS program on them`
-        : `${item.name}: ${r.volumes.join(', ')} mounted, ${r.programs.length} programs, pick one`,
-    )
-    tabs.select('files')
-    refreshFiles()
-  },
+  onOpen: (item, bytes) => openThing({ name: item.disk.path.split('/').pop() ?? item.name, bytes }),
 })
 document.getElementById('panels')!.append(browse.panel)
 

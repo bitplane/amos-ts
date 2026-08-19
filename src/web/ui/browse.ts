@@ -12,7 +12,7 @@
  * there. That import must stay `import type`. genlibrary opens `node:fs`,
  * and a value import would pull it into the browser bundle.
  */
-import type { Library, LibraryDisk, LibraryFolder, LibraryItem } from '../../cli/genlibrary'
+import type { Library, LibraryFolder, LibraryItem } from '../../cli/genlibrary'
 
 /**
  * Where the library is served from.
@@ -27,21 +27,9 @@ import type { Library, LibraryDisk, LibraryFolder, LibraryItem } from '../../cli
 declare const __AMOS_LIBRARY__: string | undefined
 export const LIBRARY_BASE: string = typeof __AMOS_LIBRARY__ === 'string' ? __AMOS_LIBRARY__ : '/library/'
 
-/** the bytes of one disk, ready to mount */
-export interface FetchedDisk {
-  /** the host filename, which is what the player mangles a volume name out of */
-  name: string
-  bytes: Uint8Array
-  disk: LibraryDisk
-}
-
 export interface BrowseOptions {
-  /**
-   * Every disk of the item, in insertion order: the first is the one that
-   * goes in DF0:. Called after all of them have arrived, so a set is mounted
-   * whole or not at all.
-   */
-  onOpen(item: LibraryItem, disks: FetchedDisk[]): void | Promise<void>
+  /** the item's bytes, once they have arrived */
+  onOpen(item: LibraryItem, bytes: Uint8Array): void | Promise<void>
   onStatus(text: string): void
   /** overridden by the tests, which have no server */
   fetch?: typeof globalThis.fetch
@@ -66,15 +54,16 @@ function sizeText(bytes: number): string {
 }
 
 /** the index shape this page knows how to read */
-const VERSION = 2
+const VERSION = 3
 
 /**
- * The volume labels an item's disks answer to once mounted, which is what a
- * program written to load `MyDisk:pic.iff` needs to be right. Shown on hover
- * so a wrong one is visible before anybody clicks.
+ * The volume label a disk answers to once mounted, which is what a program
+ * written to load `MyDisk:pic.iff` needs to be right. Shown on hover, so a
+ * wrong one is visible before anybody clicks.
  */
 function titleFor(item: LibraryItem): string {
-  return item.disks.map((d) => (d.label === null || d.label === '' ? d.path : `${d.label}:`)).join(' ')
+  const d = item.disk
+  return d.label === null || d.label === '' ? d.path : `${d.label}:`
 }
 
 /**
@@ -85,10 +74,11 @@ function titleFor(item: LibraryItem): string {
  * an item that the item does not say about itself.
  */
 function factsFor(item: LibraryItem): string {
-  const bytes = item.disks.reduce((n, d) => n + d.size, 0)
-  const programs = item.disks.reduce((n, d) => n + d.programs, 0)
-  const bits = [item.disks.length === 1 ? '1 disk' : `${item.disks.length} disks`, sizeText(bytes)]
-  if (programs > 0) bits.push(programs === 1 ? '1 program' : `${programs} programs`)
+  const d = item.disk
+  const bits = [sizeText(d.size)]
+  if (d.filesystem !== null) bits.push(d.filesystem)
+  if (d.bootable) bits.push('boots')
+  if (d.programs > 0) bits.push(d.programs === 1 ? '1 program' : `${d.programs} programs`)
   return bits.join(' · ')
 }
 
@@ -174,21 +164,18 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     if (opening) return
     opening = true
     try {
-      const disks: FetchedDisk[] = []
-      for (const [i, d] of item.disks.entries()) {
-        opts.onStatus(`fetching ${item.name}, disk ${i + 1} of ${item.disks.length} (${sizeText(d.size)})`)
-        const r = await get(urlFor(base, d.path))
-        if (!r.ok) throw new Error(`${d.path}: HTTP ${r.status}`)
-        const bytes = new Uint8Array(await r.arrayBuffer())
-        // The index recorded the size when it opened the image. A short read
-        // here mounts as an empty or damaged disk, which looks like a broken
-        // emulator rather than a broken download, so it is caught by name.
-        if (bytes.length !== d.size) {
-          throw new Error(`${d.path}: got ${bytes.length} bytes, the index says ${d.size}`)
-        }
-        disks.push({ name: d.path.split('/').pop() ?? d.path, bytes, disk: d })
+      const d = item.disk
+      opts.onStatus(`fetching ${item.name} (${sizeText(d.size)})`)
+      const r = await get(urlFor(base, d.path))
+      if (!r.ok) throw new Error(`${d.path}: HTTP ${r.status}`)
+      const bytes = new Uint8Array(await r.arrayBuffer())
+      // The index recorded the size when it opened the file. A short read
+      // here mounts as an empty or damaged disk, which looks like a broken
+      // emulator rather than a broken download, so it is caught by name.
+      if (bytes.length !== d.size) {
+        throw new Error(`${d.path}: got ${bytes.length} bytes, the index says ${d.size}`)
       }
-      await opts.onOpen(item, disks)
+      await opts.onOpen(item, bytes)
     } catch (e) {
       opts.onStatus(`could not load ${item.name}: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -237,9 +224,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     for (const sub of folder.folders) {
       const n = itemsUnder(sub)
       grid.appendChild(
-        tile(sub.name, sub.image, n === 1 ? '1 disk set' : `${n} disk sets`, `open ${sub.name}`, () =>
-          enter([...stack, sub]),
-        ),
+        tile(sub.name, sub.image, n === 1 ? '1 disk' : `${n} disks`, `open ${sub.name}`, () => enter([...stack, sub])),
       )
     }
     for (const item of folder.items) {

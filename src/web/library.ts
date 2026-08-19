@@ -1,37 +1,57 @@
 /**
- * Putting a library item into the machine.
+ * Putting a thing into the machine.
  *
- * The disks arrive from ./ui/browse.ts, which fetched them from `/library/`.
- * What happens to them here is the whole difference between this and dropping
- * a file on the page: a library item is mounted as FLOPPIES. The disks go
- * into DF0: upwards and answer to their own volume labels, so a game written
- * to `Load "MyDisk:pic.iff"` finds it and `Dir` reads the disk rather than a
- * flattened copy of it.
+ * ONE entry point, `open()`, for everything a person can click: a disk off
+ * the Browse tab, an archive in the file tree, a program in the file tree.
+ * They differ only in where the bytes came from, and that is an argument.
+ * Two code paths for "open the thing" is how the Files tab ended up able to
+ * run a program but not to open the archive sitting next to it.
  *
- * Split out of main.ts because it is the part with rules in it. Which disk
- * goes in which drive, what happens past the fourth, which program runs.
- * main.ts is a page, and a page cannot be tested.
+ * What it does with the bytes:
+ *
+ * - a floppy image goes into the first EMPTY drive, under its own volume
+ *   label, and nothing is ejected to make room until all four are full. That
+ *   is what you would physically do with a two-disk game, and it is why
+ *   there is no special case for multi-disk sets anywhere in this port.
+ * - an archive is unpacked by the player, which mounts it and copies it into
+ *   DH0: so relative loads resolve.
+ * - a program is compiled and run with its own drawer current, on its own
+ *   volume, which is what decides what a leading colon means.
+ *
+ * A disk already in a drive is not inserted twice. Clicking it again runs
+ * what is on it, which is what clicking it looks like it should do.
  */
 import type { AmigaFS } from '../amiga/vfs'
 import type { FloppyDrive } from '../amiga/trackdisk'
-import type { FetchedDisk } from './ui/browse'
 import { AdfVolume, isAdf } from '../amiga/adf'
+import { isAmosProgram } from '../loader/program'
 
 export interface LibraryHost {
   vfs: AmigaFS
   /** the machine's four drive positions; a null is a line with no drive on it */
   drives: readonly (FloppyDrive | null)[]
   loadProgram(bytes: Uint8Array, name: string, dir: string[], vol: string): void
-  /** for an item that is a zip rather than a disk image */
+  /** for an archive: the player unpacks it, mounts it and finds its program */
   loadArchive(bytes: Uint8Array, name: string): Promise<void>
-  /** run after the disks are in and before a program is picked: assign detection */
+  /** run once the disk is in: assign detection, and anything else the page does */
   mounted?(): void
 }
 
+/** one thing to open, and where it came from if it came from the filesystem */
+export interface OpenSource {
+  /** the filename, which is what an unlabelled disk is named after */
+  name: string
+  bytes: Uint8Array
+  /** the volume and drawer it was read from, for a program run out of the tree */
+  at?: { vol: string; dir: string[] }
+}
+
 export interface OpenResult {
-  /** the volume names the item is reachable by, in insertion order */
-  volumes: string[]
-  /** every .AMOS found on them */
+  /** what it turned out to be */
+  kind: 'disk' | 'archive' | 'program'
+  /** the volume it is reachable by, for a disk */
+  volume: string | null
+  /** every .AMOS found on it */
   programs: string[]
   /** the one that was started, or null when none was */
   ran: string | null
@@ -64,69 +84,79 @@ function splitPath(path: string): { vol: string; dir: string[]; name: string } {
   return { vol, dir: segs.slice(0, -1), name: segs[segs.length - 1] ?? path }
 }
 
-/**
- * The loader keeps one piece of state: what the last item mounted outside a
- * drive, so the next one can take it away again. Drives are cleared by
- * ejecting them, which takes their labels off the device list with them.
- */
+/** an unlabelled disk is reachable only by the name it was stored under */
+function fallbackName(file: string): string {
+  return file.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9_]/g, '_')
+}
+
 export function createLibraryLoader(host: LibraryHost) {
-  const mounted = new Set<string>()
+  /**
+   * Put a disk in a drive and say which one it answers to.
+   *
+   * The first EMPTY drive, so a second disk joins the first rather than
+   * replacing it: that is how a two-disk game gets both halves in, with no
+   * code anywhere that knows what a two-disk game is. When all four are full
+   * the last is swapped, because something has to give and DF0: is the one a
+   * program is most likely to be reading from.
+   */
+  function insert(adf: AdfVolume, file: string): string {
+    const label = adf.info.label
+    const volume = label === '' ? fallbackName(file) : label
+    // already in a drive: clicking it again means run it, not fill a second
+    // drive with the same disk
+    if (label !== '' && host.drives.some((d) => d?.medium?.label === label)) return volume
+    const free = host.drives.find((d) => d !== null && d.medium === null)
+    const drive = free ?? [...host.drives].reverse().find((d) => d !== null)
+    if (!drive) return volume
+    drive.insert(adf)
+    // an unlabelled disk has no VOLUME node to be reached by, and they exist,
+    // so it is mounted under the filename as well
+    if (label === '') host.vfs.mount(volume, adf)
+    return volume
+  }
 
-  async function open(disks: FetchedDisk[]): Promise<OpenResult> {
-    for (const d of host.drives) d?.eject()
-    for (const name of mounted) host.vfs.unmount(name)
-    mounted.clear()
-
-    const volumes: string[] = []
-    let unit = 0
-    for (const d of disks) {
-      if (!isAdf(d.bytes)) {
-        // a zip is not a disk: it has no label and no filesystem, so the
-        // player's own archive path handles it, DH0: copy and all
-        await host.loadArchive(d.bytes, d.name)
-        continue
-      }
-      const adf = new AdfVolume(d.bytes)
-      const label = adf.info.label
-      const drive = host.drives[unit]
-      if (drive) {
-        drive.insert(adf)
-        unit++
-        volumes.push(label === '' ? `DF${drive.unit}` : label)
-      } else {
-        /*
-         * Four /SELn lines is four drives, and AMOS Professional is six
-         * disks. The rest are mounted by name with no drive behind them:
-         * every path still resolves, and what is lost is `Drive State` and
-         * the disk-change line, neither of which a program can usefully ask
-         * about a disk nobody is going to swap.
-         */
-        const name = label === '' ? d.name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9_]/g, '_') : label
-        host.vfs.mount(name, adf)
-        mounted.add(name)
-        volumes.push(name)
-      }
-    }
-
-    host.mounted?.()
-
-    // One program on the disks is not a choice, so it runs. Several is, and
-    // there is nothing in the library that could name which: it holds disk
-    // images and covers, and no metadata beside them. So the page hands you
-    // the file tree rather than starting the wrong one of two hundred.
-    const programs = volumes.flatMap((v) => programsIn(host.vfs, v))
-    const pick = programs.length === 1 ? programs[0] : undefined
-    if (pick === undefined) return { volumes, programs, ran: null }
-
+  /**
+   * Start the one program, if there is exactly one.
+   *
+   * Several is a choice, and there is nothing in the library that could name
+   * which: it holds archives and pictures and no metadata beside them. So the
+   * page hands you the file tree rather than starting the wrong one of two
+   * hundred.
+   */
+  function runOne(programs: string[]): string | null {
+    if (programs.length !== 1) return null
+    const pick = programs[0]!
     const { vol, dir, name } = splitPath(pick)
     // DF0:, DH0: and HD0: all point at the drawer it came from, because a
     // game that shipped on a floppy says DF0: and one installed to a hard
     // disk says DH0: for the same directory
     host.vfs.assignDrives(dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`)
     const bytes = host.vfs.read(pick)
-    if (!bytes) return { volumes, programs, ran: null }
+    if (!bytes) return null
     host.loadProgram(bytes, name, dir, vol)
-    return { volumes, programs, ran: pick }
+    return pick
+  }
+
+  async function open(src: OpenSource): Promise<OpenResult> {
+    if (isAdf(src.bytes)) {
+      const volume = insert(new AdfVolume(src.bytes), src.name)
+      host.mounted?.()
+      const programs = programsIn(host.vfs, volume)
+      return { kind: 'disk', volume, programs, ran: runOne(programs) }
+    }
+    // A program, by header OR by name: a plain-text listing has no header to
+    // identify it, and a tokenised one may have no extension.
+    if (isAmosProgram(src.bytes) || /\.amos$/i.test(src.name)) {
+      const at = src.at ?? { vol: 'DH0', dir: [] }
+      host.loadProgram(src.bytes, src.name, at.dir, at.vol)
+      const full = `${at.vol}:${[...at.dir, src.name].join('/')}`
+      return { kind: 'program', volume: at.vol, programs: [full], ran: full }
+    }
+    // zip, lha, tar: no label and no filesystem of its own, so the player's
+    // archive path handles it, DH0: copy and all
+    await host.loadArchive(src.bytes, src.name)
+    host.mounted?.()
+    return { kind: 'archive', volume: null, programs: [], ran: null }
   }
 
   return { open }

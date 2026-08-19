@@ -624,7 +624,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
      * exist) falls back to the filename, mangled as before.
      */
     const adf = isAdf(bytes) ? new AdfVolume(bytes) : null
-    const fromName = name.replace(/\.(zip|tar|tar\.gz|tgz|adf)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
+    // every extension the archive reader claims, or an .lha mounts as
+    // `MiscExt_lha:` because the dot was mangled instead of stripped
+    const fromName = name.replace(/\.(adf|lha|lzh|zip|tar|tar\.gz|tgz)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
     const label = adf?.label.replace(/[:/]/g, '_').trim() ?? ''
     const vol = label || fromName
     if (adf) {

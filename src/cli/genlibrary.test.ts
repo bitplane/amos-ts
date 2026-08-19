@@ -73,35 +73,45 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('indexLibrary', () => {
-  it('makes a folder of a drawer and an item of each archive in it', () => {
+  it('makes a folder of every drawer and an item of every archive', () => {
     const { library } = indexLibrary(root)
-    expect(library.version).toBe(2)
+    expect(library.version).toBe(3)
     // Empty/ holds nothing, so it is pruned; README.md is not a folder either
     expect(library.root.folders.map((f) => f.name)).toEqual(['Games'])
     expect(at(library.root, 'Games').image).toBe('Games.png')
-    expect(at(library.root, 'Games').items.map((i) => i.name)).toEqual(['Solo', 'Truncated', 'Two Disker'])
+    // Solo boots, so it sorts before the one that does not
+    expect(at(library.root, 'Games').items.map((i) => i.name)).toEqual(['Solo', 'Truncated'])
+    expect(at(library.root, 'Games').folders.map((f) => f.name)).toEqual(['Shooters', 'Two Disker'])
   })
 
   it('nests as deep as the library does', () => {
-    // Games/ holds a loose Solo.adf AND drawers with disks under them, so it
-    // is a folder and not one big item. That is the case the first version of
-    // this walk got wrong, and it swallowed the whole tree into one card.
+    // Every drawer is a folder and every archive in it is an item. No rule
+    // anywhere looks at what a drawer holds to decide which it is, which is
+    // what lets six AMOS Professional disks and a drawer of twenty-eight
+    // extensions go through the same walk.
     const { library } = indexLibrary(root)
     const shooters = at(library.root, 'Games/Shooters')
-    expect(shooters.items.map((i) => i.name)).toEqual(['Blaster', 'Deep Set'])
-    expect(allItems(library.root).map((i) => i.id).sort()).toEqual([
+    expect(shooters.items.map((i) => i.name)).toEqual(['Blaster'])
+    expect(at(library.root, 'Games/Shooters/Deep Set').items.map((i) => i.name)).toEqual(['one'])
+    expect(
+      allItems(library.root)
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual([
       'games/shooters/blaster',
-      'games/shooters/deep-set',
+      'games/shooters/deep-set/one',
       'games/solo',
       'games/truncated',
-      'games/two-disker',
+      'games/two-disker/a-data',
+      'games/two-disker/b-boot',
     ])
   })
 
-  it('derives the id from the whole path, not from the filename', () => {
+  it('derives the id from the whole path, not from the filename alone', () => {
     const { library } = indexLibrary(root)
-    const item = at(library.root, 'Games').items.find((i) => i.name === 'Two Disker')!
-    expect(item.id).toBe('games/two-disker')
+    const item = at(library.root, 'Games/Two Disker').items.find((i) => i.name === 'b-boot')!
+    expect(item.id).toBe('games/two-disker/b-boot')
+    // no b-boot.png, so it wears the drawer's own picture
     expect(item.image).toBe('Games/Two Disker.png')
   })
 
@@ -111,24 +121,27 @@ describe('indexLibrary', () => {
     const { library } = indexLibrary(root)
     const shooters = at(library.root, 'Games/Shooters')
     expect(shooters.image).toBe('Games.png')
-    expect(shooters.items.map((i) => i.image)).toEqual(['Games.png', 'Games.png'])
+    expect(shooters.items.map((i) => i.image)).toEqual(['Games.png'])
+    // and it keeps going down: Deep Set has none either
+    expect(at(library.root, 'Games/Shooters/Deep Set').items[0]!.image).toBe('Games.png')
   })
 
   it('reads the volume label off the root block', () => {
     const { library } = indexLibrary(root)
     const solo = at(library.root, 'Games').items.find((i) => i.name === 'Solo')!
-    expect(solo.disks[0]!.label).toBe('SoloDisk')
-    expect(solo.disks[0]!.filesystem).toBe('OFS')
-    expect(solo.disks[0]!.size).toBe(901_120)
+    expect(solo.disk.label).toBe('SoloDisk')
+    expect(solo.disk.filesystem).toBe('OFS')
+    expect(solo.disk.size).toBe(901_120)
     // the card would show DF0: as this, so a wrong one is visible before
     // anybody clicks the item
-    expect(solo.disks[0]!.path).toBe('Games/Solo.adf')
+    expect(solo.disk.path).toBe('Games/Solo.adf')
   })
 
-  it('puts the bootable disk of a set first', () => {
+  it('puts the disks that boot at the front of a shelf', () => {
     const { library } = indexLibrary(root)
-    const item = at(library.root, 'Games').items.find((i) => i.name === 'Two Disker')!
-    expect(item.disks.map((d) => d.label)).toEqual(['Boot', 'Data'])
+    // b-boot.adf sorts second by name and first by boot block, which is the
+    // only thing an image says about where to start
+    expect(at(library.root, 'Games/Two Disker').items.map((i) => i.disk.label)).toEqual(['Boot', 'Data'])
   })
 
   it('records nothing that is not the filename or read off the disk', () => {
@@ -137,9 +150,9 @@ describe('indexLibrary', () => {
     // to find out, so there is nothing here that can go stale against the
     // disks it describes.
     const { library } = indexLibrary(root)
-    const item = allItems(library.root).find((i) => i.id === 'games/two-disker')!
-    expect(Object.keys(item).sort()).toEqual(['disks', 'id', 'image', 'name'])
-    expect(Object.keys(item.disks[0]!).sort()).toEqual([
+    const item = allItems(library.root).find((i) => i.id === 'games/two-disker/b-boot')!
+    expect(Object.keys(item).sort()).toEqual(['disk', 'id', 'image', 'name'])
+    expect(Object.keys(item.disk).sort()).toEqual([
       'bootable',
       'filesystem',
       'label',
@@ -152,7 +165,7 @@ describe('indexLibrary', () => {
   it('warns about a disk that is not an image, and indexes it anyway', () => {
     const { library, warnings } = indexLibrary(root)
     const item = at(library.root, 'Games').items.find((i) => i.name === 'Truncated')!
-    expect(item.disks[0]!.label).toBeNull()
+    expect(item.disk.label).toBeNull()
     // no Truncated.png, so it inherits Games.png the way Blaster does
     expect(item.image).toBe('Games.png')
     // A truncated download is the failure this catches: 7-Zip has produced
@@ -164,6 +177,6 @@ describe('indexLibrary', () => {
   it('counts the programs on a disk rather than listing them', () => {
     const { library } = indexLibrary(root)
     // an empty root block resolves to an empty directory, not to an error
-    expect(at(library.root, 'Games').items.find((i) => i.name === 'Solo')!.disks[0]!.programs).toBe(0)
+    expect(at(library.root, 'Games').items.find((i) => i.name === 'Solo')!.disk.programs).toBe(0)
   })
 })
