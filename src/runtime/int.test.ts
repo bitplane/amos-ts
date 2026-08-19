@@ -315,3 +315,90 @@ describe('Int 1.0: boolean gadgets', () => {
     expect(ink).toBeGreaterThan(0)
   })
 })
+
+describe('Int 1.0: gadtools gadgets', () => {
+  const open = `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,320,120,100,50,640,240 : Wb Window Num 0`
+  /** "Wb Gt Gadget [X,Y,Width,Height,Text$,IdNum,TextPos,Type,WindowNum]" */
+  const two = `${open} : Wb Gt Gadget 10,20,80,12,"Go",7,1,1,0 : Wb Gt Gadget 10,40,120,12,"Name",8,1,12,0`
+
+  it('makes a BUTTON and a STRING on the window s own context', () => {
+    const chain = run(two).int.gtGadgets.get(0)!
+    expect(chain.map((g) => g.kind)).toEqual([1, 12])
+    expect(chain.map((g) => g.id)).toEqual([7, 8])
+    expect(chain[0]!.text).toBe('Go')
+  })
+
+  /** the three refusals are a ladder, and each has its own message */
+  it('refuses kind 10, kind 15 and up, and anything that is not 1 or 12', () => {
+    const bad = (kind: number): string => `${open} : Wb Gt Gadget 10,20,80,12,"x",1,1,${kind},0`
+    expect(() => run(bad(10))).toThrow(INT_ERRORS[25])
+    expect(() => run(bad(15))).toThrow(INT_ERRORS[26])
+    expect(() => run(bad(4))).toThrow(INT_ERRORS[28])
+  })
+
+  /**
+   * DEFECT: the message names type 2 and the code tests type 1. So a program
+   * that reads "Only Number Type 2 And 12 Allowed" and passes 2 is refused
+   * with the same sentence.
+   */
+  it('and the message for that one names the wrong type', () => {
+    expect(INT_ERRORS[28]).toBe('Only Number Type 2 And 12 Allowed')
+    expect(() => run(`${open} : Wb Gt Gadget 10,20,80,12,"x",1,1,2,0`)).toThrow(INT_ERRORS[28])
+    expect(() => run(`${open} : Wb Gt Gadget 10,20,80,12,"x",1,1,1,0`)).not.toThrow()
+  })
+
+  /** PLACETEXT_, exactly one of six */
+  it('a text position that is not a single PLACETEXT bit is Wrong Type Of Flag', () => {
+    expect(() => run(`${open} : Wb Gt Gadget 10,20,80,12,"x",1,3,1,0`)).toThrow(INT_ERRORS[27])
+  })
+
+  /** the buffer is twenty bytes, `moveq #$14,d1`, and the copy does not ask */
+  it('Wb Set Gt String writes the buffer and cuts it at twenty', () => {
+    const rt = run(`${two} : Wb Set Gt String 1,"Hello",0`)
+    expect(rt.int.gtGadgets.get(0)![1]!.string).toBe('Hello')
+    const long = run(`${two} : Wb Set Gt String 1,"012345678901234567890123",0`)
+    expect(long.int.gtGadgets.get(0)![1]!.string).toHaveLength(20)
+  })
+
+  it('Wb Gt String reads it back', () => {
+    const b = boot(`${two} : Wb Set Gt String 1,"Hello",0 : Print Wb Gt String(1)`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('Hello')
+  })
+
+  /**
+   * DEFECT: gadget 0 is refused, and reported as the window not being open.
+   * `move.l (a3)+,d0 / beq` jumps to the arm that loads `moveq #$b,d0`.
+   */
+  it('and refuses gadget 0 with the wrong message', () => {
+    expect(() => run(`${two} : A$=Wb Gt String(0)`)).toThrow(INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN])
+  })
+
+  /** the walk runs off the end into error 17 */
+  it('Wb Activate Gt raises Gadget Not Found past the end of the chain', () => {
+    expect(() => run(`${two} : Wb Activate Gt 9`)).toThrow(INT_ERRORS[17])
+    expect(run(`${two} : Wb Activate Gt 1`).int.activeGadget).toBe(1)
+  })
+
+  /**
+   * DEVIATION: nothing paints them. The hit region is on the window so a
+   * click still reports the id through `Wb Event`, which is what this checks;
+   * the frame gadtools would have drawn is not there, exactly as GUI 2.10's
+   * gadgets are not.
+   */
+  it('a click on one reports its id through Wb Event', () => {
+    const b = boot([two, 'Repeat', 'EV=Wb Event', 'Until EV<>0', 'Print EV'].join('\n'))
+    b.rt.runHeadless(1)
+    const s = b.rt.screens.get(WB_SLOT)!
+    const press = (buttons: number): void => {
+      b.rt.input.mouseX = s.screenToHardX(40)
+      b.rt.input.mouseY = 36 + s.displayY - s.offsetY
+      b.rt.input.mouseK = buttons
+      b.rt.frame()
+    }
+    press(1)
+    press(0)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(7)
+  })
+})

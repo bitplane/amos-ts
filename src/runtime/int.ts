@@ -57,7 +57,7 @@
  * no readable address. Both tables are 100 longwords wide; it is the checks
  * that differ, and each is reproduced where it sits.
  */
-import { AmosError, VI, int, str, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import {
@@ -69,7 +69,7 @@ import {
   type UserGadget,
   type Window,
 } from '../amiga/intuition'
-import { BARLABEL, GadTools, MENUNULL, NM, itemNum, subNum, type MenuStrip, type NewMenu } from '../amiga/gadtools'
+import { BARLABEL, GadTools, KIND, MENUNULL, NM, itemNum, subNum, TAG, type Gadget, type MenuStrip, type NewMenu } from '../amiga/gadtools'
 
 /**
  * The library's own messages, packed NUL-separated at $5b48 and indexed
@@ -203,7 +203,16 @@ export class IntState {
   readonly gt = new GadTools()
   /** `Wb Flash Screen`, which has nothing to flash here; see the keyword */
   beeps = 0
+  /** `$134e`, the gadtools chain per window, in the order CreateGadgetA made it */
+  readonly gtGadgets = new Map<number, Gadget[]>()
+  /** which gadget ActivateGadget was last given, since nothing here has a cursor */
+  activeGadget = -1
 }
+
+/** `moveq #$14,d1` in routine 68: the StringInfo buffer is twenty bytes */
+const GT_STRING_MAX = 20
+
+
 
 export function newIntState(): IntState {
   return new IntState()
@@ -652,7 +661,114 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       // linking onto the list a live NewWindow already pointed at amounts to
       st.windows.get(num)?.gadgets.push(gad)
     },
+
+    /**
+     * `Wb Gt Gadget x,y,width,height,text$,id,textpos,type,window` --- a
+     * gadtools gadget, CreateGadgetA on a context this keyword opens.
+     *
+     * `jsr -$72(a6)` is CreateContext, once per window and kept at `$134e`,
+     * and `jsr -$1e(a6)` is CreateGadgetA per gadget. The NewGadget is the
+     * real thirty bytes and the TextAttr is topaz.
+     *
+     * Only two kinds get through, and the three refusals are a ladder:
+     * `cmpi.w #$a` is error 25, "Number 10 Type Is Not Allowed", which is the
+     * only statement anywhere in this port that gadtools reserves kind 10;
+     * `cmpi.w #$f / bge` is error 26; and anything that is not 1 or 12 falls
+     * to error 28.
+     *
+     * DEFECT: error 28 reads "Only Number Type 2 And 12 Allowed" and the code
+     * tests for 1 and 12. `cmpi.l #$1,d0 / beq` at $4274 is BUTTON, not
+     * CHECKBOX, so a program that believes the message and passes 2 gets the
+     * message again.
+     *
+     * `textpos` is a PLACETEXT_ bit and has to be exactly one of six:
+     * 1, 2, 4, 8, $10 or $20, else error 27.
+     */
+    'wb gt gadget': (it) => {
+      const st = s()
+      const [x, y, width, height] = four(it)
+      it.expect(',')
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const id = it.evalInt()
+      it.expect(',')
+      const textPos = it.evalInt()
+      it.expect(',')
+      const kind = it.evalInt()
+      it.expect(',')
+      const num = it.evalInt()
+      if (kind === 10) intError(25)
+      if (kind >= 15) intError(26)
+      if (kind !== KIND.BUTTON && kind !== KIND.STRING) intError(28)
+      if (![1, 2, 4, 8, 0x10, 0x20].includes(textPos)) intError(27)
+      const chain = st.gtGadgets.get(num) ?? []
+      const g = st.gt.createGadget(
+        kind as 1 | 12,
+        chain[chain.length - 1] ?? st.gt.createContext(),
+        { leftEdge: x, topEdge: y, width, height, gadgetText: text, gadgetID: id, flags: textPos, visualInfo: 0 },
+        kind === KIND.STRING ? [{ tag: TAG.GTST_String, data: 0 }] : [],
+      )
+      if (g === null) intError(18)
+      if (kind === KIND.STRING) g.string = ''
+      chain.push(g)
+      st.gtGadgets.set(num, chain)
+      // DEVIATION: nothing paints it. The hit region goes on the window so a
+      // click still reports the id through `Wb Event`, and the gadget itself
+      // holds the value the three readers below answer from; what a program
+      // does not get is the frame gadtools would have drawn. GUI 2.10's
+      // gadgets are in the same position and ./gui.ts says so too.
+      const hit: UserGadget = { leftEdge: x, topEdge: y, width, height, id }
+      st.windows.get(num)?.gadgets.push(hit)
+    },
+
+    /**
+     * `Wb Set Gt String n,text$,activate` --- write a STRING gadget's buffer
+     * and optionally put the cursor in it.
+     *
+     * GT_SetGadgetAttrsA (-$2a) and then ActivateGadget (-$1ce) when the third
+     * argument is not zero.
+     *
+     * DEFECT: the buffer is TWENTY bytes and the copy does not stop at the
+     * gadget's own size. `moveq #$14,d1` counts down while `move.b (a1)+,(a4)+`
+     * copies, and the NUL pad that follows writes the rest of the twenty
+     * whatever the string was, so a longer string is cut at twenty characters
+     * and a shorter one is padded to it.
+     */
+    'wb set gt string': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const activate = it.evalInt()
+      const g = gtGadgetOf(st, n)
+      g.string = text.slice(0, GT_STRING_MAX)
+      st.activeGadget = activate === 0 ? st.activeGadget : n
+    },
+
+    /**
+     * `Wb Activate Gt n` --- ActivateGadget (-$1ce), and a number the chain
+     * does not reach is error 17, "Gadget Not Found".
+     */
+    'wb activate gt': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      gtGadgetOf(st, n)
+      st.activeGadget = n
+    },
   }
+}
+
+/**
+ * One of the current window's gadtools gadgets, by position in the chain.
+ *
+ * The walk is `movea.l (a0),a0 / dbra d1,...` from the list head, so the
+ * argument is a distance and not the GadgetID `Wb Gt Gadget` was given.
+ * Running off the end is error 17.
+ */
+function gtGadgetOf(st: IntState, n: number): Gadget {
+  const chain = st.gtGadgets.get(st.window) ?? []
+  return chain[n] ?? intError(17)
 }
 
 /** the nine arguments `Wb Window Flags` and `Wb Window Ids` add together */
@@ -735,6 +851,27 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
     'wb menu': (): Value => VI(s().menu),
     'wb item': (): Value => VI(oneBased(s().item)),
     'wb sub item': (): Value => VI(oneBased(s().sub)),
+
+    /**
+     * `A$=Wb Gt String(n)` --- a STRING gadget's buffer, read out of the
+     * StringInfo at `$22` of the Gadget.
+     *
+     * The chain is walked n+1 times from the list head, so the argument is a
+     * distance rather than the GadgetID.
+     *
+     * DEFECT: zero is refused, and with the wrong message. `move.l (a3)+,d0 /
+     * beq` at $451c jumps to the arm that loads `moveq #$b,d0`, which is
+     * "Window Is Not Open" --- so asking for the first gadget of a window that
+     * is plainly open is reported as the window not being open.
+     */
+    'wb gt string': (_, a): Value => {
+      const st = s()
+      const n = int(a[0]!)
+      if (st.windows.get(st.window) === undefined) intError(INT_ERR.WINDOW_IS_NOT_OPEN)
+      if (n === 0) intError(INT_ERR.WINDOW_IS_NOT_OPEN)
+      const chain = st.gtGadgets.get(st.window) ?? []
+      return VS(chain[n]?.string ?? '')
+    },
 
     /** `A=Wb Current Window` --- `$e02`, which `Wb Event` and `Wb Open Window` set */
     'wb current window': (): Value => VI(s().current),
