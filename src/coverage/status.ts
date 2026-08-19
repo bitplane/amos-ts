@@ -3562,6 +3562,37 @@ export const FAITHFUL = new Set<string>([
   // `$1a2`, and it clears the bit again when both arguments were zero, so
   // `Gui Centre 0,0` is the off switch rather than a centring on nothing.
   'gui get$', 'gui put', 'gui output', 'gui center',
+  // ---- the window furniture -------------------------------------------------
+  // `Gui Titles` turns an EMPTY string into -1 at $26b0 and $26ba, which is
+  // what SetWindowTitles reads as "leave this one alone", and copies each into
+  // a 101-byte buffer at `$3a` of the window record, the second found with
+  // `lea $65(a3),a3`. `Gui Rmb` is inverted: False SETS WFLG_RMBTRAP so the
+  // program sees the click, True clears it so intuition takes the menu.
+  // `Gui Bbox` builds a two-tag list -- GT_VisualInfo always, GTBB_Recessed
+  // only when the mode is non-zero -- and passes the MODE itself as the tag's
+  // data rather than a normalised 1. `Gui Show Title` raises error 15,
+  // "Screen already open", for a screen it cannot find.
+  'gui titles', 'gui rgb', 'gui bbox', 'gui rmb', 'gui show title',
+  'gui mouse mode', 'gui mouse queue', 'gui set mode',
+  // ---- the bank tag reader, the clipboard and the catalogs -------------------
+  // `Gui Gad Tag` walks the design chain with `dbra` and then tests `tst.w d1
+  // / Rbge`, so it errors whenever the chain runs out before the count does --
+  // which is every request for the LAST design in a bank, and both banks here
+  // hold one. See the DEFECT at the keyword; it is why there is no guide node.
+  //
+  // `Gui Clip Write$` allocates `len + $14` and writes `((len + $d) & $fffe) +
+  // 8`. Those agree for an even length and differ by one for an odd one, so
+  // the IFF pad byte comes from the byte after the allocation. `Gui Clip
+  // Read$` masks the chunk size to a word for the READ and advances the write
+  // pointer by the full size, so the two disagree above 65535.
+  //
+  // `Gui Catalog Open` takes the name first and the bank last, checks the bank
+  // is CALLED "Gui " and then walks the chain writing one Catalog into every
+  // design's `$34`; `Gui Catalog$` reads it back through GetCatalogStr with
+  // AMOS's null string as the default, so a miss is the empty string and not
+  // an error. `Gui User Catalog` is `$44` of the bank base, header +68.
+  'gui gad tag', 'gui clip read$', 'gui clip write$',
+  'gui catalog open', 'gui catalog close', 'gui catalog$', 'gui user catalog',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
