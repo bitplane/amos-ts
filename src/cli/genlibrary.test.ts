@@ -16,7 +16,18 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { indexLibrary } from './genlibrary'
+import { allItems, indexLibrary, type LibraryFolder } from './genlibrary'
+
+/** the folder at a slash-separated path of directory names, for the assertions */
+function at(root: LibraryFolder, path: string): LibraryFolder {
+  let f = root
+  for (const seg of path.split('/').filter((s) => s !== '')) {
+    const next = f.folders.find((c) => c.name === seg)
+    if (!next) throw new Error(`no folder ${path}; ${f.name || 'root'} has ${f.folders.map((c) => c.name)}`)
+    f = next
+  }
+  return f
+}
 
 const BSIZE = 512
 const ROOT = 880
@@ -40,11 +51,16 @@ beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'amoslib-'))
   mkdirSync(join(root, 'Games'))
   mkdirSync(join(root, 'Games', 'Two Disker'))
+  // three levels down, which the old two-level walk could not reach at all
+  mkdirSync(join(root, 'Games', 'Shooters'), { recursive: true })
+  mkdirSync(join(root, 'Games', 'Shooters', 'Deep Set'))
   mkdirSync(join(root, 'Empty'))
-  writeFileSync(join(root, 'README.md'), '# not a group\n')
+  writeFileSync(join(root, 'README.md'), '# not a folder\n')
   writeFileSync(join(root, 'Games.png'), 'png')
   writeFileSync(join(root, 'Games', 'Solo.adf'), makeAdf('SoloDisk', true))
   writeFileSync(join(root, 'Games', 'Solo.png'), 'png')
+  writeFileSync(join(root, 'Games', 'Shooters', 'Blaster.adf'), makeAdf('Blaster', true))
+  writeFileSync(join(root, 'Games', 'Shooters', 'Deep Set', 'one.adf'), makeAdf('DeepOne', true))
   // deliberately NOT in insertion order on disk: b sorts first and is the
   // one that boots, so the default order has to reorder them
   writeFileSync(join(root, 'Games', 'Two Disker', 'a-data.adf'), makeAdf('Data', false))
@@ -57,26 +73,50 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('indexLibrary', () => {
-  it('makes a group of each root drawer and an item of each archive in it', () => {
+  it('makes a folder of a drawer and an item of each archive in it', () => {
     const { library } = indexLibrary(root)
-    expect(library.version).toBe(1)
-    // Empty/ holds nothing, so it is not a group; README.md is not one either
-    expect(library.groups.map((g) => g.name)).toEqual(['Games'])
-    expect(library.groups[0]!.image).toBe('Games.png')
-    expect(library.groups[0]!.items.map((i) => i.name)).toEqual(['Solo', 'Truncated', 'Two Disker'])
+    expect(library.version).toBe(2)
+    // Empty/ holds nothing, so it is pruned; README.md is not a folder either
+    expect(library.root.folders.map((f) => f.name)).toEqual(['Games'])
+    expect(at(library.root, 'Games').image).toBe('Games.png')
+    expect(at(library.root, 'Games').items.map((i) => i.name)).toEqual(['Solo', 'Truncated', 'Two Disker'])
   })
 
-  it('derives the id from the group and the item, not from the filename', () => {
+  it('nests as deep as the library does', () => {
+    // Games/ holds a loose Solo.adf AND drawers with disks under them, so it
+    // is a folder and not one big item. That is the case the first version of
+    // this walk got wrong, and it swallowed the whole tree into one card.
     const { library } = indexLibrary(root)
-    const item = library.groups[0]!.items.find((i) => i.name === 'Two Disker')!
+    const shooters = at(library.root, 'Games/Shooters')
+    expect(shooters.items.map((i) => i.name)).toEqual(['Blaster', 'Deep Set'])
+    expect(allItems(library.root).map((i) => i.id).sort()).toEqual([
+      'games/shooters/blaster',
+      'games/shooters/deep-set',
+      'games/solo',
+      'games/truncated',
+      'games/two-disker',
+    ])
+  })
+
+  it('derives the id from the whole path, not from the filename', () => {
+    const { library } = indexLibrary(root)
+    const item = at(library.root, 'Games').items.find((i) => i.name === 'Two Disker')!
     expect(item.id).toBe('games/two-disker')
-    expect(item.group).toBe('Games')
     expect(item.image).toBe('Games/Two Disker.png')
+  })
+
+  it('falls back to the nearest picture above an item that has none', () => {
+    // Blaster.adf has no Blaster.png, so it wears Games.png rather than a
+    // placeholder. A picture dropped at the top covers everything under it.
+    const { library } = indexLibrary(root)
+    const shooters = at(library.root, 'Games/Shooters')
+    expect(shooters.image).toBe('Games.png')
+    expect(shooters.items.map((i) => i.image)).toEqual(['Games.png', 'Games.png'])
   })
 
   it('reads the volume label off the root block', () => {
     const { library } = indexLibrary(root)
-    const solo = library.groups[0]!.items.find((i) => i.name === 'Solo')!
+    const solo = at(library.root, 'Games').items.find((i) => i.name === 'Solo')!
     expect(solo.disks[0]!.label).toBe('SoloDisk')
     expect(solo.disks[0]!.filesystem).toBe('OFS')
     expect(solo.disks[0]!.size).toBe(901_120)
@@ -87,7 +127,7 @@ describe('indexLibrary', () => {
 
   it('puts the bootable disk of a set first', () => {
     const { library } = indexLibrary(root)
-    const item = library.groups[0]!.items.find((i) => i.name === 'Two Disker')!
+    const item = at(library.root, 'Games').items.find((i) => i.name === 'Two Disker')!
     expect(item.disks.map((d) => d.label)).toEqual(['Boot', 'Data'])
   })
 
@@ -97,8 +137,8 @@ describe('indexLibrary', () => {
     // to find out, so there is nothing here that can go stale against the
     // disks it describes.
     const { library } = indexLibrary(root)
-    const item = library.groups[0]!.items.find((i) => i.id === 'games/two-disker')!
-    expect(Object.keys(item).sort()).toEqual(['disks', 'group', 'id', 'image', 'name'])
+    const item = allItems(library.root).find((i) => i.id === 'games/two-disker')!
+    expect(Object.keys(item).sort()).toEqual(['disks', 'id', 'image', 'name'])
     expect(Object.keys(item.disks[0]!).sort()).toEqual([
       'bootable',
       'filesystem',
@@ -111,9 +151,10 @@ describe('indexLibrary', () => {
 
   it('warns about a disk that is not an image, and indexes it anyway', () => {
     const { library, warnings } = indexLibrary(root)
-    const item = library.groups[0]!.items.find((i) => i.name === 'Truncated')!
+    const item = at(library.root, 'Games').items.find((i) => i.name === 'Truncated')!
     expect(item.disks[0]!.label).toBeNull()
-    expect(item.image).toBeNull()
+    // no Truncated.png, so it inherits Games.png the way Blaster does
+    expect(item.image).toBe('Games.png')
     // A truncated download is the failure this catches: 7-Zip has produced
     // short files here twice while reporting success, and an 880K image is
     // told from a bad one by its exact byte count.
@@ -123,6 +164,6 @@ describe('indexLibrary', () => {
   it('counts the programs on a disk rather than listing them', () => {
     const { library } = indexLibrary(root)
     // an empty root block resolves to an empty directory, not to an error
-    expect(library.groups[0]!.items.find((i) => i.name === 'Solo')!.disks[0]!.programs).toBe(0)
+    expect(at(library.root, 'Games').items.find((i) => i.name === 'Solo')!.disks[0]!.programs).toBe(0)
   })
 })

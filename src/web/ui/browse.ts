@@ -12,7 +12,7 @@
  * there. That import must stay `import type`. genlibrary opens `node:fs`,
  * and a value import would pull it into the browser bundle.
  */
-import type { Library, LibraryDisk, LibraryItem } from '../../cli/genlibrary'
+import type { Library, LibraryDisk, LibraryFolder, LibraryItem } from '../../cli/genlibrary'
 
 /**
  * Where the library is served from.
@@ -65,6 +65,18 @@ function sizeText(bytes: number): string {
   return k >= 1024 ? `${(k / 1024).toFixed(1)}M` : `${Math.round(k)}K`
 }
 
+/** the index shape this page knows how to read */
+const VERSION = 2
+
+/**
+ * The volume labels an item's disks answer to once mounted, which is what a
+ * program written to load `MyDisk:pic.iff` needs to be right. Shown on hover
+ * so a wrong one is visible before anybody clicks.
+ */
+function titleFor(item: LibraryItem): string {
+  return item.disks.map((d) => (d.label === null || d.label === '' ? d.path : `${d.label}:`)).join(' ')
+}
+
 /**
  * The line under a card's name: what you get when you click it.
  *
@@ -106,27 +118,30 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     host.appendChild(p)
   }
 
-  function card(item: LibraryItem): HTMLElement {
+  /**
+   * One tile. A folder and an item look the same on purpose: they are both
+   * "a picture with a name under it", and what tells them apart is what
+   * happens when you click, which the facts line says.
+   */
+  function tile(name: string, image: string | null, facts: string, title: string, go: () => void): HTMLElement {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'card'
-    // the labels the disks answer to once mounted, which is what a program
-    // written to load `MyDisk:pic.iff` needs to be right
-    b.title = item.disks.map((d) => (d.label === null || d.label === '' ? d.path : `${d.label}:`)).join(' ')
+    b.title = title
 
     const art = document.createElement('div')
     art.className = 'card-art'
-    if (item.image === null) {
-      // No cover yet is a normal state. A game belongs in the library
-      // before somebody has grabbed a screenshot of it, so the tile says
-      // what it is rather than showing a broken image.
+    if (image === null) {
+      // No picture anywhere above it is a normal state. A game belongs in the
+      // library before somebody has grabbed a screenshot of it, so the tile
+      // says what it is rather than showing a broken image.
       const none = document.createElement('span')
       none.className = 'card-noart'
-      none.textContent = item.name
+      none.textContent = name
       art.appendChild(none)
     } else {
       const img = document.createElement('img')
-      img.src = urlFor(base, item.image)
+      img.src = urlFor(base, image)
       img.alt = ''
       img.loading = 'lazy'
       // the whole page is one grid of these, and a missing file would
@@ -136,18 +151,23 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     }
     b.appendChild(art)
 
-    const name = document.createElement('span')
-    name.className = 'card-name'
-    name.textContent = item.name
-    b.appendChild(name)
+    const label = document.createElement('span')
+    label.className = 'card-name'
+    label.textContent = name
+    b.appendChild(label)
 
-    const facts = document.createElement('span')
-    facts.className = 'card-facts'
-    facts.textContent = factsFor(item)
-    b.appendChild(facts)
+    const line = document.createElement('span')
+    line.className = 'card-facts'
+    line.textContent = facts
+    b.appendChild(line)
 
-    b.addEventListener('click', () => void open(item))
+    b.addEventListener('click', go)
     return b
+  }
+
+  /** how many items are under a folder, counting every folder below it */
+  function itemsUnder(folder: LibraryFolder): number {
+    return folder.items.length + folder.folders.reduce((n, f) => n + itemsUnder(f), 0)
   }
 
   async function open(item: LibraryItem): Promise<void> {
@@ -176,38 +196,71 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     }
   }
 
+  /**
+   * Where you are: the root, then every folder opened since.
+   *
+   * A stack rather than a path string, because the breadcrumb needs the
+   * folders themselves and popping to any depth is then a `slice`.
+   */
+  let here: LibraryFolder[] = []
+
+  function breadcrumb(): HTMLElement {
+    const nav = document.createElement('nav')
+    nav.className = 'crumbs'
+    here.forEach((folder, i) => {
+      if (i > 0) {
+        const sep = document.createElement('span')
+        sep.className = 'slash'
+        sep.textContent = '/'
+        sep.setAttribute('aria-hidden', 'true')
+        nav.appendChild(sep)
+      }
+      const last = i === here.length - 1
+      const el = document.createElement(last ? 'span' : 'a')
+      // the root folder is the library itself and has no name of its own
+      el.textContent = folder.name === '' ? 'library' : folder.name
+      if (!last) el.addEventListener('click', () => enter(here.slice(0, i + 1)))
+      nav.appendChild(el)
+    })
+    return nav
+  }
+
+  /** show a folder: its subfolders first, then the disks in it */
+  function enter(stack: LibraryFolder[]): void {
+    here = stack
+    const folder = stack[stack.length - 1]!
+    host.textContent = ''
+    if (stack.length > 1) host.appendChild(breadcrumb())
+
+    const grid = document.createElement('div')
+    grid.className = 'browse-grid'
+    for (const sub of folder.folders) {
+      const n = itemsUnder(sub)
+      grid.appendChild(
+        tile(sub.name, sub.image, n === 1 ? '1 disk set' : `${n} disk sets`, `open ${sub.name}`, () =>
+          enter([...stack, sub]),
+        ),
+      )
+    }
+    for (const item of folder.items) {
+      grid.appendChild(tile(item.name, item.image, factsFor(item), titleFor(item), () => void open(item)))
+    }
+    host.appendChild(grid)
+    if (folder.folders.length === 0 && folder.items.length === 0) message('nothing in here')
+  }
+
   function render(library: Library): void {
     host.textContent = ''
-    if (library.version !== 1) {
-      message(`this page reads library index version 1 and the server sent ${library.version}`, 'bad')
+    if (library.version !== VERSION) {
+      message(`this page reads library index version ${VERSION} and the server sent ${library.version}`, 'bad')
       return
     }
-    if (library.groups.length === 0) {
+    const root = library.root
+    if (root.folders.length === 0 && root.items.length === 0) {
       message('the library is empty')
       return
     }
-    for (const group of library.groups) {
-      const section = document.createElement('section')
-      section.className = 'browse-group'
-      const h = document.createElement('h2')
-      if (group.image !== null) {
-        // small, because the item covers are what you are choosing between;
-        // this only says which shelf you are looking at
-        const thumb = document.createElement('img')
-        thumb.className = 'browse-thumb'
-        thumb.src = urlFor(base, group.image)
-        thumb.alt = ''
-        thumb.addEventListener('error', () => thumb.remove())
-        h.appendChild(thumb)
-      }
-      h.appendChild(document.createTextNode(group.name))
-      section.appendChild(h)
-      const grid = document.createElement('div')
-      grid.className = 'browse-grid'
-      for (const item of group.items) grid.appendChild(card(item))
-      section.appendChild(grid)
-      host.appendChild(section)
-    }
+    enter([root])
   }
 
   async function load(): Promise<void> {

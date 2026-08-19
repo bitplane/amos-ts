@@ -429,8 +429,23 @@ function refreshFiles(): void {
             ? () => {
                 const bytes = vfs.read(full)
                 if (!bytes) return
-                // run with the program's own directory current, like a disk boot
-                player.loadProgram(bytes, e.name, dir)
+                /*
+                 * Run it with its own drawer current, ON ITS OWN VOLUME.
+                 *
+                 * The volume is the half that used to be missing, because
+                 * `loadProgram` defaults to DH0: and every drop landed a
+                 * copy there as well, so the wrong answer happened to work.
+                 * A library disk is mounted as a floppy and copied nowhere,
+                 * so the same click set the current directory to a path on
+                 * a volume the program is not on. Nothing errored: relative
+                 * loads simply found nothing, which is what `Td Load "car1"`
+                 * reports as "Object file not found".
+                 *
+                 * It also decides what a leading colon means. `:` is the
+                 * root of the CURRENT VOLUME, and the AMOS 3D demos are
+                 * written that way throughout.
+                 */
+                player.loadProgram(bytes, e.name, dir, base.slice(0, -1))
                 // and show it: a program started from the tree was otherwise
                 // running behind the panel you started it from
                 tabs.select('play')

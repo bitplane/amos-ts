@@ -2,27 +2,34 @@
  * Index a disk library into the `index.json` the Browse tab reads.
  *
  * The library is a separate repository, bitplane/amos-library, holding one
- * archive per thing you can run and a 4:3 image beside it. This walks that
+ * archive per thing you can run and a 4:3 picture beside it. This walks that
  * tree and writes a manifest of it; the two are published to the same site
  * from different jobs, because a new game should not need a release of the
  * player and a release of the player should not re-push the disks.
  *
  * ## The layout it reads
  *
- *     Games/                     a directory at the root is a GROUP
- *     Games.png                  the group's image, beside it
- *     Games/Thing.adf            one disk: an ITEM called "Thing"
- *     Games/Thing.png            that item's image
- *     Games/Big Thing/           a directory inside a group is a MULTI-DISK item
- *     Games/Big Thing/Disk1.adf
- *     Games/Big Thing.png
+ * A directory is a FOLDER or an ITEM, and which one it is depends on what is
+ * in it. It is an item when it holds disks of its own and nothing below it
+ * does; otherwise it is a folder and the walk goes into it. That is the only
+ * rule, and it nests as deep as the library does.
  *
- * Two levels, fixed: group then item. Nothing nests further, so an item is
- * always addressed as `<group>/<item>` and the id can be derived rather than
- * declared.
+ *     Games/                     a folder
+ *     Games.png                  its picture, beside it
+ *     Games/Shoot/               a folder inside a folder
+ *     Games/Shoot/Thing.adf      one disk, and an item called "Thing"
+ *     Games/Shoot/Thing.png      that item's picture
+ *     Games/Shoot/Big Thing/     holds archives, so it is a MULTI-DISK item
+ *     Games/Shoot/Big Thing/A.adf
+ *     Games/Shoot/Big Thing.png
+ *
+ * A picture is always a sibling `<name>.png`, whether `<name>` is a file or a
+ * directory. An item with none inherits its folder's, and a folder with none
+ * inherits ITS folder's, so a picture dropped at the top covers everything
+ * under it until something nearer overrides it.
  *
  * The library repository holds FILES and nothing else. There is no metadata
- * file to go stale beside them, so everything in the index is either the
+ * file to go stale beside them, so everything in the index is either a
  * filename or something read out of the image itself.
  *
  * ## Why this lives here and not in the library repo
@@ -45,6 +52,9 @@ import { AdfVolume, isAdf } from '../amiga/adf'
 /** the archive kinds a library item may be made of, as the player mounts them */
 const ARCHIVE = /\.(adf|zip|tar|tar\.gz|tgz)$/i
 
+/** the picture kinds, in the order a sibling is looked for */
+const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+
 /** one disk or archive of an item */
 export interface LibraryDisk {
   /** path relative to the library root, as the browser fetches it */
@@ -61,43 +71,45 @@ export interface LibraryDisk {
    * Bytes 12..1023 of an unbootable Amiga floppy are zero, and the checksum
    * at +4 is zero with them. This is the only thing in the image that says
    * which disk of a set goes in DF0:, so it sorts first. It does not always
-   * decide it, since AMOS Professional ships two bootable disks. That is
-   * what the `disks` override exists for.
+   * decide it, since AMOS Professional ships six disks of which two boot.
    */
   bootable: boolean
   /**
    * How many .AMOS files are on it.
    *
-   * A count and not the list. The listing is what makes the walk worth doing
-   * -- it proves every directory block on the disk resolves -- but naming
+   * A count and not the list. The listing is what makes the walk worth doing,
+   * since it proves every directory block on the disk resolves, but naming
    * all 195 of AMOS Professional's put 18 kB in the index for three items,
-   * and the Browse tab is the first thing the page fetches. The player finds
-   * the programs itself once the disk is mounted.
+   * and Browse is the first thing the page fetches.
    */
   programs: number
 }
 
 export interface LibraryItem {
-  /** `<group>/<item>`, lowercased and hyphenated */
+  /** the slugged path, so `AMOS/AMOS 3D` is `amos/amos-3d` */
   id: string
   /** the filename, less its extension */
   name: string
-  group: string
-  /** the 4:3 image, relative to the library root; null when there is none yet */
+  /** its own picture, or the nearest one above it; null if there is none */
   image: string | null
   disks: LibraryDisk[]
 }
 
-export interface LibraryGroup {
+export interface LibraryFolder {
+  /** the directory name; empty at the root */
   name: string
+  /** the slugged path; empty at the root */
+  id: string
+  /** its own picture, or the nearest one above it; null if there is none */
   image: string | null
+  folders: LibraryFolder[]
   items: LibraryItem[]
 }
 
 export interface Library {
   /** bumped when the shape changes, so an old page can say so rather than break */
-  version: 1
-  groups: LibraryGroup[]
+  version: 2
+  root: LibraryFolder
 }
 
 /** what the walk emits alongside the index, for the job log */
@@ -117,9 +129,14 @@ function isDir(path: string): boolean {
 /** `AMOS/AMOS 3D` -> `amos/amos-3d`; punctuation out, spaces to hyphens */
 function slug(text: string): string {
   return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .split('/')
+    .map((seg) =>
+      seg
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, ''),
+    )
+    .join('/')
 }
 
 /** count the .AMOS files on a mounted disk, walking every drawer on it */
@@ -171,13 +188,12 @@ function readDisk(root: string, rel: string, warn: LibraryWarning[]): LibraryDis
 /**
  * Order the disks of a set: bootable first, then by name.
  *
- * The boot block is the only thing an image says about which disk of a set
- * is disk one, and it does not always decide it. AMOS Professional ships six
- * disks of which two boot, and both carry an `s/startup-sequence`, so
- * nothing in the images separates System from Productivity2 and this puts
- * the second one in DF0:. Every disk is still mounted under its own label,
- * so nothing becomes unreachable, and the way to fix an order that matters
- * is to name the files so they sort.
+ * The boot block is the only thing an image says about which disk of a set is
+ * disk one, and it does not always decide it. AMOS Professional ships two
+ * disks that boot, and both carry an `s/startup-sequence`, so nothing in the
+ * images separates System from Productivity2. Every disk is mounted under its
+ * own label whatever order they go in, so nothing becomes unreachable, and
+ * the way to fix an order that matters is to name the files so they sort.
  */
 function orderDisks(disks: LibraryDisk[]): LibraryDisk[] {
   return [...disks].sort(
@@ -185,57 +201,113 @@ function orderDisks(disks: LibraryDisk[]): LibraryDisk[] {
   )
 }
 
+/** the sibling picture for `<dir>/<base>`, or null */
+function pictureFor(names: readonly string[], dir: string, base: string): string | null {
+  for (const ext of PICTURES) {
+    if (names.includes(base + ext)) return dir === '' ? base + ext : `${dir}/${base}${ext}`
+  }
+  return null
+}
+
+/** are there archives at or below this directory? */
+function archivesBelow(path: string): boolean {
+  let names: string[]
+  try {
+    names = readdirSync(path)
+  } catch {
+    return false
+  }
+  return names.some((f) => (isDir(join(path, f)) ? archivesBelow(join(path, f)) : ARCHIVE.test(f)))
+}
+
+/**
+ * Is this directory ONE item, or a folder of them?
+ *
+ * It is an item when it holds disks of its own and nothing under it holds
+ * disks. That second half is what makes `AMOS/` a folder: it has a loose
+ * `AMOS.adf` in it, but `AMOS 3D/` and `AMOS Professional/` are down there
+ * with disks of their own, so it cannot be one item. `Big Game/` with two
+ * disks and a `screenshots/` drawer stays one item, because the drawer has
+ * no disks in it.
+ */
+function isItemDir(path: string): boolean {
+  const names = readdirSync(path)
+  if (!names.some((f) => ARCHIVE.test(f) && !isDir(join(path, f)))) return false
+  return !names.some((f) => isDir(join(path, f)) && archivesBelow(join(path, f)))
+}
+
 function buildItem(
   root: string,
-  group: string,
+  rel: string,
   name: string,
   diskPaths: string[],
-  imageRel: string | null,
+  image: string | null,
   warn: LibraryWarning[],
 ): LibraryItem {
   const disks = orderDisks(diskPaths.map((p) => readDisk(root, p, warn)))
-  if (disks.length === 0) warn.push({ path: `${group}/${name}`, message: 'no disks, so the item is skipped' })
-  if (imageRel === null) warn.push({ path: `${group}/${name}`, message: 'no image; the card gets a placeholder' })
-  return { id: `${slug(group)}/${slug(name)}`, name, group, image: imageRel, disks }
+  if (disks.length === 0) warn.push({ path: rel, message: 'no disks, so the item is skipped' })
+  if (image === null) warn.push({ path: rel, message: 'no picture here or above it' })
+  return { id: slug(rel), name, image, disks }
+}
+
+/**
+ * Walk one directory.
+ *
+ * `inherited` is the nearest picture above this point, which is what anything
+ * without one of its own shows. Empty folders are pruned on the way back up:
+ * a directory holding nothing but a README is not somewhere the tab should
+ * let you navigate into.
+ */
+function scan(root: string, rel: string, name: string, inherited: string | null, warn: LibraryWarning[]): LibraryFolder {
+  const names = readdirSync(join(root, rel)).sort((a, b) => a.localeCompare(b))
+  const parentDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+  const own = rel === '' ? null : pictureFor(readdirSync(join(root, parentDir)), parentDir, basename(rel))
+  const image = own ?? inherited
+
+  const folders: LibraryFolder[] = []
+  const items: LibraryItem[] = []
+  for (const entry of names) {
+    if (entry.startsWith('.')) continue
+    const childRel = rel === '' ? entry : `${rel}/${entry}`
+    if (isDir(join(root, childRel))) {
+      if (isItemDir(join(root, childRel))) {
+        const disks = readdirSync(join(root, childRel))
+          .filter((f) => ARCHIVE.test(f))
+          .map((f) => `${childRel}/${f}`)
+        items.push(buildItem(root, childRel, entry, disks, pictureFor(names, rel, entry) ?? image, warn))
+      } else {
+        const child = scan(root, childRel, entry, image, warn)
+        if (child.folders.length > 0 || child.items.length > 0) folders.push(child)
+      }
+    } else if (ARCHIVE.test(entry)) {
+      const base = entry.replace(ARCHIVE, '')
+      // a directory of the same name already claimed this item, and the loose
+      // archive beside it would make a second one under the same id
+      if (isDir(join(root, rel === '' ? base : `${rel}/${base}`))) {
+        warn.push({ path: childRel, message: `ignored: ${base}/ is already the item of that name` })
+        continue
+      }
+      const itemRel = rel === '' ? base : `${rel}/${base}`
+      items.push(buildItem(root, itemRel, base, [childRel], pictureFor(names, rel, base) ?? image, warn))
+    }
+  }
+  return { name, id: slug(rel), image, folders, items: items.filter((i) => i.disks.length > 0) }
 }
 
 /** Walk a library checkout and build its index. */
 export function indexLibrary(root: string): { library: Library; warnings: LibraryWarning[] } {
   const warnings: LibraryWarning[] = []
-  const groups: LibraryGroup[] = []
-  const rootNames = readdirSync(root).sort((a, b) => a.localeCompare(b))
-  for (const group of rootNames) {
-    if (group.startsWith('.') || !isDir(join(root, group))) continue
-    const image = rootNames.includes(`${group}.png`) ? `${group}.png` : null
-    const names = readdirSync(join(root, group)).sort((a, b) => a.localeCompare(b))
-    const items: LibraryItem[] = []
-    for (const entry of names) {
-      if (entry.startsWith('.')) continue
-      const rel = `${group}/${entry}`
-      if (isDir(join(root, rel))) {
-        // a drawer inside a group is a multi-disk set
-        const disks = readdirSync(join(root, rel))
-          .filter((f) => ARCHIVE.test(f))
-          .map((f) => `${rel}/${f}`)
-        const png = names.includes(`${entry}.png`) ? `${rel}.png` : null
-        const item = buildItem(root, group, entry, disks, png, warnings)
-        if (item.disks.length > 0) items.push(item)
-      } else if (ARCHIVE.test(entry)) {
-        const base = entry.replace(ARCHIVE, '')
-        // a drawer of the same name already claimed this item, and the loose
-        // archive beside it would make a second one under the same id
-        if (isDir(join(root, group, base))) {
-          warnings.push({ path: rel, message: `ignored: ${base}/ is already the item of that name` })
-          continue
-        }
-        const png = names.includes(`${base}.png`) ? `${group}/${base}.png` : null
-        items.push(buildItem(root, group, base, [rel], png, warnings))
-      }
-    }
-    if (items.length > 0) groups.push({ name: group, image, items })
-    else warnings.push({ path: group, message: 'no items in this group' })
-  }
-  return { library: { version: 1, groups }, warnings }
+  return { library: { version: 2, root: scan(root, '', '', null, warnings) }, warnings }
+}
+
+/** every item in the tree, for counting and for the job log */
+export function allItems(folder: LibraryFolder): LibraryItem[] {
+  return [...folder.items, ...folder.folders.flatMap(allItems)]
+}
+
+/** every folder below this one, not counting itself */
+function countFolders(folder: LibraryFolder): number {
+  return folder.folders.length + folder.folders.reduce((n, c) => n + countFolders(c), 0)
 }
 
 function main(argv: string[]): number {
@@ -248,13 +320,13 @@ function main(argv: string[]): number {
   const out = args[1] ?? join(root, 'index.json')
   const { library, warnings } = indexLibrary(root)
   writeFileSync(out, JSON.stringify(library, null, 2) + '\n')
-  const items = library.groups.reduce((n, g) => n + g.items.length, 0)
-  const disks = library.groups.reduce((n, g) => n + g.items.reduce((m, i) => m + i.disks.length, 0), 0)
+  const items = allItems(library.root)
+  const disks = items.reduce((n, i) => n + i.disks.length, 0)
   for (const w of warnings) process.stderr.write(`warning: ${w.path}: ${w.message}\n`)
-  process.stderr.write(`${out}: ${library.groups.length} groups, ${items} items, ${disks} disks\n`)
+  process.stderr.write(`${out}: ${countFolders(library.root)} folders, ${items.length} items, ${disks} disks\n`)
   // A warning is not a failure. A game with no cover art yet still belongs in
   // the library, and a job that refused to publish over it would mean the
-  // whole site waits for one PNG.
+  // whole site waits for one picture.
   return 0
 }
 
