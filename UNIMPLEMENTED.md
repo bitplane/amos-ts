@@ -64,7 +64,6 @@ Blocked on a back-end nothing here models:
 |---|---|---|
 | OS DevKit 1.61 (`os-devkit-1.61`) | 1047 | a wrapper over most of AmigaOS. It needs the back-end, not the list: `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts nothing here models |
 | IntuiExtend 2.01b / 1.6 (`intuiextend-2.01b`, `intuiextend-1.6`) | 301 / 294 | Intuition. 2.01b rebuilt its table, so the two share 45 names of 294 and almost none at the same id, which is why they are two rows |
-| Int 1.0 (`int-1.0`) | 62 | Intuition |
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
@@ -73,6 +72,7 @@ is there:
 
 | extension | missing | evidence held |
 |---|---|---|
+| Int 1.0 (`int-1.0`) | 32 | UNDER WAY, at 48%. Intuition is not the blocker it was: windows, screens, menus, boolean gadgets and the event loop are in, over `../amiga/intuition.ts` and `../amiga/gadtools.ts`. What is left is the drawing group (13, all RastPort), the input readers (6, all machine), three memory keywords, the five ASL ones and the five IFF ones. Only `Wb Dt Image To Screen` wants a back-end this tree lacks, and only for the formats `ilbm.ts` and `jpeg.ts` cannot decode |
 | DME 2.0 (`dme-2.0`) | 43 | UNDER WAY, at 77%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Four blocks of keywords left: TFMX (10), OctaMix (15), FastTracker (9) and PlaySID (9). TFMX is mapped to its three dispatch tables and is next; the other three are below |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 
