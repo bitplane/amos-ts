@@ -1418,7 +1418,8 @@ describe('CRAFT 1.0 — Workbench, the CLI and the machine (routines 162..203)',
     const b = boot('A=Sys Request("Disk?","","")')
     park(b)
     const d = b.rt.dialogs.get(b.rt.craft.request!.chan)!
-    expect([d.vars[10], d.vars[11]]).toEqual(['Retry', 'Cancel'])
+    // DisplayAlert has no title, so 0 is empty, 1 is the body line
+    expect([d.vars[2], d.vars[3]]).toEqual(['Retry', 'Cancel'])
   })
 
   it('Sys Request reads its gadget labels off the END of the argument list', () => {
@@ -1430,8 +1431,8 @@ describe('CRAFT 1.0 — Workbench, the CLI and the machine (routines 162..203)',
     const b = boot('A=Sys Request("Line one","Line two","Yes","No") : Print A')
     park(b)
     const d = b.rt.dialogs.get(b.rt.craft.request!.chan)!
-    expect(d.vars[10]).toBe('Yes')
-    expect(d.vars[11]).toBe('No')
+    expect(d.vars[3]).toBe('Yes')
+    expect(d.vars[4]).toBe('No')
     b.rt.finishDialogRun(d, 1)
     mustFinish(b.rt.runHeadless(2000))
     expect(b.out().trim()).toBe('-1')

@@ -3697,7 +3697,8 @@ function craftAlertSpec(lines: string[], gadgets: string[]): AlertSpec {
     any = true
   }
   if (!any) illegal()
-  return { kind: 'alert', body: lines.filter((l) => l.length !== 0).join('\n'), gadgets }
+  // no title: DisplayAlert has none, so the dialog draws no title bar
+  return { kind: 'alert', title: '', body: lines.filter((l) => l.length !== 0).join('\n'), gadgets }
 }
 
 /**

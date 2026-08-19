@@ -799,8 +799,24 @@ describe('text/console (vs +W.s / +ILib.s)', () => {
     expect(() => run('A$=Zone$("x",0)')).toThrow()
   })
 
-  it('Display Height reflects the screen (laced doubles)', () => {
-    expect(run('Screen Open 1,320,400,4,$4\nPrint Display Height').out).toBe(' 400\n')
+  it('Display Height is the machine, not the screen (TMaxRaw +W.s:2578)', () => {
+    /*
+     * Two instructions: `move.w T_EcYMax(a5),d1 / sub.w #EcYBase,d1`, and
+     * T_EcYMax is written once at startup as `#311+EcYBase` for PAL or
+     * `#261+EcYBase` for NTSC (+W.s:2447, :2451). It never reads a screen.
+     *
+     * This used to answer the screen's own height capped at 283, which is
+     * where Knights broke: it asks `If Display Height<270 or Ntsc` to spot a
+     * short display, got 256 off an ordinary screen, took the NTSC branch on
+     * a PAL machine and put its screen at raster 24 with a 240-line window.
+     * The game ran perfectly and drew to a display it was almost entirely
+     * outside of.
+     */
+    expect(run('Print Display Height').out).toBe(' 311\n')
+    expect(run('Screen Open 1,320,400,4,$4\nPrint Display Height').out).toBe(' 311\n')
+    expect(run('Screen Open 1,320,200,4,0\nPrint Display Height').out).toBe(' 311\n')
+    // and the machine is PAL, which is what picks 311 over NTSC's 261
+    expect(run('Print Ntsc').out).toBe(' 0\n')
   })
 })
 

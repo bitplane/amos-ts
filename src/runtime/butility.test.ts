@@ -201,8 +201,9 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the text requesters', () =>
     const b = boot('A=Binforeq("Quit?","_Yes|_No","T") : Print A')
     park(b)
     const d = b.rt.dialogs.get(b.rt.butility.req!.chan)!
-    expect(d.vars[10]).toBe('Yes')
-    expect(d.vars[11]).toBe('No')
+    // 0 is the title, 1 the one body line, then the labels
+    expect(d.vars[2]).toBe('Yes')
+    expect(d.vars[3]).toBe('No')
   })
 
   it('Bgetlongreq leaves the default in place when cancelled', () => {
@@ -239,8 +240,10 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the text requesters', () =>
     const b = boot('A=Binforeq("Line one"+Chr$(10)+"Line two","_Ok","T") : Print A')
     park(b)
     const d = b.rt.dialogs.get(b.rt.butility.req!.chan)!
-    expect(d.vars[0]).toBe('Line one')
-    expect(d.vars[1]).toBe('Line two')
+    // RTEZ_ReqTitle is variable 0 and the body follows it, a line each
+    expect(d.vars[0]).toBe('T')
+    expect(d.vars[1]).toBe('Line one')
+    expect(d.vars[2]).toBe('Line two')
   })
 })
 

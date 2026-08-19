@@ -1540,18 +1540,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       //   Fade n              → fade to black
       //   Fade n,c1,c2,...    → to those colours (elided = untouched)
       //   Fade n To s         → to screen s's palette (s<0 = sprite bank)
-      //   Fade n To s,c1,...  → that palette, then colour overrides from 0
+      //   Fade n To s,mask    → the same, for the colours the MASK selects
       const delay = Math.max(1, it.evalInt())
       const targets = new Int32Array(32).fill(-1)
       if (it.accept('to')) {
         const s = it.evalInt()
         const pal = s < 0 ? rt.spriteBank?.palette : rt.screens.get(s)?.palette
-        for (let j = 0; j < 32; j++) targets[j] = (pal?.[j] ?? 0) & 0xfff
-        let i = 0
-        while (it.accept(',')) {
-          if (!(it.atStmtEnd() || it.nm() === ',') && i < 32) targets[i] = it.evalInt() & 0xfff
-          i++
-        }
+        /*
+         * A MASK, not a colour list. `IFat2` (+ILib.s:5436) is `moveq #-1,d3`
+         * and a comma after the screen replaces d3; `PalRout` (+Lib.s:9264)
+         * then walks all 32 colours:
+         *
+         *     PalR1  move.w #$FFFF,(a1)      leave this one alone
+         *            btst   d0,d3
+         *            beq.s  PalR2
+         *            move.w (a0),(a1)        ... unless its bit is set
+         *
+         * so a clear bit means untouched, which is what $FFFF is throughout
+         * this port's `-1`. Reading the value as a colour override for
+         * colour 0 turned Doctor Strange 2's `Fade 1 To -1,$FFFF-$1`, which
+         * asks for every colour BUT the background, into a fade of the
+         * background up to $FFE. The game played on a white sky.
+         */
+        const mask = it.accept(',') ? it.evalInt() : -1
+        for (let j = 0; j < 32; j++) targets[j] = ((mask >> j) & 1) === 1 ? (pal?.[j] ?? 0) & 0xfff : -1
       } else {
         let i = 0
         let any = false
@@ -5361,11 +5373,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(rt.commandLine)
     },
     'display height'(_, a) {
-      // MaxRaw +Lib.s:8835 / TMaxRaw +W.s:2607: the current screen's bottom
-      // raster line — laced screens reach ~2x
+      /*
+       * TMaxRaw (+W.s:2578) is two instructions:
+       *
+       *     move.w  T_EcYMax(a5),d1
+       *     sub.w   #EcYBase,d1
+       *
+       * and T_EcYMax is a MACHINE constant, written once at startup as
+       * `#311+EcYBase` for PAL and `#261+EcYBase` for NTSC (+W.s:2447 and
+       * :2451). So this answers 311 here and has nothing to do with the
+       * current screen.
+       *
+       * It used to return the screen's own height, capped at 283, which for
+       * an ordinary 256-line screen gave 256. Knights asks
+       * `If Display Height<270 or Ntsc` to decide whether it is on a short
+       * display, took the NTSC branch on a PAL machine, and put its screen
+       * at raster 24 with a 240-line window. Almost none of that is inside
+       * the display, so the game ran perfectly and drew to a black screen.
+       */
       void a
-      const s = rt.screen
-      return VI(s.laced ? s.height : Math.min(283, Math.max(s.height, 256)))
+      // 311, because `Ntsc` above answers 0: the modelled machine is PAL.
+      return VI(311)
     },
     'screen mode'(_, a) {
       // FnScreenMode +Lib.s:8818: EcCon0 & $8004

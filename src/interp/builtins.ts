@@ -1334,7 +1334,8 @@ export const FUNCS: Record<string, Func> = {
   },
   'display height'(_, a) {
     arity(a, 0)
-    return VI(283) // fallback; the screen-aware form is in instr.ts
+    // TMaxRaw +W.s:2578 on a PAL machine; see the note in instr.ts
+    return VI(311)
   },
   'tab$': (_, a) => {
     arity(a, 0)

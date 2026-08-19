@@ -497,7 +497,8 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Delta 1.6: the reqtools requesters', 
     const b = boot16Req('Print Delta Reqtools Requester("T","First|Second|Third")')
     b.rt.frame()
     const d = b.rt.dialogs.get(b.rt.delta.req!.chan)!
-    expect([d.vars[10], d.vars[11], d.vars[12]]).toEqual(['First', 'Second', 'Third'])
+    // no title, one body line, so the labels start at 2
+    expect([d.vars[2], d.vars[3], d.vars[4]]).toEqual(['First', 'Second', 'Third'])
   })
 
   it('=Delta Reqtools Get Number hands back its default when cancelled', () => {

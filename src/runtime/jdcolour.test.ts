@@ -319,17 +319,19 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
     // the top line
     const b = park('A=Jd Request("one","two","three","","","Y","N")')
     const d = b.rt.dialogs.get(b.rt.jdColour.requestChan!)!
-    expect(d.vars[0]).toBe('one')
-    expect(d.vars[1]).toBe('two')
-    expect(d.vars[2]).toBe('three')
+    // variable 0 is the title bar, which AutoRequest has nothing to put in
+    expect(d.vars[0]).toBe('')
+    expect(d.vars[1]).toBe('one')
+    expect(d.vars[2]).toBe('two')
+    expect(d.vars[3]).toBe('three')
   })
 
   it('drops empty body lines rather than drawing them blank', () => {
     // each of the five is scanned with NO default, so an empty one is skipped
     const b = park('A=Jd Request("one","","three","","","Y","N")')
     const d = b.rt.dialogs.get(b.rt.jdColour.requestChan!)!
-    expect(d.vars[0]).toBe('one')
-    expect(d.vars[1]).toBe('three')
+    expect(d.vars[1]).toBe('one')
+    expect(d.vars[2]).toBe('three')
   })
 
   it('defaults to Retry/Cancel only when Nein was left empty', () => {
@@ -337,14 +339,15 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
     // default only if the NEIN$ pop fell back to one
     const both = park('A=Jd Request("x","","","","","","")')
     const d1 = both.rt.dialogs.get(both.rt.jdColour.requestChan!)!
-    expect(d1.vars[10]).toBe('Retry')
-    expect(d1.vars[11]).toBe('Cancel')
+    // one body line, so the labels start at 2
+    expect(d1.vars[2]).toBe('Retry')
+    expect(d1.vars[3]).toBe('Cancel')
 
     // supply a Nein and leave Ja empty: the Ja gadget gets NO text at all
     const one = park('A=Jd Request("x","","","","","","Stop")')
     const d2 = one.rt.dialogs.get(one.rt.jdColour.requestChan!)!
-    expect(d2.vars[10]).toBe('')
-    expect(d2.vars[11]).toBe('Stop')
+    expect(d2.vars[2]).toBe('')
+    expect(d2.vars[3]).toBe('Stop')
   })
 
   it('raises when every body line is empty', () => {

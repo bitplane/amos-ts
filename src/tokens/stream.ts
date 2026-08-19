@@ -414,8 +414,24 @@ function bodyIsTokens(src: Uint8Array, table: TokenTable, start: number, end: nu
   while (pos < end) {
     const lenWords = src[pos]!
     const lineEnd = pos + lenWords * 2
-    if (lenWords < 2 || lineEnd > end) return false
+    if (lenWords < 2) return false
     const id = (src[pos + 2]! << 8) | src[pos + 3]!
+    if (lineEnd > end) {
+      /*
+       * The End Proc line, reached early because it carries a return list.
+       *
+       * `pos + 8 + size` is six bytes short of that line's END, not its
+       * start, so the two coincide only for a bare `End Proc` and its three
+       * words. `End Proc[bscore]` is eleven, and the walk meets it sixteen
+       * bytes before `end`.
+       *
+       * Every locked procedure in Gush's A3 ends that way, so every one of
+       * them was judged a failed decipher, put back enciphered, and left for
+       * parseSource to choke on: "unknown operator token $c80f", which is
+       * ciphertext being read as a token.
+       */
+      return (table.name(id) ?? '').trim().toLowerCase() === 'end proc' && lineEnd === end + 6
+    }
     try {
       parseLine(new BinReader(src.subarray(pos + 2, lineEnd)), table, pos + 2)
     } catch {

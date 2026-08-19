@@ -557,6 +557,8 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
       const ja = s(5) !== '' ? s(5) : nein === '' ? 'Retry' : ''
       const spec: RequesterSpec = {
         kind: 'alert',
+        // `Jd Request` takes five body lines and two gadget labels, no title
+        title: '',
         body: body.join('\n'),
         gadgets: [ja, nein === '' ? 'Cancel' : nein],
       }

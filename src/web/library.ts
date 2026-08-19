@@ -128,16 +128,22 @@ export function createLibraryLoader(host: LibraryHost) {
   }
 
   /**
-   * Start the one program, if there is exactly one.
+   * Which program a disk starts, if any.
    *
-   * Several is a choice, and there is nothing in the library that could name
-   * which: it holds archives and pictures and no metadata beside them. So the
-   * page hands you the file tree rather than starting the wrong one of two
-   * hundred.
+   * `autoexec.amos` in the ROOT wins outright: it is the name AMOS boot disks
+   * give the thing to run, and a disk that carries one has already answered
+   * the question. Ant Wars ships it beside an `animation.AMOS` and there is
+   * no other way to tell which of the two is the game.
+   *
+   * Failing that, exactly one program runs and several does not. There is
+   * nothing in the library that could name which of several: it holds
+   * archives and pictures and no metadata beside them, so the page hands you
+   * the file tree rather than starting the wrong one of two hundred.
    */
   function runOne(programs: string[]): string | null {
-    if (programs.length !== 1) return null
-    const pick = programs[0]!
+    const auto = programs.find((p) => /^[^:]*:autoexec\.amos$/i.test(p))
+    const pick = auto ?? (programs.length === 1 ? programs[0] : undefined)
+    if (pick === undefined) return null
     const { vol, dir, name } = splitPath(pick)
     // DF0:, DH0: and HD0: all point at the drawer it came from, because a
     // game that shipped on a floppy says DF0: and one installed to a hard

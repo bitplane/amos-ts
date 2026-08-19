@@ -949,7 +949,7 @@ export function makeDeltaFunctions(rt: Runtime): Record<string, Func> {
      * answers 0, so the guide's `"Yes|No"` gives 1 for Yes.
      */
     'delta reqtools requester': (it, a) => {
-      const spec: RequesterSpec = { kind: 'alert', body: str(a[0]!), gadgets: str(a[1]!).split('|') }
+      const spec: RequesterSpec = { kind: 'alert', title: '', body: str(a[0]!), gadgets: str(a[1]!).split('|') }
       return deltaRequester(rt, it, spec) ?? VI(0)
     },
 

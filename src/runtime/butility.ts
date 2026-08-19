@@ -403,10 +403,11 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
      * the result of a one-gadget call, so it is recorded rather than tested
      * against a demo.
      *
-     * APPROXIMATED: an Interface dialog stands in for the reqtools requester.
+     * APPROXIMATED: an Interface dialog stands in for the reqtools requester,
+     * with RTEZ_ReqTitle in its title bar.
      */
     'binforeq'(it, a) {
-      const spec: RequesterSpec = { kind: 'alert', body: str(a[0]!), gadgets: gadgets(str(a[1]!)) }
+      const spec: RequesterSpec = { kind: 'alert', title: str(a[2]!), body: str(a[0]!), gadgets: gadgets(str(a[1]!)) }
       const done = runRequester(rt, it, spec)
       return done ?? VI(0)
     },

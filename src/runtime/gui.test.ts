@@ -1157,8 +1157,9 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
     const b = boot('A=Gui Req("T","Line one"+Chr$(10)+"Line two","One|Two")')
     park(b)
     const d = b.rt.dialogs.get(b.rt.gui.req!)!
-    expect([d.vars[0], d.vars[1]]).toEqual(['Line one', 'Line two'])
-    expect([d.vars[10], d.vars[11]]).toEqual(['One', 'Two'])
+    // es_Title is variable 0 and the body follows it, a line each
+    expect([d.vars[0], d.vars[1], d.vars[2]]).toEqual(['T', 'Line one', 'Line two'])
+    expect([d.vars[3], d.vars[4]]).toEqual(['One', 'Two'])
   })
 
   it('Gui Asl$ joins the drawer and the file, and splits them for the readers', () => {

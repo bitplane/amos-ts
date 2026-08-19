@@ -136,6 +136,18 @@ describe('opening a disk', () => {
     expect(loaded).toEqual([])
   })
 
+  it('starts autoexec.amos whatever else is on the disk', async () => {
+    // The name an AMOS boot disk gives the thing to run. Ant Wars ships one
+    // beside an animation.AMOS and there is no other way to tell which of
+    // the two is the game.
+    const r = await createLibraryLoader(host).open({
+      name: 'ant.adf',
+      bytes: disk('Ant_War1', ['animation.AMOS', 'autoexec.AMOS']),
+    })
+    expect(r.ran).toBe('Ant_War1:autoexec.AMOS')
+    expect(loaded).toEqual([{ name: 'autoexec.AMOS', dir: [], vol: 'Ant_War1' }])
+  })
+
   it('starts nothing when there is nothing to start', async () => {
     // A system disk is not a game, and this port has no AmigaDOS to boot one.
     const r = await createLibraryLoader(host).open({ name: 'sys.adf', bytes: disk('Workbench') })

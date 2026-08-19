@@ -3523,13 +3523,12 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * answers in.
      *
      * APPROXIMATED: an Interface dialog stands in, as it does for BUtility's
-     * `Binforeq`. The title is lost with it: an EasyStruct has one and
-     * `AlertSpec` does not, because the AMOS dialog draws no window frame to
-     * put it in.
+     * `Binforeq`. es_Title goes in the dialog's title bar rather than an
+     * Intuition window's, which is the only place the port has for it.
      */
     'gui req': (it, a): Value => {
       const g = s()
-      const spec: RequesterSpec = { kind: 'alert', body: str(a[1]!), gadgets: str(a[2]!).split('|') }
+      const spec: RequesterSpec = { kind: 'alert', title: str(a[0]!), body: str(a[1]!), gadgets: str(a[2]!).split('|') }
       if (g.req !== null) {
         const r = finishRequester(rt, g.req, spec)
         if (r === null) {

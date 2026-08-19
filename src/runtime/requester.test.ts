@@ -27,14 +27,14 @@ function boot(): Runtime {
   return rt
 }
 
-const ALERT: RequesterSpec = { kind: 'alert', body: 'Delete it?', gadgets: ['Yes', 'No'] }
+const ALERT: RequesterSpec = { kind: 'alert', title: 'Careful', body: 'Delete it?', gadgets: ['Yes', 'No'] }
 
 describe('requester scripts are legal Interface', () => {
   it('every shape prescans', () => {
     const specs: RequesterSpec[] = [
       ALERT,
-      { kind: 'alert', body: 'Line one\nLine two\nLine three', gadgets: ['Yes', 'No', 'Cancel'] },
-      { kind: 'alert', body: 'Just so you know', gadgets: [] },
+      { kind: 'alert', title: 'Three', body: 'Line one\nLine two\nLine three', gadgets: ['Yes', 'No', 'Cancel'] },
+      { kind: 'alert', title: '', body: 'Just so you know', gadgets: [] },
       { kind: 'string', title: 'Name', body: 'Enter a name', def: 'fred', maxLen: 32 },
       { kind: 'long', title: 'Count', body: 'How many?', def: 5, min: 1, max: 99 },
     ]
@@ -49,19 +49,22 @@ describe('requester scripts are legal Interface', () => {
     // this is why nothing user-supplied is spliced into the text
     const { script, vars } = requesterScript({
       kind: 'alert',
+      title: "Wasn't it?",
       body: "It's gone",
       gadgets: ["Don't", 'Do'],
     })
     expect(script).not.toContain("It's")
     expect(script).not.toContain("Don't")
-    expect(vars[0]).toBe("It's gone")
-    expect(vars[10]).toBe("Don't")
-    expect(vars[11]).toBe('Do')
+    // 0 is the title, 1.. the body a line each, then the gadget labels
+    expect(vars[0]).toBe("Wasn't it?")
+    expect(vars[1]).toBe("It's gone")
+    expect(vars[2]).toBe("Don't")
+    expect(vars[3]).toBe('Do')
     expect(() => prescanDialog(script)).not.toThrow()
   })
 
   it('draws with primitives only, so any resource bank renders it', () => {
-    // program 3 of the default bank is the model: no UN, no BO, because those
+    // program 4 of the default bank is the model: no UN, no BO, because those
     // are 9-patches out of a bank whose image numbering is not ours
     const { script } = requesterScript(ALERT)
     expect(script).not.toMatch(/\bUN /)
@@ -77,23 +80,72 @@ describe('requester scripts are legal Interface', () => {
   })
 
   it('widens to fit the longest line and the gadget strip', () => {
-    const narrow = requesterScript({ kind: 'alert', body: 'Hi', gadgets: ['Ok'] }).script
+    const narrow = requesterScript({ kind: 'alert', title: '', body: 'Hi', gadgets: ['Ok'] }).script
     const wide = requesterScript({
       kind: 'alert',
+      title: '',
       body: 'A very much longer message than the other one indeed',
       gadgets: ['Ok'],
     }).script
-    const sizeOf = (s: string): number => Number(/^SI (\d+),/.exec(s)![1])
+    const sizeOf = (s: string): number => Number(/^SI (\d+)SWMI,/.exec(s)![1])
     expect(sizeOf(wide)).toBeGreaterThan(sizeOf(narrow))
     // never narrower than the floor, so a one-word alert is not a slit
     expect(sizeOf(narrow)).toBe(208)
+  })
+
+  it('prints every body line, in pen 0 against the pen 1 fill', () => {
+    // `PR` draws a string with newlines in it as one run, so a five-line body
+    // handed to one PR loses four lines; and a PR in pen 1 on the pen 1 fill
+    // that `frame` lays down is invisible on every palette. BUtility's demo
+    // opens with a six-line Binforeq and showed neither.
+    const { script } = requesterScript({
+      kind: 'alert',
+      title: 'Butility V1.21 info request',
+      body: '----\nButility.Lib V1.21 - FREEWARE\nStart the Butility demo ?',
+      gadgets: ['Yes please', 'No'],
+    })
+    const prs = [...script.matchAll(/PR [^;]+;/g)].map((m) => m[0])
+    // the title, three body lines, and a label inside each of the two buttons
+    expect(prs).toHaveLength(6)
+    // the title bar is filled pen 0 and prints pen 1; everything else sits on
+    // the pen 1 fill and prints pen 0
+    expect(prs[0]).toMatch(/,1;$/)
+    for (const pr of prs.slice(1)) expect(pr).toMatch(/,0;$/)
+    expect(prs[1]).toContain('1VACX')
+    expect(prs[2]).toContain('2VACX')
+    expect(prs[3]).toContain('3VACX')
+  })
+
+  it('a titleless alert draws no title bar and starts higher up', () => {
+    // `Jd Request` and craft's DisplayAlert have no title to put in one
+    const titled = requesterScript(ALERT).script
+    const bare = requesterScript({ ...ALERT, title: '' }).script
+    expect(titled).toContain('GB 0,0,SX,20')
+    expect(bare).not.toContain('GB 0,0,SX,20')
+    // the one body line sits at 24 with a title bar above it and at 8 without
+    expect(titled).toContain('PR 1VACX,24,')
+    expect(bare).toContain('PR 1VACX,8,')
+  })
+
+  it('never asks for a box wider or taller than the screen', () => {
+    // BUtility's demo rules its requester off with 40 hyphens, which wants
+    // 352 pixels; on a 320 screen `BA SWSX- 2/` would centre it at -16 and
+    // the left edge, the outlines and the first column of text would all be
+    // off the screen
+    const { script } = requesterScript({
+      kind: 'alert',
+      title: '',
+      body: '-'.repeat(40),
+      gadgets: ['Ok'],
+    })
+    expect(script).toMatch(/^SI \d+SWMI,\d+SHMI;BA SWSX- 2\/,SHSY- 2\/ 16- 0MA;/)
   })
 
   it('gives the string requester an ED zone and the numeric one a DI', () => {
     const s = requesterScript({ kind: 'string', title: 'T', body: 'B', def: 'x', maxLen: 12 }).script
     const l = requesterScript({ kind: 'long', title: 'T', body: 'B', def: 7, min: 0, max: 9 }).script
     expect(s).toContain(`ED ${REQ_INPUT_ZONE},16,`)
-    expect(s).toContain(',12,2VA,0,1;') // maxlen, then the seeded variable
+    expect(s).toContain(',12,4VA,0,1;') // maxlen, then the seeded variable
     expect(l).toContain(`DI ${REQ_INPUT_ZONE},16,`)
     expect(l).toContain(',7,1,0,1;') // value, then flag bit 0 = seed the field
   })
@@ -160,7 +212,7 @@ describe('the numbers a requester answers are reqtools numbers', () => {
     // two-gadget requester reads as a boolean
     expect(done(ALERT, 1)!.ret).toBe(1)
     expect(done(ALERT, 2)!.ret).toBe(0)
-    const three: RequesterSpec = { kind: 'alert', body: 'x', gadgets: ['A', 'B', 'C'] }
+    const three: RequesterSpec = { kind: 'alert', title: '', body: 'x', gadgets: ['A', 'B', 'C'] }
     expect(done(three, 1)!.ret).toBe(1)
     expect(done(three, 2)!.ret).toBe(2)
     expect(done(three, 3)!.ret).toBe(0)
