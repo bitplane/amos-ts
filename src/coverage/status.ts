@@ -3522,6 +3522,20 @@ export const FAITHFUL = new Set<string>([
   // says one is already pending.
   'gui sx', 'gui sy', 'gui sw', 'gui sh', 'gui len', 'gui activate',
   'gui wait vbl', 'gui pause', 'gui timer',
+  // ---- the bank, the pump's poll, and the three pastes -----------------------
+  // `Gui Bank` is L_Bnk_GetAdr and a `cmpi.l #$47756920` on the name eight
+  // bytes back -- the bank has to be called "Gui " and not merely be at 20.
+  // `Gui Event` is one `bset #$3,$85` and then the pump `Gui Wait` calls, so
+  // the two differ by that bit and nothing else. `Gui Selected` walks the
+  // window list for the one whose Flags carry $2000, WFLG_WINDOWACTIVE.
+  //
+  // The three pastes share `moveq #$c,d7`, error 12, and reach three different
+  // stores: `Gui Paste Block` walks AMOS's own block chain at `-$189e(a5)`
+  // comparing `$8`, the other two take a bank through a six-byte AMOS call.
+  // `Gui Scroll` is ScrollRaster (-$18c) with the box in d2-d5 and the
+  // distance in d0/d1, which is why the arguments read box-then-distance.
+  'gui bank', 'gui close', 'gui reset', 'gui event', 'gui selected',
+  'gui paste block', 'gui paste icon', 'gui paste bob', 'gui scroll',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
