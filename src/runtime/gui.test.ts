@@ -751,15 +751,37 @@ describeWith('the mouse group', exampleBank(), (bank) => {
    * the IntuiMessage rather than from the pointer.
    */
   it('Gui Mouse Ex and Ey hold where the event happened, not where the pointer is', () => {
+    // `$29c` and `$29e`, four instructions each and no test at all, so the two
+    // are read through the keywords rather than off the state
+    const got = runOut('A=Gui Wait : Print Gui Mouse Ex;Gui Mouse Ey', bank, (rt) => {
+      rt.gui.designs = readGuiBank(bank)
+      rt.gui.open(1, 0)
+      guiPost(rt, 1, GUI_EVENT.MOUSECLICK, 0, '', [77, 88])
+    })
+    expect(got.out.trim().split(/\s+/).map(Number)).toEqual([77, 88])
+
+    // an event with no position leaves the last one standing: nothing clears
+    // the two words
     const rt = run(open, bank)
     guiPost(rt, 1, GUI_EVENT.MOUSECLICK, 0, '', [77, 88])
     expect(rt.gui.nextEvent()).toBe(GUI_EVENT.MOUSECLICK)
-    expect([rt.gui.eventX, rt.gui.eventY]).toEqual([77, 88])
-    // an event with no position leaves the last one standing: nothing clears
-    // the two words
     guiPost(rt, 1, GUI_EVENT.CLOSE)
     expect(rt.gui.nextEvent()).toBe(GUI_EVENT.CLOSE)
     expect([rt.gui.eventX, rt.gui.eventY]).toEqual([77, 88])
+  })
+
+  /**
+   * `Gui Code$` clears itself, which the guide says of `Gui Code` and not of
+   * this one: routine 3 tests bit 1 of `$84` and `bclr`s it before it converts
+   * `$e0`, which is routine 2's shape with bit 0.
+   */
+  it('Gui Code$ answers once and the null string after', () => {
+    const got = runOut('A=Gui Wait : Print "[";Gui Code$;"][";Gui Code$;"]"', bank, (rt) => {
+      rt.gui.designs = readGuiBank(bank)
+      rt.gui.open(1, 0)
+      guiPost(rt, 1, 0, 0, 'typed')
+    })
+    expect(got.out.trim()).toBe('[typed][]')
   })
 
   it('Gui Mouse Mode is a word the pump reads, and takes anything', () => {

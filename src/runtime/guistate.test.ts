@@ -182,17 +182,20 @@ describe('the event loop', () => {
   /**
    * "After Gui Code has been called, its value is automatically reset to -1
    * again, until the next call to Gui Wait loads it with a new value."
+   *
+   * `Gui Code$` does the same and the guide never says so: routine 3 tests
+   * bit 1 of `$84` and `bclr`s it before it converts the string, which is
+   * routine 2's own shape with bit 0.
    */
-  it('resets Gui Code to -1 once read', () => {
+  it('resets Gui Code and Gui Code$ once each is read', () => {
     const s = stateWith(design(1))
     s.open(1, 0)
     s.post({ code: 0, result: 42, text: 'hi', window: 1 })
     s.nextEvent()
     expect(s.readCode()).toBe(42)
     expect(s.readCode()).toBe(-1)
-    // Gui Code$ is not documented as resetting, and does not
     expect(s.readCodeText()).toBe('hi')
-    expect(s.readCodeText()).toBe('hi')
+    expect(s.readCodeText()).toBe('')
   })
 
   it('answers -1 for Gui Code before anything has happened', () => {

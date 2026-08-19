@@ -1462,9 +1462,18 @@ export class GuiState {
     return v
   }
 
-  /** `Gui Code$`, the string half of the same */
+  /**
+   * `Gui Code$`, the string half of the same, and it clears itself too.
+   *
+   * Routine 3 tests bit 1 of `$84` and `bclr`s it before it converts `$e0`,
+   * exactly as `Gui Code` does with bit 0. So the guide's "its value is
+   * automatically reset" is true of both, and a second `Gui Code$` before the
+   * next event answers the null string.
+   */
   readCodeText(): string {
-    return this.last?.text ?? ''
+    const v = this.last?.text ?? ''
+    if (this.last !== null) this.last.text = ''
+    return v
   }
 
   /** `Gui Window`: which window produced the last event, `$de` */

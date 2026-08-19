@@ -3441,6 +3441,20 @@ export const FAITHFUL = new Set<string>([
   // `cmpi.w #$27,$18a` OS test, and routine 138 has a `nop` where blue would
   // have had its rotate. `Gui Eye 3d` is two word stores and nothing else.
   'gui colour', 'gui red', 'gui green', 'gui blue', 'gui eye 3d',
+  // ---- the state readers ---------------------------------------------------
+  // A word or a longword out of `$268(a5)` each, and nothing else: `$de` for
+  // `Gui Window`, `$e4` for `Gui Key Shift`, `$18a` for `Gui Os`, `$294` and
+  // `$296` for the two font sizes, `$29c` and `$29e` for the event position.
+  // `Gui Width`, `Height`, `X` and `Y` take the four words at `$8`, `$a`, `$4`
+  // and `$6` of the intuition Window the design block points at, and raise 10
+  // rather than 11 for one that is not open.
+  //
+  // `Gui Code$` clears itself, which the guide never says: routine 3 tests bit
+  // 1 of `$84` and `bclr`s it before it converts `$e0`, exactly as routine 2
+  // does with bit 0 for `Gui Code`. This port answered the same string twice.
+  'gui code', 'gui code$', 'gui window', 'gui key shift', 'gui os',
+  'gui x font', 'gui y font', 'gui mouse ex', 'gui mouse ey',
+  'gui width', 'gui height', 'gui x', 'gui y',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
