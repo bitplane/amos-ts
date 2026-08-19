@@ -2227,6 +2227,18 @@ export class Runtime {
    */
   private intuitionBase: Intuition | null = null
 
+  /**
+   * topaz/8, the face Intuition and every extension that opens a window on
+   * the Workbench draws with.
+   *
+   * Public because it is not Intuition's alone: GUI 2.10's `Gui Text` builds
+   * an IntuiText whose ITextFont is the extension's own `$66`, which is this
+   * font, and a RastPort with no font set draws nothing at all.
+   */
+  systemFont(): DiskFont {
+    return intuitionFont()
+  }
+
   get intuition(): Intuition {
     if (!this.intuitionBase) {
       this.intuitionBase = new Intuition({

@@ -460,6 +460,31 @@ function tcpPacket(g: GuiState, type: number, channel: number, buffer: number, r
 }
 
 /**
+ * The clamp every line and bar endpoint goes through, routine at $2036.
+ *
+ *     cmp.w $1b8(a0),d0 / blt / move.w $1b8(a0),d0
+ *     cmp.w $1ba(a0),d1 / blt / move.w $1ba(a0),d1
+ *     tst.w d0 / bgt / moveq #0,d0
+ *     tst.w d1 / bgt / moveq #0,d1
+ *
+ * `$1b8` and `$1ba` are the OUTPUT's width and height, filled from `$8`/`$a`
+ * of the Window at $680e or `$c`/`$e` of the Screen at $6848, so it is the
+ * whole window and not its interior. The bound is inclusive: a coordinate
+ * equal to the width survives, and one above it becomes the width.
+ *
+ * This is a clamp and not a clip, and the difference is visible. A line from
+ * (10,10) to (900,20) on a 300-wide output becomes a line to (300,20), which
+ * has a different slope from the part of the original line that would have
+ * been inside; drawing it clipped and drawing it clamped disagree at every
+ * pixel but the first.
+ */
+function clampOut(w: { width: number; height: number }, x: number, y: number): [number, number] {
+  const cx = x >= w.width ? w.width : x <= 0 ? 0 : x
+  const cy = y >= w.height ? w.height : y <= 0 ? 0 : y
+  return [cx, cy]
+}
+
+/**
  * Where the drawing keywords land: the window `Gui Gfx 0,n` named, or the
  * selected one before anything has.
  *
@@ -1216,7 +1241,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         box = { left, top, width, height }
       }
       checkBankVersion(g, win, gui - 1)
-      g.open(win, gui - 1, box)
+      const opened = g.open(win, gui - 1, box)
+      // `$66` of the state, the ITextFont every IntuiText this extension
+      // builds carries. A RastPort with no font draws no glyphs, so without
+      // this `Gui Text` and the gadget labels put down nothing at all
+      if (opened !== null) opened.rp.font = rt.systemFont()
     },
 
     /** `Gui Reset` — close all the windows */
@@ -2112,62 +2141,95 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * `Gui Clw window,colour` — "clear all of the graphics from the specified
+     * `Gui Clw window,colour` --- "clear all of the graphics from the specified
      * window... screen borders and titles will be left intact, unlike Gui
      * Cls".
+     *
+     * It is a RectFill of the INTERIOR and not a SetRast, which is exactly
+     * the difference the guide names. $29be builds the box out of the
+     * Window's own four border bytes --- BorderLeft `$36`, BorderTop `$37`,
+     * BorderRight `$38`, BorderBottom `$39` --- as
+     * `(left, top) To (width - right - 1, height - bottom - 1)`, and calls
+     * RectFill (-$132) on the window's RPort.
+     *
+     * The colour is optional and the routine says so: `cmpi.l #$80000000,d1 /
+     * beq` at $29a0 skips the SetAPen entirely, so `Gui Clw 1` fills with
+     * whatever FgPen the last `Gui Ink` left. When a colour IS given, the old
+     * FgPen is saved out of `$19` of the RastPort and put back at $29ec, so
+     * this keyword does not disturb the ink.
      */
     'gui clw': (it) => {
       const n = it.evalInt()
-      it.expect(',')
-      const c = it.evalInt()
+      const c = it.accept(',') ? it.evalInt() : OMITTED
       // this one names its window, so it raises 10 rather than 11
-      windowOf(s(), n).rp.setRast(c)
+      const w = windowOf(s(), n)
+      const pen = c === OMITTED ? w.ink : c
+      w.rp.rectFill(WBORLEFT, TITLE_HEIGHT, w.width - WBORRIGHT - 1, w.height - WBORBOTTOM - 1, pen)
     },
 
-    /** `Gui Plot x,y` */
+    /**
+     * `Gui Plot x,y` --- WritePixel (-$144), and nothing else.
+     *
+     * Thirty-four bytes, no clamp and no cursor: WritePixel does not move
+     * rp_cp, so `Gui Plot 10,10 : Gui Draw To 50,50` draws from wherever the
+     * last line ended and not from the plot.
+     */
     'gui plot': (it) => {
       const [x, y] = pair(it)
       const w = gfx(s())
       w.rp.plot(x, y, w.ink)
-      w.grX = x
-      w.grY = y
     },
 
     /**
-     * `Gui Draw x,y To x2,y2` — the `t` in its spec `I0,0t0,0` is the `To`.
+     * `Gui Draw x,y To x2,y2` --- the `t` in its spec `I0,0t0,0` is the `To`.
      *
-     * AMOS's own Draw leaves the graphics cursor at the far end, which is
-     * what makes `Gui Draw To` a continuation, so this does the same.
+     * Move (-$f0) then Draw (-$f6), so AMOS's own Draw leaves the graphics
+     * cursor at the far end and `Gui Draw To` continues from it.
+     *
+     * BOTH endpoints go through the clamp at $2036 first. See `clampOut`: a
+     * line that runs off the output has its endpoint MOVED rather than
+     * clipped, so its slope changes.
      */
     'gui draw': (it) => {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
       const w = gfx(s())
-      w.rp.draw(x1, y1, x2, y2, w.ink)
-      w.grX = x2
-      w.grY = y2
+      const [cx1, cy1] = clampOut(w, x1, y1)
+      const [cx2, cy2] = clampOut(w, x2, y2)
+      w.rp.draw(cx1, cy1, cx2, cy2, w.ink)
+      w.grX = cx2
+      w.grY = cy2
     },
 
-    /** `Gui Draw To x,y` — on from wherever the cursor was left */
+    /** `Gui Draw To x,y` — on from wherever the cursor was left, clamped */
     'gui draw to': (it) => {
-      const [x, y] = pair(it)
+      const [rx, ry] = pair(it)
       const w = gfx(s())
+      const [x, y] = clampOut(w, rx, ry)
       w.rp.draw(w.grX, w.grY, x, y, w.ink)
       w.grX = x
       w.grY = y
     },
 
-    /** `Gui Bar x,y To x2,y2` — "a solid block... in exactly the same way as
-        the AMOS command BAR" */
+    /**
+     * `Gui Bar x,y To x2,y2` --- "a solid block... in exactly the same way as
+     * the AMOS command BAR", which is RectFill (-$132) at $2090.
+     *
+     * Both corners take the same clamp `Gui Draw` takes, and nothing orders
+     * them: RectFill wants xMin before xMax and this hands it what the
+     * program wrote. ../amiga/graphics.ts normalises, which is where a
+     * reversed pair stops being observable.
+     */
     'gui bar': (it) => {
-      const [x1, y1] = pair(it)
+      const [rx1, ry1] = pair(it)
       it.expect('to')
-      const [x2, y2] = pair(it)
+      const [rx2, ry2] = pair(it)
       const w = gfx(s())
-      w.rp.rectFill(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), w.ink)
-      w.grX = x1
-      w.grY = y1
+      const [x1, y1] = clampOut(w, rx1, ry1)
+      const [x2, y2] = clampOut(w, rx2, ry2)
+      // RectFill leaves rp_cp where it was, so no cursor is written here
+      w.rp.rectFill(x1, y1, x2, y2, w.ink)
     },
 
     /**
@@ -2199,7 +2261,14 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       w.grY = y1
     },
 
-    /** `Gui Ellipse x,y,rx,ry` */
+    /**
+     * `Gui Ellipse x,y,rx,ry` --- DrawEllipse (-$b4), and nothing else.
+     *
+     * No clamp and no range check: routine 34 tests `$1bc` for a Gfx output
+     * and calls the library with what it was given. A zero radius reaches
+     * DrawEllipse, which draws the degenerate case as a point, and that is
+     * what `RastPort.ellipse` does with it too.
+     */
     'gui ellipse': (it) => {
       const [x, y] = pair(it)
       it.expect(',')
@@ -2207,28 +2276,30 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const ry = it.evalInt()
       const w = gfx(s())
-      if (rx <= 0 || ry <= 0) return
       w.rp.ellipse(x, y, rx, ry, w.ink)
     },
 
     /**
-     * `Gui Paint x,y` — "Works in exactly the same way as the Amos command
+     * `Gui Paint x,y` --- "Works in exactly the same way as the Amos command
      * Paint. It will simply fill any section of the current gfx output with a
      * solid block of colour using the currently defined ink."
      *
-     * AMOS's Paint defaults to its mode 1, the same-colour region, and that
-     * is `RastPort.flood`'s mode ZERO: the two number the modes the opposite
-     * way round, because AMOS follows graphics.library's Flood and the
-     * RastPort here follows the sense of its own argument. Passing 1 here
-     * floods until the OUTLINE pen instead, which with no outline set fills
-     * nothing at all, and is what this did until a test noticed.
+     * It does not work the same way as AMOS's Paint. $2c80 is `moveq #$1,d2`
+     * before Flood (-$14a), which is OUTLINE mode: it spreads over every
+     * connected pixel that is NOT rp_AOlPen. Nothing in this extension sets
+     * AOlPen --- there is no keyword for it --- so the boundary is always
+     * colour 0 whatever the program drew its outline in, and a region cleared
+     * to 0 cannot be filled at all. jd-int passes the same 1 for the same
+     * reason and ./jdint.ts says so at `Jd Intfill`.
+     *
+     * The TmpRas around it is real: AllocRaster (-$1ec) of width*8 by height,
+     * InitTmpRas (-$1d4) on the state's own `$256`, and FreeRaster (-$1f2)
+     * after. ../amiga/graphics.ts keeps the visited set instead and says why.
      */
     'gui paint': (it) => {
       const [x, y] = pair(it)
       const w = gfx(s())
-      w.rp.flood(0, x, y, w.ink)
-      w.grX = x
-      w.grY = y
+      w.rp.flood(1, x, y, w.ink)
     },
 
     /**
@@ -3088,17 +3159,33 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       g.tcpRecvd = 0
     },
 
-    /** `Gui Text x,y,text$` */
+    /**
+     * `Gui Text x,y,text$` --- PrintIText (-$d8) through an IntuiText the
+     * keyword builds at `$242`.
+     *
+     * The three pens come from the extension's state and not from the
+     * RastPort: FrontPen from `$290`, BackPen from `$28e` and DrawMode from
+     * `$292`, which are `Gui Pen`, `Gui Paper` and `Gui Writing`. The font is
+     * `$66`.
+     *
+     * An EMPTY string returns before any of that: `tst.w d2 / beq` at $25b4
+     * on the string's own length word, so `Gui Text 0,0,""` does not even
+     * check that a Gfx output is open.
+     *
+     * PrintIText places the text by its TOP, adding the font's baseline
+     * itself, where `RastPort.text` here is given the baseline. The one
+     * conversion is here rather than in the RastPort because that is the side
+     * PrintIText is on.
+     */
     'gui text': (it) => {
       const [x, y] = pair(it)
       it.expect(',')
       const text = str(it.evalExpr())
       const g = s()
+      if (text === '') return
       const w = gfx(g)
       if (w.rp.font === null) return
-      // the IntuiText the keyword builds at $25bc takes its pens from the
-      // extension's state and not from the RastPort
-      w.rp.text(x, y, text, g.pen)
+      w.rp.text(x, y + w.rp.font.baseline, text, g.pen)
     },
 
     /**

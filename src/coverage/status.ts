@@ -3416,6 +3416,31 @@ export const FAITHFUL = new Set<string>([
   // The tile mapper, reproduced instruction for instruction because almost
   // none of it is 32-bit arithmetic.
   'g tmap',
+  // ---- GUI 2.10 / 1.61 / 1.5b, the drawing and colour group ---------------
+  // Read off AMOSPro_GUI.Lib with the LVOs taken from the FD files in the
+  // extension's own Tools/FD. Every one of these is a graphics.library call
+  // over the RastPort at `$1bc` and a state byte or two, and the reading
+  // corrected four of them:
+  //
+  //   `Gui Draw`, `Gui Draw To` and `Gui Bar` CLAMP both endpoints to the
+  //   output's width and height (routine at $2036) rather than clipping, so
+  //   a line that runs off the window comes back with a different slope.
+  //   `Gui Plot` and `Gui Bar` do not move rp_cp, because WritePixel and
+  //   RectFill do not. `Gui Clw` is a RectFill of the INTERIOR built from the
+  //   Window's own four border bytes, not a SetRast, and its colour is
+  //   optional. `Gui Paint` passes Flood mode 1, which is OUTLINE mode, so
+  //   with no AOlPen ever set the boundary is colour 0 and a cleared window
+  //   cannot be filled at all -- the same answer jd-int's `Jd Intfill` gives
+  //   for the same `moveq #$1,d2`. `Gui Text` is PrintIText, which places by
+  //   the TOP where the RastPort here takes a baseline.
+  'gui ink', 'gui pen', 'gui paper', 'gui writing', 'gui cls', 'gui clw',
+  'gui plot', 'gui draw', 'gui draw to', 'gui bar', 'gui box', 'gui ellipse',
+  'gui paint', 'gui point', 'gui text', 'gui text base', 'gui gfx', 'gui actual',
+  // The three component readers are arithmetic on the number they are given
+  // and never look at a screen: a rotate and a mask each, chosen by the same
+  // `cmpi.w #$27,$18a` OS test, and routine 138 has a `nop` where blue would
+  // have had its rotate. `Gui Eye 3d` is two word stores and nothing else.
+  'gui colour', 'gui red', 'gui green', 'gui blue', 'gui eye 3d',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

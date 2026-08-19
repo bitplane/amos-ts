@@ -252,10 +252,23 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     expect(rp(rt).point(142, 36)).toBe(3)
   })
 
-  /** "Gui Clw will clear all of the graphics from the specified window" */
-  it('Gui Clw takes a window number and a colour', () => {
+  /**
+   * "screen borders and titles will be left intact, unlike Gui Cls", and the
+   * mechanism is that this is a RectFill of the interior where `Gui Cls` is a
+   * SetRast of the whole bitmap. The box is the Window's own four border
+   * bytes, so (5,5) is inside the title bar and keeps what `Gui Cls` put
+   * there.
+   */
+  it('Gui Clw fills the interior and leaves the borders alone', () => {
     const rt = drawn('Gui Cls 3 : Gui Clw 1,7')
-    expect(rp(rt).point(5, 5)).toBe(7)
+    expect(rp(rt).point(5, 5)).toBe(3)
+    expect(rp(rt).point(20, 20)).toBe(7)
+  })
+
+  /** `cmpi.l #$80000000,d1 / beq` skips the SetAPen: the ink stands */
+  it('and with no colour it fills with the ink', () => {
+    const rt = drawn('Gui Cls 3 : Gui Ink 5 : Gui Clw 1')
+    expect(rp(rt).point(20, 20)).toBe(5)
   })
 
   it('Gui Draw joins two points and leaves the cursor at the far end', () => {
@@ -274,18 +287,70 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     expect(rp(box).point(7, 7)).toBe(0)
   })
 
-  it('Gui Ellipse draws, and refuses a zero radius', () => {
+  /** DrawEllipse with what it was given: no clamp, no range check */
+  it('Gui Ellipse draws, and a zero radius is the degenerate point', () => {
     const rt = drawn('Gui Ink 2 : Gui Ellipse 40,18,20,10')
     expect(rp(rt).point(60, 18)).toBe(2)
-    // a zero radius draws nothing rather than throwing
-    expect(() => drawn('Gui Ellipse 40,18,0,10')).not.toThrow()
+    const flat = drawn('Gui Ink 2 : Gui Ellipse 40,18,0,10')
+    expect(rp(flat).point(40, 18)).toBe(2)
   })
 
-  it('Gui Paint floods from the point given', () => {
-    const rt = drawn('Gui Ink 1 : Gui Box 2,2 To 20,20 : Gui Ink 5 : Gui Paint 10,10')
-    expect(rp(rt).point(10, 10)).toBe(5)
-    // the outline is untouched, which is what stopped the flood
-    expect(rp(rt).point(2, 10)).toBe(1)
+  /**
+   * PrintIText places the text by its TOP and adds the font's baseline; the
+   * RastPort here is given the baseline, so the conversion belongs on this
+   * side of the call. An empty string returns before the Gfx output is even
+   * checked, `tst.w d2 / beq` at $25b4.
+   */
+  it('Gui Text draws below the y it is given, and an empty string draws nothing', () => {
+    const rt = drawn('Gui Pen 5 : Gui Text 4,10,"H"')
+    const port = rp(rt)
+    let below = 0
+    for (let y = 10; y < 20; y++) for (let x = 4; x < 12; x++) if (port.point(x, y) === 5) below++
+    expect(below).toBeGreaterThan(0)
+    for (let y = 0; y < 10; y++) for (let x = 4; x < 12; x++) expect(port.point(x, y)).not.toBe(5)
+    expect(() => drawn('Gui Text 0,0,""')).not.toThrow()
+  })
+
+  /**
+   * `moveq #$1,d2` before Flood is OUTLINE mode, and nothing in the extension
+   * sets AOlPen. So the boundary is colour 0 whatever the program drew its
+   * outline in, and a window cleared to 0 cannot be filled at all: the seed
+   * is already on the stopping colour. The one shape that works is an outline
+   * drawn in 0 on a non-zero ground, which is `Jd Intfill`'s case too.
+   */
+  it('Gui Paint spreads until it meets colour 0, the AOlPen nothing sets', () => {
+    // a pen-1 outline does not bound it: the fill runs straight over
+    const over = drawn('Gui Ink 1 : Gui Box 2,2 To 20,20 : Gui Ink 5 : Gui Paint 10,10')
+    expect(rp(over).point(10, 10)).toBe(0)
+
+    const ground = drawn('Gui Cls 3 : Gui Ink 0 : Gui Box 2,2 To 20,20 : Gui Ink 5 : Gui Paint 10,10')
+    expect(rp(ground).point(10, 10)).toBe(5)
+    expect(rp(ground).point(2, 10)).toBe(0) // the pen-0 outline is the boundary
+    expect(rp(ground).point(30, 30)).toBe(3) // and nothing escaped it
+  })
+
+  /** WritePixel does not move rp_cp, so a plot does not move the line cursor */
+  it('Gui Plot leaves the graphics cursor where the last line left it', () => {
+    const rt = drawn('Gui Ink 4 : Gui Draw 4,4 To 8,4 : Gui Plot 40,20 : Gui Draw To 12,4')
+    // the second line runs on from (8,4), not from the plot
+    expect(rp(rt).point(10, 4)).toBe(4)
+    expect(rp(rt).point(40, 20)).toBe(4)
+    expect(rp(rt).point(24, 12)).toBe(0)
+  })
+
+  /**
+   * Both endpoints go through the clamp at $2036 --- to the OUTPUT's width
+   * and height, inclusive, and to zero --- so a line that runs off the window
+   * is MOVED rather than clipped and comes out with a different slope.
+   */
+  it('Gui Draw clamps its endpoints to the output instead of clipping them', () => {
+    const w = 48
+    const rt = drawn(`Gui Ink 7 : Gui Draw 0,0 To ${w * 4},8`)
+    const port = rp(rt)
+    // clamped: the far end is at x = width, so the line reaches y 8 there
+    expect(port.point(port.width - 1, 8)).toBe(7)
+    // clipped it would still be climbing at the right edge, nowhere near 8
+    expect(port.point(port.width - 1, 2)).toBe(0)
   })
 
   it('Gui Point reads a colour back', () => {
