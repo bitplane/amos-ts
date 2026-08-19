@@ -77,9 +77,9 @@ is.
 | first-0.1            |        4 |        4 |            0 |       0 |     100% |
 | flow                 |       12 |       10 |            2 |       0 |     100% |
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
-| gui-1.5b             |       48 |       20 |           28 |       0 |     100% |
-| gui-1.61             |      103 |       42 |           61 |       0 |     100% |
-| gui-2.10             |      204 |       57 |          147 |       0 |     100% |
+| gui-1.5b             |       48 |       21 |           27 |       0 |     100% |
+| gui-1.61             |      103 |       43 |           60 |       0 |     100% |
+| gui-2.10             |      204 |       66 |          138 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |           30 |      32 |      48% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4951 |          425 |    1983 |      73% |
+| **total**            |     7422 |     4962 |          414 |    1983 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -283,20 +283,20 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## gui-1.5b (100%)
 
-- **approximated** (28): `gui amiga`, `gui amos`, `gui asl font`, `gui asl screen`, `gui asl$`,
+- **approximated** (27): `gui amiga`, `gui amos`, `gui asl font`, `gui asl screen`, `gui asl$`,
   `gui bank`, `gui border`, `gui circle`, `gui close`, `gui dir$`, `gui exist`, `gui file$`,
-  `gui iconify`, `gui menu`, `gui mouse x`, `gui mouse y`, `gui open`, `gui paste block`,
-  `gui paste bob`, `gui paste icon`, `gui req`, `gui reset`, `gui screen open`, `gui scroll`,
-  `gui set`, `gui uniconify`, `gui wait`, `gui wait vbl`
+  `gui iconify`, `gui mouse x`, `gui mouse y`, `gui open`, `gui paste block`, `gui paste bob`,
+  `gui paste icon`, `gui req`, `gui reset`, `gui screen open`, `gui scroll`, `gui set`,
+  `gui uniconify`, `gui wait`, `gui wait vbl`
 
 ## gui-1.61 (100%)
 
-- **approximated** (61): `gui activate`, `gui amiga`, `gui amos`, `gui asl font`,
+- **approximated** (60): `gui activate`, `gui amiga`, `gui amos`, `gui asl font`,
   `gui asl screen`, `gui asl$`, `gui bank`, `gui beep`, `gui border`, `gui close`, `gui dir$`,
   `gui event`, `gui exist`, `gui file$`, `gui gad adr`, `gui iconify`, `gui in height`,
-  `gui in width`, `gui len`, `gui menu`, `gui mouse x`, `gui mouse y`, `gui open`,
-  `gui paste block`, `gui paste bob`, `gui paste icon`, `gui read`, `gui read$`, `gui req`,
-  `gui reset`, `gui scroll`, `gui set`, `gui sh`, `gui sw`, `gui sx`, `gui sy`, `gui titles`,
+  `gui in width`, `gui len`, `gui mouse x`, `gui mouse y`, `gui open`, `gui paste block`,
+  `gui paste bob`, `gui paste icon`, `gui read`, `gui read$`, `gui req`, `gui reset`,
+  `gui scroll`, `gui set`, `gui sh`, `gui sw`, `gui sx`, `gui sy`, `gui titles`,
   `gui uniconify`, `gui wait`, `gui wait vbl`, `tcp buffer`, `tcp channel`, `tcp check`,
   `tcp close`, `tcp code`, `tcp count`, `tcp error`, `tcp f open`, `tcp get`, `tcp limit`,
   `tcp open`, `tcp packet`, `tcp put`, `tcp put$`, `tcp read`, `tcp reset`, `tcp send`,
@@ -304,32 +304,30 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## gui-2.10 (100%)
 
-- **approximated** (147): `gui activate`, `gui aga`, `gui amiga os`, `gui app icon`,
-  `gui app id`, `gui app name$`, `gui app remove`, `gui array`, `gui array down`,
-  `gui array read`, `gui array up`, `gui asl colours`, `gui asl depth`, `gui asl font`,
-  `gui asl height`, `gui asl id`, `gui asl open`, `gui asl screen`, `gui asl width`, `gui asl$`,
-  `gui bank`, `gui bbox`, `gui beep`, `gui best`, `gui border`, `gui catalog close`,
-  `gui catalog open`, `gui catalog$`, `gui center`, `gui clip read$`, `gui clip write$`,
-  `gui clone`, `gui close`, `gui dir$`, `gui display iff`, `gui event`, `gui exist`,
-  `gui file$`, `gui font size`, `gui free zone`, `gui gad adr`, `gui gad tag`, `gui get$`,
-  `gui guide`, `gui help`, `gui iconify`, `gui in height`, `gui in width`, `gui input$`,
-  `gui len`, `gui line 3d`, `gui menu`, `gui menu check`, `gui menu off`, `gui menu on`,
-  `gui menu uncheck`, `gui monitor`, `gui mouse mode`, `gui mouse queue`, `gui mouse report`,
-  `gui mouse wx`, `gui mouse wy`, `gui mouse x`, `gui mouse y`, `gui mouse zone`, `gui notify`,
-  `gui open`, `gui output`, `gui paste block`, `gui paste bob`, `gui paste icon`, `gui pause`,
-  `gui pub check`, `gui pub free`, `gui pub list`, `gui pub list free`, `gui pub mode`,
-  `gui pub name$`, `gui pub screen`, `gui pub to back`, `gui pub to front`, `gui put`,
-  `gui read`, `gui read$`, `gui rem notify`, `gui remap`, `gui req`, `gui reserve zone`,
-  `gui reset`, `gui rgb`, `gui rmb`, `gui save iff`, `gui screen base`, `gui screen close`,
-  `gui screen colours`, `gui screen copy`, `gui screen depth`, `gui screen height`,
-  `gui screen move`, `gui screen open`, `gui screen width`, `gui scroll`, `gui selected`,
-  `gui set`, `gui set mode`, `gui set zone`, `gui set$`, `gui sh`, `gui show title`, `gui sw`,
-  `gui sx`, `gui sy`, `gui timer`, `gui title$`, `gui titles`, `gui uniconify`,
-  `gui user catalog`, `gui wait`, `gui wait vbl`, `gui zone`, `tcp abort`, `tcp accept`,
-  `tcp close`, `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`,
-  `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`,
-  `tcp total`, `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`,
-  `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
+- **approximated** (138): `gui activate`, `gui aga`, `gui amiga os`, `gui app icon`,
+  `gui app id`, `gui app name$`, `gui app remove`, `gui asl colours`, `gui asl depth`,
+  `gui asl font`, `gui asl height`, `gui asl id`, `gui asl open`, `gui asl screen`,
+  `gui asl width`, `gui asl$`, `gui bank`, `gui bbox`, `gui beep`, `gui best`, `gui border`,
+  `gui catalog close`, `gui catalog open`, `gui catalog$`, `gui center`, `gui clip read$`,
+  `gui clip write$`, `gui clone`, `gui close`, `gui dir$`, `gui display iff`, `gui event`,
+  `gui exist`, `gui file$`, `gui font size`, `gui free zone`, `gui gad adr`, `gui gad tag`,
+  `gui get$`, `gui guide`, `gui help`, `gui iconify`, `gui in height`, `gui in width`,
+  `gui input$`, `gui len`, `gui line 3d`, `gui monitor`, `gui mouse mode`, `gui mouse queue`,
+  `gui mouse report`, `gui mouse wx`, `gui mouse wy`, `gui mouse x`, `gui mouse y`,
+  `gui mouse zone`, `gui notify`, `gui open`, `gui output`, `gui paste block`, `gui paste bob`,
+  `gui paste icon`, `gui pause`, `gui pub check`, `gui pub free`, `gui pub list`,
+  `gui pub list free`, `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`,
+  `gui pub to front`, `gui put`, `gui read`, `gui read$`, `gui rem notify`, `gui remap`,
+  `gui req`, `gui reserve zone`, `gui reset`, `gui rgb`, `gui rmb`, `gui save iff`,
+  `gui screen base`, `gui screen close`, `gui screen colours`, `gui screen copy`,
+  `gui screen depth`, `gui screen height`, `gui screen move`, `gui screen open`,
+  `gui screen width`, `gui scroll`, `gui selected`, `gui set`, `gui set mode`, `gui set zone`,
+  `gui set$`, `gui sh`, `gui show title`, `gui sw`, `gui sx`, `gui sy`, `gui timer`,
+  `gui title$`, `gui titles`, `gui uniconify`, `gui user catalog`, `gui wait`, `gui wait vbl`,
+  `gui zone`, `tcp abort`, `tcp accept`, `tcp close`, `tcp download`, `tcp error`, `tcp host$`,
+  `tcp listen`, `tcp open`, `tcp read`, `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`,
+  `tcp send$`, `tcp set`, `tcp socket`, `tcp total`, `tcp user`, `xfa check`, `xfa depth`,
+  `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
 
 ## input (100%)
 

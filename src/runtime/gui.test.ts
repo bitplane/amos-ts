@@ -544,6 +544,21 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
     expect([rt.gui.menuField(1), rt.gui.menuField(2), rt.gui.menuField(3)]).toEqual([1, 1, 32])
   })
 
+  /**
+   * `Gui Menu(n)` through the keyword rather than off the state: routine 14
+   * is `move.l (a3)+,d0` and one call, and the argument selects the field.
+   * Four is not a field --- `cmp.w #$4,d0 / beq` is tested first --- and
+   * answers whether another pick is queued behind this one.
+   */
+  it('Gui Menu answers the three fields and then whether more follow', () => {
+    const got = runOut('A=Gui Wait : Print Gui Menu(1);Gui Menu(2);Gui Menu(3);Gui Menu(4)', bank, (rt) => {
+      rt.gui.designs = readGuiBank(bank, '1.6x')
+      rt.gui.open(1, 0)
+      rt.gui.postMenu(1, USE)
+    })
+    expect(got.out.trim().split(/\s+/).map(Number)).toEqual([1, 1, 32, 0])
+  })
+
   /** picking a CHECKIT item is what turns its checkmark on, not the keyword */
   it('a pick moves the item s own state, the way gadtools selectItem does', () => {
     const rt = run(open, bank)

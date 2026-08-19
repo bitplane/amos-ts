@@ -3477,6 +3477,19 @@ export const FAITHFUL = new Set<string>([
   'gui to front', 'gui to back', 'gui move', 'gui resize', 'gui change',
   'gui sensitive on', 'gui sensitive off', 'gui remember on', 'gui remember off',
   'gui lock', 'gui unlock', 'gui on', 'gui off',
+  // ---- the menus and the array rotations ------------------------------------
+  // `Gui Menu On` and `Off` are OnMenu (-$c0) and OffMenu (-$b4) over a menu
+  // number the extension packs from its three arguments; Check and Uncheck are
+  // ItemAddress (-$90) and one instruction on the item's Flags. Uncheck is
+  // `andi.w #$ff`, which takes the whole high byte and not just CHECKED --
+  // see the DEFECT at the keyword. Both skip silently when the window carries
+  // no strip, `move.l $16(a0),d5 / beq`.
+  //
+  // The two rotations are longword moves over an AMOS string array with one
+  // guard each, `tst.l d3 / blt` and `cmp.l d2,d3 / bgt`, so a start outside
+  // 0..count-1 returns having done nothing at all.
+  'gui menu', 'gui menu on', 'gui menu off', 'gui menu check', 'gui menu uncheck',
+  'gui array', 'gui array read', 'gui array up', 'gui array down',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
