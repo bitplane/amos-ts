@@ -1,19 +1,25 @@
 /**
  * The GUI bank: what `Gui Open` opens.
  *
- * GUI 2.10 does not build an interface from keywords. You paint one in
- * GadToolsBox, save a `.gui` file, and run the GuiConv accessory to turn it
+ * The GUI extension does not build an interface from keywords. You paint one
+ * in GadToolsBox, save a `.gui` file, and run the GuiConv accessory to turn it
  * into an AMOS bank, which a program `Load`s as bank 20. Every one of the
- * extension's 204 keywords works on what is in that bank, so this file is the
+ * extension's keywords works on what is in that bank, so this file is the
  * bottom of the whole port: without it `Gui Open` has nothing to open.
+ *
+ * The format grew twice and both steps were appends, so one reader serves all
+ * three releases with a size table. See `GUI_HEADER_SIZES`.
  *
  * ## Evidence
  *
- * SOURCE tier, and unusually direct. The converter is
- * `GUI2/Accessories/GuiConv.Amos`, "GUI Converter 2.3 (30-09-2000), Phoenix
- * Version, © Copyright 1995-2000 Pietro Ghizzoni - Dairymen Soft, FreeWare",
- * and it is an AMOS PROGRAM. Detokenised it is 1,099 lines, and it names
- * every field of this format in its own comments as it writes them:
+ * SOURCE tier, and unusually direct, because every converter is an AMOS
+ * PROGRAM. 2.10's is `GUI2/Accessories/GuiConv.Amos`, "GUI Converter 2.3
+ * (30-09-2000), Phoenix Version, © Copyright 1995-2000 Pietro Ghizzoni -
+ * Dairymen Soft, FreeWare"; the 1.6 line's ships with 1.62 under the same
+ * name at version 1.64, and the 1.5 beta's is `GuiConv.asc`, 588 lines of
+ * plain text in the disk magazine that carried the beta. Detokenised, 2.3 is
+ * 1,099 lines, and every one of them names the field of this format that it
+ * writes:
  *
  *     Doke WORK+26,HSIZE+_DATAS            Rem  Gui Kind
  *     Doke WORK+28,Deek(WORK+26)+NGAD*2    Rem  Gui Tags
@@ -39,16 +45,77 @@
 import { BARLABEL, NEWMENU_SIZEOF, NM, type NewMenu } from '../amiga/gadtools'
 import { AMOS_KIND_IMAGE, AMOS_KIND_NUM } from './guikinds'
 
-/** `HSIZE=70`, the per-GUI header GuiConv writes */
-export const GUI_HEADER_SIZE = 70
+/**
+ * Which release wrote the bank, which is to say which layout it has.
+ *
+ * 1.61 and 1.62 share one, so the middle name is the family rather than a
+ * release: 1.61 wants converter 1.63 and 1.62 wants 1.64, and those two
+ * converters differ in the version WORD and in not one offset.
+ */
+export type GuiRelease = '1.5b' | '1.6x' | '2.10'
 
-/** the header GuiConv writes for the window itself, `Ssave WORK To WORK+74` */
-export const GUI_INFO_SIZE = 74
+/**
+ * `HSIZE`, the per-GUI header, which grew twice by appending.
+ *
+ * Each converter names its own constant, `HSIZE=52` in the 1.64 listing,
+ * `HSIZE=70` in 2.3's, and each library agrees from the other side, because
+ * every one of them loads the gadget-pointer array from the first byte after
+ * the header. The instruction that does it IS the header size: `lea
+ * $2c(a2),a1` at 1.5b's $102e, `lea $34(a2),a1` at 1.61's $21e4 and `lea
+ * $46(a2),a1` at 2.10's $5646. The 1.5 converter has no HSIZE at all and
+ * writes the literal, `Ssave 2,WORK To WORK+44`.
+ *
+ * What each step added is in the listings. 1.6x took 44 to 52 with HotLinks at
+ * +44, a Gadgets Store at +46, the converter version at +48 and a Gost
+ * Requester at +50; 2.10 took 52 to 70 with the locale fields.
+ */
+export const GUI_HEADER_SIZES: Record<GuiRelease, number> = { '1.5b': 44, '1.6x': 52, '2.10': 70 }
+
+/** `HSIZE=70`, the per-GUI header 2.3 writes */
+export const GUI_HEADER_SIZE = GUI_HEADER_SIZES['2.10']
+
+/**
+ * The header GuiConv writes for the window itself, which grew at the same two
+ * points and by the same method.
+ *
+ * 1.5 ends at `Ssave 2,WORK To WORK+HLEN` with `HLEN=50`; 1.64 writes 62,
+ * having split 1.5's single Offset Y at +28 into an Offset X and an Offset Y
+ * and then added the IDCMP long at +52 and the custom-gadget count at +56;
+ * 2.3 writes 74 and gives 1.64's two spare words at +58 and +60 the catalog
+ * bases. So a 1.5b bank has no IDCMP field anywhere in it.
+ */
+export const GUI_INFO_SIZES: Record<GuiRelease, number> = { '1.5b': 50, '1.6x': 62, '2.10': 74 }
+
+/** `Ssave WORK To WORK+74`, the window header 2.3 writes */
+export const GUI_INFO_SIZE = GUI_INFO_SIZES['2.10']
 
 /** `Add _STRUCTS,30`, which is gadtools' NewGadget and the same 30 bytes */
 export const NEWGADGET_SIZE = 30
 
-/** `VERS=40`, written at +48 and the only version this reader has seen */
+/**
+ * `Doke WORK+48,VERS`. What `Gui Open` refuses a bank for.
+ *
+ * Every library that has the word tests it for EQUALITY: `cmpi.w #$13,$30(a4)`
+ * in 1.61's routine 124, `#$14` in 1.62's and `#$28` in 2.10's routine 239,
+ * each falling through to the error that names the converter it wants. 1.5b
+ * has no such word and makes no such check, and its header stops at 44.
+ *
+ * DEVIATION: a range where the machine has one number, on the 1.6x row only.
+ * The version moved with every build of that line, 19, 20, and 22 in
+ * DataBench's four banks, which were made by a converter later than either
+ * library here, while the TOKEN TABLE did not move at all, and the token
+ * table is the whole of what identifies a bound extension. So a program on the
+ * 1.6 line cannot be told apart from another program on the 1.6 line, and
+ * enforcing 19 would refuse banks that the machine those programs ran on
+ * opened. 2.10 is exact, because 2.3 is the only 2.x converter.
+ */
+export const GUI_BANK_VERSIONS: Record<GuiRelease, { min: number; max: number } | null> = {
+  '1.5b': null,
+  '1.6x': { min: 1, max: 39 },
+  '2.10': { min: 40, max: 40 },
+}
+
+/** `VERS=40`, written at +48 by the 2.3 converter */
 export const GUI_CONVERTER_VERSION = 40
 
 /** `Doke LABEL,768` ends the label chain */
@@ -416,18 +483,23 @@ export function readTags(area: Uint8Array, count: number): { gadgets: TagPair[][
  * bank and after the header, and the gadget count has to fit the space the
  * kind array claims.
  */
-export function readGui(b: Uint8Array, offset = 0): Gui | null {
-  if (offset + GUI_HEADER_SIZE > b.length) return null
+export function readGui(b: Uint8Array, offset = 0, release: GuiRelease = '2.10'): Gui | null {
+  const headerSize = GUI_HEADER_SIZES[release]
+  const infoSize = GUI_INFO_SIZES[release]
+  if (offset + headerSize > b.length) return null
   const kindAt = u16(b, offset + 26)
   const tagsAt = u16(b, offset + 28)
   const structsAt = u16(b, offset + 30)
   const labelsAt = u16(b, offset + 32)
   const count = u16(b, offset + 34)
   const infoAt = u16(b, offset + 42)
-  const version = u16(b, offset + 48)
+  // 1.5b's header ends at 44 and has no such word; reading one would pick up
+  // the first four bytes of its gadget-pointer array, which a saved bank
+  // leaves as whatever the converter's work bank held
+  const version = release === '1.5b' ? 0 : u16(b, offset + 48)
 
   // the four sections run in this order and none may start before the header
-  if (kindAt < GUI_HEADER_SIZE) return null
+  if (kindAt < headerSize) return null
   if (!(kindAt <= tagsAt && tagsAt <= structsAt && structsAt <= labelsAt)) return null
   if (offset + labelsAt > b.length) return null
   // the kind array is one word a gadget and sits exactly between its own
@@ -477,16 +549,24 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
   let imageGadgets = 0
   let catalogBase = 0
   let intuiTextBase = 0
-  if (infoAt > 0 && offset + infoAt + GUI_INFO_SIZE <= b.length) {
+  if (infoAt > 0 && offset + infoAt + infoSize <= b.length) {
     const h = offset + infoAt
     left = s16(b, h)
     top = s16(b, h + 2)
     width = u16(b, h + 4)
     height = u16(b, h + 6)
-    idcmp = u32(b, h + 52)
-    imageGadgets = u16(b, h + 56)
-    catalogBase = u16(b, h + 58)
-    intuiTextBase = u16(b, h + 60)
+    // 1.5b stops at 50, so it carries neither of these. Its library works the
+    // IDCMP mask out from the gadget kinds instead, where 1.64's `_IDCMP`
+    // does that job in the converter and writes the answer down
+    if (release !== '1.5b') {
+      idcmp = u32(b, h + 52)
+      imageGadgets = u16(b, h + 56)
+    }
+    // and 1.64 zeroes both of these where 2.3 numbers the catalog with them
+    if (release === '2.10') {
+      catalogBase = u16(b, h + 58)
+      intuiTextBase = u16(b, h + 60)
+    }
   }
 
   return {
@@ -501,7 +581,7 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
     imageGadgets,
     hasMenus,
     version,
-    userCatalog: u16(b, offset + 68),
+    userCatalog: release === '2.10' ? u16(b, offset + 68) : 0,
     catalogBase,
     intuiTextBase,
     tags: tagArea,
@@ -522,14 +602,14 @@ export function readGui(b: Uint8Array, offset = 0): Gui | null {
  * to this one, into the previous one's Next field. So the chain is walked by
  * adding, and a Next of zero ends it.
  */
-export function readGuiBank(b: Uint8Array): Gui[] {
+export function readGuiBank(b: Uint8Array, release: GuiRelease = '2.10'): Gui[] {
   const out: Gui[] = []
   let at = 0
   const seen = new Set<number>()
   for (;;) {
     if (seen.has(at)) break
     seen.add(at)
-    const gui = readGui(b, at)
+    const gui = readGui(b, at, release)
     if (gui === null) break
     out.push(gui)
     const next = u16(b, at + 0)

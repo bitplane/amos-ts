@@ -9,9 +9,12 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
+  GUI_BANK_VERSIONS,
   GUI_CONVERTER_VERSION,
   GUI_HEADER_SIZE,
+  GUI_HEADER_SIZES,
   GUI_INFO_SIZE,
+  GUI_INFO_SIZES,
   NEWGADGET_SIZE,
   isConverterKind,
   readGui,
@@ -56,6 +59,52 @@ describe('the constants GuiConv writes', () => {
   it('writes gadtools own NewGadget, thirty bytes of it', () => {
     expect(NEWGADGET_SIZE).toBe(30)
     expect(NEWGADGET_SIZE).toBe(NEWGADGET_SIZEOF)
+  })
+})
+
+describe('the three header layouts', () => {
+  /**
+   * Each library loads its gadget-pointer array from the first byte after the
+   * header, so the `lea` that does it IS the header size, $2c, $34 and $46
+   *, and the two converters that survive name the same numbers in their own
+   * `HSIZE`. The 1.5 listing has no constant and writes `Ssave 2,WORK To
+   * WORK+44`.
+   */
+  it('is 44, 52 and 70, and the libraries and the converters agree', () => {
+    expect(GUI_HEADER_SIZES).toEqual({ '1.5b': 44, '1.6x': 52, '2.10': 70 })
+    expect(GUI_HEADER_SIZE).toBe(GUI_HEADER_SIZES['2.10'])
+  })
+
+  /** the window header grew at the same two points: HLEN=50, then 62, then 74 */
+  it('and the Header Info block is 50, 62 and 74', () => {
+    expect(GUI_INFO_SIZES).toEqual({ '1.5b': 50, '1.6x': 62, '2.10': 74 })
+    expect(GUI_INFO_SIZE).toBe(GUI_INFO_SIZES['2.10'])
+  })
+
+  /**
+   * `VERS` is a converter counter rather than its version number: 1.61 wants
+   * 19 for converter 1.63 and 2.10 wants 40 for 2.3. 1.5b has neither the
+   * word nor the check.
+   */
+  it('has no version word before 1.6x, and 2.10 accepts exactly one', () => {
+    expect(GUI_BANK_VERSIONS['1.5b']).toBeNull()
+    expect(GUI_BANK_VERSIONS['2.10']).toEqual({ min: GUI_CONVERTER_VERSION, max: GUI_CONVERTER_VERSION })
+    expect(GUI_BANK_VERSIONS['1.6x']!.max).toBeLessThan(GUI_CONVERTER_VERSION)
+  })
+
+  /** a 44-byte header puts its sections where a 70-byte reader will not look */
+  it('a 1.5b bank is not readable as a 2.10 one', () => {
+    const b = new Uint8Array(400)
+    const put = (at: number, v: number): void => {
+      b[at] = v >> 8
+      b[at + 1] = v & 0xff
+    }
+    put(26, 44)
+    put(28, 44)
+    put(30, 44)
+    put(32, 44)
+    expect(readGui(b, 0, '1.5b')).not.toBeNull()
+    expect(readGui(b, 0, '2.10')).toBeNull()
   })
 })
 

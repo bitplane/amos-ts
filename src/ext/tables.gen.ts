@@ -8405,11 +8405,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "statedSlot": 24,
-    "observedSlots": [],
+    "observedSlots": [
+      24
+    ],
     "titleStrings": [],
     "sha256": "a4ffb518a1d75c9b81ac7a693b9c7ca055b6efc6aa7dcfea83fbf906929f1324",
     "provenance": "aminet-dev-amos/files/snc004/SnC-4/AMOS_Extension/AMOSPro_GUI.Lib Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
-    "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus. Documented, unlike the 1.61 that followed it."
+    "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus, and the only release with a plain-text manual rather than an AmigaGuide one."
   },
   {
     "id": "gui-1.61",
@@ -8431,7 +8433,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "9395e13d10ca0297e61a1204c759637299179de9afe66bc1e9d8b36297862250",
     "provenance": "The project author's own AMOS Pro installation. Dated 31-03-97, so post-dates the commercial life of AMOS Pro. Wraps real Intuition/ASL gadgetry (gui open/gadgets/menus/requesters) and carries an unrelated TCP keyword family.",
-    "notes": "Intuition-style windows, gadgets and menus for AMOS programs."
+    "notes": "Intuition-style windows, gadgets and menus for AMOS programs, plus a TCP group that is AmigaDOS file I/O over the TCP: handler."
   },
   {
     "id": "gui-2.10",

@@ -45,56 +45,24 @@ describe('version sweep', () => {
    * what a rebuilt table looks like too. The sweep cannot tell those apart
    * and does not try; it says "read the binary" and names the file to read.
    *
-   * Two have left the list the same way, and it is the same way each time:
+   * Four have left the list the same way, and it is the same way each time:
    * the sweep only looks at extensions NO port claims. Explode went on
    * 2026-08-12 (its names reaching CText were the collision this list used to
-   * illustrate) and DME 2.0 followed when its ProTracker block landed --- its
-   * four `p61 *` and six `thx *` names collide with two ported extensions and
-   * share not one id with either, which is what put it here.
+   * illustrate), DME 2.0 followed when its ProTracker block landed, and
+   * gui-1.5b and gui-1.61 went when gui.ts named all three GUI releases in one
+   * `ids`. Those two were the only entries this list has ever held that were a
+   * real lineage rather than a collision: Pietro Ghizzoni rebuilt the token
+   * table for each release, so 44 of 1.5b's names and 85 of 1.61's reappear in
+   * 2.10 with exactly ONE id surviving in each, which by the sweep's own
+   * measure is indistinguishable from a coincidence and is the opposite.
    */
   it('the renumbered candidates are name collisions, not releases', () => {
     const renumbered = sweep().filter((c) => c.moved > 0)
-    expect(renumbered.map((c) => c.id).sort()).toEqual([
-      'gui-1.5b',
-      'gui-1.61',
-      'intuiextend-1.6',
-      'intuiextend-2.01b',
-      'intuition-1.3b',
-    ])
+    expect(renumbered.map((c) => c.id).sort()).toEqual(['intuiextend-1.6', 'intuiextend-2.01b', 'intuition-1.3b'])
     // a handful of names each and no id in common: a collision, not a lineage
-    for (const c of renumbered.filter((c) => !c.id.startsWith('gui-'))) {
+    for (const c of renumbered) {
       expect(c.agree, c.id).toBe(0)
       expect(c.moved, c.id).toBeLessThan(5)
-    }
-  })
-
-  /**
-   * The two GUI releases are the first entries this list has ever held that
-   * ARE a lineage, and they are why the sweep reports `renumbered` instead of
-   * deciding.
-   *
-   * gui-1.5b and gui-1.61 are earlier releases of the gui-2.10 this tree now
-   * ports, and Pietro Ghizzoni rebuilt the token table for each: 44 of 1.5b's
-   * names and 85 of 1.61's appear in 2.10, and exactly ONE id survives in
-   * each. By the sweep's own measure that is indistinguishable from a
-   * coincidence, and it is the opposite.
-   *
-   * They stay unbound anyway, and not because the sweep cannot tell. 2.10
-   * DROPPED six of 1.5b's keywords -- gui amiga, gui amos, gui circle, gui
-   * screen open, gui wait, gui wait vbl -- so naming them in gui-2.10's `ids`
-   * would claim rows this port cannot answer. Each needs its own reading.
-   */
-  it('names the two GUI releases as a lineage the sweep cannot prove', () => {
-    const gui = sweep().filter((c) => c.id.startsWith('gui-'))
-    expect(gui.map((c) => c.id)).toEqual(['gui-1.5b', 'gui-1.61'])
-    for (const c of gui) {
-      expect(c.against, c.id).toBe('gui-2.10')
-      // one id in common out of dozens of shared names: a rebuilt table
-      expect(c.agree, c.id).toBe(1)
-      expect(c.moved, c.id).toBeGreaterThan(40)
-      // and each adds keywords 2.10 does not have, which is why binding them
-      // to it would claim rows nothing answers
-      expect(c.adds, c.id).toBeGreaterThan(0)
     }
   })
 

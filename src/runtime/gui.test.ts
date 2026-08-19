@@ -1,10 +1,15 @@
 /**
- * GUI 2.10's General group, run as AMOS.
+ * The three GUI releases, run as AMOS.
  *
  * ./guistate.test.ts checks the state machine directly; this checks that the
  * keywords reach it, with the argument counts the token table declares. Two
  * of those specs corrected a first reading of the guide, and both have a test
  * here so the correction cannot quietly come undone.
+ *
+ * Most of the file runs 2.10, which is the release with the most keywords and
+ * the fullest guide. `on('1.6x')` and `on('1.5b')` build the same harness
+ * bound to an earlier identity, and the blocks that use them are the places
+ * the releases genuinely differ.
  */
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
@@ -14,11 +19,12 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { GUI_ERR, GUI_ERRORS, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
+import { GUI_ERR, GUI_ERRORS, GUI_ERRORS_15B, GUI_ERRORS_161, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, expand12, guiScale } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, TCP_LIMIT_DEFAULT, TOPAZ_SIZE, expand12, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
+import { TITLE_HEIGHT } from '../amiga/intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
@@ -29,7 +35,45 @@ import { encodeIlbm } from '../amiga/ilbm'
 import { describeIf, describeWith } from '../testing/fixture'
 
 const table = new TokenTable(CORE_TOKENS)
-/** slot 24, the manifest's recommendedSlot */
+/** slot 24, which all three releases recommend and none of them can share */
+const RELEASE_IDS = { '2.10': 'gui-2.10', '1.6x': 'gui-1.61', '1.5b': 'gui-1.5b' } as const
+type Release = keyof typeof RELEASE_IDS
+
+/**
+ * A harness bound to one release.
+ *
+ * The binding is what `guiRelease` reads, so this is the only way to reach
+ * the branches that differ; the token TABLE has to come from the same place,
+ * or a listing would tokenise against one release's ids and run against
+ * another's behaviour.
+ */
+function on(release: Release) {
+  const ext = extensionById(RELEASE_IDS[release])!
+  const exts = new Map([[24, ext.table]])
+  const runOut = (src: string, bank?: Uint8Array, prep?: (rt: Runtime) => void): { rt: Runtime; out: string } => {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, ext]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    if (bank !== undefined) {
+      rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Gui', flags: 0, data: bank })
+    }
+    prep?.(rt)
+    mustFinish(rt.runHeadless(500))
+    return { rt, out }
+  }
+  return {
+    ext,
+    exts,
+    runOut,
+    run: (src: string, bank?: Uint8Array): Runtime => runOut(src, bank).rt,
+    val: (expr: string, bank?: Uint8Array): number => Number(runOut(`Print ${expr}`, bank).out.trim()),
+  }
+}
+
 const gui = extensionById('gui-2.10')!
 const exts = new Map([[24, gui.table]])
 
@@ -393,6 +437,10 @@ describeWith('the gadget group', exampleBank(), (bank) => {
  * items, two of them separators. Nothing else held has a menu at all, so
  * without it these five keywords could only be tested against a strip this
  * repo made up.
+ *
+ * It is a 1.6x bank. The version word at +48 is 22, so it runs on the 1.6x
+ * binding; under 2.10 the header is eighteen bytes longer and the window box
+ * lands on the wrong words, which is what the release parameter is for.
  */
 const DBENCH = '../amos-files/sources/kyzer-dbench/files/DBench/DB_Information.abk'
 
@@ -408,6 +456,7 @@ function dbenchBank(): Uint8Array | null {
 }
 
 describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) => {
+  const { run } = on('1.6x')
   const open = 'Gui Open 1,1'
   /** menu 1 item 1 is "Use", the first thing under Project */
   const USE = packMenuNumber(1, 1, 0)
@@ -417,49 +466,6 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
     const strip = rt.gui.windows.get(1)!.strip!
     expect(strip.menus.map((m) => m.label)).toEqual(['Project', 'View', 'Functions'])
     expect(strip.menus[0]!.items).toHaveLength(5)
-  })
-
-  /**
-   * A zero argument means the field is absent, so item 0 names the whole
-   * menu. That is `OffMenu` with NOITEM, and intuition takes the column with
-   * the title.
-   */
-  it('Gui Menu Off takes a whole menu, and Gui Menu On gives it back', () => {
-    const rt = run(`${open} : Gui Menu Off 1,2,0,0`, bank)
-    const strip = rt.gui.windows.get(1)!.strip!
-    expect(strip.menus[1]!.disabled).toBe(true)
-    expect(strip.menus[0]!.disabled).toBe(false)
-    const back = run(`${open} : Gui Menu Off 1,2,0,0 : Gui Menu On 1,2,0,0`, bank)
-    expect(back.gui.windows.get(1)!.strip!.menus[1]!.disabled).toBe(false)
-  })
-
-  it('names one item when the third argument is given', () => {
-    const rt = run(`${open} : Gui Menu Off 1,1,2,0`, bank)
-    const items = rt.gui.windows.get(1)!.strip!.menus[0]!.items
-    expect(items[1]!.label).toBe('Close')
-    expect(items[1]!.disabled).toBe(true)
-    expect(items[0]!.disabled).toBe(false)
-  })
-
-  /**
-   * Check is `ori.w #$100` and uncheck is `andi.w #$ff`, so the two are not
-   * inverses in Flags even though they are in `checked`. See the DEFECT note
-   * on `gui menu uncheck`.
-   */
-  it('Gui Menu Check sets CHECKED, and Uncheck clears the whole high byte', () => {
-    const rt = run(`${open} : Gui Menu Check 1,1,1,0`, bank)
-    const item = rt.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
-    expect(item.checked).toBe(true)
-    expect(item.flags & MENU_FLAG.CHECKED).toBe(MENU_FLAG.CHECKED)
-
-    const rt2 = run(`${open} : Gui Menu Check 1,1,1,0 : Gui Menu Uncheck 1,1,1,0`, bank)
-    const item2 = rt2.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
-    expect(item2.checked).toBe(false)
-    expect(item2.flags & 0xff00).toBe(0)
-  })
-
-  it('does nothing at all for a window that is not open', () => {
-    expect(() => run(`${open} : Gui Menu Check 9,1,1,0`, bank)).not.toThrow()
   })
 
   /**
@@ -481,6 +487,70 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
     rt.gui.postMenu(1, USE)
     expect(item.checked).toBe(true)
   })
+})
+
+/**
+ * The four menu keywords 2.10 added, which 1.61 has no name for.
+ *
+ * No 2.10 bank in the corpus carries a menu, and DataBench's does. A DESIGN
+ * is release-independent once it has been read, the menu section's layout
+ * did not change and the release only decides where the header ends, so
+ * the bank is read as the 1.6x bank it is and the window is opened from the
+ * result directly. `Gui Open` is the one step that would not do here, because
+ * it is where the version word at +48 is tested and 22 is not 40.
+ */
+describeWith('the four menu keywords 2.10 added', dbenchBank(), (bank) => {
+  const open = (rt: Runtime): void => {
+    rt.gui.designs = readGuiBank(bank, '1.6x')
+    rt.gui.open(1, 0)
+  }
+  const withMenus = (src: string): Runtime => {
+    const { rt } = on('2.10').runOut(src, undefined, open)
+    return rt
+  }
+  /**
+   * A zero argument means the field is absent, so item 0 names the whole
+   * menu. That is `OffMenu` with NOITEM, and intuition takes the column with
+   * the title.
+   */
+  it('Gui Menu Off takes a whole menu, and Gui Menu On gives it back', () => {
+    const rt = withMenus(`Gui Menu Off 1,2,0,0`)
+    const strip = rt.gui.windows.get(1)!.strip!
+    expect(strip.menus[1]!.disabled).toBe(true)
+    expect(strip.menus[0]!.disabled).toBe(false)
+    const back = withMenus(`Gui Menu Off 1,2,0,0 : Gui Menu On 1,2,0,0`)
+    expect(back.gui.windows.get(1)!.strip!.menus[1]!.disabled).toBe(false)
+  })
+
+  it('names one item when the third argument is given', () => {
+    const rt = withMenus(`Gui Menu Off 1,1,2,0`)
+    const items = rt.gui.windows.get(1)!.strip!.menus[0]!.items
+    expect(items[1]!.label).toBe('Close')
+    expect(items[1]!.disabled).toBe(true)
+    expect(items[0]!.disabled).toBe(false)
+  })
+
+  /**
+   * Check is `ori.w #$100` and uncheck is `andi.w #$ff`, so the two are not
+   * inverses in Flags even though they are in `checked`. See the DEFECT note
+   * on `gui menu uncheck`.
+   */
+  it('Gui Menu Check sets CHECKED, and Uncheck clears the whole high byte', () => {
+    const rt = withMenus(`Gui Menu Check 1,1,1,0`)
+    const item = rt.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
+    expect(item.checked).toBe(true)
+    expect(item.flags & MENU_FLAG.CHECKED).toBe(MENU_FLAG.CHECKED)
+
+    const rt2 = withMenus(`Gui Menu Check 1,1,1,0 : Gui Menu Uncheck 1,1,1,0`)
+    const item2 = rt2.gui.windows.get(1)!.strip!.menus[0]!.items[0]!
+    expect(item2.checked).toBe(false)
+    expect(item2.flags & 0xff00).toBe(0)
+  })
+
+  it('does nothing at all for a window that is not open', () => {
+    expect(() => withMenus(`Gui Menu Check 9,1,1,0`)).not.toThrow()
+  })
+
 })
 
 /**
@@ -1345,7 +1415,9 @@ describeWith('the zone group', exampleBank(), (bank) => {
  *
  *     A$(0)="Hello" A$(1)="" A$(2)="World!" A$(3)="" A$(4)="Amiga RULEZ!"
  *
- * GuiDemo is the bank with a LISTVIEW in it; BootSelector has none.
+ * GuiDemo is the bank with a LISTVIEW in it; BootSelector has none. It is a
+ * 1.6x bank and these are 2.10's keywords, so the designs are read as 1.6x
+ * and the window opened from them, for the reason the menu block above gives.
  */
 const DEMO = '../amos-files/sources/aminet-dev-amos/files/GuiExt162/GuiExtension/Demos/GuiDemo.Amos'
 
@@ -1362,12 +1434,17 @@ function demoBank(): Uint8Array | null {
 
 describeWith('the array group', demoBank(), (bank) => {
   /** GuiDemo's listview is gadget 0, and it opens as GUI 1 */
-  const open = 'Gui Open 1,1'
+  const opened = (rt: Runtime): void => {
+    rt.gui.designs = readGuiBank(bank, '1.6x')
+    rt.gui.open(1, 0)
+  }
+  const runOut = (src: string): { rt: Runtime; out: string } => on('2.10').runOut(src, undefined, opened)
+  const run = (src: string): Runtime => runOut(src).rt
   const fill = 'Dim A$(4) : A$(0)="Hello" : A$(2)="World!" : A$(4)="Amiga RULEZ!"'
-  const attach = `${fill} : ${open} : Gui Set 1,0,1,Array(A$(0))`
+  const attach = `${fill} : Gui Set 1,0,1,Array(A$(0))`
 
   it('finds the listview in the demo bank', () => {
-    const rt = run(open, bank)
+    const rt = run('Rem')
     expect(rt.gui.windows.get(1)!.design.gadgets[0]!.kind).toBe(4)
   })
 
@@ -1378,7 +1455,6 @@ describeWith('the array group', demoBank(), (bank) => {
   it('Gui Read$ reads the array, skipping the blanks', () => {
     const got = runOut(
       `${attach} : Print Gui Read$(1,0) : Gui Set 1,0,0,1 : Print Gui Read$(1,0) : Gui Set 1,0,0,2 : Print Gui Read$(1,0)`,
-      bank,
     ).out
     expect(got.trim().split('\n')).toEqual(['Hello', 'World!', 'Amiga RULEZ!'])
   })
@@ -1387,13 +1463,12 @@ describeWith('the array group', demoBank(), (bank) => {
   it('Gui Array Read maps a listview item back to its array element', () => {
     const got = runOut(
       `${attach} : Print Gui Array Read(1,0,0) : Print Gui Array Read(1,0,1) : Print Gui Array Read(1,0,2) : Print Gui Array Read(1,0,3)`,
-      bank,
     ).out
     expect(got.trim().split('\n').map(Number)).toEqual([0, 2, 4, -1])
   })
 
   it('and answers -1 for a listview that was never given an array', () => {
-    expect(runOut(`${open} : Print Gui Array Read(1,0,0)`, bank).out.trim()).toBe('-1')
+    expect(runOut(`Print Gui Array Read(1,0,0)`).out.trim()).toBe('-1')
   })
 
   /**
@@ -1405,7 +1480,6 @@ describeWith('the array group', demoBank(), (bank) => {
   it('Gui Array Up rotates, and the guide s own example comes out', () => {
     const got = runOut(
       `${fill} : Gui Array Up Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
-      bank,
     ).out
     expect(got.trim().split('\n')).toEqual(['[]', '[World!]', '[]', '[Amiga RULEZ!]', '[Hello]'])
   })
@@ -1414,7 +1488,6 @@ describeWith('the array group', demoBank(), (bank) => {
   it('and again, which is the line after it', () => {
     const got = runOut(
       `${fill} : Gui Array Up Array(A$(0)),0 : Gui Array Up Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
-      bank,
     ).out
     expect(got.trim().split('\n')).toEqual(['[World!]', '[]', '[Amiga RULEZ!]', '[Hello]', '[]'])
   })
@@ -1429,7 +1502,6 @@ describeWith('the array group', demoBank(), (bank) => {
   it('rotates only the tail from the start position', () => {
     const got = runOut(
       `Dim A$(3) : A$(0)="String1" : A$(1)="String2" : A$(2)="String3" : A$(3)="String4" : A$(1)="" : Gui Array Up Array(A$(0)),1 : For I=0 To 3 : Print "[";A$(I);"]" : Next I`,
-      bank,
     ).out
     expect(got.trim().split('\n')).toEqual(['[String1]', '[String3]', '[String4]', '[]'])
   })
@@ -1437,7 +1509,6 @@ describeWith('the array group', demoBank(), (bank) => {
   it('Gui Array Down puts it back', () => {
     const got = runOut(
       `${fill} : Gui Array Up Array(A$(0)),0 : Gui Array Down Array(A$(0)),0 : For I=0 To 4 : Print "[";A$(I);"]" : Next I`,
-      bank,
     ).out
     expect(got.trim().split('\n')).toEqual(['[Hello]', '[]', '[World!]', '[]', '[Amiga RULEZ!]'])
   })
@@ -1450,14 +1521,14 @@ describeWith('the array group', demoBank(), (bank) => {
   it('does nothing at all for a start position out of range', () => {
     const same = ['[Hello]', '[]', '[World!]', '[]', '[Amiga RULEZ!]']
     for (const n of [-1, 4, 9]) {
-      const got = runOut(`${fill} : Gui Array Up Array(A$(0)),${n} : For I=0 To 4 : Print "[";A$(I);"]" : Next I`, bank).out
+      const got = runOut(`${fill} : Gui Array Up Array(A$(0)),${n} : For I=0 To 4 : Print "[";A$(I);"]" : Next I`).out
       expect(got.trim().split('\n'), `start ${n}`).toEqual(same)
     }
   })
 
   /** $3126 loads one word and returns; the argument is never read */
   it('Gui Array ignores the argument it is given', () => {
-    const got = runOut(`${open} : Print Gui Array(0) : Print Gui Array(99)`, bank).out
+    const got = runOut(`Print Gui Array(0) : Print Gui Array(99)`).out
     expect(got.trim().split('\n').map(Number)).toEqual([0, 0])
   })
 })
@@ -2634,5 +2705,309 @@ describe('the TCP group', () => {
   it('Tcp Close takes a socket or nothing, and raises for neither', () => {
     expect(() => run('Tcp Close')).not.toThrow()
     expect(() => run('Tcp Close 3')).not.toThrow()
+  })
+})
+
+/**
+ * The 1.5 beta, over a program that used it.
+ *
+ * `AP_GUI/master.AMOS` and its `slave.AMOS` are two halves of an AMOS-to-ARexx
+ * bridge by ahapp@top.monad.net, and extscan identifies their slot 24 as
+ * gui-1.5b exactly, off the token ids. The bank is 1,140 bytes: four
+ * CHECKBOXes, seven menu entries, and a header that stops at 44 with no
+ * version word anywhere in it.
+ */
+const AP_GUI = '../amos-files/sources/aminet-dev-amos/files/AP_GUI/master.AMOS'
+
+function betaBank(): Uint8Array | null {
+  if (!haveCorpus()) return null
+  try {
+    const file = parseAmosFile(new Uint8Array(readFileSync(AP_GUI)))
+    const b = file?.banks.find((x) => 'data' in x && (x as { number?: number }).number === 20)
+    return b && 'data' in b ? (b.data as Uint8Array) : null
+  } catch {
+    return null
+  }
+}
+
+describeWith('the 1.5 beta, over AP_GUI s own bank', betaBank(), (bank) => {
+  const { run, runOut, val } = on('1.5b')
+
+  it('reads only with the 44-byte header, and carries no version', () => {
+    const beta = readGuiBank(bank, '1.5b')
+    expect(beta).toHaveLength(1)
+    expect(beta[0]!.version).toBe(0)
+    expect(beta[0]!.gadgets.map((g) => g.kind)).toEqual([2, 2, 2, 2])
+    expect(beta[0]!.title).toBe('Watch out what you do!')
+    // the same bytes through 2.10's reader find a GUI whose window box is
+    // eighteen bytes further on than it is
+    expect(readGuiBank(bank, '2.10')[0]?.width).not.toBe(beta[0]!.width)
+  })
+
+  it('opens without the version check the later releases make', () => {
+    const rt = run('Gui Open 1,1', bank)
+    expect(rt.gui.windows.get(1)!.design.title).toBe('Watch out what you do!')
+  })
+
+  /** "-1 last window closed", where 1.61 and 2.10 both answer 3 */
+  it('Gui Close answers -1 for the last window', () => {
+    expect(Number(runOut('Gui Open 1,1 : Print Gui Close(1)', bank).out.trim())).toBe(GUI_CLOSE.LAST_BETA)
+  })
+
+  /** `moveq #$fd,d0` stands unless `$62` has a window list */
+  it('Gui Wait answers -3 with nothing open, and pumps once a window is', () => {
+    expect(val('Gui Wait', bank)).toBe(GUI_EVENT.UNUSED3)
+    expect(Number(runOut('Gui Open 1,1 : Print Gui Wait', bank).out.trim())).toBe(GUI_EVENT.NOTHING)
+  })
+
+  /** the token is `gui circle` where the doc's heading says GUI ELLIPSE */
+  it('Gui Circle draws the ellipse 2.10 renamed', () => {
+    const rt = run('Gui Open 1,1 : Gui Gfx 0,1 : Gui Ink 3 : Gui Circle 40,40,20,10', bank)
+    const rp = rt.gui.windows.get(1)!.rp
+    expect(rp.point(60, 40)).toBe(3)
+    expect(rp.point(40, 30)).toBe(3)
+  })
+
+  /** `EcCall AMOS_WB` with d1 zero, then the T_NoFlip word, then WBenchToFront */
+  it('Gui Amiga locks AMOS and Gui Amos unlocks it', () => {
+    expect(run('Gui Amiga', bank).noFlip).toBe(true)
+    expect(run('Gui Amiga : Gui Amos', bank).noFlip).toBe(false)
+  })
+
+  /** three arguments, not 1.61's four: the pattern came with 1.6 */
+  it('Gui Asl$ takes three arguments here', () => {
+    expect(runOut('Print "["+Gui Asl$("t","","f")+"]"', bank).out.trim()).toBe('[]')
+  })
+
+  /** routine 54 returns AslRequest s own answer, and the spec says INTEGER */
+  it('Gui Asl Font answers a number rather than a font name', () => {
+    expect(val('Gui Asl Font', bank)).toBe(-1)
+  })
+
+  /**
+   * Roll the window up to its title bar and back. The beta has no guard, so
+   * a second iconify saves the rolled-up box over the real one and the window
+   * can never be restored; 1.61 added the test that stops it.
+   */
+  it('Gui Iconify shrinks to the title bar and Gui Uniconify puts it back', () => {
+    const rt = run('Gui Open 1,1 : Gui Iconify 1', bank)
+    const w = rt.gui.windows.get(1)!
+    expect(w.height).toBe(TITLE_HEIGHT)
+    expect(rt.gui.iconBoxes.get(0)![3]).toBeGreaterThan(TITLE_HEIGHT)
+
+    const back = run('Gui Open 1,1 : Gui Iconify 1 : Gui Uniconify 1', bank)
+    expect(back.gui.windows.get(1)!.height).toBeGreaterThan(TITLE_HEIGHT)
+
+    // twice, which is the bug the history records as fixed in 1.61
+    const lost = run('Gui Open 1,1 : Gui Iconify 1 : Gui Iconify 1 : Gui Uniconify 1', bank)
+    expect(lost.gui.windows.get(1)!.height).toBe(TITLE_HEIGHT)
+  })
+
+  /**
+   * `bset.b d0,d1` makes the depth `1 << n`, so 3 asks for eight bitplanes
+   * and 4 asks for sixteen and OpenScreen refuses it.
+   */
+  it('Gui Screen Open turns the depth into a bit mask', () => {
+    expect(run('Gui Screen Open 1,320,200,3,0', bank).gui.screens.get(1)!.depth).toBe(8)
+    expect(run('Gui Screen Open 1,320,200,2,0', bank).gui.screens.get(1)!.depth).toBe(4)
+    expect(run('Gui Screen Open 1,320,200,4,0', bank).gui.screens.has(1)).toBe(false)
+  })
+})
+
+/**
+ * What 1.61 spells differently, over GuiDemo's own bank.
+ *
+ * The four scale functions and `Gui Len` each lost an argument between this
+ * release and 2.10, and `Gui Amiga` gained one. A listing written for either
+ * release and parsed against the other runs off the end of its own arguments,
+ * which is why the release has to reach the handlers at all.
+ */
+describeWith('what 1.61 spells differently', demoBank(), (bank) => {
+  const { run, val } = on('1.6x')
+
+  it('opens a converter-20 bank that 2.10 would refuse', () => {
+    expect(readGuiBank(bank, '1.6x')[0]!.version).toBe(20)
+    expect(run('Gui Open 1,1', bank).gui.windows.has(1)).toBe(true)
+    const later = on('2.10')
+    expect(() => later.run('Gui Open 1,1', bank)).toThrow(GUI_ERRORS[GUI_ERR.WRONG_BANK_VERSION])
+  })
+
+  /** and the message names 1.63, not 2.3 */
+  it('names its own converter in the version error', () => {
+    expect(GUI_ERRORS_161[GUI_ERR.WRONG_BANK_VERSION]).toBe('Wrong GUI bank version. Use the GUI converter 1.63')
+    expect(GUI_ERRORS_161[GUI_ERR.CHANNEL_NOT_OPENED]).toBe('Channel not opened!')
+    expect(GUI_ERRORS_161).toHaveLength(24)
+    expect(GUI_ERRORS_15B[0]).toBe('AMIGA RULEZ!')
+    expect(GUI_ERRORS_15B).toHaveLength(14)
+  })
+
+  /** `=GUI SX(x)`, one argument, and the borders come from the extension */
+  it('Gui Sx and Gui Sy take one argument', () => {
+    expect(val('Gui Sx(4)', bank)).toBe(4)
+    expect(val('Gui Sy(10)', bank)).toBe(TITLE_HEIGHT)
+    expect(val('Gui Sw(64)', bank)).toBe(64)
+    expect(val('Gui Sh(64)', bank)).toBe(64)
+  })
+
+  /** `=GUI LEN(text$)` with no window to measure against */
+  it('Gui Len takes one argument', () => {
+    expect(val('Gui Len("AMOS")', bank)).toBe(4 * TOPAZ_SIZE)
+  })
+
+  /** `GUI AMIGA 0` and `GUI AMIGA 1` do the same three things under an interpreter */
+  it('Gui Amiga takes a mode here, and both modes do the same', () => {
+    for (const mode of [0, 1]) expect(run(`Gui Amiga ${mode}`, bank).noFlip, `mode ${mode}`).toBe(true)
+  })
+
+  /** `cmp.w $a(a2),d0 / beq` at $161c, the fix the history dates to 1.61 */
+  it('Gui Iconify refuses to iconify an already iconified window', () => {
+    const rt = run('Gui Open 1,1 : Gui Iconify 1 : Gui Iconify 1 : Gui Uniconify 1', bank)
+    expect(rt.gui.windows.get(1)!.height).toBeGreaterThan(TITLE_HEIGHT)
+  })
+
+  /** the beta's -3 is gone: 1.61's pump answers -7 the way 2.10's does */
+  it('Gui Wait answers -7 with nothing open', () => {
+    expect(val('Gui Wait', bank)).toBe(GUI_EVENT.NOTHING)
+  })
+})
+
+/**
+ * 1.61's TCP group, which is AmigaDOS and not sockets.
+ *
+ * Every one of the twenty-one keywords works on a file handle: `Tcp Open`
+ * prepends `TCP:` to the name and `Tcp F Open` does not, and both then call
+ * dos Open with MODE_OLDFILE. GuiNet.Amos, the demo shipped with 1.62, is the
+ * worked example. Its `AMINET=Tcp Open(1,"ftp.wustl.edu/80")` is AmiTCP's
+ * handler syntax for a host and a port, and its own banner says "the TCP
+ * commands are under development! This is only a preview!"
+ */
+describe('the 1.61 TCP group', () => {
+  const { ext, exts: tcpExts } = on('1.6x')
+
+  function withFs(src: string, seed?: string): { rt: Runtime; fs: AmigaFS; out: () => string } {
+    let printed = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.currentDir = 'RAM:'
+    if (seed !== undefined) fs.writeFile('RAM:in.txt', Uint8Array.from(seed, (c) => c.charCodeAt(0)))
+    const rt = new Runtime(tokenize(src, table, tcpExts), table, {
+      extensions: tcpExts,
+      extBindings: new Map([[24, ext]]),
+      maxSteps: 300_000,
+      fs,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(500))
+    return { rt, fs, out: () => printed }
+  }
+
+  /** the name goes to dos Open unchanged, and a success is non-zero */
+  it('Tcp F Open opens a file that is there and answers 0 for one that is not', () => {
+    const r = withFs('Print Tcp F Open(1,"RAM:in.txt") : Print Tcp F Open(2,"RAM:gone.txt")', 'hello')
+    const [ok, missing] = r.out().trim().split('\n').map(Number)
+    expect(ok).not.toBe(0)
+    expect(missing).toBe(0)
+    expect(r.rt.gui.channels.has(1)).toBe(true)
+    expect(r.rt.gui.channels.has(2)).toBe(false)
+  })
+
+  /**
+   * MODE_OLDFILE is `move.l #$3ec,d2` and there is no other mode in the
+   * routine, so neither keyword can create a file. GuiNet.Amos's own
+   * `Tcp F Open(2,"Ram:Recent.html")` therefore answers 0 on a machine where
+   * that file is not already sitting there, and the demo goes on to use the
+   * channel anyway.
+   */
+  it('cannot create a file, which is what breaks the shipped demo', () => {
+    const r = withFs('Print Tcp F Open(2,"RAM:Recent.html")')
+    expect(Number(r.out().trim())).toBe(0)
+  })
+
+  /** `TCP:` is AmiTCP's handler and this port has no network to mount one on */
+  it('Tcp Open answers 0, because nothing here answers TCP:', () => {
+    expect(Number(withFs('Print Tcp Open(1,"ftp.wustl.edu/80")').out().trim())).toBe(0)
+  })
+
+  /** `moveq #$17,d7` before the name is even built */
+  it('a channel that is already open is Channel already used!', () => {
+    expect(() => withFs('A=Tcp F Open(1,"RAM:in.txt") : A=Tcp F Open(1,"RAM:in.txt")', 'x')).toThrow(
+      GUI_ERRORS_161[GUI_ERR.CHANNEL_ALREADY_USED],
+    )
+  })
+
+  /** `moveq #$14,d7` in routine 115, which is 1.61's wording of error 20 */
+  it('a channel that was never opened is Channel not opened!', () => {
+    expect(() => withFs('A=Tcp Put$(4,"x")')).toThrow(GUI_ERRORS_161[GUI_ERR.CHANNEL_NOT_OPENED])
+  })
+
+  /** dos Write, synchronous, and the answer is the byte count */
+  it('Tcp Put$ writes and Tcp Close flushes it back', () => {
+    const r = withFs('A=Tcp F Open(1,"RAM:in.txt") : Print Tcp Put$(1,"WXYZ") : Tcp Close', 'abcdefgh')
+    expect(Number(r.out().trim())).toBe(4)
+    expect(String.fromCharCode(...r.fs.readFile('RAM:in.txt')!)).toBe('WXYZefgh')
+    expect(r.rt.gui.channels.size).toBe(0)
+  })
+
+  /**
+   * `Tcp Read` posts an ACTION_READ packet and answers its id; the bytes and
+   * the count arrive at the next `Gui Wait`, as -9 with `Tcp Code` holding
+   * dp_Res1. That is GuiNet.Amos's whole loop.
+   */
+  it('Tcp Read is asynchronous: an id now, the -9 and the count after', () => {
+    const r = withFs(
+      'Reserve As Work 5,64 : B=Start(5) : A=Tcp F Open(1,"RAM:in.txt") : P=Tcp Read(1,B,4) : ' +
+        'Print P : Print Tcp Count : Print Tcp Check : Print Gui Wait : ' +
+        'Print Tcp Code : Print Tcp Channel : Print Tcp Type : Print Tcp Count : Print Peek$(B,4)',
+      'abcdefgh',
+    )
+    const lines = r.out().trim().split('\n')
+    expect(lines.slice(0, 8).map(Number)).toEqual([1, 1, -1, GUI_EVENT.TCP, 4, 1, 82, 0])
+    expect(lines[8]).toBe('abcd')
+  })
+
+  /** ACTION_WRITE is the other dp_Type, and `Tcp Buffer` gives the address back */
+  it('Tcp Send reports type 87 and the buffer it was given', () => {
+    const r = withFs(
+      'Reserve As Work 5,64 : B=Start(5) : A=Tcp F Open(1,"RAM:in.txt") : P=Tcp Send(1,B,4) : ' +
+        'A=Gui Wait : Print Tcp Type : Print Tcp Buffer=B : Print Tcp Error',
+      'abcdefgh',
+    )
+    expect(r.out().trim().split('\n').map(Number)).toEqual([87, -1, 0])
+  })
+
+  /** WaitForChar then Read, and an empty wait is `moveq #$fe,d0` */
+  it('Tcp Get reads synchronously and answers -2 at the end of the data', () => {
+    const r = withFs(
+      'Reserve As Work 5,64 : B=Start(5) : A=Tcp F Open(1,"RAM:in.txt") : ' +
+        'Print Tcp Get(1,B,3) : Print Peek$(B,3) : Print Tcp Get(1,B,3) : Print Tcp Get(1,B,3)',
+      'abcde',
+    )
+    const lines = r.out().trim().split('\n')
+    expect(Number(lines[0])).toBe(3)
+    expect(lines[1]).toBe('abc')
+    expect(Number(lines[2])).toBe(2)
+    expect(Number(lines[3])).toBe(-2)
+  })
+
+  /** `Tcp Trash` eats the replies and leaves `$2b6` exactly where it was */
+  it('Tcp Trash drops the replies without correcting Tcp Count', () => {
+    const r = withFs(
+      'Reserve As Work 5,64 : B=Start(5) : A=Tcp F Open(1,"RAM:in.txt") : A=Tcp Read(1,B,2) : ' +
+        'A=Tcp Read(1,B,2) : Tcp Trash : Print Tcp Check : Print Tcp Count : Print Gui Wait',
+      'abcdefgh',
+    )
+    expect(r.out().trim().split('\n').map(Number)).toEqual([0, 2, GUI_EVENT.NOTHING])
+  })
+
+  /** the boot writes twenty million microseconds, and `Tcp Limit` overwrites it */
+  it('Tcp Limit sets the WaitForChar timeout, twenty seconds by default', () => {
+    const r = withFs('Tcp Limit 500')
+    expect(r.rt.gui.charLimit).toBe(500)
+    expect(withFs('Rem').rt.gui.charLimit).toBe(TCP_LIMIT_DEFAULT)
+  })
+
+  /** two DateStamps, minutes and seconds only, and the same second is 0 */
+  it('Tcp Time measures from Tcp Reset', () => {
+    expect(Number(withFs('Tcp Reset : Print Tcp Time').out().trim())).toBe(0)
   })
 })

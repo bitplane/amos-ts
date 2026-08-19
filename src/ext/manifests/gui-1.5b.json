@@ -14,12 +14,14 @@
     "AMOSPro_Images.Doc"
   ],
   "titleStrings": [],
-  "observedSlots": [],
+  "observedSlots": [
+    24
+  ],
   "provenance": {
     "from": "aminet-dev-amos/files/snc004/SnC-4/AMOS_Extension/AMOSPro_GUI.Lib",
     "note": "Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
     "redistribution": "Uploaded to Aminet, whose terms require the submitter to state distribution conditions. Kept as a fixture for identification and reference only."
   },
-  "findings": "48 keywords against 204 in 2.10, so the library grew fourfold after this. Explains three corpus programs at slot 24. None ported. DOCUMENTED AFTER ALL. `AMOSPro_GUI.Doc`, 18,308 bytes, sits in the corpus beside a library byte-identical to this fixture (sha a4ffb518…), and its banner reads “AMOSPro GUI Extension / > BETA VERSION 1.5 < / - FREEWARE - / ©1995-1996 Dairymen Soft”. That is where the author comes from; this row recorded ‘unattributed’. `AMOSPro_Images.Doc` ships with it. The 1.61 row's ‘no manual’ still stands --- this documents 1.5.",
-  "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus. Documented, unlike the 1.61 that followed it."
+  "findings": "48 keywords against 204 in 2.10, so the library grew fourfold after this. Explains three corpus programs at slot 24, two of which are `AP_GUI/master.AMOS` and its `slave.AMOS`, an AMOS-to-ARexx bridge by ahapp@top.monad.net that extscan resolves to this identity exactly off its token ids. DOCUMENTED AFTER ALL. `AMOSPro_GUI.Doc`, 18,308 bytes, sits in the corpus beside a library byte-identical to this fixture (sha a4ffb518…), and its banner reads “AMOSPro GUI Extension / > BETA VERSION 1.5 < / - FREEWARE - / ©1995-1996 Dairymen Soft”. That is where the author comes from; this row recorded ‘unattributed’. `AMOSPro_Images.Doc` ships with it. It documents 1.5 only; 1.61's own guide ships with the 1.62 build.",
+  "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus, and the only release with a plain-text manual rather than an AmigaGuide one."
 }

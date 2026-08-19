@@ -77,8 +77,8 @@ is.
 | first-0.1            |        4 |        4 |            0 |       0 |     100% |
 | flow                 |       12 |       10 |            2 |       0 |     100% |
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
-| gui-1.5b             |       48 |        0 |            0 |      48 |       0% |
-| gui-1.61             |      103 |        0 |            0 |     103 |       0% |
+| gui-1.5b             |       48 |        0 |           48 |       0 |     100% |
+| gui-1.61             |      103 |        0 |          103 |       0 |     100% |
 | gui-2.10             |      204 |        0 |          204 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |        0 |            0 |      62 |       0% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     4832 |          363 |    2164 |      71% |
+| **total**            |     7422 |     4832 |          514 |    2013 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -280,6 +280,36 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## flow (100%)
 
 - **approximated** (2): `direct`, `edit`
+
+## gui-1.5b (100%)
+
+- **approximated** (48): `gui actual`, `gui amiga`, `gui amos`, `gui asl font`,
+  `gui asl screen`, `gui asl$`, `gui bank`, `gui bar`, `gui border`, `gui circle`, `gui close`,
+  `gui cls`, `gui code`, `gui code$`, `gui dir$`, `gui draw`, `gui draw to`, `gui exist`,
+  `gui file$`, `gui gfx`, `gui height`, `gui iconify`, `gui ink`, `gui menu`, `gui mouse x`,
+  `gui mouse y`, `gui move`, `gui open`, `gui paste block`, `gui paste bob`, `gui paste icon`,
+  `gui req`, `gui reset`, `gui resize`, `gui screen open`, `gui scroll`, `gui sensitive off`,
+  `gui sensitive on`, `gui set`, `gui to back`, `gui to front`, `gui uniconify`, `gui wait`,
+  `gui wait vbl`, `gui width`, `gui window`, `gui x`, `gui y`
+
+## gui-1.61 (100%)
+
+- **approximated** (103): `gui activate`, `gui actual`, `gui amiga`, `gui amos`, `gui asl font`,
+  `gui asl screen`, `gui asl$`, `gui bank`, `gui bar`, `gui beep`, `gui border`, `gui close`,
+  `gui cls`, `gui clw`, `gui code`, `gui code$`, `gui dir$`, `gui draw`, `gui draw to`,
+  `gui ellipse`, `gui event`, `gui exist`, `gui file$`, `gui gad adr`, `gui gad height`,
+  `gui gad width`, `gui gfx`, `gui height`, `gui iconify`, `gui in height`, `gui in width`,
+  `gui ink`, `gui key shift`, `gui kind`, `gui len`, `gui lock`, `gui menu`, `gui mouse x`,
+  `gui mouse y`, `gui move`, `gui off`, `gui on`, `gui open`, `gui os`, `gui paper`,
+  `gui paste block`, `gui paste bob`, `gui paste icon`, `gui pen`, `gui range`, `gui read`,
+  `gui read$`, `gui remember off`, `gui remember on`, `gui req`, `gui reset`, `gui resize`,
+  `gui scroll`, `gui sensitive off`, `gui sensitive on`, `gui set`, `gui sh`, `gui sw`,
+  `gui sx`, `gui sy`, `gui text`, `gui titles`, `gui to back`, `gui to front`, `gui uniconify`,
+  `gui unlock`, `gui wait`, `gui wait vbl`, `gui width`, `gui window`, `gui writing`, `gui x`,
+  `gui x font`, `gui x gad`, `gui y`, `gui y font`, `gui y gad`, `tcp buffer`, `tcp channel`,
+  `tcp check`, `tcp close`, `tcp code`, `tcp count`, `tcp error`, `tcp f open`, `tcp get`,
+  `tcp limit`, `tcp open`, `tcp packet`, `tcp put`, `tcp put$`, `tcp read`, `tcp reset`,
+  `tcp send`, `tcp send$`, `tcp time`, `tcp trash`, `tcp type`
 
 ## gui-2.10 (100%)
 

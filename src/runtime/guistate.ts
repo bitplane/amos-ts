@@ -1,21 +1,27 @@
 /**
- * GUI 2.10's own state: which bank, which windows are open, what happened.
+ * The GUI extension's own state: which bank, which windows are open, what
+ * happened.
  *
  * Split from the keyword file because the keywords are a thin surface over
  * this and the interesting part is what a window IS here. See ./guibank.ts
  * for the format the designs arrive in.
  *
+ * One state for all three releases, with `release` marking the few fields and
+ * answers that differ; ./gui.ts's header says why one port serves them.
+ *
  * ## Evidence
  *
- * `GUI2.guide` by Pietro Ghizzoni, which documents 202 of the extension's 204
- * keywords, and the binary `AMOSPro_GUI.Lib` where the guide is silent. Every
- * event code below is the guide's own list, quoted at `GUI_EVENT`.
+ * `GUI2.guide` by Pietro Ghizzoni, which documents 202 of 2.10's 204
+ * keywords, `GUI.guide` for the 1.6 line and `AMOSPro_GUI.Doc` for the beta,
+ * and the binaries where the three are silent. Every event code below is
+ * 2.10's own list, quoted at `GUI_EVENT`; the beta stops at -6 and 1.61 at
+ * -10.
  */
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
 import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
-import type { Gui, GuiGadget } from './guibank'
+import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
 
 /**
@@ -96,6 +102,16 @@ export const GUI_CLOSE = {
   FIRST: 1,
   LAST_OPENED: 2,
   LAST: 3,
+  /**
+   * What 1.5b answers instead of 3, and its own doc says so: "-1 last window
+   * closed" against 1.61's "3 - Last window closed."
+   *
+   * Routine 61's arm at $1980 clears both list heads and takes `moveq #$ff,d1`
+   * where the three arms above it load 0, 1 and 2. So the beta's four codes
+   * are 0, 1, 2 and -1, and a program that tested `Until Gui Close(1)=3` on
+   * the beta would never stop.
+   */
+  LAST_BETA: -1,
 } as const
 
 /** the bank GuiConv writes by default, and what `Gui Bank` starts at */
@@ -453,6 +469,26 @@ export function guiScale(v: number, cell: number): number {
 }
 
 /**
+ * The same scale as 1.61 computes it, which is a ROTATE and not a divide.
+ *
+ * Routines 39 and 40 at $147a and $148e end `ror.l #$3,d0 / ext.l d0` where
+ * 2.10's end `divu.w #$8,d0`. A rotate is not a shift: the three bits that
+ * fall off the bottom arrive at the top, and `ext.l` then keeps only the low
+ * WORD sign-extended, so what survives is bits 3 to 18 of `v * cell + 4`.
+ *
+ * For every coordinate a GUI can hold that is the same number as the divide
+ *, the product stays under 2^19 for a 640-pixel window and a 16-pixel cell
+ *, and the two part on a NEGATIVE v, where `divu.w` is unsigned and
+ * overflows and the rotate does not. Neither release has a reachable negative
+ * here, so this is a difference in how, not in what.
+ */
+export function guiScaleRor(v: number, cell: number): number {
+  const n = (v * cell + 4) >>> 0
+  const r = ((n >>> 3) | (n << 29)) >>> 0
+  return ((r & 0xffff) << 16) >> 16
+}
+
+/**
  * `Gui Menu(4)`, the argument that is not a field.
  *
  * Routine 4 tests for it first, `cmp.w #$4,d0 / beq` at $1d00, and only then
@@ -605,6 +641,70 @@ export interface GuiWindow {
 }
 
 /** one thing that happened, waiting for `Gui Wait` to report it */
+/**
+ * How many channels 1.61's `Tcp` group has, `moveq #$31,d2 / dbra` at $ac2 and
+ * again at $1b14, fifty, at `$1d2` of the state, one longword each.
+ *
+ * DEFECT: nothing bounds-checks the number. `lsl.l #$2,d0 / move.l
+ * (a0,d0.w),d0` in every one of the eight routines that index it, so channel
+ * 50 reads the four bytes after the table and channel -1 reads the four before
+ * it. The table is followed by the window and font words, which is a long way
+ * from harmless. This port refuses a channel outside the table instead, since
+ * it has no state at those addresses to hand back.
+ */
+export const TCP_CHANNELS = 50
+
+/**
+ * `move.l #$1312d00,$2ba(a3)` at $ade, twenty million microseconds, which
+ * is the twenty seconds `Tcp Get` waits before it answers -2.
+ *
+ * `Tcp Limit` overwrites it and nothing puts it back short of a reboot of the
+ * extension, which is where this value is set.
+ */
+export const TCP_LIMIT_DEFAULT = 0x1312d00
+
+/**
+ * One open AmigaDOS file, which is all a 1.61 "TCP" channel is.
+ *
+ * `Tcp Open` prepends `TCP:` to the name and `Tcp F Open` does not, and both
+ * then call the same routine 116: MODE_OLDFILE ($3ec) through dos Open. So the
+ * group is DOS I/O over a handler, and on a machine with AmiTCP mounted that
+ * handler is the network.
+ *
+ * Held whole rather than streamed because ../amiga/vfs.ts is a whole-file
+ * store; `pos` is fh_Pos and `dirty` says whether the close has to write back.
+ */
+export interface GuiChannel {
+  path: string
+  data: Uint8Array
+  pos: number
+  dirty: boolean
+}
+
+/**
+ * One DosPacket reply waiting on the extension's own MsgPort.
+ *
+ * Routine 117 AllocMems $4c bytes and lays a StandardPacket in it, the
+ * Message first, `lea $14(a0),a1` for the DosPacket, `move.l a1,$a(a0)` so the
+ * reply can be found from the message, and writes two longwords of its own
+ * PAST the DosPacket's thirty bytes, at `$30` and `$34`: a serial number and
+ * the channel. `Tcp Packet` and `Tcp Channel` are those two.
+ */
+export interface GuiPacket {
+  /** `$30` of the packet, `$2aa` counted up */
+  id: number
+  /** dp_Type, $52 for a `Tcp Read` and $57 for a `Tcp Send` */
+  type: number
+  /** dp_Res1, which the pump also copies into `Gui Code` */
+  res1: number
+  /** dp_Res2 */
+  res2: number
+  /** `$34`, the channel the request named */
+  channel: number
+  /** dp_Arg2, the buffer address */
+  buffer: number
+}
+
 export interface GuiEvent {
   /** the gadget number, or one of GUI_EVENT */
   code: number
@@ -649,6 +749,17 @@ export interface GuiEvent {
  * this is the AMOS side that names them by number.
  */
 export class GuiState {
+  /**
+   * Which of the three releases the program bound, since one body of code
+   * serves all of them.
+   *
+   * Set once from `rt.extBindings` when the Runtime is built, because the
+   * answer cannot change while a program runs: a slot holds one library. Read
+   * wherever the releases genuinely differ, the bank layout, `Gui Wait`'s
+   * codes, the arity of eight keywords, and nowhere else, which is the
+   * point of keeping it a field rather than a fork in the port.
+   */
+  release: GuiRelease = '2.10'
   /** `Gui Bank`, which the guide says the converter defaults to 20 */
   bank = DEFAULT_GUI_BANK
   /** every GUI in the current bank, once one has been read */
@@ -726,6 +837,20 @@ export class GuiState {
    * positions back.
    */
   readonly remembered = new Map<number, [number, number]>()
+  /**
+   * Where 1.5b's and 1.61's `Gui Iconify` park a window's box while it is
+   * rolled up to its title bar, keyed by DESIGN.
+   *
+   * Not by window, because the machine does not key it by window: routine 51
+   * does `adda.w $2a(a0),a0` and writes the four words into the Header Info
+   * block of the GUI itself, at the offsets the 1.5 converter's comments call
+   * "Window Left Edge / Top / Width / Height". It is the bank's own field and
+   * it survives the window closing.
+   *
+   * 2.10's `Gui Iconify` is a different keyword under the same name, it
+   * closes the window and puts up an AppIcon, and does not use this.
+   */
+  readonly iconBoxes = new Map<number, [number, number, number, number]>()
   /**
    * `Gui Set Mode`, one word at `$60`: whether a window gets an iconify
    * gadget. "this command doesn't modify the windows already opened, but only
@@ -940,6 +1065,27 @@ export class GuiState {
   tcpRecvd = 0
   /** the last line `Tcp Read$` left in the scratch, which `Tcp Response` parses */
   tcpLine = ''
+  /**
+   * 1.61's TCP group, which shares nothing with 2.10's but the prefix.
+   *
+   * Fifty DOS channels at `$1d2`, a MsgPort at `$29a` that the pump drains,
+   * and the readers' six fields, which are filled in from ONE reply at a time
+   * and stand until the next.
+   */
+  readonly channels = new Map<number, GuiChannel>()
+  /** the message list of the port at `$29a`, oldest first */
+  readonly packets: GuiPacket[] = []
+  /** `$2aa`, counted up per packet and never reset short of a reboot */
+  packetSerial = 0
+  /** `$2b6`, what `Tcp Count` reads: sent and not yet collected */
+  packetsOut = 0
+  /** `$2ba`, `Tcp Limit`'s microseconds */
+  charLimit = TCP_LIMIT_DEFAULT
+  /** the six fields the pump writes at $31f8, which the six readers answer */
+  reply: GuiPacket = { id: 0, type: 0, res1: 0, res2: 0, channel: 0, buffer: 0 }
+  /** `$2b2` and `$2b4`, the DateStamp minute and second `Tcp Reset` parks */
+  stampMinute = 0
+  stampSecond = 0
   /** `$a0`: the zone the last event was in, which `Gui Zone` reads */
   activeZone = 0
   /**
@@ -1119,7 +1265,7 @@ export class GuiState {
     this.windows.delete(n)
     if (this.selected === n) this.selected = others[others.length - 1]?.number ?? 0
     if (this.actual === n) this.actual = others[others.length - 1]?.number ?? 0
-    if (others.length === 0) return GUI_CLOSE.LAST
+    if (others.length === 0) return this.release === '1.5b' ? GUI_CLOSE.LAST_BETA : GUI_CLOSE.LAST
     if (others.every((x) => x.openedAt > w.openedAt)) return GUI_CLOSE.FIRST
     if (others.every((x) => x.openedAt < w.openedAt)) return GUI_CLOSE.LAST_OPENED
     return GUI_CLOSE.CLOSED
@@ -1270,10 +1416,7 @@ export class GuiState {
   nextEvent(): number {
     for (;;) {
       const e = this.pending.shift()
-      if (e === undefined) {
-        this.last = null
-        return GUI_EVENT.NOTHING
-      }
+      if (e === undefined) return this.nextPacket()
       if (e.window !== undefined && this.windows.get(e.window)?.locked === true) continue
       this.last = e
       if (e.window !== undefined) {
@@ -1284,6 +1427,28 @@ export class GuiState {
       if (e.mouseY !== undefined) this.eventY = e.mouseY
       return e.code
     }
+  }
+
+  /**
+   * 1.61's -9, once intuition has nothing left to say.
+   *
+   * The pump tests the port signals in order, intuition's at $31a2, its own
+   * at $31b6, ARexx's at $31d6, so a reply is only looked at when no window
+   * event is pending, which is this call's position. GetMsg, read the six
+   * fields out of the DosPacket through `$a(a0)`, FreeMem it, and answer -9
+   * with dp_Res1 also copied into `$96`: `move.l $29e(a3),$96(a3)` at $3224,
+   * which is the word `Gui Code` reads.
+   */
+  private nextPacket(): number {
+    const p = this.packets.shift()
+    if (p === undefined) {
+      this.last = null
+      return GUI_EVENT.NOTHING
+    }
+    this.reply = p
+    this.packetsOut = Math.max(0, this.packetsOut - 1)
+    this.last = { code: GUI_EVENT.TCP, result: p.res1, text: '' }
+    return GUI_EVENT.TCP
   }
 
   /**

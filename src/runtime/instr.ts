@@ -92,7 +92,7 @@ import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './star
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
-import { makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
+import { GUI_ERRORS, guiRelease, makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -6524,17 +6524,27 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   },
   {
     /*
-     * GUI 2.10 by Pietro Ghizzoni. Only the General group so far: the bank,
-     * open and close, and the event loop. The row stays 0% until the other
-     * 165 keywords land, which is the rule that stops a part-built port
-     * reading as a finished one.
+     * The three GUI releases by Pietro Ghizzoni, 48 keywords in the 1.5
+     * beta, 103 in 1.61, 204 in 2.10, served by one body of code, because
+     * that is what they are: 45 of 1.5b's names survive into 1.61 unchanged
+     * and 85 of 1.61's into 2.10. gui.ts branches on `rt.gui.release` at the
+     * points where the binaries differ and nowhere else.
+     *
+     * 1.62 is not a fourth identity. Its token table is byte-identical to
+     * 1.61's, which is what libcat calls the same library, and its guide and
+     * demos are the documentation for both.
+     *
+     * `errors` is 2.10's thirty-five, which the other two tables are a prefix
+     * of with two substitutions each; gui.ts exports all three and
+     * `guiErrorOn` picks the one the bound release indexes.
      */
-    ids: ['gui-2.10'],
+    ids: ['gui-2.10', 'gui-1.61', 'gui-1.5b'],
     init: (rt) => {
-      rt.gui = newGuiState()
+      rt.gui = newGuiState(guiRelease(rt))
     },
     instructions: makeGuiInstructions,
     functions: makeGuiFunctions,
+    errors: GUI_ERRORS,
   },
   {
     // the printer companion, slot 21 by its own manual. 1.1 is served through

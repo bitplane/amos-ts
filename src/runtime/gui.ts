@@ -1,52 +1,80 @@
 /**
- * The GUI extension 2.10, by Pietro Ghizzoni — all 204 keywords.
+ * The GUI extension by Pietro Ghizzoni, all three releases, 355 keywords.
  *
  * A GadToolsBox interface saved as an AMOS bank, opened as intuition windows
  * with gadtools gadgets in them, plus screens, requesters, AppIcons, a
- * clipboard, DOS notification, locale catalogs and a TCP/IP group. See
+ * clipboard, DOS notification, locale catalogs and a TCP group. See
  * ./guibank.ts for the format the designs arrive in and ./guistate.ts for
  * what a window is here.
  *
+ * ## One port, three tables
+ *
+ * 48 keywords in the 1.5 beta, 103 in 1.61, 204 in 2.10, and they are one
+ * extension rather than three: 45 of the beta's names survive into 1.61
+ * unchanged and 85 of 1.61's into 2.10. So one body of code serves all three
+ * and `GuiState.release` marks the places they part, the bank layout,
+ * eight arities, `Gui Close`'s last code, `Gui Wait`'s idle answer, and the
+ * three keywords whose meaning moved under their own name (`Gui Iconify`,
+ * `Gui Uniconify`, `Tcp Open`). Everywhere else the releases agree and the
+ * code says so by not asking.
+ *
+ * 1.62 is not a fourth. Its token table is byte-identical to 1.61's, which is
+ * what makes them one library here, and it is the build whose guide and demos
+ * survive.
+ *
  * ## Evidence
  *
- * `GUI2.guide`, which documents 202 of the 204 keywords, and
- * `AMOSPro_GUI.Lib` where it is silent — `Gui Gad Tag` and `Gui Rem Notify`
- * have no node, and reading routine 126 shows why nobody wrote one. Two of
- * the extension's own accessories are shipped as AMOS programs and
- * detokenise, so `GuiConv.Amos` settles the catalog numbering and
- * `RTGBob.Amos` the format `Gui Remap` reads. Every code these answer is
- * quoted at the keyword that answers it.
+ * `GUI2.guide` for 2.10, which documents 202 of its 204 keywords, and
+ * `GUI.guide`, shipped with 1.62, for the 1.6 line, which documents 72
+ * nodes and not one of the twenty-one `Tcp` keywords. `AMOSPro_GUI.Doc` is
+ * the beta's own, 18KB of it, and it names GUI ELLIPSE over a keyword the
+ * token table calls `gui circle`. Then `AMOSPro_GUI.Lib` wherever those are
+ * silent or wrong, which is often enough to matter: the guides put one
+ * argument on `Gui Sx` where 2.10 takes two, and call `Gui Asl Font` a font
+ * name where 1.61 returns a boolean.
+ *
+ * Three of the extension's own tools are shipped as AMOS programs and
+ * detokenise, which puts the bank format at the top tier rather than the
+ * bottom: `GuiConv.asc` is the 1.5 converter in plain text, `GuiConv.Amos`
+ * the 1.64 and the 2.3, and `RTGBob.Amos` settles the format `Gui Remap`
+ * reads. Every code these answer is quoted at the keyword that answers it.
  *
  * ## What is state and what is pixels
  *
- * Windows and screens carry a RastPort, so everything that draws — the
- * pastes, the lines, the IFF display, the screen copies — really draws. What
+ * Windows and screens carry a RastPort, so the pastes, the lines, the IFF
+ * display and the screen copies all really draw. What
  * a program does NOT get is a window rendered by gadtools: the gadgets are
  * read, laid out and answered for, and nothing paints their frames.
  *
  * ## The three libraries that are not here
  *
  * `xfa.library` (the nine `Xfa` keywords and `Gui Save Iff`),
- * `amigaguide.library` (`Gui Guide`) and `bsdsocket.library` (the eighteen
+ * `amigaguide.library` (`Gui Guide`) and `bsdsocket.library` (2.10's eighteen
  * `Tcp` ones) are not modelled, and none of the three is in the corpus.
  * Every one of those keywords takes the branch the routine takes on a
  * machine without the library, which is a real path the extension carries
  * error strings for rather than a stub. A host capability for any of the
  * three would light its keywords up without changing them.
+ *
+ * 1.61's TCP group is not among them. It is AmigaDOS: `Tcp Open` prepends
+ * `TCP:` to a name and hands it to dos Open, so the network is a HANDLER and
+ * everything above it is file I/O, which this port has. Only the prefixed
+ * open fails here, and it fails the way it fails on any machine with no stack
+ * mounted.
  */
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_BANK_VERSIONS, readGuiBank } from './guibank'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TCP_CHANNELS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, guiScaleRor, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
 import type { RastPort } from '../amiga/graphics'
 import { encode, rowBytesFor } from '../amiga/planar'
 import { parseIlbm } from '../amiga/ilbm'
 import type { ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
-import type { GuiEvent, GuiSocket, GuiWindow } from './guistate'
-import type { Gui, GuiGadget } from './guibank'
+import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
+import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
@@ -54,8 +82,27 @@ import { finishRequester, startRequester, type RequesterSpec } from './requester
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 
-export function newGuiState(): GuiState {
-  return new GuiState()
+export function newGuiState(release: GuiRelease = '2.10'): GuiState {
+  const g = new GuiState()
+  g.release = release
+  return g
+}
+
+/**
+ * Which GUI the program bound, from the slot the loader identified.
+ *
+ * All three releases recommend slot 24 and nothing but the token table tells
+ * them apart, so this reads the identity rather than the slot, the same
+ * shape as jdprt.ts's `isPre14`, and for the same reason. Nothing bound is
+ * 2.10, which is what a Runtime built without bindings gets and what every
+ * test that does not say otherwise means.
+ */
+export function guiRelease(rt: Runtime): GuiRelease {
+  for (const def of rt.extBindings?.values() ?? []) {
+    if (def.id === 'gui-1.5b') return '1.5b'
+    if (def.id === 'gui-1.61') return '1.6x'
+  }
+  return '2.10'
 }
 
 /**
@@ -111,6 +158,44 @@ export const GUI_ERRORS = [
   'Illegal function call',
 ] as const
 
+/**
+ * 1.61's, which is 2.10's first twenty-four with two words changed.
+ *
+ * At $1f5c of `amospro_gui.lib`, packed the same way and indexed the same
+ * way. The two that moved say what happened to the extension in between: the
+ * bank version error names the converter that release wants, 1.63 against
+ * 2.3, and 2.10's "Socket not opened!" is 1.61's "Channel not opened!"
+ * because 1.61's TCP group is not sockets at all. Nothing after 23 exists,
+ * so an error 24 or above cannot be raised on this release.
+ */
+export const GUI_ERRORS_161 = [
+  ...GUI_ERRORS.slice(0, 18),
+  'Wrong GUI bank version. Use the GUI converter 1.63',
+  GUI_ERRORS[19],
+  'Channel not opened!',
+  ...GUI_ERRORS.slice(21, 24),
+] as readonly string[]
+
+/**
+ * 1.5b's fourteen, at $1fc0 of its `AMOSPro_GUI.Lib`.
+ *
+ * Error 0 is `AMIGA RULEZ!`, where the two later releases say "Program
+ * Interrupted", and 13 is `asl.library not found!` against their
+ * "Asl.library not found!". Both are the author's and neither is tidied: the
+ * placeholder is evidence that this release never raises 0, since a beta that
+ * did would have shown the user that string.
+ */
+export const GUI_ERRORS_15B = [
+  'AMIGA RULEZ!',
+  ...GUI_ERRORS.slice(1, 13),
+  'asl.library not found!',
+] as readonly string[]
+
+/** the table the bound release indexes, for the errors whose text moved */
+function errorsFor(release: GuiRelease): readonly string[] {
+  return release === '1.5b' ? GUI_ERRORS_15B : release === '1.6x' ? GUI_ERRORS_161 : GUI_ERRORS
+}
+
 /** the indices this file raises, named where a bare number would not read */
 export const GUI_ERR = {
   BANK_NOT_RESERVED: 5,
@@ -134,11 +219,20 @@ export const GUI_ERR = {
   IMAGE_NOT_RESERVED: 12,
   UNABLE_TO_DISPLAY: 26,
   BOBS_BANK_NOT_RESERVED: 31,
+  WRONG_BANK_VERSION: 18,
+  CHANNEL_NOT_OPENED: 20,
+  UNABLE_TO_SEND_PACKET: 21,
+  CHANNEL_ALREADY_USED: 23,
 } as const
 
 /** raise one, the way `L_ErrorExt` does: every extension error is trappable */
 function guiError(n: number): never {
   throw new AmosError(GUI_ERRORS[n] ?? `GUI error ${n}`)
+}
+
+/** the same, where the bound release spells the message differently */
+function guiErrorOn(g: GuiState, n: number): never {
+  throw new AmosError(errorsFor(g.release)[n] ?? `GUI error ${n}`)
 }
 
 /**
@@ -151,7 +245,218 @@ function guiError(n: number): never {
  */
 function designs(rt: Runtime, s: GuiState): void {
   const bank = rt.memBanks.get(s.bank)
-  s.designs = bank === undefined ? [] : readGuiBank(bank.data)
+  s.designs = bank === undefined ? [] : readGuiBank(bank.data, s.release)
+}
+
+/**
+ * "Wrong GUI bank version", where the release has a version to be wrong.
+ *
+ * `cmpi.w #$28,$30(a4) / bne` at 2.10's $55a8, `#$13` at 1.61's $21a2. It sits
+ * AFTER the arm that puts an already-open window to front and after the
+ * already-used check, and before anything is allocated, so a program that
+ * reopens a window never reaches it and a wrong version costs nothing. 1.5b
+ * has no version word and makes no check, which is the null row.
+ *
+ * See GUI_BANK_VERSIONS for why the 1.6x row is a range.
+ */
+function checkBankVersion(g: GuiState, win: number, index: number): void {
+  const allowed = GUI_BANK_VERSIONS[g.release]
+  if (allowed === null || g.windows.has(win)) return
+  const design = g.designs[index]
+  if (design === undefined) return
+  if (design.version < allowed.min || design.version > allowed.max) {
+    guiErrorOn(g, GUI_ERR.WRONG_BANK_VERSION)
+  }
+}
+
+/**
+ * `Gui Uniconify window` on the two earlier releases puts a rolled-up window
+ * back.
+ *
+ * Routine 52 makes the same height test `Gui Iconify` makes, the other way
+ * round: `cmp.w $a(a2),d0 / bne` at $1688 does nothing unless the window IS
+ * rolled up. Then MoveWindow to the saved LeftEdge and TopEdge and a resize to
+ * the saved Width and Height, in that order.
+ *
+ * 2.10's `Gui Uniconify` takes an iconify ID and reopens a window it closed,
+ * so the two share a name and nothing else.
+ */
+function uniconifyBeta(g: GuiState, n: number): void {
+  const w = windowOf(g, n)
+  if (w.height !== TITLE_HEIGHT) return
+  const box = g.iconBoxes.get(w.gui)
+  if (box === undefined) return
+  w.left = box[0]
+  w.top = box[1]
+  resizeWindow(w, box[2], box[3])
+}
+
+/**
+ * `Gui Screen Open number,width,height,depth,modes`. 1.5b's five-argument
+ * form, and why 1.61 has no screen keywords at all.
+ *
+ * Routine 38 fills four words of a NewScreen at `$fc` of the state and calls
+ * OpenScreen (-$c6). Nothing keeps the result: `movem.l (a7)+,a3-a6 / rts`
+ * follows the call, d0 is dropped, and the beta has no `Gui Screen Close`, no
+ * `Gui Screen Width` and no working `Gui Gfx 1,n`, its own doc says
+ * "screen ( NO YET IMPLEMENTED! )" against that argument. So a screen this
+ * opens cannot be reached again by any keyword the beta has.
+ *
+ * DEFECT: `bset.b d0,d1` at $c84 puts `1 << n` into ns_Depth, where the field
+ * wants n. A program asking for 4 gets sixteen bitplanes and OpenScreen
+ * refuses it; only 0, 1, 2 and 3 land on a legal depth, and they land on 1, 2,
+ * 4 and 8 planes rather than on the 1, 2, 3 and 4 that were asked for. The
+ * keyword is gone by 1.61 and back in 2.10 computing the depth from a COLOUR
+ * count instead.
+ */
+function screenOpenBeta(g: GuiState, it: Interp): void {
+  const n = it.evalInt()
+  it.expect(',')
+  const width = it.evalInt()
+  it.expect(',')
+  const height = it.evalInt()
+  it.expect(',')
+  const depth = (1 << (it.evalInt() & 31)) & 0xffff
+  it.expect(',')
+  const modeID = it.evalInt()
+  // OpenScreen fails for a depth outside 1..8, and the failure is the whole of
+  // what a program can see here: nothing is stored either way
+  if (depth < 1 || depth > 8) return
+  g.screens.set(n, {
+    number: n,
+    width,
+    height,
+    depth,
+    modeID,
+    name: '',
+    fontName: '',
+    fontSize: TOPAZ_SIZE,
+    left: 0,
+    top: 0,
+    showTitle: true,
+    isPublic: false,
+    palette: defaultPalette(depth),
+    rp: newScreenPort(width, height, depth),
+    cloned: false,
+  })
+}
+
+/**
+ * Where 1.61's `Tcp Open` and `Tcp F Open` hand back their file handles.
+ *
+ * DEVIATION: the machine's answer is a BPTR out of dos Open, and nothing in
+ * this port has one. GuiNet.Amos shows what a program does with it: `If
+ * AMINET` and nothing else. So what has to survive is that a success is
+ * non-zero, that a failure is zero, and that two channels do not collide. Four
+ * apart, because a BPTR is a longword address shifted down by two.
+ */
+const TCP_HANDLE_ORIGIN = 0x7c80_0000
+
+/** `moveq #$52,d2` in routine 83, ACTION_READ, dp_Type of an async read */
+const ACTION_READ = 82
+/** `moveq #$57,d2` in routines 79 and 80, ACTION_WRITE */
+const ACTION_WRITE = 87
+
+/**
+ * One of the fifty channels, or "Channel not opened!".
+ *
+ * Routine 115 and the four that inline the same three instructions all load
+ * `moveq #$14,d7` first and raise it on a zero entry. See TCP_CHANNELS for the
+ * bounds check the machine does not make and this does.
+ */
+function channelOf(g: GuiState, n: number): GuiChannel {
+  const c = n >= 0 && n < TCP_CHANNELS ? g.channels.get(n) : undefined
+  return c ?? guiErrorOn(g, GUI_ERR.CHANNEL_NOT_OPENED)
+}
+
+/**
+ * `Tcp Open` and `Tcp F Open`, which are one routine and one flag.
+ *
+ * Routine 116 builds the name, `move.l #$5443503a,(a0)+` writes "TCP:" when
+ * d2 is set, and `Tcp F Open` passes zero, and calls dos Open with `move.l
+ * #$3ec,d2`, MODE_OLDFILE. So neither can CREATE a file: GuiNet.Amos's
+ * `Tcp F Open(2,"Ram:Recent.html")` returns 0 on a machine where that file is
+ * not already there, and the demo's own banner says "the TCP commands are
+ * under development! This is only a preview!"
+ *
+ * A channel that is already open is error 23, "Channel already used!", tested
+ * before the name is even built.
+ */
+function tcpOpen(rt: Runtime, g: GuiState, n: number, name: string, prefix: boolean): number {
+  if (n < 0 || n >= TCP_CHANNELS) return 0
+  if (g.channels.has(n)) guiErrorOn(g, GUI_ERR.CHANNEL_ALREADY_USED)
+  const path = prefix ? `TCP:${name}` : name
+  // DEVIATION: `TCP:` is AmiTCP's handler and there is no network under this
+  // port, so the prefixed form always fails here, which is what it does on
+  // any machine without a stack mounted, and the branch the library carries
+  // "Channel not opened!" for. `Tcp F Open` reaches the real file store.
+  const data = rt.vfs?.readFile(path) ?? null
+  if (data === null) return 0
+  g.channels.set(n, { path, data, pos: 0, dirty: false })
+  return TCP_HANDLE_ORIGIN + n * 4
+}
+
+/** dos Write on a channel: `Tcp Put`, `Tcp Put$` and the ACTION_WRITE packet */
+function tcpWrite(rt: Runtime, g: GuiState, c: GuiChannel, addr: number, len: number): number {
+  const m = rt.resolveAddr(addr)
+  if (m === null || len <= 0) return 0
+  const n = Math.min(len, m.data.length - m.off)
+  const end = Math.max(c.data.length, c.pos + n)
+  const out = new Uint8Array(end)
+  out.set(c.data)
+  out.set(m.data.subarray(m.off, m.off + n), c.pos)
+  c.data = out
+  c.pos += n
+  c.dirty = true
+  void g
+  return n
+}
+
+/** dos Read on a channel, which is what both `Tcp Read` and `Tcp Get` end in */
+function tcpRead(rt: Runtime, c: GuiChannel, addr: number, len: number): number {
+  const m = rt.resolveWrite(addr)
+  if (m === null || len <= 0) return 0
+  const n = Math.min(len, c.data.length - c.pos, m.data.length - m.off)
+  if (n <= 0) return 0
+  m.data.set(c.data.subarray(c.pos, c.pos + n), m.off)
+  c.pos += n
+  return n
+}
+
+/**
+ * `Tcp Close` is fifty dos Closes and fifty zeroes, with no argument at all.
+ *
+ * Routine 86 walks the whole table with `moveq #$31,d2 / dbra`, skipping the
+ * empty entries, and the extension's own reset routine at $ab8 runs the same
+ * loop. So a program cannot close ONE channel: `Tcp Close` in GuiNet.Amos
+ * takes down the connection and the destination file together.
+ */
+function closeChannels(rt: Runtime, g: GuiState): void {
+  for (const c of g.channels.values()) if (c.dirty) rt.vfs?.writeFile(c.path, c.data)
+  g.channels.clear()
+}
+
+/** DateStamp's minute and second, which is what `Tcp Reset` and `Tcp Time` keep */
+function amigaClock(rt: Runtime): [number, number] {
+  const d = rt.host.clock.now()
+  return [d.mins, Math.trunc(d.ticks / 50)]
+}
+
+/**
+ * Post a DosPacket and queue its reply, which is routines 117 and 118.
+ *
+ * DEVIATION: the reply is queued at once. The machine PutMsgs the packet to
+ * the handler's own port and comes back to it later through `Gui Wait`, and
+ * the whole point of the group is that the wait is not blocking. ../amiga/vfs.ts
+ * answers immediately, so the asynchrony a program can observe is preserved ---
+ * the packet id comes back now and the -9 arrives on the next pump, while
+ * the work itself is already done.
+ */
+function tcpPacket(g: GuiState, type: number, channel: number, buffer: number, res1: number): number {
+  g.packetSerial += 1
+  g.packets.push({ id: g.packetSerial, type, res1, res2: 0, channel, buffer })
+  g.packetsOut += 1
+  return g.packetSerial
 }
 
 /**
@@ -874,6 +1179,13 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * The gui number is one-based in a program and zero-based in the bank's
      * own chain, which is the usual AMOS offset and is why `- 1` appears here
      * rather than in ./guistate.ts.
+     *
+     * The third syntax is where the releases part, and the token tables say
+     * so before any prose does. 1.5b has two entries, `I0,0` and `I0,0,0`, so
+     * there is no geometry at all; 1.61 added `I0,0,0,0,0` and its guide reads
+     * "GUI OPEN window,gui,bank,x,y", a POSITION; 2.10 takes the size as well.
+     * A 1.61 program written to the five-argument form and parsed against
+     * 2.10's would run off the end of its own arguments.
      */
     'gui open': (it) => {
       const g = s()
@@ -891,12 +1203,19 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         const left = it.evalInt()
         it.expect(',')
         const top = it.evalInt()
-        it.expect(',')
-        const width = it.evalInt()
-        it.expect(',')
-        const height = it.evalInt()
+        // 1.61 stops here. What it does with the pair is what 2.10 does with
+        // the first two of four, so the design's own size stands
+        let width = g.designs[gui - 1]?.width ?? 0
+        let height = g.designs[gui - 1]?.height ?? 0
+        if (g.release === '2.10') {
+          it.expect(',')
+          width = it.evalInt()
+          it.expect(',')
+          height = it.evalInt()
+        }
         box = { left, top, width, height }
       }
+      checkBankVersion(g, win, gui - 1)
       g.open(win, gui - 1, box)
     },
 
@@ -1284,6 +1603,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui uniconify': (it) => {
       const g = s()
+      if (g.release !== '2.10') return uniconifyBeta(g, it.evalInt())
       const app = g.apps.get(it.evalInt())
       const from = app?.window
       if (app === undefined || from === undefined || from === null) guiError(GUI_ERR.WINDOW_NOT_OPEN)
@@ -1587,6 +1907,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui screen open': (it) => {
       const g = s()
+      if (g.release === '1.5b') return screenOpenBeta(g, it)
       const n = it.evalInt()
       it.expect(',')
       const width = it.evalInt()
@@ -2680,11 +3001,51 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'tcp close': (it) => {
       const g = s()
+      if (g.release === '1.6x') return closeChannels(rt, g)
       if (it.atStmtEnd()) {
         g.sockets.clear()
         return
       }
       g.sockets.delete(it.evalInt())
+    },
+
+    /**
+     * `Tcp Reset` parks a DateStamp for `Tcp Time` to measure against.
+     *
+     * Routine 94 DateStamps into `$10e` and keeps two of the three fields:
+     * ds_Minute at `$4` straight into `$2b2`, and ds_Tick at `$8` over
+     * `divu.w #$32`, fifty ticks a second, into `$2b4`. ds_Days is
+     * dropped, and `Tcp Time` subtracts word-wide, so an elapsed time that
+     * crosses midnight comes out as a large positive number.
+     */
+    'tcp reset': () => {
+      const g = s()
+      const [min, sec] = amigaClock(rt)
+      g.stampMinute = min
+      g.stampSecond = sec
+    },
+
+    /**
+     * `Tcp Limit microseconds`. How long `Tcp Get` waits.
+     *
+     * Two instructions and no check at all: `move.l (a3)+,$2ba(a0)`. It is
+     * WaitForChar's timeout, and the extension's own boot writes
+     * `#$1312d00`, twenty seconds, into the same longword.
+     */
+    'tcp limit': (it) => {
+      s().charLimit = it.evalInt()
+    },
+
+    /**
+     * `Tcp Trash` GetMsgs the port dry, `tst.l d0 / bne` back to the top.
+     *
+     * It drops the replies and nothing else. `$2b6` is not touched, so `Tcp
+     * Count` still reports every packet this threw away as outstanding, and
+     * the only thing that ever brings that number down is the pump collecting
+     * a reply this has already eaten.
+     */
+    'tcp trash': () => {
+      s().packets.length = 0
     },
 
     /**
@@ -2739,6 +3100,110 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       // extension's state and not from the RastPort
       w.rp.text(x, y, text, g.pen)
     },
+
+    /**
+     * `Gui Amiga` (1.5b) and `Gui Amiga mode` (1.61), "hide AMOS".
+     *
+     * Three instructions do the whole of it on both releases, at 1.5b's $8e4
+     * and the tail of 1.61's $fe2: `EcCall AMOS_WB` with d1 zero, which is
+     * `Amos To Back`; `move.w #$ffff,-$90(a5)`, which is the T_NoFlip word
+     * `Amos Lock` sets; and WBenchToFront (-$156). 1.5b's doc says exactly
+     * that, "It's the equivalent of Amos to Back : Amos Lock", and
+     * leaves the third out.
+     *
+     * 1.61 added the argument and a block in front, and the block is
+     * unreachable here. `cmpi.w #$1,-$16(a5) / beq` at $fe8 sends the
+     * interpreter straight past StopVBL and the vector patch, and `tst.l d0 /
+     * beq` in front of THAT sends `Gui Amiga 0` past them too. So under an
+     * interpreter both arguments do the same three things, which is the
+     * guide's "note that this only takes effect when your program is
+     * compiled".
+     *
+     * DEVIATION: WBenchToFront has nothing to raise. No public screen in this
+     * port owns a display slot, so `amosToBack` has already put AMOS behind
+     * everything there is.
+     */
+    'gui amiga': (it) => {
+      // 1.61's `I0`; 1.5b's spec is a bare `I` and there is nothing to read
+      if (s().release === '1.6x') it.evalInt()
+      rt.amosToBack()
+      rt.noFlip = true
+    },
+
+    /**
+     * `Gui Amos`, which the guide calls "reverse Gui Amiga". Four
+     * instructions, identical in both releases at $902 and $1038.
+     *
+     * `move.w #$0,-$90(a5)` is `Amos Unlock` and `AMOS_WB` with d1 one is
+     * `Amos To Front`. In that order, which is the order the docs give:
+     * "Amos Unlock and Amos To Front".
+     */
+    'gui amos': () => {
+      rt.noFlip = false
+      rt.amosToFront()
+    },
+
+    /**
+     * `Gui Circle x,y,radius1,radius2`. 1.5b's name for `Gui Ellipse`.
+     *
+     * Four longwords popped into d3, d2, d1, d0 and straight into DrawEllipse
+     * (-$b4) at $be4, so the arguments arrive as xCentre, yCentre, a, b. The
+     * doc calls the keyword GUI ELLIPSE and prints that heading over it; the
+     * token table says `gui circle`, and 1.61 renamed the token to match the
+     * doc. The binary wins, so the name here is the table's.
+     */
+    'gui circle': (it) => {
+      const [x, y] = pair(it)
+      it.expect(',')
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const w = gfx(s())
+      w.rp.ellipse(x, y, a, b, w.ink)
+    },
+
+    /**
+     * `Gui Iconify window` rolls a window up to its title bar.
+     *
+     * A different keyword from 2.10's function of the same name, which closes
+     * the window and puts an AppIcon up instead. Routine 51 reads BorderTop
+     * out of the intuition Window (`$37`, byte), saves LeftEdge, TopEdge,
+     * Width and Height into the design's Header Info block, and calls its own
+     * `Gui Resize` with the width it already had and that border for a
+     * height. "Reduce a window to a single title bar."
+     *
+     * 1.61 added the guard in front: `cmp.w $a(a2),d0 / beq` at $161c returns
+     * at once when the height is already the border, which is the history's
+     * "bug fixed that caused window to be trashed if iconified several
+     * times". 1.5b has no such test and saves the rolled-up box over the real
+     * one on the second call, losing it. That is reproduced.
+     */
+    'gui iconify': (it) => {
+      const g = s()
+      const w = windowOf(g, it.evalInt())
+      if (g.release === '1.6x' && w.height === TITLE_HEIGHT) return
+      g.iconBoxes.set(w.gui, [w.left, w.top, w.width, w.height])
+      resizeWindow(w, w.width, TITLE_HEIGHT)
+    },
+
+    /**
+     * `Gui Screen Open number,width,height,depth,modes`. 1.5b only, and it
+     * is why 1.61 has no screen keywords at all.
+     *
+     * Routine 38 fills four words of a NewScreen at `$fc` of the state and
+     * calls OpenScreen (-$c6). Nothing keeps the result: `movem.l (a7)+,a3-a6
+     * / rts` follows the call, d0 is dropped, and the beta has no `Gui Screen
+     * Close`, no `Gui Screen Width` and no working `Gui Gfx 1,n`, its own
+     * doc says "screen ( NO YET IMPLEMENTED! )" against that argument. So a
+     * screen this opens cannot be reached again by any keyword.
+     *
+     * DEFECT: `bset.b d0,d1` at $c84 puts `1 << n` into ns_Depth, where the
+     * field wants n. A program asking for 4 gets sixteen bitplanes and
+     * OpenScreen refuses it; only 0, 1, 2 and 3 land on a legal depth, and
+     * they land on 1, 2, 4 and 8 planes rather than the 1, 2, 3 and 4 asked
+     * for. The keyword is gone by 1.61 and back in 2.10 computing the depth
+     * from a COLOUR count.
+     */
   }
 }
 
@@ -2873,8 +3338,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * DEVIATION: no requester opens, for the same reason as `Gui Asl Screen`.
      */
     'gui asl font': (): Value => {
-      s().aslFontSize = 0
-      return VS('')
+      const g = s()
+      g.aslFontSize = 0
+      // 1.5b and 1.61 declare `0`, an INTEGER, and routine 54 returns
+      // AslRequest's own answer with `moveq #$ff,d0` standing for a missing
+      // library or requester. Their guide's "returns the selected font" is
+      // wrong about the type: there is no string anywhere in those 46 bytes.
+      // 2.10 rewrote it as `2` and hands back ta_Name.
+      return g.release === '2.10' ? VS('') : VI(-1)
     },
 
     /**
@@ -2964,7 +3435,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       }
       g.aslFile = ''
       g.aslDir = ''
-      const [title, dir, file, pattern] = [str(a[0]!), str(a[1]!), str(a[2]!), str(a[3]!)]
+      // 1.5b's spec is `22,2,2`: three arguments and no pattern. The history
+      // dates the fourth, "Now Gui Asl$ allows pattern matching" in 1.6
+      const [title, dir, file] = [str(a[0]!), str(a[1]!), str(a[2]!)]
+      const pattern = a[3] === undefined ? '' : str(a[3])
       const start = pattern !== '' && /[#?*]/.test(pattern) ? (dir === '' ? pattern : `${dir}/${pattern}`) : dir
       if (!rt.startFsel(start, file, title, '')) return VS('')
       it.block({ type: 'fsel' }, true)
@@ -3075,8 +3549,21 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * event or -7. A program written as `Repeat : A=Gui Wait : Until A=-1`
      * therefore spins rather than sleeps, which costs frames and changes
      * nothing a program can observe about the events themselves.
+     *
+     * 1.5b answers -3 rather than -7 when no window is open, and it answers it
+     * without looking at anything: routine 10 is `moveq #$fd,d0 / tst.l
+     * $62(a1) / beq`, so the pump only runs when the window list has a head.
+     * Its doc lists -3 as "no windows opened!" and lists no -7 at all. 1.61
+     * kept the value and changed what it means, its pump returns -3 for a
+     * Ctrl-C and `Gui Wait` turns that into error 0, "Program Interrupted",
+     * which is the history's "now you can break the Gui Wait command", so
+     * by then the guide can say "-3 Not used" of the value a program sees.
      */
-    'gui wait': (): Value => VI(pumpEvent(rt, s())),
+    'gui wait': (): Value => {
+      const g = s()
+      if (g.release === '1.5b' && g.windows.size === 0) return VI(GUI_EVENT.UNUSED3)
+      return VI(pumpEvent(rt, g))
+    },
 
     /**
      * `A=Gui Event` — the same answers without waiting.
@@ -3221,8 +3708,19 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * The arithmetic is the layout pass run backwards then forwards: take off
      * the border the design was drawn with, scale, add the border the window
      * actually got. `subq.l #$4,d1` at $28dc is GuiConv's own `Deek(WORK)-4`.
+     *
+     * 1.61's four take ONE argument, and its guide's `=GUI SX(x)` is right for
+     * that release. Routines 109 to 112 hold the same two constants, `subq.l
+     * #$4,d0` at $1d36 and `subi.l #$a,d0` at $1d4c, and add back the
+     * window borders the extension keeps at `$1d0` and `$1ce` instead of a
+     * window's own, so there is no window to look up and nothing to raise. The
+     * scale itself is 1.61's rotate rather than 2.10's divide; see
+     * `guiScaleRor`.
      */
-    'gui sx': (_, a): Value => VI(sensitiveX(s(), int(a[0]!), int(a[1]!) - WBORLEFT) + WBORLEFT),
+    'gui sx': (_, a): Value =>
+      a[1] === undefined
+        ? VI(guiScaleRor(int(a[0]!) - WBORLEFT, s().fontWidth) + WBORLEFT)
+        : VI(sensitiveX(s(), int(a[0]!), int(a[1]!) - WBORLEFT) + WBORLEFT),
 
     /**
      * `A=Gui Sy(window,y)` — the same for a Y coordinate.
@@ -3234,7 +3732,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * with the default font `Gui Sy(w,y)` answers y+1 rather than y, where
      * `Gui Sx` beside it is exact. One pixel, and it grows with the font.
      */
-    'gui sy': (_, a): Value => VI(sensitiveY(s(), int(a[0]!), int(a[1]!) - SY_DESIGN_TOP) + TITLE_HEIGHT),
+    'gui sy': (_, a): Value =>
+      a[1] === undefined
+        ? VI(guiScaleRor(int(a[0]!) - SY_DESIGN_TOP, s().fontHeight) + TITLE_HEIGHT)
+        : VI(sensitiveY(s(), int(a[0]!), int(a[1]!) - SY_DESIGN_TOP) + TITLE_HEIGHT),
 
     /**
      * `A=Gui Sw(window,width)` and `Gui Sh(window,height)` — "the pixel width
@@ -3243,8 +3744,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * A size rather than a position, so neither takes a border off nor adds
      * one back: $2934 and $295a are the scale alone.
      */
-    'gui sw': (_, a): Value => VI(sensitiveX(s(), int(a[0]!), int(a[1]!))),
-    'gui sh': (_, a): Value => VI(sensitiveY(s(), int(a[0]!), int(a[1]!))),
+    'gui sw': (_, a): Value =>
+      a[1] === undefined ? VI(guiScaleRor(int(a[0]!), s().fontWidth)) : VI(sensitiveX(s(), int(a[0]!), int(a[1]!))),
+    'gui sh': (_, a): Value =>
+      a[1] === undefined ? VI(guiScaleRor(int(a[0]!), s().fontHeight)) : VI(sensitiveY(s(), int(a[0]!), int(a[1]!))),
 
     /**
      * `A=Gui X Font` and `Gui Y Font` — the character cell everything above
@@ -3621,7 +4124,12 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui len': (_, a): Value => {
       const g = s()
       const text = str(a[0]!)
-      const mode = int(a[1]!)
+      // 1.61's spec is `02`, one argument. Routine 108 has no mode to split on
+      // and no window to look up: it goes straight to TextLength on the font
+      // at `$54` of the VisualInfo, so it cannot raise and it cannot take the
+      // fixed-width arm either
+      if (a[1] === undefined) return VI(text.length * g.fontWidth)
+      const mode = int(a[1])
       if (mode !== OMITTED && mode < 0) return VI(text.length * g.fontWidth)
       const w = mode === OMITTED ? target(g) : (g.windows.get(mode) ?? null)
       if (w === null) guiError(GUI_ERR.WINDOW_NOT_OPEN)
@@ -4020,10 +4528,72 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * would light all eighteen up without changing any of them.
      */
     'tcp open': (_, a): Value => {
+      const g = s()
+      // 1.61's spec is `00,2`: a channel and a name, and the name gets `TCP:`
+      // in front of it. GuiNet.Amos passes "ftp.wustl.edu/80", which is
+      // AmiTCP's handler syntax for host and port
+      if (g.release === '1.6x') return VI(tcpOpen(rt, g, int(a[0]!), str(a[1]!), true))
       void str(a[0]!)
       void int(a[1]!)
       void int(a[2]!)
       return VI(TCP_NO_SOCKET)
+    },
+
+    /**
+     * `H=Tcp F Open(channel,name$)`. The same open without the `TCP:`.
+     *
+     * Routine 78 is routine 77 with `moveq #$0,d2` where the other has a 1,
+     * and that byte is the whole difference: the name goes to dos Open as it
+     * stands. So the group's file half is a plain AmigaDOS channel, which is
+     * how GuiNet.Amos saves what it downloads.
+     */
+    'tcp f open': (_, a): Value => VI(tcpOpen(rt, s(), int(a[0]!), str(a[1]!), false)),
+
+    /**
+     * `N=Tcp Put(channel,address,length)` and `N=Tcp Put$(channel,text$)` ---
+     * a SYNCHRONOUS dos Write, and the answer is what it wrote.
+     *
+     * Routine 115 is eleven instructions: look the channel up, raise 20 if it
+     * is zero, and `jsr -$30(a6)`. `Tcp Put$` reaches it with the string's
+     * length word in d3 and the bytes after it in d2, so an AMOS string goes
+     * out without its header.
+     */
+    'tcp put': (_, a): Value => {
+      const g = s()
+      const c = channelOf(g, int(a[0]!))
+      return VI(tcpWrite(rt, g, c, int(a[1]!), int(a[2]!)))
+    },
+    'tcp put$': (_, a): Value => {
+      const g = s()
+      const c = channelOf(g, int(a[0]!))
+      const bytes = toBytes(str(a[1]!))
+      const end = Math.max(c.data.length, c.pos + bytes.length)
+      const out = new Uint8Array(end)
+      out.set(c.data)
+      out.set(bytes, c.pos)
+      c.data = out
+      c.pos += bytes.length
+      c.dirty = true
+      return VI(bytes.length)
+    },
+
+    /**
+     * `N=Tcp Get(channel,address,length)`. The only SYNCHRONOUS read.
+     *
+     * WaitForChar (-$cc) with `Tcp Limit`'s microseconds, and only then dos
+     * Read (-$2a). A wait that comes back empty answers `moveq #$fe,d0`,
+     * which is -2, and nothing is read.
+     *
+     * DEVIATION: WaitForChar here is "are there bytes left", which is the same
+     * model ../runtime/instr.ts's `=Port` uses for the same call. On the
+     * machine it is a property of the handler and not of the data, and
+     * AmigaDOS documents it as meaningful only on an interactive stream.
+     */
+    'tcp get': (_, a): Value => {
+      const g = s()
+      const c = channelOf(g, int(a[0]!))
+      if (c.pos >= c.data.length) return VI(-2)
+      return VI(tcpRead(rt, c, int(a[1]!), int(a[2]!)))
     },
 
     /**
@@ -4054,11 +4624,32 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * than from an argument. Both look the socket up first, so both raise 20.
      */
     'tcp send': (_, a): Value => {
-      void socketOf(s(), int(a[0]!))
+      const g = s()
+      if (g.release === '1.6x') {
+        const n = int(a[0]!)
+        const c = channelOf(g, n)
+        const buf = int(a[1]!)
+        return VI(tcpPacket(g, ACTION_WRITE, n, buf, tcpWrite(rt, g, c, buf, int(a[2]!))))
+      }
+      void socketOf(g, int(a[0]!))
       return VI(0)
     },
     'tcp send$': (_, a): Value => {
-      void socketOf(s(), int(a[0]!))
+      const g = s()
+      if (g.release === '1.6x') {
+        const n = int(a[0]!)
+        const c = channelOf(g, n)
+        const bytes = toBytes(str(a[1]!))
+        const end = Math.max(c.data.length, c.pos + bytes.length)
+        const out = new Uint8Array(end)
+        out.set(c.data)
+        out.set(bytes, c.pos)
+        c.data = out
+        c.pos += bytes.length
+        c.dirty = true
+        return VI(tcpPacket(g, ACTION_WRITE, n, 0, bytes.length))
+      }
+      void socketOf(g, int(a[0]!))
       return VI(0)
     },
 
@@ -4076,7 +4667,19 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * that reports it overwrites the number the guide says to monitor.
      */
     'tcp read': (_, a): Value => {
-      void socketOf(s(), int(a[0]!))
+      const g = s()
+      // 1.61's is the ASYNCHRONOUS half: routine 83 is routine 79 with
+      // ACTION_READ where the other has ACTION_WRITE, and both hand back the
+      // packet id rather than a byte count. GuiNet.Amos's loop is the shape
+      // this is for, `A=Tcp Read(1,S,2048)`, then `Gui Wait` for the -9,
+      // then `Tcp Code` for how much arrived
+      if (g.release === '1.6x') {
+        const n = int(a[0]!)
+        const c = channelOf(g, n)
+        const buf = int(a[1]!)
+        return VI(tcpPacket(g, ACTION_READ, n, buf, tcpRead(rt, c, buf, int(a[2]!))))
+      }
+      void socketOf(g, int(a[0]!))
       return VI(0)
     },
 
@@ -4190,7 +4793,60 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * only places in the extension where a function can return a string
      * pointer as an integer. Zero here.
      */
-    'tcp error': (): Value => VI(0),
+    'tcp error': (): Value => {
+      const g = s()
+      // 1.61's reads dp_Res2 of the last reply, `$2a2`, where 2.10's is
+      // bsdsocket's Errno
+      return VI(g.release === '1.6x' ? g.reply.res2 : 0)
+    },
+
+    /**
+     * The six readers 1.61's pump fills in from one reply, `$29e` through
+     * `$2c2`, each of them four instructions and no test.
+     *
+     * $31f8 writes all six out of the DosPacket the port just collected ---
+     * dp_Res1, dp_Res2, dp_Arg2, and the packet's own `$30` and `$34` that
+     * routine 117 added past the end of the struct, and dp_Type. They stand
+     * until the next reply, so a program may read them in any order after the
+     * -9, which is what GuiNet.Amos does: `Tcp Channel` to see whose it was,
+     * `Tcp Buffer` and `Tcp Code` to forward it.
+     *
+     * `Tcp Code` is dp_Res1, so after a read it is the byte count: -1 for an
+     * error and 0 at the end of the data, which is the demo's `Until R=0`.
+     */
+    'tcp code': (): Value => VI(s().reply.res1),
+    'tcp packet': (): Value => VI(s().reply.id),
+    'tcp type': (): Value => VI(s().reply.type),
+    'tcp channel': (): Value => VI(s().reply.channel),
+    'tcp buffer': (): Value => VI(s().reply.buffer),
+
+    /** `N=Tcp Count`, `$2b6`, one up per packet sent and one down per reply */
+    'tcp count': (): Value => VI(s().packetsOut),
+
+    /**
+     * `A=Tcp Check`. Is a reply waiting?
+     *
+     * Seven instructions on the MsgPort at `$29a`: `lea $14(a0),a0 / cmpa.l
+     * $8(a0),a0`, which is the list head against its own TailPred, the
+     * standard empty-List test. -1 when something is queued and 0 when
+     * nothing is, and it neither collects the message nor disturbs it.
+     */
+    'tcp check': (): Value => VI(s().packets.length > 0 ? -1 : 0),
+
+    /**
+     * `T=Tcp Time`. Seconds since `Tcp Reset`.
+     *
+     * `(minute - $2b2) * 60 + (tick / 50 - $2b4)`, and every step of that is
+     * word-wide: `sub.w`, `mulu.w #$3c`, `sub.w`, `add.w`. GuiNet.Amos divides
+     * a byte count by it to show a transfer rate, so the interesting case is
+     * calling it in the same second as the reset, which answers 0.
+     */
+    'tcp time': (): Value => {
+      const g = s()
+      const [min, sec] = amigaClock(rt)
+      const d = (((min - g.stampMinute) & 0xffff) * 60 + ((sec - g.stampSecond) & 0xffff)) & 0xffff
+      return VI((d << 16) >> 16)
+    },
 
     /**
      * `A=Gui Border(window,border)` — the size of one of a window's four

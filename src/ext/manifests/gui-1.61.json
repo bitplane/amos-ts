@@ -9,7 +9,9 @@
   "format": "legacy",
   "idBaseEvidence": "calibrated",
   "evidence": "disassembly",
-  "docs": [],
+  "docs": [
+    "GUI.guide"
+  ],
   "titleStrings": [
     "AMOSPro GUI Extension V 1.61 31-03-97",
     "$VER: V 1.61 31-03-97"
@@ -22,7 +24,7 @@
     "note": "Dated 31-03-97, so post-dates the commercial life of AMOS Pro. Wraps real Intuition/ASL gadgetry (gui open/gadgets/menus/requesters) and carries an unrelated TCP keyword family.",
     "redistribution": "Third-party extension, redistribution terms unverified. Kept as a fixture for identification only."
   },
-  "findings": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.",
-  "notes": "Intuition-style windows, gadgets and menus for AMOS programs.",
+  "findings": "DOCUMENTED AFTER ALL, by the release that followed it. `GuiExt162` on Aminet ships AMOSPro_GUI.Lib V 1.62 04-05-97 whose token table is byte-identical to this one, so libcat calls the two the same library and `GUI.guide` beside it documents this keyword set: 72 nodes over the 103 names, a History that dates every keyword to the release that added it, and three demos. The row's old 'no manual available. Table-only evidence' is wrong and is withdrawn. What the guide does NOT document is the twenty-one `Tcp` keywords, which have no node at all and which its Gui Wait list calls '-9 TCP/IP message (not yet implemented)'; the code is there and does return -9, so the binary is the only account of that group and `Demos/GuiNet.Amos` the only worked example. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs, and confirmed by the guide's own Credits node. The two builds disagree on one number: 1.61 accepts GUI banks whose converter version word is 19 and 1.62 wants 20, and DataBench's four banks carry 22 from a later 1.6x converter still.",
+  "notes": "Intuition-style windows, gadgets and menus for AMOS programs, plus a TCP group that is AmigaDOS file I/O over the TCP: handler.",
   "recommendedSlot": 24
 }

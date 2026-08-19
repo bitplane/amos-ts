@@ -64,7 +64,6 @@ Blocked on a back-end nothing here models:
 |---|---|---|
 | OS DevKit 1.61 (`os-devkit-1.61`) | 1047 | a wrapper over most of AmigaOS. It needs the back-end, not the list: `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts nothing here models |
 | IntuiExtend 2.01b / 1.6 (`intuiextend-2.01b`, `intuiextend-1.6`) | 301 / 294 | Intuition. 2.01b rebuilt its table, so the two share 45 names of 294 and almost none at the same id, which is why they are two rows |
-| GUI 1.61 / 1.5b (`gui-1.61`, `gui-1.5b`) | 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. Both name gadtools and neither names `intuition.library`. 2.10 is ported and these two are its keyword table twice over, so what is left is the six names 2.10 dropped and the ids that moved |
 | Int 1.0 (`int-1.0`) | 62 | Intuition |
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
