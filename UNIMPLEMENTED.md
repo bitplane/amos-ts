@@ -72,12 +72,12 @@ is there:
 
 | extension | missing | evidence held |
 |---|---|---|
-| Int 1.0 (`int-1.0`) | 32 | UNDER WAY, at 48%. Intuition is not the blocker it was: windows, screens, menus, boolean gadgets and the event loop are in, over `../amiga/intuition.ts` and `../amiga/gadtools.ts`. What is left is the drawing group (13, all RastPort), the input readers (6, all machine), three memory keywords, the five ASL ones and the five IFF ones. Only `Wb Dt Image To Screen` wants a back-end this tree lacks, and only for the formats `ilbm.ts` and `jpeg.ts` cannot decode |
-| DME 2.0 (`dme-2.0`) | 43 | UNDER WAY, at 77%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Four blocks of keywords left: TFMX (10), OctaMix (15), FastTracker (9) and PlaySID (9). TFMX is mapped to its three dispatch tables and is next; the other three are below |
+| Int 1.0 (`int-1.0`) | 2 | UNDER WAY, at 97%. Two keywords left and each is one back-end. `Wb Asl Req` opens `asl.library` and wants a file, font and screen-mode requester with a real window; the three settings it reads, `Wb Asl Pattern`, `Wb Asl Info` and `Wb Asl Dir`, are already there and so is `Wb File`, which takes the answer back. `Wb Dt Image To Screen` wants `datatypes.library` decoding, which `../amiga/datatypes.ts` identifies without doing. Everything else landed: the drawing group over wd_RPort, the input readers off CIA-A and the gameport, the IFF loader and its two readers, `Wb Paste Icon`, `Wb Default` and `Wb Save Iff` |
+| DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 85%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
 | D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
 
-Three of DME's four remaining blocks are blocked on something other than the
-work, which is why they are not simply next:
+All three of DME's remaining blocks are blocked on something other than the
+work, which is why none of them is simply next:
 
 | block | missing | what it is waiting on |
 |---|---|---|
