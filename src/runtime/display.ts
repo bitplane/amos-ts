@@ -874,7 +874,31 @@ export class Display {
       if (w1 & 1) {
         if (w1 === 0xffff && w2 === 0xfffe) break
         const vp = (w1 >> 8) & 0xff
-        if (vp === 0xff && !cross) {
+        /*
+         * The 255-crossing is one of two WHOLE WORDS, not any VP of 255.
+         *
+         * AMOS writes it from two places and they do not agree on the
+         * horizontal. `WaitD2`, which the band builder uses, emits $FFDF
+         * (+W.s:6722); `TCopWt`, behind `Cop Wait`, emits $FFE1 (:6843).
+         * Both are late on line 255, which is what carries the beam past
+         * the wrap so a following small VP matches on 256 rather than on
+         * the line just gone.
+         *
+         * An ordinary wait for line 255 is neither. WaitD2 finishes every
+         * boundary with `lsl.w #8,d2 / or.w #$03,d2`, so line 255 is $FF03,
+         * HP 1 — a real band edge, and the builder emits one whenever a
+         * screen or a rainbow has something to say on that line.
+         *
+         * Matching on VP alone ate it: the walk took $FF03 for the marker,
+         * rendered to 256, then read the REAL $FFDF as a wait for 255+256 =
+         * 511. Everything below line 255 became one band with the bitplane
+         * pointers still running, so the last screen carried on down the
+         * display past the bottom of its own bitmap. Dizzy Clone's rainbow
+         * puts a wait on every line from 96 down, and its 320x192 screen
+         * sits at 100: sixteen lines of the game repeated, frozen, in the
+         * twenty lines of overscan below it.
+         */
+        if ((w1 === 0xffdf || w1 === 0xffe1) && !cross) {
           renderLines(256)
           cross = true
           continue

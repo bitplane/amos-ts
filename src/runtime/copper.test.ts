@@ -57,6 +57,39 @@ describe('user copper instructions (TCop* +W.s:6815-6935)', () => {
     expect(word(l, 8)).toBe(((300 << 8) & 0xffff) | 1) // no second crossing
   })
 
+  it('a wait for line 255 is not the crossing marker (WaitD2 vs TCopWt)', () => {
+    /*
+     * Two routines write the marker and they disagree on the horizontal:
+     * WaitD2, behind the band builder, emits $FFDF (+W.s:6722); TCopWt,
+     * behind `Cop Wait`, emits $FFE1 (:6843). An ordinary boundary ends
+     * `lsl.w #8,d2 / or.w #$03,d2`, so line 255 is $FF03 and line 292 is
+     * $2403 after the marker.
+     *
+     * Reading the marker off VP alone made $FF03 look like one, which threw
+     * every band below line 255 into a single band with the bitplane
+     * pointers still walking. Dizzy Clone showed sixteen lines of its game
+     * screen repeated in the overscan under it.
+     */
+    const rt = run(['Screen Open 0,320,192,32,Lowres', 'Screen Display 0,,100,,', 'Set Rainbow 0,1,240,"","",""', 'Rainbow 0,0,96,240'].join('\n'))
+    rt.buildCopperList()
+    const l = rt.copPhysic
+    let markers = 0
+    let line255 = 0
+    let past = 0
+    for (let p = 0; p + 4 <= l.length; p += 4) {
+      const w1 = word(l, p)
+      const w2 = word(l, p + 2)
+      if (w1 === 0xffff && w2 === 0xfffe) break
+      if ((w1 & 1) === 0) continue
+      if (w1 === 0xffdf || w1 === 0xffe1) markers++
+      else if (w1 === 0xff03) line255++
+      else if ((w1 & 0xff) === 0x03 && markers > 0) past++
+    }
+    expect(markers).toBe(1) // exactly one crossing
+    expect(line255).toBe(1) // and a real boundary on line 255, distinct from it
+    expect(past).toBeGreaterThan(30) // the bands below, waiting on truncated VPs
+  })
+
   it('list writes require Copper Off, bounds are checked (CopEr1/CopEr3)', () => {
     expect(() => run('Cop Move $180,0')).toThrow(/copper not deactivated/)
     expect(() => run('Cop Swap')).toThrow(/copper not deactivated/)
