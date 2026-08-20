@@ -3423,8 +3423,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const mask = it.accept(',') ? it.evalInt() !== 0 : false
+      /*
+       * A block IS a bob image: `MakeBloc` (+W.s:12389) grabs it with the
+       * same `GetBob`, and GetBob stores a WORD COUNT — `add.w #15,d4 /
+       * lsr.w #4,d4` (+W.s:620). So the stored width is the request rounded
+       * UP to 16 and the odd columns on the right come out zero.
+       *
+       * Keeping the requested width beside a rounded buffer gave Put Block
+       * the wrong stride. Crystal Caverns' title screen is
+       * `Get Block 1,50,0,220,120,1` and `Put Block 1,50,34`: 220 was stored
+       * in 224, and reading it back four pixels short per row sheared the
+       * whole 220x120 picture into diagonal stripes.
+       */
       const img = rt.grab(scr(), x, y, x + w, y + h)
-      rt.blocks.set(n, { x, y, w, h, pixels: img.pixels, mask })
+      rt.blocks.set(n, { x, y, w: img.width, h: img.height, pixels: img.pixels, mask })
     },
     'put block'(it) {
       const b = rt.blocks.get(it.evalInt())
@@ -3444,13 +3456,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       else rt.blocks.delete(it.evalInt())
     },
     'get cblock'(it) {
+      /*
+       * A Cblock is NOT a bob. `CBloc` (+W.s:12065) opens with `lsr.w #3,d1`
+       * on the x and `lsr.w #3,d3` on the width, and works in whole BYTES of
+       * bitplane from there. Both truncate, so x starts at the byte it falls
+       * in and the width loses its remainder: 8 pixels of granularity, which
+       * is the rule the manual states for these coordinates.
+       *
+       * It is a different rounding from Get Block's, and in the opposite
+       * direction, because the two keywords call different routines.
+       */
       const n = it.evalInt()
       it.expect(',')
       const [x, y] = pair(it)
       it.expect(',')
       const [w, h] = pair(it)
-      const img = rt.grab(scr(), x, y, x + w, y + h)
-      rt.cblocks.set(n, { x, y, w, h, pixels: img.pixels })
+      const x0 = x & ~7
+      const bw = Math.max(0, (w >> 3) << 3)
+      const bh = Math.max(0, h)
+      const s = scr()
+      const pixels = new Uint8Array(bw * bh)
+      for (let py = 0; py < bh; py++) {
+        for (let px = 0; px < bw; px++) {
+          const v = s.point(x0 + px, y + py)
+          pixels[py * bw + px] = v < 0 ? 0 : v
+        }
+      }
+      rt.cblocks.set(n, { x: x0, y, w: bw, h: bh, pixels })
     },
     'put cblock'(it) {
       const b = rt.cblocks.get(it.evalInt())
@@ -3462,7 +3494,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         it.expect(',')
         y = it.evalInt()
       }
-      rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x, y, true)
+      // `PBloc` (+W.s:12212) snaps the destination the same way, `lsr.w #3,d1`
+      rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x & ~7, y, true)
     },
     'del cblock'(it) {
       if (it.atStmtEnd()) rt.cblocks.clear()

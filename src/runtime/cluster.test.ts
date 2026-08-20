@@ -226,15 +226,18 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
   })
 
   it('Hrev/Vrev Block mirror pixels and error on missing blocks (RevBloc +W.s:12620)', () => {
+    // the mirror is across the STORED width, and `Get Block ...,8,8` stores
+    // one word: `add.w #15,d4 / lsr.w #4,d4` in GetBob (+W.s:620). So the
+    // lit column lands at 15 from the left, not 7.
     const prog = [
       'Cls 0 : Ink 5 : Plot 0,0', // a single lit pixel top-left
       'Get Block 1,0,0,8,8',
       'Hrev Block 1',
       'Put Block 1,100,100',
-      'Print Point(107,100)',
+      'Print Point(115,100)',
       'Vrev Block 1',
       'Put Block 1,100,120',
-      'Print Point(107,127)',
+      'Print Point(115,127)',
     ].join('\n')
     const { out } = run(prog)
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['5', '5'])
@@ -1147,18 +1150,43 @@ describe('blocks, clones, flips', () => {
   })
 
   it('Hrev/Vrev Block mirror the stored block (RevBloc +W.s:12620)', () => {
-    // a 4x4 block with a single marked pixel at its top-left corner
+    // a 4x4 request with a single marked pixel at its top-left corner. It is
+    // STORED 16 wide, one whole word, because MakeBloc grabs it with GetBob
+    // and GetBob keeps a word count (+W.s:12389 and 620).
     const base = ['Cls 0', 'Ink 5 : Plot 10,10', 'Get Block 1,10,10,4,4']
-    // horizontal mirror moves column 0 to the last column
+    // horizontal mirror moves column 0 to the last column of that word
     let rt = run([...base, 'Hrev Block 1', 'Cls 0', 'Put Block 1,0,0'].join('\n')).rt
-    expect(rt.screen.point(3, 0)).toBe(5)
+    expect(rt.screen.point(15, 0)).toBe(5)
     expect(rt.screen.point(0, 0)).toBe(0)
-    // vertical mirror moves row 0 to the last row
+    // vertical mirror moves row 0 to the last row, and the height is exact
     rt = run([...base, 'Vrev Block 1', 'Cls 0', 'Put Block 1,0,0'].join('\n')).rt
     expect(rt.screen.point(0, 3)).toBe(5)
     expect(rt.screen.point(0, 0)).toBe(0)
     // a missing block raises the FindBloc "Block not defined" error
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
+  })
+
+  it('Get Block rounds its width UP to a word and Get Cblock truncates to a byte', () => {
+    /*
+     * Two keywords, two routines, two rules. MakeBloc grabs through GetBob,
+     * which keeps a word count (`add.w #15,d4 / lsr.w #4,d4`, +W.s:620), so
+     * 220 is stored as 224. CBloc (+W.s:12065) opens `lsr.w #3,d1 / lsr.w
+     * #3,d3` and works in whole bytes, so 220 becomes 216 and the x starts
+     * at the byte it fell in.
+     *
+     * Crystal Caverns' `Get Block 1,50,0,220,120,1` / `Put Block 1,50,34`
+     * came out as diagonal stripes while the block carried the requested
+     * width beside a wider buffer.
+     */
+    const draw = ['Cls 0', 'For I=0 To 219', '   Ink (I mod 15)+1 : Draw I+50,0 To I+50,29', 'Next I']
+    const { rt } = run([...draw, 'Get Block 1,50,0,220,30', 'Cls 0', 'Put Block 1,50,34'].join('\n'))
+    expect(rt.blocks.get(1)!.w).toBe(224)
+    for (const [i, y] of [[0, 0], [7, 15], [219, 29]] as const) {
+      expect(rt.screen.point(50 + i, 34 + y)).toBe((i % 15) + 1)
+    }
+    const { rt: rt2 } = run([...draw, 'Get Cblock 1,52,0,220,30'].join('\n'))
+    expect(rt2.cblocks.get(1)!.w).toBe(216)
+    expect(rt2.cblocks.get(1)!.x).toBe(48)
   })
 
   it('clones screens sharing the bitmap but not the palette', () => {
