@@ -149,6 +149,7 @@ export const INT_ERR = {
   NUMBER_IS_TO_HIGH: 9,
   CANNOT_MOVE_THIS_WINDOW: 10,
   WINDOW_IS_NOT_OPEN: 11,
+  NO_ICONS_IN_BANK: 20,
   CANNOT_CREATE_MENUS: 33,
   ONLY_TYPE_1: 44,
 } as const
@@ -1225,6 +1226,57 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < d.length && i < buf.length; i++) buf[i] = d.charCodeAt(i) & 0xff
       if (d.length < buf.length) buf[d.length] = 0
     },
+    /**
+     * `Wb Paste Icon x,y,n` --- one icon out of AMOS's bank 2, through
+     * intuition's DrawImage (-$72).
+     *
+     * Routine 76 walks AMOS's own bank list at `$5ea(a5)` looking for
+     * `moveq #$2,d3` --- the bank number is a literal, not an argument ---
+     * and then checks the eight bytes it starts with against `$49636f6e` and
+     * `$73202020`, which spell "Icons   ". Neither is there and it is error
+     * 20, "No Icons In Bank".
+     *
+     * It builds a `struct Image` at `$16ba(a4)`: LeftEdge and TopEdge from
+     * the first two arguments, Width from the bank entry's width-in-words
+     * times 16, Height from its height word, and ImageData ten bytes into the
+     * entry, which is past AMOS's own five-word image header.
+     *
+     * DEFECT: Image.Depth is the SCREEN's, not the icon's. It comes from
+     * `GetScreenDrawInfo(wd_WScreen)` and `dri_Depth`, with PlanePick set to
+     * `(1 << depth) - 1` by a `mulu.w #$2` loop, so DrawImage is told to read
+     * as many planes as the screen has out of an icon that may have fewer.
+     * On a screen deeper than its icons that reads whatever follows them.
+     * Nothing here can reproduce that: a bank image carries its own depth.
+     *
+     * `cmp.w d0,d7 / blt` is the range check and it is one-sided --- an index
+     * ABOVE the count returns quietly, and an index of 0 indexes six bytes
+     * BELOW the table with nothing to stop it.
+     */
+    'wb paste icon': (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      const bank = rt.iconBank
+      if (!bank || bank.images.length === 0) intError(INT_ERR.NO_ICONS_IN_BANK)
+      // one-based, and only the upper end is checked
+      if (n > bank.images.length) return
+      const img = bank.images[n - 1]
+      if (!img) return
+      const { rp, ox, oy } = target()
+      const px = img.pixels
+      for (let iy = 0; iy < img.height; iy++) {
+        for (let ix = 0; ix < img.width; ix++) {
+          const sx = ox + x + ix
+          const sy = oy + y + iy
+          // DrawImage is a blitter copy through PlanePick, not a drawn
+          // primitive: no draw mode, no pattern, and colour 0 is a colour
+          if (rp.inClip(sx, sy)) rp.putPixel(sx, sy, px[iy * img.width + ix]!)
+        }
+      }
+    },
+
   }
 }
 

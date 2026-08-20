@@ -1047,3 +1047,68 @@ describe('Int 1.0: Wb Find String', () => {
     expect(find('Poke$ Start(10),"hello"', 'Wb Find String("HELLO",Start(10) To Start(10)+63,0)')).toBe(0)
   })
 })
+
+/**
+ * `Wb Paste Icon x,y,n` --- one icon out of AMOS's bank 2, through
+ * intuition's DrawImage.
+ */
+describe('Int 1.0: Wb Paste Icon', () => {
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+  /** a 16x16 block of pen 3, grabbed into the icon bank */
+  const ICON = 'Screen Open 1,64,64,16,Lowres : Cls 0 : Ink 3 : Bar 0,0 To 15,15 : Get Icon 1,0,0 To 16,16'
+
+  function paste(src: string): { rt: Runtime; point: (x: number, y: number) => number } {
+    const rt = run(src)
+    const scr = rt.screens.get(rt.int.windows.get(0)!.screenSlot)!
+    return { rt, point: (x, y) => scr.rp.point(x, y) }
+  }
+
+  /**
+   * The bank number is a literal in the code (`moveq #$2,d3` walking AMOS's
+   * own list at `$5ea(a5)`), not an argument, and the eight bytes it checks
+   * are `$49636f6e` and `$73202020` --- "Icons   ".
+   */
+  it('draws icon n of bank 2 at x,y in the window', () => {
+    const p = paste(`${ICON}\n${WIN}\nWb Paste Icon 40,30,1`)
+    expect(p.point(40, 30)).toBe(3)
+    expect(p.point(55, 45)).toBe(3)
+    expect(p.point(56, 46)).toBe(0)
+    expect(p.point(39, 30)).toBe(0)
+  })
+
+  /**
+   * DrawImage is a blitter copy through PlanePick and not a drawn primitive,
+   * so colour 0 in the icon is a colour and paints.
+   */
+  it('colour 0 in the icon is a colour, not a hole', () => {
+    const p = paste(
+      `Screen Open 1,64,64,16,Lowres : Cls 0 : Ink 3 : Bar 0,0 To 15,15 : Get Icon 1,0,0 To 16,32
+${WIN}
+Wb Front Pen 5 : Wb Fill Box 40,30 To 60,70
+Wb Paste Icon 40,30,1`,
+    )
+    // the bar covers the icon's top half; its bottom half is colour 0 and it
+    // overwrites the pen-5 fill rather than leaving it showing through
+    expect(p.point(45, 35)).toBe(3)
+    expect(p.point(45, 55)).toBe(0)
+  })
+
+  /** `cmp.w d0,d7 / blt` --- an index above the count returns quietly */
+  it('an index above the count draws nothing and raises nothing', () => {
+    const p = paste(`${ICON}\n${WIN}\nWb Paste Icon 40,30,9`)
+    expect(p.point(45, 35)).toBe(0)
+  })
+
+  /** neither "Icons   " nor a bank at all is error 20 */
+  it('no icon bank is No Icons In Bank', () => {
+    expect(() => run(`${WIN}\nWb Paste Icon 40,30,1`)).toThrow(INT_ERRORS[INT_ERR.NO_ICONS_IN_BANK])
+  })
+
+  /** and the window lookup is the same `moveq #$b,d0` as the drawing group */
+  it('no window open is Window Is Not Open', () => {
+    expect(() => run(`${ICON}\n${SCREEN}\nWb Window Num 4 : Wb Paste Icon 0,0,1`)).toThrow(
+      INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN],
+    )
+  })
+})

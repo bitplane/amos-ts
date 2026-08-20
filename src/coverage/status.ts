@@ -3723,6 +3723,11 @@ export const FAITHFUL = new Set<string>([
   // for. iff_to_bank.AMOS is where they are used, and where the author says
   // what `Wb Asl Info` means -- "1= Dont Show Info Files 0=Show Info Files".
   'wb asl pattern', 'wb asl info', 'wb asl dir', 'wb file',
+  // `Wb Paste Icon` builds a `struct Image` at `$16ba(a4)` out of AMOS's own
+  // bank 2 -- the number is `moveq #$2,d3`, a literal -- and hands it to
+  // DrawImage (-$72). A blitter copy through PlanePick, so colour 0 is a
+  // colour and paints.
+  'wb paste icon',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4066,6 +4071,16 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb paste icon":
+    "Routine 76 ($483a) walks AMOS's bank list at `$5ea(a5)` for bank 2 -- `moveq #$2,d3`, a literal and not an " +
+    "argument -- and checks the eight bytes it starts with against `$49636f6e` and `$73202020`, \"Icons   \". " +
+    "It builds a `struct Image` at `$16ba(a4)`: Width is the entry's width-in-words times 16, Height its height " +
+    "word, ImageData ten bytes in, past AMOS's five-word image header. DEFECT: Image.Depth is the SCREEN's and " +
+    "not the icon's, from `GetScreenDrawInfo(wd_WScreen)` and dri_Depth, with PlanePick set to (1 << depth) - 1 " +
+    "by a `mulu.w #$2` loop -- so DrawImage is told to read as many planes as the screen has out of an icon " +
+    "that may have fewer, and on a deeper screen it reads whatever follows them. Not reproducible here, where a " +
+    "bank image carries its own depth. The range check is one-sided (`cmp.w d0,d7 / blt`): an index above the " +
+    "count returns quietly, and an index of 0 reads six bytes BELOW the table with nothing to stop it.",
   "wb find string":
     "Routine 71 ($46b0), and it does not work. DEFECT: the mismatch arm is `cmpa.l a1,a2 / bge` into a " +
     "`moveq #$0,d3`, and `cmpa.l a1,a2` computes `end - scan`. That is positive for any search whose end is " +
