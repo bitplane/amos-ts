@@ -82,6 +82,20 @@ describe('expressions', () => {
     expect(run('Print 7 mod 0')).toBe(' 7\n') // no DByZero in Op_Modulo
   })
 
+  it('implements Op_Puis as SPPow, which throws the base\'s sign away', () => {
+    // SPPow is `tst.b d7 / bpl .pow / andi.b #$7f,d7 / bsr .pow / ori.b
+    // #$2,ccr / rts`, and Math_Operation (+ILib.s:7490) never looks at the
+    // condition codes, so a negative base is raised as its magnitude and
+    // nothing is raised as an error.
+    expect(run('Print 2^3')).toBe(' 8\n')
+    expect(run('Print (-2)^3')).toBe(' 8\n')
+    expect(run('Print (-9)^2')).toBe(' 81\n')
+    expect(run('Print (-9)^0.5')).toBe(' 3\n')
+    // jdlib's _RootPower stopped here, on the case its POWER procedure
+    // exists to put the sign back onto
+    expect(run('Print (-9)^0.333')).toMatch(/^ 2\.07/)
+  })
+
   it('does integer division on integers, float on floats', () => {
     expect(run('Print 7/2')).toBe(' 3\n')
     expect(run('Print 7.0/2')).toBe(' 3.5\n')

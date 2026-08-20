@@ -1615,8 +1615,32 @@ function binOp(op: string, a: Value, b: Value, double = false): Value {
       return VI((li >>> 0) % ri | 0)
     }
     case '^':
-      // Op_Puis: QueFloat — power is always a float operation
-      return flt(Math.pow(x, y))
+      /*
+       * Op_Puis (+ILib.s:3418) is `bsr QueFloat` then Math_Operation with
+       * _LVOSPPow, so `^` is mathtrans.library's SPPow and nothing else.
+       *
+       * SPPow's body is sixteen bytes and it throws the sign away:
+       *
+       *     tst.b   d7            the base
+       *     bpl.b   .pow
+       *     andi.b  #$7f,d7       negative: clear the sign bit
+       *     bsr.b   .pow          ... and raise the MAGNITUDE
+       *     ori.b   #$2,ccr       set V, and that is the whole complaint
+       *     rts
+       *     .pow jsr SPLog / jsr SPMul / jmp SPExp
+       *
+       * so `(-2)^3` is 8, not -8, and `(-9)^0.333` is 2.08 rather than an
+       * error. SPLog does the same thing at its own entry. Both the 33.8
+       * library on APD002 and the one shipped with MeXx carry those bytes.
+       *
+       * The V bit reaches nobody: Math_Operation (+ILib.s:7490) is `jsr
+       * 0(a6,d2.w)` followed by `Ret_Float`, with no test of the condition
+       * codes, so `^` cannot raise an error at all. This port threw Overflow
+       * for a negative base with a fractional exponent, which is why jdlib's
+       * `_RootPower` demo stopped on `(-9)^0.333` — the very case its POWER
+       * procedure exists to put the sign back onto.
+       */
+      return flt(Math.pow(Math.abs(x), y))
     case '=':
       return VI(x === y ? -1 : 0)
     case '<>':
