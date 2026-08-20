@@ -4842,9 +4842,14 @@ export const NOTES: Record<string, string> = {
     "and DRAWER into the requester, which is what makes the doc's own `KAT$+PLIK$` reassembly work.",
   "baslfilereq":
     "Routine 5 ($856), 104 bytes: four tag values at data+$424/$42c/$434/$43c filled right to left, so they land " +
-    "on ASL_File, ASL_Dir, the pattern tag (ASL_TagBase+10) and ASL_Hail in the doc's order, then AslRequest at " +
-    "`jsr -$3c(a6)`. The window is asked for 100x220. APPROXIMATED for the same reason as Bfilereq, and it writes " +
-    "the ASL requester's fields -- which the readers then share a buffer over, see Baslfile$.",
+    "on ASL_File, ASL_Dir, ASL_Pattern and ASL_Hail in the doc's order, then AslRequest at `jsr -$3c(a6)`. The " +
+    "other three tags are constants in the template at file offset `0x64e` -- ASL_Width 100, ASL_Height 220 and " +
+    "ASL_FuncFlags 1, which is FILF_PATGAD and is why the second argument has anywhere to go. Each string is " +
+    "NUL-terminated IN PLACE before its pointer is stored (`move.w (a1)+,d0 / clr.b (a1,d0.w)`), so this one " +
+    "does not carry Int 1.0's `Wb Intuitext` overrun. It opens the REAL requester, ../amiga/asl.ts, rather than " +
+    "AMOS's own selector standing in for one -- `Bfilereq` beside it still does that, because reqtools is a " +
+    "different library and this port has no more of it than the selector. It writes the ASL requester's fields, " +
+    "which the readers then share a buffer over; see Baslfile$.",
   "binforeq":
     "Routine 11 ($a02), 72 bytes: rtEZRequestA with the body in a1, the gadget string in a2 and a tag list at " +
     "data+$374 carrying RT_Underscore = '_' (so \"_Yes|_No\" marks shortcuts), RT_ReqPos = REQPOS_CENTERSCR and " +

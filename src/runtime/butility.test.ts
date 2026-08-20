@@ -272,14 +272,43 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the file requesters', () =>
     expect(b.out().trim()).toBe('0 [keep.txt]')
   })
 
-  it('Baslfilereq writes the asl fields, not the reqtools ones', () => {
+  /**
+   * A REAL asl.library requester now, ../amiga/asl.ts, and not AMOS's own
+   * selector standing in: `Bfilereq` beside it still uses the selector
+   * because that one is reqtools rather than asl.
+   */
+  it('Baslfilereq opens the asl requester with the four arguments in it', () => {
     const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
     park(b)
-    b.rt.finishFselNow('RAM:Deep/other.txt')
+    const st = b.rt.asl!
+    expect(st.window.title).toBe('Load')
+    expect(st.setup.pattern).toBe('#?.txt')
+    expect(st.setup.dir).toBe('RAM:')
+    expect(st.setup.file).toBe('x.txt')
+    // ASL_Width 100 and ASL_Height 220, the template's own constants at file
+    // offset 0x64e, and ASL_FuncFlags 1 is the pattern gadget
+    expect([st.window.width, st.window.height]).toEqual([100, 220])
+    expect(st.layout.pattern).not.toBeNull()
+  })
+
+  it('and writes the asl fields, not the reqtools ones', () => {
+    const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
+    park(b)
+    b.rt.asl!.result = 'RAM:Deep/other.txt'
+    b.rt.asl!.done = true
     mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('-1')
     expect(b.rt.butility.aslFile).toBe('other.txt')
     expect(b.rt.butility.aslDrawer).toBe('RAM:Deep')
     // the reqtools requester is untouched by it
     expect(b.rt.butility.reqDir).toBe('')
+  })
+
+  /** `tst.l d0 / beq` on AslRequest's answer: a cancel is 0 */
+  it('a cancelled asl requester answers 0', () => {
+    const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
+    park(b)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('0')
   })
 })

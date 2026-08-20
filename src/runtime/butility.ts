@@ -217,6 +217,17 @@ function gadgets(spec: string): string[] {
   return spec.split('|').map((g) => g.replace(/_/g, ''))
 }
 
+/**
+ * The three tags routine 5 does NOT fill in, read out of the template at file
+ * offset `0x64e` in `BUtility.Lib`.
+ *
+ * ASL_FuncFlags 1 is FILF_PATGAD, V37's "put a pattern gadget on it", which
+ * is why the second argument has anywhere to go.
+ */
+const BASL_WIDTH = 100
+const BASL_HEIGHT = 220
+const BASL_FUNCFLAGS = 1
+
 export function makeBUtilityInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /**
@@ -326,30 +337,58 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
      * and ASL_Hail in the doc's own order. The window is asked for 100x220
      * (ASL_Width/ASL_Height) and `jsr -$3c(a6)` is AslRequest.
      *
-     * APPROXIMATED for the same reason as Bfilereq, and it writes the asl
-     * requester's fields rather than the reqtools one's --- which the two
-     * pairs of readers then share a buffer over.
+     * The tag TEMPLATE holds the other three, as constants at file offset
+     * `0x64e`: ASL_Width 100, ASL_Height 220 and ASL_FuncFlags 1. Each of the
+     * four strings is NUL-terminated IN PLACE before its pointer is stored
+     * (`move.w (a1)+,d0 / clr.b (a1,d0.w)`), so this one does not carry
+     * Int 1.0's `Wb Intuitext` overrun.
+     *
+     * This is a REAL asl.library requester now --- ../amiga/asl.ts, the one
+     * Int 1.0's `Wb Asl Req` opens --- rather than AMOS's own selector
+     * standing in for it, which is what `Bfilereq` beside it still does
+     * because that one is reqtools and not asl. It writes the asl fields
+     * rather than the reqtools ones, which the two pairs of readers then
+     * share a buffer over.
      */
     'baslfilereq'(it, a) {
       const st = rt.butility
-      if (rt.fsel) {
-        if (rt.fsel.done) {
-          const r = rt.fsel.result
-          rt.fsel = null
+      if (rt.asl) {
+        if (rt.asl.done) {
+          const r = rt.asl.result
+          rt.asl = null
           if (r === '') return VI(0)
           const { dir, name } = splitPath(r)
           st.aslFile = name
           st.aslDrawer = dir
           return VI(-1)
         }
-        it.block({ type: 'fsel' }, true)
+        it.block({ type: 'asl' }, true)
         return VI(0)
       }
       const [title, pattern, dir, file] = [str(a[0]!), str(a[1]!), str(a[2]!), str(a[3]!)]
       st.aslDrawer = dir
       st.aslFile = file
-      if (!rt.startFsel(selectorPath(dir, pattern), file, title, '')) return VI(0)
-      it.block({ type: 'fsel' }, true)
+      const started = rt.startAslRequest(
+        {
+          hail: title,
+          okText: '',
+          cancelText: '',
+          left: 0,
+          top: 0,
+          width: BASL_WIDTH,
+          height: BASL_HEIGHT,
+          dir: dir === '' ? (rt.vfs?.currentDir ?? '') : dir,
+          file,
+          pattern,
+          rejectIcons: false,
+          doPatterns: (BASL_FUNCFLAGS & 1) !== 0,
+        },
+        null,
+      )
+      // `$10(a2)` empty is routine 20's error, and a requester that will not
+      // open is the same outcome: 0, which is a cancel
+      if (!started) return VI(0)
+      it.block({ type: 'asl' }, true)
       return VI(0)
     },
 
