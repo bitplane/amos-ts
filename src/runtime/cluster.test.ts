@@ -1209,6 +1209,44 @@ describe('blocks, clones, flips', () => {
     expect(rt2.cblocks.get(1)!.x).toBe(48)
   })
 
+  it('a bob does not survive its screen (EcDel -> BbEcOff)', () => {
+    // BbEc is written once, in ResBOB at creation (+W.s:966), and BobSet
+    // never touches it — so AMOS gets rid of the bob instead: EcDel
+    // (+W.s:3319) ends `move.l a4,a0 / bsr BbEcOff`, and BbEcOff (+W.s:1100)
+    // DelBobs every bob on that screen.
+    //
+    // Renegades scrolls its intro logo as bob 1 on screen 0, reopens screen
+    // 0, then draws both players on the map screen as bobs 0 and 1. Player
+    // two stayed behind on the display screen at map coordinates.
+    const { rt } = run(
+      [
+        'Screen Open 0,320,200,16,0 : Bob 1,10,10,1',
+        'Screen Open 1,320,200,16,0 : Screen 1',
+        'Bob 1,20,20,1',
+      ].join('\n'),
+    )
+    expect(rt.bobs.get(1)!.screen).toBe(0) // still screen 0: BbEc is set once
+    const { rt: rt2 } = run(
+      [
+        'Screen Open 0,320,200,16,0 : Bob 1,10,10,1',
+        'Screen Close 0',
+        'Screen Open 1,320,200,16,0 : Screen 1',
+        'Bob 1,20,20,1',
+      ].join('\n'),
+    )
+    expect(rt2.bobs.get(1)!.screen).toBe(1) // the close took it, so this is a new bob
+    // reopening a number closes what was there, which is the case the game hits
+    const { rt: rt3 } = run(
+      [
+        'Screen Open 0,320,200,16,0 : Bob 1,10,10,1',
+        'Screen Open 0,320,200,16,0',
+        'Screen Open 1,320,200,16,0 : Screen 1',
+        'Bob 1,20,20,1',
+      ].join('\n'),
+    )
+    expect(rt3.bobs.get(1)!.screen).toBe(1)
+  })
+
   it('clones screens sharing the bitmap but not the palette', () => {
     const prog = ['Screen Clone 3', 'Ink 5 : Plot 10,10'].join('\n')
     const { rt } = run(prog)

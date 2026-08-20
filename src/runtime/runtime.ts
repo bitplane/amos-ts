@@ -4454,6 +4454,8 @@ export class Runtime {
       if (c !== undefined) s.palette[i] = c
     }
     s.bobBracket = this.bobBracket
+    // reopening a number closes what was there, and EcDel takes its bobs
+    if (this.screens.has(n)) this.dropBobsOn(n)
     this.screens.set(n, s)
     this.order = this.order.filter((i) => i !== n)
     this.order.push(n)
@@ -4514,7 +4516,39 @@ export class Runtime {
     }
   }
 
+  /**
+   * A bob does not survive its screen.
+   *
+   * `EcDel` (+W.s:3319) ends with `move.l a4,a0 / bsr BbEcOff`, and BbEcOff
+   * (+W.s:1100) walks the bob list calling `DelBob` on every bob whose BbEc
+   * is this screen. DelBob frees the whole BbLong record — the two decor
+   * buffers, the AMAL channel, the limits, the Set Bob planes — with no
+   * erase and no `Bob Off` countdown. `BbEc` itself is written once, in
+   * ResBOB at creation (+W.s:966), and `BobSet` never touches it again, so
+   * a surviving bob would keep pointing at a screen that is gone.
+   *
+   * Renegades scrolls the AMOS logo as bob 1 on screen 0 through its intro,
+   * reopens screen 0, and then puts both players on the 816x640 map screen
+   * as bobs 0 and 1. Keeping the intro's bob 1 alive left player two drawn
+   * on the DISPLAY screen at map coordinates: he moved at twice the speed of
+   * the ground under him, because the viewport scrolls one way while he
+   * moved the other; he ignored walls he was nowhere near; and every frame
+   * he restored a background he had saved from a screen the viewport copy
+   * overwrites, stamping fragments of wall across the floor.
+   */
+  private dropBobsOn(n: number): void {
+    for (const b of [...this.bobs.values()]) {
+      if (b.screen !== n) continue
+      this.bobs.delete(b.n)
+      this.forgetBobSaves(b.n)
+      this.bobModes.delete(b.n)
+      this.bobPut.delete(b.n)
+      this.bobLimits.delete(b.n)
+    }
+  }
+
   closeScreen(n: number): void {
+    this.dropBobsOn(n)
     // closing either half of a dual-playfield pair dissolves that pair (EcDel)
     const closing = this.screens.get(n)
     if (closing?.dualPartner !== null && closing !== undefined) {
