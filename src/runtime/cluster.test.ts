@@ -1520,6 +1520,35 @@ describe('menus', () => {
     expect(rt.menuOpen).toBeNull()
   })
 
+  it('On Menu Goto jumps and does not come back (GoMGo _TkGto)', () => {
+    // V1_OnMenu (+Verif.s:1061) takes Goto, Gosub or Proc, and GoMGo
+    // (+ILib.s:1063) sends _TkGto to LGoto with no return address pushed.
+    // Darts' menu is `On Menu Goto SELECT,SELECT,GAM,SETU,OPER`.
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    let out = ''
+    const src = [
+      'Menu$(1)="F" : Menu$(1,1)="X"',
+      'Menu On : On Menu Goto PICKED : On Menu On',
+      'Do : Wait Vbl : Loop',
+      'PICKED: Print "JUMPED" : End',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.input.mouseK = 2
+    rt.input.mouseX = 128 + 3
+    rt.input.mouseY = 50 + 3
+    rt.frame()
+    const item = rt.menuOpen!.levels[1]!.lvl.list[0]!
+    rt.input.mouseX = 128 + item.xx + 2
+    rt.input.mouseY = 50 + item.yy + 2
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(out).toContain('JUMPED')
+    expect(rt.interp.gosubs.length).toBe(0) // a Goto leaves nothing to return to
+  })
+
   it('dispatches On Menu Gosub on selection', () => {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')
@@ -1603,6 +1632,18 @@ describe('Limit Mouse (InLimitMouse +Lib.s / LimitMEc)', () => {
     rt.frame()
     expect(rt.input.mouseX).toBe(260)
     expect(rt.input.mouseY).toBe(100)
+  })
+
+  it('takes MLimA\'s ceilings, its swap and its omitted coordinates', () => {
+    // Arcadia line 118 is `Limit Mouse 166,To 328,`. Every slot of the
+    // `"I0,0t0,0"` spec may be empty, and an empty one compiles to EntNul,
+    // whose low word is zero — MLimA (+W.s:10977) reads words.
+    const { rt } = run('Limit Mouse 166,To 328,')
+    expect(rt.mouseLimit).toEqual({ x1: 166, y1: 0, x2: 328, y2: 0 })
+    // a min above its max is exchanged with it
+    expect(run('Limit Mouse 400,50 To 100,20').rt.mouseLimit).toEqual({ x1: 100, y1: 20, x2: 400, y2: 50 })
+    // negative minimums clear, and the maximums stop at 458 and 312
+    expect(run('Limit Mouse -20,-9 To 900,900').rt.mouseLimit).toEqual({ x1: 0, y1: 0, x2: 458, y2: 312 })
   })
 
   it('with no arguments limits to the current screen display area', () => {

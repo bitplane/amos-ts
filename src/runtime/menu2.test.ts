@@ -145,7 +145,9 @@ describe('menu event control', () => {
     expect(rt.menu.find([1])).toBeDefined()
   })
 
-  it('On Menu needs a Gosub or Proc target', () => {
-    expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/On Menu needs Gosub or Proc/)
+  it('On Menu needs a Goto, Gosub or Proc target', () => {
+    // V1_OnMenu (+Verif.s:1061) tests for _TkGto, _TkGsb and _TkPrc and
+    // falls through to VerSynt for anything else
+    expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/On Menu needs Goto, Gosub or Proc/)
   })
 })

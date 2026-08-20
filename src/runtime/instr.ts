@@ -2219,12 +2219,43 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.mouseLimit = screenRect(s)
         return
       }
-      const y1 = it.evalInt()
+      /*
+       * Every one of the four may be left out. The token spec is
+       * `"I0,0t0,0"` (+Lib.s:1191), the same shape as `screen display`'s
+       * `"I0,0,0,0,0"` (:481), and an empty integer slot compiles to EntNul.
+       * `MLimA` (+W.s:10977) reads its arguments as WORDS, and the low word
+       * of $80000000 is zero, so an omitted coordinate arrives as 0.
+       *
+       * Arcadia's `Limit Mouse 166,To 328,` pins the pointer to a horizontal
+       * strip that way, and the port would not parse the line at all.
+       */
+      const omitted = (): boolean => it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to'
+      const arg = (): number => (omitted() ? 0 : it.evalInt())
+      const y1 = arg()
       it.expect('to')
-      const x2 = it.evalInt()
+      const x2 = arg()
       it.expect(',')
-      const y2 = it.evalInt()
-      rt.mouseLimit = { x1: a, y1, x2, y2 }
+      const y2 = arg()
+      /*
+       * MLimA in full. The ceilings are `cmp.w #458,d3` and `cmp.w #312,d4`
+       * and both branches are `bls`, so they are unsigned and a negative
+       * maximum comes down to the ceiling. A negative MINIMUM is cleared
+       * instead (`tst.w d1 / bpl / clr.w d1`, signed), and a min above its
+       * max is exchanged with it.
+       */
+      const word = (v: number): number => v & 0xffff
+      const signed = (v: number): number => (v << 16) >> 16
+      let lx = word(a)
+      let ly = word(y1)
+      let hx = word(x2)
+      let hy = word(y2)
+      if (hx > 458) hx = 458
+      if (hy > 312) hy = 312
+      if (signed(lx) < 0) lx = 0
+      if (signed(ly) < 0) ly = 0
+      if (lx > hx) [lx, hx] = [hx, lx]
+      if (ly > hy) [ly, hy] = [hy, ly]
+      rt.mouseLimit = { x1: lx, y1: ly, x2: hx, y2: hy }
     },
     'paste bob'(it) {
       // InPasteBob +Lib.s:12753 -> Patch: bset #31,d3 sets the "PAS POINT
@@ -3392,9 +3423,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (rt.menu.screenNb < 0) rt.menu.screenNb = rt.currentIndex
     },
     'on menu'(it) {
-      // On Menu Gosub L1[,L2...] / On Menu Proc P1[,P2...]
+      // On Menu Goto/Gosub L1[,L2...] / On Menu Proc P1[,P2...]. `V1_OnMenu`
+      // (+Verif.s:1061) takes _TkGto, _TkGsb or _TkPrc and nothing else, and
+      // the first two share the label path.
       const kind = it.nm()
-      if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('On Menu needs Gosub or Proc')
+      if (kind !== 'goto' && kind !== 'gosub' && kind !== 'proc') {
+        throw new AmosError('On Menu needs Goto, Gosub or Proc')
+      }
       it.advance()
       const targets: string[] = []
       for (;;) {

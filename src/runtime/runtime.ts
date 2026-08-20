@@ -3259,7 +3259,7 @@ export class Runtime {
       // (PR name) label procedures are not invoked by the port — see NOTES
     },
   }
-  onMenu: { kind: 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
+  onMenu: { kind: 'goto' | 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
   /** LMB drag of a movable item or level (MnBGoch +Lib.s:16016) */
   private menuDrag: { kind: 'item' | 'level'; node: MenuNode | null; level: number; mx: number; my: number } | null = null
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
@@ -4940,6 +4940,12 @@ export class Runtime {
     this.interp.blocked = null // menu selections wake waits
     if (h.kind === 'proc') {
       this.interp.callProc(target, [])
+    } else if (h.kind === 'goto') {
+      // `GoMGo` (+ILib.s:1063) reads OMnType and _TkGto is `move.l d0,a6 /
+      // bra LGoto` — a jump with no return pushed. Darts' menu is
+      // `On Menu Goto SELECT,SELECT,GAM,SETU,OPER`, five screens that never
+      // come back.
+      this.interp.jumpLabel(target)
     } else {
       this.interp.gosubs.push({ addr: { li: this.interp.pc.li, ti: this.interp.pc.ti }, loopBase: this.interp.loops.length })
       this.interp.jumpLabel(target)
