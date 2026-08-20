@@ -1396,7 +1396,13 @@ describe('TURBO icons (Turbo_Icon_doc.asc + disassembly)', () => {
     const proc = run([...masked, 'F 16proc Icon 100,50,1'].join('\n'))
     expect(proc.rt.screen.point(96, 50)).toBe(3)
     expect(proc.rt.screen.point(110, 50)).toBe(0) // the icon's blank half painted over
-    const blit = run([...masked, 'F Paste Icon 100,50,1'].join('\n'))
+    // "Masks are now supported!" — but only where there IS one. An icon has
+    // no mask until Make Icon Mask builds it, which is `tst.l 4(a2) / Rbne`
+    // in InPasteIcon (+Lib.s:12734) and the reason Icon Check has a separate
+    // answer for "defined, and it has NO MASK".
+    const solid = run([...masked, 'F Paste Icon 100,50,1'].join('\n'))
+    expect(solid.rt.screen.point(110, 50)).toBe(0)
+    const blit = run([...masked, 'Make Icon Mask', 'F Paste Icon 100,50,1'].join('\n'))
     expect(blit.rt.screen.point(110, 50)).toBe(5) // masked: the background shows
     const proc32 = run([...masked, 'F 32proc Icon 100,50,1'].join('\n'))
     expect(proc32.rt.screen.point(96, 50)).toBe(3)
@@ -1412,8 +1418,11 @@ describe('TURBO icons (Turbo_Icon_doc.asc + disassembly)', () => {
   it('Icon Check tells a defined icon from a missing one', () => {
     // "-1 indicates that the Icon is defined, and it has NO MASK... 0
     // indicates that the Icon is NOT defined"
+    // a grabbed icon has no mask, which is the -1 answer; Make Icon Mask is
+    // what turns it into the 1
     const { out } = run([...grab, 'Print Icon Check(1);Icon Check(2)'].join('\n'))
-    expect(out).toBe(' 1 0\n')
+    expect(out).toBe('-1 0\n')
+    expect(run([...grab, 'Make Icon Mask', 'Print Icon Check(1)'].join('\n')).out).toBe(' 1\n')
     // with no bank at all: "in AMOSPro you don't get an error, 0 is returned"
     expect(run('Print Icon Check(1)').out).toBe(' 0\n')
     expect(() => run('Print Icon Check(0)')).toThrow(/Illegal function call/)

@@ -2272,10 +2272,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (img) rt.blit(scr(), img, x, y, img.opaque)
     },
     'paste icon'(it) {
+      // InPasteIcon +Lib.s:12734 pastes THROUGH an existing mask and only
+      // pokes the $C0000000 non-mask when the field is empty, so an icon is
+      // solid until Make Icon Mask has been over the bank
       const [x, y] = pair(it)
       it.expect(',')
       const img = rt.iconBank?.retourne(it.evalInt())
-      if (img) rt.blit(scr(), img, x, y, true)
+      if (img) rt.blit(scr(), img, x, y, img.opaque)
     },
     'get bob': getObj('sprite'),
     'get sprite': getObj('sprite'),
@@ -2306,7 +2309,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'ins sprite': insObj('sprite'),
     'ins icon': insObj('icon'),
     'make icon mask'(it) {
-      if (!it.atStmtEnd()) it.evalInt() // masks are implicit here
+      // one icon or, with no argument, the lot — Masque per image
+      const n = it.atStmtEnd() ? -1 : it.evalInt()
+      const bank = rt.iconBank
+      if (!bank) return
+      if (n < 0) for (const im of bank.images) im.opaque = false
+      else {
+        const img = bank.image(n)
+        if (img) img.opaque = false
+      }
     },
     'no icon mask'(it) {
       const img = rt.iconBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
@@ -2343,7 +2354,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'make mask'(it) {
-      if (!it.atStmtEnd()) it.evalInt() // masks are implicit here
+      // a bob image is masked from the start; this undoes a No Mask
+      const n = it.atStmtEnd() ? -1 : it.evalInt()
+      const bank = rt.spriteBank
+      if (!bank) return
+      if (n < 0) for (const im of bank.images) im.opaque = false
+      else {
+        const img = bank.image(n)
+        if (img) img.opaque = false
+      }
     },
     'no mask'(it) {
       const img = rt.spriteBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
@@ -4540,10 +4559,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         throw new AmosError('Get Bob: wrong arguments')
       }
       const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
+      // a freshly grabbed icon has no mask either, for the same reason
       // Ritoune +Lib.s:12697: w=x2-x1, h=y2-y1 both must be positive and
       // within the screen
       if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) throw new AmosError('function call error')
-      bank.setImage(img, rt.grab(s, x1, y1, x2, y2))
+      const grabbed = rt.grab(s, x1, y1, x2, y2)
+      if (kind === 'icon') grabbed.opaque = true
+      bank.setImage(img, grabbed)
     }
   }
 

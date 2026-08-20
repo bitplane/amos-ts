@@ -114,6 +114,23 @@ export class ObjectBank {
   static fromSpriteBank(bank: SpriteBank): ObjectBank {
     const b = new ObjectBank()
     b.images = bank.sprites.map(decodeSprite)
+    /*
+     * AN ICON HAS NO MASK UNTIL SOMETHING BUILDS ONE.
+     *
+     * `BobCalc` (+W.s:1358) opens `tst.l 4(a2) / bne.s BbS1`, so it computes
+     * a mask through `Masque` only when the field is EMPTY — which is the
+     * state a bob image is in. `InPasteIcon` (+Lib.s:12734) makes sure an
+     * icon is never in it: `tst.l 4(a2) / Rbne L_Paste / move.l
+     * #$C0000000,4(a2)`, a pointer that is not a mask and is not zero
+     * either, so the mask pass is skipped and the paste comes out solid.
+     *
+     * The `Rbne` is the other half. An icon that ALREADY has a mask pastes
+     * through it, and `Make Icon Mask` is what gives it one. Ben 3D says
+     * `Make Icon Mask` on line 15 and draws its whole dungeon with `Paste
+     * Icon`; pasting solid regardless filled the corridor with the black
+     * rectangles the wall panels are cut out of.
+     */
+    if (bank.kind === 'icons') for (const im of b.images) im.opaque = true
     b.palette = bank.palette
     return b
   }
