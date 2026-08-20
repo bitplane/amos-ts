@@ -5178,6 +5178,23 @@ export class Runtime {
   updateBobs(): void {
     this.display.updateBobs()
   }
+  /**
+   * `SwapScS` — walk all eight screens and exchange logical with physical on
+   * every one carrying BitDble (ScSwapS +W.s:2526).
+   *
+   * It is the tail of `Update` (InUpdate +Lib.s:11435, `SyCall EffBob /
+   * ActBob / AffBob / EcCall SwapScS`) and of the per-VBL bob pass
+   * (+ILib.s:1000), and it is NOT part of `Bob Draw`, whose routine stops
+   * after AffBob (+Lib.s:11505).
+   *
+   * Without it a program that draws into the logical screen and calls
+   * `Update` never shows anything: Renegades blits its 816x640 map into
+   * `Logic(0)` every frame under `Autoback 0`, so the physical buffer the
+   * beam reads stayed black while 37,662 pixels of map sat in the other one.
+   */
+  swapDoubleBuffered(): void {
+    for (const s of this.screens.values()) if (s.doubleBuffered) s.swap()
+  }
   clearBobs(): void {
     this.display.clearBobs()
   }

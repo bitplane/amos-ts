@@ -2114,8 +2114,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = false
     },
     update() {
-      // one manual round: bobs erase/draw + buffer swap + sprites
+      // InUpdate +Lib.s:11435: EffBob, ActBob, AffBob, SwapScS, then the
+      // hardware sprites. The swap is the half this used to leave out.
       rt.updateBobs()
+      rt.swapDoubleBuffered()
     },
     'update every'(it) {
       // InUpdateEvery: the auto update runs every n VBLs (VBLDelai)

@@ -594,6 +594,21 @@ describe('double buffering and screens', () => {
     expect(s.displayBuffer[5 * s.width + 5]).toBe(5) // now it shows
   })
 
+  it('Update swaps every double buffered screen, Bob Draw swaps none', () => {
+    // InUpdate (+Lib.s:11435) is EffBob, ActBob, AffBob then `EcCall
+    // SwapScS`, and ScSwapS (+W.s:2526) walks all eight screens exchanging
+    // logical with physical on each one carrying BitDble. InBobDraw
+    // (+Lib.s:11505) stops after AffBob. Renegades blits its map into
+    // Logic(0) under Autoback 0 and calls Update, so with no swap the beam
+    // read a black buffer all game.
+    const rt = run(['Double Buffer : Autoback 0 : Update Off', 'Ink 5 : Bar 0,0 To 9,9', 'Update'].join('\n'))
+    const s = rt.screen
+    expect(s.displayBuffer[5 * s.width + 5]).toBe(5)
+    const rt2 = run(['Double Buffer : Autoback 0 : Update Off', 'Ink 5 : Bar 0,0 To 9,9', 'Bob Draw'].join('\n'))
+    const s2 = rt2.screen
+    expect(s2.displayBuffer[5 * s2.width + 5]).not.toBe(5)
+  })
+
   it('Screen Copy Physic To Logic works via buffer ids (FnLogic/FnPhysic)', () => {
     const prog = [
       'Double Buffer : Autoback 0',

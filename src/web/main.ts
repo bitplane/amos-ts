@@ -153,6 +153,15 @@ function detectAmosInstall(): void {
 
 /** a dropped drawer named "fonts" becomes the FONTS: assign AvailFonts
  * scans — real Amiga diskfonts render Text/menus with true metrics */
+/**
+ * FONTS: points at the RUNNING PROGRAM's own drawer first.
+ *
+ * Every Amiga game assigns it from its own startup-sequence, so a disk with
+ * a `fonts` drawer means that disk's fonts. Taking whichever mounted volume
+ * happened to be scanned first gave Demolition Mission — seven faces of its
+ * own, `Set Font 3/4/5/7` down its title screen — the fonts of an unrelated
+ * game somebody had opened earlier in the session.
+ */
 function detectFontsDrawer(): void {
   const findFonts = (dir: string, depth: number): string | null => {
     const entries = (vfs.listDir(dir) ?? []).filter((e) => e.isDir)
@@ -165,8 +174,11 @@ function detectFontsDrawer(): void {
     }
     return null
   }
+  const here = vfs.currentDir.split(':')[0] ?? ''
+  const names = vfs.volumeNames()
+  const order = here === '' ? names : [here, ...names.filter((v) => v.toLowerCase() !== here.toLowerCase())]
   let found: string | null = null
-  for (const vol of vfs.volumeNames()) {
+  for (const vol of order) {
     found = findFonts(`${vol}:`, 0)
     if (found) break
   }
@@ -210,6 +222,7 @@ async function receiveFile(
     if (autoRun && /\.amos$/i.test(name)) {
       vfs.currentDir = dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`
       player.loadProgram(bytes, name, dir, vol)
+      detectFontsDrawer()
     }
   }
   refreshFiles()
@@ -613,7 +626,12 @@ player.machine.attach('mouse', new Mouse('browser'))
 const loader = createLibraryLoader({
   vfs,
   drives: player.machine.drives,
-  loadProgram: (bytes, name, dir, vol) => player.loadProgram(bytes, name, dir, vol),
+  loadProgram: (bytes, name, dir, vol) => {
+    // after, not before: loadProgram is what makes the program's own drawer
+    // current, and that is where the fonts search starts
+    player.loadProgram(bytes, name, dir, vol)
+    detectFontsDrawer()
+  },
   loadArchive: (bytes, name) => player.loadArchive(bytes, name),
   mounted: () => {
     detectAmosInstall()
@@ -684,6 +702,7 @@ const extensions = createExtensionsTab(programs, (path) => {
   if (!bytes) return
   const segs = path.split(':')[1]?.split('/') ?? []
   player.loadProgram(bytes, segs[segs.length - 1] ?? path, segs.slice(0, -1))
+  detectFontsDrawer()
   tabs.select('play')
 })
 const libs = createLibsTab()

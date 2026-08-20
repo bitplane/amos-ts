@@ -989,6 +989,26 @@ describe('drawing primitives (graphics cursor + shapes)', () => {
     expect(cur('Text 16,50,"AB"')).toEqual([32, 50]) // advanced by the width
   })
 
+  it('Text fills its character cell, because JAM2 is the default draw mode', () => {
+    // Screen creation is `move.b #1,EcMode(a4)` then SetDrMd with it
+    // (+W.s:3080-3091), and one is JAM2. `Gr Writing` (+Lib.s:10090) passes
+    // its argument straight to SetDrMd. Mexican Massacre bounces its title
+    // down 70 rows with no erase of its own; the cell fill is the erase.
+    const under = ['Ink 7 : Bar 0,0 To 100,40', 'Ink 4,0']
+    const { rt } = run([...under, 'Text 8,20,"H"'].join('\n'))
+    const s = rt.screens.get(0)!
+    // the blank half of the glyph cell is the PAPER now, not what was under it
+    let paper = 0
+    for (let y = 14; y < 22; y++) for (let x = 8; x < 16; x++) if (s.point(x, y) === 0) paper++
+    expect(paper).toBeGreaterThan(20)
+    expect(s.point(8, 30)).toBe(7) // and only the cell, not the whole line
+    // Gr Writing 0 is JAM1, and leaves what was underneath alone
+    const jam1 = run([...under, 'Gr Writing 0', 'Text 8,20,"H"'].join('\n')).rt.screens.get(0)!
+    let kept = 0
+    for (let y = 14; y < 22; y++) for (let x = 8; x < 16; x++) if (jam1.point(x, y) === 7) kept++
+    expect(kept).toBeGreaterThan(20)
+  })
+
   it('Polygon fills its interior (InitArea/AreaEnd), Polyline strokes', () => {
     const filled = run('Ink 5 : Polygon 10,10 To 50,10 To 30,40').rt.screens.get(0)!
     const stroked = run('Ink 5 : Polyline 10,10 To 50,10 To 30,40').rt.screens.get(0)!

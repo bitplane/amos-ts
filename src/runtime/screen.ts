@@ -1173,9 +1173,26 @@ export class Screen {
 
   private textInner(x: number, y: number, s: string): void {
     const f = this.font
+    /*
+     * JAM2 fills the character cell, and JAM2 is the default.
+     *
+     * `Text` is graphics.library's Text through the screen's RastPort
+     * (InText +Lib.s:9849 -> GfxFunc), so it obeys rp_DrawMode, and screen
+     * creation sets that: `move.b #1,EcMode(a4)` then `SetDrMd` with it
+     * (+W.s:3080-3091). One is JAM2. `Gr Writing n` (+Lib.s:10090) passes n
+     * straight to SetDrMd and nothing else touches it, and the menu code
+     * calls `moveq #1,d0 / SetDrMd` "Writing normal" (+W.s:4999).
+     *
+     * Drawing only the set bits left every moving string smeared. Mexican
+     * Massacre bounces its title down 70 rows a pixel at a time with
+     * `Ink 4,0` and no erase of its own, which is only sensible because the
+     * cell fill IS the erase; the port drew seventy overlapping copies and
+     * the title came out as solid red bars.
+     */
+    const opaque = this.rp.drawMode === 1
     if (!f) {
       for (let i = 0; i < s.length; i++) {
-        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle, true)
+        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, this.gPaper, !opaque, this.textStyle, true)
       }
       return
     }
@@ -1188,6 +1205,13 @@ export class Screen {
     for (let i = 0; i < s.length; i++) {
       const ch = s.charCodeAt(i)
       const m = glyphMetrics(f, ch)
+      // the cell graphics.library fills under JAM2 is the ADVANCE wide and
+      // the font tall, which is wider than the glyph's own bit span
+      if (opaque) {
+        for (let gy = 0; gy < f.ySize; gy++) {
+          for (let gx = 0; gx < m.advance; gx++) this.writeMode(penX + gx, top + gy, this.gPaper, w.writing1, true)
+        }
+      }
       for (let gy = 0; gy < f.ySize; gy++) {
         for (let gx = 0; gx < m.width; gx++) {
           if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1, true)
