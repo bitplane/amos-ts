@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1211 qualifying notes live in `src/coverage/status.ts`, which this file
+1212 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -81,7 +81,7 @@ is.
 | gui-1.61             |      103 |       63 |           40 |       0 |     100% |
 | gui-2.10             |      204 |      126 |           78 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |       55 |            6 |       1 |      98% |
+| int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5109 |          298 |    1952 |      73% |
+| **total**            |     7422 |     5109 |          299 |    1951 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -318,10 +318,10 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `key speed`
 
-## int-1.0 (98%)
+## int-1.0 (100%)
 
-- **approximated** (6): `wb find string`, `wb flash screen`, `wb gt gadget`,
-  `wb image to window`, `wb scroll`, `wb window base`
+- **approximated** (7): `wb dt image to screen`, `wb find string`, `wb flash screen`,
+  `wb gt gadget`, `wb image to window`, `wb scroll`, `wb window base`
 
 ## interface (100%)
 

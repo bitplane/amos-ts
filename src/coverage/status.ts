@@ -4107,6 +4107,22 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb dt image to screen":
+    "Routine 83 ($4b64) opens `datatypes.library` version 37, NewDTObjectAs the filename (-$30) and asks " +
+    "GetDTAttrsA (-$42) for the colour count and the colour table. The picture's size is the instance data at " +
+    "`$136` of the object -- `$2` ViewMode, `$4` width, `$6` height -- and the colour registers are ULONG " +
+    "triples, which is why the pack loop steps FOUR bytes a component (`move.b (a2)+,d1 / addq.l #$3,a2`). " +
+    "`cmpi.b #$0,$d82(a4) / beq` picks between two whole arms: a mode of 0 opens a screen and a window for the " +
+    "picture ITSELF, by pushing nine parameters and calling routines 40 and 2, and anything else writes the " +
+    "bank named by the fourth argument -- an `IFF.Raw ` one, named with two immediates at $4e1e, the four words " +
+    "at `+8` and the planes eight bytes past them. The fourth word is a DEPTH and not a count, which the READER " +
+    "settles: routine 82's Raw arm doubles 1 that many times to get the colours. APPROXIMATED for one thing: " +
+    "what this port can turn into bitplanes. datatypes.library reaches a decoder per format and " +
+    "../amiga/datatypes.ts identifies every one it ships without decoding any, so ILBM goes through " +
+    "../amiga/ilbm.ts and comes out exact while anything else is error 38, \"Cannot Read DataType\". Nothing in " +
+    "routine 83 loads 38 -- it is the only message in the table for a picture that will not read, and it is " +
+    "used here so the gap is reported rather than hidden. A JPEG is the case in reach: ../amiga/jpeg.ts decodes " +
+    "one to 24-bit RGB and nothing here quantises it back down to a palette.",
   "wb asl req":
     "Routine 21 ($2ade) opens `asl.library` version 37, AllocAslRequests one of the three types on first use and " +
     "keeps it (`$a96`, `$a9a`, `$a9e`, one per type), fills the tag list at `$c12(a4)` and calls AslRequest " +

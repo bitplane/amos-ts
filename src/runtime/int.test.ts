@@ -1358,3 +1358,104 @@ describe('Int 1.0: Wb Save Iff', () => {
     expect(back.width).toBe(640)
   })
 })
+
+/**
+ * `Wb Dt Image To Screen screen,window,file$,bank,mode` --- a picture through
+ * datatypes.library, into a bank or onto a screen it opens itself.
+ *
+ * DataType_To_Bank.AMOS is the shape: `Wb Dt Image To Screen 0,0,F$,1,1` and
+ * then the same four `Deek`s off `Start(1)` that `Wb Iff To Bank` fills in.
+ */
+describe('Int 1.0: Wb Dt Image To Screen', () => {
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0'
+
+  function picture(width: number, height: number): Uint8Array {
+    const pixels = new Uint8Array(width * height)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) pixels[y * width + x] = (x + y) & 3
+    return encodeIlbm({ width, height, depth: 2, mode: 0x8004, palette: [0x000, 0xf00, 0x0f0, 0x00f], pixels })
+  }
+
+  function go(src: string): { rt: Runtime; out: string } {
+    const b = boot(src, { 'pic.iff': picture(24, 12), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
+    mustFinish(b.rt.runHeadless(3_000))
+    return { rt: b.rt, out: b.out().trim() }
+  }
+
+  /**
+   * Routine 83 spells the bank's name into it with two immediates,
+   * `move.l #$4946462e` and `move.l #$52617720`, then the four words at `+8`
+   * and the planes eight bytes past those.
+   */
+  it('a non-zero mode writes an IFF.Raw bank', () => {
+    const r = go(`Wb Dt Image To Screen 0,0,"pic.iff",1,1
+BASE=Start(1)
+Print Deek(BASE);",";Deek(BASE+2);",";Hex$(Deek(BASE+4));",";Deek(BASE+6)`)
+    expect(r.out.replace(/\s+/g, '')).toBe('24,12,$8004,2')
+    const mem = r.rt.memBanks.get(1)!
+    // `reserveBank` holds a name with its padding off, so `IFF.Raw ` is held
+    // as `IFF.Raw` -- see the note there
+    expect(mem.name).toBe('IFF.Raw')
+    // 8 name + 8 header + planes + three bytes a colour
+    expect(mem.data.length).toBe(16 + 4 * 12 * 2 + 4 * 3)
+  })
+
+  /**
+   * The fourth word is a DEPTH and not a colour count, which the READER
+   * settles: routine 82's Raw arm doubles 1 that many times to get the
+   * number of colours. So the two keywords have to agree, and this is the
+   * round trip that proves they do.
+   */
+  it('what it writes, Wb Image To Window reads back pixel for pixel', () => {
+    const r = go(`Wb Dt Image To Screen 0,0,"pic.iff",1,1
+${SCREEN} : Wb Window Flags 0,0,0,0,0,0,0,0,0 : Wb Window Ids 0,0,0,0,0,0,0,0,0
+Wb Open Screen 0,0,0,320,256,4,0,1,%0
+Wb Open Window 0,0,0,320,256,10,10,320,256
+Wb Window Num 0
+Wb Image To Window 0,1`)
+    const scr = r.rt.screens.get(r.rt.int.windows.get(0)!.screenSlot)!
+    // the picture lands at the window's top-left, border included, so screen
+    // (x,y) IS picture (x,y) and the pixel there is (x+y) & 3
+    for (let x = 4; x < 12; x++) expect(scr.rp.point(x, 6)).toBe((x + 6) & 3)
+    expect([...scr.palette.slice(0, 4)]).toEqual([0x000, 0xf00, 0x0f0, 0x00f])
+  })
+
+  /**
+   * `cmpi.b #$0,$d82(a4) / beq` picks between two whole arms, and a mode of
+   * 0 opens a screen and a window for the picture ITSELF by calling routines
+   * 40 and 2 -- `Wb Open Screen` and `Wb Open Window`.
+   */
+  it('a mode of 0 opens the screen and window itself', () => {
+    const r = go(`${SCREEN} : Wb Window Flags 0,0,0,0,0,0,0,0,0 : Wb Window Ids 0,0,0,0,0,0,0,0,0
+Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
+    expect([...r.rt.int.screens.keys()]).toEqual([2])
+    expect([...r.rt.int.windows.keys()]).toEqual([3])
+    const scr = r.rt.screens.get(r.rt.int.windows.get(3)!.screenSlot)!
+    for (let x = 4; x < 12; x++) expect(scr.rp.point(x, 5)).toBe((x + 5) & 3)
+    expect([...scr.palette.slice(0, 4)]).toEqual([0x000, 0xf00, 0x0f0, 0x00f])
+  })
+
+  /** `move.w $dfe(a4),d3 / beq` --- bank 0 writes nothing and raises nothing */
+  it('bank 0 writes nothing and raises nothing', () => {
+    const r = go('Wb Dt Image To Screen 0,0,"pic.iff",0,1')
+    expect(r.rt.memBanks.size).toBe(0)
+  })
+
+  /**
+   * `NewDTObjectA` failing is `moveq #$27,d0` at $4ee0, error 39, and it
+   * fails the same way for a file that is not there as for one no descriptor
+   * claims.
+   */
+  it('a file that is not there is Not An Image DataType', () => {
+    expect(() => go('Wb Dt Image To Screen 0,0,"nope.iff",1,1')).toThrow(INT_ERRORS[39])
+  })
+
+  /**
+   * APPROXIMATED, and this is the edge of it: a file a picture datatype would
+   * claim but no decoder here can make bitplanes of. Nothing in routine 83
+   * loads 38, and 38 is the only message in the table for a picture that will
+   * not read, so the port's own gap is reported rather than hidden.
+   */
+  it('a picture this port cannot decode is Cannot Read DataType', () => {
+    expect(() => go('Wb Dt Image To Screen 0,0,"junk.dat",1,1')).toThrow(INT_ERRORS[38])
+  })
+})

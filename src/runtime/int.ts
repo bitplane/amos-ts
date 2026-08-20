@@ -66,6 +66,8 @@ import { joyDatOf } from '../amiga/gameport'
 import { ICON_BANK } from './banks'
 import { ASL_TYPE, type AslFileSetup } from '../amiga/asl'
 import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
+import { GID, obtainDataType } from '../amiga/datatypes'
+import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -160,6 +162,9 @@ export const INT_ERR = {
   BANK_NUMBER_IS_TO_LOW: 22,
   CANNOT_FIND_SCREEN: 36,
   COULD_NOT_SAVE_IFF: 46,
+  CANNOT_READ_DATATYPE: 38,
+  NOT_AN_IMAGE_DATATYPE: 39,
+  NO_COLOURS_FOUND: 41,
   CANNOT_CREATE_MENUS: 33,
   ONLY_TYPE_1: 44,
 } as const
@@ -296,6 +301,62 @@ function pushMenu(st: IntState, type: number, label: string, commKey: string, fl
   if (commKey !== '') nm.commKey = commKey.slice(0, 1)
   list.push({ nm })
   st.menuList.set(st.window, list)
+}
+
+/**
+ * `Wb Open Screen`'s body, and routine 40 itself.
+ *
+ * A function rather than only a keyword because routine 83 CALLS routine 40:
+ * `Wb Dt Image To Screen` with a mode of 0 pushes nine parameters and
+ * `Rbsr routine 40` at $4caa, so the two cannot be allowed to drift apart.
+ */
+function openIntScreen(
+  rt: Runtime,
+  st: IntState,
+  num: number,
+  y: number,
+  width: number,
+  height: number,
+  planes: number,
+  mode: number,
+): void {
+  if (num > MAX_SCREEN) intError(INT_ERR.SCREEN_NUMBER_TO_HIGH)
+  const addr = rt.intuition.openScreen({
+    width,
+    height,
+    depth: planes,
+    hires: (mode & 0x8000) !== 0,
+    laced: (mode & 0x4) !== 0,
+    palette: [],
+    displayY: WB_DISPLAY_Y + y,
+    title: '',
+  })
+  if (addr === 0) intError(INT_ERR.CANNOT_OPEN_SCREEN)
+  st.screens.set(num, addr)
+  st.screen = addr
+}
+
+/** `Wb Open Window`'s body, and routine 2, which routine 83 calls at $4cf2 */
+function openIntWindow(rt: Runtime, st: IntState, num: number, x: number, y: number, width: number, height: number): void {
+  const onCustom = st.screen !== -1 && st.screen !== 0 && rt.intuition.slotOf(st.screen) !== null
+  const w = rt.intuition.openWindow({
+    leftEdge: x,
+    topEdge: y,
+    width,
+    height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: st.idcmp,
+    flags: st.winFlags,
+    title: '',
+    type: onCustom ? CUSTOMSCREEN : WBENCHSCREEN,
+    ...(onCustom ? { screenSlot: rt.intuition.slotOf(st.screen)! } : {}),
+  })
+  if (w === null) intError(30)
+  if (num > MAX_WINDOW) intError(INT_ERR.NUMBER_0_100)
+  for (const g of st.boolGadgets.get(num) ?? []) w.gadgets.push(g)
+  st.windows.set(num, w)
+  st.current = num
 }
 
 export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
@@ -442,31 +503,13 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const num = it.evalInt()
       const [x, y, width, height] = four(it, true)
       const [minW, minH, maxW, maxH] = four(it, true)
-      const onCustom = st.screen !== -1 && st.screen !== 0 && rt.intuition.slotOf(st.screen) !== null
-      const w = rt.intuition.openWindow({
-        leftEdge: x,
-        topEdge: y,
-        width,
-        height,
-        detailPen: 0,
-        blockPen: 1,
-        idcmpFlags: st.idcmp,
-        flags: st.winFlags,
-        title: '',
-        type: onCustom ? CUSTOMSCREEN : WBENCHSCREEN,
-        ...(onCustom ? { screenSlot: rt.intuition.slotOf(st.screen)! } : {}),
-      })
       // the four limits are NewWindow.MinWidth..MaxHeight, which nothing in
       // this port resizes by, so they are read and dropped
       void minW
       void minH
       void maxW
       void maxH
-      if (w === null) intError(30)
-      if (num > MAX_WINDOW) intError(INT_ERR.NUMBER_0_100)
-      for (const g of st.boolGadgets.get(num) ?? []) w.gadgets.push(g)
-      st.windows.set(num, w)
-      st.current = num
+      openIntWindow(rt, st, num, x, y, width, height)
     },
 
     /**
@@ -566,23 +609,10 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const pen2 = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      if (num > MAX_SCREEN) intError(INT_ERR.SCREEN_NUMBER_TO_HIGH)
       void pen1
       void pen2
-      const addr = rt.intuition.openScreen({
-        width,
-        height,
-        depth: planes,
-        hires: (mode & 0x8000) !== 0,
-        laced: (mode & 0x4) !== 0,
-        palette: [],
-        displayY: WB_DISPLAY_Y + y,
-        title: '',
-      })
-      if (addr === 0) intError(INT_ERR.CANNOT_OPEN_SCREEN)
       void x
-      st.screens.set(num, addr)
-      st.screen = addr
+      openIntScreen(rt, st, num, y, width, height, planes, mode)
     },
 
     /**
@@ -1351,6 +1381,134 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * at +14 stay 0, and there is no ByteRun1 packer in its 2,166 bytes to
      * put a 1 there.
      */
+    /**
+     * `Wb Dt Image To Screen screen,window,file$,bank,mode` --- a picture
+     * through `datatypes.library`, into a bank or onto a screen it opens
+     * itself.
+     *
+     * Routine 83 opens `datatypes.library` version 37, `NewDTObjectA`s the
+     * filename (-$30) and asks `GetDTAttrsA` (-$42) for the colour count and
+     * the colour table. The picture's own size comes off the instance data at
+     * `$136` of the object --- `$2` the ViewMode, `$4` the width, `$6` the
+     * height --- and the colour registers are ULONG triples, which is why the
+     * pack loop steps FOUR bytes a component (`move.b (a2)+,d1 /
+     * addq.l #$3,a2`) and keeps only the top nibble of each.
+     *
+     * `mode` is the fifth argument and it picks between two whole arms,
+     * `cmpi.b #$0,$d82(a4) / beq`:
+     *
+     *  - 0 opens a screen and a window for the picture ITSELF, by pushing
+     *    nine parameters and calling routines 40 and 2 --- `Wb Open Screen`
+     *    and `Wb Open Window` --- then LoadRGB4 and DrawImage.
+     *  - anything else writes the bank named by the fourth argument, and the
+     *    first two arguments are never popped.
+     *
+     * The bank is an `IFF.Raw ` one and routine 83 spells the name into it
+     * with two immediates, `move.l #$4946462e` and `move.l #$52617720`. Then
+     * the four words at `+8` --- width, height, ViewMode, colours --- and the
+     * planes eight bytes past those, with three bytes of colour map per
+     * colour after them. DataType_To_Bank.AMOS reads it straight back with
+     * `Deek(Start(1))` and hands it to `Wb Image To Window`.
+     *
+     * APPROXIMATED, and for one reason: what this port can turn into
+     * bitplanes. `datatypes.library` reaches a decoder per format and
+     * ../amiga/datatypes.ts identifies every one it ships without decoding
+     * any. ILBM goes through ../amiga/ilbm.ts and comes out exact. Anything
+     * else --- a JPEG, which ../amiga/jpeg.ts decodes to 24-bit RGB and
+     * nothing here quantises back down, or a format with no decoder at all
+     * --- is error 38, "Cannot Read DataType", which is the library's own
+     * answer for a file it cannot make a picture of.
+     */
+    'wb dt image to screen': (it) => {
+      const st = s()
+      const screenNum = it.evalInt()
+      it.expect(',')
+      const windowNum = it.evalInt()
+      it.expect(',')
+      const path = str(it.evalExpr())
+      it.expect(',')
+      const bank = it.evalInt()
+      it.expect(',')
+      const mode = it.evalInt() & 0xff
+      // `NewDTObjectA` failing is `moveq #$27,d0` at $4ee0 -- error 39, "Not
+      // An Image DataType" -- and it fails the same way for a file that is
+      // not there as for one no descriptor claims
+      const bytes = rt.fs?.read(path)
+      if (!bytes) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
+      const dt = obtainDataType(bytes, SHIPPED_DATATYPES)
+      if (dt && dt.groupID !== GID.PICTURE) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
+      let pic: IlbmImage
+      try {
+        pic = parseIlbm(bytes)
+      } catch {
+        // NOT one of routine 83's arms. Nothing in it loads 38, and 38 is the
+        // only message in the table for a picture that will not read, so this
+        // is where the port's own gap is reported rather than hidden: a
+        // picture datatype recognised it and no decoder here can make planes
+        // of it. See the coverage note.
+        intError(INT_ERR.CANNOT_READ_DATATYPE)
+      }
+      // `move.l $cf2(a4),d0 / beq` at $4bfc, into `moveq #$29,d0`: a picture
+      // with no colour map at all is error 41
+      if (pic.palette.length === 0 && pic.depth === 0) intError(INT_ERR.NO_COLOURS_FOUND)
+      const colours = pic.palette.length === 0 ? 1 << pic.depth : pic.palette.length
+      for (let i = 0; i < colours && i < st.colours.length; i++) st.colours[i] = pic.palette[i] ?? 0
+      if (mode === 0) {
+        // the routine builds both parameter blocks itself and calls routines
+        // 40 and 2. `Wb Open Screen` still wants `$de4` set, which is the
+        // caller's business and not this keyword's.
+        openIntScreen(rt, st, screenNum, 0, pic.width, pic.height, pic.depth, pic.mode)
+        openIntWindow(rt, st, windowNum, 0, 0, pic.width, pic.height)
+        const w = st.windows.get(windowNum)
+        const scr = w ? rt.screens.get(w.screenSlot) : undefined
+        if (scr) for (let i = 0; i < colours && i < scr.palette.length; i++) scr.palette[i] = st.colours[i]! & 0x0fff
+        if (w) {
+          const { rp, ox, oy } = target(windowNum)
+          for (let y = 0; y < pic.height; y++) {
+            for (let x = 0; x < pic.width; x++) {
+              if (rp.inClip(ox + x, oy + y)) rp.putPixel(ox + x, oy + y, pic.pixels[y * pic.width + x]!)
+            }
+          }
+        }
+        return
+      }
+      // `move.w $dfe(a4),d3 / beq` --- bank 0 writes nothing at all and
+      // raises nothing either
+      if (bank === 0) return
+      const rowBytes = ((pic.width + 15) >> 4) * 2
+      const planeBytes = rowBytes * pic.height * pic.depth
+      rt.reserveBank(bank, 16 + planeBytes + colours * 3, 'IFF.Raw ')
+      const data = rt.memBanks.get(bank)!.data
+      const put = (off: number, v: number): void => {
+        data[off] = (v >> 8) & 0xff
+        data[off + 1] = v & 0xff
+      }
+      put(0, pic.width)
+      put(2, pic.height)
+      put(4, pic.mode)
+      // a DEPTH and not a count, which the reader settles rather than the
+      // writer: routine 82's Raw arm takes this word and doubles 1 that many
+      // times (`subq.l #$1,d1 / moveq #$1,d2 / mulu.w #$2,d2 / dbra`) to get
+      // the number of colours, so the two halves of one extension would
+      // contradict each other if it held anything else
+      put(6, pic.depth)
+      for (let y = 0; y < pic.height; y++) {
+        for (let p = 0; p < pic.depth; p++) {
+          const row = 8 + (y * pic.depth + p) * rowBytes
+          for (let x = 0; x < pic.width; x++) {
+            if ((pic.pixels[y * pic.width + x]! >> p) & 1) data[row + (x >> 3)]! |= 0x80 >> (x & 7)
+          }
+        }
+      }
+      const palAt = 8 + planeBytes
+      for (let i = 0; i < colours; i++) {
+        const v = pic.palette[i] ?? 0
+        data[palAt + i * 3] = ((v >> 8) & 0xf) * 0x11
+        data[palAt + i * 3 + 1] = ((v >> 4) & 0xf) * 0x11
+        data[palAt + i * 3 + 2] = (v & 0xf) * 0x11
+      }
+    },
+
     'wb save iff': (it) => {
       const path = str(it.evalExpr())
       it.expect(',')
@@ -1670,11 +1828,15 @@ function four(it: Parameters<Instr>[0], leading = false): [number, number, numbe
  * with error 16. The packing keeps each component's top nibble and drops the
  * rest: `andi.w #$f0,d1` and two `lsr.b #$4`, with no rounding anywhere.
  */
-function iffBankPalette(name: string, data: Uint8Array): number[] | null {
+function iffBankPalette(rawName: string, data: Uint8Array): number[] | null {
+  // routine 82 compares EIGHT BYTES of the bank's data. A bank's name is held
+  // here the way the loader holds one, trailing spaces off -- see
+  // `Runtime.reserveBank` -- so `IFF.Raw ` arrives as `IFF.Raw`.
+  const name = rawName.trimEnd()
   const rgb4 = (r: number, g: number, b: number): number => ((r & 0xf0) << 4) | (g & 0xf0) | (b >> 4)
   const be32 = (at: number): number =>
     ((data[at]! << 24) | (data[at + 1]! << 16) | (data[at + 2]! << 8) | data[at + 3]!) >>> 0
-  if (name === 'IFF.Raw ') {
+  if (name === 'IFF.Raw') {
     // `3 * 2^depth` bytes at the very end, reached by subtracting from the
     // bank's own length rather than by any chunk walk
     const depth = ((data[6]! << 8) | data[7]!) & 0xffff
@@ -1720,7 +1882,8 @@ function iffBankPalette(name: string, data: Uint8Array): number[] | null {
  * and nothing in this port writes such a bank yet for it to be checked
  * against.
  */
-function iffBankImage(name: string, data: Uint8Array): IlbmImage | null {
+function iffBankImage(rawName: string, data: Uint8Array): IlbmImage | null {
+  const name = rawName.trimEnd()
   if (name === 'IFF.Pic.') {
     try {
       return parseIlbm(data.subarray(8))
@@ -1728,17 +1891,20 @@ function iffBankImage(name: string, data: Uint8Array): IlbmImage | null {
       return null
     }
   }
-  if (name !== 'IFF.Raw ') return null
+  if (name !== 'IFF.Raw') return null
   const w = (at: number): number => ((data[at]! << 8) | data[at + 1]!) & 0xffff
   const width = w(0)
   const height = w(2)
   const mode = w(4)
   const depth = w(6)
-  const palette = iffBankPalette(name, data)
+  const palette = iffBankPalette(rawName, data)
   if (palette === null || width === 0 || height === 0 || depth === 0) return null
   const rowBytes = ((width + 15) >> 4) * 2
   const pixels = new Uint8Array(width * height)
-  const at = 16
+  // the planes begin eight bytes into `Start(n)`, past the four-word header:
+  // routine 83 writes them at `$10(a0) + $10` where the bank data starts at
+  // `$10(a0)` and `Start` answers eight bytes into it, past the name
+  const at = 8
   for (let y = 0; y < height; y++) {
     for (let p = 0; p < depth; p++) {
       const row = at + (y * depth + p) * rowBytes
