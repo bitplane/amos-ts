@@ -54,6 +54,24 @@ export interface ProcInfo {
 export interface Program {
   lines: TokenLine[]
   labels: Map<string, Addr>
+  /**
+   * The same labels keyed by `<procedure>\u0000<name>`, because a label
+   * belongs to the procedure it is written in.
+   *
+   * `Get_Label` (+Verif.s:3462) builds its search key from `Phase(a5)` — the
+   * verifier's per-procedure serial, `addq.w #1,Phase(a5)` once per procedure
+   * (:138) — packed beside the name length, and matches with a single
+   * `cmp.l (a0),d0`. `V1_StockLabel` (:3413) stores the same word, commented
+   * "Longueur / Flags / Phase". Two procedures may therefore each hold a
+   * label of the same name and they are different labels.
+   *
+   * Gush has four procedures with a `SCRDAT:` and its own copy of the same
+   * twenty-five numbers, and two more sharing `RDAT:`. Resolving those
+   * against one flat map sent `Restore SCRDAT` in the third procedure to the
+   * fourth procedure's data, which the procedure-scoped Read cannot see, and
+   * the game reported its own "Error #33: Undefined error!!".
+   */
+  scopedLabels: Map<string, Addr>
   procs: Map<string, ProcInfo>
   ctrl: Map<Tok, Ctrl>
   /** every Data token, in program order (for Read/Restore) */
@@ -99,6 +117,7 @@ export function prescan(lines: TokenLine[], names: Names): Program {
   const program: Program = {
     lines,
     labels: new Map(),
+    scopedLabels: new Map(),
     procs: new Map(),
     ctrl: new Map(),
     dataToks: [],
@@ -148,6 +167,7 @@ export function prescan(lines: TokenLine[], names: Names): Program {
     return undefined
   }
 
+  const labelSites: Array<[string, Addr]> = []
   for (let li = 0; li < lines.length; li++) {
     const toks = lines[li]!.tokens
     for (let ti = 0; ti < toks.length; ti++) {
@@ -155,7 +175,9 @@ export function prescan(lines: TokenLine[], names: Names): Program {
       const here: Addr = { li, ti }
 
       if (tok.kind === 'label') {
-        program.labels.set(tok.name.toLowerCase(), { li, ti: ti + 1 })
+        const at: Addr = { li, ti: ti + 1 }
+        program.labels.set(tok.name.toLowerCase(), at)
+        labelSites.push([tok.name.toLowerCase(), at])
         continue
       }
 
@@ -354,5 +376,9 @@ export function prescan(lines: TokenLine[], names: Names): Program {
     }
   }
 
+  // procedure bodies are known only now, so the scoped keys are built last
+  for (const [name, at] of labelSites) {
+    program.scopedLabels.set(`${scopeOfAddr(program, at) ?? ''}\u0000${name}`, at)
+  }
   return program
 }

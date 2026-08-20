@@ -82,6 +82,31 @@ describe('expressions', () => {
     expect(run('Print 7 mod 0')).toBe(' 7\n') // no DByZero in Op_Modulo
   })
 
+  it('a label belongs to the procedure it is written in (Get_Label Phase)', () => {
+    // Get_Label (+Verif.s:3462) packs `Phase(a5)` — the verifier's
+    // per-procedure serial, incremented once per procedure at :138 — beside
+    // the name and matches with one `cmp.l`. Gush has four procedures each
+    // holding a `SCRDAT:` and its own copy of the same numbers; resolving
+    // them against one flat map sent Restore to another procedure's data,
+    // which the procedure-scoped Read cannot see.
+    const src = [
+      'P1 : P2',
+      'Procedure P1',
+      '   Restore D',
+      '   Read Y : Print "P1";Y',
+      '   D:',
+      '   Data 11',
+      'End Proc',
+      'Procedure P2',
+      '   Restore D',
+      '   Read Y : Print "P2";Y',
+      '   D:',
+      '   Data 22',
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe('P1 11\nP2 22\n')
+  })
+
   it('implements Op_Puis as SPPow, which throws the base\'s sign away', () => {
     // SPPow is `tst.b d7 / bpl .pow / andi.b #$7f,d7 / bsr .pow / ori.b
     // #$2,ccr / rts`, and Math_Operation (+ILib.s:7490) never looks at the

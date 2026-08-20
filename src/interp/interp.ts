@@ -1224,11 +1224,29 @@ export class Interp {
   // ---- flow helpers ------------------------------------------------------
 
   /**
+   * Where a label name points FROM HERE.
+   *
+   * `Get_Label` (+Verif.s:3462) matches on the procedure serial as well as
+   * the name, so the one written in this procedure wins over any other of
+   * the same name. The flat map is the fallback rather than an error,
+   * because a strict miss is a compile-time refusal in AMOS and this port
+   * would rather run the program.
+   */
+  labelAddr(name: string): Addr | undefined {
+    const key = name.toLowerCase()
+    // no name is used twice, so the flat map already answers and the scope
+    // walk is pure cost — this is the case for nearly every program
+    if (this.program.scopedLabels.size === this.program.labels.size) return this.program.labels.get(key)
+    const scope = scopeOfAddr(this.program, this.pc)
+    return this.program.scopedLabels.get(`${scope ?? ''}\u0000${key}`) ?? this.program.labels.get(key)
+  }
+
+  /**
    * Jump to a label. Only Goto-style jumps unwind loop frames whose body
    * range does not contain the target (LGoto) — Gosub does not.
    */
   jumpLabel(name: string, unwind = false): void {
-    const a = this.program.labels.get(name.toLowerCase())
+    const a = this.labelAddr(name)
     if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`)
     if (unwind) {
       // the unwind floor is the deeper of the current procedure frame and

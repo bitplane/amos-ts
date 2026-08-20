@@ -627,7 +627,7 @@ export const INSTR: Record<string, Instr> = {
       return
     }
     const name = it.parseLabelTarget()
-    const a = it.program.labels.get(name.toLowerCase())
+    const a = it.labelAddr(name)
     if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`)
     it.restoreData(a)
   },
