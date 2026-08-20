@@ -75,6 +75,33 @@ describe('Ppsave / Ppload keywords (+CompExt.s)', () => {
     expect(run(prog)).toBe('ABCDABCD 1024\n')
   })
 
+  it('a POSITIVE number appends to the object bank, and no number overwrites', () => {
+    /*
+     * `tst.l d5 / ble .Over` then `Bnk.GetBobs / beq .Over / moveq #1,d0 ...
+     * add.w d5,d1` (+CompExt.s:551-560). The argument is not a bank number
+     * for a bob or icon bank at all: any positive value means append.
+     */
+    // one 16x2 one-plane image, then the 32 palette words
+    const body = new Uint8Array(2 + 10 + 4 + 64)
+    const dv = new DataView(body.buffer)
+    dv.setUint16(0, 1) // count
+    dv.setUint16(2, 1) // width in words
+    dv.setUint16(4, 2) // height
+    dv.setUint16(6, 1) // depth
+    const file = writePpBank({ number: 1, flags: 0x0004, data: body }) // Bnk_BitBob
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.writeFile('DH0:logo.pp', file)
+    const boot = ['Screen Open 0,320,200,2,0', 'Get Bob 1,0,0 To 8,8', 'Get Bob 2,0,0 To 8,8']
+    const load = (src: string): Runtime => {
+      const rt = new Runtime(tokenize([...boot, src].join('\n'), table, extensions), table, { extensions, fs, maxSteps: 300_000 })
+      mustFinish(rt.runHeadless(1_000))
+      return rt
+    }
+    expect(load('Ppload "DH0:logo.pp",1').spriteBank!.images.length).toBe(3)
+    expect(load('Ppload "DH0:logo.pp"').spriteBank!.images.length).toBe(1)
+  })
+
   it('and the name rides along, because Ppload never sets one', () => {
     // ppBnk_Load pokes the number and the flags into the node and stops
     // (+CompExt.s:539-548). Every other byte of the header, the name

@@ -907,6 +907,43 @@ describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
     )
     expect(out).toBe(' 0\n 0\n') // no Fonts: drawer mounted here
   })
+
+  it('and puts the face where Get Rom Fonts will find it', () => {
+    // AvailFonts under AFF_MEMORY is the system font list, and Font$ prints
+    // "Rom " for af_Type 1 (+Lib.s:9788). FirePower opens three fonts out of
+    // its own drawer and then hunts the Get Rom Fonts list for them by name.
+    const desc = new Uint8Array(4 + 260)
+    new DataView(desc.buffer).setUint16(0, 0x0f00) // FCH_ID
+    new DataView(desc.buffer).setUint16(2, 1) // one size
+    desc.set(enc('Boston/23'), 4)
+    new DataView(desc.buffer).setUint16(4 + 256, 23)
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.currentDir = 'DH0:'
+    fs.writeFile('DH0:Game/Fonts/Boston.font', desc)
+    let out = ''
+    const rt = new Runtime(
+      tokenize(
+        [
+          'Print Ldisk Font("DH0:Game/Fonts/Boston.font",23)',
+          'Get Rom Fonts',
+          'N=0',
+          'Repeat',
+          '   Inc N',
+          'Until Lower$(Font$(N)-" ")="boston.font23rom" or N>100',
+          'Print N<=100',
+        ].join('\n'),
+        table,
+        extensions,
+      ),
+      table,
+      { maxSteps: 200_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    mustFinish(rt.runHeadless(1_000))
+    expect(out).toBe(' 1\n-1\n')
+    // the drawer travels with the entry, so Set Font reaches the size file
+    expect(rt.memoryFonts[0]).toEqual({ name: 'Boston.font', height: 23, type: 'Rom', file: 'Boston/23', dir: 'DH0:Game/Fonts/' })
+  })
 })
 
 describe('LDos encryption (disassembled from AMOSPro_Ldos.lib)', () => {

@@ -487,8 +487,17 @@ export class Runtime {
   /** BPLCON3 ($DFF106) written outside a list, by Aga Off */
   bplcon3Direct = 0
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; wrap: boolean; count: number }>()
-  /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
-  fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
+  /**
+   * The fade, singular.
+   *
+   * `FadeTOn` (+W.s:5510) writes T_FadeFlag, T_FadeCpt, T_FadeVit, T_FadeCop,
+   * T_FadePal and the T_FadeCol table, all task globals, and it writes them
+   * unconditionally. One fade runs at a time and a second `Fade` abandons the
+   * first where it stands. T_FadePal is `EcPal(a2)`, the ADDRESS of the
+   * current screen's palette, so the fade is tied to that screen object and
+   * dies when the screen is closed or reopened over.
+   */
+  fade: { scr: Screen; delay: number; count: number; targets: Int32Array } | null = null
   /** The flasher table: up to FlMax=16 entries, one per (colour, screen)
    * pair (T_TFlash +WEqu.s:138-141, FlStart +W.s:5303). The 68k records
    * the screen ADDRESS at Flash time; we record the Screen object and drop
@@ -785,7 +794,19 @@ export class Runtime {
    * the chunky renderer */
   tempRas: { addr: number; size: number } | null = null
   /** disc fonts enumerated from Fonts: at Get Fonts time (AvailFonts) */
-  discFontCache: Array<{ name: string; height: number; type: string; file?: string }> | null = null
+  discFontCache: Array<{ name: string; height: number; type: string; file?: string; dir?: string }> | null = null
+  /**
+   * Fonts that `Ldisk Font` opened, which `Get Rom Fonts` then lists.
+   *
+   * `TGFonts` (+W.s:4811) calls `AvailFonts(buffer, size, d1)` with 1, 2 or 3
+   * and `Font$` prints "Rom " when the entry's af_Type is 1 (+Lib.s:9788,
+   * `cmp.w #1,(a2)`) — AFF_MEMORY. An OpenDiskFont'd face is in the system
+   * font list, so it comes back under AFF_MEMORY however it got there.
+   * FirePower opens three of its own, then `Get Rom Fonts` and hunts the
+   * list for "jrdmini.font6rom"; with nothing added the `Repeat / Until`
+   * never ended and the game hung on a black screen.
+   */
+  memoryFonts: Array<{ name: string; height: number; type: string; file?: string; dir?: string }> = []
   /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
   noFlip = false
   /** IffReturn: the last DLTA's ANHD relative time (=Frame Param) */
@@ -5010,31 +5031,34 @@ export class Runtime {
   }
 
   private applyFades(): void {
-    for (const [n, fade] of this.fades) {
-      const s = this.screens.get(n)
-      if (!s) {
-        this.fades.delete(n)
-        continue
-      }
-      if (++fade.count < fade.delay) continue
-      fade.count = 0
-      let busy = false
-      for (let i = 0; i < 32; i++) {
-        const target = fade.targets[i]!
-        if (target < 0) continue
-        let v = s.palette[i]!
-        let out = 0
-        for (const shift of [8, 4, 0]) {
-          const cur = (v >> shift) & 15
-          const want = (target >> shift) & 15
-          const next = cur === want ? cur : cur < want ? cur + 1 : cur - 1
-          if (next !== want) busy = true
-          out |= next << shift
-        }
-        s.palette[i] = out
-      }
-      if (!busy) this.fades.delete(n)
+    const fade = this.fade
+    if (!fade) return
+    const s = fade.scr
+    // the screen this fade points at was closed or reopened over: the 68k
+    // would step colours in freed memory, and the screen now at that number
+    // is a different EcPal
+    if (this.screens.get(s.index) !== s) {
+      this.fade = null
+      return
     }
+    if (++fade.count < fade.delay) return
+    fade.count = 0
+    let busy = false
+    for (let i = 0; i < 32; i++) {
+      const target = fade.targets[i]!
+      if (target < 0) continue
+      const v = s.palette[i]!
+      let out = 0
+      for (const shift of [8, 4, 0]) {
+        const cur = (v >> shift) & 15
+        const want = (target >> shift) & 15
+        const next = cur === want ? cur : cur < want ? cur + 1 : cur - 1
+        if (next !== want) busy = true
+        out |= next << shift
+      }
+      s.palette[i] = out
+    }
+    if (!busy) this.fade = null
   }
 
   private applyFlashes(): void {

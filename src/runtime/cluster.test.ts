@@ -8,6 +8,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -371,6 +372,25 @@ describe('integration: Run and the environment cluster', () => {
   it('bare Run is a syntax error in a program; missing files error (Rn_NoF)', () => {
     expect(() => run('Run')).toThrow(/syntax error/i)
     expect(() => run('Run "nothere.amos"')).toThrow(/file not found/i)
+  })
+
+  it('a missing Load/Load Iff/Pload is error 81, even under the skip policy', () => {
+    // Chopper II line 24 loads a 32-colour OPTIONS.IFF and line 25 does
+    // `Pen 31`. Skipping the load left the 16-colour CREDITS screen in place
+    // and the Pen was blamed, so the browser reported a text window fault two
+    // statements away from the file that was actually missing.
+    for (const src of ['Load "gone.abk"', 'Load Iff "gone.iff",0', 'Pload "gone.bin",5']) {
+      const fs = new AmigaFS()
+      fs.mountMemory('DH0')
+      const rt = new Runtime(tokenize(src, table), table, { maxSteps: 10_000, fs, onUnimplemented: 'skip', onText: () => {} })
+      let code = 0
+      try {
+        rt.runHeadless(10)
+      } catch (e) {
+        code = amosErrorCode(e as AmosError)
+      }
+      expect(code).toBe(81)
+    }
   })
 
   it('the environment cluster: Amos Here, Set Buffer, Close Workbench are quiet', () => {
@@ -1141,11 +1161,16 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
-  it('clones screens sharing the bitmap', () => {
+  it('clones screens sharing the bitmap but not the palette', () => {
     const prog = ['Screen Clone 3', 'Ink 5 : Plot 10,10'].join('\n')
     const { rt } = run(prog)
     expect(rt.screens.get(3)!.pixels).toBe(rt.screens.get(0)!.pixels)
     expect(rt.screens.get(3)!.point(10, 10)).toBe(5)
+    // EcCClo byte-copies the screen structure, and the colours are in it, so
+    // blacking the original leaves the clone's copy to fade back up from
+    const { rt: rt2 } = run(['Colour 1,$FFF', 'Screen Clone 3', 'Colour 1,0'].join('\n'))
+    expect(rt2.screens.get(0)!.palette[1]).toBe(0)
+    expect(rt2.screens.get(3)!.palette[1]).toBe(0xfff)
   })
 })
 
@@ -1314,12 +1339,37 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(s.palette[2]).toBe(0x0f0)
   })
 
-  it('Auto View Off defers visibility until View', () => {
+  it('Auto View Off defers visibility until View — or until Auto View On', () => {
     const prog = ['Auto View Off', 'Screen Open 1,320,200,4,0'].join('\n')
     const { rt } = run(prog)
     expect(rt.screens.get(1)!.visible).toBe(false)
     const prog2 = ['Auto View Off', 'Screen Open 1,320,200,4,0', 'View'].join('\n')
     expect(run(prog2).rt.screens.get(1)!.visible).toBe(true)
+    // BitEcrans is still set in T_Actualise; putting the mask bit back
+    // (+Lib.s:9065) lets the next VBL reach CopMake (+ILib.s:1011)
+    const prog3 = ['Auto View Off', 'Screen Open 1,320,200,4,0', 'Auto View On'].join('\n')
+    expect(run(prog3).rt.screens.get(1)!.visible).toBe(true)
+  })
+
+  it('a Fade belongs to one screen and dies when that screen is reopened', () => {
+    // FadeTOn (+W.s:5510) points T_FadePal at EcPal of the CURRENT screen,
+    // and there is one set of those task globals. Renegades faded screen 0
+    // out, opened a new screen 0 and printed its credits on it; the fade
+    // followed the number and took the new palette to black.
+    const { rt } = run(
+      [
+        'Screen Open 0,320,200,16,0 : Colour 1,$FFF',
+        'Fade 1',
+        'Wait 2',
+        'Screen Open 0,320,200,16,0 : Colour 1,$FFF',
+        'Wait 20',
+      ].join('\n'),
+    )
+    expect(rt.screens.get(0)!.palette[1]).toBe(0xfff)
+    expect(rt.fade).toBeNull()
+    // and a second Fade replaces the first outright, rather than running beside it
+    const { rt: rt2 } = run(['Screen Open 1,320,200,16,0', 'Screen 0 : Fade 1', 'Screen 1 : Fade 1'].join('\n'))
+    expect(rt2.fade!.scr.index).toBe(1)
   })
 
   it('Dual Playfield: PF2 shows through front colour 0 via FRONT palette 8-15', () => {

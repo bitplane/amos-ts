@@ -89,6 +89,12 @@ export const ERR = {
   BANK_RESERVED: 35,
   NO_BANK: 36,
   LABEL: 40,
+  /**
+   * DEBase+2. `DiskError` (+Lib.s:12841) reads IoErr and indexes `ErDisk`,
+   * whose third word is 205 = ERROR_OBJECT_NOT_FOUND, so a failed Open on a
+   * missing file lands on 79+2. `Rn_NoF moveq #81` (+ILib.s:1524) anchors it.
+   */
+  FILE_NOT_FOUND: 81,
 } as const
 
 export class AmosError extends Error {
@@ -134,6 +140,7 @@ export function amosErrorCode(e: AmosError): number {
   if (m.includes('illegal') && (m.includes('screen') || m.includes('sprite'))) return ERR.FUNC_CALL
   if (m.includes('address')) return ERR.ADDRESS
   if (m.includes('label')) return ERR.LABEL
+  if (m.includes('file not found')) return ERR.FILE_NOT_FOUND
   if (m.includes('iff')) return ERR.BAD_IFF
   return ERR.FUNC_CALL // AMOS's catch-all for a generic runtime fault
 }

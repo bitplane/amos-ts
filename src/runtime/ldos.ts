@@ -71,6 +71,7 @@ import type { Runtime } from './runtime'
  */
 import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../amiga/powerpacker'
+import { parseFontDescriptor } from '../amiga/diskfont'
 import { DEV_MODELLED, DEV_SERIAL_DEFAULTS } from './device'
 import type { SerialPortHandle } from '../amiga/host'
 
@@ -2093,8 +2094,23 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
        * while its music played on.
        */
       const path = /[:/]/.test(name) ? name : 'Fonts:' + name
-      if (rt.vfs?.read(path) == null) return VI(0)
+      const bytes = rt.vfs?.read(path)
+      if (bytes == null) return VI(0)
       rt.discFontCache = null
+      /*
+       * Put the face in the memory list, which is where AvailFonts would
+       * have found it once OpenDiskFont had it open. The descriptor names
+       * the size file relative to its own drawer, so the drawer travels with
+       * the entry: FirePower's fonts live in its game directory, not FONTS:.
+       */
+      const size = a.length > 1 ? int(a[1]!) : 0
+      const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf(':'))
+      const leaf = path.slice(cut + 1)
+      const dir = path.slice(0, cut + 1)
+      const desc = parseFontDescriptor(bytes)?.find((d) => d.ySize === size)
+      if (desc && !rt.memoryFonts.some((f) => f.name === leaf && f.height === size)) {
+        rt.memoryFonts.push({ name: leaf, height: size, type: 'Rom', file: desc.file, dir })
+      }
       return VI(1)
     },
     /**

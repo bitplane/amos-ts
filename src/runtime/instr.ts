@@ -638,9 +638,9 @@ function devNext(rt: Runtime): string {
 /** Disc fonts come from the real Fonts: drawer when one is mounted
  * (AvailFonts scans FONTS:); the synthetic Workbench list stands in when
  * there is none, so stock Set Font numbers still resolve. */
-function discFontList(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string }> {
+function discFontList(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string; dir?: string }> {
   if (rt.discFontCache) return rt.discFontCache
-  const out: Array<{ name: string; height: number; type: string; file?: string }> = []
+  const out: Array<{ name: string; height: number; type: string; file?: string; dir?: string }> = []
   const entries = rt.vfs?.listDir('Fonts:')
   for (const e of entries ?? []) {
     if (e.isDir || !/\.font$/i.test(e.name)) continue
@@ -653,9 +653,10 @@ function discFontList(rt: Runtime): Array<{ name: string; height: number; type: 
   return rt.discFontCache
 }
 
-function examinedFonts(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string }> {
+function examinedFonts(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string; dir?: string }> {
   const mask = rt.fontsListed
-  const rom = mask & 1 ? FONT_LIST.filter((f) => f.type === 'Rom') : []
+  // AFF_MEMORY is the system font list, so a face Ldisk Font opened is in it
+  const rom = mask & 1 ? [...FONT_LIST.filter((f) => f.type === 'Rom'), ...rt.memoryFonts] : []
   const disc = mask & 2 ? discFontList(rt) : []
   return [...rom, ...disc]
 }
@@ -1168,7 +1169,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.pendingView.clear()
     },
     'auto view on'() {
+      /*
+       * Turning it back on APPLIES what was deferred.
+       *
+       * `InAutoViewOn` (+Lib.s:9065) is one instruction, `bset #BitEcrans,
+       * ActuMask`, and the bit it sets is a mask over `T_Actualise`. A
+       * screen created meanwhile left BitEcrans set there (`EcTout`
+       * +W.s:3111), and the per-VBL dispatcher reaches `EcCall CopMake` for
+       * exactly that bit (+ILib.s:1011) as soon as the mask stops hiding it.
+       * So the copper list is rebuilt at the next VBL with no `View` in the
+       * program at all.
+       *
+       * Teratris opens its title screen inside `Auto View Off / Unpack 4 To
+       * 0 / Double Buffer / Auto View On` and then waits for a click. With
+       * the deferral never applied it waited on a black screen.
+       */
       rt.autoView = true
+      for (const s of rt.screens.values()) if (rt.pendingView.has(s.index)) s.visible = true
+      rt.pendingView.clear()
     },
     'auto view off'() {
       rt.autoView = false
@@ -1453,8 +1471,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!entry) throw new AmosError('font not available')
       rt.currentFont = n
       if (entry.file) {
-        // a real disc font: load Fonts:<name>/<size> onto the screen
-        const bytes = rt.vfs?.read('Fonts:' + entry.file)
+        // a real disc font: load <dir><name>/<size> onto the screen. The dir
+        // is Fonts: for anything AvailFonts found there and the opened file's
+        // own drawer for one Ldisk Font brought in from elsewhere
+        const bytes = rt.vfs?.read((entry.dir ?? 'Fonts:') + entry.file)
         const df = bytes ? parseDiskFont(bytes) : null
         if (!df) throw new AmosError('font not available')
         scr().font = df
@@ -1576,7 +1596,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         }
         if (!any) targets.fill(0) // Fade n alone: fade everything to black
       }
-      rt.fades.set(rt.currentIndex, { delay, count: 0, targets })
+      rt.fade = { scr: scr(), delay, count: 0, targets }
     },
     'flash off'() {
       // FlStop (+W.s:5285): stops the flashes of the ACTIVE screen only
@@ -2712,13 +2732,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       const forced = it.accept(',') ? it.evalInt() : null
       const bytes = rt.fs?.read(path)
-      if (!bytes) {
-        if (it.policy === 'skip') {
-          it.unimplemented.set('load (file missing)', (it.unimplemented.get('load (file missing)') ?? 0) + 1)
-          return
-        }
-        throw new AmosError(`file not found: ${path}`)
-      }
+      if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       const file = parseAmosFile(bytes)
       // an AmBs bank list erases ALL banks first (LB_Multiples: Bnk.EffAll,
       // +Lib.s Bnk.Load)
@@ -3456,7 +3470,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // both. Assigning the chunky buffers across shared the cache and left
       // each screen its own planes, and the planes are the bitmap
       clone.shareBitmapsFrom(src)
-      clone.palette = src.palette
+      // the palette is COPIED, not shared. `EcCClo` (+W.s:2707) reserves
+      // EcLong bytes and byte-copies the whole screen structure into them,
+      // and the colours live in that structure, so the clone owns its own.
+      // Sharing the array broke the standard fade-in: Alien Pong Trilogy 2's
+      // NICEFADE clones, blacks all 32 colours of the original, then does
+      // `Fade 2 To 1` to bring them back up from the clone's copy. With one
+      // array the target was black too and the game played in the dark.
+      clone.palette.set(src.palette)
       rt.setCurrent(src.index)
     },
     'sprite update on'() {
@@ -3737,8 +3758,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         } catch {
           throw new AmosError('Not a powerpacked bank', 23)
         }
-        if (kind === 'sprites') rt.spriteBank = ObjectBank.fromSpriteBank(parsed)
-        else rt.iconBank = ObjectBank.fromSpriteBank(parsed)
+        /*
+         * A POSITIVE number APPENDS. It is not a bank number at all here:
+         * `tst.l d5 / ble .Over` then `Bnk.GetBobs / beq .Over / moveq #1,d0
+         * ... add.w d5,d1` (+CompExt.s:551-560) reserves existing+new and
+         * writes the arriving images after the ones already there. Zero, a
+         * negative, or no bank at all overwrites.
+         *
+         * Renegades loads FONT.ABK, takes `_LOGO=Length(1)`, then
+         * `Ppload "LOGO.ABK",1` and draws its text with images 1.._LOGO and
+         * its logo with `_LOGO+1`. Overwriting left one image in the bank,
+         * so every letter of "THIS GAME WAS WRITTEN IN..." came out as the
+         * AMOS logo.
+         */
+        const loaded = ObjectBank.fromSpriteBank(parsed)
+        const into = kind === 'sprites' ? rt.spriteBank : rt.iconBank
+        if (forced > 0 && into && into.images.length > 0) {
+          into.images = [...into.images, ...loaded.images]
+          into.palette = loaded.palette
+        } else if (kind === 'sprites') rt.spriteBank = loaded
+        else rt.iconBank = loaded
         return
       }
       const num = forced >= 0 ? forced : bank.number
@@ -4302,13 +4341,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       const n = it.accept(',') ? it.evalInt() : null
       const bytes = rt.fs?.read(path)
-      if (!bytes) {
-        if (it.policy === 'skip') {
-          it.unimplemented.set('load iff (file missing)', (it.unimplemented.get('load iff (file missing)') ?? 0) + 1)
-          return
-        }
-        throw new AmosError(`file not found: ${path}`)
-      }
+      // a missing file is error 81, never a skip: Chopper II's OPTIONS.IFF
+      // went quietly missing and the 32-colour screen it opens never
+      // replaced the 16-colour one, so the NEXT line's `Pen 31` was the
+      // first thing to complain and named a text window
+      if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       // the reader lives in ../loader and raises plain Errors; error 30 is
       // AMOS's own answer for a file that is not the FORM it wants
       // (IffFormLoad +Lib.s:6876 `Rbne L_IffFor`, IffFor +Lib.s:13002
@@ -4367,13 +4404,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       if (n === 0) throw new AmosError('function call error')
       const bytes = rt.fs?.read(path)
-      if (!bytes) {
-        if (it.policy === 'skip') {
-          it.unimplemented.set('pload (file missing)', (it.unimplemented.get('pload (file missing)') ?? 0) + 1)
-          return
-        }
-        throw new AmosError(`file not found: ${path}`)
-      }
+      if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       const data = extractCodeHunk(bytes)
       if (!data) throw new AmosError('file format not recognised')
       const num = Math.abs(n)
