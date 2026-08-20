@@ -2747,13 +2747,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const single = file.banks.length === 1
       for (const bank of file.banks) {
         if (bank.kind === 'sprites' || bank.kind === 'icons') {
-          // LB_Sprites/LB_Icons: a nonzero (or defaulted) bank argument
-          // APPENDS to an existing bank and the file's palette wins;
-          // 0 overwrites
+          /*
+           * LB_Sprites/LB_Icons (+Lib.s:4124 and 4096) decide between append
+           * and overwrite with `tst.w d5`, on the LOW WORD of the argument.
+           *
+           * The no-number form passes EntNul, and EntNul is $80000000
+           * (+Equ.s:39), whose low word is zero. So `Load "bobs.abk"`
+           * OVERWRITES and only `Load "bobs.abk",n` with n's low word set
+           * appends. Treating the omitted argument as an append left Alien
+           * Pong Trilogy 2 with the 18 menu images of `b1.dat` still at
+           * 1..18 after `Load "disk2:g/b2.dat"` put the bats and the ball at
+           * 19..30, so `Bob 1,5,Y1,1` drew "BAT SPEED : SLOW" for a bat.
+           */
           const nb = ObjectBank.fromSpriteBank(bank)
           const slot = bank.kind === 'sprites' ? 'spriteBank' : ('iconBank' as const)
           const cur = rt[slot]
-          if (cur && forced !== 0) {
+          if (cur && forced !== null && (forced & 0xffff) !== 0) {
             cur.images.push(...nb.images)
             cur.palette = nb.palette
           } else rt[slot] = nb

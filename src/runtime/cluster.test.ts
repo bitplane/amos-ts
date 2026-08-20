@@ -1186,16 +1186,29 @@ describe('memory model', () => {
     expect(() => run('Reserve As Work 5,0')).toThrow(/illegal function call/i)
   })
 
-  it.skipIf(!have('Tutorial/Objects/Bobs.Abk'))('Load appends sprites by default, overwrites with bank 0 (Bnk.Load LB_Sprites)', () => {
+  it.skipIf(!have('Tutorial/Objects/Bobs.Abk'))('Load overwrites sprites by default and appends only for a number (LB_Sprites)', () => {
+    // `tst.w d5` (+Lib.s:4124) looks at the LOW WORD, and the no-number form
+    // passes EntNul = $80000000 (+Equ.s:39, InLoad1 +Lib.s:3991) whose low
+    // word is zero. So a bare Load replaces the bank, `,0` replaces it, and
+    // `,1` is what appends.
     const abk = new Uint8Array(readFileSync(corpus('Tutorial/Objects/Bobs.Abk')))
     const fs = new AmigaFS()
     const vol = fs.mountMemory('DH0')
     vol.write(['bobs.abk'], abk)
     let out = ''
-    const src = ['Load "bobs.abk"', 'N=Length(1)', 'Load "bobs.abk"', 'Print Length(1)/N', 'Load "bobs.abk",0', 'Print Length(1)/N'].join('\n')
+    const src = [
+      'Load "bobs.abk"',
+      'N=Length(1)',
+      'Load "bobs.abk"',
+      'Print Length(1)/N',
+      'Load "bobs.abk",0',
+      'Print Length(1)/N',
+      'Load "bobs.abk",1',
+      'Print Length(1)/N',
+    ].join('\n')
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     rt.runHeadless(50)
-    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['2', '1'])
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '1', '2'])
   })
 
   it('reserves banks, peeks and pokes through fake addresses', () => {
