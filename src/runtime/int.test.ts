@@ -16,6 +16,8 @@ import { Runtime } from './runtime'
 import { INT_ERR, INT_ERRORS } from './int'
 import { BARLABEL, NM, NOSUB, fullMenuNum } from '../amiga/gadtools'
 import { IDCMP_CLOSEWINDOW, IDCMP_MENUPICK, WB_SLOT } from '../amiga/intuition'
+import { keyboardSdr } from '../amiga/keyboard'
+import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 25 — "alter extension number 25 to :APSystem/AMOSPro_Int.Lib" */
@@ -746,5 +748,190 @@ describe('Int 1.0: empty flag slots', () => {
   /** an even count cancels, because two EntNuls are 2^32 and carry away */
   it('two empty slots cancel each other', () => {
     expect(run('Wb Window Ids $200,,,0,0,0,0,0,0').int.idcmp).toBe(0x200)
+  })
+})
+
+/**
+ * The input group: six keywords, not one of which opens a library.
+ *
+ * Two read the window struct, two read CIA-A's serial register at `$bfec01`,
+ * one reads CIA-A's PRA at `$bfe001` and one reads the gameport counters.
+ */
+describe('Int 1.0: the input group', () => {
+  const WIN = `${FLAGS} : ${IDS} : Wb Open Window 0,40,20,160,100,10,10,320,200 : Wb Window Num 0`
+
+  /**
+   * `before` goes on its own LINE and not after a colon: `Rem` comments to
+   * the end of its line, so `Rem : Print X` prints nothing at all.
+   */
+  function ask(expr: string, prep?: (rt: Runtime) => void, before = 'Rem'): number {
+    const b = boot(`${before}\nPrint ${expr}`)
+    prep?.(b.rt)
+    mustFinish(b.rt.runHeadless(2_000))
+    return Number(b.out().trim())
+  }
+
+  /**
+   * The same, but with the pointer moved for real through the frame loop
+   * after the window is open --- which is the path that fills wd_MouseX and
+   * wd_MouseY, in `Intuition.pointerMoved`.
+   */
+  function askAtPointer(expr: string, sx: number, sy: number): number {
+    // the program has to WAIT, or it prints before the pointer has moved: a
+    // headless run does not stop at `Wait Vbl` and the whole thing is over
+    // inside the first budget. `Wb Mouse Key` is the gate, so this exercises
+    // that one too.
+    const b = boot(`${WIN}\nRepeat\nUntil Wb Mouse Key=1\nPrint ${expr}`)
+    b.rt.runHeadless(1)
+    const scr = b.rt.screens.get(WB_SLOT)!
+    b.rt.input.mouseX = scr.screenToHardX(sx)
+    b.rt.input.mouseY = sy + scr.displayY - scr.offsetY
+    // one frame with the pointer moved and the button still up. The order
+    // inside a frame is interpreter first and `stepIntuition` after it, so a
+    // press in the SAME frame prints the position from the frame before.
+    b.rt.frame()
+    b.rt.input.mouseK = 1
+    mustFinish(b.rt.runHeadless(2_000))
+    return Number(b.out().trim())
+  }
+
+  /**
+   * `move.w $e(a1),d3` and `move.w $c(a1),d3`. wd_NextWindow is a pointer at
+   * 0 and four words of geometry follow it, so `intuition.i:690` puts
+   * wd_MouseY at 12 and wd_MouseX at 14 --- Y first, which is the order the
+   * header has them in.
+   */
+  it('Wb Mousex and Wb Mousey are window-relative', () => {
+    // the window is at 40,20, so a pointer at 60,35 on the screen is 20,15 in
+    // it -- and the pointer is moved through the frame loop rather than the
+    // field being written, so this exercises the path that fills the struct
+    expect(askAtPointer('Wb Mousex', 60, 35)).toBe(20)
+    expect(askAtPointer('Wb Mousey', 60, 35)).toBe(15)
+  })
+
+  /**
+   * `moveq #$0,d3` and then `move.w`, so the word is ZERO-extended. wd_MouseX
+   * is signed and goes negative with the pointer left of the window, and this
+   * reports 65535 for it rather than -1.
+   */
+  it('a negative window coordinate comes back unsigned', () => {
+    // four pixels left of the window's left edge, which wd_MouseX records as
+    // -4. An EVEN offset because the Workbench screen is hires and the round
+    // trip through hardware coordinates halves and doubles.
+    expect(askAtPointer('Wb Mousex', 36, 35)).toBe(0xfffc)
+  })
+
+  /**
+   * Routines 17 and 18 are `movea.l d0,a1 / beq` into a `moveq #$0,d3`. Every
+   * other keyword that looks a window up raises 11; these two answer 0.
+   */
+  it('with no window open they answer 0 rather than raising', () => {
+    expect(ask('Wb Mousex')).toBe(0)
+    expect(ask('Wb Mousey')).toBe(0)
+  })
+
+  /**
+   * `eori.b #$ff / ror.b #$1` is the canonical undo of the keyboard's
+   * encoding (../amiga/keyboard.ts) and leaves the scancode with bit 7 set on
+   * a release. `subi.b #$80` on a byte then flips that bit, so a PRESS
+   * answers the scancode plus 128 and a RELEASE answers it plain.
+   */
+  it('Wb Keycode flips bit 7: a press is scancode+128 and a release is the scancode', () => {
+    const ESC = 0x45
+    expect(ask('Wb Keycode', (rt) => (rt.input.sdr = keyboardSdr(ESC, true)))).toBe(ESC + 0x80)
+    expect(ask('Wb Keycode', (rt) => (rt.input.sdr = keyboardSdr(ESC, false)))).toBe(ESC)
+  })
+
+  /** `tst.b d0 / beq -> moveq #$ff,d3`, which is -1 and not 255 */
+  it('an empty register is -1', () => {
+    expect(ask('Wb Keycode', (rt) => (rt.input.sdr = 0))).toBe(-1)
+  })
+
+  /**
+   * Routine 31 is `clr.b $bfec01.l` and then a read-back loop, because the
+   * keyboard can clock the next byte in between. Nothing here is clocking
+   * one, so the loop runs once.
+   */
+  it('Wb Clear Key empties the register the next Wb Keycode reads', () => {
+    expect(ask('Wb Keycode', (rt) => (rt.input.sdr = keyboardSdr(0x45, true)), 'Wb Clear Key')).toBe(-1)
+  })
+
+  /**
+   * `btst.b #$6,$bfe001.l` on CIA-A's PRA, /FIR0 active low, so the `beq` arm
+   * is the pressed one and it loads `moveq #$1,d3`.
+   *
+   * The polarity is this keyword's own: TURBO's `Left Click` and The Game's
+   * `G Left Click` read the same bit and answer -1 for PRESSED. This answers
+   * 1 for pressed and -1 for not, and never 0.
+   */
+  it('Wb Mouse Key is 1 down and -1 up, which is nobody else here', () => {
+    expect(ask('Wb Mouse Key')).toBe(-1)
+    expect(ask('Wb Mouse Key', (rt) => (rt.input.mouseK = 1))).toBe(1)
+  })
+
+  /**
+   * One direction, not a mask. Routine 53 tests four things in order and lets
+   * each overwrite the last, and the bit meanings are the register's: a
+   * digital stick puts `left` on 9, `right` on 1, `right^down` on 0 and
+   * `left^up` on 8 (../amiga/gameport.ts `joyDatOf`, off `custom.i`).
+   */
+  it('Wb Joy answers one direction: 1 left, 2 right, 3 down, 4 up', () => {
+    const push = (d: number) => (rt: Runtime) => {
+      rt.input.ports[1].dirs = d
+    }
+    expect(ask('Wb Joy(1)', push(DIR_LEFT))).toBe(1)
+    expect(ask('Wb Joy(1)', push(DIR_RIGHT))).toBe(2)
+    expect(ask('Wb Joy(1)', push(DIR_DOWN))).toBe(3)
+    expect(ask('Wb Joy(1)', push(DIR_UP))).toBe(4)
+    expect(ask('Wb Joy(1)')).toBe(0)
+  })
+
+  /** the last test to match wins, so a diagonal loses one of its directions */
+  it('a diagonal answers only the higher-numbered direction', () => {
+    expect(
+      ask('Wb Joy(1)', (rt) => {
+        rt.input.ports[1].dirs = DIR_UP | DIR_LEFT
+      }),
+    ).toBe(4)
+  })
+
+  /** `moveq #$64,d6` and `add.l d6,d3` --- a hundred, added to the direction */
+  it('a fire adds 100', () => {
+    expect(
+      ask('Wb Joy(1)', (rt) => {
+        rt.input.ports[1].dirs = DIR_UP
+        rt.input.ports[1].buttons = BTN_RED
+      }),
+    ).toBe(104)
+  })
+
+  /**
+   * DEFECT: `btst.b #$7,$bfe001.l` is /FIR1, and it is read at $3e8a BEFORE
+   * the argument is popped at $3e9e. So the fire bonus is port 1's whichever
+   * port the argument names, and `Wb Joy(0)` reports a button nobody on port
+   * 0 pressed.
+   */
+  it('the fire bonus is always port 1s, even for Wb Joy(0)', () => {
+    expect(
+      ask('Wb Joy(0)', (rt) => {
+        rt.input.ports[1].buttons = BTN_RED
+      }),
+    ).toBe(100)
+    // and port 0's own button is not the one it reads
+    expect(
+      ask('Wb Joy(0)', (rt) => {
+        rt.input.ports[0].dirs = DIR_UP
+      }),
+    ).toBe(4)
+  })
+
+  /** `cmpi.l #$1,d0 / bne` --- exactly 1 is JOY1DAT and everything else JOY0DAT */
+  it('only the argument 1 reads the second port', () => {
+    const push = (rt: Runtime): void => {
+      rt.input.ports[0].dirs = DIR_UP
+    }
+    expect(ask('Wb Joy(0)', push)).toBe(4)
+    expect(ask('Wb Joy(2)', push)).toBe(4)
+    expect(ask('Wb Joy(1)', push)).toBe(0)
   })
 })

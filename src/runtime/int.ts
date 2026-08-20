@@ -61,6 +61,8 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { RastPort } from '../amiga/graphics'
+import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from '../amiga/cia'
+import { joyDatOf } from '../amiga/gameport'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -1117,6 +1119,34 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const count = Math.min(n, st.colours.length, scr.palette.length)
       for (let i = 0; i < count; i++) scr.palette[i] = st.colours[i]! & 0x0fff
     },
+
+    /* ------------------------------------------------------------------
+     * The input group: the silicon, not AMOS and not Intuition
+     *
+     * Six keywords and not one of them opens a library. Two read the window
+     * struct, two read CIA-A's serial register at $bfec01, one reads CIA-A's
+     * PRA at $bfe001 and one reads the gameport counters at $dff00a/$dff00c.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Wb Clear Key` --- empty CIA-A's serial register and wait for it.
+     *
+     * Routine 31, seven instructions:
+     *
+     *     clr.b  $bfec01.l
+     *     move.b $bfec01.l, d0
+     *     tst.b  d0
+     *     bne.b  (again)
+     *
+     * A spin, because the keyboard can clock the next byte in between the
+     * write and the read. Nothing here is clocking one, so the read after the
+     * write is always zero and the loop runs once. It is the other half of
+     * `Wb Keycode`: read the code, then clear it so the next press is a new
+     * one rather than the same one again.
+     */
+    'wb clear key': () => {
+      rt.input.sdr = 0
+    },
   }
 }
 
@@ -1153,6 +1183,16 @@ const ENT_NUL = -0x8000_0000
  */
 function flagArg(it: Parameters<Instr>[0]): number {
   return it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to' ? ENT_NUL : it.evalInt()
+}
+
+
+/**
+ * wd_MouseX or wd_MouseY of the current window, as routines 17 and 18 read
+ * them: no error, and zero-extended from a word.
+ */
+function windowCoord(st: IntState, pick: (w: Window) => number): number {
+  const w = st.windows.get(st.window)
+  return w === undefined ? 0 : pick(w) & 0xffff
 }
 
 /** the nine arguments `Wb Window Flags` and `Wb Window Ids` add together */
@@ -1345,6 +1385,110 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
       const n = int(a[0]!)
       if (n > MAX_SCREEN) intError(INT_ERR.NUMBER_0_100)
       return VI(s().screens.get(n) ?? 0)
+    },
+
+    /* ------------------------------------------------------------------
+     * The input group's readers. See the instructions for what they share.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `=Wb Mousex` and `=Wb Mousey` --- wd_MouseX and wd_MouseY of the
+     * current window, which are window-relative.
+     *
+     * `move.w $e(a1),d3` and `move.w $c(a1),d3`, and the offsets are what the
+     * struct says: wd_NextWindow is a pointer at 0, then four words of
+     * geometry, so `intuition.i:690` puts wd_MouseY at 12 and wd_MouseX at 14
+     * --- Y FIRST, which is the order the header has them in and the reverse
+     * of every other pair in the file.
+     *
+     * Two things neither reader does. It does not raise: routines 17 and 18
+     * are `movea.l d0,a1 / beq` into a `moveq #$0,d3`, so a window that is
+     * not open answers 0 rather than "Window Is Not Open". And the word is
+     * ZERO-extended into a cleared d3, so a pointer left of or above the
+     * window --- wd_MouseX is signed and goes negative there --- comes back
+     * as 65535 rather than as -1.
+     */
+    'wb mousex': (): Value => VI(windowCoord(s(), (w) => w.mouseX)),
+    'wb mousey': (): Value => VI(windowCoord(s(), (w) => w.mouseY)),
+
+    /**
+     * `=Wb Keycode` --- the raw key out of CIA-A's serial register, with bit
+     * 7 flipped.
+     *
+     * Routine 30 does the canonical decode and then one instruction more:
+     *
+     *     move.b $bfec01.l, d0
+     *     tst.b  d0 / beq -> moveq #$ff,d3
+     *     eori.b #$ff, d0        not: undo the keyboard's invert
+     *     ror.b  #$1, d0         undo its rotate -> the scancode
+     *     subi.b #$80, d0
+     *
+     * `not` then `ror #1` is the undo every reader on the machine does (see
+     * ../amiga/keyboard.ts), and it leaves the scancode with bit 7 set for a
+     * release. `subi.b #$80` on a byte then FLIPS that bit: a press answers
+     * scancode + 128 and a release answers the scancode on its own. So the
+     * high half of the range is what is going down and the low half is what
+     * is coming up, which is the opposite way round from the wire.
+     *
+     * An empty register is `moveq #$ff,d3`, which is -1 and not 255.
+     */
+    'wb keycode': (): Value => {
+      const sdr = rt.input.sdr & 0xff
+      if (sdr === 0) return VI(-1)
+      const code = ((~sdr & 0xff) >> 1) | ((~sdr & 0x01) << 7)
+      return VI((code - 0x80) & 0xff)
+    },
+
+    /**
+     * `=Wb Mouse Key` --- 1 while the left button is down, -1 while it is up.
+     *
+     * `btst.b #$6,$bfe001.l` on CIA-A's PRA, where /FIR0 is active LOW, so
+     * the `beq` arm --- bit clear --- is the pressed one and it loads
+     * `moveq #$1,d3`. The other loads `moveq #$ff,d3`, which is -1.
+     *
+     * Note the polarity against everything else in this tree: TURBO's
+     * `Left Click` and The Game's `G Left Click` answer -1 for PRESSED and 0
+     * for not. This one is 1 and -1, and never 0.
+     *
+     * It opens with `Rbsr routine 4`, WaitBlit, for no reason a read of a CIA
+     * register can have.
+     */
+    'wb mouse key': (): Value => VI((rt.machine.cia.pra() & CIAF_GAMEPORT0) === 0 ? 1 : -1),
+
+    /**
+     * `=Wb Joy(port)` --- ONE direction from the gameport counters, plus 100
+     * for a fire.
+     *
+     * Routine 53 reads `$dff00c` when the argument is exactly 1 and `$dff00a`
+     * otherwise, then tests four things in order and lets each overwrite the
+     * last:
+     *
+     *     btst #$9  -> 1      bit 9, which is LEFT
+     *     btst #$1  -> 2      bit 1, RIGHT
+     *     d0 & 3 is 1 or 2      -> 3    bit 0 XOR bit 1, DOWN
+     *     d0 & $300 is $100/$200 -> 4   bit 8 XOR bit 9, UP
+     *
+     * The bit meanings are the register's, not the extension's: a digital
+     * stick puts `left` on 9, `right` on 1, `right^down` on 0 and `left^up`
+     * on 8 (../amiga/gameport.ts `joyDatOf`, off `custom.i`). So this answers
+     * a single number and a diagonal loses one of its two directions --- the
+     * LAST test to match wins, which makes up beat down beat right beat left.
+     *
+     * DEFECT: the fire bonus is always port 1's. `btst.b #$7,$bfe001.l` ---
+     * /FIR1 --- is read at $3e8a, BEFORE the argument is popped at $3e9e, so
+     * `Wb Joy(0)` reads port 0's stick and port 1's button.
+     */
+    'wb joy': (_, a): Value => {
+      const fire = (rt.machine.cia.pra() & CIAF_GAMEPORT1) === 0 ? 100 : 0
+      const w = joyDatOf(rt.input.ports[int(a[0]!) === 1 ? 1 : 0])
+      let dir = 0
+      if ((w & (1 << 9)) !== 0) dir = 1
+      if ((w & (1 << 1)) !== 0) dir = 2
+      const low = w & 3
+      if (low === 1 || low === 2) dir = 3
+      const high = w & 0x300
+      if (high === 0x100 || high === 0x200) dir = 4
+      return VI(dir + fire)
     },
   }
 }

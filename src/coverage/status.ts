@@ -3701,6 +3701,23 @@ export const FAITHFUL = new Set<string>([
   'wb draw mode', 'wb front pen', 'wb back pen',
   'wb text', 'wb intuitext', 'wb draw', 'wb box', 'wb ellipse', 'wb fill box',
   'wb put chr$', 'wb palette', 'wb load rgb',
+  // The input group, which opens no library at all: two window-struct reads,
+  // two of CIA-A's serial register at $bfec01, one of CIA-A's PRA at $bfe001
+  // and one of the gameport counters at $dff00a/$dff00c.
+  //
+  // `Wb Mousex` and `Wb Mousey` are wd_MouseX and wd_MouseY, at 14 and 12 ---
+  // Y FIRST, as `intuition.i`:690 has them. Neither raises where every other
+  // window reader does, and both zero-extend the word, so a pointer left of
+  // the window reads 65535 and not -1.
+  //
+  // `Wb Keycode` does the canonical `not` / `ror #1` undo of the keyboard's
+  // encoding and then `subi.b #$80`, which FLIPS bit 7: a press answers
+  // scancode+128 and a release answers the scancode plain. `Wb Mouse Key` is
+  // 1 down and -1 up, which is the opposite polarity to TURBO's `Left Click`
+  // and The Game's `G Left Click` off the same bit. `Wb Joy` answers ONE
+  // direction rather than a mask, and its four tests overwrite each other so
+  // a diagonal loses one.
+  'wb mousex', 'wb mousey', 'wb keycode', 'wb clear key', 'wb mouse key', 'wb joy',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4044,6 +4061,22 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb clear key":
+    "Routine 31 ($31ac): `clr.b $bfec01.l` and then a read-back loop, `move.b $bfec01.l,d0 / tst.b d0 / bne` " +
+    "back to the clear. The loop is there because the keyboard is a separate microcontroller and can clock the " +
+    "next byte in between the write and the read. Nothing here is clocking one -- ../amiga/keyboard.ts latches " +
+    "the byte when the host reports an event and never between two statements -- so the read after the write is " +
+    "always zero and the loop runs exactly once. FAITHFUL in what a program can see, which is an empty register " +
+    "and the next `Wb Keycode` answering -1; the difference is only how long it took.",
+  "wb joy":
+    "Routine 53 ($3e84) reads $dff00c when the argument is exactly 1 and $dff00a otherwise, then tests four " +
+    "things in order and lets each overwrite the last: `btst #$9` gives 1, `btst #$1` gives 2, bit 0 XOR bit 1 " +
+    "gives 3 and bit 8 XOR bit 9 gives 4. Those bits are the register's own -- a digital stick puts `left` on 9, " +
+    "`right` on 1, `right^down` on 0 and `left^up` on 8 (../amiga/gameport.ts `joyDatOf`, off `custom.i`) -- so " +
+    "the answer is 1 left, 2 right, 3 down, 4 up, ONE direction and not a mask, and a diagonal loses whichever " +
+    "of its two tested first. DEFECT: the fire bonus is always port 1's. `btst.b #$7,$bfe001.l` is /FIR1 and it " +
+    "is read at $3e8a, BEFORE the argument is popped at $3e9e, so `Wb Joy(0)` reads port 0's stick and port 1's " +
+    "button and answers 100 for a press nobody on port 0 made.",
   "wb scroll":
     "Routine 51 ($3e3e) over ScrollRaster (-$18c), and the ONLY keyword in the drawing group that names its " +
     "window instead of reading `$d94`: seven arguments are popped and the last of them ($3e4e) is what routine " +

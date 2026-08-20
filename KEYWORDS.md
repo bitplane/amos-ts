@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1205 qualifying notes live in `src/coverage/status.ts`, which this file
+1206 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -81,7 +81,7 @@ is.
 | gui-1.61             |      103 |       63 |           40 |       0 |     100% |
 | gui-2.10             |      204 |      126 |           78 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |       39 |            4 |      19 |      69% |
+| int-1.0              |       62 |       45 |            4 |      13 |      79% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5093 |          296 |    1970 |      73% |
+| **total**            |     7422 |     5099 |          296 |    1964 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -318,7 +318,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `key speed`
 
-## int-1.0 (69%)
+## int-1.0 (79%)
 
 - **approximated** (4): `wb flash screen`, `wb gt gadget`, `wb scroll`, `wb window base`
 
