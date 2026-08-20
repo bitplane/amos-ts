@@ -737,7 +737,15 @@ export class Intuition {
    */
   openScreen(spec: ScreenSpec): number {
     if (spec.width <= 0 || spec.height <= 0) return 0
-    if (spec.depth <= 0 || spec.depth > 6) return 0
+    // EIGHT, not six. Six is the OCS/ECS ceiling and this machine is neither:
+    // ../runtime/jd.ts settles what it is -- `Jd Chipset` answers 2 for AA,
+    // `Jd Cpu` 68020, `Chip Free` 2MB -- and that is an A1200. The rest of
+    // the port already agrees: ./planar.ts decodes a seventh and eighth
+    // plane, ../runtime/gui.ts takes 1 to 8, ../runtime/displayext.ts
+    // declares maxDepth 8. Only this line still refused them, which is why
+    // Int 1.0's own ellipse1.AMOS and 256_AGA_Screen.AMOS could not open the
+    // screens they ask for.
+    if (spec.depth <= 0 || spec.depth > 8) return 0
     let slot = -1
     for (let i = 0; i < CUSTOM_SLOT_COUNT; i++) {
       if (!this.host.isOpen(CUSTOM_SLOT_FIRST + i)) {

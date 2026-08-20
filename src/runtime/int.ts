@@ -367,8 +367,11 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
     let f = 0
     for (let i = 0; i < 4; i++) {
       it.expect(',')
-      f += it.evalInt()
+      f += flagArg(it)
     }
+    // `Wb Menu Item "Asl","",,,,` is gadgets+menus+asl.AMOS with all four
+    // elided, so four EntNuls go into the sum. The mask is the keyword's own
+    // and it takes them all back off.
     return f & 0xffff
   }
 
@@ -1811,12 +1814,19 @@ function scrollRaster(rp: RastPort, dx: number, dy: number, x1: number, y1: numb
   }
 }
 
-/** four comma-separated integers, the shape both open keywords start with */
+/**
+ * Four comma-separated integers, the shape both open keywords start with.
+ *
+ * Through `flagArg`, because the author's own examples leave them empty:
+ * `Wb Open Window 0,0,10,140,50,,,,` is window_move.AMOS, where the four
+ * NewWindow limits are all elided. An empty slot compiles to EntNul and this
+ * port has to read one rather than fail to parse it.
+ */
 function four(it: Parameters<Instr>[0], leading = false): [number, number, number, number] {
   const out: number[] = []
   for (let i = 0; i < 4; i++) {
     if (i > 0 || leading) it.expect(',')
-    out.push(it.evalInt())
+    out.push(flagArg(it))
   }
   return [out[0]!, out[1]!, out[2]!, out[3]!]
 }
