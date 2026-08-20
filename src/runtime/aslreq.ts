@@ -15,13 +15,20 @@
 import {
   ASL_FONT_HEIGHT,
   ASL_TEXT,
+  aslFontHit,
+  aslFontLayout,
+  aslFontRender,
   aslHit,
   aslLayout,
   aslRender,
   type AslFileSetup,
+  type AslFontLayout,
+  type AslFontSetup,
   type AslLayout,
   type AslRow,
 } from '../amiga/asl'
+import { parseDiskFont, type DiskFont } from '../amiga/diskfont'
+import { availFonts } from './fontlist'
 import { IDCMP_CLOSEWINDOW, IDCMP_MOUSEBUTTONS, SELECTDOWN, WB_SLOT, type Window } from '../amiga/intuition'
 import { PEN, type DrawInfo } from '../amiga/gadtools'
 import { RastPort } from '../amiga/graphics'
@@ -258,3 +265,186 @@ export function finishAsl(rt: Runtime, st: AslState): void {
 }
 
 export { ASL_FONT_HEIGHT }
+
+/* --------------------------------------------------------------------------
+ * The font requester
+ *
+ * Its own state and its own step rather than a branch inside the file one's.
+ * They share ../amiga/asl.ts's primitives and the frame plumbing is fifteen
+ * lines each; what they do NOT share is a single shape pretending to be two
+ * dialogs, which is where this would have got unreadable.
+ * ----------------------------------------------------------------------- */
+
+export interface AslFontState {
+  setup: AslFontSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: AslFontLayout
+  /** every face `AvailFonts` finds, by distinct name */
+  names: string[]
+  /** the sizes the chosen name has, which is why picking a name resets it */
+  sizes: number[]
+  nameTop: number
+  sizeTop: number
+  nameSel: number
+  sizeSel: number
+  done: boolean
+  /** ta_Name of the chosen face, empty for a cancel */
+  result: string
+  /** ta_YSize, which `Gui Font Size` reads back */
+  resultSize: number
+}
+
+/** the sizes `name` is available in, smallest first */
+function sizesOf(rt: Runtime, name: string): number[] {
+  const out = new Set<number>()
+  for (const f of availFonts(rt)) if (f.name === name) out.add(f.height)
+  return [...out].sort((a, b) => a - b)
+}
+
+/** Open the font requester. Null when there is no screen to put it on. */
+export function startAslFont(rt: Runtime, setup: AslFontSetup, slot: number | null): AslFontState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const scr = rt.screens.get(on)
+  if (!scr) return null
+  const window = rt.intuition.openWindow({
+    leftEdge: setup.left,
+    topEdge: setup.top,
+    width: setup.width,
+    height: setup.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    flags: 0x8 | 0x2 | 0x1000,
+    title: setup.hail === '' ? ASL_TEXT.fontTitle : setup.hail,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const names = [...new Set(availFonts(rt).map((f) => f.name))].sort()
+  const nameSel = names.indexOf(setup.name)
+  const name = nameSel < 0 ? (names[0] ?? '') : setup.name
+  const sizes = sizesOf(rt, name)
+  // a request that named no size takes the first the face has, which is what
+  // the requester shows selected when it opens
+  const sizeSel = Math.max(0, sizes.indexOf(setup.size))
+  return {
+    setup: { ...setup, name, size: sizes[sizeSel] ?? 0 },
+    window,
+    slot: on,
+    rp,
+    layout: aslFontLayout(setup, window.borderLeft, window.borderTop, window.borderRight, window.borderBottom),
+    names,
+    sizes,
+    nameTop: 0,
+    sizeTop: 0,
+    nameSel: nameSel < 0 ? 0 : nameSel,
+    sizeSel,
+    done: false,
+    result: '',
+    resultSize: 0,
+  }
+}
+
+/** one frame of the font requester */
+export function stepAslFont(rt: Runtime, st: AslFontState): void {
+  if (st.done) return
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const act = aslFontHit(st.layout, msg.mouseX, msg.mouseY)
+    if (!act) continue
+    if (act.kind === 'cancel') {
+      st.done = true
+      return
+    }
+    if (act.kind === 'ok') {
+      // `movea.l (a1),a0` and `move.w $4(a1),$160(a2)` off the requester's
+      // fo_Attr at +8: ta_Name and ta_YSize, which is all GUI 2.10 reads
+      st.result = st.setup.name
+      st.resultSize = st.sizes[st.sizeSel] ?? 0
+      st.done = true
+      return
+    }
+    if (act.kind === 'scrollNames') {
+      st.nameTop = Math.min(Math.max(0, st.names.length - st.layout.visible), Math.max(0, st.nameTop + act.delta))
+      continue
+    }
+    if (act.kind === 'scrollSizes') {
+      st.sizeTop = Math.min(Math.max(0, st.sizes.length - st.layout.visible), Math.max(0, st.sizeTop + act.delta))
+      continue
+    }
+    if (act.kind === 'name') {
+      const i = st.nameTop + act.index
+      const name = st.names[i]
+      if (name === undefined) continue
+      st.nameSel = i
+      st.setup.name = name
+      // a new face has its own sizes, and the old index means nothing in them
+      st.sizes = sizesOf(rt, name)
+      st.sizeTop = 0
+      st.sizeSel = 0
+      st.setup.size = st.sizes[0] ?? 0
+      continue
+    }
+    const i = st.sizeTop + act.index
+    if (st.sizes[i] === undefined) continue
+    st.sizeSel = i
+    st.setup.size = st.sizes[i]!
+  }
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  const face = openDiskFont(rt, st.setup.name, st.setup.size)
+  aslFontRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.setup,
+    st.layout,
+    st.names,
+    st.sizes,
+    st.nameTop,
+    st.sizeTop,
+    st.nameSel,
+    st.sizeSel,
+    face,
+    w.leftEdge,
+    w.topEdge,
+  )
+  st.rp.clip = null
+}
+
+/**
+ * The face the preview draws in.
+ *
+ * Null for one this port cannot open, which leaves the sample in the system
+ * font — an honest outcome, since the alternative is drawing the sample in a
+ * face that is not the one being previewed and saying nothing about it.
+ */
+function openDiskFont(rt: Runtime, name: string, size: number): DiskFont | null {
+  const leaf = name.replace(/\.font$/i, '')
+  for (const f of availFonts(rt)) {
+    if (f.name !== name || f.height !== size || f.file === undefined) continue
+    const bytes = rt.vfs?.read(`Fonts:${leaf}/${f.file}`)
+    const parsed = bytes ? parseDiskFont(bytes) : null
+    if (parsed) return parsed
+  }
+  return null
+}
+
+export function finishAslFont(rt: Runtime, st: AslFontState): void {
+  rt.intuition.closeWindow(st.window)
+}

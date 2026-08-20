@@ -229,7 +229,7 @@ describe('the ASL file requester', () => {
    * type goes on to join a path, so the other two answer the empty string on
    * the machine as well.
    */
-  it('the font and screen-mode types answer nothing and open nothing', () => {
+  it('the font and screen-mode types are not this requester', () => {
     for (const type of [1, 2]) {
       const b = boot(`F$=Wb Asl Req("P","Ok","Cancel",${type},1,20,20,280,160)\nPrint "["+F$+"]"`)
       expect(b.rt.asl).toBeNull()
@@ -248,5 +248,125 @@ describe('the ASL file requester', () => {
     mustFinish(b.rt.runHeadless(500))
     expect(b.out().trim()).toBe('[]')
     expect(b.rt.asl).toBeNull()
+  })
+})
+
+/**
+ * asl.library's FONT requester.
+ *
+ * The strings are the library's own: the default title `Select Font` at
+ * $5b24, and the 66-character preview line at $2fc, which is what the real
+ * requester draws in the face you have picked. The pixel layout is modelled
+ * and ../amiga/asl.ts's header says so, so nothing here asserts a coordinate.
+ */
+describe('the ASL font requester', () => {
+  const REQ = 'F$=Wb Asl Req("Pick","Use","Cancel",1,0,20,20,300,180)'
+  const PROG = `${REQ}\nPrint "["+F$+"]"`
+
+  function boot(program: string): { rt: Runtime; out: () => string } {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.currentDir = 'DH0:'
+    let out = ''
+    const rt = new Runtime(tokenize(program, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[25, ext]]),
+      maxSteps: 9_000_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    rt.frame()
+    return { rt, out: () => out }
+  }
+
+  function click(rt: Runtime, wx: number, wy: number): void {
+    const st = rt.aslFont!
+    const scr = rt.screens.get(WB_SLOT)!
+    rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+    rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    rt.frame()
+  }
+  const mid = (b: Box): [number, number] => [b.x + (b.w >> 1), b.y + (b.h >> 1)]
+  const nameRow = (rt: Runtime, i: number): [number, number] => [
+    mid(rt.aslFont!.layout.names)[0],
+    rt.aslFont!.layout.names.y + 2 + i * ASL_FONT_HEIGHT + 3,
+  ]
+  const sizeRow = (rt: Runtime, i: number): [number, number] => [
+    mid(rt.aslFont!.layout.sizes)[0],
+    rt.aslFont!.layout.sizes.y + 2 + i * ASL_FONT_HEIGHT + 3,
+  ]
+
+  /** every face AvailFonts finds, by distinct name */
+  it('lists the faces once each and the sizes of the chosen one', () => {
+    const b = boot(PROG)
+    const st = b.rt.aslFont!
+    expect(st.names).toContain('topaz.font')
+    expect(st.names).toContain('times.font')
+    // one row a NAME, however many sizes it has
+    expect(new Set(st.names).size).toBe(st.names.length)
+    expect(st.setup.name).toBe(st.names[0])
+    expect(st.sizes.length).toBeGreaterThan(0)
+    // a request that named no size takes the first the face has
+    expect(st.setup.size).toBe(st.sizes[0])
+  })
+
+  /** a new face has its own sizes, and the old index means nothing in them */
+  it('picking a name resets the sizes to that face own', () => {
+    const b = boot(PROG)
+    const st = b.rt.aslFont!
+    const times = st.names.indexOf('times.font')
+    click(b.rt, ...nameRow(b.rt, times))
+    expect(st.setup.name).toBe('times.font')
+    expect(st.sizes).toEqual([11, 13, 15, 18, 24])
+    expect(st.setup.size).toBe(11)
+  })
+
+  /**
+   * `movea.l (a1),a0` and `move.w $4(a1),$160(a2)` off the requester's
+   * fo_Attr at +8: ta_Name and ta_YSize, which is all GUI 2.10 reads.
+   */
+  it('OK answers the name and the size that were picked', () => {
+    const b = boot(PROG)
+    const st = b.rt.aslFont!
+    click(b.rt, ...nameRow(b.rt, st.names.indexOf('times.font')))
+    click(b.rt, ...sizeRow(b.rt, 3))
+    expect(st.setup.size).toBe(18)
+    click(b.rt, ...mid(st.layout.ok))
+    expect([st.result, st.resultSize]).toEqual(['times.font', 18])
+  })
+
+  /** `Select Font` is what asl 39.4 titles it when nothing passes ASL_Hail */
+  it('the title is ASL_Hail, or the library own default', () => {
+    expect(boot(PROG).rt.aslFont!.window.title).toBe('Pick')
+    const b = boot('F$=Wb Asl Req("","Use","Cancel",1,0,20,20,300,180)\nPrint F$')
+    expect(b.rt.aslFont!.window.title).toBe(ASL_TEXT.fontTitle)
+  })
+
+  /**
+   * Int 1.0 opens it and then throws the answer away. `cmpi.l #$0,d4 /
+   * bne.w $2d7c` runs AFTER AslRequest, so only the FILE type goes on to
+   * build a string --- the font requester really does open on the machine
+   * (AllocAslRequest at $2b6c keeps a FontRequest), and really does answer
+   * nothing.
+   */
+  it('Wb Asl Req opens it for type 1 and still answers nothing', () => {
+    const b = boot(PROG)
+    expect(b.rt.aslFont).not.toBeNull()
+    const st = b.rt.aslFont!
+    click(b.rt, ...nameRow(b.rt, st.names.indexOf('times.font')))
+    click(b.rt, ...mid(st.layout.ok))
+    for (let i = 0; i < 4; i++) b.rt.frame()
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  /** and a headless run dismisses it, as it does the file one */
+  it('a headless run cancels it rather than hanging', () => {
+    const b = boot(PROG)
+    mustFinish(b.rt.runHeadless(500))
+    expect(b.rt.aslFont).toBeNull()
+    expect(b.out().trim()).toBe('[]')
   })
 })

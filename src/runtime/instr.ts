@@ -1,3 +1,4 @@
+import { examinedFonts } from './fontlist'
 import { AmosError, ERR, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
@@ -103,7 +104,7 @@ import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile, parseSpriteBankBody } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
-import { parseDiskFont, parseFontDescriptor } from '../amiga/diskfont'
+import { parseDiskFont } from '../amiga/diskfont'
 import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
@@ -526,28 +527,6 @@ export function parseStosMove(src: string): { start: number | null; groups: Arra
   }
 }
 
-/** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
-// the ROM faces plus the stock Workbench Fonts: drawer, so Set Font
-// numbers that work on a real machine work here (rendering stays the
-// single 8x8 face — see NOTES). examinedFonts() applies the Get Fonts
-// variant's rom/disc mask.
-const FONT_LIST = [
-  { name: 'topaz.font', height: 8, type: 'Rom' },
-  { name: 'topaz.font', height: 9, type: 'Rom' },
-  ...[
-    ['courier.font', [11, 13, 15, 18, 24]],
-    ['diamond.font', [12, 20]],
-    ['emerald.font', [17, 20]],
-    ['garnet.font', [9, 16]],
-    ['helvetica.font', [9, 11, 13, 15, 18, 24]],
-    ['opal.font', [9, 12]],
-    ['pearl.font', [8]],
-    ['ruby.font', [8, 12, 15]],
-    ['sapphire.font', [14, 19]],
-    ['times.font', [11, 13, 15, 18, 24]],
-  ].flatMap(([name, sizes]) => (sizes as number[]).map((height) => ({ name: name as string, height, type: 'Disc' }))),
-]
-
 /**
  * Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792): index = |n| & $3FFF
  * with 0 erroring; a missing bank is "bank not reserved"; out of range
@@ -633,32 +612,6 @@ function devNext(rt: Runtime): string {
   const it2 = rt.devIter
   if (!it2 || it2.idx >= it2.entries.length) return ''
   return it2.entries[it2.idx++]!
-}
-
-/** Disc fonts come from the real Fonts: drawer when one is mounted
- * (AvailFonts scans FONTS:); the synthetic Workbench list stands in when
- * there is none, so stock Set Font numbers still resolve. */
-function discFontList(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string; dir?: string }> {
-  if (rt.discFontCache) return rt.discFontCache
-  const out: Array<{ name: string; height: number; type: string; file?: string; dir?: string }> = []
-  const entries = rt.vfs?.listDir('Fonts:')
-  for (const e of entries ?? []) {
-    if (e.isDir || !/\.font$/i.test(e.name)) continue
-    const bytes = rt.vfs!.read('Fonts:' + e.name)
-    const desc = bytes ? parseFontDescriptor(bytes) : null
-    if (!desc) continue // corrupt descriptors are skipped, not fatal
-    for (const d of desc) out.push({ name: e.name, height: d.ySize, type: 'Disc', file: d.file })
-  }
-  rt.discFontCache = out.length > 0 ? out : FONT_LIST.filter((f) => f.type === 'Disc')
-  return rt.discFontCache
-}
-
-function examinedFonts(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string; dir?: string }> {
-  const mask = rt.fontsListed
-  // AFF_MEMORY is the system font list, so a face Ldisk Font opened is in it
-  const rom = mask & 1 ? [...FONT_LIST.filter((f) => f.type === 'Rom'), ...rt.memoryFonts] : []
-  const disc = mask & 2 ? discFontList(rt) : []
-  return [...rom, ...disc]
 }
 
 /**

@@ -2103,10 +2103,40 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
       // The compare is SIGNED, so a NEGATIVE type falls past it and lands on
       // the file arm at $2b48 along with 0.
       if (type >= 3) throw new AmosError('Illegal function call', ERR.FUNC_CALL)
-      // `cmpi.l #$0,d4 / bne.w $2d7c` AFTER AslRequest: only the file
-      // requester goes on to join a path, so the font and screen-mode ones
-      // answer the empty string on the machine's own code path too
-      if (type === ASL_TYPE.FONT || type === ASL_TYPE.SCREENMODE) return VS('')
+      // `cmpi.l #$0,d4 / bne.w $2d7c` AFTER AslRequest: only the FILE
+      // requester goes on to join a path, so the other two answer the empty
+      // string on the machine's own code path too. The font one still OPENS
+      // here, because `Wb Asl Req(...,1,...)` opening nothing at all would be
+      // a different program from one whose user cancelled -- and the routine
+      // does AllocAslRequest a FontRequest at $2b6c and keep it.
+      if (type === ASL_TYPE.FONT) {
+        if (rt.aslFont) {
+          if (rt.aslFont.done) {
+            rt.aslFont = null
+            return VS('')
+          }
+          it.block({ type: 'asl' }, true)
+          return VS('')
+        }
+        const opened = rt.startAslFontRequest(
+          {
+            hail: title,
+            okText,
+            cancelText,
+            left: int(a[5]!),
+            top: int(a[6]!),
+            width: int(a[7]!),
+            height: int(a[8]!),
+            name: '',
+            size: 0,
+          },
+          st.screen === -1 ? null : rt.intuition.slotOf(st.screen),
+        )
+        if (!opened) return VS('')
+        it.block({ type: 'asl' }, true)
+        return VS('')
+      }
+      if (type === ASL_TYPE.SCREENMODE) return VS('')
       const upTo = (b: Uint8Array): string => {
         let out = ''
         for (const c of b) {

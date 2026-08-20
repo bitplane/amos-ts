@@ -551,7 +551,8 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
 
   /**
    * The guide's whole account of event -2: "A menu item has been selected.
-   * You've to use the Gui Menu function to know which item has been chosen."
+   * You've to use the Gui Menu commands in order to handle it. Gui Code
+   * returns a NULL value."
    */
   it('Gui Wait reports -2 and Gui Menu says which item', () => {
     const rt = run(open, bank)
@@ -3202,5 +3203,66 @@ describe('the 1.61 TCP group', () => {
   /** two DateStamps, minutes and seconds only, and the same second is 0 */
   it('Tcp Time measures from Tcp Reset', () => {
     expect(Number(withFs('Tcp Reset : Print Tcp Time').out().trim())).toBe(0)
+  })
+})
+
+/**
+ * `Gui Asl Font` opens the REAL requester now, ../amiga/asl.ts's.
+ *
+ * Routine 56 asks for it with a ONE-tag list --- `move.l #$80080002,(a1)`,
+ * ASL_Window, and a TAG_DONE after it --- so there are no pen, style or
+ * draw-mode gadgets on it, and ta_Name and ta_YSize off fo_Attr at +8 are
+ * everything it reads back.
+ */
+describe('GUI 2.10: the font requester', () => {
+  const g = on('2.10')
+
+  /** one frame opens it; a headless run would dismiss it first */
+  function open(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, g.exts), table, {
+      extensions: g.exts,
+      extBindings: new Map([[24, g.ext]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    rt.frame()
+    return { rt, out: () => out }
+  }
+
+  it('opens a font requester and hands back ta_Name and ta_YSize', () => {
+    const b = open('A$=Gui Asl Font : Print "["+A$+"] ";Gui Font Size')
+    const st = b.rt.aslFont!
+    expect(st).not.toBeNull()
+    st.result = 'times.font'
+    st.resultSize = 18
+    st.done = true
+    mustFinish(b.rt.runHeadless(500))
+    // AMOS puts a space in front of a non-negative number
+    expect(b.out().replace(/\s+/g, ' ').trim()).toBe('[times.font] 18')
+  })
+
+  /**
+   * `move.w #$0,$160(a2)` at $24a2 runs on every call that got as far as
+   * AslRequest, so a cancel leaves 0 beside the empty string.
+   */
+  it('a cancel leaves the empty string and a size of 0', () => {
+    const b = open('A$=Gui Asl Font : Print "["+A$+"] ";Gui Font Size')
+    mustFinish(b.rt.runHeadless(500))
+    expect(b.out().replace(/\s+/g, ' ').trim()).toBe('[] 0')
+  })
+
+  /**
+   * 1.5b and 1.61 declare the keyword as `0`, an INTEGER, and routine 54
+   * answers `moveq #$ff,d0` for a missing library or requester. There is no
+   * string anywhere in those 46 bytes, so neither opens anything.
+   */
+  it('the older releases answer -1 and open nothing', () => {
+    for (const release of ['1.6x', '1.5b'] as const) {
+      const h = on(release)
+      const r = h.runOut('Print Gui Asl Font')
+      expect(r.out.trim()).toBe('-1')
+      expect(r.rt.aslFont).toBeNull()
+    }
   })
 })

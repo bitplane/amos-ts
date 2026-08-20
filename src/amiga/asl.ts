@@ -68,6 +68,14 @@ export const ASL_TEXT = {
   pattern: 'Pattern',
   ok: 'OK',
   cancel: 'Cancel',
+  /**
+   * The preview line, 66 characters at $2fc and quoted as it is spelled
+   * there. This is what the real requester draws in the face you have picked,
+   * and it is the whole reason the font one is worth having: a list of names
+   * tells you nothing a directory does not.
+   */
+  fontSample: '123 AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz!@#$%^&*()',
+  name: 'Name',
 } as const
 
 /** one line of the list: a name, and whether it is a drawer */
@@ -290,6 +298,214 @@ export function aslRender(
   button(l.ok, setup.okText === '' ? ASL_TEXT.ok : setup.okText)
   button(l.volumes, ASL_TEXT.volumes)
   button(l.parent, ASL_TEXT.parent)
+  button(l.cancel, setup.cancelText === '' ? ASL_TEXT.cancel : setup.cancelText)
+  rp.restore(save)
+}
+
+
+/* --------------------------------------------------------------------------
+ * The font requester
+ *
+ * A second layout on the same frame. asl.library opens `diskfont.library`
+ * ($346) and scans `FONTS:` ($2f0) for it, and GUI 2.10 asks for it with a
+ * ONE-tag list -- routine 56 writes `move.l #$80080002,(a1)`, ASL_Window, and
+ * a TAG_DONE after it -- so there are no pen, style or draw-mode gadgets to
+ * put on this one. A name list, a size list, the two fields under them, the
+ * sample line, and the two buttons.
+ * ----------------------------------------------------------------------- */
+
+/** what a font request asks for, after its tag list has been read */
+export interface AslFontSetup {
+  hail: string
+  okText: string
+  cancelText: string
+  left: number
+  top: number
+  width: number
+  height: number
+  name: string
+  size: number
+}
+
+export interface AslFontLayout {
+  inner: Box
+  names: Box
+  sizes: Box
+  visible: number
+  nameUp: Box
+  nameDown: Box
+  sizeUp: Box
+  sizeDown: Box
+  nameField: Box
+  sizeField: Box
+  sample: Box
+  ok: Box
+  cancel: Box
+}
+
+/** the size column, wide enough for three digits and its own bevel */
+const SIZE_W = 8 * 5
+
+export function aslFontLayout(
+  setup: AslFontSetup,
+  borderLeft: number,
+  borderTop: number,
+  borderRight: number,
+  borderBottom: number,
+): AslFontLayout {
+  const iw = Math.max(120, setup.width - borderLeft - borderRight)
+  const ih = Math.max(80, setup.height - borderTop - borderBottom)
+  const inner = box(borderLeft, borderTop, iw, ih)
+  // from the bottom: buttons, sample, then the two fields on one row
+  const bottom = ROW * 3 + GAP * 4
+  const listH = Math.max(ROW, ih - bottom)
+  const arrow = 10
+  const barW = 14
+  const namesW = iw - SIZE_W - barW * 2 - GAP * 5
+  const names = box(inner.x + GAP, inner.y + GAP, namesW, listH - GAP)
+  const nameBar = names.x + names.w + GAP
+  const sizes = box(nameBar + barW + GAP, names.y, SIZE_W, names.h)
+  const sizeBar = sizes.x + sizes.w + GAP
+  let y = inner.y + listH + GAP
+  const fieldW = Math.max(8 * 6, namesW - 8 * 5)
+  const nameField = box(inner.x + GAP + 8 * 5, y, fieldW, ROW)
+  const sizeField = box(sizes.x, y, SIZE_W + barW, ROW)
+  y += ROW + GAP
+  const sample = box(inner.x + GAP, y, iw - GAP * 2, ROW)
+  y += ROW + GAP
+  const bw = Math.floor((iw - GAP * 3) / 2)
+  return {
+    inner,
+    names,
+    sizes,
+    visible: Math.max(1, Math.floor((names.h - LIST_INSET * 2) / ASL_FONT_HEIGHT)),
+    nameUp: box(nameBar, names.y + names.h - arrow * 2, barW, arrow),
+    nameDown: box(nameBar, names.y + names.h - arrow, barW, arrow),
+    sizeUp: box(sizeBar, names.y + names.h - arrow * 2, barW, arrow),
+    sizeDown: box(sizeBar, names.y + names.h - arrow, barW, arrow),
+    nameField,
+    sizeField,
+    sample,
+    ok: box(inner.x + GAP, y, bw, ROW),
+    cancel: box(inner.x + GAP * 2 + bw, y, bw, ROW),
+  }
+}
+
+export type AslFontAction =
+  | { kind: 'name'; index: number }
+  | { kind: 'size'; index: number }
+  | { kind: 'scrollNames'; delta: number }
+  | { kind: 'scrollSizes'; delta: number }
+  | { kind: 'ok' }
+  | { kind: 'cancel' }
+  | null
+
+export function aslFontHit(l: AslFontLayout, x: number, y: number): AslFontAction {
+  if (inBox(l.names, x, y)) return { kind: 'name', index: Math.floor((y - l.names.y - LIST_INSET) / ASL_FONT_HEIGHT) }
+  if (inBox(l.sizes, x, y)) return { kind: 'size', index: Math.floor((y - l.sizes.y - LIST_INSET) / ASL_FONT_HEIGHT) }
+  if (inBox(l.nameUp, x, y)) return { kind: 'scrollNames', delta: -1 }
+  if (inBox(l.nameDown, x, y)) return { kind: 'scrollNames', delta: 1 }
+  if (inBox(l.sizeUp, x, y)) return { kind: 'scrollSizes', delta: -1 }
+  if (inBox(l.sizeDown, x, y)) return { kind: 'scrollSizes', delta: 1 }
+  if (inBox(l.ok, x, y)) return { kind: 'ok' }
+  if (inBox(l.cancel, x, y)) return { kind: 'cancel' }
+  return null
+}
+
+/**
+ * Draw the font requester. `sampleFont` is the face the preview line is drawn
+ * in, which is the one thing here that has to be a real font rather than a
+ * string --- null falls back to the RastPort's own, which is what a face this
+ * port cannot open leaves it as.
+ */
+export function aslFontRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  setup: AslFontSetup,
+  l: AslFontLayout,
+  names: readonly string[],
+  sizes: readonly number[],
+  nameTop: number,
+  sizeTop: number,
+  nameSel: number,
+  sizeSel: number,
+  sampleFont: RastPort['font'],
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const fill = penOf(dri, PEN.FILL)
+  const fillText = penOf(dri, PEN.FILLTEXT)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const at = (b: Box): Box => box(b.x + ox, b.y + oy, b.w, b.h)
+  const flood = (b: Box, pen: number): void => {
+    const r = at(b)
+    rp.rectFill(r.x, r.y, r.x + r.w - 1, r.y + r.h - 1, pen)
+  }
+  const bevel = (b: Box, recessed: boolean): void => {
+    const r = at(b)
+    drawBevelBox(rp, r.x, r.y, r.w, r.h, dri, { recessed })
+  }
+  const label = (s: string, x: number, y: number, pen: number): void => {
+    if (rp.font) rp.text(x + ox, y + oy + rp.font.baseline, s, pen)
+  }
+
+  flood(l.inner, bg)
+  const column = (b: Box, rows: readonly string[], top: number, sel: number): void => {
+    flood(b, bg)
+    bevel(b, true)
+    for (let i = 0; i < l.visible; i++) {
+      const r = rows[top + i]
+      if (r === undefined) break
+      const ry = b.y + LIST_INSET + i * ASL_FONT_HEIGHT
+      if (top + i === sel) flood(box(b.x + 1, ry, b.w - 2, ASL_FONT_HEIGHT), fill)
+      label(r, b.x + LIST_INSET, ry, top + i === sel ? fillText : text)
+    }
+  }
+  column(l.names, names, nameTop, nameSel)
+  column(l.sizes, sizes.map(String), sizeTop, sizeSel)
+  bevel(l.nameUp, false)
+  bevel(l.nameDown, false)
+  bevel(l.sizeUp, false)
+  bevel(l.sizeDown, false)
+
+  label(ASL_TEXT.name, l.inner.x + 2, l.nameField.y + 2, text)
+  flood(l.nameField, bg)
+  bevel(l.nameField, true)
+  label(setup.name, l.nameField.x + 3, l.nameField.y + 2, text)
+  flood(l.sizeField, bg)
+  bevel(l.sizeField, true)
+  label(String(setup.size), l.sizeField.x + 3, l.sizeField.y + 2, text)
+
+  // the preview, in the chosen face. The clip has to go back afterwards: a
+  // sample narrowed to its own box and left there clips everything drawn
+  // after it, which is where the two buttons went the first time.
+  flood(l.sample, bg)
+  bevel(l.sample, true)
+  const oldFont = rp.font
+  const oldClip = rp.clip
+  if (sampleFont) rp.font = sampleFont
+  if (rp.font) {
+    const r = at(l.sample)
+    rp.clip = { x1: r.x + 1, y1: r.y + 1, x2: r.x + r.w - 2, y2: r.y + r.h - 2 }
+    rp.text(r.x + 2, r.y + 2 + rp.font.baseline, ASL_TEXT.fontSample, text)
+  }
+  rp.font = oldFont
+  rp.clip = oldClip
+
+  const button = (b: Box, s: string): void => {
+    flood(b, bg)
+    bevel(b, false)
+    const w = rp.font ? rp.textLength(s) : s.length * 8
+    label(s, b.x + Math.max(1, Math.floor((b.w - w) / 2)), b.y + 2, text)
+  }
+  button(l.ok, setup.okText === '' ? ASL_TEXT.ok : setup.okText)
   button(l.cancel, setup.cancelText === '' ? ASL_TEXT.cancel : setup.cancelText)
   rp.restore(save)
 }

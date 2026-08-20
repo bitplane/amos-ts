@@ -396,6 +396,11 @@ export const CITED_BY: Record<string, string[]> = {
   // every routine NUMBER means the same thing in both. The addresses do not —
   // the twenty 1.6 adds are cited at their 1.6 offsets and the twenty-six
   // older keywords at their 1.4 ones, which is why both tables are listed
+  // 2.10 first, as ldos.ts lists 2.6 first and for the same reason: the later
+  // binary is the fuller evidence. All three releases renumber, so a routine
+  // number means a different thing in each and every citation names which
+  'src/runtime/gui.ts': ['gui-2.10', 'gui-1.61', 'gui-1.5b'],
+  'src/runtime/gui.test.ts': ['gui-2.10', 'gui-1.61', 'gui-1.5b'],
   'src/runtime/int.ts': ['int-1.0'],
   'src/runtime/int.test.ts': ['int-1.0'],
   'src/runtime/jdint.ts': ['jd-int-1.3'],

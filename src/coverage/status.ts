@@ -3764,6 +3764,13 @@ export const FAITHFUL = new Set<string>([
   // ASLFR_REJECTICONS -- which is exactly what the author's own comment on
   // it says it does, "1= Dont Show Info Files".
   'wb asl req',
+  // GUI 2.10's font requester, which is the same one. Routine 56 asks for it
+  // with a ONE-tag list -- `move.l #$80080002,(a1)`, ASL_Window, and a
+  // TAG_DONE after it -- so no pens, no style, no draw mode, and ta_Name and
+  // ta_YSize off fo_Attr at +8 are everything it reads back. `move.w
+  // #$0,$160(a2)` at $24a2 runs on every call that got as far as AslRequest,
+  // which is why a cancel leaves 0 beside the empty string.
+  'gui asl font', 'gui font size',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4107,6 +4114,18 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "gui asl font":
+    "Routine 56 ($2468) in 2.10, and a different keyword in the two before it. 2.10 builds a ONE-tag list at " +
+    "`(a2)` -- `move.l #$80080002,(a1)`, ASL_Window, then TAG_DONE -- calls AslRequest (-$3c) and reads ta_Name " +
+    "and ta_YSize off the FontRequester's fo_Attr at +8. It opens the REAL requester, ../amiga/asl.ts's, whose " +
+    "PIXEL LAYOUT is modelled rather than ported; that file's header says so. Its preview line is the " +
+    "library's own 66 characters at $2fc, drawn in the face picked when this port can open one and in the " +
+    "system font when it cannot. 1.5b and 1.61 declare the keyword as `0`, an INTEGER, and their routine 54 " +
+    "answers `moveq #$ff,d0` for a missing library or requester -- there is no string anywhere in those 46 " +
+    "bytes, so their guide's \"returns the selected font\" is wrong about the type and neither opens anything. " +
+    "DEFECT, in 2.10 and reproduced: with asl.library or the requester missing, the two `beq` at $2474 and " +
+    "$247a jump PAST the `move.l $662(a5),d1` that loads AMOS's null string, so d1 is whatever it was and " +
+    "`moveq #$2,d2` then calls it a string.",
   "wb dt image to screen":
     "Routine 83 ($4b64) opens `datatypes.library` version 37, NewDTObjectAs the filename (-$30) and asks " +
     "GetDTAttrsA (-$42) for the colour count and the colour table. The picture's size is the instance data at " +

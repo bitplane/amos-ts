@@ -2178,7 +2178,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * `Gui Cls colour` — "clears all of the current graphics output".
      *
      * The guide warns what it is not: "Gui Cls will also clear all of the
-     * window borders! To clear only graphics, you should use Gui Clw". Since
+     * window borders! To clear only graphics, you should use the command Gui
+     * Clw". Since
      * a window here has no border drawn into its own bitmap, the two differ
      * only in which window they take, which is where that difference lives
      * until borders are drawn.
@@ -3486,17 +3487,42 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * makes the same two tests and gets both right, raising error 13 for the
      * library and answering the null string for the requester.
      *
-     * DEVIATION: no requester opens, for the same reason as `Gui Asl Screen`.
+     * The requester is REAL now, ../amiga/asl.ts's --- the same one Int 1.0's
+     * `Wb Asl Req` and BUtility's `Baslfilereq` open. Routine 56 asks for it
+     * with a ONE-tag list, `move.l #$80080002,(a1)` and a TAG_DONE after it,
+     * so ASL_Window and nothing else: no pens, no style, no draw mode.
      */
-    'gui asl font': (): Value => {
+    'gui asl font': (it): Value => {
       const g = s()
-      g.aslFontSize = 0
       // 1.5b and 1.61 declare `0`, an INTEGER, and routine 54 returns
       // AslRequest's own answer with `moveq #$ff,d0` standing for a missing
       // library or requester. Their guide's "returns the selected font" is
       // wrong about the type: there is no string anywhere in those 46 bytes.
       // 2.10 rewrote it as `2` and hands back ta_Name.
-      return g.release === '2.10' ? VS('') : VI(-1)
+      if (g.release !== '2.10') {
+        g.aslFontSize = 0
+        return VI(-1)
+      }
+      if (rt.aslFont) {
+        if (rt.aslFont.done) {
+          const name = rt.aslFont.result
+          g.aslFontSize = rt.aslFont.resultSize
+          rt.aslFont = null
+          return VS(name)
+        }
+        it.block({ type: 'asl' }, true)
+        return VS('')
+      }
+      // `move.w #$0,$160(a2)` at $24a2 runs on every call that got as far as
+      // AslRequest, so a cancel leaves 0 beside the empty string
+      g.aslFontSize = 0
+      const started = rt.startAslFontRequest(
+        { hail: '', okText: '', cancelText: '', left: 40, top: 30, width: 300, height: 190, name: '', size: 0 },
+        null,
+      )
+      if (!started) return VS('')
+      it.block({ type: 'asl' }, true)
+      return VS('')
     },
 
     /**
@@ -4692,8 +4718,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *     connect (-$36), and EINPROGRESS ($24) is SUCCESS here     -3
      *
      * "This command may fail, in this case it returns a negative value. -1 =
-     * Unable to alocate a socket, -2 = Unable to get host information, -3 =
-     * Unable to open connection."
+     * Unable to alocate a socket -2 = Unable to get host information -3 =
+     * Unable to open connection"
      *
      * DEVIATION: there is no TCP/IP stack under this port, and there is no
      * host capability that could supply one — `../amiga/host.ts` has files,

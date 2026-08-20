@@ -72,9 +72,9 @@ import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
-import { finishAsl, startAsl, stepAsl } from './aslreq'
-import type { AslState } from './aslreq'
-import type { AslFileSetup } from '../amiga/asl'
+import { finishAsl, finishAslFont, startAsl, startAslFont, stepAsl, stepAslFont } from './aslreq'
+import type { AslFontState, AslState } from './aslreq'
+import type { AslFileSetup, AslFontSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -2384,6 +2384,31 @@ export class Runtime {
    * nothing can make a second one while the first is still inside it.
    */
   asl: AslState | null = null
+
+  /**
+   * asl.library's FONT requester, while one is up.
+   *
+   * A field of its own beside `asl` rather than a branch inside it: the two
+   * are different dialogs and `AslRequest` on a FontRequest is a different
+   * call from one on a FileRequest.
+   */
+  aslFont: AslFontState | null = null
+
+  /** Open the font requester. False when there is no screen to put it on. */
+  startAslFontRequest(setup: AslFontSetup, slot: number | null): boolean {
+    if (this.aslFont) return false
+    const st = startAslFont(this, setup, slot)
+    if (!st) return false
+    this.aslFont = st
+    return true
+  }
+
+  private stepAslFontRequest(): void {
+    const st = this.aslFont
+    if (!st || st.done) return
+    stepAslFont(this, st)
+    if (st.done) finishAslFont(this, st)
+  }
 
   /**
    * Open an ASL requester. False when there is no screen to put it on, which
@@ -4822,6 +4847,7 @@ export class Runtime {
     this.stepDialogs()
     this.stepFsel()
     this.stepAslRequest()
+    this.stepAslFontRequest()
     this.stepReadText()
     this.directScreen.frame()
     // The frame is over, so the sound in it is too: a rendering sink runs out
@@ -5091,7 +5117,8 @@ export class Runtime {
     } else if (b.type === 'fsel') {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
     } else if (b.type === 'asl') {
-      if (!this.asl || this.asl.done) this.interp.blocked = null
+      const up = this.asl ?? this.aslFont
+      if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
     } else if (b.type === 'iconify') {
@@ -5210,6 +5237,11 @@ export class Runtime {
           this.asl.result = ''
           this.asl.done = true
           finishAsl(this, this.asl)
+        } else if (this.aslFont && !this.aslFont.done) {
+          this.aslFont.result = ''
+          this.aslFont.resultSize = 0
+          this.aslFont.done = true
+          finishAslFont(this, this.aslFont)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
