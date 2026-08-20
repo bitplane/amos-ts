@@ -122,6 +122,8 @@ export type Block =
   | { type: 'input'; prompt: string }
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }
+  /** asl.library's requester, which blocks the statement the way Fsel$ does */
+  | { type: 'asl' }
   | { type: 'readtext' }
   /**
    * EasyLife's `Eliconify Amos`, which is a LOOP in the extension: Begin,

@@ -1654,7 +1654,7 @@ export function drawBevelBox(
  * answers pen 0 rather than undefined, since a caller that reads off the end
  * of a struct on the machine gets whatever is there and not a crash.
  */
-function penOf(dri: DrawInfo, index: number): number {
+export function penOf(dri: DrawInfo, index: number): number {
   if (index >= dri.numPens) return dri.pens[0] ?? 0
   return dri.pens[index] ?? 0
 }

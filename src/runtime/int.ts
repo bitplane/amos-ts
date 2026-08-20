@@ -57,13 +57,14 @@
  * no readable address. Both tables are 100 longwords wide; it is the checks
  * that differ, and each is reproduced where it sits.
  */
-import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, ERR, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { RastPort } from '../amiga/graphics'
 import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from '../amiga/cia'
 import { joyDatOf } from '../amiga/gameport'
 import { ICON_BANK } from './banks'
+import { ASL_TYPE, type AslFileSetup } from '../amiga/asl'
 import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import {
   CUSTOMSCREEN,
@@ -1866,6 +1867,98 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
     /* ------------------------------------------------------------------
      * The input group's readers. See the instructions for what they share.
      * ------------------------------------------------------------------ */
+
+    /**
+     * `=Wb Asl Req(title$,ok$,cancel$,type,patterns,left,top,width,height)`
+     * --- asl.library's requester, and the only keyword here that opens one.
+     *
+     * Routine 21 opens `asl.library` version 37, AllocAslRequests one of the
+     * three types on first use and keeps it (`$a96`, `$a9a`, `$a9e`, one per
+     * type), then fills a fourteen-tag list at `$c12(a4)` and calls
+     * AslRequest (-$3c). The tags are a template in the code hunk at file
+     * offset `0x12fc` and only their VALUES are written, which is why the
+     * disassembly shows stores at `+4`, `+$c`, `+$14` and never a tag:
+     *
+     *     ASL_Hail          arg1        ASL_File         fr_File
+     *     ASL_OKText        arg2        ASL_Dir          fr_Drawer or `Wb Asl Dir`
+     *     ASL_CancelText    arg3        ASL_Pattern      `Wb Asl Pattern`
+     *     ASLFR_DOPATTERNS  arg5        ASLFR_REJECTICONS `Wb Asl Info`
+     *     ASL_LeftEdge      arg6        ASL_FuncFlags    the template's own
+     *     ASL_TopEdge       arg7        ASLFR_SCREEN     `$de6`, or 0
+     *     ASL_Width         arg8
+     *     ASL_Height        arg9
+     *
+     * ASLFR_REJECTICONS is `Wb Asl Info`, and the author's comment on it in
+     * iff_to_bank.AMOS --- "1= Dont Show Info Files 0=Show Info Files" ---
+     * is exactly what that tag does, which is what identified it.
+     *
+     * `arg4` is the TYPE and never reaches the tag list: 0 is a file
+     * requester, 1 a font one and 2 a screen-mode one, and `cmpi.l #$3,d0 /
+     * Rbge` makes anything else error 44, "Only Type 1 Is Allowed".
+     *
+     * On OK the routine joins `fr_Drawer` and `fr_File` by hand in the buffer
+     * at `$ab6`, adding a `/` unless the drawer already ends in one or in a
+     * `:`. A cancel is `tst.l d0 / beq`, and the answer is the empty string.
+     *
+     * DEVIATION: types 1 and 2 open nothing and answer the empty string. The
+     * file requester is ../amiga/asl.ts and ./aslreq.ts; a font and a screen
+     * mode requester are two more layouts on the same frame, and neither has
+     * a caller in this port yet.
+     */
+    'wb asl req': (it, a): Value => {
+      const st = s()
+      // resuming: the requester is still up, or it has just answered
+      if (rt.asl) {
+        if (rt.asl.done) {
+          const r = rt.asl.result
+          rt.asl = null
+          st.aslFile = r === '' ? '' : r.slice(r.lastIndexOf('/') + 1)
+          return VS(r)
+        }
+        it.block({ type: 'asl' }, true)
+        return VS('')
+      }
+      const title = str(a[0]!)
+      const okText = str(a[1]!)
+      const cancelText = str(a[2]!)
+      const type = int(a[3]!)
+      // `cmpi.l #$3,d0 / Rbge routine 95`, and routine 95 is `moveq #$17,d0 /
+      // Rjmp L_Error` -- AMOS's own error 23 and not one of Int's messages.
+      // The compare is SIGNED, so a NEGATIVE type falls past it and lands on
+      // the file arm at $2b48 along with 0.
+      if (type >= 3) throw new AmosError('Illegal function call', ERR.FUNC_CALL)
+      // `cmpi.l #$0,d4 / bne.w $2d7c` AFTER AslRequest: only the file
+      // requester goes on to join a path, so the font and screen-mode ones
+      // answer the empty string on the machine's own code path too
+      if (type === ASL_TYPE.FONT || type === ASL_TYPE.SCREENMODE) return VS('')
+      const upTo = (b: Uint8Array): string => {
+        let out = ''
+        for (const c of b) {
+          if (c === 0) break
+          out += String.fromCharCode(c)
+        }
+        return out
+      }
+      const setup: AslFileSetup = {
+        hail: title,
+        okText,
+        cancelText,
+        doPatterns: int(a[4]!) !== 0,
+        left: int(a[5]!),
+        top: int(a[6]!),
+        width: int(a[7]!),
+        height: int(a[8]!),
+        // `$8(a0)` is fr_Drawer and an EMPTY one falls back to `Wb Asl Dir`
+        dir: upTo(st.aslDir) === '' ? (rt.vfs?.currentDir ?? '') : upTo(st.aslDir),
+        file: st.aslFile,
+        pattern: upTo(st.aslPattern),
+        rejectIcons: st.aslHideInfo !== 0,
+      }
+      const slot = st.screen === -1 ? null : rt.intuition.slotOf(st.screen)
+      if (!rt.startAslRequest(setup, slot)) return VS('')
+      it.block({ type: 'asl' }, true)
+      return VS('')
+    },
 
     /**
      * `=Wb Mousex` and `=Wb Mousey` --- wd_MouseX and wd_MouseY of the

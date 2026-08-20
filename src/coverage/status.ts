@@ -3756,6 +3756,14 @@ export const FAITHFUL = new Set<string>([
   // byte at +10 and both aspect bytes stay 0 -- and there is no ByteRun1
   // packer in its 2,166 bytes to put a 1 there.
   'wb default', 'wb save iff',
+  // `Wb Asl Req` fills a fourteen-tag list at `$c12(a4)` from a template in
+  // its code hunk at file offset `0x12fc` -- only the VALUES are written,
+  // which is why the disassembly shows stores at `+4`, `+$c`, `+$14` and
+  // never a tag. The tag numbers are the header's, out of `MUI.Equates` in
+  // EasyLife 1.10's archive, and they identify `Wb Asl Info` as
+  // ASLFR_REJECTICONS -- which is exactly what the author's own comment on
+  // it says it does, "1= Dont Show Info Files".
+  'wb asl req',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4099,6 +4107,19 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb asl req":
+    "Routine 21 ($2ade) opens `asl.library` version 37, AllocAslRequests one of the three types on first use and " +
+    "keeps it (`$a96`, `$a9a`, `$a9e`, one per type), fills the tag list at `$c12(a4)` and calls AslRequest " +
+    "(-$3c). `arg4` is the type and never reaches the tag list: `cmpi.l #$3,d0 / Rbge routine 95` and routine 95 " +
+    "is `moveq #$17,d0 / Rjmp L_Error`, so an out-of-range type is AMOS's own error 23 and not one of Int's " +
+    "messages -- and the compare is SIGNED, so a NEGATIVE type falls past it onto the file arm at $2b48 with 0. " +
+    "On OK it joins fr_Drawer and fr_File by hand in the buffer at `$ab6`, adding a `/` unless the drawer " +
+    "already ends in one or in a `:`. The FILE requester is ../amiga/asl.ts and ../runtime/aslreq.ts: every " +
+    "word it puts on screen is read out of `asl.library` itself (the WB 3.0 copy in the corpus carries " +
+    "`asl 39.4 (18.8.92)` at $4e), and its PIXEL LAYOUT is modelled rather than ported, which asl.ts's header " +
+    "says in as many words. DEVIATION: the FONT and SCREEN-MODE requesters open nothing and answer the empty " +
+    "string. The routine's own shape softens that -- `cmpi.l #$0,d4 / bne` after AslRequest means only the file " +
+    "type goes on to join a path, so neither answers one on the machine either.",
   "wb image to window":
     "Routine 50 ($3998), 1,190 bytes: a full ILBM decoder over BMHD, CMAP, CRNG and CAMG, unpacking the BODY " +
     "into memory it AllocMems, then DrawImage (-$72) at 0,0 and LoadRGB4 (-$c0). So the picture lands at the " +

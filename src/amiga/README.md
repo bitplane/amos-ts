@@ -117,6 +117,7 @@ really does differ from the real one and saying where is the whole job.
 | `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
+| `asl.ts` | `asl.library`'s file requester: the tags, every word it puts on screen, and where each widget goes |
 | `muimaster.ts` | MUI's class factory: 64 classes, attributes, the object tree, notification |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |

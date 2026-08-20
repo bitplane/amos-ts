@@ -72,6 +72,9 @@ import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
+import { finishAsl, startAsl, stepAsl } from './aslreq'
+import type { AslState } from './aslreq'
+import type { AslFileSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -2373,6 +2376,34 @@ export class Runtime {
    * 13 the file list, 14 the Path edit (var 15), 15 the Name edit (var 14).
    */
   fsel: FselState | null = null
+
+  /**
+   * asl.library's requester, while one is up.
+   *
+   * One at a time, because `AslRequest` is a call that does not return and
+   * nothing can make a second one while the first is still inside it.
+   */
+  asl: AslState | null = null
+
+  /**
+   * Open an ASL requester. False when there is no screen to put it on, which
+   * is the same outcome as a failed AllocAslRequest.
+   */
+  startAslRequest(setup: AslFileSetup, slot: number | null): boolean {
+    if (this.asl) return false
+    const st = startAsl(this, setup, slot)
+    if (!st) return false
+    this.asl = st
+    return true
+  }
+
+  /** one frame of the requester, and the teardown when it is finished */
+  private stepAslRequest(): void {
+    const st = this.asl
+    if (!st || st.done) return
+    stepAsl(this, st, this.frames)
+    if (st.done) finishAsl(this, st)
+  }
 
   /**
    * Fs_Liste (+Equ.s:1210): the store, a global at a5 and so shared by every
@@ -4790,6 +4821,7 @@ export class Runtime {
     this.stepMenus()
     this.stepDialogs()
     this.stepFsel()
+    this.stepAslRequest()
     this.stepReadText()
     this.directScreen.frame()
     // The frame is over, so the sound in it is too: a rendering sink runs out
@@ -5058,6 +5090,8 @@ export class Runtime {
       if (!d || d.runState === 'done') this.interp.blocked = null
     } else if (b.type === 'fsel') {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
+    } else if (b.type === 'asl') {
+      if (!this.asl || this.asl.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
     } else if (b.type === 'iconify') {
@@ -5167,6 +5201,16 @@ export class Runtime {
         // headless skips, not the outcome
         if (this.fsel && !this.fsel.done) this.finishFselNow(this.fsel.closing ?? '')
         else this.interp.blocked = null
+      } else if (b?.type === 'asl') {
+        // nobody is going to click Cancel headless, and a modal requester
+        // with no user is a hang. Cancelling is what a real one answers when
+        // it is dismissed, so a headless run gets the empty string rather
+        // than never coming back.
+        if (this.asl && !this.asl.done) {
+          this.asl.result = ''
+          this.asl.done = true
+          finishAsl(this, this.asl)
+        } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
         else this.interp.blocked = null
