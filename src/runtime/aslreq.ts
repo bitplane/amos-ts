@@ -20,13 +20,19 @@ import {
   aslFontRender,
   aslHit,
   aslLayout,
+  aslModeHit,
+  aslModeLayout,
+  aslModeRender,
   aslRender,
   type AslFileSetup,
   type AslFontLayout,
   type AslFontSetup,
   type AslLayout,
+  type AslModeLayout,
+  type AslModeSetup,
   type AslRow,
 } from '../amiga/asl'
+import { DISPLAY_MODES, type DisplayMode } from '../amiga/displayinfo'
 import { parseDiskFont, type DiskFont } from '../amiga/diskfont'
 import { availFonts } from './fontlist'
 import { IDCMP_CLOSEWINDOW, IDCMP_MOUSEBUTTONS, SELECTDOWN, WB_SLOT, type Window } from '../amiga/intuition'
@@ -446,5 +452,136 @@ function openDiskFont(rt: Runtime, name: string, size: number): DiskFont | null 
 }
 
 export function finishAslFont(rt: Runtime, st: AslFontState): void {
+  rt.intuition.closeWindow(st.window)
+}
+
+/* --------------------------------------------------------------------------
+ * The screen-mode requester
+ * ----------------------------------------------------------------------- */
+
+export interface AslModeState {
+  setup: AslModeSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: AslModeLayout
+  modes: readonly DisplayMode[]
+  top: number
+  selected: number
+  done: boolean
+  /** sm_DisplayID, or -1 for a cancel, which is what routine 55 answers */
+  result: number
+}
+
+/**
+ * The deepest screen this port will open.
+ *
+ * Eight, from ../amiga/intuition.ts's `openScreen` -- the AA ceiling this
+ * machine has, settled in ../runtime/jd.ts. `Maximum Colors:` shows what that
+ * comes to. The per-MODE ceiling is a different number and lives in a
+ * DimensionInfo nothing here can read; see ../amiga/displayinfo.ts.
+ */
+const ASL_MAX_DEPTH = 8
+
+export function startAslMode(rt: Runtime, setup: AslModeSetup, slot: number | null): AslModeState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const scr = rt.screens.get(on)
+  if (!scr) return null
+  const window = rt.intuition.openWindow({
+    leftEdge: setup.left,
+    topEdge: setup.top,
+    width: setup.width,
+    height: setup.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    flags: 0x8 | 0x2 | 0x1000,
+    title: setup.hail === '' ? ASL_TEXT.modeTitle : setup.hail,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const modes = DISPLAY_MODES
+  const at = Math.max(0, modes.findIndex((m) => m.id === setup.id))
+  const chosen = modes[at]!
+  return {
+    setup: { ...setup, id: chosen.id, displayWidth: chosen.width, displayHeight: chosen.height },
+    window,
+    slot: on,
+    rp,
+    layout: aslModeLayout(setup, window.borderLeft, window.borderTop, window.borderRight, window.borderBottom),
+    modes,
+    top: 0,
+    selected: at,
+    done: false,
+    result: -1,
+  }
+}
+
+export function stepAslMode(rt: Runtime, st: AslModeState): void {
+  if (st.done) return
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const act = aslModeHit(st.layout, msg.mouseX, msg.mouseY)
+    if (!act) continue
+    if (act.kind === 'cancel') {
+      st.done = true
+      return
+    }
+    if (act.kind === 'ok') {
+      // `move.l (a0),d3` off the requester at $150: sm_DisplayID, and -1 is
+      // both a cancel and a missing library
+      st.result = st.setup.id
+      st.done = true
+      return
+    }
+    if (act.kind === 'scroll') {
+      st.top = Math.min(Math.max(0, st.modes.length - st.layout.visible), Math.max(0, st.top + act.delta))
+      continue
+    }
+    if (act.kind === 'depth') {
+      st.setup.depth = Math.min(ASL_MAX_DEPTH, Math.max(1, st.setup.depth + act.delta))
+      continue
+    }
+    const i = st.top + act.index
+    const m = st.modes[i]
+    if (!m) continue
+    st.selected = i
+    st.setup.id = m.id
+    st.setup.displayWidth = m.width
+    st.setup.displayHeight = m.height
+  }
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  aslModeRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.setup,
+    st.layout,
+    st.modes,
+    st.top,
+    st.selected,
+    1 << ASL_MAX_DEPTH,
+    w.leftEdge,
+    w.topEdge,
+  )
+  st.rp.clip = null
+}
+
+export function finishAslMode(rt: Runtime, st: AslModeState): void {
   rt.intuition.closeWindow(st.window)
 }

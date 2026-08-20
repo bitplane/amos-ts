@@ -3771,6 +3771,13 @@ export const FAITHFUL = new Set<string>([
   // #$0,$160(a2)` at $24a2 runs on every call that got as far as AslRequest,
   // which is why a cancel leaves 0 beside the empty string.
   'gui asl font', 'gui font size',
+  // and the screen-mode one. Routine 55 asks with the same two-tag list and
+  // reads sm_DisplayID at +0; routines 119 to 123 take the rest off the
+  // requester at `$150` with `movea.l $150(a0),a0` -- width at +4, height at
+  // +8, depth at +$c. The database behind it is ../amiga/displayinfo.ts,
+  // whose six ids and six names are read out of `Devs/Monitors/PAL`'s own
+  // table at file offset `0x12d8`.
+  'gui asl screen', 'gui asl id', 'gui asl width', 'gui asl height', 'gui asl depth', 'gui asl colours',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4114,6 +4121,20 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "gui asl screen":
+    "Routine 55 ($2418) builds a two-tag list at `(a2)` -- ASL_Window and TAG_DONE -- calls AslRequest (-$3c) " +
+    "and reads sm_DisplayID out of `$0` of the ScreenModeRequester at `$150`. `moveq #$ff,d0` stands until both " +
+    "of its tests pass, so -1 is a cancel, a missing library and a missing requester alike. The database it " +
+    "lists is ../amiga/displayinfo.ts: six modes, and both halves of every row -- the DisplayID and the " +
+    "driver's own name for it -- are read out of `Devs/Monitors/PAL`'s table at file offset `0x12d8`, where the " +
+    "name pointers are hunk-relative and the hunk begins `0x24` into the file. PAL and only PAL because that " +
+    "install's `Devs/Monitors` holds one file and the other nine sit uninstalled in `Storage/Monitors`. The " +
+    "requester's own words are asl 39.4's, `Select Screen Mode` at $5966 through `Maximum Colors: %lu` at " +
+    "$5a14. Two things are NOT sourced and both are written down where they live: the mode SIZES are derived " +
+    "from the key bits because `pal 39.3` computes its DimensionInfo at run time rather than storing " +
+    "rectangles, and the requester draws three of the five property lines for the same reason -- `Maximum Size` " +
+    "and `Minimum Size` would be numbers this port cannot justify. The PIXEL LAYOUT is modelled, as ../amiga/" +
+    "asl.ts's header says of all three requesters.",
   "gui asl font":
     "Routine 56 ($2468) in 2.10, and a different keyword in the two before it. 2.10 builds a ONE-tag list at " +
     "`(a2)` -- `move.l #$80080002,(a1)`, ASL_Window, then TAG_DONE -- calls AslRequest (-$3c) and reads ta_Name " +

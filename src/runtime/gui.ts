@@ -3442,14 +3442,54 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * -1 is also what a missing asl.library or a missing requester answers:
      * the `moveq #$ff,d0` at $241c stands until one of the two tests passes.
      *
-     * DEVIATION: no requester opens. There is no asl.library here and no
-     * display database to fill one from -- nothing in this port names a
-     * screen mode -- so this answers cancel and leaves the four fields as
-     * they were. A program written the way the guide writes it, testing for
-     * -1 and stopping, does the right thing; one that ignores the -1 reads
-     * zeros out of the five readers below.
+     * There IS a display database now, ../amiga/displayinfo.ts, and it holds
+     * what `Devs/Monitors/PAL` registers: six modes, their DisplayIDs and
+     * their names read straight out of the driver's own table at file offset
+     * `0x12d8`. So the requester opens and answers a real id.
      */
-    'gui asl screen': (): Value => VI(-1),
+    'gui asl screen': (it): Value => {
+      const g = s()
+      if (rt.aslMode) {
+        if (rt.aslMode.done) {
+          const st = rt.aslMode
+          rt.aslMode = null
+          if (st.result === -1) return VI(-1)
+          // the four fields routines 119 to 123 read back with
+          // `movea.l $150(a0),a0`: sm_DisplayID at +0, sm_DisplayWidth at +4,
+          // sm_DisplayHeight at +8 and sm_DisplayDepth at +$c
+          Object.assign(g.aslScreen, {
+            displayID: st.result,
+            width: st.setup.displayWidth,
+            height: st.setup.displayHeight,
+            depth: st.setup.depth,
+          })
+          return VI(st.result)
+        }
+        it.block({ type: 'asl' }, true)
+        return VI(-1)
+      }
+      const started = rt.startAslModeRequest(
+        {
+          hail: '',
+          okText: '',
+          cancelText: '',
+          left: 40,
+          top: 30,
+          width: 300,
+          height: 170,
+          id: g.aslScreen.displayID,
+          displayWidth: g.aslScreen.width,
+          displayHeight: g.aslScreen.height,
+          depth: g.aslScreen.depth === 0 ? 2 : g.aslScreen.depth,
+        },
+        null,
+      )
+      // `moveq #$ff,d0` stands until both tests pass, so a requester that
+      // will not open is the same -1 a cancel gives
+      if (!started) return VI(-1)
+      it.block({ type: 'asl' }, true)
+      return VI(-1)
+    },
 
     /**
      * `A=Gui Asl Id`, `Gui Asl Width`, `Gui Asl Height`, `Gui Asl Depth` and

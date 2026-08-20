@@ -77,9 +77,9 @@ is.
 | first-0.1            |        4 |        4 |            0 |       0 |     100% |
 | flow                 |       12 |       10 |            2 |       0 |     100% |
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
-| gui-1.5b             |       48 |       34 |           14 |       0 |     100% |
-| gui-1.61             |      103 |       64 |           39 |       0 |     100% |
-| gui-2.10             |      204 |      128 |           76 |       0 |     100% |
+| gui-1.5b             |       48 |       35 |           13 |       0 |     100% |
+| gui-1.61             |      103 |       65 |           38 |       0 |     100% |
+| gui-2.10             |      204 |      134 |           70 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5113 |          295 |    1951 |      73% |
+| **total**            |     7422 |     5121 |          287 |    1951 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -283,34 +283,33 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## gui-1.5b (100%)
 
-- **approximated** (14): `gui amiga`, `gui amos`, `gui asl screen`, `gui asl$`, `gui border`,
-  `gui circle`, `gui exist`, `gui iconify`, `gui mouse x`, `gui mouse y`, `gui open`, `gui req`,
+- **approximated** (13): `gui amiga`, `gui amos`, `gui asl$`, `gui border`, `gui circle`,
+  `gui exist`, `gui iconify`, `gui mouse x`, `gui mouse y`, `gui open`, `gui req`,
   `gui uniconify`, `gui wait`
 
 ## gui-1.61 (100%)
 
-- **approximated** (39): `gui amiga`, `gui amos`, `gui asl screen`, `gui asl$`, `gui beep`,
-  `gui border`, `gui exist`, `gui gad adr`, `gui iconify`, `gui in height`, `gui in width`,
-  `gui mouse x`, `gui mouse y`, `gui open`, `gui read`, `gui req`, `gui uniconify`, `gui wait`,
-  `tcp buffer`, `tcp channel`, `tcp check`, `tcp close`, `tcp code`, `tcp count`, `tcp error`,
-  `tcp f open`, `tcp get`, `tcp limit`, `tcp open`, `tcp packet`, `tcp put`, `tcp put$`,
-  `tcp read`, `tcp reset`, `tcp send`, `tcp send$`, `tcp time`, `tcp trash`, `tcp type`
+- **approximated** (38): `gui amiga`, `gui amos`, `gui asl$`, `gui beep`, `gui border`,
+  `gui exist`, `gui gad adr`, `gui iconify`, `gui in height`, `gui in width`, `gui mouse x`,
+  `gui mouse y`, `gui open`, `gui read`, `gui req`, `gui uniconify`, `gui wait`, `tcp buffer`,
+  `tcp channel`, `tcp check`, `tcp close`, `tcp code`, `tcp count`, `tcp error`, `tcp f open`,
+  `tcp get`, `tcp limit`, `tcp open`, `tcp packet`, `tcp put`, `tcp put$`, `tcp read`,
+  `tcp reset`, `tcp send`, `tcp send$`, `tcp time`, `tcp trash`, `tcp type`
 
 ## gui-2.10 (100%)
 
-- **approximated** (76): `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`,
-  `gui asl colours`, `gui asl depth`, `gui asl height`, `gui asl id`, `gui asl open`,
-  `gui asl screen`, `gui asl width`, `gui asl$`, `gui beep`, `gui best`, `gui border`,
-  `gui clone`, `gui display iff`, `gui exist`, `gui gad adr`, `gui guide`, `gui iconify`,
-  `gui in height`, `gui in width`, `gui input$`, `gui line 3d`, `gui monitor`, `gui mouse wx`,
-  `gui mouse wy`, `gui mouse x`, `gui mouse y`, `gui notify`, `gui open`, `gui pub check`,
-  `gui pub free`, `gui pub list`, `gui pub list free`, `gui pub mode`, `gui pub name$`,
-  `gui pub screen`, `gui pub to back`, `gui pub to front`, `gui read`, `gui rem notify`,
-  `gui remap`, `gui req`, `gui save iff`, `gui screen base`, `gui uniconify`, `gui wait`,
-  `tcp abort`, `tcp accept`, `tcp close`, `tcp download`, `tcp error`, `tcp host$`,
-  `tcp listen`, `tcp open`, `tcp read`, `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`,
-  `tcp send$`, `tcp set`, `tcp socket`, `tcp total`, `tcp user`, `xfa check`, `xfa depth`,
-  `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
+- **approximated** (70): `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`,
+  `gui asl open`, `gui asl$`, `gui beep`, `gui best`, `gui border`, `gui clone`,
+  `gui display iff`, `gui exist`, `gui gad adr`, `gui guide`, `gui iconify`, `gui in height`,
+  `gui in width`, `gui input$`, `gui line 3d`, `gui monitor`, `gui mouse wx`, `gui mouse wy`,
+  `gui mouse x`, `gui mouse y`, `gui notify`, `gui open`, `gui pub check`, `gui pub free`,
+  `gui pub list`, `gui pub list free`, `gui pub mode`, `gui pub name$`, `gui pub screen`,
+  `gui pub to back`, `gui pub to front`, `gui read`, `gui rem notify`, `gui remap`, `gui req`,
+  `gui save iff`, `gui screen base`, `gui uniconify`, `gui wait`, `tcp abort`, `tcp accept`,
+  `tcp close`, `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`,
+  `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`,
+  `tcp total`, `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`,
+  `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
 
 ## input (100%)
 

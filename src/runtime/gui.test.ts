@@ -3266,3 +3266,82 @@ describe('GUI 2.10: the font requester', () => {
     }
   })
 })
+
+/**
+ * `Gui Asl Screen` opens the screen-mode requester, and its four readers take
+ * the fields back off it.
+ *
+ * Routine 55 asks with a two-tag list, ASL_Window and TAG_DONE, and reads
+ * sm_DisplayID at +0. Routines 119 to 123 read the rest with
+ * `movea.l $150(a0),a0`: +4 width, +8 height, +$c depth.
+ */
+describe('GUI 2.10: the screen-mode requester', () => {
+  const g = on('2.10')
+
+  function open(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, g.exts), table, {
+      extensions: g.exts,
+      extBindings: new Map([[24, g.ext]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    rt.frame()
+    return { rt, out: () => out }
+  }
+
+  /**
+   * The six modes `Devs/Monitors/PAL` registers, with the ids and the names
+   * out of the driver's own table at file offset `0x12d8`.
+   */
+  it('lists what the installed monitor driver registers', () => {
+    const b = open('A=Gui Asl Screen')
+    const st = b.rt.aslMode!
+    expect(st.window.title).toBe('Select Screen Mode')
+    expect(st.modes.map((m) => m.name)).toEqual([
+      'PAL:Low Res',
+      'PAL:High Res',
+      'PAL:Super-High Res',
+      'PAL:Low Res Laced',
+      'PAL:High Res Laced',
+      'PAL:Super-High Res Laced',
+    ])
+    expect(st.modes.map((m) => m.id)).toEqual([0x21000, 0x29000, 0x29020, 0x21004, 0x29004, 0x29024])
+  })
+
+  it('answers the DisplayID, and the four readers take the fields off it', () => {
+    const b = open('A=Gui Asl Screen : Print Hex$(A);" ";Gui Asl Id;" ";Gui Asl Width;" ";Gui Asl Height;" ";Gui Asl Depth')
+    const st = b.rt.aslMode!
+    // as if the user had picked PAL:High Res Laced and four bitplanes
+    st.setup.id = 0x29004
+    st.setup.displayWidth = 640
+    st.setup.displayHeight = 512
+    st.setup.depth = 4
+    st.result = st.setup.id
+    st.done = true
+    mustFinish(b.rt.runHeadless(500))
+    expect(b.out().replace(/\s+/g, ' ').trim()).toBe('$29004 167940 640 512 4')
+  })
+
+  /** `moveq #$ff,d0` stands until both tests pass, so a cancel is -1 */
+  it('a cancel is -1 and leaves the four fields alone', () => {
+    const b = open('A=Gui Asl Screen : Print A;" ";Gui Asl Id;" ";Gui Asl Width')
+    mustFinish(b.rt.runHeadless(500))
+    expect(b.out().replace(/\s+/g, ' ').trim()).toBe('-1 0 0')
+  })
+
+  /**
+   * `Gui Asl Colours` is a longword ROTATE rather than a shift, which is what
+   * makes a depth of 0 answer 1 after 65,536 turns. Picking a mode does not
+   * change that; it only gives the rotate something real to work on.
+   */
+  it('Gui Asl Colours is 2 to the depth the requester left', () => {
+    const b = open('A=Gui Asl Screen : Print Gui Asl Colours')
+    const st = b.rt.aslMode!
+    st.setup.depth = 5
+    st.result = st.setup.id
+    st.done = true
+    mustFinish(b.rt.runHeadless(500))
+    expect(Number(b.out().trim())).toBe(32)
+  })
+})

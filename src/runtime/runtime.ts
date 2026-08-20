@@ -72,9 +72,9 @@ import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
-import { finishAsl, finishAslFont, startAsl, startAslFont, stepAsl, stepAslFont } from './aslreq'
-import type { AslFontState, AslState } from './aslreq'
-import type { AslFileSetup, AslFontSetup } from '../amiga/asl'
+import { finishAsl, finishAslFont, finishAslMode, startAsl, startAslFont, startAslMode, stepAsl, stepAslFont, stepAslMode } from './aslreq'
+import type { AslFontState, AslModeState, AslState } from './aslreq'
+import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -2393,6 +2393,25 @@ export class Runtime {
    * call from one on a FileRequest.
    */
   aslFont: AslFontState | null = null
+
+  /** asl.library's SCREEN-MODE requester, while one is up. */
+  aslMode: AslModeState | null = null
+
+  /** Open the screen-mode requester. False when there is no screen for it. */
+  startAslModeRequest(setup: AslModeSetup, slot: number | null): boolean {
+    if (this.aslMode) return false
+    const st = startAslMode(this, setup, slot)
+    if (!st) return false
+    this.aslMode = st
+    return true
+  }
+
+  private stepAslModeRequest(): void {
+    const st = this.aslMode
+    if (!st || st.done) return
+    stepAslMode(this, st)
+    if (st.done) finishAslMode(this, st)
+  }
 
   /** Open the font requester. False when there is no screen to put it on. */
   startAslFontRequest(setup: AslFontSetup, slot: number | null): boolean {
@@ -4848,6 +4867,7 @@ export class Runtime {
     this.stepFsel()
     this.stepAslRequest()
     this.stepAslFontRequest()
+    this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
     // The frame is over, so the sound in it is too: a rendering sink runs out
@@ -5117,7 +5137,7 @@ export class Runtime {
     } else if (b.type === 'fsel') {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
     } else if (b.type === 'asl') {
-      const up = this.asl ?? this.aslFont
+      const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
@@ -5242,6 +5262,10 @@ export class Runtime {
           this.aslFont.resultSize = 0
           this.aslFont.done = true
           finishAslFont(this, this.aslFont)
+        } else if (this.aslMode && !this.aslMode.done) {
+          this.aslMode.result = -1
+          this.aslMode.done = true
+          finishAslMode(this, this.aslMode)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')

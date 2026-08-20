@@ -2136,7 +2136,38 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
         it.block({ type: 'asl' }, true)
         return VS('')
       }
-      if (type === ASL_TYPE.SCREENMODE) return VS('')
+      if (type === ASL_TYPE.SCREENMODE) {
+        // routine 21 AllocAslRequests a ScreenModeRequest at $2b8c and keeps
+        // it, so this one opens too and its answer goes the same way the
+        // font one's does: nowhere, because only the FILE arm builds a string
+        if (rt.aslMode) {
+          if (rt.aslMode.done) {
+            rt.aslMode = null
+            return VS('')
+          }
+          it.block({ type: 'asl' }, true)
+          return VS('')
+        }
+        const opened = rt.startAslModeRequest(
+          {
+            hail: title,
+            okText,
+            cancelText,
+            left: int(a[5]!),
+            top: int(a[6]!),
+            width: int(a[7]!),
+            height: int(a[8]!),
+            id: 0,
+            displayWidth: 0,
+            displayHeight: 0,
+            depth: 2,
+          },
+          st.screen === -1 ? null : rt.intuition.slotOf(st.screen),
+        )
+        if (!opened) return VS('')
+        it.block({ type: 'asl' }, true)
+        return VS('')
+      }
       const upTo = (b: Uint8Array): string => {
         let out = ''
         for (const c of b) {

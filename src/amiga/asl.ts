@@ -21,6 +21,7 @@
  * admission ./intuition.ts makes about its two window gadgets.
  */
 import { drawBevelBox, penOf, PEN, type DrawInfo } from './gadtools'
+import { MODE_KEY } from './displayinfo'
 import type { RastPort } from './graphics'
 
 /** the three `AllocAslRequest` types, `MUI.Equates`: ASL_FileRequest and friends */
@@ -76,7 +77,31 @@ export const ASL_TEXT = {
    */
   fontSample: '123 AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz!@#$%^&*()',
   name: 'Name',
+  /**
+   * The screen-mode requester's own vocabulary, all of it between $5966 and
+   * $5a14 and spelled as asl 39.4 spells it --- `Colors:` with the American
+   * spelling, two spaces before the colon in the size line, and a real
+   * multiplication sign rather than an x.
+   */
+  modeProperties: 'Mode Properties',
+  visibleSize: 'Visible Size  : %5lu \u00d7 %5lu',
+  maximumColors: 'Maximum Colors: %lu',
+  interlaced: 'Interlaced',
+  holdAndModify: 'Hold & Modify',
+  extraHalfBright: 'Extra-HalfBright',
+  width: 'Width:',
+  height: 'Height:',
+  colors: 'Colors:',
 } as const
+
+/** fill one of asl's `%lu` formats, which is all this port needs of printf */
+export function aslFormat(fmt: string, ...args: number[]): string {
+  let i = 0
+  return fmt.replace(/%(\d*)lu/g, (_m, w: string) => {
+    const v = String(args[i++] ?? 0)
+    return w === '' ? v : v.padStart(Number(w), ' ')
+  })
+}
 
 /** one line of the list: a name, and whether it is a drawer */
 export interface AslRow {
@@ -498,6 +523,196 @@ export function aslFontRender(
   }
   rp.font = oldFont
   rp.clip = oldClip
+
+  const button = (b: Box, s: string): void => {
+    flood(b, bg)
+    bevel(b, false)
+    const w = rp.font ? rp.textLength(s) : s.length * 8
+    label(s, b.x + Math.max(1, Math.floor((b.w - w) / 2)), b.y + 2, text)
+  }
+  button(l.ok, setup.okText === '' ? ASL_TEXT.ok : setup.okText)
+  button(l.cancel, setup.cancelText === '' ? ASL_TEXT.cancel : setup.cancelText)
+  rp.restore(save)
+}
+
+
+/* --------------------------------------------------------------------------
+ * The screen-mode requester
+ *
+ * The third layout, and the last of asl's three. GUI 2.10 asks for it the
+ * same way it asks for the font one: routine 55 writes ASL_Window and a
+ * TAG_DONE and nothing else, then reads four fields off the
+ * ScreenModeRequester -- sm_DisplayID at +0, sm_DisplayWidth at +4,
+ * sm_DisplayHeight at +8 and sm_DisplayDepth at +$c, which is exactly what
+ * routines 119, 120, 121 and 123 do with `movea.l $150(a0),a0`.
+ * ----------------------------------------------------------------------- */
+
+export interface AslModeSetup {
+  hail: string
+  okText: string
+  cancelText: string
+  left: number
+  top: number
+  width: number
+  height: number
+  /** the DisplayID showing when it opens, and the one OK answers */
+  id: number
+  displayWidth: number
+  displayHeight: number
+  depth: number
+}
+
+export interface AslModeLayout {
+  inner: Box
+  modes: Box
+  visible: number
+  modeUp: Box
+  modeDown: Box
+  properties: Box
+  depthDown: Box
+  depthUp: Box
+  ok: Box
+  cancel: Box
+}
+
+export function aslModeLayout(
+  setup: AslModeSetup,
+  borderLeft: number,
+  borderTop: number,
+  borderRight: number,
+  borderBottom: number,
+): AslModeLayout {
+  const iw = Math.max(180, setup.width - borderLeft - borderRight)
+  const ih = Math.max(90, setup.height - borderTop - borderBottom)
+  const inner = box(borderLeft, borderTop, iw, ih)
+  // from the bottom: buttons, the Colors row, then the properties box
+  const propH = ROW * 3 + GAP * 2
+  const bottom = propH + ROW * 2 + GAP * 4
+  const listH = Math.max(ROW, ih - bottom)
+  const barW = 14
+  const arrow = 10
+  const modes = box(inner.x + GAP, inner.y + GAP, iw - GAP * 3 - barW, listH - GAP)
+  const bar = modes.x + modes.w + GAP
+  let y = inner.y + listH + GAP
+  const properties = box(inner.x + GAP, y, iw - GAP * 2, propH)
+  y += propH + GAP
+  const depthDown = box(inner.x + GAP + 8 * 8, y, ROW, ROW)
+  const depthUp = box(depthDown.x + ROW * 2, y, ROW, ROW)
+  y += ROW + GAP
+  const bw = Math.floor((iw - GAP * 3) / 2)
+  return {
+    inner,
+    modes,
+    visible: Math.max(1, Math.floor((modes.h - LIST_INSET * 2) / ASL_FONT_HEIGHT)),
+    modeUp: box(bar, modes.y + modes.h - arrow * 2, barW, arrow),
+    modeDown: box(bar, modes.y + modes.h - arrow, barW, arrow),
+    properties,
+    depthDown,
+    depthUp,
+    ok: box(inner.x + GAP, y, bw, ROW),
+    cancel: box(inner.x + GAP * 2 + bw, y, bw, ROW),
+  }
+}
+
+export type AslModeAction =
+  | { kind: 'mode'; index: number }
+  | { kind: 'scroll'; delta: number }
+  | { kind: 'depth'; delta: number }
+  | { kind: 'ok' }
+  | { kind: 'cancel' }
+  | null
+
+export function aslModeHit(l: AslModeLayout, x: number, y: number): AslModeAction {
+  if (inBox(l.modes, x, y)) return { kind: 'mode', index: Math.floor((y - l.modes.y - LIST_INSET) / ASL_FONT_HEIGHT) }
+  if (inBox(l.modeUp, x, y)) return { kind: 'scroll', delta: -1 }
+  if (inBox(l.modeDown, x, y)) return { kind: 'scroll', delta: 1 }
+  if (inBox(l.depthDown, x, y)) return { kind: 'depth', delta: -1 }
+  if (inBox(l.depthUp, x, y)) return { kind: 'depth', delta: 1 }
+  if (inBox(l.ok, x, y)) return { kind: 'ok' }
+  if (inBox(l.cancel, x, y)) return { kind: 'cancel' }
+  return null
+}
+
+/**
+ * Draw the screen-mode requester.
+ *
+ * The properties box shows THREE of the lines the real one shows and not
+ * five. `Maximum Size` and `Minimum Size` come from a DimensionInfo the
+ * monitor driver computes at run time --- `pal 39.3` stores no rectangles for
+ * ../amiga/displayinfo.ts to read --- and two lines of numbers this port
+ * cannot justify would be worse than two lines it does not draw.
+ */
+export function aslModeRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  setup: AslModeSetup,
+  l: AslModeLayout,
+  modes: ReadonlyArray<{ name: string; width: number; height: number; id: number }>,
+  top: number,
+  selected: number,
+  maxColours: number,
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const fill = penOf(dri, PEN.FILL)
+  const fillText = penOf(dri, PEN.FILLTEXT)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const at = (b: Box): Box => box(b.x + ox, b.y + oy, b.w, b.h)
+  const flood = (b: Box, pen: number): void => {
+    const r = at(b)
+    rp.rectFill(r.x, r.y, r.x + r.w - 1, r.y + r.h - 1, pen)
+  }
+  const bevel = (b: Box, recessed: boolean): void => {
+    const r = at(b)
+    drawBevelBox(rp, r.x, r.y, r.w, r.h, dri, { recessed })
+  }
+  const label = (s: string, x: number, y: number, pen: number): void => {
+    if (rp.font) rp.text(x + ox, y + oy + rp.font.baseline, s, pen)
+  }
+
+  flood(l.inner, bg)
+  flood(l.modes, bg)
+  bevel(l.modes, true)
+  for (let i = 0; i < l.visible; i++) {
+    const m = modes[top + i]
+    if (!m) break
+    const ry = l.modes.y + LIST_INSET + i * ASL_FONT_HEIGHT
+    if (top + i === selected) flood(box(l.modes.x + 1, ry, l.modes.w - 2, ASL_FONT_HEIGHT), fill)
+    label(m.name, l.modes.x + LIST_INSET, ry, top + i === selected ? fillText : text)
+  }
+  bevel(l.modeUp, false)
+  bevel(l.modeDown, false)
+
+  flood(l.properties, bg)
+  bevel(l.properties, true)
+  label(ASL_TEXT.modeProperties, l.properties.x + 3, l.properties.y + 1, text)
+  label(
+    aslFormat(ASL_TEXT.visibleSize, setup.displayWidth, setup.displayHeight),
+    l.properties.x + 3,
+    l.properties.y + 1 + ROW,
+    text,
+  )
+  const flags = (setup.id & MODE_KEY.LACE) !== 0 ? ` ${ASL_TEXT.interlaced}` : ''
+  label(
+    aslFormat(ASL_TEXT.maximumColors, maxColours) + flags,
+    l.properties.x + 3,
+    l.properties.y + 1 + ROW * 2,
+    text,
+  )
+
+  label(ASL_TEXT.colors, l.inner.x + 3, l.depthDown.y + 2, text)
+  bevel(l.depthDown, false)
+  bevel(l.depthUp, false)
+  label('-', l.depthDown.x + 4, l.depthDown.y + 2, text)
+  label('+', l.depthUp.x + 4, l.depthUp.y + 2, text)
+  label(String(1 << setup.depth), l.depthDown.x + ROW + 3, l.depthDown.y + 2, text)
 
   const button = (b: Box, s: string): void => {
     flood(b, bg)
