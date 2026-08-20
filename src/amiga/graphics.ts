@@ -712,11 +712,29 @@ export class RastPort {
       this.cpY = y
       return
     }
+    // JAM2 fills the character cell first, and the cell is the ADVANCE wide
+    // and the font tall, which is wider than the glyph's own bit span. Same
+    // rule as ../runtime/screen.ts `textInner`, which cites +W.s:3080-3091 for
+    // AMOS's own screens: `Text` there IS this call, so the two cannot
+    // disagree about it. Drawing only the set bits leaves every moving string
+    // smeared, because the cell fill is what erases the last one.
+    //
+    // Corroborated from outside AMOS's own screens by the Intuition extension,
+    // which draws a cursor into a WINDOW's RPort by switching to COMPLEMENT
+    // for one character and then putting the mode back with `moveq
+    // #RP_JAM2,d0 / call SetDrMd` (Intuition-41.95 `src/input.s:191-193`).
+    // JAM2 is the state it returns to, which is why `drawMode` starts there.
     let penX = x
     const top = y - f.baseline
+    const opaque = this.drawMode === 1
     for (let i = 0; i < s.length; i++) {
       const ch = s.charCodeAt(i)
       const m = glyphMetrics(f, ch)
+      if (opaque) {
+        for (let gy = 0; gy < f.ySize; gy++) {
+          for (let gx = 0; gx < m.advance; gx++) this.plot(penX + gx, top + gy, this.bgPen)
+        }
+      }
       for (let gy = 0; gy < f.ySize; gy++) {
         for (let gx = 0; gx < m.width; gx++) {
           if (glyphBit(f, ch, gx, gy)) this.plot(penX + m.kern + gx, top + gy, c)

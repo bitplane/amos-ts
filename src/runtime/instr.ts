@@ -6805,8 +6805,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * Int 1.0 by D.J.Software, slot 25 by its own install note. The first
      * batch: windows, screens, menus, boolean gadgets and the event loop,
      * which are the keywords whose back end ../amiga/intuition.ts and
-     * ../amiga/gadtools.ts already were. The row stays 0% until the drawing
-     * and IFF groups land beside them.
+     * ../amiga/gadtools.ts already were, and then the drawing group, which is
+     * graphics.library through wd_RPort. The row stays 0% until the input,
+     * ASL and IFF groups land beside them.
      */
     ids: ['int-1.0'],
     init: (rt) => {
@@ -6816,12 +6817,14 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeIntFunctions,
     errors: INT_ERRORS,
     /*
-     * IntuiExtend spells two of these the same way and nobody has ported it,
+     * IntuiExtend spells six of these the same way and nobody has ported it,
      * so answering them under the bare name would hand its programs Int's
-     * behaviour. Both are readers of a different thing: IntuiExtend's `Wb
-     * Screen Base` is its own screen list and Int's is the `$6d4` table.
+     * behaviour. Two are readers of a different thing --- IntuiExtend's `Wb
+     * Screen Base` is its own screen list and Int's is the `$6d4` table ---
+     * and the four drawing ones take different arguments: Int's `Wb Scroll`
+     * leads with a window number that IntuiExtend's does not.
      */
-    qualified: ['wb current window', 'wb screen base'],
+    qualified: ['wb current window', 'wb screen base', 'wb box', 'wb draw', 'wb ellipse', 'wb scroll'],
   },
   {
     // the printer companion, slot 21 by its own manual. 1.1 is served through

@@ -3675,6 +3675,32 @@ export const FAITHFUL = new Set<string>([
   'wb menu', 'wb item', 'wb sub item',
   'wb bool gadget', 'wb gt string', 'wb set gt string', 'wb activate gt',
   'wb event',
+  // The drawing group: graphics.library through wd_RPort. Every one is
+  // `move.w $d94(a4),d7 / Rbsr routine 44 / movea.l $32(a1),a1` and then a
+  // single `jsr`, so the keyword IS the library call and the only thing to
+  // get wrong is which argument goes in which register.
+  //
+  // That order is REVERSED against the source text. `(a3)+` walks the
+  // parameter block from the LAST argument upwards, which the token table
+  // proves rather than the reading does: `Wb Text` is spec `I2,0,0`, so the
+  // string is written first, and routine 19 pops it LAST ($2a9a). `Wb Put
+  // Chr$` and `Wb Intuitext` put a string in the same place and pop it last
+  // too, three tables agreeing about three routines.
+  //
+  // The author's eighteen examples then confirm every shape: `Wb Text "Press
+  // Any Key",0,10` and `Wb Front Pen Rnd(14)+1 / Wb Ellipse X,Y,X2,Y2` are
+  // ellipse1.AMOS, and so is the pair of `Wb Palette` groups that `Wb Load
+  // Rgb 16` reads back flat.
+  //
+  // `y` in `Wb Text` is the BASELINE, because this is graphics.library's Text
+  // and not AMOS's. `Wb Intuitext`'s `top` is the top of the glyphs instead,
+  // because PrintIText adds the baseline itself. `Wb Box` is PolyDraw of five
+  // points where the first is where Move already put the pen. `Wb Palette`
+  // writes sixteen bytes at `$884 + n*16` and `Wb Load Rgb` reads the same
+  // table flat, which is what makes group n colours n*8 to n*8+7.
+  'wb draw mode', 'wb front pen', 'wb back pen',
+  'wb text', 'wb intuitext', 'wb draw', 'wb box', 'wb ellipse', 'wb fill box',
+  'wb put chr$', 'wb palette', 'wb load rgb',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4018,6 +4044,27 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb scroll":
+    "Routine 51 ($3e3e) over ScrollRaster (-$18c), and the ONLY keyword in the drawing group that names its " +
+    "window instead of reading `$d94`: seven arguments are popped and the last of them ($3e4e) is what routine " +
+    "44 is given. The register roles are settled from the other side, because AMOS's own Intuition extension " +
+    "scrolls its text window with the same call -- `moveq #$0,d0 / move.w rp_TxHeight(a2),d1 / call " +
+    "ScrollRaster` after loading d2 to d5 from the window's four border insets (Intuition-41.95 " +
+    "`src/output.s:176-191`) -- so d0 is dx, d1 is dy and d2 to d5 are the rectangle, and a positive dy scrolls " +
+    "the contents UP. APPROXIMATED for one thing only: what fills the strip the scroll vacated. This port " +
+    "writes the RastPort's background pen. A window's RPort has a Layer and a real layered ScrollRaster damages " +
+    "the region for the owner to refresh instead, which nothing here is arranged to do -- ../amiga/intuition.ts " +
+    "`render` repaints frames and never window contents. No autodoc for the call is vendored, so the fill " +
+    "colour is the one part of this keyword no file in the corpus states.",
+  "wb intuitext":
+    "Routine 54 ($3efe) builds a `struct IntuiText` at `$c8a(a4)` and hands it to PrintIText (-$d8). The eight " +
+    "arguments scatter across it: `$4` and `$6` are it_LeftEdge and it_TopEdge, `$2` it_DrawMode, `(a1)` " +
+    "it_FrontPen, `$1` it_BackPen, `$c` it_IText, and `$10` it_NextText is cleared. The last two are " +
+    "PrintIText's own leftOffset and topOffset. DEFECT: it_IText points at the AMOS string's BYTES and nothing " +
+    "terminates them. The length word IS read, at $3f2c into d5, and thrown away four instructions later by " +
+    "`movem.l (a7)+,d5-d6`, while PrintIText prints to the first zero byte -- so on the machine a string with " +
+    "no NUL after it prints whatever follows it in memory. Here the string is what prints, which is the whole " +
+    "of what this port can say about memory it does not own.",
   "dpk unpack":
     "Routine 76 ($1806) over decrunch.library, and APPROXIMATED because the library is roughly seventy " +
     "decrunchers in 27KB and this port has one of the formats it knows. Identification is complete -- every " +

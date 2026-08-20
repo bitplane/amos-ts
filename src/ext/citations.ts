@@ -396,6 +396,8 @@ export const CITED_BY: Record<string, string[]> = {
   // every routine NUMBER means the same thing in both. The addresses do not —
   // the twenty 1.6 adds are cited at their 1.6 offsets and the twenty-six
   // older keywords at their 1.4 ones, which is why both tables are listed
+  'src/runtime/int.ts': ['int-1.0'],
+  'src/runtime/int.test.ts': ['int-1.0'],
   'src/runtime/jdint.ts': ['jd-int-1.3'],
   'src/runtime/jdint.test.ts': ['jd-int-1.3'],
   'src/runtime/amon.ts': ['amon-1.04', 'amon-1.03'],

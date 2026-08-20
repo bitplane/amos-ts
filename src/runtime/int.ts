@@ -60,8 +60,10 @@
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+import { RastPort } from '../amiga/graphics'
 import {
   CUSTOMSCREEN,
+  WB_SLOT,
   IDCMP_GADGETUP,
   IDCMP_MENUPICK,
   WBENCHSCREEN,
@@ -207,6 +209,30 @@ export class IntState {
   readonly gtGadgets = new Map<number, Gadget[]>()
   /** which gadget ActivateGadget was last given, since nothing here has a cursor */
   activeGadget = -1
+  /**
+   * `wd_RPort`, one per window number.
+   *
+   * Every drawing keyword is the same four instructions: routine 44 for the
+   * window pointer, then `movea.l $32(a1),a1`, which is wd_RPort. The pens,
+   * the draw mode and the current position live in it, so `Wb Front Pen` is
+   * a mode the next `Wb Draw` reads rather than an argument it takes.
+   *
+   * The origin is the window's top-left and the clip is the window, which is
+   * what a real RPort's Layer does; ./jdint.ts carries the offset the same
+   * way for the same reason.
+   */
+  readonly rports = new Map<number, RastPort>()
+  /**
+   * `$884`, the words `Wb Palette` writes and `Wb Load Rgb` hands to
+   * LoadRGB4 (-$c0).
+   *
+   * 514 bytes to the next field at `$a86`, which is 256 words and two bytes
+   * of slack, and 256 is LoadRGB4's own ceiling. `Wb Palette n` indexes it in
+   * sixteen-byte groups (`mulu.w #$e,d1 / mulu.w #$2,d2 / add.l d2,d1`, so
+   * n*16) while `Wb Load Rgb` reads it flat from the start, which is what
+   * makes the two agree: group n is colours n*8 to n*8+7.
+   */
+  readonly colours = new Uint16Array(256)
 }
 
 /** `moveq #$14,d1` in routine 68: the StringInfo buffer is twenty bytes */
@@ -218,7 +244,13 @@ export function newIntState(): IntState {
   return new IntState()
 }
 
-/** the window `$d94` names, or "Window Is Not Open" --- routine 44's `moveq #$b,d7` */
+/**
+ * The window `$d94` names, or "Window Is Not Open".
+ *
+ * Routine 44 ($3650) is the table read alone --- `mulu.w #$4,d7 /
+ * move.l (a4,d7.l),d0` --- and every caller tests the answer itself and
+ * raises `moveq #$b,d0` on zero.
+ */
 function windowOf(st: IntState, n: number): Window {
   return st.windows.get(n) ?? intError(INT_ERR.WINDOW_IS_NOT_OPEN)
 }
@@ -251,6 +283,38 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       f += it.evalInt()
     }
     return f & 0xffff
+  }
+
+  /**
+   * wd_RPort, and where the window's origin sits on the screen.
+   *
+   * Routine 44 ($3650) reads the window table and every drawing keyword
+   * follows it with `movea.l $32(a1),a1`. A zero entry is `moveq #$b,d0`,
+   * "Window Is Not Open", which is what `windowOf` raises.
+   *
+   * The RastPort is made once per window and kept, because the pens, the
+   * draw mode and the current position are its state and the keywords that
+   * set them are separate from the ones that read them. The clip is refreshed
+   * on every call instead, since `Wb Move Window` moves the layer under it.
+   */
+  const target = (num?: number): { rp: RastPort; ox: number; oy: number } => {
+    const st = s()
+    const n = num ?? st.window
+    const w = windowOf(st, n)
+    let rp = st.rports.get(n)
+    if (!rp) {
+      const bitMap = rt.screens.get(w.screenSlot)?.rp.bitMap ?? rt.screen.rp.bitMap
+      rp = new RastPort(bitMap)
+      rp.font = rt.systemFont()
+      st.rports.set(n, rp)
+    }
+    rp.clip = {
+      x1: w.leftEdge,
+      y1: w.topEdge,
+      x2: w.leftEdge + w.width - 1,
+      y2: w.topEdge + w.height - 1,
+    }
+    return { rp, ox: w.leftEdge, oy: w.topEdge }
   }
 
   return {
@@ -288,10 +352,10 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * which is CUSTOMSCREEN.
      */
     'wb screen flags': (it) => {
-      let f = it.evalInt()
+      let f = flagArg(it)
       for (let i = 1; i < 8; i++) {
         it.expect(',')
-        f += it.evalInt()
+        f += flagArg(it)
       }
       s().screenType = f & 0xffff
     },
@@ -770,6 +834,289 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       gtGadgetOf(st, n)
       st.activeGadget = n
     },
+
+    /* ------------------------------------------------------------------
+     * The drawing group: graphics.library through wd_RPort
+     *
+     * Thirteen keywords, and twelve of them are the same four instructions
+     * with a different `jsr` on the end:
+     *
+     *     move.w  $d94(a4), d7        the current window number
+     *     Rbsr    routine 44          the window table at zone+0
+     *     movea.l d0, a1              -> zero is error $b
+     *     movea.l $32(a1), a1         wd_RPort
+     *
+     * Argument order is REVERSED against the source text. `(a3)+` walks the
+     * parameter block upwards from the LAST argument, which the token table
+     * settles rather than the reading does: `Wb Text` is spec `I2,0,0`, so
+     * the string is written first, and routine 19 pops it LAST ($2a9a).
+     * `Wb Put Chr$` (`I2,0`) and `Wb Intuitext` (`I2,0,0,0,0,0,0,0`) put the
+     * string in the same place and pop it last too, three tables agreeing
+     * about three different routines.
+     *
+     * Several of them end in `Rbsr routine 4`, which is WaitBlit (-$e4) and
+     * nothing else. Which ones do is not a pattern --- `Wb Fill Box` waits
+     * and `Wb Ellipse` does not --- and it costs nothing here, so the
+     * asymmetry is recorded and not modelled.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Wb Draw Mode n` --- SetDrMd (-$162) on the current window's RPort.
+     *
+     * The mode is graphics.library's, not AMOS's: 0 JAM1, 1 JAM2,
+     * 2 COMPLEMENT, 4 INVERSVID, and it stays set until the next call.
+     */
+    'wb draw mode': (it) => {
+      const n = it.evalInt()
+      target().rp.drawMode = n & 0xff
+    },
+
+    /**
+     * `Wb Front Pen n` --- SetAPen (-$156), then WaitBlit.
+     *
+     * This is the pen every later keyword in the group draws with, which is
+     * why none of them takes a colour.
+     */
+    'wb front pen': (it) => {
+      const n = it.evalInt()
+      target().rp.fgPen = n
+    },
+
+    /** `Wb Back Pen n` --- SetBPen (-$15c), then WaitBlit. */
+    'wb back pen': (it) => {
+      const n = it.evalInt()
+      target().rp.bgPen = n
+    },
+
+    /**
+     * `Wb Text a$,x,y` --- Move (-$f0) to (x,y), then Text (-$3c).
+     *
+     * `y` IS THE BASELINE and not the top of the glyphs, because this is
+     * graphics.library's Text rather than AMOS's, and the two disagree about
+     * that by the font's ascent. Routine 19 reads the string's length word at
+     * $2a9c and passes it as Text's count, so the whole string prints
+     * whatever it holds.
+     */
+    'wb text': (it) => {
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const { rp, ox, oy } = target()
+      rp.text(ox + x, oy + y, text)
+    },
+
+    /**
+     * `Wb Draw x1,y1 To x2,y2` --- Move (-$f0) then Draw (-$f6).
+     *
+     * DEFECT: routine 22 looks the window up TWICE, once for each call, and
+     * only tests the first answer ($2e5c). The second lookup at $2e84 goes
+     * straight into `movea.l d0,a1 / movea.l $32(a1),a1`, so a window that
+     * closed between the two would dereference zero. Nothing can close a
+     * window mid-keyword here, so the second lookup is the same window and
+     * the missing test costs nothing.
+     */
+    'wb draw': (it) => {
+      const [x1, y1, x2, y2] = rectTo(it)
+      const { rp, ox, oy } = target()
+      rp.draw(ox + x1, oy + y1, ox + x2, oy + y2)
+    },
+
+    /**
+     * `Wb Ellipse x,y,a,b` --- DrawEllipse (-$b4).
+     *
+     * Centre then the two radii, `a` horizontal and `b` vertical, and it is
+     * an outline: graphics.library fills through AreaEllipse and this is not
+     * that call.
+     */
+    'wb ellipse': (it) => {
+      const [x, y, a, b] = four(it)
+      const { rp, ox, oy } = target()
+      rp.ellipse(ox + x, oy + y, a, b)
+    },
+
+    /** `Wb Fill Box x1,y1 To x2,y2` --- RectFill (-$132), then WaitBlit. */
+    'wb fill box': (it) => {
+      const [x1, y1, x2, y2] = rectTo(it)
+      const { rp, ox, oy } = target()
+      rp.rectFill(ox + x1, oy + y1, ox + x2, oy + y2)
+    },
+
+    /**
+     * `Wb Box x1,y1 To x2,y2` --- Move (-$f0) to the first corner, then
+     * PolyDraw (-$150) of FIVE points.
+     *
+     * Routine 75 builds the array at `$16a6(a4)` and `moveq #$5,d0` counts
+     * it. The five are (x1,y1), (x2,y1), (x2,y2), (x1,y2), (x1,y1) --- so
+     * the first is where Move already put the pen and the segment to it is
+     * zero-length. It is reproduced rather than dropped because COMPLEMENT
+     * mode can see it: that corner gets inverted twice, once by the
+     * degenerate segment and once by the closing one.
+     */
+    'wb box': (it) => {
+      const [x1, y1, x2, y2] = rectTo(it)
+      const { rp, ox, oy } = target()
+      const pts: Array<[number, number]> = [
+        [x1, y1],
+        [x2, y1],
+        [x2, y2],
+        [x1, y2],
+        [x1, y1],
+      ]
+      let px = ox + x1
+      let py = oy + y1
+      for (const [x, y] of pts) {
+        rp.draw(px, py, ox + x, oy + y)
+        px = ox + x
+        py = oy + y
+      }
+    },
+
+    /**
+     * `Wb Scroll win,dx,dy,x1,y1,x2,y2` --- ScrollRaster (-$18c).
+     *
+     * The ONLY keyword in the group that takes its window as an argument
+     * instead of reading `$d94`: routine 51 pops seven and the last of them
+     * ($3e4e) is what routine 44 is given.
+     *
+     * The argument roles come from the other side. AMOS's own Intuition
+     * extension scrolls its text window with the same call and the same
+     * registers --- `moveq #0,d0 / move.w rp_TxHeight(a2),d1 / call
+     * ScrollRaster` after loading d2..d5 from the window's four border
+     * insets (Intuition-41.95 `src/output.s:176-191`) --- so d0 is dx, d1 is
+     * dy, and d2..d5 are xMin, yMin, xMax, yMax. A positive dy scrolls the
+     * contents UP, which is what advancing a line of text means.
+     *
+     * DEVIATION: the vacated strip is filled with the RastPort's background
+     * pen. A window's RPort has a Layer, and a real layered ScrollRaster
+     * damages the uncovered region for the owner to refresh instead. Nothing
+     * here is damage-driven (see intuition.ts `render`), so the fill is the
+     * closest thing this port can do and it is written down rather than
+     * hidden.
+     */
+    'wb scroll': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      const [x1, y1, x2, y2] = four(it, true)
+      const { rp, ox, oy } = target(win)
+      scrollRaster(rp, dx, dy, ox + x1, oy + y1, ox + x2, oy + y2)
+    },
+
+    /**
+     * `Wb Put Chr$ a$,address` --- the string's bytes, into memory.
+     *
+     * No library call at all: routine 69 reads the length word and copies
+     * that many bytes (`subq.l #$1,d2 / move.b (a1)+,(a0)+ / dbra`), and
+     * writes NO terminator. It is `Poke$` with the count taken from the
+     * string rather than given, and it is here so a program can fill an
+     * IntuiText or a gadget buffer it got an address for.
+     */
+    'wb put chr$': (it) => {
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const addr = it.evalInt()
+      const m = rt.resolveWrite(addr >>> 0)
+      if (m) for (let i = 0; i < text.length && m.off + i < m.data.length; i++) m.data[m.off + i] = text.charCodeAt(i) & 0xff
+    },
+
+    /**
+     * `Wb Intuitext a$,left,top,mode,frontPen,backPen,xOffset,yOffset` ---
+     * an IntuiText built at `$c8a(a4)` and handed to PrintIText (-$d8).
+     *
+     * The eight go in that order and the routine scatters them: `$4` and `$6`
+     * are it_LeftEdge and it_TopEdge, `$2` it_DrawMode, `(a1)` it_FrontPen,
+     * `$1` it_BackPen, `$c` it_IText, `$10` it_NextText cleared. The last two
+     * arguments are PrintIText's own leftOffset and topOffset, so the text
+     * lands at left+xOffset, top+yOffset.
+     *
+     * DEFECT: it_IText points at the AMOS string's BYTES and nothing
+     * terminates them. Routine 54 reads the length word at $3f2c into d5 and
+     * then throws it away four instructions later (`movem.l (a7)+,d5-d6`),
+     * so the count is read and never used, while PrintIText prints to the
+     * first zero byte. On the machine that means whatever follows the string
+     * in memory. Here the string is what prints, which is the only honest
+     * thing this port can do with an overrun that has nothing to run into.
+     */
+    'wb intuitext': (it) => {
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const left = it.evalInt()
+      it.expect(',')
+      const top = it.evalInt()
+      it.expect(',')
+      const mode = it.evalInt()
+      it.expect(',')
+      const frontPen = it.evalInt()
+      it.expect(',')
+      const backPen = it.evalInt()
+      it.expect(',')
+      const xOffset = it.evalInt()
+      it.expect(',')
+      const yOffset = it.evalInt()
+      const { rp, ox, oy } = target()
+      const font = rt.systemFont()
+      const save = rp.snapshot()
+      rp.font = font
+      rp.drawMode = mode & 0xff
+      rp.fgPen = frontPen & 0xff
+      rp.bgPen = backPen & 0xff
+      // PrintIText positions the glyphs by their TOP, unlike Text, so the
+      // baseline is one ascent down from it_TopEdge
+      rp.text(ox + left + xOffset, oy + top + yOffset + font.baseline, text)
+      rp.restore(save)
+    },
+
+    /**
+     * `Wb Palette n,c0,c1,c2,c3,c4,c5,c6,c7` --- eight colours into the
+     * table at `$884`, in groups of sixteen bytes.
+     *
+     * Nothing is drawn and no library is called. `n` is read WITHOUT being
+     * popped (`move.l $20(a3),d1`, the ninth slot, which is the first
+     * argument) and the eight are written backwards from offset 14 down to
+     * 0, so they land in source order.
+     *
+     * DEFECT: `n` is not checked. The table has 514 bytes to the next field
+     * and the multiply is `n*16`, so `Wb Palette 33,...` writes over the
+     * item, menu and sub-item numbers at `$a86`. Here it is a 256-word array
+     * and a group past the end is dropped, because there is nothing beyond
+     * it in this port to corrupt.
+     */
+    'wb palette': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      for (let i = 0; i < 8; i++) {
+        it.expect(',')
+        const c = it.evalInt() & 0xffff
+        const at = n * 8 + i
+        if (at >= 0 && at < st.colours.length) st.colours[at] = c
+      }
+    },
+
+    /**
+     * `Wb Load Rgb n` --- LoadRGB4 (-$c0) of the first `n` words of the
+     * table, into the ViewPort of the screen new windows open on.
+     *
+     * `movea.l d2,a0 / lea $2c(a0),a0` is sc_ViewPort, and d2 is `$de6` when
+     * that is not -1. When it IS -1 the routine takes the Workbench:
+     * LockPubScreen with the name at `$e30` and then UnlockPubScreen with the
+     * pointer it just got, four instructions apart at $36f4 and $3708, so the
+     * screen is used after the lock that protected it was dropped. Nothing
+     * here can close the Workbench underneath it, so the race is noted and
+     * not modelled.
+     */
+    'wb load rgb': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      const slot = st.screen === -1 ? WB_SLOT : rt.intuition.slotOf(st.screen)
+      const scr = slot === null ? undefined : rt.screens.get(slot)
+      if (!scr) return
+      const count = Math.min(n, st.colours.length, scr.palette.length)
+      for (let i = 0; i < count; i++) scr.palette[i] = st.colours[i]! & 0x0fff
+    },
   }
 }
 
@@ -785,14 +1132,96 @@ function gtGadgetOf(st: IntState, n: number): Gadget {
   return chain[n] ?? intError(17)
 }
 
+/**
+ * EntNul (+Equ.s:39), which is what an empty integer slot compiles to.
+ *
+ * It matters here because the author's own examples leave the slots empty:
+ * `Wb Window Flags %100000000000,%1000000000000,,,,,,,` is ellipse1.AMOS and
+ * ellipse2.AMOS, and `Wb Screen Flags %1111,,,,,,,` is scroll.AMOS. Seven
+ * EntNuls go into the sum, and the two keywords disagree about what that
+ * does: routine 9 stores the LONG (`move.l d1,$190`), so bit 31 survives into
+ * NewWindow.Flags, and routine 42 stores a WORD (`move.w d1,$de4`), so it
+ * does not. Intuition defines nothing at bit 31, which is why the examples
+ * work anyway.
+ */
+const ENT_NUL = -0x8000_0000
+
+/**
+ * One argument of a flag list, or EntNul when the slot is empty.
+ *
+ * The test is ./instr.ts's, where `Limit Mouse` needs the same thing.
+ */
+function flagArg(it: Parameters<Instr>[0]): number {
+  return it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to' ? ENT_NUL : it.evalInt()
+}
+
 /** the nine arguments `Wb Window Flags` and `Wb Window Ids` add together */
 function sumNine(it: Parameters<Instr>[0]): number {
-  let f = it.evalInt()
+  let f = flagArg(it)
   for (let i = 1; i < 9; i++) {
     it.expect(',')
-    f += it.evalInt()
+    f += flagArg(it)
   }
   return f >>> 0
+}
+
+/**
+ * `x1,y1 To x2,y2` --- the `I0,0t0,0` specs, where the `t` is the To.
+ *
+ * `Wb Draw`, `Wb Fill Box` and `Wb Box` all carry it, and `Wb Ellipse` does
+ * not: its spec is four plain commas.
+ */
+function rectTo(it: Parameters<Instr>[0]): [number, number, number, number] {
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  return [x1, y1, x2, y2]
+}
+
+/**
+ * ScrollRaster (-$18c): move the contents of a rectangle by (dx,dy) and fill
+ * what that vacates.
+ *
+ * Positive dx and dy move the contents LEFT and UP, so the source of the
+ * pixel that lands at (x,y) is (x+dx, y+dy). The whole rectangle is read
+ * before any of it is written, because the source and destination overlap in
+ * every interesting case.
+ *
+ * The write is a raster copy and not a drawn one: no draw mode, no pattern,
+ * no mask. `putPixel` is that, so the clip is applied here instead.
+ */
+function scrollRaster(rp: RastPort, dx: number, dy: number, x1: number, y1: number, x2: number, y2: number): void {
+  if (x1 > x2) [x1, x2] = [x2, x1]
+  if (y1 > y2) [y1, y2] = [y2, y1]
+  const c = rp.clip
+  if (c) {
+    x1 = Math.max(x1, c.x1)
+    y1 = Math.max(y1, c.y1)
+    x2 = Math.min(x2, c.x2)
+    y2 = Math.min(y2, c.y2)
+  }
+  x1 = Math.max(0, x1)
+  y1 = Math.max(0, y1)
+  x2 = Math.min(rp.width - 1, x2)
+  y2 = Math.min(rp.height - 1, y2)
+  if (x2 < x1 || y2 < y1) return
+  if (dx === 0 && dy === 0) return
+  const w = x2 - x1 + 1
+  const h = y2 - y1 + 1
+  const src = new Int16Array(w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) src[y * w + x] = rp.point(x1 + x, y1 + y)
+  for (let y = 0; y < h; y++) {
+    const sy = y + dy
+    for (let x = 0; x < w; x++) {
+      const sx = x + dx
+      const inside = sx >= 0 && sx < w && sy >= 0 && sy < h
+      rp.putPixel(x1 + x, y1 + y, inside ? src[sy * w + sx]! : rp.bgPen)
+    }
+  }
 }
 
 /** four comma-separated integers, the shape both open keywords start with */

@@ -450,3 +450,301 @@ describe('Int 1.0: gadtools gadgets', () => {
     expect(Number(b.out().trim())).toBe(7)
   })
 })
+
+/**
+ * The drawing group: graphics.library through wd_RPort.
+ *
+ * Argument ORDER is the thing to get right, and the token table settles it
+ * rather than the disassembly does. `(a3)+` walks the parameter block from
+ * the LAST argument upwards, which is provable from the three keywords whose
+ * spec puts a string first --- `Wb Text` is `I2,0,0` and routine 19 pops the
+ * string LAST ($2a9a) --- and the author's own examples then confirm every
+ * one of these: `Wb Text "Press Any Key",0,10`, `Wb Ellipse X,Y,X2,Y2` and
+ * two `Wb Palette` groups followed by `Wb Load Rgb 16` are ellipse1.AMOS
+ * verbatim.
+ */
+describe('Int 1.0: the drawing group', () => {
+  /** a 320x256 four-plane custom screen with one window filling it */
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+  /** eight primaries, so a pen number and a colour can be told apart */
+  const PENS = 'Wb Palette 0,$0,$F00,$0F0,$00F,$FF0,$F0F,$0FF,$FFF : Wb Load Rgb 8'
+
+  /** the custom screen the window opened on */
+  function surface(rt: Runtime): { point: (x: number, y: number) => number; palette: Uint16Array } {
+    const slot = rt.int.windows.get(0)!.screenSlot
+    const scr = rt.screens.get(slot)!
+    return { point: (x, y) => scr.rp.point(x, y), palette: scr.palette }
+  }
+
+  /**
+   * `Wb Palette n,c0..c7` fills sixteen bytes at `$884 + n*16` and
+   * `Wb Load Rgb n` reads the same table FLAT from the start, which is what
+   * makes group n colours n*8 to n*8+7.
+   *
+   * ellipse1.AMOS is where the two-groups-then-sixteen shape comes from: it
+   * writes group 0 and group 1 and then asks for 16.
+   */
+  it('Wb Palette groups eight and Wb Load Rgb reads them flat', () => {
+    const rt = run(`${WIN} : Wb Palette 0,$0,$F00,$0F0,$00F,$FF0,$F0F,$0FF,$FFF
+Wb Palette 1,$111,$222,$333,$444,$555,$666,$777,$888
+Wb Load Rgb 16`)
+    expect([...rt.int.colours.slice(0, 16)]).toEqual([
+      0x000, 0xf00, 0x0f0, 0x00f, 0xff0, 0xf0f, 0x0ff, 0xfff, 0x111, 0x222, 0x333, 0x444, 0x555, 0x666, 0x777, 0x888,
+    ])
+    expect([...surface(rt).palette.slice(0, 16)]).toEqual([
+      0x000, 0xf00, 0x0f0, 0x00f, 0xff0, 0xf0f, 0x0ff, 0xfff, 0x111, 0x222, 0x333, 0x444, 0x555, 0x666, 0x777, 0x888,
+    ])
+  })
+
+  /**
+   * `Wb Load Rgb` takes only what it was asked for. LoadRGB4's count is d0
+   * and the routine passes the argument straight into it ($3718).
+   */
+  it('Wb Load Rgb loads only the first n', () => {
+    const rt = run(`${WIN} : Wb Palette 0,$111,$222,$333,$444,$555,$666,$777,$888 : Wb Load Rgb 3`)
+    const pal = surface(rt).palette
+    expect([pal[0], pal[1], pal[2]]).toEqual([0x111, 0x222, 0x333])
+    expect(pal[3]).not.toBe(0x444)
+  })
+
+  /**
+   * SetAPen (-$156) writes the RastPort and nothing else, so the pen is a
+   * MODE that later keywords read. ellipse1.AMOS depends on exactly that:
+   * `Wb Front Pen Rnd(14)+1` then `Wb Ellipse X,Y,X2,Y2`, three hundred
+   * times, with no colour on the ellipse.
+   */
+  it('Wb Front Pen persists into the next drawing keyword', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 5 : Wb Fill Box 10,10 To 20,20 : Wb Fill Box 40,10 To 50,20`)
+    expect(surface(rt).point(15, 15)).toBe(5)
+    expect(surface(rt).point(45, 15)).toBe(5)
+  })
+
+  /** `Wb Ellipse x,y,a,b` --- DrawEllipse (-$b4), centre then the two radii */
+  it('Wb Ellipse is an outline about the centre, a horizontal and b vertical', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 2 : Wb Ellipse 160,120,40,20`)
+    const s = surface(rt)
+    // the four extremes are on it and the middle is not: DrawEllipse draws no
+    // interior, which is AreaEllipse's job and not this call's
+    expect(s.point(200, 120)).toBe(2)
+    expect(s.point(120, 120)).toBe(2)
+    expect(s.point(160, 100)).toBe(2)
+    expect(s.point(160, 140)).toBe(2)
+    expect(s.point(160, 120)).toBe(0)
+  })
+
+  /** `Wb Fill Box x1,y1 To x2,y2` --- RectFill (-$132), corners inclusive */
+  it('Wb Fill Box fills to both corners', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 4 : Wb Fill Box 100,50 To 120,60`)
+    const s = surface(rt)
+    expect(s.point(100, 50)).toBe(4)
+    expect(s.point(120, 60)).toBe(4)
+    expect(s.point(110, 55)).toBe(4)
+    expect(s.point(121, 60)).toBe(0)
+  })
+
+  /**
+   * `Wb Box x1,y1 To x2,y2` --- Move (-$f0) then PolyDraw (-$150) of five
+   * points, so it is four sides and no interior.
+   */
+  it('Wb Box draws the four sides and nothing inside', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 6 : Wb Box 100,50 To 140,80`)
+    const s = surface(rt)
+    expect(s.point(120, 50)).toBe(6)
+    expect(s.point(120, 80)).toBe(6)
+    expect(s.point(100, 65)).toBe(6)
+    expect(s.point(140, 65)).toBe(6)
+    expect(s.point(120, 65)).toBe(0)
+  })
+
+  /** `Wb Draw x1,y1 To x2,y2` --- Move (-$f0) then Draw (-$f6) */
+  it('Wb Draw joins the two points', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 7 : Wb Draw 10,100 To 200,100`)
+    const s = surface(rt)
+    expect(s.point(10, 100)).toBe(7)
+    expect(s.point(105, 100)).toBe(7)
+    expect(s.point(200, 100)).toBe(7)
+    expect(s.point(201, 100)).toBe(0)
+  })
+
+  /**
+   * `Wb Text a$,x,y` --- the STRING first, and `y` is the BASELINE.
+   *
+   * This is graphics.library's Text (-$3c) after a Move (-$f0), not AMOS's,
+   * and the two disagree about y by the font's ascent. The glyphs therefore
+   * land ABOVE the coordinate given.
+   */
+  it('Wb Text takes the string first and puts the baseline on y', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 7 : Wb Text "H",0,100`)
+    const s = surface(rt)
+    let above = 0
+    let below = 0
+    for (let y = 90; y < 100; y++) for (let x = 0; x < 8; x++) if (s.point(x, y) === 7) above++
+    for (let y = 101; y < 110; y++) for (let x = 0; x < 8; x++) if (s.point(x, y) === 7) below++
+    expect(above).toBeGreaterThan(0)
+    expect(below).toBe(0)
+  })
+
+  /**
+   * `Wb Draw Mode n` --- SetDrMd (-$162), and it is graphics.library's
+   * numbering: 1 is JAM2, which fills the character cell with the background
+   * pen before the glyph goes down.
+   */
+  it('Wb Draw Mode 1 is JAM2, and Wb Back Pen is what it fills with', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Draw Mode 1 : Wb Front Pen 7 : Wb Back Pen 3 : Wb Text " ",50,100`)
+    const s = surface(rt)
+    // a space has no set bits, so every pixel of its cell is the back pen
+    expect(s.point(52, 95)).toBe(3)
+  })
+
+  /** JAM1 is 0 and leaves the ground alone, which is the same call with a 0 */
+  it('Wb Draw Mode 0 is JAM1 and paints no cell', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Draw Mode 0 : Wb Front Pen 7 : Wb Back Pen 3 : Wb Text " ",50,100`)
+    expect(surface(rt).point(52, 95)).toBe(0)
+  })
+
+  /**
+   * `Wb Intuitext a$,left,top,mode,frontPen,backPen,xOffset,yOffset` ---
+   * eight arguments into an IntuiText at `$c8a(a4)`, then PrintIText (-$d8).
+   *
+   * The last two are PrintIText's own leftOffset and topOffset, so the text
+   * lands at left+xOffset, top+yOffset --- and `top` is the TOP of the
+   * glyphs, unlike `Wb Text`'s baseline, because Intuition adds the
+   * baseline itself.
+   */
+  it('Wb Intuitext offsets the IntuiText and uses its own two pens', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 1 : Wb Intuitext " ",10,50,1,7,4,30,20`)
+    const s = surface(rt)
+    // cell at (10+30, 50+20), filled with the BACK pen the keyword was given
+    // rather than the RastPort's, and the front pen 1 set before it is unused
+    expect(s.point(42, 75)).toBe(4)
+  })
+
+  /**
+   * `Wb Scroll win,dx,dy,x1,y1,x2,y2` --- ScrollRaster (-$18c), and the ONLY
+   * keyword in the group that names its window instead of reading `$d94`:
+   * routine 51 pops seven and hands the last of them ($3e4e) to routine 44.
+   *
+   * The register roles come from the other side. AMOS's own Intuition
+   * extension scrolls its text window with `moveq #0,d0 / move.w
+   * rp_TxHeight(a2),d1 / call ScrollRaster` after loading d2..d5 from the
+   * window's four border insets (Intuition-41.95 `src/output.s:176-191`), so
+   * d0 is dx, d1 dy and d2..d5 the rectangle. A positive dy scrolls UP.
+   */
+  it('Wb Scroll moves the rectangle up and backfills with the back pen', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 5 : Wb Fill Box 100,80 To 120,90
+Wb Back Pen 2
+Wb Scroll 0,0,20,90,50,140,100`)
+    const s = surface(rt)
+    // the block was at y 80..90 and dy is 20, so it is at 60..70 now
+    expect(s.point(110, 65)).toBe(5)
+    // where it WAS is whatever was twenty rows below it, which was nothing
+    expect(s.point(110, 75)).toBe(0)
+    // the last twenty rows had nothing inside the rectangle to scroll into
+    // them, and the fill is the BACK pen rather than the front one
+    expect(s.point(110, 85)).toBe(2)
+    expect(s.point(110, 100)).toBe(2)
+    // and nothing outside the rectangle moved
+    expect(s.point(110, 45)).toBe(0)
+    expect(s.point(110, 101)).toBe(0)
+  })
+
+  /** a negative dy is the other way, and the block survives inside the box */
+  it('Wb Scroll with a negative dy moves the contents down', () => {
+    const rt = run(`${WIN} : ${PENS} : Wb Front Pen 5 : Wb Fill Box 100,60 To 120,70
+Wb Scroll 0,0,-20,90,50,140,120`)
+    const s = surface(rt)
+    expect(s.point(110, 85)).toBe(5)
+    expect(s.point(110, 65)).toBe(0)
+  })
+
+  /**
+   * `Wb Put Chr$ a$,address` --- no library call at all. Routine 69 reads the
+   * string's length word and copies that many bytes (`subq.l #$1,d2 /
+   * move.b (a1)+,(a0)+ / dbra`), writing NO terminator.
+   */
+  it('Wb Put Chr$ copies the string into memory and terminates nothing', () => {
+    const b = boot(`Reserve As Work 10,16 : Loke Start(10),$FFFFFFFF
+Wb Put Chr$ "AB",Start(10)
+Print Peek(Start(10));",";Peek(Start(10)+1);",";Peek(Start(10)+2)`)
+    mustFinish(b.rt.runHeadless(2_000))
+    // two bytes written and the third left as it was: the copy is the length
+    // word's count and it appends no NUL
+    expect(b.out().replace(/\s+/g, '')).toBe('65,66,255')
+  })
+
+  /**
+   * Every keyword in the group is `Rbsr routine 44 / tst.l d0 / beq`, and the
+   * arm is `moveq #$b,d0` --- "Window Is Not Open".
+   */
+  it('drawing with no window open is Window Is Not Open', () => {
+    expect(() => run(`${SCREEN} : Wb Window Num 3 : Wb Fill Box 0,0 To 10,10`)).toThrow(
+      INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN],
+    )
+  })
+
+  /**
+   * The pens live in wd_RPort, so two windows do not share them.
+   */
+  it('each window carries its own pens', () => {
+    const rt = run(`${SCREEN} : ${FLAGS} : ${IDS}
+Wb Open Window 0,0,0,160,256,10,10,320,256
+Wb Open Window 1,160,0,160,256,10,10,320,256
+${PENS}
+Wb Window Num 0 : Wb Front Pen 5
+Wb Window Num 1 : Wb Front Pen 6
+Wb Window Num 0 : Wb Fill Box 10,10 To 20,20
+Wb Window Num 1 : Wb Fill Box 10,10 To 20,20`)
+    const slot = rt.int.windows.get(0)!.screenSlot
+    const scr = rt.screens.get(slot)!
+    // both boxes are at 10,10 in their OWN window, and window 1 starts at 160
+    expect(scr.rp.point(15, 15)).toBe(5)
+    expect(scr.rp.point(175, 15)).toBe(6)
+  })
+
+  /**
+   * A window's RPort is clipped to the window, which is what its Layer does,
+   * so a coordinate past the right edge does not reach the next window.
+   */
+  it('drawing is clipped to the window', () => {
+    const rt = run(`${SCREEN} : ${FLAGS} : ${IDS}
+Wb Open Window 0,0,0,160,256,10,10,320,256 : Wb Window Num 0
+${PENS}
+Wb Front Pen 5 : Wb Fill Box 10,10 To 300,20`)
+    const slot = rt.int.windows.get(0)!.screenSlot
+    const scr = rt.screens.get(slot)!
+    expect(scr.rp.point(150, 15)).toBe(5)
+    expect(scr.rp.point(200, 15)).toBe(0)
+  })
+})
+
+/**
+ * The author's examples leave flag slots empty, and an empty integer slot
+ * compiles to EntNul ($80000000, +Equ.s:39) rather than to nothing.
+ */
+describe('Int 1.0: empty flag slots', () => {
+  /**
+   * `Wb Screen Flags %1111,,,,,,,` is scroll.AMOS verbatim. Seven EntNuls go
+   * into the sum and routine 42 stores a WORD (`move.w d1,$de4`), so they
+   * are truncated away and CUSTOMSCREEN survives.
+   */
+  it('Wb Screen Flags keeps a word, so seven EntNuls vanish', () => {
+    expect(run('Wb Screen Flags %1111,,,,,,,').int.screenType).toBe(0xf)
+  })
+
+  /**
+   * `Wb Window Flags %100000000000,%1000000000000,,,,,,,` is ellipse1.AMOS
+   * and ellipse2.AMOS. Routine 9 stores the LONG (`move.l d1,$190`), so the
+   * seven EntNuls DO survive: an odd count leaves bit 31 set in
+   * NewWindow.Flags. Intuition defines nothing there, which is why the
+   * examples work anyway.
+   */
+  it('Wb Window Flags keeps the long, so an odd count of them sets bit 31', () => {
+    expect(run('Wb Window Flags %100000000000,%1000000000000,,,,,,,').int.winFlags).toBe((0x800 + 0x1000 + 0x8000_0000) >>> 0)
+  })
+
+  /** an even count cancels, because two EntNuls are 2^32 and carry away */
+  it('two empty slots cancel each other', () => {
+    expect(run('Wb Window Ids $200,,,0,0,0,0,0,0').int.idcmp).toBe(0x200)
+  })
+})
