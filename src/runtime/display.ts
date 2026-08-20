@@ -1115,37 +1115,32 @@ export class Display {
    * single-buffered real AMOS.
    */
   updateBobs(): void {
-    // restore, newest first
-    const saved = [...this.rt.bobSaved.entries()].reverse()
-    for (const [key, bg] of saved) {
-      const s = this.rt.screens.get(bg.screen)
-      // a background belongs to the buffer it was taken from. After a swap the
-      // other buffer's saves are still wanted, and putting them back HERE
-      // would paint two-frame-old pixels into the wrong one.
-      if (s && s.bufferId !== bg.buffer) continue
-      // Put Bob: skip this erase and count it off, which is what leaves the
-      // bob behind. +W.s:1884 tests the counter before erasing and +W.s:1921
-      // decrements it. The save goes with it, or it would be put back a frame
-      // later and undo the copy.
-      const put = this.rt.bobPut.get(bg.bob) ?? 0
-      if (put > 0) {
-        this.rt.bobPut.set(bg.bob, put - 1)
-        this.rt.bobSaved.delete(key)
-        continue
-      }
-      if (s) {
-        const px = s.pixelsW()
-        for (let y = 0; y < bg.h; y++) {
-          px.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
-        }
-      }
-      this.rt.bobSaved.delete(key)
-    }
+    this.clearBobs()
+    this.drawBobs()
+  }
+
+  /**
+   * ActBob + AffBob and nothing else, which is what `Bob Draw` is.
+   *
+   * `InBobDraw` (+Lib.s:11505) is `SyCall ActBob / SyCall AffBob`; the erase
+   * pass, EffBob, belongs to `Bob Clear` (:11499) and to the two that do all
+   * three, `Update` and `Bob Update`. Erasing here as well painted every bob
+   * out before redrawing it, which is invisible for a bob that saves its
+   * background and very visible for one that does not: Dizzy Clone repaints
+   * its whole background with `Screen Copy 2 To 0` and then declares
+   * `Set Bob 15,1,,`, so the erase filled colour 0 instead of restoring, and
+   * Charlie and the birds each carried a black box.
+   *
+   * BbDel stays on this side. `bmi BbDel` is inside BobAct (+W.s:1187-1209),
+   * so a bob counts down on the passes that ACTUALISE it, and Bob Draw is
+   * one of them.
+   */
+  drawBobs(): void {
     /**
      * BbDel (+W.s:1301), which is where a stopped bob actually goes.
      *
-     * It sits here rather than in `Bob Off` because the erase above has to
-     * run first: the vbl calls EffBob, then ActBob, then AffBob
+     * It sits here rather than in `Bob Off` because the erase has to run
+     * first: the vbl calls EffBob, then ActBob, then AffBob
      * (+ILib.s:1017), so each pass puts one buffer's background back before
      * the count moves. Two passes on a double buffered screen, and the bob
      * is drawn on neither of them --- BbDel branches to BbSort, which skips

@@ -2135,7 +2135,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.clearBobs()
     },
     'bob draw'() {
-      rt.updateBobs()
+      // InBobDraw +Lib.s:11505 is ActBob + AffBob. The erase is Bob Clear's.
+      rt.drawBobs()
     },
     'set bob'(it) {
       // Set Bob n,back,planes,mask (InSetBob +Lib.s:12225 -> ResBOB +W.s:988).

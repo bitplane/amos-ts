@@ -5232,6 +5232,10 @@ export class Runtime {
   clearBobs(): void {
     this.display.clearBobs()
   }
+  /** ActBob + AffBob, no erase — `Bob Draw` (InBobDraw +Lib.s:11505) */
+  drawBobs(): void {
+    this.display.drawBobs()
+  }
   /**
    * Mark a bob for removal, and say how many update passes that takes.
    *

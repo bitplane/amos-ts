@@ -1209,6 +1209,29 @@ describe('blocks, clones, flips', () => {
     expect(rt2.cblocks.get(1)!.x).toBe(48)
   })
 
+  it('Bob Draw draws without erasing (InBobDraw is ActBob + AffBob)', () => {
+    // +Lib.s:11505 is `SyCall ActBob / SyCall AffBob` and stops. EffBob is
+    // Bob Clear's (:11499). Dizzy Clone repaints its whole background with
+    // `Screen Copy 2 To 0` and then says `Set Bob 15,1,,`, so its bobs fill
+    // colour 0 on erase instead of restoring: an erase inside Bob Draw put a
+    // black box under Charlie and every bird.
+    const base = [
+      'Screen Open 0,320,200,16,0 : Flash Off : Bob Update Off',
+      'Ink 7 : Bar 0,0 To 100,100', // something to draw over
+      'Get Bob 1,0,0 To 16,16 : Cls 0',
+      'Ink 7 : Bar 0,0 To 100,100',
+      'Set Bob 1,1,, : Bob 1,40,40,1', // back=1: erase fills colour 0
+      'Bob Draw',
+      'Bob 1,60,40,1',
+    ]
+    // draw again: nothing should have been blanked where the bob used to be
+    const drawn = run([...base, 'Bob Draw'].join('\n')).rt.screens.get(0)!
+    expect(drawn.point(45, 45)).not.toBe(0)
+    // and Bob Clear on its own is what fills it
+    const cleared = run([...base, 'Bob Clear'].join('\n')).rt.screens.get(0)!
+    expect(cleared.point(45, 45)).toBe(0)
+  })
+
   it('a bob does not survive its screen (EcDel -> BbEcOff)', () => {
     // BbEc is written once, in ResBOB at creation (+W.s:966), and BobSet
     // never touches it — so AMOS gets rid of the bob instead: EcDel
