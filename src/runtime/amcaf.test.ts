@@ -1078,6 +1078,28 @@ describe('disk and DOS objects', () => {
     expect(got).toContain('FILETYPE=')
   })
 
+  it('Amos Cli reports a CLI, because there is no Workbench to report', () => {
+    /*
+     * The keyword carries the marker; here is the corpus behind it. Four
+     * programs mention Amos Cli,
+     * Command Name$ or Tool Types$ at all; two only have "AMOS CLI" inside a
+     * Print. The two real users, Amotrix and MegaTron, both write the
+     * manual's either/or —
+     *
+     *     If Amos Cli
+     *       C$=Upper$(Command Line$)
+     *     Else
+     *       C$=Upper$(Tool Types$(Command Name$))
+     *     End If
+     *
+     * — and zero sent both of them into `Tool Types$("")`, which routine 342
+     * refuses outright. Nothing in the corpus declines to run FROM a CLI.
+     */
+    expect(runFs(['Print Amos Cli']).out.trim()).toBe('1')
+    // and the pair stays usable: the CLI branch is the one this port can serve
+    expect(runFs(['Print "["+Command Line$+"]"']).out.trim()).toBe('[]')
+  })
+
   it('Tool Types$ refuses an empty name, and a file that is not an icon', () => {
     // `move.w (a0)+,d0 / Rbeq routine 390` is error 23; a failed GetDiskObject
     // goes to routine 392, which is error 94 -- the same one Examine raises
@@ -3457,8 +3479,9 @@ describe('vectors and extension internals', () => {
     expect(out.trim().replace(/\s+/g, '')).toBe('-1,255,-2')
   })
 
-  it('Amos Cli is zero, because nothing started this from a shell', () => {
-    expect(p('Amos Cli')).toBe('0')
+  it('Amos Cli reports a CLI, because there is no Workbench to report', () => {
+    // see the DEVIATION on the keyword and the test beside Tool Types$
+    expect(p('Amos Cli')).toBe('1')
   })
 
   it('Audio Lock, Flush Libs and Open Workbench have nothing to do here', () => {

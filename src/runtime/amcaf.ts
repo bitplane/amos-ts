@@ -8809,12 +8809,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *     move.l  $8c(a0), d3                  ; pr_CLI, a BPTR
      *
      * so it is not a "number" but the Process's CLI pointer, which is zero
-     * exactly when there is no CLI. Nothing started this from one, so zero --
-     * which the manual gives a use for: "This gives you the choice to either
-     * interprete options from the command line or from the tool types of the
-     * appropriate icon."
+     * exactly when there is no CLI. The manual gives it a use: "This gives
+     * you the choice to either interprete options from the command line or
+     * from the tool types of the appropriate icon."
+     *
+     * DEVIATION: this answers 1, a CLI. There is no Workbench here — no
+     * icons, no WBStartup message, no wa_Name — so zero would claim a start
+     * this port cannot back up, and it sends a program down the branch that
+     * needs an icon it will never find. `Command Line$` is the other branch
+     * and this port does have one.
+     *
+     * The corpus decides how much that matters: four programs mention any of
+     * Amos Cli, Command Name$ and Tool Types$, and two of those only have
+     * "AMOS CLI" in a Print. The two real users, Amotrix and MegaTron, both
+     * write the manual's own either/or and both died on the Workbench side —
+     * `Tool Types$(Command Name$)` with an empty name is `move.w (a0)+,d0 /
+     * Rbeq` in routine 342, an Illegal function call. Nothing in the corpus
+     * refuses to run FROM a CLI.
      */
-    'amos cli': () => VI(0),
+    'amos cli': () => VI(1),
 
     /**
      * =Amcaf Version$ — the extension's own version string.
