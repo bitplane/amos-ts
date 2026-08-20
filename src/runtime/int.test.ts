@@ -17,7 +17,8 @@ import { INT_ERR, INT_ERRORS } from './int'
 import { BARLABEL, NM, NOSUB, fullMenuNum } from '../amiga/gadtools'
 import { IDCMP_CLOSEWINDOW, IDCMP_MENUPICK, WB_SLOT } from '../amiga/intuition'
 import { keyboardSdr } from '../amiga/keyboard'
-import { encodeIlbm } from '../amiga/ilbm'
+import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
+import { AmigaFS } from '../amiga/vfs'
 import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -1232,5 +1233,128 @@ Wb Image To Window 0,1`)
     expect(() => withPic(`Wb Iff To Bank "pic.iff",1\n${SCREEN}\nWb Image To Window 6,1`)).toThrow(
       INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN],
     )
+  })
+})
+
+/**
+ * `Wb Default` --- the teardown, with no arguments at all.
+ */
+describe('Int 1.0: Wb Default', () => {
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
+
+  /**
+   * It counts DOWN from `$b66` to zero and closes every window, then does the
+   * same over the screen table, then `move.l #$ffffffff,$de6` so the next
+   * window opens on the Workbench again.
+   */
+  it('closes every window and screen and sends new windows back to the Workbench', () => {
+    const rt = run(`${SCREEN} : ${FLAGS} : ${IDS}
+Wb Open Window 0,0,0,160,100,10,10,320,256
+Wb Open Window 3,20,20,160,100,10,10,320,256
+Wb Default`)
+    expect([...rt.int.windows.keys()]).toEqual([])
+    expect([...rt.int.screens.keys()]).toEqual([])
+    expect(rt.int.screen).toBe(-1)
+    expect(rt.intuition.windows).toHaveLength(0)
+  })
+
+  /** and a window opened after it lands on the Workbench, not on nothing */
+  it('a window opened afterwards is a Workbench window', () => {
+    const rt = run(`${SCREEN} : ${FLAGS} : ${IDS}
+Wb Open Window 0,0,0,160,100,10,10,320,256
+Wb Default
+Wb Open Window 0,0,10,320,120,100,50,640,240`)
+    expect(rt.int.windows.get(0)!.screenSlot).toBe(WB_SLOT)
+  })
+
+  /**
+   * Three things routine 39 never touches, and each is visible afterwards:
+   * `$d94`, the colour table at `$884`, and the three requester settings.
+   */
+  it('leaves the current window number, the colours and the settings alone', () => {
+    const rt = run(`${SCREEN} : ${FLAGS} : ${IDS}
+Wb Open Window 2,0,0,160,100,10,10,320,256
+Wb Window Num 2
+Wb Palette 0,$111,$222,$333,$444,$555,$666,$777,$888
+Wb Asl Info 1 : Wb Asl Dir "SYS:"
+Wb Default`)
+    expect(rt.int.window).toBe(2)
+    expect(rt.int.colours[1]).toBe(0x222)
+    expect(rt.int.aslHideInfo).toBe(1)
+    expect(String.fromCharCode(...rt.int.aslDir.subarray(0, 4))).toBe('SYS:')
+  })
+
+  /** nothing open is not an error: the descent simply finds empty entries */
+  it('with nothing open it does nothing and raises nothing', () => {
+    expect(() => run('Wb Default')).not.toThrow()
+  })
+})
+
+/**
+ * `Wb Save Iff file$,screen` --- a screen out to an ILBM through iffparse.
+ *
+ * The second argument is a `Wb Open Screen` number and not a bank: routine 89
+ * indexes `$6d4(a4)` with it, and -1 goes through routine 88, which
+ * LockPubScreens the Workbench.
+ */
+describe('Int 1.0: Wb Save Iff', () => {
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,64,32,2,0,1,%0'
+
+  function save(src: string): { rt: Runtime; file: Uint8Array | null } {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.currentDir = 'DH0:'
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[25, ext]]),
+      maxSteps: 3_000_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(3_000))
+    return { rt, file: fs.read('DH0:out.iff') }
+  }
+
+  /**
+   * The BODY IS NOT COMPRESSED, unlike AMOS's own `Save Iff`. Routine 89
+   * builds its BMHD in zone memory that starts zeroed and writes only Width,
+   * Height, nPlanes, PageWidth and PageHeight into it, so the compression
+   * byte at +10 stays 0 -- and there is no ByteRun1 packer in its 2,166 bytes
+   * to put a 1 there.
+   */
+  it('writes an uncompressed ILBM with a zero aspect', () => {
+    const r = save(`${SCREEN}\nWb Save Iff "DH0:out.iff",0`)
+    const f = r.file!
+    expect(f).not.toBeNull()
+    expect(String.fromCharCode(...f.subarray(0, 4))).toBe('FORM')
+    expect(String.fromCharCode(...f.subarray(8, 12))).toBe('ILBM')
+    expect(String.fromCharCode(...f.subarray(12, 16))).toBe('BMHD')
+    // BMHD is at 20: width, height, x, y, nPlanes, masking, compression
+    expect((f[20]! << 8) | f[21]!).toBe(64)
+    expect((f[22]! << 8) | f[23]!).toBe(32)
+    expect(f[28]).toBe(2) // nPlanes
+    expect(f[30]).toBe(0) // compression, where AMOS's own Save Iff writes 1
+    expect(f[34]).toBe(0) // xAspect
+    expect(f[35]).toBe(0) // yAspect
+  })
+
+  /** and what it wrote reads back as the picture it was given */
+  it('the file it writes decodes to the screen it was given', () => {
+    const r = save(`${SCREEN}\nWb Save Iff "DH0:out.iff",0`)
+    const back = parseIlbm(r.file!)
+    expect([back.width, back.height, back.depth]).toEqual([64, 32, 2])
+  })
+
+  /** a screen number with nothing in the `$6d4` table is error 36 */
+  it('a screen nothing opened is Cannot Find Screen', () => {
+    expect(() => save('Wb Save Iff "DH0:out.iff",7')).toThrow(INT_ERRORS[INT_ERR.CANNOT_FIND_SCREEN])
+  })
+
+  /** -1 is routine 88, which locks the public screen: the Workbench */
+  it('screen -1 is the Workbench', () => {
+    const r = save('Wb Save Iff "DH0:out.iff",-1')
+    const back = parseIlbm(r.file!)
+    expect(back.width).toBe(640)
   })
 })

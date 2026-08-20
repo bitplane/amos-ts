@@ -64,7 +64,7 @@ import { RastPort } from '../amiga/graphics'
 import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from '../amiga/cia'
 import { joyDatOf } from '../amiga/gameport'
 import { ICON_BANK } from './banks'
-import { parseIlbm, type IlbmImage } from '../amiga/ilbm'
+import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -158,6 +158,7 @@ export const INT_ERR = {
   NO_ICONS_IN_BANK: 20,
   BANK_NUMBER_IS_TO_LOW: 22,
   CANNOT_FIND_SCREEN: 36,
+  COULD_NOT_SAVE_IFF: 46,
   CANNOT_CREATE_MENUS: 33,
   ONLY_TYPE_1: 44,
 } as const
@@ -1290,6 +1291,84 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * ILBM` is 15 --- checked after the whole file is in the bank, which is
      * why a 900KB text file is read before it is refused.
      */
+    /**
+     * `Wb Default` --- close everything this extension opened, in reverse
+     * order, and let the libraries go.
+     *
+     * No arguments: the token spec is `I` and routine 39 pops nothing. It
+     * counts DOWN from `$b66`, the highest window number, to zero inclusive,
+     * and for each one ClearMenuStrips it (-$36), CloseWindows it (-$48),
+     * frees its gadget list, its menu strip through gadtools FreeMenus and
+     * its image buffer. Then FreeVisualInfo on `$d8c`, then the same descent
+     * over `$b62` and the screen table with CloseScreen (-$42), then
+     * `move.l #$ffffffff,$de6` so new windows go back to the Workbench,
+     * UnlockPubScreen, and CloseLibrary on gadtools and asl.
+     *
+     * Three things it does NOT reset, and each is visible afterwards: `$d94`,
+     * so `Wb Window Num` still names a window that is gone; the colour table
+     * at `$884`; and the three requester settings. A program can call this
+     * and then open a window straight back onto the pattern it set before.
+     */
+    'wb default': () => {
+      const st = s()
+      // descending, which is the order `dbra` gives the table
+      for (const n of [...st.windows.keys()].sort((a, b) => b - a)) {
+        const w = st.windows.get(n)!
+        rt.intuition.closeWindow(w)
+        st.windows.delete(n)
+        st.strips.delete(n)
+        st.menuList.delete(n)
+        st.boolGadgets.delete(n)
+        st.gtGadgets.delete(n)
+        st.rports.delete(n)
+      }
+      for (const n of [...st.screens.keys()].sort((a, b) => b - a)) {
+        rt.intuition.closeScreen(st.screens.get(n)!)
+        st.screens.delete(n)
+      }
+      st.screen = -1
+      st.activeGadget = -1
+    },
+
+    /**
+     * `Wb Save Iff file$,screen` --- an intuition screen out to an ILBM,
+     * through iffparse.
+     *
+     * The second argument is a `Wb Open Screen` number, not a bank: routine
+     * 89 pops it into d0 and indexes `$6d4(a4)`, and -1 goes through routine
+     * 88, which LockPubScreens the name at `$e30` --- the Workbench. It opens
+     * layers.library and iffparse.library first, and the failures are error
+     * 45 and error 46.
+     *
+     * It writes FORM ILBM with BMHD, CMAP, CAMG and BODY, through PushChunk
+     * (-$54), WriteChunkBytes (-$42) and PopChunk (-$5a).
+     *
+     * The BODY IS NOT COMPRESSED, unlike AMOS's own `Save Iff`. The BMHD is
+     * built in zone memory at `$bda`, which starts zeroed, and the only
+     * fields routine 89 writes into it are Width, Height, nPlanes, PageWidth
+     * and PageHeight --- so the compression byte at +10 and both aspect bytes
+     * at +14 stay 0, and there is no ByteRun1 packer in its 2,166 bytes to
+     * put a 1 there.
+     */
+    'wb save iff': (it) => {
+      const path = str(it.evalExpr())
+      it.expect(',')
+      const n = it.evalInt()
+      const st = s()
+      // routine 88 is LockPubScreen on the name at `$e30`, and locking the
+      // default public screen is what brings the Workbench up if it is not
+      if (n === -1) rt.intuition.openWorkBench()
+      const slot = n === -1 ? WB_SLOT : rt.intuition.slotOf(st.screens.get(n) ?? 0)
+      const scr = slot === null ? undefined : rt.screens.get(slot)
+      if (!scr) intError(INT_ERR.CANNOT_FIND_SCREEN)
+      const camg = (scr.hires ? 0x8000 : 0) | (scr.laced ? 4 : 0) | (scr.ham ? 0x800 : 0) | (scr.ehb ? 0x80 : 0)
+      const bytes = encodeIlbm(
+        { width: scr.width, height: scr.height, depth: scr.depth, mode: camg, palette: [...scr.palette], pixels: scr.pixels },
+        { compression: 0, aspect: [0, 0] },
+      )
+      if (!rt.vfs?.writeFile(path, bytes)) intError(INT_ERR.COULD_NOT_SAVE_IFF)
+    },
+
     'wb iff to bank': (it) => {
       const path = str(it.evalExpr())
       it.expect(',')
@@ -1382,6 +1461,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         for (let i = 0; i < rgb.length && i < st.colours.length; i++) st.colours[i] = rgb[i]!
         count = rgb.length
       }
+      // `$d96` empty is LockPubScreen with the name at `$e30`, which brings
+      // the Workbench up when it is not already there
+      if (scrNum === -1) rt.intuition.openWorkBench()
       const slot = scrNum === -1 ? WB_SLOT : rt.intuition.slotOf(st.screens.get(scrNum) ?? 0)
       if (slot === null) intError(INT_ERR.CANNOT_FIND_SCREEN)
       const scr = rt.screens.get(slot)

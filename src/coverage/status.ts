@@ -3741,6 +3741,21 @@ export const FAITHFUL = new Set<string>([
   // words past the image table, which it loads by pushing 32 and calling
   // `Wb Load Rgb` itself.
   'wb iff to bank', 'wb get iff palette',
+  // `Wb Default` is the teardown, and takes no arguments at all: the spec is
+  // `I` and routine 39 pops nothing. It counts DOWN from `$b66` to zero
+  // closing every window, then does the same over `$b62` and the screen
+  // table, then `move.l #$ffffffff,$de6`. Three things it never resets, and
+  // each is visible afterwards: `$d94`, the colour table, and the three
+  // requester settings.
+  //
+  // `Wb Save Iff` writes FORM ILBM with BMHD, CMAP, CAMG and BODY through
+  // iffparse, and its second argument is a `Wb Open Screen` number rather
+  // than a bank. The BODY IS NOT COMPRESSED, unlike AMOS's own `Save Iff`:
+  // routine 89 builds its BMHD in zone memory that starts zeroed and writes
+  // only Width, Height, nPlanes, PageWidth and PageHeight, so the compression
+  // byte at +10 and both aspect bytes stay 0 -- and there is no ByteRun1
+  // packer in its 2,166 bytes to put a 1 there.
+  'wb default', 'wb save iff',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

@@ -81,7 +81,7 @@ is.
 | gui-1.61             |      103 |       63 |           40 |       0 |     100% |
 | gui-2.10             |      204 |      126 |           78 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |       52 |            6 |       4 |      94% |
+| int-1.0              |       62 |       54 |            6 |       2 |      97% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5106 |          298 |    1955 |      73% |
+| **total**            |     7422 |     5108 |          298 |    1953 |      73% |
 
 ## Not applicable, by what would retire it
 
@@ -318,7 +318,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `key speed`
 
-## int-1.0 (94%)
+## int-1.0 (97%)
 
 - **approximated** (6): `wb find string`, `wb flash screen`, `wb gt gadget`,
   `wb image to window`, `wb scroll`, `wb window base`

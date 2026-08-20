@@ -159,8 +159,26 @@ function packRow(row: Uint8Array): number[] {
  * viewport mode) and a row-interleaved BODY. The exact inverse of
  * parseIlbm for the fields AMOS round-trips.
  */
-export function encodeIlbm(img: IlbmImage): Uint8Array {
+/**
+ * What a writer other than AMOS's own `Save Iff` needs to differ about.
+ *
+ * Int 1.0's `Wb Save Iff` builds its whole BMHD in zone memory that starts
+ * zeroed, and writes only Width, Height, nPlanes, PageWidth and PageHeight
+ * into it (routine 89, the `$bda(a4)` stores). So its compression byte and
+ * both aspect bytes stay 0, and there is no ByteRun1 packer anywhere in its
+ * 2,166 bytes.
+ */
+export interface IlbmEncodeOptions {
+  /** BMHD +10: 1 is ByteRun1 and the default, 0 writes the rows straight out */
+  compression?: 0 | 1
+  /** BMHD +14 and +15 */
+  aspect?: [number, number]
+}
+
+export function encodeIlbm(img: IlbmImage, opts: IlbmEncodeOptions = {}): Uint8Array {
   const { width, height, depth, mode, palette, pixels } = img
+  const compression = opts.compression ?? 1
+  const [aspectX, aspectY] = opts.aspect ?? [1, 1]
   const rowBytes = rowBytesFor(width)
   const chunks: Array<[string, number[]]> = []
   chunks.push([
@@ -168,9 +186,9 @@ export function encodeIlbm(img: IlbmImage): Uint8Array {
     [
       width >> 8, width & 255, height >> 8, height & 255,
       0, 0, 0, 0, // x, y
-      depth, 0 /* masking */, 1 /* compression = ByteRun1 */, 0 /* pad */,
+      depth, 0 /* masking */, compression, 0 /* pad */,
       0, 0, // transparent colour
-      1, 1, // aspect x, y
+      aspectX, aspectY,
       width >> 8, width & 255, height >> 8, height & 255, // page w, h
     ],
   ])
@@ -205,7 +223,8 @@ export function encodeIlbm(img: IlbmImage): Uint8Array {
       for (let x = 0; x < width; x++) {
         if (pixels[base + x]! & bit) row[x >> 3]! |= 1 << (7 - (x & 7))
       }
-      body.push(...packRow(row))
+      if (compression === 1) body.push(...packRow(row))
+      else body.push(...row)
     }
   }
   chunks.push(['BODY', body])
