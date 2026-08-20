@@ -3718,6 +3718,11 @@ export const FAITHFUL = new Set<string>([
   // direction rather than a mask, and its four tests overwrite each other so
   // a diagonal loses one.
   'wb mousex', 'wb mousey', 'wb keycode', 'wb clear key', 'wb mouse key', 'wb joy',
+  // The requester's settings, which open no library either: three stores at
+  // `$f7e`, `$107e` and `$dfa` that say what the next `Wb Asl Req` should ask
+  // for. iff_to_bank.AMOS is where they are used, and where the author says
+  // what `Wb Asl Info` means -- "1= Dont Show Info Files 0=Show Info Files".
+  'wb asl pattern', 'wb asl info', 'wb asl dir', 'wb file',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4061,6 +4066,32 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb find string":
+    "Routine 71 ($46b0), and it does not work. DEFECT: the mismatch arm is `cmpa.l a1,a2 / bge` into a " +
+    "`moveq #$0,d3`, and `cmpa.l a1,a2` computes `end - scan`. That is positive for any search whose end is " +
+    "above its start, so the branch is taken on the FIRST mismatched byte and the answer is 0: the keyword can " +
+    "only ever find a string beginning exactly at `start`. Checked against the library rather than off the " +
+    "listing, because a defect this total is worth being sure of -- the bytes at file offset `0x46f4` are " +
+    "`B5 C9 6C`. DEFECT: and a match answers one ABOVE where it began, `move.l a1,d3 / sub.l d4,d3 / " +
+    "addq.l #$1,d3` with a1 one past the matched bytes and d4 the pattern's length. The third argument folds " +
+    "case by comparing the pattern against the memory byte plus 32 and then minus 32, which it does by WRITING " +
+    "to the memory it is searching and putting the byte back on every path -- unobservable here, and what makes " +
+    "the keyword unusable on ROM. Nothing in the eighteen example programs calls it.",
+  "wb asl pattern":
+    "Routine 58 ($3f6e) copies into the buffer at `$f7e` with a loop that tests the byte AFTER the one it just " +
+    "took -- `move.b (a2)+,(a0)+ / tst.b (a2) / beq / dbra` -- and drops the whole call when the string is " +
+    "longer than 256 (`cmpi.w #$100,d0 / bgt`), rather than truncating it. DEFECT: no terminator is written on " +
+    "either exit. The zone is allocated zeroed so the first pattern reads back correctly, but a SHORTER pattern " +
+    "after a longer one only overwrites its own length and the old tail is still there: `#?.iff` then `#?` " +
+    "leaves `#?.iff`, and a pattern can never get shorter for the life of the program. `Wb Asl Dir` escapes " +
+    "this by accident, copying `length + 1` bytes so that a terminated string brings its NUL along.",
+  "wb file":
+    "Routine 35 ($3274) reads `fr_File` out of the FileRequester at `$a96` and hands it back without copying: " +
+    "it walks the buffer to measure it and then writes the length word into the two bytes BEFORE it " +
+    "(`move.w d0,-(a1)`), so every call scribbles two bytes onto asl.library's own structure. No requester has " +
+    "been allocated in this port -- see the note on `Wb Asl Req` -- so this answers the empty string, which is " +
+    "also what the routine's own `tst.l (a0) / beq` arm answers for an empty `fr_File`. The name carries no " +
+    "`$`; the token entry is `wb file` with spec `2`.",
   "wb clear key":
     "Routine 31 ($31ac): `clr.b $bfec01.l` and then a read-back loop, `move.b $bfec01.l,d0 / tst.b d0 / bne` " +
     "back to the clear. The loop is there because the keyboard is a separate microcontroller and can clock the " +

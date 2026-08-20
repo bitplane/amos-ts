@@ -935,3 +935,115 @@ describe('Int 1.0: the input group', () => {
     expect(ask('Wb Joy(1)', push)).toBe(0)
   })
 })
+
+/**
+ * The requester's settings, and the two readers nothing calls.
+ *
+ * `Wb Asl Req` is the only keyword in this group that opens a library. The
+ * three setters just fill in what it will ask for, and iff_to_bank.AMOS is
+ * the shape they are used in.
+ */
+describe('Int 1.0: the requester settings', () => {
+  /** what the buffer reads as, which is up to the first NUL */
+  const upTo = (b: Uint8Array): string => {
+    let out = ''
+    for (const c of b) {
+      if (c === 0) break
+      out += String.fromCharCode(c)
+    }
+    return out
+  }
+
+  /** iff_to_bank.AMOS's first two lines, with the author's own comments */
+  it('the three settings are stored for the next request', () => {
+    const rt = run('Wb Asl Info 1 : Wb Asl Dir "SYS:" : Wb Asl Pattern "#?.iff"')
+    expect(rt.int.aslHideInfo).toBe(1)
+    expect(upTo(rt.int.aslDir)).toBe('SYS:')
+    expect(upTo(rt.int.aslPattern)).toBe('#?.iff')
+  })
+
+  /**
+   * DEFECT: routine 58 writes no terminator on either exit, so a shorter
+   * pattern only overwrites its own length and the old tail survives. A
+   * pattern can never get shorter for the life of the program.
+   */
+  it('a shorter pattern cannot replace a longer one', () => {
+    const rt = run('Wb Asl Pattern "#?.iff" : Wb Asl Pattern "#?"')
+    expect(upTo(rt.int.aslPattern)).toBe('#?.iff')
+  })
+
+  /**
+   * `Wb Asl Dir` does not have that problem, and not because it is careful:
+   * routine 72 copies `length + 1` bytes, so it takes the byte PAST the
+   * string as well, and for a terminated one that byte is the NUL.
+   */
+  it('a shorter directory does replace a longer one, by luck', () => {
+    const rt = run('Wb Asl Dir "Work:Pictures" : Wb Asl Dir "SYS:"')
+    expect(upTo(rt.int.aslDir)).toBe('SYS:')
+  })
+
+  /** `cmpi.w #$100,d0 / bgt` --- the whole call is dropped, not truncated */
+  it('a pattern longer than 256 is ignored entirely', () => {
+    const rt = run(`Wb Asl Pattern "ab" : Wb Asl Pattern String$("x",257)`)
+    expect(upTo(rt.int.aslPattern)).toBe('ab')
+  })
+
+  /**
+   * `=Wb File` reads `fr_File` out of the requester at `$a96`. Nothing has
+   * allocated one, so `tst.l (a0) / beq` gives the empty string.
+   *
+   * No `$` on the name: the token entry is `wb file` with spec `2`.
+   */
+  it('Wb File is empty until a request has answered', () => {
+    const b = boot('Print "["+Wb File+"]"')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[]')
+  })
+})
+
+/**
+ * `=Wb Find String(a$, start To end, fold)`, which does not work.
+ *
+ * Reproduced rather than repaired, and checked against the library rather
+ * than read off a listing: the bytes at file offset `0x46f4` are `B5 C9 6C`,
+ * `cmpa.l a1,a2` and then `bge`. Nothing in the eighteen example programs
+ * calls this keyword, which is consistent with it never having worked.
+ */
+describe('Int 1.0: Wb Find String', () => {
+  const WORK = 'Reserve As Work 10,64'
+
+  function find(setup: string, expr: string): number {
+    const b = boot(`${WORK} : ${setup}\nPrint ${expr}`)
+    mustFinish(b.rt.runHeadless(2_000))
+    return Number(b.out().trim())
+  }
+
+  /**
+   * DEFECT: `cmpa.l a1,a2` computes `end - scan`, and `bge` gives up while
+   * that is positive --- which it is on the very first mismatched byte. So a
+   * string four bytes in is not found at all.
+   */
+  it('finds nothing that does not start exactly at the start address', () => {
+    expect(find('Poke$ Start(10)+4,"HELLO"', 'Wb Find String("HELLO",Start(10) To Start(10)+63,0)')).toBe(0)
+  })
+
+  /**
+   * DEFECT: and a match answers one ABOVE where it began. The success arm is
+   * `move.l a1,d3 / sub.l d4,d3 / addq.l #$1,d3`, with `a1` one past the
+   * matched bytes and `d4` the pattern's length.
+   */
+  it('a match at the start address answers start plus one', () => {
+    expect(find('Poke$ Start(10),"HELLO"', 'Wb Find String("HELLO",Start(10) To Start(10)+63,0)-Start(10)')).toBe(1)
+  })
+
+  /**
+   * The fold path compares the pattern against the memory byte plus 32 and
+   * then minus 32. It does that by writing to the memory and putting it back
+   * on every path, so nothing here can see it happen --- on the machine it is
+   * what makes the keyword unusable on ROM.
+   */
+  it('a non-zero third argument folds case', () => {
+    expect(find('Poke$ Start(10),"hello"', 'Wb Find String("HELLO",Start(10) To Start(10)+63,1)-Start(10)')).toBe(1)
+    expect(find('Poke$ Start(10),"hello"', 'Wb Find String("HELLO",Start(10) To Start(10)+63,0)')).toBe(0)
+  })
+})

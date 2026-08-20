@@ -225,6 +225,19 @@ export class IntState {
    */
   readonly rports = new Map<number, RastPort>()
   /**
+   * `$f7e` and `$107e`, the pattern and directory the next `Wb Asl Req` will
+   * ask for, and `$dfa`, its hide-`.info` flag.
+   *
+   * Byte buffers rather than strings because neither writer terminates what
+   * it copies, and that is observable: see `Wb Asl Pattern`. The zone is
+   * allocated zeroed, so both start empty.
+   */
+  readonly aslPattern = new Uint8Array(0x101)
+  readonly aslDir = new Uint8Array(0x100)
+  aslHideInfo = 0
+  /** `fr_File` of the requester at `$a96`, which `Wb File` reads back */
+  aslFile = ''
+  /**
    * `$884`, the words `Wb Palette` writes and `Wb Load Rgb` hands to
    * LoadRGB4 (-$c0).
    *
@@ -1147,6 +1160,71 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
     'wb clear key': () => {
       rt.input.sdr = 0
     },
+
+    /* ------------------------------------------------------------------
+     * The requester's settings: three stores, no library call between them.
+     *
+     * `Wb Asl Req` is the only keyword here that opens asl.library. These
+     * three fill in what it will ask for, and `Wb File` reads back what it
+     * answered. iff_to_bank.AMOS is the shape, with the author's own
+     * comments:
+     *
+     *     Wb Asl Info 1: Rem   *** 1= Dont Show Info Files 0=Show Info Files ***
+     *     Wb Asl Dir "SYS:": Rem  *** Dir To Display In Asl Requester ***
+     *     F$=Wb Asl Req("Pick A IFF File","Load","Cancel",0,1,125,30,310,193)
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Wb Asl Pattern a$` --- the match pattern, into the buffer at `$f7e`.
+     *
+     * Routine 58 drops the whole call when the string is longer than 256
+     * (`cmpi.w #$100,d0 / bgt`), and otherwise copies with a loop that tests
+     * the byte AFTER the one it just took:
+     *
+     *     move.b (a2)+, (a0)+
+     *     tst.b  (a2) / beq (done)
+     *     dbra   d0, (again)
+     *
+     * DEFECT: no terminator is written on either exit. The buffer is zone
+     * memory, so it starts as zeros and the first pattern reads back
+     * correctly --- but a SHORTER pattern after a longer one only overwrites
+     * its own length and the old tail is still there. `Wb Asl Pattern
+     * "#?.iff"` and then `Wb Asl Pattern "#?"` leaves "#?.iff" in the buffer,
+     * and a pattern can never get shorter for the life of the program.
+     */
+    'wb asl pattern': (it) => {
+      const p = str(it.evalExpr())
+      if (p.length > 0x100) return
+      const buf = s().aslPattern
+      for (let i = 0; i < p.length && i < buf.length; i++) buf[i] = p.charCodeAt(i) & 0xff
+    },
+
+    /**
+     * `Wb Asl Info n` --- `move.l d0,$dfa(a4)` and nothing else.
+     *
+     * What it means is the author's, in iff_to_bank.AMOS: *"1= Dont Show Info
+     * Files 0=Show Info Files"*. So it hides Workbench's `.info` files from
+     * the requester.
+     */
+    'wb asl info': (it) => {
+      s().aslHideInfo = it.evalInt()
+    },
+
+    /**
+     * `Wb Asl Dir a$` --- the directory to open in, at `$107e`.
+     *
+     * Routine 72 copies `length + 1` bytes (`move.w (a0)+,d0` then
+     * `dbra d0`), so it takes one byte from PAST the string --- the
+     * terminator, when there is one. Unlike `Wb Asl Pattern` there is no
+     * length check at all, so a long enough string writes past the buffer
+     * into whatever the zone holds after it.
+     */
+    'wb asl dir': (it) => {
+      const d = str(it.evalExpr())
+      const buf = s().aslDir
+      for (let i = 0; i < d.length && i < buf.length; i++) buf[i] = d.charCodeAt(i) & 0xff
+      if (d.length < buf.length) buf[d.length] = 0
+    },
   }
 }
 
@@ -1489,6 +1567,87 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
       const high = w & 0x300
       if (high === 0x100 || high === 0x200) dir = 4
       return VI(dir + fire)
+    },
+
+    /**
+     * `=Wb File` --- the filename the last `Wb Asl Req` answered.
+     *
+     * Routine 35 reads `$a96`, the FileRequester `Wb Asl Req` allocated, then
+     * `$4(a0)`, which is `fr_File`. It walks that to the NUL to measure it
+     * and then writes the length word into the two bytes BEFORE the buffer
+     * (`move.w d0,-(a1)`) so the result can be handed back as an AMOS string
+     * without copying --- so it scribbles two bytes onto asl.library's own
+     * structure every time it is called.
+     *
+     * An empty `fr_File` is `tst.l (a0) / beq` into `moveq #$0,d3`, a null
+     * string pointer with the type still 2. That is the empty string.
+     *
+     * The name has no `$` on it, which is the token table's spelling and not
+     * a slip here: the entry is `wb file` with spec `2`.
+     */
+    'wb file': (): Value => VS(s().aslFile),
+
+    /**
+     * `=Wb Find String(a$, start To end, fold)` --- a byte search of the
+     * modelled address space, and it does not work.
+     *
+     * Routine 71 walks `a1` from `start` and matches the pattern byte by
+     * byte, taking the byte after the string as its terminator. On a
+     * mismatch, with `fold` zero, it reaches this:
+     *
+     *     cmpa.l a1, a2
+     *     bge.b  (not found, answer 0)
+     *     movea.l d3, a0        reset the pattern
+     *     bra    (try again at a1)
+     *
+     * DEFECT: `cmpa.l a1,a2` computes `a2 - a1`, and `a2` is `end` while `a1`
+     * is where the scan has got to. For any search where `end` is above
+     * `start` --- which is every sensible one --- the branch is taken on the
+     * FIRST mismatched byte and the answer is 0. So it can only ever find a
+     * string that begins exactly at `start`. The bytes are `B5 C9 6C` at file
+     * offset `0x46f4`, checked against the library rather than read off the
+     * listing, because a defect this total is worth being sure of. Nothing in
+     * the eighteen example programs calls this keyword.
+     *
+     * DEFECT: and a match answers `start + 1`. The success arm is
+     * `move.l a1,d3 / sub.l d4,d3 / addq.l #$1,d3` with `a1` one past the
+     * matched bytes and `d4` the pattern's length, so the address it computes
+     * is one above where the match began.
+     *
+     * The `fold` path compares the pattern against the memory byte plus 32
+     * and then against it minus 32, which is case-insensitivity for letters.
+     * It does that by WRITING to the memory it is searching --- `addi.b
+     * #$20,(a1)`, compare, `subi.b #$20,-(a1)` --- and every path puts the
+     * byte back, so nothing here can see it happen. On the machine it makes
+     * the keyword unusable on ROM.
+     */
+    'wb find string': (_, a): Value => {
+      const pat = str(a[0]!)
+      const end = int(a[2]!)
+      const fold = int(a[3]!)
+      const byteAt = (addr: number): number => {
+        const m = rt.resolveAddr(addr >>> 0)
+        return m ? (m.data[m.off] ?? 0) : 0
+      }
+      // a transliteration, because every branch here matters: `a1` is the
+      // scan pointer, `ai` is a0's distance into the pattern, and the arm at
+      // $46d4 jumps back to the MATCH label and not to the top, so the
+      // `a1 == a2` test happens exactly once
+      let a1 = int(a[1]!)
+      const found = (): Value => VI((a1 - pat.length + 1) | 0)
+      if (a1 === end) return found()
+      let ai = 0
+      for (;;) {
+        if (ai === pat.length) return found()
+        const want = pat.charCodeAt(ai) & 0xff
+        const got = byteAt(a1)
+        ai++
+        a1++
+        if (want === got) continue
+        if (fold !== 0 && (want === ((got + 0x20) & 0xff) || want === ((got - 0x20) & 0xff))) continue
+        if (end >= a1) return VI(0)
+        ai = 0
+      }
     },
   }
 }
