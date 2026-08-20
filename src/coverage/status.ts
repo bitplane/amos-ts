@@ -3728,6 +3728,19 @@ export const FAITHFUL = new Set<string>([
   // DrawImage (-$72). A blitter copy through PlanePick, so colour 0 is a
   // colour and paints.
   'wb paste icon',
+  // The IFF loader, which decodes nothing. Routine 49 opens the file with
+  // dos.library, takes its length from fib_Size, reserves `size + 16` under
+  // the name "IFF.Pic." and Reads it in whole -- and only then walks the
+  // chunks, for BMHD's width/height/nPlanes and CAMG's low word, stopping at
+  // BODY. iff_to_bank.AMOS states the layout from the other side, reading
+  // `Deek(Start(1))` through `Deek(Start(1)+6)` for those four. The FORM is
+  // eight bytes further in, which is where the two readers walk from.
+  //
+  // `Wb Get Iff Palette` packs RGB4 in four instructions with no rounding
+  // (`andi.w #$f0` then two `lsr.b #$4`), and takes an icon bank too: 32
+  // words past the image table, which it loads by pushing 32 and calling
+  // `Wb Load Rgb` itself.
+  'wb iff to bank', 'wb get iff palette',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4071,6 +4084,17 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "wb image to window":
+    "Routine 50 ($3998), 1,190 bytes: a full ILBM decoder over BMHD, CMAP, CRNG and CAMG, unpacking the BODY " +
+    "into memory it AllocMems, then DrawImage (-$72) at 0,0 and LoadRGB4 (-$c0). So the picture lands at the " +
+    "window's TOP-LEFT INCLUDING its border, under whatever decoration Intuition draws there, and brings its " +
+    "own colour map -- which is why iff_to_bank.AMOS never calls `Wb Get Iff Palette` and the picture still " +
+    "comes out in colour. Window first and bank second, the reverse of `Wb Get Iff Palette`: routine 50 pops " +
+    "the bank into d3 and the window into d7. APPROXIMATED for one arm only. `IFF.Pic.` is the file whole and " +
+    "goes through ../amiga/ilbm.ts, which is the same decoder `Load Iff` uses. `IFF.Raw ` is what `Wb Dt Image " +
+    "To Screen` writes instead -- no chunks, the four-word header then the planes, with 3 * 2^depth bytes of " +
+    "colour map at the end -- and that layout is DERIVED, from routine 82's `lea $18(a0),a0` and its " +
+    "subtraction off the bank's length. Nothing in this port writes such a bank yet, so nothing checks it.",
   "wb paste icon":
     "Routine 76 ($483a) walks AMOS's bank list at `$5ea(a5)` for bank 2 -- `moveq #$2,d3`, a literal and not an " +
     "argument -- and checks the eight bytes it starts with against `$49636f6e` and `$73202020`, \"Icons   \". " +

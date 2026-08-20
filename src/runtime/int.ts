@@ -63,6 +63,8 @@ import type { Runtime } from './runtime'
 import { RastPort } from '../amiga/graphics'
 import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from '../amiga/cia'
 import { joyDatOf } from '../amiga/gameport'
+import { ICON_BANK } from './banks'
+import { parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -149,7 +151,13 @@ export const INT_ERR = {
   NUMBER_IS_TO_HIGH: 9,
   CANNOT_MOVE_THIS_WINDOW: 10,
   WINDOW_IS_NOT_OPEN: 11,
+  NOT_ENOUGH_MEMORY_TO_LOAD_IFF: 13,
+  FILE_NOT_FOUND: 14,
+  NOT_AN_IFF_FILE: 15,
+  NO_IFF_IN_BANK: 16,
   NO_ICONS_IN_BANK: 20,
+  BANK_NUMBER_IS_TO_LOW: 22,
+  CANNOT_FIND_SCREEN: 36,
   CANNOT_CREATE_MENUS: 33,
   ONLY_TYPE_1: 44,
 } as const
@@ -1252,6 +1260,174 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * ABOVE the count returns quietly, and an index of 0 indexes six bytes
      * BELOW the table with nothing to stop it.
      */
+    /**
+     * `Wb Iff To Bank file$,n` --- the whole ILBM into a bank, unparsed,
+     * behind four words that describe it.
+     *
+     * Routine 49 does no image decoding at all. It opens the file with
+     * dos.library, takes its length from `fib_Size` at `$7c` of a
+     * FileInfoBlock, reserves `size + 16` under the name at `$e6c` --- which
+     * is the string "IFF.Pic." at code $1536 --- and `Read`s the file in
+     * whole. Only then does it walk the chunks, and only for two of them:
+     * BMHD's width, height and nPlanes, and CAMG's low word. BODY ends both
+     * walks.
+     *
+     * The layout is what iff_to_bank.AMOS reads back:
+     *
+     *     Start(n)+0   width       BMHD +0
+     *     Start(n)+2   height      BMHD +2
+     *     Start(n)+4   mode        CAMG's low word, 0 when there is no CAMG
+     *     Start(n)+6   depth       BMHD +8, one byte, sign-extended
+     *     Start(n)+8   the file, from its `FORM`
+     *
+     * On the machine the eight bytes of the bank's NAME sit in front of that
+     * and `Start` answers past them; here the name is a field of the bank, so
+     * the reserve is still `size + 16` and the last eight bytes go unused.
+     *
+     * `moveq #$2,d1` on AllocDosObject is DOS_FIB and `move.l #$3ed,d2` on
+     * Open is MODE_OLDFILE. A bank number of 0 is error 22 before anything is
+     * opened, an unreadable file is 14, and anything that is not `FORM....
+     * ILBM` is 15 --- checked after the whole file is in the bank, which is
+     * why a 900KB text file is read before it is refused.
+     */
+    'wb iff to bank': (it) => {
+      const path = str(it.evalExpr())
+      it.expect(',')
+      const n = it.evalInt()
+      if (n === 0) intError(INT_ERR.BANK_NUMBER_IS_TO_LOW)
+      // `move.w (a0)+,d1 / beq` --- an empty name never reaches Open
+      if (path === '') intError(INT_ERR.FILE_NOT_FOUND)
+      const bytes = rt.fs?.read(path)
+      if (!bytes) intError(INT_ERR.FILE_NOT_FOUND)
+      rt.reserveBank(n, bytes.length + 16, 'IFF.Pic.')
+      const data = rt.memBanks.get(n)!.data
+      data.set(bytes, 8)
+      const id = (at: number): string => String.fromCharCode(...bytes.subarray(at, at + 4))
+      if (bytes.length < 12 || id(0) !== 'FORM' || id(8) !== 'ILBM') intError(INT_ERR.NOT_AN_IFF_FILE)
+      const be32 = (at: number): number =>
+        ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0
+      const put = (off: number, v: number): void => {
+        data[off] = (v >> 8) & 0xff
+        data[off + 1] = v & 0xff
+      }
+      // the walk is `bsr` to a four-byte reader, twice per chunk, and it
+      // stops at BODY without ever looking for the chunk it wants again
+      const form = be32(4)
+      let at = 12
+      let seen = 12
+      for (;;) {
+        if (at + 8 > bytes.length) break
+        const chunk = id(at)
+        const len = be32(at + 4)
+        if (chunk === 'BODY') break
+        if (chunk === 'BMHD') {
+          put(0, (bytes[at + 8]! << 8) | bytes[at + 9]!)
+          put(2, (bytes[at + 10]! << 8) | bytes[at + 11]!)
+          // `move.b $8(a0),d0 / ext.w d0` -- nPlanes is one byte and it is
+          // sign-extended, so a depth above 127 comes back negative
+          put(6, ((bytes[at + 16]! << 24) >> 24) & 0xffff)
+        }
+        if (chunk === 'CAMG') put(4, (bytes[at + 10]! << 8) | bytes[at + 11]!)
+        at += 8 + len + (len & 1)
+        seen += 8 + len
+        if (seen >= form) break
+      }
+    },
+
+    /**
+     * `Wb Get Iff Palette bank,screen` --- a colour map into `$884` and then
+     * LoadRGB4 on the screen's ViewPort.
+     *
+     * Routine 82 takes three kinds of bank, told apart by the eight bytes of
+     * name that begin one:
+     *
+     *  - `IFF.Pic.` --- walk the FORM at `Start(n)+8` for a CMAP, then
+     *    `move.l (a0)+,d0 / divu.w #$3,d0` for the colour count.
+     *  - `IFF.Raw ` --- no chunks at all: the palette is `3 * 2^depth` bytes
+     *    at the END of the bank, found by subtracting from the bank's length.
+     *  - `Icons   ` --- 32 words sitting just past the image table, which it
+     *    loads by pushing 32 and calling `Wb Load Rgb` itself.
+     *
+     * The RGB4 packing is four instructions and no rounding: `andi.w #$f0`
+     * on red, then two `lsr.b #$4`, so each 8-bit component keeps its top
+     * nibble and the bottom one is dropped.
+     *
+     * The screen is `$6d4`, the `Wb Open Screen` table, or the Workbench for
+     * -1. A number with nothing in the table is error 36.
+     *
+     * DEFECT: `divu.w` leaves its REMAINDER in the top half of d0 and
+     * `move.l d0,d4` takes the whole longword, which is what LoadRGB4 is
+     * given as a count. A CMAP whose length is not a multiple of three
+     * therefore asks for tens of thousands of colours. Every well-formed one
+     * is a multiple of three, which is why it has never mattered.
+     */
+    'wb get iff palette': (it) => {
+      const st = s()
+      const bank = it.evalInt()
+      it.expect(',')
+      const scrNum = it.evalInt()
+      if (bank === 0) intError(INT_ERR.BANK_NUMBER_IS_TO_LOW)
+      let count = 0
+      if (bank === ICON_BANK && rt.iconBank) {
+        // the icon bank's own palette, which ../runtime/objects.ts keeps
+        // beside the images rather than after them
+        const pal = rt.iconBank.palette
+        for (let i = 0; i < 32; i++) st.colours[i] = pal[i] ?? 0
+        count = 32
+      } else {
+        const mem = rt.memBanks.get(bank)
+        if (!mem) intError(INT_ERR.NO_IFF_IN_BANK)
+        const rgb = iffBankPalette(mem.name, mem.data)
+        if (rgb === null) intError(INT_ERR.NO_IFF_IN_BANK)
+        for (let i = 0; i < rgb.length && i < st.colours.length; i++) st.colours[i] = rgb[i]!
+        count = rgb.length
+      }
+      const slot = scrNum === -1 ? WB_SLOT : rt.intuition.slotOf(st.screens.get(scrNum) ?? 0)
+      if (slot === null) intError(INT_ERR.CANNOT_FIND_SCREEN)
+      const scr = rt.screens.get(slot)
+      if (!scr) intError(INT_ERR.CANNOT_FIND_SCREEN)
+      for (let i = 0; i < count && i < scr.palette.length; i++) scr.palette[i] = st.colours[i]! & 0x0fff
+    },
+
+    /**
+     * `Wb Image To Window window,bank` --- the picture in a bank, decoded and
+     * drawn at the window's origin, with its colour map.
+     *
+     * Routine 50 takes the same two bank names as `Wb Get Iff Palette` and
+     * tells them apart the same way, `IFF.Pic.` through a full chunk walk and
+     * `IFF.Raw ` with `moveq #$ff,d2` marking it. It clears twenty-four
+     * longwords of workspace at `$b02` first, decodes BMHD, CMAP, CRNG and
+     * CAMG, unpacks the BODY into memory it AllocMems, hands the result to
+     * DrawImage (-$72) at 0,0 and the colour map to LoadRGB4 (-$c0). So the
+     * picture lands at the window's top-left corner and brings its palette
+     * with it --- which is why iff_to_bank.AMOS never calls
+     * `Wb Get Iff Palette` and the picture still comes out in colour.
+     *
+     * The argument order is window first and bank second, the reverse of
+     * `Wb Get Iff Palette`: routine 50 pops the bank into d3 and the window
+     * into d7, and a3 walks the parameter block backwards.
+     */
+    'wb image to window': (it) => {
+      const win = it.evalInt()
+      it.expect(',')
+      const bank = it.evalInt()
+      if (bank === 0) intError(INT_ERR.BANK_NUMBER_IS_TO_LOW)
+      const mem = rt.memBanks.get(bank)
+      if (!mem) intError(INT_ERR.NO_IFF_IN_BANK)
+      const pic = iffBankImage(mem.name, mem.data)
+      if (pic === null) intError(INT_ERR.NO_IFF_IN_BANK)
+      const { rp, ox, oy } = target(win)
+      const scr = rt.screens.get(windowOf(s(), win).screenSlot)
+      if (scr) for (let i = 0; i < pic.palette.length && i < scr.palette.length; i++) scr.palette[i] = pic.palette[i]! & 0x0fff
+      for (let y = 0; y < pic.height; y++) {
+        for (let x = 0; x < pic.width; x++) {
+          const sx = ox + x
+          const sy = oy + y
+          if (rp.inClip(sx, sy)) rp.putPixel(sx, sy, pic.pixels[y * pic.width + x]!)
+        }
+      }
+    },
+
     'wb paste icon': (it) => {
       const x = it.evalInt()
       it.expect(',')
@@ -1402,6 +1578,94 @@ function four(it: Parameters<Instr>[0], leading = false): [number, number, numbe
     out.push(it.evalInt())
   }
   return [out[0]!, out[1]!, out[2]!, out[3]!]
+}
+
+/**
+ * The colour map of an `IFF.Pic.` or `IFF.Raw ` bank, as RGB4 words.
+ *
+ * Null for a bank whose eight-byte name is neither, which routine 82 answers
+ * with error 16. The packing keeps each component's top nibble and drops the
+ * rest: `andi.w #$f0,d1` and two `lsr.b #$4`, with no rounding anywhere.
+ */
+function iffBankPalette(name: string, data: Uint8Array): number[] | null {
+  const rgb4 = (r: number, g: number, b: number): number => ((r & 0xf0) << 4) | (g & 0xf0) | (b >> 4)
+  const be32 = (at: number): number =>
+    ((data[at]! << 24) | (data[at + 1]! << 16) | (data[at + 2]! << 8) | data[at + 3]!) >>> 0
+  if (name === 'IFF.Raw ') {
+    // `3 * 2^depth` bytes at the very end, reached by subtracting from the
+    // bank's own length rather than by any chunk walk
+    const depth = ((data[6]! << 8) | data[7]!) & 0xffff
+    const n = 1 << depth
+    const at = data.length - 8 - n * 3
+    if (at < 8) return null
+    const out: number[] = []
+    for (let i = 0; i < n; i++) out.push(rgb4(data[at + i * 3]!, data[at + i * 3 + 1]!, data[at + i * 3 + 2]!))
+    return out
+  }
+  if (name !== 'IFF.Pic.') return null
+  // the FORM begins eight bytes into the bank; walk to CMAP
+  const form = be32(12)
+  let at = 20
+  let seen = 12
+  while (at + 8 <= data.length && seen < form) {
+    const chunk = String.fromCharCode(...data.subarray(at, at + 4))
+    const len = be32(at + 4)
+    if (chunk === 'CMAP') {
+      const n = Math.floor(len / 3)
+      const out: number[] = []
+      for (let i = 0; i < n; i++) {
+        const p = at + 8 + i * 3
+        out.push(rgb4(data[p]!, data[p + 1]!, data[p + 2]!))
+      }
+      return out
+    }
+    at += 8 + len + (len & 1)
+    seen += 8 + len
+  }
+  return null
+}
+
+/**
+ * The picture in an `IFF.Pic.` or `IFF.Raw ` bank, or null for a bank that is
+ * neither --- which routine 50 answers with error 16.
+ *
+ * `IFF.Pic.` holds the file whole from `Start(n)+8`, so the decoder is
+ * ../amiga/ilbm.ts's. `IFF.Raw ` is what `Wb Dt Image To Screen` writes
+ * instead: no chunks at all, the four-word header and then the planes, with
+ * `3 * 2^depth` bytes of colour map at the end. That layout is DERIVED, from
+ * routine 82's `lea $18(a0),a0` and its subtraction off the bank's length,
+ * and nothing in this port writes such a bank yet for it to be checked
+ * against.
+ */
+function iffBankImage(name: string, data: Uint8Array): IlbmImage | null {
+  if (name === 'IFF.Pic.') {
+    try {
+      return parseIlbm(data.subarray(8))
+    } catch {
+      return null
+    }
+  }
+  if (name !== 'IFF.Raw ') return null
+  const w = (at: number): number => ((data[at]! << 8) | data[at + 1]!) & 0xffff
+  const width = w(0)
+  const height = w(2)
+  const mode = w(4)
+  const depth = w(6)
+  const palette = iffBankPalette(name, data)
+  if (palette === null || width === 0 || height === 0 || depth === 0) return null
+  const rowBytes = ((width + 15) >> 4) * 2
+  const pixels = new Uint8Array(width * height)
+  const at = 16
+  for (let y = 0; y < height; y++) {
+    for (let p = 0; p < depth; p++) {
+      const row = at + (y * depth + p) * rowBytes
+      for (let x = 0; x < width; x++) {
+        const b = data[row + (x >> 3)] ?? 0
+        if ((b >> (7 - (x & 7))) & 1) pixels[y * width + x] = (pixels[y * width + x] ?? 0) | (1 << p)
+      }
+    }
+  }
+  return { width, height, depth, mode, palette, pixels }
 }
 
 export function makeIntFunctions(rt: Runtime): Record<string, Func> {

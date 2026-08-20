@@ -17,6 +17,7 @@ import { INT_ERR, INT_ERRORS } from './int'
 import { BARLABEL, NM, NOSUB, fullMenuNum } from '../amiga/gadtools'
 import { IDCMP_CLOSEWINDOW, IDCMP_MENUPICK, WB_SLOT } from '../amiga/intuition'
 import { keyboardSdr } from '../amiga/keyboard'
+import { encodeIlbm } from '../amiga/ilbm'
 import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -24,13 +25,14 @@ const table = new TokenTable(CORE_TOKENS)
 const ext = extensionById('int-1.0')!
 const exts = new Map([[25, ext.table]])
 
-function boot(src: string): { rt: Runtime; out: () => string } {
+function boot(src: string, files?: Record<string, Uint8Array>): { rt: Runtime; out: () => string } {
   let out = ''
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[25, ext]]),
-    maxSteps: 2_000_000,
+    maxSteps: 3_000_000,
     onText: (t) => (out += t),
+    ...(files ? { fs: { read: (p: string) => files[p] ?? null } } : {}),
   })
   return { rt, out: () => out }
 }
@@ -1108,6 +1110,126 @@ Wb Paste Icon 40,30,1`,
   /** and the window lookup is the same `moveq #$b,d0` as the drawing group */
   it('no window open is Window Is Not Open', () => {
     expect(() => run(`${ICON}\n${SCREEN}\nWb Window Num 4 : Wb Paste Icon 0,0,1`)).toThrow(
+      INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN],
+    )
+  })
+})
+
+/**
+ * The IFF group: a bank holding the file whole, and the two keywords that
+ * read it back.
+ *
+ * iff_to_bank.AMOS is the shape all three are used in, and where the bank's
+ * layout is stated from the other side: `BASE=Start(1)` then `Deek(BASE)`,
+ * `Deek(BASE+2)`, `Deek(BASE+4)` and `Deek(BASE+6)` for width, height, mode
+ * and depth.
+ */
+describe('Int 1.0: the IFF group', () => {
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+
+  /** a picture whose pixel at (x,y) is (x+y) & 3, so a blit's offset shows */
+  function picture(width: number, height: number): Uint8Array {
+    const pixels = new Uint8Array(width * height)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) pixels[y * width + x] = (x + y) & 3
+    return encodeIlbm({ width, height, depth: 2, mode: 0x8004, palette: [0x000, 0xf00, 0x0f0, 0x00f], pixels })
+  }
+
+  function withPic(src: string, w = 32, h = 32): { rt: Runtime; out: string } {
+    const b = boot(src, { 'pic.iff': picture(w, h), 'notiff.txt': new Uint8Array([1, 2, 3, 4]) })
+    mustFinish(b.rt.runHeadless(3_000))
+    return { rt: b.rt, out: b.out().trim() }
+  }
+
+  /**
+   * Routine 49 reserves `size + 16` under the name at `$e6c`, which is the
+   * string "IFF.Pic." at code $1536, reads the file in whole and only then
+   * walks it for BMHD and CAMG. On the machine the bank's eight-byte name
+   * sits in front of the four words and `Start` answers past it; the name is
+   * a field of the bank here, so the reserve is still `size + 16` and the
+   * last eight bytes go unused.
+   */
+  it('Wb Iff To Bank stores the file whole behind four words', () => {
+    const r = withPic(`Wb Iff To Bank "pic.iff",1
+BASE=Start(1)
+Print Deek(BASE);",";Deek(BASE+2);",";Hex$(Deek(BASE+4));",";Deek(BASE+6)`)
+    expect(r.out.replace(/\s+/g, '')).toBe('32,32,$8004,2')
+    const mem = r.rt.memBanks.get(1)!
+    expect(mem.name).toBe('IFF.Pic.')
+    // the FORM begins eight bytes in, which is what `Wb Image To Window` and
+    // `Wb Get Iff Palette` both walk from
+    expect(String.fromCharCode(...mem.data.subarray(8, 12))).toBe('FORM')
+    expect(mem.data.length).toBe(picture(32, 32).length + 16)
+  })
+
+  /** the bank number is checked before anything is opened */
+  it('bank 0 is Bank Number Is To Low', () => {
+    expect(() => withPic('Wb Iff To Bank "pic.iff",0')).toThrow(INT_ERRORS[22])
+  })
+
+  /** `move.w (a0)+,d1 / beq` --- an empty name never reaches Open */
+  it('an empty or missing file is File Not Found', () => {
+    expect(() => withPic('Wb Iff To Bank "",1')).toThrow(INT_ERRORS[14])
+    expect(() => withPic('Wb Iff To Bank "nope.iff",1')).toThrow(INT_ERRORS[14])
+  })
+
+  /**
+   * The FORM check happens AFTER the whole file is in the bank, so a file
+   * that is not a picture is read in full before it is refused.
+   */
+  it('a file that is not FORM....ILBM is Not An IFF File, after it is read', () => {
+    expect(() => withPic('Wb Iff To Bank "notiff.txt",1')).toThrow(INT_ERRORS[15])
+  })
+
+  /**
+   * `move.l (a0)+,d0 / divu.w #$3,d0` for the count, then four instructions
+   * of packing with no rounding: each 8-bit component keeps its top nibble.
+   */
+  it('Wb Get Iff Palette walks the FORM for CMAP and loads the screen', () => {
+    const r = withPic(`Wb Iff To Bank "pic.iff",1
+${SCREEN}
+Wb Get Iff Palette 1,0`)
+    const slot = r.rt.intuition.slotOf(r.rt.int.screens.get(0)!)!
+    expect([...r.rt.screens.get(slot)!.palette.slice(0, 4)]).toEqual([0x000, 0xf00, 0x0f0, 0x00f])
+    // and it goes through the same `$884` table `Wb Palette` writes
+    expect([...r.rt.int.colours.slice(0, 4)]).toEqual([0x000, 0xf00, 0x0f0, 0x00f])
+  })
+
+  /** a bank whose eight bytes are neither name is error 16 */
+  it('a bank that is not an IFF bank is No IFF In Bank', () => {
+    expect(() => withPic(`${SCREEN}\nReserve As Work 3,64 : Wb Get Iff Palette 3,0`)).toThrow(INT_ERRORS[16])
+    expect(() => withPic(`${SCREEN}\nWb Get Iff Palette 5,0`)).toThrow(INT_ERRORS[16])
+  })
+
+  /** and a screen number with nothing in the `$6d4` table is error 36 */
+  it('a screen number nothing opened is Cannot Find Screen', () => {
+    expect(() => withPic(`Wb Iff To Bank "pic.iff",1\nWb Get Iff Palette 1,4`)).toThrow(INT_ERRORS[36])
+  })
+
+  /**
+   * DrawImage at 0,0 in wd_RPort, so the picture lands at the window's
+   * top-left INCLUDING its border --- the title bar is drawn over the top of
+   * it by the frame loop, exactly as Intuition draws over a window that
+   * renders under its own decoration.
+   *
+   * Window first and bank second, which is the reverse of
+   * `Wb Get Iff Palette`: routine 50 pops the bank into d3 and the window
+   * into d7.
+   */
+  it('Wb Image To Window draws at the window origin and brings its palette', () => {
+    const r = withPic(`Wb Iff To Bank "pic.iff",1
+${WIN}
+Wb Image To Window 0,1`)
+    const scr = r.rt.screens.get(r.rt.int.windows.get(0)!.screenSlot)!
+    // the window is at 0,0 and its title bar covers the first rows, so read
+    // one well below it; the picture's pixel at (x,y) is (x+y) & 3
+    for (let x = 8; x < 16; x++) expect(scr.rp.point(x, 20)).toBe((x + 20) & 3)
+    expect([...scr.palette.slice(0, 4)]).toEqual([0x000, 0xf00, 0x0f0, 0x00f])
+  })
+
+  /** the same `moveq #$b,d0` window lookup as everything else here */
+  it('Wb Image To Window with no such window is Window Is Not Open', () => {
+    expect(() => withPic(`Wb Iff To Bank "pic.iff",1\n${SCREEN}\nWb Image To Window 6,1`)).toThrow(
       INT_ERRORS[INT_ERR.WINDOW_IS_NOT_OPEN],
     )
   })
