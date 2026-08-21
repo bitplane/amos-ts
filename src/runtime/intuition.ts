@@ -8,15 +8,30 @@
  * them, and the table read out of `Intuition.lib` agrees with the one they
  * assemble to on all 183 names.
  *
- * ## What is readable and what is not
+ * ## ALL of it is readable, and two directories hold it
  *
- * The KEYWORD routines are all assembler and all shipped. What several of
- * them call is not: `jtcall OpenIscr` and its neighbours are entries in
- * `jumptable.i` implemented in a compiled C blob that `extcode.s` pulls in
- * with `incbin "obj/extcode"`. So the argument order, the defaults each
- * variant fills in, and the error paths are read from the source; the bodies
- * are read from the binary, and where neither settles a question the guide is
- * quoted as a clue and marked as one.
+ * `src/` is the keyword layer and `src2/` is the external code segment that
+ * `extcode.s` pulls in with `incbin "obj/extcode"` --- eleven more assembler
+ * files, not the compiled C it looks like from `src/` alone. `OpenIscr` and
+ * `OpenIwin` live in `src2/screens.s` and `src2/windows.s`. The makefile is
+ * what says so: `EXTOBJ` lists the objects and `EXTSRC` maps them back to
+ * `src2/%1.s`.
+ *
+ * ## Two traps in reading it, both real
+ *
+ * `output.s` IS NOT BUILT. It defines `L_Itext`, `L_Icentre`, `L_Iwrite` and
+ * two more that `text.s` also defines, and the makefile's `INTSRC0` lists
+ * `text.s` and `graphics.s` and never `output.s`. It is a superseded copy,
+ * and `graphics.s` is its replacement --- with `Ipaste Bob` and `=Ipoint`
+ * that `output.s` has never heard of.
+ *
+ * And the source is NOT what built the binary. `windows.s`:105 is
+ * `mvoe.l d0,a1`, which cannot assemble, and the binary has `movea.l`. So:
+ * source for structure, binary where it matters. `SAFE_GRPOS` is the case
+ * that pays for the rule --- `graphics.s` guards four range checks with
+ * `ifd SAFE_GRPOS`, `defs.i`:46 has the `equ` commented out, and the binary
+ * confirms it: `ilocate gr` goes from `move.l (a3)+,d0` straight to SetCoords
+ * with nothing in between.
  *
  * ## The slot is 14, and the extension disagrees with itself about it
  *
@@ -37,6 +52,7 @@ import { AmosError, VI, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
+import { RastPort } from '../amiga/graphics'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, type Window } from '../amiga/intuition'
 
 /**
@@ -215,6 +231,14 @@ export interface IextWindow {
   /** `we_Flags`, of which `=Iwindow Status` hands back two bits */
   flags: number
   title: string
+  /**
+   * `wd_RPort`, made on demand.
+   *
+   * `GetCurRP` is what every drawing keyword opens with, and the pens, the
+   * draw mode and the graphics cursor are its state --- which is why `Iink`
+   * is a mode and `Idraw To` has somewhere to draw FROM.
+   */
+  rp?: RastPort
 }
 
 export class IextState {
@@ -469,6 +493,18 @@ function sizeIwindow(rt: Runtime, st: IextState, it: Parameters<Instr>[0], onWb:
   rt.intuition.sizeWindow(w, nw - w.width, nh - w.height)
 }
 
+/** `x1,y1 To x2,y2`, the shape the `t` in a spec marks */
+function rectTo(it: Parameters<Instr>[0]): [number, number, number, number] {
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  return [x1, y1, x2, y2]
+}
+
 /** an argument that may be left out, which AMOS compiles to EntNul */
 function omittable(it: Parameters<Instr>[0]): number | null {
   return it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
@@ -476,6 +512,78 @@ function omittable(it: Parameters<Instr>[0]): number | null {
 
 /** `defs.i`:171-173 --- what `OpenIwin` uses when the flags are Null */
 const IEXT_WFLAGS = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000
+
+
+/**
+ * `GetCurRP`: the current window's RastPort, and where its origin sits.
+ *
+ * A window's RPort has its origin at the window's top-left and is clipped to
+ * it, so the port carries an offset beside it -- the same shape ./jdint.ts
+ * and ./int.ts use, and for the same reason.
+ */
+function curRp(rt: Runtime, st: IextState): { rp: RastPort; ox: number; oy: number; w: IextWindow } {
+  const w = curIwin(st)
+  if (!w.rp) {
+    const bitMap = rt.screens.get(w.window.screenSlot)?.rp.bitMap ?? rt.screen.rp.bitMap
+    w.rp = new RastPort(bitMap)
+    w.rp.font = rt.systemFont()
+    // `SetAPen` is what `Iink` moves; a fresh RPort starts at pen 1
+    w.rp.fgPen = 1
+    w.rp.bgPen = 0
+  }
+  const win = w.window
+  w.rp.clip = {
+    x1: win.leftEdge,
+    y1: win.topEdge,
+    x2: win.leftEdge + win.width - 1,
+    y2: win.topEdge + win.height - 1,
+  }
+  return { rp: w.rp, ox: win.leftEdge, oy: win.topEdge, w }
+}
+
+/** the screen's base window, which `Icls` clears rather than the current one */
+function baseRp(rt: Runtime, st: IextState): { rp: RastPort; ox: number; oy: number; w: IextWindow } {
+  const saved = st.currentWindow
+  const savedWb = st.currentIsWB
+  st.currentWindow = 0
+  st.currentIsWB = false
+  try {
+    return curRp(rt, st)
+  } finally {
+    st.currentWindow = saved
+    st.currentIsWB = savedWb
+  }
+}
+
+/**
+ * `L_IlocateGr` with SAFE_GRPOS OUT, which is how it shipped.
+ *
+ * `defs.i`:46 has `;SAFE_GRPOS equ 1` commented out and the binary bears it
+ * out: routine 184 goes from `move.l (a3)+,d0` straight to SetCoords. So a
+ * coordinate off the window is accepted and the clip deals with it.
+ *
+ * Either may be Null, which keeps the cursor where it is.
+ */
+function setGrPos(rp: RastPort, x: number | null, y: number | null): void {
+  if (x !== null) rp.cpX = x
+  if (y !== null) rp.cpY = y
+}
+
+/**
+ * `cm_Count` --- how many entries the screen's ColorMap has.
+ *
+ * Both colour keywords bound their index by it, `cmp.w cm_Count(a1),d0 /
+ * bcc L_IllFunc` on the way in and `bmi` on GetRGB4's -1 on the way out.
+ *
+ * It is Intuition's number, not the extension's: OpenScreen allocates the map
+ * with `GetColorMap` for the depth it was asked for, so a four-plane screen
+ * has sixteen. This port's `Screen.palette` is 256 wide whatever the depth --
+ * AGA's whole register file, so that a program poking a high pen has
+ * somewhere to poke -- which would let an index no real ColorMap has through.
+ */
+function colourMapCount(scr: IextScreen): number {
+  return 1 << scr.depth
+}
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
   const s = (): IextState => rt.iext
@@ -806,6 +914,286 @@ export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
       st.currentIsWB = true
       rt.intuition.activateWindow(w.window)
     },
+ 
+    /* ------------------------------------------------------------------
+     * Drawing, text and colour
+     *
+     * `graphics.s` and `text.s`, both of which the makefile's INTSRC0 lists.
+     * `output.s` defines five of these too and is NOT built; see the header.
+     *
+     * Every one of them opens with `jtcall GetCurRP` -- the CURRENT window's
+     * RastPort, or the base window's when no window is selected -- so the
+     * pens and the graphics cursor are per window and persist between
+     * keywords.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Ilocate x,y` --- TEXT positioning, in character cells.
+     *
+     * `mulu tf_YSize` and `mulu tf_XSize` convert, and the y gets
+     * `add.w tf_Baseline` on top so the cell's BASELINE is where the cursor
+     * lands. Either may be left out. Unlike `Ilocate Gr` this one IS range
+     * checked, and unconditionally: `bm_Rows / tf_YSize` and
+     * `bm_BytesPerRow * 8 / tf_XSize` bound it, and over either is error 13.
+     */
+    'ilocate': (it) => {
+      const { rp } = curRp(rt, s())
+      const x = omittable(it)
+      it.expect(',')
+      const y = omittable(it)
+      const f = rp.font
+      const xs = f ? f.xSize : 8
+      const ys = f ? f.ySize : 8
+      if (x !== null && (x < 0 || x >= Math.floor(rp.width / xs))) iError(E.IFC)
+      if (y !== null && (y < 0 || y >= Math.floor(rp.height / ys))) iError(E.IFC)
+      setGrPos(rp, x === null ? null : x * xs, y === null ? null : y * ys + (f ? f.baseline : 6))
+    },
+
+    /** `Ilocate Gr x,y` --- graphics positioning, and nothing bounds it */
+    'ilocate gr': (it) => {
+      const { rp } = curRp(rt, s())
+      const x = omittable(it)
+      it.expect(',')
+      const y = omittable(it)
+      setGrPos(rp, x, y)
+    },
+
+    /** `Igr Writing n` --- SetDrMd, graphics.library's own numbering */
+    'igr writing': (it) => {
+      const { rp } = curRp(rt, s())
+      rp.drawMode = it.evalInt() & 0xff
+    },
+
+    /**
+     * `Iink fg[,bg[,ol]]` --- three routines, and they set three registers.
+     *
+     * `L_SetInk` writes `rp_AOLPen` DIRECTLY and calls SetBPen and SetAPen
+     * for the other two, which is the same shape AMOS's own `Ink` has.
+     */
+    'iink': (it) => {
+      const { rp } = curRp(rt, s())
+      rp.fgPen = it.evalInt()
+      if (it.accept(',')) rp.bgPen = it.evalInt()
+      if (it.accept(',')) rp.aOlPen = it.evalInt()
+    },
+
+    /**
+     * `Icls` and `Icls colour` --- SetRast on the SCREEN's base window.
+     *
+     * `GetCurIscr` then `se_BaseWin` then `wd_RPort`: it clears the whole
+     * screen, not the current window. `Iclw` beside it is the one that clears
+     * a window.
+     */
+    'icls': (it) => {
+      const st = s()
+      const { rp } = baseRp(rt, st)
+      if (it.atStmtEnd()) {
+        rp.setRast(0)
+        return
+      }
+      const colour = it.evalInt()
+      if (it.atStmtEnd()) {
+        rp.setRast(colour)
+        return
+      }
+      // `Icls colour,x1,y1 To x2,y2` -- RectFill between them, with the pen
+      // put back afterwards (`move.b rp_FgPen(a0),d7` and a SetAPen at the
+      // end). Backward coordinates are error 25 and checked before anything.
+      it.expect(',')
+      const [x1, y1, x2, y2] = rectTo(it)
+      if (x2 < x1 || y2 < y1) iError(E.BWC)
+      const save = rp.fgPen
+      rp.fgPen = colour
+      rp.rectFill(x1, y1, x2, y2)
+      rp.fgPen = save
+    },
+
+    /**
+     * `Iclw` and `Iclw colour` --- the current WINDOW's interior.
+     *
+     * The rectangle is the client area: `wd_BorderLeft` and `wd_BorderTop`
+     * for the corner, and the width and height less the far borders.
+     */
+    'iclw': (it) => {
+      const st = s()
+      const { rp, ox, oy, w } = curRp(rt, st)
+      const win = w.window
+      const save = rp.fgPen
+      const colour = it.atStmtEnd() ? 0 : it.evalInt()
+      if (!it.atStmtEnd()) {
+        it.expect(',')
+        const [x1, y1, x2, y2] = rectTo(it)
+        if (x2 < x1 || y2 < y1) iError(E.BWC)
+        rp.fgPen = colour
+        rp.rectFill(ox + x1, oy + y1, ox + x2, oy + y2)
+        rp.fgPen = save
+        return
+      }
+      rp.fgPen = colour
+      rp.rectFill(
+        ox + win.borderLeft,
+        oy + win.borderTop,
+        ox + win.width - win.borderRight - 1,
+        oy + win.height - win.borderBottom - 1,
+      )
+      rp.fgPen = save
+    },
+
+    /** `Iplot x,y[,c]` --- SetAPen when a colour is given, then WritePixel */
+    'iplot': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      if (it.accept(',')) rp.fgPen = it.evalInt()
+      setGrPos(rp, x, y)
+      rp.plot(ox + x, oy + y)
+    },
+
+    /**
+     * `Idraw x1,y1 To x2,y2` and `Idraw To x,y`.
+     *
+     * The second form starts where the cursor is, which is what makes
+     * `Ilocate Gr` and a run of `Idraw To` a polyline.
+     */
+    'idraw': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const [x1, y1, x2, y2] = rectTo(it)
+      rp.draw(ox + x1, oy + y1, ox + x2, oy + y2)
+      setGrPos(rp, x2, y2)
+    },
+
+    /**
+     * `Idraw To x,y` --- its own keyword, spec `I0,0`, not a variant of the
+     * one above.
+     *
+     * `L_IdrawTo` draws from where the cursor is, which is what makes
+     * `Ilocate Gr` and a run of these a polyline.
+     */
+    'idraw to': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      rp.draw(ox + rp.cpX, oy + rp.cpY, ox + x, oy + y)
+      setGrPos(rp, x, y)
+    },
+
+    /** `Ibox x1,y1 To x2,y2` --- four sides, and backward is error 25 */
+    'ibox': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const [x1, y1, x2, y2] = rectTo(it)
+      if (x2 < x1 || y2 < y1) iError(E.BWC)
+      rp.draw(ox + x1, oy + y1, ox + x2, oy + y1)
+      rp.draw(ox + x2, oy + y1, ox + x2, oy + y2)
+      rp.draw(ox + x2, oy + y2, ox + x1, oy + y2)
+      rp.draw(ox + x1, oy + y2, ox + x1, oy + y1)
+      setGrPos(rp, x2, y2)
+    },
+
+    /** `Ibar x1,y1 To x2,y2` --- RectFill, filled */
+    'ibar': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const [x1, y1, x2, y2] = rectTo(it)
+      if (x2 < x1 || y2 < y1) iError(E.BWC)
+      rp.rectFill(ox + x1, oy + y1, ox + x2, oy + y2)
+    },
+
+    /** `Iellipse cx,cy,rx,ry` --- DrawEllipse, an outline */
+    'iellipse': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const cx = it.evalInt()
+      it.expect(',')
+      const cy = it.evalInt()
+      it.expect(',')
+      const rx = it.evalInt()
+      it.expect(',')
+      const ry = it.evalInt()
+      rp.ellipse(ox + cx, oy + cy, rx, ry)
+    },
+
+    /** `Icircle cx,cy,r` --- `L_Icircle` falls into `L_Iellipse` with r twice */
+    'icircle': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const cx = it.evalInt()
+      it.expect(',')
+      const cy = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      rp.ellipse(ox + cx, oy + cy, r, r)
+    },
+
+    /**
+     * `Itext [x],[y],s$` --- position, then graphics.library's Text.
+     *
+     * `bsr L_IlocateGr` between the two, so the coordinates are GRAPHICS ones
+     * and either may be left out. `y` is therefore a baseline, not a top.
+     */
+    'itext': (it) => {
+      const { rp, ox, oy } = curRp(rt, s())
+      const x = omittable(it)
+      it.expect(',')
+      const y = omittable(it)
+      it.expect(',')
+      const text = str(it.evalExpr())
+      setGrPos(rp, x, y)
+      rp.text(ox + rp.cpX, oy + rp.cpY, text)
+      rp.cpX += rp.textLength(text)
+    },
+
+    /**
+     * `Icentre s$` --- centred across the WINDOW's full width.
+     *
+     * `move.w wd_Width(a2),d0 / sub.w d1,d0 / lsr.w #1,d0` with d1 the
+     * TextLength, and the y goes in as `#Null` so the line the cursor is
+     * already on is the one it lands on.
+     */
+    /**
+     * `Icolour n,c` --- SetRGB4 on the current screen's ColorMap.
+     *
+     * `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` bounds the index by the map's
+     * own size, unsigned, so a negative index fails it too. The colour is
+     * split into three nibbles by hand and handed to SetRGB4, which is what
+     * makes it a 12-bit value however wide the screen is.
+     */
+    'icolour': (it) => {
+      const st = s()
+      const scr = curIscr(st)
+      const n = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      const pal = rt.screens.get(scr.slot)?.palette
+      if (!pal || (n >>> 0) >= colourMapCount(scr)) iError(E.IFC)
+      pal[n] = c & 0x0fff
+    },
+
+    /**
+     * `Ipalette` --- and it does nothing at all.
+     *
+     * `color.s` carries the real one behind `ifne 0` with the author's own
+     * reason above it: "Ipalette disabled because it's unstable." What
+     * shipped is `L_Ipalette0`, "just a stub", and the binary agrees to the
+     * byte: routine 52 is two bytes long and they are an `rts`.
+     *
+     * So a program calling it is not refused and is not obeyed either, which
+     * is what the extension does and what this does.
+     */
+    'ipalette': (it) => {
+      // the spec is `I0`, so an argument is still parsed and dropped
+      while (!it.atStmtEnd()) {
+        it.evalInt()
+        if (!it.accept(',')) break
+      }
+    },
+
+    'icentre': (it) => {
+      const { rp, ox, oy, w } = curRp(rt, s())
+      const text = str(it.evalExpr())
+      const x = (w.window.width - rp.textLength(text)) >> 1
+      setGrPos(rp, x, null)
+      rp.text(ox + x, oy + rp.cpY, text)
+      rp.cpX = x + rp.textLength(text)
+    },
   }
 }
 
@@ -828,19 +1216,31 @@ export function makeIextFunctions(rt: Runtime): Record<string, Func> {
      * `=Aga` and `=Ecs` --- two bytes of the extension's own data area.
      *
      * `move.b $20(a4),d3 / ext.w d3 / ext.l d3` and the same at `$21`, which
-     * are `IsAGA` and `IsECS` in `data.i`. Neither is COMPUTED in the shipped
-     * assembler: they are set by the compiled blob `extcode.s` pulls in, so
-     * what is readable is the author's comment on the keyword ---
-     * *"test for AGA chipset. Currently checks SysBase->lib_Version >= 39.
-     * There must be a better way!"* --- and, for `=Ecs`, *"Only works on
-     * systems with KS2.0 or higher; returns False on all others."*
+     * are `IsAGA` and `IsECS` in `data.i`. Where they are SET is
+     * `src2/startup.s`:324-337, and it is not what the keyword's own comment
+     * says --- that comment claims it "checks SysBase->lib_Version >= 39.
+     * There must be a better way!" and the code found the better way without
+     * anyone going back to the comment:
      *
-     * This port answers from the machine it has already decided it is, and
-     * that decision is not made here: ./jd.ts settles it as an A1200, `Jd
-     * Chipset` answering 2 for AA, and ./guistate.ts declares Kickstart 40.
-     * Forty is over Church's 39, so `=Aga` is true; AA carries the ECS
-     * feature set, so `=Ecs` is true beside it. APPROXIMATED, because the
-     * test itself is in the part of the extension that is not source.
+     *     moveq #GFXF_HR_AGNUS|GFXF_HR_DENISE,d1
+     *     move.b d1,d0 / and.b gb_ChipRevBits0(a0),d0
+     *     cmp.b d0,d1 / seq d0            ;"Need both ECS chips for an ECS system"
+     *     tmove.b d0,IsECS
+     *     or.b  #GFXF_AA_ALICE|GFXF_AA_LISA,d1
+     *     move.b d1,d0 / and.b gb_ChipRevBits0(a0),d0
+     *     cmp.b d0,d1 / seq d0
+     *     tmove.b d0,IsAGA
+     *
+     * So `IsAGA` requires all FOUR chip bits, the two ECS ones included ---
+     * which means AGA IMPLIES ECS here, and both are true together on any
+     * machine that has AA. The whole thing sits behind `dtst.b WB20`, so a
+     * machine below Kickstart 2.0 leaves both at zero, which is the "returns
+     * False on all others" the `=Ecs` comment promises.
+     *
+     * The bit VALUES are not needed and not held: nothing in the corpus
+     * defines GFXF_HR_AGNUS. What decides the answer is the machine, and that
+     * is settled elsewhere --- ./jd.ts's A1200 with `Jd Chipset` answering 2
+     * for AA, and ./guistate.ts's Kickstart 40.
      */
     aga: (): Value => VI(IEXT_IS_AGA ? -1 : 0),
     ecs: (): Value => VI(IEXT_IS_ECS ? -1 : 0),
@@ -977,6 +1377,43 @@ export function makeIextFunctions(rt: Runtime): Record<string, Func> {
       const w = a.length > 0 ? findIwin(st, int(a[0]!)) : curIwin(st)
       return VI(pumpStatus(w) & (WEF.CLOSED | WEF.MENUACTIVE))
     },
+    /**
+     * `=Icolour(n)` --- GetRGB4 off the current screen's ColorMap.
+     *
+     * `move.l d0,d3 / bmi L_IllFunc`: GetRGB4 answers -1 for an index the map
+     * does not have, and the routine turns that into error 13 rather than
+     * passing it back.
+     */
+    'icolour': (_, a): Value => {
+      const st = s()
+      const scr = curIscr(st)
+      const pal = rt.screens.get(scr.slot)?.palette
+      const n = int(a[0]!)
+      if (!pal || (n >>> 0) >= colourMapCount(scr)) iError(E.IFC)
+      return VI(pal[n]! & 0x0fff)
+    },
+
+    /**
+     * `=Ipoint(x,y)` --- ReadPixel, bounded by the WINDOW rather than the
+     * screen.
+     *
+     * `move.w wd_Width(a0),d2` and `wd_Height` are the limits, and both
+     * comparisons are `bcc` --- unsigned, so a negative coordinate is a very
+     * large one and fails the same way.
+     */
+    'ipoint': (_, a): Value => {
+      const st = s()
+      const { rp, ox, oy, w } = curRp(rt, st)
+      const x = int(a[0]!)
+      const y = int(a[1]!)
+      if ((y >>> 0) >= w.window.height || (x >>> 0) >= w.window.width) iError(E.IFC)
+      return VI(rp.point(ox + x, oy + y))
+    },
+
+    /** `=Ixgr` and `=Iygr` --- `rp_cp_x` and `rp_cp_y`, the graphics cursor */
+    'ixgr': (): Value => VI(curRp(rt, s()).rp.cpX),
+    'iygr': (): Value => VI(curRp(rt, s()).rp.cpY),
+
     'iwindow status wb': (_, a): Value => {
       const w = findWbIwin(s(), int(a[0]!))
       return VI(pumpStatus(w) & (WEF.CLOSED | WEF.MENUACTIVE))

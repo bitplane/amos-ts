@@ -458,3 +458,150 @@ Print Iwindow X Wb(1);" ";Iwindow Width Wb(1)`)).toEqual([40, 200])
     expect(rt.iext.screens.get(0)!.windows.has(1)).toBe(true)
   })
 })
+
+/**
+ * Drawing, text and colour --- `graphics.s` and `text.s`.
+ *
+ * `output.s` defines five of these too and IS NOT BUILT: the makefile's
+ * INTSRC0 lists `text.s` and `graphics.s` and never it, and `graphics.s` has
+ * `Ipaste Bob` and `=Ipoint` that `output.s` has never heard of.
+ *
+ * Every one opens with `jtcall GetCurRP`, so the pens and the graphics cursor
+ * are the current WINDOW's and persist between keywords.
+ */
+describe('Intuition 1.3b: drawing', () => {
+  const W = 'Iscreen Open 0,320,256,16,0\nIwindow Open 1,0,0,320,200,"W"'
+
+  /** `Iink fg` is SetAPen, and it is a mode the next keyword reads */
+  it('Iink sets a pen the next drawing keyword uses', () => {
+    expect(vals(`${W}\nIink 5\nIbar 20,20 To 60,60\nPrint Ipoint(40,40);" ";Ipoint(10,10)`)).toEqual([5, 0])
+  })
+
+  /** `Ibox` is four sides and `Ibar` is RectFill */
+  it('Ibox is an outline and Ibar is filled', () => {
+    expect(vals(`${W}\nIink 7\nIbox 30,30 To 90,70\nPrint Ipoint(60,30);" ";Ipoint(60,50);" ";Ipoint(30,50)`)).toEqual([
+      7, 0, 7,
+    ])
+    expect(vals(`${W}\nIink 7\nIbar 30,30 To 90,70\nPrint Ipoint(60,50)`)).toEqual([7])
+  })
+
+  /** `L_Icircle` falls into `L_Iellipse` with the radius twice */
+  it('Icircle is an ellipse with one radius', () => {
+    expect(vals(`${W}\nIink 7\nIcircle 150,100,20\nPrint Ipoint(170,100);" ";Ipoint(150,100)`)).toEqual([7, 0])
+  })
+
+  /**
+   * `Idraw To x,y` starts where the cursor is, which is what makes
+   * `Ilocate Gr` and a run of `Idraw To` a polyline. Both forms leave the
+   * cursor at the far end.
+   */
+  it('Idraw leaves the cursor where it finished', () => {
+    expect(vals(`${W}\nIink 3\nIdraw 10,150 To 200,150\nPrint Ipoint(100,150);" ";Ixgr;" ";Iygr`)).toEqual([3, 200, 150])
+    expect(vals(`${W}\nIink 3\nIlocate Gr 10,20\nIdraw To 60,20\nPrint Ipoint(30,20);" ";Ixgr`)).toEqual([3, 60])
+  })
+
+  /**
+   * `Itext [x],[y],s$` puts the coordinates through `L_IlocateGr`, so they
+   * are GRAPHICS ones and either may be left out -- the y is a baseline, not
+   * a top.
+   */
+  it('Itext takes graphics coordinates, either of which may be omitted', () => {
+    expect(vals(`${W}\nIink 2\nIlocate Gr 5,60\nItext ,,"HI"\nPrint Ixgr;" ";Iygr`)).toEqual([5 + 2 * 16, 60])
+  })
+
+  /**
+   * `Icentre` measures with TextLength and centres across `wd_Width` -- the
+   * whole window, borders included -- and passes `#Null` for the y, so the
+   * line the cursor is already on is the one it lands on.
+   */
+  it('Icentre centres across the whole window width', () => {
+    expect(vals(`${W}\nIcentre "MID"\nPrint Ixgr`)).toEqual([((320 - 3 * 8) >> 1) + 3 * 8])
+  })
+
+  /**
+   * `Icls` is SetRast on the SCREEN's base window and `Iclw` is the current
+   * WINDOW's interior -- `wd_BorderLeft` and `wd_BorderTop` for the corner.
+   */
+  it('Icls clears the screen and Iclw the window interior', () => {
+    expect(vals(`${W}\nIink 5\nIbar 20,20 To 60,60\nIcls\nPrint Ipoint(40,40)`)).toEqual([0])
+    expect(vals(`${W}\nIink 5\nIbar 20,20 To 60,60\nIclw 2\nPrint Ipoint(40,40)`)).toEqual([2])
+  })
+
+  /**
+   * `Iplot x,y` and `Iplot x,y,c` are one keyword with two specs. The
+   * three-argument one is `gfxcall SetAPen` and then the same body, so the
+   * colour STAYS set for whatever draws next.
+   */
+  it('Iplot takes a colour, and leaves it set', () => {
+    expect(vals(`${W}\nIplot 100,100,3\nPrint Ipoint(100,100)`)).toEqual([3])
+    expect(vals(`${W}\nIplot 100,100,3\nIbar 20,20 To 40,40\nPrint Ipoint(30,30)`)).toEqual([3])
+  })
+
+  /** `Iellipse cx,cy,rx,ry` --- DrawEllipse, so an outline and no interior */
+  it('Iellipse is an outline about its centre', () => {
+    expect(vals(`${W}\nIink 6\nIellipse 150,100,40,20\nPrint Ipoint(190,100);" ";Ipoint(150,80);" ";Ipoint(150,100)`)).toEqual([
+      6, 6, 0,
+    ])
+  })
+
+  /**
+   * `Igr Writing n` is `jtcall GetCurRP` and `gfxcall SetDrMd` --- one
+   * instruction of its own, so the mode is graphics.library's numbering and
+   * it stays set. 2 is COMPLEMENT, which inverts and ignores the pen.
+   */
+  it('Igr Writing is SetDrMd and stays set', () => {
+    expect(vals(`${W}\nIink 5\nIbar 20,20 To 60,60\nIgr Writing 2\nIbar 20,20 To 60,60\nPrint Ipoint(40,40)`)).toEqual([
+      5 ^ 15,
+    ])
+  })
+
+  /** `cmp.l d4,d2 / blt L_MixedCoords` --- checked before anything is drawn */
+  it('backward coordinates are error 25', () => {
+    expect(() => run(`${W}\nIbar 60,60 To 20,20`)).toThrow(IEXT_ERRORS[E.BWC])
+    expect(() => run(`${W}\nIbox 60,60 To 20,20`)).toThrow(IEXT_ERRORS[E.BWC])
+  })
+
+  /**
+   * `=Ipoint` is bounded by the WINDOW, `move.w wd_Width(a0),d2`, and both
+   * comparisons are `bcc` -- unsigned, so a negative is a very large one.
+   */
+  it('Ipoint is bounded by the window, unsigned', () => {
+    expect(() => run(`${W}\nPrint Ipoint(400,10)`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nPrint Ipoint(-1,10)`)).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /**
+   * `Ilocate` is TEXT positioning and IS range checked, unconditionally --
+   * `bm_Rows / tf_YSize` and `bm_BytesPerRow * 8 / tf_XSize`. `Ilocate Gr`
+   * is not: its four checks are behind `ifd SAFE_GRPOS`, `defs.i`:46 has the
+   * `equ` commented out, and routine 184 in the binary goes from
+   * `move.l (a3)+,d0` straight to SetCoords.
+   */
+  it('Ilocate is bounded and Ilocate Gr is not', () => {
+    expect(() => run(`${W}\nIlocate 999,0`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(vals(`${W}\nIlocate Gr 9999,9999\nPrint Ixgr;" ";Iygr`)).toEqual([9999, 9999])
+  })
+
+  /**
+   * `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` on the way in, and `bmi` on
+   * GetRGB4's -1 on the way out. The map is the one OpenScreen allocated for
+   * the screen's depth, so a sixteen-colour screen has sixteen entries.
+   */
+  it('Icolour reads and writes the map, and is bounded by it', () => {
+    expect(vals(`${W}\nIcolour 1,$F00\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
+    expect(() => run(`${W}\nIcolour 99,0`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nPrint Icolour(99)`)).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /**
+   * `Ipalette` does nothing at all. `color.s` carries the real one behind
+   * `ifne 0` with the author's reason above it -- "Ipalette disabled because
+   * it's unstable" -- and what shipped is `L_Ipalette0`, "just a stub".
+   * Routine 52 in the binary is two bytes long and they are an `rts`.
+   */
+  it('Ipalette is a stub that shipped as one', () => {
+    expect(vals(`${W}\nIcolour 1,$F00\nIpalette 3\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
+    const rt = run(`${W}\nIcolour 1,$F00\nIpalette $0F0`)
+    expect(rt.screens.get(rt.iext.screens.get(0)!.slot)!.palette[1]).toBe(0xf00)
+  })
+})

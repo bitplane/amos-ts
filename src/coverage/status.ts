@@ -3824,6 +3824,30 @@ export const FAITHFUL = new Set<string>([
   'iwindow activate', 'iwindow activate wb',
   'iwindow active', 'iwindow active num', 'iwindow active base',
   'iwindow status', 'iwindow status wb',
+  // Drawing, text and colour, off `graphics.s` and `text.s`. `output.s`
+  // defines five of these too and IS NOT BUILT: the makefile's INTSRC0 lists
+  // `text.s` and `graphics.s` and never it, and `graphics.s` carries
+  // `Ipaste Bob` and `=Ipoint` that `output.s` has never heard of.
+  //
+  // Every one opens with `jtcall GetCurRP`, so the pens and the graphics
+  // cursor belong to the current WINDOW and persist between keywords. `Icls`
+  // is the exception that proves it: `GetCurIscr` then `se_BaseWin`, so it
+  // clears the SCREEN where `Iclw` clears the window's interior.
+  //
+  // `Ilocate` is TEXT positioning, in character cells and range checked
+  // unconditionally; `Ilocate Gr` is graphics positioning and is NOT --- its
+  // four checks are behind `ifd SAFE_GRPOS`, `defs.i`:46 has the `equ`
+  // commented out, and routine 184 in the binary goes from `move.l (a3)+,d0`
+  // straight to SetCoords. `Idraw To` is its OWN keyword, spec `I0,0`, not a
+  // variant of `Idraw`.
+  'ilocate', 'ilocate gr', 'ixgr', 'iygr', 'igr writing', 'iink',
+  'icls', 'iclw', 'iplot', 'idraw', 'idraw to', 'ibox', 'ibar',
+  'iellipse', 'icircle', 'itext', 'icentre', 'icolour', 'ipoint',
+  // and the two that read the chipset, which `src2/startup.s` computes from
+  // `gb_ChipRevBits0` rather than from the lib_Version the keyword's own
+  // comment still claims. IsAGA wants all FOUR chip bits, the two ECS ones
+  // included, so AGA implies ECS and a machine with AA answers both.
+  'aga', 'ecs',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4167,15 +4191,13 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
-  "aga":
-    "`screens.s`'s `L_AGA` is `move.b $20(a4),d3 / ext.w d3 / ext.l d3` -- `IsAGA` of `data.i`, and `=Ecs` is " +
-    "the byte after it at `$21`. NEITHER IS COMPUTED IN THE SHIPPED ASSEMBLER: both are set by the compiled " +
-    "blob `extcode.s` pulls in with `incbin \"obj/extcode\"`, so the only readable account of what they test " +
-    "is Andrew Church's own comment on the keyword -- \"test for AGA chipset. Currently checks " +
-    "SysBase->lib_Version >= 39. There must be a better way!\" -- and, on `=Ecs`, \"Only works on systems " +
-    "with KS2.0 or higher; returns False on all others.\" APPROXIMATED for that reason, and the answer is not " +
-    "decided here either: ../runtime/jd.ts settles this machine as an A1200 with `Jd Chipset` answering 2 for " +
-    "AA, and ../runtime/guistate.ts declares Kickstart 40, which is over Church's 39. So both are true.",
+  "ipalette":
+    "It does nothing, and it shipped doing nothing. `color.s` carries the real one behind `ifne 0` with Andrew " +
+    "Church's reason written above it -- \"Ipalette disabled because it's unstable.\" -- and what shipped is " +
+    "`L_Ipalette0`, which his own comment calls \"just a stub\". The binary agrees to the byte: routine 52 is " +
+    "two bytes long and they are an `rts`. So a program calling it is neither refused nor obeyed, and the spec " +
+    "`I0` means an argument is still parsed and dropped. The 32 numbered `L_Ipalette1` to `L_Ipalette32` " +
+    "entries beside it are all inside the same disabled block.",
   "iscreen open public":
     "`L_IscrOpenPublic` is `L_IscreenOpen` with `tmove.b #-1,NextPublic` in front of it, and the flag is spent " +
     "by the one open that follows. DEVIATION: nothing here distinguishes a public screen from a private one. A " +
