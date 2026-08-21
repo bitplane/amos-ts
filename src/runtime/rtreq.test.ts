@@ -515,3 +515,122 @@ describe('Irequest File Multi$ and Irequest File Next$', () => {
     expect(b.out().trim()).toBe('')
   })
 })
+
+/* --------------------------------------------------------------------------
+ * The font requester
+ * ----------------------------------------------------------------------- */
+
+/** click a window-relative point on the font requester */
+function ntclick(rt: Runtime, wx: number, wy: number): void {
+  const st = rt.rtFont!
+  const scr = rt.screens.get(WB_SLOT)!
+  rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+  rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+  rt.input.mouseK = 1
+  rt.frame()
+  rt.input.mouseK = 0
+  rt.frame()
+}
+
+/** click list row `i`, counting from the top of the visible list */
+function ntrow(rt: Runtime, i: number): void {
+  const l = rt.rtFont!.layout
+  ntclick(rt, l.boxLeft + 4, l.boxTop + i * l.entryHeight + 2)
+}
+
+/** click Ok (0) or Cancel (1) */
+function ntbutton(rt: Runtime, i: number): void {
+  const b = rt.rtFont!.layout.buttons[i]!.box
+  ntclick(rt, b.x + (b.w >> 1), b.y + (b.h >> 1))
+}
+
+describe('Irequest Font$', () => {
+  const PROG = 'A$=Irequest Font$("Pick one")\nPrint "["+A$+"]"'
+
+  it('lists every face by name and size, name first then size', () => {
+    const b = boot(PROG)
+    const rows = b.rt.rtFont!.rows
+    // `AddEntry` files on the name case-insensitively and then on the size
+    // ascending, and `filereqmain.c`:418 cuts `.font` off before it goes in
+    expect(rows.every((r) => !/\.font$/i.test(r.name))).toBe(true)
+    const names = rows.map((r) => r.name)
+    expect([...names].sort()).toEqual(names)
+    const topaz = rows.filter((r) => r.name === 'topaz').map((r) => r.size)
+    expect(topaz).toEqual([8, 9])
+  })
+
+  it('answers name.font/size, which is the format the guide promises', () => {
+    const b = boot(PROG)
+    const i = b.rt.rtFont!.rows.findIndex((r) => r.name === 'topaz' && r.size === 9)
+    b.rt.rtFont!.first = i
+    ntrow(b.rt, 0)
+    ntbutton(b.rt, 0)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('[topaz.font/9]')
+  })
+
+  it('leaves on a double click without waiting for Ok', () => {
+    const b = boot(PROG)
+    const i = b.rt.rtFont!.rows.findIndex((r) => r.name === 'topaz' && r.size === 8)
+    b.rt.rtFont!.first = i
+    ntrow(b.rt, 0)
+    ntrow(b.rt, 0)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('[topaz.font/8]')
+  })
+
+  it('is the empty string for Cancel', () => {
+    const b = boot(PROG)
+    ntbutton(b.rt, 1)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  it('is the empty string when Ok is pressed on an empty name gadget', () => {
+    // `selfile = (APTR)(filename[0] != 0)` --- the font arm of `LeaveReq`
+    // answers FALSE for an empty gadget however the requester was left
+    const b = boot(PROG)
+    expect(b.rt.rtFont!.name).toBe('')
+    ntbutton(b.rt, 0)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  it('opens on no face at all, and says so in the sample box', () => {
+    // rtAllocRequestA MEMF_CLEARs the struct the extension keeps at
+    // `$174(a4)`, so the first call has an empty name and a zero size and
+    // OpenDiskFont cannot succeed
+    const b = boot(PROG)
+    const st = b.rt.rtFont!
+    expect(st.name).toBe('')
+    expect(st.size).toBe(0)
+    expect(st.selected).toBe(-1)
+    expect(RT_TEXT.couldntOpenFont).toBe("Couldn't open font!")
+  })
+
+  it('comes up where the last one was left', () => {
+    const b = boot('A$=Irequest Font$\nB$=Irequest Font$\nPrint "["+B$+"]"')
+    const i = b.rt.rtFont!.rows.findIndex((r) => r.name === 'topaz' && r.size === 9)
+    b.rt.rtFont!.first = i
+    ntrow(b.rt, 0)
+    ntbutton(b.rt, 0)
+    for (let k = 0; k < 6; k++) b.rt.frame()
+    const second = b.rt.rtFont!
+    expect(second.name).toBe('topaz.font')
+    expect(second.size).toBe(9)
+    expect(second.rows[second.selected]).toEqual({ name: 'topaz', size: 9 })
+  })
+
+  it('takes the title from its argument and comes up untitled without one', () => {
+    expect(boot(PROG).rt.rtFont!.layout.title).toBe('Pick one')
+    // routine 216 is `clr.l -(a3)` into routine 215, and a null title pointer
+    // is `sub.l a3,a3` --- no title, not a default one
+    expect(boot('A$=Irequest Font$\nPrint A$').rt.rtFont!.layout.title).toBe('')
+  })
+
+  it('cancels rather than hanging when nobody is there to click it', () => {
+    const b = boot(PROG)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[]')
+  })
+})

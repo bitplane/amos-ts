@@ -33,8 +33,7 @@ import {
   type AslRow,
 } from '../amiga/asl'
 import { DISPLAY_MODES, type DisplayMode } from '../amiga/displayinfo'
-import { parseDiskFont, type DiskFont } from '../amiga/diskfont'
-import { availFonts } from './fontlist'
+import { availFonts, openDiskFont } from './fontlist'
 import { IDCMP_CLOSEWINDOW, IDCMP_MOUSEBUTTONS, SELECTDOWN, WB_SLOT, type Window } from '../amiga/intuition'
 import { PEN, type DrawInfo } from '../amiga/gadtools'
 import { RastPort } from '../amiga/graphics'
@@ -431,24 +430,6 @@ export function stepAslFont(rt: Runtime, st: AslFontState): void {
     w.topEdge,
   )
   st.rp.clip = null
-}
-
-/**
- * The face the preview draws in.
- *
- * Null for one this port cannot open, which leaves the sample in the system
- * font — an honest outcome, since the alternative is drawing the sample in a
- * face that is not the one being previewed and saying nothing about it.
- */
-function openDiskFont(rt: Runtime, name: string, size: number): DiskFont | null {
-  const leaf = name.replace(/\.font$/i, '')
-  for (const f of availFonts(rt)) {
-    if (f.name !== name || f.height !== size || f.file === undefined) continue
-    const bytes = rt.vfs?.read(`Fonts:${leaf}/${f.file}`)
-    const parsed = bytes ? parseDiskFont(bytes) : null
-    if (parsed) return parsed
-  }
-  return null
 }
 
 export function finishAslFont(rt: Runtime, st: AslFontState): void {

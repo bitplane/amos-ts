@@ -3889,6 +3889,12 @@ export const FAITHFUL = new Set<string>([
   // drawer is entered on a SINGLE click. Three defects come with them, and
   // the one in Irequest File Next$ is fatal on a real machine.
   'irequest file\$', 'irequest file multi\$', 'irequest file next\$',
+  // and the font one, which is `rtFontRequestA` -- four lines of C that call
+  // the file requester's own `FileRequestA` with a null filename. Same
+  // window, no Drawer, no Pattern, no `._info`, a two-button row, and a
+  // sample line under a name field and a four-digit size field. Its answer is
+  // the third routine in this extension to hand back the wrong register.
+  'irequest font\$',
   // `fonts.s`: five readers over `rp_Font` and one setter. `Set Ifont`
   // appends `.font` unless the name already ends in it, and the test is five
   // `cmp.b` in a row, so `"topaz.Font"` is not recognised and becomes
@@ -4308,14 +4314,30 @@ export const NOTES: Record<string, string> = {
     "the first list away whether or not Irequest File Next$ finished reading it, and unlike the single form it " +
     "does NOT clear Filename108 -- the File gadget comes up holding whatever the last Irequest File$ left there.",
   "irequest file next$":
-    "Routine 214 ($58f4). DEFECT: the worst in this extension, `$592e move.l $170.w,d5`. FRDirLen is a " +
-    "longword at $170(a4) and the line above it reads its neighbour correctly as `$5924 move.l $16c(a4),d6`; " +
-    "this one lost the `d` off `dmove.l` and assembles to absolute short, so it reads address $170 in low " +
-    "memory, inside the exception vector table. That value is the length for both the GetRetStr at $5936 and " +
-    "the CopyMem at $5958, so the second name of a multi-selection copies a ROM pointer's worth of bytes into a " +
-    "small buffer. Irequest File Multi$ has the same arithmetic and gets it right, so the FIRST file always " +
-    "works and the next one takes the machine down. DEVIATION: no low memory here to read, so the join is done " +
-    "the way the author meant and the defect is recorded rather than reproduced.",
+    "Routine 214 ($58f4), and it carries two defects either of which is fatal. DEFECT: `$592e move.l $170.w,d5`. " +
+    "FRDirLen is a longword at $170(a4) and the line above it reads its neighbour correctly as `$5924 move.l " +
+    "$16c(a4),d6`; this one lost the `d` off `dmove.l` and assembles to absolute short, so it reads address $170 " +
+    "in low memory, inside the exception vector table. That value is the length for both the GetRetStr at $5936 " +
+    "and the CopyMem at $5958, so the second name of a multi-selection copies a ROM pointer's worth of bytes " +
+    "into a small buffer. DEFECT: `$5948 move.l a1,d7 / $594a move.w d2,(a1)+` writes the whole string through " +
+    "a1 and returns a1, and GetRetStr answers in d0 and a0 -- a1 is the address of `FirstString` in the data " +
+    "zone, left there by StrAlloc's `$89e8 lea.l $a4(a4),a1`. Irequest File Multi$ does the same arithmetic and " +
+    "gets both right, so the FIRST file always works and the next one takes the machine down. DEVIATION: no low " +
+    "memory here to read and no heap pointer to mistake for a string, so the join is done the way the author " +
+    "meant and both defects are recorded rather than reproduced.",
+  "irequest font$":
+    "Routine 215 ($599c), with 216 ($5adc) for the form that takes no title. `.tags dc.l RTFO_Flags,FREQF_SCALE` " +
+    "and nothing else, so no style gadgets, no fixed-width filter and every face on offer; sampleheight is the " +
+    "24 filereq.c sets before the tags are read. DEFECT: the answer is the wrong register. `$5a5a lea.l " +
+    "$5adc(pc),a1` puts the zero-byte `.rsc` control block in a1 for GetRetStr, which answers in d0 and a0 and " +
+    "leaves a1 holding `$a4(a4)`, the head of the string list, from StrAlloc's `$89e8 lea.l $a4(a4),a1`. So " +
+    "`$5a76 addq.w #$1,(a1)` bumps the HIGH word of a heap pointer once for the `/` and once per digit instead " +
+    "of the new string's length word, and `$5aae move.l a1,d3` hands the caller the address of FirstString. The " +
+    "string it built, correct and holding `topaz.font/8`, is never returned. The same misuse is in Irequest " +
+    "File Next$ and in `Set Ifont namesize$`; Irequest File$ and Irequest File Multi$ get it right with `$5648 " +
+    "move.l a0,(a7)`. DEVIATION: no Amiga heap here to read a length out of, so it answers the name.font/size " +
+    "the author meant. The pairing the guide sells with Set Ifont still fails, because Set Ifont is broken on " +
+    "its own account. A cancel takes `dlea NullStr,a0`, the zero word at $a2(a4), and that path is correct.",
   "irequest def title":
     "Routine 231 ($5ed4). DEFECT: an empty string is meant to put \"AMOS Request\" back and does not. " +
     "`$5f16 lea.l $42(a4),a2` takes the ADDRESS of the data cell where startup.s:381 stored the pointer, not " +

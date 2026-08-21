@@ -12,6 +12,7 @@ import {
   EZREQF,
   FREQF,
   RT_FILEREQ_PREFS,
+  RT_FONTREQ_PREFS,
   REQ_MODE,
   RT_LVO,
   RT_MAXINT,
@@ -27,7 +28,9 @@ import {
   rtSplitBars,
   rtStrWidth,
   fileReqLayout,
+  fontReqLayout,
   type FileReqSetup,
+  type FontReqSetup,
   type ReqMetrics,
   type ReqSetup,
 } from './reqtools'
@@ -392,5 +395,105 @@ describe('reqtools: the file requester layout', () => {
     // StrWidth_noloc drops the first underscore only; myTextLength drops all
     expect(rtStrWidth('C_lea_r', m)).toBe(48)
     expect(rtLabelWidth('C_lea_r', m, '_')).toBe(40)
+  })
+})
+
+describe('reqtools: the font requester layout', () => {
+  const fontSetup = (over: Partial<FontReqSetup> = {}): FontReqSetup => ({
+    title: 'Pick a font',
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    flags: FREQF.SCALE,
+    height: 0,
+    sampleHeight: 24,
+    minSize: 0,
+    maxSize: RT_MAXINT,
+    ...over,
+  })
+
+  const l = fontReqLayout(fontSetup(), WB)
+
+  it('lands on 300 by its own arithmetic and by the floor at once', () => {
+    // gadlen[i] = checkw + 8 - 16 + StrWidth + 16, so 18 + 32 + 16, 18 + 48 +
+    // 16 and 18 + 72 + 16 for `_Bold`, `_Italic` and `_Underline`. That is
+    // 254, and 254 + (3-1)*8 + 18 + 12 is exactly 300 --- which is also the
+    // floor, so the two agree to the pixel
+    expect(l.width).toBe(300)
+  })
+
+  it('measures its width off three gadgets it is not going to draw', () => {
+    // `gadtxt[0..2]` and `width1` are filled before FREQF_STYLE is tested,
+    // and this requester never sets it. Widening `_Underline` widens the
+    // window even though no checkbox appears
+    const wide = fontReqLayout(fontSetup(), { ...WB, measure: (s) => s.length * 12 })
+    // 18*3 + (48 + 72 + 108) + 48 = 330, + 16 + 18 + 12
+    expect(wide.width).toBe(330 + 46)
+  })
+
+  it('takes 65 per cent of the height and never lists more than ten faces', () => {
+    // reqheight = 65 * 256 / 100 = 166, and `below` is 14*2 + 2*3 + 1 + 8 +
+    // 24 = 67 for the name row, the sample and the buttons
+    expect(l.entries).toBe(Math.trunc((166 - 67 - 13 - 10) / 9))
+    expect(l.entries).toBe(8)
+    const tall = fontReqLayout(fontSetup(), { ...WB, visibleHeight: 512 })
+    expect(tall.entries).toBe(RT_FONTREQ_PREFS.maxEntries)
+    const small = fontReqLayout(fontSetup(), { ...WB, visibleHeight: 200 })
+    expect(small.entries).toBe(RT_FONTREQ_PREFS.minEntries)
+  })
+
+  it('has two buttons, Ok at the left border and Cancel at the right', () => {
+    expect(l.buttons.map((g) => g.text)).toEqual([' Ok ', 'Cancel'])
+    expect(l.buttons.map((g) => g.key)).toEqual(['O', 'C'])
+    // `gadtxt[5] = gadtxt[7]` before the row is measured, so both take the
+    // width of the wider label: `Cancel` is 48 and ` Ok ` is 32
+    expect(l.buttons.every((g) => g.box.w === 64)).toBe(true)
+    expect(l.buttons[0]?.box.x).toBe(WB.wBorLeft + 5)
+    expect(l.buttons[1]!.box.x + l.buttons[1]!.box.w).toBe(l.width - (WB.wBorRight + 5))
+  })
+
+  it('leaves 65 pixels for the size gadget and puts 57 of them in it', () => {
+    expect(l.name.x).toBe(WB.wBorLeft + 5)
+    expect(l.name.w).toBe(l.width - 65 - 18)
+    expect(l.size.w).toBe(57)
+    expect(l.size.x).toBe(l.width - 57 - (WB.wBorRight + 5))
+    // the 65 is the gadget plus the eight between it and the name field
+    expect(l.size.x - (l.name.x + l.name.w)).toBe(8)
+    expect(l.name.h).toBe(l.size.h)
+  })
+
+  it('gives the sample box four pixels of border round the 24 it draws in', () => {
+    expect(l.sample.h).toBe(24 + 4)
+    expect(l.sampleHeight).toBe(24)
+    expect(l.sample.w).toBe(l.width - 18)
+    expect(l.sampleLeft).toBe(WB.wBorLeft + 5 + 4)
+    expect(l.sampleRight).toBe(l.width - (WB.wBorRight + 5) - 5)
+    expect(l.sampleTop).toBe(l.sample.y + 2)
+  })
+
+  it('gives the sample its own height back out of the list', () => {
+    const tall = fontReqLayout(fontSetup({ sampleHeight: 48 }), WB)
+    // 24 more pixels below the list is two fewer rows of nine, and the window
+    // grows by what is left over
+    expect(tall.entries).toBe(l.entries - 2)
+    expect(tall.height).toBe(l.height + 24 - 2 * l.entryHeight)
+  })
+
+  it('stacks the list, the name row, the sample and the buttons in that order', () => {
+    expect(l.listFrame.y).toBe(13)
+    expect(l.listFrame.h).toBe(l.entries * l.entryHeight + 4)
+    expect(l.name.y).toBe(l.listFrame.y + l.listFrame.h + 1)
+    expect(l.sample.y).toBe(l.name.y + l.name.h + 2)
+    expect(l.buttons[0]?.box.y).toBe(l.sample.y + l.sample.h + 2)
+    expect(l.height).toBe(l.buttons[0]!.box.y + 14 + 2 + 10)
+    expect(l.height).toBe(162)
+  })
+
+  it('adds a checkbox row under FREQF_STYLE, which the extension never asks for', () => {
+    const styled = fontReqLayout(fontSetup({ flags: FREQF.SCALE | FREQF.STYLE }), WB)
+    // `val` grows by checkskip + 4 + spacing, 17, before the entries are
+    // counted, so two rows of nine come out of the list and the button row
+    // ends up one pixel HIGHER than it was without the checkboxes
+    expect(styled.entries).toBe(l.entries - 2)
+    expect(styled.buttons[0]!.box.y).toBe(l.buttons[0]!.box.y + 17 - 2 * l.entryHeight)
   })
 })

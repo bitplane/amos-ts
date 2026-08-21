@@ -55,7 +55,18 @@ import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
 import { RastPort } from '../amiga/graphics'
 import { MENUNULL, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
-import { EZREQF, FREQF, REQ_MODE, RT_MAXINT, RT_MININT, RT_TEXT, type FileReqSetup, type ReqEntry, type ReqSetup } from '../amiga/reqtools'
+import {
+  EZREQF,
+  FREQF,
+  REQ_MODE,
+  RT_MAXINT,
+  RT_MININT,
+  RT_TEXT,
+  type FileReqSetup,
+  type FontReqSetup,
+  type ReqEntry,
+  type ReqSetup,
+} from '../amiga/reqtools'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
@@ -450,6 +461,18 @@ export class IextState {
   frFileList: ReqEntry[] = []
   /** `FRDir`, the directory the multi list's names hang off */
   frDir = ''
+  /**
+   * `rtfo_Attr` inside the one FontReq the extension allocates at startup.
+   *
+   * `moveq #$2,d0 / bsr.w $8a2e / move.l d0,$174(a4)` at `$96d6` is
+   * `rtAllocRequestA (RT_FONTREQ, NULL)`, once, for the life of the
+   * extension. MEMF_CLEAR is what leaves the name empty and the size zero, so
+   * the FIRST font requester opens on no face at all and its sample box says
+   * `Couldn't open font!`; every one after that comes up where the last was
+   * left.
+   */
+  fontReqName = ''
+  fontReqSize = 0
   /**
    * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
    *
@@ -1175,6 +1198,28 @@ function startFileReq(rt: Runtime, st: IextState, title: string, extra: number):
     hideInfo: false,
   }
   if (!rt.startRtFileRequest(setup, reqSlot(st))) iError(E.NRT)
+}
+
+/** the tag list `request.s` builds for `rtFontRequestA`, and the open */
+function startFontReq(rt: Runtime, st: IextState, title: string): void {
+  const setup: FontReqSetup = {
+    title,
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    // `.tags dc.l RTFO_Flags,FREQF_SCALE` --- the one flag, and the guide's
+    // own note on it is that scaling "works on Kickstart 2.0 only". Not
+    // FREQF_STYLE, so there are no Bold/Italic/Underline gadgets, and not
+    // FREQF_FIXEDWIDTH or FREQF_COLORFONTS, so every face is offered
+    flags: FREQF.SCALE,
+    height: 0,
+    // `glob->sampleheight = 24` at `filereq.c`:104, and no RTFO_SampleHeight
+    // tag to move it
+    sampleHeight: 24,
+    // `minsize` stays at the zero rtAllocRequestA left; `maxsize = MAXINT`
+    minSize: 0,
+    maxSize: RT_MAXINT,
+  }
+  if (!rt.startRtFontRequest(setup, st.fontReqName, st.fontReqSize, reqSlot(st))) iError(E.NRT)
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
@@ -2655,6 +2700,64 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
       const e = st.frFileList.shift()
       if (!e) return VS('')
       return VS(joinFreq(st.frDir, e.name))
+    },
+
+    /**
+     * `=Irequest Font$([title$])` --- routine 215, with 216 for the short form.
+     *
+     * The guide sells the pairing outright: *"This string can be passed to
+     * Set Ifont to set the font to the user's preference."* The format it
+     * promises is fontname, a slash, and the size.
+     *
+     * DEFECT: it cannot. `GetRetStr` answers in d0 and a0; `$5a5a lea.l
+     * $5adc(pc),a1` puts the `.rsc` control block in a1 before the call, and
+     * StrAlloc's own `$89e8 lea.l $a4(a4),a1` leaves the address of
+     * `FirstString` there afterwards. Nothing puts a1 back, because
+     * `pstart2`/`ret2` (macros2.i:3, :8) save a4 and a6 and `jtcall`
+     * (macros.i:129) saves a6. So `$5a76 addq.w #$1,(a1)` bumps the HIGH word
+     * of the string list's head pointer instead of the new string's length
+     * word, once for the `/` and once per digit of the size, and `$5aae
+     * move.l a1,d3` hands the caller the address of `FirstString` itself. The
+     * string it built --- correct, and holding `topaz.font/8` --- is never
+     * returned and never freed.
+     *
+     * What the caller gets is `data.i`'s `FirstString`, read as an AMOS
+     * string: a length word that is the top half of a heap pointer plus the
+     * increments, and characters taken from `LastError` and `LastErrorStr`
+     * behind it. The same misuse is in `=Irequest File Next$` and in `Set
+     * Ifont namesize$`, and `=Irequest File$` and `=Irequest File Multi$` are
+     * the two that get it right --- `$5648 move.l a0,(a7)` saves the string
+     * and reads it back. Three of five.
+     *
+     * DEVIATION: this port has no Amiga heap and no pointer to read a length
+     * out of, so it answers the `name.font/size` the author meant, the same
+     * call `=Irequest File Next$` gets. `Set Ifont` is broken on its own
+     * account, so the pairing the guide promises still fails --- with error
+     * 15 rather than with rubbish.
+     *
+     * A cancel is `dlea NullStr,a0`, the zero word at `$a2(a4)` immediately
+     * in front of `FirstString`, and that path is correct: an empty string.
+     * `LeaveReq`'s font arm is `selfile = (APTR)(filename[0] != 0)`, so Ok on
+     * an empty name gadget is a cancel too.
+     */
+    'irequest font$': (it, a): Value => {
+      const st = s()
+      if (rt.rtFont) {
+        if (!rt.rtFont.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VS('')
+        }
+        const f = rt.rtFont
+        rt.rtFont = null
+        // the requester struct outlives the call, so the next one opens here
+        st.fontReqName = f.result
+        st.fontReqSize = f.resultSize
+        if (!f.ok) return VS('')
+        return VS(`${f.result}/${f.resultSize}`)
+      }
+      startFontReq(rt, st, a.length >= 1 ? str(a[0]!) : '')
+      it.block({ type: 'rtreq' }, true)
+      return VS('')
     },
 
     /**

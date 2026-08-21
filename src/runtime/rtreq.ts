@@ -17,17 +17,24 @@ import {
   REQ_MODE,
   RT_ENTRY,
   RT_FILEREQ_PREFS,
+  RT_FONTREQ_PREFS,
   RT_MAXINT,
   RT_MININT,
   RT_TEXT,
   fileReqHit,
   fileReqLayout,
   fileReqRender,
+  fontReqHit,
+  fontReqLayout,
+  fontReqRender,
   reqHit,
   reqLayout,
   reqRender,
   type FileReqLayout,
   type FileReqSetup,
+  type FontReqLayout,
+  type FontReqSetup,
+  type FontRow,
   type ReqEntry,
   type ReqLayout,
   type ReqMetrics,
@@ -49,6 +56,7 @@ import {
 } from '../amiga/intuition'
 import { RastPort } from '../amiga/graphics'
 import { screenPens } from './aslreq'
+import { availFonts, openDiskFont } from './fontlist'
 import type { Runtime } from './runtime'
 
 /** what the call itself passes, as opposed to what its tag list says */
@@ -384,6 +392,16 @@ export interface RtFileState {
   sub: RtReqState | null
 }
 
+/**
+ * The double-click window, in frames.
+ *
+ * The library asks `DoubleClick (glob->sec, glob->mic, im.Seconds,
+ * im.Micros)`, which measures against the user's Preferences interval. There
+ * is no Preferences here, so this is the Workbench default of half a second
+ * counted in PAL frames.
+ */
+const DOUBLE_CLICK_FRAMES = 25
+
 /** `EndsInDotInfo`: the pattern is matched against the name with `.info` off */
 const dotInfo = (name: string): boolean => name.toLowerCase().endsWith('.info')
 
@@ -557,7 +575,7 @@ function rtClickRow(rt: Runtime, st: RtFileState, index: number, shift: boolean,
   const e = st.rows[st.first + index]
   if (!e) return
   const multi = (st.setup.flags & FREQF.MULTISELECT) !== 0
-  const dbl = st.clickRow === st.first + index && frame - st.clickFrame <= 25
+  const dbl = st.clickRow === st.first + index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
   st.clickRow = st.first + index
   st.clickFrame = frame
 
@@ -731,5 +749,219 @@ export function finishRtFile(rt: Runtime, st: RtFileState): void {
     finishRtReq(rt, st.sub)
     st.sub = null
   }
+  rt.intuition.closeWindow(st.window)
+}
+
+/* --------------------------------------------------------------------------
+ * The font requester
+ * ----------------------------------------------------------------------- */
+
+export interface RtFontState {
+  setup: FontReqSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: FontReqLayout
+  /** every face `AvailFonts` finds, sorted the way `FindEntry` files them */
+  rows: FontRow[]
+  /** `buff->pos`, the first row on screen */
+  first: number
+  /** the name gadget, which carries `.font` where a list row does not */
+  name: string
+  /** `rtfo_Attr.ta_YSize`, and the integer gadget shows the same number */
+  size: number
+  /** the highlighted row, -1 for none */
+  selected: number
+  done: boolean
+  ok: boolean
+  /** `rtfo_Attr.ta_Name` and `ta_YSize` as OK left them */
+  result: string
+  resultSize: number
+  clickFrame: number
+  clickRow: number
+}
+
+/**
+ * The list `AvailFonts` fills, filtered and sorted.
+ *
+ * `filereqmain.c`:418 cuts the last five characters off every name before
+ * `AddEntry`, so the rows read `topaz` and not `topaz.font`; the `.font` goes
+ * back on only when a click copies the name into the string gadget.
+ * `FindEntry` orders on the name case-insensitively and then on the SIZE
+ * ascending, which is why one face's sizes come out in a run.
+ *
+ * The size filter is `re_Size < minsize || re_Size > maxsize`, and an
+ * `AFF_MEMORY` entry without FPF_ROMFONT is skipped outright --- a face some
+ * other program happens to have open is not a face this requester offers.
+ */
+function rtFontRows(rt: Runtime, setup: FontReqSetup): FontRow[] {
+  const rows: FontRow[] = []
+  for (const f of availFonts(rt)) {
+    if (f.height < setup.minSize || f.height > setup.maxSize) continue
+    rows.push({ name: f.name.replace(/\.font$/i, ''), size: f.height })
+  }
+  rows.sort((a, b) => {
+    const an = a.name.toLowerCase()
+    const bn = b.name.toLowerCase()
+    return an < bn ? -1 : an > bn ? 1 : a.size - b.size
+  })
+  return rows
+}
+
+/**
+ * Open the font requester. Null when there is no screen for it.
+ *
+ * `FindCurrentPos` puts the list on the face the requester already holds, so
+ * a second call comes up where the first one left off. The FIRST call comes
+ * up on nothing at all: the extension's `rtAllocRequestA` at `$96d8` clears
+ * the struct, which leaves the name empty and `ta_YSize` at zero, and the
+ * sample box therefore opens saying `Couldn't open font!`.
+ */
+export function startRtFont(
+  rt: Runtime,
+  setup: FontReqSetup,
+  name: string,
+  size: number,
+  slot: number | null,
+): RtFontState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const m = metricsFor(rt, on)
+  const scr = rt.screens.get(on)
+  if (!m || !scr) return null
+  const layout = fontReqLayout(setup, m)
+  const window = rt.intuition.openWindow({
+    leftEdge: Math.min(RT_FONTREQ_PREFS.leftOffset, Math.max(0, scr.width - layout.width)),
+    topEdge: Math.min(RT_FONTREQ_PREFS.topOffset, Math.max(0, scr.height - layout.height)),
+    width: layout.width,
+    height: layout.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    // as the file requester, and with the same DEVIATION: no size gadget,
+    // because nothing here rebuilds the gadget list on IDCMP_NEWSIZE
+    flags: 0x8 | 0x2 | 0x4 | 0x1000,
+    title: layout.title,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const rows = rtFontRows(rt, setup)
+  const leaf = name.replace(/\.font$/i, '').toLowerCase()
+  return {
+    setup,
+    window,
+    slot: on,
+    rp,
+    layout,
+    rows,
+    first: 0,
+    name,
+    size,
+    selected: rows.findIndex((r) => r.name.toLowerCase() === leaf && r.size === size),
+    done: false,
+    ok: false,
+    result: '',
+    resultSize: 0,
+    clickFrame: -99,
+    clickRow: -1,
+  }
+}
+
+/**
+ * `LeaveReq`, the font arm: `selfile = (APTR)(filename[0] != 0)`.
+ *
+ * So an empty name gadget answers FALSE even though the user pressed Ok, the
+ * same rule the single-file requester applies to its own File gadget.
+ */
+function rtLeaveFont(st: RtFontState): void {
+  st.result = st.name
+  st.resultSize = st.size
+  st.ok = st.name !== ''
+  st.done = true
+}
+
+/** one frame of the font requester */
+export function stepRtFont(rt: Runtime, st: RtFontState, frame: number): void {
+  if (st.done) return
+
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      st.ok = false
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const hit = fontReqHit(st.layout, msg.mouseX, msg.mouseY)
+    if (!hit) continue
+    if (hit.kind === 'row') {
+      const index = st.first + hit.index
+      const row = st.rows[index]
+      if (!row) continue
+      // `case FONT:` --- the name gadget takes `str` with DOTFONTSTR back on
+      // the end, and ta_YSize, ta_Flags and ta_Style all come off the entry
+      const double = st.clickRow === index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
+      st.name = `${row.name}.font`
+      st.size = row.size
+      st.selected = index
+      if (double) {
+        rtLeaveFont(st)
+        return
+      }
+      st.clickRow = index
+      st.clickFrame = frame
+      continue
+    }
+    if (hit.kind === 'scroll') {
+      const max = Math.max(0, st.rows.length - st.layout.entries)
+      st.first = Math.min(max, Math.max(0, st.first + hit.delta))
+      continue
+    }
+    if (hit.kind === 'button') {
+      if (hit.index === 0) {
+        rtLeaveFont(st)
+        return
+      }
+      st.ok = false
+      st.done = true
+      return
+    }
+  }
+
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  // `ShowFontSample`: OpenDiskFont, and its failure is what puts the message
+  // there instead of the line. The face has to be one AvailFonts listed, so
+  // an empty name gadget or a size nothing has fails here
+  const exists = st.name !== '' && availFonts(rt).some((f) => f.name === st.name && f.height === st.size)
+  fontReqRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.layout,
+    st.rows,
+    st.first,
+    {
+      name: st.name,
+      size: st.size,
+      selected: st.selected,
+      sampleText: exists ? RT_TEXT.fontSample : RT_TEXT.couldntOpenFont,
+      sampleFont: exists ? openDiskFont(rt, st.name, st.size) : null,
+    },
+    w.leftEdge,
+    w.topEdge,
+  )
+}
+
+/** close the window and let the keyword have its answer */
+export function finishRtFont(rt: Runtime, st: RtFontState): void {
   rt.intuition.closeWindow(st.window)
 }

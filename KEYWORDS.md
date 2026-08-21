@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1221 qualifying notes live in `src/coverage/status.ts`, which this file
+1222 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -85,7 +85,7 @@ is.
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
-| intuition-1.3b       |      183 |      122 |            1 |      60 |      67% |
+| intuition-1.3b       |      183 |      123 |            1 |      59 |      68% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
 | jd-5.3               |      130 |      127 |            0 |       0 |     100% |
 | jd-5.9               |      133 |      130 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5243 |          288 |    1828 |      75% |
+| **total**            |     7422 |     5244 |          288 |    1827 |      75% |
 
 ## Not applicable, by what would retire it
 
@@ -324,7 +324,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 - **approximated** (1): `resource$`
 
-## intuition-1.3b (67%)
+## intuition-1.3b (68%)
 
 - **approximated** (1): `ipalette`
 

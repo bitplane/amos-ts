@@ -1266,3 +1266,353 @@ export function fileReqRender(
   for (const g of l.buttons) button(g)
   rp.restore(save)
 }
+
+/* --------------------------------------------------------------------------
+ * The font requester
+ *
+ * `rtFontRequestA` is four lines: it calls `FileRequestA` with a null
+ * filename, so the font requester IS the file requester with a different arm
+ * of `SetupReqWindow` and a different arm of the click handler. What follows
+ * is that arm, kept apart from `fileReqLayout` because the two share no
+ * gadget: there is no Drawer, no Pattern, no `._info`, no LED, and the button
+ * row is two wide rather than four.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `CHECKBOX_WIDTH`, and 38.1092 has it folded in as a constant rather than
+ * asking sysiclass the way 38.1436's `ObjectWidth` does.
+ *
+ * Read out of the binary twice over. `$7642` is `moveq #$12,d0` added to each
+ * of the three style gadget lengths, which is `checkw + 8 - 16`, and `$7652
+ * moveq #$36,d0` adds the same 18 three times to `width1`. The screenmode
+ * arm's `$7630 moveq #$54,d1` is `12 + 8 + 8 + checkw + 8 + 4 + totaloff`,
+ * 84, which needs the same 26.
+ */
+export const RT_CHECKBOX_WIDTH = 26
+/** `CHECKBOX_HEIGHT`, the height the same two calls fall back to */
+export const RT_CHECKBOX_HEIGHT = 11
+
+/**
+ * The font requester's own prefs, `$1ac` of 38.1092.
+ *
+ * The build loop at `$14c` fills the font, palette, screenmode and volume
+ * requesters from `moveq #$41,d1`, 65, and leaves the shared tail alone: the
+ * file requester is the only one that overwrites the last two words with 10
+ * and 50. So the font list is at most TEN rows however tall the screen is.
+ */
+export const RT_FONTREQ_PREFS = {
+  size: 65,
+  reqPos: REQPOS.TOPLEFTSCR,
+  leftOffset: 25,
+  topOffset: 18,
+  minEntries: 6,
+  maxEntries: 10,
+} as const
+
+/** what a font request asks for, after its tag list has been read */
+export interface FontReqSetup {
+  /** `glob->title`, straight off `rtFontRequestA`'s a3 */
+  title: string
+  /** RTFO_OkText, or ` _Ok ` when the tag is absent */
+  okText: string
+  /** RT_Underscore, which reaches the OK gadget only */
+  underscore: string
+  /** RTFO_Flags */
+  flags: number
+  /** RTFO_Height, 0 for the prefs default */
+  height: number
+  /** RTFO_SampleHeight, `filereq.c`:104 sets 24 before the tags are read */
+  sampleHeight: number
+  /** RTFO_MinHeight and RTFO_MaxHeight, the sizes the list will show */
+  minSize: number
+  maxSize: number
+}
+
+/** one row of the font list: the name with `.font` already off it */
+export interface FontRow {
+  name: string
+  size: number
+}
+
+export interface FontReqLayout {
+  width: number
+  height: number
+  title: string
+  entries: number
+  entryHeight: number
+  listFrame: ReqBox
+  boxLeft: number
+  boxTop: number
+  boxRight: number
+  scroller: ReqBox
+  /** the font name, a 107-character string gadget */
+  name: ReqBox
+  /** the size, a 4-digit integer gadget 57 pixels wide */
+  size: ReqBox
+  /** the bordered box the sample line is drawn inside */
+  sample: ReqBox
+  /** RTFO_SampleHeight, which is `sample.h` less its four pixels of border */
+  sampleHeight: number
+  sampleLeft: number
+  sampleRight: number
+  sampleTop: number
+  /** Ok and Cancel, in that order */
+  buttons: ReqGadget[]
+}
+
+/**
+ * `filereqsetup.c`'s `SetupReqWindow`, the font arm.
+ *
+ * Two things in here look like mistakes and are not. The window's width is
+ * decided by the widths of `_Bold`, `_Italic` and `_Underline` whether or not
+ * FREQF_STYLE asked for those three gadgets, because `gadtxt[0..2]` and
+ * `width1` are filled before the flag is ever tested. And `rtSpread` runs on
+ * the three of them either way, so a requester without style gadgets still
+ * pays for their spacing. On topaz 8 the sum comes to 254, which plus
+ * `(3-1)*8 + 18 + 12` is exactly 300, the floor below it -- so the arithmetic
+ * and the floor agree to the pixel and neither can be told from the other.
+ */
+export function fontReqLayout(setup: FontReqSetup, m: ReqMetrics): FontReqLayout {
+  const spacing = rtSpacing(m.visibleHeight)
+  const stdGad = m.fontHeight + 6
+  const entryHeight = m.fontHeight + 1
+  const leftoff = m.wBorLeft + 5
+  const rightoff = m.wBorRight + 5
+  const totaloff = leftoff + rightoff
+  const startTop = m.wBorTop + m.screenFontHeight + 1 + spacing
+  const style = (setup.flags & FREQF.STYLE) !== 0
+  const width = (s: string): number => rtStrWidth(s, m.measure)
+  const checkSkip = Math.max(RT_CHECKBOX_HEIGHT, m.fontHeight)
+
+  const defaultHeight = setup.height === 0
+  const reqHeight = defaultHeight
+    ? Math.trunc((RT_FONTREQ_PREFS.size * m.visibleHeight) / 100)
+    : Math.min(setup.height, m.visibleHeight)
+
+  // everything under the list: the name/size row, the sample, and the buttons
+  let below = stdGad * 2 + spacing * 3 + Math.trunc(spacing / 2) + 8 + setup.sampleHeight
+  if (style) below += checkSkip + 4 + spacing
+
+  let entries = Math.trunc((reqHeight - below - startTop - RT_BOTTOM_BORDER) / entryHeight)
+  const floor = defaultHeight ? RT_FONTREQ_PREFS.minEntries : 3
+  if (entries < floor) entries = floor
+  const ceiling = defaultHeight ? RT_FONTREQ_PREFS.maxEntries : 50
+  if (entries > ceiling) entries = ceiling
+
+  // `gadlen[i] = checkw + 8 - 16` before the label is added, which is the room
+  // the checkbox itself would take beside the word
+  const styleText = [RT_TEXT.bold, RT_TEXT.italic, RT_TEXT.underline]
+  const styleLens = styleText.map((s) => RT_CHECKBOX_WIDTH + 8 - 16 + width(s) + 16)
+  let width1 = styleLens.reduce((a, b) => a + b, 0)
+
+  // `num2` is 2 here, and `gadtxt[5] = gadtxt[7]` puts Cancel in the second
+  // slot before the row is measured, so the pair sizes off Ok and Cancel
+  const buttonText = [setup.okText, RT_TEXT.cancel]
+  let width2 = buttonText.reduce((w, s) => Math.max(w, width(s) + 16), 0)
+  const buttonLens = buttonText.map(() => width2)
+  width2 *= 2
+
+  let winWidth = width1 + 2 * 8 + totaloff + 12
+  if (winWidth < 300) winWidth = 300
+  const byButtons = width2 + 8 + totaloff
+  if (byButtons > winWidth) winWidth = byButtons
+  if (winWidth > m.visibleWidth) winWidth = m.visibleWidth
+
+  width1 = checkGadgetsSize(styleLens, width1, winWidth - totaloff)
+  rtSpread(styleLens, width1, leftoff, winWidth - rightoff)
+  width2 = checkGadgetsSize(buttonLens, width2, winWidth - totaloff)
+  const buttonPos = rtSpread(buttonLens, width2, leftoff, winWidth - rightoff)
+
+  let top = startTop
+  const boxHeight = entries * entryHeight
+  const listFrame = box(leftoff, top, winWidth - 18 - totaloff, boxHeight + 4)
+  const boxLeft = leftoff + 2
+  const boxTop = top + 2
+  const boxRight = winWidth - 21 - rightoff
+  const scroller = box(winWidth - 18 - rightoff, top, 18, boxHeight + 4)
+  top += boxHeight + 4 + Math.trunc(spacing / 2)
+
+  // 65 is the size gadget's 57 plus the 8 between the two
+  const name = box(leftoff, top, winWidth - 65 - totaloff, stdGad)
+  const size = box(winWidth - 57 - rightoff, top, 57, stdGad)
+  top += stdGad + spacing
+
+  const sample = box(leftoff, top, winWidth - totaloff, setup.sampleHeight + 4)
+  const sampleLeft = leftoff + 4
+  const sampleRight = winWidth - rightoff - 5
+  const sampleTop = top + 2
+  top += setup.sampleHeight + 4 + spacing
+
+  // `buttonheight = createstyle ? (checkskip + 4) : (fontheight + 6)`, and the
+  // style row is what the `i == num1` bump makes room for. Without
+  // FREQF_STYLE neither happens, so Ok and Cancel sit straight under the
+  // sample
+  if (style) top += checkSkip + 4 + spacing
+  const buttonHeight = m.fontHeight + 6
+
+  const buttons: ReqGadget[] = buttonText.map((s, i) => {
+    const under = i === 0 ? setup.underscore : '_'
+    return {
+      text: rtLabelText(s, under),
+      box: box(buttonPos[i] ?? 0, top, buttonLens[i] ?? 0, buttonHeight),
+      key: rtLabelKey(s, under),
+    }
+  })
+
+  return {
+    width: winWidth,
+    height: top + buttonHeight + spacing + RT_BOTTOM_BORDER,
+    title: setup.title,
+    entries,
+    entryHeight,
+    listFrame,
+    boxLeft,
+    boxTop,
+    boxRight,
+    scroller,
+    name,
+    size,
+    sample,
+    sampleHeight: setup.sampleHeight,
+    sampleLeft,
+    sampleRight,
+    sampleTop,
+    buttons,
+  }
+}
+
+/** what a click on the font requester landed on */
+export type FontReqHit =
+  | { kind: 'row'; index: number }
+  | { kind: 'scroll'; delta: number }
+  | { kind: 'button'; index: number }
+  | { kind: 'name' }
+  | { kind: 'size' }
+  | null
+
+/** hit-test a click, window-relative */
+export function fontReqHit(l: FontReqLayout, x: number, y: number): FontReqHit {
+  if (x >= l.boxLeft && x <= l.boxRight && y >= l.boxTop && y < l.boxTop + l.entries * l.entryHeight) {
+    return { kind: 'row', index: Math.trunc((y - l.boxTop) / l.entryHeight) }
+  }
+  if (inBox(l.scroller, x, y)) {
+    const arrow = l.entryHeight
+    const upTop = l.scroller.y + l.scroller.h - 2 * arrow
+    if (y >= upTop && y < upTop + arrow) return { kind: 'scroll', delta: -1 }
+    if (y >= upTop + arrow) return { kind: 'scroll', delta: 1 }
+    return { kind: 'scroll', delta: y < l.scroller.y + l.scroller.h / 2 ? -l.entries : l.entries }
+  }
+  for (let i = 0; i < l.buttons.length; i++) {
+    const g = l.buttons[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'button', index: i }
+  }
+  if (inBox(l.name, x, y)) return { kind: 'name' }
+  if (inBox(l.size, x, y)) return { kind: 'size' }
+  return null
+}
+
+/**
+ * Draw one.
+ *
+ * A font row is not laid out the way a file row is. `PrintEntry` builds the
+ * size string with the same ` %ld` and then, for a FONT and only for a FONT,
+ * does `StrCat (tempstr, sizestr)` and clears it -- so the size is glued to
+ * the end of the name at the LEFT of the row instead of being right-aligned
+ * at `boxright`. A selected font takes FILLTEXTPEN on FILLPEN, the same as a
+ * file.
+ *
+ * `sampleText` is what the caller has already resolved: the sample line when
+ * the face opened, and `Couldn't open font!` when it did not.
+ */
+export function fontReqRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  l: FontReqLayout,
+  rows: readonly FontRow[],
+  first: number,
+  fields: { name: string; size: number; selected: number; sampleText: string; sampleFont: RastPort['font'] },
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const fill = penOf(dri, PEN.FILL)
+  const fillText = penOf(dri, PEN.FILLTEXT)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const flood = (b: ReqBox, pen: number): void => {
+    rp.rectFill(b.x + ox, b.y + oy, b.x + ox + b.w - 1, b.y + oy + b.h - 1, pen)
+  }
+  const bevel = (b: ReqBox, recessed: boolean): void => {
+    drawBevelBox(rp, b.x + ox, b.y + oy, b.w, b.h, dri, { recessed })
+  }
+  const label = (s: string, lx: number, ly: number, pen: number): void => {
+    if (rp.font) rp.text(lx + ox, ly + oy + rp.font.baseline, s, pen)
+  }
+  const measure = (s: string): number => (rp.font ? rp.textLength(s) : s.length * 8)
+
+  flood(box(0, 0, l.width, l.height), bg)
+
+  bevel(l.listFrame, true)
+  for (let i = 0; i < l.entries; i++) {
+    const e = rows[first + i]
+    const y = l.boxTop + i * l.entryHeight
+    const chosen = first + i === fields.selected
+    rp.rectFill(l.boxLeft + ox, y + oy, l.boxRight + ox, y + l.entryHeight - 1 + oy, chosen ? fill : bg)
+    if (!e) continue
+    label(e.name + rtFormat(RT_TEXT.entrySizeFmt, e.size), l.boxLeft + 2, y, chosen ? fillText : text)
+  }
+  bevel(l.scroller, true)
+
+  flood(l.name, bg)
+  bevel(l.name, true)
+  label(fields.name, l.name.x + 3, l.name.y + 3, text)
+  flood(l.size, bg)
+  bevel(l.size, true)
+  label(String(fields.size), l.size.x + 3, l.size.y + 3, text)
+
+  flood(l.sample, bg)
+  bevel(l.sample, true)
+  // `MyInstallRegion` clips the sample to `fontdisplayleft..right` and to
+  // `sampleheight` rows, which is what stops a 24-point face from writing
+  // over the buttons; the baseline is `(sampleheight - tf_YSize) / 2 +
+  // tf_Baseline` down from `fontdisplaytop`
+  const shown = rp.font
+  rp.font = fields.sampleFont ?? shown
+  if (rp.font) {
+    const outer = rp.clip
+    const region = {
+      x1: l.sampleLeft + ox,
+      y1: l.sampleTop + oy,
+      x2: l.sampleRight + ox,
+      y2: l.sampleTop + l.sampleHeight - 1 + oy,
+    }
+    rp.clip = outer
+      ? {
+          x1: Math.max(outer.x1, region.x1),
+          y1: Math.max(outer.y1, region.y1),
+          x2: Math.min(outer.x2, region.x2),
+          y2: Math.min(outer.y2, region.y2),
+        }
+      : region
+    rp.text(
+      l.sampleLeft + ox,
+      l.sampleTop + oy + Math.trunc((l.sampleHeight - rp.font.ySize) / 2) + rp.font.baseline,
+      fields.sampleText,
+      text,
+    )
+    rp.clip = outer
+  }
+  rp.font = shown
+
+  for (const g of l.buttons) {
+    flood(g.box, bg)
+    bevel(g.box, false)
+    label(g.text, g.box.x + Math.max(1, Math.trunc((g.box.w - measure(g.text)) / 2)), g.box.y + 3, text)
+  }
+  rp.restore(save)
+}

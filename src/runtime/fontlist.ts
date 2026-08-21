@@ -6,7 +6,7 @@
  * variants asked --- and having one copy is the point: two scans of `Fonts:`
  * that could disagree about a face is exactly the bug this avoids.
  */
-import { parseFontDescriptor } from '../amiga/diskfont'
+import { parseDiskFont, parseFontDescriptor, type DiskFont } from '../amiga/diskfont'
 import type { Runtime } from './runtime'
 
 /** one entry of the list, which is what `AvailFonts` fills a buffer with */
@@ -77,4 +77,26 @@ export function examinedFonts(rt: Runtime): FontEntry[] {
  */
 export function availFonts(rt: Runtime): FontEntry[] {
   return [...FONT_LIST.filter((f) => f.type === 'Rom'), ...rt.memoryFonts, ...discFontList(rt)]
+}
+
+/**
+ * The face a requester's preview draws in.
+ *
+ * Null for one this port cannot open, which leaves the sample in the system
+ * font. That is the honest outcome: the alternative is drawing the sample in
+ * a face that is not the one being previewed and saying nothing about it.
+ * Note that this is NARROWER than "the face exists" --- a ROM entry carries
+ * no `file`, so topaz answers null here and is still in `availFonts`. A
+ * caller that needs to know whether OpenDiskFont would have SUCCEEDED has to
+ * ask the list, not this.
+ */
+export function openDiskFont(rt: Runtime, name: string, size: number): DiskFont | null {
+  const leaf = name.replace(/\.font$/i, '')
+  for (const f of availFonts(rt)) {
+    if (f.name !== name || f.height !== size || f.file === undefined) continue
+    const bytes = rt.vfs?.read(`Fonts:${leaf}/${f.file}`)
+    const parsed = bytes ? parseDiskFont(bytes) : null
+    if (parsed) return parsed
+  }
+  return null
 }

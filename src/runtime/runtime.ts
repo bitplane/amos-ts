@@ -74,8 +74,22 @@ import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlid
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { finishAsl, finishAslFont, finishAslMode, startAsl, startAslFont, startAslMode, stepAsl, stepAslFont, stepAslMode } from './aslreq'
-import { finishRtFile, finishRtReq, startRtFile, startRtReq, stepRtFile, stepRtReq, type RtFileState, type RtReqArgs, type RtReqState } from './rtreq'
-import type { FileReqSetup } from '../amiga/reqtools'
+import {
+  finishRtFile,
+  finishRtFont,
+  finishRtReq,
+  startRtFile,
+  startRtFont,
+  startRtReq,
+  stepRtFile,
+  stepRtFont,
+  stepRtReq,
+  type RtFileState,
+  type RtFontState,
+  type RtReqArgs,
+  type RtReqState,
+} from './rtreq'
+import type { FileReqSetup, FontReqSetup } from '../amiga/reqtools'
 import type { AslFontState, AslModeState, AslState } from './aslreq'
 import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
@@ -2454,6 +2468,33 @@ export class Runtime {
     if (!st || st.done) return
     stepRtFile(this, st, this.frames)
     if (st.done) finishRtFile(this, st)
+  }
+
+  /**
+   * reqtools' FONT requester, while one is up.
+   *
+   * `rtFontRequestA` is `FileRequestA` with a null filename, so the two share
+   * a window layout and nothing else. A third field rather than a mode on
+   * `rtFile` because the extension holds three separate requester structs ---
+   * `$f4(a4)`, `$174(a4)` and `$178(a4)`, all allocated at startup --- and
+   * their contents outlive any one call.
+   */
+  rtFont: RtFontState | null = null
+
+  /** Open the font requester. False when there is no screen for it. */
+  startRtFontRequest(setup: FontReqSetup, name: string, size: number, slot: number | null): boolean {
+    if (this.rtFont) return false
+    const st = startRtFont(this, setup, name, size, slot)
+    if (!st) return false
+    this.rtFont = st
+    return true
+  }
+
+  private stepRtFontRequest(): void {
+    const st = this.rtFont
+    if (!st || st.done) return
+    stepRtFont(this, st, this.frames)
+    if (st.done) finishRtFont(this, st)
   }
 
   /** Open the screen-mode requester. False when there is no screen for it. */
@@ -4928,6 +4969,7 @@ export class Runtime {
     this.stepAslFontRequest()
     this.stepRtRequest()
     this.stepRtFileRequest()
+    this.stepRtFontRequest()
     this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
@@ -5201,7 +5243,7 @@ export class Runtime {
       const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'rtreq') {
-      const up = this.rtReq ?? this.rtFile
+      const up = this.rtReq ?? this.rtFile ?? this.rtFont
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
@@ -5349,6 +5391,11 @@ export class Runtime {
           this.rtFile.result = ''
           this.rtFile.done = true
           finishRtFile(this, this.rtFile)
+        } else if (this.rtFont && !this.rtFont.done) {
+          this.rtFont.ok = false
+          this.rtFont.result = ''
+          this.rtFont.done = true
+          finishRtFont(this, this.rtFont)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
