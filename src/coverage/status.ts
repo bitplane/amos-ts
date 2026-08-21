@@ -1661,9 +1661,9 @@ export const FAITHFUL = new Set<string>([
   'delta radian$', 'delta degree$', 'delta euler$',
 
   // --- Delta 1.6 adds twenty to the same table without moving one id, which
-  // is why one port serves both. Four of the twenty are approximated (the
-  // three reqtools calls and the req.library one, all requesters) and `Jsr`
-  // is n/a; these fifteen are faithful. Six of them reach AmigaOS through an
+  // is why one port serves both. Two of the twenty are approximated --- the
+  // two palette requesters, one reqtools and one req.library --- and `Jsr` is
+  // n/a; these seventeen are faithful. Six of them reach AmigaOS through an
   // intuition.library the library opens fresh every call and never closes.
   'delta hard reset', 'delta blit off', 'delta crash', 'delta beep all',
   'delta change bank', 'delta intuition message',
@@ -1671,6 +1671,11 @@ export const FAITHFUL = new Set<string>([
   'delta lock pub screens', 'delta unlock pub screens',
   'delta find task', 'delta kill task',
   'moveb', 'movew', 'movel',
+  // and the two text requesters, now on ../amiga/reqtools.ts. Routine 54
+  // passes a0 = 0, so there is no tag list at all: no RTEZ_ReqTitle, so the
+  // title bar reads `Request` or `Information`, and no RT_Underscore, so an
+  // underscore in a gadget label is drawn instead of marking a shortcut.
+  'delta reqtools requester', 'delta reqtools get number',
 
   // --- LSerial 2.1 (Niklas Sjoberg), slot 11: a serial.device wrapper
   // written because AMOS's own would not reopen a closed device. BINARY tier
@@ -1694,6 +1699,13 @@ export const FAITHFUL = new Set<string>([
   // does, and the three text requesters through runtime/requester.ts, which
   // builds them out of the Interface dialog language. See butility.ts.
   'bxpkpack', 'bxpkunpack', 'bxpkerror\$', 'bfilereqchg',
+  // and the five requesters, off ../runtime/requester.ts's Interface dialog
+  // and AMOS's own selector and onto ../amiga/reqtools.ts. Every tag list is
+  // read out of BUtility.Lib rather than assumed: `80000003 00000002` is
+  // REQPOS_CENTERSCR on all four reqtools ones, `8000000b 0000005f` is
+  // RT_Underscore = `_` on Binforeq alone, and `80000016 00000004` is
+  // RTEZ_Flags = EZREQF_CENTERTEXT on three of them.
+  'bfilereq', 'binforeq', 'bgetlongreq', 'bgetstrreq',
   'breqfile\$', 'breqdir\$', 'baslfile\$', 'basldir\$',
   'bgetlong', 'bgetstr\$',
 
@@ -5153,11 +5165,14 @@ export const NOTES: Record<string, string> = {
   // ---- BUtility 1.21, slot 12 ----------------------------------------------
   "bfilereq":
     "Routine 4 ($7f6), 96 bytes: rtFileRequestA with the default copied into the shared buffer at data+$16 first, " +
-    "because reqtools edits that buffer in place, and a tag list at data+$398 asking for REQPOS_CENTERSCR and " +
-    "RTFI_Flags = $10 = FREQF_PATGAD -- the pattern gadget `Bfilereqchg` exists to fill. APPROXIMATED for the " +
-    "substitution, not for the plumbing: there is no reqtools.library here, so AMOS's own selector stands in, the " +
-    "precedent `Lfreq` set for req.library. The answer is split the way reqtools splits it, NAME into the buffer " +
-    "and DRAWER into the requester, which is what makes the doc's own `KAT$+PLIK$` reassembly work.",
+    "because reqtools edits that buffer in place -- a2 IS the buffer at `$842 jsr -$36(a6)` and a3 is the title. " +
+    "Two guards come before it: `$818 move.l $4(a0),d6 / Rbeq routine 17` for the library and `$820 move.l " +
+    "$c(a0),d1 / Rbeq routine 19` for the requester struct. The tag list at data+$398 is `80000003 00000002 " +
+    "80000028 00000010`: RT_ReqPos = REQPOS_CENTERSCR and RTFI_Flags = FREQF_PATGAD, the pattern gadget " +
+    "`Bfilereqchg` exists to fill. A Cancel returns FALSE without running LeaveReq (`filereqmain.c`:1341), so " +
+    "the name the caller put in the buffer survives it and `Breqfile$` still answers the default; the DIRECTORY " +
+    "is not protected that way, because `filereqmain.c`:136 sets `fdir = freq->dirname` and the requester " +
+    "navigates by writing into the requester's own buffer.",
   "baslfilereq":
     "Routine 5 ($856), 104 bytes: four tag values at data+$424/$42c/$434/$43c filled right to left, so they land " +
     "on ASL_File, ASL_Dir, ASL_Pattern and ASL_Hail in the doc's order, then AslRequest at `jsr -$3c(a6)`. The " +
@@ -5170,19 +5185,23 @@ export const NOTES: Record<string, string> = {
     "which the readers then share a buffer over; see Baslfile$.",
   "binforeq":
     "Routine 11 ($a02), 72 bytes: rtEZRequestA with the body in a1, the gadget string in a2 and a tag list at " +
-    "data+$374 carrying RT_Underscore = '_' (so \"_Yes|_No\" marks shortcuts), RT_ReqPos = REQPOS_CENTERSCR and " +
-    "RTEZ_ReqTitle. The answer is `move.l d0,d3` with no massaging, so the numbering is reqtools' own: leftmost " +
-    "is 1 counting up, RIGHTMOST is 0, which is why a two-gadget requester reads as a boolean. NOTE: with ONE " +
-    "gadget that rule makes it both first and last, so it answers 0; nothing in BUtility decides this and no " +
-    "example in the doc reads a one-gadget result. APPROXIMATED: an Interface dialog stands in for the reqtools " +
-    "requester, drawn in the grammar of the shipped Path:/Name: dialog. DEVIATION: the shortcut character is " +
-    "stripped rather than underlined, and Return and Escape reach the first and last gadgets instead.",
+    "data+$374 -- `8000000b 0000005f` RT_Underscore = '_', `80000003 00000002` RT_ReqPos = REQPOS_CENTERSCR, " +
+    "`80000014` RTEZ_ReqTitle and `80000016 00000004` RTEZ_Flags = EZREQF_CENTERTEXT. The title tag is always " +
+    "PRESENT, so an empty title$ passes a pointer to a NUL rather than NULL and the title bar comes up blank " +
+    "instead of reading `Request`. The answer is `move.l d0,d3` with no massaging, so the numbering is " +
+    "reqtools' own: leftmost is 1 counting up, RIGHTMOST is 0, which is why a two-gadget requester reads as a " +
+    "boolean. NOTE: with ONE gadget that rule makes it both first and last, so it answers 0; nothing in " +
+    "BUtility decides this and no example in the doc reads a one-gadget result.",
   "bgetlongreq":
-    "Routine 12 ($a4a), 88 bytes: the default into the long at data+$26e -- which is both what rtGetLong edits " +
-    "and what `Bgetlong` reads -- then Max and Min to the tag values at data+$3d4 and $3cc (base+31 and base+30) " +
-    "and the body to data+$3dc. Answers -1 for accepted, 0 for cancelled. Because the long is edited IN PLACE, a " +
-    "cancel leaves the default sitting there and `Bgetlong` hands it back; nothing clears it. APPROXIMATED: a " +
-    "`DI` digit zone in an Interface dialog stands in.",
+    "Routine 12 ($a4a), 88 bytes: the default into the long at data+$26e -- which is both what rtGetLongA edits " +
+    "and what `Bgetlong` reads -- then Max and Min to the tag values at data+$3d4 and $3cc (RTGL_Max and " +
+    "RTGL_Min, base+31 and base+30) and the body to data+$3dc (RTGL_TextFmt, base+38). The tag list at " +
+    "data+$3c0 opens with REQPOS_CENTERSCR and closes with RTEZ_Flags = EZREQF_CENTERTEXT. `$a66` pops the " +
+    "TITLE into a2, which is rtGetLongA's own title argument, so the two strings land in different places: the " +
+    "second is the body and the first is the title bar. Answers -1 for accepted, 0 for cancelled. Because the " +
+    "long is edited IN PLACE, a cancel leaves the default sitting there and `Bgetlong` hands it back; nothing " +
+    "clears it. An out-of-range number does not answer at all -- `req.c` flashes `Too big!` in the title bar " +
+    "and leaves the requester standing.",
   "bgetstrreq":
     "Routine 14 ($aae), 114 bytes. DEFECT: the order of operations. The default is copied into the buffer at " +
     "data+$274 by an UNBOUNDED byte loop and the body pointer is stored BEFORE `tst.l d0 / Rble` and " +
@@ -5190,8 +5209,9 @@ export const NOTES: Record<string, string> = {
     "done and `Bgetstr$` answers the new default afterwards. The buffer runs data+$274..$373, 256 bytes, ending " +
     "exactly where the EZRequest tag list begins, so a default longer than that overwrites the tag list -- " +
     "modelled as far as a string can be (copy first, raise second), but nothing here can be scribbled on. The " +
-    "legal range the two checks leave is 1..255, which is what the doc says. APPROXIMATED: an `ED` edit zone in " +
-    "an Interface dialog stands in.",
+    "legal range the two checks leave is 1..255, which is what the doc says. a1 is data+$274 itself at " +
+    "`$b0c jsr -$48(a6)`, so rtGetStringA edits the buffer `Bgetstr$` reads and a cancel leaves the default in " +
+    "it. Max chars reaches the call in d0, which rtGetStringA does take.",
   "baslfile\$":
     "Routine 9 ($978), 56 bytes. DEFECT: it copies the ASL requester's fr_File ($4) into data+$16 -- the SAME " +
     "buffer `Breqfile$` reads -- before answering it, so calling `Baslfile$` changes what `Breqfile$` says. " +
@@ -5428,23 +5448,27 @@ export const NOTES: Record<string, string> = {
     "so this always raises \"Task not found\" (message 7, routine 52). The guide's own warning is that the name " +
     "\"cannot be ' AMOS', this is AMOS task name and if you will kill AMOS task then AMOS will crash\".",
   "delta reqtools requester":
-    "Routine 53 ($2598), 1.6. Both strings are NUL-terminated in place and stored -- GADGET$ at $1b06 and " +
-    "TITLE$ at $1c06, that order, because arguments pop right to left. Routine 54 ($25ce) opens " +
-    "reqtools.library and calls -66 with a1 = TITLE$, a2 = GADGET$ and a3, a4, a0 zero, which is " +
-    "`rtEZRequestA(bodyfmt,gadfmt,reqinfo,argarray,taglist)(A1/A2/A3/A4,A0)` to the register. APPROXIMATED: an " +
-    "Interface dialog stands in for the reqtools requester, as it does for BUtility's Binforeq. The numbering is " +
-    "reqtools' own and comes back unchanged -- gadget 1 is the leftmost and the RIGHTMOST answers 0, so the " +
-    "guide's \"Yes|No\" gives 1 for Yes. DEFECT: routine 54 does not check that the library opened, which is why " +
-    "every example in the guide is wrapped in `If Exist(\"LIBS:reqtools.library\")` and says \"Else you will " +
-    "have GURU.\"",
+    "Routine 53 ($2598), 1.6. Both strings are NUL-terminated in place and stored -- the LAST argument at $1b06 " +
+    "and the FIRST at $1c06, that order, because arguments pop right to left. Routine 54 ($25ce) opens " +
+    "reqtools.library and calls -66 with a1 = $1c06 and a2 = $1b06, which is " +
+    "`rtEZRequestA(bodyfmt,gadfmt,reqinfo,argarray,taglist)(A1/A2/A3/A4,A0)` to the register -- so the first " +
+    "argument is the BODY, not a title, whatever the guide calls it. a3, a4 and a0 are all zero, and a0 being " +
+    "zero is why there is no tag list: no RTEZ_ReqTitle, so the title bar reads `Request` with two gadgets or " +
+    "more and `Information` with one or none, and no RT_Underscore, so an underscore in a label is drawn " +
+    "rather than marking a shortcut. The numbering is reqtools' own and comes back unchanged -- gadget 1 is " +
+    "the leftmost and the RIGHTMOST answers 0, so the guide's \"Yes|No\" gives 1 for Yes. DEFECT: routine 54 " +
+    "does not check that the library opened, which is why every example in the guide is wrapped in " +
+    "`If Exist(\"LIBS:reqtools.library\")` and says \"Else you will have GURU.\"",
   "delta reqtools get number":
     "Routine 55 ($2616), 1.6. DEF_NUMBER pops first into the long at $1d06 and TITLE$ is NUL-terminated at " +
     "$1b06; then reqtools.library and -78 with a1 = &$1d06, a2 = TITLE$, a3 and a0 zero -- " +
-    "`rtGetLongA(longptr,title,reqinfo,taglist)(A1/A2/A3,A0)`. The answer is read back out of $1d06, so a " +
-    "cancelled requester returns the default it was given. NOTE: `move.l #$64,d0` sits between the two and " +
-    "rtGetLongA takes nothing in d0 -- it is rtGetStringA, one entry earlier at -72, that wants a maxchars " +
-    "there. Copied from the wrong prototype and harmless. APPROXIMATED: an Interface dialog again, and no bounds " +
-    "are passed so the min and max are the widest the dialog will take.",
+    "`rtGetLongA(longptr,title,reqinfo,taglist)(A1/A2/A3,A0)`. a2 is the requester TITLE, so TITLE$ goes in the " +
+    "title bar and there is no body line at all: that would need an RTGL_TextFmt tag and a0 is zero. No " +
+    "RTGL_Min or RTGL_Max either, so the range is the whole signed long and nothing a sixteen-character gadget " +
+    "will hold is out of it. The answer is read back out of $1d06, so a cancelled requester returns the default " +
+    "it was given. NOTE: `move.l #$64,d0` sits between the two and rtGetLongA takes nothing in d0 -- it is " +
+    "rtGetStringA, one entry earlier at -72, that wants a maxchars there. Copied from the wrong prototype and " +
+    "harmless.",
   "delta reqtools palette":
     "Routine 41 ($239e), 1.6: NUL-terminates the title in place, stores the pointer at $1b06 and calls routine " +
     "43 ($23c8), which opens reqtools.library and calls -102 with the title in a2, reqinfo in a3 and the taglist " +

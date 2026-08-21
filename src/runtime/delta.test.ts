@@ -13,10 +13,9 @@
  * five keywords Delta shares with Misc 1.0 are pinned against Misc's own
  * handlers, since Misc ships the source that proves what they do.
  */
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
+import { WB_SLOT } from '../amiga/intuition'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -465,47 +464,91 @@ describe('Delta 1.6: the error table', () => {
   })
 })
 
-const DEFAULT_ABK = join(__dirname, '..', '..', 'fixtures', 'official-amos', 'APSystem', 'AMOSPro_Default_Resource.Abk')
-
-/** the Interface dialog standing in for reqtools needs the system resource */
-function boot16Req(src: string): Boot {
-  const b = boot16(src)
-  if (existsSync(DEFAULT_ABK)) b.rt.loadSystemResource(readFileSync(DEFAULT_ABK))
-  return b
+/** press and release the left button over a window-relative point */
+function dclick(b: Boot, wx: number, wy: number): void {
+  const st = b.rt.rtReq!
+  const scr = b.rt.screens.get(WB_SLOT)!
+  b.rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+  b.rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+  b.rt.input.mouseK = 1
+  b.rt.frame()
+  b.rt.input.mouseK = 0
+  b.rt.frame()
 }
 
-describe.skipIf(!existsSync(DEFAULT_ABK))('Delta 1.6: the reqtools requesters', () => {
+/** click gadget `i`, counting from the left */
+function dpress(b: Boot, i: number): void {
+  const g = b.rt.rtReq!.layout.buttons[i]!.box
+  dclick(b, g.x + (g.w >> 1), g.y + (g.h >> 1))
+}
+
+describe('Delta 1.6: the reqtools requesters', () => {
   it('=Delta Reqtools Requester cancels to 0 with nobody there to click', () => {
-    // headless answers a dialog block with 0, and reqtools numbers the
-    // RIGHTMOST gadget 0 — so the guide's `"Yes|No"` cancels to No
-    const b = boot16Req('Print Delta Reqtools Requester("Is AMOS cool ?","Yes|No")')
+    // a headless run answers the RIGHTMOST gadget, and reqtools numbers the
+    // rightmost 0 --- so the guide's `"Yes|No"` cancels to No
+    const b = boot16('Print Delta Reqtools Requester("Is AMOS cool ?","Yes|No")')
     mustFinish(b.rt.runHeadless(4_000))
     expect(b.out().trim()).toBe('0')
   })
 
   it('and answers the gadget that was pressed, in reqtools\' own numbering', () => {
-    const b = boot16Req('Print Delta Reqtools Requester("Is AMOS cool ?","Yes|No")')
+    const b = boot16('Print Delta Reqtools Requester("Is AMOS cool ?","Yes|No")')
     b.rt.frame()
-    const chan = b.rt.delta.req?.chan
-    expect(chan).toBeDefined()
-    b.rt.finishDialogRun(b.rt.dialogs.get(chan!)!, 1)
-    mustFinish(b.rt.runHeadless(4_000))
+    dpress(b, 0)
+    for (let k = 0; k < 4; k++) b.rt.frame()
     expect(b.out().trim()).toBe('1')
   })
 
   it('the gadget string splits on "|", which is reqtools\' separator', () => {
-    const b = boot16Req('Print Delta Reqtools Requester("T","First|Second|Third")')
+    const b = boot16('Print Delta Reqtools Requester("T","First|Second|Third")')
     b.rt.frame()
-    const d = b.rt.dialogs.get(b.rt.delta.req!.chan)!
-    // no title, one body line, so the labels start at 2
-    expect([d.vars[2], d.vars[3], d.vars[4]]).toEqual(['First', 'Second', 'Third'])
+    expect(b.rt.rtReq!.layout.buttons.map((g) => g.text)).toEqual(['First', 'Second', 'Third'])
+  })
+
+  it('gets reqtools\' own window title, because routine 54 passes no tag list', () => {
+    // `Request` with two gadgets or more, `Information` with one or none ---
+    // `req.c` picks between them on the POINTER being null, and a0 is zero at
+    // `$260c jsr -$42(a6)` so RTEZ_ReqTitle never arrives
+    const two = boot16('Print Delta Reqtools Requester("T","Yes|No")')
+    two.rt.frame()
+    expect(two.rt.rtReq!.window.title).toBe('Request')
+    const one = boot16('Print Delta Reqtools Requester("T","Ok")')
+    one.rt.frame()
+    expect(one.rt.rtReq!.window.title).toBe('Information')
+  })
+
+  it('draws an underscore rather than eating it, having asked for no RT_Underscore', () => {
+    const b = boot16('Print Delta Reqtools Requester("T","_Yes|_No")')
+    b.rt.frame()
+    expect(b.rt.rtReq!.layout.buttons.map((g) => g.text)).toEqual(['_Yes', '_No'])
   })
 
   it('=Delta Reqtools Get Number hands back its default when cancelled', () => {
     // rtGetLongA edits the long at $1d06 IN PLACE and a cancel leaves it, so
     // the default the caller passed is what comes back
-    const b = boot16Req('Print Delta Reqtools Get Number("Enter number:",10)')
+    const b = boot16('Print Delta Reqtools Get Number("Enter number:",10)')
     mustFinish(b.rt.runHeadless(4_000))
     expect(b.out().trim()).toBe('10')
+  })
+
+  it('and puts TITLE$ in the title bar, not in a body line', () => {
+    // rtGetLongA's second argument is the requester TITLE; the body would
+    // have to come from an RTGL_TextFmt tag and routine 55 passes none
+    const b = boot16('Print Delta Reqtools Get Number("Enter number:",10)')
+    b.rt.frame()
+    const st = b.rt.rtReq!
+    expect(st.window.title).toBe('Enter number:')
+    expect(st.layout.lines).toEqual([])
+    expect(st.buffer).toBe('10')
+  })
+
+  it('answers what was typed into the gadget', () => {
+    const b = boot16('Print Delta Reqtools Get Number("Enter number:",10)')
+    b.rt.frame()
+    for (const ch of ['\b', '\b', '7']) b.rt.pressKey(ch, 0)
+    b.rt.frame()
+    dpress(b, 0)
+    for (let k = 0; k < 4; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('7')
   })
 })

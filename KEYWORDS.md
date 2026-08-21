@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1223 qualifying notes live in `src/coverage/status.ts`, which this file
+1221 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -52,14 +52,14 @@ is.
 | amospro-request-2.0  |        3 |        0 |            3 |       0 |     100% |
 | banks                |       20 |       19 |            1 |       0 |     100% |
 | bsdsocket-1.1.4      |       30 |        0 |            0 |      30 |       0% |
-| butility-1.21        |       15 |       10 |            5 |       0 |     100% |
+| butility-1.21        |       15 |       14 |            1 |       0 |     100% |
 | copper               |        8 |        8 |            0 |       0 |     100% |
 | craft-1.0            |      138 |      135 |            1 |       0 |     100% |
 | ctext-1.0            |        6 |        6 |            0 |       0 |     100% |
 | d-sam-1.01           |       50 |        0 |            0 |      50 |       0% |
 | dbench-0.42          |       23 |       23 |            0 |       0 |     100% |
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
-| delta-1.6            |       46 |       41 |            4 |       0 |     100% |
+| delta-1.6            |       46 |       43 |            2 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
 | dme-2.0              |      184 |      137 |           13 |      33 |      82% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5249 |          288 |    1822 |      75% |
+| **total**            |     7422 |     5255 |          282 |    1822 |      75% |
 
 ## Not applicable, by what would retire it
 
@@ -237,7 +237,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## butility-1.21 (100%)
 
-- **approximated** (5): `baslfilereq`, `bfilereq`, `bgetlongreq`, `bgetstrreq`, `binforeq`
+- **approximated** (1): `baslfilereq`
 
 ## craft-1.0 (100%)
 
@@ -246,8 +246,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## delta-1.6 (100%)
 
-- **approximated** (4): `delta req palette`, `delta reqtools get number`,
-  `delta reqtools palette`, `delta reqtools requester`
+- **approximated** (2): `delta req palette`, `delta reqtools palette`
 - **n/a** (1): `jsr`
 
 ## display-0.01 (100%)

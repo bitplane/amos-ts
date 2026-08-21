@@ -26,15 +26,16 @@
  * same reason. They are still spelled out, because a keyword that cannot
  * report a missing library is not the same keyword.
  *
- * THE SUBSTITUTIONS. Two of the three libraries have no back end here:
+ * THE THREE LIBRARIES all have back ends here now:
  *
- * - the file requesters (`Bfilereq`, `Baslfilereq`) go through `rt.startFsel`,
- *   AMOS's own selector, which is the precedent `Lfreq` set in ldos.ts for
- *   req.library. Approximated for the substitution, not for the plumbing.
- * - the three text requesters (`Binforeq`, `Bgetlongreq`, `Bgetstrreq`) go
- *   through `requester.ts`, which builds them out of the Interface dialog
- *   language --- AMOS's own dialog engine, drawn in the grammar of the
- *   shipped Path:/Name: dialog. Same class of substitution.
+ * - `Bfilereq`, `Binforeq`, `Bgetlongreq` and `Bgetstrreq` go to
+ *   ../amiga/reqtools.ts, the real one. Every tag list is read out of
+ *   BUtility.Lib: `80000003 00000002` is RT_ReqPos = REQPOS_CENTERSCR on all
+ *   four, `8000000b 0000005f` is RT_Underscore = `_` on Binforeq alone, and
+ *   `80000016 00000004` is RTEZ_Flags = EZREQF_CENTERTEXT on the three text
+ *   ones. They used to go through AMOS's own selector and the Interface
+ *   dialog engine, which is what `Lfreq` still does for req.library.
+ * - `Baslfilereq` goes to ../amiga/asl.ts, and always did.
  * - the three XPK keywords need nothing: `src/amiga/xpkmaster.ts` is a real
  *   port of the packer, and EasyLife already drives it.
  *
@@ -50,8 +51,8 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Value } from '../interp/values'
 import { AmosError, VI, VS, int, str } from '../interp/values'
 import { XpkError, xpkErrorText, xpkPack, xpkUnpack } from '../amiga/xpkmaster'
-import { finishRequester, startRequester } from './requester'
-import type { RequesterSpec } from './requester'
+import { EZREQF, REQ_MODE, REQPOS, RT_MAXINT, RT_MININT, RT_TEXT, FREQF, type FileReqSetup, type ReqSetup } from '../amiga/reqtools'
+import type { RtReqArgs } from './rtreq'
 
 /**
  * Routines 16-21 are `moveq #n,d0 / Rbra routine 22`, so the index IS the
@@ -89,8 +90,6 @@ export interface BUtilityState {
   long: number
   /** data+$274 --- the string rtGetString edits in place, read by Bgetstr$ */
   str: string
-  /** a text requester currently up, kept across the statement's re-run */
-  req: { chan: number; spec: RequesterSpec } | null
 }
 
 export const newBUtilityState = (): BUtilityState => ({
@@ -102,7 +101,6 @@ export const newBUtilityState = (): BUtilityState => ({
   xpkError: 0,
   long: 0,
   str: '',
-  req: null,
 })
 
 /**
@@ -130,12 +128,6 @@ function splitPath(r: string): { dir: string; name: string } {
   // the state the '/'-appending readers above expect to be given
   const dir = r[cut] === ':' ? r.slice(0, cut + 1) : r.slice(0, cut)
   return { dir, name }
-}
-
-/** where a selector should start, given a remembered dir and a pattern */
-function selectorPath(dir: string, pattern: string): string {
-  if (pattern === '' || !/[#?*]/.test(pattern)) return dir
-  return withSlash(dir) + pattern
 }
 
 /** read a file for the XPK keywords; a missing one is an I/O error, not a raise */
@@ -166,55 +158,45 @@ function xpkRun(rt: Runtime, fn: () => Uint8Array, out: string): Value {
 }
 
 /**
- * Run a text requester, blocking the statement until it closes. The channel
- * is remembered on the state so the re-run finds it rather than opening a
- * second one; `it.block(..., true)` re-runs the whole statement, so the
- * arguments are evaluated again and must not be trusted to have side effects.
+ * Open one of the three text requesters and block the statement on it.
+ *
+ * `it.block(..., true)` re-runs the whole statement, so the arguments are
+ * evaluated a second time; nothing here may depend on a side effect of the
+ * first pass that the second would repeat wrongly. False means the requester
+ * did not open, which is the cancel answer every one of the three gives.
  */
-function runRequester(rt: Runtime, it: Parameters<Func>[0], spec: RequesterSpec): Value | null {
-  const st = rt.butility
-  if (st.req) {
-    const r = finishRequester(rt, st.req.chan, st.req.spec)
-    if (r === null) {
-      it.block({ type: 'dialog', channel: st.req.chan }, true)
-      return VI(0)
-    }
-    st.req = null
-    return requesterAnswer(rt, r, spec)
-  }
-  const chan = startRequester(rt, spec)
-  if (chan === null) return VI(0) // the script would not prescan: a cancel
-  st.req = { chan, spec }
-  it.block({ type: 'dialog', channel: chan }, true)
-  return VI(0)
-}
-
-/** what each requester does with the answer once it has one */
-function requesterAnswer(rt: Runtime, r: { ret: number; text: string }, spec: RequesterSpec): Value {
-  const st = rt.butility
-  if (spec.kind === 'alert') return VI(r.ret)
-  if (spec.kind === 'long') {
-    // rtGetLong edits the caller's long in place, so a cancel leaves the
-    // default sitting there for Bgetlong to hand back
-    if (r.ret !== 0) st.long = Number(r.text === '' ? st.long : Number(r.text))
-    return VI(r.ret === 0 ? 0 : -1)
-  }
-  if (r.ret !== 0) st.str = r.text
-  return VI(r.ret === 0 ? 0 : -1)
+function startBuReq(rt: Runtime, it: Parameters<Func>[0], args: RtReqArgs): boolean {
+  if (!rt.startRtRequest(args, null)) return false
+  it.block({ type: 'rtreq' }, true)
+  return true
 }
 
 /**
- * reqtools' gadget syntax: "_Yes|_No" is two gadgets, and the underscore
- * marks the next character as the keyboard shortcut (RT_Underscore is set to
- * '_' in the tag list at data+$374).
+ * The EZRequest `Binforeq` builds, and the tag list at data+$374 that shapes
+ * it: `8000000b 0000005f` is RT_Underscore = `_`, `80000003 00000002` is
+ * RT_ReqPos = REQPOS_CENTERSCR, `80000014` is RTEZ_ReqTitle and `80000016
+ * 00000004` is RTEZ_Flags = EZREQF_CENTERTEXT.
  *
- * DEVIATION: the shortcut character is stripped rather than underlined ---
- * the dialog engine's `PR` has no underline attribute --- and Return and
- * Escape reach the first and last gadgets instead. A program cannot see the
- * difference in the answer, only on the screen.
+ * The title tag is always PRESENT, so an empty title$ passes a pointer to a
+ * NUL rather than NULL and the title bar comes up blank; reqtools' own
+ * `Request` and `Information` defaults are only reached by leaving the tag
+ * out, which this extension never does.
  */
-function gadgets(spec: string): string[] {
-  return spec.split('|').map((g) => g.replace(/_/g, ''))
+function ezSetup(body: string, gadgets: string, title: string): RtReqArgs {
+  const setup: ReqSetup = {
+    mode: REQ_MODE.EZREQUEST,
+    body,
+    gadgets,
+    title,
+    flags: EZREQF.CENTERTEXT,
+    width: 0,
+    underscore: '_',
+    defaultResponse: 1,
+    min: RT_MININT,
+    max: RT_MAXINT,
+    minmax: false,
+  }
+  return { setup, buffer: '', maxLen: 0, value: 0, showDefault: true, allowEmpty: false, invisible: false }
 }
 
 /**
@@ -297,36 +279,58 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Bfilereq("Title","Default file") --- routine 4 ($7f6).
      *
-     * The default is copied into the shared file buffer at data+$16 BEFORE
-     * the call, because rtFileRequest edits that buffer in place; the title
-     * goes in a3. The tag list at data+$398 asks for REQPOS_CENTERSCR and
-     * RTFI_Flags = $10 = FREQF_PATGAD, which is the pattern gadget
-     * `Bfilereqchg` exists to fill in.
+     * `$806 lea.l $16(a2),a2` and the byte loop after it copy the default
+     * into the shared file buffer BEFORE the call, because rtFileRequestA
+     * edits that buffer in place --- a2 is the buffer itself at `$842 jsr
+     * -$36(a6)`, and a3 is the title. Two guards come first: `$818 move.l
+     * $4(a0),d6 / Rbeq routine 17` is "Reqtools library V38+ not opened" and
+     * `$820 move.l $c(a0),d1 / Rbeq routine 19` is "Reqtools file requester
+     * not allocated".
      *
-     * APPROXIMATED: AMOS's own selector stands in, as it does for `Lfreq`.
-     * The answer is split the way reqtools splits it --- name into the
-     * buffer, drawer into the requester --- so `Breqfile$` and `Breqdir$`
-     * read back what they would have.
+     * The tag list at data+$398 is `80000003 00000002 80000028 00000010`:
+     * RT_ReqPos = REQPOS_CENTERSCR and RTFI_Flags = FREQF_PATGAD, which is
+     * the pattern gadget `Bfilereqchg` exists to fill in.
+     *
+     * A Cancel returns FALSE without going near the buffer --- `case CANCEL:`
+     * in `filereqmain.c`:1341 is `FreeAllCheckBuffer / return (FALSE)` and
+     * `LeaveReq` never runs --- so `Breqfile$` still answers the default that
+     * was copied in. The DIRECTORY is not like that: `filereqmain.c`:136 sets
+     * `fdir = freq->dirname` and the requester navigates by writing straight
+     * into the requester's own buffer, so a cancelled requester still moves
+     * what `Breqdir$` reads.
      */
     'bfilereq'(it, a) {
       const st = rt.butility
-      if (rt.fsel) {
-        if (rt.fsel.done) {
-          const r = rt.fsel.result
-          rt.fsel = null
-          if (r === '') return VI(0)
-          const { dir, name } = splitPath(r)
-          st.file = name
-          st.reqDir = dir
-          return VI(-1)
+      if (rt.rtFile) {
+        if (!rt.rtFile.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
         }
-        it.block({ type: 'fsel' }, true)
-        return VI(0)
+        const f = rt.rtFile
+        rt.rtFile = null
+        st.reqDir = f.dir
+        st.reqPattern = f.pattern
+        if (!f.ok) return VI(0)
+        st.file = f.result
+        return VI(-1)
       }
       const title = str(a[0]!)
+      // the copy into data+$16 is unconditional and comes first
       st.file = str(a[1]!)
-      if (!rt.startFsel(selectorPath(st.reqDir, st.reqPattern), st.file, title, '')) return VI(0)
-      it.block({ type: 'fsel' }, true)
+      const setup: FileReqSetup = {
+        title,
+        okText: RT_TEXT.ok,
+        underscore: '_',
+        dir: st.reqDir,
+        pattern: st.reqPattern,
+        file: st.file,
+        flags: FREQF.PATGAD,
+        height: 0,
+        hideInfo: false,
+        reqPos: REQPOS.CENTERSCR,
+      }
+      if (!rt.startRtFileRequest(setup, null)) return VI(0)
+      it.block({ type: 'rtreq' }, true)
       return VI(0)
     },
 
@@ -446,9 +450,20 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
      * with RTEZ_ReqTitle in its title bar.
      */
     'binforeq'(it, a) {
-      const spec: RequesterSpec = { kind: 'alert', title: str(a[2]!), body: str(a[0]!), gadgets: gadgets(str(a[1]!)) }
-      const done = runRequester(rt, it, spec)
-      return done ?? VI(0)
+      if (rt.rtReq) {
+        if (!rt.rtReq.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtReq
+        rt.rtReq = null
+        return VI(r.result)
+      }
+      // `$a0e move.l a1,$388(a0)` is RTEZ_ReqTitle's value slot; a1 and a2
+      // are the body and the gadget string, in that order at `$a3c jsr
+      // -$42(a6)`
+      if (!startBuReq(rt, it, ezSetup(str(a[0]!), str(a[1]!), str(a[2]!)))) return VI(0)
+      return VI(0)
     },
 
     /**
@@ -465,12 +480,39 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
      */
     'bgetlongreq'(it, a) {
       const st = rt.butility
+      if (rt.rtReq) {
+        if (!rt.rtReq.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtReq
+        rt.rtReq = null
+        // rtGetLongA edits the long at data+$26e in place, so a cancel leaves
+        // the default there and `Bgetlong` hands it back
+        st.long = r.value
+        return VI(r.result !== 0 ? -1 : 0)
+      }
       const [title, body] = [str(a[0]!), str(a[1]!)]
       const [min, max, def] = [int(a[2]!), int(a[3]!), int(a[4]!)]
-      if (!st.req) st.long = def
-      const spec: RequesterSpec = { kind: 'long', title, body, def, min, max }
-      const done = runRequester(rt, it, spec)
-      return done ?? VI(0)
+      st.long = def
+      const setup: ReqSetup = {
+        mode: REQ_MODE.ENTER_NUMBER,
+        body,
+        gadgets: '',
+        title,
+        // `$62e` of the tag list at data+$3c0 is RTEZ_Flags = 4
+        flags: EZREQF.CENTERTEXT,
+        width: 0,
+        underscore: '',
+        defaultResponse: 1,
+        min,
+        max,
+        minmax: true,
+      }
+      if (!startBuReq(rt, it, { setup, buffer: '', maxLen: 0, value: def, showDefault: true, allowEmpty: false, invisible: false })) {
+        return VI(0)
+      }
+      return VI(0)
     },
 
     /** =Bgetlong --- routine 13 ($aa2), twelve bytes: the long at data+$26e. */
@@ -495,16 +537,40 @@ export function makeBUtilityFunctions(rt: Runtime): Record<string, Func> {
      */
     'bgetstrreq'(it, a) {
       const st = rt.butility
+      if (rt.rtReq) {
+        if (!rt.rtReq.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtReq
+        rt.rtReq = null
+        // rtGetStringA edits data+$274 in place, and a cancel leaves the
+        // default sitting in it for `Bgetstr$`
+        if (r.result !== 0) st.str = r.text
+        return VI(r.result !== 0 ? -1 : 0)
+      }
       const [title, body, def] = [str(a[0]!), str(a[1]!), str(a[2]!)]
       const maxLen = int(a[3]!)
-      if (!st.req) {
-        // the copy is unconditional and comes first --- see the DEFECT above
-        st.str = def
-        if (maxLen <= 0 || maxLen >= 0x100) buError(5)
+      // the copy is unconditional and comes first --- see the DEFECT above
+      st.str = def
+      if (maxLen <= 0 || maxLen >= 0x100) buError(5)
+      const setup: ReqSetup = {
+        mode: REQ_MODE.ENTER_STRING,
+        body,
+        gadgets: '',
+        title,
+        flags: EZREQF.CENTERTEXT,
+        width: 0,
+        underscore: '',
+        defaultResponse: 1,
+        min: RT_MININT,
+        max: RT_MAXINT,
+        minmax: false,
       }
-      const spec: RequesterSpec = { kind: 'string', title, body, def, maxLen }
-      const done = runRequester(rt, it, spec)
-      return done ?? VI(0)
+      if (!startBuReq(rt, it, { setup, buffer: def, maxLen, value: 0, showDefault: true, allowEmpty: false, invisible: false })) {
+        return VI(0)
+      }
+      return VI(0)
     },
 
     /** =Bgetstr$ --- routine 15 ($b20): a strlen of the buffer at data+$274. */

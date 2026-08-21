@@ -59,6 +59,7 @@ import {
   EZREQF,
   FREQF,
   REQ_MODE,
+  RT_FILEREQ_PREFS,
   RT_MAXINT,
   RT_MININT,
   RT_TEXT,
@@ -1218,6 +1219,9 @@ function startFileReq(rt: Runtime, st: IextState, title: string, extra: number):
     flags: FREQF.PATGAD | extra,
     height: 0,
     hideInfo: false,
+    // no RT_ReqPos in the tag list, so the prefs decide and that is
+    // REQPOS_TOPLEFTSCR at 25, 18
+    reqPos: RT_FILEREQ_PREFS.reqPos,
   }
   if (!rt.startRtFileRequest(setup, reqSlot(st))) iError(E.NRT)
 }

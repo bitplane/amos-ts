@@ -21,6 +21,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
 import { openLibrary } from '../amiga/exec'
+import { WB_SLOT } from '../amiga/intuition'
 import { BUTILITY_ERRORS } from './butility'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
@@ -175,35 +176,66 @@ describe('BUtility: the shared buffers', () => {
   })
 })
 
-describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the text requesters', () => {
+/** press and release the left button over a window-relative point */
+function buclick(b: Boot, win: { leftEdge: number; topEdge: number }, wx: number, wy: number): void {
+  const scr = b.rt.screens.get(WB_SLOT)!
+  b.rt.input.mouseX = scr.screenToHardX(win.leftEdge + wx)
+  b.rt.input.mouseY = win.topEdge + wy + scr.displayY - scr.offsetY
+  b.rt.input.mouseK = 1
+  b.rt.frame()
+  b.rt.input.mouseK = 0
+  b.rt.frame()
+}
+
+/** click gadget `i` of the EZRequest / GetString / GetLong window */
+function bupress(b: Boot, i: number): void {
+  const st = b.rt.rtReq!
+  const g = st.layout.buttons[i]!.box
+  buclick(b, st.window, g.x + (g.w >> 1), g.y + (g.h >> 1))
+}
+
+/** let the blocked keyword resume and the Print run */
+function bufinish(b: Boot): void {
+  for (let i = 0; i < 4; i++) b.rt.frame()
+}
+
+describe('BUtility: the text requesters', () => {
   it('Binforeq cancels to 0 with nobody there to click', () => {
-    // headless drains a dialog block with return 0, which is the rightmost
-    // gadget -- reqtools numbers the rightmost 0 and counts the rest from 1
+    // a headless run answers the RIGHTMOST gadget, and reqtools numbers the
+    // rightmost 0 and counts the rest from 1
     expect(vals('A=Binforeq("Quit?","_Yes|_No","Quit request") : Print A')).toEqual([0])
   })
 
   it('and answers the gadget that was pressed', () => {
     const b = boot('A=Binforeq("Quit?","_Yes|_No","Quit request") : Print A')
-    // park it on the block, then answer as a click on gadget 1 would
     park(b)
-    const chan = b.rt.butility.req?.chan
-    expect(chan).toBeDefined()
-    const d = b.rt.dialogs.get(chan!)!
-    expect(d.runState).toBe('waiting')
-    b.rt.finishDialogRun(d, 1)
-    mustFinish(b.rt.runHeadless(2_000))
+    bupress(b, 0)
+    bufinish(b)
     expect(b.out().trim().split(/\s+/).map(Number)).toEqual([1])
   })
 
+  it('puts RTEZ_ReqTitle in the title bar and the body under it', () => {
+    const b = boot('A=Binforeq("Quit?","_Yes|_No","Quit request") : Print A')
+    park(b)
+    const st = b.rt.rtReq!
+    expect(st.window.title).toBe('Quit request')
+    expect(st.layout.lines.map((l) => l.text)).toEqual(['Quit?'])
+  })
+
   it('the underscore marks a shortcut and is not part of the label', () => {
-    // "_Yes|_No" is reqtools' RT_Underscore, set to '_' in the tag list at
-    // data+$374. DEVIATION: stripped rather than underlined here
+    // RT_Underscore is `_` in the tag list at data+$374, `8000000b 0000005f`
     const b = boot('A=Binforeq("Quit?","_Yes|_No","T") : Print A')
     park(b)
-    const d = b.rt.dialogs.get(b.rt.butility.req!.chan)!
-    // 0 is the title, 1 the one body line, then the labels
-    expect(d.vars[2]).toBe('Yes')
-    expect(d.vars[3]).toBe('No')
+    expect(b.rt.rtReq!.layout.buttons.map((g) => g.text)).toEqual(['Yes', 'No'])
+    expect(b.rt.rtReq!.layout.buttons.map((g) => g.key)).toEqual(['Y', 'N'])
+  })
+
+  it('a shortcut key answers the gadget it marks', () => {
+    const b = boot('A=Binforeq("Quit?","_Yes|_No","T") : Print A')
+    park(b)
+    b.rt.pressKey('y', 0)
+    bufinish(b)
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([1])
   })
 
   it('Bgetlongreq leaves the default in place when cancelled', () => {
@@ -212,10 +244,45 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the text requesters', () =>
     expect(vals('A=Bgetlongreq("T","Main",-1000,1000,100) : Print A;" ";Bgetlong')).toEqual([0, 100])
   })
 
+  it('Bgetlongreq shows the default and answers what was typed', () => {
+    const b = boot('A=Bgetlongreq("T","Main",-1000,1000,100) : Print A;" ";Bgetlong')
+    park(b)
+    expect(b.rt.rtReq!.buffer).toBe('100')
+    for (const ch of ['\b', '\b', '\b', '4', '2']) b.rt.pressKey(ch, 0)
+    b.rt.frame()
+    bupress(b, 0)
+    bufinish(b)
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-1, 42])
+  })
+
+  it('RTGL_Min and RTGL_Max keep an out-of-range number out', () => {
+    // the tags at data+$3cc and data+$3d4. `req.c` flashes the title bar and
+    // leaves the requester standing rather than answering
+    const b = boot('A=Bgetlongreq("T","Main",-1000,1000,100) : Print A;" ";Bgetlong')
+    park(b)
+    for (const ch of ['\b', '\b', '\b', '9', '9', '9', '9']) b.rt.pressKey(ch, 0)
+    b.rt.frame()
+    bupress(b, 0)
+    b.rt.frame()
+    expect(b.rt.rtReq!.done).toBe(false)
+    expect(b.rt.rtReq!.flash).toBe('Too big!')
+  })
+
   it('Bgetstrreq leaves the default in place when cancelled', () => {
     expect(text('A=Bgetstrreq("T","Main","Mariusz Rycyk",40) : Print A;" [";Bgetstr$;"]"').trim()).toBe(
       '0 [Mariusz Rycyk]',
     )
+  })
+
+  it('Bgetstrreq hands the edited buffer back through Bgetstr$', () => {
+    const b = boot('A=Bgetstrreq("T","Main","fred",40) : Print A;" [";Bgetstr$;"]"')
+    park(b)
+    expect(b.rt.rtReq!.buffer).toBe('fred')
+    b.rt.pressKey('!', 0)
+    b.rt.frame()
+    bupress(b, 0)
+    bufinish(b)
+    expect(b.out().trim()).toBe('-1 [fred!]')
   })
 
   it('DEFECT: Bgetstrreq copies the default BEFORE checking the length', () => {
@@ -239,76 +306,69 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the text requesters', () =>
   it('a multi-line body is split on Chr$(10), as the doc\'s demo writes it', () => {
     const b = boot('A=Binforeq("Line one"+Chr$(10)+"Line two","_Ok","T") : Print A')
     park(b)
-    const d = b.rt.dialogs.get(b.rt.butility.req!.chan)!
-    // RTEZ_ReqTitle is variable 0 and the body follows it, a line each
-    expect(d.vars[0]).toBe('T')
-    expect(d.vars[1]).toBe('Line one')
-    expect(d.vars[2]).toBe('Line two')
+    expect(b.rt.rtReq!.layout.lines.map((l) => l.text)).toEqual(['Line one', 'Line two'])
+  })
+
+  it('all three come up centred, which is what RT_ReqPos asks for', () => {
+    // `80000003 00000002` at $5c2, $5de, $606 and $632 of BUtility.Lib
+    const b = boot('A=Binforeq("Quit?","_Yes|_No","T") : Print A')
+    park(b)
+    const st = b.rt.rtReq!
+    const scr = b.rt.screens.get(WB_SLOT)!
+    expect(st.window.leftEdge).toBe(Math.trunc((scr.width - st.layout.width) / 2))
   })
 })
 
-describe.skipIf(!existsSync(DEFAULT_ABK))('BUtility: the file requesters', () => {
+describe('BUtility: the file requesters', () => {
   it('Bfilereq splits its answer the way reqtools does', () => {
     // rtFileRequest writes the NAME into the caller's buffer and leaves the
     // DRAWER in the requester, which is why the doc's demo rebuilds the path
     // as KAT$+PLIK$
     const b = boot('A=Bfilereq("Load","plain.txt") : Print A')
     park(b)
-    expect(b.rt.fsel).not.toBeNull()
-    b.rt.finishFselNow('RAM:Work/thing.txt')
-    mustFinish(b.rt.runHeadless(2_000))
-    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-1])
-    expect(b.rt.butility.file).toBe('thing.txt')
-    expect(b.rt.butility.reqDir).toBe('RAM:Work')
-  })
-
-  it('and a cancel answers 0 without disturbing the buffers', () => {
-    const b = boot('A=Bfilereq("Load","keep.txt") : Print A;" [";Breqfile$;"]"')
-    park(b)
-    b.rt.finishFselNow('')
-    mustFinish(b.rt.runHeadless(2_000))
-    // the default was copied into data+$16 BEFORE the call, and a cancel
-    // leaves it there -- rtFileRequest edits that buffer in place
-    expect(b.out().trim()).toBe('0 [keep.txt]')
-  })
-
-  /**
-   * A REAL asl.library requester now, ../amiga/asl.ts, and not AMOS's own
-   * selector standing in: `Bfilereq` beside it still uses the selector
-   * because that one is reqtools rather than asl.
-   */
-  it('Baslfilereq opens the asl requester with the four arguments in it', () => {
-    const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
-    park(b)
-    const st = b.rt.asl!
+    const st = b.rt.rtFile!
     expect(st.window.title).toBe('Load')
-    expect(st.setup.pattern).toBe('#?.txt')
-    expect(st.setup.dir).toBe('RAM:')
-    expect(st.setup.file).toBe('x.txt')
-    // ASL_Width 100 and ASL_Height 220, the template's own constants at file
-    // offset 0x64e, and ASL_FuncFlags 1 is the pattern gadget
-    expect([st.window.width, st.window.height]).toEqual([100, 220])
+    // the default was copied into data+$16 before the call, and the File
+    // gadget IS that buffer
+    expect(st.file).toBe('plain.txt')
+    const ok = st.layout.buttons[0]!.box
+    buclick(b, st.window, ok.x + (ok.w >> 1), ok.y + (ok.h >> 1))
+    bufinish(b)
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-1])
+  })
+
+  it('opens with the pattern gadget FREQF_PATGAD asked for', () => {
+    // RTFI_Flags = $10 in the tag list at data+$398
+    const b = boot('Bfilereqchg "#?.txt","RAM:" : A=Bfilereq("Load","")')
+    park(b)
+    const st = b.rt.rtFile!
     expect(st.layout.pattern).not.toBeNull()
+    expect(st.pattern).toBe('#?.txt')
+    expect(st.dir).toBe('RAM:')
   })
 
-  it('and writes the asl fields, not the reqtools ones', () => {
-    const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
+  it('a cancel leaves the name buffer alone', () => {
+    // `case CANCEL:` returns FALSE without running LeaveReq, so the name the
+    // caller put in data+$16 survives. The drawer is not protected that way
+    // --- `filereqmain.c`:136 is `fdir = freq->dirname` and the requester
+    // navigates by writing straight into it --- but nothing moved it here, and
+    // BUtility's own dirname starts empty because routine 0 allocated it
+    // cleared
+    const b = boot('A=Bfilereq("Load","plain.txt") : Print A;" [";Breqfile$;"][";Breqdir$;"]"')
     park(b)
-    b.rt.asl!.result = 'RAM:Deep/other.txt'
-    b.rt.asl!.done = true
-    mustFinish(b.rt.runHeadless(2_000))
-    expect(b.out().trim()).toBe('-1')
-    expect(b.rt.butility.aslFile).toBe('other.txt')
-    expect(b.rt.butility.aslDrawer).toBe('RAM:Deep')
-    // the reqtools requester is untouched by it
-    expect(b.rt.butility.reqDir).toBe('')
+    const st = b.rt.rtFile!
+    const cancel = st.layout.buttons[3]!.box
+    buclick(b, st.window, cancel.x + (cancel.w >> 1), cancel.y + (cancel.h >> 1))
+    bufinish(b)
+    expect(b.out().trim()).toBe('0 [plain.txt][]')
   })
 
-  /** `tst.l d0 / beq` on AslRequest's answer: a cancel is 0 */
-  it('a cancelled asl requester answers 0', () => {
-    const b = boot('A=Baslfilereq("Load","#?.txt","RAM:","x.txt") : Print A')
+  it('comes up centred, not in the prefs corner the Intuition Extension gets', () => {
+    const b = boot('A=Bfilereq("Load","")')
     park(b)
-    mustFinish(b.rt.runHeadless(2_000))
-    expect(b.out().trim()).toBe('0')
+    const st = b.rt.rtFile!
+    const scr = b.rt.screens.get(WB_SLOT)!
+    expect(st.window.leftEdge).toBe(Math.trunc((scr.width - st.layout.width) / 2))
   })
+
 })

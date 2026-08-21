@@ -104,13 +104,18 @@
  *   COLOR01 at $dff182. The argument is a word, so COLOR00 becomes black and
  *   COLOR01 becomes the requested colour — the opposite of the guide's *"This
  *   efect using colour 0"*.
+ *
+ * NOTE: every OpenLibrary in this extension leaves the VERSION register
+ * alone. `$23c8`, `$25ce` and `$2634` all load the name into a1 and jump to
+ * `-$198(a6)` without touching d0 first, so what gets asked for is whatever
+ * the interpreter left there; routine 55's own `move.l #$64,d0` lands AFTER
+ * the call, on its way to rtGetLongA, which does not want it either.
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import type { Value } from '../interp/values'
 import { AmosError, VF, VI, VS, int, str } from '../interp/values'
 import { joyFire } from '../interp/gameport'
-import { finishRequester, startRequester, type RequesterSpec } from './requester'
+import { REQ_MODE, RT_MAXINT, RT_MININT, type ReqSetup } from '../amiga/reqtools'
 
 /**
  * The nine messages, at $26d4 in the code hunk, NUL-separated and packed.
@@ -191,7 +196,6 @@ export interface DeltaState {
    */
   pubLocked: boolean
   /** a reqtools requester waiting on the user, over the block and back */
-  req: { chan: number; spec: RequesterSpec } | null
   /**
    * The long at $1d06. `Delta Reqtools Get Number` writes its default there,
    * hands rtGetLongA a pointer to it, and reads the answer back out of the
@@ -200,38 +204,7 @@ export interface DeltaState {
   long: number
 }
 
-export const newDeltaState = (): DeltaState => ({ dblPhase: 0, dblUntil: 0, pubLocked: false, req: null, long: 0 })
-
-/**
- * The reqtools keywords, over the block that waits for the user.
- *
- * BUtility's shape, for BUtility's reason: a requester is an Interface dialog
- * here, the keyword blocks on its channel, and the whole statement re-runs
- * when it resumes — so the pending channel has to live on the state.
- */
-function deltaRequester(rt: Runtime, it: Parameters<Func>[0], spec: RequesterSpec): Value | null {
-  const st = rt.delta
-  if (st.req) {
-    const r = finishRequester(rt, st.req.chan, st.req.spec)
-    if (r === null) {
-      it.block({ type: 'dialog', channel: st.req.chan }, true)
-      return null
-    }
-    st.req = null
-    if (spec.kind === 'long') {
-      // rtGetLongA edits the caller's long in place, so a cancel leaves the
-      // default sitting at $1d06 for the keyword to hand back
-      if (r.ret !== 0 && r.text !== '') st.long = Number(r.text) | 0
-      return VI(st.long)
-    }
-    return VI(r.ret)
-  }
-  const chan = startRequester(rt, spec)
-  if (chan === null) return spec.kind === 'long' ? VI(st.long) : VI(0)
-  st.req = { chan, spec }
-  it.block({ type: 'dialog', channel: chan }, true)
-  return null
-}
+export const newDeltaState = (): DeltaState => ({ dblPhase: 0, dblUntil: 0, pubLocked: false, long: 0 })
 
 /**
  * Motorola Fast Floating Point, which is what AMOS's `#` variables are and
@@ -949,8 +922,37 @@ export function makeDeltaFunctions(rt: Runtime): Record<string, Func> {
      * answers 0, so the guide's `"Yes|No"` gives 1 for Yes.
      */
     'delta reqtools requester': (it, a) => {
-      const spec: RequesterSpec = { kind: 'alert', title: '', body: str(a[0]!), gadgets: str(a[1]!).split('|') }
-      return deltaRequester(rt, it, spec) ?? VI(0)
+      if (rt.rtReq) {
+        if (!rt.rtReq.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtReq
+        rt.rtReq = null
+        return VI(r.result)
+      }
+      // a0 is zero at `$260c jsr -$42(a6)`, so there is no tag list: no
+      // RTEZ_ReqTitle, and the title bar gets reqtools' own `Request` --- or
+      // `Information` when the format names one gadget or none
+      const setup: ReqSetup = {
+        mode: REQ_MODE.EZREQUEST,
+        body: str(a[0]!),
+        gadgets: str(a[1]!),
+        title: null,
+        flags: 0,
+        width: 0,
+        // no RT_Underscore either, so `glob->underchar` stays 0 and an
+        // underscore in a label is DRAWN rather than eaten
+        underscore: '',
+        defaultResponse: 1,
+        min: RT_MININT,
+        max: RT_MAXINT,
+        minmax: false,
+      }
+      const args = { setup, buffer: '', maxLen: 0, value: 0, showDefault: true, allowEmpty: false, invisible: false }
+      if (!rt.startRtRequest(args, null)) return VI(0)
+      it.block({ type: 'rtreq' }, true)
+      return VI(0)
     },
 
     /**
@@ -971,16 +973,40 @@ export function makeDeltaFunctions(rt: Runtime): Record<string, Func> {
      */
     'delta reqtools get number': (it, a) => {
       const st = rt.delta
-      if (!st.req) st.long = int(a[1]!) | 0
-      const spec: RequesterSpec = {
-        kind: 'long',
-        title: str(a[0]!),
-        body: str(a[0]!),
-        def: st.long,
-        min: -0x8000_0000,
-        max: 0x7fff_ffff,
+      if (rt.rtReq) {
+        if (!rt.rtReq.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtReq
+        rt.rtReq = null
+        // rtGetLongA edits the long at $1d06 in place and routine 55 reads it
+        // straight back, so a cancel answers the default it was given
+        st.long = r.value
+        return VI(st.long)
       }
-      return deltaRequester(rt, it, spec) ?? VI(st.long)
+      st.long = int(a[1]!) | 0
+      const setup: ReqSetup = {
+        mode: REQ_MODE.ENTER_NUMBER,
+        // no RTGL_TextFmt tag, so there is no body: `$264e movea.l $1b06.l,a2`
+        // puts TITLE$ in rtGetLongA's TITLE argument, which is the title bar
+        body: '',
+        gadgets: '',
+        title: str(a[0]!),
+        flags: 0,
+        width: 0,
+        underscore: '',
+        defaultResponse: 1,
+        // and no RTGL_Min or RTGL_Max, so `req.c` leaves them at the ends of
+        // a signed long and nothing the gadget will hold is out of range
+        min: RT_MININT,
+        max: RT_MAXINT,
+        minmax: false,
+      }
+      const args = { setup, buffer: '', maxLen: 0, value: st.long, showDefault: true, allowEmpty: false, invisible: false }
+      if (!rt.startRtRequest(args, null)) return VI(st.long)
+      it.block({ type: 'rtreq' }, true)
+      return VI(st.long)
     },
 
     /**

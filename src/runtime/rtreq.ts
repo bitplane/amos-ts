@@ -20,6 +20,7 @@ import {
   RT_FONTREQ_PREFS,
   RT_MAXINT,
   RT_MININT,
+  REQPOS,
   RT_SCREENMODEREQ_PREFS,
   RT_TEXT,
   fileReqHit,
@@ -131,6 +132,17 @@ function metricsFor(rt: Runtime, slot: number): ReqMetrics | null {
     measure: (s) => s.length * font.xSize,
   }
 }
+
+/**
+ * How many characters an integer gadget takes.
+ *
+ * `req.c`:591 is `my_CreateIntegerGadget (gad, &ng, 16, *value,
+ * GACT_STRINGCENTER)`, a flat 16 with no tag to move it. rtGetLongA has no
+ * `maxchars` argument at all --- that belongs to rtGetStringA, one entry
+ * earlier in the FD, which is what `delta-1.6` copied its `move.l #$64,d0`
+ * from.
+ */
+export const RT_LONG_MAXCHARS = 16
 
 /** the digits an integer gadget starts with, or nothing when ShowDefault is off */
 function initialBuffer(a: RtReqArgs): string {
@@ -333,7 +345,10 @@ export function stepRtReq(rt: Runtime, st: RtReqState): void {
         continue
       }
       if (k.ch < ' ') continue
-      if (st.buffer.length >= st.args.maxLen) continue
+      // an integer gadget has no `maxchars` argument: `req.c`:591 creates it
+      // with a flat 16, and RTGS_MaxChars only reaches the string one
+      const cap = st.args.setup.mode === REQ_MODE.ENTER_NUMBER ? RT_LONG_MAXCHARS : st.args.maxLen
+      if (st.buffer.length >= cap) continue
       if (st.args.setup.mode === REQ_MODE.ENTER_NUMBER && !digitOk(st.buffer, k.ch)) continue
       st.buffer += k.ch
       continue
@@ -481,6 +496,31 @@ function rtNewDir(rt: Runtime, st: RtFileState): void {
  * The window is REQPOS_TOPLEFTSCR at (25, 18) here, which is what the prefs
  * `$14c` builds when there is no `ReqTools.prefs` to replace them.
  */
+/**
+ * `rtSetReqPosition`, as far as this port needs it.
+ *
+ * CENTERSCR centres; everything else lands on the prefs' TOPLEFTSCR corner,
+ * which is what a requester with no RT_ReqPos tag gets. REQPOS_POINTER is not
+ * one of the answers here, and `startRtReq` says why: a requester that opens
+ * under the mouse is a requester a headless run cannot find.
+ */
+function reqPosition(
+  reqPos: number,
+  prefs: { leftOffset: number; topOffset: number },
+  scrW: number,
+  scrH: number,
+  w: number,
+  h: number,
+): { left: number; top: number } {
+  if (reqPos === REQPOS.CENTERSCR) {
+    return { left: Math.max(0, Math.trunc((scrW - w) / 2)), top: Math.max(0, Math.trunc((scrH - h) / 2)) }
+  }
+  return {
+    left: Math.min(prefs.leftOffset, Math.max(0, scrW - w)),
+    top: Math.min(prefs.topOffset, Math.max(0, scrH - h)),
+  }
+}
+
 export function startRtFile(rt: Runtime, setup: FileReqSetup, slot: number | null): RtFileState | null {
   const on = slot ?? WB_SLOT
   if (!rt.screens.get(on)) rt.intuition.openWorkBench()
@@ -488,9 +528,10 @@ export function startRtFile(rt: Runtime, setup: FileReqSetup, slot: number | nul
   const scr = rt.screens.get(on)
   if (!m || !scr) return null
   const layout = fileReqLayout(setup, m)
+  const at = reqPosition(setup.reqPos, RT_FILEREQ_PREFS, scr.width, scr.height, layout.width, layout.height)
   const window = rt.intuition.openWindow({
-    leftEdge: Math.min(RT_FILEREQ_PREFS.leftOffset, Math.max(0, scr.width - layout.width)),
-    topEdge: Math.min(RT_FILEREQ_PREFS.topOffset, Math.max(0, scr.height - layout.height)),
+    leftEdge: at.left,
+    topEdge: at.top,
     width: layout.width,
     height: layout.height,
     detailPen: 0,

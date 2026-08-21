@@ -312,6 +312,7 @@ describe('reqtools: the file requester layout', () => {
     flags: FREQF.PATGAD,
     height: 0,
     hideInfo: false,
+    reqPos: RT_FILEREQ_PREFS.reqPos,
     ...over,
   })
 

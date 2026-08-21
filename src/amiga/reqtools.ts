@@ -902,6 +902,14 @@ export interface FileReqSetup {
   height: number
   /** `freq->hideinfo`: the `._info` toggle comes up SELECTED when this is false */
   hideInfo: boolean
+  /**
+   * RT_ReqPos, or the prefs' own when the tag is absent.
+   *
+   * `intuition-1.3b` leaves it out and gets REQPOS_TOPLEFTSCR at 25, 18;
+   * `butility-1.21` asks for REQPOS_CENTERSCR outright, `$5de` of its
+   * BUtility.Lib being `80000003 00000002`.
+   */
+  reqPos: number
 }
 
 /** a labelled box in one of the two gadget rows */
