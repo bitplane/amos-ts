@@ -605,3 +605,127 @@ describe('Intuition 1.3b: drawing', () => {
     expect(rt.screens.get(rt.iext.screens.get(0)!.slot)!.palette[1]).toBe(0xf00)
   })
 })
+
+/**
+ * Input --- `input.s`.
+ *
+ * The extension keeps its own key and menu buffers, `KeyBufPtr` and
+ * `MenuBufPtr` with a `Next` pointer each, and `Iclear` resets a pointer
+ * rather than draining anything.
+ */
+describe('Intuition 1.3b: input', () => {
+  const W = 'Iscreen Open 0,320,256,16,0\nIwindow Open 1,0,0,320,200,"W"'
+
+  /**
+   * Six constants, three instructions each, and they are IDCMP classes ---
+   * which is what makes `E=Iwait Event : If E=Ievent Close` the idiom.
+   * `Ievent Vbl` is `$80000000` because no IDCMP class could collide with it.
+   */
+  it('the six Ievent constants are IDCMP classes', () => {
+    expect(vals('Print Ievent Mouse;" ";Ievent Gadget;" ";Ievent Menu;" ";Ievent Close;" ";Ievent Key')).toEqual([
+      0x8, 0x40, 0x100, 0x200, 0x400,
+    ])
+    expect(vals('Print Ievent Vbl')).toEqual([-0x8000_0000])
+  })
+
+  /**
+   * `L_IbufResetMouse` is ONE instruction, an `rts`, and Andrew Church
+   * labelled it himself: "Iclear Mouse - now a no-op". There was a mouse
+   * buffer once and there is not any more.
+   */
+  it('Iclear Mouse does nothing, and says so in the source', () => {
+    expect(() => run(`${W}\nIclear All\nIclear Key\nIclear Menu\nIclear Mouse`)).not.toThrow()
+  })
+
+  /**
+   * `Iwait Key` is `.lp` around `GetKey`, and GetKey CONSUMES: the key is
+   * gone by the time the wait returns, so `=Iget$` after it finds nothing.
+   * `LastCode` is written by whatever took the key, which is why `=Iscan`
+   * still knows what it was.
+   */
+  it('Iwait Key consumes the key it waited for, and Iscan remembers it', () => {
+    const b = boot(`${W}\nIwait Key\nPrint "["+Iget$+"] ";Iscan`)
+    b.rt.frame()
+    b.rt.pressKey('A', 0x20)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('[] 32')
+  })
+
+  /**
+   * `=Iget$` never waits: `jtcall GetKey / beq .nokey` and `.nokey` is
+   * `dlea NullStr,a0`. That is the whole difference between it and
+   * `=Iread Char$`.
+   */
+  it('Iget$ answers the empty string rather than waiting', () => {
+    const b = boot(`${W}\nPrint "["+Iget$+"]"`)
+    mustFinish(b.rt.runHeadless(500))
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  /**
+   * `L_IwaitEvent` pumps the port and answers the CLASS, storing the
+   * message's other half in `EventData` before it tests anything.
+   */
+  it('Iwait Event answers the IDCMP class and keeps the data', () => {
+    const b = boot(`${W}\nE=Iwait Event\nPrint E;" ";Ievent Data`)
+    b.rt.runHeadless(1)
+    const w = b.rt.iext.screens.get(0)!.windows.get(1)!
+    expect(w.window.post(0x200 /* IDCMP_CLOSEWINDOW */, 7)).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0x200, 7])
+  })
+
+  /**
+   * `L_IwaitEventVbl` adds `VBLSignal` to the mask and answers `$80000000`
+   * when that is what woke it --- so a program can drive an animation off the
+   * same loop that reads its gadgets, which is what the `.vbl` arm is for.
+   */
+  it('Iwait Event Vbl gives the frame back when nothing else happened', () => {
+    expect(vals(`${W}\nPrint Iwait Event Vbl`)).toEqual([-0x8000_0000])
+  })
+
+  /**
+   * `move.w wd_MouseX(a0),d3` and then `sub.w wd_BorderLeft(a0)`, so the
+   * answer is CLIENT-relative: 0,0 is the first drawable pixel. Nothing
+   * clamps it, so a pointer over the border reads NEGATIVE, which is what a
+   * window at the screen's corner with the pointer at 0,0 gives.
+   */
+  it('Imouse X and Y are client-relative, and go negative over the border', () => {
+    const rt = run(`${W}`)
+    const w = rt.iext.screens.get(0)!.windows.get(1)!.window
+    expect(vals(`${W}\nPrint Imouse X;" ";Imouse Y`)).toEqual([-w.borderLeft, -w.borderTop])
+  })
+
+  /**
+   * `=Ishift` is `LastQual`, the qualifier that came with the last key TAKEN
+   * -- so like `=Iscan` it describes what was consumed rather than what is
+   * held down now.
+   */
+  it('Ishift is the qualifier of the last key taken', () => {
+    const b = boot(`${W}\nIwait Key\nPrint Iscan;" ";Ishift`)
+    b.rt.frame()
+    // the shift byte is captured WITH the keystroke, from the scancodes
+    // $60-$67 that are held; $60 is the left shift
+    b.rt.input.keys.add(0x60)
+    b.rt.pressKey('A', 0x20)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0x20, 0x1])
+  })
+
+  /** `L_IwaitMouse` is `.lp` around `GetMouse`, the mirror of `Iwait Key` */
+  it('Iwait Mouse waits for a button', () => {
+    const b = boot(`${W}\nIwait Mouse\nPrint Imouse Key`)
+    b.rt.frame()
+    b.rt.input.mouseK = 1
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(1)
+  })
+
+  /** `=Imouse Key` pumps GetMouse and then reads `MouseState` */
+  it('Imouse Key is the button state', () => {
+    const b = boot(`${W}\nPrint Imouse Key`)
+    b.rt.input.mouseK = 1
+    mustFinish(b.rt.runHeadless(500))
+    expect(Number(b.out().trim())).toBe(1)
+  })
+})

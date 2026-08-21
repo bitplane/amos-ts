@@ -3848,6 +3848,25 @@ export const FAITHFUL = new Set<string>([
   // comment still claims. IsAGA wants all FOUR chip bits, the two ECS ones
   // included, so AGA implies ECS and a machine with AA answers both.
   'aga', 'ecs',
+  // Input. The extension keeps its OWN key and menu buffers -- `KeyBufPtr`
+  // and `MenuBufPtr` with a `Next` pointer each -- and `Iclear` resets a
+  // pointer rather than draining anything.
+  //
+  // `Iwait Key` consumes: `GetKey` takes the key out, so `=Iget$` after it
+  // finds nothing, and `LastCode` is written by whatever took it -- which is
+  // why `=Iscan` still knows what it was. `=Iget$` never waits at all, `beq
+  // .nokey` into `dlea NullStr,a0`, and that is the whole difference between
+  // it and `=Iread Char$`.
+  //
+  // The six `=Ievent` constants are IDCMP classes, three instructions each,
+  // which is what makes `E=Iwait Event : If E=Ievent Close` the idiom.
+  // `=Imouse X` subtracts `wd_BorderLeft`, so it is CLIENT-relative and goes
+  // negative over the border with nothing to clamp it.
+  'iclear all', 'iclear key', 'iclear menu', 'iclear mouse',
+  'iwait key', 'iwait mouse', 'iscan', 'ishift',
+  'imouse key', 'imouse x', 'imouse y', 'iget$',
+  'iwait event', 'iwait event vbl', 'ievent data',
+  'ievent vbl', 'ievent mouse', 'ievent gadget', 'ievent menu', 'ievent close', 'ievent key',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4191,6 +4210,18 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "iclear mouse":
+    "`L_IbufResetMouse` is ONE instruction, `rts`, and Andrew Church labelled it himself: \"Iclear Mouse - now " +
+    "a no-op\". Its three neighbours reset a buffer pointer each and this one has no buffer left to reset. " +
+    "Reproduced as the nothing it is.",
+  "iwait event":
+    "`L_IwaitEvent` waits on `mp_SigBit` of the current window's UserPort, pumps `DoEvent` with IDCMPWAIT, " +
+    "stores the message's second half in `EventData` BEFORE it tests anything, and loops while the class is " +
+    "zero -- so it answers a CLASS and never a message. `L_IwaitEventVbl` beside it adds `VBLSignal` to the " +
+    "mask and answers `$80000000` when that is what woke it, which is what lets one loop drive an animation " +
+    "and read its gadgets. DEVIATION: the real one cancels a toggle-select gadget's hit count on the way past " +
+    "-- `cmp.l #GADGETUP,d3`, then BOOLGADGET and TOGGLESELECT, then `clr.w ge_HitCount(a0)` -- and this port " +
+    "has no gadgets yet, so that arm is missing rather than wrong.",
   "ipalette":
     "It does nothing, and it shipped doing nothing. `color.s` carries the real one behind `ifne 0` with Andrew " +
     "Church's reason written above it -- \"Ipalette disabled because it's unstable.\" -- and what shipped is " +

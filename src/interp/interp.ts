@@ -133,6 +133,12 @@ export type Block =
    * waiters, and for the same reason.
    */
   | { type: 'iconify' }
+  /**
+   * The Intuition Extension's waiters: `Iwait Event`, `Iwait Key` and their
+   * neighbours poll and block again, so the keyword itself does the waiting
+   * and this only means "one frame has gone by". Same shape as `iconify`.
+   */
+  | { type: 'ievent' }
   // the speech library is 88K of tables, imported on the first Say
   | { type: 'speech' }
 

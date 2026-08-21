@@ -5148,6 +5148,10 @@ export class Runtime {
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
+    } else if (b.type === 'ievent') {
+      // one poll a frame: the keyword re-runs and blocks again if nothing has
+      // arrived, which is what `L_IwaitEvent`'s `.lp` loop does
+      this.interp.blocked = null
     } else if (b.type === 'iconify') {
       // one poll a frame: the keyword re-runs, calls Eliconify Test itself
       // and blocks again if the window has said nothing yet
@@ -5277,6 +5281,12 @@ export class Runtime {
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
         else this.interp.blocked = null
+      } else if (b?.type === 'ievent') {
+        // nobody is going to press a key headless, so the wait is broken
+        // rather than spun forever -- the same call `runHeadless` makes on
+        // every other blocking keyword
+        this.iext.headlessWake = true
+        this.interp.blocked = null
       } else if (b?.type === 'iconify') {
         // nobody is going to click the close gadget headless, so press it —
         // through the real gadget path, so the message carries the

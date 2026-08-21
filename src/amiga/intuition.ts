@@ -243,6 +243,8 @@ export const IDCMP_DISKINSERTED = 0x8000
 export const IDCMP_DISKREMOVED = 0x1_0000
 export const IDCMP_VANILLAKEY = 0x20_0000
 export const IDCMP_CLOSEWINDOW = 0x200
+/** intuition.i's IDCMP_RAWKEY, which is what `Ievent Key` answers */
+export const IDCMP_RAWKEY = 0x400
 export const IDCMP_ACTIVEWINDOW = 0x4_0000
 export const IDCMP_INACTIVEWINDOW = 0x8_0000
 

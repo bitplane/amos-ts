@@ -48,12 +48,12 @@
  * user presses LeftAmiga+A)."* That is AMOS's own screen sitting in front,
  * not anything this extension does, and `Amos To Back` is what moves it.
  */
-import { AmosError, VI, int, str, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
 import { RastPort } from '../amiga/graphics'
-import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, type Window } from '../amiga/intuition'
 
 /**
  * What `=Aga` and `=Ecs` answer on the machine this port models.
@@ -269,6 +269,26 @@ export class IextState {
   readonly wbWindows = new Map<number, IextWindow>()
   /** `LastActiveWB`, saved whenever a Workbench window stops being current */
   lastActiveWB = -1
+  /**
+   * `LastCode` and `LastQual`, which `=Iscan` and `=Ishift` read back.
+   *
+   * Set by whatever last took a key out of the buffer, and NOT cleared by
+   * `Iclear Key` -- that resets the buffer pointer and leaves these alone.
+   */
+  lastCode = 0
+  lastQual = 0
+  /** `EventData`, the second half of whatever `Iwait Event` last answered */
+  eventData = 0
+  /** `MenuBufPtr`'s buffer, which `Iclear Menu` resets and `menus.s` fills */
+  readonly menuPicks: number[] = []
+  /**
+   * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
+   *
+   * Not part of the extension. A headless run has no keyboard and no mouse,
+   * so `Iwait Key` would spin until the step budget ran out; this is what
+   * lets the waiters give up once rather than never.
+   */
+  headlessWake = false
   /** `TrapErrors` / `ErrorTrapped` / `LastError`, which `other.s` reads back */
   trapErrors = false
   errorTrapped = false
@@ -583,6 +603,52 @@ function setGrPos(rp: RastPort, x: number | null, y: number | null): void {
  */
 function colourMapCount(scr: IextScreen): number {
   return 1 << scr.depth
+}
+
+/** `Ievent Vbl` --- `move.l #$80000000,d3`, which no IDCMP class can be */
+const IEXT_EVENT_VBL = -0x8000_0000
+
+/**
+ * `GetKey`: take one character out of the buffer, remembering its raw code.
+ *
+ * `LastCode` and `LastQual` are what `=Iscan` and `=Ishift` read back, and
+ * they are written HERE rather than when the key arrived -- so they describe
+ * the last key CONSUMED, not the last one pressed.
+ */
+function takeKey(rt: Runtime, st: IextState): string | null {
+  const k = rt.input.keyQueue.shift()
+  if (!k) return null
+  st.lastCode = k.scan
+  st.lastQual = k.shift ?? 0
+  return k.ch
+}
+
+/**
+ * `L_IwaitEvent` and `L_IwaitEventVbl`, which differ by one signal.
+ *
+ * The Vbl form adds `VBLSignal` to the mask it waits on and answers
+ * `$80000000` when that is what woke it, so a program can drive an animation
+ * off the same loop that reads its gadgets.
+ */
+function waitEvent(rt: Runtime, it: Parameters<Func>[0], vbl: boolean): Value {
+  const st = rt.iext
+  const w = curIwin(st)
+  const msg = w.window.getMsg()
+  if (msg) {
+    // `tmove.l d1,EventData` before the class is tested: the second half of
+    // the message is kept whatever the class turns out to be
+    st.eventData = msg.class === IDCMP_GADGETUP || msg.class === IDCMP_MENUPICK ? msg.iaddress : msg.code
+    if (msg.class === IDCMP_CLOSEWINDOW) w.flags |= WEF.CLOSED
+    return VI(msg.class)
+  }
+  // `.vbl` --- the Vbl form gives the frame back rather than waiting again
+  if (vbl) return VI(IEXT_EVENT_VBL)
+  if (st.headlessWake) {
+    st.headlessWake = false
+    return VI(0)
+  }
+  it.block({ type: 'ievent' }, true)
+  return VI(0)
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
@@ -1194,6 +1260,69 @@ export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
       rp.text(ox + x, oy + rp.cpY, text)
       rp.cpX = x + rp.textLength(text)
     },
+ 
+    /* ------------------------------------------------------------------
+     * Input
+     *
+     * The extension keeps its OWN key and menu buffers -- `KeyBufPtr` and
+     * `MenuBufPtr` with a `Next` pointer each -- and `Iclear` resets a
+     * pointer rather than draining anything. This port has AMOS's queue
+     * instead, so a clear drains it; the observable is the same and the note
+     * says which.
+     * ------------------------------------------------------------------ */
+
+    /** `Iclear All` --- both buffer pointers back to their base */
+    'iclear all': () => {
+      rt.input.keyQueue.length = 0
+      s().menuPicks.length = 0
+    },
+    /** `Iclear Key` --- the key buffer only, and it leaves LastCode alone */
+    'iclear key': () => {
+      rt.input.keyQueue.length = 0
+    },
+    /** `Iclear Menu` --- the menu buffer only */
+    'iclear menu': () => {
+      s().menuPicks.length = 0
+    },
+    /**
+     * `Iclear Mouse` --- nothing at all.
+     *
+     * `L_IbufResetMouse` is one instruction, an `rts`, and Andrew Church
+     * labelled it himself: "Iclear Mouse - now a no-op". There was a mouse
+     * buffer once and there is not any more.
+     */
+    'iclear mouse': () => {},
+
+    /**
+     * `Iwait Key` --- `.lp` until `GetKey` answers something.
+     *
+     * A poll and a block, which is what the `.lp` loop is: the keyword
+     * re-runs each frame until a key is there. `runHeadless` breaks it, since
+     * nothing is going to press one.
+     */
+    'iwait key': (it) => {
+      const st = s()
+      if (rt.input.keyQueue.length > 0) {
+        takeKey(rt, st)
+        return
+      }
+      if (st.headlessWake) {
+        st.headlessWake = false
+        return
+      }
+      it.block({ type: 'ievent' }, true)
+    },
+
+    /** `Iwait Mouse` --- the same shape over `GetMouse` */
+    'iwait mouse': (it) => {
+      const st = s()
+      if ((rt.input.mouseK & 3) !== 0) return
+      if (st.headlessWake) {
+        st.headlessWake = false
+        return
+      }
+      it.block({ type: 'ievent' }, true)
+    },
   }
 }
 
@@ -1413,6 +1542,78 @@ export function makeIextFunctions(rt: Runtime): Record<string, Func> {
     /** `=Ixgr` and `=Iygr` --- `rp_cp_x` and `rp_cp_y`, the graphics cursor */
     'ixgr': (): Value => VI(curRp(rt, s()).rp.cpX),
     'iygr': (): Value => VI(curRp(rt, s()).rp.cpY),
+    /**
+     * `=Iscan` and `=Ishift` --- `LastCode` and `LastQual`.
+     *
+     * What the last key TAKEN out of the buffer was, raw. `Iclear Key` resets
+     * the buffer pointer and does not touch either, so they outlive a clear.
+     */
+    iscan: (): Value => VI(s().lastCode),
+    ishift: (): Value => VI(s().lastQual),
+
+    /** `=Imouse Key` --- pumps GetMouse, then `MouseState` */
+    'imouse key': (): Value => VI(rt.input.mouseK & 3),
+
+    /**
+     * `=Imouse X` and `=Imouse Y` --- the pointer in the current window, less
+     * its border.
+     *
+     * `move.w wd_MouseX(a0),d3` and then `sub.w wd_BorderLeft(a0)`, so the
+     * answer is CLIENT-relative: 0,0 is the first drawable pixel and not the
+     * window's corner. Nothing clamps it, so a pointer over the border reads
+     * negative.
+     */
+    'imouse x': (): Value => {
+      const w = curIwin(s()).window
+      return VI(((w.mouseX - w.borderLeft) << 16) >> 16)
+    },
+    'imouse y': (): Value => {
+      const w = curIwin(s()).window
+      return VI(((w.mouseY - w.borderTop) << 16) >> 16)
+    },
+
+    /**
+     * `=Iget$` --- one character if there is one, and the empty string if not.
+     *
+     * `jtcall GetKey / beq .nokey`, and `.nokey` is `dlea NullStr,a0`. So it
+     * never waits, which is what separates it from `=Iread Char$`.
+     */
+    'iget$': (): Value => VS(takeKey(rt, s()) ?? ''),
+
+    /**
+     * `=Ievent Vbl`, `Mouse`, `Gadget`, `Menu`, `Close` and `Key` --- six
+     * constants, three instructions each.
+     *
+     * They are IDCMP classes, so `E=Iwait Event : If E=Ievent Close` is the
+     * idiom, and `Ievent Vbl` is `$80000000` because no IDCMP class could
+     * collide with it.
+     */
+    'ievent vbl': (): Value => VI(IEXT_EVENT_VBL),
+    'ievent mouse': (): Value => VI(IDCMP_MOUSEBUTTONS),
+    'ievent gadget': (): Value => VI(IDCMP_GADGETUP),
+    'ievent menu': (): Value => VI(IDCMP_MENUPICK),
+    'ievent close': (): Value => VI(IDCMP_CLOSEWINDOW),
+    'ievent key': (): Value => VI(IDCMP_RAWKEY),
+
+    /** `=Ievent Data` --- the second half of whatever the last wait answered */
+    'ievent data': (): Value => VI(s().eventData),
+
+    /**
+     * `=Iwait Event` --- block on the window's UserPort, answer the IDCMP
+     * CLASS.
+     *
+     * `L_IwaitEvent` waits on `mp_SigBit` of the port, pumps `DoEvent` with
+     * `IDCMPWAIT`, stores the message's second word in `EventData` and loops
+     * while the class is zero. So it returns a class and never a message.
+     *
+     * DEVIATION: the extension cancels a toggle-select gadget's hit count
+     * here --- `cmp.l #GADGETUP,d3` and then `clr.w ge_HitCount(a0)` when the
+     * gadget is a BOOLGADGET with TOGGLESELECT. Nothing here has gadgets yet,
+     * so that arm is missing rather than wrong; see `gadgets.s`.
+     */
+    'iwait event': (it): Value => waitEvent(rt, it, false),
+    'iwait event vbl': (it): Value => waitEvent(rt, it, true),
+
 
     'iwindow status wb': (_, a): Value => {
       const w = findWbIwin(s(), int(a[0]!))
