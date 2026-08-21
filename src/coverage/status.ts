@@ -3797,6 +3797,33 @@ export const FAITHFUL = new Set<string>([
   'iscreen open', 'iscreen open public', 'iscreen open back', 'iscreen open front',
   'iscreen close', 'iscreen', 'set iscreen', 'iscreen to front', 'iscreen to back',
   'iscreen base', 'iscreen width', 'iscreen height', 'iscreen colour', 'iscreen mode',
+  // Windows. `windows.s` writes almost every one three times -- `n`, `Wb n`
+  // and bare -- as three routines sharing a body, and the only difference is
+  // which list the number goes to: `FindIwin` walks the CURRENT screen's
+  // `se_FirstIwindow` and `FindWBIwin` a separate one, which is what lets the
+  // guide say "different screens may have same-numbered windows".
+  //
+  // WINDOW 0 IS THE SCREEN, `se_BaseWin`, and the three modifiers refuse it
+  // BY NUMBER before any list is walked: `Iwindow Close 0` is
+  // `beq L_NoCloseWin0` and To Front, Move and Size are `beq L_NoModWin0`.
+  // `=Iwindow X(0)` does not walk one either -- `beq .scrwin` answers the
+  // screen's own origin.
+  //
+  // `Set Iwindow 0` and `Iwindow Activate 0` are NOT the same thing: the
+  // first is `dclr.l CurIwindow`, no window at all, and the second activates
+  // the base window. Move and Size take either coordinate or leave it, the
+  // test being `cmp.l #Null,d2` and Null being `$80000000`, "what AMOS passes
+  // if a parameter is omitted".
+  'iwindow open', 'iwindow open wb', 'iwindow close', 'iwindow close wb',
+  'set iwindow', 'set iwindow wb', 'iwindow', 'iwindow on wb',
+  'iwindow to front', 'iwindow to front wb', 'iwindow to back', 'iwindow to back wb',
+  'iwindow move', 'iwindow move wb', 'iwindow size', 'iwindow size wb',
+  'iwindow x', 'iwindow y', 'iwindow width', 'iwindow height',
+  'iwindow x wb', 'iwindow y wb', 'iwindow width wb', 'iwindow height wb',
+  'iwindow actual width', 'iwindow actual height', 'iwindow base',
+  'iwindow activate', 'iwindow activate wb',
+  'iwindow active', 'iwindow active num', 'iwindow active base',
+  'iwindow status', 'iwindow status wb',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

@@ -881,6 +881,23 @@ export class Intuition {
     this.dirty = true
   }
 
+  /**
+   * `SizeWindow(window, dx, dy)` — intuition.library -288.
+   *
+   * A DELTA like MoveWindow's, and clamped the same way: a window may not be
+   * sized past the screen's edge from where it sits.
+   */
+  sizeWindow(w: Window, dx: number, dy: number): void {
+    const size = this.host.screenSize(w.screenSlot)
+    const li = this.info(w.screenSlot)
+    if (!size || !li) return
+    const width = Math.max(1, Math.min(size.width - w.leftEdge, w.width + dx))
+    const height = Math.max(1, Math.min(size.height - w.topEdge, w.height + dy))
+    if (width === w.width && height === w.height) return
+    li.sizeLayer(w.layer, width - w.width, height - w.height)
+    this.dirty = true
+  }
+
   /** the frontmost window on a screen */
   private frontWindow(slot: number): Window | null {
     for (let i = this.open.length - 1; i >= 0; i--) {
