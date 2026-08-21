@@ -71,6 +71,28 @@ import {
   type ScreenReqSetup,
 } from '../amiga/reqtools'
 import { rtScreenResult } from './rtreq'
+import {
+  AUTOKNOB,
+  FREEHORIZ,
+  FREEVERT,
+  GACT_GADGIMMEDIATE,
+  GACT_LONGINT,
+  GACT_RELVERIFY,
+  GACT_STRINGCENTER,
+  GACT_STRINGRIGHT,
+  GACT_TOGGLESELECT,
+  GFLG_GADGDISABLED,
+  GFLG_GADGHIMAGE,
+  GFLG_GADGHNONE,
+  GFLG_SELECTED,
+  GTYP_BOOLGADGET,
+  GTYP_PROPGADGET,
+  GTYP_STRGADGET,
+  MAXBODY,
+  MAXPOT,
+  type Border,
+  type UserGadget,
+} from '../amiga/intuition'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
@@ -355,6 +377,39 @@ export interface IextWindow {
    * inserting after the last node with a smaller number.
    */
   menus: IextMenu[]
+  /**
+   * `we_Gadgets` and `we_NGadgets`: the array `Reserve Igadget n` allocates.
+   *
+   * One slot a gadget, MEMF_CLEARed, and a slot with `gg_GadgetType` still
+   * zero is one `Set Igadget ...` has not filled in --- which is error 27,
+   * "Gadget not defined". Reserving again frees the old array outright, so
+   * every gadget in it goes.
+   */
+  gadgets: (IextGadget | null)[]
+  /** `we_HilitePen` and `we_ShadowPen`, both 1 until `Set Ipens` moves them */
+  hilitePen: number
+  shadowPen: number
+}
+
+/**
+ * One entry of `we_Gadgets`: a `struct Gadget`, its extension and its
+ * SpecialInfo, laid end to end.
+ *
+ * `GADGETSIZE equ gg_sizeof+ge_sizeof+si_sizeof` is 44 + 18 + 36 = 98, which
+ * is the `lea.l $62(a5),a5` the two all-gadget loops step by.
+ */
+export interface IextGadget {
+  /** the live gadget, which is also what the window's list holds when it is on */
+  gad: UserGadget
+  /** `ge_NUnits` and `ge_KnobSize`, sliders only */
+  units: number
+  knobSize: number
+  /** `ge_HitCount`, hit-select gadgets only */
+  hitCount: number
+  /** `ge_Flags` GEF_DISPLAYED: whether `Igadget On` has added it to the window */
+  displayed: boolean
+  /** `ge_Flags` GEF_GADGETDOWN, which `=Igadget Down` reads */
+  down: boolean
 }
 
 export class IextState {
@@ -683,7 +738,7 @@ function doEvent(st: IextState, want: number): { cls: number; code: number; iadd
     for (;;) {
       const msg = w.window.getMsg()
       if (!msg) break
-      const cls = sortEvent(st, w, msg.class, msg.code)
+      const cls = sortEvent(st, w, msg.class, msg.code, msg.iaddress)
       if ((cls & want) !== 0) return { cls, code: msg.code, iaddress: msg.iaddress }
     }
   }
@@ -716,7 +771,7 @@ const IEXT_MENU_BUF = 255
  * event: a full menu ring is `moveq #0,d3`, and so is a key code of $60 or
  * above, the *"key up and shifting-key events"* the RAWKEY arm ignores.
  */
-function sortEvent(st: IextState, w: IextWindow, cls: number, code: number): number {
+function sortEvent(st: IextState, w: IextWindow, cls: number, code: number, iaddress = 0): number {
   if (cls === IDCMP_CLOSEWINDOW) {
     w.flags |= WEF.CLOSED
     return cls
@@ -724,6 +779,23 @@ function sortEvent(st: IextState, w: IextWindow, cls: number, code: number): num
   if (cls === IDCMP_MENUPICK) {
     if (st.menuPicks.length >= IEXT_MENU_BUF) return 0
     st.menuPicks.push(code)
+  }
+  // the two gadget arms: GADGETDOWN sets GEF_GADGETDOWN and counts a
+  // hit-select press, GADGETUP clears it again. `=Igadget Down` and the
+  // hit-select arm of `=Igadget Read` are both reading what this leaves
+  if (cls === IDCMP_GADGETDOWN || cls === IDCMP_GADGETUP) {
+    const g = w.gadgets.find((e) => e?.gad.id === iaddress)
+    if (g) {
+      g.down = cls === IDCMP_GADGETDOWN
+      const toggle = ((g.gad.activation ?? 0) & GACT_TOGGLESELECT) !== 0
+      if (cls === IDCMP_GADGETDOWN && g.gad.kind === GTYP_BOOLGADGET && !toggle) {
+        g.hitCount = Math.min(0x7fff, g.hitCount + 1)
+      }
+      // `cmp.l #GADGETUP,d3` and then `clr.w ge_HitCount(a0)` for a
+      // BOOLGADGET with TOGGLESELECT: a toggle keeps no count, and DoEvent
+      // throws away any that a Set Igadget Hit on the same slot left behind
+      if (cls === IDCMP_GADGETUP && g.gad.kind === GTYP_BOOLGADGET && toggle) g.hitCount = 0
+    }
   }
   return cls
 }
@@ -770,7 +842,20 @@ function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void
     ...(onWb ? {} : { screenSlot: slot }),
   })
   if (!window) iError(E.UOW)
-  list.set(num, { number: num, screen: onWb ? null : st.current, window, flags: 0, title, menus: [] })
+  list.set(num, {
+    number: num,
+    screen: onWb ? null : st.current,
+    window,
+    flags: 0,
+    title,
+    menus: [],
+    gadgets: [],
+    // `we_HilitePen` and `we_ShadowPen` are byte fields in a MEMF_CLEARed
+    // block until `Set Ipens` writes them, so a gadget drawn before that is
+    // drawn in pen 0 on both sides and is invisible
+    hilitePen: 0,
+    shadowPen: 0,
+  })
   st.currentWindow = num
   st.currentIsWB = onWb
 }
@@ -1029,6 +1114,325 @@ function waitEvent(rt: Runtime, it: Parameters<Func>[0], vbl: boolean): Value {
   }
   it.block({ type: 'ievent' }, true)
   return VI(0)
+}
+
+/* --------------------------------------------------------------------------
+ * `gadgets.s`
+ *
+ * `Reserve Igadget n` AllocMemClears an array of n slots on the CURRENT
+ * window, each `GADGETSIZE equ gg_sizeof+ge_sizeof+si_sizeof` = 98 bytes --
+ * the `lea.l $62(a5),a5` the two all-gadget loops step by. A `Set Igadget
+ * ...` fills one slot in; `Igadget On` links it into the window's own gadget
+ * list with AddGadget (-42) and refreshes it with RefreshGList (-432).
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The `n,x,y,w,h` every `Set Igadget` opens with, and the rest of a fixed
+ * list.
+ *
+ * A height left out reaches the routine as AMOS's `Null`, `$80000000`, which
+ * `cmp.l #Null,d3 / beq` turns into the font height plus four. The token
+ * spec spells that as an omissible argument, so an empty one reads as zero
+ * here and the two arms agree.
+ */
+function gadArgs(it: Parameters<Instr>[0], n: number): number[] {
+  const out: number[] = [it.evalInt()]
+  for (let i = 1; i < n; i++) {
+    it.expect(',')
+    // an omitted argument reads as zero, which is what `cmp.l #Null,d3`
+    // turns into the font height for a string gadget's height
+    out.push(it.atStmtEnd() || it.nm() === ',' ? 0 : it.evalInt())
+  }
+  return out
+}
+
+/** `we_Gadgets`, checked for `n` in range, or error 34, "Gadget not reserved" */
+function gadSlotIndex(w: IextWindow, n: number): number {
+  // `cmp.l #$10000,d7 / bcc L_GadNotRes` then `cmp.w we_NGadgets,d7 / bhi`,
+  // and it is `bhi` -- an n EQUAL to the count passes, because the array is
+  // one-based and slot n is index n-1
+  if (n < 0 || n >= 0x1_0000) iError(E.GNR)
+  if (n > w.gadgets.length) iError(E.GNR)
+  // `subq.w #1,d7 / bmi L_IllFunc` -- gadget 0 is error 13, not error 34
+  if (n - 1 < 0) iError(E.IFC)
+  return n - 1
+}
+
+/** the slot, and error 33 when no `Set Igadget` has filled it in */
+function gadDefined(w: IextWindow, n: number): IextGadget {
+  const g = w.gadgets[gadSlotIndex(w, n)]
+  // `tst.w gg_GadgetType(a0) / beq L_GadNotDef`: a MEMF_CLEARed slot has type
+  // zero, and no gadget type is zero
+  if (!g) iError(E.GND)
+  return g
+}
+
+/**
+ * The two-border bevel every boolean gadget carries, and the swapped pair it
+ * shows while SELECTED.
+ *
+ * `L_MakeBoolGad` writes them out by hand: `(w-1,0) - (0,0) - (0,h-1)` in the
+ * hilite pen and `(w-1,0) - (w-1,h-1) - (0,h-1)` in the shadow pen, then the
+ * same two with the pens the other way round into `gg_SelectRender`. So a
+ * gadget is a raised box that goes recessed when it is pressed, drawn with
+ * whatever pens `Set Ipens` last put in `we_HilitePen` and `we_ShadowPen`.
+ */
+function boolBorders(w: IextWindow, width: number, height: number, swapped: boolean): Border[] {
+  const d4 = width - 1
+  const d3 = height - 1
+  const first = swapped ? w.shadowPen : w.hilitePen
+  const second = swapped ? w.hilitePen : w.shadowPen
+  return [
+    { leftEdge: 0, topEdge: 0, pen: first, xy: [d4, 0, 0, 0, 0, d3] },
+    { leftEdge: 0, topEdge: 0, pen: second, xy: [d4, 0, d4, d3, 0, d3] },
+  ]
+}
+
+/**
+ * `L_MakeSlider`'s border: four `struct Border`s, an inner pair and an outer
+ * pair, so the container reads as a groove rather than a box.
+ *
+ * `(1,1)-(1,h-2)` and `(0,h-1)-(0,0)-(w-2,0)` in the hilite pen, then
+ * `(w-2,1)-(w-2,h-2)` and `(w-1,0)-(w-1,h-1)-(1,h-1)` in the shadow pen.
+ */
+function sliderBorders(w: IextWindow, width: number, height: number): Border[] {
+  const d4 = width - 1
+  const d3 = height - 1
+  const d6 = d4 - 1
+  const d7 = d3 - 1
+  return [
+    { leftEdge: 0, topEdge: 0, pen: w.hilitePen, xy: [1, 1, 1, d7] },
+    { leftEdge: 0, topEdge: 0, pen: w.hilitePen, xy: [0, d3, 0, 0, d6, 0] },
+    { leftEdge: 0, topEdge: 0, pen: w.shadowPen, xy: [d6, 1, d6, d7] },
+    { leftEdge: 0, topEdge: 0, pen: w.shadowPen, xy: [d4, 0, d4, d3, 1, d3] },
+  ]
+}
+
+/**
+ * `L_gStringBorder`: the box a string or integer gadget sits INSIDE.
+ *
+ * The gadget itself was shrunk by 4 on the left, 2 on the top, 8 in width and
+ * 4 in height, so the border is drawn at negative offsets to land back on the
+ * rectangle the caller asked for. `d4` is `gg_Width + 3` and `d3` is
+ * `gg_Height + 1`, which is that arithmetic run backwards.
+ */
+function stringBorders(w: IextWindow, width: number, height: number): Border[] {
+  const d4 = width + 3
+  const d3 = height + 1
+  const d6 = d4 - 1
+  const d7 = d3 - 1
+  return [
+    { leftEdge: 0, topEdge: 0, pen: w.hilitePen, xy: [-3, -1, -3, d7] },
+    { leftEdge: 0, topEdge: 0, pen: w.hilitePen, xy: [-4, d3, -4, -2, d6, -2] },
+    { leftEdge: 0, topEdge: 0, pen: w.shadowPen, xy: [d6, -1, d6, d7] },
+    { leftEdge: 0, topEdge: 0, pen: w.shadowPen, xy: [d4, -2, d4, d3, -3, d3] },
+  ]
+}
+
+/**
+ * The bounds every `Set Igadget` checks, in the order it checks them.
+ *
+ * x and y are made window-relative by ADDING the border widths, so a program
+ * gives coordinates inside the frame and Intuition gets coordinates from the
+ * window's corner. Then each of the four must be under `$8000`, the bottom
+ * and right edges must fall inside the window counting its own borders, and
+ * -- for a boolean gadget only -- the size must be at least 4 by 4.
+ */
+function gadBounds(
+  iw: IextWindow,
+  x: number,
+  y: number,
+  gw: number,
+  gh: number,
+  minSize: boolean,
+): { x: number; y: number } {
+  const win = iw.window
+  const left = x + win.borderLeft
+  const top = y + win.borderTop
+  for (const v of [gh, gw, top, left]) if (v > 0x8000) iError(E.IFC)
+  if (win.borderBottom + gh + top >= win.height) iError(E.IFC)
+  if (win.borderRight + gw + left >= win.width) iError(E.IFC)
+  if (minSize && (gh < 4 || gw < 4)) iError(E.IFC)
+  return { x: left, y: top }
+}
+
+/** put a filled-in gadget in its slot, replacing whatever was there */
+function putGadget(rt: Runtime, w: IextWindow, index: number, g: IextGadget): void {
+  const old = w.gadgets[index]
+  if (old?.displayed) {
+    const at = w.window.gadgets.indexOf(old.gad)
+    if (at >= 0) w.window.gadgets.splice(at, 1)
+  }
+  w.gadgets[index] = g
+  rt.intuition.invalidate()
+}
+
+/** `L_MakeBoolGad`, shared by Set Igadget Toggle and Set Igadget Hit */
+function makeBoolGad(rt: Runtime, box: readonly number[], selected: boolean, toggle: boolean): void {
+  const st = rt.iext
+  const w = curIwin(st)
+  const n = box[0]!
+  const index = gadSlotIndex(w, n)
+  const [gx, gy, gw, gh] = [box[1]!, box[2]!, box[3]!, box[4]!]
+  const at = gadBounds(w, gx, gy, gw, gh, true)
+  const gad: UserGadget = {
+    leftEdge: at.x,
+    topEdge: at.y,
+    width: gw,
+    height: gh,
+    id: n,
+    kind: GTYP_BOOLGADGET,
+    // `move.w #GADGHIMAGE,gg_Flags` and then SELECTED ORed in, which is what
+    // makes `gg_SelectRender` the highlight
+    flags: GFLG_GADGHIMAGE | (selected ? GFLG_SELECTED : 0),
+    activation: (toggle ? GACT_TOGGLESELECT : 0) | GACT_GADGIMMEDIATE | GACT_RELVERIFY,
+    borders: boolBorders(w, gw, gh, false),
+    selectBorders: boolBorders(w, gw, gh, true),
+  }
+  putGadget(rt, w, index, { gad, units: 0, knobSize: 0, hitCount: 0, displayed: false, down: false })
+}
+
+/**
+ * `L_MakeSlider`, and the two defects it carries.
+ *
+ * DEFECT: `$68ca move.w #$ffff,$6(a0) / clr.w $2(a0)`. That is the VERTICAL
+ * arm of the "nothing is hidden" case, and `$6(a0)` is pi_HorizBody and
+ * `$2(a0)` is pi_HorizPot -- the same two the horizontal arm four
+ * instructions above writes. A vertical slider whose size covers its units
+ * therefore leaves pi_VertBody at the zero AllocMemClear left, and an
+ * AUTOKNOB with a body of zero is a knob clamped to KNOBVMIN, four pixels,
+ * at the top of its container.
+ *
+ * DEFECT: the FREEHORIZ/FREEVERT decision is read off the wrong word.
+ * `$68a8 divu.w (a7)+,d1` pops the hidden count and `$68aa tst.w (a7)+` pops
+ * the direction flag, so by the time `$68d8 tst.w (a7)+` runs the stack is
+ * back at the `movem.l a4/a6,-(a7)` `pstart` pushed and what it tests is the
+ * HIGH WORD OF a4 -- the extension's own data zone pointer. Above 64KB, which
+ * is every real machine, that is non-zero and every slider comes out
+ * FREEVERT. `pstart` saves a7 in `A7StackPtr` and `ret` restores it, so the
+ * unbalanced pop costs nothing else. The "nothing hidden" path reaches
+ * `.piflag` with the flag still on the stack and gets it right.
+ *
+ * DEVIATION: this port has no saved a4 to read and no address for its data
+ * zone, so the slider is built with the direction the caller asked for. Both
+ * defects are recorded rather than reproduced, the same call `=Irequest File
+ * Next$` gets.
+ */
+function makeSlider(rt: Runtime, v: readonly number[], vertical: boolean): void {
+  const st = rt.iext
+  const w = curIwin(st)
+  const n = v[0]!
+  const index = gadSlotIndex(w, n)
+  const [gx, gy, gw, gh] = [v[1]!, v[2]!, v[3]!, v[4]!]
+  const [units, pos, size, overlap] = [v[5]!, v[6]!, v[7]!, v[8]!]
+  const at = gadBounds(w, gx, gy, gw, gh, false)
+  const prop = { flags: AUTOKNOB | (vertical ? FREEVERT : FREEHORIZ), horizPot: 0, vertPot: 0, horizBody: 0, vertBody: 0 }
+  const hidden = units - size
+  let body = MAXBODY
+  let pot = 0
+  if (hidden > 0) {
+    // `Body = ((visible - overlap) * MAXBODY) / (total - overlap)` and
+    // `Pot = (position * MAXPOT) / hidden`, both the author's own comment
+    body = Math.trunc(((size - overlap) * MAXBODY) / Math.max(1, units - overlap))
+    pot = Math.min(MAXPOT, Math.trunc((pos * MAXPOT) / hidden))
+  }
+  if (vertical) {
+    prop.vertBody = body
+    prop.vertPot = pot
+  } else {
+    prop.horizBody = body
+    prop.horizPot = pot
+  }
+  const gad: UserGadget = {
+    leftEdge: at.x,
+    topEdge: at.y,
+    width: gw,
+    height: gh,
+    id: n,
+    kind: GTYP_PROPGADGET,
+    flags: GFLG_GADGHNONE,
+    activation: GACT_GADGIMMEDIATE | GACT_RELVERIFY,
+    borders: sliderBorders(w, gw, gh),
+    prop,
+  }
+  putGadget(rt, w, index, { gad, units, knobSize: size, hitCount: 0, displayed: false, down: false })
+}
+
+/** `.left`, `.centre` and the `cmp.l #2` that refuses anything else */
+function strPos(v: number): number {
+  if (v === 0) return 0
+  if (v === 1) return GACT_STRINGCENTER
+  if (v === 2) return GACT_STRINGRIGHT
+  return iError(E.IFC)
+}
+
+/**
+ * `L_SetIgadString` and `L_SetIgadInt`, which are the same routine twice.
+ *
+ * A height of zero -- the AMOS `Null` an omitted argument passes -- becomes
+ * `rp_TxHeight + 4`, and anything smaller than that is error 13; so is a
+ * width under 32. The gadget is then shrunk to sit INSIDE its border: 4 off
+ * the left, 2 off the top, 8 off the width and 4 off the height.
+ *
+ * `si_MaxChars` counts the NUL, so `Set Igadget String n,...,size` holds
+ * `size - 1` characters. The integer one is a flat 12, "`-1234567890` plus
+ * trailing null" in the author's comment, which is eleven characters and
+ * exactly fits `-2147483648`.
+ */
+function makeStringGad(
+  rt: Runtime,
+  box: readonly number[],
+  opts: { maxChars: number; text: string; longInt: number | null; posArg: number },
+): void {
+  const st = rt.iext
+  const w = curIwin(st)
+  const n = box[0]!
+  const index = gadSlotIndex(w, n)
+  const font = rt.systemFont()
+  const [gx, gy, gw] = [box[1]!, box[2]!, box[3]!]
+  const asked = box[4]!
+  const gh = asked === 0 ? font.ySize + 4 : asked
+  const at = gadBounds(w, gx, gy, gw, gh, false)
+  if (gh < font.ySize + 4) iError(E.IFC)
+  if (gw < 32) iError(E.IFC)
+  const inner = { x: at.x + 4, y: at.y + 2, w: gw - 8, h: gh - 4 }
+  const gad: UserGadget = {
+    leftEdge: inner.x,
+    topEdge: inner.y,
+    width: inner.w,
+    height: inner.h,
+    id: n,
+    kind: GTYP_STRGADGET,
+    flags: GFLG_GADGHNONE,
+    activation:
+      strPos(opts.posArg) | GACT_GADGIMMEDIATE | GACT_RELVERIFY | (opts.longInt === null ? 0 : GACT_LONGINT),
+    borders: stringBorders(w, inner.w, inner.h),
+    strInfo: {
+      buffer: opts.text.slice(0, Math.max(0, opts.maxChars - 1)),
+      maxChars: opts.maxChars,
+      bufferPos: 0,
+      longInt: opts.longInt ?? 0,
+    },
+  }
+  putGadget(rt, w, index, { gad, units: 0, knobSize: 0, hitCount: 0, displayed: false, down: false })
+}
+
+/** `Igadget On n`: AddGadget then RefreshGList, and a second On does nothing */
+function gadgetOn(rt: Runtime, w: IextWindow, g: IextGadget): void {
+  if (g.displayed) return
+  g.displayed = true
+  w.window.gadgets.push(g.gad)
+  rt.intuition.invalidate()
+}
+
+/** `Igadget Off n`: RemoveGadget then `ClearGadget`, which blanks its box */
+function gadgetOff(rt: Runtime, w: IextWindow, g: IextGadget): void {
+  if (!g.displayed) return
+  g.displayed = false
+  g.down = false
+  const at = w.window.gadgets.indexOf(g.gad)
+  if (at >= 0) w.window.gadgets.splice(at, 1)
+  rt.intuition.invalidate()
 }
 
 /**
@@ -1371,7 +1775,19 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       type: CUSTOMSCREEN,
       screenSlot: slot,
     })
-    if (base) scr.windows.set(0, { number: 0, screen: num, window: base, flags: WEF.BASEWIN, title: '', menus: [] })
+    if (base) {
+      scr.windows.set(0, {
+        number: 0,
+        screen: num,
+        window: base,
+        flags: WEF.BASEWIN,
+        title: '',
+        menus: [],
+        gadgets: [],
+        hilitePen: 0,
+        shadowPen: 0,
+      })
+    }
     st.currentWindow = -1
     st.currentIsWB = false
     // `tmove.b #-1,NextPublic` is set for ONE open and this is where it is
@@ -2205,6 +2621,300 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      */
     'i flush': () => {},
 
+    /**
+     * `Reserve Igadget [n]` --- routine 242 ($64e0), with 243 for the bare
+     * form.
+     *
+     * Both start by freeing whatever the current window already had, so
+     * reserving twice throws the first lot away; the bare form is only that
+     * free. `cmp.l #$10000,d2 / bcc L_TooManyGads` is error 30, "Only 65535
+     * gadgets allowed", and a negative count is error 13 before it.
+     *
+     * NOTE: the out-of-memory path frees the wrong size. The gadget array was
+     * allocated `d2 * GADGETSIZE`, 98 bytes a slot, and `mulu #gg_sizeof,d2`
+     * before the FreeMem asks for 44 -- so a failure to allocate the BORDER
+     * array hands exec back less than half the block. Unreachable here, where
+     * nothing runs out.
+     */
+    'reserve igadget': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      // the free comes first whatever happens next
+      for (const g of w.gadgets) if (g) gadgetOff(rt, w, g)
+      w.gadgets = []
+      if (it.atStmtEnd()) return
+      const n = it.evalInt()
+      if (n < 0) iError(E.IFC)
+      if (n >= 0x1_0000) iError(E.TMG)
+      w.gadgets = new Array<IextGadget | null>(n).fill(null)
+    },
+
+    /**
+     * `Set Igadget Toggle n,x,y,w,h[,state]` --- routine 245 ($675e) for the
+     * short form, 244 ($6754) for the long one.
+     *
+     * A BOOLGADGET with TOGGLESELECT: it flips on the press and stays
+     * flipped, and `=Igadget Read` hands back GFLG_SELECTED as a boolean.
+     */
+    'set igadget toggle': (it) => {
+      const box = gadArgs(it, 5)
+      const state = it.accept(',') ? it.evalInt() : 0
+      makeBoolGad(rt, box, state !== 0, true)
+    },
+
+    /**
+     * `Set Igadget Hit n,x,y,w,h` --- routine 246 ($6768).
+     *
+     * The same routine with `moveq #0,d1`, so no TOGGLESELECT: the gadget
+     * shows SELECTED only while it is held, and what a program reads is a
+     * COUNT of presses rather than a state. See `=Igadget Read`.
+     */
+    'set igadget hit': (it) => {
+      makeBoolGad(rt, gadArgs(it, 5), false, false)
+    },
+
+    /** `Set Igadget Hslider n,x,y,w,h,units,pos,size,overlap` --- routine 248 ($69ca), into 247 ($6770) */
+    'set igadget hslider': (it) => {
+      makeSlider(rt, gadArgs(it, 9), false)
+    },
+    /** `Set Igadget Vslider ...` --- routine 249 ($69d0), `moveq #1,d0` into the same body */
+    'set igadget vslider': (it) => {
+      makeSlider(rt, gadArgs(it, 9), true)
+    },
+
+    /**
+     * `Set Igadget String n,x,y,w,h,size[,init$[,strpos]]` --- routine 250
+     * ($69d6), with 251 and 252 for the shorter forms.
+     *
+     * `strpos` is 0 for left, 1 for centred and 2 for right; anything else is
+     * error 13. `size` is `si_MaxChars` and COUNTS the NUL, so the field
+     * holds one character fewer than the number asked for. An initial string
+     * longer than that is cut, and cut one shorter still: `cmp.w d2,d1 / bcs
+     * .okilen / move.w d2,d1 / subq.w #1,d1`.
+     */
+    'set igadget string': (it) => {
+      const box = gadArgs(it, 5)
+      it.expect(',')
+      const size = it.evalInt()
+      if (size < 0 || size > 65534) iError(E.IFC)
+      const init = it.accept(',') ? str(it.evalExpr()) : ''
+      const pos = it.accept(',') ? it.evalInt() : 0
+      makeStringGad(rt, box, { maxChars: size + 1, text: init, longInt: null, posArg: pos })
+    },
+
+    /**
+     * `Set Igadget Int n,x,y,w,h[,init[,strpos]]` --- routine 253 ($6bf0),
+     * with 255 and 256 for the shorter forms; 254 ($6e22) between them is
+     * `L_gStringBorder`, which both types fall into.
+     *
+     * A STRGADGET with GACT_LONGINT, whose buffer is a flat twelve bytes:
+     * "`-1234567890` plus trailing null" is the author's own comment, eleven
+     * characters, which is exactly what `-2147483648` needs. That value gets
+     * its own arm, `move.l #'-214',(a0)+` and two more longs, because the
+     * digit loop would negate it back to itself.
+     */
+    'set igadget int': (it) => {
+      const box = gadArgs(it, 5)
+      const init = it.accept(',') ? it.evalInt() : 0
+      const pos = it.accept(',') ? it.evalInt() : 0
+      makeStringGad(rt, box, { maxChars: 12, text: String(init), longInt: init, posArg: pos })
+    },
+
+    /**
+     * `Igadget On [n]` --- routine 257 ($6ffc) for one, 258 ($709a) for all.
+     *
+     * One gadget is AddGadget (-42) and RefreshGList (-432) and a gadget
+     * already displayed is left alone. The all-form chains every DEFINED slot
+     * that is not displayed into one list and AddGLists the lot; a window
+     * with slots but none of them defined is error 33.
+     */
+    'igadget on': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      if (!it.atStmtEnd()) {
+        gadgetOn(rt, w, gadDefined(w, it.evalInt()))
+        return
+      }
+      if (w.gadgets.length === 0) iError(E.GNR)
+      let any = false
+      for (const g of w.gadgets) {
+        if (!g) continue
+        any = true
+        gadgetOn(rt, w, g)
+      }
+      if (!any) iError(E.GND)
+    },
+
+    /**
+     * `Igadget Off [n]` --- routine 259 ($7150) for one, 260 ($71e0) for all.
+     *
+     * RemoveGadget and then `ClearGadget`, which paints the gadget's box back
+     * to the window's background: a gadget turned off leaves no trace. The
+     * all-form walks the WINDOW's list looking for the first gadget whose
+     * `ge_MagicID` is $BADF00D, so a window carrying gadgets from somewhere
+     * else keeps them.
+     */
+    'igadget off': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      if (!it.atStmtEnd()) {
+        gadgetOff(rt, w, w.gadgets[gadSlotIndex(w, it.evalInt())] ?? iError(E.GND))
+        return
+      }
+      if (w.gadgets.length === 0) iError(E.GNR)
+      for (const g of w.gadgets) if (g) gadgetOff(rt, w, g)
+    },
+
+    /**
+     * `Igadget Active [n]` --- routine 261 ($7282) for one, 262 ($7308) for all.
+     *
+     * Clears GADGDISABLED and refreshes, which is how a ghosted gadget comes
+     * back. A gadget that is not displayed is left disabled-or-not and not
+     * refreshed, since there is nothing on screen to refresh.
+     *
+     * DEFECT: the all-form loops on an uninitialised register. `$7330 tst.w
+     * $18(a0)` TESTS `we_NGadgets` and never loads it, and `$7366 dbra d7`
+     * counts down whatever d7 held on entry -- so the walk runs a leftover
+     * number of times, `andi.w #$feff,$c(a5)` clearing GADGDISABLED in
+     * whatever lies past the end of the array. `Igadget Inactive` beside it
+     * is the same routine with `$742e move.w $18(a0),d7` in that slot, which
+     * is the instruction this one is missing. Both are then off by one
+     * anyway: `dbra` with the COUNT rather than the count less one walks
+     * `n + 1` slots, where every other loop in the file does `subq.w #1`
+     * first.
+     *
+     * DEVIATION: there is no register left over here and nothing past the
+     * array to write to, so both walks stop at the end of the array.
+     */
+    'igadget active': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      if (!it.atStmtEnd()) {
+        const g = gadDefined(w, it.evalInt())
+        g.gad.flags = (g.gad.flags ?? 0) & ~GFLG_GADGDISABLED
+        rt.intuition.invalidate()
+        return
+      }
+      if (w.gadgets.length === 0) iError(E.GNR)
+      for (const g of w.gadgets) {
+        if (!g?.displayed) continue
+        g.gad.flags = (g.gad.flags ?? 0) & ~GFLG_GADGDISABLED
+      }
+      rt.intuition.invalidate()
+    },
+
+    /** `Igadget Inactive [n]` --- routines 263 ($7380) and 264 ($7406): GADGDISABLED, ghosted */
+    'igadget inactive': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      if (!it.atStmtEnd()) {
+        const g = gadDefined(w, it.evalInt())
+        g.gad.flags = (g.gad.flags ?? 0) | GFLG_GADGDISABLED
+        rt.intuition.invalidate()
+        return
+      }
+      if (w.gadgets.length === 0) iError(E.GNR)
+      for (const g of w.gadgets) {
+        if (!g?.displayed) continue
+        g.gad.flags = (g.gad.flags ?? 0) | GFLG_GADGDISABLED
+      }
+      rt.intuition.invalidate()
+    },
+
+    /**
+     * `Set Ipens highlight,shadow` --- routine 267 ($7620).
+     *
+     * The two pens every gadget border is built from, kept on the WINDOW.
+     * They are read when a gadget is MADE, so changing them afterwards
+     * changes nothing already defined. Either argument may be omitted --
+     * `cmp.l #Null,d7 / beq .shadow` -- and 0 to 255 is the legal range.
+     */
+    'set ipens': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      const hi = it.evalInt()
+      if (hi < 0 || hi > 255) iError(E.IFC)
+      w.hilitePen = hi
+      if (!it.accept(',')) return
+      const sh = it.evalInt()
+      if (sh < 0 || sh > 255) iError(E.IFC)
+      w.shadowPen = sh
+    },
+
+    /**
+     * `Set Igadget Value n,v` --- routine 269 ($7706).
+     *
+     * A LONGINT string gadget takes the number and reformats its buffer; a
+     * TOGGLESELECT boolean takes it as a boolean and does nothing when it is
+     * already there; a hit-select boolean is error 13, "Can't set value of a
+     * hit-select!" in the author's own comment. A slider takes it as a
+     * position, clamped to `NUnits - KnobSize`.
+     *
+     * DEFECT: the slider arm passes the wrong two words as the body.
+     * `$787c move.w $6(a0),d3` and `$7880 move.w $8(a0),d4` read from a0, the
+     * GADGET, where pi_HorizBody and pi_VertBody are offsets into the
+     * PropInfo in a2 -- so `$6(a0)` is gg_TopEdge and `$8(a0)` is gg_Width,
+     * and NewModifyProp (-468) is handed a gadget's coordinates as knob
+     * sizes. A body of 230 against MAXBODY's 65535 is a knob clamped to its
+     * KNOBHMIN of six pixels, so the first `Set Igadget Value` on a slider
+     * shrinks its knob to nothing and every one after that keeps it there.
+     *
+     * DEVIATION: the body is left as `Set Igadget Hslider` computed it. The
+     * direction, at least, this arm asks correctly: `$78a0 moveq #$4,d7 /
+     * and.w d0,d7` tests FREEVERT in pi_Flags, which is the field
+     * `=Igadget Read` next door does NOT use.
+     */
+    'set igadget value': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      const n = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      const g = gadDefined(w, n)
+      const gad = g.gad
+      if (gad.kind === GTYP_STRGADGET) {
+        if (((gad.activation ?? 0) & GACT_LONGINT) === 0) iError(E.WGT)
+        gad.strInfo!.longInt = v | 0
+        gad.strInfo!.buffer = String(v | 0)
+        gad.strInfo!.bufferPos = 0
+      } else if (gad.kind === GTYP_PROPGADGET) {
+        const room = g.units - g.knobSize
+        if (room <= 0) return
+        const pos = Math.min(room, Math.max(0, v))
+        const pot = Math.min(MAXPOT, Math.trunc((pos * MAXPOT) / room))
+        if ((gad.prop!.flags & FREEVERT) !== 0) gad.prop!.vertPot = pot
+        else gad.prop!.horizPot = pot
+      } else {
+        if (((gad.activation ?? 0) & GACT_TOGGLESELECT) === 0) iError(E.IFC)
+        const want = v !== 0 ? GFLG_SELECTED : 0
+        if (((gad.flags ?? 0) & GFLG_SELECTED) === want) return
+        gad.flags = ((gad.flags ?? 0) & ~GFLG_SELECTED) | want
+      }
+      rt.intuition.invalidate()
+    },
+
+    /**
+     * `Set Igadget Value$ n,v$` --- routine 270 ($78c6).
+     *
+     * A STRGADGET without LONGINT, or error 32. The string is copied into
+     * `si_Buffer` and cut to `si_MaxChars`, which is the size the gadget was
+     * defined with.
+     */
+    'set igadget value$': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      const n = it.evalInt()
+      it.expect(',')
+      const v = str(it.evalExpr())
+      const g = gadDefined(w, n)
+      if (g.gad.kind !== GTYP_STRGADGET) iError(E.WGT)
+      if (((g.gad.activation ?? 0) & GACT_LONGINT) !== 0) iError(E.WGT)
+      const si = g.gad.strInfo!
+      si.buffer = v.slice(0, Math.max(0, si.maxChars - 1))
+      si.bufferPos = 0
+      rt.intuition.invalidate()
+    },
+
     'iclear all': () => {
       rt.input.keyQueue.length = 0
       s().menuPicks.length = 0
@@ -3036,6 +3746,95 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
      * idiom, and `Ievent Vbl` is `$80000000` because no IDCMP class could
      * collide with it.
      */
+    /**
+     * `=Igadget Read(n)` --- routine 265 ($747e), one function over four
+     * gadget types.
+     *
+     * A LONGINT string gadget answers `si_LongInt`; a plain string gadget is
+     * error 32. A TOGGLESELECT boolean answers GFLG_SELECTED as AMOS's own
+     * boolean. A hit-select boolean answers -1 ONCE per press and decrements
+     * `ge_HitCount` doing it, so a program that misses a frame still sees
+     * every click; it pumps `DoEvent` with GADGETUP first, which is how the
+     * count gets filled in before it is read.
+     *
+     * A slider answers `(NUnits - KnobSize) * Pot / MAXPOT`, rounded by
+     * `add.l #MAXPOT/2` and with the `divu` remainder cleared by
+     * `swap / clr.w / swap`.
+     *
+     * DEFECT: it asks the wrong field which way the slider runs. `$chkdir`
+     * is `btst #GEB_VSLIDER,ge_Flags`, and nothing in `gadgets.s` ever SETS
+     * that bit -- the four Make routines all `clr.l ge_Flags` and only
+     * GEF_DISPLAYED and GEF_GADGETDOWN are ever ORed in afterwards. So the
+     * test is always false and every slider is read through pi_HorizPot,
+     * which for a vertical one was never written: `=Igadget Read` on a
+     * `Set Igadget Vslider` answers 0 whatever the user does. `Set Igadget
+     * Value` next door asks pi_Flags for FREEVERT instead and gets it right,
+     * so the two halves of one feature disagree.
+     *
+     * DEVIATION: this port reads the pot the slider actually uses, so a
+     * vertical slider answers its position. Reproducing the defect would
+     * make `Set Igadget Vslider` unreadable and untestable, and the bit it
+     * turns on is a field this port has no reason to model twice.
+     */
+    'igadget read': (_it, a): Value => {
+      const st = s()
+      const w = curIwin(st)
+      const g = gadDefined(w, int(a[0]!))
+      const gad = g.gad
+      if (gad.kind === GTYP_STRGADGET) {
+        if (((gad.activation ?? 0) & GACT_LONGINT) === 0) iError(E.WGT)
+        return VI(gad.strInfo!.longInt)
+      }
+      if (gad.kind === GTYP_PROPGADGET) {
+        const room = Math.max(0, g.units - g.knobSize)
+        const p = gad.prop!
+        const pot = (p.flags & FREEVERT) !== 0 ? p.vertPot : p.horizPot
+        return VI(Math.trunc((room * pot + Math.trunc(MAXPOT / 2)) / MAXPOT))
+      }
+      if (((gad.activation ?? 0) & GACT_TOGGLESELECT) !== 0) {
+        return VI(((gad.flags ?? 0) & GFLG_SELECTED) !== 0 ? -1 : 0)
+      }
+      // hit-select: `jtcall DoEvent` with GADGETUP files the presses, then
+      // one is taken off the count
+      doEvent(st, IDCMP_GADGETUP)
+      if (g.hitCount === 0) return VI(0)
+      g.hitCount--
+      return VI(-1)
+    },
+
+    /**
+     * `=Igadget Read$(n)` --- routine 266 ($758c).
+     *
+     * A STRGADGET without LONGINT, or error 32; the buffer, as `ReturnString`
+     * hands it back. This one uses the jump table's `ReturnString` rather
+     * than `GetRetStr`, so it does not carry the register confusion three of
+     * its neighbours do.
+     */
+    'igadget read$': (_it, a): Value => {
+      const st = s()
+      const w = curIwin(st)
+      const g = gadDefined(w, int(a[0]!))
+      if (g.gad.kind !== GTYP_STRGADGET) iError(E.WGT)
+      if (((g.gad.activation ?? 0) & GACT_LONGINT) !== 0) iError(E.WGT)
+      return VS(g.gad.strInfo!.buffer)
+    },
+
+    /**
+     * `=Igadget Down(n)` --- routine 268 ($768c): GEF_GADGETDOWN as a boolean.
+     *
+     * The flag is kept by the extension rather than by Intuition, and it is
+     * `DoEvent` that maintains it -- GADGETDOWN sets it and GADGETUP clears
+     * it -- so it reads true only between a press and its release, and only
+     * once the program has pumped the port.
+     */
+    'igadget down': (_it, a): Value => {
+      const st = s()
+      const w = curIwin(st)
+      const g = gadDefined(w, int(a[0]!))
+      doEvent(st, IEXT_IDCMPWAIT)
+      return VI(g.down ? -1 : 0)
+    },
+
     'ievent vbl': (): Value => VI(IEXT_EVENT_VBL),
     'ievent mouse': (): Value => VI(IDCMP_MOUSEBUTTONS),
     'ievent gadget': (): Value => VI(IDCMP_GADGETUP),
@@ -3054,10 +3853,12 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
      * `IDCMPWAIT`, stores the message's second word in `EventData` and loops
      * while the class is zero. So it returns a class and never a message.
      *
-     * DEVIATION: the extension cancels a toggle-select gadget's hit count
-     * here --- `cmp.l #GADGETUP,d3` and then `clr.w ge_HitCount(a0)` when the
-     * gadget is a BOOLGADGET with TOGGLESELECT. Nothing here has gadgets yet,
-     * so that arm is missing rather than wrong; see `gadgets.s`.
+     * `DoEvent`'s gadget arms are what `=Igadget Down` and the hit-select
+     * arm of `=Igadget Read` are reading: GADGETDOWN sets GEF_GADGETDOWN and
+     * counts a press, GADGETUP clears the flag, and a GADGETUP from a
+     * TOGGLESELECT gadget clears `ge_HitCount` outright --- `cmp.l
+     * #GADGETUP,d3`, then BOOLGADGET and TOGGLESELECT, then `clr.w
+     * ge_HitCount(a0)`.
      */
     'iwait event': (it): Value => waitEvent(rt, it, false),
     'iwait event vbl': (it): Value => waitEvent(rt, it, true),

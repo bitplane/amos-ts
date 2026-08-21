@@ -354,7 +354,7 @@ describe('Int 1.0: boolean gadgets', () => {
    */
   it('the border offset is -256, so the outline misses the gadget', () => {
     const g = run(`${four} : ${open}`).int.windows.get(0)!.gadgets[0]!
-    expect([g.border!.leftEdge, g.border!.topEdge]).toEqual([-256, -256])
+    expect([g.borders![0]!.leftEdge, g.borders![0]!.topEdge]).toEqual([-256, -256])
     expect(g.text!.text).toBe('Button 1')
   })
 

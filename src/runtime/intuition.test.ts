@@ -17,6 +17,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { E, IEXT_ERRORS } from './intuition'
 import { NOSUB, fullMenuNum } from '../amiga/gadtools'
+import type { UserGadget } from '../amiga/intuition'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 14 --- his guide says "enter Intuition.Lib in extension slot number 14" */
@@ -1111,5 +1112,360 @@ Print Ierrtrap;" ";Ierr;" [";Ierr$;"]"`)
    */
   it('I Flush is a no-op with a reason', () => {
     expect(() => run(`${W}\nI Flush`)).not.toThrow()
+  })
+})
+
+/* --------------------------------------------------------------------------
+ * `gadgets.s`
+ * ----------------------------------------------------------------------- */
+
+/** open a screen and a window, which is what every gadget keyword needs */
+const SCR = 'Iscreen Open 0,320,200,4,0\nSet Ipens 2,1\n'
+
+/** put the pointer on a window-relative point of window 0 */
+function gpoint(rt: Runtime, x: number, y: number): void {
+  const w = rt.iext.screens.get(0)!.windows.get(0)!.window
+  const scr = rt.screens.get(rt.iext.screens.get(0)!.slot)!
+  rt.input.mouseX = scr.screenToHardX(w.leftEdge + x)
+  rt.input.mouseY = w.topEdge + y + scr.displayY - scr.offsetY
+}
+
+/** press and release the left button over a window-relative point */
+function gclick(rt: Runtime, x: number, y: number, hold = false): void {
+  gpoint(rt, x, y)
+  rt.input.mouseK = 1
+  rt.frame()
+  if (hold) return
+  rt.input.mouseK = 0
+  rt.frame()
+}
+
+/** the live gadget behind slot `n` of window 0 */
+function gad(rt: Runtime, n: number): UserGadget {
+  return rt.iext.screens.get(0)!.windows.get(0)!.gadgets[n - 1]!.gad
+}
+
+describe('Intuition 1.3b: Reserve Igadget', () => {
+  it('allocates n slots and none of them is defined yet', () => {
+    const rt = run(`${SCR}Reserve Igadget 4`)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    expect(w.gadgets.length).toBe(4)
+    expect(w.gadgets.every((g) => g === null)).toBe(true)
+  })
+
+  it('reserving again throws the first lot away', () => {
+    // both forms `bsr L_ReserveIgadget0` first, which frees we_Gadgets
+    const rt = run(`${SCR}Reserve Igadget 4 : Set Igadget Hit 1,10,10,20,20 : Reserve Igadget 2`)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    expect(w.gadgets.length).toBe(2)
+    expect(w.window.gadgets.length).toBe(0)
+  })
+
+  it('the bare form is the free on its own', () => {
+    const rt = run(`${SCR}Reserve Igadget 4 : Reserve Igadget`)
+    expect(rt.iext.screens.get(0)!.windows.get(0)!.gadgets.length).toBe(0)
+  })
+
+  it('refuses more than 65535, which is error 30', () => {
+    // `cmp.l #$10000,d2 / bcc L_TooManyGads`
+    const b = boot(`${SCR}Reserve Igadget 65536`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.TMG])
+    expect(IEXT_ERRORS[E.TMG]).toBe('Only 65535 gadgets allowed')
+  })
+
+  it('a gadget number past the reservation is error 34', () => {
+    const b = boot(`${SCR}Reserve Igadget 2 : Set Igadget Hit 3,10,10,20,20`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.GNR])
+    expect(IEXT_ERRORS[E.GNR]).toBe('Gadget not reserved')
+  })
+
+  it('a reserved but undefined gadget is error 33', () => {
+    const b = boot(`${SCR}Reserve Igadget 2 : Igadget On 1`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.GND])
+    expect(IEXT_ERRORS[E.GND]).toBe('Gadget not defined')
+  })
+})
+
+describe('Intuition 1.3b: the boolean gadgets', () => {
+  const HIT = `${SCR}Reserve Igadget 2 : Set Igadget Hit 1,10,10,20,20 : Igadget On 1\n`
+
+  it('sits inside the window border, which the keyword adds for you', () => {
+    // `move.b wd_BorderLeft(a1),d0 / add.w d0,d6` and the same for the top
+    const rt = run(HIT)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    const g = gad(rt, 1)
+    expect(g.leftEdge).toBe(10 + w.window.borderLeft)
+    expect(g.topEdge).toBe(10 + w.window.borderTop)
+    expect([g.width, g.height]).toEqual([20, 20])
+    expect(g.id).toBe(1)
+  })
+
+  it('carries the two-border bevel Set Ipens named, and a swapped pair for SELECTED', () => {
+    const rt = run(HIT)
+    const g = gad(rt, 1)
+    // `(w-1,0) - (0,0) - (0,h-1)` in the hilite pen, `(w-1,0) - (w-1,h-1) -
+    // (0,h-1)` in the shadow pen, and gg_SelectRender is the two swapped
+    expect(g.borders!.map((b) => b.pen)).toEqual([2, 1])
+    expect(g.selectBorders!.map((b) => b.pen)).toEqual([1, 2])
+    expect(g.borders![0]!.xy).toEqual([19, 0, 0, 0, 0, 19])
+    expect(g.borders![1]!.xy).toEqual([19, 0, 19, 19, 0, 19])
+  })
+
+  it('a size under 4x4 is error 13', () => {
+    const b = boot(`${SCR}Reserve Igadget 1 : Set Igadget Hit 1,10,10,3,20`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  it('a gadget that will not fit inside the window is error 13', () => {
+    const b = boot(`${SCR}Reserve Igadget 1 : Set Igadget Hit 1,10,10,400,20`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  it('Igadget On adds it to the window and Igadget Off takes it away', () => {
+    const rt = run(HIT)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    expect(w.window.gadgets.length).toBe(1)
+    run(`${HIT}Igadget Off 1`)
+    const off = run(`${HIT}Igadget Off 1`)
+    expect(off.iext.screens.get(0)!.windows.get(0)!.window.gadgets.length).toBe(0)
+  })
+
+  it('=Igadget Read counts a hit-select press and gives it back once', () => {
+    // `ge_HitCount` is filled by DoEvent's GADGETDOWN arm and taken down one
+    // at a time, so a program that misses a frame still sees every click
+    const b = boot(`${HIT}Repeat : Iwait Vbl : A=Igadget Read(1) : Until A<>0\nB=Igadget Read(1) : Print A;" ";B`)
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    gclick(b.rt, g.leftEdge + 5, g.topEdge + 5)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-1, 0])
+  })
+
+  it('a toggle flips on the press and stays flipped', () => {
+    const b = boot(
+      `${SCR}Reserve Igadget 1 : Set Igadget Toggle 1,10,10,20,20 : Igadget On 1\n` +
+        `Repeat : Iwait Vbl : A=Igadget Read(1) : Until A<>0\nPrint A`,
+    )
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    gclick(b.rt, g.leftEdge + 5, g.topEdge + 5)
+    expect((gad(b.rt, 1).flags! & 0x80) !== 0).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('-1')
+  })
+
+  it('Set Igadget Toggle takes an initial state', () => {
+    const rt = run(`${SCR}Reserve Igadget 1 : Set Igadget Toggle 1,10,10,20,20,-1`)
+    expect((gad(rt, 1).flags! & 0x80) !== 0).toBe(true)
+  })
+
+  it('=Igadget Down is true only between a press and its release', () => {
+    // GEF_GADGETDOWN is the extension's own flag, set by DoEvent's GADGETDOWN
+    // arm and cleared by its GADGETUP one, so it reads true only while the
+    // button is held AND only once the program has pumped the port
+    const b = boot(`${HIT}Repeat : Iwait Vbl : D=Igadget Down(1) : Until D<>0\nPrint D`)
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    gclick(b.rt, g.leftEdge + 5, g.topEdge + 5, true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('-1')
+  })
+
+  it('Igadget Inactive ghosts it and Igadget Active brings it back', () => {
+    const rt = run(`${HIT}Igadget Inactive 1`)
+    expect((gad(rt, 1).flags! & 0x100) !== 0).toBe(true)
+    const back = run(`${HIT}Igadget Inactive 1 : Igadget Active 1`)
+    expect((gad(back, 1).flags! & 0x100) !== 0).toBe(false)
+  })
+
+  it('a disabled gadget refuses the click outright', () => {
+    const b = boot(`${HIT}Igadget Inactive 1\nA=Igadget Read(1) : Print A`)
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    gclick(b.rt, g.leftEdge + 5, g.topEdge + 5)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('0')
+  })
+})
+
+describe('Intuition 1.3b: Set Ipens', () => {
+  it('is read when a gadget is MADE, so changing it later changes nothing', () => {
+    const rt = run(
+      `${SCR}Reserve Igadget 2 : Set Igadget Hit 1,10,10,20,20 : Set Ipens 3,0 : Set Igadget Hit 2,40,10,20,20`,
+    )
+    expect(gad(rt, 1).borders!.map((b) => b.pen)).toEqual([2, 1])
+    expect(gad(rt, 2).borders!.map((b) => b.pen)).toEqual([3, 0])
+  })
+
+  it('takes either pen on its own and refuses one over 255', () => {
+    const rt = run(`${SCR}Set Ipens 5`)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    expect([w.hilitePen, w.shadowPen]).toEqual([5, 1])
+    const b = boot(`${SCR}Set Ipens 256`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+})
+
+describe('Intuition 1.3b: the sliders', () => {
+  const SL = `${SCR}Reserve Igadget 2 : Set Igadget Hslider 1,10,100,200,10,256,0,40,8 : Igadget On 1\n`
+
+  it('turns units, size and overlap into a Body and a Pot', () => {
+    // Church's own comment: `Body = ((visible - overlap) * MAXBODY) / (total
+    // - overlap)` and `Pot = (position * MAXPOT) / hidden`
+    const rt = run(SL)
+    const p = gad(rt, 1).prop!
+    expect(p.horizBody).toBe(Math.trunc(((40 - 8) * 0xffff) / (256 - 8)))
+    expect(p.horizPot).toBe(0)
+    expect(p.flags).toBe(0x1 | 0x2)
+  })
+
+  it('a slider whose size covers its units gets a full Body and no Pot', () => {
+    const rt = run(`${SCR}Reserve Igadget 1 : Set Igadget Hslider 1,10,100,200,10,16,0,16,0`)
+    const p = gad(rt, 1).prop!
+    expect(p.horizBody).toBe(0xffff)
+    expect(p.horizPot).toBe(0)
+  })
+
+  it('a vertical one fills the vertical fields and takes FREEVERT', () => {
+    // DEVIATION: `$68ca` writes pi_HorizBody and pi_HorizPot in the VERTICAL
+    // arm of the nothing-hidden case, and the direction flag is read off the
+    // high word of a saved a4. Both are recorded in status.ts and neither is
+    // reproduced
+    const rt = run(`${SCR}Reserve Igadget 1 : Set Igadget Vslider 1,10,60,10,80,1000,321,25,1`)
+    const p = gad(rt, 1).prop!
+    expect(p.flags).toBe(0x1 | 0x4)
+    expect(p.vertBody).toBe(Math.trunc(((25 - 1) * 0xffff) / (1000 - 1)))
+    expect(p.vertPot).toBe(Math.trunc((321 * 0xffff) / (1000 - 25)))
+    expect(p.horizBody).toBe(0)
+  })
+
+  it('carries the four-border groove L_MakeSlider draws', () => {
+    const rt = run(SL)
+    const g = gad(rt, 1)
+    expect(g.borders!.length).toBe(4)
+    expect(g.borders!.map((b) => b.pen)).toEqual([2, 2, 1, 1])
+    expect(g.borders![0]!.xy).toEqual([1, 1, 1, 8])
+  })
+
+  it('=Igadget Read turns the Pot back into units', () => {
+    const rt = run(`${SL}Set Igadget Value 1,64`)
+    const p = gad(rt, 1).prop!
+    expect(p.horizPot).toBe(Math.trunc((64 * 0xffff) / (256 - 40)))
+    const b = boot(`${SL}Set Igadget Value 1,64\nPrint Igadget Read(1)`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('64')
+  })
+
+  it('Set Igadget Value clamps to units less the knob', () => {
+    const b = boot(`${SL}Set Igadget Value 1,9999\nPrint Igadget Read(1)`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('216')
+  })
+
+  it('dragging the knob moves the position', () => {
+    const b = boot(SL)
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    // press on the knob, then drag to the far right of the container
+    gpoint(b.rt, g.leftEdge + 2, g.topEdge + 5)
+    b.rt.input.mouseK = 1
+    b.rt.frame()
+    gpoint(b.rt, g.leftEdge + g.width + 40, g.topEdge + 5)
+    b.rt.frame()
+    expect(gad(b.rt, 1).prop!.horizPot).toBe(0xffff)
+    b.rt.input.mouseK = 0
+    b.rt.frame()
+  })
+})
+
+describe('Intuition 1.3b: the string and integer gadgets', () => {
+  const ST = `${SCR}Reserve Igadget 2 : Set Igadget String 1,30,10,240,,30,"SillyFilename",1 : Igadget On 1\n`
+
+  it('shrinks the box to sit inside its own border', () => {
+    // `addq.w #4,d6 / addq.w #2,d5 / subq.w #8,d4 / subq.w #4,d3`
+    const rt = run(ST)
+    const w = rt.iext.screens.get(0)!.windows.get(0)!
+    const g = gad(rt, 1)
+    expect(g.leftEdge).toBe(30 + w.window.borderLeft + 4)
+    expect(g.topEdge).toBe(10 + w.window.borderTop + 2)
+    expect(g.width).toBe(240 - 8)
+  })
+
+  it('takes its height from the font when the argument is left out', () => {
+    // `cmp.l #Null,d3 / beq` then `rp_TxHeight + 4`
+    const rt = run(ST)
+    expect(gad(rt, 1).height).toBe(8 + 4 - 4)
+  })
+
+  it('si_MaxChars counts the NUL, so the field is one shorter than the size', () => {
+    const rt = run(`${SCR}Reserve Igadget 1 : Set Igadget String 1,30,10,240,,4,"abcdef"`)
+    const si = gad(rt, 1).strInfo!
+    expect(si.maxChars).toBe(5)
+    expect(si.buffer).toBe('abcd')
+  })
+
+  it('strpos 1 centres and 2 right-justifies, and 3 is error 13', () => {
+    expect(gad(run(ST), 1).activation! & 0x200).toBe(0x200)
+    const right = run(`${SCR}Reserve Igadget 1 : Set Igadget String 1,30,10,240,,30,"x",2`)
+    expect(gad(right, 1).activation! & 0x400).toBe(0x400)
+    const b = boot(`${SCR}Reserve Igadget 1 : Set Igadget String 1,30,10,240,,30,"x",3`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  it('a width under 32 is error 13', () => {
+    const b = boot(`${SCR}Reserve Igadget 1 : Set Igadget String 1,30,10,31,,30`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  it('=Igadget Read$ hands the buffer back, and =Igadget Read is error 32', () => {
+    const b = boot(`${ST}Print "[";Igadget Read$(1);"]"`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[SillyFilename]')
+    const bad = boot(`${ST}Print Igadget Read(1)`)
+    expect(() => mustFinish(bad.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WGT])
+  })
+
+  it('Set Igadget Value$ replaces the buffer and cuts it to size', () => {
+    const b = boot(`${ST}Set Igadget Value$ 1,"Another"\nPrint "[";Igadget Read$(1);"]"`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[Another]')
+  })
+
+  it('typing into an active string gadget edits its buffer', () => {
+    const b = boot(ST)
+    b.rt.frame()
+    const g = gad(b.rt, 1)
+    gclick(b.rt, g.leftEdge + 1, g.topEdge + 2)
+    b.rt.pressKey('Z', 0)
+    b.rt.frame()
+    expect(gad(b.rt, 1).strInfo!.buffer).toBe('ZSillyFilename')
+  })
+
+  it('an integer gadget is a string gadget with LONGINT and a twelve-byte buffer', () => {
+    // "-1234567890 plus trailing null" is the author's own comment
+    const rt = run(`${SCR}Reserve Igadget 1 : Set Igadget Int 1,30,24,100,,-1234567890,2`)
+    const g = gad(rt, 1)
+    expect(g.activation! & 0x800).toBe(0x800)
+    expect(g.strInfo!.maxChars).toBe(12)
+    expect(g.strInfo!.buffer).toBe('-1234567890')
+  })
+
+  it('=Igadget Read gives the long back, and =Igadget Read$ is error 32', () => {
+    const b = boot(`${SCR}Reserve Igadget 1 : Set Igadget Int 1,30,24,100,,-42\nPrint Igadget Read(1)`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('-42')
+    const bad = boot(`${SCR}Reserve Igadget 1 : Set Igadget Int 1,30,24,100,,-42\nPrint Igadget Read$(1)`)
+    expect(() => mustFinish(bad.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WGT])
+  })
+
+  it('Set Igadget Value reformats an integer gadget and refuses a hit-select', () => {
+    const b = boot(
+      `${SCR}Reserve Igadget 2 : Set Igadget Int 1,30,24,100,,1 : Set Igadget Value 1,-2147483648\n` +
+        `Print "[";Igadget Read(1);"]"`,
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[-2147483648]')
+    const hit = boot(`${SCR}Reserve Igadget 1 : Set Igadget Hit 1,10,10,20,20 : Set Igadget Value 1,1`)
+    expect(() => mustFinish(hit.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
   })
 })

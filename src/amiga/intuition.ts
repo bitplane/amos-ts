@@ -508,9 +508,77 @@ export class Window {
 }
 
 /**
- * A boolean gadget in a window, as much of `struct Gadget` as anything here
- * fills in. `id` is GadgetID at offset 38, which is what an IDCMP GADGETUP
- * message's caller reads back out of `IAddress`.
+ * The gadget constants, from AMOS Professional's own copy of
+ * `intuition/intuition.i` in the corpus --- the include the extensions here
+ * were assembled against, so these are the numbers in their binaries.
+ */
+/** `gg_GadgetType`, `intuition.i`:343 */
+export const GTYP_BOOLGADGET = 0x0001
+export const GTYP_PROPGADGET = 0x0003
+export const GTYP_STRGADGET = 0x0004
+
+/** `gg_Flags`, `intuition.i`:251 */
+export const GFLG_GADGHIMAGE = 0x0002
+export const GFLG_GADGHNONE = 0x0003
+/** "initialized by you and set by Intuition", `intuition.i`:269 */
+export const GFLG_SELECTED = 0x0080
+export const GFLG_GADGDISABLED = 0x0100
+
+/** `gg_Activation`, `intuition.i`:283 */
+export const GACT_RELVERIFY = 0x0001
+export const GACT_GADGIMMEDIATE = 0x0002
+export const GACT_TOGGLESELECT = 0x0100
+export const GACT_STRINGCENTER = 0x0200
+export const GACT_STRINGRIGHT = 0x0400
+export const GACT_LONGINT = 0x0800
+
+/** `pi_Flags` and the pot/body scales, `intuition.i`:422 */
+export const AUTOKNOB = 0x0001
+export const FREEHORIZ = 0x0002
+export const FREEVERT = 0x0004
+export const MAXBODY = 0xffff
+export const MAXPOT = 0xffff
+/** the smallest an AUTOKNOB is allowed to get, `intuition.i`:429 */
+export const KNOBHMIN = 6
+export const KNOBVMIN = 4
+
+/**
+ * One `struct Border`: a pen, an offset and an open polyline.
+ *
+ * `xy` is the flat pair list `bd_XY` points at, drawn from the gadget's
+ * top-left plus the Border's own LeftEdge and TopEdge, which is exactly what
+ * DrawBorder does. A chain is `bd_NextBorder` walked out into an array.
+ */
+export interface Border {
+  leftEdge: number
+  topEdge: number
+  pen: number
+  xy: readonly number[]
+}
+
+/** `struct PropInfo`, `intuition.i`:388, as far as an AUTOKNOB needs it */
+export interface PropInfo {
+  flags: number
+  horizPot: number
+  vertPot: number
+  horizBody: number
+  vertBody: number
+}
+
+/** `struct StringInfo`, `intuition.i`:461, the same */
+export interface StringInfo {
+  buffer: string
+  /** `si_MaxChars`, which COUNTS the terminating NUL */
+  maxChars: number
+  bufferPos: number
+  /** `si_LongInt`, live only under GACT_LONGINT */
+  longInt: number
+}
+
+/**
+ * A gadget in a window, as much of `struct Gadget` as anything here fills in.
+ * `id` is GadgetID at offset 38, which is what an IDCMP GADGETUP message's
+ * caller reads back out of `IAddress`.
  */
 export interface UserGadget {
   leftEdge: number
@@ -518,18 +586,27 @@ export interface UserGadget {
   width: number
   height: number
   id: number
+  /** `gg_GadgetType`; absent means BOOLGADGET, which is what most callers make */
+  kind?: number
+  /** `gg_Flags`: GFLG_SELECTED and GFLG_GADGDISABLED are the two that matter */
+  flags?: number
+  /** `gg_Activation` */
+  activation?: number
   /**
-   * `gg_GadgetRender`, when the gadget has one: a `struct Border`'s pen and
-   * its vector, in the Border's own coordinates.
+   * `gg_GadgetRender`, walked out of its `bd_NextBorder` chain.
    *
    * Optional because the hit test never needed it and two callers still do
-   * not fill it in. `xy` is the flat pair list Border.XY points at, drawn as
-   * an open polyline from the gadget's top-left plus the Border's own offset,
-   * which is exactly what DrawBorder does.
+   * not fill it in.
    */
-  border?: { leftEdge: number; topEdge: number; pen: number; xy: readonly number[] }
+  borders?: readonly Border[]
+  /** `gg_SelectRender`, drawn instead while GFLG_SELECTED is up */
+  selectBorders?: readonly Border[]
   /** `gg_GadgetText`, a `struct IntuiText`: its pens, its offset and its text */
   text?: { leftEdge: number; topEdge: number; frontPen: number; text: string }
+  /** `gg_SpecialInfo` for a PROPGADGET */
+  prop?: PropInfo
+  /** `gg_SpecialInfo` for a STRGADGET */
+  strInfo?: StringInfo
 }
 
 export class Intuition {
@@ -624,6 +701,21 @@ export class Intuition {
   private armed: { w: Window; part: WindowPart } | null = null
   /** the boolean gadget a press landed on, waiting for the release that fires it */
   private armedGadget: { w: Window; g: UserGadget } | null = null
+  /**
+   * The PROPGADGET being dragged, and where inside its knob the press landed.
+   *
+   * Intuition takes the grab point so the knob does not jump under the
+   * pointer; a press OUTSIDE the knob pages by a knobful, which is what
+   * `Set Igadget Hslider`'s `overlap` argument exists to size.
+   */
+  private dragProp: { w: Window; g: UserGadget; ox: number; oy: number } | null = null
+  /**
+   * The STRGADGET taking keystrokes, which is Intuition's one active gadget.
+   *
+   * A click in a string gadget activates it and a click anywhere else
+   * deactivates it, which is `ActivateGadget` and its implicit opposite.
+   */
+  private activeString: { w: Window; g: UserGadget } | null = null
   private buttons = 0
 
   /** every open window, backmost first */
@@ -954,6 +1046,21 @@ export class Intuition {
       w.mouseY = y - w.topEdge
     }
 
+    if (this.dragProp) {
+      if (left) {
+        const d = this.dragProp
+        this.moveKnob(d.g, x - d.w.leftEdge - d.g.leftEdge - d.ox, y - d.w.topEdge - d.g.topEdge - d.oy)
+        d.w.post(IDCMP_MOUSEMOVE, 0, 0, seconds, micros, d.g.id)
+        this.dirty = true
+        return
+      }
+      const d = this.dragProp
+      this.dragProp = null
+      this.armedGadget = null
+      d.w.post(IDCMP_GADGETUP, 0, 0, seconds, micros, d.g.id)
+      return
+    }
+
     if (this.drag) {
       if (left) {
         this.moveWindow(this.drag.w, x - this.drag.ox - this.drag.w.leftEdge, y - this.drag.oy - this.drag.w.topEdge)
@@ -968,13 +1075,35 @@ export class Intuition {
         this.activateWindow(w)
         const part = w.partAt(x - w.leftEdge, y - w.topEdge)
         const g = part === 'body' ? w.gadgetAt(x - w.leftEdge, y - w.topEdge) : null
-        if (g) {
+        if (g && ((g.flags ?? 0) & GFLG_GADGDISABLED) !== 0) {
+          // GADGDISABLED: Intuition ghosts it and refuses the click outright,
+          // so the window sees nothing at all
+          this.activeString = null
+        } else if (g) {
+          if (this.activeString && this.activeString.g !== g) this.activeString = null
+          const rx = x - w.leftEdge - g.leftEdge
+          const ry = y - w.topEdge - g.topEdge
+          if (g.kind === GTYP_PROPGADGET && g.prop) this.pressProp(w, g, rx, ry)
+          else if (g.kind === GTYP_STRGADGET && g.strInfo) this.pressString(w, g, rx)
+          else if (((g.activation ?? 0) & GACT_TOGGLESELECT) !== 0) {
+            // a toggle flips on the PRESS and stays flipped; the release only
+            // sends GADGETUP
+            g.flags = ((g.flags ?? 0) ^ GFLG_SELECTED) & 0xffff
+            this.dirty = true
+          } else {
+            // a hit-select gadget shows SELECTED for as long as it is held
+            g.flags = (g.flags ?? 0) | GFLG_SELECTED
+            this.dirty = true
+          }
           // a boolean gadget with GA_RelVerify fires on RELEASE, so the press
           // only arms it; `armedGadget` is the same idea as `armed` for the
           // system gadgets and cancels the same way, by moving off it
           this.armedGadget = { w, g }
           w.post(IDCMP_GADGETDOWN, 0, 0, seconds, micros, g.id)
-        } else if (part === 'drag') this.drag = { w, ox: x - w.leftEdge, oy: y - w.topEdge }
+        } else if (part === 'drag') {
+          this.activeString = null
+          this.drag = { w, ox: x - w.leftEdge, oy: y - w.topEdge }
+        }
         else if (part === 'body') w.post(IDCMP_MOUSEBUTTONS, SELECTDOWN, 0, seconds, micros)
         else this.armed = { w, part }
       }
@@ -982,6 +1111,12 @@ export class Intuition {
       const ag = this.armedGadget
       this.armedGadget = null
       if (ag) {
+        // a hit-select gadget comes back up with the button; a toggle keeps
+        // whatever the press left it at
+        if (ag.g.kind !== GTYP_PROPGADGET && ((ag.g.activation ?? 0) & GACT_TOGGLESELECT) === 0) {
+          ag.g.flags = (ag.g.flags ?? 0) & ~GFLG_SELECTED
+          this.dirty = true
+        }
         if (ag.w.gadgetAt(x - ag.w.leftEdge, y - ag.w.topEdge) === ag.g) {
           ag.w.post(IDCMP_GADGETUP, 0, 0, seconds, micros, ag.g.id)
         }
@@ -1000,6 +1135,130 @@ export class Intuition {
     if (right !== wasRight) {
       this.activeWin?.post(IDCMP_MOUSEBUTTONS, right ? MENUDOWN : MENUUP, 0, seconds, micros)
     }
+  }
+
+  /**
+   * The size of an AUTOKNOB on one axis, and how far it can travel.
+   *
+   * The same arithmetic the renderer uses, kept in one place because a drag
+   * has to land the knob where the drawing will put it.
+   */
+  private knobSpan(size: number, body: number, min: number): number {
+    return Math.max(min, Math.min(size, Math.trunc((size * body) / MAXBODY)))
+  }
+
+  /**
+   * A press inside a PROPGADGET: grab the knob, or page towards the pointer.
+   *
+   * Intuition's own behaviour, and the one users notice: pressing ON the knob
+   * starts a drag from the point pressed, and pressing beside it jumps the
+   * pot by a whole knob in that direction and does NOT start one.
+   */
+  private pressProp(w: Window, g: UserGadget, rx: number, ry: number): void {
+    const p = g.prop
+    if (p === undefined) return
+    const horiz = (p.flags & FREEHORIZ) !== 0
+    const vert = (p.flags & FREEVERT) !== 0
+    const kw = horiz ? this.knobSpan(g.width, p.horizBody, KNOBHMIN) : g.width
+    const kh = vert ? this.knobSpan(g.height, p.vertBody, KNOBVMIN) : g.height
+    const kx = horiz ? Math.trunc(((g.width - kw) * p.horizPot) / MAXPOT) : 0
+    const ky = vert ? Math.trunc(((g.height - kh) * p.vertPot) / MAXPOT) : 0
+    const onKnob = rx >= kx && rx < kx + kw && ry >= ky && ry < ky + kh
+    if (onKnob) {
+      this.dragProp = { w, g, ox: rx - kx, oy: ry - ky }
+      return
+    }
+    const page = (pot: number, before: boolean, size: number, knob: number): number => {
+      const room = Math.max(1, size - knob)
+      const step = Math.trunc((knob * MAXPOT) / room)
+      return Math.max(0, Math.min(MAXPOT, before ? pot - step : pot + step))
+    }
+    if (horiz) p.horizPot = page(p.horizPot, rx < kx, g.width, kw)
+    if (vert) p.vertPot = page(p.vertPot, ry < ky, g.height, kh)
+    this.dirty = true
+  }
+
+  /** put the knob's top-left at a window-relative point, clamped to its container */
+  private moveKnob(g: UserGadget, kx: number, ky: number): void {
+    const p = g.prop
+    if (p === undefined) return
+    if ((p.flags & FREEHORIZ) !== 0) {
+      const kw = this.knobSpan(g.width, p.horizBody, KNOBHMIN)
+      const room = Math.max(1, g.width - kw)
+      p.horizPot = Math.max(0, Math.min(MAXPOT, Math.trunc((Math.max(0, Math.min(room, kx)) * MAXPOT) / room)))
+    }
+    if ((p.flags & FREEVERT) !== 0) {
+      const kh = this.knobSpan(g.height, p.vertBody, KNOBVMIN)
+      const room = Math.max(1, g.height - kh)
+      p.vertPot = Math.max(0, Math.min(MAXPOT, Math.trunc((Math.max(0, Math.min(room, ky)) * MAXPOT) / room)))
+    }
+  }
+
+  /** a press inside a STRGADGET: make it the active one and put the cursor there */
+  private pressString(w: Window, g: UserGadget, rx: number): void {
+    const si = g.strInfo
+    if (si === undefined) return
+    this.activeString = { w, g }
+    const font = this.host.systemFont()
+    const cell = font ? font.xSize : 8
+    si.bufferPos = Math.max(0, Math.min(si.buffer.length, Math.trunc(rx / cell)))
+    this.dirty = true
+  }
+
+  /**
+   * A keystroke offered to the active string gadget.
+   *
+   * True when the gadget took it, which is what stops the same key reaching
+   * the program: Intuition hands an active string gadget every printable key
+   * itself and only what it refuses comes out as RAWKEY. RETURN ends the
+   * edit and posts GADGETUP, which is the GACT_RELVERIFY a string gadget
+   * always carries here.
+   */
+  typeString(ch: string, seconds = 0, micros = 0): boolean {
+    const a = this.activeString
+    if (!a) return false
+    const si = a.g.strInfo
+    if (si === undefined) return false
+    this.dirty = true
+    if (ch === '\r' || ch === '\n') {
+      this.activeString = null
+      this.commitString(a.g)
+      a.w.post(IDCMP_GADGETUP, 0, 0, seconds, micros, a.g.id)
+      return true
+    }
+    if (ch === '\x1b') {
+      this.activeString = null
+      return true
+    }
+    if (ch === '\b') {
+      if (si.bufferPos > 0) {
+        si.buffer = si.buffer.slice(0, si.bufferPos - 1) + si.buffer.slice(si.bufferPos)
+        si.bufferPos--
+      }
+      return true
+    }
+    if (ch < ' ') return false
+    // `si_MaxChars` counts the NUL, so the text can be one shorter than it
+    if (si.buffer.length >= si.maxChars - 1) return true
+    si.buffer = si.buffer.slice(0, si.bufferPos) + ch + si.buffer.slice(si.bufferPos)
+    si.bufferPos++
+    return true
+  }
+
+  /** whether a string gadget is taking keys, which is what makes RAWKEY quiet */
+  stringActive(): boolean {
+    return this.activeString !== null
+  }
+
+  /**
+   * `si_LongInt` after an edit: Intuition reparses the buffer when the gadget
+   * carries GACT_LONGINT, and an unparsable buffer reads as zero.
+   */
+  private commitString(g: UserGadget): void {
+    const si = g.strInfo
+    if (si === undefined || ((g.activation ?? 0) & GACT_LONGINT) === 0) return
+    const n = Number.parseInt(si.buffer, 10)
+    si.longInt = Number.isNaN(n) ? 0 : n | 0
   }
 
   /** the depth gadget: to the front, unless it is already there */
@@ -1153,18 +1412,23 @@ export class Intuition {
    * wanted somewhere to click gets.
    */
   private renderUserGadget(rp: RastPort, w: Window, g: UserGadget, clip: Rect): void {
-    if (g.border === undefined && g.text === undefined) return
     rp.clip = { x1: clip.minX, y1: clip.minY, x2: clip.maxX, y2: clip.maxY }
     const gx = w.leftEdge + g.leftEdge
     const gy = w.topEdge + g.topEdge
-    const b = g.border
-    if (b !== undefined) {
+    // `gg_SelectRender` replaces `gg_GadgetRender` while the gadget is
+    // SELECTED, which is the whole of GADGHIMAGE highlighting: the two
+    // borders are the same box with its two pens the other way round
+    const selected = ((g.flags ?? 0) & GFLG_SELECTED) !== 0
+    const chain = (selected && g.selectBorders !== undefined ? g.selectBorders : g.borders) ?? []
+    for (const b of chain) {
       const bx = gx + b.leftEdge
       const by = gy + b.topEdge
       for (let i = 0; i + 3 < b.xy.length; i += 2) {
         rp.draw(bx + b.xy[i]!, by + b.xy[i + 1]!, bx + b.xy[i + 2]!, by + b.xy[i + 3]!, b.pen)
       }
     }
+    if (g.prop !== undefined) this.renderKnob(rp, g, gx, gy)
+    if (g.strInfo !== undefined) this.renderString(rp, w, g, gx, gy)
     const t = g.text
     if (t !== undefined && t.text !== '') {
       const font = this.host.systemFont()
@@ -1175,6 +1439,71 @@ export class Intuition {
         rp.font = old
       }
     }
+  }
+
+  /**
+   * The AUTOKNOB inside a PROPGADGET's container.
+   *
+   * `intuition.i`:396 states the rule: the knob fills the container in the
+   * proportion `Body / MAXBODY`, and sits `Pot / MAXPOT` of the way along
+   * what is left over. Only the axis its FREE flag names moves; the other
+   * fills. KNOBHMIN and KNOBVMIN are the floors under the two sizes, 6 and 4.
+   *
+   * The knob draws in the window's DetailPen, filled, which is what
+   * Intuition's own knob imagery amounts to at this size.
+   */
+  private renderKnob(rp: RastPort, g: UserGadget, gx: number, gy: number): void {
+    const p = g.prop
+    if (p === undefined || (p.flags & AUTOKNOB) === 0) return
+    const free = (axis: number): boolean => (p.flags & axis) !== 0
+    const span = (size: number, body: number, min: number, moves: boolean): number => {
+      if (!moves) return size
+      return Math.max(min, Math.min(size, Math.trunc((size * body) / MAXBODY)))
+    }
+    const kw = span(g.width, p.horizBody, KNOBHMIN, free(FREEHORIZ))
+    const kh = span(g.height, p.vertBody, KNOBVMIN, free(FREEVERT))
+    const at = (size: number, knob: number, pot: number, moves: boolean): number =>
+      moves ? Math.trunc(((size - knob) * pot) / MAXPOT) : 0
+    const kx = gx + at(g.width, kw, p.horizPot, free(FREEHORIZ))
+    const ky = gy + at(g.height, kh, p.vertPot, free(FREEVERT))
+    rp.rectFill(kx, ky, kx + kw - 1, ky + kh - 1, this.knobPen(g))
+  }
+
+  /** the pen a knob and a string gadget's text draw in */
+  private knobPen(_g: UserGadget): number {
+    return 1
+  }
+
+  /**
+   * A STRGADGET's contents, and the cursor when it is the active one.
+   *
+   * GACT_STRINGCENTER and GACT_STRINGRIGHT move the text inside the box; with
+   * neither it is left-justified, which is `.left clr.w gg_Activation`.
+   */
+  private renderString(rp: RastPort, w: Window, g: UserGadget, gx: number, gy: number): void {
+    const si = g.strInfo
+    if (si === undefined) return
+    const font = this.host.systemFont()
+    if (!font) return
+    const act = g.activation ?? 0
+    const shown = si.buffer
+    const tw = shown.length * font.xSize
+    let tx = gx
+    if ((act & GACT_STRINGCENTER) !== 0) tx = gx + Math.trunc((g.width - tw) / 2)
+    else if ((act & GACT_STRINGRIGHT) !== 0) tx = gx + g.width - tw
+    const old = rp.font
+    rp.font = font
+    const ty = gy + Math.trunc((g.height - font.ySize) / 2)
+    rp.text(tx, ty + font.baseline, shown, this.knobPen(g))
+    if (this.activeString?.g === g && this.activeString.w === w) {
+      const cx = tx + si.bufferPos * font.xSize
+      // the cursor is a filled cell under the character it is on, which is
+      // what Intuition's own string gadget draws in the complement pen
+      rp.rectFill(cx, ty, cx + font.xSize - 1, ty + font.ySize - 1, this.knobPen(g))
+      const ch = shown[si.bufferPos] ?? ' '
+      rp.text(cx, ty + font.baseline, ch, 0)
+    }
+    rp.font = old
   }
 
   /** a system gadget: its box, and the mark that says which one it is */

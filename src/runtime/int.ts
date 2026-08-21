@@ -783,12 +783,14 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         height,
         // $26 is never written, so it is what MEMF_CLEAR left
         id: 0,
-        border: {
-          leftEdge: -256,
-          topEdge: -256,
-          pen: 3,
-          xy: [0, 0, width + 1, 0, width + 1, height + 1, 0, height + 1, 0, 0],
-        },
+        borders: [
+          {
+            leftEdge: -256,
+            topEdge: -256,
+            pen: 3,
+            xy: [0, 0, width + 1, 0, width + 1, height + 1, 0, height + 1, 0, 0],
+          },
+        ],
         text: { leftEdge: xText, topEdge: yText, frontPen: 2, text },
       }
       const list = st.boolGadgets.get(num) ?? []

@@ -2389,6 +2389,17 @@ export class Runtime {
   private stepIntuition(): void {
     const int = this.intuitionBase
     if (!int || int.windows.length === 0) return
+    // Intuition hands an ACTIVE string gadget every printable key itself, and
+    // only what the gadget refuses comes back out as IDCMP_RAWKEY. So the
+    // queue is offered to it before anything else looks at it
+    if (int.stringActive()) {
+      while (this.input.keyQueue.length > 0) {
+        const k = this.input.keyQueue[0]
+        if (!k) break
+        if (!int.typeString(k.ch)) break
+        this.input.keyQueue.shift()
+      }
+    }
     const slots = new Set(int.windows.map((w) => w.screenSlot))
     for (const slot of slots) {
       const s = this.screens.get(slot)

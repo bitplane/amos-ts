@@ -3897,6 +3897,21 @@ export const FAITHFUL = new Set<string>([
   // bra L_Iwait`, one routine with a count of one, and `.lp` pumps DoEvent
   // before each WaitTOF -- which is where a close gadget gets noticed during
   // a wait.
+  // --- `gadgets.s`: seventeen keywords over four gadget types, all of them
+  // raw Intuition gadgets rather than gadtools ones. `Reserve Igadget n`
+  // AllocMemClears an array of 98-byte slots on the CURRENT window --
+  // `GADGETSIZE equ gg_sizeof+ge_sizeof+si_sizeof`, which is the `lea.l
+  // $62(a5),a5` both all-gadget loops step by -- and a `Set Igadget` fills
+  // one in. `Igadget On` is AddGadget (-42) and RefreshGList (-432); the
+  // borders are hand-written `struct Border` chains in the two pens
+  // `Set Ipens` keeps on the window. Four defects come with them, three of
+  // them in the sliders; see the NOTES.
+  'reserve igadget', 'set igadget toggle', 'set igadget hit',
+  'set igadget hslider', 'set igadget vslider',
+  'set igadget string', 'set igadget int',
+  'igadget on', 'igadget off', 'igadget active', 'igadget inactive',
+  'igadget read', 'igadget read\$', 'igadget down',
+  'set igadget value', 'set igadget value\$', 'set ipens',
   'iwait', 'iwait vbl', 'ierr', 'ierr\$', 'ierror', 'itrap on', 'itrap off',
   'ierrtrap', 'reqtools here', 'i flush',
   'irequest warning', 'irequest error', 'irequest message', 'irequest def title',
@@ -4370,6 +4385,68 @@ export const NOTES: Record<string, string> = {
     "move.l a0,(a7)`. DEVIATION: no Amiga heap here to read a length out of, so it answers the name.font/size " +
     "the author meant. The pairing the guide sells with Set Ifont still fails, because Set Ifont is broken on " +
     "its own account. A cancel takes `dlea NullStr,a0`, the zero word at $a2(a4), and that path is correct.",
+  "set igadget hslider":
+    "Routine 248 ($69ca) and 249 for the vertical one, both `moveq` into routine 247 ($6770). DEFECT: `$68ca " +
+    "move.w #$ffff,$6(a0) / clr.w $2(a0)` is the VERTICAL arm of the nothing-hidden case, and $6(a0) is " +
+    "pi_HorizBody and $2(a0) is pi_HorizPot -- the same two words the horizontal arm four instructions above " +
+    "writes. A vertical slider whose size covers its units leaves pi_VertBody at the AllocMemClear zero, and an " +
+    "AUTOKNOB with a body of zero is a knob clamped to KNOBVMIN, four pixels, at the top of its container. " +
+    "DEFECT: the FREEHORIZ/FREEVERT decision is read off the wrong word. `$68a8 divu.w (a7)+,d1` pops the " +
+    "hidden count and `$68aa tst.w (a7)+` pops the direction flag, so by `$68d8 tst.w (a7)+` the stack is back " +
+    "at the `movem.l a4/a6,-(a7)` that `pstart` pushed and what gets tested is the HIGH WORD of a4, the " +
+    "extension's own data zone pointer. Above 64KB -- every real machine -- that is non-zero and every slider " +
+    "taking this path comes out FREEVERT, which for a horizontal one means a knob with no body. `pstart` saves " +
+    "a7 in A7StackPtr and `ret` restores it, so the unbalanced pop costs nothing else, and the nothing-hidden " +
+    "path reaches .piflag with the flag still on the stack and gets it right. DEVIATION: no saved a4 here and " +
+    "no address for a data zone, so the slider is built with the direction the caller asked for and both " +
+    "defects are recorded rather than reproduced. NOTE: the guide's minimum sizes -- \"A horizontal gadget must " +
+    "be at least 16 pixels wide and 8 pixels tall\" -- are not checked anywhere in the routine.",
+  "igadget read":
+    "Routine 265 ($747e), one function over four gadget types: si_LongInt for an integer gadget, GFLG_SELECTED " +
+    "for a toggle, a decrementing ge_HitCount for a hit-select, and `(NUnits - KnobSize) * Pot / MAXPOT` for a " +
+    "slider. DEFECT: it asks the wrong field which way a slider runs. `.chkdir` is `btst #GEB_VSLIDER," +
+    "ge_Flags` and nothing in gadgets.s ever SETS that bit -- all four Make routines `clr.l ge_Flags` and only " +
+    "GEF_DISPLAYED and GEF_GADGETDOWN are ever ORed in afterwards -- so the test is always false and every " +
+    "slider is read through pi_HorizPot. A vertical one never had pi_HorizPot written, so =Igadget Read on a " +
+    "Set Igadget Vslider answers 0 whatever the user does. `Set Igadget Value` next door asks pi_Flags for " +
+    "FREEVERT instead and gets it right, so the two halves of one feature disagree. DEVIATION: this port reads " +
+    "the pot the slider actually uses; reproducing the defect would make Set Igadget Vslider unreadable and " +
+    "untestable.",
+  "igadget active":
+    "Routine 261 ($7282) for one gadget, 262 ($7308) for all of them. DEFECT: the all-form loops on an uninitialised " +
+    "register. `$7330 tst.w $18(a0)` TESTS we_NGadgets and never loads it, and `$7366 dbra d7` counts down " +
+    "whatever d7 held on entry -- so the walk runs a leftover number of times and `andi.w #$feff,$c(a5)` " +
+    "clears GADGDISABLED in whatever lies past the end of the array, a write outside the allocation. Igadget " +
+    "Inactive beside it is the same routine with `$742e move.w $18(a0),d7` in that slot, which is the " +
+    "instruction this one is missing. Both are then off by one anyway: `dbra` with the COUNT rather than the " +
+    "count less one walks n+1 slots, where every other loop in the file does `subq.w #1` first. DEVIATION: no " +
+    "register is left over here and there is nothing past the array to write to, so both walks stop at the end.",
+  "set igadget value":
+    "Routine 269 ($7706). DEFECT: the slider arm passes the wrong two words as the body. `$787c move.w " +
+    "$6(a0),d3` and `$7880 move.w $8(a0),d4` read from a0, the GADGET, where pi_HorizBody and pi_VertBody are " +
+    "offsets into the PropInfo in a2 -- so $6(a0) is gg_TopEdge and $8(a0) is gg_Width, and NewModifyProp " +
+    "(-468) is handed a gadget's coordinates as knob sizes. A body of 230 against MAXBODY's 65535 is a knob " +
+    "clamped to its KNOBHMIN of six pixels, so the first Set Igadget Value on a slider shrinks its knob to " +
+    "nothing and every one after keeps it there. DEVIATION: the body is left as Set Igadget Hslider computed " +
+    "it. The direction this arm does ask correctly -- `$78a0 moveq #$4,d7 / and.w d0,d7` tests FREEVERT in " +
+    "pi_Flags, the field =Igadget Read next door does not use. A hit-select gadget is error 13, \"Can\'t set " +
+    "value of a hit-select!\" in the author\'s own comment.",
+  "reserve igadget":
+    "Routine 242 ($64e0), with 243 for the bare form, and both open by freeing whatever the window already had " +
+    "-- so reserving twice throws the first lot away and the bare form is only that free. NOTE: the " +
+    "out-of-memory path frees the wrong size. The gadget array was allocated `d2 * GADGETSIZE`, 98 bytes a " +
+    "slot, and `mulu #gg_sizeof,d2` before the FreeMem asks for 44, so a failure to allocate the BORDER array " +
+    "hands exec back less than half the block. Unreachable in this port, where nothing runs out of memory.",
+  "set igadget string":
+    "Routine 250 ($69d6), with 251 and 252 for the shorter forms. A height left out reaches the routine as " +
+    "AMOS\'s Null and becomes `rp_TxHeight + 4`; anything smaller than that is error 13, and so is a width " +
+    "under 32. The gadget is then shrunk to sit INSIDE its border -- `addq.w #4,d6 / addq.w #2,d5 / subq.w " +
+    "#8,d4 / subq.w #4,d3` -- and L_gStringBorder draws at negative offsets to land back on the rectangle the " +
+    "caller asked for. si_MaxChars counts the NUL, so the field holds one character fewer than the size given, " +
+    "and an over-long initial string is cut one shorter still: `cmp.w d2,d1 / bcs .okilen / move.w d2,d1 / " +
+    "subq.w #1,d1`. NOTE: the shipped gadgets.s cannot be the file that built Intuition.lib. Its out-of-memory " +
+    "arm reads `mvoe.l si_Buffer(a2),a0`, twice, once here and once in Set Igadget Int, and no assembler takes " +
+    "that. The binary is what these readings are checked against.",
   "irequest screen":
     "Routine 217 ($5ae2), with 218 ($5c06) for the form that takes no title. The third arm of reqtools' one " +
     "FileRequestA: `rtScreenModeRequestA` is four lines that call it with a null filename, the same as " +
