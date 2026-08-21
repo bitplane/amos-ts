@@ -13,16 +13,30 @@
  */
 import {
   EZREQF,
+  FREQF,
   REQ_MODE,
+  RT_ENTRY,
+  RT_FILEREQ_PREFS,
+  RT_MAXINT,
+  RT_MININT,
   RT_TEXT,
+  fileReqHit,
+  fileReqLayout,
+  fileReqRender,
   reqHit,
   reqLayout,
   reqRender,
+  type FileReqLayout,
+  type FileReqSetup,
+  type ReqEntry,
   type ReqLayout,
   type ReqMetrics,
   type ReqSetup,
 } from '../amiga/reqtools'
+import { amigaMatch } from '../amiga/dospattern'
+import { joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
 import {
+  IDCMP_CLOSEWINDOW,
   IDCMP_MOUSEBUTTONS,
   SELECTDOWN,
   SYSFONT_YSIZE,
@@ -278,28 +292,41 @@ export function stepRtReq(rt: Runtime, st: RtReqState): void {
     if (!k) break
     st.flash = ''
     const lAmiga = ((k.shift ?? 0) & 0x40) !== 0
-    // RETURN inside the string gadget is gadget 32, not a shortcut: the mode
-    // forces NORETURNKEY, so no button is bold and `keyGadget` finds none
-    if (editable && (k.ch === '\r' || k.ch === '\n')) {
-      commit(st, 32)
-      if (st.done) return
+    if (editable) {
+      // The string gadget is ACTIVE, and Intuition hands an active string
+      // gadget every printable key itself. The window never sees a RAWKEY for
+      // one, so `CheckGadgetKey` is only ever offered the keys the gadget
+      // refused --- which is why a `_Get` or a `_Cancel` shortcut cannot fire
+      // while you are typing a filename, and why an `o` in `#?.doc` types an
+      // `o` instead of pressing Ok.
+      //
+      // RETURN inside the gadget is gadget 32, not a shortcut: the mode
+      // forces NORETURNKEY, so nothing is bold and no gadget claims it.
+      if (k.ch === '\r' || k.ch === '\n') {
+        commit(st, 32)
+        if (st.done) return
+        continue
+      }
+      if (k.ch === '\x1b') {
+        pressGadget(st, st.layout.buttons.length - 1)
+        if (st.done) return
+        continue
+      }
+      if (k.ch === '\b' || k.scan === 0x41) {
+        st.buffer = st.buffer.slice(0, -1)
+        continue
+      }
+      if (k.ch < ' ') continue
+      if (st.buffer.length >= st.args.maxLen) continue
+      if (st.args.setup.mode === REQ_MODE.ENTER_NUMBER && !digitOk(st.buffer, k.ch)) continue
+      st.buffer += k.ch
       continue
     }
     const gad = keyGadget(st, k.ch, lAmiga)
     if (gad >= 0) {
       pressGadget(st, gad)
       if (st.done) return
-      continue
     }
-    if (!editable) continue
-    if (k.ch === '\b' || k.scan === 0x41) {
-      st.buffer = st.buffer.slice(0, -1)
-      continue
-    }
-    if (k.ch < ' ') continue
-    if (st.buffer.length >= st.args.maxLen) continue
-    if (st.args.setup.mode === REQ_MODE.ENTER_NUMBER && !digitOk(st.buffer, k.ch)) continue
-    st.buffer += k.ch
   }
 
   const scr = rt.screens.get(st.slot)
@@ -319,5 +346,390 @@ export function stepRtReq(rt: Runtime, st: RtReqState): void {
 
 /** close the window and let the keyword have its answer */
 export function finishRtReq(rt: Runtime, st: RtReqState): void {
+  rt.intuition.closeWindow(st.window)
+}
+
+/* --------------------------------------------------------------------------
+ * The file requester
+ * ----------------------------------------------------------------------- */
+
+export interface RtFileState {
+  setup: FileReqSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: FileReqLayout
+  /** the rows the list shows, hidden ones already dropped */
+  rows: ReqEntry[]
+  /** `buff->pos`, the first row on screen */
+  first: number
+  /** the three string gadgets */
+  dir: string
+  file: string
+  pattern: string
+  /** the `._info` toggle, SELECTED when `.info` files are shown */
+  showInfo: boolean
+  /** the Volumes list is up in place of a directory */
+  volumes: boolean
+  done: boolean
+  /** what `rtFileRequestA` answers: false is Cancel and the close gadget */
+  ok: boolean
+  /** the File gadget as OK left it */
+  result: string
+  /** the selected entries, in display order, which is `AllocSelectedFiles` */
+  list: ReqEntry[]
+  clickFrame: number
+  clickRow: number
+  /** the `Match...` string requester while one is up, `filereqmain.c`:1166 */
+  sub: RtReqState | null
+}
+
+/** `EndsInDotInfo`: the pattern is matched against the name with `.info` off */
+const dotInfo = (name: string): boolean => name.toLowerCase().endsWith('.info')
+
+/**
+ * One directory, read and filtered.
+ *
+ * The order is the library's default and it is the opposite of asl's. With no
+ * `ReqTools.prefs` the whole prefs block is zeroed by the clear loop at
+ * `$176`, so neither RTPRF_DIRSFIRST nor RTPRF_DIRSMIXED is set, and
+ * `SetFileDirMode` then gives files `file_id` 0 and directories
+ * `directory_id` 1. `FindEntry` sorts on that number first, so FILES COME
+ * FIRST. The prefs guide says the same thing in as many words: "If none of
+ * the 'Display Drawers First' or 'Mix Files And Drawers' is checked files
+ * will be displayed before drawers."
+ *
+ * The pattern hides files and never directories, and a `.info` file is
+ * matched with its five trailing characters cut off, so `#?.iff` keeps
+ * `picture.iff.info`.
+ */
+export function rtFileEntries(rt: Runtime, dir: string, pattern: string, showInfo: boolean): ReqEntry[] {
+  const all = rt.vfs?.listDir(dir) ?? []
+  const rows: ReqEntry[] = []
+  for (const e of all) {
+    if (!e.isDir) {
+      const info = dotInfo(e.name)
+      if (info && !showInfo) continue
+      if (pattern !== '') {
+        const probe = info ? e.name.slice(0, -5) : e.name
+        if (!amigaMatch(probe, pattern, false, true)) continue
+      }
+    }
+    rows.push({ name: e.name, type: e.isDir ? RT_ENTRY.DIRECTORY : RT_ENTRY.FILE, size: e.size, selected: false })
+  }
+  const key = (r: ReqEntry): string => `${r.type}${r.name.toLowerCase()}`
+  rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
+  return rows
+}
+
+/** the volume and assign names, which is what `_Volumes` shows */
+function rtVolumeEntries(rt: Runtime): ReqEntry[] {
+  const vols = (rt.vfs?.volumeNames() ?? []).map((n) => ({
+    name: `${n.replace(/:$/, '')}:`,
+    type: RT_ENTRY.VOLUME as number,
+    size: 0,
+    selected: false,
+  }))
+  const assigns = (rt.vfs?.assignNames() ?? []).map((n) => ({
+    name: `${n.replace(/:$/, '')}:`,
+    type: RT_ENTRY.ASSIGN as number,
+    size: 0,
+    selected: false,
+  }))
+  return [...vols, ...assigns]
+}
+
+/** re-read the drawer named in the Drawer gadget, which is `NewDir` */
+function rtNewDir(rt: Runtime, st: RtFileState): void {
+  st.volumes = false
+  st.rows = rtFileEntries(rt, st.dir, st.pattern, st.showInfo)
+  st.first = 0
+  st.list = []
+  st.clickRow = -1
+  st.clickFrame = -99
+}
+
+/**
+ * Open the file requester. Null when there is no screen for it.
+ *
+ * The window is REQPOS_TOPLEFTSCR at (25, 18) here, which is what the prefs
+ * `$14c` builds when there is no `ReqTools.prefs` to replace them.
+ */
+export function startRtFile(rt: Runtime, setup: FileReqSetup, slot: number | null): RtFileState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const m = metricsFor(rt, on)
+  const scr = rt.screens.get(on)
+  if (!m || !scr) return null
+  const layout = fileReqLayout(setup, m)
+  const window = rt.intuition.openWindow({
+    leftEdge: Math.min(RT_FILEREQ_PREFS.leftOffset, Math.max(0, scr.width - layout.width)),
+    topEdge: Math.min(RT_FILEREQ_PREFS.topOffset, Math.max(0, scr.height - layout.height)),
+    width: layout.width,
+    height: layout.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    // WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_DEPTHGADGET | WFLG_ACTIVATE.
+    // DEVIATION: the machine adds WFLG_SIZEGADGET | WFLG_SIZEBBOTTOM and
+    // rebuilds the whole gadget list on IDCMP_NEWSIZE; there is no resize here
+    flags: 0x8 | 0x2 | 0x4 | 0x1000,
+    title: layout.title,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const st: RtFileState = {
+    setup,
+    window,
+    slot: on,
+    rp,
+    layout,
+    rows: [],
+    first: 0,
+    dir: setup.dir,
+    file: setup.file,
+    pattern: setup.pattern,
+    showInfo: !setup.hideInfo,
+    volumes: false,
+    done: false,
+    ok: false,
+    result: '',
+    list: [],
+    clickFrame: -99,
+    clickRow: -1,
+    sub: null,
+  }
+  rtNewDir(rt, st)
+  return st
+}
+
+/** `SelectAll`, `filereqextra.c`:614: every unhidden FILE the pattern matches */
+function rtSelectAll(st: RtFileState, pattern: string): void {
+  for (const e of st.rows) {
+    if (e.type !== RT_ENTRY.FILE) continue
+    if (amigaMatch(e.name, pattern, false, true)) e.selected = true
+  }
+  st.file = ''
+}
+
+/** `CountAllDeselect`, which `C_lear` and a plain click both reach */
+function rtDeselectAll(st: RtFileState): void {
+  for (const e of st.rows) e.selected = false
+}
+
+/**
+ * `LeaveReq`, `filereq.c`:821.
+ *
+ * Single select answers TRUE only when the File gadget has something in it,
+ * so pressing Ok on an empty one is a cancel unless RTFI_AllowEmpty is set.
+ * Multiselect answers the list `AllocSelectedFiles` builds, and that routine
+ * has a rule of its own: if the name in the File gadget is not among the
+ * selected entries, the whole list is thrown away and replaced by that one
+ * name. Nico's comment on it is "This is the most intuitive behaviour!"
+ */
+function rtLeaveFile(st: RtFileState): void {
+  st.result = st.file
+  if ((st.setup.flags & FREQF.MULTISELECT) !== 0) {
+    const picked = st.rows.filter((e) => e.selected && e.type === RT_ENTRY.FILE)
+    const named = picked.some((e) => e.name.toLowerCase() === st.file.toLowerCase())
+    st.list =
+      named || st.file === ''
+        ? picked
+        : [{ name: st.file, type: RT_ENTRY.FILE, size: 0, selected: true }]
+    st.ok = st.list.length > 0
+  } else st.ok = st.file !== ''
+  st.done = true
+}
+
+/**
+ * `ClickDown`, `filereq.c`:670, and the GADGETUP arm that follows it.
+ *
+ * A plain click clears the rest of the selection and toggles this row; a
+ * SHIFT click under FREQF_MULTISELECT leaves the others alone, which is how
+ * more than one file gets picked. A file's name goes into the File gadget. A
+ * DRAWER is entered on the button coming back up, single click, no
+ * double-click needed, which is `AddPart (fdir, str) / NewDir (glob)`.
+ */
+function rtClickRow(rt: Runtime, st: RtFileState, index: number, shift: boolean, frame: number): void {
+  const e = st.rows[st.first + index]
+  if (!e) return
+  const multi = (st.setup.flags & FREQF.MULTISELECT) !== 0
+  const dbl = st.clickRow === st.first + index && frame - st.clickFrame <= 25
+  st.clickRow = st.first + index
+  st.clickFrame = frame
+
+  if (e.type === RT_ENTRY.DIRECTORY) {
+    st.dir = joinAmigaPath(st.dir, e.name)
+    st.file = ''
+    rtNewDir(rt, st)
+    return
+  }
+  if (e.type === RT_ENTRY.VOLUME || e.type === RT_ENTRY.ASSIGN) {
+    st.dir = e.name
+    st.file = ''
+    rtNewDir(rt, st)
+    return
+  }
+  if (dbl) {
+    e.selected = true
+    st.file = e.name
+    rtLeaveFile(st)
+    return
+  }
+  if (!(multi && shift)) {
+    rtDeselectAll(st)
+    st.file = e.name
+  }
+  e.selected = !e.selected
+  if (multi && shift && e.selected) st.file = e.name
+}
+
+/** `_Match..`: `rtGetStringA` on the requester's own window, titled `Match...` */
+function rtStartMatch(rt: Runtime, st: RtFileState): void {
+  const m = metricsFor(rt, st.slot)
+  if (!m) return
+  const setup: ReqSetup = {
+    mode: REQ_MODE.ENTER_STRING,
+    body: '',
+    gadgets: '',
+    title: RT_TEXT.matchWinTitle,
+    flags: 0,
+    width: 0,
+    underscore: '',
+    defaultResponse: 1,
+    min: RT_MININT,
+    max: RT_MAXINT,
+    minmax: false,
+  }
+  const args: RtReqArgs = {
+    setup,
+    buffer: '',
+    maxLen: 123,
+    value: 0,
+    showDefault: true,
+    allowEmpty: false,
+    invisible: false,
+  }
+  st.sub = startRtReq(rt, args, st.slot)
+}
+
+/** one frame of the file requester */
+export function stepRtFile(rt: Runtime, st: RtFileState, frame: number): void {
+  if (st.done) return
+  if (st.sub) {
+    stepRtReq(rt, st.sub)
+    if (!st.sub.done) return
+    finishRtReq(rt, st.sub)
+    if (st.sub.result !== 0 && st.sub.text !== '') rtSelectAll(st, st.sub.text)
+    st.sub = null
+  }
+
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      // `case IDCMP_CLOSEWINDOW: FreeAllCheckBuffer (glob); return (FALSE);`
+      st.ok = false
+      st.result = ''
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const hit = fileReqHit(st.layout, msg.mouseX, msg.mouseY)
+    if (!hit) continue
+    const shift = rt.input.keys.has(0x60) || rt.input.keys.has(0x61)
+    if (hit.kind === 'row') {
+      rtClickRow(rt, st, hit.index, shift, frame)
+      if (st.done) return
+      continue
+    }
+    if (hit.kind === 'scroll') {
+      const max = Math.max(0, st.rows.length - st.layout.entries)
+      st.first = Math.min(max, Math.max(0, st.first + hit.delta))
+      continue
+    }
+    if (hit.kind === 'get') {
+      rtNewDir(rt, st)
+      continue
+    }
+    if (hit.kind === 'info') {
+      st.showInfo = !st.showInfo
+      rtNewDir(rt, st)
+      continue
+    }
+    if (hit.kind === 'top') {
+      if (hit.index === 1) rtSelectAll(st, '#?')
+      if (hit.index === 2) rtStartMatch(rt, st)
+      if (hit.index === 3) {
+        rtDeselectAll(st)
+        st.file = ''
+      }
+      if (st.sub) return
+      continue
+    }
+    if (hit.kind === 'button') {
+      if (hit.index === 0) {
+        rtLeaveFile(st)
+        return
+      }
+      if (hit.index === 1) {
+        st.volumes = true
+        st.rows = rtVolumeEntries(rt)
+        st.first = 0
+        st.list = []
+        st.clickRow = -1
+        continue
+      }
+      if (hit.index === 2) {
+        const up = st.volumes ? null : parentAmigaPath(st.dir)
+        if (up !== null && up !== st.dir) {
+          st.dir = up
+          st.file = ''
+          rtNewDir(rt, st)
+        }
+        continue
+      }
+      st.ok = false
+      st.result = ''
+      st.done = true
+      return
+    }
+  }
+
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  fileReqRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.layout,
+    st.rows,
+    st.first,
+    {
+      dir: st.dir,
+      file: st.file,
+      pattern: st.pattern,
+      selected: st.rows.filter((e) => e.selected).length,
+      info: st.showInfo,
+      led: false,
+    },
+    w.leftEdge,
+    w.topEdge,
+  )
+}
+
+/** close the window and let the keyword have its answer */
+export function finishRtFile(rt: Runtime, st: RtFileState): void {
+  if (st.sub) {
+    finishRtReq(rt, st.sub)
+    st.sub = null
+  }
   rt.intuition.closeWindow(st.window)
 }

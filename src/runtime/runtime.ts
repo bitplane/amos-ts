@@ -74,7 +74,8 @@ import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlid
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { finishAsl, finishAslFont, finishAslMode, startAsl, startAslFont, startAslMode, stepAsl, stepAslFont, stepAslMode } from './aslreq'
-import { finishRtReq, startRtReq, stepRtReq, type RtReqArgs, type RtReqState } from './rtreq'
+import { finishRtFile, finishRtReq, startRtFile, startRtReq, stepRtFile, stepRtReq, type RtFileState, type RtReqArgs, type RtReqState } from './rtreq'
+import type { FileReqSetup } from '../amiga/reqtools'
 import type { AslFontState, AslModeState, AslState } from './aslreq'
 import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
@@ -2427,6 +2428,32 @@ export class Runtime {
     if (!st || st.done) return
     stepRtReq(this, st)
     if (st.done) finishRtReq(this, st)
+  }
+
+  /**
+   * reqtools' FILE requester, while one is up.
+   *
+   * Beside `rtReq` rather than inside it, the same way `aslFont` sits beside
+   * `asl`: `rtFileRequestA` is a different call from `rtEZRequestA` and the
+   * file one can put a `Match...` string requester up ON TOP of itself, which
+   * a single field could not hold.
+   */
+  rtFile: RtFileState | null = null
+
+  /** Open the file requester. False when there is no screen for it. */
+  startRtFileRequest(setup: FileReqSetup, slot: number | null): boolean {
+    if (this.rtFile) return false
+    const st = startRtFile(this, setup, slot)
+    if (!st) return false
+    this.rtFile = st
+    return true
+  }
+
+  private stepRtFileRequest(): void {
+    const st = this.rtFile
+    if (!st || st.done) return
+    stepRtFile(this, st, this.frames)
+    if (st.done) finishRtFile(this, st)
   }
 
   /** Open the screen-mode requester. False when there is no screen for it. */
@@ -4900,6 +4927,7 @@ export class Runtime {
     this.stepAslRequest()
     this.stepAslFontRequest()
     this.stepRtRequest()
+    this.stepRtFileRequest()
     this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
@@ -5173,7 +5201,8 @@ export class Runtime {
       const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'rtreq') {
-      if (!this.rtReq || this.rtReq.done) this.interp.blocked = null
+      const up = this.rtReq ?? this.rtFile
+      if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
     } else if (b.type === 'ievent') {
@@ -5315,6 +5344,11 @@ export class Runtime {
           this.rtReq.text = ''
           this.rtReq.done = true
           finishRtReq(this, this.rtReq)
+        } else if (this.rtFile && !this.rtFile.done) {
+          this.rtFile.ok = false
+          this.rtFile.result = ''
+          this.rtFile.done = true
+          finishRtFile(this, this.rtFile)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')

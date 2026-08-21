@@ -55,7 +55,7 @@ import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
 import { RastPort } from '../amiga/graphics'
 import { MENUNULL, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
-import { EZREQF, REQ_MODE, RT_MAXINT, RT_MININT, type ReqSetup } from '../amiga/reqtools'
+import { EZREQF, FREQF, REQ_MODE, RT_MAXINT, RT_MININT, RT_TEXT, type FileReqSetup, type ReqEntry, type ReqSetup } from '../amiga/reqtools'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
@@ -423,6 +423,33 @@ export class IextState {
    * for its Y and N shortcuts, which nothing put it there to ask for.
    */
   ezFlags: number = EZREQF.CENTERTEXT
+  /**
+   * `Filename108` (`data.i`), the file requester's File gadget.
+   *
+   * `Irequest File$` writes it before every call, from `def$` or from
+   * nothing. `Irequest File Multi$` does NOT: its `.doreq` is `dlea
+   * Filename108,a2` with no clear in front, so the multi requester opens with
+   * whatever name the last single one was left holding.
+   */
+  freqFile = ''
+  /**
+   * `rtfi_Dir` inside the one FileReq the extension allocates at startup.
+   *
+   * Null until the first requester, which opens on the process's current
+   * directory because `dirname[256]` came back cleared from
+   * `rtAllocRequestA`. After that it is wherever the user left it, because
+   * nothing in `request.s` ever sets RTFI_Dir. See `startFileReq`.
+   */
+  freqDir: string | null = null
+  /**
+   * `rtfi_MatchPat`, and an omitted pattern LEAVES THE LAST ONE STANDING:
+   * `.nopat` skips the whole `rtChangeReqAttrA` rather than clearing it.
+   */
+  freqPattern = ''
+  /** `FRFileList`, what `Irequest File Next$` has not handed out yet */
+  frFileList: ReqEntry[] = []
+  /** `FRDir`, the directory the multi list's names hang off */
+  frDir = ''
   /**
    * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
    *
@@ -1115,6 +1142,39 @@ function ezAnswer(rt: Runtime): number {
   const n = r.result === 0 ? r.layout.buttons.length : r.result
   rt.rtReq = null
   return n
+}
+
+
+/**
+ * `rtfi_Dir` and the File gadget joined, which every one of the three file
+ * keywords does by hand in its own copy of the same loop.
+ *
+ * `cmp.b #':',-1(a0) / beq .putfil / cmp.b #'/',-1(a0) / beq .putfil` and
+ * then `move.b #'/',(a0)+`: a separator goes in unless the directory already
+ * ends in one, and the AMOS length word is bumped by one when it does.
+ */
+function joinFreq(dir: string, name: string): string {
+  if (dir === '') return name
+  return dir.endsWith(':') || dir.endsWith('/') ? dir + name : `${dir}/${name}`
+}
+
+/** the tag list `request.s` builds for `rtFileRequestA`, and the open */
+function startFileReq(rt: Runtime, st: IextState, title: string, extra: number): void {
+  const setup: FileReqSetup = {
+    title,
+    // no RTFI_OkText in the tag list, so the library's own ` _Ok ` stands
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    dir: st.freqDir ?? (rt.vfs?.currentDir ?? ''),
+    pattern: st.freqPattern,
+    file: st.freqFile,
+    // `.tags dc.l RTFI_Flags,FREQF_PATGAD`, and the multi one ORs
+    // FREQF_MULTISELECT into the same word
+    flags: FREQF.PATGAD | extra,
+    height: 0,
+    hideInfo: false,
+  }
+  if (!rt.startRtFileRequest(setup, reqSlot(st))) iError(E.NRT)
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
@@ -2469,6 +2529,132 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
       const level = int(a[0]!)
       if (level < 1 || level > 3) iError(E.IFC)
       return VI(takeChoice(st, curIwin(st), level as 1 | 2 | 3))
+    },
+
+    /**
+     * `=Irequest File$([title$ [,pattern$ [,default$] ] ])` --- routine 207,
+     * and 208 to 210 for the shorter forms.
+     *
+     * The guide: "Pattern$ is a standard AmigaDOS wildcard to determine which
+     * files are displayed in the requester.  Note that this differs from the
+     * AMOS wildcard format; for example, AMOS's "**" (all files) pattern is
+     * "#?" in AmigaDOS." ../amiga/dospattern.ts is that matcher.
+     *
+     * DEFECT: routine 207 carries thirty instructions meant to split a
+     * DIRECTORY off the front of the pattern, and not one of them can run.
+     * `$54d6 suba.l a1,a1` clears the register that remembers where the last
+     * `:` or `/` was, and the guard on the only assignment is `$54ea move.l
+     * a1,d0 / $54ec beq.b $54f0`, which skips it while a1 is zero. So a1 is
+     * zero for ever, `$54f6 move.l a1,d0 / $54f8 beq.b $552a` always takes
+     * the no-path arm, and the arm at `$54fc` that would set RTFI_Dir and
+     * RTFI_MatchPat as a pair is compiled and unreachable. `bne` was meant.
+     * The whole pattern goes in as RTFI_MatchPat instead, which matches
+     * against bare filenames, so `Irequest File$("Load","df0:#?.iff")` shows
+     * nothing at all. Reproduced. The guide never promised a path there,
+     * which is why this survived.
+     *
+     * An omitted pattern leaves the LAST one in place rather than clearing
+     * it: `.nopat` branches past the whole `rtChangeReqAttrA`.
+     */
+    'irequest file$': (it, a): Value => {
+      const st = s()
+      if (rt.rtFile) {
+        if (!rt.rtFile.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VS('')
+        }
+        const f = rt.rtFile
+        rt.rtFile = null
+        st.freqFile = f.result
+        st.freqDir = f.dir
+        // `tst.l d0 / beq .cancel` on the library's answer, and then
+        // `dtst.b Filename108 / bne .gotfil` --- so Ok on an empty File
+        // gadget is a cancel here too
+        if (!f.ok || f.result === '') return VS('')
+        return VS(joinFreq(f.dir, f.result))
+      }
+      const n = a.length
+      const title = n >= 1 ? str(a[0]!) : ''
+      const pat = n >= 2 ? str(a[1]!) : ''
+      if (pat !== '') st.freqPattern = pat
+      st.freqFile = n >= 3 ? str(a[2]!) : ''
+      startFileReq(rt, st, title, 0)
+      it.block({ type: 'rtreq' }, true)
+      return VS('')
+    },
+
+    /**
+     * `=Irequest File Multi$([title$ [,pattern$] ])` --- routine 211, with
+     * 212 and 213 for the shorter forms.
+     *
+     * The same routine with FREQF_MULTISELECT added and the default filename
+     * dropped, so the guide is right that "The parameters to Irequest File
+     * Multi$ are the same as those to ... except that you cannot specify a
+     * default filename." It opens with `rtFreeFileList` on the
+     * previous answer, so a second call throws the first list away whether or
+     * not `Irequest File Next$` finished reading it.
+     *
+     * It does NOT clear `Filename108` the way the single form does, so the
+     * File gadget comes up holding whatever the last `Irequest File$` left
+     * there.
+     */
+    'irequest file multi$': (it, a): Value => {
+      const st = s()
+      if (rt.rtFile) {
+        if (!rt.rtFile.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VS('')
+        }
+        const f = rt.rtFile
+        rt.rtFile = null
+        st.freqFile = f.result
+        st.freqDir = f.dir
+        if (!f.ok || f.list.length === 0) {
+          st.frFileList = []
+          st.frDir = ''
+          return VS('')
+        }
+        // `tst.b (a1) / bne .yesdir`: an EMPTY directory string leaves FRDir
+        // cleared, and every name then comes back unprefixed
+        st.frDir = f.dir
+        st.frFileList = f.list.slice(1)
+        return VS(joinFreq(f.dir, f.list[0]?.name ?? ''))
+      }
+      const n = a.length
+      const title = n >= 1 ? str(a[0]!) : ''
+      const pat = n >= 2 ? str(a[1]!) : ''
+      if (pat !== '') st.freqPattern = pat
+      st.frFileList = []
+      startFileReq(rt, st, title, FREQF.MULTISELECT)
+      it.block({ type: 'rtreq' }, true)
+      return VS('')
+    },
+
+    /**
+     * `=Irequest File Next$` --- routine 214 ($58f4).
+     *
+     * DEFECT: the worst one in this extension, `$592e move.l $170.w,d5`.
+     * `FRDirLen` is a longword at `$170(a4)` of the data zone, and the line
+     * above it reads its neighbour correctly as `$5924 move.l $16c(a4),d6`.
+     * This one lost the `d` off `dmove.l` in the source and assembles to
+     * ABSOLUTE SHORT, so it reads address `$170` in low memory, which on a
+     * real machine is inside the exception vector table. That value is then
+     * the length for both the GetRetStr allocation at `$5936` and the CopyMem
+     * at `$5958`, so the second name of a multi-selection copies a ROM
+     * pointer's worth of bytes into a small buffer. `Irequest File Multi$`
+     * has the same arithmetic and gets it right, so the FIRST file always
+     * works and the next one takes the machine down.
+     *
+     * DEVIATION: this port has no low memory to read and no way to make a
+     * megabyte-long CopyMem mean anything, so it joins the directory the way
+     * the author meant. The defect is recorded rather than reproduced, the
+     * same call ./g stc pack's overrun gets.
+     */
+    'irequest file next$': (): Value => {
+      const st = s()
+      const e = st.frFileList.shift()
+      if (!e) return VS('')
+      return VS(joinFreq(st.frDir, e.name))
     },
 
     /**

@@ -349,9 +349,18 @@ export const RT_TEXT = {
   fontsAssign: 'FONTS',
   /** `$2dca`, six bytes after FONTS: the pattern a fresh file requester holds */
   anyPattern: '#?',
-  /** `$2e06` and `$2e10`, the two halves of a line in the file list */
+  /**
+   * `$2de8`: a file's size at the right of its row, and the leading space is
+   * the gap from the name.
+   */
+  entrySizeFmt: ' %ld',
+  /** `$2e10`: the count in the `Selected:` box, `filereqextra.c`:1161 */
+  selectedFmt: '%4ld',
+  /**
+   * `$2e06`, and nothing in the 38.1436 sources formats with it. Kept
+   * because it is in 38.1092 and a later reading may find the caller.
+   */
   nameFmt: '%-40s ',
-  sizeFmt: '%4ld',
   /** `$2eb2`: how the screenmode requester names a mode */
   modeFmt: '%s%ld x %ld',
   /** `$8aa0`: the palette requester's three sliders */
@@ -410,6 +419,8 @@ export function rtSpread(sizes: readonly number[], total: number, min: number, m
  * `myTextLength`, `boopsi.c:48`: the width of a label with its underscores
  * taken back out. Every occurrence is subtracted, not just the first, so a
  * label that means to print one has to double it and pays for both.
+ *
+ * The library has a second answer to the same question. See `rtStrWidth`.
  */
 export function rtLabelWidth(label: string, measure: (s: string) => number, underscore: string): number {
   let w = measure(label)
@@ -417,6 +428,20 @@ export function rtLabelWidth(label: string, measure: (s: string) => number, unde
   const one = measure(underscore)
   for (const c of label) if (c === underscore) w -= one
   return w
+}
+
+/**
+ * `StrWidth_noloc`, `general.c`: the width with the FIRST underscore removed
+ * and any others left in.
+ *
+ * `req.c` measures its buttons with `myTextLength`, which takes out every
+ * underscore, and `filereqsetup.c` measures its buttons with this, which
+ * takes out one. The two requesters would size a label like `C_lea_r`
+ * differently by one character, and neither is a rounding of the other.
+ */
+export function rtStrWidth(label: string, measure: (s: string) => number): number {
+  const i = label.indexOf('_')
+  return measure(i < 0 ? label : label.slice(0, i) + label.slice(i + 1))
 }
 
 /**
@@ -800,5 +825,444 @@ export function reqRender(
     const w = rp.font ? rp.textLength(b.text) : b.text.length * 8
     label(b.text, b.box.x + Math.max(1, Math.trunc((b.box.w - w) / 2)), b.box.y + 3, text)
   }
+  rp.restore(save)
+}
+
+/* --------------------------------------------------------------------------
+ * The file requester
+ *
+ * `filereqsetup.c`'s `SetupReqWindow` builds the file, font and screenmode
+ * requesters from one routine, the same way `req.c` builds the other four.
+ * Only the file arm is here.
+ *
+ * It is a RESIZABLE window on the machine: WFLG_SIZEGADGET | WFLG_SIZEBBOTTOM,
+ * and IDCMP_NEWSIZE tears the gadget list down and runs this again with the
+ * new height. DEVIATION: this port opens it at one size and leaves it there,
+ * because ../amiga/intuition.ts has no resize.
+ * ----------------------------------------------------------------------- */
+
+/** `filereq.h`:161, the entry types a row can be */
+export const RT_ENTRY = { FILE: 0, DIRECTORY: 1, FONT: 2, VOLUME: 3, ASSIGN: 4 } as const
+
+/**
+ * `BottomBorderHeight`, `general.c`:720: the height of the size gadget, which
+ * it asks sysiclass for at SYSISIZE_MEDRES and falls back to 10 when the
+ * class will not answer. Ten is what this port uses, since it draws no size
+ * gadget of its own to measure.
+ */
+export const RT_BOTTOM_BORDER = 10
+
+/**
+ * The prefs a fresh reqtools makes for itself, `$14c` to `$1ac` of 38.1092.
+ *
+ * `$19c moveq #$4b,d1` is the file requester's 75, and the four `bsr.b $14c`
+ * after it fill the font, palette, screenmode and volume ones from `$41`, 65.
+ * The shared tail is `moveq #$4,d0` for REQPOS_TOPLEFTSCR, then 25, 18, 6 and
+ * 10; the file requester overwrites the last two with `move.w #$a,-$4(a0)`
+ * and `move.w #$32,-$2(a0)`. ReqTools.prefs would replace all of it and there
+ * is none here.
+ */
+export const RT_FILEREQ_PREFS = {
+  /** per cent of the visible screen height */
+  size: 75,
+  reqPos: REQPOS.TOPLEFTSCR,
+  leftOffset: 25,
+  topOffset: 18,
+  minEntries: 10,
+  maxEntries: 50,
+} as const
+
+/** one row of the list */
+export interface ReqEntry {
+  name: string
+  /** RT_ENTRY */
+  type: number
+  /** bytes for a file, per cent full for a volume, ignored otherwise */
+  size: number
+  selected: boolean
+}
+
+/** what a file request asks for, after its tag list has been read */
+export interface FileReqSetup {
+  /** `glob->title`, straight off `rtFileRequestA`'s a3; empty is untitled */
+  title: string
+  /** RTFI_OkText, or ` _Ok ` when the tag is absent */
+  okText: string
+  /** RT_Underscore, which reaches the OK gadget only; the rest are always `_` */
+  underscore: string
+  /** `rtfi_Dir` */
+  dir: string
+  /** `rtfi_MatchPat` */
+  pattern: string
+  /** the File gadget's contents */
+  file: string
+  /** RTFI_Flags */
+  flags: number
+  /** RTFI_Height, 0 for the prefs default */
+  height: number
+  /** `freq->hideinfo`: the `._info` toggle comes up SELECTED when this is false */
+  hideInfo: boolean
+}
+
+/** a labelled box in one of the two gadget rows */
+export interface ReqGadget {
+  text: string
+  box: ReqBox
+  key: string
+}
+
+export interface FileReqLayout {
+  width: number
+  height: number
+  title: string
+  /** how many rows fit, after the Min and Max clamps */
+  entries: number
+  entryHeight: number
+  /** the sunken frame around the list */
+  listFrame: ReqBox
+  /** where a row is drawn: `boxleft` to `boxright`, `boxtop` down */
+  boxLeft: number
+  boxTop: number
+  boxRight: number
+  scroller: ReqBox
+  /** the Pa_ttern: field and its label, absent without FREQF_PATGAD */
+  pattern: ReqBox | null
+  patternLabel: ReqBox | null
+  /** the disk-activity light, `do_led` */
+  led: ReqBox
+  drawer: ReqBox
+  get: ReqGadget
+  /** the File field, absent with FREQF_NOFILES */
+  file: ReqBox | null
+  info: ReqGadget | null
+  /** `Selected:`, `_All`, `_Match..`, `C_lear`; empty without MULTISELECT */
+  top: ReqGadget[]
+  /** the OK, `_Volumes`, `_Parent` and `_Cancel` row */
+  buttons: ReqGadget[]
+}
+
+/**
+ * `CheckGadgetsSize`, `filereqsetup.c`:20. When a row will not fit, take the
+ * same amount off every gadget in it, rounded UP so the row certainly fits
+ * rather than probably.
+ */
+function checkGadgetsSize(lens: number[], width: number, avail: number): number {
+  if (avail >= width) return width
+  const overlap = ((((width - avail) * 0x1_0000) / lens.length + 0xffff) | 0) >>> 16
+  for (let i = 0; i < lens.length; i++) lens[i] = (lens[i] ?? 0) - overlap
+  return width - overlap * lens.length
+}
+
+/** `filereqsetup.c`'s `SetupReqWindow`, the file arm */
+export function fileReqLayout(setup: FileReqSetup, m: ReqMetrics): FileReqLayout {
+  const spacing = rtSpacing(m.visibleHeight)
+  const stdGad = m.fontHeight + 6
+  const entryHeight = m.fontHeight + 1
+  const leftoff = m.wBorLeft + 5
+  const rightoff = m.wBorRight + 5
+  const totaloff = leftoff + rightoff
+  const startTop = m.wBorTop + m.screenFontHeight + 1 + spacing
+  const multi = (setup.flags & FREQF.MULTISELECT) !== 0
+  const noFiles = (setup.flags & FREQF.NOFILES) !== 0
+  const patGad = (setup.flags & FREQF.PATGAD) !== 0 && !noFiles
+  const width = (s: string): number => rtStrWidth(s, m.measure)
+
+  const defaultHeight = setup.height === 0
+  let reqHeight = defaultHeight
+    ? Math.trunc((RT_FILEREQ_PREFS.size * m.visibleHeight) / 100)
+    : Math.min(setup.height, m.visibleHeight)
+
+  // the space every row below the list needs, so what is left is the list
+  let below = (stdGad + spacing) * 4 + 4
+  if (patGad) below += stdGad + Math.trunc(spacing / 2)
+  if (noFiles) below -= stdGad + spacing
+  if (!multi) below -= stdGad + spacing
+
+  let entries = Math.trunc((reqHeight - below - startTop - RT_BOTTOM_BORDER) / entryHeight)
+  const floor = defaultHeight ? RT_FILEREQ_PREFS.minEntries : 3
+  if (entries < floor) entries = floor
+  const ceiling = defaultHeight ? RT_FILEREQ_PREFS.maxEntries : 50
+  if (entries > ceiling) entries = ceiling
+
+  // the top row, and the button row. gadtxt[4] is the OK text and gadtxt[7]
+  // is Cancel, so the two ends of the button row are the caller's and the
+  // library's respectively
+  const topText = [RT_TEXT.selected, RT_TEXT.all, RT_TEXT.match, RT_TEXT.clear]
+  const buttonText = [setup.okText, RT_TEXT.volumes, RT_TEXT.parent, RT_TEXT.cancel]
+  // gadlen[0] is the width of four digits BEFORE its label is added, which is
+  // what leaves room for the count beside the word
+  const topLens = topText.map((s, i) => (i === 0 ? m.measure('0000') : 0) + width(s) + 16)
+  let width1 = multi ? topLens.reduce((a, b) => a + b, 0) : 0
+  let width2 = buttonText.reduce((w, s) => Math.max(w, width(s) + 16), 0)
+  const buttonLens = buttonText.map(() => width2)
+  width2 *= 4
+
+  let winWidth = width1 + 3 * 8 + totaloff
+  if (winWidth < 300) winWidth = 300
+  const byButtons = width2 + 3 * 8 + totaloff
+  if (byButtons > winWidth) winWidth = byButtons
+  if (winWidth > m.visibleWidth) winWidth = m.visibleWidth
+
+  let topPos: number[] = [0, 0, 0, 0]
+  if (multi) {
+    width1 = checkGadgetsSize(topLens, width1, winWidth - totaloff)
+    topPos = rtSpread(topLens, width1, leftoff, winWidth - rightoff)
+  }
+  width2 = checkGadgetsSize(buttonLens, width2, winWidth - totaloff)
+  const buttonPos = rtSpread(buttonLens, width2, leftoff, winWidth - rightoff)
+
+  // when the button row is the wider of the two, the top row is packed left
+  // instead of spread, so `Selected:` keeps its place under the list
+  if (multi && width2 > width1) {
+    for (let i = 1; i < 4; i++) {
+      const at = (topPos[i - 1] ?? 0) + (topLens[i - 1] ?? 0) + 8
+      topLens[i] = (topLens[i] ?? 0) + ((topPos[i] ?? 0) - at)
+      topPos[i] = at
+    }
+  }
+
+  let top = startTop
+  const boxHeight = entries * entryHeight
+  const listFrame = box(leftoff, top, winWidth - 18 - totaloff, boxHeight + 4)
+  const boxLeft = leftoff + 2
+  const boxTop = top + 2
+  const boxRight = winWidth - 21 - rightoff
+  const scroller = box(winWidth - 18 - rightoff, top, 18, boxHeight + 4)
+  top += boxHeight + 4 + Math.trunc(spacing / 2)
+
+  let pattern: ReqBox | null = null
+  let patternLabel: ReqBox | null = null
+  if (patGad) {
+    const val = width(RT_TEXT.pattern) + 8
+    pattern = box(leftoff + 2 + val, top, winWidth - 2 - val - totaloff, stdGad)
+    patternLabel = box(leftoff + 2, top + 3, val, m.fontHeight)
+    top += stdGad + Math.trunc(spacing / 2)
+  }
+
+  const infoWidth = Math.max(width(RT_TEXT.dotInfo), width(RT_TEXT.get)) + 8
+  const get: ReqGadget = {
+    text: RT_TEXT.get,
+    box: box(winWidth - rightoff - infoWidth, top, infoWidth, stdGad),
+    key: rtLabelKey(RT_TEXT.get, '_'),
+  }
+  const ledH = Math.max(m.fontHeight - 4, 7)
+  const ledW = 15 + (ledH - 7) * 2
+  const ledOff = ledW + 6
+  const drawer = box(leftoff + ledOff, top, winWidth - totaloff - infoWidth - ledOff, stdGad)
+  const led = box(leftoff, top + Math.trunc((stdGad - ledH - 1) / 2), ledW, ledH)
+  top += stdGad + Math.trunc(spacing / 2)
+
+  let file: ReqBox | null = null
+  let info: ReqGadget | null = null
+  if (!noFiles) {
+    file = box(leftoff, top, winWidth - totaloff - infoWidth, stdGad)
+    info = {
+      text: RT_TEXT.dotInfo,
+      box: box(winWidth - rightoff - infoWidth, top, infoWidth, stdGad),
+      key: rtLabelKey(RT_TEXT.dotInfo, '_'),
+    }
+    top += stdGad + spacing
+  } else top += Math.trunc(spacing / 2)
+
+  const buttonHeight = m.fontHeight + 6
+  const topRow: ReqGadget[] = multi
+    ? topText.map((s, i) => ({
+        text: rtLabelText(s, '_'),
+        box: box(topPos[i] ?? 0, top, topLens[i] ?? 0, buttonHeight),
+        key: rtLabelKey(s, '_'),
+      }))
+    : []
+  if (multi) top += buttonHeight + spacing
+
+  const buttons: ReqGadget[] = buttonText.map((s, i) => {
+    const under = i === 0 ? setup.underscore : '_'
+    return {
+      text: rtLabelText(s, under),
+      box: box(buttonPos[i] ?? 0, top, buttonLens[i] ?? 0, buttonHeight),
+      key: rtLabelKey(s, under),
+    }
+  })
+
+  const height = top + buttonHeight + spacing + RT_BOTTOM_BORDER
+  reqHeight = height
+
+  return {
+    width: winWidth,
+    height,
+    title: setup.title,
+    entries,
+    entryHeight,
+    listFrame,
+    boxLeft,
+    boxTop,
+    boxRight,
+    scroller,
+    pattern,
+    patternLabel,
+    led,
+    drawer,
+    get,
+    file,
+    info,
+    top: topRow,
+    buttons,
+  }
+}
+
+/** what a click on the file requester landed on */
+export type FileReqHit =
+  | { kind: 'row'; index: number }
+  | { kind: 'scroll'; delta: number }
+  | { kind: 'top'; index: number }
+  | { kind: 'button'; index: number }
+  | { kind: 'get' }
+  | { kind: 'info' }
+  | { kind: 'drawer' }
+  | { kind: 'file' }
+  | { kind: 'pattern' }
+  | null
+
+/**
+ * Hit-test a click, window-relative.
+ *
+ * `CalcClicked` is `(im->MouseY - glob->boxtop) / glob->entryheight`, with no
+ * upper test of its own: the FILES gadget's own rectangle is what bounds it,
+ * so a row number can only come out of a click inside the list.
+ */
+export function fileReqHit(l: FileReqLayout, x: number, y: number): FileReqHit {
+  if (x >= l.boxLeft && x <= l.boxRight && y >= l.boxTop && y < l.boxTop + l.entries * l.entryHeight) {
+    return { kind: 'row', index: Math.trunc((y - l.boxTop) / l.entryHeight) }
+  }
+  if (inBox(l.scroller, x, y)) {
+    // the arrows are at the bottom, `GTSC_Arrows` of fontheight + 1 each
+    const arrow = l.entryHeight
+    const upTop = l.scroller.y + l.scroller.h - 2 * arrow
+    if (y >= upTop && y < upTop + arrow) return { kind: 'scroll', delta: -1 }
+    if (y >= upTop + arrow) return { kind: 'scroll', delta: 1 }
+    return { kind: 'scroll', delta: y < l.scroller.y + l.scroller.h / 2 ? -l.entries : l.entries }
+  }
+  for (let i = 0; i < l.top.length; i++) {
+    const g = l.top[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'top', index: i }
+  }
+  for (let i = 0; i < l.buttons.length; i++) {
+    const g = l.buttons[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'button', index: i }
+  }
+  if (inBox(l.get.box, x, y)) return { kind: 'get' }
+  if (l.info && inBox(l.info.box, x, y)) return { kind: 'info' }
+  if (l.file && inBox(l.file, x, y)) return { kind: 'file' }
+  if (inBox(l.drawer, x, y)) return { kind: 'drawer' }
+  if (l.pattern && inBox(l.pattern, x, y)) return { kind: 'pattern' }
+  return null
+}
+
+/**
+ * Draw one.
+ *
+ * `PrintEntry` (`filereqextra.c`) is the row: the name at `boxleft + 2`, and
+ * a right-aligned size string ending at `boxright - 1`. A drawer says
+ * `Drawer` there and an assign says `Assign`, both in HIGHLIGHTTEXTPEN; a
+ * file says ` %ld`; a volume says `%ld%% full`. Selecting a file puts
+ * FILLTEXTPEN on FILLPEN and selecting a drawer puts BACKGROUNDPEN on
+ * HIGHLIGHTTEXTPEN, so the two kinds of selection do not look alike.
+ */
+export function fileReqRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  l: FileReqLayout,
+  rows: readonly ReqEntry[],
+  first: number,
+  fields: { dir: string; file: string; pattern: string; selected: number; info: boolean; led: boolean },
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const fill = penOf(dri, PEN.FILL)
+  const fillText = penOf(dri, PEN.FILLTEXT)
+  const high = penOf(dri, PEN.HIGHLIGHTTEXT)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const flood = (b: ReqBox, pen: number): void => {
+    rp.rectFill(b.x + ox, b.y + oy, b.x + ox + b.w - 1, b.y + oy + b.h - 1, pen)
+  }
+  const bevel = (b: ReqBox, recessed: boolean): void => {
+    drawBevelBox(rp, b.x + ox, b.y + oy, b.w, b.h, dri, { recessed })
+  }
+  const label = (s: string, lx: number, ly: number, pen: number): void => {
+    if (rp.font) rp.text(lx + ox, ly + oy + rp.font.baseline, s, pen)
+  }
+  const measure = (s: string): number => (rp.font ? rp.textLength(s) : s.length * 8)
+  const button = (g: ReqGadget, down = false): void => {
+    flood(g.box, bg)
+    bevel(g.box, down)
+    label(g.text, g.box.x + Math.max(1, Math.trunc((g.box.w - measure(g.text)) / 2)), g.box.y + 3, text)
+  }
+  const field = (b: ReqBox, value: string): void => {
+    flood(b, bg)
+    bevel(b, true)
+    label(value, b.x + 3, b.y + 3, text)
+  }
+
+  flood(box(0, 0, l.width, l.height), bg)
+
+  bevel(l.listFrame, true)
+  for (let i = 0; i < l.entries; i++) {
+    const e = rows[first + i]
+    const y = l.boxTop + i * l.entryHeight
+    const ground = e?.selected ? (e.type === RT_ENTRY.FILE || e.type === RT_ENTRY.VOLUME ? fill : high) : bg
+    rp.rectFill(l.boxLeft + ox, y + oy, l.boxRight + ox, y + l.entryHeight - 1 + oy, ground)
+    if (!e) continue
+    const pen = e.selected
+      ? e.type === RT_ENTRY.FILE || e.type === RT_ENTRY.VOLUME
+        ? fillText
+        : bg
+      : e.type === RT_ENTRY.DIRECTORY || e.type === RT_ENTRY.ASSIGN
+        ? high
+        : text
+    const size =
+      e.type === RT_ENTRY.DIRECTORY
+        ? RT_TEXT.drawer
+        : e.type === RT_ENTRY.ASSIGN
+          ? RT_TEXT.assign
+          : e.type === RT_ENTRY.VOLUME
+            ? rtFormat(RT_TEXT.full, e.size)
+            : rtFormat(RT_TEXT.entrySizeFmt, e.size)
+    label(e.name, l.boxLeft + 2, y, pen)
+    label(size, l.boxRight - measure(size) - 1, y, pen)
+  }
+  bevel(l.scroller, true)
+
+  if (l.pattern && l.patternLabel) {
+    label(rtLabelText(RT_TEXT.pattern, '_'), l.patternLabel.x, l.patternLabel.y, text)
+    field(l.pattern, fields.pattern)
+  }
+  field(l.drawer, fields.dir)
+  button(l.get)
+  flood(l.led, bg)
+  bevel(l.led, true)
+  if (fields.led) flood(box(l.led.x + 2, l.led.y + 1, l.led.w - 4, l.led.h - 2), fill)
+  if (l.file) field(l.file, fields.file)
+  if (l.info) button(l.info, fields.info)
+
+  for (let i = 0; i < l.top.length; i++) {
+    const g = l.top[i]
+    if (!g) continue
+    if (i === 0) {
+      // `Selected:` is a TEXT_KIND box with a border, not a button, and the
+      // count is an IntuiText hung off the label at `LeftEdge + 8`
+      flood(g.box, bg)
+      bevel(g.box, true)
+      label(g.text, g.box.x + 8, g.box.y + 3, text)
+      const n = rtFormat(RT_TEXT.selectedFmt, fields.selected)
+      label(n, g.box.x + 8 + measure(g.text), g.box.y + 3, text)
+    } else button(g)
+  }
+  for (const g of l.buttons) button(g)
   rp.restore(save)
 }

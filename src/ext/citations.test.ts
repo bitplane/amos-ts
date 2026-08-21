@@ -492,8 +492,17 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // reqtools.library is Nico Francois', not an AMOS extension. Its autodoc is
   // what the Intuition Extension's requesters are written against, and it is
   // where the rules for EZREQF_LAMIGAQUAL and the gadget numbering are stated
+  // and ReqTools.guide beside it, because the prefs the library falls back on
+  // when there is no ReqTools.prefs are described there and nowhere else
   'src/runtime/intuition.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
-  'src/runtime/rtreq.test.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
+  'src/runtime/rtreq.ts': [
+    'aminet/ReqToolsDev/ReqTools/doc/reqtools.doc',
+    'aminet/ReqToolsDev/ReqTools/ReqTools.guide',
+  ],
+  'src/runtime/rtreq.test.ts': [
+    'aminet/ReqToolsDev/ReqTools/doc/reqtools.doc',
+    'aminet/ReqToolsDev/ReqTools/ReqTools.guide',
+  ],
   'src/amiga/reqtools.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
 }
 

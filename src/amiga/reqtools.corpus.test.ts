@@ -88,8 +88,9 @@ const CITED: Array<[keyof typeof RT_TEXT, number, number | null]> = [
   ['fontSample', 0x2e16, null],
   ['fontsAssign', 0x2dc4, null],
   ['anyPattern', 0x2dca, null],
+  ['entrySizeFmt', 0x2de8, null],
   ['nameFmt', 0x2e06, null],
-  ['sizeFmt', 0x2e10, null],
+  ['selectedFmt', 0x2e10, null],
   ['modeFmt', 0x2eb2, null],
   ['sliderFmt', 0x8aa0, null],
 ]

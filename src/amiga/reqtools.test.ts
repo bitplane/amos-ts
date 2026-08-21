@@ -10,6 +10,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   EZREQF,
+  FREQF,
+  RT_FILEREQ_PREFS,
   REQ_MODE,
   RT_LVO,
   RT_MAXINT,
@@ -23,6 +25,9 @@ import {
   rtSpacing,
   rtSpread,
   rtSplitBars,
+  rtStrWidth,
+  fileReqLayout,
+  type FileReqSetup,
   type ReqMetrics,
   type ReqSetup,
 } from './reqtools'
@@ -106,7 +111,8 @@ describe('reqtools: labels and formats', () => {
     expect(rtFormat(RT_TEXT.maxFmt, 99)).toBe(' Max: 99 ')
     expect(rtFormat(RT_TEXT.full, 40)).toBe('40% full')
     expect(rtFormat(RT_TEXT.nameFmt, 'work')).toBe('work'.padEnd(40, ' ') + ' ')
-    expect(rtFormat(RT_TEXT.sizeFmt, 12)).toBe('  12')
+    expect(rtFormat(RT_TEXT.selectedFmt, 12)).toBe('  12')
+    expect(rtFormat(RT_TEXT.entrySizeFmt, 1024)).toBe(' 1024')
   })
 })
 
@@ -284,5 +290,107 @@ describe('reqtools: an interlaced screen', () => {
     expect(lace.width).toBe(flat.width)
     // spacing goes 2 to 4, and an EZRequest counts it three times
     expect(lace.height).toBe(flat.height + 6)
+  })
+})
+
+describe('reqtools: the file requester layout', () => {
+  const fileSetup = (over: Partial<FileReqSetup> = {}): FileReqSetup => ({
+    title: 'Load',
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    dir: 'DH0:',
+    pattern: '',
+    file: '',
+    flags: FREQF.PATGAD,
+    height: 0,
+    hideInfo: false,
+    ...over,
+  })
+
+  const l = fileReqLayout(fileSetup(), WB)
+
+  it('is as wide as four `_Volumes`-sized buttons, over a floor of 300', () => {
+    // width2 is the WIDEST of the four labels plus 16, given to all four:
+    // `_Volumes` measures 56 with its underscore taken out, so 72 each. Then
+    // 72*4 + 3*8 + (9 + 9) is 330, which clears the `winwidth < 300` floor
+    expect(l.width).toBe(330)
+    expect(l.buttons.every((g) => g.box.w === 72)).toBe(true)
+  })
+
+  it('takes 75 per cent of the visible height and rounds the list to fit', () => {
+    // reqheight = 75 * 256 / 100 = 192, and `below` for a pattern gadget and
+    // no multiselect is (14+2)*3 + 4 + 14 + 1 = 67
+    expect(l.entryHeight).toBe(9)
+    // start_top is 2 + 8 + 1 + 2 = 13, and BottomBorderHeight is 10
+    expect(l.entries).toBe(Math.trunc((192 - 67 - 13 - 10) / 9))
+  })
+
+  it('never shows fewer than the ten entries the prefs ask for', () => {
+    // a 200-row screen leaves room for six, and MinEntries puts it back to 10
+    const small = fileReqLayout(fileSetup(), { ...WB, visibleHeight: 200 })
+    expect(small.entries).toBe(RT_FILEREQ_PREFS.minEntries)
+  })
+
+  it('puts the scroller 18 wide against the right border', () => {
+    expect(l.scroller.w).toBe(18)
+    expect(l.scroller.x + l.scroller.w).toBe(l.width - (WB.wBorRight + 5))
+    expect(l.boxRight).toBe(l.width - 21 - (WB.wBorRight + 5))
+    expect(l.listFrame.h).toBe(l.entries * l.entryHeight + 4)
+  })
+
+  it('has four buttons, spread, with the caller\'s Ok text on the left', () => {
+    expect(l.buttons.map((g) => g.text)).toEqual([' Ok ', 'Volumes', 'Parent', 'Cancel'])
+    expect(l.buttons.map((g) => g.key)).toEqual(['O', 'V', 'P', 'C'])
+    expect(l.buttons[0]?.box.x).toBe(WB.wBorLeft + 5)
+    expect(l.buttons[3]!.box.x + l.buttons[3]!.box.w).toBe(l.width - (WB.wBorRight + 5))
+    // all four are the same width, `for (i) gadlen[i+4] = width2`
+    const w = l.buttons.map((g) => g.box.w)
+    expect(new Set(w).size).toBe(1)
+  })
+
+  it('has no top row without FREQF_MULTISELECT, and four with it', () => {
+    expect(l.top).toEqual([])
+    const multi = fileReqLayout(fileSetup({ flags: FREQF.PATGAD | FREQF.MULTISELECT }), WB)
+    expect(multi.top.map((g) => g.text)).toEqual(['Selected:', 'All', 'Match..', 'Clear'])
+    expect(multi.top.map((g) => g.key)).toEqual(['', 'A', 'M', 'l'])
+    // the extra row costs `buttonheight + spacing`, and it comes out of the
+    // list: `val` grows by one gadget row before the entries are counted, so
+    // eleven rows become ten and the window is only 7 pixels taller
+    expect(l.entries).toBe(11)
+    expect(multi.entries).toBe(10)
+    expect(multi.height).toBe(l.height + 16 - l.entryHeight)
+  })
+
+  it('drops the Pattern field without FREQF_PATGAD, and the window with it', () => {
+    const plain = fileReqLayout(fileSetup({ flags: 0 }), WB)
+    expect(plain.pattern).toBeNull()
+    expect(l.pattern).not.toBeNull()
+    // the same list height, one row fewer of gadgets
+    expect(plain.entries).toBeGreaterThan(l.entries)
+  })
+
+  it('sizes the LED off the font and hangs the Drawer field beside it', () => {
+    // led_h = max(fontheight - 4, 7) = 7, led_w = 15
+    expect(l.led.w).toBe(15)
+    expect(l.led.h).toBe(7)
+    expect(l.drawer.x).toBe(WB.wBorLeft + 5 + 15 + 6)
+    // the File field starts back at the border, `ng.ng_LeftEdge -= led_off`
+    expect(l.file?.x).toBe(WB.wBorLeft + 5)
+    expect(l.file?.w).toBe(l.drawer.w + 15 + 6)
+  })
+
+  it('gives Get and ._info the same width, the wider of the two labels', () => {
+    expect(l.get.box.w).toBe(l.info?.box.w)
+    expect(l.get.box.x).toBe(l.info?.box.x)
+    // `._info` is six characters and `_Get` is four, and both lose one
+    // underscore to StrWidth_noloc
+    expect(l.get.box.w).toBe(5 * 8 + 8)
+  })
+
+  it('measures a label the file requester way, not the EZRequest way', () => {
+    const m = (s: string): number => s.length * 8
+    // StrWidth_noloc drops the first underscore only; myTextLength drops all
+    expect(rtStrWidth('C_lea_r', m)).toBe(48)
+    expect(rtLabelWidth('C_lea_r', m, '_')).toBe(40)
   })
 })

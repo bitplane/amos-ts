@@ -17,6 +17,7 @@ import { Runtime } from './runtime'
 import { WB_SLOT } from '../amiga/intuition'
 import { RT_TEXT } from '../amiga/reqtools'
 import { E, IEXT_ERRORS } from './intuition'
+import { AmigaFS } from '../amiga/vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 const ext = extensionById('intuition-1.3b')!
@@ -243,5 +244,274 @@ describe('=Reqtools Here', () => {
     const b = boot('Print Reqtools Here')
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('-1')
+  })
+})
+
+/* --------------------------------------------------------------------------
+ * The file requester
+ * ----------------------------------------------------------------------- */
+
+function bootFile(program: string, files: string[] = ['readme.txt', 'picture.iff', 'notes.doc', 'thing.info']): {
+  rt: Runtime
+  out: () => string
+} {
+  const fs = new AmigaFS()
+  fs.mountMemory('DH0')
+  fs.currentDir = 'DH0:'
+  for (const n of files) fs.writeFile(`DH0:${n}`, new Uint8Array([1, 2, 3]))
+  fs.writeFile('DH0:Pictures/inner.iff', new Uint8Array([1]))
+  let out = ''
+  const rt = new Runtime(tokenize(program, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[14, ext]]),
+    maxSteps: 9_000_000,
+    fs,
+    onText: (t) => (out += t),
+  })
+  rt.frame()
+  return { rt, out: () => out }
+}
+
+/** click a window-relative point on the file requester */
+function fclick(rt: Runtime, wx: number, wy: number, shift = false): void {
+  const st = rt.rtFile!
+  const scr = rt.screens.get(WB_SLOT)!
+  if (shift) rt.input.keys.add(0x60)
+  rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+  rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+  rt.input.mouseK = 1
+  rt.frame()
+  rt.input.mouseK = 0
+  rt.frame()
+  if (shift) rt.input.keys.delete(0x60)
+}
+
+/** the middle of list row `i` */
+function frow(rt: Runtime, i: number, shift = false): void {
+  const l = rt.rtFile!.layout
+  fclick(rt, l.boxLeft + 4, l.boxTop + i * l.entryHeight + 2, shift)
+}
+
+/** press one of the four buttons: 0 Ok, 1 Volumes, 2 Parent, 3 Cancel */
+function fbutton(rt: Runtime, i: number): void {
+  const b = rt.rtFile!.layout.buttons[i]!.box
+  fclick(rt, b.x + (b.w >> 1), b.y + (b.h >> 1))
+}
+
+describe('the reqtools file requester', () => {
+  const PROG = 'F$=Irequest File$("Load")\nPrint "["+F$+"]"'
+
+  /**
+   * The order is the library's, and it is the opposite of asl's. With no
+   * ReqTools.prefs the flags word is zero, so neither DIRSFIRST nor DIRSMIXED
+   * is set and `SetFileDirMode` gives files id 0 and drawers id 1. The prefs
+   * guide states the consequence: "If none of the 'Display Drawers First' or
+   * 'Mix Files And Drawers' is checked files will be displayed before
+   * drawers."
+   */
+  it('lists files first and drawers after, each sorted', () => {
+    const b = bootFile(PROG)
+    expect(b.rt.rtFile!.rows.map((e) => e.name)).toEqual([
+      'notes.doc',
+      'picture.iff',
+      'readme.txt',
+      'thing.info',
+      'Pictures',
+    ])
+  })
+
+  it('opens on the process directory and joins it to the name', () => {
+    const b = bootFile(PROG)
+    expect(b.rt.rtFile!.dir).toBe('DH0:')
+    frow(b.rt, 1)
+    expect(b.rt.rtFile!.file).toBe('picture.iff')
+    fbutton(b.rt, 0)
+    finish(b.rt)
+    // `cmp.b #':',-1(a0) / beq .putfil`, so no second separator after DH0:
+    expect(b.out().trim()).toBe('[DH0:picture.iff]')
+  })
+
+  it('enters a drawer on a SINGLE click, which is the GADGETUP arm', () => {
+    const b = bootFile(PROG)
+    frow(b.rt, 4)
+    expect(b.rt.rtFile!.dir).toBe('DH0:Pictures')
+    expect(b.rt.rtFile!.rows.map((e) => e.name)).toEqual(['inner.iff'])
+    frow(b.rt, 0)
+    fbutton(b.rt, 0)
+    finish(b.rt)
+    expect(b.out().trim()).toBe('[DH0:Pictures/inner.iff]')
+  })
+
+  it('picks a file on a double click without touching Ok', () => {
+    const b = bootFile(PROG)
+    frow(b.rt, 0)
+    frow(b.rt, 0)
+    finish(b.rt)
+    expect(b.out().trim()).toBe('[DH0:notes.doc]')
+  })
+
+  it('answers the empty string for Cancel, and for Ok on an empty name', () => {
+    const cancel = bootFile(PROG)
+    fbutton(cancel.rt, 3)
+    finish(cancel.rt)
+    expect(cancel.out().trim()).toBe('[]')
+
+    // `if (!nodir && (filename[0] || allowempty)) return TRUE; return NULL`
+    const empty = bootFile(PROG)
+    fbutton(empty.rt, 0)
+    finish(empty.rt)
+    expect(empty.out().trim()).toBe('[]')
+  })
+
+  it('takes Parent back up the tree and Volumes to the device list', () => {
+    const b = bootFile(PROG)
+    frow(b.rt, 4)
+    expect(b.rt.rtFile!.dir).toBe('DH0:Pictures')
+    fbutton(b.rt, 2)
+    expect(b.rt.rtFile!.dir).toBe('DH0:')
+    fbutton(b.rt, 1)
+    expect(b.rt.rtFile!.volumes).toBe(true)
+    expect(b.rt.rtFile!.rows.map((e) => e.name)).toContain('DH0:')
+  })
+
+  it('starts with the default name in the File gadget', () => {
+    const b = bootFile('F$=Irequest File$("Load","#?","notes.doc")\nPrint "["+F$+"]"')
+    expect(b.rt.rtFile!.file).toBe('notes.doc')
+    fbutton(b.rt, 0)
+    finish(b.rt)
+    expect(b.out().trim()).toBe('[DH0:notes.doc]')
+  })
+
+  /**
+   * `IsHidden` in filereqextra.c matches a `.info` name with its last five
+   * characters cut off, so the pattern that keeps `picture.iff` keeps
+   * `picture.iff.info` with it.
+   */
+  it('filters files by an AmigaDOS pattern and never drawers', () => {
+    const b = bootFile('F$=Irequest File$("Load","#?.iff")\nPrint "["+F$+"]"', [
+      'readme.txt',
+      'picture.iff',
+      'picture.iff.info',
+    ])
+    expect(b.rt.rtFile!.rows.map((e) => e.name)).toEqual(['picture.iff', 'picture.iff.info', 'Pictures'])
+  })
+
+  /**
+   * `$54ea move.l a1,d0 / $54ec beq.b $54f0` skips the only assignment to a1
+   * while a1 is zero, and `$54d6 suba.l a1,a1` made it zero. So the arm that
+   * would set RTFI_Dir is unreachable and the whole string goes in as the
+   * match pattern.
+   */
+  it('never splits a directory out of the pattern, so a path matches nothing', () => {
+    const b = bootFile('F$=Irequest File$("Load","DH0:#?.iff")\nPrint "["+F$+"]"')
+    expect(b.rt.rtFile!.dir).toBe('DH0:')
+    expect(b.rt.rtFile!.pattern).toBe('DH0:#?.iff')
+    expect(b.rt.rtFile!.rows.map((e) => e.name)).toEqual(['Pictures'])
+  })
+
+  it('leaves the last pattern standing when a later call omits one', () => {
+    const b = bootFile(
+      'F$=Irequest File$("One","#?.iff")\nG$=Irequest File$("Two")\nPrint "["+G$+"]"',
+    )
+    expect(b.rt.rtFile!.pattern).toBe('#?.iff')
+    fbutton(b.rt, 3)
+    finish(b.rt)
+    // `.nopat` branches past the whole rtChangeReqAttrA
+    expect(b.rt.rtFile!.pattern).toBe('#?.iff')
+  })
+
+  it('reopens where it was left, because nothing ever sets RTFI_Dir', () => {
+    const b = bootFile('F$=Irequest File$("One")\nG$=Irequest File$("Two")\nPrint "["+G$+"]"')
+    frow(b.rt, 4)
+    expect(b.rt.rtFile!.dir).toBe('DH0:Pictures')
+    fbutton(b.rt, 3)
+    finish(b.rt)
+    expect(b.rt.rtFile!.dir).toBe('DH0:Pictures')
+  })
+})
+
+describe('Irequest File Multi$ and Irequest File Next$', () => {
+  const PROG =
+    'F$=Irequest File Multi$("Load")\nWhile F$<>""\nPrint "["+F$+"]"\nF$=Irequest File Next$\nWend'
+
+  it('adds a top row of four gadgets that the single form has not', () => {
+    const b = bootFile(PROG)
+    expect(b.rt.rtFile!.layout.top.map((g) => g.text)).toEqual(['Selected:', 'All', 'Match..', 'Clear'])
+  })
+
+  it('answers the first name and hands out the rest one at a time', () => {
+    const b = bootFile(PROG)
+    frow(b.rt, 0)
+    frow(b.rt, 2, true)
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).length).toBe(2)
+    fbutton(b.rt, 0)
+    for (let i = 0; i < 12; i++) b.rt.frame()
+    expect(b.out().trim().split('\n').map((s) => s.trim())).toEqual([
+      '[DH0:notes.doc]',
+      '[DH0:readme.txt]',
+    ])
+  })
+
+  it('replaces a plain click\'s selection and adds to it with SHIFT', () => {
+    const b = bootFile(PROG)
+    frow(b.rt, 0)
+    frow(b.rt, 1)
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).map((e) => e.name)).toEqual(['picture.iff'])
+    frow(b.rt, 2, true)
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).map((e) => e.name)).toEqual([
+      'picture.iff',
+      'readme.txt',
+    ])
+  })
+
+  it('selects everything with _All and drops it again with C_lear', () => {
+    const b = bootFile(PROG)
+    const all = b.rt.rtFile!.layout.top[1]!.box
+    fclick(b.rt, all.x + (all.w >> 1), all.y + (all.h >> 1))
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).length).toBe(4)
+    const clr = b.rt.rtFile!.layout.top[3]!.box
+    fclick(b.rt, clr.x + (clr.w >> 1), clr.y + (clr.h >> 1))
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).length).toBe(0)
+  })
+
+  /** `rtGetStringA (glob->selpattern, 123, MSG_MATCH_WINTITLE, ...)` */
+  it('puts a Match... string requester on top and selects with its answer', () => {
+    const b = bootFile(PROG)
+    const box = b.rt.rtFile!.layout.top[2]!.box
+    fclick(b.rt, box.x + (box.w >> 1), box.y + (box.h >> 1))
+    const sub = b.rt.rtFile!.sub
+    expect(sub).not.toBeNull()
+    expect(sub!.window.title).toBe(RT_TEXT.matchWinTitle)
+    for (const ch of '#?.doc') {
+      b.rt.pressKey(ch, 0)
+      b.rt.frame()
+    }
+    b.rt.pressKey('\r', 0x44)
+    b.rt.frame()
+    b.rt.frame()
+    expect(b.rt.rtFile!.sub).toBeNull()
+    expect(b.rt.rtFile!.rows.filter((e) => e.selected).map((e) => e.name)).toEqual(['notes.doc'])
+  })
+
+  /**
+   * `AllocSelectedFiles`: when the name in the File gadget is not among the
+   * selected entries the whole list is thrown away and replaced by that one
+   * name. Nico's comment on it is "This is the most intuitive behaviour!"
+   */
+  it('throws the list away when the File gadget names something outside it', () => {
+    const b = bootFile(PROG)
+    const all = b.rt.rtFile!.layout.top[1]!.box
+    fclick(b.rt, all.x + (all.w >> 1), all.y + (all.h >> 1))
+    b.rt.rtFile!.file = 'elsewhere.txt'
+    fbutton(b.rt, 0)
+    for (let i = 0; i < 12; i++) b.rt.frame()
+    expect(b.out().trim()).toBe('[DH0:elsewhere.txt]')
+  })
+
+  it('is the empty string when nothing was picked', () => {
+    const b = bootFile(PROG)
+    fbutton(b.rt, 3)
+    for (let i = 0; i < 8; i++) b.rt.frame()
+    expect(b.out().trim()).toBe('')
   })
 })

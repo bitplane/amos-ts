@@ -405,6 +405,7 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/int.test.ts': ['int-1.0'],
   'src/runtime/intuition.ts': ['intuition-1.3b'],
   'src/runtime/intuition.test.ts': ['intuition-1.3b'],
+  'src/runtime/rtreq.ts': ['intuition-1.3b'],
   'src/runtime/rtreq.test.ts': ['intuition-1.3b'],
   'src/runtime/jdint.ts': ['jd-int-1.3'],
   'src/runtime/jdint.test.ts': ['jd-int-1.3'],

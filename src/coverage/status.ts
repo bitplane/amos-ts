@@ -3882,6 +3882,13 @@ export const FAITHFUL = new Set<string>([
   'iwait', 'iwait vbl', 'ierr', 'ierr\$', 'ierror', 'itrap on', 'itrap off',
   'ierrtrap', 'reqtools here', 'i flush',
   'irequest warning', 'irequest error', 'irequest message', 'irequest def title',
+  // and the file requester, `filereqsetup.c`'s SetupReqWindow ported into
+  // ../amiga/reqtools.ts. The list is FILES then directories, which is the
+  // library's default and the opposite of asl's; the pattern hides files only
+  // and matches a `.info` name with its last five characters cut off; a
+  // drawer is entered on a SINGLE click. Three defects come with them, and
+  // the one in Irequest File Next$ is fatal on a real machine.
+  'irequest file\$', 'irequest file multi\$', 'irequest file next\$',
   // `fonts.s`: five readers over `rp_Font` and one setter. `Set Ifont`
   // appends `.font` unless the name already ends in it, and the test is five
   // `cmp.b` in a row, so `"topaz.Font"` is not recognised and becomes
@@ -4286,6 +4293,29 @@ export const NOTES: Record<string, string> = {
     "Routine 229 ($5e58) and its two-argument form 230 ($5ec6). No extra flags, and the answer comes back as the " +
     "helper left it: 1 for the leftmost gadget climbing to N for the rightmost. gadget$ is a whole reqtools " +
     "format and may carry bars, which is the only way this extension gives a program a three-way requester.",
+  "irequest file$":
+    "Routine 207 ($5496), with 208 to 210 for the shorter forms. DEFECT: thirty instructions meant to split a " +
+    "DIRECTORY off the front of pattern$ can never run. `$54d6 suba.l a1,a1` clears the register that remembers " +
+    "the last `:` or `/`, and the guard on the only assignment is `$54ea move.l a1,d0 / $54ec beq.b $54f0`, " +
+    "which skips it while a1 is zero -- so a1 stays zero, `$54f8 beq.b $552a` always takes the no-path arm, and " +
+    "the arm at $54fc that would set RTFI_Dir and RTFI_MatchPat together is compiled and unreachable. `bne` was " +
+    "meant. The whole string goes in as RTFI_MatchPat, which matches bare filenames, so a pattern carrying a " +
+    "path shows nothing. Reproduced. The guide only ever promised \"a standard AmigaDOS wildcard\" there, which " +
+    "is how it survived. An omitted pattern leaves the last one standing rather than clearing it.",
+  "irequest file multi$":
+    "Routine 211 ($56b2), with 212 and 213 for the shorter forms. Routine 207 with FREQF_MULTISELECT added and " +
+    "the default filename dropped. It opens with rtFreeFileList on the previous answer, so a second call throws " +
+    "the first list away whether or not Irequest File Next$ finished reading it, and unlike the single form it " +
+    "does NOT clear Filename108 -- the File gadget comes up holding whatever the last Irequest File$ left there.",
+  "irequest file next$":
+    "Routine 214 ($58f4). DEFECT: the worst in this extension, `$592e move.l $170.w,d5`. FRDirLen is a " +
+    "longword at $170(a4) and the line above it reads its neighbour correctly as `$5924 move.l $16c(a4),d6`; " +
+    "this one lost the `d` off `dmove.l` and assembles to absolute short, so it reads address $170 in low " +
+    "memory, inside the exception vector table. That value is the length for both the GetRetStr at $5936 and " +
+    "the CopyMem at $5958, so the second name of a multi-selection copies a ROM pointer's worth of bytes into a " +
+    "small buffer. Irequest File Multi$ has the same arithmetic and gets it right, so the FIRST file always " +
+    "works and the next one takes the machine down. DEVIATION: no low memory here to read, so the join is done " +
+    "the way the author meant and the defect is recorded rather than reproduced.",
   "irequest def title":
     "Routine 231 ($5ed4). DEFECT: an empty string is meant to put \"AMOS Request\" back and does not. " +
     "`$5f16 lea.l $42(a4),a2` takes the ADDRESS of the data cell where startup.s:381 stored the pointer, not " +
