@@ -160,8 +160,60 @@ export const E = {
   IDT: 38,
 } as const
 
+/**
+ * Thrown instead of an AmosError while `Itrap On` is in force.
+ *
+ * `errors.s`'s `.trap` arm does not raise: it sets `ErrorTrapped`, restores
+ * the stack to `A7StackEnd-4` -- Church's own comment is "Quit from offending
+ * routine" -- and returns as though the keyword had finished. So the program
+ * carries on and asks `=Ierrtrap` afterwards. `wrapTrapped` below is where
+ * that unwinding happens here.
+ */
+class IextTrapped extends Error {}
+
+/** the state, which `iError` needs before the Runtime hands it out */
+let iextState: IextState | null = null
+
+/**
+ * Raise one of Church's errors, or trap it.
+ *
+ * `L_CustomError` records the number and its message in `LastError` and
+ * `LastErrorStr` whichever way it goes -- `tmove.l d0,LastError` happens
+ * before the trap is even tested -- so `=Ierr` and `=Ierr$` answer for a
+ * trapped error as readily as for a fatal one.
+ */
 function iError(n: number): never {
+  const st = iextState
+  if (st) {
+    st.lastError = n
+    st.lastErrorStr = IEXT_ERRORS[n] ?? ''
+    if (st.trapErrors) {
+      st.errorTrapped = true
+      throw new IextTrapped()
+    }
+  }
   throw new AmosError(IEXT_ERRORS[n] ?? `Intuition error ${n}`)
+}
+
+/**
+ * Wrap every handler so a trapped error abandons it and nothing more.
+ *
+ * This is the `.trap` arm's stack unwind. It is done here rather than at each
+ * keyword because that is what the arm does: one place, every routine.
+ */
+function wrapTrapped<T extends Record<string, (...a: never[]) => unknown>>(map: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [name, fn] of Object.entries(map)) {
+    out[name] = (...a: never[]): unknown => {
+      try {
+        return fn(...a)
+      } catch (e) {
+        if (e instanceof IextTrapped) return VI(0)
+        throw e
+      }
+    }
+  }
+  return out as T
 }
 
 /** `defs.i`:168 --- `MODES equ HIRES | HAM | EHB | SUPERHIRES | LACED` */
@@ -293,6 +345,8 @@ export class IextState {
   trapErrors = false
   errorTrapped = false
   lastError = -1
+  /** `LastErrorStr`, which `=Ierr$` hands back and then stops trapping */
+  lastErrorStr = ''
 }
 
 export function newIextState(): IextState {
@@ -652,7 +706,14 @@ function waitEvent(rt: Runtime, it: Parameters<Func>[0], vbl: boolean): Value {
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
-  const s = (): IextState => rt.iext
+  return wrapTrapped(iextInstructions(rt))
+}
+
+function iextInstructions(rt: Runtime): Record<string, Instr> {
+  const s = (): IextState => {
+    iextState = rt.iext
+    return rt.iext
+  }
 
   /**
    * `Iscreen Open n,w,h,colours,mode[,title$[,displayID]]`.
@@ -1272,6 +1333,67 @@ export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
      * ------------------------------------------------------------------ */
 
     /** `Iclear All` --- both buffer pointers back to their base */
+    /* ------------------------------------------------------------------
+     * The odds and ends of `other.s`
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Iwait n` --- n frames, pumping the port on each.
+     *
+     * `.lp` is `DoEvent` with a class of 0 and then `WaitTOF`, `subq.l #1,d2`
+     * until it runs out. Pumping matters: a wait is where a program's close
+     * gadget gets noticed, the same way `=Iwindow Status` is.
+     */
+    'iwait': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      pumpStatus(curIwin(st))
+      if (n > 0) it.block({ type: 'wait', until: it.tick + n })
+    },
+
+    /** `Iwait Vbl` --- `move.l #1,-(a3) / bra L_Iwait`, one frame */
+    'iwait vbl': (it) => {
+      const st = s()
+      pumpStatus(curIwin(st))
+      it.block({ type: 'wait', until: it.tick + 1 })
+    },
+
+    /**
+     * `Ierror n` --- raise one of the extension's own errors by number.
+     *
+     * `move.l (a3)+,d0 / bra L_CustomError`, so it goes through exactly the
+     * path an internal error does: it can be trapped, and it sets `LastError`
+     * and `LastErrorStr` on the way.
+     */
+    'ierror': (it) => {
+      iError(it.evalInt())
+    },
+
+    /**
+     * `Itrap On` --- and it clears `ErrorTrapped` on the way in.
+     *
+     * `tmove.b #-1,TrapErrors` then `dclr.b ErrorTrapped`, so turning
+     * trapping on forgets any error trapped before it.
+     */
+    'itrap on': () => {
+      const st = s()
+      st.trapErrors = true
+      st.errorTrapped = false
+    },
+    /** `Itrap Off` --- `dclr.b TrapErrors`, and it leaves ErrorTrapped alone */
+    'itrap off': () => {
+      s().trapErrors = false
+    },
+
+    /**
+     * `I Flush` --- `jtcall FlushRetStr`.
+     *
+     * The extension hands strings back out of a rotating cache of
+     * `rsc_sizeof` blocks; this drops them. Nothing here holds a string that
+     * way, so it is a no-op with a reason rather than a stub.
+     */
+    'i flush': () => {},
+
     'iclear all': () => {
       rt.input.keyQueue.length = 0
       s().menuPicks.length = 0
@@ -1327,6 +1449,10 @@ export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
 }
 
 export function makeIextFunctions(rt: Runtime): Record<string, Func> {
+  return wrapTrapped(iextFunctions(rt))
+}
+
+function iextFunctions(rt: Runtime): Record<string, Func> {
   const s = (): IextState => rt.iext
 
   return {
@@ -1549,6 +1675,52 @@ export function makeIextFunctions(rt: Runtime): Record<string, Func> {
      * the buffer pointer and does not touch either, so they outlive a clear.
      */
     iscan: (): Value => VI(s().lastCode),
+    /** `=Ierr` --- `LastError`, set by every error trapped or raised */
+    ierr: (): Value => VI(s().lastError),
+
+    /**
+     * `=Ierr$` --- the message, and reading it TURNS TRAPPING OFF.
+     *
+     * `dclr.b TrapErrors` sits between the empty test and the return, so
+     * asking what went wrong stops the next thing going wrong from being
+     * caught. Church's own idiom pairs it with `Itrap On` again.
+     *
+     * DEFECT: the `bmi L_NoErrStr` after it is DEAD. `dclr` is `clr.b`
+     * (`macros.i`:32), which leaves N clear, so the branch can never be
+     * taken and error 22, "Error text not available", is unreachable from
+     * here. The binary shipped it: `clr.b $1d(a4)` and then `Rbmi routine
+     * 161`, two instructions apart.
+     */
+    'ierr$': (): Value => {
+      const st = s()
+      if (st.lastErrorStr === '') return VS('')
+      st.trapErrors = false
+      return VS(st.lastErrorStr)
+    },
+
+    /**
+     * `=Ierrtrap` --- did something get trapped, and forget it.
+     *
+     * `dmove.b ErrorTrapped,d3` and then `dclr.b ErrorTrapped`, so it is a
+     * read-and-clear: asking twice answers -1 and then 0.
+     */
+    ierrtrap: (): Value => {
+      const st = s()
+      const was = st.errorTrapped
+      st.errorTrapped = false
+      return VI(was ? -1 : 0)
+    },
+
+    /**
+     * `=Reqtools Here` --- is `reqtools.library` open?
+     *
+     * `dtst.l ReqToolsBase / sne d3`. DEVIATION: this port has no reqtools,
+     * so it answers 0 --- which is the answer a machine without the library
+     * gives, and the answer the guide tells a program to expect and branch
+     * on. `request.s` is where that matters.
+     */
+    'reqtools here': (): Value => VI(0),
+
     ishift: (): Value => VI(s().lastQual),
 
     /** `=Imouse Key` --- pumps GetMouse, then `MouseState` */

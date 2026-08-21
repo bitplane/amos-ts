@@ -3867,6 +3867,20 @@ export const FAITHFUL = new Set<string>([
   'imouse key', 'imouse x', 'imouse y', 'iget$',
   'iwait event', 'iwait event vbl', 'ievent data',
   'ievent vbl', 'ievent mouse', 'ievent gadget', 'ievent menu', 'ievent close', 'ievent key',
+  // `other.s`: the waits, and the error machinery everything else raises
+  // into. `errors.s`'s `.trap` arm does not raise -- it sets `ErrorTrapped`,
+  // puts the stack back to `A7StackEnd-4` ("Quit from offending routine") and
+  // returns as though the keyword had finished, so the program carries on and
+  // asks afterwards. `L_CustomError` records the number and the message
+  // BEFORE it tests the trap, which is why both readers answer for a trapped
+  // error. `Ierror n` is `bra L_CustomError`, the same path.
+  //
+  // `=Ierrtrap` is a read AND a clear. `L_IwaitVbl` is `move.l #1,-(a3) /
+  // bra L_Iwait`, one routine with a count of one, and `.lp` pumps DoEvent
+  // before each WaitTOF -- which is where a close gadget gets noticed during
+  // a wait.
+  'iwait', 'iwait vbl', 'ierr', 'ierr\$', 'ierror', 'itrap on', 'itrap off',
+  'ierrtrap', 'reqtools here', 'i flush',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4210,6 +4224,21 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "ierr\$":
+    "`L_IerrStr` hands back `LastErrorStr` and TURNS TRAPPING OFF on the way: `dclr.b TrapErrors` sits between " +
+    "the empty test and the return, so asking what went wrong stops the next thing going wrong being caught. " +
+    "DEFECT: the `bmi L_NoErrStr` after it is DEAD. `dclr` is `clr.b` (`macros.i`:32), which leaves N clear, so " +
+    "the branch can never be taken and error 22, \"Error text not available\", is unreachable from here. The " +
+    "binary shipped it -- `clr.b $1d(a4)` and then `Rbmi routine 161`, two instructions apart.",
+  "reqtools here":
+    "`dtst.l ReqToolsBase / sne d3`. DEVIATION: this port has no reqtools.library, so it answers 0 -- which is " +
+    "not a hole but the answer a machine without the library gives, and the one Andrew Church's guide tells a " +
+    "program to branch on. `request.s`'s keywords are the ones that then have nothing to open.",
+  "i flush":
+    "`jtcall FlushRetStr`. The extension hands strings back out of a rotating cache of `rsc_sizeof` blocks and " +
+    "this drops them, so a program that has taken a lot of strings can get the memory back. Nothing here holds " +
+    "a string that way -- a returned string is a JavaScript one -- so it is a no-op with a reason rather than a " +
+    "stub, and unlike `Ipalette` and `Iclear Mouse` the ORIGINAL does something.",
   "iclear mouse":
     "`L_IbufResetMouse` is ONE instruction, `rts`, and Andrew Church labelled it himself: \"Iclear Mouse - now " +
     "a no-op\". Its three neighbours reset a buffer pointer each and this one has no buffer left to reset. " +

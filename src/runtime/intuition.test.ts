@@ -729,3 +729,121 @@ describe('Intuition 1.3b: input', () => {
     expect(Number(b.out().trim())).toBe(1)
   })
 })
+
+/**
+ * `other.s` --- waits, and the error machinery everything else raises into.
+ */
+describe('Intuition 1.3b: errors and waits', () => {
+  const W = 'Iscreen Open 0,320,256,16,0\nIwindow Open 1,0,0,320,200,"W"'
+
+  /** without trapping an error stops the program, as any AMOS error does */
+  it('an error is fatal until Itrap On', () => {
+    expect(() => run(`${W}\nIwindow Close 7`)).toThrow(IEXT_ERRORS[E.WNO])
+  })
+
+  /**
+   * `errors.s`'s `.trap` arm does not raise: it sets `ErrorTrapped`, puts the
+   * stack back to `A7StackEnd-4` -- Church's comment is "Quit from offending
+   * routine" -- and returns as though the keyword had finished. So the
+   * program carries on and asks afterwards.
+   *
+   * `L_CustomError` records the number and the message BEFORE it tests the
+   * trap, which is why `=Ierr` and `=Ierr$` answer for a trapped error.
+   */
+  it('Itrap On abandons the keyword and lets the program ask afterwards', () => {
+    const out = boot(`${W}
+Itrap On
+Iwindow Close 7
+Print Ierrtrap;" ";Ierr;" [";Ierr$;"]"`)
+    mustFinish(out.rt.runHeadless(2_000))
+    expect(out.out().trim().replace(/\s+/g, ' ')).toBe(`-1 ${E.WNO} [${IEXT_ERRORS[E.WNO]}]`)
+  })
+
+  /**
+   * `dmove.b ErrorTrapped,d3` then `dclr.b ErrorTrapped` --- a read and a
+   * clear, so asking twice answers -1 and then 0.
+   */
+  it('Ierrtrap forgets what it reports', () => {
+    expect(vals(`${W}\nItrap On\nIwindow Close 7\nPrint Ierrtrap;" ";Ierrtrap`)).toEqual([-1, 0])
+  })
+
+  /**
+   * `tmove.b #-1,TrapErrors` and then `dclr.b ErrorTrapped`: turning trapping
+   * on forgets anything trapped before it.
+   */
+  it('Itrap On forgets an error trapped before it', () => {
+    expect(vals(`${W}\nItrap On\nIwindow Close 7\nItrap On\nPrint Ierrtrap`)).toEqual([0])
+  })
+
+  /**
+   * `Ierror n` is `move.l (a3)+,d0 / bra L_CustomError`, so it goes through
+   * exactly the path an internal error does -- trappable, and it fills in
+   * both readers.
+   */
+  it('Ierror raises one of the extension own errors by number', () => {
+    const b = boot(`${W}\nItrap On\nIerror ${E.OOM}\nPrint Ierr;" [";Ierr$;"]"`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe(`${E.OOM} [${IEXT_ERRORS[E.OOM]}]`)
+    expect(() => run(`${W}\nIerror ${E.OOM}`)).toThrow(IEXT_ERRORS[E.OOM])
+  })
+
+  /**
+   * `dclr.b TrapErrors` sits inside `=Ierr$`, between the empty test and the
+   * return: asking what went wrong STOPS the next thing going wrong being
+   * caught.
+   */
+  it('reading Ierr$ turns trapping off', () => {
+    const rt = run(`${W}\nItrap On\nIerror ${E.OOM}\nA$=Ierr$`)
+    expect(rt.iext.trapErrors).toBe(false)
+    // so the next error is fatal again
+    expect(() => run(`${W}\nItrap On\nIerror ${E.OOM}\nA$=Ierr$\nIwindow Close 7`)).toThrow(IEXT_ERRORS[E.WNO])
+  })
+
+  /**
+   * `Itrap Off` is `dclr.b TrapErrors` and nothing else --- it leaves
+   * `ErrorTrapped` standing, so a program can turn trapping off and still ask
+   * what was caught while it was on.
+   */
+  it('Itrap Off stops trapping and leaves what was already trapped', () => {
+    expect(vals(`${W}\nItrap On\nIwindow Close 7\nItrap Off\nPrint Ierrtrap`)).toEqual([-1])
+    expect(() => run(`${W}\nItrap On\nItrap Off\nIwindow Close 7`)).toThrow(IEXT_ERRORS[E.WNO])
+  })
+
+  /** nothing has gone wrong yet, so there is no message to hand back */
+  it('Ierr$ is empty before anything has failed', () => {
+    const b = boot(`${W}\nPrint "["+Ierr$+"]"`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  /**
+   * `L_IwaitVbl` is `move.l #1,-(a3) / bra L_Iwait`, so it is the same
+   * routine with a count of one -- and `.lp` pumps `DoEvent` before each
+   * `WaitTOF`, which is where a close gadget gets noticed during a wait.
+   */
+  it('Iwait and Iwait Vbl are one routine, and they pump the port', () => {
+    expect(() => run(`${W}\nIwait Vbl\nIwait 2`)).not.toThrow()
+    const b = boot(`${W}\nIwait 3\nPrint Iwindow Status`)
+    b.rt.runHeadless(1)
+    b.rt.iext.screens.get(0)!.windows.get(1)!.window.post(0x200, 0)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(2)
+  })
+
+  /**
+   * DEVIATION: `dtst.l ReqToolsBase / sne d3`, and this port has no reqtools
+   * -- so 0, which is the answer a machine without the library gives and the
+   * one the guide tells a program to branch on.
+   */
+  it('Reqtools Here is 0, which is a real answer', () => {
+    expect(vals('Print Reqtools Here')).toEqual([0])
+  })
+
+  /**
+   * `I Flush` drops the rotating cache of `rsc_sizeof` blocks the extension
+   * hands strings back out of. Nothing here holds a string that way.
+   */
+  it('I Flush is a no-op with a reason', () => {
+    expect(() => run(`${W}\nI Flush`)).not.toThrow()
+  })
+})
