@@ -45,12 +45,12 @@ describe('version sweep', () => {
    * what a rebuilt table looks like too. The sweep cannot tell those apart
    * and does not try; it says "read the binary" and names the file to read.
    *
-   * Four have left the list the same way, and it is the same way each time:
+   * FIVE have left the list the same way, and it is the same way each time:
    * the sweep only looks at extensions NO port claims. Explode went on
    * 2026-08-12 (its names reaching CText were the collision this list used to
-   * illustrate), DME 2.0 followed when its ProTracker block landed, and
-   * gui-1.5b and gui-1.61 went when gui.ts named all three GUI releases in one
-   * `ids`. Those two were the only entries this list has ever held that were a
+   * illustrate), DME 2.0 followed when its ProTracker block landed, gui-1.5b
+   * and gui-1.61 went when gui.ts named all three GUI releases in one `ids`,
+   * and intuition-1.3b went on 2026-08-21 when ./intuition.ts began. Those two were the only entries this list has ever held that were a
    * real lineage rather than a collision: Pietro Ghizzoni rebuilt the token
    * table for each release, so 44 of 1.5b's names and 85 of 1.61's reappear in
    * 2.10 with exactly ONE id surviving in each, which by the sweep's own
@@ -58,7 +58,7 @@ describe('version sweep', () => {
    */
   it('the renumbered candidates are name collisions, not releases', () => {
     const renumbered = sweep().filter((c) => c.moved > 0)
-    expect(renumbered.map((c) => c.id).sort()).toEqual(['intuiextend-1.6', 'intuiextend-2.01b', 'intuition-1.3b'])
+    expect(renumbered.map((c) => c.id).sort()).toEqual(['intuiextend-1.6', 'intuiextend-2.01b'])
     // a handful of names each and no id in common: a collision, not a lineage
     for (const c of renumbered) {
       expect(c.agree, c.id).toBe(0)

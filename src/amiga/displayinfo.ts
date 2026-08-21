@@ -56,7 +56,14 @@ export const MONITOR = {
 export const MODE_KEY = {
   LORES: 0x0000,
   HIRES: 0x8000,
+  /** SUPER_KEY, which is HIRES with the super bit on top of it */
   SUPER: 0x8020,
+  /**
+   * The super bit ALONE. `MUI.Equates` has no name for it, only the composed
+   * SUPER_KEY; the Intuition Extension's `defs.i`:167 does --- `SUPERHIRES
+   * equ $0020` --- and that is the value its `=Superhires` answers.
+   */
+  SUPERHIRES: 0x0020,
   LACE: 0x0004,
   HAM: 0x0800,
   EXTRAHALFBRITE: 0x0080,

@@ -3778,6 +3778,25 @@ export const FAITHFUL = new Set<string>([
   // whose six ids and six names are read out of `Devs/Monitors/PAL`'s own
   // table at file offset `0x12d8`.
   'gui asl screen', 'gui asl id', 'gui asl width', 'gui asl height', 'gui asl depth', 'gui asl colours',
+  // Intuition 1.3b's display constants and its screens, off Andrew Church's
+  // own source. `defs.i`:165-167 gives HAM $0800, EHB $0080 and SUPERHIRES
+  // $0020 -- the bare super bit, which the system header only ever composes
+  // with the hires one as SUPER_KEY. `screens.s` chains the four `Iscreen
+  // Open` variants through each other, so the five-argument form pushes an
+  // empty title and the six-argument one picks the machine's own monitor id
+  // (`dtst.b IsNTSC` then PAL_MONITOR_ID or NTSC_MONITOR_ID) before falling
+  // into the seven-argument one.
+  //
+  // `=Iscreen Width` reads `se_Width` off the extension's own block rather
+  // than `sc_Width`, which is right there and unread -- so it answers what the
+  // OPEN was given. `=Iscreen Colour` counts HAM rather than computing it:
+  // `cmp.b #8,sc_Depth / bne .ham6` picks between the literals 262144 and
+  // 4096, so HAM8 answers the colours it can show and not the 2^24 its
+  // registers hold. `=Iscreen Mode` masks with MODES, five bits and no more.
+  'ham', 'ehb', 'superhires', 'x hard min', 'y hard min',
+  'iscreen open', 'iscreen open public', 'iscreen open back', 'iscreen open front',
+  'iscreen close', 'iscreen', 'set iscreen', 'iscreen to front', 'iscreen to back',
+  'iscreen base', 'iscreen width', 'iscreen height', 'iscreen colour', 'iscreen mode',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4121,6 +4140,22 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "aga":
+    "`screens.s`'s `L_AGA` is `move.b $20(a4),d3 / ext.w d3 / ext.l d3` -- `IsAGA` of `data.i`, and `=Ecs` is " +
+    "the byte after it at `$21`. NEITHER IS COMPUTED IN THE SHIPPED ASSEMBLER: both are set by the compiled " +
+    "blob `extcode.s` pulls in with `incbin \"obj/extcode\"`, so the only readable account of what they test " +
+    "is Andrew Church's own comment on the keyword -- \"test for AGA chipset. Currently checks " +
+    "SysBase->lib_Version >= 39. There must be a better way!\" -- and, on `=Ecs`, \"Only works on systems " +
+    "with KS2.0 or higher; returns False on all others.\" APPROXIMATED for that reason, and the answer is not " +
+    "decided here either: ../runtime/jd.ts settles this machine as an A1200 with `Jd Chipset` answering 2 for " +
+    "AA, and ../runtime/guistate.ts declares Kickstart 40, which is over Church's 39. So both are true.",
+  "iscreen open public":
+    "`L_IscrOpenPublic` is `L_IscreenOpen` with `tmove.b #-1,NextPublic` in front of it, and the flag is spent " +
+    "by the one open that follows. DEVIATION: nothing here distinguishes a public screen from a private one. A " +
+    "public screen is one another PROGRAM can open a window on, and there is no second program in this port -- " +
+    "so the flag is recorded, cleared where the machine clears it, and changes nothing a program can see. The " +
+    "`dtst.b WB20 / beq L_NeedKick20` guard in front of it is reproduced and never taken, this machine being " +
+    "Kickstart 40.",
   "gui asl screen":
     "Routine 55 ($2418) builds a two-tag list at `(a2)` -- ASL_Window and TAG_DONE -- calls AslRequest (-$3c) " +
     "and reads sm_DisplayID out of `$0` of the ScreenModeRequester at `$150`. `moveq #$ff,d0` stands until both " +

@@ -10,6 +10,7 @@ import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import type { GuiState } from './guistate'
 import type { IntState } from './int'
+import type { IextState } from './intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
 import { Intuition } from '../amiga/intuition'
@@ -1354,6 +1355,12 @@ export class Runtime {
   explode!: ExplodeState
   /** GUI 2.10's bank, its open windows and its event queue */
   gui!: GuiState
+  /**
+   * Andrew Church's Intuition Extension 1.3b, slot 14: its own numbered
+   * screens and windows, and the flags `Iscreen Open Back` and `Set Iscreen`
+   * leave behind.
+   */
+  iext!: IextState
   /** Int 1.0's, built by its ExtensionImpl at boot; see ./int.ts */
   int!: IntState
   /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */

@@ -795,6 +795,14 @@ export class Intuition {
     this.dirty = true
   }
 
+  /** `ScreenToBack(screen)` — intuition.library -258 */
+  screenToBack(addr: number): void {
+    const slot = this.slotOf(addr)
+    if (slot === null) return
+    this.host.screenToBack(slot)
+    this.dirty = true
+  }
+
   /** intuition.library -72 */
   closeWindow(w: Window): boolean {
     const i = this.open.indexOf(w)

@@ -95,6 +95,7 @@ import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
 import { GUI_ERRORS, guiRelease, makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
 import { INT_ERRORS, makeIntFunctions, makeIntInstructions, newIntState } from './int'
+import { IEXT_ERRORS, makeIextFunctions, makeIextInstructions, newIextState } from './intuition'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -6752,6 +6753,23 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeGuiInstructions,
     functions: makeGuiFunctions,
     errors: GUI_ERRORS,
+  },
+  {
+    /**
+     * Andrew Church's Intuition Extension 1.3b, slot 14.
+     *
+     * The one row in the registry whose evidence is the author's own source
+     * rather than a binary --- 26 assembler files, his comments and his
+     * symbols. See ./intuition.ts's header for what is readable in it and
+     * what is compiled C.
+     */
+    ids: ['intuition-1.3b'],
+    init: (rt) => {
+      rt.iext = newIextState()
+    },
+    instructions: makeIextInstructions,
+    functions: makeIextFunctions,
+    errors: IEXT_ERRORS,
   },
   {
     /*
