@@ -1094,12 +1094,15 @@ Print Ierrtrap;" ";Ierr;" [";Ierr$;"]"`)
   })
 
   /**
-   * DEVIATION: `dtst.l ReqToolsBase / sne d3`, and this port has no reqtools
-   * -- so 0, which is the answer a machine without the library gives and the
-   * one the guide tells a program to branch on.
+   * Routine 282: `tst.l $5a(a4) / sne.b d3 / ext.w d3 / ext.l d3`, so a
+   * non-zero ReqToolsBase is -1 and nothing else is. ../amiga/reqtools.ts is
+   * the library and ../amiga/exec.ts lists it, so the OpenLibrary in
+   * `startup.s` succeeds. The same longword decides `rtcall`'s `dtst.l
+   * ReqToolsBase / beq L_NoReqTools`, which is why this answer and error 29
+   * can never disagree.
    */
-  it('Reqtools Here is 0, which is a real answer', () => {
-    expect(vals('Print Reqtools Here')).toEqual([0])
+  it('Reqtools Here is -1, because the library is here', () => {
+    expect(vals('Print Reqtools Here')).toEqual([-1])
   })
 
   /**

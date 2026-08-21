@@ -1,12 +1,15 @@
 /**
  * Modal requesters, built out of the Interface dialog language.
  *
- * `reqtools.library` is not here, and neither is Intuition's `EasyRequest`.
- * What IS here is AMOS Professional's own dialog engine (`dialog.ts`, the
- * Dia_* interpreter) and the shipped scripts that use it, so a requester is
- * written the way AMOS writes one: a script in the Interface language, run
- * on a temporary channel exactly as `Dialog Box` (Dia_RunQuick, +Lib.s:14655)
- * runs one.
+ * The callers here do not go to reqtools. ../amiga/reqtools.ts models the
+ * library and ./rtreq.ts drives its EZRequest, which is what the Intuition
+ * Extension's `Irequest Warning` and its neighbours now open; BUtility's
+ * `Binforeq` and Delta's three have not been moved onto it yet. What they use
+ * instead is AMOS Professional's own dialog engine (`dialog.ts`, the Dia_*
+ * interpreter) and the shipped scripts that use it, so a requester is written
+ * the way AMOS writes one: a script in the Interface language, run on a
+ * temporary channel exactly as `Dialog Box` (Dia_RunQuick, +Lib.s:14655) runs
+ * one.
  *
  * The grammar here is program 4 of `AMOSPro_Default_Resource.Abk` — the
  * Path:/Name: dialog, `PR 16,26,23ME,1` and `PR 16,36,24ME,1` being messages

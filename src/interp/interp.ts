@@ -124,6 +124,13 @@ export type Block =
   | { type: 'fsel' }
   /** asl.library's requester, which blocks the statement the way Fsel$ does */
   | { type: 'asl' }
+  /**
+   * reqtools.library's requester, the same way. Its own type rather than
+   * `asl`'s: a program can have an ASL file requester up and a reqtools
+   * EZRequest waiting behind it, because two extensions can be loaded at
+   * once and neither knows about the other.
+   */
+  | { type: 'rtreq' }
   | { type: 'readtext' }
   /**
    * EasyLife's `Eliconify Amos`, which is a LOOP in the extension: Begin,

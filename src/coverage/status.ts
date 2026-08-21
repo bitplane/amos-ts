@@ -3881,6 +3881,7 @@ export const FAITHFUL = new Set<string>([
   // a wait.
   'iwait', 'iwait vbl', 'ierr', 'ierr\$', 'ierror', 'itrap on', 'itrap off',
   'ierrtrap', 'reqtools here', 'i flush',
+  'irequest warning', 'irequest error', 'irequest message', 'irequest def title',
   // `fonts.s`: five readers over `rp_Font` and one setter. `Set Ifont`
   // appends `.font` unless the name already ends in it, and the test is five
   // `cmp.b` in a row, so `"topaz.Font"` is not recognised and becomes
@@ -3891,6 +3892,13 @@ export const FAITHFUL = new Set<string>([
   // believing the string is in it, and StrAlloc left the address of
   // `FirstString` there. Reproduced as the error 15 it always ends in.
   'itext base', 'itext length', 'set ifont', 'ifont\$', 'ifont base', 'ifont height',
+  // `request.s` over ../amiga/reqtools.ts: three of the thirteen, the ones
+  // that go through `EZRequest` at internal jump-table offset `$d8`. The
+  // helper renumbers reqtools' answer so the gadgets read 1 to N from the
+  // left, folds `|` in the BODY into newlines, and falls back to
+  // `DefReqTitle`. Two defects it carries with it: the RTEZ_Flags word is
+  // ORed into a static tag list nothing clears, and an empty body reaches the
+  // library as a pointer to the AMOS base register.
   // `menus.s`: Intuition's own Menu and MenuItem built by hand, with
   // `defs.i`'s three extra words on the end of each so a program's own
   // numbering survives Intuition's positional one. Geometry is fixed at
@@ -4252,14 +4260,38 @@ export const NOTES: Record<string, string> = {
     "the branch can never be taken and error 22, \"Error text not available\", is unreachable from here. The " +
     "binary shipped it -- `clr.b $1d(a4)` and then `Rbmi routine 161`, two instructions apart.",
   "reqtools here":
-    "`dtst.l ReqToolsBase / sne d3`. DEVIATION: this port has no reqtools.library, so it answers 0 -- which is " +
-    "not a hole but the answer a machine without the library gives, and the one Andrew Church's guide tells a " +
-    "program to branch on. `request.s`'s keywords are the ones that then have nothing to open.",
+    "Routine 282 ($7b6e): `tst.l $5a(a4) / sne.b d3 / ext.w d3 / ext.l d3`, so a non-zero ReqToolsBase answers " +
+    "-1 and nothing else does. src/amiga/reqtools.ts is the library, read out of `reqtools 38.1092 (21.9.93)` " +
+    "in the corpus, so the OpenLibrary in startup.s succeeds and this is -1. The same longword decides every " +
+    "requester: `rtcall` opens `dtst.l ReqToolsBase / beq L_NoReqTools`, error 29.",
   "i flush":
-    "`jtcall FlushRetStr`. The extension hands strings back out of a rotating cache of `rsc_sizeof` blocks and " +
-    "this drops them, so a program that has taken a lot of strings can get the memory back. Nothing here holds " +
-    "a string that way -- a returned string is a JavaScript one -- so it is a no-op with a reason rather than a " +
-    "stub, and unlike `Ipalette` and `Iclear Mouse` the ORIGINAL does something.",
+    "`jtcall FlushRetStr`. Nothing here holds a returned string that way -- a returned string is a JavaScript " +
+    "one -- so it is a no-op with a reason. DEVIATION besides: the original is worse than a no-op. `rsc_sizeof` " +
+    "is ZERO, over Church's own \"Currently empty, but kept in case we find a use for it\", and GetRetStr " +
+    "stores each new block in the CURRENT head's link instead of in `RSList`, so the second string closes a " +
+    "two-element cycle and the flush walks into freed memory.",
+  "irequest warning":
+    "Routine 223 ($5cfc) and its two shorter forms, 224 and 225. Joins ok$ and cancel$ with a bar and checks " +
+    "BOTH -- `move.w (a2)+,d3 / beq L_IllFunc` on the cancel and the same on the ok -- then calls the " +
+    "`EZRequest` helper at internal jump-table offset $d8 with EZREQF_LAMIGAQUAL. The one-argument form " +
+    "supplies its own `dc.b 0,2,\"Ok\"` at $5dbc and `dc.b 0,6,\"Cancel\"` at $5dc0, which are the " +
+    "extension's words and not reqtools' `_Ok`/`_Cancel`, so neither carries a shortcut. The answer is " +
+    "`subq.w #$2,d0 / move.w d0,d3 / ext.l d3` over the helper's 1 and 2, so Ok is -1 and Cancel is 0, which " +
+    "is AMOS's boolean and lets `If Irequest Warning(...)` read as English.",
+  "irequest error":
+    "Routine 226 ($5dc8) and its two shorter forms. One gadget, no answer: the helper's return is dropped, " +
+    "which is what makes this an instruction where Irequest Message is a function. The one-argument form " +
+    "pushes its own `dc.b 0,6,\"Cancel\"` at $5e50. EZREQF_LAMIGAQUAL as Irequest Warning does.",
+  "irequest message":
+    "Routine 229 ($5e58) and its two-argument form 230 ($5ec6). No extra flags, and the answer comes back as the " +
+    "helper left it: 1 for the leftmost gadget climbing to N for the rightmost. gadget$ is a whole reqtools " +
+    "format and may carry bars, which is the only way this extension gives a program a three-way requester.",
+  "irequest def title":
+    "Routine 231 ($5ed4). DEFECT: an empty string is meant to put \"AMOS Request\" back and does not. " +
+    "`$5f16 lea.l $42(a4),a2` takes the ADDRESS of the data cell where startup.s:381 stored the pointer, not " +
+    "the pointer, so the title becomes those four bytes read as characters -- an empty string on any machine " +
+    "whose extension loaded below 16MB. `CloseAll` at startup.s:487 has the same instruction, so a Default " +
+    "leaves the blank title too. Reproduced.",
   "iclear mouse":
     "`L_IbufResetMouse` is ONE instruction, `rts`, and Andrew Church labelled it himself: \"Iclear Mouse - now " +
     "a no-op\". Its three neighbours reset a buffer pointer each and this one has no buffer left to reset. " +

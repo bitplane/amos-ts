@@ -74,6 +74,7 @@ import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlid
 import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { finishAsl, finishAslFont, finishAslMode, startAsl, startAslFont, startAslMode, stepAsl, stepAslFont, stepAslMode } from './aslreq'
+import { finishRtReq, startRtReq, stepRtReq, type RtReqArgs, type RtReqState } from './rtreq'
 import type { AslFontState, AslModeState, AslState } from './aslreq'
 import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
@@ -2403,6 +2404,30 @@ export class Runtime {
 
   /** asl.library's SCREEN-MODE requester, while one is up. */
   aslMode: AslModeState | null = null
+
+  /**
+   * reqtools.library's EZRequest, GetString or GetLong, while one is up.
+   *
+   * One at a time for the same reason `asl` is: the library call does not
+   * return, so nothing can start a second one from inside the first.
+   */
+  rtReq: RtReqState | null = null
+
+  /** Open a reqtools requester. False when there is no screen for it. */
+  startRtRequest(args: RtReqArgs, slot: number | null): boolean {
+    if (this.rtReq) return false
+    const st = startRtReq(this, args, slot)
+    if (!st) return false
+    this.rtReq = st
+    return true
+  }
+
+  private stepRtRequest(): void {
+    const st = this.rtReq
+    if (!st || st.done) return
+    stepRtReq(this, st)
+    if (st.done) finishRtReq(this, st)
+  }
 
   /** Open the screen-mode requester. False when there is no screen for it. */
   startAslModeRequest(setup: AslModeSetup, slot: number | null): boolean {
@@ -4874,6 +4899,7 @@ export class Runtime {
     this.stepFsel()
     this.stepAslRequest()
     this.stepAslFontRequest()
+    this.stepRtRequest()
     this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
@@ -5146,6 +5172,8 @@ export class Runtime {
     } else if (b.type === 'asl') {
       const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
+    } else if (b.type === 'rtreq') {
+      if (!this.rtReq || this.rtReq.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
     } else if (b.type === 'ievent') {
@@ -5277,6 +5305,16 @@ export class Runtime {
           this.aslMode.result = -1
           this.aslMode.done = true
           finishAslMode(this, this.aslMode)
+        } else this.interp.blocked = null
+      } else if (b?.type === 'rtreq') {
+        // the same reasoning as `asl`: nobody clicks a modal requester
+        // headless. Cancelling is what the rightmost gadget answers, and the
+        // rightmost gadget answers 0
+        if (this.rtReq && !this.rtReq.done) {
+          this.rtReq.result = 0
+          this.rtReq.text = ''
+          this.rtReq.done = true
+          finishRtReq(this, this.rtReq)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')

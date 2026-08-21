@@ -74,7 +74,7 @@ export interface AslState {
  * screen the requester comes out in whatever colours that screen's palette
  * puts at 0 to 3, and that is true of a real one too.
  */
-function screenPens(depth: number): DrawInfo {
+export function screenPens(depth: number): DrawInfo {
   const pens: number[] = []
   pens[PEN.DETAIL] = 2
   pens[PEN.BLOCK] = 0

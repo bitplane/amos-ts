@@ -55,6 +55,7 @@ import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
 import { RastPort } from '../amiga/graphics'
 import { MENUNULL, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import { EZREQF, REQ_MODE, RT_MAXINT, RT_MININT, type ReqSetup } from '../amiga/reqtools'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
@@ -363,8 +364,8 @@ export class IextState {
    *
    * Two lists because the extension has two: `FindIwin` walks
    * `se_FirstIwindow` of the CURRENT screen and `FindWBIwin` walks a separate
-   * one, which is why the guide can say "different screens may have same-
-   * numbered windows".
+   * one, which is why the guide can say "different screens may have
+   * same-numbered windows".
    */
   readonly wbWindows = new Map<number, IextWindow>()
   /** `LastActiveWB`, saved whenever a Workbench window stops being current */
@@ -396,6 +397,32 @@ export class IextState {
   lastMenu = -1
   lastMenuItem = -1
   lastMenuSub = -1
+  /**
+   * `DefReqTitle` (`data.i`:91), the title every requester takes when the
+   * caller passes none.
+   *
+   * `i_DefReqTitleStr` is "AMOS Request" and `startup.s`:381 installs it with
+   * `dmove.l DefReqTitleStr,a0`, which loads the POINTER out of the data
+   * cell. Two other places get it wrong. `CloseAll`, the reset routine, is
+   * `dlea DefReqTitleStr,a0` at `startup.s`:487, and `Irequest Def Title`
+   * with an empty string is the same instruction: `$5f16 lea.l $42(a4),a2`.
+   * That is the ADDRESS of the four-byte cell, so the title becomes the
+   * pointer read as characters, and the pointer's top byte is zero on any
+   * machine with under 16MB. DEFECT: reset and `Irequest Def Title ""` both
+   * leave a BLANK title bar where the author meant "AMOS Request".
+   */
+  defReqTitle = 'AMOS Request'
+  /**
+   * `RTEZ_Flags` in `EZRequest`'s static tag list, which is never cleared.
+   *
+   * `$87f2 lea.l $88c0(pc),a0 / $87f6 or.l d0,(a0)`, and `$88c0` is the
+   * flags field of the table at `$88b4`. It starts at EZREQF_CENTERTEXT and
+   * every caller ORs into it. DEFECT: `Irequest Warning` and `Irequest Error`
+   * pass EZREQF_LAMIGAQUAL, so after either of them has run once, every
+   * `Irequest Message` for the rest of the session needs the Amiga key held
+   * for its Y and N shortcuts, which nothing put it there to ask for.
+   */
+  ezFlags: number = EZREQF.CENTERTEXT
   /**
    * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
    *
@@ -1014,6 +1041,80 @@ function takeChoice(st: IextState, w: IextWindow, which: 1 | 2 | 3): number {
   st[key] = -1
   // `tst.w d3 / bpl .exit2 / moveq #0,d3` --- -1 leaves as 0
   return v < 0 ? 0 : v
+}
+
+/* --------------------------------------------------------------------------
+ * The requesters, `request.s` over reqtools.library
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `RT_Window`, or no window tag at all.
+ *
+ * Every requester in `request.s` builds the same three-way choice before it
+ * calls: `dmove.l CurIwindow,d0 / bne .setwin`, then `dmove.l CurIscreen,d0 /
+ * bne .setscr`, and failing both `addq.l #8,a0` walks PAST the RT_Window pair
+ * so the tag list starts at RTFI_Flags. A requester with no window tag opens
+ * on the default public screen, which is the Workbench.
+ */
+function reqSlot(st: IextState): number | null {
+  if (st.currentWindow !== -1) {
+    const w = st.currentIsWB
+      ? st.wbWindows.get(st.currentWindow)
+      : st.screens.get(st.current)?.windows.get(st.currentWindow)
+    if (w) return w.screen === null ? WB_SLOT : (st.screens.get(w.screen)?.slot ?? WB_SLOT)
+  }
+  const scr = st.screens.get(st.current)
+  return scr ? scr.slot : null
+}
+
+/**
+ * `EZRequest` (`src2/intmisc.s`:94), the jump-table entry at `$d8` that all
+ * three message keywords go through.
+ *
+ * It does four things `rtEZRequestA` does not. An empty gadget string is
+ * error 13 before anything opens (`tst.b (a2) / beq IllFunc`). Every `|` in
+ * the BODY becomes a newline, which is how an AMOS string carries more than
+ * one line. A missing or empty title falls back to `DefReqTitle`. And the
+ * answer is renumbered: reqtools gives the rightmost gadget 0, and the helper
+ * turns that back into the gadget COUNT by walking the format for bars, so
+ * what a program sees is 1 for the leftmost climbing to N for the rightmost.
+ *
+ * DEFECT: an empty BODY reaches `rtEZRequestA` as a pointer to whatever a5
+ * held. `$8800 bmi.b $881e` skips the StrAlloc that sets a5, and `$8856
+ * movea.l a5,a1` runs one instruction BEFORE `$8858 movea.l $911c(pc),a5`
+ * re-establishes it, so the body text is read from the AMOS base register.
+ * This port draws an empty body, which is what that address spells on a
+ * machine where the first byte under a5 is zero.
+ */
+function startEz(rt: Runtime, st: IextState, title: string, body: string, gadgets: string, extra: number): void {
+  if (gadgets === '') iError(E.IFC)
+  st.ezFlags |= extra
+  const setup: ReqSetup = {
+    mode: REQ_MODE.EZREQUEST,
+    body: body.split('|').join('\n'),
+    gadgets,
+    title: title === '' ? st.defReqTitle : title,
+    flags: st.ezFlags,
+    width: 0,
+    // no RT_Underscore in the tag list, so reqtools leaves `underscore` at 0
+    // and an underscore in a label is drawn rather than eaten
+    underscore: '',
+    defaultResponse: 1,
+    min: RT_MININT,
+    max: RT_MAXINT,
+    minmax: false,
+  }
+  const args = { setup, buffer: '', maxLen: 0, value: 0, showDefault: true, allowEmpty: false, invisible: false }
+  if (!rt.startRtRequest(args, reqSlot(st))) iError(E.NRT)
+}
+
+/** the helper's renumbering: 1 for the leftmost, the gadget COUNT for the rightmost */
+function ezAnswer(rt: Runtime): number {
+  const r = rt.rtReq
+  if (!r) return 0
+  const n = r.result === 0 ? r.layout.buttons.length : r.result
+  rt.rtReq = null
+  return n
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
@@ -1958,6 +2059,56 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       s().menuPicks.length = 0
     },
     /**
+     * `Irequest Error [title$,] s$ [,cancel$]` --- one gadget, no answer.
+     *
+     * Routine 226 and its two shorter forms. The one-argument version pushes
+     * its own `dc.b 0,6,"Cancel"` at `$5e50`, which is the extension's word
+     * and not reqtools' `_Cancel`: no underscore, so no shortcut on the C.
+     * The gadget string is checked first and an empty one is error 13.
+     *
+     * The result is thrown away, which is what makes this an instruction
+     * where `Irequest Message` is a function. With one gadget there is
+     * nothing to learn from the answer anyway.
+     */
+    'irequest error': (it) => {
+      const st = s()
+      // the arguments are parsed FIRST, even on a resume: `it.block(..., true)`
+      // re-runs the statement, and a handler that returned early would leave
+      // its own tokens unread
+      const a: string[] = []
+      while (!it.atStmtEnd()) {
+        a.push(str(it.evalExpr()))
+        if (!it.accept(',')) break
+      }
+      if (rt.rtReq) {
+        if (rt.rtReq.done) {
+          rt.rtReq = null
+          return
+        }
+        it.block({ type: 'rtreq' }, true)
+        return
+      }
+      const title = a.length >= 3 ? a[0]! : ''
+      const body = a.length >= 3 ? a[1]! : (a[0] ?? '')
+      const cancel = a.length >= 3 ? a[2]! : a.length === 2 ? a[1]! : 'Cancel'
+      startEz(rt, st, title, body, cancel, EZREQF.LAMIGAQUAL)
+      it.block({ type: 'rtreq' }, true)
+    },
+
+    /**
+     * `Irequest Def Title title$` --- routine 231.
+     *
+     * An empty string is meant to put "AMOS Request" back and does not:
+     * `$5f16 lea.l $42(a4),a2` takes the address of the pointer CELL rather
+     * than the pointer in it. See `IextState.defReqTitle` for the whole of
+     * it. Reproduced, so a program that clears the title gets the blank bar
+     * a real one gets.
+     */
+    'irequest def title': (it) => {
+      s().defReqTitle = str(it.evalExpr())
+    },
+
+    /**
      * `Iclear Mouse` --- nothing at all.
      *
      * `L_IbufResetMouse` is one instruction, an `rts`, and Andrew Church
@@ -2321,14 +2472,78 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * `=Irequest Warning([title$,] s$, ok$, cancel$)` --- routine 223.
+     *
+     * The two gadget strings are joined with a bar and BOTH are checked:
+     * `move.w (a2)+,d3 / beq L_IllFunc` on the cancel, then the same on the
+     * ok, so either one empty is error 13 before the requester opens. The
+     * one-argument form supplies its own "Ok" and "Cancel" from `$5dbc` and
+     * `$5dc0`.
+     *
+     * The answer is `subq.w #$2,d0 / move.w d0,d3 / ext.l d3` over the
+     * helper's 1-and-2, so Ok is -1 and Cancel is 0. That is AMOS's own
+     * boolean, which is the point: `If Irequest Warning("Delete it?")` reads
+     * as English and needs no comparison.
+     *
+     * EZREQF_LAMIGAQUAL goes in, and the guide's reason is reqtools': the
+     * flag is for "a destructive action", and it limits the shortcuts to
+     * Left-Amiga V and Left-Amiga B so a stray Y cannot answer yes. RETURN
+     * and ESC stay live either way.
+     */
+    'irequest warning': (it, a): Value => {
+      const st = s()
+      if (rt.rtReq) {
+        if (rt.rtReq.done) return VI(ezAnswer(rt) - 2)
+        it.block({ type: 'rtreq' }, true)
+        return VI(0)
+      }
+      const n = a.length
+      const title = n >= 4 ? str(a[0]!) : ''
+      const body = n >= 4 ? str(a[1]!) : str(a[0]!)
+      const ok = n >= 4 ? str(a[2]!) : n === 3 ? str(a[1]!) : 'Ok'
+      const cancel = n >= 4 ? str(a[3]!) : n === 3 ? str(a[2]!) : 'Cancel'
+      if (ok === '' || cancel === '') iError(E.IFC)
+      startEz(rt, st, title, body, `${ok}|${cancel}`, EZREQF.LAMIGAQUAL)
+      it.block({ type: 'rtreq' }, true)
+      return VI(0)
+    },
+
+    /**
+     * `=Irequest Message([title$,] text$, gadget$)` --- routine 229.
+     *
+     * The plain one: no extra flags, and the answer handed back as the helper
+     * left it, so gadgets number 1 to N from the left. `gadget$` is a whole
+     * reqtools format and may carry bars, which is the only way an AMOS
+     * program gets a three-way requester out of this extension.
+     */
+    'irequest message': (it, a): Value => {
+      const st = s()
+      if (rt.rtReq) {
+        if (rt.rtReq.done) return VI(ezAnswer(rt))
+        it.block({ type: 'rtreq' }, true)
+        return VI(0)
+      }
+      const n = a.length
+      const title = n >= 3 ? str(a[0]!) : ''
+      const body = n >= 3 ? str(a[1]!) : str(a[0]!)
+      const gadgets = n >= 3 ? str(a[2]!) : str(a[1]!)
+      startEz(rt, st, title, body, gadgets, 0)
+      it.block({ type: 'rtreq' }, true)
+      return VI(0)
+    },
+
+    /**
      * `=Reqtools Here` --- is `reqtools.library` open?
      *
-     * `dtst.l ReqToolsBase / sne d3`. DEVIATION: this port has no reqtools,
-     * so it answers 0 --- which is the answer a machine without the library
-     * gives, and the answer the guide tells a program to expect and branch
-     * on. `request.s` is where that matters.
+     * Routine 282: `tst.l $5a(a4) / sne.b d3 / ext.w d3 / ext.l d3`, so a
+     * non-zero `ReqToolsBase` answers -1 and nothing else does. ../amiga/
+     * reqtools.ts is the library and ../amiga/exec.ts lists it, so the open
+     * in `startup.s` succeeds and this is -1. Every requester in `request.s`
+     * goes through `rtcall`, whose first two instructions are `dtst.l
+     * ReqToolsBase / beq L_NoReqTools`, so this answer and error 29 are the
+     * same fact read two ways.
      */
-    'reqtools here': (): Value => VI(0),
+    'reqtools here': (): Value => VI(-1),
 
     ishift: (): Value => VI(s().lastQual),
 

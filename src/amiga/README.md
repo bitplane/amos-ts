@@ -118,6 +118,7 @@ really does differ from the real one and saying where is the whole job.
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |
+| `reqtools.ts` | `reqtools.library` 38.1092: its tags, every message in the binary, and `req.c`'s layout arithmetic |
 | `displayinfo.ts` | the display database one monitor driver fills: `Devs/Monitors/PAL`'s six ids and their names |
 | `muimaster.ts` | MUI's class factory: 64 classes, attributes, the object tree, notification |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |

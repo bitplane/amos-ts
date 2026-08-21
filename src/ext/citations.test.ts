@@ -489,6 +489,12 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // StoneCracker's version string and credit are in the library itself, which
   // is also the only place its format is written down
   'src/amiga/stonecracker.ts': ['libs/stc.library'],
+  // reqtools.library is Nico Francois', not an AMOS extension. Its autodoc is
+  // what the Intuition Extension's requesters are written against, and it is
+  // where the rules for EZREQF_LAMIGAQUAL and the gadget numbering are stated
+  'src/runtime/intuition.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
+  'src/runtime/rtreq.test.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
+  'src/amiga/reqtools.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
 }
 
 /** not prose: markup, code, or a disc image sitting beside the manual */
