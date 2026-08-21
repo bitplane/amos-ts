@@ -34,6 +34,51 @@ function level0(name: string, method: string, packed: Uint8Array, size: number):
   return h
 }
 
+/**
+ * A level-1 header with an extended-header chain, which is what an archiver
+ * running under Unix writes: `ReqToolsLib.lha` opens with a `-lhd-` directory
+ * member whose name is only in header 2, and every file under it repeats the
+ * directory the same way.
+ *
+ * `exts` are `[type, body]` pairs. The base header size runs to the first
+ * extension-size word inclusive, which is why the chain starts at `at +
+ * headerLen` and not two bytes later.
+ */
+function level1(name: string, method: string, packed: Uint8Array, size: number, exts: Array<[number, string]>): Uint8Array {
+  const nameBytes = [...name].map((c) => c.charCodeAt(0))
+  const headerLen = 25 + nameBytes.length
+  const chain = exts.map(([kind, body]) => [body.length + 3, kind, body] as const)
+  const took = chain.reduce((n, [len]) => n + len, 0)
+  const h = new Uint8Array(headerLen + took + 2 + packed.length)
+  h[0] = headerLen
+  h.set([...method].map((c) => c.charCodeAt(0)), 2)
+  const put32 = (at: number, v: number): void => {
+    h[at] = v & 0xff
+    h[at + 1] = (v >> 8) & 0xff
+    h[at + 2] = (v >> 16) & 0xff
+    h[at + 3] = (v >>> 24) & 0xff
+  }
+  // level 1 counts the extensions INSIDE the skip size
+  put32(7, packed.length + took)
+  put32(11, size)
+  h[19] = 0x20
+  h[20] = 1
+  h[21] = nameBytes.length
+  h.set(nameBytes, 22)
+  h[24 + nameBytes.length] = 0x55 // 'U', the OS this style comes from
+  let at = headerLen
+  for (const [len, kind, body] of chain) {
+    h[at] = len & 0xff
+    h[at + 1] = len >> 8
+    h[at + 2] = kind
+    h.set([...body].map((c) => c.charCodeAt(0)), at + 3)
+    at += len
+  }
+  at += 2 // the terminator, which is inside the base header's own count
+  h.set(packed, at)
+  return h
+}
+
 describe('the method table', () => {
   /**
    * Read out of xadmaster.library's dispatch at $13290, where each arm sets
@@ -135,6 +180,26 @@ describe('the header walk', () => {
     both.set(file, dir.length)
     expect(readLhaHeaders(both)).toHaveLength(2)
     expect(readLha(both).map((f) => f.path)).toEqual(['drawer/f.txt'])
+  })
+
+  /**
+   * `-lhd-` is a directory entry: no data, and in this style no name in the
+   * base header either. While the method set was `[0-9s]` the walk broke on
+   * byte three and ReqToolsLib.lha reported no members where lhasa read 82.
+   */
+  it('reads a -lhd- member whose name is only in extended header 2', () => {
+    const dir = level1('', '-lhd-', new Uint8Array(0), 0, [[2, 'ReqToolsLib\xff']])
+    const [e] = readLhaHeaders(dir)
+    expect(e?.method).toBe('-lhd-')
+    expect(e?.path).toBe('ReqToolsLib/')
+    expect(e?.packedSize).toBe(0)
+  })
+
+  /** and a file under it carries the same directory in its own header 2 */
+  it('joins a level-1 name to the directory its extension names', () => {
+    const f = level1('LICENSE', '-lh0-', HELLO, HELLO.length, [[2, 'ReqToolsLib\xff']])
+    expect(readLhaHeaders(f).map((x) => x.path)).toEqual(['ReqToolsLib/LICENSE'])
+    expect(readLha(f).map((x) => x.path)).toEqual(['ReqToolsLib/LICENSE'])
   })
 
   it('leaves a member it cannot decode out of readLha but not out of the headers', () => {

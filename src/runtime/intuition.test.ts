@@ -16,6 +16,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { E, IEXT_ERRORS } from './intuition'
+import { NOSUB, fullMenuNum } from '../amiga/gadtools'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 14 --- his guide says "enter Intuition.Lib in extension slot number 14" */
@@ -663,16 +664,20 @@ describe('Intuition 1.3b: input', () => {
   })
 
   /**
-   * `L_IwaitEvent` pumps the port and answers the CLASS, storing the
-   * message's other half in `EventData` before it tests anything.
+   * `L_IwaitEvent` pumps the port and answers the CLASS, keeping in
+   * `EventData` whatever DoEvent's arm for that class left in d0.
+   *
+   * For CLOSEWINDOW that is `WEF_CLOSED`, 2, and not the message's code:
+   * `moveq #WEF_CLOSED,d0 / move.l d0,d1 / bsr SetSomeWinFlags`, and
+   * SetSomeWinFlags opens `and.l d1,d0`, which hands the same 2 back.
    */
-  it('Iwait Event answers the IDCMP class and keeps the data', () => {
+  it('Iwait Event answers the IDCMP class, and the data is the arm leftover', () => {
     const b = boot(`${W}\nE=Iwait Event\nPrint E;" ";Ievent Data`)
     b.rt.runHeadless(1)
     const w = b.rt.iext.screens.get(0)!.windows.get(1)!
     expect(w.window.post(0x200 /* IDCMP_CLOSEWINDOW */, 7)).toBe(true)
     mustFinish(b.rt.runHeadless(2_000))
-    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0x200, 7])
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0x200, 2])
   })
 
   /**
@@ -712,21 +717,279 @@ describe('Intuition 1.3b: input', () => {
     expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0x20, 0x1])
   })
 
-  /** `L_IwaitMouse` is `.lp` around `GetMouse`, the mirror of `Iwait Key` */
+  /**
+   * `L_IwaitMouse` is `.lp` around `GetMouse`, the mirror of `Iwait Key`.
+   *
+   * It waits on the Z flag DoEvent returns, not on `MouseState`, so it is the
+   * one mouse keyword the `bclr` defect leaves alone.
+   */
   it('Iwait Mouse waits for a button', () => {
-    const b = boot(`${W}\nIwait Mouse\nPrint Imouse Key`)
+    const b = boot(`${W}\nIwait Mouse\nPrint "done"`)
     b.rt.frame()
+    expect(b.out()).toBe('')
     b.rt.input.mouseK = 1
     mustFinish(b.rt.runHeadless(2_000))
-    expect(Number(b.out().trim())).toBe(1)
+    expect(b.out().trim()).toBe('done')
   })
 
-  /** `=Imouse Key` pumps GetMouse and then reads `MouseState` */
-  it('Imouse Key is the button state', () => {
+  /** and `=Imouse Key` answers 0 with the button held, because nothing sets
+   * a bit of `MouseState` --- both arms of DoEvent's MOUSEBUTTONS case are
+   * `bclr d0,d1` */
+  it('Imouse Key is 0 whatever the buttons are doing', () => {
     const b = boot(`${W}\nPrint Imouse Key`)
-    b.rt.input.mouseK = 1
+    b.rt.input.mouseK = 3
     mustFinish(b.rt.runHeadless(500))
-    expect(Number(b.out().trim())).toBe(1)
+    expect(Number(b.out().trim())).toBe(0)
+  })
+})
+
+/**
+ * `menus.s` --- Intuition's own Menu and MenuItem structures, built by hand.
+ */
+describe('Intuition 1.3b: menus', () => {
+  const W = 'Iscreen Open 0,320,256,16,0\nIwindow Open 1,0,0,320,200,"W"'
+
+  function win(rt: Runtime) {
+    return rt.iext.screens.get(0)!.windows.get(1)!
+  }
+
+  /**
+   * A menu is `(len << 3) + 8` wide and 10 tall, and each one starts 8 pixels
+   * right of the previous one's right edge. The first has no previous, so
+   * `beq .munext` leaves its LeftEdge at the zero AllocMemClear gave it.
+   */
+  it('Set Imenu lays the bar out left to right', () => {
+    const rt = run(`${W}\nSet Imenu "Project",1\nSet Imenu "Edit",2`)
+    const m = win(rt).menus
+    expect(m.map((x) => [x.number, x.name, x.leftEdge, x.width, x.height])).toEqual([
+      [1, 'Project', 0, 7 * 8 + 8, 10],
+      [2, 'Edit', 0 + 64 + 8, 4 * 8 + 8, 10],
+    ])
+  })
+
+  /**
+   * The list is kept ascending because `FindImenu` stops walking at the first
+   * number above the one it wants. Defining them out of order still sorts
+   * them --- and leaves the geometry wrong, because a LeftEdge is computed
+   * once from whatever was in front at the time.
+   */
+  it('menus sort by number, and the geometry does not catch up', () => {
+    const rt = run(`${W}\nSet Imenu "Second",3\nSet Imenu "First",1`)
+    const m = win(rt).menus
+    expect(m.map((x) => x.number)).toEqual([1, 3])
+    // "Second" was the first one defined, so it is at 0, and "First" landed
+    // in front of it at 0 as well
+    expect(m.map((x) => x.leftEdge)).toEqual([0, 0])
+  })
+
+  /**
+   * An item is `2 + rp_TxHeight` tall, which is 10 in topaz 8, and stacks
+   * under the previous one. A subitem starts 8 pixels inside its parent's
+   * right edge. The pens come off the RastPort swapped.
+   */
+  it('items stack downwards and subitems hang off the right', () => {
+    const rt = run(`${W}\nSet Imenu "P",1\nSet Imenu "Open",1,1\nSet Imenu "Save",1,2\nSet Imenu "As",1,2,1`)
+    const items = win(rt).menus[0]!.items
+    expect(items.map((i) => [i.number, i.text, i.topEdge, i.width, i.height])).toEqual([
+      [1, 'Open', 0, 4 * 8 + 4, 10],
+      [2, 'Save', 10, 4 * 8 + 4, 10],
+    ])
+    const sub = items[1]!.subItems[0]!
+    expect(sub.isSub).toBe(true)
+    expect(sub.leftEdge).toBe(items[1]!.leftEdge + items[1]!.width - 8)
+    // `move.b rp_BgPen(a0),it_FrontPen(a5)` and `rp_FgPen` into it_BackPen
+    expect([sub.frontPen, sub.backPen]).toEqual([0, 1])
+  })
+
+  /** `tst.w (a5) / beq .exit` --- an empty string frees rather than defines */
+  it('an empty string deletes, and a menu takes its items with it', () => {
+    const rt = run(`${W}\nSet Imenu "P",1\nSet Imenu "Open",1,1\nSet Imenu "",1`)
+    expect(win(rt).menus).toEqual([])
+  })
+
+  /** deleting one item of several relinks through `mi_NextItem` correctly */
+  it('deleting a middle item leaves the rest', () => {
+    const rt = run(`${W}\nSet Imenu "P",1\nSet Imenu "A",1,1\nSet Imenu "B",1,2\nSet Imenu "",1,2`)
+    expect(win(rt).menus[0]!.items.map((i) => i.text)).toEqual(['A'])
+  })
+
+  /**
+   * DEFECT: `.isitm2` writes `mu_FirstItem` of the MENU whichever list the
+   * node came from, so deleting the FIRST subitem of an item drops the whole
+   * menu's item list and puts that subitem's siblings there instead.
+   */
+  it('deleting the first subitem wipes the menu it hangs under', () => {
+    const rt = run(
+      `${W}\nSet Imenu "P",1\nSet Imenu "A",1,1\nSet Imenu "B",1,2\n` +
+        `Set Imenu "S1",1,2,1\nSet Imenu "S2",1,2,2\nSet Imenu "",1,2,1`,
+    )
+    const menu = win(rt).menus[0]!
+    // the menu's items are now item 2's remaining SUBITEMS
+    expect(menu.items.map((i) => i.text)).toEqual(['S2'])
+    // and nothing unhooked the deleted subitem from its parent
+    expect(menu.items[0]!.subItems).toEqual([])
+  })
+
+  /** the four range checks, all unsigned, and menu 0 refused outright */
+  it('menu 0, and anything over the limits, is error 13', () => {
+    expect(() => run(`${W}\nSet Imenu "x",0`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Imenu "x",32`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Imenu "x",1,64`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Imenu "x",1,1,32`)).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /** an item or subitem under a level that does not exist is refused */
+  it('a number below a level that is not there is error 13', () => {
+    expect(() => run(`${W}\nSet Imenu "x",1,1`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Imenu "P",1\nSet Imenu "x",1,1,1`)).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /** `btst #WEB_MENUACTIVE,d0 / bne L_MenuActive`, before anything is popped */
+  it('Set Imenu while the strip is up is error 26', () => {
+    expect(() => run(`${W}\nSet Imenu "P",1\nImenu On\nSet Imenu "E",2`)).toThrow(IEXT_ERRORS[E.MAA])
+  })
+
+  /**
+   * `=Iwindow Status` hands back WEF_MENUACTIVE, which is bit 3, so a program
+   * can see whether its own strip is up.
+   */
+  it('Imenu On and Off move the MENUACTIVE flag', () => {
+    expect(vals(`${W}\nSet Imenu "P",1\nImenu On\nPrint Iwindow Status\nImenu Off\nPrint Iwindow Status`)).toEqual([8, 0])
+  })
+
+  /** with nothing defined, `beq .nomenu` makes Imenu On turn menus OFF */
+  it('Imenu On with no menus clears the strip instead of setting one', () => {
+    expect(vals(`${W}\nImenu On\nPrint Iwindow Status`)).toEqual([0])
+  })
+
+  /**
+   * A MENUPICK carries Intuition's POSITIONAL number and `=Ichoice` answers
+   * in the program's own, because `GetMenu` reads `mu_MenuNum` and
+   * `mi_ItemNum` back out of the structure `ItemAddress` found.
+   */
+  it('Ichoice answers the numbers Set Imenu was given, not the positions', () => {
+    const b = boot(
+      `${W}\nSet Imenu "P",7\nSet Imenu "A",7,5\nImenu On\nR=0\nRepeat\nR=R+1\nWait Vbl\nUntil R>1\n` +
+        `Print Ichoice(1);" ";Ichoice(2);" ";Ichoice(3)`,
+    )
+    b.rt.frame()
+    expect(win(b.rt).window.post(0x100 /* IDCMP_MENUPICK */, fullMenuNum(0, 0, NOSUB))).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([7, 5, 0])
+  })
+
+  /** a subitem fills all three, walking `mi_Parent` up twice */
+  it('a subitem pick fills the menu, the item and the subitem', () => {
+    const b = boot(
+      `${W}\nSet Imenu "P",2\nSet Imenu "A",2,3\nSet Imenu "S",2,3,4\nImenu On\n` +
+        `R=0\nRepeat\nR=R+1\nWait Vbl\nUntil R>1\nPrint Ichoice(1);" ";Ichoice(2);" ";Ichoice(3)`,
+    )
+    b.rt.frame()
+    expect(win(b.rt).window.post(0x100, fullMenuNum(0, 0, 0))).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([2, 3, 4])
+  })
+
+  /** each level is read and cleared, so a second ask answers 0 */
+  it('Ichoice consumes what it reads', () => {
+    const b = boot(
+      `${W}\nSet Imenu "P",7\nSet Imenu "A",7,5\nImenu On\nR=0\nRepeat\nR=R+1\nWait Vbl\nUntil R>1\n` +
+        `Print Ichoice(1);" ";Ichoice(1)`,
+    )
+    b.rt.frame()
+    expect(win(b.rt).window.post(0x100, fullMenuNum(0, 0, NOSUB))).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([7, 0])
+  })
+
+  /** `cmp.w #MENUNULL,d2 / beq .portok` --- an empty pick is pumped past */
+  it('MENUNULL is not a choice', () => {
+    const b = boot(
+      `${W}\nSet Imenu "P",7\nSet Imenu "A",7,5\nImenu On\nR=0\nRepeat\nR=R+1\nWait Vbl\nUntil R>1\n` +
+        `Print Ichoice(1)`,
+    )
+    b.rt.frame()
+    expect(win(b.rt).window.post(0x100, 0xffff)).toBe(true)
+    expect(win(b.rt).window.post(0x100, fullMenuNum(0, 0, NOSUB))).toBe(true)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Number(b.out().trim())).toBe(7)
+  })
+
+  /** `subq.l #1,d0` three times, then `bne L_IllFunc` */
+  it('Ichoice takes 1, 2 or 3 and nothing else', () => {
+    expect(() => run(`${W}\nPrint Ichoice(0)`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nPrint Ichoice(4)`)).toThrow(IEXT_ERRORS[E.IFC])
+  })
+})
+
+/**
+ * `fonts.s` --- five readers over `rp_Font` and one setter that opens a face.
+ */
+describe('Intuition 1.3b: fonts', () => {
+  const W = 'Iscreen Open 0,320,256,16,0\nIwindow Open 1,0,0,320,200,"W"'
+
+  /**
+   * A fresh RastPort draws in the system font, which is topaz 8: `tf_Baseline`
+   * 6, `tf_YSize` 8, and the name off the TextFont's own exec Node at
+   * `10(a0)`, extension included.
+   */
+  it('the readers answer for topaz 8, the face a window opens with', () => {
+    expect(vals(`${W}\nPrint Itext Base;" ";Ifont Height`)).toEqual([6, 8])
+    const b = boot(`${W}\nPrint Ifont$`)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('topaz.font')
+  })
+
+  /** `=Itext Length` is graphics.library's TextLength, so 8 a character here */
+  it('Itext Length measures in the current font', () => {
+    expect(vals(`${W}\nPrint Itext Length("");" ";Itext Length("hello")`)).toEqual([0, 40])
+  })
+
+  /** `=Ifont Base` is `move.l rp_Font(a0),d3`, a pointer; ours is synthetic
+   * and has only to be stable */
+  it('Ifont Base is one number for one face', () => {
+    const [a, b] = vals(`${W}\nPrint Ifont Base;" ";Ifont Base`)
+    expect(a).toBeGreaterThan(0)
+    expect(b).toBe(a)
+  })
+
+  /** OpenFont finds topaz 8 without a volume, with or without the extension */
+  it('Set Ifont takes topaz with or without the .font', () => {
+    expect(vals(`${W}\nSet Ifont "topaz",8\nPrint Ifont Height`)).toEqual([8])
+    expect(vals(`${W}\nSet Ifont "topaz.font",8\nPrint Ifont Height`)).toEqual([8])
+  })
+
+  /**
+   * The suffix test is five `cmp.b` in a row, so it is case sensitive, and the
+   * guide's error node says what that costs: *"If you included the \".font\"
+   * extension to the font name, make sure it is all lower case - something
+   * like Set Ifont \"fontname.Font\" won't work."* An upper-case one is not
+   * recognised, `.font` is appended to it, and nothing opens.
+   */
+  it('Set Ifont "topaz.Font" is not topaz', () => {
+    expect(() => run(`${W}\nSet Ifont "topaz.Font",8`)).toThrow(IEXT_ERRORS[E.FNA])
+  })
+
+  /** neither OpenFont nor OpenDiskFont answers, so `L_NoFont` */
+  it('a face that is not there is error 15', () => {
+    expect(() => run(`${W}\nSet Ifont "nosuchface",8`)).toThrow(IEXT_ERRORS[E.FNA])
+  })
+
+  /**
+   * `Set Ifont namesize$` cannot work. Routine 110 saves a1 across GetRetStr
+   * believing the new string is in it; StrAlloc left `$a4(a4)` there, so
+   * routine 109 is handed the address of `FirstString` and reads a font name
+   * out of the data zone. See the DEFECT note on the keyword.
+   */
+  it('Set Ifont "topaz/8" raises 15 rather than setting topaz 8', () => {
+    expect(() => run(`${W}\nSet Ifont "topaz/8"`)).toThrow(IEXT_ERRORS[E.FNA])
+  })
+
+  /** the two checks that run BEFORE the bug still decide their own error */
+  it('a name with no slash, or a size that is not digits, is error 13', () => {
+    expect(() => run(`${W}\nSet Ifont "topaz8"`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Ifont "topaz/x"`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(() => run(`${W}\nSet Ifont "topaz/"`)).toThrow(IEXT_ERRORS[E.IFC])
   })
 })
 

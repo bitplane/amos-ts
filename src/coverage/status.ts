@@ -3881,6 +3881,27 @@ export const FAITHFUL = new Set<string>([
   // a wait.
   'iwait', 'iwait vbl', 'ierr', 'ierr\$', 'ierror', 'itrap on', 'itrap off',
   'ierrtrap', 'reqtools here', 'i flush',
+  // `fonts.s`: five readers over `rp_Font` and one setter. `Set Ifont`
+  // appends `.font` unless the name already ends in it, and the test is five
+  // `cmp.b` in a row, so `"topaz.Font"` is not recognised and becomes
+  // `topaz.Font.font` -- the guide warns about exactly that. OpenFont before
+  // OpenDiskFont, so topaz 8 never touches a volume.
+  //
+  // `Set Ifont namesize$` cannot work: routine 110 saves a1 across GetRetStr
+  // believing the string is in it, and StrAlloc left the address of
+  // `FirstString` there. Reproduced as the error 15 it always ends in.
+  'itext base', 'itext length', 'set ifont', 'ifont\$', 'ifont base', 'ifont height',
+  // `menus.s`: Intuition's own Menu and MenuItem built by hand, with
+  // `defs.i`'s three extra words on the end of each so a program's own
+  // numbering survives Intuition's positional one. Geometry is fixed at
+  // creation and never laid out again. `Imenu On` with nothing defined
+  // clears the strip instead of setting one.
+  //
+  // Deleting the first SUBITEM of an item writes the menu's `mu_FirstItem`
+  // instead of the parent's `mi_SubItem`, so the menu's whole item list is
+  // replaced by that subitem's siblings. The create path distinguishes the
+  // two lists and the delete path does not.
+  'set imenu', 'ichoice', 'imenu on', 'imenu off',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

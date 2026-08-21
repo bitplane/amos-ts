@@ -136,7 +136,10 @@ export function readLhaHeaders(b: Uint8Array): LhaEntry[] {
   while (at + 21 < b.length) {
     const level = b[at + 20]!
     const method = String.fromCharCode(...b.subarray(at + 2, at + 7))
-    if (!/^-l[hz][0-9s]-$/.test(method)) break
+    // `-lhd-` is a DIRECTORY entry and carries no data. ReqToolsLib.lha opens
+    // with one, and while the method set was `[0-9s]` alone the walk broke on
+    // byte three of the archive and reported no members at all.
+    if (!/^-l[hz][0-9ds]-$/.test(method)) break
     const packedSize = u32(b, at + 7)
     const size = u32(b, at + 11)
     const timestamp = u32(b, at + 15)
@@ -161,9 +164,20 @@ export function readLhaHeaders(b: Uint8Array): LhaEntry[] {
          */
         let ext = at + headerLen
         let took = 0
+        // level 1 carries the same extended headers level 2 does, and an
+        // archiver that writes a directory entry puts the path in one: a
+        // `-lhd-` member has `nameLen` 0 and its name only in header 2, and
+        // every member under it repeats the directory the same way
+        let dir = ''
         for (;;) {
           if (ext + 2 > b.length) return out
           const next = u16(b, ext)
+          if (next >= 3 && ext + next <= b.length) {
+            const kind = b[ext + 2]!
+            const body = String.fromCharCode(...b.subarray(ext + 3, ext + next))
+            if (kind === 1) path = pathOf(body)
+            if (kind === 2) dir = pathOf(body.replace(/\xff/g, '/'))
+          }
           if (next === 0) {
             // the terminator sits inside the base header, so it is NOT part
             // of the skip size; counting it leaves every member two bytes
@@ -174,6 +188,7 @@ export function readLhaHeaders(b: Uint8Array): LhaEntry[] {
           ext += next
           took += next
         }
+        if (dir !== '') path = pathOf(`${dir.replace(/\/$/, '')}/${path}`)
         dataOffset = ext
         dataLen = packedSize - took
       } else {

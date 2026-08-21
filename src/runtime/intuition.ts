@@ -53,7 +53,9 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
 import { RastPort } from '../amiga/graphics'
-import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, type Window } from '../amiga/intuition'
+import { MENUNULL, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
+import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
  * What `=Aga` and `=Ecs` answer on the machine this port models.
@@ -273,6 +275,43 @@ export const WEF = { UNSET: 1, CLOSED: 2, BASEWIN: 4, MENUACTIVE: 8 } as const
  */
 export const WE_MAGIC = 0xbead_f00d
 
+/**
+ * `struct MenuItem` with Church's three words on the end of it.
+ *
+ * `defs.i`:28-31 extends Intuition's 34-byte MenuItem to 42: `mi_ItemNum`,
+ * `mi_IsSubitem` and `mi_Parent`. The number is the program's own, which is
+ * why `=Ichoice` can answer in the numbering `Set Imenu` was given rather
+ * than in the position Intuition picks by.
+ */
+export interface IextMenuItem {
+  /** `mi_ItemNum`, at 34 */
+  number: number
+  /** `mi_IsSubitem`, at 36 */
+  isSub: boolean
+  /** the IntuiText's own string, held through `mi_ItemFill` -> `it_IText` */
+  text: string
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  /** `it_FrontPen` and `it_BackPen`, which are the RastPort's the other way up */
+  frontPen: number
+  backPen: number
+  subItems: IextMenuItem[]
+}
+
+/** `struct Menu` plus `mu_MenuNum` at 30, which `defs.i`:26 puts there */
+export interface IextMenu {
+  number: number
+  /** `mu_MenuName`, the title on the bar */
+  name: string
+  leftEdge: number
+  width: number
+  /** `move.w #10,mu_Height(a2)`, and nothing measures it */
+  height: number
+  items: IextMenuItem[]
+}
+
 /** one window the extension opened, which is Church's `we_` block */
 export interface IextWindow {
   /** `we_WinNum`, and 0 is the screen's own base window */
@@ -291,6 +330,15 @@ export interface IextWindow {
    * is a mode and `Idraw To` has somewhere to draw FROM.
    */
   rp?: RastPort
+  /**
+   * `we_FirstMenu`, sorted ascending by number.
+   *
+   * `FindImenu` walks it with `cmp.w mu_MenuNum(a0),d2 / beq .exit / bcs
+   * .high`, so a number BELOW the one it is standing on ends the walk as a
+   * miss. That only works on a sorted list, and `.muprev` keeps it sorted by
+   * inserting after the last node with a smaller number.
+   */
+  menus: IextMenu[]
 }
 
 export class IextState {
@@ -331,8 +379,23 @@ export class IextState {
   lastQual = 0
   /** `EventData`, the second half of whatever `Iwait Event` last answered */
   eventData = 0
-  /** `MenuBufPtr`'s buffer, which `Iclear Menu` resets and `menus.s` fills */
+  /**
+   * `MenuBufPtr`'s buffer, which `Iclear Menu` resets and `DoEvent` fills.
+   *
+   * A 256-entry ring of one word each (`MenuBufSize equ 256*ue_sizeof`, and
+   * `ue_sizeof` is 2), so 255 picks fit: `DoEvent` discards the event AND
+   * hides it from its caller when the write would meet the read pointer.
+   */
   readonly menuPicks: number[] = []
+  /**
+   * `LastMenu`, `LastMenuItem` and `LastMenuSub`, which `=Ichoice` reads.
+   *
+   * -1 is Church's "none since last check". Each is read-and-clear, so three
+   * `Ichoice` calls answer for one pick and a fourth answers 0.
+   */
+  lastMenu = -1
+  lastMenuItem = -1
+  lastMenuSub = -1
   /**
    * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
    *
@@ -472,13 +535,97 @@ function activeIwin(rt: Runtime, st: IextState): IextWindow | null {
  * how a program written the guide's way ends: `Repeat : Until Iwindow Status
  * and 2`. IDCMP_CLOSEWINDOW is $200.
  */
-function pumpStatus(w: IextWindow): number {
-  for (;;) {
-    const msg = w.window.getMsg()
-    if (!msg) break
-    if (msg.class === 0x200) w.flags |= WEF.CLOSED
-  }
+function pumpStatus(st: IextState, w: IextWindow): number {
+  doEvent(st, 0)
   return w.flags
+}
+
+/**
+ * The IDCMP mask every window of this extension opens with, `defs.i`:184-187.
+ *
+ * `OpenIwin` and `OpenIscr` both end the same way -- `dmove.l
+ * MyUserPort,wd_UserPort(a0) / move.l #IDCMPFLAGS,d0 / intcall ModifyIDCMP`.
+ */
+const IEXT_IDCMP =
+  IDCMP_RAWKEY | IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW | IDCMP_MENUPICK | IDCMP_GADGETDOWN | IDCMP_GADGETUP
+
+/** `IDCMPWAIT`, `defs.i`:189-192 --- IDCMPFLAGS without GADGETDOWN */
+const IEXT_IDCMPWAIT = IEXT_IDCMP & ~IDCMP_GADGETDOWN
+
+/**
+ * Every window the extension has open, on any screen and on the Workbench.
+ *
+ * They share ONE message port. `OpenIwin` says so in Church's own comment,
+ * *"Make window use common UserPort"*, and `MyUserPort` is opened once at
+ * startup (`src2/startup.s`:387). So a keyword that pumps for input pumps
+ * every window's events, not the current one's: a close gadget pressed on
+ * window 3 is noticed by an `=Iwindow Status(1)`, and a menu pick made
+ * anywhere reaches `=Ichoice`.
+ */
+function allIwins(st: IextState): IextWindow[] {
+  const out: IextWindow[] = []
+  for (const scr of st.screens.values()) out.push(...scr.windows.values())
+  out.push(...st.wbWindows.values())
+  return out
+}
+
+/**
+ * `DoEvent` --- drain the common port, filing each message, and stop at the
+ * first one whose class is in `want`.
+ *
+ * DEVIATION: this port gives each window its own queue, so the walk is in
+ * window order where the original's is in arrival order. Nothing a program
+ * can arrange makes that observable without two windows delivering in the
+ * same frame.
+ */
+function doEvent(st: IextState, want: number): { cls: number; code: number; iaddress: number } | null {
+  for (const w of allIwins(st)) {
+    for (;;) {
+      const msg = w.window.getMsg()
+      if (!msg) break
+      const cls = sortEvent(st, w, msg.class, msg.code)
+      if ((cls & want) !== 0) return { cls, code: msg.code, iaddress: msg.iaddress }
+    }
+  }
+  return null
+}
+
+/**
+ * How many picks the menu ring holds.
+ *
+ * `MenuBufSize equ 256*ue_sizeof` with `ue_sizeof` 2, and `DoEvent` refuses
+ * the write when it would leave `MenuBufPtr` one entry short of
+ * `MenuBufNext` -- `movea.l $cc(a4),a1 / subq.l #$2,a1 / cmpa.l a0,a1 / bne
+ * .setmu` -- so one slot of the ring is always empty.
+ */
+const IEXT_MENU_BUF = 255
+
+/**
+ * `DoEvent`'s one-message body: sort it into a buffer, then report its class.
+ *
+ * Church's own summary is *"Keep repeating until im_Class & D0 or no more
+ * messages"*, and each class has an arm that files it somewhere before the
+ * loop decides whether to stop. Two of them matter here. CLOSEWINDOW sets
+ * `WEF_CLOSED` on the window the message names, which is what `=Iwindow
+ * Status` reads back without ever seeing the message itself. MENUPICK writes
+ * `im_Code` into the ring, which is where `GetMenu` and so `=Ichoice` find
+ * it -- so a pick that `Iwait Event` returns is ALSO buffered, and the two
+ * keywords are meant to be used one after the other.
+ *
+ * Returns the class DoEvent reports, which is 0 when an arm dropped the
+ * event: a full menu ring is `moveq #0,d3`, and so is a key code of $60 or
+ * above, the *"key up and shifting-key events"* the RAWKEY arm ignores.
+ */
+function sortEvent(st: IextState, w: IextWindow, cls: number, code: number): number {
+  if (cls === IDCMP_CLOSEWINDOW) {
+    w.flags |= WEF.CLOSED
+    return cls
+  }
+  if (cls === IDCMP_MENUPICK) {
+    if (st.menuPicks.length >= IEXT_MENU_BUF) return 0
+    st.menuPicks.push(code)
+  }
+  return cls
 }
 
 /** `OpenIwin`, which is compiled C; the guide and `defs.i` state its limits */
@@ -516,14 +663,14 @@ function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void
     height,
     detailPen: 0,
     blockPen: 1,
-    idcmpFlags: IDCMP_CLOSEWINDOW,
+    idcmpFlags: IEXT_IDCMP,
     flags,
     title,
     type: onWb ? WBENCHSCREEN : CUSTOMSCREEN,
     ...(onWb ? {} : { screenSlot: slot }),
   })
   if (!window) iError(E.UOW)
-  list.set(num, { number: num, screen: onWb ? null : st.current, window, flags: 0, title })
+  list.set(num, { number: num, screen: onWb ? null : st.current, window, flags: 0, title, menus: [] })
   st.currentWindow = num
   st.currentIsWB = onWb
 }
@@ -659,6 +806,57 @@ function colourMapCount(scr: IextScreen): number {
   return 1 << scr.depth
 }
 
+/**
+ * `Set Ifont`'s font name, and the `.font` it appends by hand.
+ *
+ * `fonts.s` compares the last five bytes to `'.'`, `'f'`, `'o'`, `'n'`, `'t'`
+ * one at a time, so the test is case SENSITIVE and the guide says so:
+ * *"if it does, it (the \".font\") MUST be in lower case"*, and again in the
+ * error node, *"something like Set Ifont \"fontname.Font\" won't work"*.
+ *
+ * DEVIATION: the compare starts at `chars + len - 5` whatever `len` is, so a
+ * name shorter than five characters reads the length word and whatever sits
+ * before it. Those bytes cannot spell `.font` in any layout worth modelling,
+ * and the branch they reach is the one that appends, which is what happens
+ * here.
+ */
+function ifontFamily(name: string): string {
+  return name.endsWith('.font') ? name : `${name}.font`
+}
+
+/**
+ * `OpenFont` then `OpenDiskFont`, and `L_NoFont` when neither answers.
+ *
+ * The order matters and it is the machine's: OpenFont searches the fonts
+ * already in memory, which on any Amiga means ROM topaz before anything on
+ * disk. Here that list has one entry, `rt.systemFont()`, so a request for
+ * `topaz.font` at 8 never touches the volume.
+ */
+function openIfont(rt: Runtime, name: string, size: number): DiskFont {
+  const family = ifontFamily(name)
+  const rom = rt.systemFont()
+  if (family === rom.name && size === rom.ySize) return rom
+  return openDiskFont((path) => rt.vfs?.read(path) ?? null, family, size) ?? iError(E.FNA)
+}
+
+/**
+ * An address for a `struct TextFont *`, which `=Ifont Base` hands back.
+ *
+ * Same arrangement as `windowAddr`: the extension returns a pointer into
+ * graphics.library's font and this port has no such memory, so each face gets
+ * one stable number the first time it is asked for.
+ */
+const IEXT_FONT_ORIGIN = 0x7cb0_0000
+const iextFontAddrs = new WeakMap<DiskFont, number>()
+let iextFontAddrNext = 0
+function fontAddr(f: DiskFont): number {
+  const had = iextFontAddrs.get(f)
+  if (had !== undefined) return had
+  const made = IEXT_FONT_ORIGIN + iextFontAddrNext++ * 0x40
+  iextFontAddrs.set(f, made)
+  return made
+}
+
 /** `Ievent Vbl` --- `move.l #$80000000,d3`, which no IDCMP class can be */
 const IEXT_EVENT_VBL = -0x8000_0000
 
@@ -678,6 +876,33 @@ function takeKey(rt: Runtime, st: IextState): string | null {
 }
 
 /**
+ * `EventData` --- `tmove.l d1,EventData`, and d1 is whatever DoEvent's arm
+ * for that class happened to leave in d0.
+ *
+ * The guide is honest about it: *"Currently, only a gadget event has extra
+ * data to be read by this function; it returns the number of the gadget that
+ * was clicked on."* Reading the arms one at a time says why. GADGETDOWN and
+ * GADGETUP both end `moveq #0,d0 / move.w gg_GadgetID(a1),d0`, which is the
+ * promise. CLOSEWINDOW leaves `WEF_CLOSED`, because `moveq #WEF_CLOSED,d0 /
+ * move.l d0,d1 / bsr SetSomeWinFlags` and SetSomeWinFlags's `and.l d1,d0`
+ * gives it straight back. MOUSEBUTTONS leaves the BIT NUMBER it toggled, 0
+ * for select and 1 for menu. RAWKEY leaves the character ConvRawKey made, or
+ * the raw code when the arm dropped the event.
+ *
+ * DEVIATION: MENUPICK and every class with no arm at all leave the
+ * IntuiMessage POINTER, because `move.l d0,a0` at the top of DoEvent copied
+ * it out of d0 and nothing wrote d0 again. This port has no address for a
+ * message, and the guide tells programs not to read it, so it answers 0.
+ */
+function eventDataFor(cls: number, code: number, iaddress: number): number {
+  if (cls === IDCMP_GADGETUP || cls === IDCMP_GADGETDOWN) return iaddress
+  if (cls === IDCMP_CLOSEWINDOW) return WEF.CLOSED
+  if (cls === IDCMP_MOUSEBUTTONS) return code & 0x7f & 3
+  if (cls === IDCMP_RAWKEY) return code
+  return 0
+}
+
+/**
  * `L_IwaitEvent` and `L_IwaitEventVbl`, which differ by one signal.
  *
  * The Vbl form adds `VBLSignal` to the mask it waits on and answers
@@ -686,14 +911,15 @@ function takeKey(rt: Runtime, st: IextState): string | null {
  */
 function waitEvent(rt: Runtime, it: Parameters<Func>[0], vbl: boolean): Value {
   const st = rt.iext
-  const w = curIwin(st)
-  const msg = w.window.getMsg()
-  if (msg) {
-    // `tmove.l d1,EventData` before the class is tested: the second half of
-    // the message is kept whatever the class turns out to be
-    st.eventData = msg.class === IDCMP_GADGETUP || msg.class === IDCMP_MENUPICK ? msg.iaddress : msg.code
-    if (msg.class === IDCMP_CLOSEWINDOW) w.flags |= WEF.CLOSED
-    return VI(msg.class)
+  // `jtcall GetCurInput` first, which is where a program with no screen open
+  // at all is refused
+  curIwin(st)
+  // `jtcall DoEvent` with IDCMPWAIT files every message it passes, then
+  // `tmove.l d1,EventData` keeps whatever the matching arm left in d0
+  const hit = doEvent(st, IEXT_IDCMPWAIT)
+  if (hit) {
+    st.eventData = eventDataFor(hit.cls, hit.code, hit.iaddress)
+    return VI(hit.cls)
   }
   // `.vbl` --- the Vbl form gives the frame back rather than waiting again
   if (vbl) return VI(IEXT_EVENT_VBL)
@@ -703,6 +929,91 @@ function waitEvent(rt: Runtime, it: Parameters<Func>[0], vbl: boolean): Value {
   }
   it.block({ type: 'ievent' }, true)
   return VI(0)
+}
+
+/**
+ * `FindImenu`, `FindImenuItem` and `FindImenuSub`, which are one walk.
+ *
+ * `cmp.w mu_MenuNum(a0),d2 / beq .exit / bcs .high` --- equal is a hit, and
+ * a number BELOW the wanted one ends the walk as a miss, so the list has to
+ * be ascending and `at` is where a new node belongs. The node before `at` is
+ * the `a1` all three return, which is what the creator inserts after and what
+ * the deleter relinks through.
+ *
+ * `FindImenuSub` has a slip the others do not: its `.loop` is `move.l a0,d1`
+ * where theirs is `move.l a0,d0`, so running off the end leaves d0 holding
+ * the subitem NUMBER instead of zero. `L_SetImenu` tests a0 and never sees
+ * it, and `L_GetImenu`, which tests d0, is not reachable -- see the note on
+ * `Set Imenu`.
+ */
+function findSorted<T extends { number: number }>(list: readonly T[], n: number): { node: T | null; at: number } {
+  let at = 0
+  while (at < list.length && list[at]!.number < n) at++
+  return { node: at < list.length && list[at]!.number === n ? list[at]! : null, at }
+}
+
+/**
+ * Intuition's `ItemAddress(firstMenu, code)` --- the MenuItem a pick names.
+ *
+ * The code is POSITIONAL, five bits of menu index, six of item, five of sub,
+ * and `NOITEM`/`NOSUB` are those fields all ones. So this walks by index and
+ * `GetMenu` reads `mu_MenuNum` and `mi_ItemNum` back OUT of what it finds:
+ * the two numberings are different and the structures are the bridge.
+ *
+ * Null when the code addresses nothing, which `GetMenu` treats as an internal
+ * error -- `move.l #$75655F1F,d1 / bsr InternalErr2`.
+ */
+function itemAddress(menus: readonly IextMenu[], code: number): IextMenuItem | null {
+  const mi = menuNum(code)
+  const ii = itemNum(code)
+  const si = subNum(code)
+  if (mi === NOMENU || ii === NOITEM) return null
+  const item = menus[mi]?.items[ii]
+  if (!item) return null
+  return si === NOSUB ? item : (item.subItems[si] ?? null)
+}
+
+/**
+ * `GetMenu` --- pump the port, take one pick, and put it in the three words.
+ *
+ * `cmp.w #MENUNULL,d2 / beq .portok` sends an empty pick back round to pump
+ * again rather than reporting it, so a menu opened and released over nothing
+ * never reaches `=Ichoice`.
+ *
+ * The three words are filled from the STRUCTURE, walking `mi_Parent` up: a
+ * subitem sets all three, an item sets `LastMenuSub` to 0 -- `dclr.w
+ * LastMenuSub`, zero and not -1, so `Ichoice(3)` after an item answers 0
+ * because the value is 0 rather than because nothing was picked.
+ */
+function getMenu(st: IextState, w: IextWindow): boolean {
+  for (;;) {
+    doEvent(st, IDCMP_MENUPICK)
+    const pick = st.menuPicks.shift()
+    if (pick === undefined) return false
+    if (pick === MENUNULL) continue
+    const hit = itemAddress(w.menus, pick)
+    if (!hit) return false
+    let item = hit
+    if (hit.isSub) {
+      st.lastMenuSub = hit.number
+      item = w.menus.flatMap((m) => m.items).find((i) => i.subItems.includes(hit)) ?? hit
+    } else {
+      st.lastMenuSub = 0
+    }
+    st.lastMenuItem = item.number
+    st.lastMenu = w.menus.find((m) => m.items.includes(item))?.number ?? 0
+    return true
+  }
+}
+
+/** one of the three `Last*` words, read and cleared as `=Ichoice` reads it */
+function takeChoice(st: IextState, w: IextWindow, which: 1 | 2 | 3): number {
+  const key = which === 1 ? 'lastMenu' : which === 2 ? 'lastMenuItem' : 'lastMenuSub'
+  if (st[key] < 0) getMenu(st, w)
+  const v = st[key]
+  st[key] = -1
+  // `tst.w d3 / bpl .exit2 / moveq #0,d3` --- -1 leaves as 0
+  return v < 0 ? 0 : v
 }
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
@@ -794,13 +1105,13 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       height,
       detailPen: 0,
       blockPen: 1,
-      idcmpFlags: 0,
+      idcmpFlags: IEXT_IDCMP,
       flags: WFLG_BORDERLESS | WFLG_BACKDROP,
       title: '',
       type: CUSTOMSCREEN,
       screenSlot: slot,
     })
-    if (base) scr.windows.set(0, { number: 0, screen: num, window: base, flags: WEF.BASEWIN, title: '' })
+    if (base) scr.windows.set(0, { number: 0, screen: num, window: base, flags: WEF.BASEWIN, title: '', menus: [] })
     st.currentWindow = -1
     st.currentIsWB = false
     // `tmove.b #-1,NextPublic` is set for ONE open and this is where it is
@@ -1269,13 +1580,6 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * `Icentre s$` --- centred across the WINDOW's full width.
-     *
-     * `move.w wd_Width(a2),d0 / sub.w d1,d0 / lsr.w #1,d0` with d1 the
-     * TextLength, and the y goes in as `#Null` so the line the cursor is
-     * already on is the one it lands on.
-     */
-    /**
      * `Icolour n,c` --- SetRGB4 on the current screen's ColorMap.
      *
      * `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` bounds the index by the map's
@@ -1313,6 +1617,13 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
+    /**
+     * `Icentre s$` --- centred across the WINDOW's full width.
+     *
+     * `move.w wd_Width(a2),d0 / sub.w d1,d0 / lsr.w #1,d0` with d1 the
+     * TextLength, and the y goes in as `#Null` so the line the cursor is
+     * already on is the one it lands on.
+     */
     'icentre': (it) => {
       const { rp, ox, oy, w } = curRp(rt, s())
       const text = str(it.evalExpr())
@@ -1320,6 +1631,66 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       setGrPos(rp, x, null)
       rp.text(ox + x, oy + rp.cpY, text)
       rp.cpX = x + rp.textLength(text)
+    },
+
+    /**
+     * `Set Ifont name$,size` --- OpenFont, else OpenDiskFont, else error 15.
+     *
+     * Routine 109. The size is popped FIRST and the name second, which is the
+     * parameter block being walked backwards; the token spec declares them
+     * the other way round.
+     *
+     * The old face is closed AFTER the new one is set, and `rp_RP_User` is
+     * where the pointer to close is kept between calls -- `move.l
+     * rp_Font(a2),rp_RP_User(a2)` on the way out. Nothing here refcounts a
+     * face, so that half leaves no trace.
+     */
+    'set ifont': (it) => {
+      const first = str(it.evalExpr())
+      if (it.accept(',')) {
+        const size = it.evalInt()
+        curRp(rt, s()).rp.font = openIfont(rt, first, size)
+        return
+      }
+
+      /*
+       * `Set Ifont namesize$` --- and it cannot work.
+       *
+       * Routine 110 splits "fontname/NNN" at the LAST '/', builds the name
+       * into a fresh string and pushes it back for routine 109. The guide
+       * sells the pairing: *"This is useful in conjunction with Irequest
+       * Font"*, whose own node promises the "fontname/size" this parses.
+       *
+       * DEFECT: the string it pushes is not the string it built. `lea.l
+       * $3e5e(pc),a1` sets up the RSControl, `jsr $c8(a6)` is GetRetStr, and
+       * `move.l a1,-(a7)` at $3e30 saves a1 believing the new string is in
+       * it. GetRetStr answers in d0 and a0. a1 by then is `$a4(a4)`, left
+       * there by StrAlloc's `lea.l $a4(a4),a1` at $89e8 -- and nothing puts
+       * it back, because `pstart2`/`ret2` (macros2.i:3, :8) save a4 and a6
+       * and `jtcall` (macros.i:129) saves a6. So `move.l (a7)+,-(a3)` at
+       * $3e42 hands routine 109 the address of `FirstString` in the data
+       * zone. Routine 109 reads its length word out of the high half of a
+       * heap pointer and its characters out of whatever follows.
+       *
+       * A second bug underneath it, which decides the same outcome on its
+       * own: `move.w d5,(a1)+` writes the WHOLE original length into the new
+       * string, not the `d6` name length the allocation was sized for. Even
+       * with the right pointer the name would still be "topaz/8", the '/' and
+       * the digits included.
+       *
+       * Either way OpenFont and OpenDiskFont both fail and `L_NoFont` raises
+       * 15. That is the outcome this reproduces. The two range checks that
+       * run BEFORE the bug still decide their own errors: no '/' at all, or a
+       * non-digit after the last one, is `Rbeq routine 140` and `Rbmi routine
+       * 140`, which is `L_IllFunc`.
+       */
+      const cut = first.lastIndexOf('/')
+      if (cut < 0) iError(E.IFC)
+      const digits = first.slice(cut + 1)
+      // `.lp2` reads a byte before testing, so a trailing '/' tests the byte
+      // past the string; nothing a font name can put there is a digit
+      if (digits === '' || !/^[0-9]+$/.test(digits)) iError(E.IFC)
+      iError(E.FNA)
     },
  
     /* ------------------------------------------------------------------
@@ -1332,7 +1703,168 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * says which.
      * ------------------------------------------------------------------ */
 
-    /** `Iclear All` --- both buffer pointers back to their base */
+    /* ------------------------------------------------------------------
+     * Menus
+     *
+     * The extension builds Intuition's own Menu and MenuItem structures by
+     * hand and hands the chain to SetMenuStrip, rather than going through
+     * gadtools. `defs.i`:26-31 puts its own numbers on the end of both, so a
+     * program keeps its numbering and Intuition keeps its positions.
+     * ------------------------------------------------------------------ */
+
+    /**
+     * `Set Imenu s$,menu[,item[,sub]]` --- define one entry, or free it.
+     *
+     * Three token entries, one body: `clr.l -(a3) / bra` pushes a zero for
+     * each level the program left off. An EMPTY string frees the structure
+     * instead of making one, and freeing a menu takes its items with it
+     * (`FreeImenu` loops `mi_NextItem` calling `FreeImenuItem`).
+     *
+     * The geometry is fixed at creation and never laid out again. A menu is
+     * `(len << 3) + 8` wide and 10 tall and starts 8 pixels right of the
+     * previous one; an item is `(len << 3) + 4` wide and `2 + rp_TxHeight`
+     * tall and sits directly under the previous one; a subitem starts 8
+     * pixels left of its parent's right edge. "Previous" is the node this one
+     * is inserted AFTER in number order, so defining menu 3 before menu 1
+     * leaves menu 1 at the far left with 3 already sitting on top of it.
+     *
+     * The item's pens come off the RastPort the other way up --- `move.b
+     * rp_BgPen(a0),it_FrontPen(a5)` and `move.b rp_FgPen(a0),it_BackPen(a5)`
+     * --- so menu text is the window's colours inverted.
+     *
+     * A commented-out block at the top of `itokens.s` shows what this was:
+     * `!imenu$` with spec `V20`, an assignable function with a matching
+     * `s$=Imenu$(menu)` getter. The reader survived the cut. Routines 235,
+     * 236 and 237 are `L_GetImenu` and its two trampolines, sitting in the
+     * jump table between `Set Imenu`'s 234 and `Ichoice`'s 238 with no token
+     * entry naming them, so no program can reach them.
+     */
+    'set imenu': (it) => {
+      const st = s()
+      const w = curIwin(st)
+      const text = str(it.evalExpr())
+      it.expect(',')
+      const menuNo = it.evalInt()
+      let itemNo = 0
+      let subNo = 0
+      if (it.accept(',')) {
+        itemNo = it.evalInt()
+        if (it.accept(',')) subNo = it.evalInt()
+      }
+      // `jtcall GetWinFlags / btst #WEB_MENUACTIVE,d0 / bne L_MenuActive`,
+      // which is the first thing the routine does
+      if (w.flags & WEF.MENUACTIVE) iError(E.MAA)
+      // `tst.l d5 / beq` then three `cmp.l #n,dx / bhi`, all unsigned
+      if (menuNo === 0 || (menuNo >>> 0) > 31 || (itemNo >>> 0) > 63 || (subNo >>> 0) > 31) iError(E.IFC)
+
+      const menuHit = findSorted(w.menus, menuNo)
+      const menu = menuHit.node
+      if (!menu) {
+        // not found, so the numbers below it must be zero
+        if (itemNo !== 0 || subNo !== 0) iError(E.IFC)
+      } else if (itemNo === 0) {
+        if (subNo !== 0) iError(E.IFC)
+      }
+      const itemHit = menu && itemNo !== 0 ? findSorted(menu.items, itemNo) : null
+      if (itemHit && !itemHit.node && subNo !== 0) iError(E.IFC)
+      const subHit = itemHit?.node && subNo !== 0 ? findSorted(itemHit.node.subItems, subNo) : null
+
+      const owner = subHit ? itemHit!.node!.subItems : itemHit ? menu!.items : null
+      const node = subHit ? subHit.node : itemHit ? itemHit.node : menu
+      const at = subHit ? subHit.at : itemHit ? itemHit.at : menuHit.at
+
+      if (node) {
+        // `.exists` --- unlink and free before anything is rebuilt
+        if (!owner) {
+          w.menus.splice(menuHit.at, 1)
+        } else {
+          const idx = owner.indexOf(node as IextMenuItem)
+          /*
+           * DEFECT: `.isitm2` picks the list head to write from `d2`, the
+           * MENU, whichever list the node was actually in --- `movea.l d2,a1
+           * / lea.l $12(a1),a1` and $12 is `mu_FirstItem`. That is right for
+           * an item that is first in its menu and wrong for a SUBITEM that is
+           * first under its parent, which wants `mi_SubItem` at $1c. So
+           * deleting the first subitem of an item replaces the whole menu's
+           * item list with that subitem's siblings, and the parent item is
+           * left pointing at what was just freed.
+           *
+           * The create path does distinguish them --- `tst.w d7 / bne
+           * .issub2` picks `mi_SubItem-mi_NextItem(a0)` --- so the two halves
+           * of the same routine disagree.
+           *
+           * DEVIATION: on the machine the parent then walks into freed
+           * memory. Here the subitem is simply still there.
+           */
+          if (idx > 0) owner.splice(idx, 1)
+          else menu!.items = owner.slice(1)
+        }
+        // `tst.w (a5) / beq .exit` --- an empty string was a delete and stops
+        if (text === '') return
+      } else if (text === '') {
+        return
+      }
+
+      // `.create`
+      const font = curRp(rt, st).rp
+      if (!menu || itemNo === 0) {
+        const prev = w.menus[menuHit.at - 1]
+        w.menus.splice(at, 0, {
+          number: menuNo,
+          name: text,
+          leftEdge: prev ? prev.leftEdge + prev.width + 8 : 0,
+          width: (text.length << 3) + 8,
+          height: 10,
+          items: menu ? menu.items : [],
+        })
+        return
+      }
+      const list = subNo !== 0 ? itemHit!.node!.subItems : menu.items
+      const prev = list[at - 1]
+      const parent = subNo !== 0 ? itemHit!.node! : null
+      list.splice(at, 0, {
+        number: subNo !== 0 ? subNo : itemNo,
+        isSub: subNo !== 0,
+        text,
+        leftEdge: parent ? parent.leftEdge + parent.width - 8 : 0,
+        topEdge: prev ? prev.topEdge + prev.height : 0,
+        width: (text.length << 3) + 4,
+        height: 2 + (font.font?.ySize ?? 0),
+        frontPen: font.bgPen,
+        backPen: font.fgPen,
+        subItems: [],
+      })
+    },
+
+    /**
+     * `Imenu On` --- SetMenuStrip, and RMBTRAP off so Intuition gets the
+     * right button.
+     *
+     * With no menus defined it does the opposite of what its name says:
+     * `beq .nomenu` sets RMBTRAP, calls ClearMenuStrip and clears
+     * WEF_MENUACTIVE, so turning menus on for a window that has none turns
+     * them off.
+     */
+    'imenu on': () => {
+      const st = s()
+      const w = curIwin(st)
+      if (w.menus.length === 0) {
+        w.window.flags |= WFLG_RMBTRAP
+        w.flags &= ~WEF.MENUACTIVE
+        return
+      }
+      w.window.flags &= ~WFLG_RMBTRAP
+      w.flags |= WEF.MENUACTIVE
+    },
+
+    /** `Imenu Off` --- RMBTRAP back on, ClearMenuStrip, and the flag down */
+    'imenu off': () => {
+      const st = s()
+      const w = curIwin(st)
+      w.window.flags |= WFLG_RMBTRAP
+      w.flags &= ~WEF.MENUACTIVE
+    },
+
     /* ------------------------------------------------------------------
      * The odds and ends of `other.s`
      * ------------------------------------------------------------------ */
@@ -1347,14 +1879,14 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
     'iwait': (it) => {
       const st = s()
       const n = it.evalInt()
-      pumpStatus(curIwin(st))
+      pumpStatus(st, curIwin(st))
       if (n > 0) it.block({ type: 'wait', until: it.tick + n })
     },
 
     /** `Iwait Vbl` --- `move.l #1,-(a3) / bra L_Iwait`, one frame */
     'iwait vbl': (it) => {
       const st = s()
-      pumpStatus(curIwin(st))
+      pumpStatus(st, curIwin(st))
       it.block({ type: 'wait', until: it.tick + 1 })
     },
 
@@ -1386,11 +1918,30 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * `I Flush` --- `jtcall FlushRetStr`.
+     * `I Flush` --- `jtcall FlushRetStr`, and it is not safe to call.
      *
-     * The extension hands strings back out of a rotating cache of
-     * `rsc_sizeof` blocks; this drops them. Nothing here holds a string that
-     * way, so it is a no-op with a reason rather than a stub.
+     * Every string an Intuition function returns comes from `GetRetStr`,
+     * which allocates `len + 6` and keeps four of those bytes in front of the
+     * AMOS string as a link. `FlushRetStr` walks that list and frees the lot.
+     * The `.rsc` blocks the keywords pass it are zero bytes wide -- `defs.i`
+     * has `RsReset` and then `rsc_sizeof equ __RS` with no fields between,
+     * over the comment *"Currently empty, but kept in case we find a use for
+     * it."*
+     *
+     * DEVIATION: the list is malformed, so the walk runs off the end of it.
+     * `move.l $80fa(pc),d1 / beq.b $8122 / movea.l d1,a0` takes the CURRENT
+     * head as the place to store the new block, and only an empty list gets
+     * `lea.l $80fa(pc),a0`, the address of `RSList` itself. So the second
+     * string sets `head->link = new` and `new->link = head`, a two-element
+     * cycle that `RSList` still points into, and every string after that
+     * replaces the second element and leaks the one it displaced.
+     * `FlushRetStr` then frees the head, follows the link to the other block,
+     * frees that, and follows ITS link back to memory exec has already taken
+     * -- where `StrFree`'s `move.l -(a0),a1 / move.l -(a0),(a1)` writes a
+     * word through whatever the free list left in the header.
+     *
+     * Nothing here allocates a string that way, so there is nothing to free
+     * and no list to walk off.
      */
     'i flush': () => {},
 
@@ -1630,7 +2181,7 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     'iwindow status': (_, a): Value => {
       const st = s()
       const w = a.length > 0 ? findIwin(st, int(a[0]!)) : curIwin(st)
-      return VI(pumpStatus(w) & (WEF.CLOSED | WEF.MENUACTIVE))
+      return VI(pumpStatus(s(), w) & (WEF.CLOSED | WEF.MENUACTIVE))
     },
     /**
      * `=Icolour(n)` --- GetRGB4 off the current screen's ColorMap.
@@ -1668,6 +2219,48 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     /** `=Ixgr` and `=Iygr` --- `rp_cp_x` and `rp_cp_y`, the graphics cursor */
     'ixgr': (): Value => VI(curRp(rt, s()).rp.cpX),
     'iygr': (): Value => VI(curRp(rt, s()).rp.cpY),
+
+    /**
+     * `=Itext Base` --- `tf_Baseline` of the current RastPort's font.
+     *
+     * How far below the top of the line the baseline sits, which is the
+     * number `Itext` needs to place a string by its top instead: topaz 8
+     * answers 6.
+     */
+    'itext base': (): Value => VI(curRp(rt, s()).rp.font?.baseline ?? 0),
+
+    /**
+     * `=Itext Length(s$)` --- graphics.library's TextLength, in pixels.
+     *
+     * Measured in the CURRENT font, and it measures rather than draws, so a
+     * proportional face gives a different answer per string.
+     */
+    'itext length': (_, a): Value => VI(curRp(rt, s()).rp.textLength(str(a[0]!))),
+
+    /**
+     * `=Ifont$` --- the face's own name, `.font` and all.
+     *
+     * `move.l rp_Font(a0),a0 / move.l 10(a0),a0`, and 10 is
+     * `tf_Message+MN_NODE+LN_NAME`: a TextFont opens with an exec Message, so
+     * the name is the Node's. It is the name the font was OPENED under, which
+     * is why it comes back with the extension on it.
+     */
+    'ifont$': (): Value => VS(curRp(rt, s()).rp.font?.name ?? ''),
+
+    /**
+     * `=Ifont Base` --- `move.l rp_Font(a0),d3`, the TextFont pointer itself.
+     *
+     * DEVIATION: a real address into graphics.library's font, for a program
+     * that wants to Peek the glyph data. This port has no such memory, so the
+     * number is stable and unique per face and points at nothing.
+     */
+    'ifont base': (): Value => {
+      const f = curRp(rt, s()).rp.font
+      return VI(f ? fontAddr(f) : 0)
+    },
+
+    /** `=Ifont Height` --- `tf_YSize`, the size the face was opened at */
+    'ifont height': (): Value => VI(curRp(rt, s()).rp.font?.ySize ?? 0),
     /**
      * `=Iscan` and `=Ishift` --- `LastCode` and `LastQual`.
      *
@@ -1712,6 +2305,22 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * `=Ichoice(level)` --- 1 for the menu, 2 for the item, 3 for the subitem.
+     *
+     * `subq.l #1,d0 / beq .menu` three times over, and a fourth value is
+     * error 13. Each level is READ AND CLEARED on its own: the reader puts
+     * -1 back, so the same pick answers once per level and a second ask gives
+     * 0. A level still holding -1 pumps `GetMenu` first, which fills all
+     * three at once, so the three calls can come in any order.
+     */
+    ichoice: (_, a): Value => {
+      const st = s()
+      const level = int(a[0]!)
+      if (level < 1 || level > 3) iError(E.IFC)
+      return VI(takeChoice(st, curIwin(st), level as 1 | 2 | 3))
+    },
+
+    /**
      * `=Reqtools Here` --- is `reqtools.library` open?
      *
      * `dtst.l ReqToolsBase / sne d3`. DEVIATION: this port has no reqtools,
@@ -1723,8 +2332,32 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
 
     ishift: (): Value => VI(s().lastQual),
 
-    /** `=Imouse Key` --- pumps GetMouse, then `MouseState` */
-    'imouse key': (): Value => VI(rt.input.mouseK & 3),
+    /**
+     * `=Imouse Key` --- and it answers 0 whatever the buttons are doing.
+     *
+     * Routine 122 is `jsr $88(a6)` (GetCurInput), `jsr $98(a6)` (GetMouse)
+     * and then `move.b $29(a4),d3`, which is `MouseState` in `data.i`:32.
+     * GetMouse only pumps: `move.l #MOUSEBUTTONS,d0 / bsr DoEvent`, so
+     * `DoEvent`'s MOUSEBUTTONS arm is the one place the byte is written.
+     *
+     * DEFECT: that arm never sets a bit. `bclr #7,d0 / seq d1` puts $FF in d1
+     * for a press, because SELECTDOWN is $68 with bit 7 clear and SELECTUP is
+     * $e8 with it set; `tst.b d1 / bne .mbset` then splits the two. Both arms
+     * are `bclr d0,d1`, byte for byte -- $8504 for the release and $8510 for
+     * the press, where the press one wants `bset`. So the byte starts at zero
+     * and every event clears a bit of it again.
+     *
+     * The guide promises what the author meant: *"Bit 0 is the left button,
+     * bit 1 is the right button, and bit 2 is the middle button.  So a value
+     * of %011 indicates that both the left and right mouse buttons are
+     * pressed."* All three bits are reachable -- `and.w #3,d0` bounds the bit
+     * NUMBER, not a mask, and MIDDLEDOWN is $6a -- and none of them is ever
+     * set.
+     *
+     * `=Imouse X` and `=Imouse Y` are unaffected: they read `wd_MouseX` out
+     * of the Window and never look at this byte.
+     */
+    'imouse key': (): Value => VI(0),
 
     /**
      * `=Imouse X` and `=Imouse Y` --- the pointer in the current window, less
@@ -1789,7 +2422,7 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
 
     'iwindow status wb': (_, a): Value => {
       const w = findWbIwin(s(), int(a[0]!))
-      return VI(pumpStatus(w) & (WEF.CLOSED | WEF.MENUACTIVE))
+      return VI(pumpStatus(s(), w) & (WEF.CLOSED | WEF.MENUACTIVE))
     },
   }
 }
