@@ -20,6 +20,7 @@ import {
   RT_FONTREQ_PREFS,
   RT_MAXINT,
   RT_MININT,
+  RT_SCREENMODEREQ_PREFS,
   RT_TEXT,
   fileReqHit,
   fileReqLayout,
@@ -30,6 +31,9 @@ import {
   reqHit,
   reqLayout,
   reqRender,
+  screenReqHit,
+  screenReqLayout,
+  screenReqRender,
   type FileReqLayout,
   type FileReqSetup,
   type FontReqLayout,
@@ -39,6 +43,9 @@ import {
   type ReqLayout,
   type ReqMetrics,
   type ReqSetup,
+  type ScreenReqLayout,
+  type ScreenReqSetup,
+  type ScreenRow,
 } from '../amiga/reqtools'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
@@ -55,6 +62,7 @@ import {
   type Window,
 } from '../amiga/intuition'
 import { RastPort } from '../amiga/graphics'
+import { DISPLAY_MODES, type DisplayMode } from '../amiga/displayinfo'
 import { screenPens } from './aslreq'
 import { availFonts, openDiskFont } from './fontlist'
 import type { Runtime } from './runtime'
@@ -963,5 +971,322 @@ export function stepRtFont(rt: Runtime, st: RtFontState, frame: number): void {
 
 /** close the window and let the keyword have its answer */
 export function finishRtFont(rt: Runtime, st: RtFontState): void {
+  rt.intuition.closeWindow(st.window)
+}
+
+/* --------------------------------------------------------------------------
+ * The screenmode requester
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The deepest screen this port opens, which is what stands in for
+ * `diminfo.MaxDepth`.
+ *
+ * DEVIATION: `DisplayModeAttrs` reads a per-mode maximum out of the
+ * DimensionInfo the monitor driver computes at run time, and
+ * ../amiga/displayinfo.ts says plainly that it cannot read one: `pal 39.3`
+ * builds its rectangles in code rather than storing them. Eight is this
+ * machine's AA ceiling, the same number ./aslreq.ts uses for the same reason,
+ * so every mode in the list offers 2 to 256 colours.
+ */
+const RT_MAX_DEPTH = 8
+
+export interface RtScreenState {
+  setup: ScreenReqSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: ScreenReqLayout
+  /** every mode the database walk kept, sorted the way `FindEntry` files it */
+  rows: ScreenRow[]
+  /** `buff->pos`, the first row on screen */
+  first: number
+  selected: number
+  /** `glob->modeid`, and -1 is INVALID_ID */
+  modeId: number
+  /** `glob->width` and `glob->height`, which are NOT the mode's own size */
+  width: number
+  height: number
+  /** `glob->defwidth` and `glob->defheight`, from the Nominal rectangle */
+  defWidth: number
+  defHeight: number
+  useDefWidth: boolean
+  useDefHeight: boolean
+  depth: number
+  minDepth: number
+  maxDepth: number
+  done: boolean
+  ok: boolean
+  clickFrame: number
+  clickRow: number
+}
+
+/** `rtScreenModeRequestA`'s answer, cached in the extension's `ScreenData` */
+export interface RtScreenResult {
+  displayId: number
+  width: number
+  height: number
+  depth: number
+}
+
+/**
+ * The mode list, `filereqmain.c`:436.
+ *
+ * `NextDisplayInfo` walks the whole database and four tests thin it: a
+ * DUALPF id, an id on the default monitor, one `GetModeData` cannot answer
+ * for, and one whose DisplayInfo says NotAvailable. What survives goes
+ * through `AddEntry` with the id as its `re_Size`, and `FindEntry` files it
+ * on the NAME, case-insensitively --- so the driver's own walk order, lores
+ * then hires then super then the three laced ones, comes out alphabetical.
+ *
+ * The name is the driver's. `GetModeData` builds one itself only when
+ * DTAG_NAME FAILS, and every row in ../amiga/displayinfo.ts is read out of
+ * `Devs/Monitors/PAL`'s own table, so the `%s%ld x %ld` path at `$2eb2` and
+ * its `-HAM`, `-EHB` and `-Interlaced` suffixes are never taken here.
+ */
+function rtScreenRows(): ScreenRow[] {
+  const rows: ScreenRow[] = DISPLAY_MODES.filter((m: DisplayMode) => (m.id & 0xffff_0000) !== 0).map((m: DisplayMode) => ({
+    name: m.name,
+    id: m.id,
+  }))
+  rows.sort((a, b) => {
+    const an = a.name.toLowerCase()
+    const bn = b.name.toLowerCase()
+    return an < bn ? -1 : an > bn ? 1 : 0
+  })
+  return rows
+}
+
+/** `GetModeDimensions`: the Nominal rectangle, which is overscan type 0 */
+function rtModeSize(id: number): { width: number; height: number } {
+  const m = DISPLAY_MODES.find((d) => d.id === id)
+  return m ? { width: m.width, height: m.height } : { width: 0, height: 0 }
+}
+
+/**
+ * `DisplayModeAttrs` plus `SetSizeGads`, run whenever the mode changes.
+ *
+ * The depth clamp is the source's, in its order: HAM lifts the minimum to 7
+ * and pushes a 6 up to 7, EHB pins the minimum to the maximum, then the
+ * RTSC_MinDepth and RTSC_MaxDepth tags clamp both ends and the level after
+ * them. `SetSizeGads` then replaces the width and the height only where the
+ * matching Default box is ticked.
+ */
+function rtScreenAttrs(st: RtScreenState): void {
+  if (st.modeId === -1) return
+  let maxDepth = RT_MAX_DEPTH
+  let minDepth = 1
+  if ((st.modeId & 0x0080) !== 0) minDepth = maxDepth
+  if ((st.modeId & 0x0800) !== 0) {
+    minDepth = 7
+    if (maxDepth === 6) maxDepth = 7
+  }
+  st.maxDepth = maxDepth
+  st.minDepth = minDepth
+  if (st.depth > st.maxDepth) st.depth = st.maxDepth
+  if (st.depth < st.minDepth) st.depth = st.minDepth
+  if (st.useDefWidth) st.width = st.defWidth
+  if (st.useDefHeight) st.height = st.defHeight
+}
+
+/**
+ * Open the screenmode requester. Null when there is no screen for it.
+ *
+ * The first call opens on nothing, and on a zero. `rtAllocRequestA
+ * (RT_SCREENMODEREQ)` at `$96e8` clears the struct, so `rtsc_DisplayID` is 0
+ * rather than INVALID_ID and `filereq.c`:275 takes the ELSE arm: the mode,
+ * the depth, the width and the height all come off the cleared struct.
+ * DisplayID 0 is on the default monitor and the list walk drops it, so
+ * `FindCurrentPos` misses and the FIRST entry is selected instead --- but
+ * `usedefwidth = (glob->width == glob->defwidth)` was already decided against
+ * a `defwidth` of zero, so it is FALSE, and `SetSizeGads` leaves the Width
+ * and Height fields reading 0 under an unticked Default. Ticking either box
+ * is what fills them in.
+ */
+export function startRtScreen(rt: Runtime, setup: ScreenReqSetup, prev: RtScreenResult, slot: number | null): RtScreenState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const m = metricsFor(rt, on)
+  const scr = rt.screens.get(on)
+  if (!m || !scr) return null
+  const layout = screenReqLayout(setup, m)
+  const window = rt.intuition.openWindow({
+    leftEdge: Math.min(RT_SCREENMODEREQ_PREFS.leftOffset, Math.max(0, scr.width - layout.width)),
+    topEdge: Math.min(RT_SCREENMODEREQ_PREFS.topOffset, Math.max(0, scr.height - layout.height)),
+    width: layout.width,
+    height: layout.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    flags: 0x8 | 0x2 | 0x4 | 0x1000,
+    title: layout.title,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const rows = rtScreenRows()
+  const known = rows.findIndex((r) => r.id === prev.displayId)
+  const size = rtModeSize(prev.displayId)
+  const st: RtScreenState = {
+    setup,
+    window,
+    slot: on,
+    rp,
+    layout,
+    rows,
+    first: 0,
+    selected: known,
+    modeId: known === -1 ? -1 : prev.displayId,
+    width: prev.width,
+    height: prev.height,
+    defWidth: size.width,
+    defHeight: size.height,
+    useDefWidth: known !== -1 && prev.width === size.width,
+    useDefHeight: known !== -1 && prev.height === size.height,
+    depth: prev.depth,
+    minDepth: 1,
+    maxDepth: RT_MAX_DEPTH,
+    done: false,
+    ok: false,
+    clickFrame: -99,
+    clickRow: -1,
+  }
+  // `if (!FindCurrentPos (...)) { modeid = firstentry->re_Next->re_Size; ... }`
+  if (st.modeId === -1 && rows[0]) {
+    st.selected = 0
+    st.modeId = rows[0].id
+    const first = rtModeSize(st.modeId)
+    st.defWidth = first.width
+    st.defHeight = first.height
+  }
+  rtScreenAttrs(st)
+  return st
+}
+
+/**
+ * `LeaveReq`, the screenmode arm.
+ *
+ * `if (glob->modeid == INVALID_ID) selfile = FALSE` --- Ok with no mode
+ * chosen answers a cancel. The HAM fix-up on the way out is the source's:
+ * `glob->depth = (glob->depth == 7 ? 6 : 8)`, which turns the slider's
+ * 7-and-8 back into the 6-and-8 a HAM screen is actually opened with, and is
+ * exactly the pair the extension's `cmp.w #$6,d1` at `$5bc2` tests.
+ */
+function rtLeaveScreen(st: RtScreenState): void {
+  st.ok = st.modeId !== -1
+  if (st.ok && (st.modeId & 0x0800) !== 0) st.depth = st.depth === 7 ? 6 : 8
+  st.done = true
+}
+
+/** what the keyword reads once `done` goes up */
+export function rtScreenResult(st: RtScreenState): RtScreenResult {
+  return { displayId: st.modeId, width: st.width, height: st.height, depth: st.depth }
+}
+
+/** one frame of the screenmode requester */
+export function stepRtScreen(rt: Runtime, st: RtScreenState, frame: number): void {
+  if (st.done) return
+
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      st.ok = false
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const hit = screenReqHit(st.layout, msg.mouseX, msg.mouseY, st.minDepth, st.maxDepth)
+    if (!hit) continue
+    if (hit.kind === 'row') {
+      const index = st.first + hit.index
+      const row = st.rows[index]
+      if (!row) continue
+      // `case SCRMODE:` --- the name box takes the row's name, `modeid` takes
+      // its `re_Size`, and GetModeDimensions and DisplayModeAttrs follow
+      const double = st.clickRow === index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
+      st.selected = index
+      st.modeId = row.id
+      const size = rtModeSize(row.id)
+      st.defWidth = size.width
+      st.defHeight = size.height
+      rtScreenAttrs(st)
+      if (double) {
+        rtLeaveScreen(st)
+        return
+      }
+      st.clickRow = index
+      st.clickFrame = frame
+      continue
+    }
+    if (hit.kind === 'scroll') {
+      const max = Math.max(0, st.rows.length - st.layout.entries)
+      st.first = Math.min(max, Math.max(0, st.first + hit.delta))
+      continue
+    }
+    if (hit.kind === 'button') {
+      if (hit.index === 0) {
+        rtLeaveScreen(st)
+        return
+      }
+      st.ok = false
+      st.done = true
+      return
+    }
+    // `case DEFWIDTH: glob->usedefwidth = !glob->usedefwidth; SetSizeGads()`
+    if (hit.kind === 'defWidth') {
+      st.useDefWidth = !st.useDefWidth
+      rtScreenAttrs(st)
+      continue
+    }
+    if (hit.kind === 'defHeight') {
+      st.useDefHeight = !st.useDefHeight
+      rtScreenAttrs(st)
+      continue
+    }
+    // `case DEPTH: UpdateDepthDisplay (glob, code, glob->modeid); glob->depth
+    // = code`, so the readout follows the knob and the level follows with it
+    if (hit.kind === 'depth') {
+      st.depth = hit.at
+      continue
+    }
+  }
+
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  screenReqRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.layout,
+    st.rows,
+    st.first,
+    {
+      selected: st.selected,
+      modeName: st.rows[st.selected]?.name ?? '',
+      displayWidth: st.width,
+      displayHeight: st.height,
+      useDefWidth: st.useDefWidth,
+      useDefHeight: st.useDefHeight,
+      depth: st.depth,
+      minDepth: st.minDepth,
+      maxDepth: st.maxDepth,
+      modeId: st.modeId === -1 ? 0 : st.modeId,
+      overscan: 0,
+      autoScroll: false,
+    },
+    w.leftEdge,
+    w.topEdge,
+  )
+}
+
+/** close the window and let the keyword have its answer */
+export function finishRtScreen(rt: Runtime, st: RtScreenState): void {
   rt.intuition.closeWindow(st.window)
 }

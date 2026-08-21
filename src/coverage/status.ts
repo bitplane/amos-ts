@@ -3895,6 +3895,20 @@ export const FAITHFUL = new Set<string>([
   // sample line under a name field and a four-digit size field. Its answer is
   // the third routine in this extension to hand back the wrong register.
   'irequest font\$',
+  // and the screenmode one, the third arm of the same `FileRequestA`. The
+  // extension asks for SCREQF_SIZEGADS|SCREQF_DEPTHGAD, so the window is the
+  // mode list, a name box, Width and Height fields with a Default box each,
+  // and a colour slider between two readouts. 276 pixels wide flat: the
+  // button row cannot widen a screenmode requester, because `val` in
+  // `SetupReqWindow` belongs to this arm and the `width2 + (num2-1) * 8 +
+  // totaloff` that would have widened it is in the branch this arm skips.
+  //
+  // The first call comes up on a zero. The cleared struct's DisplayID is 0
+  // rather than INVALID_ID, so `usedefwidth` is decided against a `defwidth`
+  // of zero and comes out FALSE, and the Width and Height fields read 0 under
+  // two unticked Default boxes until one of them is clicked.
+  'irequest screen', 'ireq scr mode', 'ireq scr colour', 'ireq scr width',
+  'ireq scr height',
   // `fonts.s`: five readers over `rp_Font` and one setter. `Set Ifont`
   // appends `.font` unless the name already ends in it, and the test is five
   // `cmp.b` in a row, so `"topaz.Font"` is not recognised and becomes
@@ -4338,6 +4352,21 @@ export const NOTES: Record<string, string> = {
     "move.l a0,(a7)`. DEVIATION: no Amiga heap here to read a length out of, so it answers the name.font/size " +
     "the author meant. The pairing the guide sells with Set Ifont still fails, because Set Ifont is broken on " +
     "its own account. A cancel takes `dlea NullStr,a0`, the zero word at $a2(a4), and that path is correct.",
+  "irequest screen":
+    "Routine 217 ($5ae2), with 218 ($5c06) for the form that takes no title. The third arm of reqtools' one " +
+    "FileRequestA: `rtScreenModeRequestA` is four lines that call it with a null filename, the same as " +
+    "rtFontRequestA. `.tags dc.l RTSC_Flags,SCREQF_SIZEGADS|SCREQF_DEPTHGAD`, and the tag list at $5bfa reads " +
+    "`80 00 00 28 00 00 60 00`, so the window carries Width and Height fields with a Default box each and a " +
+    "colour slider between two readouts, and no overscan cycle -- the overscan type is therefore always 0. " +
+    "Guarded by `tst.b $22(a4) / Rbeq routine 148`, error 2, which this machine never takes. The colour count " +
+    "is the extension's own `$5bb8 moveq #$1,d0 / lsl.l d1,d0`, with a HAM mode branching at `$5bc2 cmp.w " +
+    "#$6,d1` to 4096 or 262144; reqtools' own readout would say 16M for the second of those, so the two " +
+    "disagree by design. DEVIATION: the depth slider offers 1 to 8 rather than the mode's own MaxDepth, " +
+    "because ../amiga/displayinfo.ts cannot read a DimensionInfo -- `pal 39.3` computes its rectangles at run " +
+    "time instead of storing them -- and 8 is this machine's AA ceiling. DEVIATION: a click on the slider sets " +
+    "the level under the pointer; GadTools would drag the knob or page by one, and nothing here tracks a drag. " +
+    "DEVIATION: the Width and Height fields are readouts, not string gadgets, so the size is chosen with the " +
+    "two Default boxes; no requester in this port takes typed input.",
   "irequest def title":
     "Routine 231 ($5ed4). DEFECT: an empty string is meant to put \"AMOS Request\" back and does not. " +
     "`$5f16 lea.l $42(a4),a2` takes the ADDRESS of the data cell where startup.s:381 stored the pointer, not " +

@@ -78,18 +78,23 @@ import {
   finishRtFile,
   finishRtFont,
   finishRtReq,
+  finishRtScreen,
   startRtFile,
   startRtFont,
   startRtReq,
+  startRtScreen,
   stepRtFile,
   stepRtFont,
   stepRtReq,
+  stepRtScreen,
   type RtFileState,
   type RtFontState,
   type RtReqArgs,
   type RtReqState,
+  type RtScreenResult,
+  type RtScreenState,
 } from './rtreq'
-import type { FileReqSetup, FontReqSetup } from '../amiga/reqtools'
+import type { FileReqSetup, FontReqSetup, ScreenReqSetup } from '../amiga/reqtools'
 import type { AslFontState, AslModeState, AslState } from './aslreq'
 import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
@@ -2495,6 +2500,31 @@ export class Runtime {
     if (!st || st.done) return
     stepRtFont(this, st, this.frames)
     if (st.done) finishRtFont(this, st)
+  }
+
+  /**
+   * reqtools' SCREENMODE requester, while one is up.
+   *
+   * The third arm of the same `FileRequestA`, and the third field for the
+   * same reason: `$178(a4)` is its own `rtAllocRequestA` struct and what the
+   * user picked is still in it when the next call opens.
+   */
+  rtScreen: RtScreenState | null = null
+
+  /** Open the screenmode requester. False when there is no screen for it. */
+  startRtScreenRequest(setup: ScreenReqSetup, prev: RtScreenResult, slot: number | null): boolean {
+    if (this.rtScreen) return false
+    const st = startRtScreen(this, setup, prev, slot)
+    if (!st) return false
+    this.rtScreen = st
+    return true
+  }
+
+  private stepRtScreenRequest(): void {
+    const st = this.rtScreen
+    if (!st || st.done) return
+    stepRtScreen(this, st, this.frames)
+    if (st.done) finishRtScreen(this, st)
   }
 
   /** Open the screen-mode requester. False when there is no screen for it. */
@@ -4970,6 +5000,7 @@ export class Runtime {
     this.stepRtRequest()
     this.stepRtFileRequest()
     this.stepRtFontRequest()
+    this.stepRtScreenRequest()
     this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
@@ -5243,7 +5274,7 @@ export class Runtime {
       const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'rtreq') {
-      const up = this.rtReq ?? this.rtFile ?? this.rtFont
+      const up = this.rtReq ?? this.rtFile ?? this.rtFont ?? this.rtScreen
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
@@ -5396,6 +5427,10 @@ export class Runtime {
           this.rtFont.result = ''
           this.rtFont.done = true
           finishRtFont(this, this.rtFont)
+        } else if (this.rtScreen && !this.rtScreen.done) {
+          this.rtScreen.ok = false
+          this.rtScreen.done = true
+          finishRtScreen(this, this.rtScreen)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')

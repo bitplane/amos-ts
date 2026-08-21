@@ -62,11 +62,14 @@ import {
   RT_MAXINT,
   RT_MININT,
   RT_TEXT,
+  SCREQF,
   type FileReqSetup,
   type FontReqSetup,
   type ReqEntry,
   type ReqSetup,
+  type ScreenReqSetup,
 } from '../amiga/reqtools'
+import { rtScreenResult } from './rtreq'
 import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
@@ -473,6 +476,25 @@ export class IextState {
    */
   fontReqName = ''
   fontReqSize = 0
+  /**
+   * The ScreenModeReq at `$178(a4)`, allocated once at `$96e8` and cleared.
+   *
+   * `filereq.c`:264 tests `DisplayID == INVALID_ID` and a cleared struct
+   * holds 0, not ~0, so the first `=Irequest Screen` reads its mode, depth,
+   * width and height straight off the zeros. What Ok leaves here is what the
+   * next call opens on.
+   */
+  screenReq = { displayId: 0, width: 0, height: 0, depth: 0 }
+  /**
+   * `ScreenData` at `$17c(a4)`, `defs.i`:145: sd_Width, sd_Height, sd_NumCols
+   * at +4, sd_DisplayID at +8 and sd_ViewModes at +$c.
+   *
+   * A separate cache from the requester struct, and only the `.ok` arm at
+   * `$5b8c` writes it --- a cancelled requester leaves the last answer
+   * standing, which is what makes the four `Ireq Scr` readers safe to call
+   * after one.
+   */
+  screenData = { width: 0, height: 0, numCols: 0, displayId: 0, viewModes: 0 }
   /**
    * Set by `runHeadless` when it breaks a wait nobody is going to satisfy.
    *
@@ -1221,6 +1243,34 @@ function startFontReq(rt: Runtime, st: IextState, title: string): void {
   }
   if (!rt.startRtFontRequest(setup, st.fontReqName, st.fontReqSize, reqSlot(st))) iError(E.NRT)
 }
+
+/** the tag list `request.s` builds for `rtScreenModeRequestA`, and the open */
+function startScreenReq(rt: Runtime, st: IextState, title: string): void {
+  const setup: ScreenReqSetup = {
+    title,
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    // `.tags dc.l RTSC_Flags,SCREQF_SIZEGADS|SCREQF_DEPTHGAD`, and the tag
+    // list at `$5bfa` reads `80 00 00 28 00 00 60 00`. So there are Width,
+    // Height and colour gadgets and no overscan cycle: the size a program
+    // gets back is whatever the user typed or left, and the overscan type is
+    // always 0, Regular Size
+    flags: SCREQF.SIZEGADS | SCREQF.DEPTHGAD,
+    height: 0,
+  }
+  if (!rt.startRtScreenRequest(setup, st.screenReq, reqSlot(st))) iError(E.NRT)
+}
+
+/**
+ * `MODES equ HIRES | HAM | EHB | SUPERHIRES | LACED`, `defs.i`:170.
+ *
+ * $8000 | $0800 | $0080 | $0020 | $0004 is $88a4, which is the literal in
+ * `$5ba6 and.w #$88a4,d0`. Church keeps the low half of the DisplayID and
+ * throws the monitor away, so `=Ireq Scr Mode(0)` answers a ViewModes word
+ * an `Iscreen Open` can be handed and `=Ireq Scr Mode(1)` answers the whole
+ * id.
+ */
+const IEXT_MODES_MASK = 0x88a4
 
 export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
   return wrapTrapped(iextInstructions(rt))
@@ -2759,6 +2809,91 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
       it.block({ type: 'rtreq' }, true)
       return VS('')
     },
+
+    /**
+     * `=Irequest Screen([title$])` --- routine 217, with 218 for the short
+     * form.
+     *
+     * The guide is exact about what it is for: *"Requests a screen mode,
+     * size, and depth from the user."* The answer is a boolean, `moveq #-1,d3`
+     * at `$5b8a` against `moveq #$0,d3` at `$5b86`, and the values go into
+     * `ScreenData` for the four `Ireq Scr` readers to pick up.
+     *
+     * `dtst.b WB20 / beq L_NeedKick20` guards it, error 2, "Need Kickstart
+     * 2.0 or higher". This machine declares Kickstart 40, so the arm is
+     * reproduced by being written down and never taken. The library's own
+     * autodoc is blunter than the guide about why: *"The 1.3 version of
+     * ReqTools also contains the screenmode requester, but unless you are
+     * running 2.0 or higher it will not come up."*
+     *
+     * The title is StrAlloc'd into a C string, passed in a3 --- the FD is
+     * `rtScreenModeRequestA(screenmodereq,title,taglist)(A1,A3,A0)` --- and
+     * freed after, and this one guards the free with `move.l a3,d0 / beq
+     * .nottl`. `=Irequest File$` does not, and calls StrFree on a null.
+     *
+     * The colour count is the extension's own arithmetic, not the library's:
+     * `$5bb8 moveq #$1,d0 / lsl.l d1,d0` off `rtsc_DisplayDepth`, with a HAM
+     * mode branching to 4096 at depth 6 and 262144 otherwise. So an EHB mode
+     * would read 64 in the requester and 64 here by coincidence rather than
+     * by agreement, and a HAM8 screen reads 262144 where reqtools' own
+     * readout says 16M.
+     */
+    'irequest screen': (it, a): Value => {
+      const st = s()
+      if (rt.rtScreen) {
+        if (!rt.rtScreen.done) {
+          it.block({ type: 'rtreq' }, true)
+          return VI(0)
+        }
+        const r = rt.rtScreen
+        const got = rtScreenResult(r)
+        const ok = r.ok
+        rt.rtScreen = null
+        // the requester struct outlives the call, so the next one opens here
+        st.screenReq = got
+        if (!ok) return VI(0)
+        st.screenData = {
+          width: got.width,
+          height: got.height,
+          displayId: got.displayId,
+          viewModes: got.displayId & IEXT_MODES_MASK,
+          numCols:
+            (got.displayId & 0x0800) !== 0 ? (got.depth === 6 ? 4096 : 262_144) : 1 << got.depth,
+        }
+        return VI(-1)
+      }
+      startScreenReq(rt, st, a.length >= 1 ? str(a[0]!) : '')
+      it.block({ type: 'rtreq' }, true)
+      return VI(0)
+    },
+
+    /**
+     * `=Ireq Scr Mode(n)` --- routine 219.
+     *
+     * `move.l (a3)+,d0 / bne .dispID`: zero answers sd_ViewModes at `$c` of
+     * ScreenData, a word, and anything else answers sd_DisplayID at `$8`, a
+     * long. The guide names the pair *"If n is 0, the screen mode (e.g. Ham,
+     * Hires) is returned."*
+     */
+    'ireq scr mode': (_it, a): Value => {
+      const d = s().screenData
+      return VI(int(a[0]!) === 0 ? d.viewModes : d.displayId)
+    },
+
+    /**
+     * `=Ireq Scr Colour` --- routine 220, `move.l sd_NumCols(a0),d3`.
+     *
+     * The guide: *"Returns the number of colours from the most recent
+     * Irequest Screen."* Zero until one has been answered, because
+     * `rtAllocRequestA` cleared the block it reads.
+     */
+    'ireq scr colour': (): Value => VI(s().screenData.numCols),
+
+    /** `=Ireq Scr Width` --- routine 221, `move.w sd_Width(a0),d3` */
+    'ireq scr width': (): Value => VI(s().screenData.width),
+
+    /** `=Ireq Scr Height` --- routine 222, `move.w sd_Height(a0),d3` */
+    'ireq scr height': (): Value => VI(s().screenData.height),
 
     /**
      * `=Irequest Warning([title$,] s$, ok$, cancel$)` --- routine 223.

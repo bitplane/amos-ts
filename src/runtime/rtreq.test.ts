@@ -634,3 +634,161 @@ describe('Irequest Font$', () => {
     expect(b.out().trim()).toBe('[]')
   })
 })
+
+/** click at a window-relative point on the screenmode requester */
+function stclick(rt: Runtime, wx: number, wy: number): void {
+  const st = rt.rtScreen!
+  const scr = rt.screens.get(WB_SLOT)!
+  rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+  rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+  rt.input.mouseK = 1
+  rt.frame()
+  rt.input.mouseK = 0
+  rt.frame()
+}
+
+/** click mode row `i`, counting from the top of the visible list */
+function strow(rt: Runtime, i: number): void {
+  const l = rt.rtScreen!.layout
+  stclick(rt, l.boxLeft + 4, l.boxTop + i * l.entryHeight + 2)
+}
+
+/** click Ok (0) or Cancel (1) */
+function stbutton(rt: Runtime, i: number): void {
+  const b = rt.rtScreen!.layout.buttons[i]!.box
+  stclick(rt, b.x + (b.w >> 1), b.y + (b.h >> 1))
+}
+
+/** click the middle of a box the layout named */
+function stbox(rt: Runtime, b: { x: number; y: number; w: number; h: number }): void {
+  stclick(rt, b.x + (b.w >> 1), b.y + (b.h >> 1))
+}
+
+describe('Irequest Screen', () => {
+  const PROG = 'A=Irequest Screen("Pick a mode")\nPrint "[";A;"]"'
+
+  it('lists the installed modes by name, filed alphabetically', () => {
+    const b = boot(PROG)
+    const rows = b.rt.rtScreen!.rows
+    // `FindEntry` files a SCRMODE on the name alone, so the driver's own walk
+    // order comes out sorted; a mode row carries no size, because PrintEntry
+    // fills `sizestr` for five entry types and SCRMODE is none of them
+    expect(rows.map((r) => r.name)).toEqual([
+      'PAL:High Res',
+      'PAL:High Res Laced',
+      'PAL:Low Res',
+      'PAL:Low Res Laced',
+      'PAL:Super-High Res',
+      'PAL:Super-High Res Laced',
+    ])
+  })
+
+  it('opens on the first mode, and on a width and height of zero', () => {
+    // the cleared struct holds DisplayID 0, which the list walk drops as a
+    // default-monitor id, so FindCurrentPos misses and the first entry is
+    // taken. `usedefwidth = (glob->width == glob->defwidth)` was decided
+    // against a defwidth of zero before that, so it stays FALSE
+    const st = boot(PROG).rt.rtScreen!
+    expect(st.selected).toBe(0)
+    expect(st.rows[0]!.name).toBe('PAL:High Res')
+    expect(st.width).toBe(0)
+    expect(st.height).toBe(0)
+    expect(st.useDefWidth).toBe(false)
+    expect(st.useDefHeight).toBe(false)
+  })
+
+  it('fills the size in when a Default box is ticked', () => {
+    const b = boot(PROG)
+    const l = b.rt.rtScreen!.layout
+    stbox(b.rt, l.defWidth!)
+    stbox(b.rt, l.defHeight!)
+    const st = b.rt.rtScreen!
+    expect(st.useDefWidth).toBe(true)
+    // PAL:High Res is 640 by 256, the hires bit doubling the nominal width
+    expect(st.width).toBe(640)
+    expect(st.height).toBe(256)
+  })
+
+  it('is True for Ok and False for Cancel', () => {
+    const ok = boot(PROG)
+    stbutton(ok.rt, 0)
+    for (let k = 0; k < 8; k++) ok.rt.frame()
+    expect(ok.out().trim()).toBe('[-1]')
+    const no = boot(PROG)
+    stbutton(no.rt, 1)
+    for (let k = 0; k < 8; k++) no.rt.frame()
+    expect(no.out().trim()).toBe('[ 0]')
+  })
+
+  it('leaves on a double click without waiting for Ok', () => {
+    const b = boot(PROG)
+    strow(b.rt, 2)
+    strow(b.rt, 2)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('[-1]')
+  })
+
+  it('feeds the four readers off ScreenData, not off the requester', () => {
+    const b = boot(
+      'A=Irequest Screen\nPrint Ireq Scr Width;" ";Ireq Scr Height;" ";Ireq Scr Colour;" ";Ireq Scr Mode(0);" ";Ireq Scr Mode(1)',
+    )
+    // PAL:Low Res Laced, then Default on both boxes so the size is real
+    strow(b.rt, 3)
+    const l = b.rt.rtScreen!.layout
+    stbox(b.rt, l.defWidth!)
+    stbox(b.rt, l.defHeight!)
+    stbutton(b.rt, 0)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    // 320 by 512, 2 colours from the slider's own minimum of 1, ViewModes is
+    // `id & $88a4` which keeps LACED and throws the PAL monitor away, and
+    // n <> 0 answers the whole DisplayID
+    expect(b.out().trim()).toBe('320  512  2  4  135172')
+  })
+
+  it('takes the colour count off the slider, and the count is 1 << depth', () => {
+    const b = boot('A=Irequest Screen\nPrint Ireq Scr Colour')
+    const d = b.rt.rtScreen!.layout.depth!
+    // the right-hand end of the slider is the maximum depth this port opens
+    stclick(b.rt, d.x + d.w - 1, d.y + (d.h >> 1))
+    expect(b.rt.rtScreen!.depth).toBe(8)
+    stbutton(b.rt, 0)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    expect(b.out().trim()).toBe('256')
+  })
+
+  it('leaves the last answer standing when the next one is cancelled', () => {
+    // only the `.ok` arm at `$5b8c` writes ScreenData
+    const b = boot('A=Irequest Screen\nB=Irequest Screen\nPrint Ireq Scr Width')
+    strow(b.rt, 4)
+    const l = b.rt.rtScreen!.layout
+    stbox(b.rt, l.defWidth!)
+    stbutton(b.rt, 0)
+    for (let k = 0; k < 6; k++) b.rt.frame()
+    stbutton(b.rt, 1)
+    for (let k = 0; k < 8; k++) b.rt.frame()
+    // PAL:Super-High Res is 1280 wide, and the cancel did not overwrite it
+    expect(b.out().trim()).toBe('1280')
+  })
+
+  it('comes up where the last one was left', () => {
+    const b = boot('A=Irequest Screen\nB=Irequest Screen\nPrint B')
+    strow(b.rt, 5)
+    stbutton(b.rt, 0)
+    for (let k = 0; k < 6; k++) b.rt.frame()
+    const second = b.rt.rtScreen!
+    expect(second.selected).toBe(5)
+    expect(second.rows[5]!.name).toBe('PAL:Super-High Res Laced')
+  })
+
+  it('takes the title from its argument and comes up untitled without one', () => {
+    expect(boot(PROG).rt.rtScreen!.layout.title).toBe('Pick a mode')
+    // routine 218 is `clr.l -(a3)` into 217, and a null title is `sub.l a3,a3`
+    expect(boot('A=Irequest Screen\nPrint A').rt.rtScreen!.layout.title).toBe('')
+  })
+
+  it('cancels rather than hanging when nobody is there to click it', () => {
+    const b = boot(PROG)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[ 0]')
+  })
+})

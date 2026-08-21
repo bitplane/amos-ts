@@ -29,10 +29,15 @@ import {
   rtStrWidth,
   fileReqLayout,
   fontReqLayout,
+  RT_SCREENMODEREQ_PREFS,
+  SCREQF,
+  rtBuildColStr,
+  screenReqLayout,
   type FileReqSetup,
   type FontReqSetup,
   type ReqMetrics,
   type ReqSetup,
+  type ScreenReqSetup,
 } from './reqtools'
 
 /** topaz 8 on this port's Workbench, which is where every AMOS caller lands */
@@ -495,5 +500,127 @@ describe('reqtools: the font requester layout', () => {
     // ends up one pixel HIGHER than it was without the checkboxes
     expect(styled.entries).toBe(l.entries - 2)
     expect(styled.buttons[0]!.box.y).toBe(l.buttons[0]!.box.y + 17 - 2 * l.entryHeight)
+  })
+})
+
+describe('reqtools: the screenmode requester layout', () => {
+  const scrSetup = (over: Partial<ScreenReqSetup> = {}): ScreenReqSetup => ({
+    title: 'Pick a screen',
+    okText: RT_TEXT.ok,
+    underscore: '_',
+    // what `request.s`:537 asks for, and what the tag list at $5bfa holds
+    flags: SCREQF.SIZEGADS | SCREQF.DEPTHGAD,
+    height: 0,
+    ...over,
+  })
+
+  const l = screenReqLayout(scrSetup(), WB)
+
+  it('is 276 wide, the flat number, because the rows ask for less', () => {
+    // `$7578 move.l #$114,$11c(a7)`. The SIZEGADS row asks for
+    // 72 + 56 + 60 + 8 + 8 + 26 + 8 + 4 + 18 = 260, so the flat number wins
+    expect(l.width).toBe(276)
+  })
+
+  it('lets the SIZEGADS row widen it once the font is big enough', () => {
+    const wide = screenReqLayout(scrSetup(), { ...WB, measure: (s) => s.length * 12 })
+    // 108 + 84 + (72 + 12) + 8 + 8 + 26 + 8 + 4 + 18
+    expect(wide.width).toBe(348)
+  })
+
+  it('never lets the button row widen it, however long the Ok text is', () => {
+    // `val` belongs to the screenmode block; the `width2 + (num2-1) * 8 +
+    // totaloff` that widens a file or font requester is in the branch this
+    // arm skips. CheckGadgetsSize shrinks the buttons instead
+    const long = screenReqLayout(scrSetup({ okText: 'x'.repeat(40) }), WB)
+    expect(long.width).toBe(276)
+    // CheckGadgetsSize rounds the overlap UP in 16.16, so 672 down to 258
+    // takes 207 off each of the two rather than 208
+    expect(long.buttons[0]!.box.w).toBe(129)
+  })
+
+  it('takes 65 per cent of the height and never lists more than ten modes', () => {
+    // reqheight = 166, and `below` is 34 for the name box and the buttons,
+    // + 31 for the two size rows, + 13 for the colour row
+    expect(l.entries).toBe(Math.trunc((166 - 78 - 13 - 10) / 9))
+    expect(l.entries).toBe(7)
+    const tall = screenReqLayout(scrSetup(), { ...WB, visibleHeight: 512 })
+    expect(tall.entries).toBe(RT_SCREENMODEREQ_PREFS.maxEntries)
+    const small = screenReqLayout(scrSetup(), { ...WB, visibleHeight: 200 })
+    expect(small.entries).toBe(RT_SCREENMODEREQ_PREFS.minEntries)
+  })
+
+  it('puts the mode name straight under the list, half a gap up', () => {
+    // the shared code adds `spacing / 2` after the scroller and the
+    // screenmode arm takes it straight back off
+    expect(l.listFrame).toEqual({ x: 9, y: 13, w: 240, h: 67 })
+    expect(l.scroller).toEqual({ x: 249, y: 13, w: 18, h: 67 })
+    expect(l.modeName).toEqual({ x: 9, y: 80, w: 258, h: 12 })
+  })
+
+  it('lines the Width and Height fields up in a column with their labels', () => {
+    // val = widthheightlen + 8 + leftoff + 2 = 72 + 8 + 9 + 2
+    expect(l.widthGad).toEqual({ x: 91, y: 94, w: 60, h: 14 })
+    expect(l.heightGad).toEqual({ x: 91, y: 109, w: 60, h: 14 })
+    // 38.1092 pads both labels to ten characters, so the two land together
+    expect(l.widthLabel!.x).toBe(11)
+    expect(l.heightLabel!.x).toBe(11)
+  })
+
+  it('hangs a Default checkbox off each field with its label to the right', () => {
+    expect(l.defWidth).toEqual({ x: 159, y: 95, w: 26, h: 11 })
+    expect(l.defHeight).toEqual({ x: 159, y: 110, w: 26, h: 11 })
+    expect(l.defWidthLabel).toEqual({ text: 'Default', x: 189, y: 96 })
+  })
+
+  it('puts the slider between the two colour readouts', () => {
+    expect(l.colors).toEqual({ x: 75, y: 125, w: 40, h: 11 })
+    // winwidth - 22 - rightoff - LeftEdge - StrWidth("0000 ") - StrWidth("Max:")
+    expect(l.depth).toEqual({ x: 123, y: 125, w: 50, h: 11 })
+    expect(l.maxColors).toEqual({ x: 225, y: 125, w: 40, h: 11 })
+    expect(l.maxColors!.x + l.maxColors!.w).toBeLessThanOrEqual(l.width - 9)
+  })
+
+  it('leaves out the gadgets the flags did not ask for', () => {
+    const bare = screenReqLayout(scrSetup({ flags: 0 }), WB)
+    expect(bare.widthGad).toBeNull()
+    expect(bare.depth).toBeNull()
+    expect(bare.overscan).toBeNull()
+    expect(bare.autoScroll).toBeNull()
+    // 44 pixels of gadget gone is five more rows of list, and the ten-row
+    // ceiling in the prefs takes two of them straight back
+    expect(bare.entries).toBe(RT_SCREENMODEREQ_PREFS.maxEntries)
+  })
+
+  it('has two buttons under the last row, Ok at the left and Cancel at the right', () => {
+    expect(l.buttons.map((g) => g.text)).toEqual([' Ok ', 'Cancel'])
+    expect(l.buttons.map((g) => g.box.x)).toEqual([9, 203])
+    expect(l.buttons[0]!.box.y).toBe(138)
+    expect(l.height).toBe(164)
+  })
+
+  it('measures the overscan row off the widest of its four labels', () => {
+    const over = screenReqLayout(scrSetup({ flags: SCREQF.OVERSCANGAD }), WB)
+    // `Graphics Size` is the longest at 104, + 72 + 36 + 8 + 18 + 2 = 240,
+    // which the flat 276 still beats
+    expect(over.width).toBe(276)
+    expect(over.overscan).toEqual({ x: 91, y: 121, w: 176, h: 14 })
+    // it beats it once the font is big enough: 156 + 108 + 36 + 8 + 18 + 2
+    const wide = screenReqLayout(scrSetup({ flags: SCREQF.OVERSCANGAD }), { ...WB, measure: (s) => s.length * 12 })
+    expect(wide.width).toBe(328)
+  })
+
+  it('counts colours the library way, which is not 1 << depth', () => {
+    expect(rtBuildColStr(1, 0)).toBe('2')
+    expect(rtBuildColStr(8, 0)).toBe('256')
+    // over four digits it divides down and suffixes
+    expect(rtBuildColStr(13, 0)).toBe('8192')
+    expect(rtBuildColStr(14, 0)).toBe('16K')
+    expect(rtBuildColStr(24, 0)).toBe('16M')
+    // a HAM mode reads 4096 at depth 7 and 16M at anything else
+    expect(rtBuildColStr(7, 0x0800)).toBe('4096')
+    expect(rtBuildColStr(8, 0x0800)).toBe('16M')
+    // and an EHB mode reads 64 whatever its depth
+    expect(rtBuildColStr(3, 0x0080)).toBe('64')
   })
 })

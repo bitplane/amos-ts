@@ -1616,3 +1616,549 @@ export function fontReqRender(
   }
   rp.restore(save)
 }
+
+/* --------------------------------------------------------------------------
+ * The screenmode requester
+ *
+ * `rtScreenModeRequestA` is the same four lines as `rtFontRequestA`: it calls
+ * `FileRequestA` with a null filename, so this is the THIRD arm of one
+ * window. The list is the same list, the scroller is the same scroller, and
+ * everything under them is different.
+ *
+ * Four flags decide what that is, and `intuition-1.3b` sets two of them ---
+ * `request.s`:537 is `dc.l RTSC_Flags,SCREQF_SIZEGADS|SCREQF_DEPTHGAD`, and
+ * the tag list at `$5bfa` really does read `80 00 00 28 00 00 60 00`. So the
+ * requester it opens has a Width and a Height field with a Default box beside
+ * each, and a colour slider between two readouts; it has no overscan cycle
+ * and no autoscroll box. Both of those are laid out here anyway, because the
+ * WINDOW WIDTH is a maximum over the two arms and getting one wrong moves the
+ * other.
+ *
+ * ## Where 38.1092 differs from the sources
+ *
+ * `_Width   :` and `_Height  :` are padded to ten characters in 38.1092 and
+ * unpadded in 38.1436, which the header already records. This arm is why.
+ * 38.1436 measures both labels and takes the larger; 38.1092 measures only
+ * the width one --- `$7554 lea.l $2f68(pc),a1` is MSG_WIDTH inside the width
+ * calculation and MSG_HEIGHT is not fetched until `$7de2`, long after the
+ * window has been sized. The padding makes the two the same length so that
+ * measuring one is measuring both, and it is what keeps the labels in a
+ * column. Unpadding them without also measuring both would have moved the
+ * Height field left by one character.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The screenmode requester's prefs, from the same `$14c` build loop.
+ *
+ * `moveq #$41,d1` is 65 and the four `bsr.b $14c` after `$19c` fill the font,
+ * palette, screenmode and volume requesters from it. Only the file requester
+ * overwrites the shared tail, so ten modes is the most this list ever shows.
+ */
+export const RT_SCREENMODEREQ_PREFS = {
+  size: 65,
+  reqPos: REQPOS.TOPLEFTSCR,
+  leftOffset: 25,
+  topOffset: 18,
+  minEntries: 6,
+  maxEntries: 10,
+} as const
+
+/** what a screenmode request asks for, after its tag list has been read */
+export interface ScreenReqSetup {
+  /** `glob->title`, straight off `rtScreenModeRequestA`'s a3 */
+  title: string
+  /** RTSC_OkText, or ` _Ok ` when the tag is absent */
+  okText: string
+  /** RT_Underscore, which reaches the OK gadget only */
+  underscore: string
+  /** RTSC_Flags */
+  flags: number
+  /** RTSC_Height, 0 for the prefs default */
+  height: number
+}
+
+/** one row of the mode list: what the driver calls it, and its DisplayID */
+export interface ScreenRow {
+  name: string
+  id: number
+}
+
+/** a word drawn beside a gadget, already placed */
+export interface ReqLabel {
+  text: string
+  x: number
+  y: number
+}
+
+export interface ScreenReqLayout {
+  width: number
+  height: number
+  title: string
+  entries: number
+  entryHeight: number
+  listFrame: ReqBox
+  boxLeft: number
+  boxTop: number
+  boxRight: number
+  scroller: ReqBox
+  /**
+   * The bordered box naming the chosen mode. The comment above it in
+   * `filereqsetup.c`:540 is the author's own: "Remove this one please. ;)"
+   */
+  modeName: ReqBox
+  /** the overscan cycle gadget, absent without SCREQF_OVERSCANGAD */
+  overscan: ReqBox | null
+  overscanLabel: ReqLabel | null
+  /** the Width and Height fields, absent without SCREQF_SIZEGADS */
+  widthGad: ReqBox | null
+  heightGad: ReqBox | null
+  widthLabel: ReqLabel | null
+  heightLabel: ReqLabel | null
+  /** the two `Default` checkboxes that go with them */
+  defWidth: ReqBox | null
+  defHeight: ReqBox | null
+  defWidthLabel: ReqLabel | null
+  defHeightLabel: ReqLabel | null
+  /** the colour readout, the slider and the `Max:` readout */
+  colors: ReqBox | null
+  colorsLabel: ReqLabel | null
+  depth: ReqBox | null
+  maxColors: ReqBox | null
+  maxLabel: ReqLabel | null
+  /** the autoscroll checkbox, absent without SCREQF_AUTOSCROLLGAD */
+  autoScroll: ReqBox | null
+  autoScrollLabel: ReqLabel | null
+  /** Ok and Cancel, in that order */
+  buttons: ReqGadget[]
+}
+
+/** the four labels the overscan cycle gadget rotates through */
+export const RT_OSCAN_LABELS: readonly string[] = [RT_TEXT.regularSize, RT_TEXT.textSize, RT_TEXT.gfxSize, RT_TEXT.maxSize]
+
+/** `graphics/view.i`: HAMF, and `defs.i`:165 spells the same bit `HAM` */
+export const RT_MODE_HAM = 0x0800
+/** EXTRA_HALFBRITE, `defs.i`:166 */
+export const RT_MODE_EHB = 0x0080
+
+/**
+ * `BuildColStr`, `filereqextra.c`:1444.
+ *
+ * Not `1 << depth` in the general case: a HAM mode reads 4096 at depth 7 and
+ * 16,777,216 at anything else, an EHB mode reads 64 whatever its depth, and
+ * anything over four digits is divided down and suffixed. So the readout and
+ * the number `=Ireq Scr Colour` answers are computed by two different rules
+ * --- the extension does its own `moveq #$1,d0 / lsl.l d1,d0` at `$5bb8` and
+ * never asks the library.
+ */
+export function rtBuildColStr(depth: number, id: number): string {
+  let colors = 1 << depth
+  if ((id & RT_MODE_HAM) !== 0) colors = colors === 128 ? 4096 : 16_777_216
+  if ((id & RT_MODE_EHB) !== 0) colors = 64
+  if (colors <= 9999) return String(colors)
+  colors = Math.trunc(colors / 1024)
+  if (colors <= 999) return `${colors}K`
+  return `${Math.trunc(colors / 1024)}M`
+}
+
+/**
+ * `filereqsetup.c`'s `SetupReqWindow`, the screenmode arm.
+ *
+ * The window width starts at a flat 276 --- `$7578 move.l #$114,$11c(a7)` ---
+ * and only the gadget rows can widen it. Two things follow that are easy to
+ * miss. The button row CANNOT widen it, because `val` is the screenmode
+ * block's own working variable and the `width2 + (num2-1) * 8 + totaloff`
+ * that the file and font arms compute lives in the branch this one skips; a
+ * long RTSC_OkText therefore gets shrunk by `CheckGadgetsSize` rather than
+ * given room. And the SIZEGADS row's demand is `widthheightlen +
+ * StrWidth(Default) + dimgadwidth + 8 + 8 + checkw + 8 + 4 + totaloff`, whose
+ * constant half the compiler folded into `$7608 moveq #$54,d1`: 12 + 8 + 8 +
+ * 26 + 8 + 4 + 18 is 84, which is the third independent reading that puts
+ * CHECKBOX_WIDTH at 26 and `totaloff` at 18. On topaz 8 the row asks for 260
+ * and the flat 276 wins, so the extension's requester is 276 wide.
+ */
+export function screenReqLayout(setup: ScreenReqSetup, m: ReqMetrics): ScreenReqLayout {
+  const spacing = rtSpacing(m.visibleHeight)
+  const stdGad = m.fontHeight + 6
+  const entryHeight = m.fontHeight + 1
+  const leftoff = m.wBorLeft + 5
+  const rightoff = m.wBorRight + 5
+  const totaloff = leftoff + rightoff
+  const startTop = m.wBorTop + m.screenFontHeight + 1 + spacing
+  const width = (s: string): number => rtStrWidth(s, m.measure)
+  const checkSkip = Math.max(RT_CHECKBOX_HEIGHT, m.fontHeight)
+  const sizeGads = (setup.flags & SCREQF.SIZEGADS) !== 0
+  const depthGad = (setup.flags & SCREQF.DEPTHGAD) !== 0
+  const overscanGad = (setup.flags & SCREQF.OVERSCANGAD) !== 0
+  const autoScrollGad = (setup.flags & SCREQF.AUTOSCROLLGAD) !== 0
+
+  const defaultHeight = setup.height === 0
+  const reqHeight = defaultHeight
+    ? Math.trunc((RT_SCREENMODEREQ_PREFS.size * m.visibleHeight) / 100)
+    : Math.min(setup.height, m.visibleHeight)
+
+  // everything under the list, a flag at a time
+  let below = stdGad + m.fontHeight + spacing * 2 + 8
+  if (sizeGads) below += spacing + stdGad * 2 + Math.trunc(spacing / 2)
+  if (depthGad) below += m.fontHeight + 3 + spacing
+  if (overscanGad) below += stdGad + spacing
+  if (autoScrollGad) below += checkSkip + spacing
+
+  let entries = Math.trunc((reqHeight - below - startTop - RT_BOTTOM_BORDER) / entryHeight)
+  const floor = defaultHeight ? RT_SCREENMODEREQ_PREFS.minEntries : 3
+  if (entries < floor) entries = floor
+  const ceiling = defaultHeight ? RT_SCREENMODEREQ_PREFS.maxEntries : 50
+  if (entries > ceiling) entries = ceiling
+
+  // `num1 = 4; num2 = 2; width1 = 0`, and `gadtxt[5] = gadtxt[7]` puts Cancel
+  // in the second slot before the pair is measured
+  const buttonText = [setup.okText, RT_TEXT.cancel]
+  let width2 = buttonText.reduce((w, s) => Math.max(w, width(s) + 16), 0)
+  const buttonLens = buttonText.map(() => width2)
+  width2 *= 2
+
+  // 38.1092 measures MSG_WIDTH alone; the two labels are padded to the same
+  // ten characters so that is also MSG_HEIGHT's width
+  const widthHeightLen = Math.max(width(RT_TEXT.width), overscanGad ? width(RT_TEXT.overscan) : 0)
+  const dimGadWidth = width('000000') + 12
+  let winWidth = 276
+  let want = 0
+  if (overscanGad) {
+    const longest = RT_OSCAN_LABELS.reduce((w, s) => Math.max(w, width(s)), 0)
+    want = longest + width(RT_TEXT.overscan) + 36 + 8 + totaloff + 2
+  }
+  if (sizeGads) {
+    const bySize = widthHeightLen + width(RT_TEXT.default) + dimGadWidth + 8 + 8 + RT_CHECKBOX_WIDTH + 8 + 4 + totaloff
+    if (bySize > want) want = bySize
+  }
+  if (want > winWidth) winWidth = want
+  if (winWidth > m.visibleWidth) winWidth = m.visibleWidth
+
+  width2 = checkGadgetsSize(buttonLens, width2, winWidth - totaloff)
+  const buttonPos = rtSpread(buttonLens, width2, leftoff, winWidth - rightoff)
+
+  let top = startTop
+  const boxHeight = entries * entryHeight
+  const listFrame = box(leftoff, top, winWidth - 18 - totaloff, boxHeight + 4)
+  const boxLeft = leftoff + 2
+  const boxTop = top + 2
+  const boxRight = winWidth - 21 - rightoff
+  const scroller = box(winWidth - 18 - rightoff, top, 18, boxHeight + 4)
+  top += boxHeight + 4 + Math.trunc(spacing / 2)
+
+  // `top -= spacing / 2` takes back the half-gap the shared code just added,
+  // so the mode name sits straight under the list
+  top -= Math.trunc(spacing / 2)
+  const modeName = box(leftoff, top, winWidth - totaloff, m.fontHeight + 4)
+  top += m.fontHeight + 4 + spacing
+
+  let overscan: ReqBox | null = null
+  let overscanLabel: ReqLabel | null = null
+  if (overscanGad) {
+    const at = width(RT_TEXT.overscan) + 8
+    overscan = box(leftoff + 2 + at, top, winWidth - rightoff - leftoff - 2 - at, stdGad)
+    overscanLabel = { text: rtLabelText(RT_TEXT.overscan, '_'), x: leftoff + 2, y: top + 3 }
+    top += stdGad + spacing
+  }
+
+  let widthGad: ReqBox | null = null
+  let heightGad: ReqBox | null = null
+  let widthLabel: ReqLabel | null = null
+  let heightLabel: ReqLabel | null = null
+  let defWidth: ReqBox | null = null
+  let defHeight: ReqBox | null = null
+  let defWidthLabel: ReqLabel | null = null
+  let defHeightLabel: ReqLabel | null = null
+  if (sizeGads) {
+    const at = widthHeightLen + 8 + leftoff + 2
+    // `checktopoff` only applies on os30 and up, which this port is; the
+    // pre-3.0 arm puts the checkbox one pixel down instead
+    const checkTopOff = 3 - Math.trunc((RT_CHECKBOX_HEIGHT - m.fontHeight + 1) / 2)
+    widthGad = box(at, top, dimGadWidth, stdGad)
+    widthLabel = { text: rtLabelText(RT_TEXT.width, '_'), x: at - 8 - width(RT_TEXT.width), y: top + 3 }
+    defWidth = box(at + dimGadWidth + 8, top + checkTopOff, RT_CHECKBOX_WIDTH, RT_CHECKBOX_HEIGHT)
+    top += stdGad + Math.trunc(spacing / 2)
+    defHeight = box(defWidth.x, top + checkTopOff, RT_CHECKBOX_WIDTH, RT_CHECKBOX_HEIGHT)
+    heightGad = box(at, top, dimGadWidth, stdGad)
+    heightLabel = { text: rtLabelText(RT_TEXT.height, '_'), x: at - 8 - width(RT_TEXT.height), y: top + 3 }
+    // PLACETEXT_RIGHT: GadTools hangs the label off the box's right edge and
+    // centres it on the box, which for an 11-pixel checkbox and topaz 8 is
+    // one pixel down
+    const labelY = (b: ReqBox): number => b.y + Math.trunc((b.h - m.fontHeight) / 2)
+    defWidthLabel = { text: RT_TEXT.default, x: defWidth.x + RT_CHECKBOX_WIDTH + 4, y: labelY(defWidth) }
+    defHeightLabel = { text: RT_TEXT.default, x: defHeight.x + RT_CHECKBOX_WIDTH + 4, y: labelY(defHeight) }
+    top += stdGad + spacing
+  }
+
+  let colors: ReqBox | null = null
+  let colorsLabel: ReqLabel | null = null
+  let depth: ReqBox | null = null
+  let maxColors: ReqBox | null = null
+  let maxLabel: ReqLabel | null = null
+  if (depthGad) {
+    const gap = width(RT_TEXT.colors) + 8
+    const maxLen = width(RT_TEXT.max)
+    const readout = width('0000 ')
+    colors = box(leftoff + 2 + gap, top, readout, m.fontHeight + 3)
+    colorsLabel = { text: rtLabelText(RT_TEXT.colors, '_'), x: leftoff + 2, y: top + 2 }
+    const sliderX = colors.x + readout + 8
+    depth = box(sliderX, top, winWidth - 22 - rightoff - sliderX - readout - maxLen, m.fontHeight + 3)
+    maxColors = box(depth.x + depth.w + maxLen + 20, top, readout, m.fontHeight + 3)
+    maxLabel = { text: RT_TEXT.max, x: maxColors.x - 4 - maxLen, y: top + 2 }
+    top += m.fontHeight + 3 + spacing
+  }
+
+  let autoScroll: ReqBox | null = null
+  let autoScrollLabel: ReqLabel | null = null
+  if (autoScrollGad) {
+    const gap = width(RT_TEXT.autoScroll) + 8
+    autoScroll = box(
+      leftoff + 2 + gap,
+      top + Math.trunc((checkSkip - RT_CHECKBOX_HEIGHT + 1) / 2),
+      RT_CHECKBOX_WIDTH,
+      RT_CHECKBOX_HEIGHT,
+    )
+    autoScrollLabel = {
+      text: rtLabelText(RT_TEXT.autoScroll, '_'),
+      x: leftoff + 2,
+      y: top + Math.trunc((checkSkip - m.fontHeight + 1) / 2),
+    }
+    top += checkSkip + spacing
+  }
+
+  // the `i == num1` bump is guarded by `createstyle || (isfilereq &&
+  // MULTISELECT)`, and neither holds here, so the buttons sit where the last
+  // row left `top`
+  const buttonHeight = m.fontHeight + 6
+  const buttons: ReqGadget[] = buttonText.map((s, i) => {
+    const under = i === 0 ? setup.underscore : '_'
+    return {
+      text: rtLabelText(s, under),
+      box: box(buttonPos[i] ?? 0, top, buttonLens[i] ?? 0, buttonHeight),
+      key: rtLabelKey(s, under),
+    }
+  })
+
+  return {
+    width: winWidth,
+    height: top + buttonHeight + spacing + RT_BOTTOM_BORDER,
+    title: setup.title,
+    entries,
+    entryHeight,
+    listFrame,
+    boxLeft,
+    boxTop,
+    boxRight,
+    scroller,
+    modeName,
+    overscan,
+    overscanLabel,
+    widthGad,
+    heightGad,
+    widthLabel,
+    heightLabel,
+    defWidth,
+    defHeight,
+    defWidthLabel,
+    defHeightLabel,
+    colors,
+    colorsLabel,
+    depth,
+    maxColors,
+    maxLabel,
+    autoScroll,
+    autoScrollLabel,
+    buttons,
+  }
+}
+
+/** what a click on the screenmode requester landed on */
+export type ScreenReqHit =
+  | { kind: 'row'; index: number }
+  | { kind: 'scroll'; delta: number }
+  | { kind: 'button'; index: number }
+  | { kind: 'defWidth' }
+  | { kind: 'defHeight' }
+  | { kind: 'overscan' }
+  | { kind: 'autoScroll' }
+  | { kind: 'depth'; at: number }
+  | null
+
+/**
+ * Hit-test a click, window-relative.
+ *
+ * DEVIATION: the slider. GadTools drags the knob and pages a whole
+ * `GTSL_Level` when a click misses it; this port has no drag, so a click on
+ * the slider sets the level its x position names --- `min + (x - left) * (max
+ * - min + 1) / w`, the inverse of where GadTools draws the knob. Every level
+ * is therefore reachable in one click rather than in several.
+ */
+export function screenReqHit(l: ScreenReqLayout, x: number, y: number, min: number, max: number): ScreenReqHit {
+  if (x >= l.boxLeft && x <= l.boxRight && y >= l.boxTop && y < l.boxTop + l.entries * l.entryHeight) {
+    return { kind: 'row', index: Math.trunc((y - l.boxTop) / l.entryHeight) }
+  }
+  if (inBox(l.scroller, x, y)) {
+    const arrow = l.entryHeight
+    const upTop = l.scroller.y + l.scroller.h - 2 * arrow
+    if (y >= upTop && y < upTop + arrow) return { kind: 'scroll', delta: -1 }
+    if (y >= upTop + arrow) return { kind: 'scroll', delta: 1 }
+    return { kind: 'scroll', delta: y < l.scroller.y + l.scroller.h / 2 ? -l.entries : l.entries }
+  }
+  for (let i = 0; i < l.buttons.length; i++) {
+    const g = l.buttons[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'button', index: i }
+  }
+  if (l.defWidth && inBox(l.defWidth, x, y)) return { kind: 'defWidth' }
+  if (l.defHeight && inBox(l.defHeight, x, y)) return { kind: 'defHeight' }
+  if (l.overscan && inBox(l.overscan, x, y)) return { kind: 'overscan' }
+  if (l.autoScroll && inBox(l.autoScroll, x, y)) return { kind: 'autoScroll' }
+  if (l.depth && inBox(l.depth, x, y)) {
+    const step = Math.trunc(((x - l.depth.x) * (max - min + 1)) / l.depth.w)
+    return { kind: 'depth', at: Math.min(max, Math.max(min, min + step)) }
+  }
+  return null
+}
+
+/** the fields the renderer reads off the driver */
+export interface ScreenReqFields {
+  /** the highlighted row, -1 for none */
+  selected: number
+  /** what the mode box says, empty when nothing is chosen */
+  modeName: string
+  displayWidth: number
+  displayHeight: number
+  useDefWidth: boolean
+  useDefHeight: boolean
+  depth: number
+  minDepth: number
+  maxDepth: number
+  /** the DisplayID, which is what decides whether the readout counts HAM */
+  modeId: number
+  overscan: number
+  autoScroll: boolean
+}
+
+/**
+ * Draw one.
+ *
+ * A SCRMODE row is a bare name: `PrintEntry` fills `sizestr` for a directory,
+ * a file, a font, an assign and a volume, and a mode is none of those, so
+ * nothing is appended and nothing is right-aligned at `boxright`.
+ */
+export function screenReqRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  l: ScreenReqLayout,
+  rows: readonly ScreenRow[],
+  first: number,
+  f: ScreenReqFields,
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const fill = penOf(dri, PEN.FILL)
+  const fillText = penOf(dri, PEN.FILLTEXT)
+  const shine = penOf(dri, PEN.SHINE)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const flood = (b: ReqBox, pen: number): void => {
+    rp.rectFill(b.x + ox, b.y + oy, b.x + ox + b.w - 1, b.y + oy + b.h - 1, pen)
+  }
+  const bevel = (b: ReqBox, recessed: boolean): void => {
+    drawBevelBox(rp, b.x + ox, b.y + oy, b.w, b.h, dri, { recessed })
+  }
+  const label = (s: string, lx: number, ly: number, pen: number): void => {
+    if (rp.font) rp.text(lx + ox, ly + oy + rp.font.baseline, s, pen)
+  }
+  const put = (t: ReqLabel | null): void => {
+    if (t) label(t.text, t.x, t.y, text)
+  }
+  const measure = (s: string): number => (rp.font ? rp.textLength(s) : s.length * 8)
+  const readout = (b: ReqBox | null, s: string): void => {
+    if (!b) return
+    flood(b, bg)
+    bevel(b, true)
+    label(s, b.x + Math.max(1, b.w - 3 - measure(s)), b.y + 2, text)
+  }
+  const check = (b: ReqBox | null, on: boolean): void => {
+    if (!b) return
+    flood(b, bg)
+    bevel(b, true)
+    if (!on) return
+    // the tick GadTools draws inside a checked box, which this port renders
+    // as the filled square the 2.0 look uses at this size
+    rp.rectFill(b.x + ox + 3, b.y + oy + 2, b.x + ox + b.w - 4, b.y + oy + b.h - 3, fillText)
+  }
+
+  flood(box(0, 0, l.width, l.height), bg)
+
+  bevel(l.listFrame, true)
+  for (let i = 0; i < l.entries; i++) {
+    const e = rows[first + i]
+    const y = l.boxTop + i * l.entryHeight
+    const chosen = first + i === f.selected
+    rp.rectFill(l.boxLeft + ox, y + oy, l.boxRight + ox, y + l.entryHeight - 1 + oy, chosen ? fill : bg)
+    if (!e) continue
+    label(e.name, l.boxLeft + 2, y, chosen ? fillText : text)
+  }
+  bevel(l.scroller, true)
+
+  flood(l.modeName, bg)
+  bevel(l.modeName, true)
+  label(f.modeName, l.modeName.x + 3, l.modeName.y + 2, text)
+
+  if (l.overscan) {
+    flood(l.overscan, bg)
+    bevel(l.overscan, false)
+    label(RT_OSCAN_LABELS[f.overscan] ?? '', l.overscan.x + 4, l.overscan.y + 3, text)
+    put(l.overscanLabel)
+  }
+
+  if (l.widthGad && l.heightGad) {
+    readout(l.widthGad, String(f.displayWidth))
+    readout(l.heightGad, String(f.displayHeight))
+    put(l.widthLabel)
+    put(l.heightLabel)
+    check(l.defWidth, f.useDefWidth)
+    check(l.defHeight, f.useDefHeight)
+    put(l.defWidthLabel)
+    put(l.defHeightLabel)
+  }
+
+  if (l.depth) {
+    readout(l.colors, rtBuildColStr(f.depth, f.modeId))
+    put(l.colorsLabel)
+    flood(l.depth, bg)
+    bevel(l.depth, true)
+    // the knob: `GTSL_Max - GTSL_Min + 1` positions across the inside of the
+    // container, which is how GadTools sizes a proportional gadget's body
+    const steps = Math.max(1, f.maxDepth - f.minDepth + 1)
+    const knob = Math.max(4, Math.trunc((l.depth.w - 4) / steps))
+    const at = Math.trunc(((f.depth - f.minDepth) * (l.depth.w - 4 - knob)) / Math.max(1, steps - 1))
+    rp.rectFill(
+      l.depth.x + 2 + at + ox,
+      l.depth.y + 2 + oy,
+      l.depth.x + 2 + at + knob - 1 + ox,
+      l.depth.y + l.depth.h - 3 + oy,
+      shine,
+    )
+    put(l.maxLabel)
+    readout(l.maxColors, rtBuildColStr(f.maxDepth, f.modeId))
+  }
+
+  if (l.autoScroll) {
+    check(l.autoScroll, f.autoScroll)
+    put(l.autoScrollLabel)
+  }
+
+  for (const g of l.buttons) {
+    flood(g.box, bg)
+    bevel(g.box, false)
+    label(g.text, g.box.x + Math.max(1, Math.trunc((g.box.w - measure(g.text)) / 2)), g.box.y + 3, text)
+  }
+  rp.restore(save)
+}
