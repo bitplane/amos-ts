@@ -1676,6 +1676,12 @@ export const FAITHFUL = new Set<string>([
   // title bar reads `Request` or `Information`, and no RT_Underscore, so an
   // underscore in a gadget label is drawn instead of marking a shortcut.
   'delta reqtools requester', 'delta reqtools get number',
+  // and the palette one, `palettereq.c`'s own window rather than a third arm
+  // of SetupReqWindow. It edits the WORKBENCH palette, because a0 being zero
+  // means no RT_Screen and no RT_Window and GetReqScreen falls through to the
+  // default public screen, and it throws the chosen pen away because routine
+  // 41 is an instruction.
+  'delta reqtools palette',
 
   // --- LSerial 2.1 (Niklas Sjoberg), slot 11: a serial.device wrapper
   // written because AMOS's own would not reopen a closed device. BINARY tier
@@ -5475,15 +5481,25 @@ export const NOTES: Record<string, string> = {
     "in a0. That is rtPaletteRequestA exactly -- `rtPaletteRequestA(title,reqinfo,taglist)(A2/A3,A0)`, " +
     "thirteenth in the FD and so at bias 30 plus twelve sixes. The FD is reqtools_lib.fd, which ships in GUI " +
     "2.10's own Tools/FD directory in the corpus; the two private password entries and rtFontRequestA are what " +
-    "put the palette requester at -102 rather than the -84 a shorter list would give. APPROXIMATED: this port " +
-    "has no palette requester, so the keyword is reached, the library is not opened and the palette is left " +
-    "alone -- the cancel path of the requester the author called.",
+    "put the palette requester at -102 rather than the -84 a shorter list would give. Routine 41 is an " +
+    "INSTRUCTION and routine 43 ends `jsr -$66(a6) / rts` with d0 untouched, so the pen the user picked is " +
+    "unreachable and the palette itself is all the keyword leaves behind. And that palette is the WORKBENCH's: " +
+    "a3 and a0 are both zero, so there is no RT_Screen and no RT_Window, and GetReqScreen falls through to the " +
+    "default public screen. NOTE: `$23dc movea.l #$0,a2` is dead, a2 being loaded again from $1b06 six " +
+    "instructions later. DEVIATION: the sliders run 0 to 15. PaletteRequestA sets four bits a gun and asks " +
+    "GetDisplayInfoData for RedBits; ../amiga/displayinfo.ts has no DisplayInfo record to answer with, so the " +
+    "four stands, which is also all a 12-bit colour register holds. A real AA machine answers eight. DEVIATION: " +
+    "a click on a gun slider sets the level under the pointer, there being no drag to track. NOTE: an armed " +
+    "Copy, Swap or Spread is not announced anywhere -- the later build flashes `Copy to...` in the title bar and " +
+    "ids $134 to $136 are not in 38.1092 at all.",
   "delta req palette":
     "Routine 56 ($2678), 1.6, and the odd one out: req.library rather than reqtools, opened from the third name " +
     "at $1d4f, with the colour in d0 and a call to -90. NOTE: no FD for req.library is in the corpus, so -90 is " +
     "recorded as an offset and not named. The guide's example is `Print Delta Req Palette 2`, which cannot parse " +
     "-- the token spec is `I0`, an instruction taking one integer, and there is no value to print. " +
-    "APPROXIMATED: as Delta Reqtools Palette, and for the same reason.",
+    "APPROXIMATED: req.library is a different library and this port has no more of it than Lfreq does, so the " +
+    "keyword is reached and no colour is edited. Delta Reqtools Palette next door is real now; this one cannot " +
+    "be until req.library is.",
   moveb:
     "Routine 58 ($26ac), 1.6, one of the four the guide's contents marks \"- PRIVATE -\": \"Thats are my " +
     "private commands, but if you want you can use these commands.\" `movea.l (a3)+,a0 / move.l (a3)+,d0 / " +

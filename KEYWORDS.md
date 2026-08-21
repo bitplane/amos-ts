@@ -59,7 +59,7 @@ is.
 | d-sam-1.01           |       50 |        0 |            0 |      50 |       0% |
 | dbench-0.42          |       23 |       23 |            0 |       0 |     100% |
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
-| delta-1.6            |       46 |       43 |            2 |       0 |     100% |
+| delta-1.6            |       46 |       44 |            1 |       0 |     100% |
 | display-0.01         |        6 |        4 |            2 |       0 |     100% |
 | dme-2.0              |      184 |      137 |           13 |      33 |      82% |
 | drawing              |       16 |       16 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5255 |          282 |    1822 |      75% |
+| **total**            |     7422 |     5256 |          281 |    1822 |      75% |
 
 ## Not applicable, by what would retire it
 
@@ -246,7 +246,7 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## delta-1.6 (100%)
 
-- **approximated** (2): `delta req palette`, `delta reqtools palette`
+- **approximated** (1): `delta req palette`
 - **n/a** (1): `jsr`
 
 ## display-0.01 (100%)

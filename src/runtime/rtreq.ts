@@ -32,6 +32,10 @@ import {
   reqHit,
   reqLayout,
   reqRender,
+  paletteReqHit,
+  paletteReqLayout,
+  paletteReqRender,
+  rtMakeColVal,
   screenReqHit,
   screenReqLayout,
   screenReqRender,
@@ -44,6 +48,8 @@ import {
   type ReqLayout,
   type ReqMetrics,
   type ReqSetup,
+  type PaletteReqLayout,
+  type PaletteReqSetup,
   type ScreenReqLayout,
   type ScreenReqSetup,
   type ScreenRow,
@@ -1329,5 +1335,241 @@ export function stepRtScreen(rt: Runtime, st: RtScreenState, frame: number): voi
 
 /** close the window and let the keyword have its answer */
 export function finishRtScreen(rt: Runtime, st: RtScreenState): void {
+  rt.intuition.closeWindow(st.window)
+}
+
+/* --------------------------------------------------------------------------
+ * The palette requester
+ * ----------------------------------------------------------------------- */
+
+/**
+ * How many bits a gun has, which decides the sliders' range.
+ *
+ * `PaletteRequestA` sets four and then asks `GetDisplayInfoData (DTAG_DISP)`
+ * for RedBits, GreenBits and BlueBits, keeping the four when the query
+ * answers nothing. ../amiga/displayinfo.ts has no DisplayInfo record to
+ * answer with --- `pal 39.3` computes its geometry in code rather than
+ * storing it --- so the four stands, and it is also exactly what this port's
+ * colour registers hold: `../runtime/screen.ts`'s palette is a Uint16Array of
+ * 12-bit RGB4. DEVIATION: a real AA machine answers eight here and its
+ * sliders run 0 to 255.
+ */
+const RT_GUN_BITS = 4
+
+export interface RtPaletteState {
+  setup: PaletteReqSetup
+  window: Window
+  slot: number
+  rp: RastPort
+  layout: PaletteReqLayout
+  /** `glob->color`, the pen the sliders are editing */
+  color: number
+  /** `glob->cols`, the three gun values of that pen */
+  levels: number[]
+  /** `(1 << bits) - 1` a gun, which is `glob->maxcolval` */
+  maxLevels: number[]
+  /** `glob->mode`: 0, or the Copy, Swap or Spread waiting for its second click */
+  mode: number
+  /** `glob->colormap`, restored by Cancel and by the close gadget */
+  entry: Uint16Array
+  /** `glob->undomap`, re-taken on every palette click and restored by Undo */
+  undo: Uint16Array
+  done: boolean
+  /** the pen Ok answers, or -1 for a cancel */
+  result: number
+}
+
+/** the three modes, `palettereq.c`:62 */
+const PAL_COPY = 0
+const PAL_SWAP = 1
+const PAL_SPREAD = 2
+
+/** `SelectColor`: read a pen's guns back out of the colour map into the sliders */
+function palSelect(rt: Runtime, st: RtPaletteState, pen: number): void {
+  const scr = rt.screens.get(st.slot)
+  const rgb = scr?.palette[pen] ?? 0
+  st.levels = [(rgb >> 8) & 0xf, (rgb >> 4) & 0xf, rgb & 0xf]
+  st.color = pen
+}
+
+/**
+ * `SetColor`: write one pen from three gun values.
+ *
+ * The os30 arm is `SetRGB32 (vp, col, MakeColVal (rgb[0], redbits), ...)`.
+ * With four bits `rtMakeColVal` repeats the nibble eight times, and a 12-bit
+ * register keeps the top nibble of each --- which is the nibble that went in.
+ * So the pre-3.0 `SetRGB4` arm and the 3.0 one write the same thing here, and
+ * this does the shorter of the two.
+ */
+function palSet(rt: Runtime, st: RtPaletteState, pen: number, rgb: readonly number[]): void {
+  const scr = rt.screens.get(st.slot)
+  if (!scr || pen < 0 || pen >= scr.palette.length) return
+  const gun = (v: number, i: number): number => rtMakeColVal(v, st.setup.bits[i] ?? RT_GUN_BITS) >>> 28
+  scr.palette[pen] = (gun(rgb[0] ?? 0, 0) << 8) | (gun(rgb[1] ?? 0, 1) << 4) | gun(rgb[2] ?? 0, 2)
+}
+
+/**
+ * `SpreadColors`, `palettereq.c`:218.
+ *
+ * A 16.16 walk from the selected pen's guns to the clicked pen's, one step a
+ * pen, rounded with `+ 0x8000` on the way out. The loop stops BEFORE `to`, so
+ * the pen that was clicked keeps the colour it already had and only the run
+ * between the two is rewritten.
+ */
+function palSpread(rt: Runtime, st: RtPaletteState, from: number, to: number, target: readonly number[]): void {
+  let steps = to - from
+  if (steps === 0) return
+  let colstep = 1
+  if (steps < 0) {
+    steps = -steps
+    colstep = -1
+  }
+  const step: number[] = []
+  const rgb: number[] = []
+  for (let g = 0; g < 3; g++) {
+    const diff = (target[g] ?? 0) - (st.levels[g] ?? 0)
+    step.push(Math.trunc((diff * 0x1_0000) / steps))
+    rgb.push((st.levels[g] ?? 0) * 0x1_0000)
+  }
+  for (let pen = from; pen !== to; pen += colstep) {
+    palSet(rt, st, pen, [(rgb[0]! + 0x8000) >> 16, (rgb[1]! + 0x8000) >> 16, (rgb[2]! + 0x8000) >> 16])
+    for (let g = 0; g < 3; g++) rgb[g] = rgb[g]! + step[g]!
+  }
+}
+
+/**
+ * Open the palette requester. Null when there is no screen for it.
+ *
+ * It lands on the screen `GetReqScreen` picks, and with no RT_Window and no
+ * RT_Screen in the tag list that is the default public screen --- the
+ * WORKBENCH. So `Delta Reqtools Palette` edits the Workbench's four colours
+ * and not the AMOS screen the program is drawing on, which is faithful and
+ * surprising in equal measure.
+ */
+export function startRtPalette(rt: Runtime, setup: PaletteReqSetup, slot: number | null): RtPaletteState | null {
+  const on = slot ?? WB_SLOT
+  if (!rt.screens.get(on)) rt.intuition.openWorkBench()
+  const m = metricsFor(rt, on)
+  const scr = rt.screens.get(on)
+  if (!m || !scr) return null
+  const full: PaletteReqSetup = { ...setup, depth: scr.depth }
+  const layout = paletteReqLayout(full, m)
+  const at = reqPosition(REQPOS.CENTERSCR, RT_FILEREQ_PREFS, scr.width, scr.height, layout.width, layout.height)
+  const window = rt.intuition.openWindow({
+    leftEdge: at.left,
+    topEdge: at.top,
+    width: layout.width,
+    height: layout.height,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_MOUSEBUTTONS | IDCMP_CLOSEWINDOW,
+    // WFLG_DEPTHGADGET|WFLG_DRAGBAR|WFLG_ACTIVATE|WFLG_CLOSEGADGET, and the
+    // close gadget is real here: `case IDCMP_CLOSEWINDOW:` is
+    // RestorePaletteFreeAll, the same answer Cancel gives
+    flags: 0x8 | 0x2 | 0x4 | 0x1000,
+    title: layout.title,
+    type: on === WB_SLOT ? 1 : 15,
+    ...(on === WB_SLOT ? {} : { screenSlot: on }),
+  })
+  if (!window) return null
+  const rp = new RastPort(scr.rp.bitMap)
+  rp.font = rt.systemFont()
+  const st: RtPaletteState = {
+    setup: full,
+    window,
+    slot: on,
+    rp,
+    layout,
+    color: setup.color,
+    levels: [0, 0, 0],
+    maxLevels: [0, 1, 2].map((i) => (1 << (setup.bits[i] ?? RT_GUN_BITS)) - 1),
+    mode: -1,
+    // GetVpCM twice: one copy to put back on a cancel and one to undo to
+    entry: Uint16Array.from(scr.palette),
+    undo: Uint16Array.from(scr.palette),
+    done: false,
+    result: -1,
+  }
+  palSelect(rt, st, setup.color)
+  return st
+}
+
+/** one frame of the palette requester */
+export function stepRtPalette(rt: Runtime, st: RtPaletteState): void {
+  if (st.done) return
+  const scr = rt.screens.get(st.slot)
+  if (!scr) {
+    st.done = true
+    return
+  }
+
+  for (;;) {
+    const msg = st.window.getMsg()
+    if (!msg) break
+    if (msg.class === IDCMP_CLOSEWINDOW) {
+      scr.palette.set(st.entry)
+      st.result = -1
+      st.done = true
+      return
+    }
+    if (msg.class !== IDCMP_MOUSEBUTTONS || msg.code !== SELECTDOWN) continue
+    const hit = paletteReqHit(st.layout, msg.mouseX, msg.mouseY, st.maxLevels)
+    if (!hit) continue
+    if (hit.kind === 'slider') {
+      // `IDCMP_GADGETDOWN` on a gun: the level goes straight into the pen
+      st.levels[hit.gun] = hit.at
+      palSet(rt, st, st.color, st.levels)
+      continue
+    }
+    if (hit.kind === 'mode') {
+      st.mode = hit.index
+      continue
+    }
+    if (hit.kind === 'cell') {
+      const pen = hit.index
+      // `RefreshVpCM (vp, undomap)` comes FIRST, so Undo goes back to the
+      // palette as it stood before this click and not to the one the
+      // requester opened on
+      st.undo.set(scr.palette)
+      const rgb = scr.palette[pen] ?? 0
+      const target = [(rgb >> 8) & 0xf, (rgb >> 4) & 0xf, rgb & 0xf]
+      if (st.mode === PAL_SWAP) palSet(rt, st, st.color, target)
+      if (st.mode === PAL_SWAP || st.mode === PAL_COPY) palSet(rt, st, pen, st.levels)
+      if (st.mode === PAL_SPREAD) palSpread(rt, st, st.color, pen, target)
+      palSelect(rt, st, pen)
+      st.mode = -1
+      continue
+    }
+    // Ok, Undo, Cancel
+    if (hit.index === 0) {
+      st.result = st.color
+      st.done = true
+      return
+    }
+    if (hit.index === 1) {
+      scr.palette.set(st.undo)
+      palSelect(rt, st, st.color)
+      continue
+    }
+    scr.palette.set(st.entry)
+    st.result = -1
+    st.done = true
+    return
+  }
+
+  const w = st.window
+  st.rp.clip = { x1: w.leftEdge, y1: w.topEdge, x2: w.leftEdge + w.width - 1, y2: w.topEdge + w.height - 1 }
+  paletteReqRender(
+    st.rp,
+    screenPens(scr.depth),
+    st.layout,
+    { color: st.color, levels: st.levels, maxLevels: st.maxLevels },
+    w.leftEdge,
+    w.topEdge,
+  )
+}
+
+/** close the window and let the keyword have its answer */
+export function finishRtPalette(rt: Runtime, st: RtPaletteState): void {
   rt.intuition.closeWindow(st.window)
 }

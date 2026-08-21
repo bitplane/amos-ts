@@ -2170,3 +2170,316 @@ export function screenReqRender(
   }
   rp.restore(save)
 }
+
+/* --------------------------------------------------------------------------
+ * The palette requester
+ *
+ * `rtPaletteRequestA` is the one requester in this library with a window of
+ * its own: `palettereq.c`'s `SetupPalWindow` shares nothing with
+ * `SetupReqWindow`. It is a GadTools PALETTE_KIND over three sliders, with
+ * Copy, Swap and Spread above and Ok, Undo and Cancel below.
+ *
+ * 38.1092 is a version BEHIND the sources here in one visible way. Catalog
+ * ids `$134` to `$136` --- `Copy to...`, `Swap with...` and `Spread to...`,
+ * the titles the later build flashes while it waits for the second click ---
+ * are not in the binary at all, so nothing here changes the title bar when a
+ * mode is armed. The mode is still armed; it is just not announced.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `MakeColVal`, `palettereq.c`:201: spread an n-bit gun value up a 32-bit
+ * word by repeating it.
+ *
+ * SetRGB32 wants 32 bits a gun, and a 4-bit `$f` has to become `$ffffffff`
+ * rather than `$f0000000` or white comes out nearly black. The loop shifts a
+ * copy down by `bits` each time and ORs, so 4 bits are repeated eight times
+ * and 8 bits four times.
+ */
+export function rtMakeColVal(val: number, bits: number): number {
+  let out = (val << (32 - bits)) >>> 0
+  let rest = out
+  for (;;) {
+    rest = rest >>> bits
+    if (rest === 0) break
+    out = (out | rest) >>> 0
+  }
+  return out >>> 0
+}
+
+/** GTPA_IndicatorWidth, and `SetupPalWindow` passes a flat 38 */
+export const RT_PALETTE_INDICATOR = 38
+
+/** what a palette request asks for, after its tag list has been read */
+export interface PaletteReqSetup {
+  /** `rtPaletteRequestA`'s a2 */
+  title: string
+  /** RTPA_Color, and `PaletteRequestA` sets 1 before it reads the tags */
+  color: number
+  /** `GetVpCM`'s answer: the screen's colour depth, so `1 << depth` swatches */
+  depth: number
+  /** DisplayInfo's RedBits, GreenBits and BlueBits */
+  bits: readonly [number, number, number]
+}
+
+export interface PaletteReqLayout {
+  width: number
+  height: number
+  title: string
+  /** `_Palette Colors:`, centred over the palette gadget */
+  colorsLabel: ReqLabel
+  /** the whole PALETTE_KIND gadget, indicator and grid together */
+  palette: ReqBox
+  /** GTPA_IndicatorWidth 38: the block showing the colour now selected */
+  indicator: ReqBox
+  /** the swatch grid, and how it is divided */
+  grid: ReqBox
+  rows: number
+  cols: number
+  /** Copy, Swap and Spread */
+  modes: ReqGadget[]
+  /** the Red, Green and Blue sliders, their labels and their readouts */
+  sliders: ReqBox[]
+  sliderLabels: ReqLabel[]
+  levels: ReqBox[]
+  /** Ok, Undo and Cancel */
+  buttons: ReqGadget[]
+}
+
+/**
+ * `SetupPalWindow`, `palettereq.c`:921.
+ *
+ * The 25 pixels the palette gadget and the top button row are indented by are
+ * the colour wheel's old seat: `wheeloff` is added on top of them when a
+ * wheel is built, and 38.1092 has no wheel to build, so the 25 stands alone
+ * and nothing fills it. 256 is the floor under the window width, and on topaz
+ * 8 the arithmetic asks for 251, so the floor is what decides it.
+ *
+ * The palette gadget's height is `fontheight * 2 + 4`, DOUBLED at 64 colours
+ * and doubled again at 128. Those two multipliers are the row count: a
+ * four-row grid needs four times the height of a one-row grid, which is how
+ * the swatch layout can be read off a height calculation.
+ */
+export function paletteReqLayout(setup: PaletteReqSetup, m: ReqMetrics): PaletteReqLayout {
+  const spacing = rtSpacing(m.visibleHeight)
+  const leftoff = m.wBorLeft + 5
+  const rightoff = m.wBorRight + 5
+  const width = (s: string): number => rtStrWidth(s, m.measure)
+  let top = m.wBorTop + m.screenFontHeight + 1 + Math.trunc(spacing / 2) + 1
+
+  const modeText = [RT_TEXT.copy, RT_TEXT.swap, RT_TEXT.spread]
+  const buttonText = [RT_TEXT.ok, RT_TEXT.undo, RT_TEXT.cancel]
+  let width1 = modeText.reduce((w, s) => Math.max(w, width(s) + 16), 0)
+  let width2 = buttonText.reduce((w, s) => Math.max(w, width(s) + 16), 0)
+  const modeLens = modeText.map(() => width1)
+  const buttonLens = buttonText.map(() => width2)
+  width1 *= 3
+  width2 *= 3
+
+  let winWidth = leftoff + rightoff + 25 + width1 + 2 * 8
+  const byButtons = leftoff + rightoff + width2 + 2 * 8
+  if (byButtons > winWidth) winWidth = byButtons
+  if (winWidth < 256) winWidth = 256
+
+  const colCount = 1 << setup.depth
+  let palHeight = m.fontHeight * 2 + 4
+  if (colCount >= 64) palHeight *= 2
+  if (colCount >= 128) palHeight *= 2
+  const rows = colCount >= 128 ? 4 : colCount >= 64 ? 2 : 1
+  const cols = Math.max(1, Math.trunc(colCount / rows))
+
+  const modePos = rtSpread(modeLens, width1, leftoff + 25, winWidth - rightoff)
+  const buttonPos = rtSpread(buttonLens, width2, leftoff, winWidth - rightoff)
+
+  // the label is centred in what is left of the window once the 25-pixel
+  // indent is taken off the left
+  const colorsText = RT_TEXT.paletteColors
+  const colorsLabel: ReqLabel = {
+    text: rtLabelText(colorsText, '_'),
+    x: leftoff + 25 + Math.trunc((winWidth - (leftoff + rightoff + 25) - width(colorsText)) / 2),
+    y: top,
+  }
+  top += m.fontHeight + 1 + Math.trunc(spacing / 2)
+
+  const palette = box(leftoff + 25, top, winWidth - (leftoff + rightoff + 25), palHeight)
+  const indicator = box(palette.x, palette.y, RT_PALETTE_INDICATOR, palHeight)
+  const grid = box(palette.x + RT_PALETTE_INDICATOR, palette.y, palette.w - RT_PALETTE_INDICATOR, palHeight)
+  top += palHeight + spacing
+
+  const buttonHeight = m.fontHeight + 6
+  const modes: ReqGadget[] = modeText.map((s, i) => ({
+    text: rtLabelText(s, '_'),
+    box: box(modePos[i] ?? 0, top, modeLens[i] ?? 0, buttonHeight),
+    key: rtLabelKey(s, '_'),
+  }))
+  top += buttonHeight + spacing
+
+  const gunText = [RT_TEXT.red, RT_TEXT.green, RT_TEXT.blue]
+  const levelWidth = width('000 ')
+  const gunWidth = gunText.reduce((w, s) => Math.max(w, width(s)), 0) + levelWidth
+  const sliderX = leftoff + 2 + gunWidth + 8
+  const sliders: ReqBox[] = []
+  const sliderLabels: ReqLabel[] = []
+  const levels: ReqBox[] = []
+  for (let i = 0; i < 3; i++) {
+    sliders.push(box(sliderX, top, winWidth - sliderX - rightoff, m.fontHeight + 6))
+    sliderLabels.push({ text: rtLabelText(gunText[i]!, '_'), x: leftoff + 2, y: top + 2 })
+    // GTSL_LevelPlace PLACETEXT_LEFT with GTSL_MaxPixelLen `levelwidth`: the
+    // number sits in its own box immediately left of the slider
+    levels.push(box(sliderX - levelWidth, top, levelWidth, m.fontHeight + 6))
+    top += m.fontHeight + 6 + Math.trunc(spacing / 2)
+  }
+  top += Math.trunc(spacing / 2)
+
+  const buttons: ReqGadget[] = buttonText.map((s, i) => ({
+    text: rtLabelText(s, '_'),
+    box: box(buttonPos[i] ?? 0, top, buttonLens[i] ?? 0, buttonHeight),
+    key: rtLabelKey(s, '_'),
+  }))
+  top += buttonHeight + spacing
+
+  return {
+    width: winWidth,
+    height: top + m.wBorBottom,
+    title: setup.title,
+    colorsLabel,
+    palette,
+    indicator,
+    grid,
+    rows,
+    cols,
+    modes,
+    sliders,
+    sliderLabels,
+    levels,
+    buttons,
+  }
+}
+
+/** what a click on the palette requester landed on */
+export type PaletteReqHit =
+  | { kind: 'cell'; index: number }
+  | { kind: 'mode'; index: number }
+  | { kind: 'slider'; gun: number; at: number }
+  | { kind: 'button'; index: number }
+  | null
+
+/**
+ * Hit-test a click, window-relative.
+ *
+ * The same DEVIATION the screenmode slider carries: a click sets the level
+ * its x position names rather than dragging a knob, because nothing in this
+ * port tracks a drag. `max` is the gun's own `maxcolval`, which is
+ * `(1 << bits) - 1`.
+ */
+export function paletteReqHit(l: PaletteReqLayout, x: number, y: number, maxLevel: readonly number[]): PaletteReqHit {
+  if (inBox(l.grid, x, y)) {
+    const cw = l.grid.w / l.cols
+    const ch = l.grid.h / l.rows
+    const col = Math.min(l.cols - 1, Math.trunc((x - l.grid.x) / cw))
+    const row = Math.min(l.rows - 1, Math.trunc((y - l.grid.y) / ch))
+    return { kind: 'cell', index: row * l.cols + col }
+  }
+  for (let i = 0; i < l.modes.length; i++) {
+    const g = l.modes[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'mode', index: i }
+  }
+  for (let i = 0; i < l.buttons.length; i++) {
+    const g = l.buttons[i]
+    if (g && inBox(g.box, x, y)) return { kind: 'button', index: i }
+  }
+  for (let i = 0; i < l.sliders.length; i++) {
+    const b = l.sliders[i]
+    if (!b || !inBox(b, x, y)) continue
+    const max = maxLevel[i] ?? 15
+    const at = Math.trunc(((x - b.x) * (max + 1)) / b.w)
+    return { kind: 'slider', gun: i, at: Math.min(max, Math.max(0, at)) }
+  }
+  return null
+}
+
+/**
+ * Draw one.
+ *
+ * The swatches are drawn in the screen's OWN pens, which is the point of the
+ * requester: `SetColor` writes the viewport as the slider moves, so what the
+ * grid shows is the live palette and not a copy of it.
+ *
+ * An armed Copy, Swap or Spread is drawn no differently from an unarmed one.
+ * The later build flashes `Copy to...` in the title bar while it waits for
+ * the second click; 38.1092 does not carry those three strings, so there is
+ * nothing to put there and the mode is invisible until it fires.
+ */
+export function paletteReqRender(
+  rp: RastPort,
+  dri: DrawInfo,
+  l: PaletteReqLayout,
+  fields: { color: number; levels: readonly number[]; maxLevels: readonly number[] },
+  ox: number,
+  oy: number,
+): void {
+  const bg = penOf(dri, PEN.BACKGROUND)
+  const text = penOf(dri, PEN.TEXT)
+  const shine = penOf(dri, PEN.SHINE)
+  const highlight = penOf(dri, PEN.HIGHLIGHTTEXT)
+  const save = rp.snapshot()
+  rp.drawMode = 0
+  rp.areaPtrn = null
+  rp.linePtrn = 0xffff
+  rp.mask = 0xff
+
+  const flood = (b: ReqBox, pen: number): void => {
+    rp.rectFill(b.x + ox, b.y + oy, b.x + ox + b.w - 1, b.y + oy + b.h - 1, pen)
+  }
+  const bevel = (b: ReqBox, recessed: boolean): void => {
+    drawBevelBox(rp, b.x + ox, b.y + oy, b.w, b.h, dri, { recessed })
+  }
+  const label = (s: string, lx: number, ly: number, pen: number): void => {
+    if (rp.font) rp.text(lx + ox, ly + oy + rp.font.baseline, s, pen)
+  }
+  const measure = (s: string): number => (rp.font ? rp.textLength(s) : s.length * 8)
+
+  flood(box(0, 0, l.width, l.height), bg)
+  label(l.colorsLabel.text, l.colorsLabel.x, l.colorsLabel.y, highlight)
+
+  // the indicator carries the selected pen, the grid carries all of them
+  flood(l.indicator, fields.color)
+  bevel(l.indicator, true)
+  const cw = l.grid.w / l.cols
+  const ch = l.grid.h / l.rows
+  for (let i = 0; i < l.rows * l.cols; i++) {
+    const cx = l.grid.x + Math.trunc((i % l.cols) * cw)
+    const cy = l.grid.y + Math.trunc(Math.trunc(i / l.cols) * ch)
+    const cx2 = l.grid.x + Math.trunc(((i % l.cols) + 1) * cw) - 1
+    const cy2 = l.grid.y + Math.trunc((Math.trunc(i / l.cols) + 1) * ch) - 1
+    rp.rectFill(cx + ox, cy + oy, cx2 + ox, cy2 + oy, i)
+  }
+  bevel(l.grid, true)
+
+  for (const g of l.modes) {
+    flood(g.box, bg)
+    bevel(g.box, false)
+    label(g.text, g.box.x + Math.max(1, Math.trunc((g.box.w - measure(g.text)) / 2)), g.box.y + 3, text)
+  }
+
+  for (let i = 0; i < 3; i++) {
+    const s = l.sliders[i]!
+    const lv = l.levels[i]!
+    label(l.sliderLabels[i]!.text, l.sliderLabels[i]!.x, l.sliderLabels[i]!.y, highlight)
+    // `GTSL_LevelFormat "%3ld"` with GTJ_RIGHT: three columns, right-aligned
+    const shown = rtFormat(RT_TEXT.sliderFmt, fields.levels[i] ?? 0)
+    label(shown, lv.x + Math.max(0, lv.w - 4 - measure(shown)), lv.y + 3, text)
+    flood(s, bg)
+    bevel(s, true)
+    const knob = 8
+    const span = Math.max(1, s.w - 4 - knob)
+    const at = Math.trunc(((fields.levels[i] ?? 0) * span) / Math.max(1, fields.maxLevels[i] ?? 15))
+    rp.rectFill(s.x + 2 + at + ox, s.y + 2 + oy, s.x + 2 + at + knob - 1 + ox, s.y + s.h - 3 + oy, shine)
+  }
+
+  for (const g of l.buttons) {
+    flood(g.box, bg)
+    bevel(g.box, false)
+    label(g.text, g.box.x + Math.max(1, Math.trunc((g.box.w - measure(g.text)) / 2)), g.box.y + 3, text)
+  }
+  rp.restore(save)
+}

@@ -78,23 +78,27 @@ import {
   finishRtFile,
   finishRtFont,
   finishRtReq,
+  finishRtPalette,
   finishRtScreen,
   startRtFile,
   startRtFont,
   startRtReq,
+  startRtPalette,
   startRtScreen,
   stepRtFile,
   stepRtFont,
   stepRtReq,
+  stepRtPalette,
   stepRtScreen,
   type RtFileState,
   type RtFontState,
   type RtReqArgs,
+  type RtPaletteState,
   type RtReqState,
   type RtScreenResult,
   type RtScreenState,
 } from './rtreq'
-import type { FileReqSetup, FontReqSetup, ScreenReqSetup } from '../amiga/reqtools'
+import type { FileReqSetup, FontReqSetup, PaletteReqSetup, ScreenReqSetup } from '../amiga/reqtools'
 import type { AslFontState, AslModeState, AslState } from './aslreq'
 import type { AslFileSetup, AslFontSetup, AslModeSetup } from '../amiga/asl'
 import { parseAmalBank } from '../loader/amalbank'
@@ -2525,6 +2529,31 @@ export class Runtime {
     if (!st || st.done) return
     stepRtScreen(this, st, this.frames)
     if (st.done) finishRtScreen(this, st)
+  }
+
+  /**
+   * reqtools' PALETTE requester, while one is up.
+   *
+   * The one requester in the library with a window of its own:
+   * `palettereq.c`'s `SetupPalWindow` shares nothing with the file, font and
+   * screenmode arms' `SetupReqWindow`.
+   */
+  rtPalette: RtPaletteState | null = null
+
+  /** Open the palette requester. False when there is no screen for it. */
+  startRtPaletteRequest(setup: PaletteReqSetup, slot: number | null): boolean {
+    if (this.rtPalette) return false
+    const st = startRtPalette(this, setup, slot)
+    if (!st) return false
+    this.rtPalette = st
+    return true
+  }
+
+  private stepRtPaletteRequest(): void {
+    const st = this.rtPalette
+    if (!st || st.done) return
+    stepRtPalette(this, st)
+    if (st.done) finishRtPalette(this, st)
   }
 
   /** Open the screen-mode requester. False when there is no screen for it. */
@@ -5001,6 +5030,7 @@ export class Runtime {
     this.stepRtFileRequest()
     this.stepRtFontRequest()
     this.stepRtScreenRequest()
+    this.stepRtPaletteRequest()
     this.stepAslModeRequest()
     this.stepReadText()
     this.directScreen.frame()
@@ -5274,7 +5304,7 @@ export class Runtime {
       const up = this.asl ?? this.aslFont ?? this.aslMode
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'rtreq') {
-      const up = this.rtReq ?? this.rtFile ?? this.rtFont ?? this.rtScreen
+      const up = this.rtReq ?? this.rtFile ?? this.rtFont ?? this.rtScreen ?? this.rtPalette
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
@@ -5431,6 +5461,12 @@ export class Runtime {
           this.rtScreen.ok = false
           this.rtScreen.done = true
           finishRtScreen(this, this.rtScreen)
+        } else if (this.rtPalette && !this.rtPalette.done) {
+          // a cancel, which for this one means putting the palette back
+          this.screens.get(this.rtPalette.slot)?.palette.set(this.rtPalette.entry)
+          this.rtPalette.result = -1
+          this.rtPalette.done = true
+          finishRtPalette(this, this.rtPalette)
         } else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')

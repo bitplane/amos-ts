@@ -115,7 +115,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VF, VI, VS, int, str } from '../interp/values'
 import { joyFire } from '../interp/gameport'
-import { REQ_MODE, RT_MAXINT, RT_MININT, type ReqSetup } from '../amiga/reqtools'
+import { REQ_MODE, RT_MAXINT, RT_MININT, type PaletteReqSetup, type ReqSetup } from '../amiga/reqtools'
 
 /**
  * The nine messages, at $26d4 in the code hunk, NUL-separated and packed.
@@ -723,24 +723,51 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Routine 41 ($239e) — `Delta Reqtools Palette TITLE$`. NUL-terminates
-     * the title in place, stores the pointer at $1b06 and calls routine 43
-     * ($23c8), which opens `reqtools.library` and calls -102 with the title
-     * in a2, reqinfo in a3 and the taglist in a0.
+     * Routine 41 ($239e) --- `Delta Reqtools Palette TITLE$`.
      *
-     * That is rtPaletteRequestA, exactly: `rtPaletteRequestA(title,reqinfo,
-     * taglist)(A2/A3,A0)`, thirteenth in the FD and so at bias 30 plus twelve
-     * sixes. The FD is `reqtools_lib.fd`, which ships in GUI 2.10's own
-     * `Tools/FD` directory in the corpus — the two private password entries
-     * and rtFontRequestA are what put the palette requester at -102 rather
-     * than the -84 a shorter list would give.
+     * NUL-terminates the title in place, stores the pointer at $1b06 and
+     * calls routine 43 ($23c8), which opens `reqtools.library` and calls -102
+     * with the title in a2, reqinfo in a3 and the taglist in a0, both zero.
+     * That is `rtPaletteRequestA(title,reqinfo,taglist)(A2/A3,A0)` exactly ---
+     * thirteenth in the FD and so at bias 30 plus twelve sixes, with the two
+     * private password entries and rtFontRequestA between it and the -84 a
+     * shorter list would give.
      *
-     * APPROXIMATED: this port has no palette requester. The keyword is
-     * reached, the library is not opened and the palette is left alone, which
-     * is the cancel path of the requester the author called.
+     * The answer is thrown away. Routine 41 is an INSTRUCTION and routine 43
+     * ends `jsr -$66(a6) / rts` with d0 untouched, so the pen the user picked
+     * is unreachable and the only thing the keyword leaves behind is the
+     * palette itself.
+     *
+     * And that palette is the WORKBENCH's. `GetReqScreen` follows RT_Screen,
+     * then RT_Window's screen, then the default public screen, and a0 is zero
+     * so there is neither tag --- the requester opens on Workbench and edits
+     * Workbench's four colours. A program drawing on an AMOS screen sees
+     * nothing change.
+     *
+     * `$23dc movea.l #$0,a2` is dead: a2 is loaded again from $1b06 six
+     * instructions later. Left over from the template routine 54 is cut from.
      */
     'delta reqtools palette'(it) {
-      it.evalStr()
+      const title = it.evalStr()
+      if (rt.rtPalette) {
+        if (!rt.rtPalette.done) {
+          it.block({ type: 'rtreq' }, true)
+          return
+        }
+        rt.rtPalette = null
+        return
+      }
+      const setup: PaletteReqSetup = {
+        title,
+        // `glob->color = 1` before the tags are read, and a0 is zero so no
+        // RTPA_Color arrives to move it
+        color: 1,
+        // filled in from the screen the requester lands on
+        depth: 0,
+        bits: [4, 4, 4],
+      }
+      if (!rt.startRtPaletteRequest(setup, null)) return
+      it.block({ type: 'rtreq' }, true)
     },
 
     /**
@@ -754,7 +781,11 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
      * 2`, which cannot parse — the token spec is `I0`, an instruction with
      * one integer, and there is no value to print.
      *
-     * APPROXIMATED: as `Delta Reqtools Palette`, and for the same reason.
+     * APPROXIMATED: `req.library` is a different library, and this port has
+     * no more of it than `Lfreq` does. What `-90` puts on the screen is
+     * unread, so the keyword is reached and nothing is edited --- which is
+     * the cancel path of whatever requester the author called. The reqtools
+     * one next door is real now; this one cannot be until req.library is.
      */
     'delta req palette'(it) {
       it.evalInt()

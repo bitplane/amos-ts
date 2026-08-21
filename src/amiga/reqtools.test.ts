@@ -29,14 +29,18 @@ import {
   rtStrWidth,
   fileReqLayout,
   fontReqLayout,
+  RT_PALETTE_INDICATOR,
   RT_SCREENMODEREQ_PREFS,
   SCREQF,
+  paletteReqLayout,
   rtBuildColStr,
+  rtMakeColVal,
   screenReqLayout,
   type FileReqSetup,
   type FontReqSetup,
   type ReqMetrics,
   type ReqSetup,
+  type PaletteReqSetup,
   type ScreenReqSetup,
 } from './reqtools'
 
@@ -623,5 +627,85 @@ describe('reqtools: the screenmode requester layout', () => {
     expect(rtBuildColStr(8, 0x0800)).toBe('16M')
     // and an EHB mode reads 64 whatever its depth
     expect(rtBuildColStr(3, 0x0080)).toBe('64')
+  })
+})
+
+describe('reqtools: the palette requester layout', () => {
+  const palSetup = (over: Partial<PaletteReqSetup> = {}): PaletteReqSetup => ({
+    title: 'Colours',
+    // `glob->color = 1` before the tag list is read
+    color: 1,
+    // the Workbench screen, four colours
+    depth: 2,
+    bits: [4, 4, 4],
+    ...over,
+  })
+
+  const l = paletteReqLayout(palSetup(), WB)
+
+  it('is 256 wide, which is the floor and not the arithmetic', () => {
+    // width1 is 3 * (StrWidth(Spread) + 16) = 192, so the sum asks for
+    // 18 + 25 + 192 + 16 = 251 and the floor takes over
+    expect(l.width).toBe(256)
+  })
+
+  it('indents the palette and the mode row by 25, the wheel\'s old seat', () => {
+    // `wheeloff` is ADDED to the 25 when a colour wheel is built, and 38.1092
+    // has no wheel; the 25 stands on its own with nothing in it
+    expect(l.palette).toEqual({ x: 34, y: 23, w: 213, h: 20 })
+    expect(l.modes.map((g) => g.box.x)).toEqual([34, 108, 183])
+    // the buttons below start at the border proper
+    expect(l.buttons.map((g) => g.box.x)).toEqual([9, 96, 183])
+  })
+
+  it('splits the palette gadget into an indicator and a grid', () => {
+    expect(l.indicator).toEqual({ x: 34, y: 23, w: RT_PALETTE_INDICATOR, h: 20 })
+    expect(l.grid).toEqual({ x: 72, y: 23, w: 175, h: 20 })
+    expect([l.rows, l.cols]).toEqual([1, 4])
+  })
+
+  it('grows the palette gadget a row at a time, which is what doubles its height', () => {
+    // `if (colcount >= 64) val *= 2; if (colcount >= 128) val *= 2`
+    const c64 = paletteReqLayout(palSetup({ depth: 6 }), WB)
+    expect([c64.rows, c64.cols]).toEqual([2, 32])
+    expect(c64.palette.h).toBe(40)
+    const c256 = paletteReqLayout(palSetup({ depth: 8 }), WB)
+    expect([c256.rows, c256.cols]).toEqual([4, 64])
+    expect(c256.palette.h).toBe(80)
+  })
+
+  it('centres Palette Colors: over the gadget, not over the window', () => {
+    // leftoff + 25 + (winwidth - (leftoff + rightoff + 25) - StrWidth) / 2
+    expect(l.colorsLabel).toEqual({ text: 'Palette Colors:', x: 80, y: 13 })
+  })
+
+  it('puts each gun label, its readout and its slider in one row', () => {
+    // maxwidth is the widest of Red:/Green:/Blue: plus StrWidth("000 "),
+    // so 48 + 32, and the slider starts 8 past it
+    expect(l.sliders.map((b) => b.x)).toEqual([99, 99, 99])
+    expect(l.sliders.map((b) => b.y)).toEqual([61, 76, 91])
+    expect(l.sliders[0]!.w).toBe(148)
+    expect(l.sliderLabels.map((t) => t.text)).toEqual(['Red:', 'Green:', 'Blue:'])
+    expect(l.levels[0]).toEqual({ x: 67, y: 61, w: 32, h: 14 })
+  })
+
+  it('names its six buttons the way 38.1092 spells them', () => {
+    expect(l.modes.map((g) => g.text)).toEqual(['Copy', 'Swap', 'Spread'])
+    expect(l.modes.map((g) => g.key)).toEqual(['y', 'S', 'e'])
+    expect(l.buttons.map((g) => g.text)).toEqual([' Ok ', 'Undo', 'Cancel'])
+    expect(l.height).toBe(125)
+  })
+
+  it('MakeColVal repeats the gun up the longword rather than shifting it', () => {
+    // `$f` at four bits has to reach `$ffffffff`; `$f0000000` would come out
+    // nearly black on a machine that reads all 32
+    expect(rtMakeColVal(0xf, 4) >>> 0).toBe(0xffff_ffff)
+    expect(rtMakeColVal(0, 4) >>> 0).toBe(0)
+    expect(rtMakeColVal(0x8, 4) >>> 0).toBe(0x8888_8888)
+    expect(rtMakeColVal(0xff, 8) >>> 0).toBe(0xffff_ffff)
+    expect(rtMakeColVal(0x12, 8) >>> 0).toBe(0x1212_1212)
+    // and the top nibble is always the value that went in, which is what a
+    // 12-bit colour register keeps
+    expect(rtMakeColVal(0xa, 4) >>> 28).toBe(0xa)
   })
 })

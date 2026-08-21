@@ -552,3 +552,166 @@ describe('Delta 1.6: the reqtools requesters', () => {
     expect(b.out().trim()).toBe('7')
   })
 })
+
+/** click a window-relative point on the palette requester */
+function pclick(b: Boot, wx: number, wy: number): void {
+  const st = b.rt.rtPalette!
+  const scr = b.rt.screens.get(WB_SLOT)!
+  b.rt.input.mouseX = scr.screenToHardX(st.window.leftEdge + wx)
+  b.rt.input.mouseY = st.window.topEdge + wy + scr.displayY - scr.offsetY
+  b.rt.input.mouseK = 1
+  b.rt.frame()
+  b.rt.input.mouseK = 0
+  b.rt.frame()
+}
+
+/** click swatch `i` of the palette grid */
+function pcell(b: Boot, i: number): void {
+  const l = b.rt.rtPalette!.layout
+  const cw = l.grid.w / l.cols
+  pclick(b, l.grid.x + Math.trunc((i + 0.5) * cw), l.grid.y + (l.grid.h >> 1))
+}
+
+/** click Copy (0), Swap (1) or Spread (2) */
+function pmode(b: Boot, i: number): void {
+  const g = b.rt.rtPalette!.layout.modes[i]!.box
+  pclick(b, g.x + (g.w >> 1), g.y + (g.h >> 1))
+}
+
+/** click Ok (0), Undo (1) or Cancel (2) */
+function pbutton(b: Boot, i: number): void {
+  const g = b.rt.rtPalette!.layout.buttons[i]!.box
+  pclick(b, g.x + (g.w >> 1), g.y + (g.h >> 1))
+}
+
+/** drag gun `g` to its far right, which is the maximum a four-bit gun holds */
+function pgunMax(b: Boot, g: number): void {
+  const s = b.rt.rtPalette!.layout.sliders[g]!
+  pclick(b, s.x + s.w - 1, s.y + (s.h >> 1))
+}
+
+describe('Delta 1.6: the palette requester', () => {
+  const PROG = 'Delta Reqtools Palette "Colours"'
+  const wb = (b: Boot): Uint16Array => b.rt.screens.get(WB_SLOT)!.palette
+
+  it('opens on the WORKBENCH, which is not the screen the program draws on', () => {
+    // a0 is zero at `$23f4 jsr -$66(a6)`, so there is no RT_Window and no
+    // RT_Screen; GetReqScreen falls through to the default public screen
+    const b = boot16(PROG)
+    b.rt.frame()
+    const st = b.rt.rtPalette!
+    expect(st.slot).toBe(WB_SLOT)
+    expect(st.window.title).toBe('Colours')
+    // the Workbench is four colours, so four swatches in one row
+    expect([st.layout.rows, st.layout.cols]).toEqual([1, 4])
+  })
+
+  it('starts on pen 1 and shows its three guns', () => {
+    // `glob->color = 1` before the tags are read, and Workbench colour 1 is
+    // white --- ../amiga/intuition.ts's WB_PALETTE, read out of Preferences
+    const b = boot16(PROG)
+    b.rt.frame()
+    const st = b.rt.rtPalette!
+    expect(st.color).toBe(1)
+    expect(st.levels).toEqual([15, 15, 15])
+    expect(st.maxLevels).toEqual([15, 15, 15])
+  })
+
+  it('writes the pen as the slider moves', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    pgunMax(b, 0)
+    expect(b.rt.rtPalette!.levels[0]).toBe(15)
+    // red to the top and green and blue where they were: still white
+    expect(wb(b)[1]).toBe(0xfff)
+    // now take green and blue down by clicking near the left of each
+    for (const g of [1, 2]) {
+      const s = b.rt.rtPalette!.layout.sliders[g]!
+      pclick(b, s.x + 2, s.y + (s.h >> 1))
+    }
+    expect(wb(b)[1]).toBe(0xf00)
+  })
+
+  it('Copy puts the selected pen into the one clicked next', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    const was = wb(b)[3]
+    pmode(b, 0)
+    expect(b.rt.rtPalette!.mode).toBe(0)
+    pcell(b, 3)
+    // pen 3 now holds pen 1's white, and the selection has moved to 3
+    expect(wb(b)[3]).toBe(0xfff)
+    expect(wb(b)[3]).not.toBe(was)
+    expect(b.rt.rtPalette!.color).toBe(3)
+    expect(b.rt.rtPalette!.mode).toBe(-1)
+  })
+
+  it('Swap exchanges the two, because its case falls into Copy\'s', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    const one = wb(b)[1]!
+    const three = wb(b)[3]!
+    pmode(b, 1)
+    pcell(b, 3)
+    expect(wb(b)[1]).toBe(three)
+    expect(wb(b)[3]).toBe(one)
+  })
+
+  it('Spread walks the run between the two and leaves the far end alone', () => {
+    // `for (actcol = from; actcol != to; ...)` stops BEFORE `to`
+    const b = boot16(PROG)
+    b.rt.frame()
+    const three = wb(b)[3]!
+    pmode(b, 2)
+    pcell(b, 3)
+    expect(wb(b)[3]).toBe(three)
+    // pen 2 sits between white at 1 and orange at 3, so it is neither now
+    expect(wb(b)[2]).not.toBe(0x002)
+  })
+
+  it('Undo goes back to the palette as it stood before the last swatch click', () => {
+    // `RefreshVpCM (vp, undomap)` runs FIRST in the PALETTE_ID arm, so the
+    // undo map is re-taken on every click and Undo is one step, not all of it
+    const b = boot16(PROG)
+    b.rt.frame()
+    pgunMax(b, 0)
+    const afterSlider = Uint16Array.from(wb(b))
+    pmode(b, 0)
+    pcell(b, 3)
+    expect(wb(b)[3]).not.toBe(afterSlider[3])
+    pbutton(b, 1)
+    expect(Array.from(wb(b))).toEqual(Array.from(afterSlider))
+  })
+
+  it('Cancel puts the whole palette back', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    const opened = Uint16Array.from(wb(b))
+    pmode(b, 0)
+    pcell(b, 3)
+    expect(wb(b)[3]).not.toBe(opened[3])
+    pbutton(b, 2)
+    expect(Array.from(wb(b))).toEqual(Array.from(opened))
+  })
+
+  it('Ok keeps it, and throws the pen away because routine 41 has nowhere to put it', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    pmode(b, 0)
+    pcell(b, 3)
+    const chosen = wb(b)[3]
+    pbutton(b, 0)
+    for (let k = 0; k < 4; k++) b.rt.frame()
+    expect(wb(b)[3]).toBe(chosen)
+    expect(b.rt.rtPalette).toBeNull()
+  })
+
+  it('a headless run cancels it, which puts the palette back', () => {
+    const b = boot16(PROG)
+    b.rt.frame()
+    const opened = Uint16Array.from(wb(b))
+    pgunMax(b, 0)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(Array.from(wb(b))).toEqual(Array.from(opened))
+  })
+})
