@@ -86,6 +86,16 @@ describe.skipIf(!have)('L_ErrorExt across every registered binary', () => {
       if (stated.size > 1) bad.push(`${e.id}: sites disagree — d2 = ${[...stated].join(', ')}`)
       const only = [...stated][0]
       if (only === undefined || e.slot === undefined) continue
+      // Intuition 1.3b is one out, and its own source says which way. `defs.i`
+      // is `ExtNum equ 14` and `macros.i` reaches its zone with
+      // `ExtAdr+(ExtNum-1)*16(a5)`, so ExtNum is ONE-based -- but `errors.s`
+      // passes `moveq #ExtNum,d2` where AMOS wants d2 zero-based. Andrew
+      // Church's own off-by-one, and the consequence is that every error this
+      // extension raises is attributed to extension 15 rather than to itself.
+      if (e.id === 'intuition-1.3b') {
+        if (only !== e.slot) bad.push(`${e.id}: expected the off-by-one, d2 = ${only}`)
+        continue
+      }
       if (only + 1 !== e.slot) bad.push(`${e.id}: manifest slot ${e.slot}, d2 says ${only + 1}`)
     }
     expect(bad).toEqual([])

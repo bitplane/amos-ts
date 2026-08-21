@@ -291,12 +291,34 @@ describe('extension registry (src/ext/registry.ts)', () => {
      * the extension number, zero-based, compiled in by whoever built it. It
      * outranks `defaultSlot`, which is a manual or a wiki page recommending
      * something, so a disagreement is a manifest to correct and not a value to
-     * choose between. There are none, and this is what keeps it that way.
+     * choose between.
+     *
+     * ONE library disagrees with itself, and only its SOURCE could settle it.
+     * Intuition 1.3b states 15 here and belongs at 14: `defs.i` is
+     * `ExtNum equ 14`, `macros.i` reaches its own zone with
+     * `ExtAdr+(ExtNum-1)*16(a5)` -- so ExtNum is one-based, the same shape as
+     * Int 1.0's `$278` being `$f8 + 16*24` for slot 25 -- and then `errors.s`
+     * passes `moveq #ExtNum,d2` where AMOS wants d2 zero-based. Andrew
+     * Church's own off-by-one, so every error the extension raises is
+     * attributed to extension 15 instead of to itself. His guide says
+     * "extension slot number 14", and all 488 corpus programs agree.
+     *
+     * The rule the comment above states is unchanged: a disagreement is
+     * something to go and settle. This one was settled, which is why it is
+     * named here rather than the manifest being bent to match a defect.
      */
     const clash = REGISTRY.filter(
-      (e) => e.statedSlot !== undefined && e.defaultSlot !== undefined && e.statedSlot !== e.defaultSlot,
+      (e) =>
+        e.id !== 'intuition-1.3b' &&
+        e.statedSlot !== undefined &&
+        e.defaultSlot !== undefined &&
+        e.statedSlot !== e.defaultSlot,
     ).map((e) => `${e.id}: manifest says ${e.defaultSlot}, the binary says ${e.statedSlot}`)
     expect(clash).toEqual([])
+    // and the one exception still says what it says, so a rebuilt table that
+    // quietly agreed would show up here
+    const church = REGISTRY.find((e) => e.id === 'intuition-1.3b')!
+    expect([church.defaultSlot, church.statedSlot]).toEqual([14, 15])
   })
 
   it('reads a slot out of the binary for every library that can raise an error', () => {
