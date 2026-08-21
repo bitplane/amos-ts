@@ -8512,10 +8512,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "intuition-1.3b",
     "name": "Intuition Extension",
     "version": "1.3b",
-    "author": "Peter Hickman",
+    "author": "Andrew Church",
     "origin": "third-party",
     "format": "source",
-    "evidence": "manual",
+    "evidence": "source",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 25,
     "observedSlots": [
@@ -8525,7 +8525,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       "The AMOS Intuition Extension - Version 1.3b"
     ],
     "sha256": "1063312c56e4ab1a84a47b62232fce30a5dc32d3d881d11f4dcf1b76119187ef",
-    "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s. CORROBORATED 2026-07-31 against two real shipped binaries in the Ultimate Amiga 'ie13b' archive: APSystem/Intuition.lib agrees with this assembled table on every id, name and parameter spec — 0 differences across 288 entries. The evidence tier is `manual`, and this is the only extension in the registry entitled to that: no binary is held here, and itokens.s is the TOKEN TABLE — names, ids and parameter specs, with the routines named as L_ labels and defined nowhere. It says what the keywords are called and nothing about what they do, which is exactly the distinction the tier draws. Fetching one of the two corroborating binaries into the fixture would move this to `disassembly` and is the thing to do before #71 ports anything.",
+    "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. Intuition.guide and the makefile both say 1.3b, and the guide says who wrote it: \"The Intuition Extension is copyright © 1994-1995 Andrew Church.\" This manifest said Peter Hickman until 2026-08-21; PAUL Hickman is one of eleven beta testers the guide thanks, and the name was taken from that list. THE AUTHOR'S OWN SOURCE IS VENDORED, 26 files under src/, and it is complete: every one of the 267 L_ labels itokens.s names is defined in them. So are both shipped binaries, from the Ultimate Amiga 'ie13b' archive — APSystem/Intuition.lib is the AMOS Pro build and AMOS_System/Intuition.lib the AMOS 1.3 one — and the guide, the author's `todo`, his `bugs` list and `routine.codes`. The table here is assembled from itokens.s and agrees with the AMOS Pro binary on every id, name and spec: 0 differences across 183 named entries, re-checked 2026-08-21. The AMOS 1.3 binary differs on exactly the five names itokens.s's own `ifd CREATOR` conditional predicts, which is the three-way check that source, binaries and table are one release.",
     "notes": "Opens real Intuition screens and windows, including HAM, EHB, SuperHires and AGA modes."
   },
   {

@@ -63,10 +63,10 @@ export type ExtFormat =
  * field and, separately, for the prose that describes it, because the field
  * was corrected once while twelve manifests went on narrating the old answer.
  *
- * There is no tier below `manual`. There used to be a `table` — names and
- * arities only, behaviour guessed — and nothing occupies it: 71 of the 72
- * registered extensions hold a binary or the author's source, and the one
- * that holds neither, intuition-1.3b, has its manual. The token table alone
+ * There is no tier below `manual`, and as of 2026-08-21 nothing is IN
+ * `manual` either: every registered extension holds a binary or the author's
+ * source. There used to be a `table` tier below it — names and arities only,
+ * behaviour guessed — and nothing ever occupied that: the token table alone
  * is what src/cli/libpool.ts produces from a scan, and a scan reads `.Lib`
  * files, so even that path has the binary by construction.
  */
@@ -100,8 +100,13 @@ export type ExtEvidence =
    * is all that describes it. A keyword ported from here cannot be marked
    * faithful, because there is nothing to check it against.
    *
-   * One extension is here: intuition-1.3b, whose archive carries its token
-   * source and its own test programs and no library at all.
+   * NOTHING IS HERE. intuition-1.3b was, on the reading that its archive held
+   * `itokens.s` and nothing else --- and `itokens.s` really is only a token
+   * table, so the reading was right about the file it looked at. It was wrong
+   * about the directory: twenty-five more `.s` files sit beside it holding
+   * every one of the 267 routines it names, and two shipped binaries and the
+   * guide are in the corpus as well. The tier is empty and worth keeping
+   * empty; a row that reaches it is a row nobody has finished looking for.
    */
   | 'manual'
 
