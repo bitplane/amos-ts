@@ -240,6 +240,15 @@ export const ENCIPHERED_PROC = 0x2000
 /** and bit 12 alongside it means machine language rather than a cipher */
 export const MACHINE_CODE_PROC = 0x1000
 
+/**
+ * The source with any locked procedure body deciphered, which is the form the
+ * editor holds and the only form a detokeniser can read. `parseSource` does
+ * this internally; the line offsets it reports are into THIS buffer.
+ */
+export function decipheredSource(src: Uint8Array, table: TokenTable): Uint8Array {
+  return decipherLocked(src, table) ?? src
+}
+
 export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
   // As the verifier does before a program runs, and for the same reason: what
   // follows cannot read a locked procedure until it has been deciphered.
