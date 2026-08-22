@@ -52,7 +52,7 @@ To load a real program, `parseAmosFile` gives you its token stream and banks.
 ```
 src/
   loader/    .AMOS / .Abk / IFF parsing (BinReader, bank formats)
-  tokens/    token table, detokenizer (listings from tokenized programs)
+  tokens/    token table, the editor's tokeniser and detokeniser, number formats
   interp/    the interpreter: values, variables, control flow, instructions
   runtime/   the "virtual Amiga": screens, bobs, sprites, AMAL, audio, input
   amiga/     the modelled machine and OS beneath it. Paula, the blitter,
@@ -225,9 +225,13 @@ original, split into what can still be closed and what cannot.
   `UnPack_Bitmap`, and the Compact packer, which re-packs every corpus picture
   byte for byte.
 - **Tokens.** Token tables extracted from the compiled AMOS Pro 2.00 libraries
-  (hunk file, then `AP20` header, then `C_Tk` table). The detokenizer
-  reproduces editor-style listings and the tokenizer goes the other way, so
-  tests are written in AMOS source.
+  (hunk file, then `AP20` header, then `C_Tk` table), and the editor's own
+  `Detok` and `Tokenise` ported byte for byte from `+Edit.s`. All 124,468
+  lines of the 566 corpus programs go out through one and back through the
+  other and come back as the bytes they started as, once the fields the
+  verifier owns are cleared: 65 lines do not, and each is a case the text
+  cannot decide. A second tokenizer resolves procedure calls up front, which
+  `Tokenise` leaves to the verifier, so tests can be written in AMOS source.
 - **Interpreter.** Values, AMOS precedence and type rules, all control flow,
   procedures with the real scoping rules, Data/Read/Restore with computed
   labels, error trapping, Input and Print. A prescan recomputes control flow
