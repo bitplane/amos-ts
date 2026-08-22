@@ -1469,3 +1469,236 @@ describe('Intuition 1.3b: the string and integer gadgets', () => {
     expect(() => mustFinish(hit.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
   })
 })
+
+/**
+ * `screens.s`'s copy family, the two keywords that move a screen, and the
+ * four coordinate converters.
+ *
+ * Six routines end in the same `move.b #$c0,d6 / moveq #-1,d7 / WaitBlit /
+ * BltBitMap` and differ only in where each end of the blit comes from. Each
+ * keyword is two routines --- the token table names one and hangs an unnamed
+ * `I0,0,0,0,0t0,0,0` continuation beside it pointing at the routine below ---
+ * so `Iscreen Copy` is 37 for `a To b` and 36 for the rectangle.
+ */
+describe('Intuition 1.3b: moving screens and their pixels', () => {
+  /** the ./screen.ts Screen behind an Iscreen number */
+  const sc = (rt: Runtime, n: number) => rt.screens.get(rt.iext.screens.get(n)!.slot)!
+
+  /**
+   * `sub.w sc_LeftEdge(a2),d5` makes a delta and MoveScreen applies it, so
+   * the argument is an absolute position in the Intuition display. Zero is
+   * the display's top-left corner, which is 128,44 in this port's hardware
+   * coordinates.
+   */
+  it('Iscreen Display positions a screen off the display corner', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,40,60,,')
+    expect([sc(rt, 0).displayX, sc(rt, 0).displayY]).toEqual([168, 104])
+  })
+
+  /** `tst.w d5 / bpl .xpos / moveq #0,d5` on each axis */
+  it('a negative position is floored at zero', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,-40,-60,,')
+    expect([sc(rt, 0).displayX, sc(rt, 0).displayY]).toEqual([128, 44])
+  })
+
+  /** an omitted coordinate is `moveq #0,d5`, a zero DELTA rather than a zero */
+  it('an omitted coordinate leaves that axis where it was', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,40,60,,\nIscreen Display 0,,90,,')
+    expect([sc(rt, 0).displayX, sc(rt, 0).displayY]).toEqual([168, 134])
+  })
+
+  /** `move.w d3,sc_Width(a2)` and `move.w d3,sc_ViewPort+vp_DWidth(a2)` */
+  it('the width goes into sc_Width and vp_DWidth together', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,,,200,')
+    expect(rt.iext.screens.get(0)!.scWidth).toBe(200)
+    expect(sc(rt, 0).displayW).toBe(200)
+  })
+
+  /**
+   * DEFECT: `move.w d3,$46(a2)` at $2004 writes the WIDTH into `vp_DHeight`.
+   * With no width given d3 still holds AMOS's `Null`, $80000000, so what
+   * reaches the display height is that value's low word --- zero.
+   */
+  it('DEFECT: a height on its own sets sc_Height and blanks vp_DHeight', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,,,,100')
+    expect(rt.iext.screens.get(0)!.scHeight).toBe(100)
+    expect(sc(rt, 0).displayH).toBe(0)
+  })
+
+  /** the same instruction with a width to carry: 200 lines of a screen 100 high */
+  it('DEFECT: with both given vp_DHeight takes the width', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0\nIscreen Display 0,,,200,100')
+    expect(rt.iext.screens.get(0)!.scHeight).toBe(100)
+    expect(sc(rt, 0).displayH).toBe(200)
+  })
+
+  /** `cmp.w se_Width(a0),d3 / bhi L_IllFunc` --- routine 140, error 13 */
+  it('a width over se_Width is error 13', () => {
+    const b = boot('Iscreen Open 0,320,200,16,0\nIscreen Display 0,,,321,')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /**
+   * DEFECT: `cmp.w $12(a0),d3` at $1ff8 is the height ceiling reading the
+   * WIDTH register. A width of 320 on a screen 100 high fails a test the
+   * height never took part in, and it fails AFTER `sc_Width` has been
+   * written --- the arms run in order.
+   */
+  it('DEFECT: the height ceiling compares the width against se_Height', () => {
+    const b = boot('Iscreen Open 0,320,100,16,0\nIscreen Display 0,,,320,50')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+    expect(b.rt.iext.screens.get(0)!.scWidth).toBe(320)
+    expect(b.rt.iext.screens.get(0)!.scHeight).toBe(100)
+  })
+
+  /** `move.w d3,ri_RxOffset(a1)` behind `cmp.l #Null,d3 / beq` */
+  it('Iscreen Offset writes the RasInfo offsets and keeps an omitted one', () => {
+    const rt = run('Iscreen Open 0,640,400,16,0\nIscreen Offset 0,32,64\nIscreen Offset 0,,80')
+    expect([sc(rt, 0).offsetX, sc(rt, 0).offsetY]).toEqual([32, 80])
+  })
+
+  const TWO = 'Iscreen Open 0,320,200,16,0\nIscreen Open 1,320,200,16,0\n'
+
+  it('Iscreen Copy a To b moves the whole source screen', () => {
+    expect(
+      vals(
+        `${TWO}Set Iscreen 0 : Iplot 10,10,5 : Iplot 300,190,7\n` +
+          'Iscreen Copy 0 To 1\nSet Iscreen 1\nPrint Ipoint(10,10);" ";Ipoint(300,190)',
+      ),
+    ).toEqual([5, 7])
+  })
+
+  /** `sub.w d1,d5 / addq.w #1,d5` --- the rectangle is inclusive at both ends */
+  it('the rectangle form copies x1,y1-x2,y2 to x,y', () => {
+    expect(
+      vals(
+        `${TWO}Set Iscreen 0 : Iplot 10,10,5 : Iplot 19,19,6\n` +
+          'Iscreen Copy 0,10,10,19,19 To 1,100,100\nSet Iscreen 1\n' +
+          'Print Ipoint(100,100);" ";Ipoint(109,109);" ";Ipoint(99,99)',
+      ),
+    ).toEqual([5, 6, 0])
+  })
+
+  /**
+   * The short form's size is `move.w sc_Width(a0),d4 / move.w sc_Height(a0),d5`
+   * at $23c0 --- the DISPLAYED size, so narrowing the source with `Iscreen
+   * Display` narrows what copying it whole moves.
+   */
+  it('Iscreen Copy a To b takes its size from sc_Width', () => {
+    expect(
+      vals(
+        `${TWO}Set Iscreen 0 : Iplot 10,10,5 : Iplot 150,10,6\n` +
+          'Iscreen Display 0,,,100,\nIscreen Copy 0 To 1\nSet Iscreen 1\n' +
+          'Print Ipoint(10,10);" ";Ipoint(150,10)',
+      ),
+    ).toEqual([5, 0])
+  })
+
+  /**
+   * `moveq #-1,d7` asks for every plane, so the DEPTHS bound the blit:
+   * `min(srcDepth, dstDepth)` planes move and the destination keeps whatever
+   * it had above them (AROS `rom/graphics/bltbitmap.c`:137-140). Four planes
+   * into two drops pen 5 to 1; one plane over a pen 12 leaves 13.
+   */
+  it('BltBitMap moves min(srcDepth, dstDepth) planes', () => {
+    expect(
+      vals(
+        'Iscreen Open 0,320,200,16,0\nIscreen Open 1,320,200,4,0\n' +
+          'Set Iscreen 0 : Iplot 10,10,5\nIscreen Copy 0 To 1\nSet Iscreen 1\nPrint Ipoint(10,10)',
+      ),
+    ).toEqual([1])
+    expect(
+      vals(
+        'Iscreen Open 0,320,200,4,0\nIscreen Open 1,320,200,16,0\n' +
+          'Set Iscreen 1 : Iplot 10,10,12\nSet Iscreen 0 : Iplot 10,10,1\n' +
+          'Iscreen Copy 0 To 1\nSet Iscreen 1\nPrint Ipoint(10,10)',
+      ),
+    ).toEqual([13])
+  })
+
+  /**
+   * `Amos Iscreen Copy` builds a `struct BitMap` at $224(a4) from the AMOS
+   * screen --- six plane pointers out of `EcCurrent`, `EcTx` shifted right
+   * three for the row length, `EcTy` for the rows, and `move.b d6,$5(a0)`
+   * for the depth.
+   */
+  it('Amos Iscreen Copy brings an AMOS screen over', () => {
+    expect(
+      vals(
+        'Screen Open 0,320,200,16,0 : Ink 5 : Plot 10,10\n' +
+          'Iscreen Open 1,320,200,16,0\nAmos Iscreen Copy 0 To 1\nSet Iscreen 1\nPrint Ipoint(10,10)',
+      ),
+    ).toEqual([5])
+    expect(
+      vals(
+        'Screen Open 0,320,200,16,0 : Ink 5 : Plot 10,10\n' +
+          'Iscreen Open 1,320,200,16,0\nAmos Iscreen Copy 0,10,10,19,19 To 1,40,40\n' +
+          'Set Iscreen 1\nPrint Ipoint(40,40);" ";Ipoint(10,10)',
+      ),
+    ).toEqual([5, 0])
+  })
+
+  /**
+   * DEFECT: $270a and $27ba are `move.w $50(a0),$5(a1)` --- EcNPlan written
+   * as a word to a byte field at an ODD address. This machine is a 68020 and
+   * allows it, and big-endian order then puts the plane count's high byte,
+   * zero, into `bm_Depth`. BltBitMap is handed a destination of no planes
+   * and moves nothing. On a 68000 the same instruction is an address error.
+   */
+  it('DEFECT: Iscreen Amos Copy writes a zero depth and copies nothing', () => {
+    expect(
+      vals(
+        'Screen Open 0,320,200,16,0 : Ink 3 : Plot 10,10\n' +
+          'Iscreen Open 1,320,200,16,0\nSet Iscreen 1 : Iplot 10,10,7\n' +
+          'Iscreen Amos Copy 1 To 0\nPrint Point(10,10)',
+      ),
+    ).toEqual([3])
+  })
+
+  /**
+   * `FindAscr` is `cmp.l #7,d0 / bhi Ascr0to7`, error 35, and a number in
+   * range with no screen open falls out as the caller's `beq L_NoScr`, 16.
+   * The destination is the first argument popped, so it is checked first:
+   * `Iscreen Amos Copy 99 To 8` answers for the 8 and never looks at the 99.
+   */
+  it('an AMOS screen number is checked for range, for open, and first', () => {
+    const over = boot('Iscreen Open 0,320,200,16,0\nAmos Iscreen Copy 8 To 0')
+    expect(() => mustFinish(over.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.ASN])
+    const shut = boot('Iscreen Open 0,320,200,16,0\nAmos Iscreen Copy 6 To 0')
+    expect(() => mustFinish(shut.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+    const order = boot('Iscreen Amos Copy 99 To 8')
+    expect(() => mustFinish(order.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.ASN])
+  })
+
+  /**
+   * `moveq #SUPERHIRES,d2 / and.w d1,d2` then `move.w #HIRES,d2`, and the Y
+   * pair test LACED on its own. The offset added afterwards is the
+   * ViewLord's, which is zero on this machine.
+   */
+  it('the coordinate pairs shift by resolution and nothing else', () => {
+    expect(
+      vals('Iscreen Open 0,320,200,16,0\nPrint X Ihard(100);" ";X Iscreen(100);" ";Y Ihard(100);" ";Y Iscreen(100)'),
+    ).toEqual([100, 100, 100, 100])
+    expect(vals('Iscreen Open 0,640,200,16,Hires\nPrint X Ihard(100);" ";X Iscreen(50)')).toEqual([50, 100])
+    expect(vals('Iscreen Open 0,1280,200,16,Hires+Superhires\nPrint X Ihard(100);" ";X Iscreen(25)')).toEqual([
+      25, 100,
+    ])
+    expect(vals('Iscreen Open 0,320,400,16,Laced\nPrint Y Ihard(100);" ";Y Iscreen(50)')).toEqual([50, 100])
+  })
+
+  /** `sc_LeftEdge` is not in any of the four, so moving the screen changes nothing */
+  it('a moved screen still converts as though it sat at the display corner', () => {
+    expect(vals('Iscreen Open 0,640,200,16,Hires\nIscreen Display 0,100,20,,\nPrint X Ihard(100)')).toEqual([50])
+  })
+
+  /** `lsr.w #1,d3` on a register the argument arrived in as a longword */
+  it('the shift is a word one under a high word that rides through', () => {
+    expect(vals('Iscreen Open 0,640,200,16,Hires\nPrint X Ihard(-2);" ";X Ihard(65536)')).toEqual([-32769, 65536])
+  })
+
+  /** all four open with `jtcall GetCurIscr`, so they need a screen */
+  it('the converters need a current screen', () => {
+    const b = boot('Print X Ihard(0)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+  })
+})

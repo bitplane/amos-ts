@@ -3815,6 +3815,31 @@ export const FAITHFUL = new Set<string>([
   'iscreen open', 'iscreen open public', 'iscreen open back', 'iscreen open front',
   'iscreen close', 'iscreen', 'set iscreen', 'iscreen to front', 'iscreen to back',
   'iscreen base', 'iscreen width', 'iscreen height', 'iscreen colour', 'iscreen mode',
+  // Moving a screen, and moving its pixels. `Iscreen Display` is one
+  // `movem.l (a3)+,d2-d6` and then four independent arms, `Iscreen Offset`
+  // writes `ri_RxOffset` and `ri_RyOffset` and follows them with a MoveScreen
+  // of 0,0 the author labels `;kludge`. MaxDispWidth and MaxDispHeight are
+  // both $ffff on a Kickstart 2.0 machine -- `startup.s`:245 is `cmpi.w
+  // #$24,$14(a6) / bcs` on intuition.library's version, and only the arm
+  // below it computes the 449 and 311 the guide's numbers come from -- so
+  // only the `se_` ceilings can fire.
+  //
+  // The six copy routines end in the same `move.b #$c0,d6 / moveq #-1,d7 /
+  // WaitBlit / BltBitMap` and differ only in where each end comes from. The
+  // two that reach an AMOS screen build a `struct BitMap` at $224(a4) out of
+  // `EcCurrent`, `EcTx`, `EcTy` and `EcNPlan`, and `EcCurrent` is the LOGICAL
+  // screen, so a double-buffered one copies the buffer being drawn into.
+  // `moveq #-1,d7` asks for every plane, so the two DEPTHS bound the blit at
+  // `min(src, dst)` planes.
+  //
+  // The four converters are a resolution shift and nothing else: superhires
+  // two, hires one, LACED one on Y, then the ViewLord's `v_DxOffset`, which
+  // `=X Hard Min` already answers 0 for here. `sc_LeftEdge` is not in any of
+  // them, so a screen `Iscreen Display` has moved still converts as though it
+  // sat at the display's top-left corner.
+  'iscreen display', 'iscreen offset',
+  'iscreen copy', 'amos iscreen copy', 'iscreen amos copy',
+  'x ihard', 'x iscreen', 'y ihard', 'y iscreen',
   // Windows. `windows.s` writes almost every one three times -- `n`, `Wb n`
   // and bare -- as three routines sharing a body, and the only difference is
   // which list the number goes to: `FindIwin` walks the CURRENT screen's
@@ -4401,6 +4426,51 @@ export const NOTES: Record<string, string> = {
     "no address for a data zone, so the slider is built with the direction the caller asked for and both " +
     "defects are recorded rather than reproduced. NOTE: the guide's minimum sizes -- \"A horizontal gadget must " +
     "be at least 16 pixels wide and 8 pixels tall\" -- are not checked anywhere in the routine.",
+  "iscreen display":
+    "Routine 26 ($1f4a), five arguments in one `movem.l (a3)+,d2-d6` so d6 is n, d5 x, d4 y, d3 w and d2 h. " +
+    "Position first: an omitted x with an omitted y skips MoveScreen entirely, otherwise the missing one is a " +
+    "zero DELTA and the given one is floored at zero (`tst.w d5 / bpl / moveq #0,d5`) and turned into a delta " +
+    "by `sub.w sc_LeftEdge(a2),d5`. DEFECT: the height arm at $1ff0 is the width arm with one register left " +
+    "behind. `$1ff8 cmp.w $12(a0),d3` checks the WIDTH against se_Height, and `$2004 move.w d3,$46(a2)` " +
+    "writes the WIDTH into vp_DHeight -- so a height on its own leaves the displayed height at ZERO (d3 still " +
+    "holds AMOS\'s Null, $80000000, low word 0) and a width of 320 with a height of 100 displays 320 lines of " +
+    "a screen 100 high. The 1.1a changelog claims \"Fixed Iscreen Display bug which did not set the display " +
+    "width and height correctly\"; the width half at $1fd0 was fixed and this half shipped in every release " +
+    "after it. The arms run in order, so the width is already written when the height ceiling raises 13. " +
+    "NOTE: the guide adds what the code cannot, \"Under Kickstart 1.3b, screens cannot be moved horizontally\".",
+  "iscreen copy":
+    "Routines 37 ($2382) for `a To b` and 36 ($22fc) for the rectangle, which is how every one of these " +
+    "keywords is spelled -- the token table names one entry and hangs an unnamed `I0,0,0,0,0t0,0,0` " +
+    "continuation beside it pointing at the routine BELOW. The short form takes its size from the SOURCE\'s " +
+    "sc_Width and sc_Height at $23c0, the DISPLAYED size that Iscreen Display writes, not the bitmap\'s. The " +
+    "destination is resolved first, `$2398 move.l (a3)+,d0 / jtcall FindIscr` before the source\'s at $23ae, " +
+    "because it is the last argument pushed. `sub.w d1,d5 / addq.w #1,d5` makes the size, both halves .w, so a " +
+    "reversed rectangle is a huge unsigned size rather than a negative one. DEVIATION: the blit is clipped to " +
+    "both bitmaps. BltBitMap is not, which is what the guide\'s \"you will probably crash your Amiga!\" is " +
+    "about, and there is no memory here to corrupt on a program\'s behalf.",
+  "iscreen amos copy":
+    "Routines 45 ($2768) and 44 ($26b2), and neither moves a pixel. DEFECT: $270a and $27ba are `move.w " +
+    "$50(a0),$5(a1)` -- EcNPlan written as a WORD into bm_Depth, a byte field at an odd offset. Two things " +
+    "follow. The address is odd, so on a 68000 the keyword is an address error and nothing else; this machine " +
+    "is a 68020 (./jd.ts\'s `Jd Cpu`), which allows the access, and big-endian order then puts the plane " +
+    "count\'s HIGH byte -- zero for any count of 1 to 6 -- into bm_Depth and its low byte into bm_Pad. " +
+    "BltBitMap moves `min(srcDepth, dstDepth)` planes (AROS `rom/graphics/bltbitmap.c`:137-140), so a " +
+    "destination of no planes moves nothing. `Amos Iscreen Copy` going the other way is `$25da move.w " +
+    "$50(a1),d6 / $25de move.b d6,$5(a0)` and does it correctly, which makes this a slip rather than a " +
+    "misunderstanding. The keyword was added in 1.3b, 22 February 1996, the last release the extension had, " +
+    "so it never worked in any version. Everything else about the pair is right, including an extra WaitBlit " +
+    "at $2750 that the other four do not have, over the author\'s own reason: \"Need to call WaitBlit() after " +
+    "BltBitMap() because AMOS might not\". Reproduced: the port hands the blit the depth the instruction " +
+    "writes.",
+  "x ihard":
+    "Routines 38 to 41 ($23fc, $2458, $24b6, $2504), each `jtcall GetCurIscr` and then one shift. `move.w " +
+    "$4c(a0),d1` is sc_ViewPort+vp_Modes; `moveq #$20,d2` is SUPERHIRES and shifts two, `move.w #$8000,d2` is " +
+    "HIRES and shifts one, and the Y pair test `moveq #$4,d1`, LACED, on its own. Then `add.w $e(a1),d3` or " +
+    "`sub.w $c(a1),d3` -- the ViewLord\'s v_DxOffset and v_DyOffset, which =X Hard Min already answers 0 for " +
+    "on a machine with no Overscan preference. sc_LeftEdge is in none of the four, so a screen Iscreen Display " +
+    "has moved converts as though it still sat at the display\'s top-left corner. All four are .w arithmetic " +
+    "in a register the argument arrived in as a longword and d3 goes back whole, so =X Ihard(-2) on a hires " +
+    "screen is -32769 and =X Ihard(65536) is 65536.",
   "igadget read":
     "Routine 265 ($747e), one function over four gadget types: si_LongInt for an integer gadget, GFLG_SELECTED " +
     "for a toggle, a decrementing ge_HitCount for a hit-select, and `(NUnits - KnobSize) * Pot / MAXPOT` for a " +

@@ -52,7 +52,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { MODE_KEY, MONITOR } from '../amiga/displayinfo'
-import { RastPort } from '../amiga/graphics'
+import { RastPort, type BitMap } from '../amiga/graphics'
 import { MENUNULL, NOITEM, NOMENU, NOSUB, itemNum, menuNum, subNum } from '../amiga/gadtools'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
 import {
@@ -71,6 +71,7 @@ import {
   type ScreenReqSetup,
 } from '../amiga/reqtools'
 import { rtScreenResult } from './rtreq'
+import type { Screen } from './screen'
 import {
   AUTOKNOB,
   FREEHORIZ,
@@ -277,6 +278,15 @@ export interface IextScreen {
   width: number
   height: number
   depth: number
+  /**
+   * `sc_Width` and `sc_Height` --- the DISPLAYED size, which is not the
+   * bitmap's and not `se_Width`/`se_Height` either. They open equal to what
+   * the program asked for and `Iscreen Display` is the only writer, so the
+   * short form of `Iscreen Copy` --- which reads them at $23c0 for the size
+   * of its blit --- copies less of a screen whose display has been narrowed.
+   */
+  scWidth: number
+  scHeight: number
   /** `se_FirstIwindow`: this screen's own windows, by number */
   readonly windows: Map<number, IextWindow>
   /** `se_LastActive`, restored when the screen becomes current again */
@@ -914,6 +924,191 @@ function rectTo(it: Parameters<Instr>[0]): [number, number, number, number] {
 /** an argument that may be left out, which AMOS compiles to EntNul */
 function omittable(it: Parameters<Instr>[0]): number | null {
   return it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+}
+
+/**
+ * Where the Intuition display's top-left corner sits in this port's hardware
+ * coordinates.
+ *
+ * A screen whose `sc_LeftEdge` and `sc_TopEdge` are both zero is at 128,44
+ * here: `openIscreen` below hands ../amiga/intuition.ts `displayY:
+ * WB_DISPLAY_Y` for every screen it opens, and a fresh ./screen.ts Screen
+ * carries `displayX = 128`. `Iscreen Display` is the only keyword that moves
+ * one, and MoveScreen's arguments are deltas off those two fields, so this
+ * is what turns the routine's absolute x and y back into a position.
+ */
+const IEXT_VIEW_LEFT = 128
+const IEXT_VIEW_TOP = WB_DISPLAY_Y
+
+/**
+ * `FindAscr` (`amosfuncs.s`:234) --- an AMOS screen by number, for the four
+ * keywords that copy across the fence.
+ *
+ * `cmp.l #7,d0 / bhi Ascr0to7` is an UNSIGNED longword compare, so a
+ * negative number is a very large one and answers error 35, "Valid AMOS
+ * screen numbers range from 0 to 7". A number in range with no screen open
+ * falls out of the walk as zero and every caller reads that as `beq
+ * L_NoScr`, error 16 --- so 8 and 3-with-nothing-open are different errors.
+ *
+ * The walk itself is over AMOS's own screen table at `-528(SavedA5)`, which
+ * the author annotates *"Why isn't this documented?"*, and it matches on
+ * `EcNumber(a0) & 7` rather than on the number itself.
+ */
+function findAscr(rt: Runtime, n: number): Screen {
+  if ((n >>> 0) > 7) iError(E.ASN)
+  return rt.screens.get(n) ?? iError(E.SNO)
+}
+
+/**
+ * `BltBitMap(src, xSrc, ySrc, dst, xDest, yDest, xSize, ySize, $c0, -1, 0)`
+ * --- the four instructions all six screen-copy keywords end in.
+ *
+ * `graphics_lib.fd` puts it at -30 and orders the arguments
+ * `(a0,d0/d1,a1,d2/d3,d4/d5,d6/d7,a2)`, which is why every one of the six
+ * loads the WIDTH into d4 and the HEIGHT into d5. `move.b #$c0,d6` is a
+ * straight copy and `moveq #-1,d7` asks for every plane, so what bounds the
+ * blit is the two DEPTHS: it moves `min(srcDepth, dstDepth)` planes and
+ * leaves anything above them alone. AROS `rom/graphics/bltbitmap.c`:137 is
+ * `depth = GetBitMapAttr(srcBitMap, BMA_DEPTH)` and :140 `if (x < depth)
+ * depth = x` --- a reimplementation, but of the contract the autodoc states.
+ *
+ * Both depths are arguments rather than read off the BitMaps because four of
+ * the six build their far end as a `struct BitMap` in the extension's own
+ * data zone, and `Iscreen Amos Copy` fills its depth byte with zero, which
+ * is why this can be asked for no planes at all. IEXT_AMOS_DEST_DEPTH below
+ * carries that instruction and what follows from it.
+ *
+ * DEVIATION: the rectangle is clipped to both bitmaps. The ROM call is not,
+ * which is what the guide's *"you will probably crash your Amiga!"* is
+ * about, and there is no memory here to corrupt on a program's behalf.
+ */
+function bltIscreen(
+  src: BitMap,
+  sx: number,
+  sy: number,
+  dst: BitMap,
+  dx: number,
+  dy: number,
+  w: number,
+  h: number,
+  srcDepth: number,
+  dstDepth: number,
+): void {
+  const planes = Math.min(srcDepth, dstDepth)
+  if (planes <= 0 || w <= 0 || h <= 0) return
+  const mask = (1 << planes) - 1
+  const keep = new Uint8Array(w * h)
+  for (let ry = 0; ry < h; ry++) {
+    const y = sy + ry
+    if (y < 0 || y >= src.height) continue
+    for (let rx = 0; rx < w; rx++) {
+      const x = sx + rx
+      if (x < 0 || x >= src.width) continue
+      keep[ry * w + rx] = src.pixelAt(x, y)
+    }
+  }
+  for (let ry = 0; ry < h; ry++) {
+    const y = dy + ry
+    if (y < 0 || y >= dst.height) continue
+    for (let rx = 0; rx < w; rx++) {
+      const x = dx + rx
+      if (x < 0 || x >= dst.width) continue
+      dst.writePixel(x, y, (dst.pixelAt(x, y) & ~mask) | (keep[ry * w + rx]! & mask))
+    }
+  }
+}
+
+/**
+ * `sub.w d1,d5 / addq.w #1,d5` --- a rectangle edge pair as a size.
+ *
+ * Both halves are `.w`, so a reversed rectangle is not a negative size but a
+ * very large unsigned one, and the blit runs to the edge of the bitmap
+ * instead of doing nothing.
+ */
+function copySpan(from: number, to: number): number {
+  return (to - from + 1) & 0xffff
+}
+
+/**
+ * `bm_Depth` of the BitMap `Iscreen Amos Copy` blits INTO, and it is zero.
+ *
+ * DEFECT: $270a and $27ba are `move.w $50(a0),$5(a1)` --- EcNPlan written as
+ * a WORD to `bm_Depth`, which is one byte at offset 5. Two things follow.
+ * The address is odd, so on a 68000 the keyword is an address error and
+ * nothing else; this machine is a 68020 (./jd.ts's `Jd Cpu`), which allows
+ * the access, and then big-endian order puts EcNPlan's HIGH byte in
+ * `bm_Depth` and its low byte in `bm_Pad`. A plane count of 1 to 6 has a
+ * high byte of 0, so the destination is a BitMap of no planes and BltBitMap
+ * copies nothing at all.
+ *
+ * `Amos Iscreen Copy` going the other way is `move.w $50(a1),d6 / move.b
+ * d6,$5(a0)` at $25da and does it correctly, which is what makes this a slip
+ * rather than a misunderstanding. `Iscreen Amos Copy` was added in 1.3b, 22
+ * February 1996, the last release the extension ever had, so it never worked
+ * in any version.
+ */
+const IEXT_AMOS_DEST_DEPTH = 0
+
+/** an Iscreen's BitMap, or null for a screen ../amiga/intuition.ts lost */
+function iscrBitMap(rt: Runtime, scr: IextScreen): BitMap | null {
+  return rt.screens.get(scr.slot)?.rp.bitMap ?? null
+}
+
+/** both spellings of a copy keyword's arguments; `whole` is the `a To b` one */
+interface CopyArgs {
+  a: number
+  b: number
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  dx: number
+  dy: number
+  whole: boolean
+}
+
+/**
+ * `a To b` or `a,x1,y1,x2,y2 To b,x,y`, which the token table spells as two
+ * entries --- `I0t0` naming the keyword and an unnamed `I0,0,0,0,0t0,0,0`
+ * continuation beside it, pointing at the routine one BELOW. So `Iscreen
+ * Copy` is routine 37 for the short form and 36 for the long one, and the
+ * same pairing holds at 43/42 and 45/44.
+ */
+function copyArgs(it: Parameters<Instr>[0]): CopyArgs {
+  const a = it.evalInt()
+  const c: CopyArgs = { a, b: 0, x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0, whole: true }
+  if (it.accept(',')) {
+    c.whole = false
+    c.x1 = it.evalInt()
+    it.expect(',')
+    c.y1 = it.evalInt()
+    it.expect(',')
+    c.x2 = it.evalInt()
+    it.expect(',')
+    c.y2 = it.evalInt()
+  }
+  it.expect('to')
+  c.b = it.evalInt()
+  if (!c.whole) {
+    it.expect(',')
+    c.dx = it.evalInt()
+    it.expect(',')
+    c.dy = it.evalInt()
+  }
+  return c
+}
+
+/**
+ * A `.w` result in a register the argument arrived in as a longword: the low
+ * word changes and the high word rides through untouched.
+ *
+ * The four coordinate converters are all word arithmetic --- `lsr.w #2,d3`,
+ * `add.w d3,d3`, `add.w v_DxOffset(a1),d3` --- and then return d3 whole, so
+ * an argument that fits in a word converts the obvious way and one that does
+ * not keeps its top half: `=X Ihard(65536)` on a hires screen is 65536.
+ */
+function wordOp(v: number, f: (low: number) => number): number {
+  return ((v & ~0xffff) | (f(v & 0xffff) & 0xffff)) | 0
 }
 
 /** `defs.i`:171-173 --- what `OpenIwin` uses when the flags are Null */
@@ -1750,6 +1945,8 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       width,
       height,
       depth,
+      scWidth: width,
+      scHeight: height,
       mode,
       title,
       displayID,
@@ -1856,6 +2053,178 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       const st = s()
       const scr = it.atStmtEnd() ? curIscr(st) : findIscr(st, it.evalInt())
       rt.intuition.screenToBack(scr.address)
+    },
+
+    /**
+     * `Iscreen Display n,x,y,w,h` --- position and displayed size, all four
+     * omittable, and the height arm reads the width register.
+     *
+     * `movem.l (a3)+,d2-d6` takes the five arguments in one instruction, so
+     * d6 is n, d5 x, d4 y, d3 w and d2 h. Position first: an omitted x with
+     * an omitted y skips MoveScreen entirely, otherwise the missing one
+     * becomes a zero DELTA and the given one is floored at zero (`tst.w d5 /
+     * bpl / moveq #0,d5`) and turned into a delta by `sub.w
+     * sc_LeftEdge(a2),d5`. The guide adds what the code cannot say: *"NOTE:
+     * Under Kickstart 1.3b, screens cannot be moved horizontally."*
+     *
+     * The width arm at $1fd0 is right --- MaxDispWidth, then `se_Width`,
+     * then `sc_Width` and `vp_DWidth` both take d3.
+     *
+     * DEFECT: the height arm at $1ff0 is the width arm with one register
+     * left behind. `cmp.w $12(a0),d3` checks the WIDTH against `se_Height`,
+     * and `move.w d3,$46(a2)` writes the WIDTH into `vp_DHeight`. So
+     * `Iscreen Display 1,,,,100` sets `sc_Height` to 100 and the displayed
+     * height to ZERO --- d3 still holds AMOS's `Null`, $80000000, whose low
+     * word is 0 --- and `Iscreen Display 1,,,320,100` displays 320 lines of
+     * a screen 100 high. The 1.1a changelog claims *"Fixed Iscreen Display
+     * bug which did not set the display width and height correctly"*: the
+     * width half was fixed and this half shipped in every release after it.
+     *
+     * MaxDispWidth and MaxDispHeight are both $ffff here. `startup.s`:245 is
+     * `cmpi.w #$24,$14(a6) / bcs` on intuition.library's version, and 2.0 or
+     * over takes `moveq #-1,d0` into each; the 1.3 arm below it computes 449
+     * and 311 off the ViewLord instead. So only the `se_` ceilings can fire,
+     * error 13.
+     */
+    'iscreen display': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const x = omittable(it)
+      it.expect(',')
+      const y = omittable(it)
+      it.expect(',')
+      const w = omittable(it)
+      it.expect(',')
+      const h = omittable(it)
+      const scr = findIscr(st, n)
+      const sc = rt.screens.get(scr.slot)
+      if (sc) {
+        if (x !== null) sc.displayX = IEXT_VIEW_LEFT + Math.max(0, x)
+        if (y !== null) sc.displayY = IEXT_VIEW_TOP + Math.max(0, y)
+      }
+      // d3's low word, which is zero when the width was left out
+      const d3 = w === null ? 0 : w & 0xffff
+      if (w !== null) {
+        if (d3 > scr.width) iError(E.IFC)
+        scr.scWidth = d3
+        if (sc) sc.displayW = d3
+      }
+      if (h !== null) {
+        if (d3 > scr.height) iError(E.IFC)
+        scr.scHeight = h & 0xffff
+        if (sc) sc.displayH = d3
+      }
+    },
+
+    /**
+     * `Iscreen Offset n,x,y` --- `ri_RxOffset` and `ri_RyOffset` of the
+     * ViewPort's RasInfo, each kept when its argument is `Null`.
+     *
+     * Then MakeScreen, and then a MoveScreen of 0,0 the author labels
+     * `;kludge` in the source --- a second rethink to make the new offset
+     * take, which nothing here needs.
+     */
+    'iscreen offset': (it) => {
+      const st = s()
+      const n = it.evalInt()
+      it.expect(',')
+      const x = omittable(it)
+      it.expect(',')
+      const y = omittable(it)
+      const sc = rt.screens.get(findIscr(st, n).slot)
+      if (!sc) return
+      if (x !== null) sc.offsetX = x
+      if (y !== null) sc.offsetY = y
+    },
+
+    /**
+     * `Iscreen Copy a To b` and `Iscreen Copy a,x1,y1,x2,y2 To b,x,y`.
+     *
+     * Routines 37 at $2382 and 36 at $22fc, ending in the same four
+     * instructions: `move.b #$c0,d6 / moveq #-1,d7 / WaitBlit / BltBitMap`.
+     * The short form takes its size from the SOURCE's `sc_Width` and
+     * `sc_Height` at $23c0, which are the displayed size `Iscreen Display`
+     * writes and not the bitmap's, so narrowing a screen's display narrows
+     * what copying it whole moves.
+     *
+     * The DESTINATION is resolved first. It is the last argument pushed and
+     * so the first popped, `move.l (a3)+,d0 / jtcall FindIscr` at $2398
+     * before the source's at $23ae, which is what decides the error when
+     * neither screen is open.
+     */
+    'iscreen copy': (it) => {
+      const st = s()
+      const c = copyArgs(it)
+      const dst = iscrBitMap(rt, findIscr(st, c.b))
+      const from = findIscr(st, c.a)
+      const src = iscrBitMap(rt, from)
+      if (!src || !dst) return
+      if (c.whole) bltIscreen(src, 0, 0, dst, 0, 0, from.scWidth, from.scHeight, src.depth, dst.depth)
+      else {
+        const w = copySpan(c.x1, c.x2)
+        const h = copySpan(c.y1, c.y2)
+        bltIscreen(src, c.x1, c.y1, dst, c.dx, c.dy, w, h, src.depth, dst.depth)
+      }
+    },
+
+    /**
+     * `Amos Iscreen Copy a To b` --- an AMOS screen onto an Intuition one.
+     *
+     * Routines 43 and 42 build a `struct BitMap` in the extension's own data
+     * zone at $224(a4) and point it at the AMOS screen: six plane pointers
+     * copied out of `EcCurrent` whatever the depth, `bm_BytesPerRow` from
+     * `EcTx` shifted right three (the source's own comment is *";AMOS screen
+     * width always 16n"*), `bm_Rows` from `EcTy`, `bm_Flags` cleared, and
+     * `bm_Depth` from `EcNPlan`. Copying it whole is `EcTx` by `EcTy`, the
+     * AMOS screen's full size and not the Intuition one's.
+     *
+     * `EcCurrent` is the LOGICAL screen, so on a double-buffered screen this
+     * copies the buffer the program has been drawing into rather than the
+     * one on display.
+     */
+    'amos iscreen copy': (it) => {
+      const st = s()
+      const c = copyArgs(it)
+      const dst = iscrBitMap(rt, findIscr(st, c.b))
+      const from = findAscr(rt, c.a)
+      const src = from.rp.bitMap
+      if (!dst) return
+      if (c.whole) bltIscreen(src, 0, 0, dst, 0, 0, from.width, from.height, src.depth, dst.depth)
+      else {
+        const w = copySpan(c.x1, c.x2)
+        const h = copySpan(c.y1, c.y2)
+        bltIscreen(src, c.x1, c.y1, dst, c.dx, c.dy, w, h, src.depth, dst.depth)
+      }
+    },
+
+    /**
+     * `Iscreen Amos Copy a To b` --- the same fence in the other direction,
+     * and it moves nothing. See IEXT_AMOS_DEST_DEPTH for the instruction.
+     *
+     * Everything else about routines 45 and 44 is right: the temporary
+     * BitMap is built the same way, the size for the whole-screen form comes
+     * off the source Intuition screen's `sc_Width` and `sc_Height` at $27d2,
+     * both screen numbers are checked, and the pair ends in an extra
+     * `WaitBlit` the other four do not have, over the author's own reason
+     * --- *"Need to call WaitBlit() after BltBitMap() because AMOS might
+     * not"*.
+     */
+    'iscreen amos copy': (it) => {
+      const st = s()
+      const c = copyArgs(it)
+      const to = findAscr(rt, c.b)
+      const from = findIscr(st, c.a)
+      const src = iscrBitMap(rt, from)
+      if (!src) return
+      const dst = to.rp.bitMap
+      if (c.whole) {
+        bltIscreen(src, 0, 0, dst, 0, 0, from.scWidth, from.scHeight, src.depth, IEXT_AMOS_DEST_DEPTH)
+      } else {
+        const w = copySpan(c.x1, c.x2)
+        const h = copySpan(c.y1, c.y2)
+        bltIscreen(src, c.x1, c.y1, dst, c.dx, c.dy, w, h, src.depth, IEXT_AMOS_DEST_DEPTH)
+      }
     },
  
     /* ------------------------------------------------------------------
@@ -3081,6 +3450,46 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
      */
     'x hard min': (): Value => VI(0),
     'y hard min': (): Value => VI(0),
+
+    /**
+     * `=X Ihard(x)`, `=X Iscreen(x)`, `=Y Ihard(y)`, `=Y Iscreen(y)` --- a
+     * resolution shift on the CURRENT screen, and nothing else in them.
+     *
+     * `move.w sc_ViewPort+vp_Modes(a0),d1` then `moveq #SUPERHIRES,d2` and
+     * `move.w #HIRES,d2`: superhires shifts two, hires one, lores none, and
+     * the Y pair test LACED on its own. The offset added afterwards is the
+     * ViewLord's `v_DxOffset` at $e(a1) and `v_DyOffset` at $c(a1), which
+     * `=X Hard Min` already answers 0 for on a machine with no Overscan
+     * preference to move them.
+     *
+     * The screen's own `sc_LeftEdge` is not in it. A screen `Iscreen
+     * Display` has moved still converts as though it sat at the display's
+     * top-left corner, so the pair round-trips and neither end is where the
+     * screen is.
+     *
+     * All four are `.w` arithmetic in a register the argument arrived in as
+     * a longword, and d3 goes back whole: `=X Ihard(-2)` on a hires screen
+     * is not -1 but -32769, `$fffe` shifted to `$7fff` under an untouched
+     * high word of `$ffff`.
+     */
+    'x ihard': (_, a): Value => {
+      const mode = curIscr(s()).mode
+      const by = (mode & MODE_KEY.SUPERHIRES) !== 0 ? 2 : (mode & MODE_KEY.HIRES) !== 0 ? 1 : 0
+      return VI(wordOp(int(a[0]!), (lo) => lo >>> by))
+    },
+    'x iscreen': (_, a): Value => {
+      const mode = curIscr(s()).mode
+      const by = (mode & MODE_KEY.SUPERHIRES) !== 0 ? 2 : (mode & MODE_KEY.HIRES) !== 0 ? 1 : 0
+      return VI(wordOp(int(a[0]!), (lo) => lo << by))
+    },
+    'y ihard': (_, a): Value => {
+      const laced = (curIscr(s()).mode & MODE_KEY.LACE) !== 0
+      return VI(wordOp(int(a[0]!), (lo) => (laced ? lo >>> 1 : lo)))
+    },
+    'y iscreen': (_, a): Value => {
+      const laced = (curIscr(s()).mode & MODE_KEY.LACE) !== 0
+      return VI(wordOp(int(a[0]!), (lo) => (laced ? lo << 1 : lo)))
+    },
 
     /** `=Iscreen` --- `se_ScrNum` of the current screen */
     iscreen: (): Value => VI(curIscr(s()).number),
