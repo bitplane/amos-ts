@@ -4432,7 +4432,10 @@ export const NOTES: Record<string, string> = {
     "means the sample can go to Paula out of its own buffer with no double buffer in between. DEVIATION: the " +
     "rest of routine 84 allocates those buffers, picks four mixer routines out of tables at $4a4, $4b0, $4c0 " +
     "and $4fc(a2) and primes the first block off disk. This port holds the whole file, so there is no block to " +
-    "prime and no mixer to choose.",
+    "prime and no mixer to choose. One flag is not quite the machine's because of that: $3844 takes bit 10 " +
+    "back DOWN when TypeOfMem says the buffer is not chip, since Paula cannot DMA out of fast memory, and with " +
+    "no buffer here there is nothing to ask about. The two agree whenever chip memory was available, which is " +
+    "the case routine 65 aims for.",
   "smp start":
     "Routine 15 ($1e50) over routine 85 ($3a7e). Each channel of the group returns its DMACON and INTENA bits " +
     "and they go out together, `ori.w #$8200,d6` and `ori.w #$c000,d7`, so a stereo pair starts on one write. " +

@@ -1778,6 +1778,12 @@ function assignOne(st: DsamState, mask: number, rest: number, rec: number): void
  * `Smp Start` hands the finished samples to the sink in one piece. The flags
  * those choices are made from are still set, because `=Smp Status` reports
  * five of them.
+ *
+ * One of those five is not quite the machine's. $3844 takes bit 10 back down
+ * when `TypeOfMem` says the buffer is NOT chip, since Paula cannot DMA out of
+ * fast memory; with no buffer here there is nothing to ask about, so the bit
+ * stays wherever the conversion test left it. The two agree whenever chip
+ * memory was available, which is the case routine 65 aims for.
  */
 function cueChannel(st: DsamState, ch: number): void {
   let flags = chGet16(st, ch, CH.FLAGS) | CF.CUED
@@ -1923,19 +1929,21 @@ function startChannel(rt: Runtime, st: DsamState, ch: number): void {
   if ((flags & CF.PLAYING) !== 0) return
   if ((flags & CF.CUED) === 0) cueChannel(st, ch)
   chSet16(st, ch, CH.FLAGS, chGet16(st, ch, CH.FLAGS) | CF.PLAYING)
-  const pcm = channelPcm(st, ch)
-  if (pcm.length === 0) return
   const repeat = (chGet16(st, ch, CH.FLAGS) & CF.REPEAT) !== 0
-  // the pitch is the rate the program asked for. The multipliers routine 84
-  // applies are the mixer's: it interpolates up so Paula has a legal period,
-  // and the sound that comes out is the same note either way.
-  rt.audio.play(
-    chGet16(st, ch, CH.INDEX),
-    pcm,
-    chGet16(st, ch, CH.RATE),
-    chGet16(st, ch, CH.NOW_VOLUME),
-    repeat ? 0 : -1,
-  )
+  // ONE routine-85 call starts the whole group: $3b00 returns `$ae(a3)`, the
+  // whole mask, for DMACON, and routines 87 and 88 walk the same mask writing
+  // the head channel's volume and period into every AUDxVOL and AUDxPER. Only
+  // the DATA differs per channel, which is what routine 83's `exg` set up.
+  const rate = chGet16(st, ch, CH.RATE)
+  const volume = chGet16(st, ch, CH.NOW_VOLUME)
+  for (const i of channelsOf(chGet16(st, ch, CH.MASK))) {
+    const pcm = channelPcm(st, i)
+    if (pcm.length === 0) continue
+    // the pitch is the rate the program asked for. The multipliers routine 84
+    // applies are the mixer's: it interpolates up so Paula has a legal period,
+    // and the note that comes out is the same either way.
+    rt.audio.play(chGet16(st, i, CH.INDEX), pcm, rate, volume, repeat ? 0 : -1)
+  }
 }
 
 /**
@@ -1947,7 +1955,8 @@ function stopChannel(rt: Runtime, st: DsamState, ch: number): void {
   const flags = chGet16(st, ch, CH.FLAGS)
   if ((flags & CF.PLAYING) === 0 && (flags & (1 << 3)) === 0) return
   chSet16(st, ch, CH.FLAGS, flags & ~CF.PLAYING)
-  rt.audio.stop(chGet16(st, ch, CH.INDEX))
+  // `move.w $ae(a3),$96(a1)` at $3b6c: DMACON loses the whole group at once
+  for (const i of channelsOf(chGet16(st, ch, CH.MASK))) rt.audio.stop(chGet16(st, i, CH.INDEX))
 }
 
 /**

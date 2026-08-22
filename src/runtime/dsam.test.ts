@@ -973,3 +973,100 @@ describe('the period and the oversample multipliers --- routine 84', () => {
     expect(audio.events[0]!.freq).toBe(8000)
   })
 })
+
+/**
+ * D-Sam-Example.AMOS, which shipped with the library and is the only program
+ * anybody wrote against it that survives. `Fsel$` and `Multi Wait` are the two
+ * lines that cannot run headless --- one is a requester and the other is
+ * Sticks --- so the filename is given and the wait is dropped; every other
+ * line is the author's, in his order.
+ */
+describe("the author's own example program", () => {
+  const AM = form2([
+    ...vhdr2(11025),
+    ...chunk2('NAME', id2('Strings!')),
+    ...chunk2('CHAN', be32b(6)),
+    ...chunk2('SEQN', [...be32b(0), ...be32b(8), ...be32b(8), ...be32b(16)]),
+    ...chunk2('FADE', be32b(2)),
+    ...chunk2('BODY', Array.from({ length: 32 }, (_, i) => i + 1)),
+  ])
+
+  it('opens a stereo AudioMaster sample off disk, plays it and reads it back', () => {
+    run(
+      [
+        'Smp Open 1,"Work:am.8svx"',
+        'Smp Disk Buffer 32000',
+        'Smp Assign 1 To 3',
+        'Smp Oversample On',
+        'Smp Repeat On 3',
+        'Smp Start 3',
+        'Smp Stop(3)',
+        'Print "smp name = ";Smp Name(1)',
+        'Print "smp speed             = ";Smp Speed(1)',
+        'Print "smp volume            = ";Smp Volume(1)',
+        'If Smp Stereo(1)=True',
+        '  Print "STEREO SAMPLE!!"',
+        ' Else',
+        '  Print "MONO SAMPLE!!"',
+        'End If',
+        'Print "smp length            = ";Smp Length(1)',
+        'Print "smp size              = ";Smp Size(1)',
+        'If Smp Sequence(1)=True',
+        '  For I=1 To Smp Loops(1)',
+        '    Print "smp loop start    ";I;"  = ";Smp Loop Start(1,I)',
+        '    Print "smp loop end      ";I;"  = ";Smp Loop End(1,I)',
+        '  Next I',
+        ' Else',
+        '  Print "NO SEQUENCE!!"',
+        'End If',
+        'Print "smp info              = ";Bin$(Smp Info(1),8)',
+        'Print "smp status            = ";Bin$(Smp Status(3),8)',
+        'If Smp Fade(1)=True',
+        '  Print "FADE EXISTS!!"',
+        ' Else',
+        '  Print "NO FADE EXISTS!!"',
+        'End If',
+        'Print "smp disk error        = ";Smp Disk Error',
+        'Smp Reset',
+      ].join('\n'),
+      { 'am.8svx': AM },
+    )
+    expect(out()).toEqual([
+      'smp name = Strings!',
+      'smp speed             =  11025',
+      'smp volume            =  64',
+      'STEREO SAMPLE!!',
+      // the BODY is 32 bytes over two channels, so 16 a side, and the SEQN
+      // total is the same 16 in two loops of eight
+      'smp length            =  16',
+      'smp size              =  16',
+      'smp loop start     1  =  0',
+      'smp loop end       1  =  8',
+      'smp loop start     2  =  8',
+      'smp loop end       2  =  16',
+      // 1 from disk, 2 stereo, 8 sequence, 16 fade
+      'smp info              = %00011011',
+      // playing and cued are both down after the stop; 8 is from disk and 16
+      // is the direct bit the cue left up, since nothing here needed converting
+      'smp status            = %00011000',
+      'FADE EXISTS!!',
+      'smp disk error        =  0',
+    ])
+  })
+
+  it('and the two channels get the two halves of the file, sixteen bytes each', () => {
+    run(
+      ['Smp Open 1,"Work:am.8svx"', 'Smp Assign 1 To 3', 'Smp Repeat On 3', 'Smp Start 3'].join(
+        '\n',
+      ),
+      { 'am.8svx': AM },
+    )
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.map((e) => e.voice)).toEqual([0, 1])
+    expect(plays.map((e) => e.length)).toEqual([16, 16])
+    // the left channel starts at 1 and the right at 17, which is the BODY split
+    // in half at the offsets $3194 and $319a recorded
+    expect(audio.voiceState[0]!.pcm![0]).toBe(1)
+    expect(audio.voiceState[1]!.pcm![0]).toBe(17)
+  })
+})
