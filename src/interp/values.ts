@@ -3,6 +3,8 @@
  * Variable type is part of the name: A (int), A# (float), A$ (string).
  */
 import { ED_RUN_MESSAGES } from './errors.gen'
+import { ffpRound as ffpRoundBits } from '../amiga/ffp'
+import { floatToAsc, longToDec } from './numfmt'
 
 export type Value =
   | { k: 'int'; n: number }
@@ -15,23 +17,22 @@ export const VS = (s: string): Value => ({ k: 'str', s })
 
 // ---- Motorola Fast Floating Point (mathffp.library) ----
 //
-// AMOS floats default to single-precision FFP: a 24-bit mantissa (identical
-// to IEEE float32, so Math.fround gives the exact precision) with a 7-bit
-// excess-64 exponent — a smaller range than float32. Values at/above 2^63
-// overflow; tiny values underflow to 0 (FFP has no infinities or
-// denormals). Set Double Precision switches to raw IEEE doubles.
-const FFP_MAX = 2 ** 63 // ~9.22e18
-const FFP_MIN = 2 ** -65 // ~2.7e-20, the smallest normalised magnitude
+// AMOS floats default to single-precision FFP: a 24-bit mantissa and a 7-bit
+// excess-64 exponent — see ../amiga/ffp.ts, which owns the format now.
+// `Set Double Precision` switches to raw IEEE doubles.
 
-/** Round a double to the nearest representable FFP value (raises Overflow). */
+/**
+ * Round a double to the nearest representable FFP value (raises Overflow).
+ *
+ * The arithmetic moved to ../amiga/ffp.ts because the token stream needed the
+ * other direction and this was half a codec. It used to be `Math.fround`,
+ * which is IEEE single: an implicit leading bit, denormals FFP has no room
+ * for, and a different exponent range.
+ */
 export function ffpRound(n: number): number {
-  if (!Number.isFinite(n)) throw new AmosError('Overflow')
-  if (n === 0) return 0
-  const f = Math.fround(n)
-  const a = Math.abs(f)
-  if (a >= FFP_MAX) throw new AmosError('Overflow')
-  if (a < FFP_MIN) return 0
-  return f
+  const v = ffpRoundBits(n)
+  if (v === null) throw new AmosError('Overflow')
+  return v
 }
 
 /**
@@ -193,6 +194,6 @@ export function coerce(t: VarType, v: Value): Value {
  */
 export function display(v: Value): string {
   if (v.k === 'str') return v.s
-  const n = v.k === 'int' ? v.n : parseFloat(v.n.toPrecision(7))
-  return n < 0 ? String(n) : ' ' + String(n)
+  const s = v.k === 'int' ? longToDec(v.n) : floatToAsc(v.n)
+  return s.startsWith('-') ? s : ' ' + s
 }

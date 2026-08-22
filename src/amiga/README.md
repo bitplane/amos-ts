@@ -122,6 +122,7 @@ really does differ from the real one and saying where is the whole job.
 | `displayinfo.ts` | the display database one monitor driver fills: `Devs/Monitors/PAL`'s six ids and their names |
 | `muimaster.ts` | MUI's class factory: 64 classes, attributes, the object tree, notification |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |
+| `ffp.ts` | Motorola Fast Floating Point: the 32-bit format `mathffp.library` provides, decoded and encoded |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |
 | `mixer.ts` | the four voices summed into stereo PCM, and the clock that dates a register write |
 | `notes.ts` | the tables every replayer shipped: periods, finetune, the vibrato sine |

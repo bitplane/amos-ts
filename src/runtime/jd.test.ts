@@ -156,8 +156,10 @@ describe('JD: logic and predicates', () => {
 describe('JD: floating point (the FFP constants, +|jd.s:4163/5502)', () => {
   it('Pi# and E# are the library\'s own FFP words, not IEEE', () => {
     // $c90fdb42 and $adf85442 decoded, which is what a real AMOS would hold
-    expect(val('Jd Pi#')).toBe('3.141593')
-    expect(val('Jd E#')).toBe('2.718282')
+    // six significant digits: FloatToAsc's PaFix2 leaves `7 - a0` decimals
+    // and a0 counts the point, so a one-digit integer part gets five
+    expect(val('Jd Pi#')).toBe('3.14159')
+    expect(val('Jd E#')).toBe('2.71828')
   })
 
   it('Jd Percent is a float division, and bounds each argument with error 23', () => {

@@ -18,9 +18,14 @@ function run(src: string, inputs: string[] = []): string {
 
 describe('FFP single-precision floats (mathffp.library)', () => {
   it('rounds float arithmetic to 24-bit FFP precision', () => {
-    // 2^30 = 1073741824 loses precision at FFP's 24-bit mantissa
-    expect(run('A#=2^30 : Print A#')).toBe(' 1073742000\n')
-    expect(run('Print Pi#')).toBe(' 3.141593\n') // the ROM FFP constant
+    // 2^30 = 1073741824 loses precision at FFP's 24-bit mantissa, and once
+    // the integer part reaches seven digits FloatToAsc switches to exponent
+    // form: `cmp.w #8,a0 / bcc ExFix1` (+Lib.s:26050), where a0 counts the
+    // digits before the point AND the point
+    expect(run('A#=2^30 : Print A#')).toBe(' 1.07374E+09\n')
+    // six significant digits, not seven: PaFix2 computes `7 - a0` decimals
+    // and a0 is 2 for a one-digit integer part, so five decimals
+    expect(run('Print Pi#')).toBe(' 3.14159\n') // the ROM FFP constant
   })
 
   it('overflows above the FFP range (~9.2e18), unlike a double', () => {
