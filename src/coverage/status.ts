@@ -1422,6 +1422,11 @@ export const FAITHFUL = new Set<string>([
   'smp loop start', 'smp loop end', 'smp data', 'smp left data',
   'smp right data', 'smp stereo', 'smp info', 'smp sequence',
   'smp fade', 'smp disk error', 'smp speed', 'smp volume',
+  'smp assign', 'smp assign left', 'smp assign right', 'smp free',
+  'smp cue', 'smp start', 'smp stop', 'smp play',
+  'smp range', 'smp loop range', 'smp repeat on', 'smp repeat off',
+  'smp sequence on', 'smp sequence off', 'smp fade on', 'smp fade off',
+  'smp playing', 'smp status',
 
   // --- Sticks 1.01b (Nigel Critten): its own AutoDoc manual plus every
   // routine in the 3,856-byte hunk. Raw custom-chip and CIA reads throughout,
@@ -4405,6 +4410,83 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "smp assign":
+    "Routine 12 ($1cc6) for `Smp Assign S To CH` and routine 11 ($1c08) for `Smp Assign S1,S2 To CH`, both " +
+    "over routine 83 ($36ec). The two-sample form is not a third sample: it plays two MONO samples as one " +
+    "stereo pair, and $1c6a refuses the pair unless their flags, their lengths and their sizes all match " +
+    "(error 26). Routine 83 hands the two halves out alternately with `exg.l a5,a4`, so a four-channel assign " +
+    "gets left, right, left, right, and the channel flags are the sample's masked to `$4b40` plus the global " +
+    "oversample bit. The `exg` at $36d8 in routine 82 is the STEREO IMAGE: channels 0 and 3 are the Amiga's " +
+    "left and 1 and 2 its right, so a mask of $a or $c starts on a right channel and the halves are swapped, " +
+    "while $b starts on the left and is tested out of the middle of the range to leave it alone.",
+  "smp assign left":
+    "Routine 9 ($1b4c), and routine 10 for the right at `lea $2e(a3),a4`. `movea.l a4,a5` is the difference " +
+    "from an ordinary stereo assign: BOTH channels of the group get the same half, so one side of a stereo " +
+    "recording plays on both speakers. A mono sample is error 16.",
+  "smp cue":
+    "Routine 13 ($1d0a) over routine 84 ($37c8) --- everything `Smp Start` does except make a sound, so the " +
+    "first disk block is already in memory when the program says go. What routine 84 works out that a program " +
+    "can see: the period is `$16(a2) / rate`, a rate over $70c3 is HALVED first and flagged, and with " +
+    "oversample on a rate at or under $1c30 is multiplied by four and one at or under $3861 by two. Bit 10 " +
+    "then goes up when `andi.w #$f0,d0` finds nothing --- no compression, no halving, no multiplier --- which " +
+    "means the sample can go to Paula out of its own buffer with no double buffer in between. DEVIATION: the " +
+    "rest of routine 84 allocates those buffers, picks four mixer routines out of tables at $4a4, $4b0, $4c0 " +
+    "and $4fc(a2) and primes the first block off disk. This port holds the whole file, so there is no block to " +
+    "prime and no mixer to choose.",
+  "smp start":
+    "Routine 15 ($1e50) over routine 85 ($3a7e). Each channel of the group returns its DMACON and INTENA bits " +
+    "and they go out together, `ori.w #$8200,d6` and `ori.w #$c000,d7`, so a stereo pair starts on one write. " +
+    "DEVIATION: routine 90 ($3c02) asks audio.device for the hardware with ADCMD_ALLOCATE and its failure is " +
+    "error 20, \"Could not allocate hardware channels\". audio.device is not modelled here and nothing else in " +
+    "this port takes a channel, so error 20 is reachable there and unreachable here. DEVIATION: the samples go " +
+    "to the sink in one piece rather than a DMA interrupt at a time --- the whole file is already in memory, " +
+    "which is the thing D-Sam exists to avoid. The bytes are the same bytes, sequence loops included.",
+  "smp play":
+    "Routines 18 to 21 over the worker at routine 17 ($1faa) --- assign and start in one, with up to three " +
+    "optional arguments. Each default is `$ff` and $1fd6 turns it into the sample's own rate and volume and a " +
+    "repeat of zero, so 255 is not a value a program can pass. DEFECT: the THREE-argument form is a REPEAT, " +
+    "not a speed. Routine 20 ($20dc) pushes `$ff` for the speed and the volume and the single argument for the " +
+    "repeat, so `Smp Play 1,1,1` loops at the sample's own rate --- which is not what a reader of the " +
+    "four-argument form would expect, and no documentation says otherwise since only two keywords have any.",
+  "smp range":
+    "Routine 22 ($20fc) --- `Smp Range CH,FROM To TO`, in SAMPLES. Both ends are forced even with `bclr #$0`, " +
+    "the range must be at least two long and inside `=Smp Length`, and a compressed channel is refused " +
+    "outright (error 28) because the streamer cannot seek into Fibonacci deltas. With a sequence running $216c " +
+    "walks the loop table to find which loop the offset falls in and starts there instead, so the range is " +
+    "measured along the SEQUENCE rather than along the body.",
+  "smp loop range":
+    "Routine 23 ($21b4) --- `Smp Loop Range CH,FIRST To LAST`, in LOOPS and both 1-based. No sequence is error " +
+    "13. What it writes is a LENGTH rather than a position: $223e totals the loops from the first to the last " +
+    "inclusive into +$10 and nothing writes +$c, which is why the range and the loop range cannot be combined.",
+  "smp repeat on":
+    "Routine 26 ($231a) --- `ori.w #$2000` on the channel flags, and the same bit `Smp Play`'s third argument " +
+    "sets with `lsl.w #13`. Like every setter here except `Smp Volume` it opens with `btst #$0` on the flags " +
+    "and refuses a cued or playing channel with error 24.",
+  "smp sequence on":
+    "Routine 28 ($237e), and it does more than set the bit: the position goes back to zero, the length becomes " +
+    "the sample's SEQUENCE total (+$c) and the loop pointer goes back to the first entry. So turning the " +
+    "sequence on rewinds. Routine 29 rewinds the other way, to the BODY length at +$10. Both are error 13 " +
+    "without a SEQN chunk, so a sample with no sequence cannot turn off one it never had.",
+  "smp fade on":
+    "Routine 30 ($2434) --- error 14 without a FADE chunk. The ramp itself is set up by the cue at $39fa: one " +
+    "volume unit every `(length - fadePoint) / volume` samples, rounded down to an even count, and wound " +
+    "forward to wherever playback is about to start so a faded sample resumed mid-way comes in at the right " +
+    "level.",
+  "smp free":
+    "Routine 14 ($1dc8) --- the CHANNELS go, not the sample. `Smp Close` is the one that frees a sample, and " +
+    "it refuses while a channel still holds it (error 25). The walk at $1de4 is shared by cue, start, stop and " +
+    "free: a mask may name only WHOLE groups, so half of an assigned pair is error 30 before anything moves.",
+  "smp status":
+    "Routine 56 ($2910). Eight channel flags into eight bits through a table of eight words at `$544(a2)`: 5, " +
+    "4, 6, 10, 8, 2, 0, 1, with `d1` counting down from 7. So 1 is playing, 2 cued, 8 from disk, 16 straight " +
+    "out of the sample buffer, 32 compressed, and 64 and 128 the two oversample multipliers routine 84 picks. " +
+    "`Bin$(Smp Status(3),8)` is how the author's example prints it.",
+  "smp playing":
+    "Routine 55 ($28e2) --- `btst #$1` on the channel flags. It answers for the GROUP the mask names, through " +
+    "routine 80, so a mask that is not exactly the assigned one is error 30. NOTE error 18, \"No sample " +
+    "assigned to channels\", sits behind that test and looks unreachable: routine 80 compares `$ae(a0)` to the " +
+    "mask before it tests `$b2(a0)`, and nothing leaves a group with its mask set and no sample --- `Smp Free` " +
+    "clears both and routine 17's failure arm at $207a clears both.",
   "smp load":
     "Routine 6 ($1a2e) over the parser at routine 71 ($2da0): the file is opened, its chunks walked, the " +
     "buffers allocated by routine 64 ($2b3a) and the BODY read by routine 72 ($329a). `Smp Open` is the same " +

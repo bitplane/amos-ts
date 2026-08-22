@@ -13,8 +13,9 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
+import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DS, SM, readDsamString } from './dsam'
+import { CF, CH, DS, SM, readDsamString } from './dsam'
 
 const table = new TokenTable(CORE_TOKENS)
 /** the slot routine 0 stores itself in, and where the corpus has it */
@@ -24,22 +25,31 @@ const exts = new Map([[DSAM_SLOT, dsam.table]])
 
 let printed = ''
 
+let audio = new NullAudio()
+
 function run(src: string, files: Record<string, Uint8Array> = {}): Runtime {
   const fs = new AmigaFS()
   const vol = fs.mountMemory('Work')
   for (const [name, bytes] of Object.entries(files)) vol.write([name], bytes)
   fs.currentDir = 'Work:'
   printed = ''
+  audio = new NullAudio()
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[DSAM_SLOT, dsam]]),
     maxSteps: 500_000,
     onText: (t) => (printed += t),
+    audio,
     fs,
   })
   mustFinish(rt.runHeadless(2000))
   return rt
 }
+
+/** a channel's flags word, straight out of the zone `=Smp Base` maps */
+const chanFlags = (rt: Runtime, i: number): number =>
+  (rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.FLAGS]! << 8) |
+  rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.FLAGS + 1]!
 
 const out = (): string[] =>
   printed
@@ -596,5 +606,370 @@ describe('the reader functions --- routines 41 to 59', () => {
   it('=Smp Disk Error is a LATCH: it reads once and clears ($29c0)', () => {
     run('Print Smp Disk Error;",";Smp Disk Error')
     expect(out()).toEqual(['0, 0'])
+  })
+})
+
+/* ---- the channel half -------------------------------------------------- */
+
+const id2 = (s: string): number[] => [...s].map((c) => c.charCodeAt(0))
+const be32b = (v: number): number[] => [(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff]
+const chunk2 = (name: string, body: number[]): number[] => [
+  ...id2(name),
+  ...be32b(body.length),
+  ...body,
+  ...(body.length & 1 ? [0] : []),
+]
+const vhdr2 = (rate = 8000): number[] =>
+  chunk2('VHDR', [
+    ...be32b(0), ...be32b(0), ...be32b(0),
+    (rate >> 8) & 0xff, rate & 0xff, 1, 0,
+    ...be32b(0x10000),
+  ])
+const form2 = (body: number[]): Uint8Array =>
+  new Uint8Array([...id2('FORM'), ...be32b(body.length + 4), ...id2('8SVX'), ...body])
+
+/** an eight-sample mono file, and the same data declared as stereo */
+const M8 = form2([...vhdr2(), ...chunk2('BODY', [1, 2, 3, 4, 5, 6, 7, 8])])
+const S8 = form2([...vhdr2(), ...chunk2('CHAN', be32b(6)), ...chunk2('BODY', [1, 2, 3, 4, 5, 6, 7, 8])])
+const SEQ8 = form2([
+  ...vhdr2(),
+  ...chunk2('SEQN', [...be32b(0), ...be32b(4), ...be32b(4), ...be32b(8)]),
+  ...chunk2('FADE', be32b(2)),
+  ...chunk2('BODY', [1, 2, 3, 4, 5, 6, 7, 8]),
+])
+const FILES = { 'm.8svx': M8, 's.8svx': S8, 'q.8svx': SEQ8 }
+const M = 'Smp Load 1,"Work:m.8svx"'
+const S = 'Smp Load 2,"Work:s.8svx"'
+const Q = 'Smp Load 3,"Work:q.8svx"'
+
+describe('Smp Assign --- routines 12, 11, 9 and 10 over 82 and 83', () => {
+  it('puts a sample on a group, and =Smp Status reports it idle', () => {
+    run(`${M}\nSmp Assign 1 To 1\nPrint Smp Status(1);",";Smp Playing(1)`, FILES)
+    // nothing yet: the direct bit is routine 84's and does not go up until the
+    // channel is cued, so an assigned but idle group reads zero
+    expect(out()).toEqual(['0, 0'])
+  })
+
+  it('a mask that overlaps an assigned group is error 22 ($3588)', () => {
+    expect(() => run(`${M}\nSmp Assign 1 To 3\nSmp Assign 1 To 2`, FILES)).toThrow(
+      /Channels are already assigned a sample/,
+    )
+  })
+
+  it('a stereo sample on ONE channel is error 21 ($36e6)', () => {
+    expect(() => run(`${S}\nSmp Assign 2 To 1`, FILES)).toThrow(
+      /Cannot assign stereo sample to single channel/,
+    )
+  })
+
+  it('a stereo sample on two takes both halves, one per channel ($3792)', () => {
+    const rt = run(`${S}\nSmp Assign 2 To 3`, FILES)
+    const data = (i: number): number =>
+      ((rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA]! << 24) |
+        (rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 1]! << 16) |
+        (rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 2]! << 8) |
+        rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 3]!) >>> 0
+    expect(data(0)).not.toBe(data(1))
+    // the first channel of the group loses the marker bit and the second keeps it
+    expect(chanFlags(rt, 0) & CF.SECOND).toBe(0)
+    expect(chanFlags(rt, 1) & CF.SECOND).toBe(CF.SECOND)
+  })
+
+  it('the two-sample form needs two MONO samples that match ($1c6a)', () => {
+    run(`${M}\nSmp Load 4,"Work:m.8svx"\nSmp Assign 1,4 To 3\nPrint Smp Status(3)`, FILES)
+    expect(out()).toEqual(['0'])
+    // a stereo one is error 15, and a shorter one error 26
+    expect(() => run(`${M}\n${S}\nSmp Assign 1,2 To 3`, FILES)).toThrow(/Sample has stereo data/)
+    expect(() =>
+      run(`${M}\n${Q}\nSmp Assign 1,3 To 3`, FILES),
+    ).toThrow(/Samples are incompatible for dual playback/)
+  })
+
+  it('the two-sample form on one channel is error 21 ($1cae)', () => {
+    expect(() => run(`${M}\nSmp Load 4,"Work:m.8svx"\nSmp Assign 1,4 To 1`, FILES)).toThrow(
+      /Cannot assign stereo sample to single channel/,
+    )
+  })
+
+  it('Smp Assign Left puts ONE half on BOTH channels ($1b8c)', () => {
+    const rt = run(`${S}\nSmp Assign Left 2 To 3`, FILES)
+    const data = (i: number): number =>
+      ((rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA]! << 24) |
+        (rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 1]! << 16) |
+        (rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 2]! << 8) |
+        rt.dsam.zone[DS.CHANNELS + i * CH.SIZE_OF + CH.DATA + 3]!) >>> 0
+    expect(data(0)).toBe(data(1))
+  })
+
+  it('Smp Assign Left or Right on a MONO sample is error 16', () => {
+    expect(() => run(`${M}\nSmp Assign Left 1 To 3`, FILES)).toThrow(/Sample has only mono data/)
+    expect(() => run(`${M}\nSmp Assign Right 1 To 3`, FILES)).toThrow(/Sample has only mono data/)
+  })
+
+  it('a channels value of 0 or over 15 is error 9', () => {
+    expect(() => run(`${M}\nSmp Assign 1 To 0`, FILES)).toThrow(/Illegal channels value/)
+    expect(() => run(`${M}\nSmp Assign 1 To 16`, FILES)).toThrow(/Illegal channels value/)
+  })
+})
+
+describe('Smp Free, Smp Cue, Smp Start and Smp Stop --- routines 14, 13, 15 and 16', () => {
+  it('cue sets the cued bit and start sets the playing bit', () => {
+    run(`${M}\nSmp Assign 1 To 1\nSmp Cue 1\nPrint Smp Status(1)\nSmp Start 1\nPrint Smp Status(1)`, FILES)
+    // 16 is direct, 2 cued, 1 playing
+    expect(out()).toEqual(['18', '19'])
+  })
+
+  it('Smp Start hands the samples to the sink at the rate VHDR asked for', () => {
+    run(`${M}\nSmp Assign 1 To 1\nSmp Start 1`, FILES)
+    const e = audio.events.filter((x) => x.kind === 'play')
+    expect(e).toHaveLength(1)
+    expect(e[0]!.voice).toBe(0)
+    expect(e[0]!.freq).toBe(8000)
+    expect(e[0]!.length).toBe(8)
+    expect(e[0]!.volume).toBe(64)
+    expect(e[0]!.loop).toBe(false)
+  })
+
+  it('Smp Repeat On makes the sink loop it, and =Smp Status keeps its bit', () => {
+    run(`${M}\nSmp Assign 1 To 1\nSmp Repeat On 1\nSmp Start 1`, FILES)
+    expect(audio.voiceState[0]!.loopStart).toBe(0)
+  })
+
+  it('Smp Stop stops the voice and drops both bits', () => {
+    run(`${M}\nSmp Assign 1 To 1\nSmp Start 1\nSmp Stop 1\nPrint Smp Status(1);",";Smp Playing(1)`, FILES)
+    // the cue's direct bit survives a stop; only cued and playing come down
+    expect(out()).toEqual(['16, 0'])
+    expect(audio.events.filter((x) => x.kind === 'stop')).toHaveLength(1)
+  })
+
+  it('Smp Free lets the group go, and the channels can be assigned again', () => {
+    run(`${M}\nSmp Assign 1 To 3\nSmp Free 3\nSmp Assign 1 To 3\nPrint Smp Status(3)`, FILES)
+    expect(out()).toEqual(['0'])
+  })
+
+  it('naming HALF an assigned group is error 30 --- the walk at $1de4', () => {
+    expect(() => run(`${M}\nSmp Assign 1 To 3\nSmp Free 1`, FILES)).toThrow(
+      /Channels value does not match assigned channels/,
+    )
+    expect(() => run(`${M}\nSmp Assign 1 To 3\nSmp Start 2`, FILES)).toThrow(
+      /Channels value does not match assigned channels/,
+    )
+  })
+
+  it('a group with nothing on it is error 30 to cue, start, stop or free', () => {
+    for (const kw of ['Smp Cue 1', 'Smp Start 1', 'Smp Stop 1', 'Smp Free 1']) {
+      expect(() => run(kw)).toThrow(/Channels value does not match assigned channels/)
+    }
+  })
+
+  it('Smp Close refuses a sample still on a channel --- routine 77, error 25', () => {
+    expect(() => run(`${M}\nSmp Assign 1 To 1\nSmp Close 1`, FILES)).toThrow(
+      /Sample is still assigned to channels/,
+    )
+    expect(() => run(`${M}\nSmp Assign 1 To 1\nSmp Free 1\nSmp Close 1`, FILES)).not.toThrow()
+  })
+
+  it('Smp Reset stops the channels before it frees the samples --- routine 60', () => {
+    const rt = run(`${M}\nSmp Assign 1 To 1\nSmp Start 1\nSmp Reset`, FILES)
+    expect(audio.events.filter((x) => x.kind === 'stop')).toHaveLength(1)
+    expect(chanFlags(rt, 0)).toBe(0)
+  })
+})
+
+describe('Smp Play --- routines 18 to 21 over routine 17', () => {
+  it('assigns and starts in one, and the two-argument form uses the sample', () => {
+    run(`${M}\nSmp Play 1,1\nPrint Smp Playing(1)`, FILES)
+    expect(out()).toEqual(['-1'])
+    expect(audio.events[0]!.freq).toBe(8000)
+    expect(audio.events[0]!.volume).toBe(64)
+  })
+
+  it('DEFECT the THREE-argument form is a repeat, not a speed ($20dc)', () => {
+    // routine 20 pushes `$ff` for the speed and the volume and the one
+    // argument for the repeat, so `Smp Play 1,1,1` loops at the sample's own
+    // rate --- which is not what a reader of the four-argument form expects
+    run(`${M}\nSmp Play 1,1,1`, FILES)
+    expect(audio.events[0]!.freq).toBe(8000)
+    expect(audio.voiceState[0]!.loopStart).toBe(0)
+  })
+
+  it('the four-argument form is speed and volume, and the five adds repeat', () => {
+    run(`${M}\nSmp Play 1,1,4000,32`, FILES)
+    expect(audio.events[0]!.freq).toBe(4000)
+    expect(audio.events[0]!.volume).toBe(32)
+    run(`${M}\nSmp Play 1,1,4000,32,1`, FILES)
+    expect(audio.voiceState[0]!.loopStart).toBe(0)
+  })
+
+  it('a speed outside $37..$e186 is error 11 and a volume over 64 error 12', () => {
+    expect(() => run(`${M}\nSmp Play 1,1,54,32`, FILES)).toThrow(/Illegal playback speed/)
+    expect(() => run(`${M}\nSmp Play 1,1,57735,32`, FILES)).toThrow(/Illegal playback speed/)
+    expect(() => run(`${M}\nSmp Play 1,1,4000,65`, FILES)).toThrow(/Illegal playback volume/)
+  })
+
+  it('a repeat other than 0 or 1 is error 29 ($20b2)', () => {
+    expect(() => run(`${M}\nSmp Play 1,1,2`, FILES)).toThrow(/Illegal repeat value/)
+  })
+})
+
+describe('the per-channel setters --- routines 22 to 33', () => {
+  const ASSIGN = `${M}\nSmp Assign 1 To 1`
+
+  it('every setter refuses a cued channel with error 24 ($219c and its copies)', () => {
+    const cued = `${ASSIGN}\nSmp Cue 1\n`
+    for (const kw of [
+      'Smp Range 1,0 To 4',
+      'Smp Speed 1,4000',
+      'Smp Repeat On 1',
+      'Smp Repeat Off 1',
+      'Smp Oversample On 1',
+    ]) {
+      expect(() => run(cued + kw, FILES)).toThrow(/Cannot modify channels while cued or playing/)
+    }
+  })
+
+  it('Smp Volume is the exception: it writes AUDxVOL while the channel plays', () => {
+    run(`${ASSIGN}\nSmp Start 1\nSmp Volume 1,20`, FILES)
+    expect(audio.events.filter((e) => e.kind === 'volume')).toHaveLength(1)
+    expect(audio.voiceState[0]!.volume).toBe(20)
+    // and a volume over 64 is error 12 whatever the channel is doing
+    expect(() => run(`${ASSIGN}\nSmp Volume 1,65`, FILES)).toThrow(/Illegal playback volume/)
+  })
+
+  it('Smp Range forces both ends even and refuses anything past the length', () => {
+    run(`${ASSIGN}\nSmp Range 1,1 To 7\nSmp Start 1`, FILES)
+    // 1 becomes 0 and 7 becomes 6, so six samples play
+    expect(audio.events[0]!.length).toBe(6)
+    expect(() => run(`${ASSIGN}\nSmp Range 1,0 To 10`, FILES)).toThrow(/Illegal playback range/)
+    expect(() => run(`${ASSIGN}\nSmp Range 1,4 To 2`, FILES)).toThrow(/Illegal playback range/)
+  })
+
+  it('Smp Range on a COMPRESSED channel is error 28 ($21a8)', () => {
+    const packed = form2([
+      ...chunk2('VHDR', [
+        ...be32b(0), ...be32b(0), ...be32b(0), 0x1f, 0x40, 1, 1, ...be32b(0x10000),
+      ]),
+      ...chunk2('BODY', [0, 0, 0x9a, 0xbc]),
+    ])
+    expect(() =>
+      run('Smp Decompress Off\nSmp Load 1,"Work:c.8svx"\nSmp Assign 1 To 1\nSmp Range 1,0 To 2', {
+        'c.8svx': packed,
+      }),
+    ).toThrow(/Cannot play range of compressed sample/)
+  })
+
+  it('Smp Speed takes the same bounds Smp Play does --- routine 89', () => {
+    run(`${ASSIGN}\nSmp Speed 1,4000\nSmp Start 1`, FILES)
+    expect(audio.events[0]!.freq).toBe(4000)
+    expect(() => run(`${ASSIGN}\nSmp Speed 1,54`, FILES)).toThrow(/Illegal playback speed/)
+    expect(() => run(`${ASSIGN}\nSmp Speed 1,57735`, FILES)).toThrow(/Illegal playback speed/)
+  })
+
+  it('Smp Sequence On rewinds and plays the LOOPS, not the whole body', () => {
+    // the loops are 0..4 and 4..8, so the sequence is the whole eight samples
+    // read as two runs; Smp Sequence Off puts the plain body back
+    run(`${Q}\nSmp Assign 3 To 1\nSmp Sequence Off 1\nSmp Start 1`, FILES)
+    expect(audio.events[0]!.length).toBe(8)
+    run(`${Q}\nSmp Assign 3 To 1\nSmp Sequence On 1\nSmp Start 1`, FILES)
+    expect(audio.events[0]!.length).toBe(8)
+  })
+
+  it('Smp Sequence On or Off without a SEQN chunk is error 13', () => {
+    expect(() => run(`${ASSIGN}\nSmp Sequence On 1`, FILES)).toThrow(
+      /Sample has no Audiomaster sequence/,
+    )
+    expect(() => run(`${ASSIGN}\nSmp Sequence Off 1`, FILES)).toThrow(
+      /Sample has no Audiomaster sequence/,
+    )
+  })
+
+  it('Smp Loop Range takes LOOP numbers and totals their lengths ($223e)', () => {
+    run(`${Q}\nSmp Assign 3 To 1\nSmp Loop Range 1,2 To 2\nSmp Start 1`, FILES)
+    // loop 2 is samples 4..8, so four play
+    expect(audio.events[0]!.length).toBe(4)
+    expect(() => run(`${Q}\nSmp Assign 3 To 1\nSmp Loop Range 1,0 To 1`, FILES)).toThrow(
+      /Illegal playback range/,
+    )
+    expect(() => run(`${Q}\nSmp Assign 3 To 1\nSmp Loop Range 1,1 To 3`, FILES)).toThrow(
+      /Illegal playback range/,
+    )
+  })
+
+  it('Smp Loop Range without a sequence is error 13', () => {
+    expect(() => run(`${ASSIGN}\nSmp Loop Range 1,1 To 1`, FILES)).toThrow(
+      /Sample has no Audiomaster sequence/,
+    )
+  })
+
+  it('Smp Fade On needs a FADE chunk, and error 14 without one', () => {
+    expect(() => run(`${Q}\nSmp Assign 3 To 1\nSmp Fade On 1`, FILES)).not.toThrow()
+    expect(() => run(`${ASSIGN}\nSmp Fade On 1`, FILES)).toThrow(
+      /Sample has no Audiomaster fade entry/,
+    )
+    expect(() => run(`${ASSIGN}\nSmp Fade Off 1`, FILES)).toThrow(
+      /Sample has no Audiomaster fade entry/,
+    )
+  })
+
+  it('Smp Oversample On is global with no argument and per-channel with one', () => {
+    const opts = (rt: Runtime): number =>
+      (rt.dsam.zone[DS.OPTIONS]! << 8) | rt.dsam.zone[DS.OPTIONS + 1]!
+    expect(opts(run('Smp Oversample On'))).toBe(0x1040)
+    const rt = run(`${ASSIGN}\nSmp Oversample On 1`, FILES)
+    expect(opts(rt)).toBe(0x40)
+    expect(chanFlags(rt, 0) & CF.OVERSAMPLE).toBe(CF.OVERSAMPLE)
+  })
+
+  it('a setter on the wrong mask is error 30 --- and error 18 is unreachable', () => {
+    // routine 80 tests `cmp.w $ae(a0),d0` BEFORE `tst.l $b2(a0)`, so a free
+    // group answers 30 rather than 18. Error 18, "No sample assigned to
+    // channels", wants a mask set with no sample behind it, and nothing here
+    // produces one: Smp Free clears both, and routine 17's failure arm ($207a)
+    // clears both as well.
+    expect(() => run('Smp Repeat On 1')).toThrow(
+      /Channels value does not match assigned channels/,
+    )
+    expect(() => run(`${M}\nSmp Assign 1 To 3\nSmp Repeat On 1`, FILES)).toThrow(
+      /Channels value does not match assigned channels/,
+    )
+  })
+})
+
+describe('the period and the oversample multipliers --- routine 84', () => {
+  const period = (rt: Runtime): number =>
+    (rt.dsam.zone[DS.CHANNELS + CH.PERIOD]! << 8) | rt.dsam.zone[DS.CHANNELS + CH.PERIOD + 1]!
+
+  it('the period is the PAL colour clock over the rate', () => {
+    const rt = run(`${M}\nSmp Assign 1 To 1\nSmp Cue 1`, FILES)
+    // 3546895 / 8000, truncated, which is the constant at $528 to the hertz
+    expect(period(rt)).toBe(Math.trunc(3546895 / 8000))
+  })
+
+  it('a rate over $70c3 is HALVED and the flag says so ($37e2)', () => {
+    const fast = form2([...vhdr2(30000), ...chunk2('BODY', [1, 2, 3, 4])])
+    const rt = run('Smp Load 1,"Work:f.8svx"\nSmp Assign 1 To 1\nSmp Cue 1', { 'f.8svx': fast })
+    expect(period(rt)).toBe(Math.trunc(3546895 / 15000))
+    expect(chanFlags(rt, 0) & CF.HALVED).toBe(CF.HALVED)
+    // and bit 10 comes down, because there is now something to convert
+    expect(chanFlags(rt, 0) & CF.DIRECT).toBe(0)
+  })
+
+  it('Oversample multiplies the rate by four under $1c30 and by two under $3861', () => {
+    const at = (rate: number): Runtime =>
+      run(`Smp Oversample On\nSmp Load 1,"Work:o.8svx"\nSmp Assign 1 To 1\nSmp Cue 1`, {
+        'o.8svx': form2([...vhdr2(rate), ...chunk2('BODY', [1, 2, 3, 4])]),
+      })
+    expect(period(at(7000))).toBe(Math.trunc(3546895 / 28000))
+    expect(period(at(10000))).toBe(Math.trunc(3546895 / 20000))
+    // over $3861 it multiplies by nothing at all, and the period is the plain one
+    expect(period(at(20000))).toBe(Math.trunc(3546895 / 20000))
+    // the multiplier lands in the status bits the table at $544 reports
+    expect(chanFlags(at(7000), 0) & (1 << 5)).toBe(1 << 5)
+    expect(chanFlags(at(10000), 0) & (1 << 4)).toBe(1 << 4)
+  })
+
+  it('the pitch a program hears is the rate it asked for, whatever the mixer does', () => {
+    run(`Smp Oversample On\n${M}\nSmp Assign 1 To 1\nSmp Start 1`, FILES)
+    expect(audio.events[0]!.freq).toBe(8000)
   })
 })

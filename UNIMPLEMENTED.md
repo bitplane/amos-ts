@@ -67,8 +67,8 @@ Blocked on a back-end nothing here models:
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
-Blocked on nothing but the work. Both hold a readable binary, so the evidence
-is there. Int 1.0 was here and reads 100% now; what it left behind is
+Blocked on nothing but the work, and the binary is readable, so the evidence
+is there. Int 1.0 was here and reads 100% now, and so does D-Sam 1.01; what it left behind is
 `src/amiga/asl.ts`, a working `asl.library` FILE requester with every word in
 it read out of `asl.library` itself. BUtility's `Baslfilereq` is approximated
 over AMOS's own `Fsel$` and could move onto it. GUI 2.10's two cannot: those
@@ -78,7 +78,6 @@ display database to fill itself from.
 | extension | missing | evidence held |
 |---|---|---|
 | DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 85%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
-| D-SAM 1.01 (`d-sam-1.01`) | 18 | UNDER WAY, at 64%. Mark Everingham's disk sample player. The 8SVX reader, the Fibonacci decoder, the memory ceilings and every one of the seventeen reader functions are in; what is left is the channel half --- assign, cue, start, play, range, speed, volume, repeat, sequence and fade --- which needs the reader process, the two signals and the four INTB_AUD vectors re-expressed as a per-frame state machine |
 
 All three of DME's remaining blocks are blocked on something other than the
 work, which is why none of them is simply next:

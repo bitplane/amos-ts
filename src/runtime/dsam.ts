@@ -254,6 +254,7 @@ export function newDsamState(): DsamState {
     nextHandle: 1,
   }
   resetDefaults(st)
+  initChannels(st)
   // $528, and $542 when AMOS answers that the machine is not PAL. Both
   // constants are the standard colour clocks to the hertz.
   wr32(st.zone, DS.CLOCK, 3546895)
@@ -991,6 +992,7 @@ export function makeDsamInstructions(rt: Runtime): Record<string, Instr> {
     'smp close'(it) {
       const s = st()
       const rec = mustFind(s, it.evalInt())
+      for (let i = 0; i < 4; i++) if (chGet32(s, i, CH.SAMPLE) === rec) dsErr(25)
       freeSampleResources(s, rec)
       dropSample(s, rec)
     },
@@ -1004,22 +1006,23 @@ export function makeDsamInstructions(rt: Runtime): Record<string, Instr> {
       const z = st().zone
       wr16(z, DS.OPTIONS, rd16(z, DS.OPTIONS) & ~DOPT.DECOMPRESS)
     },
-    /** Routine 36 ($2540) --- `ori.w #$1000`; routine 64 reads it as "not chip" */
-    'smp oversample on'() {
-      const z = st().zone
-      wr16(z, DS.OPTIONS, rd16(z, DS.OPTIONS) | DOPT.OVERSAMPLE)
-    },
-    /** Routine 37 ($254c) */
-    'smp oversample off'() {
-      const z = st().zone
-      wr16(z, DS.OPTIONS, rd16(z, DS.OPTIONS) & ~DOPT.OVERSAMPLE)
-    },
     /**
      * Routine 39 ($258c) --- routine 60 then routine 61: stop every channel,
      * free every sample, and put the defaults back.
      */
     'smp reset'() {
       const s = st()
+      // routine 60 ($29c6) walks the four channels first --- stop, uncue,
+      // clear the mask and the sample --- and only then frees the list
+      for (let i = 0; i < 4; i++) {
+        if (chGet16(s, i, CH.MASK) !== 0 && (chGet16(s, i, CH.FLAGS) & CF.SECOND) === 0) {
+          stopChannel(rt, s, i)
+          uncueChannel(s, i)
+        }
+        chSet16(s, i, CH.MASK, 0)
+        chSet32(s, i, CH.SAMPLE, 0)
+        chSet16(s, i, CH.FLAGS, 0)
+      }
       let cur = rd32(s.zone, DS.LIST)
       while (cur !== 0) {
         const next = peek32(s, cur, SM.NEXT)
@@ -1029,6 +1032,319 @@ export function makeDsamInstructions(rt: Runtime): Record<string, Instr> {
       }
       wr32(s.zone, DS.LIST, 0)
       resetDefaults(s)
+    },
+    /**
+     * Routines 12, 11, 9 and 10 --- `Smp Assign S To CH`, `Smp Assign S1,S2 To
+     * CH` and the two halves of a stereo sample.
+     *
+     * The three-sample form is not a third sample: it plays two MONO samples
+     * as one stereo pair, and $1c6a refuses the pair unless their flags, their
+     * lengths and their sizes all match (error 26). It also needs at least two
+     * channels, which is `tst.l d1 / beq` on what routine 79 left ($1c20).
+     */
+    'smp assign'(it) {
+      const s = st()
+      const first = it.evalInt()
+      const dual = it.accept(',') ? it.evalInt() : null
+      it.expect('to')
+      const mask = it.evalInt()
+      if (dual === null) {
+        const rec = mustFind(s, first)
+        const { rest } = claimChannels(s, mask)
+        assignOne(s, mask, rest, rec)
+        return
+      }
+      const { rest } = claimChannels(s, mask)
+      if (rest === 0) dsErr(21)
+      const a = mustFind(s, first)
+      if ((flagsOf(s, a) & SF.STEREO) !== 0) dsErr(15)
+      const b = mustFind(s, dual)
+      if ((flagsOf(s, b) & SF.STEREO) !== 0) dsErr(15)
+      if (
+        flagsOf(s, a) !== flagsOf(s, b) ||
+        peek32(s, a, SM.LENGTH) !== peek32(s, b, SM.LENGTH) ||
+        peek32(s, a, SM.SIZE) !== peek32(s, b, SM.SIZE)
+      ) {
+        dsErr(26)
+      }
+      bindChannels(s, mask, a, [leftHalf(a), leftHalf(b)])
+    },
+    /** Routine 9 ($1b4c) --- the LEFT half of a stereo sample, on both channels */
+    'smp assign left'(it) {
+      assignHalf(st(), it, SM.LEFT)
+    },
+    /** Routine 10 ($1baa) --- `lea $2e(a3),a4`, the right half instead */
+    'smp assign right'(it) {
+      assignHalf(st(), it, SM.RIGHT)
+    },
+    /**
+     * Routine 14 ($1dc8) --- `Smp Free CHANNELS`. Stop, uncue, and let the
+     * group go. The mask has to name whole groups: half of an assigned pair is
+     * error 30, which is what the walk at $1de4 checks before anything moves.
+     */
+    'smp free'(it) {
+      const s = st()
+      const mask = it.evalInt()
+      wholeGroups(s, mask)
+      for (const i of channelsOf(mask)) {
+        if ((chGet16(s, i, CH.FLAGS) & CF.SECOND) === 0) {
+          stopChannel(rt, s, i)
+          uncueChannel(s, i)
+        }
+        chSet16(s, i, CH.MASK, 0)
+        chSet32(s, i, CH.SAMPLE, 0)
+      }
+    },
+    /**
+     * Routine 13 ($1d0a) --- `Smp Cue CHANNELS`. Everything `Smp Start` would
+     * do except make a sound, so the first block is already in memory when the
+     * program says go. A channel already cued is skipped ($1d64).
+     */
+    'smp cue'(it) {
+      const s = st()
+      const mask = it.evalInt()
+      wholeGroups(s, mask)
+      for (const i of channelsOf(mask)) {
+        if ((chGet16(s, i, CH.FLAGS) & (CF.SECOND | CF.CUED)) !== 0) continue
+        cueChannel(s, i)
+      }
+    },
+    /**
+     * Routine 15 ($1e50) --- `Smp Start CHANNELS`. Each channel of the group
+     * returns its DMACON and INTENA bits and they go out together, `ori.w
+     * #$8200,d6` and `ori.w #$c000,d7`, so a stereo pair starts on one write.
+     */
+    'smp start'(it) {
+      const s = st()
+      const mask = it.evalInt()
+      wholeGroups(s, mask)
+      for (const i of channelsOf(mask)) {
+        if ((chGet16(s, i, CH.FLAGS) & CF.SECOND) !== 0) continue
+        startChannel(rt, s, i)
+      }
+    },
+    /** Routine 16 ($1f2a) --- stop and uncue, but the group stays assigned */
+    'smp stop'(it) {
+      const s = st()
+      const mask = it.evalInt()
+      wholeGroups(s, mask)
+      for (const i of channelsOf(mask)) {
+        if ((chGet16(s, i, CH.FLAGS) & CF.SECOND) !== 0) continue
+        stopChannel(rt, s, i)
+        uncueChannel(s, i)
+      }
+    },
+    /**
+     * Routines 18 to 21 over the worker at routine 17 ($1faa) --- `Smp Play
+     * SAMPLE,CHANNELS` and up to three more: speed, volume and repeat.
+     *
+     * Each of the three has a default, and the default is `$ff`: routines 19
+     * to 21 push it for the arguments the program left out, and $1fd6 turns it
+     * into the sample's own rate and volume and a repeat of zero. So `$ff` is
+     * not a value a program can pass --- 255 Hz would be under the minimum
+     * anyway --- and the three-argument form is the two-argument one with a
+     * repeat, not with a speed.
+     */
+    'smp play'(it) {
+      const s = st()
+      const num = it.evalInt()
+      it.expect(',')
+      const mask = it.evalInt()
+      const rest: number[] = []
+      while (it.accept(',')) rest.push(it.evalInt())
+      const rec = mustFind(s, num)
+      const { rest: spare } = claimChannels(s, mask)
+      // routine 20 pushes the ONE optional argument as the repeat, not the
+      // speed, so `Smp Play 1,3,1` repeats rather than playing at 1 Hz
+      const speed = rest.length >= 2 ? rest[0]! : DEFAULT_ARG
+      const volume = rest.length >= 2 ? rest[1]! : DEFAULT_ARG
+      const repeat = rest.length === 1 ? rest[0]! : rest.length >= 3 ? rest[2]! : DEFAULT_ARG
+      const rate = speed === DEFAULT_ARG ? peek16(s, rec, SM.RATE) : speed
+      if (rate < MIN_RATE || rate > MAX_RATE) dsErr(11)
+      const vol = volume === DEFAULT_ARG ? peek16(s, rec, SM.VOLUME) : volume
+      if (vol > 0x40) dsErr(12)
+      const rep = repeat === DEFAULT_ARG ? 0 : repeat
+      if (rep > 1) dsErr(29)
+      assignOne(s, mask, spare, rec)
+      const head = channelsOf(mask)[0]!
+      chSet16(s, head, CH.RATE, rate)
+      chSet16(s, head, CH.VOLUME, vol)
+      chSet16(s, head, CH.FLAGS, chGet16(s, head, CH.FLAGS) | (rep << 13))
+      startChannel(rt, s, head)
+    },
+    /**
+     * Routine 22 ($20fc) --- `Smp Range CH,FROM To TO`, in SAMPLES.
+     *
+     * Both ends are forced even, the range must be at least two samples long
+     * and inside `=Smp Length`, and a compressed sample is refused outright
+     * (error 28) because the streamer cannot seek into Fibonacci deltas. With
+     * a sequence running, $216c walks the loop table to find which loop the
+     * offset falls in and starts there instead.
+     */
+    'smp range'(it) {
+      const s = st()
+      const ch = assignedChannel(s, it.evalInt())
+      mustBeIdle(s, ch)
+      it.expect(',')
+      const from = it.evalInt() & ~1
+      it.expect('to')
+      const to = it.evalInt() & ~1
+      const flags = chGet16(s, ch, CH.FLAGS)
+      if ((flags & CF.COMPRESSED) !== 0) dsErr(28)
+      const rec = chGet32(s, ch, CH.SAMPLE)
+      const length = peek32(s, rec, SM.LENGTH)
+      if (to < from || to - from < 2 || from > length || to > length) dsErr(19)
+      chSet32(s, ch, CH.RANGE_START, from)
+      chSet32(s, ch, CH.RANGE_END, to)
+      if ((flags & CF.SEQUENCE) === 0) {
+        chSet32(s, ch, CH.START, from)
+        return
+      }
+      const table = peek32(s, rec, SM.SEQ)
+      let seen = 0
+      let o = table
+      for (;;) {
+        const run = rd32(s.pool.buffer, at(o) + 4) - rd32(s.pool.buffer, at(o))
+        if (seen + run > from) break
+        seen += run
+        o += 8
+      }
+      chSet32(s, ch, CH.SEQ, o)
+      chSet32(s, ch, CH.START, from - seen + rd32(s.pool.buffer, at(o)))
+    },
+    /**
+     * Routine 23 ($21b4) --- `Smp Loop Range CH,FIRST To LAST`, in LOOPS, and
+     * both 1-based. No sequence is error 13. The end is the total of the loops
+     * from the first to the last inclusive, so it is a length rather than a
+     * position, which is why $223e writes it to +$10 and nothing writes +$c.
+     */
+    'smp loop range'(it) {
+      const s = st()
+      const ch = assignedChannel(s, it.evalInt())
+      mustBeIdle(s, ch)
+      it.expect(',')
+      const first = it.evalInt() - 1
+      it.expect('to')
+      const last = it.evalInt() - 1
+      if ((chGet16(s, ch, CH.FLAGS) & CF.SEQUENCE) === 0) dsErr(13)
+      const rec = chGet32(s, ch, CH.SAMPLE)
+      const size = peek32(s, rec, SM.SEQ_SIZE)
+      if (first < 0 || last < first || first * 8 >= size || last * 8 >= size) dsErr(19)
+      const table = peek32(s, rec, SM.SEQ)
+      let total = 0
+      for (let i = first; i <= last; i++) {
+        const o = table + i * 8
+        if (i === first) {
+          chSet32(s, ch, CH.SEQ, o)
+          chSet32(s, ch, CH.RANGE_START, 0)
+          chSet32(s, ch, CH.START, rd32(s.pool.buffer, at(o)))
+        }
+        total += rd32(s.pool.buffer, at(o) + 4) - rd32(s.pool.buffer, at(o))
+      }
+      chSet32(s, ch, CH.RANGE_END, total)
+    },
+    /**
+     * Routine 24 ($225c) over routine 89 ($3be2) --- `Smp Speed CH,RATE`, the
+     * same $37..$e186 bound `Smp Play` uses, and error 11 outside it. It
+     * writes the RATE and not the period: the period is worked out again at
+     * the next cue.
+     */
+    'smp speed'(it) {
+      const s = st()
+      const ch = assignedChannel(s, it.evalInt())
+      mustBeIdle(s, ch)
+      it.expect(',')
+      const rate = it.evalInt()
+      if (rate < MIN_RATE || rate > MAX_RATE) dsErr(11)
+      chSet16(s, ch, CH.RATE, rate)
+    },
+    /**
+     * Routine 25 ($2296) --- `Smp Volume CHANNELS,VOL`, and the one setter
+     * that does NOT refuse a playing channel: it writes AUDxVOL at `$dff0a0 +
+     * index*$10` there and then. It also takes a raw mask rather than an
+     * assigned group, and quietly skips any channel with nothing on it.
+     */
+    'smp volume'(it) {
+      const s = st()
+      const mask = it.evalInt()
+      it.expect(',')
+      const vol = it.evalInt()
+      if (mask === 0 || mask > 0xf) dsErr(9)
+      if (vol > 0x40) dsErr(12)
+      for (const i of channelsOf(mask)) {
+        if (chGet16(s, i, CH.MASK) === 0) continue
+        chSet16(s, i, CH.VOLUME, vol)
+        // the live write happens only while the group is playing, and the bit
+        // it tests is the FIRST channel's ($22e4 follows $b6 when bit 15 is up)
+        const head = (chGet16(s, i, CH.FLAGS) & CF.SECOND) !== 0 ? channelsOf(mask)[0]! : i
+        if ((chGet16(s, head, CH.FLAGS) & CF.PLAYING) === 0) continue
+        chSet16(s, i, CH.NOW_VOLUME, vol)
+        rt.audio.setVolume(chGet16(s, i, CH.INDEX), vol)
+      }
+    },
+    /** Routine 26 ($231a) --- `ori.w #$2000`, and `Smp Play`'s third argument */
+    'smp repeat on'(it) {
+      channelBit(st(), it, CF.REPEAT, true)
+    },
+    /** Routine 27 ($234c) */
+    'smp repeat off'(it) {
+      channelBit(st(), it, CF.REPEAT, false)
+    },
+    /**
+     * Routine 28 ($237e) --- and it does more than set the bit: the position
+     * goes back to zero, the length becomes the sample's SEQUENCE total and
+     * the loop pointer goes back to the first entry. So turning the sequence
+     * on rewinds. A sample without a SEQN chunk is error 13.
+     */
+    'smp sequence on'(it) {
+      const s = st()
+      const ch = assignedChannel(s, it.evalInt())
+      mustBeIdle(s, ch)
+      const rec = chGet32(s, ch, CH.SAMPLE)
+      if ((flagsOf(s, rec) & SF.SEQUENCE) === 0) dsErr(13)
+      chSet16(s, ch, CH.FLAGS, chGet16(s, ch, CH.FLAGS) | CF.SEQUENCE)
+      chSet32(s, ch, CH.RANGE_START, 0)
+      chSet32(s, ch, CH.RANGE_END, peek32(s, rec, SM.LENGTH))
+      const table = peek32(s, rec, SM.SEQ)
+      chSet32(s, ch, CH.SEQ, table)
+      chSet32(s, ch, CH.START, rd32(s.pool.buffer, at(table)))
+    },
+    /**
+     * Routine 29 ($23de) --- the mirror, and it rewinds too: the length
+     * becomes the sample's BYTE length (+$10, not +$c) and the start goes to
+     * zero. Error 13 as well, so a sample with no sequence cannot turn one off
+     * that it never had.
+     */
+    'smp sequence off'(it) {
+      const s = st()
+      const ch = assignedChannel(s, it.evalInt())
+      mustBeIdle(s, ch)
+      const rec = chGet32(s, ch, CH.SAMPLE)
+      if ((flagsOf(s, rec) & SF.SEQUENCE) === 0) dsErr(13)
+      chSet16(s, ch, CH.FLAGS, chGet16(s, ch, CH.FLAGS) & ~CF.SEQUENCE)
+      chSet32(s, ch, CH.RANGE_START, 0)
+      chSet32(s, ch, CH.RANGE_END, peek32(s, rec, SM.SIZE))
+      chSet32(s, ch, CH.START, 0)
+    },
+    /** Routine 30 ($2434) --- no FADE chunk on the sample is error 14 */
+    'smp fade on'(it) {
+      fadeBit(st(), it, true)
+    },
+    /** Routine 31 ($247c) */
+    'smp fade off'(it) {
+      fadeBit(st(), it, false)
+    },
+    /**
+     * Routines 36 and 32 ($2540 and $24c4) --- the same name twice. With no
+     * argument it sets the GLOBAL bit that every later assign copies; with a
+     * channels value it sets that group's. `Smp Oversample Off` is routines 37
+     * and 33.
+     */
+    'smp oversample on'(it) {
+      oversample(st(), it, true)
+    },
+    'smp oversample off'(it) {
+      oversample(st(), it, false)
     },
     /**
      * Routine 40 ($259a) --- `moveq #$0,d0 / Rbra routine 97`, which raises
@@ -1139,6 +1455,31 @@ export function makeDsamFunctions(rt: Runtime): Record<string, Func> {
       wr32(s.zone, DS.DISK_ERROR, 0)
       return VI(v | 0)
     },
+    /**
+     * Routine 55 ($28e2) --- `btst #$1` on the channel flags, so it answers
+     * for the GROUP the mask names and error 30 if the mask is not exactly
+     * that group.
+     */
+    'smp playing'(_, a): Value {
+      const s = st()
+      const ch = assignedChannel(s, int(a[0]!))
+      return VI((chGet16(s, ch, CH.FLAGS) & CF.PLAYING) !== 0 ? -1 : 0)
+    },
+    /**
+     * Routine 56 ($2910). Eight channel flags into eight bits through the
+     * table at `$544(a2)`: 1 playing, 2 cued, 4 flag bit 2, 8 from disk, 16
+     * direct, 32 compressed, 64 and 128 the two oversample multipliers.
+     * `Bin$(Smp Status(3),8)` is how the author's example prints it.
+     */
+    'smp status'(_, a): Value {
+      const s = st()
+      const flags = chGet16(s, assignedChannel(s, int(a[0]!)), CH.FLAGS)
+      let out = 0
+      for (let i = 0; i < STATUS_BITS.length; i++) {
+        if ((flags & (1 << STATUS_BITS[i]!)) !== 0) out |= 1 << (STATUS_BITS.length - 1 - i)
+      }
+      return VI(out)
+    },
     /** Routine 41 ($25a2) --- VHDR samplesPerSec, as a word */
     'smp speed'(_, a): Value {
       const s = st()
@@ -1170,4 +1511,493 @@ function channelData(st: DsamState, a: Value[], which: number): number {
   if ((flags & SF.STEREO) === 0) dsErr(16)
   if ((flags & SF.DISK) !== 0) dsErr(17)
   return peek32(st, rec, which) | 0
+}
+
+/* ---- the four channels, at $22(a2) ------------------------------------- */
+
+/**
+ * A channel structure, $ba bytes, four of them from `$22(a2)` and walked by
+ * `lea $ba(a3),a3`. Routine 78 ($34f2) builds them at startup with the index,
+ * the INTF bit and the two `Interrupt` structs at `$30c(a2)` and `$364(a2)`,
+ * 22 bytes apart, that `SetIntVector` installs.
+ *
+ * Everything a keyword can read or write is named; the offsets between are the
+ * streamer's, and this port's channels do not stream (see the header).
+ */
+export const CH = {
+  /** word: 0 to 3, and `$dff0a0 + index*$10` is its AUDxVOL */
+  INDEX: 0x00,
+  FLAGS: 0x02,
+  /** word: the playback rate, which `Smp Speed` and `Smp Play` overwrite */
+  RATE: 0x04,
+  /** word: the Paula period, `$16(a2) / rate` */
+  PERIOD: 0x06,
+  /** word: the volume asked for, and the one the ramp is currently at */
+  VOLUME: 0x08,
+  NOW_VOLUME: 0x0a,
+  /** the range `Smp Range` sets, in samples */
+  RANGE_START: 0x0c,
+  RANGE_END: 0x10,
+  /** where the fade ramp steps next, and how long a step lasts */
+  FADE_AT: 0x24,
+  FADE_STEP: 0x6a,
+  /** the sequence entry being played, and its byte size */
+  SEQ: 0x4c,
+  SEQ_SIZE: 0x50,
+  /** the sample offset playback starts from */
+  START: 0x54,
+  /** the sample's byte length, or the disk buffer's size once one is taken */
+  SIZE: 0x58,
+  /** the fade point, copied from the sample's +$1c */
+  FADE_LEN: 0x66,
+  /** the data: a sample buffer, or the disk buffer routine 65 allocates */
+  DATA: 0x8a,
+  /** the DOS handle and file offset the streamer reads from */
+  FILE: 0x82,
+  FILE_OFF: 0x86,
+  /** word: the Fibonacci seed, and the streamer's running copy of it */
+  SEED: 0x96,
+  NOW_SEED: 0x98,
+  /** word: which hardware channels this structure was assigned */
+  MASK: 0xae,
+  /** word: INTF_AUD0 << index */
+  INTF: 0xb0,
+  /** the sample record, or 0 when the channels are free */
+  SAMPLE: 0xb2,
+  /** the other half of a stereo pair, and 0 on the second half's own link */
+  PARTNER: 0xb6,
+  SIZE_OF: 0xba,
+} as const
+
+/** the channel flags word at `+$2`, as routines 84, 85 and 86 test it */
+export const CF = {
+  /** cued: routine 84 has run and every setter refuses with error 24 */
+  CUED: 1 << 0,
+  /** playing: what `=Smp Playing` reads, set by routine 85 and cleared by 86 */
+  PLAYING: 1 << 1,
+  /** the rate was halved because it was over $70c3 */
+  HALVED: 1 << 7,
+  COMPRESSED: 1 << 6,
+  DISK: 1 << 8,
+  SEQUENCE: 1 << 9,
+  /** straight out of the sample buffer: nothing to convert and it is in chip */
+  DIRECT: 1 << 10,
+  FADE: 1 << 11,
+  OVERSAMPLE: 1 << 12,
+  REPEAT: 1 << 13,
+  STEREO: 1 << 14,
+  /** set on every channel of a group and cleared on the first ($37b2) */
+  SECOND: 1 << 15,
+} as const
+
+/**
+ * `=Smp Status` (routine 56, $2910) packs eight channel flags through a table
+ * of eight words at `$544(a2)`: 5, 4, 6, 10, 8, 2, 0, 1, with `d1` counting
+ * down from 7. Bits 4 and 5 are the oversample multipliers routine 84 sets.
+ */
+const STATUS_BITS = [5, 4, 6, 10, 8, 2, 0, 1] as const
+
+/** the two rate thresholds routine 84 tests before it multiplies ($37f0/$37f8) */
+const OVERSAMPLE_X2 = 0x3861
+const OVERSAMPLE_X4 = 0x1c30
+
+/** routine 17's bounds on an explicit speed, `#$37` and `#$e186` */
+const MIN_RATE = 0x37
+const MAX_RATE = 0xe186
+
+/** `$ff` in any of `Smp Play`'s three optional arguments means "the sample's" */
+const DEFAULT_ARG = 0xff
+
+const chanBase = (i: number): number => DS.CHANNELS + i * CH.SIZE_OF
+const chGet16 = (st: DsamState, i: number, o: number): number => rd16(st.zone, chanBase(i) + o)
+const chGet32 = (st: DsamState, i: number, o: number): number => rd32(st.zone, chanBase(i) + o)
+const chSet16 = (st: DsamState, i: number, o: number, v: number): void =>
+  wr16(st.zone, chanBase(i) + o, v)
+const chSet32 = (st: DsamState, i: number, o: number, v: number): void =>
+  wr32(st.zone, chanBase(i) + o, v)
+
+/** routine 78 ($34f2): the index and the interrupt bit, once, at startup */
+function initChannels(st: DsamState): void {
+  for (let i = 0; i < 4; i++) {
+    chSet16(st, i, CH.INDEX, i)
+    chSet16(st, i, CH.INTF, 0x80 << i)
+  }
+}
+
+/**
+ * Routine 79 ($354a). A channels value is 1..15 and every bit of it must be
+ * free: `and.w $ae(a0),d1 / bne` over all four structures, so a mask that
+ * overlaps ANY assigned group is error 22. Returns the structure the lowest
+ * bit belongs to, and the mask with that bit and everything under it shifted
+ * out --- which is how routine 11 tells one channel from two.
+ */
+function claimChannels(st: DsamState, mask: number): { first: number; rest: number } {
+  if (mask === 0 || mask > 0xf) dsErr(9)
+  for (let i = 0; i < 4; i++) if ((chGet16(st, i, CH.MASK) & mask) !== 0) dsErr(22)
+  let i = 0
+  let m = mask
+  while ((m & 1) === 0) {
+    m >>= 1
+    i++
+  }
+  return { first: i, rest: m >> 1 }
+}
+
+/**
+ * Routine 80 ($3594). The lookup every per-channel keyword opens with, and it
+ * is strict twice over: the mask must be EXACTLY the one the group was
+ * assigned (error 30, "Channels value does not match assigned channels") and
+ * something must be assigned to it (error 18).
+ */
+function assignedChannel(st: DsamState, mask: number): number {
+  if (mask === 0 || mask > 0xf) dsErr(9)
+  let i = 0
+  let m = mask
+  while ((m & 1) === 0) {
+    m >>= 1
+    i++
+  }
+  if (chGet16(st, i, CH.MASK) !== mask) dsErr(30)
+  if (chGet32(st, i, CH.SAMPLE) === 0) dsErr(18)
+  return i
+}
+
+/** the guard routines 22 to 33 share: `btst #$0` on the flags, error 24 */
+function mustBeIdle(st: DsamState, ch: number): void {
+  if ((chGet16(st, ch, CH.FLAGS) & CF.CUED) !== 0) dsErr(24)
+}
+
+/** every channel in a mask, lowest first, which is the order routine 83 walks */
+function channelsOf(mask: number): number[] {
+  const out: number[] = []
+  for (let i = 0; i < 4; i++) if ((mask & (1 << i)) !== 0) out.push(i)
+  return out
+}
+
+/**
+ * The check `Smp Cue`, `Smp Free`, `Smp Start` and `Smp Stop` all open with
+ * ($1d20 and its three copies): a mask may name only WHOLE groups. Naming one
+ * channel of an assigned pair is error 30.
+ */
+function wholeGroups(st: DsamState, mask: number): void {
+  if (mask === 0 || mask > 0xf) dsErr(9)
+  for (const i of channelsOf(mask)) {
+    const owned = chGet16(st, i, CH.MASK)
+    if (owned === 0 || (owned & mask) !== owned) dsErr(30)
+  }
+}
+
+/* ---- routines 82 and 83: put a sample on a group of channels ----------- */
+
+/**
+ * Routine 83 ($36ec). `a4` and `a5` are the two halves of the sample --- the
+ * same address twice for a mono one --- and the walk hands them out
+ * alternately with `exg.l a5,a4`, so a four-channel assign gets left, right,
+ * left, right.
+ *
+ * The channel flags are the sample's masked to `$4b40` (compressed, disk,
+ * sequence, fade, stereo) plus the global oversample bit, with the stereo bit
+ * dropped again when both halves are the same buffer.
+ */
+function bindChannels(st: DsamState, mask: number, rec: number, halves: [number, number]): void {
+  const chans = channelsOf(mask)
+  const opts = rd16(st.zone, DS.OPTIONS)
+  let flags = (flagsOf(st, rec) & 0x4b40) | (opts & DOPT.OVERSAMPLE)
+  if (halves[0] === halves[1]) flags &= ~CF.STEREO
+  flags |= CF.SECOND
+  const seqTable = peek32(st, rec, SM.SEQ)
+  const start = (flags & CF.SEQUENCE) !== 0 ? rd32(st.pool.buffer, at(seqTable)) : 0
+  let half = 0
+  let second = 0
+  for (const i of chans) {
+    chSet32(st, i, CH.SAMPLE, rec)
+    chSet16(st, i, CH.FLAGS, flags)
+    chSet16(st, i, CH.MASK, mask)
+    chSet16(st, i, CH.RATE, peek16(st, rec, SM.RATE))
+    chSet16(st, i, CH.VOLUME, peek16(st, rec, SM.VOLUME))
+    chSet32(st, i, CH.RANGE_END, peek32(st, rec, SM.LENGTH))
+    chSet32(st, i, CH.SIZE, peek32(st, rec, SM.SIZE))
+    chSet32(st, i, CH.RANGE_START, 0)
+    if ((flags & CF.SEQUENCE) !== 0) {
+      chSet32(st, i, CH.SEQ, seqTable)
+      chSet32(st, i, CH.SEQ_SIZE, peek32(st, rec, SM.SEQ_SIZE))
+      chSet32(st, i, CH.FADE_LEN, peek32(st, rec, SM.FADE_LEN))
+    }
+    chSet32(st, i, CH.START, start)
+    chSet32(st, i, CH.PARTNER, chanBase(chans[0]!))
+    // the four fields $e apart: the buffer, the file, its offset and the seed
+    const base = halves[half]!
+    chSet32(st, i, CH.DATA, peek32(st, base, 0))
+    chSet32(st, i, CH.FILE, peek32(st, base, 4))
+    chSet32(st, i, CH.FILE_OFF, peek32(st, base, 8))
+    chSet16(st, i, CH.SEED, peek16(st, base, 0xc))
+    half ^= 1
+    if (i !== chans[0]! && second === 0) second = i
+  }
+  // $37b0: the first channel of the group loses the marker bit and takes the
+  // link to the second, which is 0 unless the pair is really stereo
+  const head = chans[0]!
+  chSet16(st, head, CH.FLAGS, chGet16(st, head, CH.FLAGS) & ~CF.SECOND)
+  chSet32(st, head, CH.PARTNER, (flags & CF.STEREO) !== 0 && second !== 0 ? chanBase(second) : 0)
+}
+
+/** the sample record offsets a channel copies from, +$20 for left and +$2e for right */
+const leftHalf = (rec: number): number => rec + SM.LEFT
+const rightHalf = (rec: number): number => rec + SM.RIGHT
+
+/**
+ * Routine 82 ($3690) --- the single-sample assign.
+ *
+ * A stereo sample on ONE channel is error 21. The `exg` at $36d8 is the stereo
+ * image: channels 0 and 3 are the Amiga's left and 1 and 2 its right, so a
+ * mask of $a (AUD1|AUD3) or $c (AUD2|AUD3) starts on a RIGHT channel and the
+ * halves have to be swapped. $b (AUD0|AUD1|AUD3) starts on the left and is
+ * left alone, which is why it is tested out of the middle of the range.
+ */
+function assignOne(st: DsamState, mask: number, rest: number, rec: number): void {
+  const stereo = (flagsOf(st, rec) & SF.STEREO) !== 0
+  if (rest === 0 && stereo) dsErr(21)
+  let halves: [number, number] = stereo
+    ? [leftHalf(rec), rightHalf(rec)]
+    : [leftHalf(rec), leftHalf(rec)]
+  if (mask >= 0xa && mask <= 0xc && mask !== 0xb) halves = [halves[1], halves[0]]
+  bindChannels(st, mask, rec, halves)
+}
+
+/* ---- routine 84: cue, and the period it works out --------------------- */
+
+/**
+ * Routine 84 ($37c8). What survives here is the arithmetic a program can see:
+ * the period, the two oversample multipliers, the direct-play decision and the
+ * fade ramp.
+ *
+ * DEVIATION: the rest of the routine allocates the disk and DMA buffers
+ * (routines 65 and 66), picks four mixer routines out of tables at `$4a4`,
+ * `$4b0`, `$4c0` and `$4fc(a2)` and primes the first block off disk. This port
+ * holds the whole file, so there is no block to prime and no mixer to choose;
+ * `Smp Start` hands the finished samples to the sink in one piece. The flags
+ * those choices are made from are still set, because `=Smp Status` reports
+ * five of them.
+ */
+function cueChannel(st: DsamState, ch: number): void {
+  let flags = chGet16(st, ch, CH.FLAGS) | CF.CUED
+  let rate = chGet16(st, ch, CH.RATE)
+  // over $70c3 --- 3579545/124, Paula's fastest safe period --- the rate is
+  // halved and the mixer sends each sample twice
+  if (rate > MAX_DMA_RATE) {
+    rate >>= 1
+    flags |= CF.HALVED
+  }
+  if ((flags & CF.OVERSAMPLE) !== 0 && rate <= OVERSAMPLE_X2) {
+    if (rate <= OVERSAMPLE_X4) {
+      flags |= 1 << 5
+      rate <<= 2
+    } else {
+      flags |= 1 << 4
+      rate <<= 1
+    }
+  }
+  chSet16(st, ch, CH.PERIOD, Math.trunc(rd32(st.zone, DS.CLOCK) / Math.max(rate, 1)) & 0xffff)
+  // bit 10 goes up when nothing needs converting: no compression, no halving
+  // and no oversample multiplier, which is `andi.w #$f0,d0` on bits 4 to 7
+  flags &= ~CF.DIRECT
+  if ((flags & 0xf0) === 0) flags |= CF.DIRECT
+  chSet16(st, ch, CH.FLAGS, flags)
+  chSet16(st, ch, CH.NOW_VOLUME, chGet16(st, ch, CH.VOLUME))
+  chSet16(st, ch, CH.NOW_SEED, chGet16(st, ch, CH.SEED))
+  chSet32(st, ch, CH.FADE_STEP, 0)
+  if ((flags & CF.FADE) === 0) return
+  fadeRamp(st, ch)
+}
+
+/**
+ * The fade at $39fa: one volume unit every `(length - fadePoint) / volume`
+ * samples, rounded down to an even count, and the ramp is wound forward to
+ * wherever playback is about to start.
+ */
+function fadeRamp(st: DsamState, ch: number): void {
+  const fadeAt = chGet32(st, ch, CH.FADE_LEN)
+  chSet32(st, ch, CH.FADE_AT, fadeAt)
+  const after = (chGet32(st, ch, CH.RANGE_END) - fadeAt) | 0
+  if (after < 0) return
+  const volume = chGet16(st, ch, CH.VOLUME)
+  if (volume === 0) return
+  const step = Math.trunc(after / volume) & ~1
+  chSet32(st, ch, CH.FADE_STEP, step)
+  if (step === 0) return
+  const from = chGet32(st, ch, CH.RANGE_START)
+  if (from <= fadeAt) return
+  const gone = Math.trunc((from - fadeAt) / step)
+  chSet16(st, ch, CH.NOW_VOLUME, Math.max(volume - gone, 0))
+  chSet32(st, ch, CH.FADE_AT, (gone + 1) * step + fadeAt)
+}
+
+/* ---- what the channel would emit --------------------------------------- */
+
+/**
+ * The samples a started channel plays, as one run.
+ *
+ * On the machine this is assembled a disk block at a time by the reader
+ * process and a DMA interrupt at a time by the mixer; here the whole file is
+ * already in memory and the run can be built at once. The bytes are the same
+ * bytes: `Smp Sequence On` concatenates the loops out of the SEQN table
+ * exactly as the streamer walks them, and everything else is one range.
+ */
+function channelPcm(st: DsamState, ch: number): Int8Array {
+  const rec = chGet32(st, ch, CH.SAMPLE)
+  if (rec === 0) return new Int8Array(0)
+  const source = sampleBytes(st, ch, rec)
+  const flags = chGet16(st, ch, CH.FLAGS)
+  const clip = (from: number, to: number): Int8Array =>
+    new Int8Array(source.buffer, source.byteOffset + Math.min(from, source.length),
+      Math.max(0, Math.min(to, source.length) - Math.min(from, source.length)))
+  if ((flags & CF.SEQUENCE) === 0) {
+    return clip(chGet32(st, ch, CH.RANGE_START), chGet32(st, ch, CH.RANGE_END))
+  }
+  const table = chGet32(st, ch, CH.SEQ)
+  const end = peek32(st, rec, SM.SEQ) + peek32(st, rec, SM.SEQ_SIZE)
+  const parts: Int8Array[] = []
+  let total = 0
+  for (let o = table; o < end; o += 8) {
+    const part = clip(rd32(st.pool.buffer, at(o)), rd32(st.pool.buffer, at(o) + 4))
+    parts.push(part)
+    total += part.length
+  }
+  const out = new Int8Array(total)
+  let o = 0
+  for (const p of parts) {
+    out.set(p, o)
+    o += p.length
+  }
+  return out
+}
+
+/**
+ * The channel's data as signed bytes.
+ *
+ * A loaded sample already has a buffer in the pool. One opened with `Smp Open`
+ * has the file instead, and this is where the reader process's work happens
+ * all at once --- including the Fibonacci decode the streamer does a block at
+ * a time, from the seed at +$96.
+ */
+function sampleBytes(st: DsamState, ch: number, rec: number): Int8Array {
+  const buf = chGet32(st, ch, CH.DATA)
+  const size = peek32(st, rec, SM.SIZE)
+  if (buf !== 0) {
+    return new Int8Array(st.pool.buffer.buffer, st.pool.buffer.byteOffset + at(buf), size)
+  }
+  const file = st.files.get(chGet32(st, ch, CH.FILE))
+  if (!file) return new Int8Array(0)
+  const from = chGet32(st, ch, CH.FILE_OFF)
+  if ((chGet16(st, ch, CH.FLAGS) & CF.COMPRESSED) === 0) {
+    const raw = file.data.subarray(from, from + size)
+    return new Int8Array(raw.buffer, raw.byteOffset, raw.length)
+  }
+  const packed = file.data.subarray(from, from + (size >>> 1))
+  const out = new Int8Array(packed.length * 2)
+  let acc = chGet16(st, ch, CH.SEED) << 24 >> 24
+  let o = 0
+  for (const byte of packed) {
+    acc = (acc + FIB[byte >> 4]!) << 24 >> 24
+    out[o++] = acc
+    acc = (acc + FIB[byte & 0xf]!) << 24 >> 24
+    out[o++] = acc
+  }
+  return out
+}
+
+/* ---- routines 85 and 86: start and stop -------------------------------- */
+
+/**
+ * Routine 85 ($3a7e). A channel already playing is left alone; one not yet
+ * cued is cued first; routine 90 asks audio.device for the hardware and its
+ * failure is error 20. Then the period and the volume go to AUDxPER and
+ * AUDxVOL and the caller ORs the returned masks into DMACON and INTENA.
+ *
+ * DEVIATION: audio.device is not modelled, so nothing can refuse. Error 20 is
+ * therefore unreachable here and reachable there, and this port's channels are
+ * only ever taken by D-Sam itself.
+ */
+function startChannel(rt: Runtime, st: DsamState, ch: number): void {
+  const flags = chGet16(st, ch, CH.FLAGS)
+  if ((flags & CF.PLAYING) !== 0) return
+  if ((flags & CF.CUED) === 0) cueChannel(st, ch)
+  chSet16(st, ch, CH.FLAGS, chGet16(st, ch, CH.FLAGS) | CF.PLAYING)
+  const pcm = channelPcm(st, ch)
+  if (pcm.length === 0) return
+  const repeat = (chGet16(st, ch, CH.FLAGS) & CF.REPEAT) !== 0
+  // the pitch is the rate the program asked for. The multipliers routine 84
+  // applies are the mixer's: it interpolates up so Paula has a legal period,
+  // and the sound that comes out is the same note either way.
+  rt.audio.play(
+    chGet16(st, ch, CH.INDEX),
+    pcm,
+    chGet16(st, ch, CH.RATE),
+    chGet16(st, ch, CH.NOW_VOLUME),
+    repeat ? 0 : -1,
+  )
+}
+
+/**
+ * Routine 86 ($3b14). The playing bit comes down, the reader process is
+ * signalled awake and back to sleep, DMACON and INTENA lose the channel, and
+ * routine 91 hands the hardware back to audio.device.
+ */
+function stopChannel(rt: Runtime, st: DsamState, ch: number): void {
+  const flags = chGet16(st, ch, CH.FLAGS)
+  if ((flags & CF.PLAYING) === 0 && (flags & (1 << 3)) === 0) return
+  chSet16(st, ch, CH.FLAGS, flags & ~CF.PLAYING)
+  rt.audio.stop(chGet16(st, ch, CH.INDEX))
+}
+
+/**
+ * Routine 81 ($35e0). The buffers a cue took, back to the pool, and the cued
+ * bit down. It runs on the way out of `Smp Stop` and `Smp Free` and on every
+ * failed cue, which is why a half-set-up group never keeps its memory.
+ */
+function uncueChannel(st: DsamState, ch: number): void {
+  const flags = chGet16(st, ch, CH.FLAGS)
+  if (chGet16(st, ch, CH.MASK) === 0 || (flags & CF.CUED) === 0) return
+  chSet16(st, ch, CH.FLAGS, flags & ~CF.CUED)
+}
+
+/** the shared half of routines 9 and 10: one half of a stereo sample, twice */
+function assignHalf(st: DsamState, it: Parameters<Instr>[0], which: number): void {
+  const num = it.evalInt()
+  it.expect('to')
+  const mask = it.evalInt()
+  claimChannels(st, mask)
+  const rec = mustFind(st, num)
+  if ((flagsOf(st, rec) & SF.STEREO) === 0) dsErr(16)
+  // `movea.l a4,a5`: both channels of the group get the SAME half, which is
+  // what makes this different from an ordinary stereo assign
+  const half = rec + which
+  bindChannels(st, mask, rec, [half, half])
+}
+
+/** routines 26, 27, 32 and 33: one bit on an idle assigned group */
+function channelBit(st: DsamState, it: Parameters<Instr>[0], bit: number, on: boolean): void {
+  const ch = assignedChannel(st, it.evalInt())
+  mustBeIdle(st, ch)
+  const flags = chGet16(st, ch, CH.FLAGS)
+  chSet16(st, ch, CH.FLAGS, on ? flags | bit : flags & ~bit)
+}
+
+/** routines 30 and 31: the same, over a sample that has a FADE chunk */
+function fadeBit(st: DsamState, it: Parameters<Instr>[0], on: boolean): void {
+  const ch = assignedChannel(st, it.evalInt())
+  mustBeIdle(st, ch)
+  if ((flagsOf(st, chGet32(st, ch, CH.SAMPLE)) & SF.FADE) === 0) dsErr(14)
+  const flags = chGet16(st, ch, CH.FLAGS)
+  chSet16(st, ch, CH.FLAGS, on ? flags | CF.FADE : flags & ~CF.FADE)
+}
+
+/** routines 36/37 with no argument, and 32/33 with a channels value */
+function oversample(st: DsamState, it: Parameters<Instr>[0], on: boolean): void {
+  if (it.atStmtEnd()) {
+    const opts = rd16(st.zone, DS.OPTIONS)
+    wr16(st.zone, DS.OPTIONS, on ? opts | DOPT.OVERSAMPLE : opts & ~DOPT.OVERSAMPLE)
+    return
+  }
+  channelBit(st, it, CF.OVERSAMPLE, on)
 }

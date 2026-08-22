@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1242 qualifying notes live in `src/coverage/status.ts`, which this file
+1245 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -56,7 +56,7 @@ is.
 | copper               |        8 |        8 |            0 |       0 |     100% |
 | craft-1.0            |      138 |      135 |            1 |       0 |     100% |
 | ctext-1.0            |        6 |        6 |            0 |       0 |     100% |
-| d-sam-1.01           |       50 |       32 |            0 |      18 |      64% |
+| d-sam-1.01           |       50 |       50 |            0 |       0 |     100% |
 | dbench-0.42          |       23 |       23 |            0 |       0 |     100% |
 | delta-1.4            |       26 |       26 |            0 |       0 |     100% |
 | delta-1.6            |       46 |       44 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5343 |          280 |    1736 |      76% |
+| **total**            |     7422 |     5361 |          280 |    1718 |      77% |
 
 ## Not applicable, by what would retire it
 
