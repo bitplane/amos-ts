@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MACHINE_CODE_PROC, TokenTable, parseSource } from './stream'
-import { detokSource } from './detok'
+import { detokSource } from './edtok'
 import { CORE_TOKENS } from './tables.gen'
 import { parseAmosFile } from '../loader/amosfile'
 

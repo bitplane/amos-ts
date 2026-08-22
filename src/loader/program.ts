@@ -19,7 +19,7 @@
  */
 import { parseAmosFile, type AmosFile } from './amosfile'
 import { parseSource, TokenTable, type TokenLine } from '../tokens/stream'
-import { tokenize } from '../tokens/tokenizer'
+import { tokeniseSource } from '../tokens/edtok'
 import { extensionBindingsFor } from '../ext/identify'
 import { defaultSlotBindings, type Extension } from '../ext/registry'
 
@@ -52,7 +52,10 @@ export function loadProgram(bytes: Uint8Array, table: TokenTable): LoadedProgram
   }
   const bindings = defaultSlotBindings()
   const stock = tablesOf(bindings)
-  const lines = tokenize(new TextDecoder('latin1').decode(bytes), table, stock)
+  // a listing goes through the editor's own tokeniser and comes back as a
+  // source block, so nothing downstream can tell it from a loaded program
+  const source = tokeniseSource(new TextDecoder('latin1').decode(bytes), table, { extensions: stock })
+  const lines = parseSource(source, table)
   return { lines, extensions: stock, bindings, amos: null }
 }
 

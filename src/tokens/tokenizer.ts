@@ -3,13 +3,18 @@ import { OPERATORS, T, TokenTable } from './stream'
 import type { Tok, TokenLine } from './stream'
 
 /**
- * Text → token stream, the reverse of the detokenizer.
+ * Text → token stream, with the verifier's work already done.
  *
- * This exists mainly so tests can be written in AMOS source instead of
- * hand-built token arrays, and so a future web editor can accept typed
- * code. It expects editor-normalized source (single spaces in keywords,
- * as produced by detokSource); it is not a full reimplementation of the
- * editor's tokenizer. Inline branch links are not computed — the
+ * `tokeniseLine` in ./edtok.ts is the editor's own tokeniser and is the one to
+ * reach for when the answer has to be the bytes AMOS would write. It is not
+ * the one the interpreter's tests want, because `Tokenise` genuinely cannot
+ * tell a procedure call from a variable: it writes $06 for both and the
+ * VERIFIER promotes the name to $12 once it knows what is declared. This does
+ * that promotion up front, which is what lets a test write `SHOUT[1]` and have
+ * it dispatch.
+ *
+ * It expects editor-normalized source, single spaces in keywords, as produced
+ * by `detokSource`. Inline branch links are not computed here either: the
  * interpreter derives control flow from its own prescan.
  */
 

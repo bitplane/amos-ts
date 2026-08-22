@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from './stream'
 import { CORE_TOKENS } from './tables.gen'
 import { tokenize } from './tokenizer'
-import { detokSource } from './detok'
+import { detokSource } from './edtok'
 
 const table = new TokenTable(CORE_TOKENS)
 
-/** tokenize → detokenize should reproduce the listing */
+/**
+ * tokenize → detokenize should reproduce the listing.
+ *
+ * Trailing spaces are dropped for the comparison because `DtkE` puts one after
+ * every instruction and `DtkFin` never takes it off again, so `Next` really
+ * does list as "Next ". That is the editor's, not this tokenizer's.
+ */
 function roundTrip(src: string): string {
   return detokSource(tokenize(src, table), table)
+    .split('\n')
+    .map((l) => l.replace(/ +$/, ''))
+    .join('\n')
 }
 
 describe('tokenizer', () => {

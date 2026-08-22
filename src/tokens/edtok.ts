@@ -8,18 +8,21 @@
  * that **retokenising a line nobody changed does not alter a byte**, because
  * every line the user merely walks past goes through both.
  *
- * ../tokens/detok.ts cannot hold that. It works from the parsed `Tok` union,
- * which drops the inline link payloads, the variable record's runtime link
- * word and the byte counts, and it spaces the result with a regular
- * expression. It is right for reading a listing and it is not the editor's.
- *
  * These take and produce the LINE, header included: byte 0 is the length in
  * words, byte 1 is the indent. Everything downstream (`parseSource`, `prescan`,
  * the interpreter) is untouched, because the interpreter recomputes control
  * flow and never reads an inline link.
+ *
+ * `detok.ts` used to do the same job from the parsed `Tok` union, spacing the
+ * result with a regular expression. It put a space after every colon that
+ * belonged before it, one in front of an opening bracket that never takes one,
+ * and one after a remark's quote that the remark's own text already held.
+ * `detokLine` here takes a `TokenLine` too, by encoding it back to bytes
+ * first, so there is one detokeniser rather than two that disagree.
  */
-import { decodeFfp } from '../amiga/ffp'
+import { decodeFfp, encodeFfp } from '../amiga/ffp'
 import { OPERATORS, T, TokenTable } from './stream'
+import type { TokenLine } from './stream'
 import type { TokenEntry } from './libtok'
 import { ascToFfp, floatToAsc, longToBin, longToDec, longToHex } from './numfmt'
 
@@ -795,4 +798,134 @@ export function tokeniseLine(text: string, table: TokenTable, opts: EdtokOptions
   if (out.length >= 510) return Uint8Array.from([0, 0])
   out.bytes[0] = out.length >>> 1
   return Uint8Array.from(out.bytes)
+}
+
+/**
+ * A whole listing into a source block, the way the editor holds one.
+ *
+ * Every line goes through `tokeniseLine`, so a program typed as text and a
+ * program loaded from disc are the same bytes by the time anything reads them.
+ * A line too long for the format is dropped rather than truncated, which is
+ * what the editor's own -1 return leaves on screen.
+ */
+export function tokeniseSource(text: string, table: TokenTable, opts: EdtokOptions = {}): Uint8Array {
+  const out: number[] = []
+  for (const line of text.split('\n')) {
+    const bytes = tokeniseLine(line.replace(/\r$/, ''), table, opts)
+    if (bytes[0] === 0) continue
+    for (const b of bytes) out.push(b)
+  }
+  out.push(0, 0)
+  return Uint8Array.from(out)
+}
+
+/**
+ * A parsed line back into the bytes it was read from, so that anything holding
+ * a `TokenLine` can be shown through the one detokeniser.
+ *
+ * Lossy in exactly the places `parseSource` is, and they are the same places
+ * the verifier owns: the record's runtime link, the inline branch payloads and
+ * the extension argument count come back as zeros. None of them is printed, so
+ * the listing is the same either way.
+ *
+ * This is what lets `tokenize`'s output, which never came from a file, be
+ * listed by `Detok` rather than by a second detokeniser with its own idea of
+ * where the spaces go.
+ */
+export function encodeLine(line: TokenLine, table: TokenTable): Uint8Array {
+  const out = new LineOut()
+  out.bytes[1] = line.indent
+  const name = (id: number, text: string, flags: number): void => {
+    out.u16(id)
+    out.u16(0)
+    const chars = [...text].map((c) => c.charCodeAt(0))
+    if (chars.length % 2 !== 0) chars.push(0)
+    out.u8(chars.length)
+    out.u8(flags)
+    for (const c of chars) out.u8(c)
+  }
+  for (const tok of line.tokens) {
+    switch (tok.kind) {
+      case 'var':
+        name(T.VARIABLE, tok.name, tok.flags)
+        break
+      case 'label':
+        name(T.LABEL, tok.name, tok.flags)
+        break
+      case 'procCall':
+        name(T.PROC_CALL, tok.name, tok.flags)
+        break
+      case 'labelRef':
+        name(T.LABEL_REF, tok.name, tok.flags)
+        break
+      case 'op':
+        out.u16(tok.id)
+        break
+      case 'int':
+        out.u16(T.INT)
+        out.u32(tok.value)
+        break
+      case 'bin':
+        out.u16(T.BIN)
+        out.u32(tok.value)
+        break
+      case 'hex':
+        out.u16(T.HEX)
+        out.u32(tok.value)
+        break
+      case 'float':
+        out.u16(T.FLOAT)
+        out.u32(tok.raw !== 0 ? tok.raw : (encodeFfp(tok.value) ?? 0))
+        break
+      case 'str': {
+        out.u16(tok.quote === '"' ? T.STR_DQ : T.STR_SQ)
+        out.u16(tok.value.length)
+        for (const c of tok.value) out.u8(c.charCodeAt(0))
+        if (out.length % 2 !== 0) out.u8(0)
+        break
+      }
+      case 'rem': {
+        out.u16(tok.id)
+        out.u16(tok.text.length)
+        for (const c of tok.text) out.u8(c.charCodeAt(0))
+        if (out.length % 2 !== 0) out.u8(0x20)
+        break
+      }
+      case 'proc':
+        out.u16(tok.id)
+        out.u32(tok.size)
+        out.u16(0)
+        out.u16(tok.flags)
+        break
+      case 'apml':
+        // the machine code itself follows the LINE, so only the marker and
+        // its pointer back to the parameter list belong here
+        out.u16(table.entries.find((e) => e.name.replace(/^!/, '') === '@_apml_@')?.id ?? 0)
+        out.u16(tok.param)
+        break
+      case 'ext':
+        out.u16(T.EXTENSION)
+        out.u8(tok.ext)
+        out.u8(0)
+        out.u16(tok.id)
+        break
+      case 'core':
+        out.u16(tok.id)
+        out.zero(inlineBytes(tok.id))
+        break
+    }
+  }
+  out.u16(0)
+  out.bytes[0] = out.length >>> 1
+  return Uint8Array.from(out.bytes)
+}
+
+/** One `TokenLine` as the text the editor shows, through `Detok`. */
+export function detokLine(line: TokenLine, table: TokenTable, opts: EdtokOptions = {}): string {
+  return detokLineBytes(encodeLine(line, table), 0, table, opts)
+}
+
+/** A whole program's lines as a listing. */
+export function detokSource(lines: TokenLine[], table: TokenTable, opts: EdtokOptions = {}): string {
+  return lines.map((l) => detokLine(l, table, opts)).join('\n')
 }

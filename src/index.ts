@@ -5,8 +5,8 @@ export { parseAmosLib, parseTokenTable, firstCodeHunk } from './tokens/libtok'
 export type { TokenEntry, AmosLib } from './tokens/libtok'
 export { TokenTable, parseSource, decodeFFP, OPERATORS, T, TokenStreamError } from './tokens/stream'
 export type { Tok, TokenLine } from './tokens/stream'
-export { detokLine, detokSource } from './tokens/detok'
-export type { DetokOptions } from './tokens/detok'
+export { detokLine, detokSource } from './tokens/edtok'
+export type { EdtokOptions } from './tokens/edtok'
 export { CORE_TOKENS } from './tokens/tables.gen'
 // EXTENSION_TOKENS is slot -> raw token defs. `Runtime` and `tokenize` want
 // slot -> TokenTable, which is what defaultExtensionTables() builds — without

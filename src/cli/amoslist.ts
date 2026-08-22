@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
-import { detokSource } from '../tokens/detok'
+import { detokSource } from '../tokens/edtok'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionTablesFor } from '../ext/identify'
 

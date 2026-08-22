@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable, parseSource, decodeFFP, OPERATORS } from './stream'
-import { detokSource } from './detok'
+import { detokSource } from './edtok'
 import { CORE_TOKENS } from './tables.gen'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -49,13 +49,15 @@ describe('parseSource + detok', () => {
     const src = new Uint8Array([
       ...line(1, [0x00, 0x26, 0, 5, ...ch('hello'), 0]), // "hello" (padded)
       ...line(1, [0x00, 0x46, 0x80, 0x00, 0x00, 0x41]), // 1.0 FFP
-      ...line(1, [0x06, 0x4a, 0, 4, ...ch('hi !')]), // Rem hi !
+      // "Rem hi !": the keyword name is "rem" with nothing after it, so the
+      // space the user typed is the first byte of the remark's own text
+      ...line(1, [0x06, 0x4a, 0, 4, ...ch(' hi!')]),
     ])
     const lines = parseSource(src, table)
     const out = detokSource(lines, table).split('\n')
     expect(out[0]).toBe('"hello"')
     expect(out[1]).toBe('1.0')
-    expect(out[2]).toBe('Rem hi !')
+    expect(out[2]).toBe('Rem hi!')
   })
 
   it('accepts trailing zero padding after the last line', () => {

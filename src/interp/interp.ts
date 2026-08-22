@@ -1,6 +1,6 @@
 import type { Tok, TokenLine } from '../tokens/stream'
 import { TokenTable } from '../tokens/stream'
-import { detokLine } from '../tokens/detok'
+import { detokLine } from '../tokens/edtok'
 import { Names } from './names'
 import { prescan, scopeOfAddr, varKey } from './prescan'
 import type { Addr, Ctrl, Program } from './prescan'
