@@ -510,7 +510,22 @@ describe('Intuition 1.3b: drawing', () => {
    * a top.
    */
   it('Itext takes graphics coordinates, either of which may be omitted', () => {
-    expect(vals(`${W}\nIink 2\nIlocate Gr 5,60\nItext ,,"HI"\nPrint Ixgr;" ";Iygr`)).toEqual([5 + 2 * 16, 60])
+    // Text leaves the cursor at the end of what it drew, two topaz cells on
+    expect(vals(`${W}\nIink 2\nIlocate Gr 5,60\nItext ,,"HI"\nPrint Ixgr;" ";Iygr`)).toEqual([5 + 2 * 8, 60])
+  })
+
+  /**
+   * The cursor `Text` leaves behind is the WINDOW's, not the screen's.
+   *
+   * ../amiga/graphics.ts's RastPort keeps one cursor and is handed screen
+   * coordinates here, so a window away from the origin used to come back
+   * with its own left edge added to `=Ixgr` and its top edge to `=Iygr`.
+   */
+  it('a window away from the origin does not add its edges to the cursor', () => {
+    const src =
+      'Iscreen Open 0,320,200,16,0\nIwindow Open 1,40,30,200,100,"W"\n' +
+      'Ilocate Gr 5,60\nItext ,,"HI"\nPrint Ixgr;" ";Iygr'
+    expect(vals(src)).toEqual([21, 60])
   })
 
   /**
@@ -1971,5 +1986,125 @@ describe('Intuition 1.3b: writing and titles', () => {
     expect(vals(`${S}Print Iscreen Title Height;" ";Iscreen Title Height(0)`)).toEqual([10, 10])
     const b = boot(`${S}Print Iscreen Title Height(9)`)
     expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+  })
+})
+
+/**
+ * `input.s`'s three readers, which are the only keywords in the extension
+ * that hold a program for as many frames as the typing takes.
+ *
+ * Each is one `.lp` loop: `GetKey`, and `WaitTOF` when the buffer is empty.
+ * Here the keyword re-runs per frame instead, which is the same loop turned
+ * inside out, and `runHeadless` breaks it the way it breaks `Iwait Key`.
+ */
+describe('Intuition 1.3b: reading a line', () => {
+  const S = 'Iscreen Open 0,320,200,16,0\n'
+
+  /** type into the queue the way a keyboard would, then run */
+  function typed(src: string, keys: string): string {
+    const b = boot(src)
+    for (const ch of keys) b.rt.input.keyQueue.push({ ch, scan: 0 })
+    mustFinish(b.rt.runHeadless(2_000))
+    return b.out().trim()
+  }
+
+  /**
+   * `.lp jtcall GetKey / bne .endlp / gfxcall WaitTOF / bra .lp`, and then
+   * `move.b d0,2(a0)` into String1 with nothing tested about it. The guide:
+   * "Waits for a key to be pressed and returns it. ... The character is not
+   * echoed to the screen."
+   */
+  it('Iread Char$ takes one key and leaves the rest', () => {
+    expect(typed(`${S}Print Iread Char$;Iread Char$`, 'XY')).toBe('XY')
+  })
+
+  /** 13 or 10 ends it, and everything before is echoed and kept */
+  it('Iread Str$ reads to Return and echoes as it goes', () => {
+    expect(typed(`${S}A$=Iread Str$\nPrint A$;"|";Ixgr`, 'abc\r')).toBe('abc| 24')
+    expect(typed(`${S}Print Iread Str$;"|"`, 'ab\n')).toBe('ab|')
+  })
+
+  /**
+   * `.bksp` walks the cursor back by the character's width, redraws it in
+   * RP_COMPLEMENT to XOR it away and puts the cursor back. A backspace on an
+   * empty line is `move.l d2,d0 / beq .lp`, nothing at all.
+   */
+  it('backspace takes a character off and unwrites it', () => {
+    expect(typed(`${S}A$=Iread Str$\nPrint A$;"|";Ixgr`, 'ab\bc\r')).toBe('ac| 16')
+    expect(typed(`${S}A$=Iread Str$\nPrint A$;"|";Ixgr`, '\b\ba\r')).toBe('a| 8')
+  })
+
+  /**
+   * `move.b d0,d7 / beq .cancel`. The author's comment beside it is "0
+   * returned if window closed", which is not where zeros come from --
+   * `ConvRawKey` is RawKeyConvert into a ONE-byte buffer, so a cursor key or
+   * an F-key converts to nothing and DoEvent files `ke_char` as 0. On the
+   * machine an arrow key abandons the line.
+   *
+   * DEVIATION: this port's keyboard never queues a character-less key, so
+   * the entry has to be pushed by hand to reach the arm at all.
+   */
+  it('a key with no character cancels the line', () => {
+    const b = boot(`${S}A$=Iread Str$\nPrint "[";A$;"]"`)
+    b.rt.input.keyQueue.push({ ch: 'a', scan: 32 }, { ch: '', scan: 76 }, { ch: 'b', scan: 53 })
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('[]')
+  })
+
+  /** the three bases, and `-` before either mark but never after */
+  it('Iread Int takes decimal, binary and hex', () => {
+    expect(typed(`${S}Print Iread Int`, '42\r')).toBe('42')
+    expect(typed(`${S}Print Iread Int`, '-42\r')).toBe('-42')
+    expect(typed(`${S}Print Iread Int`, '%1011\r')).toBe('11')
+    expect(typed(`${S}Print Iread Int`, '$ff\r')).toBe('255')
+    expect(typed(`${S}Print Iread Int`, '-$ff\r')).toBe('-255')
+    // once d3 is set the prefix block is jumped over and `-` falls into the
+    // digit path, where `sub.b #'0',d7 / bmi .lp` drops it
+    expect(typed(`${S}Print Iread Int`, '$-ff\r')).toBe('255')
+  })
+
+  /**
+   * `bclr #5,d7` folds the value and `bclr #5,1(a7)` folds the copy being
+   * echoed, so lower case is entered AND displayed as upper. A `0` while the
+   * value is still zero is dropped before the echo by `cmp.b #'0',d7 / beq
+   * .lp`, so `$0` shows as `$`.
+   */
+  it('a lower-case hex digit counts, and a leading zero is not even echoed', () => {
+    // three cells drawn: the $ and two Fs
+    expect(typed(`${S}A=Iread Int\nPrint A;"|";Ixgr`, '$ff\r')).toBe('255| 24')
+    // one cell: the 7, the two zeros having gone before the echo
+    expect(typed(`${S}A=Iread Int\nPrint A;"|";Ixgr`, '007\r')).toBe('7| 8')
+  })
+
+  /**
+   * The limit table at $45a4 bounds every POSITIVE base at 4294967295 and
+   * every negative one at 2147483648, so the guide's "can cover the full
+   * range of integers (-2147483648..2147483647)" is wrong on the top end:
+   * the digits are taken and the answer is the negative long those bits are.
+   * A digit that would go past the limit is dropped, not wrapped.
+   */
+  it('the positive limit is the UNSIGNED maximum', () => {
+    expect(typed(`${S}Print Iread Int`, '4294967295\r')).toBe('-1')
+    expect(typed(`${S}Print Iread Int`, '$ffffffff\r')).toBe('-1')
+    expect(typed(`${S}Print Iread Int`, '-2147483648\r')).toBe('-2147483648')
+    // the last digit takes it past 2147483648 and is refused
+    expect(typed(`${S}Print Iread Int`, '-2147483649\r')).toBe('-214748364')
+    expect(typed(`${S}Print Iread Int`, '42949672959\r')).toBe('-1')
+  })
+
+  /**
+   * `.bksp` undoes a digit by dividing, and only once the value is back to
+   * zero does it take the radix mark and then the sign.
+   */
+  it('backspace unwinds digits, then the base mark, then the sign', () => {
+    expect(typed(`${S}Print Iread Int`, '12\b3\r')).toBe('13')
+    expect(typed(`${S}Print Iread Int`, '-$5\b\b\b7\r')).toBe('7')
+    expect(typed(`${S}Print Iread Int`, '\b\b9\r')).toBe('9')
+  })
+
+  /** an empty line is 0, which the guide states outright */
+  it('Return on its own is zero and the empty string', () => {
+    expect(typed(`${S}Print Iread Int`, '\r')).toBe('0')
+    expect(typed(`${S}Print "[";Iread Str$;"]"`, '\r')).toBe('[]')
   })
 })

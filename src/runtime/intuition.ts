@@ -327,6 +327,27 @@ export const WEF = { UNSET: 1, CLOSED: 2, BASEWIN: 4, MENUACTIVE: 8 } as const
  * there. So the question it asks is "is the active window one of MINE", and a
  * foreign one answers 0 rather than raising.
  */
+/**
+ * `input.s`'s three readers, mid-line.
+ *
+ * `d2` is the character count in `L_ReadStr` and the accumulated VALUE in
+ * `L_ReadInt`, `d3` the radix -- 0, 16 or 32, which is the byte offset into
+ * the limit table and not the base -- and `d4` the sign, 0 or 8 for the same
+ * reason.
+ */
+export interface IextRead {
+  kind: 'char' | 'str' | 'int'
+  /** `L_ReadChar`'s one character, or `L_ReadStr`'s buffer */
+  text: string
+  /** `L_ReadInt`'s d2, unsigned: the positive limit is the UNSIGNED maximum */
+  value: number
+  /** d3 --- 0 decimal, 16 binary, 32 hex */
+  radix: number
+  /** d4 --- `.cancel` still applies it, so "-" then a cursor key is -0 */
+  negative: boolean
+  done: boolean
+}
+
 export const WE_MAGIC = 0xbead_f00d
 
 /**
@@ -581,6 +602,17 @@ export class IextState {
    * so `Iwait Key` would spin until the step budget ran out; this is what
    * lets the waiters give up once rather than never.
    */
+  /**
+   * The line editor `=Iread Str$` or `=Iread Int` is part way through.
+   *
+   * Both are one `.lp` loop with `WaitTOF` in it, so the keyword runs for as
+   * many frames as the typing takes and everything the loop holds in
+   * registers --- the buffer, the accumulator, the radix and the sign ---
+   * has to live somewhere between them. One slot is enough: the loop cannot
+   * be re-entered, because it does not return until Return is pressed.
+   */
+  read: IextRead | null = null
+
   headlessWake = false
   /** `TrapErrors` / `ErrorTrapped` / `LastError`, which `other.s` reads back */
   trapErrors = false
@@ -995,6 +1027,244 @@ function scrollRasterUp(rp: RastPort, dy: number, x1: number, y1: number, x2: nu
   for (let y = Math.max(y1, y2 - dy + 1); y <= y2; y++) {
     for (let x = x1; x <= x2; x++) rp.putPixel(x, y, rp.bgPen)
   }
+}
+
+/**
+ * The three readers' shared shape: start the editor, drain what is queued,
+ * and give the frame back if it is still open.
+ *
+ * The routine's own loop is `GetKey / WaitTOF / bra`, one frame per empty
+ * poll, and this is that loop turned inside out --- the keyword re-runs each
+ * frame instead of spinning inside one. `runHeadless` breaks it the way it
+ * breaks `Iwait Key`: nothing is going to type, so the editor closes on
+ * whatever it has, which is nothing.
+ */
+function readKeyword(rt: Runtime, st: IextState, it: Parameters<Func>[0], kind: IextRead['kind']): Value {
+  // `jtcall GetCurInput` before anything, which is where a program with no
+  // window at all is refused
+  curIwin(st)
+  st.read ??= { kind, text: '', value: 0, radix: 0, negative: false, done: false }
+  const r = st.read
+  pumpRead(rt, st, r)
+  if (!r.done && st.headlessWake) {
+    st.headlessWake = false
+    r.done = true
+  }
+  if (!r.done) {
+    it.block({ type: 'ievent' }, true)
+    return kind === 'int' ? VI(0) : VS('')
+  }
+  st.read = null
+  if (kind !== 'int') return VS(r.text)
+  // `move.l d2,d3 / tst.w d4 / beq .exit / neg.l d3`, and d3 goes back as a
+  // signed longword however far past 2147483647 the accumulator was let run
+  const raw = r.value >>> 0
+  return VI(r.negative ? -raw | 0 : raw | 0)
+}
+
+/**
+ * `L_ReadInt`'s limit table at $45a4, four longwords per radix.
+ *
+ * Indexed by `d3 + d4` BYTES --- the radix is 0, 16 or 32 and the sign is 0
+ * or 8, so the pair addresses the row directly. Each row is `MaxPos,
+ * MaxPosMaxDig, MaxNeg, MaxNegMaxDig`, and the check is `cmp.l 0(a3,d6.w),d2
+ * / bhi .lp / bcs .putdig / cmp.b 7(a3,d6.w),d7 / bhi .lp` --- the `7` reads
+ * the low byte of the second longword, which is where a value of 15 or less
+ * lives.
+ *
+ * The three POSITIVE rows all bound the accumulator at 4294967295 --- 429496729
+ * remainder 5 for decimal, $7fffffff remainder 1 for binary, $fffffff
+ * remainder $f for hex --- and the three negative ones at 2147483648. So the
+ * author's "maximum positive value" is the UNSIGNED maximum, consistently in
+ * all three bases, and anything a program types above 2147483647 comes back
+ * as the negative long those bits are: `=Iread Int` over 4294967295 is -1.
+ */
+const IEXT_READINT_MAX: readonly (readonly [number, number])[] = [
+  [429496729, 5],
+  [214748364, 8],
+  [0x7fffffff, 1],
+  [0x40000000, 0],
+  [0x0fffffff, 0xf],
+  [0x08000000, 0],
+]
+
+/** the row `d3 + d4` picks: decimal, binary or hex, positive or negative */
+function readIntLimit(r: IextRead): readonly [number, number] {
+  const row = (r.radix === 16 ? 2 : r.radix === 32 ? 4 : 0) + (r.negative ? 1 : 0)
+  return IEXT_READINT_MAX[row]!
+}
+
+/**
+ * The echo both editors do, and the erase both do backwards.
+ *
+ * A character goes in at the RastPort's cursor with `Text` and the cursor
+ * advances. A backspace measures the character's width off the font, walks
+ * the cursor back by it, redraws the same character in RP_COMPLEMENT --- which
+ * XORs it away --- and then puts the cursor back where the redraw started.
+ *
+ * NOTE: the mode is restored with `moveq #RP_JAM2,d0`, not with what it was,
+ * so a program that set COMPLEMENT with `Igr Writing` and then read a line
+ * gets JAM2 back.
+ *
+ * DEFECT: the width is wrong on a proportional font. `move.l d1,a0` puts the
+ * CharSpace table in a0 and the next instruction is `move.l tf_CharKern(a0),d1`
+ * --- reading 48 bytes into the space table rather than the font's kern
+ * pointer, and adding a word out of whatever that lands on. `L_ReadInt`'s
+ * copy drops the kern lookup altogether, so the two disagree as well.
+ * Neither can fire here: topaz 8 has a null `tf_CharSpace` and takes the
+ * `.nospc` arm, `move.w tf_XSize(a0),d0`, which is the width this uses.
+ */
+function readEcho(rp: RastPort, ox: number, oy: number, ch: string, erase: boolean): void {
+  if (!erase) {
+    winText(rp, ox, oy, ch)
+    return
+  }
+  rp.cpX -= rp.textLength(ch)
+  const at = rp.cpX
+  rp.drawMode = 2
+  winText(rp, ox, oy, ch)
+  rp.drawMode = 1
+  rp.cpX = at
+}
+
+/** the character a digit value echoes as, `add.b #'0' / cmp.b #'9' / addq.b #7` */
+function digitChar(v: number): string {
+  return String.fromCharCode(v < 10 ? 48 + v : 48 + v + 7)
+}
+
+/**
+ * `L_ReadStr` and `L_ReadInt`'s `.lp`, one pass over everything queued.
+ *
+ * `GetKey` answers Z-set for an empty buffer, and only then does the loop
+ * `WaitTOF`; with keys waiting it takes them one after another without
+ * giving a frame back. So this drains and the caller blocks only if the
+ * editor is still open afterwards.
+ *
+ * `move.b d0,d7 / beq .cancel` ends the line on a character of ZERO. The
+ * author's comment beside it says "0 returned if window closed", and that is
+ * not where zeros come from: `ConvRawKey` is RawKeyConvert into a ONE-byte
+ * buffer, so every key whose sequence does not fit --- the cursor keys, the
+ * function keys, Help --- answers 0 and DoEvent files it as `ke_char`. On the
+ * machine an arrow key abandons the line. DEVIATION: this port's keyboard
+ * never queues a character-less key (Runtime.pressKey takes a character), so
+ * the arm is written and only a test that pushes one can reach it.
+ */
+function pumpRead(rt: Runtime, st: IextState, r: IextRead): void {
+  const { rp, ox, oy } = curRp(rt, st)
+  for (;;) {
+    if (r.done) return
+    const ch = takeKey(rt, st)
+    if (ch === null) return
+    const code = ch.length > 0 ? ch.charCodeAt(0) : 0
+    if (r.kind === 'char') {
+      // `L_ReadChar` tests nothing: `move.b d0,2(a0)` whatever came back, so
+      // a character-less key is the one-character string Chr$(0)
+      r.text = String.fromCharCode(code)
+      r.done = true
+      return
+    }
+    if (code === 0) {
+      // `.cancel` --- and it falls into `.endlp`, so the sign still applies
+      r.text = ''
+      r.value = 0
+      r.done = true
+      return
+    }
+    if (code === 13 || code === 10) {
+      r.done = true
+      return
+    }
+    if (r.kind === 'str') {
+      if (code === 8) {
+        if (r.text.length === 0) continue
+        const last = r.text.slice(-1)
+        r.text = r.text.slice(0, -1)
+        readEcho(rp, ox, oy, last, true)
+        continue
+      }
+      r.text += ch
+      readEcho(rp, ox, oy, ch, false)
+      continue
+    }
+    readIntKey(r, rp, ox, oy, ch, code)
+  }
+}
+
+/**
+ * One key of `L_ReadInt`, which is a radix parser as much as an editor.
+ *
+ * The prefixes only exist while the value is still zero and the radix is
+ * still unset: `-` then `%` or `$` in that order, so `-$ff` parses and `$-ff`
+ * does not --- once d3 is set the whole block is jumped over and `-` falls
+ * into the digit path, where `sub.b #'0',d7 / bmi .lp` drops it.
+ *
+ * A `0` typed while the value is zero is thrown away by `cmp.b #'0',d7 / beq
+ * .lp`, and thrown away before the echo, so `$0` shows as `$`.
+ *
+ * A letter is folded by `bclr #5,d7` on the value AND `bclr #5,1(a7)` on the
+ * copy being echoed, so a lower-case `ff` is entered and displayed as `FF`.
+ */
+function readIntKey(r: IextRead, rp: RastPort, ox: number, oy: number, ch: string, code: number): void {
+  if (code === 8) {
+    readIntBack(r, rp, ox, oy)
+    return
+  }
+  if (r.value === 0 && r.radix === 0) {
+    if (!r.negative && ch === '-') {
+      r.negative = true
+      readEcho(rp, ox, oy, ch, false)
+      return
+    }
+    if (ch === '%') {
+      r.radix = 16
+      readEcho(rp, ox, oy, ch, false)
+      return
+    }
+    if (ch === '$') {
+      r.radix = 32
+      readEcho(rp, ox, oy, ch, false)
+      return
+    }
+  }
+  if (r.value === 0 && ch === '0') return
+  let d = code - 48
+  if (d < 0) return
+  let out = ch
+  if (d > 9) {
+    d &= ~32
+    out = String.fromCharCode(code & ~32)
+    d -= 17
+    if (d < 0) return
+    d += 10
+  }
+  const maxDigit = r.radix === 16 ? 1 : r.radix === 32 ? 15 : 9
+  if (d > maxDigit) return
+  const [maxVal, maxLast] = readIntLimit(r)
+  if (r.value > maxVal) return
+  if (r.value === maxVal && d > maxLast) return
+  const base = r.radix === 16 ? 2 : r.radix === 32 ? 16 : 10
+  r.value = r.value * base + d
+  readEcho(rp, ox, oy, out, false)
+}
+
+/** `.bksp` --- a digit, then the radix mark, then the sign, in that order */
+function readIntBack(r: IextRead, rp: RastPort, ox: number, oy: number): void {
+  if (r.value !== 0) {
+    const base = r.radix === 16 ? 2 : r.radix === 32 ? 16 : 10
+    const digit = r.value % base
+    r.value = Math.floor(r.value / base)
+    readEcho(rp, ox, oy, digitChar(digit), true)
+    return
+  }
+  if (r.radix !== 0) {
+    const mark = r.radix === 16 ? '%' : '$'
+    r.radix = 0
+    readEcho(rp, ox, oy, mark, true)
+    return
+  }
+  if (!r.negative) return
+  r.negative = false
+  readEcho(rp, ox, oy, '-', true)
 }
 
 /**
@@ -1518,6 +1788,26 @@ function baseRp(rt: Runtime, st: IextState): { rp: RastPort; ox: number; oy: num
  * this extension reaches SetCoords through `L_IlocateGr`, so any of them
  * clears it and `Iwrite` is the only keyword that can tell.
  */
+/**
+ * `Text` through a window's RastPort, leaving the cursor where the library
+ * leaves it.
+ *
+ * graphics.library's Text advances `rp_cp_x` by what it drew and does not
+ * touch `rp_cp_y`, and ../amiga/graphics.ts does the same --- but it is
+ * handed SCREEN coordinates here while the extension keeps its cursor in
+ * WINDOW ones, so both have to be put back. Without that a window at 40,30
+ * came out of one `Itext` with its cursor 40 pixels along and 30 lines down
+ * from where the program left it, and `Itext` counted the string's width
+ * twice on top.
+ */
+function winText(rp: RastPort, ox: number, oy: number, str_: string): void {
+  const x = rp.cpX
+  const y = rp.cpY
+  rp.text(ox + x, oy + y, str_)
+  rp.cpX = x + rp.textLength(str_)
+  rp.cpY = y
+}
+
 function setGrPos(w: IextWindow, rp: RastPort, x: number | null, y: number | null): void {
   if (x !== null) rp.cpX = x
   if (y !== null) rp.cpY = y
@@ -2976,8 +3266,7 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const text = str(it.evalExpr())
       setGrPos(iw, rp, x, y)
-      rp.text(ox + rp.cpX, oy + rp.cpY, text)
-      rp.cpX += rp.textLength(text)
+      winText(rp, ox, oy, text)
     },
 
     /**
@@ -3112,8 +3401,7 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       const text = str(it.evalExpr())
       const x = (w.window.width - rp.textLength(text)) >> 1
       setGrPos(w, rp, x, null)
-      rp.text(ox + x, oy + rp.cpY, text)
-      rp.cpX = x + rp.textLength(text)
+      winText(rp, ox, oy, text)
     },
 
     /**
@@ -4145,6 +4433,46 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
 
     /** `=Ifont Height` --- `tf_YSize`, the size the face was opened at */
     'ifont height': (): Value => VI(curRp(rt, s()).rp.font?.ySize ?? 0),
+    /**
+     * `=Iread Char$` --- one key, and it waits for it.
+     *
+     * Routine 126 ($41f8) is `.lp jtcall GetKey / bne .endlp / gfxcall
+     * WaitTOF / bra .lp`, so the program stops until something is pressed. It
+     * tests nothing about what came back: `dlea String1,a0 / move.b d0,2(a0)`
+     * puts the character into a one-long AMOS string whatever it is, so a key
+     * `ConvRawKey` had nothing for --- a cursor key, an F-key --- answers
+     * Chr$(0) rather than waiting for a real one. `=Iread Str$` and `=Iread
+     * Int` treat that same zero as a cancel; this one hands it back.
+     */
+    'iread char$': (it): Value => readKeyword(rt, s(), it, 'char'),
+
+    /**
+     * `=Iread Str$` --- a line editor in 100 instructions.
+     *
+     * Routine 127 ($4256) keeps the line on the stack, 256 bytes at a time,
+     * and echoes every character it accepts through the CURRENT RastPort with
+     * `Text`. Return (13) or Linefeed (10) end it, backspace (8) walks one
+     * character back and XORs it away, and a zero character cancels to the
+     * empty string. Nothing else is filtered, so a Tab or an Escape goes into
+     * the line and is drawn.
+     *
+     * NOTE: it writes at the graphics cursor and never moves the LINE. There
+     * is no wrap and no scroll, so a line longer than the window draws off
+     * the right-hand edge and keeps going.
+     */
+    'iread str$': (it): Value => readKeyword(rt, s(), it, 'str'),
+
+    /**
+     * `=Iread Int` --- the same editor over a number, with three bases.
+     *
+     * Routine 128 ($4394). A leading `-` and then `%` for binary or `$` for
+     * hex, each accepted only while the value is still zero, and then digits
+     * bounded by IEXT_READINT_MAX. Backspace unwinds the value one digit at a
+     * time by dividing, and once it reaches zero it takes the radix mark and
+     * then the sign.
+     */
+    'iread int': (it): Value => readKeyword(rt, s(), it, 'int'),
+
     /**
      * `=Iscan` and `=Ishift` --- `LastCode` and `LastQual`.
      *

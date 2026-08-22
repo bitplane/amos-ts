@@ -3896,6 +3896,12 @@ export const FAITHFUL = new Set<string>([
   // (`src2/windows.s`:373, "Window CP not yet (officially) set"), SetCoords
   // clears it and SetCoordsRel will not move a cursor while it is up.
   'iwrite',
+  // The three readers, the only keywords here that hold a program across
+  // frames: each is one `.lp` loop with `WaitTOF` in it. `=Iread Char$` takes
+  // whatever GetKey answers with nothing tested about it, so a key
+  // ConvRawKey had no character for is Chr$(0) rather than a longer wait.
+  // The other two read that same zero as a cancel.
+  'iread char$', 'iread str$', 'iread int',
   // `Set Icolour n,c`, and the `Set` is typed rather than a convention:
   // `itokens.s`:281 spells the token `"set icolou",$80+'r',"I0,0"`, so the
   // instruction and the `=Icolour(n)` beside it at $0830 are two different
@@ -4559,6 +4565,31 @@ export const NOTES: Record<string, string> = {
     "swapped token -- `$2878 movea.l d6,a0` is dead and `$287a clr.l $1a(a1)` clears through an a1 nothing on " +
     "that path loaded, so an empty title on a named screen writes four zero bytes wherever a1 pointed. " +
     "Recorded; there is no a1 here to write through.",
+  "iread int":
+    "Routine 128 ($4394), a radix editor. A leading `-` and then `%` for binary or `$` for hex, each taken only " +
+    "while the value is still zero and the radix unset -- so `-$ff` parses and `$-ff` does not, the `-` falling " +
+    "into the digit path where `sub.b #\'0\',d7 / bmi .lp` drops it. `bclr #5,d7` folds a letter\'s value and " +
+    "`bclr #5,1(a7)` folds the copy being echoed, so `ff` is entered and drawn as `FF`; a `0` while the value " +
+    "is zero is dropped by `cmp.b #\'0\',d7 / beq .lp` before the echo, so `$0` shows as `$`. The limit table at " +
+    "$45a4 is indexed by `d3 + d4` BYTES -- radix 0/16/32 plus sign 0/8 -- and `cmp.b 7(a3,d6.w),d7` reads the " +
+    "low byte of the second longword in the row. Every POSITIVE row bounds the accumulator at 4294967295 " +
+    "(429496729 remainder 5, $7fffffff remainder 1, $fffffff remainder $f) and every negative one at " +
+    "2147483648, so the guide\'s \"can cover the full range of integers (-2147483648..2147483647)\" is wrong at " +
+    "the top: the digits are taken and the answer is the negative long those bits are. Backspace divides one " +
+    "digit off, then takes the base mark, then the sign. NOTE: `.bsprnt` measures the character it is erasing " +
+    "off tf_CharSpace and never adds tf_CharKern, where `L_ReadStr`\'s `.bksp` tries to and reads the kern " +
+    "pointer out of the SPACE table (`move.l d1,a0` clobbers the font pointer first). Both are dead on topaz " +
+    "8, which has a null tf_CharSpace and takes the `move.w tf_XSize(a0),d0` arm.",
+  "iread str$":
+    "Routine 127 ($4256), the buffer on the stack 256 bytes at a time. Return (13) or Linefeed (10) end it, " +
+    "backspace (8) walks the cursor back by the character\'s width and XORs it away in RP_COMPLEMENT, and " +
+    "everything else goes in and is echoed -- a Tab or an Escape included. `move.b d0,d7 / beq .cancel` ends " +
+    "the line on a character of ZERO, and the author\'s comment there, \"0 returned if window closed\", is not " +
+    "where zeros come from: ConvRawKey is RawKeyConvert into a ONE-byte buffer, so a cursor key or an F-key " +
+    "converts to nothing and DoEvent files ke_char as 0. An arrow key abandons the line. DEVIATION: this " +
+    "port\'s keyboard never queues a character-less key, so only a test that pushes one reaches the arm. NOTE: " +
+    "the echo goes to the graphics cursor and never moves the LINE -- no wrap and no scroll -- and the " +
+    "backspace puts the draw mode back with `moveq #RP_JAM2,d0` rather than with what it was.",
   "igadget read":
     "Routine 265 ($747e), one function over four gadget types: si_LongInt for an integer gadget, GFLG_SELECTED " +
     "for a toggle, a decrementing ge_HitCount for a hit-select, and `(NUnits - KnobSize) * Pot / MAXPOT` for a " +
