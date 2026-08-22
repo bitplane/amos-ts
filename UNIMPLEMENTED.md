@@ -89,12 +89,6 @@ work, which is why none of them is simply next:
 | FastTracker (`xm *`) | 9 | an `.xm` module. `DME_FastTracker.library` is held and readable at 26,324 bytes |
 | PlaySID (`sid *`) | 9 | a 6502 and a SID. `playsid.library` turned up on Aminet in `mus/play/PlaySID3.lha` and is in `fixtures/aminet/`, so the evidence is no longer the problem; the emulation is |
 
-And one row on its own, blocked on evidence rather than on work or a back-end:
-
-| extension | missing | what it is waiting on |
-|---|---|---|
-| Intuition 1.3b (`intuition-1.3b`) | 183 | a binary. Nothing in `src/amiga` is in the way, the back-end landed. The archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the only row where a port has no code to read |
-
 **The sweep's answer is that nothing else is waiting.** No registered release
 shares every id it has in common with a ported one and goes unnamed, so there
 is no second Delta in the registry. Nor is there one in the corpus: `libcat`

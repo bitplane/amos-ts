@@ -3820,6 +3820,25 @@ export const FAITHFUL = new Set<string>([
   // it frees nothing it replaces. `=Iscreen Title Height` is sc_BarHeight,
   // ten for topaz 8, and it does not depend on a title being shown.
   'set iwindow title', 'set iscreen title', 'iscreen title height',
+  // The spellings from before 1.3, which are still in the token table
+  // because renaming an entry renames it in every program already saved:
+  // AMOS stores a token NUMBER and the editor prints whatever the current
+  // table calls it. Church renamed the old entries with an underscore rather
+  // than deleting them and marked each `;Obsolete` in itokens.s, so an old
+  // program keeps working and says so in its own listing. The guide: "you
+  // may notice an underscore (\"_\") in a few command names. That indicates
+  // that a program was written using an old version of the extension. The
+  // commands will function exactly as expected, but unless you remove the
+  // underscore, you will not be able to use any new features of the
+  // command." Every pair points at the same routines. The exception the
+  // guide is warning about is Iwindow Open: itokens.s:91 and :101 stop the
+  // old entries at the six-argument form where the spaced names carry a
+  // seventh for the window flags, so the flags cannot be reached through the
+  // old spelling at all.
+  'iscreen_open', 'set_iscreen', 'i_creen',
+  'iwindow_open', 'iwindow_open wb', 'iwindow_to front', 'iwindow_to back',
+  'iwindow_move', 'iwindow_size', 'iwindow_x', 'iwindow_y',
+  'iwindow_width', 'iwindow_height', 'iwindow_status', 'set_iwindow', 'i_indow',
   // Moving a screen, and moving its pixels. `Iscreen Display` is one
   // `movem.l (a3)+,d2-d6` and then four independent arms, `Iscreen Offset`
   // writes `ri_RxOffset` and `ri_RyOffset` and follows them with a MoveScreen
@@ -3888,6 +3907,11 @@ export const FAITHFUL = new Set<string>([
   // commented out, and routine 184 in the binary goes from `move.l (a3)+,d0`
   // straight to SetCoords. `Idraw To` is its OWN keyword, spec `I0,0`, not a
   // variant of `Idraw`.
+  // `Ipalette` is FAITHFUL by doing nothing: routine 52 is two bytes and they
+  // are an `rts`, the real one being behind an `ifne 0` in color.s. Its five
+  // token entries all point at it, so one to five arguments parse and are
+  // dropped. See its NOTES.
+  'ipalette',
   'ilocate', 'ilocate gr', 'ixgr', 'iygr', 'igr writing', 'iink',
   'icls', 'iclw', 'iplot', 'idraw', 'idraw to', 'ibox', 'ibar',
   'iellipse', 'icircle', 'itext', 'icentre', 'icolour', 'ipoint',

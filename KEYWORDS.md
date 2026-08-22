@@ -85,7 +85,7 @@ is.
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
 | intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
-| intuition-1.3b       |      183 |      166 |            1 |      16 |      91% |
+| intuition-1.3b       |      183 |      183 |            0 |       0 |     100% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
 | jd-5.3               |      130 |      127 |            0 |       0 |     100% |
 | jd-5.9               |      133 |      130 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5294 |          281 |    1784 |      76% |
+| **total**            |     7422 |     5311 |          280 |    1768 |      76% |
 
 ## Not applicable, by what would retire it
 
@@ -322,10 +322,6 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## interface (100%)
 
 - **approximated** (1): `resource$`
-
-## intuition-1.3b (91%)
-
-- **approximated** (1): `ipalette`
 
 ## jd-4.6 (100%)
 

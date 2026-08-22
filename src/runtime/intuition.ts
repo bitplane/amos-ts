@@ -856,7 +856,7 @@ function sortEvent(st: IextState, w: IextWindow, cls: number, code: number, iadd
 }
 
 /** `OpenIwin`, which is compiled C; the guide and `defs.i` state its limits */
-function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void {
+function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean, legacy = false): void {
   const st = rt.iext
   const num = it.evalInt()
   it.expect(',')
@@ -872,7 +872,10 @@ function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void
   // Null is: "what AMOS passes if a parameter is omitted". WFLAGS goes in
   // their place -- SIZEGADGET|DRAGBAR|DEPTHGADGET|CLOSEGADGET|ACTIVATE, plus
   // RMBTRAP, which this port has nothing to trap
-  const flags = it.accept(',') ? it.evalInt() : IEXT_WFLAGS
+  // `legacy` is `Iwindow_Open`, whose token entries stop at the six-argument
+  // form: there is no seventh for the flags to arrive in, which is the
+  // guide's "you will not be able to use any new features of the command"
+  const flags = !legacy && it.accept(',') ? it.evalInt() : IEXT_WFLAGS
   const list = onWb ? st.wbWindows : curScreen(st).windows
   // the guide: "If window n already exists, the 'Window not closed' error is
   // generated"
@@ -2523,6 +2526,48 @@ export function makeIextInstructions(rt: Runtime): Record<string, Instr> {
   return wrapTrapped(iextInstructions(rt))
 }
 
+/**
+ * The spellings a program written before 1.3 still carries, and why they
+ * have an underscore in them.
+ *
+ * AMOS stores a token NUMBER and the editor prints whatever the current
+ * table calls it, so renaming an entry renames it in every program already
+ * saved. Andrew Church used that: when 1.3 and 1.3b gave `Iscreen Open` and
+ * most of the window keywords their spaced spellings, he did not delete the
+ * old entries, he renamed them with an underscore and marked each one
+ * `;Obsolete` in `itokens.s`. An old program keeps working and says so in
+ * its own listing. The guide puts it plainly: *"you may notice an underscore
+ * ("_") in a few command names. That indicates that a program was written
+ * using an old version of the extension. The commands will function exactly
+ * as expected, but unless you remove the underscore, you will not be able to
+ * use any new features of the command."*
+ *
+ * Every pair below points at the same routines, checked entry by entry
+ * against the binary's token table. The one place the guide's "new features"
+ * bites is `Iwindow Open`: the old entries stop at the six-argument form and
+ * the new ones carry a seventh for the flags. See `openIwindow`'s `legacy`.
+ *
+ * `i_creen` and `i_indow` look like typos and are not --- they are `=Iscreen`
+ * and `=Iwindow` with the underscore put where it fits in a name that has no
+ * space to take it.
+ */
+const IEXT_OBSOLETE: readonly (readonly [string, string])[] = [
+  ['iscreen_open', 'iscreen open'],
+  ['set_iscreen', 'set iscreen'],
+  ['i_creen', 'iscreen'],
+  ['iwindow_to front', 'iwindow to front'],
+  ['iwindow_to back', 'iwindow to back'],
+  ['iwindow_move', 'iwindow move'],
+  ['iwindow_size', 'iwindow size'],
+  ['iwindow_x', 'iwindow x'],
+  ['iwindow_y', 'iwindow y'],
+  ['iwindow_width', 'iwindow width'],
+  ['iwindow_height', 'iwindow height'],
+  ['iwindow_status', 'iwindow status'],
+  ['set_iwindow', 'set iwindow'],
+  ['i_indow', 'iwindow'],
+]
+
 function iextInstructions(rt: Runtime): Record<string, Instr> {
   const s = (): IextState => {
     iextState = rt.iext
@@ -2646,7 +2691,7 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
     else rt.intuition.screenToFront(address)
   }
 
-  return {
+  const table: Record<string, Instr> = {
     'iscreen open': (it) => openIscreen(it, false),
     'iscreen open public': (it) => openIscreen(it, true),
 
@@ -2912,6 +2957,9 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      */
     'iwindow open': (it) => openIwindow(rt, it, false),
     'iwindow open wb': (it) => openIwindow(rt, it, true),
+    /** the pre-1.3 spellings, which have no flags argument. See IEXT_OBSOLETE. */
+    'iwindow_open': (it) => openIwindow(rt, it, false, true),
+    'iwindow_open wb': (it) => openIwindow(rt, it, true, true),
 
     /**
      * `Iwindow Close n` --- and window 0 is refused before the list is
@@ -4112,6 +4160,8 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       it.block({ type: 'ievent' }, true)
     },
   }
+  for (const [was, now] of IEXT_OBSOLETE) if (table[now]) table[was] = table[now]!
+  return table
 }
 
 export function makeIextFunctions(rt: Runtime): Record<string, Func> {
@@ -4121,7 +4171,7 @@ export function makeIextFunctions(rt: Runtime): Record<string, Func> {
 function iextFunctions(rt: Runtime): Record<string, Func> {
   const s = (): IextState => rt.iext
 
-  return {
+  const table: Record<string, Func> = {
     /**
      * `=Ham`, `=Ehb`, `=Superhires` --- three constants and nothing else.
      *
@@ -5061,6 +5111,8 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
       return VI(pumpStatus(s(), w) & (WEF.CLOSED | WEF.MENUACTIVE))
     },
   }
+  for (const [was, now] of IEXT_OBSOLETE) if (table[now]) table[was] = table[now]!
+  return table
 }
 
 /** the `(n)` form or the bare one, which every reader in `screens.s` pairs */

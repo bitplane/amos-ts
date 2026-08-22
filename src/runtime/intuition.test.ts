@@ -2108,3 +2108,63 @@ describe('Intuition 1.3b: reading a line', () => {
     expect(typed(`${S}Print "[";Iread Str$;"]"`, '\r')).toBe('[]')
   })
 })
+
+/**
+ * The spellings from before 1.3, which are still in the token table.
+ *
+ * AMOS stores a token NUMBER and the editor prints whatever the current
+ * table calls it, so renaming an entry renames it in every program already
+ * saved. When the spaced spellings arrived, Andrew Church renamed the old
+ * entries with an underscore instead of deleting them and marked each one
+ * `;Obsolete` in `itokens.s` --- an old program keeps working and says so in
+ * its own listing. The guide: *"you may notice an underscore ("_") in a few
+ * command names. That indicates that a program was written using an old
+ * version of the extension. The commands will function exactly as expected,
+ * but unless you remove the underscore, you will not be able to use any new
+ * features of the command."*
+ */
+describe('Intuition 1.3b: the spellings from before 1.3', () => {
+  /** $00a8, $0262 and $0274 against $1566, $15a8 and $15ba --- routines 11, 20 and 19 */
+  it('the screen trio reaches the same three routines', () => {
+    const rt = run('Iscreen_Open 0,320,200,16,0\nIscreen_Open 5,320,200,16,0\nSet_Iscreen 0')
+    expect([...rt.iext.screens.keys()]).toEqual([0, 5])
+    expect(vals('Iscreen_Open 7,320,200,16,0\nPrint I_creen;" ";Iscreen Base<>0')).toEqual([7, -1])
+  })
+
+  /**
+   * Twelve window keywords, every one of them the routine the spaced name
+   * reaches: 59, 72, 70, 76, 74, 78, 81, 65, 66 and the four readers at
+   * 85, 88, 91 and 94.
+   */
+  it('the window keywords reach the same routines', () => {
+    const src =
+      'Iscreen_Open 0,320,200,16,0\nIwindow_Open 1,0,0,200,100,"W"\n' +
+      'Iwindow_To Front 1\nIwindow_To Back 1\nIwindow_Move 1,20,30\nIwindow_Size 1,120,60\nSet_Iwindow 1\n' +
+      'Print I_indow;" ";Iwindow_X;" ";Iwindow_Y;" ";Iwindow_Width;" ";Iwindow_Height;" ";Iwindow_Status'
+    expect(vals(src)).toEqual([1, 20, 30, 120, 60, 0])
+  })
+
+  /** $0282 is the Workbench list, the same one `Iwindow Open Wb` opens on */
+  it('Iwindow_Open Wb opens on the Workbench list', () => {
+    const rt = run('Iscreen_Open 0,320,200,16,0\nIwindow_Open Wb 1,0,0,200,100')
+    expect(rt.iext.wbWindows.has(1)).toBe(true)
+    expect(rt.iext.screens.get(0)!.windows.has(1)).toBe(false)
+  })
+
+  /**
+   * The one place the guide's "you will not be able to use any new features"
+   * bites. `itokens.s`:91 and :101 give the old entries a five-argument form
+   * and a six-argument one and stop; the spaced names carry a seventh for
+   * the window flags. So the flags cannot be reached through the old
+   * spelling at all, and the argument is not there to be typed.
+   */
+  it('the old Iwindow_Open has no flags argument', () => {
+    const b = boot('Iscreen_Open 0,320,200,16,0\nIwindow_Open 1,0,0,200,100,"W",4096')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(/syntax error/)
+    // the spaced one takes it: 4096 is ACTIVATE alone, so none of the four
+    // system-gadget bits IEXT_WFLAGS would have supplied
+    const gads = (rt: Runtime) => rt.iext.screens.get(0)!.windows.get(1)!.window.flags & 0xf
+    expect(gads(run('Iscreen Open 0,320,200,16,0\nIwindow Open 1,0,0,200,100,"W",4096'))).toBe(0)
+    expect(gads(run('Iscreen_Open 0,320,200,16,0\nIwindow_Open 1,0,0,200,100,"W"'))).toBe(0xf)
+  })
+})
