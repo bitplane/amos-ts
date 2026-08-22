@@ -45,6 +45,17 @@ describe('parseSource + detok', () => {
     expect(detokSource(lines, table)).toBe('SCORE=SCORE+10')
   })
 
+  it('resolves a nameless variant but leaves the constant slots nameless', () => {
+    // $051E is Mid$'s two-argument form, which borrows the name of the $050E
+    // entry above it. $2B6A is nameless for a different reason: its spec is
+    // C3, the double-precision literal, and nothing types it. Carrying a
+    // neighbour's name onto that one made it read as "screen mode", the
+    // keyword at $2B58.
+    expect(table.name(0x051e)).toBe('mid$')
+    expect(table.name(0x2b6a)).toBe('')
+    expect(table.name(0x2b58)).toBe('screen mode')
+  })
+
   it('parses strings, floats and rem', () => {
     const src = new Uint8Array([
       ...line(1, [0x00, 0x26, 0, 5, ...ch('hello'), 0]), // "hello" (padded)

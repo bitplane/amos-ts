@@ -169,8 +169,13 @@ export class TokenTable {
     let lastName = ''
     for (const e of entries) {
       this.byId.set(e.id, e)
-      const blank = e.name.trim() === ''
-      if (!blank) lastName = e.name
+      // a spec opening with C is a CONSTANT slot, not a variant: the seven of
+      // them are the six low ones plus $2B6A, which is `_TkDFl`, the
+      // double-precision literal. They are nameless because nothing types
+      // them, and carrying a neighbour's name onto them made $2B6A read as
+      // "screen mode", the keyword that happens to sit above it.
+      const blank = e.name.trim() === '' && !e.spec.startsWith('C')
+      if (!blank && e.name.trim() !== '') lastName = e.name
       const name = e.id > first && blank ? lastName : e.name
       this.names.set(e.id, name)
       const n = name.trim().replace(/^!/, '')
