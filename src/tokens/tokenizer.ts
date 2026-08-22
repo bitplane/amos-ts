@@ -1,3 +1,4 @@
+import { ascToFloat } from './numfmt'
 import { OPERATORS, T, TokenTable } from './stream'
 import type { Tok, TokenLine } from './stream'
 
@@ -205,7 +206,7 @@ function tokenizeLine(text: string, ln: number, tables: Tables, procNames: Set<s
     if (numMatch) {
       const s = numMatch[0]
       if (s.includes('.') || numMatch[2]) {
-        toks.push({ kind: 'float', value: parseFloat(s), raw: 0 })
+        toks.push({ kind: 'float', value: ascToFloat(s), raw: 0 })
       } else {
         toks.push({ kind: 'int', value: parseInt(s, 10) | 0 })
       }

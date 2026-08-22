@@ -51,7 +51,10 @@ describe('tokenizer', () => {
   it('parses literals: hex, binary, floats, strings, variables with suffixes', () => {
     const toks = tokenize('A#=3.14 : B$="hi" : C=$FF+%101', table)[0]!.tokens
     expect(toks[0]).toMatchObject({ kind: 'var', name: 'a#', flags: 1 })
-    expect(toks[2]).toMatchObject({ kind: 'float', value: 3.14 })
+    // AscToFloat stores 3.14 as $C8F5C242, mantissa 13170114, one step under
+    // the 13170115 correct rounding gives. The corpus has the same shape at
+    // 1.07: $88F5C241 stored, $88F5C341 rounded.
+    expect(toks[2]).toMatchObject({ kind: 'float', value: 3.1399998664855957 })
     expect(toks[4]).toMatchObject({ kind: 'var', name: 'b$', flags: 2 })
     expect(toks[6]).toMatchObject({ kind: 'str', value: 'hi' })
     expect(toks.find((t) => t.kind === 'hex')).toMatchObject({ value: 0xff })

@@ -12,7 +12,21 @@ import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { TokenTable, parseSource } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { decodeFfp, encodeFfp, ffpRound, FFP_MAX, FFP_MIN } from './ffp'
+import {
+  decodeFfp,
+  encodeFfp,
+  ffpAdd,
+  ffpCmp,
+  ffpDiv,
+  ffpFix,
+  ffpFlt,
+  ffpMul,
+  ffpNeg,
+  ffpRound,
+  ffpSub,
+  FFP_MAX,
+  FFP_MIN,
+} from './ffp'
 
 describe('decode', () => {
   it('reads the format: half in the mantissa, excess-64 in the exponent', () => {
@@ -118,5 +132,130 @@ describe.skipIf(floats.length === 0)('every float literal in the corpus', () => 
       }
     }
     expect(wrong).toEqual([])
+  })
+})
+
+/* ---- the arithmetic ------------------------------------------------------ */
+
+const h = (n: number): string => '$' + (n >>> 0).toString(16).padStart(8, '0')
+
+describe('flt and fix', () => {
+  it('carries a long in and out again while it fits in 24 bits', () => {
+    for (const v of [0, 1, 9, 10, 255, 1000, 0x7fffff, -1, -12345]) {
+      expect(decodeFfp(ffpFlt(v))).toBe(v)
+      expect(ffpFix(ffpFlt(v))).toBe(v)
+    }
+  })
+
+  it('truncates past 24 bits, because $282A0 is a shift and not a round', () => {
+    // 2^24 + 1 has no room for its bottom bit
+    expect(ffpFix(ffpFlt(0x1000001))).toBe(0x1000000)
+    expect(ffpFlt(0x1000001)).toBe(ffpFlt(0x1000000))
+  })
+
+  it('fix truncates toward zero and gives 0 under 1', () => {
+    expect(ffpFix(encodeFfp(1.9)!)).toBe(1)
+    expect(ffpFix(encodeFfp(-1.9)!)).toBe(-1)
+    expect(ffpFix(encodeFfp(0.99)!)).toBe(0)
+    expect(ffpFix(0)).toBe(0)
+  })
+
+  it('saturates rather than wrapping past a long', () => {
+    expect(ffpFix(encodeFfp(2 ** 40)!)).toBe(0x7fffffff)
+    expect(ffpFix(encodeFfp(-(2 ** 40))!)).toBe(-0x80000000)
+  })
+})
+
+describe('compare', () => {
+  it('orders by the sign/exponent byte first, read as signed', () => {
+    expect(ffpCmp(ffpFlt(1), ffpFlt(2))).toBe(-1)
+    expect(ffpCmp(ffpFlt(2), ffpFlt(1))).toBe(1)
+    expect(ffpCmp(ffpFlt(2), ffpFlt(2))).toBe(0)
+    // any negative sorts below any positive because bit 7 is the byte's sign
+    expect(ffpCmp(encodeFfp(-1e9)!, encodeFfp(1e-9)!)).toBe(-1)
+  })
+
+  it('compares two negatives the other way round, which $283EA does by swapping', () => {
+    expect(ffpCmp(encodeFfp(-2)!, encodeFfp(-1)!)).toBe(-1)
+    expect(ffpCmp(encodeFfp(-0.75)!, encodeFfp(-0.5)!)).toBe(-1)
+  })
+})
+
+describe('add, subtract, multiply, divide', () => {
+  it('is exact where the answer fits in 24 bits', () => {
+    const n = (v: number): number => decodeFfp(ffpFlt(v))
+    expect(n(2) + n(3)).toBe(5)
+    expect(decodeFfp(ffpAdd(ffpFlt(2), ffpFlt(3)))).toBe(5)
+    expect(decodeFfp(ffpSub(ffpFlt(3), ffpFlt(2)))).toBe(1)
+    expect(decodeFfp(ffpMul(ffpFlt(6), ffpFlt(7)))).toBe(42)
+    expect(decodeFfp(ffpDiv(ffpFlt(42), ffpFlt(7)))).toBe(6)
+    expect(decodeFfp(ffpDiv(ffpFlt(1), ffpFlt(4)))).toBe(0.25)
+  })
+
+  it('adds a half-ulp guard byte at $28440 whether or not it rounds anything', () => {
+    // 0.5 - 1/3: aligning shifts the third's mantissa down one, and the $80
+    // written over the larger operand's byte survives the subtraction. Two
+    // places of renormalisation then carry it up to $AAAAAC where the exact
+    // answer is $AAAAAA.
+    const third = encodeFfp(1 / 3)!
+    expect(h(third)).toBe('$aaaaab3f')
+    expect(h(ffpSub(encodeFfp(0.5)!, third))).toBe('$aaaaac3e')
+    expect(h(encodeFfp(0.5 - decodeFfp(third))!)).toBe('$aaaaaa3e')
+  })
+
+  it('rounds a multiply half up on a truncated product', () => {
+    // the truncated product of 10^6 and 10^-6 is $7FFFFFFA, six short of the
+    // top bit. Adding $40 carries into bit 31, so `ADD.L D7,D7` at $285F2
+    // carries out and $285F0 rotates it straight back and puts the exponent
+    // where it started, which is the difference between 1 and $FFFFFF40.
+    expect(h(ffpMul(encodeFfp(1e6)!, encodeFfp(1e-6)!))).toBe('$80000041')
+  })
+
+  it('drops the sign, not the value, when zero is an operand', () => {
+    expect(ffpAdd(0, ffpFlt(5))).toBe(ffpFlt(5))
+    expect(ffpAdd(ffpFlt(5), 0)).toBe(ffpFlt(5))
+    expect(ffpMul(ffpFlt(5), 0)).toBe(0)
+    expect(ffpMul(0, ffpFlt(5))).toBe(0)
+    expect(ffpDiv(0, ffpFlt(5))).toBe(0)
+  })
+
+  it('cancels to the format zero, which is the all-zero long', () => {
+    expect(ffpSub(ffpFlt(7), ffpFlt(7))).toBe(0)
+    expect(ffpAdd(ffpFlt(7), ffpNeg(ffpFlt(7)))).toBe(0)
+    expect(ffpNeg(0)).toBe(0)
+  })
+
+  it('saturates instead of overflowing, at $28454 and $285FE', () => {
+    const big = encodeFfp(2 ** 62)! // exponent field 127, the top of the range
+    expect(h(ffpMul(big, ffpFlt(4)))).toBe('$ffffff7f')
+    expect(h(ffpMul(big, ffpNeg(ffpFlt(4))))).toBe('$ffffffff')
+    // and underflows to zero rather than to a denormal it has no room for
+    expect(ffpMul(encodeFfp(2 ** -60)!, encodeFfp(2 ** -60)!)).toBe(0)
+  })
+
+  it('stays within two mantissa steps of the exact answer over a sweep', () => {
+    const vals = [1, 2, 10, 0.5, 0.1, 3.14159, 1e6, 1e-6, 123456, 0.9, 7, 65535.5]
+    let worst = 0
+    for (const a of vals)
+      for (const b of vals)
+        for (const sa of [1, -1])
+          for (const sb of [1, -1]) {
+            const A = encodeFfp(a * sa)!
+            const B = encodeFfp(b * sb)!
+            const x = decodeFfp(A)
+            const y = decodeFfp(B)
+            for (const [f, exact] of [
+              [ffpAdd, x + y],
+              [ffpSub, x - y],
+              [ffpMul, x * y],
+              [ffpDiv, x / y],
+            ] as const) {
+              if (exact === 0) continue
+              const got = decodeFfp(f(A, B))
+              worst = Math.max(worst, Math.abs(got - exact) / Math.abs(exact))
+            }
+          }
+    // 2^-23 is one step; the guard byte can cost a second one on a cancellation
+    expect(worst).toBeLessThan(2 ** -22)
   })
 })

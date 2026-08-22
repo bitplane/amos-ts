@@ -4,7 +4,7 @@
  */
 import { ED_RUN_MESSAGES } from './errors.gen'
 import { ffpRound as ffpRoundBits } from '../amiga/ffp'
-import { floatToAsc, longToDec } from './numfmt'
+import { floatToAsc, longToDec } from '../tokens/numfmt'
 
 export type Value =
   | { k: 'int'; n: number }

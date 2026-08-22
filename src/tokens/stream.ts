@@ -1,3 +1,4 @@
+import { decodeFfp } from '../amiga/ffp'
 import { BinReader } from '../loader/binreader'
 import { procode } from './procode'
 import type { TokenEntry } from './libtok'
@@ -200,14 +201,8 @@ export class TokenTable {
   }
 }
 
-/** Motorola Fast Floating Point: 24-bit mantissa, sign bit 7, exponent bits 6-0 excess-64. */
-export function decodeFFP(raw: number): number {
-  if (raw === 0) return 0
-  const mantissa = raw >>> 8
-  const sign = raw & 0x80 ? -1 : 1
-  const exp = (raw & 0x7f) - 64
-  return (sign * mantissa * 2 ** exp) / 2 ** 24
-}
+/** Motorola Fast Floating Point, which the format itself defines in ../amiga/ffp.ts */
+export const decodeFFP = decodeFfp
 
 export class TokenStreamError extends Error {
   constructor(

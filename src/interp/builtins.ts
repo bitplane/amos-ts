@@ -5,6 +5,7 @@ import type { Interp } from './interp'
 import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, int, num, str, truthy, varType } from './values'
 import type { Value } from './values'
 import { MAX_PORT, PORT_MOUSE } from './gameport'
+import { ascToFloat } from '../tokens/numfmt'
 
 /**
  * Instruction handlers. Called with the cursor just past the instruction
@@ -43,8 +44,9 @@ export function parseAmosNumber(sIn: string): Value {
   if (bin) return VI(parseInt(bin[1] + bin[2]!, 2))
   const m = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
   if (!m) return VI(0)
-  const n = parseFloat(m[0])
-  return /[.eE]/.test(m[0]) ? VF(n) : VI(n)
+  // val4 (+ILib.s:7093) branches on d3, which is set by a point or by an
+  // exponent, never by the value, and the float arm goes through AscToFloat
+  return /[.eE]/.test(m[0]) ? VF(ascToFloat(m[0])) : VI(parseFloat(m[0]))
 }
 
 function inputAssign(target: { type: number; set(v: Value): void }, raw: string): void {
