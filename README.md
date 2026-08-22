@@ -173,30 +173,41 @@ full table.
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 565 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 566 corpus programs headless.
 
 | | |
 |---|---|
-| ran to a stop | 539 |
-| **ran to a stop with nothing skipped** | **485 (90%)** |
-| hit something unimplemented | 54 |
+| ran to a stop | 538 |
+| **ran to a stop with nothing skipped** | **497 (92%)** |
+| hit something unimplemented | 41 |
 
 Read the second row, not the "ended with nothing skipped" line the tool prints.
-That line counts only the 119 programs that *terminate*, and most AMOS programs
-are games and demos that never do. 245 hit the step cap and 147 block waiting
+That line counts only the 117 programs that *terminate*, and most AMOS programs
+are games and demos that never do. 240 hit the step cap and 156 block waiting
 on input, both of which are correct behaviour rather than failure.
 
-Ranked by programs blocked rather than by occurrences, the 54 divide into two
-groups and nothing else. The 68k and host escapes are **n/a by policy**,
-because this port reads 68k machine code and never executes it: `dreg` (30
-programs), `doscall` (14), `call` and `areg` (4 each). No keyword work moves
-those. Everything else is the Intuition family, which is parked behind the
-Intuition port: `iscreen_open` (9), `itext` (7), `iget$` (4), `reserve
-igadget` (4), and a long tail of one and two program entries.
+Ranked by programs blocked rather than by occurrences, what is left is almost
+entirely **n/a by policy**. This port reads 68k machine code and never executes
+it, so `dreg` (30 programs), `doscall` (14), `call` and `areg` (4 each),
+`machine code procedure` (2) and `gfxcall` (1) cannot move, and no keyword work
+moves them. `dreg` alone is most of the 41.
 
-Hit counts are no guide here. `igadget read` is skipped 141,835 times across 3
-programs, all of them self-tests looping, while `iscreen_open` blocks three
-times as many programs on 11 hits.
+Everything else is one or two programs each. `Ask Editor` (3 hits) and `Call
+Editor` (2) are the editor phase, and `||apcmp||` is already classified with
+them. Four OS DevKit spellings turn up once apiece: `_dos exist`,
+`_wb to front`, `_path part`, `_request choice`. `Multi On` and `Multi Off`
+block two programs each and `ext18:$4fc`/`$50e` one more, and those three are
+an open question rather than a keyword gap --- both names ARE implemented, and
+the two extensions carrying them read 100%, so what those programs put in slot
+18 is not what the port binds there. Nobody has run it down yet.
+
+**The Intuition family is gone from this list.** It was the whole of the
+non-policy tail a release ago --- `iscreen_open` blocking 9 programs, `itext`
+7, `iget$` and `reserve igadget` 4 each --- and `intuition-1.3b` now reads 183
+of 183.
+
+Hit counts are no guide here. `doscall` is skipped 10,166 times across 14
+programs while `ask editor` blocks its one program on 3 hits.
 
 `--by-program` counts programs per keyword rather than partitioning them, so
 its rows overlap and cannot be added up.

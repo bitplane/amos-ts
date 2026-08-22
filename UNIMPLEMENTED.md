@@ -51,7 +51,7 @@ These are registered and detokenising but not implemented, so a program lists
 and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
-Eleven rows read 0%, and they divide by what is in the way rather than by
+Five rows read 0%, and they divide by what is in the way rather than by
 size. One more row is listed with them and does NOT read 0%: DME 2.0 is
 part-done, and it stays here until every one of its keywords lands.
 `src/coverage/coverage.test.ts` checks both directions — every 0% row is
@@ -77,7 +77,7 @@ display database to fill itself from.
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 85%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
+| DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 82%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
 
 All three of DME's remaining blocks are blocked on something other than the
 work, which is why none of them is simply next:
@@ -452,26 +452,28 @@ having.
 Re-measure with `npx tsx src/cli/runreport.ts --all` rather than trusting the
 counts below; they are a snapshot, and the point of the list is the shape.
 
-Of 565 programs, 539 run to a stop: 245 hit the step cap, 147 block on input
-and 147 end. Neither of the first two is a failure. A game running its main
+Of 566 programs, 538 run to a stop: 240 hit the step cap, 156 block on input
+and 142 end. Neither of the first two is a failure. A game running its main
 loop cannot be "won" by a census, and an accessory idling on the mouse is
 behaving correctly.
 
-Of the 147 that end, 27 end on a runtime error, in 18 kinds. They sort into
+Of the 142 that end, 29 end on a runtime error, in 20 kinds. They sort into
 three groups and only the last is ours:
 
 - **Correct on a real Amiga too.** `bank not reserved` (3), `Next without For`
   (2) and screens the program closed before drawing on them (2). AMOS raises
   these as well.
-- **Archive gaps, the largest group.** One `Object file not found`, because
-  `tinycube.3DO` is in no archive found so far, which is what stops the AMOS
-  3D demo Spunt's Village. `file not found` (3, all EasyLife demos), and five
-  TOME programs wanting `TOME_GOODIES:` directories and a `levels/level1.map`
-  that nothing here carries.
+- **Archive gaps and harness limits, the largest group.** `file not found`
+  (5, all in one AGA procedure library) plus one more that stops the AMOS 3D
+  demo Spunt's Village, and five TOME programs wanting `TOME_GOODIES:`
+  directories and picture banks nothing here carries. D-Sam's own example is
+  in this group and is not a gap at all: its first line is `Smp Open
+  1,Fsel$("*.*")`, and a file requester nobody can click answers with an empty
+  string, so `Could not open sample file` is the right answer to give it.
 - **Undiagnosed, which is the honest tail.** `dialog syntax error` (2), `Disc
-  error` (2), `dialog function call error`, `variable expected`, `wrong number
-  of parameters for TEST1`, `Illegal function call` (2), `division by zero`,
-  `music bank not found`, and one loader read of 538,976,288 bytes that is
+  error` (2), `Illegal function call` (2), `dialog function call error`,
+  `variable expected`, `wrong number of parameters for TEST1`, `division by
+  zero`, `Font not available`, and one loader read of 538,976,288 bytes that is
   plainly a length read out of the wrong place. Several are EasyLife demos,
   which is where to start.
 
