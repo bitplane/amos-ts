@@ -590,8 +590,8 @@ describe('Intuition 1.3b: drawing', () => {
    * the screen's depth, so a sixteen-colour screen has sixteen entries.
    */
   it('Icolour reads and writes the map, and is bounded by it', () => {
-    expect(vals(`${W}\nIcolour 1,$F00\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
-    expect(() => run(`${W}\nIcolour 99,0`)).toThrow(IEXT_ERRORS[E.IFC])
+    expect(vals(`${W}\nSet Icolour 1,$F00\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
+    expect(() => run(`${W}\nSet Icolour 99,0`)).toThrow(IEXT_ERRORS[E.IFC])
     expect(() => run(`${W}\nPrint Icolour(99)`)).toThrow(IEXT_ERRORS[E.IFC])
   })
 
@@ -602,8 +602,8 @@ describe('Intuition 1.3b: drawing', () => {
    * Routine 52 in the binary is two bytes long and they are an `rts`.
    */
   it('Ipalette is a stub that shipped as one', () => {
-    expect(vals(`${W}\nIcolour 1,$F00\nIpalette 3\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
-    const rt = run(`${W}\nIcolour 1,$F00\nIpalette $0F0`)
+    expect(vals(`${W}\nSet Icolour 1,$F00\nIpalette 3\nPrint Hex$(Icolour(1))`)).toEqual([NaN])
+    const rt = run(`${W}\nSet Icolour 1,$F00\nIpalette $0F0`)
     expect(rt.screens.get(rt.iext.screens.get(0)!.slot)!.palette[1]).toBe(0xf00)
   })
 })
@@ -1700,5 +1700,155 @@ describe('Intuition 1.3b: moving screens and their pixels', () => {
   it('the converters need a current screen', () => {
     const b = boot('Print X Ihard(0)')
     expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+  })
+})
+
+/**
+ * `color.s`'s two palette getters and the two icon keywords, which between
+ * them carry five defects and one keyword that cannot be used at all.
+ *
+ * The banks are AMOS's own --- bank 1 for objects, bank 2 for icons --- so
+ * every one of these reaches across to the AMOS side for its data and writes
+ * to the Intuition side.
+ */
+describe('Intuition 1.3b: icons and bank palettes', () => {
+  /** an icon bank with a known palette: Get Icon snapshots the live screen */
+  const BANK = 'Screen Open 0,320,200,32,Lowres\nColour 0,$100 : Colour 31,$FFF\nGet Icon 1,0,0 To 16,8\n'
+  const ISCR = 'Iscreen Open 0,320,200,32,0\n'
+
+  /**
+   * `moveq #$0,d0 / move.w (a0)+,d0 / lsl.l #$3,d0 / adda.l d0,a0` walks the
+   * count and its pointer pairs, so the palette is `bank + 2 + count * 8`,
+   * and the plain form is one `LoadRGB4(vp, that, 32)`.
+   */
+  it('Iget Icon Palette loads the bank palette in order', () => {
+    expect(vals(`${BANK}${ISCR}Iget Icon Palette\nPrint Icolour(0);" ";Icolour(31)`)).toEqual([0x100, 0xfff])
+  })
+
+  /**
+   * DEFECT: the masked form counts `moveq #$1f,d5` DOWN while `move.w
+   * (a5)+,d1` reads UP, and uses d5 for both the mask bit and the
+   * destination colour. Entry 0 lands on colour 31. So the two forms of one
+   * keyword disagree about every colour but the middle pair.
+   */
+  it('DEFECT: giving a mask loads the same palette backwards', () => {
+    expect(vals(`${BANK}${ISCR}Iget Icon Palette 0\nPrint Icolour(0);" ";Icolour(31)`)).toEqual([0xfff, 0x100])
+  })
+
+  /**
+   * DEFECT: `btst d5,d4 / bne .next` skips a colour whose bit is SET. The
+   * guide says the opposite -- "if you just wanted to get colours 1, 2, 6,
+   * and 8, and leave the other colours alone, you could use: Iget Icon
+   * Palette %101000110" -- and AMOS's own Get Icon Palette agrees with the
+   * guide. So bit 0 here means "leave colour 0 alone".
+   */
+  it('DEFECT: a set mask bit skips its colour instead of copying it', () => {
+    expect(vals(`${BANK}${ISCR}Set Icolour 0,$777\nIget Icon Palette 1\nPrint Icolour(0);" ";Icolour(31)`)).toEqual([
+      0x777, 0x100,
+    ])
+  })
+
+  /** bank 1 and `btst #$2,d0` for objects, bank 2 and `btst #$3,d0` for icons */
+  it('Iget Sprite Palette reads bank 1 and answers 24 without one', () => {
+    expect(
+      vals(
+        'Screen Open 0,320,200,32,Lowres\nColour 7,$0F0\nGet Sprite 1,0,0 To 16,8\n' +
+          `${ISCR}Iget Sprite Palette\nPrint Icolour(7)`,
+      ),
+    ).toEqual([0x0f0])
+    const noObj = boot(`${ISCR}Iget Sprite Palette`)
+    expect(() => mustFinish(noObj.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.NOB])
+    const noIcon = boot(`${ISCR}Iget Icon Palette`)
+    expect(() => mustFinish(noIcon.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.NIB])
+  })
+
+  const ICON = 'Screen Open 0,320,200,16,Lowres\nInk 5 : Bar 0,0 To 15,7 : Get Icon 1,0,0 To 16,8\n'
+
+  /**
+   * Routine 204 builds a BitMap from the icon header and blits it with
+   * minterm $c0. `Rbsr routine 184` is Ilocate Gr, which is the guide's
+   * "The graphics pointer is left at the top left corner of the icon image."
+   */
+  it('Ipaste Icon stamps the icon and leaves the cursor on its corner', () => {
+    expect(
+      vals(`${ICON}Iscreen Open 0,320,200,16,0\nIpaste Icon 20,20,1\nPrint Ipoint(22,22);" ";Ixgr;" ";Iygr`),
+    ).toEqual([5, 20, 20])
+  })
+
+  /** `jtcall FindIcon / beq L_NoIcon` runs BEFORE the Ilocate Gr */
+  it('a missing icon is error 20 and never moves the cursor', () => {
+    const b = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIpaste Icon 20,20,4`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IND])
+  })
+
+  /**
+   * `move.l a2,d7 / bne .mask` picks BltMaskBitMapRastPort with minterm $e0
+   * over the plain $c0, and colour 0 is what the mask covers. `Make Icon
+   * Mask` is what gives an icon one.
+   */
+  it('Make Icon Mask makes colour 0 transparent to Ipaste Icon', () => {
+    // half a 16x8 icon: pen 5 on the left, colour 0 on the right
+    const HALF = 'Screen Open 0,320,200,16,Lowres : Cls 0\nInk 5 : Bar 0,0 To 7,7 : Get Icon 1,0,0 To 16,8\n'
+    const over = 'Iscreen Open 0,320,200,16,0\nIink 3 : Ibar 0,0 To 40,40\nIpaste Icon 20,20,1\n'
+    expect(vals(`${HALF}${over}Print Ipoint(21,22);" ";Ipoint(30,22)`)).toEqual([5, 0])
+    expect(vals(`${HALF}Make Icon Mask 1\n${over}Print Ipoint(21,22);" ";Ipoint(30,22)`)).toEqual([5, 3])
+  })
+
+  /** the paste is relative to the current WINDOW, not the screen */
+  it('Ipaste Icon draws through the current window origin', () => {
+    const rt = run(`${ICON}Iscreen Open 0,320,200,16,0\nIwindow Open 1,40,30,200,100,""\nIpaste Icon 10,20,1`)
+    const sc = rt.screens.get(rt.iext.screens.get(0)!.slot)!
+    expect(sc.rp.bitMap.pixelAt(50, 50)).toBe(5)
+    expect(sc.rp.bitMap.pixelAt(49, 50)).toBe(0)
+  })
+
+  /**
+   * DEFECT: `Iget Icon` cannot grab anything. Each coordinate goes through
+   * `cmp.l #$7fff,dN / bgt.b +4 / <Rble routine 140>`, and AMOS's loader
+   * pokes the marker's own condition into the branch (`+B.s`:2611 GRouB
+   * takes the opcode word from `GRout + kind*8 + 4`, and kind 12's is `ble
+   * GRout`). What runs is `bgt.b over / ble.w L_IllFunc`, so anything NOT
+   * above 32767 answers error 13 -- every coordinate a program would write.
+   * The guide's own example, `Iget Icon 1,0,0 To 15,11`, is one of them.
+   */
+  it('DEFECT: Iget Icon answers error 13 to any usable coordinate', () => {
+    const b = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 1,0,0 To 15,11`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+  })
+
+  /** the bank and the icon number are checked before the gate */
+  it('the icon bank and the number are checked first', () => {
+    const noBank = boot('Iscreen Open 0,320,200,16,0\nIget Icon 1,0,0 To 15,11')
+    expect(() => mustFinish(noBank.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.NIB])
+    for (const n of [0, 70000]) {
+      const bad = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon ${n},0,0 To 15,11`)
+      expect(() => mustFinish(bad.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
+    }
+  })
+
+  /**
+   * DEFECT: past the gate, `$7d4e cmp.w d3,d5 / Rbcs routine 164` raises
+   * "Backward coordinates" when y1 is BELOW y2 -- the normal order. Only a
+   * coordinate over 32767 gets far enough to show it, which is the only
+   * reason this is visible at all.
+   */
+  it('DEFECT: the backward-coordinates test fires on the forward order', () => {
+    const fwd = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 1,65536,65536 To 65545,65545`)
+    expect(() => mustFinish(fwd.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.BWC])
+    const back = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 1,65545,65545 To 65536,65536`)
+    expect(() => mustFinish(back.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IND])
+  })
+
+  /**
+   * The longer forms name a source: routine 284 takes the screen's BASE
+   * window off `se_BaseWin`, 285 walks the list with FindIwin2. Both PEEK at
+   * their extra arguments -- `move.l 20(a3),d0` with no pop -- and drop them
+   * after the shared body has taken the last five.
+   */
+  it('the screen and window forms are resolved before anything else', () => {
+    const noScr = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 9,1,0,0 To 15,11`)
+    expect(() => mustFinish(noScr.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+    const noWin = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 0,7,1,0,0 To 15,11`)
+    expect(() => mustFinish(noWin.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WNO])
   })
 })

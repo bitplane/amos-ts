@@ -25,13 +25,19 @@
  * and `graphics.s` is its replacement --- with `Ipaste Bob` and `=Ipoint`
  * that `output.s` has never heard of.
  *
- * And the source is NOT what built the binary. `windows.s`:105 is
- * `mvoe.l d0,a1`, which cannot assemble, and the binary has `movea.l`. So:
- * source for structure, binary where it matters. `SAFE_GRPOS` is the case
- * that pays for the rule --- `graphics.s` guards four range checks with
- * `ifd SAFE_GRPOS`, `defs.i`:46 has the `equ` commented out, and the binary
- * confirms it: `ilocate gr` goes from `move.l (a3)+,d0` straight to SetCoords
- * with nothing in between.
+ * And the source does not tell you what the binary does. `SAFE_GRPOS` is the
+ * cheap case --- `graphics.s` guards four range checks with `ifd
+ * SAFE_GRPOS`, `defs.i`:46 has the `equ` commented out, and the binary
+ * confirms it: `ilocate gr` goes from `move.l (a3)+,d0` straight to
+ * SetCoords with nothing in between. `Iget Icon` is the expensive one. Its
+ * four `bgt L_IllFunc` come out of `/extasm` as `bgt.b +4` over a marker
+ * carrying the OPPOSITE condition, and the keyword answers error 13 to every
+ * call because of it. Source for structure, binary for what runs.
+ *
+ * `mvoe.l` and `mvoeq` are not evidence of any of that. They are the
+ * author's own macros --- `macros.i`:3, *"Because I keep typing \"mvoe\"
+ * instead of \"move\" so much... :-)"* --- and the tree uses them nine
+ * times.
  *
  * ## The slot is 14, and the extension disagrees with itself about it
  *
@@ -1027,6 +1033,216 @@ function bltIscreen(
  */
 function copySpan(from: number, to: number): number {
   return (to - from + 1) & 0xffff
+}
+
+/**
+ * `Iget Sprite Palette [mask]` and `Iget Icon Palette [mask]` --- the object
+ * or icon bank's 32 colours onto the current screen, and the masked form
+ * loads them BACKWARDS.
+ *
+ * Four routines, 53 and 54 for sprites and 55 and 56 for icons, differing
+ * only in `moveq #$1,d0` against `moveq #$2,d0` for GetBankAdr and in which
+ * `Bnk_Bit` they then test --- bit 2 for objects, bit 3 for icons. Missing
+ * either way is error 24 or 21. The palette is `bank + 2 + count * 8`:
+ * `move.w (a0)+,d0 / lsl.l #$3,d0 / adda.l d0,a0` walks the pointer pairs.
+ *
+ * The plain form is one LoadRGB4 of all 32 in order. The masked one is a
+ * loop, and `moveq #$1f,d5` counts DOWN while `move.w (a5)+,d1` reads UP.
+ *
+ * DEFECT: the loop uses d5 for both the mask bit and the destination colour,
+ * so entry 0 of the bank goes to colour 31, entry 1 to colour 30, and the
+ * palette arrives reversed. `Iget Sprite Palette` and `Iget Sprite Palette
+ * 0` therefore disagree about every colour but the middle pair, which is a
+ * thing a program can see in one line.
+ *
+ * DEFECT: the mask runs the wrong way round. `btst d5,d4 / bne .next` SKIPS
+ * a colour whose bit is set, where the guide says *"if you just wanted to
+ * get colours 1, 2, 6, and 8, and leave the other colours alone, you could
+ * use: Iget Icon Palette %101000110"* --- a set bit meaning copy. AMOS's own
+ * `Get Icon Palette` agrees with the guide, so a program moved across from
+ * one to the other gets the complement of what it asked for.
+ *
+ * Both are reproduced. The bank palette is real here and so is the screen's,
+ * and there is nothing in either defect this port has to invent.
+ */
+/**
+ * `Set Icolour n,c` --- SetRGB4 on the current screen, split into three
+ * nibbles by hand.
+ *
+ * `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` bounds the index by the ColorMap's
+ * own size, unsigned, so a negative index fails it too. The colour is
+ * `lsr.w #8 / and #$f`, `lsr.w #4 / and #$f`, `and #$f`, which makes it a
+ * 12-bit value however wide the screen is.
+ */
+function setIcolour(rt: Runtime, st: IextState, it: Parameters<Instr>[0]): void {
+  const scr = curIscr(st)
+  const n = it.evalInt()
+  it.expect(',')
+  const c = it.evalInt()
+  const pal = rt.screens.get(scr.slot)?.palette
+  if (!pal || (n >>> 0) >= colourMapCount(scr)) iError(E.IFC)
+  pal[n] = c & 0x0fff
+}
+
+function iGetBankPalette(rt: Runtime, st: IextState, it: Parameters<Instr>[0], icons: boolean): void {
+  const masked = !it.atStmtEnd()
+  const mask = masked ? it.evalInt() : 0
+  const pal = rt.screens.get(curIscr(st).slot)?.palette
+  const bank = icons ? rt.iconBank : rt.spriteBank
+  if (!bank) iError(icons ? E.NIB : E.NOB)
+  if (!pal) return
+  for (let i = 0; i < 32; i++) {
+    const c = masked ? 31 - i : i
+    if (masked && (mask & (1 << c)) !== 0) continue
+    pal[c] = bank.palette[i] ?? 0
+  }
+}
+
+/**
+ * `Ipaste Icon x,y,n` --- icon n into the current window's RastPort.
+ *
+ * Routine 204 ($523e) builds a `struct BitMap` on the fly from the icon's
+ * own header: `move.w (a5)+,d0 / add.w d0,d0` is the width in words turned
+ * into `bm_BytesPerRow`, then `bm_Rows`, then `move.b d2,$5(a0)` for the
+ * depth --- a BYTE write, unlike the one `Iscreen Amos Copy` gets wrong ---
+ * and `addq.l #$4,a5` steps over the hot spot without reading it. So an icon
+ * pastes by its top-left corner however its hot spot is set, and the blit is
+ * `bm_BytesPerRow * 8` wide rather than the stored width.
+ *
+ * `Rbsr routine 184` is `Ilocate Gr`, which is how the graphics cursor ends
+ * up where the guide says: *"The graphics pointer is left at the top left
+ * corner of the icon image."* It runs AFTER FindIcon, so a missing icon is
+ * error 20 and leaves the cursor alone.
+ *
+ * `move.l a2,d7 / bne` picks the arm: a null mask pointer is
+ * BltBitMapRastPort with minterm $c0 and anything else is
+ * BltMaskBitMapRastPort with $e0 over `mask + 4`.
+ *
+ * DEFECT: that test cannot tell a mask from AMOS's sentinel. `InPasteIcon`
+ * (+Lib.s:12740) is `tst.l 4(a2) / Rbne L_Paste / move.l #$C0000000,4(a2)`,
+ * so AMOS's own `Paste Icon` stamps $C0000000 into an empty mask field the
+ * first time it draws an icon. An `Ipaste Icon` after a `Paste Icon` on the
+ * same icon reads $C0000004 as mask data. Recorded and not reproduced: this
+ * port keeps a boolean where the machine keeps that pointer, and there is no
+ * $C0000000 to read.
+ */
+function iPasteIcon(rt: Runtime, st: IextState, it: Parameters<Instr>[0]): void {
+  const { rp, ox, oy } = curRp(rt, st)
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  it.expect(',')
+  const n = it.evalInt()
+  const img = rt.iconBank?.image(n) ?? null
+  if (!img) iError(E.IND)
+  setGrPos(rp, x, y)
+  const w = Math.min(img.width, img.rowBytes * 8)
+  const planes = Math.min(img.depth, rp.bitMap.depth)
+  if (planes <= 0) return
+  const bits = (1 << planes) - 1
+  for (let iy = 0; iy < img.height; iy++) {
+    for (let ix = 0; ix < w; ix++) {
+      const v = img.pixelAt(ix, iy)
+      // minterm $e0 through the icon's mask, which is colour 0
+      if (!img.opaque && v === 0) continue
+      const tx = ox + rp.cpX + ix
+      const ty = oy + rp.cpY + iy
+      if (!rp.inClip(tx, ty)) continue
+      rp.putPixel(tx, ty, (rp.point(tx, ty) & ~bits) | (v & bits))
+    }
+  }
+}
+
+/**
+ * The ceiling every coordinate of `Iget Icon` is measured against, and the
+ * comparison that makes the keyword unusable.
+ *
+ * DEFECT: `Iget Icon` cannot grab anything. Each of x1, y1, x2 and y2 goes
+ * through `cmp.l #$7fff,dN / bgt.b +4 / <Rble routine 140>` at $7cd6, $7cec,
+ * $7d02 and $7d18. AMOS's loader turns a marker into a real branch carrying
+ * the marker's own condition --- `+B.s`:2611 GRouB pokes the opcode word
+ * from `GRout + kind*8 + 4`, and kind 12's entry is `ble GRout` --- so what
+ * runs is `bgt.b over / ble.w L_IllFunc`, which branches to the error
+ * whenever the value is NOT greater than 32767. Every coordinate a program
+ * would write is under 32767, so every call answers error 13.
+ *
+ * The two-instruction shape is there because AMOS has no `Rbgt`: `+CEqu.s`
+ * defines markers for bra, bsr, eq, ne, cs, cc, lt, ge, ls, hi, le, pl and
+ * mi, and this library needs a far `bgt` in exactly these four places and
+ * nowhere else. Whether the inversion came in at the source or at `/extasm`
+ * cannot be settled from here, and it does not change what the binary does.
+ *
+ * DEFECT: past the gate, `$7d4e cmp.w d3,d5 / Rbcs routine 164` raises
+ * "Backward coordinates" when y1 is BELOW y2, and `$7d54` does the same for
+ * x1 and x2 --- the normal order both times, and the comparison the author
+ * wanted is the other way round. Reproduced beside the gate, since the
+ * arguments are all this needs.
+ *
+ * The last two are recorded and not written, because neither is reachable
+ * and neither is survivable. `$7d7e cmp.w (a0),d7` checks the icon number
+ * against the first word of the SCREEN structure, a0 having been reloaded
+ * with `wd_WScreen` for the bounds tests and never given the bank back. And
+ * the store at the end, `$7eae move.l a0,-$6(a2,d7.l)`, runs after `$7ea0
+ * suba.l a2,a2` cleared a2 for BltBitMap's tempA, so the icon pointer goes
+ * to absolute address `n * 8 - 6` --- the exception vectors.
+ */
+const IEXT_COORD_CEILING = 0x7fff
+
+/**
+ * `Iget Icon [screen[,window],]n,x1,y1 To x2,y2`, all three spellings.
+ *
+ * Routines 283, 284 and 285 each find a window and fall into 286, which is
+ * the whole of the work. 283 takes the current window, 284 the named
+ * screen's BASE window --- `move.l sc_UserData(a0),a0 / move.l
+ * se_BaseWin(a0),a5`, which is what the guide means by *"If you specify a
+ * screen number but omit the window number, the base window (window number
+ * 0) is used"* --- and 285 walks that screen's list with FindIwin2. Both of
+ * the longer ones PEEK at their extra arguments, `move.l 20(a3),d0` without
+ * a pop, and drop them afterwards, which is what lets one base routine take
+ * the last five off the stack in every case.
+ *
+ * Then the checks, in the order the binary runs them, and every one of them
+ * is reached before the gate that stops the keyword dead.
+ */
+function iGetIcon(rt: Runtime, st: IextState, it: Parameters<Instr>[0]): never {
+  const before: number[] = [it.evalInt()]
+  while (it.accept(',')) before.push(it.evalInt())
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  if (before.length < 3 || before.length > 5) iError(E.IFC)
+  const extra = before.length - 3
+  const win =
+    extra === 0
+      ? curIwin(st)
+      : extra === 1
+        ? (findIscr(st, before[0]!).windows.get(0) ?? iError(E.SNO))
+        : (findIscr(st, before[0]!).windows.get(before[1]!) ?? iError(E.WNO))
+  const [n, x1, y1] = [before[extra]!, before[extra + 1]!, before[extra + 2]!]
+
+  if (!rt.iconBank) iError(E.NIB)
+  if ((n >>> 0) > 0xffff) iError(E.IFC)
+  if ((n & 0xffff) === 0) iError(E.IFC)
+  // `movem.l (a3)+,d3-d7` leaves d6 = x1, d5 = y1, d4 = x2, d3 = y2, and the
+  // ceiling pairs run in that order
+  for (const v of [x1, y1, x2, y2]) {
+    if (!(v > IEXT_COORD_CEILING)) iError(E.IFC)
+    if (v < -0x8000) iError(E.IFC)
+  }
+  // everything below is word arithmetic on `wd_WScreen`
+  const scr = rt.screens.get(win.window.screenSlot)
+  const w16 = (v: number): number => v & 0xffff
+  const s16 = (v: number): number => (v << 16) >> 16
+  if (scr) {
+    if (s16(x1) >= scr.width) iError(E.IFC)
+    if (s16(y1) >= scr.height) iError(E.IFC)
+  }
+  if (s16(x2) < 0) iError(E.IFC)
+  if (s16(y2) < 0) iError(E.IFC)
+  if (w16(y1) < w16(y2)) iError(E.BWC)
+  if (w16(x1) < w16(x2)) iError(E.BWC)
+  iError(E.IND)
 }
 
 /**
@@ -2632,16 +2848,27 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * split into three nibbles by hand and handed to SetRGB4, which is what
      * makes it a 12-bit value however wide the screen is.
      */
-    'icolour': (it) => {
-      const st = s()
-      const scr = curIscr(st)
-      const n = it.evalInt()
-      it.expect(',')
-      const c = it.evalInt()
-      const pal = rt.screens.get(scr.slot)?.palette
-      if (!pal || (n >>> 0) >= colourMapCount(scr)) iError(E.IFC)
-      pal[n] = c & 0x0fff
-    },
+    /**
+     * `Set Icolour n,c` --- and the `Set` is typed, not a convention.
+     *
+     * `itokens.s`:281 spells the token `"set icolou",$80+'r',"I0,0"`, so the
+     * instruction and the `=Icolour(n)` beside it are two different words
+     * and not one name in two positions. This port had the handler under the
+     * bare name for a while, which made `Icolour 1,$f00` --- a function in
+     * statement position, and a syntax error on the machine --- work.
+     */
+    'set icolour': (it) => setIcolour(rt, s(), it),
+
+    /** `Iget Sprite Palette [mask]`, and the mask form loads it backwards */
+    'iget sprite palette': (it) => iGetBankPalette(rt, s(), it, false),
+    /** `Iget Icon Palette [mask]` --- routines 55 and 56, bank 2 */
+    'iget icon palette': (it) => iGetBankPalette(rt, s(), it, true),
+
+    /** `Ipaste Icon x,y,n` --- routine 204 */
+    'ipaste icon': (it) => iPasteIcon(rt, s(), it),
+
+    /** `Iget Icon [screen[,window],]n,x1,y1 To x2,y2` --- routines 283 to 286 */
+    'iget icon': (it) => iGetIcon(rt, s(), it),
 
     /**
      * `Ipalette` --- and it does nothing at all.

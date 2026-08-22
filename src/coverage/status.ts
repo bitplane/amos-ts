@@ -3886,6 +3886,18 @@ export const FAITHFUL = new Set<string>([
   'ilocate', 'ilocate gr', 'ixgr', 'iygr', 'igr writing', 'iink',
   'icls', 'iclw', 'iplot', 'idraw', 'idraw to', 'ibox', 'ibar',
   'iellipse', 'icircle', 'itext', 'icentre', 'icolour', 'ipoint',
+  // `Set Icolour n,c`, and the `Set` is typed rather than a convention:
+  // `itokens.s`:281 spells the token `"set icolou",$80+'r',"I0,0"`, so the
+  // instruction and the `=Icolour(n)` beside it at $0830 are two different
+  // words. `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` bounds the index by the
+  // ColorMap's own size, unsigned, so a negative one fails the same test.
+  'set icolour',
+  // The icon keywords and the two bank palettes, which reach across to
+  // AMOS's own banks -- 1 for objects, 2 for icons -- for their data.
+  // `Ipaste Icon` builds a BitMap from the icon header on the fly and steps
+  // over the hot spot without reading it, so an icon pastes by its top-left
+  // corner however the hot spot is set.
+  'ipaste icon', 'iget sprite palette', 'iget icon palette', 'iget icon',
   // and the two that read the chipset, which `src2/startup.s` computes from
   // `gb_ChipRevBits0` rather than from the lib_Version the keyword's own
   // comment still claims. IsAGA wants all FOUR chip bits, the two ECS ones
@@ -4471,6 +4483,44 @@ export const NOTES: Record<string, string> = {
     "has moved converts as though it still sat at the display\'s top-left corner. All four are .w arithmetic " +
     "in a register the argument arrived in as a longword and d3 goes back whole, so =X Ihard(-2) on a hires " +
     "screen is -32769 and =X Ihard(65536) is 65536.",
+  "iget icon palette":
+    "Routines 55 ($2b8e) for the masked form and 56 ($2c32) for the plain one, with 53 and 54 the same pair for " +
+    "sprites -- the only difference is `moveq #$2,d0` against `moveq #$1,d0` for GetBankAdr and `btst #$3,d0` " +
+    "against `btst #$2,d0` after it, error 21 or 24. The palette sits at `bank + 2 + count * 8`: `move.w " +
+    "(a0)+,d0 / lsl.l #$3,d0 / adda.l d0,a0` steps the count and its pointer pairs. The plain form is one " +
+    "LoadRGB4 of 32. DEFECT: the masked form loads them BACKWARDS. `moveq #$1f,d5` counts down while `move.w " +
+    "(a5)+,d1` reads up, and d5 is both the mask bit and the SetRGB4CM index, so bank entry 0 lands on colour " +
+    "31 -- the two forms of one keyword disagree about every colour but the middle pair. DEFECT: `btst d5,d4 / " +
+    "bne .next` SKIPS a colour whose bit is set, where the guide says \"if you just wanted to get colours 1, " +
+    "2, 6, and 8, and leave the other colours alone, you could use: Iget Icon Palette %101000110\" and AMOS\'s " +
+    "own Get Icon Palette agrees with the guide. Both reproduced: the bank palette and the screen\'s are real " +
+    "here and neither defect needs anything invented.",
+  "ipaste icon":
+    "Routine 204 ($523e). A `struct BitMap` built inline from the icon header -- `move.w (a5)+,d0 / add.w " +
+    "d0,d0` for bm_BytesPerRow, then bm_Rows, then `move.b d2,$5(a0)` for the depth, a BYTE write where " +
+    "Iscreen Amos Copy\'s is a word -- and `addq.l #$4,a5` steps over the hot spot without reading it, so an " +
+    "icon pastes by its top-left corner and the blit is `bm_BytesPerRow * 8` wide rather than the stored " +
+    "width. `Rbsr routine 184` is Ilocate Gr, which is the guide\'s \"The graphics pointer is left at the top " +
+    "left corner of the icon image\"; it runs after FindIcon, so a missing icon is error 20 and leaves the " +
+    "cursor alone. DEFECT: `move.l a2,d7 / bne` cannot tell a mask from a sentinel. AMOS\'s InPasteIcon " +
+    "(+Lib.s:12740) is `tst.l 4(a2) / Rbne L_Paste / move.l #$C0000000,4(a2)`, so its own Paste Icon stamps " +
+    "$C0000000 into an empty mask field the first time it draws an icon, and an Ipaste Icon after that reads " +
+    "$C0000004 as mask data. Recorded: this port keeps a boolean where the machine keeps that pointer.",
+  "iget icon":
+    "Routines 283 ($7ba4), 284 and 285 for the three forms, all falling into 286 ($7c92). DEFECT: it cannot " +
+    "grab anything. Each of x1, y1, x2 and y2 goes through `cmp.l #$7fff,dN / bgt.b +4 / <Rble routine 140>` " +
+    "at $7cd6, $7cec, $7d02 and $7d18, and AMOS\'s loader puts the marker\'s OWN condition into the branch -- " +
+    "`+B.s`:2611 GRouB pokes the opcode word from `GRout + kind*8 + 4` and kind 12\'s entry is `ble GRout` -- " +
+    "so what runs is `bgt.b over / ble.w L_IllFunc` and every coordinate not above 32767 answers error 13. " +
+    "The guide\'s own example, `Iget Icon 1,0,0 To 15,11`, is one of them. The two-instruction shape is there " +
+    "because +CEqu.s has no Rbgt marker, and this library needs a far bgt in these four places and nowhere " +
+    "else; whether the inversion came in at the source or at /extasm cannot be settled from here and does not " +
+    "change what the binary does. DEFECT: past the gate, `$7d4e cmp.w d3,d5 / Rbcs routine 164` raises " +
+    "\"Backward coordinates\" when y1 is BELOW y2 and $7d54 does the same for x1 and x2 -- the normal order " +
+    "both times. Both reproduced. The last two are recorded: `$7d7e cmp.w (a0),d7` checks the icon number " +
+    "against the first word of the SCREEN structure, a0 having been reloaded with wd_WScreen for the bounds " +
+    "tests and never given the bank back, and `$7eae move.l a0,-$6(a2,d7.l)` runs after `$7ea0 suba.l a2,a2` " +
+    "cleared a2 for BltBitMap\'s tempA, so the icon pointer goes to absolute address `n * 8 - 6`.",
   "igadget read":
     "Routine 265 ($747e), one function over four gadget types: si_LongInt for an integer gadget, GFLG_SELECTED " +
     "for a toggle, a decrementing ge_HitCount for a hit-select, and `(NUnits - KnobSize) * Pot / MAXPOT` for a " +
@@ -4514,9 +4564,9 @@ export const NOTES: Record<string, string> = {
     "#8,d4 / subq.w #4,d3` -- and L_gStringBorder draws at negative offsets to land back on the rectangle the " +
     "caller asked for. si_MaxChars counts the NUL, so the field holds one character fewer than the size given, " +
     "and an over-long initial string is cut one shorter still: `cmp.w d2,d1 / bcs .okilen / move.w d2,d1 / " +
-    "subq.w #1,d1`. NOTE: the shipped gadgets.s cannot be the file that built Intuition.lib. Its out-of-memory " +
-    "arm reads `mvoe.l si_Buffer(a2),a0`, twice, once here and once in Set Igadget Int, and no assembler takes " +
-    "that. The binary is what these readings are checked against.",
+    "subq.w #1,d1`. NOTE: `mvoe.l si_Buffer(a2),a0` in the out-of-memory arm is not a typo -- macros.i:3 " +
+    "defines mvoe and mvoeq over move and moveq, with the author's own reason above them, and the tree uses " +
+    "them nine times. These readings are checked against the binary all the same.",
   "irequest screen":
     "Routine 217 ($5ae2), with 218 ($5c06) for the form that takes no title. The third arm of reqtools' one " +
     "FileRequestA: `rtScreenModeRequestA` is four lines that call it with a null filename, the same as " +
