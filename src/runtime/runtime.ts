@@ -48,6 +48,7 @@ import type { PowerBobsState } from './powerbobs'
 import type { TomeState } from './tome'
 import { type IoPortsState } from './ioports'
 import { type CtextState } from './ctext'
+import { type DsamState } from './dsam'
 import { type JdState } from './jd'
 import { type SticksState } from './sticks'
 import { gamesupportVbl, type GameSupportState } from './gamesupport'
@@ -1035,6 +1036,12 @@ export class Runtime {
     return this.extBlockBase('ctext', this.ctext.block)
   }
 
+  /** D-Sam's data zone base — `=Smp Base` returns this, and nothing else does */
+  dsamBase(): number {
+    if (this.dsam.base === 0) this.dsam.base = this.extBlockBase('dsam', this.dsam.zone)
+    return this.dsam.base
+  }
+
   /**
    * An extension's loaded CODE, as an address — what `=Extbase(n)` answers.
    *
@@ -1261,6 +1268,22 @@ export class Runtime {
   static readonly TOOLS_TEXT_RESERVED = 0x04000000
 
   /**
+   * D-Sam 1.01's sample records and their sample data.
+   *
+   * A record is sixty-four bytes of `AllocMem` chained to the next one, and
+   * its buffers are separate blocks that `=Smp Data`, `=Smp Left Data` and
+   * `=Smp Right Data` hand a program the addresses of. So the records and the
+   * megabytes of sample they point at have to be in one ordered space, which
+   * is what SLN, Make and Explode each wanted a pool for.
+   *
+   * 0x34000000 because 0x38000000 is Explode's heap and nothing below it is
+   * claimed; see `DSAM_HEAP_BASE` in dsam.ts, which memmap.test.ts holds this
+   * to agreeing with.
+   */
+  static readonly DSAM_HEAP_BASE = 0x34000000
+  static readonly DSAM_HEAP_RESERVED = 0x04000000
+
+  /**
    * Explode 2.01's `Rs Structure` pool, and the strings `Rs Aptr` puts
    * pointers to.
    *
@@ -1360,6 +1383,8 @@ export class Runtime {
   sln!: SlnState
   /** Make 1.30's forty-byte data zone, its two MinLists and its pool — slot 17 */
   make!: MakeState
+  /** D-Sam 1.01's data zone, its sample list and the pool it lives in — slot 15 */
+  dsam!: DsamState
   /** Tools 1.01's memory position, its two bank numbers and its text pool — slot 23 */
   tools!: ToolsState
   /** Opal 1.1's OpalVision card, its screens and the pool they live in — slot 21 */
@@ -1895,6 +1920,9 @@ export class Runtime {
     readOnlyRegister('JOY0DAT', JOY0DAT, 2, () => this.machine.joyDat(0)),
     readOnlyRegister('JOY1DAT', JOY1DAT, 2, () => this.machine.joyDat(1)),
     readOnlyRegister('POTGOR', POTGOR, 2, () => this.machine.potgor()),
+    bufferRegion('D-Sam samples', Runtime.DSAM_HEAP_BASE, Runtime.DSAM_HEAP_RESERVED, () =>
+      this.dsam ? this.dsam.pool.buffer : null,
+    ),
     bufferRegion('Explode heap', Runtime.EXPLODE_HEAP_BASE, Runtime.EXPLODE_HEAP_RESERVED, () =>
       this.explode ? this.explode.pool.buffer : null,
     ),
@@ -3922,13 +3950,18 @@ export class Runtime {
       // image knows its own geometry, and it truncates
       for (const img of bank.images) n += img.rowBytes * img.height * img.depth
     }
+    // D-Sam's samples are the one extension pool big enough to matter: a
+    // loaded sample is chip only when the extension asks for chip, and what
+    // decides that asks AvailMem whether the next one fits. See dsam.ts.
+    if (this.dsam) n += this.dsam.pool.usage().chip
     return n
   }
 
-  /** Fast bytes held by banks (anything not asked for as chip). */
+  /** Fast bytes held by banks (anything not asked for as chip), and by D-Sam. */
   fastUsed(): number {
     let n = 0
     for (const b of this.memBanks.values()) if (b.memType !== 1) n += b.data.length
+    if (this.dsam) n += this.dsam.pool.usage().fast
     return n
   }
 

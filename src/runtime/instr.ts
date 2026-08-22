@@ -54,6 +54,7 @@ import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
 import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
+import { DSAM_ERRORS, makeDsamFunctions, makeDsamInstructions, newDsamState } from './dsam'
 import { newSticksState, makeSticksFunctions, makeSticksInstructions } from './sticks'
 import {
   GAMESUPPORT_ERRORS,
@@ -6476,6 +6477,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // Explode 2.01 spells `Font Base` too, and takes two arguments to this
     // one's none.
     qualified: ['font base'],
+  },
+  {
+    // D-Sam 1.01 at slot 15 --- `lea $66a(pc),a2 / move.l a2,$1d8(a5)` in
+    // routine 0, and ($1d8-$f8)/16 is 14, the slot zero-based. Fifty keywords
+    // that play a sample off disk rather than out of memory; see dsam.ts.
+    ids: ['d-sam-1.01'],
+    init: (rt) => {
+      rt.dsam = newDsamState()
+    },
+    instructions: makeDsamInstructions,
+    functions: makeDsamFunctions,
+    errors: DSAM_ERRORS,
   },
   {
     ids: ['sticks-1.01b'],

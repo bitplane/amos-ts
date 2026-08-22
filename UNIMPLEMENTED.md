@@ -78,7 +78,7 @@ display database to fill itself from.
 | extension | missing | evidence held |
 |---|---|---|
 | DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 85%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
-| D-SAM 1.01 (`d-sam-1.01`) | 50 | disassembly. `audio.device` and `dos.library` are both modelled |
+| D-SAM 1.01 (`d-sam-1.01`) | 18 | UNDER WAY, at 64%. Mark Everingham's disk sample player. The 8SVX reader, the Fibonacci decoder, the memory ceilings and every one of the seventeen reader functions are in; what is left is the channel half --- assign, cue, start, play, range, speed, volume, repeat, sequence and fade --- which needs the reader process, the two signals and the four INTB_AUD vectors re-expressed as a per-frame state machine |
 
 All three of DME's remaining blocks are blocked on something other than the
 work, which is why none of them is simply next:

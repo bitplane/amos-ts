@@ -1408,6 +1408,21 @@ export const FAITHFUL = new Set<string>([
   'ctext', 'font size', 'plen', 'font base',
   'font data', 'kern$',
 
+  // --- D-Sam 1.01 (Mark Everingham / AZ Software), read out of D-Sam.Lib:
+  // 16,848 bytes in 99 routines, and a 1,053-byte .doc that names two of the
+  // fifty keywords. What settles the rest is the error table at $3dda, thirty
+  // strings that name the constraints the code enforces, and the author's own
+  // D-Sam-Example.AMOS, which exercises seventeen of these and fixes the
+  // argument order. See src/runtime/dsam.ts.
+  'smp mode minchip', 'smp mode minproc', 'smp memory', 'smp disk buffer',
+  'smp dma buffer', 'smp priority', 'smp load', 'smp open',
+  'smp close', 'smp decompress on', 'smp decompress off', 'smp oversample on',
+  'smp oversample off', 'smp reset', 'smp version', 'smp base',
+  'smp name', 'smp size', 'smp length', 'smp loops',
+  'smp loop start', 'smp loop end', 'smp data', 'smp left data',
+  'smp right data', 'smp stereo', 'smp info', 'smp sequence',
+  'smp fade', 'smp disk error', 'smp speed', 'smp volume',
+
   // --- Sticks 1.01b (Nigel Critten): its own AutoDoc manual plus every
   // routine in the 3,856-byte hunk. Raw custom-chip and CIA reads throughout,
   // so what is faithful is the state, validation and encodings; what is
@@ -4390,6 +4405,89 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "smp load":
+    "Routine 6 ($1a2e) over the parser at routine 71 ($2da0): the file is opened, its chunks walked, the " +
+    "buffers allocated by routine 64 ($2b3a) and the BODY read by routine 72 ($329a). `Smp Open` is the same " +
+    "parse with `move.w #$100,d1`, and that one bit is the only difference between them. DEFECT in routine 71's " +
+    "walk: NOTHING PADS. IFF rounds an odd chunk up to an even boundary and $2e9a seeks the length exactly, " +
+    "$3002 reads NAME's length exactly, so a single odd-length chunk --- a five-character NAME will do it --- " +
+    "puts every id after it a byte late and the load ends on error 5. DEFECT in routine 73 ($33ac), the record " +
+    "allocator: the number, the link and the list head are written through **a1** (`3342 0000`, `236a 0000 " +
+    "003c`, `2549 0000`) and not the a0 that `movea.l d0,a0` has just loaded. Routine 62 never sets a1, so the " +
+    "library depends on what exec's AllocMem happens to leave in it; this port links through the pointer the " +
+    "code meant, because reproducing the register would leave no sample list at all.",
+  "smp open":
+    "Routine 7 ($1a8a). The record keeps the DOS handle at +$24 instead of a buffer, and a STEREO sample opens " +
+    "the file a second time at +$32 so the two channels can seek independently. DEVIATION: this port holds the " +
+    "file's bytes, because `AmosFS.read` is whole-file --- which is exactly the memory D-Sam exists to save. " +
+    "Nothing a program can ask distinguishes them: `=Smp Data` is error 17 on an opened sample either way, " +
+    "since the library has no buffer to point at either.",
+  "smp memory":
+    "Routine 3 ($1952) --- `Smp Memory CHIP,FAST`. Two ceilings, not two reservations: routine 62 ($2a6e) " +
+    "decrements a remainder on every allocation and routine 63 puts it back, and \"Out of sample memory\" means " +
+    "the extension has spent its allowance rather than that the machine is full. A ceiling below what is " +
+    "already spent (`$4(a2) - $c(a2)`) is refused with the same error. DEFECT in routine 62: `d1 = 6`, which " +
+    "routines 64 and 65 both pass, loops forever when the size is over the chip ceiling --- $2aca falls to " +
+    "$2ac6, which restores d1 from d3 and drops straight back into $2aca unchanged. Both callers test the " +
+    "ceiling before asking, so nothing reaches it.",
+  "smp dma buffer":
+    "Routine 5 ($19d4). Rounded down to a multiple of eight, refused outside $100..$fff8, and then it drags " +
+    "the DISK buffer with it: routine 69 divides one by the other and $1a1c multiplies back, so the disk " +
+    "buffer becomes a whole number of DMA buffers, at least two. A disk buffer that already divides exactly is " +
+    "left alone ($1a26). `Smp Disk Buffer` (routine 4) is the same dependency the other way, setting the DMA " +
+    "buffer to half the disk buffer capped at $fff8.",
+  "smp priority":
+    "Routine 38 ($2558) --- `SetTaskPri` on the reader process `CreateProc` made at $3d78, range -20..20 and " +
+    "error 27 outside it. DEVIATION: there is no second task in this port (see src/amiga/README.md), so the " +
+    "range check is the whole keyword. Nothing can read the value back, so nothing is kept.",
+  "smp version":
+    "Routine 40 ($259a), two instructions: `moveq #$0,d0 / Rbra routine 97`. Entry 0 of the error table at " +
+    "$3dda is not an error but the identity banner, \"D-Sam V1.01 rev 35 (C) 1992 AZ Software & Mark " +
+    "Everingham\", so the keyword announces the library by STOPPING the program with its name. An error table " +
+    "is the only way an extension prints anything of its own.",
+  "smp loop end":
+    "Routine 49 ($2728), and routine 48 for the start: `=Smp Loop Start(SAMPLE,LOOP)` with the loop 1-based, " +
+    "which the author's own example fixes (`Smp Loop Start(1,I)`). DEFECT in the SEQN walk at $30cc, which is " +
+    "where the pairs are aligned: the start gets `bclr #$0` and the end gets `bclr #$1`. So a start of 7 " +
+    "becomes 6, which is the alignment intended, while an end of 7 becomes 5 and an end of 6 becomes 4 --- and " +
+    "an end of 5 is left alone. `=Smp Length` totals the loops AFTER that, so a table of odd ends reports a " +
+    "length the sample does not have. NOTE the bound is `bhi`, above rather than at or above, so the loop one " +
+    "past the end reads the eight bytes after the table instead of raising error 23.",
+  "smp data":
+    "Routine 50 ($2784). Error 15 for a stereo sample, which has two buffers and one address to answer with, " +
+    "and error 17 for one opened from disk, which has no buffer at all. `=Smp Left Data` and `=Smp Right Data` " +
+    "(routines 51 and 52) are the mirror: error 16 on a MONO sample. The addresses are real here --- the " +
+    "records and their buffers live in a pool at `Runtime.DSAM_HEAP_BASE`, because a program Peeks through " +
+    "what these hand back.",
+  "smp info":
+    "Routine 54 ($28a0). Five flag bits into five result bits through a table of five words at `$53a(a2)`: 11, " +
+    "9, 6, 14, 8. `d1` counts DOWN from 4, so the first word lands in the highest bit and the answer reads 1 " +
+    "plays from disk, 2 stereo, 4 compressed, 8 has a sequence, 16 has a fade. `Bin$(Smp Info(1),8)` is how the " +
+    "author's example prints it. The compressed bit comes back DOWN once a load decodes the body ($33a4), so " +
+    "it describes the buffer rather than the file.",
+  "smp disk error":
+    "Routine 59 ($29b6), four instructions --- and the third CLEARS `$440(a2)`. The disk error is a latch a " +
+    "program reads once; asking twice answers zero the second time.",
+  "smp base":
+    "Routine 43 ($25fe), three instructions handing back `$1d8(a5)`, the data zone `lea $66a(pc),a2` set up in " +
+    "routine 0. Mapped here rather than kept as fields, for the same reason CText's is: it is an address a " +
+    "program can Peek. The zone is code and data together on the machine --- `$554(a2)` and `$58e(a2)` are the " +
+    "two interrupt handlers routine 92 installs --- and those parts read as zero here.",
+  "smp name":
+    "Routine 44 ($2606): the pointer at +$2 less two, which is an AMOS string. Routine 67 ($2cfc) builds the " +
+    "block as `length + 7` bytes --- a long holding that total, the word length, the characters and a NUL --- " +
+    "and hands back the address of the CHARACTERS, so the same block serves the C string DOS wants and the " +
+    "AMOS string this returns. A sample with no NAME chunk is named after its FILE ($3160).",
+  "smp length":
+    "Routine 46 ($2660) reads +$c and routine 45 ($2634) reads +$10, and they are different numbers whenever " +
+    "the file has a SEQN: $30e4 puts the sum of the loops in +$c while +$10 stays the BODY's own length. " +
+    "Without a SEQN $31b6 writes the same figure to both. A compressed BODY that will be decoded reports the " +
+    "DECODED length, since $31d4 doubles it; with `Smp Decompress Off` it reports the packed bytes.",
+  "smp loops":
+    "Routine 47 ($268c) --- the SEQN table size over eight. A sample with no SEQN is error 13, \"Sample has no " +
+    "Audiomaster sequence\", and SEQN and FADE are AudioMaster's chunks rather than IFF's, which is why the " +
+    "errors name that program. A compressed sample gets its SEQN read only when the bytes will be decoded " +
+    "into memory ($308c): not when it plays off disk, and not with `Smp Decompress Off`.",
   "ierr\$":
     "`L_IerrStr` hands back `LastErrorStr` and TURNS TRAPPING OFF on the way: `dclr.b TrapErrors` sits between " +
     "the empty test and the return, so asking what went wrong stops the next thing going wrong being caught. " +

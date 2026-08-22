@@ -450,6 +450,25 @@ export class MemPool {
   }
 
   /**
+   * Live bytes, split by the pool each block was asked from.
+   *
+   * Here rather than in the caller because `chipBlocks` and `live` are both
+   * private and a caller that tracked its own totals would have two places for
+   * them to disagree. D-Sam is the first to need it: its samples are real
+   * megabytes of chip, and routine 64 asks `AvailMem` whether the next one
+   * fits, so the machine's free figure has to fall as the pool fills.
+   */
+  usage(): { chip: number; fast: number } {
+    let chip = 0
+    let fast = 0
+    for (const [off, len] of this.live) {
+      if (this.chipBlocks.has(off)) chip += len
+      else fast += len
+    }
+    return { chip, fast }
+  }
+
+  /**
    * Hand back the FRONT of a block and keep the rest.
    *
    * AmigaOS allows it — a block is not an object, it is a range on the memory

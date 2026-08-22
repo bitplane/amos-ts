@@ -432,6 +432,7 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/ldos.test.ts': ['ldos-2.6', 'ldos-2.5'],
   'src/runtime/ldoslz.ts': ['ldos-2.6', 'ldos-2.5'],
   'src/runtime/ctext.ts': ['ctext-1.0'],
+  'src/runtime/dsam.ts': ['d-sam-1.01'],
   'src/runtime/ctext.test.ts': ['ctext-1.0'],
   'src/runtime/turbo.ts': ['turbo-plus-2.15', 'turbo-plus-1.9', 'turbo-plus-1.0'],
   'src/runtime/turbo.test.ts': ['turbo-plus-2.15', 'turbo-plus-1.9', 'turbo-plus-1.0'],
