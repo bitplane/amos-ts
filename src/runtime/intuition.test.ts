@@ -368,7 +368,9 @@ Until Iwindow Status and 2
 Print Iwindow Status`)
     b.rt.runHeadless(1)
     const w = b.rt.iext.screens.get(0)!.windows.get(1)!
-    expect(w.flags).toBe(0)
+    // WEF_UNSET is what a window opens with -- `src2/windows.s`:373 -- and
+    // `and.l #WEF_CLOSED|WEF_MENUACTIVE` is why it never leaves the keyword
+    expect(w.flags).toBe(1)
     expect(w.window.post(0x200 /* IDCMP_CLOSEWINDOW */, 0)).toBe(true)
     mustFinish(b.rt.runHeadless(2_000))
     // 2 is WEF_CLOSED, and it stays set once caught
@@ -1850,5 +1852,124 @@ describe('Intuition 1.3b: icons and bank palettes', () => {
     expect(() => mustFinish(noScr.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
     const noWin = boot(`${ICON}Iscreen Open 0,320,200,16,0\nIget Icon 0,7,1,0,0 To 15,11`)
     expect(() => mustFinish(noWin.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WNO])
+  })
+})
+
+/**
+ * `Iwrite` and the three title keywords, which are `text.s`, the end of
+ * `windows.s` and the last thing 1.3b added to `screens.s`.
+ *
+ * Two of the three titles are unreachable as documented: the token table
+ * gives each spelling of `Set Iscreen Title` the other's routine.
+ */
+describe('Intuition 1.3b: writing and titles', () => {
+  const S = 'Iscreen Open 0,320,200,16,0\n'
+
+  /**
+   * `btst #WEB_UNSET,d0 / beq .set` homes the cursor to `rp_TxBaseline` the
+   * first time, and the line feed is `SetCoordsRel(0, rp_TxHeight)` after,
+   * so topaz 8 walks 6, 14, 22 down the screen's own backdrop window.
+   */
+  it('Iwrite writes a line and steps to the next', () => {
+    expect(vals(`${S}Iwrite "a"\nPrint Ixgr;" ";Iygr\nIwrite "b"\nPrint Ixgr;" ";Iygr`)).toEqual([0, 14, 0, 22])
+  })
+
+  /**
+   * Routine 182 is `dlea NullStr,a0 / move.l a0,-(a3) / bsr L_Iwrite` and
+   * nothing else, which is the guide's "Without the argument, it just goes
+   * to the next line, like Print without any parameters."
+   */
+  it('Iwrite with no argument is Iwrite of the empty string', () => {
+    expect(vals(`${S}Iwrite\nPrint Iygr`)).toEqual([14])
+  })
+
+  /** the homing only happens while WEF_UNSET is up, and SetCoords clears it */
+  it('a cursor already placed is written at, not homed', () => {
+    expect(vals(`${S}Ilocate Gr 0,100\nIwrite "a"\nPrint Iygr`)).toEqual([108])
+  })
+
+  /**
+   * `cmp.w d0,d1 / bcs .noscrl` --- on the last row it is ScrollRaster over
+   * the window interior instead, `(0, rp_TxHeight)` with the border rectangle
+   * as its bounds, and the cursor stays where it was.
+   */
+  it('the last row scrolls the window interior instead of stepping', () => {
+    expect(
+      vals(`${S}Iink 5 : Iplot 10,100\nIlocate Gr 0,198\nIwrite ""\nPrint Ipoint(10,92);" ";Ipoint(10,100);" ";Iygr`),
+    ).toEqual([5, 0, 198])
+  })
+
+  /**
+   * DEFECT: the homing measures from the RastPort's origin and the row
+   * measures from inside the border, and on a window that HAS a border the
+   * two disagree. `rp_TxBaseline` is 6, `wd_BorderTop` is 11, `sub.w` leaves
+   * $fffb and `divu.w` reads it as 65531 -- 8191 rows -- so the comparison
+   * always scrolls and the cursor never moves. Every Iwrite into an Iwindow
+   * Open window redraws the same line at y 6, inside the title bar.
+   */
+  it('DEFECT: Iwrite into a bordered window never leaves the first line', () => {
+    expect(
+      vals(`${S}Iwindow Open 1,0,0,200,100,"W"\nIwrite "a"\nPrint Iygr\nIwrite "b"\nPrint Iygr`),
+    ).toEqual([6, 6])
+  })
+
+  /**
+   * SetWindowTitles, whose -1 means "leave this one alone" and whose 0 means
+   * "clear it". `moveq #-1,d5` is what an omitted argument becomes and an
+   * empty string is what becomes zero.
+   */
+  it('Set Iwindow Title sets, keeps and clears', () => {
+    const W = `${S}Iwindow Open 1,0,0,200,100,"W"\n`
+    const win = (rt: Runtime) => rt.iext.screens.get(0)!.windows.get(1)!
+    let rt = run(`${W}Set Iwindow Title 1,"New","Scr"`)
+    expect([win(rt).title, win(rt).window.title, win(rt).screenTitle]).toEqual(['New', 'New', 'Scr'])
+    rt = run(`${W}Set Iwindow Title 1,"New","Scr"\nSet Iwindow Title 1,,`)
+    expect([win(rt).window.title, win(rt).screenTitle]).toEqual(['New', 'Scr'])
+    rt = run(`${W}Set Iwindow Title 1,"New","Scr"\nSet Iwindow Title 1,"",""`)
+    expect([win(rt).window.title, win(rt).screenTitle]).toEqual(['', ''])
+  })
+
+  /** `dmove.l CurIwindow,d3 / beq L_NoWin` --- the variable, not GetCurIwin */
+  it('an omitted window number needs a current window', () => {
+    const b = boot(`${S}Set Iwindow Title ,"x",`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WNO])
+  })
+
+  /**
+   * DEFECT: `itokens.s`:709 hands the one-string spelling to L_SetIscrTitle,
+   * which opens `move.l (a3)+,d0 / jtcall FindIscr` -- so the string's
+   * ADDRESS goes in where a screen number belongs, no screen is numbered
+   * that, and the documented spelling is error 16. The `=Iscreen Title
+   * Height` pair three lines below in the same file is the right way round.
+   */
+  it('DEFECT: Set Iscreen Title s$ is error 16', () => {
+    const b = boot(`${S}Set Iscreen Title "Hi"`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
+  })
+
+  /**
+   * DEFECT: and the spelling that DOES reach routine 47 could not have
+   * worked either. `moveq #$1,d0` at $290a has no branch after it, so the
+   * arm that stored the new title falls into `.none` and clears
+   * sc_DefaultTitle again. Whatever it is called with, the current screen
+   * ends with no title -- and the screen the number names is never looked
+   * at, the number having been read as a string pointer.
+   */
+  it('DEFECT: Set Iscreen Title s$,n clears the CURRENT screen instead', () => {
+    const rt = run('Iscreen Open 0,320,200,16,0,"First"\nIscreen Open 5,320,200,16,0,"Second"\nSet Iscreen Title "Hi",0')
+    expect(rt.iext.screens.get(5)!.title).toBe('')
+    expect(rt.iext.screens.get(0)!.title).toBe('First')
+  })
+
+  /**
+   * `moveq #0,d3 / move.b sc_BarHeight(a0),d3`, and this pair IS spelled the
+   * right way round. Ten for topaz 8: AROS `openscreen.c`:2135 is
+   * `tf_YSize + WBorTop - 2 + BarVBorder * 2`, one less than the eleven-row
+   * bar ../amiga/intuition.ts draws.
+   */
+  it('Iscreen Title Height is the bar height, with or without a title', () => {
+    expect(vals(`${S}Print Iscreen Title Height;" ";Iscreen Title Height(0)`)).toEqual([10, 10])
+    const b = boot(`${S}Print Iscreen Title Height(9)`)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.SNO])
   })
 })

@@ -100,7 +100,7 @@ import {
   type Border,
   type UserGadget,
 } from '../amiga/intuition'
-import { CUSTOMSCREEN, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, TITLE_HEIGHT, IDCMP_CLOSEWINDOW, IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_RAWKEY, WB_DISPLAY_Y, WB_SLOT, WBENCHSCREEN, WFLG_BACKDROP, WFLG_BORDERLESS, WFLG_RMBTRAP, type Window } from '../amiga/intuition'
 
 /**
  * What `=Aga` and `=Ecs` answer on the machine this port models.
@@ -405,6 +405,13 @@ export interface IextWindow {
   /** `we_HilitePen` and `we_ShadowPen`, both 1 until `Set Ipens` moves them */
   hilitePen: number
   shadowPen: number
+  /**
+   * `SetWindowTitles`' third argument: what the SCREEN's bar reads while
+   * this window is active. Kept and not drawn --- ../amiga/intuition.ts
+   * gives an Iscreen no title bar to put it in, and `Iscreen Title Height`
+   * answers the height of one that is never rendered.
+   */
+  screenTitle: string
 }
 
 /**
@@ -862,7 +869,11 @@ function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void
     number: num,
     screen: onWb ? null : st.current,
     window,
-    flags: 0,
+    // `src2/windows.s`:373 --- `move.l #WEF_UNSET,we_Flags(a5)`, "Window CP
+    // not yet (officially) set". SetCoords clears it and SetCoordsRel
+    // refuses to move while it is up; `Iwrite` is what a program sees it
+    // through.
+    flags: WEF.UNSET,
     title,
     menus: [],
     gadgets: [],
@@ -871,6 +882,7 @@ function openIwindow(rt: Runtime, it: Parameters<Instr>[0], onWb: boolean): void
     // drawn in pen 0 on both sides and is invisible
     hilitePen: 0,
     shadowPen: 0,
+    screenTitle: '',
   })
   st.currentWindow = num
   st.currentIsWB = onWb
@@ -930,6 +942,119 @@ function rectTo(it: Parameters<Instr>[0]): [number, number, number, number] {
 /** an argument that may be left out, which AMOS compiles to EntNul */
 function omittable(it: Parameters<Instr>[0]): number | null {
   return it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+}
+
+/** the same test for a string slot: `cmp.l #Null,d2` over a string pointer */
+function omittableStr(it: Parameters<Instr>[0]): string | null {
+  return it.atStmtEnd() || it.nm() === ',' ? null : str(it.evalExpr())
+}
+
+/**
+ * `dmove.l CurIwindow,d3 / beq L_NoWin` --- the current window, raw.
+ *
+ * Not the same question `GetCurIwin` asks: that one falls back to the
+ * screen's base window, and this reads the variable and answers error 6 when
+ * it is zero. `Iscreen Open` leaves it zero and `Set Iscreen` clears it, so
+ * `Set Iwindow Title ,,"x"` on a screen nothing has selected a window on is
+ * error 6 rather than a title on the backdrop.
+ */
+function curIwinRaw(st: IextState): IextWindow {
+  if (st.currentWindow === -1) iError(E.WNO)
+  return st.currentIsWB ? findWbIwin(st, st.currentWindow) : findIwin(st, st.currentWindow)
+}
+
+/**
+ * `sc_BarHeight` --- what `=Iscreen Title Height` reads off the Screen.
+ *
+ * Intuition computes it at OpenScreen from the screen's font and its border:
+ * AROS `rom/intuition/openscreen.c`:2135 is `dri_Font->tf_YSize +
+ * WBorTop - 2 + BarVBorder * 2`, which for topaz 8 with WBorTop 2 and
+ * BarVBorder 1 is 10, and the comment beside it --- "real layer will be 1
+ * pixel higher!" --- is why ../amiga/intuition.ts's TITLE_HEIGHT is 11. So
+ * the two are one number and this keeps them tied.
+ *
+ * It does not depend on whether a title is showing. ShowTitle moves the bar
+ * in and out of the view and never touches the field.
+ */
+const IEXT_BAR_HEIGHT = TITLE_HEIGHT - 1
+
+/**
+ * `ScrollRaster(rp, 0, dy, xMin, yMin, xMax, yMax)` --- the one call
+ * `Iwrite` makes, which is the only one in this extension.
+ *
+ * `graphics_lib.fd` puts it at -396 and orders it `(a1,d0/d1,d2/d3/d4/d5)`.
+ * A positive dy moves the raster UP by dy and leaves the bottom dy rows in
+ * the background pen, which is what makes the last line of a window scroll
+ * rather than write off the bottom.
+ */
+function scrollRasterUp(rp: RastPort, dy: number, x1: number, y1: number, x2: number, y2: number): void {
+  if (dy <= 0) return
+  for (let y = y1; y <= y2 - dy; y++) {
+    for (let x = x1; x <= x2; x++) rp.putPixel(x, y, rp.point(x, y + dy))
+  }
+  for (let y = Math.max(y1, y2 - dy + 1); y <= y2; y++) {
+    for (let x = x1; x <= x2; x++) rp.putPixel(x, y, rp.bgPen)
+  }
+}
+
+/**
+ * `Iwrite [s$]` --- a string and then the next line, and the guide is right
+ * that it is Print with one argument: *"Without the argument, it just goes
+ * to the next line, like Print without any parameters."* Routine 182 is four
+ * instructions --- `dlea NullStr,a0 / move.l a0,-(a3) / bsr L_Iwrite` ---
+ * over routine 181, so the bare form IS the string form given "".
+ *
+ * `jtcall GetWinFlags / btst #WEB_UNSET,d0` is the first-write home:
+ * `SetCoords(0, rp_TxBaseline)` on a window whose cursor has never been
+ * placed, so the first `Iwrite` starts at the top-left of the window
+ * whatever the RastPort was carrying.
+ *
+ * Then the line feed, measured in the WINDOW's interior rather than the
+ * RastPort's: `(wd_Height - wd_BorderTop - wd_BorderBottom) / rp_TxHeight`
+ * is the row count and `(rp_cp_y - wd_BorderTop) / rp_TxHeight + 1` is where
+ * the cursor is. On the last row it ScrollRasters the interior up one line;
+ * anywhere else it is `SetCoordsRel(0, rp_TxHeight)`, the call that will not
+ * move a cursor still marked UNSET. Either way it ends `SetCoords(0,
+ * #Null)`, so x goes home and y stays where the branch left it.
+ *
+ * DEFECT: those two measurements disagree about where the window starts, and
+ * a window with a border is the casualty. The homing puts the cursor at
+ * `rp_TxBaseline`, 6 for topaz 8, measured from the RastPort's origin --- the
+ * window's top-left CORNER, border included. The row then subtracts
+ * `wd_BorderTop`, which is 11 on any window with a title bar, so `sub.w`
+ * leaves $fffb and `divu.w` reads that as 65531: 8191 rows, and the
+ * comparison scrolls. Nothing after that moves the cursor, so every `Iwrite`
+ * into an `Iwindow Open` window draws the same line at y 6 --- inside the
+ * title bar --- and scrolls the interior underneath it. On the screen's own
+ * backdrop window, which is borderless, all of it works.
+ */
+function iWrite(rt: Runtime, st: IextState, text: string): void {
+  const { rp, ox, oy, w } = curRp(rt, st)
+  const font = rp.font
+  const th = font ? font.ySize : 8
+  if ((w.flags & WEF.UNSET) !== 0) setGrPos(w, rp, 0, font ? font.baseline : 6)
+  rp.text(ox + rp.cpX, oy + rp.cpY, text)
+  rp.cpX += rp.textLength(text)
+  const win = w.window
+  // both divides are `divu.w`, unsigned, on a register whose low word is all
+  // the `sub.w` before it touched
+  const uw = (v: number): number => v & 0xffff
+  const rows = Math.trunc(uw(win.height - win.borderTop - win.borderBottom) / th)
+  const row = uw(Math.trunc(uw(rp.cpY - win.borderTop) / th) + 1)
+  if (row >= rows) {
+    scrollRasterUp(
+      rp,
+      th,
+      ox + win.borderLeft,
+      oy + win.borderTop,
+      ox + win.width - win.borderRight - 1,
+      oy + win.height - win.borderBottom - 1,
+    )
+  } else {
+    // `SetCoordsRel(0, rp_TxHeight)`, and UNSET is already clear by here
+    rp.cpY += th
+  }
+  setGrPos(w, rp, 0, null)
 }
 
 /**
@@ -1127,7 +1252,7 @@ function iGetBankPalette(rt: Runtime, st: IextState, it: Parameters<Instr>[0], i
  * $C0000000 to read.
  */
 function iPasteIcon(rt: Runtime, st: IextState, it: Parameters<Instr>[0]): void {
-  const { rp, ox, oy } = curRp(rt, st)
+  const { rp, ox, oy, w: iw } = curRp(rt, st)
   const x = it.evalInt()
   it.expect(',')
   const y = it.evalInt()
@@ -1135,7 +1260,7 @@ function iPasteIcon(rt: Runtime, st: IextState, it: Parameters<Instr>[0]): void 
   const n = it.evalInt()
   const img = rt.iconBank?.image(n) ?? null
   if (!img) iError(E.IND)
-  setGrPos(rp, x, y)
+  setGrPos(iw, rp, x, y)
   const w = Math.min(img.width, img.rowBytes * 8)
   const planes = Math.min(img.depth, rp.bitMap.depth)
   if (planes <= 0) return
@@ -1381,9 +1506,22 @@ function baseRp(rt: Runtime, st: IextState): { rp: RastPort; ox: number; oy: num
  *
  * Either may be Null, which keeps the cursor where it is.
  */
-function setGrPos(rp: RastPort, x: number | null, y: number | null): void {
+/**
+ * `SetCoords` (`src2/windows.s`:660) --- Move, and the flag it clears.
+ *
+ * An omitted coordinate is `cmp.l #Null,d0 / beq .nox`, which reads the
+ * RastPort's own `rp_cp_x` back and moves to it, so it keeps that axis. The
+ * two instructions after the Move are `moveq #WEF_UNSET,d1 / bsr
+ * SetWinFlags`: any absolute positioning marks the window's cursor as SET,
+ * and `SetCoordsRel` next door is `btst #WEB_UNSET,d0 / bne .exit` and will
+ * not move a cursor that has never been placed. Every drawing keyword in
+ * this extension reaches SetCoords through `L_IlocateGr`, so any of them
+ * clears it and `Iwrite` is the only keyword that can tell.
+ */
+function setGrPos(w: IextWindow, rp: RastPort, x: number | null, y: number | null): void {
   if (x !== null) rp.cpX = x
   if (y !== null) rp.cpY = y
+  w.flags &= ~WEF.UNSET
 }
 
 /**
@@ -2193,12 +2331,14 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
         number: 0,
         screen: num,
         window: base,
-        flags: WEF.BASEWIN,
+        // `src2/screens.s`:370 --- `move.l #WEF_UNSET|WEF_BASEWIN,we_Flags(a0)`
+        flags: WEF.UNSET | WEF.BASEWIN,
         title: '',
         menus: [],
         gadgets: [],
         hilitePen: 0,
         shadowPen: 0,
+        screenTitle: '',
       })
     }
     st.currentWindow = -1
@@ -2636,7 +2776,7 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * `bm_BytesPerRow * 8 / tf_XSize` bound it, and over either is error 13.
      */
     'ilocate': (it) => {
-      const { rp } = curRp(rt, s())
+      const { rp, w: iw } = curRp(rt, s())
       const x = omittable(it)
       it.expect(',')
       const y = omittable(it)
@@ -2645,16 +2785,16 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       const ys = f ? f.ySize : 8
       if (x !== null && (x < 0 || x >= Math.floor(rp.width / xs))) iError(E.IFC)
       if (y !== null && (y < 0 || y >= Math.floor(rp.height / ys))) iError(E.IFC)
-      setGrPos(rp, x === null ? null : x * xs, y === null ? null : y * ys + (f ? f.baseline : 6))
+      setGrPos(iw, rp, x === null ? null : x * xs, y === null ? null : y * ys + (f ? f.baseline : 6))
     },
 
     /** `Ilocate Gr x,y` --- graphics positioning, and nothing bounds it */
     'ilocate gr': (it) => {
-      const { rp } = curRp(rt, s())
+      const { rp, w: iw } = curRp(rt, s())
       const x = omittable(it)
       it.expect(',')
       const y = omittable(it)
-      setGrPos(rp, x, y)
+      setGrPos(iw, rp, x, y)
     },
 
     /** `Igr Writing n` --- SetDrMd, graphics.library's own numbering */
@@ -2740,12 +2880,12 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
 
     /** `Iplot x,y[,c]` --- SetAPen when a colour is given, then WritePixel */
     'iplot': (it) => {
-      const { rp, ox, oy } = curRp(rt, s())
+      const { rp, ox, oy, w: iw } = curRp(rt, s())
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
       if (it.accept(',')) rp.fgPen = it.evalInt()
-      setGrPos(rp, x, y)
+      setGrPos(iw, rp, x, y)
       rp.plot(ox + x, oy + y)
     },
 
@@ -2756,10 +2896,10 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * `Ilocate Gr` and a run of `Idraw To` a polyline.
      */
     'idraw': (it) => {
-      const { rp, ox, oy } = curRp(rt, s())
+      const { rp, ox, oy, w: iw } = curRp(rt, s())
       const [x1, y1, x2, y2] = rectTo(it)
       rp.draw(ox + x1, oy + y1, ox + x2, oy + y2)
-      setGrPos(rp, x2, y2)
+      setGrPos(iw, rp, x2, y2)
     },
 
     /**
@@ -2770,24 +2910,24 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * `Ilocate Gr` and a run of these a polyline.
      */
     'idraw to': (it) => {
-      const { rp, ox, oy } = curRp(rt, s())
+      const { rp, ox, oy, w: iw } = curRp(rt, s())
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
       rp.draw(ox + rp.cpX, oy + rp.cpY, ox + x, oy + y)
-      setGrPos(rp, x, y)
+      setGrPos(iw, rp, x, y)
     },
 
     /** `Ibox x1,y1 To x2,y2` --- four sides, and backward is error 25 */
     'ibox': (it) => {
-      const { rp, ox, oy } = curRp(rt, s())
+      const { rp, ox, oy, w: iw } = curRp(rt, s())
       const [x1, y1, x2, y2] = rectTo(it)
       if (x2 < x1 || y2 < y1) iError(E.BWC)
       rp.draw(ox + x1, oy + y1, ox + x2, oy + y1)
       rp.draw(ox + x2, oy + y1, ox + x2, oy + y2)
       rp.draw(ox + x2, oy + y2, ox + x1, oy + y2)
       rp.draw(ox + x1, oy + y2, ox + x1, oy + y1)
-      setGrPos(rp, x2, y2)
+      setGrPos(iw, rp, x2, y2)
     },
 
     /** `Ibar x1,y1 To x2,y2` --- RectFill, filled */
@@ -2829,25 +2969,17 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * and either may be left out. `y` is therefore a baseline, not a top.
      */
     'itext': (it) => {
-      const { rp, ox, oy } = curRp(rt, s())
+      const { rp, ox, oy, w: iw } = curRp(rt, s())
       const x = omittable(it)
       it.expect(',')
       const y = omittable(it)
       it.expect(',')
       const text = str(it.evalExpr())
-      setGrPos(rp, x, y)
+      setGrPos(iw, rp, x, y)
       rp.text(ox + rp.cpX, oy + rp.cpY, text)
       rp.cpX += rp.textLength(text)
     },
 
-    /**
-     * `Icolour n,c` --- SetRGB4 on the current screen's ColorMap.
-     *
-     * `cmp.w cm_Count(a1),d0 / bcc L_IllFunc` bounds the index by the map's
-     * own size, unsigned, so a negative index fails it too. The colour is
-     * split into three nibbles by hand and handed to SetRGB4, which is what
-     * makes it a 12-bit value however wide the screen is.
-     */
     /**
      * `Set Icolour n,c` --- and the `Set` is typed, not a convention.
      *
@@ -2869,6 +3001,85 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
 
     /** `Iget Icon [screen[,window],]n,x1,y1 To x2,y2` --- routines 283 to 286 */
     'iget icon': (it) => iGetIcon(rt, s(), it),
+
+    /** `Iwrite s$` and `Iwrite` --- routines 181 and 182 */
+    'iwrite': (it) => iWrite(rt, s(), it.atStmtEnd() ? '' : str(it.evalExpr())),
+
+    /**
+     * `Set Iwindow Title [n],[win$],[scr$]` --- SetWindowTitles, and each of
+     * the three may be left out.
+     *
+     * An omitted title becomes `moveq #-1,d5`, which is what SetWindowTitles
+     * reads as "leave this one alone"; an EMPTY string becomes zero, which
+     * clears it. So `Set Iwindow Title 1,"",` clears the window's title and
+     * `Set Iwindow Title 1,,` leaves both where they were. An omitted window
+     * is `dmove.l CurIwindow,d3 / beq L_NoWin`, the variable and not
+     * GetCurIwin, so no current window is error 6 rather than the backdrop.
+     *
+     * NOTE: the copies are `jtcall StrAlloc` and nothing frees the ones they
+     * replace. `Set Iscreen Title` next door does free its old title, so
+     * this is the pair disagreeing rather than a rule.
+     */
+    'set iwindow title': (it) => {
+      const st = s()
+      const n = omittable(it)
+      it.expect(',')
+      const winTitle = omittableStr(it)
+      it.expect(',')
+      const scrTitle = omittableStr(it)
+      const target = n === null ? curIwinRaw(st) : findIwin(st, n)
+      if (winTitle !== null) {
+        target.title = winTitle
+        target.window.title = winTitle
+      }
+      if (scrTitle !== null) target.screenTitle = scrTitle
+    },
+
+    /**
+     * `Set Iscreen Title s$` and `Set Iscreen Title s$,n`, and the token
+     * table hands each one to the other's routine.
+     *
+     * DEFECT: `itokens.s`:709 is `dc.w L_SetIscrTitle` under `"!set iscreen
+     * titl",$80+'e',"I2"` and `dc.w L_SetCurIscrTitle` under `$80,"I2,0"`,
+     * and the binary's token table says the same --- the one-string spelling
+     * dispatches to routine 46, which opens `move.l (a3)+,d0 / jtcall
+     * FindIscr`, and the string-and-number spelling to routine 47, which
+     * opens `jtcall GetCurIscr` and then takes ONE argument as a string
+     * pointer. The `=Iscreen Title Height` pair three lines below is written
+     * the same way and is the right way round, which is what makes this a
+     * slip rather than a convention.
+     *
+     * So `Set Iscreen Title "x"` hands the string's ADDRESS to FindIscr. No
+     * screen is numbered that, and the keyword is error 16.
+     *
+     * DEFECT: and routine 47 could not have worked anyway. `moveq #$1,d0` at
+     * $290a has no `bra` after it, so the arm that allocated and stored the
+     * title falls straight into `.none` --- `movea.l d6,a0 / clr.l $1a(a0) /
+     * moveq #$0,d0` --- which clears `sc_DefaultTitle` again and calls
+     * ShowTitle with zero. The string it just allocated is leaked, and the
+     * current screen ends with no title and a hidden bar however it was
+     * called. That is what the two-argument spelling does here: the number
+     * is read as the string pointer and never as a screen, so screen n is
+     * untouched.
+     *
+     * DEFECT: routine 46, the one the short spelling reaches, has its own.
+     * `$2878 movea.l d6,a0` is dead and `$287a clr.l $1a(a1)` clears through
+     * a1, which nothing on that path loaded --- so an EMPTY title on a named
+     * screen writes four zero bytes wherever a1 was pointing. Unreachable
+     * through the swapped token and recorded rather than reproduced: there
+     * is no a1 here to write through.
+     */
+    'set iscreen title': (it) => {
+      const st = s()
+      // evaluated and then thrown away by whichever routine it reaches
+      str(it.evalExpr())
+      // routine 46, handed the string's address where a screen number goes
+      if (!it.accept(',')) iError(E.SNO)
+      // routine 47, which reads the number as a string pointer and then ends
+      // at `.none` whichever way it came in
+      it.evalInt()
+      curIscr(st).title = ''
+    },
 
     /**
      * `Ipalette` --- and it does nothing at all.
@@ -2900,7 +3111,7 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
       const { rp, ox, oy, w } = curRp(rt, s())
       const text = str(it.evalExpr())
       const x = (w.window.width - rp.textLength(text)) >> 1
-      setGrPos(rp, x, null)
+      setGrPos(w, rp, x, null)
       rp.text(ox + x, oy + rp.cpY, text)
       rp.cpX = x + rp.textLength(text)
     },
@@ -3720,6 +3931,23 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
 
     /** `=Iscreen` --- `se_ScrNum` of the current screen */
     iscreen: (): Value => VI(curIscr(s()).number),
+
+    /**
+     * `=Iscreen Title Height` and `=Iscreen Title Height(n)` --- `moveq #0,d3
+     * / move.b sc_BarHeight(a0),d3`, and the pair is spelled the right way
+     * round where `Set Iscreen Title`'s is not.
+     *
+     * Ten, and it does not move: ShowTitle takes the bar out of the view and
+     * leaves the field alone, so a screen with no title answers the same as
+     * one with. The guide's use for it is `Text 0,Iscreen Title Height+Itext
+     * Base,"Text right below the title bar"`.
+     */
+    'iscreen title height': (_, a): Value => {
+      // the lookup is the only thing that can fail: error 16 for a screen
+      // that is not open, and `GetCurIscr` for the bare form
+      pick(s(), a)
+      return VI(IEXT_BAR_HEIGHT)
+    },
 
     /** `=Iscreen Base` --- `dmove.l CurIscreen,d3`, the `struct Screen *` */
     'iscreen base': (): Value => VI(s().screens.get(s().current)?.address ?? 0),

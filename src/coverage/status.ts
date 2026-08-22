@@ -3815,6 +3815,11 @@ export const FAITHFUL = new Set<string>([
   'iscreen open', 'iscreen open public', 'iscreen open back', 'iscreen open front',
   'iscreen close', 'iscreen', 'set iscreen', 'iscreen to front', 'iscreen to back',
   'iscreen base', 'iscreen width', 'iscreen height', 'iscreen colour', 'iscreen mode',
+  // The titles. `Set Iwindow Title` is SetWindowTitles with each of its
+  // three arguments omittable, -1 for "leave it" and 0 for "clear it", and
+  // it frees nothing it replaces. `=Iscreen Title Height` is sc_BarHeight,
+  // ten for topaz 8, and it does not depend on a title being shown.
+  'set iwindow title', 'set iscreen title', 'iscreen title height',
   // Moving a screen, and moving its pixels. `Iscreen Display` is one
   // `movem.l (a3)+,d2-d6` and then four independent arms, `Iscreen Offset`
   // writes `ri_RxOffset` and `ri_RyOffset` and follows them with a MoveScreen
@@ -3886,6 +3891,11 @@ export const FAITHFUL = new Set<string>([
   'ilocate', 'ilocate gr', 'ixgr', 'iygr', 'igr writing', 'iink',
   'icls', 'iclw', 'iplot', 'idraw', 'idraw to', 'ibox', 'ibar',
   'iellipse', 'icircle', 'itext', 'icentre', 'icolour', 'ipoint',
+  // `Iwrite` is Print with one argument, and the flag it turns on is the
+  // only thing WEF_UNSET is observable through. Windows open with it set
+  // (`src2/windows.s`:373, "Window CP not yet (officially) set"), SetCoords
+  // clears it and SetCoordsRel will not move a cursor while it is up.
+  'iwrite',
   // `Set Icolour n,c`, and the `Set` is typed rather than a convention:
   // `itokens.s`:281 spells the token `"set icolou",$80+'r',"I0,0"`, so the
   // instruction and the `=Icolour(n)` beside it at $0830 are two different
@@ -4521,6 +4531,34 @@ export const NOTES: Record<string, string> = {
     "against the first word of the SCREEN structure, a0 having been reloaded with wd_WScreen for the bounds " +
     "tests and never given the bank back, and `$7eae move.l a0,-$6(a2,d7.l)` runs after `$7ea0 suba.l a2,a2` " +
     "cleared a2 for BltBitMap\'s tempA, so the icon pointer goes to absolute address `n * 8 - 6`.",
+  "iwrite":
+    "Routine 181 ($496c), with 182 four instructions over it -- `dlea NullStr,a0 / move.l a0,-(a3) / bsr " +
+    "L_Iwrite` -- so the bare form is the string form given the empty string, which is the guide\'s \"Without " +
+    "the argument, it just goes to the next line, like Print without any parameters.\" `jtcall GetWinFlags / " +
+    "btst #WEB_UNSET,d0` homes the cursor to rp_TxBaseline the first time a window is written to; the line " +
+    "feed is `SetCoordsRel(0, rp_TxHeight)` unless the cursor is on the last row, where it is ScrollRaster " +
+    "(-396) over the border rectangle instead; and both arms end `SetCoords(0, #Null)`. DEFECT: the homing and " +
+    "the row count disagree about where the window starts. The homing measures from the RastPort origin, the " +
+    "window\'s top-left CORNER, and the row subtracts wd_BorderTop -- 11 on a window with a title bar -- so " +
+    "`sub.w` leaves $fffb, `divu.w` reads 65531 as 8191 rows and the comparison always scrolls. Nothing then " +
+    "moves the cursor, so every Iwrite into an Iwindow Open window redraws the same line at y 6, inside the " +
+    "title bar, and scrolls the interior underneath it. On the screen\'s own backdrop window, borderless, all " +
+    "of it works. Reproduced.",
+  "set iscreen title":
+    "Routines 46 ($2814) and 47 ($28ae), and neither spelling reaches the routine that was written for it. " +
+    "DEFECT: `itokens.s`:709 is `dc.w L_SetIscrTitle` under `\"!set iscreen titl\",$80+\'e\',\"I2\"` and `dc.w " +
+    "L_SetCurIscrTitle` under `$80,\"I2,0\"`, and the binary\'s token table agrees -- the one-string spelling " +
+    "dispatches to 46, which opens `move.l (a3)+,d0 / jtcall FindIscr`, so the string\'s ADDRESS goes in where " +
+    "a screen number belongs and the documented spelling is error 16. The `=Iscreen Title Height` pair three " +
+    "lines below is written the same way and is the right way round. DEFECT: routine 47, which the " +
+    "string-and-number spelling reaches, could not have worked either -- `$290a moveq #$1,d0` has no branch " +
+    "after it, so the arm that allocated and stored the title falls into `.none` (`movea.l d6,a0 / clr.l " +
+    "$1a(a0) / moveq #$0,d0`), clearing sc_DefaultTitle again, leaking the string and calling ShowTitle with " +
+    "zero. Both reproduced: the short spelling answers 16 and the long one clears the CURRENT screen\'s title " +
+    "and never looks at the screen its number names. DEFECT: routine 46 has a third, unreachable through the " +
+    "swapped token -- `$2878 movea.l d6,a0` is dead and `$287a clr.l $1a(a1)` clears through an a1 nothing on " +
+    "that path loaded, so an empty title on a named screen writes four zero bytes wherever a1 pointed. " +
+    "Recorded; there is no a1 here to write through.",
   "igadget read":
     "Routine 265 ($747e), one function over four gadget types: si_LongInt for an integer gadget, GFLG_SELECTED " +
     "for a toggle, a decrementing ge_HitCount for a hit-select, and `(NUnits - KnobSize) * Pot / MAXPOT` for a " +
