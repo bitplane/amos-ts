@@ -3,17 +3,26 @@ import { BinReader } from '../loader/binreader'
 import { procode } from './procode'
 import type { TokenEntry } from './libtok'
 
-/** Special token ids — the first entries of the core token table. */
+/**
+ * Special token ids — the first entries of the core token table, from
+ * `+Equ.s:1997-2012`.
+ *
+ * $1E and $36 were the wrong way round here until the corpus settled it.
+ * `_TkBin equ $0000001E` and `_TkHex equ $00000036`, and the programs agree:
+ * $36 carries $FFF, $F00 and $600, which are AMOS palette colours written in
+ * hex, while $1E carries $C0, $3F and $FFFF, which are masks written in
+ * binary. Every listing printed a `%` for a `$` and a `$` for a `%`.
+ */
 export const T = {
   EOL: 0x0000,
   VARIABLE: 0x0006,
   LABEL: 0x000c,
   PROC_CALL: 0x0012,
   LABEL_REF: 0x0018,
-  HEX: 0x001e,
+  BIN: 0x001e,
   STR_DQ: 0x0026,
   STR_SQ: 0x002e,
-  BIN: 0x0036,
+  HEX: 0x0036,
   INT: 0x003e,
   FLOAT: 0x0046,
   EXTENSION: 0x004e,

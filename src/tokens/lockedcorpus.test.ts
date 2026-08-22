@@ -49,7 +49,10 @@ describe.skipIf(!existsSync(join(locked, 'Lock.AMOS')))('Lock.AMOS deciphers', (
     // procedure — which is the key material this port reads back
     expect(src).toContain('If Btst(15,P)')
     expect(src).toContain('Bset 14,P')
-    expect(src).toContain('P=(P and %1111111100000000)+Rnd(254)+1')
+    expect(src).toContain('P=(P and $FF00)+Rnd(254)+1')
+    // and this line is why $1E and $36 were swapped back: the author wrote
+    // the Procedure token's own id, which +Equ.s:2051 gives as $00000376
+    expect(src).toContain('TKPROC=$376')
     expect(src).toContain('Doke AD+10,P')
     // and it walks the program the same way the port does, by line length
     expect(src).toContain('L=Peek(AD)*2')
