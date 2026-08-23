@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAmosProgram, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
+import { isAmosProgram, keyRoute, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
 
 describe('picking the program out of an archive', () => {
   // The zip a host ships is a drawer: the program beside the data it loads.
@@ -78,5 +78,37 @@ describe('keyboard to joystick', () => {
     for (const code of [...Object.keys(KB_ARROWS), ...Object.keys(KB_WASD)]) {
       expect(SCAN[code], code).toBeDefined()
     }
+  })
+})
+
+/**
+ * Escape, and what it flips between.
+ *
+ * On the machine it is one key going both ways: `Ed_Escape` (+Edit.s:8876)
+ * from the editor down to the escape screen, `Esc_Esc` (:9125) back up. There
+ * is no editor here, so the other side is the program's display with nothing
+ * over it.
+ */
+describe('where a keystroke goes', () => {
+  it('gives every key to the line editor while the escape screen is up', () => {
+    expect(keyRoute(true, true, 'Escape', 0x45)).toBe('line')
+    expect(keyRoute(true, true, 'KeyA', 0x20)).toBe('line')
+    // even mid-run, which is the state a typed line that has not finished
+    // leaves behind
+    expect(keyRoute(true, false, 'KeyA', 0x20)).toBe('line')
+  })
+
+  it('brings the escape screen back with Escape once the program has stopped', () => {
+    expect(keyRoute(false, true, 'Escape', 0x45)).toBe('escape')
+    expect(keyRoute(false, true, 'KeyA', 0x20)).toBe('program')
+  })
+
+  /**
+   * The one that matters. A game reads Escape like any other key, `Esc_Appear`
+   * is reached from `Ed_Loop` and `Esc_Loop` and from nowhere the interpreter
+   * runs, and no AMOS interrupts a program with it. Ctrl-C does that.
+   */
+  it('leaves Escape to a running program', () => {
+    expect(keyRoute(false, false, 'Escape', 0x45)).toBe('program')
   })
 })

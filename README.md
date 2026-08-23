@@ -267,6 +267,12 @@ original, split into what can still be closed and what cannot.
   over the same virtual filesystem the program sees: drop in files, folders or
   zips, then rename, delete, make drawers, relabel volumes and drag rows
   between drawers.
+- **Direct mode.** When the program stops, AMOS's escape screen comes down:
+  the editor's own logo, buttons and function-key macros, with a one-line
+  editor on it that runs what you type against the variables the program left
+  behind. Escape flips it, both ways, the way `Ed_Escape` (`+Edit.s:8876`) and
+  `Esc_Esc` (`:9125`) do. A running program keeps the key: nothing in AMOS
+  interrupts one with Escape, and Ctrl-C is what does.
 
 Format notes recovered so far, verified against the corpus and against the
 assembly in `+Lib.s` and `+Edit.s`:

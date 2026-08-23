@@ -267,6 +267,27 @@ describe('the escape screen (Esc_Appear +Edit.s:9356)', () => {
     expect(rt.directScreen.isOpen).toBe(false)
     expect(rt.currentIndex).toBe(0)
   })
+
+  /**
+   * `Ed_Escape` (+Edit.s:8876) is entry 28 of the editor's own command table
+   * and `Esc_Esc` (:9125) is the way back, so Escape is one key that goes both
+   * ways. Going back down has to give a screen that works, not the husk of the
+   * one that was closed: `Esc_Appear` builds it every time.
+   */
+  it('opens again after it has been closed, with a working line editor', () => {
+    const rt = open()
+    rt.directScreen.key('\x1b', 0x45)
+    expect(rt.directScreen.isOpen).toBe(false)
+    rt.directScreen.open()
+    expect(rt.directScreen.isOpen).toBe(true)
+    expect(rt.currentIndex).toBe(9)
+    let out = ''
+    rt.onDirectText = (t) => (out += t)
+    for (const c of 'Print 21*2') rt.directScreen.key(c)
+    rt.directScreen.key('\r', 0x44)
+    for (let i = 0; i < 4; i++) rt.frame()
+    expect(out).toBe(' 42\n')
+  })
 })
 
 describe('the editor resource bank (Ed_ResourceLoad +Edit.s:4738)', () => {

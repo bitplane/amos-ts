@@ -293,6 +293,36 @@ export { isAmosProgram }
  * with it tends to be further down. A tie is reported rather than guessed:
  * picking one of two at random gives a host no way to know it happened.
  */
+/**
+ * Where a keystroke goes: to the line editor, to Escape's flip, or to the
+ * program.
+ *
+ * Escape flips, the way it does on the machine. `Ed_Escape` (+Edit.s:8876) is
+ * entry 28 of the editor's own command table and runs `Ed_Hide` then
+ * `Esc_Appear`; `Esc_Esc` (:9125) is `Esc_Hide` then `Ed_Appear`. One key,
+ * both directions, and the second half is already `DirectScreen.key`'s.
+ *
+ * What it flips BETWEEN is the difference here. On the machine the other side
+ * is the editor. There is no editor here, so the other side is the program's
+ * display with nothing over it.
+ *
+ * And only once the program has stopped. A running one owns the keyboard:
+ * Escape is an ordinary key a game reads, `Esc_Appear` is reached from
+ * `Ed_Loop` and `Esc_Loop` and from nowhere the interpreter runs, and there
+ * is no AMOS in which a game is interrupted with it. Ctrl-C is the key that
+ * does that, and it is handled a few lines above.
+ */
+export function keyRoute(
+  escapeScreenUp: boolean,
+  programDone: boolean,
+  code: string,
+  scan: number,
+): 'line' | 'escape' | 'program' {
+  if (escapeScreenUp) return 'line'
+  if (programDone && (code === 'Escape' || scan === 0x45)) return 'escape'
+  return 'program'
+}
+
 export function pickProgram(paths: string[], run?: string): { path?: string; ambiguous?: string[] } {
   if (run !== undefined) {
     const want = run.toLowerCase()
@@ -450,13 +480,14 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
     const scan = SCAN[e.code] ?? 0
     const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
-    // Escape belongs to the PROGRAM. A game reads it like any other key and
-    // AMOS has no way to interrupt one with it --- direct mode is where a
-    // finished program leaves you, not something you drop into. Once the
-    // escape screen is up the keyboard is the line editor's, and Esc_Hide
-    // (+Edit.s:9528) is what Escape does there.
-    if (rt.directScreen.isOpen) {
+    const route = keyRoute(rt.directScreen.isOpen, rt.interp.done, e.code, scan)
+    if (route === 'line') {
       rt.directScreen.key(ch, scan, e.shiftKey)
+      e.preventDefault()
+      return
+    }
+    if (route === 'escape') {
+      rt.directScreen.open()
       e.preventDefault()
       return
     }
@@ -749,10 +780,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         if (!ended) {
           ended = true
           opts.onStatus?.('program ended')
-          // What direct mode IS: where a finished program leaves you. AMOS
-          // has no way to reach it from a running one --- Escape is an
-          // ordinary key a game can read --- so the escape screen goes up
-          // when the program stops and not before.
+          // Where a finished program leaves you. AMOS has no way to reach
+          // direct mode from a running one --- Escape is an ordinary key a
+          // game can read --- so the escape screen goes up when the program
+          // stops and not before. Escape flips it from there: see onKeyDown.
           rt.directScreen.open()
         }
         // and the machine has to keep turning under it: the line editor
