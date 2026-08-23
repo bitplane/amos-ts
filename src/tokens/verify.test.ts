@@ -188,6 +188,48 @@ describe('the words pass two dokes back', () => {
   })
 })
 
+describe('the branch links pass two fills in', () => {
+  /**
+   * `For` carries the distance to the end of its `Next`, and `Doke_Distance`
+   * (+Verif.s:2434) makes it `target - slot - 2`. The target is what
+   * `Find_End` (:2444) hands back: the line after the `Next`, or the `Next`
+   * itself when nothing follows it.
+   */
+  it('gives For the distance to its Next', () => {
+    expect(idAt(run('For I=0 To 9\nNext I'), 4)).toBe(38)
+  })
+
+  /**
+   * `If` branches to just past its `Else`'s own link, and the `Else` to the
+   * end of the `End If`. Bit 0 of the word says the branch lands on an
+   * `Else If`, which has a test of its own to run.
+   */
+  it('gives If and Else the distance to what closes them', () => {
+    const b = run('If A=1\nPrint 1\nElse \nPrint 2\nEnd If')
+    expect(idAt(b, 4)).toBe(36)
+    expect(idAt(b, 40)).toBe(18)
+  })
+
+  /**
+   * `Exit` carries two words: the distance out and how much interpreter stack
+   * to drop, which is `TDoLoop` for a `Do` and `TForNxt` for a `For`
+   * (+Equ.s:2368).
+   */
+  it('gives Exit the distance out and the stack to unwind', () => {
+    const b = run('Do\nExit 1\nLoop')
+    expect(idAt(b, 4)).toBe(22)
+    expect(idAt(b, 12)).toBe(12)
+    expect(idAt(b, 14)).toBe(10)
+  })
+
+  it('refuses a structure nothing closes', () => {
+    expect(() => run('For I=0 To 9')).toThrow(/FOR without matching NEXT/)
+    expect(() => run('Next I')).toThrow(/NEXT without FOR/)
+    expect(() => run('Do')).toThrow(/DO without LOOP/)
+    expect(() => run('If A=1')).toThrow(/IF without ENDIF/)
+  })
+})
+
 describe('the errors the verifier raises', () => {
   it('names them by the code +Editor_Config.s gives them', () => {
     // 38-Array not dimensioned: `bne VerNDim` after V1_StoVar created it
@@ -263,23 +305,28 @@ describe.skipIf(sweep.programs === 0)('every program in fixtures, walked', () =>
   })
 
   /**
-   * Twelve do not, and the reasons are countable rather than a gap in the
+   * Fourteen do not, and the reasons are countable rather than a gap in the
    * walk. Eight reach `Equ(...)` or `Lvo(...)`, which read an equate bank
    * nothing here loads. Two name an extension slot no library on this machine
    * answers for, which is error 5, the one AMOS raises as well.
    *
-   * The last two are `Header_AMOS.AMOS`, the template the compiler fills in.
-   * Its `||apcmp||` sits in a procedure whose flags word is $8000, folded and
+   * Two are `Header_AMOS.AMOS`, the template the compiler fills in. Its
+   * `||apcmp||` sits in a procedure whose flags word is $8000, folded and
    * nothing else, and `V1_Procedure` only steps over a machine-code body when
    * bit 12 is set. So AMOS reads it as an instruction too, and class $57 is
    * `bra VerSynt`. A template is not a program.
+   *
+   * The last two are AMAL_Editor.AMOS, whose `On Error Goto _GREG` jumps into
+   * a `Do` from outside it. `Goto_Loops` (:2462) forbids that, and the file
+   * carries a link word for the jump anyway. See the note in verify.ts.
    */
-  it('walks all but twelve to the end', () => {
-    expect(sweep.programs - sweep.verified).toBe(12)
+  it('walks all but fourteen to the end', () => {
+    expect(sweep.programs - sweep.verified).toBe(14)
     const counted = new Map<number, number>()
     for (const c of sweep.codes) counted.set(c, (counted.get(c) ?? 0) + 1)
     expect([...counted].sort((a, b) => a[0] - b[0])).toEqual([
       [5, 2],
+      [9, 2],
       [35, 2],
       [54, 8],
     ])

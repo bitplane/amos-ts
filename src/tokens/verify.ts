@@ -23,21 +23,31 @@
  * ZEROES the branch links rather than filling them, exactly as `clr.w (a6)+`
  * does, and it leaves the variable record's runtime link alone.
  *
- * `VerX` (:496) is here as far as the NAMES go. It walks the relocation list
- * and dokes the word a `Goto` or a `Proc` carries, which has to be a second
- * walk because a label is usually below the line that jumps to it. The
- * variable link needs no second walk at all: the offset is decided when
+ * `VerX` (:496) is pass two, and it is here. It walks the relocation list to
+ * doke the word a `Goto` or a `Proc` carries, which has to be a second walk
+ * because a label is usually below the line that jumps to it, and then walks
+ * `TablA` to match every structure to the one that closes it. That is where
+ * `For` learns the distance to its `Next` and `If` the distance to its `Else`.
+ *
+ * The variable link needs no second walk at all: the offset is decided when
  * `V1_StoVar` creates the name, so this port writes the final word straight
  * away where AMOS writes a name-table offset and comes back for it.
  *
- * What is still missing is `TablA`, the stack of open structures that pass two
- * walks to match every `For` to its `Next`. So the branch links stay zero, and
- * they are the last field ./roundtrip.ts has to clear.
+ * Measured over the 566 programs in fixtures/: 552 verify, and 113 come out
+ * BYTE IDENTICAL to what the Amiga saved. The rest differ where the editor
+ * retokenised a line after the last run: a record the verifier never reached
+ * carries a zero link and a flag with no array bit, which is what the
+ * tokeniser writes, and 229 of the 237 programs whose variable offsets drift
+ * start drifting at exactly such a record.
  *
- * Measured over the 566 programs in fixtures/: 554 verify. Eight reach an
- * equate bank that no part of this port reads yet, two name an extension slot
- * nothing on this machine can identify, and two are the compiler's own
- * template rather than a program.
+ * Of the fourteen that stop: eight reach an equate bank that no part of this
+ * port reads yet, two name an extension slot nothing on this machine can
+ * identify, two are the compiler's own template rather than a program, and
+ * two are AMAL_Editor.AMOS. That last one is a genuine disagreement worth
+ * stating: its `On Error Goto _GREG` jumps from outside a `Do` to a label
+ * inside one, which `Goto_Loops` (:2462) forbids, and yet the file carries
+ * the link word for it. The file has 369 bytes of drift from its saved state,
+ * so the likeliest reading is that the structure changed after its last run.
  */
 import { OPERATORS, T, TokenTable } from './stream'
 import { CORE_TOKENS } from './tables.gen'
@@ -58,6 +68,12 @@ const TKV = {
   BRA1: 0x0084,
   BRA2: 0x008c,
   TO: 0x0094,
+  NEXT: 0x0246,
+  UNTIL: 0x025c,
+  WEND: 0x0274,
+  LOOP: 0x0286,
+  END_IF: 0x02da,
+  PROCEDURE: 0x0376,
   AS: 0x01e6,
   GOTO: 0x02a8,
   GOSUB: 0x02b2,
@@ -97,6 +113,21 @@ export const VERR = {
   ILLEGAL_PARAM_COUNT: 19,
   UNDEFINED_PROC: 20,
   UNDEFINED_LABEL: 41,
+  JUMP_INTO_LOOP: 9,
+  STRUCTURE_TOO_LONG: 10,
+  NO_THEN: 25,
+  NOT_ENOUGH_LOOPS: 26,
+  DO_WITHOUT_LOOP: 27,
+  LOOP_WITHOUT_DO: 28,
+  WHILE_WITHOUT_WEND: 29,
+  WEND_WITHOUT_WHILE: 30,
+  REPEAT_WITHOUT_UNTIL: 31,
+  UNTIL_WITHOUT_REPEAT: 32,
+  FOR_WITHOUT_NEXT: 33,
+  NEXT_WITHOUT_FOR: 34,
+  ELSE_WITHOUT_IF: 21,
+  IF_WITHOUT_ENDIF: 22,
+  ENDIF_WITHOUT_IF: 23,
   DATA_AT_LINE_START: 4,
   USER_FN: 2,
   SYNTAX: 35,
@@ -204,6 +235,63 @@ interface Reloc {
   proc: boolean
 }
 
+/**
+ * `TablA` (+Verif.s:2294): one entry per structure the program opens or
+ * closes, in program order, doubly linked.
+ *
+ * Pass one only pushes. Pass two walks the list and calls each entry's
+ * `Vta_Jump`, which searches FORWARD for the entry that closes it and dokes
+ * the distance between them. An entry whose jump is still set when the walk
+ * reaches it is a structure nobody closed, which is why half the jumps are
+ * error routines: `V1_Next` files `VerNFo`, and if no `For` claimed it first
+ * that is exactly the message.
+ */
+interface Entry {
+  token: number
+  /** VF_Boucles, VF_If, VF_Proc, VF_Exit or VF_Goto, one bit each */
+  flag: number
+  /** Vta_UFlag: a Next that named its variable, or an If that had a Then */
+  uflag: number
+  /** a6 when the entry was made, which is the inline slot for everything that has one */
+  prog: number
+  /** Ver_NBoucles: how deep in loops the line was */
+  nBoucles: number
+  /** Ver_PBoucles: how much interpreter stack those loops take */
+  pBoucles: number
+  jump: Jump | null
+  /** Vta_Variable, a long: the address the closing structure hands back */
+  v0: number
+  /** Vta_Variable+4, which For and Next use for the loop variable */
+  v4: number
+}
+
+/**
+ * Which pass-two routine an entry carries. The four `err*` are the arms that
+ * only ever raise: a `Next` that no `For` claimed, an `Until` with no
+ * `Repeat`, and so on.
+ */
+type Jump =
+  | 'for'
+  | 'repeat'
+  | 'while'
+  | 'do'
+  | 'exit'
+  | 'if'
+  | 'ifThen'
+  | 'elseIf'
+  | 'else'
+  | 'elseThen'
+  | 'goto'
+  | 'onGoto'
+  | { err: number }
+
+/** the interpreter stack each loop takes, from +Equ.s:2368 */
+const T_FOR_NEXT = 24
+const T_LOOP = 10
+
+/** VF_Boucles, VF_If, VF_Proc, VF_Exit and VF_Goto (:1692) */
+const VF = { LOOPS: 1, IF: 2, PROC: 4, EXIT: 8, GOTO: 16 } as const
+
 export interface VerifyOptions {
   /** token tables for extensions, keyed by the slot number the line stores */
   extensions?: Map<number, TokenTable>
@@ -250,6 +338,12 @@ class Verifier {
   labBas = 2
   /** the names this phase still has to resolve */
   reloc: Reloc[] = []
+  /** Ver_TablA, this phase's structures in program order */
+  tablA: Entry[] = []
+  /** Ver_NBoucles, how many loops are open here */
+  nBoucles = 0
+  /** Ver_PBoucles, how much interpreter stack they take */
+  pBoucles = 0
 
   constructor(
     readonly b: Uint8Array,
@@ -329,12 +423,8 @@ class Verifier {
       if (this.statements(true) === 'phase') return
     }
     for (;;) {
-      // VerD: the line header, and a zero one ends the program. A block read
-      // off disk stops one word short of one, because the zero is what
-      // `Prg_Load` leaves in memory past the last line rather than something
-      // the AmBs chunk carries.
+      // VerD: the line header, and a zero one ends the program
       this.line = this.p
-      if (this.p + 2 > this.b.length) return
       const head = this.u16(this.p)
       this.p += 2
       if (head === 0) return
@@ -559,43 +649,67 @@ class Verifier {
       case 0x2f:
         return 'line'
       case 0x30:
-        this.v1For()
+        this.v1For(id)
         return 'dp'
       case 0x31:
-        this.v1Next()
+        this.v1Next(id)
         return 'dp'
       case 0x32:
       case 0x34:
-      case 0x36:
-        // Repeat, While and Do all clear their link and only While has a test
+      case 0x36: {
+        // Repeat, While and Do open the same way: a loop deeper, an entry to
+        // match, and a cleared link. Only While carries a test.
+        this.nBoucles++
+        this.pBoucles += T_LOOP
+        this.initTablA(cls === 0x32 ? 'repeat' : cls === 0x34 ? 'while' : 'do', VF.LOOPS, id)
         this.put16(this.p, 0)
         this.p += 2
         if (cls === 0x34) this.verExpression()
         return 'dp'
+      }
       case 0x33:
-        this.verExpression()
-        return 'dp'
       case 0x35:
-      case 0x37:
+      case 0x37: {
+        // and Until, Wend and Loop close it. The error each files is the one
+        // pass two raises if no opening structure ever claims the entry.
+        this.nBoucles--
+        this.pBoucles -= T_LOOP
+        const err =
+          cls === 0x33
+            ? VERR.UNTIL_WITHOUT_REPEAT
+            : cls === 0x35
+              ? VERR.WEND_WITHOUT_WHILE
+              : VERR.LOOP_WITHOUT_DO
+        const e = this.initTablA({ err }, VF.LOOPS, id)
+        if (cls === 0x33) this.verExpression()
+        e.v0 = this.findEnd()
         return 'dp'
+      }
       case 0x38:
-        this.v1Exit()
+        this.v1Exit(id)
         return 'dp'
       case 0x39:
-        this.v1ExitIf()
+        this.v1ExitIf(id)
         return 'dp'
       case 0x3a:
-        return this.v1If()
+        return this.v1If(id)
       case 0x3b:
-        return this.v1Else()
-      case 0x3c:
+        return this.v1Else(id)
+      case 0x3c: {
+        const e = this.initTablA({ err: VERR.ELSE_WITHOUT_IF }, VF.IF, id)
         this.put16(this.p, 0)
         this.p += 2
+        e.v0 = this.p
         this.verExpE()
         return 'dp'
+      }
       case 0x3d:
+        this.initTablA({ err: VERR.ENDIF_WITHOUT_IF }, VF.IF, id).v0 = this.p
         return 'dp'
       case 0x3e:
+        this.initTablA('goto', VF.GOTO, id)
+        this.v1GoLabel()
+        return 'dp'
       case 0x3f:
         this.v1GoLabel()
         return 'dp'
@@ -1015,10 +1129,17 @@ class Verifier {
   /* ---- structures ------------------------------------------------------ */
 
   /** `V1_For` (:1701) */
-  v1For(): void {
+  v1For(id: number): void {
+    this.nBoucles++
+    this.pBoucles += T_FOR_NEXT
+    const e = this.initTablA('for', VF.LOOPS, id)
     this.put16(this.p, 0)
     this.p += 2
+    const at = this.p
     const t = this.verGV()
+    // `move.w 2(a1),Vta_Variable(a0)`: the loop variable's link, which is what
+    // a `Next I` has to match
+    e.v0 = this.u16(at + 2)
     if (t !== '0') this.fail(VERR.TYPE)
     this.want(TK_EQUALS)
     if (this.verExpression() !== t) this.fail(VERR.TYPE)
@@ -1031,27 +1152,42 @@ class Verifier {
   }
 
   /** `V1_Next` (:1755) */
-  v1Next(): void {
-    if (!this.finie()) this.verGV()
+  v1Next(id: number): void {
+    this.nBoucles--
+    this.pBoucles -= T_FOR_NEXT
+    const e = this.initTablA({ err: VERR.NEXT_WITHOUT_FOR }, VF.LOOPS, id)
+    if (!this.finie()) {
+      const at = this.p
+      this.verGV()
+      e.v4 = this.u16(at + 2)
+      e.uflag++
+    }
+    e.v0 = this.findEnd()
   }
 
   /** `V1_Exit` (:1894) */
-  v1Exit(): void {
+  v1Exit(id: number): void {
+    const e = this.initTablA('exit', VF.EXIT, id)
     this.put16(this.p, 0)
     this.put16(this.p + 2, 0)
     this.p += 4
+    e.v0 = 1
     if (this.peek() !== T.INT) return
+    e.v0 = this.u32(this.p + 2)
     this.p += 6
   }
 
   /** `V1_ExitI` (:1933) */
-  v1ExitIf(): void {
+  v1ExitIf(id: number): void {
+    const e = this.initTablA('exit', VF.EXIT, id)
     this.put16(this.p, 0)
     this.put16(this.p + 2, 0)
     this.p += 4
     this.verExpE()
+    e.v0 = 1
     if (this.peek() !== TKV.COMMA) return
     if (this.u16(this.p + 2) !== T.INT) this.syntax()
+    e.v0 = this.u32(this.p + 4)
     this.p += 8
   }
 
@@ -1060,21 +1196,30 @@ class Verifier {
    * the structured body, with one the line carries its own consequent, and
    * `If a Then 100` is a jump to a line number.
    */
-  v1If(): Go {
+  v1If(id: number): Go {
+    const e = this.initTablA('if', VF.IF, id)
     this.put16(this.p, 0)
     this.p += 2
+    e.v0 = this.p
+    e.v4 = this.line
     this.verExpE()
     if (this.peek() !== TK.THEN) return 'dp'
     this.p += 2
+    e.v0 = this.p
+    e.uflag = 1
+    e.jump = 'ifThen'
     if (this.peek() !== T.LABEL_REF) return 'loop'
     this.v1SautLGoto()
     return 'dp'
   }
 
   /** `V1_Else` (:2110) */
-  v1Else(): Go {
+  v1Else(id: number): Go {
+    const e = this.initTablA({ err: VERR.ELSE_WITHOUT_IF }, VF.IF, id)
     this.put16(this.p, 0)
     this.p += 2
+    e.v0 = this.p
+    e.v4 = this.line
     if (this.peek() === TKV.COLON) return 'dp'
     if (this.peek() !== T.LABEL_REF) return 'loop'
     this.v1SautLGoto()
@@ -1098,6 +1243,9 @@ class Verifier {
     const d0 = this.next()
     let n = 0
     if (d0 === TKV.GOTO || d0 === TKV.GOSUB) {
+      // `.Goto` files an entry and `.Gosub` falls into the same loop without
+      // one, because a Gosub returns and cannot leave a loop behind
+      if (d0 === TKV.GOTO) this.initTablA('onGoto', VF.GOTO, TK.ON)
       do {
         n++
         this.v1GoLabel()
@@ -1119,6 +1267,7 @@ class Verifier {
     if (this.peek() === TKV.PROC) return 'loop'
     if (this.peek() !== TKV.GOTO) return 'dp'
     this.p += 2
+    this.initTablA('goto', VF.GOTO, TKV.GOTO)
     this.v1GoLabel()
     return 'dp'
   }
@@ -1180,6 +1329,7 @@ class Verifier {
     if (this.phase !== 0) return this.v1ProcedureIn()
     const start = this.p
     this.procedures.push(start)
+    this.initTablA(null, VF.PROC, TKV.PROCEDURE)
     this.p += 10
     this.want(T.VARIABLE)
     this.b[this.p + 3] = (this.b[this.p + 3]! & 0x0f) | 0x80
@@ -1575,6 +1725,297 @@ class Verifier {
       this.put16(r.at, rec.link)
     }
     this.reloc = []
+  }
+
+  /* ---- structures ------------------------------------------------------ */
+
+  /** `Init_TablA` (+Verif.s:2349) */
+  initTablA(jump: Jump | null, flag: number, token = 0): Entry {
+    const e: Entry = {
+      token,
+      flag,
+      uflag: 0,
+      prog: this.p,
+      nBoucles: this.nBoucles,
+      pBoucles: this.pBoucles,
+      jump,
+      v0: 0,
+      v4: 0,
+    }
+    this.tablA.push(e)
+    return e
+  }
+
+  /**
+   * `Find_TablA` (:2380): the next entry at the same loop depth with the same
+   * flag, and with the given token unless `token` is -1.
+   */
+  findTablA(from: Entry, flag: number, nBoucles: number, token: number): Entry | undefined {
+    for (let i = this.tablA.indexOf(from) + 1; i < this.tablA.length; i++) {
+      const e = this.tablA[i]!
+      if (e.nBoucles !== nBoucles || e.flag !== flag) continue
+      if (token >= 0 && e.token !== token) continue
+      return e
+    }
+    return undefined
+  }
+
+  /**
+   * `Find_TablATest` (:2397): the `Else`, `Else If` or `End If` that belongs
+   * to this test, counting nested `If`s on the way so an inner structure does
+   * not steal the match.
+   *
+   * `tst.b Vta_UFlag(a0) / bne .NoT` is where "No THEN in a structured test"
+   * comes from: an `If` that HAD a `Then` cannot be closed by an `End If`.
+   */
+  findTablATest(from: Entry, t1: number, t2: number, t3: number): Entry | undefined {
+    let depth = 0
+    for (let i = this.tablA.indexOf(from) + 1; i < this.tablA.length; i++) {
+      const e = this.tablA[i]!
+      if (e.flag !== VF.IF) continue
+      if (e.uflag !== 0) {
+        this.pos = e.prog - 2
+        this.fail(VERR.NO_THEN)
+      }
+      if (e.token === TK.IF) {
+        depth++
+        continue
+      }
+      if (depth !== 0) {
+        if (e.token === TKV.END_IF && --depth < 0) return undefined
+        continue
+      }
+      if (e.token === t1 || e.token === t2 || e.token === t3) return e
+    }
+    return undefined
+  }
+
+  /** `Doke_Distance` (:2434), which is where a branch link comes from */
+  dokeDistance(target: number): void {
+    const d = target - this.p - 2
+    if (d < 0 || d >= 0x10000) this.fail(VERR.STRUCTURE_TOO_LONG)
+    this.put16(this.p, d)
+    this.p += 2
+  }
+
+  /**
+   * `Find_End` (:2444): where an instruction really ends, which is the line
+   * after it when nothing else shares the line.
+   */
+  findEnd(): number {
+    const d0 = this.u16(this.p)
+    if (d0 === 0) return this.u16(this.p + 2) === 0 ? this.p : this.p + 4
+    if (d0 !== TKV.COLON) this.syntax()
+    return this.p + 2
+  }
+
+  /**
+   * `Goto_Loops` (:2462): a jump may leave a loop but never enter one.
+   *
+   * It walks the structure list towards the target and compares the loop
+   * depth at the far end with the depth here. Jumping to somewhere deeper is
+   * "No jumps allowed into the middle of a loop".
+   */
+  gotoLoops(from: Entry, target: number): void {
+    const list = this.tablA
+    let i = list.indexOf(from)
+    const depth = from.nBoucles
+    if (target >= this.p) {
+      let prev = from
+      for (;;) {
+        if (i + 1 >= list.length) return
+        i++
+        const e = list[i]!
+        if (target >= e.prog) {
+          prev = e
+          continue
+        }
+        if (depth < prev.nBoucles) this.fail(VERR.JUMP_INTO_LOOP)
+        return
+      }
+    }
+    for (;;) {
+      if (i - 1 < 0) return
+      i--
+      const e = list[i]!
+      if (target < e.prog) continue
+      if (depth < e.nBoucles) this.fail(VERR.JUMP_INTO_LOOP)
+      return
+    }
+  }
+
+  /**
+   * The `.TablA` loop at the end of `VerX` (:554): every entry that still has
+   * a jump gets it called, with a6 back at the position it was made from.
+   */
+  walkTablA(): void {
+    for (const e of this.tablA) {
+      if (e.jump === null) continue
+      this.p = e.prog
+      this.pos = e.prog - 2
+      this.pass2(e)
+    }
+    this.tablA = []
+  }
+
+  pass2(e: Entry): void {
+    const jump = e.jump!
+    if (typeof jump === 'object') this.fail(jump.err)
+    switch (jump) {
+      case 'for':
+        return this.v2Loop(e, TKV.NEXT, VERR.FOR_WITHOUT_NEXT, true)
+      case 'repeat':
+        return this.v2Loop(e, TKV.UNTIL, VERR.REPEAT_WITHOUT_UNTIL, false)
+      case 'while':
+        return this.v2Loop(e, TKV.WEND, VERR.WHILE_WITHOUT_WEND, false)
+      case 'do':
+        return this.v2Loop(e, TKV.LOOP, VERR.DO_WITHOUT_LOOP, false)
+      case 'exit':
+        return this.v2Exit(e)
+      case 'if':
+        return this.v2If(e, TK.ELSE, TK.ELSE_IF, TKV.END_IF, VERR.IF_WITHOUT_ENDIF)
+      case 'elseIf':
+        return this.v2If(e, TK.ELSE, TK.ELSE_IF, TKV.END_IF, VERR.ELSE_WITHOUT_IF)
+      case 'else':
+        return this.v2If(e, -1, -1, TKV.END_IF, VERR.ENDIF_WITHOUT_IF)
+      case 'ifThen':
+      case 'elseThen':
+        return this.v2Then(e, jump === 'ifThen')
+      case 'goto':
+        return this.v2Goto(e)
+      default:
+        // V2_OnGoto: one label after another, each checked the same way
+        for (;;) {
+          this.v2Goto(e)
+          if (this.u16(this.p) !== TKV.COMMA) return
+          this.p += 2
+        }
+    }
+  }
+
+  /**
+   * `V2_For` (:1736) and the three like it: find the instruction that closes
+   * the loop, take it out of the walk, and doke the distance to its end.
+   */
+  v2Loop(e: Entry, closing: number, missing: number, forLoop: boolean): void {
+    const end = this.findTablA(e, VF.LOOPS, e.nBoucles - 1, closing)
+    if (end === undefined) this.fail(missing)
+    // `tst.b Vta_UFlag(a0)`: `Next I` has to name the variable the For opened
+    if (forLoop && end.uflag !== 0 && end.v4 !== e.v0) this.fail(missing)
+    end.jump = null
+    this.dokeDistance(end.v0)
+  }
+
+  /** `V2_Exit` (:1908) */
+  v2Exit(e: Entry): void {
+    const want = e.nBoucles - e.v0
+    if (want < 0) this.fail(VERR.NOT_ENOUGH_LOOPS)
+    const end = this.findTablA(e, VF.LOOPS, want, -1)
+    if (end === undefined) this.fail(VERR.NOT_ENOUGH_LOOPS)
+    const d = end.v0 - this.p - 4
+    if (d < 0 || d >= 0x10000) this.syntax()
+    this.put16(this.p, d)
+    this.put16(this.p + 2, e.pBoucles - end.pBoucles)
+  }
+
+  /** `V2_If` (:2029), `V2_ElsI` (:2082) and `V2_Else` (:2138) */
+  v2If(e: Entry, t1: number, t2: number, t3: number, missing: number): void {
+    const found = this.findTablATest(e, t1, t2, t3)
+    if (found === undefined) this.fail(missing)
+    let target: number
+    let odd = 0
+    if (found.token === TK.ELSE) {
+      found.jump = 'else'
+      target = found.v0
+    } else if (found.token === TK.ELSE_IF) {
+      found.jump = 'elseIf'
+      odd = 1
+      target = found.v0
+    } else {
+      // End If closes the chain; nothing carries on from it
+      found.jump = null
+      this.p = found.v0
+      target = this.findEnd()
+    }
+    this.v2IfDoke(e, target, odd)
+  }
+
+  /** `V2_IfDoke` (:2055) */
+  v2IfDoke(e: Entry, target: number, odd: number): void {
+    this.p = e.prog
+    this.gotoLoops(e, target)
+    let d = target - this.p - 2
+    if (d < 0 || d >= 0x10000) this.fail(VERR.STRUCTURE_TOO_LONG)
+    // bit 0 says the branch lands on an Else If, which has a test of its own
+    if (odd !== 0) d |= 1
+    this.put16(this.p, d)
+    this.p += 2
+  }
+
+  /**
+   * `V2_IfThen` (:1978) and `V2_ElseThen` (:2126), the unstructured forms.
+   *
+   * `If a Then b` branches to the `Else` on the SAME LINE if there is one and
+   * to the line after it otherwise, so the search is by line rather than by
+   * structure. The two differ only in that `Else` has no Else of its own to
+   * look for.
+   */
+  v2Then(e: Entry, look: boolean): void {
+    let target = -1
+    if (look) {
+      let depth = 1
+      for (let i = this.tablA.indexOf(e) + 1; i < this.tablA.length; i++) {
+        const o = this.tablA[i]!
+        if (o.flag !== VF.IF || o.v4 !== e.v4) continue
+        if (o.token === TK.IF) {
+          depth++
+          continue
+        }
+        if (o.token !== TK.ELSE) continue
+        if (--depth !== 0) continue
+        o.jump = 'elseThen'
+        target = o.v0
+        break
+      }
+    }
+    if (target < 0) {
+      // .NextL: the end of the line the test is on
+      const line = e.v4
+      target = line + this.b[line]! * 2 - 2
+    }
+    this.v2IfDoke(e, target, 0)
+    // and the label a bare `Then 100` jumps to
+    this.p = e.v0
+    if (this.u16(this.p) !== T.LABEL_REF) return
+    this.p += 2
+    const rec = this.labelAt(this.p)
+    this.gotoLoops(e, rec)
+  }
+
+  /** `V2_Goto` (:2175): the link is already written, so this is the check */
+  v2Goto(e: Entry): void {
+    if (this.u16(this.p) !== T.LABEL_REF) {
+      this.evalue()
+      return
+    }
+    this.p += 2
+    const target = this.labelAt(this.p)
+    this.gotoLoops(e, target)
+  }
+
+  /**
+   * `V2_GoLabel` (:3398) reads the word back out of the record and follows it
+   * to the label's address. Here the record is looked up by name instead,
+   * because there is no table to index into.
+   */
+  labelAt(at: number): number {
+    const len = this.b[at + 2]!
+    const flag = this.b[at + 3]!
+    const name = this.nameAt(at + 4, len)
+    const rec = this.findLabel(this.phase, len, flag, name) ?? this.findLabel(0, len, flag, name)
+    this.p = at + 4 + len
+    if (rec === undefined) this.fail(VERR.UNDEFINED_LABEL)
+    return rec.target
   }
 
   /* ---- expressions ----------------------------------------------------- */
@@ -2097,10 +2538,16 @@ const OP_TEST = new Map(OPERATOR_IDS.map((id, i) => [id, OP_TESTS[i]!]))
  * first, then every procedure in a phase of its own.
  */
 export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
-  const b = Uint8Array.from(src)
+  // Four zero bytes past the last line, because that is what the block looks
+  // like in memory and several routines read one word beyond the end of an
+  // instruction to decide where it ended. `Prg_Load` leaves them; the AmBs
+  // chunk on disc does not carry them.
+  const b = new Uint8Array(src.length + 4)
+  b.set(src)
   const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set())
   v.run(0)
   v.relocate()
+  v.walkTablA()
   v.globals = v.locals
   for (const at of v.procedures) {
     v.phase++
@@ -2109,11 +2556,15 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     // `Locale` (:3499): a name Shared put in the global table stays reachable,
     // everything else goes back to being invisible from a procedure
     for (const g of v.globals) if (g.global !== 2) g.global = 0
+    v.nBoucles = 0
+    v.pBoucles = 0
+    v.tablA = []
     v.run(at, true)
     v.relocate()
+    v.walkTablA()
     // `move.w VarLong(a5),6(a0)` (:130): how much variable space the procedure
     // needs, which the interpreter reserves when it calls it
     v.put16(at + 6, v.varLong)
   }
-  return b
+  return b.slice(0, src.length)
 }
