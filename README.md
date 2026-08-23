@@ -302,10 +302,10 @@ Language semantics recovered from the assembly and the corpus:
   Test pass, `+Verif.s`: it decides what a bare name really is, swaps an
   instruction for the argument-count variant its arguments fit, counts an
   extension's arguments into the byte behind its slot, and fills the branch
-  links and variable offsets. 552 of the 566 programs in `fixtures/` walk
-  through it, 113 of them coming out byte for byte identical to what the Amiga
+  links and variable offsets. 3,732 of the 3,873 programs in the corpus walk
+  through it and 1,091 come out byte for byte identical to what the Amiga
   saved, and a program listed and retyped and verified again is the same bytes
-  in all 539 cases the sweep can compare.
+  in all 539 fixtures cases the sweep can compare.
 - `Restore` and `Gosub` accept computed string expressions as label names, for
   instance `Restore "Rn"+Mid$(Str$(N),2)`.
 
