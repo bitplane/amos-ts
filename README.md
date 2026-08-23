@@ -226,12 +226,15 @@ original, split into what can still be closed and what cannot.
   byte for byte.
 - **Tokens.** Token tables extracted from the compiled AMOS Pro 2.00 libraries
   (hunk file, then `AP20` header, then `C_Tk` table), and the editor's own
-  `Detok` and `Tokenise` ported byte for byte from `+Edit.s`. All 124,468
-  lines of the 566 corpus programs go out through one and back through the
-  other and come back as the bytes they started as, once the fields the
-  verifier owns are cleared: 65 lines do not, and each is a case the text
-  cannot decide. A second tokenizer resolves procedure calls up front, which
-  `Tokenise` leaves to the verifier, so tests can be written in AMOS source.
+  `Detok` and `Tokenise` ported byte for byte from `+Edit.s`. Every line of
+  every program the project can reach goes out through one and back through
+  the other and has to come back as the bytes it started as, once the fields
+  the verifier owns are cleared: 124,468 lines under `fixtures/` and 1,063,966
+  across the 3,873 programs in the corpus index. 0.18% do not, and each is a
+  case the text cannot decide, classified by what is in the bytes rather than
+  by which file it came from. A second tokenizer resolves procedure calls up
+  front, which `Tokenise` leaves to the verifier, so tests can be written in
+  AMOS source.
 - **Interpreter.** Values, AMOS precedence and type rules, all control flow,
   procedures with the real scoping rules, Data/Read/Restore with computed
   labels, error trapping, Input and Print. A prescan recomputes control flow

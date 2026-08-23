@@ -133,11 +133,11 @@ function skipToken(src: Uint8Array, p: number, id: number): number {
  */
 function keywordCase(name: string, mode: CaseMode): string {
   if (mode === 0) return name
-  if (mode === 1) return name.toUpperCase()
+  if (mode === 1) return upperAll(name)
   let out = ''
   let i = 0
   while (i < name.length) {
-    out += name.charAt(i).toUpperCase()
+    out += upper(name.charAt(i))
     i++
     while (i < name.length) {
       const c = name.charAt(i)
@@ -152,14 +152,14 @@ function keywordCase(name: string, mode: CaseMode): string {
 /** `DtkV2`, `DtkV3` and `DtkV5`: the three ways `DtkMaj2` writes an identifier. */
 function identCase(name: string, mode: CaseMode): string {
   if (mode === 0) return name
-  if (mode === 1) return name.toUpperCase()
+  if (mode === 1) return upperAll(name)
   // DEFECT: mode 2 reads its first character through `move.b (a6)+,d0` at
   // $284A0, and a6 is the TOKEN pointer, not the name pointer that the rest of
   // the loop uses. So it prints the high byte of the record's runtime link
   // where the first letter should be, and then leaves a6 one byte on, which
   // desynchronises the whole line. The shipped configuration is 1, so nothing
   // reaches it. Not reproduced: this returns what the loop meant to write.
-  return name.charAt(0).toUpperCase() + name.slice(1)
+  return upper(name.charAt(0)) + name.slice(1)
 }
 
 /** the message `DtkEe` patches an extension letter into, at $2854E */
@@ -333,6 +333,26 @@ export function detokBytes(src: Uint8Array, table: TokenTable, opts: EdtokOption
 /** `MinD0` at $2846E, and `Minus`: a-z only, nothing above 127 */
 function lower(c: string): string {
   return c >= 'A' && c <= 'Z' ? String.fromCharCode(c.charCodeAt(0) + 32) : c
+}
+
+/**
+ * `DtkV3` ($15012) and `MajD0ed`: `cmp.b #"a"` and `cmp.b #"z"`, nothing else.
+ *
+ * The accented half of Latin-1 is left alone in both directions, which is what
+ * lets a name carrying one survive a listing. `TkV2` takes any byte above 128
+ * into an identifier and `MinD0` does not fold it, so `HÖHE=90` in
+ * `_ChartLine.AMOS` is stored as "h\xf6he" and has to list as "H\xf6HE".
+ * JavaScript's toUpperCase would make that "H\xd6HE" and change the program.
+ */
+function upper(c: string): string {
+  return c >= 'a' && c <= 'z' ? String.fromCharCode(c.charCodeAt(0) - 32) : c
+}
+
+/** the same over a whole name, which is all `DtkV3` and `Dtk6` do */
+function upperAll(name: string): string {
+  let out = ''
+  for (const c of name) out += upper(c)
+  return out
 }
 
 function isDigit(c: string): boolean {

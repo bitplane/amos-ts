@@ -69,14 +69,24 @@ describe('FloatToAsc, the proportional arm Detok uses', () => {
 
   it('goes exponential at seven integer digits, and drops the point when bare', () => {
     // `cmp.w #8,a0 / bcc ExFix1`, and Exf5 writes the E over the point
-    expect(floatToAsc(2 ** 30)).toBe('1.07374E+09')
+    expect(floatToAsc(2 ** 30)).toBe('1.07374 E+09')
     expect(floatToAsc(1e7)).toBe('1E+07')
     expect(floatToAsc(-1e7)).toBe('-1E+07')
   })
 
+  it('puts a space before the E only when the point survived', () => {
+    // fldeb's p1 copies to the first point and runs off the end if there is
+    // none, so a bare mantissa never reaches p5 and never gets the space.
+    // Kyzer's amostools prints both forms in test/sources/Numbers.Asc, and
+    // that file is the only listing in the corpus that reaches this arm.
+    // both are stored constants, read off Numbers.AMOS at offsets 0 and 14
+    expect(f(0xffffff7f)).toBe('9.22337 E+18') // the FFP maximum
+    expect(f(0xb1a2bd79)).toBe('1E+17')
+  })
+
   it('goes exponential under 0.0001, where the zero run reaches four', () => {
-    expect(floatToAsc(0.000123)).toBe('1.23E-04')
-    expect(floatToAsc(0.0000456)).toBe('4.56E-05')
+    expect(floatToAsc(0.000123)).toBe('1.23 E-04')
+    expect(floatToAsc(0.0000456)).toBe('4.56 E-05')
     // and 0.00456 has only two leading zeros, so it stays fixed
     expect(floatToAsc(0.00456)).toBe('0.00456')
   })
@@ -89,8 +99,10 @@ describe('FloatToAsc, the proportional arm Detok uses', () => {
     // leaving "1E-06" for a number that is 1E-05. Nothing re-derives the
     // exponent from the digits it ended up with.
     //
-    // Derived from the source, not observed: no float in the corpus reaches
-    // either exponential arm, so this arm is ported and unverified.
+    // Derived from the source. The E- arm is reached by 41 constants in the
+    // corpus and they all print sensibly, because a2ffp lands a step BELOW
+    // each round power of ten and the probe never sees a run of zeros to
+    // round up. This case needs the step above, which nothing types.
     expect(floatToAsc(0.00001)).toBe('1E-06')
   })
 
@@ -145,6 +157,34 @@ describe('AscToFloat', () => {
     expect(ascToFfp('')).toBe(0)
     expect(ascToFfp('.')).toBe(0)
     expect(ascToFfp('0')).toBe(0)
+  })
+
+  it('DEFECT loses a mantissa step every time the line is listed and read back', () => {
+    // 0.875 is exact in binary and AMOS still does not store it: a2ffp divides
+    // 1.0 by ten three times and multiplies, which lands a step below. The
+    // listing then reports that honestly and reading it back lands lower
+    // again, so the constant walks down as the line is edited.
+    const typed = ascToFfp('0.875')
+    expect(typed).toBe(0xdfffff40)
+    expect(floatToAsc(decodeFfp(typed))).toBe('0.8749999')
+    expect(ascToFfp('0.8749999')).toBe(0xdffffc40)
+    // and it keeps going, so no number of passes settles it: six visits to
+    // the line take 0.875 down to 0.8749994
+    let bits = typed
+    const seen: string[] = []
+    for (let i = 0; i < 6; i++) {
+      const text = floatToAsc(decodeFfp(bits))
+      seen.push(text)
+      bits = ascToFfp(text)
+    }
+    expect(seen).toEqual([
+      '0.8749999',
+      '0.8749998',
+      '0.8749997',
+      '0.8749996',
+      '0.8749995',
+      '0.8749994',
+    ])
   })
 
   it('makes a negative zero the format has no room for', () => {

@@ -22,7 +22,10 @@ describe('FFP single-precision floats (mathffp.library)', () => {
     // the integer part reaches seven digits FloatToAsc switches to exponent
     // form: `cmp.w #8,a0 / bcc ExFix1` (+Lib.s:26050), where a0 counts the
     // digits before the point AND the point
-    expect(run('A#=2^30 : Print A#')).toBe(' 1.07374E+09\n')
+    // and the space before the E is fldeb's: Print reaches it the same way
+    // Detok does, because +ILib.s:7679 loads FixFlg into d4.w and clears only
+    // bit 31, so the word is still negative and p0b trims the tail
+    expect(run('A#=2^30 : Print A#')).toBe(' 1.07374 E+09\n')
     // six significant digits, not seven: PaFix2 computes `7 - a0` decimals
     // and a0 is 2 for a one-digit integer part, so five decimals
     expect(run('Print Pi#')).toBe(' 3.14159\n') // the ROM FFP constant

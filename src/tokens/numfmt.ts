@@ -147,6 +147,10 @@ export function floatToAsc(v: number): string {
  * `Exf5` writes the "E" AT `a2`, and `a2` is the address of the point itself
  * until a non-zero decimal moves it. So a value with nothing after the point
  * loses the point as well and reads "1E+10", not "1.E+10".
+ *
+ * Whether the point survived also decides the space `fldeb` puts in front of
+ * the E, which is why `spaceBeforeE` takes the trimmed decimals rather than
+ * the value.
  */
 function expAtLeastOne(value: number, n: number): string {
   const exponent = n - 2
@@ -156,7 +160,25 @@ function expAtLeastOne(value: number, n: number): string {
   const digits = (sign ? s.slice(1) : s).replace('.', '')
   const kept = digits.slice(1, 6).replace(/0+$/, '')
   const point = kept === '' ? '' : '.'
-  return `${sign}${digits[0]}${point}${kept}E+${expDigits(exponent)}`
+  return `${sign}${digits[0]}${point}${kept}${spaceBeforeE(kept)}E+${expDigits(exponent)}`
+}
+
+/**
+ * The space `fldeb` writes in front of the E, at $25960.
+ *
+ * `F2a` leaves the whole number in `DeFloat` and `fldeb` copies it out again
+ * one character at a time. `p1` copies until it meets a point, and a mantissa
+ * that kept no decimals has none, so the loop runs to the terminator and
+ * returns from `p7` having never seen `p5`. A mantissa WITH a point falls out
+ * of `p1` at `p1a`, and `p5` then tests the character it stopped on and writes
+ * a space if it is an "E".
+ *
+ * So the space tracks the point, not the exponent: "1E+17" has neither and
+ * "9.22337 E+18" has both. Kyzer's amostools prints the same two forms in
+ * `test/sources/Numbers.Asc`, from a reading of AMOS this port did not share.
+ */
+function spaceBeforeE(kept: string): string {
+  return kept === '' ? '' : ' '
 }
 
 /** `ExVir1` ($26162): the same shape under 1.0, with `E-nn` */
@@ -171,7 +193,7 @@ function expUnderOne(value: number, run: number): string {
   const kept = digits.slice(first + 1, first + 7).replace(/0+$/, '')
   // Exv8 falls into Exf5, so the point goes the same way it does above
   const point = kept === '' ? '' : '.'
-  return `${sign}${head}${point}${kept}E-${expDigits(run)}`
+  return `${sign}${head}${point}${kept}${spaceBeforeE(kept)}E-${expDigits(run)}`
 }
 
 /** the `CMPI.B #$30 / CMPI.B #$39` pair the digit loops open with */
@@ -305,6 +327,17 @@ function ascToWord(text: string): number {
  * frame and nothing bounds the copy loop at $27F32, so a literal with 21 or
  * more digits writes over the saved `a6` and returns into nothing. There is no
  * frame here to overwrite.
+ *
+ * DEFECT: a constant can lose a mantissa step every time its line is listed
+ * and read back. Type `0.875` and $28040 divides 1.0 by ten three times and
+ * multiplies, landing on $DFFFFF40 rather than the $E0000040 that 0.875 has
+ * exactly. `floatToAsc` then reports that honestly as "0.8749999", and reading
+ * "0.8749999" back gives $DFFFFC40, three steps lower again. The editor
+ * retokenises any line the cursor leaves, so the constant walks down every
+ * time the line is touched. 126 lines of the 3,873 programs in the corpus are
+ * caught mid-walk, `XFIN#=0.8749999` and `KC#=0.004499999` among them, each
+ * one a value someone typed as 0.875 or 0.0045. See
+ * `roundtrip.ts:driftingFloat` and the named test in `numfmt.test.ts`.
  */
 export function ascToFfp(text: string): number {
   let i = 0
