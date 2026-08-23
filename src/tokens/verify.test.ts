@@ -60,14 +60,24 @@ describe('what a bare name turns out to be', () => {
    * it decides from what follows rather than from the name.
    */
   it('makes a name with nothing after it a procedure call', () => {
-    const b = run('MYPROC')
+    const b = run('MYPROC\nProcedure MYPROC\nEnd Proc')
     expect(idAt(b, 2)).toBe(T.PROC_CALL)
     // `or.b #$80,3(a6)` (:3277), the bit that says the record is a call
     expect(b[7]).toBe(0x80)
   })
 
   it('makes the name behind a Goto a line-number reference', () => {
-    expect(idAt(run('Goto FOO'), 4)).toBe(T.LABEL_REF)
+    expect(idAt(run('Goto FOO\nFOO:'), 4)).toBe(T.LABEL_REF)
+  })
+
+  /**
+   * `VerX` (:496) resolves the names in a second walk, because a label is
+   * usually below the line that jumps to it. What is left over at the end is
+   * an error, not a zero.
+   */
+  it('refuses a jump to a label nobody defined', () => {
+    expect(() => run('Goto NOWHERE')).toThrow(/Undefined label/)
+    expect(() => run('NOSUCHPROC')).toThrow(/Undefined procedure/)
   })
 
   /**
@@ -76,7 +86,7 @@ describe('what a bare name turns out to be', () => {
    * so a computed `Goto` stays a variable.
    */
   it('leaves a name a variable when an expression follows it', () => {
-    expect(idAt(run('Goto FOO+1'), 4)).toBe(T.VARIABLE)
+    expect(idAt(run('Goto FOO+1\nFOO:'), 4)).toBe(T.VARIABLE)
   })
 
   it('leaves an assignment alone', () => {
@@ -136,6 +146,45 @@ describe('the byte behind an extension slot', () => {
     const b = run('Zap 1,2,3,4,5,6,7,8,9,10,11,12', slot3)
     expect(idAt(b, 6)).toBe(0x002a)
     expect(b[5]).toBe(9)
+  })
+})
+
+describe('the words pass two dokes back', () => {
+  /**
+   * A variable's link is its offset in the buffer, six bytes apart and handed
+   * out in the order the names first appear. `V2_StoVar` (:3634) reads it back
+   * out of the name record, so it is settled the moment the name is created.
+   */
+  it('gives each name its offset in the variable buffer', () => {
+    const b = run('A=1 : B=2 : A=3')
+    expect(idAt(b, 4)).toBe(0)
+    expect(idAt(b, 22)).toBe(6)
+    expect(idAt(b, 40)).toBe(0)
+  })
+
+  /**
+   * A label reference carries `(record + 4) - LabHaut`, and the table grows
+   * down, so it is negative. The first record starts eight bytes plus the name
+   * below `LabBas`, and `LabBas` itself starts two below `LabHaut`
+   * (`ResVarBuf` :4059 writes an end marker there first). A four-letter label
+   * is therefore -10, and the next one -22.
+   */
+  it('gives each label reference its distance below the top of the table', () => {
+    const b = run('Goto ZFOO\nZFOO:\nZBAR:\nGoto ZBAR')
+    expect(idAt(b, 6)).toBe(0xfff6)
+    expect(idAt(b, 50)).toBe(0xffea)
+  })
+
+  /**
+   * `PTest` (:130) pokes the phase's `VarLong` into the Procedure record when
+   * the phase is over, which is how much space the interpreter reserves for
+   * the call. `Shared A` reaches the global A, so only B is local here.
+   */
+  it("gives a procedure the size of its own variables", () => {
+    const b = run('A=1\nProcedure P\nShared A\nA=2\nB=3\nEnd Proc')
+    expect(idAt(b, 28)).toBe(6)
+    // and the shared name links to the global buffer, which is -(offset + 1)
+    expect(idAt(b, 60)).toBe(0xffff)
   })
 })
 
@@ -214,13 +263,25 @@ describe.skipIf(sweep.programs === 0)('every program in fixtures, walked', () =>
   })
 
   /**
-   * Four do not, and both reasons are real rather than a gap in the walk.
-   * Two call `Equ("...")` against an equate bank, which nothing here loads
-   * yet; two use an extension slot no library on this machine answers for,
-   * which is error 5, the one AMOS raises as well.
+   * Twelve do not, and the reasons are countable rather than a gap in the
+   * walk. Eight reach `Equ(...)` or `Lvo(...)`, which read an equate bank
+   * nothing here loads. Two name an extension slot no library on this machine
+   * answers for, which is error 5, the one AMOS raises as well.
+   *
+   * The last two are `Header_AMOS.AMOS`, the template the compiler fills in.
+   * Its `||apcmp||` sits in a procedure whose flags word is $8000, folded and
+   * nothing else, and `V1_Procedure` only steps over a machine-code body when
+   * bit 12 is set. So AMOS reads it as an instruction too, and class $57 is
+   * `bra VerSynt`. A template is not a program.
    */
-  it('walks all but four to the end', () => {
-    expect(sweep.programs - sweep.verified).toBe(4)
-    expect([...sweep.codes].sort((a, b) => a - b)).toEqual([5, 5, 54, 54])
+  it('walks all but twelve to the end', () => {
+    expect(sweep.programs - sweep.verified).toBe(12)
+    const counted = new Map<number, number>()
+    for (const c of sweep.codes) counted.set(c, (counted.get(c) ?? 0) + 1)
+    expect([...counted].sort((a, b) => a[0] - b[0])).toEqual([
+      [5, 2],
+      [35, 2],
+      [54, 8],
+    ])
   })
 })

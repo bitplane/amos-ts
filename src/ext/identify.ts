@@ -275,6 +275,22 @@ export function extensionTablesFor(
   return tables
 }
 
+/**
+ * The slots holding an AP20-format library, which is what the verifier needs
+ * to know: `Ver_Extension` (+Verif.s:429) writes $FF in place of the argument
+ * count when `LBF_20` is set, because those libraries count their own.
+ */
+export function extensionAp20For(
+  lines: readonly TokenLine[],
+  opts: IdentifyOptions = {},
+): Set<number> {
+  const slots = new Set<number>()
+  for (const [slot, ext] of extensionBindingsFor(lines, opts)) {
+    if (ext.format === 'ap20') slots.add(slot)
+  }
+  return slots
+}
+
 /** Identify every extension slot a program uses. */
 export function identifyProgram(
   lines: readonly TokenLine[],

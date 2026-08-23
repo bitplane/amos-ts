@@ -23,15 +23,21 @@
  * ZEROES the branch links rather than filling them, exactly as `clr.w (a6)+`
  * does, and it leaves the variable record's runtime link alone.
  *
- * Pass two is not here. `VerX` (:496) walks the relocation list to doke the
- * variable offsets and the label addresses, and `TablA` matches every open
- * structure to the one that closes it, which is where `For` learns the
- * distance to its `Next`. Those three fields are what ./roundtrip.ts still
- * has to clear.
+ * `VerX` (:496) is here as far as the NAMES go. It walks the relocation list
+ * and dokes the word a `Goto` or a `Proc` carries, which has to be a second
+ * walk because a label is usually below the line that jumps to it. The
+ * variable link needs no second walk at all: the offset is decided when
+ * `V1_StoVar` creates the name, so this port writes the final word straight
+ * away where AMOS writes a name-table offset and comes back for it.
  *
- * Measured over the 566 programs in fixtures/: 562 verify. Two want an equate
- * bank, which no part of this port reads yet, and two use an extension slot
- * nothing on this machine can identify, which is the error AMOS raises too.
+ * What is still missing is `TablA`, the stack of open structures that pass two
+ * walks to match every `For` to its `Next`. So the branch links stay zero, and
+ * they are the last field ./roundtrip.ts has to clear.
+ *
+ * Measured over the 566 programs in fixtures/: 554 verify. Eight reach an
+ * equate bank that no part of this port reads yet, two name an extension slot
+ * nothing on this machine can identify, and two are the compiler's own
+ * template rather than a program.
  */
 import { OPERATORS, T, TokenTable } from './stream'
 import { CORE_TOKENS } from './tables.gen'
@@ -90,6 +96,7 @@ export const VERR = {
   PROC_NOT_OPENED: 18,
   ILLEGAL_PARAM_COUNT: 19,
   UNDEFINED_PROC: 20,
+  UNDEFINED_LABEL: 41,
   DATA_AT_LINE_START: 4,
   USER_FN: 2,
   SYNTAX: 35,
@@ -161,6 +168,42 @@ interface VarRec {
   name: string
 }
 
+/**
+ * The label record `V1_StockLabel` (+Verif.s:3413) builds: a four-byte key of
+ * phase, name length and flag, the address a jump to it lands on, and the
+ * name. Eight bytes plus the name, and the table grows DOWNWARD from
+ * `LabHaut`, which is why the word a reference carries is negative.
+ */
+interface LabelRec {
+  phase: number
+  len: number
+  flag: number
+  name: string
+  /** `addq.l #4,a0 / sub.l LabHaut(a5),a0 / move.w a0,(a6)`, the reference word */
+  link: number
+  /** where a jump to it lands, which is the next line when the label is alone */
+  target: number
+}
+
+/**
+ * One entry of the relocation list `New_Reloc` (:3731) builds and `VerX`
+ * (:496) replays. AMOS packs it as a byte stream of distances and action
+ * codes, because it has to fit in 1K at a time; there is nothing to pack here,
+ * so the position is carried whole.
+ *
+ * Only the two that resolve a name are kept. `Reloc_Var` is not: the offset a
+ * variable gets is decided when `V1_StoVar` creates it, so this port writes
+ * the final link straight away rather than writing a name-table offset and
+ * coming back for it. Same bytes, one walk fewer.
+ */
+interface Reloc {
+  /** the variable record the word belongs to */
+  at: number
+  phase: number
+  /** a procedure call looks in phase 0 whatever phase it was written in */
+  proc: boolean
+}
+
 export interface VerifyOptions {
   /** token tables for extensions, keyed by the slot number the line stores */
   extensions?: Map<number, TokenTable>
@@ -185,12 +228,28 @@ class Verifier {
   phase = 0
   /** VarLong, the next free offset in this phase's variable buffer */
   varLong = 0
+  /** MathFlags bit 7, which `Set Double Precision` turns on for the whole program */
+  doublePrecision = false
   /** VNm, this phase's names; in phase 0 it becomes DVNm */
   locals: VarRec[] = []
   /** DVNm, the main program's names, which Shared makes reachable from a procedure */
   globals: VarRec[] = []
   /** every Procedure line phase 0 stepped over, to walk in a phase of its own */
   procedures: number[] = []
+  /** the label table, which every phase adds to and none of them clears */
+  labels: LabelRec[] = []
+  /**
+   * How far `LabBas` has come down from `LabHaut`.
+   *
+   * It starts at two, not zero: `ResVarBuf` (:4059) sets `LabHaut` to the top
+   * of the buffer and then writes a zero word BELOW it as the end marker
+   * before taking `LabBas` from there. So the first label's record begins two
+   * bytes lower than the arithmetic suggests, and every reference in the
+   * program carries the difference.
+   */
+  labBas = 2
+  /** the names this phase still has to resolve */
+  reloc: Reloc[] = []
 
   constructor(
     readonly b: Uint8Array,
@@ -253,10 +312,22 @@ class Verifier {
 
   /* ---- the main loop --------------------------------------------------- */
 
-  /** `SsTest` over one phase's worth of program, from `at` */
-  run(at: number): void {
+  /**
+   * `SsTest` (+Verif.s:225) over one phase's worth of program, from `at`.
+   *
+   * A procedure's phase does not start at a line header. `Prg_Test` is set to
+   * the TablA entry's `Vta_Prog`, which is the `Procedure` token itself, and
+   * `SsTest` branches straight to `VerDd` because Phase is not zero. So the
+   * first thing the phase reads is the Procedure token again, this time
+   * reaching `V1_ProcedureIn` to name the parameters.
+   */
+  run(at: number, midLine = false): void {
     this.p = at
     this.paren = 0
+    if (midLine) {
+      this.line = at - 2
+      if (this.statements(true) === 'phase') return
+    }
     for (;;) {
       // VerD: the line header, and a zero one ends the program. A block read
       // off disk stops one word short of one, because the zero is what
@@ -367,8 +438,12 @@ class Verifier {
         this.verSetBuffer()
         return 'dp'
       case 0x04:
+        // `VerDPre` (:773) sets MathFlags to %10000011, and bit 7 is what
+        // makes a float scalar ten bytes wide rather than six
+        this.doublePrecision = true
+        return 'dp'
       case 0x24:
-        return 'dp' // Set Double Precision / Set Accessory: nothing to walk
+        return 'dp' // Set Accessory: nothing to walk
       case 0x05:
         this.verSetStack()
         return 'dp'
@@ -410,7 +485,7 @@ class Verifier {
         return 'dp'
       case 0x11:
       case 0x12:
-        this.verPalette(0)
+        this.verPalette()
         return 'dp'
       case 0x13:
         this.verRead()
@@ -693,9 +768,15 @@ class Verifier {
     this.take(TKV.SEMICOLON)
   }
 
-  /** `VerPal` (:962): up to 32 colours, comma separated */
-  verPalette(from: number): void {
-    let n = from
+  /**
+   * `VerPal` (:962): up to 32 colours, comma separated.
+   *
+   * `VerFa1` falls straight through into `VerPal`'s `clr.w d0`, so `Fade 1,`
+   * and `Palette` start the count in the same place. Starting Fade's at one
+   * instead makes `Fade 3` with a full 32-colour palette a syntax error.
+   */
+  verPalette(): void {
+    let n = 0
     for (;;) {
       n++
       this.verExpE()
@@ -709,7 +790,7 @@ class Verifier {
   verFade(): void {
     this.verExpE()
     if (this.take(TKV.COMMA)) {
-      this.verPalette(1)
+      this.verPalette()
       return
     }
     if (!this.take(TKV.TO)) return
@@ -1272,10 +1353,16 @@ class Verifier {
       const g = this.globals.find(
         (v) => v.global !== 0 && v.len === len && v.flag === flag && v.name === name,
       )
-      if (g !== undefined) return { v: g, fresh: false }
+      if (g !== undefined) {
+        this.put16(a0.at, -(g.offset + 1))
+        return { v: g, fresh: false }
+      }
     }
     const found = this.find(this.locals, len, flag, name)
-    if (found !== undefined) return { v: found, fresh: false }
+    if (found !== undefined) {
+      this.put16(a0.at, found.offset)
+      return { v: found, fresh: false }
+    }
     const v: VarRec = {
       len,
       flag,
@@ -1284,8 +1371,11 @@ class Verifier {
       global: 0,
       name,
     }
-    this.varLong += 6
+    // `addq.w #6,VarLong(a5)`, and four more for a double-precision float that
+    // is not an array: `cmp.b #1,d2 / bne .Skip / tst.b MathFlags(a5)`
+    this.varLong += flag === 1 && this.doublePrecision ? 10 : 6
     this.locals.push(v)
+    this.put16(a0.at, v.offset)
     return { v, fresh: true }
   }
 
@@ -1402,6 +1492,7 @@ class Verifier {
 
   /** `V1_CallProc` (:3270) */
   v1CallProc(withParams = false): void {
+    this.reloc.push({ at: this.p, phase: this.phase, proc: true })
     const a0 = this.varA0()
     this.put16(this.p - 2, T.PROC_CALL)
     this.b[this.p + 3]! |= 0x80
@@ -1436,6 +1527,8 @@ class Verifier {
       const after = this.u16(end)
       if (after === 0 || after === TKV.COMMA || this.finie(end)) {
         this.put16(this.p, T.LABEL_REF)
+        this.p += 2
+        this.reloc.push({ at: this.p, phase: this.phase, proc: false })
         this.p = end
         return
       }
@@ -1446,7 +1539,42 @@ class Verifier {
   /** `V1_StockLabel` (:3413) */
   v1StockLabel(): void {
     const len = this.b[this.p + 2]!
+    const flag = this.b[this.p + 3]!
+    const name = this.nameAt(this.p + 4, len)
+    if (this.findLabel(this.phase, len, flag, name) !== undefined) this.fail(VERR.LABEL_TWICE)
+    this.labBas += 8 + len
     this.p += 4 + len
+    // `tst.w (a0) / bne .N2 / tst.w 2(a0) / beq .N2 / addq.l #4,a0`: a label
+    // with nothing behind it on its line points at the line after
+    let target = this.p
+    if (this.u16(target) === 0 && this.u16(target + 2) !== 0) target += 4
+    this.labels.push({ phase: this.phase, len, flag, name, link: 4 - this.labBas, target })
+  }
+
+  findLabel(phase: number, len: number, flag: number, name: string): LabelRec | undefined {
+    return this.labels.find(
+      (l) => l.phase === phase && l.len === len && l.flag === flag && l.name === name,
+    )
+  }
+
+  /**
+   * `VerX` (:496), as far as the names go: walk the relocation list and doke
+   * the word a `Goto` or a `Proc` carries to its target.
+   *
+   * It has to be a second walk because a label may be defined below the line
+   * that jumps to it, which is most of them.
+   */
+  relocate(): void {
+    for (const r of this.reloc) {
+      const len = this.b[r.at + 2]!
+      const flag = this.b[r.at + 3]!
+      const name = this.nameAt(r.at + 4, len)
+      const rec = this.findLabel(r.proc ? 0 : r.phase, len, flag, name)
+      this.pos = r.at
+      if (rec === undefined) this.fail(r.proc ? VERR.UNDEFINED_PROC : VERR.UNDEFINED_LABEL)
+      this.put16(r.at, rec.link)
+    }
+    this.reloc = []
   }
 
   /* ---- expressions ----------------------------------------------------- */
@@ -1972,6 +2100,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
   const b = Uint8Array.from(src)
   const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set())
   v.run(0)
+  v.relocate()
   v.globals = v.locals
   for (const at of v.procedures) {
     v.phase++
@@ -1980,7 +2109,11 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     // `Locale` (:3499): a name Shared put in the global table stays reachable,
     // everything else goes back to being invisible from a procedure
     for (const g of v.globals) if (g.global !== 2) g.global = 0
-    v.run(at + 2)
+    v.run(at, true)
+    v.relocate()
+    // `move.w VarLong(a5),6(a0)` (:130): how much variable space the procedure
+    // needs, which the interpreter reserves when it calls it
+    v.put16(at + 6, v.varLong)
   }
   return b
 }
