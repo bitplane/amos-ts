@@ -298,7 +298,14 @@ Language semantics recovered from the assembly and the corpus:
   division.
 - Programs saved without the editor's Test pass store procedure calls and label
   targets as plain variable tokens, so the interpreter falls back to procedure
-  and label lookup for bare names.
+  and label lookup for bare names. `src/tokens/verify.ts` is a port of that
+  Test pass, `+Verif.s`: it decides what a bare name really is, swaps an
+  instruction for the argument-count variant its arguments fit, counts an
+  extension's arguments into the byte behind its slot, and fills the branch
+  links and variable offsets. 552 of the 566 programs in `fixtures/` walk
+  through it, 113 of them coming out byte for byte identical to what the Amiga
+  saved, and a program listed and retyped and verified again is the same bytes
+  in all 539 cases the sweep can compare.
 - `Restore` and `Gosub` accept computed string expressions as label names, for
   instance `Restore "Rn"+Mid$(Str$(N),2)`.
 

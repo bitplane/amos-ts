@@ -11,10 +11,12 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { T, TokenTable, decipheredSource, parseSource } from './stream'
+import type { TokenLine } from './stream'
 import { CORE_TOKENS } from './tables.gen'
-import { tokeniseSource } from './edtok'
+import { TK, detokLineBytes, tokeniseLine, tokeniseSource } from './edtok'
+import { opaqueRanges } from './roundtrip'
 import { parseAmosFile } from '../loader/amosfile'
-import { extensionTablesFor } from '../ext/identify'
+import { extensionAp20For, extensionTablesFor } from '../ext/identify'
 import { VerifyError, verify } from './verify'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -275,8 +277,72 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+/**
+ * The two things a listing cannot carry, cleared on both sides.
+ *
+ * An empty line's indent is the editor's and not the tokeniser's: `TokVide`
+ * never reaches `TokT1`, so it writes a zero where the editor's own blank line
+ * carries a one. And a Procedure's flags word is state the editor keeps about
+ * the procedure -- folded, locked, cannot be opened -- which no listing shows
+ * and `Tokenise` therefore cannot put back.
+ */
+function clearEditorState(x: Uint8Array): Uint8Array {
+  let q = 0
+  while (q + 2 <= x.length) {
+    const w = x[q]!
+    if (w === 0) break
+    if (w === 2) x[q + 1] = 0
+    if (((x[q + 2]! << 8) | x[q + 3]!) === TK.PROCEDURE) {
+      x[q + 10] = 0
+      x[q + 11] = 0
+    }
+    q += w * 2
+  }
+  return x
+}
+
+/** every line of a verified block back out through the editor and in again */
+function retokenise(
+  a: Uint8Array,
+  src: Uint8Array,
+  lines: TokenLine[],
+  opts: { extensions: Map<number, TokenTable> },
+): Uint8Array | null {
+  const opaque = opaqueRanges(src, lines)
+  const parts: Uint8Array[] = []
+  let p = 0
+  while (p + 2 <= a.length) {
+    const w = a[p]!
+    if (w === 0) break
+    const range = opaque.find(([x, y]) => p >= x && p < y)
+    if (range) {
+      parts.push(a.subarray(range[0], range[1]))
+      p = range[1]
+      continue
+    }
+    try {
+      parts.push(tokeniseLine(detokLineBytes(a, p, table, opts), table, opts))
+    } catch {
+      return null
+    }
+    p += w * 2
+  }
+  let n = 0
+  for (const q of parts) n += q.length
+  // a line that came back a different length is roundtrip.test.ts's business
+  if (n !== a.length) return null
+  const out = new Uint8Array(n)
+  let o = 0
+  for (const q of parts) {
+    out.set(q, o)
+    o += q.length
+  }
+  return out
+}
+
 const fixtures = join(process.cwd(), 'fixtures')
 const sweep = { programs: 0, verified: 0, codes: [] as number[] }
+const fixedPoint = { compared: 0, same: 0, differ: [] as string[] }
 if (existsSync(fixtures)) {
   for (const path of walk(fixtures)) {
     let src: Uint8Array
@@ -290,12 +356,35 @@ if (existsSync(fixtures)) {
       continue
     }
     sweep.programs++
+    const opts = { extensions: extensionTablesFor(lines), ap20: extensionAp20For(lines) }
+    let a: Uint8Array
     try {
-      verify(src, { extensions: extensionTablesFor(lines) })
+      a = verify(src, opts)
       sweep.verified++
     } catch (e) {
       sweep.codes.push(e instanceof VerifyError ? e.code : -1)
+      continue
     }
+    const t = retokenise(a, src, lines, opts)
+    if (t === null) continue
+    let b: Uint8Array
+    try {
+      b = verify(t, opts)
+    } catch {
+      continue
+    }
+    fixedPoint.compared++
+    clearEditorState(a)
+    clearEditorState(b)
+    let at = -1
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        at = i
+        break
+      }
+    }
+    if (at < 0) fixedPoint.same++
+    else fixedPoint.differ.push(`${path}@${at}`)
   }
 }
 
@@ -330,5 +419,28 @@ describe.skipIf(sweep.programs === 0)('every program in fixtures, walked', () =>
       [35, 2],
       [54, 8],
     ])
+  })
+})
+
+/**
+ * The invariant the whole exercise was for.
+ *
+ * A program the verifier has been through, listed line by line and typed back
+ * in, and verified again, is the SAME BYTES. Not "the same up to the fields
+ * the verifier owns", which is what roundtrip.ts has to settle for: the same
+ * bytes, because this side now writes those fields too.
+ *
+ * That is what the editor rests on. Every line the cursor leaves goes back
+ * through `Tokenise`, and the program is the token stream, so a round trip
+ * that moved a byte would rewrite a program by being read.
+ */
+describe.skipIf(fixedPoint.compared === 0)('a verified program, listed and retyped', () => {
+  it('compares enough programs that an empty sweep cannot pass', () => {
+    expect(fixedPoint.compared).toBeGreaterThan(400)
+  })
+
+  it('comes back byte for byte', () => {
+    expect(fixedPoint.differ).toEqual([])
+    expect(fixedPoint.same).toBe(fixedPoint.compared)
   })
 })
