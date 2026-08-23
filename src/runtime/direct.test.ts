@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { EDITOR_RESOURCE_BANK, ED_PICS } from './edres.gen'
 import { ED_MESSAGES } from './edmessages.gen'

@@ -3,7 +3,10 @@ import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
-import { tokenize } from '../tokens/tokenizer'
+// AUDIT: some of this library's keywords are called here with an argument
+// list its own token table does not accept, so the Test pass is run for what
+// it writes and not for what it refuses. See tokenizeUnchecked.
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 
@@ -13,6 +16,25 @@ const table = new TokenTable(CORE_TOKENS)
 // the superset, so it detokenises both versions' programs.
 const exts = new Map([[13, extensionById('personnal-1.1')!.table]])
 
+/**
+ * The same table with every name folded to lower case.
+ *
+ * Personnal spells `Anim Unpack` with two capitals, and `MinD0`
+ * (+Edit.s:14711) folds the INPUT and never the stored name, so nothing
+ * anyone types can match it: routine 116 is code no AMOS line can reach.
+ * Retyping the name is the only way to exercise what it does, and
+ * src/tokens/roundtrip.ts calls the same rule `untypeable`.
+ */
+const typeable = new Map([
+  [
+    13,
+    new TokenTable(
+      extensionById('personnal-1.1')!.table.entries.map((e) => ({ ...e, name: e.name.toLowerCase() })),
+      true,
+    ),
+  ],
+])
+
 /** a machine with a writable RAM:, as every real one has */
 function withRam(): AmigaFS {
   const fs = new AmigaFS()
@@ -21,7 +43,7 @@ function withRam(): AmigaFS {
 }
 
 function run(src: string, fs?: AmigaFS): Runtime {
-  const rt = new Runtime(tokenize(src, table, exts), table, {
+  const rt = new Runtime(tokenize(src, table, typeable), table, {
     extensions: exts,
     maxSteps: 2_000_000,
     ...(fs ? { fs } : {}),
@@ -1377,7 +1399,7 @@ describe('Personnal: the cruncher, nibble peeks and replayers', () => {
         ...bank,
         'B=Screen Base',
         'For P=1 To 8 : Set Plane P,Leek(B+(P-1)*4) : Next P',
-        'L=Pic Pack(B,A+8192)',
+        'L=Pic Pack(B To A+8192)',
         'Cls 0',
         'Pic Unpack A+8192 To B',
       ].join('\n'),
@@ -1401,7 +1423,7 @@ describe('Personnal: the cruncher, nibble peeks and replayers', () => {
         ...bank,
         'B=Screen Base',
         'For P=1 To 8 : Set Plane P,Leek(B+(P-1)*4) : Next P',
-        'L=Pic Pack(B,A+8192)',
+        'L=Pic Pack(B To A+8192)',
         // a one-entry frame table at +8, holding the offset FROM THE BANK
         'Loke A+4096+8,16',
         'For I=0 To L-1 : Poke A+4096+16+I,Peek(A+8192+I) : Next I',

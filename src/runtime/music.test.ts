@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { parseAmosFile } from '../loader/amosfile'
 import { Runtime } from './runtime'
 import { NullAudio, periodToHz } from '../amiga/paula'
@@ -12,7 +12,7 @@ import { AmigaFS } from '../amiga/vfs'
 import type { MemoryBank } from '../loader/amosfile'
 
 const table = new TokenTable(CORE_TOKENS)
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
 
 // ---- synthetic "Music   " bank ------------------------------------------
 // Layout per BkNew (+Music.s:1017): longs at +0/+4/+8 -> instruments,

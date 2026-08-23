@@ -6,7 +6,7 @@ import { readTar } from './tar'
 import { readZip } from './zip'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 
 const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))

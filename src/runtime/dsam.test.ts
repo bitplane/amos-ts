@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// this library gives a keyword an instruction entry with the function form
+// behind it nameless, which only AMOS 1.3 could reach -- see tokenizeUnchecked
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'

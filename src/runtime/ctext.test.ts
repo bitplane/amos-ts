@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { CT } from './ctext'
@@ -19,7 +19,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** the slot CText's own documentation recommends, and where the corpus has it */
 const CTEXT_SLOT = 8
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [CTEXT_SLOT, extensionById('ctext-1.0')!.table] as const,
 ])
 

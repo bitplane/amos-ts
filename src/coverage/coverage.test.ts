@@ -16,7 +16,7 @@ import {
   extensionImpls,
 } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { FAITHFUL, NA, NA_GROUPS, NA_GROUP_OF, NOTES, SHARED_NOTES, STRUCTURAL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL } from './menu'
 
@@ -148,6 +148,6 @@ describe('menu event control', () => {
   it('On Menu needs a Goto, Gosub or Proc target', () => {
     // V1_OnMenu (+Verif.s:1061) tests for _TkGto, _TkGsb and _TkPrc and
     // falls through to VerSynt for anything else
-    expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/On Menu needs Goto, Gosub or Proc/)
+    expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/Syntax error/)
   })
 })

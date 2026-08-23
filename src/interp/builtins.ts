@@ -917,8 +917,12 @@ export const INSTR: Record<string, Instr> = {
     it.breakHandler = { kind: 'proc', target: it.parseLabelTarget().toLowerCase() }
   },
   'set double precision'(it) {
-    // switch A# variables from single-precision FFP to IEEE double
-    it.doublePrecision = it.evalInt() !== 0
+    // No argument and no routine: the entry's spec is a bare `I` and its
+    // instruction number is $10F, `L_InNull`, the same one `Set Accessory`
+    // has. `VerDPre` (+Verif.s:773) is what does the work, setting MathFlags
+    // to %10000011 at VERIFY time, which is also why it can only appear once
+    // and has to come before any variable.
+    it.doublePrecision = true
   },
   // AMOS Compiler directives. These steer the compiler pass; at runtime under
   // the interpreter the original routines are bare `rts` (Rien, +CompExt.s:324)

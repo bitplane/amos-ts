@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 
@@ -20,7 +20,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** "The extension is supposed to be at slot nr. 25", and `ExtNb equ 25-1` */
 const JVP_SLOT = 25
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [JVP_SLOT, extensionById('jvp-1.01')!.table] as const,
 ])
 

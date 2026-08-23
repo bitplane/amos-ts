@@ -3,7 +3,7 @@ import { mustFinish } from '../testing/run'
 import { existsSync, readFileSync } from 'node:fs'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -21,7 +21,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** the doc's "enter at entry #17", and the workspace at $1f8(a5) */
 const LOCALE_SLOT = 17
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [LOCALE_SLOT, extensionById('locale-0.26')!.table] as const,
 ])
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 
@@ -15,7 +15,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** the slot the doc names: "auf Platz 25 `AMOSPro_tft.lib`" */
 const TFT_SLOT = 25
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [TFT_SLOT, extensionById('tft-0.6')!.table] as const,
 ])
 
@@ -283,7 +283,7 @@ describe('the hardware mouse readers ($8ec, $8f8)', () => {
 describe('TFT 0.7, the build that lives inside its own installer', () => {
   const tft07 = extensionById('tft-0.7')!
   const exts07 = new Map([
-    ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+    ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
     [TFT_SLOT, tft07.table] as const,
   ])
 

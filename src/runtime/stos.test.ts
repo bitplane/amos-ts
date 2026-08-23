@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 
 const table = new TokenTable(CORE_TOKENS)
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
 
 function run(src: string): Runtime {
   const rt = new Runtime(tokenize(src, table, extensions), table, { maxSteps: 300_000, extensions })

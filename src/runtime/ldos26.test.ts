@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -19,7 +19,7 @@ import { lcompress, ldecompress } from './ldoslz'
 const table = new TokenTable(CORE_TOKENS)
 const LDOS_SLOT = 10
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [LDOS_SLOT, extensionById('ldos-2.6')!.table] as const,
 ])
 
@@ -301,7 +301,7 @@ describe('Lcompress and Ldecompress through the interpreter', () => {
         'For I=0 To 4095 : Poke Start(10)+I,64+(I mod 4) : Next I',
         'L=Lcompress(Start(10),4096 To Start(11),8192)',
         'Print L<500',
-        'O=Ldecompress(Start(11),L,Start(12))',
+        'O=Ldecompress(Start(11),L To Start(12))',
         // OUTLEN over-counts by the unused slots of the last group; the data
         // itself is exact, which is what the difference sum checks
         'Print O>=4096 and O<4096+16',

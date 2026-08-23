@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
@@ -24,7 +24,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** "Its documentation states the extension expects slot 8" */
 const AMCAF_SLOT = 8
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [AMCAF_SLOT, extensionById('amcaf-1.50')!.table] as const,
 ])
 
@@ -205,7 +205,7 @@ describe('AMCAF registration', () => {
     // and Personnal's ADDRESS form is a syntax error here, because the two
     // keywords take different arguments — the divergence the shared spelling
     // was hiding for the whole of the AMCAF port
-    expect(() => run(['Screen Open 0,320,200,2,Lowres', 'Blitter Clear Logbase(0)'])).toThrow()
+    expect(() => run(['Screen Open 0,320,200,2,Lowres', 'Blitter Clear Logbase(0),0'])).toThrow()
   })
 })
 
@@ -1069,7 +1069,7 @@ describe('disk and DOS objects', () => {
    */
   it.skipIf(!ICON_WITH_TOOLTYPES)('Tool Types$ reads a real Workbench icon, and terminates each with CR LF', () => {
     const icon = ICON_WITH_TOOLTYPES!
-    const { out } = runFs(['Print "["+Tool Types$("Work:thing","X")+"]"'], { 'Work:thing.info': icon })
+    const { out } = runFs(['Print "["+Tool Types$("Work:thing")+"]"'], { 'Work:thing.info': icon })
     const got = out.trim().slice(1, -1)
     // the manual promises Chr$(10) alone; the routine writes #$d then #$a, and
     // writes them after EVERY entry rather than between them
@@ -1103,10 +1103,10 @@ describe('disk and DOS objects', () => {
   it('Tool Types$ refuses an empty name, and a file that is not an icon', () => {
     // `move.w (a0)+,d0 / Rbeq routine 390` is error 23; a failed GetDiskObject
     // goes to routine 392, which is error 94 -- the same one Examine raises
-    expect(() => runFs(['Print Tool Types$("","X")'])).toThrow(/Illegal function call/)
-    expect(() => runFs(['Print Tool Types$("Work:nope","X")'])).toThrow()
+    expect(() => runFs(['Print Tool Types$("")'])).toThrow(/Illegal function call/)
+    expect(() => runFs(['Print Tool Types$("Work:nope")'])).toThrow()
     expect(() =>
-      runFs(['Print Tool Types$("Work:junk","X")'], { 'Work:junk.info': new Uint8Array(200) }),
+      runFs(['Print Tool Types$("Work:junk")'], { 'Work:junk.info': new Uint8Array(200) }),
     ).toThrow()
   })
 
@@ -1765,8 +1765,8 @@ describe('graphics', () => {
     const e = run([...scr, 'Ink 5', 'Fellipse 20,16,10,4'])
     expect(e.rt.screens.get(0)!.rp.bitMap.pixels[16 * 64 + 20]).toBe(5)
     // a colour argument is one too many and does not parse
-    expect(() => run([...scr, 'Fcircle 20,16,8,7'])).toThrow(/syntax/)
-    expect(() => run([...scr, 'Fellipse 20,16,10,4,5'])).toThrow(/syntax/)
+    expect(() => run([...scr, 'Fcircle 20,16,8,7'])).toThrow(/Syntax error/)
+    expect(() => run([...scr, 'Fellipse 20,16,10,4,5'])).toThrow(/Syntax error/)
   })
 
   /**
@@ -3320,7 +3320,7 @@ describe('Splinters and Td Stars', () => {
     expect(() => run([...scr, 'Td Stars Planes 4,0'])).toThrow(/Illegal function call/)
     expect(() => run([...scr, 'Td Stars Planes 0,3'])).not.toThrow()
     // and a single argument does not parse
-    expect(() => run([...scr, 'Td Stars Planes 2'])).toThrow(/expected ","/)
+    expect(() => run([...scr, 'Td Stars Planes 2'])).toThrow(/Syntax error/)
   })
 
   it('Td Stars Draw marks the screen and Single Del clears it again', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -18,7 +18,7 @@ const K3_SLOT = 19
 /** LDos sits alongside, for the RNF_WILDSTAR cross-extension check at the end */
 const LDOS_SLOT = 10
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [K3_SLOT, extensionById('jd-k3-1.1')!.table] as const,
   [LDOS_SLOT, extensionById('ldos-2.5')!.table] as const,
 ])

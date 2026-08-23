@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { BankImage, ObjectBank } from './objects'
@@ -658,11 +658,11 @@ describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {
     // "superfast collision detection ... using coordinate checking"
     expect(
       Number(
-        (draw(`${setup}\nPbob 1,0,0,1\nPbob 2,8,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim()),
+        (draw(`${setup}\nPbob 1,0,0,1\nPbob 2,8,0,1\nPrint Pbob Fastcol(1 To 2)`), printed.trim()),
       ),
     ).toBe(255)
     expect(
-      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,80,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,80,0,1\nPrint Pbob Fastcol(1 To 2)`), printed.trim())),
     ).toBe(0)
   })
 
@@ -670,10 +670,10 @@ describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {
     // `blt` and `bgt` rather than `ble` and `bge`. A 16-wide bob at x=0 spans
     // 0..16 inclusive, so one starting at 16 still counts.
     expect(
-      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,16,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,16,0,1\nPrint Pbob Fastcol(1 To 2)`), printed.trim())),
     ).toBe(255)
     expect(
-      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,17,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,17,0,1\nPrint Pbob Fastcol(1 To 2)`), printed.trim())),
     ).toBe(0)
   })
 
@@ -728,8 +728,10 @@ describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {
   })
 
   it('a Pbob number past the count is error 23', () => {
-    expect(() => draw(`${setup}\nPrint Pbob Fastcol(9,1)`)).toThrow(/Illegal function call/)
-    expect(() => draw(`${setup}\nPrint Pbob Fastcol(0,1)`)).toThrow(/Illegal function call/)
+    expect(() => draw(`${setup}\nPrint Pbob Fastcol(9 To 1)`)).toThrow(/Illegal function call/)
+    // and the two-argument form is not one the token table has: the spec is
+    // `0t0` or `0,0t0`, so a comma where the To belongs never gets that far
+    expect(() => draw(`${setup}\nPrint Pbob Fastcol(0,1)`)).toThrow(/Syntax error/)
   })
 })
 

@@ -24,7 +24,7 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 
 const table = new TokenTable(CORE_TOKENS)

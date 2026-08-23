@@ -18,7 +18,12 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// `db append from`'s spec is `I0,`, a parameter list ending in a separator.
+// `VerI` (+Verif.s:2989) only writes a separator when another argument
+// follows and an omitted one still counts as `0`, so the string it builds can
+// never end in a comma and the entry matches nothing. AMOS Pro cannot reach
+// routine 80 either; this gets past the refusal to test what it does.
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
@@ -228,7 +233,7 @@ describe('Db Skip — routine 41', () => {
 
   it('takes no argument: the spec is `I`', () => {
     // a number after it is a syntax error, not a step count
-    expect(() => run([USE, 'Db Skip 2'], TINY)).toThrow()
+    expect(() => run([USE, 'Db Skip 2'], TINY)).toThrow(/syntax error/i)
   })
 })
 

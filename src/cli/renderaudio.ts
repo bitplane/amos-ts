@@ -38,7 +38,7 @@ import { MedPlayer } from '../runtime/med'
 import { Runtime } from '../runtime/runtime'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
@@ -199,7 +199,7 @@ export function renderModule(
       data: new Uint8Array(data),
     }
     const table = new TokenTable(CORE_TOKENS)
-    const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+    const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
     const source = track ? 'Track Loop On\nTrack Play\nDo\nLoop\n' : 'Med Play\nDo\nLoop\n'
     const rt = new Runtime(tokenize(source, table, extensions), table, {
       extensions,

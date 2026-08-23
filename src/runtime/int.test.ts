@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { INT_ERR, INT_ERRORS } from './int'
@@ -73,7 +73,7 @@ describe('Int 1.0: the two masks', () => {
 })
 
 describe('Int 1.0: windows', () => {
-  const open = `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,320,120,100,50,640,240`
+  const open = `${FLAGS}\n${IDS}\nWb Open Window 0,0,10,320,120,100,50,640,240`
 
   it('Wb Open Window puts one on the Workbench and renders its title bar', () => {
     const rt = run(`${open} : Wb Window Num 0 : Wb Titles "My Window","Workbench Screen"`)
@@ -211,7 +211,7 @@ describe('Int 1.0: screens', () => {
 describe('Int 1.0: menus', () => {
   /** window+menus.AMOS, cut to two titles and the items it hangs on them */
   const build = [
-    `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,640,240,100,50,640,240`,
+    `${FLAGS}\n${IDS}\nWb Open Window 0,0,10,640,240,100,50,640,240`,
     'Wb Window Num 0',
     'Wb Menu Title "Project"',
     'Wb Menu Item "New","N",$1,$8,$100,0',
@@ -220,7 +220,7 @@ describe('Int 1.0: menus', () => {
     'Wb Menu Item "Save Prefs","",0,0,0,0',
     'Wb Menu Item "","",0,0,0,0',
     'Wb Menu Sub Item "Sub Item 1","S",0,0,0,0',
-  ].join(' : ')
+  ].join('\n')
 
   it('the three builders make one NewMenu each, in the order they were called', () => {
     const list = run(build).int.menuList.get(0)!.map((e) => e.nm)
@@ -252,7 +252,7 @@ describe('Int 1.0: menus', () => {
 })
 
 describe('Int 1.0: the event loop', () => {
-  const open = `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,320,120,100,50,640,240 : Wb Window Num 0`
+  const open = `${FLAGS}\n${IDS}\nWb Open Window 0,0,10,320,120,100,50,640,240\nWb Window Num 0`
 
   /** GetMsg answering nothing is `moveq #$0,d0` and the three fields cleared */
   it('Wb Event answers 0 when nothing is queued', () => {
@@ -301,7 +301,7 @@ describe('Int 1.0: the event loop', () => {
    */
   it('the three menu readers decode a pick, one-based, and 0 for none', () => {
     // the window has to have ASKED for MENUPICK, which `Wb Window Ids` is for
-    const menuOpen = `${FLAGS} : Wb Window Ids $100,$200,0,0,0,0,0,0,0 : Wb Open Window 0,0,10,320,120,100,50,640,240 : Wb Window Num 0`
+    const menuOpen = `${FLAGS} : Wb Window Ids $100,$200,0,0,0,0,0,0,0 : Wb Open Window 0,0,10,320,120,100,50,640,240\nWb Window Num 0`
     const pick = (code: number): number[] => {
       const b = boot(
         [menuOpen, 'Repeat', 'EV=Wb Event', 'Until EV<>0', 'Print Wb Menu;Wb Item;Wb Sub Item'].join('\n'),
@@ -319,7 +319,7 @@ describe('Int 1.0: the event loop', () => {
 })
 
 describe('Int 1.0: boolean gadgets', () => {
-  const open = `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,320,120,100,50,640,240`
+  const open = `${FLAGS}\n${IDS}\nWb Open Window 0,0,10,320,120,100,50,640,240`
 
   /** "Wb Bool Gadget X,Y,Width,Height,Type,X_Text_Pos,Y_Text_Pos,Text,Window" */
   const four = [1, 2, 3, 4]
@@ -370,7 +370,7 @@ describe('Int 1.0: boolean gadgets', () => {
 })
 
 describe('Int 1.0: gadtools gadgets', () => {
-  const open = `${FLAGS} : ${IDS} : Wb Open Window 0,0,10,320,120,100,50,640,240 : Wb Window Num 0`
+  const open = `${FLAGS}\n${IDS}\nWb Open Window 0,0,10,320,120,100,50,640,240\nWb Window Num 0`
   /** "Wb Gt Gadget [X,Y,Width,Height,Text$,IdNum,TextPos,Type,WindowNum]" */
   const two = `${open} : Wb Gt Gadget 10,20,80,12,"Go",7,1,1,0 : Wb Gt Gadget 10,40,120,12,"Name",8,1,12,0`
 
@@ -470,10 +470,10 @@ describe('Int 1.0: gadtools gadgets', () => {
  */
 describe('Int 1.0: the drawing group', () => {
   /** a 320x256 four-plane custom screen with one window filling it */
-  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
-  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0\nWb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN}\n${FLAGS}\n${IDS}\nWb Open Window 0,0,0,320,256,10,10,320,256\nWb Window Num 0`
   /** eight primaries, so a pen number and a colour can be told apart */
-  const PENS = 'Wb Palette 0,$0,$F00,$0F0,$00F,$FF0,$F0F,$0FF,$FFF : Wb Load Rgb 8'
+  const PENS = 'Wb Palette 0,$0,$F00,$0F0,$00F,$FF0,$F0F,$0FF,$FFF\nWb Load Rgb 8'
 
   /** the custom screen the window opened on */
   function surface(rt: Runtime): { point: (x: number, y: number) => number; palette: Uint16Array } {
@@ -761,7 +761,7 @@ describe('Int 1.0: empty flag slots', () => {
  * one reads CIA-A's PRA at `$bfe001` and one reads the gameport counters.
  */
 describe('Int 1.0: the input group', () => {
-  const WIN = `${FLAGS} : ${IDS} : Wb Open Window 0,40,20,160,100,10,10,320,200 : Wb Window Num 0`
+  const WIN = `${FLAGS}\n${IDS}\nWb Open Window 0,40,20,160,100,10,10,320,200\nWb Window Num 0`
 
   /**
    * `before` goes on its own LINE and not after a colon: `Rem` comments to
@@ -1056,8 +1056,8 @@ describe('Int 1.0: Wb Find String', () => {
  * intuition's DrawImage.
  */
 describe('Int 1.0: Wb Paste Icon', () => {
-  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
-  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0\nWb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN}\n${FLAGS}\n${IDS}\nWb Open Window 0,0,0,320,256,10,10,320,256\nWb Window Num 0`
   /** a 16x16 block of pen 3, grabbed into the icon bank */
   const ICON = 'Screen Open 1,64,64,16,Lowres : Cls 0 : Ink 3 : Bar 0,0 To 15,15 : Get Icon 1,0,0 To 16,16'
 
@@ -1126,8 +1126,8 @@ Wb Paste Icon 40,30,1`,
  * and depth.
  */
 describe('Int 1.0: the IFF group', () => {
-  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
-  const WIN = `${SCREEN} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,0,320,256,10,10,320,256 : Wb Window Num 0`
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0\nWb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const WIN = `${SCREEN}\n${FLAGS}\n${IDS}\nWb Open Window 0,0,0,320,256,10,10,320,256\nWb Window Num 0`
 
   /** a picture whose pixel at (x,y) is (x+y) & 3, so a blit's offset shows */
   function picture(width: number, height: number): Uint8Array {
@@ -1240,7 +1240,7 @@ Wb Image To Window 0,1`)
  * `Wb Default` --- the teardown, with no arguments at all.
  */
 describe('Int 1.0: Wb Default', () => {
-  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,320,256,4,0,1,%0'
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0\nWb Open Screen 0,0,0,320,256,4,0,1,%0'
 
   /**
    * It counts DOWN from `$b66` to zero and closes every window, then does the
@@ -1298,7 +1298,7 @@ Wb Default`)
  * LockPubScreens the Workbench.
  */
 describe('Int 1.0: Wb Save Iff', () => {
-  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0 : Wb Open Screen 0,0,0,64,32,2,0,1,%0'
+  const SCREEN = 'Wb Screen Flags %1111,0,0,0,0,0,0,0\nWb Open Screen 0,0,0,64,32,2,0,1,%0'
 
   function save(src: string): { rt: Runtime; file: Uint8Array | null } {
     const fs = new AmigaFS()

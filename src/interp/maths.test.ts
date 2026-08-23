@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -90,8 +90,17 @@ describe('Not (FnNot +ILib.s — fresh New_Evalue, bitwise complement)', () => {
     expect(run('Print Not 1')).toBe('-2\n')
   })
 
+  /**
+   * And it cannot be written with brackets. `Ope_Not` (+Verif.s:2881) starts a
+   * FRESH evaluation, `Parenth` and all, and an evaluation that ends on a `)`
+   * consumes it (`Eva_Fin`, :2547). So an inner `Not(...)` eats the bracket
+   * belonging to whatever it was nested in and leaves the count at -1, which
+   * is the `tst.w Parenth(a5) / bne VerSynt` two instructions later. `Not`
+   * really does consume the rest.
+   */
   it('is its own inverse', () => {
-    expect(isTrue('Not(Not 12345)=12345')).toBe(true)
+    expect(isTrue('A=12345', 'A=Not Not 12345 : ')).toBe(true)
+    expect(() => run('Print Not(Not(12345))')).toThrow(/Syntax error/)
   })
 
   it('converts a float operand before complementing', () => {

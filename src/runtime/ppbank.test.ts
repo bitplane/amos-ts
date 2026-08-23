@@ -9,7 +9,7 @@ import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { parsePpBank, writePpBank } from './ppbank'
@@ -52,7 +52,7 @@ describe('AMOS "PPbk" bank wrapper (+CompExt.s:686-767)', () => {
 
 describe('Ppsave / Ppload keywords (+CompExt.s)', () => {
   const table = new TokenTable(CORE_TOKENS)
-  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
   function run(src: string): string {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')

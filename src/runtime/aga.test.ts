@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// this library gives a keyword an instruction entry with the function form
+// behind it nameless, which only AMOS 1.3 could reach -- see tokenizeUnchecked
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 
@@ -15,7 +17,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** "Type in at line 20 (excluding speech marks) AMOSPro_AGA.Lib" */
 const AGA_SLOT = 20
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [AGA_SLOT, extensionById('aga-1.0')!.table] as const,
 ])
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { FONT8 } from './font.gen'
@@ -241,7 +241,7 @@ describe('drawing', () => {
   })
 
   it('Colour Back paints the composite border', () => {
-    const rt = run('Colour Back $F00\nScreen Display 0,140,60') // shift screen to expose border
+    const rt = run('Colour Back $F00\nScreen Display 0,140,60,,') // shift screen to expose border
     const { data } = rt.composite()
     expect([data[0], data[1], data[2]]).toEqual([255, 0, 0])
   })

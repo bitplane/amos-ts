@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
@@ -12,7 +12,7 @@ const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
 // keywords and Unpack is a Compact one, so the tokenizer needs the stock
 // extension tables to recognise them at all.
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
 
 function run(src: string): Runtime {
   const rt = new Runtime(tokenize(src, table, extensions), table, { maxSteps: 300_000, extensions })
@@ -155,12 +155,12 @@ describe('zones, banks and system state', () => {
   })
 
   it('Unpack refuses a bank that was never reserved', () => {
-    expect(() => run('Unpack 9,0')).toThrow(/bank not reserved/)
+    expect(() => run('Unpack 9 To 0')).toThrow(/bank not reserved/)
   })
 
   it('Prg Next$ walks the loaded-program list and ends with an empty string', () => {
     // standalone there is no parent editor, so the walk terminates at once
-    expect(runOut('A$=Prg First$\nPrint Len(Prg Next$)')).toBe(' 0\n')
+    expect(runOut('A$=Prg First$("")\nPrint Len(Prg Next$)')).toBe(' 0\n')
   })
 })
 

@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// AUDIT: some of this library's keywords are called here with an argument
+// list its own token table does not accept, so the Test pass is run for what
+// it writes and not for what it refuses. See tokenizeUnchecked.
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
@@ -89,7 +92,10 @@ describe('language cluster', () => {
 
 describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:2073/2672)', () => {
   it('Inc/Dec/Add wrap integers at 32 bits (addq.l/add.l on the long)', () => {
-    const { out } = run(['X=2147483647', 'Inc X', 'Print X', 'Y=-2147483648', 'Dec Y', 'Print Y', 'Z=2147483647', 'Add Z,2', 'Print Z'].join('\n'))
+    // $80000000 rather than -2147483648: `declong` ($271AE) answers zero on
+    // overflow and 2147483648 is one past the top, so the decimal spelling
+    // tokenises as a minus in front of a nothing
+    const { out } = run(['X=2147483647', 'Inc X', 'Print X', 'Y=$80000000', 'Dec Y', 'Print Y', 'Z=2147483647', 'Add Z,2', 'Print Z'].join('\n'))
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-2147483648', '2147483647', '-2147483647'])
   })
 

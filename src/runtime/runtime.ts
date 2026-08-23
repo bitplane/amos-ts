@@ -21,7 +21,7 @@ import { FONT8 } from './font.gen'
 import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig, PI_DEFAULTS } from './piconfig.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenizeDirect } from '../tokens/source'
 import { verifyDirect } from '../interp/direct'
 import { DirectScreen } from './directscreen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
@@ -5619,12 +5619,41 @@ export class Runtime {
    * really does wait, and a typed `Input` really does ask.
    */
   enterDirect(text: string): void {
-    const lines = tokenize(text, this.table, this.interp.names.extensions, this.interp.program.procs.keys())
+    const lines = tokenizeDirect(
+      text,
+      this.table,
+      this.interp.names.extensions,
+      this.interp.program.procs.keys(),
+      this.directVariables(),
+    )
     // AMOS types into a one-line buffer (Ed_BufT), so there is nothing to
     // reject: pasting two lines is this port's problem, not the machine's
     if (lines.length !== 1) throw new AmosError('Syntax error', 22)
     verifyDirect(lines[0]!, this.interp.names)
     this.interp.pushDirect(lines)
+  }
+
+  /**
+   * Every variable the typed line may use without creating it.
+   *
+   * `ResDir` (+Verif.s:4012) takes the direct-mode slots off the top of the
+   * same `TabBas` the program uses, so a typed line reads the program's own
+   * variables rather than a fresh set. Here the name table is the
+   * interpreter's global frame, and the verifier only needs the identity: the
+   * name, the type bits with $40 for an array, and how many subscripts `Dim`
+   * gave it.
+   */
+  private directVariables(): Array<{ name: string; flag: number; dims: number }> {
+    const out: Array<{ name: string; flag: number; dims: number }> = []
+    const frame = this.interp.frames[0]
+    if (frame === undefined) return out
+    for (const [key, v] of frame.vars) {
+      out.push({ name: key, flag: v.k === 'str' ? 2 : v.k === 'float' ? 1 : 0, dims: 0 })
+    }
+    for (const [key, a] of frame.arrays) {
+      out.push({ name: key, flag: a.type | 0x40, dims: a.dims.length })
+    }
+    return out
   }
 
   /** true while a typed line is running (Direct +Edit.s:9362) */

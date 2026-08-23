@@ -4,7 +4,7 @@ import { mintermBit } from '../amiga/blitter'
 import { bobBltcon0 } from './objects'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { BNK } from './banks'
 

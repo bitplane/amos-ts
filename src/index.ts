@@ -21,7 +21,8 @@ export {
 } from './ext/registry'
 export type { Extension, ExtensionInfo } from './ext/registry'
 export type { TokenDef } from './tokens/tables.gen'
-export { tokenize, TokenizeError } from './tokens/tokenizer'
+export { tokenize } from './tokens/source'
+export { VerifyError, verify } from './tokens/verify'
 // The one-call path from bytes to something runnable: it works out the token
 // table, the extension slots and the banks, which is otherwise four modules'
 // worth of assembly a consumer has to rediscover. Both CLI runners and the web

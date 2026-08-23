@@ -10,7 +10,10 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// AUDIT: some of this library's keywords are called here with an argument
+// list its own token table does not accept, so the Test pass is run for what
+// it writes and not for what it refuses. See tokenizeUnchecked.
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
@@ -121,7 +124,7 @@ describe('Ptm Play — routine 284, which branches into 285', () => {
   it('$80000000 means the bank Ptm Load last used, which is the only read of $122', () => {
     // routine 284 pushes the same constant as the play parameter, and the
     // body then compares the program's argument against it ($7900)
-    const { rt } = run([LOAD, 'Ptm Play -2147483648'], MOD)
+    const { rt } = run([LOAD, 'Ptm Play $80000000'], MOD)
     expect(rt.dme.ptmPlaying).toBe(true)
     expect(rt.dme.ptmBank).toBe(5)
   })

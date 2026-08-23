@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Interp } from './interp'
 import { BufferIO } from './io'
 
@@ -36,10 +36,13 @@ describe('FFP single-precision floats (mathffp.library)', () => {
   })
 
   it('Set Double Precision switches to IEEE doubles (no FFP overflow)', () => {
+    // it takes no argument and there is no way back: the spec is a bare `I`,
+    // and `VerDPre` (+Verif.s:773) refuses a second one with `bset #1,
+    // VarBufFlg(a5) / bne VVErr`
     // 1e20 overflows FFP but is fine as a double
-    expect(run('Set Double Precision 1 : A#=1E10 : B#=A#*A# : Print B#>0')).toBe('-1\n')
-    // and back to single precision restores the overflow
-    expect(() => run('Set Double Precision 1\nSet Double Precision 0\nA#=1E10 : B#=A#*A#')).toThrow(/Overflow/)
+    expect(run('Set Double Precision : A#=1E10 : B#=A#*A# : Print B#>0')).toBe('-1\n')
+    // and without it the same sum overflows
+    expect(() => run('A#=1E10 : B#=A#*A#')).toThrow(/Overflow/)
   })
 
   it('a value below the FFP minimum underflows to 0', () => {
@@ -70,7 +73,11 @@ describe('expressions', () => {
 
   it('applies unary minus to the operand, tighter than ^', () => {
     expect(run('Print -2^2')).toBe(' 4\n') // (-2)^2, not -(2^2)
-    expect(run('A=5 : Print --A')).toBe(' 5\n') // OpeM toggles per operator
+    // and only one: `Ope_Loop`'s `.Moins` (+Verif.s:2593) refuses a second
+    // with `tst.w (sp) / bne VerSynt`, so the toggling OpeM does at run time
+    // is only reachable through a bracket
+    expect(run('A=5 : Print -(-A)')).toBe(' 5\n')
+    expect(() => run('A=5 : Print --A')).toThrow(/Syntax error/)
   })
 
   it('makes ^ a float operation and Not consume the rest (FnNot)', () => {
@@ -332,7 +339,7 @@ describe('procedures', () => {
   })
 
   it('returns values via End Proc[...] and Param', () => {
-    const prog = ['DOUBLE[21]', 'Print Param', 'Procedure DOUBLE[N]', 'End Proc[N*2]'].join('\n')
+    const prog = ['TWICE[21]', 'Print Param', 'Procedure TWICE[N]', 'End Proc[N*2]'].join('\n')
     expect(run(prog)).toBe(' 42\n')
   })
 
@@ -342,16 +349,17 @@ describe('procedures', () => {
     // the same at run time before restoring the caller's a6. EasyLife's
     // Tabifier line 268 and Tag_Editor line 605 are saved that way and ran on
     // the machine. V1_PopProc (+Verif.s:2296) does check, and errors without
-    const open = ['DOUBLE[21]', 'Print Param', 'Procedure DOUBLE[N]', 'End Proc[N*2'].join('\n')
+    const open = ['TWICE[21]', 'Print Param', 'Procedure TWICE[N]', 'End Proc[N*2'].join('\n')
     expect(run(open)).toBe(' 42\n')
-    const popped = ['T', 'Print Param', 'Procedure T', 'Pop Proc[7'].join('\n')
-    expect(() => run(popped)).toThrow(/\]/)
+    const popped = ['T', 'Print Param', 'Procedure T', 'Pop Proc[7', 'End Proc'].join('\n')
+    // and V1_PopProc is where it is caught, before the program runs
+    expect(() => run(popped)).toThrow(/Syntax error/)
   })
 
   it('supports Shared and Global', () => {
     const shared = ['S=1', 'BUMP', 'Print S', 'Procedure BUMP', '   Shared S', '   Inc S', 'End Proc'].join('\n')
     expect(run(shared)).toBe(' 2\n')
-    const glob = ['Global G', 'G=5', 'PEEKG', 'Procedure PEEKG', '   Print G', 'End Proc'].join('\n')
+    const glob = ['Global G', 'G=5', 'ZED', 'Procedure ZED', '   Print G', 'End Proc'].join('\n')
     expect(run(glob)).toBe(' 5\n')
   })
 
@@ -408,14 +416,19 @@ describe('procedures', () => {
     // variables. This file used to assert the opposite, from eggit — but
     // eggit's _BOX -> X_BOX chain carries its strings either way, so it
     // never distinguished the two rules.
+    // one after the other, not one inside the other: `V1_Procedure`
+    // (+Verif.s:1519) skips a body by scanning lines for the FIRST `End
+    // Proc`, so a nested procedure closes its parent and the outer `End
+    // Proc` is left over as "Procedure not opened"
     const src = [
       'Global A$,B$',
       'OUTER["HELLO","WORLD"]',
+      'End',
       'Procedure OUTER[A$,B$]',
       '   INNER[A$,B$]',
+      'End Proc',
       'Procedure INNER[A$,B$]',
       '   Print "[";A$;"|";B$;"]"',
-      'End Proc',
       'End Proc',
     ].join('\n')
     expect(run(src)).toBe('[HELLO|WORLD]\n')
@@ -425,9 +438,9 @@ describe('procedures', () => {
     const src2 = [
       'Global G',
       'G=5',
-      'ADD1[10]',
+      'BUMPIT[10]',
       'Print G',
-      'Procedure ADD1[G]',
+      'Procedure BUMPIT[G]',
       '   Inc G : Print G',
       'End Proc',
     ].join('\n')
@@ -439,9 +452,9 @@ describe('procedures', () => {
     // Global gets a positive one and lands in the new frame
     const src = [
       'G=5',
-      'ADD1[10]',
+      'BUMPIT[10]',
       'Print G',
-      'Procedure ADD1[G]',
+      'Procedure BUMPIT[G]',
       '   Inc G : Print G',
       'End Proc',
     ].join('\n')
@@ -500,14 +513,23 @@ describe('statements verified against the library source', () => {
     expect(() => run('A$="AB" : Right$(A$,-1)="Z"')).toThrow(/function call/)
   })
 
-  it('a For opened in one single-line If pairs with a Next in the next line’s single-line If', () => {
-    // the adventure-game idiom: If C Then For.. / If C Then Next — the
-    // loop closer sits inside its own single-line If (prescan must not
-    // discard that If while matching the Next)
-    const y = ['A$="i"', 'If A$="i" Then For N=1 To 3 : Print N;', 'If A$="i" Then Next N', 'Print "!"'].join('\n')
+  it('a For opened in a single-line If closes on the same line', () => {
+    const y = ['A$="i"', 'If A$="i" Then For N=1 To 3 : Print N; : Next N', 'Print "!"'].join('\n')
     expect(run(y)).toBe(' 1 2 3!\n')
-    const n = ['A$="x"', 'If A$="i" Then For N=1 To 3 : Print N;', 'If A$="i" Then Next N', 'Print "!"'].join('\n')
-    expect(run(n)).toBe('!\n') // both lines skipped, no loop
+    const n = ['A$="x"', 'If A$="i" Then For N=1 To 3 : Print N; : Next N', 'Print "!"'].join('\n')
+    expect(run(n)).toBe('!\n')
+  })
+
+  /**
+   * Splitting the pair across two single-line Ifs looks like the same idiom
+   * and is not a program AMOS will run. `V2_IfThen` (+Verif.s:1978) sends a
+   * test with no `Else` to the end of its own line, which is INSIDE the loop
+   * the `For` just opened, and `Goto_Loops` (:2462) is the arm that refuses
+   * to jump into one.
+   */
+  it('refuses a For and a Next split across two single-line Ifs', () => {
+    const split = ['A$="i"', 'If A$="i" Then For N=1 To 3 : Print N;', 'If A$="i" Then Next N'].join('\n')
+    expect(() => run(split)).toThrow(/jumps allowed into the middle of a loop/)
   })
 
   it('For runs its body at least once — InFor has no initial test', () => {
@@ -515,9 +537,18 @@ describe('statements verified against the library source', () => {
     expect(run('For I=1 To 0 : Print I; : Next')).toBe(' 1')
   })
 
-  it('Next always operates on the innermost loop (InNext)', () => {
-    // "Next I" inside the J loop still advances J
-    expect(run('For I=1 To 1 : For J=1 To 2 : Print J; : Next I : Next J')).toBe(' 1 2')
+  /**
+   * `InNext` ignores the name a `Next` carries and closes whatever loop is on
+   * top of the stack, so `Next I` inside a `For J` would advance J. No
+   * program can reach it: `V2_For` (+Verif.s:1736) matches its `Next` by
+   * position and then checks the name, `cmp.w Vta_Variable(a1),d0 / bne
+   * VerFoN`, so the crossed form never gets past the Test pass.
+   */
+  it('closes loops innermost first, and refuses a Next that names the wrong one', () => {
+    expect(run('For I=1 To 1 : For J=1 To 2 : Print J; : Next J : Next I')).toBe(' 1 2')
+    expect(() => run('For I=1 To 1 : For J=1 To 2 : Print J; : Next I : Next J')).toThrow(
+      /FOR without matching NEXT/i,
+    )
   })
 
   it('Print comma emits a TAB the console interprets (sp12)', () => {
@@ -554,7 +585,9 @@ describe('statements verified against the library source', () => {
   it('Def Fn / Fn evaluate with bound parameters (FnFn)', () => {
     expect(run('Def Fn D(X)=X*2\nPrint Fn D(21)')).toBe(' 42\n')
     // FnFn writes parameters straight into the real variables — A stays 1
-    expect(run('A=5 : Def Fn S(A)=A+1\nPrint Fn S(1);A')).toBe(' 2 1\n')
+    // `Def Fn` has to be alone on its line: its class is $FC, one of the six
+    // VerLoop turns into "This instruction must be alone on a line"
+    expect(run('A=5\nDef Fn S(A)=A+1\nPrint Fn S(1);A')).toBe(' 2 1\n')
     expect(run('Def Fn H$(N$)=N$+"!"\nPrint Fn H$("HI")')).toBe('HI!\n')
   })
 
@@ -577,14 +610,14 @@ describe('statements verified against the library source', () => {
 describe('flow verified against the library source', () => {
   it('Goto out of a loop unwinds its frame (LGoto)', () => {
     const prog = ['For I=1 To 2', 'Goto S', 'Next', 'S: Next'].join('\n')
-    expect(() => run(prog)).toThrow(/Next without For/)
+    expect(() => run(prog)).toThrow(/NEXT without FOR/i)
     // jumping WITHIN the loop keeps the frame
     expect(run(['For I=1 To 2', 'Goto K', 'K:', 'Print I;', 'Next'].join('\n'))).toBe(' 1 2')
   })
 
   it('Return discards loops opened since the Gosub (one shared stack)', () => {
     const prog = ['Gosub S', 'Next', 'End', 'S: For I=1 To 9 : Return'].join('\n')
-    expect(() => run(prog)).toThrow(/Next without For/)
+    expect(() => run(prog)).toThrow(/NEXT without FOR/i)
   })
 
   it('Dim rejects re-dimensioning and oversized arrays (InDim/AlrDim)', () => {
@@ -601,7 +634,7 @@ describe('flow verified against the library source', () => {
 
 describe('compiler directives and program state (+CompExt.s / +ILib.s)', () => {
   // Comp* are Compiler-extension keywords, so tokenize with that slot loaded
-  const exts = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+  const exts = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
   const runExt = (src: string): string => {
     const io = new BufferIO([])
     const interp = new Interp(tokenize(src, table, exts), table, { io, extensions: exts, maxSteps: 100_000 })
@@ -693,7 +726,8 @@ describe('error trapping', () => {
       'Print "resumed";X',
       'End',
       'Procedure HANDLER',
-      '  Shared X : X=99',
+      '  Shared X',
+      '  X=99',
       '  Resume Next',
       'End Proc',
     ].join('\n')
@@ -746,9 +780,9 @@ describe('error trapping', () => {
       'S:',
       'For I=1 To 5',
       '  Pop',
-      '  Goto DONE',
+      '  Goto FINISH',
       'Next',
-      'DONE:',
+      'FINISH:',
       'Print "popped, loops cleared"',
     ].join('\n')
     const out = run(prog)

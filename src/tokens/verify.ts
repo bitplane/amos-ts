@@ -149,6 +149,13 @@ type Go = 'dp' | 'loop' | 'line' | 'phase'
 
 /** what `VerErr` (+Verif.s:711) throws away the whole verification with */
 export class VerifyError extends Error {
+  /**
+   * What the walk was looking at, for a caller that wants more than AMOS
+   * gives. The machine reports a message and a cursor position and nothing
+   * else, so this is never read by anything that has to behave like AMOS.
+   */
+  detail = ''
+
   constructor(
     readonly code: number,
     readonly at: number,
@@ -301,6 +308,39 @@ export interface VerifyOptions {
    * $FF where the count would go instead of the count.
    */
   ap20?: Set<number>
+  /**
+   * Procedures the block being verified does not declare for itself.
+   *
+   * `Ver_Direct` (+Verif.s:43) runs over ONE line with the loaded program's
+   * label table still in place, so a typed `SHOUT[1]` finds the `Procedure
+   * SHOUT` that is not in front of it. Nothing here holds a label table
+   * between calls, so the names come in instead.
+   *
+   * DEVIATION: the entries are made with a link of zero. On the machine they
+   * point into the program's own table and the typed line jumps through them;
+   * here the interpreter resolves a procedure call by name, so the word is
+   * never read.
+   */
+  knownProcedures?: Iterable<string>
+  /**
+   * Variables the block being verified does not create for itself, which for
+   * a typed line is every one the program has.
+   *
+   * `ResDir` (+Verif.s:4012) carves the direct-mode slots off the top of the
+   * SAME `TabBas` the program uses, so `Print T(2)` typed at a program that
+   * dimensioned T finds it. `name` is the padded name the record carries,
+   * `flag` its type bits with $40 for an array, and `dims` what `Dim` gave it.
+   */
+  knownVariables?: Iterable<{ name: string; flag: number; dims: number }>
+  /**
+   * `Direct(a5)`, which the editor sets while its escape screen is up
+   * (`Esc_Appear` +Edit.s:9362) and clears on the way out (:9538).
+   *
+   * Ten routines open with `tst.w Direct(a5) / bne VerIlD`, and between them
+   * they are why a typed line cannot define a procedure or a label, call a
+   * procedure, resize a buffer or carry a remark.
+   */
+  direct?: boolean
 }
 
 class Verifier {
@@ -314,6 +354,8 @@ class Verifier {
   paren = 0
   /** Phase: 0 is the main program, and every procedure gets one of its own */
   phase = 0
+  /** Direct: a line typed at the running program rather than part of it */
+  direct = false
   /** VarLong, the next free offset in this phase's variable buffer */
   varLong = 0
   /** MathFlags bit 7, which `Set Double Precision` turns on for the whole program */
@@ -350,6 +392,11 @@ class Verifier {
     readonly ext: Map<number, TokenTable>,
     readonly ap20: Set<number>,
   ) {}
+
+  /** `tst.w Direct(a5) / bne VerIlD`, the ten of them */
+  notInDirect(): void {
+    if (this.direct) this.fail(VERR.ILLEGAL_DIRECT)
+  }
 
   /* ---- the bytes ------------------------------------------------------- */
 
@@ -538,7 +585,12 @@ class Verifier {
         this.verSetStack()
         return 'dp'
       case 0x06: // a variable in instruction position
-      case 0x08: // a name the tokeniser already made a procedure call
+        this.v1IVariable()
+        return 'dp'
+      case 0x08:
+        // VerPro (+Verif.s:753): a name the tokeniser already made a
+        // procedure call, which direct mode refuses before it looks at it
+        this.notInDirect()
         this.v1IVariable()
         return 'dp'
       case 0x07:
@@ -801,24 +853,28 @@ class Verifier {
 
   /** `VerRem` (:744). A remark eats the rest of its line, terminator included. */
   verRem(): void {
+    this.notInDirect()
     const len = this.u16(this.p)
     this.p += 2 + len + 2
   }
 
   /** `VerSBu` (:803) */
   verSetBuffer(): void {
+    this.notInDirect()
     this.want(T.INT)
     this.p += 4
   }
 
   /** `VerSStack` (:788) */
   verSetStack(): void {
+    this.notInDirect()
     this.want(T.INT)
     this.p += 4
   }
 
   /** `VerLab` (:762): a label, and `10 Data 1,2` after one */
   verLab(): Go {
+    this.notInDirect()
     this.v1StockLabel()
     if (this.peek() !== TK.DATA) return 'loop'
     this.p += 2
@@ -1309,6 +1365,7 @@ class Verifier {
 
   /** `V1_Proc` (:1502) */
   v1Proc(): void {
+    this.notInDirect()
     const at = this.p
     if (this.peek() !== T.VARIABLE && this.peek() !== T.PROC_CALL) this.syntax()
     this.p += 2
@@ -1326,6 +1383,7 @@ class Verifier {
    */
   v1Procedure(): Go {
     this.p -= 2
+    this.notInDirect()
     if (this.phase !== 0) return this.v1ProcedureIn()
     const start = this.p
     this.procedures.push(start)
@@ -1397,6 +1455,7 @@ class Verifier {
 
   /** `V1_EndProc` (:1676) */
   v1EndProc(): void {
+    this.notInDirect()
     if (this.phase === 0) this.fail(VERR.PROC_NOT_OPENED)
     if (this.take(TKV.BRA1)) this.verExpression()
   }
@@ -1407,6 +1466,7 @@ class Verifier {
    */
   verSha(): void {
     this.p -= 2
+    this.notInDirect()
     if (this.phase === 0) {
       const back = this.p
       this.p += 2
@@ -1642,6 +1702,7 @@ class Verifier {
 
   /** `V1_CallProc` (:3270) */
   v1CallProc(withParams = false): void {
+    this.notInDirect()
     this.reloc.push({ at: this.p, phase: this.phase, proc: true })
     const a0 = this.varA0()
     this.put16(this.p - 2, T.PROC_CALL)
@@ -2400,12 +2461,19 @@ class Verifier {
     const ix = index(d.table)
     let i = d.i
     let params = d.params
+    const tried: string[] = []
     for (;;) {
       if (this.match(args, params)) {
         if (i !== d.i) this.put16(at, ix.entries[i]!.id)
         return
       }
-      if (ix.entries[i]!.end !== 0xfe) this.syntax()
+      tried.push(params)
+      if (ix.entries[i]!.end !== 0xfe) {
+        const name = ix.entries[d.i]!.name.replace(/^!/, '')
+        const e = new VerifyError(VERR.SYNTAX, this.pos)
+        e.detail = `${name} got "${args}", wants ${tried.map((p) => `"${p}"`).join(' or ')}`
+        throw e
+      }
       i++
       const spec = ix.entries[i]!.spec
       params = spec.charAt(0) === 'V' ? spec.slice(2) : spec.slice(1)
@@ -2545,6 +2613,40 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
   const b = new Uint8Array(src.length + 4)
   b.set(src)
   const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set())
+  v.direct = opts.direct === true
+  for (const k of opts.knownVariables ?? []) {
+    const len = k.name.length % 2 === 0 ? k.name.length : k.name.length + 1
+    v.globals.push({
+      len,
+      flag: k.flag,
+      offset: 0,
+      dims: k.dims,
+      global: 2,
+      name: k.name.padEnd(len, '\0'),
+    })
+  }
+  for (const name of opts.knownProcedures ?? []) {
+    const bytes = name.toLowerCase()
+    const len = bytes.length % 2 === 0 ? bytes.length : bytes.length + 1
+    v.labels.push({
+      phase: 0,
+      len,
+      flag: 0x80,
+      name: bytes.padEnd(len, '\0'),
+      link: 0,
+      target: 0,
+    })
+  }
+  if (v.direct) {
+    // `Ver_Direct` (:43) sets Phase to 1 as well, so the walk looks in the
+    // global table it was handed rather than treating what it finds as a new
+    // program's worth of names
+    v.phase = 1
+    v.run(0)
+    v.relocate()
+    v.walkTablA()
+    return b.slice(0, src.length)
+  }
   v.run(0)
   v.relocate()
   v.walkTablA()

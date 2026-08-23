@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 import { AmigaFS } from '../amiga/vfs'
 
@@ -73,7 +73,9 @@ describe('Every (interrupt-driven Gosub/Proc)', () => {
   })
 
   it('Every needs a Gosub or Proc target', () => {
-    expect(() => run('Every 2 Print "x"')).toThrow(/Every needs Gosub or Proc/)
+    // `V1_Every` (+Verif.s:2281) reads the token after the count and takes
+    // only _TkGsb or _TkPrc, so this never reaches the interpreter
+    expect(() => run('Every 2 Print "x"')).toThrow(/Syntax error/)
   })
 
   it('Every On re-arms a handler that was switched off', () => {

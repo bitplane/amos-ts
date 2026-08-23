@@ -3,7 +3,7 @@ import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { squash, unsquash } from './squash'
 
@@ -105,7 +105,7 @@ describe('Squasher II codec (+CompExt.s:1027-1558)', () => {
 
 describe('Squash / Unsquash keywords (+CompExt.s)', () => {
   const table = new TokenTable(CORE_TOKENS)
-  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
   function run(src: string): string {
     let out = ''
     const rt = new Runtime(tokenize(src, table, extensions), table, { extensions, maxSteps: 300_000, onText: (t) => (out += t) })

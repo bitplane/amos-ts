@@ -14,7 +14,7 @@ import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
 import { makeInstructions, makeFunctions, makeRawFunctions, extensionImpls } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { FAITHFUL, NA, NA_GROUPS, NA_GROUP_OF, STRUCTURAL, noteFor } from '../coverage/status'
 
 /**

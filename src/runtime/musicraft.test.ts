@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { MUSICRAFT_ERRORS } from './musicraft'
@@ -328,7 +328,7 @@ describe('MusiCRAFT: the constants and the data zone', () => {
     // bytes of `moveq #$40,d3`, so there is no volume in the extension at all
     expect(num('Print St Get Volume')).toBe(64)
     expect(num('St Volume : Print St Get Volume')).toBe(64)
-    expect(() => run('St Volume 20')).toThrow()
+    expect(() => run('St Volume 20')).toThrow(/Syntax error/)
   })
 
   it('=St Base answers an address a program can read the channels through', () => {

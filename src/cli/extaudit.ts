@@ -39,7 +39,7 @@ import type { ExtensionImpl } from '../runtime/extimpl'
 import { extensionImpls, makeAllInstructions, makeAllFunctions } from '../runtime/instr'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 
 const t = new TokenTable(CORE_TOKENS)
 const rt = new Runtime(tokenize('Rem', t, new Map()), t, {})

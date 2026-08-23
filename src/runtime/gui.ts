@@ -4060,7 +4060,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *
      * One word at `$1a0`, filled in when a listview event is decoded. It
      * takes an argument the routine never reads: $3126 loads `$1a0` and
-     * returns, so `Gui Array(0)` and `Gui Array(99)` answer the same thing.
+     * returns, so `Gui Array` and `Gui Array` answer the same thing.
      */
     'gui array': (): Value => VI(s().arrayIndex),
 

@@ -9,7 +9,9 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// this library gives a keyword an instruction entry with the function form
+// behind it nameless, which only AMOS 1.3 could reach -- see tokenizeUnchecked
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { BTN_BLUE, BTN_RED, BTN_YELLOW } from '../amiga/controller'
 import { Runtime } from './runtime'
@@ -18,7 +20,7 @@ const table = new TokenTable(CORE_TOKENS)
 /** the slot the extension's own installer and Burton's list both use */
 const STICKS_SLOT = 17
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [STICKS_SLOT, extensionById('sticks-1.01b')!.table] as const,
 ])
 

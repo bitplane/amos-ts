@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+// AUDIT: some of this library's keywords are called here with an argument
+// list its own token table does not accept, so the Test pass is run for what
+// it writes and not for what it refuses. See tokenizeUnchecked.
+import { tokenizeUnchecked as tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
@@ -23,8 +26,28 @@ import { existsSync, readFileSync } from 'node:fs'
 const table = new TokenTable(CORE_TOKENS)
 const LDOS_SLOT = 10 // the slot it is observed in across the corpus
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [LDOS_SLOT, extensionById('ldos-2.5')!.table] as const,
+])
+
+/**
+ * The same table with `Lrun` spelled in lower case.
+ *
+ * LDos stores that one name with a capital L, and `MinD0` (+Edit.s:14711)
+ * folds the INPUT and never the stored name, so nothing anyone types can
+ * match it: routine 50 is code no AMOS line can reach. Retyping the name here
+ * is the only way to exercise what it does. src/tokens/roundtrip.ts calls the
+ * same rule `untypeable`.
+ */
+const typeable = new Map([
+  ...extensions,
+  [
+    LDOS_SLOT,
+    new TokenTable(
+      extensionById('ldos-2.5')!.table.entries.map((e) => ({ ...e, name: e.name.toLowerCase() })),
+      true,
+    ),
+  ],
 ])
 
 const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
@@ -1253,7 +1276,7 @@ describe('LDos: Lrun and Lexecute (LdosV25.DOC, routines 50 and 51)', () => {
     fs.mountMemory('T')
     fs.currentDir = 'DH0:'
     let out = ''
-    const rt = new Runtime(tokenize(src, table, extensions), table, {
+    const rt = new Runtime(tokenize(src, table, typeable), table, {
       maxSteps: 200_000,
       extensions,
       fs,

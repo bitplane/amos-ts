@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -19,7 +19,7 @@ import { getPixel } from '../amiga/planar'
 const table = new TokenTable(CORE_TOKENS)
 const TURBO_SLOT = 12
 const extensions = new Map([
-  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+  ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
   [TURBO_SLOT, extensionById('turbo-plus-2.15')!.table] as const,
 ])
 
@@ -470,7 +470,7 @@ describe('TURBO 1.9 chip and fast objects (Turbo_Object_doc.asc)', () => {
   // 1.9 splits Reserve Object by memory type and renames Object Load; the
   // routines are otherwise the ones 2.15 keeps under the shorter names
   const t19 = new Map([
-    ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
+    ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)] as const),
     [TURBO_SLOT, extensionById('turbo-plus-1.9')!.table] as const,
   ])
 
@@ -1242,17 +1242,17 @@ describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
     const setup = [bank, 'Memory Fill Start(7) To Start(7)+7,"ABCD"']
     // "If ACTION=0 the Byte Hunt command behaves just like the normal Hunt
     // command. Only VAL1 is checked for."
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,67,0)-Start(7)'].join('\n')).out).toBe(' 2\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,67 To 0)-Start(7)'].join('\n')).out).toBe(' 2\n')
     // "If ACTION=1 ... any value lying inside the values VAL1 to VAL2"
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,1,66 To 67,0)-Start(7)'].join('\n')).out).toBe(' 1\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,1,66 To 67)-Start(7)'].join('\n')).out).toBe(' 1\n')
     // "If ACTION=-1 ... any value lying outside"
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,-1,65 To 66,0)-Start(7)'].join('\n')).out).toBe(' 2\n')
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90,0)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,-1,65 To 66)-Start(7)'].join('\n')).out).toBe(' 2\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90 To 0)'].join('\n')).out).toBe(' 0\n')
   })
 
   it('Word Hunt works in words, String Hunt in strings and either direction', () => {
     const setup = [bank, 'Memory Fill Start(7) To Start(7)+16,"ABCD"']
-    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+16,0,$4142,0)-Start(7)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+16,0,$4142 To 0)-Start(7)'].join('\n')).out).toBe(' 0\n')
     expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,1,"CD")-Start(7)'].join('\n')).out).toBe(' 2\n')
     // "When step is negative, this routine will search from end to start!"
     expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,-1,"CD")-Start(7)'].join('\n')).out).toBe(' 14\n')
@@ -1262,10 +1262,10 @@ describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
     // `subq.l #$1,d1 / bge` against `subq.l #$2,d1 / bgt` — the same loop
     // with one branch changed, so the two disagree about their far corner
     const setup = [bank, 'Memory Fill Start(7) To Start(7)+7,"AAAAAAAZ"']
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90,0)-Start(7)'].join('\n')).out).toBe(' 7\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90 To 0)-Start(7)'].join('\n')).out).toBe(' 7\n')
     // the Z is in the last word of the span, which Word Hunt never reads
-    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+7,0,$415a,0)'].join('\n')).out).toBe(' 0\n')
-    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+9,0,$415a,0)-Start(7)'].join('\n')).out).toBe(' 6\n')
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+7,0,$415a To 0)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+9,0,$415a To 0)-Start(7)'].join('\n')).out).toBe(' 6\n')
   })
 
   it('Byte Hunt compares SIGNED bytes, and never orders VAL1 against VAL2', () => {
@@ -1273,10 +1273,10 @@ describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
     // range 100 To 200 runs from 100 down to -56 — empty — and matches
     // nothing. A raw 0 here is the not-found answer, not an address.
     const setup = [bank, 'Memory Fill Start(7) To Start(7)+3,Chr$(150)']
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,100 To 200,0)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,100 To 200)'].join('\n')).out).toBe(' 0\n')
     // the byte itself is 150, which signed is -106, and that IS inside
     // -128 To 0 — found at the first byte of the span
-    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,-128 To 0,0)-Start(7)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,-128 To 0)-Start(7)'].join('\n')).out).toBe(' 0\n')
   })
 
   it('String Hunt with a non-zero action wants NO byte to match', () => {

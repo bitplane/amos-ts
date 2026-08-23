@@ -30,7 +30,7 @@
  */
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { TokenTable } from '../tokens/stream'
-import { tokenize } from '../tokens/tokenizer'
+import { tokenize } from '../tokens/source'
 import { allExtensions } from '../ext/registry'
 import { Runtime } from './runtime'
 import { extensionImpls, makeAllInstructions, makeAllFunctions } from './instr'
