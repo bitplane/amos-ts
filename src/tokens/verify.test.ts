@@ -18,6 +18,7 @@ import { opaqueRanges } from './roundtrip'
 import { parseAmosFile } from '../loader/amosfile'
 import { extensionAp20For, extensionTablesFor } from '../ext/identify'
 import { VerifyError, verify } from './verify'
+import { LineTooLongError, SourceVerifyError, tokenize } from './source'
 
 const table = new TokenTable(CORE_TOKENS)
 const idAt = (b: Uint8Array, at: number): number => (b[at]! << 8) | b[at + 1]!
@@ -442,5 +443,52 @@ describe.skipIf(fixedPoint.compared === 0)('a verified program, listed and retyp
   it('comes back byte for byte', () => {
     expect(fixedPoint.differ).toEqual([])
     expect(fixedPoint.same).toBe(fixedPoint.compared)
+  })
+})
+
+/**
+ * What a caller gets back when the Test pass refuses a line.
+ *
+ * `Ed_Test` (+Edit.s:2557) takes the position the verifier stopped at, seeks
+ * the line containing it and puts the cursor there, so on an Amiga the
+ * offending text is already on screen. There is no screen here, and a byte
+ * offset into a token stream is not something a caller can act on, so
+ * `tokenize` maps it back to the line it was tokenised from.
+ */
+describe('a refused line names itself', () => {
+  const table = new TokenTable(CORE_TOKENS)
+
+  it('carries the source line number and the text', () => {
+    let caught: unknown
+    try {
+      tokenize('A=1\nPrint "ok"\nShift Up 1,1,3\n', table)
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(SourceVerifyError)
+    const e = caught as SourceVerifyError
+    expect(e.line).toBe(3)
+    expect(e.text.trim()).toBe('Shift Up 1,1,3')
+    expect(e.cause).toBeInstanceOf(VerifyError)
+    expect(e.cause.code).toBe(35)
+    expect(e.message).toMatch(/Syntax error .*line 3: Shift Up 1,1,3/)
+  })
+
+  it('counts blank lines, which tokenise to nothing', () => {
+    let line = -1
+    try {
+      tokenize('\n\n\nSet Accessory 1', table)
+    } catch (e) {
+      line = (e as SourceVerifyError).line
+    }
+    expect(line).toBe(4)
+  })
+
+  it('a line the format cannot hold is loud rather than dropped', () => {
+    // `Tokenise` answers -1 at 510 bytes and the editor leaves the line on
+    // screen; silence is right there and wrong for a caller with no screen
+    const long = `A$="${'x'.repeat(600)}"`
+    expect(() => tokenize(long, table)).toThrow(LineTooLongError)
+    expect(() => tokenize(long, table)).toThrow(/line 1 is 510 bytes or more/)
   })
 })

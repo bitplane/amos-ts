@@ -1159,6 +1159,27 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * =Jd Screen Resolution — 4.6's routine 12 (+|jd.s:1432), a function of
+     * no arguments.
+     *
+     * `move.w 72(a0),d3 / and.w #$8804` is the screen's mode word masked to
+     * HIRES, HAM and LACE. What follows looks like it means something and
+     * does not: `cmp.w #$8000,d3 / bne no_neg / neg.w d3` leaves $8000 as
+     * $8000, and the `ext.l / swap / move.w #0 / swap` after it clears the
+     * high word again. The answer is the masked word, unsigned — 32768 for a
+     * hires screen and 0 for a lowres one.
+     *
+     * 5.3 moved the same routine to the instruction side and lost it there;
+     * see the instruction of the same name. The keyword is in neither
+     * manual.
+     */
+    'jd screen resolution'(): Value {
+      const s = rt.screens.get(rt.currentIndex)
+      if (!s) return VI(0)
+      return VI((s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0))
+    },
+
+    /**
      * =Jd Xoffset and =Jd Yoffset — routines 158 and 159 (+|jd.s:6187, :6193).
      * The current screen's scroll offsets, at $ce and $d0 of the screen
      * structure — the same pair Screen Offset sets.
@@ -2405,13 +2426,26 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Jd Screen Resolution n — routine 161 (+|jd.s:6796). Switches the current
-     * screen between lowres and hires.
+     * `Jd Screen Resolution` — 5.3's instruction, and it does nothing.
+     *
+     * DEFECT: 5.3's own source declares the routine number twice.
+     *
+     *     L_shortraus  equ 161      L_rez  equ 161
+     *     L161                      L162
+     *       ext.l d3                  rts
+     *       moveq #0,d2
+     *       rts
+     *
+     * `L_rez` should be 162; the body under it is one `rts`. So the table's
+     * `dc.w L_rez,-1` (:109) reaches `L_shortraus` instead, whose two
+     * instructions write d3 and d2 — the FUNCTION return registers — from an
+     * entry that the same line declares as `"I"`. Nothing an instruction can
+     * observe happens.
+     *
+     * 4.6 had it right and had it the other way round: `dc.w -1,L_rez` under
+     * a `"0"` spec, a function of no arguments. See the function table.
      */
-    'jd screen resolution'(it) {
-      const n = it.evalInt()
-      rt.screen.hires = n !== 0
-    },
+    'jd screen resolution'() {},
 
     /**
      * Jd Wait Event — routine 45 (+|jd.s:2743). Blocks until a mouse button

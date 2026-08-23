@@ -4585,7 +4585,8 @@ export const NOTES: Record<string, string> = {
     "in the corpus, so the OpenLibrary in startup.s succeeds and this is -1. The same longword decides every " +
     "requester: `rtcall` opens `dtst.l ReqToolsBase / beq L_NoReqTools`, error 29.",
   "i flush":
-    "`jtcall FlushRetStr`. Nothing here holds a returned string that way -- a returned string is a JavaScript " +
+    "`jtcall FlushRetStr`, over a cache number ($1558 is \"I0\") that the routine reads and drops. Nothing here " +
+    "holds a returned string that way -- a returned string is a JavaScript " +
     "one -- so it is a no-op with a reason. DEVIATION besides: the original is worse than a no-op. `rsc_sizeof` " +
     "is ZERO, over Church's own \"Currently empty, but kept in case we find a use for it\", and GetRetStr " +
     "stores each new block in the CURRENT head's link instead of in `RSList`, so the second string closes a " +
@@ -5576,7 +5577,9 @@ export const NOTES: Record<string, string> = {
     "stops the slide part way, leaving a partial image nothing here can produce.",
   "jd wait raster":
     "Routine 59 (+|col.s:1959): the line is made positive and folded into 0..256 by repeated subtraction, then " +
-    "the routine spins on `$dff006`, the high byte of VHPOSR, until the beam's vertical position matches. " +
+    "the routine spins on `$dff006`, the high byte of VHPOSR, until the beam's vertical position matches. The " +
+    "keyword cannot be called: $03ee's spec asks for five arguments where the routine pops one, and where the " +
+    "library's own manual writes \"Syntax : Jd Wait Raster Z\". " +
     "DEVIATION: there is no beam here. A given raster line comes round once per frame, so the wait is a frame -- " +
     "what AMOS's own Wait Vbl does. A program syncing to the display gets frame-rate sync rather than sub-frame; " +
     "the folding arithmetic is reproduced because a program can compute a line number from it.",
@@ -8966,7 +8969,9 @@ export const NOTES: Record<string, string> = {
   "cos":
     "FFP-precision result; last-bit mathtrans algorithm differences possible",
   "inc":
-    "float targets get numeric arithmetic; the real machine mangles the FFP bit pattern",
+    "integer variables only. `VerInc` (+Verif.s:1206) calls `VerVEnt` (:1460), which ends `bsr VarA0 / " +
+    "tst.b d0 / bne VerType`, so a float or a string target is a Type mismatch before the program runs. `Add` " +
+    "(:1213) opens with the same two calls.",
   "dec":
     "float targets get numeric arithmetic; the real machine mangles the FFP bit pattern",
   "add":
@@ -8974,7 +8979,8 @@ export const NOTES: Record<string, string> = {
   "using":
     "the '^' scientific-exponent slot is left literal (mantissa normalisation unverified)",
   "shift up":
-    "one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap",
+    "one shift per screen (the original has a single global shift). The wrap flag is not optional: $0d62's " +
+    "spec is \"I0,0,0,0\" with no variant behind it.",
   "wind move":
     "trail behaviour matches; the Wind Save clean-erase path is not wired to Move",
   "key shift":
@@ -9078,15 +9084,20 @@ export const NOTES: Record<string, string> = {
   "forbid plane col":
     "the same modulo-32 Bset as Allow Plane Col — every plane clears the same CLXCON bit",
   "sprite col":
-    "Personnal's own, registered under its slot (`ext13:sprite col`) because core owns the plain name and asks a " +
-    "different question of different arguments — core's `Sprite Col(n[,first[,last]])` really checks a sprite " +
-    "against a range.",
+    "Personnal's own, registered under its slot (`ext13:sprite col`), and unreachable from source. `TkKt` " +
+    "(+Edit.s:14521) searches the core table first and keeps the first of two equal-length names, so " +
+    "`Sprite Col` is always core's `Sprite Col(n[,first To last])` — a different question of different " +
+    "arguments — and Personnal's `(s1,s2)` is a syntax error. No program in the 3,874-file corpus carries " +
+    "ext13:$0304.",
   "right click":
     "Personnal's is registered under its slot too, though TURBO Plus's reads the same button (POTGOR bit 10, " +
     "DATLY, port 0 pin 9) to the same answer — the agreement is a fact about the two libraries rather than " +
     "something to depend on",
   "set color":
-    "the FUNCTION form does not read a colour.",
+    "the FUNCTION form cannot be typed and would not read a colour if it could. The library declares the name " +
+    "twice, `\"set color\",\"I0,0,0,0\"` (:111) and `\"set color\",\"00\"` (:123); the instruction is first, so " +
+    "`TkKt` never reaches the reader. Behind that, `L_COLORREAD Equ 1` (:810) sits above a body labelled L18, " +
+    "so the entry names routine 1 — L1 falling into L3, `Move.w #$0000,$DFF1DC`.",
   "create aga":
     "differs from Create Standard in more than the colour block, which is easy to miss because the two routines " +
     "are otherwise line-for-line the same.",
@@ -10262,9 +10273,11 @@ export const NOTES: Record<string, string> = {
     "every other function here returns in d3 with a type in d2, so `=Eltest(a,b)` answers whatever d3 held from " +
     "the last thing that set it. Evidence: 1.09's routine 255 (\\$372a); 1.09's routine 256 (\\$3732).",
   "elzb multi add":
-    "Two forms on one name. NOTE: both walks run the groups DOWNWARD, from the count at bank+0 to 1, and that " +
-    "order decides which zone lands in which multi-zone slot, so it is reproduced rather than tidied. Evidence: " +
-    "Routine 102 ($1f02); Routine 103 ($1f30).",
+    "Two forms on one name, and only the two-argument one can be typed: $0442 ends `\"I0,0\",-1` where the " +
+    "nameless `\"I0\"` entry behind it needs a -2, and `VerC4` (+Verif.s:3158) tests for exactly -2. NOTE: both " +
+    "walks run the groups DOWNWARD, from the count at bank+0 to 1, and that order decides which zone lands in " +
+    "which multi-zone slot, so it is reproduced rather than tidied. Evidence: Routine 102 ($1f02); Routine 103 " +
+    "($1f30).",
   "el error":
     "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3 " +
     "/ move.l #$0,(a2)`. The doc: \"The El Error value is cleared to -1 when it is read. This means that if " +

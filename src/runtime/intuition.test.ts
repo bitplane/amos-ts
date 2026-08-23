@@ -12,10 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { E, IEXT_ERRORS } from './intuition'
@@ -1131,7 +1128,9 @@ Print Ierrtrap;" ";Ierr;" [";Ierr$;"]"`)
    * hands strings back out of. Nothing here holds a string that way.
    */
   it('I Flush is a no-op with a reason', () => {
-    expect(() => run(`${W}\nI Flush`)).not.toThrow()
+    // $1558 is "I0" --- the cache number is not optional
+    expect(() => run(`${W}\nI Flush 0`)).not.toThrow()
+    expect(() => run(`${W}\nI Flush`)).toThrow(/syntax error/i)
   })
 })
 
@@ -1318,10 +1317,15 @@ describe('Intuition 1.3b: Set Ipens', () => {
   })
 
   it('takes either pen on its own and refuses one over 255', () => {
-    const rt = run(`${SCR}Set Ipens 5`)
+    // "I0,0" with no variant behind it, so one pen is written as an empty
+    // slot and not as a shorter argument list: `Set Ipens 5,` and not
+    // `Set Ipens 5`. `Ope_Fin2` (+Verif.s:2768) is `moveq #"0",d2`, which is
+    // what makes an empty slot legal wherever the spec wants a number
+    expect(() => run(`${SCR}Set Ipens 5`)).toThrow(/syntax error/i)
+    const rt = run(`${SCR}Set Ipens 5,`)
     const w = rt.iext.screens.get(0)!.windows.get(0)!
     expect([w.hilitePen, w.shadowPen]).toEqual([5, 1])
-    const b = boot(`${SCR}Set Ipens 256`)
+    const b = boot(`${SCR}Set Ipens 256,`)
     expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.IFC])
   })
 })
@@ -1941,15 +1945,17 @@ describe('Intuition 1.3b: writing and titles', () => {
     const win = (rt: Runtime) => rt.iext.screens.get(0)!.windows.get(1)!
     let rt = run(`${W}Set Iwindow Title 1,"New","Scr"`)
     expect([win(rt).title, win(rt).window.title, win(rt).screenTitle]).toEqual(['New', 'New', 'Scr'])
-    rt = run(`${W}Set Iwindow Title 1,"New","Scr"\nSet Iwindow Title 1,,`)
-    expect([win(rt).window.title, win(rt).screenTitle]).toEqual(['New', 'Scr'])
     rt = run(`${W}Set Iwindow Title 1,"New","Scr"\nSet Iwindow Title 1,"",""`)
     expect([win(rt).window.title, win(rt).screenTitle]).toEqual(['', ''])
+    // "leave this one alone" is in the routine and out of reach: an empty
+    // slot types as "0" and both title slots want "2"
+    expect(() => run(`${W}Set Iwindow Title 1,,`)).toThrow(/type mismatch/i)
   })
 
   /** `dmove.l CurIwindow,d3 / beq L_NoWin` --- the variable, not GetCurIwin */
   it('an omitted window number needs a current window', () => {
-    const b = boot(`${S}Set Iwindow Title ,"x",`)
+    // the window number is the one slot of the three that may be empty
+    const b = boot(`${S}Set Iwindow Title ,"x",""`)
     expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(IEXT_ERRORS[E.WNO])
   })
 
@@ -2162,8 +2168,10 @@ describe('Intuition 1.3b: the spellings from before 1.3', () => {
    * spelling at all, and the argument is not there to be typed.
    */
   it('the old Iwindow_Open has no flags argument', () => {
-    const b = boot('Iscreen_Open 0,320,200,16,0\nIwindow_Open 1,0,0,200,100,"W",4096')
-    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(/syntax error/)
+    // the Test pass catches it, so it never reaches a run
+    expect(() => boot('Iscreen_Open 0,320,200,16,0\nIwindow_Open 1,0,0,200,100,"W",4096')).toThrow(
+      /syntax error/i,
+    )
     // the spaced one takes it: 4096 is ACTIVATE alone, so none of the four
     // system-gadget bits IEXT_WFLAGS would have supplied
     const gads = (rt: Runtime) => rt.iext.screens.get(0)!.windows.get(1)!.window.flags & 0xf

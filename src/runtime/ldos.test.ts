@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
@@ -704,7 +701,9 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
   it('Ldev First and Ldev Next walk the devices, without colons', () => {
     // "Please note that the devicename (like DF0: etc.) NOT contains a colon"
     const { out } = run(
-      ['Assign "Data:" To "DH0:"', 'Print Ldev First(0)', 'Print Ldev Next', 'Print Ldev Next', 'Print "["+Ldev Next+"]"'].join('\n'),
+      // `ldev next` is $0502 "20" --- a string function of one integer, the
+      // same shape as `Ldev First`, and its argument is read and dropped
+      ['Assign "Data:" To "DH0:"', 'Print Ldev First(0)', 'Print Ldev Next(0)', 'Print Ldev Next(0)', 'Print "["+Ldev Next(0)+"]"'].join('\n'),
     )
     // ENV: is a mounted volume like any other, so it enumerates as a device
     // — which is what it is on a real machine

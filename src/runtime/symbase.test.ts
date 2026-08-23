@@ -23,7 +23,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 // follows and an omitted one still counts as `0`, so the string it builds can
 // never end in a comma and the entry matches nothing. AMOS Pro cannot reach
 // routine 80 either; this gets past the refusal to test what it does.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize, tokenizeUnchecked } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
@@ -69,14 +69,18 @@ function tiny(): Uint8Array {
 
 let printed = ''
 
-function boot(src: string[], files: Record<string, Uint8Array> = {}): { rt: Runtime; fs: AmigaFS } {
+function boot(
+  src: string[],
+  files: Record<string, Uint8Array> = {},
+  tok: typeof tokenize = tokenize,
+): { rt: Runtime; fs: AmigaFS } {
   const exts = new Map([[21, symbase.table]])
   const fs = new AmigaFS()
   const vol = fs.mountMemory('Work')
   for (const [name, bytes] of Object.entries(files)) vol.write([name], bytes)
   fs.currentDir = 'Work:'
   printed = ''
-  const rt = new Runtime(tokenize(src.join('\n'), table, exts), table, {
+  const rt = new Runtime(tok(src.join('\n'), table, exts), table, {
     extensions: exts,
     extBindings: new Map([[21, symbase]]),
     maxSteps: 500_000,
@@ -90,6 +94,11 @@ function run(src: string[], files: Record<string, Uint8Array> = {}): { rt: Runti
   const b = boot(src, files)
   mustFinish(b.rt.runHeadless(2000))
   return b
+}
+
+/** for the one keyword whose spec no argument list can match */
+function runUnchecked(src: string[], files: Record<string, Uint8Array> = {}): void {
+  mustFinish(boot(src, files, tokenizeUnchecked).rt.runHeadless(2000))
 }
 
 const out = (): string[] => printed.trim().split('\n').map((s) => s.trim())
@@ -405,8 +414,25 @@ describe('records — batch 4', () => {
     expect(back[back.length - 1]).toBe(0x1a)
   })
 
-  it('Db Append From raises "Not implemented yet :(", because routine 80 is one branch to it', () => {
-    expect(() => run([USE, 'Db Append From 1,2'], TINY)).toThrow(SYMBASE_ERRORS[4])
+  /**
+   * DEFECT: `Db Append From` cannot be called in any form.
+   *
+   * $01c6's spec is `"I0,"` --- an integer, a separator, and then the $FF
+   * terminator where the second parameter's type should be. `VerC`
+   * (+Verif.s:3120) walks the built argument string against it: one argument
+   * runs out at the "," and takes VerC3, two arguments match "0" and "," and
+   * then meet the terminator at VerC4, and $FF is not -2, so both fall into
+   * VerSynt. The routine behind it is one branch to "Not implemented yet :(",
+   * which is presumably why nobody noticed.
+   */
+  it('Db Append From cannot be typed, because its spec ends in a separator', () => {
+    for (const src of ['Db Append From 1,2', 'Db Append From 1', 'Db Append From 1,', 'Db Append From']) {
+      expect(() => run([USE, src], TINY), src).toThrow(/syntax error/i)
+    }
+    // the entry in front of it is written properly and still works
+    expect(() => run([USE, 'Db Append'], TINY)).not.toThrow()
+    // and routine 80 itself, reached the only way anything could reach it
+    expect(() => runUnchecked([USE, 'Db Append From 1,2'], TINY)).toThrow(SYMBASE_ERRORS[4])
   })
 
   it('Db Swap exchanges two records and leaves the buffer on the first', () => {

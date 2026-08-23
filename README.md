@@ -105,6 +105,8 @@ CLI tools in `src/cli/`:
 | `libcat.ts` | catalogue a directory of `.Lib` files by identity |
 | `libpool.ts` | pool several collections and report what is new |
 | `versweep.ts` | which registered extensions are a later release of something already ported |
+| `keyspec.ts` | what argument lists a keyword accepts, read off its own token table (`all` searches every one) |
+| `keygrep.ts` | every line in the corpus that uses a keyword, detokenized with the extension tables its slots name |
 | `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
 | `muidis.ts` | MUI: resolve a class's method to its routine in `muimaster.library` and disassemble it (`--tree` for the class tree) |

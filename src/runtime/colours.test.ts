@@ -4,9 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// this library gives a keyword an instruction entry with the function form
-// behind it nameless, which only AMOS 1.3 could reach -- see tokenizeUnchecked
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { firstCodeHunk } from '../tokens/libtok'
 import { Runtime } from './runtime'
@@ -116,12 +114,17 @@ describe('AMOSPro Colours 1.0: the keywords', () => {
     }
   })
 
-  it('C Orange is the spelling, and bare Orange is only a variable', () => {
+  it('C Orange is the spelling, and bare Orange cannot be typed at all', () => {
     // `dc.b "c orang","e"+$80` (:95), the only prefixed name in the table.
-    // `Orange` is not an error — AMOS reads any unknown word as a variable,
-    // so a program that guessed the obvious name silently gets 0
+    // The prefix is not decoration. `Or` is an OPERATOR, and `findKeyword`
+    // searches the operator table first and takes the first match, so any
+    // word beginning "or" loses its first two letters: `Orange` tokenises as
+    // `Or ANGE` and `ORXNGE` as `Or XNGE`, both a syntax error before the
+    // program runs. Guessing the obvious name does not silently read a
+    // variable, because the variable cannot be spelled.
     expect(Number(run('Print C Orange').trim())).toBe(0xa40)
-    expect(Number(run('Print Orange').trim())).toBe(0)
+    expect(() => run('Print Orange')).toThrow(/syntax error/i)
+    expect(() => run('ORANGE=1')).toThrow(/syntax error/i)
   })
 
   it('reads as a colour where one is wanted', () => {

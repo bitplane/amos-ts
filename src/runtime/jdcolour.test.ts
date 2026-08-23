@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize, tokenizeUnchecked } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -679,10 +676,28 @@ describe('JD Colour: the whole-screen group', () => {
     expect(wide.screens.get(1)!.point(34, 10)).toBe(0)
   })
 
-  it('Wait Raster folds its line and waits a frame', () => {
+  /**
+   * DEFECT: `Jd Wait Raster` cannot be called.
+   *
+   * $03ee's spec is `"I0,0,0t0,0"` — five arguments, no variant behind it —
+   * and routine 59 is 38 bytes that pop ONE:
+   *
+   *     move.l (a3)+,d0 / bpl.w rapo / neg.l d0
+   *     cmp.l #$101,d0 / blt.w wait / subi.l #$100,d0 / bra.b
+   *     move.b $dff006,d1 / cmp.b d0,d1 / bne.b
+   *
+   * The library's own manual agrees with the routine and not with its table:
+   * "Parameter: Zeile (0-256) ... Syntax : Jd Wait Raster Z". So the one
+   * documented form is a syntax error, the five-argument form the table
+   * describes would leave four values on the stack, and no corpus program
+   * uses the keyword at all. The routine is reached here the only way
+   * anything could reach it.
+   */
+  it('Wait Raster folds its line and waits a frame, and cannot be typed', () => {
+    expect(() => tokenize('Jd Wait Raster -300', table, exts)).toThrow(/syntax error/i)
     // `bpl rapo / neg.l d0` then repeated -256; there is no beam, so the wait
     // is a frame, which is what a raster line comes round on
-    const rt = new Runtime(tokenize('Jd Wait Raster -300 : Print 1', table, exts), table, {
+    const rt = new Runtime(tokenizeUnchecked('Jd Wait Raster -300 : Print 1', table, exts), table, {
       extensions: exts,
       extBindings: new Map([[20, col]]),
       maxSteps: 500_000,

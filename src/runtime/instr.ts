@@ -2875,11 +2875,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = Math.min(end - start, m.data.length - m.off)
       for (let i = 0; i < n; i++) c.out.push(m.data[m.off + i]!)
     },
-    'sam loop on'(it) {
-      // SL0 +Music.s:3073: updates the mask AND re-points live samples
-      const mask = (it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15
-      rt.samLoopMask |= mask
-      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.audio.setLoop(v, 0)
+    'sam loop on'() {
+      // SL0 +Music.s:3073: updates the mask AND re-points live samples.
+      //
+      // DEFECT: the masked form is unreachable. +Music.s:408 gives the $FE
+      // variant behind `!sam loop on` the spec "I" where `InSamLoopOn1`
+      // (:3020) does `move.l d3,d1` and needs "I0". `Sam Loop Off` has the
+      // pair written correctly at :412, so OFF takes a mask and ON does not.
+      // What is left is `InSamLoopOn0` (:3026), `moveq #%1111,d1`.
+      rt.samLoopMask = 0b1111
+      for (let v = 0; v < 4; v++) rt.audio.setLoop(v, 0)
     },
     'sam loop off'(it) {
       const mask = (it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15
@@ -3144,22 +3149,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const match = it.evalInt()
       rt.collide.clxcon = (0xf << 12) | ((enable & 0x3f) << 6) | (match & 0x3f)
     },
-    'set accessory'(it) {
+    'set accessory'() {
       // The token table points this at L_InNull (+Lib.s:1474), and InNull
       // is one instruction: rts (+ILib.s:3748). It marks the program as an
       // accessory for the *editor* — the interpreter never reads the flag,
       // which is why the commented-out Prg_Accessory test in InPRun
       // (+ILib.s:1541) is commented out. Running one directly does nothing.
-      if (!it.atStmtEnd()) it.evalInt()
+      // $2578's spec is a bare "I", so there is no argument to read either.
     },
     'iff anim'(it) {
-      // InIffAnim +Lib.s:4538: Iff Anim "file",screen[,times] — the
+      // InIffAnim +Lib.s:4538: Iff Anim "file" To screen[,times] — the
       // whole ANIM loads, frame 1 creates and double-buffers the
       // screen, then each frame waits the ANHD time, swaps, and plays
       // the next DLTA into the logical buffer (which is what makes
-      // ANIM5's two-frames-back deltas land correctly)
+      // ANIM5's two-frames-back deltas land correctly).
+      // The separator is `To`, not a comma: $260c's spec is "I2t0" with an
+      // "I2t0,0" behind it, and Disc_Manager.AMOS:436 writes
+      // `Iff Anim FF$ To 1`
       const path = it.evalStr()
-      it.expect(',')
+      it.expect('to')
       const screen = it.evalInt()
       const times = it.accept(',') ? it.evalInt() : 1
       if (times < 0) throw new AmosError('Illegal function call', 23)

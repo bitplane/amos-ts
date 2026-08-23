@@ -4,10 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
@@ -981,6 +978,17 @@ describe('JD 5.9: the keywords the later table added', () => {
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['AB', '1', '0'])
   })
 
+  it('4.6 has Jd Screen Resolution as a FUNCTION, and it reads the mode word', () => {
+    // `dc.w -1,L_rez` under a `"0"` spec (:107), routine 12 at :1432:
+    // `move.w 72(a0),d3 / and.w #$8804`, answered unsigned. 5.3 moved the
+    // entry to the instruction side and collided its routine number with
+    // L_shortraus, so this is the only release where the keyword answers
+    expect(run46('Screen Open 0,320,200,16,Lowres : Print Jd Screen Resolution').trim()).toBe('0')
+    expect(run46('Screen Open 0,640,200,16,Hires : Print Jd Screen Resolution').trim()).toBe('32768')
+    // no arguments in either release
+    expect(() => run46('Print Jd Screen Resolution(0)')).toThrow(/syntax error/i)
+  })
+
   it('the two intuition base keywords are 4.6\'s, not 5.9\'s', () => {
     // T_ScreenAdr and T_WindowAdr; 5.3 dropped both names from its table and
     // 5.9 did not bring them back, so only 4.6 can reach them
@@ -1092,10 +1100,15 @@ describe('JD: the keywords the gate caught', () => {
     expect(run('Jd Textfont "nosuch.font",8 : Jd Print "hi" : Print "|"').trim()).toBe('hi|')
   })
 
-  it('Screen Resolution switches the current screen to hires and back', () => {
-    // routine 161 (+|jd.s:6796)
-    expect(runRt('Screen Open 0,320,200,16,Lowres : Jd Screen Resolution 1').screen.hires).toBe(true)
-    expect(runRt('Screen Open 0,640,200,16,Hires : Jd Screen Resolution 0').screen.hires).toBe(false)
+  it('Screen Resolution takes no argument in 5.3, and does nothing', () => {
+    // `dc.w L_rez,-1` under `"jd screen resolutio","n"+$80,"I",-1` (:109),
+    // and `L_rez equ 161` (:6796) collides with `L_shortraus equ 161` two
+    // lines above it. The instruction reaches `ext.l d3 / moveq #0,d2 / rts`
+    expect(() => runRt('Screen Open 0,320,200,16,Lowres : Jd Screen Resolution 1')).toThrow(
+      /syntax error/i,
+    )
+    const rt = runRt('Screen Open 0,320,200,16,Lowres : Jd Screen Resolution')
+    expect(rt.screen.hires).toBe(false)
   })
 
   it('Video On clears what Video Off set', () => {

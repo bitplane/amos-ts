@@ -78,6 +78,35 @@ wrong" is a strong claim and the alternative explanation, that we misread it,
 is always available. A `DEFECT:` cites the routine, and where the manual
 disagrees it says so, because the binary wins over the manual.
 
+#### The keyword that cannot be typed
+
+One family is common enough to name. The routine is written, the manual
+documents it, and the library's own TOKEN TABLE puts it out of reach, so the
+whole keyword is dead in the shipped release. Four ways it happens, all found
+by running the Test pass over every test in this directory:
+
+- **The variant is behind a $FF.** `VerC4` (+Verif.s:3158) is `cmp.b #-2,d1 /
+  bne VerSynt`, so an argument-count variant reached by anything but a $FE is
+  never tried, and the variant entry has no name of its own for `TkKt` to
+  find. AMOS Pro's own `!sam loop on` (`instr.ts`) and EasyLife's `!elzb multi
+  add` (`easylife.test.ts`) both lose their second form this way.
+- **The spec does not describe the routine.** JD Colour's `jd wait raster`
+  asks for five arguments where routine 59 pops one and the library's manual
+  writes `Jd Wait Raster Z` (`jdcolour.test.ts`). SymBase's `db append from`
+  ends `"I0,"`, a separator where a type belongs, and matches no argument list
+  at all (`symbase.test.ts`).
+- **The spec has no terminator.** Range's `splot` runs on into the entry
+  behind it, which costs two keywords: `Splot` matches nothing and `float
+  planes` is read four bytes late as `t planes` (`range.test.ts`,
+  `../tokens/libtok.ts`).
+- **Two entries share a name.** `TkKt` (+Edit.s:14521) keeps the longest match
+  and, at `cmp.w d3,d0 / bls.s TkRe4`, the first of two the same length. So
+  Personnal's `copper base` loses its writer and its `set color` loses its
+  reader, one pair each way round (`personnal.ts`).
+
+The port keeps the routine, refuses the source line, and reaches the routine in
+its test through `tokenizeUnchecked`, which documents all four.
+
 ### Both at once
 
 A defect the port declines to reproduce is a `DEVIATION:`, not a `DEFECT:`. The

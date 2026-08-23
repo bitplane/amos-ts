@@ -12,7 +12,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
  * its parameter spec runs on into the entry behind it (see libtok.ts) and
  * matches nothing. Both are the library's, not this port's.
  */
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenizeUnchecked as tokenize, tokenize as tokenizeChecked } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { NullAudio, PAULA_CLOCK_PAL } from '../amiga/paula'
 import { Runtime } from './runtime'
@@ -584,6 +584,17 @@ describe('Range — 2.9Plus: the bank strings (routines 64-67)', () => {
 
 describe('Range — 2.9Plus: Spoint and Splot (routines 74, 76)', () => {
   const scr = 'Screen Open 0,320,200,16,Lowres\nCls 0\n'
+
+  it('no argument list reaches Splot, and the entry behind it lost its name', () => {
+    // the missing terminator, from the other side: `VerC` walks the built
+    // string against "0,0,0,0\0\0M" and meets $FF at VerC4, which is not -2
+    for (const n of ['Splot 10,20,5,0', 'Splot 10,20,5', 'Splot 10,20,5,0,0']) {
+      expect(() => tokenizeChecked(scr + n, table, new Map([[9, range.table]])), n).toThrow(/syntax error/i)
+    }
+    const names = range.tokens.map((t) => t.name)
+    expect(names).toContain('t planes')
+    expect(names).not.toContain('float planes')
+  })
 
   it('Splot writes a pixel and Spoint reads it back', () => {
     const b = run(scr + 'Splot 10,20,5,0\nPrint Spoint(10,20,0)')

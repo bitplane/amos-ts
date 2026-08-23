@@ -710,6 +710,12 @@ const VAR_STRING = 2
  */
 const OMITTED = -0x8000_0000
 
+/** the argument, or the $80000000 AMOS pushes when the slot is left empty */
+function optOmitted(it: Interp): number {
+  if (it.atStmtEnd() || it.nm() === ',' || it.nm() === ')') return OMITTED
+  return it.evalInt()
+}
+
 /**
  * The scale `Gui Sx` and `Gui Sw` apply, skipped for a window that was laid
  * out in topaz/8: `tst.w $42(a1) / bne` at $28f0 jumps past the call.
@@ -2208,8 +2214,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * this keyword does not disturb the ink.
      */
     'gui clw': (it) => {
+      // $05e4's spec is "I0,0", so the comma is not optional and the colour
+      // is left EMPTY rather than left off: `Gui Clw 1,`
       const n = it.evalInt()
-      const c = it.accept(',') ? it.evalInt() : OMITTED
+      it.expect(',')
+      const c = optOmitted(it)
       // this one names its window, so it raises 10 rather than 11
       const w = windowOf(s(), n)
       const pen = c === OMITTED ? w.ink : c
@@ -3003,7 +3012,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const bankNo = it.evalInt()
       it.expect('to')
       const n = it.evalInt()
-      const mode = it.accept(',') ? it.evalInt() : 0
+      // "I0t0,0": the mode is a slot that may be left empty, not one that may
+      // be left off. $350c stores it with `move.w d3,$1a(a2)`, so the low word
+      // is all that survives and the $80000000 of an omitted slot reads as 0
+      it.expect(',')
+      const raw = optOmitted(it)
+      const mode = raw === OMITTED ? 0 : raw
       const held = rt.memBanks.get(bankNo)
       if (held === undefined) guiError(GUI_ERR.BANK_NOT_RESERVED)
       const screen = screenOf(g, n)

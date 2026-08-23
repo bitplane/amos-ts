@@ -5,10 +5,7 @@ import { mustFinish } from '../testing/run'
 import { parseAmosFile } from '../loader/amosfile'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize, tokenizeUnchecked } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { EASYLIFE_ERRORS } from './easylife'
@@ -32,10 +29,10 @@ interface Boot {
   text: () => string
 }
 
-function boot(src: string): Boot {
+function boot(src: string, tok: typeof tokenize = tokenize): Boot {
   const exts = new Map([[16, easylife.table]])
   let printed = ''
-  const rt = new Runtime(tokenize(src, table, exts), table, {
+  const rt = new Runtime(tok(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[16, easylife]]),
     maxSteps: 200_000,
@@ -50,8 +47,8 @@ function run(src: string): { rt: Runtime; out: string } {
   return { rt: b.rt, out: b.text() }
 }
 
-const fails = (src: string): string => {
-  const b = boot(src)
+const fails = (src: string, tok: typeof tokenize = tokenize): string => {
+  const b = boot(src, tok)
   try {
     b.rt.runHeadless(2000)
   } catch (e) {
@@ -1623,15 +1620,15 @@ describe('EasyLife: Tag Str, Tag Keep and Tag Block Size', () => {
   })
 
   it('Tag Keep takes any non-zero as True, and False puts it back', () => {
-    const b = boot(OPEN + 'Tag Keep 7\nA=Tag Str("Fred")\nB=Tag Keep : Tag Keep False\n')
-    // `Tag Keep` is an instruction, so the second line is the state check
+    // $0a62 is "I0" and there is no function form, so the state can only be
+    // read from outside: `B=Tag Keep` is a syntax error
+    expect(() => boot(OPEN + 'B=Tag Keep\n')).toThrow(/syntax error/i)
     const c = boot(OPEN + 'Tag Keep 7\n')
     mustFinish(c.rt.runHeadless(2000))
     expect(c.rt.easylife.tagKeep).toBe(7)
     const d = boot(OPEN + 'Tag Keep 7\nTag Keep False\n')
     mustFinish(d.rt.runHeadless(2000))
     expect(d.rt.easylife.tagKeep).toBe(0)
-    expect(b).toBeTruthy()
   })
 
   it('Tag Block Size takes $1000 to $40000 and refuses either side', () => {
@@ -2515,8 +2512,8 @@ describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
    * artefact the Elzb Add tests use. `Elzb Multi Add` turns each of them into
    * a multi-zone rather than a plain one.
    */
-  const bootZb = (src: string): Boot => {
-    const b = boot(OPEN + src)
+  const bootZb = (src: string, tok: typeof tokenize = tokenize): Boot => {
+    const b = boot(OPEN + src, tok)
     b.rt.memBanks.set(7, {
       kind: 'memory',
       number: 7,
@@ -2527,6 +2524,7 @@ describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
     })
     return b
   }
+  const bootZbUnchecked = (src: string): Boot => bootZb(src, tokenizeUnchecked)
 
   it.skipIf(!existsSync(DEMOS))('the two-argument form numbers the group’s zones from one', () => {
     // routine 102: `moveq #$1,d6` then `addq.l #$1,d6` per zone, so the IDs
@@ -2539,12 +2537,24 @@ describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
     expect(b.text()).toBe(' 11 4 608 19 611\n')
   })
 
+  /**
+   * DEFECT: the one-argument form is written into the table and unreachable.
+   *
+   * $0442's four bytes read `"I0,0",-1` where every other variant pair in the
+   * library reads `,-2`, and $045a behind it is the usual nameless entry:
+   * `dc.b $80,"I0",-1`, routine 103. `VerC4` (+Verif.s:3158) is
+   * `cmp.b #-2,d1 / bne VerSynt`, so a $FF ends the search instead of
+   * continuing it, and the entry has no name for `TkKt` to find either.
+   *
+   * Routine 103 is real --- it counts every group's zones, calls routine 80
+   * once with the total, and only then adds, so no `Elmz Reserve` is needed
+   * beforehand --- and this is the only way anything reaches it.
+   */
   it.skipIf(!existsSync(DEMOS))('the one-argument form reserves for every group first', () => {
-    // routine 103 counts every group's zones, calls routine 80 once with the
-    // total, and only then adds — so no Elmz Reserve is needed beforehand.
-    // Zone_Editor's bank has one group of thirty.
-    // the bank's own zone 1 is (11,4)-(608,19) and its zone 30 (172,38)-(215,48)
-    const b = bootZb('Elzb Multi Add 7\nPrint Elmznsx(1,1);Elmznsx(1,30);Elmzney(1,30)\n')
+    expect(() => bootZb('Elzb Multi Add 7\n')).toThrow(/syntax error/i)
+    // Zone_Editor's bank has one group of thirty; its zone 1 is
+    // (11,4)-(608,19) and its zone 30 (172,38)-(215,48)
+    const b = bootZbUnchecked('Elzb Multi Add 7\nPrint Elmznsx(1,1);Elmznsx(1,30);Elmzney(1,30)\n')
     mustFinish(b.rt.runHeadless(2000))
     expect(b.text()).toBe(' 11 172 48\n')
   })
@@ -2578,7 +2588,7 @@ describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
   })
 
   it('an unreserved bank is AMOS 36 in both forms', () => {
-    expect(fails(OPEN + 'Elzb Multi Add 7\n')).toMatch(/^Bank not reserved/)
+    expect(fails(OPEN + 'Elzb Multi Add 7\n', tokenizeUnchecked)).toMatch(/^Bank not reserved/)
     expect(fails(OPEN + 'Elmz Reserve 4\nElzb Multi Add 7,1\n')).toMatch(/^Bank not reserved/)
   })
 })

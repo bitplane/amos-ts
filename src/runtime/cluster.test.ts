@@ -4,10 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
@@ -104,9 +101,16 @@ describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:207
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '12'])
   })
 
-  it('Inc/Dec on float variables stay numeric', () => {
-    const { out } = run('F#=1.5\nInc F#\nPrint F#')
-    expect(out.trim()).toBe('2.5')  // Str$ leading space trimmed
+  it('Inc and Dec take an INTEGER variable and nothing else', () => {
+    // `VerInc` (+Verif.s:1206) is `bsr VerVEnt / bsr VerGV`, and VerVEnt
+    // (:1460) ends `bsr VarA0 / tst.b d0 / bne VerType` -- d0 is the
+    // variable's kind and only kind 0 passes. So a float or a string is a
+    // Type mismatch before the program runs, and `Add` (:1213) opens with the
+    // same two calls. No corpus program increments a float.
+    expect(() => run('F#=1.5\nInc F#')).toThrow(/type mismatch/i)
+    expect(() => run('A$="x"\nInc A$')).toThrow(/type mismatch/i)
+    expect(() => run('F#=1.5\nAdd F#,1')).toThrow(/type mismatch/i)
+    expect(run('X=1\nInc X\nPrint X').out.trim()).toBe('2')
   })
 
   it('Wait errors on negative counts (InWait: Rbmi FonCall)', () => {
@@ -515,13 +519,13 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+
   it('Field defines records; Put pads/truncates; Get reads them back', () => {
     const prog = [
       'Open Random 1,"DH0:db.dat"',
-      'Field #1,8 As N$,4 As A$',
-      'N$="ALICE" : A$="30" : Put #1,1',
-      'N$="BOBBYLONGNAME" : A$="7" : Put #1,2',
+      'Field 1,8 As N$,4 As A$',
+      'N$="ALICE" : A$="30" : Put 1,1',
+      'N$="BOBBYLONGNAME" : A$="7" : Put 1,2',
       'N$="" : A$=""',
-      'Get #1,1',
+      'Get 1,1',
       'Print "[";N$;"][";A$;"]"',
-      'Get #1,2',
+      'Get 1,2',
       'Print "[";N$;"][";A$;"]"',
       'Close 1',
     ].join('\n')
@@ -533,12 +537,12 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+
   it('records survive Close and reopen through the VFS', () => {
     const prog = [
       'Open Random 1,"DH0:db.dat"',
-      'Field #1,8 As N$',
-      'N$="FIRST" : Put #1,1',
+      'Field 1,8 As N$',
+      'N$="FIRST" : Put 1,1',
       'Close 1',
       'Open Random 1,"DH0:db.dat"',
-      'Field #1,8 As N$',
-      'Get #1,1',
+      'Field 1,8 As N$',
+      'Get 1,1',
       'Print N$',
       'Close 1',
     ].join('\n')
@@ -546,16 +550,16 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+
   })
 
   it('EOF rules: Get past the end errors, Put may append exactly one record', () => {
-    const base = ['Open Random 1,"DH0:db.dat"', 'Field #1,8 As N$']
-    expect(() => run([...base, 'Get #1,1'].join('\n'))).toThrow(/end of file/i)
-    expect(() => run([...base, 'N$="X" : Put #1,2'].join('\n'))).toThrow(/end of file/i)
-    expect(() => run([...base, 'N$="X" : Put #1,1', 'Put #1,2', 'Get #1,2', 'Print "ok"'].join('\n'))).not.toThrow()
+    const base = ['Open Random 1,"DH0:db.dat"', 'Field 1,8 As N$']
+    expect(() => run([...base, 'Get 1,1'].join('\n'))).toThrow(/end of file/i)
+    expect(() => run([...base, 'N$="X" : Put 1,2'].join('\n'))).toThrow(/end of file/i)
+    expect(() => run([...base, 'N$="X" : Put 1,1', 'Put 1,2', 'Get 1,2', 'Print "ok"'].join('\n'))).not.toThrow()
   })
 
   it('validation: record range, channel type, zero-length fields', () => {
-    expect(() => run(['Open Random 1,"DH0:x"', 'Field #1,8 As N$', 'Get #1,0'].join('\n'))).toThrow(/illegal function call/i)
-    expect(() => run(['Open Out 1,"DH0:x"', 'Field #1,8 As N$', 'N$="A" : Put #1,1'].join('\n'))).toThrow(/file type mismatch/i)
-    expect(() => run(['Open Random 1,"DH0:x"', 'Field #1,0 As N$'].join('\n'))).toThrow(/illegal function call/i)
+    expect(() => run(['Open Random 1,"DH0:x"', 'Field 1,8 As N$', 'Get 1,0'].join('\n'))).toThrow(/illegal function call/i)
+    expect(() => run(['Open Out 1,"DH0:x"', 'Field 1,8 As N$', 'N$="A" : Put 1,1'].join('\n'))).toThrow(/file type mismatch/i)
+    expect(() => run(['Open Random 1,"DH0:x"', 'Field 1,0 As N$'].join('\n'))).toThrow(/illegal function call/i)
   })
 })
 
@@ -606,7 +610,7 @@ describe.skipIf(!have('Tutorial/Iff_Anim/AMOS.Anim'))('integration: IFF ANIM fra
   })
 
   it('Iff Anim plays the file with double-buffered swaps (InIffAnim +Lib.s:4538)', () => {
-    const { rt } = animRt('Iff Anim "AMOS.Anim",0\nPrint "done"')
+    const { rt } = animRt('Iff Anim "AMOS.Anim" To 0\nPrint "done"')
     expect(rt.screens.get(0)!.doubleBuffered).toBe(true)
     expect(rt.iffAnim).toBeNull() // playback completed
   })
@@ -777,8 +781,11 @@ describe('stragglers (palette shift, wind size, key shift)', () => {
   // (Screen Open runs Flash 3, +Lib.s:8989), which would fight the shifted
   // value here exactly as it does on a real Amiga
   it('Shift Up cycles a palette range with the exact rotation (Shifter +W.s:5464)', () => {
-    // start [1,2,3]=$100,$200,$300; one up-shift → pal[1]<-pal[3] wrap
-    expect(shiftAfterOneStep('Flash Off : Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3')).toEqual([0x300, 0x100, 0x200])
+    // start [1,2,3]=$100,$200,$300; one up-shift → pal[1]<-pal[3] wrap.
+    // The flag is not optional: $0d62's spec is "I0,0,0,0" with no $FE
+    // variant behind it, and every corpus use writes all four
+    // (`Shift Up 5,23,31,1` in BOTSS/Autoexec.AMOS:20)
+    expect(shiftAfterOneStep('Flash Off : Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3,1')).toEqual([0x300, 0x100, 0x200])
   })
 
   it('Shift with flag 0 smears instead of wrapping (Shf8a)', () => {
@@ -900,7 +907,7 @@ describe('screens (vs the 68k Ec* routines)', () => {
     expect(inside).toBeGreaterThan(0)
     expect(outside).toBe(0)
     // Screen Display does not re-show a hidden screen
-    const hidden = run('Screen Open 0,320,200,4,0 : Screen Hide 0 : Screen Display 0,200,60').rt
+    const hidden = run('Screen Open 0,320,200,4,0 : Screen Hide 0 : Screen Display 0,200,60,,').rt
     expect(hidden.screens.get(0)!.visible).toBe(false)
   })
 
@@ -2044,9 +2051,11 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
 
   it('Set Accessory is a real no-op, not a stub (L_InNull +Lib.s:1474 / +ILib.s:3748)', () => {
     // the accessory flag belongs to the editor; the interpreter's routine
-    // is one rts, so the statement must run and change nothing
+    // is one rts, so the statement must run and change nothing. $2578's spec
+    // is a bare "I", so there is no argument to give it either --- the same
+    // shape `Set Double Precision` has, and for the same reason
     expect(run('Set Accessory : Print "ran"').out).toBe('ran\n')
-    expect(run('Set Accessory -1 : Print "ran"').out).toBe('ran\n')
+    expect(() => run('Set Accessory -1')).toThrow(/syntax error/i)
   })
 
   it('the previous-program bank exchange fails standalone (Bnk.PrevProgram, FnBStart +Lib.s:2271)', () => {

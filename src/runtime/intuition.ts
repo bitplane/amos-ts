@@ -3348,10 +3348,15 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      *
      * An omitted title becomes `moveq #-1,d5`, which is what SetWindowTitles
      * reads as "leave this one alone"; an EMPTY string becomes zero, which
-     * clears it. So `Set Iwindow Title 1,"",` clears the window's title and
-     * `Set Iwindow Title 1,,` leaves both where they were. An omitted window
-     * is `dmove.l CurIwindow,d3 / beq L_NoWin`, the variable and not
-     * GetCurIwin, so no current window is error 6 rather than the backdrop.
+     * clears it. An omitted window is `dmove.l CurIwindow,d3 / beq L_NoWin`,
+     * the variable and not GetCurIwin, so no current window is error 6 rather
+     * than the backdrop.
+     *
+     * DEFECT: only the window number can actually be left out. The spec is
+     * "I0,2,2" and `Ope_Fin2` (+Verif.s:2768) types an empty slot as "0", so
+     * `Set Iwindow Title 1,,` meets `cmp.b d0,d1 / bne VerType` in VerC and is
+     * a Type mismatch. The -1 arm of both title arguments is unreachable from
+     * source, and the handler keeps it because the ROUTINE has it.
      *
      * NOTE: the copies are `jtcall StrAlloc` and nothing frees the ones they
      * replace. `Set Iscreen Title` next door does free its old title, so
@@ -3762,7 +3767,10 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
      * Nothing here allocates a string that way, so there is nothing to free
      * and no list to walk off.
      */
-    'i flush': () => {},
+    'i flush': (it) => {
+      // $1558's spec is "I0", so there is a cache number to read and drop
+      it.evalInt()
+    },
 
     /**
      * `Reserve Igadget [n]` --- routine 242 ($64e0), with 243 for the bare
@@ -3975,13 +3983,19 @@ function iextInstructions(rt: Runtime): Record<string, Instr> {
     'set ipens': (it) => {
       const st = s()
       const w = curIwin(st)
-      const hi = it.evalInt()
-      if (hi < 0 || hi > 255) iError(E.IFC)
-      w.hilitePen = hi
-      if (!it.accept(',')) return
-      const sh = it.evalInt()
-      if (sh < 0 || sh > 255) iError(E.IFC)
-      w.shadowPen = sh
+      // "I0,0" with no variant, so both slots are always there and either may
+      // be EMPTY: `Set Ipens 5,` and `Set Ipens ,1`
+      const hi = omittable(it)
+      it.expect(',')
+      const sh = omittable(it)
+      if (hi !== null) {
+        if (hi < 0 || hi > 255) iError(E.IFC)
+        w.hilitePen = hi
+      }
+      if (sh !== null) {
+        if (sh < 0 || sh > 255) iError(E.IFC)
+        w.shadowPen = sh
+      }
     },
 
     /**

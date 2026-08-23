@@ -3,10 +3,7 @@ import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize, tokenizeUnchecked } from '../tokens/source'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 
@@ -637,12 +634,28 @@ describe('Personnal: the Mplot range is exclusive and related commands', () => {
 describe('Personnal: the copper list keywords (L14/L15/L19/L20/L31/L37/L74)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 
-  it('Copper Base reads back what was built, and can be pointed elsewhere', () => {
+  /**
+   * DEFECT: the library spells two keywords `copper base` and only the first
+   * can be reached.
+   *
+   *     Dc.w  -1,L_COPPERBASE           Dc.w  L_CHANGECOPPER,-1
+   *     Dc.b  "copper bas","e"+$80,"0",-1     Dc.b  "copper bas","e"+$80,"I0",-1
+   *
+   * `TkKt` (+Edit.s:14521) keeps the LONGEST match and, at `cmp.w d3,d0 /
+   * bls.s TkRe4`, keeps the first of two the same length. Both names are the
+   * same length, so the reader at $00a6 always wins and `Copper Base addr`
+   * is a syntax error. Routine 15 --- three instructions that write
+   * `_CopperBase` --- has no way in. `set color` next door is the same
+   * mistake with the pair the other way round, so there it is the READER
+   * that is lost.
+   */
+  it('Copper Base reads back what was built, and cannot be pointed elsewhere', () => {
     let out = ''
-    const src = [...bank, 'C=Copper Base', 'Copper Base $1234', 'D=Copper Base', 'Print C=A;D=$1234'].join('\n')
+    const src = [...bank, 'C=Copper Base', 'Print C=A'].join('\n')
     const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
     rt.runHeadless(200)
-    expect(out).toBe('-1-1\n')
+    expect(out).toBe('-1\n')
+    expect(() => tokenize([...bank, 'Copper Base $1234'].join('\n'), table, exts)).toThrow(/syntax error/i)
   })
 
   it('Copper Wait Line appends a WAIT and re-terminates after it', () => {
@@ -735,17 +748,34 @@ describe('Personnal: colour (L12/L18/L13/L22)', () => {
     expect(leek(aga, b1 + 4) & 0xffff).toBe(0x123)
   })
 
-  it('Set Color() is dispatched to Set Ntsc, not to the palette reader', () => {
-    // The token table's function field is 1 (both binaries), and routine 1 is
-    // L1 falling through into L3 — `Move.w #$0000,$DFF1DC`. So the register
-    // number is ignored, the answer is not a colour, and BEAMCON0 goes to 0.
-    // L18, the reader the author meant, is unreachable.
+  /**
+   * DEFECT: `Set Color()` the reader is lost twice over.
+   *
+   * The library declares the name twice, `"set color","I0,0,0,0"` at :111 and
+   * `"set color","00"` at :123, and the INSTRUCTION comes first --- the
+   * mirror image of the `copper base` pair, where the reader comes first and
+   * the writer is lost. So `Set Color(3)` never resolves to the function
+   * entry at all and is a syntax error.
+   *
+   * Behind that, the entry it would have resolved to is wrong as well:
+   * `L_COLORREAD Equ 1` (:810) sits above a body labelled `L18`, so its
+   * `Dc.w -1,L_COLORREAD` names routine 1 --- L1 falling through into L3,
+   * `Move.w #$0000,$DFF1DC`. Even a hand-built token gets BEAMCON0 cleared
+   * instead of a colour.
+   */
+  it('Set Color() cannot be typed, and the token behind it is Set Ntsc anyway', () => {
+    const src = [...bank, 'Create Standard A', 'Set Pal', 'Set Color 3,15,8,1'].join('\n')
+    expect(() => tokenize(`${src}\nPrint Set Color(3)`, table, exts)).toThrow(/syntax error/i)
+    // the instruction form is the one that works
     let out = ''
-    const src = [...bank, 'Create Standard A', 'Set Pal', 'Set Color 3,15,8,1', 'Print Set Color(3);Set Color(99)'].join('\n')
-    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    const rt = new Runtime(tokenize(`${src}\nPrint 1`, table, exts), table, {
+      extensions: exts,
+      maxSteps: 500_000,
+      onText: (t) => (out += t),
+    })
     rt.runHeadless(200)
-    expect(out).toBe(' 0 0\n')
-    expect(rt.beamcon0).toBe(0x0000) // Set Pal undone by reading a "colour"
+    expect(out).toBe(' 1\n')
+    expect(rt.beamcon0).toBe(0x0020) // Set Pal stands: nothing read a "colour"
   })
 
   it('New Color Value appends a COLOR move at the current line', () => {
@@ -1292,14 +1322,17 @@ describe('Personnal: Sprite Col resolves by slot, not by name', () => {
     // `Sprite Col(s1,s2)` maps the PAIR onto one CLXDAT bit and answers -1
     // when it is clear — always, since nothing writes CLXDAT here.
     //
-    // Both now coexist, as they do on the machine: the token carries its slot
-    // and the dispatch tries `ext13:sprite col` before the bare name.
-    // Typed text cannot express the difference: `Sprite Col` matches core's
-    // name and the text tokeniser takes it. A SAVED program records whichever
-    // token the editor chose, and a program written with Personnal loaded
-    // holds ext13:$0304 — so that is what this builds, as parseSource would
-    // read out of the file.
-    const lines = tokenize('Print Sprite Col(0,1)', table, exts)
+    // Both coexist in the dispatch, which tries `ext13:sprite col` before the
+    // bare name. Nothing can put Personnal's there.
+    //
+    // DEFECT: `TkKt` searches the core table before the extensions and keeps
+    // the first of two equal-length matches, so `Sprite Col` is always
+    // core's, and core's spec is "00" or "00,0t0" --- neither of which is
+    // Personnal's `(s1,s2)`. `Sprite Col(0,1)` is a syntax error with
+    // Personnal loaded, and no program in the 3,874-file corpus carries
+    // ext13:$0304. The token is built by hand here because a program cannot
+    // contain one.
+    const lines = tokenizeUnchecked('Print Sprite Col(0,1)', table, exts)
     for (const line of lines) {
       for (let i = 0; i < line.tokens.length; i++) {
         const t = line.tokens[i]!

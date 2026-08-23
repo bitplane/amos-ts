@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { parseSampleBank } from './audio'
 import { NullAudio, samPeriod, periodToHz, PAULA_CLOCK } from '../amiga/paula'
@@ -87,13 +84,37 @@ describe('sample playback', () => {
     expect(audio.events.some((e) => e.kind === 'stop')).toBe(true)
   })
 
-  it('Sam Loop is per voice, and re-points a live sample (SL0 +Music.s:3073)', () => {
-    const { audio } = run('Sam Loop On %0001\nSam Play %0011,1')
+  /**
+   * DEFECT: `Sam Loop On` has a masked form that cannot be typed.
+   *
+   * +Music.s:407 declares the pair the way `Sam Loop Off` does at :411, but
+   * with the wrong spec on the variant:
+   *
+   *     dc.w  L_InSamLoopOn0,L_Nul        dc.w  L_InSamLoopOff0,L_Nul
+   *     dc.b  "!sam loop o","n"+$80,"I",-2      dc.b  "sam loop of","f"+$80,"I",-2
+   *     dc.w  L_InSamLoopOn1,L_Nul        dc.w  L_InSamLoopOff1,L_Nul
+   *     dc.b  $80,"I",-1                  dc.b  $80,"I0",-1
+   *
+   * `InSamLoopOn1` (:3020) is `moveq #0,d0 / move.l d3,d1 / Rbra L_SL0`, so it
+   * wants the voice mask in d3 --- but its entry's spec is "I" and not "I0",
+   * so `VerC` matches the no-argument form first and the variant is never
+   * reached. The shipped BINARY carries the same two bytes as the source.
+   *
+   * So ON is all four voices, always, and OFF still takes a mask. The masked
+   * routine is reached here through a hand-built token, which is the only way
+   * anything ever reached it.
+   */
+  it('Sam Loop On cannot be given a mask, and Sam Loop Off can', () => {
+    expect(() => run('Sam Loop On %0001')).toThrow(/syntax error/i)
+    expect(() => run('Sam Loop Off %0001')).not.toThrow()
+    // ON with no argument is `moveq #%1111,d1` (InSamLoopOn0, :3026)
+    const { audio } = run('Sam Loop On\nSam Play %0011,1')
     const plays = audio.events.filter((e) => e.kind === 'play')
     expect(plays.find((p) => p.voice === 0)!.loop).toBe(true)
-    expect(plays.find((p) => p.voice === 1)!.loop).toBe(false)
-    // live re-point: voice 1 was playing one-shot, Sam Loop On makes it loop
-    const { audio: a2 } = run('Sam Play %0010,1\nSam Loop On %0010')
+    expect(plays.find((p) => p.voice === 1)!.loop).toBe(true)
+    // live re-point: voice 1 is playing one-shot when Sam Loop On lands, and
+    // `move.l d0,Sami_rpos(a0)` in SL0 re-points it without restarting
+    const { audio: a2 } = run('Sam Play %0010,1\nSam Loop On')
     expect(a2.events.some((e) => e.kind === 'loop' && e.voice === 1 && e.loopStart === 0)).toBe(true)
     expect(a2.voiceState[1]!.loopStart).toBe(0)
   })

@@ -227,6 +227,13 @@ export function parseTokenTable(table: Uint8Array): TokenEntry[] {
        * walk runs on into the following entry — see src/cli/extdis.ts. A
        * reader that stopped at $00 would produce a tidier table than the
        * Amiga does, and every id after it would be wrong.
+       *
+       * What that one missing byte costs Range 2.9Plus is two keywords.
+       * $046e's spec reads "I0,0,0,0\0\0M", which no argument list can match,
+       * so `Splot` is a syntax error however it is written; and the entry
+       * behind it resumes four bytes late, so `float planes` is read as
+       * routine $666c named "t planes" and routine 77 has no name at all.
+       * The walk resynchronises at $0494 and `fmod` onwards is intact.
        */
       if (b & 0x80) {
         end = b

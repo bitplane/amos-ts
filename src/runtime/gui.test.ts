@@ -16,10 +16,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_ERRORS_15B, GUI_ERRORS_161, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
@@ -270,7 +267,7 @@ describeWith('the drawing group', exampleBank(), (bank) => {
 
   /** `cmpi.l #$80000000,d1 / beq` skips the SetAPen: the ink stands */
   it('and with no colour it fills with the ink', () => {
-    const rt = drawn('Gui Cls 3 : Gui Ink 5 : Gui Clw 1')
+    const rt = drawn('Gui Cls 3 : Gui Ink 5 : Gui Clw 1,')
     expect(rp(rt).point(20, 20)).toBe(5)
   })
 
@@ -1723,10 +1720,10 @@ describeWith('the array group', demoBank(), (bank) => {
     }
   })
 
-  /** $3126 loads one word and returns; the argument is never read */
-  it('Gui Array ignores the argument it is given', () => {
-    const got = runOut(`Print Gui Array(0) : Print Gui Array(99)`).out
-    expect(got.trim().split('\n').map(Number)).toEqual([0, 0])
+  /** $3126 loads one word and returns, and $094e's spec is a bare "0" */
+  it('Gui Array takes no argument at all', () => {
+    expect(runOut('Print Gui Array').out.trim()).toBe('0')
+    expect(() => runOut('Print Gui Array(0)')).toThrow(/syntax error/i)
   })
 })
 
@@ -2755,7 +2752,7 @@ Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
     const put = (rt: Runtime): void => {
       rt.memBanks.set(5, { kind: 'memory', number: 5, memType: 1, name: 'Work', flags: 0, data: pic })
     }
-    const r = runOut(`Gui Screen Open 1,320,200,16,0,"S" : Gui Display Iff 5 To 1`, bank, put)
+    const r = runOut(`Gui Screen Open 1,320,200,16,0,"S" : Gui Display Iff 5 To 1,`, bank, put)
     const screen = r.rt.gui.screens.get(1)!
     expect(screen.rp.point(0, 0)).toBe(1)
     expect(screen.rp.point(1, 0)).toBe(2)
@@ -2776,13 +2773,13 @@ Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
     const put = (rt: Runtime): void => {
       rt.memBanks.set(5, { kind: 'memory', number: 5, memType: 1, name: 'Work', flags: 0, data: pic })
     }
-    expect(() => runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 5 To 1`, bank, put)).toThrow(
+    expect(() => runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 5 To 1,`, bank, put)).toThrow(
       GUI_ERRORS[GUI_ERR.UNABLE_TO_DISPLAY],
     )
     // and with the mode set, the screen is reopened at the picture's own size
     const r = runOut(`Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 5 To 1,1`, bank, put)
     expect([r.rt.gui.screens.get(1)!.width, r.rt.gui.screens.get(1)!.height]).toEqual([640, 400])
-    expect(() => run('Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 9 To 1', bank)).toThrow(
+    expect(() => run('Gui Screen Open 1,320,200,4,0,"S" : Gui Display Iff 9 To 1,', bank)).toThrow(
       GUI_ERRORS[GUI_ERR.BANK_NOT_RESERVED],
     )
   })
@@ -2796,7 +2793,7 @@ Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
   it('Gui Clone copies the AMOS palette and does not restore it', () => {
     const src = `Screen Open 0,320,200,16,Lowres : Palette $F00,$0F0
 Gui Screen Open 1,320,200,16,0,"S" : Gui Clone 1,True : Print Gui Colour(1)
-Gui Clone 1,False : Print Gui Colour(1) : Print Gui Screen Colours(1)`
+Gui Clone 1,False : Print Gui Colour(1) : Print Gui Screen Colours`
     const out = runOut(src, bank).out.trim().split('\n').map(Number)
     expect(out[0]).toBe(expand12(0x0f0))
     expect(out[1]).toBe(expand12(0x0f0))

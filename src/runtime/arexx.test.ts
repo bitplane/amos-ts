@@ -11,10 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-// AUDIT: some of this library's keywords are called here with an argument
-// list its own token table does not accept, so the Test pass is run for what
-// it writes and not for what it refuses. See tokenizeUnchecked.
-import { tokenizeUnchecked as tokenize } from '../tokens/source'
+import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { RXFF_RESULT, rexxMessage } from '../amiga/rexx'
@@ -169,7 +166,8 @@ describe('LDos: the Lrexx family', () => {
       'A$=Lrexx Get Msg(0)',
       'A=Lrexx Execute("say hello")',
       'Lrexx Reply "x",0,0',
-      'A=Lrexx Send Msg("PORT","cmd",0)',
+      // "22,2,0" --- a STRING function, so the result needs a string variable
+      'A$=Lrexx Send Msg("PORT","cmd",0)',
     ]) {
       expect(() => ld(src), src).toThrow(/Missing part of ARexx/)
     }
