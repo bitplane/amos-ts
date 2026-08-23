@@ -217,7 +217,8 @@ export const EXT_TABLES: Record<string, TokenEntry[]> = {
 for (const [id, toks] of tables) {
   out += `  ${JSON.stringify(id)}: [\n`
   for (const t of toks) {
-    out += `    { id: 0x${t.id.toString(16).padStart(4, '0')}, name: ${JSON.stringify(t.name)}, spec: ${JSON.stringify(t.spec)}, instr: 0x${(t.instr >>> 0).toString(16)}, func: 0x${(t.func >>> 0).toString(16)} },\n`
+    const end = t.end === undefined ? '' : `end: 0x${t.end.toString(16)}, `
+    out += `    { id: 0x${t.id.toString(16).padStart(4, '0')}, name: ${JSON.stringify(t.name)}, spec: ${JSON.stringify(t.spec)}, ${end}instr: 0x${(t.instr >>> 0).toString(16)}, func: 0x${(t.func >>> 0).toString(16)} },\n`
   }
   out += `  ],\n`
 }

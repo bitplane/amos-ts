@@ -38,6 +38,8 @@ export interface TokenDef {
   id: number
   name: string
   spec: string
+  /** the spec terminator when it is not $FF — see TokenEntry.end in libtok.ts */
+  end?: number
   instr: number
   func: number
 }
@@ -50,7 +52,8 @@ for (const { file, label, dir, old } of LIBS) {
   const constName = `${label.toUpperCase()}_TOKENS`
   out += `export const ${constName}: TokenDef[] = [\n`
   for (const t of lib.tokens) {
-    out += `  { id: 0x${t.id.toString(16).padStart(4, '0')}, name: ${JSON.stringify(t.name)}, spec: ${JSON.stringify(t.spec)}, instr: 0x${t.instr.toString(16)}, func: 0x${t.func.toString(16)} },\n`
+    const end = t.end === undefined ? '' : `end: 0x${t.end.toString(16)}, `
+    out += `  { id: 0x${t.id.toString(16).padStart(4, '0')}, name: ${JSON.stringify(t.name)}, spec: ${JSON.stringify(t.spec)}, ${end}instr: 0x${t.instr.toString(16)}, func: 0x${t.func.toString(16)} },\n`
   }
   out += `]\n\n`
 }

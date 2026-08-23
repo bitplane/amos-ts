@@ -47,6 +47,20 @@ export interface TokenEntry {
    * as `A=G Oddno(B#)`, which will not tokenise.
    */
   spec: string
+  /**
+   * The byte that ENDED the spec, when it was not the usual $FF.
+   *
+   * `VerC4` (+Verif.s:3158) tests it exactly: `cmp.b #-2,d1 / bne VerSynt`.
+   * A $FE says the entry that follows is an argument-count variant of this
+   * instruction, so a spec that did not match is retried against it and the
+   * matching id is poked back over the token. A $FD says the entry that
+   * follows is the same keyword's FUNCTION form, which `Ope_InstFonction`
+   * (:2735) steps onto instead. Two core entries carry $FD, `!screen` and
+   * `!colour`, and everything else is $FE or $FF.
+   *
+   * Omitted when it is $FF, which is 574 of the 778 core entries.
+   */
+  end?: number
   instr: number
   func: number
 }
@@ -183,6 +197,7 @@ export function parseTokenTable(table: Uint8Array): TokenEntry[] {
       if (name.length > 40) throw new Error(`runaway token name at $${id.toString(16)}`)
     }
     let spec = ''
+    let end = 0xff
     while (!truncated) {
       if (r.remaining === 0) {
         truncated = true
@@ -213,13 +228,16 @@ export function parseTokenTable(table: Uint8Array): TokenEntry[] {
        * reader that stopped at $00 would produce a tidier table than the
        * Amiga does, and every id after it would be wrong.
        */
-      if (b & 0x80) break
+      if (b & 0x80) {
+        end = b
+        break
+      }
       spec += String.fromCharCode(b)
       if (spec.length > 64) throw new Error(`runaway token spec at $${id.toString(16)}`)
     }
     if (truncated) break
     if (r.pos % 2 !== 0) r.skip(1)
-    entries.push({ id, name, spec, instr, func })
+    entries.push(end === 0xff ? { id, name, spec, instr, func } : { id, name, spec, end, instr, func })
     // A zero word where the next entry's routine numbers should be, followed
     // by nothing meaningful, marks padding at the end of the table.
     if (r.remaining < 6) break
