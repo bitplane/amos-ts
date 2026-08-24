@@ -52,6 +52,7 @@ export const TK = {
   REM: 0x064a,
   REM_TICK: 0x0652,
   ELSE_IF: 0x25a4,
+  END_PROC: 0x0390,
   /** the six-byte range is `Equ`, `Lvo`, `Struc` and `Struc$`, inclusive */
   EQU: 0x2a40,
   STRUC_S: 0x2a64,
