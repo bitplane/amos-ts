@@ -32,8 +32,9 @@ import { TK } from '../tokens/edtok'
 import { EMPTY_LINE_BYTES } from './buffer'
 import { Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
-import { UN } from './undo'
+import { UN, type UndoRecord } from './undo'
 import { FLAG_FONC, ED_ROUTINES } from './keymap.gen'
+import { keyToFunc, type EdKey } from './keymap'
 
 /**
  * The commands this port implements, by the number +Edit.s gives them.
@@ -72,8 +73,10 @@ export const ED = {
   BACK_WORD: 37,
   SET_MARK_0: 39,
   GOTO_MARK_0: 49,
+  UNDO: 65,
   DELETE_TO_START: 64,
   FLIP_INSERT: 75,
+  REDO: 94,
 } as const
 
 /**
@@ -244,11 +247,19 @@ function wordRight(e: Edit): number {
   }
 }
 
-/** `R_DelChar` behind an undo record over the same run (`Un_CLine`) */
+/**
+ * `R_DelChar` (:1880) behind an undo record over the same run (`Un_CLine`).
+ *
+ * `Edt_LEdited` is raised INSIDE `R_DelChar`, at `.Del2`, and only when the
+ * guard let the delete through. So it is here and not in the three commands
+ * that call it: none of `Ed_DelMot`, `Ed_BackMot` or `Ed_DelDebut` touches
+ * the flag itself, and without it the window would change and the program
+ * would not.
+ */
 function cutRun(e: Edit, col: number, count: number): void {
   const { text } = e.current()
   e.undo.recordLine(UN.CLEAR, e.xCu, e.line, bytes(text.slice(col, col + count)))
-  e.buf.delete(e.yCu, col, count)
+  if (e.buf.delete(e.yCu, col, count)) e.edited++
 }
 
 const bytes = (s: string): Uint8Array => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff)
@@ -579,6 +590,185 @@ function gotoLabel(e: Edit, line: number): void {
   e.fill()
 }
 
+/* ---- Ed_PKey, the whole of it ------------------------------------------- */
+
+/**
+ * `Ed_PKey` (:1790) end to end: the character in, then the cursor after it.
+ *
+ * `Edit.pKey` stops at the change to the buffer so that typing can be tested
+ * without a cursor; the routine itself finishes on `bsr Ed_CDroite`, and
+ * three callers need that -- the key loop, and both halves of the undo
+ * replay. A character below space takes `.EdL15` straight to the redraw, so
+ * it does not move the cursor either.
+ */
+export function typeChar(e: Edit, ch: string, insert = e.insert): void {
+  if (ch.charCodeAt(0) < 32) return
+  e.pKey(ch, insert)
+  curRight(e)
+}
+
+/* ---- JUndo and JRedo ---------------------------------------------------- */
+
+/**
+ * `Un_XY` (:2222): the cursor onto the record's own line and column.
+ *
+ * The two placements differ in ORDER and in where the line comes from.
+ * `Un_XY` goes down then across and takes both numbers off the record.
+ * `Un_XYSto` goes across then down and takes the LINE out of the block,
+ * because a record that owns one has had its own line word overwritten by
+ * the pointer to it (`move.l a0,2(a2)` in `Un_CLine`). `UndoRecord` resolves
+ * that already, so only the order is left, and nothing here reads the line
+ * between the two moves.
+ */
+function unXY(e: Edit, r: UndoRecord): void {
+  gotoY(e, r.y)
+  gotoX(e, r.x)
+}
+
+/** `Un_XYSto` (:2216) */
+function unXYSto(e: Edit, r: UndoRecord): void {
+  gotoX(e, r.x)
+  gotoY(e, r.y)
+}
+
+/** the payload of a record that must own one */
+function payload(r: UndoRecord): Uint8Array {
+  if (r.block === null) throw new Error(`undo record ${r.code} has no block`)
+  return r.block
+}
+
+const text = (b: Uint8Array): string => String.fromCharCode(...b)
+
+/** `Un_RepLine` (:2180): the whole line back to what the block holds */
+function repLine(e: Edit, r: UndoRecord): void {
+  e.buf.setText(e.yCu, text(payload(r)))
+  e.edited++
+}
+
+/** `Un_C2` (:2092): the block's characters back in at the cursor */
+function unClear(e: Edit, r: UndoRecord): void {
+  const p = payload(r)
+  if (p.length === 0) return
+  if (e.buf.insert(e.yCu, e.xCu, text(p)) > 0) e.edited++
+}
+
+/**
+ * `JUndo` (+Edit.s:2030). One entry per `UN` code, and they undo by RUNNING
+ * the commands rather than by restoring state: `Un_Char` calls `Ed_Delete`,
+ * `Un_Join` calls `Ed_ReturnQuiet`. `Ed_FUndo` is what keeps that from
+ * recording itself.
+ */
+const UNDO: Record<number, (e: Edit, r: UndoRecord) => void> = {
+  [UN.CHAR]: (e, r) => {
+    unXY(e, r)
+    // b4 is -1 when the character was inserted and the character it covered
+    // when it was not, so one byte decides which way back it is
+    if ((r.b4 & 0x80) !== 0) return e.deleteChar()
+    e.buf.overwrite(e.yCu, e.xCu, String.fromCharCode(r.b4))
+    e.edited++
+  },
+  [UN.DELETE]: (e, r) => {
+    unXY(e, r)
+    // `moveq #1,d6`: always insert, whatever mode the editor is in now
+    typeChar(e, String.fromCharCode(r.b5), true)
+  },
+  [UN.CLEAR]: (e, r) => {
+    unXYSto(e, r)
+    unClear(e, r)
+  },
+  [UN.DLINE]: (e, r) => {
+    unXYSto(e, r)
+    insertLine(e)
+    unClear(e, r)
+  },
+  [UN.TOKEN]: (e, r) => {
+    unXYSto(e, r)
+    const p = payload(r)
+    // [added:2][oldLen:1][old][newLen:1][new] -- only the old half is read
+    e.buf.setText(e.yCu, text(p.subarray(3, 3 + p[2]!)))
+    e.prog.lineCount -= (p[0]! << 8) | p[1]!
+    e.edited++
+  },
+  [UN.ILINE]: (e, r) => {
+    unXY(e, r)
+    deleteLineHere(e)
+  },
+  [UN.SPLIT]: (e, r) => {
+    // the second half's line goes, and the line that moves up into its place
+    // gets the whole saved line back
+    unXYSto(e, r)
+    deleteLineHere(e)
+    unXYSto(e, r)
+    repLine(e, r)
+  },
+  [UN.JOIN]: (e, r) => {
+    unXYSto(e, r)
+    repLine(e, r)
+    returnKey(e)
+  },
+}
+
+/**
+ * `JRedo` (:2038). Four of the eight are the command run again, and the last
+ * two are each other: `Re_Join` IS `Un_Split` and `Re_Split` IS `Un_Join`,
+ * one routine apiece with two labels on it.
+ */
+const REDO: Record<number, (e: Edit, r: UndoRecord) => void> = {
+  [UN.CHAR]: (e, r) => {
+    unXY(e, r)
+    typeChar(e, String.fromCharCode(r.b5), (r.b4 & 0x80) !== 0)
+  },
+  [UN.DELETE]: (e, r) => {
+    unXY(e, r)
+    e.deleteChar()
+  },
+  [UN.CLEAR]: (e, r) => {
+    unXYSto(e, r)
+    const n = payload(r).length
+    if (n !== 0 && e.buf.delete(e.yCu, e.xCu, n)) e.edited++
+  },
+  [UN.DLINE]: (e, r) => {
+    unXYSto(e, r)
+    deleteLineHere(e)
+  },
+  [UN.TOKEN]: (e, r) => {
+    // whatever the slot holds goes back through the tokeniser, which is the
+    // new spelling again because tokenising the old text gives the same
+    // tokens and `Detok` writes the editor's own spelling back over them
+    unXYSto(e, r)
+    e.edited++
+    e.tokCur()
+  },
+  [UN.ILINE]: (e, r) => {
+    unXY(e, r)
+    insertLine(e)
+  },
+  [UN.SPLIT]: (e, r) => UNDO[UN.JOIN]!(e, r),
+  [UN.JOIN]: (e, r) => UNDO[UN.SPLIT]!(e, r),
+}
+
+/**
+ * `Ed_Undo` (:1905) and `Ed_Redo` (:1921).
+ *
+ * Undo steps back and then reads; redo reads and then steps forward. Both
+ * raise `Ed_FUndo` around the handler, which is the whole reason the handlers
+ * can be written as commands: `Un_Join` pressing Return would otherwise
+ * record a split, and undoing twice would go round in a circle.
+ */
+function replay(e: Edit, back: boolean): void {
+  const r = back ? e.undo.undo() : e.undo.redo()
+  // Ed_NoUndo (:9878) is message 4 and Ed_NoRedo message 5
+  if (r === null) throw new EditorAlert(back ? 4 : 5)
+  const fn = (back ? UNDO : REDO)[r.code]
+  if (fn === undefined) throw new RangeError(`undo record ${r.code} is not one of the eight`)
+  e.undo.suppressed++
+  try {
+    fn(e, r)
+  } finally {
+    e.undo.suppressed--
+  }
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -672,9 +862,11 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   36: deleteWord,
   37: backWord,
   64: deleteToStart,
+  65: (e) => replay(e, true),
   75: (e) => {
     e.insert = !e.insert
   },
+  94: (e) => replay(e, false),
 }
 
 // 39 to 48 Ed_SMark0-9, 49 to 58 Ed_GMark0-9. Ten `addq.w #1,d0` in a row
@@ -704,25 +896,54 @@ for (let i = 0; i < 10; i++) {
  * command being reached at all, so `Ed_DelLiCu`'s own check is the second
  * one. `Ed_SCallFlags` is left holding what the command wants redrawn, which
  * a split view reads to decide whether the other half needs it too.
- *
- * The catch is `Ed_Loop`. `Ed_Alert` never returns to the command that
- * raised it, it branches back to the main loop with the message in
- * `Edt_EtAlert`, so an alert here ends the command and is reported rather
- * than thrown on. Home always alerts -- "Top of text" is what it says when it
- * has worked -- so a caller that treated one as a failure would be wrong
- * about half of them.
  */
 export function edCall(e: Edit, cmd: number): number {
   const flags = flagsOf(cmd)
-  e.callFlags = flags
-  e.alert = 0
-  e.alertTime = 0
   const fn = COMMANDS[cmd]
   if (fn === undefined) throw new RangeError(`editor command ${cmd} (${routineOf(cmd)}) is not ported`)
-  try {
+  e.callFlags = flags
+  return run(e, () => {
     if ((flags & FLAG.CLOSED) !== 0) mustEdit(e)
     e.yOldBloc = e.line
     fn(e)
+  })
+}
+
+/**
+ * The key half of `Ed_Key` (:1616): one keystroke, whatever it turns out to
+ * be. Answers the alert, 0 for none.
+ *
+ * `Ed_Ky2Fonc` first, and a zero back means nobody claimed the key, so it
+ * goes to `Ed_PKey` as a character (`.Char` at :1622). That is the whole
+ * arbitration: there is no list of printable keys anywhere, only the key map
+ * and what falls through it.
+ *
+ * What is NOT here is the macro layer above it. `Ed_Key` reads from
+ * `EdMa_Play` before it reads the keyboard, writes to `EdMa_List` when one is
+ * recording, and checks whether the key IS a macro before any of this. That
+ * is a command set of its own (`JFonc` 106 to 110) and none of it is ported.
+ */
+export function edKey(e: Edit, key: EdKey, table?: Uint8Array): number {
+  const cmd = keyToFunc(key, table)
+  if (cmd !== 0) return edCall(e, cmd)
+  e.callFlags = 0
+  // `move.b Ed_Insert(a5),d6` is read here and not held, so flipping the mode
+  // takes effect on the next key rather than on this one
+  return run(e, () => typeChar(e, key.ch ?? '', e.insert))
+}
+
+/**
+ * The `Ed_Loop` end of it: run the thing, and keep the alert it ended on.
+ *
+ * `Ed_Alert` never comes back to its caller, it branches to the loop, so an
+ * alert here is a message and not a failure. Anything else thrown is a defect
+ * in this port and goes up.
+ */
+function run(e: Edit, fn: () => void): number {
+  e.alert = 0
+  e.alertTime = 0
+  try {
+    fn()
   } catch (err) {
     if (!(err instanceof EditorAlert)) throw err
     e.alert = err.code

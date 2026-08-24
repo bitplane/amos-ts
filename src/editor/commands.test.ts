@@ -179,6 +179,17 @@ describe('editing the line', () => {
     expect(new TextDecoder('latin1').decode(r!.block!)).toBe('two ')
   })
 
+  it('raises Edt_LEdited, so the delete reaches the program', () => {
+    // `R_DelChar` bumps the flag at `.Del2` and none of its three callers
+    // does. Without it the window changes and the program does not
+    const e = open()
+    e.xCu = 6
+    edCall(e, ED.DELETE_TO_START)
+    expect(e.edited).toBeGreaterThan(0)
+    e.tokCur()
+    expect(listing(e)[0]).toBe('"one"')
+  })
+
   it('backs over a word by moving to its start and deleting forward', () => {
     const e = open()
     e.buf.setText(0, 'one two three')

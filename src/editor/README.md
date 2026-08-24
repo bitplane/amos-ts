@@ -28,8 +28,7 @@ Three things that look like they belong here do not:
 
 - `buffer.ts` — the program block, the line table and the marks.
 - `undo.ts` — the ring of six-byte records. `Ed_Undo` steps the ring and
-  hands the record back; applying one is the command layer's job, with
-  `suppressed` raised while it does.
+  hands the record back; `JUndo` and `JRedo` in `commands.ts` apply it.
 - `editbuf.ts` — `Edt_BufE`, one 256-byte slot per display row, which is
   where a line is TEXT rather than tokens.
 - `edit.ts` — `Edt_`, the cursor and the cycle: `Ed_Untok` in, `Ed_PKey` and
@@ -37,15 +36,25 @@ Three things that look like they belong here do not:
 - `keymap.ts` — `Ed_Ky2Fonc` and `Ed_Fonc2Ky`, over the three tables in
   `keymap.gen.ts` that `src/cli/genedkeys.ts` reads out of the sources and
   checks against the shipped binaries.
-- `commands.ts` — `JFonc` and `FlagFonc`. The cursor, the line editing, the
-  marks and the long jumps; what a command needs that this port has not built
-  yet is listed at the top of the file.
+- `commands.ts` — `JFonc` and `FlagFonc`, plus `JUndo`/`JRedo` and the key
+  half of `Ed_Key`. The cursor, the line editing, the marks, the long jumps
+  and the undo replay; what a command needs that this port has not built yet
+  is listed at the top of the file.
 - `display.ts` — `Ed_ALigne` and the status line, as data rather than pixels.
 
 Still missing before there is an editor a person can use: the block (`JFonc`
 59 to 63), search and replace (66 to 68, 99 to 101), the file commands, and
-applying an undo record. `undo.ts` hands the record back and nothing yet
-replays it.
+the macros. `Ed_Key` reads `EdMa_Play` before it reads the keyboard and
+writes `EdMa_List` while one is recording, and none of that is here.
+
+## Undo runs the commands rather than restoring state
+
+`JUndo` (+Edit.s:2030) is eight entries and most of them are a command.
+`Un_Char` calls `Ed_Delete`, `Un_Join` calls `Ed_ReturnQuiet`, `Un_DLine`
+calls `Ed_InsLine`. `Ed_FUndo` raised around the `jsr` is the only thing
+stopping that from recording itself and going round in a circle, which is why
+it is a counter and not a flag. Two of the sixteen entries are shared: a
+split undone and a join redone are one routine with two labels on it.
 
 ## An alert is not an error
 
