@@ -46,10 +46,12 @@ const vol = (e: Edit): AmigaFS => e.fs as AmigaFS
 const requester = (
   confirm: (c: Confirm) => number = () => 1,
   select: (which: number, name: string) => string | null = (_w, name) => name,
+  pressKey: (which: number) => number = () => 0,
 ): EditorDialogues => ({
   ask: (d: SearchDialogue): DialogueAnswer => ({ ...d, ok: true }),
   confirm,
   select,
+  pressKey,
 })
 
 describe('the header', () => {

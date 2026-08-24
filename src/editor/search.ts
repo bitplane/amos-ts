@@ -254,4 +254,12 @@ export interface EditorDialogues {
    * and 74 is Save.
    */
   select(which: number, name: string): string | null
+  /**
+   * EdD_Macro1 (13) and EdD_MacroD (18), which wait for a KEYSTROKE rather
+   * than a button. The answer is `Dia_LastKey` as an `Inkey` long, and zero is
+   * both "nothing pressed" and "cancelled": `EdMa_New` (:6837) tests the
+   * button with `tst.w d0 / bne Ed_NotDone` and the key with `beq
+   * Ed_NotDone`, and both go to the same place.
+   */
+  pressKey(which: number): number
 }

@@ -160,14 +160,19 @@ function figure(n: number, width: number): string {
  *
  * Line and column are printed from 1 and held from 0.
  */
+/** `WiCall Centre`, which is what an alert and a recording both end in */
+function centred(msg: string, width: number): string {
+  const pad = Math.max(0, (width - msg.length) >> 1)
+  return (' '.repeat(pad) + msg + ' '.repeat(width)).slice(0, width)
+}
+
 export function statusLine(e: Edit, opts: StatusOptions = {}): string {
   const width = opts.width ?? 68
   // .Skip0 (:7740): an alert takes the whole line, centred, until it times out
-  if (e.alert !== 0) {
-    const msg = ED_MESSAGES[e.alert - 1] ?? `editor message ${e.alert}`
-    const pad = Math.max(0, (width - msg.length) >> 1)
-    return (' '.repeat(pad) + msg + ' '.repeat(width)).slice(0, width)
-  }
+  if (e.alert !== 0) return centred(ED_MESSAGES[e.alert - 1] ?? `editor message ${e.alert}`, width)
+  // and a recording takes it after that (:7761), in the current window only,
+  // which is where "Click mouse button to end." is the only way out
+  if (e.macroTape !== null) return centred(ED_MESSAGES[29]!, width)
   const chars = (ED_SYSTEME[1]! + ' '.repeat(width)).slice(0, width).split('')
   const put = (at: number, s: string): void => {
     for (let i = 0; i < s.length && at + i < width; i++) chars[at + i] = s.charAt(i)

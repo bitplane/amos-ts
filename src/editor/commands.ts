@@ -11,13 +11,13 @@
  *
  * The movement and editing commands, 1 to 37, the marks (39 to 58), the block
  * (59 to 63, 72, 181), the undo replay (65, 94), search and replace (66 to 68,
- * 99 to 101) and the disc (33 to 35, 80, 85, 97, 98, 152), plus Delete to
- * start of line (64) and Insert mode (75).
+ * 99 to 101), the disc (33 to 35, 80, 85, 97, 98, 152) and the macros (106 to
+ * 110, 143, 144), plus Delete to start of line (64) and Insert mode (75).
  *
  * The rest need something this port has not built yet: a second window (61,
- * 84, 88, 91 to 96, 102), the macro layer (106 to 110), or the interpreter
- * (77, 78). `COMMANDS` has no entry for them and `edCall` throws rather than
- * silently doing nothing, so a key map that reaches one says which.
+ * 84, 88, 91 to 96, 102) or the interpreter (77, 78). `COMMANDS` has no entry
+ * for them and `edCall` throws rather than silently doing nothing, so a key
+ * map that reaches one says which.
  *
  * ## What a command does NOT do here
  *
@@ -37,6 +37,18 @@ import { EditBuffer } from './editbuf'
 import { UN, type UndoRecord } from './undo'
 import { FLAG_FONC, ED_ROUTINES } from './keymap.gen'
 import { keyToFunc, type EdKey } from './keymap'
+import {
+  findMacro,
+  macroKeys,
+  newTape,
+  packKey,
+  readMacroFile,
+  stopTape,
+  tapeKey,
+  unpackKey,
+  writeMacroFile,
+  type KeyLong,
+} from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
@@ -103,6 +115,13 @@ export const ED = {
   BLOCK_SAVE_ASCII: 97,
   BLOCK_SAVE: 98,
   SAVE_AS_NAME: 152,
+  MACRO_NEW: 106,
+  MACRO_DEL: 107,
+  MACRO_DEL_ALL: 108,
+  MACRO_LOAD_AS: 109,
+  MACRO_SAVE_AS: 110,
+  MACRO_LOAD_DEFAULT: 143,
+  MACRO_SAVE_DEFAULT: 144,
   SEARCH: 66,
   SEARCH_NEXT: 67,
   SEARCH_PREV: 68,
@@ -1598,6 +1617,83 @@ function blockSaveAscii(e: Edit): void {
   if (!fs.writeFile(e.name1, bytes(out))) throw new DiskError()
 }
 
+/* ---- 106 to 110, 143 and 144: the macros -------------------------------- */
+
+/**
+ * `Sys_AddPath` (+B.s:534): the system directory, if the name has no volume.
+ *
+ * `.Ess` scans the WHOLE name for a colon rather than only its front, so
+ * anything with one anywhere is left alone.
+ */
+function addPath(e: Edit, name: string): string {
+  return name.includes(':') ? name : e.sysPath + name
+}
+
+/** EdD_Macro1 and EdD_MacroD, or `Dia_LastKey` as it stands */
+function pressKey(e: Edit, which: number): number {
+  if (e.dialogues === null) return e.lastKey
+  return e.dialogues.pressKey(which)
+}
+
+/** `EdMa_No` (:6924): EdD_MacroNo, and no alert with it */
+function noMacros(e: Edit): void {
+  confirm(e, { which: 22 })
+}
+
+/**
+ * `EdMa_Stop` (:6868): the tape closed and kept.
+ *
+ * NOT a `JFonc` command. The only thing that calls it is the mouse handler at
+ * :1240, `tst.w EdMa_Tape(a5) / bne EdMa_Stop`, which is why message 30 says
+ * "Click mouse button to end." There is no key that stops a recording.
+ */
+export function macroStop(e: Edit): number {
+  const tape = e.macroTape
+  if (tape === null) return 0
+  e.macroTape = null
+  e.macroChange = true
+  const macro = stopTape(tape)
+  return run(e, () => {
+    // `.Vide`: a macro with nothing in it is thrown away and reported as
+    // Not done, which is the only refusal that reaches the user
+    if (macro === null) throw new EditorAlert(206)
+    e.macros.unshift(macro)
+    throw new EditorAlert(45) // Ed_Al100, "Macro successfully recorded."
+  })
+}
+
+/**
+ * `EdMa_Load` (:6700) and `EdMa_LoadIt` (:6643) around it.
+ *
+ * The erase happens inside `EdMa_Load`, before the file is opened, so a load
+ * that then fails has already thrown the old macros away. The requester that
+ * asks about it, EdD_MacroEra, is one level up and does not know.
+ */
+function macroLoad(e: Edit): void {
+  if (e.macros.length !== 0 && confirm(e, { which: 21 }) !== 1) throw new EditorAlert(206)
+  const fs = disc(e)
+  e.macros = []
+  e.macroChange = false
+  const bytes = fs.readFile(e.name1)
+  if (bytes === null) throw new DiskError(205)
+  const r = readMacroFile(bytes)
+  if (r.error === -1) throw new EditorAlert(204, 120) // Ed_OMm
+  if (r.error === 1) throw new DiskError()
+  if (r.error === 2) {
+    // EdD_MacroPas, and `bsr Ed_Loca` after it: a requester, not an alert
+    confirm(e, { which: 23 })
+    return
+  }
+  e.macros = r.list
+}
+
+/** `EdMa_Save` (:6753) and `EdMa_SaveIt` (:6686) around it */
+function macroSave(e: Edit): void {
+  const fs = disc(e)
+  if (!fs.writeFile(e.name1, writeMacroFile(e.macros))) throw new DiskError()
+  e.macroChanged = false
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -1775,6 +1871,65 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   99: (e) => replaceCmd(e, 99),
   100: (e) => replaceCmd(e, 100),
   101: (e) => replaceCmd(e, 101),
+  106: (e) => {
+    // EdMa_New (:6831)
+    e.tokCur()
+    const key = pressKey(e, 13)
+    if (key === 0) throw new EditorAlert(206)
+    const already = findMacro(e.macros, key)
+    if (already !== null) {
+      // EdD_Macro2, "This key is already assigned to a macro. Erase it?"
+      if (confirm(e, { which: 14 }) !== 1) throw new EditorAlert(206)
+      e.macros.splice(e.macros.indexOf(already), 1)
+    }
+    e.macroTape = newTape(key)
+  },
+  107: (e) => {
+    // EdMa_Del (:6793)
+    e.tokCur()
+    if (e.macros.length === 0) return noMacros(e)
+    const key = pressKey(e, 18)
+    if (key === 0) throw new EditorAlert(206)
+    const m = findMacro(e.macros, key)
+    if (m === null) {
+      // EdD_MacroNA, "This key is not assigned to a macro!", and `bsr Ed_Loca`
+      confirm(e, { which: 19 })
+      return
+    }
+    e.macros.splice(e.macros.indexOf(m), 1)
+    e.macroChange = true
+  },
+  108: (e) => {
+    // EdMa_DelAll (:6817)
+    e.tokCur()
+    if (e.macros.length === 0) return noMacros(e)
+    if (confirm(e, { which: 20 }) !== 1) throw new EditorAlert(206)
+    e.macros = []
+    e.macroChange = true
+  },
+  109: (e) => {
+    // EdMa_LoadAs (:6632)
+    if (!selectFile(e, 55)) throw new EditorAlert(206)
+    macroLoad(e)
+    e.macroChanged = true
+  },
+  110: (e) => {
+    // EdMa_SaveAs (:6677)
+    if (!selectFile(e, 51)) throw new EditorAlert(206)
+    saveOver(e, disc(e))
+    macroSave(e)
+  },
+  143: (e) => {
+    // EdMa_LoadDefault (:6623)
+    e.name1 = addPath(e, ED_SYSTEME[45]!)
+    macroLoad(e)
+    e.macroChanged = false
+  },
+  144: (e) => {
+    // EdMa_SaveDefault (:6668), which does NOT ask before writing over it
+    e.name1 = addPath(e, ED_SYSTEME[45]!)
+    macroSave(e)
+  },
   152: (e) => {
     // Ed_SaveAsName (:13607): save to Name1 with no .Bak, and put the
     // program's own name back afterwards, because `Prg_Save` overwrites it
@@ -1830,6 +1985,16 @@ export function edCall(e: Edit, cmd: number): number {
   const flags = flagsOf(cmd)
   const fn = COMMANDS[cmd]
   if (fn === undefined) throw new RangeError(`editor command ${cmd} (${routineOf(cmd)}) is not ported`)
+  if (e.macroTape !== null && (flags & FLAG.MACRO) === 0) {
+    // `.NoMacro` (:2624): the key that got here has already been taped, so
+    // the refusal rewinds over it. The command does not run, `Ed_SCallFlags`
+    // is not written, and `bra Ed_Loop` is the end of it
+    e.macroTape.at -= 3
+    e.alert = 0
+    e.alertTime = 0
+    confirm(e, { which: 15 }) // EdD_Macro3, "This function cannot be used in a macro!"
+    return 0
+  }
   e.callFlags = flags
   return run(e, () => {
     if ((flags & FLAG.CLOSED) !== 0) mustEdit(e)
@@ -1853,6 +2018,51 @@ export function edCall(e: Edit, cmd: number): number {
  * is a command set of its own (`JFonc` 106 to 110) and none of it is ported.
  */
 export function edKey(e: Edit, key: EdKey, table?: Uint8Array): number {
+  // the tape comes first, and a key it records is NOT looked up as a macro:
+  // `.2Big bra .EndMac` steps straight over `.UneMac`
+  if (e.macroTape !== null) {
+    tapeKey(e.macroTape, packKey(inkey(key)))
+    return endMac(e, key, table)
+  }
+  const macro = findMacro(e.macros, packKey(inkey(key)))
+  if (macro === null) return endMac(e, key, table)
+  // `.UneMac`: point the player at it and `bra Ed_Key`, which comes straight
+  // back round the playback arm and runs the macro's first keystroke now
+  e.macroPlay = { keys: macroKeys(macro), at: 0 }
+  return edMacroStep(e, table) ?? 0
+}
+
+/**
+ * The playback half of `Ed_Key` (:1560), which is everything above the
+ * `Inkey` call.
+ *
+ * DEVIATION: one routine on the machine, two here. `Ed_Key` reads the tape and
+ * then falls through to the keyboard in the same call; a port cannot own the
+ * keyboard, so the fall-through is a null answer and the host reads the key
+ * itself. Everything else is the same instructions in the same order.
+ *
+ * Three bytes a keystroke, ASCII first, and `$FF` in the ASCII slot ends it.
+ * The pointer is stepped BEFORE the terminator is tested, so a macro that ends
+ * leaves `EdMa_Play` pointing past its own end for the one instruction it
+ * takes to clear it.
+ */
+export function edMacroStep(e: Edit, table?: Uint8Array): number | null {
+  const play = e.macroPlay
+  if (play === null) return null
+  const at = play.at
+  play.at += 3
+  const ascii = play.keys[at] ?? 0xff
+  if (ascii === 0xff) {
+    e.macroPlay = null
+    return null
+  }
+  const key = unpackKey(packKey({ ascii, scan: play.keys[at + 1] ?? 0, shift: play.keys[at + 2] ?? 0 }))
+  // straight to `.EndMac`: a key out of a macro is neither taped nor looked up
+  return endMac(e, { ch: String.fromCharCode(key.ascii), scan: key.scan, shift: key.shift }, table)
+}
+
+/** `.EndMac` (:1614): the key map, and what falls through it */
+function endMac(e: Edit, key: EdKey, table?: Uint8Array): number {
   const cmd = keyToFunc(key, table)
   if (cmd !== 0) return edCall(e, cmd)
   e.callFlags = 0
@@ -1860,6 +2070,13 @@ export function edKey(e: Edit, key: EdKey, table?: Uint8Array): number {
   // takes effect on the next key rather than on this one
   return run(e, () => typeChar(e, key.ch ?? '', e.insert))
 }
+
+/** an `EdKey` as `Inkey` would have packed it */
+const inkey = (k: EdKey): KeyLong => ({
+  ascii: (k.ch ?? '').charCodeAt(0) & 0xff || 0,
+  scan: k.scan ?? 0,
+  shift: k.shift ?? 0,
+})
 
 /**
  * The `Ed_Loop` end of it: run the thing, and keep the alert it ended on.

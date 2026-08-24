@@ -48,12 +48,26 @@ Three things that look like they belong here do not:
   and replace commands share. The commands themselves are in `commands.ts`.
 - `files.ts` — `Prg_Load` and `Prg_Save`, the two headers, and the four calls
   the editor makes to dos.library.
+- `macros.ts` — `EdMa_`, the keystroke tape and the list it goes into.
 
-Still missing before there is an editor a person can use: the macros.
-`Ed_Key` reads `EdMa_Play` before it reads the keyboard and writes `EdMa_List`
-while one is recording, and none of that is here. Four file commands need a
-second window and wait on one: Merge (84), Load Hidden (88), Open + Load (61)
-and New All Hidden (102) all open a hidden `Edt_` structure and load into it.
+What is left needs a second window: Merge (84), Load Hidden (88), Open + Load
+(61) and New All Hidden (102) all open a hidden `Edt_` structure and load into
+it, and the split view is 91 to 96.
+
+## A macro is above the key map
+
+`Ed_Key` (+Edit.s:1552) does three things before `Ed_Ky2Fonc` sees anything.
+It reads the tape if one is playing, it writes to the tape if one is
+recording, and it looks a live keystroke up in the macro list. So a macro
+holds whatever a person could type, and the key map is what expands it.
+
+The three arms do not compose. A key that comes out of a macro jumps straight
+to the dispatch, and so does a key that has just been recorded, so a macro can
+neither call another one nor record itself. That is one `bra .EndMac` in each
+arm, and it is the whole of the nesting rule.
+
+`macros.ts` has the file format, which is the linked list dumped to disc with
+its link pointers in it.
 
 ## A saved program is exact, and its header is not
 

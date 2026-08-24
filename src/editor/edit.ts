@@ -29,6 +29,7 @@ import { Block } from './block'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
 import type { EditorFS } from './files'
+import type { Macro, MacroTape } from './macros'
 import type { EditorDialogues } from './search'
 
 /**
@@ -140,6 +141,35 @@ export class Edit {
   /** `Ed_SchMode` (+Equ.s:1810), the four flag gadgets of ./search.ts's `SM` */
   schMode = 0
 
+  /** `EdMa_List(a5)` (+Equ.s:1710): the macros, most recently made first */
+  macros: Macro[] = []
+
+  /**
+   * `EdMa_Play(a5)` (+Equ.s:1711): where playback has got to, null for none.
+   *
+   * `keys` is the macro's keystrokes and `at` is the byte offset into them,
+   * which the machine keeps as a live pointer it steps by three.
+   */
+  macroPlay: { keys: Uint8Array; at: number } | null = null
+
+  /** `EdMa_Tape(a5)` (+Equ.s:1712): the buffer being recorded into, null for none */
+  macroTape: MacroTape | null = null
+
+  /**
+   * DEFECT: `EdMa_Change(a5)` (+Equ.s:1713), which nothing reads.
+   *
+   * `EdMa_Stop`, `EdMa_Del` and `EdMa_DelAll` all set it -- every change a
+   * person can make to the macros. `Ed_DoQuit` (:4402) then reads
+   * `EdMa_Changed`, one letter away at +Equ.s:1704, to decide whether to save
+   * them on the way out. So recording a macro and quitting loses it, and the
+   * only edits that survive are ones made after a Load As, which is what
+   * happens to set the other flag.
+   */
+  macroChange = false
+
+  /** `EdMa_Changed(a5)` (+Equ.s:1704): raised by Load As, and read by Quit */
+  macroChanged = false
+
   /**
    * `Name1(a5)` (+Equ.s): the filename every disc command works through.
    *
@@ -149,6 +179,26 @@ export class Edit {
    * answers 1 without asking when `Ed_Zappeuse` is set (+Edit.s:14061).
    */
   name1 = ''
+
+  /**
+   * `Dia_LastKey` (+Lib.s:24196): the keystroke the last requester was
+   * answered with, as an `Inkey` long.
+   *
+   * EdD_Macro1 and EdD_MacroD wait for a key rather than a button, and this is
+   * where the answer lands. With no requester installed it is what a macro
+   * command uses, the same way `Name1` stands in for the file selector.
+   */
+  lastKey = 0
+
+  /**
+   * `Sys_Pathname(a5)`: the AMOSPro system directory.
+   *
+   * `Sys_AddPath` (+B.s:534) puts it in front of any name with no colon in
+   * it, which is how the default macro and config files are found. The
+   * machine works it out at boot from where AMOSPro was launched; this is the
+   * assign `src/cli/nodefs.ts` mounts it under.
+   */
+  sysPath = 'AMOSPro_System:'
 
   /**
    * `Ed_SvBak` (+Editor_Config.s:46, default -1): rename the old file to
