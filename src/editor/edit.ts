@@ -28,6 +28,7 @@ import { EMPTY_LINE_BYTES, type ProgramBuffer } from './buffer'
 import { Block } from './block'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
+import type { EditorFS } from './files'
 import type { EditorDialogues } from './search'
 
 /**
@@ -58,6 +59,25 @@ export class EditorAlert extends Error {
   ) {
     super(ED_MESSAGES[code - 1] ?? `editor message ${code}`)
     this.name = 'EditorAlert'
+  }
+}
+
+/**
+ * `Ed_DError` (+Edit.s:14019): the command died on the disc.
+ *
+ * The same control flow as `EditorAlert` -- it ends in `bra Ed_Loop` and the
+ * command is abandoned -- but the message comes from a different table. The
+ * machine reads `_LVOIoErr`, looks it up in `ErDisked` (:14050) and indexes
+ * `Ed_RunMessages`, which is the interpreter's list and not the editor's.
+ *
+ * DEVIATION: this port has not generated that table, so what is carried is
+ * the AmigaDOS code itself. 0 means the filesystem refused and did not say
+ * why, which is every failure `EditorFS`'s booleans can report.
+ */
+export class DiskError extends Error {
+  constructor(readonly dos = 0) {
+    super(`disc error ${dos}`)
+    this.name = 'DiskError'
   }
 }
 
@@ -121,6 +141,41 @@ export class Edit {
   schMode = 0
 
   /**
+   * `Name1(a5)` (+Equ.s): the filename every disc command works through.
+   *
+   * One buffer for the whole editor, filled by the file selector and read by
+   * `Prg_Load`, `Prg_Save` and `Ed_MakeBak`. With no requester installed it is
+   * what a command uses, which is exactly the ZAP path: `Ed_File_Selector`
+   * answers 1 without asking when `Ed_Zappeuse` is set (+Edit.s:14061).
+   */
+  name1 = ''
+
+  /**
+   * `Ed_SvBak` (+Editor_Config.s:46, default -1): rename the old file to
+   * `.Bak` before saving over it.
+   */
+  svBak = true
+
+  /**
+   * DEVIATION: `DosBase`, which `D_Open` and `_LVORename` go through.
+   *
+   * The machine's editor calls dos.library directly and this port's model of
+   * it is `src/amiga/vfs.ts`. Null means no filesystem, and every command that
+   * needs one raises a disc error rather than pretending.
+   */
+  fs: EditorFS | null = null
+
+  /**
+   * `Ed_DError` (+Edit.s:14019): the last command died on a disc error.
+   *
+   * DEVIATION: the machine reads `_LVOIoErr`, maps it through `ErDisked` into
+   * `Ed_RunMessages` and puts up EdD_DiskErr. That message table is the
+   * interpreter's and this port has not generated it, so what is kept is the
+   * AmigaDOS code. 0 means the filesystem refused and did not say why.
+   */
+  diskError = -1
+
+  /**
    * `T_Actualise`'s `BitControl` (+Equ.s:827): Ctrl-C is down.
    *
    * The editor's own loop simulates one at :1579 and `Ed_SchFront` reads it
@@ -154,13 +209,24 @@ export class Edit {
   /** `Edt_EtMess`: how long it stays there */
   alertTime = 0
 
+  /**
+   * `Prg_StBas` and the rest of the program structure.
+   *
+   * Not readonly, because `Prg_ChgTTexte` (+Verif.s:4757) frees the old
+   * allocation and makes a new one. `Ed_GetPlace` (+Edit.s:9915) does that
+   * when a file will not fit, and the program in the old buffer is gone.
+   */
+  prog: ProgramBuffer
+
   constructor(
-    readonly prog: ProgramBuffer,
+    prog: ProgramBuffer,
     readonly buf: EditBuffer,
     readonly undo: UndoBuffer,
     readonly table: TokenTable,
     readonly opts: EdtokOptions = {},
-  ) {}
+  ) {
+    this.prog = prog
+  }
 
   /** the program line under the cursor: `Edt_YPos + Edt_YCu` */
   get line(): number {

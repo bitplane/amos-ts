@@ -8,7 +8,16 @@ import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
 import { ED, edCall } from './commands'
-import { SM, schBack, schBuffer, schFront, type DialogueAnswer, type SearchDialogue } from './search'
+import {
+  SM,
+  schBack,
+  schBuffer,
+  schFront,
+  type Confirm,
+  type DialogueAnswer,
+  type EditorDialogues,
+  type SearchDialogue,
+} from './search'
 
 const table = new TokenTable(CORE_TOKENS)
 const tested = (t: string): Uint8Array => verify(tokeniseSource(t, table), {}).slice(0, -2)
@@ -36,10 +45,11 @@ function folded(): Edit {
 }
 
 /** a requester that answers with whatever this test hands it */
-const requester = (answer: (d: SearchDialogue) => DialogueAnswer, confirm: (m: number, n: number) => boolean = () => true) => ({
-  ask: answer,
-  confirm,
-})
+const requester = (
+  answer: (d: SearchDialogue) => DialogueAnswer,
+  confirm: (c: Confirm) => number = () => 1,
+  select: (which: number, name: string) => string | null = (_w, name) => name,
+): EditorDialogues => ({ ask: answer, confirm, select })
 
 describe('SchBuffer', () => {
   it('never finds an empty string, because the terminator is the first letter', () => {
@@ -318,9 +328,9 @@ describe('Replace All', () => {
     let told = 0
     e.dialogues = requester(
       (d) => ({ ...d, ok: true }),
-      (message, count) => {
-        if (message === 10) told = count
-        return true
+      (c) => {
+        if (c.which === 10) told = c.count ?? 0
+        return 1
       },
     )
     expect(edCall(e, ED.REPLACE)).toBe(0)
@@ -369,7 +379,7 @@ describe('Replace All', () => {
     e.schMode = SM.ALL
     e.dialogues = requester(
       (d) => ({ ...d, ok: true }),
-      (message) => message !== 9,
+      (c) => (c.which === 9 ? 0 : 1),
     )
     expect(edCall(e, ED.REPLACE)).toBe(206)
     expect(listing(e)).toEqual(PROG.split('\n'))

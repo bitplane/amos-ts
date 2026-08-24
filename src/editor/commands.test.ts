@@ -48,8 +48,8 @@ describe('the table', () => {
 
   it('says which commands are not ported rather than doing nothing', () => {
     const e = open()
-    expect(() => edCall(e, 33)).toThrow(/command 33 \(Ed_Load\) is not ported/)
-    expect(COMMANDS[33]).toBeUndefined()
+    expect(() => edCall(e, 84)).toThrow(/command 84 \(Ed_Merge\) is not ported/)
+    expect(COMMANDS[84]).toBeUndefined()
   })
 
   it('has an entry for everything ED names', () => {

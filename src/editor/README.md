@@ -46,10 +46,32 @@ Three things that look like they belong here do not:
   `JFonc`.
 - `search.ts` — `SchBuffer`, `RepBuffer` and the two line walks the six search
   and replace commands share. The commands themselves are in `commands.ts`.
+- `files.ts` — `Prg_Load` and `Prg_Save`, the two headers, and the four calls
+  the editor makes to dos.library.
 
-Still missing before there is an editor a person can use: the file commands
-and the macros. `Ed_Key` reads `EdMa_Play` before it reads the keyboard and
-writes `EdMa_List` while one is recording, and none of that is here.
+Still missing before there is an editor a person can use: the macros.
+`Ed_Key` reads `EdMa_Play` before it reads the keyboard and writes `EdMa_List`
+while one is recording, and none of that is here. Four file commands need a
+second window and wait on one: Merge (84), Load Hidden (88), Open + Load (61)
+and New All Hidden (102) all open a hidden `Edt_` structure and load into it.
+
+## A saved program is exact, and its header is not
+
+`Prg_Save` writes the header CONSTANT, `lea H_Pro(pc),a0`, so the version
+string in the file is the saving editor's and not the file's. Reading and
+writing all 3,960 corpus programs reproduces the source and the banks byte for
+byte and rewrites the version on 2,396 of them: `AMOS Basic V1.3 ` becomes
+`AMOS Basic V134 `, `AMOS Pro111v` becomes `AMOS Pro101v`.
+
+The header is not a version stamp either way. `Prg_Not1.3` is the Test pass's
+verdict on whether the program would run under AMOS 1.3, and byte 15 is the
+maths flags Test worked out. Byte 11 is `V` or `v` for tested or not, and
+`Prg_Load` never reads it: the load raises `Prg_StModif` unconditionally, so a
+program always comes back from disc untested.
+
+There is no bank writer in this port. `Bnk.Load` and `Bnk.SaveAll` are the
+machine's, and what `ProgramBuffer.banks` holds is the bytes that followed the
+source, kept to be written back unread.
 
 ## Search reads the listing, not the tokens
 

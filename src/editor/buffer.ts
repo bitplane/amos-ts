@@ -29,6 +29,7 @@
  * decides whether a command is legal here (`FlagFonc` bit 2, +Edit.s:3341).
  */
 import { TK } from '../tokens/edtok'
+import { EMPTY_BANKS } from './files'
 
 /** `_TkProc` and `_TkEndP`, the two ids the walk branches on */
 const TK_PROC = TK.PROCEDURE
@@ -99,6 +100,31 @@ export class ProgramBuffer {
   changed = false
   /** `Prg_StModif`, the listing has been modified since the last Test */
   modified = false
+  /** `Prg_NamePrg`, the file it was loaded from or last saved to */
+  name = ''
+  /**
+   * `Prg_Not1.3`: this program needs AMOS Professional and will not run on 1.3.
+   *
+   * Not a version stamp. `PTest` (+Verif.s:73) clears `VerNot1.3` and raises
+   * it the moment the walk meets something 1.3 does not have, and `Prg_Test`
+   * (:4359) copies the verdict here. A Pro program that uses nothing beyond
+   * 1.3 is saved with an `AMOS Basic v134` header and runs under 1.3.
+   *
+   * `Prg_New` does NOT clear it, so a new program keeps the last one's verdict
+   * until the next Test.
+   */
+  pro = false
+  /** `Prg_MathFlags`, byte 15 of a Pro header. `MathFlags(a5)` at Test time */
+  mathFlags = 0
+  /**
+   * DEVIATION: everything after the source in the file, `AmBs` onwards.
+   *
+   * The machine parses this into bank structures on the way in (`Bnk.Load`)
+   * and builds it again on the way out (`Bnk.SaveAll`). There is no bank
+   * writer in this port, so the bytes are kept as they arrived and written
+   * back unread. A program whose banks were edited would need the real thing.
+   */
+  banks: Uint8Array = EMPTY_BANKS
 
   private constructor(size: number) {
     // `and.l #$FFFFFFFE,d0`: an odd size would leave the zero word odd
@@ -132,6 +158,29 @@ export class ProgramBuffer {
     p.bytes.set(src, p.stBas)
     p.countLines()
     return p
+  }
+
+  /**
+   * `Prg_New` (+Verif.s:4726): the buffer emptied, and what survives it.
+   *
+   * The zero word goes back to the top, the name and `Prg_Change` are cleared
+   * and `Prg_StModif` is RAISED, because an empty program has not been tested
+   * either. `Prg_MathFlags` is cleared and `Prg_Not1.3` is not, so the
+   * compatibility verdict outlives the program it was made about.
+   *
+   * The banks are `Bnk.EffAll` here. This port has none, so the tail from the
+   * last load is dropped back to an empty list.
+   */
+  newProgram(): void {
+    this.lineCount = 0
+    this.stBas = this.stHaut - 2
+    this.bytes[this.stBas] = 0
+    this.bytes[this.stBas + 1] = 0
+    this.name = ''
+    this.changed = false
+    this.modified = true
+    this.mathFlags = 0
+    this.banks = EMPTY_BANKS
   }
 
   /** `Prg_StBas - Prg_StMini`, which is what the editor calls free */

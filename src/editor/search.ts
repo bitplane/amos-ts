@@ -217,7 +217,23 @@ export interface DialogueAnswer extends SearchDialogue {
   ok: boolean
 }
 
-/** the two requesters search and replace put up, and nothing else */
+/**
+ * What `Ed_Dialogue` (+Edit.s:3107) is asked, for the requesters that are not
+ * the search one.
+ *
+ * `which` is the EdD_ number from the table at :15333, so it names the
+ * requester in the source. What it shows beyond its own text is one variable,
+ * and only ever a name or a count.
+ */
+export interface Confirm {
+  which: number
+  /** `Ed_VDialogues`'s first variable, when the requester names a file */
+  name?: string
+  /** ... or a number, which only EdD_Changes does */
+  count?: number
+}
+
+/** the requesters the editor puts up, and what it does with them */
 export interface EditorDialogues {
   /**
    * The string requester. A Cancel still answers with the fields, because the
@@ -225,8 +241,17 @@ export interface EditorDialogues {
    */
   ask(d: SearchDialogue): DialogueAnswer
   /**
-   * EdD_WBlock (8) and EdD_WText (9) confirm a whole-text replace; EdD_Changes
-   * (10) reports the count afterwards and its answer is thrown away.
+   * Everything else, answering `Ed_Dialogue`'s d0: 1 is the first button, 2
+   * the second, anything else a close. Most callers test `cmp.w #1,d0` and
+   * treat every other answer alike; `Ed_Saved` (:13315) is the one that reads
+   * all three, because Yes, No and Cancel are three different things when a
+   * program is about to be thrown away.
    */
-  confirm(message: number, count: number): boolean
+  confirm(c: Confirm): number
+  /**
+   * `Ed_File_Selector` (:14059): four messages in, a path back, null for
+   * Cancel. `which` is the first of the four message numbers, so 70 is Load
+   * and 74 is Save.
+   */
+  select(which: number, name: string): string | null
 }

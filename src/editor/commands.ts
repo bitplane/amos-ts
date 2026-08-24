@@ -10,11 +10,12 @@
  * ## What is here
  *
  * The movement and editing commands, 1 to 37, the marks (39 to 58), the block
- * (59 to 63, 72, 181), the undo replay (65, 94) and search and replace (66 to
- * 68, 99 to 101), plus Delete to start of line (64) and Insert mode (75).
+ * (59 to 63, 72, 181), the undo replay (65, 94), search and replace (66 to 68,
+ * 99 to 101) and the disc (33 to 35, 80, 85, 97, 98, 152), plus Delete to
+ * start of line (64) and Insert mode (75).
  *
- * The rest need something this port has not built yet: a file requester (33 to
- * 35), a dialogue (26, 76), a second window (91 to 96), or the interpreter
+ * The rest need something this port has not built yet: a second window (61,
+ * 84, 88, 91 to 96, 102), the macro layer (106 to 110), or the interpreter
  * (77, 78). `COMMANDS` has no entry for them and `edCall` throws rather than
  * silently doing nothing, so a key map that reaches one says which.
  *
@@ -29,14 +30,26 @@
 import { T } from '../tokens/stream'
 import { detokLineBytes, tokeniseLine } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
-import { EMPTY_LINE_BYTES } from './buffer'
+import { EMPTY_LINE_BYTES, ProgramBuffer } from './buffer'
 import { BF } from './block'
-import { Edit, EditorAlert } from './edit'
+import { DiskError, Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoRecord } from './undo'
 import { FLAG_FONC, ED_ROUTINES } from './keymap.gen'
 import { keyToFunc, type EdKey } from './keymap'
-import { SM, SM_TURBO, repBuffer, schBack, schFront } from './search'
+import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
+import { ED_SYSTEME } from '../runtime/edmessages.gen'
+import {
+  EMPTY_BANKS,
+  H_BLOCK,
+  PRG,
+  bakName,
+  fileName,
+  programSource,
+  readProgramFile,
+  writeProgramFile,
+  type EditorFS,
+} from './files'
 
 /**
  * The commands this port implements, by the number +Edit.s gives them.
@@ -82,6 +95,14 @@ export const ED = {
   BLOCK_PASTE: 63,
   BLOCK_STORE: 72,
   BLOCK_ALL: 181,
+  LOAD: 33,
+  SAVE_AS: 34,
+  SAVE: 35,
+  NEW: 80,
+  MERGE_ASCII: 85,
+  BLOCK_SAVE_ASCII: 97,
+  BLOCK_SAVE: 98,
+  SAVE_AS_NAME: 152,
   SEARCH: 66,
   SEARCH_NEXT: 67,
   SEARCH_PREV: 68,
@@ -1057,10 +1078,32 @@ function askFor(e: Edit, which: 4 | 6): boolean {
   return a.ok
 }
 
-/** EdD_WBlock (8), EdD_WText (9) and EdD_Changes (10) */
-function confirm(e: Edit, message: number, count = 0): boolean {
+/**
+ * `Ed_Dialogue` (:3107) for everything but the search box.
+ *
+ * DEVIATION: with no requester installed there is nobody to ask, so every
+ * question answers with its first button. That is Yes to "save it first?" and
+ * Ok to "overwrite?", which is what a requester that always says Ok would do.
+ */
+function confirm(e: Edit, c: Confirm): number {
+  if (e.dialogues === null) return 1
+  return e.dialogues.confirm(c)
+}
+
+/**
+ * `Ed_File_Selector` (:14059), or `Name1` as it stands.
+ *
+ * `tst.b Ed_Zappeuse(a5) / bne .Zap` is the first instruction: under the ZAP
+ * remote control the selector answers 1 without drawing anything, because the
+ * name is already in `Name1`. A port with no requester is in exactly that
+ * position.
+ */
+function selectFile(e: Edit, which: number): boolean {
   if (e.dialogues === null) return true
-  return e.dialogues.confirm(message, count)
+  const picked = e.dialogues.select(which, e.name1)
+  if (picked === null) return false
+  e.name1 = picked
+  return true
 }
 
 /**
@@ -1160,7 +1203,7 @@ function turboReplace(e: Edit, mode: number): void {
   e.fill() // .Finish
   if (count === 0) throw new EditorAlert(205)
   // EdD_Changes and message 40, " change(s) done.". Its answer is dropped
-  confirm(e, 10, count)
+  confirm(e, { which: 10, count })
 }
 
 /**
@@ -1201,7 +1244,7 @@ function replaceCmd(e: Edit, entry: 99 | 100 | 101): void {
       const mode = e.schMode
       if ((mode & SM_TURBO) !== 0) {
         // `btst #2,d5` picks which of the two confirmations to put up
-        if (!confirm(e, (mode & SM.BLOCK) !== 0 ? 8 : 9)) throw new EditorAlert(206)
+        if (confirm(e, { which: (mode & SM.BLOCK) !== 0 ? 8 : 9 }) !== 1) throw new EditorAlert(206)
         if (e.schBuf !== '' && e.repBuf !== '') return turboReplace(e, mode)
         noRequester(e)
         continue
@@ -1226,6 +1269,333 @@ function replaceCmd(e: Edit, entry: 99 | 100 | 101): void {
  */
 function noRequester(e: Edit): void {
   if (e.dialogues === null) throw new EditorAlert(206)
+}
+
+/* ---- 33 to 35, 80, 85, 97, 98 and 152: the disc ------------------------- */
+
+/** `Ed_NPrgToBuf` (:7555): the program's own name, or system message 7 */
+function prgName(e: Edit): string {
+  return e.prog.name === '' ? ED_SYSTEME[6]! : fileName(e.prog.name)
+}
+
+/** `Ed_SaveOver` (:13302): EdD_AExist when the name is already taken */
+function saveOver(e: Edit, fs: EditorFS): void {
+  if (fs.exists(e.name1) === null) return
+  if (confirm(e, { which: 47, name: e.name1 }) !== 1) throw new EditorAlert(206)
+}
+
+/** the filesystem, or the disc error every command that needs one raises */
+function disc(e: Edit): EditorFS {
+  if (e.fs === null) throw new DiskError()
+  return e.fs
+}
+
+/**
+ * `Ed_MakeBak` (:13697): rename the file being saved over to `.Bak`.
+ *
+ * Three AmigaDOS codes are not failures. 205 is "there was nothing to rename",
+ * which is the first save of a new file. 203 is "the .Bak is already there",
+ * and `.Bak5` deletes it and starts again. 215 is a rename across two devices,
+ * which cannot happen here at all: the backup name is the same path with a
+ * different extension, so both ends are always on the same volume.
+ *
+ * DEVIATION: `EditorFS.rename` answers yes or no and not a code, so 203 is
+ * recognised by asking whether the target exists rather than by asking why the
+ * rename failed.
+ */
+function makeBak(e: Edit, fs: EditorFS): void {
+  const to = bakName(e.name1, ED_SYSTEME[20]!)
+  for (let tries = 0; tries < 2; tries++) {
+    if (fs.rename(e.name1, to)) return
+    if (fs.exists(e.name1) === null) return
+    if (fs.exists(to) === null) break
+    fs.deleteFile(to)
+  }
+  throw new DiskError()
+}
+
+/**
+ * `Ed_SavePrg` (:13660) and `Ed_SavePrg2` (:13668) below it, which is the same
+ * routine entered past the backup.
+ *
+ * `Prg_StModif` is set to 1 AFTER the save, with the author's "force le
+ * menage" beside it, and the header has already been written from what it was
+ * before. So a program that has passed Test saves once as `V` and every time
+ * after that as `v`, without being edited in between.
+ */
+function savePrg(e: Edit, bak: boolean): void {
+  const fs = disc(e)
+  if (bak && e.svBak) makeBak(e, fs)
+  e.prog.countLines()
+  const file = writeProgramFile({
+    pro: e.prog.pro,
+    mathFlags: e.prog.mathFlags,
+    tested: !e.prog.modified,
+    source: programSource(e.prog),
+    banks: e.prog.banks,
+  })
+  if (!fs.writeFile(e.name1, file)) throw new DiskError()
+  // Prg_Save's own tail: the name it was saved under becomes the program's
+  e.prog.name = e.name1
+  e.prog.changed = false
+  e.prog.modified = true
+  // `Ed_SaveIcon` (:13748) follows, and writes a .info through icon.library
+  // when PI_Icons is set. Nothing here draws icons.
+}
+
+/** `Ed_Sv` (:13649): the name is settled, so write it */
+function saveNamed(e: Edit): void {
+  savePrg(e, true)
+}
+
+/** `Ed_SvAs` (:13643): ask for a name first */
+function saveAs(e: Edit): void {
+  if (!selectFile(e, 74)) throw new EditorAlert(206)
+  saveNamed(e)
+}
+
+/**
+ * `Ed_SaveIt` (:13632): Save, which is Save As until the program has a name.
+ *
+ * `Ed_Save` and `Ed_SaveAs` are two `bsr Ed_TokCur` and a branch apart. Save
+ * As jumps over this test and always asks.
+ */
+function saveIt(e: Edit): void {
+  if (e.prog.name === '') return saveAs(e)
+  e.name1 = e.prog.name
+  saveNamed(e)
+}
+
+/**
+ * `Ed_Saved` (:13315): "NAME not saved. Save?", before something throws the
+ * program away.
+ *
+ * The one requester in the editor whose three answers are three different
+ * things. 1 saves, 2 goes on without saving, and anything else abandons the
+ * command that asked. `Ed_NotDone2` rather than `Ed_NotDone`, so the window
+ * is not redrawn on the way out.
+ */
+function saved(e: Edit): void {
+  if (!e.prog.changed) return
+  const answer = confirm(e, { which: 11, name: prgName(e) })
+  if (answer === 2) return
+  if (answer !== 1) throw new EditorAlert(206)
+  saveIt(e)
+}
+
+/**
+ * `Ed_New2` (:10899) and `Edt_New` (:10910) after it.
+ *
+ * `Edt_New` clears every word from `Edt_SInit` to `Edt_EInit` and then puts
+ * -1 back into the two block fields. What it does NOT touch is `Ed_Block`,
+ * which lives in a5 rather than a4: New empties the program and keeps the
+ * clipboard, so a block cut from one program can be pasted into the next.
+ */
+function newProgram(e: Edit): void {
+  e.prog.newProgram()
+  e.xCu = 0
+  e.yCu = 0
+  e.xPos = 0
+  e.yPos = 0
+  e.edited = 0
+  e.xBloc = 0
+  e.yBloc = -1
+  e.yOldBloc = -1
+  e.undo.raz() // Prg_UndoCreate
+  e.prog.marks.fill(0) // Prg_MarkRaz
+  e.fill()
+}
+
+/**
+ * `Ed_ReLoad` (:13405): read the file, and grow the buffer if it will not fit.
+ *
+ * `moveq #1,d0` is "revenir si pas assez grand", so `Prg_Load` answers 1
+ * rather than reallocating, and `Ed_GetPlace` puts EdD_TooSmall up before it
+ * does. The retry then goes round the whole read again.
+ *
+ * `.Load` asks for 256 bytes more than the file, so a program that fits its
+ * buffer to the byte is still refused and reloaded into a bigger one.
+ */
+function reload(e: Edit): void {
+  const fs = disc(e)
+  const bytes = fs.readFile(e.name1)
+  if (bytes === null) throw new DiskError(205)
+  for (;;) {
+    const r = readProgramFile(bytes, e.prog.bytes.length)
+    if (r.error === PRG.NOT_AMOS) throw new EditorAlert(207) // Ed_PaAMOS
+    if (r.error === PRG.MEMORY) throw new EditorAlert(204, 120) // Ed_OMm
+    if (r.error === PRG.DISK) throw new DiskError()
+    if (r.error === PRG.TOO_SMALL) {
+      // Ed_GetPlace (:9915). Its other arm is the Set Buffer Size requester,
+      // which is `JFonc` 122 and is not ported
+      if (confirm(e, { which: 37, count: r.needs }) !== 1) throw new EditorAlert(206)
+      e.prog = ProgramBuffer.create(r.needs)
+      continue
+    }
+    const f = r.file!
+    const room = Math.max(e.prog.bytes.length, r.needs)
+    e.prog = ProgramBuffer.load(f.source, room)
+    e.prog.pro = f.pro
+    e.prog.mathFlags = f.mathFlags
+    e.prog.banks = f.banks
+    e.prog.name = e.name1
+    e.prog.changed = false
+    // EdLok: `move.b #1,Prg_StModif(a6)`, "force le test". Whatever the file
+    // said in byte 11, a program comes back from disc untested
+    e.prog.modified = true
+    e.fill()
+    return
+  }
+}
+
+/**
+ * `Ed_LoadA` (:13489), Merge Ascii: a text file tokenised a line at a time and
+ * inserted at the cursor.
+ *
+ * The line splitting is `.Fin1` to `.Fin4` and it is stricter than it looks. A
+ * tab becomes a space in place. CR and LF both end a line, and `.Fin2` then
+ * steps over ONE more byte if that byte is also below space -- which joins the
+ * two halves of a CRLF, and swallows a blank line, because the second
+ * newline of a pair is read as the other half of the first.
+ *
+ * DEFECT: any other control character reaches `.Bad`, and `.Bad` and `.Long`
+ * are two labels on the same instruction. A file with a stray byte under 32 in
+ * it reports "Line too long."
+ */
+function loadAscii(e: Edit): void {
+  e.tokCur()
+  e.undo.raz()
+  if (!selectFile(e, 86)) throw new EditorAlert(206)
+  const fs = disc(e)
+  const bytes = fs.readFile(e.name1)
+  if (bytes === null) throw new DiskError(205)
+  let line = e.line
+  let at = 0
+  const done = (): void => {
+    e.prog.countLines()
+    e.fill()
+  }
+  while (at < bytes.length) {
+    const was = e.abort
+    e.abort = false
+    if (was) break
+    let end = at
+    const text: number[] = []
+    for (;;) {
+      const c = bytes[end]
+      if (c === undefined || c === 0) break
+      if (c >= 32) {
+        text.push(c)
+        end++
+        continue
+      }
+      if (c === 9) {
+        // `move.b #" ",(a2)`: the tab is overwritten in the buffer itself
+        text.push(32)
+        end++
+        continue
+      }
+      if (c === 10 || c === 13) {
+        // `.Fin2`: one more byte goes if it is also below space
+        if ((bytes[end + 1] ?? 0) < 32) end++
+        break
+      }
+      done()
+      throw new EditorAlert(199, 50) // .Bad, which is .Long
+    }
+    // `sub.l a3,d0 / cmp.l #250,d0`, measured to the terminator
+    if (end - at >= 250) {
+      done()
+      throw new EditorAlert(199, 50)
+    }
+    let tokens: Uint8Array
+    try {
+      tokens = tokeniseLine(text.map((c) => String.fromCharCode(c)).join(''), e.table, e.opts)
+    } catch {
+      done()
+      throw new EditorAlert(199, 50)
+    }
+    if (e.prog.store(line, tokens, true).error !== 0) {
+      done()
+      throw new EditorAlert(202, 200) // .OBuf
+    }
+    line++
+    e.prog.lineCount++
+    at = end + 1
+  }
+  done()
+}
+
+/**
+ * `Ed_BlocSave` (:6318), `JFonc` 98: the block as a program of its own.
+ *
+ * It writes `EnHead` and not `H_Pro`, so a saved block says `AMOS ProEd.v` in
+ * the wild and still loads, because `Prg_Load` compares eight bytes. The size
+ * word goes down as a placeholder and is poked in at the end, after a seek
+ * back to offset 16, which is the only seek in the editor.
+ *
+ * An end that tokenises to nothing is not written at all: `Tokenise` answers
+ * d1 of 0 for an empty line (`TokVide` :14705) and `beq` skips the write.
+ */
+function blockSave(e: Edit): void {
+  e.tokCur()
+  const b = e.block.read()
+  if (b === null) throw new EditorAlert(6) // Ed_BlocWhat
+  if (!selectFile(e, 90)) throw new EditorAlert(206)
+  const fs = disc(e)
+  saveOver(e, fs)
+  const parts: Uint8Array[] = []
+  const push = (chars: Uint8Array): void => {
+    if (chars.length === 0) return
+    const line = tokeniseLine(text(chars), e.table, e.opts)
+    if (line.length <= EMPTY_LINE_BYTES) return
+    parts.push(line)
+  }
+  push(b.first)
+  if (b.middle.length !== 0) parts.push(b.middle)
+  push(b.last)
+  let size = 0
+  for (const p of parts) size += p.length
+  const source = new Uint8Array(size)
+  let at = 0
+  for (const p of parts) {
+    source.set(p, at)
+    at += p.length
+  }
+  // `Bnk.SaveVide` writes the same six bytes `Bnk.SaveAll` writes for a
+  // program with no banks
+  const out = writeProgramFile({ pro: true, mathFlags: 0, tested: false, source, banks: EMPTY_BANKS })
+  out.set(Uint8Array.from(H_BLOCK, (c) => c.charCodeAt(0)), 0)
+  if (!fs.writeFile(e.name1, out)) throw new DiskError()
+}
+
+/**
+ * `Ed_BlocSaveAscii` (:6440), `JFonc` 97, over `BlToA0`/`BlToA1` (:6541).
+ *
+ * Every line gets a linefeed after it, the last one included, because the 10
+ * is poked past the text before the write rather than between writes. A record
+ * that holds nothing produces no line at all (`.1Vide`), so a block that
+ * starts at the end of a line does not begin with a blank one.
+ */
+function blockSaveAscii(e: Edit): void {
+  e.tokCur()
+  const b = e.block.read()
+  if (b === null) throw new EditorAlert(6)
+  if (!selectFile(e, 82)) throw new EditorAlert(206)
+  const fs = disc(e)
+  saveOver(e, fs)
+  const lines: string[] = []
+  if (b.first.length !== 0) lines.push(text(b.first))
+  let at = 0
+  for (let n = 0; n < b.lines; n++) {
+    lines.push(detokLineBytes(b.middle, at, e.table, e.opts))
+    const len = b.middle[at]! * 2
+    if (len === 0) break
+    at += len
+  }
+  if (b.last.length !== 0) lines.push(text(b.last))
+  const out = lines.length === 0 ? '' : lines.join('\n') + '\n'
+  if (!fs.writeFile(e.name1, bytes(out))) throw new DiskError()
 }
 
 /* ---- the table ---------------------------------------------------------- */
@@ -1318,6 +1688,24 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
     e.tokCur()
     gotoLabel(e, nearestLabels(e).after)
   },
+  33: (e) => {
+    // Ed_Load (:13390)
+    e.tokCur()
+    saved(e)
+    if (!selectFile(e, 70)) throw new EditorAlert(206)
+    newProgram(e)
+    reload(e)
+  },
+  34: (e) => {
+    // Ed_SaveAs (:13627), which is Ed_SaveIt with the name test jumped over
+    e.tokCur()
+    saveAs(e)
+  },
+  35: (e) => {
+    // Ed_Save (:13630)
+    e.tokCur()
+    saveIt(e)
+  },
   36: deleteWord,
   37: backWord,
   59: (e) => {
@@ -1374,10 +1762,29 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   75: (e) => {
     e.insert = !e.insert
   },
+  80: (e) => {
+    // Ed_New (:10896)
+    e.tokCur()
+    saved(e)
+    newProgram(e)
+  },
+  85: loadAscii,
+  97: blockSaveAscii,
+  98: blockSave,
   94: (e) => replay(e, false),
   99: (e) => replaceCmd(e, 99),
   100: (e) => replaceCmd(e, 100),
   101: (e) => replaceCmd(e, 101),
+  152: (e) => {
+    // Ed_SaveAsName (:13607): save to Name1 with no .Bak, and put the
+    // program's own name back afterwards, because `Prg_Save` overwrites it
+    const was = e.prog.name
+    try {
+      savePrg(e, false)
+    } finally {
+      e.prog.name = was
+    }
+  },
   181: (e) => {
     // Ed_BlocAll (:5854): the anchor at the top and the cursor at the top too,
     // with YBloc at the line PAST the last, so the block runs the other way
@@ -1464,9 +1871,17 @@ export function edKey(e: Edit, key: EdKey, table?: Uint8Array): number {
 function run(e: Edit, fn: () => void): number {
   e.alert = 0
   e.alertTime = 0
+  e.diskError = -1
   try {
     fn()
   } catch (err) {
+    // `Ed_DError` also ends in `bra Ed_Loop`, but its message is the
+    // interpreter's and not the editor's, so it lands in its own field and
+    // the answer here stays 0. `Edit.diskError` is what says which
+    if (err instanceof DiskError) {
+      e.diskError = err.dos
+      return 0
+    }
     if (!(err instanceof EditorAlert)) throw err
     e.alert = err.code
     e.alertTime = err.duration
