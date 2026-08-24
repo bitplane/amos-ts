@@ -320,7 +320,7 @@ export interface InterpOptions {
   /** extra functions; override core */
   functions?: Record<string, FuncFn>
   /** functions that parse their own arguments (Match, Hunt, ...) */
-  rawFunctions?: Record<string, (it: Interp) => Value>
+  rawFunctions?: Record<string, (it: Interp, tok: Tok) => Value>
   input?: InputState
 }
 
@@ -459,7 +459,7 @@ export class Interp {
   readonly inp: InputState
   private readonly instr: Record<string, InstrFn>
   private readonly funcs: Record<string, FuncFn>
-  private readonly rawFuncs: Record<string, (it: Interp) => Value>
+  private readonly rawFuncs: Record<string, (it: Interp, tok: Tok) => Value>
   totalSteps = 0
 
   constructor(
@@ -1085,7 +1085,9 @@ export class Interp {
         if (name !== undefined && this.rawFuncs[name]) {
           KEYWORD_PROBE?.add(name)
           this.advance()
-          return this.rawFuncs[name]!(this)
+          // the token goes through as well: the four equate spellings read
+          // the value the Test pass poked into their own inline bytes
+          return this.rawFuncs[name]!(this, t)
         }
         if (name !== undefined) {
           const qual = this.names.qualified(t)

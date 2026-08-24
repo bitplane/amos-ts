@@ -4067,6 +4067,15 @@ export const FAITHFUL = new Set<string>([
   // replaced by that subitem's siblings. The create path distinguishes the
   // two lists and the delete path does not.
   'set imenu', 'ichoice', 'imenu on', 'imenu off',
+  // The equates. `Equ_Verif` (+Verif.s:1308) resolves a name at Test time and
+  // pokes value, type and flag into the token's own six inline bytes, so the
+  // run-time routines read the source and never a file. Ported from those two
+  // routines plus `FnEqu`/`FnStruc`/`InStruc`/`InStrucD` (+ILib.s:5881-6007),
+  // over the 2,505-line file AMOS Pro ships. Both defects the shipped code
+  // carries are reproduced and named in NOTES: `InStruc`'s byte arm writes the
+  // wrong register (`10 80` at $7666 of AMOSPro.Lib), and `InStrucD` stores a
+  // pointer `FnStrucD` cannot follow.
+  'equ', 'lvo', 'struc', 'struc$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -4216,9 +4225,6 @@ export const NA = new Set<string>([
   'kill editor',
   'monitor',
   'include',
-  'equ',
-  'struc',
-  'struc$',
   '||apcmp||',
   '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/',
   ',',
@@ -4238,7 +4244,6 @@ export const NA = new Set<string>([
   'lib base',
   'areg',
   'dreg',
-  'lvo',
   // AMCAF 1.50: Trans Screen Dynamic is a JIT, and the code it writes is only
   // ever reached through `Call`, which is n/a immediately above. Routine 153
   // ($4272) does not paint anything -- it walks the Trans Map exactly as Trans
@@ -4355,7 +4360,6 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'lib close': 'm68k',
   'lib open': 'm68k',
   'library call': 'm68k',
-  lvo: 'm68k',
   // assembles 68k into a bank, and the only way to reach what it writes is Call
   'trans screen dynamic': 'm68k',
   // deliberate ILLEGAL
@@ -4388,9 +4392,6 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'kill editor': 'editor',
   monitor: 'editor',
   include: 'editor',
-  equ: 'editor',
-  struc: 'editor',
-  'struc$': 'editor',
   '||apcmp||': 'editor',
   '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/': 'editor',
   ',': 'editor',
@@ -4410,6 +4411,29 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  equ:
+    "`Ope_Equ` (+Verif.s:2955) resolves the name at TEST time and pokes the value into the token's own six " +
+    "inline bytes, so `FnEqu` (+ILib.s:5881) is `move.l (a6),d3` and a skip over the name. That is why a " +
+    "program using equates runs where the equates file does not exist -- Equates.Doc: \"once the program has " +
+    "been tested, AMOS Pro will not need to load the Equate file\". The shipped file is 2,505 lines and 123 " +
+    "corpus lines use it; the key is searched as \"\\nNAME:\" with `L_InstrFind`, which is a byte compare, so " +
+    "names are case-sensitive and the first of two identical lines wins.",
+  lvo: "The same routine as `Equ`, with `_LVO` in front of the name (`Ope_LVO` +Verif.s:2957). `Lvo(\"Open\")` is -30.",
+  struc:
+    "`FnStruc` (+ILib.s:5923, $768c in AMOSPro.Lib) reads base+offset with the width the equates file gives: " +
+    "type 0-2 signed byte, word and long, 3-5 the unsigned three. A word or long at an odd address is an " +
+    "address error (`btst #0,d1`), a byte is not. DEFECT: the assigning form cannot write a byte. `InStruc` " +
+    "(:5896) reaches the arms through `lsl.w #1,d0 / jmp .Jmp(pc,d0.w)` with the value in d3 and the doubled " +
+    "type index in d0, and `.Byte` is `move.b d0,(a0)` -- `10 80` at $7666, so the source and the shipped " +
+    "binary agree. Every byte field stores 0 or 6 and never what was assigned.",
+  "struc$":
+    "The field holds a pointer to a C string, which is what an exec Node holds, and `A0ToChaine` " +
+    "(+Lib.s:3720) counts to the zero byte. DEFECT: what `InStrucD` (+ILib.s:5962) writes, `FnStrucD` (:5993) " +
+    "cannot read. The write builds a length word, the characters and a zero, and stores a pointer to the " +
+    "LENGTH WORD; the read follows that pointer as a C string, and for anything under 255 characters the " +
+    "length word's high byte is the terminator. A string opening with the four characters `|00|` is the " +
+    "shipped way to write a null pointer (`cmp.l #\"|00|\",(a2) / beq .Skp`). No program in the corpus of " +
+    "3,875 uses `Struc$`.",
   "smp assign":
     "Routine 12 ($1cc6) for `Smp Assign S To CH` and routine 11 ($1c08) for `Smp Assign S1,S2 To CH`, both " +
     "over routine 83 ($36ec). The two-sample form is not a third sample: it plays two MONO samples as one " +

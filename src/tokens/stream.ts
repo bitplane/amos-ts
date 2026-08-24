@@ -77,8 +77,16 @@ export const OPERATORS: ReadonlyMap<number, string> = (() => {
  */
 const INLINE_2_NAMES = new Set(['if', 'else', 'else if', 'for', 'repeat', 'while', 'do', 'data'])
 const INLINE_4_NAMES = new Set(['on', 'exit', 'exit if'])
-/** Lvo("Name") caches the resolved library vector offset: u32 value + u16. */
-const INLINE_6_NAMES = new Set(['lvo'])
+/**
+ * The four equate spellings cache what the Test pass found for them: a
+ * longword value, a type byte and a flag byte whose bit 7 says it is there.
+ *
+ * `TInst` (+Edit.s:15102) keys this on the id range $2A40 to $2A64 rather
+ * than on names, and `inlineBytes` in ./edtok.ts is that range verbatim. The
+ * names are used here because this table is also built for extensions, whose
+ * ids mean something else entirely.
+ */
+const INLINE_6_NAMES = new Set(['equ', 'lvo', 'struc', 'struc$'])
 
 export type Tok =
   | { kind: 'var' | 'label' | 'procCall' | 'labelRef'; name: string; flags: number }
@@ -119,7 +127,17 @@ export type Tok =
       /** filled in by parseSource: raw 68k machine code bytes that followed */
       mc: Uint8Array
     }
-  | { kind: 'core'; id: number }
+  | {
+      kind: 'core'
+      id: number
+      /**
+       * What `Equ_Verif` (+Verif.s:1308) poked in for `Equ`, `Lvo`, `Struc`
+       * and `Struc$`: the value out of the equates file and the type digit
+       * beside it. Once poked it stays in the source, which is how a program
+       * using equates runs on a machine with no equates file at all.
+       */
+      equ?: { value: number; type: number; resolved: boolean }
+    }
 
 export interface TokenLine {
   /** byte offset of the line within the source block */
@@ -549,6 +567,12 @@ function parseTok(id: number, r: BinReader, table: TokenTable, idOffset: number)
     return { kind: 'apml', param: r.u16(), mc: new Uint8Array(0) }
   }
   if (!table.get(id)) throw new Error(`unknown token $${id.toString(16).padStart(4, '0')}`)
-  r.skip(table.inlineSize(id))
+  const inline = table.inlineSize(id)
+  if (inline === 6) {
+    const value = r.i32()
+    const type = r.u8()
+    return { kind: 'core', id, equ: { value, type, resolved: (r.u8() & 0x80) !== 0 } }
+  }
+  r.skip(inline)
   return { kind: 'core', id }
 }

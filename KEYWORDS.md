@@ -28,7 +28,7 @@ So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
 The evidence is not here. The classification, the assembly citations and the
-1245 qualifying notes live in `src/coverage/status.ts`, which this file
+1247 qualifying notes live in `src/coverage/status.ts`, which this file
 is generated from. Look a keyword up there for why it is classified the way it
 is.
 
@@ -98,7 +98,7 @@ is.
 | jd-prt-1.4           |       69 |       69 |            0 |       0 |     100% |
 | jotre-1.0            |        5 |        5 |            0 |       0 |     100% |
 | jvp-1.01             |       11 |       11 |            0 |       0 |     100% |
-| language             |      250 |      232 |            5 |       0 |     100% |
+| language             |      250 |      235 |            5 |       0 |     100% |
 | ldos-2.5             |       77 |       70 |            7 |       0 |     100% |
 | ldos-2.6             |       85 |       78 |            7 |       0 |     100% |
 | locale-0.26          |       20 |       20 |            0 |       0 |     100% |
@@ -130,7 +130,7 @@ is.
 | stars-2.33           |       11 |       11 |            0 |       0 |     100% |
 | sticks-1.01b         |       16 |       16 |            0 |       0 |     100% |
 | symbase-0.94         |       51 |       47 |            3 |       0 |     100% |
-| system               |       41 |       28 |            0 |       0 |     100% |
+| system               |       41 |       29 |            0 |       0 |     100% |
 | text-io              |       37 |       36 |            1 |       0 |     100% |
 | tft-0.6              |       22 |       20 |            0 |       0 |     100% |
 | tft-0.7              |       28 |       24 |            2 |       0 |     100% |
@@ -144,19 +144,18 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5361 |          280 |    1718 |      77% |
+| **total**            |     7422 |     5365 |          280 |    1718 |      77% |
 
 ## Not applicable, by what would retire it
 
 An n/a keyword sits outside the percentages, so its reason is the only thing holding it up.
 
-### m68k (17)
+### m68k (16)
 
 Executing 68000 machine code. The whole keyword IS the jump, so there is nothing to approximate. A 68k interpreter would retire this group entire.
 
 `@_apml_@`, `areg`, `call`, `cmpcall`, `doscall`, `dreg`, `execall`, `gfxcall`, `intcall`,
-`jsr`, `lib base`, `lib call`, `lib close`, `lib open`, `library call`, `lvo`,
-`trans screen dynamic`
+`jsr`, `lib base`, `lib call`, `lib close`, `lib open`, `library call`, `trans screen dynamic`
 
 ### debugger-trap (4)
 
@@ -188,12 +187,12 @@ Calling it CRASHES the original: a jump through a null vector, a jump past the e
 
 `nop`, `pal on`, `s mask$`, `t planes`
 
-### editor (14)
+### editor (11)
 
 The AMOS editor and the compiler overlay, neither of which exists here.
 
-`,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `call editor`, `comp del`, `comp load`, `compile`, `equ`,
-`include`, `kill editor`, `monitor`, `struc`, `struc$`, `||apcmp||`
+`,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `call editor`, `comp del`, `comp load`, `compile`,
+`include`, `kill editor`, `monitor`, `||apcmp||`
 
 
 ## amcaf-1.40 (100%)
@@ -346,8 +345,8 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## language (100%)
 
 - **approximated** (5): `chip free`, `fast free`, `free`, `load iff`, `set pattern`
-- **n/a** (13): `,`, `@_apml_@`, `\\\\\\\\\\\\\\\/`, `as`, `ask editor`, `equ`, `follow`,
-  `follow off`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
+- **n/a** (10): `,`, `@_apml_@`, `\\\\\\\\\\\\\\\/`, `as`, `ask editor`, `follow`, `follow off`,
+  `include`, `monitor`, `||apcmp||`
 
 ## ldos-2.5 (100%)
 
@@ -423,8 +422,8 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## system (100%)
 
-- **n/a** (13): `areg`, `call`, `call editor`, `doscall`, `dreg`, `execall`, `gfxcall`,
-  `intcall`, `lib base`, `lib call`, `lib close`, `lib open`, `lvo`
+- **n/a** (12): `areg`, `call`, `call editor`, `doscall`, `dreg`, `execall`, `gfxcall`,
+  `intcall`, `lib base`, `lib call`, `lib close`, `lib open`
 
 ## text-io (100%)
 

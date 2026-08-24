@@ -286,8 +286,14 @@ assembly in `+Lib.s` and `+Edit.s`:
   operator table (`=` is $FFA2, `+` is $FFC0, and so on).
 - Control flow tokens (`If`, `Else`, `For`, `Repeat`, `While`, `Do`, `Data`,
   `Else If`) carry a 2-byte inline branch link. `On`, `Exit` and `Exit If`
-  carry 4 bytes, `Lvo()` caches a 6-byte vector offset, and `Procedure` carries
-  size, seed and flags, its size linking to `End Proc`.
+  carry 4 bytes, and `Procedure` carries size, seed and flags, its size
+  linking to `End Proc`.
+- `Equ`, `Lvo`, `Struc` and `Struc$` carry 6 bytes: a longword value, a type
+  digit and a flag byte. The Test pass looks the name up in
+  `AMOSPro_System_Equates` and pokes all three in, so the value travels with
+  the program and the run time never opens the file. Equates.Doc says why:
+  "This allows you to send programs which contain Equates that someone else
+  doesn't have access too."
 - `@_apml_@` marks machine-code procedures: raw 68k code follows inline in the
   token stream, which real AMOS `jsr`s directly. The loader captures the block
   and skips to `End Proc`. **This port never executes 68k**, so calling one is

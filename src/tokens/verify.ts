@@ -40,10 +40,9 @@
  * tokeniser writes, and 229 of the 237 programs whose variable offsets drift
  * start drifting at exactly such a record.
  *
- * Of the fourteen that stop: eight reach an equate bank that no part of this
- * port reads yet, two name an extension slot nothing on this machine can
- * identify, two are the compiler's own template rather than a program, and
- * two are AMAL_Editor.AMOS. That last one is a genuine disagreement worth
+ * Of the six that stop: two name an extension slot nothing on this machine
+ * can identify, two are the compiler's own template rather than a program,
+ * and two are AMAL_Editor.AMOS. That last one is a genuine disagreement worth
  * stating: its `On Error Goto _GREG` jumps from outside a `Do` to a label
  * inside one, which `Goto_Loops` (:2462) forbids, and yet the file carries
  * the link word for it. The file has 369 bytes of drift from its saved state,
@@ -52,9 +51,10 @@
 import { OPERATORS, T, TokenTable } from './stream'
 import { CORE_TOKENS } from './tables.gen'
 import { VERIF_CLASSES } from './verif.gen'
-import { TK } from './edtok'
+import { TK, valRout } from './edtok'
 import type { TokenEntry } from './libtok'
 import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
+import { SYSTEM_EQUATES } from './equates.gen'
 
 /** the token ids the verifier branches on, from `+Equ.s:1995-2118` */
 const TKV = {
@@ -136,6 +136,9 @@ export const VERR = {
   TYPE: 40,
   LABEL_TWICE: 42,
   TRAP: 43,
+  EQU_UNDEFINED: 51,
+  EQU_LOAD: 52,
+  EQU_FILE: 53,
   EQU_TYPE: 54,
 } as const
 
@@ -341,6 +344,17 @@ export interface VerifyOptions {
    * procedure, resize a buffer or carry a remark.
    */
   direct?: boolean
+  /**
+   * The equates file, as text.
+   *
+   * `Equ_Load` (+Verif.s:1402) reads system message 9 through `Sys_AddPath`,
+   * which Equates.Doc names as "AMOSPro_Tutorial:AMOSPro_System_Equates",
+   * caches it in `Equ_Base(a5)` and hands `Equ_Verif` the whole buffer to
+   * search. Pass a program's own file here to override the shipped one; pass
+   * an empty string to model the disc not being in the drive, which is error
+   * 52 rather than a missing equate.
+   */
+  equates?: string
 }
 
 class Verifier {
@@ -391,6 +405,7 @@ class Verifier {
     readonly b: Uint8Array,
     readonly ext: Map<number, TokenTable>,
     readonly ap20: Set<number>,
+    readonly equates: string,
   ) {}
 
   /** `tst.w Direct(a5) / bne VerIlD`, the ten of them */
@@ -1154,11 +1169,90 @@ class Verifier {
   }
 
   /**
-   * `VerStruI` and `VerStruIS` (:1262). Both go through `VStru`, which reads
-   * the equate name out of the bank, and this port has no equate bank yet.
+   * `Equ_Verif` (+Verif.s:1308). `at` is the six inline bytes behind the
+   * token id, holding [value:4][type:1][flags:1], and `p` is at the string
+   * constant naming the equate.
+   *
+   * Bit 7 of the flag byte says the value is already poked in, and that is
+   * the whole design: Equates.Doc promises a tested program runs "to someone
+   * who doesn't even have the equates file". So a resolved equate never opens
+   * the file, and neither is its name checked -- `btst #7,5(a1) / bne .Ok`
+   * jumps past the validation to the skip.
    */
-  verStruc(_string: boolean): never {
-    this.fail(VERR.EQU_TYPE)
+  equVerif(at: number, prefix: string): void {
+    if ((this.b[at + 5]! & 0x80) === 0) this.equLookup(at, prefix)
+    // .Ok: over the string constant, id and length word and even-padded bytes
+    const len = this.u16(this.p + 2)
+    this.p += 4 + len + (len & 1)
+  }
+
+  /** the unresolved half of `Equ_Verif`: build the key, search, poke */
+  equLookup(at: number, prefix: string): void {
+    // `Equ_Load` runs before the search and reports its own failure, so a
+    // file that will not open is 52 and never a missing name
+    if (this.equates === '') this.fail(VERR.EQU_LOAD)
+    const id = this.peek()
+    if (id !== T.STR_DQ && id !== T.STR_SQ) this.syntax()
+    const len = this.u16(this.p + 2)
+    if (len === 0 || len >= 127) this.syntax()
+    let name = ''
+    for (let i = 0; i < len; i++) name += String.fromCharCode(this.b[this.p + 4 + i]!)
+
+    // `L_InstrFind` (+Lib.s:13829) over the whole file, for a key that opens
+    // with a newline. That newline is what anchors the name to a line start,
+    // and it is why the shipped file's first byte is one.
+    const found = this.equates.indexOf('\n' + prefix + name + ':')
+    if (found < 0) this.fail(VERR.EQU_UNDEFINED)
+    let a = found + 1 + prefix.length + name.length + 1
+
+    let neg = false
+    if (this.equates.charAt(a) === '-') {
+      neg = true
+      a++
+    }
+    const num = valRout(this.equates, a)
+    // `cmp.w #_TkFl,d1 / beq .Bad`: an offset written as 1.5 is a bad file,
+    // not a rounded offset. The _TkDFl arm beside it cannot be reached from
+    // here, since `valRout` only ever returns the single-precision id.
+    if (num === null || num.id === T.FLOAT) this.fail(VERR.EQU_FILE)
+    if (this.equates.charAt(num.end) !== ',') this.fail(VERR.EQU_FILE)
+    const type = this.equates.charCodeAt(num.end + 1) - 0x30
+    if (!(type >= 0 && type <= 7)) this.fail(VERR.EQU_FILE)
+
+    this.put32(at, neg ? -num.value : num.value)
+    this.b[at + 4] = type
+    this.b[at + 5] = this.b[at + 5]! | 0x80
+  }
+
+  /**
+   * `VStru` (:1284), shared by all four spellings: six inline bytes, then
+   * `(`, an integer base address, `,`, the equate name, `)`. Hands back the
+   * equate's type byte for the caller to judge.
+   */
+  verStru(): number {
+    const at = this.p
+    this.p += 6
+    this.want(TKV.PAREN1)
+    if (this.verExpression() !== '0') this.fail(VERR.TYPE)
+    this.want(TKV.COMMA)
+    this.equVerif(at, '')
+    this.want(TKV.PAREN2)
+    return this.b[at + 4]!
+  }
+
+  /**
+   * `VerStruI` and `VerStruIS` (:1262), the assigning forms.
+   *
+   * Type 7 is a plain equate with no width, so `Struc` takes 0 to 6 and
+   * `Struc$` only 6. Both refuse with 54 here where the function forms refuse
+   * the same thing with 40 (`Ope_Struc` :2936 branches to VerType), which is
+   * a difference in the shipped code rather than in this port.
+   */
+  verStruc(string: boolean): void {
+    const type = this.verStru()
+    if (string ? type !== 6 : type >= 7) this.fail(VERR.EQU_TYPE)
+    this.want(TK_EQUALS)
+    if (this.verExpression() !== (string ? '2' : '0')) this.fail(VERR.TYPE)
   }
 
   /** `VerDFn` (:1029 of the FC arm) */
@@ -2225,11 +2319,25 @@ class Verifier {
         if (this.verTablo() >= TKV.MENU_DIMS) this.syntax()
         return '0'
       case 0x0c:
-      case 0x10:
+      case 0x10: {
+        // `VEqu` (:2957). No expression to evaluate, so no Parenth to save
+        const at = this.p
+        this.p += 6
+        this.want(TKV.PAREN1)
+        this.equVerif(at, cls === 0x10 ? '_LVO' : '')
+        this.want(TKV.PAREN2)
+        return '0'
+      }
       case 0x11:
-      case 0x12:
-        this.fail(VERR.EQU_TYPE)
-        break
+      case 0x12: {
+        // `Ope_Struc` / `Ope_StrucS` (:2936). The reading forms refuse a
+        // wrong type with 40 where the assigning forms use 54
+        const saved = this.paren
+        const type = this.verStru()
+        this.paren = saved
+        if (cls === 0x12 ? type !== 6 : type >= 7) this.fail(VERR.TYPE)
+        return cls === 0x12 ? '2' : '0'
+      }
       case 0x0d:
       case 0x0e: {
         const at = this.p
@@ -2612,7 +2720,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
   // chunk on disc does not carry them.
   const b = new Uint8Array(src.length + 4)
   b.set(src)
-  const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set())
+  const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set(), opts.equates ?? SYSTEM_EQUATES)
   v.direct = opts.direct === true
   for (const k of opts.knownVariables ?? []) {
     const len = k.name.length % 2 === 0 ? k.name.length : k.name.length + 1

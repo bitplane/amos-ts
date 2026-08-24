@@ -4093,6 +4093,31 @@ export class Runtime {
     return addr + 2
   }
 
+  /**
+   * A string on the heap the way `InStrucD` (+ILib.s:5962) builds one: a
+   * length word, the characters, a terminating zero. The address handed back
+   * is the LENGTH WORD, because that is the address `move.l a1,(a0)` stores.
+   *
+   * The length word counts one more than the characters (`move.w d2,(a1) /
+   * addq.w #1,(a1)+`), the extra being the zero. Nothing in this port reads
+   * a block back through it -- see the `struc$` instruction, which explains
+   * why nothing on the machine could either.
+   */
+  allocAmosString(text: string): number {
+    const n = text.length
+    return this.makeVarSlot(
+      null,
+      3 + n,
+      (buf) => {
+        buf[0] = ((n + 1) >> 8) & 0xff
+        buf[1] = (n + 1) & 0xff
+        for (let i = 0; i < n; i++) buf[2 + i] = text.charCodeAt(i) & 0xff
+        buf[2 + n] = 0
+      },
+      () => {},
+    )
+  }
+
   /** the whole-array slot backing =Array() — int/float arrays only */
   /**
    * `Varptr(A(n))` — the address of ONE element, inside the whole-array block.

@@ -4,6 +4,7 @@ import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
 import { BNK, isObjectBank } from './banks'
 import type { Instr, Func } from '../interp/builtins'
+import type { Tok } from '../tokens/stream'
 import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { newLdosState, makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
@@ -3715,6 +3716,65 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         m.data[m.off + 3] = v & 0xff
       }
     },
+    /**
+     * `InStruc` (+ILib.s:5896, $7652 in AMOSPro.Lib), the assigning form.
+     *
+     * DEFECT: a byte field is written with the wrong register. The arms are
+     * reached through `lsl.w #1,d0 / jmp .Jmp(pc,d0.w)` with the value in d3
+     * and the doubled type index in d0, and `.Byte` is `move.b d0,(a0)` --
+     * `10 80` at $7666, so the shipped binary and the source agree. Every
+     * byte field therefore stores the type index doubled and never the value:
+     * 0 for a signed byte, 6 for an unsigned one. The word and long arms use
+     * d3 and are correct.
+     */
+    struc: (it, tok) => {
+      const { addr, type } = strucAddr(it, tok)
+      it.expectOp('=')
+      const v = it.evalInt()
+      strucCheck(addr, type)
+      const m = rt.resolveWrite(addr)
+      if (!m) throw new AmosError('Address error', 25)
+      const put = (i: number, b: number): void => {
+        if (m.off + i < m.data.length) m.data[m.off + i] = b & 0xff
+      }
+      if (type === 0 || type === 3) return put(0, type * 2)
+      if (type === 1 || type === 4) {
+        put(0, v >> 8)
+        return put(1, v)
+      }
+      put(0, v >>> 24)
+      put(1, v >>> 16)
+      put(2, v >>> 8)
+      put(3, v)
+    },
+    /**
+     * `InStrucD` (:5962). The field is cleared first, so a string opening
+     * with the four characters `|00|` leaves a null pointer behind -- the
+     * shipped way to write one (`cmp.l #"|00|",(a2) / beq .Skp`).
+     *
+     * DEFECT: what it stores cannot be read back. The block it builds is a
+     * length word, the characters and a zero, and the pointer it stores is to
+     * the LENGTH WORD, while `FnStrucD` (:5993) follows the pointer with
+     * `A0ToChaine` (+Lib.s:3720), which reads a C string. For any string
+     * shorter than 255 characters the length word's high byte is that C
+     * string's terminator, so `=Struc$` reads back empty. No program in the
+     * corpus of 3,875 uses `Struc$` at all.
+     */
+    'struc$': (it, tok) => {
+      const { addr, type } = strucAddr(it, tok)
+      it.expectOp('=')
+      strucCheck(addr, type)
+      const m = rt.resolveWrite(addr)
+      if (!m) throw new AmosError('Address error', 25)
+      const put = (ptr: number): void => {
+        for (let i = 0; i < 4; i++) {
+          if (m.off + i < m.data.length) m.data[m.off + i] = (ptr >>> (24 - i * 8)) & 0xff
+        }
+      }
+      put(0) // clr.l (a0), before the expression and not after
+      const text = it.evalStr()
+      if (!text.startsWith('|00|')) put(rt.allocAmosString(text))
+    },
     'poke$'(it) {
       const addr = it.evalInt()
       it.expect(',')
@@ -4583,8 +4643,108 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 }
 
 /** raw-parsed runtime functions (their args use To syntax) */
-export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import('../interp/values').Value> {
+/**
+ * What the Test pass poked into an equate token's own six inline bytes:
+ * a longword value, a type digit and a flag byte whose bit 7 says it is
+ * there (`Equ_Verif` +Verif.s:1308).
+ *
+ * It stays in the source, which is the whole design. Equates.Doc: "once the
+ * program has been tested, AMOS Pro will not need to load the Equate file",
+ * so a program reaches a machine that never had one. That is why these read
+ * the token and never the file, and why 123 corpus lines using `Equ` name
+ * equates that are in nobody's shipped file.
+ */
+function equPayload(tok: Tok): { value: number; type: number } {
+  const equ = tok.kind === 'core' ? tok.equ : undefined
+  if (equ === undefined || !equ.resolved) throw new AmosError('Equate not defined')
+  return equ
+}
+
+/** `("NAME")`, which the runtime steps over without looking (`FnEqu` +ILib.s:5881) */
+function skipEquName(it: It): void {
+  it.expect('(')
+  if (it.tok()?.kind !== 'str') throw new AmosError('Equate not defined')
+  it.advance()
+  it.expect(')')
+}
+
+/**
+ * `GStruc` (+ILib.s:6007): base address plus the equate's offset.
+ *
+ * The base is an ordinary integer expression, so `Struc(BANKS+4,"…")` works;
+ * the name is a string CONSTANT that the verifier has already resolved, and
+ * is skipped rather than evaluated.
+ */
+function strucAddr(it: It, tok: Tok): { addr: number; type: number } {
+  const { value, type } = equPayload(tok)
+  it.expect('(')
+  const base = it.evalInt()
+  it.expect(',')
+  if (it.tok()?.kind !== 'str') throw new AmosError('Equate not defined')
+  it.advance()
+  it.expect(')')
+  return { addr: (base + value) | 0, type }
+}
+
+/** `btst #0,d1 / bne AdrErr`, which the two byte arms do not do */
+function strucCheck(addr: number, type: number): void {
+  if (type !== 0 && type !== 3 && (addr & 1) !== 0) throw new AmosError('Address error', 25)
+}
+
+export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok) => import('../interp/values').Value> {
   return {
+    /**
+     * `FnEqu` (+ILib.s:5881), which is `Equ` and `Lvo` both: `Ope_Equ` and
+     * `Ope_LVO` (+Verif.s:2955) differ only in the "_LVO" the verifier puts
+     * in front of the name, so by run time there is one routine.
+     */
+    equ: (it, tok) => {
+      const { value } = equPayload(tok)
+      skipEquName(it)
+      return VI(value)
+    },
+    lvo: (it, tok) => {
+      const { value } = equPayload(tok)
+      skipEquName(it)
+      return VI(value)
+    },
+    /**
+     * `FnStruc` (+ILib.s:5923, $768c in AMOSPro.Lib). Type 0-2 is a signed
+     * byte, word and long, 3-5 the unsigned three, and 6 -- a pointer to a
+     * string -- reads as an unsigned long.
+     */
+    struc: (it, tok) => {
+      const { addr, type } = strucAddr(it, tok)
+      strucCheck(addr, type)
+      const m = rt.resolveAddr(addr)
+      if (!m) throw new AmosError('Address error', 25)
+      const at = (i: number): number => m.data[m.off + i] ?? 0
+      if (type === 0) return VI((at(0) << 24) >> 24)
+      if (type === 3) return VI(at(0))
+      if (type === 1) return VI((((at(0) << 8) | at(1)) << 16) >> 16)
+      if (type === 4) return VI((at(0) << 8) | at(1))
+      return VI(((at(0) << 24) | (at(1) << 16) | (at(2) << 8) | at(3)) >>> 0)
+    },
+    /**
+     * `FnStrucD` (:5993). The field holds a pointer to a C STRING, which is
+     * what an exec structure holds: `LN_NAME` is one. `A0ToChaine`
+     * (+Lib.s:3720) counts to the zero byte and copies that many characters.
+     * A null pointer reads as empty rather than as an address error.
+     */
+    'struc$': (it, tok) => {
+      const { addr, type } = strucAddr(it, tok)
+      strucCheck(addr, type)
+      const m = rt.resolveAddr(addr)
+      if (!m) throw new AmosError('Address error', 25)
+      const at = (i: number): number => m.data[m.off + i] ?? 0
+      const ptr = ((at(0) << 24) | (at(1) << 16) | (at(2) << 8) | at(3)) >>> 0
+      if (ptr === 0) return VS('')
+      const p = rt.resolveAddr(ptr)
+      if (!p) throw new AmosError('Address error', 25)
+      let out = ''
+      for (let i = p.off; i < p.data.length && p.data[i] !== 0; i++) out += String.fromCharCode(p.data[i]!)
+      return VS(out)
+    },
     array(it) {
       // FnArray +ILib.s:4103: the array's data address. Int/float arrays
       // get a live arena block (big-endian cells, FFP floats) that Peek/
