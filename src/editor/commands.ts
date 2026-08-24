@@ -9,15 +9,14 @@
  *
  * ## What is here
  *
- * The movement and editing commands, 1 to 37, plus the marks (39 to 58),
- * Delete to start of line (64) and Insert mode (75). Those are the ones that
- * need nothing but a program, a window and a cursor.
+ * The movement and editing commands, 1 to 37, the marks (39 to 58), the block
+ * (59 to 63, 72, 181), the undo replay (65, 94) and search and replace (66 to
+ * 68, 99 to 101), plus Delete to start of line (64) and Insert mode (75).
  *
- * The rest need something this port has not built yet: a block (59 to 63), a
- * file requester (33 to 35), a dialogue (26, 76), a second window (91 to 96),
- * or the interpreter (77, 78). `COMMANDS` has no entry for them and
- * `edCall` throws rather than silently doing nothing, so a key map that
- * reaches one says which.
+ * The rest need something this port has not built yet: a file requester (33 to
+ * 35), a dialogue (26, 76), a second window (91 to 96), or the interpreter
+ * (77, 78). `COMMANDS` has no entry for them and `edCall` throws rather than
+ * silently doing nothing, so a key map that reaches one says which.
  *
  * ## What a command does NOT do here
  *
@@ -28,7 +27,7 @@
  * window out of the program, so it is `Edit.fill()` and it is called.
  */
 import { T } from '../tokens/stream'
-import { detokLineBytes } from '../tokens/edtok'
+import { detokLineBytes, tokeniseLine } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
 import { EMPTY_LINE_BYTES } from './buffer'
 import { BF } from './block'
@@ -37,6 +36,7 @@ import { EditBuffer } from './editbuf'
 import { UN, type UndoRecord } from './undo'
 import { FLAG_FONC, ED_ROUTINES } from './keymap.gen'
 import { keyToFunc, type EdKey } from './keymap'
+import { SM, SM_TURBO, repBuffer, schBack, schFront } from './search'
 
 /**
  * The commands this port implements, by the number +Edit.s gives them.
@@ -82,6 +82,12 @@ export const ED = {
   BLOCK_PASTE: 63,
   BLOCK_STORE: 72,
   BLOCK_ALL: 181,
+  SEARCH: 66,
+  SEARCH_NEXT: 67,
+  SEARCH_PREV: 68,
+  REPLACE: 99,
+  REPLACE_NEXT: 100,
+  REPLACE_PREV: 101,
   DELETE_TO_START: 64,
   FLIP_INSERT: 75,
   REDO: 94,
@@ -600,15 +606,21 @@ function gotoLabel(e: Edit, line: number): void {
 
 /* ---- 59 to 63, 72 and 181: the block ------------------------------------ */
 
+/** the block's two corners, in order */
+interface Limits {
+  y0: number
+  y1: number
+  x0: number
+  x1: number
+}
+
 /**
- * `Ed_BlockLimits` (:5920): the block's two corners, in order.
+ * `Ed_BlocLimits` (:6600): the anchor and the cursor, earlier one first.
  *
- * One corner is the anchor `Edt_XBloc`/`Edt_YBloc`, the other is the cursor,
- * and `.Sw` swaps them so the first is always the earlier. `.L0` then clamps
- * the end to the last line, and a clamped end takes the column to 0 -- there
- * is no half of a line that does not exist.
+ * One corner is `Edt_XBloc`/`Edt_YBloc`, the other is the cursor, and `.Sw`
+ * swaps them when the cursor is the earlier.
  */
-function blockLimits(e: Edit): { y0: number; y1: number; x0: number; x1: number } {
+function blocLimits(e: Edit): Limits {
   if (e.yBloc < 0) throw new EditorAlert(6) // Ed_BlocWhat, "What block?"
   let y0 = e.yBloc
   let y1 = e.line
@@ -618,11 +630,26 @@ function blockLimits(e: Edit): { y0: number; y1: number; x0: number; x1: number 
     ;[y0, y1] = [y1, y0]
     ;[x0, x1] = [x1, x0]
   }
-  if (y1 >= e.prog.lineCount) {
-    y1 = e.prog.lineCount
-    x1 = 0
-  }
   return { y0, y1, x0, x1 }
+}
+
+/**
+ * `Ed_BlockLimits` (:5920), which is `Ed_BlocLimits` plus `.L0`.
+ *
+ * Two routines whose labels differ by one letter, twenty lines of identical
+ * arithmetic apart, and one thing between them: this one clamps the end to
+ * the last line, and a clamped end takes the column to 0 because there is no
+ * half of a line that does not exist. The block commands call this one and
+ * the turbo Replace calls the other, so a Replace All can be handed an end
+ * line past the program and a Block Cut cannot.
+ */
+function blockLimits(e: Edit): Limits {
+  const l = blocLimits(e)
+  if (l.y1 >= e.prog.lineCount) {
+    l.y1 = e.prog.lineCount
+    l.x1 = 0
+  }
+  return l
 }
 
 /**
@@ -1007,6 +1034,200 @@ function replay(e: Edit, back: boolean): void {
   }
 }
 
+/* ---- 66 to 68 and 99 to 101: search and replace -------------------------- */
+
+/**
+ * `Ed_DiaS` (:6962): put the requester up and take back what it holds.
+ *
+ * The copies back are unconditional. `move.w d0,-(sp)` stows the answer, the
+ * flags and the string are read out of the requester's variables anyway, and
+ * only then is the answer popped, so a cancelled requester still leaves
+ * whatever was typed into it in `Ed_SchBuf` and `Ed_SchMode`.
+ *
+ * `move.l #32,(a2)+` is the gadget's width, which is why 34 bytes of buffer
+ * is enough for a string nobody can overrun.
+ */
+function askFor(e: Edit, which: 4 | 6): boolean {
+  if (e.dialogues === null) return true
+  const a = e.dialogues.ask({ which, search: e.schBuf, replace: e.repBuf, mode: e.schMode })
+  e.schBuf = a.search.slice(0, 32)
+  e.schMode = a.mode & 0b1111
+  // EdD_Search never asks for the replace string; `Ed_Replace` adds it
+  if (which === 6) e.repBuf = a.replace.slice(0, 32)
+  return a.ok
+}
+
+/** EdD_WBlock (8), EdD_WText (9) and EdD_Changes (10) */
+function confirm(e: Edit, message: number, count = 0): boolean {
+  if (e.dialogues === null) return true
+  return e.dialogues.confirm(message, count)
+}
+
+/**
+ * `Ed_SR` (:7031): find the next match, and put the replacement in if the
+ * mode's bit 15 says to.
+ *
+ * The cursor moves to the match before anything is replaced, so `Ed_LCourant`
+ * reads the slot the match is in. There is no `bne Ed_NotEdit` after that
+ * call: the splice goes into whatever the slot holds, and a closed procedure
+ * is caught two steps later by `Ed_Stocke`.
+ *
+ * A replacement is recorded by `Ed_TokCur` and by nothing else, so it goes
+ * into the undo ring as a TOKEN record whose "old" half is the slot AS
+ * SPLICED. Undoing a Replace gives back the replaced line in the user's own
+ * spelling rather than the line before it, which is to say a single Replace
+ * cannot be undone.
+ */
+function searchReplace(e: Edit, mode: number): void {
+  const hit =
+    (mode & SM.BACK) !== 0 ? schBack(e, e.line, e.xCu, mode) : schFront(e, e.line, e.xCu, 32000, 32000, mode)
+  if (hit === null) {
+    e.fill() // Ed_NoFound opens with Ed_NewBuf
+    throw new EditorAlert(205)
+  }
+  autoMarks(e)
+  gotoY(e, hit.y)
+  gotoX(e, hit.x)
+  if ((mode & SM.REPLACE) === 0) return
+  const out = repBuffer(e.buf.text(e.yCu), hit.x, e.schBuf.length, e.repBuf)
+  e.buf.setText(e.yCu, out)
+  e.edited++
+  e.tokCur()
+  // `add.w d3,d6` inside RepBuffer, so the cursor lands past the replacement
+  gotoX(e, hit.x + e.repBuf.length)
+}
+
+/**
+ * `.Turbo` (:7265): every match between the two limits, in one pass.
+ *
+ * Nothing here touches the edit buffer. Each line is detokenised, spliced,
+ * tokenised and stored straight back into the program, and `Ed_NewBuf` at
+ * `.Finish` is what puts the window back in step. That is also why no undo
+ * record is written: `Ed_TokCur` is never reached.
+ *
+ * DEFECT: `.Loop` opens with `subq.w #1,d6 / bpl .Pos / moveq #0,d6`, which
+ * takes a start column of 0 back to 0, and `Ed_SchFront` then steps it to 1.
+ * So the first line of the range is searched from column 1 and a match at
+ * column 0 of it is never replaced. Every later line is entered through
+ * `.Srch2`, which sets the column to 0 without the step, so the fault is the
+ * first line only. Replace All over a whole program cannot change the first
+ * word of line 1.
+ */
+function turboReplace(e: Edit, mode: number): void {
+  let y = 0
+  let x = 0
+  let yMax = 32000
+  let xMax = 32000
+  if ((mode & SM.BLOCK) !== 0) {
+    const b = blocLimits(e)
+    y = b.y0
+    x = b.x0
+    yMax = b.y1
+    xMax = b.x1
+    // `move.w d2,d3 / beq.s .Pab` sets the flags off the column, so an end at
+    // column 0 keeps its limit rather than being decremented past it
+    if (xMax !== 0) xMax -= 1
+  }
+  let count = 0
+  for (;;) {
+    x = x > 0 ? x - 1 : 0
+    const hit = schFront(e, y, x, yMax, xMax, mode)
+    if (hit === null) break
+    y = hit.y
+    // `Ed_BufT` still holds the line `Ed_SchFront` last detokenised, which is
+    // this one
+    const text = detokLineBytes(e.prog.bytes, e.prog.findLine(y).at, e.table, e.opts)
+    // `bne Ed_LToLong` with no redisplay, unlike the `.Llong` below it
+    const out = repBuffer(text, hit.x, e.schBuf.length, e.repBuf)
+    x = hit.x + e.repBuf.length
+    let line: Uint8Array
+    try {
+      line = tokeniseLine(out, e.table, e.opts)
+    } catch {
+      e.fill() // .Llong
+      throw new EditorAlert(199, 50)
+    }
+    // DEFECT: `bne .Outb` tests neither sign nor value, so `Ed_Stocke`'s -1
+    // for a closed procedure is reported as Out of buffer space. It is
+    // reachable: the fold detokenises to its `Procedure` header and a search
+    // that matches there lands the replacement on a line that cannot take it
+    if (e.prog.store(y, line).error !== 0) {
+      e.fill()
+      throw new EditorAlert(202, 200)
+    }
+    count++
+  }
+  e.fill() // .Finish
+  if (count === 0) throw new EditorAlert(205)
+  // EdD_Changes and message 40, " change(s) done.". Its answer is dropped
+  confirm(e, 10, count)
+}
+
+/**
+ * `Ed_Search` (:7000), `Ed_SearchNext` (:7021) and `Ed_SearchPrev` (:7011).
+ *
+ * The two directed ones fall into the undirected one when there is nothing
+ * in the buffer to look for, which is `beq.s Ed_Search` and is how a first
+ * Search Next raises the requester.
+ *
+ * `and.w #%0011,d5` in `Ed_Search` keeps the case and direction gadgets and
+ * drops the two turbo ones, so ticking All Occurences in the SEARCH requester
+ * does nothing at all.
+ */
+function searchCmd(e: Edit): void {
+  e.tokCur()
+  if (!askFor(e, 4)) throw new EditorAlert(206) // Ed_NotDone
+  searchReplace(e, e.schMode & 0b0011)
+}
+
+/**
+ * `Ed_Replace` (:7232), `Ed_ReplaceNext` (:7344) and `Ed_ReplacePrev` (:7356).
+ *
+ * The three are a loop rather than three routines. `Ed_Replace` picks a
+ * direction and branches into one of the other two; either of those branches
+ * back to `Ed_Replace` when a buffer is empty; and the turbo arm does the
+ * same. Cancel and a filled pair of buffers are the only ways out.
+ *
+ * A cancelled Replace requester goes to `Ed_Loop` with no message at all,
+ * where a cancelled Search says "Not done." Two requesters, one line apart in
+ * the source, disagreeing about what a Cancel is worth saying.
+ */
+function replaceCmd(e: Edit, entry: 99 | 100 | 101): void {
+  let at: 99 | 100 | 101 = entry
+  for (;;) {
+    if (at === 99) {
+      e.tokCur()
+      if (!askFor(e, 6)) return
+      const mode = e.schMode
+      if ((mode & SM_TURBO) !== 0) {
+        // `btst #2,d5` picks which of the two confirmations to put up
+        if (!confirm(e, (mode & SM.BLOCK) !== 0 ? 8 : 9)) throw new EditorAlert(206)
+        if (e.schBuf !== '' && e.repBuf !== '') return turboReplace(e, mode)
+        noRequester(e)
+        continue
+      }
+      at = (mode & SM.BACK) !== 0 ? 101 : 100
+      continue
+    }
+    // Ed_RSR (:7348), reached with the mode already picked
+    const mode = at === 100 ? (e.schMode & 1) | SM.REPLACE : (e.schMode & 1) | SM.REPLACE | SM.BACK
+    e.tokCur()
+    if (e.schBuf !== '' && e.repBuf !== '') return searchReplace(e, mode)
+    noRequester(e)
+    at = 99
+  }
+}
+
+/**
+ * DEVIATION: the machine's loop back to the requester has no end. It puts the
+ * dialogue up again, and again, until the user fills both fields or cancels.
+ * With no requester installed there is nothing to put up and nothing that
+ * could change, so this port stops with "Not done." rather than spinning.
+ */
+function noRequester(e: Edit): void {
+  if (e.dialogues === null) throw new EditorAlert(206)
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -1133,6 +1354,17 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   },
   64: deleteToStart,
   65: (e) => replay(e, true),
+  66: searchCmd,
+  67: (e) => {
+    e.tokCur()
+    if (e.schBuf === '') return searchCmd(e)
+    searchReplace(e, e.schMode & 0b0001)
+  },
+  68: (e) => {
+    e.tokCur()
+    if (e.schBuf === '') return searchCmd(e)
+    searchReplace(e, (e.schMode & 0b0001) | SM.BACK)
+  },
   72: (e) => {
     // Ed_BlocStore (:5867)
     if (!blockCopy(e)) throw new EditorAlert(6)
@@ -1143,6 +1375,9 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
     e.insert = !e.insert
   },
   94: (e) => replay(e, false),
+  99: (e) => replaceCmd(e, 99),
+  100: (e) => replaceCmd(e, 100),
+  101: (e) => replaceCmd(e, 101),
   181: (e) => {
     // Ed_BlocAll (:5854): the anchor at the top and the cursor at the top too,
     // with YBloc at the line PAST the last, so the block runs the other way

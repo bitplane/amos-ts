@@ -44,11 +44,33 @@ Three things that look like they belong here do not:
 - `block.ts` — `Ed_Block`, the clipboard, and the three-part shape a block
   has to have. The operations on it are in `commands.ts`, with the rest of
   `JFonc`.
+- `search.ts` — `SchBuffer`, `RepBuffer` and the two line walks the six search
+  and replace commands share. The commands themselves are in `commands.ts`.
 
-Still missing before there is an editor a person can use: search and replace
-(`JFonc` 66 to 68, 99 to 101), the file commands, and the macros. `Ed_Key`
-reads `EdMa_Play` before it reads the keyboard and writes `EdMa_List` while
-one is recording, and none of that is here.
+Still missing before there is an editor a person can use: the file commands
+and the macros. `Ed_Key` reads `EdMa_Play` before it reads the keyboard and
+writes `EdMa_List` while one is recording, and none of that is here.
+
+## Search reads the listing, not the tokens
+
+`Ed_SchFront` detokenises each line into `Ed_BufT` and runs `SchBuffer` over
+the characters, so the editor searches what is on the screen rather than what
+is in the program. Two things follow. A closed procedure detokenises to its
+`Procedure` header and nothing else, so text inside a fold cannot be found or
+replaced. And every one of the six commands opens with `Ed_TokCur`, because
+the line being typed has to be back in the program before the walk reaches it.
+
+Backwards is forwards, repeatedly: `Ed_SchBack` searches from line 0 and keeps
+the last match before the cursor. There is no reverse scan anywhere in the
+file.
+
+## The requesters are the host's
+
+`Ed_DiaS` (:6962) fills `Ed_SchBuf` and `Ed_SchMode` off an Intuition
+requester, and this port has no Intuition. `Edit.dialogues` is where a host
+puts one; null means the commands run on the buffers as they stand. The four
+mode bits are the requester's four gadgets and nothing else reads them, so a
+test sets `schMode` directly.
 
 ## A block is three things, not one
 

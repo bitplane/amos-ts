@@ -28,6 +28,7 @@ import { EMPTY_LINE_BYTES, type ProgramBuffer } from './buffer'
 import { Block } from './block'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
+import type { EditorDialogues } from './search'
 
 /**
  * `Ed_Alert` (+Edit.s:7595): a message across the status line.
@@ -103,6 +104,40 @@ export class Edit {
 
   /** `Ed_Tabs` (+Editor_Config.s:59): three spaces */
   tabs = 3
+
+  /**
+   * `Ed_SchBuf` (+Equ.s:1757): what Search is looking for.
+   *
+   * 34 bytes on the machine, of which `Ed_DiaS`'s `move.l #32,(a2)+` lets the
+   * user fill 32. It survives between commands, which is the whole of what
+   * Search Next has to work with.
+   */
+  schBuf = ''
+
+  /** `Ed_RepBuf` (+Equ.s:1758): the other 34 bytes, what it is replaced with */
+  repBuf = ''
+
+  /** `Ed_SchMode` (+Equ.s:1810), the four flag gadgets of ./search.ts's `SM` */
+  schMode = 0
+
+  /**
+   * `T_Actualise`'s `BitControl` (+Equ.s:827): Ctrl-C is down.
+   *
+   * The editor's own loop simulates one at :1579 and `Ed_SchFront` reads it
+   * with `bclr`, so the flag is consumed by whoever notices it first.
+   */
+  abort = false
+
+  /**
+   * DEVIATION: the dialogues, which the machine draws and this port asks for.
+   *
+   * `Ed_DiaS` (:6962) fills `Ed_SchBuf` and `Ed_SchMode` off an Intuition
+   * requester and answers 1 for Ok. There is no requester here, so the host
+   * supplies one. Null means nobody did, and the commands then run on the
+   * buffers as they stand, which is a dialogue that always says Ok and
+   * changes nothing.
+   */
+  dialogues: EditorDialogues | null = null
 
   /** `Edt_EtatAff`: which fields of the status line are stale (+Equ.s:1962) */
   etatAff = 0
@@ -219,8 +254,9 @@ export class Edit {
     const content = seed + (line.length > EMPTY_LINE_BYTES ? 1 : 0)
     const at = this.line
     const r = this.prog.store(at, line)
-    if (r.error === 1) throw new EditorAlert(202, 200)
-    if (r.error === -1) throw new EditorAlert(183)
+    // `bsr Ed_Stocke / bne Ed_OofBuf` (:10763) tests neither sign nor value,
+    // so `StoClo`'s -1 reports Out of buffer space and not Line not editable
+    if (r.error !== 0) throw new EditorAlert(202, 200)
     let added = 0
     if (at === this.prog.lineCount && content + (r.added ? 1 : 0) !== 0) {
       added = 1
