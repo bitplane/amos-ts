@@ -41,11 +41,23 @@ Three things that look like they belong here do not:
   and the undo replay; what a command needs that this port has not built yet
   is listed at the top of the file.
 - `display.ts` — `Ed_ALigne` and the status line, as data rather than pixels.
+- `block.ts` — `Ed_Block`, the clipboard, and the three-part shape a block
+  has to have. The operations on it are in `commands.ts`, with the rest of
+  `JFonc`.
 
-Still missing before there is an editor a person can use: the block (`JFonc`
-59 to 63), search and replace (66 to 68, 99 to 101), the file commands, and
-the macros. `Ed_Key` reads `EdMa_Play` before it reads the keyboard and
-writes `EdMa_List` while one is recording, and none of that is here.
+Still missing before there is an editor a person can use: search and replace
+(`JFonc` 66 to 68, 99 to 101), the file commands, and the macros. `Ed_Key`
+reads `EdMa_Play` before it reads the keyboard and writes `EdMa_List` while
+one is recording, and none of that is here.
+
+## A block is three things, not one
+
+Because a program is tokens and only the line being edited is text, a block
+between two arbitrary points cannot be one kind of thing. `Ed_BlockCopyA0`
+keeps the first line's tail and the last line's head as CHARACTERS and
+everything between as raw tokens, copied byte for byte. That is what makes a
+paste cheap: `Ed_StoBlock` opens the gap and moves the middle in one go, and
+only the two ends go through the tokeniser. `block.ts` has the layout.
 
 ## Undo runs the commands rather than restoring state
 

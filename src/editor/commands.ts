@@ -28,8 +28,10 @@
  * window out of the program, so it is `Edit.fill()` and it is called.
  */
 import { T } from '../tokens/stream'
+import { detokLineBytes } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
 import { EMPTY_LINE_BYTES } from './buffer'
+import { BF } from './block'
 import { Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoRecord } from './undo'
@@ -74,6 +76,12 @@ export const ED = {
   SET_MARK_0: 39,
   GOTO_MARK_0: 49,
   UNDO: 65,
+  BLOCK_ON: 59,
+  BLOCK_FORGET: 60,
+  BLOCK_CUT: 62,
+  BLOCK_PASTE: 63,
+  BLOCK_STORE: 72,
+  BLOCK_ALL: 181,
   DELETE_TO_START: 64,
   FLIP_INSERT: 75,
   REDO: 94,
@@ -590,6 +598,236 @@ function gotoLabel(e: Edit, line: number): void {
   e.fill()
 }
 
+/* ---- 59 to 63, 72 and 181: the block ------------------------------------ */
+
+/**
+ * `Ed_BlockLimits` (:5920): the block's two corners, in order.
+ *
+ * One corner is the anchor `Edt_XBloc`/`Edt_YBloc`, the other is the cursor,
+ * and `.Sw` swaps them so the first is always the earlier. `.L0` then clamps
+ * the end to the last line, and a clamped end takes the column to 0 -- there
+ * is no half of a line that does not exist.
+ */
+function blockLimits(e: Edit): { y0: number; y1: number; x0: number; x1: number } {
+  if (e.yBloc < 0) throw new EditorAlert(6) // Ed_BlocWhat, "What block?"
+  let y0 = e.yBloc
+  let y1 = e.line
+  let x0 = e.xBloc
+  let x1 = e.xCu
+  if (y1 < y0 || (y1 === y0 && x1 < x0)) {
+    ;[y0, y1] = [y1, y0]
+    ;[x0, x1] = [x1, x0]
+  }
+  if (y1 >= e.prog.lineCount) {
+    y1 = e.prog.lineCount
+    x1 = 0
+  }
+  return { y0, y1, x0, x1 }
+}
+
+/**
+ * The text of program line `n` as `Ed_BlockCopyA0` gets at it.
+ *
+ * Two ways in, and which one it takes matters. If `n` is the line the cursor
+ * is on it reads the SLOT, because that is where the characters the user has
+ * typed but not left yet are; otherwise it detokenises the program. Null back
+ * means the line is a closed procedure and the caller has a `.Proc` arm for
+ * it; undefined means there is no such line.
+ */
+function lineText(e: Edit, n: number): string | null | undefined {
+  if (n === e.line && e.buf.editable(e.yCu)) {
+    const slot = e.buf.text(e.yCu)
+    // `tst.w d0 / beq .NoBloc`: an empty slot under the cursor is not an
+    // empty first line, it is no block at all
+    if (slot.length !== 0) return slot
+  }
+  const { at, found } = e.prog.findLine(n)
+  if (!found) return undefined
+  if (!e.prog.isEditable(at)) return null
+  return detokLineBytes(e.prog.bytes, at, e.table, e.opts)
+}
+
+/**
+ * `Ed_BlockCopyA0` (:6112): gather the block. False is `.NoBloc`.
+ *
+ * The two ends are clamped to the lines they are on rather than refused, so
+ * dragging a block past the end of a short line takes the whole of it.
+ */
+function blockCopy(e: Edit): boolean {
+  const lim = blockLimits(e)
+  const { y0, y1 } = lim
+  let { x0, x1 } = lim
+  let flags = 0
+  let first = ''
+  let last = ''
+
+  const head = lineText(e, y0)
+  if (head === undefined) return false
+  if (head === null) {
+    // .Proc1: the block opens on a fold, which can only be taken whole
+    if (x0 !== 0) throw new EditorAlert(183)
+    if (y1 <= y0) throw new EditorAlert(183)
+    flags |= BF.PROC_FIRST
+  } else {
+    x0 = Math.min(x0, head.length)
+    if (y0 === y1) {
+      // .Seul: one line, so both columns are on it and there is no middle
+      x1 = Math.min(x1, head.length)
+      if (x1 - x0 === 0) return false
+      e.block.write({ y0, y1, x0, x1, flags: flags | BF.SINGLE, first: bytes(head.slice(x0, x1)), lines: 0, middle: new Uint8Array(0), last: new Uint8Array(0) })
+      return true
+    }
+    first = head.slice(x0)
+  }
+
+  // .Der: the last line's head, and a fold there can only be taken whole too
+  const tail = lineText(e, y1)
+  if (tail === null) {
+    if (x1 !== 0) throw new EditorAlert(183) // .Proc2
+  } else if (tail !== undefined) {
+    x1 = Math.min(x1, tail.length)
+    last = tail.slice(0, x1)
+  }
+
+  // .Mil: the whole lines between, as tokens. A closed first line is INSIDE
+  // the middle, because the fold is what is being copied
+  const from = y0 + ((flags & BF.PROC_FIRST) !== 0 ? 0 : 1)
+  const parts: Uint8Array[] = []
+  let lines = 0
+  for (let n = from; n < y1; n++) {
+    const { at, found } = e.prog.findLine(n)
+    if (!found) break
+    const size = e.prog.sizeOfLine(at)
+    parts.push(e.prog.bytes.subarray(at, at + size))
+    lines++
+  }
+  const middle = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let at = 0
+  for (const p of parts) {
+    middle.set(p, at)
+    at += p.length
+  }
+
+  e.block.write({ y0, y1, x0, x1, flags, first: bytes(first), lines, middle, last: bytes(last) })
+  return true
+}
+
+/**
+ * `Ed_BlockInsertA0` (:5945): the block back into the program at the cursor.
+ *
+ * The first record goes in as characters where the cursor is, then a Return
+ * splits the line, then the middle is stored in one move, then the last
+ * record goes in as characters at the start of the line that follows. The
+ * cursor ends at the block's own last column, which is what makes pasting
+ * twice in a row stack cleanly.
+ */
+function blockInsert(e: Edit): void {
+  const b = e.block.read()
+  if (b === null) return
+  e.undo.suppressed++
+  try {
+    // a fold cannot be typed on, so a block whose first record has characters
+    // cannot be pasted onto one
+    if (!e.buf.editable(e.yCu) && b.first.length !== 0) throw new EditorAlert(183)
+    e.xCu = Math.min(e.xCu, e.current().length)
+    let line = e.line
+
+    if (b.first.length !== 0) {
+      if (e.buf.insert(e.yCu, e.xCu, text(b.first)) > 0) e.edited++
+      gotoX(e, b.first.length + e.xCu)
+    }
+    if ((b.flags & BF.SINGLE) !== 0) return
+    if ((b.flags & BF.PROC_FIRST) === 0) {
+      returnKey(e)
+      e.tokCur()
+      line++
+    }
+    if (b.lines !== 0) {
+      const r = e.prog.storeBlock(line, b.middle)
+      if (r.error !== 0) throw new EditorAlert(202, 200)
+      e.prog.marksChange(line, b.lines)
+      line += b.lines
+    }
+    e.prog.countLines()
+    gotoY(e, line)
+    e.fill()
+    if (b.last.length !== 0) {
+      if (e.buf.insert(e.yCu, e.xCu, text(b.last)) > 0) e.edited++
+      e.tokCur()
+    }
+    gotoX(e, b.x1)
+  } finally {
+    e.undo.suppressed--
+  }
+}
+
+/**
+ * `Ed_BlockDeleteA0` (:6023): take the block back out, which is the cut half
+ * of Cut.
+ *
+ * It undoes what an insert does, in the same order: the middle in one chunk,
+ * then the characters off each end, then a join to put the two halves of the
+ * split line back together.
+ */
+function blockDelete(e: Edit): void {
+  const b = e.block.read()
+  if (b === null) return
+  e.undo.suppressed++
+  try {
+    gotoX(e, b.x0)
+    gotoY(e, b.y0)
+    const proc = (b.flags & BF.PROC_FIRST) !== 0
+    const single = (b.flags & BF.SINGLE) !== 0
+
+    if (proc || !single) {
+      if (b.lines !== 0) {
+        const at = proc ? b.y0 : b.y0 + 1
+        // DEFECT: `.NoMi` means to pass the line to `Ed_MarksChange` and
+        // writes it into d1 twice instead of d0, and the second write
+        // (`move.w (a3),d1`) clobbers the first. So d0 is whatever
+        // `Ed_DelChunk` left, and `Ed_DelChunk` leaves `Tk_FindL`'s exit
+        // value: `FndT` does `move.w (a0),d0`, the found line's length and
+        // indent bytes. The marks are then shifted at a line number in the
+        // thousands, which matches none of them, so cutting a block leaves
+        // every mark below it pointing one block too far down. `.Proc1`
+        // twenty lines above writes `move.w d4,d0` and gets it right.
+        const found = e.prog.findLine(at)
+        const stale = proc ? at : found.found ? (e.prog.bytes[found.at]! << 8) | e.prog.bytes[found.at + 1]! : 0
+        e.prog.deleteChunk(at, b.middle.length)
+        e.prog.marksChange(stale, -b.lines)
+        e.prog.countLines()
+        e.fill()
+      }
+    }
+
+    if (proc) {
+      gotoX(e, 0)
+      if (b.last.length !== 0) {
+        if (e.buf.delete(e.yCu, e.xCu, b.last.length)) e.edited++
+        e.tokCur()
+      }
+      return
+    }
+
+    if (b.first.length !== 0) {
+      if (e.buf.delete(e.yCu, e.xCu, b.first.length)) e.edited++
+    }
+    if (single) return
+    e.tokCur()
+
+    gotoX(e, 0)
+    gotoY(e, b.y0 + 1)
+    if (b.last.length !== 0) {
+      if (e.buf.delete(e.yCu, e.xCu, b.last.length)) e.edited++
+      e.tokCur()
+    }
+    join(e)
+    e.tokCur()
+  } finally {
+    e.undo.suppressed--
+  }
+}
+
 /* ---- Ed_PKey, the whole of it ------------------------------------------- */
 
 /**
@@ -861,12 +1099,61 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   },
   36: deleteWord,
   37: backWord,
+  59: (e) => {
+    // Ed_BlocOn (:5830): the same key drops the anchor and picks it up again
+    if (e.yBloc >= 0) {
+      e.yBloc = -1
+      return
+    }
+    e.yBloc = e.line
+    e.xBloc = e.xCu
+    e.yOldBloc = 0
+  },
+  60: (e) => {
+    // Ed_BlocForget (:5879)
+    if (e.block.empty) throw new EditorAlert(6)
+    e.block.free()
+    throw new EditorAlert(8) // "Block deleted from memory."
+  },
+  62: (e) => {
+    // Ed_BlocCut (:5888). `Prg_UndoRaz` with the author's own comment beside
+    // it -- "Illegal: remettre plus tard!" -- so a cut throws the undo
+    // history away rather than being undoable, and he knew it
+    if (!blockCopy(e)) throw new EditorAlert(6)
+    e.yBloc = -1
+    blockDelete(e)
+    e.undo.raz()
+    throw new EditorAlert(7) // "Block stored in memory."
+  },
+  63: (e) => {
+    // Ed_BlocPaste (:5903)
+    if (e.block.empty) throw new EditorAlert(6)
+    blockInsert(e)
+    e.undo.raz()
+  },
   64: deleteToStart,
   65: (e) => replay(e, true),
+  72: (e) => {
+    // Ed_BlocStore (:5867)
+    if (!blockCopy(e)) throw new EditorAlert(6)
+    e.yBloc = -1
+    throw new EditorAlert(7)
+  },
   75: (e) => {
     e.insert = !e.insert
   },
   94: (e) => replay(e, false),
+  181: (e) => {
+    // Ed_BlocAll (:5854): the anchor at the top and the cursor at the top too,
+    // with YBloc at the line PAST the last, so the block runs the other way
+    e.xCu = 0
+    e.yCu = 0
+    e.xPos = 0
+    e.yPos = 0
+    e.xBloc = 0
+    e.yBloc = e.prog.lineCount
+    e.fill()
+  },
 }
 
 // 39 to 48 Ed_SMark0-9, 49 to 58 Ed_GMark0-9. Ten `addq.w #1,d0` in a row

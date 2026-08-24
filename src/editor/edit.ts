@@ -25,6 +25,7 @@ import type { TokenTable } from '../tokens/stream'
 import { detokLineBytes, tokeniseLine, type EdtokOptions } from '../tokens/edtok'
 import { ED_MESSAGES } from '../runtime/edmessages.gen'
 import { EMPTY_LINE_BYTES, type ProgramBuffer } from './buffer'
+import { Block } from './block'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
 
@@ -84,6 +85,14 @@ export class Edit {
   /** `Edt_XBloc`/`Edt_YBloc`: the block's anchor, -1 for no block */
   xBloc = 0
   yBloc = -1
+
+  /**
+   * `Ed_Block`, the clipboard the anchor and the cursor cut and paste through.
+   *
+   * One per window here and one for the whole editor on the machine; ./block.ts
+   * says what that costs. Assign the same `Block` to two windows to share it.
+   */
+  block = new Block()
 
   /**
    * `Ed_Insert` (+Editor_Config.s:90, default -1). On the machine this is one
