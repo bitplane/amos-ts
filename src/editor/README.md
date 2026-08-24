@@ -24,6 +24,15 @@ Three things that look like they belong here do not:
   down over a running program and is drawn on an AMOS screen, so it belongs
   with the runtime that owns the screens.
 
+## What is here so far
+
+- `buffer.ts` — the program block, the line table and the marks.
+- `undo.ts` — the ring of six-byte records. The RECORDS are here; applying
+  one is not, because seven of the eight actions replay through commands
+  (`Ed_Delete`, `Ed_InsLine`, `Ed_PKey`) that do not exist yet. `Ed_Undo`
+  steps the ring and hands the record back; the command layer will do the
+  rest, with `suppressed` raised while it does.
+
 ## The one thing to know before reading `buffer.ts`
 
 A program being edited is not a list of lines. It is one block of tokens with
