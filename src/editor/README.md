@@ -34,9 +34,27 @@ Three things that look like they belong here do not:
   where a line is TEXT rather than tokens.
 - `edit.ts` — `Edt_`, the cursor and the cycle: `Ed_Untok` in, `Ed_PKey` and
   `Ed_Delete` on the text, `Ed_TokCur` back out to the program.
+- `keymap.ts` — `Ed_Ky2Fonc` and `Ed_Fonc2Ky`, over the three tables in
+  `keymap.gen.ts` that `src/cli/genedkeys.ts` reads out of the sources and
+  checks against the shipped binaries.
+- `commands.ts` — `JFonc` and `FlagFonc`. The cursor, the line editing, the
+  marks and the long jumps; what a command needs that this port has not built
+  yet is listed at the top of the file.
+- `display.ts` — `Ed_ALigne` and the status line, as data rather than pixels.
 
-Still missing before there is an editor a person can use: the display, the
-key map, and the `JFonc` commands that move the cursor.
+Still missing before there is an editor a person can use: the block (`JFonc`
+59 to 63), search and replace (66 to 68, 99 to 101), the file commands, and
+applying an undo record. `undo.ts` hands the record back and nothing yet
+replays it.
+
+## An alert is not an error
+
+`Ed_Alert` (+Edit.s:7595) ends in `bra Ed_Loop`, not `rts`. It puts a message
+in `Edt_EtAlert`, raises `EtA_Alert` and abandons the command wherever it had
+got to, so the alert IS the control flow and `EditorAlert` is thrown to
+reproduce it. That does not make it a failure. "Top of text" is what Home
+says when it has worked, and `edCall` answers the message number rather than
+throwing it on.
 
 ## The one thing to know before reading `buffer.ts`
 
@@ -53,3 +71,8 @@ The same rule as everywhere else: `+Edit.s:11126` and `$7666` are checkable,
 `CLAUDE.md`. Routines that live in the library rather than the editor say so:
 the line walk is `Tk_FindL` in `+Verif.s`, not `+Edit.s`, because `Ed_FindL`
 is four instructions around a `JJsrR`.
+
+Two numberings for the same 184 commands, both in +Edit.s. `Ed_Ky2Fonc`
+counts from 0 and `Ed_Fonc2Ky` twelve lines below counts from 1. This port
+takes the 1-based numbers, because those are the ones the source's comments
+and the manual use.

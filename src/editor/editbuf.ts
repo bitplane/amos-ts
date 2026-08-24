@@ -168,6 +168,35 @@ export class EditBuffer {
     this.setText(row, detokLineBytes(prog.bytes, at, table, opts))
   }
 
+  /**
+   * `Ed_CHt` (:3762): every row moves down one, and row 0 is left alone.
+   *
+   * The caller fills it, because only the caller knows which program line
+   * the window has just scrolled onto. A one-row window skips the move
+   * (`cmp.w #1,Edt_WindTy(a4) / beq .Skip`), which falls out of the loop.
+   */
+  scrollDown(): void {
+    this.bytes.copyWithin(SLOT, 0, this.rows * SLOT - SLOT)
+  }
+
+  /** `Ed_CBs` (:3820): every row moves up one, and the last is left alone */
+  scrollUp(): void {
+    this.bytes.copyWithin(0, SLOT, this.rows * SLOT)
+  }
+
+  /**
+   * `.RetV1` in `Ed_DelLiCu` (:10531): row `row` goes, the rest come up.
+   *
+   * Unlike the two scrolls this one DOES clear what it leaves behind
+   * (`clr.w -256(a2)`), so the last row is an empty editable line until the
+   * caller detokenises the program line that has moved into it.
+   */
+  closeRow(row: number): void {
+    const at = this.base(row)
+    this.bytes.copyWithin(at, at + SLOT, this.rows * SLOT)
+    this.setLength(this.rows - 1, 0)
+  }
+
   /** `Ed_BufUntok` (:10846): every row of the window, from program line `top` */
   fill(top: number, prog: ProgramBuffer, table: TokenTable, opts: EdtokOptions = {}): void {
     for (let row = 0; row < this.rows; row++) this.untok(row, prog, top + row, table, opts)

@@ -16,9 +16,10 @@
  *
  * ## What is not here
  *
- * The display, and the commands that need it. `Ed_PKey` ends in `Ed_CDroite`
- * and `Ed_Loca`; this port stops at the buffer change and leaves the cursor
- * move to the command layer, so that typing can be tested without pixels.
+ * The cursor moves the machine's routines end with. `Ed_PKey` finishes on
+ * `Ed_CDroite` and `Ed_Loca`; this class stops at the change to the buffer,
+ * and ./commands.ts moves the cursor afterwards. The state below is what
+ * ./display.ts reads, so nothing here draws either.
  */
 import type { TokenTable } from '../tokens/stream'
 import { detokLineBytes, tokeniseLine, type EdtokOptions } from '../tokens/edtok'
@@ -28,14 +29,31 @@ import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
 
 /**
- * What the editor puts in an alert box rather than throwing away.
+ * `Ed_Alert` (+Edit.s:7595): a message across the status line.
+ *
+ * It is thrown rather than returned because that is what the machine does
+ * with it. `Ed_Alert` ends in `bra Ed_Loop`, not `rts`: the message goes in
+ * `Edt_EtAlert`, `EtA_Alert` is raised, and the command that was running is
+ * abandoned wherever it had got to. So the throw is the control flow, and
+ * `edCall` in ./commands.ts is `Ed_Loop` catching it.
+ *
+ * None of these is an error. "Top of text" arrives when Home has WORKED.
  *
  * `code` is the `Ed_GetMessage` number, so it is checkable against the
  * shipped table: 183 is `Ed_NotEdit` (:9754), 199 `Ed_LToLong` (:9762), 202
  * `Ed_OofBuf` (:9792). The table is one-based and `ED_MESSAGES` is not.
  */
 export class EditorAlert extends Error {
-  constructor(readonly code: number) {
+  /**
+   * @param code the `Ed_GetMessage` number
+   * @param duration `Ed_Alert`'s d0, which lands in `Edt_EtMess`. 100 is
+   *   `Ed_Al100`'s and what most callers pass; the two ends of the text pass
+   *   25 and Out of buffer space passes 200.
+   */
+  constructor(
+    readonly code: number,
+    readonly duration = 100,
+  ) {
     super(ED_MESSAGES[code - 1] ?? `editor message ${code}`)
     this.name = 'EditorAlert'
   }
@@ -52,6 +70,45 @@ export class Edit {
   yPos = 0
   /** `Edt_LEdited`, raised by anything that changes the line being typed */
   edited = 0
+
+  /**
+   * `Edt_WindTx`, the window's width in characters.
+   *
+   * `Ed_DrawWindows` (:11655) computes it as `(Ed_Sx - 16) / 8`, and the
+   * editor screen is 640 wide (`.Ed_Sx`, +Editor_Config.s:58), so 78.
+   * `Ed_CDroite` does NOT use it -- it scrolls at a hardcoded `WiTx-10`,
+   * which is 70 because `WiTx` is the window structure's own offset 80.
+   */
+  windTx = 78
+
+  /** `Edt_XBloc`/`Edt_YBloc`: the block's anchor, -1 for no block */
+  xBloc = 0
+  yBloc = -1
+
+  /**
+   * `Ed_Insert` (+Editor_Config.s:90, default -1). On the machine this is one
+   * flag for the whole editor rather than one per window, which is why
+   * flipping it in a split view flips it in both halves.
+   */
+  insert = true
+
+  /** `Ed_Tabs` (+Editor_Config.s:59): three spaces */
+  tabs = 3
+
+  /** `Edt_EtatAff`: which fields of the status line are stale (+Equ.s:1962) */
+  etatAff = 0
+
+  /** `Ed_SCallFlags`: what the command that just ran wants redrawn */
+  callFlags = 0
+
+  /** `Edt_YOldBloc`: the line the cursor was on when the last command began */
+  yOldBloc = 0
+
+  /** `Edt_EtAlert`: the message the status line is showing, 0 for none */
+  alert = 0
+
+  /** `Edt_EtMess`: how long it stays there */
+  alertTime = 0
 
   constructor(
     readonly prog: ProgramBuffer,
@@ -103,7 +160,7 @@ export class Edit {
     // `move.b #-1,4(a2)` first, and overwrite replaces it with what it covered
     const b4 = insert || atEnd ? 0xff : this.buf.text(this.yCu).charCodeAt(this.xCu)
     this.undo.record(UN.CHAR, this.xCu, this.line, b4, code)
-    if (insert && !atEnd && len >= EditBuffer.MAX_TYPED) throw new EditorAlert(199)
+    if (insert && !atEnd && len >= EditBuffer.MAX_TYPED) throw new EditorAlert(199, 50)
     if (insert || atEnd) this.buf.insert(this.yCu, this.xCu, ch)
     else this.buf.overwrite(this.yCu, this.xCu, ch)
     this.edited++
@@ -128,17 +185,19 @@ export class Edit {
    * back into the program.
    *
    * The line gains one only when the cursor is on the line PAST the last and
-   * something was actually stored. `d2` is `Tokenise`'s d0 -- 1 for a line
-   * with anything in it, 0 for an empty one (`TokVide` :14705) -- plus
-   * `Ed_Stocke`'s "one more line" flag, and the count moves only if the sum
-   * is non-zero.
+   * something was actually stored. `d2` is the caller's `seed` plus
+   * `Tokenise`'s d0 -- 1 for a line with anything in it, 0 for an empty one
+   * (`TokVide` :14705) -- plus `Ed_Stocke`'s "one more line" flag, and the
+   * count moves only if the sum is non-zero. `Ed_Return` passes a seed of 1
+   * so that splitting the last line always gains one, however empty the half
+   * left behind is.
    *
    * The redisplay is not cosmetic. `Detok` writes the line back into the slot
    * in the editor's own spelling, so what the user typed is replaced by what
    * AMOS calls it, and the undo record holds both: the typed text to go back
    * to and the canonical text that replaced it.
    */
-  tokCur(): void {
+  tokCur(seed = 0): void {
     if (this.edited === 0) return
     this.edited = 0
     const typed = this.buf.text(this.yCu)
@@ -146,12 +205,12 @@ export class Edit {
     try {
       line = tokeniseLine(typed, this.table, this.opts)
     } catch {
-      throw new EditorAlert(199)
+      throw new EditorAlert(199, 50)
     }
-    const content = line.length > EMPTY_LINE_BYTES ? 1 : 0
+    const content = seed + (line.length > EMPTY_LINE_BYTES ? 1 : 0)
     const at = this.line
     const r = this.prog.store(at, line)
-    if (r.error === 1) throw new EditorAlert(202)
+    if (r.error === 1) throw new EditorAlert(202, 200)
     if (r.error === -1) throw new EditorAlert(183)
     let added = 0
     if (at === this.prog.lineCount && content + (r.added ? 1 : 0) !== 0) {
