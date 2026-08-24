@@ -27,11 +27,16 @@ Three things that look like they belong here do not:
 ## What is here so far
 
 - `buffer.ts` — the program block, the line table and the marks.
-- `undo.ts` — the ring of six-byte records. The RECORDS are here; applying
-  one is not, because seven of the eight actions replay through commands
-  (`Ed_Delete`, `Ed_InsLine`, `Ed_PKey`) that do not exist yet. `Ed_Undo`
-  steps the ring and hands the record back; the command layer will do the
-  rest, with `suppressed` raised while it does.
+- `undo.ts` — the ring of six-byte records. `Ed_Undo` steps the ring and
+  hands the record back; applying one is the command layer's job, with
+  `suppressed` raised while it does.
+- `editbuf.ts` — `Edt_BufE`, one 256-byte slot per display row, which is
+  where a line is TEXT rather than tokens.
+- `edit.ts` — `Edt_`, the cursor and the cycle: `Ed_Untok` in, `Ed_PKey` and
+  `Ed_Delete` on the text, `Ed_TokCur` back out to the program.
+
+Still missing before there is an editor a person can use: the display, the
+key map, and the `JFonc` commands that move the cursor.
 
 ## The one thing to know before reading `buffer.ts`
 
