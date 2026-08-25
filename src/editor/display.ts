@@ -188,7 +188,9 @@ export function statusLine(e: Edit, opts: StatusOptions = {}): string {
   put(ET_XX[5]!, figure(e.prog.free(), 7))
   // Ed_EtNom (:7520): message 3 is ' Edit' and 4 'Split', then the name
   put(ET_XX[6]!, opts.split === true ? ED_SYSTEME[3]! : ED_SYSTEME[2]!)
-  const room = width - ET_XX[7]! - 1
+  // `clr.b 0(a1,d7.w)` cuts every field at the width it was given, so a line
+  // narrower than where the name starts has no room for a name at all
+  const room = Math.max(0, width - ET_XX[7]! - 1)
   const name = opts.name === undefined || opts.name === '' ? ED_SYSTEME[6]! : opts.name
   put(ET_XX[7]!, (name + ' '.repeat(room)).slice(0, room))
 

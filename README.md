@@ -99,6 +99,7 @@ CLI tools in `src/cli/`:
 |---|---|
 | `amoslist.ts` | detokenized listing plus banks |
 | `amosrun.ts` | run a program headless (`.AMOS` or a plain-text listing) |
+| `amosedit.ts` | the AMOS Professional editor, in a terminal. F1 runs the program, F2 tests it |
 | `amoscat.ts` | detokenize to stdout, usable as an `rg --pre` preprocessor to grep AMOS source |
 | `runreport.ts` | the interpreter coverage census, and the regression oracle |
 | `scan.ts` | corpus parse census |

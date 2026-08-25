@@ -29,19 +29,52 @@
  */
 import { Edit, EditorAlert } from '../editor/edit'
 import { Editor, type RunRequest } from '../editor/windows'
+import { QUAL, type EdKey } from '../editor/keymap'
 import { ProgramBuffer } from '../editor/buffer'
 import { EditBuffer } from '../editor/editbuf'
 import { UndoBuffer } from '../editor/undo'
-import { drawWindows, edCall, edEscapeReturn, edRunReturn } from '../editor/commands'
-import { programSource, writeProgramFile, type EditorFS } from '../editor/files'
+import { drawWindows, edCall, edEscapeReturn, edKey, edRunReturn } from '../editor/commands'
+import { PRG, programSource, readProgramFile, writeProgramFile, type EditorFS } from '../editor/files'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
-import { loadProgram } from '../loader/program'
+import { isAmosProgram, loadProgram } from '../loader/program'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
+
+
+/**
+ * A `.AMOS` file, or a listing, into a buffer the editor can hold.
+ *
+ * `Prg_Load` (+Verif.s:4930) is the first, and `EdLok` (+Edit.s:13420) is what
+ * follows it: `move.b #1,Prg_StModif(a6)`, "force le test". Whatever byte 11
+ * of the file said, a program that came off disc has not been tested by THIS
+ * interpreter and the next Run has to test it.
+ *
+ * A listing goes through the editor's own tokeniser and the Test pass, which
+ * is what a program typed in and left has been through before `Ed_Run` can
+ * reach it.
+ */
+function loadInto(source: string | Uint8Array, table: TokenTable): ProgramBuffer {
+  if (typeof source !== 'string' && isAmosProgram(source)) {
+    const r = readProgramFile(source, 64 * 1024)
+    if (r.error !== PRG.OK || r.file === null || r.file === undefined) throw new Error(`cannot load: Prg_Load answered ${r.error}`)
+    const prog = ProgramBuffer.load(r.file.source, Math.max(64 * 1024, r.needs))
+    prog.pro = r.file.pro
+    prog.mathFlags = r.file.mathFlags
+    prog.banks = r.file.banks
+    prog.changed = false
+    prog.modified = true
+    return prog
+  }
+  const text = typeof source === 'string' ? source : new TextDecoder('latin1').decode(source)
+  return ProgramBuffer.load(verify(tokeniseSource(text, table), {}).slice(0, -2))
+}
+
+/** the Escape key's Amiga scancode, which `Esc_L1` tests as `cmp.b #$45,d1` */
+const ESCAPE_KEY = 0x45
 
 export interface AmosOptions {
   /** the shared token table. One table: the editor tokenises what the interpreter runs */
@@ -81,13 +114,8 @@ export class Amos {
   constructor(source: string | Uint8Array = '', opts: AmosOptions = {}) {
     this.opts = opts
     this.table = opts.table ?? new TokenTable(CORE_TOKENS)
-    const text = typeof source === 'string' ? source : new TextDecoder('latin1').decode(source)
-    // the editor's own tokeniser, then the Test pass, which is what a program
-    // typed in and left has been through before `Ed_Run` can reach it
-    const tokens = tokeniseSource(text, this.table)
-    const tested = verify(tokens, {}).slice(0, -2)
     this.window = new Edit(
-      ProgramBuffer.load(tested),
+      loadInto(source, this.table),
       new EditBuffer(opts.rows ?? 20),
       new UndoBuffer(50),
       this.table,
@@ -117,7 +145,27 @@ export class Amos {
    * of whichever of the two ends last.
    */
   call(command: number, param = 0): number {
-    const alert = edCall(this.window, command, param)
+    return this.after(edCall(this.window, command, param))
+  }
+
+  /**
+   * One keystroke, which is `Ed_Key` (+Edit.s:1616).
+   *
+   * While the escape screen is up the keyboard is `Esc_L1`'s (:8917) and not
+   * the editor's, and Escape is the one key that means something to both: it
+   * is `Esc_Esc` there and `Ed_Escape` here.
+   */
+  key(k: EdKey): number {
+    if (this.editor.escape) {
+      if (k.scan === ESCAPE_KEY) return this.escapeBack()
+      this.runtime?.directScreen.key(k.ch ?? '', k.scan ?? 0, ((k.shift ?? 0) & QUAL.SHIFT) !== 0)
+      return 0
+    }
+    return this.after(edKey(this.window, k))
+  }
+
+  /** the program `Ed_Run` or `Ed_Escape` left waiting, once the command is over */
+  private after(alert: number): number {
     const run = this.pending
     if (run === null) return alert
     this.pending = null
