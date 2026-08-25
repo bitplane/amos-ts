@@ -41,10 +41,11 @@
 import { T } from '../tokens/stream'
 import { detokLineBytes, tokeniseLine, type DetokWatch } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
-import { PROTECTED_PROC } from '../tokens/stream'
+import { MACHINE_CODE_PROC, PROTECTED_PROC } from '../tokens/stream'
 import { VerifyError, verify } from '../tokens/verify'
 import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { parseAmosFile } from '../loader/amosfile'
+import { HUNK_CODE, HUNK_HEADER } from '../amiga/hunk'
 import { indentBytes } from './indent'
 import { EMPTY_LINE_BYTES, PROC_CLOSED, ProgramBuffer } from './buffer'
 import { BF, type BlockView } from './block'
@@ -213,6 +214,7 @@ export const ED = {
   CHECK_13: 147,
   INDENT: 79,
   PROC_OPEN: 87,
+  PROC_ML: 151,
   PROCS_OPEN: 89,
   PROCS_CLOSE: 90,
   CONFIG_SAVE_DEFAULT: 137,
@@ -2816,6 +2818,134 @@ function testCmd(e: Edit): void {
   throw new EditorAlert(197) // Ed_Al100, "No errors"
 }
 
+/* ---- 151: a procedure whose body is 68k --------------------------------- */
+
+/**
+ * `.GetH` (:8790) and the two loops that call it (:8710): the code hunk of an
+ * AmigaDOS load file, read four bytes at a time into `Buffer(a5)`.
+ *
+ * DEFECT: `.Plo0` (:8713) reads longs one after another until one equals
+ * $3E9, and never looks at the hunk table it is walking over. A load file
+ * whose first hunk is 1001 longs holds $000003E9 as that hunk's SIZE, `.Plo0`
+ * stops on it, and the long after it becomes the code length. `Pload` reads
+ * the table size and skips it (`extractCodeHunk` in src/runtime/runtime.ts),
+ * so the two disagree about the same file.
+ *
+ * Running off the end is `Ed_Read` (:13943) answering short, which is `bne
+ * Ed_DError` and a disc error. Only the first long is ever tested against
+ * $3F3, so message 182 is for a file that does not begin like an executable
+ * and for nothing else.
+ */
+function mlHunk(e: Edit): Uint8Array {
+  const bytes = disc(e).readFile(e.name1)
+  if (bytes === null) throw new DiskError(205)
+  let p = 0
+  const long = (): number => {
+    if (p + 4 > bytes.length) throw new DiskError()
+    const v = bytes[p]! * 0x1000000 + (bytes[p + 1]! << 16) + (bytes[p + 2]! << 8) + bytes[p + 3]!
+    p += 4
+    return v
+  }
+  if (long() !== HUNK_HEADER) throw new EditorAlert(182, 250) // .NoGood (:8799)
+  while (long() !== HUNK_CODE) {
+    // .Plo0
+  }
+  const len = long() * 4
+  if (p + len > bytes.length) throw new DiskError()
+  return bytes.subarray(p, p + len)
+}
+
+/**
+ * `.Cp1` (:8730) to `.Par` (:8744): the fake program, built in a temporary
+ * buffer 512 bytes bigger than the code.
+ *
+ * The `Procedure` line is copied byte for byte and two bits then go into the
+ * flags word at offset 10, `or.w #%0101000000000000,10(a3)`: bit 14 the lock
+ * and bit 12 machine language. A machine-code procedure is a locked one
+ * always, which is what keeps `Ed_ProcOpen` from unfolding it and showing
+ * 68k where lines should be.
+ *
+ * After it comes a three-word line holding `@_apml_@` and one word: how far
+ * back the parameter list is from that word. `lea 10+6(a3),a0` (:8735) is the
+ * length byte of the procedure's own name record, `lea 2+2(a0,d0.w),a0` steps
+ * the name and the token behind it, and `cmp.w #_TkBra1,-2(a0)` is that
+ * token. No `[` and the offset is written as zero.
+ *
+ * The block ends with a bare `End Proc`, and `sub.l #14,d0` (:8760) is the
+ * size long at offset 4: `Tk_SizeL` adds 12+2 back to step the fold.
+ */
+function mlBlock(e: Edit, at: number, code: Uint8Array): Uint8Array {
+  const src = e.prog.bytes
+  const line = src[at]! * 2
+  const block = new Uint8Array(line + 6 + code.length + 6)
+  block.set(src.subarray(at, at + line), 0)
+  const put16 = (w: number, v: number): void => {
+    block[w] = (v >> 8) & 0xff
+    block[w + 1] = v & 0xff
+  }
+  put16(10, ((block[10]! << 8) | block[11]!) | PROTECTED_PROC | MACHINE_CODE_PROC)
+  put16(line, 0x0301) // three words, indented one space
+  put16(line + 2, TK.ML)
+  // `move.l a0,d0 / sub.l a1,d0`, which is negative on every real procedure:
+  // the parameters are back inside the header line and the word is ahead of it
+  const after = 18 + block[16]!
+  const bra1 = ((block[after]! << 8) | block[after + 1]!) === TK.BRA1
+  put16(line + 4, bra1 ? (after + 2 - (line + 4)) & 0xffff : 0)
+  block.set(code, line + 6)
+  const end = line + 6 + code.length
+  put16(end, 0x0301)
+  put16(end + 2, TK.END_PROC)
+  put16(end + 4, 0)
+  const size = block.length - 14
+  block[4] = (size >>> 24) & 0xff
+  block[5] = (size >>> 16) & 0xff
+  block[6] = (size >>> 8) & 0xff
+  block[7] = size & 0xff
+  return block
+}
+
+/**
+ * `Ed_ProcML` (:8681), Insert Machine Language: the procedure the cursor is in
+ * gets an AmigaDOS load file for a body.
+ *
+ * `.Reloop` (:8691) refuses to work on an open procedure and does not say so.
+ * It folds it with `Ed_ProcOpen` and walks again, because what is deleted
+ * below is a single `Ed_NextL` step and only a fold makes a whole procedure
+ * one line.
+ *
+ * DEFECT: `Ed_ProcOpen` leaves a LOCKED procedure as it found it (`btst
+ * #6,10(a2) / bne .Out`, :8819), so a locked procedure that is not folded
+ * sends `.Reloop` round for ever. No editor command clears bit 14 or writes
+ * it without bit 15, so such a procedure has to come off disc.
+ *
+ * There is no `Ed_NewBuf` at the end. The window still holds the text of the
+ * old `Procedure` line, and `StoClo` (:11047) refuses to write anything over
+ * a closed procedure, so the stale buffer cannot get back in.
+ *
+ * `Ed_AverFin` (:8786) has no `Ed_AverMess` in front of it anywhere in this
+ * command. It is guarded by `move.w Ed_Avert(a5),d1 / beq.s .Out` (:7701), so it
+ * does nothing unless another command left a warning up.
+ */
+function procML(e: Edit): void {
+  e.tokCur()
+  if (!selectFile(e, 178)) notDone(e)
+  let at = 0
+  for (;;) {
+    at = e.prog.findLine(e.line).proc
+    if (at < 0) throw new EditorAlert(203) // Ed_FoE, "Not a procedure."
+    if ((e.prog.procFlags(at) & PROC_CLOSED) !== 0) break
+    procOpen(e)
+  }
+  const block = mlBlock(e, at, mlHunk(e))
+  // `Ed_StDelChunk` over one `Ed_NextL` step, then the block at the same line
+  // number. Neither routine moves the marks and this one does not fix them,
+  // so a mark inside the old procedure now points at 68k
+  e.prog.deleteChunk(e.line, e.prog.nextLine(at).at - at)
+  e.prog.storeBlock(e.line, block)
+  e.prog.countLines()
+  averFin(e)
+}
+
 /* ---- 137 to 142: the configuration -------------------------------------- */
 
 /**
@@ -3900,6 +4030,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   79: indentCmd,
   84: merge,
   87: procOpen,
+  151: procML,
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),

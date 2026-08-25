@@ -62,11 +62,10 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-178 of the 184 `JFonc` entries run. The 6 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), and `Ed_ProcML` (151), which reads a
-hunk file into the procedure the cursor is in. `Ed_Escape` (28) waits on the
-escape screen, and `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of its
-own.
+179 of the 184 `JFonc` entries run. The 5 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), `Ed_Escape` (28), which waits on the
+escape screen, and `Ed_GoMonitor` (145), which is +Monitor.s and 4,291 lines
+of its own.
 
 
 ## The About box says nobody bought this copy
@@ -486,6 +485,34 @@ a zero word on the end, and the line table is a walk from the top. A closed
 procedure counts as ONE line however many lines it holds, so folding one
 changes every line number after it and nothing is cached that would have to be
 told. `buffer.ts` says the rest.
+
+## A machine-code procedure is a fold with 68k in it
+
+`Ed_ProcML` (+Edit.s:8681) is the whole of Insert Machine Language, and it
+builds a procedure by hand. It copies the `Procedure` line byte for byte, ORs
+`%0101000000000000` into the flags word at offset 10, appends a three-word
+line holding `@_apml_@`, drops the code hunk in behind it and closes with a
+bare `End Proc`. The size long at offset 4 is the lot less 14, which is what
+`Tk_SizeL` adds back to step a fold.
+
+The two bits are the lock and machine language, and they go on together. That
+is why the editor never shows 68k where lines should be: `Ed_ProcOpen` leaves
+a locked procedure alone, so a machine-code one cannot be unfolded.
+
+The one word that is not copied or constant is the parameter offset, and it is
+negative. `lea 10+6(a3),a0` (:8735) is the length byte of the procedure's own
+name record, `lea 2+2(a0,d0.w),a0` steps the name, and the token that lands
+under `-2(a0)` decides it: a `[` and the word is how far BACK the parameter
+list is from the word itself, no `[` and it is zero. The parameters stay in
+the header line and the routine is told where to look.
+
+Two things go wrong. `.Plo0` (:8713) reads longs one after another until one
+equals $3E9, so it never looks at the hunk table it is walking over: a load
+file whose first hunk is 1001 longs holds $000003E9 as that hunk's size, the
+scan stops there, and the marker becomes the length. `Pload` reads the table
+size and skips it, so the same file loads one way and not the other. And the
+procedure is folded by `.Reloop` BEFORE the file is opened, so a file that
+turns out not to be relocatable leaves the fold behind.
 
 ## Citations
 

@@ -64,6 +64,10 @@ export const TK = {
   /** the double-precision constant, which has no name and never needs one */
   DOUBLE_FLOAT: 0x2b6a,
   OPEN_PAREN: 0x0074,
+  /** `_TkBra1` (+Equ.s:2014), the `[` a parameter list opens with */
+  BRA1: 0x0084,
+  /** `_TkML` (+Equ.s:2111), which is `@_apml_@` */
+  ML: 0x258c,
 } as const
 
 /** 0 lowercase, 1 UPPERCASE, 2 Capitalised: the two config bytes `DtkMaj1` and `DtkMaj2` */
