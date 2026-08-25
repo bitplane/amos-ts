@@ -26,12 +26,13 @@
  *
  * The status bar's four arrows are 13 to 16, the printer 86 and 146, the two
  * About boxes 149 and 150, Check 1.3 is 147 and Insert Machine Language 151.
+ * Running a program is 77, 105 and 111, and what running MEANS is the host's:
+ * see `Editor.runProgram`.
  *
- * The 5 that are left need something this port has not built yet: the
- * interpreter (77, 105, 111), the escape screen's own loop (28) and
- * +Monitor.s (145). `COMMANDS` has no entry for any of them and `edCall`
- * throws rather than silently doing nothing, so a key map that reaches one
- * says which.
+ * The 2 that are left need something this port has not built yet: the escape
+ * screen's own loop (28) and +Monitor.s (145). `COMMANDS` has no entry for
+ * either and `edCall` throws rather than silently doing nothing, so a key map
+ * that reaches one says which.
  *
  * ## What a command does NOT do here
  *
@@ -218,6 +219,9 @@ export const ED = {
   INDENT: 79,
   PROC_OPEN: 87,
   PROC_ML: 151,
+  RUN: 77,
+  RUN_HIDDEN: 111,
+  WORKBENCH: 105,
   PROCS_OPEN: 89,
   PROCS_CLOSE: 90,
   CONFIG_SAVE_DEFAULT: 137,
@@ -2557,13 +2561,13 @@ function newAllHidden(e: Edit): void {
  *
  * It loops because two windows can hold the same program, and it stops at the
  * first one that is RUNNING rather than skipping it, so a running accessory
- * leaves the windows behind it open too. `L_Prg_DejaRunned` is the test, and
- * nothing runs in this port.
+ * leaves the windows behind it open too.
  */
 function closeName(e: Edit): void {
   for (;;) {
     const w = e.editor.accAdr(e.name1)
     if (w === null) return
+    if (e.editor.dejaRunned(w.prog)) return // `L_Prg_DejaRunned / bne .Fini`
     closeWindow(e, w, false)
   }
 }
@@ -2598,8 +2602,10 @@ function closeName(e: Edit): void {
  * precision, which is bit 7, and not the two "some maths happened" bits below
  * it, so `Prg_MathFlags` keeps whatever the file said.
  */
-function vaTester(e: Edit, check13 = false): void {
-  if (!e.prog.modified) return
+function vaTester(e: Edit, check13 = false, always = false): void {
+  // `tst.b Prg_StModif(a6) / beq.s .Ok` (:8568) is `Ed_VaTester`'s and not the
+  // Test pass's. `Prg_RunIt` calls `PTest` outright, so a Run always tests
+  if (!always && !e.prog.modified) return
   const src = programSource(e.prog)
   let out: Uint8Array
   const stats = { instructions: 0, not13: false }
@@ -2947,6 +2953,119 @@ function procML(e: Edit): void {
   e.prog.storeBlock(e.line, block)
   e.prog.countLines()
   averFin(e)
+}
+
+/* ---- 77, 105 and 111: running the program ------------------------------- */
+
+/**
+ * `Ed_TestMessage` (:8578), the patch table `Prg_RunIt` is handed in a2.
+ *
+ * It is three `bra`s rather than three addresses, which is why the calls are
+ * `jsr (a2)`, `jsr 4(a2)` and `jsr 8(a2)`. The first runs before `ClearVar`,
+ * the second after the Test pass, and the third between `DefRun1` and
+ * `DefRun2` where the editor's display comes down.
+ *
+ * The box only goes up for a program of 4K or more: `move.l Prg_StHaut(a6),d0
+ * / sub.l Prg_StBas(a6),d0 / cmp.l #1024*4,d0 / bcs .Non` (:8583). A short
+ * program is tested with nothing on screen to say so.
+ */
+function testMesOn(e: Edit, w: Edit): void {
+  e.editor.tstMesOn = false
+  if (w.prog.stHaut - w.prog.stBas < 1024 * 4) return
+  e.editor.tstMesOn = true
+  averMess(e, 198) // "...Testing..."
+}
+
+/** `Ed_Test2` (:8600), which takes it down again and only if it went up */
+function testMesOff(e: Edit): void {
+  if (!e.editor.tstMesOn) return
+  e.editor.tstMesOn = false
+  averFin(e)
+}
+
+/**
+ * `Prg_RunIt` (+Verif.s:4336): the editor's half of starting a program.
+ *
+ * The order matters and it is not the order the labels suggest. `Ed_Run`
+ * frees the block, razes every undo ring, takes the menus down and writes
+ * `Edt_Runned` BEFORE it calls, and `Prg_DejaRunned` is the first thing
+ * inside. So asking to run a program that is already running still costs the
+ * clipboard and every undo in every window.
+ *
+ * `PTest` here is not `Ed_VaTester`. There is no `Prg_StModif` test in front
+ * of it, so a Run tests a program that was tested a moment ago, and the flag
+ * is cleared afterwards rather than consulted.
+ *
+ * Answers `Prg_RunIt`'s d0 as a yes or no: false is `.Deja`, which is the only
+ * one of its two returns this port can reach. `.Omm` is `Prg_Push` failing to
+ * get memory, and nothing here allocates.
+ */
+function prgRunIt(e: Edit, w: Edit, accessory: boolean, hidden: boolean, commandLine: string): boolean {
+  const editor = e.editor
+  editor.runned = w
+  e.block.free() // Ed_BlocFree (:5913)
+  // `Prg_RazUndos` (:1964) walks `Prg_List` and razes every program's ring,
+  // not just the one about to run. Undo is per WINDOW here, and a split view
+  // shares one buffer between two, so the walk is over the windows
+  for (const other of editor.list) other.undo.raz()
+  editor.runnedHidden = hidden
+  if (editor.dejaRunned(w.prog)) {
+    editor.runned = null // `clr.l Edt_Runned(a5)`, on the way out of both callers
+    return false
+  }
+  testMesOn(e, w) // `jsr (a2)`
+  vaTester(w, false, true) // ClearVar and PTest
+  testMesOff(e) // `jsr 4(a2)`
+  const run = editor.runProgram
+  if (run === null) {
+    // DEVIATION: with no host there is nobody to run it, so the command ends
+    // where `JJmp L_New_ChrGet` does and nothing is pushed onto `Prg_Runned`
+    return true
+  }
+  editor.running.unshift(w.prog) // Prg_Push
+  run({ window: w, accessory, hidden, commandLine })
+  return true
+}
+
+/**
+ * `Ed_Run` (:8165): the current window's program, as a normal program.
+ *
+ * DEFECT: `bra Ed_OMm` takes EVERY return from `Prg_RunIt`, so a program that
+ * is already running reports "Out of memory." here. `Ed_RunHidden` sixty
+ * lines above tests d0 and says "Program already run." for the same state.
+ */
+function edRun(e: Edit): void {
+  e.tokCur()
+  if (!prgRunIt(e, e, false, false, '')) throw new EditorAlert(204, 120) // Ed_OMm
+}
+
+/**
+ * `Ed_RunHidden` (:8105): one of the hidden windows, as an accessory.
+ *
+ * `moveq #1,d0` is the accessory flag, and `.PRun` in `Prg_RunIt` tests
+ * `Prg_Accessory(a5)` under it: asking for an accessory does not make the
+ * program one, it only lets a program that already is take the accessory
+ * path. `Ed_RunnedHidden` is what tells the return path the editor is still
+ * up behind it.
+ */
+function runHidden(e: Edit, n: number): void {
+  e.tokCur()
+  const w = e.editor.getHidden(n)
+  if (w === null) notDone(e)
+  // `beq Ed_OMm / bra Ed_AlRunned`: the out-of-memory arm needs `Prg_Push` to
+  // fail, so only the second is reachable here
+  if (!prgRunIt(e, w, true, true, '')) throw new EditorAlert(12, 100) // Ed_AlRunned
+}
+
+/**
+ * `Ed_Wb` (:11201): `EcCalD AMOS_WB,0`, and that is the whole routine.
+ *
+ * The same call `Amos To Back` makes (+Lib.s:11337), so the menu entry that
+ * says Workbench does not open Workbench: it puts the AMOS display behind
+ * whatever is already there. Nothing brings it forward again from here.
+ */
+function edWb(e: Edit): void {
+  e.editor.amosToBack?.()
 }
 
 /* ---- 137 to 142: the configuration -------------------------------------- */
@@ -4034,6 +4153,9 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   84: merge,
   87: procOpen,
   151: procML,
+  77: edRun,
+  111: (e, n) => runHidden(e, n),
+  105: edWb,
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),
@@ -4266,6 +4388,9 @@ export function edCall(e: Edit, cmd: number, param = 0): number {
     if (del.hidden !== 0) e.editor.delWindow(del)
     else closeWindow(e, del, false)
   }
+  // `bsr Ed_AllAverFin` (:933), which is why an unmatched `Ed_AverMess` costs
+  // one command and not the session: every warning left up comes down here
+  e.editor.avert.length = 0
   // `bsr Ed_LinkeScroll` (:964), after the command and not inside it
   const now = e.editor.current
   if (now !== null) linkScroll(now)

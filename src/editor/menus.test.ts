@@ -220,7 +220,11 @@ describe('the commands over it', () => {
     // and unreachable
     expect(ED_ROUTINES[183]).toBe('Ed_UserMenu')
     const e = open()
-    expect(() => edCall(e, 184)).toThrow(/Ed_RunHidden/)
+    shown = null
+    // 184 decodes to `Ed_RunHidden` on hidden program 0, and there is none,
+    // so the answer is Not done rather than the user-menu requester
+    expect(edCall(e, 184)).toBe(206)
+    expect(shown).toBe(null)
   })
 
   it('sends F5 to command 27, which is a user slot and not a Help routine', () => {

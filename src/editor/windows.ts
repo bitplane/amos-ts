@@ -83,6 +83,32 @@ export interface PrgCommand {
   line: string | null
 }
 
+/**
+ * What `Prg_RunIt` (+Verif.s:4336) is handed, as a request rather than a jump.
+ *
+ * DEVIATION: `Prg_RunIt` does not return. It ends in `JJmp L_New_ChrGet`, the
+ * interpreter's fetch loop, and the editor gets control back only when the
+ * program stops and longjmps to `Prg_JError`. Nothing in `src/editor` executes
+ * a program, so the editor's half runs, this goes to the host, and the answer
+ * comes back through a separate call.
+ */
+export interface RunRequest {
+  /** `Edt_Runned(a5)`, the window whose program is about to run */
+  window: Edit
+  /** `Prg_RunIt`'s d0: 1 is an accessory, 0 a normal program */
+  accessory: boolean
+  /** `Ed_RunnedHidden(a5)`: it was started hidden, so the editor stays up */
+  hidden: boolean
+  /**
+   * The command line at `TBuffer-256-6(Buffer)`.
+   *
+   * `Ed_Run` and `Ed_RunHidden` both `clr.l` it before they hand over, so it
+   * is empty for everything but `Ed_PrgCommand`, which is the one caller that
+   * writes a line for the program to read.
+   */
+  commandLine: string
+}
+
 export class Editor {
   /**
    * `Edt_List(a5)`, in list order: index 0 is the head.
@@ -242,6 +268,44 @@ export class Editor {
    * same, which is what stops an accessory from driving its own window.
    */
   runned: Edit | null = null
+
+  /**
+   * `Prg_Runned(a5)`: the programs that are running, newest first.
+   *
+   * `Prg_Push` (+Verif.s:4499) pushes and `Prg_Pull` (:4530) pops, and
+   * `Prg_DejaRunned` (:4452) walks it comparing a6. That walk is the whole of
+   * "is this program already running", and three places ask it: `Ed_RunIt`,
+   * `Ed_CloseName` and `Ed_ZapIn`.
+   *
+   * The interpreter keeps the real stack, in src/interp/interp.ts. What is
+   * here is the editor's view of it: which of ITS programs are out running.
+   */
+  running: ProgramBuffer[] = []
+
+  /** `Prg_DejaRunned` (+Verif.s:4452) */
+  dejaRunned(prog: ProgramBuffer): boolean {
+    return this.running.includes(prog)
+  }
+
+  /** `Ed_RunnedHidden(a5)`: what is running was started hidden */
+  runnedHidden = false
+
+  /** `Ed_TstMesOn(a5)`: the "...Testing..." box is up, so someone must close it */
+  tstMesOn = false
+
+  /**
+   * DEVIATION: `Prg_RunIt` (+Verif.s:4336), which runs a program and does not
+   * come back. The editor's half is here; the run itself is the host's, and
+   * null means nothing runs, which is where this port has been all along.
+   */
+  runProgram: ((r: RunRequest) => void) | null = null
+
+  /**
+   * DEVIATION: `Ed_Wb` (+Edit.s:11201) is `EcCalD AMOS_WB,0` and nothing else,
+   * which is what `Amos To Back` (+Lib.s:11337) is too. Nothing in
+   * `src/editor` owns a display, so the flip goes to the host.
+   */
+  amosToBack: (() => void) | null = null
 
   /**
    * `Prg_Accessory(a5)`: the running program was started as an accessory.

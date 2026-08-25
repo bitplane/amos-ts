@@ -62,10 +62,9 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-179 of the 184 `JFonc` entries run. The 5 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), `Ed_Escape` (28), which waits on the
-escape screen, and `Ed_GoMonitor` (145), which is +Monitor.s and 4,291 lines
-of its own.
+182 of the 184 `JFonc` entries run. The 2 left are `Ed_Escape` (28), which is
+the escape screen's own loop, and `Ed_GoMonitor` (145), which is +Monitor.s
+and 4,291 lines of its own.
 
 
 ## The About box says nobody bought this copy
@@ -513,6 +512,37 @@ scan stops there, and the marker becomes the length. `Pload` reads the table
 size and skips it, so the same file loads one way and not the other. And the
 procedure is folded by `.Reloop` BEFORE the file is opened, so a file that
 turns out not to be relocatable leaves the fold behind.
+
+## Running a program is a hand-off
+
+`Prg_RunIt` (+Verif.s:4336) does not return. It ends in `JJmp L_New_ChrGet`,
+the interpreter's fetch loop, and the editor gets control back only when the
+program stops and longjmps to `Prg_JError`. So `Ed_Run` (+Edit.s:8165) is not
+a call with a result: it is the last thing the editor does.
+
+What is here is the editor's half, and it is more than it looks. `Ed_Run`
+frees the clipboard, razes every program's undo ring, takes the menus down and
+writes `Edt_Runned`, all BEFORE `Prg_RunIt` is called. `Prg_DejaRunned` is the
+first thing inside. Ask to run a program that is already running and you still
+lose the clipboard and every undo in every window.
+
+The Test pass inside a run is not `Ed_VaTester`. `Prg_RunIt` calls `PTest`
+outright, with no `tst.b Prg_StModif(a6)` in front of it, so a Run tests a
+program that was tested a moment ago and clears the flag afterwards rather
+than reading it.
+
+`Ed_TestMessage` (:8578) is the patch table `Prg_RunIt` is handed in a2, and
+it is three `bra`s rather than three addresses. The first two put the
+"...Testing..." box up and take it down, and it only goes up for a program of
+4K or more. A test that FAILS never reaches the second, so the box stays and
+`Ed_Loop`'s `Ed_AllAverFin` (:933) is what clears it.
+
+DEFECT: `Ed_Run` ends `bra Ed_OMm`, which takes both of `Prg_RunIt`'s returns.
+A program that is already running reports "Out of memory." `Ed_RunHidden`
+sixty lines above tests d0 and says "Program already run." for the same state.
+
+The run itself is the host's: `Editor.runProgram` gets a `RunRequest` and the
+answer comes back through a separate call.
 
 ## Citations
 

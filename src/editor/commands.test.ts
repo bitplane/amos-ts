@@ -48,8 +48,8 @@ describe('the table', () => {
 
   it('says which commands are not ported rather than doing nothing', () => {
     const e = open()
-    expect(() => edCall(e, 77)).toThrow(/command 77 \(Ed_Run\) is not ported/)
-    expect(COMMANDS[77]).toBeUndefined()
+    expect(() => edCall(e, 145)).toThrow(/command 145 \(Ed_GoMonitor\) is not ported/)
+    expect(COMMANDS[145]).toBeUndefined()
   })
 
   it('has an entry for everything ED names', () => {
