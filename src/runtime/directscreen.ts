@@ -305,7 +305,12 @@ export class DirectScreen {
    * One keystroke at the escape screen.
    *
    * Return runs the line, Escape puts the screen away, backspace rubs a
-   * character out and anything from space up is echoed. Nothing is accepted
+   * character out and anything from space up is echoed.
+   *
+   * DEVIATION: `Esc_Esc` (+Edit.s:9124) is `Esc_Hide` and then `Ed_Appear`, so
+   * Escape here goes BACK TO THE EDITOR on the machine. This port has the
+   * first half and `src/editor` has nowhere to appear yet, so the screen just
+   * goes away and the stopped program's screens come back. Nothing is accepted
    * while a line is still running: AMOS types into one buffer (`Ed_BufT`) and
    * the line that is in it owns the interpreter until it ends.
    */

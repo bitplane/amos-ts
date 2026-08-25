@@ -53,15 +53,44 @@ Three things that look like they belong here do not:
   that a window does not. The commands over it are in `commands.ts`.
 - `indent.ts` — `Indent`, the two counters that decide every line's indent
   byte.
+- `config.ts` — `Ed_DConfig` and `AMOSPro_Editor_Config`: the block the editor
+  remembers between sessions, and the eight text blocks behind it.
 
-98 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+104 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
 that never were commands. What is left falls into groups rather than gaps: the
-interpreter (77, 111), the menus (73, 74, 135, 136, 179, 180), the config and
-the About boxes (137 to 142, 146 to 151), the ZAP remote control (69, 71, 182),
-the requesters that ask for one thing (26, 76, 83, 104), and the status bar's
-four arrows (13 to 16). `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of
-its own, and `Ed_Check1.3` (147) waits on a verdict this port's verifier does
-not keep.
+interpreter (77, 111), the menus (73, 74, 135, 136, 179, 180), Quit and the
+session file (82), the printer and the About boxes (86, 146, 148 to 151), the
+ZAP remote control (69, 71, 182), the requesters that ask for one thing (26,
+76, 83, 104), and the status bar's four arrows (13 to 16). `Ed_GoMonitor` (145)
+is +Monitor.s and 4,291 lines of its own, and `Ed_Check1.3` (147) waits on a
+verdict this port's verifier does not keep.
+
+## The configuration is a memory block with a length on the front
+
+`Ed_DConfig` is 1,202 contiguous bytes and the file is those bytes with their
+own length written in front of them, then eight length-prefixed text blocks.
+There are no field names on disc. `+Editor_Config.s:28` carries each offset as
+a comment beside its default, because the offset IS the format.
+
+The length is also the whole of the validation. `EdC_Load` compares it with
+`Ed_FConfig-Ed_DConfig` and refuses a mismatch, and looks at nothing else.
+`Ed_ConfigHead equ "ApCf"` is declared and used nowhere, and `Ed_Code` at 1198
+is the four characters "1.10" and read by nothing: the file has both a magic
+number and a version, and the loader ignores them.
+
+Reading the shipped `AMOSPro_Editor_Config` back out gives the five message
+tables this port generates from the assembler source, byte for byte, and three
+more it had no copy of: the menu programs, the user menus and the menu
+definitions.
+
+## A command can be a program
+
+`Ed_AutoLoad` is three bytes for each of the 184 commands, and `Ed_FCall`
+(:2610) tests the first before it reaches `JFonc` at all. The shipped
+configuration binds 37 commands to `AMOSPro_Help.AMOS`, and three of them are
+real editor commands: 152, 153 and 154. So Save As Name from a menu runs Help,
+and the same number from the ZAP remote control saves the program, because
+`.Prg` tests `Ed_Zappeuse` before it branches.
 
 ## The Test pass is not a syntax check
 

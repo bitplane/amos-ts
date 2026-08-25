@@ -65,6 +65,7 @@ const requester = (
   select: (_w, name) => name,
   pressKey,
   pickWindow: () => 0,
+  value: () => 0,
 })
 
 /** record `keys` under `key`, and keep it */

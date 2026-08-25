@@ -36,6 +36,7 @@
  * decide how many each window gets. Those are here.
  */
 import { Block } from './block'
+import { EditorConfig } from './config'
 import type { Edit } from './edit'
 import type { EditorFS } from './files'
 import type { Macro, MacroTape } from './macros'
@@ -52,6 +53,26 @@ const EDT_CHROME_SY = 11 + 5
 
 /** one text row, in pixels: every size in this file is `lsl.w #3` away from a count */
 const ROW_SY = 8
+
+/**
+ * One `Ed_AutoLoad` record: three bytes that replace a command with a program.
+ *
+ * `Ed_FCall` (:2612) tests the first byte and branches to `Ed_PrgCommand` when
+ * it is not zero, so what makes an entry live is its FLAGS and not its
+ * filename. Bit 0 loads the program into a hidden window, bit 2 reloads
+ * whatever was there when it finishes.
+ *
+ * `program` and `line` are 1-based numbers into the `Ed_MnPrograms` text
+ * block, and a `line` of 0 means the command line is the editor's current line
+ * from the cursor rather than a stored string (`.NoCom`, :7874).
+ */
+export interface PrgCommand {
+  /** the command that was asked for, 1-based */
+  command: number
+  flags: number
+  program: string
+  line: string | null
+}
 
 export class Editor {
   /**
@@ -76,8 +97,36 @@ export class Editor {
    */
   windowToDel: Edit | null = null
 
+  /**
+   * `Ed_Config(a5)` (+Equ.s:1671): the block ./config.ts reads and writes.
+   *
+   * `Ed_DConfig` is not a copy of the file, it IS the file: the editor works
+   * out of the block it loaded and `EdC_Save` writes it back where it lies.
+   * Every field below that a command can change is one of its offsets.
+   */
+  config = new EditorConfig()
+
+  /**
+   * `EdC_Changed(a5)` (+Equ.s:1706): 0 untouched, 1 the user changed it, 2 it
+   * came off disc.
+   *
+   * `EdC_Saved` (:4944) tests `cmp.b #1`, so a config that was LOADED is not
+   * offered for saving and one the user altered is. `Ed_DoQuit` reads the same
+   * byte through `Ed_QuitFlags` bit 1.
+   */
+  configChanged = 0
+
+  /** `Ed_AutoSaveRef(a5)`: when the autosave timer last fired, -1 to restart it */
+  autoSaveRef = 0
+
   /** `Ed_Sy` (+Editor_Config.s:31): the editor screen's height in pixels */
-  sy = 256
+  get sy(): number {
+    return this.config.sy
+  }
+
+  set sy(n: number) {
+    this.config.sy = n
+  }
 
   /** `Ed_Ty` (+Edit.s:394): how many text rows that is, over all windows */
   get ty(): number {
@@ -105,11 +154,17 @@ export class Editor {
   quit = false
 
   /**
-   * `Ed_QuitFlags(a5)`: bit 0 asks before quitting on the last window's close
-   * button (:11413), bit 1 saves the programs, bit 2 the config, bit 3 the
-   * macros.
+   * `Ed_QuitFlags`: bit 0 asks before quitting on the last window's close
+   * button (:11413), bit 1 saves the config, bit 2 the macros, bit 3 the list
+   * of open programs. The shipped default is 1.
    */
-  quitFlags = 0
+  get quitFlags(): number {
+    return this.config.quitFlags
+  }
+
+  set quitFlags(n: number) {
+    this.config.quitFlags = n
+  }
 
   /**
    * `Ed_Zappeuse(a5)`: the ZAP remote control is driving, so nothing may ask.
@@ -142,7 +197,13 @@ export class Editor {
   repBuf = ''
 
   /** `Ed_SchMode` (+Equ.s:1810), the four flag gadgets of ./search.ts's `SM` */
-  schMode = 0
+  get schMode(): number {
+    return this.config.schMode
+  }
+
+  set schMode(n: number) {
+    this.config.schMode = n
+  }
 
   /** `EdMa_List(a5)` (+Equ.s:1710): the macros, most recently made first */
   macros: Macro[] = []
@@ -207,7 +268,13 @@ export class Editor {
    * `Ed_SvBak` (+Editor_Config.s:46, default -1): rename the old file to
    * `.Bak` before saving over it.
    */
-  svBak = true
+  get svBak(): boolean {
+    return this.config.svBak
+  }
+
+  set svBak(v: boolean) {
+    this.config.svBak = v
+  }
 
   /**
    * DEVIATION: `DosBase`, which `D_Open` and `_LVORename` go through.
@@ -251,16 +318,40 @@ export class Editor {
   dialogues: EditorDialogues | null = null
 
   /**
+   * DEVIATION: `Ed_PrgCommand` (+Edit.s:7868), which loads an AMOS program and
+   * runs it in place of the command that was asked for.
+   *
+   * `Ed_AutoLoad` binds any of the 184 commands to a program, and the shipped
+   * config binds 37 of them to `AMOSPro_Help.AMOS`. Running one needs the
+   * interpreter, so this port makes the DECISION and hands what it decided to
+   * the host; null means nothing happens and the command is still refused,
+   * which is what a machine with the accessory missing does.
+   */
+  prgCommand: ((cmd: PrgCommand) => void) | null = null
+
+  /**
    * `Ed_Insert` (+Editor_Config.s:90, default -1): insert rather than
    * overwrite.
    *
-   * Config, so one flag for the editor. Flip it in one half of a split view
-   * and the other half flips too.
+   * Config, so one flag for the whole editor. Flip it in one half of a split
+   * view and the other half flips too.
    */
-  insert = true
+  get insert(): boolean {
+    return this.config.insert
+  }
+
+  set insert(v: boolean) {
+    this.config.insert = v
+  }
 
   /** `Ed_Tabs` (+Editor_Config.s:59): three spaces */
-  tabs = 3
+  get tabs(): number {
+    return this.config.tabs
+  }
+
+  set tabs(n: number) {
+    this.config.tabs = n
+  }
 
   /**
    * `T_Actualise`'s `BitControl` (+Equ.s:827): Ctrl-C is down.

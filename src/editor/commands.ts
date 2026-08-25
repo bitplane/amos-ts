@@ -57,7 +57,8 @@ import {
   type KeyLong,
 } from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
-import type { Editor } from './windows'
+import { CFG, messages, readConfig, writeConfig } from './config'
+import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
   EMPTY_BANKS,
@@ -159,6 +160,12 @@ export const ED = {
   PROC_OPEN: 87,
   PROCS_OPEN: 89,
   PROCS_CLOSE: 90,
+  CONFIG_SAVE_DEFAULT: 137,
+  CONFIG_SAVE_AS: 138,
+  CONFIG_LOAD_DEFAULT: 139,
+  CONFIG_LOAD_AS: 140,
+  QUIT_OPTIONS: 141,
+  SET_AUTOSAVE: 142,
 } as const
 
 /**
@@ -2411,6 +2418,134 @@ function testCmd(e: Edit): void {
   throw new EditorAlert(197) // Ed_Al100, "No errors"
 }
 
+/* ---- 137 to 142: the configuration -------------------------------------- */
+
+/**
+ * `Sys_GetMessage 7` (+Interpreter_Config.s:113), which is where the default
+ * config is written and read.
+ *
+ * DEVIATION: the machine takes it from `Sys_Messages`, the INTERPRETER's text
+ * block, and this port has not generated that one. The macro commands take
+ * their filename from `Ed_Systeme` message 46, which is generated, so the two
+ * defaults do not come from the same place here.
+ */
+const CONFIG_NAME = 'AMOSPro_Editor_Config'
+
+/** `EdC_LoadIt` (:4915) */
+function configLoad(e: Edit): void {
+  const fs = disc(e)
+  const bytes = fs.readFile(e.name1)
+  if (bytes === null) throw new EditorAlert(139) // .Err, "Cannot load configuration."
+  const r = readConfig(bytes)
+  if (r.error !== CFG.OK) throw new EditorAlert(139)
+  e.editor.config = r.config!
+  // `EdC_Redraw` (:4933) takes the whole editor down and opens it again, with
+  // `EdC_Modified` raised so `Ed_OpenIt` reconciles the window heights against
+  // the new `Ed_Sy`. Nothing here draws, so what is left of it is the sizes
+  const now = e.editor.current
+  if (now !== null) now.windTy = e.editor.maxSize(now, -1)
+  drawWindows(e.editor)
+}
+
+/** `EdC_SaveIt` (:4878) */
+function configSave(e: Edit): void {
+  const fs = disc(e)
+  if (!fs.writeFile(e.name1, writeConfig(e.editor.config))) throw new EditorAlert(139)
+  e.editor.configChanged = 0
+}
+
+/**
+ * `EdC_Saved` (:4944): offer to save a config the USER changed.
+ *
+ * `cmp.b #1,EdC_Changed(a5)` and nothing else, so a config that was loaded
+ * from a file carries 2 and is never offered. Only `Ed_QuitOptions` and
+ * `Ed_SetAutoSave` write the 1.
+ */
+function configSaved(e: Edit): void {
+  if (e.editor.configChanged !== 1) return
+  const answer = confirm(e, { which: 46 }) // EdD_CSaved
+  if (answer === 2) return
+  if (answer !== 1) throw new EditorAlert(206)
+  configSaveAs(e)
+}
+
+/** `EdC_SaveAs` (:4871) */
+function configSaveAs(e: Edit): void {
+  if (!selectFile(e, 130)) notDone(e)
+  saveOver(e, disc(e))
+  configSave(e)
+}
+
+/**
+ * `Ed_QuitOptions` (:4555): the four quit flags, as four gadgets.
+ *
+ * `Dia_SetVFlags` puts the byte into the requester and `Dia_GetVFlags` takes
+ * it back out, so the requester's answer IS `Ed_QuitFlags`. A cancel goes to
+ * `Ed_Loca` rather than `Ed_NotDone`, so there is no message either way.
+ */
+function quitOptions(e: Edit): void {
+  e.tokCur()
+  if (e.dialogues === null) return
+  const answer = e.dialogues.confirm({ which: 49, count: e.editor.quitFlags }) // EdD_OQuit
+  if (answer < 0) return
+  e.editor.quitFlags = answer
+  e.editor.configChanged = 1
+}
+
+/**
+ * `Ed_SetAutoSave` (:5355): how many minutes between autosaves.
+ *
+ * The minutes are kept in `Ed_AutoSaveMn` and the interval is worked out from
+ * them in VERTICAL BLANKS, `minutes * 60 * 50` on a PAL machine and `* 60` on
+ * an NTSC one. Only this command does that sum, so a config written on one and
+ * loaded on the other keeps the frame count it was given.
+ *
+ * DEVIATION: `EcCall NTSC` asks the display. This port has no editor screen to
+ * ask, so it takes PAL, which is what the machines these files came off were.
+ */
+function setAutoSave(e: Edit): void {
+  e.tokCur()
+  if (e.dialogues === null) notDone(e)
+  const answer = e.dialogues.confirm({ which: 48, count: e.editor.config.autoSaveMn }) // EdD_ASave
+  if (answer !== 1) notDone(e)
+  const minutes = e.dialogues.value(1)
+  if (minutes === e.editor.config.autoSaveMn) return
+  e.editor.config.autoSaveMn = minutes
+  e.editor.config.autoSave = minutes * 50 * 60
+  e.editor.autoSaveRef = -1
+  e.editor.configChanged = 1
+}
+
+/**
+ * `Ed_FCall`'s `.Prg` arm (:2612): the command has a program bound to it.
+ *
+ * `Ed_AutoLoad` holds three bytes for each of the 184 commands and the first
+ * of them being non-zero is what makes the entry live. The shipped config
+ * binds 37 commands to `AMOSPro_Help.AMOS`, and three of those -- 152, 153 and
+ * 154 -- are real editor commands, so Save As Name from a MENU runs Help and
+ * the same number from the ZAP remote control saves the program. `.Prg` tests
+ * `Ed_Zappeuse` before it branches, and that is the whole of the difference.
+ *
+ * A macro being recorded takes the same exit as the ZAP: `tst.w EdMa_Tape(a5)
+ * / beq Ed_PrgCommand` falls through to `.NoMacro` when one is running, so a
+ * bound command cannot be taped either.
+ */
+function autoLoad(e: Edit, cmd: number): PrgCommand | null {
+  if (e.editor.zappeuse) return null
+  const at = (cmd - 1) * 3
+  const table = e.editor.config.autoLoad
+  const flags = table[at]
+  if (flags === undefined || flags === 0) return null
+  const list = messages(e.editor.config.texts.programs)
+  const name = (n: number): string | null => (n === 0 ? null : (list[n - 1] ?? null))
+  return {
+    command: cmd,
+    flags,
+    program: name(table[at + 1]!) ?? '',
+    line: name(table[at + 2]!),
+  }
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -2603,6 +2738,37 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),
+  137: (e) => {
+    // EdC_SaveDefault (:4857), which asks first
+    e.tokCur()
+    if (confirm(e, { which: 45 }) !== 1) notDone(e) // EdD_SvConf
+    e.name1 = addPath(e, CONFIG_NAME)
+    configSave(e)
+  },
+  138: (e) => {
+    // EdC_SaveAs (:4871)
+    e.tokCur()
+    configSaveAs(e)
+  },
+  139: (e) => {
+    // EdC_LoadDefault (:4893)
+    e.tokCur()
+    configSaved(e)
+    e.name1 = addPath(e, CONFIG_NAME)
+    configLoad(e)
+    // `move.b #2,EdC_Changed(a5)`: loaded, so never offered for saving
+    e.editor.configChanged = 2
+  },
+  140: (e) => {
+    // EdC_LoadAs (:4905)
+    e.tokCur()
+    configSaved(e)
+    if (!selectFile(e, 134)) notDone(e)
+    configLoad(e)
+    e.editor.configChanged = 2
+  },
+  141: quitOptions,
+  142: setAutoSave,
   91: prevWindow,
   92: nextWindow,
   93: flipSizeWindow,
@@ -2742,6 +2908,15 @@ export function edCall(e: Edit, cmd: number, param = 0): number {
     call = HIDDEN_CALL + (n % 3)
     arg = Math.floor(n / 3) + e.editor.posHidden
   }
+  // `.Fonc` (:2610): a command with a program bound to it never reaches the
+  // table, and the branch is above the macro test rather than below it
+  const bound = cmd < HIDDEN_COMMANDS ? autoLoad(e, cmd) : null
+  if (bound !== null && e.macroTape === null) {
+    clearAlert(e)
+    e.callFlags = flags
+    e.editor.prgCommand?.(bound)
+    return 0
+  }
   const fn = COMMANDS[call]
   if (fn === undefined) throw new RangeError(`editor command ${call} (${routineOf(call)}) is not ported`)
   if (e.macroTape !== null && (flags & FLAG.MACRO) === 0) {
@@ -2749,8 +2924,7 @@ export function edCall(e: Edit, cmd: number, param = 0): number {
     // the refusal rewinds over it. The command does not run, `Ed_SCallFlags`
     // is not written, and `bra Ed_Loop` is the end of it
     e.macroTape.at -= 3
-    e.alert = 0
-    e.alertTime = 0
+    clearAlert(e)
     confirm(e, { which: 15 }) // EdD_Macro3, "This function cannot be used in a macro!"
     return 0
   }
@@ -2855,9 +3029,14 @@ const inkey = (k: EdKey): KeyLong => ({
  * alert here is a message and not a failure. Anything else thrown is a defect
  * in this port and goes up.
  */
-function run(e: Edit, fn: () => void): number {
+/** what `Ed_Loop` clears before it lets a command run */
+function clearAlert(e: Edit): void {
   e.alert = 0
   e.alertTime = 0
+}
+
+function run(e: Edit, fn: () => void): number {
+  clearAlert(e)
   e.diskError = -1
   e.testError = -1
   try {

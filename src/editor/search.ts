@@ -272,4 +272,11 @@ export interface EditorDialogues {
    * Ed_NotDone` guards around the click come to.
    */
   pickWindow(): number
+  /**
+   * `Dia_GetValue` (+Lib.s:24312): a number the user typed into a requester.
+   *
+   * `Ed_SetAutoSave` (:5364) is the only caller in the editor and it asks for
+   * gadget 1 of dialogue 3. `which` is that gadget number.
+   */
+  value(which: number): number
 }

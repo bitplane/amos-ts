@@ -64,6 +64,7 @@ const requester = (
   select: (_w, name) => name,
   pressKey: () => 0,
   pickWindow,
+  value: () => 0,
 })
 
 /** a saved .AMOS of `text`, in RAM: */
