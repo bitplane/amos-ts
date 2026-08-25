@@ -40,7 +40,7 @@ describe('user copper instructions (TCop* +W.s:6815-6935)', () => {
     expect(out).toBe(' 384\n 3840\n 25603\n 65534\n')
   })
 
-  it('a runaway list faults at the 12KB buffer, like the real machine (CopEr2 +W.s:6905, 12*1024 config)', () => {
+  it('a runaway list faults at the 12KB buffer, like the real machine (CopEr2 +W.s:6876, 12*1024 config)', () => {
     // Multi_Rainbows springs this when its data file is missing: its list
     // walker runs off the end of a zeroed bank writing Cop Move forever
     const src = ['Copper Off', 'Do', ' Cop Move 0,0', 'Loop'].join('\n')
@@ -264,7 +264,7 @@ describe('copper registers persist across frames, as the hardware\'s do', () => 
 })
 
 
-describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5955)', () => {
+describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5926)', () => {
   /**
    * MkA8 drops a window whose stored start boundary (EcWY-1) is above
    * EcYStrt-1 (+Equ.s:575, EcYBase+26) or at/below T_EcYMax-2 (+W.s:2476,
@@ -326,7 +326,7 @@ describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5
    * physical one, so copLogic is the frame before.
    *
    * wait() truncates the line to eight bits and emits the $FFDF crossing
-   * once before the first line past 255 (TCopWt +W.s:6884), so reading a
+   * once before the first line past 255 (TCopWt +W.s:6855), so reading a
    * line back means putting the high bit on again.
    */
   const waits = (rt: Runtime): number[] => {
@@ -354,7 +354,7 @@ describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5
     expect(waits(strip(310))).not.toContain(309)
   })
 
-  it('the end band is still written when the start band was dropped (MkA9 +W.s:5967)', () => {
+  it('the end band is still written when the start band was dropped (MkA9 +W.s:5938)', () => {
     // the boundary list is built either way and MkA9 walks it independently
     // of MkA8, so a window above the raster leaves an end marker and no
     // start. Its own top test (MkA9a) only spares a window that ends up
@@ -610,7 +610,7 @@ describe('sprites under a user copper list', () => {
   })
 })
 
-describe('the hardware sprite multiplexer (HsAff +W.s:11742)', () => {
+describe('the hardware sprite multiplexer (HsAff +W.s:11713)', () => {
   const rt = (): Runtime => new Runtime(tokenize('Screen Open 0,320,200,16,Lowres', table), table, { maxSteps: 100_000 })
 
   const load = (r: Runtime): void => {
@@ -769,7 +769,7 @@ describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5967)', ()
       const w1 = word(l, p)
       const w2 = word(l, p + 2)
       if (w1 === 0xffff && w2 === 0xfffe) break
-      // the line-255 crossing marker (TCopWt +W.s:6884); waits after it carry
+      // the line-255 crossing marker (TCopWt +W.s:6855); waits after it carry
       // only the low byte of the line
       if (w1 === 0xffdf) cross = 256
       else if (w1 & 1) lastWait = ((w1 >> 8) & 0xff) + cross

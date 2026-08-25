@@ -18,7 +18,7 @@
  * `Es_BoutonsSx`, then thirteen 32x16 buttons from `Es_BoutonsX` with the
  * DIRECT one forced to x=0 and the WB one to the right edge.
  *
- * The buttons work. `Esc_Bouton` (+Edit.s:8982) counts `Bt_Number` down: 1
+ * The buttons work. `Esc_Bouton` (+Edit.s:8955) counts `Bt_Number` down: 1
  * closes, 2 is `Ed_Wb`, 3 stores the OUT toggle and 4 upward are the ten
  * function keys, plus ten more on the right mouse button.
  *
@@ -44,10 +44,10 @@ const HEIGHT = 256
 /** what is left for text between the title strip and the bar at its foot */
 const ROWS = (HEIGHT - 16 - 8) / 8
 
-/** Es_TitleSy (+Edit.s:134): the bar the logo and the buttons sit in */
+/** Es_TitleSy (+Edit.s:107): the bar the logo and the buttons sit in */
 const TITLE_H = 16
 
-/** Es_BoutonsSx (+Edit.s:128); Es_BoutonsSy is 16, the height of the bar */
+/** Es_BoutonsSx (+Edit.s:101); Es_BoutonsSy is 16, the height of the bar */
 const BUTTON_W = 32
 
 /** Es_Pics+2, the 480x8 bar Ed_Unpack lays under the text (+Edit.s:9463) */
@@ -59,13 +59,13 @@ const BUTTONS = 13
 /**
  * What the ten function keys type, and whether they press Return after it.
  *
- * `Esc_BtFonc` (+Edit.s:9179) reads system message `24 + n` and copies it into
+ * `Esc_BtFonc` (+Edit.s:9152) reads system message `24 + n` and copies it into
  * the line editor, stopping at a backtick, which it strips. A message that HAD
  * one falls through to `Esc_R` --- the Return path --- and one that did not
  * goes back to the loop with the text sitting in the line, waiting to be
  * finished. That is why half of them end in an open quote.
  *
- * `Ed_GetSysteme` is 1-based (GetMessage +B.s:590), so message 24 is
+ * `Ed_GetSysteme` is 1-based (GetMessage +B.s:562), so message 24 is
  * ED_SYSTEME[23]: F1 is ListBank and Shift-F10 is System.
  */
 const FKEY_BASE = 23
@@ -124,7 +124,7 @@ export class DirectScreen {
   } | null = null
   private line = ''
   /**
-   * `Esc_Output` (+Equ.s:1840), the OUT button's remembered position.
+   * `Esc_Output` (+Equ.s:1812), the OUT button's remembered position.
    *
    * DEFECT: the machine's own. The only two instructions that touch it are the
    * button writing its own state into it (+Edit.s:8994) and `Esc_BtGetOutput`
@@ -182,7 +182,7 @@ export class DirectScreen {
     // runs down
     // x and y are PIXELS here, columns and rows are characters
     const w = s.windOpen(1, 0, TITLE_H, WIDTH / 8 - 2, ROWS, 0)
-    // Wo3a (+W.s:13735) gives a fresh window paper 1, pen 2 and cursor colour
+    // Wo3a (+W.s:13706) gives a fresh window paper 1, pen 2 and cursor colour
     // 3; the ground here is the black Ed_ColB sets rather than paper 1.
     //
     // The cursor does NOT flash, and that is the machine's answer rather than
@@ -190,7 +190,7 @@ export class DirectScreen {
     // plane (+Lib.s:8989) and the window cursor is drawn in that register, so
     // a PROGRAM's cursor fades --- but the editor opens its screens through
     // the screen library rather than through the instruction, and the word
-    // Flash does not appear in +Edit.s once. `LEd_CuMarche` (+Lib.s:19810)
+    // Flash does not appear in +Edit.s once. `LEd_CuMarche` (+Lib.s:19781)
     // prints ESC "C1", the ordinary Curs On, so direct mode gets an ordinary
     // solid block while the program behind it keeps its fading one.
     w.paper = 0
@@ -364,7 +364,7 @@ export class DirectScreen {
   }
 
   /**
-   * One of the thirteen buttons (Esc_Bouton +Edit.s:8982).
+   * One of the thirteen buttons (Esc_Bouton +Edit.s:8955).
    *
    * `Bt_Number` counts from 1, and the routine walks it down: 1 is
    * `Esc_Esc`, 2 is `Ed_Wb`, 3 stores the OUT toggle, and everything from 4
@@ -378,7 +378,7 @@ export class DirectScreen {
       return
     }
     if (n === 2) {
-      // Ed_Wb (+Edit.s:11228) is `EcCalD AMOS_WB,0`, which is the same call
+      // Ed_Wb (+Edit.s:11201) is `EcCalD AMOS_WB,0`, which is the same call
       // InAmosToBack makes (+Lib.s:11367)
       this.rt.amosToBack()
       return

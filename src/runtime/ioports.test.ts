@@ -27,7 +27,7 @@ function run(src: string): { rt: Runtime; out: string } {
 
 describe('IOPorts: the shared device layer (Dev.*, +Lib.s:3068-3260)', () => {
   it('touching a closed device is error 141, not a quiet "not ready"', () => {
-    // Dev.GetIO (+Lib.s:3178) is reached by every keyword including the
+    // Dev.GetIO (+Lib.s:3149) is reached by every keyword including the
     // Check and Status functions, so a closed port raises rather than
     // reporting. This is the one I would have got wrong from the manual.
     expect(() => run('A=Parallel Status')).toThrow(/Device not opened/)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { joker, matchesJoker } from './joker'
 
 /**
- * `Joker` (+Lib.s:6631). Every case below is read off the routine rather
+ * `Joker` (+Lib.s:6602). Every case below is read off the routine rather
  * than off any manual — the AMOS Professional manual documents `*` and `?`
  * for `Dir` and says nothing about what either does around a dot, nothing
  * about `/`, and nothing about `#`.

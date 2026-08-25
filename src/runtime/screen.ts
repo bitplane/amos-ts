@@ -6,7 +6,7 @@ import { rowBytesFor } from '../amiga/planar'
 import { BitMap, RastPort, type ClipRect } from '../amiga/graphics'
 import type { MultiZoneTable, Zone } from './objects'
 
-// ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
+// ---- text-border glyphs (TEncadre +W.s:16696) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those
 // bitmaps are not the ROM font's: AMOS pokes them over codes 0-31 and
 // 128-159 from bin/+WFont.bin (+W.s:9640-9647), and genfont.ts bakes that
@@ -35,7 +35,7 @@ export const DEFAULT_PALETTE = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]
 
-/** the default cursor shape: an underline (DefCurs +W.s:16736) */
+/** the default cursor shape: an underline (DefCurs +W.s:16707) */
 export const CURSOR_SHAPE = [0, 0, 0, 0, 0, 0, 0xff, 0xff]
 
 /** A text window (WOpen): a character grid with its own console state. */
@@ -61,11 +61,11 @@ export interface Wind {
   /**
    * WiCuDraw: the cursor shape, eight bytes top row first, per window. WOpen
    * resets it to DefCurs rather than inheriting it (+W.s:13772-13778), and
-   * Set Curs writes it for the current window only (WiSCur +W.s:14098).
+   * Set Curs writes it for the current window only (WiSCur +W.s:14069).
    */
   curDraw: Uint8Array
   /**
-   * WiFont (+Equ.s:686, `WiFont equ WiNext+4` — offset 8 into the window):
+   * WiFont (+Equ.s:658, `WiFont equ WiNext+4` — offset 8 into the window):
    * the 8x8 charset the CONSOLE prints with, 8 bytes a character indexed
    * straight by the byte, 2KB for the 256 of them.
    *
@@ -102,7 +102,7 @@ export interface Wind {
 
 /**
  * Built-in fill patterns (positive Set Pattern / Set Slider numbers). On the
- * Amiga these live in the system mouse bank (SPat +W.s:4722), which the
+ * Amiga these live in the system mouse bank (SPat +W.s:4693), which the
  * runtime loads (fixtures/machine); these classic dithers only stand in
  * when no mouse bank was provided.
  */
@@ -113,7 +113,7 @@ export function builtinPattern(n: number): Uint16Array | null {
 }
 
 /**
- * SliPour (+W.s:5159): knob offset/length within a span, in the original
+ * SliPour (+W.s:5130): knob offset/length within a span, in the original
  * fixed-point ladder (×65536, ×256, ×1 depending on magnitudes), knob at
  * least 4px, clamped to the span, snapped to the far end when
  * pos+size >= total.
@@ -246,11 +246,11 @@ export class Screen {
   }
   /**
    * EcAuto, which `Autoback n` writes raw (`move.w d3,EcAuto(a0)`,
-   * InAutoback +Lib.s:9546).
+   * InAutoback +Lib.s:9517).
    *
    *   0  nothing: draw into the logical buffer and leave it there
    *   1  repeat the operation with the rastport pointed at the physical
-   *      buffer, so both hold the same picture (TAbk2A +W.s:3594)
+   *      buffer, so both hold the same picture (TAbk2A +W.s:3565)
    *   2  the same, plus a bob erase before and a redraw after (TAbk1/TAbk4)
    *
    * A screen opens with 0 and `Double Buffer` writes 2 (+W.s:2798). Every
@@ -281,7 +281,7 @@ export class Screen {
   }
   visible = true
   /**
-   * EcCon2's two playfield-priority fields (HsPri +W.s:11374). PF1P is bits
+   * EcCon2's two playfield-priority fields (HsPri +W.s:11345). PF1P is bits
    * 0-2, PF2P bits 3-5; EcCree starts both at 4, every sprite pair in front.
    * These live on the screen, not the machine — two screens on the same
    * display can order sprites against their playfields differently.
@@ -320,12 +320,12 @@ export class Screen {
   offsetX = 0
   offsetY = 0
   /**
-   * EcAZones/EcNZones (+Equ.s:529-530) — the zone table, and it belongs to
+   * EcAZones/EcNZones (+Equ.s:501-502) — the zone table, and it belongs to
    * the SCREEN, not to the machine.
    *
    * `Reserve Zone` allocates `n*8` bytes and hangs them off the current
-   * screen (SyResZ +W.s:11066); `Set Zone` writes four words into
-   * `EcAZones + (n-1)*8` of the current screen (SySetZ +W.s:11119); and
+   * screen (SyResZ +W.s:11037); `Set Zone` writes four words into
+   * `EcAZones + (n-1)*8` of the current screen (SySetZ +W.s:11090); and
    * `Zone()`, `Hzone()` and `Mouse Zone` all reach GZone (+W.s:11197), which
    * walks the table of the screen it was handed. A single global table was
    * this port's own simplification and `mouse zone` carried a note saying so
@@ -354,7 +354,7 @@ export class Screen {
    */
   multiZones: MultiZoneTable | null = null
   /**
-   * SyResZ (+W.s:11066) — throw the zone table away and allocate `n` records.
+   * SyResZ (+W.s:11037) — throw the zone table away and allocate `n` records.
    *
    * The two fields change together and that is the whole point of the method:
    * on the machine they are one allocation, so anything that reallocates
@@ -447,8 +447,8 @@ export class Screen {
   /**
    * The text cursor lives IN the bitmap, as it does on the machine.
    *
-   * AffCur (+W.s:13604) writes the cursor shape into the bitplanes and saves
-   * the eight bytes per plane it covered; EffCur (+W.s:13642) puts them back.
+   * AffCur (+W.s:13575) writes the cursor shape into the bitplanes and saves
+   * the eight bytes per plane it covered; EffCur (+W.s:13613) puts them back.
    * The pair brackets every console operation — 32 call sites in W.s — so
    * between them the cursor is part of the picture.
    *
@@ -465,7 +465,7 @@ export class Screen {
    * graphics and the next console operation restores the old eight bytes.
    *
    * Curs Off is clean, and the reason is worth recording because reading
-   * `Curs` (+W.s:14818) alone says otherwise: it only clears the WiSys bit,
+   * `Curs` (+W.s:14789) alone says otherwise: it only clears the WiSys bit,
    * and EffCur is gated on that same bit, so it looks as though switching the
    * cursor off while it is displayed would strand it. It does not, because
    * Curs Off IS the escape ESC "C0" and every character goes through WOutC
@@ -484,7 +484,7 @@ export class Screen {
     this.rp.drawMode = v
   }
   /**
-   * Set Slider state (SliSet +W.s:5246), per screen: frame inks A/B/C +
+   * Set Slider state (SliSet +W.s:5217), per screen: frame inks A/B/C +
    * pattern, inner (knob) inks + pattern. Defaults from screen creation
    * (+W.s:3098-3109): frame/inner A,B = paper, C = pen, patterns 2 and 1.
    */
@@ -808,7 +808,7 @@ export class Screen {
   }
 
   /**
-   * InBox (+Lib.s:9702): ONE PolyDraw starting just below the top-left
+   * InBox (+Lib.s:9673): ONE PolyDraw starting just below the top-left
    * corner — the Set Line dash pattern runs continuously around the box
    * and the start corner pixel is not double-drawn.
    */
@@ -908,7 +908,7 @@ export class Screen {
   }
 
   /**
-   * Filled polygon (InPolygon +ILib.s:5535 → InitArea/AreaEnd): scanline
+   * Filled polygon (InPolygon +ILib.s:5506 → InitArea/AreaEnd): scanline
    * fill in the ink/pattern, auto-closed, with an outline in the border pen
    * when Set Paint is on. Vertices are [x,y] pairs.
    */
@@ -969,7 +969,7 @@ export class Screen {
    * Paint x,y[,mode] — flood fill (TPaint, +W.s:4333).
    *
    * The fill runs over a mask, never over the screen. TPaint blits one into a
-   * tempras first (PMask, +W.s:4657, under the comment "Met a UN toutes les
+   * tempras first (PMask, +W.s:4628, under the comment "Met a UN toutes les
    * couleurs AUTRES" — set to ONE every colour *other* than the seed's), then
    * walks it: `btst d7,(a0)` at Pnt3/Pnt5 asks whether a pixel is available
    * and `bset d7,(a0)` at Pnt7 marks it done. The comparison colour is always
@@ -1053,7 +1053,7 @@ export class Screen {
   }
 
   /**
-   * Cls c[,region] (EcCls +W.s:3660): clears the screen or a pixel region.
+   * Cls c[,region] (EcCls +W.s:3631): clears the screen or a pixel region.
    * It does NOT home the text cursor — only Clw (Cls with no argument) does.
    */
   cls(c = this.paper, x1 = 0, y1 = 0, x2 = this.width - 1, y2 = this.height - 1): void {
@@ -1177,7 +1177,7 @@ export class Screen {
      * JAM2 fills the character cell, and JAM2 is the default.
      *
      * `Text` is graphics.library's Text through the screen's RastPort
-     * (InText +Lib.s:9849 -> GfxFunc), so it obeys rp_DrawMode, and screen
+     * (InText +Lib.s:9820 -> GfxFunc), so it obeys rp_DrawMode, and screen
      * creation sets that: `move.b #1,EcMode(a4)` then `SetDrMd` with it
      * (+W.s:3080-3091). One is JAM2. `Gr Writing n` (+Lib.s:10090) passes n
      * straight to SetDrMd and nothing else touches it, and the menu code
@@ -1292,7 +1292,7 @@ export class Screen {
             ti += 2
             break
           case 'E':
-            // Encadre (+W.s:15169): 0 stores the border start, a style
+            // Encadre (+W.s:15140): 0 stores the border start, a style
             // number draws the box around the printed text
             if (arg(1) === 0) {
               this.encX = w.curX
@@ -1303,7 +1303,7 @@ export class Screen {
             ti += 2
             break
           /*
-           * A text zone, from `Zone$(text$,n)` (FnZoneD +Lib.s:14167).
+           * A text zone, from `Zone$(text$,n)` (FnZoneD +Lib.s:14138).
            *
            * The tag is printed on both sides of the text: the first marks
            * where the zone starts, the second closes it over everything
@@ -1427,7 +1427,7 @@ export class Screen {
           this.curY = 0
           break
         // window scrolls (+W.s:16588-16595): Hscroll/Vscroll print these
-        case 16: // cursor line one character left (ScGLine +W.s:14541)
+        case 16: // cursor line one character left (ScGLine +W.s:14512)
           this.winHScroll(-1, true)
           break
         case 17: // whole window left (ScGWi)
@@ -1476,7 +1476,7 @@ export class Screen {
   }
 
   /**
-   * AffCur (+W.s:13604): draw the cursor into the bitmap and save what it
+   * AffCur (+W.s:13575): draw the cursor into the bitmap and save what it
    * covered. Per plane, the cursor colour's bit decides OR (set) or AND-NOT
    * (clear) — AfC2/AfC3 shift WiCuCol right one bit per plane.
    */
@@ -1512,7 +1512,7 @@ export class Screen {
   }
 
   /**
-   * EffCur (+W.s:13642): put back the bytes AffCur saved. Gated on the cursor
+   * EffCur (+W.s:13613): put back the bytes AffCur saved. Gated on the cursor
    * flag exactly as the 68k is, which is why Curs Off freezes the cursor into
    * the bitmap instead of erasing it.
    */
@@ -1534,9 +1534,9 @@ export class Screen {
    * erase every bob, draw, then recompute and redraw them.
    *
    * Nearly everything that marks the screen goes through this. `GfxF0`
-   * (+Lib.s:11286) wraps the graphics primitives, `AutoPrt` (+W.s:15523)
+   * (+Lib.s:11286) wraps the graphics primitives, `AutoPrt` (+W.s:15494)
    * wraps text, `EcCls` (+W.s:3690) wraps Cls, `TPatch` (+W.s:877) wraps
-   * Paste Bob and `ScrF1` (+Lib.s:10232) wraps the scrolls. Each tests
+   * Paste Bob and `ScrF1` (+Lib.s:10203) wraps the scrolls. Each tests
    * `EcAuto` first and takes a plain call when it is zero.
    *
    * What it buys is that a bob's saved background is always the screen as the
@@ -1635,7 +1635,7 @@ export class Screen {
   private consoleDepth = 0
 
   /**
-   * Set Curs (InSetCurs +Lib.s:13261 -> WiSCur +W.s:14098): eight bytes into
+   * Set Curs (InSetCurs +Lib.s:13232 -> WiSCur +W.s:14069): eight bytes into
    * the current window's WiCuDraw, bracketed by EffCur/AffCur so the shape
    * that is on screen changes with it. The 68k takes the arguments as
    * longwords and stores them with move.b, so each is simply truncated.
@@ -1647,7 +1647,7 @@ export class Screen {
   }
 
   /**
-   * Loca (+W.s:15364): coordinates outside the window's text area raise
+   * Loca (+W.s:15335): coordinates outside the window's text area raise
    * window error 16 -> "Illegal text window parameter" (error 60).
    */
   locate(x: number, y: number): void {
@@ -1835,7 +1835,7 @@ export class Screen {
   /**
    * Clear a run of character cells on one text row, in the window's paper.
    *
-   * The shape ClEol, ClLine and Clw all share: `ClFin` (+W.s:14503) takes a
+   * The shape ClEol, ClLine and Clw all share: `ClFin` (+W.s:14474) takes a
    * start address, a height in pixels and a WIDTH IN CHARACTERS, and the three
    * callers differ only in what they pass. A character is eight pixels, so a
    * character count is a byte count in every plane.
@@ -1858,10 +1858,10 @@ export class Screen {
   }
 
   /**
-   * ClEol (+W.s:14452) — clear from the cursor to the right edge of the line.
+   * ClEol (+W.s:14423) — clear from the cursor to the right edge of the line.
    *
    * The count it passes to ClFin is `WiX`, which is NOT the cursor column:
-   * `AdCurs` (+W.s:15601) derives the column as `WiTx - WiX`, `CRight`
+   * `AdCurs` (+W.s:15572) derives the column as `WiTx - WiX`, `CRight`
    * DECREMENTS it, and `Home` sets it to `WiTx`. So WiX is the number of
    * cells from the cursor to the right edge, the cursor's own included, and
    * passing it is exactly a clear-to-end-of-line.
@@ -1874,7 +1874,7 @@ export class Screen {
     this.console(() => this.clRun(this.curWin.curY, this.curWin.curX, this.curWin.cols))
   }
 
-  /** ClLine (+W.s:14495) — the whole cursor line, cursor left where it is */
+  /** ClLine (+W.s:14466) — the whole cursor line, cursor left where it is */
   clLine(): void {
     this.console(() => this.clRun(this.curWin.curY, 0, this.curWin.cols))
   }

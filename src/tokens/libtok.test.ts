@@ -28,7 +28,7 @@ describe('parseTokenTable', () => {
   /**
    * A spec ends at the first NEGATIVE byte, so a $00 terminates nothing and an
    * entry missing its `-1` swallows the next one. Not a tolerance we chose:
-   * `Ver_Ech` (+Verif.s:5259) advances with `tst.b (a0)+ / bpl`.
+   * `Ver_Ech` (+Verif.s:5231) advances with `tst.b (a0)+ / bpl`.
    *
    * AMOSPro_Range.Lib is the real case, and the differential below is what
    * shows it is real. This is the same shape in forty bytes, because a

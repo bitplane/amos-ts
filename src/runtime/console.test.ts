@@ -47,7 +47,7 @@ describe('console cursor movement', () => {
     expect(screen(rt).cursorOn).toBe(true)
     ;({ rt } = run('Curs On : Curs Off'))
     expect(screen(rt).cursorOn).toBe(false)
-    // InCursPen +Lib.s:13330 stores the cursor colour in WiCuCol
+    // InCursPen +Lib.s:13301 stores the cursor colour in WiCuCol
     ;({ rt } = run('Locate 3,3 : Curs Pen 2'))
     expect(screen(rt).curWin.cuCol).toBe(2)
     expect([screen(rt).curX, screen(rt).curY]).toEqual([3, 3])
@@ -269,7 +269,7 @@ describe('input state', () => {
   })
 
   it('Input$(n) waits for n printable keys, drops the rest, and echoes nothing', () => {
-    // FnInputD1 +Lib.s:4695 loops on Inkey until it has n bytes, skipping
+    // FnInputD1 +Lib.s:4666 loops on Inkey until it has n bytes, skipping
     // anything below space (`cmp.b #32,d1 / bcs.s FInp1a`). It never writes to
     // the console, so what the typist sees is nothing at all.
     let printed = ''
@@ -291,7 +291,7 @@ describe('input state', () => {
   })
 
   it('Input$(0) is an illegal function call, because AskD3 rejects it', () => {
-    // AskD3 +Lib.s:3785 reserves the string first: `tst.l d3 / Rbeq L_FonCall
+    // AskD3 +Lib.s:3756 reserves the string first: `tst.l d3 / Rbeq L_FonCall
     // / Rbmi L_FonCall`, so the count never reaches the Inkey loop.
     expect(() => run('A$=Input$(0)')).toThrow(/Illegal function call/)
   })

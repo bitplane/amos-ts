@@ -81,7 +81,7 @@ describe('bob display list', () => {
 
   it('Put Bob stamps a live bob permanently into the background', () => {
     // after Put Bob the pixels survive a Bob Clear, because they are now
-    // part of the screen rather than the display list (InPutBob +Lib.s:12723)
+    // part of the screen rather than the display list (InPutBob +Lib.s:12694)
     const rt = run(`${GRAB}\nBob 1,40,40,1\nBob Draw\nPut Bob 1\nBob Clear`)
     expect(rt.screen.point(42, 42)).toBe(5)
   })
@@ -115,7 +115,7 @@ describe('hardware sprites', () => {
     expect(run('Update Off : Sprite Update On').spriteUpdateOn).toBe(true)
   })
 
-  it('Sprite rejects a number outside 0..63 (InSprite +Lib.s:12315)', () => {
+  it('Sprite rejects a number outside 0..63 (InSprite +Lib.s:12286)', () => {
     expect(() => run(`${GRAB}\nSprite 64,0,0,1`)).toThrow(/illegal sprite number/)
   })
 
@@ -205,7 +205,7 @@ describe('image banks and masks', () => {
   })
 
   it('Get Bob rounds its width up to a whole word and zeroes the pixels past it', () => {
-    // Ritoune (+Lib.s:12711) makes the width x2-x1, then GetBob (+W.s:10011)
+    // Ritoune (+Lib.s:12682) makes the width x2-x1, then GetBob (+W.s:9982)
     // does `add.w #15,d4 / lsr.w #4,d4` because the bob header counts WORDS,
     // not pixels. The odd columns go through BltMaskD = `not MCls[w and 15]`,
     // so they come out zero rather than carrying screen content.
@@ -277,7 +277,7 @@ describe('display control', () => {
   })
 })
 
-describe('Set Bob (InSetBob +Lib.s:12225 -> ResBOB +W.s:988)', () => {
+describe('Set Bob (InSetBob +Lib.s:12196 -> ResBOB +W.s:959)', () => {
   it('back < 0 blanks the rectangle, back = 0 saves and restores the background', () => {
     // A negative back clears `BbDecor` --- the COUNT of background buffers ---
     // so `Bob Clear` has nothing to put back and writes ZEROES over the bob's
@@ -323,7 +323,7 @@ describe('Set Bob (InSetBob +Lib.s:12225 -> ResBOB +W.s:988)', () => {
   })
 })
 
-describe('Sprite Priority is per-screen (EcCon2, HsPri +W.s:11374)', () => {
+describe('Sprite Priority is per-screen (EcCon2, HsPri +W.s:11345)', () => {
   it('stores the value on the current screen, not on the machine', () => {
     const rt = run(
       [
@@ -496,7 +496,7 @@ describe('sprite layers against the playfields (EcCon2 PF1P/PF2P)', () => {
   })
 })
 
-describe('hardware collisions (HColSet/HColGet +W.s:10018/115)', () => {
+describe('hardware collisions (HColSet/HColGet +W.s:73/86)', () => {
   const setup = [
     'Screen Open 0,320,200,16,Lowres : Curs Off : Flash Off : Hide On : Cls 0',
     'Reserve As Chip Work 9,16*16',
@@ -679,7 +679,7 @@ describe('object banks are in the bank list (banks.ts)', () => {
   const GRAB1 = 'Screen Open 0,320,200,16,Lowres : Ink 5 : Bar 0,0 To 7,7\nGet Sprite 1,0,0 To 8,8'
 
   it('Start() answers for a Bob bank, where it used to say "bank not reserved"', () => {
-    // FnStart +Lib.s:2481 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes / move.l
+    // FnStart +Lib.s:2452 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes / move.l
     // a1,d3` -- one list, so a Bob bank answers like any other
     const rt = run(GRAB1)
     expect(rt.bankRef(1)?.address).toBe(rt.bankBase(1))
@@ -705,7 +705,7 @@ describe('object banks are in the bank list (banks.ts)', () => {
   })
 
   it('Erase Temp keeps them BECAUSE they are Data banks, not by special case', () => {
-    // Bnk.EffTemp +Lib.s:8059 tests `btst #Bnk_BitData,d0` and nothing else
+    // Bnk.EffTemp +Lib.s:8030 tests `btst #Bnk_BitData,d0` and nothing else
     const rt = run(`${GRAB1}\nReserve As Work 5,64\nReserve As Data 6,64\nErase Temp`)
     expect(rt.bankRef(1)).not.toBeNull() // the Bob bank carries Data
     expect(rt.bankRef(5)).toBeNull() // Work: gone

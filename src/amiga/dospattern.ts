@@ -27,7 +27,7 @@
  * THIS IS NOT WHAT AMOS FILTERS FILENAMES WITH, and the note that used to
  * stand here said otherwise — it called `amigaPattern` in ./vfs.ts "the
  * subset" of this grammar and left the overlap as something to collapse one
- * day. Both halves were wrong. AMOS's own filter is `Joker` (+Lib.s:6631,
+ * day. Both halves were wrong. AMOS's own filter is `Joker` (+Lib.s:6602,
  * ported to ../runtime/joker.ts): `*` stops at a dot, `?` refuses to match
  * one, `/` separates alternatives, and `#` is an ordinary character, so `#?`
  * — this grammar's "zero or more" — means a literal hash there. Two engines

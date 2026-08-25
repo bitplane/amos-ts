@@ -3767,8 +3767,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      *     move.l  (a3)+,d0 / Rjsr routine 1121   ; the bank, as an address
      *     movea.l $52c(a5),a1                    ; the current screen
-     *     movea.l $aa(a1),a1                     ; EcWindow  (+Equ.s:507)
-     *     move.l  a0,$8(a1)                      ; WiFont    (+Equ.s:686)
+     *     movea.l $aa(a1),a1                     ; EcWindow  (+Equ.s:479)
+     *     move.l  a0,$8(a1)                      ; WiFont    (+Equ.s:658)
      *
      * That is the AMOS console's own charset pointer, and AMOS's character
      * blitter reads it exactly the way the manual describes the bank:
@@ -3806,7 +3806,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * so the fourth argument defaults to 0 and the fifth to $ff.
      *
-     * It is AMOS's own `COut` (+W.s:15646) inlined and unrolled: same charset,
+     * It is AMOS's own `COut` (+W.s:15617) inlined and unrolled: same charset,
      * same eight `move.b (a2)+,(a3) / add.l d4,a3` down the rows, same
      * per-plane decomposition of pen and paper. What it skips is the console
      * -- no cursor, no window clipping, no scrolling, no control codes -- and
@@ -4436,7 +4436,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * returns, and nothing here can reproduce that literally -- performing the
      * reset means starting a program, which means building a Runtime, which is
      * the thing being torn down. So the request is recorded on the machine and
-     * the program ends, exactly as `System` ends it (InSystem +ILib.s:1849),
+     * the program ends, exactly as `System` ends it (InSystem +ILib.s:1820),
      * and whoever owns the frame loop brings the machine back. See
      * ../amiga/machine.ts, which also carries the readings for the four other
      * extensions that ship one of these.
@@ -8712,7 +8712,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * function."*
      *
      * DEFECT: it reads the wrong byte, by one. AMOS's Text Styles is
-     * `move.b 56(a1),d3` off the RastPort (`FnTextStyle`, +Lib.s:9896) — that
+     * `move.b 56(a1),d3` off the RastPort (`FnTextStyle`, +Lib.s:9867) — that
      * is rp_AlgoStyle, whose bits are UNDERLINED/BOLD/ITALIC/EXTENDED. The
      * "multicoloured font bit" is FSF_COLORFONT, bit 6 of **tf_Style**, which
      * is TextFont + 22 = $16. AMCAF reads TextFont + 23 = $17, which is

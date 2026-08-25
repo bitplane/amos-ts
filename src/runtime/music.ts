@@ -1072,7 +1072,7 @@ export class MusicPlayer {
     // Bnk.OrAdr: an address inside the bank region names its bank
     if (n >= 0x01000000) n = Math.floor((n - 0x01000000) / 0x00100000)
     const bank = this.host.getBank(n)
-    // Bnk.OrAdr (+Lib.s:8082) comes FIRST and raises its own error: `cmp.l
+    // Bnk.OrAdr (+Lib.s:8053) comes FIRST and raises its own error: `cmp.l
     // #1024,d0 / bge .Skip / Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`. So a bank
     // that was never reserved is "bank not reserved", and only a bank that
     // EXISTS and is misnamed reaches the two compares below. Ant Wars 1.1

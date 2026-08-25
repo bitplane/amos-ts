@@ -80,7 +80,7 @@ export function devOpen(slot: DevSlot): void {
 }
 
 /**
- * Dev.GetIO (+Lib.s:3178). THE routine that decides what a closed device
+ * Dev.GetIO (+Lib.s:3149). THE routine that decides what a closed device
  * does: anything touching one raises error 141, including the Check and
  * Status functions, which call through here first. A closed port does not
  * quietly report "not ready".
@@ -96,7 +96,7 @@ export function devClose(slot: DevSlot): void {
 }
 
 /**
- * Dev.DoIO (+Lib.s:3213) — synchronous. Waits for any outstanding request
+ * Dev.DoIO (+Lib.s:3184) — synchronous. Waits for any outstanding request
  * first, then runs this one to completion, leaving state 1.
  */
 export function devDoIO(slot: DevSlot): void {
@@ -105,7 +105,7 @@ export function devDoIO(slot: DevSlot): void {
 }
 
 /**
- * Dev.SendIO (+Lib.s:3187) — asynchronous, leaving state 2. Serial Send/Out
+ * Dev.SendIO (+Lib.s:3158) — asynchronous, leaving state 2. Serial Send/Out
  * and PRINTER Send/Out both end `Rjmp L_Dev.SendIO`; only the Parallel pair
  * uses DoIO. This comment used to claim the printer was synchronous like the
  * parallel port, which +IO_Ports.s:741 and :757 contradict, and ioports.ts
@@ -121,7 +121,7 @@ export function devSendIO(slot: DevSlot): void {
 }
 
 /**
- * Dev.CheckIO (+Lib.s:3235). GetIO first — so a closed device errors — then
+ * Dev.CheckIO (+Lib.s:3206). GetIO first — so a closed device errors — then
  * "no function ever issued" is reported as TRUE (-1), and otherwise the
  * request is asked whether it has finished.
  */
@@ -142,7 +142,7 @@ export function devAbort(slot: DevSlot): void {
 // ---- the Dev * keyword family (+Lib.s:3300-3385) -------------------------
 
 /**
- * `Dev_Max equ 7` with `Dev_List rs.b 12*Dev_Max` (+Equ.s:1421).
+ * `Dev_Max equ 7` with `Dev_List rs.b 12*Dev_Max` (+Equ.s:1393).
  *
  * DEFECT: the two disagree by one. `Dev.GetA2` admits a channel with
  * `cmp.l #Dev_Max,d0 / Rbhi L_FonCall`, so 0 to 7 inclusive pass, and
@@ -211,7 +211,7 @@ export const newDevState = (): DevState => ({
 })
 
 /**
- * `Dev.GetA2` (+Lib.s:3049): the channel number is bounds-checked and nothing
+ * `Dev.GetA2` (+Lib.s:3020): the channel number is bounds-checked and nothing
  * else. An unopened channel is not an error HERE -- it becomes one in
  * `Dev.GetIO`, which is why `=Dev Base(n)` on a channel that was never opened
  * answers the slot's zeroed first long rather than raising.

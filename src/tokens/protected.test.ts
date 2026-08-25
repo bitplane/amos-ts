@@ -80,7 +80,7 @@ const CIPHERTEXT = [0x04, 0x01, 0xd6, 0xb0, 0x6b, 0x47, 0x35, 0xda]
  */
 const LOCKED = 0xe08e
 
-describe('locked procedures are deciphered (ProCode, +Verif.s:5195)', () => {
+describe('locked procedures are deciphered (ProCode, +Verif.s:5167)', () => {
   const body = [...printLine(42), ...printLine(7)]
 
   it('an enciphered body comes back as the lines it was', () => {

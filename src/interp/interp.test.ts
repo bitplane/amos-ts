@@ -318,7 +318,7 @@ describe('control flow', () => {
   })
 
   it('honours End and Stop', () => {
-    // InEnd +ILib.s:549 (RunErr NbEnd) and InStop +Lib.s:13042 (GoError 9) both
+    // InEnd +ILib.s:520 (RunErr NbEnd) and InStop +Lib.s:13013 (GoError 9) both
     // halt the run; nothing after them executes
     expect(run('Print "A"\nEnd\nPrint "B"')).toBe('A\n')
     expect(run('Print "A"\nStop\nPrint "B"')).toBe('A\n')
@@ -344,11 +344,11 @@ describe('procedures', () => {
   })
 
   it("End Proc's closing bracket is optional, and Pop Proc's is not", () => {
-    // V1_EndProc (+Verif.s:1704) checks _TkBra1, verifies one expression and
-    // leaves — it never mentions _TkBra2 — and InEndProc (+ILib.s:2660) does
+    // V1_EndProc (+Verif.s:1676) checks _TkBra1, verifies one expression and
+    // leaves — it never mentions _TkBra2 — and InEndProc (+ILib.s:2631) does
     // the same at run time before restoring the caller's a6. EasyLife's
     // Tabifier line 268 and Tag_Editor line 605 are saved that way and ran on
-    // the machine. V1_PopProc (+Verif.s:2296) does check, and errors without
+    // the machine. V1_PopProc (+Verif.s:2268) does check, and errors without
     const open = ['TWICE[21]', 'Print Param', 'Procedure TWICE[N]', 'End Proc[N*2'].join('\n')
     expect(run(open)).toBe(' 42\n')
     const popped = ['T', 'Print Param', 'Procedure T', 'Pop Proc[7', 'End Proc'].join('\n')
@@ -363,7 +363,7 @@ describe('procedures', () => {
     expect(run(glob)).toBe(' 5\n')
   })
 
-  it('Shared in the main program means Global (InShared +ILib.s:4206)', () => {
+  it('Shared in the main program means Global (InShared +ILib.s:4177)', () => {
     // InShared does nothing at run time — Sha0 walks its own argument list,
     // steps over an optional "()", loops on a comma and returns, never
     // touching a variable table. The scoping comes from the editor's Test
@@ -403,7 +403,7 @@ describe('procedures', () => {
     expect(run(src)).toBe(' 0\n')
   })
 
-  it('a Global name stays global even as a procedure parameter (InPaGlo +ILib.s:2651)', () => {
+  it('a Global name stays global even as a procedure parameter (InPaGlo +ILib.s:2622)', () => {
     // The parameter loop at +ILib.s:2570 evaluates the argument, reads the
     // PARAMETER's own slot offset and branches on its sign; InPaGlo — "Si
     // variable globale" — stores into VarGlo, the global table, instead of
@@ -497,7 +497,7 @@ describe('procedures', () => {
 })
 
 describe('statements verified against the library source', () => {
-  it('Mid$/Left$/Right$ assignment overwrites in place, length fixed (RInMid2 +ILib.s:6644)', () => {
+  it('Mid$/Left$/Right$ assignment overwrites in place, length fixed (RInMid2 +ILib.s:6615)', () => {
     expect(run('A$="AMOSPRO" : Left$(A$,4)="1234567" : Print A$')).toBe('1234PRO\n')
     expect(run('A$="AMOSPRO" : Right$(A$,3)="xyz123" : Print A$')).toBe('AMOSxyz\n')
     // n >= length: Right$ starts at 0 (InRight bcc RInMid2 with d5=0)
@@ -719,7 +719,7 @@ describe('error trapping', () => {
     expect(run('Trap Print "OK"\nPrint Errtrap')).toBe('OK\n 0\n')
   })
 
-  it('On Error Proc + Resume Next unwinds the handler frame (ResP +ILib.s:1998)', () => {
+  it('On Error Proc + Resume Next unwinds the handler frame (ResP +ILib.s:1969)', () => {
     const prog = [
       'On Error Proc HANDLER',
       'X=1/0',
@@ -770,7 +770,7 @@ describe('error trapping', () => {
     expect(io.out).toBe('trapped\nresumed\n')
   })
 
-  it('Pop discards loop frames opened since the Gosub (InPop +ILib.s:2464)', () => {
+  it('Pop discards loop frames opened since the Gosub (InPop +ILib.s:2435)', () => {
     // after Pop inside a For, the loop frame is gone: Next has no For to
     // match, so it is a no-op and control falls straight through
     const prog = [

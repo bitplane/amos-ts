@@ -21,7 +21,7 @@ import { parsePacPic, type PacPicture } from './pacpic'
  *   screen creation by Resource Screen Open). Each image is a bare
  *   $06071963 packed bitmap — the parsePacPic format with no screen header.
  *
- * Messages section (Dia_FMess +Lib.s:23102): consecutive records
+ * Messages section (Dia_FMess +Lib.s:23073): consecutive records
  *   {pad byte, length byte, chars}; message n is found by walking n-1
  *   records (`move.b 1(a0),d1; lea 2(a0,d1.w),a0`); a negative length byte
  *   means out of range.

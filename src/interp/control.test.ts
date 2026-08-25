@@ -33,7 +33,7 @@ describe('user-defined functions (Fn / Def Fn)', () => {
   })
 
   it('parameters are NOT local — the call overwrites the variable of that name', () => {
-    // FnFn (+ILib.s:4235) resolves each parameter with FindVar and pokes the
+    // FnFn (+ILib.s:4206) resolves each parameter with FindVar and pokes the
     // argument into that ordinary variable, with no save/restore around the
     // call. So a Def Fn parameter clobbers a global of the same name, and a
     // program that relies on X afterwards sees the argument, not its old value.

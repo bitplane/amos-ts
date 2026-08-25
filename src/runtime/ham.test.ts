@@ -84,7 +84,7 @@ function buildIlbm(width: number, height: number, depth: number, camg: number, c
   return bytes
 }
 
-describe('Screen Open colour validation (InScreenOpen +Lib.s:8948)', () => {
+describe('Screen Open colour validation (InScreenOpen +Lib.s:8919)', () => {
   it('requires exact powers of two 2..64 — anything else is error 5', () => {
     expect(() => boot('Screen Open 0,320,200,5,Lowres')).toThrow(/illegal number of colours/)
     expect(() => boot('Screen Open 0,320,200,128,Lowres')).toThrow(/illegal number of colours/)

@@ -400,7 +400,7 @@ export class Interp {
   /**
    * The three independent =Param slots (ParamE/ParamF/ParamC): End Proc[x]
    * writes only the slot matching x's type, leaving the others stale, so
-   * =Param / =Param# / =Param$ read distinct values (FnEProc +ILib.s:2701).
+   * =Param / =Param# / =Param$ read distinct values (FnEProc +ILib.s:2672).
    */
   paramInt = 0
   paramFloat = 0
@@ -419,7 +419,7 @@ export class Interp {
   }
   // ---- error trapping (On Error / Trap / Resume) ----
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null = null
-  /** On Break Proc handler (InOnBreak +ILib.s:1890) */
+  /** On Break Proc handler (InOnBreak +ILib.s:1861) */
   breakHandler: { kind: 'goto' | 'proc'; target: string } | null = null
   /** the last error number caught by On Error (read by =Errn) */
   errCode = 0
@@ -1216,7 +1216,7 @@ export class Interp {
   /**
    * Resume from an error handler: an On Error Proc handler entered as a
    * procedure frame, so pop back to the depth captured at the error (the
-   * original's Resume does PopP, InResume ResP +ILib.s:1998).
+   * original's Resume does PopP, InResume ResP +ILib.s:1969).
    */
   unwindErrorHandler(): void {
     while (this.frames.length > this.errFrameDepth && this.frames.length > 1) {
@@ -1307,7 +1307,7 @@ export class Interp {
       this.advance()
       return t.name
     }
-    // GetLabel (+ILib.s:2889) resolves only _TkLGo and _TkPro tokens by
+    // GetLabel (+ILib.s:2860) resolves only _TkLGo and _TkPro tokens by
     // name; anything else is "une expression", evaluated, with a string used
     // as-is and an integer rendered to digits. A variable token is therefore
     // normally an expression.
@@ -1433,7 +1433,7 @@ export class Interp {
   }
 
   rndInt(n: number): number {
-    // FnRnd (+Lib.s:1976): Rnd(0) = the last result; a NEGATIVE argument
+    // FnRnd (+Lib.s:1947): Rnd(0) = the last result; a NEGATIVE argument
     // masks out the VHPOSR term (and.w d2 with d2=0) — Rnd(-n) is the
     // pure generator, Rnd(n) word-adds the beam into the low 16 bits
     if (n === 0) return this.oldRnd

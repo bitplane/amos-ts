@@ -418,7 +418,7 @@ export function makeDisplayExtFunctions(rt: Runtime): Record<string, Func> {
      * `move.l (a3)+,d1 / Rjsr L_GetEc / move.l a0,d3 / moveq #$0,d2`.
      *
      * The screen's control block, which is what `Screen Base` answers for the
-     * current screen (ScOnAd, FnScreenBase +Lib.s:8798). This one takes a
+     * current screen (ScOnAd, FnScreenBase +Lib.s:8769). This one takes a
      * number, so it reaches a screen that is not current.
      */
     dlscreenbase: (_, a) => {

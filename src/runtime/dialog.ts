@@ -225,7 +225,7 @@ export class DialogChannel {
   runFlags = 0
   timer = 0
   timerStart = 0
-  /** SS: dialog slider colours (SlDInit +Lib.s:20211) */
+  /** SS: dialog slider colours (SlDInit +Lib.s:20182) */
   sliderCfg = [0, 0, 0, 1, 4, 4, 4, 1, 0, 0, 0, 1, 3, 3, 3, 1]
   /** user-instruction call depth and param stack */
   uiParams: Array<Array<number | string>> = []
@@ -624,7 +624,7 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         break
       }
       case 24: { // MZ maxlen addr — copy a below-space-terminated string
-        // Dia_FStZero (+Lib.s:23171): bytes from the address while >= 32,
+        // Dia_FStZero (+Lib.s:23142): bytes from the address while >= 32,
         // capped at maxlen
         need(2)
         const maxLen = popInt()
@@ -1119,7 +1119,7 @@ export class DialogExec {
           draw.line(ch.baseX + x1, ch.baseY + y1, ch.baseX + x2, ch.baseY + y2)
           break
         }
-        case 39: { // IF cond;[...] (Dia_If +Lib.s:21594)
+        case 39: { // IF cond;[...] (Dia_If +Lib.s:21565)
           const cond = int(0)
           const bracket = this.cur.next()
           if (bracket.ch !== '[') this.synt()
@@ -1205,7 +1205,7 @@ export class DialogExec {
         const value = this.evalInt()
         const flag = this.evalInt()
         // digit fields edit up to window-width - 1 chars ("Largeur=
-        // largeur fenetre-1", Dia_Digit +Lib.s:22052-22054)
+        // largeur fenetre-1", Dia_Digit +Lib.s:22023-22025)
         z.maxLen = (z.sx >> 3) - 1
         z.text = flag & 1 ? String(value) : ''
       }
@@ -1370,7 +1370,7 @@ export class DialogExec {
   }
 
   /**
-   * Dia_GetRout +Lib.s:23878: a `[...]` routine — offset, or 0 when empty.
+   * Dia_GetRout +Lib.s:23849: a `[...]` routine — offset, or 0 when empty.
    *
    * DEVIATION: the 68k peek desynchronizes its bracket-depth count when the
    * routine's first char is another `[`. That bug is not reproduced — we

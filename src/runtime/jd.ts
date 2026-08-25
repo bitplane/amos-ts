@@ -180,7 +180,7 @@ const JD_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'F
 
 /**
  * An AMOS array block through the address space: the dimension WORD sits at
- * +2 and the elements start at +6 (GetTablo +ILib.s:4042). JD reads exactly
+ * +2 and the elements start at +6 (GetTablo +ILib.s:4013). JD reads exactly
  * these offsets, which is the check that the port's own layout is right.
  */
 const elemAddr = (base: number, i: number): number => base + 6 + i * 4
@@ -1482,7 +1482,7 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * manual's own example says so — `A=ARRAY(VAR$(0)) : P=Jd Find(ARRAY,S$)`
      * — so a program passes what AMOS's =Array gives it, and JD walks the
      * block itself: the dimension WORD at +2 and the elements from +6
-     * (GetTablo +ILib.s:4042, and JD reads exactly those offsets).
+     * (GetTablo +ILib.s:4013, and JD reads exactly those offsets).
      *
      * That layout is now what =Array hands out, so these read and write real
      * program arrays through the same address space Peek and Loke use.

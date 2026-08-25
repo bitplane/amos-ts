@@ -74,7 +74,7 @@ export const SCAN: Record<string, number> = {
 }
 
 /**
- * AMOS ASCII for the special keys (Cla_Special +W.s:12941): the cursor keys
+ * AMOS ASCII for the special keys (Cla_Special +W.s:12912): the cursor keys
  * are Chr$(30)/(31)/(28)/(29), Backspace 8, Tab 9, Return 13, Esc 27, and Del
  * stores ASCII 0 with its scancode.
  */

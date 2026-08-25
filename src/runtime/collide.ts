@@ -62,7 +62,7 @@ export class Collide {
 
   /**
    * Map a bob's screen position into hardware-sprite coordinate space
-   * (CXyS +W.s:10840): X is halved in HIRES, Y is halved when INTERLACED —
+   * (CXyS +W.s:10811): X is halved in HIRES, Y is halved when INTERLACED —
    * one hardware unit is one lowres pixel. Sprites already live in hardware
    * coords, so this puts the bob alongside them for collision.
    */
@@ -74,7 +74,7 @@ export class Collide {
     }
   }
 
-  /** Bob n vs hardware sprites first..last (Bobsprite Col, GoToSp +W.s:415). */
+  /** Bob n vs hardware sprites first..last (Bobsprite Col, GoToSp +W.s:386). */
   bobSpriteColCheck(n: number, first = 0, last = 63): number {
     this.colSet.clear()
     const me = this.rt.bobs.get(n)
@@ -89,7 +89,7 @@ export class Collide {
     return this.colSet.size > 0 ? -1 : 0
   }
 
-  /** Hardware sprite n vs bobs first..last (Spritebob Col, SpToBb +W.s:526). */
+  /** Hardware sprite n vs bobs first..last (Spritebob Col, SpToBb +W.s:497). */
   spriteBobColCheck(n: number, first = 0, last = 10000): number {
     this.colSet.clear()
     const me = this.rt.hwSprites.get(n)
@@ -105,7 +105,7 @@ export class Collide {
   }
 
   /**
-   * CLXCON, the collision control register (HColSet +W.s:10018).
+   * CLXCON, the collision control register (HColSet +W.s:73).
    *
    * Set Hardcol enable,match writes it: bits 12-15 enable the odd sprite
    * of each pair (AMOS always sets all four), bits 6-11 say which
@@ -121,7 +121,7 @@ export class Collide {
    * Bit 0 is playfield 1 against playfield 2; bits 1-4 are sprite pairs
    * 0-3 against playfield 1 and bits 5-8 the same against playfield 2;
    * bits 9-14 are the six pair-against-pair combinations. That is the
-   * layout HColT (+W.s:159) indexes, and it is the hardware's.
+   * layout HColT (+W.s:130) indexes, and it is the hardware's.
    *
    * Deviation: the real register accumulates whatever the beam passed over
    * during the frame and clears when read. This samples the positions as
@@ -223,7 +223,7 @@ export class Collide {
   }
 
   /**
-   * =Hardcol(n) (FnHardcol +Lib.s:12353 -> HColGet +W.s:115).
+   * =Hardcol(n) (FnHardcol +Lib.s:12324 -> HColGet +W.s:86).
    *
    * n < 0 answers the playfield-against-playfield bit. Otherwise it walks
    * HColT's row for sprite n's pair, building the two-bits-per-entry word

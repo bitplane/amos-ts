@@ -206,7 +206,7 @@ export function parseTokenTable(table: Uint8Array): TokenEntry[] {
       const b = r.u8()
       /**
        * The spec ends at the first NEGATIVE byte, which is the rule AMOS
-       * itself uses. `Ver_Ech` (+Verif.s:5259) is the interpreter's own walk
+       * itself uses. `Ver_Ech` (+Verif.s:5231) is the interpreter's own walk
        * over this table, swapping each entry's routine pair for the verify
        * build's, and it advances like this:
        *

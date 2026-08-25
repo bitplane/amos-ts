@@ -64,7 +64,7 @@ export interface ExtensionImpl {
    *
    * Every extension slot holds three pointers on the machine (`$f8(a5)`, 16
    * bytes each): its base, a DEFAULT routine at +$4 and a REMOVE routine at
-   * +$8. `Default` (InDefault +Lib.s:8710) calls the +$4 of every occupied
+   * +$8. `Default` (InDefault +Lib.s:8681) calls the +$4 of every occupied
    * slot after it reopens screen 0, which is how TURBO's Scene Icon Bank and
    * Scene Mask Palette go back to their boot values without the core knowing
    * either keyword exists.

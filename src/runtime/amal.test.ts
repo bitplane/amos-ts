@@ -131,7 +131,7 @@ describe('AMAL execution', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a bank payload in the shape AmPli (+W.s:8663) and InAmal2
+ * Build a bank payload in the shape AmPli (+W.s:8634) and InAmal2
  * (+Lib.s:11857) read: movement count and word-offset table at +4, an
  * optional program-string section reached through the long at +0.
  */
@@ -310,7 +310,7 @@ describe('Amal n,# — programs stored in the bank', () => {
   })
 })
 
-describe('For and Next count in either register file (AmFor/AmNxt +W.s:8869)', () => {
+describe('For and Next count in either register file (AmFor/AmNxt +W.s:8840)', () => {
   it('takes a global RA-RZ as well as an internal R0-R9', () => {
     // AmFor reads the compiled register offset and branches on its SIGN:
     // `move.w (a3)+,d0 / bpl.s AmFr0` uses T_AmRegs(a5), the globals, and a

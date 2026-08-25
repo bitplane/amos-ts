@@ -3,7 +3,15 @@
  *
  * Three checks, and they are not the same check:
  *
- *   1. ADDRESS AGREEMENT — "routine 353 ($6f2a)" must put $6f2a inside
+ *   0. SOURCE LINES — `+Edit.s:8681` must land inside the routine the prose
+      names, in the corpus checkout of the AMOS sources. The one-sided half
+      of this (it resolves in ../AMOS-Professional-Official instead) is an
+      assertion in src/ext/citations.test.ts, because it proves the author
+      read the wrong file. What is reported here is the rest: a citation that
+      resolves in NEITHER checkout. Some of those are prose where the
+      identifier in front of the number is not its subject, which is why this
+      is a question and not a build failure.
+  1. ADDRESS AGREEMENT — "routine 353 ($6f2a)" must put $6f2a inside
  *      routine 353 of that extension's jump table. Catches the numbering rot
  *      that #176's disassembler fix left behind across AMCAF, where twenty-
  *      four citations were fourteen low and one of them had led the port to
@@ -26,7 +34,7 @@
  * Run: npx tsx src/cli/citecheck.ts [--self]
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById } from '../ext/registry'
@@ -41,6 +49,8 @@ import {
   type Library,
 } from '../ext/citations'
 import { NOTES } from '../coverage/status'
+import { amosSource } from './corpus'
+import { assemblerLabels, citationResolves, parseSourceCitations, type AssemblerLabels } from '../ext/citations'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const extFixtures = join(root, 'fixtures', 'extensions')
@@ -187,3 +197,39 @@ if (!selfOnly) {
 console.log()
 if (!selfOnly) console.log(`${cited} citations checked: ${stale} disagree with the binary, ${vague} ambiguous`)
 console.log(`${questions} keywords cite a sibling's routine and never their own (a question, not a failure)`)
+
+
+/* ---- source-line citations ---------------------------------------------- */
+
+/** every .ts under src/, so a new port cannot escape the sweep by being new */
+function sources(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) sources(p, out)
+    else if (e.name.endsWith('.ts')) out.push(p)
+  }
+  return out
+}
+
+if (!selfOnly) {
+  const cache = new Map<string, AssemblerLabels>()
+  let lines = 0
+  let lost = 0
+  for (const p of sources(join(root, 'src'))) {
+    for (const c of parseSourceCitations(readFileSync(p, 'utf8'))) {
+      const mine = amosSource(c.file)
+      if (mine === null) continue
+      let labels = cache.get(c.file)
+      if (labels === undefined) {
+        labels = assemblerLabels(mine)
+        cache.set(c.file, labels)
+      }
+      if (labels.at.get(c.symbol) === undefined) continue
+      lines++
+      if (citationResolves(mine, labels, c.symbol, c.line)) continue
+      lost++
+      console.log(`${relative(root, p)}:${c.at}  ${c.symbol} ${c.file}:${c.line} — not inside ${c.symbol}`)
+    }
+  }
+  console.log(`${lines} source-line citations checked: ${lost} land outside the routine they name`)
+}

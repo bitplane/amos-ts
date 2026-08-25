@@ -138,7 +138,7 @@ describe('zones, banks and system state', () => {
     expect(rt.screen.zones.filter(Boolean).length).toBe(0)
   })
 
-  it('Set Sprite Buffer demands at least 16 scanlines (InSetSpriteBuffer +Lib.s:12290)', () => {
+  it('Set Sprite Buffer demands at least 16 scanlines (InSetSpriteBuffer +Lib.s:12261)', () => {
     expect(() => run('Set Sprite Buffer 16')).not.toThrow()
     expect(() => run('Set Sprite Buffer 15')).toThrow(/function call error/)
   })
@@ -195,7 +195,7 @@ describe('mouse and joystick reads', () => {
   })
 
   it('with no Limit Mouse the hardware cap MLimA enforces stands in', () => {
-    // MLimA (+W.s:11006) caps any rectangle at 458x312, so nothing wider
+    // MLimA (+W.s:10977) caps any rectangle at 458x312, so nothing wider
     // can ever be in force
     const rt = run('X Mouse=1000 : Y Mouse=1000')
     expect(rt.input.mouseX).toBe(458)
@@ -249,7 +249,7 @@ describe('machine memory reporting (AvailMem)', () => {
   })
 
   it('Free reports variable space, not machine memory', () => {
-    // FnFree +Lib.s:13600 reports TabBas-HiChaine — the BASIC variable and
+    // FnFree +Lib.s:13571 reports TabBas-HiChaine — the BASIC variable and
     // string region, whose default buffer is 32K
     expect(runOut('Print Free')).toBe(` ${32 * 1024}\n`)
   })
@@ -368,7 +368,7 @@ describe('Pack / Spack', () => {
     const packed = rt.memBanks.get(11)!.data
     const spacked = rt.memBanks.get(12)!.data
     // $06071963 straight away for Pack; $12031990 then the same bitmap 90
-    // bytes in for Spack (PsLong, +Equ.s:940)
+    // bytes in for Spack (PsLong, +Equ.s:912)
     expect([...packed.subarray(0, 4)]).toEqual([0x06, 0x07, 0x19, 0x63])
     expect([...spacked.subarray(0, 4)]).toEqual([0x12, 0x03, 0x19, 0x90])
     expect([...spacked.subarray(90, 94)]).toEqual([0x06, 0x07, 0x19, 0x63])
@@ -402,7 +402,7 @@ describe('Pack / Spack', () => {
   })
 })
 
-describe('Psel$ (FnPSel +Lib.s:6771)', () => {
+describe('Psel$ (FnPSel +Lib.s:6742)', () => {
   it('hands back its last argument, because the original is a bare rts', () => {
     // FnPSel has no body at all — the token table carries the keyword and
     // the routine is a single `rts`, so d3 (the last argument evaluated) is

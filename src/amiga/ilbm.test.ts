@@ -47,7 +47,7 @@ describe('Save Iff / Save / Pload / Picture / Mask Iff (round-trip on disk)', ()
 
   it('Save Iff writes a screen a fresh session loads back pixel-identical', () => {
     // separate program does the save; a second reads the file — the on-disk
-    // ILBM decode is what matters (InSaveIff2 +Lib.s:4630)
+    // ILBM decode is what matters (InSaveIff2 +Lib.s:4601)
     const save = [
       'Screen Open 0,64,32,16,Lowres : Flash Off : Cls 0',
       'Ink 5 : Bar 4,4 To 20,16 : Plot 40,20,7',

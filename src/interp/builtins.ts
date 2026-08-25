@@ -484,7 +484,7 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   pop(it) {
-    // InPop +ILib.s:2464: discards the Gosub return AND every loop frame
+    // InPop +ILib.s:2435: discards the Gosub return AND every loop frame
     // opened since that Gosub (the "BUG si POP au milieu d'une boucle"
     // behaviour — a3 is restored to BasA3)
     const frame = it.frames[it.frames.length - 1]!
@@ -532,9 +532,9 @@ export const INSTR: Record<string, Instr> = {
   // ---- procedures ----
   /**
    * NOTE: the closing `]` is OPTIONAL, and this is AMOS's quirk rather than a
-   * leniency of ours. V1_EndProc (+Verif.s:1704) is five instructions —
+   * leniency of ours. V1_EndProc (+Verif.s:1676) is five instructions —
    * `cmp.w #_TkBra1,(a6)+ / bne.s .Skip / bsr Ver_Expression / .Skip bra VerX`
-   * — and never mentions `_TkBra2`. InEndProc (+ILib.s:2660) does the same at
+   * — and never mentions `_TkBra2`. InEndProc (+ILib.s:2631) does the same at
    * run time: `cmp.w #_TkBra1,(a6) / bne.s EPro1 / bsr FnEProc`, then it
    * restores the caller's a6 off the stack, so anything left on the line is
    * never read. Programs saved with the bracket missing therefore verify,
@@ -560,7 +560,7 @@ export const INSTR: Record<string, Instr> = {
     it.returnFromProc()
     return 'jumped'
   },
-  /** Unlike End Proc, V1_PopProc (+Verif.s:2296) does require the `]`. */
+  /** Unlike End Proc, V1_PopProc (+Verif.s:2268) does require the `]`. */
   'pop proc'(it) {
     if (it.accept('[')) {
       const v = it.evalExpr()
@@ -573,7 +573,7 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   shared(it) {
-    // InShared (+ILib.s:4206) does nothing at run time — Sha0 walks its own
+    // InShared (+ILib.s:4177) does nothing at run time — Sha0 walks its own
     // argument list, steps over an optional "()", loops on a comma and
     // returns. It never touches a variable table, because the editor's Test
     // pass has already assigned the slots; the instruction only has to get
@@ -666,7 +666,7 @@ export const INSTR: Record<string, Instr> = {
   trap(it) {
     // Trap <instruction>: run one statement, capturing any error's number
     // into Errtrap (a slot separate from Errn — RunErr's .ETrap path never
-    // touches ErrorOn); InTrap +ILib.s:2039
+    // touches ErrorOn); InTrap +ILib.s:2010
     it.trapCode = 0
     try {
       it.step()
@@ -678,7 +678,7 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   error(it) {
-    // Error n: raise error number n (InError +Lib.s:11425)
+    // Error n: raise error number n (InError +Lib.s:11396)
     const n = it.evalInt()
     throw new AmosError(AMOS_ERRORS[n] ?? `Error ${n}`, n)
   },
@@ -718,7 +718,7 @@ export const INSTR: Record<string, Instr> = {
     it.degrees = false
   },
   wait(it) {
-    // InWait +Lib.s:2073: negative = function call error; Wait 0 enters
+    // InWait +Lib.s:2046: negative = function call error; Wait 0 enters
     // Wait_Event (2115), an endless Sys_WaitMul loop only a break exits
     const n = it.evalInt()
     if (n < 0) throw new AmosError('Illegal function call', 23)
@@ -762,7 +762,7 @@ export const INSTR: Record<string, Instr> = {
     midStore(tg, p, n, str(it.evalExpr()))
   },
   'left$'(it) {
-    // Left$(A$,n) = expr (InLeft +ILib.s:6471): position 0, count n
+    // Left$(A$,n) = expr (InLeft +ILib.s:6442): position 0, count n
     it.expect('(')
     const tg = it.parseTarget()
     it.expect(',')
@@ -772,7 +772,7 @@ export const INSTR: Record<string, Instr> = {
     midStore(tg, 0, n, str(it.evalExpr()))
   },
   'right$'(it) {
-    // Right$(A$,n) = expr (InRight +ILib.s:6494): starts at len-n+1
+    // Right$(A$,n) = expr (InRight +ILib.s:6465): starts at len-n+1
     // (1-based), or the whole string when n >= len; count n
     it.expect('(')
     const tg = it.parseTarget()
@@ -912,7 +912,7 @@ export const INSTR: Record<string, Instr> = {
   'break on': () => {},
   'break off': () => {},
   'on break proc'(it) {
-    // InOnBreak +ILib.s:1890: stores the Ctrl-C break handler (fires
+    // InOnBreak +ILib.s:1861: stores the Ctrl-C break handler (fires
     // through Interp.requestBreak when Break On)
     it.breakHandler = { kind: 'proc', target: it.parseLabelTarget().toLowerCase() }
   },
@@ -1209,8 +1209,8 @@ export const FUNCS: Record<string, Func> = {
     return VI(0)
   },
   // Multitasking introspection in a single-program runtime: no AMOS program
-  // runs beneath this one (FnPrgUnder +ILib.s:1726) and the program state word
-  // (FnPrgState +ILib.s:1803) is the plain running state.
+  // runs beneath this one (FnPrgUnder +ILib.s:1697) and the program state word
+  // (FnPrgState +ILib.s:1774) is the plain running state.
   'prg state': (_, a) => {
     arity(a, 0)
     return VI(0)
@@ -1228,7 +1228,7 @@ export const FUNCS: Record<string, Func> = {
     return VS(k.ch)
   },
   'key$'(it, a) {
-    // FnKeyD +Lib.s:13757: Key$(n) is the function-key DEFINITION string
+    // FnKeyD +Lib.s:13728: Key$(n) is the function-key DEFINITION string
     // (set by Key$(n)="..."), NOT a keyboard read
     arity(a, 1)
     const n = int(a[0]!)
@@ -1236,14 +1236,14 @@ export const FUNCS: Record<string, Func> = {
     return VS(it.inp.funcKeys[n - 1] ?? '')
   },
   scancode(it, a) {
-    // FnScancode +Lib.s:13631: returns the last scancode, then clears it
+    // FnScancode +Lib.s:13602: returns the last scancode, then clears it
     arity(a, 0)
     const s = it.inp.lastScan
     it.inp.lastScan = 0
     return VI(s)
   },
   'key state'(it, a) {
-    // FnKeyState +Lib.s:13649: n & $7F indexes the key matrix; n >= 128 errors
+    // FnKeyState +Lib.s:13620: n & $7F indexes the key matrix; n >= 128 errors
     arity(a, 1)
     const n = int(a[0]!)
     if (n >= 128 || n < 0) throw new AmosError('function call error')
@@ -1262,7 +1262,7 @@ export const FUNCS: Record<string, Func> = {
     return VI(it.inp.mouseK)
   },
   'mouse click'(it, a) {
-    // MRout +W.s:10627: bitmask of buttons newly pressed since the last
+    // MRout +W.s:10598: bitmask of buttons newly pressed since the last
     // read (edge-detected vs the stored old state, then latched)
     arity(a, 0)
     const pressed = it.inp.mouseK & ~it.inp.mouseClickOld & 7
@@ -1313,17 +1313,17 @@ export const FUNCS: Record<string, Func> = {
     return VS(it.paramStr)
   },
   errtrap(it, a) {
-    // =Errtrap: the error number caught by the last Trap (FnErrTrap +ILib.s:2050)
+    // =Errtrap: the error number caught by the last Trap (FnErrTrap +ILib.s:2021)
     arity(a, 0)
     return VI(it.trapCode)
   },
   errn(it, a) {
-    // =Errn: the number of the last trapped error (FnErrn +Lib.s:1745)
+    // =Errn: the number of the last trapped error (FnErrn +Lib.s:1716)
     arity(a, 0)
     return VI(it.errCode)
   },
   'err$'(it, a) {
-    // =Err$(n): the message for error number n (FnErrD +Lib.s:1755)
+    // =Err$(n): the message for error number n (FnErrD +Lib.s:1726)
     arity(a, 1)
     const n = a.length > 0 && int(a[0]!) >= 0 ? int(a[0]!) : it.errCode
     return VS(AMOS_ERRORS[n] ?? '')

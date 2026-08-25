@@ -202,7 +202,7 @@ describe('MED 7.1 — the player lifecycle', () => {
   })
 
   it('the DEFAULT hook at $312 stops the player and drops the module', () => {
-    // InDefault (+Lib.s:8710) calls every occupied slot's +$4, which routine 0
+    // InDefault (+Lib.s:8681) calls every occupied slot's +$4, which routine 0
     // filled with $312 --- so `Default` is the way to reach it from BASIC
     const { rt } = run('Med Load "x.med",0\nMed Init Player 0\nDefault', MOD0)
     expect(rt.medExt.player).toBeNull()

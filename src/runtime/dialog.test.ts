@@ -208,7 +208,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     openFsel(rt)
     expect(rt.fsel).not.toBeNull()
     const d = [...rt.dialogs.values()][0]!
-    // EcFsel (+Equ.s:792) — the system slot Fs_ScOpen uses, above 0-7
+    // EcFsel (+Equ.s:764) — the system slot Fs_ScOpen uses, above 0-7
     expect(d.screenNb).toBe(10)
     expect(rt.screens.has(Runtime.EC_FSEL)).toBe(true)
     // the real bank layout produced the zones: OK 1, Cancel 2, list 13, edits 14/15
@@ -334,7 +334,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
   })
 
   it('fills the list one entry per frame', () => {
-    // Fs_Loop (+Lib.s:17920) takes a single name per pass while Fs_DirOn is
+    // Fs_Loop (+Lib.s:17891) takes a single name per pass while Fs_DirOn is
     // set, so the selector stays live while a slow drawer lists
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
     // the screen slides open first (Fs_Appear runs before the loop), so let
@@ -573,7 +573,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
   })
 
   it('slides the screen open from its centre line and shut again', () => {
-    // AppCentre (+Lib.s:6820): the screen never resizes — the displayed
+    // AppCentre (+Lib.s:6791): the screen never resizes — the displayed
     // window grows, offset so the middle stays put and the top edge lifts
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
     rt.frame()

@@ -12,9 +12,9 @@
  * written down and none aware of the others:
  *
  *   - `Run "file"` chains inside one Runtime: screens survive, variables
- *     reset, banks are replaced (InRun1 +ILib.s:1475)
+ *     reset, banks are replaced (InRun1 +ILib.s:1446)
  *   - `Default` puts back the boot display: every screen closed, screen 0
- *     reopened, and the extensions re-initialise off it (InDefault +Lib.s:8710)
+ *     reopened, and the extensions re-initialise off it (InDefault +Lib.s:8681)
  *   - the web player's `restart()` builds a fresh Runtime and keeps the
  *     filesystem
  *   - its `destroy()` keeps nothing

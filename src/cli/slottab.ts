@@ -4,7 +4,7 @@
  *
  * The config's text zone is a run of variable-length messages. The `EdT`
  * macro (+Interpreter_Config.s:35-40) emits `dc.b 0`, a length byte, then the
- * characters, and Sys_GetMessage (+B.s:588-605) walks them with
+ * characters, and Sys_GetMessage (+B.s:560-577) walks them with
  * `lea 2(a0,d1.w),a0`, stopping when the length byte reads $ff. Nothing is
  * NUL-terminated: the zero that looks like a string's terminator is the next
  * entry's first header byte.

@@ -30,7 +30,7 @@ export const FAITHFUL = new Set<string>([
   'spack',
   // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank
   // program table (InAmal2 +Lib.s:11857) and PLay's recorded movements
-  // (AmPli +W.s:8661), both verified against Tutorial PLay_Data.Abk
+  // (AmPli +W.s:8632), both verified against Tutorial PLay_Data.Abk
   'amal',
   'amplay',
   'amal on',
@@ -146,10 +146,10 @@ export const FAITHFUL = new Set<string>([
   'load',
   'reserve as chip data',
   'reserve as chip work',
-  // text & fonts: At escapes + 207 limit (FnAt +Lib.s:14046), Locate/
+  // text & fonts: At escapes + 207 limit (FnAt +Lib.s:14017), Locate/
   // Pen/Paper window errors (Loca/Pen +W.s:15364/14893 -> error 60),
   // Border$'s Encadre escapes and box drawing (FnBorderD 14153 /
-  // Encadre +W.s:15169, glyph bitmaps approximated — see NOTES),
+  // Encadre +W.s:15140, glyph bitmaps approximated — see NOTES),
   // Set Text as the rastport SoftStyle distinct from the console's
   // Under flag (InSetText 9908), Font$'s exact 38-char format and
   // fonts-not-examined error (FnFont 9786), Set Font 0 no-op + font
@@ -166,13 +166,13 @@ export const FAITHFUL = new Set<string>([
   'get fonts',
   'get rom fonts',
   'text styles',
-  // graphics odds: Bar's strict x2>x1/y2>y1 error (InBar +Lib.s:9975),
+  // graphics odds: Bar's strict x2>x1/y2>y1 error (InBar +Lib.s:9946),
   // Box as one continuous-dash PolyDraw from below the start corner
   // (InBox 9702), Scanshift captured with Inkey$ and read-cleared
-  // (FnScanshift 13640), Hrev/Vrev Block via RevBloc (+W.s:12620),
+  // (FnScanshift 13640), Hrev/Vrev Block via RevBloc (+W.s:12591),
   // Mouse Zone through the SyZoHd hard->screen mapping with the
   // outside-screen 0 (+W.s:11150), Set Sprite Buffer's >=16 check
-  // (InSetSpriteBuffer +Lib.s:12290); cluster.test.ts cites each
+  // (InSetSpriteBuffer +Lib.s:12261); cluster.test.ts cites each
   'bar',
   'box',
   'scanshift',
@@ -181,7 +181,7 @@ export const FAITHFUL = new Set<string>([
   'mouse zone',
   'set sprite buffer',
   // integration: Varptr maps variables into the fake address space
-  // (FnVarPtr +ILib.s:4087 — number cells at the address, string chars
+  // (FnVarPtr +ILib.s:4058 — number cells at the address, string chars
   // with the length word at -2, floats in Motorola FFP); =Array maps
   // int/float array blocks (FnArray 4103); cluster.test.ts round-trips
   // Peek/Poke/Leek/Loke through both
@@ -241,9 +241,9 @@ export const FAITHFUL = new Set<string>([
   'blength',
   'bgrab',
   'bsend',
-  // Freeze/Unfreeze chain parking (FrzAMAL/UFrzAMAL +W.s:9999 with the
-  // discard-on-nonempty quirk), On Break Proc (InOnBreak +ILib.s:1890),
-  // Set Tempras validation (+Lib.s:9997), Drive (FnDrive +Lib.s:4951),
+  // Freeze/Unfreeze chain parking (FrzAMAL/UFrzAMAL +W.s:9970-9971 with the
+  // discard-on-nonempty quirk), On Break Proc (InOnBreak +ILib.s:1861),
+  // Set Tempras validation (+Lib.s:9997), Drive (FnDrive +Lib.s:4922),
   // Set Stack / Set Equate Bank -> InSetBuffer rts (+Lib.s:1683/1689)
   'freeze',
   'unfreeze',
@@ -253,7 +253,7 @@ export const FAITHFUL = new Set<string>([
   'set stack',
   'set equate bank',
   // IFF/bank I/O: Save Iff (ILBM encoder, ByteRun1, round-trips parseIlbm,
-  // InSaveIff2 +Lib.s:4630), Save/Save n (bank serializers, AmBs/AmBk),
+  // InSaveIff2 +Lib.s:4601), Save/Save n (bank serializers, AmBs/AmBk),
   // Mask Iff plane mask (InMaskIff 4365), =Picture legacy constant 127
   // (FnPicture 4372), Pload code-hunk loader into a bank (InPLoad 4254)
   'save iff',
@@ -262,7 +262,7 @@ export const FAITHFUL = new Set<string>([
   'picture',
   'pload',
   // random-access records: Open Random (RanApp $80 +Lib.s:5249), Field
-  // record layout with the file-size snapshot (InField +ILib.s:4769),
+  // record layout with the file-size snapshot (InField +ILib.s:4740),
   // Get/Put via GetPut's record/type checks with the exact EOF rules
   // and Put's space padding + size growth (+Lib.s:5291/5324/5382);
   // cluster.test.ts round-trips records through the VFS
@@ -412,7 +412,7 @@ export const FAITHFUL = new Set<string>([
   'cop move',
   'cop movel',
   'cop logic',
-  // HAM/EHB (InScreenOpen +Lib.s:8948): 4096 colours = HAM, lowres only,
+  // HAM/EHB (InScreenOpen +Lib.s:8919): 4096 colours = HAM, lowres only,
   // stored as EcNbCol 64 with 6 planes; other counts must be exactly
   // 2..64 powers of two (error 5, "illegal number of colours"); hires
   // caps at 4 planes. The compositor decodes HAM6 modify chains and EHB
@@ -425,7 +425,7 @@ export const FAITHFUL = new Set<string>([
   // Dual Priority = BPLCON2 PFBA for whichever screen is named first
   'dual playfield',
   'dual priority',
-  // Hscroll/Vscroll (InHScroll/InVScroll +Lib.s:13544): the keywords just
+  // Hscroll/Vscroll (InHScroll/InVScroll +Lib.s:13515): the keywords just
   // print window control codes 16-19/20-23 — the scrolls themselves are
   // the escape handlers (ScGLine/ScGWi/ScDLine/ScDWi one character with
   // paper fill, ScBas/ScBasHaut/ScHaut/ScHautBas cursor-relative line
@@ -439,7 +439,7 @@ export const FAITHFUL = new Set<string>([
   // the source pixel index space, copying the shared planes only and
   // preserving the destination's higher planes; gcd patterns faithful
   'appear',
-  // STOS compatibility (TokAMAL AniStos +W.s:7483, executors AmAnim/
+  // STOS compatibility (TokAMAL AniStos +W.s:7454, executors AmAnim/
   // AmMvtX/AmMvtY 8721/8749): Anim (image,delay) pairs with L looping;
   // Move X/Y [start](speed,step,count) groups, count 0 = 65536 steps,
   // L/E with an equality-triggered position, the loop re-applying the
@@ -1100,15 +1100,15 @@ export const FAITHFUL = new Set<string>([
   'err$',
   'error',
   // program/flow terminators + waits verified against the library source:
-  //   End (InEnd +ILib.s:549 → RunErr NbEnd) and Stop (InStop +Lib.s:13042 →
+  //   End (InEnd +ILib.s:520 → RunErr NbEnd) and Stop (InStop +Lib.s:13013 →
   //     GoError 9) both halt the run — our halt('ended')/halt('stopped').
   //   End If (a runtime no-op: the multi-line If prepass has already branched;
   //     reaching End If just falls through).
-  //   End Proc (InEndProc +ILib.s:2659) writes the optional [expr] into the
+  //   End Proc (InEndProc +ILib.s:2630) writes the optional [expr] into the
   //     type-matching Param slot (FnEProc) then restores the caller; Pop Proc
   //     (InPopProc → PopP +ILib.s:2724) force-exits from any depth by resetting
   //     to BasA3 — our returnFromProc truncates loops/gosubs to the proc base.
-  //   Wait Vbl (InWtVbl +Lib.s:2133) waits one frame; Wait Key (InWtKy
+  //   Wait Vbl (InWtVbl +Lib.s:2104) waits one frame; Wait Key (InWtKy
   //     +Lib.s:2142) loops Inkey until a key arrives — both block until then.
   'end',
   'stop',
@@ -1134,7 +1134,7 @@ export const FAITHFUL = new Set<string>([
   'param#',
   'param$',
   'timer',
-  // both forms: InCommandLine (+Lib.s:7867) stashes the string under a "CmdL"
+  // both forms: InCommandLine (+Lib.s:7838) stashes the string under a "CmdL"
   // cookie below TBuffer and errors at 256 characters, FnCommandLine (7886)
   // reads it back or "" without the cookie. Living outside the variable table
   // is what carries it across a Run, which the port reproduces by hanging it
@@ -1264,10 +1264,10 @@ export const FAITHFUL = new Set<string>([
   // matrix + $7F mask 13649; Mouse Click edge bitmask 12146; Scancode
   // clears on read 13631; Key$ = function-key definition 13757).
   // X/Y Mouse also have assignment forms (InXMouse 12108 / InYMouse 12122):
-  // MSetAb (+W.s:10950) doubles the value into the fine counter, clamps it
+  // MSetAb (+W.s:10921) doubles the value into the fine counter, clamps it
   // there against the Limit Mouse rectangle with UNSIGNED compares and halves
   // it back, so a negative lands on the far limit. With no Limit Mouse in
-  // force the port clamps to 458x312 — the cap MLimA (+W.s:11006) puts on any
+  // force the port clamps to 458x312 — the cap MLimA (+W.s:10977) puts on any
   // rectangle, so no wider one can exist — rather than to a boot default,
   // which the source only ever sets from the editor.
   'x mouse',
@@ -1860,7 +1860,7 @@ export const FAITHFUL = new Set<string>([
   // graphics.library and diskfont.library reached through AMOS's own
   // structures -- OpenDiskFont, SetFont, CloseFont, and `$aa(screen)` /
   // `$8(window)`, which +Equ.s:507 and :686 name EcWindow and WiFont. The
-  // fifth, Turbo Text, is AMOS's COut (+W.s:15646) unrolled and gets no
+  // fifth, Turbo Text, is AMOS's COut (+W.s:15617) unrolled and gets no
   // mention in the Guide at all -- not a node, not even a changelog line.
   'change font', 'make bank font', 'change bank font', 'change print font',
   'turbo text',
@@ -5478,7 +5478,7 @@ export const NOTES: Record<string, string> = {
     "Mem Str Count's bank form does not.",
   "mem unscramble": "Routines 39 ($1286) and 40, the same two forms onto routine 21.",
   "port":
-    "`FnPort` (+Lib.s:5050): GetFile first, so a channel that is not open raises; then `btst #2,FhT(a2)` refuses " +
+    "`FnPort` (+Lib.s:5021): GetFile first, so a channel that is not open raises; then `btst #2,FhT(a2)` refuses " +
     "one that was not opened by Open Port -- a file-type mismatch, not a quiet zero. Then WaitForChar for 50 " +
     "microseconds, and nothing waiting answers TRUE (-1) through `L_FnTrue`, otherwise ONE byte is Read and " +
     "returned. So -1 is \"no character yet\" and 0 to 255 is the character, which is why a program loops on it " +
@@ -5494,7 +5494,7 @@ export const NOTES: Record<string, string> = {
     "d3 cleared first, so io_Error comes back UNSIGNED and a device error of -1 reads as 255.",
 
   "arexx":
-    "`FnArexx` (+Lib.s:15064) has THREE answers, not two: 0 for no message, 1 for a message, and 2 for one whose " +
+    "`FnArexx` (+Lib.s:15035) has THREE answers, not two: 0 for no message, 1 for a message, and 2 for one whose " +
     "rm_Action has RXFF_RESULT set, meaning the sender wants a result STRING and not just a return code -- a " +
     "program branches on 2 to decide whether to build one. The family is AMOS's own Arx_* code over exec message " +
     "ports, modelled by amiga/rexx.ts, so a host outside can send to the port a program opened and the whole " +
@@ -5517,7 +5517,7 @@ export const NOTES: Record<string, string> = {
 
   // ---- the core Dev * family, +Lib.s:3300-3385 ----------------------------
   "dev open":
-    "`Lib_Par InDevOpen` (+Lib.s:3303). An empty name is a function-call error and so is a LENGTH of zero or " +
+    "`Lib_Par InDevOpen` (+Lib.s:3274). An empty name is a function-call error and so is a LENGTH of zero or " +
     "less (`Rble L_FonCall`); a channel already open is error 140. NOTE: the message a failed OpenDevice raises " +
     "is 145, which the error table words as the SERIAL device's -- `move.w #145,d3 / moveq #1,d4` gives the whole " +
     "family one message and AMOS reused serial's rather than adding one, so a trackdisk that will not open " +
@@ -5528,7 +5528,7 @@ export const NOTES: Record<string, string> = {
     "serial, printer and parallel are the four with a back end, and answering yes for anything else would be " +
     "claiming a device that does nothing.",
   "dev do":
-    "`InDevDo` (+Lib.s:3352): the command word into io_Command at +28 and the request run to completion, waiting " +
+    "`InDevDo` (+Lib.s:3323): the command word into io_Command at +28 and the request run to completion, waiting " +
     "first for anything still outstanding. The caller has already Doked io_Length (+36), io_Data (+40) and " +
     "io_Offset (+44) into the channel's slice of the `Dev IORequests` region, which is what makes `=Dev Base` " +
     "worth having. trackdisk CMD_READ, CMD_WRITE and CMD_UPDATE move bytes against the mounted ADF, the same " +
@@ -7206,7 +7206,7 @@ export const NOTES: Record<string, string> = {
   "change print font":
     "Routine 141 ($400c), and at 22 bytes the whole keyword is one store: `Rjsr routine 1121` for the bank " +
     "address, then `movea.l $52c(a5),a1 / movea.l $aa(a1),a1 / move.l a0,$8(a1)` -- the current screen, its " +
-    "EcWindow (+Equ.s:507), and WiFont (+Equ.s:686), the charset AMOS's console prints with. The manual's " +
+    "EcWindow (+Equ.s:479), and WiFont (+Equ.s:658), the charset AMOS's console prints with. The manual's " +
     "*'always 8x8 pixels big and contains 256 characters ... a memory bank of exactly 2 KB'* is exactly how COut " +
     "reads it, `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2` (+W.s:15661) -- indexed by the raw byte, no " +
     "LoChar and no control-code exception. NOTE: nothing is checked -- not the 2KB, not the screen pointer. " +
@@ -8726,7 +8726,7 @@ export const NOTES: Record<string, string> = {
     "no real quota in the browser store — a large constant",
   "amal":
     "the Amiga tells a bank program number from an AMAL string by whether the argument is below 1024, too small " +
-    "to be a string pointer (InMb1 +Lib.s:11857); our values are typed, so anything numeric takes the bank path " +
+    "to be a string pointer (InMb1 +Lib.s:11828); our values are typed, so anything numeric takes the bank path " +
     "and a number above 1023 is a program number here rather than a stray pointer dereference",
   "anim":
     "the bank-program/string discrimination is by value type, like amal",
@@ -8740,7 +8740,7 @@ export const NOTES: Record<string, string> = {
     "to own that residency the port loads a fresh structure each time, which is the same path the Amiga takes for " +
     "a first Prun. Source: +ILib.s:1401.",
   "amplay":
-    "SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and " +
+    "SetPlay (+W.s:7908) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and " +
     "so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's " +
     "registers are reachable from BASIC or used by PLay, so the port writes just those",
   "autoback":
@@ -8754,16 +8754,16 @@ export const NOTES: Record<string, string> = {
     "a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not " +
     "modelled)",
   "hardcol":
-    "FnHardcol +Lib.s:12353 -> HColGet +W.s:115, over a CLXDAT computed from where the sprites and playfields " +
+    "FnHardcol +Lib.s:12324 -> HColGet +W.s:86, over a CLXDAT computed from where the sprites and playfields " +
     "actually are. Deviation: the real register accumulates what the beam passed over during the frame and clears " +
     "on read; this samples the current positions, which agrees for the usual move / Wait Vbl / test but not for a " +
     "sprite moved twice within one frame Source: +W.s:159.",
   "set hardcol":
-    "InSetHardcol +Lib.s:12346 -> HColSet +W.s:10018: CLXCON gets a fixed $F in the odd-sprite enables (AMOS " +
+    "InSetHardcol +Lib.s:12317 -> HColSet +W.s:73: CLXCON gets a fixed $F in the odd-sprite enables (AMOS " +
     "never exposes those), the first argument in ENBP1-6 and the second in MVBP1-6, so a playfield pixel counts " +
     "as solid when every enabled plane carries the matching bit",
   "ldir":
-    "InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5413) tests " +
+    "InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5384) tests " +
     "before it prints — set, the line goes to PRT_Print instead of the window.",
   "ldir/w":
     "InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer",
@@ -8773,7 +8773,7 @@ export const NOTES: Record<string, string> = {
   "set accessory":
     "the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3748).",
   "set pattern":
-    "SPat +W.s:4730: positive numbers index the mouse bank past its first four images, which are the pointer " +
+    "SPat +W.s:4701: positive numbers index the mouse bank past its first four images, which are the pointer " +
     "shapes. Source: +W.s:16795.",
   "input$":
     "keyboard form is non-blocking best effort",
@@ -8920,7 +8920,7 @@ export const NOTES: Record<string, string> = {
     "its sorted-insert view bump, Fs_GetName's Sizes column, all twenty Fs_Jumps zones, the Store directory " +
     "cache, Fs_Help type-ahead and the AppCentre slide.",
   "psel$":
-    "FnPSel (+Lib.s:6771) is a bare rts — four token-table variants and no implementation anywhere in AMOS " +
+    "FnPSel (+Lib.s:6742) is a bare rts — four token-table variants and no implementation anywhere in AMOS " +
     "Professional, so the keyword returns its last argument untouched. Nothing is approximated: this is what the " +
     "original does",
   "resource$":
@@ -8932,7 +8932,7 @@ export const NOTES: Record<string, string> = {
   "set slider":
     "system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins",
   "mouse zone":
-    "FnMouseZone (+Lib.s:11077) is `moveq #0,d3 / SyCall ZoHd`, so it asks the CURRENT screen's zone table " +
+    "FnMouseZone (+Lib.s:11048) is `moveq #0,d3 / SyCall ZoHd`, so it asks the CURRENT screen's zone table " +
     "through the same ZoEc/GZone pair Hzone uses -- which means the hardware coordinate is bounds-tested against " +
     "the displayed window before any zone is considered, and a point outside it answers 0 rather than falling " +
     "through to the table. Source: +W.s:11216.",
@@ -8942,15 +8942,15 @@ export const NOTES: Record<string, string> = {
     "FnHZone2/3 (+Lib.s:11009) -> SyZoHd -> ZoEc -> GZone, the same path Mouse Zone takes, so it inherits ZoEc's " +
     "bounds test as well as its hardware-to-screen conversion",
   "reserve zone":
-    "InReserveZone0 (+Lib.s:10924) is `moveq #0,d3`, so the bare form reserves ZERO zones: SyResZ frees the old " +
+    "InReserveZone0 (+Lib.s:10895) is `moveq #0,d3`, so the bare form reserves ZERO zones: SyResZ frees the old " +
     "table and SyRz1's `move.w d1,d0 / beq.s ZoOk` returns without allocating a new one.",
   "set zone":
     "Source: +W.s:11119.",
   "reset zone":
-    "SyRazZ (+W.s:11094) on a screen with no zones returns 29, and InResetZone1 alone turns that into error 73 " +
+    "SyRazZ (+W.s:11065) on a screen with no zones returns 29, and InResetZone1 alone turns that into error 73 " +
     "rather than 23 (`.Err moveq #73,d0 / Rbra L_GoError`) -- the only place \"No zones defined\" is raised.",
   "set bob":
-    "InSetBob +Lib.s:12225 -> ResBOB +W.s:988. Its SIGN chooses what it means, which the manual does not say and " +
+    "InSetBob +Lib.s:12196 -> ResBOB +W.s:959. Its SIGN chooses what it means, which the manual does not say and " +
     "only BbS1a-BbS1d (+W.s:1425-1439) does: 0 is the default %0000111111001010 = $0FCA, negative is a minterm " +
     "with bit 15 cleared and the channel-enable bits forced on, positive is the whole BLTCON0 used verbatim. " +
     "DEVIATION: the blit evaluates the truth table per pixel per plane rather than per word, so the RESULT is the " +
@@ -9027,9 +9027,9 @@ export const NOTES: Record<string, string> = {
   "menu item movable":
     "drag applies final positions — no XOR rubber band",
   "sprite priority":
-    "HsPri +W.s:11374. Source: +W.s:11742.",
+    "HsPri +W.s:11345. Source: +W.s:11742.",
   "set sprite buffer":
-    "InSetSpriteBuffer +Lib.s:12290 with HsSBuf/HsRBuf (+W.s:11268/11311): the >= 16 check errors, and the size " +
+    "InSetSpriteBuffer +Lib.s:12261 with HsSBuf/HsRBuf (+W.s:11268/11311): the >= 16 check errors, and the size " +
     "is stored as n+2 lines, leaving n words per multiplexer column.",
   "dual playfield":
     "pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its " +
@@ -9048,7 +9048,7 @@ export const NOTES: Record<string, string> = {
     "real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the " +
     "synthetic Workbench list with the 8x8 face stands in",
   "border$":
-    "FnBorderD +Lib.s:14153 / Encadre +W.s:15169. Source: +W.s:9640.",
+    "FnBorderD +Lib.s:14124 / Encadre +W.s:15140. Source: +W.s:9640.",
   "request on":
     "stored — the port never shows system requesters",
   "request off":
@@ -9078,28 +9078,28 @@ export const NOTES: Record<string, string> = {
     "real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not " +
     "in the AMOS source, so byte-exact parity is unverifiable.",
   "edit":
-    "InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the " +
+    "InEdit +ILib.s:1829 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the " +
     "program halts",
   "direct":
-    "InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the " +
+    "InDirect +ILib.s:1837 returns to direct mode (run-error 1001); no direct window exists in the port, so the " +
     "program halts",
   "free":
-    "FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena " +
+    "FnFree +Lib.s:13571 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena " +
     "exists here — returns a nominal figure",
   "chip free":
-    "FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP).",
+    "FnChipFree +Lib.s:2481 queries exec AvailMem(MEMF_CHIP).",
   "fast free":
-    "FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST).",
+    "FnFastFree +Lib.s:2488 queries exec AvailMem(MEMF_FAST).",
   "lprint":
-    "InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated " +
+    "InLPrint +ILib.s:5038 routes Print to the printer device; no printer host, so the arguments are evaluated " +
     "(for side effects) then discarded",
   "dual priority":
     "the EcE27 error message text is a guess — the string is not in the source tree",
   "hrev block":
-    "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly " +
+    "RevBloc +W.s:12591 mirrors the block; the visible result matches, but the port reverses pixels directly " +
     "rather than via AMOS's stored orientation flag (bits $C000)",
   "vrev block":
-    "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal " +
+    "RevBloc +W.s:12591 mirrors the block vertically; visible result matches, but via direct pixel reversal " +
     "rather than AMOS's orientation-flag mechanism",
   "allow plane col":
     "reaches _BPlanesMask correctly but always sets CLXCON bit 0: the routine shifts the plane left six before " +
@@ -9915,7 +9915,7 @@ export const NOTES: Record<string, string> = {
     "so an Amiga decodes it as COP1LC and the author had no reason to notice.",
   dlscreenbase:
     "routine 2 ($21c): `move.l (a3)+,d1 / Rjsr L_GetEc / move.l a0,d3`. The screen control block, which is what " +
-    "`Screen Base` answers for the current screen (ScOnAd, FnScreenBase +Lib.s:8798); this one takes a number.",
+    "`Screen Base` answers for the current screen (ScOnAd, FnScreenBase +Lib.s:8769); this one takes a number.",
   dldepth: "routine 3 ($22a): `Rjsr L_GetEc / move.w $50(a0),d3` --- EcNPlan, the screen's bitplane count.",
   dlcheckaga:
     "routine 4 ($23a) asks nothing at run time: routine 0 tested lib_Version >= 39 and gb_ChipRevBits0 bit 2 " +

@@ -289,7 +289,7 @@ export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number
   return seq.length > 16 ? null : seq
 }
 
-/** STOS Anim slot: (image,delay) pairs, L = loop (AniStos +W.s:7490) */
+/** STOS Anim slot: (image,delay) pairs, L = loop (AniStos +W.s:7461) */
 export interface StosAnim {
   pairs: Array<[number, number]>
   loop: boolean
@@ -303,7 +303,7 @@ export interface StosAnim {
 /**
  * STOS Move X/Y slot: optional start position, (speed,step,count) groups
  * (count 0 = 65536 steps), L = loop / E = stop, either with an optional
- * position that triggers on equality (AniStos AnMve +W.s:7516).
+ * position that triggers on equality (AniStos AnMve +W.s:7487).
  */
 export interface StosMove {
   start: number | null
@@ -323,7 +323,7 @@ export interface StosMove {
 /**
  * An AMOS array block starts with a header, and =Array hands out its address.
  *
- * GetTablo (+ILib.s:4042) is the read side and it is unambiguous — it walks
+ * GetTablo (+ILib.s:4013) is the read side and it is unambiguous — it walks
  * the block as: a BYTE of dimension count, a BYTE of element-size shift, then
  * per dimension a WORD of size and a WORD of stride, then the elements. So a
  * one-dimensional array of longwords has a six-byte header and its first
@@ -529,7 +529,7 @@ export class Runtime {
    */
   fade: { scr: Screen; delay: number; count: number; targets: Int32Array } | null = null
   /** The flasher table: up to FlMax=16 entries, one per (colour, screen)
-   * pair (T_TFlash +WEqu.s:138-141, FlStart +W.s:5303). The 68k records
+   * pair (T_TFlash +WEqu.s:138-141, FlStart +W.s:5274). The 68k records
    * the screen ADDRESS at Flash time; we record the Screen object and drop
    * the entry once that screen is closed or replaced (on hardware the
    * interrupt would write into freed memory — observably: nothing). */
@@ -588,7 +588,7 @@ export class Runtime {
   bobModes = new Map<number, number>()
   /**
    * Set Bob's `planes` argument: the bitplane write mask (BbAPlan, set by
-   * ResBOB +W.s:998 and handed to the blitter as BbDAPlan at +W.s:1271).
+   * ResBOB +W.s:969 and handed to the blitter as BbDAPlan at +W.s:1271).
    * Omitted means -1, every plane.
    */
   /**
@@ -797,7 +797,7 @@ export class Runtime {
       port?: boolean
       /** a host serial port, when the name Open Port was given is a real one */
       serial?: SerialPortHandle
-      /** Field record layout (InField +ILib.s:4769) */
+      /** Field record layout (InField +ILib.s:4740) */
       fields?: Array<{ len: number; get: () => string; set: (v: string) => void }>
       recSize?: number
       /** file size, snapshotted at Field time, grown by Put */
@@ -817,7 +817,7 @@ export class Runtime {
   /** Dev/Prg First$/Next$ iterator (FillDev device list) */
   devIter: { entries: string[]; idx: number } | null = null
   /** Set Dir n[,neg$]: name-column width of Dir/Dev listings (DirLNom,
-   * default 30 = PI_DirSize +Interpreter_Config.s:69) + negative filter */
+   * default 30 = PI_DirSize +Interpreter_Config.s:41) + negative filter */
   dirWidth = 30
   dirNegFilter = ''
   /** Set Tempras (RasSize/RasLock +Lib.s:9997) — validated, unused by
@@ -1155,7 +1155,7 @@ export class Runtime {
   static readonly COPPER_SLOT = 0x00004000
   /** =Mubase — the music extension data zone (vumeter bytes at +0..3) */
   static readonly MUBASE_ADDR = 0x58000000
-  /** Varptr/=Array variable arena (FnVarPtr +ILib.s:4087) */
+  /** Varptr/=Array variable arena (FnVarPtr +ILib.s:4058) */
   static readonly VAR_BASE = 0x60000000
   /** Sprite Base / Icon Base synthesized bank images */
   static readonly SPRITE_BANK_BASE = 0x64000000
@@ -1547,7 +1547,7 @@ export class Runtime {
     this.copPos += 2
   }
 
-  /** Cop Wait x,y[,xmask,ymask] (TCopWt +W.s:6874) */
+  /** Cop Wait x,y[,xmask,ymask] (TCopWt +W.s:6845) */
   copWait(x: number, y: number, mx: number, my: number): void {
     this.copCheckOff()
     if (x >>> 0 >= 313 || y >>> 0 >= 313) throw new AmosError('copper parameter out of range')
@@ -1561,7 +1561,7 @@ export class Runtime {
     this.copPut(((my << 8) | ((mx >> 1) & 0xfe)) & 0xffff)
   }
 
-  /** Cop Move reg,value (TCopMv +W.s:6910) */
+  /** Cop Move reg,value (TCopMv +W.s:6881) */
   copMove(reg: number, val: number): void {
     this.copCheckOff()
     if (reg >>> 0 >= 512) throw new AmosError('copper parameter out of range')
@@ -1598,7 +1598,7 @@ export class Runtime {
     this.copCross = false
   }
 
-  /** Copper On / Copper Off (TCopOn +W.s:6815) */
+  /** Copper On / Copper Off (TCopOn +W.s:6786) */
   copperOnOff(on: boolean): void {
     if (!on) {
       if (!this.copperOn) return
@@ -2115,7 +2115,7 @@ export class Runtime {
     return out.sort((a, b) => a.number - b.number)
   }
 
-  /** erase one bank, whichever list it is in (InErase +Lib.s:2210) */
+  /** erase one bank, whichever list it is in (InErase +Lib.s:2181) */
   eraseBank(n: number): void {
     if (n === BOB_BANK && this.spriteBank) this.spriteBank = null
     else if (n === ICON_BANK && this.iconBank) this.iconBank = null
@@ -2124,7 +2124,7 @@ export class Runtime {
 
   reserveBank(n: number, length: number, name: string, dataBank = true, chip = false): void {
     // RsBqX (+Lib.s): length <= 0 or bank outside 1..65535 = function call
-    // error; flags bit 0 = Bnk_BitData (+Equ.s:1865): Data banks survive
+    // error; flags bit 0 = Bnk_BitData (+Equ.s:1837): Data banks survive
     // Erase Temp, Work banks (bit clear) do not
     if (length <= 0 || n <= 0 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
     // The name field is EIGHT bytes and Bnk.Reserve copies exactly eight
@@ -2144,7 +2144,7 @@ export class Runtime {
     this.memBanks.set(n, { kind: 'memory', number: n, memType: chip ? 1 : 0, name: held, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
   }
   // ---- resource banks (Interface language) ----
-  /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14933) */
+  /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14904) */
   resourceBankNumber = 0
   /** the system default resource (AMOSPro_Default_Resource.Abk, Sys_Resource) */
   systemResource: ResourceBank | null = null
@@ -2162,7 +2162,7 @@ export class Runtime {
   /** T_MouBank (+AMOSPro_Mouse.abk, an AmSp bank baked into the real
    * interpreter binary at +W.s:16795): images 1-3 = arrow/crosshair/clock
    * pointer shapes, images 5+ = the Set Pattern/Set Slider system patterns
-   * (SPat +W.s:4730 skips the first 4). Baked in here too, so the shapes
+   * (SPat +W.s:4701 skips the first 4). Baked in here too, so the shapes
    * and patterns are the machine's whether or not a bank file is around —
    * loadMouseBank still overrides it, as a customised one would. */
   mouseObjects: ObjectBank | null = null
@@ -2204,7 +2204,7 @@ export class Runtime {
   }
 
   /**
-   * Change Mouse n — MChange (+W.s:10669): 1-3 pick from the mouse bank;
+   * Change Mouse n — MChange (+W.s:10640): 1-3 pick from the mouse bank;
    * n >= 4 takes sprite-bank image n-3, which must be exactly one word
    * wide and two planes (a hardware sprite); anything invalid silently
    * falls back to shape 1 (MChE).
@@ -2229,7 +2229,7 @@ export class Runtime {
   }
 
   /** Set Pattern n>0: mouse-bank pattern n (bank image 4+n 1-based,
-   * SPat +W.s:4730); rows of 16 bits. Without the bank, the classic
+   * SPat +W.s:4701); rows of 16 bits. Without the bank, the classic
    * dither approximations (builtinPattern) stand in. */
   systemPattern(n: number): Uint16Array | null {
     const img = this.mouseObjects?.image(n + 4)
@@ -2279,9 +2279,9 @@ export class Runtime {
   dialogBoxChan: number | null = null
 
 
-  // ---- Fsel$ (Dsk.FileSelector / Start_FSel +Lib.s:17756) ----
+  // ---- Fsel$ (Dsk.FileSelector / Start_FSel +Lib.s:17727) ----
   /**
-   * EcFsel (+Equ.s:792): the system screen slot the file selector and the
+   * EcFsel (+Equ.s:764): the system screen slot the file selector and the
    * text reader both open on, above the user range 0-7 (8 EcFonc, 9 EcEdit,
    * 10 EcFsel, 11 EcReq).
    *
@@ -2648,7 +2648,7 @@ export class Runtime {
   }
 
   /**
-   * Fs_Liste (+Equ.s:1210): the store, a global at a5 and so shared by every
+   * Fs_Liste (+Equ.s:1182): the store, a global at a5 and so shared by every
    * Fsel$ in the session rather than owned by one call. Fs_Flush clears it.
    */
   fselStore: FselStoreEntry[] = []
@@ -2670,7 +2670,7 @@ export class Runtime {
     // Fs_OldEc (+Lib.s:17800): -1 when no screen is current, and the
     // reactivation at the end is skipped for it (`bmi .PaClo`, 18492)
     const prevScreen = this.screens.has(this.currentIndex) ? this.currentIndex : -1
-    // Fs_ScOpen (+Lib.s:18910): a system screen outside the user range 0-7,
+    // Fs_ScOpen (+Lib.s:18881): a system screen outside the user range 0-7,
     // sized from the config. The 68k retries at 320x128 and drops to the
     // cut-down Fs_LowMemory selector if even that fails; neither the 32K
     // AvailMem cliff nor the retry is reachable here (NOTES).
@@ -2754,7 +2754,7 @@ export class Runtime {
 
   /** re-read the directory (or device list) into the list zone */
   /**
-   * Fs_Loop (+Lib.s:17920): one pass. With a directory read running it takes
+   * Fs_Loop (+Lib.s:17891): one pass. With a directory read running it takes
    * the next name (Fs_Next); otherwise it waits. Either way a zone report
    * from the dialog is dispatched through Fs_Jumps.
    */
@@ -3505,13 +3505,13 @@ export class Runtime {
   frozenSprites: HwSprite[] | null = null
   /**
    * Sprite Priority lives on the screen now (Screen.pf1p/pf2p — EcCon2), not
-   * here: HsPri (+W.s:11374) pokes the CURRENT screen's control block, so two
+   * here: HsPri (+W.s:11345) pokes the CURRENT screen's control block, so two
    * screens can order sprites against their playfields differently.
    */
   /** Limit Mouse rectangle in hardware coords, clamped each vbl */
   mouseLimit: { x1: number; y1: number; x2: number; y2: number } | null = null
   /**
-   * `Command Line$` (InCommandLine +Lib.s:7867). The 68k keeps it under a
+   * `Command Line$` (InCommandLine +Lib.s:7838). The 68k keeps it under a
    * "CmdL" cookie below TBuffer rather than in a program variable, which is
    * how it survives `Run` chaining into the next program.
    */
@@ -3533,7 +3533,7 @@ export class Runtime {
     },
   }
   onMenu: { kind: 'goto' | 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
-  /** LMB drag of a movable item or level (MnBGoch +Lib.s:16016) */
+  /** LMB drag of a movable item or level (MnBGoch +Lib.s:15987) */
   private menuDrag: { kind: 'item' | 'level'; node: MenuNode | null; level: number; mx: number; my: number } | null = null
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
@@ -3975,7 +3975,7 @@ export class Runtime {
   /*
    * ---- the Varptr variable arena -----------------------------------------
    *
-   * Variables mapped into the fake address space (FnVarPtr +ILib.s:4087):
+   * Variables mapped into the fake address space (FnVarPtr +ILib.s:4058):
    * integer/float cells get a stable 4-byte slot that syncs from the
    * variable on reads and flushes Pokes back; strings are snapshotted
    * (length word + chars, Varptr returns chars) exactly as the 68k hands
@@ -4170,7 +4170,7 @@ export class Runtime {
   private table!: TokenTable
 
   /**
-   * Run "file" (InRun1 +ILib.s:1475): the file must exist ("file not
+   * Run "file" (InRun1 +ILib.s:1446): the file must exist ("file not
    * found"), the running program is New'd WITHOUT erasing screens
    * (Prg_New d0=0), and the new program loads with its own banks and
    * starts from the top.
@@ -4233,7 +4233,7 @@ export class Runtime {
    * whatever the accessory left its settings as, and that is reproduced.
    */
   prun(path: string, resumeAt: Addr): void {
-    // an accessory cannot Prun another one (PRun_Acc, +ILib.s:1600)
+    // an accessory cannot Prun another one (PRun_Acc, +ILib.s:1571)
     if (this.interp.nestedProgram) throw new AmosError('accessory cannot Prun', 102)
     const bytes = this.fs?.read(path)
     if (!bytes) throw new AmosError('file not found')
@@ -4328,7 +4328,7 @@ export class Runtime {
   }
 
   /**
-   * Bnk.OrAdr (+Lib.s:8082): a value BELOW 1024 is a bank number and answers
+   * Bnk.OrAdr (+Lib.s:8053): a value BELOW 1024 is a bank number and answers
    * that bank's start address, anything else is already an address.
    *
    * 1024 is the library's own line and not a round number chosen here:
@@ -4362,7 +4362,7 @@ export class Runtime {
   /**
    * FnVuMeter (+Music.s:3893): read AND clear the note-on byte the music
    * player stores per voice. Callers validate the range (BASIC errors on
-   * voice>3, AMAL's Vu() returns 0 — AmVu +W.s:9065).
+   * voice>3, AMAL's Vu() returns 0 — AmVu +W.s:9036).
    */
   vumeter(voice: number): number {
     const b = this.vuBytes[voice]!
@@ -4370,7 +4370,7 @@ export class Runtime {
     return b
   }
 
-  /** Freeze parks the whole AMAL channel chain (FrzAMAL +W.s:9999:
+  /** Freeze parks the whole AMAL channel chain (FrzAMAL +W.s:9970:
    * T_AmChaine moves to T_AmFreeze); channels made while frozen run on a
    * fresh live chain. Unfreeze restores ONLY if the live chain is still
    * empty — otherwise the frozen chain is discarded (UFrzAMAL). */
@@ -4452,7 +4452,7 @@ export class Runtime {
     if (axis === 'x') t.set(next, null, null)
     else t.set(null, next, null)
     // the L/E position is an equality trigger checked at every step
-    // (cmp.w AmDeltY, StM0 +W.s:8782)
+    // (cmp.w AmDeltY, StM0 +W.s:8753)
     if (m.endPos !== null && next === m.endPos) {
       this.stosLoopOrStop(m, t, axis)
       return
@@ -4480,7 +4480,7 @@ export class Runtime {
     m.speedLeft = m.groups[0]?.[0] ?? 1
   }
   /**
-   * Characters collected so far by `Input$(n)`. FnInputD1 (+Lib.s:4695) is a
+   * Characters collected so far by `Input$(n)`. FnInputD1 (+Lib.s:4666) is a
    * busy loop over Inkey, so the keyword itself does the collecting and the
    * statement re-runs each frame until it has n of them.
    */
@@ -4691,7 +4691,7 @@ export class Runtime {
 
   /** Grab a rectangle of a screen as a new bank image (Get Bob). */
   grab(s: Screen, x1: number, y1: number, x2: number, y2: number): BankImage {
-    // Ritoune (+Lib.s:12711) makes the width x2-x1, and GetBob (+W.s:10011)
+    // Ritoune (+Lib.s:12682) makes the width x2-x1, and GetBob (+W.s:9982)
     // rounds it up to whole words -- `add.w #15,d4 / lsr.w #4,d4` -- because
     // the header stores a word count, not a pixel count. The odd pixels at
     // the right are blitted through BltMaskD, which is `not MCls[w and 15]`,
@@ -4726,7 +4726,7 @@ export class Runtime {
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
     if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`)
-    // InScreenOpen (+Lib.s:8948): 4096 = HAM — lowres only, 6 planes,
+    // InScreenOpen (+Lib.s:8919): 4096 = HAM — lowres only, 6 planes,
     // stored as 64 colours with the CAMG bit; otherwise the colour count
     // must be exactly a power of two 2..64 (error 5, "illegal number of
     // colours"), and hires screens cap at 16 colours
@@ -4776,7 +4776,7 @@ export class Runtime {
   }
 
   /**
-   * Flash colour,seq — FlStart (+W.s:5303): the entry binds to the CURRENT
+   * Flash colour,seq — FlStart (+W.s:5274): the entry binds to the CURRENT
    * screen; an existing (colour, screen) entry is replaced, otherwise a
    * free slot is taken. A full table (FlMax=16 active flashes, checked
    * before the search) raises error 7 → "Too many colours in flash"
@@ -4800,7 +4800,7 @@ export class Runtime {
     this.flashes = this.flashes.filter((f) => !(f.reg === reg && f.scr === scr))
   }
 
-  /** Flash Off — FlStop (+W.s:5285): stops the CURRENT screen's flashes
+  /** Flash Off — FlStop (+W.s:5256): stops the CURRENT screen's flashes
    * only; other screens' entries keep running */
   flashOff(): void {
     const scr = this.screens.get(this.currentIndex)
@@ -4926,7 +4926,7 @@ export class Runtime {
   }
 
   /**
-   * ZoEc (+W.s:11158) — a HARDWARE coordinate into `s`, then GZone.
+   * ZoEc (+W.s:11129) — a HARDWARE coordinate into `s`, then GZone.
    *
    * The bounds test is the part worth having in one place: the point must
    * land inside the screen's displayed window before the zone table is
@@ -5112,7 +5112,7 @@ export class Runtime {
     return result
   }
 
-  /** the menu interaction (MnGere +Lib.s:15811), one iteration per frame */
+  /** the menu interaction (MnGere +Lib.s:15782), one iteration per frame */
   private stepMenus(): void {
     const t = this.menu
     const rmb = (this.input.mouseK & 2) !== 0
@@ -5709,7 +5709,7 @@ export class Runtime {
   /**
    * A screen's TAbk1/TAbk4 pair, handed to every Screen this runtime opens.
    *
-   * TAbk1 (+W.s:3577) is `bsr WVbl / bsr BobEff` and TAbk4 (+W.s:3642) is
+   * TAbk1 (+W.s:3548) is `bsr WVbl / bsr BobEff` and TAbk4 (+W.s:3613) is
    * `bsr BobAct / bsr BobAff`, so a drawing keyword sees a screen with no
    * bobs on it and the bobs re-save afterwards.
    *

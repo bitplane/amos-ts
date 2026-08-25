@@ -12,7 +12,7 @@ import { AmigaFS } from '../amiga/vfs'
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 const DATA_MENU = join(FIXTURES, 'official-amos', 'Tutorial', 'Tutorials', 'Menus', 'Data.Menu')
 
-describe('menu label object compiler (MnObjet +Lib.s:17464)', () => {
+describe('menu label object compiler (MnObjet +Lib.s:17435)', () => {
   it('compiles plain text and embedded commands', () => {
     expect(compileMenuObject('Load')).toEqual([{ op: 'text', s: 'Load' }])
     expect(compileMenuObject('(IN 1,5)Hi(LO 0,8)there')).toEqual([
@@ -171,7 +171,7 @@ describe('menu interaction', () => {
     expect(out()).toContain(' 1 2')
   })
 
-  it('Menu Key To also takes a scancode[,shift], and bare Menu Key clears (InMenuKey +ILib.s:6774)', () => {
+  it('Menu Key To also takes a scancode[,shift], and bare Menu Key clears (InMenuKey +ILib.s:6745)', () => {
     // the AMAL editor binds Quit as `Menu Key(1,3) To 69` (Esc's scancode)
     const src = [
       'Menu$(1)="A" : Menu$(1,1)="Quit"',

@@ -346,7 +346,7 @@ function amosError(n: number, text: string): never {
  * machine such an address yields a bank made of whatever was in memory.
  */
 function orAdr(rt: Runtime, n: number): BankRef | null {
-  // Bnk.OrAdr +Lib.s:8082 — below 1024 is a bank number, and one that names
+  // Bnk.OrAdr +Lib.s:8053 — below 1024 is a bank number, and one that names
   // no bank is L_BkNoRes rather than a quiet nothing
   if (n < 1024) {
     const ref = rt.bankRef(n)
@@ -1782,7 +1782,7 @@ function mouseOrKey(rt: Runtime): number {
 }
 
 /**
- * `EcMaxPlans` (+Equ.s:480) — *"6 Plans pour le moment!"*, and every plane
+ * `EcMaxPlans` (+Equ.s:452) — *"6 Plans pour le moment!"*, and every plane
  * keyword tests against it.
  */
 const EC_MAX_PLANS = 6
@@ -2727,7 +2727,7 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
      *
      * NOTE: that equivalence does NOT hold for a Bob or Icon bank, and the
      * routine does not exclude one. `=Length()` on an object bank answers the
-     * IMAGE COUNT (FnLength +Lib.s:2491), so `Start(1)+Length(1)` is the bank
+     * IMAGE COUNT (FnLength +Lib.s:2462), so `Start(1)+Length(1)` is the bank
      * start plus three, while `Finish(1)` is the real end. The author is
      * describing the Data bank case.
      */

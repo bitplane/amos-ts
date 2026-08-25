@@ -51,7 +51,7 @@ describe('Set Rainbow: the TRSet table build (+W.s:3990-4110)', () => {
     expect(() => boot('Set Rainbow 0,17,16,"","",""')).toThrow(/function call/)
   })
 
-  it('bounds: rainbow number < 4, 16 <= length < 32700 (InSetRainbow7 +Lib.s:9385)', () => {
+  it('bounds: rainbow number < 4, 16 <= length < 32700 (InSetRainbow7 +Lib.s:9356)', () => {
     expect(() => boot('Set Rainbow 4,0,16,"","",""')).toThrow(/function call/)
     expect(() => boot('Set Rainbow 0,0,15,"","",""')).toThrow(/function call/)
     expect(() => boot('Set Rainbow 0,0,32700,"","",""')).toThrow(/function call/)
@@ -100,7 +100,7 @@ describe('Rainbow / Rain: TRDo and TRVar (+W.s:3940-3985)', () => {
   })
 })
 
-describe('rainbow rendering: the scanline copper walk (CopBow +W.s:6079-6260)', () => {
+describe('rainbow rendering: the scanline copper walk (CopBow +W.s:6050-6231)', () => {
   it('writes the colour register per line and restores the palette after the span', () => {
     // the default screen clears to PAPER 1 (the out-of-box orange), so the
     // visible background is colour 1 — rainbow that register
@@ -164,7 +164,7 @@ describe('rainbow rendering: the scanline copper walk (CopBow +W.s:6079-6260)', 
   })
 })
 
-describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', () => {
+describe('the out-of-the-box cursor (AffCur +W.s:13575 + Flash 3 +Lib.s:8989)', () => {
   it('Screen Open installs the system flash on colour 3, bound to that screen', () => {
     const { rt } = boot('Screen Open 0,320,200,16,Lowres')
     const fl = rt.flashes.find((f) => f.reg === 3)
@@ -183,7 +183,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     expect(rt.flashes.length).toBe(0)
   })
 
-  it('each screen keeps its own entry; Flash Off stops the current screen only (FlStop +W.s:5285)', () => {
+  it('each screen keeps its own entry; Flash Off stops the current screen only (FlStop +W.s:5256)', () => {
     const src = [
       'Screen Open 0,320,200,16,Lowres', // flash col 3 @ screen 0
       'Screen Open 1,320,200,16,Lowres', // flash col 3 @ screen 1
@@ -191,7 +191,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     ].join('\n')
     const { rt } = boot(src)
     expect(rt.flashes.map((f) => f.screen)).toEqual([0])
-    // Flash n,"" silently stops one colour (flspoke +W.s:5333)
+    // Flash n,"" silently stops one colour (flspoke +W.s:5304)
     const { rt: rt2 } = boot('Screen Open 0,320,200,16,Lowres\nFlash 3,""')
     expect(rt2.flashes.length).toBe(0)
   })
@@ -201,7 +201,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     expect(() => boot('Flash 3,"(ff0,0)"')).toThrow(/flash declaration error/)
   })
 
-  it('the flash animates the bound screen palette each vbl (FlInt +W.s:5678)', () => {
+  it('the flash animates the bound screen palette each vbl (FlInt +W.s:5649)', () => {
     const src = 'For I=1 To 4 : Wait Vbl : Next I'
     const { rt } = boot(src)
     // after 4 vbls the default (000,2)(440,2)(880,2)... has advanced
@@ -211,13 +211,13 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
 
   it('draws the current window cursor as an underline in the cursor pen', () => {
     const { rt } = boot('Flash Off : Colour 3,$F0F : Locate 0,0')
-    // DefCurs (+W.s:16736): rows 6-7 of the cell; window 0 starts at 0,0
+    // DefCurs (+W.s:16707): rows 6-7 of the cell; window 0 starts at 0,0
     expect(pix12(rt, 0, 6 * 2)).toBe(0xf0f) // underline row, cursor pen 3
     expect(pix12(rt, 0, 2 * 2)).not.toBe(0xf0f) // upper cell rows untouched
   })
 
   /**
-   * The cursor is IN the bitmap (AffCur +W.s:13604), not an overlay on the
+   * The cursor is IN the bitmap (AffCur +W.s:13575), not an overlay on the
    * finished frame. It matters because an overlay cannot be painted over:
    * eggit printed a message box, dismissed it, repainted the room, and the
    * cursor went on floating over the artwork for the rest of the game.
@@ -255,7 +255,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
   })
 
   /**
-   * WiCuDraw is per window too (Set Curs -> WiSCur +W.s:14098), and WOpen
+   * WiCuDraw is per window too (Set Curs -> WiSCur +W.s:14069), and WOpen
    * resets it to DefCurs rather than inheriting it (+W.s:13772).
    */
   it('Set Curs changes the shape of the cursor that is on screen', () => {
@@ -291,7 +291,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     // InCursPen sends ESC "D" + colour (+Lib.s:13330), inside the bracket
     const { rt } = boot('Flash Off : Colour 7,$00F : Locate 0,0 : Curs Pen 7')
     expect(pix12(rt, 0, 6 * 2)).toBe(0x00f)
-    // CurCol (+W.s:14807) refuses a colour the screen has not got
+    // CurCol (+W.s:14778) refuses a colour the screen has not got
     expect(() => boot('Curs Pen 99')).toThrow(/illegal text window parameter/)
   })
 

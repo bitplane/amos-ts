@@ -1,5 +1,5 @@
 /**
- * `Joker` (Lib_Def Joker, +Lib.s:6631) — AMOS's own filename filter.
+ * `Joker` (Lib_Def Joker, +Lib.s:6602) — AMOS's own filename filter.
  *
  * This is NOT AmigaDOS pattern matching. `dos.library`'s ParsePattern grammar
  * lives in ../amiga/dospattern.ts and is what LDos's `Lmatch` and JD-K3's

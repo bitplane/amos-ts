@@ -45,3 +45,34 @@ export function corpusFile(sha256: string, index: Map<string, string> = corpusIn
   const path = index.get(sha256)
   return path !== undefined && existsSync(path) ? path : null
 }
+
+/**
+ * The MIT-released AMOS Professional assembler sources, by file name.
+ *
+ * There are two checkouts of them on this machine and their line numbers
+ * differ by 28 or 29: the release inside the corpus is what every
+ * `+Edit.s:NNNN` in this port cites, and `../AMOS-Professional-Official` is a
+ * different revision of the same release. `src/cli/genedres.ts` reads a
+ * BINARY out of the second one, where the numbering does not matter.
+ *
+ * The guard is here rather than at the call site, for the reason at the top of
+ * this file: an absent checkout answers null.
+ */
+const AMOS_SOURCES: Record<'corpus' | 'other', string> = {
+  corpus: `${ROOT}/sources/aminet-dev-amos/files/AMOSProfessional/AMOSProfessional`,
+  other: '../AMOS-Professional-Official',
+}
+
+const sourceCache = new Map<string, string[] | null>()
+
+/** one assembler file's lines, 0-indexed, or null when that checkout is absent */
+export function amosSource(file: string, checkout: 'corpus' | 'other' = 'corpus'): string[] | null {
+  const key = `${checkout}/${file}`
+  const had = sourceCache.get(key)
+  if (had !== undefined) return had
+  const path = `${AMOS_SOURCES[checkout]}/${file}`
+  // the sources read as binary (see CLAUDE.md), so latin1 rather than utf8
+  const lines = existsSync(path) ? readFileSync(path, 'latin1').split('\n') : null
+  sourceCache.set(key, lines)
+  return lines
+}

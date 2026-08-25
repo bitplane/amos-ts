@@ -13,10 +13,15 @@ import {
   findAmbiguous,
   findAnchors,
   parseCitations,
+  parseSourceCitations,
+  assemblerLabels,
+  citationResolves,
+  type AssemblerLabels,
   type Library,
   type Mismatch,
 } from './citations'
 import { NOTES } from '../coverage/status'
+import { amosSource } from '../cli/corpus'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const src = join(root, 'src')
@@ -747,5 +752,57 @@ describe.skipIf(!existsSync(extFixtures))('quotes in the coverage notes are verb
       }
     }
     expect(attributed).toBeGreaterThan(60)
+  })
+})
+
+
+/**
+ * A `+Edit.s:8681` must resolve in the checkout the project cites.
+ *
+ * There are two copies of the MIT-released sources on this machine and their
+ * line numbers differ by 28 or 29. A citation written against the wrong one
+ * looks right and points at nothing, which is the whole failure the citation
+ * rule exists to prevent, and 554 of them had drifted that way before this
+ * check went in.
+ *
+ * The assertion is one-sided on purpose. "Resolves in the OTHER checkout and
+ * not in the corpus one" is provable: it says the author was reading the wrong
+ * file. "Does not resolve in either" is a weaker signal that catches prose
+ * where the identifier in front of the citation is not its subject, so that
+ * one is a report in `src/cli/citecheck.ts` and not a failure here.
+ */
+describe('citations into the AMOS sources name the corpus checkout', () => {
+  const cache = new Map<string, AssemblerLabels>()
+  const labelsOf = (file: string, which: 'corpus' | 'other', lines: string[]): AssemblerLabels => {
+    const key = `${which}/${file}`
+    let had = cache.get(key)
+    if (had === undefined) {
+      had = assemblerLabels(lines)
+      cache.set(key, had)
+    }
+    return had
+  }
+
+  it('none of them resolves in ../AMOS-Professional-Official instead', () => {
+    const bad: string[] = []
+    let checked = 0
+    for (const p of sources(src)) {
+      for (const c of parseSourceCitations(readFileSync(p, 'utf8'))) {
+        const mine = amosSource(c.file)
+        const other = amosSource(c.file, 'other')
+        if (mine === null || other === null) continue
+        const la = labelsOf(c.file, 'corpus', mine)
+        if (la.at.get(c.symbol) === undefined) continue
+        checked++
+        if (citationResolves(mine, la, c.symbol, c.line)) continue
+        if (!citationResolves(other, labelsOf(c.file, 'other', other), c.symbol, c.line)) continue
+        bad.push(`${relative(root, p)}:${c.at} ${c.symbol} ${c.file}:${c.line}`)
+      }
+    }
+    expect(bad).toEqual([])
+    // a sweep that compared nothing must not pass
+    if (amosSource('+Edit.s') !== null && amosSource('+Edit.s', 'other') !== null) {
+      expect(checked).toBeGreaterThan(800)
+    }
   })
 })

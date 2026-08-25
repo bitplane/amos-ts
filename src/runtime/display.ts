@@ -51,7 +51,7 @@ export class Display {
   static readonly EC_Y_MAX = 311
 
   /**
-   * EcYStrt (+Equ.s:575, EcYBase+26): the first line a window may START on.
+   * EcYStrt (+Equ.s:547, EcYBase+26): the first line a window may START on.
    *
    * Both off-raster tests in the band writer are expressed against this and
    * EC_Y_MAX rather than written out as 26/309/310, because on NTSC only
@@ -179,7 +179,7 @@ export class Display {
 
   /**
    * Build the system copper list into the logical buffer and swap — the
-   * word-for-word equivalent of EcCopper (+W.s:5730/6030-6500) run at each
+   * word-for-word equivalent of EcCopper (+W.s:5701/6030-6500) run at each
    * vbl. The list is real memory behind Cop Logic: the header wait
    * $1003FFFE + sprite pointers $120-$13E (HsCop +W.s:6786), then per
    * screen band an EcCopHo block (WAIT, DMACON stop, the 16-colour
@@ -235,7 +235,7 @@ export class Display {
       .map(([, r]) => r)
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
     /**
-     * EcCopBa (+W.s:6741): stop the DMA and put the fond back in colour 0.
+     * EcCopBa (+W.s:6712): stop the DMA and put the fond back in colour 0.
      *
      * Clamped to T_EcYMax-1, which is what MkA9a/MkA11 (+W.s:5967-5985) do
      * with a window whose end falls below the bottom of the display: the end
@@ -269,8 +269,8 @@ export class Display {
       /**
        * OFF THE RASTER: THE WINDOW IS NOT SHOWN AT ALL.
        *
-       * MkA8 (+W.s:5955-5961) reads the boundary the band splitter stored
-       * (EcWY-1, MkD2 +W.s:5830) and branches straight to MkA10 — the next
+       * MkA8 (+W.s:5926-5932) reads the boundary the band splitter stored
+       * (EcWY-1, MkD2 +W.s:5801) and branches straight to MkA10 — the next
        * boundary — when it is above EcYStrt-1 or at/below T_EcYMax-2. No
        * band is written, so the screen simply does not appear. MkA9a
        * (+W.s:5973) applies the same top test to the END boundary, which is
@@ -303,7 +303,7 @@ export class Display {
       if (didStart && f) {
         emitted = true
         // EcCopHo head (+W.s:6293) — the band splitter stores boundaries
-        // at EcWY-1 (MkD2 +W.s:5830), so the setup runs on the line BEFORE
+        // at EcWY-1 (MkD2 +W.s:5801), so the setup runs on the line BEFORE
         // the band and the DMA restart lands exactly on its first line
         wait(Math.max(0, L - 1))
         put(0x096)
@@ -1042,7 +1042,7 @@ export class Display {
    * Hardware sprites straight out of SPRxPT (Copper Off).
    *
    * The system list leaves eight patch slots at $120-$13E for HsAff to fill
-   * in (HsCop +W.s:6783); once the program owns the list they are its to
+   * in (HsCop +W.s:6754); once the program owns the list they are its to
    * write, and the data behind them is the plain Amiga sprite structure:
    * SPRxPOS/SPRxCTL, then VSTOP-VSTART rows of two bitplane words, then a
    * zero long to end. Pair n draws in colours 17+4n..19+4n; CTL bit 7
@@ -1161,7 +1161,7 @@ export class Display {
    */
   drawBobs(): void {
     /**
-     * BbDel (+W.s:1301), which is where a stopped bob actually goes.
+     * BbDel (+W.s:1272), which is where a stopped bob actually goes.
      *
      * It sits here rather than in `Bob Off` because the erase has to run
      * first: the vbl calls EffBob, then ActBob, then AffBob
@@ -1187,7 +1187,7 @@ export class Display {
     })
     for (const bob of bobs) {
       const s = this.rt.screens.get(bob.screen)
-      // BbA0 (+W.s:2059) runs `bsr Retourne` off the bob's own BbRetour word
+      // BbA0 (+W.s:2030) runs `bsr Retourne` off the bob's own BbRetour word
       // every pass, so a bob given Hrev()/Vrev() mirrors the bank image
       // itself. The EOR inside makes the repeat a no-op.
       const img = this.rt.spriteBank?.retourne(bob.image)
@@ -1402,7 +1402,7 @@ export class Display {
 
   /**
    * The PF1P in force at a hardware scanline: the topmost visible screen
-   * covering it, else the frontmost screen (EcCon2, HsPri +W.s:11374).
+   * covering it, else the frontmost screen (EcCon2, HsPri +W.s:11345).
    */
   private priorityUnder(hy: number): number {
     for (let i = this.rt.order.length - 1; i >= 0; i--) {
@@ -1414,7 +1414,7 @@ export class Display {
   }
 
   /**
-   * Which hardware channel each sprite ends up on (HsAff +W.s:11742-11960).
+   * Which hardware channel each sprite ends up on (HsAff +W.s:11713-11931).
    *
    * Sprites 0-7 are "direct": they own the channel of the same number, and
    * a visible mouse pointer holds channel 0 (HsAff's T_MouShow test). Every
@@ -1467,7 +1467,7 @@ export class Display {
       })
     }
     if (this.rt.mouseShow >= 0) free[0] = false
-    // HsPMax = lines - 2 words per column (HsRBuf +W.s:11311)
+    // HsPMax = lines - 2 words per column (HsRBuf +W.s:11282)
     const pMax = Math.max(0, this.rt.spriteBufferLines - 2)
     computed.sort((a, b) => a.yr - b.yr || a.sp.n - b.sp.n)
     let cur = 0

@@ -45,7 +45,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('resource bank decoding', () => {
     expect(res.graphics!.nColors).toBe(8)
     expect(res.graphics!.mode & 0x8004).toBe(0x8000) // hires, not laced
     expect(res.graphics!.palette).toHaveLength(32)
-    // messages: {pad,len,chars} records (Dia_FMess +Lib.s:23102)
+    // messages: {pad,len,chars} records (Dia_FMess +Lib.s:23073)
     expect(res.messages!.length).toBeGreaterThan(10)
     for (const m of res.messages!) expect(m).toMatch(/^[\x20-\xff]*$/)
     // programs: word-length-prefixed ASCII dialog scripts

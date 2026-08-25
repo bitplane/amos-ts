@@ -8,7 +8,7 @@
  * a function call error.
  *
  * Each block is a run of records {pad byte, length byte, bytes}, walked
- * 1-based by GetMessage (+B.s:590) which skips the leading pad and stops
+ * 1-based by GetMessage (+B.s:562) which skips the leading pad and stops
  * at a length of $FF. The EdT/EdD macros (+Editor_Config.s:37-47) emit
  * exactly that, so parsing the macro calls IN ORDER reproduces the block —
  * and the order is the whole contract. The number in the macro call is a

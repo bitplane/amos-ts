@@ -98,7 +98,7 @@ const latin1 = (b: Uint8Array): string => {
 const bytesOf = (s: string): number[] => [...s].map((c) => c.charCodeAt(0) & 0xff)
 
 /**
- * `Bnk.OrAdr` (+Lib.s:8082) as an ADDRESS rather than a block: a small value
+ * `Bnk.OrAdr` (+Lib.s:8053) as an ADDRESS rather than a block: a small value
  * is a bank number and resolves to that bank's start, anything else is
  * already an address. Going through the runtime's own bankOrAddr first keeps
  * the unreserved-bank error (`Rbeq L_BkNoRes`) identical.

@@ -120,7 +120,7 @@ describe('drawing', () => {
   })
 
   it('Paint terminates when the fill colour is the colour it is filling', () => {
-    // TPaint fills over a mask, not the screen (PMask, +W.s:4657; tested at
+    // TPaint fills over a mask, not the screen (PMask, +W.s:4628; tested at
     // Pnt3/Pnt5, marked at Pnt7). Testing the pixels instead only terminates
     // while a filled pixel stops matching the seed colour — and painting the
     // paper colour onto the paper leaves every pixel exactly as fillable as
@@ -319,7 +319,7 @@ describe('text', () => {
    * LDos's Lansi is what found them — routine 69 emits all three.
    */
   it('control code 7 clears to the end of the cursor line, and no further', () => {
-    // ClEol's count is `WiX`, which AdCurs (+W.s:15601) shows is the cells
+    // ClEol's count is `WiX`, which AdCurs (+W.s:15572) shows is the cells
     // REMAINING — `WiTx - WiX` is the column — so it runs to the right edge
     const rt = run('Pen 5 : Locate 0,0 : Print "ABCD"; : Locate 2,0 : Print Chr$(7);')
     const s = rt.screen

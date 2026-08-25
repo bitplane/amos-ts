@@ -237,7 +237,7 @@ console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal
  * above now comes from the jump table itself, which is the only thing that
  * knows it, and the disagreement is reported here instead of hidden there.
  *
- * The advance rule is not ours to choose: `Ver_Ech` (+Verif.s:5259) walks the
+ * The advance rule is not ours to choose: `Ver_Ech` (+Verif.s:5231) walks the
  * table with `tst.b (a0)+ / bpl`, so a field ends at the first NEGATIVE byte
  * and a $00 does not terminate anything. See src/tokens/libtok.ts. AMOS on a
  * real Amiga therefore mis-reads this table exactly the way we do, which is

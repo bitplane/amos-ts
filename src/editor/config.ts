@@ -39,7 +39,7 @@
  * the system strings, the menu strings, the dialogue messages, the test-time
  * errors, the run-time errors, the menu programs, the user menus and the menu
  * definitions. Each block is a run of `[pad][length][bytes]` records that
- * `GetMessage` (+B.s:590) walks 1-based, stopping at a length of `$FF`. This
+ * `GetMessage` (+B.s:562) walks 1-based, stopping at a length of `$FF`. This
  * keeps them as bytes, because that is what `EdC_LoadTextes` (:5148) does: it
  * reads the length, reserves that much and reads the lot, and never looks
  * inside.
@@ -408,7 +408,7 @@ export function writeConfig(config: EditorConfig): Uint8Array {
 }
 
 /**
- * `GetMessage` (+B.s:590): the records of a text block, 1-based.
+ * `GetMessage` (+B.s:562): the records of a text block, 1-based.
  *
  * `[pad][length][bytes]` each, and a length of `$FF` ends the block. The pad
  * is zero in every record of the shipped file and the walk steps over it

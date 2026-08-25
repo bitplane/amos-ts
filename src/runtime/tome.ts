@@ -269,7 +269,7 @@ const iconUndef = (): never => {
  */
 function bankBytes(rt: Runtime, n: number): Uint8Array {
   const mem = rt.memBanks.get(n)
-  // FnStart +Lib.s:2481 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`
+  // FnStart +Lib.s:2452 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`
   if (!mem) {
     // NOTE: Start() answers for the sprite and icon banks too, and TOME would
     // then read an object bank's bytes as map data. Those banks are objects

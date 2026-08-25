@@ -1941,7 +1941,7 @@ function prtPrint(e: Edit, sink: (data: Uint8Array) => boolean, text: string): v
   // writes that many bytes from the front of the buffer. Every carriage
   // return the loop dropped leaves one byte of the old contents past what it
   // built, and that byte goes to the printer too. With one line ending per
-  // call it is the terminating zero. `PRT_Print` (+Lib.s:5478) does the same
+  // call it is the terminating zero. `PRT_Print` (+Lib.s:5451) does the same
   // arithmetic, so `Lprint` sends it as well.
   if (!sink(buf.subarray(0, a0 - 1))) throw new EditorAlert(216)
 }

@@ -65,7 +65,7 @@ describe('STOS-style Anim and Move (their own slot table, not AMAL channels)', (
   })
 })
 
-describe('image flip flags (FnRev +Lib.s:12744)', () => {
+describe('image flip flags (FnRev +Lib.s:12715)', () => {
   it('Hrev, Vrev and Rev set flip bits on an image number', () => {
     // the flags ride in the top bits of the image number the bob keywords take
     expect(runOut('Print Hrev(1);Vrev(1);Rev(1)')).toBe(' 32769 16385 49153\n')
@@ -80,7 +80,7 @@ describe('rainbows', () => {
     expect(() => run('Rainbow 0,1,50,20')).toThrow(/out of memory/)
   })
 
-  it('Rainbow Del removes one rainbow, or all of them (TRDel +W.s:4160)', () => {
+  it('Rainbow Del removes one rainbow, or all of them (TRDel +W.s:4131)', () => {
     const setup = 'Set Rainbow 0,0,16,"(1,1,15)","",""\nSet Rainbow 1,0,16,"(1,1,15)","",""'
     let rt = run(`${setup}\nRainbow 0,1,50,20\nRainbow 1,1,80,20\nRainbow Del 0`)
     expect(rt.rainbows.has(0)).toBe(false)
@@ -114,7 +114,7 @@ describe('zones and dialogs', () => {
   })
 
   it('Zdialog errors on a channel that was never opened', () => {
-    // FnZDialog +Lib.s:14632 resolves the channel before hit-testing
+    // FnZDialog +Lib.s:14603 resolves the channel before hit-testing
     expect(() => run('A=Zdialog(1,10,10)')).toThrow()
   })
 })
@@ -128,7 +128,7 @@ describe('compiler extension no-ops', () => {
 })
 
 describe('Default and the font list', () => {
-  it('Default returns the display to its boot state (InDefault +Lib.s:8710)', () => {
+  it('Default returns the display to its boot state (InDefault +Lib.s:8681)', () => {
     // it is a display reset, not an error-handling keyword: every screen is
     // closed and screen 0 reopened 320x200x16 with the boot palette
     const rt = run(

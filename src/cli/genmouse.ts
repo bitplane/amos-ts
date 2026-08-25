@@ -5,7 +5,7 @@
  * bin/+AMOSPro_Mouse.abk straight into the interpreter binary, so every
  * AMOS machine has it. It holds the three pointer shapes (arrow,
  * crosshair, clock) and, from image 5 on, the Set Pattern / Set Slider
- * system fill patterns that SPat (+W.s:4730) indexes past the first four.
+ * system fill patterns that SPat (+W.s:4701) indexes past the first four.
  *
  * 1824 bytes, so it is baked in as base64 rather than shipped as an asset.
  *

@@ -284,7 +284,7 @@ export interface PackScreenHeader {
   palette: ArrayLike<number>
 }
 
-/** PsLong (+Equ.s:940): the screen definition Spack puts in front */
+/** PsLong (+Equ.s:912): the screen definition Spack puts in front */
 export const SCREEN_HEADER_SIZE = 90
 
 /**

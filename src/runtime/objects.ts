@@ -41,7 +41,7 @@ export class BankImage {
   /**
    * Which way this image is CURRENTLY mirrored, in the bits `Retourne` uses:
    * $8000 horizontal, $4000 vertical. It lives in the top two bits of the
-   * stored hot spot X word on the Amiga (Spo4 +W.s:627 preserves them), and
+   * stored hot spot X word on the Amiga (Spo4 +W.s:598 preserves them), and
    * it is state of the bank rather than of any one draw. See
    * `ObjectBank.retourne`.
    */
@@ -145,7 +145,7 @@ export class ObjectBank {
   }
 
   /**
-   * `Retourne` (+W.s:1676) — mirror image n into the state its number asks
+   * `Retourne` (+W.s:1647) — mirror image n into the state its number asks
    * for, IN THE BANK, and answer it.
    *
    *	move.w	6(a1),d1
@@ -169,8 +169,8 @@ export class ObjectBank {
    * turns round.
    *
    * Because the test is an EOR against the current state, asking for no flip
-   * un-flips. Only Paste Bob/Paste Icon (TPatch +W.s:848) and the bob display
-   * loop (BbA0 +W.s:2059, off the bob's own BbRetour) ever call this;
+   * un-flips. Only Paste Bob/Paste Icon (TPatch +W.s:819) and the bob display
+   * loop (BbA0 +W.s:2030, off the bob's own BbRetour) ever call this;
    * `Sprite` and everything else take the image as it stands.
    */
   retourne(n: number): BankImage | undefined {
@@ -178,7 +178,7 @@ export class ObjectBank {
     if (!base) return base
     const todo = (base.flip ^ (n & 0xc000)) & 0xc000
     if (todo === 0) return base
-    // RBobX (+W.s:1702) and RBobY (+W.s:1733) recompute the hot spot as
+    // RBobX (+W.s:1673) and RBobY (+W.s:1704) recompute the hot spot as
     // width-hotX / height-hotY, no -1, on the 16-padded pixel width
     if (todo & 0x8000) base.hotX = base.width - base.hotX
     if (todo & 0x4000) base.hotY = base.height - base.hotY
@@ -240,7 +240,7 @@ export interface Bob {
    * Update passes left before the bob is forgotten, or undefined while live.
    *
    * `Bob Off` frees nothing. `BobSOff` (+W.s:1044) writes -1 into `BbAct` and
-   * asks for an update; `BobAct` then reaches `BbDel` (+W.s:1301), which is
+   * asks for an update; `BobAct` then reaches `BbDel` (+W.s:1272), which is
    * `subq.w #1,BbDecor(a4) / bhi.s BbSort` --- one decrement per pass, and
    * `DelBob` only when it runs out. `BbDecor` is the COUNT of background
    * buffers, so a double buffered bob survives two passes without being

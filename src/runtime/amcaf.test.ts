@@ -643,7 +643,7 @@ describe('banks', () => {
     // this. d1 is the Reserve flags -- bit 0 Data, bit 1 Chip, pinned by
     // Dload's `moveq #$1,d1` against Wload's `moveq #$0,d1` -- and four
     // engine banks were being made Data against a `moveq #$0,d1`. It is not
-    // cosmetic: Bnk_BitData (+Equ.s:1865) is what makes a bank survive
+    // cosmetic: Bnk_BitData (+Equ.s:1837) is what makes a bank survive
     // Erase Temp, so these banks do not survive it.
     const { rt } = run([
       'Screen Open 0,64,64,4,Lowres',
@@ -2303,7 +2303,7 @@ describe('zoom, masks, C2P and remaining graphics', () => {
    * from this, Font Style is totally identical with the AMOS function."*
    *
    * Routine 145 is seven instructions and reads TextFont + $17. AMOS's Text
-   * Styles is `move.b 56(a1),d3` off the RASTPORT (FnTextStyle, +Lib.s:9896),
+   * Styles is `move.b 56(a1),d3` off the RASTPORT (FnTextStyle, +Lib.s:9867),
    * which is rp_AlgoStyle. The colour-font bit the manual wants is
    * FSF_COLORFONT, bit 6 of **tf_Style** at TextFont + $16.
    *
@@ -4319,8 +4319,8 @@ describe('AMCAF transitions', () => {
  *
  * Routines 139-144 and 343-345. Four of the five are graphics.library and
  * diskfont.library reached through AMOS's structures — `$aa(screen)` is
- * EcWindow (+Equ.s:507) and `$8(window)` is WiFont (+Equ.s:686) — and the
- * fifth, Turbo Text, is AMOS's own COut (+W.s:15646) unrolled.
+ * EcWindow (+Equ.s:479) and `$8(window)` is WiFont (+Equ.s:658) — and the
+ * fifth, Turbo Text, is AMOS's own COut (+W.s:15617) unrolled.
  */
 describe('AMCAF fonts', () => {
   // four colours, so the per-plane decomposition has two planes to disagree on

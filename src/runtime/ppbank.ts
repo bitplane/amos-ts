@@ -68,7 +68,7 @@ export interface PpBank {
   data: Uint8Array
 }
 
-/** an object bank -- Bnk_BitBob or Bnk_BitIcon (+Equ.s:1867-1868) */
+/** an object bank -- Bnk_BitBob or Bnk_BitIcon (+Equ.s:1839-1840) */
 const objectBank = (flags: number): boolean => (flags & 0x0c) !== 0
 
 /** Parse a PPbk file: header + a PP20-crunched payload. */

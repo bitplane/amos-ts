@@ -23,7 +23,7 @@ export const MF_TOTAL = 1 << 5
 export const MF_TBOUGE = 1 << 6
 export const MF_BOUGE = 1 << 7
 
-/** compiled label object ops (MnOToken +Lib.s:17663-17678) */
+/** compiled label object ops (MnOToken +Lib.s:17634-17649) */
 export type MenuOp =
   | { op: 'text'; s: string }
   | { op: 'bar'; x: number; y: number } // BA
@@ -100,7 +100,7 @@ export function newMenuNode(nb: number, flags: number): MenuNode {
   }
 }
 
-// ---- the label object compiler (MnObjet +Lib.s:17464) ----
+// ---- the label object compiler (MnObjet +Lib.s:17435) ----
 
 const MENU_CMDS: Record<string, { params: number }> = {
   BA: { params: 2 },
@@ -243,7 +243,7 @@ export class MenuTree {
   roots: MenuNode[] = []
   baseX = 0
   baseY = 0
-  /** per-level default flags (MnDFlags via MenuReset +Lib.s:17308) */
+  /** per-level default flags (MnDFlags via MenuReset +Lib.s:17279) */
   dFlags: number[] = []
   change = true
   mouse = false

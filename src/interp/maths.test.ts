@@ -22,7 +22,7 @@ function run(src: string): string {
 const isTrue = (expr: string, prelude = ''): boolean =>
   run(`${prelude}Print ${expr}`).trim() === '-1'
 
-describe('angle mode (InRadian/InDegree +Lib.s:1942-1951)', () => {
+describe('angle mode (InRadian/InDegree +Lib.s:1913-1922)', () => {
   it('starts in radians — InRadian clears Angle(a5), and the variable area starts zeroed', () => {
     // Cos(Pi) is -1 only if the argument is being read as radians.
     expect(isTrue('Abs(Cos(Pi#)+1)<0.0001')).toBe(true)

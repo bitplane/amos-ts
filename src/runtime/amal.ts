@@ -327,7 +327,7 @@ export function compileAmal(src: string): AmalProgram {
       case 'F': {
         if (inAuto) throw lx.err('For not allowed in autotest')
         const reg = parseReg(lx.next())
-        // AmFor (+W.s:8869) selects the register FILE by the sign of the
+        // AmFor (+W.s:8840) selects the register FILE by the sign of the
         // compiled offset -- `move.w (a3)+,d0 / bpl.s AmFr0` takes
         // `T_AmRegs(a5)`, the global RA-RZ, and a negative one takes
         // `AmIRegs+NbInterne*2(a6)`, the internal R0-R9. Both are legal, and
@@ -801,12 +801,12 @@ export class AmalChannel {
           continue
         }
         case 'play': {
-          // AmPlay +W.s:8588. AmCpt is the same counter Move uses: decrement
+          // AmPlay +W.s:8559. AmCpt is the same counter Move uses: decrement
           // it, then negative means "not started yet" (AmPli), positive means
           // the tempo has not elapsed (AmX), zero means take a step (AmPl0).
           this.moveCount--
           if (this.moveCount < 0) {
-            // AmPli +W.s:8661 — look the movement up in the AMAL bank. A
+            // AmPli +W.s:8632 — look the movement up in the AMAL bank. A
             // missing bank, a number past the count and number 0 all fall
             // through to AmMvX, which simply runs on to the next instruction.
             const n = this.eval(op.e, host)
@@ -840,7 +840,7 @@ export class AmalChannel {
   }
 
   /**
-   * AmPl0 +W.s:8591 — one tempo tick of a recorded movement: one step off
+   * AmPl0 +W.s:8562 — one tempo tick of a recorded movement: one step off
    * the X stream, one off the Y stream, then AmCpt reloads from R0.
    *
    * A stream byte is either 0 (the movement ends — and it is a 0 *before*

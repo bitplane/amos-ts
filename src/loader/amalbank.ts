@@ -23,7 +23,7 @@
  * the first step (`data[xStart-1]`, written for exactly that purpose).
  */
 export interface AmalMovement {
-  /** the record's own tempo word, loaded into R0 by AmPli (+W.s:8674) */
+  /** the record's own tempo word, loaded into R0 by AmPli (+W.s:8645) */
   speed: number
   /** first X step byte; the backward terminator is the byte before it */
   xStart: number
@@ -78,7 +78,7 @@ function parsePrograms(d: Uint8Array): string[] {
 }
 
 /**
- * AmPli +W.s:8663: count word at payload+4, then a word-offset table whose
+ * AmPli +W.s:8634: count word at payload+4, then a word-offset table whose
  * entry for movement n sits at payload+4+n*2 — so entry 1 is the word right
  * after the count and index 0 is the count itself, which is why `lsl.w #1,d3
  * / beq AmMvX` rejects 0. Offsets are word counts from payload+4.

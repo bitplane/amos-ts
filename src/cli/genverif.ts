@@ -1,7 +1,7 @@
 /**
  * Generate src/tokens/verif.gen.ts — the verifier's class per core token.
  *
- * `Ver_Ech` (+Verif.s:5259) walks the loaded token table and SWAPS each
+ * `Ver_Ech` (+Verif.s:5231) walks the loaded token table and SWAPS each
  * entry's two routine words for a four-byte record held in the library's
  * `LB_Verif` table. So for the length of a verification the first long of
  * every entry is not a pair of routine numbers, and `VerDd` (:250) can pick

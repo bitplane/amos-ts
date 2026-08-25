@@ -79,7 +79,7 @@ describe('menu node flags', () => {
 
 describe('menu structure', () => {
   it('Menu Del removes one branch, and the whole tree when given no path', () => {
-    // InMenuDel +ILib.s:6954
+    // InMenuDel +ILib.s:6925
     let rt = run(`${MENU}\nMenu Del(2)`)
     expect(rt.menu.find([2])).toBeNull()
     expect(rt.menu.find([1])).toBeDefined()
@@ -88,7 +88,7 @@ describe('menu structure', () => {
     expect(rt.menu.find([2])).toBeNull()
   })
 
-  it('Set Menu pins an entry to a fixed position (InSetMenu +ILib.s:6973)', () => {
+  it('Set Menu pins an entry to a fixed position (InSetMenu +ILib.s:6944)', () => {
     const rt = run(`${MENU}\nSet Menu(1,1) To 40,90`)
     const node = rt.menu.find([1, 1])!
     expect([node.x, node.y]).toEqual([40, 90])

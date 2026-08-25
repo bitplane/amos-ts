@@ -73,7 +73,7 @@ describe('Prun — a second program run as an accessory', () => {
   })
 
   it('gives the accessory its own bank list and restores the caller list', () => {
-    // Prg_SetBanks (+Verif.s:4742) repoints Cur_Banks at the running
+    // Prg_SetBanks (+Verif.s:4714) repoints Cur_Banks at the running
     // program's own array, so the caller's bank is invisible to the
     // accessory and the accessory's is gone by the time the caller resumes
     const { rt, out } = boot(['Reserve As Work 10,100', 'Prun "acc"', 'Print Length(10)'].join('\n'), {
@@ -87,7 +87,7 @@ describe('Prun — a second program run as an accessory', () => {
     expect(rt.memBanks.get(10)!.data.length).toBe(100)
   })
 
-  it('is illegal from inside an accessory (PRun_Acc, +ILib.s:1600)', () => {
+  it('is illegal from inside an accessory (PRun_Acc, +ILib.s:1571)', () => {
     const { rt } = boot('Prun "acc"', { acc: amosFile([['prun', { s: 'acc' }]]) })
     expect(() => rt.runHeadless(200)).toThrow(/accessory/i)
   })
@@ -140,7 +140,7 @@ describe('Run "file" leaves no state behind', () => {
 /**
  * DefRunAcc runs the extension default hooks where it skips the display
  * reinit — `Rbsr L_DefRunExtensions` (+ILib.s:403), the same call DefRun1
- * makes, over the twenty-six-slot table at ExtAdr (+Equ.s:1185) that AMCAF
+ * makes, over the twenty-six-slot table at ExtAdr (+Equ.s:1157) that AMCAF
  * indexes as `$f8(a5)`.
  */
 describe('Prun and the extension slots', () => {

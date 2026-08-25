@@ -117,7 +117,7 @@ describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:207
     expect(() => run('Wait -1')).toThrow(/illegal function call/i)
   })
 
-  it('Wait 0 waits forever (Wait_Event +Lib.s:2115)', () => {
+  it('Wait 0 waits forever (Wait_Event +Lib.s:2086)', () => {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')
     const rt = new Runtime(tokenize('Wait 0\nPrint "never"', table), table, { maxSteps: 100_000, fs, onText: () => {} })
@@ -141,7 +141,7 @@ describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:207
 })
 
 describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
-  it('Locate errors outside the window (Loca +W.s:15364, error 60)', () => {
+  it('Locate errors outside the window (Loca +W.s:15335, error 60)', () => {
     expect(() => run('Locate 200,0')).toThrow(/illegal text window parameter/i)
     expect(() => run('Locate 0,200')).toThrow(/illegal text window parameter/i)
   })
@@ -152,7 +152,7 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
     expect(run('Pen 15 : Print "ok"').out).toContain('ok')
   })
 
-  it('At validates coordinates above 207 (FnAt +Lib.s:14046)', () => {
+  it('At validates coordinates above 207 (FnAt +Lib.s:14017)', () => {
     expect(() => run('X$=At(208,0)')).toThrow(/illegal function call/i)
     expect(run('Print At(2,3)="X"+Chr$(50)+"Y"+Chr$(51)').out.trim()).toBe('-1')
   })
@@ -188,7 +188,7 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
     expect(cell(7, 3)).toEqual([0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0xff])
   })
 
-  it('Font$ needs Get Fonts, formats 38 chars, "" past the list (FnFont +Lib.s:9786)', () => {
+  it('Font$ needs Get Fonts, formats 38 chars, "" past the list (FnFont +Lib.s:9757)', () => {
     expect(() => run('Print Font$(1)')).toThrow(/fonts not examined/i)
     const { out } = run('Get Fonts\nPrint Len(Font$(1))\nPrint Font$(999)="";Font$(0)=""')
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['38', '-1-1'])
@@ -205,13 +205,13 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
 })
 
 describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
-  it('Bar errors on non-increasing coordinates (InBar +Lib.s:9975)', () => {
+  it('Bar errors on non-increasing coordinates (InBar +Lib.s:9946)', () => {
     expect(() => run('Bar 10,10 To 10,20')).toThrow(/illegal function call/i)
     expect(() => run('Bar 10,10 To 20,10')).toThrow(/illegal function call/i)
     expect(() => run('Bar 20,20 To 10,30')).toThrow(/illegal function call/i)
   })
 
-  it('Box runs one continuous dash pattern around the edges (InBox +Lib.s:9702)', () => {
+  it('Box runs one continuous dash pattern around the edges (InBox +Lib.s:9673)', () => {
     // an alternating 1-pixel dash: with a continuous phase, the pixel
     // count around the whole box is ~half the perimeter; with a
     // restarting phase the corners would double up
@@ -223,7 +223,7 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
     expect(lit).toBeLessThan(70)
   })
 
-  it('Scanshift is captured with Inkey$ and read-clears (FnScanshift +Lib.s:13640)', () => {
+  it('Scanshift is captured with Inkey$ and read-clears (FnScanshift +Lib.s:13611)', () => {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')
     let out = ''
@@ -235,7 +235,7 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '0'])
   })
 
-  it('Hrev/Vrev Block mirror pixels and error on missing blocks (RevBloc +W.s:12620)', () => {
+  it('Hrev/Vrev Block mirror pixels and error on missing blocks (RevBloc +W.s:12591)', () => {
     // the mirror is across the STORED width, and `Get Block ...,8,8` stores
     // one word: `add.w #15,d4 / lsr.w #4,d4` in GetBob (+W.s:620). So the
     // lit column lands at 15 from the left, not 7.
@@ -255,7 +255,7 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
     expect(() => run('Vrev Block 9')).toThrow(/block not defined/i)
   })
 
-  it('Mouse Zone maps into the current screen and is 0 outside (SyZoHd +W.s:11150)', () => {
+  it('Mouse Zone maps into the current screen and is 0 outside (SyZoHd +W.s:11121)', () => {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')
     let out = ''
@@ -274,7 +274,7 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
   })
 })
 
-describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4087)', () => {
+describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4058)', () => {
   it('integer cells read and write through the arena', () => {
     const { out } = run(['A=123456', 'P=Varptr(A)', 'Print Leek(P)', 'Loke P,-42', 'Print A', 'Print Varptr(A)=P'].join('\n'))
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['123456', '-42', '-1'])
@@ -302,7 +302,7 @@ describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4087)', () => {
   it('array elements get distinct stable slots; =Array maps the block', () => {
     // =Array hands out the block ADDRESS, and an AMOS array block starts with
     // a header: a byte of dimension count, a byte of element-size shift, then
-    // a size word and a stride word per dimension (GetTablo +ILib.s:4042). So
+    // a size word and a stride word per dimension (GetTablo +ILib.s:4013). So
     // element 0 is at +6 and element 2 at +14 — this port used to map the
     // elements at +0 with no header, which put every read one element out.
     const prog = [
@@ -366,7 +366,7 @@ describe('integration: Run and the environment cluster', () => {
     expect(lines[3]).toBe('0') // variables reset
   })
 
-  it.skipIf(!have('Examples/Examples/H-0/Help_1.AMOS'))('Run "file" loads and chains a real corpus program (InRun1 +ILib.s:1475)', () => {
+  it.skipIf(!have('Examples/Examples/H-0/Help_1.AMOS'))('Run "file" loads and chains a real corpus program (InRun1 +ILib.s:1446)', () => {
     const child = new Uint8Array(readFileSync(corpus('Examples/Examples/H-0/Help_1.AMOS')))
     const fs = new AmigaFS()
     const vol = fs.mountMemory('DH0')
@@ -470,7 +470,7 @@ describe('integration: Run and the environment cluster', () => {
     expect(seen.length).toBe(510)
   })
 
-  it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5539)', () => {
+  it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5510)', () => {
     const prog = ['Print Dev First$("*")', 'Print Dev Next$', 'Print Prg First$("*")'].join('\n')
     const { out } = run(prog)
     // FnFillNext format (+Lib.s:5583): a marker space, the name padded to
@@ -487,7 +487,7 @@ describe('integration: Run and the environment cluster', () => {
       'Open Out 1,"DH0:zz.dat" : Print #1,"12345" : Close 1',
       'Open Out 1,"DH0:aa.dat" : Print #1,"x" : Close 1',
       // "" is how AMOS asks for everything: the filter is skipped outright
-      // (FillNxt +Lib.s:6215 `tst.b (a0) / beq`). "*" would NOT do it --
+      // (FillNxt +Lib.s:6186 `tst.b (a0) / beq`). "*" would NOT do it --
       // Joker's star stops at a dot, so it matches neither .dat file
       'A$=Dir First$("")',
       'While A$<>"" : Print "[";A$;"]" : A$=Dir Next$ : Wend',
@@ -502,7 +502,7 @@ describe('integration: Run and the environment cluster', () => {
     expect(lines[1]!.length).toBe(2 + 30 + 8)
     const m = /^\[ aa\.dat\s+(\d+)\s*\]$/.exec(lines[1]!)
     expect(m).not.toBeNull()
-    // Set Dir 10 narrows the name column (InSetDir1 +Lib.s:5525); dirs
+    // Set Dir 10 narrows the name column (InSetDir1 +Lib.s:5496); dirs
     // list even against "*.dat" — filters only apply to files (FillNxt)
     expect(lines[3]).toBe('[' + '*sub'.padEnd(10) + ' '.repeat(8) + ']')
   })
@@ -690,7 +690,7 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(flipped).toBe(unflipped) // flip must not shift the collision box
   })
 
-  it('Hot Spot code form uses the full width/height, not width-1 (SpotH +W.s:600)', () => {
+  it('Hot Spot code form uses the full width/height, not width-1 (SpotH +W.s:571)', () => {
     const prog = [
       'Cls 0 : Ink 5 : Bar 0,0 To 15,9',
       'Get Bob 1,0,0 To 16,10', // 16x10
@@ -780,7 +780,7 @@ describe('stragglers (palette shift, wind size, key shift)', () => {
   // Flash Off first: colour 3 carries the system flash out of the box
   // (Screen Open runs Flash 3, +Lib.s:8989), which would fight the shifted
   // value here exactly as it does on a real Amiga
-  it('Shift Up cycles a palette range with the exact rotation (Shifter +W.s:5464)', () => {
+  it('Shift Up cycles a palette range with the exact rotation (Shifter +W.s:5435)', () => {
     // start [1,2,3]=$100,$200,$300; one up-shift → pal[1]<-pal[3] wrap.
     // The flag is not optional: $0d62's spec is "I0,0,0,0" with no $FE
     // variant behind it, and every corpus use writes all four
@@ -856,7 +856,7 @@ describe('text/console (vs +W.s / +ILib.s)', () => {
   })
 })
 
-describe('procedures: Param typed slots (FnEProc +ILib.s:2701)', () => {
+describe('procedures: Param typed slots (FnEProc +ILib.s:2672)', () => {
   it('End Proc[x] writes only the slot matching x type; others stay stale', () => {
     const prog = [
       '_A[0] : _B[0]',
@@ -875,7 +875,7 @@ describe('procedures: Param typed slots (FnEProc +ILib.s:2701)', () => {
 })
 
 describe('screens (vs the 68k Ec* routines)', () => {
-  it('Screen Open masks the width down to a multiple of 16 (EcCree +W.s:2910)', () => {
+  it('Screen Open masks the width down to a multiple of 16 (EcCree +W.s:2881)', () => {
     expect(run('Screen Open 1,330,200,16,0 : Print Screen Width(1)').out).toBe(' 320\n')
     expect(run('Screen Open 1,336,200,16,0 : Print Screen Width(1);Screen Height(1)').out).toBe(' 336 200\n')
   })
@@ -911,7 +911,7 @@ describe('screens (vs the 68k Ec* routines)', () => {
     expect(hidden.screens.get(0)!.visible).toBe(false)
   })
 
-  it('Dual Priority raises PF2 without reassigning the pair (DualP +W.s:2870)', () => {
+  it('Dual Priority raises PF2 without reassigning the pair (DualP +W.s:2841)', () => {
     const prog = [
       'Screen Open 0,320,200,8,0 : Screen Open 1,320,200,8,0',
       'Dual Playfield 0,1',
@@ -946,7 +946,7 @@ describe('input subsystem (vs the 68k read routines)', () => {
     return { rt, out: () => out }
   }
 
-  it('Mouse Click is an edge-detected bitmask, not a count (MRout +W.s:10627)', () => {
+  it('Mouse Click is an edge-detected bitmask, not a count (MRout +W.s:10598)', () => {
     const { rt, out } = boot(['Do', ' C=Mouse Click', ' If C>0 Then Print C;Mouse Click : End', ' Wait Vbl', 'Loop'].join('\n'))
     for (let i = 0; i < 2; i++) rt.frame() // no buttons: reads 0
     rt.input.mouseK = 1 | 2 // both pressed together
@@ -955,7 +955,7 @@ describe('input subsystem (vs the 68k read routines)', () => {
     expect(out()).toBe(' 3 0\n')
   })
 
-  it('Scancode clears after a read (FnScancode +Lib.s:13631)', () => {
+  it('Scancode clears after a read (FnScancode +Lib.s:13602)', () => {
     const { rt, out } = boot(['A$=Inkey$', 'Do', ' A$=Inkey$', ' If A$<>"" Then Print Scancode;Scancode : End', ' Wait Vbl', 'Loop'].join('\n'))
     for (let i = 0; i < 2; i++) rt.frame()
     rt.pressKey('a', 0x20)
@@ -969,7 +969,7 @@ describe('input subsystem (vs the 68k read routines)', () => {
     expect(out()).toBe('HELLO\n-1\n') // slot 3 = HELLO, slot 1 = empty ("" = "" is true)
   })
 
-  it('Key State masks to $7F and errors past 128 (FnKeyState +Lib.s:13649)', () => {
+  it('Key State masks to $7F and errors past 128 (FnKeyState +Lib.s:13620)', () => {
     const { rt, out } = boot(['Do', ' If Key State($40) Then Print "hit" : End', ' Wait Vbl', 'Loop'].join('\n'))
     for (let i = 0; i < 2; i++) rt.frame()
     rt.input.keys.add(0x40)
@@ -1047,7 +1047,7 @@ describe('drawing primitives (graphics cursor + shapes)', () => {
 })
 
 describe('sliders', () => {
-  it('draws track and knob rects with the Set Slider colours (SliHor +W.s:5051)', () => {
+  it('draws track and knob rects with the Set Slider colours (SliHor +W.s:5022)', () => {
     const prog = [
       'Cls 0',
       'Set Slider 4,4,4,0,5,5,5,0', // solid frame ink 4, solid knob ink 5
@@ -1146,7 +1146,7 @@ describe('blocks, clones, flips', () => {
     //   Hot Spot N+6,%10010 : Paste Bob 500,500,Hrev(N+6)
     //
     // The paste goes to 500,500 — off a 320-wide screen — purely for the side
-    // effect. TPatch (+W.s:848) opens with `bsr Retourne`, which mirrors the
+    // effect. TPatch (+W.s:819) opens with `bsr Retourne`, which mirrors the
     // image IN THE BANK and records the new state in the top two bits of its
     // hot spot word. Ronnio is then drawn as a plain hardware sprite, and
     // `Sprite` never calls Retourne, so images 7-12 stay mirrored.
@@ -1182,7 +1182,7 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(115, 100)).toBe(5)
   })
 
-  it('Hrev/Vrev Block mirror the stored block (RevBloc +W.s:12620)', () => {
+  it('Hrev/Vrev Block mirror the stored block (RevBloc +W.s:12591)', () => {
     // a 4x4 request with a single marked pixel at its top-left corner. It is
     // STORED 16 wide, one whole word, because MakeBloc grabs it with GetBob
     // and GetBob keeps a word count (+W.s:12389 and 620).
@@ -1393,7 +1393,7 @@ describe('memory model', () => {
     expect(run(prog).out).toBe(' 20 10\n 0\n')
   })
 
-  it('Deek/Doke/Leek/Loke are big-endian at any alignment (FnDeek +Lib.s:2805)', () => {
+  it('Deek/Doke/Leek/Loke are big-endian at any alignment (FnDeek +Lib.s:2776)', () => {
     const prog = [
       'Reserve As Data 6,32',
       'Doke Start(6),$1234 : Doke Start(6)+3,$5678', // even and odd
@@ -1404,7 +1404,7 @@ describe('memory model', () => {
     expect(run(prog).out).toBe(' 18 52 22136\n-1\n') // $12,$34; $5678
   })
 
-  it('Fill writes the whole range including the trailing bytes (FillBis +Lib.s:2648)', () => {
+  it('Fill writes the whole range including the trailing bytes (FillBis +Lib.s:2619)', () => {
     const prog = [
       'Reserve As Data 6,16',
       'Fill Start(6) To Start(6)+6,$41424344',
@@ -1413,7 +1413,7 @@ describe('memory model', () => {
     expect(run(prog).out).toBe(' 65 66\n') // $41,$42 — not left as 0
   })
 
-  it('Copy handles overlapping moves within a bank (TransMem +Lib.s:2535)', () => {
+  it('Copy handles overlapping moves within a bank (TransMem +Lib.s:2506)', () => {
     const prog = [
       'Reserve As Data 6,32',
       'Poke$ Start(6),"ABCDEF"',
@@ -1538,7 +1538,7 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(lines[1]).toMatch(/^topaz\.font\s+8\s+Rom\s*$/)
   })
 
-  it('Logbase/Phybase are faithful plane pointers (FnLogBase +Lib.s:8851)', () => {
+  it('Logbase/Phybase are faithful plane pointers (FnLogBase +Lib.s:8822)', () => {
     // planes are planeSize apart; single-buffered Logbase == Phybase (EcLogic ==
     // EcPhysic at open, +W.s:3001); Double Buffer splits them
     const prog = [
@@ -1669,7 +1669,7 @@ describe('menus', () => {
   })
 })
 
-describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13544)', () => {
+describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13515)', () => {
   // the keywords print control chars 16-19/20-23; the scrolls are the
   // window escape handlers ScG*/ScD*/ScBas*/ScHaut* (+W.s:14539-14760)
   it('Hscroll 1 shifts only the cursor line one character left, paper-filling the edge', () => {
@@ -1712,7 +1712,7 @@ describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13544
     expect(rt.screen.point(4, 192)).toBe(1) // bottom line cleared
   })
 
-  it('rejects arguments outside 1..4 (HVSc +Lib.s:13560)', () => {
+  it('rejects arguments outside 1..4 (HVSc +Lib.s:13531)', () => {
     expect(() => run('Hscroll 0')).toThrow(/function call/)
     expect(() => run('Vscroll 5')).toThrow(/function call/)
   })
@@ -1796,7 +1796,7 @@ describe('Appear and Screen Base (InAppear +Lib.s:10466, FnScreenBase 8798)', ()
   })
 })
 
-describe('the pseudo raster beam (FnRnd +Lib.s:1976, VPOSR/VHPOSR)', () => {
+describe('the pseudo raster beam (FnRnd +Lib.s:1947, VPOSR/VHPOSR)', () => {
   it('Rnd(-n) is the pure generator; Rnd(n) mixes the beam word', () => {
     // the negative form masks out the VHPOSR term (and.w with 0) — the
     // sequence is exactly the seeded LCG and reproduces run to run
@@ -1815,7 +1815,7 @@ describe('the pseudo raster beam (FnRnd +Lib.s:1976, VPOSR/VHPOSR)', () => {
   })
 })
 
-describe('STOS Anim / Move X / Move Y (AniStos +W.s:7483, AmMvtX/AmAnim executors)', () => {
+describe('STOS Anim / Move X / Move Y (AniStos +W.s:7454, AmMvtX/AmAnim executors)', () => {
   const frames = (rt: Runtime, n: number): void => {
     for (let i = 0; i < n; i++) rt.frame()
   }
@@ -1879,7 +1879,7 @@ describe('STOS Anim / Move X / Move Y (AniStos +W.s:7483, AmMvtX/AmAnim executor
 
 const MOUSE_ABK = join(__dirname, '..', '..', 'fixtures', 'machine', 'AMOSPro_Mouse.abk')
 
-describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
+describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10640, HiSho +W.s:10722)', () => {
   const bank = (): Uint8Array => readFileSync(MOUSE_ABK)
 
   function boot(src: string): { rt: Runtime; out: string } {
@@ -1977,7 +1977,7 @@ describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10669, 
     expect(rt4.mouseShow).toBe(0)
   })
 
-  it('Set Pattern n>0 pulls the real system pattern from the bank (SPat +W.s:4730)', () => {
+  it('Set Pattern n>0 pulls the real system pattern from the bank (SPat +W.s:4701)', () => {
     const { rt } = boot('Set Pattern 1\nWait Vbl')
     const pat = rt.screens.get(0)!.pattern
     expect(pat).not.toBeNull()
@@ -1987,7 +1987,7 @@ describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10669, 
 })
 
 describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () => {
-  it('Rev sets both flip bits at once (FnRev +Lib.s:12744)', () => {
+  it('Rev sets both flip bits at once (FnRev +Lib.s:12715)', () => {
     const { out } = run('Print Rev(5)-$C000')
     expect(out).toBe(' 5\n')
   })
@@ -2000,7 +2000,7 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(() => run('A$=Scan$(256)')).toThrow(/function call/)
   })
 
-  it('Exist is a Lock, so a volume and a drawer answer it (RExist +Lib.s:5733)', () => {
+  it('Exist is a Lock, so a volume and a drawer answer it (RExist +Lib.s:5704)', () => {
     // RExist is `move.l Name1(a5),d1 / DosCall _LVOLock / beq FExF / UnLock /
     // moveq #-1,d3`, and Lock() takes a volume, an assign or a drawer as
     // happily as a file. Boing 3.0 spins in `Repeat ... Until Exist("boing:")`
@@ -2023,7 +2023,7 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(() => run(`Print Exist("DH0:${'x'.repeat(104)}")`)).toThrow(/function call/)
   })
 
-  it('Parent strips the last component of the current dir (InParent +Lib.s:4878)', () => {
+  it('Parent strips the last component of the current dir (InParent +Lib.s:4849)', () => {
     const prog = ['Mkdir "DH0:a"', 'Mkdir "DH0:a/b"', 'Dir$="DH0:a/b"', 'Parent', 'Print Dir$', 'Parent', 'Print Dir$'].join('\n')
     const { out } = run(prog)
     expect(out).toBe('DH0:a\nDH0:\n')
@@ -2058,7 +2058,7 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(() => run('Set Accessory -1')).toThrow(/syntax error/i)
   })
 
-  it('the previous-program bank exchange fails standalone (Bnk.PrevProgram, FnBStart +Lib.s:2271)', () => {
+  it('the previous-program bank exchange fails standalone (Bnk.PrevProgram, FnBStart +Lib.s:2242)', () => {
     // no editor/parent program exists in the port: BStart errors, BLength
     // is 0, Bgrab erases the destination then errors, Bsend errors
     expect(() => run('Print Bstart(1)')).toThrow(/bank not reserved/)
@@ -2070,7 +2070,7 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
 })
 
 describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-ops', () => {
-  it('Freeze parks the whole AMAL chain; Unfreeze restores only onto an empty chain (FrzAMAL +W.s:9999)', () => {
+  it('Freeze parks the whole AMAL chain; Unfreeze restores only onto an empty chain (FrzAMAL +W.s:9970)', () => {
     const src = [
       'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
       'Sprite 8,200,100,1',
@@ -2099,7 +2099,7 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(run(src2).out).toBe(' 0\n') // channel 0 never came back
   })
 
-  it('On Break Proc runs the handler on a host break; without one the program stops (InOnBreak +ILib.s:1890)', () => {
+  it('On Break Proc runs the handler on a host break; without one the program stops (InOnBreak +ILib.s:1861)', () => {
     const src = ['On Break Proc HANDLER', 'Do : Wait Vbl : Loop', 'Procedure HANDLER', ' Print "BROKE" : End', 'End Proc'].join('\n')
     let out = ''
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
@@ -2122,7 +2122,7 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(run('Set Stack 8000\nSet Equate Bank 5\nPrint "OK"').out).toBe('OK\n')
   })
 
-  it('Drive requires a trailing ":" and a mounted device/assign (FnDrive +Lib.s:4951)', () => {
+  it('Drive requires a trailing ":" and a mounted device/assign (FnDrive +Lib.s:4922)', () => {
     const src = ['Assign "Res:" To "DH0:"', 'Print Drive("DH0:");Drive("res:");Drive("DH0");Drive("nope:")'].join('\n')
     expect(run(src).out).toBe('-1-1 0 0\n')
   })
@@ -2182,7 +2182,7 @@ describe('the autoback bob bracket (TAbk1/TAbk4, +W.s:3577 and +W.s:3642)', () =
   })
 })
 
-describe('Bob Off is a countdown, not a delete (BbDel +W.s:1301)', () => {
+describe('Bob Off is a countdown, not a delete (BbDel +W.s:1272)', () => {
   const off = (extra: string): string =>
     [
       'Screen Open 0,320,200,16,Lowres : Curs Off : Cls 0',

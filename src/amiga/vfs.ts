@@ -277,7 +277,7 @@ export class AmigaFS implements AmosFS {
    * not exist either — which is what makes a flat archive of a game's drawer
    * just work.
    *
-   * A deviation, and NOT what an Amiga does: InDirD (+Lib.s:4828) locks the
+   * A deviation, and NOT what an Amiga does: InDirD (+Lib.s:4799) locks the
    * path and branches to L_DiskError when it cannot, so the real machine
    * stops the program. Hosts that want a game to run turn this on; anything
    * measuring fidelity leaves it alone.
@@ -789,7 +789,7 @@ export class AmigaFS implements AmosFS {
   }
 
   /**
-   * Kill (InKill +Lib.s:4902) is AmigaDOS DeleteFile(), which takes a file
+   * Kill (InKill +Lib.s:4873) is AmigaDOS DeleteFile(), which takes a file
    * or an *empty* directory and fails on anything else — so a directory
    * with contents is refused here rather than silently taking them along.
    */
@@ -825,7 +825,7 @@ export class AmigaFS implements AmosFS {
   }
 
   /**
-   * Rename (InRename +Lib.s:4915) is AmigaDOS Rename(), so it also *moves*
+   * Rename (InRename +Lib.s:4886) is AmigaDOS Rename(), so it also *moves*
    * within a volume and works on directories. It fails when the target
    * exists (ERROR_OBJECT_EXISTS) and when the two paths are on different
    * devices (ERROR_RENAME_ACROSS_DEVICES) — no copying across volumes.
@@ -967,7 +967,7 @@ export function joinAmigaPath(path: string, name: string): string {
 }
 
 /**
- * Fs_Parent (+Lib.s:18326) walks back over a trailing '/' and then to the
+ * Fs_Parent (+Lib.s:18297) walks back over a trailing '/' and then to the
  * previous '/' or ':'. Note the original does nothing at all unless the path
  * ends in '/', which the caller reproduces.
  */
@@ -996,7 +996,7 @@ export function fillSortKey(s: string): string {
  * to a case-insensitive RegExp, and every AMOS-side glob went through it.
  *
  * It is gone, and nothing replaces it in this directory. Filename filtering
- * in AMOS is `Joker` (+Lib.s:6631), which is neither this nor dos.library's
+ * in AMOS is `Joker` (+Lib.s:6602), which is neither this nor dos.library's
  * grammar — `*` stops at a dot, `?` will not match one, `/` separates
  * alternatives and `#` is an ordinary character. It is a Lib_Def routine in
  * AMOS's own main library, so it belongs on the AMOS side of the line:

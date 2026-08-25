@@ -81,7 +81,7 @@ describe('Amiga path resolution', () => {
   })
 
   it('refuses to Kill a directory that still has anything in it', () => {
-    // InKill (+Lib.s:4902) is DeleteFile(), which takes a file or an empty
+    // InKill (+Lib.s:4873) is DeleteFile(), which takes a file or an empty
     // directory and nothing else
     const fs = makeFs()
     expect(fs.deleteFile('DH0:Games/Zybex')).toBe(false)
@@ -92,7 +92,7 @@ describe('Amiga path resolution', () => {
   })
 
   it('renames directories, contents and all', () => {
-    // InRename (+Lib.s:4915) is DOS Rename(), which moves directories too
+    // InRename (+Lib.s:4886) is DOS Rename(), which moves directories too
     const fs = makeFs()
     expect(fs.rename('DH0:Games/Zybex', 'DH0:Games/Xybez')).toBe(true)
     expect(fs.exists('DH0:Games/Zybex')).toBeNull()
@@ -286,7 +286,7 @@ describe('running a game away from the machine it was written on', () => {
   // points every drive name at the drawer the program came from and lets a
   // dead path fall back to the file's own name.
   //
-  // OFF by default and deliberately: InDirD (+Lib.s:4828) locks the path and
+  // OFF by default and deliberately: InDirD (+Lib.s:4799) locks the path and
   // branches to L_DiskError when it cannot, so the machine stops the program.
   // The census depends on that — a missing file has to look missing.
   function machine(): AmigaFS {

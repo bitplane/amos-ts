@@ -119,7 +119,7 @@ export function fselRowText(d: DialogChannel, e: FselEntry): string {
   return name.padEnd(tx - 8).slice(0, tx - 8) + ' ' + String(e.size).padEnd(7)
 }
 
-/** FsI_AffF (+Lib.s:19114): rebuild the visible rows and redraw them */
+/** FsI_AffF (+Lib.s:19085): rebuild the visible rows and redraw them */
 export function fselAffF(rt: Runtime, f: FselState): void {
   const d = rt.dialogs.get(f.chan)
   if (!d) return
@@ -141,7 +141,7 @@ export function fselAffF(rt: Runtime, f: FselState): void {
   rt.dialogDraw.deactivate()
 }
 
-/** put a name in the FILE box (Fs_NewName +Lib.s:18308) */
+/** put a name in the FILE box (Fs_NewName +Lib.s:18279) */
 export function fselNewName(rt: Runtime, f: FselState, name: string): void {
   const d = rt.dialogs.get(f.chan)
   const z = d && zoneOf(d, FS_FILE_ZONE)
@@ -164,7 +164,7 @@ export function fselShowPath(rt: Runtime, f: FselState): void {
 }
 
 /**
- * Fs_First (+Lib.s:18731): begin listing. The sort flag is latched from
+ * Fs_First (+Lib.s:18702): begin listing. The sort flag is latched from
  * FsV_Sort into FillFSorted for the whole read, the click memory and the
  * first-file position are reset, and Fs_DirOn starts the incremental fill
  * that Fs_Next drains.
@@ -197,7 +197,7 @@ export function fselFirst(rt: Runtime, f: FselState): void {
     return
   }
   const all = rt.vfs.listDir(f.path) ?? []
-  // FillNxt (+Lib.s:6213) applies both jokers to files only — directories
+  // FillNxt (+Lib.s:6184) applies both jokers to files only — directories
   // always list, which is what makes a filtered view still navigable
   f.pending = all
     .filter(
@@ -235,7 +235,7 @@ export function fselDevices(rt: Runtime, f: FselState, devFlag: number): void {
 }
 
 /**
- * Fs_Next (+Lib.s:18754): take one more name. Sorting inserts it in place,
+ * Fs_Next (+Lib.s:18725): take one more name. Sorting inserts it in place,
  * and if it lands at or above the top of the view both FsV_PList and
  * FsV_PosFirst step down so the rows under the pointer do not move — which
  * only bites once Fs_Help has pinned PosFirst, since a plain listing leaves
@@ -266,7 +266,7 @@ export function fselNext(rt: Runtime, f: FselState): void {
 }
 
 /**
- * Fs_Jumps (+Lib.s:17939) — the twenty zones the selector's dialog can
+ * Fs_Jumps (+Lib.s:17910) — the twenty zones the selector's dialog can
  * report, dispatched by number. Zones 9-12 and 18 are Fs_Rien: the script
  * scrolls its own list and moves its own slider, so there is nothing for the
  * native side to do.
@@ -374,7 +374,7 @@ function fselOk(rt: Runtime, _f: FselState, d: DialogChannel): void {
 }
 
 /**
- * Fs_Return (+Lib.s:18048): Return in the name box. If what was typed has no
+ * Fs_Return (+Lib.s:18019): Return in the name box. If what was typed has no
  * path part it is simply OK; otherwise the path half becomes the new
  * directory (a ':' in it resets the path entirely) and the name half stays in
  * the box.
@@ -458,7 +458,7 @@ export interface FselStoreEntry {
   sorted: boolean
 }
 
-/** Fs_MaxStore (+Equ.s:2201) */
+/** Fs_MaxStore (+Equ.s:2173) */
 export const FS_MAX_STORE = 10
 
 /** Fs_FindStore (18583): case-insensitive on both the path and the filter */
@@ -588,7 +588,7 @@ export function fselHelp(rt: Runtime, f: FselState, d: DialogChannel): void {
 }
 
 /**
- * AppCentre (+Lib.s:6820) — one step of the centre-out/centre-in slide the
+ * AppCentre (+Lib.s:6791) — one step of the centre-out/centre-in slide the
  * selector and the text reader both open with.
  *
  * The screen itself never changes size: what moves is the displayed window.

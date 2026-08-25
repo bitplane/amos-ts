@@ -125,7 +125,7 @@
  * missing its `-1` spec terminator, so the table walk swallows routine 77's
  * header and its name whole and re-syncs on a fragment called `t planes`
  * whose routine number is the ASCII `fl`. That is not this port's reading of
- * the table — `Ver_Ech` (+Verif.s:5259) walks it the same way, so AMOS on the
+ * the table — `Ver_Ech` (+Verif.s:5231) walks it the same way, so AMOS on the
  * machine loses the keyword too. See src/ext/manifests/range-2.0.json.
  */
 import { AmosError, VI, VS, int, str } from '../interp/values'
@@ -1058,7 +1058,7 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
      *     movea.l -$8(a5),a0 / jsr $8c(a0)                      EcCall ClsEc
      *
      * The four bytes at $160e are `1b 43 30 00` — `ESC "C" "0"`, the Curs
-     * escape with the cursor off. `FlStop` (+W.s:5285) stops the active
+     * escape with the cursor off. `FlStop` (+W.s:5256) stops the active
      * screen's flashes; `EcCls` takes d1 as the colour and d2..d5 as the
      * box, and it clamps each against EcTx/EcTy, so 10,000 by 10,000 is the
      * whole screen. Cursor off, flashing off, screen to colour 0.
@@ -1284,7 +1284,7 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
      *     andi.l #$ff,d3 / moveq #$0,d2
      *
      * `ClInky` (+W.s) packs the queued keystroke into d1 as
-     * `shift<<24 | scancode<<16 | character` — `FnInkey` (+Lib.s:13611) takes
+     * `shift<<24 | scancode<<16 | character` — `FnInkey` (+Lib.s:13582) takes
      * `move.w d1,d2` for the character it returns and `swap d1` for the word
      * `Scancode` and `Scanshift` then read.
      *

@@ -121,13 +121,13 @@ describe('sprite bank hot spots', () => {
 
   it('sign-extends the hot spot X from bit 13, because the top two bits are flags', () => {
     // `Hot Spot n,x,y` pokes the field as `and.w #$C000,6(a1) / and.w
-    // #$3FFF,d2 / or.w d2,6(a1)` (Spo4, +W.s:627) --- "Poke, en respectant
+    // #$3FFF,d2 / or.w d2,6(a1)` (Spo4, +W.s:598) --- "Poke, en respectant
     // les FLAGS". It preserves the top two bits instead of writing them, so
     // they are not part of the coordinate, and `HsSet` reads it back with
     // `lsl.w #2,d0 / asr.w #2,d0` (+W.s:11570).
     //
     // The flags record which way the image is currently mirrored, which only
-    // `Retourne` (+W.s:1680) sets, and which is a different thing from the
+    // `Retourne` (+W.s:1651) sets, and which is a different thing from the
     // flip a program asks for through `Hrev()`/`Vrev()` on the image NUMBER.
     // Taking them as coordinate put a mirrored image 32,768 pixels away.
     const f = parseAmosFile(spriteBank(0x8007, 10))

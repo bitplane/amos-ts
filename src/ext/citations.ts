@@ -526,3 +526,101 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/thx.ts': ['thx-0.6'],
   'src/runtime/jotre.test.ts': ['jotre-1.0'],
 }
+
+/* ---- citations into the AMOS Professional sources ----------------------- */
+
+/** One `+Edit.s:8681` claim, with the symbol written in front of it. */
+export interface SourceCitation {
+  /** the label the prose names, which is what the line number has to reach */
+  symbol: string
+  /** the assembler file, `+Edit.s` and so on */
+  file: string
+  line: number
+  /** the second number of a `:601-706` range, or null */
+  end: number | null
+  /** the line of the .ts file this was written on */
+  at: number
+}
+
+/**
+ * `Symbol +File.s:NNNN`, in the four shapes this tree writes it.
+ *
+ * The symbol is whatever identifier sits immediately in front, which is right
+ * for "`Ed_ProcML` (+Edit.s:8681)" and for "Ed_ProcML +Edit.s:8681" alike.
+ * Names under four characters are dropped: `10(a2)` in front of a citation
+ * would otherwise offer `a2` as the symbol.
+ */
+const SOURCE_CITE = /(`?)([A-Za-z_][A-Za-z0-9_.]*)`?,?\s*\(?\+(\w+\.s):(\d+)(?:-(\d+))?/g
+
+export function parseSourceCitations(text: string): SourceCitation[] {
+  const out: SourceCitation[] = []
+  text.split('\n').forEach((line, i) => {
+    for (const m of line.matchAll(SOURCE_CITE)) {
+      if (m[2]!.length < 4) continue
+      out.push({
+        symbol: m[2]!,
+        file: `+${m[3]!}`,
+        line: Number(m[4]),
+        end: m[5] === undefined ? null : Number(m[5]),
+        at: i + 1,
+      })
+    }
+  })
+  return out
+}
+
+export interface AssemblerLabels {
+  /** every label, by name, 1-based. A name can be defined more than once */
+  at: Map<string, number[]>
+  /** every label line in the file, sorted, so a routine's end is the next one */
+  starts: number[]
+}
+
+/**
+ * Where each label sits in one assembler file.
+ *
+ * A label is an identifier in column 0, and `Lib_Par InSystem` counts as one:
+ * the interpreter's keyword routines are declared by that macro rather than by
+ * a label, and the port cites them by name like anything else.
+ */
+export function assemblerLabels(lines: string[]): AssemblerLabels {
+  const at = new Map<string, number[]>()
+  const starts: number[] = []
+  const put = (name: string, n: number): void => {
+    starts.push(n)
+    const had = at.get(name)
+    if (had === undefined) at.set(name, [n])
+    else had.push(n)
+  }
+  lines.forEach((text, i) => {
+    const label = /^([A-Za-z_][A-Za-z0-9_.]*):?/.exec(text)
+    if (label !== null) {
+      put(label[1]!, i + 1)
+      return
+    }
+    const macro = /^\s+(?:Lib_Par|Lib_Def|Lib_Fon)\s+([A-Za-z_][A-Za-z0-9_.]*)/.exec(text)
+    if (macro !== null) put(macro[1]!, i + 1)
+  })
+  return { at, starts }
+}
+
+/**
+ * How far above a label a citation may point and still name it.
+ *
+ * A routine in these sources is written under a two or three line banner and
+ * the port cites the banner as often as the label. Twelve is generous for
+ * that and still less than half the 28 lines between the two checkouts, which
+ * is the distance this check exists to catch.
+ */
+const BANNER = 12
+
+/** does line `n` belong to `symbol`? */
+export function citationResolves(lines: string[], labels: AssemblerLabels, symbol: string, n: number): boolean {
+  if (n < 1 || n > lines.length) return false
+  for (const label of labels.at.get(symbol) ?? []) {
+    const next = labels.starts.find((s) => s > label) ?? lines.length + 1
+    if (label - BANNER <= n && n < next) return true
+  }
+  // a jump table entry naming the routine is a citation too: `bra HColGet`
+  return new RegExp(`(?<![A-Za-z0-9_.])${symbol.replace(/[.]/g, '\\.')}(?![A-Za-z0-9_.])`).test(lines[n - 1]!)
+}

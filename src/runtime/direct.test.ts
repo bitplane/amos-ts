@@ -79,7 +79,7 @@ describe('what direct mode will not verify (the ten VerIlD sites)', () => {
     expect(() => rt.enterDirect(line), line).toThrow('Illegal direct mode')
   }
 
-  it('rejects a comment', () => rejects('Rem hello')) // VerRem +Verif.s:773
+  it('rejects a comment', () => rejects('Rem hello')) // VerRem +Verif.s:745
   it('rejects a tick comment', () => rejects("' hello"))
   it('rejects a label definition', () => rejects('AGAIN:')) // VerLab :792
   it('rejects Set Stack', () => rejects('Set Stack 20')) // VerSStack :816
@@ -330,7 +330,7 @@ describe('the editor resource bank (Ed_ResourceLoad +Edit.s:4738)', () => {
   })
 })
 
-describe('the escape screen buttons (Esc_Bouton +Edit.s:8982)', () => {
+describe('the escape screen buttons (Esc_Bouton +Edit.s:8955)', () => {
   function open(): Runtime {
     const rt = new Runtime(tokenize('Screen Open 0,320,200,16,Lowres : Curs Off\nA=5\nStop', table), table, {})
     for (let i = 0; i < 4; i++) rt.frame()
@@ -411,7 +411,7 @@ describe('the escape screen buttons (Esc_Bouton +Edit.s:8982)', () => {
   })
 
   it('button 2 puts AMOS behind, which is what Ed_Wb calls', () => {
-    // Ed_Wb (+Edit.s:11228) is `EcCalD AMOS_WB,0`, the same call InAmosToBack
+    // Ed_Wb (+Edit.s:11201) is `EcCalD AMOS_WB,0`, the same call InAmosToBack
     // makes (+Lib.s:11367)
     const rt = open()
     expect(() => rt.directScreen.press(2)).not.toThrow()

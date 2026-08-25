@@ -139,7 +139,7 @@ export function formPlay(rt: Runtime, buf: Uint8Array, pos: number, count: numbe
   }
 }
 
-/** IffBODY (+Lib.s:7146): screen creation, palette, plane decode */
+/** IffBODY (+Lib.s:7117): screen creation, palette, plane decode */
 function playBody(rt: Runtime, buf: Uint8Array, off: number, len: number, st: ChunkState, param: number | null): void {
   if (st.bmhd < 0) throw new AmosError('Illegal function call', 23)
   const w = u16(buf, st.bmhd)
