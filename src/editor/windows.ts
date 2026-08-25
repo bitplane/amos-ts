@@ -35,6 +35,7 @@
  * and `Edt_WMaxSize`, `Edt_WPlaceHaut` and `Edt_WSchrinkAll` are the sums that
  * decide how many each window gets. Those are here.
  */
+import { A1200_POOLS } from '../amiga/exec'
 import { Block } from './block'
 import type { ProgramBuffer } from './buffer'
 import { EditorConfig } from './config'
@@ -119,6 +120,37 @@ export class Editor {
 
   /** `Ed_AutoSaveRef(a5)`: when the autosave timer last fired, -1 to restart it */
   autoSaveRef = 0
+
+  /**
+   * `Ed_ZapParam(a5)` (+Equ.s:1730): the number the ZAP remote control sent
+   * with the command it is running.
+   *
+   * `Ed_Dialogue` (:3108) answers it INSTEAD of putting a requester up when
+   * `Ed_Zappeuse` is set, so every question the editor asks under remote
+   * control has the same answer, and `Ed_GotoL` reads it as the line to go to.
+   */
+  zapParam = 0
+
+  /**
+   * `VerNInst` (+Verif.s:277) as the last test left it: how many tokens the
+   * walk dispatched.
+   *
+   * An interpreter global rather than an editor one, and the editor reads it
+   * in exactly one place, the Infos box.
+   */
+  verNInst = 0
+
+  /**
+   * `Ed_Available` (:474): `AvailMem(MEMF_PUBLIC|MEMF_FAST)` and the same for
+   * chip, which only the Infos box asks for.
+   *
+   * DEVIATION: there is no allocator under this editor. The pools are the ones
+   * `src/amiga/exec.ts` models for a program, with nothing taken out of them,
+   * so the figures are an A1200's totals and not a measurement. A host with a
+   * running interpreter can put its own numbers here.
+   */
+  chipFree = A1200_POOLS.chip
+  fastFree = A1200_POOLS.fast
 
   /** `Ed_Sy` (+Editor_Config.s:31): the editor screen's height in pixels */
   get sy(): number {

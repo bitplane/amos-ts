@@ -77,14 +77,19 @@ export interface Stored {
 }
 
 export class ProgramBuffer {
-  /** the one allocation; `Prg_StTTexte` is its length */
-  readonly bytes: Uint8Array
+  /**
+   * the one allocation; `Prg_StTTexte` is its length.
+   *
+   * Not readonly, because `Prg_ChgTTexte` replaces it under a structure that
+   * every window on the program is still pointing at.
+   */
+  bytes: Uint8Array
   /** `Prg_StMini`, the low limit nothing may be written below */
   readonly stMini = 0
   /** `Prg_StBas`, the first line. Text runs from here to stHaut. */
   stBas: number
   /** `Prg_StHaut`, one past the last byte of the allocation */
-  readonly stHaut: number
+  stHaut: number
   /** `Prg_NLigne`, in editor line numbers */
   lineCount = 0
   /**
@@ -178,7 +183,37 @@ export class ProgramBuffer {
     this.stBas = n - 2
   }
 
-  /** `Prg_ChgTTexte` (+Verif.s:4758): an empty program of `size` bytes */
+  /**
+   * `Prg_ChgTTexte` (+Verif.s:4758): a different buffer under the same
+   * structure.
+   *
+   * The machine frees the old allocation and clears a new one, so the program
+   * in it is GONE and only `Prg_NLigne` and the name survive the call. Every
+   * caller that wants to keep the text copies it back afterwards, which is
+   * what `keep` is: `Ed_SetBuffer`'s grow arm (+Edit.s:9975) stacks the four
+   * old pointers, clears `Prg_StTTexte` so the allocation is not freed under
+   * it, and puts the text back with `Ed_StoBlock`.
+   *
+   * The size is rounded down to even, because an odd one would leave the zero
+   * word on an odd address.
+   */
+  chgTTexte(size: number, keep?: Uint8Array): void {
+    const n = Math.max(size & ~1, 4)
+    this.bytes = new Uint8Array(n)
+    this.stHaut = n
+    this.stBas = n - 2
+    if (keep === undefined) {
+      // the machine leaves `Prg_NLigne` at whatever the old program's was, and
+      // every caller follows with `Ed_New2` or a load that recounts it
+      this.lineCount = 0
+      return
+    }
+    this.stBas = n - 2 - keep.length
+    this.bytes.set(keep, this.stBas)
+    this.countLines()
+  }
+
+  /** `Prg_ChgTTexte` again, on a structure that does not exist yet */
   static create(size: number): ProgramBuffer {
     if (size < 4) throw new Error('a program buffer holds at least a zero word')
     return new ProgramBuffer(size)

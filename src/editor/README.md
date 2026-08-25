@@ -58,16 +58,43 @@ Three things that look like they belong here do not:
 - `session.ts` — `AMOSPro_Editor_LastSession`, the two structure lists written
   as memory and relocated on the way back in.
 
-105 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
-that never were commands. That leaves 33, and they fall into groups rather than
-gaps: the interpreter (77, 105, 111, 114), the menus (27, 73, 74, 135, 136, 179,
+109 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+that never were commands. That leaves 29, and they fall into groups rather than
+gaps: the interpreter (77, 105, 111), the menus (27, 73, 74, 104, 135, 136, 179,
 180), the printer and the About boxes (86, 146, 148 to 151), the ZAP remote
-control (69, 70, 71, 182), the requesters that ask for one thing (26, 76, 83,
-104), and the status bar's four arrows (13 to 16).
+control (69, 70, 71, 182), and the status bar's four arrows (13 to 16).
 Five stand alone: `Ed_Escape` (28), `Ed_Rename` (154) and `Ed_GoHelp` (183) all
 wait on the shell around the editor; `Ed_GoMonitor` (145) is +Monitor.s and
 4,291 lines of its own; and `Ed_Check1.3` (147) waits on a verdict this port's
 verifier does not keep.
+
+## A requester is a channel, a zone and a slot
+
+`Ed_Dialogue` (+Edit.s:3107) runs an Interface program out of the resource
+bank, and what it shows beyond its own text comes from `Ed_VDialogues`, the
+sixteen variables `Ed_InitDialogues` opens channel 1 with. A requester that
+asks a number reads it back with `Dia_GetValue`, whose d0 is the CHANNEL and
+whose d1 is the ZONE: every editor caller passes channel 1 and zone 3, and the
+two that ask twice use 4 and 7 for the second field.
+
+Set Tab is the one whose Cancel is not a cancel. `Ed_STab` (:3716) never looks
+at `Ed_Dialogue`'s answer -- it reads the field and stores it whatever the user
+clicked.
+
+`Ed_GetPlace` (:9915) is the other. Its Cancel clears `Prg_Change` and falls
+into the Set Buffer Size requester with the size the file needs already in the
+field, so a program too big for its buffer offers you a bigger buffer rather
+than giving up.
+
+The Infos box fills eight slots and has six lines. `Bnk.GetLength` hands back
+Bobs in d1 and Icons in d2 and both are stored, but slot 5 is written twice
+more before the requester opens, first with `BMenage` and then with `VerNInst`,
+and slot 6 has no message beside it. What the box shows is the last write.
+
+`VerNInst` counts one per STATEMENT, not one per token: the walk dispatches
+once per instruction and the instruction's own routine eats its arguments, so
+`A=1+2*3` counts one. A `Procedure` header is walked in phase 0 and again in
+its own phase, and `subq.l #1,VerNInst` (+Verif.s:1529) takes the first back.
 
 ## The session file is a memory dump, and its loader relocates it
 

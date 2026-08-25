@@ -303,6 +303,14 @@ const T_LOOP = 10
 const VF = { LOOPS: 1, IF: 2, PROC: 4, EXIT: 8, GOTO: 16 } as const
 
 export interface VerifyOptions {
+  /**
+   * `VerNInst` (+Verif.s:277), filled in as the walk goes.
+   *
+   * An out-parameter because the machine's is one: it lives in a5 and every
+   * reader takes it from there after `PTest` has run. `Ed_Infos` (+Edit.s:4695)
+   * is the only one in the editor.
+   */
+  stats?: { instructions: number }
   /** token tables for extensions, keyed by the slot number the line stores */
   extensions?: Map<number, TokenTable>
   /**
@@ -370,6 +378,8 @@ class Verifier {
   phase = 0
   /** Direct: a line typed at the running program rather than part of it */
   direct = false
+  /** VerNInst (+Equ.s), cleared at :103 and counted up once per token dispatched */
+  nInst = 0
   /** VarLong, the next free offset in this phase's variable buffer */
   varLong = 0
   /** MathFlags bit 7, which `Set Double Precision` turns on for the whole program */
@@ -507,6 +517,10 @@ class Verifier {
       if (id === 0) return 'line'
       if ((id & 0x8000) !== 0) this.syntax()
       const cls = this.classOf(id)
+      // `VLoop1` (+Verif.s:277), and the same instruction again on `VerDd`'s
+      // negative arm (:257): one for every token the walk dispatches, which
+      // is what the Infos box means by "Number of instructions"
+      this.nInst++
       let go: Go
       if (cls >= 0x80) {
         if (!atLineStart) {
@@ -1479,6 +1493,10 @@ class Verifier {
     this.p -= 2
     this.notInDirect()
     if (this.phase !== 0) return this.v1ProcedureIn()
+    // `subq.l #1,VerNInst(a5)` (:1529), "retabli le compte": the header of a
+    // procedure is walked in phase 0 AND again in the procedure's own phase,
+    // so counting it here would count it twice
+    this.nInst--
     const start = this.p
     this.procedures.push(start)
     this.initTablA(null, VF.PROC, TKV.PROCEDURE)
@@ -2758,6 +2776,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     v.run(0)
     v.relocate()
     v.walkTablA()
+    if (opts.stats !== undefined) opts.stats.instructions = v.nInst
     return b.slice(0, src.length)
   }
   v.run(0)
@@ -2781,5 +2800,6 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     // needs, which the interpreter reserves when it calls it
     v.put16(at + 6, v.varLong)
   }
+  if (opts.stats !== undefined) opts.stats.instructions = v.nInst
   return b.slice(0, src.length)
 }

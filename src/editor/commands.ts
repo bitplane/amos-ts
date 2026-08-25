@@ -18,12 +18,14 @@
  * 153, over the list in ./windows.ts. The Test pass and Indent are 78 and 79,
  * the folds 87, 89 and 90, and the configuration 137 to 142.
  *
- * The 80 that are left are 46 `Ed_UserMenu` slots and 34 commands needing
- * something this port has not built yet: the interpreter (77, 105, 111, 114),
- * the menus (27, 73, 74, 135, 136, 179, 180), Quit and the session file (82),
- * the ZAP remote control (69, 70, 71, 182), the one-question requesters (26,
- * 76, 83, 104), the status bar's arrows (13 to 16), printing and the About
- * boxes (86, 146, 148 to 151), and 28, 145, 147, 154 and 183 one at a time.
+ * Quit and the session file are 82, and the one-question requesters 26, 76, 83
+ * and 114.
+ *
+ * The 75 that are left are 46 `Ed_UserMenu` slots and 29 commands needing
+ * something this port has not built yet: the interpreter (77, 105, 111), the
+ * menus (27, 73, 74, 104, 135, 136, 179, 180), the ZAP remote control (69, 70,
+ * 71, 182), the status bar's arrows (13 to 16), printing and the About boxes
+ * (86, 146, 148 to 151), and 28, 145, 147, 154 and 183 one at a time.
  * `COMMANDS` has no entry for any of them and `edCall` throws rather than
  * silently doing nothing, so a key map that reaches one says which.
  *
@@ -167,6 +169,10 @@ export const ED = {
   NEW_HIDDEN: 113,
   CLOSE_NAME: 153,
   QUIT: 82,
+  SET_TAB: 26,
+  GOTO_LINE: 76,
+  INFOS: 83,
+  SET_BUFFER: 114,
   TEST: 78,
   INDENT: 79,
   PROC_OPEN: 87,
@@ -1494,10 +1500,16 @@ function reload(e: Edit): void {
     if (r.error === PRG.MEMORY) throw new EditorAlert(204, 120) // Ed_OMm
     if (r.error === PRG.DISK) throw new DiskError()
     if (r.error === PRG.TOO_SMALL) {
-      // Ed_GetPlace (:9915). Its other arm is the Set Buffer Size requester,
-      // which is `JFonc` 122 and is not ported
-      if (confirm(e, { which: 37, count: r.needs }) !== 1) throw new EditorAlert(206)
-      e.prog = ProgramBuffer.create(r.needs)
+      // `Ed_GetPlace` (:9915), whose Cancel is not one: `.GtPl2` clears
+      // `Prg_Change` so the program is not offered for saving, and falls into
+      // the Set Buffer Size requester with the size the file needs already in
+      // the field. Either way the load is tried again
+      if (confirm(e, { which: 37, count: r.needs }) === 1) {
+        e.prog.chgTTexte(r.needs)
+      } else {
+        e.prog.changed = false
+        edSB(e, r.needs)
+      }
       continue
     }
     const f = r.file!
@@ -2255,8 +2267,9 @@ function vaTester(e: Edit): void {
   if (!e.prog.modified) return
   const src = programSource(e.prog)
   let out: Uint8Array
+  const stats = { instructions: 0 }
   try {
-    out = verify(src, {})
+    out = verify(src, { stats })
   } catch (err) {
     if (!(err instanceof VerifyError)) throw err
     // `Prg_JError`, which PTest longjmps to: the cursor goes to the error
@@ -2266,6 +2279,7 @@ function vaTester(e: Edit): void {
   }
   e.prog.bytes.set(out, e.prog.stBas)
   e.prog.modified = false
+  e.editor.verNInst = stats.instructions
 }
 
 /**
@@ -2520,7 +2534,8 @@ function setAutoSave(e: Edit): void {
   if (e.dialogues === null) notDone(e)
   const answer = e.dialogues.confirm({ which: 48, count: e.editor.config.autoSaveMn }) // EdD_ASave
   if (answer !== 1) notDone(e)
-  const minutes = e.dialogues.value(1)
+  // zone 3, the requester's one field. `moveq #3,d1` at :5368
+  const minutes = e.dialogues.value(3)
   if (minutes === e.editor.config.autoSaveMn) return
   e.editor.config.autoSaveMn = minutes
   e.editor.config.autoSave = minutes * 50 * 60
@@ -2556,6 +2571,136 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
     program: name(table[at + 1]!) ?? '',
     line: name(table[at + 2]!),
   }
+}
+
+/* ---- 26, 76, 83 and 114: the requesters that ask one thing --------------- */
+
+/**
+ * `Dia_GetValue` on the field every one-question requester puts its number in.
+ *
+ * Zone 3, from `moveq #3,d1` at the six call sites that read a number. With no
+ * requester installed there is nothing to have typed into, and the machine's
+ * answer would be whatever the field opened on.
+ */
+function fieldValue(e: Edit, opened: number): number {
+  return e.dialogues === null ? opened : e.dialogues.value(3)
+}
+
+/**
+ * `Ed_STab` (:3716): how many columns Tab moves.
+ *
+ * The one requester whose Cancel is not a cancel. `Ed_Dialogue`'s answer is
+ * never looked at: the value is read out of the field and stored whatever the
+ * user clicked, and `EdC_Changed` is raised so Quit offers to save it.
+ */
+function setTab(e: Edit): void {
+  e.tokCur()
+  if (e.dialogues === null) return
+  const was = e.tabs
+  e.dialogues.confirm({ which: 38, values: [undefined, undefined, was] }) // EdD_SetTab
+  e.tabs = fieldValue(e, was) & 0xffff
+  e.editor.configChanged = 1
+}
+
+/**
+ * `Ed_GotoL` (:6937): the cursor to a line the user names.
+ *
+ * The number is 1-based and `subq.l #1` turns it into the editor's, so Goto
+ * Line 0 goes negative and is `Ed_NotDone`. Above the end it stops at the line
+ * PAST the last, which is the one a program grows onto.
+ *
+ * Under the ZAP remote control there is no requester: `Ed_Dialogue` answers
+ * `Ed_ZapParam` for everything, and this is the one command that uses that
+ * answer as a number rather than as a button.
+ */
+function gotoLine(e: Edit): void {
+  e.tokCur()
+  let line: number
+  if (e.editor.zappeuse) {
+    line = e.editor.zapParam
+  } else {
+    if (confirm(e, { which: 35 }) !== 1) notDone(e) // EdD_GotoL
+    line = fieldValue(e, 0)
+  }
+  line -= 1
+  if (line < 0) notDone(e)
+  // `cmp.w Prg_NLigne(a6),d0` compares the LOW WORD of a long, so a line
+  // number past 65,535 wraps out of the clamp. `Ed_GotoY` catches it anyway
+  if ((line & 0xffff) >= e.prog.lineCount) line = e.prog.lineCount
+  autoMarks(e)
+  gotoY(e, line)
+}
+
+/**
+ * `Ed_Infos` (:4665): six numbers about the program, in a box.
+ *
+ * `Ed_VaTester` runs first, because two of the six are what the Test pass
+ * counts. The box is messages 166 to 174, which name them: free chip, free
+ * fast, text length, bank length, visible lines, instructions.
+ *
+ * Three of the writes into `Ed_VDialogues` are dead. The bank call hands back
+ * Bobs in d1 and Icons in d2, and both are stored -- Bobs into slot 5 and
+ * Icons into slot 6 -- but slot 5 is written twice more before the requester
+ * opens, first with `BMenage` and then with `VerNInst`, and slot 6 has no
+ * message beside it. The box has six lines and the routine fills eight.
+ *
+ * DEVIATION: three of the six are not measurements here. Free chip and free
+ * fast come from `AvailMem` on a machine with a real allocator, and this
+ * editor has ./windows.ts's pool figures. `Bnk.GetLength` walks the bank list
+ * and adds up what each bank OCCUPIES; there is no bank reader here, so what
+ * is counted is the `AmBs` block as it came off disc, less the six bytes every
+ * program carries whether it has banks or not.
+ */
+function infos(e: Edit): void {
+  e.tokCur()
+  vaTester(e)
+  const values = [
+    e.editor.chipFree,
+    e.editor.fastFree,
+    e.prog.stHaut - e.prog.stBas,
+    Math.max(0, e.prog.banks.length - EMPTY_BANKS.length),
+    e.prog.lineCount,
+    e.editor.verNInst,
+  ]
+  confirm(e, { which: 54, values }) // EdD_Infos
+}
+
+/**
+ * `Ed_SB` (:9951): the buffer resized, which is two different commands.
+ *
+ * GROWING keeps the program: the machine stacks the four buffer pointers,
+ * clears `Prg_StTTexte` so `Prg_ChgTTexte` does not free the block it is
+ * about to copy out of, allocates, and puts the text back with `Ed_StoBlock`.
+ * SHRINKING cannot, so `.PaCop` offers the program for saving and then throws
+ * it away: Set Buffer Size to something smaller is New with a question in
+ * front of it.
+ *
+ * The number is rounded down to even and refused below 1,024. Asking for
+ * exactly what the buffer already is is `Ed_NotDone` as well, which is why
+ * clicking Ok on an unchanged box does nothing at all.
+ */
+function edSB(e: Edit, opened: number): void {
+  if (confirm(e, { which: 36, values: [undefined, undefined, opened] }) !== 1) notDone(e) // EdD_SetBuf
+  const size = fieldValue(e, opened) & ~1
+  if (size < 1024) notDone(e)
+  const now = e.prog.bytes.length
+  if (size === now) notDone(e)
+  if (size > now) {
+    e.prog.chgTTexte(size, programSource(e.prog))
+  } else {
+    saved(e)
+    newProgram(e)
+    e.prog.chgTTexte(size)
+  }
+  e.fill() // Ed_NewBufAff
+}
+
+/** `Ed_SetBuffer` (:9946), the command, which opens the box on the size it has */
+function setBuffer(e: Edit): void {
+  e.tokCur()
+  // `Edt_ClearVar` (:3035) hands the program's variables and banks back first,
+  // which is the interpreter's memory and not the editor's
+  edSB(e, e.prog.bytes.length)
 }
 
 /* ---- 82: Quit, and the session file ------------------------------------- */
@@ -3007,14 +3152,18 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // being offered the chance to quit
     closeWindow(e, e, !e.editor.zappeuse)
   },
+  26: setTab,
+  76: gotoLine,
   78: testCmd,
   82: quitCmd,
+  83: infos,
   79: indentCmd,
   84: merge,
   87: procOpen,
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),
+  114: setBuffer,
   137: (e) => {
     // EdC_SaveDefault (:4857), which asks first
     e.tokCur()

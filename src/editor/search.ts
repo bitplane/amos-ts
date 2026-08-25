@@ -222,8 +222,9 @@ export interface DialogueAnswer extends SearchDialogue {
  * the search one.
  *
  * `which` is the EdD_ number from the table at :15333, so it names the
- * requester in the source. What it shows beyond its own text is one variable,
- * and only ever a name or a count.
+ * requester in the source. What it shows beyond its own text comes out of
+ * `Ed_VDialogues`, the sixteen variables `Ed_InitDialogues` opens the channel
+ * with, and most requesters fill one of them.
  */
 export interface Confirm {
   which: number
@@ -231,6 +232,14 @@ export interface Confirm {
   name?: string
   /** ... or a number, which only EdD_Changes does */
   count?: number
+  /**
+   * `Ed_VDialogues` by slot, for the requesters that fill more than the first.
+   *
+   * `Ed_Infos` (+Edit.s:4665) fills seven and EdD_SetTab and EdD_SetBuf put
+   * the number the field opens on into slot 2. A hole in the array is a slot
+   * the requester does not read.
+   */
+  values?: (number | undefined)[]
 }
 
 /** the requesters the editor puts up, and what it does with them */
@@ -273,10 +282,16 @@ export interface EditorDialogues {
    */
   pickWindow(): number
   /**
-   * `Dia_GetValue` (+Lib.s:24312): a number the user typed into a requester.
+   * `Dia_GetValue` (+Lib.s:20813): a number the user typed into a requester.
    *
-   * `Ed_SetAutoSave` (:5364) is the only caller in the editor and it asks for
-   * gadget 1 of dialogue 3. `which` is that gadget number.
+   * Its d0 is the CHANNEL and every editor caller passes 1, the one
+   * `Ed_InitDialogues` opened. `zone` is d1, the zone number inside the
+   * requester, and d2 is which occurrence of it to take: -1 everywhere but
+   * `Ed_Replace`, and `Dia_GetZoneAd`'s `ble.s .Skip` (+Lib.s:20894) makes
+   * anything below 2 mean the first.
+   *
+   * Zone 3 is the single field of every one-question requester. The two that
+   * ask twice use 4 and 7 for their second.
    */
-  value(which: number): number
+  value(zone: number): number
 }
