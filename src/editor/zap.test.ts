@@ -24,6 +24,9 @@ const requester = (button = 1): EditorDialogues => ({
   select: (_w, name) => name,
   pressKey: () => 0,
   pickWindow: () => 0,
+  pickMenu: () => 0,
+  text: () => '',
+  flags: () => 0,
   value: () => 0,
 })
 

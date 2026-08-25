@@ -426,6 +426,20 @@ export function messages(block: Uint8Array): string[] {
 }
 
 /**
+ * `Ed_GetFsMessage` (+Edit.s:5290): the first EMPTY record of a block, 1-based.
+ *
+ * Not the first free slot past the end: a message the user deleted is left in
+ * place as a zero-length record, and this is what finds it again. Only when
+ * the walk reaches the `$FF` without seeing one does it answer `count + 1`,
+ * which is `.New` falling through to `Ed_GetNbMessage`.
+ */
+export function firstFreeMessage(block: Uint8Array): number {
+  const list = messages(block)
+  const at = list.findIndex((m) => m.length === 0)
+  return at < 0 ? list.length + 1 : at + 1
+}
+
+/**
  * `EdC_ChangeTexte` (+Edit.s:5203): one record of a block replaced, and a
  * whole new block built to hold it.
  *

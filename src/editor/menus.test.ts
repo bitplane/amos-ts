@@ -12,31 +12,56 @@ import { ED, drawWindows, edCall } from './commands'
 import { EDM_HIDDEN_MAX, MENU_RECORD, hiddenPage, readMenuDefs } from './menus'
 import { ED_ROUTINES } from './keymap.gen'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
+import { EditorConfig, changeMessage, firstFreeMessage, messages } from './config'
+import { EDM_USER_COMMANDS } from './menus'
+import { QUAL, funcToKey, setKey } from './keymap'
+import { packKey } from './macros'
 
 const table = new TokenTable(CORE_TOKENS)
 const tested = (t: string): Uint8Array => verify(tokeniseSource(t, table), {}).slice(0, -2)
 
 let shown: Confirm | null = null
 
-const requester = (): EditorDialogues => ({
+interface Stub {
+  confirm?: (c: Confirm) => number
+  pickMenu?: () => number
+  text?: (zone: number) => string
+  flags?: () => number
+  pressKey?: () => number
+  select?: (which: number, name: string) => string | null
+}
+
+const requester = (stub: Stub = {}): EditorDialogues => ({
   ask: (d: SearchDialogue): DialogueAnswer => ({ ...d, ok: true }),
   confirm: (c) => {
     shown = c
-    return 1
+    asked.push(c.which)
+    return stub.confirm?.(c) ?? 1
   },
-  select: (_w, name) => name,
-  pressKey: () => 0,
+  select: stub.select ?? ((_w, name) => name),
+  pressKey: stub.pressKey ?? (() => 0),
   pickWindow: () => 0,
+  pickMenu: (which) => {
+    picked.push(which)
+    return stub.pickMenu?.() ?? 0
+  },
+  text: stub.text ?? (() => ''),
+  flags: stub.flags ?? (() => 0),
   value: () => 0,
 })
 
-function open(): Edit {
+let asked: number[] = []
+let picked: number[] = []
+
+function open(stub: Stub = {}): Edit {
   const e = new Edit(ProgramBuffer.load(tested('Print "one"')), new EditBuffer(8), new UndoBuffer(50), table)
   const fs = new AmigaFS()
   fs.mountMemory('RAM')
   fs.mountMemory('AMOSPro_System')
   e.fs = fs
-  e.dialogues = requester()
+  e.dialogues = requester(stub)
+  asked = []
+  picked = []
   drawWindows(e.editor)
   return e
 }
@@ -216,5 +241,134 @@ describe('the commands over it', () => {
     expect(e.editor.config.sounds).toBe(!sounds)
     // only one of the two is worth saving, and it is not the one the menu draws
     expect(e.editor.configChanged).toBe(1)
+  })
+})
+
+describe('editing the menu itself', () => {
+  /** a user-menu block with one label in it, and room for more */
+  function user(e: Edit, ...labels: string[]): void {
+    let block: Uint8Array = Uint8Array.from([0, 0xff])
+    labels.forEach((l, i) => (block = changeMessage(block, i + 1, l)))
+    e.editor.config.texts.userMenus = block
+  }
+
+  it('refuses a menu option outside the user range', () => {
+    const e = open({ pickMenu: () => 42 })
+    edCall(e, ED.DEL_USER)
+    expect(picked).toEqual([41]) // EdD_MnUsD, the box Mn_GetOption puts up
+    expect(asked).toEqual([43]) // EdD_MnUsE, "this option cannot be affected"
+
+  })
+
+  it('empties the label rather than removing it, so the slot is free again', () => {
+    const e = open({ pickMenu: () => EDM_USER_COMMANDS + 1 })
+    user(e, 'first', 'second', 'third')
+    edCall(e, ED.DEL_USER)
+    expect(messages(e.editor.config.texts.userMenus)).toEqual(['first', '', 'third'])
+    expect(firstFreeMessage(e.editor.config.texts.userMenus)).toBe(2)
+    expect(e.editor.configChanged).toBe(1)
+  })
+
+  it('takes the program and the shortcut off with it', () => {
+    const cmd = EDM_USER_COMMANDS
+    const e = open({ pickMenu: () => cmd })
+    user(e, 'first')
+    e.editor.config.texts.programs = changeMessage(
+      changeMessage(Uint8Array.from([0, 0xff]), 1, 'RAM:tool.AMOS'),
+      2,
+      'GO',
+    )
+    const table = e.editor.config.autoLoad
+    table[(cmd - 1) * 3] = 0x81
+    table[(cmd - 1) * 3 + 1] = 1
+    table[(cmd - 1) * 3 + 2] = 2
+    setKey(cmd, 0x41, 0, e.editor.config.keyMap)
+    edCall(e, ED.DEL_USER)
+    expect([...table.subarray((cmd - 1) * 3, (cmd - 1) * 3 + 3)]).toEqual([0, 0, 0])
+    expect(messages(e.editor.config.texts.programs)).toEqual(['', ''])
+    expect(funcToKey(cmd, e.editor.config.keyMap)).toEqual({ key: 1, shift: 0 })
+  })
+
+  it('refuses a twenty-first user entry', () => {
+    const e = open()
+    user(e, ...Array.from({ length: 20 }, (_, i) => `entry ${i}`))
+    edCall(e, ED.ADD_USER)
+    expect(asked).toEqual([42]) // EdD_MnUs2
+  })
+
+  it('adds a label and then walks straight into the two binding commands', () => {
+    const cmd = EDM_USER_COMMANDS
+    const e = open({ pickMenu: () => cmd, text: (zone) => (zone === 3 ? 'My tool' : ''), pressKey: () => 0 })
+    user(e, 'first')
+    // Key To Menu ends on the keystroke requester, which answers nothing
+    expect(edCall(e, ED.ADD_USER)).toBe(206)
+    expect(messages(e.editor.config.texts.userMenus)).toEqual(['first', 'My tool'])
+    // EdD_MnUsA, then Program To Menu's own two, then the keystroke one
+    expect(asked).toEqual([40, 32])
+    expect(e.editor.config.autoLoad[(cmd - 1) * 3]).toBe(0x80)
+  })
+
+  it('binds a program by writing two messages and three bytes', () => {
+    const cmd = EDM_USER_COMMANDS
+    const e = open({
+      pickMenu: () => cmd,
+      flags: () => 0b101,
+      text: (zone) => (zone === 7 ? 'RUN' : ''),
+      select: () => 'RAM:tool.AMOS',
+    })
+    e.editor.config.texts.programs = Uint8Array.from([0, 0xff])
+    edCall(e, ED.PROGRAM_TO_MENU)
+    const at = (cmd - 1) * 3
+    expect(e.editor.config.autoLoad[at]).toBe(0x85)
+    expect(messages(e.editor.config.texts.programs)).toEqual(['RAM:tool.AMOS', 'RUN'])
+    expect([e.editor.config.autoLoad[at + 1], e.editor.config.autoLoad[at + 2]]).toEqual([1, 2])
+  })
+
+  it('refuses the range the author called "pas un menu HELP ou CONFIG"', () => {
+    for (const [cmd, ok] of [
+      [152, true],
+      [153, false],
+      [181, false],
+      [182, true],
+      [184, false],
+    ] as const) {
+      const e = open({ pickMenu: () => cmd })
+      edCall(e, ED.PROGRAM_TO_MENU)
+      expect([cmd, asked.includes(33)]).toEqual([cmd, !ok])
+    }
+  })
+
+  it('clears the old shortcut before it asks for the new one', () => {
+    const cmd = 33 // Ed_Load, which has a key in the shipped table
+    const e = open({ pickMenu: () => cmd, pressKey: () => 0 })
+    const map = e.editor.config.keyMap
+    expect(funcToKey(cmd, map)).not.toEqual({ key: 1, shift: 0 })
+    expect(edCall(e, ED.KEY_TO_MENU)).toBe(206) // no keystroke: Ed_NotDone
+    // and the old one is gone anyway
+    expect(funcToKey(cmd, map)).toEqual({ key: 1, shift: 0 })
+  })
+
+  it('stores a letter as ASCII and everything else as a scancode', () => {
+    const cmd = 33
+    const e = open({ pickMenu: () => cmd, pressKey: () => packKey({ ascii: 0x71, scan: 0x10, shift: QUAL.CTRL }) })
+    edCall(e, ED.KEY_TO_MENU)
+    // 'q' folds up to 'Q', and the qualifier byte carries the whole group
+    expect(funcToKey(cmd, e.editor.config.keyMap)).toEqual({ key: 0x51, shift: QUAL.CTRL })
+
+    const f2 = open({ pickMenu: () => cmd, pressKey: () => packKey({ ascii: 0, scan: 0x50, shift: 0 }) })
+    edCall(f2, ED.KEY_TO_MENU)
+    expect(funcToKey(cmd, f2.editor.config.keyMap)).toEqual({ key: 0xd0, shift: 0 })
+  })
+
+  it('asks before putting a key that is already on another command', () => {
+    const cmd = 33
+    const key = funcToKey(34, new EditorConfig().keyMap)!
+    const e = open({
+      pickMenu: () => cmd,
+      pressKey: () => packKey({ ascii: key.key, scan: 0, shift: key.shift }),
+      confirm: (c) => (c.which === 28 ? 2 : 1),
+    })
+    expect(edCall(e, ED.KEY_TO_MENU)).toBe(206) // EdD_KyMn3 answered No
+    expect(asked).toContain(28)
   })
 })

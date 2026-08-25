@@ -282,6 +282,33 @@ export interface EditorDialogues {
    */
   pickWindow(): number
   /**
+   * `Mn_GetOption` (+Edit.s:5733): the requester goes up and then the editor
+   * waits for a click on a MENU entry rather than on a button.
+   *
+   * DEVIATION: there is no mouse here, so the host answers the command number
+   * the click landed on. The machine's `Ed_MnGere` (:1673) reads it out of the
+   * built menu table and subtracts one; this is the 1-based number the rest of
+   * this port uses, and 0 is the machine's "no choice", which every caller
+   * turns into `Ed_NotDone`.
+   */
+  pickMenu(which: number): number
+  /**
+   * `Dia_GetValue` again, with d2 of 2: what the user typed, as text.
+   *
+   * The same zone numbering as `value`. `Ed_AddUser` (:5422) asks for zone 3
+   * and `Ed_Prg2Menu` (:5619) for zone 7, its second field.
+   */
+  text(zone: number): string
+  /**
+   * `Dia_GetVFlags` (+Lib.s:24284): the checkbox variables of a requester, as
+   * a bit per box.
+   *
+   * `from` is the first `Ed_VDialogues` slot the boxes live in and `count` is
+   * how many. `Ed_Prg2Menu` reads three from slot 4 and pokes bit 7 on top to
+   * make the `Ed_AutoLoad` flags byte.
+   */
+  flags(from: number, count: number): number
+  /**
    * `Dia_GetValue` (+Lib.s:20813): a number the user typed into a requester.
    *
    * Its d0 is the CHANNEL and every editor caller passes 1, the one

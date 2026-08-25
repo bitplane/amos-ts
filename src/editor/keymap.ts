@@ -154,6 +154,45 @@ export function funcToKey(fn: number, table: Uint8Array = ED_KFONC): { key: numb
   return id === undefined || id === 0 || id === 0xff ? null : { key: id, shift: table[at + 1]! }
 }
 
+/**
+ * `Ed_Key2Menu`'s two writes (:5665 and :5695): the FIRST record of a command's
+ * list, overwritten.
+ *
+ * `[1][0]` is how a shortcut is removed, and it is why the unassigned rows hold
+ * an ASCII 1 rather than nothing: the format has no way to say "no keys", so
+ * clearing one means writing a code no key produces on its own.
+ *
+ * A command carrying two keys keeps the second. The walk lands on the first
+ * record of the list and both writes go there.
+ */
+export function setKey(fn: number, id: number, shift: number, table: Uint8Array = ED_KFONC): boolean {
+  const at = skipLists(fn, table)
+  if (at < 0 || table[at] === 0 || table[at] === 0xff) return false
+  table[at] = id & 0xff
+  table[at + 1] = shift & 0xff
+  return true
+}
+
+/**
+ * `.Scan` and `.Shift` (:5688): a keystroke as the two bytes a record holds.
+ *
+ * A letter is stored as its ASCII code and everything else as the scancode
+ * with bit 7 raised, which is the same test `keyToFunc` makes on the way back.
+ * The qualifier byte is built by ORing in the WHOLE group for any group the
+ * keystroke overlaps, from the table `Shf,Ami,Ctr,Alt` at :5722. So a record
+ * never asks for one Amiga key or one Shift, and a group is a boolean.
+ */
+export function encodeKey(key: EdKey): { id: number; shift: number } {
+  const ascii = upper(key.ch ?? '')
+  const held = (key.shift ?? 0) & ~QUAL.CAPS
+  let shift = 0
+  for (const g of [QUAL.SHIFT, QUAL.AMIGA, QUAL.CTRL, QUAL.ALT]) {
+    if ((held & g) !== 0) shift |= g
+  }
+  const letter = ascii >= 0x41 && ascii <= 0x5a
+  return { id: letter ? ascii : ((key.scan ?? 0) & 0x7f) | 0x80, shift }
+}
+
 /** every key on 1-based command `fn`, which is what the list actually holds */
 export function keysFor(fn: number, table: Uint8Array = ED_KFONC): Array<{ key: number; shift: number }> {
   let at = skipLists(fn, table)

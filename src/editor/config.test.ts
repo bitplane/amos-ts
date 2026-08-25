@@ -49,6 +49,9 @@ const requester = (
   select: (_w, name) => name,
   pressKey: () => 0,
   pickWindow: () => 0,
+  pickMenu: () => 0,
+  text: () => '',
+  flags: () => 0,
   value,
 })
 

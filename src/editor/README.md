@@ -62,10 +62,10 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-165 of the 184 `JFonc` entries run. The 19 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), the two menu editors and the two user
-menu commands (73, 74, 135, 136), the printer and the About boxes (86, 146,
-149 to 151), and the status bar's four arrows (13 to 16). `Ed_Escape` (28)
+169 of the 184 `JFonc` entries run. The 15 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), the printer and the About boxes (86,
+146, 149 to 151), and the status bar's four arrows (13 to 16), which are the
+one group that needs pixel geometry this port does not keep. `Ed_Escape` (28)
 waits on the escape screen, `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines
 of its own, and `Ed_Check1.3` (147) waits on a verdict this port's verifier
 does not keep.
@@ -98,6 +98,28 @@ and slot 6 has no message beside it. What the box shows is the last write.
 once per instruction and the instruction's own routine eats its arguments, so
 `A=1+2*3` counts one. A `Procedure` header is walked in phase 0 and again in
 its own phase, and `subq.l #1,VerNInst` (+Verif.s:1529) takes the first back.
+
+## Editing the menu edits the configuration
+
+The four commands over it write nothing but `Ed_Config`. Program To Menu is
+the editor for `Ed_AutoLoad`, and the program's name and command line become
+two messages of `Ed_MnPrograms`. Key To Menu writes two bytes of `Ed_KFonc`,
+which is 552 bytes inside the same block. Add and Delete User write the
+`EdM_User` labels. All four raise `EdC_Changed`, so Quit offers to save them.
+
+`Ed_GetFsMessage` (:5290) is why deleting is not removing. It answers the
+first EMPTY record of a block rather than the first slot past the end, so
+Delete User empties the label and Add User finds that hole again. A block only
+grows when there is no hole in it.
+
+Key To Menu clears the old shortcut BEFORE it asks for the new one, and
+rebuilds the menu in between. Cancel the keystroke requester and the entry is
+left with no shortcut at all: `[1][0]` is written over the record and nothing
+undoes it.
+
+Add User does not stop at adding. It writes the label and then runs Program To
+Menu and Key To Menu one after the other, so making an entry walks you through
+binding a program and a key to it without asking whether you wanted to.
 
 ## The menu is in the configuration file, not in the editor
 

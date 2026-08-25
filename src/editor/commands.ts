@@ -22,10 +22,11 @@
  * 114, what the remote control writes 69, 70, 71, 154 and 182, and the menus'
  * own 27, 104, 148, 179, 180 and 183 plus the 46 `Ed_UserMenu` slots.
  *
- * The 19 that are left need something this port has not built yet: the
- * interpreter (77, 105, 111), the menu editors (73, 74, 135, 136), the status
- * bar's arrows (13 to 16), printing and the About boxes (86, 146, 149 to 151),
- * and 28, 145 and 147 one at a time.
+ * The menu editors are 73, 74, 135 and 136.
+ *
+ * The 15 that are left need something this port has not built yet: the
+ * interpreter (77, 105, 111), the status bar's arrows (13 to 16), printing and
+ * the About boxes (86, 146, 149 to 151), and 28, 145 and 147 one at a time.
  * `COMMANDS` has no entry for any of them and `edCall` throws rather than
  * silently doing nothing, so a key map that reaches one says which.
  *
@@ -49,7 +50,7 @@ import { DiskError, Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
 import { UN, UndoBuffer, type UndoRecord } from './undo'
 import { FLAG_FONC, FLAG_FONC_PAST, ED_ROUTINES } from './keymap.gen'
-import { keyToFunc, type EdKey } from './keymap'
+import { encodeKey, keyToFunc, setKey, type EdKey } from './keymap'
 import {
   findMacro,
   macroKeys,
@@ -63,7 +64,15 @@ import {
   type KeyLong,
 } from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
-import { CFG, TEXT_BLOCKS, changeMessage, messages, readConfig, writeConfig } from './config'
+import {
+  CFG,
+  TEXT_BLOCKS,
+  changeMessage,
+  firstFreeMessage,
+  messages,
+  readConfig,
+  writeConfig,
+} from './config'
 import {
   AMOS_EXT,
   NEW_PROJECT,
@@ -71,7 +80,7 @@ import {
   readSession,
   writeSession,
 } from './session'
-import { EDM_HIDDEN_MAX, hiddenPage } from './menus'
+import { EDM_HIDDEN_MAX, EDM_USER_COMMANDS, EDM_USER_LONG, EDM_USER_MAX, hiddenPage } from './menus'
 import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
@@ -172,6 +181,10 @@ export const ED = {
   QUIT: 82,
   SET_TAB: 26,
   USER_MENU: 27,
+  KEY_TO_MENU: 73,
+  PROGRAM_TO_MENU: 74,
+  ADD_USER: 135,
+  DEL_USER: 136,
   SHOW_KEY: 104,
   SOUND_ON: 148,
   PREV_HIDDEN: 179,
@@ -2585,6 +2598,188 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
   }
 }
 
+/* ---- 73, 74, 135 and 136: editing the menu itself ----------------------- */
+
+/**
+ * `Mn_GetOption` (:5733): the requester, and then a click on a menu entry.
+ *
+ * Zero is "no choice", which every caller turns into `Ed_NotDone`. The number
+ * is 1-based here; the machine's d2 is one less, because `Ed_MnGere` (:1674)
+ * subtracts one on the way out and a separator, whose command is 0, goes
+ * negative and is refused there.
+ */
+function pickMenu(e: Edit, which: number): number {
+  if (e.dialogues === null) notDone(e)
+  const cmd = e.dialogues.pickMenu(which)
+  if (cmd <= 0) notDone(e)
+  return cmd
+}
+
+/**
+ * `Ed_Key2Menu` (:5645): put a keystroke on a menu entry.
+ *
+ * The old shortcut goes first, `[1][0]` over the first record of the command's
+ * list (./keymap.ts), and the menu is rebuilt before the key is even asked
+ * for. So cancelling the keystroke requester leaves the entry with no shortcut
+ * at all: the clearing is not undone.
+ *
+ * A key already on another command is not refused, only questioned. EdD_KyMn3
+ * asks and a Yes writes the key onto BOTH, which the first-match-wins search
+ * in `Ed_Ky2Fonc` then resolves in favour of the lower-numbered command.
+ *
+ * The table written is `Ed_Config`'s own, because `Ed_KFonc` is 552 bytes
+ * inside `Ed_DConfig`. `ED_KFONC` in ./keymap.gen.ts is the assembled default,
+ * so a host that hands `edKey` that instead will not see a shortcut this
+ * command changed.
+ */
+function key2Menu(e: Edit): void {
+  e.tokCur()
+  const cmd = pickMenu(e, 24) // EdD_KyMn1
+  if (cmd >= HIDDEN_COMMANDS) {
+    confirm(e, { which: 26 }) // EdD_KyMnE, "this menu option cannot be affected"
+    return
+  }
+  const map = e.editor.config.keyMap
+  if (!setKey(cmd, 1, 0, map)) {
+    confirm(e, { which: 26 })
+    return
+  }
+  const key = pressKey(e, 27) // EdD_KyMn2, which waits for a keystroke
+  if (key === 0) notDone(e)
+  const k = unpackKey(key)
+  const stroke: EdKey = { ch: String.fromCharCode(k.ascii), scan: k.scan, shift: k.shift }
+  if (keyToFunc(stroke, map) !== 0) {
+    e.editor.configChanged = 1
+    if (confirm(e, { which: 28 }) !== 1) notDone(e) // EdD_KyMn3, "already assigned"
+  }
+  const { id, shift } = encodeKey(stroke)
+  setKey(cmd, id, shift, map)
+}
+
+/**
+ * `Ed_Prg2Menu` (:5533): put an AMOS program on a menu entry.
+ *
+ * This is the editor for `Ed_AutoLoad`, the table `Ed_FCall` reads before it
+ * reaches `JFonc` at all. The program's name and its command line are two
+ * messages of `Ed_MnPrograms`, and the three bytes of the table point at them.
+ *
+ * The range test is odd and literal: hidden slots are refused, and so is
+ * everything from 153 to 181, which the author's comments call "pas un menu
+ * HELP ou CONFIG". 182 and 183 fall through it and are allowed.
+ *
+ * A `move.w d2,d3` at :5548 is overwritten by `moveq #0,d3` on the line after
+ * it, so the option number never reaches the variable that carries it.
+ */
+function prg2Menu(e: Edit): void {
+  e.tokCur()
+  const cmd = pickMenu(e, 30) // EdD_PrgMn1
+  if (cmd >= HIDDEN_COMMANDS || (cmd >= 153 && cmd < 182)) {
+    confirm(e, { which: 33 }) // EdD_PrgMnE
+    return
+  }
+  const editor = e.editor
+  editor.configChanged = 1
+  const table = editor.config.autoLoad
+  const at = (cmd - 1) * 3
+  let answer = 0
+  if (table[at] !== 0 && table[at + 1] !== 0) {
+    // EdD_PrgMn2: there is one already. 1 replaces it, 2 clears it, 3 gives up
+    answer = e.dialogues === null ? 1 : e.dialogues.confirm({ which: 31 })
+    if (answer === 3) notDone(e)
+    clearProgram(e, table[at + 1]!)
+    clearProgram(e, table[at + 2]!)
+  }
+  table[at] = 0
+  table[at + 1] = 0
+  table[at + 2] = 0
+  if (answer === 2) return
+  if (!selectFile(e, 100)) notDone(e)
+  if (confirm(e, { which: 32 }) !== 1) notDone(e) // EdD_PrgMn3
+  // `Dia_GetVFlags` over slots 4 to 6, and `or.b #$80,d0`: the top bit is what
+  // makes the entry live at all
+  table[at] = (e.dialogues === null ? 0 : e.dialogues.flags(4, 3)) | 0x80
+  table[at + 1] = putProgram(e, e.name1)
+  const line = e.dialogues === null ? '' : e.dialogues.text(7)
+  if (line === '') return
+  table[at + 2] = putProgram(e, line)
+}
+
+/** one message of `Ed_MnPrograms` emptied, which is how a binding is removed */
+function clearProgram(e: Edit, n: number): void {
+  if (n === 0) return
+  e.editor.config.texts.programs = changeMessage(e.editor.config.texts.programs, n, '')
+}
+
+/** `Ed_GetFsMessage` and then `EdC_ChangeTexte`: a message into the first free slot */
+function putProgram(e: Edit, text: string): number {
+  const block = e.editor.config.texts.programs
+  const n = firstFreeMessage(block)
+  e.editor.config.texts.programs = changeMessage(block, n, text)
+  return n
+}
+
+/**
+ * `Ed_AddUser` (:5422): one more entry on the User menu.
+ *
+ * The entries are twenty messages of `EdM_User` and twenty `JFonc` slots, 115
+ * to 134, whose whole body is the requester saying they do nothing. What makes
+ * one do something is the two commands this runs straight afterwards: Program
+ * To Menu and then Key To Menu, so adding an entry walks you through binding
+ * it without asking whether you wanted to.
+ */
+function addUser(e: Edit): void {
+  e.tokCur()
+  const editor = e.editor
+  const n = firstFreeMessage(editor.config.texts.userMenus)
+  if (n >= EDM_USER_MAX) {
+    confirm(e, { which: 42 }) // EdD_MnUs2, "too many options"
+    return
+  }
+  editor.configChanged = 1
+  if (confirm(e, { which: 40, values: [undefined, undefined, 0, EDM_USER_LONG] }) !== 1) {
+    notDone(e) // EdD_MnUsA
+  }
+  const label = e.dialogues === null ? '' : e.dialogues.text(3)
+  if (label === '') notDone(e)
+  editor.config.texts.userMenus = changeMessage(editor.config.texts.userMenus, n, label)
+  prg2Menu(e)
+  key2Menu(e)
+}
+
+/**
+ * `Ed_DelUser` (:5469): an entry off the User menu, and everything on it.
+ *
+ * Three things go, in this order: the label becomes an empty message, which is
+ * what `Ed_GetFsMessage` will find again as a free slot; the `Ed_AutoLoad`
+ * entry and the one or two `Ed_MnPrograms` messages it points at are cleared;
+ * and the keyboard shortcut is poked back to `[1][0]`.
+ *
+ * The number is `d2 - (EdM_UserCommands-1-1)`, so command 115 is user message
+ * 1. Anything outside 115 to 134 is refused.
+ */
+function delUser(e: Edit): void {
+  e.tokCur()
+  const cmd = pickMenu(e, 41) // EdD_MnUsD
+  if (cmd < EDM_USER_COMMANDS || cmd >= EDM_USER_COMMANDS + EDM_USER_MAX) {
+    confirm(e, { which: 43 }) // EdD_MnUsE
+    return
+  }
+  const editor = e.editor
+  editor.configChanged = 1
+  const n = cmd - EDM_USER_COMMANDS + 1
+  editor.config.texts.userMenus = changeMessage(editor.config.texts.userMenus, n, '')
+  const table = editor.config.autoLoad
+  const at = (cmd - 1) * 3
+  if (table[at] !== 0) {
+    clearProgram(e, table[at + 1]!)
+    clearProgram(e, table[at + 2]!)
+    table[at] = 0
+    table[at + 1] = 0
+    table[at + 2] = 0
+  }
+  setKey(cmd, 1, 0, editor.config.keyMap)
+}
+
 /* ---- 27, 104, 148, 179, 180, 183 and the 46 user slots: the menus -------- */
 
 /**
@@ -3346,6 +3541,8 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   },
   26: setTab,
   76: gotoLine,
+  73: key2Menu,
+  74: prg2Menu,
   69: zapNewLine,
   70: reAlert,
   71: zapNewLineTok,
@@ -3462,6 +3659,8 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // EdMa_SaveDefault (:6668), which does NOT ask before writing over it
     macroSaveDef(e)
   },
+  135: addUser,
+  136: delUser,
   148: samOn,
   154: rename,
   179: prevHidden,
