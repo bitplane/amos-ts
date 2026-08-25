@@ -505,6 +505,21 @@ export class Editor {
    */
   abort = false
 
+  /**
+   * `AdTokens+4` (+Equ.s:764): the twenty-six extension slots, by `LB_Title`.
+   *
+   * Index 0 is slot 1, because `AdTokens` itself is the core token table and
+   * `Ed_About` counts from `AdTokens+4`. Null is a slot with no library in it,
+   * which is `tst.l (a0)` on the machine, and an empty string is a library
+   * whose `LB_Title` is zero -- `Ed_AboutExt`'s `.Empty dc.w 0` shows a blank
+   * line for that rather than skipping the slot.
+   *
+   * DEVIATION: the machine holds a pointer to the whole library here and the
+   * two About boxes are the only readers in the editor. The title is what
+   * they read.
+   */
+  extensions: (string | null)[] = Array.from({ length: 26 }, () => null)
+
   /** `Ed_SCallFlags` (+Equ.s:1706): what the command that just ran wants redrawn */
   callFlags = 0
 

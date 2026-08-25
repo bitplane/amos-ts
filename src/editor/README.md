@@ -62,10 +62,27 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-176 of the 184 `JFonc` entries run. The 8 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), and the About boxes and the machine-code
-procedure (149 to 151). `Ed_Escape` (28) waits on the escape screen, and
-`Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of its own.
+178 of the 184 `JFonc` entries run. The 6 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), and `Ed_ProcML` (151), which reads a
+hunk file into the procedure the cursor is in. `Ed_Escape` (28) waits on the
+escape screen, and `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of its
+own.
+
+
+## The About box says nobody bought this copy
+
+`Ed_About` (+Edit.s:4580) decodes two fields with `Sys_UnCode` (+B.s:595), a
+XOR over a length-prefixed string: `UserReg` with $73 and `UserName`, sixteen
+bytes further on, with $A5. Install.AMOS writes the buyer's details over both.
+The shipped source (+B.s:314) holds "REGISTRATION #" and "Not Installed!"
+spelled out one `dc.b "R"^$73` at a time, so an uninstalled AMOS Professional
+puts those two strings where a name and a number belong.
+
+`Ed_AboutExt` (:4609) browses the twenty-six extension slots one at a time,
+and puts its own requester up again rather than returning to `Ed_Loop`, so the
+whole browse is one command. Its Previous and Next write the slot number only
+when they find a library, so at either end the button shows the same extension
+again and nothing says the list has run out.
 
 
 ## Edt_Y is a sum, not a field

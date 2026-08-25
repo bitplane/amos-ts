@@ -240,6 +240,14 @@ export interface Confirm {
    * the requester does not read.
    */
   values?: (number | undefined)[]
+  /**
+   * The same slots again, for the requesters that read one as text.
+   *
+   * `Ed_VDialogues` is sixteen Interface variables and nothing about a slot
+   * says which it is; the requester's own program decides. `Ed_About`
+   * (+Edit.s:4580) is the only caller that fills both kinds.
+   */
+  strings?: (string | undefined)[]
 }
 
 /** the requesters the editor puts up, and what it does with them */

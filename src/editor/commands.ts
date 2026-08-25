@@ -203,6 +203,8 @@ export const ED = {
   SET_BUFFER: 114,
   PRINT_PROGRAM: 146,
   PRINT_BLOCK: 86,
+  ABOUT: 150,
+  ABOUT_EXT: 149,
   ETAT_UP: 13,
   ETAT_DOWN: 14,
   BAS_UP: 15,
@@ -1725,6 +1727,117 @@ function blockSaveAscii(e: Edit): void {
 }
 
 
+
+
+/* ---- 149 and 150: the two About boxes ----------------------------------- */
+
+/** `VersionN` (+B.s:354), which is " Version " and the `Version` macro after it */
+export const ED_VERSION = ' Version 2.00'
+
+/**
+ * `UserReg` (+B.s:314) and `UserName` (:328) as the assembler lays them out:
+ * a length word and fourteen bytes, each XORed with its own key.
+ *
+ * The two sit sixteen bytes apart, which is what `lea 16(a0),a0` in `Ed_About`
+ * steps over. Install.AMOS writes the buyer's details over both. What is in
+ * the shipped source is what a copy that was never installed shows, and the
+ * placeholders are the evidence: "REGISTRATION #" where the number belongs and
+ * "Not Installed!" where the name does.
+ */
+const USER_SECU = ((): Uint8Array => {
+  const b = new Uint8Array(32)
+  const put = (at: number, text: string, key: number): void => {
+    b[at + 1] = text.length
+    for (let i = 0; i < text.length; i++) b[at + 2 + i] = text.charCodeAt(i) ^ key
+  }
+  put(0, 'REGISTRATION #', 0x73)
+  put(16, 'Not Installed!', 0xa5)
+  return b
+})()
+
+/**
+ * `Sys_UnCode` (+B.s:595): the length word straight through, then every byte
+ * XORed with d0.
+ *
+ * It answers the sum of the DECODED bytes in d0, a checksum both callers here
+ * throw away. `Sys_VerInstall` (:585) does not read it either; it tests the
+ * length words alone, and both ship as 14.
+ */
+export function sysUnCode(src: Uint8Array, at: number, key: number): string {
+  const n = (src[at]! << 8) | src[at + 1]!
+  let out = ''
+  for (let i = 0; i < n; i++) out += String.fromCharCode(src[at + 2 + i]! ^ key)
+  return out
+}
+
+/**
+ * `Ed_About` (+Edit.s:4580), `JFonc` 150.
+ *
+ * Four of `Ed_VDialogues`'s sixteen slots, and requester 0, which is the same
+ * `EdD_Title` the editor puts up when it starts. The count is over
+ * `AdTokens+4` with `moveq #26-1,d0`, so the core token table at `AdTokens`
+ * itself is not one of the twenty-six.
+ */
+function about(e: Edit): void {
+  let count = 0
+  for (const t of e.editor.extensions) if (t !== null) count++
+  confirm(e, {
+    which: 0, // EdD_Title
+    values: [undefined, count],
+    strings: [ED_VERSION, undefined, sysUnCode(USER_SECU, 16, 0xa5), sysUnCode(USER_SECU, 0, 0x73)],
+  })
+}
+
+/**
+ * `.Next` (:4650): the next slot with a library in it, and the slot it was
+ * already on when there is none.
+ *
+ * The walk writes d3 and a3 only when it finds something, so a failed step
+ * leaves them where they were and `.Loop` shows the same extension again.
+ * Nothing tells the user the end has been reached; the button simply stops
+ * doing anything.
+ */
+function extNext(list: readonly (string | null)[], from: number): number {
+  let n = from
+  while (n < 26) {
+    n++
+    if (list[n - 1] !== null) return n
+  }
+  return from
+}
+
+/** `.Prev` (:4640), the same walk upwards, which stops at slot 1 */
+function extPrev(list: readonly (string | null)[], from: number): number {
+  let n = from
+  while (n > 1) {
+    n--
+    if (list[n - 1] !== null) return n
+  }
+  return from
+}
+
+/**
+ * `Ed_AboutExt` (:4609), `JFonc` 149: one extension at a time, with Previous
+ * and Next.
+ *
+ * The requester is put up again from inside the routine rather than from
+ * `Ed_Loop`, so the whole browse is one command. Answer 1 is Previous, 2 is
+ * Next, and anything else ends it. With no extensions loaded at all the first
+ * `.Next` finds nothing, d3 stays zero, and the box never appears.
+ */
+function aboutExt(e: Edit): void {
+  const list = e.editor.extensions
+  let at = extNext(list, 0)
+  if (at === 0) return
+  for (;;) {
+    // `LB_Title(a0)` of zero is `.Empty dc.w 0`, an Interface string with no
+    // characters, so a library with no title shows a blank line and a number
+    const answer = confirm(e, { which: 55, values: [at], strings: [undefined, list[at - 1] ?? ''] })
+    if (answer === 1) at = extPrev(list, at)
+    else if (answer === 2) at = extNext(list, at)
+    else return
+  }
+}
 
 /* ---- 13 to 16: the status bar's four arrows ----------------------------- */
 
@@ -3795,6 +3908,8 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   147: check13,
   146: prgPrint,
   86: blocPrint,
+  150: about,
+  149: aboutExt,
   13: (e) => sepMove(e, -ED_ROW_SY, false),
   14: (e) => sepMove(e, ED_ROW_SY, false),
   15: (e) => sepMove(e, -ED_ROW_SY, true),
