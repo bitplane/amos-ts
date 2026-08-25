@@ -446,7 +446,7 @@ export class DirectScreen {
    *
    * `Runtime.frame` hands it here rather than letting it out, because an
    * error in a typed line is not the program's: `tst.w Direct(a5) / bne
-   * rErr1` (+ILib.s:1330) refuses to trap it, and the editor prints it on the
+   * rErr1` (+ILib.s:1301-1302) refuses to trap it, and the editor prints it on the
    * escape screen and waits for the next line.
    */
   reportError(e: unknown): boolean {

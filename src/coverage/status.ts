@@ -29,8 +29,9 @@ export const FAITHFUL = new Set<string>([
   'pack',
   'spack',
   // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank
-  // program table (InAmal2 +Lib.s:11857) and PLay's recorded movements
-  // (AmPli +W.s:8632), both verified against Tutorial PLay_Data.Abk
+  // program table (InAmal2 +Lib.s:11793, whose body is MvA3 +Lib.s:11841)
+  // and PLay's recorded movements (AmPli +W.s:8632), both verified against
+  // Tutorial PLay_Data.Abk
   'amal',
   'amplay',
   'amal on',

@@ -1708,7 +1708,7 @@ export function drawHyperZone(_ch: DialogChannel, z: DialogZone, draw: DialogDra
   }
 }
 
-/** activate the first edit/digit zone (Dia_EdFirst +Lib.s:24634) */
+/** activate the first edit/digit zone (Dia_EdFirst +Lib.s:24596) */
 export function editFirst(ch: DialogChannel, draw: DialogDraw): void {
   const prev = ch.edited
   ch.edited = ch.zones.find((z) => z.kind === 'edit' || z.kind === 'digit') ?? null

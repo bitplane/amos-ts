@@ -3,14 +3,13 @@
  *
  * Three checks, and they are not the same check:
  *
- *   0. SOURCE LINES — `+Edit.s:8681` must land inside the routine the prose
-      names, in the corpus checkout of the AMOS sources. The one-sided half
-      of this (it resolves in ../AMOS-Professional-Official instead) is an
-      assertion in src/ext/citations.test.ts, because it proves the author
-      read the wrong file. What is reported here is the rest: a citation that
-      resolves in NEITHER checkout. Some of those are prose where the
-      identifier in front of the number is not its subject, which is why this
-      is a question and not a build failure.
+ *   0. SOURCE LINES — a `+Edit.s:NNNN` must land inside the routine the prose
+      names, in the corpus checkout of the AMOS sources. Both halves of this
+      are now assertions in src/ext/citations.test.ts: resolving in
+      ../AMOS-Professional-Official instead proves the author read the wrong
+      file, and resolving in neither is a wrong number. It stays here because
+      the report names every one at once, which is what you want while fixing
+      a batch of them.
   1. ADDRESS AGREEMENT — "routine 353 ($6f2a)" must put $6f2a inside
  *      routine 353 of that extension's jump table. Catches the numbering rot
  *      that #176's disassembler fix left behind across AMCAF, where twenty-
@@ -24,7 +23,7 @@
  *      where the port had read a neighbour's routine and written up the wrong
  *      behaviour under a name that then looked sourced.
  *
- * Checks 1 and 2 are assertions and live in src/ext/citations.test.ts as
+ * Checks 0, 1 and 2 are assertions and live in src/ext/citations.test.ts as
  * well, so they cannot rot. Check 3 is a REPORT and cannot be an assertion:
  * a doc block that explains a family together, or cross-refers to a sibling
  * while explaining this keyword, trips it legitimately. Ten do today, all

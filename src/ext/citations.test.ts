@@ -811,4 +811,32 @@ describe('citations into the AMOS sources name the corpus checkout', () => {
       expect(checked).toBeGreaterThan(800)
     }
   })
+
+  /**
+   * The rest of the same sweep, which used to be a report.
+   *
+   * A citation that resolves in neither checkout is a wrong number, and there
+   * were 74 of them until the routine extents were fixed and the last 41 read
+   * one at a time. The worst named Ed_Test at line 2557 of +Edit.s, which is
+   * the middle of a window split and 5,867 lines above the routine.
+   */
+  it('and every one of them lands inside the routine it names', () => {
+    const bad: string[] = []
+    let checked = 0
+    for (const p of sources(src)) {
+      for (const c of parseSourceCitations(readFileSync(p, 'utf8'))) {
+        const mine = amosSource(c.file)
+        if (mine === null) continue
+        const la = labelsOf(c.file, 'corpus', mine)
+        const subject = c.symbols[0]
+        if (subject === undefined || la.at.get(subject) === undefined) continue
+        const named = c.symbols.filter((s) => la.at.get(s) !== undefined)
+        checked++
+        if (named.some((s) => citationResolves(mine, la, s, c.line, c.end))) continue
+        bad.push(`${relative(root, p)}:${c.at} ${c.file}:${c.line} — inside none of ${named.join(', ')}`)
+      }
+    }
+    expect(bad).toEqual([])
+    if (amosSource('+Edit.s') !== null) expect(checked).toBeGreaterThan(1000)
+  })
 })

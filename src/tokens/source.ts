@@ -32,7 +32,7 @@ export class LineTooLongError extends Error {
 /**
  * A `VerifyError` with the line that caused it.
  *
- * The machine has no use for this. `Ed_Test` (+Edit.s:2557) takes the position
+ * The machine has no use for this. `Ed_Test` (+Edit.s:8424) takes the position
  * the verifier stopped at, seeks the line containing it and puts the cursor
  * there, so on an Amiga the offending text is on screen and needs no naming.
  * There is no screen here, and a byte offset into a token stream is not

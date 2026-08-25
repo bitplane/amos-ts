@@ -33,7 +33,7 @@
 /** `EdMa_Head` (+Equ.s:1709) */
 export const MACRO_HEAD = 'ApMa'
 
-/** what `Ed_ListeNew` (+Edit.s:9640) puts in a list node, for one macro */
+/** what `Ed_ListeNew` (+Edit.s:2986) puts in a list node, for one macro */
 export interface Macro {
   /** `4(a1)`: the payload size, which is what the file carries and can exceed the data */
   size: number

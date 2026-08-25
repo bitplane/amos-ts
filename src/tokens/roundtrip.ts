@@ -286,7 +286,7 @@ export function signedInt(value: number): boolean {
 /**
  * A name record carrying bytes after its terminator, inside its own length.
  *
- * `TkV8` (+Edit.s:14334) pokes `a4 - a0 - 6`, the length of what it has just
+ * `TkV8` (+Edit.s:14374) pokes `a4 - a0 - 6`, the length of what it has just
  * written, so the tokeniser can leave at most the one NUL that pads the name
  * to even. 33 records in the corpus carry more than that, and one of them is
  * `DR$` in `NoteBook.AMOS` stored as "dr\0\0\0\0ry" in eight bytes, the tail
@@ -434,7 +434,7 @@ function same(a: Uint8Array, b: Uint8Array): boolean {
 /**
  * Whether the line lists through a placeholder rather than through a keyword.
  *
- * `DtkEe` (+Edit.s:15007) patches the slot letter into the last byte of
+ * `DtkEe` (+Edit.s:14808) patches the slot letter into the last byte of
  * `ExtNot`, "Extension " with a $80 after it, and hands the result on with
  * d3 = "I" so it prints as an instruction with a trailing space. That text is
  * a report, not the program: retyping it gives two variables, and listing

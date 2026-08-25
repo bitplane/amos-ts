@@ -3,8 +3,9 @@
  * and the interpreter reaches them by two different paths:
  *
  *  - **AMAL program strings**, used by `Amal n,#` / `Anim n,#` / `Move X n,#`.
- *    `InAmal2` (+Lib.s:11857-11877) follows the long at payload+0 to a
- *    section of length-prefixed strings.
+ *    `InAmal2` (+Lib.s:11793) is two instructions into `MvA3`, which follows
+ *    the long at payload+0 (`add.l (a0),a0`, +Lib.s:11841) to a section of
+ *    length-prefixed strings.
  *  - **Movement recordings**, used by the AMAL `PLay` instruction. `AmPli`
  *    (+W.s:8661) reads a count word at payload+4 and a 1-based word-offset
  *    table straight after it — no indirection at all.
@@ -49,7 +50,7 @@ export function parseAmalBank(data: Uint8Array): AmalBank {
 }
 
 /**
- * InAmal2 +Lib.s:11857: `add.l (a0),a0` — a long at payload+0 points at the
+ * MvA3 +Lib.s:11841: `add.l (a0),a0` — a long at payload+0 points at the
  * string section; 0 means the bank holds no programs (the keyword then
  * raises a function call error, which is the caller's job, not ours). The
  * section is a count word followed by word offsets, and `cmp.w (a0)+,d0 /

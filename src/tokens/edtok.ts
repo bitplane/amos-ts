@@ -1,7 +1,7 @@
 /**
  * The editor's own detokeniser and tokeniser, working on bytes.
  *
- * `Detok` (+Edit.s:14717) and `Tokenise` (+Edit.s:14226) are the two halves of
+ * `Detok` (+Edit.s:14743) and `Tokenise` (+Edit.s:14226) are the two halves of
  * one loop the AMOS editor runs constantly: a line is turned into text to be
  * shown, and turned back into tokens the moment the cursor leaves it. So the
  * invariant that matters is not that either half is readable on its own. It is
@@ -495,8 +495,8 @@ interface NumberToken {
 }
 
 /**
- * `ValRout`, called from `Tokenise` at +Edit.s:14391 with d0 zero so that a
- * leading sign is left for the operator.
+ * `ValRout`, called from `Tokenise`'s number branch (`TokLoop` +Edit.s:14391)
+ * with d0 zero, so that a leading sign is left for the operator.
  *
  * Whether a decimal number is an integer or a float is decided by the way it
  * is WRITTEN and never by its value: `val4` branches on d3, which `val3z` sets

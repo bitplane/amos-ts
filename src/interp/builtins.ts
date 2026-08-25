@@ -545,7 +545,7 @@ export const INSTR: Record<string, Instr> = {
    * ends `007c 007c 008c 0000`.
    *
    * `Pop Proc` three screens down in the same file does check
-   * (`cmp.w #_TkBra2,(a6)+ / beq VerDP / bra VerSynt`, +Verif.s:2296), so the
+   * (`cmp.w #_TkBra2,(a6)+ / beq VerDP / bra VerSynt`, +Verif.s:2275-2277), so the
    * asymmetry is deliberate-looking but is only in one of the pair.
    */
   'end proc'(it) {

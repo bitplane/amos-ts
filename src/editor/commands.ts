@@ -2587,7 +2587,7 @@ function closeName(e: Edit): void {
  * bytes into the middle of the line's own name record.
  *
  * `Prg_StModif` is what decides whether there is anything to do, and it is
- * cleared BELOW the call to `PTest` (+Verif.s:4427). An error never reaches
+ * cleared BELOW the call to `PTest` (+Verif.s:4426-4427). An error never reaches
  * that instruction, so a program that fails Test stays modified and the next
  * command tests it again.
  *

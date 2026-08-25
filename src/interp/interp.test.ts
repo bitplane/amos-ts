@@ -27,7 +27,7 @@ describe('FFP single-precision floats (mathffp.library)', () => {
   it('rounds float arithmetic to 24-bit FFP precision', () => {
     // 2^30 = 1073741824 loses precision at FFP's 24-bit mantissa, and once
     // the integer part reaches seven digits FloatToAsc switches to exponent
-    // form: `cmp.w #8,a0 / bcc ExFix1` (+Lib.s:26050), where a0 counts the
+    // form: `cmp.w #8,a0 / bcc ExFix1` (+Lib.s:26036-26037), where a0 counts the
     // digits before the point AND the point
     // and the space before the E is fldeb's: Print reaches it the same way
     // Detok does, because +ILib.s:7679 loads FixFlg into d4.w and clears only
@@ -760,7 +760,7 @@ describe('error trapping', () => {
     // Our tokenizer knows the program's procedure names and emits procCall
     // there, so nothing in this suite ever saw the case.
     //
-    // AMOS does not consult the type. OnEPrc (+ILib.s:2076) steps over the
+    // AMOS does not consult the type. OnEPrc (+ILib.s:1900) steps over the
     // Proc keyword and reads the label-table offset from the next word:
     // `addq.l #4,a6 / move.w (a6)+,d0 / ... move.l 0(a2,d0.w),OnErrLine(a5)`.
     //

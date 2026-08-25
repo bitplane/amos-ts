@@ -54,9 +54,9 @@ describe.skipIf(!have)('L_ErrorExt across every registered binary', () => {
   })
 
   /**
-   * d1 is a THRESHOLD — `cmp.w d1,d0 / bcs rErr1` at +ILib.s:1297 — and every
-   * extension passes 0, so nothing of theirs is below it and all of it can be
-   * trapped. GameSupport's shipped source comments that exact instruction
+   * d1 is a THRESHOLD — `cmp.w d1,d0 / bcs rErr1` at +ILib.s:1297-1298 — and
+   * every extension passes 0, so nothing of theirs is below it and all of it
+   * can be trapped. GameSupport's shipped source comments that exact instruction
    * `* Can be trapped`. A site passing anything else would be an extension
    * deliberately making an error fatal, as AMOS does to itself with `#512`.
    */

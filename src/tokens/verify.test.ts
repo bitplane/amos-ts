@@ -450,7 +450,7 @@ describe.skipIf(fixedPoint.compared === 0)('a verified program, listed and retyp
 /**
  * What a caller gets back when the Test pass refuses a line.
  *
- * `Ed_Test` (+Edit.s:2557) takes the position the verifier stopped at, seeks
+ * `Ed_Test` (+Edit.s:8424) takes the position the verifier stopped at, seeks
  * the line containing it and puts the cursor there, so on an Amiga the
  * offending text is already on screen. There is no screen here, and a byte
  * offset into a token stream is not something a caller can act on, so

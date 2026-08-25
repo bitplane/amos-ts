@@ -8,7 +8,7 @@
  * instead is AMOS Professional's own dialog engine (`dialog.ts`, the Dia_*
  * interpreter) and the shipped scripts that use it, so a requester is written
  * the way AMOS writes one: a script in the Interface language, run on a
- * temporary channel exactly as `Dialog Box` (Dia_RunQuick, +Lib.s:14655) runs
+ * temporary channel exactly as `Dialog Box` (Dia_RunQuick, +Lib.s:20407) runs
  * one.
  *
  * The grammar here is program 4 of `AMOSPro_Default_Resource.Abk` — the

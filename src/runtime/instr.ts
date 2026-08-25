@@ -264,7 +264,7 @@ function rdialogValue(rt: Runtime, a: import('../interp/values').Value[]): { n: 
   return dialogZoneValue(z)
 }
 
-/** Vdialog(c,n)= / Vdialog$(c,n)= assignment forms (Dia_GetVariable +Lib.s:14548) */
+/** Vdialog(c,n)= / Vdialog$(c,n)= assignment forms (Dia_GetVariable +Lib.s:20764) */
 function vdialogWrite(it: It, rt: Runtime, isStr: boolean): void {
   it.expect('(')
   const c = it.evalInt()
@@ -893,7 +893,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Arexx Answer ERROR [,"answer"] --- `InArexxAnswer1`/`2` (+Lib.s:15140),
+     * Arexx Answer ERROR [,"answer"] --- `InArexxAnswer1`/`2` (+Lib.s:15105),
      * two entries on one name; the one-argument form pushes AMOS's shared
      * empty string as the answer. The result string is only attached when the
      * sender set RXFF_RESULT in rm_Action -- `and.l #RXFF_RESULT,d0 / beq
@@ -3086,8 +3086,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
        * appears. LDos's Lexecute and EasyLife's Elexec pass a literal 0 for
        * the same effect; Craft's Cli Execute is the one that does not.
        *
-       * ChVerBuf (+Lib.s:3677) truncates at 510 characters: `cmp.w #510,d0 /
-       * bcs / move.w #509,d0` copies at most 510 bytes and then the NUL.
+       * ChVerBuf (+Lib.s:3643) falls into ChVerBuf2, which truncates at 510
+       * characters: `cmp.w #510,d0 / bcs / move.w #509,d0` (+Lib.s:3654)
+       * copies at most 510 bytes and then the NUL.
        *
        * NOTE: nothing can run a command here, so Execute always answers
        * DOSFALSE and this always raises "Disc error". That is the branch the
@@ -4271,7 +4272,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       ch.on = rt.amalDefaultOn
       rt.channels.set(n, ch)
     },
-    // ---- STOS-compatibility Anim / Move (InAnim2/InMoveX2 +Lib.s:11660) ----
+    // ---- STOS-compatibility Anim / Move (InAnim2/InMoveX2 +Lib.s:11783) ----
     anim(it) {
       // Anim n,"(image,delay)...[L]" — an independent slot beside the
       // channel's AMAL program (ID channel*4+1, CreAMAL +W.s:7998)
@@ -5634,7 +5635,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(z ? z.number : -1)
     },
     movon(_, a) {
-      // =Movon(n) (FnMovon +Lib.s:11945): -1 while a Move X/Y program on
+      // =Movon(n) (FnMovon +Lib.s:11893): -1 while a Move X/Y program on
       // channel n is still running
       const n = int(a[0]!)
       if (n < 0) throw new AmosError('function call error')

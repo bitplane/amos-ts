@@ -308,7 +308,7 @@ export interface EditorDialogues {
    */
   text(zone: number): string
   /**
-   * `Dia_GetVFlags` (+Lib.s:24284): the checkbox variables of a requester, as
+   * `Dia_GetVFlags` (+Lib.s:20926): the checkbox variables of a requester, as
    * a bit per box.
    *
    * `from` is the first `Ed_VDialogues` slot the boxes live in and `count` is

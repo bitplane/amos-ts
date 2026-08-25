@@ -355,7 +355,7 @@ call when the procedure is already closed, because nothing needs a size to
 unfold.
 
 `Prg_StModif` decides whether there is anything to do, and it is cleared BELOW
-the call to `PTest` (+Verif.s:4427). An error never reaches that instruction,
+the call to `PTest` (+Verif.s:4426-4427). An error never reaches that instruction,
 so a program that fails Test stays modified and the next command tests it
 again.
 

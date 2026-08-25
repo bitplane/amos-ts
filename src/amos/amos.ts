@@ -49,7 +49,7 @@ import type { AmosFS } from '../amiga/fs'
 /**
  * A `.AMOS` file, or a listing, into a buffer the editor can hold.
  *
- * `Prg_Load` (+Verif.s:4930) is the first, and `EdLok` (+Edit.s:13420) is what
+ * `Prg_Load` (+Verif.s:4789) is the first, and `EdLok` (+Edit.s:13420) is what
  * follows it: `move.b #1,Prg_StModif(a6)`, "force le test". Whatever byte 11
  * of the file said, a program that came off disc has not been tested by THIS
  * interpreter and the next Run has to test it.

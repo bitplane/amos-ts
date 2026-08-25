@@ -722,8 +722,8 @@ export class Screen {
    */
 
   /**
-   * Hardware coordinates to this screen's own, and back: `CXyScr` and
-   * `CXyHard` at +W.s:10787 and :10809, which `X Screen`, `Y Screen`,
+   * Hardware coordinates to this screen's own, and back: `CXyScr` (+W.s:10787)
+   * and `CXyHard` (+W.s:10809), which `X Screen`, `Y Screen`,
    * `X Hard` and `Y Hard` all reach through `SyCall XyScr` / `SyCall XyHard`,
    * and which SyZoHd inlines to find a zone.
    *

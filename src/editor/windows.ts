@@ -155,7 +155,7 @@ export class Editor {
   autoSaveRef = 0
 
   /**
-   * `Ed_ZapParam(a5)` (+Equ.s:1730): the number the ZAP remote control sent
+   * `Ed_ZapParam(a5)` (+Equ.s:1698): the number the ZAP remote control sent
    * with the command it is running.
    *
    * `Ed_Dialogue` (:3108) answers it INSTEAD of putting a requester up when
@@ -220,7 +220,7 @@ export class Editor {
   quit = false
 
   /**
-   * `Prg_List(a5)` (+Equ.s:1672): every program structure, newest first.
+   * `Prg_List(a5)` (+Equ.s:1190): every program structure, newest first.
    *
    * `Prg_NewStructure` (+Verif.s:4650) pushes onto the head and
    * `Prg_DelStructure` (:4680) unlinks, so this is a list of PROGRAMS where
@@ -314,7 +314,7 @@ export class Editor {
    *
    * `Esc_Appear` (+Edit.s:9329) sets it, `Esc_Hide` (:9507) clears it, and the
    * interpreter reads the same word to decide that an error in a typed line is
-   * never trapped (`tst.w Direct(a5) / bne rErr1`, +ILib.s:1330). One word,
+   * never trapped (`tst.w Direct(a5) / bne rErr1`, +ILib.s:1301-1302). One word,
    * two owners; this is the editor's half and src/interp/direct.ts is the
    * other.
    */
@@ -346,7 +346,7 @@ export class Editor {
   /**
    * `Prg_Accessory(a5)`: the running program was started as an accessory.
    *
-   * The gate on both halves of the remote control. `Prg_New` (+Verif.s:4626)
+   * The gate on both halves of the remote control. `Prg_New` (+Verif.s:4726)
    * clears it, so a program that has been edited since it was launched is not
    * one any more.
    */
@@ -398,7 +398,7 @@ export class Editor {
   prtRet = PI_DEFAULTS.PrtRet
 
   /**
-   * `Ed_Avert` (+Equ.s:1704): the warning boxes standing in front of the text.
+   * `Ed_Avert` (+Equ.s:1717): the warning boxes standing in front of the text.
    *
    * `Ed_Avertir` (+Edit.s:7674) counts up and uses the count as the Interface
    * block number, so the boxes stack; `Ed_AverFin` (:7699) deletes the top one
@@ -421,7 +421,7 @@ export class Editor {
   /* ---- the a5 fields every window shares -------------------------------- */
 
   /**
-   * `Ed_Block(a5)` (+Equ.s:1725): the editor's one clipboard.
+   * `Ed_Block(a5)` (+Equ.s:1720): the editor's one clipboard.
    *
    * One pointer for the whole editor, so a block cut in one window pastes into
    * another. ./block.ts has the layout.
@@ -606,7 +606,7 @@ export class Editor {
   abort = false
 
   /**
-   * `AdTokens+4` (+Equ.s:764): the twenty-six extension slots, by `LB_Title`.
+   * `AdTokens+4` (+Equ.s:1155): the twenty-six extension slots, by `LB_Title`.
    *
    * Index 0 is slot 1, because `AdTokens` itself is the core token table and
    * `Ed_About` counts from `AdTokens+4`. Null is a slot with no library in it,
@@ -805,7 +805,7 @@ export class Editor {
   }
 
   /**
-   * `Edt_Y` (+Equ.s:1888): the top of the window's status bar, in pixels.
+   * `Edt_Y` (+Equ.s:1905): the top of the window's status bar, in pixels.
    *
    * DEVIATION: the machine stores it and `Edt_WChange` writes it. Nothing here
    * does, because `Edt_WMaxSize`'s own walk shows it is a function of the list:

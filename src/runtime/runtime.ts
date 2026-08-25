@@ -616,7 +616,7 @@ export class Runtime {
    * Put Bob does not stamp anything. `BobPut` (+W.s:1178) is two
    * instructions: find the bob and set `BbECpt` to `BbDecor`, the number of
    * background buffers it has. The erase pass then tests that counter first
-   * (`tst.w BbECpt(a5) / bne.s BbE5`, +W.s:1884, commented "Compteur PUT
+   * (`tst.w BbECpt(a5) / bne.s BbE5`, +W.s:1884-1885, commented "Compteur PUT
    * BOB") and, when it is set, skips the erase and decrements instead.
    *
    * So the bob is simply left behind once in each buffer and normal updating
@@ -2176,7 +2176,7 @@ export class Runtime {
   /**
    * Scanlines the hardware-sprite multiplexer's column buffer holds
    * (T_HsNLine). 128 from the interpreter config (+Interpreter_Config.s:61,
-   * read by HsInit +W.s:9421); Set Sprite Buffer n stores n+2 because
+   * read by HsInit +W.s:11212); Set Sprite Buffer n stores n+2 because
    * HsSBuf adds two before reserving (+W.s:11239). Column capacity is this
    * less 2 words — see spriteChannels.
    */
@@ -5095,7 +5095,7 @@ export class Runtime {
       } catch (e) {
         // A mistake in a typed line belongs to whoever typed it. The escape
         // screen prints it and asks for the next one; the program underneath
-        // never sees it, because `tst.w Direct(a5) / bne rErr1` (+ILib.s:1330)
+        // never sees it, because `tst.w Direct(a5) / bne rErr1` (+ILib.s:1301-1302)
         // will not trap it either.
         if (!this.directScreen.reportError(e)) throw e
         result = { status: 'paused', steps: 0, code: 0, unimplemented: this.interp.unimplemented }

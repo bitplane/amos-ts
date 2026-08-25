@@ -224,7 +224,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
   })
 
   it('opens at the size and position the interpreter config holds', () => {
-    // Fs_ScOpen (+Lib.s:17825) takes PI_FsDSx/FsDSy, and the window position
+    // Fs_ScOpen (+Lib.s:18881) takes PI_FsDSx/FsDSy, and the window position
     // is whatever Fs_Close last stored in PI_FsDWx/FsDWy
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
     openFsel(rt)

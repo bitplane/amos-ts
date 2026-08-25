@@ -560,7 +560,7 @@ export class Interp {
       } catch (e) {
         // a blocking statement unwound itself; pc is already rewound
         if (e === BLOCK_SIGNAL) break
-        // `tst.w Direct(a5) / bne rErr1` (+ILib.s:1330) sits with the Trap and
+        // `tst.w Direct(a5) / bne rErr1` (+ILib.s:1301-1302) sits with the Trap and
         // On Error Goto tests: an error in a typed line is never trapped, it
         // is reported to whoever typed it. The same instruction refuses to
         // trap errors 1000 and up, which are Edit and Direct themselves.
@@ -1326,7 +1326,7 @@ export class Interp {
   /** Parse a Goto/Gosub/Restore target and return the label name. */
   /**
    * The name token that follows a keyword which takes one outright, with no
-   * expression fallback — `On Error Proc` is the case (OnEPrc +ILib.s:2076).
+   * expression fallback — `On Error Proc` is the case (OnEPrc +ILib.s:1900).
    * Every flavour of name token is accepted because the original does not
    * check: it steps over the keyword and reads the label-table offset from
    * whatever word comes next. Saved files carry a procedure name here as a

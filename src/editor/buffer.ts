@@ -137,7 +137,7 @@ export class ProgramBuffer {
   /** `Prg_Change`, the program wants saving */
   changed = false
   /**
-   * `Prg_NoNamed` (+Equ.s:1866): the name is one Quit invented, so throw it away.
+   * `Prg_NoNamed` (+Equ.s:1863): the name is one Quit invented, so throw it away.
    *
    * Not a flag with two states. `Ed_DoQuit`'s `.NoName` (+Edit.s:4434) does
    * `addq.b #1,Prg_NoNamed(a6)` and then builds `New_Project_` plus the
