@@ -131,6 +131,17 @@ export class ProgramBuffer {
 
   /** `Prg_Change`, the program wants saving */
   changed = false
+  /**
+   * `Prg_NoNamed` (+Equ.s:1866): the name is one Quit invented, so throw it away.
+   *
+   * Not a flag with two states. `Ed_DoQuit`'s `.NoName` (+Edit.s:4434) does
+   * `addq.b #1,Prg_NoNamed(a6)` and then builds `New_Project_` plus the
+   * window's position in the list, so the byte counts up and the file on disc
+   * carries the same number. `Ed_WarmStart` (:620) reads the program back,
+   * clears the name, raises `Prg_Change` and DELETES the file: an untitled
+   * program survives a quit without ever acquiring a title.
+   */
+  noNamed = 0
   /** `Prg_StModif`, the listing has been modified since the last Test */
   modified = false
   /** `Prg_NamePrg`, the file it was loaded from or last saved to */

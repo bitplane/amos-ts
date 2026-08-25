@@ -400,6 +400,7 @@ export class Edit {
   ) {
     this.prog = prog
     prog.edited++
+    this.editor.addProgram(prog)
     this.editor.link(this.editor.current, this)
     if (this.editor.current === null) this.editor.current = this
   }

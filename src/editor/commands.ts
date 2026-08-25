@@ -15,13 +15,17 @@
  * 110, 143, 144), plus Delete to start of line (64) and Insert mode (75).
  *
  * The windows are 38, 61, 81, 84, 88, 91 to 93, 95, 96, 102, 103, 112, 113 and
- * 153, over the list in ./windows.ts.
+ * 153, over the list in ./windows.ts. The Test pass and Indent are 78 and 79,
+ * the folds 87, 89 and 90, and the configuration 137 to 142.
  *
- * The rest need something this port has not built yet: the interpreter (77,
- * 78, 111), the menus (73, 74, 104, 135 to 137, 179, 180) or the config (138
- * to 142, 145 to 151). `COMMANDS` has no entry for them and `edCall` throws
- * rather than silently doing nothing, so a key map that reaches one says
- * which.
+ * The 80 that are left are 46 `Ed_UserMenu` slots and 34 commands needing
+ * something this port has not built yet: the interpreter (77, 105, 111, 114),
+ * the menus (27, 73, 74, 135, 136, 179, 180), Quit and the session file (82),
+ * the ZAP remote control (69, 70, 71, 182), the one-question requesters (26,
+ * 76, 83, 104), the status bar's arrows (13 to 16), printing and the About
+ * boxes (86, 146, 148 to 151), and 28, 145, 147, 154 and 183 one at a time.
+ * `COMMANDS` has no entry for any of them and `edCall` throws rather than
+ * silently doing nothing, so a key map that reaches one says which.
  *
  * ## What a command does NOT do here
  *
@@ -58,6 +62,13 @@ import {
 } from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
 import { CFG, messages, readConfig, writeConfig } from './config'
+import {
+  AMOS_EXT,
+  NEW_PROJECT,
+  SESSION_NAME,
+  readSession,
+  writeSession,
+} from './session'
 import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
@@ -155,6 +166,7 @@ export const ED = {
   EDIT_HIDDEN: 112,
   NEW_HIDDEN: 113,
   CLOSE_NAME: 153,
+  QUIT: 82,
   TEST: 78,
   INDENT: 79,
   PROC_OPEN: 87,
@@ -2546,6 +2558,270 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
   }
 }
 
+/* ---- 82: Quit, and the session file ------------------------------------- */
+
+/** `EdC_SaveDef` (:4863): the config to its default name, with nothing asked */
+function configSaveDef(e: Edit): void {
+  e.name1 = addPath(e, CONFIG_NAME)
+  configSave(e)
+}
+
+/** `EdMa_SaveDef` (:6669), which is `EdMa_SaveDefault` with no instruction of its own */
+function macroSaveDef(e: Edit): void {
+  e.name1 = addPath(e, ED_SYSTEME[45]!)
+  macroSave(e)
+}
+
+/**
+ * `Ed_Quit` (:4371): the command, which is a question and then `Ed_DoQuit`.
+ *
+ * Bit 0 of `Ed_QuitFlags` is what puts EdD_Quit up, and any answer but the
+ * first button goes back to `Ed_Loop` with nothing done. The close button on
+ * the last window (:11413) reads the same bit and asks a different question,
+ * EdD_WQuit, before it lands here.
+ */
+function quitCmd(e: Edit): void {
+  e.tokCur()
+  if ((e.editor.quitFlags & 1) !== 0 && confirm(e, { which: 2 }) !== 1) return // EdD_Quit
+  doQuit(e)
+}
+
+/**
+ * `Ed_DoQuit` (:4383): the four things quitting does, in the order the flags
+ * are tested.
+ *
+ * Bit 1 saves the config, bit 2 the macros, and both are skipped when the
+ * thing has not been changed, so a quit writes nothing it does not have to.
+ * Bit 3 is the one that changes what the OTHER two mean: with it up, nothing
+ * is asked and every program is written out under a name Quit invents if it
+ * has none, plus the session file that says where they all were. With it down
+ * the editor asks about each changed program in turn and forgets the layout.
+ *
+ * DEVIATION: two steps of it are not here. `Edt_ClearVar` (:3035) hands the
+ * program's variables and banks back, which is the interpreter's memory rather
+ * than the editor's, and `Ed_SamPlay "B"` plays the goodbye sample out of
+ * `AMOSPro_Editor_Samples.Abk`. Neither is state a later session can observe.
+ */
+export function doQuit(e: Edit): void {
+  const editor = e.editor
+  e.tokCur()
+  if ((editor.quitFlags & 2) !== 0 && editor.configChanged !== 0) configSaveDef(e)
+  if ((editor.quitFlags & 4) !== 0 && editor.macroChanged) macroSaveDef(e)
+  if ((editor.quitFlags & 8) !== 0) {
+    if (!savAll(e)) return
+  } else {
+    // `.SLoop` (:4451) walks the WINDOWS, so a split view asks twice about one
+    // program -- and the second time only if the first answer was No, because
+    // saving clears `Prg_Change` and `Ed_Saved` starts by testing it
+    for (const w of [...editor.list]) saved(w)
+  }
+  editor.quit = true // Ed_System (:249)
+}
+
+/**
+ * `.SavAll` (:4468): every program to disc, then the list of them.
+ *
+ * The three tests decide what happens to each window, and the middle one is
+ * the surprise. A window that is half of a split is skipped outright, on
+ * `Edt_LinkPrev`, so the program behind it is written once. A NAMED program is
+ * skipped when `Prg_Change` is clear, which is the ordinary "already saved".
+ * An UNNAMED one is never skipped: `.NoName` is reached before `Prg_Change` is
+ * looked at, so an empty untouched window is written out as `New_Project_1`
+ * and reloaded next time.
+ *
+ * The number in that name is `d7`, which counts every window the walk passes
+ * including the ones it skips, so the names follow the window order and not
+ * the count of files written.
+ *
+ * False is `.Err`: the disc refused, the editor stays open, and EdD_NoWarm
+ * says the layout was not saved.
+ */
+function savAll(e: Edit): boolean {
+  const editor = e.editor
+  const fs = e.fs
+  if (fs === null) return quitFailed(e)
+  let n = 1
+  for (const w of editor.list) {
+    const prog = w.prog
+    if (w.linkPrev === null) {
+      if (prog.name === '') {
+        // `addq.b #1,Prg_NoNamed(a6)`, the flag that makes the reload throw
+        // the name away again
+        prog.noNamed++
+        e.name1 = addPath(e, NEW_PROJECT + n + AMOS_EXT)
+        if (!saveQuiet(w)) return quitFailed(e)
+      } else if (prog.changed) {
+        prog.noNamed = 0
+        e.name1 = addPath(e, prog.name)
+        if (!saveQuiet(w)) return quitFailed(e)
+      }
+    }
+    n++
+  }
+  if (!fs.writeFile(addPath(e, SESSION_NAME), writeSession(editor))) return quitFailed(e)
+  return true
+}
+
+/** `L_Prg_Save` on its own: no `.Bak`, no icon, and a disc error is not a throw */
+function saveQuiet(w: Edit): boolean {
+  try {
+    savePrg(w, false)
+    return true
+  } catch (err) {
+    if (err instanceof DiskError) return false
+    throw err
+  }
+}
+
+/** `.Err` (:4525): close the file, say so, and leave the editor standing */
+function quitFailed(e: Edit): false {
+  confirm(e, { which: 51 }) // EdD_NoWarm
+  return false
+}
+
+/**
+ * `Ed_WarmStart` (:487): the session file read back, and the editor rebuilt
+ * around it.
+ *
+ * NOT a `JFonc` command. `Ed_OpenIt` (:313) calls it once at boot, after the
+ * first window exists, which is why the first thing it does is delete that
+ * window: the file describes the whole list and there is no room in it for one
+ * the editor made on its own.
+ *
+ * `e` is that boot window, and what this borrows from it is the token table,
+ * the detokenise options and the undo size, because the file records none of
+ * the three.
+ *
+ * The two phases are the machine's. The first rebuilds both lists and relinks
+ * every pointer; the second reloads each program from the name in its
+ * structure. Phase 1 failing leaves nothing behind. Phase 2 failing is
+ * `.Err`, which throws BOTH lists away, opens one empty window and puts
+ * EdD_WarmErr up: a warm start is all or nothing.
+ *
+ * True means the session was restored. False is a missing file, which is the
+ * ordinary case and says nothing went wrong.
+ */
+export function warmStart(e: Edit): boolean {
+  const editor = e.editor
+  const fs = e.fs
+  if (fs === null) return false
+  const path = addPath(e, SESSION_NAME)
+  const bytes = fs.readFile(path)
+  if (bytes === null) return false
+  const table = e.table
+  const opts = e.opts
+  const undoSize = e.undo.length
+  const fresh = (prog: ProgramBuffer): Edit =>
+    new Edit(prog, new EditBuffer(0), new UndoBuffer(undoSize), table, opts, editor)
+  editor.delWindow(e)
+  const session = readSession(bytes)
+  if (session === null) {
+    fs.deleteFile(path)
+    return warmFailed(e, fresh, 51) // .Err0, and EdD_NoWarm
+  }
+  const progs = session.programs.map((p) => ProgramBuffer.create(Math.max(p.size, 4)))
+  const made: Edit[] = []
+  for (const rec of session.windows) {
+    const prog = progs[rec.prog]
+    if (prog === undefined) return warmFailed(e, fresh, 52) // an Edt_Prg .Linke cannot resolve
+    const w = fresh(prog)
+    editor.current = w
+    made.push(w)
+    w.order = rec.order
+    w.window = rec.window
+    w.windTx = rec.windTx
+    w.windTy = rec.windTy
+    w.windOldTy = rec.windOldTy
+    w.alert = rec.alert
+    w.alertTime = rec.alertTime
+    w.xPos = rec.xPos
+    w.yPos = rec.yPos
+    w.xCu = rec.xCu
+    w.yCu = rec.yCu
+    w.edited = rec.edited
+    w.xBloc = rec.xBloc
+    w.yBloc = rec.yBloc
+    w.yOldBloc = rec.yOldBloc
+    w.linkYOld = rec.linkYOld
+    w.hidden = rec.hidden
+    w.linkFlag = rec.linkFlag
+    w.first = rec.first
+    w.last = rec.last
+    w.etatAff = rec.etatAff
+    w.prgDelete = rec.prgDelete
+  }
+  // `.Linke` (:658), once the whole list exists to be looked up in
+  session.windows.forEach((rec, i) => {
+    const w = made[i]!
+    w.linkPrev = made[rec.linkPrev] ?? null
+    w.linkNext = made[rec.linkNext] ?? null
+    w.linkScroll = made[rec.linkScroll] ?? null
+  })
+  editor.current = made[session.current] ?? made[0] ?? null
+  // PHASE 2 (:596): the programs themselves, which the file does not carry
+  for (let i = 0; i < progs.length; i++) {
+    const rec = session.programs[i]!
+    const prog = progs[i]!
+    // `.CLoop` (:597) copies the structure's own name into Name1 and loads
+    // through that, which is why a program whose file has been deleted since
+    // the quit takes the whole warm start down
+    e.name1 = rec.name
+    const file = fs.readFile(rec.name)
+    if (file === null) return warmFailed(e, fresh, 52)
+    const r = readProgramFile(file, prog.bytes.length)
+    if (r.error !== PRG.OK) return warmFailed(e, fresh, 52)
+    const loaded = ProgramBuffer.load(r.file!.source, prog.bytes.length)
+    for (const w of made) if (w.prog === prog) w.prog = loaded
+    progs[i] = loaded
+    editor.delProgram(prog)
+    editor.addProgram(loaded)
+    loaded.pro = r.file!.pro
+    loaded.mathFlags = r.file!.mathFlags
+    loaded.banks = r.file!.banks
+    // `Prg_Load`'s own tail (+Verif.s:4869): the name out of Name1, the line
+    // count recomputed and `Prg_Change` cleared. `Prg_StModif` is not among
+    // them, so the modified flag is the one the structure carried
+    loaded.name = rec.name
+    loaded.changed = false
+    loaded.modified = rec.modified
+    loaded.edited = rec.edited
+    loaded.xEProc = rec.xEProc
+    rec.marks.forEach((m, at) => (loaded.marks[at] = m))
+    if (rec.noNamed !== 0) {
+      // `.Name` (:620): the name was Quit's invention, so take it off the
+      // program, mark it unsaved again and delete the file it came out of
+      loaded.name = ''
+      loaded.noNamed = 0
+      loaded.changed = true
+      fs.deleteFile(rec.name)
+    }
+  }
+  fs.deleteFile(path) // `.DelFichier` (:643)
+  drawWindows(editor)
+  return true
+}
+
+/**
+ * `.Err` (:673) and `.Err0` under it: both lists gone, one empty window in
+ * their place, and a requester saying which failure it was.
+ *
+ * The machine frees every structure it has built and then reopens a window
+ * with `Edt_OpWindow`. What it does not do is put the boot window back, which
+ * it deleted before it opened the file: a failed warm start still costs the
+ * session that was on screen, and there was none to lose at boot.
+ */
+function warmFailed(e: Edit, fresh: (prog: ProgramBuffer) => Edit, which: number): false {
+  const editor = e.editor
+  editor.delWindows()
+  editor.programs.length = 0
+  const w = fresh(ProgramBuffer.create(DEF_SIZE))
+  editor.current = w
+  w.windTy = editor.maxSize(w, -1)
+  drawWindows(editor)
+  confirm(e, { which })
+  return false
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -2732,6 +3008,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     closeWindow(e, e, !e.editor.zappeuse)
   },
   78: testCmd,
+  82: quitCmd,
   79: indentCmd,
   84: merge,
   87: procOpen,
@@ -2742,8 +3019,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // EdC_SaveDefault (:4857), which asks first
     e.tokCur()
     if (confirm(e, { which: 45 }) !== 1) notDone(e) // EdD_SvConf
-    e.name1 = addPath(e, CONFIG_NAME)
-    configSave(e)
+    configSaveDef(e)
   },
   138: (e) => {
     // EdC_SaveAs (:4871)
@@ -2839,8 +3115,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   },
   144: (e) => {
     // EdMa_SaveDefault (:6668), which does NOT ask before writing over it
-    e.name1 = addPath(e, ED_SYSTEME[45]!)
-    macroSave(e)
+    macroSaveDef(e)
   },
   152: (e) => {
     // Ed_SaveAsName (:13607): save to Name1 with no .Bak, and put the

@@ -36,6 +36,7 @@
  * decide how many each window gets. Those are here.
  */
 import { Block } from './block'
+import type { ProgramBuffer } from './buffer'
 import { EditorConfig } from './config'
 import type { Edit } from './edit'
 import type { EditorFS } from './files'
@@ -144,14 +145,43 @@ export class Editor {
   }
 
   /**
-   * DEVIATION: `Ed_DoQuit` (:4383) was reached, and this port does not have it.
+   * `Ed_System` (:249) was reached: `Ed_DoQuit` has run and the editor is over.
    *
-   * Closing the last window is how AMOS Professional is left, and what happens
-   * next is the whole shutdown: save the changed programs, save the config,
-   * free the banks, hand the machine back. Nothing of that is ported, so the
-   * flag stands in for it and a host reads it to know the editor is done.
+   * DEVIATION: what the machine does next is `L_TheEnd`, which frees the
+   * banks, closes the screens and hands the Amiga back. There is nothing here
+   * to hand back, so the flag stands in for the last step and a host reads it
+   * to know the editor is done.
    */
   quit = false
+
+  /**
+   * `Prg_List(a5)` (+Equ.s:1672): every program structure, newest first.
+   *
+   * `Prg_NewStructure` (+Verif.s:4650) pushes onto the head and
+   * `Prg_DelStructure` (:4680) unlinks, so this is a list of PROGRAMS where
+   * `list` is a list of VIEWS: a split has two windows and one entry here.
+   * `Ed_DoQuit` writes it to the session file ahead of the windows, because
+   * every `Edt_Prg` points into it.
+   */
+  programs: ProgramBuffer[] = []
+
+  /**
+   * `Prg_NewStructure`'s two instructions that touch the list (:4655).
+   *
+   * The machine has no test to make, because a program structure is created
+   * exactly once. Here the window's constructor is what registers, and Split
+   * View builds a second window on a program already in the list, so the
+   * membership test is what stands in for the missing call.
+   */
+  addProgram(prog: ProgramBuffer): void {
+    if (!this.programs.includes(prog)) this.programs.unshift(prog)
+  }
+
+  /** `Prg_DelStructure`'s unlink (:4687), which `Edt_DelWindow` reaches at zero */
+  delProgram(prog: ProgramBuffer): void {
+    const at = this.programs.indexOf(prog)
+    if (at >= 0) this.programs.splice(at, 1)
+  }
 
   /**
    * `Ed_QuitFlags`: bit 0 asks before quitting on the last window's close
@@ -631,8 +661,10 @@ export class Editor {
    */
   delWindow(w: Edit): void {
     // `L_Prg_DelStructure` and `Prg_UndoFree` when the count reaches zero;
-    // here the buffers are dropped by whoever stops holding them
+    // the allocations are dropped by whoever stops holding them, and what is
+    // left of the call is the list it takes the program out of
     w.prog.edited--
+    if (w.prog.edited <= 0) this.delProgram(w.prog)
     if (this.current === w) {
       let next = this.wNext(w) ?? this.wPrev(w)
       const link = w.linkPrev ?? w.linkNext

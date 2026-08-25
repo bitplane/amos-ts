@@ -55,15 +55,55 @@ Three things that look like they belong here do not:
   byte.
 - `config.ts` — `Ed_DConfig` and `AMOSPro_Editor_Config`: the block the editor
   remembers between sessions, and the eight text blocks behind it.
+- `session.ts` — `AMOSPro_Editor_LastSession`, the two structure lists written
+  as memory and relocated on the way back in.
 
-104 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
-that never were commands. What is left falls into groups rather than gaps: the
-interpreter (77, 111), the menus (73, 74, 135, 136, 179, 180), Quit and the
-session file (82), the printer and the About boxes (86, 146, 148 to 151), the
-ZAP remote control (69, 71, 182), the requesters that ask for one thing (26,
-76, 83, 104), and the status bar's four arrows (13 to 16). `Ed_GoMonitor` (145)
-is +Monitor.s and 4,291 lines of its own, and `Ed_Check1.3` (147) waits on a
-verdict this port's verifier does not keep.
+105 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+that never were commands. That leaves 33, and they fall into groups rather than
+gaps: the interpreter (77, 105, 111, 114), the menus (27, 73, 74, 135, 136, 179,
+180), the printer and the About boxes (86, 146, 148 to 151), the ZAP remote
+control (69, 70, 71, 182), the requesters that ask for one thing (26, 76, 83,
+104), and the status bar's four arrows (13 to 16).
+Five stand alone: `Ed_Escape` (28), `Ed_Rename` (154) and `Ed_GoHelp` (183) all
+wait on the shell around the editor; `Ed_GoMonitor` (145) is +Monitor.s and
+4,291 lines of its own; and `Ed_Check1.3` (147) waits on a verdict this port's
+verifier does not keep.
+
+## The session file is a memory dump, and its loader relocates it
+
+`Ed_DoQuit` writes `Prg_List` and `Edt_List` to
+`AMOSPro_Editor_LastSession` as raw structures, 240 bytes each for a program
+and 246 for a window, each behind `[address:4][length:4][0:4]`. The address is
+where the block sat in the machine that wrote it. That is not sloppiness: it
+is the KEY. `Edt_Prg` and the three window links are pointers into those same
+two lists, so `.PCree` (+Edit.s:541) writes each structure's NEW address into
+the record's third long and `.Linke` (:658) rewrites every pointer by looking
+the old one up. Nothing else in the editor is stored this way.
+
+The header goes on last. The file opens with eight zero bytes and closes by
+seeking back to write `"ApLC"` and the byte count after them, so a quit that
+dies halfway leaves a file with no magic number and `Ed_WarmStart` reads it as
+absent rather than as damaged.
+
+What a warm start does NOT restore is the program. The structure carries the
+buffer size, the marks, the cursor and `Prg_StModif`; the tokens come off disc
+again, by the name in `Prg_NamePrg`, and `Prg_Load` recounts the lines and
+clears `Prg_Change` on the way in. Delete one of those files between sessions
+and the whole restore fails: `.Err` frees both lists and opens one empty
+window, because a half-restored layout is worse than none.
+
+## Quit invents names, and takes them off again
+
+With `Ed_QuitFlags` bit 3 up, `.SavAll` writes every program out, and a
+program with no name gets `New_Project_` and its window's position in the
+list. The order of the tests is what makes that interesting: `.NoName` is
+reached before `Prg_Change` is looked at, so an untouched empty window is
+written to disc, while a NAMED program that has not changed is skipped.
+
+`Prg_NoNamed` is how the invention is undone. It counts up as the name is
+made, travels in the file, and `Ed_WarmStart` (:620) reads the program back,
+clears the name, raises `Prg_Change` and deletes the file. An untitled program
+survives a quit without ever acquiring a title.
 
 ## The configuration is a memory block with a length on the front
 
