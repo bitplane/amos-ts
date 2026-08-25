@@ -30,9 +30,9 @@
  * either MEANS is the host's: see `Editor.runProgram` and
  * `Editor.escapeScreen`.
  *
- * The 1 that is left is `Ed_GoMonitor` (145), which is +Monitor.s and 4,291
- * lines of its own. `COMMANDS` has no entry for it and `edCall` throws rather
- * than silently doing nothing, so a key map that reaches it says which.
+ * The monitor is 145, and it is the editor's half only: +Monitor.s is 4,291
+ * lines and a 68k debugger, so `Editor.loadMonitor` is `Mon_Load` and answers
+ * "not on the disc" until there is one.
  *
  * ## What a command does NOT do here
  *
@@ -224,6 +224,7 @@ export const ED = {
   ESCAPE: 28,
   RUN_HIDDEN: 111,
   WORKBENCH: 105,
+  MONITOR: 145,
   PROCS_OPEN: 89,
   PROCS_CLOSE: 90,
   CONFIG_SAVE_DEFAULT: 137,
@@ -3149,6 +3150,89 @@ export function edEscapeReturn(e: Edit): number {
   return edLoop(e, alert)
 }
 
+/* ---- 145: the monitor --------------------------------------------------- */
+
+/**
+ * `Edt_ClearVar` (:3035): `EdM_Program / Prg_SetBanks / ClearVar`, in that
+ * order, so the variables are freed against the window's own banks.
+ */
+function edtClearVar(e: Edit): void {
+  e.editor.clearVars?.()
+}
+
+/**
+ * `Ed_CloseEditor` (:439): the editor's memory given back.
+ *
+ * Guarded on `Ed_Opened`, so closing twice costs nothing. `Ed_CloseIt` (:449)
+ * is the work and it is eleven calls: the undo buffers, the direct-mode key
+ * memory, the warning boxes, the block, the menus, the dialogues, the window
+ * zones, both screens and the tokeniser.
+ *
+ * DEVIATION: seven of the eleven are display or Interface state this port does
+ * not hold. What is left is the four that are: undos, warnings, the block and
+ * the flag itself.
+ */
+function closeEditor(e: Edit): void {
+  const editor = e.editor
+  if (!editor.opened) return
+  editor.opened = false
+  for (const w of editor.list) w.undo.raz() // Prg_FreeUndos
+  editor.avert.length = 0 // Ed_AllAverFin
+  e.block.free() // Ed_BlocFree
+}
+
+/**
+ * `Ed_OpenEditor` (:266): and back again.
+ *
+ * DEVIATION: the machine tries `Ed_OpenIt` three times, closing and freeing
+ * more between each go -- `MemMaximum`, then `MemDelBanks`, which asks whether
+ * to throw the banks away. Nothing here can fail for want of memory, so there
+ * is one try and no question.
+ */
+function openEditor(e: Edit): void {
+  e.editor.opened = true
+}
+
+/**
+ * `Ed_GoMonitor` (:7837): the monitor, which is a separate program.
+ *
+ * Twenty-three instructions, and the shape is `Ed_Run`'s. The editor gives
+ * back everything it can -- variables, screens, buffers -- because
+ * AMOSPro_Monitor is loaded off disc into the space, and then `Mon_In_Editor`
+ * does not return: `Prg_JError` points at `Ed_ErrRun` and that is the way back.
+ *
+ * `Mon_Load` answers -1 for out of memory and -2 for file not found, and the
+ * routine turns them into two different messages: 204 "Out of memory" and 222
+ * "Monitor not found". Both reopen the editor first.
+ *
+ * DEVIATION: +Monitor.s is 4,291 lines and a 68k debugger, so the monitor
+ * itself belongs with the m68k work and not here. `Editor.loadMonitor` is
+ * `Mon_Load` and answers -2 when there is none, which is what the machine
+ * answers when the file is not on the disc.
+ */
+function goMonitor(e: Edit): void {
+  e.tokCur()
+  edtClearVar(e) // "Plus aucune variable, si HELP!"
+  edHide(e)
+  closeEditor(e)
+  // `JJsr L_Prg_SetBanks`: the monitor reads the program's own banks
+  const load = e.editor.loadMonitor === null ? -2 : e.editor.loadMonitor()
+  if (load !== 0) {
+    openEditor(e)
+    edAppear(e)
+    // `.Load cmp.w #-1,d0 / beq .Mem`, and `Ed_Al100` is 100 frames
+    throw new EditorAlert(load === -1 ? 204 : 222, 100)
+  }
+  e.editor.runned = e // move.l a4,Edt_Runned(a5)
+  e.editor.monitor?.()
+  // it came back, which on the machine only happens when Mon_In_Editor could
+  // not find the memory to start
+  e.editor.runned = null
+  openEditor(e)
+  edAppear(e)
+  throw new EditorAlert(204, 100)
+}
+
 /* ---- the way back, when a program stops --------------------------------- */
 
 /**
@@ -3214,6 +3298,13 @@ function edLigne(e: Edit, w: Edit, at: number, message: string): number {
  * the machine has a number to carry.
  */
 function errEdit(w: Edit, code: number, at: number, text: string | null): void {
+  openEditor(w)
+  if (w.editor.escape) {
+    // Esc_Hide (:9507), which the comment beside it calls "Inutile, mais bon"
+    w.editor.escape = false
+    w.editor.escapeScreen?.(false)
+  }
+  edAppear(w)
   const got = getError(code, text)
   if (got.code >= 0 && (got.code === 10 || got.code === 1000)) return
   if (at >= 0) errTest(w, at)
@@ -3252,10 +3343,10 @@ function errRunHidden(e: Edit, w: Edit, code: number, text: string | null): void
  * `Ed_ErrDirect` (:9293): the escape screen goes up and the message is
  * printed on it.
  *
- * DEVIATION: `Ed_Escape` (28) is not ported, so there is no escape screen for
- * a message to be printed on. What is left of the routine is what it does to
- * editor state, which is to clear `Edt_Runned` and nothing else. The three
- * codes it tests are all handled before they can reach here.
+ * DEVIATION: the message is printed ON the escape screen, which is
+ * `Editor.escapeScreen`'s and not this layer's. What is left of the routine is
+ * what it does to editor state, which is to clear `Edt_Runned` and nothing
+ * else. The three codes it tests are all handled before they can reach here.
  */
 function errDirect(e: Edit): void {
   e.editor.runned = null
@@ -4396,6 +4487,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   28: edEscape,
   111: (e, n) => runHidden(e, n),
   105: edWb,
+  145: goMonitor,
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),

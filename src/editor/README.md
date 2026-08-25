@@ -62,8 +62,14 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-183 of the 184 `JFonc` entries run. The one left is `Ed_GoMonitor` (145),
-which is +Monitor.s and 4,291 lines of its own.
+All 184 `JFonc` entries run. The last of them, `Ed_GoMonitor` (145), is the
+editor's twenty-three instructions only: it gives back the variables, the
+screens and the buffers, calls `Mon_Load`, and points `Prg_JError` at
+`Ed_ErrRun` because `Mon_In_Editor` does not come back. The monitor itself is
++Monitor.s, 4,291 lines and a 68k debugger, so it waits for the m68k work.
+`Editor.loadMonitor` answers -2 until then, which is what `Mon_Load` answers
+when AMOSPro_Monitor is not on the disc, and the editor says "Monitor not
+found." exactly as it would there.
 
 
 ## The About box says nobody bought this copy

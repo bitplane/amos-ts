@@ -46,10 +46,17 @@ describe('the table', () => {
     for (const c of [27, 28, 82]) expect(flagsOf(c)).toBe(0)
   })
 
-  it('says which commands are not ported rather than doing nothing', () => {
+  it('has an entry for all 184, and names one by routine if it ever loses it', () => {
     const e = open()
-    expect(() => edCall(e, 145)).toThrow(/command 145 \(Ed_GoMonitor\) is not ported/)
-    expect(COMMANDS[145]).toBeUndefined()
+    for (let c = 1; c <= 184; c++) expect(COMMANDS[c], `${c} is ${ED_ROUTINES[c - 1]}`).toBeTypeOf('function')
+    // the refusal is still there, and it says WHICH rather than doing nothing
+    const had = COMMANDS[ED.MONITOR]!
+    delete COMMANDS[ED.MONITOR]
+    try {
+      expect(() => edCall(e, ED.MONITOR)).toThrow(/command 145 \(Ed_GoMonitor\) is not ported/)
+    } finally {
+      COMMANDS[ED.MONITOR] = had
+    }
   })
 
   it('has an entry for everything ED names', () => {

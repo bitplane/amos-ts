@@ -337,6 +337,41 @@ export class Editor {
   playSample: ((letter: string) => void) | null = null
 
   /**
+   * `Ed_Opened(a5)`: the editor's screens and buffers exist.
+   *
+   * `Ed_OpenEditor` (+Edit.s:266) and `Ed_CloseEditor` (:439) are both guarded
+   * on it, and the pair brackets anything that wants the memory: the monitor,
+   * and every return from a run through `Ed_ErrEdit`.
+   */
+  opened = true
+
+  /**
+   * DEVIATION: `Mon_Load` (+B.s:383), which loads AMOSPro_Monitor off disc.
+   *
+   * Answer 0 for loaded, -1 for out of memory and -2 for file not found, which
+   * is what `Mon_Load` itself answers; `Ed_GoMonitor` (+Edit.s:7837) turns the
+   * two failures into messages 204 and 222. Null is -2, and it is the honest
+   * answer on a machine with no monitor on disc.
+   */
+  loadMonitor: (() => number) | null = null
+
+  /**
+   * DEVIATION: `Mon_In_Editor` (+ILib.s:31), the monitor's own entry.
+   *
+   * It does not come back, the same way `Prg_RunIt` does not: `Ed_GoMonitor`
+   * points `Prg_JError` at `Ed_ErrRun` first, so the editor is re-entered
+   * through `edRunReturn`. A hook that DOES return is the out-of-memory arm,
+   * which is the one path the machine has back from it.
+   */
+  monitor: (() => void) | null = null
+
+  /**
+   * DEVIATION: `Edt_ClearVar` (+Edit.s:3035) is `EdM_Program / Prg_SetBanks /
+   * ClearVar`, and the variables it frees are the interpreter's.
+   */
+  clearVars: (() => void) | null = null
+
+  /**
    * DEVIATION: `Ed_Wb` (+Edit.s:11201) is `EcCalD AMOS_WB,0` and nothing else,
    * which is what `Amos To Back` (+Lib.s:11337) is too. Nothing in
    * `src/editor` owns a display, so the flip goes to the host.

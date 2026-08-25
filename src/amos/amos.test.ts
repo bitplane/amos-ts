@@ -229,3 +229,28 @@ describe('the banks are one list, not two', () => {
     expect(values[3]).toBe(120)
   })
 })
+
+describe('the monitor, which the editor loads off disc', () => {
+  it('reports it missing and leaves the editor standing', () => {
+    const { amos } = boot('Print "x"')
+    expect(amos.call(ED.MONITOR)).toBe(222)
+    expect(amos.alert.text).toBe('Monitor not found.')
+    expect(amos.editor.opened).toBe(true)
+  })
+
+  it('drops the machine on the way, because Edt_ClearVar frees the variables', () => {
+    const { amos } = boot('A=42')
+    amos.call(ED.RUN)
+    expect(amos.runtime!.interp.getVar('a', 0)).toEqual({ k: 'int', n: 42 })
+    amos.call(ED.MONITOR)
+    expect(amos.runtime).toBe(null)
+  })
+
+  it('keeps the banks, because ClearVar is variables and not Bnk.EffAll', () => {
+    const { amos } = boot('Reserve As Work 10,100')
+    amos.editor.dialogues = asks(2)
+    amos.call(ED.RUN)
+    amos.call(ED.MONITOR)
+    expect(parseAmosFile(amos.window.prog.banks).banks.length).toBe(1)
+  })
+})

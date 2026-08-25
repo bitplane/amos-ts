@@ -434,3 +434,86 @@ describe('Escape', () => {
     expect(heard).toEqual([])
   })
 })
+
+describe('Ed_GoMonitor, which is the editor half of a separate program', () => {
+  /**
+   * `Ed_GoMonitor` (+Edit.s:7837) is twenty-three instructions and every one
+   * of them is about giving memory back before `Mon_Load` asks for it.
+   */
+  it('says "Monitor not found." when there is nothing to load', () => {
+    const e = open()
+    // `Mon_Load` (+B.s:383) answers -2 when D_Open fails, and `.Load` turns
+    // anything that is not -1 into message 222
+    expect(edCall(e, ED.MONITOR)).toBe(222)
+    expect(e.alertText).toBe('Monitor not found.')
+    // `.Err` reopens before it reports, so the editor is back
+    expect(e.editor.opened).toBe(true)
+    expect(e.editor.esFlag).toBe(false)
+  })
+
+  it('says "Out of memory." for -1 and nothing else does', () => {
+    const e = open()
+    e.editor.loadMonitor = () => -1
+    expect(edCall(e, ED.MONITOR)).toBe(204)
+    expect(e.alertText).toBe('Out of memory.')
+
+    e.editor.loadMonitor = () => -99
+    expect(edCall(e, ED.MONITOR)).toBe(222)
+  })
+
+  it('gives back the undo, the block and the warnings first', () => {
+    const e = open()
+    e.editor.avert.push(198)
+    e.xCu = 4
+    edCall(e, ED.DELETE_WORD)
+    e.yBloc = 0
+    edCall(e, ED.BLOCK_CUT)
+    expect(e.block.empty).toBe(false)
+    e.editor.loadMonitor = () => -1
+    edCall(e, ED.MONITOR)
+    // Ed_CloseIt: Prg_FreeUndos, Ed_AllAverFin, Ed_BlocFree
+    expect(e.undo.undo()).toBe(null)
+    expect(e.editor.avert).toEqual([])
+    expect(e.block.empty).toBe(true)
+  })
+
+  it('clears the variables before it closes, because HELP loads over them', () => {
+    const e = open()
+    let cleared = 0
+    e.editor.clearVars = () => cleared++
+    edCall(e, ED.MONITOR)
+    expect(cleared).toBe(1)
+  })
+
+  it('does not come back, so the way out is Ed_ErrRun', () => {
+    const e = open()
+    let entered = 0
+    e.editor.loadMonitor = () => 0
+    e.editor.monitor = () => {
+      entered++
+      throw new Error('the monitor does not return')
+    }
+    expect(() => edCall(e, ED.MONITOR)).toThrow(/does not return/)
+    expect(entered).toBe(1)
+    // `move.l a4,Edt_Runned(a5)` before the jump, and `Ed_ErrRun` reads it
+    expect(e.editor.runned).toBe(e)
+    expect(e.editor.opened).toBe(false)
+
+    // and the way back in is the same one a Run uses. 1000 is Edit, which
+    // `Ed_Errr` sends straight to `Ed_ErrEdit` without asking
+    expect(edRunReturn(e, 1000)).toBe(0)
+    expect(e.editor.runned).toBe(null)
+    expect(e.editor.opened).toBe(true)
+  })
+
+  it('treats a hook that DOES return as the one arm the machine has back', () => {
+    // `clr.l Edt_Runned(a5)` under `JJsr L_Mon_In_Editor`, commented
+    // "Revient >>> Out of memory!"
+    const e = open()
+    e.editor.loadMonitor = () => 0
+    e.editor.monitor = () => {}
+    expect(edCall(e, ED.MONITOR)).toBe(204)
+    expect(e.editor.runned).toBe(null)
+    expect(e.editor.opened).toBe(true)
+  })
+})

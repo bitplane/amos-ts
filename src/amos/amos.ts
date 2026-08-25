@@ -127,6 +127,16 @@ export class Amos {
     this.editor.runProgram = (r) => {
       this.pending = r
     }
+    // `Edt_ClearVar` (+Edit.s:3035) frees the interpreter's variables.
+    //
+    // DEVIATION: it is `ClearVar` on the machine and the screens survive it.
+    // Here the whole machine goes, and the next Run or Escape builds another
+    // one -- which is what `Prg_RunIt` does anyway, so only a caller that
+    // wanted the screens back afterwards can tell, and there is none: both
+    // callers are on their way out of the editor.
+    this.editor.clearVars = () => {
+      this.runtime = null
+    }
     // `Esc_Appear` and `Esc_Hide`, which are the AMOS screen underneath and
     // not the editor's, so they live on the Runtime
     this.editor.escapeScreen = (up) => {

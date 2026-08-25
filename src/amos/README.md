@@ -54,8 +54,9 @@ column, and `Ed_ErrEdit` puts the cursor on it.
 
 ## What is not here yet
 
-`Ed_GoMonitor` (JFonc 145), the one command the editor still cannot run:
-+Monitor.s is 4,291 lines of its own.
+The monitor. `Ed_GoMonitor` runs, and answers "Monitor not found." because
+`Editor.loadMonitor` has nothing to load: +Monitor.s is a 68k debugger and
+belongs with the m68k work.
 
 The escape screen is here, but only its two ends. `Ed_Escape` hides the editor
 and `escapeBack` brings it back; what happens in between is
