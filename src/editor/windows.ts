@@ -36,6 +36,7 @@
  * decide how many each window gets. Those are here.
  */
 import { A1200_POOLS } from '../amiga/exec'
+import { PI_DEFAULTS } from '../runtime/piconfig.gen'
 import { Block } from './block'
 import type { ProgramBuffer } from './buffer'
 import { EditorConfig } from './config'
@@ -265,6 +266,43 @@ export class Editor {
 
   /** the same buffer's characters, for the one alert whose text is not in `Ed_Messages` */
   alertSavedText = ''
+
+  /**
+   * `Handle(a5)` once `Ed_PRTOpen` (+Edit.s:13974) has run, and null for the
+   * printer that would not open.
+   *
+   * The name it opens is system message 43, which is `Par:`
+   * (+Interpreter_Config.s:153, in the block headed "Ports de
+   * communication"). So the editor writes to the parallel port raw: no
+   * printer.device, no Preferences driver, no page size. `L_PRT_Open`
+   * (+Lib.s:5411) takes the same message, so `Lprint` goes the same way.
+   *
+   * DEVIATION: `Handle` is an AmigaDOS file, and `EditorFS` has no `PRT:` to
+   * open. The sink is the door instead, and false from it is `Ed_PErr`.
+   */
+  printer: ((data: Uint8Array) => boolean) | null = null
+
+  /**
+   * `PI_PrtRet` (+Interpreter_Config.s:45), which ships as 1.
+   *
+   * Zero means the printer supplies its own line feed, so `Ed_PRTPrint` drops
+   * the carriage return in front of every 10. It belongs to the interpreter's
+   * configuration block and the editor reads it from there.
+   */
+  prtRet = PI_DEFAULTS.PrtRet
+
+  /**
+   * `Ed_Avert` (+Equ.s:1704): the warning boxes standing in front of the text.
+   *
+   * `Ed_Avertir` (+Edit.s:7674) counts up and uses the count as the Interface
+   * block number, so the boxes stack; `Ed_AverFin` (:7699) deletes the top one
+   * and counts back down.
+   *
+   * DEVIATION: the machine keeps the count alone, since the box is already
+   * drawn. What is kept here is the message number of each, because nothing
+   * in this port draws and the number is the only evidence a box went up.
+   */
+  avert: number[] = []
 
   /**
    * `Ed_Zappeuse(a5)`: the ZAP remote control is driving, so nothing may ask.

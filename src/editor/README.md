@@ -62,12 +62,32 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-170 of the 184 `JFonc` entries run. The 14 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), the printer and the About boxes (86,
-146, 149 to 151), and the status bar's four arrows (13 to 16), which are the
-one group that needs pixel geometry this port does not keep. `Ed_Escape` (28)
-waits on the escape screen, and `Ed_GoMonitor` (145) is +Monitor.s and 4,291
-lines of its own.
+172 of the 184 `JFonc` entries run. The 12 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), the About boxes and the machine-code
+procedure (149 to 151), and the status bar's four arrows (13 to 16), which
+are the one group that needs pixel geometry this port does not keep.
+`Ed_Escape` (28) waits on the escape screen, and `Ed_GoMonitor` (145) is
++Monitor.s and 4,291 lines of its own.
+
+
+## The printer is Par:
+
+`Ed_PRTOpen` (+Edit.s:13974) is `moveq #43,d0 / JJsr L_Sys_GetMessage`, and
+system message 43 is `Par:` (+Interpreter_Config.s:153, in the block headed
+"Ports de communication"). Print Program and Print Block write to the parallel
+port raw. printer.device is not opened, so the Preferences driver, the page
+size and the character set never come into it, and a serial printer cannot be
+reached at all. `L_PRT_Open` (+Lib.s:5411) takes the same message, so `Lprint`
+goes the same way.
+
+`Ed_PRTPrint` rewrites the string over itself before the write. When
+`PI_PrtRet` is clear, a 13 whose next byte is a 10 is replaced by that 10, for
+a printer that supplies its own line feed. `.Ip2` then measures how far the
+READ pointer got, which counts the input, so each dropped carriage return
+sends one byte of the buffer's old contents past what the loop built. With one
+line ending per call that byte is the string's terminating zero. The shipped
+`PI_PrtRet` is 1, so nothing hits it out of the box, and +Lib.s:5478 has the
+same arithmetic.
 
 
 ## The 1.3 verdict is thirteen `bsr`s

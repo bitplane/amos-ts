@@ -47,7 +47,7 @@ import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { indentBytes } from './indent'
 import { EMPTY_LINE_BYTES, PROC_CLOSED, ProgramBuffer } from './buffer'
-import { BF } from './block'
+import { BF, type BlockView } from './block'
 import { DiskError, Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
 import { UN, UndoBuffer, type UndoRecord } from './undo'
@@ -200,6 +200,8 @@ export const ED = {
   GOTO_LINE: 76,
   INFOS: 83,
   SET_BUFFER: 114,
+  PRINT_PROGRAM: 146,
+  PRINT_BLOCK: 86,
   TEST: 78,
   CHECK_13: 147,
   INDENT: 79,
@@ -1678,6 +1680,26 @@ function blockSave(e: Edit): void {
 }
 
 /**
+ * `BlToA0` (:6541) and `BlToA1` under it: the block as lines of text.
+ *
+ * A record that holds nothing produces no line at all (`.1Vide`), so a block
+ * that starts at the end of a line does not begin with a blank one.
+ */
+function blockLines(e: Edit, b: BlockView): string[] {
+  const lines: string[] = []
+  if (b.first.length !== 0) lines.push(text(b.first))
+  let at = 0
+  for (let n = 0; n < b.lines; n++) {
+    lines.push(detokLineBytes(b.middle, at, e.table, e.opts))
+    const len = b.middle[at]! * 2
+    if (len === 0) break
+    at += len
+  }
+  if (b.last.length !== 0) lines.push(text(b.last))
+  return lines
+}
+
+/**
  * `Ed_BlocSaveAscii` (:6440), `JFonc` 97, over `BlToA0`/`BlToA1` (:6541).
  *
  * Every line gets a linefeed after it, the last one included, because the 10
@@ -1692,18 +1714,125 @@ function blockSaveAscii(e: Edit): void {
   if (!selectFile(e, 82)) throw new EditorAlert(206)
   const fs = disc(e)
   saveOver(e, fs)
-  const lines: string[] = []
-  if (b.first.length !== 0) lines.push(text(b.first))
-  let at = 0
-  for (let n = 0; n < b.lines; n++) {
-    lines.push(detokLineBytes(b.middle, at, e.table, e.opts))
-    const len = b.middle[at]! * 2
-    if (len === 0) break
-    at += len
-  }
-  if (b.last.length !== 0) lines.push(text(b.last))
+  const lines = blockLines(e, b)
   const out = lines.length === 0 ? '' : lines.join('\n') + '\n'
   if (!fs.writeFile(e.name1, bytes(out))) throw new DiskError()
+}
+
+
+/* ---- 86 and 146: the printer, which is Par: ----------------------------- */
+
+/**
+ * `Ed_PRTOpen` (+Edit.s:13974), and what the name it opens turns out to be.
+ *
+ * `moveq #43,d0 / JJsr L_Sys_GetMessage` reaches `Par:`, not `PRT:`
+ * (+Interpreter_Config.s:153). The editor writes to the parallel port raw,
+ * past printer.device and past whatever Preferences was told, so a driver, a
+ * page size and a character set are all beside the point.
+ */
+function prtOpen(e: Edit): (data: Uint8Array) => boolean {
+  const sink = e.editor.printer
+  if (sink === null) throw new EditorAlert(216) // Ed_PErr
+  return sink
+}
+
+/**
+ * `Ed_PRTPrint` (:13987): one zero-terminated string to the printer.
+ *
+ * The loop rewrites the string over itself. A 13 whose next byte is a 10 is
+ * REPLACED by that 10 when `PI_PrtRet` is clear, so a printer that supplies
+ * its own line feed is sent one character where the editor wrote two.
+ */
+function prtPrint(e: Edit, sink: (data: Uint8Array) => boolean, text: string): void {
+  const buf = new Uint8Array(text.length + 1)
+  for (let i = 0; i < text.length; i++) buf[i] = text.charCodeAt(i) & 0xff
+  let a0 = 0
+  let a1 = 0
+  for (;;) {
+    const d0 = buf[a0++]!
+    buf[a1++] = d0
+    if (d0 === 0) break
+    if (d0 !== 13) continue
+    if (e.editor.prtRet !== 0) continue
+    if (buf[a0] !== 10) continue
+    buf[a1 - 1] = buf[a0++]!
+  }
+  // DEFECT: `.Ip2` measures how far a0 got, which counts the INPUT, and
+  // writes that many bytes from the front of the buffer. Every carriage
+  // return the loop dropped leaves one byte of the old contents past what it
+  // built, and that byte goes to the printer too. With one line ending per
+  // call it is the terminating zero. `PRT_Print` (+Lib.s:5478) does the same
+  // arithmetic, so `Lprint` sends it as well.
+  if (!sink(buf.subarray(0, a0 - 1))) throw new EditorAlert(216)
+}
+
+/**
+ * `Ed_AverMess` (:7665) and `Ed_AverFin` (:7699): a box in front of the text
+ * that says what is happening, and is taken down when it stops.
+ *
+ * Nothing waits on it. `Dia_RunQuick` draws and returns, and the count is the
+ * Interface block number, so a second warning stacks on the first.
+ */
+function averMess(e: Edit, message: number): void {
+  e.editor.avert.push(message)
+}
+
+function averFin(e: Edit): void {
+  e.editor.avert.pop()
+}
+
+/**
+ * `Ed_PrgPrint` (:6463), `JFonc` 146: the whole listing, one line per write.
+ *
+ * `bclr #BitControl-8,T_Actualise(a5)` at the head of the loop reads the
+ * Control key and clears it in the same instruction, so holding Control stops
+ * the job wherever it is and the pages already sent stay sent.
+ */
+function prgPrint(e: Edit): void {
+  e.tokCur()
+  if (confirm(e, { which: 61 }) !== 1) notDone(e) // EdD_PProg
+  averMess(e, 217) // "Printing program"
+  try {
+    const sink = prtOpen(e)
+    let at = e.prog.findLine(0)
+    while (at.found) {
+      if (e.abort) {
+        e.abort = false
+        break
+      }
+      prtPrint(e, sink, detokLineBytes(e.prog.bytes, at.at, e.table, e.opts) + '\r\n')
+      at = e.prog.nextLine(at.at)
+    }
+  } finally {
+    averFin(e)
+  }
+}
+
+/**
+ * `Ed_BlocPrint` (:6504), `JFonc` 86, over the same `BlToA0`/`BlToA1` walk
+ * Save Block Ascii uses.
+ *
+ * The 13 and the 10 are poked past each line before the write rather than
+ * between writes, so the last line gets an ending too.
+ */
+function blocPrint(e: Edit): void {
+  e.tokCur()
+  const b = e.block.read()
+  if (b === null) throw new EditorAlert(6) // Ed_BlocWhat
+  if (confirm(e, { which: 60 }) !== 1) notDone(e) // EdD_PBloc
+  averMess(e, 157) // "Printing block"
+  try {
+    const sink = prtOpen(e)
+    for (const line of blockLines(e, b)) {
+      if (e.abort) {
+        e.abort = false
+        break
+      }
+      prtPrint(e, sink, line + '\r\n')
+    }
+  } finally {
+    averFin(e)
+  }
 }
 
 /* ---- 106 to 110, 143 and 144: the macros -------------------------------- */
@@ -3607,6 +3736,8 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   104: showKey,
   114: setBuffer,
   147: check13,
+  146: prgPrint,
+  86: blocPrint,
   137: (e) => {
     // EdC_SaveDefault (:4857), which asks first
     e.tokCur()
