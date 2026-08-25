@@ -42,10 +42,37 @@ export class EditBuffer {
   /** what fits between the length word and the flag at byte 255 */
   static readonly MAX_HELD = SLOT - TEXT - 1
 
-  readonly bytes: Uint8Array
+  bytes: Uint8Array
 
-  constructor(readonly rows: number) {
+  /**
+   * `Edt_WindTy`: how many rows this window shows.
+   *
+   * Not fixed. `Ed_DrawWindows` (+Edit.s:11844) hands each visible window a
+   * slice of the one `Ed_BufE` allocation, `WindTy` rows long, so growing a
+   * window costs nothing on the machine and shrinking one to zero is how a
+   * window is closed without being deleted.
+   */
+  rows: number
+
+  constructor(rows: number) {
+    this.rows = rows
     this.bytes = new Uint8Array(rows * SLOT)
+  }
+
+  /**
+   * The window's new height, which is `move.l 2(sp),d0 / move.l d0,Edt_BufE`
+   * plus the `add.l d0,2(sp)` that moves the cursor on to the next window.
+   *
+   * The rows that survive keep their text, because the machine's slices only
+   * move when a window ABOVE this one changes size, and `Ed_NewBuf` refills
+   * every visible window immediately afterwards.
+   */
+  resize(rows: number): void {
+    if (rows === this.rows) return
+    const bytes = new Uint8Array(rows * SLOT)
+    bytes.set(this.bytes.subarray(0, Math.min(bytes.length, this.bytes.length)))
+    this.bytes = bytes
+    this.rows = rows
   }
 
   private base(row: number): number {

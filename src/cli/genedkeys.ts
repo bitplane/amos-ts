@@ -116,6 +116,21 @@ function verify(file: string, bytes: number[], where: number): void {
 verify('AMOSPro_Editor_Config', keys, 648)
 verify('AMOSPro_Editor', flags, 8128)
 
+/**
+ * The bytes AFTER `FlagFonc`, read out of AMOSPro_Editor.
+ *
+ * `Ed_FCall` (+Edit.s:2577) indexes the table with the raw command number, and
+ * the hidden-program menu numbers its entries from 184 upwards: three per
+ * hidden program, up to `EdM_HiddenMax` of them (:114), so 184 to 219. Only
+ * the first lands in the table. The other 35 read the code that follows it.
+ */
+function pastTable(): number[] {
+  const bin = readFileSync(join(root, 'AMOS/APSystem/AMOSPro_Editor'))
+  const at = 8128 + flags.length
+  return [...bin.subarray(at, at + 35)]
+}
+const past = pastTable()
+
 const hex = (b: number[]): string => {
   const s = b.map((n) => n.toString(16).padStart(2, '0')).join('')
   const rows: string[] = []
@@ -155,6 +170,22 @@ ${hex(keys)},
  */
 export const FLAG_FONC: Uint8Array = unhex(
 ${hex(flags)},
+)
+
+/**
+ * DEFECT: the 35 bytes after \`FlagFonc\`, which are \`Ed_Back\`'s code.
+ *
+ * \`Ed_FCall\` (+Edit.s:2577) reads the flag byte BEFORE it works out whether
+ * the number is a command at all. The hidden-program menu numbers its entries
+ * 184 upwards, three per hidden program up to \`EdM_HiddenMax\` = 12 (:114), so
+ * only 184 lands on the table's last entry and the other 35 index past it.
+ * \`Ed_Back\` (:3547) assembles to \`4A 6C 00 3E\`, so Edit-the-first-hidden-
+ * program runs with flags \$4A and New-the-first with \$6C, which has bit 2 set:
+ * that one is refused when the cursor sits on a closed procedure, and the
+ * reason is the low byte of \`Edt_XCu\`'s offset.
+ */
+export const FLAG_FONC_PAST: Uint8Array = unhex(
+${hex(past)},
 )
 
 /**

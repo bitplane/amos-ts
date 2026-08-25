@@ -8,14 +8,15 @@ import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
 import { BF, Block } from './block'
+import type { Editor } from './windows'
 import { ED, edCall } from './commands'
 
 const table = new TokenTable(CORE_TOKENS)
 const PROG = 'Print "one"\nPrint "two"\nPrint "three"\nPrint "four"'
 const tested = (t: string): Uint8Array => verify(tokeniseSource(t, table), {}).slice(0, -2)
 
-function open(text = PROG, rows = 10): Edit {
-  const e = new Edit(ProgramBuffer.load(tested(text)), new EditBuffer(rows), new UndoBuffer(50), table)
+function open(text = PROG, rows = 10, editor?: Editor): Edit {
+  const e = new Edit(ProgramBuffer.load(tested(text)), new EditBuffer(rows), new UndoBuffer(50), table, {}, editor)
   e.fill()
   return e
 }
@@ -222,14 +223,11 @@ describe('the clipboard', () => {
     expect(e.block.empty).toBe(true)
   })
 
-  it('can be shared by two windows, which is what the machine does', () => {
-    // `Ed_Block` is one pointer for the whole editor, so this is the shape
-    // the machine always has; see the note on `Edit.block`
-    const shared = new Block()
+  it('is shared by two windows, which is what one pointer means', () => {
+    // `Ed_Block` is one pointer for the whole editor, so a block cut in one
+    // window is the same block in every other; see ./windows.ts
     const a = open()
-    const b = open('Print "other"')
-    a.block = shared
-    b.block = shared
+    const b = open('Print "other"', 10, a.editor)
     select(a, 0, 0, 1, 0)
     edCall(a, ED.BLOCK_STORE)
     b.yCu = 1

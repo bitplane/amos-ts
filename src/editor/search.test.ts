@@ -50,7 +50,7 @@ const requester = (
   confirm: (c: Confirm) => number = () => 1,
   select: (which: number, name: string) => string | null = (_w, name) => name,
   pressKey: (which: number) => number = () => 0,
-): EditorDialogues => ({ ask: answer, confirm, select, pressKey })
+): EditorDialogues => ({ ask: answer, confirm, select, pressKey, pickWindow: () => 0 })
 
 describe('SchBuffer', () => {
   it('never finds an empty string, because the terminator is the first letter', () => {

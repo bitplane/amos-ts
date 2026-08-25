@@ -14,10 +14,14 @@
  * 99 to 101), the disc (33 to 35, 80, 85, 97, 98, 152) and the macros (106 to
  * 110, 143, 144), plus Delete to start of line (64) and Insert mode (75).
  *
- * The rest need something this port has not built yet: a second window (61,
- * 84, 88, 91 to 96, 102) or the interpreter (77, 78). `COMMANDS` has no entry
- * for them and `edCall` throws rather than silently doing nothing, so a key
- * map that reaches one says which.
+ * The windows are 38, 61, 81, 84, 88, 91 to 93, 95, 96, 102, 103, 112, 113 and
+ * 153, over the list in ./windows.ts.
+ *
+ * The rest need something this port has not built yet: the interpreter (77,
+ * 78, 111), the menus (73, 74, 104, 135 to 137, 179, 180) or the config (138
+ * to 142, 145 to 151). `COMMANDS` has no entry for them and `edCall` throws
+ * rather than silently doing nothing, so a key map that reaches one says
+ * which.
  *
  * ## What a command does NOT do here
  *
@@ -34,8 +38,8 @@ import { EMPTY_LINE_BYTES, ProgramBuffer } from './buffer'
 import { BF } from './block'
 import { DiskError, Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
-import { UN, type UndoRecord } from './undo'
-import { FLAG_FONC, ED_ROUTINES } from './keymap.gen'
+import { UN, UndoBuffer, type UndoRecord } from './undo'
+import { FLAG_FONC, FLAG_FONC_PAST, ED_ROUTINES } from './keymap.gen'
 import { keyToFunc, type EdKey } from './keymap'
 import {
   findMacro,
@@ -50,6 +54,7 @@ import {
   type KeyLong,
 } from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
+import type { Editor } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
   EMPTY_BANKS,
@@ -131,6 +136,21 @@ export const ED = {
   DELETE_TO_START: 64,
   FLIP_INSERT: 75,
   REDO: 94,
+  HIDE: 38,
+  OPEN_LOAD: 61,
+  CLOSE: 81,
+  MERGE: 84,
+  LOAD_HIDDEN: 88,
+  PREV_WINDOW: 91,
+  NEXT_WINDOW: 92,
+  FLIP_SIZE: 93,
+  SPLIT: 95,
+  LINK_CURSOR: 96,
+  NEW_ALL_HIDDEN: 102,
+  OPEN_NEW: 103,
+  EDIT_HIDDEN: 112,
+  NEW_HIDDEN: 113,
+  CLOSE_NAME: 153,
 } as const
 
 /**
@@ -156,7 +176,9 @@ export const FLAG = {
 
 /** `FlagFonc[cmd]` for 1-based command `cmd` */
 export function flagsOf(cmd: number): number {
-  const f = FLAG_FONC[cmd - 1]
+  // past the table is not an error: `Ed_FCall` reads the byte whatever the
+  // number is, and ./keymap.gen.ts says what it finds there
+  const f = FLAG_FONC[cmd - 1] ?? FLAG_FONC_PAST[cmd - 1 - FLAG_FONC.length]
   if (f === undefined) throw new RangeError(`no editor command ${cmd}`)
   return f
 }
@@ -1694,10 +1716,491 @@ function macroSave(e: Edit): void {
   e.macroChanged = false
 }
 
+/* ---- 38, 61, 81, 84, 88, 91 to 96, 102, 103, 112, 113 and 153: the windows -- */
+
+/** `PI_DefSize` (+Interpreter_Config.s:38): 32K, the buffer a new window gets */
+const DEF_SIZE = 1024 * 32
+
+/** `HiddenCommands` (+Edit.s:3262) and `HiddenCall` (:3263) */
+const HIDDEN_COMMANDS = 184
+const HIDDEN_CALL = 111
+
+/** `Ed_NotDone` (:9825), which redraws the window before it gives up */
+function notDone(e: Edit): never {
+  e.fill()
+  throw new EditorAlert(206)
+}
+
+/**
+ * `Edt_OpWindow` (:11244): one more window on the list.
+ *
+ * `prog` is what `Prg_NewStructure` would have made. The machine passes a
+ * buffer size in d1, and a NEGATIVE size means "no program structure at all",
+ * which is what Split View asks for because it is about to point the new
+ * window at the old one's program. Here that is the same thing as handing this
+ * the program to share: either way `Prg_Edited` counts one more window.
+ *
+ * DEFECT: `Edt_New` at the end of this calls `Prg_UndoCreate` and
+ * `Prg_MarkRaz`, and both work on a6. The split path never loaded a6 with
+ * anything, so a6 is still the CALLER's program: splitting a view frees that
+ * program's undo history and clears all ten of its marks. Nothing in
+ * `Ed_SplitWindow` puts either back.
+ */
+function opWindow(from: Edit, visible: boolean, prog: ProgramBuffer): Edit {
+  const editor = from.editor
+  // `sub.l a0,a0 / bsr Edt_WCount / cmp.w Ed_WMax(a5),d0 / bcc .Rate`
+  if (visible && editor.count() >= editor.wMax) throw new EditorAlert(3, 127) // Ed_2ManyWindow
+  const w = new Edit(prog, new EditBuffer(0), new UndoBuffer(from.undo.length), from.table, from.opts, editor)
+  w.hidden = 2 // "2 car aucune zone creee"
+  if (visible) {
+    w.hidden = 0
+    editor.current = w
+    editor.schrinkAll(1)
+    w.windTy = editor.maxSize(w, -1)
+  }
+  edtNew(w, prog === from.prog ? from : w)
+  return w
+}
+
+/**
+ * `Edt_New` (:10910): the window's own fields back to zero.
+ *
+ * Every word from `Edt_SInit` to `Edt_EInit` is cleared and then -1 goes back
+ * into the two block fields, which is why a new window has no block rather
+ * than a block on line 0. `owner` is the window whose program a6 was pointing
+ * at when this ran, and it is not always this one: see `opWindow`.
+ */
+function edtNew(w: Edit, owner: Edit): void {
+  w.xPos = 0
+  w.yPos = 0
+  w.xCu = 0
+  w.yCu = 0
+  w.edited = 0
+  w.yBloc = -1
+  w.yOldBloc = -1
+  owner.undo.raz() // Prg_UndoCreate (:1977)
+  owner.prog.marks.fill(0) // Prg_MarkRaz (:4183)
+}
+
+/**
+ * `Ed_DrawWindows` (:11594), as much of it as means anything without pixels.
+ *
+ * The order is the machine's: take the screen areas down, number the visible
+ * windows, work out which is first and which is last, then walk the list
+ * putting each cursor back inside its window and refilling its rows. What is
+ * dropped is the geometry, `Edt_Y` and a slider and three buttons per window.
+ * `Edt_Window` survives because it is the zone number a click comes back as,
+ * and `Edt_GetAd` is what turns one into a window again.
+ *
+ * `Edt_First` and `Edt_Last` are worked out here and nowhere else, so a window
+ * that has never been drawn does not know whether it is alone. The machine
+ * draws at boot (`Ed_OpenIt` :313) and a host of this port has to do the same.
+ */
+export function drawWindows(editor: Editor): void {
+  editor.effWindows()
+  editor.orderWindows()
+  editor.firstLast()
+  for (const w of editor.list) {
+    if (w.hidden !== 0) continue
+    // a cursor past the end of the program goes back to the top, whole
+    if (w.yCu + w.yPos > w.prog.lineCount) {
+      w.yCu = 0
+      w.yPos = 0
+    }
+    // `.Sl`: and one below the last row scrolls the window instead
+    const bottom = w.windTy - 1
+    if (bottom >= 0 && w.yCu > bottom) {
+      w.yPos += w.yCu - bottom
+      w.yCu = bottom
+    }
+    w.window = w.order * 8
+    w.fill()
+  }
+}
+
+/**
+ * `Edt_Active` (:12079): make `w` current, if it has any rows.
+ *
+ * The only test is `Edt_WindTy`. `Ed_TokCur` before it works on a4, the window
+ * being left, and not on the one being entered.
+ */
+function activate(w: Edit): boolean {
+  w.editor.current?.tokCur()
+  if (w.windTy === 0) return false
+  w.editor.current = w
+  w.fill()
+  return true
+}
+
+/** `Ed_OpenWindow` (:11228): a new window with an empty program in it */
+function openWindow(e: Edit): void {
+  e.tokCur()
+  opWindow(e, true, ProgramBuffer.create(DEF_SIZE))
+  drawWindows(e.editor)
+}
+
+/**
+ * `Ed_RLoadHidden` (:13345): a window nobody can see, with a file in it.
+ *
+ * `Prg_Load` is called with -1, "adapter la taille du buffer", so there is no
+ * EdD_TooSmall here and no retry: the buffer is made to fit the file. The
+ * window goes into `Ed_WindowToDel`, and whether it survives is decided by
+ * whether its caller clears that.
+ */
+function rLoadHidden(e: Edit): Edit {
+  const fs = disc(e)
+  const bytes = fs.readFile(e.name1)
+  if (bytes === null) throw new DiskError(205)
+  const r = readProgramFile(bytes)
+  if (r.error === PRG.NOT_AMOS) throw new EditorAlert(207) // Ed_PaAMOS
+  if (r.error !== PRG.OK) throw new DiskError()
+  const f = r.file!
+  const w = opWindow(e, false, ProgramBuffer.load(f.source, r.needs))
+  e.editor.windowToDel = w
+  w.prog.pro = f.pro
+  w.prog.mathFlags = f.mathFlags
+  w.prog.banks = f.banks
+  w.prog.name = e.name1
+  w.prog.changed = false
+  // `move.b #1,Prg_StModif(a6)`, "force le test", the same as a visible load
+  w.prog.modified = true
+  return w
+}
+
+/** `Ed_New` (:10896): Ed_TokCur, Ed_Saved, and then the program emptied */
+function newCmd(e: Edit): void {
+  e.tokCur()
+  saved(e)
+  newProgram(e)
+}
+
+/**
+ * `Ed_CloseWindow` (:11393) and `Ed_CloseWindowQuit` (:11388) above it, which
+ * is the same routine entered with a word pushed.
+ *
+ * A window that is not half of a split gets a New first, so the program in it
+ * is offered for saving. A split half does not, because the program is still
+ * open in the other half.
+ *
+ * The last window on the screen is never closed: closing it is how AMOS
+ * Professional is left, and `Ed_DoQuit` (:4383) takes over. Without the quit
+ * word, and under the ZAP remote control, the command simply does nothing.
+ */
+function closeWindow(e: Edit, w: Edit, quit: boolean): void {
+  const editor = e.editor
+  w.tokCur()
+  if (w.linkPrev === null && w.linkNext === null) newCmd(w)
+  if (w.first && w.last) {
+    if (!quit || editor.zappeuse) return
+    // `btst #0,Ed_QuitFlags(a5)`: ask first, and any answer but the first
+    // button leaves the editor open
+    if ((editor.quitFlags & 1) !== 0 && confirm(e, { which: 62 }) !== 1) return // EdD_WQuit
+    editor.quit = true
+    return
+  }
+  editor.effWindows()
+  editor.delWindow(w)
+  const now = editor.current
+  if (now !== null) now.windTy = editor.maxSize(now, -1)
+  drawWindows(editor)
+}
+
+/**
+ * `Ed_WindowHide` (:11306): the current window off the screen, program and all.
+ *
+ * A split view cannot be hidden. The loop above `.PaLink` closes every window
+ * linked to this one first, one at a time, so hiding half of a split closes
+ * the other half and then hides what is left.
+ */
+function windowHide(e: Edit): void {
+  const editor = e.editor
+  e.tokCur()
+  for (;;) {
+    const link = e.linkPrev ?? e.linkNext
+    if (link === null) break
+    closeWindow(e, link, false)
+    editor.current = e
+  }
+  if (editor.alone(e)) throw new EditorAlert(2) // Ed_NoHide
+  editor.delLinkScroll(e)
+  e.hidden = 1
+  // any open window will do, and if none will have it, one with no rows will
+  const now = editor.wAutre(e, 1) ?? editor.wAutre(e, 0)
+  if (now !== null) now.windTy = editor.maxSize(now, -1)
+  drawWindows(editor)
+}
+
+/**
+ * `Ed_SplitWindow` (:2448): a second view on the SAME program.
+ *
+ * The new window goes into a chain of its own, `Edt_LinkPrev` and
+ * `Edt_LinkNext`, which is what tells the rest of the editor that these two
+ * are halves of one thing. Then nine words of cursor state are copied across,
+ * `Edt_SSplit` to `Edt_ESplit`, so the new half opens on exactly what the old
+ * half was looking at. It is also the new current window.
+ */
+function splitWindow(e: Edit): void {
+  const w = opWindow(e, true, e.prog)
+  w.linkPrev = e
+  w.linkNext = e.linkNext
+  e.linkNext = w
+  if (w.linkNext !== null) w.linkNext.linkPrev = w
+  w.xPos = e.xPos
+  w.yPos = e.yPos
+  w.xCu = e.xCu
+  w.yCu = e.yCu
+  w.edited = e.edited
+  drawWindows(e.editor)
+}
+
+/**
+ * `Ed_LinkCursor` (:2342): this window scrolls when another one does.
+ *
+ * One link per window and it is not symmetric: the window picked is the one
+ * that FOLLOWS this one. `Edt_LinkYOld` remembers where this cursor was, so
+ * the follower can be moved by the difference rather than to a line number.
+ */
+function linkCursor(e: Edit): void {
+  e.tokCur()
+  e.linkScroll = null
+  if (e.dialogues === null) notDone(e)
+  const zone = e.dialogues.pickWindow()
+  if (zone === 0 || zone === e.window) notDone(e)
+  const target = e.editor.getAd(zone)
+  if (target === null) notDone(e)
+  e.editor.delLinkScroll(target)
+  e.linkScroll = target
+  e.linkYOld = e.line
+}
+
+/**
+ * `Ed_LinkeScroll` (:2384): move every window that follows this one.
+ *
+ * `Ed_Loop` calls it after a command, not the command itself. Each window in
+ * the chain works out its own delta from its own `Edt_LinkYOld`, so the move
+ * propagates down a chain of any length, and only `Edt_YPos` changes: the
+ * follower's cursor stays on the screen row it was on.
+ *
+ * `Edt_LinkFlag` is the whole of the recursion guard, and it is raised on the
+ * window doing the moving and tested on the one being moved. So a ring of
+ * linked windows moves once round and stops.
+ */
+export function linkScroll(e: Edit): void {
+  const follower = e.linkScroll
+  if (follower === null) return
+  const now = e.line
+  if (now === e.linkYOld) return
+  const by = now - e.linkYOld
+  e.linkYOld = now
+  e.linkFlag = true
+  try {
+    if (follower.linkFlag) return
+    let top = follower.yPos + by
+    if (top < 0) top = 0
+    if (top + follower.yCu >= follower.prog.lineCount) {
+      const fit = follower.prog.lineCount - follower.yCu
+      if (fit < 0) {
+        follower.yCu = follower.prog.lineCount
+        top = 0
+      } else top = fit
+    }
+    follower.yPos = top
+    if (follower.windTy !== 0) follower.fill()
+    linkScroll(follower)
+  } finally {
+    e.linkFlag = false
+  }
+}
+
+/**
+ * `Ed_SchrinkWindow` (:12188): this window down to `min` rows, the rest to
+ * whoever is next.
+ *
+ * The rows come off this window and go to the one below it, or to the one
+ * above when there is nothing below. There is no test on that second answer
+ * and none is needed: `Edt_WAlone` has already refused the only case where
+ * both would be empty.
+ */
+function schrinkWindow(e: Edit, min: number): void {
+  const editor = e.editor
+  e.tokCur()
+  if (editor.alone(e)) return
+  const was = e.windTy
+  if (min >= was) return
+  e.windTy = min
+  const other = editor.wNext(e) ?? editor.wPrev(e)
+  if (other !== null) other.windTy += was - min
+  // `Edt_WVideNext` (:11953): a current window with no rows hands over
+  const now = editor.current
+  if (now !== null && now.windTy === 0) editor.wAutre(now, 1)
+  drawWindows(editor)
+}
+
+/**
+ * `Ed_FlipSizeWindow` (:12138): roll the window up to its two bars, or back
+ * out again.
+ *
+ * Rolled out, it asks the windows BELOW it for the rows first and the ones
+ * above only for what is still missing, then takes whatever it could not get
+ * off its own height. A window alone on the screen cannot be rolled up at all,
+ * because `Ed_SchrinkWindow` refuses.
+ */
+function flipSizeWindow(e: Edit): void {
+  const editor = e.editor
+  e.tokCur()
+  if (e.windTy !== 0) {
+    e.windOldTy = e.windTy
+    schrinkWindow(e, 0)
+    return
+  }
+  let want = e.windOldTy
+  if (want === 0) want = editor.maxSize(e, 1)
+  e.windTy = want
+  let short = editor.placeBas(e, want, 1)
+  if (short !== 0) short = editor.placeHaut(e, short, 1)
+  if (short !== 0) e.windTy -= short
+  drawWindows(editor)
+}
+
+/**
+ * `Ed_NextWindow` (:12098) and `Ed_PrevWindow` (:12114): the next open window.
+ *
+ * DEFECT: both wraps go to an END OF THE LIST rather than to a visible window.
+ * Next takes `Edt_List`, the head, and Prev walks `Edt_WNext` until it stops
+ * and then uses a0, which the walk left on the last element of the list and
+ * not on the last VISIBLE one. `Edt_Active` then tests nothing but
+ * `Edt_WindTy`, and a window hidden by Hide Project keeps the height it had.
+ * So with a hidden window at either end of the list, wrapping round makes it
+ * current, and the editor is looking at a window with no screen area.
+ */
+function nextWindow(e: Edit): void {
+  const editor = e.editor
+  e.tokCur()
+  let at = e
+  for (;;) {
+    at = editor.wNext(at) ?? editor.list[0]!
+    if (at === e) return
+    if (activate(at)) return
+  }
+}
+
+function prevWindow(e: Edit): void {
+  const editor = e.editor
+  e.tokCur()
+  let at = e
+  for (;;) {
+    let back = editor.wPrev(at)
+    if (back === null) {
+      if (e.last) return
+      back = editor.list[editor.list.length - 1]!
+    }
+    if (back === e) return
+    at = back
+    if (activate(back)) return
+  }
+}
+
+/**
+ * `Ed_Merge` (:13446): another program's tokens dropped in at the cursor.
+ *
+ * The file is loaded into a hidden window and its whole source is stored as
+ * one block, which is `Ed_StoBlock` and no tokenising at all. What makes it a
+ * merge rather than a load is what happens next: `Ed_WindowToDel` is left set,
+ * so `Ed_Loop` (:915) deletes the window on the way back and the program that
+ * was read is gone. `Ed_LoadHidden` runs the same load and clears the field.
+ *
+ * `Edt_ClearVar` (:3035) comes first on the machine and frees the interpreter's
+ * variables to make room. There are none to free here.
+ */
+function merge(e: Edit): void {
+  e.tokCur()
+  if (!selectFile(e, 78)) notDone(e)
+  e.block.free() // Ed_BlocFree
+  e.undo.raz() // Prg_UndoRaz
+  const from = rLoadHidden(e)
+  const to = e.editor.current ?? e
+  const src = programSource(from.prog)
+  if (src.length !== 0) {
+    const lines = from.prog.lineCount
+    const at = to.line
+    const r = to.prog.storeBlock(at, src)
+    if (r.error !== 0) throw new EditorAlert(202, 200) // Ed_OofBuf
+    to.prog.marksChange(at, lines)
+  }
+  to.prog.countLines()
+  to.fill()
+}
+
+/** `Ed_LoadHidden` (:13370): the same load, kept */
+function loadHidden(e: Edit): void {
+  e.tokCur()
+  if (!selectFile(e, 66)) notDone(e)
+  rLoadHidden(e)
+  e.editor.windowToDel = null
+}
+
+/** `Ed_EditHidden` (:11468): a hidden program back on the screen */
+function editHidden(e: Edit, n: number): void {
+  const editor = e.editor
+  e.tokCur()
+  const w = editor.getHidden(n)
+  if (w === null) notDone(e)
+  if (editor.count() >= editor.wMax) throw new EditorAlert(3, 127) // Ed_2ManyWindow
+  editor.current = w
+  w.hidden = 0
+  editor.schrinkAll(1)
+  w.windTy = editor.maxSize(w, -1)
+  w.undo.raz() // Prg_UndoCreate
+  drawWindows(editor)
+}
+
+/** `Ed_NewHidden` (:11434): a hidden program offered for saving, then dropped */
+function newHidden(e: Edit, n: number): void {
+  e.tokCur()
+  const w = e.editor.getHidden(n)
+  if (w === null) notDone(e)
+  saved(w)
+  e.editor.delWindow(w)
+}
+
+/**
+ * `Ed_NewAllHidden` (:11448): every hidden program, one requester for the lot.
+ *
+ * `.In` asks for hidden program 0 every time round, so the list walks itself
+ * down as each one goes. The per-program "not saved. Save?" still comes up, so
+ * the one Yes at the top is not the last question.
+ */
+function newAllHidden(e: Edit): void {
+  e.tokCur()
+  if (confirm(e, { which: 3 }) !== 1) return // EdD_NAll
+  for (;;) {
+    const w = e.editor.getHidden(0)
+    if (w === null) return
+    saved(w)
+    e.editor.delWindow(w)
+  }
+}
+
+/**
+ * `Ed_CloseName` (:11207): close every window holding the file in `Name1`.
+ *
+ * It loops because two windows can hold the same program, and it stops at the
+ * first one that is RUNNING rather than skipping it, so a running accessory
+ * leaves the windows behind it open too. `L_Prg_DejaRunned` is the test, and
+ * nothing runs in this port.
+ */
+function closeName(e: Edit): void {
+  for (;;) {
+    const w = e.editor.accAdr(e.name1)
+    if (w === null) return
+    closeWindow(e, w, false)
+  }
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
-export const COMMANDS: Record<number, (e: Edit) => void> = {
+export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   1: (e) => {
     e.tokCur()
     curUp(e)
@@ -1867,6 +2370,30 @@ export const COMMANDS: Record<number, (e: Edit) => void> = {
   85: loadAscii,
   97: blockSaveAscii,
   98: blockSave,
+  38: windowHide,
+  61: (e) => {
+    // Ed_OpenLoad (:11221) is `bsr Ed_OpenWindow / bra Ed_Load`, and the load
+    // runs in the window that was just opened
+    openWindow(e)
+    COMMANDS[ED.LOAD]!(e.editor.current ?? e, 0)
+  },
+  81: (e) => {
+    // Ed_CloseWindowQuit (:11388): the ZAP remote control closes without ever
+    // being offered the chance to quit
+    closeWindow(e, e, !e.editor.zappeuse)
+  },
+  84: merge,
+  88: loadHidden,
+  91: prevWindow,
+  92: nextWindow,
+  93: flipSizeWindow,
+  95: splitWindow,
+  96: linkCursor,
+  102: newAllHidden,
+  103: openWindow,
+  112: (e, n) => editHidden(e, n),
+  113: (e, n) => newHidden(e, n),
+  153: closeName,
   94: (e) => replay(e, false),
   99: (e) => replaceCmd(e, 99),
   100: (e) => replaceCmd(e, 100),
@@ -1981,10 +2508,21 @@ for (let i = 0; i < 10; i++) {
  * one. `Ed_SCallFlags` is left holding what the command wants redrawn, which
  * a split view reads to decide whether the other half needs it too.
  */
-export function edCall(e: Edit, cmd: number): number {
+export function edCall(e: Edit, cmd: number, param = 0): number {
   const flags = flagsOf(cmd)
-  const fn = COMMANDS[cmd]
-  if (fn === undefined) throw new RangeError(`editor command ${cmd} (${routineOf(cmd)}) is not ported`)
+  // `cmp.w #HiddenCommands-1,d2` (:2595): 184 and up are the hidden-program
+  // menu, three entries per hidden program, and they decode into Run, Edit and
+  // New with the program's index carried in d1. The flag byte above was read
+  // BEFORE this, off the raw number
+  let call = cmd
+  let arg = param
+  if (cmd >= HIDDEN_COMMANDS) {
+    const n = cmd - HIDDEN_COMMANDS
+    call = HIDDEN_CALL + (n % 3)
+    arg = Math.floor(n / 3) + e.editor.posHidden
+  }
+  const fn = COMMANDS[call]
+  if (fn === undefined) throw new RangeError(`editor command ${call} (${routineOf(call)}) is not ported`)
   if (e.macroTape !== null && (flags & FLAG.MACRO) === 0) {
     // `.NoMacro` (:2624): the key that got here has already been taped, so
     // the refusal rewinds over it. The command does not run, `Ed_SCallFlags`
@@ -1996,11 +2534,24 @@ export function edCall(e: Edit, cmd: number): number {
     return 0
   }
   e.callFlags = flags
-  return run(e, () => {
+  const alert = run(e, () => {
     if ((flags & FLAG.CLOSED) !== 0) mustEdit(e)
     e.yOldBloc = e.line
-    fn(e)
+    fn(e, arg)
   })
+  // `Ed_Loop` (:915): the window the command left behind. A hidden one is
+  // deleted outright and a visible one goes through Close, which is what makes
+  // Merge throw its program away and Run A Program keep its window
+  const del = e.editor.windowToDel
+  if (del !== null) {
+    e.editor.windowToDel = null
+    if (del.hidden !== 0) e.editor.delWindow(del)
+    else closeWindow(e, del, false)
+  }
+  // `bsr Ed_LinkeScroll` (:964), after the command and not inside it
+  const now = e.editor.current
+  if (now !== null) linkScroll(now)
+  return alert
 }
 
 /**
@@ -2012,10 +2563,8 @@ export function edCall(e: Edit, cmd: number): number {
  * arbitration: there is no list of printable keys anywhere, only the key map
  * and what falls through it.
  *
- * What is NOT here is the macro layer above it. `Ed_Key` reads from
- * `EdMa_Play` before it reads the keyboard, writes to `EdMa_List` when one is
- * recording, and checks whether the key IS a macro before any of this. That
- * is a command set of its own (`JFonc` 106 to 110) and none of it is ported.
+ * Above it is the macro layer, and it is here: the tape is written first, and
+ * a live key is looked up in `EdMa_List` before the map sees it.
  */
 export function edKey(e: Edit, key: EdKey, table?: Uint8Array): number {
   // the tape comes first, and a key it records is NOT looked up as a macro:

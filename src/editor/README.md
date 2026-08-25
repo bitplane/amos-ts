@@ -49,10 +49,46 @@ Three things that look like they belong here do not:
 - `files.ts` — `Prg_Load` and `Prg_Save`, the two headers, and the four calls
   the editor makes to dos.library.
 - `macros.ts` — `EdMa_`, the keystroke tape and the list it goes into.
+- `windows.ts` — `Edt_List`, the windows, and everything an `a5` offset holds
+  that a window does not. The commands over it are in `commands.ts`.
 
-What is left needs a second window: Merge (84), Load Hidden (88), Open + Load
-(61) and New All Hidden (102) all open a hidden `Edt_` structure and load into
-it, and the split view is 91 to 96.
+93 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+that never were commands. What is left falls into groups rather than gaps: the
+interpreter (77, 78, 111), the menus (73, 74, 135, 136, 179, 180), the config
+and the About boxes (137 to 142, 146 to 151), the ZAP remote control (69, 71,
+182), the status bar's four arrows (13 to 16), and the procedure folding
+(87, 89, 90), which needs nothing this port has not got. `Ed_GoMonitor` (145)
+is +Monitor.s and 4,291 lines of its own.
+
+## A window is a view, and `a5` is the editor
+
+`Edt_` is one window and `Edit` is the port of it. What `Edit` does NOT own is
+the two dozen fields that live at an `a5` offset instead: the search string,
+the macros, the filename, the clipboard. Those are `Editor` in `windows.ts`,
+and a window reaches them through accessors, so `e.schBuf` still reads the
+search string and two windows on one editor genuinely share one.
+
+`Ed_Block` is the clearest of them. One pointer for the whole editor means a
+block cut in one window pastes into another, and there was never a decision
+about it.
+
+`Edt_Prg` is a pointer too. Split View (+Edit.s:2448) points a second window at
+the same program and `Prg_Edited` counts the views, so the list is a list of
+VIEWS and the programs behind it are however many distinct values it holds.
+Splitting also frees the program's undo history and clears all ten of its
+marks, because `Edt_New` runs `Prg_UndoCreate` on a6 and the split path never
+loaded a6 with anything.
+
+The vertical arithmetic is here and the pixels are not. `Edt_WindTy` is a count
+of TEXT ROWS and it IS the edit buffer's row count, because `Ed_DrawWindows`
+hands each window a slice of one allocation. `Ed_WMax` is `(Ed_Ty - 6) / 3`,
+which is 8 on the shipped 256-line screen, and a window on its own gets 28
+rows. `Edt_Y`, the sliders and the three buttons per window are dropped.
+
+Both wraps in Next Window and Previous Window go to an END OF THE LIST rather
+than to a visible window, and `Edt_Active` tests nothing but the height. A
+window hidden by Hide Project keeps the height it had, so wrapping round onto
+one makes the editor current on a window with no screen area.
 
 ## A macro is above the key map
 

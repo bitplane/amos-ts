@@ -47,6 +47,22 @@ export const FLAG_FONC: Uint8Array = unhex(
 )
 
 /**
+ * DEFECT: the 35 bytes after `FlagFonc`, which are `Ed_Back`'s code.
+ *
+ * `Ed_FCall` (+Edit.s:2577) reads the flag byte BEFORE it works out whether
+ * the number is a command at all. The hidden-program menu numbers its entries
+ * 184 upwards, three per hidden program up to `EdM_HiddenMax` = 12 (:114), so
+ * only 184 lands on the table's last entry and the other 35 index past it.
+ * `Ed_Back` (:3547) assembles to `4A 6C 00 3E`, so Edit-the-first-hidden-
+ * program runs with flags $4A and New-the-first with $6C, which has bit 2 set:
+ * that one is refused when the cursor sits on a closed procedure, and the
+ * reason is the low byte of `Edt_XCu`'s offset.
+ */
+export const FLAG_FONC_PAST: Uint8Array = unhex(
+  '4a6c003e67004422610002a6610000044e75704661000b886100499e906c003e53406b',
+)
+
+/**
  * `JFonc` (+Edit.s:3151), the routine each command branches to. Index 0 is
  * command 1: `Ed_FCall` takes a 0-based number and every comment in the
  * source numbers from 1.

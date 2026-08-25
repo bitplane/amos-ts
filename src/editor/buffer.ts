@@ -96,6 +96,15 @@ export class ProgramBuffer {
    * operation that moves the text, and `marksToNumber` swaps them back.
    */
   readonly marks: number[] = Array(10).fill(0)
+  /**
+   * `Prg_Edited` (+Equ.s:1862): how many editor windows are open on this
+   * program.
+   *
+   * `Edt_OpWindow` raises it (+Edit.s:11277) and `Edt_DelWindow` lowers it
+   * (:11519); the program structure is freed only when it reaches zero. Split
+   * View (:2469) is the one command that takes it above one.
+   */
+  edited = 0
   /** `Prg_Change`, the program wants saving */
   changed = false
   /** `Prg_StModif`, the listing has been modified since the last Test */

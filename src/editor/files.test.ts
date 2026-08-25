@@ -52,6 +52,7 @@ const requester = (
   confirm,
   select,
   pressKey,
+  pickWindow: () => 0,
 })
 
 describe('the header', () => {

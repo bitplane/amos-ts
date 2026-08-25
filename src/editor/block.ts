@@ -75,12 +75,11 @@ const put16 = (b: Uint8Array, at: number, n: number): void => {
 const pair = (n: number): number => (n + 1) & ~1
 
 /**
- * The editor's clipboard.
+ * The editor's clipboard, `Ed_Block(a5)`.
  *
- * DEVIATION: on the machine this is `Ed_Block(a5)`, one pointer for the whole
- * editor, so every window cuts and pastes through the same block. Here it is
- * an object, and `Edit` makes one each. Two windows that should share it can
- * be handed the same instance; nothing does yet, because nothing opens two.
+ * One pointer for the whole editor, so every window cuts and pastes through
+ * the same block. `Editor` in ./windows.ts owns it and `Edit.block` reads it
+ * from there, which is why a block cut in one window pastes into another.
  */
 export class Block {
   /** `Ed_Block`, null when there is none. `Ed_BlocWhat` is what reads it */

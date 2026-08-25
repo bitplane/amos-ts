@@ -25,12 +25,13 @@ import type { TokenTable } from '../tokens/stream'
 import { detokLineBytes, tokeniseLine, type EdtokOptions } from '../tokens/edtok'
 import { ED_MESSAGES } from '../runtime/edmessages.gen'
 import { EMPTY_LINE_BYTES, type ProgramBuffer } from './buffer'
-import { Block } from './block'
+import type { Block } from './block'
 import { EditBuffer } from './editbuf'
 import { UN, type UndoBuffer } from './undo'
 import type { EditorFS } from './files'
 import type { Macro, MacroTape } from './macros'
 import type { EditorDialogues } from './search'
+import { Editor } from './windows'
 
 /**
  * `Ed_Alert` (+Edit.s:7595): a message across the status line.
@@ -104,151 +105,73 @@ export class Edit {
    */
   windTx = 78
 
+  /**
+   * `Edt_WindTy`, the window's height in text rows, which is the edit
+   * buffer's row count and not a second number.
+   *
+   * `Ed_DrawWindows` (:11844) hands each visible window `WindTy` rows of the
+   * one `Ed_BufE` allocation, so the two cannot disagree. Zero is a legal
+   * value and means the window is rolled up to its two bars, which is what
+   * Enlarge Window flips a window to.
+   */
+  get windTy(): number {
+    return this.buf.rows
+  }
+
+  set windTy(rows: number) {
+    this.buf.resize(rows)
+  }
+
+  /** `Edt_WindOldTy`: the height to go back to when Enlarge Window unrolls it */
+  windOldTy = 0
+
+  /**
+   * `Edt_Hidden`: 0 has a screen area, 1 has been asked to give it up, 2 has.
+   *
+   * Every walk of the list tests `tst.b`, so 1 and 2 are both hidden.
+   * ./windows.ts says which routine moves it between them.
+   */
+  hidden: 0 | 1 | 2 = 0
+
+  /** `Edt_First`: the topmost visible window. `Edt_WFirstLast` works it out */
+  first = false
+
+  /** `Edt_Last`: the bottom one. Both, and the window is alone on the screen */
+  last = false
+
+  /** `Edt_Order`: its place down the screen, from 1. Hidden windows keep the old one */
+  order = 0
+
+  /**
+   * `Edt_Window`: the zone number its screen area was opened under, `Order * 8`.
+   *
+   * Zero means it has none. `Edt_GetAd` turns a click back into a window with
+   * it, which is the only reason it survives here.
+   */
+  window = 0
+
+  /** `Edt_LinkPrev` and `Edt_LinkNext`: the split-view chain over ONE program */
+  linkPrev: Edit | null = null
+  linkNext: Edit | null = null
+
+  /** `Edt_LinkScroll`: the window this one drags along when its cursor moves */
+  linkScroll: Edit | null = null
+
+  /** `Edt_LinkYOld`: the program line the scroll link last saw the cursor on */
+  linkYOld = 0
+
+  /** `Edt_LinkFlag`: this window is already inside `Ed_LinkeScroll`'s recursion */
+  linkFlag = false
+
+  /** `Edt_PrgDelete`: throw the program away when it stops running */
+  prgDelete = false
+
   /** `Edt_XBloc`/`Edt_YBloc`: the block's anchor, -1 for no block */
   xBloc = 0
   yBloc = -1
 
-  /**
-   * `Ed_Block`, the clipboard the anchor and the cursor cut and paste through.
-   *
-   * One per window here and one for the whole editor on the machine; ./block.ts
-   * says what that costs. Assign the same `Block` to two windows to share it.
-   */
-  block = new Block()
-
-  /**
-   * `Ed_Insert` (+Editor_Config.s:90, default -1). On the machine this is one
-   * flag for the whole editor rather than one per window, which is why
-   * flipping it in a split view flips it in both halves.
-   */
-  insert = true
-
-  /** `Ed_Tabs` (+Editor_Config.s:59): three spaces */
-  tabs = 3
-
-  /**
-   * `Ed_SchBuf` (+Equ.s:1757): what Search is looking for.
-   *
-   * 34 bytes on the machine, of which `Ed_DiaS`'s `move.l #32,(a2)+` lets the
-   * user fill 32. It survives between commands, which is the whole of what
-   * Search Next has to work with.
-   */
-  schBuf = ''
-
-  /** `Ed_RepBuf` (+Equ.s:1758): the other 34 bytes, what it is replaced with */
-  repBuf = ''
-
-  /** `Ed_SchMode` (+Equ.s:1810), the four flag gadgets of ./search.ts's `SM` */
-  schMode = 0
-
-  /** `EdMa_List(a5)` (+Equ.s:1710): the macros, most recently made first */
-  macros: Macro[] = []
-
-  /**
-   * `EdMa_Play(a5)` (+Equ.s:1711): where playback has got to, null for none.
-   *
-   * `keys` is the macro's keystrokes and `at` is the byte offset into them,
-   * which the machine keeps as a live pointer it steps by three.
-   */
-  macroPlay: { keys: Uint8Array; at: number } | null = null
-
-  /** `EdMa_Tape(a5)` (+Equ.s:1712): the buffer being recorded into, null for none */
-  macroTape: MacroTape | null = null
-
-  /**
-   * DEFECT: `EdMa_Change(a5)` (+Equ.s:1713), which nothing reads.
-   *
-   * `EdMa_Stop`, `EdMa_Del` and `EdMa_DelAll` all set it -- every change a
-   * person can make to the macros. `Ed_DoQuit` (:4402) then reads
-   * `EdMa_Changed`, one letter away at +Equ.s:1704, to decide whether to save
-   * them on the way out. So recording a macro and quitting loses it, and the
-   * only edits that survive are ones made after a Load As, which is what
-   * happens to set the other flag.
-   */
-  macroChange = false
-
-  /** `EdMa_Changed(a5)` (+Equ.s:1704): raised by Load As, and read by Quit */
-  macroChanged = false
-
-  /**
-   * `Name1(a5)` (+Equ.s): the filename every disc command works through.
-   *
-   * One buffer for the whole editor, filled by the file selector and read by
-   * `Prg_Load`, `Prg_Save` and `Ed_MakeBak`. With no requester installed it is
-   * what a command uses, which is exactly the ZAP path: `Ed_File_Selector`
-   * answers 1 without asking when `Ed_Zappeuse` is set (+Edit.s:14061).
-   */
-  name1 = ''
-
-  /**
-   * `Dia_LastKey` (+Lib.s:24196): the keystroke the last requester was
-   * answered with, as an `Inkey` long.
-   *
-   * EdD_Macro1 and EdD_MacroD wait for a key rather than a button, and this is
-   * where the answer lands. With no requester installed it is what a macro
-   * command uses, the same way `Name1` stands in for the file selector.
-   */
-  lastKey = 0
-
-  /**
-   * `Sys_Pathname(a5)`: the AMOSPro system directory.
-   *
-   * `Sys_AddPath` (+B.s:534) puts it in front of any name with no colon in
-   * it, which is how the default macro and config files are found. The
-   * machine works it out at boot from where AMOSPro was launched; this is the
-   * assign `src/cli/nodefs.ts` mounts it under.
-   */
-  sysPath = 'AMOSPro_System:'
-
-  /**
-   * `Ed_SvBak` (+Editor_Config.s:46, default -1): rename the old file to
-   * `.Bak` before saving over it.
-   */
-  svBak = true
-
-  /**
-   * DEVIATION: `DosBase`, which `D_Open` and `_LVORename` go through.
-   *
-   * The machine's editor calls dos.library directly and this port's model of
-   * it is `src/amiga/vfs.ts`. Null means no filesystem, and every command that
-   * needs one raises a disc error rather than pretending.
-   */
-  fs: EditorFS | null = null
-
-  /**
-   * `Ed_DError` (+Edit.s:14019): the last command died on a disc error.
-   *
-   * DEVIATION: the machine reads `_LVOIoErr`, maps it through `ErDisked` into
-   * `Ed_RunMessages` and puts up EdD_DiskErr. That message table is the
-   * interpreter's and this port has not generated it, so what is kept is the
-   * AmigaDOS code. 0 means the filesystem refused and did not say why.
-   */
-  diskError = -1
-
-  /**
-   * `T_Actualise`'s `BitControl` (+Equ.s:827): Ctrl-C is down.
-   *
-   * The editor's own loop simulates one at :1579 and `Ed_SchFront` reads it
-   * with `bclr`, so the flag is consumed by whoever notices it first.
-   */
-  abort = false
-
-  /**
-   * DEVIATION: the dialogues, which the machine draws and this port asks for.
-   *
-   * `Ed_DiaS` (:6962) fills `Ed_SchBuf` and `Ed_SchMode` off an Intuition
-   * requester and answers 1 for Ok. There is no requester here, so the host
-   * supplies one. Null means nobody did, and the commands then run on the
-   * buffers as they stand, which is a dialogue that always says Ok and
-   * changes nothing.
-   */
-  dialogues: EditorDialogues | null = null
-
   /** `Edt_EtatAff`: which fields of the status line are stale (+Equ.s:1962) */
   etatAff = 0
-
-  /** `Ed_SCallFlags`: what the command that just ran wants redrawn */
-  callFlags = 0
 
   /** `Edt_YOldBloc`: the line the cursor was on when the last command began */
   yOldBloc = 0
@@ -265,17 +188,211 @@ export class Edit {
    * Not readonly, because `Prg_ChgTTexte` (+Verif.s:4757) frees the old
    * allocation and makes a new one. `Ed_GetPlace` (+Edit.s:9915) does that
    * when a file will not fit, and the program in the old buffer is gone.
+   * `Edt_Prg` is a POINTER: Split View gives two windows the same one.
    */
   prog: ProgramBuffer
 
+  /* ---- what `a5` holds, reached through `Edt_` ---------------------------- */
+
+  /** `Ed_Block(a5)`: the editor's one clipboard, shared by every window */
+  get block(): Block {
+    return this.editor.block
+  }
+
+  /** `Ed_SchBuf(a5)`: what Search is looking for */
+  get schBuf(): string {
+    return this.editor.schBuf
+  }
+
+  set schBuf(v: string) {
+    this.editor.schBuf = v
+  }
+
+  /** `Ed_RepBuf(a5)`: what it is replaced with */
+  get repBuf(): string {
+    return this.editor.repBuf
+  }
+
+  set repBuf(v: string) {
+    this.editor.repBuf = v
+  }
+
+  /** `Ed_SchMode(a5)`: the four flag gadgets of ./search.ts's `SM` */
+  get schMode(): number {
+    return this.editor.schMode
+  }
+
+  set schMode(v: number) {
+    this.editor.schMode = v
+  }
+
+  /** `EdMa_List(a5)`: the macros, most recently made first */
+  get macros(): Macro[] {
+    return this.editor.macros
+  }
+
+  set macros(v: Macro[]) {
+    this.editor.macros = v
+  }
+
+  /** `EdMa_Play(a5)`: where playback has got to, null for none */
+  get macroPlay(): { keys: Uint8Array; at: number } | null {
+    return this.editor.macroPlay
+  }
+
+  set macroPlay(v: { keys: Uint8Array; at: number } | null) {
+    this.editor.macroPlay = v
+  }
+
+  /** `EdMa_Tape(a5)`: the buffer being recorded into, null for none */
+  get macroTape(): MacroTape | null {
+    return this.editor.macroTape
+  }
+
+  set macroTape(v: MacroTape | null) {
+    this.editor.macroTape = v
+  }
+
+  /** `EdMa_Change(a5)`, which nothing reads. ./windows.ts says why that matters */
+  get macroChange(): boolean {
+    return this.editor.macroChange
+  }
+
+  set macroChange(v: boolean) {
+    this.editor.macroChange = v
+  }
+
+  /** `EdMa_Changed(a5)`: raised by Load As, and read by Quit */
+  get macroChanged(): boolean {
+    return this.editor.macroChanged
+  }
+
+  set macroChanged(v: boolean) {
+    this.editor.macroChanged = v
+  }
+
+  /** `Name1(a5)`: the filename every disc command works through */
+  get name1(): string {
+    return this.editor.name1
+  }
+
+  set name1(v: string) {
+    this.editor.name1 = v
+  }
+
+  /** `Dia_LastKey`: the keystroke the last requester was answered with */
+  get lastKey(): number {
+    return this.editor.lastKey
+  }
+
+  set lastKey(v: number) {
+    this.editor.lastKey = v
+  }
+
+  /** `Sys_Pathname(a5)`: the AMOSPro system directory */
+  get sysPath(): string {
+    return this.editor.sysPath
+  }
+
+  set sysPath(v: string) {
+    this.editor.sysPath = v
+  }
+
+  /** `Ed_SvBak`: rename the old file to `.Bak` before saving over it */
+  get svBak(): boolean {
+    return this.editor.svBak
+  }
+
+  set svBak(v: boolean) {
+    this.editor.svBak = v
+  }
+
+  /** `DosBase`: the filesystem, null for none */
+  get fs(): EditorFS | null {
+    return this.editor.fs
+  }
+
+  set fs(v: EditorFS | null) {
+    this.editor.fs = v
+  }
+
+  /** `Ed_DError`: the AmigaDOS code the last command died on, -1 for none */
+  get diskError(): number {
+    return this.editor.diskError
+  }
+
+  set diskError(v: number) {
+    this.editor.diskError = v
+  }
+
+  /** the requesters, which the machine draws and this port asks for */
+  get dialogues(): EditorDialogues | null {
+    return this.editor.dialogues
+  }
+
+  set dialogues(v: EditorDialogues | null) {
+    this.editor.dialogues = v
+  }
+
+  /** `Ed_Insert`: config, so flipping it in one half of a split flips the other */
+  get insert(): boolean {
+    return this.editor.insert
+  }
+
+  set insert(v: boolean) {
+    this.editor.insert = v
+  }
+
+  /** `Ed_Tabs`: three spaces */
+  get tabs(): number {
+    return this.editor.tabs
+  }
+
+  set tabs(v: number) {
+    this.editor.tabs = v
+  }
+
+  /** `T_Actualise`'s `BitControl`: Ctrl-C is down */
+  get abort(): boolean {
+    return this.editor.abort
+  }
+
+  set abort(v: boolean) {
+    this.editor.abort = v
+  }
+
+  /** `Ed_SCallFlags`: what the command that just ran wants redrawn */
+  get callFlags(): number {
+    return this.editor.callFlags
+  }
+
+  set callFlags(v: number) {
+    this.editor.callFlags = v
+  }
+
+  /**
+   * `Edt_OpWindow`'s two allocations (:11253) and the link that follows them.
+   *
+   * A window links in after whichever one is current, which is what the
+   * machine does because `Edt_Next` is a forward chain with no tail. The
+   * program's window count goes up here and `Edt_DelWindow` brings it down.
+   *
+   * `Edt_Current` is set by `Edt_OpWindow` only for a VISIBLE window; here the
+   * first window in the list takes it whatever it is, because an editor whose
+   * only window is hidden is not a state the machine can reach either.
+   */
   constructor(
     prog: ProgramBuffer,
     readonly buf: EditBuffer,
     readonly undo: UndoBuffer,
     readonly table: TokenTable,
     readonly opts: EdtokOptions = {},
+    readonly editor: Editor = new Editor(),
   ) {
     this.prog = prog
+    prog.edited++
+    this.editor.link(this.editor.current, this)
+    if (this.editor.current === null) this.editor.current = this
   }
 
   /** the program line under the cursor: `Edt_YPos + Edt_YCu` */

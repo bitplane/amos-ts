@@ -262,4 +262,14 @@ export interface EditorDialogues {
    * Ed_NotDone`, and both go to the same place.
    */
   pressKey(which: number): number
+  /**
+   * DEVIATION: `Ed_LinkCursor` (:2342) waits for a MOUSE CLICK, not a
+   * requester. It spins on `MouseKey` until button 1 goes down, reads
+   * `GetZone`, and refuses anything that is not another editor window's zone.
+   *
+   * There is no mouse here, so the host answers the `Edt_Window` number the
+   * click landed on. Zero is "not a window", which is what the three `bne
+   * Ed_NotDone` guards around the click come to.
+   */
+  pickWindow(): number
 }
