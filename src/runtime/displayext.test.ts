@@ -26,7 +26,7 @@ const table = new TokenTable(CORE_TOKENS)
 /**
  * Slot 24, three ways: the Extension Examiner export derives it twice, from
  * the default routine and from the error routine, and routine 0's
- * `move.l a3,$268(a5)` is ($268-$f8)/16+1 on the ExtAdr layout (+Equ.s:1185).
+ * `move.l a3,$268(a5)` is ($268-$f8)/16+1 on the ExtAdr layout (+Equ.s:1157).
  */
 const display = extensionById('display-0.01')!
 

@@ -11,7 +11,7 @@
  *
  *   `dospattern.ts`   dos.library's ParsePattern/MatchPattern, behind
  *                     LDos's `Lmatch` and JD-K3's `Jd Match`
- *   Joker             AMOS's own, +Lib.s:6631
+ *   Joker             AMOS's own, +Lib.s:6602
  *   this              Angela Schmidt's, and closest of the three to a
  *                     regular expression: it has alternation and negation
  *

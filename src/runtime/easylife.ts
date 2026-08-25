@@ -1927,7 +1927,7 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      *     cmp.l #$1a,d0 / Rbcc routine 3       1..25, the extension slots
      *     subq.l #$1,d0 / asl.l #$4,d0 / addi.l #$f8,d0 / move.l (a5,d0.l),d3
      *
-     * $f8 is ExtAdr and sixteen bytes is one slot (+Equ.s:1176-1183), so this
+     * $f8 is ExtAdr and sixteen bytes is one slot (+Equ.s:1148-1155), so this
      * is the BASE pointer of extension NUM. Zero answers a5 itself, negative
      * answers 0.
      *
@@ -3131,7 +3131,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      * erase` have one space each and not one of AMOS's own 778 core names has
      * an internal double space. So it is a typo in the author's source — and
      * a harmless one, because the editor's tokeniser throws spaces away
-     * before it matches (`TkOtre: cmp.b #" ",d0 / beq TokLoop`, +Edit.s:14414,
+     * before it matches (`TkOtre: cmp.b #" ",d0 / beq TokLoop`, +Edit.s:14387,
      * "Saute les 32"). A table name's spacing is for DISPLAY, and `ElmzSet`,
      * `Elmz Set` and `Elmz  Set` all reach this same token. Dispatch here is
      * by the table's name, so the key has to match it exactly.

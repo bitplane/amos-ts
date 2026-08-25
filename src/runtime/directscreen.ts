@@ -379,7 +379,7 @@ export class DirectScreen {
     }
     if (n === 2) {
       // Ed_Wb (+Edit.s:11201) is `EcCalD AMOS_WB,0`, which is the same call
-      // InAmosToBack makes (+Lib.s:11367)
+      // InAmosToBack makes (+Lib.s:11338)
       this.rt.amosToBack()
       return
     }
@@ -408,7 +408,7 @@ export class DirectScreen {
   }
 
   /**
-   * The button strip under the mouse (Esc_MKey / Esc_MBoutons +Edit.s:8996).
+   * The button strip under the mouse (Esc_MKey / Esc_MBoutons +Edit.s:8969).
    *
    * `Bt_Gere` fires on the press, and the button shows its down image while
    * it is held, which is what `Bt_Pos` selects between the two pictures every

@@ -207,7 +207,7 @@ import { AmigaFS } from '../amiga/vfs'
  * One rainbow (RainTable entry, +WEqu.s:169-183, NbRain = 4). The 12-bit
  * colour table is generated once by Set Rainbow (TRSet +W.s:3990); Rainbow
  * n,base,y,h stores raw values and pending-change bits (RnAct), which the
- * copper build folds into the display fields lazily (RainA1-A5 +W.s:6079).
+ * copper build folds into the display fields lazily (RainA1-A5 +W.s:6050).
  */
 export interface Rainbow {
   /** RnColor: the palette register the copper writes (0-15) */
@@ -874,7 +874,7 @@ export class Runtime {
    * the other side: there is no second renderer to hang a screen off.
    *
    * AMOS answered the question before it was asked. It opens screens BASIC
-   * cannot name — EcFonc 8, EcEdit 9, EcFsel 10, EcReq 11 (+Equ.s:792) — and
+   * cannot name — EcFonc 8, EcEdit 9, EcFsel 10, EcReq 11 (+Equ.s:764) — and
    * they are ordinary screens in every respect the hardware cares about: a
    * slot in `screens`, a place in `order`, a band in the copper list, a slot
    * in the chip address space. What makes one a system screen is only that
@@ -1143,7 +1143,7 @@ export class Runtime {
     return b
   }
 
-  // ---- user copper (CpInit/TCop* +W.s:6764-6935) ----
+  // ---- user copper (CpInit/TCop* +W.s:6735-6906) ----
   /**
    * Two real copper-list buffers in mapped chip RAM (T_CopLogic /
    * T_CopPhysic). T_CopLong is interpreter-config item 12, "Taille liste
@@ -2170,14 +2170,14 @@ export class Runtime {
   mouseShapeNo = 1
   mouseShape: BankImage | null = null
   /** T_MouShow: visible while >= 0; Hide decrements / Show increments,
-   * Hide On forces -1 / Show On forces 0 (MHide/MShow/HiSho +W.s:10722) */
+   * Hide On forces -1 / Show On forces 0 (MHide/MShow/HiSho +W.s:10693) */
   mouseShow = 0
 
   /**
    * Scanlines the hardware-sprite multiplexer's column buffer holds
    * (T_HsNLine). 128 from the interpreter config (+Interpreter_Config.s:61,
    * read by HsInit +W.s:9421); Set Sprite Buffer n stores n+2 because
-   * HsSBuf adds two before reserving (+W.s:11268). Column capacity is this
+   * HsSBuf adds two before reserving (+W.s:11239). Column capacity is this
    * less 2 words — see spriteChannels.
    */
   spriteBufferLines = 128
@@ -4221,7 +4221,7 @@ export class Runtime {
    *     move.l  d1,a1 / jsr (a1)
    *     lea     16(a0),a0 / dbra d0,L   ; sixteen bytes a slot, twenty-six
    *
-   * and `ExtAdr: rs.l 26*4` (+Equ.s:1185) is the table AMCAF's Extbase and
+   * and `ExtAdr: rs.l 26*4` (+Equ.s:1157) is the table AMCAF's Extbase and
    * Extdefault index as `$f8(a5)` — the same twenty-six slots, the same
    * sixteen bytes, the same `+$4`. So an accessory starts with every
    * extension's settings back at boot, and this port ran none of them until
@@ -4399,8 +4399,8 @@ export class Runtime {
   // ---- STOS-compatibility Anim / Move X / Move Y ----
   // Each channel carries independent Anim/MoveX/MoveY program slots
   // beside its AMAL program (the 68k IDs them channel*4+mode, CreAMAL
-  // +W.s:7998). The strings compile in TokAMAL's AniStos pass (+W.s:7483)
-  // and run in the AmAnim/AmMvtX/AmMvtY executors (+W.s:8721/8749).
+  // +W.s:7998). The strings compile in TokAMAL's AniStos pass (+W.s:7454)
+  // and run in the AmAnim/AmMvtX/AmMvtY executors (+W.s:8721/8720).
   stosSlots = new Map<number, { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove }>()
 
   stosSlot(n: number): { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove } {
@@ -4780,7 +4780,7 @@ export class Runtime {
    * screen; an existing (colour, screen) entry is replaced, otherwise a
    * free slot is taken. A full table (FlMax=16 active flashes, checked
    * before the search) raises error 7 → "Too many colours in flash"
-   * (EcWiErr maps code n to message 44+n, +Lib.s:12946/+Equ.s:799).
+   * (EcWiErr maps code n to message 44+n, +Lib.s:12917+Equ.s:799).
    * The 68k pokes counter=1 so the first vbl applies the first pair.
    */
   flashStart(reg: number, seq: Array<{ rgb: number; ticks: number }>): void {
@@ -5019,7 +5019,7 @@ export class Runtime {
     // the Omega player is an ordinary AMOS VblRout entry in the same library
     // as AMOS's own music, so it runs in front of nothing and behind nothing
     musicOmegaVbl(this)
-    // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
+    // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1149)
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits
     jotreVbl(this.jotre)

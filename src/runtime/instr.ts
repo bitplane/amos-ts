@@ -301,7 +301,7 @@ function planeBase(rt: Runtime, plane: number, phys: number): number {
  * little state machine driven by "(interval,step,count)" groups — every
  * `interval` lines add `step` to the 4-bit component, `count` times, then
  * load the next group (wrapping at the end; count 0 repeats forever).
- * Numbers are AniLong's (+W.s:7088): optional '-', decimal or $hex.
+ * Numbers are AniLong's (+W.s:7059): optional '-', decimal or $hex.
  * Groups must be juxtaposed — a comma BETWEEN groups is a syntax error
  * (RainTok +W.s:4089); lowercase letters and spaces are skipped as noise
  * (AniChr +W.s:7041). An empty string freezes the channel at its seed.
@@ -1375,7 +1375,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } while (it.accept(','))
     },
     /**
-     * Get Palette n[,mask] (InGetPalette1/2 +Lib.s:9273/9279). The one-argument
+     * Get Palette n[,mask] (InGetPalette1/2 +Lib.s:9244/9279). The one-argument
      * form pushes the screen and sets the mask to -1, then falls into the
      * two-argument one — which is why an absent mask means every colour.
      *
@@ -1438,7 +1438,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         scr().font = null // ROM/synthetic: the built-in 8x8 face
       }
     },
-    // InGetFonts/Igf +Lib.s:9772: d1 mask 3/1/2 selects rom+disc, rom
+    // InGetFonts/Igf +Lib.s:9743: d1 mask 3/1/2 selects rom+disc, rom
     // only, disc only; Font$/Set Font see the filtered list
     'get fonts'() {
       rt.fontsListed = 3
@@ -1709,7 +1709,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().newline()
     },
     // Every cursor move is a console CHARACTER on the machine — InCup is
-    // `lea ChCUp` + GoWn with ChCUp = chr(30) (+Lib.s:13394) — so it runs
+    // `lea ChCUp` + GoWn with ChCUp = chr(30) (+Lib.s:13365) — so it runs
     // inside WOutC's EffCur/AffCur bracket and the drawn cursor moves with
     // it. Sending the character rather than poking curX/curY is both the
     // faithful path and the one that cannot leave a cursor behind.
@@ -1774,7 +1774,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'curs on'() {
       // InCursOn +Lib.s:13389 sends ESC "C1", and every console character
-      // runs inside WOutC's EffCur/AffCur bracket (+W.s:15385) — which is
+      // runs inside WOutC's EffCur/AffCur bracket (+W.s:15356) — which is
       // what lifts the drawn cursor out of the bitmap before the flag moves
       const s = scr()
       s.console(() => {
@@ -1891,7 +1891,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.unfreezeAll()
     },
     'set tempras'(it) {
-      // InSetTempras0/1/2 (+Lib.s:9997): [size | addr,size] with size
+      // InSetTempras0/1/2 (+Lib.s:9968): [size | addr,size] with size
       // 256..65535; the chunky renderer needs no raster buffer, so the
       // validated values are stored and unused
       if (it.atStmtEnd()) {
@@ -1917,7 +1917,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.evalInt()
     },
 
-    // ---- pointer visibility (MHide/MShow +W.s:10722, both no-ops under
+    // ---- pointer visibility (MHide/MShow +W.s:10693, both no-ops under
     // Copper Off): a counter, visible while >= 0; Hide/Show step it,
     // the On forms force -1 / 0 ----
     hide: () => {
@@ -2060,7 +2060,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       void it
       rt.updateBobs() // one manual update pass
     },
-    // ---- Update family (InUpdate* +Lib.s:11452-11527): both pipelines ----
+    // ---- Update family (InUpdate* +Lib.s:11423-11498): both pipelines ----
     'update on'() {
       rt.bobUpdateOn = true
       rt.spriteUpdateOn = true
@@ -2402,7 +2402,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     // The table belongs to the CURRENT SCREEN (EcAZones/EcNZones), and all
     // three of these go through T_EcCourant to reach it. See Screen.zones.
     'reserve zone'(it) {
-      // InReserveZone0/1 (+Lib.s:10924): the count is checked for sign
+      // InReserveZone0/1 (+Lib.s:10895): the count is checked for sign
       // (`move.l d3,d1 / Rbmi L_FonCall`) and a screen must be open
       // (`tst.w ScOn(a5) / Rbeq L_ScNOp`) BEFORE SyResZ allocates n*8 bytes.
       // The no-argument form is `moveq #0,d3`, which reserves nothing at all
@@ -2445,7 +2445,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.zones[n - 1] = { x1: x1 & 0xffff, y1: y1 & 0xffff, x2: x2 & 0xffff, y2: y2 & 0xffff }
     },
     'reset zone'(it) {
-      // InResetZone0/1 (+Lib.s:10940) -> SyRazZ (+W.s:11065). A null table is
+      // InResetZone0/1 (+Lib.s:10911) -> SyRazZ (+W.s:11065). A null table is
       // NoZo, which returns 29 and which this caller alone turns into error
       // 73 (`.Err moveq #73,d0 / Rbra L_GoError`) rather than into 23 — the
       // only place "No zones defined" is raised.
@@ -2521,7 +2521,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     // ---- dialogs (Interface language) ----
     'dialog open'(it) {
-      // InDialogOpen2/3/4 +Lib.s:14330: Dialog Open c,prog[,nvars[,buflen]];
+      // InDialogOpen2/3/4 +Lib.s:14301: Dialog Open c,prog[,nvars[,buflen]];
       // prog is a string or a program number (<1024) in the resource bank
       const c = it.evalInt()
       if (c <= 0) throw new AmosError('function call error')
@@ -2566,7 +2566,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.dialogs.set(c, chan)
     },
     'dialog close'(it) {
-      // InDialogClose0/1 +Lib.s:14399
+      // InDialogClose0/1 +Lib.s:14370
       if (it.atStmtEnd()) {
         rt.dialogs.clear()
         return
@@ -2611,7 +2611,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       updateZone(d, z, v, p4, p5, rt.dialogHost, rt.dialogDraw)
     },
     'dialog freeze'(it) {
-      // InDialogFreeze0/1 +Lib.s:14426
+      // InDialogFreeze0/1 +Lib.s:14397
       if (it.atStmtEnd()) {
         for (const d of rt.dialogs.values()) d.frozen = true
         return
@@ -3051,7 +3051,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.trackStop()
     },
     run(it) {
-      // InRun0/1 +ILib.s:1465: bare Run only works in direct mode —
+      // InRun0/1 +ILib.s:1436: bare Run only works in direct mode —
       // inside a program it is a syntax error; Run "file" chains to the
       // new program (screens kept, banks replaced by the file's)
       if (it.atStmtEnd()) throw new AmosError('syntax error')
@@ -3612,7 +3612,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- memory / banks ----
-    // InResData/InResWork +Lib.s:2437-2454 each `Rlea` a name out of the
+    // InResData/InResWork +Lib.s:2408-2425 each `Rlea` a name out of the
     // eight-byte table at +Lib.s:3644-3658, where BkDat is "Data    ". The
     // shipped AMOSPro.Lib agrees: "Sprites Icons   Music   Amal    Menu
     // Data    Work    Asm     Iff     Loading!", one run of eight-byte
@@ -3635,7 +3635,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'erase temp'() {
       // Bnk.EffTemp +Lib.s:8030 tests `btst #Bnk_BitData,d0` and NOTHING
       // else, so what survives is Data banks. A Bob or Icon bank survives
-      // because Bnk.ResBob/ResIco (+Lib.s:8153/8145) build their flags as
+      // because Bnk.ResBob/ResIco (+Lib.s:8124/8116) build their flags as
       // `(1<<Bnk_BitBob)+(1<<Bnk_BitData)` -- it is a Data bank -- and not
       // because the sweep knows about object banks at all
       for (const b of rt.bankRefs()) {
@@ -3680,7 +3680,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       bank.data = bank.data.subarray(0, len)
     },
     'list bank'(it) {
-      // InListBank/Bnk.List +Lib.s:2194/8616: ascending bank number;
+      // InListBank/Bnk.List +Lib.s:2165/8616: ascending bank number;
       // "NN - name8 S: $XXXXXXXX L: len" — numbers under 10 get a
       // leading space, bob/icon banks list their image COUNT as L:
       for (const b of rt.bankRefs()) {
@@ -4407,7 +4407,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (ch) ch.frozen = true
     },
     amplay(it) {
-      // InAmPlay2/4 +Lib.s:12017 → SetPlay +W.s:7908. The PLay instruction
+      // InAmPlay2/4 +Lib.s:11988 → SetPlay +W.s:7908. The PLay instruction
       // is steered entirely by two per-channel internal registers, and this
       // writes them across a range of channels in one go: R0 is the tempo,
       // R1 the direction (>0 forwards, 0 backwards, <0 abort). RegAMAL
@@ -4496,7 +4496,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.iffMask = it.evalInt()
     },
     'save iff'(it) {
-      // InSaveIff1/2 +Lib.s:4624: save the screen as a compressed ILBM;
+      // InSaveIff1/2 +Lib.s:4595: save the screen as a compressed ILBM;
       // the optional 2nd arg is the compression mode (must be < 3)
       const path = it.evalStr()
       if (it.accept(',')) {
@@ -4989,7 +4989,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.currentIndex)
     },
     'screen width'(_, a) {
-      // FnScreenWidth0/1 +Lib.s:8778: EcTx bitmap width; an explicit
+      // FnScreenWidth0/1 +Lib.s:8749: EcTx bitmap width; an explicit
       // unopened screen number is an error, not a fallback
       return VI(screenArg(rt, a).width)
     },
@@ -5186,11 +5186,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
     },
     'bobsprite col'(_, a) {
-      // FnBobSpriteCol1/3 +Lib.s:12367: bob n against hardware sprites
+      // FnBobSpriteCol1/3 +Lib.s:12338: bob n against hardware sprites
       return VI(rt.bobSpriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
     },
     'spritebob col'(_, a) {
-      // FnSpriteBobCol1/3 +Lib.s:12419: sprite n against bobs
+      // FnSpriteBobCol1/3 +Lib.s:12390: sprite n against bobs
       return VI(rt.spriteBobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 10000))
     },
     hardcol(_, a) {
@@ -5206,7 +5206,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.colGet(int(a[0]!)))
     },
     zone(_, a) {
-      // FnZone2/3 (+Lib.s:10974) -> SyZoGr (+W.s:11112) -> GZone. The
+      // FnZone2/3 (+Lib.s:10945) -> SyZoGr (+W.s:11112) -> GZone. The
       // three-argument form names the screen whose table is walked, and it
       // is a real difference now that a table belongs to a screen: `Zone(x,y)`
       // is the current one, `Zone(screen,x,y)` any open one. Screen
@@ -5217,7 +5217,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.zoneAt(s, int(a[a.length - 2]!), int(a[a.length - 1]!)))
     },
     hzone(_, a) {
-      // FnHZone2/3 (+Lib.s:11009) -> SyZoHd (+W.s:11121) -> ZoEc -> GZone.
+      // FnHZone2/3 (+Lib.s:10980) -> SyZoHd (+W.s:11121) -> ZoEc -> GZone.
       // ZoEc is the same routine Mouse Zone reaches, so Hzone gets its
       // BOUNDS TEST too: a hardware coordinate outside the screen's
       // displayed window answers 0 without the table ever being walked
@@ -5472,7 +5472,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     'dialog run'(it, a) {
-      // FnDialogRun1/2/4 +Lib.s:14500: =Dialog Run(c[,label][,x,y]); RU in
+      // FnDialogRun1/2/4 +Lib.s:14471: =Dialog Run(c[,label][,x,y]); RU in
       // the script blocks the interpreter until the wait loop exits
       const c = int(a[0]!)
       if (c <= 0) throw new AmosError('function call error')
@@ -5617,7 +5617,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(a.length > 0 ? str(a[a.length - 1]!) : '')
     },
     rdialog(_, a) {
-      // FnRDialog2/3 +Lib.s:14588 → Dia_GetValue: a zone's numeric result
+      // FnRDialog2/3 +Lib.s:14559 → Dia_GetValue: a zone's numeric result
       // (string-valued zones read as 0)
       const v = rdialogValue(rt, a)
       return VI(v.s === null ? v.n : 0)
@@ -5773,7 +5773,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(known.includes(s.slice(0, -1).toLowerCase()) ? -1 : 0)
     },
     'scan$'(_, a) {
-      // FnScan1/2 +Lib.s:13799: a 4-byte Put Key scancode injection
+      // FnScan1/2 +Lib.s:13770: a 4-byte Put Key scancode injection
       // string — chr$(1), scancode, shift, chr$(0); both bytes < 256
       const scan = int(a[0]!)
       const shift = a.length > 1 ? int(a[1]!) : 0

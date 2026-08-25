@@ -10,7 +10,7 @@ import { joker, matchesJoker } from './joker'
  * This replaced a RegExp approximation that treated the filter as AmigaDOS's
  * `#?` / `*` / `?`. Four of the five rules below refute it.
  */
-describe('Joker — AMOS\'s own filename filter (+Lib.s:6631)', () => {
+describe('Joker — AMOS\'s own filename filter (+Lib.s:6602)', () => {
   it('folds case on both sides (JokA/JokB)', () => {
     expect(joker('README', 'readme')).toBe(true)
     expect(joker('readme', 'README')).toBe(true)

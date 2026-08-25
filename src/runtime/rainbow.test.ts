@@ -288,7 +288,7 @@ describe('the out-of-the-box cursor (AffCur +W.s:13575 + Flash 3 +Lib.s:8989)', 
   })
 
   it('Curs Pen recolours the cursor that is already drawn, and checks its range', () => {
-    // InCursPen sends ESC "D" + colour (+Lib.s:13330), inside the bracket
+    // InCursPen sends ESC "D" + colour (+Lib.s:13301), inside the bracket
     const { rt } = boot('Flash Off : Colour 7,$00F : Locate 0,0 : Curs Pen 7')
     expect(pix12(rt, 0, 6 * 2)).toBe(0x00f)
     // CurCol (+W.s:14778) refuses a colour the screen has not got

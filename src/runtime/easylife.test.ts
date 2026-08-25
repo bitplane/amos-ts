@@ -824,7 +824,7 @@ describe('EasyLife: system, AmigaDOS and fonts (routines 105-163)', () => {
   }
 
   it('El Base answers an extension slot, and bounds itself to 1..25', () => {
-    // `$f8` is ExtAdr, sixteen bytes a slot -- +Equ.s:1176-1183
+    // `$f8` is ExtAdr, sixteen bytes a slot -- +Equ.s:1148-1155
     expect(run(OPEN + 'Print El Base(16)<>0;El Base(3);El Base(-1)\n').out).toBe('-1 0 0\n')
     expect(fails(OPEN + 'Print El Base(26)\n')).toMatch(/Illegal function call/)
   })

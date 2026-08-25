@@ -63,7 +63,7 @@ export class Display {
    * overscan window, doubled). */
   /**
    * Fold Rainbow-instruction changes into the display fields, exactly like
-   * the copper build's activation pass (RainA1-A5 +W.s:6079): a height
+   * the copper build's activation pass (RainA1-A5 +W.s:6050): a height
    * change re-latches RnTY and forces the Y pass; the Y pass clamps the
    * start to hardware line 28; a base change is IGNORED when out of range
    * (RainA4 keeps the old base). Nothing happens while h < 0.
@@ -237,7 +237,7 @@ export class Display {
     /**
      * EcCopBa (+W.s:6712): stop the DMA and put the fond back in colour 0.
      *
-     * Clamped to T_EcYMax-1, which is what MkA9a/MkA11 (+W.s:5967-5985) do
+     * Clamped to T_EcYMax-1, which is what MkA9a/MkA11 (+W.s:5938-5956) do
      * with a window whose end falls below the bottom of the display: the end
      * is recorded at EcYMax-1 rather than dropped. It has to be, because
      * DMACON persists across the frame boundary — the region above the
@@ -302,7 +302,7 @@ export class Display {
       const didEnd = bandEnd && !endDropped
       if (didStart && f) {
         emitted = true
-        // EcCopHo head (+W.s:6293) — the band splitter stores boundaries
+        // EcCopHo head (+W.s:6264) — the band splitter stores boundaries
         // at EcWY-1 (MkD2 +W.s:5801), so the setup runs on the line BEFORE
         // the band and the DMA restart lands exactly on its first line
         wait(Math.max(0, L - 1))

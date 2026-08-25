@@ -473,7 +473,7 @@ describe('integration: Run and the environment cluster', () => {
   it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5510)', () => {
     const prog = ['Print Dev First$("*")', 'Print Dev Next$', 'Print Prg First$("*")'].join('\n')
     const { out } = run(prog)
-    // FnFillNext format (+Lib.s:5583): a marker space, the name padded to
+    // FnFillNext format (+Lib.s:5554): a marker space, the name padded to
     // the Set Dir width (30), then an 8-char size field — spaces for
     // devices (FillDev pokes size -1)
     const lines = out.split('\n')
@@ -515,7 +515,7 @@ describe('integration: Run and the environment cluster', () => {
   })
 })
 
-describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+Lib.s:5291)', () => {
+describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+Lib.s:5291)', () => {
   it('Field defines records; Put pads/truncates; Get reads them back', () => {
     const prog = [
       'Open Random 1,"DH0:db.dat"',
@@ -1992,7 +1992,7 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(out).toBe(' 5\n')
   })
 
-  it('Scan$ builds the 4-byte Put Key injection string (FnScan1/2 +Lib.s:13799)', () => {
+  it('Scan$ builds the 4-byte Put Key injection string (FnScan1/2 +Lib.s:13770)', () => {
     const { out } = run('A$=Scan$(69) : Print Len(A$);Asc(Mid$(A$,1,1));Asc(Mid$(A$,2,1))')
     expect(out).toBe(' 4 1 69\n')
     const { out: out2 } = run('A$=Scan$(69,3) : Print Asc(Mid$(A$,3,1))')
@@ -2141,7 +2141,7 @@ describe('function-argument To ranges (the "0,0T0" token specs)', () => {
   })
 })
 
-describe('the autoback bob bracket (TAbk1/TAbk4, +W.s:3577 and +W.s:3642)', () => {
+describe('the autoback bob bracket (TAbk1/TAbk4, +W.s:3548 and +W.s:3613)', () => {
   /** the bar's 666 pixels, less whatever the bob's stale save painted back */
   const barPixels = (rt: Runtime): number => {
     const s = rt.screens.get(0)!

@@ -865,7 +865,7 @@ export class Screen {
   }
 
   /**
-   * Hslider/Vslider (SliHor/SliVer, +W.s:5051/5086): track-before and
+   * Hslider/Vslider (SliHor/SliVer, +W.s:5051/5057): track-before and
    * track-after rects in the frame colours, the knob in the inner colours,
    * all pattern-filled and outlined in ink C (SliPut). Dialog sliders pass
    * their own per-channel colour set.
@@ -1418,7 +1418,7 @@ export class Screen {
           if (next < this.cols) this.curX = next
           break
         }
-        case 7: // ClEol — clear to the end of the cursor line (+W.s:14452)
+        case 7: // ClEol — clear to the end of the cursor line (+W.s:14423)
           this.clEol()
           break
         case 12: // Home — cursor to top-left, NO clear (ChHom in +Lib.s)
@@ -1454,7 +1454,7 @@ export class Screen {
         case 25: // Clw — clear the window (ChClw)
           this.clw()
           break
-        case 26: // ClLine — clear the cursor line (+W.s:14495)
+        case 26: // ClLine — clear the cursor line (+W.s:14466)
           this.clLine()
           break
         case 28: // cursor right (Cright$)
@@ -1530,7 +1530,7 @@ export class Screen {
   }
 
   /**
-   * TAbk1 before a drawing keyword and TAbk4 after it (+W.s:3577, +W.s:3642):
+   * TAbk1 before a drawing keyword and TAbk4 after it (+W.s:3577, +W.s:3613):
    * erase every bob, draw, then recompute and redraw them.
    *
    * Nearly everything that marks the screen goes through this. `GfxF0`

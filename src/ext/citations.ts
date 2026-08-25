@@ -529,10 +529,17 @@ export const CITED_BY: Record<string, string[]> = {
 
 /* ---- citations into the AMOS Professional sources ----------------------- */
 
-/** One `+Edit.s:8681` claim, with the symbol written in front of it. */
+/** One `+Edit.s:8681` claim, with the symbols written in front of it. */
 export interface SourceCitation {
-  /** the label the prose names, which is what the line number has to reach */
-  symbol: string
+  /**
+   * The labels the prose names, nearest to the citation first.
+   *
+   * More than one, because this tree writes `EcCopper/HsCop +W.s:5701/6786`
+   * and `TRSet/TRDo/TRVar/TRDel, +W.s:3916-4170`, where the number belongs to
+   * the FIRST name and not the one it touches. A citation is judged against
+   * all of them and passes if any resolves.
+   */
+  symbols: string[]
   /** the assembler file, `+Edit.s` and so on */
   file: string
   line: number
@@ -550,18 +557,23 @@ export interface SourceCitation {
  * Names under four characters are dropped: `10(a2)` in front of a citation
  * would otherwise offer `a2` as the symbol.
  */
-const SOURCE_CITE = /(`?)([A-Za-z_][A-Za-z0-9_.]*)`?,?\s*\(?\+(\w+\.s):(\d+)(?:-(\d+))?/g
+const SOURCE_CITE = /\+(\w+\.s):(\d+)(?:-(\d+))?/g
+const NAME = /[A-Za-z_][A-Za-z0-9_.]*/g
+
+/** how many names in front of a citation can be its subject */
+const NAMES_BEFORE = 4
 
 export function parseSourceCitations(text: string): SourceCitation[] {
   const out: SourceCitation[] = []
   text.split('\n').forEach((line, i) => {
     for (const m of line.matchAll(SOURCE_CITE)) {
-      if (m[2]!.length < 4) continue
+      const before = line.slice(0, m.index)
+      const names = [...before.matchAll(NAME)].map((n) => n[0]).filter((n) => n.length >= 4)
       out.push({
-        symbol: m[2]!,
-        file: `+${m[3]!}`,
-        line: Number(m[4]),
-        end: m[5] === undefined ? null : Number(m[5]),
+        symbols: names.slice(-NAMES_BEFORE).reverse(),
+        file: `+${m[1]!}`,
+        line: Number(m[2]),
+        end: m[3] === undefined ? null : Number(m[3]),
         at: i + 1,
       })
     }

@@ -222,7 +222,7 @@ export function makeMusicOmegaInstructions(rt: Runtime): Record<string, Instr> {
      *
      * That path is unreached by the only program we hold. `techno.amos`
      * writes `Starset Start(13),` and elides the second argument, so `a0`
-     * arrives as EntNul ($80000000, +Equ.s:67), $928 becomes $80000018, and
+     * arrives as EntNul ($80000000, +Equ.s:39), $928 becomes $80000018, and
      * the 'AM' test reads whatever is at that address. Here `resolveAddr`
      * answers null for it and the AMOS-sample arm never fires, which is the
      * same outcome by a defensible route rather than by luck.

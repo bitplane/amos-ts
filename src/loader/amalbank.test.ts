@@ -42,7 +42,7 @@ describe.skipIf(!existsSync(PLAY_DATA))('the AMAL bank (bank 4, "Amal")', () => 
     expect(bank.name).toBe('Amal')
   })
 
-  it('reads the movement table AmPli walks (+W.s:8663)', () => {
+  it('reads the movement table AmPli walks (+W.s:8634)', () => {
     const b = playDataBank()
     const amal = parseAmalBank(b.data)
     // count word at payload+4, then a 1-based word-offset table; this bank

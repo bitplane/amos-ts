@@ -103,7 +103,7 @@ describe('zones and dialogs', () => {
   })
 
   it('Dialog Freeze and Dialog Unfreeze reject a channel that is not open', () => {
-    // InDialogFreeze0/1 +Lib.s:14426 — a bad channel number is an error
+    // InDialogFreeze0/1 +Lib.s:14397 — a bad channel number is an error
     expect(() => run('Dialog Freeze 1')).toThrow()
     expect(() => run('Dialog Unfreeze 1')).toThrow()
     expect(() => run('Dialog Freeze 0')).toThrow(/function call error/)

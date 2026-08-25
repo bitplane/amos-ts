@@ -56,7 +56,7 @@ describe('Ercole 1.7 — the game-port extras', () => {
   })
 
   it('Prop On installs the VBL sampler and Prop Off clears it (routines 1 $12c, 2 $13e)', () => {
-    // `move.l a0,$4(a5)` is VblRout[1] (+Equ.s:1177), and Prop Off is `clr.l`
+    // `move.l a0,$4(a5)` is VblRout[1] (+Equ.s:1149), and Prop Off is `clr.l`
     expect(run('Prop On').rt.ercole.prop).toBe(true)
     expect(run('Prop On\nProp Off').rt.ercole.prop).toBe(false)
   })

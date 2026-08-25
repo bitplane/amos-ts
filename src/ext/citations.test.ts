@@ -792,11 +792,17 @@ describe('citations into the AMOS sources name the corpus checkout', () => {
         const other = amosSource(c.file, 'other')
         if (mine === null || other === null) continue
         const la = labelsOf(c.file, 'corpus', mine)
-        if (la.at.get(c.symbol) === undefined) continue
+        // the name the citation touches decides whether there is anything to
+        // check; any of the names in front of it can satisfy it
+        const subject = c.symbols[0]
+        if (subject === undefined || la.at.get(subject) === undefined) continue
+        const named = c.symbols.filter((s) => la.at.get(s) !== undefined)
         checked++
-        if (citationResolves(mine, la, c.symbol, c.line)) continue
-        if (!citationResolves(other, labelsOf(c.file, 'other', other), c.symbol, c.line)) continue
-        bad.push(`${relative(root, p)}:${c.at} ${c.symbol} ${c.file}:${c.line}`)
+        if (named.some((s) => citationResolves(mine, la, s, c.line))) continue
+        const lb = labelsOf(c.file, 'other', other)
+        const wrong = named.filter((s) => citationResolves(other, lb, s, c.line))
+        if (wrong.length === 0) continue
+        bad.push(`${relative(root, p)}:${c.at} ${wrong[0]!} ${c.file}:${c.line}`)
       }
     }
     expect(bad).toEqual([])

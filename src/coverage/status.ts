@@ -125,9 +125,9 @@ export const FAITHFUL = new Set<string>([
   'starset',
   'starstop',
   // faithfulness pass: Inc/Dec/Add operate on the variable long with
-  // 32-bit wrap (InInc/InDec/InAdd +ILib.s:4382-4423, base-To-top wrap
+  // 32-bit wrap (InInc/InDec/InAdd +ILib.s:4353-4394, base-To-top wrap
   // both directions); Wait errors on negatives and Wait 0 is the
-  // endless Wait_Event loop (+Lib.s:2073/2115); Hunt takes Bnk.OrAdr
+  // endless Wait_Event loop (+Lib.s:2073/2086); Hunt takes Bnk.OrAdr
   // starts and allows matches overhanging the end (+Lib.s:2672);
   // cluster.test.ts cites each
   'add',
@@ -147,7 +147,7 @@ export const FAITHFUL = new Set<string>([
   'reserve as chip data',
   'reserve as chip work',
   // text & fonts: At escapes + 207 limit (FnAt +Lib.s:14017), Locate/
-  // Pen/Paper window errors (Loca/Pen +W.s:15364/14893 -> error 60),
+  // Pen/Paper window errors (Loca/Pen +W.s:15335/14893 -> error 60),
   // Border$'s Encadre escapes and box drawing (FnBorderD 14153 /
   // Encadre +W.s:15140, glyph bitmaps approximated — see NOTES),
   // Set Text as the rastport SoftStyle distinct from the console's
@@ -195,14 +195,14 @@ export const FAITHFUL = new Set<string>([
   'sprite base',
   'icon base',
   // Run/System and the environment cluster: Run's chain semantics
-  // (InRun0/1 +ILib.s:1465 — bare Run errors in a program, screens
+  // (InRun0/1 +ILib.s:1436 — bare Run errors in a program, screens
   // survive, banks replaced), System = run-error 1002 (1849), Set
   // Buffer is rts in the interpreter (1828), AMOS_WB no-ops on a
   // single display (+Lib.s:11361), Prg/Dev First$/Next$ share FillDev
   // (+Lib.s:5539); cluster.test.ts cites each
   'run',
   'prun',
-  // Start_FSel ported in full (+Lib.s:17756-19292); psel$ is a stub in the
+  // Start_FSel ported in full (+Lib.s:17727-19263); psel$ is a stub in the
   // original too, so matching it is the faithful behaviour
   'fsel$',
   'psel$',
@@ -1217,7 +1217,7 @@ export const FAITHFUL = new Set<string>([
   'lowres',
   'laced',
   // Logbase(n)/Phybase(n) return the real per-plane pointers (EcLogic[n]/
-  // EcPhysic[n], FnLogBase/FnPhyBase +Lib.s:8851/8864) into the screen's
+  // EcPhysic[n], FnLogBase/FnPhyBase +Lib.s:8822/8835) into the screen's
   // bitplane memory, which is now backed in chip RAM: planes are planeSize
   // apart (rowBytes*height, +W.s:1856), single-buffered Logbase==Phybase
   // (EcLogic==EcPhysic at open, +W.s:3001), Double Buffer splits them, and a
@@ -4228,8 +4228,8 @@ export const NA = new Set<string>([
   '||apcmp||',
   '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/',
   ',',
-  // raw machine-code / ROM-library calls (Lib.Call jsr 0(a0,d3), +Lib.s:2938;
-  // InCall jsr (a4), +ILib.s:5881) and their register/offset scaffolding.
+  // raw machine-code / ROM-library calls (Lib.Call jsr 0(a0,d3), +Lib.s:2909;
+  // InCall jsr (a4), +ILib.s:5852) and their register/offset scaffolding.
   // `@_apml_@` (In_apml_ +ILib.s:5842) is the AMOS Professional Machine
   // Language call: it pushes the argument list and does jsr (a6).
   '@_apml_@',
@@ -6828,7 +6828,7 @@ export const NOTES: Record<string, string> = {
     "for 'AM' ($414d) and taking a length from the word at +6 shifted down two. So a pattern's sample slot may " +
     "be an AMOS sample instead of one of the module's. That arm is unreached by the only program that calls " +
     "any of this: techno.amos writes `Starset Start(13),` and elides the second argument, which arrives as " +
-    "EntNul ($80000000, +Equ.s:67) and makes the base $80000018. resolveAddr answers null for it here, so the " +
+    "EntNul ($80000000, +Equ.s:39) and makes the base $80000018. resolveAddr answers null for it here, so the " +
     "arm stays shut for a defensible reason rather than by luck.",
   starstop:
     "Routine 85 ($28d2), forty-six bytes, and byte for byte the same eleven instructions as the interrupt's " +
@@ -8771,7 +8771,7 @@ export const NOTES: Record<string, string> = {
     "InReadText1/3 +Lib.s:14707 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program " +
     "1 of the system default resource bank, run on its own EcFsel screen sized PI_RtSx x PI_RtSy.",
   "set accessory":
-    "the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3748).",
+    "the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3719).",
   "set pattern":
     "SPat +W.s:4701: positive numbers index the mouse bank past its first four images, which are the pointer " +
     "shapes. Source: +W.s:16795.",
@@ -8915,7 +8915,7 @@ export const NOTES: Record<string, string> = {
     "SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line " +
     "editor",
   "fsel$":
-    "Start_FSel -> End_FSel (+Lib.s:17756-19292) over dialog program 2 of the system resource bank: config-sized " +
+    "Start_FSel -> End_FSel (+Lib.s:17727-19263) over dialog program 2 of the system resource bank: config-sized " +
     "screen, the FsV_ variable block, Fs_NomDir's path/filter split, the incremental Fs_First/Fs_Next read with " +
     "its sorted-insert view bump, Fs_GetName's Sizes column, all twenty Fs_Jumps zones, the Store directory " +
     "cache, Fs_Help type-ahead and the AppCentre slide.",
@@ -8937,9 +8937,9 @@ export const NOTES: Record<string, string> = {
     "the displayed window before any zone is considered, and a point outside it answers 0 rather than falling " +
     "through to the table. Source: +W.s:11216.",
   "zone":
-    "FnZone2/3 (+Lib.s:10974) -> SyZoGr -> GZone. Source: +W.s:10784.",
+    "FnZone2/3 (+Lib.s:10945) -> SyZoGr -> GZone. Source: +W.s:10784.",
   "hzone":
-    "FnHZone2/3 (+Lib.s:11009) -> SyZoHd -> ZoEc -> GZone, the same path Mouse Zone takes, so it inherits ZoEc's " +
+    "FnHZone2/3 (+Lib.s:10980) -> SyZoHd -> ZoEc -> GZone, the same path Mouse Zone takes, so it inherits ZoEc's " +
     "bounds test as well as its hardware-to-screen conversion",
   "reserve zone":
     "InReserveZone0 (+Lib.s:10895) is `moveq #0,d3`, so the bare form reserves ZERO zones: SyResZ frees the old " +
@@ -9029,7 +9029,7 @@ export const NOTES: Record<string, string> = {
   "sprite priority":
     "HsPri +W.s:11345. Source: +W.s:11742.",
   "set sprite buffer":
-    "InSetSpriteBuffer +Lib.s:12261 with HsSBuf/HsRBuf (+W.s:11268/11311): the >= 16 check errors, and the size " +
+    "InSetSpriteBuffer +Lib.s:12261 with HsSBuf/HsRBuf (+W.s:11239/11282): the >= 16 check errors, and the size " +
     "is stored as n+2 lines, leaving n words per multiplexer column.",
   "dual playfield":
     "pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its " +
@@ -9428,7 +9428,7 @@ export const NOTES: Record<string, string> = {
     "modelled by the Med Fastplay On/Off flag, since fast-ram replay is what that pair switches and this port has " +
     "no chip/fast split",
   "prop on":
-    "routine 1: `lea $10a(pc),a0 / move.l a0,$4(a5)`, which is VblRout[1] (+Equ.s:1177) — one of the eight " +
+    "routine 1: `lea $10a(pc),a0 / move.l a0,$4(a5)`, which is VblRout[1] (+Equ.s:1149) — one of the eight " +
     "per-frame slots AMOS calls at the vertical blank.",
   "prop off":
     "routine 2: `clr.l $4(a5)`, and nothing else at all",

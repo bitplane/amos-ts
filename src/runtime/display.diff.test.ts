@@ -35,7 +35,7 @@ const table = new TokenTable(CORE_TOKENS)
  * Copper Off and write the list back word for word through the user list.
  *
  * `Hide On` because Copper Off really does take the mouse pointer away
- * (TCopOn forces T_MouShow to -1, +W.s:6823). With it showing, the two
+ * (TCopOn forces T_MouShow to -1, +W.s:6794). With it showing, the two
  * displays are legitimately different and every scene would "fail" on the
  * pointer rather than on what it is meant to isolate.
  */

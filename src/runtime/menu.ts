@@ -326,7 +326,7 @@ export class MenuTree {
   }
 }
 
-// ---- rendering (MnDraw/MnODraw +Lib.s:16581-16923) ----
+// ---- rendering (MnDraw/MnODraw +Lib.s:16552-16894) ----
 
 import type { Screen } from './screen'
 import { builtinPattern } from './screen'

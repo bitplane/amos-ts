@@ -93,7 +93,7 @@ export const ERR = {
   /**
    * DEBase+2. `DiskError` (+Lib.s:12841) reads IoErr and indexes `ErDisk`,
    * whose third word is 205 = ERROR_OBJECT_NOT_FOUND, so a failed Open on a
-   * missing file lands on 79+2. `Rn_NoF moveq #81` (+ILib.s:1524) anchors it.
+   * missing file lands on 79+2. `Rn_NoF moveq #81` (+ILib.s:1495) anchors it.
    */
   FILE_NOT_FOUND: 81,
 } as const

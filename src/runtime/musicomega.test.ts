@@ -93,7 +93,7 @@ describe('Music (Omega): Starset', () => {
 
   it('takes an elided second argument, which is what the one real caller writes', () => {
     // techno.amos:70 is `Starset Start(13),` --- the comma's FnNull loads
-    // EntNul ($80000000, +Equ.s:67), so the sample base becomes $80000018 and
+    // EntNul ($80000000, +Equ.s:39), so the sample base becomes $80000018 and
     // the 'AM' test at $764 reads an address resolveAddr answers null for
     const rt = run(`${LOAD}Starset Start(5),`)
     expect(rt.musicOmega.samples).toBe(0x8000_0018)

@@ -224,11 +224,17 @@ if (!selfOnly) {
         labels = assemblerLabels(mine)
         cache.set(c.file, labels)
       }
-      if (labels.at.get(c.symbol) === undefined) continue
+      // the subject is the name the citation TOUCHES, and that is what
+      // decides whether there is anything to check; the names before it can
+      // still satisfy the check, because `EcCopper/HsCop +W.s:5701/6786`
+      // gives the first number to the first name
+      const subject = c.symbols[0]
+      if (subject === undefined || labels.at.get(subject) === undefined) continue
+      const named = c.symbols.filter((s) => labels!.at.get(s) !== undefined)
       lines++
-      if (citationResolves(mine, labels, c.symbol, c.line)) continue
+      if (named.some((s) => citationResolves(mine, labels!, s, c.line))) continue
       lost++
-      console.log(`${relative(root, p)}:${c.at}  ${c.symbol} ${c.file}:${c.line} — not inside ${c.symbol}`)
+      console.log(`${relative(root, p)}:${c.at}  ${c.file}:${c.line} — inside none of ${named.join(', ')}`)
     }
   }
   console.log(`${lines} source-line citations checked: ${lost} land outside the routine they name`)

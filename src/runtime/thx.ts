@@ -16,7 +16,7 @@
  * (06-Sep-96)` at $127b, and a second copy without the cookie at $1250.
  *
  * Slot 20, from routine 0's `move.l a4,$228(a5)` — `($228-$f8)/16 + 1 = 20` on
- * the ExtAdr layout +Equ.s:1176-1183 fixes. The Guide agrees, and says it in
+ * the ExtAdr layout +Equ.s:1148-1155 fixes. The Guide agrees, and says it in
  * the imperative: *"click on entry number 20"*.
  *
  * ## What routine 0 installs

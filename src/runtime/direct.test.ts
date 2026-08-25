@@ -340,7 +340,7 @@ describe('the escape screen buttons (Esc_Bouton +Edit.s:8955)', () => {
   const line = (rt: Runtime): string => (rt.directScreen as unknown as { line: string }).line
 
   it('F1-F10 type the editor\'s twenty macros, F11-F20 on Shift', () => {
-    // Esc_BtFonc reads system message 24+n (+Edit.s:9179), and Ed_GetSysteme
+    // Esc_BtFonc reads system message 24+n (+Edit.s:9152), and Ed_GetSysteme
     // is 1-based, so F1 is ED_SYSTEME[23]
     const rt = open()
     rt.directScreen.key('', 0x53) // F4: "Dir$='", no backtick, so it waits

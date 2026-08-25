@@ -38,7 +38,7 @@ const TK_END_PROC = TK.END_PROC
 /**
  * Bit 15 of the Procedure line's flags word at offset 10: the fold.
  *
- * `Ed_ProcOpen` is `bchg #7,10(a2)` (+Edit.s:8862) on the HIGH byte, which
+ * `Ed_ProcOpen` is `bchg #7,10(a2)` (+Edit.s:8835) on the HIGH byte, which
  * `Tk_FindL` reads as `tst.w 10(a0) / bmi`. One bit, two spellings.
  */
 export const PROC_CLOSED = 0x8000
@@ -199,7 +199,7 @@ export class ProgramBuffer {
    * The machine frees the old allocation and clears a new one, so the program
    * in it is GONE and only `Prg_NLigne` and the name survive the call. Every
    * caller that wants to keep the text copies it back afterwards, which is
-   * what `keep` is: `Ed_SetBuffer`'s grow arm (+Edit.s:9975) stacks the four
+   * what `keep` is: `Ed_SetBuffer`'s grow arm (+Edit.s:9948) stacks the four
    * old pointers, clears `Prg_StTTexte` so the allocation is not freed under
    * it, and puts the text back with `Ed_StoBlock`.
    *

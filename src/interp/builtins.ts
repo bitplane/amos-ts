@@ -261,7 +261,7 @@ export const INSTR: Record<string, Instr> = {
       it.dimArray(varKey(t.name, t.flags), varType(t.flags), dims)
     } while (it.accept(','))
   },
-  // Inc/Dec/Add (InInc/InDec/InAdd +ILib.s:4382-4423) operate on the
+  // Inc/Dec/Add (InInc/InDec/InAdd +ILib.s:4353-4394) operate on the
   // variable's long directly (addq.l/add.l), so integers wrap at 32
   // bits. Float targets get plain arithmetic here — the real machine
   // adds to the FFP bit pattern (garbage), which no sane program uses.

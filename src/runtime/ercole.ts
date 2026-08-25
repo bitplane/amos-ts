@@ -22,7 +22,7 @@
  * The readme agrees and is unusually blunt about it: *"Place this extension as
  * extension 10 otherwise it won`t work"*.
  *
- * `ExtAdr` is settled by +Equ.s:1176-1183 rather than by calibration, which
+ * `ExtAdr` is settled by +Equ.s:1148-1155 rather than by calibration, which
  * this port had only inferred before: `VblRout: rs.l 8`, `AdTokens: rs.l 27`,
  * `AdTTokens: rs.l 27` puts `ExtAdr` at 32+108+108 = 248 = **$f8**, with
  * `rs.l 26*4` — sixteen bytes a slot, twenty-six slots. So an extension's
@@ -43,7 +43,7 @@
  * ## Prop On is a VBL hook
  *
  * `Prop On` (routine 1) is `lea $10a(pc),a0 / move.l a0,$4(a5)` and `Prop Off`
- * (routine 2) is `clr.l $4(a5)`. `$4(a5)` is `VblRout[1]` (+Equ.s:1177), one
+ * (routine 2) is `clr.l $4(a5)`. `$4(a5)` is `VblRout[1]` (+Equ.s:1149), one
  * of the eight per-frame routine slots AMOS calls at the vertical blank. The
  * hook itself is nine instructions:
  *

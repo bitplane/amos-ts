@@ -251,7 +251,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     rt.pi.FsStore = 1
     openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
-    // FsV_Sort 7, FsV_Size 8, FsV_Store 16 (+Equ.s:2189), and FsV_PosFirst
+    // FsV_Sort 7, FsV_Size 8, FsV_Store 16 (+Equ.s:2161), and FsV_PosFirst
     // starts at -1 until Fs_First finds the first file (18737)
     expect([d.vars[7], d.vars[8], d.vars[16]]).toEqual([1, 0, 1])
     expect(d.vars[25]).toBe(-1)

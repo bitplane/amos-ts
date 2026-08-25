@@ -20,7 +20,7 @@
  *              Rl  WiVect,1        ->  T_WiVect = -12
  *
  * Each slot holds a table of `bra`s, four bytes apiece, which is why AMOS's
- * own `SyCall` / `EcCall` / `WiCall` macros (`+Equ.s:394`, `:660`, `:768`) are
+ * own `SyCall` / `EcCall` / `WiCall` macros (`+Equ.s:366`, `:660`, `:768`) are
  *
  *     SyCall: MACRO / move.l T_SyVect(a5),a0 / jsr \1*4(a0) / ENDM
  *

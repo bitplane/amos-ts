@@ -118,7 +118,7 @@ describe('user copper instructions (TCop* +W.s:6815-6935)', () => {
   })
 })
 
-describe('the system copper list (EcCopper/HsCop +W.s:5730/6786)', () => {
+describe('the system copper list (EcCopper/HsCop +W.s:5701/6786)', () => {
   it('is real readable memory: header, palette block, bitplane pointers, terminator', () => {
     const rt = run('Flash Off : Colour 1,$123\nWait Vbl : Wait Vbl')
     const l = rt.copLogic // the last-built list (swap leaves it readable)
@@ -182,7 +182,7 @@ describe('interpreting a user list (Copper Off display)', () => {
     // Copper Off, write it back through Cop Move 0,0 + Loke, Cop Swap
     const src = [
       // Hide On because Copper Off really does take the pointer away
-      // (TCopOn forces T_MouShow to -1, +W.s:6823) — with it showing, the
+      // (TCopOn forces T_MouShow to -1, +W.s:6794) — with it showing, the
       // two displays are legitimately different and the comparison below
       // would be measuring that instead of the list replay
       'Flash Off : Curs Off : Hide On',
@@ -267,7 +267,7 @@ describe('copper registers persist across frames, as the hardware\'s do', () => 
 describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5926)', () => {
   /**
    * MkA8 drops a window whose stored start boundary (EcWY-1) is above
-   * EcYStrt-1 (+Equ.s:575, EcYBase+26) or at/below T_EcYMax-2 (+W.s:2476,
+   * EcYStrt-1 (+Equ.s:547, EcYBase+26) or at/below T_EcYMax-2 (+W.s:2476,
    * 311+EcYBase on PAL). No band is written and the screen does not appear
    * anywhere, not even the part of it that would have been on the raster.
    *
@@ -734,7 +734,7 @@ describe('HAM from the copper list, not just from the screen', () => {
   })
 })
 
-describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5967)', () => {
+describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5938)', () => {
   /**
    * DMACON persists across the frame boundary, so the border above the
    * topmost screen shows the fond only because the PREVIOUS frame's last band
@@ -796,7 +796,7 @@ describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5967)', ()
 describe('a system screen — above the user range, in the same copper list', () => {
   /**
    * AMOS opens screens the BASIC programmer cannot name: EcFonc 8, EcEdit 9,
-   * EcFsel 10 and EcReq 11 (+Equ.s:792). Fsel$ and the text reader both open
+   * EcFsel 10 and EcReq 11 (+Equ.s:764). Fsel$ and the text reader both open
    * on EcFsel, so this is not hypothetical.
    *
    * DEFECT: the slot count was 8 in four places while EC_FSEL was 10, so the

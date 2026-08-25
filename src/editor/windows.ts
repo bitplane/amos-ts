@@ -624,7 +624,7 @@ export class Editor {
   callFlags = 0
 
   /**
-   * `EdM_PosHidden(a5)` (+Equ.s:1789): the first hidden program the AMOS menu
+   * `EdM_PosHidden(a5)` (+Equ.s:1761): the first hidden program the AMOS menu
    * is showing, which `Ed_FCall` adds to every hidden-command index.
    *
    * `EdM_HiddenMax` is 12 (+Edit.s:114), so the menu pages by 11 at a time
