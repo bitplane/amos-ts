@@ -57,6 +57,9 @@ src/
   runtime/   the "virtual Amiga": screens, bobs, sprites, AMAL, audio, input
   amiga/     the modelled machine and OS beneath it. Paula, the blitter,
              graphics.library, dos.library, the ProTracker replay, the VFS
+  editor/    +Edit.s: the program buffer, the commands, the key map, the windows
+  amos/      the two halves joined, which is what +B.s is: the editor's Run
+             builds an interpreter and the program's exit re-enters the editor
   ext/       the extension registry: identities, token tables, citations
   coverage/  what is implemented and how well it is known (status.ts)
   cli/       node CLI tools (list/unpack/inspect AMOS files)
