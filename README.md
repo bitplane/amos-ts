@@ -184,11 +184,11 @@ full table.
 | | |
 |---|---|
 | ran to a stop | 538 |
-| **ran to a stop with nothing skipped** | **497 (92%)** |
-| hit something unimplemented | 41 |
+| **ran to a stop with nothing skipped** | **499 (93%)** |
+| hit something unimplemented | 39 |
 
 Read the second row, not the "ended with nothing skipped" line the tool prints.
-That line counts only the 117 programs that *terminate*, and most AMOS programs
+That line counts only the 119 programs that *terminate*, and most AMOS programs
 are games and demos that never do. 240 hit the step cap and 156 block waiting
 on input, both of which are correct behaviour rather than failure.
 
@@ -196,16 +196,21 @@ Ranked by programs blocked rather than by occurrences, what is left is almost
 entirely **n/a by policy**. This port reads 68k machine code and never executes
 it, so `dreg` (30 programs), `doscall` (14), `call` and `areg` (4 each),
 `machine code procedure` (2) and `gfxcall` (1) cannot move, and no keyword work
-moves them. `dreg` alone is most of the 41.
+moves them. `dreg` alone is most of the 39.
 
 Everything else is one or two programs each. `Ask Editor` (3 hits) and `Call
 Editor` (2) are the editor phase, and `||apcmp||` is already classified with
 them. Four OS DevKit spellings turn up once apiece: `_dos exist`,
 `_wb to front`, `_path part`, `_request choice`. `Multi On` and `Multi Off`
-block two programs each and `ext18:$4fc`/`$50e` one more, and those three are
-an open question rather than a keyword gap --- both names ARE implemented, and
-the two extensions carrying them read 100%, so what those programs put in slot
-18 is not what the port binds there. Nobody has run it down yet.
+block two programs each, and both names ARE implemented, so what those programs
+have in slot 18 is not what the port binds there.
+
+`ext18:$4fc` and `ext18:$50e` used to be here, 207 hits between them across
+nine of CRAFT's Turtle examples. They were `Tr Exec` all along: those programs
+use one or two extension keywords each, which is not a fingerprint, and three
+libraries carry a token at $4fc that fits. CRAFT states slot 18 in its own
+binary and the programs use slot 18, so `identifySlot` now breaks that tie on
+the slot when the ids cannot.
 
 **The Intuition family is gone from this list.** It was the whole of the
 non-policy tail a release ago --- `iscreen_open` blocking 9 programs, `itext`

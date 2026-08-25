@@ -198,9 +198,31 @@ export function identifySlot(usage: SlotUsage, pool: Extension[] = allExtensions
     confidence = 'exact'
     best = survivors[0]!.ext
   } else if (survivors.length > 1) {
-    // Prefer an extension actually observed in this slot before; otherwise the
-    // evidence genuinely does not separate them.
-    const seenHere = survivors.filter((c) => c.ext.observedSlots.includes(usage.slot))
+    // The slot itself is evidence, and there are two kinds of it.
+    //
+    // `observedSlots` is where real programs have been seen putting an
+    // extension, and it goes first. `statedSlot` is the number compiled into
+    // the library by whoever built it, which ./registry.ts calls the stronger
+    // of the two -- and it is, about where its OWN author installed it. That
+    // is not the question here. Asked which of several libraries a program had
+    // in slot 1, "the one every other program in the corpus has there" beats
+    // "the one that says so about itself": eme-3.0 states slot 1 and would
+    // take it off amospro-music-2.0, which is the stock library, states
+    // nothing, and has been observed there.
+    //
+    // With no observation, the stated slot settles it. `Line_Circle.AMOS` uses
+    // ONE extension keyword, `Tr Exec` at id $4fc, and three libraries carry a
+    // token at that offset with an agreeing argument count. CRAFT states slot
+    // 18 and the program uses slot 18; the others state nothing and their
+    // documented slots are 7, 21 and 23.
+    //
+    // `defaultSlot` is NOT a tier. It is a manual or a wiki page, so its
+    // ABSENCE says nothing: easylife-1.09 has none recorded and 1.0, 1.10 and
+    // 1.44 all say 16, which would hand slot 16 to 1.10 over a rival that is
+    // its equal on every id the program uses. A gap here is not evidence.
+    const observed = survivors.filter((c) => c.ext.observedSlots.includes(usage.slot))
+    const stated = survivors.filter((c) => c.ext.statedSlot === usage.slot)
+    const seenHere = observed.length === 1 ? observed : stated.length === 1 ? stated : observed
     if (seenHere.length === 1) {
       confidence = 'probable'
       best = seenHere[0]!.ext

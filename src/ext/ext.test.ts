@@ -446,6 +446,40 @@ describe.skipIf(!existsSync(extFixtures))('slot identification (src/ext/identify
   })
 
   /**
+   * One keyword is not a fingerprint, and the slot is the rest of the evidence.
+   *
+   * `Line_Circle.AMOS` in CRAFT's own Turtle examples uses a single extension
+   * keyword, `Tr Exec` at id $4fc, and explode-2.01 and intuiextend-1.6 both
+   * carry a token at that offset with an agreeing argument count. Nothing in
+   * the ids separates them. CRAFT states slot 18 -- the number is compiled
+   * into the library, see registry.ts -- and the program uses slot 18.
+   */
+  it('lets the slot the library states break a tie the ids cannot', () => {
+    const prog = join(extFixtures, 'craft-1.0', 'Examples', 'Turtle', 'Line_Circle.AMOS')
+    const usage = collectUsage(parseProgram(prog)).get(18)!
+    expect([...usage.uses.keys()]).toEqual([0x4fc])
+    const id = identifySlot(usage)
+    expect(id.candidates.filter((c) => !c.rejected).length).toBeGreaterThan(1)
+    expect(id.confidence).toBe('probable')
+    expect(id.best?.id).toBe('craft-1.0')
+    expect(id.best?.statedSlot).toBe(18)
+
+    // and it is the SLOT doing the work: the same ids elsewhere stay a tie
+    expect(identifySlot({ ...usage, slot: 20 }).best).toBeUndefined()
+  })
+
+  it('does not let it outrank a slot real programs have been seen using', () => {
+    // eme-3.0 states slot 1. amospro-music-2.0 states nothing, because the
+    // stock libraries report through the core, and has been observed at 1 --
+    // which is the better answer to "what did this program have in slot 1"
+    const music = extensionById('amospro-music-2.0')!
+    const eme = extensionById('eme-3.0')!
+    expect(music.statedSlot).toBeUndefined()
+    expect(music.observedSlots).toContain(1)
+    expect(eme.statedSlot).toBe(1)
+  })
+
+  /**
    * The trap that sweep phase 2 was chasing. A slot number belongs to the
    * machine, so two programs can hold different extensions at the same one;
    * merging their ids asks a question nothing has to answer. Slot 12 of the

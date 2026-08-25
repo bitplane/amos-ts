@@ -395,9 +395,7 @@ describe.skipIf(sweep.programs === 0)('every program in fixtures, walked', () =>
   })
 
   /**
-   * Six do not, and the reasons are countable rather than a gap in the walk.
-   * Two name an extension slot no library on this machine answers for, which
-   * is error 5, the one AMOS raises as well.
+   * Four do not, and the reasons are countable rather than a gap in the walk.
    *
    * Two are `Header_AMOS.AMOS`, the template the compiler fills in. Its
    * `||apcmp||` sits in a procedure whose flags word is $8000, folded and
@@ -411,13 +409,17 @@ describe.skipIf(sweep.programs === 0)('every program in fixtures, walked', () =>
    *
    * The eight that used to stop at `Equ(...)` or `Lvo(...)` now walk through:
    * the equate is already poked into the source, so nothing has to be read.
+   *
+   * Two more used to stop at error 5, "extension not present", because their
+   * slot 18 could not be identified off the one keyword they use. They are
+   * CRAFT's, they use `Tr Exec`, and `identifySlot` reads the slot CRAFT
+   * states in its own binary now.
    */
-  it('walks all but six to the end', () => {
-    expect(sweep.programs - sweep.verified).toBe(6)
+  it('walks all but four to the end', () => {
+    expect(sweep.programs - sweep.verified).toBe(4)
     const counted = new Map<number, number>()
     for (const c of sweep.codes) counted.set(c, (counted.get(c) ?? 0) + 1)
     expect([...counted].sort((a, b) => a[0] - b[0])).toEqual([
-      [5, 2],
       [9, 2],
       [35, 2],
     ])
