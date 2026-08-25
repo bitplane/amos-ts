@@ -9078,11 +9078,13 @@ export const NOTES: Record<string, string> = {
     "real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not " +
     "in the AMOS source, so byte-exact parity is unverifiable.",
   "edit":
-    "InEdit +ILib.s:1829 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the " +
-    "program halts",
+    "InEdit +ILib.s:1829 is `move.w #1000,d0 / bra RunErr`, which stops the program and hands 1000 to the " +
+    "editor. The number reaches RunResult.code and Ed_ErrRun (+Edit.s:8252) reads it, but nothing wires the " +
+    "editor to a run yet, so what happens on a headless run is that the program stops",
   "direct":
-    "InDirect +ILib.s:1837 returns to direct mode (run-error 1001); no direct window exists in the port, so the " +
-    "program halts",
+    "InDirect +ILib.s:1837 is the same exit with 1001, which Ed_Errr (+Edit.s:8261) sends to Ed_ErrDirect and " +
+    "the escape screen. src/runtime/directscreen.ts has that screen but the editor's Ed_Escape (JFonc 28) is " +
+    "not ported, so the number is carried and the program stops",
   "free":
     "FnFree +Lib.s:13571 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena " +
     "exists here — returns a nominal figure",

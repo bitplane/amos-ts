@@ -32,6 +32,13 @@ export class AmosRuntimeError extends Error {
     readonly text: string,
     readonly line: number,
     readonly listing: string,
+    /**
+     * `Prg_JError`'s d0: the AMOS error number, which is what the editor
+     * turns back into a message (`Ed_GetError` +Edit.s:8323). Zero when the
+     * number is not known, which is what `Ed_GetError` reads as a TEST
+     * message rather than a run-time one.
+     */
+    readonly code = 0,
   ) {
     super(`${text} — at line ${line}: ${listing.trim()}`)
   }
@@ -327,6 +334,16 @@ export interface InterpOptions {
 export interface RunResult {
   status: 'ended' | 'stopped' | 'maxSteps' | 'blocked' | 'paused'
   steps: number
+  /**
+   * `Prg_JError`'s d0 for the way this run finished, or 0 while it has not.
+   *
+   * `RunErr` (+ILib.s:1267) is one exit with a number in d0, and the numbers
+   * are not all errors: `InEnd` (+ILib.s:518) is `moveq #NbEnd,d0` with
+   * `NbEnd equ 10` (+Equ.s:770), `InStop` (+Lib.s:13013) is 9, and Edit,
+   * Direct and System are 1000, 1001 and 1002. The editor's return path
+   * branches on exactly those.
+   */
+  code: number
   /** instruction name → times skipped (onUnimplemented: 'skip' only) */
   unimplemented: Map<string, number>
 }
@@ -556,7 +573,7 @@ export class Interp {
           const li = Math.min(this.pc.li, this.program.lines.length - 1)
           const line = this.program.lines[li]
           const listing = line ? detokLine(line, this.table, { extensions: this.names.extensions }) : ''
-          throw new AmosRuntimeError(e.message, li + 1, listing)
+          throw new AmosRuntimeError(e.message, li + 1, listing, amosErrorCode(e))
         }
         throw e
       }
@@ -602,10 +619,22 @@ export class Interp {
   }
 
   private result(status: RunResult['status'], steps: number): RunResult {
-    return { status, steps, unimplemented: this.unimplemented }
+    return { status, steps, code: this.endCode, unimplemented: this.unimplemented }
   }
 
+  /**
+   * `RunErr`'s d0 for the way this program stopped.
+   *
+   * `halt` fills it in for the two plain endings and `Edit`, `Direct` and
+   * `System` write their own first, because the machine tells them apart by
+   * this number and by nothing else.
+   */
+  endCode = 0
+
   halt(status: 'ended' | 'stopped', returnToCaller = true): void {
+    // `InEnd` is 10 and `InStop` is 9. A caller that set `endCode` itself --
+    // Edit, Direct and System -- keeps what it wrote
+    if (this.endCode === 0) this.endCode = status === 'ended' ? 10 : 9
     // Prg_Pull (+Verif.s:4530). An accessory reaching the end of its program
     // does not stop the machine: the editor-return path pulls the program
     // stack, which puts back the interpreter data of whoever Prun'd it —

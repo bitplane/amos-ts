@@ -5083,10 +5083,15 @@ export class Runtime {
         // never sees it, because `tst.w Direct(a5) / bne rErr1` (+ILib.s:1330)
         // will not trap it either.
         if (!this.directScreen.reportError(e)) throw e
-        result = { status: 'paused', steps: 0, unimplemented: this.interp.unimplemented }
+        result = { status: 'paused', steps: 0, code: 0, unimplemented: this.interp.unimplemented }
       }
     } else {
-      result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
+      result = {
+        status: this.interp.done ? 'ended' : 'blocked',
+        steps: 0,
+        code: this.interp.endCode,
+        unimplemented: this.interp.unimplemented,
+      }
     }
     if (this.bobUpdateOn && this.interp.tick % this.updateEvery === 0) this.updateBobs()
     this.stepIntuition()

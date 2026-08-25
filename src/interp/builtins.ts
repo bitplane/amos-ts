@@ -901,12 +901,27 @@ export const INSTR: Record<string, Instr> = {
     it.halt('stopped')
     return 'jumped'
   },
+  /**
+   * `InEdit` (+ILib.s:1829): `move.w #1000,d0 / bra RunErr`, which is the
+   * editor's "come back to the text".
+   *
+   * `returnToCaller` is false because `rErr1` pulls the program stack and
+   * then jumps to `Prg_JError`: an accessory that says Edit does not resume
+   * whoever Prun'd it, it stops the lot and the editor takes over.
+   *
+   * DEVIATION: the editor's side of this is `Ed_ErrRun` (+Edit.s:8252), and
+   * a headless run has nobody to hand 1000 to. What the code buys with no
+   * editor attached is that a caller can tell Edit from End.
+   */
   edit(it) {
-    it.halt('ended')
+    it.endCode = 1000
+    it.halt('ended', false)
     return 'jumped'
   },
+  /** `InDirect` (+ILib.s:1837): 1001, which is `Ed_ErrDirect` */
   direct(it) {
-    it.halt('ended')
+    it.endCode = 1001
+    it.halt('ended', false)
     return 'jumped'
   },
   'break on': () => {},

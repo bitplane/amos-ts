@@ -3102,9 +3102,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (r === DOSFALSE) throw new AmosError('Disc error', 87)
     },
     system(it) {
-      // InSystem +ILib.s:1820: run-error 1002 — leave AMOS entirely; in
-      // the port, like Edit/Direct, the program simply ends
-      it.halt('ended')
+      // InSystem +ILib.s:1820: `move.w #1002,d0 / bra RunErr`, leave AMOS
+      // entirely. `Ed_Errr` (+Edit.s:8261) is the only place that reads 1002
+      // differently from 1000, and it goes to `Ed_System`
+      it.endCode = 1002
+      it.halt('ended', false)
       return 'jumped'
     },
     /**

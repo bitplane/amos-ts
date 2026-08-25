@@ -16,6 +16,13 @@ function run(src: string, inputs: string[] = []): string {
   return io.out
 }
 
+/** how a program ended: `RunResult.status` and `Prg_JError`'s d0 */
+function finish(src: string): [string, number] {
+  const interp = new Interp(tokenize(src, table), table, { io: new BufferIO([]), maxSteps: 100_000 })
+  const r = interp.run()
+  return [r.status, r.code]
+}
+
 describe('FFP single-precision floats (mathffp.library)', () => {
   it('rounds float arithmetic to 24-bit FFP precision', () => {
     // 2^30 = 1073741824 loses precision at FFP's 24-bit mantissa, and once
@@ -322,6 +329,18 @@ describe('control flow', () => {
     // halt the run; nothing after them executes
     expect(run('Print "A"\nEnd\nPrint "B"')).toBe('A\n')
     expect(run('Print "A"\nStop\nPrint "B"')).toBe('A\n')
+  })
+
+  it('says WHICH ending it was, because the editor branches on the number', () => {
+    // `RunErr` (+ILib.s:1267) is one exit with a number in d0, and `Ed_Errr`
+    // (+Edit.s:8261) reads four of them apart: 10 goes quietly back to the
+    // loop, 1000 does too, 1001 is the escape screen and 1002 ends AMOS
+    expect(finish('End')).toEqual(['ended', 10])
+    expect(finish('Stop')).toEqual(['stopped', 9])
+    expect(finish('Edit')).toEqual(['ended', 1000])
+    expect(finish('Direct')).toEqual(['ended', 1001])
+    // a program that just runs out is `End` by another route
+    expect(finish('Print "A"')).toEqual(['ended', 10])
   })
 })
 

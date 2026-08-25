@@ -72,6 +72,24 @@ describe('Prun — a second program run as an accessory', () => {
     expect(out().replace(/\s+/g, ' ').trim()).toBe('A B C')
   })
 
+  it('stops the lot when the accessory says Edit, rather than resuming the caller', () => {
+    // `rErr1` (+ILib.s:1362) pulls the program stack and then jumps to
+    // `Prg_JError`, so 1000 belongs to the editor and not to the caller.
+    // `End` in the same place is what resumes after the Prun
+    const { rt, out } = boot(['Print "A"', 'Prun "acc"', 'Print "C"'].join('\n'), {
+      acc: amosFile([['print', { s: 'B' }], ['edit']]),
+    })
+    rt.runHeadless(200)
+    expect(out().replace(/\s+/g, ' ').trim()).toBe('A B')
+    expect(rt.interp.endCode).toBe(1000)
+  })
+
+  it('answers 1002 for System, which is the one code Ed_Errr sends elsewhere', () => {
+    const { rt } = boot('System', {})
+    rt.runHeadless(200)
+    expect(rt.interp.endCode).toBe(1002)
+  })
+
   it('gives the accessory its own bank list and restores the caller list', () => {
     // Prg_SetBanks (+Verif.s:4714) repoints Cur_Banks at the running
     // program's own array, so the caller's bank is invisible to the
