@@ -68,6 +68,26 @@ describe('Run, from the editor all the way through the interpreter', () => {
     expect(amos.window.line).toBe(2)
   })
 
+  it('puts it on the token, because VerPos is an address and not a line', () => {
+    // `rErr1` (+ILib.s:1370) is `move.l d7,a0 / subq.l #2,a0 / ... / move.l
+    // a0,VerPos(a5)`: d7 is the next word to read, so this is the last one
+    // read, which for a disc error is the name that would not open.
+    // `Ed_Ligne` (+Edit.s:8344) then cuts 13 characters BEFORE it
+    let head = ''
+    const { amos } = boot('Open In 1,"nothing:here"')
+    amos.editor.dialogues = {
+      ...asks(2),
+      confirm: (c) => {
+        if (c.which === 59) head = c.strings?.[2] ?? ''
+        return 2
+      },
+    }
+    amos.call(ED.RUN)
+    // column 10 is the string, and 10-13 clamps to 0, so the head is all of it
+    expect(head).toBe('Open In 1,')
+    expect(amos.window.xCu).toBe(10)
+  })
+
   it('asks Direct or Edit first, and says nothing when the answer is Direct', () => {
     const { amos } = boot('Open In 1,"nothing:here"')
     amos.editor.dialogues = asks(1) // `cmp.w #1,d1 / beq Ed_ErrDirect`

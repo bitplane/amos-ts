@@ -176,9 +176,9 @@ export class Amos {
   /**
    * `Prg_RunIt`'s far side: the interpreter, and then `Ed_ErrRun`.
    *
-   * DEVIATION: `VerPos(a5)` is the byte the program stopped ON, and this port
-   * has the LINE. `AmosRuntimeError` carries a line number, so the cursor
-   * lands at the start of the failing line rather than on the token.
+   * `VerPos(a5)` comes over on `AmosRuntimeError.at`, which is the offset
+   * of the token the interpreter last read. `Ed_Ligne` cuts its window of the
+   * line around that column and `Ed_ErrEdit` puts the cursor there.
    */
   /**
    * The interpreter this window's program has.
@@ -229,7 +229,10 @@ export class Amos {
       // an error with no number of its own has no message in either table, so
       // the text goes over as an extension's would: `Ed_GetError`'s a0
       if (code === 0) text = e.text
-      at = w.prog.findLine(e.line - 1).at - w.prog.stBas
+      // `VerPos(a5)`, when the parse recorded one. The interpreter runs a copy
+      // of this window's source, so an offset into that block is an offset
+      // into this one
+      at = e.at >= 0 ? e.at : w.prog.findLine(e.line - 1).at - w.prog.stBas
     }
     return edRunReturn(this.window, code, at, text)
   }

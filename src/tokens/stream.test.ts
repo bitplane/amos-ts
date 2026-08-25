@@ -81,3 +81,43 @@ describe('parseSource + detok', () => {
     expect(() => parseSource(src, table)).toThrow(/unknown token \$0b0b/)
   })
 })
+
+describe('every token knows where it is', () => {
+  /**
+   * `VerPos(a5)` is an address, not a line number: `rErr1` (+ILib.s:1370)
+   * stores `d7-2` in it and `Ed_ErrEdit` (+Edit.s:8291) reads it back to put
+   * the cursor on the token an error was about. So the parse has to keep one
+   * offset per token, and the id word is where the machine points.
+   */
+  it('records the id word offset, which is 2 past the line header', () => {
+    // Print 7 : Print 9, with the int record a 2-byte id and a longword
+    const src = Uint8Array.from(
+      line(1, [0x04, 0x76, 0x00, 0x3e, 0, 0, 0, 7, 0x04, 0x76, 0x00, 0x3e, 0, 0, 0, 9]),
+    )
+    const [l] = parseSource(src, table)
+    expect(l!.tokens.length).toBe(4)
+    expect(l!.offsets).toEqual([2, 4, 10, 12])
+    // and each offset is the token's own id word back again
+    const ids = [0x0476, 0x003e, 0x0476, 0x003e]
+    for (let i = 0; i < ids.length; i++) {
+      const at = l!.offsets![i]!
+      expect((src[at]! << 8) | src[at + 1]!).toBe(ids[i])
+    }
+  })
+
+  it('skips the inline link words, so a For points at For and not at its link', () => {
+    // For <var A> = <int 1> To <int 2>, where For carries a 2-byte link
+    const src = Uint8Array.from(
+      line(1, [
+        0x02, 0x3c, 0, 0, // For + link
+        0x00, 0x06, 0, 0, 1, 0, ...ch('A'), 0, // variable record, name padded even
+        0xff, 0xa2,
+        0x00, 0x3e, 0, 0, 0, 1,
+      ]),
+    )
+    const [l] = parseSource(src, table)
+    // the variable record is 6 bytes of header, 'A', and a pad byte
+    expect(l!.offsets).toEqual([2, 6, 14, 16])
+    expect((src[6]! << 8) | src[7]!).toBe(0x0006)
+  })
+})

@@ -39,6 +39,14 @@ export class AmosRuntimeError extends Error {
      * message rather than a run-time one.
      */
     readonly code = 0,
+    /**
+     * `VerPos(a5)`: the byte offset, within the source block, of the token the
+     * error was about. `rErr1` (+ILib.s:1370) writes `d7-2` there, which is
+     * the last token the interpreter read, and `Ed_ErrEdit` (+Edit.s:8291)
+     * reads it back to put the cursor on it. -1 when the lines came from text
+     * and carry no offsets.
+     */
+    readonly at = -1,
   ) {
     super(`${text} — at line ${line}: ${listing.trim()}`)
   }
@@ -573,7 +581,10 @@ export class Interp {
           const li = Math.min(this.pc.li, this.program.lines.length - 1)
           const line = this.program.lines[li]
           const listing = line ? detokLine(line, this.table, { extensions: this.names.extensions }) : ''
-          throw new AmosRuntimeError(e.message, li + 1, listing, amosErrorCode(e))
+          // `subq.l #2,a0` in rErr1: d7 is the next word to read, so the token
+          // the error is about is the one before it
+          const ti = Math.max(0, Math.min(this.pc.ti - 1, (line?.tokens.length ?? 1) - 1))
+          throw new AmosRuntimeError(e.message, li + 1, listing, amosErrorCode(e), line?.offsets?.[ti] ?? -1)
         }
         throw e
       }

@@ -46,10 +46,11 @@ DEVIATION: the source is not shared. The window's program is written out as a
 while the program runs cannot reach it. `Prg_Reloaded` (+Equ.s:1863) is the one
 thing that comes back the other way, because the editor's return path reads it.
 
-DEVIATION: `VerPos(a5)` is the byte the program stopped ON, and
-`AmosRuntimeError` carries a line number. So the cursor lands at the start of
-the failing line rather than on the token, which is a column short of what
-`Ed_ErrEdit` does.
+`VerPos(a5)` comes over too. `rErr1` (+ILib.s:1370) stores `d7-2` there, which
+is the token the interpreter last read, and `AmosRuntimeError.at` is the same
+byte: `parseSource` records an offset per token and the interpreter reads
+`pc.ti - 1` out of it. `Ed_Ligne` cuts its 73-character window around that
+column, and `Ed_ErrEdit` puts the cursor on it.
 
 ## What is not here yet
 

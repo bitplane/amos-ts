@@ -144,6 +144,16 @@ export interface TokenLine {
   offset: number
   indent: number
   tokens: Tok[]
+  /**
+   * Byte offset of each token's id word, same index as `tokens`.
+   *
+   * `VerPos(a5)` is an ADDRESS in the program, so anything that has to point
+   * at a token needs one: `rErr1` (+ILib.s:1370) stores `d7-2` there and
+   * `Ed_ErrEdit` (+Edit.s:8291) reads it back to put the cursor on the token
+   * an error was about. Absent when the lines came from text rather than from
+   * a program image, because then there is no image to point into.
+   */
+  offsets?: number[]
 }
 
 /** Lookup helper over an extracted token table. */
@@ -293,9 +303,10 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
       )
     }
     const r = new BinReader(src.subarray(pos + 2, lineEnd))
+    const offsets: number[] = []
     let tokens: Tok[]
     try {
-      tokens = parseLine(r, table, pos + 2)
+      tokens = parseLine(r, table, pos + 2, offsets)
     } catch (e) {
       throw new TokenStreamError(
         `line at offset ${pos}: ${e instanceof Error ? e.message : e}`,
@@ -303,7 +314,7 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
         src.subarray(pos, lineEnd),
       )
     }
-    lines.push({ offset: pos, indent, tokens })
+    lines.push({ offset: pos, indent, tokens, offsets })
     pos = lineEnd
     for (const tok of tokens) {
       if (tok.kind === 'proc') {
@@ -352,8 +363,9 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
                 src.subarray(pos, Math.min(pos + 64, src.length)),
               )
             }
-            const endToks = parseLine(new BinReader(src.subarray(pos + 2, pos + 4)), table, pos + 2)
-            lines.push({ offset: pos, indent: src[pos + 1]!, tokens: endToks })
+            const endAt: number[] = []
+            const endToks = parseLine(new BinReader(src.subarray(pos + 2, pos + 4)), table, pos + 2, endAt)
+            lines.push({ offset: pos, indent: src[pos + 1]!, tokens: endToks, offsets: endAt })
             pos += endLen * 2
           }
         }
@@ -469,7 +481,7 @@ function bodyIsTokens(src: Uint8Array, table: TokenTable, start: number, end: nu
       return (table.name(id) ?? '').trim().toLowerCase() === 'end proc' && lineEnd === end + 6
     }
     try {
-      parseLine(new BinReader(src.subarray(pos + 2, lineEnd)), table, pos + 2)
+      parseLine(new BinReader(src.subarray(pos + 2, lineEnd)), table, pos + 2, [])
     } catch {
       return false
     }
@@ -488,12 +500,13 @@ function bodyIsTokens(src: Uint8Array, table: TokenTable, start: number, end: nu
   return pos === end
 }
 
-function parseLine(r: BinReader, table: TokenTable, lineDataOffset: number): Tok[] {
+function parseLine(r: BinReader, table: TokenTable, lineDataOffset: number, at: number[]): Tok[] {
   const toks: Tok[] = []
   while (r.remaining >= 2) {
     const idOffset = lineDataOffset + r.pos
     const id = r.u16()
     if (id === T.EOL) return toks
+    at.push(idOffset)
     toks.push(parseTok(id, r, table, idOffset))
   }
   // Most lines end with a null token, but e.g. @_apml_@ lines rely on the
