@@ -24,11 +24,14 @@
  *
  * The menu editors are 73, 74, 135 and 136.
  *
- * The 15 that are left need something this port has not built yet: the
- * interpreter (77, 105, 111), the status bar's arrows (13 to 16), printing and
- * the About boxes (86, 146, 149 to 151), and 28, 145 and 147 one at a time.
- * `COMMANDS` has no entry for any of them and `edCall` throws rather than
- * silently doing nothing, so a key map that reaches one says which.
+ * The status bar's four arrows are 13 to 16, the printer 86 and 146, the two
+ * About boxes 149 and 150, Check 1.3 is 147 and Insert Machine Language 151.
+ *
+ * The 5 that are left need something this port has not built yet: the
+ * interpreter (77, 105, 111), the escape screen's own loop (28) and
+ * +Monitor.s (145). `COMMANDS` has no entry for any of them and `edCall`
+ * throws rather than silently doing nothing, so a key map that reaches one
+ * says which.
  *
  * ## What a command does NOT do here
  *
