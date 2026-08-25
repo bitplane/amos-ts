@@ -47,7 +47,8 @@ import { detokLineBytes, tokeniseLine, type DetokWatch } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
 import { MACHINE_CODE_PROC, PROTECTED_PROC } from '../tokens/stream'
 import { VerifyError, verify } from '../tokens/verify'
-import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
+import { ED_MESSAGES, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { HUNK_CODE, HUNK_HEADER } from '../amiga/hunk'
 import { indentBytes } from './indent'
@@ -2695,17 +2696,26 @@ function setXY(e: Edit, at: number, column: number): void {
  * it falls in with that address to watch for, and the column it reports is
  * where the token's text begins.
  *
- * What is NOT here is the rest of `Ed_ErrTest`, which is shared with a
- * run-time error: the escape screen comes down, `Ed_OpenEditor` puts the
- * editor back up, and a requester offers Direct mode or the editor. None of
- * that has a meaning yet.
+ * `Ed_ErrTest` is two instructions and a `bra Ed_Errr`, which is the same
+ * dispatch a stopped PROGRAM comes back through. `edRunReturn` below is the
+ * rest of it.
  */
 function errTest(e: Edit, at: number): void {
   const target = e.prog.stBas + at
+  setXY(e, target, errLine(e, target).column)
+}
+
+/**
+ * `bsr Detok` over the line an address falls in, watching for that address.
+ *
+ * Two callers want the same three answers: `Ed_ErrTest` wants the column,
+ * `Ed_Ligne` (:8362) wants the line number and the text as well.
+ */
+function errLine(e: Edit, target: number): { line: number; text: string; column: number } {
   const f = e.prog.findAddress(target)
   const watch: DetokWatch = { at: target, column: -1 }
-  detokLineBytes(e.prog.bytes, f.start, e.table, e.opts, watch)
-  setXY(e, target, Math.max(0, watch.column))
+  const text = detokLineBytes(e.prog.bytes, f.start, e.table, e.opts, watch)
+  return { line: f.line, text, column: Math.max(0, watch.column) }
 }
 
 /**
@@ -3066,6 +3076,164 @@ function runHidden(e: Edit, n: number): void {
  */
 function edWb(e: Edit): void {
   e.editor.amosToBack?.()
+}
+
+/* ---- the way back, when a program stops --------------------------------- */
+
+/**
+ * `Ed_GetError` (:8323): the run's d0 and a0 turned into a message.
+ *
+ * An a0 that is not zero is an extension's own text and is kept as it stands,
+ * and so is a code of 256 or more, which is not a message number: 1000, 1001
+ * and 1002 are Edit, Direct and System and the caller has branched on them
+ * already.
+ *
+ * Below that the SIGN picks the table. Zero or less is a Test message at
+ * `-d0`, and the code comes back positive. One to 255 is a run-time message at
+ * `d0+1`, which is why 10 is "End of program" and not the tenth entry.
+ */
+function getError(code: number, text: string | null): { code: number; text: string } {
+  if (text !== null) return { code, text }
+  if (code >= 256) return { code, text: '' }
+  if (code <= 0) return { code: -code, text: ED_TST_MESSAGES[-code - 1] ?? '' }
+  return { code, text: ED_RUN_MESSAGES[code] ?? '' }
+}
+
+/**
+ * `Ed_Ligne` (:8344): the requester that asks whether to go to Direct mode or
+ * back to the editor, for a program that stopped with a run-time error.
+ *
+ * Five `Ed_VDialogues` slots go in: the message, the line number the error is
+ * on, and the line itself split at the error. The fifth is a redraw routine
+ * rather than a value.
+ *
+ * The split is a window around the error and not the head of the line.
+ * `moveq #60,d4 / add.w d3,d4` cuts the tail 60 characters past it, and
+ * `sub.w #73,d4` then starts the head 13 characters BEFORE it, or at 0 when
+ * the line is shorter than that. So a fault in column 200 is shown with 13
+ * characters of what led up to it.
+ *
+ * Answers `Ed_Dialogue`'s d0, and `cmp.w #1,d1` is the only test the caller
+ * makes: button 1 is Direct and everything else is the editor.
+ */
+function edLigne(e: Edit, w: Edit, at: number, message: string): number {
+  const f = at >= 0 ? errLine(w, w.prog.stBas + at) : { line: 0, text: '', column: 0 }
+  const col = f.column
+  const head = f.text.slice(Math.max(0, col - 13), col)
+  const tail = f.text.slice(col, col + 60)
+  return confirm(e, {
+    which: 59, // EdD_Ligne (:15377)
+    values: [undefined, f.line + 1],
+    strings: [message, undefined, head, tail],
+  })
+}
+
+/**
+ * `Ed_ErrEdit` (:8275): the editor comes back and the cursor goes to the byte
+ * the program stopped on.
+ *
+ * `Ed_OpenEditor / Esc_Hide / Ed_Appear` in front of it are the display.
+ *
+ * Three codes go straight back to `Ed_Loop` with nothing shown: a negative
+ * one, 10 which is End, and 1000 which is Edit. Everything else positions the
+ * cursor and puts the message up with a "." on the end, for 200 frames.
+ *
+ * DEVIATION: `Ed_Alert` is given a POINTER here and not a message number, so
+ * the alert this port raises carries the error's own code instead. Nothing on
+ * the machine has a number to carry.
+ */
+function errEdit(w: Edit, code: number, at: number, text: string | null): void {
+  const got = getError(code, text)
+  if (got.code >= 0 && (got.code === 10 || got.code === 1000)) return
+  if (at >= 0) errTest(w, at)
+  throw new EditorAlert(got.code, 200, got.text + '.')
+}
+
+/**
+ * `Ed_ErrRunHidden` (:8331): the same return, for a program that was running
+ * behind the editor rather than in front of it.
+ *
+ * There is no cursor to move. The error is in another program, so the message
+ * goes up with editor message 9 in front of it and that is all. `Edt_PrgDelete`
+ * is what `Ed_PrgCommand` sets when the window was only borrowed to hold the
+ * program, and the window goes with it.
+ *
+ * 1002 is here as well as in `Ed_Errr`, and 1001 is not: a hidden program that
+ * asks for Direct mode is answered like any other error.
+ */
+function errRunHidden(e: Edit, w: Edit, code: number, text: string | null): void {
+  const editor = e.editor
+  editor.runnedHidden = false
+  const got = getError(code, text)
+  // `Edt_ClearVar` (:3035) frees the interpreter's variables; there are none
+  if (w.prgDelete) editor.delWindow(w)
+  if (got.code >= 0) {
+    if (got.code === 10 || got.code === 1000) return
+    if (got.code === 1002) {
+      editor.quit = true // Ed_System
+      return
+    }
+  }
+  throw new EditorAlert(got.code, 200, (ED_MESSAGES[8] ?? '') + got.text + '.')
+}
+
+/**
+ * `Ed_ErrDirect` (:9293): the escape screen goes up and the message is
+ * printed on it.
+ *
+ * DEVIATION: `Ed_Escape` (28) is not ported, so there is no escape screen for
+ * a message to be printed on. What is left of the routine is what it does to
+ * editor state, which is to clear `Edt_Runned` and nothing else. The three
+ * codes it tests are all handled before they can reach here.
+ */
+function errDirect(e: Edit): void {
+  e.editor.runned = null
+}
+
+/** `Ed_Errr` (:8261), which `Ed_ErrTest` and `Ed_ErrRun` both fall into */
+function errr(e: Edit, w: Edit, code: number, at: number, text: string | null): void {
+  if (code >= 0 && code !== 1000) {
+    if (code === 1001) return errDirect(e)
+    if (code === 1002) {
+      e.editor.quit = true // Ed_System (:249)
+      return
+    }
+    // the code is not one of the three, so the user is asked which they want
+    if (edLigne(e, w, at, getError(code, text).text) === 1) return errDirect(e)
+  }
+  errEdit(w, code, at, text)
+}
+
+/**
+ * `Ed_ErrRun` (:8252): where `Prg_JError` lands when the program stops.
+ *
+ * `code` is d0 and `text` is a0, which is null for everything but an
+ * extension's own error message. `at` is `VerPos(a5)` as an offset into the
+ * program's text, or -1 when there is no position to go to.
+ *
+ * The answer is the alert number, the same as `edCall`'s, because the machine
+ * ends this in `bra Ed_Loop` either way.
+ */
+export function edRunReturn(e: Edit, code: number, at = -1, text: string | null = null): number {
+  const alert = run(e, () => {
+    const editor = e.editor
+    editor.running.shift() // Prg_Pull, which `rErr1` (+ILib.s:1372) does first
+    const w = editor.runned ?? e
+    if (editor.runnedHidden) {
+      editor.runned = null
+      errRunHidden(e, w, code, text)
+      return
+    }
+    editor.runned = null
+    if (w.prog.reloaded) {
+      // `Run "file"` inside the program loaded over this window's own text, so
+      // the block anchor is a line number into text that is gone
+      w.prog.reloaded = false
+      w.yBloc = -1
+    }
+    errr(e, w, code, at, text)
+  })
+  return edLoop(e, alert)
 }
 
 /* ---- 137 to 142: the configuration -------------------------------------- */
@@ -4379,9 +4547,17 @@ export function edCall(e: Edit, cmd: number, param = 0): number {
     e.yOldBloc = e.line
     fn(e, arg)
   })
-  // `Ed_Loop` (:915): the window the command left behind. A hidden one is
-  // deleted outright and a visible one goes through Close, which is what makes
-  // Merge throw its program away and Run A Program keep its window
+  return edLoop(e, alert)
+}
+
+/**
+ * The top of `Ed_Loop` (:915), which every command comes back through and so
+ * does every program that stops.
+ */
+function edLoop(e: Edit, alert: number): number {
+  // the window the command left behind. A hidden one is deleted outright and a
+  // visible one goes through Close, which is what makes Merge throw its
+  // program away and Run A Program keep its window
   const del = e.editor.windowToDel
   if (del !== null) {
     e.editor.windowToDel = null

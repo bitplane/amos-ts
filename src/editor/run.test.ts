@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { tokeniseSource } from '../tokens/edtok'
+import { TK, detokLineBytes, tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
 import { ProgramBuffer } from './buffer'
 import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
-import { ED, drawWindows, edCall } from './commands'
+import { ED, drawWindows, edCall, edRunReturn } from './commands'
 import { UN } from './undo'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { ED_MESSAGES, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import type { RunRequest } from './windows'
+import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
 
 const table = new TokenTable(CORE_TOKENS)
 const tested = (t: string): Uint8Array => verify(tokeniseSource(t, table), {}).slice(0, -2)
@@ -202,5 +205,177 @@ describe('Workbench', () => {
   it('does nothing at all when no host owns a display', () => {
     const e = open()
     expect(edCall(e, ED.WORKBENCH)).toBe(0)
+  })
+})
+
+/** a requester that answers `button` and records what it was shown */
+function asks(e: Edit, button: number): { seen: Confirm[] } {
+  const seen: Confirm[] = []
+  const d: EditorDialogues = {
+    ask: (q: SearchDialogue): DialogueAnswer => ({ ...q, ok: true }),
+    confirm: (c) => {
+      seen.push(c)
+      return button
+    },
+    select: (_w, name) => name,
+    pressKey: () => 0,
+    pickWindow: () => 0,
+    pickMenu: () => 0,
+    text: () => '',
+    flags: () => 0,
+    value: () => 0,
+  }
+  e.dialogues = d
+  return { seen }
+}
+
+/** run the program, then stop it with `code` */
+function stop(e: Edit, code: number, at = -1, text: string | null = null): number {
+  host(e)
+  edCall(e, ED.RUN)
+  return edRunReturn(e, code, at, text)
+}
+
+describe('when the program stops', () => {
+  it('says nothing for End, and lets the program be run again', () => {
+    const e = open()
+    expect(stop(e, 10)).toBe(0)
+    expect(e.editor.runned).toBe(null)
+    expect(e.editor.running).toEqual([]) // Prg_Pull
+    expect(edCall(e, ED.RUN)).toBe(0)
+  })
+
+  it('says nothing for Edit, which is 1000', () => {
+    const e = open()
+    expect(stop(e, 1000)).toBe(0)
+  })
+
+  it('ends the session for System, which is 1002', () => {
+    const e = open()
+    expect(stop(e, 1002)).toBe(0)
+    expect(e.editor.quit).toBe(true)
+  })
+
+  it('goes to Direct for 1001, which this port has nowhere to put', () => {
+    const e = open()
+    expect(stop(e, 1001)).toBe(0)
+    expect(e.editor.runned).toBe(null)
+  })
+
+  it('asks Direct or Edit for a run-time error, and a port with no requester says Direct', () => {
+    const e = open()
+    // `Ed_Ligne` is reached for every code that is not 10, 1000, 1001 or 1002,
+    // and `cmp.w #1,d1` makes button 1 Direct. A missing requester answers 1
+    expect(stop(e, 81)).toBe(0)
+  })
+
+  it('shows the message with a full stop when the requester says Edit', () => {
+    const e = open()
+    const { seen } = asks(e, 2)
+    expect(stop(e, 81)).toBe(81)
+    expect(e.alertText).toBe(ED_RUN_MESSAGES[81]! + '.')
+    expect(e.alertTime).toBe(200)
+    expect(seen[0]!.which).toBe(59) // EdD_Ligne
+    expect(seen[0]!.strings?.[0]).toBe(ED_RUN_MESSAGES[81])
+  })
+
+  it('puts the cursor on the byte the program stopped at', () => {
+    const e = open()
+    asks(e, 2)
+    // the string token of `Print "three"`, which detokenises at column 6
+    const at = e.prog.findLine(2).at + 4 - e.prog.stBas
+    stop(e, 81, at)
+    expect([e.line, e.xCu]).toEqual([2, 6])
+  })
+
+  it('shows an extension error text as it stands, table or no table', () => {
+    const e = open()
+    asks(e, 2)
+    expect(stop(e, 1, -1, 'Nothing there')).toBe(1)
+    expect(e.alertText).toBe('Nothing there.')
+  })
+
+  it('reads a code of zero or less out of the TEST table', () => {
+    const e = open()
+    // a negative code skips the requester: `tst.l d0 / bmi Ed_ErrEdit`
+    expect(stop(e, -3)).toBe(3)
+    expect(e.alertText).toBe(ED_TST_MESSAGES[2]! + '.')
+  })
+
+  it('shows a window around the error rather than the start of the line', () => {
+    const e = open(`Print "${'-'.repeat(40)}" : Print "${'='.repeat(70)}"`)
+    const { seen } = asks(e, 2)
+    // the SECOND `Print` on the line, which is far enough along that both
+    // halves have to be cut
+    const start = e.prog.findLine(0).at
+    const end = start + e.prog.bytes[start]! * 2
+    let at = -1
+    for (let p = start + 4; p < end; p += 2) {
+      if (((e.prog.bytes[p]! << 8) | e.prog.bytes[p + 1]!) === TK.PRINT) {
+        at = p - e.prog.stBas
+        break
+      }
+    }
+    expect(at).toBeGreaterThan(0)
+    stop(e, 81, at)
+    const head = seen[0]!.strings![2]!
+    const tail = seen[0]!.strings![3]!
+    // `moveq #60,d4 / add.w d3,d4` then `sub.w #73,d4`: 60 after, 13 before
+    expect(head.length).toBe(13)
+    expect(tail.length).toBe(60)
+    expect(detokLineBytes(e.prog.bytes, start, table).indexOf(head + tail)).toBeGreaterThan(0)
+  })
+
+  it('drops the block anchor when the program reloaded itself', () => {
+    const e = open()
+    e.yBloc = 1
+    host(e)
+    edCall(e, ED.RUN)
+    e.prog.reloaded = true // `Run "file"` from inside it
+    edRunReturn(e, 10)
+    expect(e.yBloc).toBe(-1)
+    expect(e.prog.reloaded).toBe(false)
+  })
+})
+
+describe('when a hidden program stops', () => {
+  it('says which program it was, and moves no cursor', () => {
+    const e = open()
+    hidden(e)
+    host(e)
+    edCall(e, ED.RUN_HIDDEN, 0)
+    expect(e.editor.runnedHidden).toBe(true)
+    expect(edRunReturn(e, 81)).toBe(81)
+    expect(e.alertText).toBe(ED_MESSAGES[8]! + ED_RUN_MESSAGES[81]! + '.')
+    expect(e.line).toBe(0)
+    expect(e.editor.runnedHidden).toBe(false)
+  })
+
+  it('is quiet for End, and there is no requester on this path', () => {
+    const e = open()
+    hidden(e)
+    host(e)
+    edCall(e, ED.RUN_HIDDEN, 0)
+    expect(edRunReturn(e, 10)).toBe(0)
+  })
+
+  it('ends the session for System, which Ed_Errr handles for the other path', () => {
+    const e = open()
+    hidden(e)
+    host(e)
+    edCall(e, ED.RUN_HIDDEN, 0)
+    expect(edRunReturn(e, 1002)).toBe(0)
+    expect(e.editor.quit).toBe(true)
+  })
+
+  it('deletes the window when it was only borrowed to hold the program', () => {
+    const e = open()
+    const w = hidden(e)
+    w.prgDelete = true
+    host(e)
+    edCall(e, ED.RUN_HIDDEN, 0)
+    const was = e.editor.list.length
+    edRunReturn(e, 10)
+    expect(e.editor.list.length).toBe(was - 1)
   })
 })

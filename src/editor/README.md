@@ -541,8 +541,36 @@ DEFECT: `Ed_Run` ends `bra Ed_OMm`, which takes both of `Prg_RunIt`'s returns.
 A program that is already running reports "Out of memory." `Ed_RunHidden`
 sixty lines above tests d0 and says "Program already run." for the same state.
 
-The run itself is the host's: `Editor.runProgram` gets a `RunRequest` and the
-answer comes back through a separate call.
+The run itself is the host's: `Editor.runProgram` gets a `RunRequest`, and
+what the program answers comes back through `edRunReturn`.
+
+## Coming back is one dispatch, shared with the Test pass
+
+`Ed_ErrTest` (:8246) is two instructions and a `bra Ed_Errr`, and `Ed_ErrRun`
+(:8252) falls into the same label. A failed Test and a program that stopped
+are the same event to the editor, told apart by the sign of d0.
+
+`Ed_GetError` (:8323) is what reads it. An a0 that is not zero is an
+extension's own text and is kept; a code of 256 or more is not a message
+number at all, because 1000, 1001 and 1002 are Edit, Direct and System.
+Below that the SIGN picks the table: zero or less is a Test message at `-d0`,
+one to 255 is a run-time message at `d0+1`. That off-by-one is why `End`
+answers 10 and gets "End of program", which is the eleventh entry.
+
+10 and 1000 go back to the loop with nothing shown. 1002 ends the session.
+Everything else puts `Ed_Ligne` (:8344) up, and that requester is worth
+reading: it shows the message, the line number, and the line split at the
+error, with 13 characters of what led up to it and 60 of what follows. A
+fault in column 200 is shown in context rather than from the start of the
+line. `cmp.w #1,d1` is the only test the caller makes, so button 1 is Direct
+and everything else is the editor. A port with no requester installed answers
+1, which means every run-time error here asks for Direct mode.
+
+A program that was running HIDDEN comes back through `Ed_ErrRunHidden`
+(:8331) instead. There is no cursor to move, because the error is in another
+program: the message goes up behind editor message 9, "Error in previous
+program: ", and the window goes with it when `Edt_PrgDelete` says it was only
+borrowed.
 
 ## Citations
 

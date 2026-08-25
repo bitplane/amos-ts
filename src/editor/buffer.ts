@@ -166,6 +166,15 @@ export class ProgramBuffer {
   /** `Prg_MathFlags`, byte 15 of a Pro header. `MathFlags(a5)` at Test time */
   mathFlags = 0
   /**
+   * `Prg_Reloaded` (+Equ.s:1865): the running program replaced what is here.
+   *
+   * `Run "file"` from inside a program loads over the window's own text
+   * (+ILib.s:1479) and raises this. `Ed_ErrRun` (+Edit.s:8258) reads it once
+   * on the way back and drops the block anchor, because the anchor is a line
+   * number into text that is gone.
+   */
+  reloaded = false
+  /**
    * DEVIATION: everything after the source in the file, `AmBs` onwards.
    *
    * The machine parses this into bank structures on the way in (`Bnk.Load`)
