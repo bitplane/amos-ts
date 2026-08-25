@@ -3,6 +3,8 @@ import { ED } from '../editor/commands'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { Amos } from './amos'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from '../editor/search'
+import { parseAmosFile } from '../loader/amosfile'
+import { AmigaFS } from '../amiga/vfs'
 
 /** a program, and somewhere for what it prints to go */
 function boot(src: string): { amos: Amos; out: () => string } {
@@ -140,5 +142,70 @@ describe('Escape, which is the same shape as Run', () => {
     amos.editor.config.sounds = false
     amos.call(ED.ESCAPE)
     expect(heard).toEqual([])
+  })
+})
+
+describe('the banks are one list, not two', () => {
+  /**
+   * `Prg_SetBanks` (+Verif.s:4714) is five instructions and the first two are
+   * `move.l a0,Cur_Banks(a5)` and `move.l a0,Cur_Dialogs(a5)` with a0 at
+   * `Prg_Banks(a6)`. The interpreter's banks ARE the editor's, so what a
+   * `Reserve` leaves is still there when the program has stopped.
+   */
+  const str = (b: Uint8Array): string => new TextDecoder('latin1').decode(b)
+
+  it('starts with the six bytes every program carries', () => {
+    const { amos } = boot('Print "x"')
+    expect(str(amos.window.prog.banks)).toBe('AmBs\0\0')
+  })
+
+  it('leaves the bank a run reserved in the editor buffer', () => {
+    const { amos } = boot('Reserve As Work 10,100\nPrint "x"')
+    expect(amos.call(ED.RUN)).toBe(0)
+    const banks = parseAmosFile(amos.window.prog.banks).banks
+    expect(banks.map((b) => (b.kind === 'memory' ? b.number : b.kind))).toEqual([10])
+    expect(banks[0]!.kind === 'memory' && banks[0]!.data.length).toBe(100)
+  })
+
+  it('carries it into the next run, because only Prg_New erases banks', () => {
+    // `Prg_RunIt` clears the variables (`bsr ClearVar`, +Verif.s:4356) and
+    // nothing else. `Bnk.EffAll` is in `Prg_New` (:4742), which Run is not
+    const { amos, out } = boot('If Length(10)=0 Then Reserve As Work 10,100\nPrint Length(10)')
+    amos.call(ED.RUN)
+    amos.call(ED.RUN)
+    expect(out()).toBe('100 100')
+    expect(parseAmosFile(amos.window.prog.banks).banks.length).toBe(1)
+  })
+
+  it('drops the pointer when New empties the program', () => {
+    const { amos } = boot('Reserve As Work 10,100')
+    amos.call(ED.RUN)
+    amos.window.prog.newProgram()
+    expect(amos.window.prog.liveBanks).toBe(null)
+    expect(str(amos.window.prog.banks)).toBe('AmBs\0\0')
+  })
+
+  it('saves the program WITH the bank, which is the point of the shared list', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    const amos = new Amos('Reserve As Work 10,100', { fs })
+    amos.editor.dialogues = asks(2)
+    amos.call(ED.RUN)
+    amos.window.name1 = 'RAM:X.AMOS'
+    expect(amos.call(ED.SAVE)).toBe(0)
+    const file = fs.readFile('RAM:X.AMOS')!
+    const banks = parseAmosFile(file).banks
+    expect(banks.map((b) => (b.kind === 'memory' ? b.number : b.kind))).toEqual([10])
+  })
+
+  it('counts the reserved bytes in Ed_Infos, which used to read a stale block', () => {
+    const { amos } = boot('Reserve As Work 10,100')
+    let values: (number | undefined)[] = []
+    amos.editor.dialogues = { ...asks(2), confirm: (c) => { values = c.values ?? []; return 2 } }
+    amos.call(ED.RUN)
+    amos.call(ED.INFOS) // EdD_Infos is 54, and the run's EdD_Ligne is 59
+    // `Bnk.GetLength` (+Lib.s:8484) adds up what each bank OCCUPIES; here it
+    // is the AmBs block less the six bytes an empty one still has
+    expect(values[3]).toBe(120)
   })
 })

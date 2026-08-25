@@ -175,14 +175,40 @@ export class ProgramBuffer {
    */
   reloaded = false
   /**
-   * DEVIATION: everything after the source in the file, `AmBs` onwards.
+   * Everything after the source in the file, `AmBs` onwards.
    *
-   * The machine parses this into bank structures on the way in (`Bnk.Load`)
-   * and builds it again on the way out (`Bnk.SaveAll`). There is no bank
-   * writer in this port, so the bytes are kept as they arrived and written
-   * back unread. A program whose banks were edited would need the real thing.
+   * `Prg_Banks(a6)` is a linked list of bank headers, and it is the PROGRAM's
+   * list rather than the interpreter's: `Prg_SetBanks` (+Verif.s:4714) is
+   * five instructions, and the first is `move.l a0,Cur_Banks(a5)` with a0 at
+   * `Prg_Banks(a6)`. So a `Reserve` inside a running program leaves a bank in
+   * the editor's own structure, and `Prg_Save` walks that same list.
+   *
+   * DEVIATION: this port has no bank reader in the editor, so the list is the
+   * `AmBs` block as bytes. When a program is running, `liveBanks` below is the
+   * pointer, and these bytes are what the last load left.
    */
-  banks: Uint8Array = EMPTY_BANKS
+  private bankBytes: Uint8Array = EMPTY_BANKS
+  /**
+   * `Cur_Banks(a5)`, when there is an interpreter holding the list.
+   *
+   * The machine has one array of banks and two readers of it. Here the
+   * interpreter owns the parsed banks, so this answers with them serialised,
+   * which is what `Bnk.SaveAll` (+Lib.s:3833) builds at save time anyway.
+   */
+  liveBanks: (() => Uint8Array) | null = null
+
+  get banks(): Uint8Array {
+    return this.liveBanks === null ? this.bankBytes : this.liveBanks()
+  }
+
+  /**
+   * A load replaces the list outright: `LB_Multiples` (+Lib.s:4185) opens with
+   * `Rbsr L_Bnk.EffAll`, so whatever a previous run reserved is gone.
+   */
+  set banks(bytes: Uint8Array) {
+    this.bankBytes = bytes
+    this.liveBanks = null
+  }
 
   private constructor(size: number) {
     // `and.l #$FFFFFFFE,d0`: an odd size would leave the zero word odd
@@ -256,8 +282,8 @@ export class ProgramBuffer {
    * either. `Prg_MathFlags` is cleared and `Prg_Not1.3` is not, so the
    * compatibility verdict outlives the program it was made about.
    *
-   * The banks are `Bnk.EffAll` here. This port has none, so the tail from the
-   * last load is dropped back to an empty list.
+   * The banks are `Bnk.EffAll` here, so the list goes back to empty and the
+   * running program's pointer goes with it.
    */
   newProgram(): void {
     this.lineCount = 0

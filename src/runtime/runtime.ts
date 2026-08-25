@@ -4669,7 +4669,22 @@ export class Runtime {
     return serializeMemoryBank(bank)
   }
 
-  /** Save "file": all banks in an AmBs container (word count + banks) */
+  /**
+   * Save "file": all banks in an AmBs container (word count + banks).
+   *
+   * `Bnk.SaveAll` (+Lib.s:3833) writes the "AmBs" tag through `SHunk` with
+   * d0=3, then the count word, then walks `Cur_Banks(a5)` head to tail. It
+   * writes the tag and a zero count even with no banks at all, which is what
+   * `Bnk.SaveVide` does on its own, so the six bytes are unconditional.
+   *
+   * DEVIATION: the order is by bank number here, and on the machine it is the
+   * list's. `Lst.Cree` (+B.s:1204) is "en tete de liste" and `Bnk.Reserve`
+   * (+Lib.s:8441) calls it, so the newest bank is written FIRST. A load walks
+   * the file forward reserving each one (`LB_Multiples`, +Lib.s:4185), which
+   * reverses the file into the list, and the save reverses it back. So a
+   * load-then-save keeps the file's order either way, and only a bank the
+   * program reserved lands somewhere the machine would not put it.
+   */
   serializeAllBanks(): Uint8Array {
     const parts: Uint8Array[] = []
     const nums = [...this.memBanks.keys()].sort((a, b) => a - b)

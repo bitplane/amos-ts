@@ -17,15 +17,16 @@
  *
  * ## What this port hands over, and what the machine hands over
  *
- * DEVIATION: the machine runs the program in the editor's own memory. There is
- * one program block and `Prg_SetBanks` (+Verif.s:4714) points the interpreter
- * at the same banks the editor holds, so a `Reserve` inside the program leaves
- * a bank the editor can then save with it.
+ * DEVIATION: the machine runs the program in the editor's own memory, and the
+ * source pointer proves it: `Prg_SetBanks` (+Verif.s:4714) ends `move.l
+ * Prg_StBas(a6),Prg_Source(a5)`, so the interpreter reads the very bytes the
+ * editor is drawing. Here the program is written out as a `.AMOS` image and
+ * loaded, so the TEXT is a copy and an edit during a run cannot reach it.
  *
- * Here the program is written out as a `.AMOS` image and loaded, so the
- * interpreter gets a COPY. What the run changes in its own banks is gone when
- * it stops. `Prg_Reloaded` (+Equ.s:1863) is the one thing that does come back,
- * because the editor's return path reads it.
+ * The banks are not a copy. The same routine's first two instructions point
+ * `Cur_Banks(a5)` and `Cur_Dialogs(a5)` into the program structure, so a
+ * `Reserve` inside the program leaves a bank the editor can save with it.
+ * `ProgramBuffer.liveBanks` is that pointer, set below.
  */
 import { Edit, EditorAlert } from '../editor/edit'
 import { Editor, type RunRequest } from '../editor/windows'
@@ -207,6 +208,9 @@ export class Amos {
       ...(this.opts.fs ? { fs: this.opts.fs } : {}),
     })
     this.runtime = rt
+    // `Prg_SetBanks`: from here the editor reads the banks through the
+    // interpreter, because on the machine there is one list and this is it
+    w.prog.liveBanks = () => rt.serializeAllBanks()
     return rt
   }
 

@@ -424,9 +424,14 @@ maths flags Test worked out. Byte 11 is `V` or `v` for tested or not, and
 `Prg_Load` never reads it: the load raises `Prg_StModif` unconditionally, so a
 program always comes back from disc untested.
 
-There is no bank writer in this port. `Bnk.Load` and `Bnk.SaveAll` are the
-machine's, and what `ProgramBuffer.banks` holds is the bytes that followed the
-source, kept to be written back unread.
+The editor has no bank reader, so `ProgramBuffer.banks` holds the `AmBs` block
+as bytes and writes it back unread. It is not always its own bytes.
+`Prg_SetBanks` (+Verif.s:4714) points `Cur_Banks(a5)` into the program
+structure, so the banks a running program reserves are the editor's banks, and
+`ProgramBuffer.liveBanks` is that pointer: `src/amos` sets it to the
+interpreter's `serializeAllBanks`, and the bytes below it are only what the
+last load left. Setting `banks` clears it, because a load is `Bnk.EffAll`
+first.
 
 ## Search reads the listing, not the tokens
 

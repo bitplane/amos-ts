@@ -26,15 +26,25 @@ on them and nothing else.
 
 ## What is copied that the machine does not copy
 
-DEVIATION: the machine runs the program in the editor's own memory.
-`Prg_SetBanks` (+Verif.s:4714) points the interpreter at the same banks the
-editor holds, so a `Reserve` inside the program leaves a bank the editor can
-save with it afterwards.
+`Prg_SetBanks` (+Verif.s:4714) is five instructions between an `a0` save and
+its restore, and they are what the two halves share:
 
-Here the window's program is written out as a `.AMOS` image and loaded, so the
-interpreter gets a copy and what the run changed in its own banks is gone when
-it stops. `Prg_Reloaded` (+Equ.s:1863) is the one thing that does come back,
-because the editor's return path reads it.
+    lea     Prg_Banks(a6),a0
+    move.l  a0,Cur_Banks(a5)
+    lea     Prg_Dialogs(a6),a0
+    move.l  a0,Cur_Dialogs(a5)
+    move.l  Prg_StBas(a6),Prg_Source(a5)
+
+The banks are shared here too. `ProgramBuffer.liveBanks` is `Cur_Banks(a5)`,
+and while an interpreter exists the editor reads the banks through it, so
+`Reserve As Work 10,100` inside a program leaves a bank the editor then saves
+with the source. Only `Prg_New` erases them: `Prg_RunIt` clears the variables
+and nothing else, so the bank is still there on the second Run.
+
+DEVIATION: the source is not shared. The window's program is written out as a
+`.AMOS` image and loaded, so `Prg_Source(a5)` points at a copy and an edit made
+while the program runs cannot reach it. `Prg_Reloaded` (+Equ.s:1863) is the one
+thing that comes back the other way, because the editor's return path reads it.
 
 DEVIATION: `VerPos(a5)` is the byte the program stopped ON, and
 `AmosRuntimeError` carries a line number. So the cursor lands at the start of
