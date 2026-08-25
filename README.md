@@ -198,9 +198,8 @@ it, so `dreg` (30 programs), `doscall` (14), `call` and `areg` (4 each),
 `machine code procedure` (2) and `gfxcall` (1) cannot move, and no keyword work
 moves them. `dreg` alone is most of the 39.
 
-Everything else is one or two programs each. `Ask Editor` (3 hits) and `Call
-Editor` (2) are the editor phase, and `||apcmp||` is already classified with
-them. Four OS DevKit spellings turn up once apiece: `_dos exist`,
+Everything else is one or two programs each. `||apcmp||` is the compiler's
+header template. Four OS DevKit spellings turn up once apiece: `_dos exist`,
 `_wb to front`, `_path part`, `_request choice`. `Multi On` and `Multi Off`
 block two programs each, and both names ARE implemented, so what those programs
 have in slot 18 is not what the port binds there.
@@ -218,7 +217,7 @@ non-policy tail a release ago --- `iscreen_open` blocking 9 programs, `itext`
 of 183.
 
 Hit counts are no guide here. `doscall` is skipped 10,166 times across 14
-programs while `ask editor` blocks its one program on 3 hits.
+programs while `_dos exist` blocks its one program on 2 hits.
 
 `--by-program` counts programs per keyword rather than partitioning them, so
 its rows overlap and cannot be added up.

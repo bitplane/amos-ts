@@ -31,6 +31,7 @@
 import type { Edit } from './edit'
 import { detokLineBytes } from '../tokens/edtok'
 import { FLAG, edCall, flagsOf } from './commands'
+import { ED_MESSAGES } from '../runtime/edmessages.gen'
 
 /** `EdZ_Jump`'s entries, by the number `Ask Editor` sends */
 export const ZAP = {
@@ -58,6 +59,8 @@ export const ZAP_FUNCTIONS = 11
 export interface ZapAnswer {
   error: number
   message: number
+  /** the characters, which is what `ZapReturn` puts in `Param$` */
+  text: string
 }
 
 /** what a function answers: d0, a0 and d2, where d2 of 2 means the string is it */
@@ -109,6 +112,7 @@ export function zapCall(e: Edit, command: number, param: number, line: string | 
   editor.zapParam = param
   editor.zapError = 0
   editor.zapMessage = 0
+  editor.zapText = ''
   const d2 = command - 1
   // `cmp.w #HiddenCommands,d2 / bcc .PaCom`, which is 184 and not 183: the
   // last hidden slot is inside the table by one
@@ -128,13 +132,15 @@ export function zapCall(e: Edit, command: number, param: number, line: string | 
   } finally {
     editor.zappeuse = was
   }
-  return { error: editor.zapError, message: editor.zapMessage }
+  return { error: editor.zapError, message: editor.zapMessage, text: editor.zapText }
 }
 
 function fail(editor: Edit['editor'], error: number, message: number): ZapAnswer {
   editor.zapError = error
   editor.zapMessage = message
-  return { error, message }
+  // `bsr Ed_GetMessage / move.l a0,Ed_ZapMessage(a5)` on all four arms
+  editor.zapText = ED_MESSAGES[message - 1] ?? ''
+  return { error, message, text: editor.zapText }
 }
 
 /**

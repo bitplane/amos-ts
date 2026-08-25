@@ -71,28 +71,28 @@ describe('who may drive', () => {
   it('refuses a program that is not an accessory', () => {
     const e = driven()
     e.editor.accessory = false
-    expect(zapCall(e, ED.CUR_DOWN, 0, null)).toEqual({ error: -6, message: 15 })
-    expect(zapFunction(e, ZAP.X)).toEqual({ error: -6, message: 15 })
+    expect(zapCall(e, ED.CUR_DOWN, 0, null)).toEqual({ error: -6, message: 15, text: 'Program is not an accessory.' })
+    expect(zapFunction(e, ZAP.X)).toEqual({ error: -6, message: 15, text: 'Program is not an accessory.' })
   })
 
   it('refuses an accessory that is the current window', () => {
     const e = driven()
     e.editor.runned = e.editor.current
-    expect(zapCall(e, ED.CUR_DOWN, 0, null)).toEqual({ error: -6, message: 15 })
+    expect(zapCall(e, ED.CUR_DOWN, 0, null)).toEqual({ error: -6, message: 15, text: 'Program is not an accessory.' })
   })
 
   it('refuses a command FlagFonc does not mark zappable', () => {
     const e = driven()
     expect(flagsOf(ED.QUIT) & FLAG.ZAP).toBe(0)
-    expect(zapCall(e, ED.QUIT, 0, null)).toEqual({ error: -4, message: 13 })
+    expect(zapCall(e, ED.QUIT, 0, null)).toEqual({ error: -4, message: 13, text: 'Editor command not runnable.' })
     expect(e.editor.quit).toBe(false)
   })
 
   it('refuses an empty string as hard as no string', () => {
     const e = driven()
     expect(flagsOf(ED.RENAME) & FLAG.COMMAND).toBe(FLAG.COMMAND)
-    expect(zapCall(e, ED.RENAME, 0, null)).toEqual({ error: -5, message: 14 })
-    expect(zapCall(e, ED.RENAME, 0, '')).toEqual({ error: -5, message: 14 })
+    expect(zapCall(e, ED.RENAME, 0, null)).toEqual({ error: -5, message: 14, text: 'This editor command needs a string.' })
+    expect(zapCall(e, ED.RENAME, 0, '')).toEqual({ error: -5, message: 14, text: 'This editor command needs a string.' })
     expect(e.prog.name).toBe('')
   })
 
@@ -124,7 +124,7 @@ describe('Ed_Zappeuse', () => {
     let asked = 0
     e.dialogues = { ...requester(), confirm: () => (asked++, 1) }
     // Goto Line under the remote control reads Ed_ZapParam as the line
-    expect(zapCall(e, ED.GOTO_LINE, 3, null)).toEqual({ error: 0, message: 0 })
+    expect(zapCall(e, ED.GOTO_LINE, 3, null)).toEqual({ error: 0, message: 0, text: '' })
     expect(asked).toBe(0)
     expect(e.line).toBe(2)
   })
@@ -203,9 +203,9 @@ describe('the eleven questions', () => {
   it('cannot reach EdZ_Token or EdZ_GetConfig', () => {
     const e = driven()
     expect(ZAP_FUNCTIONS).toBe(11)
-    expect(zapFunction(e, ZAP.TOKENISE)).toEqual({ error: -7, message: 16 })
-    expect(zapFunction(e, ZAP.CONFIG)).toEqual({ error: -7, message: 16 })
-    expect(zapFunction(e, 0)).toEqual({ error: -7, message: 16 })
+    expect(zapFunction(e, ZAP.TOKENISE)).toEqual({ error: -7, message: 16, text: 'Editor function not found.' })
+    expect(zapFunction(e, ZAP.CONFIG)).toEqual({ error: -7, message: 16, text: 'Editor function not found.' })
+    expect(zapFunction(e, 0)).toEqual({ error: -7, message: 16, text: 'Editor function not found.' })
   })
 })
 
@@ -213,7 +213,7 @@ describe('what the remote control writes', () => {
   it('replaces the line under the cursor with the string it was given', () => {
     const e = driven()
     e.yCu = 1
-    expect(zapCall(e, ED.ZAP_NEW_LINE_TOK, 0, 'Print "other"')).toEqual({ error: 0, message: 0 })
+    expect(zapCall(e, ED.ZAP_NEW_LINE_TOK, 0, 'Print "other"')).toEqual({ error: 0, message: 0, text: '' })
     expect(listing(e)).toEqual(['Print "one"', 'Print "other"', 'Print "three"'])
   })
 

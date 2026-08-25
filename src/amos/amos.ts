@@ -41,7 +41,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
 import { isAmosProgram, loadProgram } from '../loader/program'
-import { Runtime } from '../runtime/runtime'
+import { zapCall, zapFunction } from '../editor/zap'
+import { Runtime, type EditorZap } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
 
@@ -214,6 +215,7 @@ export class Amos {
       extensions: loaded.extensions,
       extBindings: loaded.bindings,
       banks: loaded.amos?.banks ?? [],
+      editorZap: this.zap,
       ...(this.opts.onText !== undefined ? { onText: this.opts.onText } : {}),
       ...(this.opts.fs ? { fs: this.opts.fs } : {}),
     })
@@ -222,6 +224,30 @@ export class Amos {
     // interpreter, because on the machine there is one list and this is it
     w.prog.liveBanks = () => rt.serializeAllBanks()
     return rt
+  }
+
+  /**
+   * `Ed_ZapIn` and `Ed_ZapFonction`, as the two keywords see them.
+   *
+   * `Ed_ZapX` (+Edit.s:2737) answers in d0 and a0, a number and a pointer to
+   * characters, and that is the whole of the interface. What the editor does
+   * in between is `src/editor/zap.ts`.
+   *
+   * DEVIATION: `Ed_ZapIn` runs `Ed_Loop` five more times before `Ed_ZapOut`,
+   * counting with `Ed_ZapCounter` (:1141), so the display has settled before
+   * the accessory gets control back. Nothing here draws.
+   */
+  private readonly zap: EditorZap = {
+    call: (command, param, line) => {
+      const a = zapCall(this.window, command, param, line)
+      return { value: a.error, text: a.text }
+    },
+    ask: (n, param) => {
+      const a = zapFunction(this.window, n, param)
+      // `EdZ_Jump`'s entries answer d0/a0/d2; the two error arms set d2 to 2
+      // as well, so both halves come back either way (:2814)
+      return 'error' in a ? { value: a.error, text: a.text } : { value: a.value, text: a.text }
+    },
   }
 
   private runIt(r: RunRequest): number {

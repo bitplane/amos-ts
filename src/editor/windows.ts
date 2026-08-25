@@ -394,6 +394,16 @@ export class Editor {
   zapMessage = 0
 
   /**
+   * The characters `Ed_ZapMessage(a5)` points AT, which is what comes back.
+   *
+   * `Ed_ZapX` (+Edit.s:2737) hands a0 to the caller and `ZapReturn`
+   * (+ILib.s:1763) makes `Param$` out of it, so a number is not enough: an
+   * alert raised inside the command carries text of its own that no editor
+   * message table holds.
+   */
+  zapText = ''
+
+  /**
    * `Ed_BufT+256` behind `$FFFE0102` (:7605): the last alert, kept for
    * `Ed_RAlert`.
    *

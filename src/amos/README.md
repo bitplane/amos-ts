@@ -52,6 +52,25 @@ byte: `parseSource` records an offset per token and the interpreter reads
 `pc.ti - 1` out of it. `Ed_Ligne` cuts its 73-character window around that
 column, and `Ed_ErrEdit` puts the cursor on it.
 
+## The remote control
+
+`Call Editor` and `Ask Editor` are the other direction: an accessory driving
+the editor rather than the editor running a program. `Runtime.editorZap` is the
+door, and it is two methods because `Ed_ZapX` (+Edit.s:2737) answers in d0 and
+a0 and that is all either keyword sees. `src/editor/zap.ts` is the far side.
+
+The two answers are not shaped the same and the machine is where that comes
+from. `Call Editor` ends in `ZapReturn` (+ILib.s:1763), which clears `Param$`
+and fills it only when d0 is not zero, so a command that worked says nothing.
+`Ask Editor` writes its own four instructions instead (+ILib.s:1635) and hangs
+the string on `tst.w d2`, so a question answering text answers it whatever the
+value is.
+
+With no editor -- a program run from the CLI -- both are `tst.l
+Edit_Segment(a5) / beq FonCall`, and this port raises the same Illegal function
+call. Three of CRAFT's accessories in the corpus stop there, which is what they
+would do on a real machine started the same way.
+
 ## What is not here yet
 
 The monitor. `Ed_GoMonitor` runs, and answers "Monitor not found." because
@@ -63,6 +82,13 @@ and `escapeBack` brings it back; what happens in between is
 `Runtime.directScreen`, which has the buttons, the function keys and the
 one-line editor already. `Esc_Loop`'s own arrows, which resize the escape
 screen against `Es_Y1`/`Es_Y2`, are pixel geometry and are not ported.
+
+There is one window. `Ed_LoadHidden` and `Ed_RunHidden` are ported and an
+accessory session needs two -- one being edited, one holding the accessory --
+but `Amos.machine` builds the interpreter out of `this.window`, so a hidden
+window's program cannot actually run. Until that moves, `Call Editor` from a
+program `Ed_Run` started is always -6: it IS the current window, which is the
+first thing `Ed_ZapIn` refuses.
 
 There is also no key loop. `Amos.call` runs one command by number, which is
 `Ed_FCall`, and a host that wants `Ed_Key` builds it out of `edKey` in

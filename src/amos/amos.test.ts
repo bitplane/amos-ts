@@ -4,6 +4,10 @@ import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { Amos } from './amos'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from '../editor/search'
 import { parseAmosFile } from '../loader/amosfile'
+import { Runtime } from '../runtime/runtime'
+import { tokenize } from '../tokens/source'
+import { TokenTable } from '../tokens/stream'
+import { CORE_TOKENS } from '../tokens/tables.gen'
 import { AmigaFS } from '../amiga/vfs'
 
 /** a program, and somewhere for what it prints to go */
@@ -252,5 +256,42 @@ describe('the monitor, which the editor loads off disc', () => {
     amos.call(ED.RUN)
     amos.call(ED.MONITOR)
     expect(parseAmosFile(amos.window.prog.banks).banks.length).toBe(1)
+  })
+})
+
+describe('the remote control, which is an accessory driving the editor', () => {
+  /**
+   * `Call Editor` and `Ask Editor` are `Ed_ZapIn` and `Ed_ZapFonction` with
+   * `Ed_Par` (+ILib.s:1745) in front of them, and the answer comes back in
+   * `Param` and `Param$` -- d0 and a0 out of `Ed_ZapX` (+Edit.s:2737).
+   *
+   * The accessory has to BE one. `Ed_ZapIn` opens by comparing `Edt_Runned`
+   * with `Edt_Current` and testing `Prg_Accessory(a5)`, and failing either is
+   * -6. A program run with `Ed_Run` fails both: it IS the current window.
+   */
+  it('answers -6 with the message when the program is not an accessory', () => {
+    const { amos, out } = boot('Call Editor 4\nPrint Param;" ";Param$')
+    amos.editor.dialogues = asks(2)
+    amos.call(ED.RUN)
+    expect(out()).toBe('-6 Program is not an accessory.')
+    // and the command did not run
+    expect(amos.window.line).toBe(0)
+  })
+
+  it('asks a question the same way, and -6 comes back in both halves', () => {
+    // `Ed_ZapFonction`'s error arms set d2 to 2 as well as d0 (+Edit.s:2814),
+    // so the text reaches Param$ even though the value is not zero
+    const { amos, out } = boot('Ask Editor 5\nPrint Param;" ";Param$')
+    amos.editor.dialogues = asks(2)
+    amos.call(ED.RUN)
+    expect(out()).toBe('-6 Program is not an accessory.')
+  })
+
+  it('is an Illegal function call with no editor at all, which is a CLI run', () => {
+    // `tst.l Edit_Segment(a5) / beq FonCall` (+ILib.s:1674) is the first test
+    // either keyword makes, and `Runtime.editorZap` null is that
+    const t = new TokenTable(CORE_TOKENS)
+    const rt = new Runtime(tokenize('Call Editor 4', t), t, { maxSteps: 10_000 })
+    expect(() => rt.runHeadless(50)).toThrow(/Illegal function call/)
   })
 })

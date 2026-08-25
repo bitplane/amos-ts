@@ -412,6 +412,21 @@ function writeArrayHeader(buf: Uint8Array, count: number): void {
   buf[5] = 1 // stride, unused for the last dimension
 }
 
+/**
+ * The editor, as the two remote-control keywords see it.
+ *
+ * `src/runtime` cannot reach `src/editor` and does not need to: the whole of
+ * `Ed_ZapIn` and `Ed_ZapFonction` shows through as two calls that answer a
+ * number and some characters, which is exactly what `Ed_ZapX` (+Edit.s:2737)
+ * hands back in d0 and a0. `src/amos` supplies it.
+ */
+export interface EditorZap {
+  /** `Ed_ZapIn` (+Edit.s:2649): run editor command `command` */
+  call(command: number, param: number, line: string | null): { value: number; text: string }
+  /** `Ed_ZapFonction` (+Edit.s:2797): ask question `n` */
+  ask(n: number, param: number): { value: number; text: string }
+}
+
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
   /**
@@ -433,6 +448,8 @@ export interface RuntimeOptions {
   frameBudget?: number
   /** mirror of all console text output (for transcripts/CLIs) */
   onText?: (text: string) => void
+  /** the editor an accessory drives with `Call Editor` and `Ask Editor` */
+  editorZap?: EditorZap
   /** resource banks from the .AMOS file */
   banks?: Bank[]
   /** file provider for Load Iff etc. — shorthand for host.fs */
@@ -976,6 +993,15 @@ export class Runtime {
    * a Workbench — both are the identity, which is what made them no-ops here
    * before there was anything else to be in front of.
    */
+  /**
+   * The editor, for the two keywords that reach it.
+   *
+   * `InCallEditor3` and `InAskEditor3` (+ILib.s:1670, :1630) both open
+   * `tst.l Edit_Segment(a5) / beq FonCall`: with no editor loaded, the
+   * keyword is an Illegal function call and nothing else. Null is that.
+   */
+  editorZap: EditorZap | null = null
+
   amosToFront(): void {
     this.orderAmos(false)
   }
@@ -4513,6 +4539,7 @@ export class Runtime {
     if (opts.machine) this.machine = opts.machine
     if (opts.fs) this.host.fs = opts.fs
     if (opts.audio) this.host.audio = opts.audio
+    if (opts.editorZap) this.editorZap = opts.editorZap
     if (opts.onText) this.host.onText = opts.onText
     this.onText = this.host.onText
     const io: AmosIO = {

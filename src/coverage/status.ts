@@ -4221,8 +4221,6 @@ export const NA = new Set<string>([
   'follow',
   'follow off',
   // editor-internal
-  'ask editor',
-  'call editor',
   'kill editor',
   'monitor',
   'include',
@@ -4388,8 +4386,6 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'follow off': 'syntax',
   'screen size': 'syntax',
   // the editor and the compiler overlay
-  'ask editor': 'editor',
-  'call editor': 'editor',
   'kill editor': 'editor',
   monitor: 'editor',
   include: 'editor',

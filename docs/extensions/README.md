@@ -128,6 +128,7 @@ per keyword.
 
 | id                     | name                                  | evidence    | keywords | seen at | slot          |
 | ---------------------- | ------------------------------------- | ----------- | -------: | ------: | ------------- |
+| `intuition-1.3b`       | Intuition Extension                   | source      |      183 |      14 | states 15     |
 | `explode-2.01`         | Explode                               | source      |      131 |       — | recommends 7  |
 | `jd-5.3`               | JD                                    | source      |      130 |      22 | —             |
 | `jd-4.6`               | JD                                    | source      |      125 |      22 | —             |
@@ -215,7 +216,6 @@ per keyword.
 | `thx-0.6`              | THX                                   | disassembly |        6 |       — | states 20     |
 | `jotre-1.0`            | Jotre                                 | disassembly |        5 |       — | states 22     |
 | `first-0.1`            | First                                 | disassembly |        4 |       — | recommends 22 |
-| `intuition-1.3b`       | Intuition Extension                   | manual      |      183 |      14 | recommends 25 |
 
 <!-- END registry -->
 

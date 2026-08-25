@@ -4854,6 +4854,7 @@ function run(e: Edit, fn: () => void): number {
       // the remote call's answer instead, and the magic buffer is not written
       e.editor.zapError = -1
       e.editor.zapMessage = err.code
+      e.editor.zapText = err.text
     } else {
       e.editor.alertSaved = err.code
       e.editor.alertSavedText = err.text

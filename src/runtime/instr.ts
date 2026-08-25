@@ -154,6 +154,19 @@ function speakChannel(rt: Runtime, path: string): { speak?: { buf: SpeakBuffer; 
   return { speak: { buf: new SpeakBuffer(), voice: parseSpeakOptions(path) } }
 }
 
+/**
+ * `ZapReturn` (+ILib.s:1763): a `Call Editor`'s answer, into `Param`/`Param$`.
+ *
+ * Four instructions and the second is the one to read: `move.l ChVide(a5),
+ * ParamC(a5)` clears the string FIRST, and `A0ToChaine` only fills it when d0
+ * is not zero. So a command that worked leaves `Param$` empty whatever the
+ * last one said. `Ask Editor` does not come through here.
+ */
+function zapReturn(it: It, r: { value: number; text: string }): void {
+  it.paramInt = r.value
+  it.paramStr = r.value === 0 ? '' : r.text
+}
+
 function optInt(it: It, def: number): number {
   if (it.atStmtEnd() || it.nm() === ',' || it.nm() === ')') return def
   return it.evalInt()
@@ -3138,6 +3151,48 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'close editor'() {
       // Ed_CloseEditor frees the editor; there is no editor in the port
+    },
+    /**
+     * `Call Editor n [,param [,line$]]` --- `InCallEditor1`/`2`/`3`
+     * (+ILib.s:1649, :1660, :1670).
+     *
+     * The three forms are one routine: 1 and 2 push `EntNul` for the
+     * arguments they were not given and fall into 3, which is `Ed_Par`
+     * (+ILib.s:1745) unpacking them and `Ed_ZapIn` running the command.
+     *
+     * `Ed_Par` writes the string's LENGTH into `Name2` and its characters into
+     * `Name1`, and `Ed_ZapIn` reads the length to decide whether a command
+     * that wants a string was given one. An empty string is the same as none.
+     */
+    'call editor'(it) {
+      const n = it.evalInt()
+      // `Call Editor 71,,C$+B$` is CRAFT_Interface_Packer.AMOS verbatim: the
+      // middle slot is left blank and compiles to EntNul, which is what form 2
+      // pushes for it anyway
+      const param = it.accept(',') ? optInt(it, ENT_NUL) : ENT_NUL
+      const line = it.accept(',') ? it.evalStr() : null
+      const ed = rt.editorZap
+      if (ed === null) throw new AmosError('Illegal function call')
+      zapReturn(it, ed.call(n, param, line))
+    },
+    /**
+     * `Ask Editor n [,param [,line$]]` --- `InAskEditor1`/`2`/`3`
+     * (+ILib.s:1608, :1619, :1629), the same three forms over
+     * `Ed_ZapFonction`.
+     */
+    'ask editor'(it) {
+      const n = it.evalInt()
+      const param = it.accept(',') ? optInt(it, ENT_NUL) : ENT_NUL
+      if (it.accept(',')) it.evalStr() // `Ed_Par` reads it; no question uses it
+      const ed = rt.editorZap
+      if (ed === null) throw new AmosError('Illegal function call')
+      // NOT `ZapReturn`. `InAskEditor3` writes its own four instructions
+      // (+ILib.s:1635): d0 goes to `Param` whatever it is, and the string
+      // follows `tst.w d2` rather than d0, so a question answering the empty
+      // string still answers it
+      const r = ed.ask(n, param)
+      it.paramInt = r.value
+      it.paramStr = r.text
     },
     'set buffer'(it) {
       // InSetBuffer +ILib.s:1799 is literally rts in the interpreter —
