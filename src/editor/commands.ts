@@ -26,13 +26,13 @@
  *
  * The status bar's four arrows are 13 to 16, the printer 86 and 146, the two
  * About boxes 149 and 150, Check 1.3 is 147 and Insert Machine Language 151.
- * Running a program is 77, 105 and 111, and what running MEANS is the host's:
- * see `Editor.runProgram`.
+ * Running a program is 77, 105 and 111 and the escape screen is 28, and what
+ * either MEANS is the host's: see `Editor.runProgram` and
+ * `Editor.escapeScreen`.
  *
- * The 2 that are left need something this port has not built yet: the escape
- * screen's own loop (28) and +Monitor.s (145). `COMMANDS` has no entry for
- * either and `edCall` throws rather than silently doing nothing, so a key map
- * that reaches one says which.
+ * The 1 that is left is `Ed_GoMonitor` (145), which is +Monitor.s and 4,291
+ * lines of its own. `COMMANDS` has no entry for it and `edCall` throws rather
+ * than silently doing nothing, so a key map that reaches it says which.
  *
  * ## What a command does NOT do here
  *
@@ -221,6 +221,7 @@ export const ED = {
   PROC_OPEN: 87,
   PROC_ML: 151,
   RUN: 77,
+  ESCAPE: 28,
   RUN_HIDDEN: 111,
   WORKBENCH: 105,
   PROCS_OPEN: 89,
@@ -3078,6 +3079,76 @@ function edWb(e: Edit): void {
   e.editor.amosToBack?.()
 }
 
+/* ---- 28: the escape screen ---------------------------------------------- */
+
+/**
+ * `Ed_SamPlay` (:4799): the editor's own noise, one letter of it.
+ *
+ * Two guards, and both matter. `Ed_Sounds` is the configuration byte the
+ * Sounds menu entry flips, and `Ed_Zappeuse` is the ZAP remote control: a
+ * program driving the editor does not get to make it beep.
+ */
+function samPlay(e: Edit, letter: string): void {
+  if (!e.editor.config.sounds) return
+  if (e.editor.zappeuse) return
+  e.editor.playSample?.(letter)
+}
+
+/** `Ed_Hide` (:9579), as much of it as is not the slide down the screen */
+function edHide(e: Edit): void {
+  if (e.editor.esFlag) return
+  e.editor.esFlag = true
+  e.editor.avert.length = 0 // Ed_AllAverFin
+}
+
+/** `Ed_Appear` (:9646), the same in reverse */
+function edAppear(e: Edit): void {
+  if (!e.editor.esFlag) return
+  e.editor.esFlag = false
+}
+
+/**
+ * `Ed_Escape` (:8876), the Escape key: the editor goes away and the escape
+ * screen comes up over whatever the program is displaying.
+ *
+ * It is the same shape as `Ed_Run`. Four instructions of editor work and then
+ * `Esc_Loop`, which is not a call either: `move.l BasSp(a5),sp` (:8887) throws
+ * the editor's stack away, and the editor comes back through `Esc_Esc` (:9125)
+ * and nowhere else.
+ *
+ * DEVIATION: `Esc_Appear` is the host's, for the reason `Editor.escapeScreen`
+ * gives. With nobody listening the editor hides and there is nothing to hide
+ * behind, which is why the flag is what a host reads to know.
+ */
+function edEscape(e: Edit): void {
+  samPlay(e, 'E')
+  e.tokCur()
+  edHide(e)
+  if (e.editor.escape) return // `tst.w Direct(a5) / bne .Out`
+  e.editor.escape = true
+  e.editor.escapeScreen?.(true)
+}
+
+/**
+ * `Esc_Esc` (:9125): the Escape key again, from the other side.
+ *
+ * `clr.w Edt_EtMess(a4)` between the two halves is the countdown on the status
+ * line's alert, so whatever the editor was saying when it went away is not
+ * still counting down when it comes back.
+ */
+export function edEscapeReturn(e: Edit): number {
+  const alert = run(e, () => {
+    samPlay(e, 'E')
+    if (e.editor.escape) {
+      e.editor.escape = false
+      e.editor.escapeScreen?.(false)
+    }
+    e.alertTime = 0 // clr.w Edt_EtMess(a4)
+    edAppear(e)
+  })
+  return edLoop(e, alert)
+}
+
 /* ---- the way back, when a program stops --------------------------------- */
 
 /**
@@ -4322,6 +4393,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   87: procOpen,
   151: procML,
   77: edRun,
+  28: edEscape,
   111: (e, n) => runHidden(e, n),
   105: edWb,
   88: loadHidden,

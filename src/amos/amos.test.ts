@@ -81,3 +81,64 @@ describe('Run, from the editor all the way through the interpreter', () => {
     expect(amos.window.prog.modified).toBe(false)
   })
 })
+
+describe('Escape, which is the same shape as Run', () => {
+  it('hides the editor and puts the escape screen in front', () => {
+    const { amos } = boot('Print "x"')
+    expect(amos.call(ED.ESCAPE)).toBe(0)
+    expect(amos.inEscape).toBe(true)
+    expect(amos.editor.esFlag).toBe(true)
+    expect(amos.runtime!.directScreen.isOpen).toBe(true)
+  })
+
+  it('comes back through Esc_Esc and nowhere else', () => {
+    const { amos } = boot('Print "x"')
+    amos.call(ED.ESCAPE)
+    expect(amos.escapeBack()).toBe(0)
+    expect(amos.inEscape).toBe(false)
+    expect(amos.editor.esFlag).toBe(false)
+    expect(amos.runtime!.directScreen.isOpen).toBe(false)
+  })
+
+  it('is idempotent both ways, because both flags are guarded', () => {
+    const { amos } = boot('Print "x"')
+    amos.call(ED.ESCAPE)
+    amos.call(ED.ESCAPE)
+    expect(amos.inEscape).toBe(true)
+    amos.escapeBack()
+    amos.escapeBack()
+    expect(amos.inEscape).toBe(false)
+  })
+
+  it('keeps what the program left, which is what direct mode is for', () => {
+    const { amos } = boot('A=42')
+    amos.call(ED.RUN)
+    const after = amos.runtime
+    amos.call(ED.ESCAPE)
+    // `Prg_RunIt` clears the variables before a run, not after one
+    expect(amos.runtime).toBe(after)
+    expect(amos.runtime!.interp.getVar('a', 0)).toEqual({ k: 'int', n: 42 })
+  })
+
+  it('takes every warning box down on the way out, as Ed_Hide does', () => {
+    const { amos } = boot('Print "x"')
+    amos.editor.avert.push(198)
+    amos.call(ED.ESCAPE)
+    expect(amos.editor.avert).toEqual([])
+  })
+
+  it('plays the E sample, unless the sounds are off', () => {
+    const { amos } = boot('Print "x"')
+    const heard: string[] = []
+    amos.editor.playSample = (c) => heard.push(c)
+    amos.editor.config.sounds = true
+    amos.call(ED.ESCAPE)
+    amos.escapeBack()
+    expect(heard).toEqual(['E', 'E'])
+
+    heard.length = 0
+    amos.editor.config.sounds = false
+    amos.call(ED.ESCAPE)
+    expect(heard).toEqual([])
+  })
+})

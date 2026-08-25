@@ -301,6 +301,42 @@ export class Editor {
   runProgram: ((r: RunRequest) => void) | null = null
 
   /**
+   * `EsFlag(a5)`: the editor's screen is hidden.
+   *
+   * `Ed_Hide` (+Edit.s:9579) sets it and `Ed_Appear` (:9646) clears it, both
+   * guarded, so hiding twice costs nothing and appearing when already up does
+   * nothing. `Ed_Hide` also takes every warning box down on the way.
+   */
+  esFlag = false
+
+  /**
+   * `Direct(a5)`, as the EDITOR uses it: the escape screen is in front.
+   *
+   * `Esc_Appear` (+Edit.s:9329) sets it, `Esc_Hide` (:9507) clears it, and the
+   * interpreter reads the same word to decide that an error in a typed line is
+   * never trapped (`tst.w Direct(a5) / bne rErr1`, +ILib.s:1330). One word,
+   * two owners; this is the editor's half and src/interp/direct.ts is the
+   * other.
+   */
+  escape = false
+
+  /**
+   * DEVIATION: `Esc_Appear` and `Esc_Hide`, which are 178 and 72 lines of
+   * screen work between them. Nothing in `src/editor` owns a display and the
+   * escape screen is drawn on an AMOS screen rather than the editor's, so the
+   * screen itself is `src/runtime/directscreen.ts` and this is the door.
+   */
+  escapeScreen: ((up: boolean) => void) | null = null
+
+  /**
+   * DEVIATION: `Ed_SamPlay` (+Edit.s:4799) plays one letter's sample out of
+   * bank 5 of the editor's resource, which is a "Samp" bank the port has the
+   * bytes of and no editor-side mixer for. The two guards are real and are
+   * kept: `Ed_Sounds` off and the ZAP remote control both silence it.
+   */
+  playSample: ((letter: string) => void) | null = null
+
+  /**
    * DEVIATION: `Ed_Wb` (+Edit.s:11201) is `EcCalD AMOS_WB,0` and nothing else,
    * which is what `Amos To Back` (+Lib.s:11337) is too. Nothing in
    * `src/editor` owns a display, so the flip goes to the host.

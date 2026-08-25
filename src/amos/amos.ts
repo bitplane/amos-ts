@@ -32,7 +32,7 @@ import { Editor, type RunRequest } from '../editor/windows'
 import { ProgramBuffer } from '../editor/buffer'
 import { EditBuffer } from '../editor/editbuf'
 import { UndoBuffer } from '../editor/undo'
-import { drawWindows, edCall, edRunReturn } from '../editor/commands'
+import { drawWindows, edCall, edEscapeReturn, edRunReturn } from '../editor/commands'
 import { programSource, writeProgramFile, type EditorFS } from '../editor/files'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -66,7 +66,13 @@ export class Amos {
   readonly editor = new Editor()
   /** `Edt_Current` at boot, which is the window `Ed_Run` runs */
   readonly window: Edit
-  /** the program that is running, while it is */
+  /**
+   * The interpreter this program has, from the first Run or Escape onwards.
+   *
+   * Not "while it is running": `Prg_RunIt` is what clears the variables, so
+   * what a finished program left is still there for the escape screen to look
+   * at, which is what direct mode under the editor is FOR.
+   */
   runtime: Runtime | null = null
 
   private pending: RunRequest | null = null
@@ -91,6 +97,13 @@ export class Amos {
     if (opts.fs !== undefined) this.editor.fs = opts.fs
     this.editor.runProgram = (r) => {
       this.pending = r
+    }
+    // `Esc_Appear` and `Esc_Hide`, which are the AMOS screen underneath and
+    // not the editor's, so they live on the Runtime
+    this.editor.escapeScreen = (up) => {
+      const rt = this.machine(false)
+      if (up) rt.directScreen.open()
+      else rt.directScreen.close()
     }
     drawWindows(this.editor)
   }
@@ -118,8 +131,18 @@ export class Amos {
    * has the LINE. `AmosRuntimeError` carries a line number, so the cursor
    * lands at the start of the failing line rather than on the token.
    */
-  private runIt(r: RunRequest): number {
-    const w = r.window
+  /**
+   * The interpreter this window's program has.
+   *
+   * `Prg_RunIt` calls `ClearVar` before every run (`.Skip1`, +Verif.s:4356),
+   * so a fresh one per Run is right. Keeping it AFTERWARDS is what the escape
+   * screen needs: direct mode exists to look at what the program left behind,
+   * and a machine thrown away at the end of the run has nothing to look at.
+   */
+  private machine(fresh: boolean): Runtime {
+    const had = this.runtime
+    if (had !== null && !fresh) return had
+    const w = this.window
     const file = writeProgramFile({
       pro: w.prog.pro,
       mathFlags: w.prog.mathFlags,
@@ -136,6 +159,12 @@ export class Amos {
       ...(this.opts.fs ? { fs: this.opts.fs } : {}),
     })
     this.runtime = rt
+    return rt
+  }
+
+  private runIt(r: RunRequest): number {
+    const w = r.window
+    const rt = this.machine(true)
     let code = 0
     let at = -1
     let text: string | null = null
@@ -149,10 +178,24 @@ export class Amos {
       // the text goes over as an extension's would: `Ed_GetError`'s a0
       if (code === 0) text = e.text
       at = w.prog.findLine(e.line - 1).at - w.prog.stBas
-    } finally {
-      this.runtime = null
     }
     return edRunReturn(this.window, code, at, text)
+  }
+
+  /**
+   * `Esc_Esc` (+Edit.s:9125): the Escape key from inside the escape screen.
+   *
+   * The other half of `Ed_Escape`, and the only way back. It is a separate
+   * entry for the same reason the run's return is: `Esc_Loop` reset the stack
+   * on the way in and there is nothing to return through.
+   */
+  escapeBack(): number {
+    return edEscapeReturn(this.window)
+  }
+
+  /** whether the escape screen is in front: `Direct(a5)` */
+  get inEscape(): boolean {
+    return this.editor.escape
   }
 
   /** the editor's status line as it stands, which is what a host draws */

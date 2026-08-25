@@ -62,9 +62,8 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-182 of the 184 `JFonc` entries run. The 2 left are `Ed_Escape` (28), which is
-the escape screen's own loop, and `Ed_GoMonitor` (145), which is +Monitor.s
-and 4,291 lines of its own.
+183 of the 184 `JFonc` entries run. The one left is `Ed_GoMonitor` (145),
+which is +Monitor.s and 4,291 lines of its own.
 
 
 ## The About box says nobody bought this copy
@@ -542,7 +541,12 @@ A program that is already running reports "Out of memory." `Ed_RunHidden`
 sixty lines above tests d0 and says "Program already run." for the same state.
 
 The run itself is the host's: `Editor.runProgram` gets a `RunRequest`, and
-what the program answers comes back through `edRunReturn`.
+what the program answers comes back through `edRunReturn`. `src/amos` is the
+module that owns both ends.
+
+`Ed_Escape` (28) is the same shape and the same four instructions of editor
+work: the noise, `Ed_TokCur`, `Ed_Hide`, `Esc_Appear`. Then `Esc_Loop` resets
+the stack too, so the way back is `Esc_Esc` (:9125) and `edEscapeReturn`.
 
 ## Coming back is one dispatch, shared with the Test pass
 

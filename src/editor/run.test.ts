@@ -7,7 +7,7 @@ import { ProgramBuffer } from './buffer'
 import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
-import { ED, drawWindows, edCall, edRunReturn } from './commands'
+import { ED, drawWindows, edCall, edEscapeReturn, edRunReturn } from './commands'
 import { UN } from './undo'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { ED_MESSAGES, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
@@ -377,5 +377,60 @@ describe('when a hidden program stops', () => {
     const was = e.editor.list.length
     edRunReturn(e, 10)
     expect(e.editor.list.length).toBe(was - 1)
+  })
+})
+
+describe('Escape', () => {
+  it('hides the editor and asks the host for the escape screen', () => {
+    const e = open()
+    const seen: boolean[] = []
+    e.editor.escapeScreen = (up) => seen.push(up)
+    expect(edCall(e, ED.ESCAPE)).toBe(0)
+    expect(seen).toEqual([true])
+    expect(e.editor.esFlag).toBe(true)
+    expect(e.editor.escape).toBe(true)
+  })
+
+  it('still flips both flags with nobody listening', () => {
+    const e = open()
+    edCall(e, ED.ESCAPE)
+    expect([e.editor.esFlag, e.editor.escape]).toEqual([true, true])
+  })
+
+  it('asks twice for nothing, because Esc_Appear tests Direct first', () => {
+    const e = open()
+    const seen: boolean[] = []
+    e.editor.escapeScreen = (up) => seen.push(up)
+    edCall(e, ED.ESCAPE)
+    edCall(e, ED.ESCAPE)
+    expect(seen).toEqual([true])
+  })
+
+  it('comes back through Esc_Esc, which stops the alert counting down', () => {
+    const e = open()
+    const seen: boolean[] = []
+    e.editor.escapeScreen = (up) => seen.push(up)
+    edCall(e, ED.ESCAPE)
+    e.alertTime = 100
+    expect(edEscapeReturn(e)).toBe(0)
+    expect(seen).toEqual([true, false])
+    expect(e.alertTime).toBe(0) // clr.w Edt_EtMess(a4)
+    expect([e.editor.esFlag, e.editor.escape]).toEqual([false, false])
+  })
+
+  it('takes the warning boxes down on the way, and the ZAP driver hears nothing', () => {
+    const e = open()
+    const heard: string[] = []
+    e.editor.playSample = (c) => heard.push(c)
+    e.editor.config.sounds = true
+    e.editor.avert.push(198)
+    edCall(e, ED.ESCAPE)
+    expect(e.editor.avert).toEqual([]) // Ed_AllAverFin, inside Ed_Hide
+    expect(heard).toEqual(['E'])
+
+    heard.length = 0
+    e.editor.zappeuse = true
+    edEscapeReturn(e)
+    expect(heard).toEqual([])
   })
 })

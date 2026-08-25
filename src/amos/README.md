@@ -43,10 +43,14 @@ the failing line rather than on the token, which is a column short of what
 
 ## What is not here yet
 
-`Ed_Escape` (JFonc 28) and `Ed_GoMonitor` (145), the two commands the editor
-still cannot run. The escape screen exists in `src/runtime/directscreen.ts`
-without the editor around it; `Ed_Escape` is the editor's own loop over it,
-and +Monitor.s is 4,291 lines of its own.
+`Ed_GoMonitor` (JFonc 145), the one command the editor still cannot run:
++Monitor.s is 4,291 lines of its own.
+
+The escape screen is here, but only its two ends. `Ed_Escape` hides the editor
+and `escapeBack` brings it back; what happens in between is
+`Runtime.directScreen`, which has the buttons, the function keys and the
+one-line editor already. `Esc_Loop`'s own arrows, which resize the escape
+screen against `Es_Y1`/`Es_Y2`, are pixel geometry and are not ported.
 
 There is also no key loop. `Amos.call` runs one command by number, which is
 `Ed_FCall`, and a host that wants `Ed_Key` builds it out of `edKey` in
