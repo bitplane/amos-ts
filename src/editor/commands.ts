@@ -19,13 +19,13 @@
  * the folds 87, 89 and 90, and the configuration 137 to 142.
  *
  * Quit and the session file are 82, the one-question requesters 26, 76, 83 and
- * 114, and what the remote control writes 69, 70, 71, 154 and 182.
+ * 114, what the remote control writes 69, 70, 71, 154 and 182, and the menus'
+ * own 27, 104, 148, 179, 180 and 183 plus the 46 `Ed_UserMenu` slots.
  *
- * The 70 that are left are 46 `Ed_UserMenu` slots and 24 commands needing
- * something this port has not built yet: the interpreter (77, 105, 111), the
- * menus (27, 73, 74, 104, 135, 136, 179, 180), the status bar's arrows (13 to
- * 16), printing and the About boxes (86, 146, 148 to 151), and 28, 145, 147
- * and 183 one at a time.
+ * The 19 that are left need something this port has not built yet: the
+ * interpreter (77, 105, 111), the menu editors (73, 74, 135, 136), the status
+ * bar's arrows (13 to 16), printing and the About boxes (86, 146, 149 to 151),
+ * and 28, 145 and 147 one at a time.
  * `COMMANDS` has no entry for any of them and `edCall` throws rather than
  * silently doing nothing, so a key map that reaches one says which.
  *
@@ -71,6 +71,7 @@ import {
   readSession,
   writeSession,
 } from './session'
+import { EDM_HIDDEN_MAX, hiddenPage } from './menus'
 import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
@@ -170,6 +171,12 @@ export const ED = {
   CLOSE_NAME: 153,
   QUIT: 82,
   SET_TAB: 26,
+  USER_MENU: 27,
+  SHOW_KEY: 104,
+  SOUND_ON: 148,
+  PREV_HIDDEN: 179,
+  NEXT_HIDDEN: 180,
+  GO_HELP: 183,
   ZAP_NEW_LINE: 69,
   RE_ALERT: 70,
   ZAP_NEW_LINE_TOK: 71,
@@ -2578,6 +2585,90 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
   }
 }
 
+/* ---- 27, 104, 148, 179, 180, 183 and the 46 user slots: the menus -------- */
+
+/**
+ * `Ed_UserMenu` (:5414): the body 46 of the 184 `JFonc` entries share.
+ *
+ * Twenty of them, 115 to 134, are the user menu's own slots; the rest are
+ * places the CONFIGURATION is expected to fill. Its whole body is a requester
+ * saying the option does nothing, which is what an unconfigured slot does.
+ *
+ * `Ed_FCall` reads `Ed_AutoLoad` before it reaches this table, so a slot with
+ * a program bound to it never arrives here. The shipped configuration binds
+ * 27 to `AMOSPro_Help.AMOS` and 172 to 178 to the setup accessories, and the
+ * assembler's own comments beside those seven entries name them: Interpretor
+ * Setup, Editor Setup, Editor Menus, Editor Dialogs, Test-Time, Run-Time and
+ * Colour Palette.
+ */
+function userMenu(e: Edit): void {
+  e.tokCur()
+  confirm(e, { which: 44 }) // EdD_MnUs
+}
+
+/**
+ * `Ed_GoHelp` (:2636): `moveq #26,d2 / bra Ed_FCall`, and d2 is 0-based.
+ *
+ * So F5 runs command 27, which is a user-menu slot with nothing of its own to
+ * do. The Help accessory appears because `Ed_AutoLoad` binds a program to that
+ * slot, and unbinding it leaves F5 putting up "this option is not assigned".
+ */
+function goHelp(e: Edit): void {
+  edCall(e, 27)
+}
+
+/**
+ * `Ed_ShowKey` (:12998): show the key beside each menu entry, or stop.
+ *
+ * `not.b EdM_Keys(a5)` and then the whole menu is built again, because the key
+ * is part of the label: `EdM_ObCree` (:13108) pads the string by `L_KDef+1`
+ * characters and writes the key into them, and only when `EdM_Keys` is set.
+ * `Ed_Fonc2Ky` is what turns the command back into a keystroke.
+ */
+function showKey(e: Edit): void {
+  e.tokCur()
+  e.editor.config.menuKeys = !e.editor.config.menuKeys
+}
+
+/**
+ * `Ed_SamOn` (:5786): the editor's sounds on or off.
+ *
+ * `Ed_SamPlay` is called with a letter at eight places -- "B" on the way out,
+ * "E" into the escape screen, "F" on a cursor move, "G" on an alert -- and
+ * this byte is what it tests first. `EdC_Changed` goes up, so Quit offers to
+ * save it.
+ *
+ * DEVIATION: `EdM_MarkAll` puts the tick beside the menu entry and
+ * `Ed_SamChanged` loads or frees `AMOSPro_Editor_Samples.Abk`. There is no
+ * menu to tick here and no sample bank behind it.
+ */
+function samOn(e: Edit): void {
+  e.editor.config.sounds = !e.editor.config.sounds
+  e.editor.configChanged = 1
+}
+
+/**
+ * `EdM_PrevHidden` (:12739) and `EdM_NextHidden` (:12751).
+ *
+ * The step is `EdM_HiddenMax-1`, eleven, while the page shows twelve, so the
+ * pages overlap by one entry. Only Prev has a bound of its own: it refuses at
+ * zero and floors at zero, and Next simply adds. What stops Next is
+ * `EdM_BranchAMOS`, which pulls the position back to `count - 12` every time
+ * it rebuilds the branch (./menus.ts).
+ */
+function prevHidden(e: Edit): void {
+  e.tokCur()
+  if (e.editor.posHidden === 0) notDone(e)
+  e.editor.posHidden = Math.max(0, e.editor.posHidden - (EDM_HIDDEN_MAX - 1))
+  hiddenPage(e.editor)
+}
+
+function nextHidden(e: Edit): void {
+  e.tokCur()
+  e.editor.posHidden += EDM_HIDDEN_MAX - 1
+  hiddenPage(e.editor)
+}
+
 /* ---- 69, 70, 71, 154 and 182: what the remote control writes ------------ */
 
 /**
@@ -3267,6 +3358,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   88: loadHidden,
   89: (e) => procs(e, false),
   90: (e) => procs(e, true),
+  104: showKey,
   114: setBuffer,
   137: (e) => {
     // EdC_SaveDefault (:4857), which asks first
@@ -3370,7 +3462,11 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // EdMa_SaveDefault (:6668), which does NOT ask before writing over it
     macroSaveDef(e)
   },
+  148: samOn,
   154: rename,
+  179: prevHidden,
+  180: nextHidden,
+  183: goHelp,
   182: zapNewConfig,
   152: (e) => {
     // Ed_SaveAsName (:13607): save to Name1 with no .Bak, and put the
@@ -3394,6 +3490,13 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     e.fill()
   },
 }
+
+// The 46 `Ed_UserMenu` entries, taken from the routine names ./keymap.gen.ts
+// reads out of `JFonc` rather than listed here: 27, 115 to 134, 155 to 178 and
+// 184, and no comment can go stale about which.
+ED_ROUTINES.forEach((name, i) => {
+  if (name === 'Ed_UserMenu') COMMANDS[i + 1] = userMenu
+})
 
 // 39 to 48 Ed_SMark0-9, 49 to 58 Ed_GMark0-9. Ten `addq.w #1,d0` in a row
 // falling into one routine (:4214), which is the whole of what they are.

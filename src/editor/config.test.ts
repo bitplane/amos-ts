@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { describeWith } from '../testing/fixture'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { ED_KFONC, ED_ROUTINES } from './keymap.gen'
+import { readMenuDefs } from './menus'
 import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from '../runtime/edmessages.gen'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import {
@@ -183,6 +184,35 @@ describeWith('AMOSPro_Editor_Config', shipped(), (file) => {
       const first = messages(block)[0]!
       expect([...changeMessage(block, 1, first)]).toEqual([...block])
     }
+  })
+
+  it('is a menu of 199 records, three of them stars, and 196 labels', () => {
+    const defs = c.texts.menuDefs
+    const labels = messages(c.texts.menus)
+    expect(defs.length).toBe(199 * 8 + 2)
+    const sections = readMenuDefs(defs, labels)
+    expect(sections.length).toBe(4)
+    expect(sections.reduce((n, m) => n + m.length, 0)).toBe(196)
+    expect(labels.length).toBe(196)
+    // the AMOS branch's own title and the two entries under it, which is where
+    // the labels prove the records and the messages are in step
+    const amos = sections[1]!
+    expect(amos[0]!.title).toBe(true)
+    expect(amos[0]!.label).toBe(' AMOS ')
+    expect([amos[1]!.command, amos[1]!.label]).toEqual([150, ' About AMOS Professionnal '])
+    expect([amos[2]!.command, amos[2]!.label]).toEqual([149, ' About Loaded Extensions  '])
+  })
+
+  it('binds F5 to the Help accessory through the user slot, not to a routine', () => {
+    // `Ed_GoHelp` is `moveq #26,d2`, so F5 is command 27, and 27 is an
+    // `Ed_UserMenu` slot with nothing of its own to do
+    expect(ED_ROUTINES[26]).toBe('Ed_UserMenu')
+    const at = (27 - 1) * 3
+    expect(c.autoLoad[at]).toBe(1)
+    const programs = messages(c.texts.programs)
+    expect(programs[c.autoLoad[at + 1]! - 1]).toBe(
+      'AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS',
+    )
   })
 
   it('carries three more the port had no copy of', () => {

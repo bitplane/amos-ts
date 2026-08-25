@@ -227,6 +227,10 @@ export class EditorConfig {
     return this.bytes[AT.MENU_KEYS] !== 0
   }
 
+  set menuKeys(v: boolean) {
+    this.bytes[AT.MENU_KEYS] = v ? 0xff : 0
+  }
+
   /** `Esc_KMemMax`: how many lines the escape screen remembers */
   get kMemMax(): number {
     return this.u16(AT.K_MEM_MAX)

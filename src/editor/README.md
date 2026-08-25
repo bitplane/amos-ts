@@ -59,16 +59,17 @@ Three things that look like they belong here do not:
   as memory and relocated on the way back in.
 - `zap.ts` — `Ed_ZapIn` and `Ed_ZapFonction`, the far side of `Call Editor` and
   `Ask Editor`.
+- `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
+  programs.
 
-114 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
-that never were commands. That leaves 24, and they fall into groups rather than
-gaps: the interpreter (77, 105, 111), the menus (27, 73, 74, 104, 135, 136, 179,
-180), the printer and the About boxes (86, 146, 148 to 151), and the status
-bar's four arrows (13 to 16).
-Five stand alone: `Ed_Escape` (28), `Ed_Rename` (154) and `Ed_GoHelp` (183) all
-wait on the shell around the editor; `Ed_GoMonitor` (145) is +Monitor.s and
-4,291 lines of its own; and `Ed_Check1.3` (147) waits on a verdict this port's
-verifier does not keep.
+165 of the 184 `JFonc` entries run. The 19 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), the two menu editors and the two user
+menu commands (73, 74, 135, 136), the printer and the About boxes (86, 146,
+149 to 151), and the status bar's four arrows (13 to 16). `Ed_Escape` (28)
+waits on the escape screen, `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines
+of its own, and `Ed_Check1.3` (147) waits on a verdict this port's verifier
+does not keep.
+
 
 ## A requester is a channel, a zone and a slot
 
@@ -97,6 +98,42 @@ and slot 6 has no message beside it. What the box shows is the last write.
 once per instruction and the instruction's own routine eats its arguments, so
 `A=1+2*3` counts one. A `Procedure` header is walked in phase 0 and again in
 its own phase, and `subq.l #1,VerNInst` (+Verif.s:1529) takes the first back.
+
+## The menu is in the configuration file, not in the editor
+
+`EdM_Init` (+Edit.s:12579) builds the menu bar out of two blocks of
+`AMOSPro_Editor_Config`: `EdM_Definition`, one eight-byte record per entry,
+and `EdM_Messages`, one label per record. Every field of a record is stored
+plus 48 and taken back with `sub.b #"0"`, so a menu level of 12 is the
+character `<` and a command of 145 is `\xc1`. Nothing in it is decimal.
+
+Byte 0 does two jobs: it is the command number AND the "actif / inactif" flag
+`EdM_ObCree` is passed, so a separator, whose command is 0, is the same thing
+as an entry that cannot be chosen. A byte below `"0"` is a title.
+
+The records and the labels run in lockstep, and a `"*"` record breaks the run
+without consuming a label, because `EdM_Init` tests for it only after it has
+stepped both. The shipped block is 199 records, three of them stars, and 196
+labels.
+
+**F5 is not a Help routine.** `Ed_GoHelp` is `moveq #26,d2 / bra Ed_FCall` and
+d2 is 0-based, so F5 runs command 27, which is one of the 46 `Ed_UserMenu`
+slots whose whole body is a requester saying the option is not assigned. The
+Help accessory appears because `Ed_AutoLoad` binds a program to that slot. The
+same is true of 172 to 178, where the assembler's own comments name them:
+Interpretor Setup, Editor Setup, Editor Menus, Editor Dialogs, Test-Time,
+Run-Time and Colour Palette.
+
+**One of the 46 cannot be reached.** `Ed_FCall`'s `cmp.w #HiddenCommands-1,d2`
+sends d2 of 183 and above to the hidden-program decoder, and d2 is one less
+than the command, so command 184 never reaches `JFonc` at all. Its
+`Ed_UserMenu` entry is assembled and dead.
+
+**Next and Previous are not symmetric.** Both step by `EdM_HiddenMax-1`,
+eleven, while the page shows twelve, so the pages overlap by one. Previous
+refuses at zero and floors at zero; Next simply adds, and what stops it is
+`EdM_BranchAMOS`, which pulls the position back to `count - 12` every time it
+rebuilds the branch.
 
 ## The remote control is the editor with the requesters short-circuited
 
