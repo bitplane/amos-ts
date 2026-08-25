@@ -92,6 +92,8 @@ const TKV = {
   BOB: 0x1b9e,
   ADD2: 0x0458,
   ADD4: 0x0462,
+  /** `_TkAPCmp`, the `||apcmp||` a compiled procedure body opens with */
+  APCMP: 0x2bf4,
   /** `MnNDim`, the ceiling VerMn puts on a menu subscript */
   MENU_DIMS: 8,
 } as const
@@ -136,6 +138,7 @@ export const VERR = {
   TYPE: 40,
   LABEL_TWICE: 42,
   TRAP: 43,
+  NOT_13: 47,
   EQU_UNDEFINED: 51,
   EQU_LOAD: 52,
   EQU_FILE: 53,
@@ -310,7 +313,26 @@ export interface VerifyOptions {
    * reader takes it from there after `PTest` has run. `Ed_Infos` (+Edit.s:4695)
    * is the only one in the editor.
    */
-  stats?: { instructions: number }
+  stats?: { instructions: number; not13?: boolean }
+  /**
+   * `VerCheck1.3` (+Equ.s:1267): stop at the first construct AMOS 1.3 lacks
+   * and report it as error 47 rather than walking on with the flag raised.
+   *
+   * `Ed_Check1.3` (+Edit.s:8443) is the only caller that sets it.
+   */
+  check13?: boolean
+  /**
+   * The bank numbers, for `PTest`'s last test (+Verif.s:188).
+   *
+   * The walk is over by then and `VerCheck1.3` has been cleared, so a bank
+   * numbered above 16 raises the flag and can never raise the error. It is
+   * the one 1.3 verdict that is not about the source at all.
+   *
+   * DEVIATION: the machine reads `Cur_Banks`, the live bank list. This port
+   * keeps a program's banks as the bytes they arrived in, so the numbers come
+   * in from whoever parsed them.
+   */
+  bankNumbers?: Iterable<number>
   /** token tables for extensions, keyed by the slot number the line stores */
   extensions?: Map<number, TokenTable>
   /**
@@ -380,6 +402,23 @@ class Verifier {
   direct = false
   /** VerNInst (+Equ.s), cleared at :103 and counted up once per token dispatched */
   nInst = 0
+  /**
+   * `VerNot1.3` (+Equ.s:1266), cleared at `PTest`'s first instruction (:76).
+   *
+   * The walk raises it and never lowers it, so it is the answer to "does this
+   * program need AMOS Professional". `Prg_TestIt` (:4428) copies it into
+   * `Prg_Not1.3`, and that is what decides whether the file gets an
+   * `AMOS Basic v134` header or a Pro one.
+   */
+  not13 = false
+  /**
+   * `VerCheck1.3` (:1267): stop at the first thing 1.3 does not have.
+   *
+   * Only `Ed_Check1.3` (+Edit.s:8443) sets it, and `PTest` clears it at :186
+   * once the walk is over. So the bank check below that line can raise the
+   * flag but can never raise the error.
+   */
+  check13 = false
   /** VarLong, the next free offset in this phase's variable buffer */
   varLong = 0
   /** MathFlags bit 7, which `Set Double Precision` turns on for the whole program */
@@ -455,6 +494,18 @@ class Verifier {
 
   fail(code: number): never {
     throw new VerifyError(code, this.pos)
+  }
+
+  /**
+   * `SetNot1.3` (+Verif.s:214): this program will not run under AMOS 1.3.
+   *
+   * Thirteen `bsr`s reach it. Nine are here; `Get_Includes`'s (:4132) is
+   * reached again by `Include`'s own class, which is 29-AMOSPro, so the
+   * pre-pass this port does not have would flag nothing the walk misses.
+   */
+  setNot13(): void {
+    this.not13 = true
+    if (this.check13) this.fail(VERR.NOT_13)
   }
 
   /** `Finie` (+Verif.s:3897): nothing left that belongs to this instruction */
@@ -595,6 +646,11 @@ class Verifier {
       case 0x54:
       case 0x55:
       case 0x56:
+        // `Ver_NormalPro` (:474) is one `bsr SetNot1.3` in front of
+        // `Ver_Normal`, and the table sends 50-Dialogues and 55-Procedure
+        // langage machine there as well as 29. 51-Dir, 53-Return, 54-Pop and
+        // 56-Bset go to the plain one, so those four run under 1.3
+        if (cls === 0x29 || cls === 0x50 || cls === 0x55) this.setNot13()
         this.verNormal(id)
         return 'dp'
       case 0x02:
@@ -604,12 +660,16 @@ class Verifier {
         this.verSetBuffer()
         return 'dp'
       case 0x04:
-        // `VerDPre` (:773) sets MathFlags to %10000011, and bit 7 is what
+        // `VerDPre` (:775) sets MathFlags to %10000011, and bit 7 is what
         // makes a float scalar ten bytes wide rather than six
+        this.setNot13()
         this.doublePrecision = true
         return 'dp'
       case 0x24:
-        return 'dp' // Set Accessory: nothing to walk
+        // `VerSetA` (:825): nothing to walk, and the only thing it does
+        // besides counting the accessory is refuse 1.3
+        this.setNot13()
+        return 'dp'
       case 0x05:
         this.verSetStack()
         return 'dp'
@@ -708,6 +768,9 @@ class Verifier {
         this.verFollow()
         return 'dp'
       case 0x25:
+        // `VerTrap` (:2260) flags 1.3 BEFORE it looks at what follows, so
+        // under Check 1.3 a bare `Trap` reports 47 and not 43
+        this.setNot13()
         // Trap wants an instruction immediately after it
         if (this.finie()) this.fail(VERR.TRAP)
         return 'loop'
@@ -720,10 +783,12 @@ class Verifier {
         return 'dp'
       case 0x2a: // Ver_DejaTesteePro
       case 0x2d: // Ver_DejaTestee
+        if (cls === 0x2a) this.setNot13()
         this.verDejaTestee(id)
         return 'dp'
       case 0x2b: // Ver_VReservee
-      case 0x2c:
+      case 0x2c: // Ver_VReserveePro, which is `Vdialog` and `Vdialog$`
+        if (cls === 0x2c) this.setNot13()
         this.verVReservee(id)
         return 'dp'
       case 0x2e:
@@ -1194,6 +1259,9 @@ class Verifier {
    * jumps past the validation to the skip.
    */
   equVerif(at: number, prefix: string): void {
+    // `bsr SetNot1.3` is the routine's first instruction (:1309), above the
+    // resolved test, so an equate refuses 1.3 whether or not it needs the file
+    this.setNot13()
     if ((this.b[at + 5]! & 0x80) === 0) this.equLookup(at, prefix)
     // .Ok: over the string constant, id and length word and even-padded bytes
     const len = this.u16(this.p + 2)
@@ -1520,6 +1588,14 @@ class Verifier {
     this.p += 2
     // a machine-code procedure is a block of 68k, not lines: step its length
     if ((this.b[start + 8]! & 0x10) !== 0) {
+      // `cmp.w #_TkAPCmp,2(a6)` (:1578): the AMOS Pro compiler writes its
+      // output as a machine-code procedure whose body opens with this token,
+      // and the relocation `Ver_APCmp` then runs is what 1.3 cannot do.
+      //
+      // DEVIATION: only the flag is taken. `Ver_APCmp` walks the compiled
+      // block's relocation table and pokes absolute addresses into it, which
+      // needs the addresses this port's programs do not have.
+      if (this.u16(this.p + 2) === TKV.APCMP) this.setNot13()
       const len = this.u32(start + 2)
       this.p = start + 12 + len
     } else {
@@ -2363,6 +2439,9 @@ class Verifier {
       }
       case 0x0d:
       case 0x0e: {
+        // `Ope_Array` (:2844) falls into `Ope_Match` (:2848) after its own
+        // `bsr SetNot1.3`, so `=Match()` runs under 1.3 and `=Array()` does not
+        if (cls === 0x0e) this.setNot13()
         const at = this.p
         const d = this.dInst(CORE, id)
         this.verF(d)
@@ -2379,6 +2458,9 @@ class Verifier {
         this.p += 4
         return '0'
       case 0x16:
+        // `Ope_ConstDFl` (:2837): a double-precision literal is eight bytes
+        // and 1.3 has no way to read it
+        this.setNot13()
         this.p += 8
         return '0'
       case 0x17: {
@@ -2745,6 +2827,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
   b.set(src)
   const v = new Verifier(b, opts.extensions ?? new Map(), opts.ap20 ?? new Set(), opts.equates ?? SYSTEM_EQUATES)
   v.direct = opts.direct === true
+  v.check13 = opts.check13 === true
   for (const k of opts.knownVariables ?? []) {
     const len = k.name.length % 2 === 0 ? k.name.length : k.name.length + 1
     v.globals.push({
@@ -2776,7 +2859,10 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     v.run(0)
     v.relocate()
     v.walkTablA()
-    if (opts.stats !== undefined) opts.stats.instructions = v.nInst
+    if (opts.stats !== undefined) {
+      opts.stats.instructions = v.nInst
+      opts.stats.not13 = v.not13
+    }
     return b.slice(0, src.length)
   }
   v.run(0)
@@ -2800,6 +2886,12 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     // needs, which the interpreter reserves when it calls it
     v.put16(at + 6, v.varLong)
   }
-  if (opts.stats !== undefined) opts.stats.instructions = v.nInst
+  // `clr.b VerCheck1.3(a5)` (:186) and then the bank loop: `cmp.l #16,8(a0) /
+  // bhi .Non`, so bank 17 refuses 1.3 and bank 16 does not
+  for (const n of opts.bankNumbers ?? []) if (n > 16) v.not13 = true
+  if (opts.stats !== undefined) {
+    opts.stats.instructions = v.nInst
+    opts.stats.not13 = v.not13
+  }
   return b.slice(0, src.length)
 }

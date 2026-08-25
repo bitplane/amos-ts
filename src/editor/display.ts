@@ -169,7 +169,9 @@ function centred(msg: string, width: number): string {
 export function statusLine(e: Edit, opts: StatusOptions = {}): string {
   const width = opts.width ?? 68
   // .Skip0 (:7740): an alert takes the whole line, centred, until it times out
-  if (e.alert !== 0) return centred(ED_MESSAGES[e.alert - 1] ?? `editor message ${e.alert}`, width)
+  if (e.alert !== 0) {
+    return centred(e.alertText || (ED_MESSAGES[e.alert - 1] ?? `editor message ${e.alert}`), width)
+  }
   // and a recording takes it after that (:7761), in the current window only,
   // which is where "Click mouse button to end." is the only way out
   if (e.macroTape !== null) return centred(ED_MESSAGES[29]!, width)

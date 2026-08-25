@@ -50,16 +50,29 @@ import { Editor } from './windows'
  */
 export class EditorAlert extends Error {
   /**
+   * What `Edt_EtAlert` is really given: a0, a pointer to the characters.
+   *
+   * Almost every caller reaches `Ed_Alert` through `Ed_GetMessage`, which
+   * makes a0 out of `Ed_Messages` and the code. `Ed_Check1.3` (:8449) does
+   * not -- it calls `Ed_GetMessageA0` against `Ed_TstMessages`, so its
+   * message is 49 in a table this one has never indexed.
+   */
+  readonly text: string
+
+  /**
    * @param code the `Ed_GetMessage` number
    * @param duration `Ed_Alert`'s d0, which lands in `Edt_EtMess`. 100 is
    *   `Ed_Al100`'s and what most callers pass; the two ends of the text pass
    *   25 and Out of buffer space passes 200.
+   * @param text the characters, when they did not come from `Ed_Messages`
    */
   constructor(
     readonly code: number,
     readonly duration = 100,
+    text?: string,
   ) {
-    super(ED_MESSAGES[code - 1] ?? `editor message ${code}`)
+    super(text ?? ED_MESSAGES[code - 1] ?? `editor message ${code}`)
+    this.text = this.message
     this.name = 'EditorAlert'
   }
 }
@@ -178,6 +191,12 @@ export class Edit {
 
   /** `Edt_EtAlert`: the message the status line is showing, 0 for none */
   alert = 0
+
+  /**
+   * The characters `Edt_EtAlert` points at, when `alert` alone does not find
+   * them. Empty means `Ed_Messages` at `alert`, which is every other caller.
+   */
+  alertText = ''
 
   /** `Edt_EtMess`: how long it stays there */
   alertTime = 0

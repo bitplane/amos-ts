@@ -263,6 +263,9 @@ export class Editor {
    */
   alertSaved = 0
 
+  /** the same buffer's characters, for the one alert whose text is not in `Ed_Messages` */
+  alertSavedText = ''
+
   /**
    * `Ed_Zappeuse(a5)`: the ZAP remote control is driving, so nothing may ask.
    *

@@ -62,13 +62,41 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-169 of the 184 `JFonc` entries run. The 15 left fall into groups rather than
+170 of the 184 `JFonc` entries run. The 14 left fall into groups rather than
 gaps: the interpreter (77, 105, 111), the printer and the About boxes (86,
 146, 149 to 151), and the status bar's four arrows (13 to 16), which are the
 one group that needs pixel geometry this port does not keep. `Ed_Escape` (28)
-waits on the escape screen, `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines
-of its own, and `Ed_Check1.3` (147) waits on a verdict this port's verifier
-does not keep.
+waits on the escape screen, and `Ed_GoMonitor` (145) is +Monitor.s and 4,291
+lines of its own.
+
+
+## The 1.3 verdict is thirteen `bsr`s
+
+`SetNot1.3` (+Verif.s:214) is two instructions and it decides what header the
+next Save writes. `PTest` clears `VerNot1.3` at :76, the walk raises it and
+never lowers it, and `Prg_TestIt` (:4428) copies it into `Prg_Not1.3`. A Pro
+program that uses nothing beyond 1.3 is saved as `AMOS Basic v134` and runs
+under 1.3.
+
+Nine of the thirteen callers are in the walk: the three Pro classes in the
+instruction table (29-AMOSPro, 2A-deja testee, 2C-variable reservee, with
+50-Dialogues and 55-Procedure langage machine going to the first of them),
+`Set Double Precision`, `Set Accessory`, `Trap`, `Equ_Verif`, `Ope_Array` and
+the double-precision constant. `Ope_ProNormal` (:2652) is a tenth that no
+table entry points at, so a Pro-only FUNCTION does not raise the flag on its
+own; only the instruction table has a Pro class.
+
+The other three are outside it. `Get_Includes` flags `Include` before the walk
+starts, which the walk would have done anyway since `Include` is class 29.
+`Ver_APCmp` flags a machine-code procedure whose body opens with `||apcmp||`,
+which is what the AMOS Pro compiler writes. And after the walk is over, a bank
+numbered above 16.
+
+`Ed_Check1.3` (147) sets `VerCheck1.3`, which turns the flag into a stop: the
+first construct 1.3 lacks ends the test with error 47 on its own line. `PTest`
+clears the check at :186, ABOVE the bank loop, so message 48, "too many banks",
+is reachable no other way -- anything in the source would have stopped the walk
+before the banks were counted. Message 49 means the walk found nothing at all.
 
 
 ## A requester is a channel, a zone and a slot

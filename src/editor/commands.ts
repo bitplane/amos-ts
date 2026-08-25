@@ -43,6 +43,8 @@ import { detokLineBytes, tokeniseLine, type DetokWatch } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
 import { PROTECTED_PROC } from '../tokens/stream'
 import { VerifyError, verify } from '../tokens/verify'
+import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
+import { parseAmosFile } from '../loader/amosfile'
 import { indentBytes } from './indent'
 import { EMPTY_LINE_BYTES, PROC_CLOSED, ProgramBuffer } from './buffer'
 import { BF } from './block'
@@ -199,6 +201,7 @@ export const ED = {
   INFOS: 83,
   SET_BUFFER: 114,
   TEST: 78,
+  CHECK_13: 147,
   INDENT: 79,
   PROC_OPEN: 87,
   PROCS_OPEN: 89,
@@ -2282,19 +2285,22 @@ function closeName(e: Edit): void {
  * behind every poke it had made before it stopped. `verify()` works on a copy
  * and hands it back whole, so here a failed test changes nothing.
  *
- * DEVIATION: `Prg_TestIt` also copies `VerNot1.3` into `Prg_Not1.3` and
- * `MathFlags` into `Prg_MathFlags`. This port's verifier keeps neither -- it
- * tracks double precision and not the two "some maths happened" bits, and it
- * has no 1.3 verdict at all -- so both program fields keep what the file said
- * and `Ed_Check1.3` (147) is not ported.
+ * `Prg_TestIt` copies two verdicts out of the verifier when it is done:
+ * `VerNot1.3` into `Prg_Not1.3` (+Verif.s:4428), which is what decides
+ * whether the next Save writes an `AMOS Basic v134` header, and `MathFlags`
+ * into `Prg_MathFlags`.
+ *
+ * DEVIATION: only the first is taken here. This port's verifier tracks double
+ * precision, which is bit 7, and not the two "some maths happened" bits below
+ * it, so `Prg_MathFlags` keeps whatever the file said.
  */
-function vaTester(e: Edit): void {
+function vaTester(e: Edit, check13 = false): void {
   if (!e.prog.modified) return
   const src = programSource(e.prog)
   let out: Uint8Array
-  const stats = { instructions: 0 }
+  const stats = { instructions: 0, not13: false }
   try {
-    out = verify(src, { stats })
+    out = verify(src, { stats, check13, bankNumbers: bankNumbers(e.prog) })
   } catch (err) {
     if (!(err instanceof VerifyError)) throw err
     // `Prg_JError`, which PTest longjmps to: the cursor goes to the error
@@ -2304,7 +2310,49 @@ function vaTester(e: Edit): void {
   }
   e.prog.bytes.set(out, e.prog.stBas)
   e.prog.modified = false
+  e.prog.pro = stats.not13
   e.editor.verNInst = stats.instructions
+}
+
+/**
+ * `Cur_Banks` as numbers, for `PTest`'s bank test (+Verif.s:188).
+ *
+ * DEVIATION: the machine holds the banks as a linked list it built when the
+ * program loaded, and reads the number out of each header at offset 8. This
+ * port keeps the `AmBs` block as bytes, so the numbers come back out of it
+ * every time. A sprite bank is 1 and an icon bank is 2 by definition, and
+ * neither can reach the 17 the test is looking for.
+ */
+function bankNumbers(prog: ProgramBuffer): number[] {
+  // "AmBs" and a count word, which is the whole block when the count is zero
+  if (prog.banks.length < 6) return []
+  if (((prog.banks[4]! << 8) | prog.banks[5]!) === 0) return []
+  return parseAmosFile(prog.banks).banks.map((b) =>
+    b.kind === 'memory' ? b.number : b.kind === 'icons' ? 2 : 1,
+  )
+}
+
+/**
+ * `Ed_Check1.3` (+Edit.s:8441): will this program run under AMOS 1.3?
+ *
+ * `VerCheck1.3` turns `SetNot1.3` from a flag into a stop, so the first thing
+ * 1.3 does not have ends the test with error 47 on its own line and the alert
+ * below is never reached. `PTest` clears the flag at :186, above the bank
+ * walk, so message 48 can only ever be about banks and message 49 means the
+ * walk found nothing at all.
+ *
+ * `Prg_StModif` is forced because the verdict is not kept anywhere a second
+ * call could read: without it, asking twice in a row would answer from a test
+ * that never ran.
+ */
+function check13(e: Edit): void {
+  e.tokCur()
+  e.prog.modified = true
+  vaTester(e, true)
+  // `moveq #49,d0 / tst.b VerNot1.3 / beq .Go / moveq #48,d0`, and the 127 in
+  // front of `bra Ed_Alert` is the duration and not a message number
+  const msg = e.prog.pro ? 48 : 49
+  throw new EditorAlert(msg, 127, ED_TST_MESSAGES[msg - 1] ?? `test message ${msg}`)
 }
 
 /**
@@ -2898,6 +2946,7 @@ function reAlert(e: Edit): void {
   const saved = e.editor.alertSaved
   if (saved === 0) return
   e.alert = saved
+  e.alertText = e.editor.alertSavedText
   e.alertTime = 150
 }
 
@@ -3557,6 +3606,7 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   90: (e) => procs(e, true),
   104: showKey,
   114: setBuffer,
+  147: check13,
   137: (e) => {
     // EdC_SaveDefault (:4857), which asks first
     e.tokCur()
@@ -3865,6 +3915,7 @@ const inkey = (k: EdKey): KeyLong => ({
 function clearAlert(e: Edit): void {
   e.alert = 0
   e.alertTime = 0
+  e.alertText = ''
 }
 
 function run(e: Edit, fn: () => void): number {
@@ -3891,6 +3942,7 @@ function run(e: Edit, fn: () => void): number {
     if (!(err instanceof EditorAlert)) throw err
     e.alert = err.code
     e.alertTime = err.duration
+    e.alertText = err.text
     if (e.editor.zappeuse) {
       // `Ed_ZapAlert` (:7614): the message the status line would have shown is
       // the remote call's answer instead, and the magic buffer is not written
@@ -3898,6 +3950,7 @@ function run(e: Edit, fn: () => void): number {
       e.editor.zapMessage = err.code
     } else {
       e.editor.alertSaved = err.code
+      e.editor.alertSavedText = err.text
     }
   }
   return e.alert
