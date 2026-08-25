@@ -112,7 +112,7 @@ describe('Joker — AMOS\'s own filename filter (+Lib.s:6602)', () => {
   })
 
   it('an empty filter is not matched at all, it is skipped', () => {
-    // FillDev +Lib.s:6120 and FillNxt :6215 both guard `tst.b (a0) / beq`.
+    // FillDev +Lib.s:6091 and FillNxt :6187 both guard `tst.b (a0) / beq`.
     // matchesJoker is where that guard lives so no caller substitutes '*'
     expect(matchesJoker('', 'anything.at.all')).toBe(true)
     expect(joker('', 'anything.at.all')).toBe(false)

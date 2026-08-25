@@ -5889,7 +5889,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         if (!s || !s.visible) continue
         if (overScreen(s, it.inp.mouseX, it.inp.mouseY)) return VI(s.index)
       }
-      return VI(-0x80000000) // GetSIn +W.s:10944 returns EntNul when over no screen
+      return VI(-0x80000000) // GetSIn +W.s:10915 returns EntNul when over no screen
     },
     scanshift(it, a) {
       // FnScanshift +Lib.s:13611: the shift byte captured with the last

@@ -602,6 +602,15 @@ export interface AssemblerLabels {
 const DECLARES = /^(?:rs|dc|ds|equ|set|macro)\b/i
 /** a comment line: these sources use both `;` and `*` in column 0 */
 const COMMENT = /^[;*]/
+/**
+ * A rule drawn out of one repeated character, which is how these sources open
+ * a routine: `***********`, `; - - - - -`, `; ~~~~~~~`, `*******	Affiche!`.
+ *
+ * Any old comment will not do. `* Trouve la banque AMAL (numero 2)` sits above
+ * `InMb1:` in the middle of a routine (+Lib.s:11833), and treating that as a
+ * boundary cut MvA3 in half.
+ */
+const RULE = /([-~_*=#])(\s?\1){3,}/
 
 /**
  * Where each label sits in one assembler file, and which ones start a routine.
@@ -611,8 +620,8 @@ const COMMENT = /^[;*]/
  * a label, and the port cites them by name like anything else.
  *
  * A label begins a ROUTINE when it declares storage (`Ed_Avert rs.w 1`, which
- * is all of +Equ.s), when it is one of those macros, or when the line above it
- * is a comment. That last is what these sources actually use as a separator:
+ * is all of +Equ.s), when it is one of those macros, or when the comment block
+ * above it holds a rule. That last is what these sources use as a separator:
  * `******* Explore la table de l'ecran A1` above `GZone:` (+W.s:11156).
  */
 export function assemblerLabels(lines: string[]): AssemblerLabels {
@@ -626,16 +635,33 @@ export function assemblerLabels(lines: string[]): AssemblerLabels {
     if (had === undefined) at.set(name, [n])
     else had.push(n)
   }
-  /** the line above, blanks skipped */
-  const above = (i: number): string => {
-    for (let k = i - 1; k >= 0; k--) if (lines[k]!.trim() !== '') return lines[k]!
-    return ''
+  /**
+   * Is this label under a banner?
+   *
+   * Walk up through the comment block above it, blanks skipped, and answer
+   * whether any line of it is a rule. `BobSOff:` (+W.s:1009) is introduced by
+   * two lines, `***********************************************************`
+   * and `*	ARRET TOUS LES BOBS`, and it is the first that says "routine".
+   */
+  const underBanner = (i: number): boolean => {
+    let seen = false
+    for (let k = i - 1; k >= 0; k--) {
+      const t = lines[k]!
+      if (t.trim() === '') {
+        if (seen) break
+        continue
+      }
+      if (!COMMENT.test(t)) break
+      seen = true
+      if (RULE.test(t.replace(/^[;*]/, ''))) return true
+    }
+    return false
   }
   lines.forEach((text, i) => {
     const label = /^([A-Za-z_][A-Za-z0-9_.]*):?/.exec(text)
     if (label !== null) {
       const rest = text.slice(label[0].length).trim()
-      put(label[1]!, i + 1, DECLARES.test(rest) || COMMENT.test(above(i)))
+      put(label[1]!, i + 1, DECLARES.test(rest) || underBanner(i))
       return
     }
     const macro = /^\s+(?:Lib_Par|Lib_Def|Lib_Fon)\s+([A-Za-z_][A-Za-z0-9_.]*)/.exec(text)
@@ -654,13 +680,29 @@ export function assemblerLabels(lines: string[]): AssemblerLabels {
  */
 const BANNER = 12
 
-/** does line `n` belong to `symbol`? */
-export function citationResolves(lines: string[], labels: AssemblerLabels, symbol: string, n: number): boolean {
+/**
+ * Does `symbol` cover line `n`, or any line up to `end`?
+ *
+ * A range names a SPAN, and the span is what has to hold the routine: `VerErr
+ * +Verif.s:601-706` is the error table, which is 105 lines of `moveq #N,d0 /
+ * bra VerErr` and does not reach the label at all. So a range resolves when
+ * any line in it does.
+ */
+export function citationResolves(
+  lines: string[],
+  labels: AssemblerLabels,
+  symbol: string,
+  n: number,
+  end: number | null = null,
+): boolean {
   if (n < 1 || n > lines.length) return false
+  const last = end === null ? n : Math.min(end, lines.length)
+  const mentions = new RegExp(`(?<![A-Za-z0-9_.])${symbol.replace(/[.]/g, '\\.')}(?![A-Za-z0-9_.])`)
   for (const label of labels.at.get(symbol) ?? []) {
     const next = labels.boundaries.find((s) => s > label) ?? lines.length + 1
-    if (label - BANNER <= n && n < next) return true
+    if (label - BANNER <= last && n < next) return true
   }
   // a jump table entry naming the routine is a citation too: `bra HColGet`
-  return new RegExp(`(?<![A-Za-z0-9_.])${symbol.replace(/[.]/g, '\\.')}(?![A-Za-z0-9_.])`).test(lines[n - 1]!)
+  for (let k = n; k <= last; k++) if (mentions.test(lines[k - 1]!)) return true
+  return false
 }

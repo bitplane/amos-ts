@@ -458,7 +458,7 @@ export class Display {
 
   /**
    * The scanline compositor: a faithful walk of the copper list the real
-   * AMOS builds each vbl (EcCopper/CopBow +W.s:6030-6260). Per hardware
+   * AMOS builds each vbl (EcCopper/CopBow +W.s:6001-6231). Per hardware
    * line: exactly ONE front screen is fetched (the screens are cut into
    * vertical slices by priority — "Decoupe les ecrans en tranches",
    * +W.s:5808); a band start reloads the hardware palette (EcCopHo); ONE

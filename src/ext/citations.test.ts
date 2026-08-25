@@ -798,9 +798,9 @@ describe('citations into the AMOS sources name the corpus checkout', () => {
         if (subject === undefined || la.at.get(subject) === undefined) continue
         const named = c.symbols.filter((s) => la.at.get(s) !== undefined)
         checked++
-        if (named.some((s) => citationResolves(mine, la, s, c.line))) continue
+        if (named.some((s) => citationResolves(mine, la, s, c.line, c.end))) continue
         const lb = labelsOf(c.file, 'other', other)
-        const wrong = named.filter((s) => citationResolves(other, lb, s, c.line))
+        const wrong = named.filter((s) => citationResolves(other, lb, s, c.line, c.end))
         if (wrong.length === 0) continue
         bad.push(`${relative(root, p)}:${c.at} ${wrong[0]!} ${c.file}:${c.line}`)
       }

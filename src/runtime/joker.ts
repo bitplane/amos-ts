@@ -61,8 +61,8 @@
  *
  * There is no filter that means "match anything" other than `**`, and AMOS
  * never needs one: every call site guards with `tst.b (a0) / beq` and skips
- * the match entirely when the filter string is empty (FillDev +Lib.s:6120,
- * FillNxt :6215 and :6222). `matchesJoker` keeps that guard so callers do not
+ * the match entirely when the filter string is empty (FillDev +Lib.s:6091,
+ * FillNxt :6187 and :6193). `matchesJoker` keeps that guard so callers do not
  * have to, and so that nobody reaches for `'*'` as a stand-in again.
  */
 

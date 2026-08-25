@@ -232,7 +232,7 @@ if (!selfOnly) {
       if (subject === undefined || labels.at.get(subject) === undefined) continue
       const named = c.symbols.filter((s) => labels!.at.get(s) !== undefined)
       lines++
-      if (named.some((s) => citationResolves(mine, labels!, s, c.line))) continue
+      if (named.some((s) => citationResolves(mine, labels!, s, c.line, c.end))) continue
       lost++
       console.log(`${relative(root, p)}:${c.at}  ${c.file}:${c.line} — inside none of ${named.join(', ')}`)
     }
