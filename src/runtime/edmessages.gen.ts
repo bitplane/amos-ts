@@ -265,7 +265,7 @@ export const EDM_MESSAGES: readonly string[] = [
   ' Quit                     ',
 ]
 
-/** 221 messages */
+/** 222 messages */
 export const ED_MESSAGES: readonly string[] = [
   'Link cursor movement: please click on the window to link...',
   'Cannot hide the last window.',
@@ -476,6 +476,7 @@ export const ED_MESSAGES: readonly string[] = [
   'Not an AMOS program.',
   'Text buffer too small.',
   'Check printer then select OK.',
+  '>>>',
   ' at line ',
   'Direct mode [ESC]',
   'Editor [RETURN]',

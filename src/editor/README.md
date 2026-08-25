@@ -51,14 +51,41 @@ Three things that look like they belong here do not:
 - `macros.ts` — `EdMa_`, the keystroke tape and the list it goes into.
 - `windows.ts` — `Edt_List`, the windows, and everything an `a5` offset holds
   that a window does not. The commands over it are in `commands.ts`.
+- `indent.ts` — `Indent`, the two counters that decide every line's indent
+  byte.
 
-93 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+98 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
 that never were commands. What is left falls into groups rather than gaps: the
-interpreter (77, 78, 111), the menus (73, 74, 135, 136, 179, 180), the config
-and the About boxes (137 to 142, 146 to 151), the ZAP remote control (69, 71,
-182), the status bar's four arrows (13 to 16), and the procedure folding
-(87, 89, 90), which needs nothing this port has not got. `Ed_GoMonitor` (145)
-is +Monitor.s and 4,291 lines of its own.
+interpreter (77, 111), the menus (73, 74, 135, 136, 179, 180), the config and
+the About boxes (137 to 142, 146 to 151), the ZAP remote control (69, 71, 182),
+the requesters that ask for one thing (26, 76, 83, 104), and the status bar's
+four arrows (13 to 16). `Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of
+its own, and `Ed_Check1.3` (147) waits on a verdict this port's verifier does
+not keep.
+
+## The Test pass is not a syntax check
+
+`PTest` WRITES. It fills the link words, promotes names, and puts the size of
+every procedure body into the `Procedure` line at offset 4. That last one is
+why Open/Close, Close All and Indent all run `Ed_VaTester` before they touch
+anything: a fold is stepped over by that size, and a procedure that has never
+been tested carries a zero, so closing it lands 14 bytes into the middle of the
+line's own name record.
+
+Only a CLOSE tests. `btst #7,10(a2) / bne .PaOu` (+Edit.s:8823) jumps over the
+call when the procedure is already closed, because nothing needs a size to
+unfold.
+
+`Prg_StModif` decides whether there is anything to do, and it is cleared BELOW
+the call to `PTest` (+Verif.s:4427). An error never reaches that instruction,
+so a program that fails Test stays modified and the next command tests it
+again.
+
+A failed Test leaves the cursor on the byte the walk stopped at, and when that
+byte is inside a CLOSED procedure the cursor cannot go there: the column drops
+to 0 and the real one is kept in `Prg_XEProc` against the fold being opened.
+`Ed_ClEProc` (:8861) then runs before every command body, and the address is
+worth exactly one of them.
 
 ## A window is a view, and `a5` is the editor
 

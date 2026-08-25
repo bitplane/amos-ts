@@ -75,7 +75,14 @@ function block(from: string, to: string): string[] {
     // run-time error table alone, which is why 94 "I/O error" through 139
     // used to answer as 80..125. `(.*)` is greedy and so takes the LAST `>`
     // on the line, which is what closes the record.
-    const m = /\b(EdT|EdD)\s+-?\d+\s*,\s*<(.*)>(?:[ \t]+\S.*)?[ \t]*$/.exec(line)
+    // ... and one record in the file has no angle brackets at all. `EdT
+    // 210,>>>` (+Editor_Config.s:736) is the three characters `>>>`, and the
+    // binary has `\x00\x03>>>` between "Check printer then select OK." and
+    // " at line " to prove it. Skipping it moved every message from 210 up by
+    // one, which is how "precision mismatch" answered as 220
+    const m =
+      /\b(EdT|EdD)\s+-?\d+\s*,\s*<(.*)>(?:[ \t]+\S.*)?[ \t]*$/.exec(line) ??
+      /\b(EdT)\s+-?\d+\s*,\s*([^<\s][^\t]*?)[ \t]*$/.exec(line)
     if (!m) {
       // a bare `dc.b 0,$FF` terminates the block early (Ed_Systeme, Ed_Messages)
       if (/dc\.b\s+0\s*,\s*\$[fF][fF]/.test(line)) break
@@ -142,12 +149,48 @@ function fromBinary(path: string): string[] {
   return out
 }
 
+/**
+ * The parsed block against the one the assembler actually wrote.
+ *
+ * A dropped line shortens the block and nothing downstream can tell, so the
+ * count is not enough: this decodes the records out of AMOSPro_Editor_Config
+ * from the block's first message to its `$FF` and compares them one by one.
+ * The binary is the authority and a disagreement is a build failure.
+ */
+function verified(name: string, messages: string[]): string[] {
+  const bin = readFileSync(join(root, 'AMOS/APSystem/AMOSPro_Editor_Config'))
+  // `.Error1` opens with empty records, and a two-byte anchor matches
+  // anywhere, so the search starts at the first message long enough to be its
+  // own landmark and the comparison is offset by the ones before it
+  const skip = messages.findIndex((m) => m.length >= 3)
+  const first = messages[skip]!
+  const at = bin.indexOf(Buffer.concat([Buffer.from([0, first.length]), Buffer.from(first, 'latin1')]))
+  if (at < 0) throw new Error(`${name}: its first record is not in AMOSPro_Editor_Config`)
+  const want: string[] = []
+  for (let p = at; p + 1 < bin.length && bin[p + 1] !== 0xff; ) {
+    const len = bin[p + 1]!
+    want.push(bin.subarray(p + 2, p + 2 + len).toString('latin1'))
+    p += 2 + len
+  }
+  if (messages.length !== skip + want.length) {
+    throw new Error(`${name}: ${messages.length} records here and ${skip + want.length} in the binary`)
+  }
+  for (let i = 0; i < want.length; i++) {
+    if (want[i] === messages[skip + i]) continue
+    const n = skip + i + 1
+    throw new Error(
+      `${name}: record ${n} is ${JSON.stringify(messages[skip + i])} here and ${JSON.stringify(want[i])} in the binary`,
+    )
+  }
+  return messages
+}
+
 const tables = {
-  ED_SYSTEME: repairFromBinary(block('.Sys1', '.Sys2')),
+  ED_SYSTEME: verified('ED_SYSTEME', repairFromBinary(block('.Sys1', '.Sys2'))),
   EDM_MESSAGES: fromBinary('bin/Editor_Menus.asc'),
-  ED_MESSAGES: repairFromBinary(block('Ed1', 'Ed2')),
-  ED_TST_MESSAGES: repairFromBinary(block('.Test1', '.Test2')),
-  ED_RUN_MESSAGES: repairFromBinary(block('.Error1', '.Error2')),
+  ED_MESSAGES: verified('ED_MESSAGES', repairFromBinary(block('Ed1', 'Ed2'))),
+  ED_TST_MESSAGES: verified('ED_TST_MESSAGES', repairFromBinary(block('.Test1', '.Test2'))),
+  ED_RUN_MESSAGES: verified('ED_RUN_MESSAGES', repairFromBinary(block('.Error1', '.Error2'))),
 }
 
 const lit = (s: string): string =>

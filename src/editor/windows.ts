@@ -219,6 +219,17 @@ export class Editor {
   fs: EditorFS | null = null
 
   /**
+   * `Ed_TstMessages` (+Equ.s:1676): the last command's Test failed, and this
+   * is which of the 54 test messages it stopped on. -1 for none.
+   *
+   * DEVIATION: the same shape `diskError` has. The machine builds the text and
+   * hands it to `Ed_Alert`; that table is the verifier's rather than the
+   * editor's, so what is kept here is the code, and `Ed_ErrTest` has already
+   * put the cursor on the byte the walk stopped at.
+   */
+  testError = -1
+
+  /**
    * `Ed_DError` (+Edit.s:14019): the last command died on a disc error.
    *
    * DEVIATION: the machine reads `_LVOIoErr`, maps it through `ErDisked` into

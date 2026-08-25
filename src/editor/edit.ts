@@ -316,6 +316,15 @@ export class Edit {
     this.editor.fs = v
   }
 
+  /** the `Ed_TstMessages` code the last Test stopped on, -1 for none */
+  get testError(): number {
+    return this.editor.testError
+  }
+
+  set testError(v: number) {
+    this.editor.testError = v
+  }
+
   /** `Ed_DError`: the AmigaDOS code the last command died on, -1 for none */
   get diskError(): number {
     return this.editor.diskError

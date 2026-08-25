@@ -1875,7 +1875,12 @@ class Verifier {
       const flag = this.b[r.at + 3]!
       const name = this.nameAt(r.at + 4, len)
       const rec = this.findLabel(r.proc ? 0 : r.phase, len, flag, name)
-      this.pos = r.at
+      // `move.l a6,VerPos(a5) / subq.l #2,VerPos(a5)` (:530): a6 is standing
+      // on the link word this pass exists to poke, and the two are taken off
+      // so the error reports the token and not the middle of its record. The
+      // editor's `Detok` watch is an equality test, so two bytes is the
+      // difference between a column and a zero
+      this.pos = r.at - 2
       if (rec === undefined) this.fail(r.proc ? VERR.UNDEFINED_PROC : VERR.UNDEFINED_LABEL)
       this.put16(r.at, rec.link)
     }

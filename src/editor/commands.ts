@@ -32,9 +32,12 @@
  * window out of the program, so it is `Edit.fill()` and it is called.
  */
 import { T } from '../tokens/stream'
-import { detokLineBytes, tokeniseLine } from '../tokens/edtok'
+import { detokLineBytes, tokeniseLine, type DetokWatch } from '../tokens/edtok'
 import { TK } from '../tokens/edtok'
-import { EMPTY_LINE_BYTES, ProgramBuffer } from './buffer'
+import { PROTECTED_PROC } from '../tokens/stream'
+import { VerifyError, verify } from '../tokens/verify'
+import { indentBytes } from './indent'
+import { EMPTY_LINE_BYTES, PROC_CLOSED, ProgramBuffer } from './buffer'
 import { BF } from './block'
 import { DiskError, Edit, EditorAlert } from './edit'
 import { EditBuffer } from './editbuf'
@@ -151,6 +154,11 @@ export const ED = {
   EDIT_HIDDEN: 112,
   NEW_HIDDEN: 113,
   CLOSE_NAME: 153,
+  TEST: 78,
+  INDENT: 79,
+  PROC_OPEN: 87,
+  PROCS_OPEN: 89,
+  PROCS_CLOSE: 90,
 } as const
 
 /**
@@ -2197,6 +2205,212 @@ function closeName(e: Edit): void {
   }
 }
 
+/* ---- 78, 79, 87, 89 and 90: the Test pass, and the folds ---------------- */
+
+/**
+ * `Ed_VaTester` (+Edit.s:8567) and `Prg_TestIt` (+Verif.s:4406) under it.
+ *
+ * The verifier is not a syntax checker the editor runs for reassurance. It
+ * WRITES: it fills the link words, promotes names, and puts the size of every
+ * procedure body into the `Procedure` line at offset 4. That last one is why
+ * three of the commands below have to test before they do anything, because a
+ * fold that has never been tested carries a zero size and closing it steps 14
+ * bytes into the middle of the line's own name record.
+ *
+ * `Prg_StModif` is what decides whether there is anything to do, and it is
+ * cleared BELOW the call to `PTest` (+Verif.s:4427). An error never reaches
+ * that instruction, so a program that fails Test stays modified and the next
+ * command tests it again.
+ *
+ * DEVIATION: `PTest` pokes the program where it lies, so a failed test leaves
+ * behind every poke it had made before it stopped. `verify()` works on a copy
+ * and hands it back whole, so here a failed test changes nothing.
+ *
+ * DEVIATION: `Prg_TestIt` also copies `VerNot1.3` into `Prg_Not1.3` and
+ * `MathFlags` into `Prg_MathFlags`. This port's verifier keeps neither -- it
+ * tracks double precision and not the two "some maths happened" bits, and it
+ * has no 1.3 verdict at all -- so both program fields keep what the file said
+ * and `Ed_Check1.3` (147) is not ported.
+ */
+function vaTester(e: Edit): void {
+  if (!e.prog.modified) return
+  const src = programSource(e.prog)
+  let out: Uint8Array
+  try {
+    out = verify(src, {})
+  } catch (err) {
+    if (!(err instanceof VerifyError)) throw err
+    // `Prg_JError`, which PTest longjmps to: the cursor goes to the error
+    // and the command that asked for the test is abandoned
+    errTest(e, err.at)
+    throw err
+  }
+  e.prog.bytes.set(out, e.prog.stBas)
+  e.prog.modified = false
+}
+
+/**
+ * `Ed_SetXY` (:10157): the cursor onto the byte at `at`, wherever that is.
+ *
+ * When the byte turns out to be inside a CLOSED procedure the cursor cannot go
+ * there, so the column is dropped to 0 and the real one is kept in
+ * `Prg_XEProc` against the fold being opened. `clr.w (sp)` is the whole of
+ * that decision.
+ */
+function setXY(e: Edit, at: number, column: number): void {
+  e.prog.adEProc = 0
+  e.prog.eProcStale = false
+  e.prog.xEProc = column
+  const f = e.prog.findAddress(at)
+  let x = column
+  if (f.proc >= 0) {
+    e.prog.adEProc = f.start
+    x = 0
+  }
+  setY(e, f.line)
+  setX(e, x)
+  e.fill()
+}
+
+/**
+ * `Ed_ErrTest` (:8246): where a failed Test leaves the cursor.
+ *
+ * `VerPos` is the byte the verifier stopped on. `Detok` is run over the line
+ * it falls in with that address to watch for, and the column it reports is
+ * where the token's text begins.
+ *
+ * What is NOT here is the rest of `Ed_ErrTest`, which is shared with a
+ * run-time error: the escape screen comes down, `Ed_OpenEditor` puts the
+ * editor back up, and a requester offers Direct mode or the editor. None of
+ * that has a meaning yet.
+ */
+function errTest(e: Edit, at: number): void {
+  const target = e.prog.stBas + at
+  const f = e.prog.findAddress(target)
+  const watch: DetokWatch = { at: target, column: -1 }
+  detokLineBytes(e.prog.bytes, f.start, e.table, e.opts, watch)
+  setXY(e, target, Math.max(0, watch.column))
+}
+
+/**
+ * `Ed_ClEProc` (:8861): stop the auto-centring, one command at a time.
+ *
+ * `Ed_FCall` runs this before every command body. The first one after a failed
+ * Test raises bit 31 of the stored address and still has the address to work
+ * with; the second finds the bit up and clears the long. So opening the fold
+ * and being taken to the error is worth exactly one command.
+ */
+function clEProc(e: Edit): void {
+  if (e.prog.adEProc === 0) return
+  if (e.prog.eProcStale) {
+    e.prog.adEProc = 0
+    e.prog.eProcStale = false
+    return
+  }
+  e.prog.eProcStale = true
+}
+
+/**
+ * `Ed_ProcOpen` (:8807): fold the procedure the cursor is in, or unfold it.
+ *
+ * `Edt_DebProc` is what the line walk left behind, so this works from inside
+ * an open procedure's body as well as from its header, and a cursor on
+ * `End Proc` has no procedure at all: `Fnd8` clears it on the way past.
+ *
+ * Bit 14 of the flags word is the LOCK, and a locked procedure is silently
+ * left alone -- `.Out` skips straight to the redraw with no message.
+ *
+ * Closing runs the Test pass first, because the fold is stepped over by the
+ * size the verifier writes. Opening does not, and there is nothing to be
+ * gained by testing to unfold.
+ */
+function procOpen(e: Edit): void {
+  e.tokCur()
+  const at = e.prog.findLine(e.line).proc
+  if (at < 0) throw new EditorAlert(203) // Ed_FoE, "Not a procedure."
+  if ((e.prog.procFlags(at) & PROTECTED_PROC) !== 0) {
+    e.fill()
+    return
+  }
+  // `btst #7,10(a2) / bne .PaOu`: only a close is worth a test
+  if ((e.prog.procFlags(at) & PROC_CLOSED) === 0) vaTester(e)
+  e.prog.marksToAddress()
+  e.prog.setProcClosed(at, (e.prog.procFlags(at) & PROC_CLOSED) === 0)
+  e.prog.marksToNumber()
+  e.prog.countLines()
+  if ((e.prog.procFlags(at) & PROC_CLOSED) !== 0) {
+    // `.Skip`: it is closed now, so the cursor goes onto the fold's own line
+    setY(e, e.prog.findAddress(at).line)
+  } else if (e.prog.adEProc !== 0) {
+    // it is open and a Test failed inside it, so the cursor goes to the error
+    // DEVIATION: `Ed_RAlert` (:7580) puts the message that test left back on
+    // the status line, out of the second half of `Ed_BufT`. This port keeps
+    // the code in `Edit.testError` and has nothing to put back.
+    setX(e, e.prog.xEProc)
+    setY(e, e.prog.findAddress(e.prog.adEProc).line)
+  }
+  e.fill()
+}
+
+/**
+ * `Ed_Procs` (:8627): every procedure in the program, folded or unfolded.
+ *
+ * The cursor keeps looking at the same PHYSICAL line rather than the same line
+ * number: the address is taken before the walk and turned back into a number
+ * after it, because folding anything above changes every number below.
+ *
+ * Closing steps over each fold as it makes it, so the size has to be right
+ * before the walk starts, not during it.
+ */
+function procs(e: Edit, close: boolean): void {
+  e.tokCur()
+  if (close) vaTester(e)
+  e.prog.marksToAddress()
+  const was = e.prog.findLine(e.line).at
+  let f = e.prog.findLine(0)
+  while (f.found) {
+    const at = f.at
+    if (e.prog.isProc(at) && (e.prog.procFlags(at) & PROTECTED_PROC) === 0) {
+      // `bclr #7` then `bset #7` if closing, so a locked one is not even
+      // opened and everything else is written whether it needs it or not
+      e.prog.setProcClosed(at, close)
+    }
+    f = e.prog.nextLine(at)
+  }
+  e.prog.countLines()
+  e.prog.marksToNumber()
+  setY(e, e.prog.findAddress(was).line)
+  e.fill()
+}
+
+/**
+ * `Ed_Indent` (:8465): the indent byte of every line, worked out again.
+ *
+ * ./indent.ts is the walk. What is here is the Test pass in front of it, which
+ * the indenter needs for the same reason the folds do: it steps over a closed
+ * procedure by the size at offset 4.
+ */
+function indentCmd(e: Edit): void {
+  e.tokCur()
+  vaTester(e)
+  indentBytes(e.prog.bytes, e.prog.stBas, e.tabs)
+  e.fill()
+}
+
+/**
+ * `Ed_Test` (:8424): the Test pass, and the message that says it passed.
+ *
+ * DEVIATION: the machine chooses between "No errors" and the precision warning
+ * on `Ver_SPConst` and `Ver_DPConst`, two flags a constant of the wrong
+ * precision raises. This port's verifier does not keep them, so Test only ever
+ * answers 197.
+ */
+function testCmd(e: Edit): void {
+  e.tokCur()
+  vaTester(e)
+  throw new EditorAlert(197) // Ed_Al100, "No errors"
+}
+
 /* ---- the table ---------------------------------------------------------- */
 
 /** every command this port runs, by its 1-based `JFonc` number */
@@ -2382,8 +2596,13 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // being offered the chance to quit
     closeWindow(e, e, !e.editor.zappeuse)
   },
+  78: testCmd,
+  79: indentCmd,
   84: merge,
+  87: procOpen,
   88: loadHidden,
+  89: (e) => procs(e, false),
+  90: (e) => procs(e, true),
   91: prevWindow,
   92: nextWindow,
   93: flipSizeWindow,
@@ -2509,6 +2728,8 @@ for (let i = 0; i < 10; i++) {
  * a split view reads to decide whether the other half needs it too.
  */
 export function edCall(e: Edit, cmd: number, param = 0): number {
+  // `bsr Ed_ClEProc` is the first instruction of `Ed_FCall` (:2572)
+  clEProc(e)
   const flags = flagsOf(cmd)
   // `cmp.w #HiddenCommands-1,d2` (:2595): 184 and up are the hidden-program
   // menu, three entries per hidden program, and they decode into Run, Edit and
@@ -2638,6 +2859,7 @@ function run(e: Edit, fn: () => void): number {
   e.alert = 0
   e.alertTime = 0
   e.diskError = -1
+  e.testError = -1
   try {
     fn()
   } catch (err) {
@@ -2646,6 +2868,13 @@ function run(e: Edit, fn: () => void): number {
     // the answer here stays 0. `Edit.diskError` is what says which
     if (err instanceof DiskError) {
       e.diskError = err.dos
+      return 0
+    }
+    // the same shape again: `Ed_ErrTest` has already moved the cursor, and
+    // the message it puts up comes from `Ed_TstMessages` rather than the
+    // editor's own table, so what is kept here is the code
+    if (err instanceof VerifyError) {
+      e.testError = err.code
       return 0
     }
     if (!(err instanceof EditorAlert)) throw err

@@ -41,7 +41,7 @@ const TK_END_PROC = TK.END_PROC
  * `Ed_ProcOpen` is `bchg #7,10(a2)` (+Edit.s:8862) on the HIGH byte, which
  * `Tk_FindL` reads as `tst.w 10(a0) / bmi`. One bit, two spellings.
  */
-const PROC_CLOSED = 0x8000
+export const PROC_CLOSED = 0x8000
 
 /**
  * What a closed fold costs beyond the size word: `lea 12+2(a0,d1.l),a0` in
@@ -105,6 +105,30 @@ export class ProgramBuffer {
    * View (:2469) is the one command that takes it above one.
    */
   edited = 0
+  /**
+   * `Prg_AdEProc` (+Equ.s:1872): the line the last Test failed on, 0 for none.
+   *
+   * `Ed_SetXY` (+Edit.s:10157) stores it only when the error turned out to be
+   * inside a CLOSED procedure, because that is the one case where the cursor
+   * cannot be put on the line that failed. `Ed_ProcOpen` reads it back when it
+   * opens a fold, and jumps the cursor to the error.
+   */
+  adEProc = 0
+
+  /**
+   * Bit 31 of `Prg_AdEProc`, which the machine packs into the same long.
+   *
+   * `Ed_ClEProc` (+Edit.s:8861) runs BEFORE every command body: the first one
+   * after the failed Test raises this and leaves the address for that command
+   * to use, and the second finds the bit already up and clears the long. So
+   * the recall is worth exactly one command. `Ed_ProcOpen` takes the flag off
+   * with `bclr #31,d0` rather than testing it.
+   */
+  eProcStale = false
+
+  /** `Prg_XEProc` (+Equ.s:1873): the column on that line, from `Detok`'s watch */
+  xEProc = 0
+
   /** `Prg_Change`, the program wants saving */
   changed = false
   /** `Prg_StModif`, the listing has been modified since the last Test */
@@ -353,6 +377,27 @@ export class ProgramBuffer {
       at += len
       if (at > target) return { line, start, proc }
     }
+  }
+
+  /** is the line at `at` a `Procedure` header? `cmp.w #_TkProc,2(a0)` */
+  isProc(at: number): boolean {
+    return this.u16(at + 2) === TK_PROC
+  }
+
+  /** the flags word at offset 10 of a `Procedure` line: the fold and the lock */
+  procFlags(at: number): number {
+    return this.u16(at + 10)
+  }
+
+  /**
+   * `bchg #7,10(a2)` (+Edit.s:8834): fold the procedure at `at`, or unfold it.
+   *
+   * The bit is written through the HIGH byte and read as bit 15 of the word,
+   * which is one flag with two spellings all through +Edit.s and +Verif.s.
+   */
+  setProcClosed(at: number, closed: boolean): void {
+    const b = this.bytes[at + 10]!
+    this.bytes[at + 10] = closed ? b | 0x80 : b & ~0x80
   }
 
   /** `Prg_CptLines` (+Verif.s:4894), which is the walk with nothing to find */

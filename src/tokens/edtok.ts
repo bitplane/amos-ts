@@ -36,14 +36,19 @@ import { ascToFfp, floatToAsc, longToBin, longToDec, longToHex } from './numfmt'
  */
 export const TK = {
   FOR: 0x023c,
+  NEXT: 0x0246,
   REPEAT: 0x0250,
+  UNTIL: 0x025c,
   WHILE: 0x0268,
+  WEND: 0x0274,
   DO: 0x027e,
+  LOOP: 0x0286,
   EXIT_IF: 0x0290,
   EXIT: 0x029e,
   IF: 0x02be,
   THEN: 0x02c6,
   ELSE: 0x02d0,
+  END_IF: 0x02da,
   ON: 0x0316,
   PROCEDURE: 0x0376,
   DATA: 0x0404,
@@ -106,7 +111,7 @@ export function inlineBytes(id: number): number {
 }
 
 /** `TInst`: the offset of the token after the one at `p`, whose id is `id`. */
-function skipToken(src: Uint8Array, p: number, id: number): number {
+export function skipToken(src: Uint8Array, p: number, id: number): number {
   if (id === 0) return p
   if (id <= T.LABEL_REF) return p + 4 + src[p + 2]!
   if (id === T.STR_DQ || id === T.STR_SQ || id === TK.REM || id === TK.REM_TICK) {
@@ -175,11 +180,27 @@ function missingExtension(slot: number): string {
  * result carries the indent as leading spaces, one fewer than the indent byte,
  * exactly as `Dtk1` writes them.
  */
+/**
+ * `Detok`'s d0 in and the word it pushes at `clr.w -(sp)` out.
+ *
+ * `DtkLoop` opens `cmp.l a3,a6` (+Edit.s:14768) and takes the write pointer's
+ * distance from the start of the text the moment the walk reaches the token at
+ * `at`. That is BEFORE the token's own leading space, and the indent counts,
+ * because a2 is set before `Dtk1` writes it.
+ *
+ * `column` stays -1 when the walk never reaches the offset.
+ */
+export interface DetokWatch {
+  at: number
+  column: number
+}
+
 export function detokLineBytes(
   src: Uint8Array,
   offset: number,
   table: TokenTable,
   opts: EdtokOptions = {},
+  watch?: DetokWatch,
 ): string {
   const kwCase = opts.keywordCase ?? 2
   const idCase = opts.identCase ?? 1
@@ -197,6 +218,8 @@ export function detokLineBytes(
   const spaced = (): boolean => out.length === start || out.endsWith(' ')
 
   while (p + 2 <= end) {
+    // `DtkLoop`: the watch is tested before anything is written for the token
+    if (watch !== undefined && p === watch.at) watch.column = out.length
     const id = u16(p)
     p += 2
     if (id === 0) break
