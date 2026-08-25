@@ -62,12 +62,31 @@ Three things that look like they belong here do not:
 - `menus.ts` — `EdM_Definition` decoded, and the AMOS branch's page of hidden
   programs.
 
-172 of the 184 `JFonc` entries run. The 12 left fall into groups rather than
-gaps: the interpreter (77, 105, 111), the About boxes and the machine-code
-procedure (149 to 151), and the status bar's four arrows (13 to 16), which
-are the one group that needs pixel geometry this port does not keep.
-`Ed_Escape` (28) waits on the escape screen, and `Ed_GoMonitor` (145) is
-+Monitor.s and 4,291 lines of its own.
+176 of the 184 `JFonc` entries run. The 8 left fall into groups rather than
+gaps: the interpreter (77, 105, 111), and the About boxes and the machine-code
+procedure (149 to 151). `Ed_Escape` (28) waits on the escape screen, and
+`Ed_GoMonitor` (145) is +Monitor.s and 4,291 lines of its own.
+
+
+## Edt_Y is a sum, not a field
+
+The four status bar arrows (13 to 16) work in PIXELS. `Ed_EtatMove`
+(+Edit.s:1512) reads `Edt_Y`, adds `moveq #8,d0`, checks it against the two
+bounds `Ed_RShLimits` (:1439) computed, and hands the result to
+`Edt_WChangeHaut` (:12226), which writes `Edt_Y` and `Edt_BasY` back.
+
+This port stores neither, because `Edt_WMaxSize` (:12511) gives the reason not
+to: its walk adds `Ed_TitreSy`, then each visible window's two bars and its
+rows, and stops at the window it was asked about. That sum IS `Edt_Y`. So
+`topY` and `basY` add it up on demand and `Edt_WChange` becomes what it
+already was underneath: a change to the neighbours' `Edt_WindTy`.
+
+Both bounds are exclusive. `bls` refuses a position at the minimum and `bge`
+one at the maximum, so an arrow stops one text row short of emptying the
+window it is pushing against. It cannot empty the last window either, but only
+because the windows tile the screen: `Edt_WChangeHaut`'s `.Last` arm lets the
+top arrive at the bottom, and `Edt_WPlaceBas` returning a shortfall is
+ignored.
 
 
 ## The printer is Par:

@@ -51,11 +51,17 @@ const ED_YTOP = 0
 /** `Ed_TitreSy` (:74): the title bar above every window */
 const ED_TITRE_SY = 16
 
-/** `Edt_EtatSy` (:75) plus `Edt_BasSy` (:76): a window's own two bars */
-const EDT_CHROME_SY = 11 + 5
+/** `Edt_EtatSy` (:75): the status bar above a window's text */
+export const ED_ETAT_SY = 11
+
+/** `Edt_BasSy` (:76): the bar below it */
+export const ED_BAS_SY = 5
+
+/** a window's own two bars */
+const EDT_CHROME_SY = ED_ETAT_SY + ED_BAS_SY
 
 /** one text row, in pixels: every size in this file is `lsl.w #3` away from a count */
-const ROW_SY = 8
+export const ED_ROW_SY = 8
 
 /**
  * One `Ed_AutoLoad` record: three bytes that replace a command with a program.
@@ -653,9 +659,23 @@ export class Editor {
    * touching them. One window on the shipped screen gets 28.
    */
   maxSize(w: Edit, limit: number): number {
+    return this.wMaxSize(w, limit).rows
+  }
+
+  /**
+   * `Edt_WMaxSize` (:12511) in full: d1, d2 and d0 rather than d0 alone.
+   *
+   * `min` is where the window's top could go if every window above it were
+   * squeezed to `limit` rows, `max` is where the free pixels run out, and
+   * `rows` is how many text rows are going spare. `Ed_RShLimits` and
+   * `Ed_RSbLimits` want the first two and `Ed_WindowSize` the third.
+   */
+  wMaxSize(w: Edit, limit: number): { min: number; max: number; rows: number } {
     let used = ED_TITRE_SY
+    let min = ED_TITRE_SY
     for (const other of this.list) {
       if (other === w) {
+        min = used
         used += EDT_CHROME_SY
         continue
       }
@@ -663,9 +683,121 @@ export class Editor {
       used += EDT_CHROME_SY
       let rows = other.windTy
       if (limit >= 0 && rows > limit) rows = limit
-      used += rows * ROW_SY
+      used += rows * ED_ROW_SY
     }
-    return (this.sy - used) >> 3
+    const free = this.sy - used
+    return { min, max: min + free + EDT_CHROME_SY, rows: free >> 3 }
+  }
+
+  /**
+   * `Edt_Y` (+Equ.s:1888): the top of the window's status bar, in pixels.
+   *
+   * DEVIATION: the machine stores it and `Edt_WChange` writes it. Nothing here
+   * does, because `Edt_WMaxSize`'s own walk shows it is a function of the list:
+   * the title bar, then every visible window before this one at its chrome
+   * plus its rows. Storing it would be storing a sum this port can add up.
+   */
+  topY(w: Edit): number {
+    let y = ED_TITRE_SY
+    for (const other of this.list) {
+      if (other === w) return y
+      if (other.hidden !== 0) continue
+      y += EDT_CHROME_SY + other.windTy * ED_ROW_SY
+    }
+    return y
+  }
+
+  /** `Edt_BasY`: the top of the bar BELOW the text, which is the same sum plus the text */
+  basY(w: Edit): number {
+    return this.topY(w) + ED_ETAT_SY + w.windTy * ED_ROW_SY
+  }
+
+  /**
+   * `Edt_WChange` (:12266): the window is now `y` to `basY`, and its neighbours
+   * pay for it.
+   *
+   * The two ends are independent. A top that goes UP takes rows off the
+   * windows above, one row at a time down to one row each and then down to
+   * none; a top that goes DOWN hands its rows to the window immediately above.
+   * The bottom is the mirror of that.
+   *
+   * Answers false for `beq.s .Rien`, which is a move that changed nothing.
+   */
+  wChange(w: Edit, y: number, bas: number): boolean {
+    // both ends are read before anything moves, because on the machine they
+    // are stored words and the top adjustment does not touch `Edt_BasY`
+    const oldY = this.topY(w)
+    const oldBas = this.basY(w)
+    w.windTy = (bas - y - ED_ETAT_SY) >> 3
+    if (y !== oldY) {
+      if (y < oldY) {
+        // `Edt_WPlaceHaut` twice: once leaving every window a row, and again
+        // taking the shortfall from windows it had spared
+        const left = this.placeHaut(w, (oldY - y) >> 3, 1)
+        if (left !== 0) this.placeHaut(w, left, 0)
+      } else {
+        const prev = this.wPrev(w)
+        if (prev !== null) prev.windTy += (y - oldY) >> 3
+      }
+    }
+    if (bas !== oldBas) {
+      if (bas < oldBas) {
+        const next = this.wNext(w)
+        if (next !== null) next.windTy += (oldBas - bas) >> 3
+      } else {
+        const left = this.placeBas(w, (bas - oldBas) >> 3, 1)
+        if (left !== 0) this.placeBas(w, left, 0)
+      }
+    }
+    return true
+  }
+
+  /**
+   * `Edt_WChangeHaut` (:12226): the top separator to pixel `y`.
+   *
+   * A window in the middle of the list carries its bottom along with it. The
+   * LAST one cannot, since there is nothing below to give the rows to, so its
+   * bottom stays where it is and only its height changes -- unless the top has
+   * come down past the bottom, in which case the bottom follows and the window
+   * is left with no text at all.
+   */
+  wChangeHaut(w: Edit, to: number): boolean {
+    const y = to & ~7
+    const oldY = this.topY(w)
+    if (y === oldY) return false
+    if (w.last) {
+      const bas = this.basY(w)
+      return this.wChange(w, y, Math.max(bas, y + ED_ETAT_SY))
+    }
+    return this.wChange(w, y, this.basY(w) + (y - oldY))
+  }
+
+  /**
+   * `Edt_WChangeBas` (:12250): the bottom separator to pixel `y`.
+   *
+   * The rounding is `addq #Edt_BasSy / and #$FFF8 / subq #Edt_BasSy`, so the
+   * bottom bar lands on a multiple of eight and `Edt_BasY` itself is always
+   * five below one. The top comes down with it only when the bottom has passed
+   * the top.
+   */
+  wChangeBas(w: Edit, to: number): boolean {
+    const bas = ((to + ED_BAS_SY) & ~7) - ED_BAS_SY
+    if (bas === this.basY(w)) return false
+    const y = this.topY(w)
+    return this.wChange(w, Math.min(y, bas - ED_ETAT_SY), bas)
+  }
+
+  /**
+   * `Edt_WVideNext` (:11953): the current window has no rows left, so make
+   * another one current.
+   *
+   * It runs after every separator move, and it is why dragging a separator
+   * over the current window does not leave the cursor somewhere invisible.
+   */
+  videNext(): void {
+    const w = this.current
+    if (w === null || w.windTy !== 0) return
+    this.wAutre(w)
   }
 
   /** `Edt_WSchrinkAll` (:12451): every visible window down to `size`, and the rows that frees */

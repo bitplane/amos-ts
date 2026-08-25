@@ -83,6 +83,7 @@ import {
   writeSession,
 } from './session'
 import { EDM_HIDDEN_MAX, EDM_USER_COMMANDS, EDM_USER_LONG, EDM_USER_MAX, hiddenPage } from './menus'
+import { ED_BAS_SY, ED_ETAT_SY, ED_ROW_SY } from './windows'
 import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import {
@@ -202,6 +203,10 @@ export const ED = {
   SET_BUFFER: 114,
   PRINT_PROGRAM: 146,
   PRINT_BLOCK: 86,
+  ETAT_UP: 13,
+  ETAT_DOWN: 14,
+  BAS_UP: 15,
+  BAS_DOWN: 16,
   TEST: 78,
   CHECK_13: 147,
   INDENT: 79,
@@ -1719,6 +1724,58 @@ function blockSaveAscii(e: Edit): void {
   if (!fs.writeFile(e.name1, bytes(out))) throw new DiskError()
 }
 
+
+
+/* ---- 13 to 16: the status bar's four arrows ----------------------------- */
+
+/**
+ * `Ed_RShLimits` (+Edit.s:1439): how far the TOP separator of `w` may go.
+ *
+ * `Edt_WMaxSize` is asked with a limit of zero, so `min` is where the top
+ * would be with every window above it emptied of text. `max` is the other end,
+ * less the height of whatever the drag carries with it: a window in the middle
+ * of the list takes its own bar, its text and its bottom bar along, and the
+ * last window in the list takes only its top bar because its bottom cannot
+ * move.
+ */
+function shLimits(e: Edit): { min: number; max: number } {
+  const editor = e.editor
+  const { min, max } = editor.wMaxSize(e, 0)
+  if (e.last) return { min, max: max - (ED_ETAT_SY + ED_BAS_SY) }
+  return { min, max: max - (e.windTy * ED_ROW_SY + ED_ETAT_SY + ED_BAS_SY) }
+}
+
+/** `Ed_RSbLimits` (:1479): the same for the BOTTOM separator */
+function sbLimits(e: Edit): { min: number; max: number } {
+  const { min, max } = e.editor.wMaxSize(e, 0)
+  return { min: min + ED_ETAT_SY, max }
+}
+
+/**
+ * `Ed_EtatMove` (:1512) and `Ed_BasMove` (:1535), which are the same routine
+ * twice over.
+ *
+ * `delta` is the `moveq #-8` or `moveq #8` the four entry points supply, so a
+ * keypress moves one text row. Both bounds are exclusive: `bls` refuses a
+ * position at the minimum and `bge` one at the maximum, so the separator stops
+ * one row short of squeezing something to nothing.
+ *
+ * The first window has no top separator and the last has no bottom one, and
+ * each refuses before it works anything out.
+ */
+function sepMove(e: Edit, delta: number, bottom: boolean): void {
+  e.tokCur()
+  if (bottom ? e.last : e.first) return
+  const { min, max } = bottom ? sbLimits(e) : shLimits(e)
+  const to = (bottom ? e.editor.basY(e) : e.editor.topY(e)) + delta
+  if (to <= min || to >= max) return
+  const moved = bottom ? e.editor.wChangeBas(e, to) : e.editor.wChangeHaut(e, to)
+  if (!moved) return
+  // `Edt_WVideNext` before `Ed_DrawWindows`, so the window the cursor is in
+  // has rows again by the time anything is drawn
+  e.editor.videNext()
+  drawWindows(e.editor)
+}
 
 /* ---- 86 and 146: the printer, which is Par: ----------------------------- */
 
@@ -3738,6 +3795,10 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   147: check13,
   146: prgPrint,
   86: blocPrint,
+  13: (e) => sepMove(e, -ED_ROW_SY, false),
+  14: (e) => sepMove(e, ED_ROW_SY, false),
+  15: (e) => sepMove(e, -ED_ROW_SY, true),
+  16: (e) => sepMove(e, ED_ROW_SY, true),
   137: (e) => {
     // EdC_SaveDefault (:4857), which asks first
     e.tokCur()
