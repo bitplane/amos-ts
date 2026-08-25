@@ -18,14 +18,14 @@
  * 153, over the list in ./windows.ts. The Test pass and Indent are 78 and 79,
  * the folds 87, 89 and 90, and the configuration 137 to 142.
  *
- * Quit and the session file are 82, and the one-question requesters 26, 76, 83
- * and 114.
+ * Quit and the session file are 82, the one-question requesters 26, 76, 83 and
+ * 114, and what the remote control writes 69, 70, 71, 154 and 182.
  *
- * The 75 that are left are 46 `Ed_UserMenu` slots and 29 commands needing
+ * The 70 that are left are 46 `Ed_UserMenu` slots and 24 commands needing
  * something this port has not built yet: the interpreter (77, 105, 111), the
- * menus (27, 73, 74, 104, 135, 136, 179, 180), the ZAP remote control (69, 70,
- * 71, 182), the status bar's arrows (13 to 16), printing and the About boxes
- * (86, 146, 148 to 151), and 28, 145, 147, 154 and 183 one at a time.
+ * menus (27, 73, 74, 104, 135, 136, 179, 180), the status bar's arrows (13 to
+ * 16), printing and the About boxes (86, 146, 148 to 151), and 28, 145, 147
+ * and 183 one at a time.
  * `COMMANDS` has no entry for any of them and `edCall` throws rather than
  * silently doing nothing, so a key map that reaches one says which.
  *
@@ -63,7 +63,7 @@ import {
   type KeyLong,
 } from './macros'
 import { SM, SM_TURBO, repBuffer, schBack, schFront, type Confirm } from './search'
-import { CFG, messages, readConfig, writeConfig } from './config'
+import { CFG, TEXT_BLOCKS, changeMessage, messages, readConfig, writeConfig } from './config'
 import {
   AMOS_EXT,
   NEW_PROJECT,
@@ -170,6 +170,11 @@ export const ED = {
   CLOSE_NAME: 153,
   QUIT: 82,
   SET_TAB: 26,
+  ZAP_NEW_LINE: 69,
+  RE_ALERT: 70,
+  ZAP_NEW_LINE_TOK: 71,
+  RENAME: 154,
+  ZAP_NEW_CONFIG: 182,
   GOTO_LINE: 76,
   INFOS: 83,
   SET_BUFFER: 114,
@@ -2573,6 +2578,102 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
   }
 }
 
+/* ---- 69, 70, 71, 154 and 182: what the remote control writes ------------ */
+
+/**
+ * `EdZ_NewLine` (:2776): the line under the cursor replaced with `Name1`.
+ *
+ * It writes into the EDIT BUFFER and not into the program: `Ed_LCourant`
+ * hands back the current display row and the string goes there with its own
+ * length in front of it, then `Edt_LEdited` is raised so the next `Ed_TokCur`
+ * tokenises it back. So the accessory hands over TEXT, and the editor's own
+ * cycle turns it into a line.
+ */
+function zapNewLine(e: Edit): void {
+  e.buf.setText(e.yCu, e.name1)
+  e.edited++
+}
+
+/** `EdZ_NewLineTok` (:2772): the same, and tokenised there and then */
+function zapNewLineTok(e: Edit): void {
+  zapNewLine(e)
+  e.tokCur()
+}
+
+/**
+ * `Ed_RAlert` (:7580): the last alert put back on the status line.
+ *
+ * `Ed_Alert` copied its message into `Ed_BufT+256` behind `$FFFE0102`, and
+ * this checks that long before it believes what follows. The duration is 150
+ * rather than the 100 most alerts use, so a message asked for again stays
+ * half as long again.
+ */
+function reAlert(e: Edit): void {
+  const saved = e.editor.alertSaved
+  if (saved === 0) return
+  e.alert = saved
+  e.alertTime = 150
+}
+
+/**
+ * `Ed_Rename` (:13596): the program renamed, without touching the disc.
+ *
+ * `Prg_Change` is raised, so the program is now unsaved under a name no file
+ * has yet. That is the point of it: the accessory names the program and the
+ * next Save writes it there.
+ */
+function rename(e: Edit): void {
+  e.prog.name = e.name1
+  e.prog.changed = true
+}
+
+/**
+ * `EdZ_NewConfig` (:2748): one message of one text block replaced.
+ *
+ * `Ed_ZapParam` picks the block by its place in the run of pointers at
+ * +Equ.s:1673, which the assembler comment marks "ne pas changer l'ordre":
+ * 0 is `Sys_Messages`, the INTERPRETER's block, and 1 to 5 are the editor's
+ * system strings, menu strings, dialogue messages, test errors and run errors.
+ * `cmp.l #5,d0 / bhi .Skip` is the bound, so the three blocks after those --
+ * the menu programs, the user menus and the menu definitions -- cannot be
+ * reached even though they are loaded from the same file and sit in the same
+ * run of pointers.
+ *
+ * `Name1` carries the message NUMBER as its first long and the text after it.
+ * A number above the block's count is refused rather than appended, which is
+ * what makes `EdC_ChangeTexte`'s `.New` arm unreachable from here.
+ *
+ * DEVIATION: param 0 is the interpreter's own text block. This port has not
+ * generated `Sys_Messages`, so 0 changes nothing and raises the two flags,
+ * which is what an out-of-range block does.
+ */
+function zapNewConfig(e: Edit): void {
+  const editor = e.editor
+  // `move.l Ed_ZapParam(a5),d0`, not the command's own argument: every ZAP
+  // command that wants a number reads it out of a5
+  const param = editor.zapParam
+  const at = param - 1
+  const name = TEXT_BLOCKS[at]
+  if (param >= 1 && param <= 5 && name !== undefined) {
+    const n = zapNumber(e.name1)
+    const text = e.name1.slice(4)
+    const block = editor.config.texts[name]
+    if (n >= 1 && n <= messages(block).length) {
+      editor.config.texts[name] = changeMessage(block, n, text)
+    }
+  }
+  // `EdC_Modified` and `EdC_Changed` go up whatever happened, including for a
+  // block number nothing here can reach
+  editor.configChanged = 1
+}
+
+/** `move.l (a1)+,d0`: the message number, as the first four bytes of `Name1` */
+function zapNumber(s: string): number {
+  let n = 0
+  for (let i = 0; i < 4; i++) n = (n << 8) | (s.charCodeAt(i) & 0xff)
+  return n >>> 0
+}
+
 /* ---- 26, 76, 83 and 114: the requesters that ask one thing --------------- */
 
 /**
@@ -3154,6 +3255,9 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
   },
   26: setTab,
   76: gotoLine,
+  69: zapNewLine,
+  70: reAlert,
+  71: zapNewLineTok,
   78: testCmd,
   82: quitCmd,
   83: infos,
@@ -3266,6 +3370,8 @@ export const COMMANDS: Record<number, (e: Edit, arg: number) => void> = {
     // EdMa_SaveDefault (:6668), which does NOT ask before writing over it
     macroSaveDef(e)
   },
+  154: rename,
+  182: zapNewConfig,
   152: (e) => {
     // Ed_SaveAsName (:13607): save to Name1 with no .Bak, and put the
     // program's own name back afterwards, because `Prg_Save` overwrites it
@@ -3483,6 +3589,14 @@ function run(e: Edit, fn: () => void): number {
     if (!(err instanceof EditorAlert)) throw err
     e.alert = err.code
     e.alertTime = err.duration
+    if (e.editor.zappeuse) {
+      // `Ed_ZapAlert` (:7614): the message the status line would have shown is
+      // the remote call's answer instead, and the magic buffer is not written
+      e.editor.zapError = -1
+      e.editor.zapMessage = err.code
+    } else {
+      e.editor.alertSaved = err.code
+    }
   }
   return e.alert
 }

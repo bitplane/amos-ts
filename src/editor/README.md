@@ -57,12 +57,14 @@ Three things that look like they belong here do not:
   remembers between sessions, and the eight text blocks behind it.
 - `session.ts` — `AMOSPro_Editor_LastSession`, the two structure lists written
   as memory and relocated on the way back in.
+- `zap.ts` — `Ed_ZapIn` and `Ed_ZapFonction`, the far side of `Call Editor` and
+  `Ask Editor`.
 
-109 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
-that never were commands. That leaves 29, and they fall into groups rather than
+114 of the 184 `JFonc` entries run, and 46 of the rest are `Ed_UserMenu` slots
+that never were commands. That leaves 24, and they fall into groups rather than
 gaps: the interpreter (77, 105, 111), the menus (27, 73, 74, 104, 135, 136, 179,
-180), the printer and the About boxes (86, 146, 148 to 151), the ZAP remote
-control (69, 70, 71, 182), and the status bar's four arrows (13 to 16).
+180), the printer and the About boxes (86, 146, 148 to 151), and the status
+bar's four arrows (13 to 16).
 Five stand alone: `Ed_Escape` (28), `Ed_Rename` (154) and `Ed_GoHelp` (183) all
 wait on the shell around the editor; `Ed_GoMonitor` (145) is +Monitor.s and
 4,291 lines of its own; and `Ed_Check1.3` (147) waits on a verdict this port's
@@ -95,6 +97,46 @@ and slot 6 has no message beside it. What the box shows is the last write.
 once per instruction and the instruction's own routine eats its arguments, so
 `A=1+2*3` counts one. A `Procedure` header is walked in phase 0 and again in
 its own phase, and `subq.l #1,VerNInst` (+Verif.s:1529) takes the first back.
+
+## The remote control is the editor with the requesters short-circuited
+
+An accessory reaches the editor through `Call Editor` and `Ask Editor`, and
+`Ed_Zappeuse` is the whole mechanism. `Ed_Dialogue` (+Edit.s:3108) tests it
+before it draws anything and returns `Ed_ZapParam` instead, so every question
+the editor would ask has the same answer: the number the accessory sent.
+`Ed_GotoL` is the one command that reads that answer as a NUMBER rather than
+as a button, which is how Call Editor 76 goes to a line. `Ed_Alert` (:7595)
+tests it too and becomes `Ed_ZapAlert`, so the message that would have gone on
+the status line comes back as error -1.
+
+`FlagFonc` decides what may be driven. Bit 7 marks a command zappable and 90
+of the 184 have it; bit 6 says the command needs a string, and exactly four do
+-- Save As Name, Close Name, Rename and New Config. `Ed_RAlert` sits among the
+remote-control routines and is not zappable at all.
+
+**Two of the thirteen functions cannot be called.** `EdZ_Jump` (:2826) has
+thirteen entries and `EdZ_NFonc equ 11` under it, and `cmp.l #EdZ_NFonc,d0` is
+the only bound check there is. `EdZ_Token`, which tokenises a line, and
+`EdZ_GetConfig`, which hands back the address of `Ed_Config`, are written,
+assembled and unreachable. `EdZ_NewConfig` has the same shape at the block
+level: `cmp.l #5,d0` stops at the run errors, so the menu programs, the user
+menus and the menu definitions cannot be changed from a program even though
+they come out of the same file.
+
+Every coordinate comes back 1-based, because `EdZ_Coo` adds one to all six on
+the way out. The block corners prove it by exception: `EdZ_Bloc`'s no-block
+arm pops its own return address (`addq.l #4,sp`) and answers -1 from the
+function itself, so it never reaches the addition.
+
+## The eighth text block is not messages
+
+Seven of the eight are `[pad][length][bytes]` records ending in `$FF`.
+`EdM_Definition` is the menu tree, eight bytes a record, read with `lsr.l #3`
+and terminated by the block's own length. `EdC_ChangeTexte` rebuilds a block
+from `old length + delta` rather than by counting the records, which is what
+preserves the byte the assembler's `Even` left after the `$FF`: the shipped
+system block is 748 bytes for 747 bytes of records, and stays 748 across a
+change.
 
 ## The session file is a memory dump, and its loader relocates it
 

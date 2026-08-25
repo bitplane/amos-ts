@@ -229,6 +229,41 @@ export class Editor {
   }
 
   /**
+   * `Edt_Runned(a5)` (+Equ.s:1690): the window whose program is running.
+   *
+   * `Ed_ZapIn` compares it with `Edt_Current` and refuses when they are the
+   * same, which is what stops an accessory from driving its own window.
+   */
+  runned: Edit | null = null
+
+  /**
+   * `Prg_Accessory(a5)`: the running program was started as an accessory.
+   *
+   * The gate on both halves of the remote control. `Prg_New` (+Verif.s:4626)
+   * clears it, so a program that has been edited since it was launched is not
+   * one any more.
+   */
+  accessory = false
+
+  /** `Ed_ZapError(a5)`: 0, or the negative code the last remote call failed with */
+  zapError = 0
+
+  /** `Ed_ZapMessage(a5)`, as a message number rather than as the pointer it is */
+  zapMessage = 0
+
+  /**
+   * `Ed_BufT+256` behind `$FFFE0102` (:7605): the last alert, kept for
+   * `Ed_RAlert`.
+   *
+   * DEVIATION: the magic long is a guard against scratch memory. `Ed_BufT` is
+   * the editor's general buffer and anything may have written over it since,
+   * so `Ed_RAlert` (:7580) checks the four bytes before it believes the rest.
+   * Nothing here shares the buffer, so the guard would always pass and what is
+   * kept is the message number.
+   */
+  alertSaved = 0
+
+  /**
    * `Ed_Zappeuse(a5)`: the ZAP remote control is driving, so nothing may ask.
    *
    * `Ed_File_Selector` answers 1 without drawing, `Ed_CloseWindowQuit` closes

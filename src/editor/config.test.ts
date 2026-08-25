@@ -5,7 +5,15 @@ import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { ED_KFONC, ED_ROUTINES } from './keymap.gen'
 import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from '../runtime/edmessages.gen'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
-import { CFG, CONFIG_SIZE, EditorConfig, messages, readConfig, writeConfig } from './config'
+import {
+  CFG,
+  CONFIG_SIZE,
+  EditorConfig,
+  changeMessage,
+  messages,
+  readConfig,
+  writeConfig,
+} from './config'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokeniseSource } from '../tokens/edtok'
@@ -165,6 +173,16 @@ describeWith('AMOSPro_Editor_Config', shipped(), (file) => {
     expect(messages(c.texts.messages)).toEqual([...ED_MESSAGES])
     expect(messages(c.texts.test)).toEqual([...ED_TST_MESSAGES])
     expect(messages(c.texts.run)).toEqual([...ED_RUN_MESSAGES])
+  })
+
+  it('rebuilds a text block byte for byte when the message is unchanged', () => {
+    // `EdC_ChangeTexte` copies every record into a new block, so replacing a
+    // message with itself is the whole format going out and coming back
+    for (const name of ['system', 'menus', 'messages', 'test', 'run', 'programs'] as const) {
+      const block = c.texts[name]
+      const first = messages(block)[0]!
+      expect([...changeMessage(block, 1, first)]).toEqual([...block])
+    }
   })
 
   it('carries three more the port had no copy of', () => {

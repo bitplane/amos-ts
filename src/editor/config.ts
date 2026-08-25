@@ -95,7 +95,16 @@ const TABLE_BYTES = 3 * 184
 /** `EdC_Load`'s d0: 0 ok, 1 the file would not open or read, 2 the length was wrong */
 export const CFG = { OK: 0, DISK: 1, BAD: 2 } as const
 
-/** the eight text blocks, in the order `EdC_Load` (:4977) reads them */
+/**
+ * The eight text blocks, in the order `EdC_Load` (:4977) reads them, which is
+ * the order of the pointers at +Equ.s:1673 under "ne pas changer l'ordre".
+ *
+ * Seven are message blocks. The eighth is not: `EdM_Definition` is the menu
+ * tree, eight bytes a record, and `EdM_CreObjet` (:13005) reads it with
+ * `lsr.l #3` rather than by walking lengths. It has no `$FF` on the end
+ * either, so anything that treats it as messages runs to the end of the block
+ * and then past it.
+ */
 export const TEXT_BLOCKS = [
   'system',
   'menus',
@@ -409,6 +418,49 @@ export function messages(block: Uint8Array): string[] {
     out.push(String.fromCharCode(...block.subarray(p + 2, p + 2 + len)))
     p += 2 + len
   }
+  return out
+}
+
+/**
+ * `EdC_ChangeTexte` (+Edit.s:5203): one record of a block replaced, and a
+ * whole new block built to hold it.
+ *
+ * The machine cannot edit in place, because the records are packed and a
+ * longer message would run into the next one. So it works out the new total,
+ * allocates, copies every record across and swaps the pointer, which is why
+ * the routine ends in `Ed_MemFree` on what it just read.
+ *
+ * `n` is 1-based. A number ABOVE the count appends (`.New` reserves two bytes
+ * plus the text and `.CpX` writes it after the loop), which no caller reaches:
+ * `EdZ_NewConfig` refuses `d0 > d1` first, and equal goes to the replace arm.
+ *
+ * The pads come out zero, because the rebuild writes `clr.b (a0)+` in front of
+ * the first record and after every one. They are zero in the shipped file too.
+ */
+export function changeMessage(block: Uint8Array, n: number, text: string): Uint8Array {
+  const list = messages(block)
+  const len = Math.min(text.length, 0xfe)
+  // `add.l -(a0),d0` (:5232): the size is the OLD block's own length plus what
+  // this record grew by, and not a fresh count. That is what carries the byte
+  // the assembler's `Even` left after the `$FF`: the shipped system block is
+  // 748 bytes for 747 bytes of records, and stays 748 across a change
+  let delta: number
+  if (n >= 1 && n <= list.length) {
+    delta = len - Math.min(list[n - 1]!.length, 0xfe)
+    list[n - 1] = text
+  } else {
+    delta = 2 + len
+    list.push(text)
+  }
+  const out = new Uint8Array(Math.max(block.length + delta, 2))
+  let p = 0
+  for (const m of list) {
+    const size = Math.min(m.length, 0xfe)
+    out[p + 1] = size
+    for (let i = 0; i < size; i++) out[p + 2 + i] = m.charCodeAt(i) & 0xff
+    p += 2 + size
+  }
+  out[p + 1] = 0xff
   return out
 }
 
