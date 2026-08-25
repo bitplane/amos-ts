@@ -4924,7 +4924,7 @@ export class Runtime {
   }
 
   /**
-   * GZone (+W.s:11197) — 1-based index of the first zone of `s` containing
+   * GZone (+W.s:11168) — 1-based index of the first zone of `s` containing
    * (x,y) in that screen's coordinates, 0 if none.
    *
    * The table is the SCREEN's (EcAZones), so the screen is the first

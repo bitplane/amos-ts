@@ -181,7 +181,7 @@ export class Display {
    * Build the system copper list into the logical buffer and swap — the
    * word-for-word equivalent of EcCopper (+W.s:5701/6030-6500) run at each
    * vbl. The list is real memory behind Cop Logic: the header wait
-   * $1003FFFE + sprite pointers $120-$13E (HsCop +W.s:6786), then per
+   * $1003FFFE + sprite pointers $120-$13E (HsCop +W.s:6757), then per
    * screen band an EcCopHo block (WAIT, DMACON stop, the 16-colour
    * palette, BPLxPTH/L pointing into the screen's chip-RAM planes,
    * DIWSTRT/STOP, DDFSTRT/STOP, modulos, BPLCON0-2, then a WAIT for the

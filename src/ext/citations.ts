@@ -584,36 +584,64 @@ export function parseSourceCitations(text: string): SourceCitation[] {
 export interface AssemblerLabels {
   /** every label, by name, 1-based. A name can be defined more than once */
   at: Map<string, number[]>
-  /** every label line in the file, sorted, so a routine's end is the next one */
+  /** every label line in the file, sorted */
   starts: number[]
+  /**
+   * The labels that begin a routine, so a routine's end is the next one.
+   *
+   * Not every column-0 label does. `BobSOff:` (+W.s:1009) is followed by
+   * `DBbs1:` five lines later and `DBbs2:` four after that, and those two are
+   * `bne.s`/`beq.s` targets inside the one routine. Taking every label as a
+   * boundary cut +W.s into three-line pieces and made a citation six lines
+   * into a routine read as a citation of something else.
+   */
+  boundaries: number[]
 }
 
+/** the directives a data label declares with, which end the routine above */
+const DECLARES = /^(?:rs|dc|ds|equ|set|macro)\b/i
+/** a comment line: these sources use both `;` and `*` in column 0 */
+const COMMENT = /^[;*]/
+
 /**
- * Where each label sits in one assembler file.
+ * Where each label sits in one assembler file, and which ones start a routine.
  *
  * A label is an identifier in column 0, and `Lib_Par InSystem` counts as one:
  * the interpreter's keyword routines are declared by that macro rather than by
  * a label, and the port cites them by name like anything else.
+ *
+ * A label begins a ROUTINE when it declares storage (`Ed_Avert rs.w 1`, which
+ * is all of +Equ.s), when it is one of those macros, or when the line above it
+ * is a comment. That last is what these sources actually use as a separator:
+ * `******* Explore la table de l'ecran A1` above `GZone:` (+W.s:11156).
  */
 export function assemblerLabels(lines: string[]): AssemblerLabels {
   const at = new Map<string, number[]>()
   const starts: number[] = []
-  const put = (name: string, n: number): void => {
+  const boundaries: number[] = []
+  const put = (name: string, n: number, boundary: boolean): void => {
     starts.push(n)
+    if (boundary) boundaries.push(n)
     const had = at.get(name)
     if (had === undefined) at.set(name, [n])
     else had.push(n)
   }
+  /** the line above, blanks skipped */
+  const above = (i: number): string => {
+    for (let k = i - 1; k >= 0; k--) if (lines[k]!.trim() !== '') return lines[k]!
+    return ''
+  }
   lines.forEach((text, i) => {
     const label = /^([A-Za-z_][A-Za-z0-9_.]*):?/.exec(text)
     if (label !== null) {
-      put(label[1]!, i + 1)
+      const rest = text.slice(label[0].length).trim()
+      put(label[1]!, i + 1, DECLARES.test(rest) || COMMENT.test(above(i)))
       return
     }
     const macro = /^\s+(?:Lib_Par|Lib_Def|Lib_Fon)\s+([A-Za-z_][A-Za-z0-9_.]*)/.exec(text)
-    if (macro !== null) put(macro[1]!, i + 1)
+    if (macro !== null) put(macro[1]!, i + 1, true)
   })
-  return { at, starts }
+  return { at, starts, boundaries }
 }
 
 /**
@@ -630,7 +658,7 @@ const BANNER = 12
 export function citationResolves(lines: string[], labels: AssemblerLabels, symbol: string, n: number): boolean {
   if (n < 1 || n > lines.length) return false
   for (const label of labels.at.get(symbol) ?? []) {
-    const next = labels.starts.find((s) => s > label) ?? lines.length + 1
+    const next = labels.boundaries.find((s) => s > label) ?? lines.length + 1
     if (label - BANNER <= n && n < next) return true
   }
   // a jump table entry naming the routine is a citation too: `bra HColGet`

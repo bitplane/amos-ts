@@ -326,7 +326,7 @@ export class Screen {
    * `Reserve Zone` allocates `n*8` bytes and hangs them off the current
    * screen (SyResZ +W.s:11037); `Set Zone` writes four words into
    * `EcAZones + (n-1)*8` of the current screen (SySetZ +W.s:11090); and
-   * `Zone()`, `Hzone()` and `Mouse Zone` all reach GZone (+W.s:11197), which
+   * `Zone()`, `Hzone()` and `Mouse Zone` all reach GZone (+W.s:11168), which
    * walks the table of the screen it was handed. A single global table was
    * this port's own simplification and `mouse zone` carried a note saying so
    * — EasyLife is what makes it observable, since `Elznsx(SCREEN, ZONE)` and
@@ -1093,7 +1093,7 @@ export class Screen {
       pen = paper
       paper = t
     }
-    // COut (+W.s:15661) is `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2`
+    // COut (+W.s:15631) is `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2`
     // — the charset is indexed by the raw byte, and Change Print Font can
     // have replaced it with a 2KB bank
     const glyph = w.font8 ? w.font8.subarray((ch & 0xff) * 8, (ch & 0xff) * 8 + 8) : (FONT8[ch & 0xff] ?? FONT8[32]!)
@@ -1535,7 +1535,7 @@ export class Screen {
    *
    * Nearly everything that marks the screen goes through this. `GfxF0`
    * (+Lib.s:11286) wraps the graphics primitives, `AutoPrt` (+W.s:15494)
-   * wraps text, `EcCls` (+W.s:3690) wraps Cls, `TPatch` (+W.s:877) wraps
+   * wraps text, `EcCls` (+W.s:3661) wraps Cls, `TPatch` (+W.s:848) wraps
    * Paste Bob and `ScrF1` (+Lib.s:10203) wraps the scrolls. Each tests
    * `EcAuto` first and takes a plain call when it is zero.
    *

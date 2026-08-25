@@ -3773,7 +3773,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * That is the AMOS console's own charset pointer, and AMOS's character
      * blitter reads it exactly the way the manual describes the bank:
      * *"always 8x8 pixels big and contains 256 characters ... exactly 2 KB"*.
-     * `COut` (+W.s:15661) is `lsl.w #3,d1 / move.l WiFont(a5),a2 /
+     * `COut` (+W.s:15631) is `lsl.w #3,d1 / move.l WiFont(a5),a2 /
      * add.w d1,a2`, so the byte value times eight indexes it with no LoChar
      * and no control-code exception. The default WiFont is `T_JeuDefo`, which
      * WOpen installs on every window it makes (+W.s:13702).

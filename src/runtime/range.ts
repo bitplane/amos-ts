@@ -647,7 +647,7 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
      * `ESC "B"` is Paper: `CEsc` in +W.s indexes the escape table by
      * `letter - "A"` and its second entry is `Paper`, and the handler is
      * entered with `sub.w #"0",d1`, so the digit the extension writes is the
-     * colour number rather than a character. `Compte` (+W.s:15630) counts
+     * colour number rather than a character. `Compte` (+W.s:15601) counts
      * `ESC` plus two bytes as nothing printed, which is what makes this a
      * console string and not a length-word AMOS one.
      *

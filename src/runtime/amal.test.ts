@@ -278,7 +278,7 @@ describe('AMAL PLay (recorded movements from the Amal bank)', () => {
     expect([rt.channels.get(3)!.regs[0], rt.channels.get(3)!.regs[1]]).toEqual([0, 0])
   })
 
-  it('elides either parameter on its own (EntNul, SetPlay +W.s:7948)', () => {
+  it('elides either parameter on its own (EntNul, SetPlay +W.s:7919)', () => {
     const rt = bootBank(
       amalBankBytes([]),
       ['Amal 0,"L RA=0"', 'Amplay 7,2', 'Amplay ,5', 'Amplay 9,'].join('\n'),

@@ -2044,7 +2044,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobs.set(n, { n, x, y, image, screen: cur?.screen ?? rt.currentIndex })
     },
     'bob off'(it) {
-      // Neither BobSOff (+W.s:1044) nor BobOff erases anything or frees
+      // Neither BobSOff (+W.s:1015) nor BobOff erases anything or frees
       // anything. Both write -1 into BbAct and set BitBobs, and the update
       // passes that follow do the work --- which is what gets the background
       // back into BOTH buffers of a double buffered screen. Dropping the bob
