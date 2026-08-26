@@ -59,6 +59,7 @@ import { MixerSink } from './mixersink'
 import type { AmigaAudioModel } from '../amiga/mixer'
 import { SerialCable } from '../amiga/serialport'
 import { WebSerialHost, available as serialAvailable } from './serial'
+import { modelledLibraries } from '../amiga/exec'
 
 /** the release this player was built from; 'dev' outside a release build */
 export { VERSION }
@@ -391,6 +392,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   vfs.mountMemory('RAM') // the ram-handler is part of every AMOS machine
   vfs.mountMemory('ENV') // global environment variables live here
   vfs.mountMemory('CLIPS') // the clipboard handler, which GUI 2.10 opens as CLIPS:0
+  // SYS:Libs and the LIBS: assign, holding a marker per library this machine
+  // answers OpenLibrary for. A program that guards a call with
+  // `Exist("libs:x.library")` has to get the same answer as the call itself.
+  vfs.mountSystem(modelledLibraries().map((l) => l.name))
   vfs.currentDir = 'DH0:'
 
   // ---- the display ----

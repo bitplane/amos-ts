@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { AmigaFS } from '../amiga/vfs'
 import type { DirEntry, Volume } from '../amiga/vfs'
+import { modelledLibraries } from '../amiga/exec'
 
 /** disk-backed read-only Volume with case-insensitive resolution */
 export class NodeVolume implements Volume {
@@ -77,6 +78,8 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
   // a writable, initially-empty volume
   fs.mountMemory('RAM')
   fs.mountMemory('CLIPS') // the clipboard handler, which GUI 2.10 opens as CLIPS:0
+  // SYS:Libs and LIBS:, one marker per modelled library — see mountSystem
+  fs.mountSystem(modelledLibraries().map((l) => l.name))
   if (existsSync(fixturesRoot)) {
     fs.mount('AMOSPro', new NodeVolume(fixturesRoot))
     for (const raw of readdirSync(fixturesRoot, { encoding: 'buffer' })) {

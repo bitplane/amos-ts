@@ -410,6 +410,34 @@ export class AmigaFS implements AmosFS {
     return vol
   }
 
+  /**
+   * `SYS:` with a `Libs` drawer in it, and `LIBS:` assigned to that drawer.
+   *
+   * A machine that answers `OpenLibrary("reqtools.library")` has to answer
+   * `Exist("LIBS:reqtools.library")` as well, because that is how a program
+   * asks whether the library is there before it uses it. AMOSPro_Delta's demo
+   * is the case: `If Exist("libs:reqtools.library")` guards the requester and
+   * the else arm says "Reqtools.library not found", which is what it said here
+   * while `../amiga/reqtools.ts` sat underneath fully ported.
+   *
+   * DEVIATION: the files are EMPTY. What is modelled is a library, not a file
+   * containing one, and no byte of the real thing is ours to invent -- so what
+   * goes in `LIBS:` is a marker saying the machine has it. Anything that reads
+   * one as data gets nothing, which is the honest answer to a question this
+   * port cannot take seriously.
+   *
+   * `LIBS:` is an assign on a real machine and not a volume, so it is one
+   * here: `Devices` lists SYS: and `Assigns` lists LIBS:, the way they do on
+   * an Amiga rather than a made-up disk called LIBS.
+   */
+  mountSystem(names: readonly string[]): void {
+    const found = this.volumeOf('sys')
+    const sys = found instanceof MemoryVolume ? found : this.mountMemory('SYS')
+    sys.mkdir(['Libs'])
+    for (const name of names) sys.write(['Libs', name], new Uint8Array(0))
+    this.assign('LIBS', 'SYS:Libs')
+  }
+
   assign(name: string, target: string): void {
     const display = name.replace(/:$/, '')
     this.assigns.set(display.toLowerCase(), target)
