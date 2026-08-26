@@ -111,12 +111,15 @@ describe('Ed_About', () => {
     const lines = [...PORT_ABOUT_LINES.values()]
     expect(lines).toContain('amos-ts')
     expect(lines).toContain('amos.bitplane.net')
-    expect(lines).toContain('Copyright (c) 2026 Gareth Davidson')
     expect(lines).toContain('Based on AMOS Professional')
-    expect(lines).toContain('Copyright (c) 1992 Europress Software')
-    expect(lines).toContain('Copyright (c) 2020 Francois Lionet')
-    expect(lines).toContain(`version ${PORT_VERSION}`)
-    expect(lines).toContain('This program is free software. See LICENSE at')
+    // the years are the release's, not ours to round: its LICENSE says 1992
+    // for Europress and 2020 for the source Francois Lionet published
+    expect(lines).toContain('(c) 1992 Europress Software')
+    expect(lines).toContain('(c) 2020 Francois Lionet')
+    expect(lines).toContain('(c) 2026 Gareth Davidson')
+    expect(lines).toContain(`version: ${PORT_VERSION}`)
+    expect(lines).toContain('This program is free software')
+    expect(lines).toContain('see LICENSE at')
     expect(lines).toContain('https://github.com/bitplane/amos-ts')
   })
 

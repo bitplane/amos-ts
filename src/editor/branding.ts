@@ -41,13 +41,14 @@ export const ABOUT_COUNT = 1
 export const PORT_ABOUT_LINES: ReadonlyMap<number, string> = new Map([
   [ABOUT_TITLE, PORT_NAME],
   [2, PORT_HOME],
-  [3, 'Copyright (c) 2026 Gareth Davidson'],
-  [5, 'Based on AMOS Professional'],
-  [6, 'Copyright (c) 1992 Europress Software'],
-  [7, 'Copyright (c) 2020 Francois Lionet'],
-  [8, `version ${PORT_VERSION}`],
-  [9, 'This program is free software. See LICENSE at'],
-  [10, PORT_REPO],
+  [3, 'Based on AMOS Professional'],
+  [5, '(c) 1992 Europress Software'],
+  [6, '(c) 2020 Francois Lionet'],
+  [7, '(c) 2026 Gareth Davidson'],
+  [8, `version: ${PORT_VERSION}`],
+  [9, 'This program is free software'],
+  [10, 'see LICENSE at'],
+  [11, PORT_REPO],
 ])
 
 /** `EdD_Title` (+Edit.s:15330), the label `Ed_About` runs */
@@ -74,13 +75,13 @@ export const PORT_ABOUT_LABEL = 0
  */
 export const PORT_ABOUT_SCRIPT =
   'SV\t1,1VA# 24ME !;' +
-  'SI\t448,184;BA\tSWSX- 2/,SH SY- 2/ 16-;SA\t9;BO\t0,0,1,SX,SY;' +
+  'SI\t448,200;BA\tSWSX- 2/,SH SY- 2/ 16-;SA\t9;BO\t0,0,1,SX,SY;' +
   'BO\t16,8,1,SX16-,46;PO\t0VACX,16,0VA,0,7;PR\t2VACX,32,2VA,7;' +
-  'BO\t16,50,1,SX16-,100;PR\t3VACX,58,3VA,3;PR\t5VACX,68,5VA,3;' +
+  'BO\t16,50,1,SX16-,102;PR\t3VACX,58,3VA,3;PR\t5VACX,68,5VA,3;' +
   'PR\t6VACX,78,6VA,3;PR\t7VACX,88,7VA,3;' +
-  'BO\t16,104,1,SX16-,154;PR\t8VACX,112,8VA,3;PR\t9VACX,130,9VA,3;' +
-  'PR\t10VACX,140,10VA,3;' +
-  'PR\t1VACX,164,1VA,3;RU\t3000,15;EX;'
+  'BO\t16,106,1,SX16-,170;PR\t8VACX,114,8VA,3;PR\t9VACX,132,9VA,3;' +
+  'PR\t10VACX,142,10VA,3;PR\t11VACX,152,11VA,3;' +
+  'PR\t1VACX,180,1VA,3;RU\t3000,15;EX;'
 
 /**
  * Menu labels this port replaces, by the `JFonc` number the entry runs.

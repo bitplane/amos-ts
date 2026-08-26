@@ -78,8 +78,11 @@ if (import.meta.env.DEV) (globalThis as unknown as { amos: unknown }).amos = pla
  * program you leave the way an AMOS program leaves, and what you land in is
  * this program open in the editor.
  *
- * The wait is a `Wait Vbl` loop rather than `Wait 10` so the keyboard is read
- * every frame. `Wait` sleeps the program for the whole delay.
+ * The wait inside the loop is `Wait Vbl` rather than `Wait 10` so the keyboard
+ * is read every frame; `Wait` sleeps the program for the whole delay. The one
+ * `Wait 10` before the loop is for the button that started it: the click on
+ * Play is still down when the program gets control, and `Mouse Key` would
+ * read it and quit on the first frame.
  */
 const DEMO = `Curs Off : Cls 0
 For C=1 To 15
@@ -89,6 +92,7 @@ Pen 2 : Paper 0
 Locate 0,1 : Centre "amos-ts"
 Locate 0,21 : Centre "drop a .AMOS file above"
 Locate 0,23 : Centre "click or press a key to edit"
+Wait 10
 Do
    For C=1 To 15
       Colour C,Rnd($FFF)
