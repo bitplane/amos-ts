@@ -103,6 +103,23 @@ describe('where a keystroke goes', () => {
     expect(keyRoute(false, true, 'KeyA', 0x20)).toBe('program')
   })
 
+  it('gives every key to the editor while the editor is up', () => {
+    // `Ed_Loop` (+Edit.s:915) owns the keyboard: every key is `Ed_Key` and
+    // Escape among them, which is entry 28 and flips to the escape screen.
+    // So there is no key the editor does not want.
+    expect(keyRoute(false, true, 'KeyA', 0x20, true)).toBe('editor')
+    expect(keyRoute(false, true, 'Escape', 0x45, true)).toBe('editor')
+    expect(keyRoute(false, true, 'F1', 0x50, true)).toBe('editor')
+  })
+
+  it('gives the escape screen the key even when the editor is behind it', () => {
+    // `Esc_L1` (:8917) is the escape screen's own loop, and it is in FRONT of
+    // the editor rather than instead of it. Both flags are set while a typed
+    // line is being typed.
+    expect(keyRoute(true, true, 'KeyA', 0x20, true)).toBe('line')
+    expect(keyRoute(true, true, 'Escape', 0x45, true)).toBe('line')
+  })
+
   /**
    * The one that matters. A game reads Escape like any other key, `Esc_Appear`
    * is reached from `Ed_Loop` and `Esc_Loop` and from nowhere the interpreter

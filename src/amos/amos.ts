@@ -42,7 +42,7 @@ import { tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
 import { isAmosProgram, loadProgram } from '../loader/program'
 import { zapCall, zapFunction } from '../editor/zap'
-import { Runtime, type EditorZap } from '../runtime/runtime'
+import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime'
 import { EditorScreen } from './screen'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
@@ -95,6 +95,25 @@ export interface AmosOptions {
    * and a program that never stops is what Ctrl-C is for.
    */
   maxFrames?: number
+  /**
+   * Everything else the host's machine needs, handed straight to the Runtime.
+   *
+   * On the Amiga this is not an option at all: the editor and the interpreter
+   * share `a5`, so a program runs on the machine the editor is already on --
+   * the same screens, the same audio, the same `dos.library`. Here the host
+   * owns those and a Runtime is built per Run, so what the host built once
+   * has to be handed to each of them.
+   */
+  runtime?: Partial<RuntimeOptions>
+  /**
+   * The host owns the frame clock, so `Ed_Run` leaves the program waiting.
+   *
+   * Without it a command that asks for a program runs it to a stop inside the
+   * `call` that asked, which is what a test wants. A display cannot: nothing
+   * would be drawn until the program stopped. With it, `pendingRun` is what
+   * `Ed_Run` left and the host calls `startRun` and then `finishRun`.
+   */
+  hostFrames?: boolean
 }
 
 export class Amos {
@@ -216,10 +235,8 @@ export class Amos {
 
   /** the program `Ed_Run` or `Ed_Escape` left waiting, once the command is over */
   private after(alert: number): number {
-    const run = this.pending
-    if (run === null) return alert
-    this.pending = null
-    return this.runIt(run)
+    if (this.pending === null || this.opts.hostFrames === true) return alert
+    return this.runIt()
   }
 
   /**
@@ -250,6 +267,7 @@ export class Amos {
     })
     const loaded = loadProgram(file, this.table)
     const rt = new Runtime(loaded.lines, this.table, {
+      ...this.opts.runtime,
       extensions: loaded.extensions,
       extBindings: loaded.bindings,
       banks: loaded.amos?.banks ?? [],
@@ -288,27 +306,58 @@ export class Amos {
     },
   }
 
-  private runIt(r: RunRequest): number {
-    const w = r.window
-    const rt = this.machine(true)
+  private runIt(): number {
+    const rt = this.startRun()
+    try {
+      rt.runHeadless(this.opts.maxFrames ?? 5_000)
+      return this.finishRun(rt.interp.endCode)
+    } catch (e) {
+      if (!(e instanceof AmosRuntimeError)) throw e
+      return this.finishRun(e)
+    }
+  }
+
+  /**
+   * `Prg_RunIt`'s jump, for a host that owns the frame clock.
+   *
+   * `runIt` above runs the program to a stop and re-enters the editor in one
+   * call, which is what a test wants and what the machine's `JJmp
+   * L_New_ChrGet` looks like from the outside. A display cannot do that: the
+   * program has to be given a frame at a time or nothing is drawn while it
+   * runs. So the two halves are separable, and `Prg_JError` is `finishRun`.
+   */
+  startRun(): Runtime {
+    this.pending = null
+    return this.machine(true)
+  }
+
+  /** whether `Ed_Run` asked for a program and the host has not started it */
+  get pendingRun(): RunRequest | null {
+    return this.pending
+  }
+
+  /**
+   * `Ed_ErrRun` (+Edit.s:8252): the editor, re-entered with `RunErr`'s d0.
+   *
+   * Takes the number, or the error the interpreter threw, which carries the
+   * number and `VerPos(a5)` with it.
+   */
+  finishRun(end: number | AmosRuntimeError): number {
     let code = 0
     let at = -1
     let text: string | null = null
-    try {
-      rt.runHeadless(this.opts.maxFrames ?? 5_000)
-      code = rt.interp.endCode
-    } catch (e) {
-      if (!(e instanceof AmosRuntimeError)) throw e
-      code = e.code
+    if (typeof end === 'number') code = end
+    else {
+      code = end.code
       // an error with no number of its own has no message in either table, so
       // the text goes over as an extension's would: `Ed_GetError`'s a0
-      if (code === 0) text = e.text
+      if (code === 0) text = end.text
       // `VerPos(a5)`, when the parse recorded one. The interpreter runs a copy
       // of this window's source, so an offset into that block is an offset
       // into this one
-      at = e.at >= 0 ? e.at : w.prog.findLine(e.line - 1).at - w.prog.stBas
+      at = end.at >= 0 ? end.at : this.window.prog.findLine(end.line - 1).at - this.window.prog.stBas
     }
-    return edRunReturn(this.window, code, at, text)
+    return this.paint(edRunReturn(this.window, code, at, text))
   }
 
   /**

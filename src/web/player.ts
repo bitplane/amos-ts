@@ -24,6 +24,9 @@
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
+import { Amos } from '../amos/amos'
+import { ED } from '../editor/commands'
+import { QUAL, type EdKey } from '../editor/keymap'
 import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
@@ -294,17 +297,18 @@ export { isAmosProgram }
  * picking one of two at random gives a host no way to know it happened.
  */
 /**
- * Where a keystroke goes: to the line editor, to Escape's flip, or to the
- * program.
+ * Where a keystroke goes: to the line editor, to Escape's flip, to the editor
+ * or to the program.
  *
  * Escape flips, the way it does on the machine. `Ed_Escape` (+Edit.s:8876) is
  * entry 28 of the editor's own command table and runs `Ed_Hide` then
  * `Esc_Appear`; `Esc_Esc` (:9125) is `Esc_Hide` then `Ed_Appear`. One key,
  * both directions, and the second half is already `DirectScreen.key`'s.
  *
- * What it flips BETWEEN is the difference here. On the machine the other side
- * is the editor. There is no editor here, so the other side is the program's
- * display with nothing over it.
+ * The flip is between the escape screen and the EDITOR, which is what
+ * `Ed_Appear` puts back. A player with no editor -- a program the editor
+ * would not take -- has nothing on the other side, so Escape uncovers the
+ * program's own display instead. `editorUp` is which of the two this is.
  *
  * And only once the program has stopped. A running one owns the keyboard:
  * Escape is an ordinary key a game reads, `Esc_Appear` is reached from
@@ -317,8 +321,10 @@ export function keyRoute(
   programDone: boolean,
   code: string,
   scan: number,
-): 'line' | 'escape' | 'program' {
+  editorUp = false,
+): 'line' | 'escape' | 'editor' | 'program' {
   if (escapeScreenUp) return 'line'
+  if (editorUp) return 'editor'
   if (programDone && (code === 'Escape' || scan === 0x45)) return 'escape'
   return 'program'
 }
@@ -396,6 +402,15 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   container.appendChild(overlay)
 
   let rt: Runtime | null = null
+  /**
+   * The editor, holding whatever program was loaded.
+   *
+   * `Prg_RunIt` (+Verif.s:4336) is a jump: the editor's stack is thrown away
+   * and the interpreter never returns to it. So a program running here is the
+   * editor's `Runtime` and not a second one, and the way back is
+   * `Amos.finishRun`, which is `Prg_JError`.
+   */
+  let amos: Amos | null = null
   let systemResource = opts.systemResource
   let lastBytes: Uint8Array | null = null
   let lastName = ''
@@ -480,14 +495,30 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
     const scan = SCAN[e.code] ?? 0
     const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
-    const route = keyRoute(rt.directScreen.isOpen, rt.interp.done, e.code, scan)
+    const editorUp = amos?.display?.isOpen === true && !amos.inEscape
+    const route = keyRoute(rt.directScreen.isOpen, rt.interp.done, e.code, scan, editorUp)
     if (route === 'line') {
-      rt.directScreen.key(ch, scan, e.shiftKey)
+      // Escape here is `Esc_Esc`, which is `Esc_Hide` then `Ed_Appear`, so
+      // the editor comes back. `Amos.key` routes it: the escape screen owns
+      // the keyboard while it is up and Escape is the one key both sides
+      // want.
+      if (amos !== null) {
+        toEditor(amos.key(edKeyOf(e, ch, scan)))
+      } else {
+        rt.directScreen.key(ch, scan, e.shiftKey)
+      }
+      e.preventDefault()
+      return
+    }
+    if (route === 'editor') {
+      toEditor(amos!.key(edKeyOf(e, ch, scan)))
       e.preventDefault()
       return
     }
     if (route === 'escape') {
-      rt.directScreen.open()
+      // `Ed_Escape` (+Edit.s:8876), entry 28 of the editor's own table
+      if (amos !== null) toEditor(amos.call(ED.ESCAPE))
+      else rt.directScreen.open()
       e.preventDefault()
       return
     }
@@ -499,6 +530,39 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       e.preventDefault()
     }
   }
+  /**
+   * A browser key event as `Ed_Key` wants it.
+   *
+   * `.Ed_KFonc` (+Editor_Config.s) is 184 three-byte records of scancode and
+   * qualifiers, so the editor matches on the SCANCODE and the browser is the
+   * first host this port has had that supplies one. `e.code` is a physical
+   * key and `SCAN` maps it to the Amiga's own number.
+   */
+  function edKeyOf(e: KeyboardEvent, ch: string, scan: number): EdKey {
+    let shift = 0
+    if (e.shiftKey) shift |= QUAL.SHIFT
+    if (e.ctrlKey) shift |= QUAL.CTRL
+    if (e.altKey) shift |= QUAL.ALT
+    if (e.metaKey) shift |= QUAL.AMIGA
+    return { ch, scan, shift }
+  }
+
+  /** whatever the editor answered, and whatever it asked for afterwards */
+  function toEditor(alert: number): void {
+    void alert
+    if (amos === null) return
+    if (amos.pendingRun !== null) {
+      ended = false
+      amos.display?.close()
+      rt = amos.startRun()
+      return
+    }
+    if (amos.inEscape) rt?.directScreen.open()
+    else if (rt?.directScreen.isOpen === true) rt.directScreen.close()
+    if (!amos.inEscape) amos.openDisplay()
+    rt = amos.runtime ?? rt
+  }
+
   const onKeyUp = (e: KeyboardEvent): void => {
     if (!rt) return
     const scan = SCAN[e.code] ?? 0
@@ -624,34 +688,67 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // carried on forever. On the machine a reset clears DMACON, and the audio
     // DMA bits go with it.
     for (let v = 0; v < 4; v++) audio.stop(v)
+    // the program's own drawer becomes current, so its relative loads
+    // resolve --- and on the VOLUME it came from, since a dropped drawer is
+    // mounted as one and `Load "Examples:x"` is how its author wrote it
+    vfs.currentDir = dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`
+    // one machine, many Runtimes: it is what a reset destroys the environment
+    // ON, so it outlives every environment built here
+    const shared = {
+      machine,
+      onUnimplemented: 'skip' as const,
+      audio,
+      fs: vfs,
+      host: { clock: hostClock, printer: printText, printerPage: printPage, serial: serialHost },
+    }
+    amos = null
     try {
-      const { lines, extensions, bindings, amos } = compileProgram(bytes, table)
-      // the program's own drawer becomes current, so its relative loads
-      // resolve --- and on the VOLUME it came from, since a dropped drawer is
-      // mounted as one and `Load "Examples:x"` is how its author wrote it
-      vfs.currentDir = dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`
-      rt = new Runtime(lines, table, {
-        extensions,
-        extBindings: bindings,
-        // one machine, many Runtimes: it is what a reset destroys the
-        // environment ON, so it outlives every environment built here
-        machine,
-        onUnimplemented: 'skip',
-        banks: amos?.banks ?? [],
-        audio,
-        fs: vfs,
-        host: { clock: hostClock, printer: printText, printerPage: printPage, serial: serialHost },
-      })
+      amos = intoEditor(bytes, shared)
+    } catch (e) {
+      // The editor could not hold it, so there is no editing this one. That
+      // is the Test pass or `Prg_Load` refusing it, and the interpreter is
+      // more forgiving than either, so the program still runs.
+      console.warn('amos-ts: the editor would not take this program:', e)
+    }
+    try {
+      if (amos !== null) {
+        // `Ed_Run` (+Edit.s:8165), which Tests the program and then jumps.
+        // `hostFrames` leaves it waiting rather than running it here.
+        const alert = amos.call(ED.RUN)
+        const req = amos.pendingRun
+        if (req === null) throw new Error(amos.alert.text || `Ed_Run answered ${alert}`)
+        rt = amos.startRun()
+      } else {
+        const c = compileProgram(bytes, table)
+        rt = new Runtime(c.lines, table, {
+          ...shared,
+          extensions: c.extensions,
+          extBindings: c.bindings,
+          banks: c.amos?.banks ?? [],
+        })
+      }
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
       if (!running) overlay.style.display = 'flex'
     } catch (e) {
       rt = null
+      amos = null
       error = e instanceof Error ? e.message : String(e)
       fail(error)
       console.error('amos-ts: failed to load program:', e)
     }
   }
+
+  /** `Prg_Load` into a window, with the host's machine under whatever it runs */
+  function intoEditor(bytes: Uint8Array, shared: Record<string, unknown>): Amos {
+    return new Amos(bytes, {
+      table,
+      hostFrames: true,
+      fs: vfs as never,
+      runtime: shared as never,
+    })
+  }
+
 
   async function loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<ArchiveResult> {
     const entries = await readArchive(bytes)
@@ -780,17 +877,39 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         if (!ended) {
           ended = true
           opts.onStatus?.('program ended')
-          // Where a finished program leaves you. AMOS has no way to reach
-          // direct mode from a running one --- Escape is an ordinary key a
-          // game can read --- so the escape screen goes up when the program
-          // stops and not before. Escape flips it from there: see onKeyDown.
-          rt.directScreen.open()
+          if (amos !== null) {
+            // `RunErr` (+ILib.s:1267) is one exit with a number in d0, and
+            // `Ed_Errr` (+Edit.s:8261) branches on it and nothing else: 10 is
+            // End and goes to `Ed_Ligne`, 1000 is Edit, 1001 is Direct and
+            // opens the escape screen, 1002 is System. Where a stopped
+            // program leaves you is that routine's answer and not this
+            // loop's.
+            amos.finishRun(rt.interp.endCode)
+            amos.openDisplay()
+            rt = amos.runtime ?? rt
+            if (amos.inEscape) rt.directScreen.open()
+          } else {
+            // Where a finished program leaves you with no editor. AMOS has no
+            // way to reach direct mode from a running one --- Escape is an
+            // ordinary key a game can read --- so the escape screen goes up
+            // when the program stops and not before.
+            rt.directScreen.open()
+          }
         }
         // and the machine has to keep turning under it: the line editor
         // draws, a typed line runs over as many frames as it takes, and the
         // audio clock advances. `Runtime.frame` runs no statements for a
         // program that is done, so this costs nothing when nothing is typed.
-        if (!rt.directScreen.isOpen) break
+        if (!rt.directScreen.isOpen && amos === null) break
+        // `Ed_Run` again, from the editor this time
+        const again = amos?.pendingRun ?? null
+        if (again !== null) {
+          ended = false
+          amos!.display?.close()
+          rt = amos!.startRun()
+          continue
+        }
+        if (!rt.directScreen.isOpen && !(amos?.display?.isOpen ?? false)) break
       }
       try {
         rt.frame()

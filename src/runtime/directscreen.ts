@@ -133,6 +133,8 @@ export class DirectScreen {
    * does. Reproduced rather than given a meaning it never had.
    */
   private output = 0
+  /** the screen was the editor's, so `Esc_Hide` gives it back rather than closing it */
+  private borrowed = false
   /** mouse buttons last frame, for the press edge Bt_Gere fires on */
   private lastKeys = 0
   /** the button under a held mouse, drawn in its down image */
@@ -150,6 +152,25 @@ export class DirectScreen {
   /** Esc_Appear (+Edit.s:9356) */
   open(): void {
     if (this.up) return
+    // `Esc_Appear` does `EcCalD Active,EcEdit` and draws on the screen that
+    // is already there. When the editor is up, that screen is the editor's
+    // and this must not build another: one slot, one screen, and `Ed_Appear`
+    // is what puts the editor back on it afterwards.
+    const standing = this.rt.screens.get(DirectScreen.EC_DIRECT)
+    if (standing !== undefined) {
+      this.borrowed = true
+      this.prevScreen = this.rt.currentIndex === DirectScreen.EC_DIRECT ? -1 : this.rt.currentIndex
+      this.rt.order = this.rt.order.filter((i) => i !== DirectScreen.EC_DIRECT)
+      this.rt.order.push(DirectScreen.EC_DIRECT)
+      this.rt.currentIndex = DirectScreen.EC_DIRECT
+      this.up = true
+      this.line = ''
+      this.running = false
+      this.edAppear()
+      this.dress(standing, graphics())
+      return
+    }
+    this.borrowed = false
     const g = graphics()
     // the bank is 8 colours hires (its own mode word), and taking its palette
     // is what makes the buttons the colours the editor drew them in
@@ -176,11 +197,27 @@ export class DirectScreen {
     this.line = ''
     this.running = false
     this.edAppear()
+    this.dress(s, g)
+  }
+
+  /**
+   * Everything `Esc_Appear` puts on the screen, whether or not it made it.
+   *
+   * Split out because the editor's screen 9 is the same slot and the routine
+   * draws on whichever one is there.
+   */
+  private dress(s: Screen, g: ResourceGraphics | null): void {
     this.drawChrome(s, g)
     // Esc_Appear opens the text window two columns narrower than the screen
     // (`lsr.w #3,d4 / subq.w #2,d4`), which is the 16 pixels the right border
     // runs down
     // x and y are PIXELS here, columns and rows are characters
+    // the editor's own windows are `Edt_Order * 8` and up (+Edit.s:11637), so
+    // window 1 is free whether or not the editor is behind this
+    if (s.windows.has(1)) {
+      s.selectWindow(1)
+      s.windClose()
+    }
     const w = s.windOpen(1, 0, TITLE_H, WIDTH / 8 - 2, ROWS, 0)
     // Wo3a (+W.s:13706) gives a fresh window paper 1, pen 2 and cursor colour
     // 3; the ground here is the black Ed_ColB sets rather than paper 1.
@@ -256,7 +293,18 @@ export class DirectScreen {
       this.running = false
     }
     this.edHide()
-    this.rt.closeScreen(DirectScreen.EC_DIRECT)
+    if (this.borrowed) {
+      // `Esc_Hide` (:9528) runs the screen back up and `Ed_Appear` redraws
+      // the editor on it. Closing it here would take the editor with it.
+      const s = this.rt.screens.get(DirectScreen.EC_DIRECT)
+      if (s?.windows.has(1) === true) {
+        s.selectWindow(1)
+        s.windClose()
+      }
+      this.borrowed = false
+    } else {
+      this.rt.closeScreen(DirectScreen.EC_DIRECT)
+    }
     if (this.prevScreen >= 0 && this.rt.screens.has(this.prevScreen)) this.rt.currentIndex = this.prevScreen
     this.prevScreen = -1
   }

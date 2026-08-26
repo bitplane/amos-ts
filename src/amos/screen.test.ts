@@ -187,6 +187,26 @@ describe('the editor on an AMOS screen', () => {
     ])
   })
 
+  it('lets the escape screen borrow screen 9 rather than opening another', () => {
+    // `Esc_Appear` (+Edit.s:9356) is `EcCalD Active,EcEdit` and then drawing:
+    // the escape screen IS the editor's screen with the editor's window taken
+    // down and its own put up. One slot, one screen, and `Ed_Appear` is what
+    // puts the editor back on it.
+    const amos = boot('Print "A"')
+    const s = amos.display!.screen!
+    const rt = amos.runtime!
+    rt.directScreen.open()
+    expect(rt.screens.get(9)).toBe(s)
+    expect(s.windows.has(1)).toBe(true)
+    rt.directScreen.close()
+    // the editor's screen is still there afterwards, and the escape screen's
+    // window is not
+    expect(rt.screens.get(9)).toBe(s)
+    expect(s.windows.has(1)).toBe(false)
+    amos.display!.draw()
+    expect(row(amos, 0)).toBe('Print "A"')
+  })
+
   it('lays a second window out under the first, at the sum topY adds up', () => {
     // `Ed_DrawWindows` walks the list with `move.w #16+Ed_YTop,-(sp)` and
     // adds `Edt_EtatSy + Edt_BasSy` plus the rows for each window it passes.
