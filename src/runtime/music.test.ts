@@ -717,7 +717,7 @@ describe('Say and MuDMAsk (InSay +Music.s:2519)', () => {
   })
 
   it('does not give them back after an asynchronous one, and Talk Stop does not either', () => {
-    // DEFECT, the machine's own. `Say a$,1` is `SendIO` and never reaches
+    // DEFECT: the machine's own. `Say a$,1` is `SendIO` and never reaches
     // `SayX`, and `InTalkStop` (:2751) aborts the request and installs Sami
     // and stops there -- no `VOnOf` anywhere on that path.
     const rt = alive('Say "hello",1')
