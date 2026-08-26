@@ -312,6 +312,7 @@ const emit = (path: string, names: string[], tail = ''): void => {
 
 const defs = definitionBytes('bin/Editor_Menus.bin')
 const programs = messageBlock(block('Auto1', 'Auto2'))
+const userMenus = messageBlock(block('Menu1', 'Menu2'))
 const autoLoad = autoLoadTable()
 emit(
   'src/runtime/edmessages.gen.ts',
@@ -343,6 +344,18 @@ emit(
         ` * and branches to \`Ed_PrgCommand\` when it is not zero. The other two are\n` +
         ` * 1-based indices into \`ED_PROGRAMS\`: the name, and a command line.`,
       autoLoad,
+    ) +
+    bytesConst(
+      'EDM_USER',
+      ` * \`Menu1\`..\`Menu2\` (+Editor_Config.s:1107), the User menu's labels:\n` +
+        ` * \`EdM_User\`, twenty messages for the twenty \`JFonc\` slots 115 to 134.\n` +
+        ` *\n` +
+        ` * \`EdM_Init\` (+Edit.s:12645) stamps its own eight-byte record for each --\n` +
+        ` * path 7.n, command 114+n -- and skips the slot whose message is empty,\n` +
+        ` * so thirteen of the twenty are what a stock installation shows. They are\n` +
+        ` * where the accessories live: "Edit Objects" and "Edit Icons" both run\n` +
+        ` * Object_Editor.AMOS, with GRABO and GRABI on the command line.`,
+      userMenus,
     ),
 )
 emit('src/interp/errors.gen.ts', ['ED_RUN_MESSAGES'])
@@ -350,3 +363,4 @@ for (const [name, msgs] of Object.entries(tables)) console.log(`${name}: ${msgs.
 console.log(`EDM_DEFINITION: ${defs.length} bytes, ${Math.floor(defs.length / 8)} records`)
 console.log(`ED_PROGRAMS: ${programs.length} bytes, ${block('Auto1', 'Auto2').length} names`)
 console.log(`ED_AUTOLOAD: ${autoLoad.length} bytes, ${autoLoad.filter((_, i) => i % 3 === 0 && autoLoad[i] !== 0).length} commands bound`)
+console.log(`EDM_USER: ${userMenus.length} bytes, ${block('Menu1', 'Menu2').filter((m) => m !== '').length} labels`)

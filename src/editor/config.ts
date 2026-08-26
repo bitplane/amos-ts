@@ -53,7 +53,7 @@
  * 18,866 of them. The last two are zeroes that `EdC_Save` does not write.
  */
 import { ED_KFONC } from './keymap.gen'
-import { ED_AUTOLOAD, ED_PROGRAMS, EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
+import { ED_AUTOLOAD, ED_PROGRAMS, EDM_DEFINITION, EDM_MESSAGES, EDM_USER } from '../runtime/edmessages.gen'
 
 /** `Ed_FConfig - Ed_DConfig`: the length the file opens with, and its only check */
 export const CONFIG_SIZE = 1202
@@ -125,16 +125,19 @@ const empty = (): ConfigTexts =>
   Object.fromEntries(
     TEXT_BLOCKS.map((n) => [
       n,
-      // The three blocks the editor cannot work without, from the shipped
+      // The four blocks the editor cannot work without, from the shipped
       // configuration. `Ed_MnPrograms` is what `Ed_PrgCommand` indexes for a
-      // program's name, and the two menu blocks are `EdM_Init`'s pair.
+      // program's name, `EdM_User` names the User menu's own entries, and the
+      // two menu blocks are `EdM_Init`'s pair.
       n === 'programs'
         ? ED_PROGRAMS.slice()
-        : n === 'menuDefs'
-          ? EDM_DEFINITION.slice()
-          : n === 'menus'
-            ? menuLabelBlock()
-            : new Uint8Array(0),
+        : n === 'userMenus'
+          ? EDM_USER.slice()
+          : n === 'menuDefs'
+            ? EDM_DEFINITION.slice()
+            : n === 'menus'
+              ? menuLabelBlock()
+              : new Uint8Array(0),
     ]),
   ) as ConfigTexts
 
@@ -349,7 +352,8 @@ export class EditorConfig {
    *
    * `Ed_FCall` (:2612) tests the first of the three and branches to
    * `Ed_PrgCommand` when it is not zero, so any command can be replaced by an
-   * AMOS program. The shipped file leaves all 552 bytes at zero.
+   * AMOS program. The shipped table binds 37 of them: every Help entry, the
+   * six Editor_Config pages, and the accessories the User menu names.
    */
   get autoLoad(): Uint8Array {
     return this.bytes.subarray(AT.AUTO_LOAD, AT.AUTO_LOAD + TABLE_BYTES)

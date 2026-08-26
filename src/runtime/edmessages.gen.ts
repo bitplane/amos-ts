@@ -645,3 +645,20 @@ export const ED_AUTOLOAD: Uint8Array = unhex(
   '01010b01010c01010d01010e01010f010110010111010102010102000000000000011900011a1b011a1c011a1d011a1e' +
   '011a1f011a18000000000000000000000000000000000000',
 )
+
+/**
+ * `Menu1`..`Menu2` (+Editor_Config.s:1107), the User menu's labels:
+ * `EdM_User`, twenty messages for the twenty `JFonc` slots 115 to 134.
+ *
+ * `EdM_Init` (+Edit.s:12645) stamps its own eight-byte record for each --
+ * path 7.n, command 114+n -- and skips the slot whose message is empty,
+ * so thirteen of the twenty are what a stock installation shows. They are
+ * where the accessories live: "Edit Objects" and "Edit Icons" both run
+ * Object_Editor.AMOS, with GRABO and GRABI on the command line.
+ */
+export const EDM_USER: Uint8Array = unhex(
+  '000c45646974204f626a65637473000a456469742049636f6e73000c456469742053616d706c6573000d456469742052' +
+  '65736f757263650000000c44697363204d616e61676572000a4f626a6563742045642e000c53616d706c65204d616b65' +
+  '72000c5265736f757263652045642e0000000c52652d746f6b656e69736572000e436f6d70696c6572205368656c6c00' +
+  '07436f6d70696c65000000000000000000000000000000ff',
+)

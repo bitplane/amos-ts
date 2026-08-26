@@ -5,6 +5,7 @@ import { EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
 import { readMenuDefs } from '../editor/menus'
 import { MF_OFF } from '../runtime/menu'
 import { ED } from '../editor/commands'
+import { messages as configMessages } from '../editor/config'
 
 function boot(source = 'Print "A"'): Amos {
   const amos = new Amos(source, { requesters: false })
@@ -64,6 +65,46 @@ describe('the editor s menu bar, which is EdM_Definition walked', () => {
     // the neighbours on either side are untouched
     expect(label(t.find([7])!)).toBe(' User ')
     expect(label(t.find([10])!)).toBe(' AMOS ')
+  })
+
+  /**
+   * The User branch is stamped by `EdM_Init` (+Edit.s:12645) and has no
+   * records in `EdM_Definition` at all, which is why the accessories were
+   * nowhere: nothing in the editor names the Object Editor, `EdM_User` does.
+   */
+  it('stamps the User branch out of EdM_User, where the accessories are', () => {
+    const amos = boot()
+    const t = amos.runtime!.menu
+    expect(label(t.find([7, 1])!)).toBe(' Edit Objects   ')
+    expect(label(t.find([7, 2])!)).toBe(' Edit Icons     ')
+    expect(label(t.find([7, 7])!)).toBe(' Object Ed.     ')
+    expect(label(t.find([7, 13])!)).toBe(' Compile        ')
+    // `move.b d7,(a1) / add.b #"0"+EdM_UserCommands-1,(a1)+`
+    expect(amos.menu.chosen([7, 1, 0, 0])).toBe(115)
+    expect(amos.menu.chosen([7, 7, 0, 0])).toBe(121)
+    // an empty message builds nothing: `clr.b (a1)` leaves the label empty and
+    // `EdM_CreObjet` opens `tst.b (a4) / beq .Skip`
+    expect(t.find([7, 5])).toBeNull()
+    expect(t.find([7, 10])).toBeNull()
+    expect(t.find([7, 14])).toBeNull()
+    // and the shipped records further down the same menu still land
+    expect(label(t.find([7, 26])!)).toBe(' Add Option     ')
+  })
+
+  it('binds each of them to a program, which is what makes one do anything', () => {
+    // `.Ed_AutoLoad` (+Editor_Config.s:67) is the other half: the label is in
+    // `EdM_User` and the program is here, indexed by the same command number
+    const amos = boot()
+    const table = amos.editor.config.autoLoad
+    const progs = configMessages(amos.editor.config.texts.programs)
+    const bound = (cmd: number): [string, string] => [
+      progs[table[(cmd - 1) * 3 + 1]! - 1] ?? '',
+      progs[table[(cmd - 1) * 3 + 2]! - 1] ?? '',
+    ]
+    expect(bound(115)).toEqual(['AMOSPro_Accessories:Object_Editor.AMOS', 'GRABO'])
+    expect(bound(116)).toEqual(['AMOSPro_Accessories:Object_Editor.AMOS', 'GRABI'])
+    expect(bound(121)).toEqual(['AMOSPro_Accessories:Object_Editor.AMOS', ''])
+    expect(bound(126)).toEqual(['AMOSPro_Compiler:Compiler_Shell.AMOS', ''])
   })
 
   it('turns a chosen path back into a JFonc number', () => {

@@ -87,6 +87,17 @@ program's three entries are numbered off `HiddenCommands` and `Ed_FCall`
 DEVIATION: `EdM_MarkAll` ticks the program the editor is showing. Nothing here
 does, so the entries are told apart by name.
 
+The User branch has no records at all. `EdM_Init` (:12645) stamps its own
+eight-byte record per slot -- path `7.n`, command `114+n` -- and takes the
+label from `EdM_User`, the configuration's twentieth-of-a-menu. An empty
+message builds nothing, because the routine writes the record and then
+`clr.b (a1)`, and `EdM_CreObjet` opens `tst.b (a4) / beq .Skip` on that label.
+Eleven of the twenty ship named, and they are where the accessories live: the
+editor does not know the Object Editor exists, the configuration does.
+
+The Help branch is the one thing this port does not build; `PORT_MENU_HIDDEN`
+in ../editor/branding.ts says why.
+
 ## The accessories
 
 A command can BE a program. `Ed_FCall` (+Edit.s:2610) reads `.Ed_AutoLoad`

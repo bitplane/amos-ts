@@ -27,7 +27,16 @@
  */
 import { MF_OFF, MenuTree, compileMenuObject } from '../runtime/menu'
 import { EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
-import { EDM_HIDDEN_MAX, readMenuDefs, hiddenPage, type MenuEntry } from '../editor/menus'
+import {
+  EDM_HIDDEN_MAX,
+  EDM_USER_COMMANDS,
+  EDM_USER_LONG,
+  EDM_USER_MAX,
+  readMenuDefs,
+  hiddenPage,
+  type MenuEntry,
+} from '../editor/menus'
+import { messages } from '../editor/config'
 import { PORT_MENU_HIDDEN, PORT_MENU_LABELS } from '../editor/branding'
 import type { Editor } from '../editor/windows'
 
@@ -43,6 +52,9 @@ const HIDDEN_COMMANDS = 184
  * template in the middle section, then the tail.
  */
 const SECTIONS = readMenuDefs(EDM_DEFINITION, EDM_MESSAGES)
+
+/** `move.b #"7",(a1)+` (+Edit.s:12654): the User menu, which the branch hangs off */
+const USER_BRANCH = 7
 
 /** the path of the AMOS branch itself, which is the middle section's root */
 const AMOS_BRANCH = SECTIONS[1]?.[0]?.path[0] ?? 10
@@ -89,6 +101,7 @@ export class EditorMenu {
       if (hidden(e.path)) continue
       this.object(tree, e, e.path)
     }
+    this.branchUser(tree)
     this.branchAmos(tree)
     tree.screenNb = screenNb
     tree.on = true
@@ -120,6 +133,54 @@ export class EditorMenu {
     if (e.active) node.flags &= ~MF_OFF
     else node.flags |= MF_OFF
     if (e.command > 0) this.commands.set(path.join('.'), e.command)
+  }
+
+  /**
+   * `EdM_Init`'s User branch (+Edit.s:12645), which has no records of its own.
+   *
+   * The other three sections come out of `EdM_Definition`. This one is
+   * stamped: for each of the twenty `EdM_User` messages the routine builds an
+   * eight-byte record in `Ed_BufT` by hand --
+   *
+   *     move.b  d7,(a1)
+   *     add.b   #"0"+EdM_UserCommands-1,(a1)+   the command, 114+n
+   *     move.b  #"3",(a1)+                      MnInkB
+   *     move.b  #"0",(a1)+                      MnInkA
+   *     move.b  #"1",(a1)+
+   *     move.b  #"7",(a1)+                      the User menu
+   *     move.b  d7,(a1)
+   *     add.b   #"0",(a1)+                      and the entry under it
+   *
+   * -- and hands it to `EdM_CreObjet`. So this is where the accessories are:
+   * the shipped configuration's `EdM_User` reads "Edit Objects", "Edit Icons",
+   * "Edit Samples", "Edit Resource", "Disc Manager", "Object Ed.", "Sample
+   * Maker", "Resource Ed.", "Re-tokeniser", "Compiler Shell" and "Compile",
+   * and `.Ed_AutoLoad` binds each of those commands to a program under
+   * `AMOSPro_Accessories:`. Nothing in the editor names them; the
+   * configuration does, and `Ed_AddUser` (:5422) is how a user adds a
+   * fourteenth.
+   *
+   * An empty message builds nothing at all. `.Loop` writes the eight bytes
+   * and then `clr.b (a1)`, so the label starts as an empty string and the
+   * blank-and-copy is skipped for an empty message; `EdM_CreObjet` opens with
+   * `tst.b (a4) / beq .Skip` on that label. Slots 5 and 10 ship empty, and
+   * what shows is eleven entries with no gap between them.
+   */
+  private branchUser(tree: MenuTree): void {
+    const labels = messages(this.editor.config.texts.userMenus)
+    for (let n = 1; n <= EDM_USER_MAX; n++) {
+      const text = labels[n - 1] ?? ''
+      if (text === '') continue
+      // `.Lp1` fills EdM_UserLong spaces and `.Lp2` copies at most
+      // EdM_UserLong-2 characters from offset 1, so the label is one space,
+      // the message cut to 14, and spaces out to 16
+      const label = ` ${text.slice(0, EDM_USER_LONG - 2)}`.padEnd(EDM_USER_LONG, ' ')
+      this.object(
+        tree,
+        { command: EDM_USER_COMMANDS - 1 + n, inkA: 0, inkB: 3, path: [USER_BRANCH, n], label, active: true, title: false },
+        [USER_BRANCH, n],
+      )
+    }
   }
 
   /**

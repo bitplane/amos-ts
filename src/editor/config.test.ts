@@ -124,12 +124,27 @@ describe('the file', () => {
     expect([...back.bytes]).toEqual([...c.bytes])
     expect(messages(back.texts.system)).toEqual(['ABC'])
     expect(messages(back.texts.messages)).toEqual(['Z'])
-    // the three blocks a fresh config carries: `Ed_MnPrograms` and `EdM_Init`'s
-    // definition-and-label pair, which the editor cannot work without
+    // the four blocks a fresh config carries: `Ed_MnPrograms`, `EdM_User` and
+    // `EdM_Init`'s definition-and-label pair, which the editor cannot work
+    // without
     expect(messages(back.texts.menus).length).toBe(196)
     expect(back.texts.menuDefs.length).toBe(199 * 8 + 1)
     expect(messages(back.texts.programs).length).toBe(46)
-    expect(back.texts.userMenus.length).toBe(0)
+    // twenty slots, eleven of them named -- the accessories
+    expect(messages(back.texts.userMenus).length).toBe(20)
+    expect(messages(back.texts.userMenus).filter((m) => m !== '')).toEqual([
+      'Edit Objects',
+      'Edit Icons',
+      'Edit Samples',
+      'Edit Resource',
+      'Disc Manager',
+      'Object Ed.',
+      'Sample Maker',
+      'Resource Ed.',
+      'Re-tokeniser',
+      'Compiler Shell',
+      'Compile',
+    ])
   })
 
   it('keeps a field this port does not name', () => {
