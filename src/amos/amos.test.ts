@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ED } from '../editor/commands'
+import { ED, ED_DIA_DISK_ERR, diskMessage } from '../editor/commands'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { Amos } from './amos'
@@ -402,5 +402,55 @@ describe('the window that runs is the one Ed_Run named', () => {
     amos.editor.dialogues = null
     expect(amos.call(ED.RUN)).toBe(0)
     expect(out()).toBe('MAIN')
+  })
+})
+
+/**
+ * `Ed_DError` (+Edit.s:14019): the command died on the disc, so say which.
+ *
+ * `run` catches the `DiskError` and records the AmigaDOS code -- which is the
+ * routine's own control flow, since it ends `bra Ed_Loop` and the command is
+ * abandoned. What it does on the way is put EdD_DiskErr up, and nothing did.
+ * Every editor command that touched a missing file failed in silence, which
+ * is why the User menu's accessories looked dead: their disc is not in the
+ * machine, `Ed_PrgCommand` threw 205, and 205 went into a field nothing read.
+ */
+describe('Ed_DError, the requester a failed command leaves behind', () => {
+  it('maps an AmigaDOS code through ErDisked into the interpreter s messages', () => {
+    // `.Explo` lands the first entry on DEBase+1 and `Paerr` on DEBase+22+1,
+    // with DEBase = EcEBase+35-1 = 79
+    expect(diskMessage(203)).toBe(80)
+    expect(ED_RUN_MESSAGES[diskMessage(203) - 1]).toBe('File already exists')
+    expect(ED_RUN_MESSAGES[diskMessage(205) - 1]).toBe('File not found')
+    expect(ED_RUN_MESSAGES[diskMessage(226) - 1]).toBe('No disc in drive')
+    // anything not in the fifteen, including the 0 an `EditorFS` boolean
+    // gives when it refuses without saying why
+    expect(diskMessage(0)).toBe(102)
+    expect(ED_RUN_MESSAGES[diskMessage(999) - 1]).toBe('Disc error')
+  })
+
+  it('puts EdD_DiskErr up when an accessory is not on the disc', () => {
+    // a filesystem that answers, so the failure is 205 and not the 0 an
+    // editor with no disc at all reports
+    const amos = new Amos('Print "A"', { requesters: false, fs: new AmigaFS() as never })
+    amos.openDisplay()
+    // JFonc 121 is "Object Ed." on the User menu, bound by `.Ed_AutoLoad` to
+    // AMOSPro_Accessories:Object_Editor.AMOS
+    expect(amos.call(121)).toBe(0)
+    expect(amos.report?.kind).toBe('confirm')
+    const r = amos.report as { kind: 'confirm'; confirm: Confirm }
+    expect(r.confirm.which).toBe(ED_DIA_DISK_ERR)
+    expect(r.confirm.strings?.[0]).toBe(ED_RUN_MESSAGES[diskMessage(205) - 1])
+    // it is a report and not a question: there is no run to answer into
+    expect(amos.pendingAsk).toBe(null)
+    amos.dismissReport()
+    expect(amos.report).toBe(null)
+  })
+
+  it('does not leave one behind for a command that worked', () => {
+    const amos = new Amos('Print "A"', { requesters: false })
+    amos.openDisplay()
+    amos.call(ED.INDENT)
+    expect(amos.report).toBe(null)
   })
 })

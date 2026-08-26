@@ -85,9 +85,11 @@ export class EditorAlert extends Error {
  * machine reads `_LVOIoErr`, looks it up in `ErDisked` (:14050) and indexes
  * `Ed_RunMessages`, which is the interpreter's list and not the editor's.
  *
- * DEVIATION: this port has not generated that table, so what is carried is
- * the AmigaDOS code itself. 0 means the filesystem refused and did not say
- * why, which is every failure `EditorFS`'s booleans can report.
+ * What is carried here is the AmigaDOS code; `diskMessage` (./commands.ts) is
+ * the `ErDisked` walk and `Amos.dError` puts the requester up. 0 means the
+ * filesystem refused and did not say why, which is every failure
+ * `EditorFS`'s booleans can report, and 0 is not in `ErDisked` -- so it
+ * prints "Disc error", the same catch-all the machine's `Paerr` reaches.
  */
 export class DiskError extends Error {
   constructor(readonly dos = 0) {

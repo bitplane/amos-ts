@@ -1742,6 +1742,41 @@ function blockSaveAscii(e: Edit): void {
 
 
 
+/**
+ * `ErDisked` (+Edit.s:14052) and the walk `Ed_DError` (:14019) does over it.
+ *
+ *     lea     ErDisked(pc),a0
+ *     moveq   #DEBase-1,d1
+ *     .Explo  addq.l  #1,d1
+ *             move.b  (a0)+,d2
+ *             beq.s   Paerr
+ *             cmp.b   d0,d2
+ *             bne.s   .Explo
+ *             move.w  d1,d0
+ *             addq.w  #1,d0
+ *
+ * so the first entry lands on `DEBase+1` and the terminator on `Paerr`, which
+ * is `DEBase+22+1`. `DEBase` is `EcEBase+35-1` and `EcEBase` is 45 (+Equ.s:771),
+ * so the fifteen codes map to `Ed_RunMessages` 80 to 94 and anything else to
+ * 102, "Disc error".
+ *
+ * The message table is the INTERPRETER's, not the editor's: `Ed_RunMessages`
+ * is `ED_RUN_MESSAGES` here.
+ */
+const ER_DISKED = [203, 204, 205, 210, 213, 214, 216, 218, 220, 221, 222, 223, 224, 225, 226] as const
+
+/** `DEBase equ EcEBase+35-1` (+Equ.s:772), with `EcEBase equ 45` above it */
+const DE_BASE = 79
+
+/** the `Ed_RunMessages` record an AmigaDOS code prints as */
+export function diskMessage(dos: number): number {
+  const at = ER_DISKED.indexOf(dos as (typeof ER_DISKED)[number])
+  return at < 0 ? DE_BASE + 23 : DE_BASE + 1 + at
+}
+
+/** `EdD_DiskErr equ 58` (+Edit.s:15376), the requester `Ed_DError` puts up */
+export const ED_DIA_DISK_ERR = 58
+
 /* ---- 149 and 150: the two About boxes ----------------------------------- */
 
 /**

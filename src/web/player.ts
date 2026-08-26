@@ -27,6 +27,7 @@ import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { Amos } from '../amos/amos'
 import { ED } from '../editor/commands'
 import { EditorDialogues } from '../amos/dialogue'
+import type { EditorAnswer } from '../amos/requester'
 import { EditorScreen } from '../amos/screen'
 import { QUAL, type EdKey } from '../editor/keymap'
 import { VERSION } from '../version'
@@ -651,7 +652,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    */
   function askEditor(): void {
     if (amos === null) return
-    const ask = amos.pendingAsk
+    // a REPORT is a requester with no run behind it: `Ed_DError` and
+    // `Ed_Alert` both end `bra Ed_Loop`, so what they draw outlives the
+    // command instead of blocking it
+    const ask = amos.pendingAsk ?? amos.report
     if (ask === null) return
     dialogues ??= new EditorDialogues(() => amos!.runtime!, EditorScreen.EC_EDIT)
     // Already on the screen. `Ed_Dialogue` runs the label ONCE and then sits
@@ -662,17 +666,25 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // screen that had just been closed, which is "screen not opened: 10".
     if (dialogues.busy) return
     const now = dialogues.start(ask)
-    if (now !== undefined) toEditor(amos.answer(now))
+    if (now !== undefined) toEditor(answerEditor(now))
     // a question this port cannot put up is answered with its first button,
     // which is `Ed_Zappeuse`'s answer
-    else if (!dialogues.busy) toEditor(amos.answer(1))
+    else if (!dialogues.busy) toEditor(answerEditor(1))
+  }
+
+  /** the answer goes to the command that asked, or nowhere if it was a report */
+  function answerEditor(got: EditorAnswer): number {
+    if (amos === null) return 0
+    if (amos.pendingAsk !== null) return amos.answer(got)
+    amos.dismissReport()
+    return 0
   }
 
   /** whatever the editor answered, and whatever it asked for afterwards */
   function toEditor(alert: number): void {
     void alert
     if (amos === null) return
-    if (amos.pendingAsk !== null) {
+    if (amos.pendingAsk !== null || amos.report !== null) {
       askEditor()
       return
     }
@@ -1119,12 +1131,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         // frames as they take; `Dia_Tests` runs in `Runtime.frame` above.
         // The loop puts it up as well as taking it down, because a command
         // can be run from outside a keystroke.
-        const ask = amos?.pendingAsk ?? null
+        const ask = amos?.pendingAsk ?? amos?.report ?? null
         if (ask !== null) {
           if (dialogues?.busy !== true) askEditor()
           else {
             const got = dialogues.step(ask)
-            if (got !== undefined) toEditor(amos!.answer(got))
+            if (got !== undefined) toEditor(answerEditor(got))
           }
         }
         // `Ed_Run` again, from the editor this time

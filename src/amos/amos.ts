@@ -34,7 +34,17 @@ import { QUAL, type EdKey } from '../editor/keymap'
 import { ProgramBuffer } from '../editor/buffer'
 import { EditBuffer } from '../editor/editbuf'
 import { UndoBuffer } from '../editor/undo'
-import { ED, activate, drawWindows, edCall, edEscapeReturn, edKey, edRunReturn } from '../editor/commands'
+import {
+  ED,
+  ED_DIA_DISK_ERR,
+  activate,
+  diskMessage,
+  drawWindows,
+  edCall,
+  edEscapeReturn,
+  edKey,
+  edRunReturn,
+} from '../editor/commands'
 import { ED_SYSTEME, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { PRG, programSource, readProgramFile, writeProgramFile, type EditorFS } from '../editor/files'
 import { TokenTable } from '../tokens/stream'
@@ -48,6 +58,7 @@ import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime
 import { EditorScreen } from './screen'
 import { EditorMenu } from './menu'
 import { ASKING, Requester, type EditorAnswer, type EditorAsk } from './requester'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
 
@@ -305,12 +316,49 @@ export class Amos {
       const alert = this.paint(again())
       this.requester.done()
       this.asking = null
+      this.dError()
       return alert
     } catch (e) {
       if (e !== ASKING) throw e
       this.asking = again
       return this.paint(0)
     }
+  }
+
+  /**
+   * `Ed_DError` (+Edit.s:14019): the command died on the disc, so say which.
+   *
+   * `run` (../editor/commands.ts) catches a `DiskError` and records the
+   * AmigaDOS code, which is `Ed_DError`'s own control flow -- the command is
+   * abandoned and the routine ends `bra Ed_Loop`. What it does on the way is
+   * put a requester up, and NOBODY WAS. Every editor command that touched a
+   * missing file failed silently, which is what made the User menu's
+   * accessories look dead: `Ed_PrgCommand` on a disc that is not in the
+   * machine threw 205, and 205 went into a field nothing read.
+   *
+   * The requester is not a question, so it is kept apart from `pendingAsk`:
+   * the command is over and there is no run to replay an answer into.
+   */
+  private dError(): void {
+    const dos = this.editor.diskError
+    if (dos < 0) return
+    this.editor.diskError = -1
+    const text = ED_RUN_MESSAGES[diskMessage(dos) - 1] ?? ''
+    this.report = { kind: 'confirm', confirm: { which: ED_DIA_DISK_ERR, strings: [text] } }
+  }
+
+  /**
+   * A requester to put up that answers nowhere: a report, not a question.
+   *
+   * `Ed_DError` and `Ed_Alert` both end in `bra Ed_Loop`, so what they draw
+   * outlives the command rather than blocking it. A host shows this the same
+   * way it shows `pendingAsk` and throws the button away.
+   */
+  report: EditorAsk | null = null
+
+  /** the report has been seen */
+  dismissReport(): void {
+    this.report = null
   }
 
   /** the question the last command stopped on, for a host to put on the screen */

@@ -611,10 +611,10 @@ export class Editor {
   /**
    * `Ed_DError` (+Edit.s:14019): the last command died on a disc error.
    *
-   * DEVIATION: the machine reads `_LVOIoErr`, maps it through `ErDisked` into
-   * `Ed_RunMessages` and puts up EdD_DiskErr. That message table is the
-   * interpreter's and this port has not generated it, so what is kept is the
-   * AmigaDOS code. 0 means the filesystem refused and did not say why.
+   * The machine reads `_LVOIoErr`; here the code comes off the `DiskError`
+   * that was thrown. `diskMessage` (./commands.ts) is the `ErDisked` walk and
+   * `Amos.dError` puts EdD_DiskErr up with what it finds. 0 means the
+   * filesystem refused and did not say why, and prints "Disc error".
    */
   diskError = -1
 
