@@ -43,6 +43,7 @@ import { verify } from '../tokens/verify'
 import { isAmosProgram, loadProgram } from '../loader/program'
 import { zapCall, zapFunction } from '../editor/zap'
 import { Runtime, type EditorZap } from '../runtime/runtime'
+import { EditorScreen } from './screen'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
 
@@ -110,6 +111,16 @@ export class Amos {
    */
   runtime: Runtime | null = null
 
+  /**
+   * The editor's own screen, once a host has asked for one.
+   *
+   * Null until `openDisplay`, because a headless caller has no display and
+   * `Ed_OpenIt` opening one would cost it an interpreter it never asked for.
+   * `Ed_Opened(a5)` is the machine's flag for the same thing and the machine
+   * has the same two states.
+   */
+  display: EditorScreen | null = null
+
   private pending: RunRequest | null = null
   private readonly opts: AmosOptions
 
@@ -157,7 +168,7 @@ export class Amos {
    * of whichever of the two ends last.
    */
   call(command: number, param = 0): number {
-    return this.after(edCall(this.window, command, param))
+    return this.paint(this.after(edCall(this.window, command, param)))
   }
 
   /**
@@ -173,7 +184,34 @@ export class Amos {
       this.runtime?.directScreen.key(k.ch ?? '', k.scan ?? 0, ((k.shift ?? 0) & QUAL.SHIFT) !== 0)
       return 0
     }
-    return this.after(edKey(this.window, k))
+    return this.paint(this.after(edKey(this.window, k)))
+  }
+
+  /**
+   * `Ed_OpenIt`'s screen half, for a host that has a display.
+   *
+   * Answers the screen the editor draws on. `Ed_Appear` (+Edit.s:9646) makes
+   * it current and puts it first, so from here every AMOS screen a program
+   * opens is BEHIND the editor rather than instead of it.
+   */
+  openDisplay(): EditorScreen {
+    const d = this.display ?? new EditorScreen(() => this.machine(false), this.editor)
+    this.display = d
+    d.open()
+    return d
+  }
+
+  /**
+   * `Ed_Appear`'s redraw, after whatever the command did.
+   *
+   * The machine repaints what changed: `Edt_EtatAff` is seven bits saying
+   * which status fields are stale and `Ed_ALigne` redraws one row. Here the
+   * whole editor goes down again, which is more work than the machine does
+   * and none of it visible -- a 640x256 repaint is 20KB of bitplane.
+   */
+  private paint(alert: number): number {
+    this.display?.draw()
+    return alert
   }
 
   /** the program `Ed_Run` or `Ed_Escape` left waiting, once the command is over */

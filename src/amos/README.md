@@ -11,6 +11,44 @@ with `move.l BasSp(a5),sp`, and the editor gets control back only when the
 program stops and longjmps to `Prg_JError`. Neither half returns to the other,
 so neither half needs to know the other exists. What they share is `a5`.
 
+## The display
+
+`screen.ts` is `Ed_DrawTop` (+Edit.s:726) and `Ed_DrawWindows` (:11594), and
+it draws nothing of its own. `Ed_OpenIt` (:305) opens `EcEdit`, screen 9,
+through `L_Dia_RScOpen` like any other AMOS screen; `Ed_Appear` (:9646) makes
+it current with `EcCalD Active,EcEdit`; everything after that is `WiCall
+Print` of a string with console escapes in it. So the module opens screen 9,
+unpacks the resource bank's furniture onto it, opens one AMOS text window per
+editor window, and prints.
+
+It is here rather than in `src/editor` because it needs `Screen` from
+`src/runtime` and `Edit` from `src/editor`, and that is the whole reason this
+directory exists.
+
+Three numbers off the routine, since they read as arbitrary otherwise. A
+window's AMOS windows are `Edt_Order * 8` and one past it (:11637), so the
+first editor window is windows 8 and 9 and never window 0. The text window is
+`Ed_Sx - 16` wide because a 16-pixel border runs down the right. The status
+strip is `Ed_Sx - 32 - 64`, which is 68 characters, and that is where
+`statusLine`'s default width comes from.
+
+The program text is printed through `ESC J1` (system message 20), so a line
+lands in plane 0 and the furniture in planes 1 and 2 survives being printed
+over. That is the reason `ESC J` had to be ported at all.
+
+DEVIATION: the memory bars are `L_Sl_Init`, the dialogue library's slider,
+drawn through the sixteen colours of system message 23. That routine is not
+ported; the proportion goes down in colour 4 and the rest in colour 0, which
+are the two colours message 23 repeats. The figures are real.
+
+DEVIATION: `EcFonc`, screen 8, is not opened. `Ed_OpenIt` sets `BitHide` on
+it the instruction after opening it, and what it carries is the function-key
+strip, which nothing calls up yet.
+
+DEVIATION: a repaint redraws the whole editor. The machine repaints what
+changed: `Edt_EtatAff` is seven bits saying which status fields are stale and
+`Ed_ALigne` redraws one row.
+
 ## The shape
 
 `Ed_Run` (+Edit.s:8165) does the editor's half and hands a `RunRequest` to
