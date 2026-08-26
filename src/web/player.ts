@@ -425,6 +425,48 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   })
   container.appendChild(overlay)
 
+  /**
+   * The handler's insert-volume requester, as much of it as a browser can be.
+   *
+   * DEVIATION: AmigaDOS draws this one itself, out of ROM, and asks for a
+   * disk in a drive. There are no drives here and no copy of that string in
+   * the corpus to quote, so the words are this port's and it asks for what a
+   * browser can actually be given. What is faithful is underneath it: the
+   * program is sitting inside `Lock()` and does not move until the volume
+   * turns up or this is cancelled, and cancelling makes the call fail.
+   */
+  const diskPrompt = document.createElement('div')
+  diskPrompt.className = 'amos-insert'
+  Object.assign(diskPrompt.style, {
+    position: 'absolute', inset: '0', display: 'none', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center', gap: '0.75rem',
+    font: 'inherit', color: '#fff', textAlign: 'center', padding: '1rem',
+    background: 'rgba(0,0,0,.72)',
+  })
+  const diskText = document.createElement('div')
+  const diskHint = document.createElement('div')
+  diskHint.textContent = 'drop it on the page, or mount it, and this carries on'
+  Object.assign(diskHint.style, { fontSize: '0.85em', opacity: '0.75' })
+  const diskCancel = document.createElement('button')
+  diskCancel.type = 'button'
+  diskCancel.textContent = 'Cancel'
+  Object.assign(diskCancel.style, { font: 'inherit', padding: '0.3rem 1.2rem', cursor: 'pointer' })
+  diskCancel.addEventListener('click', () => rt?.cancelInsertDisk())
+  diskPrompt.append(diskText, diskHint, diskCancel)
+  container.appendChild(diskPrompt)
+
+  /** what the prompt is currently asking for, so it is only rewritten on a change */
+  let asking = ''
+
+  /** show or hide the insert-volume prompt for whatever the machine is waiting on */
+  function stepInsertPrompt(): void {
+    const want = rt?.insertDisk?.volume ?? ''
+    if (want === asking) return
+    asking = want
+    diskPrompt.style.display = want === '' ? 'none' : 'flex'
+    if (want !== '') diskText.textContent = `${want}: is not here. Insert it to carry on.`
+  }
+
   let rt: Runtime | null = null
   /**
    * The editor, holding whatever program was loaded.
@@ -867,6 +909,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       onUnimplemented: 'skip' as const,
       audio,
       fs: vfs,
+      // this host has a window to put the handler's requester in, so a path
+      // naming a disk that is not mounted asks for it: `Runtime.diskRequests`
+      diskRequests: true,
       host: { clock: hostClock, printer: printText, printerPage: printPage, serial: serialHost },
     }
     amos = null
@@ -1088,6 +1133,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     const pads = navigator.getGamepads?.() ?? []
     setPort(rt.input.ports[1], 1, pads)
     setPort(rt.input.ports[0], 0, pads)
+    // a program waiting inside `Lock()` is BLOCKED, not done, so this has to
+    // be outside the ended branch below and outside the frame count as well:
+    // with no frames due this turn there is still a prompt to keep on screen
+    stepInsertPrompt()
     for (let i = 0; i < frames; i++) {
       // Say so, ONCE. A finished program looks exactly like a running one
       // that is drawing nothing --- the canvas keeps its last frame and the

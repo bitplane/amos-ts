@@ -448,6 +448,13 @@ export interface RuntimeOptions {
   frameBudget?: number
   /** mirror of all console text output (for transcripts/CLIs) */
   onText?: (text: string) => void
+  /**
+   * This host can show the handler's insert-volume requester, so a path
+   * naming an absent disk asks for it instead of failing. See
+   * `Runtime.diskRequests` -- it is `pr_WindowPtr`, and the default is a
+   * process that has no window.
+   */
+  diskRequests?: boolean
   /** the editor an accessory drives with `Call Editor` and `Ask Editor` */
   editorZap?: EditorZap
   /** resource banks from the .AMOS file */
@@ -2736,6 +2743,12 @@ export class Runtime {
       if (prevScreen >= 0) this.setCurrent(prevScreen)
       return false
     }
+    // `Fs_Open` (+Lib.s:17877) is `Rbsr L_NoReq` with the comment "No more
+    // requester", and `Fs_Close` (:18426) is the matching `L_YesReq`. So
+    // walking a device list in the selector never pops the handler's
+    // insert-volume requester, however many empty drives it lists. Raised
+    // after the point where opening can still fail, so the two always pair.
+    this.noReq++
     const arr: AmosArray = { type: 2, dims: [0], data: [] }
     const handle = 0x20000 + this.dialogArrays.size
     this.dialogArrays.set(handle, arr)
@@ -2867,6 +2880,8 @@ export class Runtime {
     f.slide = null
     this.closeScreen(f.screenNb)
     if (f.prevScreen >= 0) this.setCurrent(f.prevScreen)
+    // `Fs_Close` (+Lib.s:18426): "Remet le requester"
+    if (this.noReq > 0) this.noReq--
     f.done = true
     f.result = result
   }
@@ -3293,6 +3308,80 @@ export class Runtime {
     if (this.speechRestore < 0 || this.interp.tick < this.speechRestore) return
     this.speechRestore = -1
     this.music.voiceOnOff(0b1111)
+  }
+
+  /**
+   * The volume a `Lock()` is waiting for, or null.
+   *
+   * DEVIATION: the words on the screen are this port's. AmigaDOS draws this
+   * one itself, out of ROM, and no copy of that string is in the corpus to
+   * quote -- so what is modelled is the BEHAVIOUR, which is the part that
+   * changes what a program does: the process sits inside `Lock()` until the
+   * volume appears or the user cancels, and a cancel makes the call fail.
+   * A browser has no drives, so how the disk arrives is the host's business.
+   */
+  insertDisk: { volume: string } | null = null
+
+  /**
+   * `pr_WindowPtr` of -1, which AMOS writes with `L_NoReq` (+Lib.s).
+   *
+   * A count rather than a flag because the brackets nest: `FnExist` puts one
+   * round a `Lock`, and a caller inside one of those must not turn requesters
+   * back on for everybody when it finishes. Non-zero is "do not ask".
+   */
+  noReq = 0
+
+  /**
+   * Whether this machine has a window for the handler to put a requester in.
+   *
+   * `pr_WindowPtr` again, and the same rule from the other end: a process
+   * whose window pointer is null gets no requesters, and a Runtime with no
+   * host is such a process. Nothing puts a disk in a headless run, so asking
+   * for one there is a hang -- which is the reasoning `runHeadless` already
+   * applies to the ASL and reqtools requesters, moved to where it costs
+   * nothing. A host that can show the prompt sets this; the option is
+   * `diskRequests`.
+   */
+  diskRequests = false
+
+  /** the volume the user has just refused, which the retry must not ask about again */
+  private refusedDisk: string | null = null
+
+  /** run `fn` with the handler's requester off, and put it back either way */
+  withNoReq<T>(fn: () => T): T {
+    this.noReq++
+    try {
+      return fn()
+    } finally {
+      this.noReq--
+    }
+  }
+
+  /**
+   * `AmigaFS.missingVolume`: the path named a disk that is not here.
+   *
+   * Answers by throwing the interpreter's block signal, which rewinds the
+   * whole statement -- so when the disk turns up the DOS call is made again
+   * from the top, which is what `Lock()` coming back late amounts to.
+   * Returning instead is a Cancel and the path simply does not resolve.
+   */
+  private askForDisk(name: string): void {
+    if (!this.diskRequests || this.noReq > 0) return
+    // the retry after a Cancel: one call through, then the refusal is spent,
+    // because the machine asks again on the next `Lock`
+    if (this.refusedDisk !== null && this.refusedDisk.toLowerCase() === name.toLowerCase()) {
+      this.refusedDisk = null
+      return
+    }
+    this.insertDisk = { volume: name }
+    this.interp.block({ type: 'insert', volume: name }, true)
+  }
+
+  /** the user has given up on the disk, so the call that wanted it fails */
+  cancelInsertDisk(): void {
+    if (this.insertDisk === null) return
+    this.refusedDisk = this.insertDisk.volume
+    this.insertDisk = null
   }
 
   /** per-frame dialog interaction (Dia_AutoTest 24110 + Dia_Tests 24162) */
@@ -4563,6 +4652,7 @@ export class Runtime {
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
     this.frameBudget = opts.frameBudget ?? FRAME_DISPATCHES
+    this.diskRequests = opts.diskRequests === true
     // before makeAllInstructions below: the ports' slot-qualified keywords are
     // bound from this
     this.extBindings = opts.extBindings ?? null
@@ -5182,6 +5272,12 @@ export class Runtime {
     // only while no typed line is using it.
     const held = this.directScreen.isOpen && this.interp.direct === 0
     if (!held && !this.interp.done && this.interp.blocked === null) {
+      // The handler's requester belongs to the RUNNING PROGRAM's DOS calls
+      // and to nothing else. A host browsing the same `AmigaFS` from a file
+      // panel is not a process inside `Lock()`, so the hook is installed for
+      // exactly as long as the interpreter is inside a statement.
+      const vfs = this.vfs
+      if (vfs) vfs.missingVolume = (name) => this.askForDisk(name)
       try {
         result = this.interp.run(this.frameBudget)
       } catch (e) {
@@ -5191,6 +5287,8 @@ export class Runtime {
         // will not trap it either.
         if (!this.directScreen.reportError(e)) throw e
         result = { status: 'paused', steps: 0, code: 0, unimplemented: this.interp.unimplemented }
+      } finally {
+        if (vfs) vfs.missingVolume = null
       }
     } else {
       result = {
@@ -5495,6 +5593,14 @@ export class Runtime {
       if (!up || up.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
+    } else if (b.type === 'insert') {
+      // the handler's requester: `Lock()` does not come back until the disk
+      // turns up or the user cancels. The statement re-runs either way, and a
+      // cancel makes the second run fail the way the first would have.
+      if (this.insertDisk === null || this.vfs?.hasVolume(b.volume) === true) {
+        this.insertDisk = null
+        this.interp.blocked = null
+      }
     } else if (b.type === 'ievent') {
       // one poll a frame: the keyword re-runs and blocks again if nothing has
       // arrived, which is what `L_IwaitEvent`'s `.lp` loop does

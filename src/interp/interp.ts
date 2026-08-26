@@ -163,6 +163,12 @@ export type Block =
   | { type: 'ievent' }
   // the speech library is 88K of tables, imported on the first Say
   | { type: 'speech' }
+  /**
+   * A path named a volume that is not mounted, so the handler is asking for
+   * it. `Lock()` does not come back until the disk turns up or the user
+   * cancels, so the statement is rewound and runs again when it does.
+   */
+  | { type: 'insert'; volume: string }
 
 /**
  * Live input state: half the machine's hardware and half this program's

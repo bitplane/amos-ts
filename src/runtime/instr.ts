@@ -5373,15 +5373,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      * L_FonCall` (+Lib.s:6574) -- so a too-long name raises where an absent
      * one answers 0.
      *
-     * DEVIATION: nothing here can pop a system requester, so NoReq and YesReq
-     * have nothing to suppress.
+     * The NoReq bracket is load-bearing and not decoration: without it
+     * `Exist("Boing:")` on an absent disk stops the program inside the
+     * handler's requester, and DISKPRESENT's `Repeat ... Until Exist(...)` is
+     * a loop whose whole point is that the answer can be no. `Runtime.noReq`
+     * is `pr_WindowPtr`.
      */
     exist(_, a) {
       const name = str(a[0]!)
       if (name === '') return VI(0)
       if (name.length >= 108) throw new AmosError('function call error', ERR.FUNC_CALL)
       const vfs = rt.vfs
-      if (vfs) return VI(vfs.exists(name) !== null ? -1 : 0)
+      if (vfs) return rt.withNoReq(() => VI(vfs.exists(name) !== null ? -1 : 0))
       // a bare AmosFS is files and nothing else, so a read IS its Lock
       return VI(rt.fs?.read(name) != null ? -1 : 0)
     },

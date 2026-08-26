@@ -285,6 +285,27 @@ export class AmigaFS implements AmosFS {
   strayVolume: 'error' | 'currentDir' = 'error'
 
   /**
+   * Where a path names a volume that is not mounted, before the answer is no.
+   *
+   * On the machine this is the one filesystem failure that ASKS. `Lock()` on
+   * a path whose volume is absent does not fail: the handler puts a requester
+   * up and the process sits in the call until the disk turns up or the user
+   * cancels, and only then does `Lock()` answer. `pr_WindowPtr` of -1 turns
+   * it off, which is what AMOS's `L_NoReq` writes and why `Exist` can ask
+   * about a disk without stopping the program (`FnExist`,
+   * ../runtime/instr.ts).
+   *
+   * Null is `pr_WindowPtr = -1`: no requester, the path simply does not
+   * resolve. A hook that wants the caller to wait THROWS -- the interpreter's
+   * block signal unwinds however deep the expression was -- and one that
+   * returns normally leaves the answer null, which is a Cancel.
+   *
+   * The name is passed as the path spelled it, not lower-cased, because it is
+   * going in front of a person.
+   */
+  missingVolume: ((name: string) => void) | null = null
+
+  /**
    * The Amiga's drive names, which cannot exist in a browser.
    *
    * DF0: to DF3: are the four floppy units trackdisk.device supports — four
@@ -535,7 +556,12 @@ export class AmigaFS implements AmosFS {
     if (!bm) return null
     const volKey = bm[1]!.toLowerCase()
     const vol = this.entryOf(volKey)
-    if (!vol) return null
+    if (!vol) {
+      // the path names a volume that is not here, which is the one failure
+      // AmigaDOS asks about rather than reporting. The hook may throw.
+      this.missingVolume?.(bm[1]!)
+      return null
+    }
     const segs: string[] = bm[2]!.split('/').filter((s) => s !== '')
     // apply the path: empty components climb to the parent (AmigaDOS);
     // a trailing slash is inert ("dir/" is just the dir)
@@ -647,9 +673,14 @@ export class AmigaFS implements AmosFS {
     return this.entryOf(key)?.vol ?? null
   }
 
-  /** is this name a volume at all? A drive with no disk in it is NOT. */
-  private hasVolume(key: string): boolean {
-    return this.volumeOf(key) !== null
+  /**
+   * Is this name a volume at all? A drive with no disk in it is NOT.
+   *
+   * Public because `missingVolume` above hands a name to a host, and the host
+   * has to be able to ask whether the disk has since turned up.
+   */
+  hasVolume(key: string): boolean {
+    return this.volumeOf(key.toLowerCase()) !== null
   }
 
   /**
