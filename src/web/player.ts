@@ -525,7 +525,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // `Dia_RunProgram` and does not come back until a button is pressed, and
     // `Dia_Tests` (+Lib.s:24177) is what reads the keys: a `KY` record is how
     // the RETURN on `Editor [RETURN]` works at all.
-    if (dialogues?.up === true) {
+    if (dialogues?.busy === true) {
       // straight onto the queue rather than through `pressKey`, which derives
       // the shift byte from the scancodes it has seen held: the qualifier
       // keys never reached `keyDown` on this path
@@ -626,7 +626,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     dialogues ??= new EditorDialogues(() => amos!.runtime!, EditorScreen.EC_EDIT)
     const now = dialogues.start(ask)
     if (now !== undefined) toEditor(amos.answer(now))
-    else if (!dialogues.up) toEditor(amos.answer(ask.kind === 'select' ? null : 1))
+    // a question this port cannot put up is answered with its first button,
+    // which is `Ed_Zappeuse`'s answer
+    else if (!dialogues.busy) toEditor(amos.answer(1))
   }
 
   /** whatever the editor answered, and whatever it asked for afterwards */
@@ -1067,14 +1069,14 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         // `Ed_MnGere` (+Edit.s:1639): the menu bar is built when it is not
         // there and a pick goes to `Ed_FCall`. `stepMenus` ran it in
         // `rt.frame()` above and latched the path.
-        if (amos !== null && dialogues?.up !== true) toEditor(amos.pollMenu())
+        if (amos !== null && dialogues?.busy !== true) toEditor(amos.pollMenu())
         // a requester on the screen is answered by the user over as many
         // frames as they take; `Dia_Tests` runs in `Runtime.frame` above.
         // The loop puts it up as well as taking it down, because a command
         // can be run from outside a keystroke.
         const ask = amos?.pendingAsk ?? null
         if (ask !== null) {
-          if (dialogues?.up !== true) askEditor()
+          if (dialogues?.busy !== true) askEditor()
           else {
             const got = dialogues.step(ask)
             if (got !== undefined) toEditor(amos!.answer(got))

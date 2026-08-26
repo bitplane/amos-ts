@@ -572,6 +572,18 @@ export class DirectScreen {
    * rErr1` (+ILib.s:1301-1302) refuses to trap it, and the editor prints it on the
    * escape screen and waits for the next line.
    */
+  /**
+   * One line on the escape screen, and the prompt again.
+   *
+   * `Ed_ErrDirect` (+Edit.s:9293) ends `WiCall Print / bra Esc_Loop`: the
+   * error a program stopped with is printed here, not on the editor.
+   */
+  report(text: string): void {
+    if (!this.up) return
+    this.rt.screens.get(DirectScreen.EC_DIRECT)?.writeText(`${text}\n`)
+    this.prompt()
+  }
+
   reportError(e: unknown): boolean {
     if (!this.up || !this.running) return false
     this.running = false

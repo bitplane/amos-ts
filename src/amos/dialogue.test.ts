@@ -135,3 +135,34 @@ describe('the editor s requesters, as the Interface programs they are', () => {
     expect(s.width).toBe(640)
   })
 })
+
+describe('Ed_ErrDirect, which is where Ed_Ligne s first button goes', () => {
+  it('raises the escape screen, rather than only clearing Edt_Runned', () => {
+    // `Ed_ErrDirect` (+Edit.s:9293) is `Ed_OpenEditor / Ed_Hide / Esc_Appear`
+    // and then `Esc_Loop`, so the escape screen is up when it is over. This
+    // port had the routine as one line -- `clr.l Edt_Runned(a5)` -- with the
+    // display left out, so choosing "Direct mode [ESC]" did nothing at all.
+    const amos = new Amos('Print "A"\nEnd\n')
+    amos.useDisplay()
+    const rt0 = amos.startRun()
+    rt0.runHeadless(300)
+    amos.finishRun(rt0.interp.endCode)
+    const ask = amos.pendingAsk
+    expect(ask?.kind).toBe('confirm')
+    // `cmp.w #1,d1` in `Ed_Errr` (:8261): button 1 is Direct mode
+    amos.answer(1)
+    expect(amos.inEscape).toBe(true)
+    expect(amos.runtime!.directScreen.isOpen).toBe(true)
+  })
+
+  it('goes to the editor for the other button', () => {
+    const amos = new Amos('Print "A"\nEnd\n')
+    amos.useDisplay()
+    const rt0 = amos.startRun()
+    rt0.runHeadless(300)
+    amos.finishRun(rt0.interp.endCode)
+    amos.answer(2) // Editor [RETURN]
+    expect(amos.inEscape).toBe(false)
+    expect(amos.display!.isOpen).toBe(true)
+  })
+})

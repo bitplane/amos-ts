@@ -235,6 +235,10 @@ export class Amos {
     this.editor.openScreen = () => {
       this.display?.open()
     }
+    // `WiCall Print` at the end of `Ed_ErrDirect` (+Edit.s:9315)
+    this.editor.escapeText = (t) => {
+      this.machine(false).directScreen.report(t)
+    }
     // `Esc_Appear` and `Esc_Hide`, which are the AMOS screen underneath and
     // not the editor's, so they live on the Runtime
     this.editor.escapeScreen = (up) => {

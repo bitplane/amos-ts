@@ -391,6 +391,17 @@ export class Editor {
   openScreen: (() => void) | null = null
 
   /**
+   * `WiCall Print` at the end of `Ed_ErrDirect` (+Edit.s:9315): the error, on
+   * the escape screen.
+   *
+   * The escape screen is `Runtime.directScreen`'s and this layer owns no
+   * display, so the text goes to the host the same way the screen itself
+   * does. Ten and everything from 1000 up print nothing: those arms reach
+   * `Esc_Loop` before the Print.
+   */
+  escapeText: ((text: string) => void) | null = null
+
+  /**
    * `Prg_Accessory(a5)`: the running program was started as an accessory.
    *
    * The gate on both halves of the remote control. `Prg_New` (+Verif.s:4726)

@@ -5234,8 +5234,13 @@ export class Runtime {
           const l = open.levels.pop()!
           restoreRect(s, l.lvl.bounds, l.lvl.saved)
         }
-        open.hover.length = foundLevel
+        // Read the old entry BEFORE the truncation, which is what deletes
+        // it: `open.hover.length = foundLevel` cuts the array to that length,
+        // so `open.hover[foundLevel]` after it is always undefined and the
+        // item the pointer just left was never redrawn unhighlighted. Moving
+        // along a menu lit every cell it touched and put none of them out.
         const old = open.hover[foundLevel]
+        open.hover.length = foundLevel
         if (old && old !== found) drawMenuCell(old, s, this.menuHost, false)
         open.hover[foundLevel] = found
         open.active = found

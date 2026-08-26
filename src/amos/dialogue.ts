@@ -151,6 +151,7 @@ export class EditorDialogues {
     if (chan === null) return undefined
     const read = this.readField(chan, ask)
     if (read !== undefined) return read
+    if (ask.kind === 'select') return this.selector(ask.which, ask.name)
     const label = labelFor(ask)
     if (label < 0) return undefined
     this.fill(chan, ask)
@@ -212,13 +213,63 @@ export class EditorDialogues {
     }
   }
 
-  /** one frame of `Dia_Tests`; the answer once a button has been pressed */
+  /**
+   * `Ed_File_Selector` (+Edit.s:14059), which is not a requester.
+   *
+   * Four consecutive messages from `Ed_Messages` go on the stack and
+   * `L_Dsk.FileSelector` is called -- the same routine `Fsel$` reaches, so the
+   * editor's selector IS the program's. The four are the pattern, a default
+   * name, and the two title lines: 70 is `*.AMOS` / `` / "Load an AMOS
+   * program" / ``, and 74 is the same with "Ensure filename ends with
+   * '.AMOS'" under it.
+   *
+   * `Name1` is the name it starts on, so a Save As offers the file the
+   * program came from. Answers `undefined` while it is up; `finishFsel` puts
+   * the answer in `rt.fsel.result` and an empty one is Cancel.
+   */
+  private selector(which: number, name: string): EditorAnswer | undefined {
+    const rt = this.machine()
+    const msg = (n: number): string => ED_MESSAGES[which - 1 + n] ?? ''
+    // the drawer the name is in, plus the pattern: `Fsel$("df0:*.AMOS")`
+    const cut = Math.max(name.lastIndexOf('/'), name.lastIndexOf(':'))
+    const dir = cut < 0 ? '' : name.slice(0, cut + 1)
+    const file = cut < 0 ? name : name.slice(cut + 1)
+    if (!rt.startFsel(dir + msg(0), file || msg(1), msg(2), msg(3))) {
+      // no system resource bank: the selector's dialog program lives in
+      // `AMOSPro_Default_Resource.Abk`, which is not ours to ship
+      this.noSelector = true
+      return null
+    }
+    this.selecting = true
+    return undefined
+  }
+
+  /** whether the last `select` found no selector to run, so it answered Cancel */
+  noSelector = false
+  private selecting = false
+
+  /** one frame of `Dia_Tests`, or of `Fs_Loop`; the answer once one is given */
   step(ask: EditorAsk): EditorAnswer | undefined {
+    if (this.selecting) {
+      const f = this.machine().fsel
+      if (f === null || !f.done) return undefined
+      this.selecting = false
+      const got = f.result
+      this.machine().fsel = null
+      // `tst.w d0` on the way out: an empty answer is Cancel, and
+      // `selectFile` turns that into `Ed_NotDone`
+      return got === '' ? null : got
+    }
     const chan = this.chan
     if (chan === null) return undefined
     if (chan.runState !== 'done') return undefined
     chan.runState = 'idle'
     return this.answerFrom(chan, ask, chan.ret)
+  }
+
+  /** whether anything of this port's is on the screen and waiting */
+  get busy(): boolean {
+    return this.up || this.selecting
   }
 
   /** `Ed_Dialogue`'s d0, in whatever shape the question wanted */

@@ -3370,20 +3370,36 @@ function errRunHidden(e: Edit, w: Edit, code: number, text: string | null): void
  * what it does to editor state, which is to clear `Edt_Runned` and nothing
  * else. The three codes it tests are all handled before they can reach here.
  */
-function errDirect(e: Edit): void {
+function errDirect(e: Edit, message = ''): void {
+  openEditor(e)
   e.editor.runned = null
+  // `bsr Ed_Hide / bsr Esc_Appear` (:9306), the same pair `Ed_Escape` runs.
+  // The routine ends in `Esc_Loop` whatever the code was, so the escape
+  // screen is up when it is over and `Direct(a5)` is set.
+  edHide(e)
+  if (!e.editor.escape) {
+    e.editor.escape = true
+    e.editor.escapeScreen?.(true)
+  }
+  // `WiCall Print` before `bra Esc_Loop` (:9315): the error message goes on
+  // the escape screen. Ten, and everything from 1000 up, print nothing.
+  if (message !== '') e.editor.escapeText?.(message)
 }
 
 /** `Ed_Errr` (:8261), which `Ed_ErrTest` and `Ed_ErrRun` both fall into */
 function errr(e: Edit, w: Edit, code: number, at: number, text: string | null): void {
   if (code >= 0 && code !== 1000) {
     if (code === 1001) return errDirect(e)
+    // `cmp.w #10,d1 / beq Esc_Loop` (:9314): End says nothing either
     if (code === 1002) {
       e.editor.quit = true // Ed_System (:249)
       return
     }
     // the code is not one of the three, so the user is asked which they want
-    if (edLigne(e, w, at, getError(code, text).text) === 1) return errDirect(e)
+    const got = getError(code, text)
+    if (edLigne(e, w, at, got.text) === 1) {
+      return errDirect(e, code === 10 ? '' : `${got.text}.`)
+    }
   }
   errEdit(w, code, at, text)
 }
