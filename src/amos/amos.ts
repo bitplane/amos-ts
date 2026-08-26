@@ -42,7 +42,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
 import { isAmosProgram, loadProgram } from '../loader/program'
-import { defaultSlotBindings } from '../ext/registry'
+import { defaultSlotBindings, extensionTitle } from '../ext/registry'
 import { zapCall, zapFunction } from '../editor/zap'
 import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime'
 import { EditorScreen } from './screen'
@@ -617,7 +617,8 @@ export class Amos {
       // and `Ed_About` counts from `AdTokens+4`.
       this.editor.extensions.fill(null)
       for (const [slot, ext] of loaded.bindings) {
-        if (slot >= 1 && slot <= 26) this.editor.extensions[slot - 1] = ext.name
+        // `LB_Title`, which is the only field `Ed_AboutExt` reads
+        if (slot >= 1 && slot <= 26) this.editor.extensions[slot - 1] = extensionTitle(ext)
       }
     } catch {
       /* a program the loader will not take has no slots to bind */

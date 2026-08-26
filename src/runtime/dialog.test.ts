@@ -1368,6 +1368,30 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('audit fix-ups: run semantics (Dia_Run
     expect(rt2.runHeadless(1_000).status).toBe('ended')
     expect(out2()).toBe('HEL\n') // maxlen cap
   })
+
+  /**
+   * DEVIATION: the operand is a pointer on the machine, and this port has no
+   * address to give. `Ed_AboutExt` (+Edit.s:4621) writes `LB_Title(a0)` into
+   * the variable and the requester copies 72 bytes from it; here the
+   * characters themselves are in the variable, so `MZ` cuts the string it
+   * finds by the same two rules instead of reading memory.
+   */
+  it('cuts a string the caller put in the variable, where the machine had a pointer', () => {
+    const mk = (maxlen: number): string =>
+      [
+        `D$="BA0,0;SV1,0VA ${maxlen}MZ;EX;"`,
+        'Dialog Open 1,D$,8',
+        'Vdialog$(1,0)="AMOSPro Music extension V 2.00"+Chr$(10)+"XX"',
+        'R=Dialog Run(1)',
+        'Print Vdialog$(1,1)',
+      ].join('\n')
+    const { rt, out } = boot(mk(72))
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe('AMOSPro Music extension V 2.00\n')
+    const { rt: rt2, out: out2 } = boot(mk(11))
+    expect(rt2.runHeadless(1_000).status).toBe('ended')
+    expect(out2()).toBe('AMOSPro Mus\n')
+  })
 })
 
 describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank program 1)', () => {

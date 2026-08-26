@@ -1,5 +1,7 @@
 MIT License
 
+Copyright (c) 1992 Europress Software
+Copyright (c) 2020 Francois Lionet
 Copyright (c) 2026 Gareth Davidson
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,3 +21,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+This program is a port of AMOS Professional. Francois Lionet published its
+68000 source under the MIT licence in 2020, and the LICENSE file of that
+release carries the first two copyright lines above. Its README adds one
+condition: "This source-code is published under the MIT licence, which means
+you can do anything you want from it as long as the copyright notice is
+present in both the modified source code and the boot screen of the
+application." The escape screen prints it, and so does the About box.

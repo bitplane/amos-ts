@@ -28,7 +28,7 @@
 import { MF_OFF, MenuTree, compileMenuObject } from '../runtime/menu'
 import { EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
 import { EDM_HIDDEN_MAX, readMenuDefs, hiddenPage, type MenuEntry } from '../editor/menus'
-import { PORT_MENU_LABELS } from '../editor/branding'
+import { PORT_MENU_HIDDEN, PORT_MENU_LABELS } from '../editor/branding'
 import type { Editor } from '../editor/windows'
 
 /** `HiddenCommands` (+Edit.s:3262): where the per-program entries start */
@@ -59,6 +59,12 @@ const AMOS_BRANCH = SECTIONS[1]?.[0]?.path[0] ?? 10
  */
 const TEMPLATE = SECTIONS[2] ?? []
 
+/** whether a path is inside one of the branches this port does not build */
+function hidden(path: readonly number[]): boolean {
+  const at = path.join('.')
+  return PORT_MENU_HIDDEN.some((h) => at === h || at.startsWith(`${h}.`))
+}
+
 export class EditorMenu {
   /** a chosen path back to a `JFonc` number, which is `EdM_Table` */
   private commands = new Map<string, number>()
@@ -75,7 +81,14 @@ export class EditorMenu {
   build(tree: MenuTree, screenNb: number): void {
     tree.reset()
     this.commands.clear()
-    for (const e of SECTIONS[0] ?? []) this.object(tree, e, e.path)
+    for (const e of SECTIONS[0] ?? []) {
+      // a hidden branch is skipped whole, title and all: `MnIns` creates
+      // every node on the path it is given, so leaving a title out and
+      // inserting its entries anyway would build the branch back with no
+      // label on it -- see `PORT_MENU_HIDDEN` in ../editor/branding.ts
+      if (hidden(e.path)) continue
+      this.object(tree, e, e.path)
+    }
     this.branchAmos(tree)
     tree.screenNb = screenNb
     tree.on = true

@@ -21,7 +21,7 @@
 import { DialogChannel, dialogZoneByNumber, dialogZoneValue, eraseDialog, prescanDialog } from '../runtime/dialog'
 import { EDITOR_RESOURCE_BANK } from '../runtime/edres.gen'
 import { ED_MESSAGES } from '../runtime/edmessages.gen'
-import { PORT_MESSAGES } from '../editor/branding'
+import { PORT_ABOUT_LABEL, PORT_ABOUT_SCRIPT } from '../editor/branding'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
@@ -70,18 +70,37 @@ function resource(): ResourceBank | null {
       const parsed = parseAmosFile(EDITOR_RESOURCE_BANK)
       const mem = parsed.banks.find((b) => 'data' in b) as { data: Uint8Array } | undefined
       const r = mem ? parseResourceBank(mem.data) : null
-      // `PORT_MESSAGES` on top: the two places the editor answers "what am
-      // I" are the About box and the menu entry that opens it, and this is
-      // not that program. `ED_MESSAGES` itself is generated evidence and
-      // nothing edits it -- see ../editor/branding.ts.
-      const messages = [...ED_MESSAGES]
-      for (const [n, text] of PORT_MESSAGES) messages[n - 1] = text
-      bank = r === null ? null : { graphics: r.graphics, programs: r.programs, messages }
+      // One label rewritten on the way through: `EdD_Title` is the box that
+      // answers "what am I", and this is not that program. Everything else in
+      // the script and every record in `ED_MESSAGES` is left as it shipped --
+      // see ../editor/branding.ts.
+      const programs = [...(r?.programs ?? [])]
+      if (programs[0] !== undefined) programs[0] = replaceLabel(programs[0], PORT_ABOUT_LABEL, PORT_ABOUT_SCRIPT)
+      bank = r === null ? null : { graphics: r.graphics, programs, messages: [...ED_MESSAGES] }
     } catch {
       bank = null
     }
   }
   return bank
+}
+
+/**
+ * One label's body swapped for another, in a script this port did not write.
+ *
+ * `Dia_Label` finds a label by scanning for `LA n` and running on from just
+ * past it, so a label's body is everything up to the next `LA` and replacing
+ * one is text surgery. Answers the script unchanged when the label is not
+ * there, because a bank that does not hold the requester is a bank with
+ * nothing to rewrite rather than an error.
+ */
+export function replaceLabel(script: string, label: number, body: string): string {
+  const head = new RegExp(`LA\\s*${label}\\s*;`)
+  const at = head.exec(script)
+  if (at === null) return script
+  const from = at.index + at[0].length
+  const next = /LA\s*\d+\s*;/.exec(script.slice(from))
+  const to = next === null ? script.length : from + next.index
+  return script.slice(0, from) + body + script.slice(to)
 }
 
 /**

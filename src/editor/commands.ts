@@ -89,6 +89,7 @@ import {
   writeSession,
 } from './session'
 import { EDM_HIDDEN_MAX, EDM_USER_COMMANDS, EDM_USER_LONG, EDM_USER_MAX, hiddenPage } from './menus'
+import { PORT_ABOUT_LABEL, PORT_ABOUT_LINES } from './branding'
 import { ED_BAS_SY, ED_ETAT_SY, ED_ROW_SY } from './windows'
 import type { Editor, PrgCommand } from './windows'
 import { ED_SYSTEME } from '../runtime/edmessages.gen'
@@ -1744,29 +1745,6 @@ function blockSaveAscii(e: Edit): void {
 /* ---- 149 and 150: the two About boxes ----------------------------------- */
 
 /**
- * `VersionN` (+B.s:354), which is " Version " and the `Version` macro after it.
- *
- * DEVIATION: the machine's is " Version 2.00" and this is not that program.
- * The requester builds its title as `SV 0,21ME 0VA !` -- message 21, which is
- * "AMOS Professional", and then this -- so what the box says is what it is:
- * AMOS Professional, in TypeScript. The two lines under it are messages 22
- * and 23, the author and the copyright, and they stay: they are true, and the
- * licence the source was released under asks for the notice.
- */
-export const ED_VERSION = ' in TypeScript'
-
-/**
- * The two lines Install.AMOS fills in for the buyer, empty.
- *
- * Nobody buys this one. `Ed_About` still writes the slots because the
- * requester prints them either way; the labels in front of them --
- * `Ed_Messages` 219 and 220 -- go empty with them, so nothing shows. See
- * ./branding.ts.
- */
-export const ED_PORT = ''
-export const ED_HOME = ''
-
-/**
  * `UserReg` (+B.s:314) and `UserName` (:328) as the assembler lays them out:
  * a length word and fourteen bytes, each XORed with its own key.
  *
@@ -1813,19 +1791,19 @@ export function sysUnCode(src: Uint8Array, at: number, key: number): string {
 function about(e: Edit): void {
   let count = 0
   for (const t of e.editor.extensions) if (t !== null) count++
-  confirm(e, {
-    which: 0, // EdD_Title
-    values: [undefined, count],
-    /*
-     * DEVIATION: slots 2 and 3 are `UserName` and `UserReg`, which
-     * Install.AMOS writes the buyer's details into and which ship as "Not
-     * Installed!" and "REGISTRATION #". Nobody buys this one, so the two
-     * lines say what it is and where it lives instead. `sysUnCode` and the
-     * two encoded placeholders are still here, and about.test.ts still reads
-     * them, because what the shipped bytes hold is worth keeping.
-     */
-    strings: [ED_VERSION, undefined, ED_PORT, ED_HOME],
-  })
+  /*
+   * DEVIATION: the shipped requester composes its lines from `Ed_Messages`
+   * 21 to 23, 188, 189, 219 and 220, and every one of them is about AMOS
+   * Professional or about the buyer whose name Install.AMOS wrote into it.
+   * The label is replaced instead (`PORT_ABOUT_SCRIPT`) and its lines arrive
+   * as variables, so this port says what it is without a record in the
+   * message table changing meaning. `sysUnCode` and the two encoded
+   * placeholders stay below, and about.test.ts still reads them, because what
+   * the shipped bytes hold is worth keeping.
+   */
+  const strings: (string | undefined)[] = []
+  for (const [slot, text] of PORT_ABOUT_LINES) strings[slot] = text
+  confirm(e, { which: PORT_ABOUT_LABEL, values: [undefined, count], strings })
 }
 
 /**

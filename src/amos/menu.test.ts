@@ -42,6 +42,30 @@ describe('the editor s menu bar, which is EdM_Definition walked', () => {
     expect(label(t.find([2, 2])!)).toBe(' Test        ')
   })
 
+  /**
+   * Help is nineteen entries and every one of them runs `AMOSPro_Help.AMOS`,
+   * which needs `AMOSPro_Help.Map` and `.Txt` beside it -- 318KB of Europress
+   * material this port does not ship. See `PORT_MENU_HIDDEN` in
+   * ../editor/branding.ts.
+   */
+  it('does not build the Help branch, title and all', () => {
+    const amos = boot()
+    const t = amos.runtime!.menu
+    // the records are still there, so what is skipped is the building of them
+    const defs = readMenuDefs(EDM_DEFINITION, EDM_MESSAGES)[0]!
+    expect(defs.some((r) => r.path.join('.') === '8')).toBe(true)
+    expect(defs.filter((r) => r.path[0] === 8).length).toBe(20)
+    // and nothing under 8 reached the tree, including the node itself: `MnIns`
+    // creates every node on a path, so a skipped title with its entries built
+    // anyway would leave an unlabelled menu on the bar
+    expect(t.find([8])).toBeNull()
+    expect(t.find([8, 1])).toBeNull()
+    expect(amos.menu.chosen([8, 1, 0, 0])).toBe(-1)
+    // the neighbours on either side are untouched
+    expect(label(t.find([7])!)).toBe(' User ')
+    expect(label(t.find([10])!)).toBe(' AMOS ')
+  })
+
   it('turns a chosen path back into a JFonc number', () => {
     // `Ed_MnGere`'s tail (:1657) walks `EdM_Table` for the record whose path
     // matches `MnChoix`, and hands the command to `Ed_FCall`

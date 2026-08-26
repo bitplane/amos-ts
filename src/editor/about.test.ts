@@ -15,8 +15,8 @@ import { ProgramBuffer } from './buffer'
 import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
-import { ED, ED_HOME, ED_PORT, ED_VERSION, USER_SECU, drawWindows, edCall, sysUnCode } from './commands'
-import { PORT_MENU_LABELS, PORT_MESSAGES, PORT_VERSION } from './branding'
+import { ED, USER_SECU, drawWindows, edCall, sysUnCode } from './commands'
+import { PORT_ABOUT_LINES, PORT_ABOUT_SCRIPT, PORT_MENU_LABELS, PORT_VERSION } from './branding'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -64,16 +64,12 @@ describe('Ed_About', () => {
     expect(shown[0]!.which).toBe(0) // EdD_Title
   })
 
-  it('puts the version in slot 0 and the count in slot 1', () => {
+  it('puts the name in slot 0 and the count in slot 1', () => {
     const e = open()
-    e.editor.extensions[0] = 'Music'
+    e.editor.extensions[0] = 'AMOSPro Music extension V 2.00'
     e.editor.extensions[5] = ''
     edCall(e, ED.ABOUT)
-    expect(shown[0]!.strings![0]).toBe(ED_VERSION)
-    // DEVIATION: the machine's is " Version 2.00". The requester builds its
-    // title as `SV 0,21ME 0VA !` -- message 21 and then this -- so the box
-    // reads "AMOS Professional in TypeScript", which is what it is.
-    expect(ED_VERSION).toBe(' in TypeScript')
+    expect(shown[0]!.strings![0]).toBe('amos-ts')
     expect(shown[0]!.values![1]).toBe(2)
   })
 
@@ -95,31 +91,33 @@ describe('Ed_About', () => {
     expect(sysUnCode(USER_SECU, 16, 0xa5)).toBe('Not Installed!')
   })
 
-  it('leaves the buyer s two lines empty, because nobody buys this one', () => {
-    // DEVIATION: slots 2 and 3 are what Install.AMOS writes, under "Registered
-    // User: " and "Registration Number: " (messages 219 and 220). Both labels
-    // go empty with them in ./branding.ts, so the requester prints two empty
-    // strings and no gap shows.
+  it('fills a slot for every line the replaced label prints', () => {
+    // The shipped label composes its text out of `Ed_Messages`; this one
+    // takes it from the variables, so every `nVA` the script prints has to be
+    // a slot the command filled. Slot 1 is the count, which the script builds
+    // from the number in it.
     const e = open()
     edCall(e, ED.ABOUT)
-    expect(shown[0]!.strings![2]).toBe(ED_PORT)
-    expect(shown[0]!.strings![3]).toBe(ED_HOME)
-    expect([ED_PORT, ED_HOME]).toEqual(['', ''])
-    expect(PORT_MESSAGES.get(219)).toBe('')
-    expect(PORT_MESSAGES.get(220)).toBe('')
+    const printed = new Set([...PORT_ABOUT_SCRIPT.matchAll(/(\d+)VA/g)].map((m) => Number(m[1])))
+    printed.delete(1)
+    for (const slot of printed) expect(shown[0]!.strings![slot], `slot ${slot}`).toBeTruthy()
   })
 
-  it('says what this port is, in the messages the requester composes', () => {
-    // `SV 0,21ME 0VA !` is the title, so message 21 and `ED_VERSION` make it
-    // between them; 22 and 23 are the two lines under it. The Europress
-    // notice moves to the second box rather than going: the licence asks for
-    // it, and the escape screen -- this application's boot screen -- prints
-    // messages 21 to 23 unchanged.
-    expect(`${PORT_MESSAGES.get(21)}${ED_VERSION}`).toBe('amos-ts: AMOS Professional in TypeScript')
-    expect(PORT_MESSAGES.get(22)).toBe('By François Lionet / Gareth Davidson')
-    expect(PORT_MESSAGES.get(23)).toBe('2026 bitplane.net')
-    expect(PORT_MESSAGES.get(189)).toBe('© 1992 Europress Software Ltd.')
-    expect(PORT_MESSAGES.get(188)).toBe(`version ${PORT_VERSION}`)
+  it('names this port, and carries the notice AMOS asks to see', () => {
+    // The AMOS Professional source was published under MIT, and its README
+    // asks for the copyright notice "in both the modified source code and the
+    // boot screen of the application". Its LICENSE file is where these two
+    // lines come from, verbatim; ../../LICENSE carries all three.
+    const lines = [...PORT_ABOUT_LINES.values()]
+    expect(lines).toContain('amos-ts')
+    expect(lines).toContain('amos.bitplane.net')
+    expect(lines).toContain('Copyright (c) 2026 Gareth Davidson')
+    expect(lines).toContain('Based on AMOS Professional')
+    expect(lines).toContain('Copyright (c) 1992 Europress Software')
+    expect(lines).toContain('Copyright (c) 2020 Francois Lionet')
+    expect(lines).toContain(`version ${PORT_VERSION}`)
+    expect(lines).toContain('This program is free software. See LICENSE at')
+    expect(lines).toContain('https://github.com/bitplane/amos-ts')
   })
 
   it('names itself in the menu entry that opens the box', () => {

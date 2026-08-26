@@ -77,6 +77,45 @@ export interface AmosLib {
   tokens: TokenEntry[]
   /** raw code hunk, for future reference (e.g. locating runtime routines) */
   code: Uint8Array
+  /** `LB_Title`: the banner the library names itself with, '' when it has none */
+  title: string
+  /** the `$VER:` cookie beside it, with the tag stripped, '' when there is none */
+  version: string
+}
+
+/**
+ * `LB_Title` (+Equ.s:2243), which `Ll_Charge` computes at +B.s:2285.
+ *
+ * A `.Lib` is four blocks and its header gives the size of each: the routine
+ * sizes, the token table, the library code, and the title. `move.l d0,LB_Title`
+ * puts the title's address at `tokens + library` past the token base, so the
+ * title is what is left at the end of the code hunk. Inside it are the banner,
+ * a NUL, and the AmigaDOS `$VER:` cookie -- "AMOSPro Music extension V 2.00"
+ * and "$VER: 2.00" in the stock Music library's 44 bytes.
+ *
+ * `Ed_AboutExt` (+Edit.s:4621) is the only reader in the editor, and it prints
+ * the banner through `Dia_FStZero`, which stops at the first byte below 32.
+ * This stops there too, and skips any leading control bytes first: Music 1.62's
+ * chunk begins two bytes earlier than its own header's sizes predict, and
+ * stopping dead on that byte would report no banner for a library that has one.
+ */
+function titleChunk(code: Uint8Array, at: number, size: number): { title: string; version: string } {
+  if (at < 0 || size <= 0 || at >= code.length) return { title: '', version: '' }
+  const raw = code.subarray(at, Math.min(at + size, code.length))
+  const runs: string[] = []
+  let run = ''
+  for (const b of raw) {
+    if (b < 32) {
+      if (run !== '') runs.push(run)
+      run = ''
+    } else run += String.fromCharCode(b)
+  }
+  if (run !== '') runs.push(run)
+  const ver = runs.find((r) => r.startsWith('$VER:'))
+  return {
+    title: runs.find((r) => !r.startsWith('$VER:')) ?? '',
+    version: ver === undefined ? '' : ver.slice(5).trim(),
+  }
 }
 
 /**
@@ -107,9 +146,12 @@ export function parseAmosLib(bytes: Uint8Array): AmosLib {
   const r = new BinReader(code)
   const jumpSize = r.u32()
   const tokSize = r.u32()
+  const libSize = r.u32()
+  const titleSize = r.u32()
   const tableStart = magic + 4 + jumpSize
   const table = code.subarray(tableStart, tableStart + tokSize)
-  return { tokens: rebase(parseTokenTable(table)), code }
+  const named = titleChunk(code, tableStart + tokSize + libSize, titleSize)
+  return { tokens: rebase(parseTokenTable(table)), code, ...named }
 }
 
 /** the four bytes AMOSTools writes where a token entry's two routine words were */
@@ -169,8 +211,10 @@ export function parseAmosLibOld(bytes: Uint8Array): AmosLib {
   const code = firstCodeHunk(bytes)
   const v = new DataView(code.buffer, code.byteOffset, code.byteLength)
   const jumpSize = v.getUint32(0)
-  const table = code.subarray(8 + jumpSize + 10)
-  return { tokens: parseTokenTable(table), code }
+  const tableStart = 8 + jumpSize + 10
+  const table = code.subarray(tableStart)
+  const named = titleChunk(code, tableStart + v.getUint32(4) + v.getUint32(8), v.getUint32(12))
+  return { tokens: parseTokenTable(table), code, ...named }
 }
 
 export function parseTokenTable(table: Uint8Array): TokenEntry[] {

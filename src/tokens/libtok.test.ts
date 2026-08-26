@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseAmosLibOld, parseAmosToolsTable, parseTokenTable } from './libtok'
+import { parseAmosLib, parseAmosLibOld, parseAmosToolsTable, parseTokenTable } from './libtok'
 import { firstCodeHunk } from '../amiga/hunk'
 
 const ch = (s: string) => [...s].map((c) => c.charCodeAt(0))
@@ -185,5 +185,41 @@ describe.skipIf(!existsSync(craftLib) || !existsSync(craftStub))('AMOSTools tabl
   it('refuse a real library, which has routine numbers worth reading', () => {
     const real = new Uint8Array(readFileSync(craftLib))
     expect(() => parseAmosToolsTable(real)).toThrow(/not scrubbed/)
+  })
+})
+
+/**
+ * `LB_Title` (+B.s:2285): the fourth and last block of a `.Lib`.
+ *
+ * The stock Music library is the AP20 case and TURBO Plus the legacy one, so
+ * both header layouts are covered. Neither string is invented here: they are
+ * what those two files carry, and `Ed_AboutExt` is what puts them on screen.
+ */
+describe.skipIf(!existsSync(fixtures))('LB_Title', () => {
+  const sys = join(fixtures, 'official-amos', 'APSystem')
+
+  it.skipIf(!existsSync(join(sys, 'AMOSPro_Music.Lib')))('reads an AP20 library s banner and $VER', () => {
+    const lib = parseAmosLib(new Uint8Array(readFileSync(join(sys, 'AMOSPro_Music.Lib'))))
+    expect(lib.title).toBe('AMOSPro Music extension V 2.00')
+    expect(lib.version).toBe('2.00')
+  })
+
+  const turbo = join(fixtures, 'extensions', 'turbo-plus-1.9', 'AMOSPro_Turbo1_9.Lib')
+  it.skipIf(!existsSync(turbo))('reads a legacy library s, which has no AP20 magic', () => {
+    const lib = parseAmosLibOld(new Uint8Array(readFileSync(turbo)))
+    expect(lib.title).toBe('AMOSPro Turbo Extension V 1.9')
+    expect(lib.version).toBe('1.9')
+  })
+
+  /**
+   * Music 1.62's title block starts two bytes earlier than the sizes in its
+   * own header predict, and the byte sitting there is below 32. `Dia_FStZero`
+   * would stop dead on it, so the leading control bytes are skipped: an
+   * off-by-two in a third-party header must not read as "this library has no
+   * name".
+   */
+  const music13 = join(fixtures, 'extensions', 'music-1.62', 'Music.Lib')
+  it.skipIf(!existsSync(music13))('skips a leading control byte rather than reporting no title', () => {
+    expect(parseAmosLibOld(new Uint8Array(readFileSync(music13))).title).toBe('Music extension V 1.62')
   })
 })

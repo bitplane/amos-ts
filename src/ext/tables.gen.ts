@@ -7810,7 +7810,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       1
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Music extension V 2.00",
+      "$VER: 2.00"
+    ],
     "sha256": "64bd6d0410acae2051926f032c68741bd3021508dab0dab35812c8085fc9bb86",
     "provenance": "AMOS Professional system disc (APSystem/AMOSPro_Music.Lib); slot 1 per +Interpreter_Config.s message 16.",
     "notes": "Plays Soundtracker and MED modules, fires off samples, and carries the Say and Talk speech keywords."
@@ -7828,7 +7831,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       2
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Picture Compactor V 2.00",
+      "$VER: 2.00"
+    ],
     "sha256": "1473cd4cc81a6b9a26c100c5431e0af3d26187a0c632f23586e1b776fb6a01ba",
     "provenance": "AMOS Professional system disc (APSystem/AMOSPro_Compact.Lib); slot 2 per +Interpreter_Config.s message 17.",
     "notes": "Packs and unpacks memory banks in place, so a program can ship its data compressed."
@@ -7846,7 +7852,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       3
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Requester V 2.00",
+      "$VER: 2.00"
+    ],
     "sha256": "c74c476529b7606aa8f74afe306804d781a67c8b06ce6367f90faaf0ca23c015",
     "provenance": "AMOS Professional system disc (APSystem/AMOSPro_Request.Lib); slot 3 per +Interpreter_Config.s message 18.",
     "notes": "Sends AmigaDOS system requesters to an AMOS screen instead of a Workbench window, or turns them off."
@@ -7864,7 +7873,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       5
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Compiler extension V 2.00",
+      "$VER: 2.00"
+    ],
     "sha256": "daea26059524f447f87f4f660bddb420f0620a9d6b0a165bec9864937b7019f4",
     "provenance": "AMOS Professional system disc (APSystem/AMOSPro_Compiler.Lib); slot 5 per +Interpreter_Config.s message 20.",
     "notes": "The runtime half of the AMOS Pro compiler, plus Squash and Unsquash for crunching a compiled program."
@@ -7882,7 +7894,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       6
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro IO Devices Extension V 2.00",
+      "$VER: 2.00"
+    ],
     "sha256": "1a905c8eb11591049b2cbbb16fb1e30658bb4461ee72718c8b1e2489386ba4bb",
     "provenance": "AMOS Professional system disc (APSystem/AMOSPro_IOPorts.Lib); slot 6 per +Interpreter_Config.s message 21.",
     "notes": "Serial and parallel port I/O: open a port, set its speed and framing, send and receive."
@@ -7900,6 +7915,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
+      "AGA Extension © '95 N.Critten v1.00 Build 312 Dedicated to Kim",
       "$VER: AGA Extension © '95 N.Critten v1.00 Build 312"
     ],
     "sha256": "36a27625e91c072145df6e62799a91084b75b783e3f2cb6d4a6581afbaacc577",
@@ -7917,7 +7933,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 8,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro AMCAF extension V 1.40 26-Dec-95",
+      "$VER: V1.40 26-Dec-95"
+    ],
     "sha256": "501529ea1b0353f710c375bca55bd2c838b1d67063430292c4c13f7aac4ddd98",
     "provenance": "aminet-dev-amos/files/AMCAFExt140InD/AMCAF_Install/AMOSPro_AMCAF.Lib The release before the registered 1.50. Its banner dates it 26-Dec-95. 268 of its 269 keyword names are also in 1.50, so 1.50 is 1.40 plus additions rather than a reworking -- which is why the 1.50 manual documents 1.40 and its author notes he had no time to update it.",
     "notes": "Version 1.40 fallback for AMCAF."
@@ -7934,7 +7953,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 8,
     "statedSlot": 8,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro AMCAF extension V 1.50beta4 11-Jan-98",
+      "$VER: V1.50beta4 11-Jan-98"
+    ],
     "sha256": "9894a7e216ff501244bbcdc47d3830abdbcf4382d4f4a6daa43551faa87917e4",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMCAF150Final. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "AMCAF V1.50beta4, a general purpose AMOS Pro extension with lots of keywords. See the [manual](https://aminet.net/package/dev/amos/Amcaf-HTML) for details."
@@ -7951,7 +7973,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 16,
     "statedSlot": 16,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMON Extension V1.03 © 1995 FryUp Productions"
+    ],
     "sha256": "d59d4a49b04bbb665ad72cc1d2acb0ba9acdcbe4ab2f33190c0ed73390bd8411",
     "provenance": "kyzer.me.uk/amos/other/amon-v1.03.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-amon/. Stuart Caie's AMOS extension archive -- \"old archives go offline, so now I maintain my own archives of them\". The package carries the library twice, identically, once for AMOS Classic and once for AMOS Pro; this is the APSystem copy. The earlier release, and a separate identity: two of the eighteen keyword ids move between it and 1.04. Never held as a stub -- the AMOSTools collection's \"V1.03\" file is 1.04's table.",
     "notes": "Version 1.03 fallback for Amon."
@@ -7968,7 +7992,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMON Extension V1.04 © 1995 FryUp Productions",
+      "$VER: 1.04"
+    ],
     "sha256": "535e98d5b3926a6b1e1b172e296222e7aee73355b849949825f4cd928fca414e",
     "provenance": "kyzer.me.uk/amos/other/amon-v1.04.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-amon/. Stuart Caie's AMOS extension archive -- \"old archives go offline, so now I maintain my own archives of them\". The package carries the library twice, identically, once for AMOS Classic and once for AMOS Pro; this is the APSystem copy. REPLACES an AMOSTools stub. The file registered here until 2026-08-12 was 528 bytes with a zero-length code hunk and `====` in every routine word -- enough to detokenise and useless for reading behaviour. Its names, ids and specs match this real 1.04 exactly, so nothing about identification changes; what changes is that the code is now here to read. The same stub was filed under BOTH `Amon.Lib-V1.03` and `Amon.Lib-V1.04` with one sha256 between them, so the collection's \"1.03\" was never 1.03.",
     "notes": "Mouse, keyboard and joystick reading, fixed-point trigonometry and fast graphics primitives."
@@ -7987,7 +8014,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       4
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "Voodoo 3D extension I 1.00"
+    ],
     "sha256": "c93a90e82a542836b0ecb985b8a81d1431e7edbf2e48a6646bd4197af023aa65",
     "provenance": "AMOS PD Library CD, APD371/AMOS_System. Present on several APD disks with no documentation. AMOS 3D was a commercial add-on sold by Europress, not public-domain material, so its presence here does not imply redistribution rights.",
     "notes": "Filled-vector 3D: load object files, move and rotate them in world coordinates, and let the extension draw and collide them. Sold with a printed manual by Voodoo Software."
@@ -8003,7 +8032,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Colours extension V 1.0 by Jan Normann Nielsen",
+      "$VER: 1.0"
+    ],
     "sha256": "496c99f2843b265225f1d96f014254edb1603872c138991ce54e9fcb25866b62",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Colour_1.0. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Named colour constants, so `Colour 1,Red` works instead of a hex value."
@@ -8020,6 +8052,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 18,
     "observedSlots": [],
     "titleStrings": [
+      "AMOSPro BSD Socket Library 1.1.4-20240502 (code.hackerbun.dev)",
       "$VER: 1.1.4-20240502"
     ],
     "sha256": "b3edb8ee502c690cc3885692a79dc5bf4fd70312a969787ee84379e3bc2cc37d",
@@ -8039,6 +8072,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 12,
     "observedSlots": [],
     "titleStrings": [
+      "BUtility V 1.21 - FREEWARE © 1999-2001 Mariusz Rycyk",
       "$VER: 1.21"
     ],
     "sha256": "3853d14bedfcf45e98cde82a7e185feb30afab6da99b263c87be1b2606f642ba",
@@ -8057,7 +8091,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 18,
     "statedSlot": 18,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "CRAFT extension V 1.00 Owner not registered"
+    ],
     "sha256": "371d7b50dbf5b76a388e4704c17664deb2f4e7129882e9def89e9a8bfcb9d160",
     "provenance": "Ultimate Amiga AMOS Factory, CRAFT archive, retrieved 2026-07-26. Recovered rather than found. The archive ships no .Lib at all -- only a DMS disk image whose contents are an Installer and seven opaque Data blobs. Decompressing the DMS (xdms) and reading the disk gave those blobs, and Data0 turned out to be FOUR libraries and a length table. CORRECTED 2026-08-11: the eight bytes at its head are not a prefix to skip but `dc.w $3478,$3478,$163c,$1634` -- the sizes of the four executables that follow, which are CRAFT.Lib, AMOSPro_CRAFT.Lib, MusiCRAFT.Lib and AMOSPro_MusiCRAFT.Lib in that order. Only the first was ever being read, because parseAmosLibOld stops at the first code hunk, so a file vendored as AMOSPro_CRAFT.Lib was in fact the AMOS 1.3 build and MusiCRAFT was sitting in the same file the whole time. All four are split out now. This entry points at CRAFT.Lib because that is the build every routine address in this port's citations was read from; the AMOS Pro build is vendored beside it. Their token tables are identical, so one entry covers both, and the ONE behavioural difference found between them is =Amos Pro -- routine 204 is `moveq #0,d3` in the 1.3 build and `moveq #-1,d3` in the Pro one, which is the keyword working exactly as documented rather than the defect this port briefly recorded. The other five packed blobs are now unpacked too, by src/cli/craftx.ts over src/amiga/solaris.ts -- the installer's container is [total:4] then [path\\0][size:2] until the sizes add up, then one stream tagged \\SOLARIS/, which is the in-house packer of the Finnish house that built the disk (Solaris_Logo.iff is on it). That decruncher was read out of the Installer, itself a compiled AMOS program, at hunk 1 $cce6..$cdac. Data6 is the only blob still unread: a music module, 'craft.jol' by Janne Leinonen. Everything vendored here can be reproduced from the archive by running craftx.",
     "notes": "A grab-bag: string handling, a LOGO turtle, sprite and screen effects, file and memory utilities."
@@ -8076,7 +8112,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       8
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "Colour Text V1.32 Installed"
+    ],
     "sha256": "9435138841a5a0be029d72fff03f801ce7f025d68bc03009e2183da92b702f3b",
     "provenance": "AMOS PD Library CD, APD426/AMOS_System. No per-command manual survives. What does survive is CText.FONTS/Please_Read_Me! on the same disc, which names the author and sells the design: 'CTEXT is an AMOS extension with 5 new commands ... easy to use icon based text displays ... Use fonts of up to 64 colours ... Use any size of character ... Easily edit fonts (can be edited in SpriteX) ... Use masked fonts ... Use propotional text ... Use Kerning'. Distributed as Deja Vu licenseware at GBP 3.99. A successor with 16 commands was sold direct by the AMOS Club as CText 2 and used .mfnt fonts; two corpus programs use slot-8 ids beyond this table and are presumably that. The binary calls itself version 1.32; the id keeps the 1.0 it was first registered under.",
     "notes": "Draws proportional text from AMOS icon banks, with kerning and a width function."
@@ -8093,7 +8131,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 15,
     "statedSlot": 15,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "D-Sam Extension V1.01"
+    ],
     "sha256": "045b7f8f5b97bd86737d96653a612ce6c9f1657439954b607b0aad572d125d94",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: D_Sam_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Plays samples straight off disk rather than from memory, so a program can use audio longer than it has RAM for."
@@ -8110,7 +8150,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 21,
     "statedSlot": 21,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Dbase extension V 0.42",
+      "$VER: 0.42"
+    ],
     "sha256": "800c5e904f4816f839931ed63d59f8d23b514947de6d588824ca5a66938369df",
     "provenance": "kyzer.me.uk/amos/other/dbench042.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-dbench/. 80,503 bytes, sha256 034af04116eb409a5fe899647d5a9aa43c9292b20fe40e5a7203c1f339c5c21d. The guide was also fetched separately from kyzer.me.uk/amos/docs/dbench/ and the copies agree. SLOT 21, AND THE BINARY SAYS SO RATHER THAN THE WIKI: routine 0 is `lea $1fa(pc),a3 / move.l a3,$238(a5) / moveq #$14,d0`, and ($238-$f8)/16+1 is 21 on the ExtAdr layout (+Equ.s:1185) with $14 the slot zero-based. SymBase's Installer claims 21 too and its routine 0 makes the same store, which is not a conflict: they are one product at two ages and only one of them is ever loaded.",
     "notes": "A record-and-field database in memory: define fields, select records, search and sort them."
@@ -8126,7 +8169,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Delta Extension V1.4 by DELTA/Opium^Hv^Fnz (1997)",
+      "$VER: 1.4"
+    ],
     "sha256": "1bbfbc43fe54c72d2d13fea003654b5f514e14d3a57997d6bf8259ffb6ca28ca",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Version 1.4 fallback for Delta."
@@ -8143,7 +8189,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 15,
     "statedSlot": 15,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Delta Extension V1.6 by DELTA/Opium^Hv (1997)",
+      "$VER: 1.6"
+    ],
     "sha256": "97fbb8acb3347dfb91dcf73ebf240722a40702b9b9f200bb7da3505c2eb3aeed",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Hardware odds and ends — drive motor, PAL/NTSC, mouse waits and decrunching."
@@ -8160,7 +8209,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 24,
     "statedSlot": 24,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      " Display Library Extension v0.01 (Feb 2011) by JB ",
+      "$VER: v0.01 (Feb 2011)"
+    ],
     "sha256": "25355ca5571932ff0d819f59759b620611537d346a7e0e173c49a9838a5cf688",
     "provenance": "kyzer.me.uk/amos/other/display.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-display/. 2,189 bytes, sha256 526cd6f96ee3779fdbb9d7038347a69d7f727219724f780bf3bcd815334115eb -- the whole archive, and the smallest in the corpus. SLOT CONFIRMED, not recommended: the archive's Extension Examiner export derives 24 twice independently, \"By Scanning Default Routine Code: 24\" and \"By Scanning Error Routine Code: 24\". ExoticA's wiki also said 24; now something has checked it.",
     "notes": "Low-level display access: copper swapping, screen base and depth, and an AGA check."
@@ -8177,7 +8229,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 15,
     "statedSlot": 15,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro DOOM Music extension V2.0 04-Nov-97 by Thomas Reetz",
+      "$VER: V2.0 04-Nov-97"
+    ],
     "sha256": "f5bb665a91416cca066573c130734490f90feb6543f4196209863bca6c1794b1",
     "provenance": "kyzer.me.uk/amos/amosfactory/dme.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-dme/. 692,668 bytes, sha256 e9f0baa035f6c38606bb6d6ccad4924d1e33b03e206a6c6ca31dc949c3312338 -- the \"676Kb - LhA\" the AMOS extension list promised. That list's own download link was lha/dme.lha on amigau.com and the Wayback Machine never captured it; kyzer's AMOS Factory mirror had it. SLOT 15, AND THE BINARY SAYS SO: routine 0 stores its AllocMem'd block with `move.l d0,$1d8(a5)` and returns `moveq #$e,d0`, and ($1d8-$f8)/16+1 is 15 on the ExtAdr layout (+Equ.s:1185) with $e the slot zero-based. Jens Vang Petersen's AMOS extension pages, 1997-1998, said 15 too, and also record \"PRO Version: 2.00\", no TC version, and Public Domain. IT REFUSES TO LOAD ANYWHERE ELSE: the first instruction after the register save is `cmp.l #$41506578,d1` --- the ASCII `APex` --- and a mismatch returns -1 without allocating anything.",
     "notes": "Plays OctaMED, ProTracker and several other module formats, one set of keywords per format."
@@ -8193,7 +8248,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Dump v1.1 by Alex J. Grant & F.Lionet"
+    ],
     "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
     "provenance": "AMOS PD Library CD, APD565/JC/AMOS_System. No documentation found. A smaller 5-entry Dump.Lib also exists on APD036. Author identified from the Ultimate Amiga AMOS Factory archive listing (Dump Extension v1.0, archived by Lonewolf10); the binary carries no attribution. The binary calls itself version 1.1; the id keeps the 1.0 it was first registered under.",
     "notes": "Two unrelated halves: dump a screen to a graphics printer, and read, write and format disk sectors directly."
@@ -8287,7 +8344,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 1,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "P3EME V3.0DEMO - © Paul Reece 1993",
+      "$VER: 3.0DEMO"
+    ],
     "sha256": "a3f69e32ec3015f82fdb220aacc9f80bc9631425a464e6ac0a8119981e6bfb95",
     "provenance": "amos-pd-library-cd-1994/files/576-600/APD600/eme/Music.Lib A demo build of EME 3.0, per its own $VER cookie, shipped on APD600. 53 of its 55 names are in the registered eme-3.0. EME replaces the stock Music.Lib in place, keeping the filename, which is why it arrives named Music.Lib.",
     "notes": "Demo build of the Enhanced Music Extension."
@@ -8304,7 +8364,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 1,
     "statedSlot": 1,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "EME V3.0DEMO - © Paul Reece 1993",
+      "$VER: 3.0DEMO"
+    ],
     "sha256": "a2d081aadec4a72c9b4399503c56f9b9b2c613692aa03161515eb041fd568116",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EME_3.0_DEMO. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A drop-in replacement for the stock Music extension, with more keywords and the same filename."
@@ -8321,7 +8384,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 10,
     "statedSlot": 10,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Ercole extension V 1.7",
+      "$VER: 1.7"
+    ],
     "sha256": "2ad07234daf37eedb0c4fae550b71d39c0be4aafccd24b03e55aa273a02a783e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Ercole_1.7. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Game-port extras: paddles, analogue sticks, the 4-player parallel adaptor and the extra buttons on console pads."
@@ -8337,7 +8403,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 7,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Explode Extension V2.01 © Testaware",
+      "$VER: 2.01 © Testaware"
+    ],
     "sha256": "43d0191b01def906e3689940d03cd317b7c9f06edd80fba3b7707474e9ce5e42",
     "provenance": "kyzer.me.uk/amos/other/AMOSPro_Explode_Lib_v2_01.rar, retrieved 2026-08-12 and held in the corpus at sources/kyzer-explode/. Stuart Caie's AMOS extension archive -- \"old archives go offline, so now I maintain my own archives of them\". The archive carries three things: the 15,168-byte library, the author's own commented assembler source, and a 65KB German manual with an entry per keyword. REPLACES an AMOSTools stub, and lifts the tier two steps rather than one. The file registered here until 2026-08-12 was 2,336 bytes -- a hunk shell and the token table with both length fields reading zero, no code, and every routine word overwritten with `====`. What arrived is not merely a binary: `AMOSPro_Explode_Lib.s` is the file the library was built from, 90,716 bytes and 4,639 lines, with the author's labels, structure offsets and comments intact. Extraction needs `unrar`; 7-Zip lists the archive correctly and then fails every member with `Unsupported Method`, leaving zero-byte files while returning exit status 0.",
     "notes": "A large toolbox: packers, banks, files, fonts, bitplanes and system odds and ends. Ships with the author's commented assembler source."
@@ -8355,6 +8424,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [
+      "FileID Extension V 1.0 by Haiko Lemser ®1998",
       "$VER: FileID Extension V1.0 by Haiko Lemser"
     ],
     "sha256": "3d9514f4e7a36573305d360aa76340e46d7e8804f4ca7ab20fe311b5faba392f",
@@ -8372,7 +8442,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro First Extension by Pedro Gil v0.1",
+      "$VER: 0.10.1"
+    ],
     "sha256": "0b19b31bbe06516baa3381c444c71600f8e343cb3995fe26b3aadc144e5b7f9a",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: First_0.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Four keywords: flip the power LED, and wait for the mouse, the joystick or a bank clear."
@@ -8390,6 +8463,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 23,
     "observedSlots": [],
     "titleStrings": [
+      "AMOSPro GameSupport extension V 1.2",
       "$VER: 1.2"
     ],
     "sha256": "a7952d8a6a7ce1dd59ee2cb5a57675f103491c526b0f40aa59c4d0329f1018da",
@@ -8409,7 +8483,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       24
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro GUI Extension Beta Version 1.5",
+      "$VER: Beta Version 1.5"
+    ],
     "sha256": "a4ffb518a1d75c9b81ac7a693b9c7ca055b6efc6aa7dcfea83fbf906929f1324",
     "provenance": "aminet-dev-amos/files/snc004/SnC-4/AMOS_Extension/AMOSPro_GUI.Lib Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
     "notes": "Beta of the GUI extension: Intuition-style windows, gadgets and menus, and the only release with a plain-text manual rather than an AmigaGuide one."
@@ -8448,7 +8525,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 24,
     "statedSlot": 24,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro GUI Extension V 2.1 18-10-2000",
+      "$VER: V 2.1 18-10-2000"
+    ],
     "sha256": "49343990a3b4fe5961daa5519ff17cf4c6f67590fbf93bef2da93505aae22c1a",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: gui210. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read. The binary’s $VER reads \"V 2.1 18-10-2000\"; the id spells it 2.10.",
     "notes": "The mature GUI extension: Intuition windows, gadgets, menus and requesters, with a full AmigaGuide manual."
@@ -8465,7 +8545,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "D.J.Software's AMOSPro_Intuition V 1.0",
+      "$VER: 1.0"
+    ],
     "sha256": "4b022e82966e7da7113e1118917676bc83a7dd1095ad3996cf243d6bef6d9ac8",
     "provenance": "aliensrcooluk.com/public/Amiga/AMOS/Intuition.LHA, retrieved 2026-08-12 and held in the corpus at sources/kyzer-int/. 457,460 bytes, sha256 63448b79d5a72fc97ec69e337d41096873dd9d8b4766fef5ccf29ca0e7382955. The two docs were fetched from kyzer.me.uk/amos/docs/int/. Slot 25 is ExoticA's AMOS extensions wiki and is not observed here. The archive is titled for Intuition and Int 1.0 is only part of it -- see the notes.",
     "notes": "Opens Workbench windows and screens from AMOS, with menus and mouse reading."
@@ -8482,6 +8565,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 23,
     "observedSlots": [],
     "titleStrings": [
+      "REGISTERED n°000 To CIERP Philippe, IntuiExtend.lib v1.6",
       "$VER: REGISTERED n",
       "To CIERP Philippe, IntuiExtend.lib v1.6"
     ],
@@ -8524,6 +8608,8 @@ export const EXT_INFO: ExtensionInfo[] = [
       14
     ],
     "titleStrings": [
+      "Intuition Extension v1.3b - copyright © 1994-1995 Andrew Church",
+      "$VER: Intuition.lib 41.95 (Pro v1.3b, 96/02/22)",
       "The AMOS Intuition Extension - Version 1.3b"
     ],
     "sha256": "5da98cf2e39b74ed5c7a8225339f3fb32477e0b9bfc83935aae7eff38f8517f3",
@@ -8543,6 +8629,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       22
     ],
     "titleStrings": [
+      "AMOSPro JD_Extension V 4.6",
       "$VER: 4.6"
     ],
     "sha256": "7efe7608d9dbad7be549c6436b9ae9f1dfedcb2cd27d1497d60ef44a24d94d16",
@@ -8562,6 +8649,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       22
     ],
     "titleStrings": [
+      "AMOSPro JD_Extension V 5.3",
       "$VER: 5.3"
     ],
     "sha256": "ba5efb0b200ee60e2689d723643a522440fe1da0bab3049a30426af650a1992b",
@@ -8579,7 +8667,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro JD_Extension V 5.9",
+      "$VER: 5.9"
+    ],
     "sha256": "425c761ebd02a4f4e0186486d820d9ffb43642bf41d3249280d3b37b3ff29ade",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The last JD release, with a per-keyword manual."
@@ -8596,6 +8687,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
+      "AMOSPro JDColour_Extension V 1.4",
       "$VER: 1.4"
     ],
     "sha256": "ffe52277ff6b87603f3e1209c077ede1a25e0fe513d65bf775575dc4476e0356",
@@ -8614,7 +8706,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 20,
     "statedSlot": 20,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro JDColour_Extension V 2.0",
+      "$VER: 2.0"
+    ],
     "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Palette manipulation: spread, greyscale, false colour, negative, complement and mixing. Nothing to do with the AMOSPro Colours extension."
@@ -8630,7 +8725,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 18,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro JD_Intuition_Extension V 1.3",
+      "$VER: 1.3"
+    ],
     "sha256": "280035af9c988219c400003471bc400620d7616be0a7d88fbb3e5b0791cac31c",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Opens an Intuition screen and window, draws into it with graphics.library and reads the IDCMP."
@@ -8646,7 +8744,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 19,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro JD_Kick_3.0_Extension V 1.1",
+      "$VER: 1.1"
+    ],
     "sha256": "a18ba63c055f9985235ce325b70acf41c42a5339c61e8361622bc6045178a511",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Six keywords: relabel a volume, match a pattern, and toggle the mouse click."
@@ -8680,6 +8781,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [
+      "AMOSPro Prt_Extension V 1.3",
       "$VER: 1.3"
     ],
     "sha256": "66db735b6c9378e7bdb9b0e4f06e245e5c6e67e56da8e9e79182994a2c541d14",
@@ -8697,7 +8799,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Prt_Extension V 1.4",
+      "$VER: 1.4"
+    ],
     "sha256": "6a035fe8e47317bf8a20e0e286e60425a456dc05d68ab21102be0f8687f379b6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The last JD Printer, with a per-keyword manual."
@@ -8714,7 +8819,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 22,
     "statedSlot": 22,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Jolly: THX Extension V1.0, 68k Code By Thomas Verduin (Alias: Protonic)",
+      "$VER: 1.0"
+    ],
     "sha256": "a36a562bd36c2515ee7738c338df6bb0e42336f38e9f008af2c9582666f47d4e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: jotre. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Plays THX and AHX music — synth-tracker modules that carry no samples."
@@ -8731,7 +8839,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "JVP-NoKids extension V 1.01 (20011998)",
+      "$VER: 1.01 (20011998)"
+    ],
     "sha256": "d985288a5f7b15e008ca01b797ca7dc8bf8101d0ca28894c14c2c5e76bb03d57",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JVP_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Sorting, string handling and message banks. Ships with the author's assembler source."
@@ -8751,6 +8862,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       10
     ],
     "titleStrings": [
+      "LDos Pro 1.0 - All rights reserved Niklas Sjöberg ",
       "$VER:Ldos_V2.5_Registered",
       "LDos Pro 1.0 - All rights reserved Niklas Sj"
     ],
@@ -8770,7 +8882,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 10,
     "statedSlot": 10,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "LDos Pro 1.1 - All rights reserved Niklas Sjöberg"
+    ],
     "sha256": "cbb06295b1ea418042507f81a7c228c838e1668f81d8659a50692a7c6dfd07f5",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: ldos. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The later LDos, with the manual in AmigaGuide form."
@@ -8787,7 +8901,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 17,
     "statedSlot": 17,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Locale Extension V 0.26",
+      "$VER: 0.26"
+    ],
     "sha256": "a26f5c0ffd26707473ab33521e3ee57d19cc914ec7982da0914f2b72e3cd4bde",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Locale_0.26. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Wraps locale.library for catalogs, localised case conversion and date formatting."
@@ -8807,6 +8924,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       11
     ],
     "titleStrings": [
+      "LSerial (c) Niklas Sjöberg V 2.1 -SHAREWARE- see docs",
       "$VER:LSerial_V21_UnRegistered"
     ],
     "sha256": "12ed4b4f1342a27314d702ef73048bc6d488ad2bd8009aec920feee2e608273e",
@@ -8826,6 +8944,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 17,
     "observedSlots": [],
     "titleStrings": [
+      "AMOSPro Make's Lib 1.30",
       "$VER: 1.30"
     ],
     "sha256": "b6aa3bf1bc6c15c3dda2979cc07d8dc176ba11dbb4a951375e47891d8054e510",
@@ -8844,7 +8963,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 16,
     "statedSlot": 16,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "MAXS AMOS Door Handler, V0.20 Ari Tsironis 01-May-94"
+    ],
     "sha256": "799918c865ac1cb53d187e7cbabe291d25c1907cb9a8ea7623eeafc2c8f9140c",
     "provenance": "aminet.net/comm/bbs/ArisDoors4MAXs.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-maxsdoor/. 714,884 bytes, sha256 df13b1aa671f4534be08d6e065e62a6061cfe4c1e00d13365962e05932fa584c. The two .doc files were also fetched separately from kyzer.me.uk/amos/docs/maxsdoorhandler/ and the copies agree. SLOT STATED BY THE AUTHOR, not recommended by anybody: _MAXSDoorHandler.s opens `ExtNb equ 16-1`, and the `-1` is the zero-based form that reaches d2 in L_ErrorExt. ExoticA's wiki also said 16.",
     "notes": "Writes BBS doors for the MAXS bulletin board. Ships with the author's commented assembler source."
@@ -8861,7 +8982,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 19,
     "statedSlot": 19,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "MED Player Extension V 7.1 by Haiko Lemser ®1998"
+    ],
     "sha256": "f3e952736d48d27afbf13dca58a3466f05fa87bb3dc48e1c7a7324f89af58e25",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: MED_7.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A standalone MED module player, separate from the `Med` keywords in the stock Music extension."
@@ -8900,8 +9023,8 @@ export const EXT_INFO: ExtensionInfo[] = [
       1
     ],
     "titleStrings": [
-      "Music player V 1.3",
-      "New Music extension V1.3"
+      "New Music extension V1.3",
+      "Music player V 1.3"
     ],
     "sha256": "711e50b62c69a3dd5501c11620870c2adba89f84514cbfaeec4d19f4b07bd73a",
     "provenance": "AMOS PD Library CD, APD426/AMOS_System. The disc's s/startup-sequence signs the disk and dates it: '© Omega Demos Inc. 1991/92', 'Release Version. #1.1', 'Release Date 26/03/92', for a demo called Golden Ages that it boots through RAMOS 1.3. Whether Omega wrote the three appended routines or took them from somewhere is not recorded anywhere on the disc; the library carries no author string of its own and no copyright, only the two banners the stock 1.3 build already has.",
@@ -8921,7 +9044,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       19
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "MusiCRAFT extension V 1.00 Owner not registered",
+      "$VER: 1.00"
+    ],
     "sha256": "6ff4d00ed36300ca7616933f70556c5c4c17ae3080c2d066fb204ac486cec8b2",
     "provenance": "CRAFT installer disk, Data0 -- the same blob CRAFT's own library comes out of. Held twice over: Ultimate Amiga's AMOS Factory CRAFT archive, and the CU Amiga March 1994 coverdisk (disk 76), whose Craft.DMS is byte-identical to it blob for blob. FOUND, after being registered from a table-only stub and then looked for again. Data0 is not one library behind an eight-byte prefix, which is how this repo read it for weeks: the eight bytes are `dc.w $3478,$3478,$163c,$1634`, the sizes of FOUR executables laid end to end -- CRAFT.Lib, AMOSPro_CRAFT.Lib, MusiCRAFT.Lib, AMOSPro_MusiCRAFT.Lib. parseAmosLibOld stops at the first code hunk, so nothing ever saw past the first of them. The two MusiCRAFT builds are 5,692 and 5,684 bytes with 5,656 and 5,648 of code, carry the same 14-entry token table, and differ only in code. The AMOS Pro build is vendored as the library here and the 1.3 one beside it. CORROBORATION, now from both directions: this real table agrees with AMOSTools' scrubbed stub on all 14 entries' id, name and spec, and the CRAFT pair agrees on all 168 -- see libtok.test.ts. The stub is kept in this fixture directory for that test. What went wrong the first time is worth keeping: the CU Amiga coverdisk lead was right that the disk carries CRAFT, and chasing it is what made this repo look at Data0 again.",
     "notes": "CRAFT's companion module player — the `St *` keywords documented in CRAFT's help file."
@@ -8938,7 +9064,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 21,
     "statedSlot": 21,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "OpalVision V1.1, ©1992 Opal Technology Pty Ltd."
+    ],
     "sha256": "5ba39156b0e3993d9421a1b6b6fe3e706139ea30a8ca137bfe6ff77b1d6d1086",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Opal_1.1. The `devdocs/` subtree is Opal Technology's own developer kit, `driver/video/devdocs.lha` on Aminet, uploaded 22 September 1993 -- the AutoDocs, the hardware manual, the include files, the FD file and `opal.library` v4.3 itself. Its `AMOS/` directory holds `Opal.lib`, `Opal.s` and `Opal.Readme` byte for byte identical to the files already here, which is how the two are known to be one publisher's. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read. The extension's tier is SOURCE -- Opal.s is the whole shim -- and the library it calls is DOCUMENTED by its own AutoDocs with the binary present to settle whatever they leave open.",
     "notes": "Drives the OpalVision 24-bit graphics card: true-colour screens, pixels, sprites and dual display."
@@ -8954,7 +9082,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "T-SOFT Demo extension V 1.0",
+      "$VER: 1.0"
+    ],
     "sha256": "a0f2460e41ce72225bc791f65f0710a26acd4397e99f4a772e0db590442a1149",
     "provenance": "kyzer.me.uk/amos/other/orgasm.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-orgasm/. 30,426 bytes, sha256 704d9dd3e280e152907bbf0339289c69e6b9ed020a50cd4b15e4cbc2802a9518. The readme was fetched separately from kyzer.me.uk/amos/docs/orgasm/OrgAsm.Readme and the copies agree. SLOT 20 IS THE BINARY'S OWN WORD. Routine 0 is six instructions: `move.l a3,$228(a5)` for the data block, `move.l a0,$230(a5)` for a REMOVE routine that is a bare `rts`, and `moveq #$13,d0`. `ExtAdr` is $f8 with sixteen bytes a slot (+Equ.s:1185), so ($228-$f8)/16+1 = 20 and $13 is 19, the slot zero-based. The readme says the same from the outside -- \"It should be added as extension number 20\" -- and so does ExoticA's AMOS extensions wiki.",
     "notes": "Demo of a GUI toolkit built on intuition.library and gadtools.library."
@@ -8972,7 +9103,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [
       20
     ],
-    "titleStrings": [],
+    "titleStrings": [
+      "OS DevKit Extension (c) Fromentin Brice  V1.61",
+      "$VER: 1.61"
+    ],
     "sha256": "96a9d65b767a406e8a2b0e568c25d19be0f8cfbe4e4668ebd6fa1d56ebc2ee59",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: OS_Dev_1.61. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "An AmigaOS toolkit and by far the largest AMOS extension there is: memory, channels and wrappers over much of the OS API."
@@ -8989,7 +9123,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro P61 extension V 1.2 27-Aug-97",
+      "$VER: V1.2 27-Aug-97"
+    ],
     "sha256": "d0feb58b13ee040f2b6dd3f91df602973d0ae5e8fc93fd1d3bd931be795e64d6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMOSP61Ext. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Plays The Player 6.1 modules, the packed ProTracker format."
@@ -9030,6 +9167,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       13
     ],
     "titleStrings": [
+      "Amos1.3 & AmosPro Personnal Extension V1.1a ",
       "Amos1.3 & AmosPro Personnal Extension V1.1a",
       "Version EXTRA-LINKS / 14 juillet 1996"
     ],
@@ -9048,7 +9186,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 17,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Amos1.3/AmosPro Personnal EXTRA V1.0a"
+    ],
     "sha256": "f2c5d5ecb1a283ba108de3c53d0698f9f70611848d41e60afeded6cdb2fccf0c",
     "provenance": "ultimate-amiga-amos-factory/files/AmosPersonnal1.11/AmosPersonnal1.1/PersonnalEXTRA/Personnal-EXTRA.Lib A two-keyword companion shipped inside the Personnal 1.11 distribution, in its own PersonnalEXTRA drawer. Its only identity string is \"Amos1.3\", which names the AMOS version it targets and not its own — the version comes from the author's source instead, see notes. 444 bytes.",
     "notes": "A two-keyword version stub for the Personnal extension. Shares no keyword with it."
@@ -9065,7 +9205,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 13,
     "statedSlot": 13,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Power Bobs V1.0 © PowerSoft."
+    ],
     "sha256": "dd2afda0692d93a5f58def26631e54798bac1f255413eb4a62dc45482c12c50e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: PowerBobs_1.0. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A faster bob engine with its own drawing, buffering and collision keywords."
@@ -9082,7 +9224,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 9,
     "statedSlot": 9,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOS Club Extension V2.6"
+    ],
     "sha256": "6f0c171fa3fdb95534025590d6fb2e067c7bfa9794c83bcf9451c1a07bdc60c1",
     "provenance": "AMOS PD Library CD, APD574/AMOS_System. No documentation or author attribution found on the disc.",
     "notes": "Version 2.6 fallback for the AMOS Club extension."
@@ -9099,7 +9243,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 9,
     "statedSlot": 9,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOS Pro Club Extension V2.9Plus"
+    ],
     "sha256": "d7ed3132015170a4f5cceb3118353c3c791b78c215bfd00529199f0b8213bdb1",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TOME4_AMOSPro. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read. The title string reads `AMOS Pro Club Extension V2.9Plus`; the id keeps the 2.0 it was first registered under.",
     "notes": "Random ranges, shuffles, binary string conversion and a Case statement. Ships with TOME IV."
@@ -9115,7 +9261,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 6,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Serial extension V 1.2",
+      "$VER: 1.2"
+    ],
     "sha256": "36ded9a0852874ff5ccb793486725f346047818ce3cbe2e8b1cdc7b5e0c2054d",
     "provenance": "amiga-computing-ac66-1993-11/files/AMOS/AMOS_System/Serial.Lib The AMOS 1.3 serial library, $VER 1.2. Its 15 named keywords are all in AMOS Pro's IOPorts, which absorbed serial, parallel and printer into one extension.",
     "notes": "The AMOS 1.3 serial extension. Its keywords are the ones IOPorts carries in AMOS Pro."
@@ -9132,7 +9281,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 24,
     "statedSlot": 24,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro SLN Extension v2.0",
+      "$VER: 2.0"
+    ],
     "sha256": "7bcf644759b003e24785357d618589b53e060baa48539556751b53ed0d5ea6f6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: SLN_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read. Here the tier is SOURCE and it is genuinely complete: sln_extII.s holds every routine body, unlike GameSupport.s, which turned out to be the shell only. The binary was still disassembled with `extdis sln-2.0` wherever the source said something surprising, and it agreed every time -- which is how the S Mouse Button and array defects were confirmed to have shipped rather than to be a stale source file.",
     "notes": "Mouse control, fast arrays and assorted utilities. Ships with the author's assembler source."
@@ -9150,6 +9302,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
+      "J.G.Doig's Stars Extension v2.33 (UNREGISTERED!)",
       "$VER: 2.33"
     ],
     "sha256": "74807c997fce879331ab07ae28f7194645f10067cfb22b8c9a813813e6f924c2",
@@ -9171,6 +9324,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       17
     ],
     "titleStrings": [
+      "Sticks PD v1.01b",
       "$VER:Sticks Shareware v1.01b"
     ],
     "sha256": "669711695f3d02e032e85cc1fb48c72b282c4da83652e20b38b8ec1bd79767c3",
@@ -9189,7 +9343,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 21,
     "statedSlot": 21,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro SymBase extension V 0.94",
+      "$VER: 0.94"
+    ],
     "sha256": "9a46f2bc69a1d4dbee375473c9b1f118a8231656e1d181989065c6642c4bf59e",
     "provenance": "aminet.net/dev/amos/SymBase.lha, retrieved 2026-08-12 and held in the corpus at sources/symbase/. 201,898 bytes, sha256 6099443f78fabda8f88b0dc3d7ad036cb3298f18fc1556560ac271764f48d2e7. THREE EARLIER DEMOS were taken with it, from kyzer.me.uk/amos/aminet/ -- SymBase_058.lha (60,257 bytes, Aminet CD 31), SymBase_085.lha (197,866, CD 47) and SymBase_092.lha (201,545, CD 52). The author's own page is kezdobetu.hu/amiga/symbase/sb_main.html and was not needed. SLOT STATED BY THE AUTHOR: the archive's own Installer script says \"The SymBase extension developed to use the 21th extension slot.\" ExoticA's wiki also said 21. Author's spelling kept.",
     "notes": "A record-and-field database with its own editor and creation tools."
@@ -9206,7 +9363,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro TFT_Extension V 0.6 (26.8.97)",
+      "$VER: 0.6 (26.8.97)"
+    ],
     "sha256": "5bd9a537ba0d8566f4713b29fb6e8ed5bc9e763971a145e4ebffc8a47743879f",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TFT_0.6. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Version 0.6 fallback for TFT."
@@ -9223,7 +9383,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 25,
     "statedSlot": 25,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro TFT_Extension V 0.7 (10.10.97)"
+    ],
     "sha256": "efc2bed460b83646a8cf8d42dcaca1172d4d6ffd83823e103f690a3f57686471",
     "provenance": "Aminet, dev/amos, TFT_Extension, retrieved into the corpus at sources/aminet-dev-amos/files/TFT_Extension/. The archive ships NO .Lib: the library is carried inside `Install`, a 29,432-byte AmigaOS LoadSeg executable that asks for a registration code and copies the result into APSystem. Install is a compiled AMOS program and the library is one of its banks -- hunk 9's data at $5900 opens with a sixteen-byte bank header ending in the eight characters `Data    `, and the library's own HUNK_HEADER starts at $5910 and runs to the end of the hunk, 6,628 bytes. The version sweep (#73) did not see this one because it reads .Lib files and this library is not a .Lib on disk.",
     "notes": "Low-level oddments: MFM disk reads, bitplane pointers, timers and interrupt control."
@@ -9240,7 +9402,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 14,
     "statedSlot": 14,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "The Game Extension by Peter Cahill V 0.9",
+      "$VER: 0.9Do NOT Distrubte0.9"
+    ],
     "sha256": "e2b859aba0343043d86e917cf676afb75a71e175e41c8d25fb2fb33564f82adf",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: tge_beta. Documentation coverage is counted as keywords with a dedicated node in TGE.guide.beta: 61 of 103. An earlier figure of 73 came from a looser measure -- how many of the library's own keyword names appear anywhere in the files shipped beside it -- which counts a name mentioned in passing as documentation. Neither figure is the usable total: three of the 61 nodes read only \"Removed\", so 58 describe a keyword at all, and two more (\"NOT DONE\", \"dont use\") describe one the author had abandoned. Coverage does not set the evidence tier, which follows from what is available to read.",
     "notes": "A game toolkit shimmed over other people's libraries: CD32 pads, requesters, vertical blank and module playback."
@@ -9257,7 +9422,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 20,
     "statedSlot": 20,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "THX Sound System Extension 0.6 (06-Sep-96)",
+      "$VER: AMOSPro THX Sound System Extension 0.6 (06-Sep-96)"
+    ],
     "sha256": "75177a46f1979be746e033a8e5d61535dc53c7ce30733bff6f3d25f833ab1c67",
     "provenance": "kyzer.me.uk/amos/aminet/THXLib06.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-thx/. 20,814 bytes, sha256 3e25cf9f2acab8f1ad32787858305f76e0f13a2a3576dd7f0abbb63afa920435. Originally Aminet CD 16. The guide and readme were also fetched separately from kyzer.me.uk/amos/docs/thx/ and the copies agree. Slot 20 is ExoticA's AMOS extensions wiki and is not observed here.",
     "notes": "Plays THX music — synth-tracker modules that carry no samples."
@@ -9273,7 +9441,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 7,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "TOME V3.1 Installed"
+    ],
     "sha256": "fc9e01bbd6b543c065e5c3597c95bd7d24c10acc61fe24d6a317079cf1dee465",
     "provenance": "amos-pd-library-cd-1994/files/426-450/APD435/AMOS_System/TOME.Lib The AMOS 1.3 era release, banner \"AMOS TOME V3.1\", against the registered tome-4.23. Installs into AMOS_System. 33 of its 34 names carry into 4.0.",
     "notes": "Version 3.1 fallback for TOME."
@@ -9293,6 +9463,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       7
     ],
     "titleStrings": [
+      "TOME V4.23 Installed",
       "(c) Shadow Software 1990"
     ],
     "sha256": "3b6c15eadfb466968b078db8fc1965709a324e14bf98184f04e353fb79f288df",
@@ -9311,7 +9482,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "defaultSlot": 23,
     "statedSlot": 23,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro Tools Extension V 1.01",
+      "$VER: 1.01"
+    ],
     "sha256": "0ae921b0de8f81d3dc522890ea3fac1191c78c6aaf0c490e2175750c98431b31",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Tools_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A byte-array cursor you point at memory and read and write through, plus array, range and encoding helpers."
@@ -9353,6 +9527,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       12
     ],
     "titleStrings": [
+      "AMOSPro Turbo Extension V 1.9",
       "$VER: 1.9"
     ],
     "sha256": "d1cb8d86ad72c5a9c272fd38f9e0629a3e3b3d98a2483f32895c31ae7ced268a",
@@ -9370,7 +9545,10 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "statedSlot": 12,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "AMOSPro TURBO Plus Extension V 2.15",
+      "$VER: 2.15"
+    ],
     "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Fast blitter, block, bitplane, zone and starfield routines, plus bit-shift and test operators AMOS lacks."

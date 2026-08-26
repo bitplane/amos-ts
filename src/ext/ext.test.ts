@@ -6,7 +6,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { assembleTokenSource, tokensFromSource, SYMBOLIC } from './tokensrc'
-import { REGISTRY, allExtensions, extensionById, defaultSlotBindings } from './registry'
+import { REGISTRY, allExtensions, extensionById, defaultSlotBindings, extensionTitle } from './registry'
 import { EXT_INFO } from './tables.gen'
 import { collectUsage, identifyProgram, identifySlot, specArity, type SlotUsage } from './identify'
 
@@ -766,7 +766,6 @@ describe('the documented registry table matches the registry', () => {
         idBaseEvidence: m.idBaseEvidence,
         defaultSlot: m.recommendedSlot,
         observedSlots: m.observedSlots ?? [],
-        titleStrings: m.titleStrings ?? [],
         provenance: `${m.provenance?.from ?? ''} ${m.provenance?.note ?? ''}`.trim(),
         notes: m.notes ?? '',
       }
@@ -774,7 +773,59 @@ describe('the documented registry table matches the registry', () => {
         const mine = (got as unknown as Record<string, unknown>)[k]
         if (JSON.stringify(mine) !== JSON.stringify(v)) stale.push(`${m.id}.${k}`)
       }
+      // `titleStrings` is the one field the manifest no longer owns outright.
+      // genext.ts reads `LB_Title` and the `$VER:` cookie out of the library
+      // and puts them first, because the banner is what the editor's About
+      // box shows and a hand-copied one drifts. What the manifest holds is
+      // still kept -- an identity string that is NOT in the title block, such
+      // as a build cookie found elsewhere in the binary, is a real finding --
+      // so the test is containment rather than equality.
+      const held = got.titleStrings
+      for (const t of (m.titleStrings ?? []) as string[]) {
+        if (!held.includes(t)) stale.push(`${m.id}.titleStrings missing ${JSON.stringify(t)}`)
+      }
     }
     expect(stale, 'tables.gen.ts is behind the manifests — run: npm run gentables').toEqual([])
+  })
+})
+
+/**
+ * `LB_Title` (+B.s:2285), which is the whole of what `Ed_AboutExt` has to
+ * show about an extension.
+ */
+describe('the banner a library states about itself', () => {
+  it('is what the About box shows, and it is the author s line not ours', () => {
+    const music = extensionById('amospro-music-2.0')!
+    expect(extensionTitle(music)).toBe('AMOSPro Music extension V 2.00')
+    // the registry name is "Music"; the box says what the library says
+    expect(extensionTitle(music)).not.toBe(music.name)
+  })
+
+  it('keeps the $VER cookie apart from the banner', () => {
+    const music = extensionById('amospro-music-2.0')!
+    expect(music.titleStrings).toContain('$VER: 2.00')
+    expect(extensionTitle(music).startsWith('$VER:')).toBe(false)
+  })
+
+  it('is read out of every stock library, so the count and the names agree', () => {
+    for (const [slot, ext] of defaultSlotBindings()) {
+      expect(extensionTitle(ext), `slot ${slot}`).toMatch(/^AMOSPro /)
+    }
+  })
+
+  /**
+   * A table built from an extension's own token source has no library to read
+   * a banner out of, and neither does an AMOSTools stub. Those fall back to
+   * the registry's name and version; nothing else may, because a made-up line
+   * in the About box is indistinguishable from one the author wrote.
+   */
+  it('falls back only where there is no library to read', () => {
+    for (const e of REGISTRY) {
+      const title = extensionTitle(e)
+      if (title === '') continue
+      if (e.titleStrings.some((t) => !t.startsWith('$VER:'))) continue
+      expect(['source', 'amostools'], `${e.id}`).toContain(e.format)
+      expect(title).toBe(`${e.name} ${e.version}`.trim())
+    }
   })
 })

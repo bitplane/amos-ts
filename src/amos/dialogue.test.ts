@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Amos } from './amos'
-import { EditorDialogues } from './dialogue'
+import { EditorDialogues, replaceLabel } from './dialogue'
 import { ED } from '../editor/commands'
 import { ED_MESSAGES } from '../runtime/edmessages.gen'
+import { PORT_ABOUT_LABEL, PORT_ABOUT_LINES } from '../editor/branding'
 
 function boot(source = 'Print "A"'): Amos {
   const amos = new Amos(source)
@@ -164,5 +165,32 @@ describe('Ed_ErrDirect, which is where Ed_Ligne s first button goes', () => {
     amos.answer(2) // Editor [RETURN]
     expect(amos.inEscape).toBe(false)
     expect(amos.display!.isOpen).toBe(true)
+  })
+})
+
+describe('the About box, which is the one label this port rewrites', () => {
+  it('splices a body between LA n and the label after it, and leaves the rest', () => {
+    const script = 'LA\t0;PR\t1,2,3,4;EX;LA\t7;SI\t8,9;EX;'
+    expect(replaceLabel(script, 0, 'EX;')).toBe('LA\t0;EX;LA\t7;SI\t8,9;EX;')
+    expect(replaceLabel(script, 7, 'EX;')).toBe('LA\t0;PR\t1,2,3,4;EX;LA\t7;EX;')
+    // a label the script does not have is a bank with nothing to rewrite
+    expect(replaceLabel(script, 3, 'EX;')).toBe(script)
+  })
+
+  it('runs, and prints every line the port put in a variable', () => {
+    // The whole point of replacing the label rather than the messages: this
+    // is the real Interface interpreter drawing the real requester, so a
+    // script that does not parse fails here rather than on a screen.
+    const amos = boot()
+    amos.call(ED.ABOUT)
+    const ask = amos.pendingAsk
+    expect(ask?.kind).toBe('confirm')
+    expect(ask?.kind === 'confirm' && ask.confirm.which).toBe(PORT_ABOUT_LABEL)
+    const dia = new EditorDialogues(() => amos.runtime!, 9)
+    expect(dia.start(ask!)).toBeUndefined() // it is up, waiting
+    const chan = amos.runtime!.dialogs.get(1)!
+    for (const [slot, text] of PORT_ABOUT_LINES) expect(chan.getVar(slot), `slot ${slot}`).toBe(text)
+    // `SV 1,1VA# 24ME !` turned the count into the shipped sentence
+    expect(String(chan.getVar(1))).toContain(ED_MESSAGES[23])
   })
 })

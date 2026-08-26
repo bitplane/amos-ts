@@ -641,8 +641,26 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         // capped at maxlen
         need(2)
         const maxLen = popInt()
-        const addr = popInt()
-        const bytes = ctx.host.readMem(addr, Math.max(0, maxLen))
+        const at = pop()
+        // DEVIATION: the machine's operand is a POINTER, because the caller
+        // that fills the variable has one -- `Ed_AboutExt` (+Edit.s:4621)
+        // puts `LB_Title(a0)` there, the address of the library's banner.
+        // Nothing in this port has an address to give, so a caller writes the
+        // characters into the variable and `MZ` finds a string sitting where
+        // the 68k would have found a pointer. Cut it the same way: stop at
+        // the first byte below 32, and never take more than maxLen.
+        if (typeof at === 'string') {
+          let cut = at.slice(0, Math.max(0, maxLen))
+          for (let i = 0; i < cut.length; i++) {
+            if (cut.charCodeAt(i) < 32) {
+              cut = cut.slice(0, i)
+              break
+            }
+          }
+          stack.push(cut)
+          break
+        }
+        const bytes = ctx.host.readMem(at, Math.max(0, maxLen))
         let s = ''
         if (bytes) {
           for (const b of bytes) {

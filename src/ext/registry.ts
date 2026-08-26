@@ -168,6 +168,28 @@ const cache = new Map<string, Extension>()
 /** Every extension we know about, keyed by identity. */
 export const REGISTRY: readonly ExtensionInfo[] = EXT_INFO
 
+/**
+ * `LB_Title` (+Equ.s:2243): what the library calls itself.
+ *
+ * `Ed_AboutExt` (+Edit.s:4621) reads this field and nothing else about an
+ * extension, so it is the whole of what the editor's About box has to show.
+ * The banner is read out of the binary by src/cli/genext.ts and lands in
+ * `titleStrings[0]`, which is why the box says "AMOSPro Music extension V
+ * 2.00" and not "Music": the author wrote that line, we did not.
+ *
+ * Falls back to the registry's own name and version for the tables built from
+ * an extension's source and for the AMOSTools stubs, which have no library to
+ * read a banner out of. A library whose title block is empty is `.Empty dc.w
+ * 0` on the machine -- a blank line under the extension number -- and this
+ * answers the same nothing rather than inventing a line for it.
+ */
+export function extensionTitle(e: ExtensionInfo): string {
+  const banner = e.titleStrings.find((t) => !t.startsWith('$VER:'))
+  if (banner !== undefined) return banner
+  if (e.format === 'source' || e.format === 'amostools') return `${e.name} ${e.version}`.trim()
+  return ''
+}
+
 export function extensionById(id: string): Extension | undefined {
   const hit = cache.get(id)
   if (hit) return hit

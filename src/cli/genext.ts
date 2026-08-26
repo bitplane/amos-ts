@@ -105,6 +105,24 @@ const STOCK: Array<{ id: string; name: string; slot: number; file: string; desc:
 
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex')
 
+/**
+ * `LB_Title` and the `$VER:` cookie beside it, in the order a reader wants
+ * them.
+ *
+ * The banner comes first because it is what `Ed_AboutExt` (+Edit.s:4621)
+ * prints. The cookie follows as its own entry rather than being folded in:
+ * AmigaDOS `Version` reads it, the two disagree often enough to be worth
+ * keeping apart (GUI 1.5b's banner says "Beta Version 1.5" and its cookie
+ * says the same, but Explode's cookie carries "© Testaware" into the version
+ * field), and neither is worth inventing when the library states nothing.
+ */
+function titlesOf(title: string, version: string): string[] {
+  const out: string[] = []
+  if (title !== '') out.push(title)
+  if (version !== '') out.push(`$VER: ${version}`)
+  return out
+}
+
 const infos: ExtensionInfo[] = []
 const tables = new Map<string, TokenEntry[]>()
 
@@ -123,7 +141,7 @@ for (const { id, name, slot, file, desc } of STOCK) {
     idBaseEvidence: 'calibrated',
     defaultSlot: slot,
     observedSlots: [slot],
-    titleStrings: [],
+    titleStrings: titlesOf(lib.title, lib.version),
     sha256: sha(raw),
     provenance: `AMOS Professional system disc (APSystem/${file}); slot ${slot} per +Interpreter_Config.s message ${15 + slot}.`,
     notes: desc,
@@ -170,6 +188,7 @@ for (const file of readdirSync(manifestDir).sort()) {
   let tokens: TokenEntry[]
   let hash = m.sha256 ?? ''
   let statedSlot: number | undefined
+  let titles: string[] = []
   if (m.source === 'tokens') {
     const src = readFileSync(join(extDir, dir, m.tokenSource), 'latin1')
     tokens = tokensFromSource(src, { defines: m.assembleDefines ?? [] })
@@ -179,7 +198,11 @@ for (const file of readdirSync(manifestDir).sort()) {
   } else {
     const raw = readFileSync(join(extDir, dir, m.library))
     if (m.format === 'amostools') tokens = parseAmosToolsTable(raw)
-    else tokens = (m.format === 'ap20' ? parseAmosLib(raw) : parseAmosLibOld(raw)).tokens
+    else {
+      const lib = m.format === 'ap20' ? parseAmosLib(raw) : parseAmosLibOld(raw)
+      tokens = lib.tokens
+      titles = titlesOf(lib.title, lib.version)
+    }
     hash = sha(raw)
     statedSlot = slotFromBinary(m.id, new Uint8Array(raw))
   }
@@ -196,7 +219,7 @@ for (const file of readdirSync(manifestDir).sort()) {
     defaultSlot: m.recommendedSlot,
     ...(statedSlot === undefined ? {} : { statedSlot }),
     observedSlots: m.observedSlots ?? [],
-    titleStrings: m.titleStrings ?? [],
+    titleStrings: [...titles, ...((m.titleStrings ?? []) as string[]).filter((t) => !titles.includes(t))],
     sha256: hash,
     provenance: `${m.provenance?.from ?? ''} ${m.provenance?.note ?? ''}`.trim(),
     notes: m.notes ?? '',

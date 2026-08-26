@@ -69,18 +69,34 @@ const vfs = player.vfs
 // is reading pixels off the canvas and guessing which statement drew them.
 if (import.meta.env.DEV) (globalThis as unknown as { amos: unknown }).amos = player
 
+/**
+ * The boot program, which ends in `Edit`.
+ *
+ * `InEdit` (+ILib.s:1829) is `move.w #1000,d0 / bra RunErr`: it stops the
+ * program and hands 1000 to the editor, which `Ed_Errr` (+Edit.s:8261) reads
+ * as "nothing went wrong, put the editor back". So the boot screen is a
+ * program you leave the way an AMOS program leaves, and what you land in is
+ * this program open in the editor.
+ *
+ * The wait is a `Wait Vbl` loop rather than `Wait 10` so the keyboard is read
+ * every frame. `Wait` sleeps the program for the whole delay.
+ */
 const DEMO = `Curs Off : Cls 0
 For C=1 To 15
    Ink C : Circle 160,100,C*6
 Next
 Pen 2 : Paper 0
 Locate 0,1 : Centre "amos-ts"
-Locate 0,23 : Centre "drop a .AMOS file above"
+Locate 0,21 : Centre "drop a .AMOS file above"
+Locate 0,23 : Centre "click or press a key to edit"
 Do
    For C=1 To 15
       Colour C,Rnd($FFF)
    Next
-   Wait 10
+   For F=1 To 10
+      Wait Vbl
+      If Inkey$<>"" or Mouse Key<>0 Then Edit
+   Next
 Loop`
 
 /**
