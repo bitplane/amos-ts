@@ -313,7 +313,7 @@ export interface VerifyOptions {
    * reader takes it from there after `PTest` has run. `Ed_Infos` (+Edit.s:4695)
    * is the only one in the editor.
    */
-  stats?: { instructions: number; not13?: boolean }
+  stats?: { instructions: number; not13?: boolean; accessory?: number }
   /**
    * `VerCheck1.3` (+Equ.s:1267): stop at the first construct AMOS 1.3 lacks
    * and report it as error 47 rather than walking on with the flag raised.
@@ -423,6 +423,9 @@ class Verifier {
   varLong = 0
   /** MathFlags bit 7, which `Set Double Precision` turns on for the whole program */
   doublePrecision = false
+
+  /** `Prg_Accessory(a5)`: how many `Set Accessory` the walk passed */
+  accessory = 0
   /** VNm, this phase's names; in phase 0 it becomes DVNm */
   locals: VarRec[] = []
   /** DVNm, the main program's names, which Shared makes reachable from a procedure */
@@ -666,9 +669,11 @@ class Verifier {
         this.doublePrecision = true
         return 'dp'
       case 0x24:
-        // `VerSetA` (:825): nothing to walk, and the only thing it does
-        // besides counting the accessory is refuse 1.3
+        // `VerSetA` (:825): `addq.b #1,Prg_Accessory(a5)` and nothing to
+        // walk. The count is what `Prg_RunIt` reads at `.PRun` to decide
+        // whether an accessory run is really running an accessory.
         this.setNot13()
+        this.accessory++
         return 'dp'
       case 0x05:
         this.verSetStack()
@@ -2862,6 +2867,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
     if (opts.stats !== undefined) {
       opts.stats.instructions = v.nInst
       opts.stats.not13 = v.not13
+      opts.stats.accessory = v.accessory
     }
     return b.slice(0, src.length)
   }
@@ -2892,6 +2898,7 @@ export function verify(src: Uint8Array, opts: VerifyOptions = {}): Uint8Array {
   if (opts.stats !== undefined) {
     opts.stats.instructions = v.nInst
     opts.stats.not13 = v.not13
+    opts.stats.accessory = v.accessory
   }
   return b.slice(0, src.length)
 }

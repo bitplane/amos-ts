@@ -179,13 +179,18 @@ and `escapeBack` brings it back; what happens in between is
 one-line editor already. `Esc_Loop`'s own arrows, which resize the escape
 screen against `Es_Y1`/`Es_Y2`, are pixel geometry and are not ported.
 
-There is one window. `Ed_LoadHidden` and `Ed_RunHidden` are ported and an
-accessory session needs two -- one being edited, one holding the accessory --
-but `Amos.machine` builds the interpreter out of `this.window`, so a hidden
-window's program cannot actually run. Until that moves, `Call Editor` from a
-program `Ed_Run` started is always -6: it IS the current window, which is the
-first thing `Ed_ZapIn` refuses.
+The window that runs is the one `Ed_Run` named. `Edt_Runned(a5)` is that
+window and it is not always the current one: `Ed_RunHidden` (+Edit.s:8105)
+runs a program in a window with no screen area at all, and `Amos.machine`
+used to build the interpreter out of `this.window` whatever it was asked for.
 
-There is also no key loop. `Amos.call` runs one command by number, which is
+That is also what `Call Editor` needed. `Ed_ZapX` (:2737) opens by comparing
+`Edt_Runned` with `Edt_Current` and refuses -6 when they are the same, so with
+one window there was nothing else for them to be. The other half is `.PRun`
+(+Verif.s:4366): asking for an accessory run only lets a program that IS one
+take the accessory path, and what makes it one is `Set Accessory`, which the
+Test pass counts (`VerSetA`, :825) and `ProgramBuffer.accessory` now carries.
+
+There is no key loop. `Amos.call` runs one command by number, which is
 `Ed_FCall`, and a host that wants `Ed_Key` builds it out of `edKey` in
 `src/editor/commands.ts`.

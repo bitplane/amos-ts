@@ -405,10 +405,10 @@ export class Amos {
    * screen needs: direct mode exists to look at what the program left behind,
    * and a machine thrown away at the end of the run has nothing to look at.
    */
-  private machine(fresh: boolean): Runtime {
+  private machine(fresh: boolean, on: Edit = this.editor.current ?? this.window): Runtime {
     const had = this.runtime
     if (had !== null && !fresh) return had
-    const w = this.window
+    const w = on
     const file = writeProgramFile({
       pro: w.prog.pro,
       mathFlags: w.prog.mathFlags,
@@ -478,9 +478,17 @@ export class Amos {
    * runs. So the two halves are separable, and `Prg_JError` is `finishRun`.
    */
   startRun(): Runtime {
+    const r = this.pending
     this.pending = null
-    return this.machine(true)
+    // `Edt_Runned(a5)` is the window whose program runs, and `Ed_RunHidden`
+    // (+Edit.s:8213) is the reason it is not always the current one: it runs
+    // a program in a window that has no screen area at all
+    this.ran = r?.window ?? this.editor.current ?? this.window
+    return this.machine(true, this.ran)
   }
+
+  /** `Edt_Runned(a5)`, kept because `Ed_Errr` clears it on the way back */
+  private ran: Edit | null = null
 
   /** whether `Ed_Run` asked for a program and the host has not started it */
   get pendingRun(): RunRequest | null {
@@ -506,7 +514,8 @@ export class Amos {
       // `VerPos(a5)`, when the parse recorded one. The interpreter runs a copy
       // of this window's source, so an offset into that block is an offset
       // into this one
-      at = end.at >= 0 ? end.at : this.window.prog.findLine(end.line - 1).at - this.window.prog.stBas
+      const w = this.ran ?? this.window
+      at = end.at >= 0 ? end.at : w.prog.findLine(end.line - 1).at - w.prog.stBas
     }
     return this.paint(edRunReturn(this.window, code, at, text))
   }

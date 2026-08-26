@@ -93,6 +93,16 @@ export class ProgramBuffer {
   /** `Prg_NLigne`, in editor line numbers */
   lineCount = 0
   /**
+   * Whether the Test pass found a `Set Accessory`.
+   *
+   * `VerSetA` (+Verif.s:825) is `addq.b #1,Prg_Accessory(a5)`, and `.PRun`
+   * (:4370) reads it: asking for an accessory run only lets a program that IS
+   * one take the accessory path. On the machine the flag lives on `a5`, the
+   * interpreter, and it is the WALK that puts it there, so here it belongs to
+   * the program the walk was over.
+   */
+  accessory = false
+  /**
    * `Prg_Marks`, ten longs.
    *
    * A set mark is `[line:2][$FF:1][column:1]` (`Ed_SMark0` +Edit.s:4238), and

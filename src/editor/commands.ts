@@ -2611,7 +2611,7 @@ function vaTester(e: Edit, check13 = false, always = false): void {
   if (!always && !e.prog.modified) return
   const src = programSource(e.prog)
   let out: Uint8Array
-  const stats = { instructions: 0, not13: false }
+  const stats = { instructions: 0, not13: false, accessory: 0 }
   try {
     out = verify(src, { stats, check13, bankNumbers: bankNumbers(e.prog) })
   } catch (err) {
@@ -2625,6 +2625,10 @@ function vaTester(e: Edit, check13 = false, always = false): void {
   e.prog.modified = false
   e.prog.pro = stats.not13
   e.editor.verNInst = stats.instructions
+  // `VerSetA` (+Verif.s:825) counts `Set Accessory`, and `Prg_RunIt`'s
+  // `.PRun` reads the count: asking for an accessory does not make a program
+  // one. This is the walk, so this is where the count is taken.
+  e.prog.accessory = stats.accessory > 0
 }
 
 /**
@@ -3028,6 +3032,10 @@ function prgRunIt(e: Edit, w: Edit, accessory: boolean, hidden: boolean, command
   testMesOn(e, w) // `jsr (a2)`
   vaTester(w, false, true) // ClearVar and PTest
   testMesOff(e) // `jsr 4(a2)`
+  // `.PRun` (+Verif.s:4366): `tst.w d2 / beq .Nor / bmi .PRun / tst.b
+  // Prg_Accessory(a5) / beq .Nor`. Asking for an accessory only lets a
+  // program that IS one take the accessory path, and `.Nor` clears the flag.
+  editor.accessory = accessory && w.prog.accessory
   const run = editor.runProgram
   if (run === null) {
     // DEVIATION: with no host there is nobody to run it, so the command ends

@@ -9,6 +9,12 @@ import { tokenize } from '../tokens/source'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { AmigaFS } from '../amiga/vfs'
+import { Edit } from '../editor/edit'
+import { ProgramBuffer } from '../editor/buffer'
+import { EditBuffer } from '../editor/editbuf'
+import { UndoBuffer } from '../editor/undo'
+import { tokeniseSource } from '../tokens/edtok'
+import { verify } from '../tokens/verify'
 
 /** a program, and somewhere for what it prints to go */
 function boot(src: string): { amos: Amos; out: () => string } {
@@ -293,5 +299,73 @@ describe('the remote control, which is an accessory driving the editor', () => {
     const t = new TokenTable(CORE_TOKENS)
     const rt = new Runtime(tokenize('Call Editor 4', t), t, { maxSteps: 10_000 })
     expect(() => rt.runHeadless(50)).toThrow(/Illegal function call/)
+  })
+})
+
+/** another window on this editor, holding `src` (`Ed_OpenWindow` +Edit.s:11228) */
+function win(amos: Amos, src: string): Edit {
+  return new Edit(
+    ProgramBuffer.load(verify(tokeniseSource(src, amos.table), {}).slice(0, -2), 65536),
+    new EditBuffer(4),
+    new UndoBuffer(50),
+    amos.table,
+    {},
+    amos.editor,
+  )
+}
+
+describe('the window that runs is the one Ed_Run named', () => {
+  it('runs a hidden window s program and not the current window s', () => {
+    // `Edt_Runned(a5)` is the window whose program runs. `Ed_RunHidden`
+    // (+Edit.s:8105) is the reason it is not always the current one: a window
+    // with no screen area still has a program in it.
+    //
+    // This used to be impossible here. `Amos.machine` built the interpreter
+    // from `this.window` whatever `Ed_Run` had asked for, so a hidden
+    // window's program could not run at all.
+    const text: string[] = []
+    const amos = new Amos('Print "MAIN"', { onText: (t) => text.push(t), rows: 12, requesters: false })
+    const w = win(amos, 'Print "HIDDEN"')
+    w.hidden = 1
+    expect(amos.call(ED.RUN_HIDDEN, 0)).toBe(0)
+    expect(text.join('').replace(/\s+/g, ' ').trim()).toBe('HIDDEN')
+  })
+
+  it('lets a hidden accessory drive the editor, which is what Call Editor is for', () => {
+    // `Ed_ZapX` (+Edit.s:2737) opens by comparing `Edt_Runned` with
+    // `Edt_Current`, and refuses -6 when they are the same: an accessory may
+    // not drive its own window. With one window there was nothing else for
+    // them to be, so `Call Editor` was always -6.
+    //
+    // `.PRun` (+Verif.s:4366) is the other half. Asking for an accessory run
+    // only lets a program that IS one take the accessory path, and what makes
+    // it one is `Set Accessory`, which the Test pass counts (`VerSetA`, :825).
+    const text: string[] = []
+    const amos = new Amos('Print "MAIN"', { onText: (t) => text.push(t), rows: 12, requesters: false })
+    const w = win(amos, 'Set Accessory\nCall Editor 2\nPrint "ACC ";Param')
+    w.hidden = 1
+    expect(amos.call(ED.RUN_HIDDEN, 0)).toBe(0)
+    // command 2 is `Ed_CBas`, cursor down, and 0 is "it ran"
+    expect(text.join('').replace(/\s+/g, ' ').trim()).toBe('ACC 0')
+  })
+
+  it('refuses -6 when the accessory IS the current window', () => {
+    // `.Nor` (+Verif.s:4380) clears `Prg_Accessory` for a normal run, so a
+    // program full of `Set Accessory` that was simply Run is not one
+    const text: string[] = []
+    const amos = new Amos('Set Accessory\nCall Editor 75\nPrint Param', {
+      onText: (t) => text.push(t),
+      rows: 12,
+      requesters: false,
+    })
+    expect(amos.call(ED.RUN)).toBe(0)
+    expect(text.join('').replace(/\s+/g, ' ').trim()).toBe('-6')
+  })
+
+  it('runs the current window s program when nothing hid one', () => {
+    const { amos, out } = boot('Print "MAIN"')
+    amos.editor.dialogues = null
+    expect(amos.call(ED.RUN)).toBe(0)
+    expect(out()).toBe('MAIN')
   })
 })
