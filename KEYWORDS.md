@@ -130,7 +130,7 @@ is.
 | stars-2.33           |       11 |       11 |            0 |       0 |     100% |
 | sticks-1.01b         |       16 |       16 |            0 |       0 |     100% |
 | symbase-0.94         |       51 |       47 |            3 |       0 |     100% |
-| system               |       41 |       29 |            1 |       0 |     100% |
+| system               |       41 |       29 |            3 |       0 |     100% |
 | text-io              |       37 |       36 |            1 |       0 |     100% |
 | tft-0.6              |       22 |       20 |            0 |       0 |     100% |
 | tft-0.7              |       28 |       24 |            2 |       0 |     100% |
@@ -144,18 +144,18 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5365 |          282 |    1718 |      77% |
+| **total**            |     7422 |     5365 |          284 |    1718 |      77% |
 
 ## Not applicable, by what would retire it
 
 An n/a keyword sits outside the percentages, so its reason is the only thing holding it up.
 
-### m68k (16)
+### m68k (14)
 
 Executing 68000 machine code. The whole keyword IS the jump, so there is nothing to approximate. A 68k interpreter would retire this group entire.
 
-`@_apml_@`, `areg`, `call`, `cmpcall`, `doscall`, `dreg`, `execall`, `gfxcall`, `intcall`,
-`jsr`, `lib base`, `lib call`, `lib close`, `lib open`, `library call`, `trans screen dynamic`
+`@_apml_@`, `call`, `cmpcall`, `doscall`, `execall`, `gfxcall`, `intcall`, `jsr`, `lib base`,
+`lib call`, `lib close`, `lib open`, `library call`, `trans screen dynamic`
 
 ### debugger-trap (4)
 
@@ -423,9 +423,9 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 
 ## system (100%)
 
-- **approximated** (1): `call editor`
-- **n/a** (11): `areg`, `call`, `doscall`, `dreg`, `execall`, `gfxcall`, `intcall`, `lib base`,
-  `lib call`, `lib close`, `lib open`
+- **approximated** (3): `areg`, `call editor`, `dreg`
+- **n/a** (9): `call`, `doscall`, `execall`, `gfxcall`, `intcall`, `lib base`, `lib call`,
+  `lib close`, `lib open`
 
 ## text-io (100%)
 

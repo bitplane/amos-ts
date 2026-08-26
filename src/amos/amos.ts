@@ -155,6 +155,16 @@ export interface AmosOptions {
    * `Ed_Run` left and the host calls `startRun` and then `finishRun`.
    */
   hostFrames?: boolean
+  /**
+   * Every machine this builds, before it runs anything.
+   *
+   * `Prg_RunIt` clears the variables and nothing else, but this port builds a
+   * fresh `Runtime` per Run, so whatever the host set up on the last one has
+   * to be set up again. `loadSystemResource` is the one that shows: without
+   * it `Resource Screen Open` fails and `AMOSPro_Help` gives up with its own
+   * "Out of memory" at line 465.
+   */
+  onMachine?: (rt: Runtime) => void
 }
 
 export class Amos {
@@ -563,6 +573,7 @@ export class Amos {
       ...(this.opts.fs ? { fs: this.opts.fs } : {}),
     })
     this.runtime = rt
+    this.opts.onMachine?.(rt)
     // `Prg_SetBanks`: from here the editor reads the banks through the
     // interpreter, because on the machine there is one list and this is it
     w.prog.liveBanks = () => rt.serializeAllBanks()

@@ -2195,6 +2195,17 @@ export class Runtime {
   /** T_MouSpr/T_MouDes: the current pointer shape (1-based) */
   mouseShapeNo = 1
   mouseShape: BankImage | null = null
+  /**
+   * `CallReg(a5)`: the eight data and seven address slots `Dreg` and `Areg`
+   * name, and what `Call` would load into the CPU.
+   *
+   * `RReg` (+Lib.s:2716) indexes one array for both, `Dreg(n)` at n and
+   * `Areg(n)` at 8+n. This port reads 68k without executing it, so nothing
+   * but a program ever writes them -- which is what they hold between calls
+   * on the machine too.
+   */
+  readonly callReg: number[] = Array(16).fill(0)
+
   /** T_MouShow: visible while >= 0; Hide decrements / Show increments,
    * Hide On forces -1 / Show On forces 0 (MHide/MShow/HiSho +W.s:10693) */
   mouseShow = 0

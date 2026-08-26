@@ -264,6 +264,29 @@ function zoneScreen(rt: Runtime, a: import('../interp/values').Value[], full: nu
   return s
 }
 
+/**
+ * `RReg` (+Lib.s:2716): which slot of `CallReg`, or an Illegal function call.
+ *
+ *     cmp.l d0,d2 / Rbcc L_FonCall / add.w d1,d2 / lsl.w #2,d2
+ *     lea CallReg(a5),a0 / lea 0(a0,d2.w),a0
+ *
+ * d0 is the limit and d1 the base, so `Dreg` is 8 and 0 and `Areg` is 7 and
+ * 8: one array, and no `Areg(7)` because A7 is the stack pointer.
+ */
+function regSlot(n: number, limit: number, base: number): number {
+  if (n < 0 || n >= limit) throw new AmosError('function call error')
+  return base + n
+}
+
+/** `IReg` (:2705): `Rbsr L_RReg / move.l d3,(a0)` */
+function writeReg(rt: Runtime, it: It, limit: number, base: number): void {
+  it.expect('(')
+  const n = it.evalInt()
+  it.expect(')')
+  it.expectOp('=')
+  rt.callReg[regSlot(n, limit, base)] = it.evalInt() | 0
+}
+
 /** EcToD4's answer, which reaches BASIC as a plain integer */
 const ENT_NUL = -0x8000_0000
 
@@ -4503,6 +4526,34 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'synchro off'() {
       rt.synchroManual = true
     },
+    /**
+     * `InDReg` and `InAReg` (+Lib.s:2672-2700), which are four instructions
+     * each and share `IReg`, `FReg` and `RReg` under them.
+     *
+     *     InAReg: moveq #7,d0 / moveq #8,d1 / move.l (a3)+,d2 / Rbra L_IReg
+     *     InDReg: moveq #8,d0 / moveq #0,d1 / move.l (a3)+,d2 / Rbra L_IReg
+     *     RReg:   cmp.l d0,d2 / Rbcc L_FonCall / add.w d1,d2 / lsl.w #2,d2
+     *             lea CallReg(a5),a0 / lea 0(a0,d2.w),a0
+     *
+     * So `CallReg` is one array of longs, `Dreg(n)` is index n with n < 8 and
+     * `Areg(n)` is index 8+n with n < 7 -- A7 is the stack pointer and there
+     * is no seventh address register to name. Anything at or above the limit
+     * is an Illegal function call.
+     *
+     * DEVIATION: `Call` loads these into the CPU and reads them back, and
+     * this port reads 68k without executing it, so nothing here ever writes
+     * them but a program. That makes them eight and seven longs of program
+     * storage, which is what they are between calls anyway, and it is what
+     * `AMOSPro_Help` needs: `ADAT=Leek(Dreg(3)) : If ADAT` reads a structure
+     * address out of d3 and has the guard for exactly the machine that did
+     * not leave one there.
+     */
+    dreg(it) {
+      writeReg(rt, it, 8, 0)
+    },
+    areg(it) {
+      writeReg(rt, it, 7, 8)
+    },
     amreg(it) {
       // assignment form: Amreg([channel,] n) = value
       it.expect('(')
@@ -5366,6 +5417,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // carries that rule so nothing else has to know it
       return VI(rt.bankRef(int(a[0]!))?.length ?? 0)
     },
+
+    // ---- the 68k register slots (Dreg/Areg) ----
+    dreg: (_, a) => VI(rt.callReg[regSlot(int(a[0]!), 8, 0)]!),
+    areg: (_, a) => VI(rt.callReg[regSlot(int(a[0]!), 7, 8)]!),
 
     // ---- AMAL ----
     amreg(_, a) {

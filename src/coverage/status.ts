@@ -4241,8 +4241,6 @@ export const NA = new Set<string>([
   'lib call',
   'lib close',
   'lib base',
-  'areg',
-  'dreg',
   // AMCAF 1.50: Trans Screen Dynamic is a JIT, and the code it writes is only
   // ever reached through `Call`, which is n/a immediately above. Routine 153
   // ($4272) does not paint anything -- it walks the Trans Map exactly as Trans
@@ -4345,11 +4343,9 @@ export const NA_GROUPS: Record<NaGroup, string> = {
 export const NA_GROUP_OF: Record<string, NaGroup> = {
   // 68k execution and its register scaffolding
   '@_apml_@': 'm68k',
-  areg: 'm68k',
   call: 'm68k',
   cmpcall: 'm68k',
   doscall: 'm68k',
-  dreg: 'm68k',
   execall: 'm68k',
   gfxcall: 'm68k',
   intcall: 'm68k',

@@ -48,6 +48,7 @@ import { TK } from '../tokens/edtok'
 import { MACHINE_CODE_PROC, PROTECTED_PROC } from '../tokens/stream'
 import { VerifyError, verify } from '../tokens/verify'
 import { ED_MESSAGES, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
+import { VERSION } from '../version'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { HUNK_CODE, HUNK_HEADER } from '../amiga/hunk'
@@ -1743,8 +1744,23 @@ function blockSaveAscii(e: Edit): void {
 
 /* ---- 149 and 150: the two About boxes ----------------------------------- */
 
-/** `VersionN` (+B.s:354), which is " Version " and the `Version` macro after it */
-export const ED_VERSION = ' Version 2.00'
+/**
+ * `VersionN` (+B.s:354), which is " Version " and the `Version` macro after it.
+ *
+ * DEVIATION: the machine's is " Version 2.00" and this is not that program.
+ * The requester builds its title as `SV 0,21ME 0VA !` -- message 21, which is
+ * "AMOS Professional", and then this -- so what the box says is what it is:
+ * AMOS Professional, in TypeScript. The two lines under it are messages 22
+ * and 23, the author and the copyright, and they stay: they are true, and the
+ * licence the source was released under asks for the notice.
+ */
+export const ED_VERSION = ' in TypeScript'
+
+/** what goes where the buyer's name would be: this port, and its version */
+export const ED_PORT = `amos-ts ${VERSION}`
+
+/** and where the registration number would be */
+export const ED_HOME = 'amos.bitplane.net'
 
 /**
  * `UserReg` (+B.s:314) and `UserName` (:328) as the assembler lays them out:
@@ -1756,7 +1772,7 @@ export const ED_VERSION = ' Version 2.00'
  * placeholders are the evidence: "REGISTRATION #" where the number belongs and
  * "Not Installed!" where the name does.
  */
-const USER_SECU = ((): Uint8Array => {
+export const USER_SECU = ((): Uint8Array => {
   const b = new Uint8Array(32)
   const put = (at: number, text: string, key: number): void => {
     b[at + 1] = text.length
@@ -1796,7 +1812,15 @@ function about(e: Edit): void {
   confirm(e, {
     which: 0, // EdD_Title
     values: [undefined, count],
-    strings: [ED_VERSION, undefined, sysUnCode(USER_SECU, 16, 0xa5), sysUnCode(USER_SECU, 0, 0x73)],
+    /*
+     * DEVIATION: slots 2 and 3 are `UserName` and `UserReg`, which
+     * Install.AMOS writes the buyer's details into and which ship as "Not
+     * Installed!" and "REGISTRATION #". Nobody buys this one, so the two
+     * lines say what it is and where it lives instead. `sysUnCode` and the
+     * two encoded placeholders are still here, and about.test.ts still reads
+     * them, because what the shipped bytes hold is worth keeping.
+     */
+    strings: [ED_VERSION, undefined, ED_PORT, ED_HOME],
   })
 }
 

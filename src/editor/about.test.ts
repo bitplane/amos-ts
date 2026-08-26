@@ -15,7 +15,7 @@ import { ProgramBuffer } from './buffer'
 import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
-import { ED, ED_VERSION, drawWindows, edCall, sysUnCode } from './commands'
+import { ED, ED_HOME, ED_PORT, ED_VERSION, USER_SECU, drawWindows, edCall, sysUnCode } from './commands'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -69,7 +69,10 @@ describe('Ed_About', () => {
     e.editor.extensions[5] = ''
     edCall(e, ED.ABOUT)
     expect(shown[0]!.strings![0]).toBe(ED_VERSION)
-    expect(ED_VERSION).toBe(' Version 2.00')
+    // DEVIATION: the machine's is " Version 2.00". The requester builds its
+    // title as `SV 0,21ME 0VA !` -- message 21 and then this -- so the box
+    // reads "AMOS Professional in TypeScript", which is what it is.
+    expect(ED_VERSION).toBe(' in TypeScript')
     expect(shown[0]!.values![1]).toBe(2)
   })
 
@@ -83,11 +86,25 @@ describe('Ed_About', () => {
     expect(shown[0]!.values![1]).toBe(0)
   })
 
-  it('shows the placeholders a copy that was never installed carries', () => {
+  it('still carries the placeholders a copy that was never installed has', () => {
+    // `UserReg` and `UserName` ship XORed with their own byte, and
+    // `Sys_UnCode` (+B.s:595) is what reads them back. Nothing shows them any
+    // more -- see below -- but what the shipped bytes hold is worth keeping.
+    expect(sysUnCode(USER_SECU, 0, 0x73)).toBe('REGISTRATION #')
+    expect(sysUnCode(USER_SECU, 16, 0xa5)).toBe('Not Installed!')
+  })
+
+  it('says what this port is where the buyer s details would go', () => {
+    // DEVIATION: slots 2 and 3 are the two lines Install.AMOS writes, under
+    // "Registered User: " and "Registration Number: " (messages 219 and 220).
+    // Nobody buys this one. Messages 22 and 23 above them -- the author and
+    // the copyright -- are untouched: they are true, and the licence the
+    // source was released under asks for the notice.
     const e = open()
     edCall(e, ED.ABOUT)
-    expect(shown[0]!.strings![3]).toBe('REGISTRATION #')
-    expect(shown[0]!.strings![2]).toBe('Not Installed!')
+    expect(shown[0]!.strings![2]).toBe(ED_PORT)
+    expect(shown[0]!.strings![3]).toBe(ED_HOME)
+    expect(ED_PORT).toMatch(/^amos-ts /)
   })
 })
 

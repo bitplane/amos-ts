@@ -183,9 +183,9 @@ full table.
 
 | | |
 |---|---|
-| ran to a stop | 538 |
-| **ran to a stop with nothing skipped** | **499 (93%)** |
-| hit something unimplemented | 39 |
+| ran to a stop | 537 |
+| **ran to a stop with nothing skipped** | **511 (95%)** |
+| hit something unimplemented | 26 |
 
 Read the second row, not the "ended with nothing skipped" line the tool prints.
 That line counts only the 119 programs that *terminate*, and most AMOS programs
@@ -194,9 +194,18 @@ on input, both of which are correct behaviour rather than failure.
 
 Ranked by programs blocked rather than by occurrences, what is left is almost
 entirely **n/a by policy**. This port reads 68k machine code and never executes
-it, so `dreg` (30 programs), `doscall` (14), `call` and `areg` (4 each),
-`machine code procedure` (2) and `gfxcall` (1) cannot move, and no keyword work
-moves them. `dreg` alone is most of the 39.
+it, so `doscall` (14 programs), `call` (4), `machine code procedure` (2) and
+`gfxcall` (1) cannot move, and no keyword work moves them.
+
+`dreg` and `areg` used to head this list at 30 programs and 4, and they were
+miscategorised. `RReg` (`+Lib.s:2716`) is six instructions over one array of
+longs: `Dreg(n)` is slot n and `Areg(n)` is slot 8+n, with no `Areg(7)`
+because A7 is the stack pointer. They are program-visible STORAGE, and only
+`Call` — which is n/a — puts a CPU register in them. Calling them 68k
+execution was a gap wearing a classification. Twelve programs moved when they
+were implemented, and `AMOSPro_Help` was one: `ADAT=Leek(Dreg(3)) : If ADAT`
+is defensive code with a working fallback, and the fallback could not be
+reached through an unimplemented keyword.
 
 Everything else is one or two programs each. `||apcmp||` is the compiler's
 header template. Four OS DevKit spellings turn up once apiece: `_dos exist`,

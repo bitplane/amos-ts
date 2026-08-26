@@ -887,6 +887,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       hostFrames: true,
       fs: vfs as never,
       runtime: shared as never,
+      // a fresh Runtime per Run, so the host's own setup goes on each of them
+      onMachine: (machineRt) => {
+        if (systemResource) machineRt.loadSystemResource(systemResource)
+      },
     })
   }
 
