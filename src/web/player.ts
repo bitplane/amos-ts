@@ -74,6 +74,19 @@ export const SCAN: Record<string, number> = {
   Digit1: 0x01, Digit2: 0x02, Digit3: 0x03, Digit4: 0x04, Digit5: 0x05,
   Digit6: 0x06, Digit7: 0x07, Digit8: 0x08, Digit9: 0x09, Digit0: 0x0a,
   F1: 0x50, F2: 0x51, F3: 0x52, F4: 0x53, F5: 0x54, F6: 0x55, F7: 0x56, F8: 0x57, F9: 0x58, F10: 0x59,
+  /*
+   * The numeric keypad and Help, which only the editor asks for.
+   *
+   * Read off `.Ed_KFonc` rather than recalled: the ten Ctrl-numpad records
+   * run commands 49 to 58 in order, which are Set Mark 0 to Set Mark 9, so
+   * the codes ARE the digits and their order settles the layout. Help is
+   * `$5f`, the last row of `Cla_Special` (+W.s:12917), where it stores ASCII
+   * 0 with its scancode.
+   */
+  Numpad0: 0x0f, Numpad1: 0x1d, Numpad2: 0x1e, Numpad3: 0x1f, Numpad4: 0x2d,
+  Numpad5: 0x2e, Numpad6: 0x2f, Numpad7: 0x3d, Numpad8: 0x3e, Numpad9: 0x3f,
+  // no browser sends a Help key, and Insert is where an Amiga keyboard's is
+  Help: 0x5f, Insert: 0x5f,
 }
 
 /**
@@ -488,7 +501,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!focused || !rt) return
     audio.unlock()
-    if (e.ctrlKey && e.code === 'KeyC') {
+    // Ctrl-C is the break key, and only while a program is running. In the
+    // editor it is an ordinary shortcut: `.Ed_KFonc` gives it to `Ed_BlocCut`
+    // like any other letter with a qualifier, and there is nothing to break.
+    if (e.ctrlKey && e.code === 'KeyC' && amos?.display?.isOpen !== true) {
       rt.interp.requestBreak()
       e.preventDefault()
       return

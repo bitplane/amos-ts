@@ -224,12 +224,13 @@ export class Amos {
    * `Ed_Appear`'s redraw, after whatever the command did.
    *
    * The machine repaints what changed: `Edt_EtatAff` is seven bits saying
-   * which status fields are stale and `Ed_ALigne` redraws one row. Here the
-   * whole editor goes down again, which is more work than the machine does
-   * and none of it visible -- a 640x256 repaint is 20KB of bitplane.
+   * which status fields are stale and `Ed_ALigne` redraws one row. Here every
+   * visible row goes down again, which is more work than the machine does and
+   * none of it visible. What this must NOT do is `Ed_DrawWindows`, because
+   * that ends in `Ed_BufUntok` and would throw the keystroke away.
    */
   private paint(alert: number): number {
-    this.display?.draw()
+    this.display?.refresh()
     return alert
   }
 

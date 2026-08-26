@@ -187,6 +187,40 @@ describe('the editor on an AMOS screen', () => {
     ])
   })
 
+  it('does not refill the edit buffer on a repaint, or a typed line is lost', () => {
+    // `Ed_DrawWindows` ends in `Ed_NewBuf`, and `Ed_NewBuf` is `Ed_BufUntok`:
+    // it fills `Edt_BufE` from the PROGRAM. A line being typed is not in the
+    // program until `Ed_TokCur`, so a full redraw after every key threw the
+    // key away. `FlagFonc` (+Edit.s:3347) bit 0 asks for `Ed_AffBuf` and bit
+    // 1 for `Ed_ALigne`, and neither refills.
+    const amos = boot('Print "A"')
+    for (const ch of 'XY') amos.key({ ch, scan: 0, shift: 0 })
+    expect(amos.window.buf.text(0)).toBe('XYPrint "A"')
+    expect(row(amos, 0)).toBe('XYPrint "A"')
+  })
+
+  it('runs what was typed, because Ed_Run tokenises the edit buffer first', () => {
+    // `Ed_Run` (+Edit.s:8165) opens with `Ed_TokCur`, which writes the line
+    // being edited back into the program. Without it a program would run the
+    // text as it was when the window was last drawn.
+    const out: string[] = []
+    const amos = new Amos('Print "OLD"', { onText: (t) => out.push(t) })
+    amos.openDisplay()
+    // the cursor starts at column 0, so this goes in front of the line there
+    for (const ch of 'Print "NEW" : ') amos.key({ ch, scan: 0, shift: 0 })
+    amos.call(ED.RUN)
+    expect(out.join('').replace(/\s+/g, ' ').trim()).toBe('NEW OLD')
+  })
+
+  it('goes back to the full draw when a command changed the window layout', () => {
+    // `Ed_DrawWindows` lays out the windows, and opening one is exactly the
+    // case a row-by-row repaint cannot cover.
+    const amos = boot('Print "A"')
+    expect([...amos.display!.screen!.windows.keys()].sort((a, b) => a - b)).toEqual([0, 8, 9])
+    amos.call(ED.OPEN_NEW)
+    expect([...amos.display!.screen!.windows.keys()].sort((a, b) => a - b)).toEqual([0, 8, 9, 16, 17])
+  })
+
   it('lets the escape screen borrow screen 9 rather than opening another', () => {
     // `Esc_Appear` (+Edit.s:9356) is `EcCalD Active,EcEdit` and then drawing:
     // the escape screen IS the editor's screen with the editor's window taken

@@ -192,7 +192,48 @@ export class EditorScreen {
     if (s === null) return
     this.drawTop(s)
     this.drawWindows(s)
+    this.shape = this.layout()
   }
+
+  /**
+   * What a keystroke leaves to redraw, which is not `Ed_DrawWindows`.
+   *
+   * `Ed_DrawWindows` ends in `Ed_NewBuf`, and `Ed_NewBuf` is `Ed_BufUntok`:
+   * it fills `Edt_BufE` from the PROGRAM. A line being typed is not in the
+   * program yet -- `Ed_TokCur` is what puts it there -- so running the full
+   * draw after every key threw the keystroke away. The machine never does
+   * that: `FlagFonc` (+Edit.s:3347) bit 0 asks for `Ed_AffBuf` and bit 1 for
+   * `Ed_ALigne`, and neither refills anything.
+   *
+   * A command that changed the window layout is the exception, and it is
+   * cheap to spot: the windows, their order and their heights are the whole
+   * of what `Ed_DrawWindows` lays out.
+   */
+  refresh(): void {
+    const s = this.screen
+    if (s === null) return
+    this.drawTop(s)
+    const now = this.layout()
+    if (now !== this.shape) {
+      this.draw()
+      return
+    }
+    for (const w of this.editor.list) {
+      if (w.hidden !== 0) continue
+      this.etPrint(w)
+      this.affBuf(w)
+    }
+    const cur = this.editor.current
+    if (cur !== null) this.loca(cur)
+  }
+
+  /** the window list as `Ed_DrawWindows` sees it: who is visible, and how tall */
+  private layout(): string {
+    this.editor.orderWindows()
+    return this.editor.list.map((w) => `${w.hidden}:${w.order}:${w.windTy}`).join(',')
+  }
+
+  private shape = ''
 
   /** one resource picture, at pixel coordinates (`Ed_Unpack` +Edit.s:13852) */
   private put(s: Screen, n: number, x: number, y: number): void {
