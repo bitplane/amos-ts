@@ -64,7 +64,11 @@ import type { AmosFS } from '../amiga/fs'
  */
 function loadInto(source: string | Uint8Array, table: TokenTable): ProgramBuffer {
   if (typeof source !== 'string' && isAmosProgram(source)) {
-    const r = readProgramFile(source, 64 * 1024)
+    // No room limit. `Prg_Load` asks the memory for what the file needs and
+    // says "Out of memory" when there is none, so a fixed budget here would
+    // be this port pretending the machine has 64KB: `TOME.AMOS` is 78KB and
+    // was refused. The 64KB stays as a MINIMUM, which is headroom to type in.
+    const r = readProgramFile(source)
     if (r.error !== PRG.OK || r.file === null || r.file === undefined) throw new Error(`cannot load: Prg_Load answered ${r.error}`)
     const prog = ProgramBuffer.load(r.file.source, Math.max(64 * 1024, r.needs))
     prog.pro = r.file.pro

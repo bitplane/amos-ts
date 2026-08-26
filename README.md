@@ -99,7 +99,7 @@ CLI tools in `src/cli/`:
 |---|---|
 | `amoslist.ts` | detokenized listing plus banks |
 | `amosrun.ts` | run a program headless (`.AMOS` or a plain-text listing) |
-| `amosedit.ts` | the AMOS Professional editor, in a terminal. F1 runs the program, F2 tests it |
+| `amosedit.ts` | the AMOS Professional editor, in a terminal. F1 runs the program, F2 tests it. A terminal has no scancodes, so most of the key map is out of reach there and the browser is where the editor is whole |
 | `amoscat.ts` | detokenize to stdout, usable as an `rg --pre` preprocessor to grep AMOS source |
 | `runreport.ts` | the interpreter coverage census, and the regression oracle |
 | `scan.ts` | corpus parse census |
@@ -283,6 +283,14 @@ original, split into what can still be closed and what cannot.
   behind. Escape flips it, both ways, the way `Ed_Escape` (`+Edit.s:8876`) and
   `Esc_Esc` (`:9125`) do. A running program keeps the key: nothing in AMOS
   interrupts one with Escape, and Ctrl-C is what does.
+- **The editor**, in the browser and not only in a terminal. A program loads
+  into a window and runs through `Ed_Run`, so `Edit` in a program comes back
+  to the text it came from. All 184 `JFonc` commands, the key map matching on
+  real scancodes, the mouse over `Ed_Mouse`'s zones, and the requesters
+  running as the Interface programs they are: `Ed_InitDialogues`
+  (`+Edit.s:3054`) opens dialogue channel 1 on program 1 of
+  `AMOSPro_Editor_Resource.Abk` and every requester the editor has is a label
+  in that one script.
 
 Format notes recovered so far, verified against the corpus and against the
 assembly in `+Lib.s` and `+Edit.s`:
