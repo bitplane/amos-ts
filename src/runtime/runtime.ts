@@ -3277,6 +3277,24 @@ export class Runtime {
     }
   }
 
+  /**
+   * `SayX` (+Music.s:2580): `moveq #%1111,d0 / Rbsr L_VOnOf`.
+   *
+   * The synchronous Say is `DoIO`, so the 68k is inside the narrator until the
+   * last sample and hands the music its voices back on the instruction after.
+   * Nothing here can sit in the middle of a browser, so `speechRestore` is the
+   * tick that `DoIO` would have returned on and this is what reads it.
+   *
+   * The asynchronous form is `SendIO` and never reaches `SayX`, so it sets no
+   * tick and the music does not come back. Neither does `InTalkStop` (:2751),
+   * which aborts the request and installs the Sami interrupt and stops there.
+   */
+  private stepSpeech(): void {
+    if (this.speechRestore < 0 || this.interp.tick < this.speechRestore) return
+    this.speechRestore = -1
+    this.music.voiceOnOff(0b1111)
+  }
+
   /** per-frame dialog interaction (Dia_AutoTest 24110 + Dia_Tests 24162) */
   private stepDialogs(): void {
     const lmb = (this.input.mouseK & 1) !== 0
@@ -5183,6 +5201,7 @@ export class Runtime {
       }
     }
     if (this.bobUpdateOn && this.interp.tick % this.updateEvery === 0) this.updateBobs()
+    this.stepSpeech()
     this.stepIntuition()
     this.stepMenus()
     this.stepDialogs()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isAmosProgram, keyRoute, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
+import { keyToFunc, QUAL } from '../editor/keymap'
 
 describe('picking the program out of an archive', () => {
   // The zip a host ships is a drawer: the program beside the data it loads.
@@ -129,3 +130,34 @@ describe('where a keystroke goes', () => {
     expect(keyRoute(false, false, 'Escape', 0x45)).toBe('program')
   })
 })
+
+/**
+ * The four keys an Amiga keyboard does not have.
+ *
+ * `.Ed_KFonc` has no Page Up record because there was no Page Up key. What it
+ * has is Ctrl with the cursors, so the browser key is sent as that
+ * combination and `keyToFunc` finds the command the configuration binds --
+ * which keeps Set Key Shortcut in charge of what Page Up does.
+ */
+describe('keys the Amiga keyboard is missing', () => {
+  const cmd = (scan: number, shift: number): number => keyToFunc({ ch: '', scan, shift })
+
+  it('reach the commands the editor already binds', () => {
+    expect(cmd(0x4c, QUAL.CTRL)).toBe(9) // Ed_PHaut, Page Up
+    expect(cmd(0x4d, QUAL.CTRL)).toBe(10) // Ed_PBas, Page Down
+    expect(cmd(0x4f, QUAL.CTRL)).toBe(11) // Ed_DLigne, Line Start -- Home
+    expect(cmd(0x4e, QUAL.CTRL)).toBe(12) // Ed_FLigne, Line End -- End
+    expect(cmd(0x4c, QUAL.SHIFT | QUAL.CTRL)).toBe(17) // Ed_HTexte, Ctrl+Home
+    expect(cmd(0x4d, QUAL.SHIFT | QUAL.CTRL)).toBe(18) // Ed_BTexte, Ctrl+End
+  })
+
+  it('are not in SCAN, because the machine has no code for them', () => {
+    // `Cla_Special` (+W.s:12912) is the whole of what the CIA can deliver and
+    // Page Up is not in it. The stand-in is a qualifier pair, not a scancode.
+    expect(SCAN.PageUp).toBeUndefined()
+    expect(SCAN.PageDown).toBeUndefined()
+    expect(SCAN.Home).toBeUndefined()
+    expect(SCAN.End).toBeUndefined()
+  })
+})
+

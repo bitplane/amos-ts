@@ -666,3 +666,65 @@ describe('the one-vbl repeat latch (Tracker +Music.s:1678-1688)', () => {
     expect(audio.events.filter((e) => e.kind === 'loop')).toHaveLength(0)
   })
 })
+
+/**
+ * `Say` takes the voices off the MUSIC SYSTEM, not just off Paula.
+ *
+ *     moveq   #%0000,d0
+ *     Rbsr    L_StopDma       the DMA bits and the audio interrupts
+ *     Rbsr    L_VOnOf         and MuDMAsk, so the replayer stops driving them
+ *
+ * Only the second half stops the replayer relatching its voices on the next
+ * vbl. With just the first, a Say over a playing music chopped the speech and
+ * the music into each other a frame at a time.
+ *
+ * `VOnOf` opens `move.l MuBase-MB(a3),d1 / beq.s VooX`, so it acts on the
+ * MUSIC bank player and on nothing else. A tracker module playing under
+ * `Track Play` keeps its voices through a Say on the machine too, and the
+ * chopping there is the Amiga's.
+ *
+ * The voice itself is stubbed. What is under test is the mask, and a stub
+ * keeps the 88K narrator import out of a music test.
+ */
+const STUB_SPEECH = {
+  translate: () => ({ phonemes: '/HEH4LOW.' }),
+  speak: () => ({ pcm: new Int8Array(11100), sampleRate: 22200, sentences: [] }),
+  voice: null,
+  rules: null,
+}
+
+describe('Say and MuDMAsk (InSay +Music.s:2519)', () => {
+  /** the program stays alive across the utterance, because `DoIO` does */
+  const alive = (say: string): Runtime => {
+    // the song loops, because `VOnOf` opens `move.l MuBase-MB(a3),d1 /
+    // beq.s VooX` and a music that has finished has no voices to hand back
+    const { rt } = boot(`Music 1\n${say}\nDo\nWait Vbl\nLoop`, musicBank(BASIC, { loopSong: true }))
+    rt.speech.lib = STUB_SPEECH as unknown as typeof rt.speech.lib
+    return rt
+  }
+
+  it('clears the mask, and SayX gives it back when the utterance ends', () => {
+    const rt = alive('Say "hello"')
+    frames(rt, 3)
+    expect(rt.music.dmask).toBe(0)
+    // 11,100 samples at 22,200 is half a second, so 25 ticks: `speechRestore`
+    // is the tick `DoIO` would have come back on
+    expect(rt.speechRestore).toBeGreaterThan(rt.interp.tick)
+    frames(rt, 30)
+    // `SayX` (:2580): `moveq #%1111,d0 / Rbsr L_VOnOf`
+    expect(rt.music.dmask).toBe(0b1111)
+    expect(rt.speechRestore).toBe(-1)
+  })
+
+  it('does not give them back after an asynchronous one, and Talk Stop does not either', () => {
+    // DEFECT, the machine's own. `Say a$,1` is `SendIO` and never reaches
+    // `SayX`, and `InTalkStop` (:2751) aborts the request and installs Sami
+    // and stops there -- no `VOnOf` anywhere on that path.
+    const rt = alive('Say "hello",1')
+    frames(rt, 3)
+    expect(rt.music.dmask).toBe(0)
+    expect(rt.speechRestore).toBe(-1)
+    frames(rt, 60)
+    expect(rt.music.dmask).toBe(0)
+  })
+})

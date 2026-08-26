@@ -299,7 +299,13 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
         phonemes = latin1(t.phonemes)
       }
 
+      // `moveq #%0000,d0 / Rbsr L_StopDma / Rbsr L_VOnOf` (+Music.s:2524).
+      // BOTH halves: `StopDma` clears the DMA bits and `VOnOf` tells the
+      // MUSIC SYSTEM it may no longer drive those voices. Without the second
+      // one the replayer relatches voice 0 on the next vbl and goes on
+      // relatching it, so the speech and the music chop each other up.
       rt.stopVoices(0b1111)
+      rt.music.voiceOnOff(0)
       s.mouthsOn = async
       s.mouths = null
       s.mouthAt = 0
@@ -379,10 +385,17 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Talk Stop (InTalkStop +Music.s:2777). Only does anything while an
+     * Talk Stop (InTalkStop +Music.s:2751). Only does anything while an
      * asynchronous say is in flight: it clears the mouths byte, aborts the
-     * request if it has not finished, waits for it, and puts the music voices
-     * back.
+     * request if it has not finished, waits for it, and installs Sami again.
+     *
+     * DEFECT: the machine's own, and it is why `Say a$,1` is the one that
+     * costs you the music. `Say` takes all four voices off the music system
+     * with `VOnOf` (:2526) and only `SayX` (:2580) gives them back -- which
+     * the asynchronous form never reaches, because it is `SendIO`. Nothing in
+     * `InTalkStop` calls `VOnOf` either. So an asynchronous Say leaves the
+     * replayer with no voices until the program asks for them some other way.
+     * Reproduced rather than tidied.
      */
     'talk stop'() {
       const s = rt.speech
@@ -393,7 +406,6 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       s.width = -1
       s.height = -1
       rt.stopVoices(0b0001)
-      rt.speechRestore = rt.interp.tick
     },
 
     /**

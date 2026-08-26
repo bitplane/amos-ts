@@ -591,7 +591,37 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    * key and `SCAN` maps it to the Amiga's own number.
    */
   function edKeyOf(e: KeyboardEvent, ch: string, scan: number): EdKey {
-    return { ch, scan, shift: qualifiers(e) }
+    const stand = standIn(e)
+    return stand ?? { ch, scan, shift: qualifiers(e) }
+  }
+
+  /**
+   * Keys a PC keyboard has and an Amiga's does not, sent as what the editor
+   * binds the command to.
+   *
+   * `.Ed_KFonc` has no Page Up record because there was no Page Up key to
+   * make one on. What it has is Ctrl with the four cursors --- `Ed_PHaut` and
+   * `Ed_PBas` are key $cc and $cd with qualifier 8, `Ed_DLigne` and
+   * `Ed_FLigne` are $cf and $ce with the same --- and Shift+Ctrl on the two
+   * vertical ones for `Ed_HTexte` and `Ed_BTexte`. So a PC Page Up sends
+   * Ctrl+Cursor Up and goes through `keyToFunc` like any other keystroke,
+   * which means Set Key Shortcut still owns what the command is.
+   */
+  function standIn(e: KeyboardEvent): EdKey | null {
+    const key = (scan: number, shift: number): EdKey => ({ ch: '', scan, shift })
+    switch (e.code) {
+      case 'PageUp':
+        return key(0x4c, QUAL.CTRL) // Ed_PHaut, JFonc 9
+      case 'PageDown':
+        return key(0x4d, QUAL.CTRL) // Ed_PBas, 10
+      case 'Home':
+        // Ctrl+Home is the top of the text on a PC and `Ed_HTexte` here
+        return e.ctrlKey ? key(0x4c, QUAL.SHIFT | QUAL.CTRL) : key(0x4f, QUAL.CTRL)
+      case 'End':
+        return e.ctrlKey ? key(0x4d, QUAL.SHIFT | QUAL.CTRL) : key(0x4e, QUAL.CTRL)
+      default:
+        return null
+    }
   }
 
   /** the four qualifier GROUPS (+Equ.s:775-778), as the CIA delivers them */
