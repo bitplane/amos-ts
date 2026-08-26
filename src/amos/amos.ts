@@ -46,6 +46,7 @@ import { defaultSlotBindings } from '../ext/registry'
 import { zapCall, zapFunction } from '../editor/zap'
 import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime'
 import { EditorScreen } from './screen'
+import { EditorMenu } from './menu'
 import { ASKING, Requester, type EditorAnswer, type EditorAsk } from './requester'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
@@ -352,6 +353,10 @@ export class Amos {
   mouse(x: number, y: number, key = 1, count = 0): number {
     const d = this.display
     if (d === null || (key & 3) === 0) return 0
+    // `btst #1,d7 / beq.s .NoMenu / bsr Ed_MnGere` is the routine's first
+    // test and a pick ends it, so the right button never reaches the zones.
+    // `stepMenus` is what runs the menu; `pollMenu` collects the answer.
+    if ((key & 2) !== 0) return 0
     const hit = d.hitTest(x, y)
     if (hit === null) return 0
     switch (hit.kind) {
@@ -421,6 +426,7 @@ export class Amos {
   openDisplay(): EditorScreen {
     const d = this.useDisplay()
     d.open()
+    this.buildMenu()
     return d
   }
 
@@ -439,6 +445,52 @@ export class Amos {
   }
 
   /**
+   * `EdM_Init` (+Edit.s:12579): the menu bar, on the editor's screen.
+   *
+   * `Ed_Loop` (:1043) rebuilds it when it is not there -- `tst.l EdM_Table(a5)
+   * / bne .Menula / bsr EdM_Init` -- and `EdM_BranchAMOS` runs again whenever
+   * the window list changes, because the AMOS branch is a view of it.
+   */
+  private menuShape = ''
+
+  private buildMenu(): void {
+    const rt = this.runtime
+    const d = this.display
+    if (rt === null || d === null || !d.isOpen) return
+    const shape = `${this.editor.list.map((w) => `${w.hidden}:${w.prog.name}`).join(',')}|${this.editor.posHidden}`
+    if (shape === this.menuShape && rt.menu.roots.length > 0) return
+    this.menuShape = shape
+    this.menu.build(rt.menu, EditorScreen.EC_EDIT)
+  }
+
+  /**
+   * `Ed_MnGere` (+Edit.s:1639), for a host driving frames.
+   *
+   * The right button is `Ed_Mouse`'s first test and a pick ends the routine,
+   * so the menu is asked before the window zones and a chosen entry goes
+   * straight to `Ed_FCall`. `stepMenus` runs the menu itself and latches the
+   * path in `MnChoix`, so all that is left is the lookup and the call.
+   *
+   * Answers the alert the command left, or 0 for nothing chosen.
+   */
+  pollMenu(): number {
+    const rt = this.runtime
+    if (rt === null || this.display?.isOpen !== true || this.editor.escape) return 0
+    this.buildMenu()
+    if (rt.menu.choice !== -1) return 0
+    rt.menu.choice = 0
+    const cmd = this.menu.chosen(rt.menu.choix)
+    if (cmd < 0) return 0 // `.NoChoix`
+    // `moveq #0,d1 / bsr Ed_FCall`: the parameter is always zero here, and a
+    // command at or above `HiddenCommands` carries its program in the number
+    this.redraw = true
+    return this.call(cmd)
+  }
+
+  /** the editor's menu bar, which is `EdM_Definition` walked (./menu.ts) */
+  readonly menu = new EditorMenu(this.editor)
+
+  /**
    * `Ed_Appear`'s redraw, after whatever the command did.
    *
    * The machine repaints what changed: `Edt_EtatAff` is seven bits saying
@@ -453,6 +505,10 @@ export class Amos {
     // editor after the command that raised it puts the editor straight back
     // over the top: its status line, its text, all of it.
     if (this.editor.escape) return alert
+    // `Ed_Loop` (+Edit.s:1043): `tst.l EdM_Table(a5) / bne .Menula / bsr
+    // EdM_Init`. The bar is rebuilt when it is not there, and the AMOS branch
+    // whenever the window list it is a view of has changed.
+    this.buildMenu()
     if (this.redraw) {
       this.redraw = false
       this.display?.draw()

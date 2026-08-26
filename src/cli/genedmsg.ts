@@ -193,6 +193,19 @@ const tables = {
   ED_RUN_MESSAGES: verified('ED_RUN_MESSAGES', repairFromBinary(block('.Error1', '.Error2'))),
 }
 
+/**
+ * `bin/Editor_Menus.bin`, the other half of the menu.
+ *
+ * `EdM_Definition` is one eight-byte record per entry and `EdM_Messages` --
+ * `bin/Editor_Menus.asc`, the block above -- is one label per record, and
+ * `EdM_Init` (+Edit.s:12579) walks the two in step. The labels were baked and
+ * the records were not, so this port knew what the menu SAID and not what any
+ * of it did. ../editor/menus.ts decodes a record.
+ */
+function definitionBytes(path: string): Uint8Array {
+  return new Uint8Array(readFileSync(join(root, path)))
+}
+
 const lit = (s: string): string =>
   `'${[...s]
     .map((c) => {
@@ -233,16 +246,39 @@ ${provenance}
 `,
 }
 
-const emit = (path: string, names: string[]): void => {
+/** the same `unhex` shape ./genedkeys.ts writes, for the same reason */
+const bytesConst = (name: string, doc: string, b: Uint8Array): string => {
+  const hex = Buffer.from(b).toString('hex')
+  const rows: string[] = []
+  for (let i = 0; i < hex.length; i += 96) rows.push(`  '${hex.slice(i, i + 96)}'`)
+  return `\nconst unhex = (s: string): Uint8Array => Uint8Array.from(s.match(/../g)!, (v) => parseInt(v, 16))\n\n/**\n${doc}\n */\nexport const ${name}: Uint8Array = unhex(\n${rows.join(' +\n')},\n)\n`
+}
+
+const emit = (path: string, names: string[], tail = ''): void => {
   const body = names
     .map((name) => {
       const msgs = tables[name as keyof typeof tables]
       return `\n/** ${msgs.length} messages */\nexport const ${name}: readonly string[] = [\n${msgs.map((m) => `  ${lit(m)},`).join('\n')}\n]\n`
     })
     .join('')
-  writeFileSync(path, heads[path] + body)
+  writeFileSync(path, heads[path] + body + tail)
 }
 
-emit('src/runtime/edmessages.gen.ts', ['ED_SYSTEME', 'EDM_MESSAGES', 'ED_MESSAGES', 'ED_TST_MESSAGES'])
+const defs = definitionBytes('bin/Editor_Menus.bin')
+emit(
+  'src/runtime/edmessages.gen.ts',
+  ['ED_SYSTEME', 'EDM_MESSAGES', 'ED_MESSAGES', 'ED_TST_MESSAGES'],
+  bytesConst(
+    'EDM_DEFINITION',
+    ` * \`EdM_Definition\`, from \`bin/Editor_Menus.bin\`: 199 eight-byte records,\n` +
+      ` * three of them stars, in step with the 196 \`EDM_MESSAGES\` above.\n` +
+      ` *\n` +
+      ` * \`EdM_Init\` (+Edit.s:12579) hands each pair to the Interface menu engine.\n` +
+      ` * ../editor/menus.ts decodes a record: the command, two ink numbers and a\n` +
+      ` * path of up to four levels, every field stored plus 48.`,
+    defs,
+  ),
+)
 emit('src/interp/errors.gen.ts', ['ED_RUN_MESSAGES'])
 for (const [name, msgs] of Object.entries(tables)) console.log(`${name}: ${msgs.length}`)
+console.log(`EDM_DEFINITION: ${defs.length} bytes, ${Math.floor(defs.length / 8)} records`)

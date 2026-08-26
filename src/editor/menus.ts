@@ -77,7 +77,7 @@ export interface MenuEntry {
   path: number[]
   /** the label from `EdM_Messages`, in step with the record */
   label: string
-  /** `tst.w (sp)+ / bne .Act`, which is byte 0 again */
+  /** `tst.w (sp)+ / bne .Act`, which is byte 0 again: only a separator is off */
   active: boolean
   /** `cmp.b #"0",(a6) / bcs .NoKey`: a title, which never shows a key */
   title: boolean
@@ -114,7 +114,12 @@ export function readMenuDefs(defs: Uint8Array, labels: readonly string[]): MenuE
       inkB: defs[p + 1]! - BIAS,
       path,
       label: labels[at] ?? '',
-      active: command > 0,
+      // `EdM_CreObjet` sign-extends byte 0 into d0 and `EdM_ObCree` tests it
+      // with `tst.w (sp)+ / bne .Act`, so a TITLE -- byte 0 is a space, which
+      // is -16 after the bias -- is active and only a separator is not. It
+      // has to be: a title with `MnOff` set could not be hovered and its
+      // submenu would never open.
+      active: command !== 0,
       title: b0 < BIAS,
     })
     at++

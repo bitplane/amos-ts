@@ -675,6 +675,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   // ---- mouse ----
   /** `Ed_MkCpt(a5)`: how many polls this mouse button has been held for */
   let heldFor = -1
+  /** which button that is, since `Ed_Mouse` reads `and.w #3,d7` and branches on it */
+  let heldButton = 0
   const onMove = (e: MouseEvent): void => {
     if (!rt) return
     const r = canvas.getBoundingClientRect()
@@ -685,7 +687,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // `Ed_MkCpt` is what tells the two apart
     if (heldFor >= 0) {
       heldFor++
-      editorClick(1, heldFor)
+      editorClick(heldButton, heldFor)
     }
   }
 
@@ -707,11 +709,13 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     rt.input.mouseK |= btn(e)
     e.preventDefault()
     heldFor = 0
-    editorClick(btn(e), 0)
+    heldButton = btn(e)
+    editorClick(heldButton, 0)
   }
   const onUp = (e: MouseEvent): void => {
     if (rt) rt.input.mouseK &= ~btn(e)
     heldFor = -1
+    heldButton = 0
   }
   const noMenu = (e: Event): void => e.preventDefault()
   canvas.addEventListener('mousemove', onMove)
@@ -1038,6 +1042,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         // audio clock advances. `Runtime.frame` runs no statements for a
         // program that is done, so this costs nothing when nothing is typed.
         if (!rt.directScreen.isOpen && amos === null) break
+        // `Ed_MnGere` (+Edit.s:1639): the menu bar is built when it is not
+        // there and a pick goes to `Ed_FCall`. `stepMenus` ran it in
+        // `rt.frame()` above and latched the path.
+        if (amos !== null && dialogues?.up !== true) toEditor(amos.pollMenu())
         // a requester on the screen is answered by the user over as many
         // frames as they take; `Dia_Tests` runs in `Runtime.frame` above.
         // The loop puts it up as well as taking it down, because a command

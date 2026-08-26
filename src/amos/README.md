@@ -64,6 +64,29 @@ already in starts a block rather than moving it, and only on the press. A HELD
 button does nothing for twenty polls and then moves the cursor every poll,
 which is the drag that makes a block and the reason a twitch does not.
 
+## The menus
+
+The editor's menu bar is not the editor's. `EdM_Init` (+Edit.s:12579) walks
+two blocks of the configuration -- `EdM_Definition`, one eight-byte record per
+entry, and `EdM_Messages`, one label per record -- and hands each pair to
+`EdM_ObCree`, which builds an ordinary AMOS MENU object with `L_MnFind` and
+`L_MnIns`. So it is the same menu system `Menu$` gives a program, and
+`src/runtime/menu.ts` is that system.
+
+`menu.ts` here is the walk, the ink pairs `EdM_ObCree` writes, and the table
+that turns a chosen path back into a command number. The right button is
+`Ed_Mouse`'s FIRST test (:1249) and a pick ends the routine, so bit 1 never
+reaches the window zones.
+
+`EdM_BranchAMOS` (:12758) rebuilds the AMOS branch from the window list, which
+is why the bar is rebuilt whenever that list changes. The three sections after
+the first star record are its head, the per-program template, and its tail; a
+program's three entries are numbered off `HiddenCommands` and `Ed_FCall`
+(:2595) reads the program index back out of one number.
+
+DEVIATION: `EdM_MarkAll` ticks the program the editor is showing. Nothing here
+does, so the entries are told apart by name.
+
 ## The requesters
 
 They are Interface programs, and this port already had the Interface language.
