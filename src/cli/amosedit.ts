@@ -35,6 +35,9 @@ const args = process.argv.slice(2)
 const file = args.find((a) => !a.startsWith('--'))
 
 const amos = new Amos(file === undefined ? '' : readFileSync(file), {
+  // this front end draws rows of characters and cannot put a requester up, so
+  // every question takes its first button, which is `Ed_Zappeuse`'s answer
+  requesters: false,
   rows: Math.max(4, (process.stdout.rows ?? 24) - 4),
   onText: (t) => out.push(t),
   fs: file === undefined ? null : (fsForFile(file) as never),

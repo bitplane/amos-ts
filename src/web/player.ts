@@ -26,6 +26,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { Amos } from '../amos/amos'
 import { ED } from '../editor/commands'
+import { EditorDialogues } from '../amos/dialogue'
+import { EditorScreen } from '../amos/screen'
 import { QUAL, type EdKey } from '../editor/keymap'
 import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
@@ -197,6 +199,14 @@ export interface Player {
   readonly dh0: MemoryVolume
   /** the live machine, or null before a program loads / after an error */
   readonly runtime: Runtime | null
+  /**
+   * The editor holding the loaded program, or null for one it would not take.
+   *
+   * `Amos.call` runs an editor command, `Amos.key` a keystroke, and both come
+   * back with the alert the editor would have shown. A host page that wants
+   * to drive the editor from its own buttons uses this.
+   */
+  readonly editor: Amos | null
   /**
    * Mount an archive and run the program in it. Directories are preserved and
    * the current directory becomes the drawer holding the program, so its
@@ -563,10 +573,39 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     return { ch, scan, shift }
   }
 
+  /**
+   * The editor's requesters, running as the Interface programs they are.
+   *
+   * Made per `Amos`, because the channel is opened on that machine's dialogue
+   * table and `Edt_ClearVar` throws the machine away.
+   */
+  let dialogues: EditorDialogues | null = null
+
+  /**
+   * `Ed_Dialogue` (+Edit.s:3107): put the question up, or answer it here.
+   *
+   * A requester that draws takes as many frames as the user does, so the loop
+   * below finishes it; one this port cannot draw is answered on the spot with
+   * its first button, which is `Ed_Zappeuse`'s answer.
+   */
+  function askEditor(): void {
+    if (amos === null) return
+    const ask = amos.pendingAsk
+    if (ask === null) return
+    dialogues ??= new EditorDialogues(() => amos!.runtime!, EditorScreen.EC_EDIT)
+    const now = dialogues.start(ask)
+    if (now !== undefined) toEditor(amos.answer(now))
+    else if (!dialogues.up) toEditor(amos.answer(ask.kind === 'select' ? null : 1))
+  }
+
   /** whatever the editor answered, and whatever it asked for afterwards */
   function toEditor(alert: number): void {
     void alert
     if (amos === null) return
+    if (amos.pendingAsk !== null) {
+      askEditor()
+      return
+    }
     if (amos.pendingRun !== null) {
       ended = false
       amos.display?.close()
@@ -741,6 +780,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       host: { clock: hostClock, printer: printText, printerPage: printPage, serial: serialHost },
     }
     amos = null
+    dialogues = null
     try {
       amos = intoEditor(bytes, shared)
     } catch (e) {
@@ -940,6 +980,18 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         // audio clock advances. `Runtime.frame` runs no statements for a
         // program that is done, so this costs nothing when nothing is typed.
         if (!rt.directScreen.isOpen && amos === null) break
+        // a requester on the screen is answered by the user over as many
+        // frames as they take; `Dia_Tests` runs in `Runtime.frame` above.
+        // The loop puts it up as well as taking it down, because a command
+        // can be run from outside a keystroke.
+        const ask = amos?.pendingAsk ?? null
+        if (ask !== null) {
+          if (dialogues?.up !== true) askEditor()
+          else {
+            const got = dialogues.step(ask)
+            if (got !== undefined) toEditor(amos!.answer(got))
+          }
+        }
         // `Ed_Run` again, from the editor this time
         const again = amos?.pendingRun ?? null
         if (again !== null) {
@@ -988,6 +1040,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     },
     get runtime() {
       return rt
+    },
+    get editor() {
+      return amos
     },
     loadArchive,
     loadProgram,

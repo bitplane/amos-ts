@@ -45,6 +45,7 @@ import { isAmosProgram, loadProgram } from '../loader/program'
 import { zapCall, zapFunction } from '../editor/zap'
 import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime'
 import { EditorScreen } from './screen'
+import { ASKING, Requester, type EditorAnswer, type EditorAsk } from './requester'
 import { AmosRuntimeError } from '../interp/interp'
 import type { AmosFS } from '../amiga/fs'
 
@@ -116,6 +117,15 @@ export interface AmosOptions {
    */
   runtime?: Partial<RuntimeOptions>
   /**
+   * Whether a command that asks a question stops and waits for an answer.
+   *
+   * False leaves `Editor.dialogues` null, which is `Ed_Zappeuse`'s answer:
+   * every requester takes its first button and nothing is drawn. That is what
+   * a headless caller wants and what this port did before there was a host
+   * that could draw one.
+   */
+  requesters?: boolean
+  /**
    * The host owns the frame clock, so `Ed_Run` leaves the program waiting.
    *
    * Without it a command that asks for a program runs it to a stop inside the
@@ -165,6 +175,10 @@ export class Amos {
       this.editor,
     )
     if (opts.fs !== undefined) this.editor.fs = opts.fs
+    // DEVIATION: with no host to draw them, `Ed_Dialogue` answered every
+    // question with its first button. It now stops the command instead, and
+    // a host with no requester has to say so by clearing this.
+    if (opts.requesters !== false) this.editor.dialogues = this.requester
     this.editor.runProgram = (r) => {
       this.pending = r
     }
@@ -197,7 +211,7 @@ export class Amos {
    * of whichever of the two ends last.
    */
   call(command: number, param = 0): number {
-    return this.paint(this.after(edCall(this.window, command, param)))
+    return this.attempt(command, param)
   }
 
   /**
@@ -215,6 +229,56 @@ export class Amos {
     }
     return this.paint(this.after(edKey(this.window, k)))
   }
+
+  /**
+   * One command, up to the first question nobody has answered.
+   *
+   * `Ed_Dialogue` does not return until a button is pressed and the command
+   * that asked is sitting in the middle of itself the whole time. A host that
+   * cannot block runs the command again instead, with the answers it has
+   * given so far replayed into it. `./requester.ts` says what that costs.
+   */
+  private attempt(command: number, param: number): number {
+    this.requester.begin()
+    try {
+      const alert = this.paint(this.after(edCall(this.window, command, param)))
+      this.requester.done()
+      this.asking = null
+      return alert
+    } catch (e) {
+      if (e !== ASKING) throw e
+      this.asking = { command, param }
+      return this.paint(0)
+    }
+  }
+
+  /** the question the last command stopped on, for a host to put on the screen */
+  get pendingAsk(): EditorAsk | null {
+    return this.requester.asked
+  }
+
+  /**
+   * The host has answered; the command runs again and reaches the same point.
+   *
+   * Answers again if the command asks something else, and only when it gets
+   * all the way through does it report its alert.
+   */
+  answer(v: EditorAnswer): number {
+    const at = this.asking
+    if (at === null) return 0
+    this.requester.record(v)
+    return this.attempt(at.command, at.param)
+  }
+
+  /** abandon the question and the command with it, which is what a close does */
+  cancelAsk(): void {
+    this.requester.done()
+    this.asking = null
+  }
+
+  /** the requester the editor asks, which records answers and replays them */
+  readonly requester = new Requester()
+  private asking: { command: number; param: number } | null = null
 
   /**
    * `Ed_Mouse` (+Edit.s:1206): a click at a pixel on the editor's screen.

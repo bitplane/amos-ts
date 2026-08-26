@@ -389,7 +389,7 @@ export class EditorScreen {
   }
 
   /**
-   * `Edt_EffWindows` (+Edit.s:11648): take down the AMOS windows before
+   * `Edt_EffWindows` (+Edit.s:11880): take down the AMOS windows before
    * laying them out again.
    *
    * The routine walks the editor's list and `WinDel`s the pair each window

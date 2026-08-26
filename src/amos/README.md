@@ -64,6 +64,41 @@ already in starts a block rather than moving it, and only on the press. A HELD
 button does nothing for twenty polls and then moves the cursor every poll,
 which is the drag that makes a block and the reason a twitch does not.
 
+## The requesters
+
+They are Interface programs, and this port already had the Interface language.
+`Ed_InitDialogues` (+Edit.s:3054) opens dialogue channel 1 on program 1 of
+`AMOSPro_Editor_Resource.Abk` -- that bank's graphics, the EDITOR's message
+table, sixteen variables, a 1KB buffer -- and `Ed_DoDialog` (:3128) runs
+`L_Dia_RunProgram` with the EdD_ number as the LABEL. Every requester the
+editor has is a label in one 7,520-character script. `dialogue.ts` opens that
+channel and `src/runtime/dialog.ts` runs it, so the requesters here are the
+real ones and not a drawing of them.
+
+Two numbers the script needs and does not carry. `Ed_DiaImages` is 66 and goes
+into `Dia_PuzzleI` the instruction after the channel opens, so `UN 0,0,BP 13+`
+means image 79 and not image 13; without it the requesters stamp the editor's
+own buttons for their frame. And the messages are `Ed_Messages`, not the
+bank's own seven strings, so `SV0,20ME` is "Quit AMOS Professional. Are you
+sure?".
+
+What does not come free is the waiting. `Ed_DoDialog` does not return until a
+button is pressed and the command that asked is sitting in the middle of
+itself; a browser cannot do that. `requester.ts` abandons the command instead,
+the host puts the requester up over as many frames as the user takes, and then
+the command runs AGAIN with the answer waiting for it. `Ed_Zappeuse` is why
+that shape is legal at all: under `Call Editor` the machine's own
+`Ed_Dialogue` answers `Ed_ZapParam` without drawing anything.
+
+DEVIATION: whatever a command did before it asked, it does twice. Every
+command that asks opens with `Ed_TokCur` and then asks, and writing the edit
+buffer back twice changes nothing, but nothing checks that a command asking
+LATE is not written.
+
+DEVIATION: `Ed_File_Selector` (:14059), `Ed_LinkCursor` (:2342) and
+`Mn_GetOption` (:5733) are not requesters and are not run here. The first is
+its own routine, the other two wait for a click.
+
 DEVIATION: the two separator drags are not ported. `Ed_MSepHaut` and
 `Ed_MSepBas` follow the pointer until the button comes up, and `hitTest`
 answers `status` and `bottom` for their zones without acting on them.

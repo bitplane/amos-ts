@@ -1109,7 +1109,7 @@ export class Screen {
   textStyle = 0
 
   /** Draw one 8x8 glyph honouring the window Writing modes and styles. */
-  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number, clipped = false): void {
+  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number, clipped = false, console = true): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
     if (w.inverse) {
@@ -1137,9 +1137,9 @@ export class Screen {
         const on = (bits >> (7 - col)) & 1
         if (on) {
           if (w.writing2 === 1) continue // paper only
-          this.writeMode(x, y, pen, w.writing1, clipped)
+          this.writeMode(x, y, pen, w.writing1, clipped, console)
         } else if (!transparent) {
-          this.writeMode(x, y, bg, w.writing1, clipped)
+          this.writeMode(x, y, bg, w.writing1, clipped, console)
         }
       }
     }
@@ -1153,14 +1153,22 @@ export class Screen {
    * +W.s:4259 clips rastport graphics only). Eggit2 relies on printing
    * status text OUTSIDE its play-area Clip.
    */
-  private writeMode(x: number, y: number, c: number, mode: number, clipped = false): void {
+  private writeMode(x: number, y: number, c: number, mode: number, clipped = false, console = true): void {
     if (clipped && !this.inClip(x, y)) return
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
     const old = this.point(x, y)
-    // ESC J narrows the console's planes on top of whatever Set Planes left
-    // on the RastPort; `COut` reads WiSys+1 per plane and the mask reads the
-    // same way, so the two simply intersect
-    const keep = this.curWin.planes
+    /*
+     * ESC J narrows the CONSOLE's planes, on top of whatever Set Planes left
+     * on the RastPort. `WiSys+1` is read by `COut`, `ClFin` and `Scrolle` and
+     * by nothing else, so graphics that happen to share this routine must not
+     * see it: `Text` goes through graphics.library and obeys `rp_Mask` alone.
+     *
+     * The editor is what makes the difference visible. Its text window prints
+     * through `ESC J1`, and a requester drawn on the same screen with `Text`
+     * was coming out in plane 0: red on a teal button is %100, and masked to
+     * plane 0 that is nothing at all.
+     */
+    const keep = console ? this.curWin.planes : 0xff
     if (keep !== 0xff) c = (old & ~keep) | (c & keep)
     switch (mode) {
       case 1:
@@ -1221,7 +1229,7 @@ export class Screen {
     const opaque = this.rp.drawMode === 1
     if (!f) {
       for (let i = 0; i < s.length; i++) {
-        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, this.gPaper, !opaque, this.textStyle, true)
+        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, this.gPaper, !opaque, this.textStyle, true, false)
       }
       return
     }
@@ -1238,12 +1246,12 @@ export class Screen {
       // the font tall, which is wider than the glyph's own bit span
       if (opaque) {
         for (let gy = 0; gy < f.ySize; gy++) {
-          for (let gx = 0; gx < m.advance; gx++) this.writeMode(penX + gx, top + gy, this.gPaper, w.writing1, true)
+          for (let gx = 0; gx < m.advance; gx++) this.writeMode(penX + gx, top + gy, this.gPaper, w.writing1, true, false)
         }
       }
       for (let gy = 0; gy < f.ySize; gy++) {
         for (let gx = 0; gx < m.width; gx++) {
-          if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1, true)
+          if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1, true, false)
         }
       }
       penX += m.advance

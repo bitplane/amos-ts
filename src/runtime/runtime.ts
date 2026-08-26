@@ -3071,7 +3071,12 @@ export class Runtime {
     text: (x, y, s) => {
       const t = this.dTarget()
       for (let i = 0; i < s.length; i++) {
-        t.drawChar(x + i * 8, y, s.charCodeAt(i), t.ink, t.gPaper, t.grMode === 0)
+        // NOT the console: `IN` sets the graphics ink, paper and outline pens
+        // and `PR` draws with them, so `ESC J` on whatever window happens to
+        // be current on this screen has nothing to say about it. The editor
+        // is where that matters -- its text window is masked to plane 0, and
+        // a requester drawn over it came out with blank buttons.
+        t.drawChar(x + i * 8, y, s.charCodeAt(i), t.ink, t.gPaper, t.grMode === 0, undefined, false, false)
       }
     },
     setWriting: (mode) => {

@@ -329,6 +329,23 @@ describe('input state', () => {
     expect(screen(back.rt).curWin.scrollOff).toBe(false)
   })
 
+  it('ESC J is the console s mask and says nothing about graphics Text', () => {
+    // `WiSys+1` is read by `COut`, `ClFin` and `Scrolle` and by nothing else.
+    // `Text` goes through graphics.library and obeys `rp_Mask` alone, so a
+    // window narrowed to plane 0 does not narrow what `Text` draws over it.
+    //
+    // The editor is where this showed: its text window prints through
+    // `ESC J1`, and a requester drawn on the same screen came out with blank
+    // buttons -- red on teal is %100, and masked to plane 0 that is nothing.
+    const { rt } = run(
+      'Screen Open 0,320,200,8,0 : Cls 0 : Print Chr$(27);"J1"; : Ink 4 : Text 0,60,"X"',
+    )
+    const s = screen(rt)
+    let seen = 0
+    for (let y = 50; y < 62; y++) for (let x = 0; x < 8; x++) seen |= s.point(x, y)
+    expect(seen).toBe(4)
+  })
+
   it('an escape split across two Prints still lands, because WiEsc outlives the string', () => {
     // `EscM` (+W.s:15800) sets WiEsc to 2 and returns; `Esc` counts it down
     // over the next two bytes. `COut` is fed one byte at a time, so the
