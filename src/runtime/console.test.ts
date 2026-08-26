@@ -303,6 +303,40 @@ describe('input state', () => {
     expect(rt.input.keyQueue).toEqual([])
   })
 
+  it('ESC J keeps the console off the planes it masks out', () => {
+    // `Planes` (+W.s:14878) walks the argument up while the plane number
+    // counts DOWN and stores the complement; `ClFin` reads it back the same
+    // way. Net of the two reversals, bit p of the argument is plane p.
+    //
+    // This is what the editor prints its program text through: system
+    // message 20 ends in ESC J1, so a line lands in plane 0 and the window
+    // furniture in planes 1 and 2 survives being printed over.
+    const { rt } = run('Screen Open 0,320,200,8,0 : Cls 7 : Print Chr$(27);"J1";Chr$(27);"P0";Chr$(27);"B0";"A"')
+    const s = screen(rt)
+    // colour 7 is %111 everywhere; pen 0 and paper 0 through plane 0 alone
+    // can only clear the bottom bit, so every pixel of the cell reads 6
+    const cell = new Set<number>()
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) cell.add(s.point(x, y))
+    expect([...cell]).toEqual([6])
+  })
+
+  it('ESC V0 is Scroll Off, which the editor sets on every window it opens', () => {
+    // `Scroll` (+W.s:14770) is bit 0 of WiSys, set for ON, so the argument
+    // is 0 for off. A window that cannot scroll wraps to the top instead.
+    const { rt } = run('Print Chr$(27);"V0";')
+    expect(screen(rt).curWin.scrollOff).toBe(true)
+    const back = run('Print Chr$(27);"V0";Chr$(27);"V1";')
+    expect(screen(back.rt).curWin.scrollOff).toBe(false)
+  })
+
+  it('an escape split across two Prints still lands, because WiEsc outlives the string', () => {
+    // `EscM` (+W.s:15800) sets WiEsc to 2 and returns; `Esc` counts it down
+    // over the next two bytes. `COut` is fed one byte at a time, so the
+    // machine has no notion of an escape belonging to one string.
+    const { rt } = run('Print Chr$(27);"P3";"x";')
+    expect(screen(rt).curWin.pen).toBe(3)
+  })
+
   it('Hide/Show nest as a counter, and Hide On forces the pointer hidden', () => {
     // Hide decrements and Show increments; the pointer is drawn while the
     // count is >= 0. Hide On forces -1 outright, Show On forces 0, so a

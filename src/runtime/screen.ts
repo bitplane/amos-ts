@@ -98,6 +98,27 @@ export interface Wind {
   inverse: boolean
   /** Shade On: glyphs render through a dither mask */
   shade: boolean
+  /**
+   * `WiSys+1`, the console write mask: bit p set means plane p IS written.
+   *
+   * Stored the way `ESC J` is written rather than the way the machine keeps
+   * it. `Planes` (+W.s:14878) walks the argument's bits up while `d2` counts
+   * the plane number DOWN, and stores the complement, so `WiSys+1` bit
+   * `nPlanes-1-p` is set to skip plane p; `ClFin` (:14474) and `Scrolle`
+   * (:14728) read it back through the same reversal. Two inversions that
+   * cancel, and what survives them is `ESC J7` writes planes 0, 1 and 2.
+   */
+  planes: number
+  /**
+   * `WiEsc`/`WiEscPar` (+W.s:15805): an escape the string ran out before.
+   *
+   * `COut` takes one byte at a time and `Esc` counts `WiEsc` down over the
+   * two that follow ESC, so `Print Chr$(27);"J1"` is three separate console
+   * calls on the machine and still sets the planes. Held as the unconsumed
+   * text rather than as a state and a parameter, which is the same thing for
+   * a console that is handed whole strings.
+   */
+  escPending: string
 }
 
 /**
@@ -545,6 +566,9 @@ export class Screen {
       style: 0,
       inverse: false,
       shade: false,
+      // Wo3a (+W.s:13706) leaves WiSys zeroed, and a zero mask skips nothing
+      planes: 0xff,
+      escPending: '',
     }
     this.windows.set(0, this.curWin)
   }
@@ -1133,6 +1157,11 @@ export class Screen {
     if (clipped && !this.inClip(x, y)) return
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
     const old = this.point(x, y)
+    // ESC J narrows the console's planes on top of whatever Set Planes left
+    // on the RastPort; `COut` reads WiSys+1 per plane and the mask reads the
+    // same way, so the two simply intersect
+    const keep = this.curWin.planes
+    if (keep !== 0xff) c = (old & ~keep) | (c & keep)
     switch (mode) {
       case 1:
         this.putPixel(x, y, this.masked(old, old | c))
@@ -1266,12 +1295,24 @@ export class Screen {
   }
 
   private writeTextInner(text: string): void {
+    // an escape the last call ran out of characters for, resumed
+    const pending = this.curWin.escPending
+    if (pending !== '') {
+      this.curWin.escPending = ''
+      text = pending + text
+    }
     for (let ti = 0; ti < text.length; ti++) {
       const ch = text[ti]!
       const c = ch.charCodeAt(0)
       if (c === 27) {
         // console escape: letter + parameter characters (see +Lib.s ChXxx)
         const w = this.curWin
+        // `EscM` sets WiEsc to 2 and returns, so a string that stops inside
+        // an escape leaves the console waiting rather than printing it
+        if (ti + 2 >= text.length) {
+          w.escPending = text.slice(ti)
+          return
+        }
         const op = text[ti + 1] ?? ''
         const arg = (k: number): number => (text.charCodeAt(ti + 1 + k) || 48) - 48
         switch (op) {
@@ -1367,6 +1408,28 @@ export class Screen {
             break
           case 'S':
             w.shade = arg(1) !== 0
+            ti += 2
+            break
+          /*
+           * `Planes` (+W.s:14878): which bitplanes the console may write.
+           *
+           * The editor draws its program text with `ESC J1` (system message
+           * 20), so a printed line lands in plane 0 alone and the window
+           * furniture sitting in planes 1 and 2 shows through it. Printing
+           * through all three would rub the background out.
+           */
+          case 'J':
+            w.planes = arg(1)
+            ti += 2
+            break
+          /*
+           * `Scroll` (+W.s:14770): bit 0 of WiSys, set for ON. The editor
+           * prints `ESC V0` into every window it opens, because a program
+           * with more lines than the window has rows would otherwise scroll
+           * the furniture off the bottom.
+           */
+          case 'V':
+            w.scrollOff = arg(1) === 0
             ti += 2
             break
           case 'U':
@@ -1785,6 +1848,8 @@ export class Screen {
     const full = w.x === 0 && w.y === 0 && wPix === this.width && hPix === this.height
     const planes = this.logBM.planeBytes(true)
     for (let p = 0; p < this.depth; p++) {
+      // Scrolle (+W.s:14750) tests WiSys+1 per plane, the same as ClFin
+      if ((w.planes & (1 << p)) === 0) continue
       const base = p * this.planeSize
       const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
       if (full) {
@@ -1821,6 +1886,9 @@ export class Screen {
     const nBytes = (w.cols * 8) >> 3
     const planes = this.logBM.planeBytes(true)
     for (let p = 0; p < this.depth; p++) {
+      // ClFin (+W.s:14496) is `btst d5,WiSys+1 / bne .skip`, so a window
+      // restricted to plane 0 clears plane 0 and leaves the rest standing
+      if ((w.planes & (1 << p)) === 0) continue
       const base = p * this.planeSize
       const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
       for (let y = 0; y < w.rows * 8; y++) {
@@ -1848,6 +1916,7 @@ export class Screen {
     const x0 = (w.x >> 3) + col
     const planes = this.logBM.planeBytes(true)
     for (let p = 0; p < this.depth; p++) {
+      if ((w.planes & (1 << p)) === 0) continue
       const base = p * this.planeSize
       const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
       for (let y = 0; y < 8; y++) {
@@ -1969,6 +2038,9 @@ export class Screen {
       style: 0,
       inverse: false,
       shade: false,
+      // Wo3a (+W.s:13706) leaves WiSys zeroed, and a zero mask skips nothing
+      planes: 0xff,
+      escPending: '',
     }
     if (this.windSave) {
       const r = this.windowRect(w)
