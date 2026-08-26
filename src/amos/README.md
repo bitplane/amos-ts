@@ -45,6 +45,29 @@ DEVIATION: `EcFonc`, screen 8, is not opened. `Ed_OpenIt` sets `BitHide` on
 it the instruction after opening it, and what it carries is the function-key
 strip, which nothing calls up yet.
 
+## The mouse
+
+`Ed_Mouse` (+Edit.s:1206) asks `GetZone` and reads a number back, because
+`Ed_DrawWindows` reserved one rectangle per part with `SyCall SetZone`. The
+numbering is the whole answer: `Ed_BoutonsZones` is 128 and anything at or
+above it is a top button; below it `zone & 7` says which part of the window
+`zone & $FFF8` names -- 0 the text, 1 the status strip, 2 the bar below, 3 the
+slider, 4 to 6 the three window buttons.
+
+`EditorScreen.hitTest` is that lookup as arithmetic over the same rectangles,
+and `Amos.mouse` is the dispatch. What the twelve top buttons run is system
+message 13, one byte each: Escape, Workbench, Run, Test, Indent, Monitor, the
+user menu, the two window steps, Insert, Open Procedure, Insert Line.
+
+Two numbers that look arbitrary and are not. A click on the cell the cursor is
+already in starts a block rather than moving it, and only on the press. A HELD
+button does nothing for twenty polls and then moves the cursor every poll,
+which is the drag that makes a block and the reason a twitch does not.
+
+DEVIATION: the two separator drags are not ported. `Ed_MSepHaut` and
+`Ed_MSepBas` follow the pointer until the button comes up, and `hitTest`
+answers `status` and `bottom` for their zones without acting on them.
+
 DEVIATION: a repaint redraws the whole editor. The machine repaints what
 changed: `Edt_EtatAff` is seven bits saying which status fields are stale and
 `Ed_ALigne` redraws one row.

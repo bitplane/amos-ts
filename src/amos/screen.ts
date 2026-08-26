@@ -24,7 +24,7 @@ import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseResourceBank, type ResourceGraphics } from '../loader/resource'
 import { renderWindow, statusLine } from '../editor/display'
-import { ED_ETAT_SY, ED_ROW_SY, type Editor } from '../editor/windows'
+import { ED_BAS_SY, ED_ETAT_SY, ED_ROW_SY, type Editor } from '../editor/windows'
 import type { Edit } from '../editor/edit'
 import { Runtime } from '../runtime/runtime'
 
@@ -44,6 +44,9 @@ const MEMORY_H = 2
 
 /** `Edt_BtSx` (:77): the three buttons in a window's own status strip */
 const EDT_BT_W = 24
+
+/** `Ed_TitreSy` (:74): the strip the logo and the twelve buttons sit in */
+const ED_TITRE_SY = 16
 
 /**
  * The width `Ed_Enlarge` (+Edit.s:13793) copies from and to.
@@ -70,6 +73,29 @@ function graphics(): ResourceGraphics | null {
   }
   return pics
 }
+
+/**
+ * `Ed_SlVDeltaG`, `Ed_SlVDeltaH`, `Ed_SlVSx` and `Ed_SlVDeltaB` (+Edit.s:60):
+ * the vertical slider, four pixels wide, tucked inside the right border.
+ */
+const SLIDER_DX = 6
+const SLIDER_DY = 11
+const SLIDER_W = 4
+
+/** what the mouse found under it, in `Ed_Mouse`'s own order (+Edit.s:1206) */
+export type EditorHit =
+  /** one of the twelve `Ed_Boutons`, numbered from 1 */
+  | { kind: 'button'; n: number }
+  /** `Edt_Bt1` to `Edt_Bt3`: close, hide, shrink */
+  | { kind: 'winButton'; w: Edit; n: number }
+  /** the status strip, which is `Edt_Active` and the top separator's drag */
+  | { kind: 'status'; w: Edit }
+  /** `Edt_ZBas`, the bar under the text */
+  | { kind: 'bottom'; w: Edit }
+  /** a character cell, already scrolled: these are `Edt_XCu` and `Edt_YCu` */
+  | { kind: 'text'; w: Edit; col: number; row: number }
+  | { kind: 'slider'; w: Edit; row: number }
+  | null
 
 /**
  * One system message, ready to print.
@@ -461,6 +487,56 @@ export class EditorScreen {
       if (row.erase) s.writeText('\x07')
     }
     this.loca(w)
+  }
+
+  /**
+   * `Ed_Mouse`'s zone lookup (+Edit.s:1206), done as arithmetic.
+   *
+   * The machine asks `GetZone` and reads a number back, because
+   * `Ed_DrawWindows` reserved one rectangle per part with `SyCall SetZone`.
+   * The numbering is the answer: `Ed_BoutonsZones` is 128 and anything at or
+   * above it is a top button, and below it `zone & 7` says which part of the
+   * window `zone & $FFF8` names -- 0 the text, 1 the status strip, 2 the bar
+   * below, 3 the slider, 4 to 6 the three window buttons.
+   *
+   * This port has the rectangles rather than the zones, and they are the same
+   * rectangles: `Ed_DrawWindows` computes both from the same sums.
+   */
+  hitTest(x: number, y: number): EditorHit {
+    const width = this.editor.config.sx
+    if (y < ED_TITRE_SY) {
+      // `.Pa1` and `.Pa2`: 1 at the left edge, 2 at the right, the rest in a
+      // run from `Ed_BoutonsX`. The logo and the memory sliders are the gaps.
+      if (x < BUTTON_W) return { kind: 'button', n: 1 }
+      if (x >= width - BUTTON_W) return { kind: 'button', n: 2 }
+      const i = Math.floor((x - BUTTONS_X) / BUTTON_W)
+      return x >= BUTTONS_X && i < 10 ? { kind: 'button', n: i + 3 } : null
+    }
+    for (const w of this.editor.list) {
+      if (w.hidden !== 0) continue
+      const top = this.editor.topY(w)
+      const textY = top + ED_ETAT_SY
+      const bas = textY + w.windTy * ED_ROW_SY
+      if (y < top) continue
+      if (y < textY) {
+        // `.BLoop`: close at the left, hide and shrink pinned to the right
+        if (x < EDT_BT_W) return { kind: 'winButton', w, n: 1 }
+        if (x >= width - 2 * EDT_BT_W && x < width - EDT_BT_W) return { kind: 'winButton', w, n: 2 }
+        if (x >= width - EDT_BT_W) return { kind: 'winButton', w, n: 3 }
+        return { kind: 'status', w }
+      }
+      if (y < bas) {
+        const sliderX = width - 16 + SLIDER_DX
+        if (x >= sliderX && x < sliderX + SLIDER_W) {
+          return { kind: 'slider', w, row: (y - top - SLIDER_DY) >> 3 }
+        }
+        // `Edt_WindSx` is `Ed_Sx - 16`, and `XyWin` answers -1 outside it
+        if (x >= width - 16) return null
+        return { kind: 'text', w, col: (x >> 3) + w.xPos, row: (y - textY) >> 3 }
+      }
+      if (y < bas + ED_BAS_SY) return { kind: 'bottom', w }
+    }
+    return null
   }
 
   /** `Ed_Loca` (+Edit.s:10202): the column is relative to the scroll, the row is not */

@@ -221,6 +221,79 @@ describe('the editor on an AMOS screen', () => {
     expect([...amos.display!.screen!.windows.keys()].sort((a, b) => a - b)).toEqual([0, 8, 9, 16, 17])
   })
 
+  it('finds the twelve top buttons where Ed_DrawTop put them', () => {
+    // `.Pa1` forces button 1 to x=0 and `.Pa2` pins button 2 to the right
+    // edge; 3 to 12 walk from `Ed_BoutonsX`, which is past the DIRECT button
+    // and past the 160-pixel logo.
+    const d = boot('Print "A"').display!
+    expect(d.hitTest(0, 0)).toEqual({ kind: 'button', n: 1 })
+    expect(d.hitTest(639, 8)).toEqual({ kind: 'button', n: 2 })
+    // the logo, which is not a button
+    expect(d.hitTest(100, 8)).toBeNull()
+    expect(d.hitTest(192, 8)).toEqual({ kind: 'button', n: 3 })
+    expect(d.hitTest(192 + 32 * 9, 8)).toEqual({ kind: 'button', n: 12 })
+    // the memory sliders after the last button
+    expect(d.hitTest(192 + 32 * 10, 8)).toBeNull()
+  })
+
+  it('reads the twelve button commands out of system message 13', () => {
+    // `Ed_MBouton` (+Edit.s:1406) indexes the message by `Bt_Number`
+    expect(Array.from(ED_SYSTEME[12]!, (c) => c.charCodeAt(0))).toEqual([
+      28, 105, 77, 78, 79, 145, 27, 91, 92, 75, 87, 29,
+    ])
+  })
+
+  it('finds a window s parts the way the zone numbering divides them', () => {
+    // `zone & 7`: 0 the text, 1 the status strip, 2 the bar below, 3 the
+    // slider, 4 to 6 the three buttons
+    const amos = boot('Print "A"')
+    const d = amos.display!
+    const w = amos.window
+    expect(d.hitTest(0, 16)).toEqual({ kind: 'winButton', w, n: 1 })
+    expect(d.hitTest(640 - 48, 16)).toEqual({ kind: 'winButton', w, n: 2 })
+    expect(d.hitTest(640 - 24, 16)).toEqual({ kind: 'winButton', w, n: 3 })
+    expect(d.hitTest(200, 16)).toEqual({ kind: 'status', w })
+    expect(d.hitTest(24, 16 + 11)).toEqual({ kind: 'text', w, col: 3, row: 0 })
+    // `Ed_SlVDeltaG` is 6 past `Edt_WindSx`, which is `Ed_Sx - 16`
+    expect(d.hitTest(630, 16 + 11)).toEqual({ kind: 'slider', w, row: 0 })
+    expect(d.hitTest(0, 16 + 11 + 28 * 8)).toEqual({ kind: 'bottom', w })
+  })
+
+  it('puts the cursor where the text was clicked', () => {
+    const amos = boot(['Print "ONE"', 'Print "TWO"', 'Print "THREE"'].join('\n'))
+    expect(amos.mouse(5 * 8, 16 + 11 + 2 * 8)).toBe(0)
+    expect([amos.window.xCu, amos.window.yCu]).toEqual([5, 2])
+  })
+
+  it('starts a block when the click is on the cell the cursor is already in', () => {
+    // `.Noe`'s two `cmp.w`: the same row and the same column, and only on the
+    // press, is `Ed_BlocOn` rather than a move
+    const amos = boot('Print "ONE"')
+    amos.mouse(4 * 8, 16 + 11)
+    expect(amos.window.yBloc).toBeLessThan(0)
+    amos.mouse(4 * 8, 16 + 11)
+    expect([amos.window.xBloc, amos.window.yBloc]).toEqual([4, 0])
+  })
+
+  it('ignores a held button for twenty polls, and drags after that', () => {
+    // `.Pos` (+Edit.s:1341): `move.w Ed_MkCpt(a5),d0 / beq.s .Pos / cmp.w
+    // #20,d0 / bcs Ed_MQuit`. Zero is the press and acts; 1 to 19 do nothing,
+    // which is what stops a twitch turning every click into a drag.
+    const amos = boot(['Print "ONE"', 'Print "TWO"'].join('\n'))
+    amos.mouse(0, 16 + 11, 1, 0)
+    amos.mouse(6 * 8, 16 + 11 + 8, 1, 5)
+    expect([amos.window.xCu, amos.window.yCu]).toEqual([0, 0])
+    amos.mouse(6 * 8, 16 + 11 + 8, 1, 25)
+    expect([amos.window.xCu, amos.window.yCu]).toEqual([6, 1])
+  })
+
+  it('runs a top button s command: the sixth is the monitor', () => {
+    // message 13's sixth byte is 145, `Ed_GoMonitor`, and with no monitor to
+    // load it answers 222, "Monitor not found."
+    const amos = boot('Print "A"')
+    expect(amos.mouse(192 + 32 * 3, 8)).toBe(222)
+  })
+
   it('lets the escape screen borrow screen 9 rather than opening another', () => {
     // `Esc_Appear` (+Edit.s:9356) is `EcCalD Active,EcEdit` and then drawing:
     // the escape screen IS the editor's screen with the editor's window taken

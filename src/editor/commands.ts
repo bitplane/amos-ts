@@ -2202,7 +2202,7 @@ export function drawWindows(editor: Editor): void {
  * The only test is `Edt_WindTy`. `Ed_TokCur` before it works on a4, the window
  * being left, and not on the one being entered.
  */
-function activate(w: Edit): boolean {
+export function activate(w: Edit): boolean {
   w.editor.current?.tokCur()
   if (w.windTy === 0) return false
   w.editor.current = w

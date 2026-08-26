@@ -34,7 +34,8 @@ import { QUAL, type EdKey } from '../editor/keymap'
 import { ProgramBuffer } from '../editor/buffer'
 import { EditBuffer } from '../editor/editbuf'
 import { UndoBuffer } from '../editor/undo'
-import { drawWindows, edCall, edEscapeReturn, edKey, edRunReturn } from '../editor/commands'
+import { ED, activate, drawWindows, edCall, edEscapeReturn, edKey, edRunReturn } from '../editor/commands'
+import { ED_SYSTEME } from '../runtime/edmessages.gen'
 import { PRG, programSource, readProgramFile, writeProgramFile, type EditorFS } from '../editor/files'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -78,6 +79,15 @@ function loadInto(source: string | Uint8Array, table: TokenTable): ProgramBuffer
 
 /** the Escape key's Amiga scancode, which `Esc_L1` tests as `cmp.b #$45,d1` */
 const ESCAPE_KEY = 0x45
+
+/**
+ * What the twelve `Ed_Boutons` run, which is system message 13.
+ *
+ * `Ed_MBouton` (+Edit.s:1406) indexes the message by `Bt_Number`: Escape,
+ * Workbench, Run, Test, Indent, Monitor, the user menu, the two window
+ * steps, Insert, Open Procedure and Insert Line.
+ */
+const ED_BUTTONS: readonly number[] = Array.from(ED_SYSTEME[12] ?? '', (c) => c.charCodeAt(0))
 
 export interface AmosOptions {
   /** the shared token table. One table: the editor tokenises what the interpreter runs */
@@ -204,6 +214,82 @@ export class Amos {
       return 0
     }
     return this.paint(this.after(edKey(this.window, k)))
+  }
+
+  /**
+   * `Ed_Mouse` (+Edit.s:1206): a click at a pixel on the editor's screen.
+   *
+   * `key` is the mouse-button mask AMOS's `MouseKey` answers, and the routine
+   * opens `and.w #3,d7 / beq Ed_MQuit`, so only the two main buttons do
+   * anything and a release does nothing. Bit 1, the right button, is the
+   * menu; bit 0 places the cursor.
+   *
+   * `count` is `Ed_MkCpt(a5)`, how many polls this button has been held for.
+   * It is zero on the press and rises while it is down, and the routine reads
+   * it twice: a click on the cell the cursor is already in starts a block
+   * (`Ed_BlocOn`) only on the press, and a HELD button drags the cursor
+   * through the text after twenty polls.
+   */
+  mouse(x: number, y: number, key = 1, count = 0): number {
+    const d = this.display
+    if (d === null || (key & 3) === 0) return 0
+    const hit = d.hitTest(x, y)
+    if (hit === null) return 0
+    switch (hit.kind) {
+      case 'button':
+        // `Ed_MBouton` reads the command out of system message 13, one byte
+        // per button, and `subq.w #1,d2` makes it 0-based for `Ed_FCall`.
+        // This port counts commands from 1, so the byte goes over as it is.
+        return this.call(ED_BUTTONS[hit.n - 1] ?? 0)
+      case 'winButton':
+        // `Bt_RoutIn` (:13868): 1 `Ed_BtWindowClose`, 2 `Ed_BtWindowHide`,
+        // 3 `Ed_BtWindowSize`, and each takes the window off `Bt_Number`
+        // rather than acting on the current one
+        return this.onWindow(hit.w, [ED.CLOSE, ED.HIDE, ED.FLIP_SIZE][hit.n - 1] ?? 0)
+      case 'status':
+        // `.Same`: a click in another window's zone activates it, and one in
+        // the current window's does nothing
+        if (hit.w !== this.editor.current) activate(hit.w)
+        return this.paint(0)
+      case 'bottom':
+        return 0
+      case 'slider': {
+        // `Sl_Clic`: the knob follows the pointer, so the row clicked becomes
+        // the top of the window
+        this.window.tokCur()
+        hit.w.yPos = Math.max(0, Math.min(hit.w.prog.lineCount - 1, hit.row))
+        hit.w.fill()
+        return this.paint(0)
+      }
+      case 'text': {
+        const w = hit.w
+        // `.Pos`: a held button does nothing for twenty polls and then moves
+        // the cursor every poll, which is the drag that makes a block
+        if (count > 0 && count < 20) return 0
+        if (w !== this.editor.current && !activate(w)) return 0
+        // `cmp.w #250,d3 / bcc Ed_MQuit` and `cmp.w Prg_NLigne(a6),d2`: a
+        // click past the longest line a window can hold, or past the last
+        // line of the program, is not a click
+        if (hit.col >= 250) return 0
+        if (hit.row + w.yPos > w.prog.lineCount) return 0
+        if (hit.row !== w.yCu) w.tokCur()
+        if (hit.row === w.yCu && hit.col === w.xCu && count === 0) return this.call(ED.BLOCK_ON)
+        w.yCu = hit.row
+        w.xCu = hit.col
+        return this.paint(0)
+      }
+    }
+  }
+
+  /**
+   * A command aimed at a window that is not the current one.
+   *
+   * The three window buttons are the only things that do this: `Bt_Number`
+   * holds `Edt_Window` and each routine runs `Edt_GetAd` to reach it, so a
+   * window can be closed without being made current first.
+   */
+  private onWindow(w: Edit, command: number): number {
+    return this.paint(this.after(edCall(w, command, 0)))
   }
 
   /**

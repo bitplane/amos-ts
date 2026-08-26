@@ -603,11 +603,31 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   container.addEventListener('blur', onBlur)
 
   // ---- mouse ----
+  /** `Ed_MkCpt(a5)`: how many polls this mouse button has been held for */
+  let heldFor = -1
   const onMove = (e: MouseEvent): void => {
     if (!rt) return
     const r = canvas.getBoundingClientRect()
     rt.input.mouseX = 128 + Math.floor(((e.clientX - r.left) / r.width) * 320)
     rt.input.mouseY = Runtime.COMPOSITE_TOP + Math.floor(((e.clientY - r.top) / r.height) * Runtime.COMPOSITE_LINES)
+    // a held button drags the cursor through the text, which is how a block
+    // is made with the mouse: `Ed_Mouse` is called again every poll and
+    // `Ed_MkCpt` is what tells the two apart
+    if (heldFor >= 0) {
+      heldFor++
+      editorClick(1, heldFor)
+    }
+  }
+
+  /** `Ed_Mouse` (+Edit.s:1206), with the pointer converted to the editor screen */
+  function editorClick(button: number, count: number): void {
+    const d = amos?.display
+    if (d?.isOpen !== true || amos!.inEscape || !rt) return
+    const s = d.screen
+    if (s === null) return
+    // the routine reads `XyMou` and then `XyScr`, so the click it acts on is
+    // in the editor SCREEN's coordinates and not the display's
+    toEditor(amos!.mouse(s.hardToScreenX(rt.input.mouseX), s.hardToScreenY(rt.input.mouseY), button, count))
   }
   const btn = (e: MouseEvent): number => (e.button === 2 ? 2 : e.button === 1 ? 4 : 1)
   const onDown = (e: MouseEvent): void => {
@@ -616,9 +636,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     if (!rt) return
     rt.input.mouseK |= btn(e)
     e.preventDefault()
+    heldFor = 0
+    editorClick(btn(e), 0)
   }
   const onUp = (e: MouseEvent): void => {
     if (rt) rt.input.mouseK &= ~btn(e)
+    heldFor = -1
   }
   const noMenu = (e: Event): void => e.preventDefault()
   canvas.addEventListener('mousemove', onMove)
