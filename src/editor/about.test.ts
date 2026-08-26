@@ -16,6 +16,7 @@ import { EditBuffer } from './editbuf'
 import { UndoBuffer } from './undo'
 import { Edit } from './edit'
 import { ED, ED_HOME, ED_PORT, ED_VERSION, USER_SECU, drawWindows, edCall, sysUnCode } from './commands'
+import { PORT_MENU_LABELS, PORT_MESSAGES, PORT_VERSION } from './branding'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -94,17 +95,36 @@ describe('Ed_About', () => {
     expect(sysUnCode(USER_SECU, 16, 0xa5)).toBe('Not Installed!')
   })
 
-  it('says what this port is where the buyer s details would go', () => {
-    // DEVIATION: slots 2 and 3 are the two lines Install.AMOS writes, under
-    // "Registered User: " and "Registration Number: " (messages 219 and 220).
-    // Nobody buys this one. Messages 22 and 23 above them -- the author and
-    // the copyright -- are untouched: they are true, and the licence the
-    // source was released under asks for the notice.
+  it('leaves the buyer s two lines empty, because nobody buys this one', () => {
+    // DEVIATION: slots 2 and 3 are what Install.AMOS writes, under "Registered
+    // User: " and "Registration Number: " (messages 219 and 220). Both labels
+    // go empty with them in ./branding.ts, so the requester prints two empty
+    // strings and no gap shows.
     const e = open()
     edCall(e, ED.ABOUT)
     expect(shown[0]!.strings![2]).toBe(ED_PORT)
     expect(shown[0]!.strings![3]).toBe(ED_HOME)
-    expect(ED_PORT).toMatch(/^amos-ts /)
+    expect([ED_PORT, ED_HOME]).toEqual(['', ''])
+    expect(PORT_MESSAGES.get(219)).toBe('')
+    expect(PORT_MESSAGES.get(220)).toBe('')
+  })
+
+  it('says what this port is, in the messages the requester composes', () => {
+    // `SV 0,21ME 0VA !` is the title, so message 21 and `ED_VERSION` make it
+    // between them; 22 and 23 are the two lines under it. The Europress
+    // notice moves to the second box rather than going: the licence asks for
+    // it, and the escape screen -- this application's boot screen -- prints
+    // messages 21 to 23 unchanged.
+    expect(`${PORT_MESSAGES.get(21)}${ED_VERSION}`).toBe('amos-ts: AMOS Professional in TypeScript')
+    expect(PORT_MESSAGES.get(22)).toBe('By François Lionet / Gareth Davidson')
+    expect(PORT_MESSAGES.get(23)).toBe('2026 bitplane.net')
+    expect(PORT_MESSAGES.get(189)).toBe('© 1992 Europress Software Ltd.')
+    expect(PORT_MESSAGES.get(188)).toBe(`version ${PORT_VERSION}`)
+  })
+
+  it('names itself in the menu entry that opens the box', () => {
+    // 150 is `Ed_About`, and the shipped label is " About AMOS Professionnal "
+    expect(PORT_MENU_LABELS.get(150)).toBe(' About amos-ts ')
   })
 })
 

@@ -281,14 +281,28 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
       fselStore(rt, f, d)
       rt.finishFsel('')
       break
-    case 3: { // Fs_Parent (18326)
-      // the original walks back only when the path ends in '/', so a bare
-      // "DH0:Games" leaves the button dead until you have descended
-      const cur = fselZoneText(d, FS_PATH_ZONE)
-      if (!cur.endsWith('/')) break
+    case 3: { // Fs_Parent (+Lib.s:18297)
+      /*
+       * `bsr Fs_NomDir` is the routine's FIRST instruction, and the test is
+       * on what it leaves in `Name1`:
+       *
+       *     bsr Fs_NomDir / move.l Name1(a5),a0 / tst.b (a0) / beq .PaX
+       *     .Pa0 tst.b (a0)+ / bne .Pa0 / subq.l #1,a0
+       *     cmp.b #"/",-(a0) / bne .PaX
+       *
+       * So the pattern is split off first. Testing the zone text itself left
+       * the button dead everywhere: the selector opens on `DH0:*.AMOS`, which
+       * never ends in '/' however deep you are.
+       *
+       * The filter survives. `Fs_Parent` truncates `Name1` alone -- `clr.b
+       * (a0)` -- and `Fs_NewDir` reads `Name2` back out unchanged, so going
+       * up a drawer keeps you looking at `*.AMOS`.
+       */
+      const split = nomDir(fselZoneText(d, FS_PATH_ZONE))
+      if (!split.path.endsWith('/')) break
       fselStore(rt, f, d)
-      f.path = parentAmigaPath(cur)
-      f.filter = ''
+      f.path = parentAmigaPath(split.path)
+      f.filter = split.filter
       fselFirst(rt, f)
       break
     }

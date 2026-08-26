@@ -21,6 +21,7 @@
 import { DialogChannel, dialogZoneByNumber, dialogZoneValue, eraseDialog, prescanDialog } from '../runtime/dialog'
 import { EDITOR_RESOURCE_BANK } from '../runtime/edres.gen'
 import { ED_MESSAGES } from '../runtime/edmessages.gen'
+import { PORT_MESSAGES } from '../editor/branding'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
@@ -69,7 +70,13 @@ function resource(): ResourceBank | null {
       const parsed = parseAmosFile(EDITOR_RESOURCE_BANK)
       const mem = parsed.banks.find((b) => 'data' in b) as { data: Uint8Array } | undefined
       const r = mem ? parseResourceBank(mem.data) : null
-      bank = r === null ? null : { graphics: r.graphics, programs: r.programs, messages: [...ED_MESSAGES] }
+      // `PORT_MESSAGES` on top: the two places the editor answers "what am
+      // I" are the About box and the menu entry that opens it, and this is
+      // not that program. `ED_MESSAGES` itself is generated evidence and
+      // nothing edits it -- see ../editor/branding.ts.
+      const messages = [...ED_MESSAGES]
+      for (const [n, text] of PORT_MESSAGES) messages[n - 1] = text
+      bank = r === null ? null : { graphics: r.graphics, programs: r.programs, messages }
     } catch {
       bank = null
     }

@@ -28,6 +28,7 @@
 import { MF_OFF, MenuTree, compileMenuObject } from '../runtime/menu'
 import { EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
 import { EDM_HIDDEN_MAX, readMenuDefs, hiddenPage, type MenuEntry } from '../editor/menus'
+import { PORT_MENU_LABELS } from '../editor/branding'
 import type { Editor } from '../editor/windows'
 
 /** `HiddenCommands` (+Edit.s:3262): where the per-program entries start */
@@ -95,6 +96,9 @@ export class EditorMenu {
    * across the menu are the same thing.
    */
   private object(tree: MenuTree, e: MenuEntry, path: number[], label = e.label): void {
+    // one entry names the program: `Ed_About` is 150 and the shipped label is
+    // " About AMOS Professionnal ", the author's spelling and all
+    label = PORT_MENU_LABELS.get(e.command) ?? label
     if (label === '') return // `tst.b (a4) / beq .Skip`
     const node = tree.insert(path)
     node.inks1 = [e.inkA, e.inkB, e.inkA]

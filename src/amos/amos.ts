@@ -612,6 +612,13 @@ export class Amos {
         this.table,
       )
       for (const [slot, t] of loaded.extensions) this.extensions.set(slot, t)
+      // `AdTokens+4` (+Equ.s:1155), which is what both About boxes count and
+      // name. Index 0 is slot 1, because `AdTokens` itself is the core table
+      // and `Ed_About` counts from `AdTokens+4`.
+      this.editor.extensions.fill(null)
+      for (const [slot, ext] of loaded.bindings) {
+        if (slot >= 1 && slot <= 26) this.editor.extensions[slot - 1] = ext.name
+      }
     } catch {
       /* a program the loader will not take has no slots to bind */
     }

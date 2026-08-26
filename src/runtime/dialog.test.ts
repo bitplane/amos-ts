@@ -462,6 +462,44 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     expect(rt.fselStore.length).toBe(0)
   })
 
+  /** the path field, which is `FS_PATH_ZONE` */
+  const setPath = (d: DialogChannel, text: string): void => {
+    const z = d.zones.find((x) => x.number === 14)
+    if (z) z.text = text
+  }
+
+  it('Parent splits the pattern off the path before it tests for a slash', () => {
+    /*
+     * `Fs_Parent` (+Lib.s:18297) opens `bsr Fs_NomDir`, so the walk is over
+     * `Name1` and not over the zone text:
+     *
+     *     bsr Fs_NomDir / move.l Name1(a5),a0 / tst.b (a0) / beq .PaX
+     *     .Pa0 tst.b (a0)+ / bne .Pa0 / subq.l #1,a0
+     *     cmp.b #"/",-(a0) / bne .PaX
+     *
+     * Testing the zone text left the button dead everywhere, because the
+     * selector always shows a pattern on the end. The filter survives: the
+     * routine truncates `Name1` alone and `Fs_NewDir` reads `Name2` back.
+     */
+    const { rt } = bootFs('F$=Fsel$("DH0:Games/*.AMOS")')
+    openFsel(rt)
+    const d = [...rt.dialogs.values()][0]!
+    setPath(d, 'DH0:Games/Levels/*.AMOS')
+    fselJump(rt, rt.fsel!, d, 3)
+    expect(rt.fsel!.path).toBe('DH0:Games')
+    expect(rt.fsel!.filter).toBe('*.AMOS')
+  })
+
+  it('and does nothing at the root, which is `bne .PaX`', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:*.AMOS")')
+    openFsel(rt)
+    const d = [...rt.dialogs.values()][0]!
+    setPath(d, 'DH0:*.AMOS')
+    const was = rt.fsel!.path
+    fselJump(rt, rt.fsel!, d, 3)
+    expect(rt.fsel!.path).toBe(was)
+  })
+
   it('Del goes to the oldest stored directory and consumes it', () => {
     // Fs_SliDel (18382) -> Fs_StoDir (18364): NumStore(126) is the last
     // element, and visiting it takes it out of the cache

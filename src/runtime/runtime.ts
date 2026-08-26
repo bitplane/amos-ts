@@ -3344,7 +3344,13 @@ export class Runtime {
     const key = waiting ? (this.input.keyQueue.shift() ?? null) : (this.input.keyQueue[0] ?? null)
     let simulated: DialogZone | null = null
     if (key && d.edited) {
-      // the active edit field consumes the keyboard (LEd_Loop)
+      // The active edit field consumes the keyboard (`LEd_Loop`), and it has
+      // to take the key OFF the queue whether or not an RU wait is running.
+      // The peek above is so a live dialog does not eat keys it never used;
+      // one it did use is a key the line editor typed, and leaving it there
+      // typed it again every frame. The file selector's filename field is
+      // live, and one press filled it.
+      if (!waiting && this.input.keyQueue[0] === key) this.input.keyQueue.shift()
       const z = d.edited
       if (key.ch === '\r') {
         d.ret = z.number // Return reports the edit zone (Dia_Tests 24200)

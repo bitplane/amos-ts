@@ -48,7 +48,6 @@ import { TK } from '../tokens/edtok'
 import { MACHINE_CODE_PROC, PROTECTED_PROC } from '../tokens/stream'
 import { VerifyError, verify } from '../tokens/verify'
 import { ED_MESSAGES, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
-import { VERSION } from '../version'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { parseAmosFile } from '../loader/amosfile'
 import { HUNK_CODE, HUNK_HEADER } from '../amiga/hunk'
@@ -1756,11 +1755,16 @@ function blockSaveAscii(e: Edit): void {
  */
 export const ED_VERSION = ' in TypeScript'
 
-/** what goes where the buyer's name would be: this port, and its version */
-export const ED_PORT = `amos-ts ${VERSION}`
-
-/** and where the registration number would be */
-export const ED_HOME = 'amos.bitplane.net'
+/**
+ * The two lines Install.AMOS fills in for the buyer, empty.
+ *
+ * Nobody buys this one. `Ed_About` still writes the slots because the
+ * requester prints them either way; the labels in front of them --
+ * `Ed_Messages` 219 and 220 -- go empty with them, so nothing shows. See
+ * ./branding.ts.
+ */
+export const ED_PORT = ''
+export const ED_HOME = ''
 
 /**
  * `UserReg` (+B.s:314) and `UserName` (:328) as the assembler lays them out:
