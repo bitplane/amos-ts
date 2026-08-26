@@ -95,13 +95,23 @@ flags byte is not zero, and the shipped table binds 37 of the 184: every Help
 entry, the Object Editor, the two bank makers, the Disc Manager, the two
 compiler shells and the six configuration editors.
 
-All 37 carry flags of 1, which is the arm that takes the CURRENT window:
-`Ed_Saved` offers to save, the program is set aside in `Ed_Prg2ReLoad`, and
-then New, load and run. `Ed_Loop` (:1017) tests `Ed_Prg2ReLoad` every time
-round and `Ed_PrgReLoad` (:7996) puts the editor's program back -- by name,
-off the disc, which is why the save is offered first and why a program that
-was never saved comes back empty. That is the machine's answer, not a
-shortcut.
+`btst #0,(a2) / bne .Hidden` (:7900), and all 37 carry flags of 1, so the
+shipped configuration takes the ACCESSORY arm every time. That is what an
+accessory is: `Edt_AccAdr` looks for a window already holding it -- which is
+why Help answers at once the second time and why twelve menu entries share one
+program -- and otherwise `Ed_RLoadHidden` gives it a hidden window of its own.
+It runs beside your program rather than over it, and drives the editor through
+`Call Editor`. Bit 2 decides what happens to the window afterwards: `.Garde`
+lists it under the AMOS menu to stay, and the shipped entries clear it so
+`Edt_PrgDelete` takes the window when the accessory stops.
+
+The other arm, bit 0 clear, takes the CURRENT window: `Ed_Saved` offers to
+save, the program is set aside in `Ed_Prg2ReLoad`, and then New, load and run.
+`Ed_Loop` (:1017) tests `Ed_Prg2ReLoad` every time round and `Ed_PrgReLoad`
+(:7996) puts the editor's program back -- by name, off the disc, which is why
+the save is offered first and why a program that was never saved comes back
+empty. That is the machine's answer, not a shortcut. Nothing in the shipped
+table uses it.
 
 The command line is the other half. `TBuffer-256-6(Buffer)` carries `"CmdL"`
 and the text, which is what `Command Line$` reads, so `HelpMenu`, `HelpSyntax`
@@ -113,11 +123,6 @@ The paths are assigns. Every entry in the table starts `AMOSPro_Accessories:`,
 `AMOSPro_System:`, `AMOSPro_Tutorial:` or `AMOSPro_Compiler:`, which the
 startup script makes against the AMOSPro drawer; `src/web/player.ts` makes the
 same four against whatever archive was dropped in.
-
-DEVIATION: `.Hidden`, the arm for a command bound to an ACCESSORY rather than
-a program, is not ported. Nothing in the shipped table uses it -- every entry
-has bit 0 set -- and its three pieces, `Edt_AccAdr`, `Ed_RLoadHidden` and
-`Ed_RunHide`, are all here and would only need joining up.
 
 ## The requesters
 

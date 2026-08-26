@@ -353,39 +353,82 @@ function helpProgram(): Uint8Array {
 }
 
 describe('a command with a program bound to it', () => {
+  /** the accessory where the shipped table says it is */
+  function withHelp(e: Edit): void {
+    ;(e.fs as AmigaFS).mountMemory('AMOSPro_Accessories')
+    e.fs!.writeFile('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS', helpProgram())
+  }
+
   it('never reaches JFonc, so Save As Name runs Help instead', () => {
     // `Ed_FCall` (+Edit.s:2610) reads the flags byte before the table, and
     // the shipped `.Ed_AutoLoad` binds command 152 to Help with the command
-    // line `HelpMenu`. `Ed_PrgCommand` loads it in place of the save.
+    // line `HelpMenu`. The save never happens.
     const e = open()
     e.prog.name = 'RAM:prog.AMOS'
     e.name1 = 'RAM:prog.AMOS'
     const runs: RunRequest[] = []
     e.editor.runProgram = (r) => runs.push(r)
-    // the program is not on the disc, so `Ed_PrgReLoad` has nothing to do
-    // and the load raises a disk error, which `Ed_FCall` reports in its own
-    // field rather than as an alert
+    // the accessory is not on the disc, so the load raises a disk error,
+    // which `Ed_FCall` reports in its own field rather than as an alert
     expect(edCall(e, ED.SAVE_AS_NAME)).toBe(0)
     expect(e.diskError).toBe(205)
     expect(runs.length).toBe(0)
-    // the editor's own program was set aside to be put back
-    expect(e.editor.prg2Reload?.name).toBe('RAM:prog.AMOS')
     // and nothing was written
     expect(e.fs!.readFile('RAM:prog.AMOS')).toBeNull()
   })
 
-  it('runs it when the program is there, with the table s command line', () => {
+  it('runs it as an ACCESSORY, in a window of its own', () => {
+    // `btst #0,(a2) / bne .Hidden` (:7900) and every one of the 37 entries
+    // has flags of 1, so the shipped configuration takes the accessory arm
+    // every time. The editor's own program is not touched.
     const e = open()
-    ;(e.fs as AmigaFS).mountMemory('AMOSPro_Accessories')
-    e.fs!.writeFile('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS', helpProgram())
+    withHelp(e)
+    e.prog.name = 'RAM:mine.AMOS'
     const runs: RunRequest[] = []
     e.editor.runProgram = (r) => runs.push(r)
     expect(edCall(e, ED.SAVE_AS_NAME)).toBe(0)
     expect(runs.length).toBe(1)
+    // `Ed_RunHide` (:8113) is `moveq #1,d0` and `Ed_RunnedHidden`
+    expect([runs[0]!.accessory, runs[0]!.hidden]).toEqual([true, true])
     // `"CmdL"` at `TBuffer-256-6(Buffer)`, which is what `Command Line$` reads
     expect(runs[0]!.commandLine).toBe('HelpMenu')
-    expect(runs[0]!.accessory).toBe(false)
-    expect(e.prog.name).toBe('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS')
+    expect(runs[0]!.window).not.toBe(e)
+    expect(runs[0]!.window.hidden).not.toBe(0)
+    expect(runs[0]!.window.prog.name).toBe('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS')
+    // the editor's program is where it was, and nothing was set aside
+    expect(e.prog.name).toBe('RAM:mine.AMOS')
+    expect(e.editor.prg2Reload).toBeNull()
+  })
+
+  it('re-runs the accessory it already has rather than loading it again', () => {
+    // `bsr Edt_AccAdr / bne.s .Deja` (:7975), which is what makes Help answer
+    // at once the second time and lets twelve menu entries share one program
+    const e = open()
+    withHelp(e)
+    const runs: RunRequest[] = []
+    e.editor.runProgram = (r) => runs.push(r)
+    edCall(e, ED.SAVE_AS_NAME)
+    const first = runs[0]!.window
+    // `Prg_Pull`, since nothing here runs the program
+    e.editor.running.length = 0
+    e.editor.runned = null
+    edCall(e, ED.CLOSE_NAME) // 153, Help again with a different command line
+    expect(runs.length).toBe(2)
+    expect(runs[1]!.window).toBe(first)
+    expect(runs[1]!.commandLine).toBe('HelpHelp')
+    expect(e.editor.list.filter((w) => w.hidden !== 0).length).toBe(1)
+  })
+
+  it('marks the window to go, because bit 2 is what keeps one', () => {
+    // `btst #2,(a2) / bne.s .Garde` (:7984): the shipped entries have bit 2
+    // clear, so `Edt_PrgDelete` is set and the window goes when the accessory
+    // stops. `.Garde` is what puts one in the AMOS menu to stay.
+    const e = open()
+    withHelp(e)
+    const runs: RunRequest[] = []
+    e.editor.runProgram = (r) => runs.push(r)
+    edCall(e, ED.SAVE_AS_NAME)
+    expect(runs[0]!.window.prgDelete).toBe(true)
   })
 
   it('is the editor command again under the ZAP remote control', () => {

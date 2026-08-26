@@ -3554,29 +3554,32 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
  *
  * `Ed_AutoLoad` binds any of the 184 commands to one, and the shipped table
  * binds 37 -- every Help entry, the Object Editor, the two bank makers, the
- * Disc Manager, the compiler shells and the six configuration editors. All 37
- * carry flags of 1, so all 37 take the arm below.
+ * Disc Manager, the compiler shells and the six configuration editors.
  *
  * ```
- *  bit 0  the current window rather than a hidden one
+ *  bit 0  load it into a HIDDEN window and run it as an accessory
  *  bit 1  the command line comes from the table, not from the cursor
- *  bit 2  no reload: the editor's program is not put back afterwards
+ *  bit 2  in the hidden arm, keep the accessory; in the other, no reload
  * ```
+ *
+ * `btst #0,(a2) / bne .Hidden` (:7900), and every one of the 37 has flags of
+ * 1. So the shipped configuration takes the accessory arm every time, which
+ * is what an accessory IS: it runs beside the program in the editor rather
+ * than over it, and drives the editor through `Call Editor`.
  *
  * The command line is `TBuffer-256-6(Buffer)` with `"CmdL"` in front of it,
  * which is what `Command Line$` reads: `HelpMenu` and `GRABO` are how one
  * accessory serves a dozen menu entries.
- *
- * DEVIATION: `.Hidden`, the arm for a command bound to an ACCESSORY rather
- * than to a program, is not here. Nothing in the shipped table uses it --
- * every entry has bit 0 set -- and it is `Edt_AccAdr`, `Ed_RLoadHidden` and
- * `Ed_RunHide`, which are all ported and would only need joining up.
  */
 function prgCommand(e: Edit, bound: PrgCommand): void {
   e.tokCur()
   // `.NoCom` (:7881): with no line of its own the command takes the current
   // line from the cursor, which is how `Help` looks a keyword up
   const line = bound.line ?? e.current().text.slice(e.xCu)
+  if ((bound.flags & 0b1) !== 0) {
+    prgAccessory(e, bound, line)
+    return
+  }
   // `bsr Ed_Saved` before anything is thrown away, because the reload below
   // reads the program back off the DISC and an unsaved one would be gone
   saved(e)
@@ -3597,6 +3600,36 @@ function prgCommand(e: Edit, bound: PrgCommand): void {
   reload(e)
   e.editor.runnedHidden = (bound.flags & 0b100) === 0
   if (!prgRunIt(e, e, false, false, line)) throw new EditorAlert(204, 120) // Ed_OMm
+}
+
+/**
+ * `.Hidden` (+Edit.s:7968): the accessory arm, which is the one that runs.
+ *
+ * `Edt_AccAdr` first, so an accessory already in a window is re-run rather
+ * than loaded again -- that is what makes Help answer instantly the second
+ * time and why twelve menu entries can share one program. `.Deja` jumps
+ * straight to `Ed_RunHide` with the window it found.
+ *
+ * Otherwise `Ed_RLoadHidden` puts it in a window of its own, and bit 2
+ * decides what happens to that window afterwards: `.Garde` rebuilds the AMOS
+ * branch so the accessory is listed under it and stays, and the other arm
+ * sets `Edt_PrgDelete` so the window goes when the program stops.
+ *
+ * `Ed_WindowToDel` is cleared either way. `Ed_RLoadHidden` sets it -- a load
+ * that fails leaves the half-made window for `Ed_Loop` to collect -- and a
+ * load that worked must not have it collected out from under the run.
+ */
+function prgAccessory(e: Edit, bound: PrgCommand, line: string): void {
+  e.name1 = bound.program
+  let w = e.editor.accAdr(e.name1)
+  if (w === null) {
+    w = rLoadHidden(e)
+    e.editor.windowToDel = null
+    if ((bound.flags & 0b100) === 0) w.prgDelete = true
+  }
+  // `Ed_RunHide` (:8113): `moveq #1,d0`, the accessory flag, and
+  // `Ed_RunnedHidden` so the editor stays up behind it
+  if (!prgRunIt(e, w, true, true, line)) throw new EditorAlert(12, 100) // Ed_AlRunned
 }
 
 /**
