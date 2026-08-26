@@ -26,7 +26,8 @@ import { UndoBuffer } from './undo'
 import { Edit } from './edit'
 import { ED, edCall } from './commands'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from './search'
-import type { PrgCommand } from './windows'
+import type { RunRequest } from './windows'
+import { EMPTY_BANKS, writeProgramFile } from './files'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -94,8 +95,16 @@ describe('the block', () => {
     expect(c.keyMap[553]).toBe(0)
   })
 
-  it('binds no command to a program until one is loaded', () => {
-    expect(new EditorConfig().autoLoad.every((b) => b === 0)).toBe(true)
+  it('is the shipped .Ed_AutoLoad, which binds 37 of the 184 commands', () => {
+    // `Ed_FCall` (+Edit.s:2610) reads the flags byte BEFORE it reaches
+    // `JFonc` and branches to `Ed_PrgCommand` when it is not zero. The table
+    // used to be all zeroes here, so every Help entry and every accessory in
+    // the menu was a command with nothing behind it.
+    const table = new EditorConfig().autoLoad
+    expect(table.length).toBe(184 * 3)
+    let bound = 0
+    for (let i = 0; i < table.length; i += 3) if (table[i] !== 0) bound++
+    expect(bound).toBe(37)
   })
 })
 
@@ -115,7 +124,12 @@ describe('the file', () => {
     expect([...back.bytes]).toEqual([...c.bytes])
     expect(messages(back.texts.system)).toEqual(['ABC'])
     expect(messages(back.texts.messages)).toEqual(['Z'])
-    expect(back.texts.menus.length).toBe(0)
+    // the three blocks a fresh config carries: `Ed_MnPrograms` and `EdM_Init`'s
+    // definition-and-label pair, which the editor cannot work without
+    expect(messages(back.texts.menus).length).toBe(196)
+    expect(back.texts.menuDefs.length).toBe(199 * 8 + 1)
+    expect(messages(back.texts.programs).length).toBe(46)
+    expect(back.texts.userMenus.length).toBe(0)
   })
 
   it('keeps a field this port does not name', () => {
@@ -332,29 +346,53 @@ describe('Quit Options and Autosave', () => {
   })
 })
 
-describeWith('a command with a program bound to it', shipped(), (file) => {
+/** a tiny .AMOS to stand in for the accessory the table names */
+function helpProgram(): Uint8Array {
+  const src = verify(tokeniseSource('Print "help"', table), {}).slice(0, -2)
+  return writeProgramFile({ pro: true, mathFlags: 0, tested: true, source: src, banks: EMPTY_BANKS })
+}
+
+describe('a command with a program bound to it', () => {
   it('never reaches JFonc, so Save As Name runs Help instead', () => {
+    // `Ed_FCall` (+Edit.s:2610) reads the flags byte before the table, and
+    // the shipped `.Ed_AutoLoad` binds command 152 to Help with the command
+    // line `HelpMenu`. `Ed_PrgCommand` loads it in place of the save.
     const e = open()
-    e.editor.config = readConfig(file).config!
     e.prog.name = 'RAM:prog.AMOS'
     e.name1 = 'RAM:prog.AMOS'
-    const asked: PrgCommand[] = []
-    e.editor.prgCommand = (c) => asked.push(c)
+    const runs: RunRequest[] = []
+    e.editor.runProgram = (r) => runs.push(r)
+    // the program is not on the disc, so `Ed_PrgReLoad` has nothing to do
+    // and the load raises a disk error, which `Ed_FCall` reports in its own
+    // field rather than as an alert
     expect(edCall(e, ED.SAVE_AS_NAME)).toBe(0)
-    expect(asked.length).toBe(1)
-    expect(asked[0]!.program).toBe('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS')
-    expect(asked[0]!.line).toBe('HelpMenu')
+    expect(e.diskError).toBe(205)
+    expect(runs.length).toBe(0)
+    // the editor's own program was set aside to be put back
+    expect(e.editor.prg2Reload?.name).toBe('RAM:prog.AMOS')
     // and nothing was written
     expect(e.fs!.readFile('RAM:prog.AMOS')).toBeNull()
   })
 
+  it('runs it when the program is there, with the table s command line', () => {
+    const e = open()
+    ;(e.fs as AmigaFS).mountMemory('AMOSPro_Accessories')
+    e.fs!.writeFile('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS', helpProgram())
+    const runs: RunRequest[] = []
+    e.editor.runProgram = (r) => runs.push(r)
+    expect(edCall(e, ED.SAVE_AS_NAME)).toBe(0)
+    expect(runs.length).toBe(1)
+    // `"CmdL"` at `TBuffer-256-6(Buffer)`, which is what `Command Line$` reads
+    expect(runs[0]!.commandLine).toBe('HelpMenu')
+    expect(runs[0]!.accessory).toBe(false)
+    expect(e.prog.name).toBe('AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help.AMOS')
+  })
+
   it('is the editor command again under the ZAP remote control', () => {
     const e = open()
-    e.editor.config = readConfig(file).config!
     e.editor.zappeuse = true
     e.prog.name = 'RAM:prog.AMOS'
     e.name1 = 'RAM:prog.AMOS'
-    e.editor.prgCommand = () => expect.unreachable('the ZAP path does not bind')
     expect(edCall(e, ED.SAVE_AS_NAME)).toBe(0)
     expect(e.fs!.readFile('RAM:prog.AMOS')).not.toBeNull()
   })

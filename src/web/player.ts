@@ -951,9 +951,31 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // a path that starts "DH0:" is self-referential, and resolve() expands
     // assigns before volumes, so it would spin until the cycle guard gave up.
     vfs.assignDrives(dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`)
+    assignAmosPro(vol)
     const file = entries.find((e) => e.path === pick.path)!
     loadProgram(file.data, segs[segs.length - 1]!, dir)
     return { programs, ran: pick.path }
+  }
+
+  /**
+   * The four assigns an AMOS Professional install makes.
+   *
+   * `AMOSPro_Accessories:`, `AMOSPro_System:`, `AMOSPro_Tutorial:` and
+   * `AMOSPro_Compiler:` are how the editor's own configuration names things:
+   * `.Ed_AutoLoad` (+Editor_Config.s:67) binds 37 commands to programs under
+   * them, and every path in it starts with one. On the machine they are made
+   * by the startup script against the AMOSPro drawer; here the drawer is
+   * whatever archive was dropped in, so they point at its root.
+   *
+   * Unconditional. An assign to a drawer that is not there simply does not
+   * resolve, which is what a machine without the accessories installed does,
+   * and testing first would mean guessing which of several layouts is the
+   * install.
+   */
+  function assignAmosPro(vol: string): void {
+    for (const part of ['Accessories', 'System', 'Tutorial', 'Compiler']) {
+      vfs.assign(`AMOSPro_${part}`, `${vol}:${part}`)
+    }
   }
 
   /**

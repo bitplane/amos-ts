@@ -619,16 +619,15 @@ export class Editor {
   dialogues: EditorDialogues | null = null
 
   /**
-   * DEVIATION: `Ed_PrgCommand` (+Edit.s:7868), which loads an AMOS program and
-   * runs it in place of the command that was asked for.
+   * `Ed_Prg2ReLoad(a5)`: the program `Ed_PrgCommand` set aside to put back.
    *
-   * `Ed_AutoLoad` binds any of the 184 commands to a program, and the shipped
-   * config binds 37 of them to `AMOSPro_Help.AMOS`. Running one needs the
-   * interpreter, so this port makes the DECISION and hands what it decided to
-   * the host; null means nothing happens and the command is still refused,
-   * which is what a machine with the accessory missing does.
+   * The `.Sauv` arm (+Edit.s:7903) reserves a block and copies the buffer
+   * size, the ten marks, `Edt_SReload`..`Edt_EReload` and `Prg_NamePrg` into
+   * it before the accessory takes the window. `Ed_Loop` (:1017) tests it
+   * every time round and `Ed_PrgReLoad` (:7996) is what puts the program
+   * back -- BY NAME, off the disc, which is why `Ed_Saved` is offered first.
    */
-  prgCommand: ((cmd: PrgCommand) => void) | null = null
+  prg2Reload: { name: string; marks: number[]; xPos: number; yPos: number; xCu: number; yCu: number } | null = null
 
   /**
    * `Ed_Insert` (+Editor_Config.s:90, default -1): insert rather than

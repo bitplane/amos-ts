@@ -87,6 +87,38 @@ program's three entries are numbered off `HiddenCommands` and `Ed_FCall`
 DEVIATION: `EdM_MarkAll` ticks the program the editor is showing. Nothing here
 does, so the entries are told apart by name.
 
+## The accessories
+
+A command can BE a program. `Ed_FCall` (+Edit.s:2610) reads `.Ed_AutoLoad`
+before it reaches `JFonc` and branches to `Ed_PrgCommand` (:7868) when the
+flags byte is not zero, and the shipped table binds 37 of the 184: every Help
+entry, the Object Editor, the two bank makers, the Disc Manager, the two
+compiler shells and the six configuration editors.
+
+All 37 carry flags of 1, which is the arm that takes the CURRENT window:
+`Ed_Saved` offers to save, the program is set aside in `Ed_Prg2ReLoad`, and
+then New, load and run. `Ed_Loop` (:1017) tests `Ed_Prg2ReLoad` every time
+round and `Ed_PrgReLoad` (:7996) puts the editor's program back -- by name,
+off the disc, which is why the save is offered first and why a program that
+was never saved comes back empty. That is the machine's answer, not a
+shortcut.
+
+The command line is the other half. `TBuffer-256-6(Buffer)` carries `"CmdL"`
+and the text, which is what `Command Line$` reads, so `HelpMenu`, `HelpSyntax`
+and `GRABO` are how one accessory serves a dozen menu entries. With no line of
+its own the command takes the current line from the cursor, which is how Help
+looks a keyword up.
+
+The paths are assigns. Every entry in the table starts `AMOSPro_Accessories:`,
+`AMOSPro_System:`, `AMOSPro_Tutorial:` or `AMOSPro_Compiler:`, which the
+startup script makes against the AMOSPro drawer; `src/web/player.ts` makes the
+same four against whatever archive was dropped in.
+
+DEVIATION: `.Hidden`, the arm for a command bound to an ACCESSORY rather than
+a program, is not ported. Nothing in the shipped table uses it -- every entry
+has bit 0 set -- and its three pieces, `Edt_AccAdr`, `Ed_RLoadHidden` and
+`Ed_RunHide`, are all here and would only need joining up.
+
 ## The requesters
 
 They are Interface programs, and this port already had the Interface language.

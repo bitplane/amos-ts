@@ -246,12 +246,58 @@ ${provenance}
 `,
 }
 
+/**
+ * A message block, encoded the way `GetMessage` reads one.
+ *
+ * `messages` in ../editor/config.ts is the decoder: a record is a flag
+ * byte, a length byte and that many characters, and `$FF` in the length
+ * position ends the block. This is the inverse, so a table parsed out of the
+ * assembler can go back in as the bytes the editor's own config file holds.
+ */
+function messageBlock(list: string[]): Uint8Array {
+  const out: number[] = []
+  for (const m of list) {
+    out.push(0, m.length)
+    for (const c of m) out.push(c.charCodeAt(0) & 0xff)
+  }
+  out.push(0, 0xff)
+  return Uint8Array.from(out)
+}
+
+/**
+ * `.Ed_AutoLoad` (+Editor_Config.s:67): three bytes per command, 184 of them.
+ *
+ * `Ed_FCall` (+Edit.s:2610) reads the first byte BEFORE it reaches `JFonc`
+ * and branches to `Ed_PrgCommand` when it is not zero, so what makes an entry
+ * live is its flags. The other two are 1-based indices into the programs
+ * block: the program's name, and a command line for it.
+ */
+function autoLoadTable(): Uint8Array {
+  const start = src.findIndex((l) => l.startsWith('.Ed_AutoLoad'))
+  if (start < 0) throw new Error('no .Ed_AutoLoad in +Editor_Config.s')
+  const out: number[] = []
+  for (let i = start + 1; i < src.length && out.length < 184 * 3; i++) {
+    const m = /^\s*dc\.b\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)/.exec(src[i]!)
+    if (!m) {
+      if (/^\S/.test(src[i]!) && src[i]!.trim() !== '') break
+      continue
+    }
+    out.push(Number(m[1]) & 0xff, Number(m[2]) & 0xff, Number(m[3]) & 0xff)
+  }
+  if (out.length !== 184 * 3) throw new Error(`.Ed_AutoLoad is ${out.length / 3} records, not 184`)
+  return Uint8Array.from(out)
+}
+
+let emittedUnhex = false
+
 /** the same `unhex` shape ./genedkeys.ts writes, for the same reason */
 const bytesConst = (name: string, doc: string, b: Uint8Array): string => {
   const hex = Buffer.from(b).toString('hex')
   const rows: string[] = []
   for (let i = 0; i < hex.length; i += 96) rows.push(`  '${hex.slice(i, i + 96)}'`)
-  return `\nconst unhex = (s: string): Uint8Array => Uint8Array.from(s.match(/../g)!, (v) => parseInt(v, 16))\n\n/**\n${doc}\n */\nexport const ${name}: Uint8Array = unhex(\n${rows.join(' +\n')},\n)\n`
+  const decl = emittedUnhex ? '' : `\nconst unhex = (s: string): Uint8Array => Uint8Array.from(s.match(/../g)!, (v) => parseInt(v, 16))\n`
+  emittedUnhex = true
+  return `${decl}\n/**\n${doc}\n */\nexport const ${name}: Uint8Array = unhex(\n${rows.join(' +\n')},\n)\n`
 }
 
 const emit = (path: string, names: string[], tail = ''): void => {
@@ -265,6 +311,8 @@ const emit = (path: string, names: string[], tail = ''): void => {
 }
 
 const defs = definitionBytes('bin/Editor_Menus.bin')
+const programs = messageBlock(block('Auto1', 'Auto2'))
+const autoLoad = autoLoadTable()
 emit(
   'src/runtime/edmessages.gen.ts',
   ['ED_SYSTEME', 'EDM_MESSAGES', 'ED_MESSAGES', 'ED_TST_MESSAGES'],
@@ -277,8 +325,28 @@ emit(
       ` * ../editor/menus.ts decodes a record: the command, two ink numbers and a\n` +
       ` * path of up to four levels, every field stored plus 48.`,
     defs,
-  ),
+  ) +
+    bytesConst(
+      'ED_PROGRAMS',
+      ` * \`Auto1\`..\`Auto2\` (+Editor_Config.s:1054), the programs block:\n` +
+        ` * \`Ed_MnPrograms\`, which \`Ed_PrgCommand\` (+Edit.s:7868) indexes for the\n` +
+        ` * name of the program to load and for the command line to give it. The\n` +
+        ` * shipped block names AMOSPro_Help and the accessories.`,
+      programs,
+    ) +
+    bytesConst(
+      'ED_AUTOLOAD',
+      ` * \`.Ed_AutoLoad\` (+Editor_Config.s:67): three bytes per command, 184 of\n` +
+        ` * them, and the shipped table binds 37 of the commands to a program.\n` +
+        ` *\n` +
+        ` * \`Ed_FCall\` (+Edit.s:2610) reads the first byte BEFORE it reaches \`JFonc\`\n` +
+        ` * and branches to \`Ed_PrgCommand\` when it is not zero. The other two are\n` +
+        ` * 1-based indices into \`ED_PROGRAMS\`: the name, and a command line.`,
+      autoLoad,
+    ),
 )
 emit('src/interp/errors.gen.ts', ['ED_RUN_MESSAGES'])
 for (const [name, msgs] of Object.entries(tables)) console.log(`${name}: ${msgs.length}`)
 console.log(`EDM_DEFINITION: ${defs.length} bytes, ${Math.floor(defs.length / 8)} records`)
+console.log(`ED_PROGRAMS: ${programs.length} bytes, ${block('Auto1', 'Auto2').length} names`)
+console.log(`ED_AUTOLOAD: ${autoLoad.length} bytes, ${autoLoad.filter((_, i) => i % 3 === 0 && autoLoad[i] !== 0).length} commands bound`)

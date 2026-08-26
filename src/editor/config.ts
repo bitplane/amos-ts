@@ -53,6 +53,7 @@
  * 18,866 of them. The last two are zeroes that `EdC_Save` does not write.
  */
 import { ED_KFONC } from './keymap.gen'
+import { ED_AUTOLOAD, ED_PROGRAMS, EDM_DEFINITION, EDM_MESSAGES } from '../runtime/edmessages.gen'
 
 /** `Ed_FConfig - Ed_DConfig`: the length the file opens with, and its only check */
 export const CONFIG_SIZE = 1202
@@ -121,7 +122,21 @@ export type TextBlock = (typeof TEXT_BLOCKS)[number]
 export type ConfigTexts = Record<TextBlock, Uint8Array>
 
 const empty = (): ConfigTexts =>
-  Object.fromEntries(TEXT_BLOCKS.map((n) => [n, new Uint8Array(0)])) as ConfigTexts
+  Object.fromEntries(
+    TEXT_BLOCKS.map((n) => [
+      n,
+      // The three blocks the editor cannot work without, from the shipped
+      // configuration. `Ed_MnPrograms` is what `Ed_PrgCommand` indexes for a
+      // program's name, and the two menu blocks are `EdM_Init`'s pair.
+      n === 'programs'
+        ? ED_PROGRAMS.slice()
+        : n === 'menuDefs'
+          ? EDM_DEFINITION.slice()
+          : n === 'menus'
+            ? menuLabelBlock()
+            : new Uint8Array(0),
+    ]),
+  ) as ConfigTexts
 
 /**
  * `Ed_DConfig` in memory: a block of bytes and the names for the offsets.
@@ -414,6 +429,23 @@ export function writeConfig(config: EditorConfig): Uint8Array {
  * is zero in every record of the shipped file and the walk steps over it
  * without looking.
  */
+/**
+ * `EDM_MESSAGES` back as the block the config file holds.
+ *
+ * The labels are baked as strings because that is what everything else reads
+ * them as, and `EdM_Init` walks them in step with `EDM_DEFINITION` out of the
+ * config's own byte block. `messages` below is the decoder this inverts.
+ */
+function menuLabelBlock(): Uint8Array {
+  const out: number[] = []
+  for (const m of EDM_MESSAGES) {
+    out.push(0, m.length)
+    for (const c of m) out.push(c.charCodeAt(0) & 0xff)
+  }
+  out.push(0, 0xff)
+  return Uint8Array.from(out)
+}
+
 export function messages(block: Uint8Array): string[] {
   const out: string[] = []
   for (let p = 0; p + 1 < block.length; ) {
@@ -522,6 +554,11 @@ const DEFAULTS = (() => {
   b[AT.QUIT_FLAGS] = 1
   b[AT.INSERT] = 0xff
   b.set(ED_KFONC, AT.K_FONC)
+  // `.Ed_AutoLoad` (+Editor_Config.s:67), the shipped table: 37 of the 184
+  // commands are bound to a program, and `Ed_FCall` (+Edit.s:2610) reads the
+  // flags byte BEFORE it reaches `JFonc`. Without it every Help entry and
+  // every accessory in the menu was a command with nothing behind it.
+  b.set(ED_AUTOLOAD, AT.AUTO_LOAD)
   b.set([0x31, 0x2e, 0x31, 0x30], AT.CODE) // "1.10"
   return b
 })()

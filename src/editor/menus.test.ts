@@ -60,6 +60,10 @@ function open(stub: Stub = {}): Edit {
   fs.mountMemory('AMOSPro_System')
   e.fs = fs
   e.dialogues = requester(stub)
+  // `Ed_FCall` reads `.Ed_AutoLoad` before it reaches `JFonc`, and the
+  // shipped table binds 37 commands to a program -- command 27 among them.
+  // These tests are about the commands, so the bindings come off.
+  e.editor.config.autoLoad.fill(0)
   asked = []
   picked = []
   drawWindows(e.editor)

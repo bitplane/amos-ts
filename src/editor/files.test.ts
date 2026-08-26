@@ -242,6 +242,10 @@ describe('Save', () => {
     // Ed_SaveAsName stacks Prg_NamePrg over the save, because Prg_Save
     // overwrites it with Name1
     const e = open()
+    // command 152 is bound to Help in the shipped `.Ed_AutoLoad`, and
+    // `Ed_FCall` reads that before it reaches `JFonc`. This test is about the
+    // save, so the binding comes off.
+    e.editor.config.autoLoad.fill(0)
     e.name1 = 'RAM:REAL.AMOS'
     edCall(e, ED.SAVE)
     e.name1 = 'RAM:SHELL.AMOS'

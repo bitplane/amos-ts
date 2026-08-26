@@ -3549,6 +3549,90 @@ function autoLoad(e: Edit, cmd: number): PrgCommand | null {
   }
 }
 
+/**
+ * `Ed_PrgCommand` (+Edit.s:7868): a command that is a program.
+ *
+ * `Ed_AutoLoad` binds any of the 184 commands to one, and the shipped table
+ * binds 37 -- every Help entry, the Object Editor, the two bank makers, the
+ * Disc Manager, the compiler shells and the six configuration editors. All 37
+ * carry flags of 1, so all 37 take the arm below.
+ *
+ * ```
+ *  bit 0  the current window rather than a hidden one
+ *  bit 1  the command line comes from the table, not from the cursor
+ *  bit 2  no reload: the editor's program is not put back afterwards
+ * ```
+ *
+ * The command line is `TBuffer-256-6(Buffer)` with `"CmdL"` in front of it,
+ * which is what `Command Line$` reads: `HelpMenu` and `GRABO` are how one
+ * accessory serves a dozen menu entries.
+ *
+ * DEVIATION: `.Hidden`, the arm for a command bound to an ACCESSORY rather
+ * than to a program, is not here. Nothing in the shipped table uses it --
+ * every entry has bit 0 set -- and it is `Edt_AccAdr`, `Ed_RLoadHidden` and
+ * `Ed_RunHide`, which are all ported and would only need joining up.
+ */
+function prgCommand(e: Edit, bound: PrgCommand): void {
+  e.tokCur()
+  // `.NoCom` (:7881): with no line of its own the command takes the current
+  // line from the cursor, which is how `Help` looks a keyword up
+  const line = bound.line ?? e.current().text.slice(e.xCu)
+  // `bsr Ed_Saved` before anything is thrown away, because the reload below
+  // reads the program back off the DISC and an unsaved one would be gone
+  saved(e)
+  if ((bound.flags & 0b100) === 0) {
+    // `.Sauv`: the block `Ed_PrgReLoad` puts back
+    e.editor.prg2Reload = {
+      name: e.prog.name,
+      marks: [...e.prog.marks],
+      xPos: e.xPos,
+      yPos: e.yPos,
+      xCu: e.xCu,
+      yCu: e.yCu,
+    }
+  }
+  // `.NLRun`: the name, New, load, and run it as a normal program
+  e.name1 = bound.program
+  newProgram(e)
+  reload(e)
+  e.editor.runnedHidden = (bound.flags & 0b100) === 0
+  if (!prgRunIt(e, e, false, false, line)) throw new EditorAlert(204, 120) // Ed_OMm
+}
+
+/**
+ * `Ed_PrgReLoad` (+Edit.s:7996): the editor's own program, back.
+ *
+ * `Ed_Loop` (:1017) tests `Ed_Prg2ReLoad` every time round and comes here
+ * before it looks at a key. The reload is BY NAME off the disc -- the
+ * accessory had the window and the text with it -- and `tst.b (a2) / beq
+ * .Nol` skips it for a program that was never saved, which comes back empty.
+ */
+function prgReload(e: Edit): void {
+  const back = e.editor.prg2Reload
+  if (back === null) return
+  e.editor.prg2Reload = null
+  newProgram(e)
+  if (back.name !== '') {
+    e.name1 = back.name
+    try {
+      reload(e)
+      // `move.b #1,Prg_StModif(a6)`, "force le test"
+      e.prog.modified = true
+    } catch (err) {
+      // `.Nol`: a load that fails leaves the window empty rather than raising
+      if (!(err instanceof DiskError) && !(err instanceof EditorAlert)) throw err
+    }
+  }
+  back.marks.forEach((m, i) => {
+    e.prog.marks[i] = m
+  })
+  e.xPos = back.xPos
+  e.yPos = back.yPos
+  e.xCu = back.xCu
+  e.yCu = back.yCu
+  e.fill()
+}
+
 /* ---- 73, 74, 135 and 136: editing the menu itself ----------------------- */
 
 /**
@@ -4713,8 +4797,7 @@ export function edCall(e: Edit, cmd: number, param = 0): number {
   if (bound !== null && e.macroTape === null) {
     clearAlert(e)
     e.callFlags = flags
-    e.editor.prgCommand?.(bound)
-    return 0
+    return run(e, () => prgCommand(e, bound))
   }
   const fn = COMMANDS[call]
   if (fn === undefined) throw new RangeError(`editor command ${call} (${routineOf(call)}) is not ported`)
@@ -4753,6 +4836,9 @@ function edLoop(e: Edit, alert: number): number {
   // `bsr Ed_AllAverFin` (:933), which is why an unmatched `Ed_AverMess` costs
   // one command and not the session: every warning left up comes down here
   e.editor.avert.length = 0
+  // `move.l Ed_Prg2ReLoad(a5),d0 / bne Ed_PrgReLoad` (:1017): the program an
+  // accessory borrowed the window from, put back before the next key
+  if (e.editor.prg2Reload !== null && e.editor.runned === null) prgReload(e)
   // `bsr Ed_LinkeScroll` (:964), after the command and not inside it
   const now = e.editor.current
   if (now !== null) linkScroll(now)
