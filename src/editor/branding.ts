@@ -94,13 +94,13 @@ export const PORT_MENU_LABELS: ReadonlyMap<number, string> = new Map([[150, ` Ab
 /**
  * Menu paths this port does not build, with the branch under each.
  *
- * `8` is Help, and every one of its nineteen entries is a jump into
- * `AMOSPro_Help.AMOS`, which reads `AMOSPro_Help.Map` and `.Txt` -- 318KB of
- * Europress's manual that is not ours to ship and that nobody without an AMOS
- * Pro installation has. The accessory itself answers "Cannot load AMOS
- * Professional help files." and stops, which is a menu of nineteen entries
- * that all do the same nothing. `Ed_GoHelp` (JFonc 183) is untouched: it is a
- * key, not a menu entry, and it still runs whatever the configuration has
- * bound to it.
+ * Empty, and worth keeping as a mechanism. Help was in here: nineteen entries
+ * that all run `AMOSPro_Help.AMOS`, which wants `AMOSPro_Help.Map` and `.Txt`
+ * beside it -- 318KB of Europress's manual that is not ours to ship. It was
+ * taken out because without those files every entry did the same nothing, and
+ * put back because that is no longer true: `Ed_DError` reports now (see
+ * `Amos.dError`), so an entry with no disc behind it says "File not found"
+ * like any other command that cannot reach a file, and one with the disc
+ * mounted works.
  */
-export const PORT_MENU_HIDDEN: readonly string[] = ['8']
+export const PORT_MENU_HIDDEN: readonly string[] = []

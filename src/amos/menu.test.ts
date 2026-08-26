@@ -45,24 +45,19 @@ describe('the editor s menu bar, which is EdM_Definition walked', () => {
 
   /**
    * Help is nineteen entries and every one of them runs `AMOSPro_Help.AMOS`,
-   * which needs `AMOSPro_Help.Map` and `.Txt` beside it -- 318KB of Europress
-   * material this port does not ship. See `PORT_MENU_HIDDEN` in
-   * ../editor/branding.ts.
+   * which needs `AMOSPro_Help.Map` and `.Txt` beside it. Those are not ours
+   * to ship, so an installation without them gets `Ed_DError`'s "File not
+   * found" -- which is what a command that cannot reach a file is supposed to
+   * say, and why the branch is built again.
    */
-  it('does not build the Help branch, title and all', () => {
+  it('builds the Help branch, whether or not the disc is in the machine', () => {
     const amos = boot()
     const t = amos.runtime!.menu
-    // the records are still there, so what is skipped is the building of them
-    const defs = readMenuDefs(EDM_DEFINITION, EDM_MESSAGES)[0]!
-    expect(defs.some((r) => r.path.join('.') === '8')).toBe(true)
-    expect(defs.filter((r) => r.path[0] === 8).length).toBe(20)
-    // and nothing under 8 reached the tree, including the node itself: `MnIns`
-    // creates every node on a path, so a skipped title with its entries built
-    // anyway would leave an unlabelled menu on the bar
-    expect(t.find([8])).toBeNull()
-    expect(t.find([8, 1])).toBeNull()
-    expect(amos.menu.chosen([8, 1, 0, 0])).toBe(-1)
-    // the neighbours on either side are untouched
+    expect(label(t.find([8])!)).toBe(' Help ')
+    expect(label(t.find([8, 1])!)).toBe(' Help         ')
+    expect(label(t.find([8, 19])!)).toBe(' Latest News  ')
+    expect(amos.menu.chosen([8, 1, 0, 0])).toBe(27) // Ed_UserMenu, bound to Help
+    // and the neighbours on either side are where they were
     expect(label(t.find([7])!)).toBe(' User ')
     expect(label(t.find([10])!)).toBe(' AMOS ')
   })
