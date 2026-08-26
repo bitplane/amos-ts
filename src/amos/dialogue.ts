@@ -177,6 +177,17 @@ export class EditorDialogues {
     if (chan === null) return undefined
     const read = this.readField(chan, ask)
     if (read !== undefined) return read
+    // Already on the screen, so this is a caller asking twice. `Ed_Dialogue`
+    // runs its label once and then sits inside `L_Dia_RunProgram` until a
+    // button is pressed, and running it again over the top is not a state the
+    // machine has: it re-entered the script on a channel with a live run,
+    // and for the selector it opened a second EcFsel over the first, whose
+    // `Fs_OldEc` then recorded a screen that was about to be closed.
+    //
+    // `readField` is above this on purpose. `Dia_GetValue` and its two
+    // neighbours read a requester that has ALREADY been answered, which is a
+    // channel in `done` rather than `waiting`, and they are not questions.
+    if (this.selecting || chan.runState === 'waiting') return undefined
     if (ask.kind === 'select') return this.selector(ask.which, ask.name)
     const label = labelFor(ask)
     if (label < 0) return undefined

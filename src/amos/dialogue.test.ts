@@ -194,3 +194,47 @@ describe('the About box, which is the one label this port rewrites', () => {
     expect(String(chan.getVar(1))).toContain(ED_MESSAGES[23])
   })
 })
+
+describe('a question already on the screen, asked again', () => {
+  /**
+   * `Ed_Dialogue` (+Edit.s:3107) runs its label ONCE and then does not return
+   * until a button is pressed. A host with three ways to notice a pending
+   * question -- the frame loop, a key and a click -- had two of them calling
+   * `start` again on a live channel, which re-ran the script over its own
+   * output and, for `Ed_File_Selector`, opened a second EcFsel on top of the
+   * first. Closing that one restored a current screen that had just been
+   * closed: "screen not opened: 10".
+   */
+  it('does not run the label a second time', () => {
+    const amos = boot()
+    amos.window.prog.changed = true
+    amos.call(ED.QUIT)
+    const ask = amos.pendingAsk!
+    const dia = new EditorDialogues(() => amos.runtime!, 9)
+    expect(dia.start(ask)).toBeUndefined()
+    const chan = amos.runtime!.dialogs.get(1)!
+    expect(chan.runState).toBe('waiting')
+    const zones = chan.zones.length
+    expect(zones).toBeGreaterThan(0)
+    // and again, which is what a click used to do
+    expect(dia.start(ask)).toBeUndefined()
+    expect(chan.runState).toBe('waiting')
+    expect(chan.zones.length).toBe(zones)
+  })
+
+  it('still reads the fields of one that has been answered', () => {
+    // `Dia_GetValue` (+Lib.s:20813) and its two neighbours are not questions:
+    // every caller asks them AFTER the requester came back, and the channel
+    // is in `done` with its zones still on it. The guard must not eat those.
+    const amos = boot()
+    amos.window.prog.changed = true
+    amos.call(ED.QUIT)
+    const dia = new EditorDialogues(() => amos.runtime!, 9)
+    dia.start(amos.pendingAsk!)
+    const chan = amos.runtime!.dialogs.get(1)!
+    amos.runtime!.finishDialogRun(chan, 1)
+    expect(chan.runState).toBe('done')
+    expect(dia.start({ kind: 'flags', from: 4, count: 3 })).toBe(0)
+    expect(dia.start({ kind: 'text', zone: 7 })).toBe('')
+  })
+})

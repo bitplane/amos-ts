@@ -624,6 +624,13 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     const ask = amos.pendingAsk
     if (ask === null) return
     dialogues ??= new EditorDialogues(() => amos!.runtime!, EditorScreen.EC_EDIT)
+    // Already on the screen. `Ed_Dialogue` runs the label ONCE and then sits
+    // in it, and this has three callers -- the frame loop, a key and a click
+    // -- of which only the loop was checking. A second `start` re-ran the
+    // label over the first, and for `Ed_File_Selector` it opened a second
+    // screen 10 on top of the first: closing that one restored a current
+    // screen that had just been closed, which is "screen not opened: 10".
+    if (dialogues.busy) return
     const now = dialogues.start(ask)
     if (now !== undefined) toEditor(amos.answer(now))
     // a question this port cannot put up is answered with its first button,
@@ -697,6 +704,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   function editorClick(button: number, count: number): void {
     const d = amos?.display
     if (d?.isOpen !== true || amos!.inEscape || !rt) return
+    // a click on a requester belongs to the requester. `Ed_Mouse` is part of
+    // `Ed_Loop`, which is not running while `Ed_Dialogue` is; `Dia_Tests`
+    // reads the button out of `rt.input` in the frame loop instead
+    if (dialogues?.busy === true) return
     const s = d.screen
     if (s === null) return
     // the routine reads `XyMou` and then `XyScr`, so the click it acts on is
