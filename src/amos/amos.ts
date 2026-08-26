@@ -35,13 +35,14 @@ import { ProgramBuffer } from '../editor/buffer'
 import { EditBuffer } from '../editor/editbuf'
 import { UndoBuffer } from '../editor/undo'
 import { ED, activate, drawWindows, edCall, edEscapeReturn, edKey, edRunReturn } from '../editor/commands'
-import { ED_SYSTEME } from '../runtime/edmessages.gen'
+import { ED_SYSTEME, ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { PRG, programSource, readProgramFile, writeProgramFile, type EditorFS } from '../editor/files'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokeniseSource } from '../tokens/edtok'
 import { verify } from '../tokens/verify'
 import { isAmosProgram, loadProgram } from '../loader/program'
+import { defaultSlotBindings } from '../ext/registry'
 import { zapCall, zapFunction } from '../editor/zap'
 import { Runtime, type EditorZap, type RuntimeOptions } from '../runtime/runtime'
 import { EditorScreen } from './screen'
@@ -62,6 +63,20 @@ import type { AmosFS } from '../amiga/fs'
  * is what a program typed in and left has been through before `Ed_Run` can
  * reach it.
  */
+/**
+ * The stock slot bindings, which is what a machine with the shipped
+ * extensions installed has (`defaultSlotBindings`, ../ext/registry.ts).
+ *
+ * A LISTING has no extension table of its own -- it is text -- so the
+ * tokeniser has to be told what is in the slots or `Track Loop On` is a
+ * syntax error. `loadProgram` does exactly this for the same reason.
+ */
+function stockTables(): Map<number, TokenTable> {
+  const m = new Map<number, TokenTable>()
+  for (const [slot, ext] of defaultSlotBindings()) m.set(slot, ext.table)
+  return m
+}
+
 function loadInto(source: string | Uint8Array, table: TokenTable): ProgramBuffer {
   if (typeof source !== 'string' && isAmosProgram(source)) {
     // No room limit. `Prg_Load` asks the memory for what the file needs and
@@ -79,7 +94,8 @@ function loadInto(source: string | Uint8Array, table: TokenTable): ProgramBuffer
     return prog
   }
   const text = typeof source === 'string' ? source : new TextDecoder('latin1').decode(source)
-  return ProgramBuffer.load(verify(tokeniseSource(text, table), {}).slice(0, -2))
+  const extensions = stockTables()
+  return ProgramBuffer.load(verify(tokeniseSource(text, table, { extensions }), { extensions }).slice(0, -2))
 }
 
 /** the Escape key's Amiga scancode, which `Esc_L1` tests as `cmp.b #$45,d1` */
@@ -164,6 +180,22 @@ export class Amos {
    */
   display: EditorScreen | null = null
 
+  /**
+   * The token table in each extension slot, which the editor needs as much as
+   * the interpreter does.
+   *
+   * `Ver_Extension` refuses a keyword whose slot holds no library, and on the
+   * machine the slots are MACHINE state: the libraries were loaded before the
+   * editor started and `T_ExtAdr` is what the Test pass looks at. Nothing
+   * here loads a library, so what fills this is the program's own extension
+   * table, which is the same answer for the same reason.
+   *
+   * Without it the Test pass refused every program that uses an extension.
+   * `Ed_FCall` reports a failed test and a successful one with the same 0, so
+   * what came out was "Ed_Run answered 0" and no program.
+   */
+  private readonly extensions = new Map<number, TokenTable>()
+
   private pending: RunRequest | null = null
   private readonly opts: AmosOptions
 
@@ -175,9 +207,10 @@ export class Amos {
       new EditBuffer(opts.rows ?? 20),
       new UndoBuffer(50),
       this.table,
-      {},
+      { extensions: this.extensions },
       this.editor,
     )
+    this.bindExtensions()
     if (opts.fs !== undefined) this.editor.fs = opts.fs
     // DEVIATION: with no host to draw them, `Ed_Dialogue` answered every
     // question with its first button. It now stops the command instead, and
@@ -196,12 +229,21 @@ export class Amos {
     this.editor.clearVars = () => {
       this.runtime = null
     }
+    // `Ed_OpenEditor`'s screen half. Null until a host asks for a display, so
+    // a headless caller is not given one it never wanted.
+    this.editor.openScreen = () => {
+      this.display?.open()
+    }
     // `Esc_Appear` and `Esc_Hide`, which are the AMOS screen underneath and
     // not the editor's, so they live on the Runtime
     this.editor.escapeScreen = (up) => {
       const rt = this.machine(false)
-      if (up) rt.directScreen.open()
-      else rt.directScreen.close()
+      if (up) {
+        // `Ed_ErrDirect` (+Edit.s:9293) is `Prg_JError` while the escape
+        // screen is up, so a typed `Edit` gets back to the editor
+        rt.directScreen.onDirectEnd = (code) => this.errDirect(code)
+        rt.directScreen.open()
+      } else rt.directScreen.close()
     }
     drawWindows(this.editor)
   }
@@ -215,7 +257,7 @@ export class Amos {
    * of whichever of the two ends last.
    */
   call(command: number, param = 0): number {
-    return this.attempt(command, param)
+    return this.attempt(() => this.after(edCall(this.window, command, param)))
   }
 
   /**
@@ -242,16 +284,16 @@ export class Amos {
    * cannot block runs the command again instead, with the answers it has
    * given so far replayed into it. `./requester.ts` says what that costs.
    */
-  private attempt(command: number, param: number): number {
+  private attempt(again: () => number): number {
     this.requester.begin()
     try {
-      const alert = this.paint(this.after(edCall(this.window, command, param)))
+      const alert = this.paint(again())
       this.requester.done()
       this.asking = null
       return alert
     } catch (e) {
       if (e !== ASKING) throw e
-      this.asking = { command, param }
+      this.asking = again
       return this.paint(0)
     }
   }
@@ -271,8 +313,16 @@ export class Amos {
     const at = this.asking
     if (at === null) return 0
     this.requester.record(v)
-    return this.attempt(at.command, at.param)
+    // `Ed_Ligne`'s requester is not saved and restored: its script has no
+    // `SA`, because `Ed_ErrEdit` (+Edit.s:8275) is `Ed_OpenEditor / Esc_Hide
+    // / Ed_Appear` and `Ed_Appear` redraws the whole editor over whatever the
+    // requester left. A row-by-row repaint leaves the buttons standing.
+    this.redraw = true
+    return this.attempt(at)
   }
+
+  /** the next repaint has to be `Ed_DrawWindows` and not `Ed_AffBuf` */
+  private redraw = false
 
   /** abandon the question and the command with it, which is what a close does */
   cancelAsk(): void {
@@ -282,7 +332,8 @@ export class Amos {
 
   /** the requester the editor asks, which records answers and replays them */
   readonly requester = new Requester()
-  private asking: { command: number; param: number } | null = null
+  /** the command to run again once the question has an answer */
+  private asking: (() => number) | null = null
 
   /**
    * `Ed_Mouse` (+Edit.s:1206): a click at a pixel on the editor's screen.
@@ -368,9 +419,22 @@ export class Amos {
    * opens is BEHIND the editor rather than instead of it.
    */
   openDisplay(): EditorScreen {
+    const d = this.useDisplay()
+    d.open()
+    return d
+  }
+
+  /**
+   * The display exists, but the screen is not up yet.
+   *
+   * `Ed_OpenEditor` is what opens the screens and it is called from a dozen
+   * places -- `Ed_Ligne` before it draws its requester, `Ed_ErrEdit` on the
+   * way back from a run, `Ed_GoMonitor` when the monitor is not there. A host
+   * says once that it HAS a display and the editor opens it when it needs it.
+   */
+  useDisplay(): EditorScreen {
     const d = this.display ?? new EditorScreen(() => this.machine(false), this.editor)
     this.display = d
-    d.open()
     return d
   }
 
@@ -384,7 +448,15 @@ export class Amos {
    * that ends in `Ed_BufUntok` and would throw the keystroke away.
    */
   private paint(alert: number): number {
-    this.display?.refresh()
+    // `Ed_Escape` (+Edit.s:8876) is `Ed_Hide` then `Esc_Appear`, and the
+    // escape screen is drawn on the editor's own screen. Repainting the
+    // editor after the command that raised it puts the editor straight back
+    // over the top: its status line, its text, all of it.
+    if (this.editor.escape) return alert
+    if (this.redraw) {
+      this.redraw = false
+      this.display?.draw()
+    } else this.display?.refresh()
     return alert
   }
 
@@ -448,6 +520,32 @@ export class Amos {
    * counting with `Ed_ZapCounter` (:1141), so the display has settled before
    * the accessory gets control back. Nothing here draws.
    */
+  /**
+   * Which extension is in which slot, read off the program that is loaded.
+   *
+   * `loadProgram` is what the interpreter uses, so the editor and the
+   * interpreter agree about the slots by construction.
+   */
+  private bindExtensions(): void {
+    this.extensions.clear()
+    try {
+      const w = this.window
+      const loaded = loadProgram(
+        writeProgramFile({
+          pro: w.prog.pro,
+          mathFlags: w.prog.mathFlags,
+          tested: !w.prog.modified,
+          source: programSource(w.prog),
+          banks: w.prog.banks,
+        }),
+        this.table,
+      )
+      for (const [slot, t] of loaded.extensions) this.extensions.set(slot, t)
+    } catch {
+      /* a program the loader will not take has no slots to bind */
+    }
+  }
+
   private readonly zap: EditorZap = {
     call: (command, param, line) => {
       const a = zapCall(this.window, command, param, line)
@@ -506,6 +604,12 @@ export class Amos {
    * number and `VerPos(a5)` with it.
    */
   finishRun(end: number | AmosRuntimeError): number {
+    // `Ed_Ligne` (+Edit.s:8344) asks before it does anything else, so the
+    // return from a run is as much a question as a command is
+    return this.attempt(() => this.errRun(end))
+  }
+
+  private errRun(end: number | AmosRuntimeError): number {
     let code = 0
     let at = -1
     let text: string | null = null
@@ -521,7 +625,7 @@ export class Amos {
       const w = this.ran ?? this.window
       at = end.at >= 0 ? end.at : w.prog.findLine(end.line - 1).at - w.prog.stBas
     }
-    return this.paint(edRunReturn(this.window, code, at, text))
+    return edRunReturn(this.window, code, at, text)
   }
 
   /**
@@ -532,12 +636,54 @@ export class Amos {
    * on the way in and there is nothing to return through.
    */
   escapeBack(): number {
-    return edEscapeReturn(this.window)
+    const alert = edEscapeReturn(this.window)
+    // `Esc_Esc` is `Esc_Hide` then `Ed_Appear`, and `Ed_Appear` (+Edit.s:9646)
+    // is `Ed_DrawTop` and `Ed_DrawWindows`. The escape screen was drawn on
+    // the editor's own screen, so without the redraw its logo, its buttons
+    // and its text are still there under the editor's.
+    this.redraw = true
+    return this.paint(alert)
+  }
+
+  /**
+   * `Ed_ErrDirect`'s tail (+Edit.s:9309), for a line typed at the escape
+   * screen rather than a program that stopped.
+   *
+   *     cmp.w #1002,d1 / beq Ed_System
+   *     cmp.w #1000,d1 / beq Esc_Esc
+   *
+   * A typed `Edit` is `Esc_Esc`, which is `Esc_Hide` then `Ed_Appear`. A
+   * typed `System` ends the session. Everything else prompts again.
+   */
+  private errDirect(code: number): boolean {
+    if (code === 1002) {
+      this.editor.quit = true
+      return true
+    }
+    if (code !== 1000) return false
+    this.escapeBack()
+    return true
   }
 
   /** whether the escape screen is in front: `Direct(a5)` */
   get inEscape(): boolean {
     return this.editor.escape
+  }
+
+  /**
+   * `Ed_ErrTest` (+Edit.s:8246): why the Test pass refused the program.
+   *
+   * -1 for a command that did not test one. `Ed_FCall` answers 0 for a failed
+   * test the same as for a success -- the cursor has already been moved and
+   * the message comes from `Ed_TstMessages` rather than the editor's own
+   * table -- so a host that gets 0 out of `Ed_Run` and no program has to look
+   * here to find out why.
+   */
+  get testError(): { code: number; text: string } {
+    const code = this.window.testError
+    // `Ed_TstMessages` is a `GetMessage` table, so it is 1-based like every
+    // other one: code 5 is "Extension not loaded" at index 4
+    return { code, text: code < 0 ? '' : (ED_TST_MESSAGES[code - 1] ?? `test error ${code}`) }
   }
 
   /** the editor's status line as it stands, which is what a host draws */

@@ -2613,7 +2613,15 @@ function vaTester(e: Edit, check13 = false, always = false): void {
   let out: Uint8Array
   const stats = { instructions: 0, not13: false, accessory: 0 }
   try {
-    out = verify(src, { stats, check13, bankNumbers: bankNumbers(e.prog) })
+    // `Ver_Extension` refuses a keyword whose slot holds no library, and on
+    // the machine those were loaded before the editor started. The slots the
+    // program names are the same ones the interpreter binds.
+    out = verify(src, {
+      stats,
+      check13,
+      bankNumbers: bankNumbers(e.prog),
+      ...(e.opts.extensions ? { extensions: e.opts.extensions } : {}),
+    })
   } catch (err) {
     if (!(err instanceof VerifyError)) throw err
     // `Prg_JError`, which PTest longjmps to: the cursor goes to the error
@@ -3199,6 +3207,7 @@ function closeEditor(e: Edit): void {
  */
 function openEditor(e: Edit): void {
   e.editor.opened = true
+  e.editor.openScreen?.()
 }
 
 /**
@@ -3280,6 +3289,11 @@ function getError(code: number, text: string | null): { code: number; text: stri
  * makes: button 1 is Direct and everything else is the editor.
  */
 function edLigne(e: Edit, w: Edit, at: number, message: string): number {
+  // `bsr Ed_OpenEditor` is the routine's second instruction (+Edit.s:8350),
+  // before a character of the requester is drawn. It has to be: the requester
+  // is an Interface program on `EcEdit`, so without the screen it lands on
+  // whatever the PROGRAM left current and takes the program's palette with it.
+  openEditor(e)
   const f = at >= 0 ? errLine(w, w.prog.stBas + at) : { line: 0, text: '', column: 0 }
   const col = f.column
   const head = f.text.slice(Math.max(0, col - 13), col)

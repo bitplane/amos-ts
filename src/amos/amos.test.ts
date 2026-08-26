@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ED } from '../editor/commands'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { ED_TST_MESSAGES } from '../runtime/edmessages.gen'
 import { Amos } from './amos'
 import type { Confirm, DialogueAnswer, EditorDialogues, SearchDialogue } from '../editor/search'
 import { parseAmosFile } from '../loader/amosfile'
@@ -313,6 +314,40 @@ function win(amos: Amos, src: string): Edit {
     amos.editor,
   )
 }
+
+describe('the Test pass knows which extension is in which slot', () => {
+  /**
+   * `Ver_Extension` refuses a keyword whose slot holds no library. On the
+   * machine the slots are MACHINE state -- the libraries were loaded before
+   * the editor started and `T_ExtAdr` is what the walk looks at -- and
+   * nothing in this port loads one, so what fills them is the program's own
+   * extension table.
+   *
+   * Without it `Ed_Run` refused every program that uses an extension, and
+   * `Ed_FCall` reports a failed test and a successful one with the same 0, so
+   * what a host saw was "Ed_Run answered 0" and no program.
+   */
+  it('runs a program that calls one, rather than refusing it', () => {
+    // `Music` is slot 1, the stock AMOSPro_Music library
+    const text: string[] = []
+    const amos = new Amos('Print "A"\nTrack Loop On\nPrint "B"', {
+      onText: (t) => text.push(t),
+      requesters: false,
+    })
+    expect(amos.call(ED.RUN)).toBe(0)
+    expect(amos.testError.code).toBe(-1)
+    expect(text.join('').replace(/\s+/g, ' ').trim()).toBe('A B')
+  })
+
+  it('says which test refused it, since Ed_FCall answers 0 either way', () => {
+    // `Ed_TstMessages` is a `GetMessage` table and so 1-based: code 5 is
+    // "Extension not loaded" at index 4, not "Too many direct mode variables"
+    const amos = new Amos('Print "A"', { requesters: false })
+    expect(amos.testError).toEqual({ code: -1, text: '' })
+    amos.window.testError = 5
+    expect(amos.testError).toEqual({ code: 5, text: ED_TST_MESSAGES[4] })
+  })
+})
 
 describe('the window that runs is the one Ed_Run named', () => {
   it('runs a hidden window s program and not the current window s', () => {

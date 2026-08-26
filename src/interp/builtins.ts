@@ -909,18 +909,27 @@ export const INSTR: Record<string, Instr> = {
    * then jumps to `Prg_JError`: an accessory that says Edit does not resume
    * whoever Prun'd it, it stops the lot and the editor takes over.
    *
+   * `exitDirect` first, because this is reached from a TYPED line as often as
+   * from a program: `RunErrExt`'s `cmp.w #1000,d0 / bcc rErr1` sends 1000 and
+   * up to `rErr1` before it looks at `Direct(a5)` at all, and `rErr1` pulls
+   * the stack. Without the unwind a typed `Edit` left `Direct(a5)` set and
+   * the interpreter halted under it: a dead program and an escape screen that
+   * never prompted again.
+   *
    * DEVIATION: the editor's side of this is `Ed_ErrRun` (+Edit.s:8252), and
    * a headless run has nobody to hand 1000 to. What the code buys with no
    * editor attached is that a caller can tell Edit from End.
    */
   edit(it) {
     it.endCode = 1000
+    it.exitDirect()
     it.halt('ended', false)
     return 'jumped'
   },
   /** `InDirect` (+ILib.s:1837): 1001, which is `Ed_ErrDirect` */
   direct(it) {
     it.endCode = 1001
+    it.exitDirect()
     it.halt('ended', false)
     return 'jumped'
   },

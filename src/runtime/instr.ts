@@ -3120,6 +3120,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // entirely. `Ed_Errr` (+Edit.s:8261) is the only place that reads 1002
       // differently from 1000, and it goes to `Ed_System`
       it.endCode = 1002
+      // as Edit and Direct do: `rErr1` pulls the stack before it jumps
+      it.exitDirect()
       it.halt('ended', false)
       return 'jumped'
     },

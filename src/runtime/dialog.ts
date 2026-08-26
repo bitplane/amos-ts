@@ -225,6 +225,19 @@ export class DialogChannel {
   runFlags = 0
   timer = 0
   timerStart = 0
+  /**
+   * `CA`'s addresses, for a host that knows what one of them is.
+   *
+   * `CA addr` calls 68k machine code, and this port does not execute any. The
+   * editor is the caller that matters: `Ed_Ligne` (+Edit.s:8367) puts
+   * `EdReCop` into `Ed_VDialogues` slot 4 and its requester ends `CA 4VA`.
+   * `EdReCop` (:3043) is `SyCall WaitVbl / EcCall CopForce / rts`, three
+   * instructions that force a copper rebuild, which this port does every
+   * frame anyway. An address nobody registered is still a function call
+   * error, because a dialog calling into memory this port cannot reach is
+   * not something to do quietly.
+   */
+  machineCalls = new Map<number, () => void>()
   /** SS: dialog slider colours (SlDInit +Lib.s:20182) */
   sliderCfg = [0, 0, 0, 1, 4, 4, 4, 1, 0, 0, 0, 1, 3, 3, 3, 1]
   /** user-instruction call depth and param stack */
@@ -1132,9 +1145,14 @@ export class DialogExec {
           }
           break
         }
-        case 46: // CA addr — calls 68k machine code; not portable
-          this.fonc()
+        case 46: {
+          // CA addr — calls 68k machine code. Only an address the host has
+          // named is callable; see `machineCalls`.
+          const fn = ch.machineCalls.get(int(0))
+          if (fn === undefined) this.fonc()
+          fn!()
           break
+        }
         case 47: // SM — interactive screen drag (no-op in the port)
           break
         case 48: { // GE x,y,r1,r2

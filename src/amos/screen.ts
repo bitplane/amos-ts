@@ -26,7 +26,7 @@ import { parseResourceBank, type ResourceGraphics } from '../loader/resource'
 import { renderWindow, statusLine } from '../editor/display'
 import { ED_BAS_SY, ED_ETAT_SY, ED_ROW_SY, type Editor } from '../editor/windows'
 import type { Edit } from '../editor/edit'
-import { Runtime } from '../runtime/runtime'
+import { DEFAULT_FLASH_SPEC, Runtime, parseFlashSpec } from '../runtime/runtime'
 
 /** `Ed_BoutonsSx` (+Edit.s:96): one editor button, and `Ed_TitreSy` is its height */
 const BUTTON_W = 32
@@ -98,6 +98,21 @@ export type EditorHit =
   | null
 
 /**
+ * `CurNor` (+Edit.s:15230): the editor's text cursor, two pixels of underline.
+ *
+ * `Ed_DrawWindows` installs it with `WiCall SCurWi` as it opens each text
+ * window. `CurBloc` under it is the chequer `Ed_BlocCu` swaps in while a
+ * block is being made, which is not ported.
+ */
+const CUR_NOR = Uint8Array.from([0, 0, 0, 0, 0, 0xff, 0xff, 0])
+
+/** `ChCuOn` (:15250): `dc.b 27,"C1",0` */
+const CUR_ON = '\x1bC1'
+
+/** `Ed_OpenIt`'s `moveq #1,d3` for `EcEdit` (+Edit.s:378): the cursor colour */
+const ED_CURSOR_COLOUR = 1
+
+/**
  * One system message, ready to print.
  *
  * `Ed_GetSysteme` is 1-based (GetMessage +B.s:562) and hands back a pointer;
@@ -160,10 +175,19 @@ export class EditorScreen {
     // `Ed_Wx` and `Ed_Wy` (+Editor_Config.s), 129 and 50 as shipped
     s.displayX = cfg.wx
     s.displayY = cfg.wy
-    // `EdC_SetPalette` runs before either screen opens, so the config's eight
-    // words win over the resource bank's own
+    // `EdC_SetPalette` (+Edit.s:4746) does not touch a screen at all: it
+    // copies `Ed_Palette` over the RESOURCE BANK's own eight words, so the
+    // requesters are drawn in the editor's colours. It runs in `Ed_OpenIt`
+    // before either screen opens, which is why the config wins here too.
     const pal = cfg.palette
+    if (g) for (let i = 0; i < 8; i++) g.palette[i] = pal[i]!
     for (let i = 0; i < 8; i++) s.palette[i] = pal[i]!
+    // `Ed_CopyPal` (+Edit.s:13816): sixteen words of `PI_DefEPa+32` into
+    // `EcPal+32`, which is colours 16 to 31 -- the SPRITE half. The mouse
+    // pointer is a hardware sprite and takes its three colours from 17, 18
+    // and 19 of whichever screen owns the scanline, so a screen that never
+    // had them written shows a black pointer.
+    for (let i = 16; i < 32; i++) s.palette[i] = this.rt.defaultPalette[i]!
     s.cls(0)
     s.cursorOn = true
     this.rt.screens.set(EditorScreen.EC_EDIT, s)
@@ -171,8 +195,28 @@ export class EditorScreen {
     this.rt.order.push(EditorScreen.EC_EDIT)
     this.prevScreen = this.rt.screens.has(this.rt.currentIndex) ? this.rt.currentIndex : -1
     this.rt.currentIndex = EditorScreen.EC_EDIT
+    /*
+     * `Dia_RScOpen`'s `.Fl` (+Lib.s:21021), which is what makes the caret
+     * blink:
+     *
+     *     moveq #46,d0 / Rjsr L_Sys_GetMessage
+     *     move.l a0,a1 / EcCall Flash
+     *     ... .Cu1 dc.b 27,"D0",0   with d1 written over the '0'
+     *
+     * d1 is the cursor colour the caller asked for and `Ed_OpenIt` passes 1
+     * for `EcEdit` (0 for `EcFonc`, which takes the `ESC "C0"` arm instead).
+     * So colour 1 runs the interpreter's own flash sequence and the window
+     * cursor is drawn in it. Nothing in +Edit.s says "Flash" once; the screen
+     * library does it on the way in.
+     */
+    try {
+      this.rt.flashStart(ED_CURSOR_COLOUR, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
+    } catch {
+      /* a full flasher table, which `Screen Open` ignores too */
+    }
     this.fitWindows()
     this.draw()
+    this.limM(s)
   }
 
   /**
@@ -210,6 +254,27 @@ export class EditorScreen {
     this.rt.closeScreen(EditorScreen.EC_EDIT)
     if (this.prevScreen >= 0 && this.rt.screens.has(this.prevScreen)) this.rt.currentIndex = this.prevScreen
     this.prevScreen = -1
+  }
+
+  /**
+   * `Ed_LimM` (+Edit.s:9731): the pointer is on, and it is on the editor.
+   *
+   * Two `SyCall XyHard` calls turn the editor screen's own (2,2) and
+   * (`Ed_Sx`-4, `Ed_Sy`-1) into hardware coordinates for `LimitM`, and the
+   * routine ends `SyCalD Show,-1`, which is `Show On`: the count goes to
+   * zero however deeply a program had nested `Hide`. `Ed_Appear` calls it
+   * after the screen slides in, so a game that hid the pointer does not
+   * leave you clicking at an editor you cannot see the pointer on.
+   */
+  private limM(s: Screen): void {
+    const cfg = this.editor.config
+    this.rt.mouseLimit = {
+      x1: s.screenToHardX(2),
+      y1: s.screenToHardY(2),
+      x2: s.screenToHardX(cfg.sx - 4),
+      y2: s.screenToHardY(cfg.sy - 1),
+    }
+    this.rt.mouseShow = 0
   }
 
   /** `Ed_DrawTop` then `Ed_DrawWindows`, which is what `Ed_Appear` draws */
@@ -374,6 +439,9 @@ export class EditorScreen {
       s.windOpen(this.textWindow(w), 0, y + ED_ETAT_SY, (width - 16) >> 3, rows, 0)
       s.selectWindow(this.textWindow(w))
       s.writeText(sys(20))
+      // `bsr Ed_CuNor` right after the message: `WiCall SCurWi` with
+      // `CurNor` (+Edit.s:15230), a two-pixel underline on rows 5 and 6
+      s.curWin.curDraw.set(CUR_NOR)
       // `Ed_NewBuf` (+Edit.s:10302): `Ed_BufUntok` fills `Edt_BufE` from the
       // program before `Ed_AffBuf` prints it. `Ed_DrawWindows` has just
       // handed the window its share of the one allocation, so what is in the
@@ -545,5 +613,10 @@ export class EditorScreen {
     if (s === null || w.hidden !== 0 || w.windTy === 0) return
     s.selectWindow(this.textWindow(w))
     s.locate(w.xCu - w.xPos, w.yCu)
+    // `Ed_Loop`'s `tst.b Ed_CuFlag(a5) / bne .PaCu / bsr Ed_CuOn` (:1052).
+    // Message 20 ends in `ESC C0`, so every window is opened with the cursor
+    // OFF and the loop is what turns it back on; `Ed_CuOn` (:10034) is one
+    // `WiCall Print` of `ESC "C1"`.
+    if (w === this.editor.current) s.writeText(CUR_ON)
   }
 }

@@ -44,6 +44,17 @@ const N_VARS = 16
 const ED_DIA_IMAGES = 66
 
 /**
+ * The address `Ed_Ligne` puts in `Ed_VDialogues` slot 4 for its `CA 4VA`.
+ *
+ * `lea EdReCop(pc),a0 / move.l a0,4*4(a2)` (+Edit.s:8367). The routine
+ * (:3043) is `SyCall WaitVbl / EcCall CopForce / rts` -- force the copper
+ * list to be rebuilt -- and this port rebuilds it every frame, so what is
+ * registered under this number does nothing. The number itself is made up:
+ * the machine's is wherever the editor was loaded.
+ */
+const ED_RECOP = 0x00ed_0001
+
+/**
  * The bank the editor draws its requesters out of.
  *
  * `Dia_OpenChannel` takes the programs and the graphics from `Ed_Resource`
@@ -119,6 +130,10 @@ export class EditorDialogues {
     chan.labels = scan.labels
     chan.userInstrs = scan.userInstrs
     chan.puzzleBase = ED_DIA_IMAGES
+    chan.machineCalls.set(ED_RECOP, () => {
+      // `EdReCop`: the copper list, rebuilt. `buildCopperList` runs every
+      // frame here, so the wait and the force are both already done.
+    })
     rt.dialogs.set(CHANNEL, chan)
     this.chan = chan
     return chan
@@ -139,6 +154,11 @@ export class EditorDialogues {
     const label = labelFor(ask)
     if (label < 0) return undefined
     this.fill(chan, ask)
+    // `Ed_Ligne` (+Edit.s:8397) is `SyCalD Show,-1` and `Esc_MaxMouse` before
+    // it positions the pointer on the requester. Every requester needs the
+    // same thing for the same reason: the program that just stopped may have
+    // hidden the pointer, and a button nobody can point at is not a button.
+    this.machine().mouseShow = 0
     const r = this.machine().runDialog(CHANNEL, label, null, null)
     return r === 'blocked' ? undefined : this.answerFrom(chan, ask, r)
   }
@@ -174,11 +194,13 @@ export class EditorDialogues {
       if (c.name !== undefined) chan.setVar(0, c.name)
       if (c.count !== undefined) chan.setVar(0, c.count)
       c.values?.forEach((v, i) => {
-        if (v !== undefined) chan.setVar(i, v)
+        if (v !== undefined && v !== null) chan.setVar(i, v)
       })
       c.strings?.forEach((v, i) => {
-        if (v !== undefined) chan.setVar(i, v)
+        if (v !== undefined && v !== null) chan.setVar(i, v)
       })
+      // `Ed_Ligne` fills slot 4 with `EdReCop` for its own `CA 4VA`
+      if (c.which === 59) chan.setVar(4, ED_RECOP)
       return
     }
     if (ask.kind === 'ask') {

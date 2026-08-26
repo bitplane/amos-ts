@@ -100,6 +100,25 @@ describe('the editor s requesters, as the Interface programs they are', () => {
     expect(ink4).toBeGreaterThan(20)
   })
 
+  it('gives CA the one address the editor uses, which is EdReCop', () => {
+    // `Ed_Ligne` (+Edit.s:8367) puts `EdReCop` into `Ed_VDialogues` slot 4
+    // and its requester ends `CA 4VA`. `EdReCop` (:3043) is `SyCall WaitVbl
+    // / EcCall CopForce / rts`, and this port rebuilds the copper list every
+    // frame. Without the address the whole requester was a function call
+    // error and nothing was drawn.
+    const amos = boot()
+    amos.useDisplay()
+    const rt0 = amos.startRun()
+    rt0.runHeadless(300)
+    amos.finishRun(rt0.interp.endCode)
+    const ask = amos.pendingAsk
+    expect(ask?.kind).toBe('confirm')
+    if (ask?.kind === 'confirm') expect(ask.confirm.which).toBe(59)
+    const d = new EditorDialogues(() => amos.runtime!, 9)
+    expect(() => d.start(ask!)).not.toThrow()
+    expect(amos.runtime!.dialogs.get(1)!.drawn).toBe(true)
+  })
+
   it('puts the editor s own message into the requester, not the bank s', () => {
     // `Dia_OpenChannel`'s a2 is `Ed_Messages`, so `ME` reads the editor's
     // numbered table: the script's `SV0,187ME` is message 187.

@@ -521,6 +521,32 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
     const scan = SCAN[e.code] ?? 0
     const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
+    // A requester owns the keyboard while it is up. `Ed_DoDialog` is inside
+    // `Dia_RunProgram` and does not come back until a button is pressed, and
+    // `Dia_Tests` (+Lib.s:24177) is what reads the keys: a `KY` record is how
+    // the RETURN on `Editor [RETURN]` works at all.
+    if (dialogues?.up === true) {
+      // straight onto the queue rather than through `pressKey`, which derives
+      // the shift byte from the scancodes it has seen held: the qualifier
+      // keys never reached `keyDown` on this path
+      if (ch !== '' || scan !== 0) rt.input.keyQueue.push({ ch, scan, shift: qualifiers(e) })
+      e.preventDefault()
+      return
+    }
+    // A qualifier is held, not typed. `Cla_Event` (+W.s:12813) is
+    //
+    //     cmp.b #$68,d0 / bcc.s .RawK
+    //     cmp.b #$40,d0 / bcs.s .RawK
+    //     cmp.b #$60,d0 / bcc .Cont
+    //
+    // and `.Cont` records the key in `T_ClTable` without `Cla_Stocke`:
+    // "Shifts>>> pas stockes", the source's own comment. Sending Shift to
+    // `Ed_Key` made it a keystroke with no command and no ASCII, and the
+    // editor moved the cursor on for it.
+    if (scan >= 0x60 && scan < 0x68) {
+      rt.keyDown(scan)
+      return
+    }
     const editorUp = amos?.display?.isOpen === true && !amos.inEscape
     const route = keyRoute(rt.directScreen.isOpen, rt.interp.done, e.code, scan, editorUp)
     if (route === 'line') {
@@ -565,12 +591,17 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    * key and `SCAN` maps it to the Amiga's own number.
    */
   function edKeyOf(e: KeyboardEvent, ch: string, scan: number): EdKey {
+    return { ch, scan, shift: qualifiers(e) }
+  }
+
+  /** the four qualifier GROUPS (+Equ.s:775-778), as the CIA delivers them */
+  function qualifiers(e: KeyboardEvent): number {
     let shift = 0
     if (e.shiftKey) shift |= QUAL.SHIFT
     if (e.ctrlKey) shift |= QUAL.CTRL
     if (e.altKey) shift |= QUAL.ALT
     if (e.metaKey) shift |= QUAL.AMIGA
-    return { ch, scan, shift }
+    return shift
   }
 
   /**
@@ -791,13 +822,37 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     }
     try {
       if (amos !== null) {
+        // This host HAS a display, so `Ed_OpenEditor` has something to open.
+        // It is not opened yet: `Ed_Run` hides the editor and the program
+        // owns the screen until it stops.
+        amos.useDisplay()
         // `Ed_Run` (+Edit.s:8165), which Tests the program and then jumps.
         // `hostFrames` leaves it waiting rather than running it here.
         const alert = amos.call(ED.RUN)
-        const req = amos.pendingRun
-        if (req === null) throw new Error(amos.alert.text || `Ed_Run answered ${alert}`)
-        rt = amos.startRun()
-      } else {
+        if (amos.pendingRun !== null) {
+          rt = amos.startRun()
+        } else if (amos.pendingAsk !== null) {
+          // `Ed_Run` asked something before it got to `Prg_RunIt`. The loop
+          // draws the requester and the answer starts the program.
+          rt = amos.openDisplay().screen === null ? null : (amos.runtime ?? null)
+          if (rt === null) throw new Error('the editor has no machine to ask on')
+        } else {
+          // It refused, and said why on the status line. The program still
+          // runs: the interpreter is more forgiving than the editor and a
+          // player that will not play is worse than one that cannot edit.
+          // `Ed_FCall` answers 0 for a failed Test pass the same as for a
+          // success, so the reason is in `Ed_ErrTest`'s code and not in the
+          // alert. This is the one a program hits: the interpreter runs
+          // things the Test pass will not have.
+          const t = amos.testError
+          const why = t.code >= 0 ? `the Test pass refused it: ${t.text}` : amos.alert.text || `Ed_Run answered ${alert}`
+          console.warn(`amos-ts: ${why}; running it unedited`)
+          status(`${name} runs, but the editor will not take it (${why})`)
+          amos = null
+          dialogues = null
+        }
+      }
+      if (amos === null) {
         const c = compileProgram(bytes, table)
         rt = new Runtime(c.lines, table, {
           ...shared,
@@ -806,6 +861,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
           banks: c.amos?.banks ?? [],
         })
       }
+      if (rt === null) throw new Error('nothing to run this program on')
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
       if (!running) overlay.style.display = 'flex'
@@ -963,8 +1019,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
             // opens the escape screen, 1002 is System. Where a stopped
             // program leaves you is that routine's answer and not this
             // loop's.
+            // `Ed_Errr` (+Edit.s:8261) is what opens the editor, or does not:
+            // `Ed_Ligne` and `Ed_ErrEdit` both call `Ed_OpenEditor` and
+            // `Ed_ErrDirect` opens the escape screen over it
             amos.finishRun(rt.interp.endCode)
-            amos.openDisplay()
             rt = amos.runtime ?? rt
             if (amos.inEscape) rt.directScreen.open()
           } else {

@@ -379,6 +379,18 @@ export class Editor {
   amosToBack: (() => void) | null = null
 
   /**
+   * `Ed_OpenEditor`'s screen half (+Edit.s:266), for a host that has a display.
+   *
+   * `Ed_OpenIt` under it opens `EcFonc` and `EcEdit` and unpacks the window
+   * furniture; nothing in `src/editor` owns a screen, so the routine's editor
+   * state is here and the pixels are the host's. `Ed_Ligne` is the caller
+   * that makes the difference visible: it opens the editor before it draws
+   * its requester, and a requester with no editor screen to land on takes the
+   * PROGRAM's palette.
+   */
+  openScreen: (() => void) | null = null
+
+  /**
    * `Prg_Accessory(a5)`: the running program was started as an accessory.
    *
    * The gate on both halves of the remote control. `Prg_New` (+Verif.s:4726)

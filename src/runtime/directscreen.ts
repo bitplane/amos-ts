@@ -98,8 +98,14 @@ function graphics(): ResourceGraphics | null {
   return pics
 }
 
-/** 'Direct mode [ESC]', the editor's own label for this (ED_MESSAGES) */
-const BANNER = ED_MESSAGES[210] ?? 'Direct mode [ESC]'
+/**
+ * 'Direct mode [ESC]', the editor's own label for this.
+ *
+ * Message 212, which is `ED_MESSAGES[211]`. It used to read 210 and printed
+ * " at line " -- the tail of the `Ed_Ligne` requester's sentence, whose
+ * neighbours are these two: 213 is 'Editor [RETURN]'.
+ */
+const BANNER = ED_MESSAGES[211] ?? 'Direct mode [ESC]'
 
 /**
  * The three lines AMOS puts on its own boot screen (ED_MESSAGES 20-22), which
@@ -121,6 +127,7 @@ export class DirectScreen {
     colourBack: number
     mouseLimit: Runtime['mouseLimit']
     spriteUpdate: boolean
+    mouseShow: number
   } | null = null
   private line = ''
   /**
@@ -328,10 +335,18 @@ export class DirectScreen {
       colourBack: this.rt.colourBack,
       mouseLimit: this.rt.mouseLimit,
       spriteUpdate: this.rt.spriteUpdateOn,
+      mouseShow: this.rt.mouseShow,
     }
     this.rt.rainbowsOn = false
     this.rt.colourBack = 0x000
-    this.rt.mouseLimit = null
+    // `Esc_MaxMouse` (+Edit.s:9496) is `LimitM 112,35 to 500,312`, which is
+    // the whole display and not the escape screen: the editor is behind it
+    // and the pointer has to reach that too
+    this.rt.mouseLimit = { x1: 128 - 16, y1: 35, x2: 500, y2: 312 }
+    // `Ed_LimM` ends `SyCalD Show,-1` and `Ed_Ligne` (:8397) does the same
+    // before its requester. A game that hid the pointer must not leave you
+    // clicking at buttons you cannot see the pointer on.
+    this.rt.mouseShow = 0
     this.rt.spriteUpdateOn = false
     this.rt.freezeAll()
   }
@@ -345,6 +360,7 @@ export class DirectScreen {
     this.rt.rainbowsOn = was.rainbows
     this.rt.colourBack = was.colourBack
     this.rt.mouseLimit = was.mouseLimit
+    this.rt.mouseShow = was.mouseShow
     this.rt.spriteUpdateOn = was.spriteUpdate
     this.rt.unfreezeAll()
   }
@@ -452,8 +468,34 @@ export class DirectScreen {
     this.mouse()
     if (!this.running || this.rt.inDirect) return
     this.running = false
+    /*
+     * `Ed_ErrDirect` (+Edit.s:9293), which is `Prg_JError` while the escape
+     * screen is up: a typed line that raised 1000, 1001 or 1002 goes there.
+     *
+     *     cmp.w #1002,d1 / beq Ed_System
+     *     cmp.w #1000,d1 / beq Esc_Esc
+     *     cmp.w #1000,d1 / bcc Esc_Loop
+     *
+     * So a typed `Edit` is `Esc_Esc`: the escape screen goes away and the
+     * editor comes back. A typed `Direct` is 1001 and stays where it is.
+     * Everything else prompts again, which is `Esc_Loop`.
+     */
+    const code = this.rt.interp.endCode
+    if (code >= 1000 && this.onDirectEnd !== null) {
+      this.rt.interp.endCode = 0
+      if (this.onDirectEnd(code)) return
+    }
     this.prompt()
   }
+
+  /**
+   * What `Prg_JError` does with a typed line's exit code.
+   *
+   * Answers true when the escape screen is over, which is what `Esc_Esc` and
+   * `Ed_System` both are. Null for a host with no editor: 1000 has nowhere to
+   * go and the prompt comes back, which is `Esc_Loop`.
+   */
+  onDirectEnd: ((code: number) => boolean) | null = null
 
   /**
    * The button strip under the mouse (Esc_MKey / Esc_MBoutons +Edit.s:8969).

@@ -33,6 +33,13 @@ function glyph(amos: Amos, x: number, y: number): string {
   for (let code = 32; code < 127; code++) {
     if (bits === bitsOf(code)) return String.fromCharCode(code)
   }
+  // The cell the caret is in has rows 5 and 6 rewritten: `CurNor`
+  // (+Edit.s:15230) is `%11111111` twice and `AffCur` (+W.s:13575) ORs or
+  // ANDs it into every plane. Match the six rows it leaves alone.
+  const without = (b: string): string => b.slice(0, 5 * 8) + b.slice(7 * 8)
+  for (let code = 32; code < 127; code++) {
+    if (without(bits) === without(bitsOf(code))) return String.fromCharCode(code)
+  }
   return '?'
 }
 
@@ -138,13 +145,15 @@ describe('the editor on an AMOS screen', () => {
     // messages 17 and 18: paper 3 pen 2, and paper 2 pen 3 back again. So a
     // highlighted run is the same glyphs with the two colours swapped, and
     // counting the pixels of each is what proves it rather than reading one.
+    // the SECOND cell, because the caret sits in the first and rewrites two
+    // of its rows in every plane
     const count = (): [number, number] => {
       const s = amos.display!.screen!
       const t = s.windows.get(8)!
       let two = 0
       let three = 0
       for (let dy = 0; dy < 8; dy++) {
-        for (let dx = 0; dx < 8; dx++) {
+        for (let dx = 8; dx < 16; dx++) {
           const c = s.point(t.x + dx, t.y + dy)
           if (c === 2) two++
           if (c === 3) three++
@@ -292,6 +301,44 @@ describe('the editor on an AMOS screen', () => {
     // load it answers 222, "Monitor not found."
     const amos = boot('Print "A"')
     expect(amos.mouse(192 + 32 * 3, 8)).toBe(222)
+  })
+
+  it('gives the pointer its colours, which are the SPRITE half of the palette', () => {
+    // `Ed_CopyPal` (+Edit.s:13816) copies sixteen words into `EcPal+32`,
+    // colours 16 to 31. The mouse pointer is a hardware sprite and takes 17,
+    // 18 and 19 from whichever screen owns the scanline, so a screen that
+    // never had them written shows a black pointer.
+    const amos = boot('Print "A"')
+    const rt = amos.runtime!
+    const s = amos.display!.screen!
+    for (let i = 16; i < 32; i++) expect(s.palette[i]).toBe(rt.defaultPalette[i])
+  })
+
+  it('flashes the cursor colour, which is what makes the caret blink', () => {
+    // `Dia_RScOpen`'s `.Fl` (+Lib.s:21021) runs `EcCall Flash` with
+    // interpreter message 46 on the cursor colour the caller asked for, and
+    // `Ed_OpenIt` passes 1 for `EcEdit`. The word "Flash" does not appear in
+    // +Edit.s once: the screen library does it on the way in.
+    const amos = boot('Print "A"')
+    const rt = amos.runtime!
+    const fl = rt.flashes.find((f) => f.reg === 1 && f.screen === 9)
+    expect(fl).toBeDefined()
+    expect(fl!.seq.length).toBeGreaterThan(1)
+  })
+
+  it('draws the caret as CurNor, two rows of underline', () => {
+    // `Ed_DrawWindows` installs it with `WiCall SCurWi` and `Ed_Loop` turns
+    // it on with `ESC "C1"`, because message 20 opened the window with
+    // `ESC "C0"`. Rows 5 and 6 of the cursor cell are rewritten in every
+    // plane, which is `AffCur`'s per-plane OR and AND-NOT.
+    const amos = boot('Print "A"')
+    const s = amos.display!.screen!
+    const t = s.windows.get(8)!
+    expect(Array.from(t.curDraw)).toEqual([0, 0, 0, 0, 0, 0xff, 0xff, 0])
+    // the caret is colour 1 on paper 2, so the whole row is one colour
+    const row5 = new Set<number>()
+    for (let dx = 0; dx < 8; dx++) row5.add(s.point(t.x + dx, t.y + 5))
+    expect([...row5]).toEqual([1])
   })
 
   it('lets the escape screen borrow screen 9 rather than opening another', () => {
