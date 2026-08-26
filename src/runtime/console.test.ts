@@ -343,7 +343,12 @@ describe('input state', () => {
     const s = screen(rt)
     let seen = 0
     for (let y = 50; y < 62; y++) for (let x = 0; x < 8; x++) seen |= s.point(x, y)
-    expect(seen).toBe(4)
+    // 4 is the glyph and 1 is what it is drawn ON: `EcOpen` (+W.s:3071) puts
+    // the window's paper in the graphic BPen and `EcMode` is JAM2, so `Text`
+    // paints the cell. Plane 2 is the half that matters here -- `ESC J1`
+    // masked the console to plane 0 and did not narrow this.
+    expect(seen).toBe(5)
+    expect(seen & 4).toBe(4)
   })
 
   it('an escape split across two Prints still lands, because WiEsc outlives the string', () => {

@@ -98,8 +98,11 @@ describe('JD Intuition: drawing without a window, which routine 30 allows', () =
   it('Jd Intcls with no argument clears to the paper, with one to that colour', () => {
     // two token ids and two routines: id 496 is ClearScreen (-48), id 512 is
     // SetRast (-234). The author wrote both rather than tripping over arity.
+    // the paper is 1 and not 0: `EcOpen` (+W.s:3071) copies the window's
+    // paper into the graphic BPen when the screen opens, and `ClearScreen`
+    // clears to BPen
     const cleared = run('Jd Intpen 7 : Jd Intbar 0,0 To 9,9 : Jd Intcls')
-    expect(px(cleared, 5, 5)).toBe(0)
+    expect(px(cleared, 5, 5)).toBe(1)
     const filled = run('Jd Intcls 3')
     expect(px(filled, 5, 5)).toBe(3)
   })

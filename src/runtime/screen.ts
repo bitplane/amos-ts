@@ -571,6 +571,31 @@ export class Screen {
       escPending: '',
     }
     this.windows.set(0, this.curWin)
+    /*
+     * `EcOpen` (+W.s:3068), which is the step that was missing.
+     *
+     *     move.b  WiPen+1(a0),d1 / move.b d1,EcInkA(a4)
+     *     move.b  WiPaper+1(a0),d0 / move.b d0,EcInkB(a4)
+     *     move.b  d1,EcFInkC(a4) / move.b d1,EcIInkC(a4)
+     *     move.b  d0,EcFInkA(a4) ... EcIInkB(a4)
+     *     move.b  #1,EcMode(a4)
+     *
+     * so a screen's GRAPHIC pens are its window's, not the RastPort's own.
+     * `InitRastPort` leaves BPen 0, and `Ink 0` sets APen alone (`InInk3`
+     * +Lib.s:10069) -- so with JAM2, which is what `EcMode` is set to right
+     * here, every `Text` painted a black box the width of the string over
+     * whatever it was drawn on. AMOSPro_Delta's demo is the case that showed
+     * it: `Ink 0 : Text 40,405,TXT$` over a yellow panel, five black bars.
+     */
+    this.ink = this.curWin.pen
+    this.gPaper = this.curWin.paper
+    this.grMode = 1
+    this.slider.fa = this.curWin.paper
+    this.slider.fb = this.curWin.paper
+    this.slider.fc = this.curWin.pen
+    this.slider.ia = this.curWin.paper
+    this.slider.ib = this.curWin.paper
+    this.slider.ic = this.curWin.pen
   }
 
   // compatibility accessors — the console state is the current window's
