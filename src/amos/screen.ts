@@ -26,7 +26,7 @@ import { parseResourceBank, type ResourceGraphics } from '../loader/resource'
 import { renderWindow, statusLine } from '../editor/display'
 import { ED_BAS_SY, ED_ETAT_SY, ED_ROW_SY, type Editor } from '../editor/windows'
 import type { Edit } from '../editor/edit'
-import { DEFAULT_FLASH_SPEC, Runtime, parseFlashSpec } from '../runtime/runtime'
+import { Runtime } from '../runtime/runtime'
 
 /** `Ed_BoutonsSx` (+Edit.s:96): one editor button, and `Ed_TitreSy` is its height */
 const BUTTON_W = 32
@@ -209,11 +209,7 @@ export class EditorScreen {
      * cursor is drawn in it. Nothing in +Edit.s says "Flash" once; the screen
      * library does it on the way in.
      */
-    try {
-      this.rt.flashStart(ED_CURSOR_COLOUR, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
-    } catch {
-      /* a full flasher table, which `Screen Open` ignores too */
-    }
+    this.rt.flashCursor(ED_CURSOR_COLOUR)
     this.fitWindows()
     this.draw()
     this.limM(s)

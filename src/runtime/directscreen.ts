@@ -57,6 +57,14 @@ const BOTTOM_H = 8
 const BUTTONS = 13
 
 /**
+ * `ESC "D1"` out of system message 16: the escape screen's cursor colour.
+ *
+ * The same register `Ed_OpenIt` asks `Dia_RScOpen` to flash on `EcEdit`, so
+ * with the editor up this is already pulsing and there is nothing to do.
+ */
+const ES_CURSOR_COLOUR = 1
+
+/**
  * What the ten function keys type, and whether they press Return after it.
  *
  * `Esc_BtFonc` (+Edit.s:9152) reads system message `24 + n` and copies it into
@@ -96,6 +104,16 @@ function graphics(): ResourceGraphics | null {
     }
   }
   return pics
+}
+
+/**
+ * One system message, ready to print: `Ed_GetSysteme` is 1-based (GetMessage
+ * +B.s:562) and `WiCall Print` stops at the NUL these carry.
+ */
+function sys(n: number): string {
+  const raw = ED_SYSTEME[n - 1] ?? ''
+  const end = raw.indexOf('\x00')
+  return end < 0 ? raw : raw.slice(0, end)
 }
 
 /**
@@ -203,9 +221,20 @@ export class DirectScreen {
     this.up = true
     this.line = ''
     this.running = false
+    /*
+     * `Dia_RScOpen`'s `.Fl` (+Lib.s:21021), which the EDITOR would have run
+     * when it opened this screen: `EcCall Flash` with interpreter message 46
+     * on the cursor colour, and `Ed_OpenIt` asks for 1 on `EcEdit`. Message
+     * 16 below puts the escape screen's own cursor in that register, so this
+     * is what makes the caret pulse rather than sit there.
+     *
+     * Only when this made the screen. With the editor up it is already on.
+     */
+    this.rt.flashCursor(ES_CURSOR_COLOUR)
     this.edAppear()
     this.dress(s, g)
   }
+
 
   /**
    * Everything `Esc_Appear` puts on the screen, whether or not it made it.
@@ -225,22 +254,26 @@ export class DirectScreen {
       s.selectWindow(1)
       s.windClose()
     }
-    const w = s.windOpen(1, 0, TITLE_H, WIDTH / 8 - 2, ROWS, 0)
-    // Wo3a (+W.s:13706) gives a fresh window paper 1, pen 2 and cursor colour
-    // 3; the ground here is the black Ed_ColB sets rather than paper 1.
-    //
-    // The cursor does NOT flash, and that is the machine's answer rather than
-    // an omission. `Screen Open` flashes colour 3 on any screen deeper than a
-    // plane (+Lib.s:8989) and the window cursor is drawn in that register, so
-    // a PROGRAM's cursor fades --- but the editor opens its screens through
-    // the screen library rather than through the instruction, and the word
-    // Flash does not appear in +Edit.s once. `LEd_CuMarche` (+Lib.s:19781)
-    // prints ESC "C1", the ordinary Curs On, so direct mode gets an ordinary
-    // solid block while the program behind it keeps its fading one.
-    w.paper = 0
-    w.pen = 2
-    w.cuCol = 3
-    s.clw()
+    s.windOpen(1, 0, TITLE_H, WIDTH / 8 - 2, ROWS, 0)
+    /*
+     * `Esc_Appear`'s own `WiCall Print` of system message 16 (+Edit.s:9463),
+     * which is the whole of the window's state and is read rather than
+     * restated:
+     *
+     *     ESC C0  ESC J7  ESC B2  ESC P3  ESC D1  chr(25)
+     *     ESC V0  chr(30) chr(30) ESC V1  ESC B2  ESC P3  ESC J1
+     *
+     * Cursor off, all three planes, paper 2 and pen 3, CURSOR COLOUR 1, clear
+     * the window, scroll off, up two rows, scroll on, and back to plane 0 for
+     * the text. The two cursor-ups are why the notice starts where it does.
+     *
+     * `ESC D1` is the answer to whether direct mode's caret flashes: colour 1
+     * is the one `Dia_RScOpen` set flashing when the editor opened this
+     * screen, and the escape screen uses the same register the editor's text
+     * cursor does. It used to be set to 3 here with a comment claiming the
+     * caret was solid on the machine, which was wrong.
+     */
+    s.writeText(sys(16))
     for (const l of NOTICE) if (l !== '') s.writeText(`${l}\n`)
     s.writeText(`${BANNER}\n`)
     this.prompt()

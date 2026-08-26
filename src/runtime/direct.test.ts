@@ -474,3 +474,36 @@ describe('the escape screen over a running program', () => {
     expect(lit).toBeGreaterThan(0)
   })
 })
+
+describe('the escape screen s window is system message 16', () => {
+  /**
+   * `Esc_Appear` (+Edit.s:9463) prints it and nothing else:
+   *
+   *     ESC C0  ESC J7  ESC B2  ESC P3  ESC D1  chr(25)
+   *     ESC V0  chr(30) chr(30) ESC V1  ESC B2  ESC P3  ESC J1
+   *
+   * The port used to set paper, pen and cursor colour by hand and got two of
+   * the three wrong.
+   */
+  it('takes its paper, its pen and its cursor colour from the message', () => {
+    const rt = new Runtime(tokenize('Print "A"', table), table, { maxSteps: 200_000 })
+    rt.runHeadless(200)
+    rt.directScreen.open()
+    const w = rt.screens.get(9)!.windows.get(1)!
+    expect([w.paper, w.pen, w.cuCol]).toEqual([2, 3, 1])
+  })
+
+  it('flashes colour 1, which is the same register the editor s caret uses', () => {
+    // `Dia_RScOpen`'s `.Fl` (+Lib.s:21021) runs `EcCall Flash` with
+    // interpreter message 46 on the cursor colour, and `Ed_OpenIt` asks for 1
+    // on `EcEdit`. The escape screen is drawn on that same screen and message
+    // 16's `ESC D1` puts its cursor in the same register, so direct mode's
+    // caret pulses for exactly the reason the editor's does.
+    const rt = new Runtime(tokenize('Print "A"', table), table, { maxSteps: 200_000 })
+    rt.runHeadless(200)
+    rt.directScreen.open()
+    const fl = rt.flashes.find((f) => f.reg === 1 && f.screen === 9)
+    expect(fl).toBeDefined()
+    expect(fl!.seq.length).toBeGreaterThan(1)
+  })
+})

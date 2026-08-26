@@ -4842,6 +4842,31 @@ export class Runtime {
 
   /** Flash n,"" — flspoke with an empty string silently stops that colour
    * on the current screen (+W.s:5333-5339) */
+  /**
+   * `Dia_RScOpen`'s `.Fl` (+Lib.s:21021): the cursor colour, pulsing.
+   *
+   *     moveq #46,d0 / Rjsr L_Sys_GetMessage
+   *     move.l a0,a1 / EcCall Flash
+   *
+   * d1 is the cursor colour the caller asked for, and the routine follows it
+   * with `ESC "D<n>"` so the window's cursor is drawn in that register.
+   * `Ed_OpenIt` asks for 1 on `EcEdit` and 0 on `EcFonc`, which takes the
+   * `ESC "C0"` arm instead. Nothing in +Edit.s says "Flash" once: this is the
+   * screen library doing it on the way in, and it is the whole reason the
+   * editor's caret and the escape screen's blink.
+   *
+   * Quiet when the flasher table is full, which is what `Screen Open` does
+   * with the same call.
+   */
+  flashCursor(colour: number): void {
+    if (colour <= 0) return
+    try {
+      this.flashStart(colour, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
+    } catch {
+      /* a full flasher table */
+    }
+  }
+
   flashStop(reg: number): void {
     const scr = this.screens.get(this.currentIndex)
     this.flashes = this.flashes.filter((f) => !(f.reg === reg && f.scr === scr))
