@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { SID_BANK_NAME, DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -1314,5 +1314,166 @@ describe('the TFMX block', () => {
     const { rt } = run([TFLOAD, 'Tfmx Play 7'], TFMX)
     expect(rt.dme.tfmx.tickHz).toBeCloseTo(50, 2)
     expect(rt.dme.tfmxPlaying).toBe(true)
+  })
+})
+
+/**
+ * A one-part PSID small enough to build here: init gates voice 1, play bumps
+ * a RAM counter into the pulse width. What these check is DME's layer --- the
+ * "PSid    " bank, the argument shapes, the zero-based song number and the
+ * three error messages --- so the tune only has to run.
+ * ../amiga/playsid.ts carries the replay and its own tests.
+ */
+function psid(songs = 3, defaultSong = 1, magic = 'PSID'): Uint8Array {
+  const HEADER = 0x7c
+  const LOAD = 0x1000
+  const body = [
+    0xa9, 0x00, 0x8d, 0x00, 0xd4, 0xa9, 0x10, 0x8d, 0x01, 0xd4,
+    0xa9, 0x11, 0x8d, 0x04, 0xd4, 0xa9, 0x0f, 0x8d, 0x18, 0xd4, 0x60,
+    0xe6, 0x02, 0xa5, 0x02, 0x8d, 0x02, 0xd4, 0x60,
+  ]
+  const b = new Uint8Array(HEADER + body.length)
+  const w = (at: number, v: number): void => {
+    b[at] = (v >> 8) & 0xff
+    b[at + 1] = v & 0xff
+  }
+  for (let i = 0; i < 4; i++) b[i] = magic.charCodeAt(i)
+  w(4, 2)
+  w(6, HEADER)
+  w(8, LOAD)
+  w(0x0a, LOAD)
+  w(0x0c, LOAD + 0x15)
+  w(0x0e, songs)
+  w(0x10, defaultSong)
+  b.set(body, HEADER)
+  return b
+}
+
+const SID = { 'a.sid': psid() }
+const SIDLOAD = 'Sid Load "Work:a.sid",9'
+
+describe('the PlaySID block --- routines 256 to 268', () => {
+  it('Sid Load reserves a bank named "PSid    ", sized as every other DME load', () => {
+    const { rt } = run([SIDLOAD], SID)
+    const b = rt.memBanks.get(9)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(SID_BANK_NAME)
+    // the file rounded UP TO EVEN, plus eight ($7250-$725a), which a
+    // 153-byte header-plus-body makes visible where an even one would not
+    const n = psid().length
+    expect(n & 1).toBe(1)
+    expect(b.data.length).toBe(n + 1 + 8)
+  })
+
+  it('Sid Load checks the magic and nothing else, so a version 9 header passes', () => {
+    // `cmpi.l #$50534944,(a2)` at $728c is the whole test: CheckModule's
+    // version and data-offset checks are never reached from AMOS.
+    const bad = psid()
+    bad[4] = 0
+    bad[5] = 9
+    expect(() => run([SIDLOAD], { 'a.sid': bad })).not.toThrow()
+  })
+
+  it('a file that is not a PSID is message 13, and the bank goes with it', () => {
+    expect(() => run([SIDLOAD], { 'a.sid': psid(3, 1, 'RSID') })).toThrow(DME_ERRORS[13])
+  })
+
+  it('a bank number at or past 65,536 is AMOS error 23', () => {
+    expect(() => run(['Sid Load "Work:a.sid",65536'], SID)).toThrow()
+  })
+
+  it('Sid Play takes one argument or two, because of the $FE variant row', () => {
+    expect(() => run([SIDLOAD, 'Sid Play 9'], SID)).not.toThrow()
+    expect(() => run([SIDLOAD, 'Sid Play 9,2'], SID)).not.toThrow()
+  })
+
+  it("Sid Play's song number is ZERO-based, against the library's one-based StartSong", () => {
+    // `addq.l #$1,d7` at $7398. So `Sid Play b,0` is the FIRST song, and
+    // DME's own example walks SUB from 0 to `Sid Songs` minus one.
+    const { rt } = run([SIDLOAD, 'Sid Play 9,0'], SID)
+    expect(rt.dme.sid.song).toBe(0)
+    const two = run([SIDLOAD, 'Sid Play 9,2'], SID)
+    expect(two.rt.dme.sid.song).toBe(2)
+  })
+
+  it('Sid Play on a bank that is not a PSid is message 13', () => {
+    expect(() => run([LOAD, 'Sid Play 5'], MOD)).toThrow(DME_ERRORS[13])
+  })
+
+  it('plays: the tune runs a frame at a time and reaches Paula', () => {
+    const { rt, audio } = run([SIDLOAD, 'Sid Play 9', 'For I=0 To 9 : Wait Vbl : Next I'], SID)
+    expect(rt.dme.sid.frames).toBeGreaterThan(0)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  it('Sid Stop frees the emulation resource, which is why Sid Play allocates again', () => {
+    // `jsr -$42(a6)` then `jsr -$24(a6)` at $72fe and $730a.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Stop'], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    expect(rt.dme.sid.playMode).toBe(0)
+    // and it can be started again, which needs the resource back
+    expect(() => run([SIDLOAD, 'Sid Play 9', 'Sid Stop', 'Sid Play 9'], SID)).not.toThrow()
+  })
+
+  it('Sid Pause and Sid Cont walk the extension flag, not the library PlayMode', () => {
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause'], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    const back = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause', 'Sid Cont'], SID)
+    expect(back.rt.dme.sidPlaying).toBe(true)
+  })
+
+  it('a paused tune runs no frames', () => {
+    const { rt } = run(
+      [SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause', 'For I=0 To 9 : Wait Vbl : Next I'],
+      SID,
+    )
+    expect(rt.dme.sid.frames).toBeLessThan(3)
+  })
+
+  it('Sid Forward and Sid Rewind need something playing, and say message 16 when not', () => {
+    expect(() => run([SIDLOAD, 'Sid Forward'], SID)).toThrow(DME_ERRORS[16])
+    expect(() => run([SIDLOAD, 'Sid Rewind'], SID)).toThrow(DME_ERRORS[16])
+  })
+
+  it("Sid Forward runs the play routine sixteen extra times, a step of the extension's own", () => {
+    // `move.w #$10,d0` at $74a4 --- the keyword takes no argument where the
+    // library's ForwardSong does.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl'], SID)
+    const before = rt.dme.sid.frames
+    const after = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Forward'], SID)
+    expect(after.rt.dme.sid.frames).toBe(before + 16)
+  })
+
+  it('Sid Rewind sets the reverse flag first, then steps 32', () => {
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl'], SID)
+    const before = rt.dme.sid.frames
+    const after = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Rewind'], SID)
+    expect(after.rt.dme.sid.reverse).toBe(true)
+    expect(after.rt.dme.sid.frames).toBe(before + 32)
+  })
+
+  it('Sid Channel takes 1 to 4 and refuses everything else', () => {
+    // `cmp.l #$4,d7 / Rbhi` and `cmp.l #$1,d7 / Rblt` at $74f2 and $74fc.
+    for (const n of [1, 2, 3, 4]) {
+      expect(() => run([SIDLOAD, `Sid Channel ${n}`], SID)).not.toThrow()
+    }
+    expect(() => run([SIDLOAD, 'Sid Channel 0'], SID)).toThrow()
+    expect(() => run([SIDLOAD, 'Sid Channel 5'], SID)).toThrow()
+  })
+
+  it('=Sid Songs reads the bank, so it answers before anything is played', () => {
+    run([SIDLOAD, 'Print Sid Songs(9)'], SID)
+    expect(out()).toEqual(['3'])
+  })
+
+  it('=Sid Songs on a bank that is not a PSid is message 13', () => {
+    expect(() => run([LOAD, 'Print Sid Songs(5)'], MOD)).toThrow(DME_ERRORS[13])
+  })
+
+  it('reloading the bank that is playing stops it first, and another bank does not', () => {
+    // `cmp.w $f4(a2),d3 / bne` at $7234, the same test `Ptm Load` has.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', SIDLOAD], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    const other = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Load "Work:a.sid",10'], SID)
+    expect(other.rt.dme.sidPlaying).toBe(true)
   })
 })

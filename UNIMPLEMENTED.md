@@ -87,16 +87,52 @@ display database to fill itself from.
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 82%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
+| DME 2.0 (`dme-2.0`) | 24 | UNDER WAY, at 87%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Thirteen of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`, and now PlaySID out of `playsid.library` itself. Two blocks of keywords left: OctaMix (15) and FastTracker (9), and both are below rather than here --- each is blocked on something other than the work |
 
-All three of DME's remaining blocks are blocked on something other than the
-work, which is why none of them is simply next:
+Both of DME's remaining blocks are blocked on something other than the work,
+which is why neither of them is simply next. PlaySID was the third and is
+done: it is the one that was blocked on WORK rather than on an input, which
+is why it went first.
 
 | block | missing | what it is waiting on |
 |---|---|---|
 | OctaMix (`omix *`) | 15 | a module. `DME_OctaMix.library` refuses anything without `FLAG2_MIX` at $2130f4, and nothing in the 45,743-file corpus has the bit --- all 187 OctaMED Professional 6 modules are MMD2 without it. The library is mapped in `src/amiga/mmd2mix.ts`'s header rather than ported, because a port would have nothing to check against but its own reading |
 | FastTracker (`xm *`) | 9 | an `.xm` module. `DME_FastTracker.library` is held and readable at 26,324 bytes |
-| PlaySID (`sid *`) | 9 | a 6502 and a SID. `playsid.library` turned up on Aminet in `mus/play/PlaySID3.lha` and is in `fixtures/aminet/`, so the evidence is no longer the problem; the emulation is |
+
+**PlaySID is done, and it is the only row here that needed a processor.** A
+PSID file is not a music format in the sense the rest of this document uses
+the word: there is no pattern table to walk, the header names an `init` and a
+`play` address, and everything audible is C64 machine code writing the SID's
+registers fifty times a second. So `src/amiga/mos6502.ts` runs the tune's own
+6502 --- undocumented opcodes and all, because `PlaySID.doc:427` claims them
+--- and `src/amiga/sidchip.ts` collects the writes. The processor is checked
+against Klaus Dormann's functional test, which traps at $3469 after 30.6
+million instructions; that is the only part of this with an oracle, and it is
+the part that would otherwise be hardest to trust.
+
+What is NOT a full SID is the rendering, and the shape of the shortfall is
+`playsid.library`'s own. It never emulated the chip sample by sample either:
+`$211362` precomputes waveform tables in chip RAM at the thirteen half-octave
+lengths listed at $21401c --- 256, 182, 128, 92 down to 4 --- and hands one to
+each of three Paula voices, rewriting them as the tune changes waveform.
+`DisplayData` in `playsidbase.h` says so from the other side, four entries for
+`Sample`/`Length`/`Period`/`Enve` and three for `SyncLength`/`SyncInd`, the
+fourth Paula voice being PlaySID's own sample extension at $D41D. This port
+picks from the same list and builds the same shape of table; the table
+CONTENTS are generated from the 6581's waveform definitions rather than
+transliterated out of $2113c0. The 6581's multimode filter is modelled by
+neither, so a tune that routes a voice through it is louder here --- which it
+was on an Amiga in 1994 too. `src/amiga/playsid.ts`'s header sets all of that
+out, and `Sid Play` stays approximated for it while the other eight keywords
+are faithful.
+
+`Sid Channel` is worth a line of its own, because it is the extension's one
+broken keyword and the port reproduces the break. `SetChannelEnable` takes a
+pointer to four 16-bit booleans; $7518 is `movea.l d7,a0`, which puts the
+COUNT there instead, so the library reads its flags from address 1, 2, 3 or 4.
+On a 68000 the odd two are an address error as well. The range check and the
+error are real and are kept; the pointer is not, and `status.ts` carries the
+DEFECT.
 
 **The sweep's answer is that nothing else is waiting.** No registered release
 shares every id it has in common with a ported one and goes unnamed, so there

@@ -41,9 +41,11 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
+import { PlaySid } from '../amiga/playsid'
+import { checkPsid } from '../amiga/psid'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine = ModFormat | 'track' | 'medext'
+export type Engine = ModFormat | 'track' | 'medext' | 'sid'
 
 /**
  * What the first bytes say it is.
@@ -55,6 +57,9 @@ export type Engine = ModFormat | 'track' | 'medext'
  * are reached through the interpreter, and only `--engine` names them.
  */
 export function detectEngine(d: Uint8Array): Engine | null {
+  // PSID first, because ../amiga/modformat.ts answers for the eleven
+  // replayers that are Amiga code and a PSID is not one of them: it is 6502.
+  if (checkPsid(d)) return 'sid'
   return detectModule(d)
 }
 
@@ -84,6 +89,19 @@ export function renderModule(
     pt.playing = true
     for (let f = 0; f < frames; f++) {
       pt.tick()
+      mix.runTo((f + 1) / VBL_HZ)
+    }
+  } else if (engine === 'sid') {
+    // PlaySID is the one engine here that runs a PROCESSOR rather than a
+    // replayer: the frame loop is `playsid.library`'s $210726, which calls
+    // the tune's own 6502 once and lets it write the SID. See
+    // ../amiga/playsid.ts.
+    const ps = new PlaySid(() => mix)
+    ps.allocEmulResource()
+    if (ps.setModule(data) !== 0) throw new Error('not a PSID module')
+    if (ps.startSong(0) !== 0) throw new Error('PSID: no such song')
+    for (let f = 0; f < frames; f++) {
+      ps.tick()
       mix.runTo((f + 1) / VBL_HZ)
     }
   } else if (engine === 'thx') {
@@ -257,7 +275,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const [file, out] = files
   if (!file || !out) {
     console.error(
-      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|track|medext]',
+      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|sid|track|medext]',
     )
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('                   [--machine a500|a1200]')

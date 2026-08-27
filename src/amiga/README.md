@@ -147,6 +147,10 @@ really does differ from the real one and saying where is the whole job.
 | `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `thxplay.ts` | the THX replay: the song, the envelopes, the playlists, the voices |
 | `thxwaves.ts` | the 6,520-byte THX waveform set and its 63 filtered copies |
+| `psid.ts` | the PSID file: a 124-byte header in front of 6502 code |
+| `mos6502.ts` | the processor a PSID file IS, undocumented opcodes and all |
+| `sidchip.ts` | the 6581's 29 registers, three oscillators and their envelopes |
+| `playsid.ts` | `playsid.library` 1.1: its fifteen LVOs, the C64's memory map, and three voices onto Paula |
 | `device.ts` | what a slot is, what a device is, and the tree a hardware page draws |
 | `cia.ts` | both CIAs' peripheral ports: the LED, the fire buttons, the parallel and serial lines, the floppy control lines |
 | `keyboard.ts` | the byte the keyboard clocks into CIA-A's SDR, and its decode |
@@ -171,6 +175,13 @@ really does differ from the real one and saying where is the whole job.
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
 | `cpu.ts` | the processor as an identity and a clock rate; nothing here executes 68k |
+
+`mos6502.ts` is the exception `cpu.ts`'s line invites, and it is not one.
+Nothing here executes 68k, and that stays true: a PSID file's 6502 is data
+AMOS loaded into a bank and this interprets it, which is what
+`../runtime/amal.ts` already does for AMAL's instruction set. The host CPU
+is still never run.
+
 | `audio.ts` | Paula's audio half, and which board's fixed output filter is after it |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
 | `patternlib.ts` | `pattern.library` 5.00, a THIRD pattern grammar and not `dospattern`'s |

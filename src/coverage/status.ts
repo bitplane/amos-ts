@@ -2747,6 +2747,21 @@ export const FAITHFUL = new Set<string>([
   'tfmx subsongs',
   'tfmx song length',
   'tfmx song pos',
+  // The PlaySID block over ../amiga/playsid.ts, ../amiga/mos6502.ts and
+  // ../amiga/sidchip.ts, off playsid.library 1.1 rather than off a
+  // DME_*.library --- it is the one format DME does not ship, and the guide
+  // says why. Every keyword below was read instruction by instruction out of
+  // DME's own routines 256 to 268 and matched against the LVO it calls.
+  // `Sid Play` is NOT here, for the reason `Smon Play` and `S3m Play` are
+  // not: the sound it makes has no second reader on this machine.
+  'sid load',
+  'sid stop',
+  'sid pause',
+  'sid cont',
+  'sid forward',
+  'sid rewind',
+  'sid channel',
+  'sid songs',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -9778,6 +9793,60 @@ export const NOTES: Record<string, string> = {
     "so 0 before the first `Dmed Play`.",
   "dmed patt pos": "routine 215 ($682c), the same shape reading `pline` at $2c.",
   "dmed vu": "routine 219 ($68d0), 0..3, into LVO -102, read and cleared. `MedPlayer` gained the `onVu` hook `Protracker` already had, because the vu bytes belong to the veneer rather than to the replayer.",
+  "sid load":
+    "routine 256 ($7220), the same nine steps as `Ptm Load` with a Work bank named \"PSid    \" ($72ac). " +
+    "`Rbsr routine 261` runs FIRST, so a machine without playsid.library raises message 15 before the file " +
+    "is opened. The guide refuses a two-part module --- \"It's only possible to load PlaySid mod's - One " +
+    "File Format - (no Data/Icon Files).\" --- which is why `ReadIcon` is the one public LVO of the " +
+    "library's fifteen that no keyword reaches. The only content check is `cmpi.l #$50534944,(a2)` at " +
+    "$728c --- the magic and nothing else, " +
+    "so the header's version and data offset go unexamined and `CheckModule` is never called. A failed tag " +
+    "erases the bank ($72a0) before message 13.",
+  "sid play":
+    "routines 259 ($7314) and 260 ($731a): the one-argument form is `clr.l -(a3)` into the two-argument one, " +
+    "so `Sid Play b` IS `Sid Play b,0`, and $7398's `addq.l #$1,d7` makes DME's song number zero-based " +
+    "against the library's one-based `StartSong`. Four LVOs in order at $736e to $739c: AllocEmulResource, " +
+    "SetVertFreq, SetModule with a2 as both header and body, StartSong. What runs underneath is " +
+    "src/amiga/mos6502.ts executing the tune's own 6502 once a frame and src/amiga/sidchip.ts collecting " +
+    "the $D400 writes, which is what a PSID file IS --- there are no patterns to walk. APPROXIMATED for two " +
+    "reasons the note must keep separate. The processor is not one of them: it passes Klaus Dormann's " +
+    "functional test to the trap at $3469, all 30.6 million instructions. The first is the SYNTHESIS. " +
+    "playsid.library renders three voices onto three Paula channels through waveform tables it precomputes " +
+    "in chip RAM ($211362), at the thirteen half-octave lengths listed at $21401c --- 256, 182, 128, 92 " +
+    "down to 4 --- and this port picks from that same list and builds the same shape of table, but the " +
+    "table CONTENTS are generated from the 6581's waveform definitions rather than transliterated out of " +
+    "$2113c0. The second is the filter: neither the 6581's multimode filter nor playsid's handling of it is " +
+    "modelled, so a tune that routes a voice through it is louder here. src/amiga/playsid.ts's header sets " +
+    "both out at length.",
+  "sid stop":
+    "routine 258 ($72e8) and it does two things: `jsr -$42(a6)` is StopSong and `jsr -$24(a6)` right after " +
+    "it is FreeEmulResource, so stopping returns the library's five blocks --- $20000, $10000, $10000, " +
+    "$8004 and $8800 chip, off $21056c --- and `Sid Play` allocates again every time.",
+  "sid pause":
+    "routine 264 ($746c) into LVO -72. Guarded on the extension's flag at $fe(a0) rather than on the " +
+    "library's PlayMode, so a second pause is a no-op and `SID_NOPAUSE` is unreachable from AMOS.",
+  "sid cont": "routine 263 ($7446) into LVO -78, the mirror of `Sid Pause` on the same flag.",
+  "sid forward":
+    "routine 265 ($7490): `move.w #$10,d0` then LVO -84, so the sixteen steps are the extension's and the " +
+    "keyword takes no argument where the library's ForwardSong does. Nothing playing is message 16.",
+  "sid rewind":
+    "routine 266 ($74bc): `SetReverseEnable(1)` at $74d0 and then RewindSong(32) at $74d8, twice Forward's " +
+    "step. Setting the flag first is what playsid's RewindSong requires, and it is why the library's " +
+    "SetReverseEnable has no keyword of its own --- nothing else in the extension writes it.",
+  "sid channel":
+    "routine 267 ($74ec), and the range check is the only part that works: `cmp.l #$4,d7 / Rbhi` and " +
+    "`cmp.l #$1,d7 / Rblt` make anything outside 1 to 4 an AMOS error 23, and the guide states the intent, " +
+    "\"With this command you can choose,how many channels you will use for replaying Sid-Song.\" DEFECT: " +
+    "SetChannelEnable takes a POINTER to four 16-bit booleans and $2102e8 copies eight bytes from A0, but " +
+    "$7518 is `movea.l d7,a0` --- the COUNT goes into the address register, so the library reads its flags " +
+    "from address 1, 2, 3 or 4. On a 68000 the odd two are an address error as well. Nothing is mapped " +
+    "there here, so this port enables all four rather than inventing bytes, and reproduces the check, the " +
+    "error and the SetReverseEnable(1) at $7512.",
+  "sid songs":
+    "routine 268 ($7524), the block's only function: L_Bnk_OrAdr, the \"PSid    \" name as two longs, then " +
+    "`move.b $f(a2),d3`. One byte out of the BANK rather than the library, so it answers with no module " +
+    "set, and offset $0f is the LOW half of SIDHeader.number --- a file claiming 256 songs would report " +
+    "zero. Message 13 on a bank that is not a PSid.",
   "smon load":
     "routine 139 ($54f8), the same nine steps with a DATA and CHIP bank named \"SoundMon\" ($558c). Its tag " +
     "test is LOOSER than the library's: $5564 reads the LONG at $1a and clears the low byte before comparing " +

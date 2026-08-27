@@ -101,6 +101,8 @@ import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
 import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
 import { S3mPlayer } from '../amiga/s3mplay'
+import { PlaySid, PAL_VERT_FREQ } from '../amiga/playsid'
+import { PSID_MAGIC } from '../amiga/psid'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -146,6 +148,25 @@ export const DIGI_BANK_NAME = 'DigiMod '
 export const SMON_BANK_NAME = 'SoundMon'
 /** `$53334d6d` then `$6f642020` at $4774: "S3Mmod" and two spaces */
 export const S3M_BANK_NAME = 'S3Mmod  '
+/** the eight bytes at $72ac, tested as `$50536964` and `$20202020` at -$8/-$4 */
+export const SID_BANK_NAME = 'PSid    '
+/**
+ * `=Sid Songs` reads ONE byte, at $754c: `move.b $f(a2),d3`.
+ *
+ * Offset $0f is the LOW half of the header's `number` word, so a file
+ * claiming 256 songs reports zero here. Nothing in the corpus has more than
+ * twelve and the SID format's own limit is 256, so the truncation is real and
+ * unreachable at once.
+ */
+export const SID_SONGS_AT = 0x0f
+/** `moveq #$10,d0` at $74b6 and $74e6, both when nothing is playing */
+const SID_NOT_INITIALIZED = 16
+/** `moveq #$d,d0` at $72a6, $73b4 and $755a: the bank is not named "PSid    " */
+const SID_NOT_A_MODULE = 13
+/** `moveq #$10,d0` into ForwardSong at $74a4 */
+const SID_FORWARD_STEPS = 0x10
+/** `moveq #$20,d0` into RewindSong at $74d6 */
+const SID_REWIND_STEPS = 0x20
 /** the eight bytes at $69e6, checked as "Octa" and "Med " at -$8 and -$4 */
 export const OMED_BANK_NAME = 'OctaMed '
 /** the eight at $4942, compared as "TFMX" and "Mod " at -$8 and -$4 */
@@ -359,6 +380,25 @@ export interface DmeState {
   fc13Playing: boolean
   fc13Started: boolean
 
+  /**
+   * `playsid.library` itself, which is the twelfth external replayer and the
+   * only one DME does not ship. See ../amiga/playsid.ts.
+   */
+  sid: PlaySid
+  /** `$f4(a2)`: the bank `Sid Load` last filled */
+  sidBank: number
+  /** `$fe(a2)`: playing, the flag every one of the eight instructions tests */
+  sidPlaying: boolean
+  /**
+   * `$f6(a2)`: the library base, null until routine 261 opens it.
+   *
+   * A boolean here rather than a pointer, because what the extension does
+   * with it is test it for zero and call through it. `Sid Stop` is the only
+   * keyword that closes anything, and it closes the emulation resource
+   * rather than the library.
+   */
+  sidOpened: boolean
+
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
   samVolume: number
@@ -424,6 +464,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc13Bank: 0,
     fc13Playing: false,
     fc13Started: false,
+    sid: new PlaySid(() => rt?.host.audio),
+    sidBank: 0,
+    sidPlaying: false,
+    sidOpened: false,
     samBank: 0,
     samVolume: 0x40,
   }
@@ -499,6 +543,36 @@ const dmeErr = (n: number): never => {
 }
 /** `moveq #$11,d0` (17) --- `Ptm Load` at $787c and `Ptm Play` at $794c */
 const notAModule = (): never => dmeErr(17)
+
+/**
+ * Routine 261 ($73c2): open `playsid.library` once and keep the base.
+ *
+ * `tst.l $f6(a2) / bne` skips it when the base is already there, otherwise
+ * `OpenLibrary` at exec -$228 with version 0 and the name at $740a. A failure
+ * is message 15.
+ *
+ * The routine's second half is dead: `moveq #$0,d0 / tst.l d0 / bne` can
+ * never branch, so message 14, "Can't initialize playsid.library", is
+ * unreachable in this extension. It is still in `DME_ERRORS` because the
+ * string is in the binary.
+ *
+ * DEVIATION: the library is always present here, because it is
+ * ../amiga/playsid.ts rather than a file in `LIBS:`. Message 15 therefore
+ * never fires, which is the one branch of this routine a program can see and
+ * this port cannot reach.
+ */
+function openPlaySid(s: DmeState): void {
+  if (s.sidOpened) return
+  s.sidOpened = true
+}
+
+/** Routine 258 ($72e8): `StopSong` at LVO -66 and `FreeEmulResource` at -36 */
+function sidStop(s: DmeState): void {
+  if (!s.sidPlaying) return
+  s.sidPlaying = false
+  s.sid.stopSong()
+  s.sid.freeEmulResource()
+}
 
 /** the eight bytes before a bank's data are its name; `Ptm Play` reads them as two longs */
 function isTrackerBank(rt: Runtime, n: number): boolean {
@@ -2017,6 +2091,191 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (v < 0 || v > 0x40) badCall()
       st().s3m.master = v
     },
+
+    /**
+     * Sid Load file$, bank --- routine 256 ($7220), the same nine steps as
+     * `Ptm Load` with a different tag.
+     *
+     * `Rbsr routine 261` runs FIRST, so a machine with no `playsid.library`
+     * raises message 15 before the file is opened rather than after. The bank
+     * pops first (`move.l (a3)+,d3 / cmp.l #$10000,d3`), reloading the bank
+     * that is currently playing stops it, and the bank is a Work bank named
+     * "PSid    " sized as the file rounded up to even plus eight.
+     *
+     * The guide is explicit that a two-part module is not accepted: "It's only
+     * possible to load PlaySid mod's - One File Format - (no Data/Icon
+     * Files)." That is why DME never calls `ReadIcon`, the one public LVO of
+     * the library's fifteen that no keyword here reaches.
+     *
+     * The only check on the contents is `cmpi.l #$50534944,(a2)` at $728c ---
+     * the 'PSID' magic and nothing else. The header's version, its data
+     * offset and its song count are all `CheckModule`'s business, and
+     * `Sid Load` never calls it. A failed tag ERASES the bank ($72a0) before
+     * raising message 13, so a bad load leaves nothing behind.
+     */
+    'sid load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      openPlaySid(s)
+      if (bank >= 0x10000) badCall()
+      if (bank === s.sidBank && s.sidPlaying) sidStop(s)
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.sidBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, SID_BANK_NAME, true, true)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const magic = (data[0]! << 24) | (data[1]! << 16) | (data[2]! << 8) | data[3]!
+      if ((magic >>> 0) !== PSID_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(SID_NOT_A_MODULE)
+      }
+    },
+
+    /**
+     * Sid Play bank [, song] --- routines 259 ($7314) and 260 ($731a).
+     *
+     * Two entries, because the token table's `!sid play` carries a $FE
+     * terminator and the nameless `I0,0` row after it is the two-argument
+     * variant. The one-argument form is six bytes: `clr.l -(a3)` pushes a
+     * zero song and falls into the other, so `Sid Play 3` IS
+     * `Sid Play 3,0`.
+     *
+     * DME's song number is ZERO-based and the library's is one-based:
+     * $7398 is `addq.l #$1,d7` before `jsr -$3c(a6)`. So `Sid Play b,0` asks
+     * `StartSong(1)`, and DME's own example walks `SUB` from 0 up to
+     * `Sid Songs - 1`. A bank of `$80000000` means the one `Sid Load` last
+     * used, which is the same sentinel `Ptm Play` takes.
+     *
+     * Then five library calls in order, at $736e to $739c:
+     *
+     *     -30  AllocEmulResource   and its result is NEVER TESTED
+     *     -96  SetVertFreq         60 on an NTSC machine, 50 otherwise
+     *     -54  SetModule           a2 as BOTH header and body, the one-part case
+     *     -60  StartSong           the song plus one
+     *
+     * DEFECT: `AllocEmulResource` returns `SID_LIBINUSE` when the resource is
+     * already held and DME ignores it, along with every other error the four
+     * calls can return. The audible effect is nil --- the library tolerates
+     * being asked twice, which is why $73a0 goes on to record the module
+     * regardless --- but a genuine out-of-memory would be silent.
+     */
+    'sid play'(it) {
+      const first = it.evalInt()
+      const song = it.accept(',') ? it.evalInt() : 0
+      const s = st()
+      const bank = first === PTM_CURRENT_BANK ? s.sidBank : first
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SID_BANK_NAME) dmeErr(SID_NOT_A_MODULE)
+      openPlaySid(s)
+      s.sid.allocEmulResource()
+      // $7372: `jsr $12c(a0)` is AMOS's own NTSC call and `tst.w d1` picks
+      // $3c or $32. `FnNTSC` returns 0 here --- the emulated machine is PAL
+      // and instr.ts says so --- so this arm is the only reachable one.
+      s.sid.setVertFreq(PAL_VERT_FREQ)
+      s.sid.setModule(b!.data)
+      s.sid.startSong((song + 1) & 0xffff)
+      s.sidBank = bank
+      s.sidPlaying = true
+    },
+
+    /**
+     * Sid Stop --- routine 258 ($72e8), and it does two things rather than one.
+     *
+     * `jsr -$42(a6)` is `StopSong` and `jsr -$24(a6)` right after it is
+     * `FreeEmulResource`, so stopping gives the 320KB back. That is why
+     * `Sid Play` allocates again every time instead of once.
+     */
+    'sid stop'() {
+      sidStop(st())
+    },
+
+    /**
+     * Sid Pause --- routine 264 ($746c), into LVO -72 `PauseSong`.
+     *
+     * Guarded on the extension's own flag rather than on the library's
+     * `PlayMode`, so pausing something already paused does nothing and
+     * cannot reach the library's `SID_NOPAUSE`.
+     */
+    'sid pause'() {
+      const s = st()
+      if (!s.sidPlaying) return
+      s.sidPlaying = false
+      s.sid.pauseSong()
+    },
+
+    /** Sid Cont --- routine 263 ($7446), into LVO -78 `ContinueSong` */
+    'sid cont'() {
+      const s = st()
+      if (s.sidPlaying) return
+      s.sidPlaying = true
+      s.sid.continueSong()
+    },
+
+    /**
+     * Sid Forward --- routine 265 ($7490): `ForwardSong(16)`, and the 16 is
+     * the extension's, not the caller's.
+     *
+     * `moveq #$0,d0 / move.w #$10,d0` at $74a2 is a fixed sixteen, which is
+     * why the keyword takes no argument where the library's LVO does. Nothing
+     * playing is message 16.
+     */
+    'sid forward'() {
+      const s = st()
+      if (!s.sidPlaying) dmeErr(SID_NOT_INITIALIZED)
+      s.sid.forwardSong(SID_FORWARD_STEPS)
+    },
+
+    /**
+     * Sid Rewind --- routine 266 ($74bc): `SetReverseEnable(1)` and then
+     * `RewindSong(32)`, twice Forward's step.
+     *
+     * Setting the reverse flag first is what playsid's own developer notes
+     * require of RewindSong, and DME is the reason the flag has no keyword of
+     * its own: nothing else in the extension ever writes it. The guide says
+     * only "Use this command to rewind a currently replaying Sid-Song."
+     */
+    'sid rewind'() {
+      const s = st()
+      if (!s.sidPlaying) dmeErr(SID_NOT_INITIALIZED)
+      s.sid.setReverseEnable(true)
+      s.sid.rewindSong(SID_REWIND_STEPS)
+    },
+
+    /**
+     * Sid Channel n --- routine 267 ($74ec), and it is the extension's one
+     * broken keyword.
+     *
+     * The range check is real: `cmp.l #$4,d7 / Rbhi` and `cmp.l #$1,d7 /
+     * Rblt` make anything outside 1 to 4 an AMOS error 23, and the guide
+     * states the intent --- "With this command you can choose,how many
+     * channels you will use for replaying Sid-Song."
+     *
+     * DEFECT: `SetChannelEnable` takes a POINTER to four 16-bit booleans ---
+     * `void SetChannelEnable( BOOL flags[4] )` in Developer.doc, and
+     * `$2102e8` copies eight bytes from A0. $7518 is `movea.l d7,a0`, which
+     * puts the COUNT in the address register. So the library reads its four
+     * flags from address 1, 2, 3 or 4, which on a real machine is the reset
+     * vectors and SysBase; on a 68000 the odd two are an address error as
+     * well. The keyword cannot do what its own example says it does.
+     *
+     * DEVIATION: nothing is mapped at address 1 to 4 here, so rather than
+     * invent bytes this enables all four channels, which is the state the
+     * library was in before the call. The range check, the error and the
+     * `SetReverseEnable(1)` at $7512 are all reproduced, because those are
+     * the parts of the keyword that work.
+     */
+    'sid channel'(it) {
+      const n = it.evalInt()
+      const s = st()
+      openPlaySid(s)
+      if (n < 1 || n > 4) badCall()
+      s.sid.setReverseEnable(true)
+      s.sid.setChannelEnable([true, true, true, true])
+    },
   }
 }
 
@@ -2035,6 +2294,25 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       const b = rt.memBanks.get(bank)
       if (!b || b.name.padEnd(8).slice(0, 8) !== THX_BANK_NAME) dmeErr(23)
       return VI(b!.data[THX_SUBSONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Sid Songs(bank) --- routine 268 ($7524), the block's only function.
+     *
+     * `L_Bnk_OrAdr` on the bank, the "PSid    " name checked as two longs at
+     * -$8 and -$4, then `move.b $f(a2),d3`: one byte out of the BANK, not out
+     * of the library, so it answers without a module being set. A bank that
+     * is not a PSid is message 13.
+     *
+     * It reads the header's song count at $0e as a BYTE from $0f, which is
+     * the low half. `SIDHeader.number` is a UWORD, so a file with 256 songs
+     * would report zero. Nothing has more than twelve.
+     */
+    'sid songs': (_, a) => {
+      const bank = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SID_BANK_NAME) dmeErr(SID_NOT_A_MODULE)
+      return VI(b!.data[SID_SONGS_AT] ?? 0)
     },
 
     /**
@@ -2536,6 +2814,13 @@ export function dmeVbl(rt: Runtime): void {
   // TFMX is CIA-B timer B, 50 Hz by default and up to 500 when a subsong names
   // a divisor, so its own `vbl` counts the interrupts a frame owes it
   if (s.tfmxPlaying) s.tfmx.vbl()
+  // PlaySid runs the tune's own 6502 once a frame. `$210726` is hung off a
+  // CIA timer whose reload `$210a46` picks as $376c (PAL, 709,379/50) or
+  // $2e9c (NTSC), and the PSID speed bitmap chooses between the raster and
+  // that timer per song. Both are 50Hz here, so a CIA-speed tune runs at the
+  // raster's rate --- the same simplification every other replayer in this
+  // file carries, and the reason `usesCia` is recorded but not acted on.
+  if (s.sidPlaying) s.sid.tick()
   if (s.digiPlaying && s.digiUnpaused) {
     s.digiTime += 1 / VBL_HZ
     for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {
