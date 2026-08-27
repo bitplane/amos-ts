@@ -1236,6 +1236,38 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
+  it('No Mask with no argument clears every bob, not bob 1', () => {
+    // InNoMask0 (+Lib.s:12509) and InMakeMask0 (+Lib.s:12484) both do
+    // `moveq #1,d1 / Rbsr L_AdBob / Rbne L_GoError / subq.w #1,d5`, and AdBob
+    // left the bank COUNT in d5 (`move.w d1,d5`, +Lib.s:12800, d1 being
+    // Bnk.AdBob's "Max de bobs"). So `dbra d5,.Loop` walks the lot. The
+    // one-argument forms set `moveq #0,d5` and walk one.
+    const grab = ['Screen Open 0,320,200,16,0', 'Cls 0', 'Ink 5 : Bar 0,0 To 7,7']
+    const three = [...grab, 'Get Bob 1,0,0 To 8,8', 'Get Bob 2,0,0 To 8,8', 'Get Bob 3,0,0 To 8,8']
+    const opaque = (...lines: string[]): boolean[] => {
+      const { rt } = run([...three, ...lines].join('\n'))
+      return rt.spriteBank!.images.map((im) => im.opaque)
+    }
+    expect(opaque('Make Mask', 'No Mask')).toEqual([true, true, true])
+    expect(opaque('No Mask', 'Make Mask')).toEqual([false, false, false])
+    // and with a number, only that one moves
+    expect(opaque('Make Mask', 'No Mask 2')).toEqual([false, true, false])
+    expect(opaque('No Mask', 'Make Mask 3')).toEqual([true, true, false])
+    // AdBob still guards the number: no bank is 36, past the end is 74, and
+    // $4000 masks to nothing so it is Illegal function call like 0
+    const code = (...lines: string[]): number => {
+      try {
+        run([...grab, ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('No Mask')).toBe(36)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Make Mask 9')).toBe(74)
+    expect(code('Get Bob 1,0,0 To 8,8', 'No Mask 16384')).toBe(23)
+  })
+
   it('Paste Bob tells apart no bank, a number past the end, and a bad number', () => {
     const code = (...lines: string[]): number => {
       try {

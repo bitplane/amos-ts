@@ -2425,21 +2425,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'ins bob': insObj('sprite'),
     'ins sprite': insObj('sprite'),
     'ins icon': insObj('icon'),
-    'make icon mask'(it) {
-      // one icon or, with no argument, the lot — Masque per image
-      const n = it.atStmtEnd() ? -1 : it.evalInt()
-      const bank = rt.iconBank
-      if (!bank) return
-      if (n < 0) for (const im of bank.images) im.opaque = false
-      else {
-        const img = bank.image(n)
-        if (img) img.opaque = false
-      }
-    },
-    'no icon mask'(it) {
-      const img = rt.iconBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
-      if (img) img.opaque = true
-    },
+    'make icon mask': maskAll('icon', false),
+    'no icon mask': maskAll('icon', true),
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
@@ -2470,21 +2457,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
     },
-    'make mask'(it) {
-      // a bob image is masked from the start; this undoes a No Mask
-      const n = it.atStmtEnd() ? -1 : it.evalInt()
-      const bank = rt.spriteBank
-      if (!bank) return
-      if (n < 0) for (const im of bank.images) im.opaque = false
-      else {
-        const img = bank.image(n)
-        if (img) img.opaque = false
-      }
-    },
-    'no mask'(it) {
-      const img = rt.spriteBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
-      if (img) img.opaque = true
-    },
+    'make mask': maskAll('sprite', false),
+    'no mask': maskAll('sprite', true),
     'priority on'() {
       rt.priorityOn = true
     },
@@ -4815,17 +4789,53 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * an icon, error 74. Read raw those say "Out of memory" and "Bad IFF
    * format", which is how you know the +44 belongs there.
    */
-  function pasteImage(n: number, kind: 'sprite' | 'icon'): BankImage {
-    if (n < 0 || (n & 0x3fff) === 0) funcCall()
+  function adBob(n: number, kind: 'sprite' | 'icon'): ObjectBank {
+    // the mask is not a range check: bits 14 and 15 are Hrev/Vrev, so $4000
+    // is all flags and no number and fails the same way 0 does
+    if ((n & 0x3fff) === 0) funcCall()
     const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
     if (!bank) throw new AmosError('Bank not reserved', 36)
     if ((n & 0x3fff) > bank.images.length) throw new AmosError('Icon not defined', 74)
-    const img = bank.retourne(n)
+    return bank
+  }
+
+  function pasteImage(n: number, kind: 'sprite' | 'icon'): BankImage {
+    // the Rbmi belongs to the paste keywords, not to AdBob: Make Mask has no
+    // sign check and `and.l #$3FFF` turns its -1 into 16383
+    if (n < 0) funcCall()
+    const img = adBob(n, kind).retourne(n)
     if (!img) {
       if (kind === 'icon') throw new AmosError('Icon not defined', 74)
       throw new AmosError('Bob not defined', 68)
     }
     return img
+  }
+
+  /**
+   * Make Mask / No Mask, and their icon pair.
+   *
+   * The no-argument form is not "image 1". `InMakeMask0` (+Lib.s:12484) and
+   * `InNoMask0` (+Lib.s:12509) both go `moveq #1,d1 / Rbsr L_AdBob / Rbne
+   * L_GoError / subq.w #1,d5`, and d5 is the bank COUNT that AdBob left there
+   * (`move.w d1,d5`, d1 being Bnk.AdBob's documented "Max de bobs"). So
+   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what the
+   * manual promises: "make mask for all icons", "remove mask of all icons".
+   * The one-argument forms set `moveq #0,d5` and walk exactly one.
+   *
+   * Both loops open `tst.l (a2) / beq.s .Skip`, so a hole in the bank is
+   * stepped over in silence. Only the number itself can raise, through AdBob.
+   */
+  function maskAll(kind: 'sprite' | 'icon', opaque: boolean): Instr {
+    return (it) => {
+      const all = it.atStmtEnd()
+      const n = all ? 1 : it.evalInt()
+      const bank = adBob(n, kind)
+      if (all) for (const im of bank.images) im.opaque = opaque
+      else {
+        const img = bank.image(n)
+        if (img) img.opaque = opaque
+      }
+    }
   }
 
   function getObj(kind: 'sprite' | 'icon'): Instr {

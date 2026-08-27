@@ -74,6 +74,16 @@ These are facts about this codebase, not guesses. Rely on them.
 True, recorded, and repeating them on every keyword buries what is specific to
 yours.
 
+- **`AdBob` and `AdIcon` return the bank COUNT in d5.** They end `move.w
+  d1,d5` (+Lib.s:12794, +Lib.s:12804) and d1 comes from `Bnk.AdBob`, whose
+  header documents it as "Max de bobs" (+Lib.s:8066). So a routine that calls
+  `L_AdBob` and then does `subq.w #1,d5 / dbra d5,.Loop` walks the WHOLE bank,
+  and one that sets `moveq #0,d5` first walks one entry. `Make Mask` and `No
+  Mask` are the pair: the no-argument form (+Lib.s:12484) loops over every bob
+  and the one-argument form (+Lib.s:12492) over exactly one, which is what the
+  manual says they do. Reading d5 as zero turns the first into "bob 1 only" and
+  invents a difference. Follow the tail of any routine you branch into.
+
 - **No screen open.** `scr()` is `rt.screen`, a getter that THROWS
   `screen not opened`, and so does the original: `L_ScNOp` is `moveq #3,d0 /
   Rbra L_EcWiErr` (+Lib.s:12907), and `EcWiErr` adds `EcEBase-1` = 44 to reach
