@@ -135,6 +135,42 @@ export interface ModPreview {
 }
 
 /**
+ * The program that plays one sample out of a `Samples` bank.
+ *
+ * The same trick as `modProgram` and for the same reason: `Sam Play` is the
+ * keyword an AMOS program uses, so this hands the machine a program rather
+ * than reaching for Paula behind the interpreter's back.
+ *
+ * `Sam Play n` on its own plays on all four voices (`InSamPlay1`,
+ * +Music.s:3128, defaults the mask to $f). The `Do : Loop` after it is what
+ * keeps the program alive while the sample runs, exactly as it is in the
+ * module recipes: without it the program ends on the next frame and the
+ * player puts the escape screen up over a sample that has barely started.
+ *
+ * The bank keeps its own NUMBER out of the file it came from. `Sam Play`
+ * looks the sample up through `getSample`, which finds the Samples bank
+ * wherever it is, and a bank renumbered on the way through would be a
+ * different program from the one the file describes.
+ */
+export function sampleProgram(fileName: string, bankNumber: number, bank: Uint8Array, index: number): ModPreview {
+  const table = new TokenTable(CORE_TOKENS)
+  const source = tokeniseSource(`Sam Play ${index}\nDo\nLoop\n`, table, {
+    extensions: new Map<number, TokenTable>(defaultExtensionTables()),
+  })
+  return {
+    name: `${fileName.replace(/\.[^.]*$/, '')}.sample${index}.amos`,
+    bytes: writeProgramFile({
+      pro: true,
+      mathFlags: 0,
+      tested: true,
+      source: source.subarray(0, Math.max(0, source.length - 2)),
+      banks: bankList([memoryBank(bankNumber, 'Samples', bank)]),
+    }),
+    keyword: `Sam Play ${index}`,
+  }
+}
+
+/**
  * The program that plays this module, or null for a format with no recipe.
  *
  * Null is a real answer and the panel says which format it was: a module this

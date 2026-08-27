@@ -42,6 +42,9 @@ import { createList, facts, type Action, type RowSpec } from './list'
 import { popupMenu } from './menu'
 import { baseName } from '../filemanager'
 import { decodePicture } from '../picture'
+import { createViewer } from './viewer'
+import { viewsFor, type ViewHost } from './views'
+import { detectModule } from '../../amiga/modformat'
 import type { ModFormat } from '../../amiga/modformat'
 
 export interface FilesOptions {
@@ -50,6 +53,8 @@ export interface FilesOptions {
   open(name: string, bytes: Uint8Array, at: { vol: string; dir: string[] }, drive?: number): void
   /** play a module, which stops whatever the machine is doing */
   play?(name: string, bytes: Uint8Array, format: ModFormat): void
+  /** play one sample out of a `Samples` bank, the same way */
+  playSample?(name: string, bankNumber: number, bank: Uint8Array, index: number): void
   /** what is in each drive now, for the menu that offers them */
   drives(): readonly (string | null)[]
   onStatus(text: string): void
@@ -203,19 +208,6 @@ function listingOf(bytes: Uint8Array): string | null {
     return detokSource(lines, table, { extensions: extensionTablesFor(lines) })
   } catch {
     return null
-  }
-}
-
-/** the banks a program carries with it, named the way amoslist.ts names them */
-function banksOf(bytes: Uint8Array): string[] {
-  try {
-    return parseAmosFile(bytes).banks.map((b) =>
-      b.kind === 'memory'
-        ? `${b.number}: ${b.name.trim() || 'unnamed'}, ${sizeText(b.data.length)}`
-        : `${b.kind}, ${b.sprites.length}`,
-    )
-  } catch {
-    return []
   }
 }
 
@@ -537,6 +529,33 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     body.appendChild(note)
   }
 
+  /**
+   * Which tab each open file was last showing.
+   *
+   * The pane rebuilds from the filesystem on every operation, so a viewer is
+   * a new one each time. Without this, renaming a file three drawers away
+   * would drop somebody back onto the Listing tab of the program they were
+   * halfway through looking at.
+   */
+  const viewerTabs = new Map<string, string>()
+
+  /** what a view can ask the page to do, which is everything with a side effect */
+  function viewHost(name: string, path: string): ViewHost {
+    void path
+    return {
+      playModule: (bankName, data) => {
+        const format = detectModule(data)
+        if (format === null) {
+          opts.onStatus(`${bankName} is not a module this port reads`)
+          return
+        }
+        opts.play?.(name, data, format)
+      },
+      playSample: (bankNumber, data, index) => opts.playSample?.(name, bankNumber, data, index),
+      onStatus: opts.onStatus,
+    }
+  }
+
   /** the drive menu, which only a disk image has anywhere to go in */
   function driveMenu(e: MouseEvent, name: string, bytes: Uint8Array, at: { vol: string; dir: string[] }): void {
     popupMenu(
@@ -630,19 +649,24 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               const note = meta.comment.trim()
               if (note !== '') bodyEl.appendChild(facts([['comment', note]]))
               if (kind.group === 'picture') return pictureBody(bodyEl, bytes, kind)
+              // A program and a bank file are both SEVERAL things, and the
+              // viewer is what puts a tab over each of them. A program with
+              // no banks gets one tab and the bar hides itself.
+              if (kind.group === 'program' || kind.group === 'bank') {
+                const views = viewsFor(bytes, viewHost(name, full))
+                if (views !== null) {
+                  const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
+                  // Which tab, remembered as it changes rather than read back
+                  // later: by the time the pane redraws, this element is gone.
+                  bodyEl.addEventListener('click', () => viewerTabs.set(full, viewer.active))
+                  return
+                }
+              }
               if (kind.container) {
                 const members = membersOf(kind, bytes)
                 if (members !== null) return membersBody(bodyEl, members)
               }
-              if (kind.group === 'text' || kind.group === 'program') {
-                // A program's banks are part of what it IS: a game whose
-                // music is in bank 6 says so here and nowhere else.
-                if (kind.group === 'program') {
-                  const banks = banksOf(bytes)
-                  if (banks.length > 0) bodyEl.appendChild(facts([['banks', banks.join(' · ')]]))
-                }
-                return textBody(bodyEl, bytes, kind)
-              }
+              if (kind.group === 'text' || kind.group === 'program') return textBody(bodyEl, bytes, kind)
               bodyEl.appendChild(facts([['protection', protectionText(meta.protection)]]))
             },
           }
