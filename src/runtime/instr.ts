@@ -1370,7 +1370,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!scr().doubleBuffer()) throw new AmosError('Screen already in double buffering', 69)
     },
     autoback(it) {
-      scr().autoback = it.evalInt() & 3
+      // InAutoback (+Lib.s:9510) opens `cmp.l #3,d3 / Rbcc L_FonCall`, so
+      // the range is 0 to 2 and not 0 to 3, and the error is 23 rather than
+      // the 60 most of the console keywords raise. The port masked to 3,
+      // which turned Autoback 3 into a mode AMOS refuses.
+      const n = it.evalInt()
+      if (n >>> 0 >= 3) funcCall()
+      scr().autoback = n
     },
     'screen copy'(it) {
       const src = rt.resolveScreenId(it.evalInt())
@@ -2016,15 +2022,32 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       })
     },
     writing(it) {
-      // Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
-      // 1 paper only, 2 pen on colour 0 (console escape 'W')
+      /*
+       * Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
+       * 1 paper only, 2 pen on colour 0 (console escape 'W').
+       *
+       * InWriting2 (+Lib.s:13148) checks both, `cmp.l #3,d0 / Rbcc` on w2
+       * and `cmp.l #5,d1 / Rbcc` on w1, so 0 to 2 and 0 to 4, error 60. The
+       * port masked instead, which let Writing 7 through as 7.
+       *
+       * InWriting1 (+Lib.s:13142) is the one-argument form, and it pushes
+       * its argument and sets d3 to zero before falling in — so `Writing 2`
+       * RESETS w2, where the port left the previous value standing.
+       */
       const w = scr().curWin
-      w.writing1 = it.evalInt() & 7
-      if (it.accept(',')) w.writing2 = it.evalInt() & 3
+      const w1 = it.evalInt()
+      const w2 = it.accept(',') ? it.evalInt() : 0
+      if (w1 >>> 0 >= 5 || w2 >>> 0 >= 3) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      w.writing1 = w1
+      w.writing2 = w2
     },
     'gr writing'(it) {
-      // SetDrMd: 0 JAM1 (transparent), 1 JAM2, 2 COMPLEMENT (XOR)
-      scr().grMode = it.evalInt() & 7
+      // SetDrMd: 0 JAM1 (transparent), 1 JAM2, 2 COMPLEMENT (XOR).
+      // InGrWriting (+Lib.s:10090) refuses a negative with Rbmi L_FonCall
+      // and passes everything else to SetDrMd whole, with no mask.
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      scr().grMode = n & 7
     },
     'set tab'(it) {
       /*

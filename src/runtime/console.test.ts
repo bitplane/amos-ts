@@ -140,6 +140,34 @@ describe('console escape-string functions', () => {
     expect(code('A$=Repeat$("x",206)')).toBe(0)
   })
 
+  it('Writing checks both modes, and the one-argument form resets the second', () => {
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,16,Lowres\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InWriting2 +Lib.s:13148: `cmp.l #3,d0 / Rbcc` on w2, `cmp.l #5,d1 /
+    // Rbcc` on w1, both landing on WFonCall
+    expect(code('Writing 5')).toBe(60)
+    expect(code('Writing 4')).toBe(0)
+    expect(code('Writing 0,3')).toBe(60)
+    expect(code('Writing 0,2')).toBe(0)
+    expect(code('Writing -1')).toBe(60)
+    // InWriting1 +Lib.s:13142 pushes its argument and clears d3 first
+    const { rt } = run('Screen Open 0,320,200,16,Lowres\nWriting 1,2 : Writing 3')
+    const w = rt.screens.get(0)!.curWin
+    expect([w.writing1, w.writing2]).toEqual([3, 0])
+    // Gr Writing refuses a negative (Rbmi L_FonCall, +Lib.s:10094)
+    expect(code('Gr Writing -1')).toBe(23)
+    // Autoback is 0 to 2, not 0 to 3, and its error is 23 (+Lib.s:9510)
+    expect(code('Autoback 3')).toBe(23)
+    expect(code('Autoback -1')).toBe(23)
+    expect(code('Autoback 2')).toBe(0)
+  })
+
   it('Cline takes 1 to 206 and Set Tab 0 to 207, both error 60', () => {
     const code = (src: string): number => {
       try {
