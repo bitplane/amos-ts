@@ -5,18 +5,18 @@ so you can put your old games on the web.
 
 <table>
  <tr>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/Eggit.png" alt="Eggit" width="260"></td>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/NSLE.png" alt="NSLE" width="260"></td>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/Thrusts.png" alt="Thrusts" width="260"></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/eggit" title="Play Eggit"><img src="https://amos.bitplane.net/library/bitplane.net/Eggit.png" alt="Eggit" width="260"></a></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/nsle" title="Play NSLE"><img src="https://amos.bitplane.net/library/bitplane.net/NSLE.png" alt="NSLE" width="260"></a></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/thrusts" title="Play Thrusts"><img src="https://amos.bitplane.net/library/bitplane.net/Thrusts.png" alt="Thrusts" width="260"></a></td>
  </tr>
  <tr>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/Scrawler.png" alt="Scrawler" width="260"></td>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/Goldfish.png" alt="Goldfish" width="260"></td>
-  <td><img src="https://amos.bitplane.net/library/bitplane.net/Draw%20%27n%27%20Draw.png" alt="Draw 'n' Draw" width="260"></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/scrawler" title="Play Scrawler"><img src="https://amos.bitplane.net/library/bitplane.net/Scrawler.png" alt="Scrawler" width="260"></a></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/goldfish" title="Play Goldfish"><img src="https://amos.bitplane.net/library/bitplane.net/Goldfish.png" alt="Goldfish" width="260"></a></td>
+  <td><a href="https://amos.bitplane.net/#play/bitplane.net/draw-n-draw" title="Play Draw 'n' Draw"><img src="https://amos.bitplane.net/library/bitplane.net/Draw%20%27n%27%20Draw.png" alt="Draw 'n' Draw" width="260"></a></td>
  </tr>
 </table>
 
-Drop a file (.amos, .adf, .zip, .lha etc) into 
+Click a shot to play it, or drop a file (.amos, .adf, .zip, .lha etc) into 
 **[amos.bitplane.net](https://amos.bitplane.net)** and see how it plays.
 
 Keyword support covers most of the extensions I could find, but mostly hasn't
