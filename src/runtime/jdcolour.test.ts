@@ -98,8 +98,8 @@ describe('JD Colour: the nibble arithmetic (+|col.s:214-640)', () => {
   })
 
   it('Cut Off$ raises error 23 on an empty string and at 128 characters', () => {
-    expect(() => run('Print Jd Cut Off$("")')).toThrow(/illegal function call/)
-    expect(() => run('Print Jd Cut Off$(String$("x",128))')).toThrow(/illegal function call/)
+    expect(() => run('Print Jd Cut Off$("")')).toThrow(/illegal function call/i)
+    expect(() => run('Print Jd Cut Off$(String$("x",128))')).toThrow(/illegal function call/i)
     expect(sval('Jd Cut Off$(String$("x",127))').length).toBe(253)
   })
 })
@@ -140,8 +140,8 @@ describe('JD Colour: the palette instructions', () => {
 
   it('Spread Palette rejects colour 0 outright — `cmp.l #0,d2 / ble _err`', () => {
     const head = 'Screen Open 0,320,200,16,Lowres\n'
-    expect(() => run(head + 'Jd Spread Palette 0 To 4')).toThrow(/illegal function call/)
-    expect(() => run(head + 'Jd Spread Palette 1 To 32')).toThrow(/illegal function call/)
+    expect(() => run(head + 'Jd Spread Palette 0 To 4')).toThrow(/illegal function call/i)
+    expect(() => run(head + 'Jd Spread Palette 1 To 32')).toThrow(/illegal function call/i)
   })
 
   it('a reversed pair is swapped, and a gap under two does nothing', () => {

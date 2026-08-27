@@ -5,7 +5,7 @@ import { Interp, newInputState } from '../interp/interp'
 import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { Addr } from '../interp/prescan'
 import type { AmosIO } from '../interp/io'
-import { AmosError, VF, VI } from '../interp/values'
+import { AmosError, funcCall, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import type { GuiState } from './guistate'
@@ -2159,7 +2159,7 @@ export class Runtime {
     // RsBqX (+Lib.s): length <= 0 or bank outside 1..65535 = function call
     // error; flags bit 0 = Bnk_BitData (+Equ.s:1837): Data banks survive
     // Erase Temp, Work banks (bit clear) do not
-    if (length <= 0 || n <= 0 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+    if (length <= 0 || n <= 0 || n >= 0x10000) funcCall()
     // The name field is EIGHT bytes and Bnk.Reserve copies exactly eight
     // (`moveq #7,d0` +Lib.s:8501), but a bank's name is held here the way
     // the loader holds one, trailing spaces off in parseMemoryBank, so
@@ -4019,7 +4019,7 @@ export class Runtime {
    * defined (+Editor_Config.s:1049).
    */
   getSample(n: number): SampleEntry {
-    if (n <= 0) throw new AmosError('Illegal function call', 23)
+    if (n <= 0) funcCall()
     const bank = this.memBanks.get(this.samBankNum)
     if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not found')
     if (this.sampleCache?.bank !== bank) {
@@ -4506,7 +4506,7 @@ export class Runtime {
    * (unsigned compare); sets the per-voice default and the live level.
    */
   setVolume(mask: number, vol: number): void {
-    if (vol < 0 || vol >= 64) throw new AmosError('Illegal function call', 23)
+    if (vol < 0 || vol >= 64) funcCall()
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
       this.voices[v]!.volume = vol
@@ -4905,7 +4905,7 @@ export class Runtime {
     let colours = nColors
     let m = mode
     if (colours === 4096) {
-      if (m & 0x8000) throw new AmosError('function call error')
+      if (m & 0x8000) funcCall()
       colours = 64
       m |= 0x800
     } else {
@@ -4927,7 +4927,7 @@ export class Runtime {
        */
       if (![2, 4, 8, 16, 32, 64, 256].includes(colours))
         throw new AmosError('illegal number of colours')
-      if (m & 0x8000 && colours > 16) throw new AmosError('function call error')
+      if (m & 0x8000 && colours > 16) funcCall()
     }
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
     // Default Palette is a sparse override list — the mouse bank fills only

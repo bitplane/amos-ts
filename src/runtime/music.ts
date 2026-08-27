@@ -23,7 +23,7 @@
  * in the interrupt are stopped by an iteration guard.
  */
 
-import { AmosError } from '../interp/values'
+import { AmosError, funcCall } from '../interp/values'
 import { PT_SINE } from '../amiga/notes'
 import { AMIGA_PERIODS, PAULA_CLOCK, periodToHz, samPeriod } from '../amiga/paula'
 import { MedPlayer } from './med'
@@ -258,7 +258,7 @@ export class MusicPlayer {
 
   /** InMusic (+Music.s:3815) */
   music(n: number): void {
-    if (n <= 0) throw new AmosError('Illegal function call', 23)
+    if (n <= 0) funcCall()
     this.ensureBank()
     if (!this.bound) throw new AmosError('music bank not found')
     const count = this.w(this.songBase)
@@ -808,7 +808,7 @@ export class MusicPlayer {
    * 1 = the square (Bell), 0 = noise (Boom/Shoot via shout()).
    */
   playNote(mask: number, note: number, forcedWave = -1, forcedEnv: number[] | null = null): void {
-    if (note < 0 || note > 96) throw new AmosError('Illegal function call', 23)
+    if (note < 0 || note > 96) funcCall()
     this.samSteal(mask & 15)
     for (let v = 0; v < 4; v++) {
       if (mask & (1 << v)) this.vPlay(v, note, forcedWave, forcedEnv)

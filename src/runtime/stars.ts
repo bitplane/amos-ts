@@ -100,11 +100,11 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { VI, AmosError, type Value } from '../interp/values'
+import { funcCall, type Value, VI } from '../interp/values'
 
 /** the 68k raises one error for every bad argument; see the module note */
 const duff: () => never = () => {
-  throw new AmosError('Illegal function call', 23)
+  funcCall()
 }
 
 /** $220/$320 are 128 words each — the count is checked against this */

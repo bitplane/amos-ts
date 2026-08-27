@@ -123,7 +123,7 @@
 import { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
-import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
@@ -4619,7 +4619,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
  * what a program's `Errn` sees, so it is what these raise.
  */
 const amcafErr: () => never = () => {
-  throw new AmosError('Illegal function call', 23)
+  funcCall()
 }
 /** routine 391 — the one every failed dos.library call raises */
 const amcafDosErr: () => never = () => {

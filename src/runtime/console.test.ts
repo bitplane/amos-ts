@@ -112,7 +112,7 @@ describe('console escape-string functions', () => {
   it('Repeat$ repeats a string, and rejects a negative count', () => {
     expect(run('Print Repeat$("ab",3)').out).toBe('ababab\n')
     expect(run('Print Len(Repeat$("x",0))').out).toBe(' 0\n')
-    expect(() => run('Print Repeat$("x",-1)')).toThrow(/function call error/)
+    expect(() => run('Print Repeat$("x",-1)')).toThrow(/Illegal function call/)
   })
 
   it('Paper$ and Pen$ build the console colour escapes', () => {

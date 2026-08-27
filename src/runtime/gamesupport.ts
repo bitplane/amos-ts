@@ -92,7 +92,7 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import { sw16 } from './word'
 import { counterDelta, joyDatX, joyDatY } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
@@ -1303,15 +1303,15 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
       const slot = mods.findIndex((s) => s === null)
       if (slot < 0) gsError(6)
       // `move.w (a0)+,d0 / subq.w #$1,d0 / cmp.w #$80,d0 / bge`
-      if (name.length - 1 >= 0x80) throw new AmosError('Illegal function call', 23)
+      if (name.length - 1 >= 0x80) funcCall()
       const bytes = rt.fs?.read(name)
-      if (!bytes) throw new AmosError('Illegal function call', 23)
+      if (!bytes) funcCall()
       const base = CODEMOD_BASE + slot * CODEMOD_SLOT
       let image: Uint8Array
       try {
         image = loadHunks(bytes, base).image
       } catch {
-        throw new AmosError('Illegal function call', 23)
+        funcCall()
       }
       // the magic scan: sixteen tries, two bytes apart, and no way to fail
       let header = 0

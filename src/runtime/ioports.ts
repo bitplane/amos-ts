@@ -20,7 +20,7 @@
  * and the browser print pipeline can supply real hardware; nothing here
  * assumes they are missing forever.
  */
-import { VI, VS, AmosError, int, type Value } from '../interp/values'
+import { VI, VS, funcCall, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
@@ -40,10 +40,13 @@ export { ioError, type DevSlot } from './device'
 import type { PrinterPage, SerialPortHandle, SerialLineParams } from '../amiga/host'
 import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
 
-/** Error 23, via L_IOFonc (+IO_Ports.s:1161). */
-function ioFonc(): AmosError {
-  return new AmosError('Illegal function call', 23)
-}
+/*
+ * IO_Ports reaches error 23 through an entry point of its own, `L_IOFonc`
+ * (+IO_Ports.s:1161). That is a fact about the extension and not a second
+ * error, so the throws below are `funcCall()` like everywhere else; this file
+ * used to keep a private `ioFonc()` factory, which was the sixth spelling of
+ * one error in this tree.
+ */
 
 /** `NSerial equ 4` (+IO_Ports.s:69). */
 export const N_SERIAL = 4
@@ -165,7 +168,7 @@ function serialChannel(rt: Runtime, n: number): SerialChannel {
   // with `n` lets a non-integer through the check and off the end of the
   // array, handing back undefined instead of raising.
   const i = n >>> 0
-  if (i >= N_SERIAL) throw ioFonc()
+  if (i >= N_SERIAL) funcCall()
   return rt.ioports.serial[i]!
 }
 
@@ -193,9 +196,9 @@ function bytesOf(s: string): number[] {
  * read on into whatever followed.
  */
 function outBlock(rt: Runtime, addr: number, len: number): Uint8Array {
-  if (len <= 0) throw ioFonc()
+  if (len <= 0) funcCall()
   const m = rt.resolveAddr(addr)
-  if (!m || m.off + len > m.data.length) throw ioFonc()
+  if (!m || m.off + len > m.data.length) funcCall()
   return m.data.subarray(m.off, m.off + len)
 }
 
@@ -350,7 +353,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const s = it.evalStr()
       const ch = serialOpenChannel(rt, n)
-      if (s.length === 0) throw ioFonc() // Rbeq L_IOFonc on a zero length
+      if (s.length === 0) funcCall() // Rbeq L_IOFonc on a zero length
       const bytes = bytesOf(s)
       ch.tx.push(...bytes)
       ch.port?.write(Uint8Array.from(bytes))
@@ -523,7 +526,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const s = it.evalStr()
       const p = st().printer
       devGetIO(p)
-      if (s.length === 0) throw ioFonc()
+      if (s.length === 0) funcCall()
       st().printerOut.push(...bytesOf(s))
       devSendIO(p)
     },
@@ -617,17 +620,17 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
           // word as a 16.16 fraction. Both divisions guard their result
           // against zero with Rbeq L_IOFonc, so a region wider than the
           // screen is error 23 rather than a fraction over 1.
-          if (width <= 0 || height <= 0) throw ioFonc()
+          if (width <= 0 || height <= 0) funcCall()
           const cx = Math.floor(sc.width / width)
           const cy = Math.floor(sc.height / height)
-          if (cx === 0 || cy === 0) throw ioFonc()
+          if (cx === 0 || cy === 0) funcCall()
           destCols = (Math.floor(0xffff / cx) & 0xffff) * 0x10000
           destRows = (Math.floor(0xffff / cy) & 0xffff) * 0x10000
           special = 0xb0 // ASPECT | FRACROWS | FRACCOLS
         }
       }
 
-      if (width <= 0 || height <= 0) throw ioFonc()
+      if (width <= 0 || height <= 0) funcCall()
       const page: PrinterPage = {
         pixels: dumpRegion(sc, srcX, srcY, width, height),
         width,
@@ -669,7 +672,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const s = it.evalStr()
       const p = st().parallel
       devGetIO(p)
-      if (s.length === 0) throw ioFonc()
+      if (s.length === 0) funcCall()
       st().parallelOut.push(...bytesOf(s))
       devDoIO(p)
     },
@@ -750,7 +753,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       pump(ch)
       const n = ch.rx.length
       if (n === 0) return VS('')
-      if (n >= 65_536) throw ioFonc()
+      if (n >= 65_536) funcCall()
       const taken = ch.rx.splice(0, n)
       devDoIO(ch.dev)
       return VS(String.fromCharCode(...taken))

@@ -140,7 +140,7 @@ describe('zones, banks and system state', () => {
 
   it('Set Sprite Buffer demands at least 16 scanlines (InSetSpriteBuffer +Lib.s:12261)', () => {
     expect(() => run('Set Sprite Buffer 16')).not.toThrow()
-    expect(() => run('Set Sprite Buffer 15')).toThrow(/function call error/)
+    expect(() => run('Set Sprite Buffer 15')).toThrow(/Illegal function call/)
   })
 
   it('Icon Base reports the address of an icon in the bank', () => {
@@ -216,7 +216,7 @@ describe('mouse and joystick reads', () => {
     // no hardware, so both directions read false rather than erroring
     expect(runOut('Print Jdown(1);Jright(1)')).toBe(' 0 0\n')
     // port 2 does not exist: only 0 and 1 are real (FJ +Lib.s:13716)
-    expect(() => run('A=Jdown(2)')).toThrow(/function call error/)
+    expect(() => run('A=Jdown(2)')).toThrow(/Illegal function call/)
   })
 })
 

@@ -4,19 +4,7 @@ import { detokLine } from '../tokens/edtok'
 import { Names } from './names'
 import { prescan, scopeOfAddr, varKey } from './prescan'
 import type { Addr, Ctrl, Program } from './prescan'
-import {
-  AmosError,
-  VI,
-  amosErrorCode,
-  coerce,
-  defaultValue,
-  display,
-  ffpRound,
-  int,
-  num,
-  str,
-  varType,
-} from './values'
+import { AmosError, amosErrorCode, coerce, defaultValue, display, ffpRound, funcCall, int, num, str, varType, VI } from './values'
 import type { Value, VarType } from './values'
 import type { AmosIO } from './io'
 import { INSTR, FUNCS, RAWFUNCS } from './builtins'
@@ -974,9 +962,9 @@ export class Interp {
     if (f.arrays.has(key)) throw new AmosError('array already dimensioned') // AlrDim
     let size = 1
     const counts = dims.map((d, i) => {
-      if (d < 0 || d >= 0xffff) throw new AmosError('function call error') // InDim limits
+      if (d < 0 || d >= 0xffff) funcCall() // InDim limits
       size *= d + 1
-      if (i < dims.length - 1 && size >= 0x10000) throw new AmosError('function call error')
+      if (i < dims.length - 1 && size >= 0x10000) funcCall()
       return d + 1
     })
     f.arrays.set(key, { type: t, dims: counts, data: new Array<Value>(size).fill(defaultValue(t)) })

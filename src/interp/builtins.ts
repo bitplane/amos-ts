@@ -2,7 +2,7 @@ import type { Tok } from '../tokens/stream'
 import type { Addr } from './prescan'
 import { varKey } from './prescan'
 import type { Interp } from './interp'
-import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, int, num, str, truthy, varType } from './values'
+import { AMOS_ERRORS, AmosError, amosErrorCode, funcCall, int, num, str, truthy, varType, VF, VI, VS } from './values'
 import type { Value } from './values'
 import { MAX_PORT, PORT_MOUSE } from './gameport'
 import { ascToFloat } from '../tokens/numfmt'
@@ -721,7 +721,7 @@ export const INSTR: Record<string, Instr> = {
     // InWait +Lib.s:2046: negative = function call error; Wait 0 enters
     // Wait_Event (2115), an endless Sys_WaitMul loop only a break exits
     const n = it.evalInt()
-    if (n < 0) throw new AmosError('Illegal function call', 23)
+    if (n < 0) funcCall()
     if (n === 0) it.block({ type: 'wait', until: Infinity })
     else it.block({ type: 'wait', until: it.tick + n })
   },
@@ -780,14 +780,14 @@ export const INSTR: Record<string, Instr> = {
     const n = it.evalInt()
     it.expect(')')
     it.expectOp('=')
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     const len = str(tg.get()).length
     midStore(tg, n >= len ? 0 : len - n + 1, n, str(it.evalExpr()))
   },
   every(it) {
     // Every n Gosub label / Every n Proc NAME (InEvery)
     const n = it.evalInt()
-    if (n <= 0 || n > 32767) throw new AmosError('function call error')
+    if (n <= 0 || n > 32767) funcCall()
     const kind = it.nm()
     if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('Every needs Gosub or Proc')
     it.advance()
@@ -874,7 +874,7 @@ export const INSTR: Record<string, Instr> = {
     it.expect(')')
     it.expectOp('=')
     const def = it.evalStr()
-    if (n < 1 || n > 20) throw new AmosError('function call error')
+    if (n < 1 || n > 20) funcCall()
     while (it.inp.funcKeys.length < n) it.inp.funcKeys.push('')
     it.inp.funcKeys[n - 1] = def
   },
@@ -970,7 +970,7 @@ export const INSTR: Record<string, Instr> = {
  * position past the end silently changes nothing.
  */
 function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, count: number, src: string): void {
-  if (rawPos < 0 || count < 0) throw new AmosError('function call error')
+  if (rawPos < 0 || count < 0) funcCall()
   const pos = rawPos === 0 ? 0 : rawPos - 1
   const s = str(tg.get())
   if (pos >= s.length || count === 0) return
@@ -983,7 +983,7 @@ function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, cou
  * FJ +Lib.s:13716 errors on a port > 1) */
 function joyPort(it: Parameters<Func>[0], portArg: Value): number {
   const p = int(portArg)
-  if (p >>> 0 > MAX_PORT) throw new AmosError('function call error')
+  if (p >>> 0 > MAX_PORT) funcCall()
   return p === PORT_MOUSE ? it.inp.joy0 : it.inp.joy
 }
 
@@ -1013,7 +1013,7 @@ export const FUNCS: Record<string, Func> = {
   sqr(it, a) {
     arity(a, 1)
     const v = num(a[0]!)
-    if (v < 0) throw new AmosError('function call error') // FlPos
+    if (v < 0) funcCall() // FlPos
     return VF(it.ffp(Math.sqrt(v)))
   },
   exp(it, a) {
@@ -1023,13 +1023,13 @@ export const FUNCS: Record<string, Func> = {
   ln(it, a) {
     arity(a, 1)
     const v = num(a[0]!)
-    if (v < 0) throw new AmosError('function call error')
+    if (v < 0) funcCall()
     return VF(it.ffp(Math.log(v)))
   },
   log(it, a) {
     arity(a, 1)
     const v = num(a[0]!)
-    if (v < 0) throw new AmosError('function call error')
+    if (v < 0) funcCall()
     return VF(it.ffp(Math.log10(v)))
   },
   sin(it, a) {
@@ -1100,7 +1100,7 @@ export const FUNCS: Record<string, Func> = {
   'chr$'(_, a) {
     arity(a, 1)
     const n = int(a[0]!)
-    if (n < 0 || n > 255) throw new AmosError('function call error') // FnChr
+    if (n < 0 || n > 255) funcCall() // FnChr
     return VS(String.fromCharCode(n))
   },
   asc(_, a) {
@@ -1121,13 +1121,13 @@ export const FUNCS: Record<string, Func> = {
   'left$'(_, a) {
     arity(a, 2)
     const n = int(a[1]!)
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     return VS(str(a[0]!).slice(0, n))
   },
   'right$'(_, a) {
     arity(a, 2)
     const n = int(a[1]!)
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     const s = str(a[0]!)
     return VS(n === 0 ? '' : s.slice(-n))
   },
@@ -1135,10 +1135,10 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 2, 3)
     const s = str(a[0]!)
     const p = int(a[1]!)
-    if (p < 0) throw new AmosError('function call error') // RFnMid
+    if (p < 0) funcCall() // RFnMid
     const from = p === 0 ? 0 : p - 1
     const n = a.length === 3 ? int(a[2]!) : 0xffff
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     return VS(s.slice(from, from + n))
   },
   instr(_, a) {
@@ -1148,7 +1148,7 @@ export const FUNCS: Record<string, Func> = {
     let from = 0
     if (a.length === 3) {
       const start = int(a[2]!)
-      if (start < 0) throw new AmosError('function call error') // FnInstr3
+      if (start < 0) funcCall() // FnInstr3
       from = start === 0 ? 0 : start - 1
     }
     if (needle === '') return VI(0) // InstrFind .if11
@@ -1157,14 +1157,14 @@ export const FUNCS: Record<string, Func> = {
   'space$'(_, a) {
     arity(a, 1)
     const n = int(a[0]!)
-    if (n < 0) throw new AmosError('function call error') // RString
+    if (n < 0) funcCall() // RString
     return VS(' '.repeat(n))
   },
   'string$'(_, a) {
     arity(a, 2)
     const s = str(a[0]!)
     const n = int(a[1]!)
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     if (s === '') return VS('') // FnString: empty source -> empty
     return VS(s[0]!.repeat(n))
   },
@@ -1256,7 +1256,7 @@ export const FUNCS: Record<string, Func> = {
     // (set by Key$(n)="..."), NOT a keyboard read
     arity(a, 1)
     const n = int(a[0]!)
-    if (n < 1 || n > 20) throw new AmosError('function call error')
+    if (n < 1 || n > 20) funcCall()
     return VS(it.inp.funcKeys[n - 1] ?? '')
   },
   scancode(it, a) {
@@ -1270,7 +1270,7 @@ export const FUNCS: Record<string, Func> = {
     // FnKeyState +Lib.s:13620: n & $7F indexes the key matrix; n >= 128 errors
     arity(a, 1)
     const n = int(a[0]!)
-    if (n >= 128 || n < 0) throw new AmosError('function call error')
+    if (n >= 128 || n < 0) funcCall()
     return VI(it.inp.keys.has(n & 0x7f) ? -1 : 0)
   },
   'x mouse'(it, a) {
@@ -1355,7 +1355,7 @@ export const FUNCS: Record<string, Func> = {
   'repeat$'(_, a) {
     arity(a, 2)
     const n = int(a[1]!)
-    if (n < 0) throw new AmosError('function call error')
+    if (n < 0) funcCall()
     return VS(str(a[0]!).repeat(n))
   },
   'command line$'(_, a) {

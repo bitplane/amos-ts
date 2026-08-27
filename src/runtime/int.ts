@@ -57,7 +57,7 @@
  * no readable address. Both tables are 100 longwords wide; it is the checks
  * that differ, and each is reproduced where it sits.
  */
-import { AmosError, ERR, VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { RastPort } from '../amiga/graphics'
@@ -2104,7 +2104,7 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
       // Rjmp L_Error` -- AMOS's own error 23 and not one of Int's messages.
       // The compare is SIGNED, so a NEGATIVE type falls past it and lands on
       // the file arm at $2b48 along with 0.
-      if (type >= 3) throw new AmosError('Illegal function call', ERR.FUNC_CALL)
+      if (type >= 3) funcCall()
       // `cmpi.l #$0,d4 / bne.w $2d7c` AFTER AslRequest: only the FILE
       // requester goes on to join a path, so the other two answer the empty
       // string on the machine's own code path too. The font one still OPENS

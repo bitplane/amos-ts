@@ -89,7 +89,7 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { VI, AmosError, int, type Value } from '../interp/values'
+import { AmosError, funcCall, int, type Value, VI } from '../interp/values'
 import { BitMap, RastPort } from '../amiga/graphics'
 import { bltBitMap } from '../amiga/blitter'
 import { rowBytesFor } from '../amiga/planar'
@@ -113,7 +113,7 @@ const MAX_BLOCK = 4000
  */
 const agaErr: (n: number) => never = (n) => {
   if (n === 0x10) throw new AmosError('out of memory')
-  throw new AmosError('Illegal function call', 23)
+  funcCall()
 }
 
 interface AgaBlock {

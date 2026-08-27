@@ -128,7 +128,7 @@
  * the table — `Ver_Ech` (+Verif.s:5231) walks it the same way, so AMOS on the
  * machine loses the keyword too. See src/ext/manifests/range-2.0.json.
  */
-import { AmosError, VI, VS, int, str } from '../interp/values'
+import { AmosError, funcCall, int, str, VI, VS } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
@@ -366,7 +366,7 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
       const mask = it.evalInt()
       it.expect(',')
       const hz = it.evalInt()
-      if (hz === 0) throw new AmosError('Illegal function call', 23)
+      if (hz === 0) funcCall()
       const period = Math.floor(st().clock / hz) & 0xffff
       // the sink takes a frequency; AUDxPER is a period, so it converts back
       // through the same table med.ts and music.ts use
@@ -1381,7 +1381,7 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
     fmod: (_, a): Value => {
       const div = int(a[0] ?? VI(0)) & 0xffff
       const num = int(a[1] ?? VI(0)) & 0xffff
-      if (div === 0) throw new AmosError('Illegal function call', 23)
+      if (div === 0) funcCall()
       return VI(num % div)
     },
 

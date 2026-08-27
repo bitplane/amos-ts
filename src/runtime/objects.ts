@@ -2,7 +2,7 @@ import type { Sprite, SpriteBank } from '../loader/amosfile'
 import { bankRowBytesFor } from '../amiga/planar'
 import { BitMap } from '../amiga/graphics'
 import { COOKIE_CUT } from '../amiga/blitter'
-import { AmosError } from '../interp/values'
+import { funcCall } from '../interp/values'
 
 /**
  * Blitter objects, hardware sprites and detection zones.
@@ -209,7 +209,7 @@ export class ObjectBank {
    * at position n, shifting images n.. up by one.
    */
   insert(n: number): void {
-    if (n < 1) throw new AmosError('Illegal function call', 23)
+    if (n < 1) funcCall()
     while (this.images.length < n - 1) this.images.push(blankImage())
     this.images.splice(n - 1, 0, blankImage())
   }
@@ -220,7 +220,7 @@ export class ObjectBank {
    * the bank becomes empty (the caller frees it).
    */
   delete(n: number, m = n): boolean {
-    if (n < 1 || m < n || m > this.images.length) throw new AmosError('Illegal function call', 23)
+    if (n < 1 || m < n || m > this.images.length) funcCall()
     this.images.splice(n - 1, m - n + 1)
     return this.images.length > 0
   }

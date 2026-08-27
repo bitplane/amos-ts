@@ -313,7 +313,7 @@ function zoneScreen(rt: Runtime, a: import('../interp/values').Value[], full: nu
  * 8: one array, and no `Areg(7)` because A7 is the stack pointer.
  */
 function regSlot(n: number, limit: number, base: number): number {
-  if (n < 0 || n >= limit) throw new AmosError('function call error')
+  if (n < 0 || n >= limit) funcCall()
   return base + n
 }
 
@@ -363,7 +363,7 @@ function planeBase(rt: Runtime, plane: number, phys: number): number {
   // bitmap. Faithful Amiga layout — planes are `planeSize` apart (+W.s:1856),
   // and the region is backed by the screen's planar mirror (Runtime.resolveAddr).
   const s = rt.screen
-  if (plane < 0 || plane >= s.depth) throw new AmosError('function call error')
+  if (plane < 0 || plane >= s.depth) funcCall()
   // single-buffered screens open with EcLogic == EcPhysic (+W.s:3001); only
   // Double Buffer splits the physical bitmap onto its own address
   const physical = phys !== 0 && s.doubleBuffered
@@ -410,9 +410,9 @@ function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs
           p++
           any = true
         }
-        if (!any) throw new AmosError('Illegal function call', 23)
+        if (!any) funcCall()
       } else {
-        if (!/[0-9]/.test(ch)) throw new AmosError('Illegal function call', 23)
+        if (!/[0-9]/.test(ch)) funcCall()
         v = ch.charCodeAt(0) - 48
         for (;;) {
           const d = sig[p] ?? ''
@@ -425,15 +425,15 @@ function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs
     }
     const groups: Array<[number, number, number]> = []
     while (p < sig.length) {
-      if (next() !== '(') throw new AmosError('Illegal function call', 23)
+      if (next() !== '(') funcCall()
       const a = num()
-      if (a <= 0) throw new AmosError('Illegal function call', 23) // ble RainTE
-      if (next() !== ',') throw new AmosError('Illegal function call', 23)
+      if (a <= 0) funcCall() // ble RainTE
+      if (next() !== ',') funcCall()
       const b = num()
-      if (next() !== ',') throw new AmosError('Illegal function call', 23)
+      if (next() !== ',') funcCall()
       const c = num()
-      if (c < 0) throw new AmosError('Illegal function call', 23) // blt RainTE
-      if (next() !== ')') throw new AmosError('Illegal function call', 23)
+      if (c < 0) funcCall() // blt RainTE
+      if (next() !== ')') funcCall()
       groups.push([a, b, c])
     }
     return groups
@@ -615,7 +615,7 @@ export function parseStosMove(src: string): { start: number | null; groups: Arra
  */
 function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   const idx = Math.abs(n) & 0x3fff
-  if (idx === 0) throw new AmosError('Illegal function call', 23)
+  if (idx === 0) funcCall()
   const bank = kind === 'sprites' ? rt.spriteBank : rt.iconBank
   if (!bank) throw new AmosError('bank not reserved', 36)
   if (idx > bank.images.length) throw new AmosError('icon not defined')
@@ -627,7 +627,7 @@ function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
 
 /** Frame Play/Skip core: resolve the buffer, walk, return the new address */
 function framePlaySkip(rt: Runtime, ad: number, n: number, param: number | null, skip: boolean): number {
-  if (n < 0 || n >= 32768) throw new AmosError('Illegal function call', 23)
+  if (n < 0 || n >= 32768) funcCall()
   const base = ad > 0 && ad < 0x10000 ? rt.bankBase(ad) : ad
   const m = rt.bankOrAddr(ad)
   if (!m) throw new AmosError('bad IFF format')
@@ -645,7 +645,7 @@ function getPut(rt: Runtime, it: It): { c: NonNullable<ReturnType<Runtime['fileC
   const n = it.evalInt()
   it.expect(',')
   const rec = it.evalInt()
-  if (rec - 1 < 0 || rec - 1 >= 65500) throw new AmosError('Illegal function call', 23)
+  if (rec - 1 < 0 || rec - 1 >= 65500) funcCall()
   const c = rt.chan(n)
   if (c.mode !== 'random' || !c.fields) throw new AmosError('file type mismatch')
   return { c, off: (rec - 1) * c.recSize! }
@@ -801,9 +801,9 @@ function slider(it: It, s: Screen, vertical: boolean): void {
   it.expect(',')
   const size = it.evalInt()
   if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 || total < 0 || pos < 0 || size < 0) {
-    throw new AmosError('function call error')
+    funcCall()
   }
-  if (x2 - x1 <= 0 || y2 - y1 <= 0 || pos > total) throw new AmosError('function call error')
+  if (x2 - x1 <= 0 || y2 - y1 <= 0 || pos > total) funcCall()
   s.drawSlider(vertical, x1, y1, x2, y2, total, pos, size)
 }
 
@@ -845,9 +845,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     const v = it.evalExpr()
     if (v.k === 'str') return v.s
     if (!bank) throw new AmosError('bank not reserved', 36)
-    if (bank.programs.length === 0) throw new AmosError('function call error')
+    if (bank.programs.length === 0) funcCall()
     const n = int(v) & 0xffff
-    if (n >= bank.programs.length) throw new AmosError('function call error')
+    if (n >= bank.programs.length) funcCall()
     return bank.programs[n]!
   }
 
@@ -883,13 +883,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       y2 = it.evalInt()
     }
-    if (bank >>> 0 >= 0x10000) throw new AmosError('function call error')
+    if (bank >>> 0 >= 0x10000) funcCall()
     // lsr.w #3 on both X coordinates, then the far corner clamps to the
     // screen's row width and height
     dx = (dx & 0xffff) >>> 3
     const tx = Math.min((x2 & 0xffff) >>> 3, s.rowBytes) - dx
     const ty = Math.min(y2 & 0xffff, s.height) - dy
-    if (tx <= 0 || ty <= 0) throw new AmosError('function call error')
+    if (tx <= 0 || ty <= 0) funcCall()
     const bitmap = packBitmap(
       { planar: s.planarView('log', false), planeSize: s.planeSize, rowBytes: s.rowBytes, nPlanes: s.depth },
       dx,
@@ -936,8 +936,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'arexx open'(it) {
       const name = it.evalStr()
       if (name.length >= 32) throw new AmosError('string too long')
-      for (const ch of name) if (ch <= ' ') throw new AmosError('function call error')
-      if (!rt.rexx.open(name)) throw new AmosError('function call error')
+      for (const ch of name) if (ch <= ' ') funcCall()
+      if (!rt.rexx.open(name)) funcCall()
       rt.arexx.port = name
     },
 
@@ -979,7 +979,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const code = it.evalInt()
       const answer = it.accept(',') ? it.evalStr() : ''
       const m = rt.arexx.held
-      if (!m) throw new AmosError('function call error')
+      if (!m) funcCall()
       m.result1 = code
       if ((m.action & RXFF_RESULT) !== 0) m.result2 = answer
       m.replied = true
@@ -1013,8 +1013,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const unit = it.evalInt()
       it.expect(',')
       const flags = it.evalInt()
-      if (name === '' || len <= 0) throw new AmosError('function call error')
-      if (chan < 0 || chan > DEV_MAX) throw new AmosError('function call error')
+      if (name === '' || len <= 0) funcCall()
+      if (chan < 0 || chan > DEV_MAX) funcCall()
       const existing = rt.dev.channels.get(chan)
       if (existing?.slot.open) throw ioError(140)
       if (!DEV_MODELLED.has(name.toLowerCase())) throw ioError(145)
@@ -1385,7 +1385,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
-      if (x2 <= x1 || y2 <= y1) throw new AmosError('Illegal function call', 23)
+      if (x2 <= x1 || y2 <= y1) funcCall()
       s.bar(x1, y1, x2, y2)
       s.grX = x1 // InBar sets the graphics cursor to the top-left corner
       s.grY = y1
@@ -1525,7 +1525,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // ("fonts not examined", error 37); Set Font 0 is a silent no-op
       // (TSFont +W.s:4922); an unknown number is "font not available"
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (n < 0) funcCall()
       if (!rt.fontsListed) throw new AmosError('fonts not examined')
       if (n === 0) return
       const entry = examinedFonts(rt)[n - 1]
@@ -1702,18 +1702,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const bs = it.evalStr()
       const seed = it.accept(',') ? it.evalInt() : 0
-      if (n >>> 0 >= 4) throw new AmosError('function call error')
-      if (len < 16 || len >= 32700) throw new AmosError('function call error')
-      if (colour < 0) throw new AmosError('function call error')
+      if (n >>> 0 >= 4) funcCall()
+      if (len < 16 || len >= 32700) funcCall()
+      if (colour < 0) funcCall()
       const c = colour & 31
-      if (c >= 16) throw new AmosError('function call error')
+      if (c >= 16) funcCall()
       let table: Uint16Array
       try {
         table = buildRainbowTable(len, seed, rs, gs, bs)
       } catch {
         // TrSynt deletes the half-made rainbow and errors (+W.s:4113)
         rt.rainbows.delete(n)
-        throw new AmosError('function call error')
+        funcCall()
       }
       // fresh entry: nothing displayed until a Rainbow instruction (RnI=-1)
       rt.rainbows.set(n, { colour: c, table, base: 0, x: 0, y: 0, h: -1, act: 0, dy: 0, fy: 0, ty: 0 })
@@ -1915,7 +1915,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const border = it.accept(',') ? it.evalInt() : 0
-      if (border < 0 || border > 16) throw new AmosError('function call error')
+      if (border < 0 || border > 16) funcCall()
       try {
         scr().windOpen(n, x, y, w, h, border)
       } catch (e) {
@@ -2006,11 +2006,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const a = it.evalInt()
       if (it.accept(',')) {
         const size = it.evalInt()
-        if (size < 256 || size >= 65536) throw new AmosError('function call error')
+        if (size < 256 || size >= 65536) funcCall()
         rt.tempRas = { addr: a, size }
         return
       }
-      if (a < 256 || a >= 65536) throw new AmosError('function call error')
+      if (a < 256 || a >= 65536) funcCall()
       rt.tempRas = { addr: 0, size: a }
     },
     'set stack'(it) {
@@ -2073,7 +2073,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sh = sy2 - sy1
       const dw = dx2 - dx1
       const dh = dy2 - dy1
-      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) throw new AmosError('function call error')
+      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) funcCall()
       for (let y = 0; y < dh; y++) {
         const ty = dy1 + y
         if (ty < 0 || ty >= dst.s.height) continue
@@ -2100,7 +2100,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
-      if (e <= 0 || p < 0) throw new AmosError('function call error')
+      if (e <= 0 || p < 0) funcCall()
       const s = src.s
       const d = dst.s
       const total = s.rowBytes * 8 * s.height
@@ -2183,7 +2183,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'update every'(it) {
       // InUpdateEvery: the auto update runs every n VBLs (VBLDelai)
       const n = it.evalInt()
-      if (n >= 65536) throw new AmosError('function call error')
+      if (n >= 65536) funcCall()
       rt.updateEvery = Math.max(1, n)
     },
     'bob update on'() {
@@ -2258,7 +2258,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // or longer is a function call error (cmp.w #256,d2 / Rbcc).
       it.expectOp('=')
       const s = str(it.evalExpr())
-      if (s.length >= 256) throw new AmosError('function call error')
+      if (s.length >= 256) funcCall()
       rt.commandLine = s
     },
     'limit mouse'(it) {
@@ -2484,7 +2484,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // error. HsPri's own cmp.w #5 / moveq #0 clamp only guards its other
       // callers and is never reached from BASIC.
       const p = it.evalInt()
-      if (p >>> 0 > 4) throw new AmosError('function call error')
+      if (p >>> 0 > 4) funcCall()
       const cur = scr()
       if (cur.dualIsBack && cur.dualPartner !== null && rt.screens.has(cur.dualPartner)) {
         rt.screens.get(cur.dualPartner)!.pf2p = p
@@ -2498,7 +2498,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (+W.s:11268), leaving n words of room per column — the budget that
       // decides how many computed sprites share a channel.
       const n = it.evalInt()
-      if (n < 16) throw new AmosError('function call error')
+      if (n < 16) funcCall()
       rt.spriteBufferLines = n + 2
     },
 
@@ -2515,7 +2515,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // d1,d0 / beq.s ZoOk` frees the old table and returns with EcAZones
       // null, so `Reserve Zone` bare is how a program DISCARDS its zones.
       const n = it.atStmtEnd() ? 0 : it.evalInt()
-      if (n < 0) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if (n < 0) funcCall()
       // `SyCall ResZone / Rbne L_OOfMem` — SyResZ frees the old table first
       // and then asks FastMm for n*8 bytes, so a count the fast pool cannot
       // hold is error 24 AND leaves the screen with no zones at all
@@ -2540,10 +2540,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       //   x1 >= x2, y1 >= y2   `cmp.w d4,d2 / bcc` and `cmp.w d5,d3 / bcc`,
       //                        UNSIGNED word compares, so the far corner is
       //                        exclusive and a zero-width zone is refused
-      if (s.zones.length === 0) throw new AmosError('function call error', ERR.FUNC_CALL)
-      if (n <= 0 || n > s.zones.length) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if (s.zones.length === 0) funcCall()
+      if (n <= 0 || n > s.zones.length) funcCall()
       if ((x1 & 0xffff) >= (x2 & 0xffff) || (y1 & 0xffff) >= (y2 & 0xffff)) {
-        throw new AmosError('function call error', ERR.FUNC_CALL)
+        funcCall()
       }
       // `move.w` four times: the record is words, so the coordinates are
       // truncated to sixteen bits on the way in
@@ -2567,7 +2567,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         s.zones.fill(null)
         return
       }
-      if (n < 0 || n > s.zones.length) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if (n < 0 || n > s.zones.length) funcCall()
       s.zones[n - 1] = null
     },
 
@@ -2602,7 +2602,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       try {
         pic = parsePacPic(bytes)
       } catch {
-        throw new AmosError('Illegal function call', ERR.FUNC_CALL)
+        funcCall()
       }
       if (it.accept('to')) {
         const n = it.evalInt()
@@ -2629,17 +2629,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InDialogOpen2/3/4 +Lib.s:14301: Dialog Open c,prog[,nvars[,buflen]];
       // prog is a string or a program number (<1024) in the resource bank
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       it.expect(',')
       const prog = it.evalExpr()
       let nVars = 16
       let bufLen = 1024
       if (it.accept(',')) {
         nVars = it.evalInt()
-        if (nVars < 0) throw new AmosError('function call error')
+        if (nVars < 0) funcCall()
         if (it.accept(',')) {
           bufLen = it.evalInt()
-          if (bufLen <= 256) throw new AmosError('function call error')
+          if (bufLen <= 256) funcCall()
         }
       }
       if (rt.dialogs.has(c)) throw new AmosError(DIALOG_ERRORS[5]!)
@@ -2650,7 +2650,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         const n = int(prog)
         const progs = res.programs
-        if (!progs || n < 1 || n > progs.length) throw new AmosError('function call error')
+        if (!progs || n < 1 || n > progs.length) funcCall()
         script = progs[n - 1]!
       }
       const chan = new DialogChannel(c, nVars, res)
@@ -2677,14 +2677,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         return
       }
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       if (!rt.dialogs.delete(c)) throw new AmosError(DIALOG_ERRORS[6]!)
     },
     'dialog clr'(it) {
       // InDialogClr +Lib.s:14386 → Dia_EffChannel: erase the display,
       // keep the channel
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       eraseDialog(d, rt.dialogDraw)
@@ -2693,7 +2693,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InDialogUpdate2..5 +Lib.s:14462 → Dia_ZUpdate: push a value into
       // zone z of channel n; elided values just redraw
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       it.expect(',')
       const z = it.evalInt()
       // the value stays a raw long in the 68k — a string reaches a string
@@ -2722,7 +2722,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         return
       }
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       d.frozen = true
@@ -2733,7 +2733,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         return
       }
       const c = it.evalInt()
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       d.frozen = false
@@ -2750,7 +2750,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'resource bank'(it) {
       // InResourceBank +Lib.s:14904: negative bank = function call error
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('function call error')
+      if (n < 0) funcCall()
       rt.resourceBankNumber = n
     },
     'resource unpack'(it) {
@@ -2762,9 +2762,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const y = it.evalInt()
       const g = rt.resource().graphics
-      if (!g || n <= 0 || n > g.count) throw new AmosError('function call error')
+      if (!g || n <= 0 || n > g.count) funcCall()
       const pic = g.image(n)
-      if (!pic) throw new AmosError('function call error')
+      if (!pic) funcCall()
       rt.blit(scr(), pic, x, y, true)
     },
     'resource screen open'(it) {
@@ -2787,7 +2787,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (flash === 0) {
         s.cursorOn = false
       } else {
-        if (flash >= g.nColors) throw new AmosError('function call error')
+        if (flash >= g.nColors) funcCall()
         // +Interpreter_Config.s:186, system message 46, on the new
         // (current) screen's chosen colour
         rt.flashStart(flash & 31, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
@@ -2887,7 +2887,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'sam bank'(it) {
       // InSamBank +Music.s:3034: 1-16, else illegal function call
       const n = it.evalInt()
-      if (n <= 0 || n > 16) throw new AmosError('Illegal function call', 23)
+      if (n <= 0 || n > 16) funcCall()
       rt.samBankNum = n
     },
     'sam play'(it) {
@@ -2902,7 +2902,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         n = it.evalInt()
         if (it.accept(',')) freq = it.evalInt()
       }
-      if (freq !== null && freq <= 500) throw new AmosError('Illegal function call', 23)
+      if (freq !== null && freq <= 500) funcCall()
       const sample = rt.getSample(n)
       rt.samPlay(mask & 15, sample.pcm, freq ?? sample.freq)
     },
@@ -2917,7 +2917,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const len = it.evalInt()
-      if (len < 0) throw new AmosError('Illegal function call', 23)
+      if (len < 0) funcCall()
       const m = rt.bankOrAddr(addr)
       if (!m) return
       const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
@@ -2956,9 +2956,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const len = it.evalInt()
-      if (len < 0 || ch < 1 || ch > 10) throw new AmosError('Illegal function call', 23)
+      if (len < 0 || ch < 1 || ch > 10) funcCall()
       const c = rt.fileChans.get(ch)
-      if (!c || c.mode !== 'in') throw new AmosError('Illegal function call', 23)
+      if (!c || c.mode !== 'in') funcCall()
       const m = rt.resolveWrite(addr)
       if (!m) return
       const n = Math.min(len, c.data.length - c.pos, m.data.length - m.off)
@@ -2973,9 +2973,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const start = it.evalInt()
       it.expect('to')
       const end = it.evalInt()
-      if (end - start <= 0 || ch < 1 || ch > 10) throw new AmosError('Illegal function call', 23)
+      if (end - start <= 0 || ch < 1 || ch > 10) funcCall()
       const c = rt.fileChans.get(ch)
-      if (!c || c.mode !== 'out') throw new AmosError('Illegal function call', 23)
+      if (!c || c.mode !== 'out') funcCall()
       const m = rt.resolveAddr(start)
       if (!m) return
       const n = Math.min(end - start, m.data.length - m.off)
@@ -3036,7 +3036,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         note = b
         wait = it.evalInt()
       }
-      if (wait < 0) throw new AmosError('Illegal function call', 23)
+      if (wait < 0) funcCall()
       rt.music.playNote(mask, note)
       if (wait > 0) it.block({ type: 'wait', until: it.tick + wait })
     },
@@ -3051,7 +3051,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const s = it.evalStr()
       if (s.length < 256) throw new AmosError('256 characters for a wave')
-      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      if (n <= 0) funcCall()
       const src = new Int8Array(256)
       for (let i = 0; i < 256; i++) src[i] = (s.charCodeAt(i) << 24) >> 24
       rt.music.setWave(n, src)
@@ -3060,7 +3060,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InDelWave +Music.s:3405: waves 0 and 1 are reserved (error 182);
       // deleting resets every voice to wave 1
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (n < 0) funcCall()
       if (n === 0 || n === 1) throw new AmosError('wave 0 and 1 are reserved')
       rt.music.delWave(n)
     },
@@ -3074,16 +3074,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dur = it.evalInt()
       it.expect(',')
       const vol = it.evalInt()
-      if (vol < 0 || vol >= 64) throw new AmosError('Illegal function call', 23)
-      if (phase < 0 || phase >= 7) throw new AmosError('Illegal function call', 23)
-      if (wave < 0) throw new AmosError('Illegal function call', 23)
-      if (phase === 0 && dur <= 0) throw new AmosError('Illegal function call', 23)
+      if (vol < 0 || vol >= 64) funcCall()
+      if (phase < 0 || phase >= 7) funcCall()
+      if (wave < 0) funcCall()
+      if (phase === 0 && dur <= 0) funcCall()
       rt.music.setEnvel(wave, phase, dur, vol)
     },
     wave(it) {
       // InWave +Music.s:3373: Wave n To voices
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (n < 0) funcCall()
       it.expect('to')
       rt.music.waveTo(n, it.evalInt() & 15)
     },
@@ -3119,13 +3119,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InTempo +Music.s:3878: 0-100 (unsigned compare), only affects a
       // playing music
       const t = it.evalInt()
-      if (t < 0 || t > 100) throw new AmosError('Illegal function call', 23)
+      if (t < 0 || t > 100) funcCall()
       rt.music.tempo(t)
     },
     mvolume(it) {
       // InMvolume +Music.s:3720: >=64 errors; rescales all stacked musics
       const v = it.evalInt()
-      if (v < 0 || v >= 64) throw new AmosError('Illegal function call', 23)
+      if (v < 0 || v >= 64) funcCall()
       rt.musicVolume = v & 63
       rt.music.setMusicVolume()
     },
@@ -3135,7 +3135,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
-      if (n < 1 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+      if (n < 1 || n >= 0x10000) funcCall()
       if (n === rt.music.trackBank && rt.music.mtOn) rt.music.trackStop()
       rt.music.trackBank = n
       const bytes = rt.fs?.read(path)
@@ -3202,7 +3202,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
        * stub. The seam is `host.process`; see ../amiga/process.ts.
        */
       const cmd = it.evalStr()
-      if (cmd.length === 0) throw new AmosError('Illegal function call', 23)
+      if (cmd.length === 0) funcCall()
       const command = cmd.slice(0, 510)
       const r = execute(rt.host.process, { command, io: { input: null, output: null } })
       if (r === DOSFALSE) throw new AmosError('Disc error', 87)
@@ -3266,7 +3266,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const param = it.accept(',') ? optInt(it, ENT_NUL) : ENT_NUL
       const line = it.accept(',') ? it.evalStr() : null
       const ed = rt.editorZap
-      if (ed === null) throw new AmosError('Illegal function call')
+      if (ed === null) funcCall()
       zapReturn(it, ed.call(n, param, line))
     },
     /**
@@ -3279,7 +3279,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const param = it.accept(',') ? optInt(it, ENT_NUL) : ENT_NUL
       if (it.accept(',')) it.evalStr() // `Ed_Par` reads it; no question uses it
       const ed = rt.editorZap
-      if (ed === null) throw new AmosError('Illegal function call')
+      if (ed === null) funcCall()
       // NOT `ZapReturn`. `InAskEditor3` writes its own four instructions
       // (+ILib.s:1635): d0 goes to `Param` whatever it is, and the string
       // follows `tst.w d2` rather than d0, so a question answering the empty
@@ -3323,7 +3323,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       const screen = it.evalInt()
       const times = it.accept(',') ? it.evalInt() : 1
-      if (times < 0) throw new AmosError('Illegal function call', 23)
+      if (times < 0) funcCall()
       if (!rt.iffAnim) {
         const bytes = rt.fs?.read(path)
         if (!bytes) throw new AmosError(`file not found: ${path}`)
@@ -3359,7 +3359,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
-      if (n < 1 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+      if (n < 1 || n >= 0x10000) funcCall()
       if (n === rt.music.med.bank) rt.music.med.stop()
       rt.music.med.bank = n
       const bytes = rt.fs?.read(path)
@@ -3524,20 +3524,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // a non-empty string) or To scan[,shift] (numeric, scan < 128,
       // shift < 256); leaf nodes only; NO To clears the key (IMnk2)
       const node = rt.menu.find(menuPath(it))
-      if (node && node.children.length > 0) throw new AmosError('function call error')
+      if (node && node.children.length > 0) funcCall()
       if (!it.accept('to')) {
         if (node) node.key = { kind: 0, asc: 0, scan: 0, shift: 0 }
         return
       }
       const v = it.evalExpr()
       if (v.k === 'str') {
-        if (v.s.length === 0) throw new AmosError('function call error')
+        if (v.s.length === 0) funcCall()
         if (node) node.key = { kind: 1, asc: v.s.charCodeAt(0), scan: 0, shift: 0 }
         return
       }
       const scan = int(v)
       const shift = it.accept(',') ? it.evalInt() : 0
-      if (shift >>> 0 >= 256 || scan >>> 0 >= 128) throw new AmosError('function call error')
+      if (shift >>> 0 >= 256 || scan >>> 0 >= 128) funcCall()
       if (node) node.key = { kind: -1, asc: 0, scan, shift }
     },
     'menu to bank'(it) {
@@ -3708,14 +3708,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // — the scroll itself is the escape-code handler (ScG*/ScD*
       // +W.s:14539), so Print Chr$(16) does the same thing
       const n = it.evalInt()
-      if (n < 1 || n > 4) throw new AmosError('function call error')
+      if (n < 1 || n > 4) funcCall()
       scr().writeText(String.fromCharCode(15 + n))
     },
     'vscroll'(it) {
       // InVScroll +Lib.s:13523: codes 19+n (ScBas/ScBasHaut/ScHaut/
       // ScHautBas +W.s:14657-14760)
       const n = it.evalInt()
-      if (n < 1 || n > 4) throw new AmosError('function call error')
+      if (n < 1 || n > 4) funcCall()
       scr().writeText(String.fromCharCode(19 + n))
     },
 
@@ -3757,7 +3757,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'change mouse'(it) {
       // InChangeMouse +Lib.s:12185: shape 0 and below error before MChange
       const n = it.evalInt()
-      if (n <= 0) throw new AmosError('function call error')
+      if (n <= 0) funcCall()
       rt.changeMouse(n)
     },
 
@@ -3824,9 +3824,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!ref) throw new AmosError('bank not reserved')
       // `btst #Bnk_BitBob,d0  Pas une banque de bobs!` then the same for
       // Icon: an object bank is a function call error, not "not reserved"
-      if (isObjectBank(ref)) throw new AmosError('function call error')
+      if (isObjectBank(ref)) funcCall()
       const bank = rt.memBanks.get(n)!
-      if (len > bank.data.length || len < 0) throw new AmosError('function call error')
+      if (len > bank.data.length || len < 0) funcCall()
       bank.data = bank.data.subarray(0, len)
     },
     'list bank'(it) {
@@ -3990,7 +3990,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const end = it.evalInt()
       const bankForm = start >= 0 && start < 0x10000
       const base = bankForm ? rt.bankBase(start) : start
-      if (end - base <= 0) throw new AmosError('Illegal function call', 23)
+      if (end - base <= 0) funcCall()
       const m = rt.bankOrAddr(start)
       if (!m) throw new AmosError('address error')
       const len = Math.min(end - base, m.data.length - m.off)
@@ -4073,7 +4073,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const num = it.evalInt()
       const efficiency = it.accept(',') ? it.evalInt() : 2
-      if (efficiency < 0 || efficiency >= 5) throw new AmosError('Illegal function call', 23)
+      if (efficiency < 0 || efficiency >= 5) funcCall()
       const bank = rt.memBanks.get(num)
       if (!bank) throw new AmosError('bank not reserved', 36)
       const file = writePpBank({
@@ -4094,7 +4094,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const len = it.evalInt()
       it.expect(',')
       const freq = it.evalInt()
-      if (freq <= 500 || len <= 256) throw new AmosError('Illegal function call', 23)
+      if (freq <= 500 || len <= 256) funcCall()
       const m = rt.resolveAddr(addr)
       if (!m) return
       const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
@@ -4142,7 +4142,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         it.expect('as')
         const tg = it.parseTarget()
         if (tg.type !== 2) throw new AmosError('Type mismatch')
-        if (len <= 0) throw new AmosError('Illegal function call', 23)
+        if (len <= 0) funcCall()
         recSize += len
         fields.push({ len, get: () => str(tg.get()), set: (v: string) => tg.set(VS(v)) })
       } while (it.nm() === ',')
@@ -4378,7 +4378,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // list. There is no previous program in the port (yet — Prun), so
       // the destination is erased and the grab fails: Bnk.Eff + BkNoRes
       const n = it.evalInt()
-      if (n <= 0) throw new AmosError('function call error')
+      if (n <= 0) funcCall()
       rt.memBanks.delete(n)
       throw new AmosError('bank not reserved')
     },
@@ -4386,8 +4386,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InBSend +Lib.s:2304: push bank n to the previous program — with
       // no previous program, Bnk.PrevProgram fails: function call error
       const n = it.evalInt()
-      if (n <= 0) throw new AmosError('function call error')
-      throw new AmosError('function call error')
+      if (n <= 0) funcCall()
+      funcCall()
     },
     'set dir'(it) {
       // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
@@ -4395,7 +4395,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // the negative filename filter for listings
       if (!(it.atStmtEnd() || it.nm() === ',')) {
         const w = it.evalInt() & ~1
-        if (w === 0 || w >= 106) throw new AmosError('function call error')
+        if (w === 0 || w >= 106) funcCall()
         rt.dirWidth = w
       }
       if (it.accept(',')) rt.dirNegFilter = it.evalStr()
@@ -4427,7 +4427,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // channel's AMAL program (ID channel*4+1, CreAMAL +W.s:7998)
       const n = it.evalInt()
       const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      if (n >>> 0 >= limit) funcCall()
       it.expect(',')
       const spec = parseStosAnim(amalSource(it))
       const slot = rt.stosSlot(n)
@@ -4436,7 +4436,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'move x'(it) {
       const n = it.evalInt()
       const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      if (n >>> 0 >= limit) funcCall()
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveX = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
@@ -4444,7 +4444,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'move y'(it) {
       const n = it.evalInt()
       const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      if (n >>> 0 >= limit) funcCall()
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
@@ -4577,7 +4577,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       // InAmPlay4's own checks, in its order: last unsigned-compared against
       // 64, first non-negative, and the range the right way round
-      if (last >>> 0 >= 64 || first < 0 || last < first) throw new AmosError('function call error')
+      if (last >>> 0 >= 64 || first < 0 || last < first) funcCall()
       for (let n = first; n <= last; n++) {
         const ch = rt.channels.get(n)
         if (!ch) continue
@@ -4679,7 +4679,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       if (it.accept(',')) {
         const mode = it.evalInt()
-        if (mode >>> 0 >= 3) throw new AmosError('function call error')
+        if (mode >>> 0 >= 3) funcCall()
       }
       const s = scr()
       const camg = (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0) | (s.ehb ? 0x80 : 0)
@@ -4704,7 +4704,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
-      if (n === 0) throw new AmosError('function call error')
+      if (n === 0) funcCall()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       const data = extractCodeHunk(bytes)
@@ -4765,7 +4765,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // a freshly grabbed icon has no mask either, for the same reason
       // Ritoune +Lib.s:12668: w=x2-x1, h=y2-y1 both must be positive and
       // within the screen
-      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) throw new AmosError('function call error')
+      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) funcCall()
       const grabbed = rt.grab(s, x1, y1, x2, y2)
       if (kind === 'icon') grabbed.opaque = true
       bank.setImage(img, grabbed)
@@ -4958,7 +4958,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       const dest = it.evalInt()
       const n = it.accept(',') ? it.evalInt() : 1
       it.expect(')')
-      if (n <= 0 || dest <= 0) throw new AmosError('Illegal function call', 23)
+      if (n <= 0 || dest <= 0) funcCall()
       const c = rt.chan(f)
       if (c.mode !== 'in') throw new AmosError('file type mismatch')
       let view: { data: Uint8Array; off: number } | null
@@ -4982,7 +4982,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       const f = it.evalInt()
       const n = it.accept(',') ? it.evalInt() : 1
       it.expect(')')
-      if (n < 0 || n >= 32768) throw new AmosError('Illegal function call', 23)
+      if (n < 0 || n >= 32768) funcCall()
       const c = rt.chan(f)
       if (c.mode !== 'in') throw new AmosError('file type mismatch')
       return VI(formSize(c.data, c.pos, n).bytes)
@@ -5095,7 +5095,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      */
     'arexx$'(_, a) {
       const n = int(a[0]!)
-      if (n < 0 || n >= 16) throw new AmosError('function call error')
+      if (n < 0 || n >= 16) funcCall()
       const m = rt.arexx.held
       return VS(m ? (m.args[n] ?? '') : '')
     },
@@ -5333,7 +5333,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // n in 1..206 (sibling of Border$)
       const text = str(a[0]!)
       const n = int(a[1]!)
-      if (n < 1 || n >= 207) throw new AmosError('function call error')
+      if (n < 1 || n >= 207) funcCall()
       const tag = '\x1bZ' + String.fromCharCode(48 + n)
       return VS(tag + text + tag)
     },
@@ -5376,7 +5376,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // otherwise the sprite number, and 8 or above is a function call
       // error (cmp.l #8,d3 / bcc)
       const n = int(a[0]!)
-      if (n >= 8) throw new AmosError('function call error')
+      if (n >= 8) funcCall()
       return VI(rt.hardcol(n))
     },
     col(_, a) {
@@ -5451,7 +5451,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     exist(_, a) {
       const name = str(a[0]!)
       if (name === '') return VI(0)
-      if (name.length >= 108) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if (name.length >= 108) funcCall()
       const vfs = rt.vfs
       if (vfs) return rt.withNoReq(() => VI(vfs.exists(name) !== null ? -1 : 0))
       // a bare AmosFS is files and nothing else, so a read IS its Lock
@@ -5518,7 +5518,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     vumeter(_, a) {
       // FnVuMeter +Music.s:3893: voice 0-3 else illegal function call
       const v = int(a[0]!)
-      if (v < 0 || v >= 4) throw new AmosError('Illegal function call', 23)
+      if (v < 0 || v >= 4) funcCall()
       return VI(rt.vumeter(v))
     },
     mubase() {
@@ -5530,7 +5530,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnSamSwapped +Music.s:4055: voice 0-3 else illegal function call;
       // 1 = voice off, 0 = swap pending, -1 = playing / swap consumed
       const v = int(a[0]!)
-      if (v < 0 || v > 3) throw new AmosError('Illegal function call', 23)
+      if (v < 0 || v > 3) funcCall()
       return VI(rt.music.samState[v]!)
     },
 
@@ -5568,7 +5568,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // so it BLOCKS until n printable characters have been typed, silently
       // drops Return, Backspace and the cursor keys, and echoes nothing.
       const n = int(a[0]!)
-      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      if (n <= 0) funcCall()
       for (;;) {
         const k = it.inp.keyQueue.shift()
         if (!k) break
@@ -5660,7 +5660,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnDialogRun1/2/4 +Lib.s:14471: =Dialog Run(c[,label][,x,y]); RU in
       // the script blocks the interpreter until the wait loop exits
       const c = int(a[0]!)
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       if (d.runState === 'done') {
@@ -5672,7 +5672,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         return VI(0)
       }
       const label = a.length >= 2 ? int(a[1]!) : -1
-      if (label >= 65536) throw new AmosError('function call error')
+      if (label >= 65536) funcCall()
       const x = a.length >= 4 ? int(a[2]!) : null
       const y = a.length >= 4 ? int(a[3]!) : null
       const r = rt.runDialog(c, label, x, y)
@@ -5707,7 +5707,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       } else {
         const n = int(a[0]!)
         const progs = res.programs
-        if (!progs || n < 1 || n > progs.length) throw new AmosError('function call error')
+        if (!progs || n < 1 || n > progs.length) funcCall()
         script = progs[n - 1]!
       }
       let c = 65536
@@ -5744,7 +5744,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnDialog +Lib.s:14509 → Dia_GetReturn: -1 when not drawn, else the
       // return value, read-and-cleared (one-shot)
       const c = int(a[0]!)
-      if (c <= 0) throw new AmosError('function call error')
+      if (c <= 0) funcCall()
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       if (!d.drawn) return VI(-1)
@@ -5822,7 +5822,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // =Movon(n) (FnMovon +Lib.s:11893): -1 while a Move X/Y program on
       // channel n is still running
       const n = int(a[0]!)
-      if (n < 0) throw new AmosError('function call error')
+      if (n < 0) funcCall()
       const s = rt.stosSlots.get(n)
       const live = (m: { on: boolean; done: boolean } | undefined): boolean => !!m && m.on && !m.done
       return VI(s && (live(s.moveX) || live(s.moveY)) ? -1 : 0)
@@ -5895,7 +5895,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // string is exactly 38 chars: name to 30, height decimal at 30,
       // "Rom "/"Disc" at 34.
       const n = int(a[0]!)
-      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (n < 0) funcCall()
       if (!rt.fontsListed) throw new AmosError('fonts not examined')
       const f = examinedFonts(rt)[n - 1]
       if (!f) return VS('')
@@ -5923,7 +5923,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         d -= 1000
         if (d <= 1000) return VS(b[d - 1] ?? '')
       }
-      throw new AmosError('Illegal function call', 23)
+      funcCall()
     },
 
     at(_, a) {
@@ -5932,7 +5932,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
-      if (x > 207 || y > 207) throw new AmosError('Illegal function call', 23)
+      if (x > 207 || y > 207) funcCall()
       if (x >= 0) out += '\x1bX' + String.fromCharCode(48 + x)
       if (y >= 0) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
@@ -5962,7 +5962,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // string — chr$(1), scancode, shift, chr$(0); both bytes < 256
       const scan = int(a[0]!)
       const shift = a.length > 1 ? int(a[1]!) : 0
-      if (scan >>> 0 >= 256 || shift >>> 0 >= 256) throw new AmosError('function call error')
+      if (scan >>> 0 >= 256 || shift >>> 0 >= 256) funcCall()
       return VS(String.fromCharCode(1, scan, shift, 0))
     },
     'bstart'(_, a) {
@@ -5998,8 +5998,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const length = int(a[1]!)
       const speed = a.length >= 4 ? int(a[3]!) : 4095
       const colour = a.length >= 5 ? int(a[4]!) : 0
-      if (length <= 0 || colour < 0 || colour >= 32) throw new AmosError('Illegal function call', 23)
-      if (a.length >= 4 && (speed < 256 || speed >= 4096)) throw new AmosError('Illegal function call', 23)
+      if (length <= 0 || colour < 0 || colour >= 32) funcCall()
+      if (a.length >= 4 && (speed < 256 || speed >= 4096)) funcCall()
       const m = rt.resolveWrite(address)
       if (!m) throw new AmosError('Address error', 25)
       const len = Math.min(length, m.data.length - m.off)
@@ -6014,7 +6014,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // or -2 if it would write past the end of the memory block.
       const address = int(a[0]!)
       const length = int(a[1]!)
-      if (length <= 0) throw new AmosError('Illegal function call', 23)
+      if (length <= 0) funcCall()
       const m = rt.resolveWrite(address)
       if (!m) throw new AmosError('Address error', 25)
       const comp = m.data.slice(m.off, m.off + Math.min(length, m.data.length - m.off))
@@ -6099,7 +6099,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnBorderD +Lib.s:14124: style 1-15 (0 and >=16 error); the text
       // is wrapped in Esc E 0 (store position) ... Esc E n (draw box)
       const n = int(a[1]!)
-      if (n <= 0 || n >= 16) throw new AmosError('Illegal function call', 23)
+      if (n <= 0 || n >= 16) funcCall()
       return VS('\x1bE0' + str(a[0]!) + '\x1bE' + String.fromCharCode(48 + n))
     },
   }

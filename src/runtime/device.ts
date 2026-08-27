@@ -25,7 +25,7 @@
  * unfinished one — and why Serial Send (SendIO) and Parallel Send (DoIO)
  * differ in a way a program can observe through Serial Check.
  */
-import { AmosError } from '../interp/values'
+import { AmosError, funcCall } from '../interp/values'
 import type { SerialLineParams, SerialPortHandle } from '../amiga/host'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
@@ -217,6 +217,6 @@ export const newDevState = (): DevState => ({
  * answers the slot's zeroed first long rather than raising.
  */
 export function devSlotOf(st: DevState, n: number): DevChannel | null {
-  if (n < 0 || n > DEV_MAX) throw new AmosError('function call error')
+  if (n < 0 || n > DEV_MAX) funcCall()
   return st.channels.get(n) ?? null
 }

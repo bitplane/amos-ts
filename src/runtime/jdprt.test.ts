@@ -208,7 +208,7 @@ describe('JD Prt: the five Preferences instructions', () => {
       'Jd Prt Density 0',
       'Jd Prt Density 8',
     ]) {
-      expect(() => run(bad), bad).toThrow(/illegal function call/)
+      expect(() => run(bad), bad).toThrow(/illegal function call/i)
     }
     expect(() => run('Jd Prt Shade 0\nJd Prt Threshold 15\nJd Prt Density 7')).not.toThrow()
   })

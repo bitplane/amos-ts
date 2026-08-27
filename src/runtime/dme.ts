@@ -82,7 +82,7 @@
  */
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { AmosError, VI } from '../interp/values'
+import { AmosError, funcCall, VI } from '../interp/values'
 import { Protracker, parseMod } from '../amiga/protracker'
 import { ThxPlayer } from '../amiga/thxplay'
 import { thxParse } from '../amiga/thx'
@@ -490,7 +490,7 @@ function omedFor(rt: Runtime, s: DmeState): MedPlayer {
 
 /** routine 92 ($4c86): `moveq #$17,d0 / Rjmp L_Error` */
 const badCall = (): never => {
-  throw new AmosError('Illegal function call', 23)
+  funcCall()
 }
 
 /** routine 301 with the index the caller puts in d0 */

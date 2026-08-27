@@ -180,7 +180,7 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       const mem = rt.memBanks.get(bank)
       if (!mem) throw new AmosError('bank not reserved')
       const m = parseP61(mem.data)
-      if (!m) throw new AmosError('Illegal function call', 23) // P61_Init != 0
+      if (!m) funcCall() // P61_Init != 0
       s.module = m
       s.master = 64
       s.fadeTo = 64

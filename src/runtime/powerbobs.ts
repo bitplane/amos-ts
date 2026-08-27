@@ -458,7 +458,7 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
       const b = s.bobs[nr - 1]
       if (!b) funcCall() // move.l (a1,d4.w),d2 / Rbeq routine 111
       const height = img!.height
-      if (height > b!.maxHeight) throw new AmosError('Illegal function call', 23)
+      if (height > b!.maxHeight) funcCall()
       const leftLimit = widthWords === 2 ? -32 : -16
       // the four clip tests, at $fce-$fe4, against the CURRENT screen
       const scr = rt.screen

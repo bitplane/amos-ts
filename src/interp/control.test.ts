@@ -136,7 +136,7 @@ describe('interpreter no-ops that must still parse', () => {
 
   it('Command Line$ = errors at 256 characters (+Lib.s:7871 cmp.w #256)', () => {
     expect(run('Command Line$=String$("x",255) : Print Len(Command Line$)').out).toBe(' 255\n')
-    expect(() => run('Command Line$=String$("x",256)')).toThrow(/function call error/)
+    expect(() => run('Command Line$=String$("x",256)')).toThrow(/Illegal function call/)
   })
 })
 

@@ -59,9 +59,9 @@ describe('STOS-style Anim and Move (their own slot table, not AMAL channels)', (
 
   it('Move Y rejects a slot number above the multiplexer limit', () => {
     // 16 slots normally; Synchro Off raises it to 64
-    expect(() => run(`${GRAB}\nMove Y 16,"(1,2,10)"`)).toThrow(/function call error/)
+    expect(() => run(`${GRAB}\nMove Y 16,"(1,2,10)"`)).toThrow(/Illegal function call/)
     expect(() => run(`${GRAB}\nSynchro Off\nMove Y 16,"(1,2,10)"`)).not.toThrow()
-    expect(() => run(`${GRAB}\nSynchro Off\nMove Y 64,"(1,2,10)"`)).toThrow(/function call error/)
+    expect(() => run(`${GRAB}\nSynchro Off\nMove Y 64,"(1,2,10)"`)).toThrow(/Illegal function call/)
   })
 })
 
@@ -106,7 +106,7 @@ describe('zones and dialogs', () => {
     // InDialogFreeze0/1 +Lib.s:14397 — a bad channel number is an error
     expect(() => run('Dialog Freeze 1')).toThrow()
     expect(() => run('Dialog Unfreeze 1')).toThrow()
-    expect(() => run('Dialog Freeze 0')).toThrow(/function call error/)
+    expect(() => run('Dialog Freeze 0')).toThrow(/Illegal function call/)
     // with no argument at all they sweep every open channel, so with none
     // open they are simply a no-op rather than an error
     expect(() => run('Dialog Freeze')).not.toThrow()

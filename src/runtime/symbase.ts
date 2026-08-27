@@ -66,7 +66,7 @@
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { fromFFP, toFFP } from './runtime'
-import { AmosError, VF, VI, VS, int, str } from '../interp/values'
+import { AmosError, funcCall, int, str, VF, VI, VS } from '../interp/values'
 import type { Dbf } from './dbf'
 import {
   BANK_HEAD,
@@ -350,7 +350,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
 
   /** the one-based field number, or AMOS error 23 (`Rble routine 90`) */
   const field = (c: SymBaseChannel, f: number): number => {
-    if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+    if (f <= 0 || f > c.db.fields.length) funcCall()
     return f
   }
 
@@ -404,7 +404,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       const name = it.evalStr()
       if (bankLive(s.sel)) err(0)
       // `move.w (a0)+,d0 / subq.w #$1,d0 / cmpi.w #$80,d0 / Rbcc routine 90`
-      if (name.length - 1 >= 0x80) throw new AmosError('Illegal function call', 23)
+      if (name.length - 1 >= 0x80) funcCall()
       const path = name
       const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
       // Open() returning 0 is routine 89, AMOS error 94
@@ -472,7 +472,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
      */
     'db select'(it) {
       const n = it.evalInt()
-      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      if (n <= 0) funcCall()
       st().sel = n
     },
 
@@ -537,9 +537,9 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       st().zone[0x27] = n & 0xff
       flush(c)
-      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      if (n <= 0) funcCall()
       if (n === c.current) return
-      if (n > c.count) throw new AmosError('Illegal function call', 23)
+      if (n > c.count) funcCall()
       readRecord(c, n)
     },
 
@@ -618,7 +618,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       const c = chan()
       const f = field(c, it.evalInt())
       const n = fieldLen(c, f)
-      if (n === 0) throw new AmosError('Illegal function call', 23)
+      if (n === 0) funcCall()
       c.saved = false
       const text = String(v)
       const at = fieldAt(c, f)
@@ -641,7 +641,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const c = chan()
       const f = field(c, it.evalInt())
-      if (fieldLen(c, f) === 0) throw new AmosError('Illegal function call', 23)
+      if (fieldLen(c, f) === 0) funcCall()
       c.saved = false
       const bits = toFFP(v) >>> 0
       const at = fieldAt(c, f)
@@ -764,7 +764,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const b = it.evalInt()
       if (a <= 0 || a > c.count || b <= 0 || b > c.count) {
-        throw new AmosError('Illegal function call', 23)
+        funcCall()
       }
       if (a === b) return
       const ra = c.image.slice(recAt(c, a), recAt(c, a) + c.db.recordLength)
@@ -847,7 +847,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
     'db order'(it) {
       const name = it.evalStr()
       const c = chan()
-      if (name.length - 1 >= 0x80) throw new AmosError('Illegal function call', 23)
+      if (name.length - 1 >= 0x80) funcCall()
       const bytes = rt.vfs?.readFile(name) ?? rt.fs?.read(name) ?? null
       if (!bytes) throw new AmosError(`file not found: ${name}`, 94)
       c.index = name
@@ -948,7 +948,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       s.needle = text
       if (from > 0) {
         flush(c)
-        if (from <= 0 || from > c.count) throw new AmosError('Illegal function call', 23)
+        if (from <= 0 || from > c.count) funcCall()
         if (from !== c.current) readRecord(c, from)
       }
       field(c, f)
@@ -1078,7 +1078,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db ftype': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       return VI(c.db.fields[f - 1]!.type.charCodeAt(0))
     },
 
@@ -1093,7 +1093,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db flen': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       const fd = c.db.fields[f - 1]!
       return VI(fd.type === 'F' ? DBF_FLOAT_LEN : fd.length)
     },
@@ -1109,7 +1109,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db field$': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       const name = c.db.fields[f - 1]!.name
       if (name.length > 10) err(6)
       return VS(name)
@@ -1127,7 +1127,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db field': (_, a) => {
       const c = chan()
       const n = str(a[0]!)
-      if (n.length === 0) throw new AmosError('Illegal function call', 23)
+      if (n.length === 0) funcCall()
       for (let i = c.db.fields.length - 1; i >= 0; i--) {
         if (c.db.fields[i]!.name === n) return VI(i + 1)
       }
@@ -1145,8 +1145,8 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db get$': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0) throw new AmosError('Illegal function call', 23)
-      if (f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0) funcCall()
+      if (f > c.db.fields.length) funcCall()
       const raw = fieldRaw(c, f)
       return VS(st().cutspace ? cutSpace(raw) : raw)
     },
@@ -1160,7 +1160,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db found$': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       const raw = fieldRaw(c, f)
       return VS(st().cutspace ? cutSpace(raw) : raw)
     },
@@ -1184,7 +1184,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
       const c = chan()
       const s = st()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       const fd = c.db.fields[f - 1]!
       if (fd.type === 'L') return VI(c.record[fd.offset] === 0x54 ? -1 : 0)
       const text = fieldRaw(c, f)
@@ -1203,7 +1203,7 @@ export function makeSymBaseFunctions(rt: Runtime): Record<string, Func> {
     'db getf': (_, a) => {
       const c = chan()
       const f = int(a[0]!)
-      if (f <= 0 || f > c.db.fields.length) throw new AmosError('Illegal function call', 23)
+      if (f <= 0 || f > c.db.fields.length) funcCall()
       const at = c.db.fields[f - 1]!.offset
       const bits =
         ((c.record[at]! << 24) | (c.record[at + 1]! << 16) | (c.record[at + 2]! << 8) | c.record[at + 3]!) >>> 0

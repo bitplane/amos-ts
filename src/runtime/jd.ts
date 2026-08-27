@@ -58,7 +58,7 @@
  * `L_outdim` (equ 150), which 26 call sites share for every out-of-range
  * argument, and 24 (Out of memory) from `L_nomem` (equ 100).
  */
-import { AmosError, VF, VI, VS, int, num, str, type Value } from '../interp/values'
+import { funcCall, int, num, str, type Value, VF, VI, VS } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { decodeFFP } from '../tokens/stream'
 import { JD_CRYPT } from './jd-crypt.gen'
@@ -121,7 +121,7 @@ export function newJdState(): JdState {
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
 export function outdim(): never {
-  throw new AmosError('illegal function call', 23)
+  funcCall()
 }
 
 /**

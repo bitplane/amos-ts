@@ -113,7 +113,7 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VF, VI, VS, int, str } from '../interp/values'
+import { AmosError, funcCall, int, str, VF, VI, VS } from '../interp/values'
 import { joyFire } from '../interp/gameport'
 import { REQ_MODE, RT_MAXINT, RT_MININT, type PaletteReqSetup, type ReqSetup } from '../amiga/reqtools'
 
@@ -351,7 +351,7 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
       const v16 = isDelta16(rt)
       if ((v & 0xffff) === 0) {
         if (v16) deltaError(0)
-        throw new AmosError('Illegal function call', 23)
+        funcCall()
       }
       if (((v & 0xffff) << 16) >> 16 >= 0x1000) {
         if (v16) deltaError(1)

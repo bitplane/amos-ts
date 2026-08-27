@@ -777,7 +777,7 @@ function memHunt(rt: Runtime, a: Value[], unit: 1 | 2): number {
  * the not-found value.
  */
 function parseWord(source: string, n: number, alternatives: string, notfound: number): number {
-  if (n <= 0) throw new AmosError('Illegal function call', 23)
+  if (n <= 0) funcCall()
   if (source === '' || alternatives === '') return notfound
   const sep = (c: string): boolean => c === ' ' || c === ',' || c === '.'
   // skip to word n
@@ -973,7 +973,7 @@ function blitArgs(rt: Runtime, it: Interp, screen: number, vertical: boolean): B
   it.expect(',')
   const shift = it.evalInt()
   const s = rt.screens.get(screen)
-  if (!s) throw new AmosError('Illegal function call', 23)
+  if (!s) funcCall()
   if (vertical ? shift === 0 : (shift & 0xf) === 0) funcCall()
   if (y1 > s.height) funcCall()
   const x0 = x & 0xfff0

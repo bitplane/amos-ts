@@ -74,7 +74,7 @@ describe('bob display list', () => {
   it('Update Every sets the automatic period and rejects a word overflow', () => {
     expect(run('Update Every 3').updateEvery).toBe(3)
     // InUpdateEvery takes a word, so 65536 is out of range
-    expect(() => run('Update Every 65536')).toThrow(/function call error/)
+    expect(() => run('Update Every 65536')).toThrow(/Illegal function call/)
     // 0 would mean never, so it is clamped to every VBL
     expect(run('Update Every 0').updateEvery).toBe(1)
   })
@@ -347,8 +347,8 @@ describe('Sprite Priority is per-screen (EcCon2, HsPri +W.s:11345)', () => {
   it('rejects a value above 4 (InSpritePriority checks before HsPri)', () => {
     // the keyword's own cmp.l #4 / Rbhi L_FonCall rejects it; HsPri's
     // internal clamp to 0 guards its other callers and is never reached here
-    expect(() => run('Sprite Priority 5')).toThrow(/function call error/)
-    expect(() => run('Sprite Priority -1')).toThrow(/function call error/)
+    expect(() => run('Sprite Priority 5')).toThrow(/Illegal function call/)
+    expect(() => run('Sprite Priority -1')).toThrow(/Illegal function call/)
     expect(() => run('Sprite Priority 4')).not.toThrow()
     expect(() => run('Sprite Priority 0')).not.toThrow()
   })
@@ -724,7 +724,7 @@ describe('object banks are in the bank list (banks.ts)', () => {
 
   it('Bank Shrink refuses an object bank with error 23, not "not reserved"', () => {
     // Bnk.Schrink +Lib.s:8271: `btst #Bnk_BitBob,d0  Pas une banque de bobs!`
-    expect(() => run(`${GRAB1}\nBank Shrink 1 To 4`)).toThrow(/function call error/)
+    expect(() => run(`${GRAB1}\nBank Shrink 1 To 4`)).toThrow(/Illegal function call/)
   })
 
   it('Start(1) resolves to bytes, and the first word is the image count', () => {
