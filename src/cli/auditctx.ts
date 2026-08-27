@@ -192,6 +192,117 @@ function localLabels(file: string): Map<string, { from: number; to: number; code
 
 const LOCALS = new Map<string, ReturnType<typeof localLabels>>()
 
+/**
+ * `EcCall Double` and `WiCall Print` are calls through a vector table, so the
+ * name in the source is an equate rather than a label and no branch regex can
+ * follow it.
+ *
+ * Thirteen keywords came back unauditable for exactly this reason. `Double
+ * Buffer`'s whole routine is `EcCall Double / Rbne L_EcWiErr`, which says
+ * nothing about double buffering without the far end.
+ *
+ * The macros are at `+Equ.s:632` and `+Equ.s:740`:
+ *
+ *     EcCall: MACRO
+ *             move.l  T_EcVect(a5),a0
+ *             jsr     \1*4(a0)
+ *
+ * So the argument is a slot number, `*4` because each table entry is one
+ * `bra`. `+W.s:2464` loads `EcIn` into `T_EcVect` and `+W.s:13234` loads
+ * `WiIn` into `T_WiVect`, and both tables are a flat run of `bra` in equate
+ * order: 77 entries for the screens, 20 for the windows.
+ *
+ * The equates sit directly above their own macro, counting up from zero, so
+ * reading backwards from the `MACRO` line to the entry numbered 0 picks up
+ * that block and no other. Slot 2 of the screen table is commented out
+ * (`*		equ 2`), which is why the walk tolerates comment lines and why the
+ * map can have holes.
+ */
+interface Vector {
+  /** equate name to slot */
+  slot: Map<string, number>
+  /** slot to the label its `bra` names */
+  target: string[]
+  /** the file the targets live in */
+  file: string
+}
+
+function equatesAbove(lines: string[], macroLine: number): Map<string, number> {
+  const out = new Map<string, number>()
+  for (let i = macroLine - 2; i >= 0; i--) {
+    const ln = lines[i] ?? ''
+    if (ln.trim() === '' || ln.startsWith('*') || ln.startsWith(';')) continue
+    const m = /^([A-Za-z][A-Za-z0-9_]*):?\s+equ\s+(\d+)\s*$/.exec(ln)
+    if (m?.[1] === undefined || m[2] === undefined) break
+    out.set(m[1], Number(m[2]))
+    if (m[2] === '0') break
+  }
+  return out
+}
+
+function braTable(lines: string[], label: string): string[] {
+  const at = lines.findIndex((l) => new RegExp(`^${label}:`).test(l))
+  if (at < 0) return []
+  const out: string[] = []
+  for (let i = at; i < lines.length; i++) {
+    const m = /\bbra(?:\.[sw])?\s+([A-Za-z][A-Za-z0-9_]*)/.exec(lines[i] ?? '')
+    if (m?.[1] === undefined) break
+    out.push(m[1])
+  }
+  return out
+}
+
+let VECTORS: Map<string, Vector> | null = null
+
+function vectors(): Map<string, Vector> {
+  if (VECTORS !== null) return VECTORS
+  VECTORS = new Map()
+  if (!SRC) return VECTORS
+  const equ = join(SRC, '+Equ.s')
+  const w = join(SRC, '+W.s')
+  if (!existsSync(equ) || !existsSync(w)) return VECTORS
+  const eLines = read(equ)
+  const wLines = read(w)
+  for (const [macro, table] of [
+    ['EcCall', 'EcIn'],
+    ['WiCall', 'WiIn'],
+  ] as const) {
+    const at = eLines.findIndex((l) => new RegExp(`^${macro}:\\s+MACRO`).test(l))
+    if (at < 0) continue
+    const slot = equatesAbove(eLines, at + 1)
+    const target = braTable(wLines, table)
+    if (slot.size === 0 || target.length === 0) continue
+    VECTORS.set(macro, { slot, target, file: '+W.s' })
+  }
+  return VECTORS
+}
+
+/**
+ * The routines reached through `EcCall`/`WiCall` and their `A`/`D`/`2`
+ * variants, which differ only in what they preload into `a1` and `d1`.
+ */
+function vectorCallees(code: string, seen: Set<string>, limit: number): Routine[] {
+  const out: Routine[] = []
+  const tables = vectors()
+  if (tables.size === 0) return out
+  for (const m of code.matchAll(/\b(Ec|Wi)Cal[lAD2]\s+([A-Za-z][A-Za-z0-9_]*)/g)) {
+    if (out.length >= limit) break
+    const v = tables.get(`${m[1]}Call`)
+    const name = m[2]
+    if (v === undefined || name === undefined) continue
+    const idx = v.slot.get(name)
+    if (idx === undefined) continue
+    const sym = v.target[idx]
+    if (sym === undefined || seen.has(sym)) continue
+    if (!LOCALS.has(v.file)) LOCALS.set(v.file, localLabels(v.file))
+    const hit = LOCALS.get(v.file)?.get(sym)
+    if (!hit) continue
+    seen.add(sym)
+    out.push({ label: sym, file: v.file, from: hit.from, to: hit.to, code: hit.code })
+  }
+  return out
+}
+
 function callees(code: string, file: string, limit = 4): Routine[] {
   const out: Routine[] = []
   const seen = new Set<string>()
@@ -203,6 +314,7 @@ function callees(code: string, file: string, limit = 4): Routine[] {
     if (!('unresolved' in r)) out.push(r)
     if (out.length >= limit) break
   }
+  out.push(...vectorCallees(code, seen, limit - out.length))
   if (!LOCALS.has(file)) LOCALS.set(file, localLabels(file))
   const locals = LOCALS.get(file)
   for (const m of code.matchAll(/^\s+(?:bsr|bra|jsr|jmp)(?:\.[sw])?\s+([A-Za-z][A-Za-z0-9_]*)/gm)) {
@@ -277,10 +389,31 @@ function findHandler(name: string): Handler | null {
     'return', 'new', 'delete', 'typeof', 'in', 'of', 'this', 'class', 'function',
     'var', 'let', 'const', 'break', 'continue', 'default', 'void', 'with',
   ])
-  const quotedOnly = JS_WORDS.has(name)
-  const re = quotedOnly
-    ? new RegExp(`^( {2,6})(?:'${esc}'|"${esc}")\\s*[(:]`, 'm')
-    : new RegExp(`^( {2,6})(?:'${esc}'|"${esc}"|${esc})\\s*[(:]`, 'm')
+  /*
+   * `For`, `While`, `Do`, `If`, `Else`, `Return` and `Default` are all
+   * handlers written in the unquoted shorthand -- `for(it, tok) {` -- so
+   * demanding quotes lost all seven and the audit reported them unhandled.
+   * They are also JavaScript statements, which is how `if` once matched an
+   * `if (` in speech.ts and the auditor spent a run on someone else's code.
+   *
+   * What separates the two is the parameter list. A handler's first parameter
+   * is `it` or nothing; a JS `if (cond)` or `return (x)` opens with an
+   * expression, and `else {` has no parenthesis at all.
+   */
+  const jsWord = JS_WORDS.has(name)
+  const re = new RegExp(`^( {2,6})(?:'${esc}'|"${esc}"|${esc})\\s*[(:]`, 'm')
+  /*
+   * A shorthand method opens its body on the same line and takes nothing but
+   * plain parameter names: `for(it, tok) {`, `default() {`. Every JS
+   * statement that reached this point failed one half or the other --
+   * `if (it.atStmtEnd() || ...)` puts an expression in the brackets, and
+   * `return (it) => {` ends in an arrow. Neither test is enough alone, so the
+   * first parameter has to be the interpreter handle or absent as well:
+   * `if (node) {` in instr.ts passes both other checks and was beating the
+   * real `If` handler in builtins.ts on file order.
+   */
+  const shorthand =
+    /^\s*[A-Za-z_$][\w$]*\s*\(\s*(?:\)|_?it\b(?:\s*,\s*[A-Za-z_$][\w$]*)*\s*\))\s*\{\s*$/
 
   for (const rel of files) {
     const path = join(ROOT, rel)
@@ -289,6 +422,8 @@ function findHandler(name: string): Handler | null {
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i] ?? ''
       if (!re.test(ln)) continue
+      // an unquoted JS keyword only counts as a handler if it reads like one
+      if (jsWord && !/^\s*['"]/.test(ln) && !shorthand.test(ln)) continue
       // `name(args): Type` with no body is a signature in an interface, not a
       // handler; `polyline: polyish(false),` has no `)` before its colon and
       // stays, which is what a handler built by a factory looks like
