@@ -110,6 +110,29 @@ describe('screen and window odds and ends', () => {
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
   })
 
+  it('Dual Playfield and Dual Priority check both screen numbers, error 50', () => {
+    // InDualPlayfield +Lib.s:8881 and InDualPriority +Lib.s:8894 each call
+    // CheckScreenNumber twice, and it is `cmp.l #8,d1 / Rbcc L_IllScN`
+    // (+Lib.s:9169). IllScN is `moveq #6,d0 / Rbra L_EcWiErr` (+Lib.s:12983),
+    // so 6 + 44 = 50, "Valid screen numbers range 0 to 7" — the message names
+    // the very range the constant sets. A raw 6 is "Resume label not defined".
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,4,Lowres\nScreen Open 1,320,200,4,Lowres\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('Dual Playfield 0,8')).toBe(50)
+    expect(code('Dual Playfield 8,1')).toBe(50)
+    expect(code('Dual Playfield 0,-1')).toBe(50)
+    expect(code('Dual Priority 0,8')).toBe(50)
+    // in range but never made dual is EcE27, 27 + 44 = 71
+    expect(code('Dual Priority 0,1')).toBe(71)
+    expect(code('Dual Playfield 0,1')).toBe(0)
+  })
+
   it('Wind Move and Wind Size refuse window 0 and a negative pair', () => {
     const code = (src: string): number => {
       try {

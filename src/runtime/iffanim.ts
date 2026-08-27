@@ -147,7 +147,7 @@ function playBody(rt: Runtime, buf: Uint8Array, off: number, len: number, st: Ch
   const planes = buf[st.bmhd + 8] ?? 0
   const compressed = (buf[st.bmhd + 10] ?? 0) !== 0
   if (param !== null) {
-    if (param < 0 || param >= 8) throw new AmosError(`illegal screen number: ${param}`)
+    if (param < 0 || param >= 8) throw new AmosError(`illegal screen number: ${param}`, 50)
     const camg = st.camg >= 0 ? u32(buf, st.camg) : 0
     const hires = (camg & 0x8000) !== 0
     rt.openScreen(param, w, h, Math.min(64, 1 << planes), hires ? 1 : 0)

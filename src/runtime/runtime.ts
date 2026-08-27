@@ -4897,7 +4897,7 @@ export class Runtime {
   }
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
-    if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`)
+    if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`, 50)
     // InScreenOpen (+Lib.s:8919): 4096 = HAM — lowres only, 6 planes,
     // stored as 64 colours with the CAMG bit; otherwise the colour count
     // must be exactly a power of two 2..64 (error 5, "illegal number of

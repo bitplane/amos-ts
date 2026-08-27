@@ -1209,9 +1209,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (EcCon0 compared with the plane bits masked out), planes <= 3
       // each (2 in hires), and counts equal or the back one fewer.
       // (Error 70's exact message text is not in the source tree.)
-      const a = it.evalInt()
+      const a = checkScreenNumber(it.evalInt())
       it.expect(',')
-      const b = it.evalInt()
+      const b = checkScreenNumber(it.evalInt())
       const sa = rt.screens.get(a)
       const sb = rt.screens.get(b)
       if (!sa || !sb) throw new AmosError('screen not opened', 47)
@@ -1233,14 +1233,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'dual priority'(it) {
       // DualP +W.s:2841: both screens must be in dual mode; the FIRST-
       // named screen's playfield comes to the front (BPLCON2 bit 6, PFBA)
-      const a = it.evalInt()
+      // InDualPriority (+Lib.s:8894) checks BOTH numbers, same as
+      // InDualPlayfield (+Lib.s:8881) above
+      const a = checkScreenNumber(it.evalInt())
       it.expect(',')
-      const b = it.evalInt()
+      const b = checkScreenNumber(it.evalInt())
       if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened', 47)
       const sa = rt.screens.get(a)!
       const sb = rt.screens.get(b)!
       if (sa.dualPartner !== b || sb.dualPartner !== a) {
-        throw new AmosError('screen not in dual playfield mode')
+        // DualP's own refusal is EcE27 (+W.s:2843), and 27 + 44 is 71
+        throw new AmosError(ED_RUN_MESSAGES[71]!, 71)
       }
       // the first-named screen's playfield comes forward
       const front = sa.dualIsBack ? sb : sa
@@ -2852,7 +2855,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sy = it.evalInt()
       it.expect(',')
       const flash = it.evalInt()
-      if (n >>> 0 >= 8) throw new AmosError('illegal screen number')
+      if (n >>> 0 >= 8) throw new AmosError('illegal screen number', 50)
       const g = rt.resource().graphics
       if (!g) throw new AmosError('resource bank not present')
       const s = rt.openScreen(n, sx, sy, g.nColors, g.mode & 0x8004)
@@ -4961,6 +4964,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function windParams(a: number, b: number): void {
     if (a < 0 || b < 0) funcCall()
     if (scr().curWin.n === 0) throw new AmosError(ED_RUN_MESSAGES[62]!, 62)
+  }
+
+  /*
+   * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
+   * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
+   * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
+   *
+   * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
+   * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
+   * the range the constant enforces. A raw 6 is "Resume label not defined".
+   *
+   * The compare is unsigned, which is why one test covers both ends.
+   */
+  function checkScreenNumber(n: number): number {
+    if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+    return n
   }
 
   function insObj(kind: 'sprite' | 'icon'): Instr {
