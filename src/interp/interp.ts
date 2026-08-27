@@ -1467,6 +1467,24 @@ export class Interp {
     this.dataInStmt = false
   }
 
+  /**
+   * Is a Data statement AT this address? `Restore label` asks it, as
+   * `cmp.w #_TkData,(a0)+` (+ILib.s:4718).
+   *
+   * A label address is the token after the label, so an address past the end
+   * of its line is a label that stood alone. `V1_StockLabel` resolved that
+   * when it stored the label, walking on to the next line (+Verif.s:3435), and
+   * an empty line does not stop the walk any more than an empty tail does.
+   */
+  dataAt(addr: Addr): boolean {
+    let { li, ti } = addr
+    while (li < this.program.lines.length && ti >= (this.program.lines[li]?.tokens.length ?? 0)) {
+      li++
+      ti = 0
+    }
+    return this.program.dataToks.some((d) => d.li === li && d.ti === ti)
+  }
+
   // ---- random ------------------------------------------------------------
 
   seedRandom(seed: number): void {
