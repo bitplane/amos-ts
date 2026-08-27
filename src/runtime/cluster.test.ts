@@ -1590,6 +1590,22 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
   })
 
+  it('a second Double Buffer is error 69, but Anim re-buffering is silent', () => {
+    // EcDouble +W.s:2742 `btst #BitDble,EcFlags(a4) / bne EcE25`, EcE25 is
+    // `moveq #25,d0` (+W.s:3132) and EcWiErr adds EcEBase-1 = 44 (+Lib.s:12917,
+    // +Equ.s:771) for AMOS error 69. The first call still works.
+    let code = 0
+    try {
+      run(['Screen Open 0,320,200,16,0', 'Double Buffer', 'Double Buffer'].join('\n'))
+    } catch (e) {
+      code = amosErrorCode(e as AmosError)
+    }
+    expect(code).toBe(69)
+    // and only the keyword raises: InDoubleBuffer +Lib.s:8853 follows the call
+    // with `Rbne L_EcWiErr`, the IFF ANIM player at +Lib.s:4556 does not
+    expect(run(['Screen Open 0,320,200,16,0', 'Double Buffer'].join('\n')).out).toBe('')
+  })
+
   it('plane pokes and chunky drawing round-trip through the same bitmap', () => {
     // row 50 is well below the console text area, so Print does not disturb it.
     // chunky -> planar: Plot then read the plane bit back via Peek

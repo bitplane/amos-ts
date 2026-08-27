@@ -656,14 +656,29 @@ export class Screen {
     return this.phyBM !== null
   }
 
-  /** Double Buffer: create the physical bitmap as a copy of the logical */
-  doubleBuffer(): void {
-    if (this.phyBM !== null) return
+  /**
+   * Double Buffer: create the physical bitmap as a copy of the logical.
+   *
+   * False when the screen was already double buffered, which is `EcDouble`'s
+   * `btst #BitDble,EcFlags(a4) / bne EcE25` (+W.s:2742). `EcE25` is
+   * `moveq #25,d0` (+W.s:3132) and every Ec code passes through `EcWiErr`
+   * (+Lib.s:12917), which adds `EcEBase-1` = 44 to reach AMOS error 69.
+   * Reporting it rather than raising it is what the two callers need: the
+   * keyword follows with `Rbne L_EcWiErr` and the IFF ANIM player at
+   * +Lib.s:4556 does not, so ANIM re-double-buffering is silent.
+   *
+   * `EcDouble`'s other failure is `ChipMm` returning zero, which becomes
+   * d0 = 1 and Out of memory. There is no chip RAM to exhaust here, so a
+   * boolean carries everything this port can report.
+   */
+  doubleBuffer(): boolean {
+    if (this.phyBM !== null) return false
     this.phyBM = this.logBM.clone()
     // EcDb1's tail: `bset #BitDble,EcFlags(a4)` then `move.w #2,EcAuto(a4)`
     // (+W.s:2797). Double Buffer turns the full autoback on for you, and a
     // program that wants the cheap one has to say Autoback 1 afterwards.
     this.autoback = 2
+    return true
   }
 
   /** Screen Swap: exchange logical and physical. A pointer swap now. */
