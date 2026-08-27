@@ -195,6 +195,15 @@ function listingOf(bytes: Uint8Array): string | null {
   }
 }
 
+/**
+ * The kinds that have something to show inside the row.
+ *
+ * One list, read by the predicate that decides whether a row opens AND by the
+ * dispatch that fills it, because two lists is how a row comes to have a
+ * caret that reveals nothing (or a view nothing can reach).
+ */
+const VIEWABLE = new Set<KindGroup>(['picture', 'text', 'program', 'bank', 'icon'])
+
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
   const { vfs } = opts
 
@@ -595,9 +604,11 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     const chips: NonNullable<RowSpec['chips']> = []
     if (kind.group === 'packed') chips.push({ text: 'packed', tone: 'warn', title: kind.name })
 
-    // Which rows earn a body, and none of them reads a byte until it is opened
-    const wants =
-      kind.group === 'picture' || kind.container || kind.group === 'text' || kind.group === 'program'
+    // Which rows earn a body, and none of them reads a byte until it is
+    // opened. It has to name the same set the body's own dispatch does: this
+    // list was the half not updated when icons gained a view, so the row
+    // reported "Workbench icon" and then had no caret to open.
+    const wants = VIEWABLE.has(kind.group) || kind.container
 
     return {
       key: full,
@@ -636,8 +647,8 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               // A program and a bank file are both SEVERAL things, and the
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
-              if (kind.group === 'program' || kind.group === 'bank') {
-                const views = viewsFor(bytes, viewHost(name, full))
+              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon') {
+                const views = viewsFor(bytes, viewHost(name, full), kind.group)
                 if (views !== null) {
                   const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
                   // Which tab, remembered as it changes rather than read back
