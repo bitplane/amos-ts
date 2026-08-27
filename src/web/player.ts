@@ -292,6 +292,18 @@ export interface Player {
    */
   isRunning(): boolean
   /**
+   * Stop the machine where it stands, or start it again.
+   *
+   * A host control with nothing behind it on the hardware: an A500 has a
+   * power switch and a reset button and nothing in between. Frames stop, the
+   * audio context is suspended, the canvas keeps the frame it was showing,
+   * and anything held down is released so it is not still held on the way
+   * back. Loading a program lifts it, because clicking one is asking for it.
+   */
+  setPaused(on: boolean): void
+  /** is it stopped? Separate from `isRunning`, which is about the program */
+  isPaused(): boolean
+  /**
    * Put AMOS's escape screen up, or take it down (Esc_Appear +Edit.s:9356).
    *
    * The program stops while it is there, but frames keep turning for a typed
@@ -352,6 +364,20 @@ export function keyRoute(
   if (editorUp) return 'editor'
   if (programDone && (code === 'Escape' || scan === 0x45)) return 'escape'
   return 'program'
+}
+
+/**
+ * What the veil over the canvas says, or '' for no veil.
+ *
+ * One element covers the canvas for two different reasons and they arrive in
+ * this order. Before the first gesture nothing has run and the veil is the
+ * gesture; after it the veil is only ever a pause. They cannot both be true
+ * at once because the click that clears the first also clears the second, and
+ * this is where that is stated rather than in the two callers that paint it.
+ */
+export function overlayLabel(started: boolean, paused: boolean, startLabel?: string): string {
+  if (!started) return startLabel ?? '▶ play'
+  return paused ? '▶ paused' : ''
 }
 
 export function pickProgram(paths: string[], run?: string): { path?: string; ambiguous?: string[] } {
@@ -421,7 +447,6 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   const overlay = document.createElement('button')
   overlay.type = 'button'
   overlay.className = 'amos-start'
-  overlay.textContent = opts.startLabel ?? '▶ play'
   Object.assign(overlay.style, {
     position: 'absolute', inset: '0', width: '100%', height: '100%',
     display: 'none', alignItems: 'center', justifyContent: 'center',
@@ -429,6 +454,30 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     background: 'rgba(0,0,0,.55)', border: '0',
   })
   container.appendChild(overlay)
+
+  /**
+   * The pause control.
+   *
+   * A host button and not a machine one: an A500 has a power switch and a
+   * reset, and nothing between them stops the CPU where it stands. It is
+   * inside the container because an embedded player owns nothing outside one,
+   * and it is invisible until the pointer is over the player, because the
+   * canvas is the game and a glyph sitting on top of it forever is not.
+   *
+   * Above the veil in the stack, so a paused player can be resumed from
+   * either, and `cursor` set back to a pointer because the canvas hides the
+   * host's one and composites the AMOS arrow instead.
+   */
+  const pauseBtn = document.createElement('button')
+  pauseBtn.type = 'button'
+  pauseBtn.className = 'amos-pause'
+  Object.assign(pauseBtn.style, {
+    position: 'absolute', top: '0.4rem', right: '0.4rem', zIndex: '2',
+    font: 'inherit', fontSize: '0.85rem', lineHeight: '1', padding: '0.25rem 0.5rem',
+    color: '#fff', background: 'rgba(0,0,0,.55)', border: '0', borderRadius: '3px',
+    cursor: 'pointer', opacity: '0', pointerEvents: 'none', transition: 'opacity .12s',
+  })
+  container.appendChild(pauseBtn)
 
   /**
    * The handler's insert-volume requester, as much of it as a browser can be.
@@ -536,9 +585,88 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   /** has this program's ending already been reported? */
   let ended = false
   let running = opts.autoplay !== false
+  /**
+   * Stopped where it stands, at the host's request.
+   *
+   * Separate from `running`, which is only whether the start gesture has
+   * happened. The two are painted by one veil and are still different facts:
+   * a player that has never been started has no frame to hold, and a paused
+   * one is holding the last one it drew.
+   */
+  let paused = false
+  /** is the pointer over the player, which is what reveals the pause control */
+  let hovering = false
   let focused = false
   let turbo = false
 
+  /** the veil and the pause glyph, both of which only ever say what `paused` is */
+  function paintControls(): void {
+    const label = overlayLabel(running, paused, opts.startLabel)
+    overlay.textContent = label
+    overlay.style.display = label === '' ? 'none' : 'flex'
+    pauseBtn.textContent = paused ? '▶' : '❚❚'
+    pauseBtn.title = paused ? 'resume the machine' : 'stop the machine where it is'
+    // While paused it stays up: the pointer has to be able to find it, and on
+    // a machine holding one frame there is nothing for it to obscure. Hidden
+    // it takes no clicks either, or a game with something in that corner
+    // would lose them to a button nobody can see.
+    const up = paused || hovering
+    pauseBtn.style.opacity = up ? '1' : '0'
+    pauseBtn.style.pointerEvents = up ? 'auto' : 'none'
+  }
+
+  /**
+   * Stop the machine, or start it again.
+   *
+   * The audio context goes down with it. Leaving it up would let a looping
+   * sample play on over a frozen picture, which is what a paused emulator
+   * sounds like when only the loop is stopped, and `MixerSink` would count
+   * every un-rendered block as a device it had starved.
+   */
+  function setPaused(on: boolean): void {
+    if (paused === on) return
+    paused = on
+    if (on) {
+      audio.suspend()
+      // Nothing held survives the pause, for the reason `onBlur` gives: the
+      // release happens while the handlers are ignoring keys, so the key is
+      // still down when the machine starts again. The mouse goes with it,
+      // because the veil takes the canvas's mouseup as well.
+      if (rt) {
+        rt.input.keys.clear()
+        rt.input.mouseK = 0
+      }
+      kbJoy[0] = 0
+      kbJoy[1] = 0
+      heldFor = -1
+      heldButton = 0
+    } else {
+      audio.unlock()
+      // the debt is dropped rather than repaid: an hour paused is not an hour
+      // of frames owed, and `acc` is what the loop would otherwise settle
+      last = performance.now()
+      acc = 0
+    }
+    paintControls()
+    // "resumed" and not "running": the program under it may have ended while
+    // the machine was stopped, and the chip on the strip is what says which
+    opts.onStatus?.(on ? 'paused' : 'resumed')
+  }
+
+  pauseBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setPaused(!paused)
+    container.focus()
+  })
+  container.addEventListener('mouseenter', () => {
+    hovering = true
+    paintControls()
+  })
+  container.addEventListener('mouseleave', () => {
+    hovering = false
+    paintControls()
+  })
 
   // ---- keyboard, scoped to focus ----
   const KB_PORT: [Record<string, number>, Record<string, number>] = [
@@ -558,6 +686,18 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
 
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!focused || !rt) return
+    // The one key that can be taken without taking it from anything: no Amiga
+    // keyboard has a Pause, so `SCAN` has no code for it and no program can
+    // be reading it.
+    if (e.code === 'Pause') {
+      setPaused(!paused)
+      e.preventDefault()
+      return
+    }
+    // Not queued for later. A key pressed at a stopped machine that arrived
+    // all at once on resume would be a program reacting to input from before
+    // it was running.
+    if (paused) return
     audio.unlock()
     // Ctrl-C is the break key, and only while a program is running. In the
     // editor it is an ordinary shortcut: `.Ed_KFonc` gives it to `Ed_BlocCut`
@@ -748,7 +888,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   }
 
   const onKeyUp = (e: KeyboardEvent): void => {
-    if (!rt) return
+    if (!rt || paused) return
     const scan = SCAN[e.code] ?? 0
     rt.keyUp(scan)
     for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! &= ~KB_PORT[p]![e.code]!
@@ -827,7 +967,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
 
   const onStart = (): void => {
     running = true
-    overlay.style.display = 'none'
+    paused = false
+    paintControls()
     audio.unlock()
     container.focus()
   }
@@ -892,6 +1033,11 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   // ---- loading ----
   function loadProgram(bytes: Uint8Array, name: string, dir: string[] = [], vol = 'DH0'): void {
     ended = false
+    // Before the load and not after it. Asking for a program is asking for it
+    // to run, and a load that fails leaves an error on a machine reporting
+    // itself paused, which is one confusing state made out of two clear ones.
+    paused = false
+    paintControls()
     lastBytes = bytes
     lastName = name
     lastDir = dir
@@ -973,7 +1119,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       if (rt === null) throw new Error('nothing to run this program on')
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
-      if (!running) overlay.style.display = 'flex'
+      // the veil that goes up here is the other one: a player that has still
+      // never had the gesture that starts it
+      paintControls()
     } catch (e) {
       rt = null
       amos = null
@@ -1116,6 +1264,14 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   function loop(now: number): void {
     if (!alive) return
     raf = requestAnimationFrame(loop)
+    // Paused stops the clock as well as the machine. Accruing debt through a
+    // pause and settling it afterwards is the same burst the cap below exists
+    // to prevent, and it would arrive every time somebody came back to the tab.
+    if (paused) {
+      last = now
+      acc = 0
+      return
+    }
     // Never catch up. The debt is capped at a single frame, so a hitch costs
     // time rather than being replayed at speed afterwards — running a burst
     // to clear a deficit is what throws a player across the screen.
@@ -1307,6 +1463,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     },
     isRunning(): boolean {
       return rt !== null && !rt.interp.done && error === ''
+    },
+    setPaused,
+    isPaused(): boolean {
+      return paused
     },
     serialGranted,
     async requestSerialPort(): Promise<boolean> {

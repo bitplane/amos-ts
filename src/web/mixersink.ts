@@ -229,6 +229,21 @@ export class MixerSink implements AudioSink {
     void this.start()
   }
 
+  /**
+   * Stop the device asking for blocks, for a paused machine.
+   *
+   * A paused loop calls no `runTo`, so nothing is rendered, so the queue
+   * drains and the worklet hands out silence and counts it. Those frames are
+   * indistinguishable in `stats()` from a device the mixer could not keep up
+   * with, which is the one diagnostic this sink has. Suspending the context
+   * means the worklet is not pulled at all and the count stays honest.
+   * `unlock()` is the other half: it resumes a suspended context.
+   */
+  suspend(): void {
+    if (this.fallback) return this.fallback.suspend()
+    if (this.ctx?.state === 'running') void this.ctx.suspend()
+  }
+
   private async start(): Promise<void> {
     try {
       const ctx = new AudioContext()
