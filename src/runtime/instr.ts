@@ -826,17 +826,35 @@ function menuPath(it: It): number[] {
   return path
 }
 
+/**
+ * MnDim (+ILib.s:6967), which every menu flag keyword goes through.
+ *
+ * It picks the form off the NEXT TOKEN: `cmp.w #_TkPar1,(a6) / beq.s
+ * MnDim1`. A parenthesised list is a path, walked by MnFind, and a miss
+ * lands on MnINDef — `moveq #39,d0 / bra.s RunErr` (+ILib.s:1147), so error
+ * 39, "Menu item not defined", and RunErr adds no 44. A bare number is a
+ * level, checked against 1 and MnNDim and used to index MnDFlags.
+ *
+ * Thirteen keywords reach it (+Lib.s:15655 to 15729) and each then does one
+ * bset or bclr on the byte it returns. The port had split them in two: the
+ * seven layout keywords only took a level, the rest only took a path.
+ */
+/** the function-side half of MnDim: a path is always parenthesised here */
+function menuNodeOf(rt: Runtime, path: number[]): { x: number; y: number } {
+  const node = rt.menu.find(path)
+  if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
+  return node
+}
+
 function menuNodeFlag(it: It, rt: Runtime, set: number, clear: number): void {
-  // parens = a node path; a bare number = a whole level (MnDim +ILib.s:6967)
   if (it.nm() !== '(') {
     rt.menu.setLevelFlag(it.evalInt(), set, clear)
     return
   }
   const node = rt.menu.find(menuPath(it))
-  if (node) {
-    node.flags = (node.flags | set) & ~clear
-    rt.menu.change = true
-  }
+  if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
+  node.flags = (node.flags | set) & ~clear
+  rt.menu.change = true
 }
 
 /** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
@@ -3584,26 +3602,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.menu.change = true
     },
     'menu movable'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_TBOUGE, 0)
+      menuNodeFlag(it, rt, MF_TBOUGE, 0)
     },
     'menu static'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_TBOUGE)
+      menuNodeFlag(it, rt, 0, MF_TBOUGE)
     },
     'menu item movable'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_BOUGE, 0)
+      menuNodeFlag(it, rt, MF_BOUGE, 0)
     },
     'menu item static'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BOUGE)
+      menuNodeFlag(it, rt, 0, MF_BOUGE)
     },
     'menu bar'(it) {
-      // level layout styles (+Lib.s:15682): bar = vertical column
-      rt.menu.setLevelFlag(optInt(it, 1), MF_BAR, 0)
+      // level layout styles (+Lib.s:15653): bar = vertical column
+      menuNodeFlag(it, rt, MF_BAR, 0)
     },
     'menu line'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BAR | MF_TOTAL)
+      menuNodeFlag(it, rt, 0, MF_BAR | MF_TOTAL)
     },
     'menu tline'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_TOTAL, MF_BAR)
+      menuNodeFlag(it, rt, MF_TOTAL, MF_BAR)
     },
     'menu active'(it) {
       menuNodeFlag(it, rt, 0, MF_OFF)
@@ -5945,16 +5963,20 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         m.choice = 0
         return VI(v)
       }
+      // FnChoice1 (+Lib.s:15641): `tst.l d3 / Rbls L_FonCall / cmp.l
+      // #MnNDim,d3 / Rbhi L_FonCall`, so 1 to 8 and error 23 outside. Rbls
+      // is unsigned low-or-same, which takes the negatives with the zero.
       const n = int(a[0]!)
+      if (n <= 0 || n > 8) funcCall()
       return VI(m.choix[n - 1] ?? 0)
     },
+    // FnXMenu and FnYMenu (+Lib.s:15618, 15627) open with the same Rjsr
+    // L_MnDim, so a path that names nothing is error 39, not a zero
     'x menu'(_, a) {
-      const node = rt.menu.find(a.map((v) => int(v)))
-      return VI(node ? node.x : 0)
+      return VI(menuNodeOf(rt, a.map((v) => int(v))).x)
     },
     'y menu'(_, a) {
-      const node = rt.menu.find(a.map((v) => int(v)))
-      return VI(node ? node.y : 0)
+      return VI(menuNodeOf(rt, a.map((v) => int(v))).y)
     },
 
     'dialog run'(it, a) {

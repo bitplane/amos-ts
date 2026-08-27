@@ -261,7 +261,13 @@ export class MenuTree {
   /** MenuReset: level 1 = full-width movable bar, deeper = columns */
   reset(): void {
     this.roots = []
-    this.dFlags = [MF_TOTAL | MF_TBOUGE, MF_BAR, MF_BAR, MF_BAR, MF_BAR, MF_BAR, MF_BAR, MF_BAR]
+    // MenuReset (+Lib.s:17282): level 1 is MnTotal|MnTBouge, and the loop
+    // for "Autres dimensions" sets MnBar AND MnTBouge on the other seven —
+    // the port had been leaving MnTBouge off every level but the first
+    this.dFlags = [
+      MF_TOTAL | MF_TBOUGE,
+      ...Array<number>(7).fill(MF_BAR | MF_TBOUGE),
+    ]
     this.change = true
     this.choice = 0
     this.choix.fill(0)
@@ -311,23 +317,30 @@ export class MenuTree {
     this.change = true
   }
 
-  /** apply a flag to the level default AND to existing nodes at the level */
+  /**
+   * Apply a flag to one level's DEFAULT, and to nothing else.
+   *
+   * MnDim's bare-number form (+ILib.s:6974) is `tst.l d3 / beq FonCall /
+   * cmp.l #MnNDim,d3 / bhi FonCall / lea MnDFlags(a5),a0 / lea -1(a0,d3.w)`,
+   * and every keyword that reaches it then does a single bset or bclr on
+   * that one byte. `MnNDim equ 8` (+Equ.s:1400).
+   *
+   * MnDFlags is only ever read in two places: MnIF (+Lib.s:17260) ORs it
+   * into a node it has just created, and MenuReset (+Lib.s:17282) writes the
+   * defaults. Nothing consults it when drawing. So the level flags are a
+   * template for menus made from now on, and the port's walk over existing
+   * nodes was rewriting flags AMOS leaves alone.
+   */
   setLevelFlag(level: number, set: number, clear: number): void {
-    if (level < 1 || level > 8) return
+    if (level <= 0 || level > 8) funcCall()
     this.dFlags[level - 1] = (this.dFlags[level - 1]! | set) & ~clear
-    const walk = (list: MenuNode[], depth: number): void => {
-      for (const n of list) {
-        if (depth === level) n.flags = (n.flags | set) & ~clear
-        else walk(n.children, depth + 1)
-      }
-    }
-    walk(this.roots, 1)
     this.change = true
   }
 }
 
 // ---- rendering (MnDraw/MnODraw +Lib.s:16552-16894) ----
 
+import { funcCall } from '../interp/values'
 import type { Screen } from './screen'
 import { builtinPattern } from './screen'
 
