@@ -831,11 +831,111 @@ body.dragging {
 canvas.fm-shot {
   display: block;
   max-width: 100%;
-  width: 24rem;
   image-rendering: pixelated;
   background: #000000;
   border: 1px solid var(--line);
   margin-bottom: 0.6rem;
+}
+
+/* ---- the viewer inside a row: tabs over one file's several selves ------- */
+
+.vw-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 0.35rem;
+}
+
+button.vw-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 0.1rem 0.45rem;
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.vw-tab:hover {
+  color: var(--fg);
+}
+
+button.vw-tab.on {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--raised);
+}
+
+.vw-panel {
+  min-width: 0;
+}
+
+/* a bank the reader would not take, said in the row rather than thrown */
+.vw-bad {
+  color: var(--warn);
+  font-size: var(--fs-label);
+}
+
+/* every image in a bank at its OWN size: a 16x16 icon beside a 64x48 ship is
+   information about the bank, and a grid of equal tiles would hide it */
+.vw-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  align-items: flex-end;
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.vw-cell {
+  margin: 0;
+  max-width: 100%;
+}
+
+.vw-cell figcaption {
+  font-size: var(--fs-label);
+  color: var(--faint);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* the sample list, and anything else that is a line per thing with a button */
+.vw-rows {
+  max-height: 20rem;
+  overflow: auto;
+  font-size: var(--fs-label);
+}
+
+.vw-rows > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+}
+
+.vw-rows > div > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vw-detail {
+  margin-left: auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* hex has to keep its columns, so it is the one thing here that does not wrap */
+pre.vw-hex {
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
 }
 
 /* what a container holds, which is a peek and not a second file manager */

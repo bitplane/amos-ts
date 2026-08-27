@@ -33,11 +33,18 @@ import { readLhaHeaders } from '../../amiga/lha'
 import { readTar } from '../../amiga/tar'
 import { AdfVolume, isAdf } from '../../amiga/adf'
 import { parseAmosFile } from '../../loader/amosfile'
+import { parseSource, TokenTable } from '../../tokens/stream'
+import { detokSource } from '../../tokens/edtok'
+import { CORE_TOKENS } from '../../tokens/tables.gen'
+import { extensionTablesFor } from '../../ext/identify'
 import { civilFromStamp } from '../../amiga/datestamp'
 import { createList, facts, type Action, type RowSpec } from './list'
 import { popupMenu } from './menu'
 import { baseName } from '../filemanager'
 import { decodePicture } from '../picture'
+import { createViewer } from './viewer'
+import { viewsFor, type ViewHost } from './views'
+import { detectModule } from '../../amiga/modformat'
 import type { ModFormat } from '../../amiga/modformat'
 
 export interface FilesOptions {
@@ -46,6 +53,8 @@ export interface FilesOptions {
   open(name: string, bytes: Uint8Array, at: { vol: string; dir: string[] }, drive?: number): void
   /** play a module, which stops whatever the machine is doing */
   play?(name: string, bytes: Uint8Array, format: ModFormat): void
+  /** play one sample out of a `Samples` bank, the same way */
+  playSample?(name: string, bankNumber: number, bank: Uint8Array, index: number): void
   /** what is in each drive now, for the menu that offers them */
   drives(): readonly (string | null)[]
   onStatus(text: string): void
@@ -167,6 +176,39 @@ function membersOf(kind: Kind, bytes: Uint8Array): { path: string; size: number 
     }
   }
   return null
+}
+
+/** how much of a long file a body shows, which is a peek and not an editor */
+const TEXT_LIMIT = 8192
+
+/**
+ * A tokenised program as the listing it was written as.
+ *
+ * A `.AMOS` is not text, and showing its bytes as text showed the header and
+ * then a screenful of high bytes. It is a token stream, and this port has
+ * detokenised it since before there was a browser in it: `src/cli/amoslist.ts`
+ * is these four lines with a `readFileSync` in front.
+ *
+ * `extensionTablesFor` is what makes the extension keywords come out with
+ * names. A program records one as a slot and a token id and nothing else, so
+ * `Thx Play` is `(15, id)` in the file and stays that way until something
+ * identifies the extension from the ids (../../ext/identify.ts). Without it a
+ * listing is right up to the first extension keyword and then turns into
+ * numbers.
+ *
+ * Null when it will not parse, which is a real answer: a program saved by a
+ * version this port cannot read still deserves a row.
+ */
+function listingOf(bytes: Uint8Array): string | null {
+  try {
+    const amos = parseAmosFile(bytes)
+    if (amos.source.length === 0) return null
+    const table = new TokenTable(CORE_TOKENS)
+    const lines = parseSource(amos.source, table)
+    return detokSource(lines, table, { extensions: extensionTablesFor(lines) })
+  } catch {
+    return null
+  }
 }
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
@@ -393,10 +435,16 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     canvas.width = pic.width
     canvas.height = pic.height
     canvas.className = 'fm-shot'
-    // A lowres Amiga pixel is twice as wide as it is tall. The picture is
-    // drawn at its own size and stretched by CSS, so the pixels stay square
-    // in the buffer and the browser does the doubling.
-    canvas.style.aspectRatio = `${pic.width * (pic.wide ? 2 : 1)} / ${pic.height}`
+    // The buffer is one sample per stored pixel and the SHAPE comes from CSS,
+    // so nothing is resampled here. `displayWidth` and `displayHeight` are
+    // what ../picture.ts worked out from the CAMG bits, and every full-screen
+    // PAL picture arrives at the same 640 by 512 whichever mode it was in.
+    //
+    // The width is capped rather than fixed: a 32x32 icon blown up to a fixed
+    // 24rem is a different lie from a squashed one, and `min()` lets a small
+    // picture be small while a big one still fills the pane.
+    canvas.style.width = `min(100%, ${pic.displayWidth}px)`
+    canvas.style.aspectRatio = `${pic.displayWidth} / ${pic.displayHeight}`
     const cx = canvas.getContext('2d')
     if (cx) {
       const img = cx.createImageData(pic.width, pic.height)
@@ -407,6 +455,11 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     body.appendChild(
       facts([
         ['size', `${pic.width} x ${pic.height}`],
+        // Only when it differs, which is the case worth pointing at: a lowres
+        // picture is not the shape its stored dimensions say it is.
+        ...(pic.displayWidth === pic.width && pic.displayHeight === pic.height
+          ? []
+          : ([['shown as', `${pic.displayWidth} x ${pic.displayHeight}`]] as [string, string][])),
         ['depth', pic.depth === 0 ? 'true colour' : `${pic.depth} planes, ${1 << pic.depth} colours`],
         ...(pic.mode === '' ? [] : ([['mode', pic.mode]] as [string, string][])),
       ]),
@@ -447,21 +500,59 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     }
   }
 
-  /** the first lines of a text file, which is what a text file has to show */
-  function textBody(body: HTMLElement, bytes: Uint8Array): void {
-    // Latin-1 and not UTF-8: a listing saved out of the AMOS editor is one
-    // byte per character and the pound sign is $a3 in both AmigaDOS and
-    // Latin-1, which UTF-8 would reject
-    const text = new TextDecoder('latin1').decode(bytes.subarray(0, 4096))
+  /** the first lines of a text file, or of the listing inside a program */
+  function textBody(body: HTMLElement, bytes: Uint8Array, kind: Kind): void {
+    // A tokenised program lists; a plain listing is already text. `kinds.ts`
+    // has told the two apart, so this does not sniff the bytes again.
+    const listing = kind.name === 'AMOS program' ? listingOf(bytes) : null
+    const text =
+      listing ??
+      // Latin-1 and not UTF-8: a listing saved out of the AMOS editor is one
+      // byte per character, and the pound sign is $a3 in both AmigaDOS and
+      // Latin-1 where UTF-8 would reject it
+      new TextDecoder('latin1').decode(bytes.subarray(0, TEXT_LIMIT))
+
     const pre = document.createElement('pre')
     pre.className = 'fm-text'
-    pre.textContent = text
+    pre.textContent = text.slice(0, TEXT_LIMIT)
     body.appendChild(pre)
-    if (bytes.length > 4096) {
-      const more = document.createElement('p')
-      more.className = 'fm-more'
-      more.textContent = `first 4K of ${sizeText(bytes.length)}`
-      body.appendChild(more)
+
+    const note = document.createElement('p')
+    note.className = 'fm-more'
+    if (listing === null && kind.name === 'AMOS program') {
+      note.textContent = 'this program would not detokenise, so these are its bytes'
+    } else if (text.length > TEXT_LIMIT) {
+      note.textContent = `first ${Math.round(TEXT_LIMIT / 1024)}K of ${listing === null ? sizeText(bytes.length) : 'the listing'}`
+    } else {
+      return
+    }
+    body.appendChild(note)
+  }
+
+  /**
+   * Which tab each open file was last showing.
+   *
+   * The pane rebuilds from the filesystem on every operation, so a viewer is
+   * a new one each time. Without this, renaming a file three drawers away
+   * would drop somebody back onto the Listing tab of the program they were
+   * halfway through looking at.
+   */
+  const viewerTabs = new Map<string, string>()
+
+  /** what a view can ask the page to do, which is everything with a side effect */
+  function viewHost(name: string, path: string): ViewHost {
+    void path
+    return {
+      playModule: (bankName, data) => {
+        const format = detectModule(data)
+        if (format === null) {
+          opts.onStatus(`${bankName} is not a module this port reads`)
+          return
+        }
+        opts.play?.(name, data, format)
+      },
+      playSample: (bankNumber, data, index) => opts.playSample?.(name, bankNumber, data, index),
+      onStatus: opts.onStatus,
     }
   }
 
@@ -558,11 +649,24 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               const note = meta.comment.trim()
               if (note !== '') bodyEl.appendChild(facts([['comment', note]]))
               if (kind.group === 'picture') return pictureBody(bodyEl, bytes, kind)
+              // A program and a bank file are both SEVERAL things, and the
+              // viewer is what puts a tab over each of them. A program with
+              // no banks gets one tab and the bar hides itself.
+              if (kind.group === 'program' || kind.group === 'bank') {
+                const views = viewsFor(bytes, viewHost(name, full))
+                if (views !== null) {
+                  const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
+                  // Which tab, remembered as it changes rather than read back
+                  // later: by the time the pane redraws, this element is gone.
+                  bodyEl.addEventListener('click', () => viewerTabs.set(full, viewer.active))
+                  return
+                }
+              }
               if (kind.container) {
                 const members = membersOf(kind, bytes)
                 if (members !== null) return membersBody(bodyEl, members)
               }
-              if (kind.group === 'text' || kind.group === 'program') return textBody(bodyEl, bytes)
+              if (kind.group === 'text' || kind.group === 'program') return textBody(bodyEl, bytes, kind)
               bodyEl.appendChild(facts([['protection', protectionText(meta.protection)]]))
             },
           }

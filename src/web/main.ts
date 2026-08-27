@@ -34,7 +34,7 @@ import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
 import { createBrowseTab, type Via } from './ui/browse'
 import { createFilesTab } from './ui/files'
-import { modProgram } from './modplay'
+import { modProgram, sampleProgram } from './modplay'
 import { itemPath } from './route'
 import { createLibraryLoader, type OpenSource } from './library'
 
@@ -429,6 +429,13 @@ const files = createFilesTab(fstreeEl, {
     vfs.writeTo('RAM', [prog.name], prog.bytes)
     void openThing({ name: prog.name, bytes: prog.bytes, at: { vol: 'RAM', dir: [] } })
     setStatus(`playing ${name} through ${prog.keyword}`)
+  },
+  /** one sample out of a bank, through `Sam Play` for the same reason */
+  playSample: (name, bankNumber, bank, index) => {
+    const prog = sampleProgram(name, bankNumber, bank, index)
+    vfs.writeTo('RAM', [prog.name], prog.bytes)
+    void openThing({ name: prog.name, bytes: prog.bytes, at: { vol: 'RAM', dir: [] } })
+    setStatus(`${name}: ${prog.keyword}`)
   },
   ops: {
     rename: askRename,

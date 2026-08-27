@@ -8,18 +8,24 @@
  * them the same question the panel asks about everything else and gets RGBA
  * back.
  *
- * ## The Amiga pixel is not square
+ * ## The Amiga pixel is not square, in either direction
  *
- * A lowres screen is 320 pixels across a display that a hires one puts 640
- * into, so its pixels are twice as wide as they are tall, and a picture drawn
- * at 320x256 was drawn to be seen at 4:3. Ignoring that squashes every lowres
- * picture in the corpus into a tall thin version of itself. `wide` says which
- * it is and the panel stretches with CSS rather than resampling, so the
- * buffer keeps one sample per stored pixel.
+ * Every PAL screen fills the same display whatever its resolution, so the
+ * pixels change shape rather than the picture changing size. A lowres pixel
+ * is twice the width of a hires one, and a non-interlaced line is twice the
+ * height of an interlaced one. Both halves matter and only doing the first
+ * one is worse than doing neither: it stretches a 320x256 picture to 640x256,
+ * which is twice as wide as it should be.
  *
- * The test is the CAMG hires bit, and the fallback for a picture with no CAMG
- * chunk is the width: `printPage` in ./player.ts draws the same conclusion
- * from `page.width <= 400` and for the same reason.
+ * So the display size is `width * (hires ? 1 : 2)` by
+ * `height * (laced ? 1 : 2)`, and every full-screen PAL picture lands on the
+ * same 1.25 whichever of the four modes it was drawn in. 320x256, 640x256,
+ * 320x512 and 640x512 all come out 640x512.
+ *
+ * The panel stretches with CSS rather than resampling, so the buffer keeps
+ * one sample per stored pixel. The bits are CAMG's, and the fallback for a
+ * picture with no CAMG chunk is the width: `printPage` in ./player.ts draws
+ * the same conclusion from `page.width <= 400` and for the same reason.
  *
  * ## What it does not do
  *
@@ -30,6 +36,7 @@
  * which.
  */
 import { parseIlbm } from '../amiga/ilbm'
+import { parsePacPic } from '../loader/pacpic'
 import { decodeJpeg } from '../amiga/jpeg'
 import { colourResolver } from '../amiga/planar'
 
@@ -40,14 +47,17 @@ export interface Picture {
   pixels: Uint8ClampedArray
   /** planes, or 0 for a picture that never had a palette */
   depth: number
-  /** the display this was drawn for: lowres pixels are twice as wide as tall */
-  wide: boolean
-  /** "HAM", "extra-half-brite", "hires", or '' when there is nothing to say */
+  /** how wide it was meant to LOOK, in hires pixels */
+  displayWidth: number
+  /** and how tall, in interlaced lines */
+  displayHeight: number
+  /** "HAM", "extra-half-brite", "hires", "interlaced", or '' */
   mode: string
 }
 
 /** $8000 hires, $4 lace, $800 HAM, $80 extra-half-brite: the CAMG bits */
 const CAMG_HIRES = 0x8000
+const CAMG_LACE = 0x4
 const CAMG_HAM = 0x800
 const CAMG_EHB = 0x80
 
@@ -59,10 +69,29 @@ const CAMG_EHB = 0x80
  * conclusion `Screen.ehb` draws from the hardware and the same one the
  * hardware itself draws.
  */
-function fromIlbm(bytes: Uint8Array): Picture {
-  const img = parseIlbm(bytes)
-  const ham = (img.mode & CAMG_HAM) !== 0
-  const ehb = !ham && ((img.mode & CAMG_EHB) !== 0 || (img.depth === 6 && img.palette.length <= 32))
+export interface ChunkyImage {
+  width: number
+  height: number
+  depth: number
+  /** one byte per pixel, width * height */
+  pixels: Uint8Array
+  /** RGB4, the Amiga's own twelve bits */
+  palette: readonly number[]
+  hires: boolean
+  laced: boolean
+  ham: boolean
+  ehb: boolean
+}
+
+/**
+ * A chunky buffer and a palette to RGBA, which is every picture in this port.
+ *
+ * ILBM arrives here, so does a Pac.Pic bank and so does one sprite out of a
+ * sprite bank, because by the time each of their readers is finished they are
+ * all the same three things: bytes, twelve-bit colours, and which display the
+ * bytes were drawn for.
+ */
+export function pictureFromChunky(img: ChunkyImage): Picture {
   const pal = img.palette
   const hi = (i: number): number => pal[i % Math.max(pal.length, 1)] ?? 0
   const out = new Uint8ClampedArray(img.width * img.height * 4)
@@ -71,7 +100,7 @@ function fromIlbm(bytes: Uint8Array): Picture {
   // modify the colour the previous pixel left, and the hardware restarts from
   // the border colour at the beginning of every line.
   for (let y = 0; y < img.height; y++) {
-    const resolve = colourResolver({ hi, lo: hi, ham, ehb })
+    const resolve = colourResolver({ hi, lo: hi, ham: img.ham, ehb: img.ehb })
     for (let x = 0; x < img.width; x++) {
       const at = y * img.width + x
       const rgb = resolve(img.pixels[at] ?? 0)
@@ -82,15 +111,69 @@ function fromIlbm(bytes: Uint8Array): Picture {
     }
   }
 
-  const hires = (img.mode & CAMG_HIRES) !== 0 || (img.mode === 0 && img.width > 400)
+  const modes = [
+    ...(img.ham ? ['HAM'] : img.ehb ? ['extra-half-brite'] : []),
+    ...(img.hires ? ['hires'] : []),
+    ...(img.laced ? ['interlaced'] : []),
+  ]
   return {
     width: img.width,
     height: img.height,
     pixels: out,
     depth: img.depth,
-    wide: !hires,
-    mode: ham ? 'HAM' : ehb ? 'extra-half-brite' : hires ? 'hires' : '',
+    displayWidth: img.width * (img.hires ? 1 : 2),
+    displayHeight: img.height * (img.laced ? 1 : 2),
+    mode: modes.join(', '),
   }
+}
+
+function fromIlbm(bytes: Uint8Array): Picture {
+  const img = parseIlbm(bytes)
+  const ham = (img.mode & CAMG_HAM) !== 0
+  const ehb = !ham && ((img.mode & CAMG_EHB) !== 0 || (img.depth === 6 && img.palette.length <= 32))
+  return pictureFromChunky({
+    width: img.width,
+    height: img.height,
+    depth: img.depth,
+    pixels: img.pixels,
+    palette: img.palette,
+    hires: (img.mode & CAMG_HIRES) !== 0 || (img.mode === 0 && img.width > 400),
+    // A picture with no CAMG chunk and more than 400 lines was interlaced, by
+    // the same argument the width makes about hires: PAL is 256 lines and
+    // there is nowhere else for the other 256 to have come from.
+    laced: (img.mode & CAMG_LACE) !== 0 || (img.mode === 0 && img.height > 400),
+    ham,
+    ehb,
+  })
+}
+
+/**
+ * A `Pac.Pic.` bank, which is what AMOS's own `Pack` writes.
+ *
+ * The screen header is optional: `Spack` writes one and `Pack` of a bare
+ * bitmap does not, so a picture with no screen has no palette of its own and
+ * comes back in the grey ramp below rather than in whatever the last picture
+ * happened to leave in the hardware registers. That is honest about what the
+ * bank contains, which is pixels and no colours.
+ */
+export function fromPacPic(bytes: Uint8Array): Picture {
+  const pic = parsePacPic(bytes)
+  const screen = pic.screen
+  const grey = Array.from({ length: 1 << pic.nPlanes }, (_, i) => {
+    const v = Math.round((i * 15) / Math.max(1, (1 << pic.nPlanes) - 1))
+    return (v << 8) | (v << 4) | v
+  })
+  return pictureFromChunky({
+    width: pic.width,
+    height: pic.height,
+    depth: pic.nPlanes,
+    pixels: pic.pixels,
+    palette: screen ? screen.palette : grey,
+    hires: screen ? (screen.mode & CAMG_HIRES) !== 0 : pic.width > 400,
+    laced: screen ? (screen.mode & CAMG_LACE) !== 0 : pic.height > 400,
+    ham: false,
+    ehb: screen !== null && pic.nPlanes === 6 && (screen.mode & CAMG_HAM) === 0,
+  })
 }
 
 /** a JPEG, through the decoder the OpalVision board reads its stills with */
@@ -106,7 +189,15 @@ function fromJpeg(bytes: Uint8Array): Picture | null {
   }
   // Not an Amiga picture and never was: a JPEG on an Amiga arrived from
   // somewhere else, so its pixels are square like everybody else's.
-  return { width: img.width, height: img.height, pixels: out, depth: 0, wide: false, mode: '' }
+  return {
+    width: img.width,
+    height: img.height,
+    pixels: out,
+    depth: 0,
+    displayWidth: img.width,
+    displayHeight: img.height,
+    mode: '',
+  }
 }
 
 /**
