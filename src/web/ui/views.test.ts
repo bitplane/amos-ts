@@ -139,6 +139,35 @@ describe('what a file can be looked at as', () => {
     expect(new Set(views!.map((v) => v.id)).size).toBe(views!.length)
   })
 
+  it('opens a bare sprite bank, which has no source and no bank list', () => {
+    // What `Bsave 1,"x.abk"` writes: the bank's own magic at offset 0 and
+    // nothing in front of it. There is no AmBs list, so there is no number
+    // either, and a tab claiming one would be inventing it.
+    const views = viewsFor(new Uint8Array(spriteBank('AmSp')), host())
+    expect(views?.map((v) => v.label)).toEqual(['Sprites'])
+    expect(views?.[0]?.count).toBe(1)
+  })
+
+  it('opens a bare icon bank the same way', () => {
+    const views = viewsFor(new Uint8Array(spriteBank('AmIc')), host())
+    expect(views?.map((v) => v.label)).toEqual(['Icons'])
+  })
+
+  it('opens a bare memory bank, and knows a module inside one', () => {
+    const views = viewsFor(new Uint8Array(memoryBank(6, 'Tracker', modBank())), host())
+    expect(views?.map((v) => v.label)).toEqual(['Music'])
+  })
+
+  it('numbers the tabs once the file says which slots they are', () => {
+    // The AmBs list is where a number comes from, so a save-all-banks file
+    // gets numbers and a single-bank file does not
+    const many = viewsFor(
+      amosFile(new Uint8Array(0), [memoryBank(6, 'Tracker', modBank()), spriteBank('AmSp')]),
+      host(),
+    )
+    expect(many?.map((v) => v.label)).toEqual(['6. Music', '2. Sprites'])
+  })
+
   it('says nothing rather than showing an empty tab bar', () => {
     expect(viewsFor(new Uint8Array([1, 2, 3]), host())).toBeNull()
   })
