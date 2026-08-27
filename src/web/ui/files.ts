@@ -33,6 +33,10 @@ import { readLhaHeaders } from '../../amiga/lha'
 import { readTar } from '../../amiga/tar'
 import { AdfVolume, isAdf } from '../../amiga/adf'
 import { parseAmosFile } from '../../loader/amosfile'
+import { parseSource, TokenTable } from '../../tokens/stream'
+import { detokSource } from '../../tokens/edtok'
+import { CORE_TOKENS } from '../../tokens/tables.gen'
+import { extensionTablesFor } from '../../ext/identify'
 import { civilFromStamp } from '../../amiga/datestamp'
 import { createList, facts, type Action, type RowSpec } from './list'
 import { popupMenu } from './menu'
@@ -167,6 +171,52 @@ function membersOf(kind: Kind, bytes: Uint8Array): { path: string; size: number 
     }
   }
   return null
+}
+
+/** how much of a long file a body shows, which is a peek and not an editor */
+const TEXT_LIMIT = 8192
+
+/**
+ * A tokenised program as the listing it was written as.
+ *
+ * A `.AMOS` is not text, and showing its bytes as text showed the header and
+ * then a screenful of high bytes. It is a token stream, and this port has
+ * detokenised it since before there was a browser in it: `src/cli/amoslist.ts`
+ * is these four lines with a `readFileSync` in front.
+ *
+ * `extensionTablesFor` is what makes the extension keywords come out with
+ * names. A program records one as a slot and a token id and nothing else, so
+ * `Thx Play` is `(15, id)` in the file and stays that way until something
+ * identifies the extension from the ids (../../ext/identify.ts). Without it a
+ * listing is right up to the first extension keyword and then turns into
+ * numbers.
+ *
+ * Null when it will not parse, which is a real answer: a program saved by a
+ * version this port cannot read still deserves a row.
+ */
+function listingOf(bytes: Uint8Array): string | null {
+  try {
+    const amos = parseAmosFile(bytes)
+    if (amos.source.length === 0) return null
+    const table = new TokenTable(CORE_TOKENS)
+    const lines = parseSource(amos.source, table)
+    return detokSource(lines, table, { extensions: extensionTablesFor(lines) })
+  } catch {
+    return null
+  }
+}
+
+/** the banks a program carries with it, named the way amoslist.ts names them */
+function banksOf(bytes: Uint8Array): string[] {
+  try {
+    return parseAmosFile(bytes).banks.map((b) =>
+      b.kind === 'memory'
+        ? `${b.number}: ${b.name.trim() || 'unnamed'}, ${sizeText(b.data.length)}`
+        : `${b.kind}, ${b.sprites.length}`,
+    )
+  } catch {
+    return []
+  }
 }
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
@@ -393,10 +443,16 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     canvas.width = pic.width
     canvas.height = pic.height
     canvas.className = 'fm-shot'
-    // A lowres Amiga pixel is twice as wide as it is tall. The picture is
-    // drawn at its own size and stretched by CSS, so the pixels stay square
-    // in the buffer and the browser does the doubling.
-    canvas.style.aspectRatio = `${pic.width * (pic.wide ? 2 : 1)} / ${pic.height}`
+    // The buffer is one sample per stored pixel and the SHAPE comes from CSS,
+    // so nothing is resampled here. `displayWidth` and `displayHeight` are
+    // what ../picture.ts worked out from the CAMG bits, and every full-screen
+    // PAL picture arrives at the same 640 by 512 whichever mode it was in.
+    //
+    // The width is capped rather than fixed: a 32x32 icon blown up to a fixed
+    // 24rem is a different lie from a squashed one, and `min()` lets a small
+    // picture be small while a big one still fills the pane.
+    canvas.style.width = `min(100%, ${pic.displayWidth}px)`
+    canvas.style.aspectRatio = `${pic.displayWidth} / ${pic.displayHeight}`
     const cx = canvas.getContext('2d')
     if (cx) {
       const img = cx.createImageData(pic.width, pic.height)
@@ -407,6 +463,11 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     body.appendChild(
       facts([
         ['size', `${pic.width} x ${pic.height}`],
+        // Only when it differs, which is the case worth pointing at: a lowres
+        // picture is not the shape its stored dimensions say it is.
+        ...(pic.displayWidth === pic.width && pic.displayHeight === pic.height
+          ? []
+          : ([['shown as', `${pic.displayWidth} x ${pic.displayHeight}`]] as [string, string][])),
         ['depth', pic.depth === 0 ? 'true colour' : `${pic.depth} planes, ${1 << pic.depth} colours`],
         ...(pic.mode === '' ? [] : ([['mode', pic.mode]] as [string, string][])),
       ]),
@@ -447,22 +508,33 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     }
   }
 
-  /** the first lines of a text file, which is what a text file has to show */
-  function textBody(body: HTMLElement, bytes: Uint8Array): void {
-    // Latin-1 and not UTF-8: a listing saved out of the AMOS editor is one
-    // byte per character and the pound sign is $a3 in both AmigaDOS and
-    // Latin-1, which UTF-8 would reject
-    const text = new TextDecoder('latin1').decode(bytes.subarray(0, 4096))
+  /** the first lines of a text file, or of the listing inside a program */
+  function textBody(body: HTMLElement, bytes: Uint8Array, kind: Kind): void {
+    // A tokenised program lists; a plain listing is already text. `kinds.ts`
+    // has told the two apart, so this does not sniff the bytes again.
+    const listing = kind.name === 'AMOS program' ? listingOf(bytes) : null
+    const text =
+      listing ??
+      // Latin-1 and not UTF-8: a listing saved out of the AMOS editor is one
+      // byte per character, and the pound sign is $a3 in both AmigaDOS and
+      // Latin-1 where UTF-8 would reject it
+      new TextDecoder('latin1').decode(bytes.subarray(0, TEXT_LIMIT))
+
     const pre = document.createElement('pre')
     pre.className = 'fm-text'
-    pre.textContent = text
+    pre.textContent = text.slice(0, TEXT_LIMIT)
     body.appendChild(pre)
-    if (bytes.length > 4096) {
-      const more = document.createElement('p')
-      more.className = 'fm-more'
-      more.textContent = `first 4K of ${sizeText(bytes.length)}`
-      body.appendChild(more)
+
+    const note = document.createElement('p')
+    note.className = 'fm-more'
+    if (listing === null && kind.name === 'AMOS program') {
+      note.textContent = 'this program would not detokenise, so these are its bytes'
+    } else if (text.length > TEXT_LIMIT) {
+      note.textContent = `first ${Math.round(TEXT_LIMIT / 1024)}K of ${listing === null ? sizeText(bytes.length) : 'the listing'}`
+    } else {
+      return
     }
+    body.appendChild(note)
   }
 
   /** the drive menu, which only a disk image has anywhere to go in */
@@ -562,7 +634,15 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
                 const members = membersOf(kind, bytes)
                 if (members !== null) return membersBody(bodyEl, members)
               }
-              if (kind.group === 'text' || kind.group === 'program') return textBody(bodyEl, bytes)
+              if (kind.group === 'text' || kind.group === 'program') {
+                // A program's banks are part of what it IS: a game whose
+                // music is in bank 6 says so here and nowhere else.
+                if (kind.group === 'program') {
+                  const banks = banksOf(bytes)
+                  if (banks.length > 0) bodyEl.appendChild(facts([['banks', banks.join(' · ')]]))
+                }
+                return textBody(bodyEl, bytes, kind)
+              }
               bodyEl.appendChild(facts([['protection', protectionText(meta.protection)]]))
             },
           }

@@ -8,18 +8,24 @@
  * them the same question the panel asks about everything else and gets RGBA
  * back.
  *
- * ## The Amiga pixel is not square
+ * ## The Amiga pixel is not square, in either direction
  *
- * A lowres screen is 320 pixels across a display that a hires one puts 640
- * into, so its pixels are twice as wide as they are tall, and a picture drawn
- * at 320x256 was drawn to be seen at 4:3. Ignoring that squashes every lowres
- * picture in the corpus into a tall thin version of itself. `wide` says which
- * it is and the panel stretches with CSS rather than resampling, so the
- * buffer keeps one sample per stored pixel.
+ * Every PAL screen fills the same display whatever its resolution, so the
+ * pixels change shape rather than the picture changing size. A lowres pixel
+ * is twice the width of a hires one, and a non-interlaced line is twice the
+ * height of an interlaced one. Both halves matter and only doing the first
+ * one is worse than doing neither: it stretches a 320x256 picture to 640x256,
+ * which is twice as wide as it should be.
  *
- * The test is the CAMG hires bit, and the fallback for a picture with no CAMG
- * chunk is the width: `printPage` in ./player.ts draws the same conclusion
- * from `page.width <= 400` and for the same reason.
+ * So the display size is `width * (hires ? 1 : 2)` by
+ * `height * (laced ? 1 : 2)`, and every full-screen PAL picture lands on the
+ * same 1.25 whichever of the four modes it was drawn in. 320x256, 640x256,
+ * 320x512 and 640x512 all come out 640x512.
+ *
+ * The panel stretches with CSS rather than resampling, so the buffer keeps
+ * one sample per stored pixel. The bits are CAMG's, and the fallback for a
+ * picture with no CAMG chunk is the width: `printPage` in ./player.ts draws
+ * the same conclusion from `page.width <= 400` and for the same reason.
  *
  * ## What it does not do
  *
@@ -40,14 +46,17 @@ export interface Picture {
   pixels: Uint8ClampedArray
   /** planes, or 0 for a picture that never had a palette */
   depth: number
-  /** the display this was drawn for: lowres pixels are twice as wide as tall */
-  wide: boolean
-  /** "HAM", "extra-half-brite", "hires", or '' when there is nothing to say */
+  /** how wide it was meant to LOOK, in hires pixels */
+  displayWidth: number
+  /** and how tall, in interlaced lines */
+  displayHeight: number
+  /** "HAM", "extra-half-brite", "hires", "interlaced", or '' */
   mode: string
 }
 
 /** $8000 hires, $4 lace, $800 HAM, $80 extra-half-brite: the CAMG bits */
 const CAMG_HIRES = 0x8000
+const CAMG_LACE = 0x4
 const CAMG_HAM = 0x800
 const CAMG_EHB = 0x80
 
@@ -83,13 +92,23 @@ function fromIlbm(bytes: Uint8Array): Picture {
   }
 
   const hires = (img.mode & CAMG_HIRES) !== 0 || (img.mode === 0 && img.width > 400)
+  // A picture with no CAMG chunk and more than 400 lines was interlaced,
+  // by the same argument the width makes about hires: PAL is 256 lines and
+  // there is nowhere else for the other 256 to have come from.
+  const laced = (img.mode & CAMG_LACE) !== 0 || (img.mode === 0 && img.height > 400)
+  const modes = [
+    ...(ham ? ['HAM'] : ehb ? ['extra-half-brite'] : []),
+    ...(hires ? ['hires'] : []),
+    ...(laced ? ['interlaced'] : []),
+  ]
   return {
     width: img.width,
     height: img.height,
     pixels: out,
     depth: img.depth,
-    wide: !hires,
-    mode: ham ? 'HAM' : ehb ? 'extra-half-brite' : hires ? 'hires' : '',
+    displayWidth: img.width * (hires ? 1 : 2),
+    displayHeight: img.height * (laced ? 1 : 2),
+    mode: modes.join(', '),
   }
 }
 
@@ -106,7 +125,15 @@ function fromJpeg(bytes: Uint8Array): Picture | null {
   }
   // Not an Amiga picture and never was: a JPEG on an Amiga arrived from
   // somewhere else, so its pixels are square like everybody else's.
-  return { width: img.width, height: img.height, pixels: out, depth: 0, wide: false, mode: '' }
+  return {
+    width: img.width,
+    height: img.height,
+    pixels: out,
+    depth: 0,
+    displayWidth: img.width,
+    displayHeight: img.height,
+    mode: '',
+  }
 }
 
 /**

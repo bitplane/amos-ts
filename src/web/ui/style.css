@@ -831,7 +831,6 @@ body.dragging {
 canvas.fm-shot {
   display: block;
   max-width: 100%;
-  width: 24rem;
   image-rendering: pixelated;
   background: #000000;
   border: 1px solid var(--line);
