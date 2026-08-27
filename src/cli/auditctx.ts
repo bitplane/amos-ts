@@ -264,7 +264,23 @@ function findHandler(name: string): Handler | null {
   }
 
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`^( {2,6})(?:'${esc}'|"${esc}"|${esc})\\s*[(:]`, 'm')
+
+  /**
+   * An AMOS keyword whose name is also a JavaScript keyword is only ever
+   * QUOTED in a handler table, so an unquoted match is a `for` or an `if`
+   * statement. `if` matched `  if (!isSpeakPath(path)) return {}` in
+   * speech.ts's helper and the audit went on to report that AMOS's `If` fails
+   * to evaluate a condition, which it does not have a handler for at all.
+   */
+  const JS_WORDS = new Set([
+    'if', 'for', 'while', 'do', 'switch', 'case', 'else', 'try', 'catch',
+    'return', 'new', 'delete', 'typeof', 'in', 'of', 'this', 'class', 'function',
+    'var', 'let', 'const', 'break', 'continue', 'default', 'void', 'with',
+  ])
+  const quotedOnly = JS_WORDS.has(name)
+  const re = quotedOnly
+    ? new RegExp(`^( {2,6})(?:'${esc}'|"${esc}")\\s*[(:]`, 'm')
+    : new RegExp(`^( {2,6})(?:'${esc}'|"${esc}"|${esc})\\s*[(:]`, 'm')
 
   for (const rel of files) {
     const path = join(ROOT, rel)
@@ -277,6 +293,14 @@ function findHandler(name: string): Handler | null {
       // handler; `polyline: polyish(false),` has no `)` before its colon and
       // stays, which is what a handler built by a factory looks like
       if (/\)\s*:\s*[\w<[]/.test(ln) && !/\{\s*$/.test(ln)) continue
+      /*
+       * A handler written `name: value` is built by a factory, so the value is
+       * a CALL or an arrow -- `polyline: polyish(false),`. `end: c.after,` is a
+       * field of a loop frame, and matching it made the audit report that
+       * AMOS's `End` raises no error while quoting a `varKey` assignment.
+       */
+      const colon = /^\s*(?:'[^']*'|"[^"]*"|[A-Za-z_$][\w$]*)\s*:\s*(.*)$/.exec(ln)
+      if (colon !== null && !/^(?:\(|async\b|function\b|[A-Za-z_$][\w$.]*\s*\()/.test(colon[1] ?? '')) continue
       const body = extent(lines, i)
       const doc = docAbove(lines, i)
       const chunk = lines.slice(i, body + 1).join('\n')
