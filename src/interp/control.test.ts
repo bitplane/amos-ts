@@ -231,9 +231,26 @@ describe('banks and storage', () => {
     expect(run('Reserve As Chip Data 7,256\nPrint Length(7)').out).toBe(' 256\n')
   })
 
+  /**
+   * `=Dfree` (+Lib.s:4938) takes no argument: it copies `PathAct` -- the
+   * CURRENT path -- into Name1, locks that, calls Info() and returns
+   * (id_NumBlocks - id_NumBlocksUsed) * id_BytesPerBlock. `Disc Info$`
+   * (:4995) is the same three lines after the volume name.
+   *
+   * A memory volume has no capacity of its own to report, so both fall back
+   * to the stand-in rather than claiming the store is full. The measured case
+   * is a real disk image and lives in ../amiga/adf.test.ts.
+   */
   it('Dfree reports the free space of the current drive', () => {
-    // a freshly mounted RAM volume has room; the value is a byte count
     expect(run('Print Dfree>0').out).toBe('-1\n')
+  })
+
+  it('Disc Info$ names the volume and carries the same count in ten columns', () => {
+    const { out } = run('A$=Disc Info$("DH0:")\nPrint Left$(A$,4);"|";Len(A$)-4;"|";Str$(Dfree)=" "+Mid$(A$,5,10)')
+    // "DH0:" then the count left-aligned in a ten-character field, and it is
+    // the same number =Dfree gives -- Str$ of a positive integer leads with a
+    // space, which is the only difference
+    expect(out).toBe('DH0:| 10|-1\n')
   })
 
   it('Dir lists a directory without disturbing the program', () => {

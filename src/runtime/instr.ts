@@ -660,6 +660,39 @@ function devNext(rt: Runtime): string {
  * omitted-arg polarity is unverified — see NOTES).
  */
 /**
+ * Free bytes on the volume a path lives on, as `Info()` reports them.
+ *
+ * `=Dfree` (+Lib.s:4938) and `Disc Info$` (:4995) are the same three lines
+ * over the same `struct InfoData`:
+ *
+ *     move.l  12(a0),d3     * id_NumBlocks
+ *     sub.l   16(a0),d3     * less id_NumBlocksUsed
+ *     move.l  20(a0),d2     * times id_BytesPerBlock
+ *     Rbsr    L_Mulu32
+ *
+ * A real disk answers from its BITMAP -- `AdfVolume.dosInfo` walks bm_pages
+ * and counts set bits, a set bit being a FREE block -- so an 880K floppy
+ * finally reports the room it actually has instead of 2GB.
+ *
+ * DEVIATION: a volume with no geometry has no answer to give. A zip, a host
+ * directory and the browser's own writable store are not fixed-size media and
+ * `Info()` on them would be inventing a number. `0x7fffffff` stands in, which
+ * is what both keywords returned unconditionally before any volume could be
+ * measured; a program testing whether a save will fit sees "yes", which is
+ * true, because a write to those never fails for want of room.
+ */
+function freeBytes(rt: Runtime, path: string): number {
+  const info = rt.vfs?.volumeInfo(path.split(':')[0] ?? '')
+  if (!info) return 0x7fffffff
+  const free = Math.max(0, info.numBlocks - info.numBlocksUsed)
+  // Mulu32 is a 32-bit product and AMOS integers are signed, so a volume with
+  // more than 2GB free wraps on the machine too. Clamped rather than wrapped:
+  // nothing this port mounts gets near it, and a negative free count is a
+  // worse answer than a large one.
+  return Math.min(0x7fffffff, free * info.bytesPerBlock)
+}
+
+/**
  * Dir / Dir/W / Ldir / Ldir/W (+Lib.s:5793-5880).
  *
  * The four are one routine with two flags. DirComp (wide) halves the name
@@ -5523,8 +5556,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'disc info$'(_, a) {
       // FnDiscInfo +Lib.s:4995: "VOLUME:" (from the volume node of the
       // locked path) + a 10-char field with the free byte count
-      // left-aligned (LongToDec into ten spaces). Free space matches
-      // =Dfree — the browser store has no real quota (see NOTES).
+      // left-aligned (LongToDec into ten spaces). The count is `=Dfree`'s,
+      // computed the same way from the same Info() call.
       const path = a.length > 0 ? str(a[0]!) : ''
       const vfs = rt.vfs
       if (!vfs) throw new AmosError('device not available')
@@ -5536,7 +5569,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // disk asked about as `Df0:` still names itself. `AmigaFS.lockPath`
       // carries the argument.
       const volName = vfs.volumeNodeName(r.volume) ?? r.canonical.split(':')[0]!
-      return VS(`${volName}:` + String(0x7fffffff).padEnd(10))
+      return VS(`${volName}:` + String(freeBytes(rt, r.canonical)).padEnd(10))
     },
     'dir first$'(_, a) {
       const pattern = a.length > 0 ? str(a[0]!) : '*'
@@ -5567,8 +5600,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(nextDirEntry())
     },
     dfree(_, a) {
+      // FnDFree +Lib.s:4938 takes no argument: it copies `PathAct` -- the
+      // CURRENT path -- into Name1, locks that, and calls Info().
       void a
-      return VI(0x7fffffff)
+      return VI(freeBytes(rt, rt.vfs?.currentDir ?? ''))
     },
     choice(_, a) {
       // =Choice: self-clearing latch (-1/0); =Choice(n): level n's number

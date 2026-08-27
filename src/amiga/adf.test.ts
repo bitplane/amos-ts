@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { AdfVolume, adfInfo, isAdf, readAdf } from './adf'
+import { ID_VALIDATED, ID_VALIDATING } from './dos'
 import { AmigaFS } from './vfs'
 import { DiskBuilder, DD_BYTES as DD, BSIZE, ROOT_BLOCK as ROOT } from '../testing/disk'
 
@@ -108,6 +109,41 @@ describe('AdfVolume — the image mounted as a filesystem', () => {
     // reading a directory is not reading a file
     expect(v.read(['Music'])).toBe(null)
     expect(v.list(['first.amos'])).toBe(null)
+  })
+
+  /**
+   * A disk whose `bm_flag` is not -1 has an untrusted bitmap, and a real
+   * machine answers that by running the VALIDATOR: it walks the directory
+   * tree, marks every header, extension and data block, and the rest is free.
+   * Reading the stale bitmap instead reports zero free for ever.
+   *
+   * `DiskBuilder` writes no bitmap at all, so every built disk is in exactly
+   * that state, and so are 2 of the 6 shipped AMOS Professional floppies —
+   * Tutorial and Examples. `=Dfree` on either said the disk was full to the
+   * last block.
+   */
+  it('counts the blocks itself when the bitmap cannot be trusted', () => {
+    const v = new AdfVolume(built().bytes)
+    const info = v.dosInfo(0)!
+    // root 880, then header 900 + its data block 901, dir 920, header 930 +
+    // data block 931. Six, and no bitmap pages to add.
+    expect(info.numBlocksUsed).toBe(6)
+    expect(info.numBlocks).toBe(1758) // 1760 less the two boot blocks
+    expect((info.numBlocks - info.numBlocksUsed) * info.bytesPerBlock).toBe(1752 * 512)
+    // counting them does not clear the flag: the disk still says unclean, and
+    // `Dev State` still has to report -2 for it
+    expect(info.diskState).toBe(ID_VALIDATING)
+  })
+
+  it('reads the bitmap when it IS trusted, rather than walking', () => {
+    const d = built()
+    // bm_flag = -1 and a bitmap block at 1000 with every bit clear: no free
+    // blocks at all, which the walk above would never conclude
+    d.put(ROOT, 312, -1)
+    d.put(ROOT, 316, 1000)
+    const info = new AdfVolume(d.bytes).dosInfo(0)!
+    expect(info.numBlocksUsed).toBe(1758)
+    expect(info.diskState).toBe(ID_VALIDATED)
   })
 
   it('names are matched case-insensitively, as AmigaDOS does', () => {

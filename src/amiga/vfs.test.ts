@@ -358,6 +358,36 @@ describe('running a game away from the machine it was written on', () => {
   })
 })
 
+describe('how much room a volume says it has', () => {
+  /**
+   * Zero free is a measurement: it says FULL. A memory volume has not
+   * measured anything, because its capacity is the host's and not its own,
+   * so it declines the question instead — which is what the `Volume`
+   * interface says a tree built in memory should do.
+   *
+   * It used to answer `used + 0` and look exactly full. Nothing asked until
+   * `=Dfree` started reporting what volumes said, and then the browser's own
+   * DH0: claimed there was no room on a store that never refuses a write.
+   */
+  it('a memory volume declines rather than claiming to be full', () => {
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    dh0.write(['thing'], new Uint8Array(2048))
+    expect(fs.volumeInfo('DH0')).toBeNull()
+  })
+
+  it('and answers once a caller supplies the free count', () => {
+    // the Runtime knows its own pools, which is who this is for
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    dh0.freeBlocks = 100
+    dh0.write(['thing'], new Uint8Array(2048))
+    const info = fs.volumeInfo('DH0')!
+    expect(info.numBlocksUsed).toBe(4) // 2048 / 512
+    expect(info.numBlocks).toBe(104)
+  })
+})
+
 describe('watching the filesystem', () => {
   const enc2 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
 

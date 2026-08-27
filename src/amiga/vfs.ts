@@ -104,21 +104,34 @@ export class MemoryVolume implements Volume {
   root = newDir('')
 
   /**
-   * Blocks to report as free. Zero by default, and that is a real statement
-   * rather than a placeholder: RAM: on an Amiga is exactly as big as the
-   * memory left, so a filesystem has no capacity to report and this one has
-   * no memory model to ask. A caller that HAS one — the Runtime knows its own
-   * pools — can set this and the number becomes meaningful.
+   * Blocks to report as free, or null for "nobody has said".
+   *
+   * RAM: on an Amiga is exactly as big as the memory left, so a filesystem
+   * has no capacity of its own to report and this one has no memory model to
+   * ask. A caller that HAS one — the Runtime knows its own pools — can set
+   * this and the number becomes meaningful.
+   *
+   * Null rather than zero, because zero is a measurement: it says the volume
+   * is FULL. It was zero, and `=Dfree` on the browser's own DH0: answered 0
+   * bytes free the moment that keyword started reporting what volumes said —
+   * a writable store that never refuses a write, claiming there was no room
+   * in it. The interface above already draws this line: a volume without a
+   * geometry declines the question rather than inventing a floppy's worth of
+   * blocks, and this is that decline.
    */
-  freeBlocks = 0
+  freeBlocks: number | null = null
 
   /**
-   * A memory volume has no geometry, but it does know what is in it, so the
-   * used count and the block size are measured and the free count is whatever
-   * `freeBlocks` was told. DEVIATION: an unset `freeBlocks` makes the volume
-   * look full to anything that asks how much room is left.
+   * A memory volume knows what is IN it, but its capacity is the host's and
+   * not its own, so the geometry is only reported once someone supplies the
+   * free count. Null until then — see `freeBlocks`.
    */
-  dosInfo(extraBytes = 0): VolumeInfo {
+  dosInfo(extraBytes = 0): VolumeInfo | null {
+    if (this.freeBlocks === null) return null
+    return this.measured(extraBytes, this.freeBlocks)
+  }
+
+  private measured(extraBytes: number, freeBlocks: number): VolumeInfo {
     let bytes = extraBytes
     const walk = (d: MemDir): void => {
       for (const f of d.files.values()) bytes += f.data.length
@@ -127,7 +140,7 @@ export class MemoryVolume implements Volume {
     walk(this.root)
     const used = Math.ceil(bytes / FFS_BLOCK_DATA)
     return {
-      numBlocks: used + this.freeBlocks,
+      numBlocks: used + freeBlocks,
       numBlocksUsed: used,
       bytesPerBlock: FFS_BLOCK_DATA,
       diskState: ID_VALIDATED,

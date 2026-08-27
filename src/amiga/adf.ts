@@ -363,6 +363,16 @@ export class AdfVolume implements Volume {
         }
       }
     }
+    // An untrusted bitmap is not an empty one. `bm_flag` says the disk was
+    // not unmounted cleanly, and a real machine answers that by RUNNING the
+    // validator: it walks the directory tree, marks every block a header, an
+    // extension or a data block occupies, and the rest is free. Seconds, and
+    // then the count is right. Reading the stale bitmap instead reports zero
+    // free for ever, and 2 of the 6 shipped AMOS Professional floppies are in
+    // this state -- Tutorial and Examples both carry `bm_flag` != -1, so
+    // `=Dfree` on either of them said the disk was full to the last block.
+    if (!valid) free = total - this.blocksInUse()
+
     // writes land in the filesystem's overlay rather than in the image, but
     // a fixed disk does not grow, so they come out of the free space
     const extra = Math.ceil(extraBytes / BSIZE)
@@ -370,9 +380,54 @@ export class AdfVolume implements Volume {
       numBlocks: total,
       numBlocksUsed: Math.min(total, total - free + extra),
       bytesPerBlock: BSIZE,
+      // still VALIDATING: the flag on the disk is a fact about the image and
+      // counting the blocks ourselves does not clear it. `Dev State` reports
+      // -2 for this and should keep doing so.
       diskState: valid ? ID_VALIDATED : ID_VALIDATING,
       diskType: this.a.ffs ? ID_FFS_DISK : ID_DOS_DISK,
     }
+  }
+
+  /** blocks the validator would find occupied, memoised: the walk is the cost */
+  private usedBlocks: number | null = null
+
+  /**
+   * What the directory tree actually occupies, counted the validator's way.
+   *
+   * Every header block (a file's or a directory's), every extension block and
+   * every data block, plus the root and the bitmap blocks the root points at.
+   * Counted into a Set because a damaged disk can have two headers claiming
+   * one data block and the answer must not exceed the disk.
+   */
+  private blocksInUse(): number {
+    if (this.usedBlocks !== null) return this.usedBlocks
+    const used = new Set<number>([this.rootBlock])
+    for (let page = 0; page < 25; page++) {
+      const b = this.a.u32(this.rootBlock, OFF.bmPages + page * 4)
+      if (b === 0 || !this.a.valid(b)) break
+      used.add(b)
+    }
+    const walk = (dir: number): void => {
+      for (const node of this.listing(dir).values()) {
+        used.add(node.block)
+        if (node.isDir) {
+          walk(node.block)
+          continue
+        }
+        // the header itself chains its extension blocks; both are occupied
+        let ext = this.a.u32(node.block, OFF.extension)
+        const seen = new Set<number>()
+        while (this.a.valid(ext) && !seen.has(ext)) {
+          seen.add(ext)
+          used.add(ext)
+          ext = this.a.u32(ext, OFF.extension)
+        }
+        for (const d of dataBlocks(this.a, node.block)) used.add(d)
+      }
+    }
+    walk(this.rootBlock)
+    this.usedBlocks = used.size
+    return this.usedBlocks
   }
 
   /** the disk's own name, from the root block — what it should be mounted as */
