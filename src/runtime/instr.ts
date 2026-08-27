@@ -280,6 +280,11 @@ function setMouseAxis(v: number, lo: number, hi: number): number {
  * call sites reach it (+Lib.s:8739 through 9128), and the check runs before
  * the screen is looked up, so 9 is error 50 and not "screen not opened".
  */
+/** a 68000 `sub.w` result, sign-extended back out of the word */
+function word(a: number, b: number): number {
+  return ((a - b) << 16) >> 16
+}
+
 function checkScreenNumber(n: number): number {
   if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
   return n
@@ -6356,19 +6361,50 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     btst(_, a) {
       return VI(int(a[1]!) & (1 << (int(a[0]!) & 31)) ? -1 : 0)
     },
+    /*
+     * All four convert between the CURRENT WINDOW's text grid and screen
+     * pixels, and the port had been converting against the screen.
+     *
+     * WOpen's WiAdr (+W.s:13763) sets `WiDxI = d2` and `WiDyI = d3`, then
+     * adds 1 to WiDxI and WiTyCar to WiDyI when the window has a border. So
+     * WiDxI counts CHARACTERS and WiDyI counts PIXELS, which is why the two
+     * axes multiply and add in the opposite order below. WiTx and WiTy hold
+     * the inner size while the console is in "Mode INTERIEUR" (WiInt,
+     * +W.s:15583), which is where it rests.
+     */
     'x text'(_, a) {
-      const x = int(a[0]!) >> 3
-      return VI(x >= 0 && x < scr().width >> 3 ? x : -1)
+      // CXyWi +W.s:10841: `lsr.w #3,d1 / sub.w WiDxI(a0),d1 / bmi / cmp.w
+      // WiTxI(a0),d1 / bcc`, and both failures answer EntNul, not -1
+      const w = scr().curWin
+      const n = word((int(a[0]!) & 0xffff) >>> 3, w.x >> 3)
+      return VI(n < 0 || n >= w.cols ? ENT_NUL : n)
     },
     'y text'(_, a) {
-      const y = int(a[0]!) >> 3
-      return VI(y >= 0 && y < scr().height >> 3 ? y : -1)
+      // CXyWi +W.s:10831: `sub.w WiDyI(a0),d2 / bmi / divu WiTyCar(a0),d2 /
+      // cmp.w WiTyI(a0),d2 / bcc`. The divide is by the CHARACTER HEIGHT,
+      // where the X axis shifts by a fixed three.
+      const w = scr().curWin
+      const d = word(int(a[0]!), w.y)
+      if (d < 0) return VI(ENT_NUL)
+      const n = Math.floor(d / 8)
+      return VI(n >= w.rows ? ENT_NUL : n)
     },
     'x graphic'(_, a) {
-      return VI(int(a[0]!) * 8)
+      // WiXGr +W.s:15272: `cmp.w WiTx(a0),d1 / bcc.s WiXYo / add.w
+      // WiDxI(a0),d1 / lsl.w #3,d1`. WiXYo is `moveq #-1,d1` — this pair
+      // answers -1 where the text pair answers EntNul. FnXGraphic
+      // (+Lib.s:10872) refuses a negative first, with Rbmi L_FonCall.
+      const n = int(a[0]!)
+      if (n < 0) funcCall()
+      const w = scr().curWin
+      return VI(n >= w.cols ? -1 : (n + (w.x >> 3)) * 8)
     },
     'y graphic'(_, a) {
-      return VI(int(a[0]!) * 8)
+      // WiYGr +W.s:15281 shifts BEFORE it adds, because WiDyI is in pixels
+      const n = int(a[0]!)
+      if (n < 0) funcCall()
+      const w = scr().curWin
+      return VI(n >= w.rows ? -1 : n * 8 + w.y)
     },
     'mouse screen'(it, a) {
       void a

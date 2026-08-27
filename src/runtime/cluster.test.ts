@@ -50,9 +50,39 @@ describe('language cluster', () => {
     expect(run('A=8 : Bchg 3,A : Print A').out).toBe(' 0\n')
   })
 
-  it('converts text and graphic coordinates', () => {
-    expect(run('Print X Text(80);Y Text(16);X Text(999)').out).toBe(' 10 2-1\n')
+  it('converts text and graphic coordinates against the current window', () => {
+    /*
+     * CXyWi (+W.s:10828) answers EntNul for a coordinate outside the window,
+     * at CXyw0 and CXyw3, where WiXGr and WiYGr (+W.s:15272) answer -1 at
+     * WiXYo. Two sentinels for the two directions, and the port returned -1
+     * for all four.
+     */
+    expect(run('Print X Text(80);Y Text(16);X Text(999)').out).toBe(' 10 2-2147483648\n')
     expect(run('Print X Graphic(10);Y Graphic(2)').out).toBe(' 80 16\n')
+    // FnXGraphic (+Lib.s:10872) opens Rbmi L_FonCall, which is 23
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('A=X Graphic(-1)')).toBe(23)
+    expect(code('A=Y Graphic(-1)')).toBe(23)
+    // past the window edge is -1, and the default window is 40 by 25
+    expect(run('Print X Graphic(40);Y Graphic(25)').out).toBe('-1-1\n')
+    /*
+     * A window away from the origin proves the offsets are real. WiAdr
+     * (+W.s:13763) writes WiDxI and WiDyI from the window's own position, so
+     * column 0 of window 1 is not column 0 of the screen, and the two
+     * directions have to invert each other. They did not: X Graphic ignored
+     * the window entirely and X Text measured against the whole screen.
+     */
+    const w = 'Screen Open 0,320,200,16,Lowres\nWind Open 1,40,32,10,5\n'
+    expect(run(`${w}Print X Text(X Graphic(3));Y Text(Y Graphic(2))`).out).toBe(' 3 2\n')
+    // and the window's own column 0 is not the screen's
+    expect(run(`${w}Print X Graphic(0)>0;Y Graphic(0)>0`).out).toBe('-1-1\n')
   })
 
   it('interprets escape strings from At/Pen$/Paper$ when printed', () => {
