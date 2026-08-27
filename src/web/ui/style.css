@@ -412,6 +412,42 @@ button.led:focus-visible {
   white-space: nowrap;
 }
 
+/*
+ * The label as a BUTTON, which is a row you can walk into.
+ *
+ * `RowSpec.go` makes the label a button rather than a span, and a button
+ * arrives wearing the browser's own clothes: `buttonface` for a background,
+ * which is light grey in a dark page and put white text on white, plus a
+ * border, a centred label and a font that is not this one. All four have to
+ * come off before the rule above means anything.
+ *
+ * It takes the tree's drawer colour, because the only caller is the Files
+ * panel and a drawer named in amber on the left should not be white on the
+ * right. A second caller that is not a drawer wants a class of its own rather
+ * than this one widened.
+ */
+button.item-label {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--tree-dir);
+  cursor: pointer;
+}
+
+button.item-label:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+button.item-label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .item-detail {
   color: var(--dim);
   overflow: hidden;
