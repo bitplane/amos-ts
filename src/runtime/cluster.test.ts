@@ -1236,6 +1236,25 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
+  it('Ins Bob needs a bank rather than making one', () => {
+    // InInsSprite +Lib.s:2334 and InInsIcon +Lib.s:2347: `Rbsr L_Bnk.GetBobs /
+    // Rbeq L_BkNoRes / move.l d3,d0 / Rble L_FonCall`, bank first then number
+    const code = (...lines: string[]): number => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', 'Ink 5 : Bar 0,0 To 7,7', ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const kw of ['Ins Bob', 'Ins Sprite', 'Ins Icon']) {
+      expect([kw, code(`${kw} 1`)]).toEqual([kw, 36])
+    }
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob 0')).toBe(23)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob -1')).toBe(23)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob 1')).toBe(0)
+  })
+
   it('No Mask with no argument clears every bob, not bob 1', () => {
     // InNoMask0 (+Lib.s:12509) and InMakeMask0 (+Lib.s:12484) both do
     // `moveq #1,d1 / Rbsr L_AdBob / Rbne L_GoError / subq.w #1,d5`, and AdBob

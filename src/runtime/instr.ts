@@ -4906,7 +4906,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function insObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const n = it.evalInt()
-      const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
+      /*
+       * InInsSprite (+Lib.s:2334) and InInsIcon (+Lib.s:2347) open `Rbsr
+       * L_Bnk.GetBobs / Rbeq L_BkNoRes / move.l d3,d0 / Rble L_FonCall`, in
+       * that order. Ins Bob does not make a bank, it needs one: with none
+       * reserved it is error 36, and the port used to answer by quietly
+       * creating an empty bank and inserting into it.
+       */
+      const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      if (n <= 0) funcCall()
       bank.insert(n)
     }
   }
