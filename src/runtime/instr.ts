@@ -267,10 +267,29 @@ function setMouseAxis(v: number, lo: number, hi: number): number {
 }
 
 /** Screen Width/Height(n): explicit n must be open (CheckScreenNumber + AdrEc) */
+/*
+ * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
+ * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
+ * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
+ *
+ * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
+ * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
+ * the range the constant enforces. A raw 6 is "Resume label not defined".
+ *
+ * The compare is unsigned, which is why one test covers both ends. Sixteen
+ * call sites reach it (+Lib.s:8739 through 9128), and the check runs before
+ * the screen is looked up, so 9 is error 50 and not "screen not opened".
+ */
+function checkScreenNumber(n: number): number {
+  if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+  return n
+}
+
 function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
-  if (a.length > 0 && int(a[0]!) >= 0) {
-    const s = rt.screens.get(int(a[0]!))
-    if (!s) throw new AmosError(`screen not opened: ${int(a[0]!)}`, 47)
+  if (a.length > 0 && int(a[0]!) !== ENT_NUL) {
+    const n = checkScreenNumber(int(a[0]!))
+    const s = rt.screens.get(n)
+    if (!s) throw new AmosError(`screen not opened: ${n}`, 47)
     return s
   }
   return rt.screen
@@ -1157,6 +1176,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens ----
     'screen open'(it) {
+      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count
       const n = it.evalInt()
       it.expect(',')
       // EcCree +W.s:2881 masks the bitmap width down to a multiple of 16
@@ -1167,14 +1187,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const nc = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      rt.openScreen(n, w, h, nc, mode)
+      rt.openScreen(checkScreenNumber(n), w, h, nc, mode)
       // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
       // Screen Open instruction adds the system flash (+Lib.s:8989);
       // HAM (4096) is 6 planes so it qualifies
       if (nc === 4096 || nc > 2) rt.installSystemFlash()
     },
     'screen close'(it) {
-      rt.closeScreen(optInt(it, rt.currentIndex))
+      rt.closeScreen(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     default() {
       // InDefault +Lib.s:8681: back to the boot display — every screen
@@ -1280,12 +1300,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.autoView = false
     },
     screen(it) {
-      rt.setCurrent(it.evalInt())
+      rt.setCurrent(checkScreenNumber(it.evalInt()))
     },
     'screen display'(it) {
       // EcView +W.s:3247: n,x,y,w,h with per-arg keep-current; w/h set the
       // displayed-window size (EcAWTx/EcAWTy). It does NOT un-hide the screen.
-      const s = byIndex(it.evalInt())
+      const s = byIndex(checkScreenNumber(it.evalInt()))
       if (it.accept(',')) {
         s.displayX = optInt(it, s.displayX)
         if (it.accept(',')) {
@@ -1298,25 +1318,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'screen offset'(it) {
-      const s = byIndex(it.evalInt())
+      const s = byIndex(checkScreenNumber(it.evalInt()))
       it.expect(',')
       s.offsetX = optInt(it, s.offsetX)
       if (it.accept(',')) s.offsetY = optInt(it, s.offsetY)
     },
+    // Screen Show and Screen Hide meet at ScShHi (+Lib.s:9057), which
+    // checks the number whichever of the two arrived with it
     'screen hide'(it) {
-      byIndex(optInt(it, rt.currentIndex)).visible = false
+      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = false
     },
     'screen show'(it) {
-      byIndex(optInt(it, rt.currentIndex)).visible = true
+      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = true
     },
     'screen to front'(it) {
-      rt.toFront(optInt(it, rt.currentIndex))
+      rt.toFront(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     'screen to back'(it) {
-      rt.toBack(optInt(it, rt.currentIndex))
+      rt.toBack(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     'screen swap'(it) {
-      const n = optInt(it, rt.currentIndex)
+      const n = checkScreenNumber(optInt(it, rt.currentIndex))
       rt.screens.get(n)?.swap()
     },
     'double buffer'() {
@@ -3764,7 +3786,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens extra ----
     'screen clone'(it) {
-      const n = it.evalInt()
+      const n = checkScreenNumber(it.evalInt())
       const src = scr()
       const clone = rt.openScreen(n, src.width, src.height, src.ham ? 4096 : src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
       // a shared BITMAP, which is what the keyword means: the clone points at
@@ -4975,22 +4997,6 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function windParams(a: number, b: number): void {
     if (a < 0 || b < 0) funcCall()
     if (scr().curWin.n === 0) throw new AmosError(ED_RUN_MESSAGES[62]!, 62)
-  }
-
-  /*
-   * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
-   * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
-   * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
-   *
-   * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
-   * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
-   * the range the constant enforces. A raw 6 is "Resume label not defined".
-   *
-   * The compare is unsigned, which is why one test covers both ends.
-   */
-  function checkScreenNumber(n: number): number {
-    if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
-    return n
   }
 
   function insObj(kind: 'sprite' | 'icon'): Instr {

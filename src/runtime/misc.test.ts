@@ -133,6 +133,47 @@ describe('screen and window odds and ends', () => {
     expect(code('Dual Playfield 0,1')).toBe(0)
   })
 
+  it('every screen keyword that names a number checks it, error 50', () => {
+    // sixteen Rbsr L_CheckScreenNumber sites sit between +Lib.s:8739 and
+    // +Lib.s:9128, and the check runs BEFORE the screen is looked up. The
+    // port reached the lookup first, so an out-of-range number came back as
+    // 47 "screen not opened" — a number that can never name a screen at all.
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,4,Lowres
+${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const src of [
+      'Screen 8', // InScreen +Lib.s:9128
+      'Screen Open 8,320,200,4,Lowres', // ScOo2 +Lib.s:8949
+      'Screen Close 8', // InScreenClose +Lib.s:8977
+      'Screen Display 8,,,,', // InScreenDisplay +Lib.s:9002
+      'Screen Offset 8,0,0', // InScreenOffset +Lib.s:9016
+      'Screen Hide 8', // ScShHi +Lib.s:9057
+      'Screen Show 8',
+      'Screen To Front 8', // +Lib.s:9098
+      'Screen To Back 8', // +Lib.s:9117
+      'Screen Swap 8', // InScreenSwap1 +Lib.s:8871
+      'Screen Clone 8', // InScreenClone +Lib.s:8912
+      'A=Screen Width(8)', // FnScreenWidth1 +Lib.s:8759
+      'A=Screen Height(8)', // FnScreenHeight1 +Lib.s:8739
+    ]) {
+      expect([src, code(src)]).toEqual([src, 50])
+    }
+    // the compare is unsigned, so a negative fails the same test
+    expect(code('Screen -1')).toBe(50)
+    expect(code('A=Screen Width(-1)')).toBe(50)
+    // 7 is in range but not open: that IS "screen not opened"
+    expect(code('Screen 7')).toBe(47)
+    // an empty slot still means the current screen, and is not a number
+    expect(code('A=Screen Width')).toBe(0)
+    expect(code('Screen Hide')).toBe(0)
+  })
+
   it('Wind Move and Wind Size refuse window 0 and a negative pair', () => {
     const code = (src: string): number => {
       try {
