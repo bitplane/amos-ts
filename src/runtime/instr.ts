@@ -2131,11 +2131,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dx = it.evalInt()
       it.expect(',')
       const dy = it.evalInt()
+      // InDefScroll (+Lib.s:10179) checks the number after reading all seven:
+      // `tst.l d7 / Rbeq L_FonCall / cmp.l #NDScrolls,d7 / Rbhi L_FonCall`,
+      // and `NDScrolls equ 10` (+Equ.s:1430), so the zones are 1 to 10
+      if (n <= 0 || n > 10) funcCall()
       rt.scrollZones.set(n, { x1, y1, x2, y2, dx, dy })
     },
     scroll(it) {
-      const z = rt.scrollZones.get(it.evalInt())
-      if (!z) return
+      const n = it.evalInt()
+      // InScroll (+Lib.s:10194) writes the same range the other way round,
+      // `subq.l #1,d3 / cmp.l #NDScrolls,d3 / Rbcc L_FonCall`, unsigned so it
+      // catches 0 and negatives on the wrap
+      if (n <= 0 || n > 10) funcCall()
+      const z = rt.scrollZones.get(n)
+      // an untouched slot reads $8000: `cmp.w #$8000,(a1) / beq ScNoDef`, and
+      // ScNoDef is `moveq #28,d0 / Rbra L_EcWiErr` (+Lib.s:10225), which after
+      // EcWiErr's +44 is error 72, "Scrolling zone not defined". 28 on its own
+      // is "Array already dimensioned", which is how you know the +44 is there
+      if (!z) throw new AmosError('Scrolling zone not defined', 72)
       const s = scr()
       Screen.copy(s, z.x1, z.y1, z.x2, z.y2, s, z.x1 + z.dx, z.y1 + z.dy)
     },

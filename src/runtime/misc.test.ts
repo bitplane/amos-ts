@@ -7,6 +7,7 @@ import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -107,6 +108,30 @@ describe('screen and window odds and ends', () => {
     expect(rt.scrollZones.get(1)).toMatchObject({ x1: 0, y1: 0, x2: 100, y2: 100, dx: 8, dy: 0 })
     // the block moved right by 8 pixels
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
+  })
+
+  it('there are ten scrolling zones, and an undefined one is error 72', () => {
+    const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
+    const code = (src: string): number => {
+      try {
+        run(`${open}\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // `NDScrolls equ 10` (+Equ.s:1430). InDefScroll +Lib.s:10179 is `tst.l d7 /
+    // Rbeq L_FonCall / cmp.l #NDScrolls,d7 / Rbhi L_FonCall`, InScroll
+    // +Lib.s:10194 the same range as `subq.l #1,d3 / cmp.l #NDScrolls,d3 / Rbcc`
+    expect(code('Def Scroll 0,0,0 To 10,10,1,0')).toBe(23)
+    expect(code('Def Scroll 11,0,0 To 10,10,1,0')).toBe(23)
+    expect(code('Def Scroll 10,0,0 To 10,10,1,0')).toBe(0)
+    expect(code('Scroll 0')).toBe(23)
+    expect(code('Scroll 11')).toBe(23)
+    // in range but never defined: ScNoDef +Lib.s:10225 `moveq #28,d0 / Rbra
+    // L_EcWiErr`, and 28 + 44 is 72, "Scrolling zone not defined"
+    expect(code('Scroll 5')).toBe(72)
+    expect(code('Def Scroll 5,0,0 To 10,10,1,0\nScroll 5')).toBe(0)
   })
 
   it('Scroll On and Scroll Off control whether the window scrolls at its foot', () => {
