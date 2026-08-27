@@ -4817,11 +4817,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         throw new AmosError('Get Bob: wrong arguments')
       }
+      /*
+       * Ritoune (+Lib.s:12668) is the argument reader all three share, and it
+       * refuses a negative coordinate before it measures anything: `move.l
+       * d3,d5 / Rbmi L_FonCall / move.l (a3)+,d4 / Rbmi L_FonCall / move.l
+       * (a3)+,d3 / Rbmi L_FonCall / move.l (a3)+,d2 / Rbmi L_FonCall`. Only
+       * then the size: `cmp.w EcTx(a0),d4 / Rbhi` and `cmp.w EcTy(a0),d5 /
+       * Rbhi`, then `sub.w d2,d4 / Rbls` and `sub.w d3,d5 / Rbls`.
+       *
+       * The port had the last four. Without the first four `Get Bob 1,-5,-5
+       * To 10,10` grabbed from off the left of the screen, because a negative
+       * corner still satisfies x2 > x1.
+       */
+      if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) funcCall()
+      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) funcCall()
+      // and GS/GI open `move.l (a3),d0 / Rble L_FonCall` (+Lib.s:12590,
+      // +Lib.s:12638), so the image number is checked after the coordinates
+      if (img <= 0) funcCall()
       const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
       // a freshly grabbed icon has no mask either, for the same reason
-      // Ritoune +Lib.s:12668: w=x2-x1, h=y2-y1 both must be positive and
-      // within the screen
-      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) funcCall()
       const grabbed = rt.grab(s, x1, y1, x2, y2)
       if (kind === 'icon') grabbed.opaque = true
       bank.setImage(img, grabbed)

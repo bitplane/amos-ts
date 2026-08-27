@@ -1236,6 +1236,30 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
+  it('Get Bob, Get Sprite and Get Icon refuse a negative corner and image 0', () => {
+    // Ritoune (+Lib.s:12668) reads all four coordinates through `Rbmi
+    // L_FonCall` before it measures anything, and GS/GI then open `move.l
+    // (a3),d0 / Rble L_FonCall` (+Lib.s:12590, 12638)
+    const bad = (src: string): boolean => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', src].join('\n'))
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const kw of ['Get Bob', 'Get Sprite', 'Get Icon']) {
+      // a negative corner still satisfies x2 > x1, so it passed the size check
+      expect([kw, bad(`${kw} 1,-5,-5 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 1,-1,0 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 1,0,-1 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 0,0,0 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} -1,0,0 To 10,10`)]).toEqual([kw, true])
+      // and the legal one still works
+      expect([kw, bad(`${kw} 1,0,0 To 10,10`)]).toEqual([kw, false])
+    }
+  })
+
   it('a block number outside 1..65535 is error 66, and bare Del Block still clears the lot', () => {
     // all six block keywords open with the same guard: `Rbeq L_BFonCall /
     // cmp.l #65536,d5 / Rbcc L_BFonCall` (+Lib.s:11069, 11091, 11109, 11133,
