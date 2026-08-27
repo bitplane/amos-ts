@@ -122,6 +122,20 @@ describe('console escape-string functions', () => {
       ' 3 66 51\n',
     )
     expect(run('A$=Pen$(2) : Print Asc(Mid$(A$,2,1));Asc(Mid$(A$,3,1))').out).toBe(' 80 50\n')
+    // FPn (+Lib.s:14002) `cmp.l #32,d3 / Rbcc L_WFonCall`, and WFonCall is
+    // `moveq #16,d0 / Rbra L_EcWiErr` so a program sees 60. Unsigned, so one
+    // compare covers the negative end
+    for (const src of ['A$=Pen$(32)', 'A$=Paper$(32)', 'A$=Pen$(-1)']) {
+      let n = 0
+      try {
+        run(src)
+      } catch (e) {
+        n = amosErrorCode(e as AmosError)
+      }
+      expect([src, n]).toEqual([src, 60])
+    }
+    // 31 is the last legal one, and its digit byte is 48 + 31
+    expect(run('A$=Pen$(31) : Print Asc(Mid$(A$,3,1))').out).toBe(' 79\n')
   })
 
   it('Cmove$ builds a relative cursor move, biased by 128', () => {

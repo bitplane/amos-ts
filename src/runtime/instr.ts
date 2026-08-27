@@ -5276,6 +5276,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     if (n < 0 || n >= 64) funcCall()
     return n
   }
+  /** FPn's range check (+Lib.s:14002), shared by Pen$ and Paper$ */
+  const fpn = (n: number): number => {
+    if (n >>> 0 >= 32) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+    return n
+  }
   /** HsActAd's range check (+W.s:11399), shared by X Sprite, Y Sprite, I Sprite */
   const hwSprite = (n: number): { x: number; y: number; image: number } | undefined => {
     if (n < 0 || n >= 64) funcCall()
@@ -6319,11 +6324,19 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       it.inp.lastShift = 0
       return VI(v)
     },
+    /*
+     * FnPenD and FnPaperD (+Lib.s:13986, 13993) differ only in the letter they
+     * point a2 at, and both fall into FPn (+Lib.s:14000): `cmp.l #32,d3 /
+     * Rbcc L_WFonCall / add.b #"0",d3 / move.b d3,2(a2)`. Unsigned, so the one
+     * compare refuses a negative too, and WFonCall is `moveq #16,d0 / Rbra
+     * L_EcWiErr`, error 60. The port put whatever it was given through
+     * `48 + n`, so Pen$(200) built an escape naming a colour that is not there.
+     */
     'pen$'(_, a) {
-      return VS('\x1bP' + String.fromCharCode(48 + int(a[0]!)))
+      return VS('\x1bP' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'paper$'(_, a) {
-      return VS('\x1bB' + String.fromCharCode(48 + int(a[0]!)))
+      return VS('\x1bB' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'cmove$'(_, a) {
       const x = a.length > 0 ? int(a[0]!) : 0
