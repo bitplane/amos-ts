@@ -1085,7 +1085,7 @@ export class Screen {
       let x2 = px
       while (x2 < cx1 && blocked[at(x2 + 1, py)] === 0) x2++
       for (let sx = x1; sx <= x2; sx++) blocked[at(sx, py)] = 1
-      this.rp.hlineReplace(x1, x2, py, c)
+      this.paintSpan(x1, x2, py, c, cx0, cy0)
       // one seed where a run starts, not one per column: TPaint pushes only on
       // the transition into an available pixel, which is what the bclr/bset
       // #15,d5 edge flag at Pnt5/Pnt6 is tracking
@@ -1099,6 +1099,49 @@ export class Screen {
         }
       }
     }
+  }
+
+  /**
+   * One run of a `Paint`, through `Set Pattern`.
+   *
+   * `TPaint` reads rp_AreaPtrn at RastPort offset 8 and rp_AreaPtSz at 29
+   * (+W.s:4540) and blits a word per row: `and.w d1,d0` puts the pen where
+   * the pattern bit is SET, `not.w d1 / and.w d2,d1 / or.w d1,d0` puts the
+   * PAPER where it is clear. Both pens, not pen-or-leave-it — the `d7`/`d6`
+   * pair being rotated a bit per plane is FgPen (offset 25) and BgPen (26).
+   *
+   * The pattern is anchored to the CLIPPING WINDOW, not to the seed and not
+   * to the pixel origin: the blit's start address is
+   * `EcClipY0 * EcTLigne + (EcClipX0 and $FFF0)/8` (:4333) and the row
+   * pointer is reset to the top of the pattern at the start of each plane.
+   * With no `Clip` set both are zero, which is the screen origin and the
+   * common case.
+   *
+   * rp_DrawMode at offset 28 is not among the fields TPaint reads, so this
+   * replaces even under `Gr Writing 2` — the argument `hlineReplace` carries.
+   */
+  private paintSpan(x1: number, x2: number, y: number, c: number, cx0: number, cy0: number): void {
+    const pat = this.pattern
+    if (pat === null) {
+      this.rp.hlineReplace(x1, x2, y, c)
+      return
+    }
+    const rows = pat.length
+    const row = pat[(((y - cy0) % rows) + rows) % rows]!
+    // EcClipX0 is masked to a word boundary before it becomes the blit's
+    // start address, so the phase is the clip's WORD, not its pixel
+    const ax = cx0 & ~15
+    let runStart = x1
+    let runColour = (row >> (15 - (((x1 - ax) % 16) + 16) % 16)) & 1 ? c : this.gPaper
+    for (let sx = x1 + 1; sx <= x2; sx++) {
+      const bit = (row >> (15 - (((sx - ax) % 16) + 16) % 16)) & 1
+      const colour = bit ? c : this.gPaper
+      if (colour === runColour) continue
+      this.rp.hlineReplace(runStart, sx - 1, y, runColour)
+      runStart = sx
+      runColour = colour
+    }
+    this.rp.hlineReplace(runStart, x2, y, runColour)
   }
 
   /**
