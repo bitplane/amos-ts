@@ -32,10 +32,27 @@ describe('identifying a file for the Files panel', () => {
     expect(identify('notes.txt', listing).group).toBe('text')
   })
 
-  it('knows an AMOS bank file', () => {
-    const bank = identify('sprites.abk', file('AmBk'))
-    expect(bank.group).toBe('bank')
-    expect(bank.container).toBe(true)
+  it('knows all four kinds of .Abk, not just the memory one', () => {
+    // There is no single bank magic and only `AmBk` used to be tested, so
+    // every sprite bank in the corpus came back as `data` with nothing to
+    // look at. These are the four `parseAmosFile` accepts.
+    for (const [magic, name] of [
+      ['AmBk', 'AMOS bank'],
+      ['AmSp', 'AMOS sprites'],
+      ['AmIc', 'AMOS icons'],
+      ['AmBs', 'AMOS banks'],
+    ] as const) {
+      const bank = identify('thing.abk', file(magic))
+      expect(bank.group, magic).toBe('bank')
+      expect(bank.name, magic).toBe(name)
+      expect(bank.container, magic).toBe(true)
+    }
+  })
+
+  it('does not take a name for a bank magic', () => {
+    // `.abk` on the end is not evidence: the corpus holds files named that
+    // way that are something else entirely
+    expect(identify('notreally.abk', file('JUNK')).group).not.toBe('bank')
   })
 
   it('knows a floppy image by its size and says what it is called', () => {

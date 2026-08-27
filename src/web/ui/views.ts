@@ -340,9 +340,20 @@ export function viewsFor(bytes: Uint8Array, hostApi: ViewHost): View[] | null {
   }
   const views: View[] = []
   if (file.source.length > 0) views.push(listingView(file.source))
+
+  // A bare `.Abk` holding one bank does not say which slot it belongs in:
+  // the number lives in the AmBs list, and a single-bank file has no list.
+  // `Sprite Bank` is 1 and `Icon Bank` is 2 by convention, but a convention
+  // is not a fact about the file, so the tab says the kind and no number.
+  const numbered = file.bankList === true || file.banks.length > 1
+
   file.banks.forEach((bank, i) => {
     try {
       const v = viewForBank(bank, hostApi, i)
+      if (!numbered) {
+        views.push(v)
+        return
+      }
       const number = bank.kind === 'memory' ? bank.number : i + 1
       views.push({ ...v, label: `${number}. ${v.label}` })
     } catch {

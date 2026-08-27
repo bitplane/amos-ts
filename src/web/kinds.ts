@@ -82,9 +82,35 @@ const kind = (group: KindGroup, name: string, extra: Partial<Kind> = {}): Kind =
   ...extra,
 })
 
-/** `AmBk`, the header every AMOS bank file starts with (../loader/amosfile.ts) */
-const isBank = (d: Uint8Array): boolean =>
-  d.length >= 4 && d[0] === 0x41 && d[1] === 0x6d && d[2] === 0x42 && d[3] === 0x6b
+/**
+ * A `.Abk`, and which of the four kinds it is.
+ *
+ * There is no single bank magic, which is the thing this got wrong first
+ * time: `AmBk` is a memory bank, `AmSp` a sprite bank, `AmIc` an icon bank,
+ * and `AmBs` is what `Bsave` writes for "save all banks". Only the first was
+ * tested, so every sprite bank in the corpus came back as `data` and the row
+ * offered nothing to look at. `parseAmosFile` accepts all four and always
+ * has; this is the list from its own first two branches.
+ *
+ * Naming the kind rather than saying "AMOS banks" for all of them, because
+ * the detail column is the only place a reader finds out which they have
+ * before opening the row.
+ */
+function bankKind(d: Uint8Array): string | null {
+  if (d.length < 4) return null
+  switch (String.fromCharCode(d[0]!, d[1]!, d[2]!, d[3]!)) {
+    case 'AmBs':
+      return 'AMOS banks'
+    case 'AmSp':
+      return 'AMOS sprites'
+    case 'AmIc':
+      return 'AMOS icons'
+    case 'AmBk':
+      return 'AMOS bank'
+    default:
+      return null
+  }
+}
 
 /** `do_Magic` is WB_DISKMAGIC, and a .info without it is not an icon */
 const isIcon = (d: Uint8Array): boolean => d.length >= 2 && ((d[0]! << 8) | d[1]!) === ICON_MAGIC
@@ -134,7 +160,8 @@ export function identify(name: string, bytes: Uint8Array | null): Kind {
   // AMOS first, because it is what this port is for and because both of its
   // spellings are cheap to test
   if (isAmosProgram(bytes)) return kind('program', 'AMOS program', { openable: true })
-  if (isBank(bytes)) return kind('bank', 'AMOS banks', { container: true })
+  const bank = bankKind(bytes)
+  if (bank !== null) return kind('bank', bank, { container: true })
 
   // A disk image is a plain run of sectors with no magic anywhere, so `isAdf`
   // is a length against the three floppy geometries and then "DOS" at 0

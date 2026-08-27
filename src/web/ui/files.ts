@@ -159,22 +159,6 @@ function membersOf(kind: Kind, bytes: Uint8Array): { path: string; size: number 
     if (tar.length > 0) return tar.map((e) => ({ path: e.path, size: e.data.length }))
     return []
   }
-  if (kind.group === 'bank') {
-    // A bank file's members are its banks, which is the same question one
-    // level down: `Load "x.abk"` puts these in numbered slots.
-    try {
-      // A memory bank knows its own number and name; a sprite or icon bank is
-      // identified by BEING one, because AMOS gives them fixed slots (`Sprite
-      // Bank` is 1 and `Icon Bank` is 2) rather than storing a number.
-      return parseAmosFile(bytes).banks.map((b) =>
-        b.kind === 'memory'
-          ? { path: `${b.number}: ${b.name.trim()}`, size: b.data.length }
-          : { path: `${b.kind}, ${b.sprites.length} of them`, size: 0 },
-      )
-    } catch {
-      return []
-    }
-  }
   return null
 }
 
