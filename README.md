@@ -9,6 +9,16 @@ play tested. Timings are a bit wrong etc.
 Run it now at **[amos.bitplane.net](https://amos.bitplane.net)** - drop a
 file (.amos, .adf, .zip etc) and see how it plays.
 
+| Eggit | NSLE | Thrusts |
+| :---: | :---: | :---: |
+| ![Eggit](https://amos.bitplane.net/library/bitplane.net/Eggit.png) | ![NSLE](https://amos.bitplane.net/library/bitplane.net/NSLE.png) | ![Thrusts](https://amos.bitplane.net/library/bitplane.net/Thrusts.png) |
+| Scrawler | Goldfish | Draw 'n' Draw |
+| ![Scrawler](https://amos.bitplane.net/library/bitplane.net/Scrawler.png) | ![Goldfish](https://amos.bitplane.net/library/bitplane.net/Goldfish.png) | ![Draw 'n' Draw](https://amos.bitplane.net/library/bitplane.net/Draw%20%27n%27%20Draw.png) |
+
+Six of the disks in the Browse tab, which come from
+[bitplane/amos-library](https://github.com/bitplane/amos-library) and are
+served beside the player at `amos.bitplane.net/library/`.
+
 The project is under heavy development, so hotlink latest at risk of breakage.
 Releases are pinned at `amos.bitplane.net/v/<version>/`, or build your own or
 whatever.
