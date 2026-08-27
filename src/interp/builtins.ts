@@ -695,8 +695,14 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   error(it) {
-    // Error n: raise error number n (InError +Lib.s:11396)
-    const n = it.evalInt()
+    /*
+     * Error n (InError +Lib.s:11396): `cmp.l #256,d3 / bcs.s .skip / move.l
+     * #255,d3`. The compare is unsigned, so it clamps a negative to 255 as
+     * well as anything past the table, and the program's own On Error
+     * handler sees 255 rather than a number no message exists for.
+     */
+    const raw = it.evalInt()
+    const n = raw >>> 0 >= 256 ? 255 : raw
     throw new AmosError(AMOS_ERRORS[n] ?? `Error ${n}`, n)
   },
   resume(it) {
@@ -803,8 +809,11 @@ export const INSTR: Record<string, Instr> = {
   },
   every(it) {
     // Every n Gosub label / Every n Proc NAME (InEvery)
+    // InEvery (+ILib.s:2040) is `tst.l d3 / beq FonCall / cmp.l #32767,d3 /
+    // bcc FonCall`. bcc fires ON 32767, so the last usable count is 32766
+    // and the port had been taking one more than AMOS does.
     const n = it.evalInt()
-    if (n <= 0 || n > 32767) funcCall()
+    if (n <= 0 || n >>> 0 >= 32767) funcCall()
     const kind = it.nm()
     if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('Every needs Gosub or Proc')
     it.advance()
