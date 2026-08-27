@@ -5532,7 +5532,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (!r || vfs.exists(path === '' ? vfs.currentDir : path) === null) {
         throw new AmosError('device not available')
       }
-      const volName = r.canonical.split(':')[0]!
+      // id_VolumeNode, then dl_Name at offset $28 — the VOLUME node, so a
+      // disk asked about as `Df0:` still names itself. `AmigaFS.lockPath`
+      // carries the argument.
+      const volName = vfs.volumeNodeName(r.volume) ?? r.canonical.split(':')[0]!
       return VS(`${volName}:` + String(0x7fffffff).padEnd(10))
     },
     'dir first$'(_, a) {

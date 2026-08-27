@@ -702,6 +702,44 @@ export class AmigaFS implements AmosFS {
   }
 
   /**
+   * What a LOCK on this volume answers with, which is never the device name.
+   *
+   * `entryOf` above echoes back the name a path was WRITTEN with, and that is
+   * right for a path: `DF0:s/startup-sequence` prints as it was typed. A lock
+   * is a different object. `AskDir2` (+B.s:1153) is `NameFromLock` written out
+   * by hand -- walk `ParentDir` up until it answers 0, then come back down
+   * `Examine`-ing each lock and appending `fib_FileName`, the first with a
+   * `:` after it and the rest with `/`. `Examine` on a ROOT lock gives the
+   * VOLUME's name, because a lock belongs to a volume and not to the DEVICE
+   * node the caller happened to reach it through. There is no way to get
+   * "DF0" back out of one.
+   *
+   * `Dir$ = path` and `Disc Info$` are the two that go through a lock:
+   * `InDirD` (+Lib.s:4799) locks, Examines, calls `AskDir2` and copies THAT,
+   * and `FnDiscInfo` (:4995) reads id_VolumeNode from the Info structure and
+   * takes dl_Name off it at offset $28.
+   *
+   * A disk with no label has no VOLUME node to name, so the unit stands in.
+   * They exist -- see the `label === ''` fallback in the web player's mount.
+   */
+  volumeNodeName(key: string): string | null {
+    const drive = this.driveOf(key)
+    const medium = drive?.medium
+    if (drive && medium) return medium.label !== '' ? medium.label : `DF${drive.unit}`
+    return this.volumes.get(key)?.name ?? null
+  }
+
+  /**
+   * A resolved path spelled the way a lock on it would answer, not the way it
+   * was typed. See `volumeNodeName`.
+   */
+  lockPath(r: ResolvedPath): string {
+    const vol = this.volumeNodeName(r.volume)
+    if (vol === null) return r.canonical
+    return `${vol}:${r.segs.join('/')}`
+  }
+
+  /**
    * Is this name a volume at all? A drive with no disk in it is NOT.
    *
    * Public because `missingVolume` above hands a name to a host, and the host
@@ -1005,10 +1043,22 @@ export class AmigaFS implements AmosFS {
     return true
   }
 
+  /**
+   * `Dir$ = path`, which stores what a LOCK says and not what was typed.
+   *
+   * `InDirD` (+Lib.s:4799) is `LockGet / Examine / AskDir2 / LockFree /
+   * CopyPath`: the path it keeps is the one derived from the lock, so
+   * `Dir$="Df0:"` leaves `Dir$` reading `AMOSPro_System:`. AMOS Pro's own
+   * `Install.AMOS` turns that into a "which disc is in this drive" probe --
+   * `_GET_DISC` walks DF0: to DF2:, assigns each to `Dir$` and compares the
+   * result against `"AMOSPro_System:"` -- so echoing the device name back
+   * made every drive the wrong disc and the installer asked for a disk that
+   * was already in.
+   */
   setCurrentDir(path: string): boolean {
     const r = this.resolve(path)
     if (!r || this.exists(path) !== 'dir') return false
-    this.currentDir = r.canonical
+    this.currentDir = this.lockPath(r)
     return true
   }
 

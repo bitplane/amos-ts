@@ -248,6 +248,33 @@ describe('one disk, two names: the device node and the volume node', () => {
     expect(fs.readFile('DF0:thing')).not.toBeNull()
   })
 
+  /**
+   * A LOCK belongs to the volume, so it can only ever name the volume.
+   *
+   * `AskDir2` (+B.s:1153) walks `ParentDir` up to the root and comes back down
+   * `Examine`-ing each lock, appending `fib_FileName` with a `:` after the
+   * first. `Examine` on a root lock answers with the VOLUME's name whichever
+   * node the caller reached it through, so there is no getting "DF0" back out
+   * of one — which is what makes `Dir$ = "Df0:"` a "what disc is in this
+   * drive" probe, and what AMOS Pro's `Install.AMOS` uses it as.
+   */
+  it('a lock on the device node still answers with the volume name', () => {
+    const { fs, m } = boot()
+    m.drives[0]!.insert(medium('AMOSPro_System', { 'install.amos': 'x' }))
+    // the path echoes back as it was typed...
+    expect(fs.resolve('DF0:install.amos')?.canonical).toBe('DF0:install.amos')
+    // ...but a lock on it does not
+    expect(fs.volumeNodeName('df0')).toBe('AMOSPro_System')
+    expect(fs.setCurrentDir('DF0:')).toBe(true)
+    expect(fs.currentDir).toBe('AMOSPro_System:')
+  })
+
+  it('an unlabelled disk has no volume node, so the unit stands in', () => {
+    const { fs, m } = boot()
+    m.drives[1]!.insert(medium('', { file: 'x' }))
+    expect(fs.volumeNodeName('df1')).toBe('DF1')
+  })
+
   it('refuses a write to a disk whose tab is open', () => {
     // this could not be expressed at all before there was a drive to hold the
     // tab: AdfVolume declines the question by design
