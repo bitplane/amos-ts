@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAmosProgram, isQualifier, keyRoute, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
+import { isAmosProgram, isQualifier, keyRoute, overlayLabel, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
 import { keyToFunc, QUAL } from '../editor/keymap'
 
 describe('picking the program out of an archive', () => {
@@ -180,3 +180,27 @@ describe('keys the Amiga keyboard is missing', () => {
   })
 })
 
+
+describe('the veil over the canvas', () => {
+  // One element, two reasons for being up, and they cannot overlap: the click
+  // that starts a player is also the click that resumes one.
+
+  it('asks for the gesture before anything has run', () => {
+    expect(overlayLabel(false, false)).toBe('▶ play')
+    expect(overlayLabel(false, false, 'start Zybex')).toBe('start Zybex')
+  })
+
+  it('says nothing over a machine that is running', () => {
+    expect(overlayLabel(true, false)).toBe('')
+  })
+
+  it('says paused once it has started', () => {
+    expect(overlayLabel(true, true)).toBe('▶ paused')
+  })
+
+  it('asks for the gesture first, whatever the pause flag says', () => {
+    // a host can call setPaused before the overlay has ever been clicked, and
+    // "paused" over a player that has never drawn a frame names the wrong thing
+    expect(overlayLabel(false, true, 'start Zybex')).toBe('start Zybex')
+  })
+})

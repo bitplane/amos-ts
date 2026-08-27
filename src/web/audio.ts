@@ -30,6 +30,18 @@ export class WebAudioSink implements AudioSink {
     if (this.ctx.state === 'suspended') void this.ctx.resume()
   }
 
+  /**
+   * Freeze the clock the voices are scheduled against, for a paused machine.
+   *
+   * Not `stop()` on all four. A looping sample would have to be retriggered to
+   * come back, and the replayer holding it never heard that it went away.
+   * Suspending stops `currentTime`, so every scheduled node is where it was
+   * when `unlock()` resumes.
+   */
+  suspend(): void {
+    if (this.ctx?.state === 'running') void this.ctx.suspend()
+  }
+
   private output(): AudioNode | null {
     if (!this.ctx) return null
     if (!this.master) {

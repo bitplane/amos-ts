@@ -40,6 +40,15 @@ export interface StripOptions {
   isRunning(): boolean
   /** which program is loaded, shown so a transient status cannot lose it */
   programName(): string
+  /**
+   * Stopped where it stands.
+   *
+   * The control has to be here as well as on the player: the machine keeps
+   * running while you are looking at the filesystem, and that is the tab you
+   * are on when you want it to stop.
+   */
+  isPaused(): boolean
+  setPaused(on: boolean): void
 }
 
 export function createStrip(machine: Machine, opts: StripOptions): Strip {
@@ -55,6 +64,15 @@ export function createStrip(machine: Machine, opts: StripOptions): Strip {
   power.title = 'reset the machine'
   power.addEventListener('click', opts.onReset)
   root.appendChild(power)
+
+  // Not a light. The power light is one because the machine had one; nothing
+  // on an A500 stops the CPU where it stands, so this is a button and looks
+  // like the buttons on the panels rather than like the hardware.
+  const pause = document.createElement('button')
+  pause.className = 'act'
+  pause.type = 'button'
+  pause.addEventListener('click', () => opts.setPaused(!opts.isPaused()))
+  root.appendChild(pause)
 
   const name = document.createElement('span')
   name.id = 'progname'
@@ -83,10 +101,21 @@ export function createStrip(machine: Machine, opts: StripOptions): Strip {
     const prog = opts.programName()
     if (name.textContent !== prog) name.textContent = prog
 
+    const held = opts.isPaused()
+    const wants = held ? 'resume' : 'pause'
+    if (pause.textContent !== wants) {
+      pause.textContent = wants
+      pause.title = held ? 'start the machine again' : 'stop the machine where it is'
+    }
+
+    // Three states, not two. A paused machine is running a program that is
+    // going nowhere, and reporting that as "running" is the same lie the
+    // chip was added to stop: it looks identical on the canvas either way.
     const going = opts.isRunning()
-    if (run.textContent !== (going ? 'running' : 'stopped')) {
-      run.textContent = going ? 'running' : 'stopped'
-      run.className = going ? 'chip on' : 'chip warn'
+    const say = held ? 'paused' : going ? 'running' : 'stopped'
+    if (run.textContent !== say) {
+      run.textContent = say
+      run.className = say === 'running' ? 'chip on' : 'chip warn'
     }
     for (const [unit, el] of lights.entries()) {
       const drive = machine.drives[unit] ?? null

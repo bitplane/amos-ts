@@ -762,6 +762,8 @@ document.getElementById('panels')!.append(browse.panel)
 const strip = createStrip(player.machine, {
   isRunning: () => player.isRunning(),
   programName: () => player.programName,
+  isPaused: () => player.isPaused(),
+  setPaused: (on) => player.setPaused(on),
   onReset: () => {
     player.restart()
     setStatus(`reset ${player.programName}`)
