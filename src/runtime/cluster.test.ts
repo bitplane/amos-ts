@@ -1040,9 +1040,46 @@ describe('drawing primitives (graphics cursor + shapes)', () => {
     expect(rightmost - leftmost).toBeGreaterThan(60)
   })
 
-  it('Circle/Ellipse error on a non-positive radius (FonCall)', () => {
+  it('Circle/Ellipse error on a radius of zero, and only zero', () => {
+    // InCircle (+Lib.s:9603) is `move.l d3,d2 / Rbls L_FonCall` and InEllipse
+    // (+Lib.s:9617) is `tst.l d3 / Rbls` then `move.l (a3)+,d2 / Rbls`. A move
+    // and a tst both CLEAR the carry, so every one of those `bls` branches can
+    // only fire on Z. Zero is the error; a negative radius runs.
     expect(() => run('Circle 10,10,0')).toThrow()
     expect(() => run('Ellipse 10,10,5,0')).toThrow()
+    expect(() => run('Ellipse 10,10,0,5')).toThrow()
+    expect(() => run('Circle 10,10,-5')).not.toThrow()
+    expect(() => run('Ellipse 10,10,-5,-5')).not.toThrow()
+  })
+
+  it('a blank coordinate leaves that axis alone (GrXY +Lib.s:11225)', () => {
+    // `cmp.l #EntNul,d1 / beq.s GrXy1` — AMOS compiles an empty numeric slot
+    // to EntNul and GrXY skips the write, so one axis moves and the other
+    // stays. Every keyword that reaches GrXY behaves this way.
+    const cur = (src: string): [number, number] => {
+      const s = run(src).rt.screen
+      return [s.grX, s.grY]
+    }
+    expect(cur('Gr Locate 30,40 : Gr Locate ,100')).toEqual([30, 100])
+    expect(cur('Gr Locate 30,40 : Gr Locate 70,')).toEqual([70, 40])
+    expect(cur('Gr Locate 30,40 : Gr Locate ,')).toEqual([30, 40])
+    expect(cur('Gr Locate 30,40 : Plot ,90')).toEqual([30, 90])
+    expect(cur('Gr Locate 30,40 : Circle ,90,10')).toEqual([30, 90])
+  })
+
+  it('Plot sets the pen for good, refuses a negative one, and keeps a blank one', () => {
+    /*
+     * InPlot3 (+Lib.s:9535): `move.l d3,d0 / Rbmi L_FonCall`, then
+     * `cmp.l #EntNul,d0 / beq.s .Skip / GfxCa5 SetAPen`. The pen is the
+     * RastPort's, so it outlives the statement.
+     */
+    expect(() => run('Plot 10,10,-1')).toThrow()
+    // the colour given to one Plot is still in force for the next
+    const s = run('Ink 2 : Plot 10,10,5 : Plot 20,20').rt.screens.get(0)!
+    expect(s.point(20, 20)).toBe(5)
+    // a blank colour slot leaves the ink where it was
+    const kept = run('Ink 3 : Plot 10,10,').rt.screens.get(0)!
+    expect(kept.point(10, 10)).toBe(3)
   })
 })
 

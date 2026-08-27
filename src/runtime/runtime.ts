@@ -4911,11 +4911,19 @@ export class Runtime {
     } else {
       /*
        * 256 is not AMOS's — `Screen Open` on a real Amiga stops at 64,
-       * because AMOS predates AGA and never learned about it. It is here
-       * for the extensions that DO drive eight bitplanes: AGA 1.0's `Aga
-       * Screen Open` is 320x256x8, and Personnal's AGA icon bank works in
-       * the same space. Nothing reaches this with 256 unless an extension
-       * asked for it, so no AMOS program's error behaviour changes.
+       * because AMOS predates AGA and never learned about it. It is here for
+       * the extensions that DO drive eight bitplanes: AGA 1.0's `Aga Screen
+       * Open` is 320x256x8, and Personnal's AGA icon bank works in the same
+       * space.
+       *
+       * DEVIATION: this is the plain `Screen Open` path too, so a program
+       * that writes `Screen Open 0,320,200,256,Lowres` gets a screen where
+       * the original gives error 5. The comment here used to say nothing
+       * reached this with 256 unless an extension asked for it, which was
+       * simply wrong — the keyword hands its own argument straight down. The
+       * cost of closing it is that the AGA extensions would need a private
+       * door into this function; the cost of leaving it is that one wrong
+       * colour count draws instead of stopping.
        */
       if (![2, 4, 8, 16, 32, 64, 256].includes(colours))
         throw new AmosError('illegal number of colours')

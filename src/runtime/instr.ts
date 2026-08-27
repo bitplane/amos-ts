@@ -1,5 +1,5 @@
 import { examinedFonts } from './fontlist'
-import { AmosError, ERR, VF, VI, VS, int, num, str, varType } from '../interp/values'
+import { AmosError, ERR, VF, VI, VS, funcCall, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
 import { BNK, isObjectBank } from './banks'
@@ -176,6 +176,45 @@ function pair(it: It): [number, number] {
   const x = it.evalInt()
   it.expect(',')
   return [x, it.evalInt()]
+}
+
+/**
+ * Was this numeric slot left blank?
+ *
+ * AMOS compiles an empty numeric argument to EntNul ($80000000, +Equ.s:39)
+ * rather than refusing the line, and the routines test for it. Five places in
+ * this tree had grown the same test independently — `optInt` above,
+ * `omittable` in intuition.ts, the inline `omitted()` in `Limit Mouse`, and
+ * `Ink`'s own `it.nm() !== ','` — and the one place that never grew it is the
+ * one with the bug: `pair` evaluates both slots unconditionally, so every
+ * keyword reaching `GrXY` ignored the convention.
+ */
+function omittedArg(it: It): boolean {
+  return it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to' || it.nm() === ')'
+}
+
+/** `pair`, for the keywords whose original routine reaches `GrXY` */
+function optPair(it: It): [number | null, number | null] {
+  const x = omittedArg(it) ? null : it.evalInt()
+  it.expect(',')
+  return [x, omittedArg(it) ? null : it.evalInt()]
+}
+
+/**
+ * `GrXY` (+Lib.s:11225): move the graphics cursor, then say where it ended up.
+ *
+ *     cmp.l #EntNul,d1 / beq.s GrXy1 / move.w d1,38(a1)
+ *     GrXy1: cmp.l #EntNul,d0 / beq.s GrXy2 / move.w d0,36(a1)
+ *
+ * A blank coordinate leaves that axis where it was, so `Gr Locate ,100` moves
+ * y alone and `Plot ,100` plots at the cursor's own x. `InPlot2`, `InPlot3`,
+ * `RPoint`, `InDraw`, `EllCir`, `InGrLocate` and `InText` all call it;
+ * `InDrawTo` deliberately does not.
+ */
+function grXY(s: Screen, x: number | null, y: number | null): [number, number] {
+  if (y !== null) s.grY = y
+  if (x !== null) s.grX = x
+  return [s.grX, s.grY]
 }
 
 /**
@@ -1290,11 +1329,28 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     plot(it) {
-      const [x, y] = pair(it)
       const s = scr()
-      s.plot(x, y, it.accept(',') ? it.evalInt() : s.ink)
-      s.grX = x
-      s.grY = y
+      const slots = optPair(it)
+      /*
+       * InPlot3 (+Lib.s:9535) settles the pen before it touches the
+       * coordinates:
+       *
+       *     move.l d3,d0 / Rbmi L_FonCall
+       *     cmp.l #EntNul,d0 / beq.s .Skip / GfxCa5 SetAPen
+       *
+       * so a negative pen is an Illegal function call, a blank one is left
+       * alone, and a given one goes through `SetAPen` — the RastPort's own
+       * pen, which OUTLIVES the statement. `Plot 0,0,5 : Plot 9,9` draws the
+       * second point in 5 as well. The two-argument form has none of this and
+       * draws in the current ink.
+       */
+      if (it.accept(',') && !omittedArg(it)) {
+        const c = it.evalInt()
+        if (c < 0) funcCall()
+        s.ink = c
+      }
+      const [x, y] = grXY(s, ...slots)
+      s.plot(x, y)
     },
     draw(it) {
       const s = scr()
@@ -1313,8 +1369,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.line(s.grX, s.grY, x, y)
     },
     'gr locate'(it) {
-      const s = scr()
-      ;[s.grX, s.grY] = pair(it)
+      // InGrLocate (+Lib.s:9661) is `move.l d3,d1 / move.l (a3)+,d0 / Rbsr
+      // L_GrXY` and nothing else, so `Gr Locate ,100` moves y alone
+      grXY(scr(), ...optPair(it))
     },
     box(it) {
       const [x1, y1] = pair(it)
@@ -1335,27 +1392,39 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     circle(it) {
       const s = scr()
-      const [x, y] = pair(it)
+      const slots = optPair(it)
       it.expect(',')
       const r = it.evalInt()
-      if (r <= 0) throw new AmosError('function call error')
-      // InCircle +Lib.s:9603: on a hires screen the x-radius is doubled so
-      // the circle is round on non-square pixels
+      /*
+       * InCircle (+Lib.s:9603) is `move.l d3,d2 / Rbls L_FonCall`, and a
+       * `move` CLEARS the carry, so `bls` can only branch on Z: the error is a
+       * radius of exactly zero and a negative one is passed through to
+       * `EllCir`. Testing `r <= 0` here refused `Circle 10,10,-5`, which the
+       * original draws.
+       *
+       * The test comes before `EllCir` reaches `GrXY`, so an error leaves the
+       * graphics cursor where it was.
+       */
+      if (r === 0) funcCall()
+      // on a hires screen the x-radius is doubled so the circle is round on
+      // non-square pixels
+      const [x, y] = grXY(s, ...slots)
       s.ellipse(x, y, s.hires ? r * 2 : r, r)
-      s.grX = x // the cursor ends at the centre
-      s.grY = y
     },
     ellipse(it) {
       const s = scr()
-      const [x, y] = pair(it)
+      const slots = optPair(it)
       it.expect(',')
-      const r1 = it.evalInt()
+      const rx = it.evalInt()
       it.expect(',')
-      const r2 = it.evalInt()
-      if (r1 <= 0 || r2 <= 0) throw new AmosError('function call error')
-      s.ellipse(x, y, r1, r2)
-      s.grX = x
-      s.grY = y
+      const ry = it.evalInt()
+      // InEllipse (+Lib.s:9617) is `tst.l d3 / Rbls` then `move.l (a3)+,d2 /
+      // Rbls`, and both flag-setters clear the carry, so each `bls` is a
+      // `beq`. Zero is the error, negative is not. d3 is the LAST argument,
+      // so the y radius is the one tested first.
+      if (ry === 0 || rx === 0) funcCall()
+      const [x, y] = grXY(s, ...slots)
+      s.ellipse(x, y, rx, ry)
     },
     polyline: polyish(false),
     polygon: polyish(true),

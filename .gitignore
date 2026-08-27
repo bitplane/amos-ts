@@ -13,3 +13,4 @@ src/cli/tmp/
 # the headless-Firefox probe page, which has to sit where Vite can resolve
 # the source imports and is rewritten for every question it answers
 probe.html
+audit/

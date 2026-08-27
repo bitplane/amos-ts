@@ -709,6 +709,13 @@ export class RastPort {
    * midpoint tracer: at these radii the sample count is bounded by the
    * perimeter, and going through `draw` is what makes the line pattern and
    * the draw mode apply to it.
+   *
+   * `draw` is RDraw and RDraw MOVES the pen, which DrawEllipse does not, so
+   * the walk has to put it back. Without that the pen ends at the last sample
+   * — `(cx+rx, cy)` — and AMOS reads the pen as its graphics cursor, so
+   * `Circle 100,60,20` left the cursor at 120,60. Both callers happened to
+   * overwrite it afterwards, which is why a bug in this layer looked like
+   * correct behaviour for as long as nothing else called `ellipse`.
    */
   ellipse(cx: number, cy: number, rx: number, ry: number, c = this.fgPen, fill = false): void {
     if (rx <= 0 || ry <= 0) {
@@ -724,6 +731,8 @@ export class RastPort {
       }
       return
     }
+    const penX = this.cpX
+    const penY = this.cpY
     let px = cx + rx
     let py = cy
     const steps = Math.min(4096, Math.max(16, (rx + ry) * 2))
@@ -735,6 +744,8 @@ export class RastPort {
       px = x
       py = y
     }
+    this.cpX = penX
+    this.cpY = penY
   }
 
   /**
