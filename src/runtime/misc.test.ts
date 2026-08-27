@@ -110,6 +110,25 @@ describe('screen and window odds and ends', () => {
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
   })
 
+  it('Movon, Chanan and Chanmv share one channel range, 0 to 63', () => {
+    // each opens `Rbsr L_FnAm1` (+Lib.s:11895, 11904, 11913) and FnAm1
+    // (+Lib.s:11920) is `move.l d3,d1 / Rbmi L_FonCall / cmp.l #64,d1 / Rbcc`
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`${GRAB}\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['Movon', 'Chanan', 'Chanmv']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(64)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(63)`)]).toEqual([f, false])
+      expect([f, bad(`${f}(0)`)]).toEqual([f, false])
+    }
+  })
+
   it('X Sprite, Y Sprite and I Sprite take 0 to 63 and refuse the rest', () => {
     // FnXSprite +Lib.s:12037 `move.l d3,d1 / Rbmi L_FonCall / SyCall XYSp /
     // Rbne L_FonCall`. HsXY itself always reports success, so the refusal

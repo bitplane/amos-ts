@@ -5229,6 +5229,15 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
 
 export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
+  /**
+   * FnAm1 (+Lib.s:11920) is `move.l d3,d1 / Rbmi L_FonCall / cmp.l #64,d1 /
+   * Rbcc L_FonCall`, and Movon, Chanan and Chanmv each open `Rbsr L_FnAm1`
+   * (+Lib.s:11895, 11904, 11913) before they look at anything.
+   */
+  const amChannel = (n: number): number => {
+    if (n < 0 || n >= 64) funcCall()
+    return n
+  }
   /** HsActAd's range check (+W.s:11399), shared by X Sprite, Y Sprite, I Sprite */
   const hwSprite = (n: number): { x: number; y: number; image: number } | undefined => {
     if (n < 0 || n >= 64) funcCall()
@@ -5689,10 +5698,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(n >= 0 && n < 26 ? rt.amalGlobals[n]! : 0)
     },
     chanan(_, a) {
-      return VI(rt.channels.get(int(a[0]!))?.animating ? -1 : 0)
+      return VI(rt.channels.get(amChannel(int(a[0]!)))?.animating ? -1 : 0)
     },
     chanmv(_, a) {
-      return VI(rt.channels.get(int(a[0]!))?.moving ? -1 : 0)
+      return VI(rt.channels.get(amChannel(int(a[0]!)))?.moving ? -1 : 0)
     },
     amalerr() {
       return VI(rt.amalErrPos)
@@ -6010,8 +6019,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     movon(_, a) {
       // =Movon(n) (FnMovon +Lib.s:11893): -1 while a Move X/Y program on
       // channel n is still running
-      const n = int(a[0]!)
-      if (n < 0) funcCall()
+      const n = amChannel(int(a[0]!))
       const s = rt.stosSlots.get(n)
       const live = (m: { on: boolean; done: boolean } | undefined): boolean => !!m && m.on && !m.done
       return VI(s && (live(s.moveX) || live(s.moveY)) ? -1 : 0)
