@@ -76,6 +76,44 @@ describe('drawing', () => {
     expect(s.point(100, 100)).toBe(1) // circle centre untouched
   })
 
+  /**
+   * `Cls` is not a drawing operation and does not go through a RastPort.
+   *
+   * `InCls5` (+Lib.s:8709) hands the rectangle to `EcCls` (+W.s:3631), which
+   * clamps it against `EcTx`/`EcTy` — the screen's own width and height — and
+   * calls `ClsR` (:3676). `ClsR` takes the blitter with `OwnBlit` and writes
+   * `EcNPlan` planes through `BltMaskG`/`BltMaskD` and the modulos from
+   * `EcTLigne`. It fetches no RastPort at all, so rp_ClipRect at offset 20 and
+   * rp_DrawMode at offset 28 are never read.
+   *
+   * The Object Editor is what depends on it. `_XYSIZE` clears the strips
+   * beside and below the resized box while `_CLIP` still has the clipping
+   * window set to the box interior, so a `Cls` that obeyed the clip erased
+   * nothing outside it and left one stale corner handle per 16-pixel step.
+   */
+  it('Cls ignores the clipping window', () => {
+    const rt = run('Ink 5 : Bar 0,0 To 200,100\nClip 20,20 To 60,60\nCls 0,0,0 To 200,100\nClip')
+    expect(rt.screen.point(40, 40)).toBe(0) // inside the clip
+    expect(rt.screen.point(120, 80)).toBe(0) // outside it, and cleared all the same
+  })
+
+  it('Cls replaces under Gr Writing 2 rather than complementing', () => {
+    // BltCon0 is %0000001111001010 — USEC|USED, minterm $CA, BltDatA held at
+    // -1. With A all ones that reduces to "take B", B being the per-plane
+    // colour bit. Complementing would give ~5 & 15 = 10.
+    const rt = run('Ink 5 : Bar 0,0 To 200,100\nGr Writing 2\nCls 3,0,0 To 200,100\nGr Writing 1')
+    expect(rt.screen.point(100, 50)).toBe(3)
+  })
+
+  it('Cls ignores Set Pattern, which belongs to Bar', () => {
+    // rp_AreaPtrn is an AreaFill field and `ClsR` writes whole words per
+    // plane from one colour, so there is nothing for a pattern to modulate
+    const rt = run('Set Pattern 2 : Cls 7,0,0 To 100,50\nSet Pattern 0')
+    expect(rt.screen.point(10, 10)).toBe(7)
+    expect(rt.screen.point(11, 10)).toBe(7)
+    expect(rt.screen.point(10, 11)).toBe(7)
+  })
+
   it('flood-fills with Paint', () => {
     const rt = run('Ink 4 : Box 50,50 To 70,70\nInk 7 : Paint 60,60')
     expect(rt.screen.point(60, 60)).toBe(7)

@@ -45,6 +45,16 @@ modelled, over the four devices this port has a back end for.
 Between them `dreg` (30 programs) and `doscall` (14) are the two widest gaps
 in the census, and neither is closable.
 
+AMOS Pro's own Object Editor is the visible case. `InCall` (+ILib.s:5852)
+resolves its argument through `Bnk.OrAdr`, loads `CallReg(a5)` into d0-d7 and
+a0-a2 — which is what `Dreg()`/`Areg()` write — and does `jsr (a4)`. So
+`Object_Editor.AMOS` carries two Asm banks, 15 at 1,384 bytes and 14 at 720,
+and calls into them 19 times. Bank 15 is the whole of `_ZOOM`: source corner,
+destination corner, size and magnification in d1 to d7, both screens in a0 and
+a1. Nothing else in the accessory draws the magnified sprite, so the left-hand
+edit panel stays blank here while every other part of the editor works. The
+handles, the palette, the tools and the object itself are AMOS and run.
+
 ### Third-party extensions
 
 These are registered and detokenising but not implemented, so a program lists
