@@ -29,6 +29,7 @@ import type { Screen } from './screen'
 import { BankImage } from './objects'
 import type { HwSprite } from './objects'
 import { COOKIE_CUT, mintermBit } from '../amiga/blitter'
+import { colourResolver } from '../amiga/planar'
 import { bobBltcon0 } from './objects'
 
 export class Display {
@@ -116,38 +117,11 @@ export class Display {
     const n = pal ? pal.length : s.palette.length
     const hi = (i: number): number => (pal ? pal[i % n]! : s.palette[i % n]! & 0xfff)
     const lo = (i: number): number => (palLo ? palLo[i % n]! : hi(i))
-    /** two 12-bit halves into 24 bits: high nibble then low, per component */
-    const join = (h: number, l: number): number =>
-      ((((h >> 8) & 15) << 4) | ((l >> 8) & 15)) * 65536 +
-      ((((h >> 4) & 15) << 4) | ((l >> 4) & 15)) * 256 +
-      (((h & 15) << 4) | (l & 15))
-    const get24 = (i: number): number => join(hi(i), lo(i))
-    /** HAM and EHB are ECS-only, and both do their arithmetic 12-bit */
-    const get = hi
-    if (s.ham || forceHam) {
-      let c = get(0)
-      return (pix) => {
-        const dat = pix & 15
-        switch (pix >> 4) {
-          case 0:
-            c = get(dat)
-            break
-          case 1:
-            c = (c & 0xff0) | dat
-            break
-          case 2:
-            c = (c & 0x0ff) | (dat << 8)
-            break
-          default:
-            c = (c & 0xf0f) | (dat << 4)
-        }
-        return join(c, c)
-      }
-    }
-    if (s.ehb) {
-      return (pix) => (pix >= 32 ? join((get(pix - 32) >> 1) & 0x777, (get(pix - 32) >> 1) & 0x777) : get24(pix))
-    }
-    return (pix) => get24(pix)
+    // The join, HAM's state machine and EHB's halving all moved to
+    // ../amiga/planar.ts when the Files panel's picture preview became a
+    // second caller for them. What stays here is where the palette comes
+    // from, which is this file's question and not that one's.
+    return colourResolver({ hi, lo, ham: s.ham || forceHam, ehb: s.ehb })
   }
 
   private winWOf(s: Screen): number {

@@ -19,6 +19,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { PaulaMixer, type AmigaAudioModel } from '../amiga/mixer'
+import { detectModule, type ModFormat } from '../amiga/modformat'
 import { VBL_HZ } from '../amiga/paula'
 import { Protracker, parseMod } from '../amiga/protracker'
 import { ThxPlayer } from '../amiga/thxplay'
@@ -42,35 +43,19 @@ import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine =
-  | 'mod' | 'p61' | 'thx' | 'med' | 'omed' | 'sfx' | 'fc14' | 'fc13' | 'digi' | 'smon' | 's3m' | 'track' | 'medext'
+export type Engine = ModFormat | 'track' | 'medext'
 
 /**
  * What the first bytes say it is.
  *
- * MOD is last because it is the one with no magic at the front: the four-byte
- * tag sits at 1080, after 31 sample headers and the pattern order, and a
- * 15-sample module has no tag at all. `parseMod` decides that part.
+ * The sniffing moved to ../amiga/modformat.ts, beside the replayers it picks
+ * between, once the browser's file panel wanted the same answer and could not
+ * import this file: it opens `node:fs` at the top. `track` and `medext` are
+ * not formats and never came out of the bytes; they are the two engines that
+ * are reached through the interpreter, and only `--engine` names them.
  */
 export function detectEngine(d: Uint8Array): Engine | null {
-  const tag = (at: number, n = 4): string => String.fromCharCode(...d.subarray(at, at + n))
-  // MMD2 and MMD3 go to octaplayer, not medplayer: medplayer reads the
-  // MMD0-shaped playseq at song+$1fc and the track volumes at $302, and an
-  // MMD2 has a section table in the first and nothing in the second
-  if (tag(0) === 'MMD2' || tag(0) === 'MMD3') return 'omed'
-  if (tag(0) === 'MMD0' || tag(0) === 'MMD1') return 'med'
-  if (tag(0, 3) === 'THX' || tag(0, 3) === 'HVL') return 'thx'
-  if (tag(0) === 'P61A') return 'p61'
-  if (tag(0) === 'FC14') return 'fc14'
-  if (tag(0) === 'SMOD') return 'fc13'
-  if (tag(0) === 'DIGI') return 'digi'
-  if (d.length > 0x200 && tag(0x1a, 3) === 'V.2') return 'smon'
-  if (d.length > 0x60 && tag(0x2c) === 'SCRM') return 's3m'
-  // SoundFX 1.3's magic sits at 60, behind the fifteen sample lengths, and is
-  // the only thing DME_SoundFX1.3.library checks
-  if (d.length > 0x294 && tag(0x3c) === 'SONG') return 'sfx'
-  if (d.length > 1084 && ['M.K.', 'M!K!', 'FLT4', '4CHN', 'M&K!'].includes(tag(1080))) return 'mod'
-  return null
+  return detectModule(d)
 }
 
 /** interleaved stereo out of an engine, at `rate` frames a second */
