@@ -153,7 +153,10 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
   })
 
   it('At validates coordinates above 207 (FnAt +Lib.s:14017)', () => {
-    expect(() => run('X$=At(208,0)')).toThrow(/illegal function call/i)
+    // the branch is `cmp.l #255-48,d2 / Rbhi L_WFonCall`, and WFonCall is
+    // `moveq #16,d0 / Rbra L_EcWiErr` — error 60, not the 23 this test used
+    // to assert. Pen and Paper just above reach 60 for the same reason.
+    expect(() => run('X$=At(208,0)')).toThrow(/illegal text window parameter/i)
     expect(run('Print At(2,3)="X"+Chr$(50)+"Y"+Chr$(51)').out.trim()).toBe('-1')
   })
 
@@ -1234,6 +1237,108 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(0, 0)).toBe(0)
     // a missing block raises the FindBloc "Block not defined" error
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
+  })
+
+  it('Ins Bob needs a bank rather than making one', () => {
+    // InInsSprite +Lib.s:2334 and InInsIcon +Lib.s:2347: `Rbsr L_Bnk.GetBobs /
+    // Rbeq L_BkNoRes / move.l d3,d0 / Rble L_FonCall`, bank first then number
+    const code = (...lines: string[]): number => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', 'Ink 5 : Bar 0,0 To 7,7', ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const kw of ['Ins Bob', 'Ins Sprite', 'Ins Icon']) {
+      expect([kw, code(`${kw} 1`)]).toEqual([kw, 36])
+    }
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob 0')).toBe(23)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob -1')).toBe(23)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Ins Bob 1')).toBe(0)
+  })
+
+  it('No Mask with no argument clears every bob, not bob 1', () => {
+    // InNoMask0 (+Lib.s:12509) and InMakeMask0 (+Lib.s:12484) both do
+    // `moveq #1,d1 / Rbsr L_AdBob / Rbne L_GoError / subq.w #1,d5`, and AdBob
+    // left the bank COUNT in d5 (`move.w d1,d5`, +Lib.s:12800, d1 being
+    // Bnk.AdBob's "Max de bobs"). So `dbra d5,.Loop` walks the lot. The
+    // one-argument forms set `moveq #0,d5` and walk one.
+    const grab = ['Screen Open 0,320,200,16,0', 'Cls 0', 'Ink 5 : Bar 0,0 To 7,7']
+    const three = [...grab, 'Get Bob 1,0,0 To 8,8', 'Get Bob 2,0,0 To 8,8', 'Get Bob 3,0,0 To 8,8']
+    const opaque = (...lines: string[]): boolean[] => {
+      const { rt } = run([...three, ...lines].join('\n'))
+      return rt.spriteBank!.images.map((im) => im.opaque)
+    }
+    expect(opaque('Make Mask', 'No Mask')).toEqual([true, true, true])
+    expect(opaque('No Mask', 'Make Mask')).toEqual([false, false, false])
+    // and with a number, only that one moves
+    expect(opaque('Make Mask', 'No Mask 2')).toEqual([false, true, false])
+    expect(opaque('No Mask', 'Make Mask 3')).toEqual([true, true, false])
+    // AdBob still guards the number: no bank is 36, past the end is 74, and
+    // $4000 masks to nothing so it is Illegal function call like 0
+    const code = (...lines: string[]): number => {
+      try {
+        run([...grab, ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('No Mask')).toBe(36)
+    expect(code('Get Bob 1,0,0 To 8,8', 'Make Mask 9')).toBe(74)
+    expect(code('Get Bob 1,0,0 To 8,8', 'No Mask 16384')).toBe(23)
+  })
+
+  it('Paste Bob tells apart no bank, a number past the end, and a bad number', () => {
+    const code = (...lines: string[]): number => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    const grab = 'Ink 5 : Bar 0,0 To 7,7'
+    // `move.l d3,d1 / Rbmi L_FonCall` (+Lib.s:12726), then AdBob's
+    // `and.l #$3FFF,d1 / Rbeq L_FonCall` (+Lib.s:12794) — 16384 is $4000, all
+    // flag bits and no number, so it masks to zero like 0 does
+    for (const n of [-1, 0, 16384]) {
+      expect([n, code(grab, 'Get Bob 1,0,0 To 8,8', `Paste Bob 0,0,${n}`)]).toEqual([n, 23])
+    }
+    // Bnk.AdBob leaves `moveq #0,d1` standing when there is no bank at all,
+    // and AdBErr reads that as BkNoRes, error 36 (+Lib.s:12816, +Lib.s:12934)
+    expect(code('Paste Bob 0,0,1')).toBe(36)
+    // past `move.w (a1),d1 / cmp.w d1,d0 / bhi.s .Rien` d1 is set, so AdBErr
+    // takes the other branch: `moveq #EcEBase+30-1,d0`, error 74
+    expect(code(grab, 'Get Bob 1,0,0 To 8,8', 'Paste Bob 0,0,5')).toBe(74)
+    expect(code(grab, 'Get Icon 1,0,0 To 8,8', 'Paste Icon 0,0,5')).toBe(74)
+    // and a real one still pastes
+    expect(code(grab, 'Get Bob 1,0,0 To 8,8', 'Paste Bob 0,0,1')).toBe(0)
+  })
+
+  it('Get Bob, Get Sprite and Get Icon refuse a negative corner and image 0', () => {
+    // Ritoune (+Lib.s:12668) reads all four coordinates through `Rbmi
+    // L_FonCall` before it measures anything, and GS/GI then open `move.l
+    // (a3),d0 / Rble L_FonCall` (+Lib.s:12590, 12638)
+    const bad = (src: string): boolean => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', src].join('\n'))
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const kw of ['Get Bob', 'Get Sprite', 'Get Icon']) {
+      // a negative corner still satisfies x2 > x1, so it passed the size check
+      expect([kw, bad(`${kw} 1,-5,-5 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 1,-1,0 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 1,0,-1 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} 0,0,0 To 10,10`)]).toEqual([kw, true])
+      expect([kw, bad(`${kw} -1,0,0 To 10,10`)]).toEqual([kw, true])
+      // and the legal one still works
+      expect([kw, bad(`${kw} 1,0,0 To 10,10`)]).toEqual([kw, false])
+    }
   })
 
   it('a block number outside 1..65535 is error 66, and bare Del Block still clears the lot', () => {

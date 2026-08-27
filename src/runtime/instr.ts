@@ -112,7 +112,7 @@ import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmess
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
 import { Screen } from './screen'
-import { ObjectBank } from './objects'
+import { BankImage, ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
 import {
   DIALOG_ERRORS,
@@ -1209,9 +1209,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (EcCon0 compared with the plane bits masked out), planes <= 3
       // each (2 in hires), and counts equal or the back one fewer.
       // (Error 70's exact message text is not in the source tree.)
-      const a = it.evalInt()
+      const a = checkScreenNumber(it.evalInt())
       it.expect(',')
-      const b = it.evalInt()
+      const b = checkScreenNumber(it.evalInt())
       const sa = rt.screens.get(a)
       const sb = rt.screens.get(b)
       if (!sa || !sb) throw new AmosError('screen not opened', 47)
@@ -1233,14 +1233,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'dual priority'(it) {
       // DualP +W.s:2841: both screens must be in dual mode; the FIRST-
       // named screen's playfield comes to the front (BPLCON2 bit 6, PFBA)
-      const a = it.evalInt()
+      // InDualPriority (+Lib.s:8894) checks BOTH numbers, same as
+      // InDualPlayfield (+Lib.s:8881) above
+      const a = checkScreenNumber(it.evalInt())
       it.expect(',')
-      const b = it.evalInt()
+      const b = checkScreenNumber(it.evalInt())
       if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened', 47)
       const sa = rt.screens.get(a)!
       const sb = rt.screens.get(b)!
       if (sa.dualPartner !== b || sb.dualPartner !== a) {
-        throw new AmosError('screen not in dual playfield mode')
+        // DualP's own refusal is EcE27 (+W.s:2843), and 27 + 44 is 71
+        throw new AmosError(ED_RUN_MESSAGES[71]!, 71)
       }
       // the first-named screen's playfield comes forward
       const front = sa.dualIsBack ? sb : sa
@@ -1987,6 +1990,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'wind move'(it) {
       const s = scr()
       const [x, y] = pair(it)
+      windParams(x, y)
       // WiMv0 (+W.s:13880) brackets the move with EffCur/AffCur — without
       // that the cursor stays drawn at the window's old position
       s.console(() => {
@@ -2002,6 +2006,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (the window is blanked to paper and the cursor homed)
       const s = scr()
       const [w2, h2] = pair(it)
+      windParams(w2, h2)
       // WiSi0 (+W.s:13950), bracketed for the same reason as Wind Move
       s.console(() => {
         s.curWin.cols = w2
@@ -2026,10 +2031,38 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // keyword dispatch here as a bare "," (#90).
       const s = scr()
       const w = s.curWin
-      if (it.nm() !== ',') w.border = it.evalInt() & 31
+      /*
+       * WSBor (+W.s:14012) checks each slot it was given and skips the ones
+       * left empty. The number is `cmp.l #16,d1 / bcc WErr7`, unsigned so a
+       * negative fails it too, and WErr7 is `moveq #16,d0` (+W.s:15839) which
+       * through EcWiErr is error 60, "Illegal text window parameter". Then
+       * `tst.w d1 / beq.s Wsb1`: zero passes the range check and is NOT
+       * stored, so `Border 0` leaves the frame alone where the port cleared
+       * it.
+       *
+       * Both colour slots get `cmp.w EcNbCol(a4),d2 / bcc WErr7`, the same
+       * error against the screen's colour count. The port took any number and
+       * masked the first one to 31.
+       */
+      const wErr = (): never => {
+        throw new AmosError('illegal text window parameter', 60)
+      }
+      if (it.nm() !== ',') {
+        const n = it.evalInt()
+        if (n < 0 || n >= 16) wErr()
+        if (n !== 0) w.border = n
+      }
       if (it.accept(',')) {
-        if (it.nm() !== ',' && !it.atStmtEnd()) w.borPap = it.evalInt()
-        if (it.accept(',') && !it.atStmtEnd()) w.borPen = it.evalInt()
+        if (it.nm() !== ',' && !it.atStmtEnd()) {
+          const c = it.evalInt()
+          if (c < 0 || c >= s.nColors) wErr()
+          w.borPap = c
+        }
+        if (it.accept(',') && !it.atStmtEnd()) {
+          const c = it.evalInt()
+          if (c < 0 || c >= s.nColors) wErr()
+          w.borPen = c
+        }
       }
       s.drawWindowFrame2()
     },
@@ -2103,11 +2136,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dx = it.evalInt()
       it.expect(',')
       const dy = it.evalInt()
+      // InDefScroll (+Lib.s:10179) checks the number after reading all seven:
+      // `tst.l d7 / Rbeq L_FonCall / cmp.l #NDScrolls,d7 / Rbhi L_FonCall`,
+      // and `NDScrolls equ 10` (+Equ.s:1430), so the zones are 1 to 10
+      if (n <= 0 || n > 10) funcCall()
       rt.scrollZones.set(n, { x1, y1, x2, y2, dx, dy })
     },
     scroll(it) {
-      const z = rt.scrollZones.get(it.evalInt())
-      if (!z) return
+      const n = it.evalInt()
+      // InScroll (+Lib.s:10194) writes the same range the other way round,
+      // `subq.l #1,d3 / cmp.l #NDScrolls,d3 / Rbcc L_FonCall`, unsigned so it
+      // catches 0 and negatives on the wrap
+      if (n <= 0 || n > 10) funcCall()
+      const z = rt.scrollZones.get(n)
+      // an untouched slot reads $8000: `cmp.w #$8000,(a1) / beq ScNoDef`, and
+      // ScNoDef is `moveq #28,d0 / Rbra L_EcWiErr` (+Lib.s:10225), which after
+      // EcWiErr's +44 is error 72, "Scrolling zone not defined". 28 on its own
+      // is "Array already dimensioned", which is how you know the +44 is there
+      if (!z) throw new AmosError('Scrolling zone not defined', 72)
       const s = scr()
       Screen.copy(s, z.x1, z.y1, z.x2, z.y2, s, z.x1 + z.dx, z.y1 + z.dy)
     },
@@ -2385,8 +2431,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       // TPatch (+W.s:819) starts with `bsr Retourne`, so the Hrev/Vrev bits
       // on the number mirror the bank image in place before the paste
-      const img = rt.spriteBank?.retourne(it.evalInt())
-      if (img) rt.blit(scr(), img, x, y, img.opaque)
+      const img = pasteImage(it.evalInt(), 'sprite')
+      rt.blit(scr(), img, x, y, img.opaque)
     },
     'paste icon'(it) {
       // InPasteIcon +Lib.s:12734 pastes THROUGH an existing mask and only
@@ -2394,8 +2440,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // solid until Make Icon Mask has been over the bank
       const [x, y] = pair(it)
       it.expect(',')
-      const img = rt.iconBank?.retourne(it.evalInt())
-      if (img) rt.blit(scr(), img, x, y, img.opaque)
+      const img = pasteImage(it.evalInt(), 'icon')
+      rt.blit(scr(), img, x, y, img.opaque)
     },
     'get bob': getObj('sprite'),
     'get sprite': getObj('sprite'),
@@ -2425,21 +2471,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'ins bob': insObj('sprite'),
     'ins sprite': insObj('sprite'),
     'ins icon': insObj('icon'),
-    'make icon mask'(it) {
-      // one icon or, with no argument, the lot — Masque per image
-      const n = it.atStmtEnd() ? -1 : it.evalInt()
-      const bank = rt.iconBank
-      if (!bank) return
-      if (n < 0) for (const im of bank.images) im.opaque = false
-      else {
-        const img = bank.image(n)
-        if (img) img.opaque = false
-      }
-    },
-    'no icon mask'(it) {
-      const img = rt.iconBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
-      if (img) img.opaque = true
-    },
+    'make icon mask': maskAll('icon', false),
+    'no icon mask': maskAll('icon', true),
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
@@ -2470,21 +2503,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
     },
-    'make mask'(it) {
-      // a bob image is masked from the start; this undoes a No Mask
-      const n = it.atStmtEnd() ? -1 : it.evalInt()
-      const bank = rt.spriteBank
-      if (!bank) return
-      if (n < 0) for (const im of bank.images) im.opaque = false
-      else {
-        const img = bank.image(n)
-        if (img) img.opaque = false
-      }
-    },
-    'no mask'(it) {
-      const img = rt.spriteBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
-      if (img) img.opaque = true
-    },
+    'make mask': maskAll('sprite', false),
+    'no mask': maskAll('sprite', true),
     'priority on'() {
       rt.priorityOn = true
     },
@@ -2835,7 +2855,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sy = it.evalInt()
       it.expect(',')
       const flash = it.evalInt()
-      if (n >>> 0 >= 8) throw new AmosError('illegal screen number')
+      if (n >>> 0 >= 8) throw new AmosError('illegal screen number', 50)
       const g = rt.resource().graphics
       if (!g) throw new AmosError('resource bank not present')
       const s = rt.openScreen(n, sx, sy, g.nColors, g.mode & 0x8004)
@@ -4792,6 +4812,78 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Get Bob/Sprite/Icon: [screen,] image, x1,y1 To x2,y2 */
+  /**
+   * Resolve a Paste Bob / Paste Icon image number, raising what AMOS raises.
+   *
+   * The two keywords share a preamble: `move.l d3,d1 / Rbmi L_FonCall / Rbsr
+   * L_AdBob` (+Lib.s:12726, +Lib.s:12735). AdBob (+Lib.s:12794) opens
+   * `and.l #$3FFF,d1 / Rbeq L_FonCall`, because bits 14 and 15 are the
+   * Hrev/Vrev flags: the number is the low 14 bits and zero is refused however
+   * the flags are set.
+   *
+   * `Bnk.AdBob` (+Lib.s:8069) then answers zero two different ways, and
+   * `AdBErr` (+Lib.s:12816) tells them apart on d1, its documented "Max de
+   * bobs". No bank at all leaves `moveq #0,d1` standing and reaches BkNoRes,
+   * `moveq #36,d0 / Rbra L_GoError`, error 36 "Bank not reserved". A number
+   * past `move.w (a1),d1 / cmp.w d1,d0 / bhi.s .Rien` leaves d1 set and gets
+   * `moveq #EcEBase+30-1,d0`, error 74. That constant is written out longhand
+   * there, which is a third witness to the +44 that EcWiErr applies elsewhere.
+   *
+   * Only the last step differs between the two: a slot inside the bank that
+   * holds no image is `tst.l (a2) / Rbne L_Paste / moveq #24,d0 / Rbra
+   * L_EcWiErr` for a bob, error 68 "Bob not defined", and `moveq #30,d0` for
+   * an icon, error 74. Read raw those say "Out of memory" and "Bad IFF
+   * format", which is how you know the +44 belongs there.
+   */
+  function adBob(n: number, kind: 'sprite' | 'icon'): ObjectBank {
+    // the mask is not a range check: bits 14 and 15 are Hrev/Vrev, so $4000
+    // is all flags and no number and fails the same way 0 does
+    if ((n & 0x3fff) === 0) funcCall()
+    const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
+    if (!bank) throw new AmosError('Bank not reserved', 36)
+    if ((n & 0x3fff) > bank.images.length) throw new AmosError('Icon not defined', 74)
+    return bank
+  }
+
+  function pasteImage(n: number, kind: 'sprite' | 'icon'): BankImage {
+    // the Rbmi belongs to the paste keywords, not to AdBob: Make Mask has no
+    // sign check and `and.l #$3FFF` turns its -1 into 16383
+    if (n < 0) funcCall()
+    const img = adBob(n, kind).retourne(n)
+    if (!img) {
+      if (kind === 'icon') throw new AmosError('Icon not defined', 74)
+      throw new AmosError('Bob not defined', 68)
+    }
+    return img
+  }
+
+  /**
+   * Make Mask / No Mask, and their icon pair.
+   *
+   * The no-argument form is not "image 1". `InMakeMask0` (+Lib.s:12484) and
+   * `InNoMask0` (+Lib.s:12509) both go `moveq #1,d1 / Rbsr L_AdBob / Rbne
+   * L_GoError / subq.w #1,d5`, and d5 is the bank COUNT that AdBob left there
+   * (`move.w d1,d5`, d1 being Bnk.AdBob's documented "Max de bobs"). So
+   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what the
+   * manual promises: "make mask for all icons", "remove mask of all icons".
+   * The one-argument forms set `moveq #0,d5` and walk exactly one.
+   *
+   * Both loops open `tst.l (a2) / beq.s .Skip`, so a hole in the bank is
+   * stepped over in silence. Only the number itself can raise, through AdBob.
+   */
+  function maskAll(kind: 'sprite' | 'icon', opaque: boolean): Instr {
+    return (it) => {
+      const all = it.atStmtEnd()
+      const n = all ? 1 : it.evalInt()
+      const bank = adBob(n, kind)
+      if (all) for (const im of bank.images) im.opaque = opaque
+      else {
+        const img = bank.image(n)
+        if (img) img.opaque = opaque
+      }
+    }
+  }
+
   function getObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const args: number[] = [it.evalInt()]
@@ -4817,11 +4909,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         throw new AmosError('Get Bob: wrong arguments')
       }
+      /*
+       * Ritoune (+Lib.s:12668) is the argument reader all three share, and it
+       * refuses a negative coordinate before it measures anything: `move.l
+       * d3,d5 / Rbmi L_FonCall / move.l (a3)+,d4 / Rbmi L_FonCall / move.l
+       * (a3)+,d3 / Rbmi L_FonCall / move.l (a3)+,d2 / Rbmi L_FonCall`. Only
+       * then the size: `cmp.w EcTx(a0),d4 / Rbhi` and `cmp.w EcTy(a0),d5 /
+       * Rbhi`, then `sub.w d2,d4 / Rbls` and `sub.w d3,d5 / Rbls`.
+       *
+       * The port had the last four. Without the first four `Get Bob 1,-5,-5
+       * To 10,10` grabbed from off the left of the screen, because a negative
+       * corner still satisfies x2 > x1.
+       */
+      if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) funcCall()
+      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) funcCall()
+      // and GS/GI open `move.l (a3),d0 / Rble L_FonCall` (+Lib.s:12590,
+      // +Lib.s:12638), so the image number is checked after the coordinates
+      if (img <= 0) funcCall()
       const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
       // a freshly grabbed icon has no mask either, for the same reason
-      // Ritoune +Lib.s:12668: w=x2-x1, h=y2-y1 both must be positive and
-      // within the screen
-      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) funcCall()
       const grabbed = rt.grab(s, x1, y1, x2, y2)
       if (kind === 'icon') grabbed.opaque = true
       bank.setImage(img, grabbed)
@@ -4843,10 +4949,52 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Ins Bob/Sprite/Icon n — single blank insert (Bnk.InsBob +Lib.s:8316) */
+  /*
+   * The guard Wind Move and Wind Size share. InWindmove (+Lib.s:13081) and
+   * InWindsize (+Lib.s:13095) both read their pair through `move.l d3,d2 /
+   * Rbmi L_FonCall / move.l (a3)+,d1 / Rbmi L_FonCall`, then call through
+   * `WiCall / Rbne L_EcWiErr`.
+   *
+   * WiMove (+W.s:13871) and WiSize (+W.s:13941) both open `tst.w
+   * WiNumber(a5) / bne.s / moveq #18,d0 / bra WOut`, so window 0 can be
+   * neither moved nor resized. 18 plus EcWiErr's 44 is 62, and the message
+   * table settles it: nothing at all sits at 18, and 62 reads "Text window 0
+   * can't be closed".
+   */
+  function windParams(a: number, b: number): void {
+    if (a < 0 || b < 0) funcCall()
+    if (scr().curWin.n === 0) throw new AmosError(ED_RUN_MESSAGES[62]!, 62)
+  }
+
+  /*
+   * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
+   * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
+   * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
+   *
+   * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
+   * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
+   * the range the constant enforces. A raw 6 is "Resume label not defined".
+   *
+   * The compare is unsigned, which is why one test covers both ends.
+   */
+  function checkScreenNumber(n: number): number {
+    if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+    return n
+  }
+
   function insObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const n = it.evalInt()
-      const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
+      /*
+       * InInsSprite (+Lib.s:2334) and InInsIcon (+Lib.s:2347) open `Rbsr
+       * L_Bnk.GetBobs / Rbeq L_BkNoRes / move.l d3,d0 / Rble L_FonCall`, in
+       * that order. Ins Bob does not make a bank, it needs one: with none
+       * reserved it is error 36, and the port used to answer by quietly
+       * creating an empty bank and inserting into it.
+       */
+      const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      if (n <= 0) funcCall()
       bank.insert(n)
     }
   }
@@ -5119,6 +5267,25 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
 
 export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
+  /**
+   * FnAm1 (+Lib.s:11920) is `move.l d3,d1 / Rbmi L_FonCall / cmp.l #64,d1 /
+   * Rbcc L_FonCall`, and Movon, Chanan and Chanmv each open `Rbsr L_FnAm1`
+   * (+Lib.s:11895, 11904, 11913) before they look at anything.
+   */
+  const amChannel = (n: number): number => {
+    if (n < 0 || n >= 64) funcCall()
+    return n
+  }
+  /** FPn's range check (+Lib.s:14002), shared by Pen$ and Paper$ */
+  const fpn = (n: number): number => {
+    if (n >>> 0 >= 32) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+    return n
+  }
+  /** HsActAd's range check (+W.s:11399), shared by X Sprite, Y Sprite, I Sprite */
+  const hwSprite = (n: number): { x: number; y: number; image: number } | undefined => {
+    if (n < 0 || n >= 64) funcCall()
+    return rt.hwSprites.get(n)
+  }
   return {
     /**
      * =Arexx Exist("port") --- `FnArexxExist` (+Lib.s:14996), which is
@@ -5404,14 +5571,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'i bob'(_, a) {
       return VI(rt.bobs.get(int(a[0]!))?.image ?? 0)
     },
+    /*
+     * FnXSprite, FnYSprite and FnISprite (+Lib.s:12035, 12045, 12067) are the
+     * same four instructions: `move.l d3,d1 / Rbmi L_FonCall / SyCall XYSp /
+     * Rbne L_FonCall`. XYSp is HsXY (+W.s:11440), which ends `moveq #0,d0` and
+     * so never fails on its own — the failure is inside HsActAd
+     * (+W.s:11398), `cmp.w #HsNb,d1 / bcc.s HsAdE`, and HsAdE is `addq.l
+     * #4,sp / moveq #1,d0 / rts`: it throws away its caller's return address
+     * and hands the 1 straight back, which is what `Rbne L_FonCall` catches.
+     *
+     * `HsNb equ 64` (+WEqu.s:177), so the sprites are 0 to 63 and anything
+     * else is Illegal function call. In range and never used reads the table
+     * as it stands, which is zero, and that part the port already had.
+     */
     'x sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.x ?? 0)
+      return VI(hwSprite(int(a[0]!))?.x ?? 0)
     },
     'y sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.y ?? 0)
+      return VI(hwSprite(int(a[0]!))?.y ?? 0)
     },
     'i sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.image ?? 0)
+      return VI(hwSprite(int(a[0]!))?.image ?? 0)
     },
     'bob col'(_, a) {
       return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
@@ -5561,10 +5741,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(n >= 0 && n < 26 ? rt.amalGlobals[n]! : 0)
     },
     chanan(_, a) {
-      return VI(rt.channels.get(int(a[0]!))?.animating ? -1 : 0)
+      return VI(rt.channels.get(amChannel(int(a[0]!)))?.animating ? -1 : 0)
     },
     chanmv(_, a) {
-      return VI(rt.channels.get(int(a[0]!))?.moving ? -1 : 0)
+      return VI(rt.channels.get(amChannel(int(a[0]!)))?.moving ? -1 : 0)
     },
     amalerr() {
       return VI(rt.amalErrPos)
@@ -5882,8 +6062,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     movon(_, a) {
       // =Movon(n) (FnMovon +Lib.s:11893): -1 while a Move X/Y program on
       // channel n is still running
-      const n = int(a[0]!)
-      if (n < 0) funcCall()
+      const n = amChannel(int(a[0]!))
       const s = rt.stosSlots.get(n)
       const live = (m: { on: boolean; done: boolean } | undefined): boolean => !!m && m.on && !m.done
       return VI(s && (live(s.moveX) || live(s.moveY)) ? -1 : 0)
@@ -5988,14 +6167,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     at(_, a) {
-      // FnAt +Lib.s:14017: Esc X / Esc Y escapes, one per present
-      // coordinate; values above 207 (255-48) are a function call error
+      /*
+       * FnAt (+Lib.s:14017) tests each slot for EntNul and skips it, and
+       * otherwise `cmp.l #255-48,d2 / Rbhi L_WFonCall`. Rbhi is unsigned, so
+       * that one compare refuses a negative as well as anything over 207, and
+       * WFonCall is `moveq #16,d0 / Rbra L_EcWiErr` — error 60, not 23.
+       *
+       * The port read any negative as an absent slot, so At(-5,6) built the
+       * same two-escape string as At(,6) instead of raising.
+       *
+       * One case is still wrong and cannot be fixed here: an omitted slot
+       * reaches this function as -1 rather than as EntNul, so At(-1,6) is
+       * indistinguishable from At(,6) and passes. Telling them apart needs the
+       * sentinel every function shares to become ENT_NUL, which is a change to
+       * the argument evaluator rather than to this keyword.
+       */
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
-      if (x > 207 || y > 207) funcCall()
-      if (x >= 0) out += '\x1bX' + String.fromCharCode(48 + x)
-      if (y >= 0) out += '\x1bY' + String.fromCharCode(48 + y)
+      const bad = (n: number): boolean => n !== -1 && n >>> 0 > 207
+      if (bad(x) || bad(y)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      if (x !== -1) out += '\x1bX' + String.fromCharCode(48 + x)
+      if (y !== -1) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
     },
 
@@ -6145,11 +6338,19 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       it.inp.lastShift = 0
       return VI(v)
     },
+    /*
+     * FnPenD and FnPaperD (+Lib.s:13986, 13993) differ only in the letter they
+     * point a2 at, and both fall into FPn (+Lib.s:14000): `cmp.l #32,d3 /
+     * Rbcc L_WFonCall / add.b #"0",d3 / move.b d3,2(a2)`. Unsigned, so the one
+     * compare refuses a negative too, and WFonCall is `moveq #16,d0 / Rbra
+     * L_EcWiErr`, error 60. The port put whatever it was given through
+     * `48 + n`, so Pen$(200) built an escape naming a colour that is not there.
+     */
     'pen$'(_, a) {
-      return VS('\x1bP' + String.fromCharCode(48 + int(a[0]!)))
+      return VS('\x1bP' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'paper$'(_, a) {
-      return VS('\x1bB' + String.fromCharCode(48 + int(a[0]!)))
+      return VS('\x1bB' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'cmove$'(_, a) {
       const x = a.length > 0 ? int(a[0]!) : 0

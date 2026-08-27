@@ -7,6 +7,7 @@ import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -107,6 +108,117 @@ describe('screen and window odds and ends', () => {
     expect(rt.scrollZones.get(1)).toMatchObject({ x1: 0, y1: 0, x2: 100, y2: 100, dx: 8, dy: 0 })
     // the block moved right by 8 pixels
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
+  })
+
+  it('Dual Playfield and Dual Priority check both screen numbers, error 50', () => {
+    // InDualPlayfield +Lib.s:8881 and InDualPriority +Lib.s:8894 each call
+    // CheckScreenNumber twice, and it is `cmp.l #8,d1 / Rbcc L_IllScN`
+    // (+Lib.s:9169). IllScN is `moveq #6,d0 / Rbra L_EcWiErr` (+Lib.s:12983),
+    // so 6 + 44 = 50, "Valid screen numbers range 0 to 7" — the message names
+    // the very range the constant sets. A raw 6 is "Resume label not defined".
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,4,Lowres\nScreen Open 1,320,200,4,Lowres\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('Dual Playfield 0,8')).toBe(50)
+    expect(code('Dual Playfield 8,1')).toBe(50)
+    expect(code('Dual Playfield 0,-1')).toBe(50)
+    expect(code('Dual Priority 0,8')).toBe(50)
+    // in range but never made dual is EcE27, 27 + 44 = 71
+    expect(code('Dual Priority 0,1')).toBe(71)
+    expect(code('Dual Playfield 0,1')).toBe(0)
+  })
+
+  it('Wind Move and Wind Size refuse window 0 and a negative pair', () => {
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,16,Lowres : Cls 0\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // WiMove +W.s:13874 and WiSize +W.s:13944 both open `tst.w WiNumber(a5) /
+    // bne.s / moveq #18,d0 / bra WOut`, and 18 + EcWiErr's 44 is 62. The
+    // message table has nothing at 18 and "Text window 0 can't be closed" at 62
+    expect(code('Wind Move 16,10')).toBe(62)
+    expect(code('Wind Size 10,5')).toBe(62)
+    // InWindmove +Lib.s:13081 and InWindsize +Lib.s:13095 read the pair
+    // through two `Rbmi L_FonCall`
+    expect(code('Wind Open 1,0,0,20,10\nWind Move -1,10')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Move 16,-1')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Size -1,5')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Move 16,10')).toBe(0)
+  })
+
+  it('Movon, Chanan and Chanmv share one channel range, 0 to 63', () => {
+    // each opens `Rbsr L_FnAm1` (+Lib.s:11895, 11904, 11913) and FnAm1
+    // (+Lib.s:11920) is `move.l d3,d1 / Rbmi L_FonCall / cmp.l #64,d1 / Rbcc`
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`${GRAB}\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['Movon', 'Chanan', 'Chanmv']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(64)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(63)`)]).toEqual([f, false])
+      expect([f, bad(`${f}(0)`)]).toEqual([f, false])
+    }
+  })
+
+  it('X Sprite, Y Sprite and I Sprite take 0 to 63 and refuse the rest', () => {
+    // FnXSprite +Lib.s:12037 `move.l d3,d1 / Rbmi L_FonCall / SyCall XYSp /
+    // Rbne L_FonCall`. HsXY itself always reports success, so the refusal
+    // comes from HsActAd's `cmp.w #HsNb,d1 / bcc.s HsAdE` (+W.s:11399) with
+    // `HsNb equ 64` (+WEqu.s:177), HsAdE returning 1 past its own caller.
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`Screen Open 0,320,200,16,Lowres\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['X Sprite', 'Y Sprite', 'I Sprite']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(64)`)]).toEqual([f, true])
+      // in range and never used still reads the table, which is zero
+      expect([f, bad(`${f}(63)`)]).toEqual([f, false])
+      expect([f, bad(`${f}(0)`)]).toEqual([f, false])
+    }
+    expect(runOut('Screen Open 0,320,200,16,Lowres\nPrint X Sprite(5)')).toBe(' 0\n')
+  })
+
+  it('there are ten scrolling zones, and an undefined one is error 72', () => {
+    const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
+    const code = (src: string): number => {
+      try {
+        run(`${open}\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // `NDScrolls equ 10` (+Equ.s:1430). InDefScroll +Lib.s:10179 is `tst.l d7 /
+    // Rbeq L_FonCall / cmp.l #NDScrolls,d7 / Rbhi L_FonCall`, InScroll
+    // +Lib.s:10194 the same range as `subq.l #1,d3 / cmp.l #NDScrolls,d3 / Rbcc`
+    expect(code('Def Scroll 0,0,0 To 10,10,1,0')).toBe(23)
+    expect(code('Def Scroll 11,0,0 To 10,10,1,0')).toBe(23)
+    expect(code('Def Scroll 10,0,0 To 10,10,1,0')).toBe(0)
+    expect(code('Scroll 0')).toBe(23)
+    expect(code('Scroll 11')).toBe(23)
+    // in range but never defined: ScNoDef +Lib.s:10225 `moveq #28,d0 / Rbra
+    // L_EcWiErr`, and 28 + 44 is 72, "Scrolling zone not defined"
+    expect(code('Scroll 5')).toBe(72)
+    expect(code('Def Scroll 5,0,0 To 10,10,1,0\nScroll 5')).toBe(0)
   })
 
   it('Scroll On and Scroll Off control whether the window scrolls at its foot', () => {

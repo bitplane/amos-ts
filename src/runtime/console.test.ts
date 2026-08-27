@@ -4,6 +4,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -121,6 +122,42 @@ describe('console escape-string functions', () => {
       ' 3 66 51\n',
     )
     expect(run('A$=Pen$(2) : Print Asc(Mid$(A$,2,1));Asc(Mid$(A$,3,1))').out).toBe(' 80 50\n')
+    // FPn (+Lib.s:14002) `cmp.l #32,d3 / Rbcc L_WFonCall`, and WFonCall is
+    // `moveq #16,d0 / Rbra L_EcWiErr` so a program sees 60. Unsigned, so one
+    // compare covers the negative end
+    for (const src of ['A$=Pen$(32)', 'A$=Paper$(32)', 'A$=Pen$(-1)']) {
+      let n = 0
+      try {
+        run(src)
+      } catch (e) {
+        n = amosErrorCode(e as AmosError)
+      }
+      expect([src, n]).toEqual([src, 60])
+    }
+    // 31 is the last legal one, and its digit byte is 48 + 31
+    expect(run('A$=Pen$(31) : Print Asc(Mid$(A$,3,1))').out).toBe(' 79\n')
+  })
+
+  it('At refuses a coordinate outside 0 to 207, and still allows an omitted one', () => {
+    // FnAt +Lib.s:14017 skips an EntNul slot and otherwise runs `cmp.l
+    // #255-48,d2 / Rbhi L_WFonCall`. Rbhi is unsigned, so the one compare
+    // catches a negative too, and WFonCall is error 60 rather than 23.
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('A$=At(-5,6)')).toBe(60)
+    expect(code('A$=At(5,-6)')).toBe(60)
+    expect(code('A$=At(208,6)')).toBe(60)
+    expect(code('A$=At(207,207)')).toBe(0)
+    // Esc X n Esc Y n is six characters, one escape per slot given
+    expect(run('A$=At(5,6) : Print Len(A$);').out).toBe(' 6')
+    expect(run('A$=At(,6) : Print Len(A$);').out).toBe(' 3')
+    expect(run('A$=At(5,) : Print Len(A$);').out).toBe(' 3')
   })
 
   it('Cmove$ builds a relative cursor move, biased by 128', () => {
@@ -252,6 +289,38 @@ describe('screen visibility and offset', () => {
     expect(w.border).toBe(3)
     expect(w.borPap).toBe(2)
     expect(w.borPen).toBe(1)
+  })
+
+  it('Border refuses a style of 16 and a colour off the palette, and 0 changes nothing', () => {
+    // WSBor +W.s:14016: `cmp.l #16,d1 / bcc WErr7`, then `tst.w d1 / beq.s
+    // Wsb1` so zero passes the range check without being stored, then
+    // `cmp.w EcNbCol(a4),d2 / bcc WErr7` for each colour. WErr7 is `moveq
+    // #16,d0` (+W.s:15839), which through EcWiErr is error 60.
+    const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
+    // not the `run` above: mustFinish turns a failed program into a plain
+    // Error and the AMOS number is what this test is about
+    const code = (src: string): number => {
+      try {
+        const rt = new Runtime(tokenize(`${open} : ${src}`, table), table, { maxSteps: 300_000 })
+        rt.runHeadless(1_000)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // the spec is I0,0,0, so all three commas are typed and a slot is left
+    // EMPTY rather than dropped — `Border 16` on its own is a syntax error
+    expect(code('Border 16,,')).toBe(60)
+    expect(code('Border -1,,')).toBe(60)
+    expect(code('Border 3,16,1')).toBe(60)
+    expect(code('Border 3,2,16')).toBe(60)
+    expect(code('Border 15,15,15')).toBe(0)
+    // 0 is legal and leaves the style alone
+    const { rt } = run(`${open} : Border 3,2,1 : Border 0,,`)
+    expect(screen(rt).curWin.border).toBe(3)
+    // an empty leading slot is legal and still is: `Border,0,14` is in the corpus
+    const { rt: rt2 } = run(`${open} : Border 3,2,1 : Border,0,14`)
+    expect([screen(rt2).curWin.border, screen(rt2).curWin.borPap]).toEqual([3, 0])
   })
 
   it('Title Bottom stores the lower window title', () => {

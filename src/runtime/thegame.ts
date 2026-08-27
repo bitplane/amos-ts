@@ -1247,7 +1247,7 @@ export const GMS_DEF_PALETTE_COLOURS = (0x400 - 8) / 4
  */
 function gmsSlot(n: number): number {
   const range = Runtime.screenRange('game')
-  if (n < 0 || n >= range.count) throw new AmosError(`illegal screen number: ${n}`)
+  if (n < 0 || n >= range.count) throw new AmosError(`illegal screen number: ${n}`, 50)
   return range.from + n
 }
 
