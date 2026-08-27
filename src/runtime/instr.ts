@@ -1956,8 +1956,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().setCursShape(rows)
     },
     cline(it) {
+      /*
+       * InCline0 (+Lib.s:13461) is the bare form and sends control code 26.
+       * InCline1 (+Lib.s:13501) takes the count and checks it first: `tst.l
+       * d3 / Rbeq L_WFonCall / cmp.l #255-48,d3 / Rbcc L_WFonCall`, so 1 to
+       * 206 and error 60 outside. The port took any number at all.
+       */
       const s = scr()
-      const n = it.atStmtEnd() ? s.cols - s.curX : it.evalInt()
+      const bare = it.atStmtEnd()
+      const n = bare ? s.cols - s.curX : it.evalInt()
+      if (!bare && (n === 0 || n >>> 0 >= 207)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       s.bar(s.curX * 8, s.curY * 8, (s.curX + n) * 8 - 1, s.curY * 8 + 7, s.paper)
     },
     'curs pen'(it) {
@@ -1996,7 +2004,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().grMode = it.evalInt() & 7
     },
     'set tab'(it) {
-      const n = Math.max(1, it.evalInt())
+      /*
+       * InSetTab (+Lib.s:13543) is `cmp.l #255-48,d3 / Rbhi L_WFonCall`, so
+       * 0 to 207 and error 60 outside. Rbhi rather than Cline's Rbcc, which
+       * is why 207 passes here and fails there, and why there is no tst.l:
+       * AMOS sends a tab of 0 straight to the window code. The port clamps
+       * it to 1 instead, because a tab of 0 has nothing to step by.
+       */
+      const raw = it.evalInt()
+      if (raw >>> 0 > 207) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      const n = Math.max(1, raw)
       scr().curWin.tab = n
       it.tabWidth = n // transcripts mirror the console
     },

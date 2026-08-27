@@ -110,10 +110,57 @@ describe('console line and style state', () => {
 })
 
 describe('console escape-string functions', () => {
-  it('Repeat$ repeats a string, and rejects a negative count', () => {
-    expect(run('Print Repeat$("ab",3)').out).toBe('ababab\n')
-    expect(run('Print Len(Repeat$("x",0))').out).toBe(' 0\n')
-    expect(() => run('Print Repeat$("x",-1)')).toThrow(/Illegal function call/)
+  it('Repeat$ hands the repeating to the console, and takes 1 to 206', () => {
+    /*
+     * FnRepeat (+Lib.s:14108) goes through FinRpt (+Lib.s:14152), the routine
+     * Border$ and Zone$ also use, so the result is `Esc R 0` + text +
+     * `Esc R n` — six characters longer than the text, not n copies of it.
+     * Repete (+W.s:14993) is what turns that into n copies on the way out.
+     */
+    expect(run('Print Len(Repeat$("ab",3))').out).toBe(' 8\n')
+    const { out } = run('A$=Repeat$("ab",3) : Print Mid$(A$,2,1);Asc(Mid$(A$,3,1));Mid$(A$,7,1);Asc(Mid$(A$,8,1))')
+    expect(out).toBe('R 48R 51\n')
+    // and the console really does repeat it: six characters printed, not two
+    const { rt } = run('Print Repeat$("ab",3);')
+    expect(screen(rt).curX).toBe(6)
+    // one copy still prints once, and 206 is the last count that fits
+    expect(run('Print Repeat$("ab",1);').rt.screens.get(0)!.curX).toBe(2)
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // tst.l d3 / Rbeq and cmp.l #207,d3 / Rbcc, both landing on WFonCall
+    expect(code('A$=Repeat$("x",0)')).toBe(60)
+    expect(code('A$=Repeat$("x",-1)')).toBe(60)
+    expect(code('A$=Repeat$("x",207)')).toBe(60)
+    expect(code('A$=Repeat$("x",206)')).toBe(0)
+  })
+
+  it('Cline takes 1 to 206 and Set Tab 0 to 207, both error 60', () => {
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InCline1 (+Lib.s:13501) rejects 0 with tst.l and 207 with Rbcc
+    expect(code('Cline 0')).toBe(60)
+    expect(code('Cline -1')).toBe(60)
+    expect(code('Cline 207')).toBe(60)
+    expect(code('Cline 206')).toBe(0)
+    // the bare form counts to the window edge and has nothing to check
+    expect(code('Cline')).toBe(0)
+    // InSetTab (+Lib.s:13543) uses Rbhi, so 207 passes and 0 is allowed
+    expect(code('Set Tab 207')).toBe(0)
+    expect(code('Set Tab 208')).toBe(60)
+    expect(code('Set Tab -1')).toBe(60)
+    expect(code('Set Tab 0')).toBe(0)
   })
 
   it('Paper$ and Pen$ build the console colour escapes', () => {

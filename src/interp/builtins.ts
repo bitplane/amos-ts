@@ -1387,10 +1387,21 @@ export const FUNCS: Record<string, Func> = {
     return VS(AMOS_ERRORS[n] ?? '')
   },
   'repeat$'(_, a) {
+    /*
+     * FnRepeat (+Lib.s:14108) is `tst.l d3 / Rbeq L_WFonCall / cmp.l #207,d3
+     * / Rbcc L_WFonCall`, so the count is 1 to 206 and anything else is error
+     * 60. The compare is unsigned, which covers the negatives.
+     *
+     * It then builds ChRpt through FinRpt (+Lib.s:14152), the same routine
+     * Border$ and Zone$ use: `Esc R 0` + the text + `Esc R n`. The repeating
+     * is the console's job (Repete, +W.s:14993), not the string's, so the
+     * result is six characters longer than the text and NOT n copies of it.
+     * Returning n copies gave the right picture and the wrong Len.
+     */
     arity(a, 2)
     const n = int(a[1]!)
-    if (n < 0) funcCall()
-    return VS(str(a[0]!).repeat(n))
+    if (n === 0 || n >>> 0 >= 207) throw new AmosError(AMOS_ERRORS[60]!, 60)
+    return VS('\x1bR0' + str(a[0]!) + '\x1bR' + String.fromCharCode(48 + n))
   },
   'command line$'(_, a) {
     arity(a, 0)

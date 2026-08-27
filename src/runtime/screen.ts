@@ -119,6 +119,15 @@ export interface Wind {
    * a console that is handed whole strings.
    */
   escPending: string
+
+  /**
+   * The text a `Repeat$` is collecting, or null when nothing is collecting.
+   *
+   * Repete (+W.s:14993) does not print the characters between the two Esc R
+   * escapes. It diverts them into T_WiRepBuf, 80 bytes (WiRepL, +WEqu.s:59),
+   * and only replays them when the closing escape arrives with the count.
+   */
+  repBuf: string | null
 }
 
 /**
@@ -569,6 +578,7 @@ export class Screen {
       // Wo3a (+W.s:13706) leaves WiSys zeroed, and a zero mask skips nothing
       planes: 0xff,
       escPending: '',
+      repBuf: null,
     }
     this.windows.set(0, this.curWin)
     /*
@@ -1409,6 +1419,24 @@ export class Screen {
     for (let ti = 0; ti < text.length; ti++) {
       const ch = text[ti]!
       const c = ch.charCodeAt(0)
+      /*
+       * Rep2 (+W.s:15007) stores each arriving byte and only stops when the
+       * two it has just stored are ESC and "R", so everything between the
+       * pair of escapes is collected rather than printed — other escapes
+       * included. The buffer is 80 bytes and Rep4 flushes a full one with a
+       * count of 1.
+       */
+      const rep = this.curWin.repBuf
+      if (rep !== null && !(c === 27 && text[ti + 1] === 'R')) {
+        if (rep.length >= 80) {
+          this.curWin.repBuf = null
+          this.writeTextInner(rep)
+          ti--
+          continue
+        }
+        this.curWin.repBuf = rep + ch
+        continue
+      }
       if (c === 27) {
         // console escape: letter + parameter characters (see +Lib.s ChXxx)
         const w = this.curWin
@@ -1484,6 +1512,27 @@ export class Screen {
             w.cuCol = arg(1)
             ti += 2
             break
+          /*
+           * Repete (+W.s:14993). Esc R 0 opens the collection; the next Esc R
+           * closes it and replays what was collected. Rep5 computes
+           * `d2 = (48+n) - 49` and runs `dbra d2`, so the text goes out n
+           * times, and a count of 0 goes out once because Rep6 clamps the
+           * negative to zero. An Esc R with a count arriving while nothing is
+           * collecting falls through Rep1 and does nothing.
+           */
+          case 'R': {
+            const buf = w.repBuf
+            if (buf === null) {
+              if (arg(1) === 0) w.repBuf = ''
+              ti += 2
+              break
+            }
+            w.repBuf = null
+            const times = Math.max(1, arg(1))
+            for (let k = 0; k < times; k++) this.writeTextInner(buf)
+            ti += 2
+            break
+          }
           case 'T':
             w.tab = Math.max(1, arg(1))
             ti += 2
@@ -2151,6 +2200,7 @@ export class Screen {
       // Wo3a (+W.s:13706) leaves WiSys zeroed, and a zero mask skips nothing
       planes: 0xff,
       escPending: '',
+      repBuf: null,
     }
     if (this.windSave) {
       const r = this.windowRect(w)
