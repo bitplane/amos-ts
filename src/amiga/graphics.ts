@@ -507,6 +507,46 @@ export class RastPort {
   }
 
   /**
+   * A rectangle that owns the blitter: no clip, no draw mode, screen bounds
+   * and the write mask and nothing else.
+   *
+   * `EcCls` (+W.s:3631) is AMOS's `Cls`, and it is not a RastPort operation.
+   * It clamps the four coordinates against `EcTx` and `EcTy` — the screen's
+   * own width and height — and then `ClsR` (:3676) takes the blitter with
+   * `OwnBlit` and writes `EcNPlan` planes through `BltMaskG`/`BltMaskD` and
+   * the modulos off `EcTLigne`. No RastPort is fetched, so rp_ClipRect at
+   * offset 20 and rp_DrawMode at offset 28 are never read: a clipping window
+   * cannot narrow a `Cls` and `Gr Writing 2` cannot make one complement.
+   *
+   * `BltCon0` is `%0000001111001010`, which is USEC|USED with minterm $CA and
+   * `BltDatA` held at -1. With A all ones that reduces to "take B", B being
+   * the per-plane colour bit — a replace, the same conclusion `hlineReplace`
+   * reaches for TPaint from the other end.
+   *
+   * The write mask is kept for the reason given on `hlineReplace`: stock AMOS
+   * leaves it at all-ones and only TURBO's `Set Planes` narrows it.
+   */
+  rectFillRaw(x1: number, y1: number, x2: number, y2: number, c = this.fgPen): void {
+    if (x1 > x2) [x1, x2] = [x2, x1]
+    if (y1 > y2) [y1, y2] = [y2, y1]
+    x1 = Math.max(0, x1)
+    y1 = Math.max(0, y1)
+    x2 = Math.min(this.width - 1, x2)
+    y2 = Math.min(this.height - 1, y2)
+    if (x2 < x1 || y2 < y1) return
+    const savedClip = this.clip
+    const savedMode = this.drawMode
+    this.clip = null
+    this.drawMode = 0
+    try {
+      for (let y = y1; y <= y2; y++) this.hline(x1, x2, y, c)
+    } finally {
+      this.clip = savedClip
+      this.drawMode = savedMode
+    }
+  }
+
+  /**
    * RectFill — a solid rectangle, corners in either order.
    *
    * The area pattern is NOT applied here. rp_AreaPtrn belongs to AreaFill,

@@ -1109,8 +1109,22 @@ export class Screen {
     this.gfx(() => this.clsInner(c, x1, y1, x2, y2))
   }
 
+  /**
+   * `Cls` is a blitter fill, not a drawing operation.
+   *
+   * `EcCls` (+W.s:3631) clamps the rectangle against `EcTx`/`EcTy` and hands
+   * it to `ClsR`, which owns the blitter directly. It never fetches a
+   * RastPort, so neither the clipping window nor `Gr Writing` is consulted —
+   * see `../amiga/graphics.ts` `rectFillRaw` for the BltCon0 argument.
+   *
+   * This clears whatever the clip is, which is what the Object Editor's
+   * resize depends on: `_XYSIZE` clears the strips beside and below the new
+   * box while `_CLIP` still has the clipping window set to the box interior,
+   * so a `Cls` that obeyed the clip erased nothing at all and left a trail of
+   * corner handles, one per 16-pixel step.
+   */
   private clsInner(c: number, x1: number, y1: number, x2: number, y2: number): void {
-    if (x1 === 0 && y1 === 0 && x2 === this.width - 1 && y2 === this.height - 1 && this.clip === null) {
+    if (x1 === 0 && y1 === 0 && x2 === this.width - 1 && y2 === this.height - 1) {
       // whole screen: fill each plane outright rather than going row by row.
       // The write mask still applies — Cls through a partial planeMask has to
       // leave the excluded planes standing.
@@ -1126,7 +1140,7 @@ export class Screen {
       // next read decodes
       if (this.planeMask === 0xff) this.logBM.refillCache(v)
     } else {
-      this.bar(x1, y1, x2, y2, c)
+      this.rp.rectFillRaw(x1, y1, x2, y2, c)
     }
   }
 
