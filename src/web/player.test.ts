@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAmosProgram, keyRoute, overlayLabel, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
+import { isAmosProgram, isQualifier, keyRoute, overlayLabel, pickProgram, KB_ARROWS, KB_WASD, SCAN } from './player'
 import { keyToFunc, QUAL } from '../editor/keymap'
 
 describe('picking the program out of an archive', () => {
@@ -79,6 +79,25 @@ describe('keyboard to joystick', () => {
     for (const code of [...Object.keys(KB_ARROWS), ...Object.keys(KB_WASD)]) {
       expect(SCAN[code], code).toBeDefined()
     }
+  })
+
+  it('fires on a key the keystroke path throws away', () => {
+    // The wasd preset's fire is ShiftLeft, scancode $60, which `Cla_Event`
+    // holds as a qualifier and never stores as a keystroke. So the two
+    // questions a keydown answers -- what character is this, and what is the
+    // stick doing -- disagree about this key, and the gameport has to be fed
+    // before the character routing gets to drop it.
+    //
+    // It was not, for a while: the qualifier branch returned first and Shift
+    // never reached the joystick map, so the default port 1 preset had no
+    // fire button. Nothing else in the suite can see that, because the
+    // handler is a closure inside `createPlayer` and there is no DOM here.
+    // This pins the collision that makes the ordering matter.
+    expect(KB_WASD.ShiftLeft).toBe(16)
+    expect(isQualifier(SCAN.ShiftLeft!)).toBe(true)
+    // and the arrows preset does NOT collide, which is why the bug looked
+    // like "port 1 is broken" rather than "the keyboard stick is broken"
+    expect(isQualifier(SCAN.Space!)).toBe(false)
   })
 })
 

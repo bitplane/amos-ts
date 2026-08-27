@@ -142,6 +142,27 @@ export interface GamepadInfo {
   id: string
 }
 
+/**
+ * Is this scancode a qualifier being HELD rather than a key being typed?
+ *
+ * `Cla_Event` (+W.s:12813) is
+ *
+ *     cmp.b #$68,d0 / bcc.s .RawK
+ *     cmp.b #$40,d0 / bcs.s .RawK
+ *     cmp.b #$60,d0 / bcc .Cont
+ *
+ * and `.Cont` records the key in `T_ClTable` without `Cla_Stocke`: "Shifts>>>
+ * pas stockes", the source's own comment. $60 to $67 is the two Shifts, Caps
+ * Lock, Ctrl, the two Alts and the two Amiga keys.
+ *
+ * It says nothing about the JOYSTICK, which is the trap: `KB_WASD` fires on
+ * `ShiftLeft`, whose scancode is $60, so a gameport that only sees keystrokes
+ * has no fire button at all.
+ */
+export function isQualifier(scan: number): boolean {
+  return scan >= 0x60 && scan < 0x68
+}
+
 function joyMap(k: JoyKeys | undefined): Record<string, number> {
   if (k === 'arrows') return KB_ARROWS
   if (k === 'wasd') return KB_WASD
@@ -684,6 +705,31 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
    */
   const portSource: [PortSource, PortSource] = [{ kind: 'gamepad', index: 1 }, { kind: 'gamepad', index: 0 }]
 
+  /**
+   * A key going down or coming up, as the two gameports see it.
+   *
+   * Both edges in one place because they have to agree on WHICH keys they
+   * act on. They stopped agreeing once: `onKeyUp` cleared a port's bits for
+   * any mapped key, while `onKeyDown` set them at the very end of the
+   * function, after five early returns. So a preset whose fire key took one
+   * of those returns could be released but never pressed, and Shift is
+   * exactly that key -- `KB_WASD` fires on `ShiftLeft`, scancode $60, which
+   * the qualifier branch below owns.
+   *
+   * A joystick is not a keystroke and none of the routing applies to it. The
+   * editor being up, a requester being up, the key being a qualifier: all
+   * decide where a CHARACTER goes, and a stick has no character. So this runs
+   * before any of them, on both edges.
+   */
+  function keyToJoy(code: string, down: boolean): void {
+    for (let p = 0; p < 2; p++) {
+      const bits = KB_PORT[p]![code]
+      if (bits === undefined) continue
+      if (down) kbJoy[p]! |= bits
+      else kbJoy[p]! &= ~bits
+    }
+  }
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!focused || !rt) return
     // The one key that can be taken without taking it from anything: no Amiga
@@ -699,6 +745,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // it was running.
     if (paused) return
     audio.unlock()
+    keyToJoy(e.code, true)
     // Ctrl-C is the break key, and only while a program is running. In the
     // editor it is an ordinary shortcut: `.Ed_KFonc` gives it to `Ed_BlocCut`
     // like any other letter with a qualifier, and there is nothing to break.
@@ -731,7 +778,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // "Shifts>>> pas stockes", the source's own comment. Sending Shift to
     // `Ed_Key` made it a keystroke with no command and no ASCII, and the
     // editor moved the cursor on for it.
-    if (scan >= 0x60 && scan < 0x68) {
+    if (isQualifier(scan)) {
       rt.keyDown(scan)
       return
     }
@@ -763,7 +810,6 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       return
     }
     rt.keyDown(scan)
-    for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! |= KB_PORT[p]![e.code]!
     if (ch !== '') rt.pressKey(ch, scan)
     // only swallow the browser's own use of a key once we have the keyboard
     if (e.code === 'Space' || e.code === 'Backspace' || e.code === 'Tab' || e.code.startsWith('Arrow')) {
@@ -891,7 +937,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     if (!rt || paused) return
     const scan = SCAN[e.code] ?? 0
     rt.keyUp(scan)
-    for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! &= ~KB_PORT[p]![e.code]!
+    keyToJoy(e.code, false)
   }
   const onFocus = (): void => {
     focused = true
