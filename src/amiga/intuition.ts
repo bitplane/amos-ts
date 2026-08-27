@@ -67,6 +67,36 @@ export const WB_PALETTE: readonly number[] = [
 ]
 
 /**
+ * The 2.x and 3.x Workbench screen, which is eight colours rather than four.
+ *
+ * Read out of `Prefs/palette.prefs` on the AMOS PD Library CD, 434 bytes
+ * dated 18 January 1994 — the same Workbench 3.0 tree the DataTypes
+ * descriptors in `./datatypes.gen.ts` came from. It is a `FORM PREF` whose
+ * `PALT` chunk holds a `struct ColorSpec` array: a WORD index then 16-bit
+ * red, green and blue, eight of them from file offset $b2, terminated by an
+ * index of $ffff.
+ *
+ * Every component in it is a nibble repeated ($aaaa, $6666, $bbbb), which is
+ * a 12-bit Amiga colour written into 16-bit fields, so they are stored here
+ * as RGB4 like the four above and lose nothing.
+ *
+ * This is the palette a `.info` is drawn in and the reason an icon file
+ * carries no colours of its own: the icon is bitplanes, and the screen it is
+ * pasted onto supplies the pens. A four-colour icon is drawn in the first
+ * four of these, which is why they are one list and not two.
+ */
+export const WB3_PALETTE: readonly number[] = [
+  0x0aaa, // 0 — grey, the desktop
+  0x0000, // 1 — black, the text pen
+  0x0fff, // 2 — white
+  0x068b, // 3 — blue, the highlight
+  0x0999, // 4 — dark grey
+  0x0bbb, // 5 — light grey
+  0x0ba9, // 6 — tan
+  0x0fba, // 7 — salmon
+]
+
+/**
  * The Workbench screen's geometry.
  *
  * NOTE: 640x256 hires, depth 2. AROS takes width and height from

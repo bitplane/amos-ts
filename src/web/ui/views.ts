@@ -36,6 +36,8 @@ import { extensionTablesFor } from '../../ext/identify'
 import { decode as decodePlanes, bankRowBytesFor } from '../../amiga/planar'
 import { detectModule, MOD_FORMAT_NAMES } from '../../amiga/modformat'
 import { fromPacPic, pictureFromChunky, type Picture } from '../picture'
+import { readIcon, WB_TYPE, type Icon, type IconImage } from '../../amiga/icon'
+import { WB_PALETTE, WB3_PALETTE } from '../../amiga/intuition'
 import { facts } from './list'
 import type { View } from './viewer'
 
@@ -254,6 +256,80 @@ function hexView(data: Uint8Array): View {
   }
 }
 
+/**
+ * A `.info`, as the two pictures and the settings it is.
+ *
+ * The icon file carries bitplanes and NO palette, because it is drawn on the
+ * Workbench screen and that screen supplies the pens. So the colours come
+ * from `../../amiga/intuition.ts`, four of them for a 1.3 icon and eight for
+ * a 2.x one, and depth is what says which.
+ *
+ * Both images, side by side, because the second one is not a duplicate: it is
+ * what Workbench shows while the icon is selected, and on plenty of icons it
+ * is a different drawing rather than the same one inverted.
+ */
+function iconView(icon: Icon): View {
+  const palette = icon.normal !== null && icon.normal.depth > 2 ? WB3_PALETTE : WB_PALETTE
+  const draw = (img: IconImage): Picture => {
+    const rowBytes = ((img.width + 15) >> 4) * 2
+    const chunky = new Uint8Array(img.width * img.height)
+    decodePlanes(img.data, rowBytes * img.height, rowBytes, img.depth, img.width, img.height, chunky)
+    return pictureFromChunky({
+      width: img.width,
+      height: img.height,
+      depth: img.depth,
+      pixels: chunky,
+      palette,
+      // The Workbench screen is 640x256 hires, so an icon's pixels are the
+      // tall ones. Drawing them square makes every icon in the corpus look
+      // squashed, which is the same mistake the picture preview made.
+      hires: true,
+      laced: false,
+      ham: false,
+      ehb: false,
+    })
+  }
+  return {
+    id: 'icon',
+    label: 'Icon',
+    mount(host) {
+      const grid = document.createElement('div')
+      grid.className = 'vw-grid'
+      for (const [what, img] of [
+        ['normal', icon.normal],
+        ['selected', icon.selected],
+      ] as const) {
+        if (img === null) continue
+        const cell = document.createElement('figure')
+        cell.className = 'vw-cell'
+        cell.appendChild(canvasFor(draw(img)))
+        const cap = document.createElement('figcaption')
+        cap.textContent = `${what}: ${img.width}x${img.height}, ${img.depth}p`
+        cell.appendChild(cap)
+        grid.appendChild(cell)
+      }
+      host.appendChild(grid)
+
+      host.appendChild(
+        facts([
+          ['type', WB_TYPE[icon.type] ?? `unknown (${icon.type})`],
+          // A stack of 0 is what the icon SAYS, and Workbench reads it as
+          // "use the default" rather than as no stack at all.
+          ...(icon.stackSize > 0 ? ([['stack', `${icon.stackSize} bytes`]] as [string, string][]) : []),
+          ...(icon.defaultTool === '' ? [] : ([['default tool', icon.defaultTool]] as [string, string][])),
+        ]),
+      )
+
+      if (icon.toolTypes.length > 0) {
+        const pre = document.createElement('pre')
+        pre.className = 'fm-text'
+        pre.textContent = icon.toolTypes.join('\n')
+        host.appendChild(pre)
+      }
+    },
+  }
+}
+
 /** the detokenised listing, which is what a program IS */
 function listingView(source: Uint8Array): View {
   return {
@@ -331,7 +407,14 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * which is what keeps a plain text file from growing a tab bar with one tab
  * on it.
  */
-export function viewsFor(bytes: Uint8Array, hostApi: ViewHost): View[] | null {
+export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string): View[] | null {
+  // A `.info` is not an AMOS file and never parses as one, so it is asked
+  // about first. `../kinds.ts` has already identified it.
+  if (group === 'icon') {
+    const icon = readIcon(bytes)
+    return icon === null ? null : [iconView(icon), hexView(bytes)]
+  }
+
   let file
   try {
     file = parseAmosFile(bytes)
