@@ -42,6 +42,38 @@ describe('language cluster', () => {
     expect(run('Dim A$(2)\nA$(0)="c" : A$(1)="a" : A$(2)="b"\nSort A$(0)\nPrint A$(0);A$(1);A$(2)').out).toBe('abc\n')
   })
 
+  it('a Match that misses answers where the value would go', () => {
+    /*
+     * di7 (+ILib.s:4487) walks forward from where the halving stopped until
+     * it meets an element that is not smaller, and di8 answers `move.l
+     * d5,d3 / addq.l #1,d3 / neg.l d3`. So a miss is the negated insertion
+     * point counted from 1, and every miss in the array below has to name a
+     * different slot. The port answered the negated last midpoint, which
+     * gave -2 for four of these five.
+     */
+    const base = ['Dim A(4)', 'A(0)=1 : A(1)=3 : A(2)=5 : A(3)=7 : A(4)=9'].join('\n')
+    const m = (v: number): string => run(`${base}\nPrint Match(A(0),${v})`).out
+    expect(m(0)).toBe('-1\n') // before everything: insert at 0
+    expect(m(2)).toBe('-2\n')
+    expect(m(4)).toBe('-3\n')
+    expect(m(8)).toBe('-5\n')
+    expect(m(10)).toBe('-6\n') // past the end: insert at 5
+    // a hit is still the plain index
+    expect(m(1)).toBe(' 0\n')
+    expect(m(9)).toBe(' 4\n')
+    // TypeMis (+Lib.s:12872) is moveq #34, and it reaches GoError unchanged
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code(`${base}\nPrint Match(A(0),"x")`)).toBe(34)
+    expect(code('Dim A$(1)\nA$(0)="a" : A$(1)="b"\nPrint Match(A$(0),3)')).toBe(34)
+  })
+
   it('rotates and tests bits (Rol/Ror/Bset/Bclr/Bchg/Btst)', () => {
     expect(run('A=1 : Rol.b 1,A : Print A').out).toBe(' 2\n')
     expect(run('A=1 : Ror.b 1,A : Print A').out).toBe(' 128\n')

@@ -125,16 +125,32 @@ function rolror(width: number, left: boolean): Instr {
 /** functions that parse their own arguments */
 export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
   match(it) {
-    // Match(A(0),value): binary search of a sorted array; negative
-    // -closest when not found
+    /*
+     * Match(A(0),value): a binary search of a sorted array (FnMatch
+     * +ILib.s:4449).
+     *
+     * The miss is the part the port had wrong. When the halving loop runs
+     * out (d6 reaches 0), di7 walks d5 FORWARD one element at a time until
+     * it meets one that is not smaller, and di8 then answers `move.l d5,d3 /
+     * addq.l #1,d3 / neg.l d3` — the negated insertion point, counted from
+     * 1. The port answered the negated last midpoint it happened to probe,
+     * which is not a position a caller can insert at.
+     *
+     * The types have to agree first. `cmp.b d2,d5 / beq.s di3 / subq.w #1,d5
+     * / beq.s di2 / bpl TypeMis` converts between integer and float and
+     * refuses a string against a number, where the port coerced both ends to
+     * strings and compared those. TypeMis (+Lib.s:12872) is `moveq #34,d0 /
+     * Rbra L_GoError`, so 34 with no 44 added.
+     */
     it.expect('(')
     const arr = it.parseArrayRef()
     it.expect(',')
     const v = it.evalExpr()
     it.expect(')')
+    const elemIsStr = arr.data.length > 0 && arr.data[0]!.k === 'str'
+    if (elemIsStr !== (v.k === 'str')) throw new AmosError(AMOS_ERRORS[34]!, 34)
     let lo = 0
     let hi = arr.data.length - 1
-    let closest = 0
     const cmp = (a: Value): number => {
       if (a.k === 'str' || v.k === 'str') {
         const x = str(a)
@@ -146,12 +162,12 @@ export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
     while (lo <= hi) {
       const mid = (lo + hi) >> 1
       const c = cmp(arr.data[mid]!)
-      closest = mid
       if (c === 0) return VI(mid)
       if (c < 0) lo = mid + 1
       else hi = mid - 1
     }
-    return VI(closest === 0 ? -1 : -closest)
+    // lo is the first index whose element is larger, which is where di7 stops
+    return VI(-(lo + 1))
   },
 }
 
