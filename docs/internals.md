@@ -4,6 +4,26 @@ What each part of the port covers, and what reading the original turned up
 along the way. `KEYWORDS.md` is the per-keyword index and `UNIMPLEMENTED.md`
 is where the port knowingly falls short; this is the middle ground.
 
+## Where it lives
+
+```
+src/
+  loader/    .AMOS / .Abk / IFF parsing (BinReader, bank formats)
+  tokens/    token table, the editor's tokeniser and detokeniser, number formats
+  interp/    the interpreter: values, variables, control flow, instructions
+  runtime/   the "virtual Amiga": screens, bobs, sprites, AMAL, audio, input
+  amiga/     the modelled machine and OS beneath it. Paula, the blitter,
+             graphics.library, dos.library, the ProTracker replay, the VFS
+  editor/    +Edit.s: the program buffer, the commands, the key map, the windows
+  amos/      the two halves joined, which is what +B.s is: the editor's Run
+             builds an interpreter and the program's exit re-enters the editor
+  ext/       the extension registry: identities, token tables, citations
+  coverage/  what is implemented and how well it is known (status.ts)
+  cli/       node CLI tools (list/unpack/inspect AMOS files)
+  web/       browser runner, and the embeddable player
+fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
+```
+
 ## Subsystems
 
 - **Loader.** `.AMOS` containers, in every signature variant seen in the wild,
