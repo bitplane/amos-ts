@@ -4404,6 +4404,12 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  'break on':
+    'The bit is faithful -- `bset #BitControl,ActuMask(a5)` plus the `clr.l OnBreak(a5)` that is the only way ' +
+    'to forget an On Break Proc (InBreakOn +ILib.s:1846). What differs is the stop it enables: `Tst00` ' +
+    '(+ILib.s:961) does `moveq #9,d0 / bra RunErr`, raising AMOS error 9, "Program interrupted", so a program ' +
+    'holding `On Error Goto` catches Ctrl-C and carries on. Here the interpreter stops outright and no handler ' +
+    'sees it.',
   equ:
     "`Ope_Equ` (+Verif.s:2955) resolves the name at TEST time and pokes the value into the token's own six " +
     "inline bytes, so `FnEqu` (+ILib.s:5881) is `move.l (a6),d3` and a skip over the name. That is why a " +

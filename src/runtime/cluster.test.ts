@@ -2136,6 +2136,16 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(run(src2).out).toBe(' 0\n') // channel 0 never came back
   })
 
+  /** run a few frames, press Ctrl-C, run a few more */
+  const breakAfter = (src: string): { done: boolean; out: string } => {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    for (let i = 0; i < 5; i++) rt.frame()
+    rt.interp.requestBreak()
+    for (let i = 0; i < 5; i++) rt.frame()
+    return { done: rt.interp.done, out }
+  }
+
   it('On Break Proc runs the handler on a host break; without one the program stops (InOnBreak +ILib.s:1861)', () => {
     const src = ['On Break Proc HANDLER', 'Do : Wait Vbl : Loop', 'Procedure HANDLER', ' Print "BROKE" : End', 'End Proc'].join('\n')
     let out = ''
@@ -2149,6 +2159,27 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     rt2.interp.requestBreak()
     rt2.frame()
     expect(rt2.interp.done).toBe(true)
+  })
+
+  it('Break Off swallows Ctrl-C, and Break On takes the handler back off', () => {
+    /*
+     * `Tst00` (+ILib.s:961) reads the ENABLE bit before it looks for a
+     * handler: `btst #BitControl,d4 / beq.s Tst01`, set meaning stop with
+     * error 9, "Program interrupted". `Break Off` clears it (+ILib.s:1855)
+     * and `Break On` sets it while also doing `clr.l OnBreak(a5)`, which is
+     * the only way to forget an On Break Proc.
+     */
+    const spin = (src: string): ReturnType<typeof breakAfter> => breakAfter(src)
+    // Break Off, no handler: the key does nothing and the loop runs on
+    expect(spin('Break Off\nDo : Wait Vbl : Loop').done).toBe(false)
+    // the default is to stop, and Break On puts it back
+    expect(spin('Do : Wait Vbl : Loop').done).toBe(true)
+    expect(spin('Break Off : Break On\nDo : Wait Vbl : Loop').done).toBe(true)
+    // Break On after On Break Proc forgets the handler, so Ctrl-C stops
+    const withProc = 'On Break Proc H\nBreak On\nDo : Wait Vbl : Loop\nProcedure H\n Print "BROKE" : End\nEnd Proc'
+    const r = spin(withProc)
+    expect(r.done).toBe(true)
+    expect(r.out).toBe('')
   })
 
   it('Set Tempras validates 256..65535; Set Stack/Set Equate Bank are rts (+Lib.s:9997/1683/1689)', () => {

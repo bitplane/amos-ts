@@ -120,9 +120,9 @@ describe('error handling (Resume / Resume Label)', () => {
 })
 
 describe('interpreter no-ops that must still parse', () => {
-  it('Break On/Off are accepted and do nothing observable', () => {
-    // Ctrl-C trapping has no meaning here, but a program that sets it must
-    // keep running rather than stop on a skipped keyword
+  it('Break On/Off do not disturb the program that sets them', () => {
+    // what they DO is one bit each, tested against a real Ctrl-C in
+    // cluster.test.ts; this is only that the statements run
     expect(run('Break Off : Print "a" : Break On : Print "b"').out).toBe('a\nb\n')
   })
 
