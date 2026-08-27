@@ -179,6 +179,27 @@ function pair(it: It): [number, number] {
 }
 
 /**
+ * Read a block number, the way all six block keywords do.
+ *
+ * Get, Put and Del, for both Block and Cblock, open with the same two lines:
+ * `Rbeq L_BFonCall / cmp.l #65536,d5 / Rbcc L_BFonCall` (+Lib.s:11069, 11091,
+ * 11109, 11133, 11176, 11195). So 0 is refused and so is anything from 65536
+ * up, and `Rbcc` is unsigned, which puts every negative number above the
+ * limit too.
+ *
+ * `BFonCall` is `moveq #22,d0 / Rbra L_EcWiErr` (+Lib.s:12998) and EcWiErr
+ * adds `EcEBase-1` = 44 (+Lib.s:12917, +Equ.s:771), so a program sees error
+ * 66, "Illegal block parameters" — not 22, which is Syntax error. The
+ * argument-less forms `InDelBlock0` and `InDelCBlock0` reach `EcCall BlRaz`
+ * with no check at all, so Del Block on its own still clears the lot.
+ */
+function blockNum(it: It): number {
+  const n = it.evalInt()
+  if (n <= 0 || n >= 65536) throw new AmosError(`illegal block parameters: ${n}`, 66)
+  return n
+}
+
+/**
  * Was this numeric slot left blank?
  *
  * AMOS compiles an empty numeric argument to EntNul ($80000000, +Equ.s:39)
@@ -3625,7 +3646,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     // ---- blocks ----
     'get block'(it) {
-      const n = it.evalInt()
+      const n = blockNum(it)
       it.expect(',')
       const [x, y] = pair(it)
       it.expect(',')
@@ -3647,7 +3668,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.blocks.set(n, { x, y, w: img.width, h: img.height, pixels: img.pixels, mask })
     },
     'put block'(it) {
-      const b = rt.blocks.get(it.evalInt())
+      const b = rt.blocks.get(blockNum(it))
       if (!b) throw new AmosError('block not defined')
       let x = b.x
       let y = b.y
@@ -3661,7 +3682,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'del block'(it) {
       if (it.atStmtEnd()) rt.blocks.clear()
-      else rt.blocks.delete(it.evalInt())
+      else rt.blocks.delete(blockNum(it))
     },
     'get cblock'(it) {
       /*
@@ -3674,7 +3695,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
        * It is a different rounding from Get Block's, and in the opposite
        * direction, because the two keywords call different routines.
        */
-      const n = it.evalInt()
+      const n = blockNum(it)
       it.expect(',')
       const [x, y] = pair(it)
       it.expect(',')
@@ -3693,7 +3714,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.cblocks.set(n, { x: x0, y, w: bw, h: bh, pixels })
     },
     'put cblock'(it) {
-      const b = rt.cblocks.get(it.evalInt())
+      const b = rt.cblocks.get(blockNum(it))
       if (!b) throw new AmosError('block not defined')
       let x = b.x
       let y = b.y
@@ -3707,7 +3728,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'del cblock'(it) {
       if (it.atStmtEnd()) rt.cblocks.clear()
-      else rt.cblocks.delete(it.evalInt())
+      else rt.cblocks.delete(blockNum(it))
     },
 
     // ---- screens extra ----

@@ -1236,6 +1236,36 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
+  it('a block number outside 1..65535 is error 66, and bare Del Block still clears the lot', () => {
+    // all six block keywords open with the same guard: `Rbeq L_BFonCall /
+    // cmp.l #65536,d5 / Rbcc L_BFonCall` (+Lib.s:11069, 11091, 11109, 11133,
+    // 11176, 11195). BFonCall is `moveq #22,d0 / Rbra L_EcWiErr` (+Lib.s:12998)
+    // and EcWiErr adds EcEBase-1 = 44, so a program sees 66, not 22
+    const code = (src: string): number => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', src].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const src of [
+      'Get Block 0,0,0,8,8',
+      'Get Block 65536,0,0,8,8',
+      'Get Cblock 0,0,0,8,8',
+      'Del Block 0',
+      'Del Cblock 65536',
+      'Put Block 0',
+    ]) {
+      expect([src, code(src)]).toEqual([src, 66])
+    }
+    // Rbcc is unsigned, so a negative number is above the limit too
+    expect(code('Get Block -1,0,0,8,8')).toBe(66)
+    // InDelBlock0 is `EcCall BlRaz / rts` with no guard at all
+    const { rt } = run(['Screen Open 0,320,200,16,0', 'Get Block 1,0,0,8,8', 'Del Block'].join('\n'))
+    expect(rt.blocks.size).toBe(0)
+  })
+
   it('Get Block rounds its width UP to a word and Get Cblock truncates to a byte', () => {
     /*
      * Two keywords, two routines, two rules. MakeBloc grabs through GetBob,
