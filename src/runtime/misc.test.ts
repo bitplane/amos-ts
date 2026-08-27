@@ -110,6 +110,28 @@ describe('screen and window odds and ends', () => {
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
   })
 
+  it('Wind Move and Wind Size refuse window 0 and a negative pair', () => {
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,16,Lowres : Cls 0\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // WiMove +W.s:13874 and WiSize +W.s:13944 both open `tst.w WiNumber(a5) /
+    // bne.s / moveq #18,d0 / bra WOut`, and 18 + EcWiErr's 44 is 62. The
+    // message table has nothing at 18 and "Text window 0 can't be closed" at 62
+    expect(code('Wind Move 16,10')).toBe(62)
+    expect(code('Wind Size 10,5')).toBe(62)
+    // InWindmove +Lib.s:13081 and InWindsize +Lib.s:13095 read the pair
+    // through two `Rbmi L_FonCall`
+    expect(code('Wind Open 1,0,0,20,10\nWind Move -1,10')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Move 16,-1')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Size -1,5')).toBe(23)
+    expect(code('Wind Open 1,0,0,20,10\nWind Move 16,10')).toBe(0)
+  })
+
   it('Movon, Chanan and Chanmv share one channel range, 0 to 63', () => {
     // each opens `Rbsr L_FnAm1` (+Lib.s:11895, 11904, 11913) and FnAm1
     // (+Lib.s:11920) is `move.l d3,d1 / Rbmi L_FonCall / cmp.l #64,d1 / Rbcc`

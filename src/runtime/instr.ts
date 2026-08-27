@@ -1987,6 +1987,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'wind move'(it) {
       const s = scr()
       const [x, y] = pair(it)
+      windParams(x, y)
       // WiMv0 (+W.s:13880) brackets the move with EffCur/AffCur — without
       // that the cursor stays drawn at the window's old position
       s.console(() => {
@@ -2002,6 +2003,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (the window is blanked to paper and the cursor homed)
       const s = scr()
       const [w2, h2] = pair(it)
+      windParams(w2, h2)
       // WiSi0 (+W.s:13950), bracketed for the same reason as Wind Move
       s.console(() => {
         s.curWin.cols = w2
@@ -4944,6 +4946,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Ins Bob/Sprite/Icon n — single blank insert (Bnk.InsBob +Lib.s:8316) */
+  /*
+   * The guard Wind Move and Wind Size share. InWindmove (+Lib.s:13081) and
+   * InWindsize (+Lib.s:13095) both read their pair through `move.l d3,d2 /
+   * Rbmi L_FonCall / move.l (a3)+,d1 / Rbmi L_FonCall`, then call through
+   * `WiCall / Rbne L_EcWiErr`.
+   *
+   * WiMove (+W.s:13871) and WiSize (+W.s:13941) both open `tst.w
+   * WiNumber(a5) / bne.s / moveq #18,d0 / bra WOut`, so window 0 can be
+   * neither moved nor resized. 18 plus EcWiErr's 44 is 62, and the message
+   * table settles it: nothing at all sits at 18, and 62 reads "Text window 0
+   * can't be closed".
+   */
+  function windParams(a: number, b: number): void {
+    if (a < 0 || b < 0) funcCall()
+    if (scr().curWin.n === 0) throw new AmosError(ED_RUN_MESSAGES[62]!, 62)
+  }
+
   function insObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const n = it.evalInt()
