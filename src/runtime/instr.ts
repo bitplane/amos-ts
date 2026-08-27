@@ -5229,6 +5229,11 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
 
 export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
+  /** HsActAd's range check (+W.s:11399), shared by X Sprite, Y Sprite, I Sprite */
+  const hwSprite = (n: number): { x: number; y: number; image: number } | undefined => {
+    if (n < 0 || n >= 64) funcCall()
+    return rt.hwSprites.get(n)
+  }
   return {
     /**
      * =Arexx Exist("port") --- `FnArexxExist` (+Lib.s:14996), which is
@@ -5514,14 +5519,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'i bob'(_, a) {
       return VI(rt.bobs.get(int(a[0]!))?.image ?? 0)
     },
+    /*
+     * FnXSprite, FnYSprite and FnISprite (+Lib.s:12035, 12045, 12067) are the
+     * same four instructions: `move.l d3,d1 / Rbmi L_FonCall / SyCall XYSp /
+     * Rbne L_FonCall`. XYSp is HsXY (+W.s:11440), which ends `moveq #0,d0` and
+     * so never fails on its own — the failure is inside HsActAd
+     * (+W.s:11398), `cmp.w #HsNb,d1 / bcc.s HsAdE`, and HsAdE is `addq.l
+     * #4,sp / moveq #1,d0 / rts`: it throws away its caller's return address
+     * and hands the 1 straight back, which is what `Rbne L_FonCall` catches.
+     *
+     * `HsNb equ 64` (+WEqu.s:177), so the sprites are 0 to 63 and anything
+     * else is Illegal function call. In range and never used reads the table
+     * as it stands, which is zero, and that part the port already had.
+     */
     'x sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.x ?? 0)
+      return VI(hwSprite(int(a[0]!))?.x ?? 0)
     },
     'y sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.y ?? 0)
+      return VI(hwSprite(int(a[0]!))?.y ?? 0)
     },
     'i sprite'(_, a) {
-      return VI(rt.hwSprites.get(int(a[0]!))?.image ?? 0)
+      return VI(hwSprite(int(a[0]!))?.image ?? 0)
     },
     'bob col'(_, a) {
       return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))

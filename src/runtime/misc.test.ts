@@ -110,6 +110,29 @@ describe('screen and window odds and ends', () => {
     expect(rt.screen.point(20 + 8, 20)).toBe(7)
   })
 
+  it('X Sprite, Y Sprite and I Sprite take 0 to 63 and refuse the rest', () => {
+    // FnXSprite +Lib.s:12037 `move.l d3,d1 / Rbmi L_FonCall / SyCall XYSp /
+    // Rbne L_FonCall`. HsXY itself always reports success, so the refusal
+    // comes from HsActAd's `cmp.w #HsNb,d1 / bcc.s HsAdE` (+W.s:11399) with
+    // `HsNb equ 64` (+WEqu.s:177), HsAdE returning 1 past its own caller.
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`Screen Open 0,320,200,16,Lowres\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['X Sprite', 'Y Sprite', 'I Sprite']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(64)`)]).toEqual([f, true])
+      // in range and never used still reads the table, which is zero
+      expect([f, bad(`${f}(63)`)]).toEqual([f, false])
+      expect([f, bad(`${f}(0)`)]).toEqual([f, false])
+    }
+    expect(runOut('Screen Open 0,320,200,16,Lowres\nPrint X Sprite(5)')).toBe(' 0\n')
+  })
+
   it('there are ten scrolling zones, and an undefined one is error 72', () => {
     const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
     const code = (src: string): number => {
