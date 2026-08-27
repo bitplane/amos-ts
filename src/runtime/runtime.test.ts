@@ -121,6 +121,38 @@ describe('drawing', () => {
     expect(rt.screen.point(40, 60)).toBe(1) // outside stays paper
   })
 
+  /**
+   * `Paint` fills through `Set Pattern`, in both pens.
+   *
+   * `TPaint` reads rp_AreaPtrn (RastPort offset 8) and rp_AreaPtSz (29) and
+   * builds one blit word per row (+W.s:4540): `and.w d1,d0` takes FgPen where
+   * the pattern bit is set, `not.w d1 / and.w d2,d1 / or.w d1,d0` takes BgPen
+   * where it is clear. `d7` and `d6`, rotated a bit per plane, are offsets 25
+   * and 26 — FgPen and BgPen.
+   *
+   * Mouse-bank pattern 2 is `aaaa,5555` repeating, so row 0 is pen on the even
+   * columns and row 1 is pen on the odd ones. AMOS Pro's Hardware_Sprites
+   * tutorial is what a solid fill spoiled: `BIGX3` builds its max-width sprite
+   * by pattern-filling a box and grabbing it, so an unpatterned Paint made the
+   * "one max. width 3 coloured sprite" a featureless block.
+   */
+  it('Paint fills with Set Pattern, pen on the set bits and paper on the clear', () => {
+    const rt = run('Set Pattern 2 : Ink 4,2 : Paint 100,100\nSet Pattern 0')
+    const s = rt.screen
+    expect(s.point(0, 0)).toBe(4) // $aaaa bit 15
+    expect(s.point(1, 0)).toBe(2) // clear — the PAPER, not what was there
+    expect(s.point(2, 0)).toBe(4)
+    expect(s.point(0, 1)).toBe(2) // $5555
+    expect(s.point(1, 1)).toBe(4)
+  })
+
+  it('Paint replaces under Gr Writing 2, because TPaint never reads rp_DrawMode', () => {
+    // TPaint reads offsets 8, 25, 26 and 29 and never 28, so COMPLEMENT does
+    // not reach it. Complementing pen 4 over paper 1 would give 14.
+    const rt = run('Gr Writing 2 : Ink 4 : Paint 100,100\nGr Writing 1')
+    expect(rt.screen.point(100, 100)).toBe(4)
+  })
+
   it('applies Set Line patterns to lines and boxes', () => {
     const rt = run('Set Line %1010101010101010\nInk 6 : Draw 0,10 To 15,10')
     expect(rt.screen.point(0, 10)).toBe(6) // bit 15 set
