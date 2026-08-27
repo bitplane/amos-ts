@@ -412,6 +412,42 @@ button.led:focus-visible {
   white-space: nowrap;
 }
 
+/*
+ * The label as a BUTTON, which is a row you can walk into.
+ *
+ * `RowSpec.go` makes the label a button rather than a span, and a button
+ * arrives wearing the browser's own clothes: `buttonface` for a background,
+ * which is light grey in a dark page and put white text on white, plus a
+ * border, a centred label and a font that is not this one. All four have to
+ * come off before the rule above means anything.
+ *
+ * It takes the tree's drawer colour, because the only caller is the Files
+ * panel and a drawer named in amber on the left should not be white on the
+ * right. A second caller that is not a drawer wants a class of its own rather
+ * than this one widened.
+ */
+button.item-label {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--tree-dir);
+  cursor: pointer;
+}
+
+button.item-label:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+button.item-label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .item-detail {
   color: var(--dim);
   overflow: hidden;
@@ -687,76 +723,298 @@ body.dragging {
   outline-offset: -6px;
 }
 
-/* ---- the files tree ------------------------------------------------------ */
+/* ---- the file manager: drawers on the left, one drawer on the right ------ */
 
-#fstree {
+.fm {
+  display: grid;
+  grid-template-columns: minmax(9rem, 15rem) minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+/* one column each on a phone, with the tree above what it selects */
+@media (max-width: 46rem) {
+  .fm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fm-tree {
+    max-height: 30vh;
+  }
+}
+
+.fm-tree {
   max-height: 60vh;
   overflow: auto;
-  white-space: pre;
-  line-height: 1.35;
+  border-right: 1px solid var(--line-soft);
+  padding-right: 0.4rem;
+  line-height: 1.5;
 }
 
-#fstree .vol {
-  color: var(--accent);
+.fm-node {
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  white-space: nowrap;
+  border-radius: var(--radius);
 }
 
-/*
- * The tree keeps its own two colours, because a file and a drawer are not the
- * same kind of thing and the accent is already spoken for by the volume. Both
- * are base16's, out of the site's code.css: its blue and its yellow.
- */
-#fstree a {
-  color: var(--tree-file);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-#fstree a.dir {
-  color: var(--tree-dir);
-  text-decoration: none;
-}
-
-/*
- * The tree's links are more specific than the page's `a:hover`, so without
- * this the ground would invert and the text would stay put. Inverting on the
- * link's OWN colour keeps the file/drawer distinction through the hover.
- */
-#fstree a:hover {
-  background-color: var(--tree-file);
-  color: #000000;
-}
-
-#fstree a.dir:hover {
-  background-color: var(--tree-dir);
-  color: #000000;
-}
-
-#fstree a.act:hover {
-  background-color: var(--faint);
-  color: #000000;
-}
-
-/* the per-row rename/delete/new-drawer actions: out of the way until the row
-   is under the pointer, so the tree still reads as a tree */
-#fstree a.act {
-  color: var(--faint);
-  text-decoration: none;
-  margin-left: 8px;
-  visibility: hidden;
-}
-
-#fstree div:hover a.act {
-  visibility: visible;
-}
-
-#fstree a.act:hover {
-  color: var(--accent);
+/* the drawer the right pane is showing */
+.fm-node.here {
+  background: var(--raised);
 }
 
 /* a drawer the dragged entry would move into */
-#fstree div.over {
+.fm-node.over {
   background: var(--raised);
   outline: 1px dashed var(--accent);
+}
+
+.fm-twist,
+.fm-vol,
+.fm-dir {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* the twisty keeps its column on a drawer with nothing under it, so the
+   names below stay in one line down the pane */
+.fm-twist {
+  color: var(--faint);
+  width: 1em;
+  flex: none;
+}
+
+.fm-vol {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.fm-dir {
+  color: var(--tree-dir);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-vol:hover,
+.fm-dir:hover,
+.fm-twist:hover {
+  color: var(--fg);
+}
+
+.fm-pane {
+  min-width: 0;
+}
+
+.fm-crumbs {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-label);
+}
+
+.fm-crumbs button {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.fm-crumbs button:hover {
+  text-decoration: underline;
+}
+
+.fm-crumbs span {
+  color: var(--dim);
+}
+
+/* the drawer's own actions, pushed to the far end of the crumb line */
+.fm-crumb-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.3rem;
+}
+
+.fm-crumb-actions button.act {
+  color: var(--dim);
+}
+
+/* a row being dragged onto a drawer row in the right pane */
+.item.over {
+  outline: 1px dashed var(--accent);
+}
+
+.fm-empty {
+  color: var(--faint);
+  font-size: var(--fs-label);
+  padding: 0.6rem 0;
+}
+
+/* a decoded picture, drawn at its own size and stretched by aspect-ratio so
+   a lowres Amiga pixel comes out twice as wide as it is tall */
+canvas.fm-shot {
+  display: block;
+  max-width: 100%;
+  image-rendering: pixelated;
+  background: #000000;
+  border: 1px solid var(--line);
+  margin-bottom: 0.6rem;
+}
+
+/* ---- the viewer inside a row: tabs over one file's several selves ------- */
+
+.vw-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 0.35rem;
+}
+
+button.vw-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 0.1rem 0.45rem;
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.vw-tab:hover {
+  color: var(--fg);
+}
+
+button.vw-tab.on {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--raised);
+}
+
+.vw-panel {
+  min-width: 0;
+}
+
+/* a bank the reader would not take, said in the row rather than thrown */
+.vw-bad {
+  color: var(--warn);
+  font-size: var(--fs-label);
+}
+
+/* every image in a bank at its OWN size: a 16x16 icon beside a 64x48 ship is
+   information about the bank, and a grid of equal tiles would hide it */
+.vw-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  align-items: flex-end;
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.vw-cell {
+  margin: 0;
+  max-width: 100%;
+}
+
+.vw-cell figcaption {
+  font-size: var(--fs-label);
+  color: var(--faint);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* the sample list, and anything else that is a line per thing with a button */
+.vw-rows {
+  max-height: 20rem;
+  overflow: auto;
+  font-size: var(--fs-label);
+}
+
+.vw-rows > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+}
+
+.vw-rows > div > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vw-detail {
+  margin-left: auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* hex has to keep its columns, so it is the one thing here that does not wrap */
+pre.vw-hex {
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
+}
+
+/* what a container holds, which is a peek and not a second file manager */
+.fm-members {
+  max-height: 16rem;
+  overflow: auto;
+  font-size: var(--fs-label);
+  line-height: 1.5;
+}
+
+.fm-members div {
+  display: flex;
+  gap: var(--gap);
+}
+
+.fm-members div span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-member-size {
+  margin-left: auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+pre.fm-text {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dim);
+}
+
+.fm-more {
+  color: var(--faint);
+  font-size: var(--fs-label);
+  margin: 0.4rem 0 0;
 }
 
 /* ---- the speech box, on translator.library's row ------------------------- */

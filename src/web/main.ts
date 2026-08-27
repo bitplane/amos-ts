@@ -7,7 +7,7 @@
  * never unmounted, because a program keeps running while you are looking at
  * something else — see ./ui/tabs.ts.
  */
-import { createPlayer, isAmosProgram, VERSION, type JoyKeys, type PortSource } from './player'
+import { createPlayer, VERSION, type JoyKeys, type PortSource } from './player'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 import type { AmigaAudioModel } from '../amiga/mixer'
 /**
@@ -23,7 +23,6 @@ function shortPadName(id: string): string {
   return trimmed === '' ? id : trimmed
 }
 
-import { isAdf } from '../amiga/adf'
 import { Keyboard } from '../amiga/keyboard'
 import { Mouse } from '../amiga/mouse'
 import { mountTabs } from './ui/tabs'
@@ -34,9 +33,10 @@ import { createExtensionsTab } from './ui/extensions'
 import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
 import { createBrowseTab, type Via } from './ui/browse'
+import { createFilesTab } from './ui/files'
+import { modProgram, sampleProgram } from './modplay'
 import { itemPath } from './route'
 import { createLibraryLoader, type OpenSource } from './library'
-import { popupMenu } from './ui/menu'
 
 const fileEl = document.getElementById('file') as HTMLInputElement
 
@@ -218,7 +218,23 @@ if (import.meta.env.DEV) {
   void fetch('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
     .then((r) => (r.ok ? r.arrayBuffer() : null))
     .then((buf) => {
-      if (buf) player.setSystemResource(new Uint8Array(buf))
+      if (!buf) return
+      /*
+       * Check it is a bank before installing it.
+       *
+       * `r.ok` is not enough. Vite answers an unknown path with index.html
+       * and a 200, so a checkout with no fixtures/ handed 2,130 bytes of HTML
+       * to `setSystemResource`, and every program loaded through the editor
+       * then threw out of `loadSystemResource` before it ran a line. A dev
+       * server with nothing to serve looked exactly like a broken port.
+       *
+       * A resource bank is an ordinary `AmBk` memory bank whose name starts
+       * with the resource marker (../loader/resource.ts), and the magic is the
+       * part a wrong answer cannot fake.
+       */
+      const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength))
+      if (String.fromCharCode(...head) !== 'AmBk') return
+      player.setSystemResource(new Uint8Array(buf))
     })
     .catch(() => {})
 }
@@ -311,7 +327,7 @@ async function dropEntry(
 // these are for files arriving from the desktop; a drag that started inside
 // the Files panel is a move, and the panel's own rows handle it
 document.addEventListener('dragover', (e) => {
-  if (dragging !== null) return
+  if (files.dragging()) return
   e.preventDefault()
   document.body.classList.add('dragging')
 })
@@ -320,7 +336,7 @@ document.addEventListener('dragleave', (e) => {
 })
 document.addEventListener('drop', (e) => {
   document.body.classList.remove('dragging')
-  if (dragging !== null) return
+  if (files.dragging()) return
   e.preventDefault()
   const items = Array.from(e.dataTransfer?.items ?? [])
   const entries = items.map((i) => i.webkitGetAsEntry?.()).filter((x): x is FileSystemEntry => x != null)
@@ -344,37 +360,17 @@ const filesPanel = document.getElementById('panel-files')!
 const fstreeEl = document.getElementById('fstree')!
 
 /**
- * Can this entry be clicked?
+ * Report an operation and redraw.
  *
- * Anything ./library.ts can open, which is anything the player can: a
- * program, a floppy image, or an archive. The tree used to offer only
- * programs, so an .lha sitting in a drawer was inert while the very same
- * file, dropped on the window, mounted fine. Same rule everywhere now, and
- * the rule lives in one place.
- *
- * By header OR by name, because a plain-text listing has no header to
- * identify it and a tokenised program may have no extension.
+ * The only part of the file manager still here: `../filemanager.ts` does the
+ * work, `./ui/files.ts` draws the result, and what is left is the two things
+ * a PAGE owns, which are the requester and the status line. `prompt` and
+ * `confirm` are the browser's own and stand in for `Ed_DError` until the
+ * editor's requesters are reachable from outside a program.
  */
-const OPENABLE = /\.(amos|adf|lha|lzh|zip|tar|tar\.gz|tgz)$/i
-function isOpenable(name: string, bytes: Uint8Array | null): boolean {
-  if (bytes === null || bytes.length === 0) return false
-  return isAmosProgram(bytes) || isAdf(bytes) || OPENABLE.test(name)
-}
-
-/** directories the user has expanded; volumes default open, subdirs closed */
-const openDirs = new Set<string>()
-
-/** the entry being dragged inside the tree — set while a move is in flight
- * so the page-wide file-drop handling stays out of the way */
-let dragging: string | null = null
-const DRAG_TYPE = 'application/x-amos-path'
-
-/** report an operation and redraw; expanded paths that no longer exist
- * (renamed, moved, deleted) drop out of the open set here */
 function applied(r: FsResult): void {
   setStatus(r.message)
-  for (const p of [...openDirs]) if (vfs.exists(p) !== 'dir') openDirs.delete(p)
-  refreshFiles()
+  files.refresh()
 }
 
 const askRename = (path: string): void => {
@@ -397,164 +393,65 @@ const askRelabel = (vol: string): void => {
   if (to !== null) applied(relabelVolume(vfs, vol, to))
 }
 
-interface RowOptions {
-  cls?: string
-  onClick?: (() => void) | undefined
-  /** this row can be dragged elsewhere */
-  drag?: string
-  /** this row accepts a drop, moving the dragged entry into this drawer */
-  drop?: string
-  /** right-click on the row */
-  menu?: (e: MouseEvent) => void
-  actions?: [label: string, title: string, run: () => void][]
-}
+const files = createFilesTab(fstreeEl, {
+  vfs,
+  drives: () => player.machine.drives.map((d) => d?.medium?.label ?? (d?.medium ? '(no label)' : null)),
+  onStatus: setStatus,
+  open: (name, bytes, at, drive) => {
+    /*
+     * `at` is the half that used to be missing. `loadProgram` defaults to
+     * DH0:, and every drop landed a copy there as well, so the wrong answer
+     * happened to work. A library disk is mounted as a floppy and copied
+     * nowhere, so the same click set the current directory to a path on a
+     * volume the program is not on. Nothing errored: relative loads simply
+     * found nothing, which is what `Td Load "car1"` reports as "Object file
+     * not found".
+     *
+     * It also decides what a leading colon means. `:` is the root of the
+     * CURRENT VOLUME, and the AMOS 3D demos are written that way throughout.
+     */
+    void openThing({ name, bytes, at, ...(drive === undefined ? {} : { drive }) })
+  },
+  /**
+   * The play button, which writes the program that plays it.
+   *
+   * The module goes into RAM: as a whole `.AMOS`, four lines of source with
+   * the module in a bank beside them, and then runs like anything else in the
+   * tree. So it is in the file list afterwards and one click from the editor,
+   * which is what the boot demo at RAM:amos_ts.amos already does.
+   */
+  play: (name, bytes, format) => {
+    const prog = modProgram(name, bytes, format)
+    if (prog === null) {
+      setStatus(`nothing here plays a ${format} module yet`)
+      return
+    }
+    vfs.writeTo('RAM', [prog.name], prog.bytes)
+    void openThing({ name: prog.name, bytes: prog.bytes, at: { vol: 'RAM', dir: [] } })
+    setStatus(`playing ${name} through ${prog.keyword}`)
+  },
+  /** one sample out of a bank, through `Sam Play` for the same reason */
+  playSample: (name, bankNumber, bank, index) => {
+    const prog = sampleProgram(name, bankNumber, bank, index)
+    vfs.writeTo('RAM', [prog.name], prog.bytes)
+    void openThing({ name: prog.name, bytes: prog.bytes, at: { vol: 'RAM', dir: [] } })
+    setStatus(`${name}: ${prog.keyword}`)
+  },
+  ops: {
+    rename: askRename,
+    remove: askDelete,
+    newDrawer: askNewDrawer,
+    relabel: askRelabel,
+    move: (from, into) => applied(moveEntry(vfs, from, into)),
+  },
+})
 
+/** the tab's own refresh, under the name the rest of this file already calls */
 function refreshFiles(): void {
-  // the tree is rebuilt from the filesystem, so there is no point doing it for
-  // a panel nobody is looking at; the tab's show() catches up on the way in
+  // the panel rebuilds from the filesystem, so there is no point doing it for
+  // one nobody is looking at; the tab's show() catches up on the way in
   if (filesPanel.hidden) return
-  fstreeEl.textContent = ''
-  const addLine = (depth: number, text: string, o: RowOptions = {}): void => {
-    const line = document.createElement('div')
-    line.appendChild(document.createTextNode('  '.repeat(depth)))
-    const el: HTMLElement = document.createElement(o.onClick ? 'a' : 'span')
-    el.textContent = text
-    if (o.cls) el.className = o.cls
-    if (o.onClick) el.addEventListener('click', o.onClick)
-    if (o.menu) {
-      const menu = o.menu
-      el.addEventListener('contextmenu', (e) => {
-        e.preventDefault()
-        menu(e)
-      })
-    }
-    if (o.drag !== undefined) {
-      const from = o.drag
-      el.draggable = true
-      el.addEventListener('dragstart', (e) => {
-        dragging = from
-        e.dataTransfer?.setData(DRAG_TYPE, from)
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-      })
-      el.addEventListener('dragend', () => (dragging = null))
-    }
-    line.appendChild(el)
-    for (const [label, title, run] of o.actions ?? []) {
-      const b = document.createElement('a')
-      b.className = 'act'
-      b.textContent = label
-      b.title = title
-      b.addEventListener('click', run)
-      line.appendChild(b)
-    }
-    if (o.drop !== undefined) {
-      const into = o.drop
-      // only our own rows: a file dragged in from the desktop still goes to
-      // the page-wide handler that uploads it
-      line.addEventListener('dragover', (e) => {
-        if (dragging === null) return
-        e.preventDefault()
-        e.stopPropagation()
-        line.classList.add('over')
-      })
-      line.addEventListener('dragleave', () => line.classList.remove('over'))
-      line.addEventListener('drop', (e) => {
-        line.classList.remove('over')
-        if (dragging === null) return
-        e.preventDefault()
-        e.stopPropagation()
-        const from = dragging
-        dragging = null
-        applied(moveEntry(vfs, from, into))
-      })
-    }
-    fstreeEl.appendChild(line)
-  }
-  const walk = (base: string, dir: string[], depth: number): void => {
-    const path = base + dir.join('/')
-    const entries = vfs.listDir(path) ?? []
-    entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
-    for (const e of entries) {
-      const full = base + [...dir, e.name].join('/')
-      if (e.isDir) {
-        const open = openDirs.has(full)
-        addLine(depth, `${open ? '▾' : '▸'} ${e.name}/`, {
-          cls: 'dir',
-          onClick: () => {
-            if (open) openDirs.delete(full)
-            else openDirs.add(full)
-            refreshFiles()
-          },
-          drag: full,
-          drop: full,
-          actions: [
-            ['+', 'new drawer inside', () => askNewDrawer(full)],
-            ['ren', 'rename', () => askRename(full)],
-            ['del', 'delete', () => askDelete(full, true)],
-          ],
-        })
-        if (open) walk(base, [...dir, e.name], depth + 1)
-      } else {
-        const openable = isOpenable(e.name, vfs.read(full))
-        addLine(depth, openable ? e.name : `${e.name}  (${e.size})`, {
-          onClick: openable
-            ? () => {
-                const bytes = vfs.read(full)
-                if (!bytes) return
-                /*
-                 * `at` is the half that used to be missing. `loadProgram`
-                 * defaults to DH0:, and every drop landed a copy there as
-                 * well, so the wrong answer happened to work. A library disk
-                 * is mounted as a floppy and copied nowhere, so the same
-                 * click set the current directory to a path on a volume the
-                 * program is not on. Nothing errored: relative loads simply
-                 * found nothing, which is what `Td Load "car1"` reports as
-                 * "Object file not found".
-                 *
-                 * It also decides what a leading colon means. `:` is the
-                 * root of the CURRENT VOLUME, and the AMOS 3D demos are
-                 * written that way throughout.
-                 */
-                void openThing({ name: e.name, bytes, at: { vol: base.slice(0, -1), dir } })
-              }
-            : undefined,
-          menu: (ev) => {
-            // only a disk image has a drive to go in; an archive has no
-            // label and no filesystem of its own
-            const bytes = vfs.read(full)
-            if (!bytes || !isAdf(bytes)) return
-            popupMenu(
-              ev.clientX,
-              ev.clientY,
-              player.machine.drives.map((d, unit) => ({
-                label: `Put in DF${unit}:`,
-                detail: d?.medium?.label || (d?.medium ? '(no label)' : 'empty'),
-                run: () => void openThing({ name: e.name, bytes, at: { vol: base.slice(0, -1), dir }, drive: unit }),
-              })),
-            )
-          },
-          drag: full,
-          actions: [
-            ['ren', 'rename', () => askRename(full)],
-            ['del', 'delete', () => askDelete(full, false)],
-          ],
-        })
-      }
-    }
-  }
-  for (const vol of vfs.volumeNames()) {
-    const root = vol + ':'
-    openDirs.add(root) // volumes always expanded
-    addLine(0, root, {
-      cls: 'vol',
-      drop: root,
-      actions: [
-        ['+', 'new drawer inside', () => askNewDrawer(root)],
-        ['ren', 'rename this volume', () => askRelabel(vol)],
-      ],
-    })
-    walk(root, [], 1)
-  }
+  files.refresh()
 }
 
 // ---- the half of the hardware that is the browser's ----

@@ -219,3 +219,67 @@ export function encode(
     }
   }
 }
+
+/**
+ * A chunky pixel to a 24-bit colour, with HAM and extra-half-brite in it.
+ *
+ * Lifted out of `../runtime/display.ts`'s `rowColours`, which had been the
+ * only place that knew how a pixel becomes a colour, when the Files panel's
+ * picture preview became the second caller. That is the rule this directory
+ * runs on: a module moves here when a second caller appears, and the four
+ * copies of the DateStamp calendar are what happens when it does not.
+ *
+ * `hi` and `lo` are the two halves of an AGA palette entry: the high nibble
+ * of each component lives in COLORxx and the low nibble behind LOCT, and
+ * there is no index left to look the second half up with by the time a pixel
+ * is being expanded, so they are joined here. An ECS caller passes the same
+ * accessor for both, which is what a 12-bit palette is.
+ *
+ * HAM and EHB are both ECS and both do their arithmetic 12-bit, so they read
+ * `hi` alone and join the result with itself.
+ */
+export function colourResolver(opts: {
+  /** the high half of entry `i`, 12 bits */
+  hi(i: number): number
+  /** the low half, or the same accessor again for a 12-bit palette */
+  lo(i: number): number
+  ham: boolean
+  ehb: boolean
+}): (pix: number) => number {
+  const { hi, lo, ham, ehb } = opts
+  /** two 12-bit halves into 24 bits: high nibble then low, per component */
+  const join = (h: number, l: number): number =>
+    ((((h >> 8) & 15) << 4) | ((l >> 8) & 15)) * 65536 +
+    ((((h >> 4) & 15) << 4) | ((l >> 4) & 15)) * 256 +
+    (((h & 15) << 4) | (l & 15))
+  const get24 = (i: number): number => join(hi(i), lo(i))
+  if (ham) {
+    // The state machine, and the reason a HAM picture cannot be decoded a
+    // pixel at a time: three of the four codes modify the colour the PREVIOUS
+    // pixel left behind, so a row has to be walked from its start.
+    let c = hi(0)
+    return (pix) => {
+      const dat = pix & 15
+      switch (pix >> 4) {
+        case 0:
+          c = hi(dat)
+          break
+        case 1:
+          c = (c & 0xff0) | dat
+          break
+        case 2:
+          c = (c & 0x0ff) | (dat << 8)
+          break
+        default:
+          c = (c & 0xf0f) | (dat << 4)
+      }
+      return join(c, c)
+    }
+  }
+  if (ehb) {
+    // the top 32 pens are the bottom 32 at half brightness, which is one
+    // shift per component and is why the mask is $777 rather than $fff
+    return (pix) => (pix >= 32 ? join((hi(pix - 32) >> 1) & 0x777, (hi(pix - 32) >> 1) & 0x777) : get24(pix))
+  }
+  return (pix) => get24(pix)
+}

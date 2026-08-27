@@ -57,6 +57,25 @@ export interface RowSpec {
   choose?: { current: string; options: readonly Choice[] }
   /** fills the disclosure body. A row with no body does not open. */
   body?(host: HTMLElement): void
+  /**
+   * The label is a link, and this is where it goes.
+   *
+   * For the Files panel, where clicking the name of a drawer is how you walk
+   * into it. That gesture has no equivalent on the other tabs: a hardware
+   * slot is not somewhere you can BE. The disclosure still belongs to the
+   * caret and to the rest of the summary, so a row can both open and go.
+   */
+  go?(): void
+  /**
+   * The row element, once it is built.
+   *
+   * The escape hatch for what a row spec cannot describe, which so far is
+   * exactly one thing: the Files panel makes rows draggable and drawers
+   * droppable, and both are listeners on the element rather than anything
+   * this file could name. Nothing else uses it, and a second caller wanting
+   * something specific should get a field of its own instead.
+   */
+  mount?(row: HTMLElement): void
 }
 
 export interface List {
@@ -148,9 +167,20 @@ export function createList(host: HTMLElement): List {
         icon.setAttribute('aria-hidden', 'true')
         summary.appendChild(icon)
 
-        const label = document.createElement('span')
+        const label = document.createElement(row.go ? 'button' : 'span')
         label.className = 'item-label'
         label.textContent = row.label
+        if (row.go) {
+          const go = row.go
+          ;(label as HTMLButtonElement).type = 'button'
+          label.addEventListener('click', (e) => {
+            // the label sits inside the summary, where a click would
+            // otherwise toggle the row open on its way past
+            e.preventDefault()
+            e.stopPropagation()
+            go()
+          })
+        }
         summary.appendChild(label)
 
         const detail = document.createElement('span')
@@ -191,6 +221,7 @@ export function createList(host: HTMLElement): List {
           summary.addEventListener('click', (e) => e.preventDefault())
         }
 
+        row.mount?.(item)
         host.appendChild(item)
       }
     },
