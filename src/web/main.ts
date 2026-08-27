@@ -33,7 +33,8 @@ import type { InputSource } from './ui/catalogue'
 import { createExtensionsTab } from './ui/extensions'
 import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
-import { createBrowseTab } from './ui/browse'
+import { createBrowseTab, type Via } from './ui/browse'
+import { itemPath } from './route'
 import { createLibraryLoader, type OpenSource } from './library'
 import { popupMenu } from './ui/menu'
 
@@ -659,17 +660,43 @@ const loader = createLibraryLoader({
   },
 })
 
+/** what a library disk is called in the address bar, once one is open */
+interface Link {
+  path: readonly string[]
+  via: Via
+}
+
 /**
  * Open one thing and say what happened.
  *
- * The only part of this a page owns: which tab you end up looking at, and
- * what the status line says. Everything about WHAT to do with the bytes is
- * ./library.ts, and both the tree and the Browse tab come through here.
+ * The only part of this a page owns: which tab you end up looking at, what
+ * the status line says, and what the address bar reads afterwards.
+ * Everything about WHAT to do with the bytes is ./library.ts, and both the
+ * tree and the Browse tab come through here.
+ *
+ * `link` is set only for a disk out of the library, which is the only thing
+ * with a name a URL can carry: a file dropped on the page is on nobody
+ * else's machine, so its link would be a promise the page cannot keep.
  */
-async function openThing(src: OpenSource): Promise<void> {
+async function openThing(src: OpenSource, link?: Link): Promise<void> {
   const r = await loader.open(src)
+  // The tab you land on goes in the fragment WITH the disk, so the link
+  // reopens the screen it was copied from. A disk holding one program lands
+  // on the player and a disk holding twenty lands on the file tree, and both
+  // are worth linking to.
+  const land = (tab: string): void => {
+    // Both, always. Play and Files are two views of the one disk that is
+    // open, and the tab we do not land on would otherwise keep the disk
+    // before this one and hand out a link to it. A file dropped on the page
+    // clears both, because it is on nobody else's machine and has no link.
+    const path = link?.path ?? []
+    tabs.remember('play', path)
+    tabs.remember('files', path)
+    if (link === undefined) tabs.select(tab)
+    else tabs.go(tab, link.path, link.via === 'link' ? 'replace' : 'push')
+  }
   if (r.ran !== null) {
-    tabs.select('play')
+    land('play')
     return
   }
   // Nothing to start. A system disk is not a game and this port has no
@@ -681,14 +708,49 @@ async function openThing(src: OpenSource): Promise<void> {
       ? `${where} is in, and holds no AMOS program`
       : `${where} is in, ${r.programs.length} programs, pick one`,
   )
-  tabs.select('files')
+  land('files')
   refreshFiles()
+}
+
+/**
+ * A path in the fragment, from a link, a bookmark or the back button.
+ *
+ * Every tab that can end up holding a library disk routes through here, so
+ * `#play/games/egg-it`, `#files/games/egg-it` and `#browse/games/egg-it` all
+ * find the same disk and then land wherever opening it lands. What the
+ * reader typed is replaced by the canonical spelling of what was found, and
+ * a path that matches nothing keeps its spelling so it can be seen and
+ * fixed.
+ */
+async function routeTo(path: string[]): Promise<void> {
+  const found = await browse.route(path)
+  if (found === null) {
+    tabs.go('browse', path, 'replace')
+    return
+  }
+  if (found.kind === 'folder') {
+    tabs.go('browse', found.path, 'replace')
+    return
+  }
+  // A disk has already been through openThing, which set the tab and the
+  // address bar between them. What is left is where Browse ended up, so
+  // leaving the player lands on the shelf the disk came off rather than back
+  // at the root of the library.
+  tabs.remember('browse', found.folder)
 }
 
 const browse = createBrowseTab({
   onStatus: setStatus,
-  onOpen: (item, bytes, drive) =>
-    openThing({ name: item.disk.path.split('/').pop() ?? item.name, bytes, ...(drive === undefined ? {} : { drive }) }),
+  onOpen: (item, bytes, how) =>
+    openThing(
+      {
+        name: item.disk.path.split('/').pop() ?? item.name,
+        bytes,
+        ...(how.drive === undefined ? {} : { drive: how.drive }),
+      },
+      { path: itemPath(item), via: how.via },
+    ),
+  onFolder: (path) => tabs.go('browse', path),
   drives: () => player.machine.drives.map((d) => d?.medium?.label || (d?.medium ? '(no label)' : null)),
 })
 document.getElementById('panels')!.append(browse.panel)
@@ -733,7 +795,15 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
   // file of their own has something to run in one click. `mountTabs` takes
   // the first tab as the default and the URL fragment overrides it, so
   // #play still lands on the player.
-  { id: 'browse', label: 'Browse', panel: browse.panel, show: () => browse.show() },
+  {
+    id: 'browse',
+    label: 'Browse',
+    panel: browse.panel,
+    // the path, not a bare call: it is what tells the tab whether to stay on
+    // the folder it is showing or go back to the root of the library
+    show: (p) => browse.show(p),
+    route: (p) => void routeTo(p),
+  },
   {
     id: 'play',
     label: 'Play',
@@ -742,9 +812,10 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
     // switch that did not take it left the arrows scrolling the page while a
     // keyboard joystick sat there doing nothing
     show: () => player.focus(),
+    route: (p) => void routeTo(p),
   },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
-  { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles },
+  { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles, route: (p) => void routeTo(p) },
   {
     id: 'extensions',
     label: 'Extensions',
@@ -778,4 +849,11 @@ requestAnimationFrame(tick)
  */
 const demo = new TextEncoder().encode(DEMO)
 vfs.writeTo('RAM', ['amos_ts.amos'], demo)
-void loader.open({ name: 'amos_ts.amos', bytes: demo, at: { vol: 'RAM', dir: [] } })
+/*
+ * Not when the URL names a disk. `mountTabs` has already started routing to
+ * it, and a fetch takes long enough that the demo would boot, draw, and be
+ * shot out from under itself the moment the disk landed. Somebody following
+ * a link asked for one program, so they get one. The file is still written,
+ * so it is in the tree at RAM:amos_ts.amos and one click away.
+ */
+if (tabs.path.length === 0) void loader.open({ name: 'amos_ts.amos', bytes: demo, at: { vol: 'RAM', dir: [] } })

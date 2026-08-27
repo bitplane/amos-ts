@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { allItems, indexLibrary, type LibraryFolder } from './genlibrary'
+import { itemPath } from '../web/route'
 
 /** the folder at a slash-separated path of directory names, for the assertions */
 function at(root: LibraryFolder, path: string): LibraryFolder {
@@ -68,6 +69,10 @@ beforeAll(() => {
   writeFileSync(join(root, 'Games', 'Two Disker.png'), 'png')
   // an item with no image and a broken disk, which must not stop the walk
   writeFileSync(join(root, 'Games', 'Truncated.adf'), new Uint8Array(1024))
+  // the two names a link has to spell right: an underscore, which survives,
+  // and an apostrophe, which does not
+  writeFileSync(join(root, 'Games', 'AMOSPro_System.adf'), makeAdf('AMOSPro_System', true))
+  writeFileSync(join(root, 'Games', "Draw 'n' draw.adf"), makeAdf('Draw', true))
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -79,7 +84,12 @@ describe('indexLibrary', () => {
     expect(library.root.folders.map((f) => f.name)).toEqual(['Games'])
     expect(at(library.root, 'Games').image).toBe('Games.png')
     // Solo boots, so it sorts before the one that does not
-    expect(at(library.root, 'Games').items.map((i) => i.name)).toEqual(['Solo', 'Truncated'])
+    expect(at(library.root, 'Games').items.map((i) => i.name)).toEqual([
+      'AMOSPro_System',
+      "Draw 'n' draw",
+      'Solo',
+      'Truncated',
+    ])
     expect(at(library.root, 'Games').folders.map((f) => f.name)).toEqual(['Shooters', 'Two Disker'])
   })
 
@@ -97,6 +107,8 @@ describe('indexLibrary', () => {
         .map((i) => i.id)
         .sort(),
     ).toEqual([
+      'games/amospro_system',
+      'games/draw-n-draw',
       'games/shooters/blaster',
       'games/shooters/deep-set/one',
       'games/solo',
@@ -104,6 +116,26 @@ describe('indexLibrary', () => {
       'games/two-disker/a-data',
       'games/two-disker/b-boot',
     ])
+  })
+
+  it('spells an id the way ../web/route.ts writes a link', () => {
+    /*
+     * The id and the page's link are the same string produced twice, and the
+     * page matches an incoming link loosely enough that a stale id would go
+     * unnoticed here and land on the right disk anyway. What would show is
+     * the link the page HANDS BACK, so the rule is asserted at both ends.
+     *
+     * The underscore is the case that matters. It is in the name of every
+     * AMOS Professional disk and is legal in a URL as it stands, so dropping
+     * it would put `%20`-free but wrong spellings in front of every reader.
+     */
+    const { library } = indexLibrary(root)
+    const ids = new Map(allItems(library.root).map((i) => [i.name, i.id]))
+    expect(ids.get('AMOSPro_System')).toBe('games/amospro_system')
+    expect(ids.get("Draw 'n' draw")).toBe('games/draw-n-draw')
+    for (const item of allItems(library.root)) {
+      expect(item.id).toBe(itemPath(item).join('/'))
+    }
   })
 
   it('derives the id from the whole path, not from the filename alone', () => {
