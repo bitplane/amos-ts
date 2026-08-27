@@ -45,9 +45,18 @@ These are facts about this codebase, not guesses. Rely on them.
 - `Rbra`, `Rbsr`, `Rbeq`, `Rbne`, `Rbmi`, `Rbpl`, `Rble`, `Rbls` and the rest
   are macros wrapping a branch to a routine: `Rbeq L_ScNOp` is "branch to
   L_ScNOp if equal".
-- `L_FonCall` raises AMOS error "Illegal function call". `L_ScNOp` returns
-  silently, and is reached when no screen is open. `L_Syntax` is a syntax
-  error.
+- `L_FonCall` raises AMOS error "Illegal function call". `L_Syntax` is a syntax
+  error. `L_ScNOp` is reached when no screen is open and RAISES, error 47.
+- **`moveq #n,d0` before `L_EcWiErr` is not error n.** `EcWiErr` (+Lib.s:12917)
+  is `cmp.w #1,d0 / Rbeq L_OOfMem / add.w #EcEBase-1,d0 / Rbra L_GoError`, and
+  `EcEBase equ 45` (+Equ.s:771), so it adds 44. d0 = 1 is Out of memory
+  instead. The AMOS error a program sees is therefore n + 44:
+  `L_ScNOp` is `moveq #3,d0` and error 47 "Screen not opened"; `L_BFonCall`
+  (+Lib.s:12998) is `moveq #22,d0` and error 66 "Illegal block parameters";
+  `L_WFonCall` is `moveq #16,d0` and error 60. Routines that reach
+  `L_GoError` directly, like `RunErr`, do NOT add anything, and `moveq #41,d0 /
+  bra RunErr` really is error 41. Name the number a program sees, and say which
+  route you followed to it.
 - **Arguments.** The LAST argument of the keyword arrives in `d3`. The rest sit
   on the AMOS argument stack and `(a3)+` pops them RIGHT TO LEFT, so for
   `Bar x1,y1 To x2,y2` the first pop is `x2`, the second `y1`, the third `x1`,
@@ -56,8 +65,8 @@ These are facts about this codebase, not guesses. Rely on them.
   order is source, destination, and the condition is on the destination).
 - `a5` is the AMOS global base, so `ScOn(a5)` is a named global. `a1` is
   usually the current RastPort; `36(a1)` and `38(a1)` are its pen x and y.
-- `tst.w ScOn(a5)` / `Rbeq L_ScNOp` at the top of a routine means "do nothing
-  if no screen is open".
+- `tst.w ScOn(a5)` / `Rbeq L_ScNOp` at the top of a routine means "error 47 if
+  no screen is open".
 - French comments are the original author's.
 
 ## Already known — do not report these
@@ -66,9 +75,10 @@ True, recorded, and repeating them on every keyword buries what is specific to
 yours.
 
 - **No screen open.** `scr()` is `rt.screen`, a getter that THROWS
-  `screen not opened`. The original's `L_ScNOp` returns silently instead. Every
-  drawing keyword differs this way, it is logged once against the whole port,
-  and it is not a finding about your keyword. Say nothing about it.
+  `screen not opened`, and so does the original: `L_ScNOp` is `moveq #3,d0 /
+  Rbra L_EcWiErr` (+Lib.s:12907), and `EcWiErr` adds `EcEBase-1` = 44 to reach
+  AMOS error 47, "Screen not opened". `Rbeq L_ScNOp` raises, it does not
+  return. The port agrees, so say nothing about it.
 
 - **Spec `5` converts the argument before the routine runs.** `Sin`, `Cos`,
   `Tan`, `Hsin`, `Hcos` and `Htan` are spec `15`, which selects `Par_Angle`

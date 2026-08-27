@@ -249,7 +249,7 @@ function setMouseAxis(v: number, lo: number, hi: number): number {
 function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
   if (a.length > 0 && int(a[0]!) >= 0) {
     const s = rt.screens.get(int(a[0]!))
-    if (!s) throw new AmosError(`screen not opened: ${int(a[0]!)}`)
+    if (!s) throw new AmosError(`screen not opened: ${int(a[0]!)}`, 47)
     return s
   }
   return rt.screen
@@ -856,7 +856,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   const scr = (): Screen => rt.screen
   const byIndex = (n: number): Screen => {
     const s = rt.screens.get(n)
-    if (!s) throw new AmosError(`screen not opened: ${n}`)
+    if (!s) throw new AmosError(`screen not opened: ${n}`, 47)
     return s
   }
 
@@ -1193,7 +1193,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const b = it.evalInt()
       const sa = rt.screens.get(a)
       const sb = rt.screens.get(b)
-      if (!sa || !sb) throw new AmosError('screen not opened')
+      if (!sa || !sb) throw new AmosError('screen not opened', 47)
       const dualErr = (): never => {
         throw new AmosError('dual playfield impossible')
       }
@@ -1215,7 +1215,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
-      if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
+      if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened', 47)
       const sa = rt.screens.get(a)!
       const sb = rt.screens.get(b)!
       if (sa.dualPartner !== b || sb.dualPartner !== a) {
@@ -2314,7 +2314,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const a = it.evalInt()
       if (!it.accept(',')) {
         const s = rt.screens.get(a)
-        if (!s) throw new AmosError(`screen not opened: ${a}`)
+        if (!s) throw new AmosError(`screen not opened: ${a}`, 47)
         rt.mouseLimit = screenRect(s)
         return
       }
@@ -4788,7 +4788,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       let y1: number
       if (args.length === 4) {
         const sc = rt.screens.get(args[0]!)
-        if (!sc) throw new AmosError(`screen not opened: ${args[0]}`)
+        if (!sc) throw new AmosError(`screen not opened: ${args[0]}`, 47)
         s = sc
         ;[img, x1, y1] = [args[1]!, args[2]!, args[3]!]
       } else if (args.length === 3) {

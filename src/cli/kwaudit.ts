@@ -14,6 +14,7 @@
  * bundle for on the next pass.
  *
  * Run:  npx tsx src/cli/kwaudit.ts --all
+ *       npx tsx src/cli/kwaudit.ts --list audit/priority.txt --dry
  *       npx tsx src/cli/kwaudit.ts circle bar plot
  *       npx tsx src/cli/kwaudit.ts --all --jobs 8 --out audit/core.jsonl
  *
@@ -255,7 +256,26 @@ const out = flag('--out', join(ROOT, 'audit', 'core.jsonl'))
 const model = flag('--model', 'haiku')
 const jobs = Math.max(1, Number(flag('--jobs', '6')))
 
-let names = argv.filter((a, i) => !a.startsWith('--') && !['--out', '--model', '--jobs'].includes(argv[i - 1] ?? ''))
+let names = argv.filter(
+  (a, i) => !a.startsWith('--') && !['--out', '--model', '--jobs', '--list'].includes(argv[i - 1] ?? ''),
+)
+/**
+ * `--list f` reads one keyword per LINE, which is the only safe way to name
+ * them. Two thirds of the core set are two words — `double buffer`, `set
+ * rainbow`, `reserve as chip work` — and passed on the command line the shell
+ * splits every one of them. A run given `spritebob col frame load` audited
+ * `spritebob`, `col`, `frame` and `load` as four separate keywords, three of
+ * which are not keywords at all.
+ */
+const listFile = flag('--list', '')
+if (listFile !== '') {
+  names = names.concat(
+    readFileSync(listFile, 'utf8')
+      .split('\n')
+      .map((l) => l.trim().toLowerCase())
+      .filter((l) => l !== '' && !l.startsWith('#')),
+  )
+}
 if (argv.includes('--all')) {
   const known = new Set(names)
   // structural tokens and n/a keywords carry no port obligation, and their
@@ -266,8 +286,27 @@ if (argv.includes('--all')) {
     .filter((n) => !known.has(n) && !STRUCTURAL.has(n) && !NA.has(n))
 }
 if (names.length === 0) {
-  console.error('usage: kwaudit [--all] [--jobs N] [--model haiku] [--out f.jsonl] <keyword...>')
+  console.error('usage: kwaudit [--all] [--list f] [--jobs N] [--model haiku] [--out f.jsonl] <keyword...>')
   process.exit(1)
+}
+
+/**
+ * `--dry` resolves every name and prints what a real run would do, spending
+ * nothing. A name the token table does not hold is the failure worth catching
+ * here: it costs a model call to discover otherwise, and a shell that split a
+ * two-word keyword produces a whole list of them.
+ */
+if (argv.includes('--dry')) {
+  let bad = 0
+  for (const n of names) {
+    const b = bundleFor(n)
+    const why =
+      b === null ? 'NOT A CORE KEYWORD' : b.handler === null ? 'no handler' : `${b.forms.length} form(s), ${b.original.length} routine(s)`
+    if (b === null) bad++
+    console.log(`${b === null ? '!' : ' '} ${n.padEnd(24)} ${why}`)
+  }
+  console.error(`\n${names.length} names, ${bad} not in the token table`)
+  process.exit(bad === 0 ? 0 : 1)
 }
 
 mkdirSync(dirname(out), { recursive: true })

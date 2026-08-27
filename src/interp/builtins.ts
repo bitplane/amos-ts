@@ -623,6 +623,22 @@ export const INSTR: Record<string, Instr> = {
       tg.set(it.readDataItem(tg.type))
     } while (it.accept(','))
   },
+  /**
+   * Restore, and Restore label.
+   *
+   * With a label, `InRs1` (+ILib.s:4715) demands the label be followed by a
+   * Data statement and nothing else: `bsr GetLabel / beq LbNDef / move.l d0,a0
+   * / cmp.w #_TkData,(a0)+ / bne.s InRs2`, and `InRs2 moveq #41,d0 / bra
+   * RunErr` is error 41, "No data after this label". `LbNDef` is `moveq #40,d0`
+   * (+ILib.s:2940), "Label not defined".
+   *
+   * "Followed by" is what `V1_StockLabel` stored, not the raw next word. It
+   * skips the label, and on an empty rest of line walks on to the line after:
+   * `tst.w (a0) / bne.s .N2 / tst.w 2(a0) / beq.s .N2 / addq.l #4,a0`,
+   * commented "Pointe la ligne suivante si on peut" (+Verif.s:3435). So a
+   * label alone on its line and Data on the next is legal, and `dataAt` walks
+   * the same way before it looks.
+   */
   restore(it) {
     if (it.atStmtEnd()) {
       it.restoreData({ li: 0, ti: 0 })
@@ -630,7 +646,8 @@ export const INSTR: Record<string, Instr> = {
     }
     const name = it.parseLabelTarget()
     const a = it.labelAddr(name)
-    if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`)
+    if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`, 40)
+    if (!it.dataAt(a)) throw new AmosError('No data after this label', 41)
     it.restoreData(a)
   },
 

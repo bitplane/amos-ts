@@ -705,6 +705,22 @@ describe('data', () => {
     const prog = ['Data 1', 'L2: Data 2', 'Restore L2', 'Read A', 'Print A'].join('\n')
     expect(run(prog)).toBe(' 2\n')
   })
+
+  it('a label alone on its line still finds the Data on the next one', () => {
+    // V1_StockLabel stores the address AFTER the label, and walks on to the
+    // following line when the rest of this one is empty: `tst.w (a0) / bne.s
+    // .N2 / tst.w 2(a0) / beq.s .N2 / addq.l #4,a0`, "Pointe la ligne suivante
+    // si on peut" (+Verif.s:3435-3440)
+    const prog = ['Data 1', 'L2:', 'Data 2', 'Restore L2', 'Read A', 'Print A'].join('\n')
+    expect(run(prog)).toBe(' 2\n')
+  })
+
+  it('Restore to a label with no Data after it is error 41', () => {
+    // InRs1 +ILib.s:4718: `cmp.w #_TkData,(a0)+ / bne.s InRs2`, and InRs2 is
+    // `moveq #41,d0 / bra RunErr` — "No data after this label"
+    const prog = ['On Error Goto OOPS', 'Data 1', 'Restore L2', 'End', 'L2: A=1', 'OOPS:', 'Print Errn'].join('\n')
+    expect(run(prog)).toBe(' 41\n')
+  })
 })
 
 describe('error trapping', () => {
