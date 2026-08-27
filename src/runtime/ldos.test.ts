@@ -1067,14 +1067,16 @@ describe('Lansi: ANSI to AMOS control codes (LdosV25.DOC)', () => {
   })
 
   it('translates cursor movement, biased the way AMOS expects', () => {
-    // ESC[xA/B/C/D become AMOS's relative moves, which carry a +128 bias
+    // ESC[xA/B/C/D become AMOS's relative moves, which carry a +128 bias.
+    // Esc N is the horizontal move and Esc O the vertical (ChCMv,
+    // +Lib.s:13295), so C/D take N and A/B take O.
     const { out } = run(
       [
         `A$=Lansi(${E}+"[3C") : Print Mid$(A$,2,1);Asc(Mid$(A$,3,1))-128`,
         `B$=Lansi(${E}+"[2A") : Print Mid$(B$,2,1);Asc(Mid$(B$,3,1))-128`,
       ].join('\n'),
     )
-    expect(out).toBe('O 3\nN-2\n')
+    expect(out).toBe('N 3\nO-2\n')
   })
 
   it('ESC[y;xH becomes Locate x,y — the ANSI order is row first', () => {

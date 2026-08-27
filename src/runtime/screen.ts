@@ -1547,12 +1547,17 @@ export class Screen {
             w.writing1 = arg(1) & 7
             ti += 2
             break
-          case 'N': // cmove Y, biased +128 (ChCMv)
-            w.curY = Math.max(0, Math.min(w.rows - 1, w.curY + (text.charCodeAt(ti + 2) || 128) - 128))
+          // InCmove (+Lib.s:13276) builds ChCMv as `27,"N0",27,"O0"` and then
+          // `move.b d1,2(a1) / move.b d0,5(a1)`, with d1 the x argument off
+          // (a3)+ and d0 the y argument in d3. So N carries the horizontal
+          // move and O the vertical, and the port had the pair the wrong way
+          // round in both the reader and the writer.
+          case 'N': // cmove X, biased +128 (ChCMv)
+            w.curX = Math.max(0, Math.min(w.cols - 1, w.curX + (text.charCodeAt(ti + 2) || 128) - 128))
             ti += 2
             break
-          case 'O': // cmove X
-            w.curX = Math.max(0, Math.min(w.cols - 1, w.curX + (text.charCodeAt(ti + 2) || 128) - 128))
+          case 'O': // cmove Y
+            w.curY = Math.max(0, Math.min(w.rows - 1, w.curY + (text.charCodeAt(ti + 2) || 128) - 128))
             ti += 2
             break
           case 'M': {

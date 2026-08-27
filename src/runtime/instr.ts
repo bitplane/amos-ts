@@ -1887,12 +1887,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().writeText('\x1c') // ChCRt +Lib.s:13361
     },
     cmove(it) {
-      // relative cursor move; elided arguments mean 0 (WnCm1/WnCm3)
-      const s = scr()
+      /*
+       * InCmove (+Lib.s:13276): elided arguments mean 0 (WnCm1/WnCm3), then
+       * `add.l #128,d0 / cmp.l #255,d0 / Rbhi L_WFonCall` on each. The
+       * compare is unsigned after the bias, so the range is -128..127 and a
+       * value outside it is error 60. The instruction takes -128 where the
+       * Cmove$ function refuses it, because Cmove$ tests the raw value.
+       */
       const dx = optInt(it, 0)
       it.accept(',')
       const dy = optInt(it, 0)
-      s.locate(Math.max(0, s.curX + dx), Math.max(0, s.curY + dy))
+      if ((dx + 128) >>> 0 > 255 || (dy + 128) >>> 0 > 255) {
+        throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      }
+      // ChCMv is a fixed six-byte template, so both escapes always go out.
+      // Sending them rather than calling locate() is what makes Cmove clamp
+      // at the window edge instead of erroring there.
+      scr().writeText('\x1bN' + String.fromCharCode((128 + dx) & 0xff) + '\x1bO' + String.fromCharCode((128 + dy) & 0xff))
     },
     clw(it) {
       void it
@@ -6347,9 +6358,31 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS('\x1bB' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'cmove$'(_, a) {
-      const x = a.length > 0 ? int(a[0]!) : 0
-      const y = a.length > 1 ? int(a[1]!) : 0
-      return VS('\x1bO' + String.fromCharCode(128 + x) + '\x1bN' + String.fromCharCode(128 + y))
+      /*
+       * FnCMoveD (+Lib.s:14060) walks each slot in turn: zero and EntNul both
+       * leave the axis out, and anything else must pass `cmp.l #128 / Rbge`
+       * and `cmp.l #-128 / Rble`, so the range is -127..127 and the error is
+       * WFonCall, 60. It counts the escapes it will need in d3 and flags them
+       * in d4, then `tst.w d4 / Rbeq L_Ret_ChVide` returns the empty string
+       * when neither axis was given.
+       *
+       * The x escape is written first and is Esc N; Esc O carries y. The port
+       * emitted both escapes every time, in the other order, on the other
+       * axes.
+       */
+      const axis = (v: import('../interp/values').Value | undefined): number => {
+        if (v === undefined) return 0
+        const n = int(v)
+        if (n === ENT_NUL || n === 0) return 0
+        if (n >= 128 || n <= -128) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+        return n
+      }
+      const x = axis(a[0])
+      const y = axis(a[1])
+      let out = ''
+      if (x !== 0) out += '\x1bN' + String.fromCharCode((128 + x) & 0xff)
+      if (y !== 0) out += '\x1bO' + String.fromCharCode((128 + y) & 0xff)
+      return VS(out)
     },
     'border$'(_, a) {
       // FnBorderD +Lib.s:14124: style 1-15 (0 and >=16 error); the text

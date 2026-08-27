@@ -163,9 +163,39 @@ describe('console escape-string functions', () => {
   })
 
   it('Cmove$ builds a relative cursor move, biased by 128', () => {
-    // Esc O (x+128) Esc N (y+128) — the bias lets negative moves travel as bytes
+    // Esc N (x+128) Esc O (y+128) — the bias lets negative moves travel as
+    // bytes, and FnCMoveD (+Lib.s:14060) writes the x escape first
     const { out } = run('A$=Cmove$(2,-3) : Print Asc(Mid$(A$,3,1));Asc(Mid$(A$,6,1))')
     expect(out).toBe(' 130 125\n')
+    expect(run('A$=Cmove$(2,-3) : Print Mid$(A$,2,1);Mid$(A$,5,1)').out).toBe('NO\n')
+  })
+
+  it('Cmove$ leaves out an axis that is zero or empty, and refuses 128', () => {
+    // tst.l d2 / beq and cmp.l #EntNul,d2 / beq skip the axis; with neither
+    // axis flagged, tst.w d4 / Rbeq L_Ret_ChVide returns the empty string
+    expect(run('Print Len(Cmove$(0,0))').out).toBe(' 0\n')
+    expect(run('Print Len(Cmove$(,))').out).toBe(' 0\n')
+    expect(run('Print Len(Cmove$(2,0))').out).toBe(' 3\n')
+    expect(run('Print Len(Cmove$(0,-3))').out).toBe(' 3\n')
+    // -1 is a real move now that an empty slot no longer arrives as -1
+    expect(run('Print Len(Cmove$(-1,0))').out).toBe(' 3\n')
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // cmp.l #128 / Rbge and cmp.l #-128 / Rble, so the range is -127..127
+    expect(code('A$=Cmove$(128,0)')).toBe(60)
+    expect(code('A$=Cmove$(-128,0)')).toBe(60)
+    expect(code('A$=Cmove$(0,128)')).toBe(60)
+    expect(code('A$=Cmove$(127,-127)')).toBe(0)
+    // the instruction biases first and compares unsigned, so it takes -128
+    expect(code('Cmove -128,127')).toBe(0)
+    expect(code('Cmove 128,0')).toBe(60)
+    expect(code('Cmove 0,-129')).toBe(60)
   })
 })
 
