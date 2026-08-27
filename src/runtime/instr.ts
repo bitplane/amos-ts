@@ -2026,10 +2026,38 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // keyword dispatch here as a bare "," (#90).
       const s = scr()
       const w = s.curWin
-      if (it.nm() !== ',') w.border = it.evalInt() & 31
+      /*
+       * WSBor (+W.s:14012) checks each slot it was given and skips the ones
+       * left empty. The number is `cmp.l #16,d1 / bcc WErr7`, unsigned so a
+       * negative fails it too, and WErr7 is `moveq #16,d0` (+W.s:15839) which
+       * through EcWiErr is error 60, "Illegal text window parameter". Then
+       * `tst.w d1 / beq.s Wsb1`: zero passes the range check and is NOT
+       * stored, so `Border 0` leaves the frame alone where the port cleared
+       * it.
+       *
+       * Both colour slots get `cmp.w EcNbCol(a4),d2 / bcc WErr7`, the same
+       * error against the screen's colour count. The port took any number and
+       * masked the first one to 31.
+       */
+      const wErr = (): never => {
+        throw new AmosError('illegal text window parameter', 60)
+      }
+      if (it.nm() !== ',') {
+        const n = it.evalInt()
+        if (n < 0 || n >= 16) wErr()
+        if (n !== 0) w.border = n
+      }
       if (it.accept(',')) {
-        if (it.nm() !== ',' && !it.atStmtEnd()) w.borPap = it.evalInt()
-        if (it.accept(',') && !it.atStmtEnd()) w.borPen = it.evalInt()
+        if (it.nm() !== ',' && !it.atStmtEnd()) {
+          const c = it.evalInt()
+          if (c < 0 || c >= s.nColors) wErr()
+          w.borPap = c
+        }
+        if (it.accept(',') && !it.atStmtEnd()) {
+          const c = it.evalInt()
+          if (c < 0 || c >= s.nColors) wErr()
+          w.borPen = c
+        }
       }
       s.drawWindowFrame2()
     },

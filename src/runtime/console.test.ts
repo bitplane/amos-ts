@@ -4,6 +4,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -252,6 +253,38 @@ describe('screen visibility and offset', () => {
     expect(w.border).toBe(3)
     expect(w.borPap).toBe(2)
     expect(w.borPen).toBe(1)
+  })
+
+  it('Border refuses a style of 16 and a colour off the palette, and 0 changes nothing', () => {
+    // WSBor +W.s:14016: `cmp.l #16,d1 / bcc WErr7`, then `tst.w d1 / beq.s
+    // Wsb1` so zero passes the range check without being stored, then
+    // `cmp.w EcNbCol(a4),d2 / bcc WErr7` for each colour. WErr7 is `moveq
+    // #16,d0` (+W.s:15839), which through EcWiErr is error 60.
+    const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
+    // not the `run` above: mustFinish turns a failed program into a plain
+    // Error and the AMOS number is what this test is about
+    const code = (src: string): number => {
+      try {
+        const rt = new Runtime(tokenize(`${open} : ${src}`, table), table, { maxSteps: 300_000 })
+        rt.runHeadless(1_000)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // the spec is I0,0,0, so all three commas are typed and a slot is left
+    // EMPTY rather than dropped — `Border 16` on its own is a syntax error
+    expect(code('Border 16,,')).toBe(60)
+    expect(code('Border -1,,')).toBe(60)
+    expect(code('Border 3,16,1')).toBe(60)
+    expect(code('Border 3,2,16')).toBe(60)
+    expect(code('Border 15,15,15')).toBe(0)
+    // 0 is legal and leaves the style alone
+    const { rt } = run(`${open} : Border 3,2,1 : Border 0,,`)
+    expect(screen(rt).curWin.border).toBe(3)
+    // an empty leading slot is legal and still is: `Border,0,14` is in the corpus
+    const { rt: rt2 } = run(`${open} : Border 3,2,1 : Border,0,14`)
+    expect([screen(rt2).curWin.border, screen(rt2).curWin.borPap]).toEqual([3, 0])
   })
 
   it('Title Bottom stores the lower window title', () => {
