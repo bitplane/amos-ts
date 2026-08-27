@@ -112,7 +112,7 @@ import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmess
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
 import { Screen } from './screen'
-import { ObjectBank } from './objects'
+import { BankImage, ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
 import {
   DIALOG_ERRORS,
@@ -2385,8 +2385,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       // TPatch (+W.s:819) starts with `bsr Retourne`, so the Hrev/Vrev bits
       // on the number mirror the bank image in place before the paste
-      const img = rt.spriteBank?.retourne(it.evalInt())
-      if (img) rt.blit(scr(), img, x, y, img.opaque)
+      const img = pasteImage(it.evalInt(), 'sprite')
+      rt.blit(scr(), img, x, y, img.opaque)
     },
     'paste icon'(it) {
       // InPasteIcon +Lib.s:12734 pastes THROUGH an existing mask and only
@@ -2394,8 +2394,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // solid until Make Icon Mask has been over the bank
       const [x, y] = pair(it)
       it.expect(',')
-      const img = rt.iconBank?.retourne(it.evalInt())
-      if (img) rt.blit(scr(), img, x, y, img.opaque)
+      const img = pasteImage(it.evalInt(), 'icon')
+      rt.blit(scr(), img, x, y, img.opaque)
     },
     'get bob': getObj('sprite'),
     'get sprite': getObj('sprite'),
@@ -4792,6 +4792,42 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Get Bob/Sprite/Icon: [screen,] image, x1,y1 To x2,y2 */
+  /**
+   * Resolve a Paste Bob / Paste Icon image number, raising what AMOS raises.
+   *
+   * The two keywords share a preamble: `move.l d3,d1 / Rbmi L_FonCall / Rbsr
+   * L_AdBob` (+Lib.s:12726, +Lib.s:12735). AdBob (+Lib.s:12794) opens
+   * `and.l #$3FFF,d1 / Rbeq L_FonCall`, because bits 14 and 15 are the
+   * Hrev/Vrev flags: the number is the low 14 bits and zero is refused however
+   * the flags are set.
+   *
+   * `Bnk.AdBob` (+Lib.s:8069) then answers zero two different ways, and
+   * `AdBErr` (+Lib.s:12816) tells them apart on d1, its documented "Max de
+   * bobs". No bank at all leaves `moveq #0,d1` standing and reaches BkNoRes,
+   * `moveq #36,d0 / Rbra L_GoError`, error 36 "Bank not reserved". A number
+   * past `move.w (a1),d1 / cmp.w d1,d0 / bhi.s .Rien` leaves d1 set and gets
+   * `moveq #EcEBase+30-1,d0`, error 74. That constant is written out longhand
+   * there, which is a third witness to the +44 that EcWiErr applies elsewhere.
+   *
+   * Only the last step differs between the two: a slot inside the bank that
+   * holds no image is `tst.l (a2) / Rbne L_Paste / moveq #24,d0 / Rbra
+   * L_EcWiErr` for a bob, error 68 "Bob not defined", and `moveq #30,d0` for
+   * an icon, error 74. Read raw those say "Out of memory" and "Bad IFF
+   * format", which is how you know the +44 belongs there.
+   */
+  function pasteImage(n: number, kind: 'sprite' | 'icon'): BankImage {
+    if (n < 0 || (n & 0x3fff) === 0) funcCall()
+    const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
+    if (!bank) throw new AmosError('Bank not reserved', 36)
+    if ((n & 0x3fff) > bank.images.length) throw new AmosError('Icon not defined', 74)
+    const img = bank.retourne(n)
+    if (!img) {
+      if (kind === 'icon') throw new AmosError('Icon not defined', 74)
+      throw new AmosError('Bob not defined', 68)
+    }
+    return img
+  }
+
   function getObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const args: number[] = [it.evalInt()]

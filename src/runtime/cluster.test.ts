@@ -1236,6 +1236,33 @@ describe('blocks, clones, flips', () => {
     expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
   })
 
+  it('Paste Bob tells apart no bank, a number past the end, and a bad number', () => {
+    const code = (...lines: string[]): number => {
+      try {
+        run(['Screen Open 0,320,200,16,0', 'Cls 0', ...lines].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    const grab = 'Ink 5 : Bar 0,0 To 7,7'
+    // `move.l d3,d1 / Rbmi L_FonCall` (+Lib.s:12726), then AdBob's
+    // `and.l #$3FFF,d1 / Rbeq L_FonCall` (+Lib.s:12794) — 16384 is $4000, all
+    // flag bits and no number, so it masks to zero like 0 does
+    for (const n of [-1, 0, 16384]) {
+      expect([n, code(grab, 'Get Bob 1,0,0 To 8,8', `Paste Bob 0,0,${n}`)]).toEqual([n, 23])
+    }
+    // Bnk.AdBob leaves `moveq #0,d1` standing when there is no bank at all,
+    // and AdBErr reads that as BkNoRes, error 36 (+Lib.s:12816, +Lib.s:12934)
+    expect(code('Paste Bob 0,0,1')).toBe(36)
+    // past `move.w (a1),d1 / cmp.w d1,d0 / bhi.s .Rien` d1 is set, so AdBErr
+    // takes the other branch: `moveq #EcEBase+30-1,d0`, error 74
+    expect(code(grab, 'Get Bob 1,0,0 To 8,8', 'Paste Bob 0,0,5')).toBe(74)
+    expect(code(grab, 'Get Icon 1,0,0 To 8,8', 'Paste Icon 0,0,5')).toBe(74)
+    // and a real one still pastes
+    expect(code(grab, 'Get Bob 1,0,0 To 8,8', 'Paste Bob 0,0,1')).toBe(0)
+  })
+
   it('Get Bob, Get Sprite and Get Icon refuse a negative corner and image 0', () => {
     // Ritoune (+Lib.s:12668) reads all four coordinates through `Rbmi
     // L_FonCall` before it measures anything, and GS/GI then open `move.l
