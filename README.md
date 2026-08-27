@@ -1,13 +1,7 @@
 # amos-ts
 
 A TypeScript reimplementation of [AMOS Pro](https://github.com/Francaoz/AMOS-Professional-Official),
-so you can embed your old games into web pages.
-
-Keyword support covers most of the extensions I could find, but mostly hasn't been
-play tested. Timings are a bit wrong, work is ongoing.
-
-Try it now at **[amos.bitplane.net](https://amos.bitplane.net)** - drop a
-file (.amos, .adf, .zip, .lha etc) and see how it plays.
+so you can put your old games on the web.
 
 <table>
  <tr>
@@ -22,10 +16,13 @@ file (.amos, .adf, .zip, .lha etc) and see how it plays.
  </tr>
 </table>
 
-## Embed it
+Drop a file (.amos, .adf, .zip, .lha etc) into 
+**[amos.bitplane.net](https://amos.bitplane.net)** and see how it plays.
 
-The player is published beside the site as a module, so a page can import it
-and get the same machine amos.bitplane.net runs:
+Keyword support covers most of the extensions I could find, but mostly hasn't
+been play tested. Timings are a bit wrong, work is ongoing.
+
+## Embed it
 
 ```html
 <div id="game" style="max-width: 640px"></div>
@@ -38,21 +35,10 @@ and get the same machine amos.bitplane.net runs:
 </script>
 ```
 
-The canvas fills its container's width, so give the container one. Nothing
-runs until the reader clicks the overlay, and the keyboard is captured only
-while the container has focus, so a game halfway down an article will not eat
-the arrow keys of somebody scrolling past it. `loadProgram` takes a bare
-`.AMOS` instead of an archive, and `createPlayer`'s options cover the joystick
-keys, autoplay and the status callbacks.
-
 Versions are paths, so swap `latest` for a version number to pin it.
-`/v/latest/` moves with every release and this is under heavy development, so
-pin it unless you want the breakage.
+`/v/latest/` is under heavy development, so pin it unless you want the breakage.
 
-`npm install amos-ts` gets the other half. The package is the interpreter, the
-loaders and the headless runner, with nothing from `src/web/` in it, so it is
-not the way to put a game on a page. [docs/library.md](docs/library.md) covers
-what it is for.
+`npm install amos-ts` gets the package with tools and other non-web things.
 
 ## Docs
 
@@ -88,13 +74,12 @@ the exit code. A run can report every test passing and still exit 1.
 
 Core AMOS Professional is done. `KEYWORDS.md` is an index of the missing
 extension keywords, and carries the counts. Faithful means checked against the
-shipped 68k source or against the library binary.
+shipped 68k source or a dissassembled binary.
 
-The extensions needed an operating system under them, so `src/amiga/` contains
-shims for dos, graphics, intuition, asl, locale, diskfont, workbench and a few
-more, modelled as far as the programs reach. `UNIMPLEMENTED.md` is where the
-port knowingly differs from the original, split into what can still be closed
-and what can't.
+`src/amiga/` contains shims for dos, graphics, intuition, asl, locale, diskfont,
+workbench and a few more, modelled as far as the programs reach.
+`UNIMPLEMENTED.md` is where the port knowingly differs from the original, split
+into what could be closed and what can't.
 
 ## Fixtures
 
@@ -109,9 +94,7 @@ in `fixtures/extensions/<id>/`.
 MIT. See [LICENSE](LICENSE).
 
 Speech is [narrator-ts](https://www.npmjs.com/package/narrator-ts) (MIT), a
-reimplementation of the Amiga `narrator.device` and `translator.library`. It
-ships a free rebuilt voice rather than the Amiga's own tables, which are not
-redistributable, so `Say` speaks without sounding like a real Amiga.
+reimplementation of the Amiga `narrator.device` and `translator.library`.
 
 The code and AMOS graphics were derived from
 [AMOS-Professional-Official](https://github.com/Francaoz/AMOS-Professional-Official),
