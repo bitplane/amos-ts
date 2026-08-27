@@ -102,7 +102,10 @@ function macroIndex(): Map<string, Routine[]> {
     const lines = read(p)
     const at: Array<{ name: string; line: number }> = []
     for (let i = 0; i < lines.length; i++) {
-      const m = /^\s*Lib_(?:Par|Def|Int|End|Empty|Cmp)\s+([A-Za-z0-9_]+)/.exec(lines[i] ?? '')
+      // 58 routines are named with a dot -- `Lib_Def Bnk.GetAdr` at
+      // +Lib.s:7888 -- and stopping at the dot indexed it as `Bnk`, so every
+      // `Rbsr L_Bnk.GetAdr` came back unresolved
+      const m = /^\s*Lib_(?:Par|Def|Int|End|Empty|Cmp)\s+([A-Za-z0-9_.]+)/.exec(lines[i] ?? '')
       if (m?.[1] !== undefined) at.push({ name: m[1], line: i + 1 })
     }
     for (let i = 0; i < at.length; i++) {
@@ -151,9 +154,11 @@ function byLabel(label: string): Routine | { unresolved: string } {
  *
  * `Rbra L_EllCir` is where `Circle`'s actual drawing lives, and eleven
  * instructions that end in a branch say nothing about the keyword without it.
- * The AMOS macros wrap every inter-routine jump — `Rbra`, `Rbsr`, `Rbeq` and
- * the rest of the condition set — around an `L_` symbol, so the callees are a
- * regex away.
+ * The AMOS macros wrap every inter-routine jump around an `L_` symbol, so the
+ * callees are a regex away. There are more of them than the condition set:
+ * `Rjsr`, `Rjmp`, `Rjmpt`, `Rjsrt`, `Rlea`, `Ljmp` and `Ljsr` are all at
+ * +CEqu.s:35-77 and none of them start `Rb`, which cost eleven routines in
+ * the second run alone.
  *
  * One level only, and error handlers are dropped. `L_FonCall` and `L_ScNOp`
  * are on the end of a third of the library and pulling them in every time
@@ -210,7 +215,7 @@ const LOCALS = new Map<string, ReturnType<typeof localLabels>>()
  * So the argument is a slot number, `*4` because each table entry is one
  * `bra`. `+W.s:2464` loads `EcIn` into `T_EcVect` and `+W.s:13234` loads
  * `WiIn` into `T_WiVect`, and both tables are a flat run of `bra` in equate
- * order: 77 entries for the screens, 20 for the windows.
+ * order: 77 entries for the screens, 20 for the windows, 101 for the system.
  *
  * The equates sit directly above their own macro, counting up from zero, so
  * reading backwards from the `MACRO` line to the entry numbered 0 picks up
@@ -232,7 +237,11 @@ function equatesAbove(lines: string[], macroLine: number): Map<string, number> {
   for (let i = macroLine - 2; i >= 0; i--) {
     const ln = lines[i] ?? ''
     if (ln.trim() === '' || ln.startsWith('*') || ln.startsWith(';')) continue
-    const m = /^([A-Za-z][A-Za-z0-9_]*):?\s+equ\s+(\d+)\s*$/.exec(ln)
+    // the number may be followed by an uncommented description --
+    // `AddFlushRoutine	equ 96		Ajoute une routine flush` -- so anchoring
+    // to end of line broke the walk on the system block's very first entry.
+    // Requiring whitespace or EOL after the digits still rejects `equ 5*4`.
+    const m = /^([A-Za-z][A-Za-z0-9_]*):?\s+equ\s+(\d+)(?:\s|$)/.exec(ln)
     if (m?.[1] === undefined || m[2] === undefined) break
     out.set(m[1], Number(m[2]))
     if (m[2] === '0') break
@@ -266,6 +275,8 @@ function vectors(): Map<string, Vector> {
   for (const [macro, table] of [
     ['EcCall', 'EcIn'],
     ['WiCall', 'WiIn'],
+    // +Equ.s:366, installed at +W.s:9183. `Freeze` is `SyCall AMALFrz / rts`.
+    ['SyCall', 'SyIn'],
   ] as const) {
     const at = eLines.findIndex((l) => new RegExp(`^${macro}:\\s+MACRO`).test(l))
     if (at < 0) continue
@@ -285,7 +296,7 @@ function vectorCallees(code: string, seen: Set<string>, limit: number): Routine[
   const out: Routine[] = []
   const tables = vectors()
   if (tables.size === 0) return out
-  for (const m of code.matchAll(/\b(Ec|Wi)Cal[lAD2]\s+([A-Za-z][A-Za-z0-9_]*)/g)) {
+  for (const m of code.matchAll(/\b(Ec|Wi|Sy)Cal[lAD2]\s+([A-Za-z][A-Za-z0-9_]*)/g)) {
     if (out.length >= limit) break
     const v = tables.get(`${m[1]}Call`)
     const name = m[2]
@@ -306,7 +317,7 @@ function vectorCallees(code: string, seen: Set<string>, limit: number): Routine[
 function callees(code: string, file: string, limit = 4): Routine[] {
   const out: Routine[] = []
   const seen = new Set<string>()
-  for (const m of code.matchAll(/\bRb[a-z]{2,3}\s+(L_[A-Za-z0-9_]+)/g)) {
+  for (const m of code.matchAll(/\b[RL][a-z]{2,5}\s+(L_[A-Za-z0-9_.]+)/g)) {
     const sym = m[1]
     if (sym === undefined || seen.has(sym) || NOT_WORTH_FOLLOWING.has(sym)) continue
     seen.add(sym)
