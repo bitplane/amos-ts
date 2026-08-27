@@ -6167,14 +6167,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     at(_, a) {
-      // FnAt +Lib.s:14017: Esc X / Esc Y escapes, one per present
-      // coordinate; values above 207 (255-48) are a function call error
+      /*
+       * FnAt (+Lib.s:14017) tests each slot for EntNul and skips it, and
+       * otherwise `cmp.l #255-48,d2 / Rbhi L_WFonCall`. Rbhi is unsigned, so
+       * that one compare refuses a negative as well as anything over 207, and
+       * WFonCall is `moveq #16,d0 / Rbra L_EcWiErr` — error 60, not 23.
+       *
+       * The port read any negative as an absent slot, so At(-5,6) built the
+       * same two-escape string as At(,6) instead of raising.
+       *
+       * One case is still wrong and cannot be fixed here: an omitted slot
+       * reaches this function as -1 rather than as EntNul, so At(-1,6) is
+       * indistinguishable from At(,6) and passes. Telling them apart needs the
+       * sentinel every function shares to become ENT_NUL, which is a change to
+       * the argument evaluator rather than to this keyword.
+       */
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
-      if (x > 207 || y > 207) funcCall()
-      if (x >= 0) out += '\x1bX' + String.fromCharCode(48 + x)
-      if (y >= 0) out += '\x1bY' + String.fromCharCode(48 + y)
+      const bad = (n: number): boolean => n !== -1 && n >>> 0 > 207
+      if (bad(x) || bad(y)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      if (x !== -1) out += '\x1bX' + String.fromCharCode(48 + x)
+      if (y !== -1) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
     },
 

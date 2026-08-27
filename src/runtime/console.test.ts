@@ -138,6 +138,28 @@ describe('console escape-string functions', () => {
     expect(run('A$=Pen$(31) : Print Asc(Mid$(A$,3,1))').out).toBe(' 79\n')
   })
 
+  it('At refuses a coordinate outside 0 to 207, and still allows an omitted one', () => {
+    // FnAt +Lib.s:14017 skips an EntNul slot and otherwise runs `cmp.l
+    // #255-48,d2 / Rbhi L_WFonCall`. Rbhi is unsigned, so the one compare
+    // catches a negative too, and WFonCall is error 60 rather than 23.
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('A$=At(-5,6)')).toBe(60)
+    expect(code('A$=At(5,-6)')).toBe(60)
+    expect(code('A$=At(208,6)')).toBe(60)
+    expect(code('A$=At(207,207)')).toBe(0)
+    // Esc X n Esc Y n is six characters, one escape per slot given
+    expect(run('A$=At(5,6) : Print Len(A$);').out).toBe(' 6')
+    expect(run('A$=At(,6) : Print Len(A$);').out).toBe(' 3')
+    expect(run('A$=At(5,) : Print Len(A$);').out).toBe(' 3')
+  })
+
   it('Cmove$ builds a relative cursor move, biased by 128', () => {
     // Esc O (x+128) Esc N (y+128) — the bias lets negative moves travel as bytes
     const { out } = run('A$=Cmove$(2,-3) : Print Asc(Mid$(A$,3,1));Asc(Mid$(A$,6,1))')

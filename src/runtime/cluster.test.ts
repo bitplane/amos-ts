@@ -153,7 +153,10 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
   })
 
   it('At validates coordinates above 207 (FnAt +Lib.s:14017)', () => {
-    expect(() => run('X$=At(208,0)')).toThrow(/illegal function call/i)
+    // the branch is `cmp.l #255-48,d2 / Rbhi L_WFonCall`, and WFonCall is
+    // `moveq #16,d0 / Rbra L_EcWiErr` — error 60, not the 23 this test used
+    // to assert. Pen and Paper just above reach 60 for the same reason.
+    expect(() => run('X$=At(208,0)')).toThrow(/illegal text window parameter/i)
     expect(run('Print At(2,3)="X"+Chr$(50)+"Y"+Chr$(51)').out.trim()).toBe('-1')
   })
 
