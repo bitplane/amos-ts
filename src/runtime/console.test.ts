@@ -152,6 +152,8 @@ describe('console escape-string functions', () => {
     }
     expect(code('A$=At(-5,6)')).toBe(60)
     expect(code('A$=At(5,-6)')).toBe(60)
+    // -1 is a typed value, not an empty slot: the sentinel is EntNul
+    expect(code('A$=At(-1,6)')).toBe(60)
     expect(code('A$=At(208,6)')).toBe(60)
     expect(code('A$=At(207,207)')).toBe(0)
     // Esc X n Esc Y n is six characters, one escape per slot given

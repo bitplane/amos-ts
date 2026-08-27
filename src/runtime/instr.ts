@@ -6175,20 +6175,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
        *
        * The port read any negative as an absent slot, so At(-5,6) built the
        * same two-escape string as At(,6) instead of raising.
-       *
-       * One case is still wrong and cannot be fixed here: an omitted slot
-       * reaches this function as -1 rather than as EntNul, so At(-1,6) is
-       * indistinguishable from At(,6) and passes. Telling them apart needs the
-       * sentinel every function shares to become ENT_NUL, which is a change to
-       * the argument evaluator rather than to this keyword.
        */
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
-      const bad = (n: number): boolean => n !== -1 && n >>> 0 > 207
+      const bad = (n: number): boolean => n !== ENT_NUL && n >>> 0 > 207
       if (bad(x) || bad(y)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
-      if (x !== -1) out += '\x1bX' + String.fromCharCode(48 + x)
-      if (y !== -1) out += '\x1bY' + String.fromCharCode(48 + y)
+      if (x !== ENT_NUL) out += '\x1bX' + String.fromCharCode(48 + x)
+      if (y !== ENT_NUL) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
     },
 

@@ -11,6 +11,15 @@ export type Value =
   | { k: 'float'; n: number }
   | { k: 'str'; s: string }
 
+/**
+ * EntNul (+Equ.s), the value a numeric argument carries when its slot was
+ * left empty. AMOS compares against it literally: FnAt (+Lib.s:14017) and
+ * FnCMoveD (+Lib.s:14060) both `cmp.l #EntNul,d2` to tell an omitted
+ * coordinate from a typed one. -1 cannot stand in for it, because -1 is a
+ * value Cmove$ and Cmove accept.
+ */
+export const ENT_NUL = -0x8000_0000
+
 export const VI = (n: number): Value => ({ k: 'int', n: n | 0 })
 export const VF = (n: number): Value => ({ k: 'float', n })
 export const VS = (s: string): Value => ({ k: 'str', s })

@@ -4,7 +4,7 @@ import { detokLine } from '../tokens/edtok'
 import { Names } from './names'
 import { prescan, scopeOfAddr, varKey } from './prescan'
 import type { Addr, Ctrl, Program } from './prescan'
-import { AmosError, amosErrorCode, coerce, defaultValue, display, ffpRound, funcCall, int, num, str, varType, VI } from './values'
+import { AmosError, amosErrorCode, coerce, defaultValue, display, ENT_NUL, ffpRound, funcCall, int, num, str, varType, VI } from './values'
 import type { Value, VarType } from './values'
 import type { AmosIO } from './io'
 import { INSTR, FUNCS, RAWFUNCS } from './builtins'
@@ -1145,8 +1145,10 @@ export class Interp {
             if (this.accept('(')) {
               if (!this.accept(')')) {
                 for (;;) {
-                  // elided argument, e.g. At(,10) — "keep current"
-                  if (this.nm() === ',' || this.nm() === ')') args.push(VI(-1))
+                  // elided argument, e.g. At(,10) — "keep current". The
+                  // sentinel is EntNul because -1 is a value some functions
+                  // take: Cmove$(-1,0) moves one column left.
+                  if (this.nm() === ',' || this.nm() === ')') args.push(VI(ENT_NUL))
                   else args.push(this.evalExpr())
                   // 'To' separates range arguments in the token specs
                   // ("0,0T0"): Bob Col(1,2 To 5), Sprite Col, Range()...
