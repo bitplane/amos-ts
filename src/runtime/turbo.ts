@@ -1382,7 +1382,7 @@ function sceneView(rt: Runtime, it: Interp, big: boolean): void {
   it.expect(',')
   const y2 = it.evalInt()
   const s = rt.screens.get(nr)
-  if (!s) throw new AmosError(`screen not opened: ${nr}`)
+  if (!s) throw new AmosError(`screen not opened: ${nr}`, 47)
   // the pointer check comes before the arguments are popped, so a program
   // with no Scene Bank set gets error 22 whatever else is wrong
   sceneData(rt)
@@ -1416,7 +1416,7 @@ function sceneDef(rt: Runtime, it: Interp): void {
   const defs = rt.turbo.scene.defs
   if (n <= 0 || n > defs.length) funcCall()
   const s = rt.screens.get(nr)
-  if (!s) throw new AmosError(`screen not opened: ${nr}`)
+  if (!s) throw new AmosError(`screen not opened: ${nr}`, 47)
   const d = sceneData(rt)
   const icons = sceneIcons(rt, rt.turbo.scene.iconBank)
   const { xb, yoff, cols, rows } = sceneClip(a, s, d, false)

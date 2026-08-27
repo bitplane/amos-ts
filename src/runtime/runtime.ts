@@ -4892,7 +4892,7 @@ export class Runtime {
 
   get screen(): Screen {
     const s = this.screens.get(this.currentIndex)
-    if (!s) throw new AmosError(`screen not opened: ${this.currentIndex}`)
+    if (!s) throw new AmosError(`screen not opened: ${this.currentIndex}`, 47)
     return s
   }
 
@@ -4965,7 +4965,7 @@ export class Runtime {
    */
   flashStart(reg: number, seq: Array<{ rgb: number; ticks: number }>): void {
     const scr = this.screens.get(this.currentIndex)
-    if (!scr) throw new AmosError('screen not opened')
+    if (!scr) throw new AmosError('screen not opened', 47)
     this.flashes = this.flashes.filter((f) => this.screens.get(f.screen) === f.scr)
     const fl = this.flashes.find((f) => f.reg === reg && f.scr === scr)
     if (!fl && this.flashes.length >= 16) throw new AmosError('too many colours in flash')
@@ -5073,7 +5073,7 @@ export class Runtime {
   }
 
   setCurrent(n: number): void {
-    if (!this.screens.has(n)) throw new AmosError(`screen not opened: ${n}`)
+    if (!this.screens.has(n)) throw new AmosError(`screen not opened: ${n}`, 47)
     this.currentIndex = n
   }
 

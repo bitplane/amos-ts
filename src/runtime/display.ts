@@ -1366,11 +1366,11 @@ export class Display {
       const n = id & 0xff
       const useCurrent = (id & 0x3fffff00) === 0x3fffff00 // bare Logic/Physic (-1 based)
       const s = this.rt.screens.get(useCurrent ? this.rt.currentIndex : n)
-      if (!s) throw new AmosError(`screen not opened: ${useCurrent ? this.rt.currentIndex : n}`)
+      if (!s) throw new AmosError(`screen not opened: ${useCurrent ? this.rt.currentIndex : n}`, 47)
       return { s, buf: s.bufferFor(physic ? 'physic' : 'logic', write) }
     }
     const s = this.rt.screens.get(id)
-    if (!s) throw new AmosError(`screen not opened: ${id}`)
+    if (!s) throw new AmosError(`screen not opened: ${id}`, 47)
     return { s, buf: write ? s.pixelsW() : s.pixels }
   }
 
