@@ -238,6 +238,30 @@ ${src}`)
     expect(runOut('Screen Open 0,320,200,16,Lowres\nPrint X Sprite(5)')).toBe(' 0\n')
   })
 
+  it('X Bob of a bob that was never made is an error, not zero', () => {
+    // FnXBob +Lib.s:12012 is the same four instructions, but XYBob is BobXY
+    // (+W.s:801) and it opens `bsr BobAd / bne.s BobxyE`. BobAd (+W.s:1163)
+    // walks T_BbDeb's list for a matching BbNb and leaves at AdBb1 with
+    // `moveq #1,d0` when there is none. The bobs are a list of what exists,
+    // where the hardware sprites are a fixed table of 64 — so an unmade bob
+    // fails where an unused sprite reads back zero.
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`Screen Open 0,320,200,16,Lowres\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['X Bob', 'Y Bob', 'I Bob']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(3)`)]).toEqual([f, true])
+    }
+    // once the bob exists, all three read it back
+    const made = 'Screen Open 0,320,200,16,Lowres\nGet Bob 1,0,0 To 16,16\nBob 3,40,50,1\n'
+    expect(runOut(`${made}Print X Bob(3);Y Bob(3);I Bob(3)`)).toBe(' 40 50 1\n')
+  })
+
   it('there are ten scrolling zones, and an undefined one is error 72', () => {
     const open = 'Screen Open 0,320,200,16,Lowres : Cls 0'
     const code = (src: string): number => {

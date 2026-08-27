@@ -5320,6 +5320,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     if (n < 0 || n >= 64) funcCall()
     return rt.hwSprites.get(n)
   }
+
+  /*
+   * FnXBob, FnYBob and FnIBob (+Lib.s:12012, 12022, 12058) are the same four
+   * instructions as their sprite counterparts: `move.l d3,d1 / Rbmi
+   * L_FonCall / SyCall XYBob / Rbne L_FonCall`.
+   *
+   * XYBob is BobXY (+W.s:801), which opens `bsr BobAd / bne.s BobxyE`. BobAd
+   * (+W.s:1163) walks T_BbDeb's list comparing BbNb, and falls out of the
+   * walk at AdBb1 with `moveq #1,d0`. So a bob that was never made is an
+   * error, and NOT the zero an unused hardware sprite reads back — the
+   * sprites are a fixed table of 64, the bobs are a list of what exists.
+   *
+   * FonCall (+Lib.s:12958) is `moveq #23,d0 / Rbra L_GoError`. It reaches
+   * GoError rather than EcWiErr, so there is no 44 to add: it really is 23.
+   */
+  const bobXY = (n: number): { x: number; y: number; image: number } => {
+    if (n < 0) funcCall()
+    const b = rt.bobs.get(n)
+    if (!b) funcCall()
+    return b
+  }
   return {
     /**
      * =Arexx Exist("port") --- `FnArexxExist` (+Lib.s:14996), which is
@@ -5597,13 +5618,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- objects ----
     'x bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.x ?? 0)
+      return VI(bobXY(int(a[0]!)).x)
     },
     'y bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.y ?? 0)
+      return VI(bobXY(int(a[0]!)).y)
     },
     'i bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.image ?? 0)
+      return VI(bobXY(int(a[0]!)).image)
     },
     /*
      * FnXSprite, FnYSprite and FnISprite (+Lib.s:12035, 12045, 12067) are the
