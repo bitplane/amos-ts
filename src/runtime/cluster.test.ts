@@ -1590,6 +1590,22 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
   })
 
+  it('a second Double Buffer is error 69, but Anim re-buffering is silent', () => {
+    // EcDouble +W.s:2742 `btst #BitDble,EcFlags(a4) / bne EcE25`, EcE25 is
+    // `moveq #25,d0` (+W.s:3132) and EcWiErr adds EcEBase-1 = 44 (+Lib.s:12917,
+    // +Equ.s:771) for AMOS error 69. The first call still works.
+    let code = 0
+    try {
+      run(['Screen Open 0,320,200,16,0', 'Double Buffer', 'Double Buffer'].join('\n'))
+    } catch (e) {
+      code = amosErrorCode(e as AmosError)
+    }
+    expect(code).toBe(69)
+    // and only the keyword raises: InDoubleBuffer +Lib.s:8853 follows the call
+    // with `Rbne L_EcWiErr`, the IFF ANIM player at +Lib.s:4556 does not
+    expect(run(['Screen Open 0,320,200,16,0', 'Double Buffer'].join('\n')).out).toBe('')
+  })
+
   it('plane pokes and chunky drawing round-trip through the same bitmap', () => {
     // row 50 is well below the console text area, so Print does not disturb it.
     // chunky -> planar: Plot then read the plane bit back via Peek
@@ -2136,6 +2152,16 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(run(src2).out).toBe(' 0\n') // channel 0 never came back
   })
 
+  /** run a few frames, press Ctrl-C, run a few more */
+  const breakAfter = (src: string): { done: boolean; out: string } => {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    for (let i = 0; i < 5; i++) rt.frame()
+    rt.interp.requestBreak()
+    for (let i = 0; i < 5; i++) rt.frame()
+    return { done: rt.interp.done, out }
+  }
+
   it('On Break Proc runs the handler on a host break; without one the program stops (InOnBreak +ILib.s:1861)', () => {
     const src = ['On Break Proc HANDLER', 'Do : Wait Vbl : Loop', 'Procedure HANDLER', ' Print "BROKE" : End', 'End Proc'].join('\n')
     let out = ''
@@ -2149,6 +2175,27 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     rt2.interp.requestBreak()
     rt2.frame()
     expect(rt2.interp.done).toBe(true)
+  })
+
+  it('Break Off swallows Ctrl-C, and Break On takes the handler back off', () => {
+    /*
+     * `Tst00` (+ILib.s:961) reads the ENABLE bit before it looks for a
+     * handler: `btst #BitControl,d4 / beq.s Tst01`, set meaning stop with
+     * error 9, "Program interrupted". `Break Off` clears it (+ILib.s:1855)
+     * and `Break On` sets it while also doing `clr.l OnBreak(a5)`, which is
+     * the only way to forget an On Break Proc.
+     */
+    const spin = (src: string): ReturnType<typeof breakAfter> => breakAfter(src)
+    // Break Off, no handler: the key does nothing and the loop runs on
+    expect(spin('Break Off\nDo : Wait Vbl : Loop').done).toBe(false)
+    // the default is to stop, and Break On puts it back
+    expect(spin('Do : Wait Vbl : Loop').done).toBe(true)
+    expect(spin('Break Off : Break On\nDo : Wait Vbl : Loop').done).toBe(true)
+    // Break On after On Break Proc forgets the handler, so Ctrl-C stops
+    const withProc = 'On Break Proc H\nBreak On\nDo : Wait Vbl : Loop\nProcedure H\n Print "BROKE" : End\nEnd Proc'
+    const r = spin(withProc)
+    expect(r.done).toBe(true)
+    expect(r.out).toBe('')
   })
 
   it('Set Tempras validates 256..65535; Set Stack/Set Equate Bank are rts (+Lib.s:9997/1683/1689)', () => {

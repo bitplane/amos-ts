@@ -367,6 +367,7 @@ interface SavedProgram {
   branchElseIf: Tok | null
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null
   breakHandler: { kind: 'goto' | 'proc'; target: string } | null
+  breakStops: boolean
   inError: boolean
   errStmt: Addr | null
   errNext: Addr | null
@@ -440,6 +441,14 @@ export class Interp {
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null = null
   /** On Break Proc handler (InOnBreak +ILib.s:1861) */
   breakHandler: { kind: 'goto' | 'proc'; target: string } | null = null
+  /**
+   * `BitControl` in `ActuMask` (+Equ.s:827): does Ctrl-C STOP the program?
+   *
+   * True at start because `ActuMask` initialises to `%0111000100000000`
+   * (+ILib.s:235), and bit 8 of that is set. `Break Off` and `On Break Proc`
+   * each clear it, `Break On` sets it back.
+   */
+  breakStops = true
   /** the last error number caught by On Error (read by =Errn) */
   errCode = 0
   /** the last error number caught by Trap (read by =Errtrap) */
@@ -528,6 +537,7 @@ export class Interp {
     // after Run that procedure no longer exists, so Ctrl-C jumped into nothing.
     // One list rather than two is the actual fix; pushProgram now inherits it.
     this.breakHandler = null
+    this.breakStops = true
     this.errFrameDepth = 0
     this.everyReturnDepth = 0
   }
@@ -755,6 +765,7 @@ export class Interp {
       branchElseIf: this.branchElseIf,
       errorHandler: this.errorHandler,
       breakHandler: this.breakHandler,
+      breakStops: this.breakStops,
       inError: this.inError,
       errStmt: this.errStmt,
       errNext: this.errNext,
@@ -781,6 +792,7 @@ export class Interp {
     this.branchElseIf = s.branchElseIf
     this.errorHandler = s.errorHandler
     this.breakHandler = s.breakHandler
+    this.breakStops = s.breakStops
     this.inError = s.inError
     this.errStmt = s.errStmt
     this.errNext = s.errNext
@@ -1195,20 +1207,36 @@ export class Interp {
   }
 
   /**
-   * A Ctrl-C break from the host. With a handler stored (On Break Proc)
-   * it runs like an event; otherwise the program stops, as the editor
-   * would (BitControl in T_Actualise → the break test).
+   * A Ctrl-C break from the host.
+   *
+   * The interrupt sets `BitControl` in `T_Actualise` (+W.s:12886) and the
+   * per-statement test at `Tst00` (+ILib.s:961) decides what it means. The
+   * ENABLE bit is consulted first, not the handler:
+   *
+   *     btst #BitControl,d4      * d4 is ActuMask -- break autorise?
+   *     beq.s Tst01              * clear: go to the handler instead
+   *     move.w d3,T_Actualise(a5)
+   *     moveq #9,d0 / bra RunErr * set: stop, "Program interrupted"
+   *
+   * so `Break Off` with no handler swallows Ctrl-C entirely. Both handlers
+   * were empty here, which made `Break Off` a no-op and left a program that
+   * had asked not to be interrupted interruptible.
    */
   requestBreak(): void {
     if (this.status !== null) return
-    const h = this.breakHandler
-    if (h) {
-      this.blocked = null
-      if (h.kind === 'proc') this.callProc(h.target, [])
-      else this.jumpLabel(h.target)
+    if (this.breakStops) {
+      // DEVIATION: the original stops by RAISING error 9, "Program
+      // interrupted" (`moveq #9,d0 / bra RunErr`), so a program with `On Error
+      // Goto` in force catches Ctrl-C and can carry on. This stops the
+      // interpreter outright, which no handler can see.
+      this.status = 'stopped'
       return
     }
-    this.status = 'stopped'
+    const h = this.breakHandler
+    if (!h) return // Break Off and nothing to run: the key does nothing
+    this.blocked = null
+    if (h.kind === 'proc') this.callProc(h.target, [])
+    else this.jumpLabel(h.target)
   }
 
   callProc(name: string, args: Value[]): void {

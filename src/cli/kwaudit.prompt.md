@@ -70,6 +70,17 @@ yours.
   drawing keyword differs this way, it is logged once against the whole port,
   and it is not a finding about your keyword. Say nothing about it.
 
+- **Spec `5` converts the argument before the routine runs.** `Sin`, `Cos`,
+  `Tan`, `Hsin`, `Hcos` and `Htan` are spec `15`, which selects `Par_Angle`
+  (+ILib.s:813): it evaluates the argument, forces it to float and applies
+  `L_FFAngle` (+ILib.s:7601), degrees to radians, BEFORE reaching the routine.
+  All six routine bodies are a bare `moveq #_LVOSPxxx,d2 / Rjmpt
+  L_Math_Fonction` with no conversion in sight, so reading the body alone says
+  the port converts and the original does not. It is the other way round. The
+  port's `toAngle` is `FFAngle` and its `fromAngle` is `AAngle` (+ILib.s:7560,
+  which converts the RESULT and is what spec `11` `Asin`/`Acos`/`Atan` use).
+  Report nothing about angle conversion in these six.
+
 ## Forms and the `spec` field
 
 A `spec` is one argument list from the shipped token table, verbatim. `I`

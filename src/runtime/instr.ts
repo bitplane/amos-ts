@@ -1296,7 +1296,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.screens.get(n)?.swap()
     },
     'double buffer'() {
-      scr().doubleBuffer()
+      // InDoubleBuffer +Lib.s:8853: `EcCall Double / Rbne L_EcWiErr`, so a
+      // second Double Buffer on the same screen is error 69, not a no-op
+      if (!scr().doubleBuffer()) throw new AmosError('Screen already in double buffering', 69)
     },
     autoback(it) {
       scr().autoback = it.evalInt() & 3

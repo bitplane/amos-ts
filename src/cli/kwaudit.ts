@@ -77,6 +77,8 @@ export interface Verdict {
   findings: Finding[]
   /** set when the run itself failed rather than the keyword being clean */
   error?: string
+  /** the first reply was unusable and this is the second */
+  retried?: boolean
   ms: number
 }
 
@@ -119,16 +121,33 @@ function render(name: string): string | null {
 }
 
 /** pull the JSON object out of whatever the model wrapped it in */
+/**
+ * Pull the verdict out of whatever the model wrapped it in.
+ *
+ * Three shapes went wrong across the first two hundred keywords and all three
+ * are recoverable, so none of them should cost the keyword:
+ *
+ *   - `mid$` put a raw newline inside a JSON string, which is a parse error
+ *     however clearly the prompt asks for one line per field. Control
+ *     characters have no business in this JSON, so they become spaces.
+ *   - `freeze` answered `"verdict": "unreadable"` -- a finding KIND in the
+ *     verdict slot. It means "I could not tell", which is `question`.
+ *   - `next` came back empty, which only a retry can fix.
+ */
 function parse(text: string, keyword: string): Verdict {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text)
   const raw = (fenced?.[1] ?? text).trim()
-  const start = raw.indexOf('{')
-  const end = raw.lastIndexOf('}')
-  if (start < 0 || end < start) throw new Error(`no JSON object in reply: ${text.slice(0, 200)}`)
-  const v = JSON.parse(raw.slice(start, end + 1)) as Partial<Verdict>
+  const at = raw.indexOf('{')
+  const to = raw.lastIndexOf('}')
+  if (at < 0 || to < at) throw new Error(`no JSON object in reply: ${text.slice(0, 200)}`)
+  // eslint-disable-next-line no-control-regex
+  const body = raw.slice(at, to + 1).replace(/[\u0000-\u0008\u000a-\u001f]/g, ' ')
+  const v = JSON.parse(body) as Partial<Verdict>
+  const known = ['clean', 'question', 'defect']
+  const verdict = typeof v.verdict === 'string' && known.includes(v.verdict) ? v.verdict : 'question'
   return {
     keyword,
-    verdict: v.verdict ?? 'error',
+    verdict: verdict as Verdict['verdict'],
     findings: Array.isArray(v.findings) ? v.findings : [],
     ms: 0,
   }
@@ -168,29 +187,44 @@ async function auditOne(name: string, model: string): Promise<Verdict> {
   if (bundle === null) {
     return { keyword: name, verdict: 'error', findings: [], error: 'render failed', ms: 0 }
   }
-  try {
-    const { stdout, stderr, code } = await run(
-      [
-        '-p',
-        `${PROMPT}\n\n---\n\n${bundle}`,
-        '--model',
-        model,
-        // 1 turn killed every run where the model reached for a tool before
-        // answering ("Reached max turns (1)"); the tools are denied instead,
-        // so a stray reach costs a turn rather than the whole keyword
-        '--max-turns',
-        '4',
-        // variadic, so it must come LAST and the prompt must come before it —
-        // given the flag first it ate the prompt and reported every word of it
-        // as an unknown tool
-        '--disallowedTools',
-        ...['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-      ],
-      ROOT,
-      480_000,
-    )
+  const args = [
+    '-p',
+    `${PROMPT}\n\n---\n\n${bundle}`,
+    '--model',
+    model,
+    // 1 turn killed every run where the model reached for a tool before
+    // answering ("Reached max turns (1)"); the tools are denied instead,
+    // so a stray reach costs a turn rather than the whole keyword
+    '--max-turns',
+    '4',
+    // variadic, so it must come LAST and the prompt must come before it —
+    // given the flag first it ate the prompt and reported every word of it
+    // as an unknown tool
+    '--disallowedTools',
+    ...['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
+  ]
+
+  /** one call, and whatever it said */
+  const once = async (): Promise<Verdict> => {
+    const { stdout, stderr, code } = await run(args, ROOT, 480_000)
     if (code !== 0) throw new Error(`exit ${code}: ${stderr.trim().slice(0, 300)}`)
-    const v = parse(stdout, name)
+    return parse(stdout, name)
+  }
+
+  try {
+    let v: Verdict
+    try {
+      v = await once()
+    } catch (first) {
+      // `next` came back with an empty reply. One retry, because losing a
+      // keyword to a blank answer costs more than the two minutes.
+      try {
+        v = await once()
+        v.retried = true
+      } catch {
+        throw first
+      }
+    }
     v.ms = Date.now() - t0
     return v
   } catch (e) {

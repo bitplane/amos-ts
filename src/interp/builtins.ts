@@ -933,12 +933,29 @@ export const INSTR: Record<string, Instr> = {
     it.halt('ended', false)
     return 'jumped'
   },
-  'break on': () => {},
-  'break off': () => {},
+  /*
+   * The three of them write one bit and one longword between them.
+   *
+   *     InBreakOn  (+ILib.s:1846)  bset #BitControl,ActuMask(a5) / clr.l OnBreak(a5)
+   *     InBreakOff (+ILib.s:1853)  bclr #BitControl,ActuMask(a5)
+   *     InOnBreak  (+ILib.s:1861)  GetLabel / move.l d0,OnBreak(a5)
+   *                                bclr #BitControl,ActuMask(a5)
+   *
+   * `Break On` is not just "enable": it also FORGETS any On Break Proc, which
+   * is the only way to take a handler back off. And `On Break Proc` clears the
+   * enable bit itself, so naming a handler is what stops Ctrl-C killing the
+   * program. `break on` and `break off` were both `() => {}`.
+   */
+  'break on'(it) {
+    it.breakStops = true
+    it.breakHandler = null
+  },
+  'break off'(it) {
+    it.breakStops = false
+  },
   'on break proc'(it) {
-    // InOnBreak +ILib.s:1861: stores the Ctrl-C break handler (fires
-    // through Interp.requestBreak when Break On)
     it.breakHandler = { kind: 'proc', target: it.parseLabelTarget().toLowerCase() }
+    it.breakStops = false
   },
   'set double precision'(it) {
     // No argument and no routine: the entry's spec is a bare `I` and its
