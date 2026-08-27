@@ -4403,11 +4403,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: existing ? [...existing] : [] })
     },
     close(it) {
+      // the bare form shuts every channel; a numbered one goes through
+      // GetFile like the rest, so 0 and 10 are error 23 and a channel that
+      // was never opened is 97 rather than a silent no-op
       if (it.atStmtEnd()) {
         for (const n of [...rt.fileChans.keys()]) rt.closeChannel(n)
         return
       }
-      rt.closeChannel(it.evalInt())
+      const n = it.evalInt()
+      rt.chan(n)
+      rt.closeChannel(n)
     },
     'print #'(it) {
       const n = it.evalInt()
@@ -4477,10 +4482,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       else c.out.length = Math.max(0, Math.min(c.out.length, v))
     },
     'set input'(it) {
+      /*
+       * InSetInput (+Lib.s:4650) checks ONE of its two arguments: `lsl.w
+       * #8,d3 / move.l (a3)+,d0 / cmp.l #256,d0 / Rbcc L_FonCall / or.w
+       * d3,d0`. So the first must be 0 to 255 and the second is shifted into
+       * the high byte of ChrInp whatever it is — a negative keeps its low
+       * byte, which is why -1 reads as the character 255 and so never
+       * matches. The port masked the first instead of refusing it.
+       */
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
-      rt.chrInp = [a & 0xff, b < 0 ? -1 : b & 0xff]
+      if (a >>> 0 >= 256) funcCall()
+      rt.chrInp = [a, b < 0 ? -1 : b & 0xff]
     },
     mkdir(it) {
       if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')

@@ -594,6 +594,35 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(() => run(['Open Out 1,"DH0:x"', 'Field 1,8 As N$', 'N$="A" : Put 1,1'].join('\n'))).toThrow(/file type mismatch/i)
     expect(() => run(['Open Random 1,"DH0:x"', 'Field 1,0 As N$'].join('\n'))).toThrow(/illegal function call/i)
   })
+
+  it('a file channel is 1 to 9, and an unopened one is error 97', () => {
+    /*
+     * GetFile (+Lib.s:4625) is `cmp.l #10,d0 / Rbcc L_FonCall / subq.l #1,d0
+     * / Rbmi L_FonCall`, and every caller follows it with `Rbeq L_FilNO`.
+     * FilNO (+Lib.s:12882) is `moveq #DEBase+18,d0 / Rbra L_GoError`, and
+     * `DEBase equ EcEBase+35-1` (+Equ.s:772) makes that 45 + 34 + 18 = 97 —
+     * "File not opened", which is what the arithmetic ought to land on.
+     */
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('Close 0')).toBe(23)
+    expect(code('Close 10')).toBe(23)
+    expect(code('Close -1')).toBe(23)
+    // in range but never opened: the port had been closing it silently
+    expect(code('Close 9')).toBe(97)
+    expect(code('Print #3,"x"')).toBe(97)
+    expect(code('Open Out 1,"DH0:x" : Close 1')).toBe(0)
+    // Set Input checks its first argument only (+Lib.s:4650)
+    expect(code('Set Input 256,0')).toBe(23)
+    expect(code('Set Input -1,0')).toBe(23)
+    expect(code('Set Input 255,999')).toBe(0)
+  })
 })
 
 describe.skipIf(!have('Tutorial/Iff_Anim/AMOS.Anim'))('integration: IFF ANIM frames (IffForm* +Lib.s:6861-7500)', () => {

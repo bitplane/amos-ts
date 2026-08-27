@@ -6,6 +6,7 @@ import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/
 import type { Addr } from '../interp/prescan'
 import type { AmosIO } from '../interp/io'
 import { AmosError, funcCall, VF, VI } from '../interp/values'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import type { GuiState } from './guistate'
@@ -3858,9 +3859,22 @@ export class Runtime {
     return this.fs instanceof AmigaFS ? this.fs : null
   }
 
+  /**
+   * GetFile (+Lib.s:4625), the lookup every file keyword opens with.
+   *
+   * `cmp.l #10,d0 / Rbcc L_FonCall / subq.l #1,d0 / Rbmi L_FonCall`, so the
+   * channels are 1 to 9 and anything else is Illegal function call. It then
+   * returns FhA(a2), and every caller follows with `Rbeq L_FilNO` — which is
+   * `moveq #DEBase+18,d0 / Rbra L_GoError` (+Lib.s:12882) with `DEBase equ
+   * EcEBase+35-1` (+Equ.s:772), so 45 + 34 + 18 = 97, "File not opened".
+   *
+   * The port raised its "file not opened" with no number at all, which the
+   * error system then reported as 23.
+   */
   chan(n: number): NonNullable<ReturnType<Runtime['fileChans']['get']>> {
+    if (n <= 0 || n >= 10) funcCall()
     const c = this.fileChans.get(n)
-    if (!c) throw new AmosError(`file not opened: channel ${n}`)
+    if (!c) throw new AmosError(ED_RUN_MESSAGES[97]!, 97)
     return c
   }
 
