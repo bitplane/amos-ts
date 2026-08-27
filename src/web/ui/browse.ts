@@ -11,8 +11,15 @@
  * The index is written by ../../cli/genlibrary.ts, and the TYPES come from
  * there. That import must stay `import type`. genlibrary opens `node:fs`,
  * and a value import would pull it into the browser bundle.
+ *
+ * Every folder and every disk here is linkable, so this tab both READS a
+ * path out of the address bar (`route`) and says when the reader has walked
+ * to a new one (`onFolder`, `onOpen`). It never writes the address bar
+ * itself: what the fragment should say depends on which tab you end up on,
+ * and only ../main.ts knows that. ../route.ts holds the matching rules.
  */
 import type { Library, LibraryFolder, LibraryItem } from '../../cli/genlibrary'
+import { canonical, resolve } from '../route'
 import { popupMenu } from './menu'
 
 /**
@@ -28,13 +35,28 @@ import { popupMenu } from './menu'
 declare const __AMOS_LIBRARY__: string | undefined
 export const LIBRARY_BASE: string = typeof __AMOS_LIBRARY__ === 'string' ? __AMOS_LIBRARY__ : '/library/'
 
+/**
+ * How a disk or a folder came to be opened, which decides what the address
+ * bar does about it.
+ *
+ * `click` is the reader walking the library, and that is somewhere to come
+ * back FROM: it gets a history entry. `link` is a fragment that already says
+ * this, arriving from a link, a bookmark or the back button, and it gets the
+ * entry it is already standing on rewritten with the tidy spelling. Pushing
+ * there would put the reader's typo behind them in the history and re-run
+ * the disk when they pressed back.
+ */
+export type Via = 'click' | 'link'
+
 export interface BrowseOptions {
   /**
    * The item's bytes, once they have arrived. `drive` is set only when the
    * reader picked one off the right-click menu; without it the disk goes in
    * DF0: and is mounted under its own label like anything else.
    */
-  onOpen(item: LibraryItem, bytes: Uint8Array, drive?: number): void | Promise<void>
+  onOpen(item: LibraryItem, bytes: Uint8Array, how: { drive?: number; via: Via }): void | Promise<void>
+  /** the reader walked into a folder; `path` is what a link to it says */
+  onFolder?(path: readonly string[]): void
   /** what is in each drive now, for the menu to show */
   drives(): readonly (string | null)[]
   onStatus(text: string): void
@@ -43,10 +65,30 @@ export interface BrowseOptions {
   base?: string
 }
 
+/** what a fragment turned out to name, and where the tab now is */
+export interface Routed {
+  kind: 'item' | 'folder'
+  /** the canonical spelling of what was found, for the address bar */
+  path: string[]
+  /** the folder the tab is showing, which for a disk is the shelf it is on */
+  folder: string[]
+}
+
 export interface BrowseTab {
   panel: HTMLElement
-  /** fetch the index if it has not been fetched yet */
-  show(): void
+  /**
+   * The tab is showing, at the path the fragment says. Fetches the index the
+   * first time; an empty path afterwards is the root of the library, which
+   * is what the back button out of a folder means.
+   */
+  show(path?: readonly string[]): void
+  /**
+   * Go where a fragment says, fetching the index first if this is the first
+   * thing the page does. Answers what it found, because a link naming a disk
+   * hands over to the player and a link naming a folder or naming nothing in
+   * the library stays here, and only the caller can switch tabs.
+   */
+  route(path: readonly string[]): Promise<Routed | null>
 }
 
 /** `AMOS/AMOS 3D.png` -> a URL, with the spaces and the rest escaped */
@@ -95,6 +137,10 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
   panel.appendChild(host)
 
   let state: 'idle' | 'loading' | 'done' = 'idle'
+  /** the index once it has arrived; what a link is resolved against */
+  let root: LibraryFolder | null = null
+  /** the fetch in flight, so a link and a tab switch share the one request */
+  let inFlight: Promise<void> | null = null
   /** one item at a time: a second click while disks are in flight is ignored */
   let opening = false
 
@@ -181,7 +227,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
       inside.map((held, unit) => ({
         label: `Put in DF${unit}:`,
         detail: held ?? 'empty',
-        run: () => void open(item, unit),
+        run: () => void open(item, 'click', unit),
       })),
     )
   }
@@ -191,7 +237,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     return folder.items.length + folder.folders.reduce((n, f) => n + itemsUnder(f), 0)
   }
 
-  async function open(item: LibraryItem, drive?: number): Promise<void> {
+  async function open(item: LibraryItem, via: Via, drive?: number): Promise<void> {
     if (opening) return
     opening = true
     try {
@@ -206,7 +252,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
       if (bytes.length !== d.size) {
         throw new Error(`${d.path}: got ${bytes.length} bytes, the index says ${d.size}`)
       }
-      await opts.onOpen(item, bytes, drive)
+      await opts.onOpen(item, bytes, { ...(drive === undefined ? {} : { drive }), via })
     } catch (e) {
       opts.onStatus(`could not load ${item.name}: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -237,10 +283,26 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
       const el = document.createElement(last ? 'span' : 'a')
       // the root folder is the library itself and has no name of its own
       el.textContent = folder.name === '' ? 'library' : folder.name
-      if (!last) el.addEventListener('click', () => enter(here.slice(0, i + 1)))
+      if (!last) el.addEventListener('click', () => walk(here.slice(0, i + 1)))
       nav.appendChild(el)
     })
     return nav
+  }
+
+  /** the link to a folder: the root has no name, so the path starts below it */
+  function pathOf(stack: readonly LibraryFolder[]): string[] {
+    return stack.slice(1).map((f) => canonical(f.name))
+  }
+
+  /**
+   * The reader clicked a folder, which is both a render and a place to be.
+   *
+   * `enter` paints and nothing else, so routing can put the tab somewhere
+   * without the address bar hearing about a move it made itself.
+   */
+  function walk(stack: LibraryFolder[]): void {
+    enter(stack)
+    opts.onFolder?.(pathOf(stack))
   }
 
   /** show a folder: its subfolders first, then the disks in it */
@@ -258,7 +320,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     for (const sub of folder.folders) {
       const n = itemsUnder(sub)
       grid.appendChild(
-        tile(sub.name, sub.image, n === 1 ? '1 disk' : `${n} disks`, `open ${sub.name}`, () => enter([...stack, sub])),
+        tile(sub.name, sub.image, n === 1 ? '1 disk' : `${n} disks`, `open ${sub.name}`, () => walk([...stack, sub])),
       )
     }
     for (const item of folder.items) {
@@ -268,7 +330,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
           item.image,
           factsFor(item),
           titleFor(item),
-          () => void open(item),
+          () => void open(item, 'click'),
           (e) => driveMenu(e, item),
         ),
       )
@@ -283,7 +345,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     // different repositories on different triggers, so an index written by an
     // older generator is a normal few minutes, not a fault. Say what is
     // happening and let it fix itself.
-    const root = library?.root as LibraryFolder | undefined
+    root = (library?.root as LibraryFolder | undefined) ?? null
     if (!root) {
       message('the published library index is older than this page; it updates when the library next publishes')
       return
@@ -314,13 +376,56 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     }
   }
 
+  /**
+   * The index, fetched at most once and shared.
+   *
+   * A link to a disk and the tab becoming visible both want it, and at boot
+   * they happen within a frame of each other. Two fetches would be two
+   * renders, and the second would drop the reader back at the root of the
+   * library while the first was still opening what they asked for.
+   */
+  function ready(): Promise<void> {
+    if (state === 'done') return Promise.resolve()
+    if (inFlight === null) inFlight = load().finally(() => (inFlight = null))
+    return inFlight
+  }
+
   return {
     panel,
-    show(): void {
+    show(path = []): void {
       // Once, on the first visit. Not at page load, because the tab may
       // never be opened, and not on every visit, because the index does not
       // change while the page is up.
-      if (state === 'idle') void load()
+      if (state === 'idle') {
+        void ready()
+        return
+      }
+      // Back out of a folder, to a fragment that names none. Only when the
+      // index is already here: a bare `#play` must not drag the library down
+      // behind a tab nobody has opened.
+      if (path.length === 0 && root !== null) enter([root])
+    },
+    async route(path): Promise<Routed | null> {
+      await ready()
+      if (root === null) return null
+      const found = resolve(root, path)
+      if (found === null) {
+        // Say what was asked for, not just that it failed. A link that has
+        // outlived the disk it named and a link with a folder missing off
+        // the front look identical from the reader's side, and the name they
+        // typed is the one thing that tells them which they are looking at.
+        opts.onStatus(`nothing in the library called ${path.join('/')}`)
+        enter([root])
+        return null
+      }
+      // The folder goes up first either way. For a disk that means the shelf
+      // it came off is behind the player, so leaving the game lands there
+      // rather than back at the root of the library.
+      enter(found.stack)
+      const folder = pathOf(found.stack)
+      if (found.kind === 'folder') return { kind: 'folder', path: found.path, folder }
+      await open(found.item, 'link')
+      return { kind: 'item', path: found.path, folder }
     },
   }
 }

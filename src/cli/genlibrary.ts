@@ -48,6 +48,16 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AdfVolume, isAdf } from '../amiga/adf'
+/*
+ * The naming rule, shared with the page rather than restated here.
+ *
+ * `id` is what a link to this disk says, and ../web/route.ts is what the
+ * Browse tab writes into the address bar and matches an incoming link
+ * against. Two copies of one slug rule is two chances for a generated link
+ * to miss its own index, so there is one, and it lives in the file the
+ * browser can import: this one opens `node:fs` and that one imports nothing.
+ */
+import { slugPath as slug } from '../web/route'
 
 /**
  * What counts as an item: whatever ../runtime/archive.ts can open. A floppy
@@ -137,19 +147,6 @@ function isDir(path: string): boolean {
   } catch {
     return false
   }
-}
-
-/** `AMOS/AMOS 3D` -> `amos/amos-3d`; punctuation out, spaces to hyphens */
-function slug(text: string): string {
-  return text
-    .split('/')
-    .map((seg) =>
-      seg
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, ''),
-    )
-    .join('/')
 }
 
 /** count the .AMOS files on a mounted disk, walking every drawer on it */
