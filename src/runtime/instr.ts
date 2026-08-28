@@ -155,7 +155,7 @@ import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile, parseSpriteBankBody } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
-import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
+import { type PacPicture, packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont } from '../amiga/diskfont'
 import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
@@ -1180,6 +1180,40 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /**
+   * The Compact extension's own error, message 0 of the table at
+   * +Compact.s:613. Reached from `L_NoPac` (:592) through `L_Custom` (:606),
+   * which is `Rjmp L_ErrorExt` with `moveq #0,d1` — an extension error, so it
+   * carries no AMOS error number.
+   */
+  function noPac(): never {
+    throw new AmosError('Not a packed bitmap')
+  }
+
+  /**
+   * The three refusals UnPack_Bitmap makes before it writes anything, and
+   * then the write.
+   *
+   * All three are NoPac0, the same "Not a packed bitmap" as a bad magic,
+   * and together they mean the machine never clips a packed picture: it
+   * either fits the destination exactly or it does not go on at all.
+   *
+   *   UnPack_Bitmap `cmp.w Pknplan(a0),d0 / bne NoPac0` (+Lib.s:25555)
+   *   `add.w d1,d0 / cmp.w d7,d0 / bhi`        (+Lib.s:25570)
+   *   `add.w d2,d0 / cmp.w EcTy(a1),d0 / bhi`  (+Lib.s:25576)
+   *
+   * The first is the destination's plane count against the picture's, so a
+   * 16-colour picture will not go on a 32-colour screen. The second is X plus
+   * the width in BYTES against EcTLigne, the third Y plus the height against
+   * the screen's line count, and both compares are unsigned words.
+   */
+  const stampPacPic = (s: Screen, pic: PacPicture, x: number, y: number): void => {
+    if (s.depth !== pic.nPlanes) noPac()
+    if ((x >>> 3) + (pic.width >>> 3) > s.rowBytes) noPac()
+    if (y + pic.height > s.height) noPac()
+    rt.blit(s, pic, x, y, true, -1, true)
+  }
+
+  /**
    * Pack / Spack (InPack6 / InSPack6, +Compact.s:116/139).
    *
    * PacPar (296) takes `screen, bank, x1, y1 To x2, y2`, forces the X
@@ -1211,11 +1245,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       y2 = it.evalInt()
     }
+    // `move.l (a3)+,a1 / cmp.l #$10000,a1 / Rbcc L_JFoncall` (:293), and the
+    // compare is unsigned, so a negative bank number fails it too
     if (bank >>> 0 >= 0x10000) funcCall()
-    // lsr.w #3 on both X coordinates, then the far corner clamps to the
-    // screen's row width and height
+    // PacPar works in WORDS throughout. `lsr.w #3` forces both X coordinates
+    // down to byte columns (:276 and :277), the far corner clamps to
+    // EcTLigne and EcTy (:282-287), and Y is a word as well: the offset it
+    // ends up storing is `move.w d3,Pkdy(a1)` (:461). So `Spack 0 To 10,0,
+    // 65536,10000,10000` packs from line 0, exactly as if the 65536 were not
+    // there.
     dx = (dx & 0xffff) >>> 3
+    dy = dy & 0xffff
     const tx = Math.min((x2 & 0xffff) >>> 3, s.rowBytes) - dx
+    // DEVIATION: `sub.w d3,d5 / Rble L_JFoncall` (:290) is a WORD subtract,
+    // so a Y offset from $8000 up wraps the result positive and gets past
+    // the test — 100 lines minus 40000 is 25736 — and the packer then reads
+    // tens of thousands of lines from beyond the bitmap. There is nothing
+    // past the bitmap here to read, and refusing is the answer this port
+    // gives instead.
     const ty = Math.min(y2 & 0xffff, s.height) - dy
     if (tx <= 0 || ty <= 0) funcCall()
     const bitmap = packBitmap(
@@ -3258,51 +3305,80 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     spack(it) {
       packOrSpack(it, true)
     },
+    /**
+     * Unpack bank / Unpack bank,x,y / Unpack bank To screen — InUnpack1
+     * (+Compact.s:173), InUnpack3 (+Compact.s:186) and InUnpack2
+     * (+Compact.s:231), all three over UnPack_Bitmap (+Lib.s:25538) and
+     * UnPack_Screen (+Lib.s:25471).
+     *
+     * Every failure below is the extension's OWN error and not one of AMOS's
+     * numbered ones. `Rbeq L_NoPac` at :206, :225 and :244 reaches
+     * `moveq #0,d0 / Rbra L_Custom` (:592), and Custom hands `L_ErrorExt`
+     * the table at :613 — message 0, "Not a packed bitmap".
+     *
+     * Message 1, "Not a packed screen", is never raised. `Lib_Def NoScr`
+     * (:597) is the only mention of that label in the file, so the message
+     * that fits `Unpack bank To screen` on a bank with no screen header is
+     * the one AMOS cannot reach, and it reports the bitmap wording instead.
+     */
     unpack(it) {
-      // first argument: a bank number, or an ADDRESS inside a bank (many
-      // programs keep several packed pictures in one bank with an offset
-      // table)
+      // the bank goes through Bnk.OrAdr (:200, :234), so under 1024 it is a
+      // bank number and anything else is already an address
       const src = it.evalInt()
-      let bytes: Uint8Array
-      const bank = rt.memBanks.get(src)
-      if (bank) {
-        bytes = bank.data
-      } else {
-        const m = rt.resolveAddr(src)
-        if (!m) throw new AmosError('bank not reserved')
-        bytes = m.data.subarray(m.off)
-      }
-      // NOTE: the unpacker itself does not raise — UnPack_Screen tests the
-      // $06071963 magic and returns d0=0 (+Lib.s:25505 `.NoPac`), leaving the
-      // decision to its caller in the Compact extension, whose source is not
-      // in the archive (only +Compact_Labels.s). 23 is AMOS's catch-all and
-      // is our choice; what matters here is that a plain Error escaped the
-      // AMOS machinery entirely, so On Error Goto could not trap it.
-      let pic
-      try {
-        pic = parsePacPic(bytes)
-      } catch {
-        funcCall()
+      const pacPic = (): PacPicture => {
+        const m = rt.bankOrAddr(src)
+        if (!m) throw new AmosError('bank not reserved', 36)
+        try {
+          return parsePacPic(m.data.subarray(m.off))
+        } catch {
+          return noPac()
+        }
       }
       if (it.accept('to')) {
+        // InUnpack2 is the one form with no `move.l ScOnAd(a5),d0` in front
+        // of it: it makes the screen, so it works with nothing open.
         const n = it.evalInt()
+        const pic = pacPic()
+        // UnPack_Screen opens `cmp.l #SCCode,PsCode(a0) / bne .NoPac`
+        // (+Lib.s:25474), and .NoPac (:25514) answers d0=0 WITH d1=0, which is
+        // caller's `tst.w d1 / Rbeq L_NoPac` (:243). d1=1 is the other exit,
+        // .NoScreen, where `EcCall Cree` could not make the screen, and that
+        // one is `Rjmp L_OOfMem` instead.
         const sc = pic.screen
-        if (!sc) throw new AmosError('bank has no screen header')
+        if (!sc) noPac()
         const s = rt.openScreen(n, sc.width, sc.height, sc.nColors, sc.mode)
         for (let i = 0; i < 32; i++) s.palette[i] = sc.palette[i]!
         // Unpack_Screen prints Esc"C0" to the new screen — cursor off, and
-        // no system flash either (+Lib.s:25520-25552)
+        // no system flash either (UnPack_Screen +Lib.s:25494-25506)
         s.cursorOn = false
-        rt.blit(s, pic, 0, 0, true)
+        // it then calls UnPack_Bitmap with `moveq #0,d1 / moveq #0,d2`
+        // (UnPack_Screen +Lib.s:25511), so the picture's own Pkdx/Pkdy are ignored
+        stampPacPic(s, pic, 0, 0)
         return
       }
-      let x = pic.x
-      let y = pic.y
+      // InUnpack1 and InUnpack3 both open `move.l ScOnAd(a5),d0 / Rbeq
+      // L_JFoncall` (:175 and :188), and JFoncall is `moveq #23,d0` (:576).
+      // It fires before Bnk.OrAdr, so with every screen closed the bank is
+      // never looked at.
+      let xArg = -1
+      let yArg = -1
       if (it.accept(',')) {
-        x = optInt(it, x) & ~7
-        if (it.accept(',')) y = optInt(it, y)
+        xArg = optInt(it, -1)
+        if (it.accept(',')) yArg = optInt(it, -1)
       }
-      rt.blit(scr(), pic, x, y, true)
+      const s = rt.screens.get(rt.currentIndex)
+      if (!s) funcCall()
+      const pic = pacPic()
+      // `lsr.w #3,d1 / tst.l d1 / bpl.s dec1 / move.w Pkdx(a0),d1`, in
+      // UnPack_Bitmap (+Lib.s:25560): the shift is on the WORD, so $FFFFFFFF becomes
+      // $FFFF1FFF and the LONG test still reads it as negative. A negative
+      // coordinate means "where the picture says", and that is how
+      // InUnpack1's `moveq #-1,d1 / moveq #-1,d2` (:178) reaches Pkdx and
+      // Pkdy — an elided argument, EntNul $80000000, lands there too. What
+      // survives of a positive one is the low word, byte-aligned.
+      const x = xArg < 0 ? pic.x : (xArg & 0xffff) & ~7
+      const y = yArg < 0 ? pic.y : yArg & 0xffff
+      stampPacPic(s, pic, x, y)
     },
     // ---- dialogs (Interface language) ----
     'dialog open'(it) {

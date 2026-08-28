@@ -16,16 +16,26 @@ export const FAITHFUL = new Set<string>([
   'str$', // LongToAsc "avec signe" — leading space on non-negatives
   'not', // FnNot: fresh New_Evalue, bitwise not, floats convert
   'set tab', // SetTab/Tab in +W.s; default 4 from Wo3a
-  // Pac.Pic decoder is a line-by-line port of UnPack_Bitmap; all corpus
-  // banks decode pixel-perfect
+  // Pac.Pic decoder is a line-by-line port of UnPack_Bitmap, and 534 of the
+  // corpus's 535 packed pictures decode with the data cursor landing exactly
+  // on their own PkPoint2. The 535th, MAGIC_FOREST2/Mf2titles.abk, overruns
+  // by 4,037 bytes and is damaged; AMOS unpacks it to the same noise, since
+  // UnPack_Bitmap never looks at the pointers. Bank number or address is
+  // Bnk.OrAdr's 1024 (+Lib.s:8053), the refusals are the extension's own
+  // "Not a packed bitmap" (+Compact.s:613) rather than an AMOS error number,
+  // and a picture that does not fit the destination is refused rather than
+  // clipped (UnPack_Bitmap +Lib.s:25570 and :25576).
   'unpack',
   // Pack/Spack are ported from the Compact extension's own source
-  // (+Compact.s:317/452) and re-pack every corpus picture byte for byte.
-  // Syntax comes from the extension's token table (+Compact.s:74) rather
-  // than the manual: "I0t0" and "I0t0,0,0,0,0", so `Pack screen To bank`
-  // with ONE To and the rectangle comma-separated after it. The manual's
-  // ",x1,y1 TO x2,y2" and the comment above InSPack6 both disagree with
-  // the table and with the corpus (`Pack 1 To 7,104,13,250,60`).
+  // (+Compact.s:317/452). Of the 534 sound corpus pictures, 504 re-pack byte
+  // for byte and the other 30 differ in one byte: the last entry of the
+  // intermediate flag table is never initialised on the machine, so a byte of
+  // the Amiga's free memory reaches the file. Syntax comes from the
+  // extension's token table (+Compact.s:74) rather than the manual: "I0t0"
+  // and "I0t0,0,0,0,0", so `Pack screen To bank` with ONE To and the
+  // rectangle comma-separated after it. The manual's ",x1,y1 TO x2,y2" and
+  // the comment above InSPack6 both disagree with the table and with the
+  // corpus (`Pack 1 To 7,104,13,250,60`).
   'pack',
   'spack',
   // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank

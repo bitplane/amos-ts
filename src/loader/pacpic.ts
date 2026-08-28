@@ -178,6 +178,18 @@ function packWith(
   // the intermediate flag table is allocated exactly as the 68k does — one
   // bit per byte examined, plus two bytes of slack that are compressed along
   // with the rest (MemFast +Compact.s:517)
+  //
+  // DEFECT: the last of those two bytes is never written. `MemFast` does not
+  // clear what it hands back (+Compact.s:476), the packing loop clears each
+  // byte as it reaches it, and the wrap past the final bit clears one more
+  // (:519-520) — which accounts for every byte but that one. The second pass
+  // at :551 then compresses the whole table, this byte included, so whatever
+  // the Amiga had left in free memory sets one more bit in the stored bit
+  // table and appends one more byte to the second data stream. 30 of the
+  // corpus's 534 sound packed pictures carry a non-zero one, which is 30
+  // saved files with a byte of somebody's Amiga in them. Not reproduced:
+  // there is nothing uninitialised here to leak, a zero is what the machine
+  // gives most of the time, and the picture decodes the same either way.
   const interSize = ((tcar * tx * ty * nPlanes) >>> 3) + 2
   const t1 = new Uint8Array(interSize)
 

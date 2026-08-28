@@ -8,6 +8,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { amosErrorCode, type AmosError } from '../interp/values'
+import { amosSource } from '../cli/corpus'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -633,6 +634,170 @@ describe('Pack / Spack', () => {
   it('rejects an empty rectangle and an out-of-range bank', () => {
     expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0 To 10,100,10,100,50')).toThrow(/function call/)
     expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0 To 70000')).toThrow(/function call/)
+  })
+
+  it('the Y offset is a word, so 65536 lines down is no lines down', () => {
+    // PacPar keeps everything in words -- the offset it stores is
+    // `move.w d3,Pkdy(a1)` (+Compact.s:461) and the height test is the word
+    // subtract `sub.w d3,d5 / Rble` (:290). 65536 has nothing in its low
+    // word, so the whole screen is packed and Unpack puts it back at 0.
+    const rt = run(
+      [
+        'Screen Open 0,320,100,16,Lowres',
+        'Cls 0 : Ink 6 : Bar 0,0 To 319,99',
+        'Spack 0 To 14,0,65536,10000,10000',
+        'Cls 0',
+        'Unpack 14',
+      ].join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    expect([s.point(0, 0), s.point(319, 99)]).toEqual([6, 6])
+  })
+})
+
+/**
+ * The Compact extension's routine numbers, read out of BOTH sources.
+ *
+ * `Lib_Ini 0` (+Compact.s:75) starts the count and every `Lib_Def`,
+ * `Lib_Par` and `Lib_Empty` after it takes the next number, so the assembler
+ * source fixes the numbering on its own --- and the table below came out of
+ * the shipped binary. Unpack's three forms are where this is worth checking:
+ * they are 6, 9 and 7, because `Lib_Def UPack` sits between InUnpack3 and
+ * InUnpack2 and takes 8.
+ */
+const COMPACT_SRC = amosSource('+Compact.s')
+
+describe.skipIf(!COMPACT_SRC)('AMOSPro Compact 2.0: source against binary', () => {
+  it('gives every keyword the routine number its Lib_Par sits at', () => {
+    const slots: string[] = []
+    for (const line of COMPACT_SRC!) {
+      const m = /^\s+Lib_(Def|Par|Empty|Ini)\s*(\S*)/.exec(line)
+      if (!m) continue
+      if (m[1] === 'Ini') continue
+      slots.push(m[2] === '' ? 'Empty' : m[2]!)
+    }
+    // Cold is 0, so the index in this list IS the routine number
+    expect(slots.slice(0, 10)).toEqual([
+      'Compact_Cold',
+      'Empty',
+      'InPack2',
+      'InPack6',
+      'InSPack2',
+      'InSPack6',
+      'InUnpack1',
+      'InUnpack3',
+      'UPack',
+      'InUnpack2',
+    ])
+    const table = EXTENSION_TOKENS.get(2)!
+    const named = (n: string): number => table.find((e) => e.name.replace(/^!/, '') === n)!.instr
+    expect([named('pack'), named('spack'), named('unpack')]).toEqual([
+      slots.indexOf('InPack2'),
+      slots.indexOf('InSPack2'),
+      slots.indexOf('InUnpack1'),
+    ])
+    // the three unnamed continuation entries, in table order
+    expect(table.filter((e) => e.name === '' && e.spec !== '').map((e) => e.instr)).toEqual([
+      slots.indexOf('InPack6'),
+      slots.indexOf('InSPack6'),
+      slots.indexOf('InUnpack2'),
+      slots.indexOf('InUnpack3'),
+    ])
+  })
+
+  it('defines three routines it never calls', () => {
+    // JScnop is AMOS error 47 (:581) and nothing in the file reaches it, so
+    // every screen complaint the extension makes is 23 instead. NoScr (:597)
+    // is the "Not a packed screen" message, and Custom2 (:619) is a second
+    // error entry point. The `L_` references are the call sites; a routine
+    // with none is dead in its own library.
+    const body = COMPACT_SRC!.join('\n')
+    for (const dead of ['JScnop', 'NoScr', 'Custom2']) {
+      expect([dead, (body.match(new RegExp(`L_${dead}\\b`, 'g')) ?? []).length]).toEqual([dead, 0])
+    }
+    // and the ones that are alive, for contrast
+    expect((body.match(/L_NoPac\b/g) ?? []).length).toBe(3)
+    expect((body.match(/L_JFoncall\b/g) ?? []).length).toBe(5)
+  })
+})
+
+describe('Unpack (InUnpack1/2/3, +Compact.s:173/231/186)', () => {
+  const SPACKED = ['Screen Open 0,320,100,16,Lowres', 'Cls 0 : Ink 4 : Bar 8,8 To 100,60', 'Spack 0 To 10']
+
+  it('a bank that is not a packed picture is the extension error, not AMOS 23', () => {
+    // `Rbeq L_NoPac` (:206) is `moveq #0,d0 / Rbra L_Custom` (:592), and
+    // Custom hands L_ErrorExt the table at :613. This port used to raise 23,
+    // which is what the source it could not read would have made obvious.
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Reserve As Work 9,64 : Unpack 9')).toThrow(
+      /Not a packed bitmap/,
+    )
+    expect(() => run('Reserve As Work 9,64 : Unpack 9 To 3')).toThrow(/Not a packed bitmap/)
+  })
+
+  it('a bitmap-only bank To a screen reports the BITMAP message', () => {
+    // the message that fits is "Not a packed screen", ErrMes+20, and
+    // nothing raises it: `Lib_Def NoScr` (:597) is the label's only mention
+    // in the file. UnPack_Screen's `bne .NoPac` (+Lib.s:25474) answers
+    // d0=0 with d1=0, and :243's `tst.w d1 / Rbeq L_NoPac` sends that to the
+    // bitmap wording.
+    expect(() =>
+      run(['Screen Open 0,320,100,16,Lowres', 'Pack 0 To 11', 'Unpack 11 To 4'].join('\n')),
+    ).toThrow(/Not a packed bitmap/)
+  })
+
+  it('needs a current screen, before it looks at the bank at all', () => {
+    // `move.l ScOnAd(a5),d0 / Rbeq L_JFoncall` opens InUnpack1 (:175) and
+    // InUnpack3 (:188), and JFoncall is `moveq #23,d0` (:576). Bank 9 is
+    // never reserved here and never reached.
+    expect(() => run('Screen Close 0 : Unpack 9')).toThrow(/function call/)
+    expect(() => run('Screen Close 0 : Unpack 9,0,0')).toThrow(/function call/)
+    // InUnpack2 has no such test: it makes the screen itself
+    const rt = run([...SPACKED, 'Screen Close 0', 'Unpack 10 To 2'].join('\n'))
+    expect(rt.screens.get(2)!.point(50, 30)).toBe(4)
+  })
+
+  it('refuses a picture that would not fit, rather than clipping it', () => {
+    // UnPack_Bitmap's `add.w d1,d0 / cmp.w d7,d0 / bhi NoPac0`
+    // (+Lib.s:25570) is X plus the width in BYTES against EcTLigne, and
+    // :25576 is the same for Y. The
+    // picture here is 40 bytes wide and 100 lines, so one byte across or one
+    // line down is already off the edge.
+    expect(() => run([...SPACKED, 'Unpack 10,8,0'].join('\n'))).toThrow(/Not a packed bitmap/)
+    expect(() => run([...SPACKED, 'Unpack 10,0,1'].join('\n'))).toThrow(/Not a packed bitmap/)
+    // and it goes on at 0,0
+    const rt = run([...SPACKED, 'Cls 0', 'Unpack 10,0,0'].join('\n'))
+    expect(rt.screens.get(0)!.point(50, 30)).toBe(4)
+  })
+
+  it('refuses a screen whose plane count is not the picture\'s', () => {
+    // UnPack_Bitmap's `cmp.w Pknplan(a0),d0 / bne NoPac0` (+Lib.s:25555)
+    expect(() =>
+      run([...SPACKED, 'Screen Open 1,320,100,32,Lowres', 'Unpack 10'].join('\n')),
+    ).toThrow(/Not a packed bitmap/)
+  })
+
+  it('a negative coordinate is the picture\'s own, and Unpack ignores Clip', () => {
+    // `lsr.w #3,d1 / tst.l d1 / bpl.s dec1 / move.w Pkdx(a0),d1`
+    // in UnPack_Bitmap (+Lib.s:25560) tests the LONG after shifting the
+    // WORD, so -1 is still
+    // negative and reaches Pkdx. UnPack_Bitmap then writes the bitplanes
+    // with `move.b d3,(a0)` and consults no clip window on the way.
+    const rt = run(
+      [...SPACKED, 'Cls 0', 'Clip 0,0 To 8,8', 'Unpack 10,-1,-1'].join('\n'),
+    )
+    expect(rt.screens.get(0)!.point(50, 30)).toBe(4)
+  })
+
+  it('under 1024 is a bank number and the rest is an address (Bnk.OrAdr)', () => {
+    // `cmp.l #1024,d0 / bge.s .Skip` (+Lib.s:8053), reached from :200 and
+    // :234. Bank 9 unreserved is the bank error and not a wild address.
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Unpack 9')).toThrow(/bank not reserved/)
+    // and `bge` is signed, so a negative is a bank number too, not an address
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Unpack -1')).toThrow(/bank not reserved/)
+    // and an address inside the bank works, which is how a program keeps
+    // several pictures in one bank behind an offset table
+    const rt = run([...SPACKED, 'Cls 0', 'Unpack Start(10)'].join('\n'))
+    expect(rt.screens.get(0)!.point(50, 30)).toBe(4)
   })
 })
 
