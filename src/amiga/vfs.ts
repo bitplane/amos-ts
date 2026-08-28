@@ -457,6 +457,13 @@ export class AmigaFS implements AmosFS {
     this.assignDisplay.set(display.toLowerCase(), display)
   }
 
+  /** AssignLock with a null lock: `Assign "Foo:" To ""` takes one away */
+  unassign(name: string): void {
+    const key = name.replace(/:$/, '').toLowerCase()
+    this.assigns.delete(key)
+    this.assignDisplay.delete(key)
+  }
+
   /** original-case assign names for device enumeration */
   private assignDisplay = new Map<string, string>()
 

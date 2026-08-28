@@ -5165,12 +5165,23 @@ export class Runtime {
 
   // ---- input from the host ----
 
-  /** Type a character (feeds Inkey$ / Wait Key). */
-  pressKey(ch: string, scan = 0): void {
-    // the shift byte (scancodes $60-$67 -> bits 0-7) is captured WITH the
-    // keystroke; Inkey$ stores it in SScan for Scanshift (+Lib.s:13618)
-    let shift = 0
-    for (let i = 0; i < 8; i++) if (this.input.keys.has(0x60 + i)) shift |= 1 << i
+  /**
+   * Type a character (feeds Inkey$ / Wait Key).
+   *
+   * @param shift the shift byte to store, when the caller already has one.
+   * Put Key does: ClPk1 (+W.s:13087) writes the three bytes it was handed
+   * rather than sampling the keyboard, so an injected keystroke carries the
+   * modifiers the string names and not the ones a player happens to be
+   * holding.
+   */
+  pressKey(ch: string, scan = 0, shift?: number): void {
+    // the shift byte (scancodes $60-$67 -> bits 0-7) is otherwise captured
+    // WITH the keystroke; Inkey$ stores it in SScan for Scanshift
+    // (+Lib.s:13618)
+    if (shift === undefined) {
+      shift = 0
+      for (let i = 0; i < 8; i++) if (this.input.keys.has(0x60 + i)) shift |= 1 << i
+    }
     this.input.keyQueue.push({ ch, scan, shift })
     // deliberately NOT touching the serial register: this is "a character
     // arrived", which is one half of a key event. The register is latched by

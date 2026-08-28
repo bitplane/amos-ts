@@ -698,6 +698,21 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Zoom measures the rectangle before it draws (ZooF +Lib.s:10692)', () => {
+    // every check falls into L_FonCall, so a rectangle off the edge is an
+    // error rather than a partly drawn picture
+    const base = 'Ink 5 : Bar 0,0 To 9,9\n'
+    expect(() => run(base + 'Zoom 0,0,0,10,10 To 0,100,100,400,140')).toThrow(/function call/)
+    expect(() => run(base + 'Zoom 0,0,0,400,10 To 0,100,100,140,140')).toThrow(/function call/)
+    // `cmp.l d5,d4 / bcc` is unsigned, so a negative low coordinate fails
+    // the pair test without needing a branch of its own
+    expect(() => run(base + 'Zoom 0,0,0,10,10 To 0,-1,100,140,140')).toThrow(/function call/)
+    // and an inverted pair is the same test
+    expect(() => run(base + 'Zoom 0,0,0,10,10 To 0,140,100,100,140')).toThrow(/function call/)
+    // `bhi` allows a coordinate exactly on the edge
+    expect(() => run(base + 'Zoom 0,0,0,10,10 To 0,100,100,320,140')).not.toThrow()
+  })
+
   it('Set Bob negative blanks where it was; Limit Bob confines movement', () => {
     // `back < 0` keeps no background buffer, so the erase writes zeroes over
     // where the bob was rather than restoring or leaving it. See display.ts

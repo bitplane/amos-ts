@@ -2271,7 +2271,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sh = sy2 - sy1
       const dw = dx2 - dx1
       const dh = dy2 - dy1
-      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) funcCall()
+      // InZoom (+Lib.s:10567) measures the whole rectangle before it draws a
+      // pixel, and every failure lands on ZooF, which frees its table and
+      // falls into L_FonCall. The low/high pair test is `cmp.l d5,d4 / bcc`,
+      // UNSIGNED, so a negative low coordinate is caught there and needs no
+      // branch of its own; the screen-size test is `cmp.w`, which sees only
+      // the low word of a coordinate that already passed `bmi`.
+      const bad = (lo: number, hi: number, limit: number): boolean =>
+        hi < 0 || (hi & 0xffff) > limit || lo >>> 0 >= hi >>> 0
+      if (bad(dx1, dx2, dst.s.width) || bad(sx1, sx2, src.s.width)) funcCall()
+      if (bad(dy1, dy2, dst.s.height) || bad(sy1, sy2, src.s.height)) funcCall()
       for (let y = 0; y < dh; y++) {
         const ty = dy1 + y
         if (ty < 0 || ty >= dst.s.height) continue
@@ -2556,10 +2565,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobPut.set(n, s.doubleBuffered ? 2 : 1)
     },
     'put key'(it) {
-      // InPutKey +Lib.s:13695: append a string to the keyboard buffer
+      // InPutKey +Lib.s:13695 hands the string to ClPutK (+W.s:13072), which
+      // fills the buffer three bytes at a time: shift, scancode, ascii. A
+      // plain character clears the first two and stores itself as the ascii,
+      // chr$(1) says the next THREE bytes are those fields already (this is
+      // what Scan$ builds), and an apostrophe opens a comment that runs to
+      // the next apostrophe and stores nothing.
       const s2 = it.evalStr()
       if (s2.length >= 64) throw new AmosError('string too long')
-      for (const ch of s2) rt.pressKey(ch, 0)
+      for (let i = 0; i < s2.length; i++) {
+        const c = s2.charCodeAt(i)
+        if (c === 39) {
+          // ClPk5: an unterminated comment swallows the rest of the string
+          const end = s2.indexOf("'", i + 1)
+          if (end < 0) break
+          i = end
+        } else if (c === 1) {
+          const asc = s2.charCodeAt(i + 3) || 0
+          rt.pressKey(asc === 0 ? '' : String.fromCharCode(asc), s2.charCodeAt(i + 2) || 0, s2.charCodeAt(i + 1) || 0)
+          i += 3
+        } else {
+          rt.pressKey(s2[i]!, 0, 0)
+        }
+      }
     },
     'del bob': delObj('sprite'),
     'del sprite': delObj('sprite'),
@@ -3606,7 +3634,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'menu on'(it) {
       void it
+      // InMenuOn +Lib.s:15563 opens `tst.l MnBase(a5) / beq.s .Skip`: with no
+      // menu defined the instruction does nothing whatever, and does not
+      // leave the flag set for a menu built later.
+      if (rt.menu.roots.length === 0) return
       rt.menu.on = true
+      // clr.l T_ClLast(a5) — a button already down when the menu comes on is
+      // not a selection, so the click that is already in hand is dropped
+      rt.input.mouseClickOld = rt.input.mouseK
     },
     'menu off'() {
       rt.menu.on = false
@@ -3923,8 +3958,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().curWin.scrollOff = true
     },
     'key speed'(it) {
-      it.evalInt()
-      if (it.accept(',')) it.evalInt() // repeat rates — host handles keys
+      // InKeySpeed +Lib.s:2136 refuses a negative on either argument, and the
+      // spec is "I0,0" so both slots are there to fill. A blank one still
+      // arrives as EntNul, which is negative, so `Key Speed 5,` is the same
+      // error as `Key Speed 5,-1`.
+      const delay = it.evalInt()
+      it.expect(',')
+      const rate = it.evalInt()
+      if (delay < 0 || rate < 0) funcCall()
+      // the rates themselves go no further: SyCall KeySpeed programs the
+      // Amiga's own repeat thresholds, and the host keyboard owns those here
     },
     'change mouse'(it) {
       // InChangeMouse +Lib.s:12185: shape 0 and below error before MChange
@@ -4516,9 +4559,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
     },
     assign(it) {
+      // InAssign +Lib.s:5596. The name is the FIRST argument and the path the
+      // last, and the name is the one with rules: `Rbeq L_FonCall` on an empty
+      // one, `cmp.w #108,d2 / Rbcc L_FonCall` on the length, and
+      // `cmp.b #":",-2(a0) / Rbne L_FonCall` demanding the trailing colon that
+      // `clr.b -2(a0)` then strips before AssignLock sees it.
       const name = it.evalStr()
       it.expect('to')
-      rt.vfs?.assign(name, it.evalStr())
+      const path = it.evalStr()
+      if (name === '' || name.length >= 108 || !name.endsWith(':')) funcCall()
+      if (path.length >= 108) funcCall()
+      // .Vide (+Lib.s:5612) skips LockGet for an empty path, so AssignLock is
+      // handed a null lock and takes the assign away
+      if (path === '') rt.vfs?.unassign(name)
+      else rt.vfs?.assign(name, path)
     },
     'dir$'(it) {
       // assignment form: Dir$ = "path". InDirD (+Lib.s:4799) locks the path
@@ -5570,13 +5624,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.screenCtrlAddr(rt.currentIndex) | 0)
     },
     logic(_, a) {
-      // Logic() = $BFFFFFFF, Logic(n) = $80000000|n (FnLogic0/1)
+      // FnLogic0/1 (+Lib.s:10422) sets bit 31 and clears bit 30 on the
+      // argument and touches nothing else, so the low bits are the screen
+      // number the caller wrote. Masking them to a byte loses the one value
+      // that matters: Logic(-1) is $BFFFFFFF, the same "current screen" the
+      // bare form returns from `moveq #-1,d3 / bclr #30,d3`.
       if (a.length === 0) return VI(0xbfffffff | 0)
-      return VI((0x80000000 | (int(a[0]!) & 0xff)) | 0)
+      return VI(((int(a[0]!) | 0x80000000) & ~0x40000000) | 0)
     },
     physic(_, a) {
+      // FnPhysic0/1 (+Lib.s:10409): both bits set, and bare is a plain -1
       if (a.length === 0) return VI(-1)
-      return VI((0xc0000000 | (int(a[0]!) & 0xff)) | 0)
+      return VI((int(a[0]!) | 0xc0000000) | 0)
     },
     'text length'(_, a) {
       // TextLength() with the set font: sum of per-char advances
@@ -6325,12 +6384,16 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(known.includes(s.slice(0, -1).toLowerCase()) ? -1 : 0)
     },
     'scan$'(_, a) {
-      // FnScan1/2 +Lib.s:13770: a 4-byte Put Key scancode injection
-      // string — chr$(1), scancode, shift, chr$(0); both bytes < 256
+      // FnScan2 +Lib.s:13776: a 4-byte Put Key scancode injection string.
+      // d4 is the LAST argument and d5 the first, and the writes run
+      // `move.b d4,(a0)+ / move.b d5,(a0)+`, so the shift byte goes down
+      // first and the scancode second: chr$(1), shift, scancode, chr$(0).
+      // FnScan1 pushes its one argument and clears d3, so the one-argument
+      // form is a zero shift.
       const scan = int(a[0]!)
       const shift = a.length > 1 ? int(a[1]!) : 0
       if (scan >>> 0 >= 256 || shift >>> 0 >= 256) funcCall()
-      return VS(String.fromCharCode(1, scan, shift, 0))
+      return VS(String.fromCharCode(1, shift, scan, 0))
     },
     'bstart'(_, a) {
       // FnBStart +Lib.s:2242: bank address in the PREVIOUS program's list

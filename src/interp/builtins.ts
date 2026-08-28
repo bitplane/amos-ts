@@ -6,6 +6,7 @@ import { AMOS_ERRORS, AmosError, amosErrorCode, funcCall, int, num, str, truthy,
 import type { Value } from './values'
 import { MAX_PORT, PORT_MOUSE } from './gameport'
 import { ascToFloat } from '../tokens/numfmt'
+import { ED_RUN_MESSAGES } from './errors.gen'
 
 /**
  * Instruction handlers. Called with the cursor just past the instruction
@@ -35,23 +36,142 @@ function doExit(it: Interp, tok: Tok, n: number): 'jumped' {
   return 'jumped'
 }
 
+/**
+ * declong (+ILib.s:7192), reading into a 32-bit accumulator the way the 68000
+ * does. The high word is multiplied on its own and checked with `tst d0`,
+ * which assembles WORD-sized, so a high word reaching 6554 overflows; `bcs`
+ * then catches the x10 carrying out of 32 bits, and `bmi` rejects a total that
+ * has turned negative. The digit add itself is allowed to wrap, so
+ * Val("4294967297") is 1 rather than an error. minichr (+ILib.s:7166) drops
+ * spaces, so "1 2 3" reads as 123.
+ *
+ * @param d0 the running total, non-zero only on the fall-through from binLong
+ * @returns the value, or null when the number is out of range
+ */
+function decLong(s: string, d0 = 0): number | null {
+  for (const ch of s) {
+    if (ch === ' ') continue
+    const d = ch.charCodeAt(0) - 48
+    if (d < 0 || d > 9) break
+    const hi = (d0 >>> 16) * 10
+    if (hi > 0xffff) return null
+    const t = ((hi << 16) >>> 0) + (d0 & 0xffff) * 10
+    if (t > 0xffff_ffff) return null
+    d0 = (t + d) >>> 0
+    if (d0 & 0x8000_0000) return null
+  }
+  return d0 | 0
+}
+
+/**
+ * hexalong (+ILib.s:7226): `cmp #9,d3 / beq ddh2` counts digits and gives up
+ * on the ninth, so $FFFFFFFF reads but $0FFFFFFFF is 0 even though it fits.
+ * There is no carry test, only that count. minichr2 (+ILib.s:7179) has no
+ * space skip either, unlike the decimal and binary readers, so Val("$1 0")
+ * is 1.
+ */
+function hexaLong(s: string): number | null {
+  let d0 = 0
+  let n = 0
+  for (const ch of s) {
+    const d = parseInt(ch, 16)
+    if (Number.isNaN(d)) break
+    d0 = ((d0 << 4) | d) >>> 0
+    if (++n === 9) return null
+  }
+  return d0 | 0
+}
+
+/**
+ * binlong (+ILib.s:7248): `roxl.l #1,d0 / bcs.s ddh2` rejects a 1 shifted off
+ * bit 31, so the limit is the value and leading zeros cost nothing. The digit
+ * counter is not a second limit: `cmp.w #33,d3 / beq ddh1` lands in declong's
+ * loop, not its error exit, so a 33rd digit switches the reader to decimal and
+ * keeps the total it already has.
+ */
+function binLong(s: string): number | null {
+  let d0 = 0
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!
+    if (ch === ' ') continue
+    if (ch !== '0' && ch !== '1') break
+    if (d0 & 0x8000_0000) return null
+    d0 = ((d0 << 1) | (ch === '1' ? 1 : 0)) >>> 0
+    if (++n === 33) return decLong(s.slice(i + 1), d0)
+  }
+  return d0 | 0
+}
+
 /** ValRout-style number parsing, shared by =Val and Input */
 export function parseAmosNumber(sIn: string): Value {
-  const s = sIn.replace(/ /g, '')
-  const hex = /^([+-]?)\$([0-9a-f]+)/i.exec(s)
-  if (hex) return VI(parseInt(hex[1] + hex[2]!, 16))
-  const bin = /^([+-]?)%([01]+)/.exec(s)
-  if (bin) return VI(parseInt(bin[1] + bin[2]!, 2))
-  const m = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
+  // val1/val1c (+ILib.s:7026): spaces are skipped before the sign and again
+  // before the radix character, and only one sign is taken
+  const lead = /^ *([+-]?) */.exec(sIn)!
+  const neg = lead[1] === '-'
+  const rest = sIn.slice(lead[0].length)
+  if (rest[0] === '$' || rest[0] === '%') {
+    // val8 (+ILib.s:7145) negates AFTER the reader, so the sign applies to
+    // hex and binary too
+    const n = rest[0] === '$' ? hexaLong(rest.slice(1)) : binLong(rest.slice(1))
+    return VI(n === null ? 0 : neg ? -n : n)
+  }
+  const s = rest.replace(/ /g, '')
+  const m = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
   if (!m) return VI(0)
   // val4 (+ILib.s:7093) branches on d3, which is set by a point or by an
   // exponent, never by the value, and the float arm goes through AscToFloat
-  return /[.eE]/.test(m[0]) ? VF(ascToFloat(m[0])) : VI(parseFloat(m[0]))
+  if (/[.eE]/.test(m[0])) return VF(ascToFloat((neg ? '-' : '') + m[0]))
+  const n = decLong(m[0])
+  return VI(n === null ? 0 : neg ? -n : n)
 }
 
 function inputAssign(target: { type: number; set(v: Value): void }, raw: string): void {
   if (target.type === 2) target.set(VS(raw))
   else target.set(parseAmosNumber(raw))
+}
+
+/**
+ * InnPut (+ILib.s:4912), the loop Input and Line Input share.
+ *
+ * They differ by one byte, pushed at entry: InInput pushes `","` and
+ * InLineInput pushes 0. That byte is the field separator Inn2 stops a string
+ * copy at, so Line Input's zero means "copy to the end of the line" and one
+ * variable eats the lot.
+ *
+ * Inn10 then reads the token after the variable. A comma there demands a
+ * comma in the BUFFER too (`cmp.b #",",(a2)+`); when the buffer has run out
+ * the routine prints InnEnc's "?" and goes back to ReInp for a whole fresh
+ * line, which is why `Line Input A$,B$` reads two lines rather than failing.
+ *
+ * A statement that blocks part-way has already filled some variables, so the
+ * progress is remembered against the statement's address: re-running it must
+ * not read a second line into a variable that already has one.
+ */
+function readInputTargets(
+  it: Interp,
+  key: string,
+  prompt: string,
+  targets: { type: number; set(v: Value): void }[],
+  sep: string,
+): 'jumped' | void {
+  const saved = it.inputProgress
+  let done = saved !== null && saved.at === key ? saved.done : 0
+  let fields: string[] = []
+  while (done < targets.length) {
+    if (fields.length === 0) {
+      const line = it.io.input ? it.io.input(done === 0 ? prompt : '? ') : ''
+      if (line === undefined) {
+        it.inputProgress = { at: key, done }
+        it.block({ type: 'input', prompt: done === 0 ? prompt : '? ' }, true)
+        return 'jumped'
+      }
+      fields = sep === '' ? [line] : line.split(sep)
+    }
+    inputAssign(targets[done]!, fields.shift()!)
+    done++
+  }
+  it.inputProgress = null
 }
 
 /**
@@ -189,6 +309,11 @@ export const INSTR: Record<string, Instr> = {
         // Using formats exactly one following expression (sp11)
         it.advance()
         const fmt = it.evalStr()
+        // sp20 (+ILib.s:5104) copies the format into the 256-byte scratch at
+        // Buffer+256 and guards it with `cmp #120,d2 / bcc FonCall`. The
+        // comment beside it says "pas plus de 200 caracteres"; the branch says
+        // 120, and the branch is what runs.
+        if (fmt.length >= 120) funcCall()
         it.accept(';')
         it.write(formatUsing(fmt, it.evalExpr(), it))
         nl = true
@@ -230,6 +355,7 @@ export const INSTR: Record<string, Instr> = {
 
   // ---- input ----
   input(it) {
+    const key = `${it.pc.li}:${it.pc.ti}`
     let prompt = '? ' // promptless Input prints "? " (IInp1)
     if (it.tok()?.kind === 'str') {
       // prompt may be a full string expression: Input "GUESS"+Str$(N);T
@@ -238,26 +364,20 @@ export const INSTR: Record<string, Instr> = {
     }
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
-    const line = it.io.input ? it.io.input(prompt) : ''
-    if (line === undefined) {
-      it.block({ type: 'input', prompt }, true)
-      return 'jumped'
-    }
-    const parts = targets.length > 1 ? line.split(',') : [line]
-    targets.forEach((tg, i) => inputAssign(tg, parts[i] ?? ''))
+    return readInputTargets(it, key, prompt, targets, ',')
   },
   'line input'(it) {
+    const key = `${it.pc.li}:${it.pc.ti}`
     let prompt = '? '
     if (it.tok()?.kind === 'str') {
       prompt = it.evalStr()
       if (!it.accept(';')) it.accept(',')
     }
-    const line = it.io.input ? it.io.input(prompt) : ''
-    if (line === undefined) {
-      it.block({ type: 'input', prompt }, true)
-      return 'jumped'
-    }
-    inputAssign(it.parseTarget(), line)
+    // InLineInput (+ILib.s:4834) pushes a zero separator, so one variable
+    // takes the whole line and a second one needs a second line
+    const targets = [it.parseTarget()]
+    while (it.accept(',')) targets.push(it.parseTarget())
+    return readInputTargets(it, key, prompt, targets, '')
   },
 
   // ---- variables ----
@@ -278,9 +398,16 @@ export const INSTR: Record<string, Instr> = {
     } while (it.accept(','))
   },
   // Inc/Dec/Add (InInc/InDec/InAdd +ILib.s:4353-4394) operate on the
-  // variable's long directly (addq.l/add.l), so integers wrap at 32
-  // bits. Float targets get plain arithmetic here — the real machine
-  // adds to the FFP bit pattern (garbage), which no sane program uses.
+  // variable's long directly (addq.l/add.l), so integers wrap at 32 bits.
+  //
+  // None of the three reads the type FindVar leaves in d2, and there is no
+  // float variant beside them the way FnStrE has FnStrF. That reads like a
+  // float variable would have 1 added to its FFP pattern, whose low byte is
+  // the excess-64 exponent, so `Inc A#` would double A#. It cannot happen:
+  // VerVEnt (+Verif.s:1460) is `bsr VarA0 / tst.b d0 / bne VerType`, so a
+  // non-integer target is a type error before the program runs and the
+  // float arm of all three routines is unreachable. The arithmetic below is
+  // this port's, for a case the library never has to answer.
   inc(it) {
     const tg = it.parseTarget()
     if (tg.type === 0) tg.set(VI((int(tg.get()) + 1) | 0))
@@ -322,6 +449,10 @@ export const INSTR: Record<string, Instr> = {
     const a = it.parseTarget()
     it.expect(',')
     const b = it.parseTarget()
+    // InSwap (+ILib.s:4273) exchanges one longword and never compares the
+    // types, but the check is not missing, it is earlier: VerSwap
+    // (+Verif.s:867) keeps the first variable's type on the stack and ends
+    // `cmp.w (sp)+,d2 / beq VerDP / bne VerType`.
     if (a.type !== b.type) throw new AmosError('Type mismatch')
     const tmp = a.get()
     a.set(b.get())
@@ -740,9 +871,35 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   'resume label'(it) {
-    it.inError = false
+    // InResumeLabel (+ILib.s:1916) opens with `bsr Finie / beq.s ResL1`, so
+    // the two forms do opposite things. With a label it only RECORDS one and
+    // returns, leaving the rest of the handler to run; the BARE form is the
+    // one that pops the procedure and jumps. The port had the named form
+    // jumping immediately, which skipped whatever the handler did next.
+    if (!it.atStmtEnd()) {
+      // `tst.l OnErrLine(a5) / beq NoOnErr` then `tst.w ErrorChr(a5) / bpl
+      // NoOnErr`: a handler has to be registered AND it has to be a
+      // procedure, because bit 31 is what On Error Proc sets
+      if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
+        throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
+      }
+      it.resumeLabel = it.parseLabelTarget()
+      return
+    }
+    // ResL1 (+ILib.s:1934)
+    if (!it.inError) throw new AmosError(ED_RUN_MESSAGES[7]!, 7)
     it.unwindErrorHandler()
-    it.jumpLabel(it.parseLabelTarget())
+    it.inError = false
+    // `bclr #31,d0 / beq NoOnErr` tests the bit as it WAS, so a non-procedure
+    // handler fails here too; `tst.l d0 / beq ResLNo` then catches the case
+    // where no label was ever recorded
+    if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
+      throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
+    }
+    const target = it.resumeLabel
+    if (target === null) throw new AmosError(ED_RUN_MESSAGES[6]!, 6)
+    it.resumeLabel = null
+    it.jumpLabel(target)
     return 'jumped'
   },
 
