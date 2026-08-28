@@ -229,19 +229,6 @@ export function formatUsing(fmt: string, v: Value, it: Interp): string {
 }
 
 /** Rol/Ror width,variable — rotate within b/w/l */
-function rolror(width: number, left: boolean): Instr {
-  return (it) => {
-    const n = it.evalInt() % width
-    it.expect(',')
-    const tg = it.parseTarget()
-    const v = int(tg.get())
-    const mask = width === 32 ? -1 : (1 << width) - 1
-    const x = v & mask
-    const r = left ? ((x << n) | (x >>> (width - n))) & mask : ((x >>> n) | (x << (width - n))) & mask
-    tg.set(VI((v & ~mask) | r))
-  }
-}
-
 /** functions that parse their own arguments */
 export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
   match(it) {
@@ -344,11 +331,22 @@ export const INSTR: Record<string, Instr> = {
     it.io.cls?.()
     it.col = 0
   },
+  /*
+   * Pen and Paper are not setters. InPen (+Lib.s:13317) and InPaper
+   * (+Lib.s:13309) each `lea` a three-byte template --- ESC "P" "0" and ESC
+   * "B" "0" --- and fall into WnPp (+Lib.s:13323), which is `add.b #"0",d3 /
+   * move.b d3,2(a1)` and then prints it. That add is a BYTE, so the colour
+   * reaches the console modulo 256: Pen 256 is Pen 0 and Pen 300 is Pen 44.
+   * The range check is at the far end, in Pen (+W.s:14864) and in Paper
+   * (+W.s:14850), and it is `cmp.w EcNbCol(a4),d1 / bcc PErr7` against the
+   * colour count. Checking the number the program wrote instead of the byte
+   * that survives the template refuses values AMOS accepts.
+   */
   pen(it) {
-    it.io.pen?.(it.evalInt())
+    it.io.pen?.((((it.evalInt() + 48) & 0xff) - 48) | 0)
   },
   paper(it) {
-    it.io.paper?.(it.evalInt())
+    it.io.paper?.((((it.evalInt() + 48) & 0xff) - 48) | 0)
   },
   'curs on': () => {},
   'curs off': () => {},
@@ -1038,36 +1036,16 @@ export const INSTR: Record<string, Instr> = {
       return a.n - b.n
     })
   },
-  bset(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) | (1 << (n & 31))))
-  },
-  bclr(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) & ~(1 << (n & 31))))
-  },
-  bchg(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) ^ (1 << (n & 31))))
-  },
-  'rol.b': rolror(8, true),
-  'rol.w': rolror(16, true),
-  'rol.l': rolror(32, true),
-  'ror.b': rolror(8, false),
-  'ror.w': rolror(16, false),
-  'ror.l': rolror(32, false),
+  // Bset, Bclr, Bchg and the six rotates live in ../runtime/instr.ts: BsRout
+  // (+ILib.s:5776) lets the target be an ADDRESS as well as a variable, and
+  // reaching memory needs the runtime.
   'clear key'(it) {
     void it
     it.inp.keyQueue.length = 0
   },
   'key$'(it) {
-    // Set Key$(n)="def": store a function-key definition (+Lib.s:13757)
+    // Set Key$(n)="def": InKeyD (+Lib.s:13715) is `subq.l #1,d1 / cmp.l
+    // #20,d1 / Rbcc L_FonCall` before SetFunk, so n runs 1 to 20
     it.expect('(')
     const n = it.evalInt()
     it.expect(')')
@@ -1197,6 +1175,12 @@ function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, cou
 
 /** select the joystick port's bits (port 0 = mouse port, 1 = joystick;
  * FJ +Lib.s:13716 errors on a port > 1) */
+/**
+ * FJ (+Lib.s:13684) is what Jup, Jdown, Jleft, Jright and Fire all reach:
+ * `cmp.l #1,d3 / Rbhi L_FonCall / move.l d3,d1 / SyCall Joy`. Rbhi is
+ * unsigned, so the ports are 0 and 1 and a negative one errors. FnJoy
+ * (+Lib.s:13671) makes the same test itself.
+ */
 function joyPort(it: Parameters<Func>[0], portArg: Value): number {
   const p = int(portArg)
   if (p >>> 0 > MAX_PORT) funcCall()
@@ -1420,6 +1404,8 @@ export const FUNCS: Record<string, Func> = {
     if (x >= 0) it.col = x
     return VS('')
   },
+  // FnTrue (+Lib.s:8658) is `moveq #-1,d3` and FnFalse (+Lib.s:8668)
+  // `moveq #0,d3`. FnOne sits between them and answers 1.
   true: (_, a) => {
     arity(a, 0)
     return VI(-1)
@@ -1608,6 +1594,10 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 0)
     return VS('\x09')
   },
+  // The four are one instruction each into FinChr, and the codes do not run
+  // in the order the names suggest: FnCleft is `moveq #29,d2` (+Lib.s:13946),
+  // FnCright `moveq #28,d2` (+Lib.s:13953), FnCup 30 (+Lib.s:13960) and
+  // FnCdown 31 (+Lib.s:13967). Left is the HIGHER of the first pair.
   'cleft$': (_, a) => {
     arity(a, 0)
     return VS('\x1d')

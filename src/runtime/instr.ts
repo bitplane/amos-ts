@@ -384,6 +384,58 @@ function regSlot(n: number, limit: number, base: number): number {
  * the same branch as an oversized one; the port had been answering 0 for
  * out-of-range instead of raising anything.
  */
+/**
+ * `BsRout` (+ILib.s:5776), the target parser Bset, Bclr, Bchg, Btst and the
+ * six Rol/Ror instructions all share.
+ *
+ * The count comes first, and `tst.l d3 / bmi FonCall` refuses a negative one.
+ * Then the routine reads the next token. Anything that is not a variable is an
+ * ADDRESS, and `bset #31,d3` marks the count so the caller can tell the two
+ * arms apart with one `bmi`. A variable stays a variable only when the token
+ * after it closes the call (`cmp.w #_TkPar2,(a6)+`) or ends the statement
+ * (`bsr Finie`); otherwise BsR3 (+ILib.s:5805) puts a6 back and reads the
+ * whole thing again as an integer expression. So `Bset 3,A` sets a bit in A
+ * and `Bset 3,A+0` sets one in the byte A points at.
+ *
+ * The variable arm holds a long and the byte and word forms work on the low
+ * end of it, `move.b 3(a0)` and `move.w 2(a0)`. The address arm works on a
+ * byte, word or long at the address, and the bit instructions there are the
+ * 68000's memory form, which takes its bit number modulo 8 rather than 32.
+ *
+ * DEVIATION: `move.w (a0),d1` and `move.l (a0),d1` are address errors on a
+ * 68000 when the address is odd, and Struc is the only one of this family
+ * that checks first (`btst #0,d1 / bne AdrErr`). This reads and writes
+ * byte-wise at every address instead of modelling the exception.
+ */
+type BitTarget = { get: () => number; set: (v: number) => void; mem: boolean }
+
+function bitTarget(it: It, rt: Runtime, bytes: number): BitTarget {
+  const save = { ...it.pc }
+  if (it.tok()?.kind === 'var') {
+    const tg = it.parseTarget()
+    if (it.atStmtEnd() || it.nm() === ')') {
+      return { get: () => int(tg.get()), set: (v) => tg.set(VI(v)), mem: false }
+    }
+    it.pc = save
+  }
+  const addr = it.evalInt()
+  return {
+    mem: true,
+    get: () => {
+      const m = rt.resolveAddr(addr)
+      if (!m || m.off + bytes > m.data.length) return 0
+      let v = 0
+      for (let i = 0; i < bytes; i++) v = ((v << 8) | m.data[m.off + i]!) >>> 0
+      return v | 0
+    },
+    set: (v) => {
+      const m = rt.resolveWrite(addr)
+      if (!m || m.off + bytes > m.data.length) return
+      for (let i = 0; i < bytes; i++) m.data[m.off + bytes - 1 - i] = (v >>> (i * 8)) & 0xff
+    },
+  }
+}
+
 function amregGlobal(n: number): number {
   if (n >>> 0 >= 26) funcCall()
   return n
@@ -983,6 +1035,31 @@ function arexxPoll(rt: Runtime): number {
 }
 
 export function makeInstructions(rt: Runtime): Record<string, Instr> {
+  const bitOp =
+    (op: (v: number, bit: number) => number): Instr =>
+    (it) => {
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, 1)
+      tg.set(op(tg.get(), 1 << (n & (tg.mem ? 7 : 31))) | 0)
+    }
+  const rotOp =
+    (width: number, left: boolean): Instr =>
+    (it) => {
+      const count = it.evalInt()
+      if (count < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, width >> 3)
+      // the 68000 takes the count modulo 64, and 8, 16 and 32 all divide it
+      const n = count % width
+      const mask = width === 32 ? -1 : (1 << width) - 1
+      const v = tg.get()
+      const x = v & mask
+      const r =
+        n === 0 ? x : left ? ((x << n) | (x >>> (width - n))) & mask : ((x >>> n) | (x << (width - n))) & mask
+      tg.set(((v & ~mask) | r) | 0)
+    }
   const scr = (): Screen => rt.screen
   const byIndex = (n: number): Screen => {
     const s = rt.screens.get(n)
@@ -1098,7 +1175,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      */
     'arexx open'(it) {
       const name = it.evalStr()
-      if (name.length >= 32) throw new AmosError('string too long')
+      // L_StooLong is error 21, ED_RUN_MESSAGES[21]
+      if (name.length >= 32) throw new AmosError(ED_RUN_MESSAGES[21]!, 21)
       for (const ch of name) if (ch <= ' ') funcCall()
       if (!rt.rexx.open(name)) funcCall()
       rt.arexx.port = name
@@ -1705,13 +1783,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dst = scr()
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
     },
+    // ShD1 (+Lib.s:9329) opens `tst.w ScOn(a5) / Rbeq L_ScNOp` before it pops
+    // a single argument, and InShiftOff (+Lib.s:9310) is that guard and one
+    // EcCall. The port reached currentIndex, which answers 0 whether or not a
+    // screen is open.
     'shift up'(it) {
+      void rt.screen
       rt.shifts.set(rt.currentIndex, { dir: 1, ...shiftArgs(it), count: 0 })
     },
     'shift down'(it) {
+      void rt.screen
       rt.shifts.set(rt.currentIndex, { dir: -1, ...shiftArgs(it), count: 0 })
     },
     'shift off'() {
+      void rt.screen
       rt.shifts.delete(rt.currentIndex)
     },
     'set line'(it) {
@@ -1879,10 +1964,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fade = { scr: scr(), delay, count: 0, targets }
     },
     'flash off'() {
-      // FlStop (+W.s:5256): stops the flashes of the ACTIVE screen only
+      // InFlashOff (+Lib.s:9285) is `tst.w ScOn(a5) / Rbeq L_ScNOp / EcCall
+      // FlRaz`, and FlStop (+W.s:5256) stops the flashes of the ACTIVE screen
+      // only
+      void rt.screen
       rt.flashOff()
     },
     flash(it) {
+      // InFlash (+Lib.s:9294) makes the same screen check before it reads the
+      // string, so no screen beats a bad declaration
+      void rt.screen
       const reg = it.evalInt()
       it.expect(',')
       const spec = it.evalStr()
@@ -2110,10 +2201,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InCursPen (+Lib.s:13301) sends ESC "D" + the colour, so the change
       // reaches the cursor that is already drawn — CurCol (+W.s:14778) sits
       // inside the same bracket and refuses a colour the screen has not got
-      const n = it.evalInt()
+      // WnPp (+Lib.s:13323) adds the digit with `add.b #"0",d3`, a BYTE, so
+      // the colour arrives modulo 256 here too
+      const b = (it.evalInt() + 48) & 0xff
       const s = scr()
-      if (n < 0 || n >= s.nColors) throw new AmosError('illegal text window parameter', 60)
-      s.writeText(`\x1bD${String.fromCharCode(48 + n)}`)
+      if (b - 48 < 0 || b - 48 >= s.nColors) throw new AmosError('illegal text window parameter', 60)
+      s.writeText(`\x1bD${String.fromCharCode(b)}`)
     },
     'curs on'() {
       // InCursOn +Lib.s:13389 sends ESC "C1", and every console character
@@ -2390,7 +2483,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sh = sy2 - sy1
       const dw = dx2 - dx1
       const dh = dy2 - dy1
-      // InZoom (+Lib.s:10567) measures the whole rectangle before it draws a
+      // InZoom (+Lib.s:10531) measures the whole rectangle before it draws a
       // pixel, and every failure lands on ZooF, which frees its table and
       // falls into L_FonCall. The low/high pair test is `cmp.l d5,d4 / bcc`,
       // UNSIGNED, so a negative low coordinate is caught there and needs no
@@ -2461,7 +2554,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const y = optInt(it, cur?.y ?? 0)
       it.accept(',')
       // An omitted image leaves BbI alone (`cmp.l d7,d4 / beq.s CreBb8` at
-      // BobSet's CreBb7, +W.s:1120), and a bob ResBOB has just made has BbI = 0: it
+      // BobSet's CreBb7, +W.s:945), and a bob ResBOB has just made has BbI = 0: it
       // sets BbNb, BbEc, the limits, BbAPlan, BbACon, BbDecor and BbEff, and
       // never touches the image. Image 0 is not image 1 --- there is no image
       // 0, so the bob does not draw at all.
@@ -2488,8 +2581,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'bob update'(it) {
+      // InBobUpdate (+Lib.s:11459) is EffBob / ActBob / AffBob / EcCall
+      // SwapScS, the same four calls InUpdate makes before it goes on to the
+      // hardware sprites. The swap was missing here, so a double buffered
+      // program driving its bobs with Bob Update alone drew every frame into
+      // the buffer nobody was looking at.
       void it
-      rt.updateBobs() // one manual update pass
+      rt.updateBobs()
+      rt.swapDoubleBuffered()
     },
     // ---- Update family (InUpdate* +Lib.s:11423-11498): both pipelines ----
     'update on'() {
@@ -2497,7 +2596,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = true
     },
     'update off'() {
+      // InUpdateOff (+Lib.s:11417) clears ActuMask bits 5 and 6, which is
+      // what Bob Update Off and Sprite Update Off clear one at a time.
+      // Clearing bit 6 stops the sprites being UPDATED and does not remove
+      // them, so the frozen copy has to be taken here as well. Without it
+      // the display fell back to `frozenSprites ?? []` and every hardware
+      // sprite vanished on Update Off.
       rt.bobUpdateOn = false
+      if (rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((hs) => ({ ...hs }))
       rt.spriteUpdateOn = false
     },
     update() {
@@ -2507,9 +2613,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.swapDoubleBuffered()
     },
     'update every'(it) {
-      // InUpdateEvery: the auto update runs every n VBLs (VBLDelai)
+      // InUpdateEvery (+Lib.s:11490) is `cmp.l #65536,d3 / Rbcc L_FonCall`
+      // before `move.w d3,VBLDelai(a5)`. Rbcc is unsigned, so a negative
+      // count fails the same test a count above 65535 does. The port checked
+      // only the high end and let Update Every -1 through.
       const n = it.evalInt()
-      if (n >= 65536) funcCall()
+      if (n >>> 0 >= 65536) funcCall()
       rt.updateEvery = Math.max(1, n)
     },
     'bob update on'() {
@@ -2696,7 +2805,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // what Scan$ builds), and an apostrophe opens a comment that runs to
       // the next apostrophe and stores nothing.
       const s2 = it.evalStr()
-      if (s2.length >= 64) throw new AmosError('string too long')
+      // `cmp.w #64,d2 / Rbcc L_StooLong` (+Lib.s:13695) -- error 21, not the
+      // catch-all a numberless throw reports as
+      if (s2.length >= 64) throw new AmosError(ED_RUN_MESSAGES[21]!, 21)
       for (let i = 0; i < s2.length; i++) {
         const c = s2.charCodeAt(i)
         if (c === 39) {
@@ -2771,17 +2882,31 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'make mask': maskAll('sprite', false),
     'no mask': maskAll('sprite', true),
+    // All four reach Prooo (+Lib.s:11578), which is `tst.w ScOn(a5) / Rbeq
+    // L_ScNOp / SyCall SPrio`, so each one needs a screen open before it
+    // changes anything. SPrio is TPrio (+W.s:1086), taking d1 (priority) and
+    // d2 (reverse) and treating a NEGATIVE value as "leave this one alone":
+    // `tst.l d1 / bmi.s TPri2` and `tst.l d2 / bmi.s TPri3`. Priority On
+    // passes d1=1,d2=-1 and Priority Reverse On passes d1=-1,d2=1, so the two
+    // settings are independent. The port had Priority Reverse On switching
+    // priority on as well.
+    // DEVIATION: TPri1 stores `T_EcCourant(a5)`, not a flag, so on the 68000
+    // priority applies to the screen it was turned on for. This port keeps
+    // one boolean shared by every screen.
     'priority on'() {
+      void rt.screen
       rt.priorityOn = true
     },
     'priority off'() {
+      void rt.screen
       rt.priorityOn = false
     },
     'priority reverse on'() {
-      rt.priorityOn = true
+      void rt.screen
       rt.priorityReverse = true
     },
     'priority reverse off'() {
+      void rt.screen
       rt.priorityReverse = false
     },
 
@@ -4226,6 +4351,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         it.write(`${num} - ${b.name.padEnd(8).slice(0, 8)} S: $${hex} L: ${b.length}\n`)
       }
     },
+    // Bset/Bclr/Bchg and the six rotates, over BsRout's two arms
+    bset: bitOp((v, b) => v | b),
+    bclr: bitOp((v, b) => v & ~b),
+    bchg: bitOp((v, b) => v ^ b),
+    'rol.b': rotOp(8, true),
+    'rol.w': rotOp(16, true),
+    'rol.l': rotOp(32, true),
+    'ror.b': rotOp(8, false),
+    'ror.w': rotOp(16, false),
+    'ror.l': rotOp(32, false),
     poke(it) {
       const addr = it.evalInt()
       it.expect(',')
@@ -4499,6 +4634,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'hrev block'(it) {
       // RevBloc +W.s:12591: FindBloc raises "Block not defined" on a missing
       // block, then Retourne mirrors the pixels along the chosen axis.
+      //
+      // Retourne (+W.s:1647) is idempotent on its own --- it XORs the stored
+      // flags at 6(a1) against the requested ones and flips only the axes
+      // that differ --- but RevBloc runs `and.w #$3FFF,6(a1)` first, which
+      // zeroes that record. So every Hrev Block flips again, and a plain
+      // toggle is right. Do not "fix" this into a set by reading Retourne
+      // alone. InHRevBlock passes bit 15 and InVRevBlock bit 14
+      // (+Lib.s:11205, :11210), and neither checks the block number: the only error
+      // is FindBloc's.
       const b = rt.blocks.get(it.evalInt())
       if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
@@ -5536,6 +5680,20 @@ function strucCheck(addr: number, type: number): void {
 export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok) => import('../interp/values').Value> {
   return {
     /**
+     * `FnBtst` (+ILib.s:5655) is `addq.w #2,a6` past the open bracket and then
+     * BsRout, so it reads its target the same way the three instructions do
+     * and answers -1 or 0.
+     */
+    btst: (it) => {
+      it.expect('(')
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, 1)
+      it.expect(')')
+      return VI(tg.get() & (1 << (n & (tg.mem ? 7 : 31))) ? -1 : 0)
+    },
+    /**
      * `FnEqu` (+ILib.s:5881), which is `Equ` and `Lvo` both: `Ope_Equ` and
      * `Ope_LVO` (+Verif.s:2955) differ only in the "_LVO" the verifier puts
      * in front of the name, so by run time there is one routine.
@@ -5898,6 +6056,9 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (a.length !== 1) throw new AmosError('wrong number of arguments')
       return VI(scr().palette[int(a[0]!) & 31]!)
     },
+    // FnXGr (+Lib.s:9641) and FnYGr (+Lib.s:9650) are `tst.w ScOn(a5) / Rbeq
+    // L_ScNOp` and then 36(a0) and 38(a0) of the RastPort, which is the
+    // graphics cursor GrXY moves
     xgr() {
       return VI(scr().grX)
     },
@@ -6874,9 +7035,6 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       }
       return VS(out)
     },
-    btst(_, a) {
-      return VI(int(a[1]!) & (1 << (int(a[0]!) & 31)) ? -1 : 0)
-    },
     /*
      * All four convert between the CURRENT WINDOW's text grid and screen
      * pixels, and the port had been converting against the screen.
@@ -6923,7 +7081,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(n >= w.rows ? -1 : n * 8 + w.y)
     },
     'mouse screen'(it, a) {
+      // FnMouseScreen (+Lib.s:11035) opens `tst.w ScOn(a5) / Rbeq L_ScNOp`
+      // before it asks XyMou anything, so with no screen open the answer is
+      // error 47 and not the EntNul that means "over no screen"
       void a
+      void rt.screen
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue

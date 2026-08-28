@@ -440,12 +440,16 @@ describe('mouse and joystick reads', () => {
 
   it('Mouse Screen reports which screen the pointer is over', () => {
     expect(() => run('Screen Open 0,320,200,16,Lowres\nA=Mouse Screen')).not.toThrow()
+    // FnMouseScreen (+Lib.s:11035) is `tst.w ScOn(a5) / Rbeq L_ScNOp` before
+    // it asks XyMou anything, so with nothing open the answer is error 47 and
+    // not the EntNul that means "over no screen"
+    expect(() => run('Screen Close 0\nA=Mouse Screen')).toThrow(/screen not opened/i)
   })
 
   it('Jdown and Jright read the joystick without a stick attached', () => {
     // no hardware, so both directions read false rather than erroring
     expect(runOut('Print Jdown(1);Jright(1)')).toBe(' 0 0\n')
-    // port 2 does not exist: only 0 and 1 are real (FJ +Lib.s:13716)
+    // port 2 does not exist: only 0 and 1 are real (FJ +Lib.s:13684)
     expect(() => run('A=Jdown(2)')).toThrow(/Illegal function call/)
   })
 })

@@ -801,6 +801,13 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(run(prog).out).toBe(' 2\n 3\n')
   })
 
+  it('Put Key refuses 64 characters with error 21 (+Lib.s:13695)', () => {
+    // `cmp.w #64,d2 / Rbcc L_StooLong` --- String too long, which is 21 and
+    // not the catch-all a throw with no number reports as
+    expect(() => run(`Put Key "${'x'.repeat(63)}"`)).not.toThrow()
+    expect(() => run(`Put Key "${'x'.repeat(64)}"`)).toThrow(/String too long/)
+  })
+
   it('Put Key appends to the keyboard buffer (InPutKey)', () => {
     const prog = ['Put Key "AB"', 'Print Inkey$;Inkey$'].join('\n')
     expect(run(prog).out).toBe('AB\n')
@@ -1850,6 +1857,31 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(run(prog).out).toBe(' 8000\n-1\n-1\n')
     // a plane index past the depth is a function-call error (4 col => 2 planes)
     expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
+  })
+
+  it('Bob Update swaps the buffers, the same as Update (InBobUpdate +Lib.s:11459)', () => {
+    // InBobUpdate is EffBob / ActBob / AffBob / EcCall SwapScS. The SwapScS
+    // is the fourth call, so Bob Update ends a frame exactly as Update does
+    // and only skips the hardware sprites (ActHs/AffHs) that follow it.
+    const prog = (kw: string): string =>
+      [
+        'Screen Open 0,320,200,16,0',
+        'Double Buffer',
+        'Autoback 0', // else EcAuto=2 keeps both buffers identical
+        'Plot 10,10,5',
+        'Print Point(10,10)',
+        kw,
+        'Print Point(10,10)',
+        kw,
+        'Print Point(10,10)',
+      ].join('\n')
+    // the plot lands in the logical buffer; one swap reads the other buffer
+    // and a second swap comes back to it, so the first and third agree and
+    // the middle one does not. Bob Update and Update swap alike.
+    const bob = run(prog('Bob Update')).out.split('\n')
+    expect([bob[0], bob[2]]).toEqual([' 5', ' 5'])
+    expect(bob[1]).not.toBe(' 5')
+    expect(run(prog('Update')).out).toBe(run(prog('Bob Update')).out)
   })
 
   it('a second Double Buffer is error 69, but Anim re-buffering is silent', () => {
