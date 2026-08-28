@@ -4620,7 +4620,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.chrInp = [a, b < 0 ? -1 : b & 0xff]
     },
     mkdir(it) {
-      if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')
+      // InMkDir (+Lib.s:4912) is `DosCall _LVOCreateDir / tst.l d0 / Rbeq
+      // L_DiskError`, and DiskError puts IoErr through the ErDisk table
+      // documented above Open In. ERROR_OBJECT_EXISTS is 203, the table's
+      // first entry, so making a directory that is already there is 79,
+      // "File already exists", and not the catch-all disc error.
+      const path = it.evalStr()
+      if (rt.vfs?.exists(path) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
+      if (!rt.vfs?.mkdir(path)) throw new AmosError('disc error')
     },
     kill(it) {
       // DeleteFile() takes a file or an *empty* directory; a full one comes

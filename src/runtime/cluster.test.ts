@@ -667,6 +667,10 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(code('Open Out 1,"DH0:x" : Append 1,"DH0:y"')).toBe(96)
     // and closing it first makes the slot free again
     expect(code('Open Out 1,"DH0:x" : Close 1 : Open Out 1,"DH0:y"')).toBe(0)
+    // Mkdir takes the same DiskError route, and ERROR_OBJECT_EXISTS is the
+    // ErDisk table's first entry, so a second one is 79 not a generic fault
+    expect(code('Mkdir "DH0:d"')).toBe(0)
+    expect(code('Mkdir "DH0:d" : Mkdir "DH0:d"')).toBe(79)
   })
 })
 
