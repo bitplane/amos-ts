@@ -1091,6 +1091,34 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * takes the bank path; only the low word of it is used (`move.w a1,d0`).
    * An empty table slot is not an error: it yields ChVide, the empty string.
    */
+  /**
+   * The channel a declaration may name, which is not the channel a query may.
+   *
+   * Amal, Anim, Move X and Move Y are four Lib_Par entries that all branch to
+   * MvA3, and the limit is decided there (+Lib.s:11816):
+   *
+   *     moveq #16,d0
+   *     tst.w InterOff(a5)
+   *     beq.s InMva1
+   *     moveq #64,d0
+   *     InMva1: cmp.l d0,d6 / Rbcc L_FonCall
+   *
+   * so 0 to 15 under the interrupt and 0 to 63 once Synchro Off has set
+   * InterOff. The queries do NOT share it: FnAm1 (+Lib.s:11920) is a flat
+   * `Rbmi` plus `cmp.l #64,d1 / Rbcc`, so =Movon(40) is legal while the
+   * `Amal 40` that would make it true is not.
+   *
+   * `clr.w PAmalE(a5)` (+Lib.s:11814) is the line above the limit, and it is
+   * the ONLY place =Amal Err is ever cleared — the whole tree has three
+   * references to that word, this one, the read in FnAmalerr and the write
+   * in IAmE. So a declaration that compiles resets it, and the port, which
+   * only ever wrote it, kept reporting the offset of an error two Amals ago.
+   */
+  const amDeclChannel = (n: number): number => {
+    rt.amalErrPos = 0
+    if (n >>> 0 >= (rt.synchroManual ? 64 : 16)) funcCall()
+    return n
+  }
   const amalSource = (it: It): string => {
     const bank = rt.refreshAmalBank()
     const v = it.evalExpr()
@@ -1355,7 +1383,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens ----
     'screen open'(it) {
-      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count
+      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count,
+      // so the number goes down unchecked and rt.openScreen tests it in the
+      // right place
       const n = it.evalInt()
       it.expect(',')
       // EcCree +W.s:2881 masks the bitmap width down to a multiple of 16
@@ -1366,7 +1396,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const nc = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      rt.openScreen(checkScreenNumber(rt, n), w, h, nc, mode)
+      rt.openScreen(n, w, h, nc, mode)
       // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
       // Screen Open instruction adds the system flash (+Lib.s:8989);
       // HAM (4096) is 6 planes so it qualifies
@@ -1515,15 +1545,43 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'screen show'(it) {
       byIndex(checkScreenNumber(rt, optInt(it, rt.currentIndex))).visible = true
     },
+    // EcFirst and EcLast (+W.s:3274/3294) both open `bsr EcGet / beq EcE3`,
+    // and EcE3 is `moveq #3,d0` (+W.s:3130) through EcWiErr, which adds
+    // EcEBase-1 = 44 for error 47. Naming a screen that is not open is an
+    // error, not the silent no-op the port had.
     'screen to front'(it) {
-      rt.toFront(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
+      const n = checkScreenNumber(rt, optInt(it, rt.currentIndex))
+      byIndex(n)
+      rt.toFront(n)
     },
     'screen to back'(it) {
-      rt.toBack(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
-    },
-    'screen swap'(it) {
       const n = checkScreenNumber(rt, optInt(it, rt.currentIndex))
-      rt.screens.get(n)?.swap()
+      byIndex(n)
+      rt.toBack(n)
+    },
+    /**
+     * Screen Swap [n] --- two different routines, not one with a default.
+     *
+     * `InScreenSwap1` (+Lib.s:8869) is `Rbsr L_CheckScreenNumber / EcCall
+     * SwapSc`, and ScSwap (+W.s:2593) opens `bsr EcGet / beq EcE3`, so a
+     * screen that is not open is error 47. A screen that IS open but not
+     * double-buffered falls out at `btst #BitDble,EcFlags(a4) / beq EcOk`
+     * with no error.
+     *
+     * `InScreenSwap0` (+Lib.s:8859) calls ScSwapS instead (+W.s:2646), and
+     * that one is `lea T_EcAdr(a5),a1 / moveq #8-1,d6` over every slot: it
+     * swaps EVERY double-buffered screen, not the current one. The port
+     * swapped just the current screen either way, so a game double-buffering
+     * two screens and flipping them with a bare `Screen Swap` left the
+     * second one showing its logical buffer.
+     */
+    'screen swap'(it) {
+      if (it.atStmtEnd() || it.nm() === ',') {
+        void rt.screen // `tst.w ScOn(a5) / Rbeq L_ScNOp` guards the bare form
+        for (const s of rt.screens.values()) s.swap()
+        return
+      }
+      byIndex(checkScreenNumber(rt, it.evalInt())).swap()
     },
     'double buffer'() {
       // InDoubleBuffer +Lib.s:8853: `EcCall Double / Rbne L_EcWiErr`, so a
@@ -2526,24 +2584,37 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     appear(it) {
-      // Appear src To dst,e[,p] (InAppear +Lib.s:10466): p iterations
-      // (default = every pixel) stepping (e mod p) through the source
-      // pixel index space, copying only the planes both screens share and
-      // preserving the destination's higher planes. gcd(e, total) > 1
-      // leaves pixels uncopied — the classic venetian/checker dissolves.
+      /*
+       * Appear src To dst,e[,p] (InAppear4 +Lib.s:10443): p iterations
+       * (default = every pixel) stepping (e mod p) through the source
+       * pixel index space, copying only the planes both screens share and
+       * preserving the destination's higher planes. gcd(e, total) > 1
+       * leaves pixels uncopied — the classic venetian/checker dissolves.
+       *
+       * The two guards are not the same test. `move.l d3,d6 / Rbmi
+       * L_FonCall` (+Lib.s:10446) is a real sign test on p, but the one on
+       * e is `move.l (a3)+,d7 / Rbls L_FonCall` (+Lib.s:10448), and a `move`
+       * CLEARS the carry, so that bls can only branch on Z: e = 0 is the
+       * error and a negative e goes through. LApp0's `cmp.l d6,d7 / bcs` is
+       * an UNSIGNED compare, so what AMOS then subtracts is the 32-bit
+       * unsigned reading — `Appear 0 To 1,-1` steps by $FFFFFFFF mod count.
+       * The port refused it outright, and would have walked backwards off
+       * the buffer if it had not.
+       */
       const src = rt.resolveScreenId(it.evalInt())
       it.expect('to')
       const dst = rt.resolveScreenId(it.evalInt(), true)
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
-      if (e <= 0 || p < 0) funcCall()
+      if (e === 0 || p < 0) funcCall()
       const s = src.s
       const d = dst.s
       const total = s.rowBytes * 8 * s.height
       const count = p === 0 ? total : p
-      let step = e
-      while (step >= count) step -= count
+      // LApp0 subtracts d6 in a loop; `%` is the same answer without the
+      // four billion iterations a negative e would otherwise cost here
+      const step = (e >>> 0) % count
       const mask = (1 << Math.min(s.depth, d.depth)) - 1
       let idx = 0
       for (let i = 0; i < count; i++) {
@@ -5114,7 +5185,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- AMAL ----
     amal(it) {
-      const n = it.evalInt()
+      // MvA3's limit is the one Anim, Move X and Move Y already carry: this
+      // keyword reaches the same routine and had gone without it, so
+      // `Amal 20,"..."` built a channel the interrupt never scans.
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const src = amalSource(it)
       let prog
@@ -5136,26 +5210,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     anim(it) {
       // Anim n,"(image,delay)...[L]" — an independent slot beside the
       // channel's AMAL program (ID channel*4+1, CreAMAL +W.s:7998)
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosAnim(amalSource(it))
       const slot = rt.stosSlot(n)
       slot.anim = { ...spec, idx: 0, left: 1, done: false, on: false, frozen: false }
     },
     'move x'(it) {
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveX = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
     'move y'(it) {
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
@@ -6153,7 +6221,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     screen(_, a) {
       void a
-      return VI(rt.currentIndex)
+      // FnScreen (+Lib.s:9137) is `move.w ScOn(a5),d3 / subq.w #1,d3 /
+      // ext.l d3`, and ScOn is a 1-based slot that Screen Close leaves at
+      // zero once the last screen goes (+Lib.s:8980). So the answer with
+      // nothing open is -1. The port returned currentIndex, which
+      // closeScreen falls back to 0, and 0 is a legal screen number.
+      return VI(rt.screens.size === 0 ? -1 : rt.currentIndex)
     },
     'screen width'(_, a) {
       // FnScreenWidth0/1 +Lib.s:8749: EcTx bitmap width; an explicit
@@ -6418,12 +6491,26 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.spriteColCheck(n, first, last))
     },
     'bobsprite col'(_, a) {
-      // FnBobSpriteCol1/3 +Lib.s:12338: bob n against hardware sprites
-      return VI(rt.bobSpriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+      // FnBobSpriteCol1/3 (+Lib.s:12338/12349): bob n against hardware
+      // sprites. The three-argument form is `cmp.l #63,d3 / Rbhi L_FonCall`
+      // then `Rbmi` on the other two, the same pair of rules Sprite Col
+      // carries — the targets are sprites, so the range end stops at 63.
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 63
+      if (n < 0 || first < 0 || last >>> 0 > 63) funcCall()
+      return VI(rt.bobSpriteColCheck(n, first, last))
     },
     'spritebob col'(_, a) {
-      // FnSpriteBobCol1/3 +Lib.s:12390: sprite n against bobs
-      return VI(rt.spriteBobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 10000))
+      // FnSpriteBobCol1/3 (+Lib.s:12390/12401): sprite n against bobs, so it
+      // follows Bob Col instead — `tst.l d3 / Rbmi L_FonCall` and nothing
+      // above it, because the ceiling on that side is the 10000 the
+      // one-argument form fills in.
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 10000
+      if (n < 0 || first < 0 || last < 0) funcCall()
+      return VI(rt.spriteBobColCheck(n, first, last))
     },
     hardcol(_, a) {
       // FnHardcol +Lib.s:12324: -1 or lower asks about the playfields,

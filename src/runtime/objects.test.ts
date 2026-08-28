@@ -153,6 +153,34 @@ describe('hardware sprites', () => {
     expect(runOut(`${GRAB}\nSprite 8,100,50,1\nPrint Sprite Col(8)`)).toBe(' 0\n')
     expect(runOut(`${GRAB}\nBob 1,10,10,1\nPrint Spritebob Col(1)`)).toBe(' 0\n')
   })
+
+  it('all four collision functions check their arguments, and two of them cap at 63', () => {
+    /*
+     * The four are two pairs, and the pairs differ by what they are asked to
+     * hit. Bobsprite Col scans hardware sprites, so FnBobSpriteCol3
+     * (+Lib.s:12349) opens `cmp.l #63,d3 / Rbhi L_FonCall` — the same bound
+     * Sprite Col carries, and the same 63 its one-argument form fills in.
+     * Spritebob Col scans bobs, so FnSpriteBobCol3 (+Lib.s:12401) is only
+     * `tst.l d3 / Rbmi L_FonCall`, matching Bob Col, whose ceiling is the
+     * 10000 the short form supplies instead. All four then `Rbmi` the
+     * remaining two arguments.
+     *
+     * Bob Col and Sprite Col had all of this. Their two siblings had none of
+     * it.
+     */
+    for (const kw of ['Bobsprite Col', 'Sprite Col']) {
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(1,0 To 64)`)).toThrow(/function call/)
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(1,0 To 63)`)).not.toThrow()
+    }
+    for (const kw of ['Spritebob Col', 'Bob Col']) {
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(1,0 To 64)`)).not.toThrow()
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(1,0 To -1)`)).toThrow(/function call/)
+    }
+    for (const kw of ['Bobsprite Col', 'Spritebob Col', 'Sprite Col', 'Bob Col']) {
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(-1)`)).toThrow(/function call/)
+      expect(() => run(`${GRAB}\nBob 1,10,10,1\nA=${kw}(1,-1 To 10)`)).toThrow(/function call/)
+    }
+  })
 })
 
 describe('image banks and masks', () => {

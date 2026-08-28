@@ -4923,16 +4923,17 @@ export class Runtime {
   }
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
-    // CheckScreenNumber (+Lib.s:9163) once more. Most callers have been
-    // through checkScreenNumber in ./instr.ts already, but the loader and the
-    // extensions reach this directly, and an accessory has ten screens.
-    if (n >>> 0 >= (this.interp.program.accessory ? 10 : 8)) {
-      throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
-    }
     // InScreenOpen (+Lib.s:8919): 4096 = HAM — lowres only, 6 planes,
     // stored as 64 colours with the CAMG bit; otherwise the colour count
     // must be exactly a power of two 2..64 (error 5, "illegal number of
-    // colours"), and hires screens cap at 16 colours
+    // colours"), and hires screens cap at 16 colours.
+    //
+    // The three tests run in that order and the screen number sits between
+    // them. `tst.w d5 / Rbmi L_FonCall` and the IlNCo exit both precede
+    // ScOo2's `Rbsr L_CheckScreenNumber` (+Lib.s:8949), and ScOo3's hires
+    // cap follows it. The port checked the number first, so
+    // `Screen Open 9,320,200,3,Lowres` reported an illegal screen number
+    // where AMOS reports 49.
     let colours = nColors
     let m = mode
     if (colours === 4096) {
@@ -4958,8 +4959,17 @@ export class Runtime {
        */
       if (![2, 4, 8, 16, 32, 64, 256].includes(colours))
         throw new AmosError('illegal number of colours', 49)
-      if (m & 0x8000 && colours > 16) funcCall()
     }
+    // CheckScreenNumber (+Lib.s:9163). Most callers have been through
+    // checkScreenNumber in ./instr.ts already, but the loader and the
+    // extensions reach this directly, and an accessory has ten screens.
+    if (n >>> 0 >= (this.interp.program.accessory ? 10 : 8)) {
+      throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+    }
+    // +Lib.s:8952 is `cmp.w #4,d4 / Rbhi L_FonCall` on the PLANE count, so hires
+    // stops at 16 colours. HAM already proved bit 15 clear, so it cannot
+    // fire on that path.
+    if (m & 0x8000 && colours > 16) funcCall()
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
     // Default Palette is a sparse override list — the mouse bank fills only
     // the sprite half (16-31), so unset entries must keep the boot colours
