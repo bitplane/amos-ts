@@ -4905,7 +4905,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       stosOnOff(it, ['moveX', 'moveY'], 0)
     },
     channel(it) {
+      /*
+       * InChannel (+ILib.s:5569) bounds both numbers and the port bounded
+       * neither. The channel is `bsr New_Expentier / cmp.l #64,d3 / bcc
+       * FonCall`, so 0 to 63. The TARGET's ceiling arrives in d5, which the
+       * type ladder sets as it walks past: 64 for Sprite and Bob, 8 for the
+       * three Screen forms, 4 for Rainbow, then `cmp.l d5,d2 / bcc FonCall`.
+       * Both tests are unsigned, so a negative fails them as an enormous
+       * value would.
+       *
+       * The type codes are not consecutive. `addq.w #2,d4` before the
+       * Rainbow arm skips 5, so the byte written to AnCanaux is 6.
+       */
       const n = it.evalInt()
+      if (n >>> 0 >= 64) funcCall()
       it.expect('to')
       const kind = it.nm()
       if (
@@ -4920,6 +4933,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       it.advance()
       const m = it.evalInt()
+      const limit = kind === 'sprite' || kind === 'bob' ? 64 : kind === 'rainbow' ? 4 : 8
+      if (m >>> 0 >= limit) funcCall()
       const target = rt.makeChannelTarget(kind, m)
       rt.chanTargets.set(n, target)
       const ch = rt.channels.get(n)

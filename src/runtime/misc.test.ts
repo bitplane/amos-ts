@@ -46,6 +46,20 @@ describe('AMAL channels', () => {
     expect(rt.channels.get(1)).toBeUndefined()
   })
 
+  it('Channel bounds the channel at 64 and the target by its kind (InChannel +ILib.s:5569)', () => {
+    expect(() => run(`${GRAB}\nChannel 63 To Bob 63`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 64 To Bob 1`)).toThrow(/function call/)
+    expect(() => run(`${GRAB}\nChannel -1 To Bob 1`)).toThrow(/function call/)
+    // d5 is set by the type ladder: 64 for Sprite and Bob...
+    expect(() => run(`${GRAB}\nChannel 1 To Bob 64`)).toThrow(/function call/)
+    // ...8 for the Screen forms...
+    expect(() => run(`${GRAB}\nChannel 1 To Screen Display 7`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 1 To Screen Display 8`)).toThrow(/function call/)
+    // ...and 4 for Rainbow
+    expect(() => run(`${GRAB}\nChannel 1 To Rainbow 3`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 1 To Rainbow 4`)).toThrow(/function call/)
+  })
+
   it('Sprite Off takes the sprite\'s animation with it (DAdAMAL +W.s:8160)', () => {
     // HsXOff calls DAdAMAL, which walks the list and DAMALs every stream
     // whose AmAct matches the object
