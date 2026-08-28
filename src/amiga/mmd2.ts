@@ -97,6 +97,79 @@ export const MMD2_TRACKVOLS_AT = 0x204
 export const MMD2_NUMTRACKS_AT = 0x208
 export const MMD2_NUMPSEQS_AT = 0x20a
 export const MMD2_TRACKPANS_AT = 0x20c
+
+// The mixing-mode tail of MMD2song, which only `DME_OctaMix.library` reads.
+// Every offset below was taken from an instruction in that library rather than
+// from the format documentation.
+
+/** `move.l $210(a0),d1` at $21162a, a long; bit 0 is stereo and bit 1 pairs */
+export const MMD2_FLAGS3_AT = 0x210
+/** $213348 compares it against a cached copy to decide whether to rebuild */
+export const MMD2_VOLADJ_AT = 0x214
+/** `move.w $216(a4),d0 / bne / moveq #$4,d0` at $213672: FOUR when it is zero */
+export const MMD2_CHANNELS_AT = 0x216
+/** `move.b $218(a0),$211681` at $211638 */
+export const MMD2_ECHOTYPE_AT = 0x218
+/** `move.b $219(a0),$211682` at $211640 */
+export const MMD2_ECHODEPTH_AT = 0x219
+export const MMD2_ECHOLEN_AT = 0x21a
+/** `move.b $21c(a0),d1 / beq` at $2119ee: zero turns the stereo spread off */
+export const MMD2_STEREOSEP_AT = 0x21c
+
+// The tail every MMD song shares, whatever the id.
+
+/** `divu.w $2fc(a0),d0` at $2115f8 */
+export const MMD_DEFTEMPO_AT = 0x2fc
+/** `add.b $2fe(a4),d1` at $211e00, added to every note */
+export const MMD_PLAYTRANSP_AT = 0x2fe
+export const MMD_FLAGS_AT = 0x2ff
+export const MMD_FLAGS2_AT = 0x300
+/** `cmp.b $301(a4),d3` at $2121f6: ticks per line */
+export const MMD_TEMPO2_AT = 0x301
+
+/** `andi.w #$1f,d1 / addq.w #$1,d1` at $2115ce: the beat mask, plus one */
+export const MMD_FLAG2_BMASK = 0x1f
+export const MMD_FLAG2_BPM = 0x20
+/** `tst.b $300(a0) / bmi` at $212e64, and the whole of what OctaMix demands */
+export const MMD_FLAG2_MIX = 0x80
+/** `btst #$6,$2ff(a0)` at $212e6a, which is type 1 rather than type 2 */
+export const MMD_FLAG_8CHANNEL = 0x40
+/** `btst #$0,$213(a0)` at $2119f4, the low byte of the flags3 long */
+export const MMD_FLAG3_STEREO = 1
+
+// The play state, which is in the MODULE header rather than the song, because
+// the replay writes it back as it goes. `=Omix Song Pos` and `=Omix Patt Pos`
+// read two of these straight out of the bank ($715a and $717e).
+
+export const MMD_PSECNUM_AT = 0x0c
+export const MMD_PSEQ_AT = 0x0e
+/** `tst.w $28(a2) / beq` at $2121e2: zero and the tick does nothing */
+export const MMD_PSTATE_AT = 0x28
+export const MMD_PBLOCK_AT = 0x2a
+/** what `=Omix Patt Pos` reports */
+export const MMD_PLINE_AT = 0x2c
+/** what `=Omix Song Pos` reports */
+export const MMD_PSEQNUM_AT = 0x2e
+/** `move.b $32(a2),d3 / addq.b #$1,d3` at $2121f0: the tick within the line */
+export const MMD_COUNTER_AT = 0x32
+
+/**
+ * `$212e5c`, which is LVO -36 and the only test `Omix Load` makes on content.
+ *
+ * Two bits decide it and nothing else does: bit 7 of `flags2` is mixing mode
+ * and answers 2, bit 6 of `flags` is eight-channel and answers 1, and a module
+ * with neither answers 0. `Omix Load` demands 2 at $6dfc and erases the bank
+ * for anything else, which is why a module authored in four-channel mode does
+ * not load however many tracks it has.
+ */
+export function mmdMixType(data: Uint8Array): 0 | 1 | 2 {
+  if (data.length < 0x40) return 0
+  const song = rd32(data, 8)
+  if (song === 0 || song + MMD_TEMPO2_AT >= data.length) return 0
+  if (((data[song + MMD_FLAGS2_AT] ?? 0) & MMD_FLAG2_MIX) !== 0) return 2
+  if (((data[song + MMD_FLAGS_AT] ?? 0) & MMD_FLAG_8CHANNEL) !== 0) return 1
+  return 0
+}
 /** `cmp.w $28(a0),d4` at $210ede: 32 of name and eight reserved */
 export const MMD2_PLAYSEQ_HEADER = 0x2a
 export const MMD2_PLAYSEQ_LENGTH_AT = 0x28
@@ -142,6 +215,22 @@ export interface Mmd2Song {
   playSeqNames: string[]
   /** `$200`: which play sequence each section runs */
   sectionTable: number[]
+  /** `$2fc`, `$2ff`, `$300` and `$301`: the tail every MMD song shares */
+  defTempo: number
+  playTransp: number
+  songFlags: number
+  flags2: number
+  tempo2: number
+  /** the mixing-mode tail, which is meaningless unless `mixType` is 2 */
+  mixType: 0 | 1 | 2
+  flags3: number
+  volAdj: number
+  /** `$216`, and FOUR when the field is zero, the way $213672 reads it */
+  channels: number
+  echoType: number
+  echoDepth: number
+  echoLength: number
+  stereoSeparation: number
   /** the whole module, because the replay reads it in place */
   data: Uint8Array
 }
@@ -235,6 +324,19 @@ export function parseMmd2(data: Uint8Array): Mmd2Song | null {
     playSeqs,
     playSeqNames,
     sectionTable: [...Array(sections)].map((_, i) => rd16(data, sectionTable + i * 2)),
+    defTempo: rd16(data, song + MMD_DEFTEMPO_AT),
+    playTransp: s8(data[song + MMD_PLAYTRANSP_AT] ?? 0),
+    songFlags: data[song + MMD_FLAGS_AT] ?? 0,
+    flags2: data[song + MMD_FLAGS2_AT] ?? 0,
+    tempo2: data[song + MMD_TEMPO2_AT] ?? 0,
+    mixType: mmdMixType(data),
+    flags3: rd32(data, song + MMD2_FLAGS3_AT),
+    volAdj: rd16(data, song + MMD2_VOLADJ_AT),
+    channels: rd16(data, song + MMD2_CHANNELS_AT) || 4,
+    echoType: data[song + MMD2_ECHOTYPE_AT] ?? 0,
+    echoDepth: data[song + MMD2_ECHODEPTH_AT] ?? 0,
+    echoLength: rd16(data, song + MMD2_ECHOLEN_AT),
+    stereoSeparation: s8(data[song + MMD2_STEREOSEP_AT] ?? 0),
     data,
   }
 }
