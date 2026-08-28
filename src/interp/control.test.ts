@@ -6,6 +6,8 @@ import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { amosErrorCode, type AmosError } from './values'
+import { Interp } from './interp'
+import { BufferIO } from './io'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -196,6 +198,31 @@ describe('Line Input', () => {
   it('emits its prompt before reading', () => {
     const { out } = untilBlocked('Line Input "name? ";A$ : Print "[";A$;"]"')
     expect(out.startsWith('name? ')).toBe(true)
+  })
+
+  it('takes one whole line per variable (InnPut +ILib.s:4912)', () => {
+    // InLineInput pushes a zero separator, so Inn2 copies to the end of the
+    // line and the comma in `A$,B$` sends Inn10 back for a second one
+    const io = new BufferIO(['one,two', 'three'])
+    const it = new Interp(tokenize('Line Input A$,B$ : Print A$;"|";B$', table), table, { io, maxSteps: 100_000 })
+    it.run()
+    expect(io.out).toContain('one,two|three')
+  })
+
+  it('Input splits one line at the commas instead (InInput +ILib.s:4829)', () => {
+    const io = new BufferIO(['one,two'])
+    const it = new Interp(tokenize('Input A$,B$ : Print A$;"|";B$', table), table, { io, maxSteps: 100_000 })
+    it.run()
+    expect(io.out).toContain('one|two')
+  })
+
+  it('Input asks again when the line runs out of fields (Inn10 InnEnc)', () => {
+    // `cmp.b #",",(a2)+` fails on a short line, and the routine prints "?"
+    // and reads a whole fresh one rather than leaving the variable empty
+    const io = new BufferIO(['one', 'two'])
+    const it = new Interp(tokenize('Input A$,B$ : Print A$;"|";B$', table), table, { io, maxSteps: 100_000 })
+    it.run()
+    expect(io.out).toContain('one|two')
   })
 
   it('types at the console cursor, no separate input box', () => {

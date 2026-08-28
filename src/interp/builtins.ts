@@ -132,6 +132,49 @@ function inputAssign(target: { type: number; set(v: Value): void }, raw: string)
 }
 
 /**
+ * InnPut (+ILib.s:4912), the loop Input and Line Input share.
+ *
+ * They differ by one byte, pushed at entry: InInput pushes `","` and
+ * InLineInput pushes 0. That byte is the field separator Inn2 stops a string
+ * copy at, so Line Input's zero means "copy to the end of the line" and one
+ * variable eats the lot.
+ *
+ * Inn10 then reads the token after the variable. A comma there demands a
+ * comma in the BUFFER too (`cmp.b #",",(a2)+`); when the buffer has run out
+ * the routine prints InnEnc's "?" and goes back to ReInp for a whole fresh
+ * line, which is why `Line Input A$,B$` reads two lines rather than failing.
+ *
+ * A statement that blocks part-way has already filled some variables, so the
+ * progress is remembered against the statement's address: re-running it must
+ * not read a second line into a variable that already has one.
+ */
+function readInputTargets(
+  it: Interp,
+  key: string,
+  prompt: string,
+  targets: { type: number; set(v: Value): void }[],
+  sep: string,
+): 'jumped' | void {
+  const saved = it.inputProgress
+  let done = saved !== null && saved.at === key ? saved.done : 0
+  let fields: string[] = []
+  while (done < targets.length) {
+    if (fields.length === 0) {
+      const line = it.io.input ? it.io.input(done === 0 ? prompt : '? ') : ''
+      if (line === undefined) {
+        it.inputProgress = { at: key, done }
+        it.block({ type: 'input', prompt: done === 0 ? prompt : '? ' }, true)
+        return 'jumped'
+      }
+      fields = sep === '' ? [line] : line.split(sep)
+    }
+    inputAssign(targets[done]!, fields.shift()!)
+    done++
+  }
+  it.inputProgress = null
+}
+
+/**
  * Print Using (us1/us50 +ILib.s:5205-5362). String values: '~' emits the
  * next source char (space when exhausted), other chars literal. Numbers:
  * the integer part scans RIGHT-to-LEFT ('#' pulls a digit or a space, and
@@ -312,6 +355,7 @@ export const INSTR: Record<string, Instr> = {
 
   // ---- input ----
   input(it) {
+    const key = `${it.pc.li}:${it.pc.ti}`
     let prompt = '? ' // promptless Input prints "? " (IInp1)
     if (it.tok()?.kind === 'str') {
       // prompt may be a full string expression: Input "GUESS"+Str$(N);T
@@ -320,26 +364,20 @@ export const INSTR: Record<string, Instr> = {
     }
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
-    const line = it.io.input ? it.io.input(prompt) : ''
-    if (line === undefined) {
-      it.block({ type: 'input', prompt }, true)
-      return 'jumped'
-    }
-    const parts = targets.length > 1 ? line.split(',') : [line]
-    targets.forEach((tg, i) => inputAssign(tg, parts[i] ?? ''))
+    return readInputTargets(it, key, prompt, targets, ',')
   },
   'line input'(it) {
+    const key = `${it.pc.li}:${it.pc.ti}`
     let prompt = '? '
     if (it.tok()?.kind === 'str') {
       prompt = it.evalStr()
       if (!it.accept(';')) it.accept(',')
     }
-    const line = it.io.input ? it.io.input(prompt) : ''
-    if (line === undefined) {
-      it.block({ type: 'input', prompt }, true)
-      return 'jumped'
-    }
-    inputAssign(it.parseTarget(), line)
+    // InLineInput (+ILib.s:4834) pushes a zero separator, so one variable
+    // takes the whole line and a second one needs a second line
+    const targets = [it.parseTarget()]
+    while (it.accept(',')) targets.push(it.parseTarget())
+    return readInputTargets(it, key, prompt, targets, '')
   },
 
   // ---- variables ----

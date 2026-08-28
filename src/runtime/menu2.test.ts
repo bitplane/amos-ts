@@ -200,4 +200,13 @@ describe('menu event control', () => {
     // falls through to VerSynt for anything else
     expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/Syntax error/)
   })
+
+  it('Menu On does nothing without a menu (InMenuOn +Lib.s:15565)', () => {
+    // `tst.l MnBase(a5) / beq.s .Skip` — the flag is not set for a menu that
+    // might be built later
+    expect(run('Menu On').menu.on).toBe(false)
+    expect(run(`${MENU}\nMenu On`).menu.on).toBe(true)
+    // Menu Off has no such guard, it is one bclr
+    expect(run('Menu Off').menu.on).toBe(false)
+  })
 })

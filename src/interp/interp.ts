@@ -464,6 +464,14 @@ export class Interp {
    * bit 31 of the same longword is `errorHandler.kind === 'proc'`.
    */
   resumeLabel: string | null = null
+  /**
+   * How many variables an Input / Line Input has already filled, against the
+   * address of the statement filling them. Inn10 (+ILib.s:4970) reads a fresh
+   * line per variable when the buffer runs out, and a statement that blocks
+   * waiting for one re-runs from the top, so without this the variables it
+   * already assigned would each eat another line.
+   */
+  inputProgress: { at: string; done: number } | null = null
   /** frame depth at the trapped error, so Resume can unwind a Proc handler */
   errFrameDepth = 0
   private stmtStart: Addr = { li: 0, ti: 0 }
@@ -535,6 +543,7 @@ export class Interp {
     this.errStmt = null
     this.errNext = null
     this.resumeLabel = null
+    this.inputProgress = null
     this.every = null
     this.userFns = new Map()
     this.blocked = null

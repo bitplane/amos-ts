@@ -3625,7 +3625,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'menu on'(it) {
       void it
+      // InMenuOn +Lib.s:15563 opens `tst.l MnBase(a5) / beq.s .Skip`: with no
+      // menu defined the instruction does nothing whatever, and does not
+      // leave the flag set for a menu built later.
+      if (rt.menu.roots.length === 0) return
       rt.menu.on = true
+      // clr.l T_ClLast(a5) — a button already down when the menu comes on is
+      // not a selection, so the click that is already in hand is dropped
+      rt.input.mouseClickOld = rt.input.mouseK
     },
     'menu off'() {
       rt.menu.on = false
