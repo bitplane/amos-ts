@@ -4110,6 +4110,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const m = rt.resolveWrite(addr)
       if (m) m.data[m.off] = v & 0xff
     },
+    /*
+     * InDoke and InLoke (+Lib.s:2735) are what the source calls the
+     * "POKEDOKELOKE ameliores": `btst #0,d0` picks an odd address out and
+     * writes it a byte at a time, high byte first, instead of taking the
+     * 68000's address error. FnDeek and FnLeek (+Lib.s:2776) read the same
+     * way, and Deek's `moveq #0,d3` before the word makes it unsigned.
+     * Byte-wise big-endian access is therefore right at every address, which
+     * is what these already do.
+     */
     doke(it) {
       const addr = it.evalInt()
       it.expect(',')
