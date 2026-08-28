@@ -1219,11 +1219,8 @@ export class Screen {
   drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number, clipped = false, console = true): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
-    if (w.inverse) {
-      const t = pen
-      pen = paper
-      paper = t
-    }
+    // no swap here: Inv (+W.s:14830) swaps WiPen and WiPaper themselves, so
+    // by the time a glyph is drawn the two are already the right way round
     // COut (+W.s:15631) is `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2`
     // — the charset is indexed by the raw byte, and Change Print Font can
     // have replaced it with a 2KB bank
@@ -1593,7 +1590,7 @@ export class Screen {
            * fields are the same three the instructions set.
            */
           case 'I':
-            w.inverse = arg(1) !== 0
+            this.setInverse(arg(1) !== 0)
             ti += 2
             break
           case 'S':
@@ -1917,14 +1914,66 @@ export class Screen {
   }
 
   /** the Pen/Paper escapes error above the screen colour count (+W.s:14893) */
+  /**
+   * Inverse On/Off, which is Inv (+W.s:14830) reached through ESC "I":
+   *
+   *     Inv:    tst.w  d1 / bne.s InvOn
+   *             bclr   #2,WiSys(a5) / beq.s InvF     ; already off, nothing
+   *             bra.s  Inv1
+   *     InvOn:  bset   #2,WiSys(a5) / bne.s InvF     ; already on, nothing
+   *     Inv1:   move.w WiPaper(a5),d0
+   *             move.w WiPen(a5),WiPaper(a5)
+   *             move.w d0,WiPen(a5)
+   *             bsr    AdColor
+   *
+   * Inverse is not a rendering flag, it is a SWAP of the two colours, and the
+   * WiSys bit only records whether the swap is currently applied so that
+   * saying it twice does not undo it. The difference shows the moment a
+   * program sets a colour while inverted: `Pen 1 : Paper 2 : Inverse On :
+   * Pen 3 : Inverse Off` leaves pen 1 and paper 3 on the machine, and left
+   * pen 3 and paper 2 here.
+   */
+  setInverse(on: boolean): void {
+    const w = this.curWin
+    if (w.inverse === on) return
+    w.inverse = on
+    const t = w.pen
+    w.pen = w.paper
+    w.paper = t
+  }
+
+  /*
+   * Pen (+W.s:14864) and Paper (+W.s:14850) are the same seven instructions
+   * with the two registers exchanged:
+   *
+   *     cmp.w  EcNbCol(a4),d1 / bcc PErr7
+   *     bclr   #2,WiSys(a5) / beq.s Pen1
+   *     move.w WiPen(a5),WiPaper(a5)      ; Paper copies the other way
+   *   Pen1:
+   *     move.w d1,WiPen(a5)
+   *
+   * So naming a colour CANCELS an inversion, and the half not being set keeps
+   * whatever it was showing. `Inverse On : Pen 5` is not inverted text in 5,
+   * it is ordinary text in 5 on the paper that was being displayed.
+   */
   setPenChecked(n: number): void {
     if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
-    this.curWin.pen = n
+    const w = this.curWin
+    if (w.inverse) {
+      w.inverse = false
+      w.paper = w.pen
+    }
+    w.pen = n
   }
 
   setPaperChecked(n: number): void {
     if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
-    this.curWin.paper = n
+    const w = this.curWin
+    if (w.inverse) {
+      w.inverse = false
+      w.pen = w.paper
+    }
+    w.paper = n
   }
 
   /** Border$ start position (T_WiEncDX/DY — a task global on the 68k) */

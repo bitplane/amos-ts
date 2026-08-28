@@ -4288,11 +4288,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'shade off'() {
       scr().curWin.shade = false
     },
+    // InInverseOn/Off (+Lib.s:13397, :13405) print ESC "I1" and ESC "I0",
+    // and Inv (+W.s:14830) SWAPS WiPen and WiPaper rather than setting a
+    // rendering flag -- see Screen.setInverse
     'inverse on'() {
-      scr().curWin.inverse = true
+      scr().setInverse(true)
     },
     'inverse off'() {
-      scr().curWin.inverse = false
+      scr().setInverse(false)
     },
     'set text'(it) {
       // InSetText +Lib.s:9879: the rastport SoftStyle byte — it styles
