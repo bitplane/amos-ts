@@ -2305,7 +2305,7 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
       }
       if (mask.length === 0 || src.length === 0) return VI(0)
       for (let i = 0; i <= count; i++) {
-        if (mask.includes(src[from + i] ?? ' ')) return VI(len - (count - i))
+        if (mask.includes(src[from + i] ?? '\u0000')) return VI(len - (count - i))
       }
       return VI(0)
     },
