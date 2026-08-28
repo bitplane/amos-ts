@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
@@ -7,6 +6,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { firstCodeHunk } from '../tokens/libtok'
+import { corpusFile } from '../cli/corpus'
 import { Runtime } from './runtime'
 import { COLOURS } from './colours'
 
@@ -14,9 +14,22 @@ const table = new TokenTable(CORE_TOKENS)
 /** slot 23, and the source says so itself: `ExtNb equ 23-1` (:21) */
 const colours = extensionById('amospro-colours-1.0')!
 
-const DIR = join(__dirname, '../../fixtures/extensions/amospro-colours-1.0')
-const SRC = join(DIR, 'AMOSPro_Colours.Lib.s')
-const LIB = join(DIR, 'AMOSPro_Colours.Lib')
+/**
+ * Both inputs come from the CORPUS, by checksum.
+ *
+ * They used to be read out of `fixtures/extensions/amospro-colours-1.0/`,
+ * which is gitignored — so the two tests below, which are the only ones here
+ * that check anything against the shipped extension rather than against this
+ * port's own transcription, skipped on every machine that had not put the
+ * files there by hand. They are indexed: the library's sha256 is the one in
+ * the manifest, and the source sits beside it in `sources/ultimate-amiga-amos-
+ * factory/files/Colour_1.0/`.
+ */
+const LIB_SHA = colours.sha256
+const SRC_SHA = '1904f91f71c0709667ce5b5b89dfcdbd297fff576e2df3fe260c0ed6c5890d42'
+// resolved at COLLECTION, which is why these are plain consts -- see ../cli/corpus.ts
+const SRC = LIB_SHA === undefined ? null : corpusFile(SRC_SHA)
+const LIB = LIB_SHA === undefined ? null : corpusFile(LIB_SHA)
 
 /** the AMOS spelling of a keyword: `light grey` -> `Light Grey` */
 const amos = (k: string): string => k.replace(/\b\w/g, (c) => c.toUpperCase())
@@ -52,8 +65,8 @@ describe('AMOSPro Colours 1.0: the constants', () => {
    * (`DARKRED` against `dark red`, `ORANGE` against `c orange`). Matching on
    * the squashed name is what lets the transcription be checked at all.
    */
-  it.skipIf(!existsSync(SRC))('agrees with every equ in the source', () => {
-    const text = readFileSync(SRC, 'latin1')
+  it.skipIf(!SRC)('agrees with every equ in the source', () => {
+    const text = readFileSync(SRC!, 'latin1')
     // only the colour equs are hex — `ExtNb equ 23-1` and the `L_x equ N`
     // routine numbers are decimal, so the `$` is what separates them
     const equs = new Map<string, number>()
@@ -74,8 +87,8 @@ describe('AMOSPro Colours 1.0: the constants', () => {
    * says every one of them is (`dc.w 5`, in words, at :58). Every value has to
    * appear in that exact shape or the source and the binary disagree.
    */
-  it.skipIf(!existsSync(LIB))('agrees with the assembled library, byte for byte', () => {
-    const code = firstCodeHunk(new Uint8Array(readFileSync(LIB)))!
+  it.skipIf(!LIB)('agrees with the assembled library, byte for byte', () => {
+    const code = firstCodeHunk(new Uint8Array(readFileSync(LIB!)))!
     const found = new Set<number>()
     for (let i = 0; i + 9 < code.length; i += 2) {
       // `26 3c` is the d3 form; d0 would be `20 3c`
