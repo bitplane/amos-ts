@@ -220,6 +220,14 @@ export interface IntuiextendState {
   msg: IeMsgBlock
   /** the MsgPorts `Wb Create Msgport` and `Wb Create Port` made */
   portState: IePortState
+  /**
+   * Whether the slot holds 1.6 rather than 2.01b, once something has asked.
+   *
+   * Null until the first keyword that behaves differently in the two builds
+   * runs; ./intuiextend16.ts's `ieIs16` resolves it and caches it here,
+   * because the token table it reads is not built when `init` runs.
+   */
+  is16: boolean | null
 }
 
 export function newIntuiextendState(): IntuiextendState {
@@ -260,6 +268,7 @@ export function newIntuiextendState(): IntuiextendState {
     amosRp: 0,
     msg: newIeMsgBlock(),
     portState: newIePortState(),
+    is16: null,
   }
 }
 

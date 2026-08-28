@@ -147,6 +147,10 @@ import {
   makeIntuiextendAppFunctions,
   makeIntuiextendAppInstructions,
 } from './intuiextendapp'
+import {
+  makeIntuiextend16Functions,
+  makeIntuiextend16Instructions,
+} from './intuiextend16'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8084,38 +8088,46 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * including the NewScreen and the NewWindow the screen and window group
      * fills in. See ./intuiextend.ts.
      */
-    ids: ['intuiextend-2.01b'],
+    ids: ['intuiextend-2.01b', 'intuiextend-1.6'],
     init: (rt) => {
       rt.intuiextend = newIntuiextendState()
     },
-    instructions: (rt) => ({
-      ...makeIntuiextendInstructions(rt),
-      ...makeIntuiextendSysInstructions(rt),
-      ...makeIntuiextendGfxInstructions(rt),
-      ...makeIntuiextendWinInstructions(rt),
-      ...makeIntuiextendMsgInstructions(rt),
-      ...makeIntuiextendGadInstructions(rt),
-      ...makeIntuiextendMenuInstructions(rt),
-      ...makeIntuiextendReqInstructions(rt),
-      ...makeIntuiextendIffInstructions(rt),
-      ...makeIntuiextendTdInstructions(rt),
-      ...makeIntuiextendPpInstructions(rt),
-      ...makeIntuiextendAppInstructions(rt),
-    }),
-    functions: (rt) => ({
-      ...makeIntuiextendFunctions(rt),
-      ...makeIntuiextendSysFunctions(rt),
-      ...makeIntuiextendGfxFunctions(rt),
-      ...makeIntuiextendWinFunctions(rt),
-      ...makeIntuiextendMsgFunctions(rt),
-      ...makeIntuiextendGadFunctions(rt),
-      ...makeIntuiextendMenuFunctions(rt),
-      ...makeIntuiextendReqFunctions(rt),
-      ...makeIntuiextendIffFunctions(rt),
-      ...makeIntuiextendTdFunctions(rt),
-      ...makeIntuiextendPpFunctions(rt),
-      ...makeIntuiextendAppFunctions(rt),
-    }),
+    instructions: (rt) => {
+      const base = {
+        ...makeIntuiextendInstructions(rt),
+        ...makeIntuiextendSysInstructions(rt),
+        ...makeIntuiextendGfxInstructions(rt),
+        ...makeIntuiextendWinInstructions(rt),
+        ...makeIntuiextendMsgInstructions(rt),
+        ...makeIntuiextendGadInstructions(rt),
+        ...makeIntuiextendMenuInstructions(rt),
+        ...makeIntuiextendReqInstructions(rt),
+        ...makeIntuiextendIffInstructions(rt),
+        ...makeIntuiextendTdInstructions(rt),
+        ...makeIntuiextendPpInstructions(rt),
+        ...makeIntuiextendAppInstructions(rt),
+      }
+      // 1.6 last, and every entry of it either a name 2.01b does not have or
+      // a wrapper that hands back to `base` when 2.01b is the build
+      return { ...base, ...makeIntuiextend16Instructions(rt, base) }
+    },
+    functions: (rt) => {
+      const base = {
+        ...makeIntuiextendFunctions(rt),
+        ...makeIntuiextendSysFunctions(rt),
+        ...makeIntuiextendGfxFunctions(rt),
+        ...makeIntuiextendWinFunctions(rt),
+        ...makeIntuiextendMsgFunctions(rt),
+        ...makeIntuiextendGadFunctions(rt),
+        ...makeIntuiextendMenuFunctions(rt),
+        ...makeIntuiextendReqFunctions(rt),
+        ...makeIntuiextendIffFunctions(rt),
+        ...makeIntuiextendTdFunctions(rt),
+        ...makeIntuiextendPpFunctions(rt),
+        ...makeIntuiextendAppFunctions(rt),
+      }
+      return { ...base, ...makeIntuiextend16Functions(rt, base) }
+    },
   },
   {
     /*

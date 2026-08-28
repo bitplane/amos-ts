@@ -267,7 +267,7 @@ export function makeIntuiextendIffInstructions(rt: Runtime): Record<string, Inst
       it.expect(',')
       const ctable = it.evalInt() >>> 0
       getCtable(rt, buf, ctable)
-      decodePicture(rt, bitmap, buf)
+      ieIffDecodePicture(rt, bitmap, buf)
     },
 
     /**
@@ -604,7 +604,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
     'iff decode picture': (_, a) => {
       open196()
       // the answer is 0 whether or not the decode worked; see the DEFECT above
-      decodePicture(rt, i0(a, 1) >>> 0, i0(a, 0) >>> 0)
+      ieIffDecodePicture(rt, i0(a, 1) >>> 0, i0(a, 0) >>> 0)
       return VI(0)
     },
 
@@ -663,7 +663,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
  * deeper picture than the screen loses its top planes rather than writing
  * past the bitmap.
  */
-function decodePicture(rt: Runtime, rpAddr: number, buf: number): boolean {
+export function ieIffDecodePicture(rt: Runtime, rpAddr: number, buf: number): boolean {
   const st = rt.intuiextend.iff
   const rp = ieRastPortAt(rt, rpAddr >>> 0)
   const bytes = iffBytes(rt, buf)
