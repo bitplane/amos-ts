@@ -836,8 +836,25 @@ export const INSTR: Record<string, Instr> = {
 
   // ---- error trapping ----
   'on error'(it) {
-    it.inError = false
+    // InOnError (+ILib.s:1878) opens `tst.w ErrorOn(a5) / bne NoResum`, and
+    // NoResum (+ILib.s:1202) is `moveq #3,d0`. Re-arming the handler from
+    // inside a handler that has not resumed is error 3, not a fresh arm; the
+    // port cleared ErrorOn here, which is the one thing the routine never
+    // does. It clears OnErrLine and ErrorChr and nothing else.
+    if (it.inError) throw new AmosError(ED_RUN_MESSAGES[3]!, 3)
+    it.errorHandler = null
     if (it.accept('goto')) {
+      // `cmp.w #_TkEnt,(a6) / bne.s OnEg1 / move.l 2(a6),d0 / bne.s OnEg1 /
+      // addq.l #6,a6` — an integer literal 0 is stepped over (2 for the token
+      // plus 4 for the longword) and the cleared OnErrLine stands. `On Error
+      // Goto 0` is how a program takes trapping back off, and it never
+      // reaches GetLabel, so the digits are not a label name. The port looked
+      // one up and raised "label not defined: 0".
+      const t = it.tok()
+      if (t?.kind === 'int' && t.value === 0) {
+        it.advance()
+        return
+      }
       it.errorHandler = { kind: 'goto', target: it.parseLabelTarget().toLowerCase() }
       return
     }
@@ -889,9 +906,29 @@ export const INSTR: Record<string, Instr> = {
     throw new AmosError(AMOS_ERRORS[n] ?? `Error ${n}`, n)
   },
   resume(it) {
+    /*
+     * InResume (+ILib.s:1950) splits on the handler's flavour before it looks
+     * at the argument:
+     *
+     *	tst.w	ErrorChr(a5)
+     *	bmi.s	ResP		On Error PROC — bit 31 is what OnEPrc set
+     *	bsr	Finie / bne.s ResL
+     * ResP:	bsr	Finie
+     *	bne	ResPLab		a label here is error 4
+     *
+     * ResPLab (+ILib.s:1196) is `moveq #4,d0`, "Can't resume to a label". A
+     * procedure handler has to leave by a bare `Resume` or by `Resume Label`,
+     * because PopP has to run and `Resume LBL` would jump with the procedure
+     * still on the stack. The port jumped, and the frame stayed.
+     */
+    const named = !it.atStmtEnd()
+    // the ErrorOn test comes first, so `Resume LBL` outside an error is 7 and
+    // not 4 — `tst.w ErrorOn(a5) / beq NoErr` precedes the ErrorChr test
+    if (!it.inError && !it.errStmt) throw new AmosError(ED_RUN_MESSAGES[7]!, 7)
+    if (named && it.errorHandler?.kind === 'proc') throw new AmosError(ED_RUN_MESSAGES[4]!, 4)
     it.inError = false
     it.unwindErrorHandler() // pop an On Error Proc handler frame
-    if (it.atStmtEnd()) {
+    if (!named) {
       if (!it.errStmt) throw new AmosError('Resume without error', 7)
       it.setPc(it.errStmt)
       return 'jumped'
