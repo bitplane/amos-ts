@@ -139,6 +139,10 @@ import {
   makeIntuiextendTdFunctions,
   makeIntuiextendTdInstructions,
 } from './intuiextendtd'
+import {
+  makeIntuiextendPpFunctions,
+  makeIntuiextendPpInstructions,
+} from './intuiextendpp'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8091,6 +8095,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       ...makeIntuiextendReqInstructions(rt),
       ...makeIntuiextendIffInstructions(rt),
       ...makeIntuiextendTdInstructions(rt),
+      ...makeIntuiextendPpInstructions(rt),
     }),
     functions: (rt) => ({
       ...makeIntuiextendFunctions(rt),
@@ -8103,6 +8108,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       ...makeIntuiextendReqFunctions(rt),
       ...makeIntuiextendIffFunctions(rt),
       ...makeIntuiextendTdFunctions(rt),
+      ...makeIntuiextendPpFunctions(rt),
     }),
   },
   {

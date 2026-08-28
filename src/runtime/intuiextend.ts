@@ -94,6 +94,7 @@ import { newIeGadgetState, type IeGadgetState } from './intuiextendgad'
 import { newIeReqState, type IeReqState } from './intuiextendreq'
 import { newIeIffState, type IeIffState } from './intuiextendiff'
 import { newIeTdState, type IeTdState } from './intuiextendtd'
+import { newIePpState, type IePpState } from './intuiextendpp'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -199,6 +200,8 @@ export interface IntuiextendState {
   iff: IeIffState
   /** the last DoIO answer at workspace+$194, and which unit each DiskExtIO belongs to */
   td: IeTdState
+  /** powerpacker.library's base at workspace+$0, and the buffer at +$50 with its length at +$54 */
+  pp: IePpState
   /** workspace+$e6, what `Wb Next Pubscreen` fills and `Wb Pubscreen Name` reads */
   pubName: string
   /** what SetPubScreenModes last took, so the next call can answer the previous */
@@ -250,6 +253,7 @@ export function newIntuiextendState(): IntuiextendState {
     req: newIeReqState(),
     iff: newIeIffState(),
     td: newIeTdState(),
+    pp: newIePpState(),
     pubName: '',
     pubModes: 0,
     pubStatus: 0,
