@@ -654,6 +654,19 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(code('Set Input 256,0')).toBe(23)
     expect(code('Set Input -1,0')).toBe(23)
     expect(code('Set Input 255,999')).toBe(0)
+    /*
+     * Opening reads the SAME GetFile the other way round. It ends `move.l
+     * FhA(a2),d1`, setting the flags from the handle, and OpIn (+Lib.s:5077)
+     * takes them straight to `Rbne L_FilOO`: a channel that already has a
+     * handle cannot be opened over itself. FilOO is `moveq #DEBase+17,d0 /
+     * Rbra L_GoError`, one below FilNO, so 96 — "File already opened".
+     */
+    expect(code('Open Out 0,"DH0:x"')).toBe(23)
+    expect(code('Open Out 10,"DH0:x"')).toBe(23)
+    expect(code('Open Out 1,"DH0:x" : Open Out 1,"DH0:y"')).toBe(96)
+    expect(code('Open Out 1,"DH0:x" : Append 1,"DH0:y"')).toBe(96)
+    // and closing it first makes the slot free again
+    expect(code('Open Out 1,"DH0:x" : Close 1 : Open Out 1,"DH0:y"')).toBe(0)
   })
 })
 

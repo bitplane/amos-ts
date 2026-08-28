@@ -4462,7 +4462,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (c.data.length > c.fileSize!) c.fileSize = c.data.length
     },
     'open in'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const data = rt.fs?.read(path)
@@ -4481,7 +4481,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * is what MODE_OLDFILE on an arbitrary string does on the machine too.
      */
     'open port'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const serial = /^ser:/i.test(path) ? (rt.host?.serial?.open(0, DEV_SERIAL_DEFAULTS) ?? undefined) : undefined
@@ -4490,13 +4490,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fileChans.set(n, { mode: 'in', path, data, pos: 0, out: [], port: true, ...(serial ? { serial } : {}) })
     },
     'open out'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [], ...speakChannel(rt, path) })
     },
     append(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       // Append to SPEAK: is Open Out to SPEAK: — there is nothing to append to
@@ -5053,6 +5053,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     if (gx2 > (s.width & 0xffff)) funcCall()
     if (gy2 > (s.height & 0xffff)) funcCall()
     rt.bobLimits.set(n, { x1: gx1, y1: y1 & 0xffff, x2: gx2, y2: gy2 })
+  }
+
+  /**
+   * GetFile (+Lib.s:4625) for a channel about to be OPENED.
+   *
+   * The range is `cmp.l #10,d0 / Rbcc L_FonCall` then `subq.l #1,d0 / Rbmi
+   * L_FonCall`, so 1 to 9 and error 23 outside it. GetFile finishes with
+   * `move.l FhA(a2),d1`, which sets the flags from the file handle, and OpIn
+   * (+Lib.s:5077) reads them straight back: `Rbne L_FilOO`. A channel that
+   * already has a handle cannot be opened over the top of itself. FilOO is
+   * `moveq #DEBase+17,d0 / Rbra L_GoError` (+Lib.s:12879) — GoError, so no
+   * +44, and DEBase is EcEBase+35-1, which puts it at 96.
+   */
+  function openChan(n: number): number {
+    if (n <= 0 || n >= 10) funcCall()
+    if (rt.fileChans.has(n)) throw new AmosError(ED_RUN_MESSAGES[96]!, 96)
+    return n
   }
 
   function bankPalette(): Instr {
