@@ -398,9 +398,16 @@ export const INSTR: Record<string, Instr> = {
     } while (it.accept(','))
   },
   // Inc/Dec/Add (InInc/InDec/InAdd +ILib.s:4353-4394) operate on the
-  // variable's long directly (addq.l/add.l), so integers wrap at 32
-  // bits. Float targets get plain arithmetic here — the real machine
-  // adds to the FFP bit pattern (garbage), which no sane program uses.
+  // variable's long directly (addq.l/add.l), so integers wrap at 32 bits.
+  //
+  // None of the three reads the type FindVar leaves in d2, and there is no
+  // float variant beside them the way FnStrE has FnStrF. That reads like a
+  // float variable would have 1 added to its FFP pattern, whose low byte is
+  // the excess-64 exponent, so `Inc A#` would double A#. It cannot happen:
+  // VerVEnt (+Verif.s:1460) is `bsr VarA0 / tst.b d0 / bne VerType`, so a
+  // non-integer target is a type error before the program runs and the
+  // float arm of all three routines is unreachable. The arithmetic below is
+  // this port's, for a case the library never has to answer.
   inc(it) {
     const tg = it.parseTarget()
     if (tg.type === 0) tg.set(VI((int(tg.get()) + 1) | 0))
@@ -442,6 +449,10 @@ export const INSTR: Record<string, Instr> = {
     const a = it.parseTarget()
     it.expect(',')
     const b = it.parseTarget()
+    // InSwap (+ILib.s:4273) exchanges one longword and never compares the
+    // types, but the check is not missing, it is earlier: VerSwap
+    // (+Verif.s:867) keeps the first variable's type on the stack and ends
+    // `cmp.w (sp)+,d2 / beq VerDP / bne VerType`.
     if (a.type !== b.type) throw new AmosError('Type mismatch')
     const tmp = a.get()
     a.set(b.get())
