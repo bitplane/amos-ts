@@ -1363,7 +1363,7 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(0, 3)).toBe(5)
     expect(rt.screen.point(0, 0)).toBe(0)
     // a missing block raises the FindBloc "Block not defined" error
-    expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
+    expect(() => run('Hrev Block 9')).toThrow(/block not defined/i)
   })
 
   it('Ins Bob needs a bank rather than making one', () => {

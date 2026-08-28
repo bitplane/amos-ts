@@ -3986,7 +3986,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'put block'(it) {
       const b = rt.blocks.get(blockNum(it))
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       let x = b.x
       let y = b.y
       if (it.accept(',')) {
@@ -4036,7 +4036,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'put cblock'(it) {
       const b = rt.cblocks.get(blockNum(it))
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       let x = b.x
       let y = b.y
       if (it.accept(',')) {
@@ -4500,12 +4500,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // RevBloc +W.s:12591: FindBloc raises "Block not defined" on a missing
       // block, then Retourne mirrors the pixels along the chosen axis.
       const b = rt.blocks.get(it.evalInt())
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
     },
+    /*
+     * Hrev Block and Vrev Block (+Lib.s:11205) each load one bit into d2 and
+     * fall into Rev, which is `move.l d3,d1 / EcCall BlRev / Rbne
+     * L_EcWiErr`. RevBloc (+W.s:12592) opens `bsr FindBloc / beq BlNDef`,
+     * and BlNDef is `moveq #2,d0` — 46 through EcWiErr, "Block not defined".
+     *
+     * That is NOT Del Block's 65, "Block not found", which comes from
+     * `moveq #BlE+2,d0`. Two block-missing errors with two numbers, and the
+     * port had the right string on all four of these with no number at all,
+     * so they were reporting as the catch-all 23.
+     */
     'vrev block'(it) {
       const b = rt.blocks.get(it.evalInt())
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h >> 1; y++) {
         const a = b.pixels.slice(y * b.w, (y + 1) * b.w)
         b.pixels.copyWithin(y * b.w, (b.h - 1 - y) * b.w, (b.h - y) * b.w)
