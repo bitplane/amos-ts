@@ -229,8 +229,10 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
   })
 
   it('Border$ wraps text in the Encadre escapes and the box is drawn (FnBorderD/Encadre)', () => {
-    expect(() => run('X$=Border$("hi",0)')).toThrow(/illegal function call/i)
-    expect(() => run('X$=Border$("hi",16)')).toThrow(/illegal function call/i)
+    // both exits are WFonCall, error 60 -- see 'what LongToHex and WiZone
+    // actually do' below
+    expect(() => run('X$=Border$("hi",0)')).toThrow(/text window parameter/i)
+    expect(() => run('X$=Border$("hi",16)')).toThrow(/text window parameter/i)
     // Curs Off first: the cursor is drawn INTO the bitmap now (AffCur), so it
     // would sit in the last cell this checks and clear its bottom two rows
     const { rt } = run('Curs Off : Cls 0 : Pen 5 : Locate 2,2 : Print Border$("HELLO",2);')
@@ -2749,5 +2751,71 @@ describe('what the keyboard and scroll keywords check (+Lib.s:13529)', () => {
     // DEFECT: SGk4 steps a1 too, so a chr(1) drops itself without skipping
     // the three scan-code bytes behind it
     expect(s('Key$(1)="a"+Chr$(1)+"XYZb" : R$=Key$(1)')).toEqual({ k: 'str', s: 'aXYZb' })
+  })
+})
+
+describe('what LongToHex and WiZone actually do (+Lib.s:25718)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+  const s = (src: string) => (run(src).rt.interp.getVar('r$', 2) as { s: string }).s
+
+  it('a digit count outside the width is the same as no count at all', () => {
+    // `tst.l d3 / bmi.s ha0 / neg.l d3 / add.l #8,d3` turns the count into
+    // the number of leading nibbles to SKIP, so anything above 8 comes out
+    // negative and rejoins the proportional path. That is what holds the
+    // write inside the nine bytes BinHex reserved (+Lib.s:14272).
+    expect(s('R$=Hex$(255)')).toBe('$FF')
+    expect(s('R$=Hex$(255,2)')).toBe('$FF')
+    expect(s('R$=Hex$(255,8)')).toBe('$000000FF')
+    expect(s('R$=Hex$(255,9)')).toBe('$FF')
+    expect(s('R$=Hex$(255,100)')).toBe('$FF')
+    expect(s('R$=Hex$(255,-1)')).toBe('$FF')
+    // a count of 0 skips all eight and leaves the prefix on its own
+    expect(s('R$=Hex$(255,0)')).toBe('$')
+    expect(s('R$=Bin$(5,32)')).toBe('%' + '101'.padStart(32, '0'))
+    expect(s('R$=Bin$(5,33)')).toBe('%101')
+    expect(s('R$=Bin$(5,0)')).toBe('%')
+  })
+
+  it('Zone$ and Border$ number only the closing escape', () => {
+    // FinRpt (+Lib.s:14152) writes the digit once, at `move.b d3,6(a0)` --
+    // the second template's slot. ChZon is `dc.b 27,"Z0",0,27,"Z0",0`, so
+    // the leading escape keeps the "0" it was assembled with, and that "0"
+    // is WiZone's store-the-anchor command rather than a zone number.
+    expect(s('R$=Zone$("HI",3)')).toBe('\x1bZ0HI\x1bZ3')
+    expect(s('R$=Border$("HI",3)')).toBe('\x1bE0HI\x1bE3')
+    expect(s('R$=Repeat$("HI",3)')).toBe('\x1bR0HI\x1bR3')
+    // all three raise WFonCall, error 60, not the catch-all 23
+    expect(code('R$=Zone$("x",0)')).toBe(60)
+    expect(code('R$=Zone$("x",207)')).toBe(60)
+    expect(code('R$=Border$("x",0)')).toBe(60)
+    expect(code('R$=Border$("x",16)')).toBe(60)
+  })
+
+  it('ESC Z 0 stores one anchor, and SySetZ is what refuses the rest', () => {
+    // The anchor is per window, not per zone number, so a hand-written pair
+    // works the same way Zone$ does.
+    const z = (src: string) => run(src).rt.screens.get(0)!.zones
+    expect(z('Reserve Zone 4 : Print Zone$("HI",1);')[0]).toEqual({ x1: 0, y1: 0, x2: 15, y2: 8 })
+    expect(z('Reserve Zone 4 : Print Chr$(27);"Z0";"ABC";Chr$(27);"Z2";')[1]).toEqual({
+      x1: 0,
+      y1: 0,
+      x2: 23,
+      y2: 8,
+    })
+    // WiZ steps CLeft before SySetZ and CRight after, so the far corner is
+    // the last character printed and not the cell the cursor moved on to
+    expect(z('Reserve Zone 4 : Print Zone$("HI",1);')[0]!.x2).toBe(15)
+    // NoZo is `moveq #29,d0` (+W.s:11059), error 73; RzErr is `moveq #1,d0`
+    // and EcWiErr sends 1 to OOfMem instead of adding 44, so it reads 24
+    expect(code('Print Zone$("HI",1);')).toBe(73)
+    expect(code('Reserve Zone 4 : Print Zone$("HI",9);')).toBe(24)
+    expect(code('Reserve Zone 4 : Print Zone$("",1);')).toBe(24)
   })
 })

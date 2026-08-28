@@ -6466,15 +6466,23 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       void a
       return VI(scr().curY)
     },
+    /*
+     * FnZoneD (+Lib.s:14138) is `tst.l d3 / Rbeq L_WFonCall / cmp.l #255-48,d3
+     * / Rbcc L_WFonCall`, so 1 to 206 and error 60 -- the same WFonCall
+     * Repeat$ raises, not the catch-all 23 the port used.
+     *
+     * Both escapes came out numbered, and only the closing one is. FinRpt
+     * (+Lib.s:14152) is shared with Border$ and Repeat$, and it writes the
+     * digit once: `add.b #"0",d3 / move.b d3,6(a0)`. Offset 6 is the second
+     * template's digit -- ChZon is `dc.b 27,"Z0",0,27,"Z0",0` -- so the
+     * leading escape keeps the "0" it was assembled with. Border$ already
+     * had that right eight lines away.
+     */
     'zone$'(_, a) {
-      // FnZoneD +Lib.s:14138: Zone$(text$,n) wraps text as a printable
-      // text-zone — ESC "Z" <n> text ESC "Z" <n> (n is the last arg, d3);
-      // n in 1..206 (sibling of Border$)
       const text = str(a[0]!)
       const n = int(a[1]!)
-      if (n < 1 || n >= 207) funcCall()
-      const tag = '\x1bZ' + String.fromCharCode(48 + n)
-      return VS(tag + text + tag)
+      if (n < 1 || n >= 207) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      return VS('\x1bZ0' + text + '\x1bZ' + String.fromCharCode(48 + n))
     },
 
     // ---- objects ----
@@ -7397,10 +7405,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'border$'(_, a) {
-      // FnBorderD +Lib.s:14124: style 1-15 (0 and >=16 error); the text
-      // is wrapped in Esc E 0 (store position) ... Esc E n (draw box)
+      // FnBorderD +Lib.s:14124: style 1-15, `tst.l d3 / Rbeq L_WFonCall /
+      // cmp.l #16,d3 / Rbcc L_WFonCall`, so error 60 and not 23. The text is
+      // wrapped in Esc E 0 (store position) ... Esc E n (draw box)
       const n = int(a[1]!)
-      if (n <= 0 || n >= 16) funcCall()
+      if (n <= 0 || n >= 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       return VS('\x1bE0' + str(a[0]!) + '\x1bE' + String.fromCharCode(48 + n))
     },
   }

@@ -1300,6 +1300,30 @@ function arity(args: Value[], min: number, max = min): void {
 const toAngle = (it: Interp, v: number): number => (it.degrees ? (v * Math.PI) / 180 : v)
 const fromAngle = (it: Interp, v: number): number => (it.degrees ? (v * 180) / Math.PI : v)
 
+/*
+ * FnBin1 and FnHex1 (+Lib.s:14239, 14256) set the digit count to -1; FnBin2
+ * and FnHex2 (+Lib.s:14246, 14263) pass the one they were given. BinHex
+ * (+Lib.s:14270) reserves 33 or 9 bytes -- exactly "%" plus 32 digits, or "$"
+ * plus 8 -- and LongToHex (+Lib.s:25718) is what decides how many appear:
+ *
+ *     move.b #"$",(a0)+
+ *     tst.l  d3 / bmi.s ha0      ; already negative: proportional
+ *     neg.l  d3 / add.l #8,d3    ; else d3 = 8 - n, the digits to SKIP
+ *
+ * so a count above the width goes negative and lands in the same proportional
+ * mode as no count at all, and a count of 0 skips all eight and leaves the
+ * "$" on its own. That is what keeps the write inside the nine bytes Demande
+ * asked for. The port padded to whatever count it was handed, so
+ * `Hex$(255,100)` built a 101-character string and `Hex$(255,-1)` gave "$F".
+ */
+function binHex(a: Value[], radix: 2 | 16, width: number, prefix: string): Value {
+  const s = (int(a[0]!) >>> 0).toString(radix).toUpperCase()
+  const n = a.length === 2 ? int(a[1]!) : -1
+  if (n < 0 || n > width) return VS(prefix + s)
+  if (n === 0) return VS(prefix)
+  return VS(prefix + s.slice(-n).padStart(n, '0'))
+}
+
 export const FUNCS: Record<string, Func> = {
   // math
   abs(it, a) {
@@ -1489,15 +1513,11 @@ export const FUNCS: Record<string, Func> = {
   },
   'bin$'(_, a) {
     arity(a, 1, 2)
-    const s = (int(a[0]!) >>> 0).toString(2)
-    const digits = a.length === 2 ? int(a[1]!) : s.length
-    return VS('%' + s.slice(-digits).padStart(digits, '0'))
+    return binHex(a, 2, 32, '%')
   },
   'hex$'(_, a) {
     arity(a, 1, 2)
-    const s = (int(a[0]!) >>> 0).toString(16).toUpperCase()
-    const digits = a.length === 2 ? int(a[1]!) : s.length
-    return VS('$' + s.slice(-digits).padStart(digits, '0'))
+    return binHex(a, 16, 8, '$')
   },
 
   // misc
