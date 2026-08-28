@@ -45,19 +45,25 @@ describe('version sweep', () => {
    * what a rebuilt table looks like too. The sweep cannot tell those apart
    * and does not try; it says "read the binary" and names the file to read.
    *
-   * FIVE have left the list the same way, and it is the same way each time:
+   * SEVEN have left the list the same way, and it is the same way each time:
    * the sweep only looks at extensions NO port claims. Explode went on
    * 2026-08-12 (its names reaching CText were the collision this list used to
    * illustrate), DME 2.0 followed when its ProTracker block landed, gui-1.5b
    * and gui-1.61 went when gui.ts named all three GUI releases in one `ids`,
-   * and intuition-1.3b went on 2026-08-21 when ./intuition.ts began. Those two were the only entries this list has ever held that were a
+   * intuition-1.3b went on 2026-08-21 when ./intuition.ts began, and both
+   * IntuiExtend releases went on 2026-08-28. gui-1.5b and gui-1.61 were the
+   * only entries this list has ever held that were a
    * real lineage rather than a collision: Pietro Ghizzoni rebuilt the token
    * table for each release, so 44 of 1.5b's names and 85 of 1.61's reappear in
    * 2.10 with exactly ONE id surviving in each, which by the sweep's own
    * measure is indistinguishable from a coincidence and is the opposite.
+   *
+   * The list is empty now, which on its own says nothing, so the pair that
+   * emptied it is unbound again and has to come back reported the same way.
    */
   it('the renumbered candidates are name collisions, not releases', () => {
-    const renumbered = sweep().filter((c) => c.moved > 0)
+    expect(sweep().filter((c) => c.moved > 0)).toEqual([])
+    const renumbered = sweep(['intuiextend-1.6', 'intuiextend-2.01b']).filter((c) => c.moved > 0)
     expect(renumbered.map((c) => c.id).sort()).toEqual(['intuiextend-1.6', 'intuiextend-2.01b'])
     // a handful of names each and no id in common: a collision, not a lineage
     for (const c of renumbered) {
@@ -105,10 +111,15 @@ describe('version sweep', () => {
   /**
    * IntuiExtend is the counter-case the criterion has to keep rejecting.
    *
-   * 1.6 and 2.01b are one product two releases apart and share 45 keyword
-   * names, and 2.01b rebuilt its table rather than appending to it. Neither is
-   * ported, so neither reaches the sweep proper; the pair is compared directly
-   * here because it is the shape a wrong criterion would wave through.
+   * 1.6 and 2.01b are one product two releases apart. Of 294 and 301 named
+   * keywords they share 284 NAMES, and only 45 of those sit at the same id,
+   * because 2.01b rebuilt its table rather than appending to it. The 45 is
+   * what this comment used to report as the number of shared names, which
+   * made a near-total overlap read as a handful.
+   *
+   * Both are ported now, so the sweep no longer has to make the call; the
+   * pair is still compared directly here because it is the shape a wrong
+   * criterion would wave through.
    */
   it('IntuiExtend 1.6 and 2.01b share names and almost no ids', () => {
     const ids = (id: string): Map<string, number> =>
@@ -121,11 +132,11 @@ describe('version sweep', () => {
     const a = ids('intuiextend-1.6')
     const b = ids('intuiextend-2.01b')
     const shared = [...a.keys()].filter((n) => b.has(n))
-    expect(shared.length).toBeGreaterThan(40)
-    expect(shared.filter((n) => a.get(n) === b.get(n)).length).toBeLessThan(shared.length / 2)
-    // and neither is bound, so the sweep never had to make the call
+    expect(shared.length).toBe(284)
+    expect(shared.filter((n) => a.get(n) === b.get(n)).length).toBe(45)
+    // and one impl claims both, which is what took them off the list above
     const bound = new Set(extensionImpls().flatMap((i) => [...i.ids]))
-    expect(bound.has('intuiextend-1.6')).toBe(false)
-    expect(bound.has('intuiextend-2.01b')).toBe(false)
+    expect(bound.has('intuiextend-1.6')).toBe(true)
+    expect(bound.has('intuiextend-2.01b')).toBe(true)
   })
 })

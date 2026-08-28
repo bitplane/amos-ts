@@ -23,10 +23,13 @@
  * `first + 2 * sum(delta[0..N-1])`, and a token table entry's `instr`/`func`
  * field is N.
  *
- * The table's offset within the code hunk is found by calibration rather than
- * assumed: the correct one is the only one whose prefix sums land routine 0
- * on the first byte of code. Verified on LDos against three routines
- * identified independently by their content (Lcrypt, Lupbuffer, Lchk Data).
+ * The table's offset within the code hunk is read rather than assumed: 18,
+ * or 22 on the two libraries that write `"AP20"` after the header's zero
+ * word. `libLayout` decides it and checks the answer against the four sizes.
+ * Verified on LDos against three routines identified independently by their
+ * content (Lcrypt, Lupbuffer, Lchk Data), and on OS DevKit against
+ * `_Cold Reboot`, whose routine 501 is `Rbra routine 1570` and whose 1570 is
+ * `movea.l $4.w,a6 / jsr -$2d6(a6)`, ColdReboot.
  *
  * Disassembly needs python3 with capstone (`CS_ARCH_M68K`). Without it the
  * address map still prints, which is the hard-won part.
@@ -37,7 +40,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
-import { routineAddresses } from '../ext/routines'
+import { libLayout, routineAddresses } from '../ext/routines'
 import { extensionById, REGISTRY } from '../ext/registry'
 import { amosVector } from '../ext/amosvectors'
 import { disasm } from './m68k'
@@ -73,30 +76,36 @@ const code = firstCodeHunk(new Uint8Array(readFileSync(join(dir, libFile))))
 const view = new DataView(code.buffer, code.byteOffset, code.byteLength)
 
 /**
- * The layout is computable from the header rather than guessed. The code
- * hunk opens with two size longs — the jump table's and the token table's —
- * then ten bytes of header, then the jump table, then the token table, and
- * the routines begin immediately after all of it:
+ * The layout is computable from the header rather than guessed. The code hunk
+ * opens with four size longs, for the jump table, token table, library and
+ * title. Then a zero word, then `"AP20"` if the library carries it, then
+ * the blocks themselves in that order:
  *
- *   [0,8)                       jump size, token size
- *   [8,18)                      header
- *   [18, 18+jumpSize)           delta-encoded jump table
- *   [18+jumpSize, +tokenSize)   token table   (parseAmosLibOld reads it here)
- *   [that, end)                 the routines; routine 0 first
+ *   [0,16)                      the four sizes
+ *   [16,18)                     dc.w 0
+ *   [18,22)                     "AP20", on the two libraries that write it
+ *   [table, +jumpSize)          delta-encoded jump table
+ *   [+jumpSize, +tokenSize)     token table   (parseAmosLibOld reads it here)
+ *   [first, end)                the routines; routine 0 first
+ *   [end, ...)                  the title chunk
  *
  * Checked on LDos: jump table at +18, routine 0 at $622, which is exactly
  * where the first instruction lives, and routines 62/63/44/67 then land on
  * Lcrypt, Ldecrypt, Lupbuffer and Lchk Data as identified by their content.
+ *
+ * This used to compute the offsets a second time, with the header fixed at 18,
+ * and print them beside addresses `routineAddresses` had walked. It goes
+ * through the same `libLayout` now, because the two disagreed on OS DevKit and
+ * the banner was the one that was wrong.
  */
-const jumpSize = view.getUint32(0, false)
-const tokenSize = view.getUint32(4, false)
-const cal = { at: 18, first: 18 + jumpSize + tokenSize }
 // the walk itself lives in ../ext/routines.ts so the citation checker and
 // this disassembler agree by construction rather than by both getting it right
-if (cal.first >= code.length) {
-  console.error(`header implies routine 0 at $${cal.first.toString(16)}, past the ${code.length}-byte hunk`)
+const cal = libLayout(code)
+if (!cal) {
+  console.error(`the header does not describe a library: its four sizes do not account for the ${code.length}-byte hunk`)
   process.exit(1)
 }
+const routinesEnd = cal.end
 
 /**
  * The table has an entry per routine, not per keyword, and the extras matter:
@@ -222,7 +231,7 @@ for (const t of ext.tokens) {
 }
 
 console.log(`${id}: ${libFile}, ${code.length} byte code hunk`)
-console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal.first.toString(16)}, ${addr.length} routines`)
+console.log(`jump table at +${cal.table} (delta-encoded words), routine 0 at $${cal.first.toString(16)}, ${addr.length} routines`)
 
 /*
  * A token entry that names a routine the jump table does not have is the one
@@ -301,7 +310,9 @@ if (showMap || (!keyword && !args.includes('--addr'))) {
 
 function disassemble(label: string, n: number): void {
   const start = addr[n]!
-  const end = addr[n + 1] ?? code.length
+  // the last routine stops where the routines do, not where the hunk does:
+  // the title chunk follows, and disassembling it prints the banner as code
+  const end = addr[n + 1] ?? routinesEnd
   console.log(`\n=== ${label} (routine ${n}) $${start.toString(16)}..$${end.toString(16)}, ${end - start} bytes ===`)
   {
     // the walk marks each pseudo-instruction as `.amoscall <size>` and
