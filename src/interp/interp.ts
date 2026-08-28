@@ -585,8 +585,16 @@ export class Interp {
         // On Error Goto tests: an error in a typed line is never trapped, it
         // is reported to whoever typed it. The same instruction refuses to
         // trap errors 1000 and up, which are Edit and Direct themselves.
-        if (e instanceof AmosError && this.errorHandler !== null && !this.inError && this.direct === 0) {
-          this.errCode = amosErrorCode(e)
+        // RunErr (+ILib.s:1266) opens `moveq #19,d1` and then, once the
+        // closing routines have run, `cmp.w #11,d0 / beq.s .skip / cmp.w d1,d0
+        // / bcs rErr1`. An error BELOW 19 cannot be diverted at all, and 11,
+        // Out of variable space, is the single exception written into the
+        // test. So a handler never sees Stop (9), Out of stack space (13) or
+        // Illegal direct mode (17); those go straight to the report.
+        const code = e instanceof AmosError ? amosErrorCode(e) : 0
+        const divertible = code === 11 || code >= 19
+        if (e instanceof AmosError && divertible && this.errorHandler !== null && !this.inError && this.direct === 0) {
+          this.errCode = code
           this.inError = true
           this.errStmt = { li: this.stmtStart.li, ti: this.stmtStart.ti }
           this.errNext = this.afterCurrentStatement()

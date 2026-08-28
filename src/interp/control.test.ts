@@ -137,7 +137,7 @@ describe('error handling (Resume / Resume Label)', () => {
     // ("une expression") is the form that reaches the main program.
     const prog = [
       'On Error Proc H',
-      'Error 1',
+      'Error 23',
       'Print "not reached"',
       'End',
       'AFTER:',
@@ -155,7 +155,7 @@ describe('error handling (Resume / Resume Label)', () => {
   it('Resume Label needs an On Error PROC, not a Goto (NoOnErr +ILib.s:1922)', () => {
     // `tst.w ErrorChr(a5) / bpl NoOnErr` — bit 31 is what On Error Proc sets,
     // and error 5 says so in as many words
-    const prog = ['On Error Goto H', 'Error 1', 'End', 'AFTER:', 'End', 'H:', 'Resume Label "AFTER"'].join('\n')
+    const prog = ['On Error Goto H', 'Error 23', 'End', 'AFTER:', 'End', 'H:', 'Resume Label "AFTER"'].join('\n')
     expect(() => run(prog)).toThrow(/No ON ERROR PROC/)
   })
 
