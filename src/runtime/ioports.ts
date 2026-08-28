@@ -368,8 +368,10 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Serial Send ser,A$ — InSerialSend (+IO_Ports.s:343). CMD_WRITE through
-     * SendIO, so asynchronous. `move.w (a0)+,d0 / Rbeq L_IOFonc`: an empty
-     * string is error 23 before the device is touched.
+     * SendIO, so asynchronous. `move.w (a0)+,d0 / Rbeq L_IOFonc` (:351) makes
+     * an empty string error 23, and it happens AFTER `Rbsr L_GetSerA1` (:347)
+     * — so on a closed channel the answer is 141, not 23. Printer Send and
+     * Parallel Send are the same order.
      */
     'serial send'(it) {
       const n = it.evalInt()
@@ -388,10 +390,11 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * is tested before anything else and both zero and negative are error 23
      * (`move.l d3,d2 / Rbmi / Rbeq L_IOFonc`).
      *
-     * NOTE: that test comes BEFORE GetSerA1, so on the real machine a bad
-     * length outranks a bad channel number. Here the channel is resolved
-     * first. Both raise error 23 through the same L_IOFonc, so the order is
-     * not observable.
+     * That test comes BEFORE `Rbsr L_GetSerA1` (:367), and this note used to
+     * say the order was unobservable because both ends raise 23. That holds
+     * for a bad channel NUMBER and not for a closed one: GetSerA1 raises 141
+     * there, so `Serial Out 0,ad,0` on a channel nobody opened is 23 on the
+     * machine and was 141 here. The length goes first now.
      */
     'serial out'(it) {
       const n = it.evalInt()
@@ -399,6 +402,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const len = it.evalInt()
+      if (len <= 0) funcCall()
       const ch = serialOpenChannel(rt, n)
       const block = outBlock(rt, addr, len)
       ch.tx.push(...block)
@@ -898,13 +902,27 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * `bset` leaves the old bit in Z, so the terminator is only rewritten
      * when EOFMODE was off or the byte actually changed — an optimisation,
      * not a behaviour, since the result is the same array either way.
+     *
+     * BOTH forms fall into `ParInput` (:1108), and its first two instructions
+     * are the ones that matter here: `move.l (a3)+,d4 / Rble L_IOFonc` makes
+     * a zero or negative count error 23, and `cmp.l #String_Max,d4 / Rbcc`
+     * refuses 65,472 or more. Neither was modelled, so `=Parallel Input$(0)`
+     * answered the empty string.
+     *
+     * DEVIATION: the string is `Demande`d at the REQUESTED length and its
+     * length word written before CMD_READ ever runs (:1125), so it comes back
+     * that long whatever the device supplied — `Len(Parallel Input$(10))` is
+     * 10 on the machine even with nothing attached, and what fills it is
+     * uninitialised string space. NULs here: the length is observable and the
+     * content is not defined by anything.
      */
     'parallel input$'(_, a): Value {
       const p = st().parallel
       devGetIO(p)
-      void a
+      const len = int(a[0]!)
+      if (len <= 0 || len >= STRING_MAX) funcCall()
       devDoIO(p)
-      return VS('')
+      return VS('\0'.repeat(len))
     },
   }
 }

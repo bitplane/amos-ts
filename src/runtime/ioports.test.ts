@@ -236,6 +236,25 @@ describe('IOPorts: Printer and Parallel (+IO_Ports.s:630-1064)', () => {
     const ser = 'Reserve As Work 10,4\nSerial Open 0,1\n'
     expect(() => run(ser + 'Serial Out 0,Start(10),0')).toThrow(/function call/)
     expect(() => run(ser + 'Serial Out 0,Start(10),-1')).toThrow(/function call/)
+    // and the length is tested BEFORE GetSerA1 (:367), so a closed channel
+    // with a bad length answers 23 rather than 141
+    expect(() => run('Reserve As Work 10,4\nSerial Out 0,Start(10),0')).toThrow(/function call/)
+    expect(() => run('Reserve As Work 10,4\nSerial Out 0,Start(10),4')).toThrow(/Device not opened/)
+  })
+
+  it('Parallel Input$ bounds its count, and is as long as it was asked for', () => {
+    // ParInput opens `move.l (a3)+,d4 / Rble L_IOFonc` then
+    // `cmp.l #String_Max,d4 / Rbcc` (+IO_Ports.s:1110), and this port had
+    // neither -- it answered the empty string for every count
+    expect(() => run('Parallel Open\nA$=Parallel Input$(0)')).toThrow(/function call/)
+    expect(() => run('Parallel Open\nA$=Parallel Input$(-1)')).toThrow(/function call/)
+    expect(() => run(`Parallel Open\nA$=Parallel Input$(${0xffc0})`)).toThrow(/function call/)
+    // the length word is written before CMD_READ runs, so the string is the
+    // requested length whether or not anything answered
+    const { out } = run(`Parallel Open\nPrint Len(Parallel Input$(10))`)
+    expect(out).toBe(' 10\n')
+    // the two-argument form differs only in the terminator it sets
+    expect(() => run('Parallel Open\nA$=Parallel Input$(4,13)')).not.toThrow()
   })
 
   it('Parallel Out sends a block of memory', () => {
