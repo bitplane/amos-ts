@@ -1,5 +1,5 @@
 /**
- * The core `Dev *` family (+Lib.s:3300-3385), over the shared device layer in
+ * The core `Dev *` family (+Lib.s:3274-3357), over the shared device layer in
  * device.ts that IOPorts already drives.
  *
  * What is pinned here is the part a program can see: which names open, what a

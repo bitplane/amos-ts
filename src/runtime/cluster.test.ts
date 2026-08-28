@@ -1647,6 +1647,20 @@ describe('memory model', () => {
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '1', '2'])
   })
 
+  it('a Load bank number is bounded above and means "the file decides" below zero', () => {
+    // InLoad2 (+Lib.s:3996) is `cmp.l #$10000,d3 / Rbge L_FonCall`, and only
+    // the two-argument entry has it -- InLoad1 (+Lib.s:3988) pushes EntNul
+    // and branches past. The test is signed, so 65536 stops and -1 does not.
+    const bad = 'Reserve As Work 5,100 : Save "DH0:a.abk",5 : Load "DH0:a.abk",65536'
+    expect(() => run(bad)).toThrow(/function call/)
+    // Below zero is not a bank number at all. `move.l d5,d3 / bpl.s .Skip1 /
+    // moveq #0,d3 / move.w (a2),d3 / bne.s .Skip1 / moveq #5,d3`
+    // (+Lib.s:4058) takes the number out of the bank header instead, which is
+    // the same path EntNul reaches by being negative.
+    const { rt } = run('Reserve As Work 5,100 : Save "DH0:a.abk",5 : Erase 5 : Load "DH0:a.abk",-1')
+    expect([...rt.memBanks.keys()]).toEqual([5])
+  })
+
   it('reserves banks, peeks and pokes through fake addresses', () => {
     const prog = [
       'Reserve As Data 6,100',
