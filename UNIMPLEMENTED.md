@@ -96,7 +96,31 @@ one already.
 
 | block | missing | what it is waiting on |
 |---|---|---|
-| OctaMix (`omix *`) | 15 | a module. `DME_OctaMix.library` refuses anything without `FLAG2_MIX` at $2130f4, and nothing in the 45,743-file corpus has the bit --- all 187 OctaMED Professional 6 modules are MMD2 without it. The library is mapped in `src/amiga/mmd2mix.ts`'s header rather than ported, because a port would have nothing to check against but its own reading |
+| OctaMix (`omix *`) | 15 | a module, and the wait is SOFTER than it looks. `DME_OctaMix.library` 2.0 is held and readable at 22,984 bytes with twenty LVOs, and $213158 --- `tst.b $300(a1) / bpl` on MMD2song's `flags2` --- is the only refusal it makes on module CONTENT. Everything else mix mode reads is in any MMD2: $213672 takes `channels` at $216 and defaults it to four, $213152 takes `tempo2` at $301, $213160 takes `flags` at $2ff for the audio filter, and $213190 and $2131a2 take `sections` and `pseqs`. So one bit on an existing module is enough to make this library play it. 202 MMD files are to hand across the corpus and `fixtures/`, 190 of them MMD2 and 36 with more than four tracks --- seventeen with eight --- and not one carries the bit. See below |
+
+**OctaMix is the last row here, and what it is really waiting on is a
+JUDGEMENT rather than a file.** FLAG2_MIX is bit 7 of one byte, the library
+demands nothing else of the module, and setting it on one of the seventeen
+eight-track MMD2 modules in `fixtures/aminet/OctaMEDPro6xx/` produces
+something $213158 accepts and mixes, with real OctaMED blocks and instruments
+behind it. That is the toggle OctaMED itself writes when a song is switched
+into mixing mode, so it is not a forgery so much as a setting.
+
+What it would NOT give is a module whose author chose mixing mode, and that is
+the part worth being honest about: the driver would be synthetic in one bit,
+and nothing would say the result sounds the way a real mix-mode song should.
+A genuine OctaMED SoundStudio module would close that, and one has not been
+found yet --- Aminet's `mus/med` was searched on 2026-08-28 and its index
+endpoints have moved, so the search came back empty rather than negative.
+
+The rest is ordinary work. The mixer needs a 68020 ($21039c is `mulu.l d3,d0:d1`
+and `divu.l d1,d0`), which is arithmetic rather than an obstacle; the echo type
+and depth are at $218 and $219, stereo is bit 0 of flags3 at $213, and the
+14-bit mode drops AUD2 and AUD3 to volume 1 at $21364c. `src/amiga/mmd2mix.ts`
+already carries the map. The one thing to carry into it: this library asks
+ExecBase nothing about the machine and uses `$369e99` --- the NTSC clock ---
+eight times with the PAL clock nowhere, so every rate and every pitch is 0.92%
+low on a PAL Amiga, and that is faithful rather than a bug to fix.
 
 **PlaySID is done, and it is the only row here that needed a processor.** A
 PSID file is not a music format in the sense the rest of this document uses
