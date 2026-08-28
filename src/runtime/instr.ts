@@ -2556,24 +2556,37 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     appear(it) {
-      // Appear src To dst,e[,p] (InAppear +Lib.s:10466): p iterations
-      // (default = every pixel) stepping (e mod p) through the source
-      // pixel index space, copying only the planes both screens share and
-      // preserving the destination's higher planes. gcd(e, total) > 1
-      // leaves pixels uncopied — the classic venetian/checker dissolves.
+      /*
+       * Appear src To dst,e[,p] (InAppear4 +Lib.s:10443): p iterations
+       * (default = every pixel) stepping (e mod p) through the source
+       * pixel index space, copying only the planes both screens share and
+       * preserving the destination's higher planes. gcd(e, total) > 1
+       * leaves pixels uncopied — the classic venetian/checker dissolves.
+       *
+       * The two guards are not the same test. `move.l d3,d6 / Rbmi
+       * L_FonCall` (+Lib.s:10446) is a real sign test on p, but the one on
+       * e is `move.l (a3)+,d7 / Rbls L_FonCall` (+Lib.s:10448), and a `move`
+       * CLEARS the carry, so that bls can only branch on Z: e = 0 is the
+       * error and a negative e goes through. LApp0's `cmp.l d6,d7 / bcs` is
+       * an UNSIGNED compare, so what AMOS then subtracts is the 32-bit
+       * unsigned reading — `Appear 0 To 1,-1` steps by $FFFFFFFF mod count.
+       * The port refused it outright, and would have walked backwards off
+       * the buffer if it had not.
+       */
       const src = rt.resolveScreenId(it.evalInt())
       it.expect('to')
       const dst = rt.resolveScreenId(it.evalInt(), true)
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
-      if (e <= 0 || p < 0) funcCall()
+      if (e === 0 || p < 0) funcCall()
       const s = src.s
       const d = dst.s
       const total = s.rowBytes * 8 * s.height
       const count = p === 0 ? total : p
-      let step = e
-      while (step >= count) step -= count
+      // LApp0 subtracts d6 in a loop; `%` is the same answer without the
+      // four billion iterations a negative e would otherwise cost here
+      const step = (e >>> 0) % count
       const mask = (1 << Math.min(s.depth, d.depth)) - 1
       let idx = 0
       for (let i = 0; i < count; i++) {

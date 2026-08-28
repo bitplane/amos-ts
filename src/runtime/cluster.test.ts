@@ -2149,6 +2149,30 @@ describe('Appear and Screen Base (InAppear +Lib.s:10466, FnScreenBase 8798)', ()
     expect(() => run('Appear 0 To 0,0')).toThrow(/function call/)
   })
 
+  it('a negative Appear step is the unsigned one, not an error', () => {
+    // `move.l (a3)+,d7 / Rbls L_FonCall` (+Lib.s:10448) is a bls after a
+    // move, and a move clears the carry, so it can only branch on Z: only
+    // zero is refused. LApp0's `cmp.l d6,d7 / bcs` then reduces the step as
+    // an UNSIGNED 32-bit value, which is why -1 behaves as $FFFFFFFF. The p
+    // slot is different — `move.l d3,d6 / Rbmi` (+Lib.s:10446) is a real
+    // sign test and does refuse a negative.
+    const prog = (e: string) =>
+      [
+        'Screen Open 1,320,32,16,Lowres : Flash Off : Cls 6',
+        'Screen Open 0,320,32,16,Lowres : Flash Off : Cls 0',
+        `Appear 1 To 0,${e},100`,
+      ].join('\n')
+    const count = (n: string): number => {
+      const d = run(prog(n)).rt.screens.get(0)!
+      let c = 0
+      for (let i = 0; i < d.pixels.length; i++) if (d.pixels[i] === 6) c++
+      return c
+    }
+    // 2^32-1 mod 100 = 95, and 95 is coprime with 100, so all 100 land
+    expect(count('-1')).toBe(100)
+    expect(() => run('Appear 0 To 0,7,-1')).toThrow(/function call/)
+  })
+
   it('Screen Base maps the Ec control block: geometry, colours, plane pointers', () => {
     const prog = [
       'Screen Open 0,320,200,16,Lowres : Flash Off : Colour 1,$123',
