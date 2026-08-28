@@ -123,6 +123,10 @@ import {
   makeIntuiextendGadFunctions,
   makeIntuiextendGadInstructions,
 } from './intuiextendgad'
+import {
+  makeIntuiextendMenuFunctions,
+  makeIntuiextendMenuInstructions,
+} from './intuiextendmenu'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8071,6 +8075,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       ...makeIntuiextendWinInstructions(rt),
       ...makeIntuiextendMsgInstructions(rt),
       ...makeIntuiextendGadInstructions(rt),
+      ...makeIntuiextendMenuInstructions(rt),
     }),
     functions: (rt) => ({
       ...makeIntuiextendFunctions(rt),
@@ -8079,6 +8084,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       ...makeIntuiextendWinFunctions(rt),
       ...makeIntuiextendMsgFunctions(rt),
       ...makeIntuiextendGadFunctions(rt),
+      ...makeIntuiextendMenuFunctions(rt),
     }),
   },
   {

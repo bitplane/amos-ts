@@ -82,7 +82,7 @@ import {
   type UserGadget,
 } from '../amiga/intuition'
 import type { IntuiextendState } from './intuiextend'
-import { ieWindowAt, type IeWindow } from './intuiextendwin'
+import { ieMem as mem, ieWindowAt, type IeMem as Mem, type IeWindow } from './intuiextendwin'
 import { ieRastPortAt } from './intuiextendgfx'
 import { ICON_BANK } from './banks'
 import { IE_IMAGE_SIZEOF } from './intuiextendsys'
@@ -787,47 +787,6 @@ export function makeIntuiextendGadFunctions(rt: Runtime): Record<string, Func> {
 }
 
 /* ------------------------------------------------------------------ */
-
-/** the four byte-level accessors this file needs, over `rt`'s address space */
-interface Mem {
-  byte: (a: number) => number
-  word: (a: number) => number
-  long: (a: number) => number
-  setByte: (a: number, v: number) => void
-  setWord: (a: number, v: number) => void
-  setLong: (a: number, v: number) => void
-}
-
-function mem(rt: Runtime): Mem {
-  return {
-    byte: (a) => {
-      const r = rt.resolveAddr(a >>> 0)
-      return r ? (r.data[r.off] ?? 0) : 0
-    },
-    word: (a) => {
-      const r = rt.resolveAddr(a >>> 0)
-      return r ? (((r.data[r.off] ?? 0) << 8) | (r.data[r.off + 1] ?? 0)) : 0
-    },
-    long: (a) => {
-      const l = rt.longsAt(a >>> 0, false)
-      return l ? l.get(0) : 0
-    },
-    setByte: (a, v) => {
-      const r = rt.resolveWrite(a >>> 0)
-      if (r) r.data[r.off] = v & 0xff
-    },
-    setWord: (a, v) => {
-      const r = rt.resolveWrite(a >>> 0)
-      if (!r) return
-      r.data[r.off] = (v >>> 8) & 0xff
-      r.data[r.off + 1] = v & 0xff
-    },
-    setLong: (a, v) => {
-      const l = rt.longsAt(a >>> 0, true)
-      if (l) l.set(0, v)
-    },
-  }
-}
 
 /** routine 83's block, with only pi_Flags differing between the three sizes */
 function initProp(m: Mem, st: () => IntuiextendState, a: Value[], flags: number): number {

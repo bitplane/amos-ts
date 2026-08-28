@@ -172,6 +172,16 @@ export interface IeWindow {
   minHeight: number
   maxWidth: number
   maxHeight: number
+  /**
+   * wd_MenuStrip (`intuition.i`:700 puts it at $1c), the address SetMenuStrip
+   * was given and 0 when there is none.
+   *
+   * It is a field rather than a map because `Wb Get Menu` (routine 289) IS
+   * `move.l $1c(a0),d3` and nothing else --- the keyword is that one read.
+   * The chain it points at is real program memory; only the window holding
+   * the pointer is a handle. See ./intuiextendmenu.ts.
+   */
+  menuStrip: number
 }
 
 /** what `Wb Wind Open` and `Wb Easy Wind Open` share once the fields are set */
@@ -205,6 +215,56 @@ export function screenSlotOfRastPort(rt: Runtime, addr: number): number | null {
 /** the open window a `struct Window *` names, or null for a stale handle */
 export function ieWindowAt(rt: Runtime, addr: number): IeWindow | null {
   return rt.intuiextend.windowState.windows.get(addr >>> 0) ?? null
+}
+
+/** the six byte-level accessors the structure groups reach `rt`'s memory through */
+export interface IeMem {
+  byte: (a: number) => number
+  word: (a: number) => number
+  long: (a: number) => number
+  setByte: (a: number, v: number) => void
+  setWord: (a: number, v: number) => void
+  setLong: (a: number, v: number) => void
+}
+
+/**
+ * Read and write the program's own memory at a byte address.
+ *
+ * The gadget blocks and the menu chain are structures the PROGRAM owns, laid
+ * out the way `intuition.i` lays them out, so both groups walk them by fixed
+ * offset the way the library does. An address outside anything mapped reads
+ * as zero and swallows a write, which is what `rt.resolveAddr` already does
+ * for `Peek` and `Poke`.
+ */
+export function ieMem(rt: Runtime): IeMem {
+  return {
+    byte: (a) => {
+      const r = rt.resolveAddr(a >>> 0)
+      return r ? (r.data[r.off] ?? 0) : 0
+    },
+    word: (a) => {
+      const r = rt.resolveAddr(a >>> 0)
+      return r ? (((r.data[r.off] ?? 0) << 8) | (r.data[r.off + 1] ?? 0)) : 0
+    },
+    long: (a) => {
+      const l = rt.longsAt(a >>> 0, false)
+      return l ? l.get(0) : 0
+    },
+    setByte: (a, v) => {
+      const r = rt.resolveWrite(a >>> 0)
+      if (r) r.data[r.off] = v & 0xff
+    },
+    setWord: (a, v) => {
+      const r = rt.resolveWrite(a >>> 0)
+      if (!r) return
+      r.data[r.off] = (v >>> 8) & 0xff
+      r.data[r.off + 1] = v & 0xff
+    },
+    setLong: (a, v) => {
+      const l = rt.longsAt(a >>> 0, true)
+      if (l) l.set(0, v)
+    },
+  }
 }
 
 export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Instr> {
@@ -298,6 +358,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
       minHeight: nw.minHeight,
       maxWidth: nw.maxWidth,
       maxHeight: nw.maxHeight,
+      menuStrip: 0,
     })
     st().windBase = addr
   }
