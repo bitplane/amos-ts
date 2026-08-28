@@ -1392,8 +1392,28 @@ export class Screen {
   }
 
   private newlineInner(): void {
+    this.curWin.curX = 0
+    this.cursorDownInner()
+  }
+
+  /**
+   * CDown (+W.s:14939), which is control code 31 and control code 10 both:
+   *
+   *     move.w WiY(a5),d0 / addq.w #1,d0
+   *     cmp.w  WiTy(a5),d0 / bcs.s Cdo1     ; still inside, store it
+   *     btst   #0,WiSys(a5) / bne.s Cdo2    ; scrolling on, scroll up
+   *     clr.w  d0                           ; scrolling off, WRAP to row 0
+   *
+   * It never touches WiX. Going down is not a new line: the column stays
+   * where it was, and CReturn (:14958) is a separate code. This used to run
+   * through newline, so Cdown and Cdown$ both jumped to column 0.
+   */
+  cursorDown(): void {
+    this.console(() => this.cursorDownInner())
+  }
+
+  private cursorDownInner(): void {
     const w = this.curWin
-    w.curX = 0
     w.curY++
     if (w.curY >= w.rows) {
       if (w.scrollOff) {
@@ -1403,6 +1423,22 @@ export class Screen {
         w.curY = w.rows - 1
       }
     }
+  }
+
+  /**
+   * CUp (+W.s:14919) is the mirror: `subq.w #1,WiY(a5) / bpl.s CUp1`, and off
+   * the top it either scrolls down (WiSys bit 0 set) or WRAPS to WiTy-1. The
+   * port used to clamp at row 0, which is neither.
+   *
+   * DEVIATION: the scrolling arm calls ScBas, and this port has no downward
+   * scroll to call, so the wrap is used for both. Only a window with
+   * scrolling still on is affected, and only on the row above its top.
+   */
+  cursorUp(): void {
+    this.console(() => {
+      const w = this.curWin
+      w.curY = w.curY > 0 ? w.curY - 1 : w.rows - 1
+    })
   }
 
   writeText(text: string): void {
@@ -1685,11 +1721,11 @@ export class Screen {
         case 29: // cursor left (Cleft$)
           this.curX = Math.max(0, this.curX - 1)
           break
-        case 30: // cursor up (Cup$)
-          this.curY = Math.max(0, this.curY - 1)
+        case 30: // cursor up (Cup$) -> CUp
+          this.cursorUp()
           break
-        case 31: // cursor down (Cdown$)
-          this.newline()
+        case 31: // cursor down (Cdown$) -> CDown, the column is kept
+          this.cursorDown()
           break
         default:
           this.putChar(c)

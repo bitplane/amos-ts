@@ -76,6 +76,18 @@ export interface Program {
   ctrl: Map<Tok, Ctrl>
   /** every Data token, in program order (for Read/Restore) */
   dataToks: Addr[]
+  /**
+   * `Prg_Accessory`, set by the VERIFIER and therefore true for the whole
+   * program, not just after the statement.
+   *
+   * VerSetA (+Verif.s:826) is `bsr SetNot1.3 / addq.b #1,Prg_Accessory(a5)`,
+   * and Ver_APCmp (:1631) reads the same flag out of a saved program's
+   * APrg_MathFlags high byte. Two places read it back: CheckScreenNumber
+   * (+Lib.s:9167) gives an accessory ten screens instead of eight, and InRun1
+   * (+ILib.s:1452) turns Run into Prun so an accessory chains rather than
+   * replacing its host.
+   */
+  accessory: boolean
   warnings: string[]
 }
 
@@ -121,6 +133,7 @@ export function prescan(lines: TokenLine[], names: Names): Program {
     procs: new Map(),
     ctrl: new Map(),
     dataToks: [],
+    accessory: false,
     warnings: [],
   }
   const stack: Open[] = []
@@ -217,6 +230,10 @@ export function prescan(lines: TokenLine[], names: Names): Program {
       if (name === undefined) continue
 
       switch (name) {
+        case 'set accessory':
+          // the verifier sets it, so it holds from the first line
+          program.accessory = true
+          break
         case 'if': {
           const ctrl = { kind: 'if' as const, singleLine: false, onFalse: newAddr() }
           program.ctrl.set(tok, ctrl)

@@ -846,7 +846,7 @@ describe('a system screen — above the user range, in the same copper list', ()
 
   it('Screen Open still cannot name one', () => {
     const rt = boot16()
-    expect(() => rt.openScreen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)).toThrow(/illegal screen number/)
+    expect(() => rt.openScreen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)).toThrow(/Valid screen numbers/)
   })
 })
 

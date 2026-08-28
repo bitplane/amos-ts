@@ -1884,6 +1884,20 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(run(prog('Update')).out).toBe(run(prog('Bob Update')).out)
   })
 
+  it('Set Accessory gives the program ten screens (CheckScreenNumber +Lib.s:9163)', () => {
+    // `tst.b Prg_Accessory(a5) / bne.s .Skip / cmp.l #8,d1 / Rbcc L_IllScN`,
+    // and .Skip compares against 10 instead. The verifier sets the flag
+    // (VerSetA +Verif.s:826), so it holds for the whole program and the two
+    // extra screens exist for an accessory that must not take one its host is
+    // using.
+    expect(() => run('Screen Open 8,320,200,2,0')).toThrow(/Valid screen numbers/i)
+    expect(() => run('Set Accessory\nScreen Open 8,320,200,2,0')).not.toThrow()
+    expect(() => run('Set Accessory\nScreen Open 9,320,200,2,0')).not.toThrow()
+    expect(() => run('Set Accessory\nScreen Open 10,320,200,2,0')).toThrow(/Valid screen numbers/i)
+    // the flag is the verifier's, so it applies above its own statement too
+    expect(() => run('Screen Open 8,320,200,2,0\nSet Accessory')).not.toThrow()
+  })
+
   it('a second Double Buffer is error 69, but Anim re-buffering is silent', () => {
     // EcDouble +W.s:2742 `btst #BitDble,EcFlags(a4) / bne EcE25`, EcE25 is
     // `moveq #25,d0` (+W.s:3132) and EcWiErr adds EcEBase-1 = 44 (+Lib.s:12917,
