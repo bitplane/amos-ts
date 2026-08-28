@@ -2271,12 +2271,29 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(out).toBe(' 5\n')
   })
 
-  it('Scan$ builds the 4-byte Put Key injection string (FnScan1/2 +Lib.s:13770)', () => {
-    const { out } = run('A$=Scan$(69) : Print Len(A$);Asc(Mid$(A$,1,1));Asc(Mid$(A$,2,1))')
-    expect(out).toBe(' 4 1 69\n')
-    const { out: out2 } = run('A$=Scan$(69,3) : Print Asc(Mid$(A$,3,1))')
-    expect(out2).toBe(' 3\n')
+  it('Scan$ puts the shift byte before the scancode (FnScan2 +Lib.s:13776)', () => {
+    // move.b d4,(a0)+ / move.b d5,(a0)+ writes the LAST argument first, so
+    // the layout is chr$(1), shift, scancode, chr$(0)
+    const { out } = run('A$=Scan$(69,3) : For I=1 To 4 : Print Asc(Mid$(A$,I,1)); : Next')
+    expect(out).toBe(' 1 3 69 0')
+    // FnScan1 clears d3, so one argument means no shift
+    const { out: out2 } = run('A$=Scan$(69) : Print Len(A$);Asc(Mid$(A$,2,1));Asc(Mid$(A$,3,1))')
+    expect(out2).toBe(' 4 0 69\n')
     expect(() => run('A$=Scan$(256)')).toThrow(/function call/)
+  })
+
+  it('Put Key decodes the chr$(1) scancode escape and skips comments (ClPutK +W.s:13072)', () => {
+    // three bytes per entry: an injected key carries the shift and scancode
+    // the string names, and Scanshift reads that byte back
+    const { out } = run('Put Key Scan$(69,3) : A$=Inkey$ : Print Len(A$);Scancode;Scanshift')
+    expect(out).toBe(' 0 69 3\n')
+    // an apostrophe opens a comment that stores nothing (ClPk5)
+    const { out: out2 } = run("Put Key \"A'skip'B\" : Print Inkey$;Inkey$")
+    expect(out2).toBe('AB\n')
+    // and a plain character clears both leading bytes rather than sampling
+    // whatever the player is holding
+    const { out: out3 } = run('Put Key "Z" : A$=Inkey$ : Print A$;Scancode;Scanshift')
+    expect(out3).toBe('Z 0 0\n')
   })
 
   it('Exist is a Lock, so a volume and a drawer answer it (RExist +Lib.s:5704)', () => {

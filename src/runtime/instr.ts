@@ -2556,10 +2556,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobPut.set(n, s.doubleBuffered ? 2 : 1)
     },
     'put key'(it) {
-      // InPutKey +Lib.s:13695: append a string to the keyboard buffer
+      // InPutKey +Lib.s:13695 hands the string to ClPutK (+W.s:13072), which
+      // fills the buffer three bytes at a time: shift, scancode, ascii. A
+      // plain character clears the first two and stores itself as the ascii,
+      // chr$(1) says the next THREE bytes are those fields already (this is
+      // what Scan$ builds), and an apostrophe opens a comment that runs to
+      // the next apostrophe and stores nothing.
       const s2 = it.evalStr()
       if (s2.length >= 64) throw new AmosError('string too long')
-      for (const ch of s2) rt.pressKey(ch, 0)
+      for (let i = 0; i < s2.length; i++) {
+        const c = s2.charCodeAt(i)
+        if (c === 39) {
+          // ClPk5: an unterminated comment swallows the rest of the string
+          const end = s2.indexOf("'", i + 1)
+          if (end < 0) break
+          i = end
+        } else if (c === 1) {
+          const asc = s2.charCodeAt(i + 3) || 0
+          rt.pressKey(asc === 0 ? '' : String.fromCharCode(asc), s2.charCodeAt(i + 2) || 0, s2.charCodeAt(i + 1) || 0)
+          i += 3
+        } else {
+          rt.pressKey(s2[i]!, 0, 0)
+        }
+      }
     },
     'del bob': delObj('sprite'),
     'del sprite': delObj('sprite'),
@@ -6325,12 +6344,16 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(known.includes(s.slice(0, -1).toLowerCase()) ? -1 : 0)
     },
     'scan$'(_, a) {
-      // FnScan1/2 +Lib.s:13770: a 4-byte Put Key scancode injection
-      // string — chr$(1), scancode, shift, chr$(0); both bytes < 256
+      // FnScan2 +Lib.s:13776: a 4-byte Put Key scancode injection string.
+      // d4 is the LAST argument and d5 the first, and the writes run
+      // `move.b d4,(a0)+ / move.b d5,(a0)+`, so the shift byte goes down
+      // first and the scancode second: chr$(1), shift, scancode, chr$(0).
+      // FnScan1 pushes its one argument and clears d3, so the one-argument
+      // form is a zero shift.
       const scan = int(a[0]!)
       const shift = a.length > 1 ? int(a[1]!) : 0
       if (scan >>> 0 >= 256 || shift >>> 0 >= 256) funcCall()
-      return VS(String.fromCharCode(1, scan, shift, 0))
+      return VS(String.fromCharCode(1, shift, scan, 0))
     },
     'bstart'(_, a) {
       // FnBStart +Lib.s:2242: bank address in the PREVIOUS program's list
