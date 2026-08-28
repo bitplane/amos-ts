@@ -232,7 +232,7 @@ export interface SpeakVoice {
   raw: boolean
 }
 
-/** EntNul — the value an omitted parameter carries (+Equ.s:67). */
+/** EntNul — the value an omitted parameter carries (+Equ.s:39). */
 const ENT_NUL = -0x80000000
 
 /**

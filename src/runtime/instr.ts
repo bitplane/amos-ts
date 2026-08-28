@@ -1848,7 +1848,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * The screen may be omitted: `Get Palette,0` is in the corpus
      * (APD470/HomeRun2). An omitted slot has a defined value — the comma's
      * FUNCTION routine is `FnNull` (+ILib.s:3725), which loads `EntNul`
-     * ($80000000, +Equ.s:67) into d3 and steps the token pointer back two so
+     * ($80000000, +Equ.s:39) into d3 and steps the token pointer back two so
      * the collector's own comma-skip still lands right. Keywords that accept
      * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2621/4395)
      * compare every parameter against EntNul and leave the field alone.
