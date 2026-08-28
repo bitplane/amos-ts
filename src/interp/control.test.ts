@@ -126,19 +126,39 @@ describe('error handling (Resume / Resume Label)', () => {
     expect(run(prog).out).toBe(' 42\n')
   })
 
-  it('Resume Label restarts execution at a named label', () => {
+  it('Resume Label records, and the bare form is the one that jumps (InResumeLabel +ILib.s:1916)', () => {
+    // `bsr Finie / beq.s ResL1` splits the two forms. The named one stores
+    // the label and returns, so the rest of the handler still runs.
+    // the target is named as a STRING, because a bare label token is resolved
+    // by the verifier inside the procedure that wrote it and ResL1's PopP has
+    // left that procedure by the time the jump happens. GetLabel's GLb1
+    // ("une expression") is the form that reaches the main program.
     const prog = [
-      'On Error Goto H',
+      'On Error Proc H',
       'Error 1',
       'Print "not reached"',
       'End',
       'AFTER:',
       'Print "recovered"',
       'End',
-      'H:',
-      'Resume Label AFTER',
+      'Procedure H',
+      '  Resume Label "AFTER"',
+      '  Print "handler continues"',
+      '  Resume Label',
+      'End Proc',
     ].join('\n')
-    expect(run(prog).out).toBe('recovered\n')
+    expect(run(prog).out).toBe('handler continues\nrecovered\n')
+  })
+
+  it('Resume Label needs an On Error PROC, not a Goto (NoOnErr +ILib.s:1922)', () => {
+    // `tst.w ErrorChr(a5) / bpl NoOnErr` — bit 31 is what On Error Proc sets,
+    // and error 5 says so in as many words
+    const prog = ['On Error Goto H', 'Error 1', 'End', 'AFTER:', 'End', 'H:', 'Resume Label "AFTER"'].join('\n')
+    expect(() => run(prog)).toThrow(/No ON ERROR PROC/)
+  })
+
+  it('a bare Resume Label outside an error is error 7 (NoErr +ILib.s:1936)', () => {
+    expect(() => run('Resume Label')).toThrow(/Resume without error/)
   })
 
 })

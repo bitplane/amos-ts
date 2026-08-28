@@ -371,6 +371,7 @@ interface SavedProgram {
   inError: boolean
   errStmt: Addr | null
   errNext: Addr | null
+  resumeLabel: string | null
   errFrameDepth: number
   every: Interp['every']
   everyReturnDepth: number
@@ -457,6 +458,12 @@ export class Interp {
   inError = false
   errStmt: Addr | null = null
   errNext: Addr | null = null
+  /**
+   * Where a bare `Resume Label` will go, which `Resume Label name` records
+   * rather than jumping to. This is ErrorChr's low 31 bits (+ILib.s:1928);
+   * bit 31 of the same longword is `errorHandler.kind === 'proc'`.
+   */
+  resumeLabel: string | null = null
   /** frame depth at the trapped error, so Resume can unwind a Proc handler */
   errFrameDepth = 0
   private stmtStart: Addr = { li: 0, ti: 0 }
@@ -527,6 +534,7 @@ export class Interp {
     this.inError = false
     this.errStmt = null
     this.errNext = null
+    this.resumeLabel = null
     this.every = null
     this.userFns = new Map()
     this.blocked = null
@@ -769,6 +777,7 @@ export class Interp {
       inError: this.inError,
       errStmt: this.errStmt,
       errNext: this.errNext,
+      resumeLabel: this.resumeLabel,
       errFrameDepth: this.errFrameDepth,
       every: this.every,
       everyReturnDepth: this.everyReturnDepth,
@@ -796,6 +805,7 @@ export class Interp {
     this.inError = s.inError
     this.errStmt = s.errStmt
     this.errNext = s.errNext
+    this.resumeLabel = s.resumeLabel
     this.errFrameDepth = s.errFrameDepth
     this.every = s.every
     this.everyReturnDepth = s.everyReturnDepth

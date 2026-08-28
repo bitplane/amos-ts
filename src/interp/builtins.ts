@@ -6,6 +6,7 @@ import { AMOS_ERRORS, AmosError, amosErrorCode, funcCall, int, num, str, truthy,
 import type { Value } from './values'
 import { MAX_PORT, PORT_MOUSE } from './gameport'
 import { ascToFloat } from '../tokens/numfmt'
+import { ED_RUN_MESSAGES } from './errors.gen'
 
 /**
  * Instruction handlers. Called with the cursor just past the instruction
@@ -821,9 +822,35 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   'resume label'(it) {
-    it.inError = false
+    // InResumeLabel (+ILib.s:1916) opens with `bsr Finie / beq.s ResL1`, so
+    // the two forms do opposite things. With a label it only RECORDS one and
+    // returns, leaving the rest of the handler to run; the BARE form is the
+    // one that pops the procedure and jumps. The port had the named form
+    // jumping immediately, which skipped whatever the handler did next.
+    if (!it.atStmtEnd()) {
+      // `tst.l OnErrLine(a5) / beq NoOnErr` then `tst.w ErrorChr(a5) / bpl
+      // NoOnErr`: a handler has to be registered AND it has to be a
+      // procedure, because bit 31 is what On Error Proc sets
+      if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
+        throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
+      }
+      it.resumeLabel = it.parseLabelTarget()
+      return
+    }
+    // ResL1 (+ILib.s:1934)
+    if (!it.inError) throw new AmosError(ED_RUN_MESSAGES[7]!, 7)
     it.unwindErrorHandler()
-    it.jumpLabel(it.parseLabelTarget())
+    it.inError = false
+    // `bclr #31,d0 / beq NoOnErr` tests the bit as it WAS, so a non-procedure
+    // handler fails here too; `tst.l d0 / beq ResLNo` then catches the case
+    // where no label was ever recorded
+    if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
+      throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
+    }
+    const target = it.resumeLabel
+    if (target === null) throw new AmosError(ED_RUN_MESSAGES[6]!, 6)
+    it.resumeLabel = null
+    it.jumpLabel(target)
     return 'jumped'
   },
 
