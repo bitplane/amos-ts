@@ -4921,9 +4921,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- files (Open In/Out, Print #, sequential channels) ----
     'open random'(it) {
-      // InOpenRandom +Lib.s:5220 (RanApp $80): opens the existing file
-      // or creates it; the channel type is random-access
-      const n = it.evalInt()
+      /*
+       * InOpenRandom (+Lib.s:5220) is `move.w #$80,d0 / Rbsr L_RanApp`, and
+       * RanApp (+Lib.s:5243) opens on the same two lines Append does: `move.l
+       * (a3)+,d0 / Rbsr L_GetFile / Rbne L_FilOO`. So the channel goes
+       * through GetFile's 1-to-9 bound and a channel that already holds a
+       * handle is error 96, not a replacement.
+       *
+       * This is the one of the five openers that had neither. Open In, Open
+       * Out, Open Port and Append all reach openChan; Open Random wrote
+       * straight into the map, so `Open Random 0` opened channel 0 and a
+       * second Open Random on a live channel dropped the first file.
+       *
+       * The file itself is opened OLD and then NEW (+Lib.s:5247), which is
+       * why a missing one is created rather than a disc error.
+       */
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const data = rt.fs?.read(path)
@@ -5534,14 +5547,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.iffMask = it.evalInt()
     },
     'save iff'(it) {
-      // InSaveIff1/2 +Lib.s:4595: save the screen as a compressed ILBM;
-      // the optional 2nd arg is the compression mode (must be < 3)
+      // InSaveIff1/2 (+Lib.s:4595, :4601): save the screen as a compressed
+      // ILBM; the optional 2nd arg is the compression mode (must be < 3)
       const path = it.evalStr()
-      if (it.accept(',')) {
-        const mode = it.evalInt()
-        if (mode >>> 0 >= 3) funcCall()
-      }
+      const mode = it.accept(',') ? it.evalInt() : 1
+      // InSaveIff2 opens `tst.l ScOnAd(a5) / Rbeq L_ScNOp` (+Lib.s:4603) and
+      // only then `cmp.l #3,d3 / Rbcc L_FonCall`, so with no screen open a
+      // bad compression mode still answers 47 and not 23
       const s = scr()
+      if (mode >>> 0 >= 3) funcCall()
       const camg = (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0) | (s.ehb ? 0x80 : 0)
       const bytes = encodeIlbm({ width: s.width, height: s.height, depth: s.depth, mode: camg, palette: [...s.palette], pixels: s.pixels })
       if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected', 84)
@@ -6276,10 +6290,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      *
      * So -1 is "no character yet" and 0 to 255 is the character, which is why
      * a program loops on it rather than testing for zero.
+     *
+     * `GetFile` is `cmp.l #10,d0 / Rbcc L_FonCall / subq.l #1,d0 / Rbmi
+     * L_FonCall` (+Lib.s:4627), so it answers 23 outside 1 to 9 before it
+     * answers 97 for a channel nobody opened. Reading the map directly gave
+     * `=Port(0)` the wrong one of the two.
      */
     'port'(_, a) {
-      const c = rt.fileChans.get(int(a[0]!))
-      if (!c) throw new AmosError('file not opened', 97)
+      const c = rt.chan(int(a[0]!))
       if (!c.port) throw new AmosError('file type mismatch', 98)
       if (c.serial) {
         const got = c.serial.read()

@@ -691,6 +691,23 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(code('Open Out 1,"DH0:x" : Append 1,"DH0:y"')).toBe(96)
     // and closing it first makes the slot free again
     expect(code('Open Out 1,"DH0:x" : Close 1 : Open Out 1,"DH0:y"')).toBe(0)
+    /*
+     * Open Random reaches the same two lines by another road: `move.w
+     * #$80,d0 / Rbsr L_RanApp` (+Lib.s:5220), and RanApp opens `move.l
+     * (a3)+,d0 / Rbsr L_GetFile / Rbne L_FilOO` (+Lib.s:5243) exactly as OpIn
+     * does. It was the one opener in the port that checked neither, so
+     * channel 0 opened and a second one dropped the first file in silence.
+     */
+    expect(code('Open Random 0,"DH0:r"')).toBe(23)
+    expect(code('Open Random 10,"DH0:r"')).toBe(23)
+    expect(code('Open Random 1,"DH0:r" : Open Random 1,"DH0:s"')).toBe(96)
+    expect(code('Open Out 1,"DH0:r" : Open Random 1,"DH0:s"')).toBe(96)
+    // and =Port reads the channel through GetFile too (FnPort +Lib.s:5023),
+    // so an out-of-range one is 23 before it is ever "not opened"
+    expect(code('A=Port(0)')).toBe(23)
+    expect(code('A=Port(10)')).toBe(23)
+    expect(code('A=Port(1)')).toBe(97)
+    expect(code('Open Out 1,"DH0:x" : A=Port(1)')).toBe(98)
     // Mkdir takes the same DiskError route, and ERROR_OBJECT_EXISTS is the
     // ErDisk table's first entry, so a second one is 79 not a generic fault
     expect(code('Mkdir "DH0:d"')).toBe(0)
