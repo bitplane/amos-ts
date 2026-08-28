@@ -61,6 +61,24 @@ export interface Frame {
   /** caller's data pointer — procedures have their own (local Data) */
   savedDataPtr?: Addr
   savedDataInStmt?: boolean
+  /**
+   * The caller's error trapping, which a procedure does NOT inherit.
+   *
+   * CallProc pushes OnErrLine, ErrorChr and ErrorOn (+ILib.s:2586-2588) and
+   * then does `clr.l OnErrLine(a5)` (+ILib.s:2603); End Proc pops all three
+   * back (+ILib.s:2651-2653). So an error inside a called procedure is not
+   * seen by the caller's On Error, and a handler armed inside a procedure is
+   * gone the moment it returns.
+   */
+  savedErrorHandler?: { kind: 'goto' | 'proc'; target: string } | null
+  savedInError?: boolean
+  /**
+   * ErrorChr, which CallProc saves (+ILib.s:2587) but does NOT clear. So the
+   * flavour bit and any recorded Resume Label still read as the caller's
+   * inside a handler procedure, and PopP puts the caller's back.
+   */
+  savedErrIsProc?: boolean
+  savedResumeLabel?: string | null
 }
 
 export interface LoopFrame {
@@ -372,6 +390,7 @@ interface SavedProgram {
   errStmt: Addr | null
   errNext: Addr | null
   resumeLabel: string | null
+  errIsProc: boolean
   errFrameDepth: number
   every: Interp['every']
   everyReturnDepth: number
@@ -460,10 +479,20 @@ export class Interp {
   errNext: Addr | null = null
   /**
    * Where a bare `Resume Label` will go, which `Resume Label name` records
-   * rather than jumping to. This is ErrorChr's low 31 bits (+ILib.s:1928);
-   * bit 31 of the same longword is `errorHandler.kind === 'proc'`.
+   * rather than jumping to. This is ErrorChr's low 31 bits (+ILib.s:1928).
    */
   resumeLabel: string | null = null
+  /**
+   * ErrorChr bit 31: the armed handler is a PROCEDURE.
+   *
+   * `OnEPrc` sets it when the handler is armed (`bset #7,ErrorChr(a5)`,
+   * +ILib.s:1907) and it cannot be read off `errorHandler` because the two
+   * words live different lives inside a procedure. CallProc clears OnErrLine
+   * (+ILib.s:2603) but only SAVES ErrorChr (+ILib.s:2587), so a handler
+   * procedure sees no handler of its own while the flavour bit still stands
+   * — which is what `Resume` and `Resume Label` test on the way out.
+   */
+  errIsProc = false
   /**
    * How many variables an Input / Line Input has already filled, against the
    * address of the statement filling them. Inn10 (+ILib.s:4970) reads a fresh
@@ -543,6 +572,7 @@ export class Interp {
     this.errStmt = null
     this.errNext = null
     this.resumeLabel = null
+    this.errIsProc = false
     this.inputProgress = null
     this.every = null
     this.userFns = new Map()
@@ -602,7 +632,7 @@ export class Interp {
           // remember the frame depth so Resume can unwind an On Error Proc
           // handler (which enters as a procedure) back to here
           this.errFrameDepth = this.frames.length
-          if (h.kind === 'proc') this.callProc(h.target, [])
+          if (h.kind === 'proc') this.callProc(h.target, [], true)
           else this.jumpLabel(h.target)
           continue
         }
@@ -812,6 +842,7 @@ export class Interp {
       errStmt: this.errStmt,
       errNext: this.errNext,
       resumeLabel: this.resumeLabel,
+      errIsProc: this.errIsProc,
       errFrameDepth: this.errFrameDepth,
       every: this.every,
       everyReturnDepth: this.everyReturnDepth,
@@ -840,6 +871,7 @@ export class Interp {
     this.errStmt = s.errStmt
     this.errNext = s.errNext
     this.resumeLabel = s.resumeLabel
+    this.errIsProc = s.errIsProc
     this.errFrameDepth = s.errFrameDepth
     this.every = s.every
     this.everyReturnDepth = s.everyReturnDepth
@@ -1285,7 +1317,7 @@ export class Interp {
     else this.jumpLabel(h.target)
   }
 
-  callProc(name: string, args: Value[]): void {
+  callProc(name: string, args: Value[], errorEntry = false): void {
     const proc = this.program.procs.get(name)
     if (!proc) throw new AmosError(`procedure not defined: ${name.toUpperCase()}`)
     // Its body was never in the token stream to begin with — see ProcInfo.
@@ -1317,6 +1349,16 @@ export class Interp {
     frame.savedDataInStmt = this.dataInStmt
     this.dataPtr = { li: proc.body.li, ti: proc.body.ti }
     this.dataInStmt = false
+    // and they do not inherit the caller's error trapping — see Frame.
+    // `errorEntry` is the .rErr0 door (+ILib.s:1330): it pushes the LIVE
+    // ErrorOn rather than the 0 RInPro pushes, so the handler procedure runs
+    // with the error still open while every ordinary call does not.
+    frame.savedErrorHandler = this.errorHandler
+    frame.savedInError = errorEntry ? false : this.inError
+    frame.savedErrIsProc = this.errIsProc
+    frame.savedResumeLabel = this.resumeLabel
+    this.errorHandler = null
+    if (!errorEntry) this.inError = false
     this.frames.push(frame)
     this.setPc(proc.body)
   }
@@ -1331,6 +1373,12 @@ export class Interp {
       const frame = this.frames.pop()!
       this.loops.length = frame.loopBase
       this.gosubs.length = frame.gosubBase
+      // PopP restores the same three words End Proc does, so the handler the
+      // caller had armed is live again after Resume
+      if (frame.savedErrorHandler !== undefined) this.errorHandler = frame.savedErrorHandler
+      if (frame.savedInError !== undefined) this.inError = frame.savedInError
+      if (frame.savedErrIsProc !== undefined) this.errIsProc = frame.savedErrIsProc
+      if (frame.savedResumeLabel !== undefined) this.resumeLabel = frame.savedResumeLabel
     }
   }
 
@@ -1343,6 +1391,10 @@ export class Interp {
       this.dataPtr = frame.savedDataPtr
       this.dataInStmt = frame.savedDataInStmt ?? false
     }
+    if (frame.savedErrorHandler !== undefined) this.errorHandler = frame.savedErrorHandler
+    if (frame.savedInError !== undefined) this.inError = frame.savedInError
+    if (frame.savedErrIsProc !== undefined) this.errIsProc = frame.savedErrIsProc
+    if (frame.savedResumeLabel !== undefined) this.resumeLabel = frame.savedResumeLabel
     this.setPc(frame.retAddr!)
   }
 

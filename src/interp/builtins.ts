@@ -732,6 +732,11 @@ export const INSTR: Record<string, Instr> = {
       else it.paramInt = v.n
       it.accept(']')
     }
+    // `EPro1: tst.w ErrorOn(a5) / bne EProErr` (+ILib.s:2638) — End Proc is
+    // refused inside an error handler for the same reason Pop Proc is, and
+    // the pair differ only in where the test sits: End Proc has already run
+    // FnEProc on the bracket by the time it looks, Pop Proc looks first.
+    if (it.inError) throw new AmosError(ED_RUN_MESSAGES[8]!, 8)
     it.returnFromProc()
     return 'jumped'
   },
@@ -842,7 +847,9 @@ export const INSTR: Record<string, Instr> = {
     // port cleared ErrorOn here, which is the one thing the routine never
     // does. It clears OnErrLine and ErrorChr and nothing else.
     if (it.inError) throw new AmosError(ED_RUN_MESSAGES[3]!, 3)
+    // `clr.l OnErrLine(a5) / clr.l ErrorChr(a5)` (+ILib.s:1880) — both words
     it.errorHandler = null
+    it.errIsProc = false
     if (it.accept('goto')) {
       // `cmp.w #_TkEnt,(a6) / bne.s OnEg1 / move.l 2(a6),d0 / bne.s OnEg1 /
       // addq.l #6,a6` — an integer literal 0 is stepped over (2 for the token
@@ -876,6 +883,7 @@ export const INSTR: Record<string, Instr> = {
       // AMOSPro_Examples Help_71 is a bad record number, reported as
       // "procedure not defined: 0" long after the line that broke it.
       it.errorHandler = { kind: 'proc', target: it.parseNameToken().toLowerCase() }
+      it.errIsProc = true
       return
     }
     it.errorHandler = null // bare On Error switches trapping off
@@ -925,7 +933,7 @@ export const INSTR: Record<string, Instr> = {
     // the ErrorOn test comes first, so `Resume LBL` outside an error is 7 and
     // not 4 — `tst.w ErrorOn(a5) / beq NoErr` precedes the ErrorChr test
     if (!it.inError && !it.errStmt) throw new AmosError(ED_RUN_MESSAGES[7]!, 7)
-    if (named && it.errorHandler?.kind === 'proc') throw new AmosError(ED_RUN_MESSAGES[4]!, 4)
+    if (named && it.errIsProc) throw new AmosError(ED_RUN_MESSAGES[4]!, 4)
     it.inError = false
     it.unwindErrorHandler() // pop an On Error Proc handler frame
     if (!named) {
@@ -951,9 +959,11 @@ export const INSTR: Record<string, Instr> = {
     // jumping immediately, which skipped whatever the handler did next.
     if (!it.atStmtEnd()) {
       // `tst.l OnErrLine(a5) / beq NoOnErr` then `tst.w ErrorChr(a5) / bpl
-      // NoOnErr`: a handler has to be registered AND it has to be a
-      // procedure, because bit 31 is what On Error Proc sets
-      if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
+      // NoOnErr`, InResumeLabel (+ILib.s:1921): a handler has to be registered AND it has to
+      // be a procedure. Both, so the recording form belongs in the MAIN
+      // PROGRAM — CallProc's `clr.l OnErrLine(a5)` means a handler procedure
+      // has no OnErrLine of its own and gets error 5 here.
+      if (it.errorHandler === null || !it.errIsProc) {
         throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
       }
       it.resumeLabel = it.parseLabelTarget()
@@ -961,14 +971,14 @@ export const INSTR: Record<string, Instr> = {
     }
     // ResL1 (+ILib.s:1934)
     if (!it.inError) throw new AmosError(ED_RUN_MESSAGES[7]!, 7)
+    // PopP runs BEFORE the bit is looked at, so what gets tested is the
+    // CALLER's ErrorChr — which is where the recording form wrote
     it.unwindErrorHandler()
     it.inError = false
     // `bclr #31,d0 / beq NoOnErr` tests the bit as it WAS, so a non-procedure
     // handler fails here too; `tst.l d0 / beq ResLNo` then catches the case
     // where no label was ever recorded
-    if (it.errorHandler === null || it.errorHandler.kind !== 'proc') {
-      throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
-    }
+    if (!it.errIsProc) throw new AmosError(ED_RUN_MESSAGES[5]!, 5)
     const target = it.resumeLabel
     if (target === null) throw new AmosError(ED_RUN_MESSAGES[6]!, 6)
     it.resumeLabel = null
@@ -1629,15 +1639,27 @@ export const FUNCS: Record<string, Func> = {
     return VI(it.trapCode)
   },
   errn(it, a) {
-    // =Errn: the number of the last trapped error (FnErrn +Lib.s:1716)
+    /*
+     * FnErrn (+Lib.s:1718) is `moveq #0,d3 / move.w ErrorOn(a5),d3 / beq.s
+     * .Skip / subq.w #1,d3`, and ErrorOn is the error number PLUS ONE
+     * (`addq.w #1,d0 / move.w d0,ErrorOn(a5)`, +ILib.s:1313). So the number
+     * is only there while ErrorOn is: every Resume clears it (`clr.w
+     * ErrorOn(a5)`) and Errn drops back to 0 rather than remembering. The
+     * port returned a code it never cleared, so a program reading Errn after
+     * its handler had resumed saw the old error instead of nothing.
+     */
     arity(a, 0)
-    return VI(it.errCode)
+    return VI(it.inError ? it.errCode : 0)
   },
-  'err$'(it, a) {
-    // =Err$(n): the message for error number n (FnErrD +Lib.s:1726)
+  'err$'(_, a) {
+    /*
+     * FnErrD (+Lib.s:1728) is `move.l d3,d0 / addq.l #1,d0` into GetMessage
+     * on Ed_RunMessages. The +1 is not an offset into the error numbers: the
+     * block opens `.Error1 EdT 0,<>` (+Editor_Config.s:825), so GetMessage's
+     * 1-based ordinal is one past the EdT number and Err$(n) lands on n.
+     */
     arity(a, 1)
-    const n = a.length > 0 && int(a[0]!) >= 0 ? int(a[0]!) : it.errCode
-    return VS(AMOS_ERRORS[n] ?? '')
+    return VS(AMOS_ERRORS[int(a[0]!)] ?? '')
   },
   'repeat$'(_, a) {
     /*

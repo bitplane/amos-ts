@@ -1389,12 +1389,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (const impl of new Set(rt.extSlotImpls().values())) impl.defaults?.(rt)
     },
     'default palette'(it) {
-      // InDefaultPalette +ILib.s:5360: colours for subsequently opened
-      // screens; elided entries keep their current default
+      // InDefaultPalette +ILib.s:5360 is `lea DefPal(a5),a0 / bsr Plt`, the
+      // same Plt that Palette uses. So the skip rule is the same one:
+      // `tst.l d3 / bmi.s Plt2` (+ILib.s:5392) steps over the store for any
+      // NEGATIVE value, not only for an elided slot. The port masked a
+      // negative into 12 bits and wrote it, turning `Default Palette -1` into
+      // white instead of leaving the default alone.
       let i = 0
       for (;;) {
         if (!(it.atStmtEnd() || it.nm() === ',')) {
-          if (i < 32) rt.defaultPalette[i] = it.evalInt() & 0xfff
+          const v = it.evalInt()
+          if (v >= 0 && i < 32) rt.defaultPalette[i] = v & 0xfff
         }
         i++
         if (!it.accept(',')) break
@@ -4363,6 +4368,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
+      // InBankSwap bounds BOTH numbers before it touches a list: `Rble
+      // L_FonCall / cmp.l #$10000,d0 / Rbge L_FonCall` on b (+Lib.s:2209)
+      // and the same pair on a (+Lib.s:2216). So 1 to 65535, and bank 0 is
+      // as much an error as a negative. The port checked neither.
+      if (b <= 0 || b >= 0x10000 || a <= 0 || a >= 0x10000) funcCall()
       // NOTE: InBankSwap swaps the NUMBER fields in the one chain, so on the
       // machine `Bank Swap 1,5` leaves a Bob bank numbered 5. The two
       // representations here cannot express that -- an ObjectBank is parsed
@@ -4541,6 +4551,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const end = it.evalInt()
       it.expect('to')
       const dest = it.evalInt()
+      // InCopy (+Lib.s:2602) is `sub.l a0,d0 / Rbls L_FonCall`: the length is
+      // end minus start and `bls` catches both the zero and the borrow, so a
+      // Copy that would move nothing is error 23 rather than a no-op. The
+      // port returned quietly, which hid the swapped-argument mistake this
+      // check exists to report.
+      if (end - start <= 0) funcCall()
       const src = rt.resolveAddr(start)
       const dst = rt.resolveWrite(dest)
       if (!src || !dst) return
@@ -4750,6 +4766,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (tg.type !== 2) throw new AmosError('Type mismatch')
         if (len <= 0) funcCall()
         recSize += len
+        // Fld2 (+ILib.s:4776) sums the lengths and tests the RUNNING total:
+        // `add.l d0,d2 / cmp.l #String_Max,d2 / bcc FldFonc`, with
+        // String_Max $FFC0 (+Equ.s:1139). A record of 65472 bytes or more is
+        // a function-call error, because the record has to fit one AMOS
+        // string; the port summed without ever looking.
+        if (recSize >= 0xffc0) funcCall()
         fields.push({ len, get: () => str(tg.get()), set: (v: string) => tg.set(VS(v)) })
       } while (it.nm() === ',')
       c.fields = fields
@@ -5634,7 +5656,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const m = it.accept('to') ? it.evalInt() : n
       const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
       if (!bank) throw new AmosError('bank not reserved')
-      if (!bank.delete(n, m)) {
+      /*
+       * IDIc3 (+Lib.s:2382), shared by Del Bob, Del Sprite and Del Icon:
+       *
+       *	move.l	(a3)+,d1	the FIRST written argument
+       *	Rble	L_FonCall
+       *	move.l	d3,d0		the second
+       *	Rble	L_FonCall
+       *	cmp.l	d1,d0
+       *	Rbhi	L_FonCall
+       *
+       * so both have to be 1 or more, and the second may not exceed the
+       * first. Bnk.DelBob then deletes every image whose number is `>= d0`
+       * and `<= d1` (+Lib.s:8357), and d0 is the SECOND argument — the range
+       * runs from the second to the first, the reverse of how `Del Sprite
+       * 5 To 10` reads. Written that way round it is error 23; the range it
+       * actually deletes is 10 To 5. The port bounded neither end.
+       */
+      if (n <= 0 || m <= 0 || m > n) funcCall()
+      if (!bank.delete(m, n)) {
         if (kind === 'icon') rt.iconBank = null
         else rt.spriteBank = null
       }

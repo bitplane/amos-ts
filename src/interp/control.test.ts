@@ -154,15 +154,23 @@ describe('error handling (Resume / Resume Label)', () => {
     expect(run(prog).out).toBe(' 42\n')
   })
 
-  it('Resume Label records, and the bare form is the one that jumps (InResumeLabel +ILib.s:1916)', () => {
-    // `bsr Finie / beq.s ResL1` splits the two forms. The named one stores
-    // the label and returns, so the rest of the handler still runs.
+  it('Resume Label records in the MAIN program, and the bare form jumps (InResumeLabel +ILib.s:1916)', () => {
+    // `bsr Finie / beq.s ResL1` splits the two forms. The named one writes
+    // ErrorChr and returns; the bare one pops the procedure and jumps there.
+    //
+    // The recording form cannot go in the handler. Its first test is `tst.l
+    // OnErrLine(a5) / beq NoOnErr`, InResumeLabel (+ILib.s:1921), and CallProc clears
+    // OnErrLine on the way in (+ILib.s:2603), so inside a handler procedure
+    // it is error 5. What it writes is ErrorChr, which CallProc only SAVES
+    // (+ILib.s:2587) — so the bare form's PopP restores the caller's copy and
+    // reads the label back out of it.
+    //
     // the target is named as a STRING, because a bare label token is resolved
-    // by the verifier inside the procedure that wrote it and ResL1's PopP has
-    // left that procedure by the time the jump happens. GetLabel's GLb1
+    // by the verifier inside the procedure that wrote it. GetLabel's GLb1
     // ("une expression") is the form that reaches the main program.
     const prog = [
       'On Error Proc H',
+      'Resume Label "AFTER"',
       'Error 23',
       'Print "not reached"',
       'End',
@@ -170,12 +178,24 @@ describe('error handling (Resume / Resume Label)', () => {
       'Print "recovered"',
       'End',
       'Procedure H',
-      '  Resume Label "AFTER"',
       '  Print "handler continues"',
       '  Resume Label',
       'End Proc',
     ].join('\n')
     expect(run(prog).out).toBe('handler continues\nrecovered\n')
+    // and the same program with the recording moved into the handler is 5
+    const inHandler = [
+      'On Error Proc H',
+      'Error 23',
+      'End',
+      'AFTER:',
+      'End',
+      'Procedure H',
+      '  Resume Label "AFTER"',
+      '  Resume Label',
+      'End Proc',
+    ].join('\n')
+    expect(() => run(inHandler)).toThrow(/No ON ERROR PROC/)
   })
 
   it('Resume Label needs an On Error PROC, not a Goto (NoOnErr +ILib.s:1922)', () => {
@@ -428,10 +448,35 @@ describe('error trapping', () => {
     // procedure still stacked.
     const proc = ['On Error Proc HND', 'Error 30', 'Print "no"', 'End', 'Procedure HND', 'Resume BACK', 'BACK:', 'End Proc']
     expect(code(proc.join('\n'))).toBe(4)
-    // Resume Label is the form that works, and the handler runs on past it
+    // the bare Resume is the form that works, and it pops the procedure
     const ok = ['On Error Proc HND', 'Error 30', 'Print "after"', 'End',
-      'Procedure HND', 'Print "in"', 'Resume Label BACK', 'BACK:', 'Print "back"', 'End Proc']
-    expect(run(ok.join('\n')).out).toBe('in\nback\nafter\n')
+      'Procedure HND', 'Print "in"', 'Resume Next', 'End Proc']
+    expect(run(ok.join('\n')).out).toBe('in\nafter\n')
+  })
+
+  it('a called procedure does not inherit the caller\'s On Error', () => {
+    // CallProc pushes OnErrLine, ErrorChr and ErrorOn (+ILib.s:2586) and then
+    // does `clr.l OnErrLine(a5)` (+ILib.s:2603); End Proc pops all three back
+    // (+ILib.s:2651). So an error inside a procedure is untrapped even when
+    // the caller armed a handler, and the handler is live again on return.
+    const inside = ['On Error Goto HND', 'Proc BAD', 'Print "no"', 'End',
+      'HND:', 'Print "caught"', 'Resume Next', 'Procedure BAD', 'Error 30', 'End Proc']
+    expect(code(inside.join('\n'))).toBe(30)
+    const after = ['On Error Goto HND', 'Proc OK', 'Error 30', 'Print "on"', 'End',
+      'HND:', 'Print "caught"', 'Resume Next', 'Procedure OK', 'Print "in"', 'End Proc']
+    expect(run(after.join('\n')).out).toBe('in\ncaught\non\n')
+  })
+
+  it('End Proc cannot leave an error handler either', () => {
+    // `EPro1: tst.w ErrorOn(a5) / bne EProErr` (+ILib.s:2638) is the same test
+    // Pop Proc makes, and the pair differ only in where it sits: End Proc has
+    // already run FnEProc on the bracket by the time it looks.
+    const src = ['On Error Proc HND', 'Error 30', 'Print "no"', 'End', 'Procedure HND', 'Print "in"', 'End Proc']
+    expect(code(src.join('\n'))).toBe(8)
+    // Resume is still the way out, and the caller's handler survives it
+    const twice = ['On Error Proc HND', 'Error 30', 'Error 30', 'Print "done"', 'End',
+      'Procedure HND', 'Print "in"', 'Resume Next', 'End Proc']
+    expect(run(twice.join('\n')).out).toBe('in\nin\ndone\n')
   })
 
   it('Resume to a label outside any error is error 7, not a jump', () => {
