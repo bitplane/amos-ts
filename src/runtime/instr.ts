@@ -2132,7 +2132,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.writeText(t)
     },
     cdown() {
-      scr().newline()
+      // InCdown (+Lib.s:13373) sends chr(31), which is CDown (+W.s:14939) --
+      // down one row with the COLUMN kept. It is not a new line.
+      scr().writeText('\x1f') // ChCDn +Lib.s:13377
     },
     // Every cursor move is a console CHARACTER on the machine — InCup is
     // `lea ChCUp` + GoWn with ChCUp = chr(30) (+Lib.s:13365) — so it runs

@@ -23,10 +23,11 @@ const screen = (rt: Runtime) => rt.screens.get(rt.currentIndex)!
 
 describe('console cursor movement', () => {
   it('Cdown/Cup/Cleft/Cright step the text cursor one cell', () => {
-    // Cdown is a full newline (carriage return and line feed), the others
-    // move within the line without touching the other axis.
+    // All four are one console character (+Lib.s:13345-13377) and each moves
+    // in ONE axis. CDown (+W.s:14939) touches WiY and never WiX, so going
+    // down is not a new line -- CReturn (:14958) is its own code.
     let { rt } = run('Locate 5,5 : Cdown')
-    expect([screen(rt).curX, screen(rt).curY]).toEqual([0, 6])
+    expect([screen(rt).curX, screen(rt).curY]).toEqual([5, 6])
     ;({ rt } = run('Locate 5,5 : Cup'))
     expect([screen(rt).curX, screen(rt).curY]).toEqual([5, 4])
     ;({ rt } = run('Locate 5,5 : Cleft'))
@@ -35,8 +36,13 @@ describe('console cursor movement', () => {
     expect([screen(rt).curX, screen(rt).curY]).toEqual([6, 5])
   })
 
-  it('clamps at the window edges instead of wrapping or going negative', () => {
-    let { rt } = run('Locate 0,0 : Cup : Cleft')
+  it('Cup off the top of the window wraps to the bottom, and Cleft clamps', () => {
+    // CUp is `subq.w #1,WiY(a5) / bpl.s CUp1`, and off the top it takes
+    // `move.w WiTy(a5),d0 / subq.w #1,d0` -- the LAST row, not row 0. CLeft
+    // has no such arm and stops at the margin.
+    let { rt } = run('Locate 0,0 : Cup')
+    expect([screen(rt).curX, screen(rt).curY]).toEqual([0, screen(rt).curWin.rows - 1])
+    ;({ rt } = run('Locate 0,0 : Cleft'))
     expect([screen(rt).curX, screen(rt).curY]).toEqual([0, 0])
     // Cright stops on the last column
     ;({ rt } = run('Locate 0,0 : For I=0 To 200 : Cright : Next I'))
