@@ -2188,10 +2188,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- text console extras ----
+    /*
+     * WCentre (+W.s:15543) measures the string with Compte (+W.s:15597),
+     * which counts a printable byte as one and an ESC as none, skipping the
+     * two bytes behind it:
+     *
+     *     Copt1: tst.b (a0) / beq.s Copt2
+     *            addq.w #1,d0
+     *            cmp.b #27,(a0)+ / bne.s Copt1
+     *            subq.w #1,d0 / addq.l #2,a0 / bra.s Copt1
+     *
+     * So `Centre Pen$(3)+"Hi"` centres two characters, not five, and the
+     * port started it two columns to the left of where AMOS puts it.
+     *
+     * `sub.w d0,d1 / lsr.w #1,d1` is a LOGICAL shift, so a string wider than
+     * the window yields a column near 32767 and Loca refuses it. WCentre
+     * never tests what LocaX returned -- it falls straight into Prt -- so an
+     * over-long string prints from the column the cursor was already on,
+     * with no move and no error. The port homed it to column 0 instead.
+     */
     centre(it) {
       const s = scr()
       const t = it.evalStr()
-      s.locate(Math.max(0, (s.cols - t.length) >> 1), -1)
+      let visible = 0
+      for (let i = 0; i < t.length; i += t.charCodeAt(i) === 27 ? 3 : 1) {
+        if (t.charCodeAt(i) !== 27) visible++
+      }
+      if (visible <= s.cols) s.locate((s.cols - visible) >> 1, -1)
       s.writeText(t)
     },
     cdown() {
@@ -2348,16 +2371,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const border = it.accept(',') ? it.evalInt() : 0
-      // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
-      // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
-      // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads
-      // as 60 through EcWiErr, not as the catch-all 23.
-      if (border < 0 || border > 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
-      try {
-        scr().windOpen(n, x, y, w, h, border)
-      } catch (e) {
-        throw new AmosError((e as Error).message)
-      }
+      /*
+       * InWindopen7 (+Lib.s:13057) is `cmp.l #65536,d1 / Rbcc L_WFonCall`,
+       * and it is there because WOpen keeps the number in a word: `move.w
+       * d1,WiNumber(a5)` (+W.s:13664). The compare is unsigned, so a
+       * negative fails it too. Without the test `Wind Open 70000` opened
+       * window 4464 and =Windon said so.
+       *
+       * The number is checked in +Lib.s, before WOpen runs, so it beats the
+       * already-open test; the border check inside WOpen (+W.s:13676) loses
+       * to it, which is why that one moved down into windOpen.
+       */
+      if (n >>> 0 >= 65536) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      // windOpen already throws AmosError with WErr2's number; the catch that
+      // used to sit here rebuilt it as `new AmosError(message)`, and the
+      // second argument defaults to 0, so =Errn read 0 for every one of them
+      scr().windOpen(n, x, y, w, h, border)
     },
     'wind close'() {
       scr().windClose()
@@ -2394,11 +2423,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       })
     },
     window(it) {
-      try {
-        scr().selectWindow(it.evalInt())
-      } catch (e) {
-        throw new AmosError((e as Error).message)
-      }
+      // WQWind (+W.s:13826) is `bsr WindFind / bne WErr1`, and WErr1 is
+      // `moveq #10,d0` (+W.s:15827) which reaches error 54 through EcWiErr.
+      // selectWindow raises exactly that; the catch that used to wrap it
+      // threw the message away from its number and left =Errn reading 0.
+      scr().selectWindow(it.evalInt())
     },
     border(it) {
       // Border n[,paper][,pen], and n itself may be omitted: `Border,0,14`

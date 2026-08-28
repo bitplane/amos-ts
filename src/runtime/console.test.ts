@@ -566,3 +566,59 @@ describe('input state', () => {
     expect(run('Hide : Hide : Show On').rt.mouseShow).toBe(0)
   })
 })
+
+describe('what the text window routines check before they act (+Lib.s:13031)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('Locate tells an omitted argument from a negative one', () => {
+    // Loca (+W.s:15335) is `cmp.w WiTy(a5),d2 / bcc PErr7` on the row and
+    // `sub.w d1,d0 / bls PErr7` on the column, both unsigned, so -1 fails
+    // them as 500 does. AMOS marks an omitted argument with EntNul, not with
+    // a negative, so `Locate ,0` and `Locate -1,0` are different statements.
+    expect(code('Locate -1,0')).toBe(60)
+    expect(code('Locate 0,-1')).toBe(60)
+    expect(code('Locate 500,0')).toBe(60)
+    const { rt } = run('Locate 7,3 : Locate ,5')
+    expect([screen(rt).curX, screen(rt).curY]).toEqual([7, 5])
+    expect(screen(run('Locate 7,3 : Locate 5,').rt).curY).toBe(3)
+  })
+
+  it('Centre measures the string the way Compte does, escapes excluded', () => {
+    // Compte (+W.s:15597) counts an ESC as nothing and skips the two bytes
+    // behind it, so a colour change costs no width.
+    expect(screen(run('Centre "Hi"').rt).curX).toBe(21)
+    expect(screen(run('Centre Pen$(3)+"Hi"').rt).curX).toBe(21)
+    // `sub.w d0,d1 / lsr.w #1,d1` is logical, so an over-long string asks
+    // for column 32738 and Loca refuses; WCentre ignores that and prints
+    // from where the cursor already was, with no move and no error.
+    expect(screen(run('Locate 10,1 : Centre String$("x",100)').rt).curX).toBe(30)
+  })
+
+  it('Wind Open keeps its number in a word, and says so before it opens', () => {
+    // `cmp.l #65536,d1 / Rbcc L_WFonCall` (+Lib.s:13057) guards `move.w
+    // d1,WiNumber(a5)` (+W.s:13664). Unsigned, so a negative fails it too.
+    expect(code('Wind Open 70000,0,0,5,5')).toBe(60)
+    expect(code('Wind Open -1,0,0,5,5')).toBe(60)
+    expect(screen(run('Wind Open 65535,0,0,5,5').rt).curWin.n).toBe(65535)
+    // WOpen's border test sits after WindFind's `beq WErr2`, so reopening
+    // wins over a bad border
+    expect(code('Wind Open 1,0,0,5,5,99')).toBe(60)
+    expect(code('Wind Open 1,0,0,5,5,16')).toBe(0)
+    expect(code('Wind Open 1,0,0,5,5 : Wind Open 1,0,0,5,5,99')).toBe(55)
+  })
+
+  it('Wind Open and Window report their error numbers', () => {
+    // WErr1 is `moveq #10,d0` (+W.s:15827) and WErr2 `moveq #11,d0`
+    // (+W.s:15829), which through EcWiErr are 54 and 55. Both used to
+    // arrive with =Errn reading 0.
+    expect(code('Wind Open 1,0,0,5,5 : Wind Open 1,0,0,5,5')).toBe(55)
+    expect(code('Window 99')).toBe(54)
+  })
+})

@@ -337,11 +337,32 @@ export const INSTR: Record<string, Instr> = {
   centre(it) {
     it.write(it.evalStr())
   },
+  /*
+   * Loca (+W.s:15335) is `cmp.w WiTy(a5),d2 / bcc PErr7` on the row and
+   * `move.w WiTx(a5),d0 / sub.w d1,d0 / bls PErr7` on the column. Both are
+   * unsigned, so -1 arrives as $ffff and fails them exactly as 500 does;
+   * PErr7 is `moveq #16,d0` (+W.s:15825), error 60.
+   *
+   * AMOS tells an omitted argument from a typed one by its value, not by its
+   * sign: RLoca (+W.s:15325) substitutes the current column and row only for
+   * EntNul, $80000000. The port used -1 as its omitted marker, so `Locate
+   * -1,0` meant `Locate ,0` and went through in silence.
+   */
   locate(it) {
     let x = -1
     let y = -1
-    if (!it.atStmtEnd() && it.nm() !== ',') x = it.evalInt()
-    if (it.accept(',') && !it.atStmtEnd()) y = it.evalInt()
+    let typedX = false
+    let typedY = false
+    if (!it.atStmtEnd() && it.nm() !== ',') {
+      x = it.evalInt()
+      typedX = true
+    }
+    if (it.accept(',') && !it.atStmtEnd()) {
+      y = it.evalInt()
+      typedY = true
+    }
+    // Loca tests the row first
+    if ((typedY && y < 0) || (typedX && x < 0)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
     it.io.locate?.(x, y)
     if (x >= 0) it.col = x
   },

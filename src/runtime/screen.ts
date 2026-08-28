@@ -2268,6 +2268,13 @@ export class Screen {
 
   private windOpenInner(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
     if (this.windows.has(n) && n !== 0) throw new AmosError('Text window already opened', 55)
+    // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
+    // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
+    // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads as
+    // 60 through EcWiErr, not as the catch-all 23. It sits AFTER WindFind's
+    // `beq WErr2` (+W.s:13663), so reopening an open window with a bad
+    // border is error 55 and not 60.
+    if (border < 0 || border > 16) throw new AmosError('illegal text window parameter', 60)
     const alignedX = (x >> 4) << 4
     const b = border !== 0 ? 8 : 0
     const src = this.curWin
