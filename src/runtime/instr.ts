@@ -2090,7 +2090,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const border = it.accept(',') ? it.evalInt() : 0
-      if (border < 0 || border > 16) funcCall()
+      // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
+      // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
+      // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads
+      // as 60 through EcWiErr, not as the catch-all 23.
+      if (border < 0 || border > 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       try {
         scr().windOpen(n, x, y, w, h, border)
       } catch (e) {
