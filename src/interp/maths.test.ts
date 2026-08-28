@@ -132,4 +132,43 @@ describe('bit rotation and clearing', () => {
     // Bset then Bclr returns the original value
     expect(run('A=$F0 : Bset 2,A : Bclr 2,A : Print A')).toBe(' 240\n')
   })
+
+  it('a target that is not a bare variable is an ADDRESS (BsRout +ILib.s:5776)', () => {
+    // BsRout keeps the variable arm only while the token after the name
+    // closes the call or ends the statement. `D+0` is neither, so BsR3 puts
+    // a6 back and reads the whole thing as an address: the bit lands in the
+    // byte D points at and D itself is untouched.
+    const prog = [
+      'Reserve As Work 10,16',
+      'D=Start(10)',
+      'Poke D,1',
+      'Bset 3,D+0',
+      'Print Peek(D)',
+      'Print D=Start(10)',
+      'Print Btst(3,D+0)',
+    ].join('\n')
+    expect(run(prog)).toBe(' 9\n-1\n-1\n')
+  })
+
+  it('the address arm works on a byte, word or long, not on the whole long', () => {
+    // `move.w (a0),d1 / ror.w d0,d1 / move.w d1,(a0)` --- $1234 rotated four
+    // to the right is $4123, and the byte arm sees only the high byte of it
+    const prog = [
+      'Reserve As Work 10,16',
+      'D=Start(10)',
+      'Doke D,$1234',
+      'Ror.w 4,D+0',
+      'Print Hex$(Deek(D))',
+      'Ror.b 4,D+0',
+      'Print Hex$(Deek(D))',
+    ].join('\n')
+    expect(run(prog)).toBe('$4123\n$1423\n')
+  })
+
+  it('a negative count is an Illegal function call (`tst.l d3 / bmi FonCall`)', () => {
+    for (const stmt of ['Bset -1,A', 'Bclr -1,A', 'Bchg -1,A', 'Ror.l -1,A', 'Rol.b -1,A']) {
+      expect(() => run(`A=1 : ${stmt}`)).toThrow(/Illegal function call/)
+    }
+    expect(() => run('A=1 : Print Btst(-1,A)')).toThrow(/Illegal function call/)
+  })
 })

@@ -229,19 +229,6 @@ export function formatUsing(fmt: string, v: Value, it: Interp): string {
 }
 
 /** Rol/Ror width,variable — rotate within b/w/l */
-function rolror(width: number, left: boolean): Instr {
-  return (it) => {
-    const n = it.evalInt() % width
-    it.expect(',')
-    const tg = it.parseTarget()
-    const v = int(tg.get())
-    const mask = width === 32 ? -1 : (1 << width) - 1
-    const x = v & mask
-    const r = left ? ((x << n) | (x >>> (width - n))) & mask : ((x >>> n) | (x << (width - n))) & mask
-    tg.set(VI((v & ~mask) | r))
-  }
-}
-
 /** functions that parse their own arguments */
 export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
   match(it) {
@@ -1038,30 +1025,9 @@ export const INSTR: Record<string, Instr> = {
       return a.n - b.n
     })
   },
-  bset(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) | (1 << (n & 31))))
-  },
-  bclr(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) & ~(1 << (n & 31))))
-  },
-  bchg(it) {
-    const n = it.evalInt()
-    it.expect(',')
-    const tg = it.parseTarget()
-    tg.set(VI(int(tg.get()) ^ (1 << (n & 31))))
-  },
-  'rol.b': rolror(8, true),
-  'rol.w': rolror(16, true),
-  'rol.l': rolror(32, true),
-  'ror.b': rolror(8, false),
-  'ror.w': rolror(16, false),
-  'ror.l': rolror(32, false),
+  // Bset, Bclr, Bchg and the six rotates live in ../runtime/instr.ts: BsRout
+  // (+ILib.s:5776) lets the target be an ADDRESS as well as a variable, and
+  // reaching memory needs the runtime.
   'clear key'(it) {
     void it
     it.inp.keyQueue.length = 0

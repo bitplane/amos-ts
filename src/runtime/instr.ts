@@ -384,6 +384,58 @@ function regSlot(n: number, limit: number, base: number): number {
  * the same branch as an oversized one; the port had been answering 0 for
  * out-of-range instead of raising anything.
  */
+/**
+ * `BsRout` (+ILib.s:5776), the target parser Bset, Bclr, Bchg, Btst and the
+ * six Rol/Ror instructions all share.
+ *
+ * The count comes first, and `tst.l d3 / bmi FonCall` refuses a negative one.
+ * Then the routine reads the next token. Anything that is not a variable is an
+ * ADDRESS, and `bset #31,d3` marks the count so the caller can tell the two
+ * arms apart with one `bmi`. A variable stays a variable only when the token
+ * after it closes the call (`cmp.w #_TkPar2,(a6)+`) or ends the statement
+ * (`bsr Finie`); otherwise BsR3 (+ILib.s:5805) puts a6 back and reads the
+ * whole thing again as an integer expression. So `Bset 3,A` sets a bit in A
+ * and `Bset 3,A+0` sets one in the byte A points at.
+ *
+ * The variable arm holds a long and the byte and word forms work on the low
+ * end of it, `move.b 3(a0)` and `move.w 2(a0)`. The address arm works on a
+ * byte, word or long at the address, and the bit instructions there are the
+ * 68000's memory form, which takes its bit number modulo 8 rather than 32.
+ *
+ * DEVIATION: `move.w (a0),d1` and `move.l (a0),d1` are address errors on a
+ * 68000 when the address is odd, and Struc is the only one of this family
+ * that checks first (`btst #0,d1 / bne AdrErr`). This reads and writes
+ * byte-wise at every address instead of modelling the exception.
+ */
+type BitTarget = { get: () => number; set: (v: number) => void; mem: boolean }
+
+function bitTarget(it: It, rt: Runtime, bytes: number): BitTarget {
+  const save = { ...it.pc }
+  if (it.tok()?.kind === 'var') {
+    const tg = it.parseTarget()
+    if (it.atStmtEnd() || it.nm() === ')') {
+      return { get: () => int(tg.get()), set: (v) => tg.set(VI(v)), mem: false }
+    }
+    it.pc = save
+  }
+  const addr = it.evalInt()
+  return {
+    mem: true,
+    get: () => {
+      const m = rt.resolveAddr(addr)
+      if (!m || m.off + bytes > m.data.length) return 0
+      let v = 0
+      for (let i = 0; i < bytes; i++) v = ((v << 8) | m.data[m.off + i]!) >>> 0
+      return v | 0
+    },
+    set: (v) => {
+      const m = rt.resolveWrite(addr)
+      if (!m || m.off + bytes > m.data.length) return
+      for (let i = 0; i < bytes; i++) m.data[m.off + bytes - 1 - i] = (v >>> (i * 8)) & 0xff
+    },
+  }
+}
+
 function amregGlobal(n: number): number {
   if (n >>> 0 >= 26) funcCall()
   return n
@@ -983,6 +1035,31 @@ function arexxPoll(rt: Runtime): number {
 }
 
 export function makeInstructions(rt: Runtime): Record<string, Instr> {
+  const bitOp =
+    (op: (v: number, bit: number) => number): Instr =>
+    (it) => {
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, 1)
+      tg.set(op(tg.get(), 1 << (n & (tg.mem ? 7 : 31))) | 0)
+    }
+  const rotOp =
+    (width: number, left: boolean): Instr =>
+    (it) => {
+      const count = it.evalInt()
+      if (count < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, width >> 3)
+      // the 68000 takes the count modulo 64, and 8, 16 and 32 all divide it
+      const n = count % width
+      const mask = width === 32 ? -1 : (1 << width) - 1
+      const v = tg.get()
+      const x = v & mask
+      const r =
+        n === 0 ? x : left ? ((x << n) | (x >>> (width - n))) & mask : ((x >>> n) | (x << (width - n))) & mask
+      tg.set(((v & ~mask) | r) | 0)
+    }
   const scr = (): Screen => rt.screen
   const byIndex = (n: number): Screen => {
     const s = rt.screens.get(n)
@@ -4256,6 +4333,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         it.write(`${num} - ${b.name.padEnd(8).slice(0, 8)} S: $${hex} L: ${b.length}\n`)
       }
     },
+    // Bset/Bclr/Bchg and the six rotates, over BsRout's two arms
+    bset: bitOp((v, b) => v | b),
+    bclr: bitOp((v, b) => v & ~b),
+    bchg: bitOp((v, b) => v ^ b),
+    'rol.b': rotOp(8, true),
+    'rol.w': rotOp(16, true),
+    'rol.l': rotOp(32, true),
+    'ror.b': rotOp(8, false),
+    'ror.w': rotOp(16, false),
+    'ror.l': rotOp(32, false),
     poke(it) {
       const addr = it.evalInt()
       it.expect(',')
@@ -5574,6 +5661,20 @@ function strucCheck(addr: number, type: number): void {
 
 export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok) => import('../interp/values').Value> {
   return {
+    /**
+     * `FnBtst` (+ILib.s:5655) is `addq.w #2,a6` past the open bracket and then
+     * BsRout, so it reads its target the same way the three instructions do
+     * and answers -1 or 0.
+     */
+    btst: (it) => {
+      it.expect('(')
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      it.expect(',')
+      const tg = bitTarget(it, rt, 1)
+      it.expect(')')
+      return VI(tg.get() & (1 << (n & (tg.mem ? 7 : 31))) ? -1 : 0)
+    },
     /**
      * `FnEqu` (+ILib.s:5881), which is `Equ` and `Lvo` both: `Ope_Equ` and
      * `Ope_LVO` (+Verif.s:2955) differ only in the "_LVO" the verifier puts
@@ -6912,9 +7013,6 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         out += String.fromCharCode(b)
       }
       return VS(out)
-    },
-    btst(_, a) {
-      return VI(int(a[1]!) & (1 << (int(a[0]!) & 31)) ? -1 : 0)
     },
     /*
      * All four convert between the CURRENT WINDOW's text grid and screen
