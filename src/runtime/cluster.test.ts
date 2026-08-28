@@ -1852,6 +1852,31 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
   })
 
+  it('Bob Update swaps the buffers, the same as Update (InBobUpdate +Lib.s:11459)', () => {
+    // InBobUpdate is EffBob / ActBob / AffBob / EcCall SwapScS. The SwapScS
+    // is the fourth call, so Bob Update ends a frame exactly as Update does
+    // and only skips the hardware sprites (ActHs/AffHs) that follow it.
+    const prog = (kw: string): string =>
+      [
+        'Screen Open 0,320,200,16,0',
+        'Double Buffer',
+        'Autoback 0', // else EcAuto=2 keeps both buffers identical
+        'Plot 10,10,5',
+        'Print Point(10,10)',
+        kw,
+        'Print Point(10,10)',
+        kw,
+        'Print Point(10,10)',
+      ].join('\n')
+    // the plot lands in the logical buffer; one swap reads the other buffer
+    // and a second swap comes back to it, so the first and third agree and
+    // the middle one does not. Bob Update and Update swap alike.
+    const bob = run(prog('Bob Update')).out.split('\n')
+    expect([bob[0], bob[2]]).toEqual([' 5', ' 5'])
+    expect(bob[1]).not.toBe(' 5')
+    expect(run(prog('Update')).out).toBe(run(prog('Bob Update')).out)
+  })
+
   it('a second Double Buffer is error 69, but Anim re-buffering is silent', () => {
     // EcDouble +W.s:2742 `btst #BitDble,EcFlags(a4) / bne EcE25`, EcE25 is
     // `moveq #25,d0` (+W.s:3132) and EcWiErr adds EcEBase-1 = 44 (+Lib.s:12917,

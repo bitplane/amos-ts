@@ -95,11 +95,39 @@ describe('bob and sprite priority (PF2P ordering)', () => {
   it('Priority On/Off and the Reverse forms set the ordering flags', () => {
     expect(run('Priority On').priorityOn).toBe(true)
     expect(run('Priority On : Priority Off').priorityOn).toBe(false)
+    // TPrio (+W.s:1086) skips the priority store when d1 is negative, and
+    // Priority Reverse On passes d1=-1, so it sets the direction and nothing
+    // else. The two settings never touch each other.
     const rev = run('Priority Reverse On')
-    expect([rev.priorityOn, rev.priorityReverse]).toEqual([true, true])
-    // Reverse Off leaves priority enabled and only clears the direction
-    const back = run('Priority Reverse On : Priority Reverse Off')
+    expect([rev.priorityOn, rev.priorityReverse]).toEqual([false, true])
+    const both = run('Priority On : Priority Reverse On')
+    expect([both.priorityOn, both.priorityReverse]).toEqual([true, true])
+    const back = run('Priority On : Priority Reverse On : Priority Reverse Off')
     expect([back.priorityOn, back.priorityReverse]).toEqual([true, false])
+  })
+
+  it('the four Priority forms need a screen open (Prooo +Lib.s:11578)', () => {
+    for (const kw of ['Priority On', 'Priority Off', 'Priority Reverse On', 'Priority Reverse Off']) {
+      expect(() => run(`Screen Close 0\n${kw}`)).toThrow(/screen not opened/i)
+    }
+  })
+})
+
+describe('the update pipeline', () => {
+  it('Update Off freezes the sprites it stops updating (InUpdateOff +Lib.s:11417)', () => {
+    // clearing ActuMask bit 6 stops the sprites being updated, it does not
+    // take them off the screen, so the frozen copy the display falls back to
+    // has to exist by the time the flag goes down
+    const rt = run(`${GRAB}\nSprite 8,100,50,1\nUpdate Off`)
+    expect(rt.spriteUpdateOn).toBe(false)
+    expect(rt.frozenSprites?.length).toBe(1)
+  })
+
+  it('Update Every refuses a negative count (InUpdateEvery +Lib.s:11490)', () => {
+    // `cmp.l #65536,d3 / Rbcc L_FonCall` is unsigned, so -1 fails it too
+    expect(() => run('Update Every -1')).toThrow()
+    expect(() => run('Update Every 65536')).toThrow()
+    expect(run('Update Every 5').updateEvery).toBe(5)
   })
 })
 

@@ -2488,8 +2488,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'bob update'(it) {
+      // InBobUpdate (+Lib.s:11459) is EffBob / ActBob / AffBob / EcCall
+      // SwapScS, the same four calls InUpdate makes before it goes on to the
+      // hardware sprites. The swap was missing here, so a double buffered
+      // program driving its bobs with Bob Update alone drew every frame into
+      // the buffer nobody was looking at.
       void it
-      rt.updateBobs() // one manual update pass
+      rt.updateBobs()
+      rt.swapDoubleBuffered()
     },
     // ---- Update family (InUpdate* +Lib.s:11423-11498): both pipelines ----
     'update on'() {
@@ -2497,7 +2503,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = true
     },
     'update off'() {
+      // InUpdateOff (+Lib.s:11417) clears ActuMask bits 5 and 6, which is
+      // what Bob Update Off and Sprite Update Off clear one at a time.
+      // Clearing bit 6 stops the sprites being UPDATED and does not remove
+      // them, so the frozen copy has to be taken here as well. Without it
+      // the display fell back to `frozenSprites ?? []` and every hardware
+      // sprite vanished on Update Off.
       rt.bobUpdateOn = false
+      if (rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((hs) => ({ ...hs }))
       rt.spriteUpdateOn = false
     },
     update() {
@@ -2507,9 +2520,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.swapDoubleBuffered()
     },
     'update every'(it) {
-      // InUpdateEvery: the auto update runs every n VBLs (VBLDelai)
+      // InUpdateEvery (+Lib.s:11490) is `cmp.l #65536,d3 / Rbcc L_FonCall`
+      // before `move.w d3,VBLDelai(a5)`. Rbcc is unsigned, so a negative
+      // count fails the same test a count above 65535 does. The port checked
+      // only the high end and let Update Every -1 through.
       const n = it.evalInt()
-      if (n >= 65536) funcCall()
+      if (n >>> 0 >= 65536) funcCall()
       rt.updateEvery = Math.max(1, n)
     },
     'bob update on'() {
@@ -2771,17 +2787,31 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'make mask': maskAll('sprite', false),
     'no mask': maskAll('sprite', true),
+    // All four reach Prooo (+Lib.s:11578), which is `tst.w ScOn(a5) / Rbeq
+    // L_ScNOp / SyCall SPrio`, so each one needs a screen open before it
+    // changes anything. SPrio is TPrio (+W.s:1086), taking d1 (priority) and
+    // d2 (reverse) and treating a NEGATIVE value as "leave this one alone":
+    // `tst.l d1 / bmi.s TPri2` and `tst.l d2 / bmi.s TPri3`. Priority On
+    // passes d1=1,d2=-1 and Priority Reverse On passes d1=-1,d2=1, so the two
+    // settings are independent. The port had Priority Reverse On switching
+    // priority on as well.
+    // DEVIATION: TPri1 stores `T_EcCourant(a5)`, not a flag, so on the 68000
+    // priority applies to the screen it was turned on for. This port keeps
+    // one boolean shared by every screen.
     'priority on'() {
+      void rt.screen
       rt.priorityOn = true
     },
     'priority off'() {
+      void rt.screen
       rt.priorityOn = false
     },
     'priority reverse on'() {
-      rt.priorityOn = true
+      void rt.screen
       rt.priorityReverse = true
     },
     'priority reverse off'() {
+      void rt.screen
       rt.priorityReverse = false
     },
 
