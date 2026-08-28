@@ -2611,8 +2611,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
+      // the icon pair of the same `Rbsr L_Bnk.GetIcons / Rbeq L_BkNoRes`
       const mask = it.atStmtEnd() ? -1 : it.evalInt()
-      const pal = rt.iconBank?.palette
+      const bank = rt.iconBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const pal = bank.palette
       if (pal) {
         for (let i = 0; i < Math.min(32, pal.length); i++) {
           if (mask & (1 << i)) scr().palette[i] = pal[i]!
@@ -4983,7 +4986,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function bankPalette(): Instr {
     return (it) => {
       const mask = it.atStmtEnd() ? -1 : it.evalInt()
-      const pal = rt.spriteBank?.palette
+      // InGetBobPal (+Lib.s:9235) opens `Rbsr L_Bnk.GetBobs / Rbeq
+      // L_BkNoRes`, and BkNoRes (+Lib.s:12934) is `moveq #36,d0 / Rbra
+      // L_GoError` — straight to GoError, so 36 with no +44, "Bank not
+      // reserved". With no bank the port had been doing nothing at all.
+      const bank = rt.spriteBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const pal = bank.palette
       if (pal) {
         for (let i = 0; i < Math.min(32, pal.length); i++) {
           if (mask & (1 << i)) scr().palette[i] = pal[i]!

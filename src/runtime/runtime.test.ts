@@ -698,6 +698,15 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Get Bob Palette wants a bank to read (BkNoRes +Lib.s:12934)', () => {
+    // `Rbsr L_Bnk.GetBobs / Rbeq L_BkNoRes`, and BkNoRes goes straight to
+    // GoError with 36, so there is no +44 on this one
+    expect(() => run('Get Bob Palette')).toThrow(/Bank not reserved/)
+    expect(() => run('Get Icon Palette')).toThrow(/Bank not reserved/)
+    const made = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8\nGet Bob Palette'
+    expect(() => run(made)).not.toThrow()
+  })
+
   it('Put Bob refuses a negative and a bob that is not there (InPutBob +Lib.s:12694)', () => {
     // `move.l d3,d1 / Rbmi L_FonCall` then `SyCall PutBob / Rbne L_FonCall`
     expect(() => run('Put Bob -1')).toThrow(/function call/)
