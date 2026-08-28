@@ -2734,10 +2734,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = false
     },
     update() {
-      // InUpdate +Lib.s:11435: EffBob, ActBob, AffBob, SwapScS, then the
-      // hardware sprites. The swap is the half this used to leave out.
+      /*
+       * InUpdate (+Lib.s:11435) is six calls: `SyCall EffBob / ActBob /
+       * AffBob / EcCall SwapScS` and then, after the a5 restore, `SyCall
+       * ActHs / SyCall AffHs`.
+       *
+       * Those last two ARE InSpriteUpdate (+Lib.s:11479), which is nothing
+       * else, so Update does the sprite half as well as the bob half. The
+       * port stopped after the swap, so under Sprite Update Off a sprite
+       * moved and then Updated stayed at its frozen position -- and one
+       * created after the freeze was not drawn at all, because the display
+       * reads `frozenSprites ?? []`.
+       */
       rt.updateBobs()
       rt.swapDoubleBuffered()
+      if (!rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((s) => ({ ...s }))
     },
     'update every'(it) {
       // InUpdateEvery (+Lib.s:11490) is `cmp.l #65536,d3 / Rbcc L_FonCall`

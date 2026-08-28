@@ -951,6 +951,21 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(out).toBe(' 240\n')
     expect(rt.frozenSprites!.find((s) => s.n === 8)!.x).toBe(240) // snapshot updated
   })
+
+  it('plain Update applies the buffered sprites too, because ActHs/AffHs are its tail', () => {
+    // InUpdate (+Lib.s:11444) ends `SyCall ActHs / SyCall AffHs` after the
+    // screen swap, and those two calls ARE InSpriteUpdate (+Lib.s:11479).
+    // The port stopped at SwapScS, so a sprite created after the freeze was
+    // never drawn -- the display reads `frozenSprites ?? []`.
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
+      'Sprite Update Off',
+      'Sprite 8,100,100,1',
+      'Update',
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.frozenSprites!.find((s) => s.n === 8)!.x).toBe(100)
+  })
 })
 
 describe('stragglers (palette shift, wind size, key shift)', () => {
