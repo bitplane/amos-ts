@@ -390,3 +390,55 @@ describe('For takes the loop variable\'s type for all three values', () => {
     expect(ran('For D#=1 To 10.7')).toBe('10')
   })
 })
+
+describe('error trapping', () => {
+  const code = (src: string): number => {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('re-arming On Error inside a handler that has not resumed is error 3', () => {
+    // InOnError (+ILib.s:1878) opens `tst.w ErrorOn(a5) / bne NoResum`, and
+    // NoResum (+ILib.s:1202) is `moveq #3,d0`. The port cleared ErrorOn here
+    // instead, which let a handler quietly re-arm itself and never resume.
+    const src = ['On Error Goto HND', 'Error 30', 'End', 'HND:', 'Print "in"', 'On Error Goto HND', 'Resume Next']
+    expect(code(src.join('\n'))).toBe(3)
+    // and the ordinary arm-then-resume path still works
+    src[5] = 'Print "ok"'
+    expect(run(src.join('\n')).out).toBe('in\nok\n')
+  })
+
+  it('On Error Goto 0 switches trapping off rather than naming a label', () => {
+    // `cmp.w #_TkEnt,(a6) / bne.s OnEg1 / move.l 2(a6),d0 / bne.s OnEg1 /
+    // addq.l #6,a6` steps over the token and its longword and returns with
+    // OnErrLine already cleared. It never reaches GetLabel, so the digits are
+    // not a label name — the port used to raise "label not defined: 0".
+    expect(code('On Error Goto 0\nError 30')).toBe(30)
+    expect(code(['On Error Goto HND', 'On Error Goto 0', 'Error 30', 'End', 'HND:', 'Resume Next'].join('\n'))).toBe(30)
+  })
+
+  it('an On Error Proc handler cannot Resume to a label', () => {
+    // ResP (+ILib.s:1969) is `bsr Finie / bne ResPLab`, and ResPLab
+    // (+ILib.s:1196) is `moveq #4,d0`. PopP has to run on the way out, so the
+    // named form is Resume Label; plain `Resume LBL` would jump with the
+    // procedure still stacked.
+    const proc = ['On Error Proc HND', 'Error 30', 'Print "no"', 'End', 'Procedure HND', 'Resume BACK', 'BACK:', 'End Proc']
+    expect(code(proc.join('\n'))).toBe(4)
+    // Resume Label is the form that works, and the handler runs on past it
+    const ok = ['On Error Proc HND', 'Error 30', 'Print "after"', 'End',
+      'Procedure HND', 'Print "in"', 'Resume Label BACK', 'BACK:', 'Print "back"', 'End Proc']
+    expect(run(ok.join('\n')).out).toBe('in\nback\nafter\n')
+  })
+
+  it('Resume to a label outside any error is error 7, not a jump', () => {
+    // `tst.w ErrorOn(a5) / beq NoErr` precedes the ErrorChr test, so the
+    // no-error case answers 7 whichever form was written
+    expect(code('Resume BACK\nBACK:')).toBe(7)
+    expect(code('Resume')).toBe(7)
+    expect(code('Resume Label')).toBe(7)
+  })
+})
