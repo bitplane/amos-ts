@@ -1,7 +1,7 @@
 /**
  * The AMOS music bank player — a port of the interrupt player in
  * extensions/+Music.s (MusInt/Music/MuStep/MuEvery/DoEffects,
- * lines 1091-1665), driving the AudioSink instead of Paula registers.
+ * lines 1066-1639), driving the AudioSink instead of Paula registers.
  *
  * The bank (number 3, "Music   ") is converted Soundtracker: three
  * sections addressed by longs at payload +0/+4/+8 (BkNew +Music.s:991)
@@ -12,7 +12,7 @@
  * word offsets to per-voice pattern lists. Patterns: count.w then a
  * word offset per (pattern, voice) into the stream data.
  *
- * Pattern stream words (MuStep 1223): $0xxx = note (period, triggers
+ * Pattern stream words (MuStep 1197): $0xxx = note (period, triggers
  * the current instrument), $4xxx = old-format note (low byte = delay,
  * next word = optional note), $8000|cmd<<8|arg = command via MuJumps.
  *
@@ -69,10 +69,10 @@ interface MuSong {
   tempo: number // MuTempo
 }
 
-const TEMPO_BASE = 100 // PAL (MusDef +Music.s:852)
+const TEMPO_BASE = 100 // PAL (Mus_Cold +Music.s:826)
 
 /**
- * Periods table (+Music.s:2150) — arpeggio semitone lookup.
+ * Periods table (+Music.s:2124) — arpeggio semitone lookup.
  *
  * The 36 periods are the standard Amiga table, shared with every other
  * replayer (../amiga/paula.ts). The TWO ZEROS are AMOS's own: its assembled
@@ -91,7 +91,7 @@ const PERIODS = [...AMIGA_PERIODS, 0, 0]
  */
 const SINUS = PT_SINE
 
-// ---- the wavetable synth tables (+Music.s:2156-2183) ----------------------
+// ---- the wavetable synth tables (+Music.s:2130-2157) ----------------------
 
 /** default envelopes (EnvDef/EnvShoot/EnvBoom/EnvBell): (duration, volume) pairs, 0 = end */
 export const ENV_DEF = [1, 64, 4, 55, 5, 50, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -127,7 +127,7 @@ export interface Wave {
   data: Int8Array
 }
 
-/** NeWave's mip build (+Music.s:3510-3545): halve the 256-byte wave 6 times */
+/** NeWave's mip build (+Music.s:3484-3519): halve the 256-byte wave 6 times */
 function waveMips(src: Int8Array): Int8Array {
   const out = new Int8Array(LWAVE)
   out.set(src.subarray(0, 256))
@@ -258,11 +258,16 @@ export class MusicPlayer {
 
   /** InMusic (+Music.s:3789) */
   music(n: number): void {
-    if (n <= 0) funcCall()
+    // InMusic opens `tst.l d3 / Rbls L_IFonc` (+Music.s:3791), and `tst`
+    // clears the carry, so the `bls` catches ZERO alone. A negative song
+    // number carries on to `cmp.w (a1),d3 / Rbhi L_MNDef` (:3799), an
+    // unsigned WORD compare, and answers 184 -- or 183 first, if no music
+    // bank is reserved.
+    if (n === 0) funcCall()
     this.ensureBank()
     if (!this.bound) throw new AmosError('music bank not found', 183)
     const count = this.w(this.songBase)
-    if (n > count) throw new AmosError('music not defined', 184)
+    if (n < 0 || n > count) throw new AmosError('music not defined', 184)
     if (this.stack.length >= 3) return // no room — current music keeps playing
     const songOff = this.songBase + this.l(this.songBase + 2 + n * 4 - 4)
     const voices: MuVoice[] = []
@@ -907,7 +912,7 @@ export class MusicPlayer {
     e.on = false
   }
 
-  /** the per-vbl envelope walk + noise refresh (MusInt +Music.s:1093-1134) */
+  /** the per-vbl envelope walk + noise refresh (MusInt +Music.s:1067-1108) */
   private envStep(): void {
     for (let v = 0; v < 4; v++) {
       const e = this.envs[v]!

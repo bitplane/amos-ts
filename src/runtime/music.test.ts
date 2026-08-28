@@ -545,6 +545,85 @@ describe('Sam Swap / Sload / Ssave', () => {
     expect(() => boot('Sload 11 To 10,4', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
     expect(() => boot('Ssave 1,100 To 100', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
   })
+
+  it('Sload/Ssave take channels 1..9, and refuse only a port (+Music.s:3221/3230)', () => {
+    const disc = (src: string): Runtime => {
+      const fs = new AmigaFS()
+      fs.mountMemory('DH0').write(['in.raw'], Uint8Array.from([1, 2, 3, 4]))
+      return new Runtime(tokenize(src, table, extensions), table, {
+        extensions,
+        audio: new NullAudio(),
+        maxSteps: 100_000,
+        onText: () => {},
+        fs,
+      })
+    }
+    // `cmp.l #10,d0 / Rbcc` — ten is out, and AMCAF's clone rejects it too
+    const nine = disc('Reserve As Work 10,16\nOpen In 9,"in.raw"\nSload 9 To Start(10),4')
+    nine.runHeadless(6)
+    expect([...nine.memBanks.get(10)!.data.slice(0, 4)]).toEqual([1, 2, 3, 4])
+    expect(() => disc('Open In 10,"in.raw"\nSload 10 To 100,4').runHeadless(6)).toThrow(/illegal function call/i)
+
+    // `btst #2,FhT` is set by Open Port alone, so the WRONG DIRECTION is
+    // allowed: this Ssave finds an input channel and writes nothing
+    const wrong = disc('Reserve As Work 10,16\nOpen In 1,"in.raw"\nSsave 1,Start(10) To Start(10)+4\nClose 1')
+    expect(() => wrong.runHeadless(8)).not.toThrow()
+  })
+
+  it('GetSam looks at the bank before the sample number (+Music.s:3185)', () => {
+    // `Rbeq L_BNSam` comes first, so with no Samples bank even Sam Play 0 --
+    // the one number the routine's own `Rbls` catches -- answers 180
+    expect(() => boot('Sam Play 0', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/sample bank not found/i)
+  })
+
+  it('a negative song number is "music not defined", not illegal (+Music.s:3791)', () => {
+    // `tst.l d3 / Rbls` is a beq, so only zero is 23
+    expect(() => boot('Music 0', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
+    expect(() => boot('Music -1', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/music not defined/i)
+    expect(() => boot('Music 99', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/music not defined/i)
+  })
+
+  it('Set Wave refuses zero alone, and Set Envel phase 0 refuses a zero word', () => {
+    const wave = 'A$=Space$(256)\n'
+    // `move.l (a3)+,d1 / Rbls` (+Music.s:3367) — a beq, so -1 defines a wave
+    expect(() => boot(wave + 'Set Wave 0,A$', musicBank(BASIC)).rt.runHeadless(4)).toThrow(/illegal function call/i)
+    const neg = boot(wave + 'Set Wave -1,A$', musicBank(BASIC)).rt
+    neg.runHeadless(4)
+    expect(neg.music.waves.has(-1)).toBe(true)
+    // `tst.w d3 / Rbls` (+Music.s:3414) — a negative duration is legal in
+    // phase 0 as it is in phases 1-6; 65536 is the one that is not
+    const env = boot(wave + 'Set Wave 2,A$\nSet Envel 2,0 To -1,10', musicBank(BASIC)).rt
+    expect(() => env.runHeadless(6)).not.toThrow()
+    expect(() => boot(wave + 'Set Wave 2,A$\nSet Envel 2,0 To 65536,10', musicBank(BASIC)).rt.runHeadless(6)).toThrow(
+      /illegal function call/i,
+    )
+  })
+
+  it('Track Load bounds the bank above only, and the name at 1..128 (+Music.s:4096)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0').write(['mod'], new Uint8Array(64))
+    const load = (src: string): Runtime =>
+      new Runtime(tokenize(src, table, extensions), table, {
+        extensions,
+        audio: new NullAudio(),
+        maxSteps: 100_000,
+        onText: () => {},
+        fs,
+      })
+    // `cmp.l #$10000,d3 / Rbge` is signed, so bank 0 and bank -1 both pass
+    const zero = load('Track Load "mod",0')
+    zero.runHeadless(3)
+    expect(zero.memBanks.has(0)).toBe(true)
+    expect(() => load('Track Load "mod",65536').runHeadless(3)).toThrow(/illegal function call/i)
+    // and `subq.w #1,d0 / cmp.w #128,d0 / Rbcc` makes an empty name 23
+    expect(() => load('Track Load "",5').runHeadless(3)).toThrow(/illegal function call/i)
+
+    // Med Load is the same two tests at :4433 and :4444, so bank 0 gets past
+    // them and dies on the magic instead
+    expect(() => load('Med Load "mod",0').runHeadless(3)).toThrow(/med module/i)
+    expect(() => load('Med Load "mod",65536').runHeadless(3)).toThrow(/illegal function call/i)
+    expect(() => load('Med Load "",5').runHeadless(3)).toThrow(/illegal function call/i)
+  })
 })
 
 describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Examples/Music/Med_Module')))('the MED player', () => {

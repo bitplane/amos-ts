@@ -137,6 +137,39 @@ describe('Music extension: Set Talk, Talk Misc, Talk Stop', () => {
     await expect(run('Talk Misc 65,11000')).rejects.toThrow(/function call/)
   })
 
+  it('the fields are written in the order they unpile, last argument first', async () => {
+    // rate is d3 and lands in 48(a1) before pitch is so much as compared
+    // (+Music.s:2601-2616), so this raises 23 having already moved the rate
+    const rt = new Runtime(tokenize('Set Talk 0,0,9999,300', table, exts), table, {
+      extensions: exts,
+      maxSteps: 500_000,
+    })
+    expect(() => rt.runHeadless(50)).toThrow(/function call/)
+    expect(rt.speech.rate).toBe(300)
+    expect(rt.speech.pitch).not.toBe(9999)
+  })
+
+  it('the narrator bounds are WORD compares, so the high half is dropped', async () => {
+    // `cmp.w #40,d1 / Rbcs` + `cmp.w #400,d1 / Rbhi` (+Music.s:2604) look at
+    // sixteen bits, and the field is a `move.w` too: $10028 is a rate of 40
+    const { rt } = await run('Set Talk ,,110,65576')
+    expect(rt.speech.rate).toBe(40)
+    // and the volume's extra `tst.l d1 / Rbmi` (+Music.s:4389) is there
+    // because `cmp.w #64` alone would have taken -65472 for 64
+    await expect(run('Talk Misc -65472,11000')).rejects.toThrow(/function call/)
+  })
+
+  it('the tilde is necessary but not sufficient: 2..1023 characters', async () => {
+    // `cmp.w #1024,d1 / bcc ISayN` and `subq.w #2,d1 / bmi.s ISayN`
+    // (+Music.s:2539) hand the string back to translator.library outside that
+    // range, tilde and all. 1023 characters are phonemes and speak as such;
+    // 1025 are TEXT, and the translator turns them into a mouth stream
+    const short = await run('A$="~"+String$("AA",511)\nSay A$,1')
+    expect(short.rt.speech.mouths).toBe(null)
+    const long = await run('A$="~"+String$("AA",512)\nSay A$,1')
+    expect(long.rt.speech.mouths!.length).toBeGreaterThan(1000)
+  })
+
   it('Talk Stop ends an asynchronous say and its stream', async () => {
     const { rt } = await run(['Say "hello there",1', 'Mouth Read', 'Talk Stop'].join('\n'))
     expect(rt.speech.mouthsOn).toBe(false)

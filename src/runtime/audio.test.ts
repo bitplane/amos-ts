@@ -145,6 +145,17 @@ describe('sample playback', () => {
     expect(play).toMatchObject({ voice: 0, length: 512, freq: PAULA_CLOCK / samPeriod(8000) })
   })
 
+  it('Sam Play checks the SAMPLE before the frequency (InSamPlay3 +Music.s:3119)', () => {
+    // `move.l 4(a3),d0 / Rbsr L_GetSam` reaches past the frequency without
+    // popping it, so with both arguments wrong the answer is the sample's
+    expect(() => run('Sam Play 15,999,100')).toThrow(/sample not defined/i)
+    expect(() => run('Sam Play 15,1,100')).toThrow(/illegal function call/i)
+    // and a negative number is not the routine's zero case: `Rbls` after a
+    // `move.l` is a `beq`, so -1 reaches the unsigned word compare
+    expect(() => run('Sam Play -1')).toThrow(/sample not defined/i)
+    expect(() => run('Sam Play 0')).toThrow(/illegal function call/i)
+  })
+
   it('Led On/Off drives the power-LED low-pass filter (InLedOn +Music.s:3891)', () => {
     const { audio } = run('Led Off\nLed On')
     expect(audio.events.filter((e) => e.kind === 'filter').map((e) => e.filter)).toEqual([false, true])
@@ -153,7 +164,7 @@ describe('sample playback', () => {
 })
 
 describe('effects and vumeter', () => {
-  it('Bell is the looped square wave on all four voices (InBell +Music.s:2681)', () => {
+  it('Bell is the looped square wave on all four voices (InBell0 +Music.s:2655)', () => {
     const { audio } = run('Bell')
     const plays = audio.events.filter((e) => e.kind === 'play')
     expect(plays.map((p) => p.voice)).toEqual([0, 1, 2, 3])
@@ -191,7 +202,7 @@ describe('effects and vumeter', () => {
       { extensions, audio, banks: [sampleBank()], maxSteps: 100_000, onText: () => {} },
     )
     // the music player stores the note volume here on trigger (DoNote
-    // +Music.s:1245); simulate a note-on, then the read must clear it
+    // +Music.s:1219); simulate a note-on, then the read must clear it
     rt.vuBytes[2] = 48
     let out = ''
     rt.interp.io.write = (t) => (out += t)

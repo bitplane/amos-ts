@@ -3533,7 +3533,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'sam play'(it) {
       // Sam Play n | Sam Play voices,n | Sam Play voices,n,freq
-      // (InSamPlay1-3 +Music.s:3102: an explicit frequency <=500 errors)
+      // (InSamPlay1-3 +Music.s:3102). The three-argument form reaches the
+      // sample number without popping it — `move.l 4(a3),d0 / Rbsr L_GetSam`
+      // (:3119) — so the SAMPLE is validated before `cmp.l #500,d3 / Rble`
+      // looks at the frequency, and Sam Play 15,999,100 with 999 undefined
+      // answers 179 rather than 23.
       const a = it.evalInt()
       let mask = 0b1111
       let n = a
@@ -3543,8 +3547,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         n = it.evalInt()
         if (it.accept(',')) freq = it.evalInt()
       }
-      if (freq !== null && freq <= 500) funcCall()
       const sample = rt.getSample(n)
+      if (freq !== null && freq <= 500) funcCall()
       rt.samPlay(mask & 15, sample.pcm, freq ?? sample.freq)
     },
     'sam stop'(it) {
@@ -3573,33 +3577,47 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * the author's intent, so AMCAF deliberately registers neither; see
      * ALLOWED_UNDECLARED in ../runtime/contested.test.ts.
      *
-     * The two are not byte-identical, and the differences are AMCAF's:
+     * The two are not byte-identical. Where they agree:
      *
-     *   - the channel is 1..9 there and 1..10 here. `cmp.l #$a,d0 / Rbcc` on
-     *     routine 106 rejects ten, where Music's takes it.
-     *   - AMCAF checks no MODE. It takes the handle out of the table at
-     *     $8bc(a5) and calls Read or Write on whatever it finds, so its
-     *     Sload on an output channel reaches dos.library; Music's refuses.
-     *   - AMCAF does not reject a zero length. Ssave's `sub.l d0,d3` just
-     *     yields nought and writes nothing, where `end - start <= 0` here is
-     *     error 23.
+     *   - the channel is 1..9 in both. `cmp.l #$a,d0 / Rbcc / subq.l #1,d0 /
+     *     Rbmi` is the same four instructions on AMCAF routine 106 ($38fa)
+     *     and at +Music.s:3221. Ten is an error either way.
+     *   - a null handle is error 23, not the core's 97.
+     *
+     * Where they differ:
+     *
+     *   - AMCAF checks no TYPE. Music's `btst #2,FhT(a2) / Rbne L_IFonc`
+     *     (+Music.s:3230) refuses one kind of channel and one only: bit 2 is
+     *     set by Open Port, which pushes %111 (+Lib.s:5051), where Open In is
+     *     %010, Open Out and Append %001 and Open Random $80. So Music's
+     *     Sload will happily read an OUTPUT channel and its Ssave will write
+     *     an input one -- the direction is dos.library's problem, not AMOS's.
+     *   - AMCAF does not reject a zero length. Ssave's `sub.l d0,d3` at
+     *     $3932 just yields nought and writes nothing, where Music's
+     *     `sub.l d2,d3 / Rble` (+Music.s:4403) is error 23.
      *
      * NOTE: this handler keeps Music's contract, because Music is the one
      * with source (+Music.s) and AMCAF's is the clone of it. A program
-     * written against AMCAF that uses channel 10, an unopened mode or a zero
-     * length therefore meets Music's answer, not AMCAF's.
+     * written against AMCAF that saves a zero length therefore meets Music's
+     * answer, not AMCAF's.
+     *
+     * DEVIATION: dos.library's own refusal is not modelled, only AMOS's. A
+     * Sload on an output channel finds nothing buffered to read and copies
+     * nought bytes; a Ssave on an input channel appends to a buffer that
+     * `closeChannel` only flushes for mode 'out', so nothing reaches the
+     * disc. Both are silent, which is what a failed Read or Write is here.
      */
     sload(it) {
       // InSload +Music.s:3213: Sload f To address,length — reads raw
-      // bytes from an open sequential channel into memory
+      // bytes from an open channel into memory
       const ch = it.evalInt()
       it.expect('to')
       const addr = it.evalInt()
       it.expect(',')
       const len = it.evalInt()
-      if (len < 0 || ch < 1 || ch > 10) funcCall()
+      if (len < 0 || ch < 1 || ch > 9) funcCall()
       const c = rt.fileChans.get(ch)
-      if (!c || c.mode !== 'in') funcCall()
+      if (!c || c.port) funcCall()
       const m = rt.resolveWrite(addr)
       if (!m) return
       const n = Math.min(len, c.data.length - c.pos, m.data.length - m.off)
@@ -3608,15 +3626,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     ssave(it) {
       // InSsave +Music.s:4400: Ssave f,start To end — end must be past
-      // start; writes the raw bytes to an open output channel
+      // start; writes the raw bytes down the channel
       const ch = it.evalInt()
       it.expect(',')
       const start = it.evalInt()
       it.expect('to')
       const end = it.evalInt()
-      if (end - start <= 0 || ch < 1 || ch > 10) funcCall()
+      if (end - start <= 0 || ch < 1 || ch > 9) funcCall()
       const c = rt.fileChans.get(ch)
-      if (!c || c.mode !== 'out') funcCall()
+      if (!c || c.port) funcCall()
       const m = rt.resolveAddr(start)
       if (!m) return
       const n = Math.min(end - start, m.data.length - m.off)
@@ -3651,7 +3669,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     bell(it) {
-      // InBell +Music.s:2681: the square wave (1) with EnvBell on all
+      // InBell0 +Music.s:2655: the square wave (1) with EnvBell on all
       // four voices; default note 70
       rt.music.playNote(0b1111, it.atStmtEnd() ? 70 : it.evalInt(), 1, ENV_BELL)
     },
@@ -3682,17 +3700,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (wait > 0) it.block({ type: 'wait', until: it.tick + wait })
     },
     'play off'(it) {
-      // InPlayOff +Music.s:2977 -> EnvOff
+      // InPlayOff0 +Music.s:2951 -> EnvOff
       rt.music.playOff((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
     },
     'set wave'(it) {
-      // InSetWave +Music.s:3361: needs at least 256 characters (error
-      // 181), wave 0 illegal; the first 256 bytes become the waveform
+      // InSetWave +Music.s:3361: needs at least 256 characters (error 181),
+      // and the wave number's test is `move.l (a3)+,d1 / Rbls L_IFonc`
+      // (:3367) — a `move` clears the carry, so that `bls` is a `beq` and
+      // ZERO alone is illegal. A negative number reaches NeWave, which
+      // stores it in WaveNb and makes a wave nothing can name again.
       const n = it.evalInt()
       it.expect(',')
       const s = it.evalStr()
       if (s.length < 256) throw new AmosError('256 characters for a wave', 181)
-      if (n <= 0) funcCall()
+      if (n === 0) funcCall()
       const src = new Int8Array(256)
       for (let i = 0; i < 256; i++) src[i] = (s.charCodeAt(i) << 24) >> 24
       rt.music.setWave(n, src)
@@ -3718,7 +3739,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (vol < 0 || vol >= 64) funcCall()
       if (phase < 0 || phase >= 7) funcCall()
       if (wave < 0) funcCall()
-      if (phase === 0 && dur <= 0) funcCall()
+      // `tst.w d3 / Rbls L_IFonc` (:3414) — a WORD test, and `tst` clears
+      // the carry, so phase 0 refuses a duration whose low word is zero and
+      // nothing else. A negative one is legal here as it is in phases 1-6,
+      // and 65536 is not: the field it lands in is `move.w d3,(a2)+`.
+      if (phase === 0 && (dur & 0xffff) === 0) funcCall()
       rt.music.setEnvel(wave, phase, dur, vol)
     },
     wave(it) {
@@ -3772,13 +3797,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'track load'(it) {
       // InTrackLoad +Music.s:4094: the whole file into a chip bank named
-      // "Tracker "; reloading the currently playing bank stops it first
+      // "Tracker "; reloading the currently playing bank stops it first.
+      //
+      // The only bound on the bank is `cmp.l #$10000,d3 / Rbge` (:4096), a
+      // SIGNED compare, so every negative number is legal and `move.w
+      // d3,Track_Bank` (:4104) keeps its low word. The name is checked after
+      // the bank is already stored: `subq.w #1,d0 / cmp.w #128,d0 / Rbcc`
+      // (:4110) is 1 to 128 characters, so an empty one raises 23 having
+      // pointed Track_Bank at a bank that was never loaded.
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
-      if (n < 1 || n >= 0x10000) funcCall()
+      if (n >= 0x10000) funcCall()
       if (n === rt.music.trackBank && rt.music.mtOn) rt.music.trackStop()
-      rt.music.trackBank = n
+      rt.music.trackBank = n & 0xffff
+      if (path.length < 1 || path.length > 128) funcCall()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
       rt.memBanks.set(n, { kind: 'memory', number: n, memType: 1, name: 'Tracker', flags: 0, data: bytes })
@@ -4016,13 +4049,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'med load'(it) {
       // InMedLoad +Music.s:4430: whole file into a chip bank "Med     ";
-      // a bad magic erases the bank and raises error 189
+      // a bad magic erases the bank and raises error 189.
+      //
+      // Bank and name are checked exactly as Track Load's are (:4433, :4444)
+      // and with the same two gaps: `cmp.l #$10000,d3 / Rbge` is signed, so
+      // there is no floor at all, and the name is 1 to 128 characters.
       const path = it.evalStr()
       it.expect(',')
       const n = it.evalInt()
-      if (n < 1 || n >= 0x10000) funcCall()
-      if (n === rt.music.med.bank) rt.music.med.stop()
-      rt.music.med.bank = n
+      if (n >= 0x10000) funcCall()
+      if ((n & 0xffff) === (rt.music.med.bank & 0xffff)) rt.music.med.stop()
+      rt.music.med.bank = n & 0xffff
+      if (path.length < 1 || path.length > 128) funcCall()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
       rt.memBanks.set(n, { kind: 'memory', number: n, memType: 1, name: 'Med', flags: 0, data: bytes })
@@ -4054,7 +4092,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.med.cont()
     },
     'med midi on'() {
-      // InMedMidiOn +Music.s:4676: flag only — no MIDI output in the port
+      // InMedMidiOn +Music.s:4676: `move.b #1,(a0)` and nothing else. The
+      // flag is READ once, by MedOpen's `MEDGetPlayer` (:4658), so switching
+      // it on after a Med Load has already opened medplayer.library does
+      // nothing until MedClose runs — which is Default, Run or the end of
+      // the program. The source's own banner says "MED MIDI ON / OFF", but
+      // the token table stops at "med midi o","n"+$80 (:513) and there is no
+      // OFF keyword: only MedClose and MusDef ever clear it.
+      //
+      // DEVIATION: no MIDI output here, so the flag is recorded and unused.
       rt.music.med.midi = true
     },
     'track loop on'() {

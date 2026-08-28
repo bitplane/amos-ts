@@ -253,6 +253,21 @@ function slots(it: Parameters<Instr>[0], n: number): number[] {
   return out
 }
 
+/**
+ * Whether a narrator field's `cmp.w #LO,d1 / Rbcs` + `cmp.w #HI,d1 / Rbhi`
+ * pair accepts this value.
+ *
+ * Both are WORD compares against a register holding a long, so only the low
+ * sixteen bits are looked at and only unsigned: `Set Talk ,,110,65576` stores
+ * a rate of 40 rather than raising 23, because $10028 is 40 in a word. The
+ * field written afterwards is a `move.w` too, so the truncation is not a
+ * missed check, it is what lands in the request.
+ */
+const word = (v: number, lo: number, hi: number): boolean => {
+  const w = v & 0xffff
+  return w >= lo && w <= hi
+}
+
 export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /**
@@ -291,8 +306,14 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       }
       const lib = s.lib!
 
+      // The `~` is necessary but not sufficient. Say tests the length twice,
+      // `cmp.w #1024,d1 / bcc ISayN` then `subq.w #2,d1 / bmi.s ISayN`
+      // (+Music.s:2539), and a string of 1024 characters or more, or one of a
+      // single `~`, goes back to the translator -- which then translates the
+      // tilde itself, so `Say "~"` says whatever it makes of that character.
+      const raw = text.startsWith('~') && text.length >= 2 && text.length < 1024
       let phonemes: Uint8Array
-      if (text.startsWith('~')) {
+      if (raw) {
         phonemes = latin1(text.slice(1) + 'Q#U\0\0')
       } else {
         const t = lib.translate(text, lib.rules)
@@ -354,33 +375,41 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
     'set talk'(it) {
       const s = rt.speech
       const [sex, mode, pitch, rate] = slots(it, 4)
-      if (sex !== undefined && sex !== ENT_NUL) s.sex = sex & 1
-      if (mode !== undefined && mode !== ENT_NUL) s.mode = mode & 1
-      if (pitch !== undefined && pitch !== ENT_NUL) {
-        if (pitch < 65 || pitch > 320) funcCall()
-        s.pitch = pitch
-      }
+      // The parameters unpile in reverse, so RATE is validated and stored
+      // first and SEX last (+Music.s:2601-2626). A `Set Talk 0,0,9999,300`
+      // therefore leaves rate at 300 before the pitch raises 23, and the
+      // next Say speaks at the new rate.
       if (rate !== undefined && rate !== ENT_NUL) {
-        if (rate < 40 || rate > 400) funcCall()
-        s.rate = rate
+        if (!word(rate, 40, 400)) funcCall()
+        s.rate = rate & 0xffff
       }
+      if (pitch !== undefined && pitch !== ENT_NUL) {
+        if (!word(pitch, 65, 320)) funcCall()
+        s.pitch = pitch & 0xffff
+      }
+      if (mode !== undefined && mode !== ENT_NUL) s.mode = mode & 1
+      if (sex !== undefined && sex !== ENT_NUL) s.sex = sex & 1
     },
 
     /**
-     * Talk Misc volume,freq (InTalkMisc +Music.s:4395). Volume 0..64 and the
+     * Talk Misc volume,freq (InTalkMisc +Music.s:4371). Volume 0..64 and the
      * sample frequency 5000..25000 — narrator-ts allows up to 28000, so this
      * is AMOS's tighter bound, not the device's.
      */
     'talk misc'(it) {
       const s = rt.speech
       const [volume, freq] = slots(it, 2)
-      if (volume !== undefined && volume !== ENT_NUL) {
-        if (volume < 0 || volume > 64) funcCall()
-        s.volume = volume
-      }
+      // FREQ is d3, so it is checked and stored before the volume is looked
+      // at (+Music.s:4377-4393), the same reversal as Set Talk. The volume
+      // carries an extra `tst.l d1 / Rbmi` because its `cmp.w #64` alone
+      // would let -65472 through as 64.
       if (freq !== undefined && freq !== ENT_NUL) {
-        if (freq < 5000 || freq > 25000) funcCall()
-        s.sampfreq = freq
+        if (!word(freq, 5000, 25000)) funcCall()
+        s.sampfreq = freq & 0xffff
+      }
+      if (volume !== undefined && volume !== ENT_NUL) {
+        if (volume < 0 || !word(volume, 0, 64)) funcCall()
+        s.volume = volume & 0xffff
       }
     },
 

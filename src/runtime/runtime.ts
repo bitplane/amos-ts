@@ -4034,15 +4034,20 @@ export class Runtime {
   }
 
   /**
-   * GetSam (+Music.s:3181): errors follow the 68k order — n<=0 illegal
-   * function call; bank missing or not a "Samp" bank = error 180 "Sample
-   * bank not found"; n past the count or a zero offset = sample not
-   * defined (+Editor_Config.s:1049).
+   * GetSam (+Music.s:3181): the BANK is looked at first, and the sample
+   * number's own test is `move.l (sp)+,d0 / Rbls L_IFonc` (+Music.s:3196).
+   *
+   * That `move.l` clears the carry, so the `bls` is a `beq` and it catches
+   * ZERO alone. A negative number sails past it into `cmp.w (a0),d0 / Rbhi
+   * L_SNDef`, an unsigned WORD compare against the sample count, where -1
+   * arrives as 65535 and answers "sample not defined" rather than illegal
+   * function call. Both orders matter: with no sample bank reserved,
+   * `Sam Play 0` is 180 and not 23.
    */
   getSample(n: number): SampleEntry {
-    if (n <= 0) funcCall()
     const bank = this.memBanks.get(this.samBankNum)
     if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not found', 180)
+    if (n === 0) funcCall()
     if (this.sampleCache?.bank !== bank) {
       this.sampleCache = { bank, entries: parseSampleBank(bank.data) }
     }
