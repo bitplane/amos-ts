@@ -202,6 +202,11 @@ export function screenSlotOfRastPort(rt: Runtime, addr: number): number | null {
   return rt.screens.has(slot) ? slot : null
 }
 
+/** the open window a `struct Window *` names, or null for a stale handle */
+export function ieWindowAt(rt: Runtime, addr: number): IeWindow | null {
+  return rt.intuiextend.windowState.windows.get(addr >>> 0) ?? null
+}
+
 export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): IntuiextendState => rt.intuiextend
 
@@ -222,7 +227,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
     return rt.intuition.slotOf(a)
   }
 
-  const windowAt = (addr: number): IeWindow | null => st().windowState.windows.get(addr >>> 0) ?? null
+  const windowAt = (addr: number): IeWindow | null => ieWindowAt(rt, addr)
 
   /** `RPORT To a,b,...` — the shape `t` in a token spec makes */
   const toArgs = (it: Parameters<Instr>[0], n: number): number[] => {

@@ -976,6 +976,11 @@ export function makeIntuiextendSysFunctions(rt: Runtime): Record<string, Func> {
      * PlanePick is 3 and PlaneOnOff is left at zero, so a two-plane image is
      * what this expects however deep the bob really is.
      *
+     * `$359c addq.w #$2,d7` steps past the bank's count word in WORD width,
+     * so a bank whose address ends $fffe or $ffff wraps to the bottom of its
+     * own 64K instead of carrying. `Wb Icon Image` writes the same step as
+     * `addq.l` at $353a; see ./intuiextendgad.ts.
+     *
      * Zero for a missing bank, a bob number of zero, or a failed allocation.
      */
     'wb bob image': (_, a) => {

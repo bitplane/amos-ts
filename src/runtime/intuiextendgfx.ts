@@ -11,7 +11,7 @@
  *
  * ten bytes that add the Screen struct's RastPort offset and hand it back. So
  * a RastPort address here is a Screen address plus $54, which is exactly how
- * ../amiga/intuition.ts already addresses screens, and `rastPortAt` below
+ * ../amiga/intuition.ts already addresses screens, and `ieRastPortAt` below
  * turns one back into the port's own RastPort object.
  *
  * ## What the pens are
@@ -74,28 +74,30 @@ export const rorW3 = (v: number): number => ((((v & 0xffff) >>> 3) | (v << 13)) 
 /** `rol.l #$3`, which is what `Wb Print Ymove` uses where Xmove uses the word form */
 export const rolL3 = (v: number): number => (((v << 3) | (v >>> 29)) | 0)
 
+/**
+ * The RastPort a `struct RastPort *` names.
+ *
+ * Screens live at `SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT` and a
+ * RastPort is $54 past one, so the arithmetic runs backwards cleanly. An
+ * address that is not a screen's RastPort answers null and the keyword does
+ * nothing, which is what the library does with a pointer into nowhere on a
+ * machine that happens not to trap it.
+ *
+ * A WINDOW's RastPort is the other thing a program can pass here --
+ * `Wb Wind Rastport` hands one back and the guide's own warning is not to
+ * mix the two up -- and those are handles ./intuiextendwin.ts mints.
+ */
+export function ieRastPortAt(rt: Runtime, addr: number): RastPort | null {
+  const off = (addr >>> 0) - IE_RASTPORT_OFFSET - RT.SCREEN_CTRL_BASE
+  if (off < 0 || off % RT.SCREEN_CTRL_SLOT !== 0) return ieWindowRastPort(rt, addr)
+  const s = rt.screens.get(off / RT.SCREEN_CTRL_SLOT)
+  return s ? s.rp : ieWindowRastPort(rt, addr)
+}
+
 export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): IntuiextendState => rt.intuiextend
 
-  /**
-   * The RastPort a `struct RastPort *` names.
-   *
-   * Screens live at `SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT` and a
-   * RastPort is $54 past one, so the arithmetic runs backwards cleanly. An
-   * address that is not a screen's RastPort answers null and the keyword does
-   * nothing, which is what the library does with a pointer into nowhere on a
-   * machine that happens not to trap it.
-   *
-   * A WINDOW's RastPort is the other thing a program can pass here --
-   * `Wb Wind Rastport` hands one back and the guide's own warning is not to
-   * mix the two up -- and those are handles ./intuiextendwin.ts mints.
-   */
-  const rastPortAt = (addr: number): RastPort | null => {
-    const off = (addr >>> 0) - IE_RASTPORT_OFFSET - RT.SCREEN_CTRL_BASE
-    if (off < 0 || off % RT.SCREEN_CTRL_SLOT !== 0) return ieWindowRastPort(rt, addr)
-    const s = rt.screens.get(off / RT.SCREEN_CTRL_SLOT)
-    return s ? s.rp : ieWindowRastPort(rt, addr)
-  }
+  const rastPortAt = (addr: number): RastPort | null => ieRastPortAt(rt, addr)
 
   /** the RastPort AMOS is drawing through, `-$18ca(a5)` */
   const amosRp = (): RastPort | null => (rt.screen ? rt.screen.rp : null)

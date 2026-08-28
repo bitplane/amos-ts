@@ -90,6 +90,7 @@ import {
   type IeWindowState,
 } from './intuiextendwin'
 import { newIeMsgBlock, newIePortState, type IeMsgBlock, type IePortState } from './intuiextendmsg'
+import { newIeGadgetState, type IeGadgetState } from './intuiextendgad'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -187,6 +188,8 @@ export interface IntuiextendState {
   windBase: number
   /** the open windows, by the handle `Wb Wind Base` hands out */
   windowState: IeWindowState
+  /** the gadget blocks `Wb Init * Gadget` allocated, and the windows they are in */
+  gadgets: IeGadgetState
   /** workspace+$e6, what `Wb Next Pubscreen` fills and `Wb Pubscreen Name` reads */
   pubName: string
   /** what SetPubScreenModes last took, so the next call can answer the previous */
@@ -234,6 +237,7 @@ export function newIntuiextendState(): IntuiextendState {
     screenBase: IE_NO_BASE,
     windBase: IE_NO_BASE,
     windowState: newIeWindowState(),
+    gadgets: newIeGadgetState(),
     pubName: '',
     pubModes: 0,
     pubStatus: 0,
