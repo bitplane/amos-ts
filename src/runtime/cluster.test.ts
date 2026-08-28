@@ -2453,6 +2453,31 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     const src = ['Assign "Res:" To "DH0:"', 'Print Drive("DH0:");Drive("res:");Drive("DH0");Drive("nope:")'].join('\n')
     expect(run(src).out).toBe('-1-1 0 0\n')
   })
+
+  it('Assign wants the colon on the name, and an empty path removes it (InAssign +Lib.s:5619)', () => {
+    // `cmp.b #":",-2(a0) / Rbne L_FonCall` — the name is checked, not the path
+    expect(() => run('Assign "Res" To "DH0:"')).toThrow(/function call/)
+    expect(() => run('Assign "" To "DH0:"')).toThrow(/function call/)
+    expect(() => run('Assign "' + 'x'.repeat(110) + ':" To "DH0:"')).toThrow(/function call/)
+    // .Vide hands AssignLock a null lock, which takes the assign away
+    const src = ['Assign "Res:" To "DH0:"', 'Print Drive("res:");', 'Assign "Res:" To ""', 'Print Drive("res:")'].join('\n')
+    expect(run(src).out).toBe('-1 0\n')
+  })
+
+  it('Key Speed takes two arguments and neither may be negative (InKeySpeed +Lib.s:2136)', () => {
+    expect(run('Key Speed 20,5\nPrint "OK"').out).toBe('OK\n')
+    expect(() => run('Key Speed -1,5')).toThrow(/function call/)
+    expect(() => run('Key Speed 20,-1')).toThrow(/function call/)
+    // the spec is "I0,0", so the second slot is not optional
+    expect(() => run('Key Speed 20')).toThrow()
+  })
+
+  it('Logic and Physic keep the whole argument (FnLogic1 +Lib.s:10428)', () => {
+    // `bset #31,d3 / bclr #30,d3` touches two bits and leaves the rest, so
+    // Logic(-1) is the same $BFFFFFFF "current screen" the bare form gives
+    const src = ['Screen Open 0,320,200,16,Lowres', 'Print Logic(-1)=Logic;Physic(-1)=Physic'].join('\n')
+    expect(run(src).out).toBe('-1-1\n')
+  })
 })
 
 describe('function-argument To ranges (the "0,0T0" token specs)', () => {

@@ -265,6 +265,11 @@ export const INSTR: Record<string, Instr> = {
         // Using formats exactly one following expression (sp11)
         it.advance()
         const fmt = it.evalStr()
+        // sp20 (+ILib.s:5104) copies the format into the 256-byte scratch at
+        // Buffer+256 and guards it with `cmp #120,d2 / bcc FonCall`. The
+        // comment beside it says "pas plus de 200 caracteres"; the branch says
+        // 120, and the branch is what runs.
+        if (fmt.length >= 120) funcCall()
         it.accept(';')
         it.write(formatUsing(fmt, it.evalExpr(), it))
         nl = true

@@ -3942,8 +3942,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().curWin.scrollOff = true
     },
     'key speed'(it) {
-      it.evalInt()
-      if (it.accept(',')) it.evalInt() // repeat rates — host handles keys
+      // InKeySpeed +Lib.s:2136 refuses a negative on either argument, and the
+      // spec is "I0,0" so both slots are there to fill. A blank one still
+      // arrives as EntNul, which is negative, so `Key Speed 5,` is the same
+      // error as `Key Speed 5,-1`.
+      const delay = it.evalInt()
+      it.expect(',')
+      const rate = it.evalInt()
+      if (delay < 0 || rate < 0) funcCall()
+      // the rates themselves go no further: SyCall KeySpeed programs the
+      // Amiga's own repeat thresholds, and the host keyboard owns those here
     },
     'change mouse'(it) {
       // InChangeMouse +Lib.s:12185: shape 0 and below error before MChange
@@ -4535,9 +4543,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
     },
     assign(it) {
+      // InAssign +Lib.s:5596. The name is the FIRST argument and the path the
+      // last, and the name is the one with rules: `Rbeq L_FonCall` on an empty
+      // one, `cmp.w #108,d2 / Rbcc L_FonCall` on the length, and
+      // `cmp.b #":",-2(a0) / Rbne L_FonCall` demanding the trailing colon that
+      // `clr.b -2(a0)` then strips before AssignLock sees it.
       const name = it.evalStr()
       it.expect('to')
-      rt.vfs?.assign(name, it.evalStr())
+      const path = it.evalStr()
+      if (name === '' || name.length >= 108 || !name.endsWith(':')) funcCall()
+      if (path.length >= 108) funcCall()
+      // .Vide (+Lib.s:5612) skips LockGet for an empty path, so AssignLock is
+      // handed a null lock and takes the assign away
+      if (path === '') rt.vfs?.unassign(name)
+      else rt.vfs?.assign(name, path)
     },
     'dir$'(it) {
       // assignment form: Dir$ = "path". InDirD (+Lib.s:4799) locks the path
@@ -5589,13 +5608,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.screenCtrlAddr(rt.currentIndex) | 0)
     },
     logic(_, a) {
-      // Logic() = $BFFFFFFF, Logic(n) = $80000000|n (FnLogic0/1)
+      // FnLogic0/1 (+Lib.s:10422) sets bit 31 and clears bit 30 on the
+      // argument and touches nothing else, so the low bits are the screen
+      // number the caller wrote. Masking them to a byte loses the one value
+      // that matters: Logic(-1) is $BFFFFFFF, the same "current screen" the
+      // bare form returns from `moveq #-1,d3 / bclr #30,d3`.
       if (a.length === 0) return VI(0xbfffffff | 0)
-      return VI((0x80000000 | (int(a[0]!) & 0xff)) | 0)
+      return VI(((int(a[0]!) | 0x80000000) & ~0x40000000) | 0)
     },
     physic(_, a) {
+      // FnPhysic0/1 (+Lib.s:10409): both bits set, and bare is a plain -1
       if (a.length === 0) return VI(-1)
-      return VI((0xc0000000 | (int(a[0]!) & 0xff)) | 0)
+      return VI((int(a[0]!) | 0xc0000000) | 0)
     },
     'text length'(_, a) {
       // TextLength() with the set font: sum of per-char advances
