@@ -1383,11 +1383,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * Dev Abort CHANNEL --- `InDevAbort` (+Lib.s:3345). AbortIO then WaitIO,
      * and both are skipped unless the device is open AND something is in
      * flight.
+     *
+     * Which means a channel that was never opened is NOT error 141 here, and
+     * this handler used to raise it. `Dev.GetA2` (+Lib.s:3020) range-checks
+     * and nothing else, and `Dev.AbortIO` reads the open byte itself rather
+     * than calling `Dev.GetIO`. On the machine `Dev_List` is a static table,
+     * so an unopened channel is a slot of zeroes to step over, not a channel
+     * that is missing.
      */
     'dev abort'(it) {
       const c = devSlotOf(rt.dev, it.evalInt())
-      if (!c) throw ioError(141)
-      devAbort(c.slot)
+      if (c) devAbort(c.slot)
     },
 
     // ---- screens ----

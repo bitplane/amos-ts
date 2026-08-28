@@ -133,10 +133,28 @@ export function devCheckIO(slot: DevSlot): number {
   return -1
 }
 
-/** Dev.AbortIO. */
+/**
+ * Dev.AbortIO (+Lib.s:3223) — the one Dev.* routine that does NOT go through
+ * GetIO, and the difference is visible.
+ *
+ * It reads the open byte itself, `tst.b 8(a2) / beq.s .Skip`, so aborting a
+ * closed device is a silent no-op where every other entry point raises 141.
+ * `Serial Abort 0` before any `Serial Open` returns quietly. It skips a second
+ * time on `tst.b 9(a2)`: with no request ever issued there is nothing to
+ * abort.
+ *
+ * Nothing in the routine writes 9(a2), either — AbortIO and WaitIO leave the
+ * state byte at whatever SendIO or DoIO put there. So an abort does not move
+ * a device back to "done", and this port must not either: `Dev.SendIO` reads
+ * that byte to decide whether to WaitIO first.
+ *
+ * DEVIATION: every modelled transfer completes the moment it is issued, so
+ * there is never an outstanding request to cancel and the abort has nothing
+ * to do. The two guards are still real, because the first of them decides
+ * whether an error is raised.
+ */
 export function devAbort(slot: DevSlot): void {
-  devGetIO(slot)
-  slot.state = 1
+  if (!slot.open || slot.state === 0) return
 }
 
 // ---- the Dev * keyword family (+Lib.s:3300-3385) -------------------------

@@ -165,6 +165,23 @@ describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
     expect(rt.ioports.serial[0]!.rx).toEqual([])
   })
 
+  it('Serial Input$ refuses at String_Max, which is $FFC0 and not 64K', () => {
+    // `cmp.l #String_Max,d4 / Rbcc L_IOFonc` (+IO_Ports.s:406) against
+    // `String_Max equ $FFC0` (+Equ.s:1139) — AMOS keeps 64 bytes below the
+    // word so Demande can round the length even and add its two-byte header
+    const { rt } = run('Serial Open 0,1')
+    const fns = makeIoPortsFunctions(rt)
+    const fill = (n: number): void => {
+      const ch = rt.ioports.serial[0]!
+      ch.rx.length = 0
+      for (let i = 0; i < n; i++) ch.rx.push(65)
+    }
+    fill(0xffbf)
+    expect(fns['serial input$']!(rt.interp, [VI(0)])).toEqual(VS('A'.repeat(0xffbf)))
+    fill(0xffc0)
+    expect(() => fns['serial input$']!(rt.interp, [VI(0)])).toThrow(/function call/)
+  })
+
   it('Serial Close with no argument closes every channel', () => {
     // InSerialClose0 loops NSerial-1 down through the slots, 12 bytes apart
     const { rt } = run('Serial Open 0,1\nSerial Open 2,1\nSerial Close')
@@ -204,10 +221,21 @@ describe('IOPorts: Printer and Parallel (+IO_Ports.s:656-1090)', () => {
     expect(() => run('Printer Open\nPrinter Send ""')).toThrow(/function call/)
   })
 
-  it('Out with a length of zero or less is error 23', () => {
-    const pre = 'Reserve As Work 10,4\nParallel Open\n'
+  it('only Serial Out refuses a negative length; the other two take it', () => {
+    // `move.l d3,d2 / Rbmi / Rbeq` on InSerialOut (+IO_Ports.s:362) against
+    // the bare `Rbeq` on InPrinterOut (:735) and InParallelOut (:1038)
+    const pre = 'Reserve As Work 10,4\nParallel Open\nPrinter Open\n'
     expect(() => run(pre + 'Parallel Out Start(10),0')).toThrow(/function call/)
-    expect(() => run(pre + 'Parallel Out Start(10),-1')).toThrow(/function call/)
+    expect(() => run(pre + 'Printer Out Start(10),0')).toThrow(/function call/)
+    expect(() => run(pre + 'Parallel Out Start(10),-1')).not.toThrow()
+    expect(() => run(pre + 'Printer Out Start(10),-1')).not.toThrow()
+    // and nothing is written, because there is no block to write
+    const { rt } = run(pre + 'Parallel Out Start(10),-1')
+    expect(rt.ioports.parallelOut).toEqual([])
+
+    const ser = 'Reserve As Work 10,4\nSerial Open 0,1\n'
+    expect(() => run(ser + 'Serial Out 0,Start(10),0')).toThrow(/function call/)
+    expect(() => run(ser + 'Serial Out 0,Start(10),-1')).toThrow(/function call/)
   })
 
   it('Parallel Out sends a block of memory', () => {
@@ -257,19 +285,24 @@ describe('IOPorts: the keywords with no observable result but real state', () =>
     expect(() => run('A=Serial Check(0)')).toThrow(/Device not opened/)
   })
 
-  it('Abort leaves the device open with its request settled', () => {
-    // Dev.AbortIO calls GetIO first, so aborting a closed device raises
+  it('Abort is the one Dev entry a closed device does not raise on', () => {
+    // Dev.AbortIO reads the open byte itself (`tst.b 8(a2) / beq.s .Skip`,
+    // +Lib.s:3227) instead of calling GetIO, and it never writes 9(a2) --
+    // so SendIO's state of 2 survives the abort rather than settling to 1
     const ser = run('Serial Open 0,1\nSerial Send 0,"x"\nSerial Abort 0')
     expect(ser.rt.ioports.serial[0]!.dev.open).toBe(true)
-    expect(ser.rt.ioports.serial[0]!.dev.state).toBe(1)
+    expect(ser.rt.ioports.serial[0]!.dev.state).toBe(2)
 
     const par = run('Parallel Open\nParallel Abort')
     expect(par.rt.ioports.parallel.open).toBe(true)
     const prt = run('Printer Open\nPrinter Abort')
     expect(prt.rt.ioports.printer.open).toBe(true)
 
-    expect(() => run('Parallel Abort')).toThrow(/Device not opened/)
-    expect(() => run('Printer Abort')).toThrow(/Device not opened/)
+    expect(() => run('Parallel Abort')).not.toThrow()
+    expect(() => run('Printer Abort')).not.toThrow()
+    expect(() => run('Serial Abort 0')).not.toThrow()
+    // GetSerial's range check is untouched by any of that
+    expect(() => run('Serial Abort 4')).toThrow(/illegal function call/i)
   })
 })
 

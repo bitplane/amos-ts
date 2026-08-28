@@ -2,9 +2,9 @@
  * The IOPorts extension (+IO_Ports.s), slot 6: Serial, Printer, Parallel.
  *
  * Ported from source rather than disassembly — extensions/+IO_Ports.s is in
- * the official release, 1194 lines by François Lionet. The shared device
+ * the official release, 1,168 lines by François Lionet. The shared device
  * layer it drives (`Dev.Open`/`GetIO`/`DoIO`/`SendIO`/`CheckIO`/`AbortIO`)
- * is not in that file: it lives in the main library at +Lib.s:3068-3260, and
+ * is not in that file: it lives in the main library at +Lib.s:3020-3269, and
  * is modelled here as `DevSlot` because its behaviour IS the behaviour of
  * most of these keywords.
  *
@@ -42,19 +42,33 @@ import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
 
 /*
  * IO_Ports reaches error 23 through an entry point of its own, `L_IOFonc`
- * (+IO_Ports.s:1161). That is a fact about the extension and not a second
+ * (+IO_Ports.s:1135). That is a fact about the extension and not a second
  * error, so the throws below are `funcCall()` like everywhere else; this file
  * used to keep a private `ioFonc()` factory, which was the sixth spelling of
  * one error in this tree.
  */
 
-/** `NSerial equ 4` (+IO_Ports.s:43). */
+/** `NSerial equ 4` (+IO_Ports.s:46). */
 export const N_SERIAL = 4
 
-/** Error message bases, straight from the Dev.Open calls. */
-const SERIAL_ERR_BASE = 145 // d3=145, d4=16  (+IO_Ports.s:328)
-const PARALLEL_ERR_BASE = 171 // d3=171, d4=7  (+IO_Ports.s:1024)
-const PRINTER_ERR_BASE = 161 // d3=161        (+IO_Ports.s:689)
+/** `String_Max equ $FFC0` (+Equ.s:1139) — the longest string AMOS will build. */
+export const STRING_MAX = 0xffc0
+
+/**
+ * Error message bases and COUNTS, straight from the Dev.Open calls.
+ *
+ * The count is not decoration: `Dev.Error` (+Lib.s:3260) reads it back out of
+ * `11(a2)` and any device error above it collapses to the generic 144 instead
+ * of `base + code - 1`. The printer's was 10 here and the source says
+ * `moveq #7,d4` with the comment "7 messages", so device errors 8 to 10 were
+ * answering 168-170 where the machine answers 144.
+ */
+const SERIAL_ERR_BASE = 145 // d3=145, d4=16 (+IO_Ports.s:300)
+const SERIAL_ERR_COUNT = 16
+const PARALLEL_ERR_BASE = 171 // d3=171, d4=7 (+IO_Ports.s:1002)
+const PARALLEL_ERR_COUNT = 7
+const PRINTER_ERR_BASE = 161 // d3=161, d4=7 (+IO_Ports.s:660)
+const PRINTER_ERR_COUNT = 7
 
 /**
  * The serial parameters the keywords poke into the IOExtSer request. Named
@@ -139,14 +153,14 @@ export interface IoPortsState {
 export function newIoPortsState(): IoPortsState {
   return {
     serial: Array.from({ length: N_SERIAL }, () => ({
-      dev: newDevSlot(SERIAL_ERR_BASE, 16),
+      dev: newDevSlot(SERIAL_ERR_BASE, SERIAL_ERR_COUNT),
       params: defaultSerialParams(),
       rx: [],
       tx: [],
       port: null,
     })),
-    printer: newDevSlot(PRINTER_ERR_BASE, 10),
-    parallel: newDevSlot(PARALLEL_ERR_BASE, 7),
+    printer: newDevSlot(PRINTER_ERR_BASE, PRINTER_ERR_COUNT),
+    parallel: newDevSlot(PARALLEL_ERR_BASE, PARALLEL_ERR_COUNT),
     printerOut: [],
     parallelOut: [],
     pages: [],
@@ -191,15 +205,24 @@ function bytesOf(s: string): number[] {
  *
  * One window rather than a lookup per byte — resolving per byte is what made
  * the Personnal s32Expand pass 92M lookups and doubled the census time, and
- * these are the same shape of loop. A length running past the end of the
- * region the address lands in is error 23 here, where the real machine would
- * read on into whatever followed.
+ * these are the same shape of loop.
+ *
+ * THE THREE KEYWORDS DO NOT AGREE ON THE LENGTH, so the caller passes its own
+ * rule in. `InSerialOut` opens `move.l d3,d2 / Rbmi / Rbeq` (+IO_Ports.s:362)
+ * and refuses both signs of nothing; `InPrinterOut` (:735) and
+ * `InParallelOut` (:1038) carry the `Rbeq` alone, so a NEGATIVE length is
+ * legal on those two and goes to the device as it stands.
+ *
+ * DEVIATION: a length running past the end of the region the address lands in
+ * is error 23 here, where the machine reads on into whatever followed. And a
+ * negative length yields an empty window rather than whatever printer.device
+ * makes of a negative io_Length.
  */
-function outBlock(rt: Runtime, addr: number, len: number): Uint8Array {
-  if (len <= 0) funcCall()
+function outBlock(rt: Runtime, addr: number, len: number, negativeOk = false): Uint8Array {
+  if (len === 0 || (len < 0 && !negativeOk)) funcCall()
   const m = rt.resolveAddr(addr)
   if (!m || m.off + len > m.data.length) funcCall()
-  return m.data.subarray(m.off, m.off + len)
+  return m.data.subarray(m.off, Math.max(m.off, m.off + len))
 }
 
 /**
@@ -383,7 +406,6 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       devSendIO(ch.dev)
     },
 
-    /** Serial Speed ser,baud — IO_BAUD then SDCMD_SETPARAMS (Stpar). */
     /** Serial Speed ser,baud — InSerialSpeed (+IO_Ports.s:432): IO_BAUD, Stpar. */
     'serial speed'(it) {
       const n = it.evalInt()
@@ -546,7 +568,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const len = it.evalInt()
       const p = st().printer
       devGetIO(p)
-      st().printerOut.push(...outBlock(rt, addr, len))
+      st().printerOut.push(...outBlock(rt, addr, len, true))
       devSendIO(p)
     },
 
@@ -688,7 +710,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const len = it.evalInt()
       const p = st().parallel
       devGetIO(p)
-      st().parallelOut.push(...outBlock(rt, addr, len))
+      st().parallelOut.push(...outBlock(rt, addr, len, true))
       devDoIO(p)
     },
 
@@ -704,10 +726,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
 
   return {
     /**
-     * =Serial Check(n). Dev.CheckIO normalised to -1/0 by the caller
-     * (`beq .Skip / moveq #-1,d3`). Errors 141 on a closed channel.
-     */
-    /**
      * =Serial Check(n) — FnSerialCheck (+IO_Ports.s:548). CheckIO's result
      * normalised: `move.l d0,d3 / beq .Out / moveq #-1,d3`, so it is 0 or -1
      * and never the request pointer CheckIO actually returns.
@@ -717,11 +735,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(devCheckIO(ch.dev) === 0 ? 0 : -1)
     },
 
-    /**
-     * =Serial Get(n). SDCMD_QUERY first: with nothing waiting it returns
-     * **-1**, otherwise it reads exactly one byte. Note the asymmetry with
-     * Serial Input$, which returns an empty string in the same situation.
-     */
     /**
      * =Serial Get(n) — FnSerialGet (+IO_Ports.s:376). SDCMD_QUERY first, and
      * an IO_ACTUAL of zero answers -1 without reading; otherwise one byte
@@ -737,15 +750,14 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Serial Input$(n). Reads everything SDCMD_QUERY reports waiting; an
-     * empty port gives the empty string rather than -1, and a count at or
-     * over String_Max is error 23 instead of a truncated read.
-     */
-    /**
      * =Serial Input$(n) — FnSerialInput (+IO_Ports.s:398). QUERY, then read
-     * exactly IO_ACTUAL bytes. Nothing waiting is the empty string; more than
-     * String_Max waiting is error 23 (`cmp.l #String_Max,d4 / Rbcc`), which
-     * is a refusal rather than a truncation.
+     * exactly IO_ACTUAL bytes. Nothing waiting is the empty string; a count
+     * at or over String_Max is error 23 (`cmp.l #String_Max,d4 / Rbcc`),
+     * which is a refusal rather than a truncation.
+     *
+     * String_Max is $FFC0 (+Equ.s:1139), 65,472 and not 65,536: AMOS keeps 64
+     * bytes below the word so `Demande` can round the length up to even and
+     * add its own two-byte header without the count wrapping.
      */
     'serial input$'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
@@ -753,13 +765,12 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       pump(ch)
       const n = ch.rx.length
       if (n === 0) return VS('')
-      if (n >= 65_536) funcCall()
+      if (n >= STRING_MAX) funcCall()
       const taken = ch.rx.splice(0, n)
       devDoIO(ch.dev)
       return VS(String.fromCharCode(...taken))
     },
 
-    /** =Serial Error(n). */
     /** =Serial Error(n) — FnSerialError (+IO_Ports.s:561): IO_ERROR, one byte. */
     'serial error'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
@@ -767,7 +778,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
 
-    /** =Serial Status(n) — the modem control lines; nothing attached. */
     /**
      * =Serial Status(n) — FnSerialStatus (+IO_Ports.s:572). SDCMD_QUERY, then
      * the WORD at IO_STATUS: the modem lines as serial.device reports them.
@@ -778,10 +788,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
 
-    /**
-     * =Serial Base(n). Hands back the IORequest address. There is no such
-     * structure here, so this returns 0 — see the NOTES entry.
-     */
     /**
      * =Serial Base(n) — FnSerialBase (+IO_Ports.s:586): `move.l a1,d3`, the
      * address of the IOExtSer request itself, for programs that poke fields
@@ -803,10 +809,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(devCheckIO(st().printer) === 0 ? 0 : -1)
     },
 
-    /**
-     * =Printer Online. With no printer attached the real call reports the
-     * port not ready; the source's failure path is `moveq #-1,d3`.
-     */
     /**
      * =Printer Online (FnPrinterOnline, +IO_Ports.s:754). PRD_QUERY into the
      * extension's own Prt_Query long, then TWO conditions must both hold for
@@ -840,10 +842,6 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Parallel Status. PDCMD_QUERY then the status byte at $34 of the
-     * request. Nothing attached reads as 0.
-     */
-    /**
      * =Parallel Status (FnParallelStatus, +IO_Ports.s:1057). PDCMD_QUERY,
      * then `move.b $34(a1),d3` — io_PtrStatus at offset $34 of IOExtPar, the
      * printer's own handshake lines, one byte and not the word Serial Status
@@ -868,10 +866,9 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
 
-    /** =Parallel Input$(len[,timeout]) (FnParallelInput1/2). */
     /**
      * =Parallel Input$(long[,stop]) — FnParallelInput1/2 (+IO_Ports.s:1084
-     * and :1118), which differ only in PARB_EOFMODE. The one-argument form
+     * and :1092), which differ only in PARB_EOFMODE. The one-argument form
      * CLEARS it and reads a fixed count; the two-argument form SETS it and
      * fills all EIGHT bytes of IO_PTERMARRAY with the same terminator
      * (`moveq #$7,d0 / move.b d3,(a0)+ / dbra`), then SETPARAMS.

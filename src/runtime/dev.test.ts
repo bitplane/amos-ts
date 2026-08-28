@@ -188,11 +188,17 @@ describe('Dev Do against trackdisk', () => {
     expect(d.rt.dev.channels.get(0)!.slot.state).toBe(1)
   })
 
-  it('Dev Abort raises on a closed channel and settles an open one', () => {
-    expect(() => run('Dev Abort 1')).toThrow(/not open/i)
+  it('Dev Abort is silent on a closed channel and leaves the state byte alone', () => {
+    // Dev.GetA2 range-checks and nothing else (+Lib.s:3022), and Dev.AbortIO
+    // reads the open byte itself rather than going through GetIO, so this is
+    // the one Dev keyword an unopened channel does not raise 141 on
+    expect(() => run('Dev Abort 1')).not.toThrow()
+    // the range check is still there, and it is 23 rather than 141
+    expect(() => run('Dev Abort 8')).toThrow(/illegal function call/i)
+    // nothing in Dev.AbortIO writes 9(a2), so SendIO's 2 survives the abort
     const b = boot('Dev Open 0,"trackdisk.device",64,0,0 : Dev Send 0,9 : Dev Abort 0')
     mustFinish(b.rt.runHeadless(200))
-    expect(b.rt.dev.channels.get(0)!.slot.state).toBe(1)
+    expect(b.rt.dev.channels.get(0)!.slot.state).toBe(2)
   })
 })
 
