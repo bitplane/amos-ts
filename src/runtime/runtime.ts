@@ -4517,9 +4517,12 @@ export class Runtime {
    * can reach, so `Bload "f",2000` names an ADDRESS on the machine even
    * though bank 2000 is a bank you can Reserve. This port had 0x10000 here,
    * which is `reserveBank`'s range rather than this routine's.
+   *
+   * `bge` is SIGNED, so a negative goes down the BANK branch and comes back
+   * as "bank not reserved" rather than as an address that cannot resolve.
    */
   bankOrAddr(n: number): { data: Uint8Array; off: number } | null {
-    if (n >= 0 && n < 1024) {
+    if (n < 1024) {
       const bank = this.memBanks.get(n)
       if (!bank) throw new AmosError('bank not reserved', 36)
       return { data: bank.data, off: 0 }
@@ -4825,8 +4828,24 @@ export class Runtime {
     return this.spriteBank
   }
 
-  /** Stamp an image into a screen's framebuffer (Paste Bob / Unpack / Load Iff). */
-  blit(s: Screen, img: { width: number; height: number; pixels: Uint8Array }, dx: number, dy: number, opaque: boolean, planeMask = -1): void {
+  /**
+   * Stamp an image into a screen's framebuffer (Paste Bob / Unpack / Load Iff).
+   *
+   * `ignoreClip` is Unpack's. `UnPack_Bitmap` (+Lib.s:25538) walks the
+   * bitplanes with `move.b d3,(a0)` and consults nothing: no clip window, and
+   * no edge test either, because it has already refused any picture that
+   * would not fit (:25570 and :25576). So `Clip 0,0 To 8,8 : Unpack 5`
+   * draws the whole picture on the machine.
+   */
+  blit(
+    s: Screen,
+    img: { width: number; height: number; pixels: Uint8Array },
+    dx: number,
+    dy: number,
+    opaque: boolean,
+    planeMask = -1,
+    ignoreClip = false,
+  ): void {
     // Mask Iff: -1 (all planes) unless a program restricted the load;
     // masking a pixel keeps the destination's bits outside the mask
     for (let y = 0; y < img.height; y++) {
@@ -4837,7 +4856,7 @@ export class Runtime {
         if (!opaque && v === 0) continue
         const tx = dx + x
         if (tx < 0 || tx >= s.width) continue
-        if (!s.inClip(tx, ty)) continue
+        if (!ignoreClip && !s.inClip(tx, ty)) continue
         const old = s.point(tx, ty)
         s.putPixel(tx, ty, planeMask === -1 ? v : (old & ~planeMask) | (v & planeMask))
       }
