@@ -6056,6 +6056,9 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (a.length !== 1) throw new AmosError('wrong number of arguments')
       return VI(scr().palette[int(a[0]!) & 31]!)
     },
+    // FnXGr (+Lib.s:9641) and FnYGr (+Lib.s:9650) are `tst.w ScOn(a5) / Rbeq
+    // L_ScNOp` and then 36(a0) and 38(a0) of the RastPort, which is the
+    // graphics cursor GrXY moves
     xgr() {
       return VI(scr().grX)
     },

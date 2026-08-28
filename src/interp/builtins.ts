@@ -1175,6 +1175,12 @@ function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, cou
 
 /** select the joystick port's bits (port 0 = mouse port, 1 = joystick;
  * FJ +Lib.s:13716 errors on a port > 1) */
+/**
+ * FJ (+Lib.s:13684) is what Jup, Jdown, Jleft, Jright and Fire all reach:
+ * `cmp.l #1,d3 / Rbhi L_FonCall / move.l d3,d1 / SyCall Joy`. Rbhi is
+ * unsigned, so the ports are 0 and 1 and a negative one errors. FnJoy
+ * (+Lib.s:13671) makes the same test itself.
+ */
 function joyPort(it: Parameters<Func>[0], portArg: Value): number {
   const p = int(portArg)
   if (p >>> 0 > MAX_PORT) funcCall()
@@ -1398,6 +1404,8 @@ export const FUNCS: Record<string, Func> = {
     if (x >= 0) it.col = x
     return VS('')
   },
+  // FnTrue (+Lib.s:8658) is `moveq #-1,d3` and FnFalse (+Lib.s:8668)
+  // `moveq #0,d3`. FnOne sits between them and answers 1.
   true: (_, a) => {
     arity(a, 0)
     return VI(-1)
@@ -1586,6 +1594,10 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 0)
     return VS('\x09')
   },
+  // The four are one instruction each into FinChr, and the codes do not run
+  // in the order the names suggest: FnCleft is `moveq #29,d2` (+Lib.s:13946),
+  // FnCright `moveq #28,d2` (+Lib.s:13953), FnCup 30 (+Lib.s:13960) and
+  // FnCdown 31 (+Lib.s:13967). Left is the HIGHER of the first pair.
   'cleft$': (_, a) => {
     arity(a, 0)
     return VS('\x1d')
