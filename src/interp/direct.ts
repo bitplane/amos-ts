@@ -67,6 +67,6 @@ function illegal(t: Tok, names: Names): boolean {
  */
 export function verifyDirect(line: TokenLine, names: Names): void {
   for (const t of line.tokens) {
-    if (illegal(t, names)) throw new AmosError('Illegal direct mode')
+    if (illegal(t, names)) throw new AmosError('Illegal direct mode', 17)
   }
 }

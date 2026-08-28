@@ -1579,7 +1579,7 @@ export class Runtime {
   private copPut(w: number): void {
     // CopFin: the 68k writes first and faults after T_CopLong; we bound
     // each word (protective) with the same error
-    if (this.copPos + 2 > Runtime.COPPER_LONG) throw new AmosError('copper list too long')
+    if (this.copPos + 2 > Runtime.COPPER_LONG) throw new AmosError('copper list too long', 77)
     const l = this.copLogic
     l[this.copPos] = (w >> 8) & 0xff
     l[this.copPos + 1] = w & 0xff
@@ -3888,7 +3888,7 @@ export class Runtime {
   /** read one Input#/Line Input# field from a channel */
   readField(n: number, stopAtComma: boolean): string {
     const c = this.chan(n)
-    if (c.mode !== 'in') throw new AmosError('file type mismatch')
+    if (c.mode !== 'in') throw new AmosError('file type mismatch', 98)
     let out = ''
     while (c.pos < c.data.length) {
       const b = c.data[c.pos++]!
@@ -4022,12 +4022,12 @@ export class Runtime {
     if (c.mode === 'out') {
       if (!this.vfs?.writeFile(c.path, Uint8Array.from(c.out))) {
         this.fileChans.delete(n)
-        throw new AmosError('disc is write protected')
+        throw new AmosError('disc is write protected', 84)
       }
     } else if (c.mode === 'random') {
       if (!this.vfs?.writeFile(c.path, c.data)) {
         this.fileChans.delete(n)
-        throw new AmosError('disc is write protected')
+        throw new AmosError('disc is write protected', 84)
       }
     }
     this.fileChans.delete(n)
@@ -4042,12 +4042,12 @@ export class Runtime {
   getSample(n: number): SampleEntry {
     if (n <= 0) funcCall()
     const bank = this.memBanks.get(this.samBankNum)
-    if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not found')
+    if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not found', 180)
     if (this.sampleCache?.bank !== bank) {
       this.sampleCache = { bank, entries: parseSampleBank(bank.data) }
     }
     const s = this.sampleCache.entries[n - 1]
-    if (!s || s.pcm.length === 0) throw new AmosError('sample not defined')
+    if (!s || s.pcm.length === 0) throw new AmosError('sample not defined', 179)
     return s
   }
 
@@ -4952,7 +4952,7 @@ export class Runtime {
        * colour count draws instead of stopping.
        */
       if (![2, 4, 8, 16, 32, 64, 256].includes(colours))
-        throw new AmosError('illegal number of colours')
+        throw new AmosError('illegal number of colours', 49)
       if (m & 0x8000 && colours > 16) funcCall()
     }
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
@@ -4994,7 +4994,7 @@ export class Runtime {
     if (!scr) throw new AmosError('screen not opened', 47)
     this.flashes = this.flashes.filter((f) => this.screens.get(f.screen) === f.scr)
     const fl = this.flashes.find((f) => f.reg === reg && f.scr === scr)
-    if (!fl && this.flashes.length >= 16) throw new AmosError('too many colours in flash')
+    if (!fl && this.flashes.length >= 16) throw new AmosError('too many colours in flash', 51)
     if (fl) this.flashes.splice(this.flashes.indexOf(fl), 1)
     this.flashes.push({ reg, screen: this.currentIndex, scr, seq, idx: -1, left: 1 })
   }

@@ -112,7 +112,7 @@ const MAX_BLOCK = 4000
  *   $a block does not exist                          $10 out of memory
  */
 const agaErr: (n: number) => never = (n) => {
-  if (n === 0x10) throw new AmosError('out of memory')
+  if (n === 0x10) throw new AmosError('out of memory', 24)
   funcCall()
 }
 
