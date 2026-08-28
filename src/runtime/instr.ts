@@ -6562,9 +6562,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) | 0)
     },
     'peek$'(_, a) {
+      // FPeekD (+Lib.s:2842) clamps the count to a string's own ceiling with
+      // `cmp.l #String_Max,d4 / bcs.s .Ln / move.w #String_Max,d4`, and
+      // String_Max is $FFC0 (+Equ.s:1139). The comparison is unsigned, so a
+      // negative length is a huge one and clamps to the same place.
+      //
+      // The third argument is a terminator CHARACTER, taken as the first byte
+      // of the string: FnPeekD3 (+Lib.s:2833) reads the length word first and
+      // an empty string leaves d2 at -1, which means no terminator at all.
+      // The matching byte ends the copy without joining it.
       const m = rt.resolveAddr(int(a[0]!))
       if (!m) return VS('')
-      const len = int(a[1]!)
+      const len = Math.min(int(a[1]!) >>> 0, 0xffc0)
       const stop = a.length > 2 ? str(a[2]!).charCodeAt(0) : -1
       let out = ''
       for (let i = 0; i < len && m.off + i < m.data.length; i++) {
