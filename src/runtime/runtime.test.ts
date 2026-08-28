@@ -728,6 +728,29 @@ describe('double buffering and screens', () => {
     expect(spot('$88')).toEqual({ x: 0, y: 0 })
   })
 
+  it('X Hard converts against the screen it is given (EcToD1 +W.s:10755)', () => {
+    // two screens at different display positions, so "which screen" shows
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Screen Display 0,128,50,,',
+      'Screen Open 1,320,200,16,Lowres : Screen Display 1,160,80,,',
+      'Screen 0',
+    ].join('\n')
+    const v = (expr: string): number => Number(runOut(prog + '\nPrint ' + expr).trim())
+    // one argument is the current screen, screen 0
+    const cur = v('X Hard(0)')
+    expect(v('X Hard(0,0)')).toBe(cur)
+    // naming screen 1 must NOT answer with screen 0's origin
+    expect(v('X Hard(1,0)')).not.toBe(cur)
+    expect(v('Y Hard(1,0)')).not.toBe(v('Y Hard(0)'))
+    // `addq.w #1,d3` biases the selector, so -1 arrives as 0: the current
+    // screen, not an error and not EntNul
+    expect(v('X Hard(-1,0)')).toBe(cur)
+    // only -2 and below reach EcToD4, which gives up and answers EntNul
+    expect(v('X Hard(-2,0)')).toBe(-2147483648)
+    // and a slot with no screen in it is EcToD3's `moveq #3,d0`, so 47
+    expect(() => run(prog + '\nPrint X Hard(5,0)')).toThrow(/creen not opened/)
+  })
+
   it('Get Bob Palette wants a bank to read (BkNoRes +Lib.s:12934)', () => {
     // `Rbsr L_Bnk.GetBobs / Rbeq L_BkNoRes`, and BkNoRes goes straight to
     // GoError with 36, so there is no +44 on this one

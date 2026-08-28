@@ -5602,6 +5602,20 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
    * Rbcc L_FonCall`, and Movon, Chanan and Chanmv each open `Rbsr L_FnAm1`
    * (+Lib.s:11895, 11904, 11913) before they look at anything.
    */
+  /** EcToD1's screen pick, shared by the four coordinate converters */
+  const xyConv = (
+    a: readonly import('../interp/values').Value[],
+    pick: (s: Screen, v: number) => number,
+  ): import('../interp/values').Value => {
+    const v = int(a[a.length - 1]!)
+    if (a.length < 2) return VI(pick(scr(), v))
+    const d3 = int(a[0]!) + 1
+    if (d3 < 0) return VI(ENT_NUL)
+    if (d3 === 0) return VI(pick(scr(), v))
+    const s = rt.screens.get(d3 - 1)
+    if (!s) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+    return VI(pick(s, v))
+  }
   const amChannel = (n: number): number => {
     if (n < 0 || n >= 64) funcCall()
     return n
@@ -5788,17 +5802,34 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      * the coordinate either way, and `scr()` is already the right screen
      * because the two-argument form selected it.
      */
+    /*
+     * X Screen, Y Screen, X Hard and Y Hard all convert against a NAMED
+     * screen when given one, and the port had been converting against the
+     * current one whatever it was told.
+     *
+     * FnXHard2 (+Lib.s:10754) reads the coordinate out of d3 and then pulls
+     * the screen off (a3) and does `addq.w #1,d3`; the one-argument forms
+     * set d3 to 0 outright. EcToD1 (+W.s:10755) reads that biased number:
+     * 0 is the current screen, positive indexes T_EcAdr at `-4(a0,d3.w)`
+     * which is screen d3-1, and a slot holding nothing falls to EcToD3's
+     * `moveq #3,d0`, which the caller's `Rbne L_EcWiErr` makes 47.
+     *
+     * The bias is visible from BASIC. `tst.w d3 / bmi.s EcToD4` measures
+     * the number AFTER the +1, so screen -1 arrives as 0 and means the
+     * current screen; only -2 and below reach EcToD4, which abandons the
+     * conversion and answers EntNul rather than raising anything.
+     */
     'x screen'(_, a) {
-      return VI(scr().hardToScreenX(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.hardToScreenX(v))
     },
     'y screen'(_, a) {
-      return VI(scr().hardToScreenY(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.hardToScreenY(v))
     },
     'x hard'(_, a) {
-      return VI(scr().screenToHardX(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.screenToHardX(v))
     },
     'y hard'(_, a) {
-      return VI(scr().screenToHardY(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.screenToHardY(v))
     },
     'screen base'() {
       // FnScreenBase +Lib.s:8769: ScOnAd — the current screen's control
