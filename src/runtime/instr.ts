@@ -4529,6 +4529,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'hrev block'(it) {
       // RevBloc +W.s:12591: FindBloc raises "Block not defined" on a missing
       // block, then Retourne mirrors the pixels along the chosen axis.
+      //
+      // Retourne (+W.s:1647) is idempotent on its own --- it XORs the stored
+      // flags at 6(a1) against the requested ones and flips only the axes
+      // that differ --- but RevBloc runs `and.w #$3FFF,6(a1)` first, which
+      // zeroes that record. So every Hrev Block flips again, and a plain
+      // toggle is right. Do not "fix" this into a set by reading Retourne
+      // alone. InHRevBlock passes bit 15 and InVRevBlock bit 14
+      // (+Lib.s:11205, :11210), and neither checks the block number: the only error
+      // is FindBloc's.
       const b = rt.blocks.get(it.evalInt())
       if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
@@ -6953,7 +6962,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(n >= w.rows ? -1 : n * 8 + w.y)
     },
     'mouse screen'(it, a) {
+      // FnMouseScreen (+Lib.s:11035) opens `tst.w ScOn(a5) / Rbeq L_ScNOp`
+      // before it asks XyMou anything, so with no screen open the answer is
+      // error 47 and not the EntNul that means "over no screen"
       void a
+      void rt.screen
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue
