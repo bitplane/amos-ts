@@ -37,7 +37,46 @@
  * are bound here as names and nothing else.
  *
  * The other four are keywords 2.01b dropped: `Wb Scroll`, `Iff Make Palette`,
- * `Wb Menu Text` and `Wb 3d Sort`.
+ * `Wb Menu Text` and `Wb 3d Sort`. Only the first is a keyword in good
+ * standing. `Iff Make Palette` passes a colour count where the library wants
+ * a write address, `Wb Menu Text` is a name pointing at another keyword's
+ * routine, and `Wb 3d Sort` is six bytes that pop two arguments and return.
+ *
+ * ## The object format changed
+ *
+ * A 3D object in 2.01b opens with the four characters `IE3D`. A 1.6 one does
+ * not, and that one difference runs through all eight object keywords:
+ *
+ *     1.6            2.01b
+ *     +$0  points    +$0  'IE3D'
+ *     +$2  point 0   +$4  points
+ *                    +$6  point 1
+ *
+ * so 1.6 counts its points from ZERO and 2.01b from one, and the shapes sit
+ * four bytes further on in 2.01b than the arithmetic alone would put them.
+ * `Wb 3d Make Object` allocates `12p + 8s + 4` here against 2.01b's
+ * `12p + 8s + 8`.
+ *
+ * The two `To` arguments swapped as well, and the token table did not: the
+ * spec of `Wb 3d Edge` is `I0,0,0t0,0` in both builds, so `Wb 3d Edge X,Y,Z
+ * To A,B` compiles either way and means `A=OBJECT, B=NB` in 1.6 and
+ * `A=NB, B=OBJECT` in 2.01b. Same for `Wb 3d Shape` and `Wb 3d Move Edge`.
+ * There is no version check anywhere and no stamp in a 1.6 object to fail
+ * one, so a program moved between the builds writes its points into its
+ * polygon table without a word of complaint.
+ *
+ * Two of the eight are the same code reading different data. `Wb 3d Move
+ * Object` is byte-identical in both builds, and correct here: `move.w (a0)+`
+ * at $4f0e reads 1.6's point count where in 2.01b it reads the high word of
+ * the magic and walks 18,757 points off the end. `Wb 3d Erase Object`
+ * recomputes the size it frees from the counts, and finds them at +$0 and
+ * +$2+12p rather than +$4 and +$6+12p.
+ *
+ * And `Wb 3d Clear Object` is a keyword in 1.6 and an alias in 2.01b. Routine
+ * 293 ($558e) writes `12p + 8s` bytes of zero over the object's body; 2.01b
+ * deleted it and pointed the name at routine 292, which FREES the object. A
+ * program that clears an object every frame leaks nothing in 1.6 and frees
+ * the same block over and over in 2.01b.
  *
  * ## The 51, and why most of them are not here
  *
@@ -86,7 +125,9 @@ import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, type Value } from '../interp/values'
 import type { IntuiextendState } from './intuiextend'
 import { ieMem } from './intuiextendwin'
-import { ieIffDecodePicture } from './intuiextendiff'
+import { ieIffDecodePicture, ieIffGetColorTable } from './intuiextendiff'
+import { ieRastPortAt } from './intuiextendgfx'
+import { scrollRaster } from '../amiga/graphics'
 import { NO_BATTCLOCK } from '../amiga/battclock'
 
 /** the registry identity this file answers for */
@@ -252,6 +293,30 @@ export function ieSwatch16(regs: readonly number[]): string {
   return out
 }
 
+/** a word, sign-extended, which is how every index in the 3D group is built */
+const w = (v: number): number => (v << 16) >> 16
+
+/**
+ * Where point `nb` of a 1.6 object begins.
+ *
+ * `mulu.w #$3 / asl.w #$2 / addq.w #$2` at $55b8, so twelve bytes a point
+ * after the single count word. Zero-based: there is no `subq.w #$1` in 1.6,
+ * where 2.01b's `Wb 3d Edge` has one at $5600.
+ */
+export function ie16PointAt(obj: number, nb: number): number {
+  return (obj + 2 + w(w(nb * 3) * 4)) >>> 0
+}
+
+/**
+ * Where shape `nb` begins, given the object's point count.
+ *
+ * `Wb 3d Shape` steps a0 past the count word first and then adds
+ * `12 * points + 8 * nb + 2`, the last two bytes being the shape count.
+ */
+export function ie16ShapeAt(obj: number, points: number, nb: number): number {
+  return (obj + 2 + w(w(points * 3) * 4) + 2 + w(nb * 8)) >>> 0
+}
+
 export function makeIntuiextend16Instructions(
   rt: Runtime,
   base: Readonly<Record<string, Instr>>,
@@ -284,6 +349,225 @@ export function makeIntuiextend16Instructions(
       it.expect('to')
       const bitmap = it.evalInt() >>> 0
       ieIffDecodePicture(rt, bitmap, buf)
+    }),
+
+    /**
+     * Wb Scroll RPORT To X,Y,W,H,XSTEP,YSTEP --- routine 53 ($2e92), twelve
+     * instructions and one library call.
+     *
+     * Six `move.l (a3)+` then `movea.l (a3),a1`, and the registers land where
+     * `graphics_lib.fd`'s 62nd entry wants them:
+     * `ScrollRaster(rp,dx,dy,xMin,yMin,xMax,yMax)(a1,d0/d1/d2/d3/d4/d5)` at
+     * bias 30, which is -$18c. So the guide's W and H are the vector's xMax
+     * and yMax, not a width and a height: Gfxj calls them "longueur (Width)
+     * et Largeur (Height)" and the archive's own `examples/ScrollWind.asc`
+     * writes `Wb Scroll A To 50,100,150,550,0,100`, a region from 50,100 to
+     * 150,550 moved down a hundred pixels.
+     *
+     * DEFECT: `movea.l (a3),a1` at $2ea4 does not pop. Six of the seven
+     * arguments come off the stack and the RastPort stays on it, four bytes
+     * AMOS never gets back. Nothing here has an argument stack for that to
+     * show on. `Wb Slide Swap Look` is the author's other one.
+     */
+    'wb scroll': (it) => {
+      const rpAddr = it.evalInt() >>> 0
+      it.expect('to')
+      const xMin = it.evalInt() | 0
+      it.expect(',')
+      const yMin = it.evalInt() | 0
+      it.expect(',')
+      const xMax = it.evalInt() | 0
+      it.expect(',')
+      const yMax = it.evalInt() | 0
+      it.expect(',')
+      const dx = it.evalInt() | 0
+      it.expect(',')
+      const dy = it.evalInt() | 0
+      const rp = ieRastPortAt(rt, rpAddr)
+      if (!rp) return
+      scrollRaster(rp, dx, dy, xMin, yMin, xMax, yMax)
+    },
+
+    /**
+     * Wb Menu Text A,B,C,TEXT$,D --- routine 306 ($5704).
+     *
+     * DEFECT: the name is on somebody else's routine. 1.6's table has two
+     * entries pointing at 306 and the other one is `Iff Get Error`, whose
+     * thirteen instructions this is: open iff.library, call -$4e, put the
+     * answer in d3. There is no menu and no text anywhere in it.
+     *
+     * The table calls it an instruction with five arguments and the routine
+     * pops none, so on the machine every call leaves twenty bytes on AMOS's
+     * argument stack. The one thing it does do is reach GetError, and
+     * `$812 move.l $12(a0),d0 / $816 clr.l $12(a0)` means reading the error
+     * CLEARS it. So `Wb Menu Text` throws away a pending IFF error and
+     * discards the answer, because an instruction has nowhere to put one.
+     *
+     * The 1.4 guide has no node for it and neither has any other. 2.01b
+     * dropped the name.
+     */
+    'wb menu text': (it) => {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalStr()
+      it.expect(',')
+      it.evalInt()
+      rt.intuiextend.iff.error = 0
+    },
+
+    /**
+     * Wb 3d Sort A To B --- routine 279 ($50d2), six bytes.
+     *
+     *     $50d2  movea.l  (a3)+,a0
+     *     $50d4  move.l   (a3)+,d7
+     *     $50d6  rts
+     *
+     * Both arguments popped, neither used, nothing written. The author never
+     * wrote the body, and his own `examples/3dSort.asc` is the proof: the
+     * file named after this keyword does not call it, it averages the Z of
+     * each face by hand and draws the far one first. 2.01b dropped the name.
+     */
+    'wb 3d sort': (it) => {
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+    },
+
+    /**
+     * Wb 3d Edge X,Y,Z To OBJECT,NB in 1.6 --- routine 294 ($55b4).
+     *
+     * The two `To` arguments are the other way round from 2.01b's and the
+     * count is zero-based. No `IE3D` test either: 2.01b's `cmp.l #$49453344`
+     * at $55f0 has no counterpart here, so any address at all is written to.
+     */
+    'wb 3d edge': only16('wb 3d edge', (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const z = it.evalInt()
+      it.expect('to')
+      const obj = it.evalInt() >>> 0
+      it.expect(',')
+      const nb = it.evalInt()
+      const m = ieMem(rt)
+      const at = ie16PointAt(obj, nb)
+      m.setLong(at, x)
+      m.setLong((at + 4) >>> 0, y)
+      m.setLong((at + 8) >>> 0, z)
+    }),
+
+    /**
+     * Wb 3d Shape S0,S1,S2,S3 To OBJECT,NB in 1.6 --- routine 270 ($4ed8).
+     *
+     * The four point numbers go in as words at +0, +2, +4 and +6 of shape NB,
+     * zero-based, and the shape table starts after the point count word, the
+     * points and the shape count word.
+     */
+    'wb 3d shape': only16('wb 3d shape', (it) => {
+      const s0 = it.evalInt()
+      it.expect(',')
+      const s1 = it.evalInt()
+      it.expect(',')
+      const s2 = it.evalInt()
+      it.expect(',')
+      const s3 = it.evalInt()
+      it.expect('to')
+      const obj = it.evalInt() >>> 0
+      it.expect(',')
+      const nb = it.evalInt()
+      const m = ieMem(rt)
+      const at = ie16ShapeAt(obj, m.word(obj) & 0xffff, nb)
+      m.setWord(at, s0 & 0xffff)
+      m.setWord((at + 2) >>> 0, s1 & 0xffff)
+      m.setWord((at + 4) >>> 0, s2 & 0xffff)
+      m.setWord((at + 6) >>> 0, s3 & 0xffff)
+    }),
+
+    /**
+     * Wb 3d Move Edge X,Y,Z To OBJECT,NB in 1.6 --- routine 284 ($540a).
+     *
+     * DEFECT: all three adds land on the same longword.
+     *
+     *     $541a  add.l  d5,$2(a0,d0.w)
+     *     $541e  add.l  d6,$2(a0,d0.w)
+     *     $5422  add.l  d7,$2(a0,d0.w)
+     *
+     * The point's X gets X, then Y, then Z added to it, and its Y and Z are
+     * never touched. 2.01b writes $0, $4 and $8 off a base six bytes on, so
+     * the keyword works there. Both builds count from zero, which in 2.01b's
+     * case is its own separate defect because `Wb 3d Edge` counts from one.
+     */
+    'wb 3d move edge': only16('wb 3d move edge', (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const z = it.evalInt()
+      it.expect('to')
+      const obj = it.evalInt() >>> 0
+      it.expect(',')
+      const nb = it.evalInt()
+      const m = ieMem(rt)
+      const at = ie16PointAt(obj, nb)
+      m.setLong(at, (m.long(at) + x) | 0)
+      m.setLong(at, (m.long(at) + y) | 0)
+      m.setLong(at, (m.long(at) + z) | 0)
+    }),
+
+    /**
+     * Wb 3d Move Object X,Y,Z To OBJECT in 1.6 --- routine 271 ($4f06).
+     *
+     * Byte for byte the routine 2.01b ships, and here it is correct.
+     * `move.w (a0)+,d0` at $4f0e reads the point count, because in 1.6 that
+     * word is the point count. In 2.01b the same instruction reads the high
+     * word of `IE3D`, which is 18,757, and the loop walks 225,084 bytes off
+     * the end of the object. See ./intuiextend.ts.
+     */
+    'wb 3d move object': only16('wb 3d move object', (it) => {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const z = it.evalInt()
+      it.expect('to')
+      const obj = it.evalInt() >>> 0
+      const m = ieMem(rt)
+      const count = m.word(obj) & 0xffff
+      let at = (obj + 2) >>> 0
+      for (let i = 0; i < count; i++) {
+        m.setLong(at, (m.long(at) + x) | 0)
+        m.setLong((at + 4) >>> 0, (m.long((at + 4) >>> 0) + y) | 0)
+        m.setLong((at + 8) >>> 0, (m.long((at + 8) >>> 0) + z) | 0)
+        at = (at + 12) >>> 0
+      }
+    }),
+
+    /**
+     * Wb 3d Clear Object OBJECT in 1.6 --- routine 293 ($558e), a keyword of
+     * its own and not the alias 2.01b made of the name.
+     *
+     * Two `dbra` loops of `move.l #$0,(a0)+`: `points * 3` longs over the
+     * point table, then `shapes * 2` over the shapes. The counts are read
+     * with `move.w (a0)+` as it goes, so they survive and the object stays
+     * allocated and usable.
+     *
+     * 2.01b points this name at routine 292, which frees the block. The same
+     * line of BASIC keeps the object in 1.6 and destroys it in 2.01b.
+     */
+    'wb 3d clear object': only16('wb 3d clear object', (it) => {
+      const obj = it.evalInt() >>> 0
+      const m = ieMem(rt)
+      const points = m.word(obj) & 0xffff
+      let at = (obj + 2) >>> 0
+      for (let i = 0; i < points * 3; i++, at = (at + 4) >>> 0) m.setLong(at, 0)
+      const shapes = m.word(at) & 0xffff
+      at = (at + 2) >>> 0
+      for (let i = 0; i < shapes * 2; i++, at = (at + 4) >>> 0) m.setLong(at, 0)
     }),
   }
 }
@@ -382,5 +666,59 @@ export function makeIntuiextend16Functions(
       if (msg !== 0) st().portState.lastMsg = msg
       return VI(ieMem(rt).long((msg + 0x14) >>> 0) | 0)
     }),
+
+    /**
+     * =Wb 3d Make Object(POINTS,SHAPES) in 1.6 --- routine 291 ($552a).
+     *
+     * `2 + points*12 + 2 + shapes*8`, four bytes smaller than 2.01b's because
+     * there is no `IE3D` to stamp. The point count goes in at +$0 and the
+     * shape count at +$2 + 12*points, and MEMF_PUBLIC|MEMF_CLEAR is the same
+     * `move.l #$10001,-(a3)`. -1 on a failed allocation, the sign-extended
+     * `moveq #$ff,d3` at $556a.
+     *
+     * The multiply and the shift are the other way round from 2.01b's:
+     * `mulu.w #$3` then `asl.w #$2`, so the product lands in a word before it
+     * is shifted rather than after.
+     */
+    'wb 3d make object': only16('wb 3d make object', (_, a) => {
+      const points = i0(a, 0)
+      const shapes = i0(a, 1)
+      // `move.w d0,d2 / mulu.w #$3,d2 / asl.w #$2,d2`, then `addq.w #$2`
+      const pointBytes = w(w(points * 3) * 4)
+      // `move.w d1,d5 / asl.w #$3,d5`, then `addq.w #$2`
+      const shapeBytes = w(shapes * 8)
+      const size = w(pointBytes + 2 + shapeBytes + 2)
+      const addr = st().heap.alloc(size, { clear: true })
+      if (addr === 0) return VI(-1)
+      const m = ieMem(rt)
+      m.setWord(addr >>> 0, points & 0xffff)
+      m.setWord((addr + 2 + pointBytes) >>> 0, shapes & 0xffff)
+      return VI(addr | 0)
+    }),
+
+    /**
+     * =Iff Make Palette(CMAP,CNB) --- routine 295 ($55ce), the -$36 call that
+     * 2.01b folded into `Iff Display`.
+     *
+     * DEFECT: the second argument is the write destination and the guide says
+     * it is a count. GetColorTable's body opens `movea.l a0,a2` at $470 and
+     * every colour goes out through `move.w d1,(a2)+` at $4a6, so a0 is where
+     * the palette is written; the chunk search at $410 walks a1. The routine
+     * pops a0 from the LAST argument and a1 from the first, so `CNB` reaches
+     * the library as the address to fill and `CMAP` as the buffer to search.
+     *
+     * Iff1 has it as "CNB=Nombre de couleur de la palette
+     * (CNB=Leek(CMAP-4)/3)", a count. Following that writes the colour words
+     * to low memory, one for each colour and one more (see
+     * `ieIffGetColorTable`'s own defect note). The node is wrong twice over:
+     * its "CMAP=Adresse retourne par 'Iff Find Chunk()'" is a chunk address
+     * where the library wants the whole IFF buffer, and its "PAL=Adresse de
+     * la palette" is a count, the `move.l d4,d0` at $48a.
+     */
+    'iff make palette': (_, a) => {
+      const cmap = i0(a, 0) >>> 0
+      const dest = i0(a, 1) >>> 0
+      return VI(ieIffGetColorTable(rt, cmap, dest) | 0)
+    },
   }
 }

@@ -266,7 +266,7 @@ export function makeIntuiextendIffInstructions(rt: Runtime): Record<string, Inst
       const buf = it.evalInt() >>> 0
       it.expect(',')
       const ctable = it.evalInt() >>> 0
-      getCtable(rt, buf, ctable)
+      ieIffGetColorTable(rt, buf, ctable)
       ieIffDecodePicture(rt, bitmap, buf)
     },
 
@@ -363,7 +363,7 @@ export function makeIntuiextendIffInstructions(rt: Runtime): Record<string, Inst
  * Iff9's warning that "CMAX peut tres bien retourner un nombre de couleurs
  * superieure" is about a padded CMAP and not about this.
  */
-function getCtable(rt: Runtime, buf: number, dest: number): number {
+export function ieIffGetColorTable(rt: Runtime, buf: number, dest: number): number {
   const m = ieMem(rt)
   const chunk = ieIffFindChunk(rt, buf, ID.CMAP)
   if (chunk === 0) return 0
@@ -543,7 +543,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
     /** =Iff Get Ctable(_IFF,BUFFER) --- routine 317 ($58f6), -$36 */
     'iff get ctable': (_, a) => {
       open196()
-      return VI(getCtable(rt, i0(a, 0) >>> 0, i0(a, 1) >>> 0) | 0)
+      return VI(ieIffGetColorTable(rt, i0(a, 0) >>> 0, i0(a, 1) >>> 0) | 0)
     },
 
     /**

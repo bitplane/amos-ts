@@ -864,17 +864,23 @@ export function makeIntuiextendSysFunctions(rt: Runtime): Record<string, Func> {
      *
      * DEFECT: $3f88 converts one nibble by repeated addition, walking a list
      * of longword divisors, and it points a1 at workspace+$1c6. That is the
-     * buffer $3f56 writes the finished string into. A proper list, ten
-     * followed by zero, sits fourteen bytes earlier at workspace+$1b8, and
-     * the shipped image at +$1c6 holds `00 08` then "00:00:1978", which is a
-     * length word of eight and a result this routine left behind before the
-     * library was saved.
+     * buffer $3f56 writes the finished string into.
+     *
+     * The list it wanted is at workspace+$198: ten longs from `3b9aca00` down
+     * to `0000000a` and then a zero to stop on, one per power of ten. That is
+     * not a reconstruction. IntuiExtend 1.6's copy of this same routine
+     * points at +$198 (`adda.w #$198,a1` at $3f26 of its own build), so the
+     * pointer was right once and moved. The shipped image at +$1c6 holds
+     * `00 08` then "00:00:1978", which is a length word of eight and a result
+     * this routine left behind before the library was saved.
      *
      * It cannot go wrong, and that is why it survived. `andi.w #$f,d0` caps
      * every value at fifteen, the walk stops at the first divisor it can
      * subtract, and no long between +$1c6 and the zero at +$1e4 is smaller
      * than twenty-eight. So the loop always falls through to $3fc0 and emits
-     * the nibble itself. The arithmetic the author wrote has never run.
+     * the nibble itself. The arithmetic the author wrote has never run here.
+     * It does run in 1.6, where the last divisor is ten and a nibble above
+     * nine therefore comes out as two characters; see ./intuiextend16.ts.
      *
      * `addi.b #$30,d0` is the same conversion ../amiga/battclock.ts records
      * for the two other extensions that touch the chip, so a nibble of
