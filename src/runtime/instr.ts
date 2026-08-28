@@ -4461,6 +4461,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       if (c.data.length > c.fileSize!) c.fileSize = c.data.length
     },
+    /*
+     * OpIn (+Lib.s:5082) ends `DosCall _LVOOpen / tst.l d0 / Rbeq
+     * L_DiskError`, which reads as "a failed open is a disc error". It is
+     * not that blunt. DiskError (+Lib.s:12843) calls _LVOIoErr and DiskErr
+     * walks the AmigaDOS code down a table, adding the INDEX to DEBase:
+     *
+     *   ErDisk: 203,204,205,210,213,214,216,218,220,221,222,223,224,225,226
+     *
+     * so 203 is 79, 205 is 81, 226 is 93, and anything not in the table is
+     * `moveq #DEBase+15,d0`, 94. Every one of the fifteen lands on the
+     * message the AmigaDOS name predicts — 203 OBJECT_EXISTS on "File
+     * already exists", 205 OBJECT_NOT_FOUND on "File not found", 226 NO_DISK
+     * on "No disc in drive", 94 on "I/O error" — which is fifteen
+     * independent confirmations that DEBase is 79.
+     *
+     * A missing file is therefore 81 and not the generic 101, which is what
+     * these handlers already raise.
+     */
     'open in'(it) {
       const n = openChan(it.evalInt())
       it.expect(',')
