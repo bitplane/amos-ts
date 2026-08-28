@@ -698,15 +698,36 @@ export function parseStosMove(src: string): { start: number | null; groups: Arra
  * the synthesized bank, negative n the mask pointer, which stays 0
  * (the 68k computes masks lazily).
  */
+/**
+ * Sprite Base and Icon Base, which share one routine.
+ *
+ * Sb (+Lib.s:12775) takes the absolute value, `tst.l d3 / bpl.s FsBi1 / neg.l
+ * d1`, calls AdBob or AdIcon for the checking, and then reads a longword out
+ * of the bank entry. The SIGN picks which longword: `tst.l d3 / bpl.s FsBi2 /
+ * addq.l #4,a2`, so a NEGATIVE number answers with the MASK pointer and a
+ * positive one with the image. The port used to short-circuit a negative to
+ * 0 without reading anything; it now reads the field the routine reads.
+ *
+ * The entry is eight bytes, image then mask, the same pair Paste Icon pokes
+ * $C0000000 into at 4(a2).
+ *
+ * DEVIATION: the answer is still 0, because objectBankImage leaves every
+ * mask pointer 0 — this port allocates no mask blocks and carries the mask
+ * as a per-image flag instead. Reading the right field costs nothing and
+ * means Sprite Base(-n) comes right on its own if that ever changes.
+ */
 function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   const idx = Math.abs(n) & 0x3fff
   if (idx === 0) funcCall()
   const bank = kind === 'sprites' ? rt.spriteBank : rt.iconBank
   if (!bank) throw new AmosError('bank not reserved', 36)
-  if (idx > bank.images.length) throw new AmosError('icon not defined')
-  if (n < 0) return 0
+  // AdBob and AdIcon both fail into AdBErr (+Lib.s:12816), which is `moveq
+  // #EcEBase+30-1,d0 / Rbra L_GoError` — 74 whichever bank it was, so a
+  // Sprite Base out of range really does say "Icon not defined". Its `tst.w
+  // d1 / Rbeq L_BkNoRes` on the bank count is the 36 above.
+  if (idx > bank.images.length) throw new AmosError(ED_RUN_MESSAGES[74]!, 74)
   const img = rt.objectBankImage(kind)!
-  const off = 2 + (idx - 1) * 8
+  const off = 2 + (idx - 1) * 8 + (n < 0 ? 4 : 0)
   return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
 }
 

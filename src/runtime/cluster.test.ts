@@ -408,6 +408,22 @@ describe('integration: Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792)', () => {
     const prog = ['Cls 0 : Ink 5 : Bar 0,0 To 7,7', 'Get Bob 1,0,0 To 8,8', 'X=Sprite Base(9)'].join('\n')
     expect(() => run(prog)).toThrow(/icon not defined/i)
   })
+
+  it('a NEGATIVE Sprite Base reads the mask field, not a hardcoded zero (Sb +Lib.s:12779)', () => {
+    // `tst.l d3 / bpl.s FsBi2 / addq.l #4,a2` — the sign picks which of the
+    // entry's two longwords is read, image or mask. The mask reads 0 here
+    // because this port allocates no mask blocks (see objBase's DEVIATION),
+    // but it goes through the same bank entry and still refuses what the
+    // positive form refuses.
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7',
+      'Get Bob 1,0,0 To 8,8',
+      'Print Sprite Base(1)<>0;Sprite Base(-1)',
+    ].join('\n')
+    expect(run(prog).out.trim()).toBe('-1 0')
+    // the sign is not a bypass: AdBob still checks the number
+    expect(() => run('X=Sprite Base(-1)')).toThrow(/bank not reserved/i)
+  })
 })
 
 describe('integration: Run and the environment cluster', () => {
