@@ -5541,8 +5541,18 @@ export class Runtime {
   private dispatchOnMenu(menuIdx: number): void {
     const h = this.onMenu
     if (!h || this.interp.done) return
-    const target = h.targets[menuIdx] ?? h.targets[0]
+    // GoMenu (+ILib.s:1038) will not jump in direct mode: `tst.w Direct(a5) /
+    // bne GoMX`
+    if (this.interp.direct !== 0) return
+    // and it takes the choice only while it is inside the table, `cmp.w
+    // OMnNb(a5),d0 / bls.s GoMGo`. A menu number past the end of the On Menu
+    // list does NOTHING; it does not fall back to the first entry.
+    const target = h.targets[menuIdx]
     if (target === undefined) return
+    // GoMGo (+ILib.s:1054) opens `bclr #BitJump,d4 * Plus de jump!` and writes
+    // the mask back, so the arm is a ONE SHOT. A handler that wants the next
+    // selection has to say On Menu On again.
+    h.armed = false
     this.interp.blocked = null // menu selections wake waits
     if (h.kind === 'proc') {
       this.interp.callProc(target, [])

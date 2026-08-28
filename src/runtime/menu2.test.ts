@@ -186,12 +186,29 @@ describe('menu event control', () => {
     expect(run(`${MENU}\nMenu Mouse Off : Menu Mouse On`).menu.mouse).toBe(true)
   })
 
-  it('On Menu Off suspends the handler and On Menu Del forgets it', () => {
-    // both must run cleanly with a handler installed, leaving the tree intact
-    const prog = [MENU, 'On Menu Gosub H,H', 'On Menu Off', 'On Menu Del', 'End', 'H:', 'Return'].join(
-      '\n',
+  it('On Menu Off arms the jump, exactly as On Menu On does', () => {
+    // DEFECT reproduced. InOnMenuOff (+Lib.s:15335) is InOnMenuOn instruction
+    // for instruction: `tst.w OMnNb(a5) / beq.s .Skip / bset #BitJump,
+    // ActuMask(a5)`. It sets the bit where it plainly means to clear it, and
+    // the mislabelled "; ON MENU ON" comment above it is the copy-paste that
+    // did it. On Menu Del is the only way to stop a jump.
+    const armed = (stmt: string): boolean | undefined =>
+      run([MENU, 'On Menu Gosub H,H', stmt, 'End', 'H:', 'Return'].join('\n')).onMenu?.armed
+    // On Menu Gosub itself ENDS with `bclr #BitJump` (+ILib.s:6813), so a
+    // program starts disarmed however many handlers it declared
+    expect(armed('Rem')).toBe(false)
+    expect(armed('On Menu On')).toBe(true)
+    expect(armed('On Menu Off')).toBe(true)
+    expect(armed('On Menu On : On Menu Off')).toBe(true)
+  })
+
+  it('On Menu Del forgets the handler and leaves the tree alone', () => {
+    // OMnEff (+Lib.s:15343) frees the jump table and clears OMnNb, after
+    // which On Menu On and Off both fail their own `tst.w OMnNb(a5)`
+    const rt = run(
+      [MENU, 'On Menu Gosub H,H', 'On Menu Del', 'On Menu On', 'End', 'H:', 'Return'].join('\n'),
     )
-    const rt = run(prog)
+    expect(rt.onMenu).toBeNull()
     expect(rt.menu.find([1])).toBeDefined()
   })
 

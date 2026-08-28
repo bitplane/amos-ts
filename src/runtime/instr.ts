@@ -3023,6 +3023,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
+      // InSetZone (+Lib.s:10932) tests the zone number the moment it pops it,
+      // `move.l (a3)+,d1 / Rbls L_FonCall`, and a `move` clears the carry so
+      // that bls is a beq. Zone 0 is error 23 BEFORE `tst.w ScOn(a5)`, so
+      // with no screen open it is still 23 and not 47.
+      if (n === 0) funcCall()
       const s = rt.screen
       // SySetZ (+W.s:11090) is four refusals and four word stores, and all
       // four refusals reach InSetZone's `Rbne L_FonCall` as AMOS 23:
@@ -4109,12 +4114,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.onMenu = { kind, targets, armed: false }
     },
     'on menu on'() {
+      // InOnMenuOn (+Lib.s:15326) is `tst.w OMnNb(a5) / beq.s .Skip / bset
+      // #BitJump,ActuMask(a5)`, so it does nothing until On Menu Goto/Gosub/
+      // Proc has built the table -- and that instruction ENDS by clearing the
+      // same bit (+ILib.s:6813, "Plus de branchements"), which is why a
+      // program has to arm itself before its first menu selection counts.
       if (rt.onMenu) rt.onMenu.armed = true
     },
     'on menu off'() {
-      if (rt.onMenu) rt.onMenu.armed = false
+      // DEFECT: InOnMenuOff (+Lib.s:15335) is InOnMenuOn instruction for
+      // instruction. It `bset`s BitJump where it plainly means to clear it,
+      // and the mislabelled "; ON MENU ON" comment sitting above it is the
+      // author's own copy-paste showing how. So On Menu Off ARMS the jump
+      // exactly as On Menu On does, and On Menu Del is the only way to stop
+      // one. Reproduced; this port used to disarm.
+      if (rt.onMenu) rt.onMenu.armed = true
     },
     'on menu del'() {
+      // InOnMenuDel -> OMnEff (+Lib.s:15343) frees the jump table and clears
+      // OMnNb and OMnBase, after which On Menu On and Off are both no-ops
+      // because their `tst.w OMnNb(a5)` fails.
       rt.onMenu = null
     },
     // ---- blocks ----
