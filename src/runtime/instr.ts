@@ -2468,7 +2468,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sh = sy2 - sy1
       const dw = dx2 - dx1
       const dh = dy2 - dy1
-      // InZoom (+Lib.s:10567) measures the whole rectangle before it draws a
+      // InZoom (+Lib.s:10531) measures the whole rectangle before it draws a
       // pixel, and every failure lands on ZooF, which frees its table and
       // falls into L_FonCall. The low/high pair test is `cmp.l d5,d4 / bcc`,
       // UNSIGNED, so a negative low coordinate is caught there and needs no
@@ -2539,7 +2539,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const y = optInt(it, cur?.y ?? 0)
       it.accept(',')
       // An omitted image leaves BbI alone (`cmp.l d7,d4 / beq.s CreBb8` at
-      // BobSet's CreBb7, +W.s:1120), and a bob ResBOB has just made has BbI = 0: it
+      // BobSet's CreBb7, +W.s:945), and a bob ResBOB has just made has BbI = 0: it
       // sets BbNb, BbEc, the limits, BbAPlan, BbACon, BbDecor and BbEff, and
       // never touches the image. Image 0 is not image 1 --- there is no image
       // 0, so the bob does not draw at all.

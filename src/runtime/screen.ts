@@ -669,8 +669,8 @@ export class Screen {
   /**
    * Double Buffer: create the physical bitmap as a copy of the logical.
    *
-   * False when the screen was already double buffered, which is `EcDouble`'s
-   * `btst #BitDble,EcFlags(a4) / bne EcE25` (+W.s:2742). `EcE25` is
+   * False when the screen was already double buffered, which `EcDouble`
+   * (+W.s:2743) settles with `btst #BitDble,EcFlags(a4) / bne EcE25`. `EcE25` is
    * `moveq #25,d0` (+W.s:3132) and every Ec code passes through `EcWiErr`
    * (+Lib.s:12917), which adds `EcEBase-1` = 44 to reach AMOS error 69.
    * Reporting it rather than raising it is what the two callers need: the
