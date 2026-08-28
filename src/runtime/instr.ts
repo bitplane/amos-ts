@@ -375,7 +375,7 @@ function regSlot(n: number, limit: number, base: number): number {
   return base + n
 }
 
-/** `IReg` (:2705): `Rbsr L_RReg / move.l d3,(a0)` */
+/** `IReg` (+ILib.s:2705): `Rbsr L_RReg / move.l d3,(a0)` */
 /**
  * Amreg's bounds, from AmRR (+Lib.s:11968), which measures before it reads.
  *
@@ -2440,7 +2440,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const y = optInt(it, cur?.y ?? 0)
       it.accept(',')
       // An omitted image leaves BbI alone (`cmp.l d7,d4 / beq.s CreBb8` at
-      // BobSet's CreBb7, +W.s), and a bob ResBOB has just made has BbI = 0: it
+      // BobSet's CreBb7, +W.s:1120), and a bob ResBOB has just made has BbI = 0: it
       // sets BbNb, BbEc, the limits, BbAPlan, BbACon, BbDecor and BbEff, and
       // never touches the image. Image 0 is not image 1 --- there is no image
       // 0, so the bob does not draw at all.
@@ -6344,6 +6344,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'dir$'(_, a) {
+      // the reader half of Dir$ (+Lib.s:4799); the assignment form and its
+      // stray-volume fallback are on the instruction below
       void a
       return VS(rt.vfs?.currentDir ?? '')
     },
