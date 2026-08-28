@@ -1,6 +1,6 @@
 /**
  * The ST "Squasher II" codec, ported from the Squash / UnSquash routines in
- * the AMOS Pro Compiler extension (+CompExt.s:1027-1558).
+ * the AMOS Pro Compiler extension (+CompExt.s:1003-1534).
  *
  * It is a forward-referencing, bit-packed LZ. The compressed data is a run of
  * 32-bit big-endian words that the DECODER reads BACKWARD, rebuilding the
@@ -27,7 +27,7 @@ const notSquashed = (): never => {
   throw new AmosError('Not a squashed block', 23)
 }
 
-/** Decompress a Squasher block (UnSquash, +CompExt.s:1468). */
+/** Decompress a Squasher block (UnSquash, +CompExt.s:1442). */
 export function unsquash(buf: Uint8Array): Uint8Array {
   if ((buf.length & 3) !== 0 || buf.length < 12) notSquashed()
 
@@ -114,7 +114,7 @@ function usableLen(off: number, len: number): number {
 }
 
 /**
- * Compress a block (Squash, +CompExt.s:1049). Returns the compressed bytes, or
+ * Compress a block (Squash, +CompExt.s:1023). Returns the compressed bytes, or
  * null when the result is not at least 33 bytes smaller than the input — the
  * original's "inefficient compression" case (returns -1). `window` is the
  * forward match-search reach (the keyword's `speed`).

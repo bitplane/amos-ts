@@ -2,14 +2,14 @@
  * Generate src/runtime/edmessages.gen.ts — the editor's five message
  * tables, straight out of +Editor_Config.s.
  *
- * `Resource$(n)` reaches these for n below -1000 (FnResource +ILib.s:6699):
+ * `Resource$(n)` reaches these for n below -1000 (FnResource +ILib.s:6670):
  * -1001.. Ed_Systeme, -2001.. EdM_Messages, -3001.. Ed_Messages,
  * -4001.. Ed_TstMessages, -5001.. Ed_RunMessages, and -6001 and beyond is
  * a function call error.
  *
  * Each block is a run of records {pad byte, length byte, bytes}, walked
  * 1-based by GetMessage (+B.s:562) which skips the leading pad and stops
- * at a length of $FF. The EdT/EdD macros (+Editor_Config.s:37-47) emit
+ * at a length of $FF. The EdT/EdD macros (+Editor_Config.s:9-19) emit
  * exactly that, so parsing the macro calls IN ORDER reproduces the block —
  * and the order is the whole contract. The number in the macro call is a
  * comment; position is what GetMessage counts. In .Error1 the two agree,

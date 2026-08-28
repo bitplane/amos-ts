@@ -18,7 +18,7 @@
  * Routine Code: 24".
  *
  * The binary makes that three ways: every routine reaches its data through
- * `$268(a5)`, `ExtAdr` is $f8 with sixteen bytes a slot (+Equ.s:1185), and
+ * `$268(a5)`, `ExtAdr` is $f8 with sixteen bytes a slot (+Equ.s:1157), and
  * ($268-$f8)/16+1 = 24. Routine 0 ends `moveq #$17,d0`, the slot zero-based.
  *
  * ## Where the offsets come from

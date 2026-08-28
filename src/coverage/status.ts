@@ -20,7 +20,7 @@ export const FAITHFUL = new Set<string>([
   // banks decode pixel-perfect
   'unpack',
   // Pack/Spack are ported from the Compact extension's own source
-  // (+Compact.s:343/478) and re-pack every corpus picture byte for byte.
+  // (+Compact.s:317/452) and re-pack every corpus picture byte for byte.
   // Syntax comes from the extension's token table (+Compact.s:74) rather
   // than the manual: "I0t0" and "I0t0,0,0,0,0", so `Pack screen To bank`
   // with ONE To and the rectangle comma-separated after it. The manual's
@@ -73,7 +73,7 @@ export const FAITHFUL = new Set<string>([
   'mvolume',
   'voice',
   'mubase',
-  // the MOD tracker: Tracker/mt_* replay ported from +Music.s:1673-2103
+  // the MOD tracker: Tracker/mt_* replay ported from +Music.s:1647-2077
   // (row fetch, effect subset 0-6/A-F, song advance/loop, TrackCheck,
   // one-f "track loop of" token spelling per the original table);
   // music.test.ts replays a synthetic module and the shipped Mod.Tracker
@@ -154,7 +154,7 @@ export const FAITHFUL = new Set<string>([
   // Set Text as the rastport SoftStyle distinct from the console's
   // Under flag (InSetText 9908), Font$'s exact 38-char format and
   // fonts-not-examined error (FnFont 9786), Set Font 0 no-op + font
-  // not available (TSFont +W.s:4922); cluster.test.ts cites each
+  // not available (TSFont +W.s:4893); cluster.test.ts cites each
   'at',
   'locate',
   'pen',
@@ -208,7 +208,7 @@ export const FAITHFUL = new Set<string>([
   'fsel$',
   'psel$',
   'system',
-  // Exec: InExec +Lib.s:3392, Execute(cmd, NIL:, NIL:) on the process seam
+  // Exec: InExec +Lib.s:3363, Execute(cmd, NIL:, NIL:) on the process seam
   // in src/amiga/process.ts. ChVerBuf truncates the line at 510 (+Lib.s:3683)
   // and DOSFALSE is error 87, "Disc error"
   'exec',
@@ -271,7 +271,7 @@ export const FAITHFUL = new Set<string>([
   'field',
   'get',
   'put',
-  // IFF ANIM frames: IffFormLoad/Size/Play ported (+Lib.s:6861-7500) —
+  // IFF ANIM frames: IffFormLoad/Size/Play ported (+Lib.s:6832-7471) —
   // FORM ANIM unwrapping + AenD terminator, the exact size formula,
   // BMHD/CMAP/CAMG/ANHD chunk registry, BODY row-interleaved ByteRun1
   // into the screen planes, ANIM5 (op 5 only) vertical-column DLTAs,
@@ -988,7 +988,7 @@ export const FAITHFUL = new Set<string>([
   'resource bank',
   'resource unpack',
   'resource screen open',
-  // BASIC sliders: SliHor/SliVer/SliPour/SliSet +W.s:5051-5320
+  // BASIC sliders: SliHor/SliVer/SliPour/SliSet +W.s:5022-5291
   'hslider',
   'vslider',
   'set slider',
@@ -1057,7 +1057,7 @@ export const FAITHFUL = new Set<string>([
   'comp size',
   'prg state',
   'prg under',
-  // ST "Squasher II" codec ported from Squash/UnSquash (+CompExt.s:1027-1558):
+  // ST "Squasher II" codec ported from Squash/UnSquash (+CompExt.s:1003-1534):
   // the forward-referencing bit-packed LZ, its guard-bit word stream, the XOR
   // checksum and the trailer layout, exercised by round-trip + corruption tests
   'squash',
@@ -1107,7 +1107,7 @@ export const FAITHFUL = new Set<string>([
   //     reaching End If just falls through).
   //   End Proc (InEndProc +ILib.s:2630) writes the optional [expr] into the
   //     type-matching Param slot (FnEProc) then restores the caller; Pop Proc
-  //     (InPopProc → PopP +ILib.s:2724) force-exits from any depth by resetting
+  //     (InPopProc → PopP +ILib.s:2695) force-exits from any depth by resetting
   //     to BasA3 — our returnFromProc truncates loops/gosubs to the proc base.
   //   Wait Vbl (InWtVbl +Lib.s:2104) waits one frame; Wait Key (InWtKy
   //     +Lib.s:2142) loops Inkey until a key arrives — both block until then.
@@ -4229,7 +4229,7 @@ export const NA = new Set<string>([
   ',',
   // raw machine-code / ROM-library calls (Lib.Call jsr 0(a0,d3), +Lib.s:2909;
   // InCall jsr (a4), +ILib.s:5852) and their register/offset scaffolding.
-  // `@_apml_@` (In_apml_ +ILib.s:5842) is the AMOS Professional Machine
+  // `@_apml_@` (In_apml_ +ILib.s:5813) is the AMOS Professional Machine
   // Language call: it pushes the argument list and does jsr (a6).
   '@_apml_@',
   'call',
@@ -7161,7 +7161,7 @@ export const NOTES: Record<string, string> = {
     "rather than a stub. NOTE: on success the routine never UnLoadSegs, leaving the segment to the process it " +
     "started; nothing to reproduce while nothing starts",
   "exec":
-    "Exec \"command\" — InExec (+Lib.s:3392), source tier and complete. NOTE: nothing in this port can run a " +
+    "Exec \"command\" — InExec (+Lib.s:3363), source tier and complete. NOTE: nothing in this port can run a " +
     "command, so Execute always answers DOSFALSE and this always raises error 87 -- which is the branch the " +
     "routine itself takes for a command that does not exist, and on a machine with no shell every command is one. " +
     "Source: +Lib.s:3677.",
@@ -8767,7 +8767,7 @@ export const NOTES: Record<string, string> = {
   "ldir/w":
     "InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer",
   "read text":
-    "InReadText1/3 +Lib.s:14707 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program " +
+    "InReadText1/3 +Lib.s:14678 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program " +
     "1 of the system default resource bank, run on its own EcFsel screen sized PI_RtSx x PI_RtSy.",
   "set accessory":
     "the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3719).",

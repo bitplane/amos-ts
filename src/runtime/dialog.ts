@@ -467,7 +467,7 @@ export function prescanDialog(script: string): {
   return { labels, userInstrs }
 }
 
-// ---- runtime expression evaluation (Dia_Evalue, +Lib.s:22748+) ----
+// ---- runtime expression evaluation (Dia_Evalue, +Lib.s:22719+) ----
 
 export type DialogValue = number | string
 
@@ -853,7 +853,7 @@ interface ExecFrame {
 }
 
 /**
- * The statement interpreter (Dia_Loop +Lib.s:21258). One instance runs a
+ * The statement interpreter (Dia_Loop +Lib.s:21229). One instance runs a
  * whole =Dialog Run; RU pauses it (status 'run') and stepDialogs resumes
  * the tail after the wait completes.
  */
@@ -1562,7 +1562,7 @@ export class DialogExec {
 
 }
 
-// ---- zone routine execution (Dia_BtDraw / Dia_ZoChange, +Lib.s:23817/24030) ----
+// ---- zone routine execution (Dia_BtDraw / Dia_ZoChange, +Lib.s:23788/24030) ----
 
 interface ZoneSnapshot {
   baseX: number
@@ -1640,7 +1640,7 @@ export function drawSliderZone(ch: DialogChannel, z: DialogZone, draw: DialogDra
 }
 
 /**
- * AL/IL list rendering (Dia_LiAff +Lib.s:23706): elements are strings
+ * AL/IL list rendering (Dia_LiAff +Lib.s:23677): elements are strings
  * (BASIC string arrays through =Array); flags bit0 prefixes "n - " index
  * numbers (bit1: 1-based); the selected row draws inverted.
  */
@@ -1765,7 +1765,7 @@ export function editNext(ch: DialogChannel, draw: DialogDraw): void {
   if (ch.edited) drawEditZone(ch, ch.edited, draw)
 }
 
-/** hit-test the channel's zones at screen coords (Dia_GetZ +Lib.s:24591) */
+/** hit-test the channel's zones at screen coords (Dia_GetZ +Lib.s:24562) */
 export function dialogZoneAt(ch: DialogChannel, x: number, y: number): DialogZone | null {
   for (const z of ch.zones) {
     if (z.kind === 'key') continue
@@ -1774,7 +1774,7 @@ export function dialogZoneAt(ch: DialogChannel, x: number, y: number): DialogZon
   return null
 }
 
-/** the item-th zone with a number (Dia_GetZoneAd +Lib.s:20902) */
+/** the item-th zone with a number (Dia_GetZoneAd +Lib.s:20873) */
 export function dialogZoneByNumber(ch: DialogChannel, n: number, item = 1): DialogZone | null {
   let left = item
   for (const z of ch.zones) {
@@ -1784,7 +1784,7 @@ export function dialogZoneByNumber(ch: DialogChannel, n: number, item = 1): Dial
   return null
 }
 
-/** a zone's result value + type (Dia_GetValue +Lib.s:20843) */
+/** a zone's result value + type (Dia_GetValue +Lib.s:20814) */
 export function dialogZoneValue(z: DialogZone): { n: number; s: string | null } {
   switch (z.kind) {
     case 'button':
@@ -1806,7 +1806,7 @@ export function dialogZoneValue(z: DialogZone): { n: number; s: string | null } 
 
 /**
  * Dialog Update / ZC: push a new value into every zone numbered n except
- * the current one (Dia_ZUpdate +Lib.s:23916). Per kind: buttons redraw and
+ * the current one (Dia_ZUpdate +Lib.s:23887). Per kind: buttons redraw and
  * fire their change routine even when the value is elided, but skip both
  * when it matches (.Bt); sliders take p5→total, p4→window, v→position and
  * ALWAYS redraw AND fire the change routine (.Sl 23966-23967); lists take
@@ -1874,7 +1874,7 @@ export function updateZone(
 }
 
 /**
- * Erase a drawn dialog (Dia_EffChanA0 +Lib.s:20726): close edit windows,
+ * Erase a drawn dialog (Dia_EffChanA0 +Lib.s:20697): close edit windows,
  * restore SA blocks in reverse order, delete them.
  */
 export function eraseDialog(ch: DialogChannel, draw: DialogDraw): void {

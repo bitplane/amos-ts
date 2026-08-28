@@ -172,7 +172,7 @@ describe('effects and vumeter', () => {
     expect(new Set(plays.map((p) => p.freq)).size).toBe(4)
   })
 
-  it('envelopes drive the volume then stop the voice (MuIntE +Music.s:3638)', () => {
+  it('envelopes drive the volume then stop the voice (MuIntE +Music.s:3612)', () => {
     const { rt, audio } = run('Bell')
     for (let i = 0; i < 60; i++) rt.frame() // the program ended; envelopes keep running
     // EnvBell (1,64)(4,40)(25,0): volume jumps to 56, decays, voice stops

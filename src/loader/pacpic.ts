@@ -157,7 +157,7 @@ export interface PackSource {
 }
 
 /**
- * One packing pass with a chosen square height (`Pack`, +Compact.s:478).
+ * One packing pass with a chosen square height (`Pack`, +Compact.s:452).
  *
  * The bitmap is walked as `ty` bands of `tcar` lines, each band scanned a
  * byte-column at a time straight down, and every byte that differs from the
@@ -251,7 +251,7 @@ function packWith(
 }
 
 /**
- * GetSize +Compact.s:343: try every square height that divides the region
+ * GetSize +Compact.s:317: try every square height that divides the region
  * exactly and keep the smallest result — ties go to the first tried, since
  * the original only replaces its best on a strict improvement (`bcc`).
  * dx/dy are in bytes and lines, tx in bytes, tyLines in lines.

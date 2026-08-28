@@ -25,7 +25,7 @@ function roundtrip(bytes: number[] | Uint8Array): void {
   expect(Array.from(back)).toEqual(Array.from(input))
 }
 
-describe('Squasher II codec (+CompExt.s:1027-1558)', () => {
+describe('Squasher II codec (+CompExt.s:1003-1534)', () => {
   it('round-trips highly repetitive data (long matches)', () => {
     roundtrip(new Uint8Array(2000).fill(0x41))
     roundtrip('ABCABCABCABC'.repeat(200).split('').map((c) => c.charCodeAt(0)))

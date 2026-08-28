@@ -214,7 +214,7 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
     expect(() => run('Locate 0,200')).toThrow(/illegal text window parameter/i)
   })
 
-  it('Pen/Paper error at the screen colour count (+W.s:14879/14893)', () => {
+  it('Pen/Paper error at the screen colour count (+W.s:14850/14893)', () => {
     expect(() => run('Pen 16')).toThrow(/illegal text window parameter/i) // default screen: 16 colours
     expect(() => run('Paper 99')).toThrow(/illegal text window parameter/i)
     expect(run('Pen 15 : Print "ok"').out).toContain('ok')
@@ -270,7 +270,7 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
     expect(o2).toContain('Rom')
   })
 
-  it('Set Font: 0 is a no-op, unknown numbers error (TSFont +W.s:4922)', () => {
+  it('Set Font: 0 is a no-op, unknown numbers error (TSFont +W.s:4893)', () => {
     expect(run('Get Fonts\nSet Font 0\nPrint "ok"').out).toContain('ok')
     expect(() => run('Set Font 1')).toThrow(/fonts not examined/i)
     expect(() => run('Get Fonts\nSet Font 999')).toThrow(/font not available/i)
@@ -512,7 +512,7 @@ describe('integration: Run and the environment cluster', () => {
   })
 
   it('Exec runs the command DETACHED — both handles are the NIL: it opens', () => {
-    // InExec +Lib.s:3392: `move.l d5,d2 / move.l d5,d3`, the same handle for
+    // InExec +Lib.s:3363: `move.l d5,d2 / move.l d5,d3`, the same handle for
     // input and output, which is why nothing a command prints is ever seen
     let seen = ''
     let detached = false
@@ -619,7 +619,7 @@ describe('integration: Run and the environment cluster', () => {
     expect(code('Set Dir ,"*.info"')).toBe(0)
   })
 
-  it('Disc Info$ returns "VOLUME:" + 10-char free-byte field (FnDiscInfo +Lib.s:4995)', () => {
+  it('Disc Info$ returns "VOLUME:" + 10-char free-byte field (FnDiscInfo +Lib.s:4966)', () => {
     const { out } = run('A$=Disc Info$("DH0:")\nPrint Left$(A$,Len(A$)-10)\nPrint Val(Right$(A$,10))')
     const lines = out.split('\n')
     expect(lines[0]).toBe('DH0:')

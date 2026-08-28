@@ -36,7 +36,7 @@ async function run(src: string, frames = 200): Promise<{ rt: Runtime; out: strin
   return { rt, out }
 }
 
-describe('Music extension: Say (InSay1/InSay2, +Music.s:2509/2540)', () => {
+describe('Music extension: Say (InSay2/InSay1, +Music.s:2509/2514)', () => {
   it('imports the voice on the first Say and blocks until it lands', async () => {
     const rt = new Runtime(tokenize('Say "hello"', table, exts), table, { extensions: exts, maxSteps: 500_000 })
     // synchronously, nothing can have loaded yet: runHeadless never yields to
@@ -81,7 +81,7 @@ describe('Music extension: Say (InSay1/InSay2, +Music.s:2509/2540)', () => {
   })
 })
 
-describe('Music extension: the mouth stream (+Music.s:4370/2658/2666)', () => {
+describe('Music extension: the mouth stream (InMouthRead/FnMouthWidth/FnMouthHeight, +Music.s:4344/2632/2640)', () => {
   it('Mouth Read walks it, and both readings go to -1 together at the end', async () => {
     // every failure path in InMouthRead is `move.w #-1,88(a0)` — ONE WORD
     // across bytes 88 and 89 — so Mouth Width and Mouth Height both read -1.

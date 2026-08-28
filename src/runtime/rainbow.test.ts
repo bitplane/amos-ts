@@ -65,7 +65,7 @@ describe('Set Rainbow: the TRSet table build (+W.s:3990-4110)', () => {
   })
 })
 
-describe('Rainbow / Rain: TRDo and TRVar (+W.s:3940-3985)', () => {
+describe('Rainbow / Rain: TRDo and TRVar (+W.s:3911-3956)', () => {
   it('errors on an undefined rainbow as OUT OF MEMORY (RainEr -> EcWiErr code 1)', () => {
     expect(() => boot('Rainbow 0,0,60,40')).toThrow(/out of memory/)
     expect(() => boot('Set Rainbow 0,0,16,"","",""\nRainbow 1,0,60,40')).toThrow(/out of memory/)

@@ -1,5 +1,5 @@
 /**
- * ProCode — "Codage / Decodage procedure LOCKEE" (+Verif.s:5195), the cipher
+ * ProCode — "Codage / Decodage procedure LOCKEE" (+Verif.s:5167), the cipher
  * that hides a LOCKED procedure's body.
  *
  * Locking is an AMOS 1.x feature: `Bset 14,P` on the Procedure line's flags

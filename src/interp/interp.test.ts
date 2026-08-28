@@ -700,7 +700,7 @@ describe('compiler directives and program state (+CompExt.s / +ILib.s)', () => {
     expect(runExt(prog)).toBe('OK\n')
   })
 
-  it('compiler state reads report "compiler absent" (+CompExt.s:410/444)', () => {
+  it('compiler state reads report "compiler absent" (+CompExt.s:384/418)', () => {
     // no native APCMP overlay can load, so Here=0, Err$="", Size=0
     expect(runExt('Print Comp Here')).toBe(' 0\n')
     expect(runExt('Print Comp Size')).toBe(' 0\n')

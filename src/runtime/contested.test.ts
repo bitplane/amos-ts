@@ -33,7 +33,7 @@ const ALLOWED_UNDECLARED = new Set<string>([
    * have them at all.
    *
    * The handler that answers is the CORE one, ../runtime/instr.ts `sload` and
-   * `ssave`, ported from Music's own source (+Music.s:3239 and :4426). Its
+   * `ssave`, ported from Music's own source (+Music.s:3213 and :4400). Its
    * doc block records the three places AMCAF's routines 106/107 differ --
    * channel 1..9 against 1..10, no mode check, and no zero-length refusal --
    * and why Music's contract is the one kept.

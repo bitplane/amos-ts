@@ -165,7 +165,7 @@ export class MusicPlayer {
   private patBase = 0
   /** tick at which a one-shot Sam Play ends per voice (Sami end -> MuReStart) */
   samEnd = [Infinity, Infinity, Infinity, Infinity]
-  /** queued Sam Swap double-buffers (Sami_radr/rlong, +Music.s:4080) */
+  /** queued Sam Swap double-buffers (Sami_radr/rlong, +Music.s:4054) */
   private samSwaps: Array<{ pcm: Int8Array; hz: number; vol: number } | null> = [null, null, null, null]
   /**
    * =Sam Swapped states (FnSamSwapped +Music.s:4029): 1 = voice's sample
@@ -256,7 +256,7 @@ export class MusicPlayer {
 
   // ---- keywords ----------------------------------------------------------
 
-  /** InMusic (+Music.s:3815) */
+  /** InMusic (+Music.s:3789) */
   music(n: number): void {
     if (n <= 0) funcCall()
     this.ensureBank()
@@ -269,7 +269,7 @@ export class MusicPlayer {
     for (let v = 0; v < 4; v++) {
       const V = newVoice()
       V.cpt = 1 // steps at the first tick
-      V.adr = -1 // FoEnd fake pattern (+Music.s:2139)
+      V.adr = -1 // FoEnd fake pattern (+Music.s:2113)
       const rel = this.w(songOff + v * 2)
       V.pat = songOff + (rel >= 0x8000 ? rel - 0x10000 : rel) // add.w sign-extends
       V.dpat = V.pat
@@ -297,7 +297,7 @@ export class MusicPlayer {
     if (s) s.tempo = t
   }
 
-  /** MVol (+Music.s:3727): rescale every stacked music's live volumes */
+  /** MVol (+Music.s:3701): rescale every stacked music's live volumes */
   setMusicVolume(): void {
     const mv = this.host.musicVolume
     for (const s of this.stack) {
@@ -305,7 +305,7 @@ export class MusicPlayer {
     }
   }
 
-  /** VOnOf (+Music.s:3767): only acts while a music is playing */
+  /** VOnOf (+Music.s:3741): only acts while a music is playing */
   voiceOnOff(mask: number): void {
     const s = this.cur()
     if (!s) return
@@ -330,11 +330,11 @@ export class MusicPlayer {
     this.voiceOnOff(~mask & 15)
   }
 
-  // ---- the vbl interrupt (MusInt +Music.s:1092) --------------------------
+  // ---- the vbl interrupt (MusInt +Music.s:1066) --------------------------
 
   vbl(): void {
     this.ensureBank()
-    // MusInt (+Music.s:1092): envelopes and the noise refresh run before
+    // MusInt (+Music.s:1066): envelopes and the noise refresh run before
     // the music/tracker players
     this.envStep()
     // Sami natural end (+Music.s:1062): a queued Sam Swap buffer takes
@@ -358,7 +358,7 @@ export class MusicPlayer {
     }
     const s = this.cur()
     if (!s) {
-      // "Music: beq Tracker" (+Music.s:1138) — the tracker only steps
+      // "Music: beq Tracker" (+Music.s:1112) — the tracker only steps
       // while no bank music is playing
       this.trackerVbl()
     } else {
@@ -465,7 +465,7 @@ export class MusicPlayer {
           V.adr = pos
           return
         }
-        // DoNote (+Music.s:1233)
+        // DoNote (+Music.s:1207)
         const per = word & 0x0fff
         this.triggerSample(s, v, per)
         if (!V.ptone) {
@@ -479,7 +479,7 @@ export class MusicPlayer {
         }
         continue
       }
-      // command (MuJumps +Music.s:1278)
+      // command (MuJumps +Music.s:1252)
       const cmd = (word >> 8) & 0x7f
       const arg = word & 0xff
       switch (cmd) {
@@ -679,7 +679,7 @@ export class MusicPlayer {
           this.perWrite(v, V.note) // NoEffect re-writes AUDxPER every vbl
           break
         case 'slide': {
-          // MuSlide (+Music.s:1466)
+          // MuSlide (+Music.s:1440)
           const val = V.value
           if (val === 0) {
             V.effect = 'none'
@@ -699,7 +699,7 @@ export class MusicPlayer {
           break
         }
         case 'arp': {
-          // MuArp (+Music.s:1488): phase cycles low nibble, base, high nibble
+          // MuArp (+Music.s:1462): phase cycles low nibble, base, high nibble
           const arg = V.value & 0xff
           let phase = (V.value >> 8) & 0xff
           if (phase >= 3) phase = 2
@@ -720,7 +720,7 @@ export class MusicPlayer {
           break
         }
         case 'ptone': {
-          // MuPTone (+Music.s:1519)
+          // MuPTone (+Music.s:1493)
           const speed = V.value & 0xffff
           let per = V.note
           if (per === V.ptoTo) {
@@ -743,7 +743,7 @@ export class MusicPlayer {
           break
         }
         case 'vib': {
-          // MuVib (+Music.s:1538): modulated period is written, not stored
+          // MuVib (+Music.s:1512): modulated period is written, not stored
           const arg = V.value & 0xff
           const idx = (V.vib >> 2) & 0x1f
           const depth = arg & 0x0f
@@ -825,7 +825,7 @@ export class MusicPlayer {
     }
   }
 
-  /** VPlay (+Music.s:2865): one voice — wave, noise or pitched sample */
+  /** VPlay (+Music.s:2839): one voice — wave, noise or pitched sample */
   private vPlay(v: number, note: number, forcedWave: number, forcedEnv: number[] | null): void {
     const bit = 1 << v
     this.noiseMask &= ~bit
@@ -877,7 +877,7 @@ export class MusicPlayer {
     this.envNext(v)
   }
 
-  /** MuIntE (+Music.s:3638): advance to the next envelope segment */
+  /** MuIntE (+Music.s:3612): advance to the next envelope segment */
   private envNext(v: number): void {
     const e = this.envs[v]!
     for (let guard = 0; guard < 32; guard++) {
@@ -933,7 +933,7 @@ export class MusicPlayer {
     }
   }
 
-  /** EnvOff (+Music.s:3611): Play Off — stop envelopes, music reclaims */
+  /** EnvOff (+Music.s:3585): Play Off — stop envelopes, music reclaims */
   playOff(mask: number): void {
     let stopped = 0
     for (let v = 0; v < 4; v++) {
@@ -974,7 +974,7 @@ export class MusicPlayer {
     this.samSwaps[v] = null
   }
 
-  /** InSetWave/NeWave (+Music.s:3361/3488): replacing stops all envelopes */
+  /** InSetWave/NeWave (+Music.s:3361/3462): replacing stops all envelopes */
   setWave(n: number, src: Int8Array): void {
     if (this.waves.has(n)) {
       this.playOff(0b1111)
@@ -991,7 +991,7 @@ export class MusicPlayer {
     this.voiceWave = [1, 1, 1, 1]
   }
 
-  /** InSetEnvel (+Music.s:3426): set one phase and terminate after it */
+  /** InSetEnvel (+Music.s:3400): set one phase and terminate after it */
   setEnvel(wave: number, phase: number, dur: number, vol: number): void {
     const rec = this.waves.get(wave)
     if (!rec) throw new AmosError('wave not defined', 178)
@@ -1016,7 +1016,7 @@ export class MusicPlayer {
     for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = -n
   }
 
-  // ---- the Tracker (ProTracker MOD replay, Tracker/mt_* +Music.s:1673) ---
+  // ---- the Tracker (ProTracker MOD replay, Tracker/mt_* +Music.s:1647) ---
   // A separate player over raw modules loaded by Track Load; it only
   // steps while no bank music plays. The DMA latch dance (row: DMA off +
   // first-part LC/LEN, beam-wait, DMA on; next vbl: loop-part LC/LEN) is
@@ -1066,7 +1066,7 @@ export class MusicPlayer {
     return (d[off]! << 8) | d[off + 1]!
   }
 
-  /** InTrackPlay2 (+Music.s:4277); the pattern argument is unsupported there too */
+  /** InTrackPlay2 (+Music.s:4251); the pattern argument is unsupported there too */
   trackPlay(bankArg: number | null): void {
     let n = bankArg ?? this.trackBank
     // Bnk.OrAdr: an address inside the bank region names its bank
@@ -1250,7 +1250,7 @@ export class MusicPlayer {
       }
       V.repLen = repLen
       this.sinkVol(v, V.volume)
-      this.host.vuBytes[v] = V.volume & 0xff // MuVu write (+Music.s:1838)
+      this.host.vuBytes[v] = V.volume & 0xff // MuVu write (+Music.s:1812)
     }
     const per = V.note & 0xfff
     if (per !== 0) {
@@ -1333,7 +1333,7 @@ export class MusicPlayer {
     }
   }
 
-  /** mt_com (+Music.s:1974): per-tick effects */
+  /** mt_com (+Music.s:1948): per-tick effects */
   private mtCom(v: number): void {
     const V = this.mtVoices[v]!
     if ((V.cmd & 0xfff) === 0) {
@@ -1414,7 +1414,7 @@ export class MusicPlayer {
     V.vibPos = (V.vibPos + ((V.vibCmd >> 2) & 0x3c)) & 0xff
   }
 
-  /** mt_arp (+Music.s:1950): counter-indexed 0,1,2 cycle over the period table */
+  /** mt_arp (+Music.s:1924): counter-indexed 0,1,2 cycle over the period table */
   private mtArp(v: number): void {
     const V = this.mtVoices[v]!
     const sel = this.mtCounter % 3 // mt_arplist is 0,1,2 repeating

@@ -32,7 +32,7 @@ function evl(expr: string, ch?: DialogChannel): number | string {
   return evalExpr(new Cursor(expr + ';'), { ch: chan, host })
 }
 
-describe('dialog expression evaluator (Dia_Evalue +Lib.s:22748)', () => {
+describe('dialog expression evaluator (Dia_Evalue +Lib.s:22719)', () => {
   it('evaluates postfix arithmetic left to right', () => {
     expect(evl('360')).toBe(360)
     expect(evl('$FF')).toBe(255)
@@ -731,7 +731,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog keywords', () => {
   })
 })
 
-describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgram +Lib.s:20535)', () => {
+describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgram +Lib.s:20506)', () => {
   const table = new TokenTable(CORE_TOKENS)
 
   function boot(src: string): { rt: Runtime; out: () => string } {
@@ -911,7 +911,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
   })
 
   it('KY compares the qualifiers, each group as a boolean (Dia_Tests .KShf)', () => {
-    // Shf/Ctr/Alt/Ami are %11, %1000, %110000, %11000000 (+Equ.s:803) and each
+    // Shf/Ctr/Alt/Ami are %11, %1000, %110000, %11000000 (+Equ.s:775) and each
     // is tested `and.b #Shf,d2 / sne d2` against the same of the keystroke —
     // so either Shift satisfies a Shift record, and no Shift fails it.
     //

@@ -2,7 +2,7 @@ import { parsePacPic, type PacPicture } from './pacpic'
 
 /**
  * Resource bank decoder — the bank behind the Interface language and the
- * Resource keywords (Dia_GetPuzzle, +Lib.s:14943).
+ * Resource keywords (Dia_GetPuzzle, +Lib.s:14914).
  *
  * A resource bank is an ordinary AmBk memory bank whose 8-char name starts
  * "Reso" (checked via `cmp.l #"Reso",-8(a0)`). Payload layout, verified

@@ -32,7 +32,7 @@
  *
  * ## The data zone
  *
- * `$238(a5)` — `ExtAdr` is $f8 with sixteen bytes a slot (+Equ.s:1185), so
+ * `$238(a5)` — `ExtAdr` is $f8 with sixteen bytes a slot (+Equ.s:1157), so
  * ($238-$f8)/16+1 = 21. It is a static block in the library's own hunk at
  * $518, and its first sixteen bytes are the same in both binaries:
  *

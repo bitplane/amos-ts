@@ -29,7 +29,7 @@ const u32 = be32
 const pad = (n: number): number => (n + 1) & ~1
 
 /**
- * IffFormSize (+Lib.s:6916): bytes needed for the next `count` FORMs
+ * IffFormSize (+Lib.s:6887): bytes needed for the next `count` FORMs
  * (FORM ANIM wrappers add nothing, others 8 + padded length; +4 for
  * the AenD terminator). The position does not move.
  */
@@ -52,7 +52,7 @@ export function formSize(data: Uint8Array, pos: number, count: number): { bytes:
 }
 
 /**
- * IffFormLoad (+Lib.s:6861): copy `count` FORMs from `data` at `pos`
+ * IffFormLoad (+Lib.s:6832): copy `count` FORMs from `data` at `pos`
  * into `dest`, unwrapping FORM ANIM, terminating with "AenD". Returns
  * the frames copied and the new read position.
  */
@@ -87,7 +87,7 @@ interface ChunkState {
 }
 
 /**
- * IffFormPlay (+Lib.s:7020): interpret `count` FORMs at `pos` in buf.
+ * IffFormPlay (+Lib.s:6991): interpret `count` FORMs at `pos` in buf.
  * `param` = screen number to create at each BODY (null = EntNul,
  * draw to the current screen); `skip` = Frame Skip's bit 30. Returns
  * the position after the played forms.

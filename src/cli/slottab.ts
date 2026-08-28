@@ -9,7 +9,7 @@
  * NUL-terminated: the zero that looks like a string's terminator is the next
  * entry's first header byte.
  *
- * Messages are numbered from 1 (`Txt1`, +Interpreter_Config.s:135) and the
+ * Messages are numbered from 1 (`Txt1`, +Interpreter_Config.s:107) and the
  * table holds 47 of them (`EdT 47`, :189). Libraries_Load takes the main
  * library's filename from message 14 (+B.s:2147), then walks d2 = 1..26
  * reading message d2+15 for each extension slot (+B.s:2155-2166). So:

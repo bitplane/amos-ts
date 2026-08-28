@@ -477,7 +477,7 @@ function writeReg(rt: Runtime, it: It, limit: number, base: number): void {
 /** EcToD4's answer, which reaches BASIC as a plain integer */
 const ENT_NUL = -0x8000_0000
 
-/** Rdialog/Rdialog$(c,zone[,item]) shared lookup (Dia_GetValue +Lib.s:20843) */
+/** Rdialog/Rdialog$(c,zone[,item]) shared lookup (Dia_GetValue +Lib.s:20814) */
 function rdialogValue(rt: Runtime, a: import('../interp/values').Value[]): { n: number; s: string | null } {
   const d = rt.dialogs.get(int(a[0]!))
   if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
@@ -823,7 +823,7 @@ function getPut(rt: Runtime, it: It): { c: NonNullable<ReturnType<Runtime['fileC
 /**
  * One Dir/Dev listing entry, exactly as FnFillNext returns it
  * (+Lib.s:5583): [marker][name] truncated then space-padded to the Set Dir
- * name width (FillFPoke +Lib.s:6328, FillF32 set), followed by an 8-char
+ * name width (FillFPoke +Lib.s:6299, FillF32 set), followed by an 8-char
  * field with the size left-aligned (LongToDec) — or spaces when the entry
  * is a directory ('*' marker) or its size is negative (devices).
  */
@@ -1131,7 +1131,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /**
-   * Pack / Spack (InPack6 / InSPack6, +Compact.s:142/165).
+   * Pack / Spack (InPack6 / InSPack6, +Compact.s:116/139).
    *
    * PacPar (296) takes `screen, bank, x1, y1 To x2, y2`, forces the X
    * coordinates down to byte boundaries and clamps the far corner to the
@@ -1850,7 +1850,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * FUNCTION routine is `FnNull` (+ILib.s:3725), which loads `EntNul`
      * ($80000000, +Equ.s:39) into d3 and steps the token pointer back two so
      * the collector's own comma-skip still lands right. Keywords that accept
-     * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2621/4395)
+     * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2595/4371)
      * compare every parameter against EntNul and leave the field alone.
      *
      * Get Palette does not test for it, so the sentinel reaches `L_GetEc` as
@@ -1896,7 +1896,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'set font'(it) {
       // InSetFont +Lib.s:9806: negative errors; needs Get Fonts first
       // ("fonts not examined", error 37); Set Font 0 is a silent no-op
-      // (TSFont +W.s:4922); an unknown number is "font not available"
+      // (TSFont +W.s:4893); an unknown number is "font not available"
       const n = it.evalInt()
       if (n < 0) funcCall()
       if (!rt.fontsListed) throw new AmosError('fonts not examined', 37)
@@ -3419,7 +3419,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'read text'(it) {
-      // InReadText1 +Lib.s:14707 (a file) / InReadText3 14744 (title,
+      // InReadText1 +Lib.s:14678 (a file) / InReadText3 14744 (title,
       // address, length) → IRText 14755: both open the resource bank's
       // reader dialog and block until it closes, leaving the clicked
       // hypertext keyword in Param$
@@ -3590,7 +3590,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * length therefore meets Music's answer, not AMCAF's.
      */
     sload(it) {
-      // InSload +Music.s:3239: Sload f To address,length — reads raw
+      // InSload +Music.s:3213: Sload f To address,length — reads raw
       // bytes from an open sequential channel into memory
       const ch = it.evalInt()
       it.expect('to')
@@ -3607,7 +3607,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       c.pos += n
     },
     ssave(it) {
-      // InSsave +Music.s:4426: Ssave f,start To end — end must be past
+      // InSsave +Music.s:4400: Ssave f,start To end — end must be past
       // start; writes the raw bytes to an open output channel
       const ch = it.evalInt()
       it.expect(',')
@@ -3623,7 +3623,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < n; i++) c.out.push(m.data[m.off + i]!)
     },
     'sam loop on'() {
-      // SL0 +Music.s:3073: updates the mask AND re-points live samples.
+      // SL0 +Music.s:3047: updates the mask AND re-points live samples.
       //
       // DEFECT: the masked form is unreachable. +Music.s:408 gives the $FE
       // variant behind `!sam loop on` the spec "I" where `InSamLoopOn1`
@@ -3706,7 +3706,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.delWave(n)
     },
     'set envel'(it) {
-      // InSetEnvel +Music.s:3426: Set Envel wave,phase To duration,volume;
+      // InSetEnvel +Music.s:3400: Set Envel wave,phase To duration,volume;
       // a negative duration in phases 1-6 loops the envelope
       const wave = it.evalInt()
       it.expect(',')
@@ -3744,7 +3744,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.voiceOnOff(it.evalInt() & 15)
     },
     music(it) {
-      // InMusic +Music.s:3815: song from the bank-3 music bank; up to
+      // InMusic +Music.s:3789: song from the bank-3 music bank; up to
       // 3 musics stack, a full stack ignores the call
       rt.music.music(it.evalInt())
     },
@@ -3771,7 +3771,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.setMusicVolume()
     },
     'track load'(it) {
-      // InTrackLoad +Music.s:4120: the whole file into a chip bank named
+      // InTrackLoad +Music.s:4094: the whole file into a chip bank named
       // "Tracker "; reloading the currently playing bank stops it first
       const path = it.evalStr()
       it.expect(',')
@@ -3818,7 +3818,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       return 'jumped'
     },
     prun(it) {
-      // InPRun +ILib.s:1537: run a second program as an accessory; the
+      // InPRun +ILib.s:1508: run a second program as an accessory; the
       // caller's saved ChrGet points past this statement, so it resumes
       // there when the accessory ends
       const path = it.evalStr()
@@ -4015,7 +4015,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       return 'jumped'
     },
     'med load'(it) {
-      // InMedLoad +Music.s:4456: whole file into a chip bank "Med     ";
+      // InMedLoad +Music.s:4430: whole file into a chip bank "Med     ";
       // a bad magic erases the bank and raises error 189
       const path = it.evalStr()
       it.expect(',')
@@ -4574,7 +4574,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.iconBank = t
         return
       }
-      // InBankSwap +Lib.s:2235: swap the number fields; an absent bank
+      // InBankSwap +Lib.s:2206: swap the number fields; an absent bank
       // just renumbers the other one — never an error
       const ba = rt.memBanks.get(a)
       const bb = rt.memBanks.get(b)
@@ -6067,7 +6067,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       return VS(out)
     },
     array(it) {
-      // FnArray +ILib.s:4103: the array's data address. Int/float arrays
+      // FnArray +ILib.s:4074: the array's data address. Int/float arrays
       // get a live arena block (big-endian cells, FFP floats) that Peek/
       // Poke/Deek/Doke reach; the dialog engine resolves the same
       // address for its AR/AS zones. String arrays hold pointers on the
@@ -6904,7 +6904,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(rt.vfs?.currentDir ?? '')
     },
     'disc info$'(_, a) {
-      // FnDiscInfo +Lib.s:4995: "VOLUME:" (from the volume node of the
+      // FnDiscInfo +Lib.s:4966: "VOLUME:" (from the volume node of the
       // locked path) + a 10-char field with the free byte count
       // left-aligned (LongToDec into ten spaces). The count is `=Dfree`'s,
       // computed the same way from the same Info() call.
@@ -7098,7 +7098,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.dialogErrPos)
     },
     'fsel$'(it, a) {
-      // FnFileSelector1..4 +Lib.s:6778 → Dsk.FileSelector: the selector is
+      // FnFileSelector1..4 +Lib.s:6749 → Dsk.FileSelector: the selector is
       // the default resource bank's dialog program 2 driven natively;
       // blocks until OK/Cancel, "" on cancel
       if (rt.fsel) {
@@ -7239,7 +7239,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'resource$'(_, a) {
-      // FnResource +ILib.s:6699 walks six tables a thousand apart: n>0 is
+      // FnResource +ILib.s:6670 walks six tables a thousand apart: n>0 is
       // message n of the puzzle bank, 0 the system path, then -1.. the
       // interpreter-config messages and -1001.. -5001 the editor's own
       // five (Ed_Systeme, the menus, the editor messages, the test-time
@@ -7360,7 +7360,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(packed.length)
     },
     unsquash(_, a) {
-      // =Unsquash(address,length) — UnSquash +CompExt.s:1468. Decompresses in
+      // =Unsquash(address,length) — UnSquash +CompExt.s:969. Decompresses in
       // place; returns the expanded length, -1 on corrupt data (bad checksum)
       // or -2 if it would write past the end of the memory block.
       const address = int(a[0]!)

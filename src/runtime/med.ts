@@ -512,7 +512,7 @@ export class MedPlayer {
     return n
   }
 
-  /** InMedPlay2 (+Music.s:4614): module positioned and started */
+  /** InMedPlay2 (+Music.s:4588): module positioned and started */
   play(n: number, modnum: number): void {
     const bank = this.host.getBank(n)!
     this.stop()
@@ -649,7 +649,7 @@ export class MedPlayer {
     }
   }
 
-  /** InMedCont (+Music.s:4732): only when positioned and stopped */
+  /** InMedCont (+Music.s:4706): only when positioned and stopped */
   cont(): void {
     if (this.data && !this.on) this.on = true
   }

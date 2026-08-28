@@ -1050,7 +1050,7 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   'mid$'(it) {
-    // assignment form: Mid$(A$,p[,n]) = expr (InMid2/InMid3 +ILib.s:6531;
+    // assignment form: Mid$(A$,p[,n]) = expr (InMid2/InMid3 +ILib.s:6502;
     // the 2-arg form's count is $FFFF, clamped by target and source)
     it.expect('(')
     const tg = it.parseTarget()

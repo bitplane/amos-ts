@@ -275,7 +275,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
 
   /**
    * Serial Open logic,physic[,shared,xdisabled,7wires] (InSerialOpen2/5,
-   * +IO_Ports.s:295/303). The two-argument form pushes three zeros and falls
+   * +IO_Ports.s:269/277). The two-argument form pushes three zeros and falls
    * into the five-argument one, so the defaults are shared=0, xdisabled=0,
    * 7wires=0 rather than anything device-specific.
    */
@@ -326,7 +326,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     'serial open': open,
 
     /**
-     * Serial Close [n] (InSerialClose0/1, +IO_Ports.s:325/357). With no
+     * Serial Close [n] (InSerialClose0/1, +IO_Ports.s:331/325). With no
      * argument it closes every channel, which is also what the extension's
      * own QUIT handler calls.
      */
@@ -412,7 +412,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial Parity ser,p — InSerialParity (+IO_Ports.s:483). The mapping is
+     * Serial Parity ser,p — InSerialParity (+IO_Ports.s:457). The mapping is
      * not the obvious one: -1 (or any negative) is no parity, and **0 is
      * EVEN**, not off. 1 odd, 2 space, 3 mark; anything above 3 falls through
      * `.parX` with every flag already cleared, which is no parity again.
@@ -496,7 +496,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     /* ---------------- Printer ---------------- */
 
     /**
-     * Printer Open (InPrinterOpen, +IO_Ports.s:678). Closes AMOS's own
+     * Printer Open (InPrinterOpen, +IO_Ports.s:652). Closes AMOS's own
      * Lprint channel first (`Rbsr L_PRT_Close  Ferme LPRINT`) because both
      * want printer.device.
      */
@@ -557,7 +557,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Printer Dump [x1,y1 To x2,y2[,destCols,destRows,special]]
-     * (InPrinterDump0/4/7, +IO_Ports.s:775/812/861).
+     * (InPrinterDump0/4/7, +IO_Ports.s:775/786/835).
      *
      * A GRAPHICS dump, not a text one: L_Dump builds a colour map from the
      * screen's own palette (GetColorMap(32), then EcPal unpacked a nibble at
@@ -742,7 +742,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * over String_Max is error 23 instead of a truncated read.
      */
     /**
-     * =Serial Input$(n) — FnSerialInput (+IO_Ports.s:424). QUERY, then read
+     * =Serial Input$(n) — FnSerialInput (+IO_Ports.s:398). QUERY, then read
      * exactly IO_ACTUAL bytes. Nothing waiting is the empty string; more than
      * String_Max waiting is error 23 (`cmp.l #String_Max,d4 / Rbcc`), which
      * is a refusal rather than a truncation.

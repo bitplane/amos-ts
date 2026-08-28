@@ -158,7 +158,7 @@ function classify(name: string, ext: string): Status {
 /** rough functional area, for rollups */
 function area(name: string): string {
   // bare Get/Put are the random-access record keywords (Get #n / Put #n,
-  // InGet/InPut +Lib.s:5294) — files, not the object-bank Get/Put family
+  // InGet/InPut +Lib.s:5265) — files, not the object-bank Get/Put family
   if (name === 'get' || name === 'put') return 'files'
   const first = name.split(' ')[0]!
   const map: Record<string, string> = {

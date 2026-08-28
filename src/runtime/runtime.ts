@@ -695,7 +695,7 @@ export class Runtime {
   /**
    * The Vumeter bytes at the head of the extension data zone (MB+0..3):
    * the music player stores each note's volume here on trigger (DoNote
-   * +Music.s:1245/1273); FnVuMeter and AMAL's Vu() read AND clear them.
+   * +Music.s:1219/1247); FnVuMeter and AMAL's Vu() read AND clear them.
    * =Mubase maps them at MUBASE_ADDR.
    */
   vuBytes = new Uint8Array(4)
@@ -2299,7 +2299,7 @@ export class Runtime {
   }
 
   /**
-   * The merged resource view (Dia_GetPuzzle +Lib.s:14943): start from the
+   * The merged resource view (Dia_GetPuzzle +Lib.s:14914): start from the
    * system default bank, then override each section the user bank
    * (Resource Bank n) actually provides.
    */
@@ -2894,7 +2894,7 @@ export class Runtime {
     f.result = result
   }
 
-  // ---- Read Text (InReadText1/3 +Lib.s:14707 -> IRText 14755) ----
+  // ---- Read Text (InReadText1/3 +Lib.s:14678 -> IRText 14755) ----
   /**
    * The ASCII reader is dialog program 1 of the system default resource
    * bank, run on its own EcFsel screen (PI_RtSx x PI_RtSy, +Interpreter_
@@ -3196,7 +3196,7 @@ export class Runtime {
   }
 
   /**
-   * Start or restart =Dialog Run (Dia_RunProgram +Lib.s:20535). Returns the
+   * Start or restart =Dialog Run (Dia_RunProgram +Lib.s:20506). Returns the
    * result when the script finishes without RU, or 'blocked' when the wait
    * loop begins.
    */
@@ -4034,7 +4034,7 @@ export class Runtime {
   }
 
   /**
-   * GetSam (+Music.s:3207): errors follow the 68k order — n<=0 illegal
+   * GetSam (+Music.s:3181): errors follow the 68k order — n<=0 illegal
    * function call; bank missing or not a "Samp" bank = error 180 "Sample
    * bank not found"; n past the count or a zero offset = sample not
    * defined (+Editor_Config.s:1049).
@@ -4052,15 +4052,15 @@ export class Runtime {
   }
 
   /**
-   * GoSam/SPl0 (+Music.s:3169/3282): start PCM on each masked voice at the
+   * GoSam/SPl0 (+Music.s:3143/3256): start PCM on each masked voice at the
    * period-quantized Paula rate, looping the voices flagged by Sam Loop On.
    */
   samPlay(mask: number, pcm: Int8Array, freq: number): void {
     if (pcm.length === 0) return
     const hz = periodToHz(samPeriod(freq))
     // GoSam steals the voices from the music (VOnOf with the complement,
-    // +Music.s:3176); one-shots hand them back when they finish (the Sami
-    // handler sets MuReStart at natural end, +Music.s:1080)
+    // +Music.s:3150); one-shots hand them back when they finish (the Sami
+    // handler sets MuReStart at natural end, +Music.s:1054)
     this.music.samSteal(mask)
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
@@ -4374,7 +4374,7 @@ export class Runtime {
   }
 
   /**
-   * Prun "file" (InPRun +ILib.s:1537): load a second program into its own
+   * Prun "file" (InPRun +ILib.s:1508): load a second program into its own
    * structure and run it as an accessory, coming back here afterwards.
    *
    * Unlike Run this does not replace the caller: Prg_RunIt pushes the
@@ -4523,7 +4523,7 @@ export class Runtime {
   }
 
   /**
-   * Vol (+Music.s:2754): volume outside 0-63 = illegal function call
+   * Vol (+Music.s:2728): volume outside 0-63 = illegal function call
    * (unsigned compare); sets the per-voice default and the live level.
    */
   setVolume(mask: number, vol: number): void {
@@ -4576,7 +4576,7 @@ export class Runtime {
   // Each channel carries independent Anim/MoveX/MoveY program slots
   // beside its AMAL program (the 68k IDs them channel*4+mode, CreAMAL
   // +W.s:7998). The strings compile in TokAMAL's AniStos pass (+W.s:7454)
-  // and run in the AmAnim/AmMvtX/AmMvtY executors (+W.s:8721/8720).
+  // and run in the AmAnim/AmMvtX/AmMvtY executors (+W.s:8692/8720).
   stosSlots = new Map<number, { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove }>()
 
   stosSlot(n: number): { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove } {

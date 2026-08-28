@@ -182,7 +182,7 @@ describe('IOPorts: Printer and Parallel (+IO_Ports.s:656-1090)', () => {
   })
 
   it('PARALLEL alone is synchronous — serial and printer are not', () => {
-    // InParallelSend/Out end `Rjmp L_Dev.DoIO` (+IO_Ports.s:1044, :1060);
+    // InParallelSend/Out end `Rjmp L_Dev.DoIO` (+IO_Ports.s:1018, :1060);
     // InSerialSend and InPrinterSend both end `Rjmp L_Dev.SendIO` (:369,
     // :741). This port had the printer on DoIO, and device.ts's own comment
     // asserted the printer was synchronous "like the parallel port"
@@ -273,7 +273,7 @@ describe('IOPorts: the keywords with no observable result but real state', () =>
   })
 })
 
-describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:775/812/861)', () => {
+describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:775/786/835)', () => {
   const pre = ['Screen Open 0,320,200,32,Lowres', 'Cls 0', 'Ink 5', 'Bar 10,10 To 59,59', 'Printer Open'].join('\n')
 
   it('with no arguments it dumps the whole screen', () => {

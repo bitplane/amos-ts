@@ -55,7 +55,7 @@ function toPlanar(pixels: Uint8Array, width: number, height: number, nPlanes: nu
   return { planar, planeSize, rowBytes, nPlanes }
 }
 
-describe.skipIf(!existsSync(FIXTURES))('the Pac.Pic packer (Pack/Spack, +Compact.s:478)', () => {
+describe.skipIf(!existsSync(FIXTURES))('the Pac.Pic packer (Pack/Spack, +Compact.s:452)', () => {
   const banks = pacPicBanks()
 
   it('finds packed pictures in the corpus to test against', () => {

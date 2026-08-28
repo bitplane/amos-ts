@@ -103,7 +103,7 @@ function frames(rt: Runtime, n: number): void {
 const BASIC = [cmd(8, 100), cmd(9, 0), cmd(3, 63), 0x0143, DELAY(2), 0x0120, DELAY(2)]
 
 describe('music bank player', () => {
-  it('steps patterns and triggers instrument notes (MuStep/DoNote +Music.s:1223)', () => {
+  it('steps patterns and triggers instrument notes (MuStep/DoNote +Music.s:1197)', () => {
     const { rt, audio } = boot('Music 1', musicBank(BASIC))
     frames(rt, 2)
     const plays = audio.events.filter((e) => e.kind === 'play')
@@ -117,7 +117,7 @@ describe('music bank player', () => {
     expect(plays2[1]!.freq).toBe(periodToHz(0x120))
   })
 
-  it('writes the vumeter bytes on note-on; Vumeter reads and clears (DoNote +Music.s:1245)', () => {
+  it('writes the vumeter bytes on note-on; Vumeter reads and clears (DoNote +Music.s:1219)', () => {
     const { rt } = boot('Music 1', musicBank(BASIC))
     frames(rt, 2) // frame 1 runs the statement, frame 2 is the first step
     expect(rt.vuBytes[0]).toBe((63 * 56) >> 6)
@@ -159,7 +159,7 @@ describe('music bank player', () => {
     expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(4)
   })
 
-  it('Music Stop pops at the next step-tick; Music Off is immediate (+Music.s:3688/3701)', () => {
+  it('Music Stop pops at the next step-tick; Music Off is immediate (InMusicStop/InMusicOff +Music.s:3675/3662)', () => {
     const { rt } = boot('Music 1\nMusic Stop', musicBank(BASIC, { loopSong: true }))
     frames(rt, 3)
     expect(rt.music.playing).toBe(false)
@@ -179,7 +179,7 @@ describe('music bank player', () => {
     expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(2)
   })
 
-  it('Voice off silences a music voice, Voice on reclaims it (VOnOf +Music.s:3767)', () => {
+  it('Voice off silences a music voice, Voice on reclaims it (VOnOf +Music.s:3741)', () => {
     const { rt, audio } = boot('Music 1\nWait 2\nVoice %1110\nWait 4\nVoice %1111', musicBank(BASIC, { loopSong: true, loopInst: true }))
     frames(rt, 3)
     expect(rt.music.dmask).toBe(0b1110)
@@ -198,7 +198,7 @@ describe('music bank player', () => {
     for (let i = 1; i < vols.length; i++) expect(vols[i]!).toBeLessThan(vols[i - 1]!)
   })
 
-  it('slide up raises the pitch each effect vbl (MuSlide +Music.s:1466)', () => {
+  it('slide up raises the pitch each effect vbl (MuSlide +Music.s:1440)', () => {
     const stream = [cmd(8, 50), cmd(9, 0), cmd(3, 40), 0x0143, cmd(14, 4), DELAY(30)]
     const { rt, audio } = boot('Music 1', musicBank(stream))
     frames(rt, 12)
@@ -207,7 +207,7 @@ describe('music bank player', () => {
     for (let i = 1; i < freqs.length; i++) expect(freqs[i]!).toBeGreaterThan(freqs[i - 1]!)
   })
 
-  it('portamento slides toward the target note and stops there (MuPTone +Music.s:1519)', () => {
+  it('portamento slides toward the target note and stops there (MuPTone +Music.s:1493)', () => {
     const stream = [cmd(8, 50), cmd(9, 0), cmd(3, 40), 0x0143, DELAY(2), cmd(11, 8), 0x0120, DELAY(40)]
     const { rt, audio } = boot('Music 1', musicBank(stream))
     frames(rt, 30)
@@ -217,7 +217,7 @@ describe('music bank player', () => {
     for (let i = 1; i < freqs.length; i++) expect(freqs[i]!).toBeGreaterThan(freqs[i - 1]!)
   })
 
-  it('Sam Play steals voices and one-shots hand them back (GoSam/Sami +Music.s:3176/1080)', () => {
+  it('Sam Play steals voices and one-shots hand them back (GoSam/Sami +Music.s:3150/1054)', () => {
     const bank = musicBank(BASIC.slice(), { loopSong: true, loopInst: true })
     const { rt } = boot('Music 1', bank)
     frames(rt, 2)
@@ -229,7 +229,7 @@ describe('music bank player', () => {
     expect(rt.music.dmask).toBe(0b1111)
   })
 
-  it('Mvolume rescales live voices (MVol +Music.s:3727)', () => {
+  it('Mvolume rescales live voices (MVol +Music.s:3701)', () => {
     // tempo 50 so effect vbls happen (AUDxVOL is written by DoEffects)
     const stream = [cmd(8, 50), cmd(9, 0), cmd(3, 63), 0x0143, DELAY(60)]
     const { rt, audio } = boot('Music 1\nWait 2\nMvolume 20', musicBank(stream, { loopSong: true }))
@@ -323,13 +323,13 @@ describe('the wavetable synth (Play)', () => {
     expect(rt.music.voiceWave).toEqual([1, 1, 1, 1])
   })
 
-  it('Set Wave needs 256 characters; waves 0/1 protected (+Music.s:3391/3405)', () => {
+  it('Set Wave needs 256 characters; waves 0/1 protected (+Music.s:3365/3379)', () => {
     expect(() => boot('Set Wave 2,"short"', sampBank).rt.runHeadless(2)).toThrow(/256 characters/i)
     expect(() => boot(`Del Wave 1`, sampBank).rt.runHeadless(2)).toThrow(/reserved/i)
     expect(() => boot(`Wave 9 To 15`, sampBank).rt.runHeadless(2)).toThrow(/wave not defined/i)
   })
 
-  it('Play Off stops the envelopes and the music reclaims (EnvOff +Music.s:3611)', () => {
+  it('Play Off stops the envelopes and the music reclaims (EnvOff +Music.s:3585)', () => {
     const { rt, audio } = boot('Play 40,0\nPlay Off', sampBank)
     frames(rt, 3)
     expect(audio.events.filter((e) => e.kind === 'stop').length).toBeGreaterThanOrEqual(4)
@@ -427,7 +427,7 @@ describe('the MOD tracker', () => {
     expect(() => boot('Track Play', trackerBank()).rt.runHeadless(2)).not.toThrow()
   })
 
-  it('Track Load pulls a file into the bank and Track Play uses it (InTrackLoad +Music.s:4120)', () => {
+  it('Track Load pulls a file into the bank and Track Play uses it (InTrackLoad +Music.s:4094)', () => {
     const audio = new NullAudio()
     const mod = modFile()
     const rt = new Runtime(tokenize('Track Load "song.mod",6\nTrack Play', table, extensions), table, {
@@ -443,7 +443,7 @@ describe('the MOD tracker', () => {
     expect(audio.events.some((e) => e.kind === 'play')).toBe(true)
   })
 
-  it('the tracker only steps while no bank music plays (Music: beq Tracker +Music.s:1138)', () => {
+  it('the tracker only steps while no bank music plays (Music: beq Tracker +Music.s:1112)', () => {
     const audio = new NullAudio()
     const rt = new Runtime(tokenize('Music 1\nTrack Play\nWait 10\nMusic Off', table, extensions), table, {
       extensions,
@@ -521,7 +521,7 @@ describe('Sam Swap / Sload / Ssave', () => {
     expect(out.trim()).toBe('1') // idle voice: interrupts off
   })
 
-  it('Sload reads channel bytes into memory, Ssave writes them out (+Music.s:3239/4426)', () => {
+  it('Sload reads channel bytes into memory, Ssave writes them out (+Music.s:3213/4400)', () => {
     const fs = new AmigaFS()
     const vol = fs.mountMemory('DH0')
     vol.write(['in.raw'], Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]))
@@ -563,7 +563,7 @@ describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Exampl
     return { rt, audio }
   }
 
-  it('Med Load banks the module; bad magic erases the bank (InMedLoad +Music.s:4456)', () => {
+  it('Med Load banks the module; bad magic erases the bank (InMedLoad +Music.s:4430)', () => {
     const { rt } = medBoot('Med Load "mod.med",7')
     frames(rt, 3)
     expect(rt.memBanks.get(7)?.name).toBe('Med')
@@ -593,7 +593,7 @@ describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Exampl
     }
   })
 
-  it('Med Stop silences, Med Cont resumes (InMedStop/Cont +Music.s:4588/4732)', () => {
+  it('Med Stop silences, Med Cont resumes (InMedStop/Cont +Music.s:4562/4706)', () => {
     const { rt, audio } = medBoot('Med Load "mod.med",7\nMed Play\nWait 100\nMed Stop')
     frames(rt, 200)
     expect(rt.music.med.on).toBe(false)

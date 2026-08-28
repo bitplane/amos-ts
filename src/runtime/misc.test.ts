@@ -528,7 +528,7 @@ describe('Load Iff with a palette-only picture', () => {
   })
 })
 
-describe('Resource$ reaches all six message tables (FnResource +ILib.s:6699)', () => {
+describe('Resource$ reaches all six message tables (FnResource +ILib.s:6670)', () => {
   it('0 is the system path and -1.. the interpreter-config messages', () => {
     expect(runOut('Print Resource$(0)')).toBe('AMOSPro:\n')
     expect(runOut('Print Resource$(-8)')).toBe('AMOSPro_Default_Resource.Abk\n')

@@ -89,7 +89,7 @@ describe('Save Iff / Save / Pload / Picture / Mask Iff (round-trip on disk)', ()
     expect(run('Mask Iff 3 : Print "ok"').trim()).toBe('ok')
   })
 
-  it('Pload loads the code hunk of an executable into a bank (InPLoad +Lib.s:4254)', () => {
+  it('Pload loads the code hunk of an executable into a bank (InPLoad +Lib.s:4225)', () => {
     // a minimal hunk exe: HUNK_HEADER, HUNK_CODE with 8 bytes "PAYLOAD!"
     const bytes = new Uint8Array([
       0, 0, 3, 0xf3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, // header

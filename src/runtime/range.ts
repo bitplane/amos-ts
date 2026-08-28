@@ -59,7 +59,7 @@
  * `WiCall` macros (`+Equ.s:394, 660, 768`) are `jsr \1*4(a0)`: the offset an
  * extension writes literally IS the index times four. The index names are the
  * equate lists immediately above each macro, and the tables themselves are
- * commented entry by entry — `SyIn` at `+W.s:9952`, `EcIn` at `+W.s:2524`.
+ * commented entry by entry — `SyIn` at `+W.s:9923`, `EcIn` at `+W.s:2495`.
  *
  * The ones this port needed, all confirmed against what the keyword does:
  *

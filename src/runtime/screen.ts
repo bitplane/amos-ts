@@ -937,7 +937,7 @@ export class Screen {
   }
 
   /**
-   * Hslider/Vslider (SliHor/SliVer, +W.s:5051/5057): track-before and
+   * Hslider/Vslider (SliHor/SliVer, +W.s:5022/5057): track-before and
    * track-after rects in the frame colours, the knob in the inner colours,
    * all pattern-filled and outlined in ink C (SliPut). Dialog sliders pass
    * their own per-channel colour set.
@@ -1038,7 +1038,7 @@ export class Screen {
   }
 
   /**
-   * Paint x,y[,mode] — flood fill (TPaint, +W.s:4333).
+   * Paint x,y[,mode] — flood fill (TPaint, +W.s:4304).
    *
    * The fill runs over a mask, never over the screen. TPaint blits one into a
    * tempras first (PMask, +W.s:4628, under the comment "Met a UN toutes les
@@ -1830,7 +1830,7 @@ export class Screen {
   }
 
   /**
-   * TAbk1 before a drawing keyword and TAbk4 after it (+W.s:3577, +W.s:3613):
+   * TAbk1 before a drawing keyword and TAbk4 after it (+W.s:3548, +W.s:3613):
    * erase every bob, draw, then recompute and redraw them.
    *
    * Nearly everything that marks the screen goes through this. `GfxF0`
@@ -1958,7 +1958,7 @@ export class Screen {
     })
   }
 
-  /** the Pen/Paper escapes error above the screen colour count (+W.s:14893) */
+  /** the Pen/Paper escapes error above the screen colour count (+W.s:14864) */
   /**
    * Inverse On/Off, which is Inv (+W.s:14830) reached through ESC "I":
    *
@@ -2026,7 +2026,7 @@ export class Screen {
   private encY = 0
 
   /**
-   * Enc (+W.s:15182): draw the TEncadre style box from the stored start
+   * Enc (+W.s:15153): draw the TEncadre style box from the stored start
    * to the current cursor; nothing is drawn when no column was printed.
    * The cursor is left where it was.
    */

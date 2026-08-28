@@ -10,7 +10,7 @@
  *
  * ## Where the payload lands on load, which looks wrong and is not
  *
- * `ppLoad`'s memory-bank branch (+CompExt.s:490-527) reserves `banklen+16`,
+ * `ppLoad`'s memory-bank branch (+CompExt.s:464-501) reserves `banklen+16`,
  * writes a size at block+0, sets TempBuffer to block+4, and hands
  * `L_LoadUncrunch` a d2 of block+8. It then builds the bank node AT block+0,
  * which puts the name field

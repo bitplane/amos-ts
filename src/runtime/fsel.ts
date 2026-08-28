@@ -372,7 +372,7 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
 }
 
 /**
- * Fs_Ok (+Lib.s:18074): the chosen path becomes the program's current
+ * Fs_Ok (+Lib.s:18045): the chosen path becomes the program's current
  * directory — PathAct on the Amiga — before the name is appended, so a later
  * bare-filename Load resolves against it. An empty name box is a Cancel.
  */
@@ -410,7 +410,7 @@ function fselReturn(rt: Runtime, f: FselState, d: DialogChannel): void {
 }
 
 /**
- * Fs_Name (+Lib.s:18252): a row of the list was clicked. What it means
+ * Fs_Name (+Lib.s:18223): a row of the list was clicked. What it means
  * depends on Fs_DevFlag, and for a plain listing on the marker character the
  * row carries. A file click puts the name in the box; clicking the same row
  * again is the double-click — Fs_Click holds the last index and there is no

@@ -525,7 +525,7 @@ export class AmalChannel {
   /**
    * The loop counter of a For/Next, from whichever register file it names.
    *
-   * AmFor and AmNxt both branch on the sign of the compiled offset (+W.s:8869
+   * AmFor and AmNxt both branch on the sign of the compiled offset (+W.s:8840
    * and 8882), so one loop can count in an internal register and the next in
    * a global, and the two files never mix.
    */

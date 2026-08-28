@@ -256,7 +256,7 @@ function slots(it: Parameters<Instr>[0], n: number): number[] {
 export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /**
-     * Say a$[,async] (InSay1/InSay2 +Music.s:2509/2540).
+     * Say a$[,async] (InSay2/InSay1 +Music.s:2509/2514).
      *
      * A leading `~` means the string is already phonemes: the routine skips
      * it, copies the rest verbatim and appends "Q#U" and two NULs. Anything
@@ -347,7 +347,7 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Talk sex,mode,pitch,rate (InSetTalk +Music.s:2621). Every parameter
+     * Set Talk sex,mode,pitch,rate (InSetTalk +Music.s:2595). Every parameter
      * may be omitted, and an omitted one is EntNul and leaves the field alone.
      * Out of range is a function-call error, not a clamp.
      */
@@ -409,7 +409,7 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mouth Read (InMouthRead +Music.s:4370). Steps the lip-sync stream on by
+     * Mouth Read (InMouthRead +Music.s:4344). Steps the lip-sync stream on by
      * one frame. It needs a translator base, a write request, and that
      * request's mouths byte set — so it does nothing useful unless an
      * asynchronous Say is in flight.
@@ -437,7 +437,7 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
 
 export function makeSpeechFunctions(rt: Runtime): Record<string, Func> {
   return {
-    /** =Mouth Width / =Mouth Height (+Music.s:2658/2666), bytes 88 and 89. */
+    /** =Mouth Width / =Mouth Height (+Music.s:2632/2640), bytes 88 and 89. */
     'mouth width'(): Value {
       return VI(rt.speech.width)
     },
