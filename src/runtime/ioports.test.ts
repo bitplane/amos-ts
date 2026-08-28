@@ -11,7 +11,7 @@ import { AMOS_ERRORS } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 const table = new TokenTable(CORE_TOKENS)
-// IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:20)
+// IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:22)
 const exts = new Map([[6, extensionById('amospro-ioports-2.0')!.table]])
 
 function run(src: string): { rt: Runtime; out: string } {
@@ -25,7 +25,7 @@ function run(src: string): { rt: Runtime; out: string } {
   return { rt, out }
 }
 
-describe('IOPorts: the shared device layer (Dev.*, +Lib.s:3068-3260)', () => {
+describe('IOPorts: the shared device layer (Dev.*, +Lib.s:3020-3269)', () => {
   it('touching a closed device is error 141, not a quiet "not ready"', () => {
     // Dev.GetIO (+Lib.s:3149) is reached by every keyword including the
     // Check and Status functions, so a closed port raises rather than
@@ -58,7 +58,7 @@ describe('IOPorts: the shared device layer (Dev.*, +Lib.s:3068-3260)', () => {
   })
 })
 
-describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
+describe('IOPorts: Serial (+IO_Ports.s:269-629)', () => {
   it('the channel number is an unsigned compare against NSerial', () => {
     // GetSerial (+IO_Ports.s:610) is `cmp.l #NSerial,d0 / Rbcc L_IOFonc`,
     // so a negative channel fails the same test a too-large one does
@@ -189,7 +189,7 @@ describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
   })
 })
 
-describe('IOPorts: Printer and Parallel (+IO_Ports.s:656-1090)', () => {
+describe('IOPorts: Printer and Parallel (+IO_Ports.s:630-1064)', () => {
   it('Parallel Status reports nothing attached, and polling it is legal', () => {
     // this is what the two corpus programs do thousands of times: open the
     // port, then poll. On a real Amiga parallel.device opens whether or not
@@ -369,6 +369,29 @@ describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:775/786/835)', 
     expect(() => run('Screen Open 0,320,200,32,Lowres\nPrinter Dump')).toThrow(/Device not opened/)
   })
 
+  it('the SCREEN is looked at before the printer', () => {
+    // InPrinterDump0 is `Rbsr L_GetScr` (+IO_Ports.s:778) and only reaches
+    // Dump's Dev.GetIO afterwards, so with neither one open it is 47
+    expect(() => run('Screen Close 0\nPrinter Dump')).toThrow(/screen not opened/i)
+    expect(() => run('Screen Close 0\nPrinter Dump 0,0 To 100,100')).toThrow(/screen not opened/i)
+  })
+
+  it('the coordinates are WORDS, and the extent is word arithmetic', () => {
+    // Dump2a steps `lea 2(a3),a3` past the high half of every long before
+    // `move.w (a3)+,(a0)`, so 70000 arrives as 4464
+    const { rt } = run(`${pre}\nPrinter Dump 0,0 To 70000,100,1,1,0`)
+    expect(rt.ioports.pages[0]!.width).toBe(70_000 - 65_536)
+  })
+
+  it('only the four-argument form checks the extent', () => {
+    // the seven-argument form runs straight into Dump, which has no test
+    expect(() => run(`${pre}\nPrinter Dump 60,60 To 10,10`)).toThrow(/function call/)
+    const { rt } = run(`${pre}\nPrinter Dump 60,60 To 10,10,1,1,0`)
+    const p = rt.ioports.pages[0]!
+    expect([p.width, p.height]).toEqual([-50, -50])
+    expect(p.pixels.length).toBe(0)
+  })
+
   it('the page reaches a host that has a printer', () => {
     const seen: number[] = []
     const rt = new Runtime(tokenize(`${pre}\nPrinter Dump`, table, exts), table, {
@@ -518,7 +541,7 @@ describe('Err$ resolves device errors at their own number', () => {
   })
 
   it('and the device block, at the numbers the library passes around', () => {
-    // Dev.GetIO's two, +Lib.s:3068-3260
+    // Dev.GetIO's two, +Lib.s:3020-3269
     expect(AMOS_ERRORS[140]).toBe('Device already opened')
     expect(AMOS_ERRORS[141]).toBe('Device not opened')
     // the two the source names outright

@@ -597,7 +597,22 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * Dump2a pops bottom-y, bottom-x, srcY, srcX — reverse stack order, so
      * the written order is srcX,srcY To bottomX,bottomY — and then width and
      * height become the extent (`neg.w d0 / add.w d0,(a0)`), not a second
-     * corner.
+     * corner. Every one of those is a WORD: Dump2a steps `lea 2(a3),a3` past
+     * the high half of each long before `move.w (a3)+,(a0)`, and the extent
+     * arithmetic is `add.w` into a word field. `Printer Dump 0,0 To 70000,100`
+     * is a width of 4464.
+     *
+     * ONLY THE FOUR-ARGUMENT FORM CHECKS THE EXTENT, and it does so twice by
+     * accident rather than once on purpose: `tst.w d0 / Rbeq L_IOFonc` catches
+     * a zero, and then `divu.w d0,d1 / tst.w d1 / Rbeq L_IOFonc` catches both
+     * a region wider than the screen and a NEGATIVE one, because divu is
+     * unsigned and -5 divides as 65531. The seven-argument form runs the same
+     * numbers into `Dump` with no test at all, and `Dump` has none either.
+     *
+     * The SCREEN is looked at before the printer. InPrinterDump0 opens
+     * `Rbsr L_GetScr` (:778) and only reaches `Dump`'s `Dev.GetIO` afterwards,
+     * so with neither a screen open nor the printer the answer is 47 and not
+     * 141. This handler used to ask for the printer first.
      *
      * DEVIATION: rasterising is all this does. Where the page then goes is
      * the host's (host.printerPage), because on the real machine that is the
@@ -605,11 +620,16 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * FRACCOLS fraction into inches. With no host sink the page is still
      * rendered and recorded, so a headless run is exercised rather than
      * skipped.
+     *
+     * DEVIATION: an extent the seven-argument form lets through as zero or
+     * negative is recorded as an empty page rather than rasterised. The
+     * machine puts the word in the request and hands printer.device the
+     * problem; there is no rendering here that could reproduce whatever the
+     * driver then does.
      */
     'printer dump'(it) {
-      const p = st().printer
-      devGetIO(p)
-
+      // Dump2a reads each coordinate as a WORD and subtracts with `add.w`
+      const w16 = (v: number): number => (v << 16) >> 16
       const sc = rt.screen // GetScr: ScOnAd, else error 47
       let srcX = 0
       let srcY = 0
@@ -620,16 +640,16 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       let special = 0x8c // ASPECT | FULLROWS | FULLCOLS
 
       if (!it.atStmtEnd()) {
-        srcX = it.evalInt()
+        srcX = w16(it.evalInt())
         it.expect(',')
-        srcY = it.evalInt()
+        srcY = w16(it.evalInt())
         it.expect('to')
-        const bottomX = it.evalInt()
+        const bottomX = w16(it.evalInt())
         it.expect(',')
-        const bottomY = it.evalInt()
+        const bottomY = w16(it.evalInt())
         // Dump2a: the corners become an extent
-        width = bottomX - srcX
-        height = bottomY - srcY
+        width = w16(bottomX - srcX)
+        height = w16(bottomY - srcY)
         if (it.accept(',')) {
           destCols = it.evalInt()
           it.expect(',')
@@ -639,12 +659,12 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
         } else {
           // Dump4's proportional sizing. `divu.w` twice: the screen extent
           // over the region extent, then $ffff over that, left in the top
-          // word as a 16.16 fraction. Both divisions guard their result
-          // against zero with Rbeq L_IOFonc, so a region wider than the
-          // screen is error 23 rather than a fraction over 1.
-          if (width <= 0 || height <= 0) funcCall()
-          const cx = Math.floor(sc.width / width)
-          const cy = Math.floor(sc.height / height)
+          // word as a 16.16 fraction. The divisor is the extent as an
+          // UNSIGNED word, which is how a negative one lands here as a
+          // quotient of zero and reaches the second Rbeq.
+          if ((width & 0xffff) === 0 || (height & 0xffff) === 0) funcCall()
+          const cx = Math.floor(sc.width / (width & 0xffff))
+          const cy = Math.floor(sc.height / (height & 0xffff))
           if (cx === 0 || cy === 0) funcCall()
           destCols = (Math.floor(0xffff / cx) & 0xffff) * 0x10000
           destRows = (Math.floor(0xffff / cy) & 0xffff) * 0x10000
@@ -652,9 +672,11 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
 
-      if (width <= 0 || height <= 0) funcCall()
+      const p = st().printer
+      devGetIO(p)
+      const empty = width <= 0 || height <= 0
       const page: PrinterPage = {
-        pixels: dumpRegion(sc, srcX, srcY, width, height),
+        pixels: empty ? new Uint8ClampedArray(0) : dumpRegion(sc, srcX, srcY, width, height),
         width,
         height,
         srcX,
