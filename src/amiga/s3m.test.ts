@@ -169,7 +169,10 @@ describeWith('the module in fixtures', data, (mod) => {
   })
 })
 
-describe.skipIf(!corpusBank())('against the corpus copy', () => {
+// both sides are optional and they are optional SEPARATELY: fixtures/ is
+// gitignored where the corpus is a sibling checkout, so a worktree with the
+// corpus symlinked in and no fixtures/ ran this and died on `fixture()!`
+describe.skipIf(!corpusBank() || !fixture())('against the corpus copy', () => {
   it('is the same bytes the fixture holds', () => {
     expect([...corpusBank()!]).toEqual([...fixture()!])
   })

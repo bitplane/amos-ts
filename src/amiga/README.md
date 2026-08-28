@@ -139,6 +139,11 @@ really does differ from the real one and saying where is the whole job.
 | `s3m.ts` | the ScreamTracker 3 module format: little-endian, and paragraph pointers |
 | `s3mmix.ts` | its 28 kHz mixer: unsigned bytes throughout, and a byte-swapped 16.16 position |
 | `s3mplay.ts` | its replay: two dispatch tables, and a vibrato that reads the command byte |
+| `xm.ts` | the FastTracker 2 module format: packed rows, delta samples, and 16-bit downconverted where it lies |
+| `xmmix.ts` | its 28,149 Hz mixer: a period table read from eight words below its label, and a linear table that is generated |
+| `xmplay.ts` | its replay: three effects whose results are overwritten before Paula sees them |
+| `omix.ts` | OctaMix's generated note tables and its two tempo modes, off DME_OctaMix.library |
+| `omixmix.ts` | its 1-to-64 channel mixer: a table for 8-bit samples, a shift for 16-bit, echo and a stereo spread |
 | `tfmx.ts` | the TFMX container and mdat: two files in one bank, and a subsong walk that miscounts |
 | `tfmxplay.ts` | its replay: three dispatch tables, a CIA-B clock, and a tempo that means two things |
 | `mmd2.ts` | OctaMED Pro's 5-8 channel format, where a block sets its own track count |
@@ -147,6 +152,10 @@ really does differ from the real one and saying where is the whole job.
 | `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `thxplay.ts` | the THX replay: the song, the envelopes, the playlists, the voices |
 | `thxwaves.ts` | the 6,520-byte THX waveform set and its 63 filtered copies |
+| `psid.ts` | the PSID file: a 124-byte header in front of 6502 code |
+| `mos6502.ts` | the processor a PSID file IS, undocumented opcodes and all |
+| `sidchip.ts` | the 6581's 29 registers, three oscillators and their envelopes |
+| `playsid.ts` | `playsid.library` 1.1: its fifteen LVOs, the C64's memory map, and three voices onto Paula |
 | `device.ts` | what a slot is, what a device is, and the tree a hardware page draws |
 | `cia.ts` | both CIAs' peripheral ports: the LED, the fire buttons, the parallel and serial lines, the floppy control lines |
 | `keyboard.ts` | the byte the keyboard clocks into CIA-A's SDR, and its decode |
@@ -171,6 +180,13 @@ really does differ from the real one and saying where is the whole job.
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
 | `cpu.ts` | the processor as an identity and a clock rate; nothing here executes 68k |
+
+`mos6502.ts` is the exception `cpu.ts`'s line invites, and it is not one.
+Nothing here executes 68k, and that stays true: a PSID file's 6502 is data
+AMOS loaded into a bank and this interprets it, which is what
+`../runtime/amal.ts` already does for AMAL's instruction set. The host CPU
+is still never run.
+
 | `audio.ts` | Paula's audio half, and which board's fixed output filter is after it |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
 | `patternlib.ts` | `pattern.library` 5.00, a THIRD pattern grammar and not `dospattern`'s |

@@ -85,181 +85,23 @@ over AMOS's own `Fsel$` and could move onto it. GUI 2.10's two cannot: those
 are the FONT and SCREEN-MODE requesters, and the screen-mode one still has no
 display database to fill itself from.
 
-| extension | missing | evidence held |
-|---|---|---|
-| DME 2.0 (`dme-2.0`) | 33 | UNDER WAY, at 82%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Eleven of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Eleven of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`. Three blocks of keywords left: OctaMix (15), FastTracker (9) and PlaySID (9), and all three are below rather than here --- each is blocked on something other than the work |
+**DME 2.0 is done, and it was the largest row in this file.** Thomas Reetz's
+DOOM Music Extension is fifteen music formats in one library: twelve are
+separate Amiga libraries it opens by name and four are inside the 46,208-byte
+hunk. All fifteen play. The four internal ones, and then SoundFX 1.3,
+FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3,
+MED, OctaMED, FastTracker 2, PlaySID and OctaMix, each read out of its own
+library.
 
-All three of DME's remaining blocks are blocked on something other than the
-work, which is why none of them is simply next:
-
-| block | missing | what it is waiting on |
-|---|---|---|
-| OctaMix (`omix *`) | 15 | a module. `DME_OctaMix.library` refuses anything without `FLAG2_MIX` at $2130f4, and nothing in the 45,743-file corpus has the bit --- all 187 OctaMED Professional 6 modules are MMD2 without it. The library is mapped in `src/amiga/mmd2mix.ts`'s header rather than ported, because a port would have nothing to check against but its own reading |
-| FastTracker (`xm *`) | 9 | an `.xm` module. `DME_FastTracker.library` is held and readable at 26,324 bytes |
-| PlaySID (`sid *`) | 9 | a 6502 and a SID. `playsid.library` turned up on Aminet in `mus/play/PlaySID3.lha` and is in `fixtures/aminet/`, so the evidence is no longer the problem; the emulation is |
-
-**The sweep's answer is that nothing else is waiting.** No registered release
-shares every id it has in common with a ported one and goes unnamed, so there
-is no second Delta in the registry. Nor is there one in the corpus: `libcat`
-over all 502 `.Lib` files finds 28 variants of registered libraries, and every
-variant carrying keywords the registered release lacks is an AMOSTools stub —
-a token table with the code stripped out. The one readable exception is not a
-version at all, and it is the hybrid described at the end of this section.
-
-Getting the criterion right took the test rather than the thinking. The first
-version required a candidate to be a strict SUPERSET of the bound release,
-which rejects `serial-1.2` — 15 shared keywords at 15 identical ids, 23
-dropped, nothing added — and `serial-1.2` is one of the three cases the check
-exists to catch. What actually matters is one thing: no name the two releases
-share may sit at a different id. Adding keywords is the interesting case and
-dropping them is harmless, since a handler no table entry reaches never fires.
-
-The five candidates the sweep rejects as `renumbered` are not releases either.
-They are different extensions sharing one to three keyword names with
-something ported — Explode's reaching CText, IntuiExtend's reaching EasyLife —
-with no id in common, which is what a coincidence looks like. IntuiExtend 1.6
-and 2.01b remain the counter-case the criterion has to keep refusing: 45 shared
-names of 294, almost none at the same id, because 2.01b rebuilt its table.
-
-**What the stubs would add, if a real binary ever turns up.** Four of the
-AMOSTools tables are later releases of something ported: `AMOSPro_TFT.Lib-V0.7`
-brings seven keywords TFT 0.6 lacks (`Init Cpu Clear Long`/`Word`, `Clear
-Cache`, `Make Tangens List`, `Get Tangens`, `Init Tick Timer`, `Get Tick
-Timer`), `AMOSPro_3d.Lib-V1.02AP` brings `Td Rotate`, `3d.lib-V1.50` brings
-`Td Tony 5`, and the two Music 3.0 demo tables bring ten to twelve of the
-tracker keywords EME 3.0 already answers. None can be read — the code is gone
-and both length fields are zero — so they stay with the other stubs.
-
-**The one readable oddity is a hybrid.** `APD426/AMOS_System/Music.Lib` is a
-legacy binary of 42 entries: 39 of AMOSPro Music's, plus `Starset`, `Starstop`
-and `Starplay` at ids 528, 544 and 558. They are not Stars 2.33's, which names
-everything `Stars Blast`, `Stars Reset` and so on; somebody merged a starfield
-routine into their copy of Music.Lib. It is a registration question rather than
-a binding one, and it is queued.
-
-### muimaster.library — surveyed, and parked behind Intuition
-
-MUI is a GUI toolkit by Stefan Stuntz, reached from AMOS through EasyLife's
-twenty `Mui` keywords. It is a product in its own right and it is scoped like
-one, so it is recorded here rather than counted against EasyLife.
-
-**What exists.** `src/amiga/muimaster.ts` is the class factory: all 65 classes
-with the right parents, the 714 constants and the `isg` flags, plus OM_NEW /
-SET / GET / DISPOSE / ADDMEMBER / REMMEMBER, notifications with the four
-`MUIV_Notify_*` pseudo-destinations, AskMinMax sizing and the Application
-input loop. A program can build a tree, set and read attributes, register
-notifications and drive its main loop. What it cannot do is *see* anything.
-
-**What was learned from the binary.** `src/cli/muidis.ts` opens
-`muimaster.library` 19.35 — an ordinary hunk binary, so `../amiga/hunk`
-relocates it. Its class registry is twenty-byte entries at `$237088`
-(`0`, name, superclass name, dispatcher, instance size), and each dispatcher
-is a `dbeq` search of a method-ID table with a parallel handler table
-immediately before it. Four things came out of it that the header could not
-have given:
-
-- **Only 35 of the 65 classes are built in.** The other 30 ship as separate
-  binaries in `MUI/Libs/mui/*.mui` and are loaded on demand, so they need a
-  second resolution path `muidis` does not have yet. `Scrmodelist` has an
-  autodoc and no binary anywhere in MUI 3.8, so it is the one class here with
-  nothing to read behind the documentation.
-- **The class tree corroborates `mui.h` exactly**, 0 parent mismatches. The
-  binary carries one class the header never mentions: `Cclist.mui`.
-- **The autodocs undercount the protocol badly.** The 35 built-in classes hold
-  507 method-table entries over 123 distinct ids, and **113 of those entries
-  have no name in `mui.h` at all**. A port written to the documented list
-  would silently omit every one of them, and there was no way to know which
-  before this.
-- **`Group` and `Family` broadcast.** Both call a routine ($215b90 and
-  $21876e) BEFORE handing an unrecognised method to the superclass, which is
-  what makes a method sent to a group reach everything in it. Nothing else in
-  the 35 does that.
-
-**Why it is parked.** MUI sits on `intuition.library`, and Intuition is the
-prerequisite for roughly 550 keywords across five other extension rows as
-well. Doing MUI first would mean building its render and input path twice.
-The order is Intuition, then MUI on top of it.
-
-**The deviation to fix when it resumes.** Nothing raises message 23, so the
-port claims MUI is installed and then displays nothing. No Amiga was in that
-state: either MUI was installed and a GUI appeared, or it was absent and the
-program got 23 and took its fallback. The current third state turns a missing
-toolkit into a silent hang instead of a diagnosis, and that is the worst
-outcome for the programs this port exists to run.
-
-**The shape of the work, in order**, once Intuition is there: the
-`Setup → Show → AskMinMax → Layout → Draw` spine on Area, Window and
-Application (39, 39 and 47 methods); then Group, the largest class in the
-library at 67 methods, which owns both the layout engine and the broadcast;
-then the widgets by reachability (Text, String, Gadget, Prop, List, Listview,
-Numeric, Slider, Cycle, Radio, Scrollbar, Register, the Menu family, the Pop
-family); then the 30 external classes; then `asl.library`, which `Popasl`
-needs and which is the only support library still missing — intuition,
-graphics, diskfont and boopsi already have what MUI asks of them.
-
-**Three things that cannot be closed** and belong with the deviations rather
-than the backlog: `Mui Hook` callbacks (ADDRESS is 68k machine code and there
-is no 68k here — the `Amos Call` boundary), `Wait()` (one thread that must
-return to the frame loop, so the signal mask NewInput assembles from every
-port's `mp_SigBit` has no counterpart), and MUI's preferences (real sizes come
-from the user's chosen frames, fonts and image specs; sizes here are derived
-from the system font, so nothing will be pixel-exact against a configured
-MUI).
-
-Coverage in the wild is a signal, not a target. Most AMOS programs were never
-published online, so a census over what *was* published measures the archive
-as much as the port.
-
-The evidence behind the ones that *are* done varies, and it is recorded per
-extension rather than assumed: Personnal, Misc, AMOSPro Colours and Personnal
-EXTRA ship full assembler source, and P61 ships the whole of Player 6.1A's.
-TURBO Plus and LDos 2.5 have their own manuals, with individual keywords
-settled by disassembling the shipped library where the prose was thin or
-wrong. AMCAF, MED, PowerBobs, TOME and EME were read out of their binaries.
-AMOS 3D had neither source nor a full manual — its engine was recovered from
-`c3d.lib` outright (`docs/amos3d/README.md`). Disassembly ranks alongside
-source in `docs/extensions/README.md`, because a shipped binary is more
-authoritative than a manual, not less.
-
-**The percentages used to over-report, and no longer do.** Coverage is counted
-by keyword NAME, and several extensions share names, so porting Personnal once
-moved `p61-1.2` to 22% and `amcaf-1.50` to 2% without a line of either being
-written. #226 fixed the measure: an extension is credited only for names a port
-declares against its registry identity, with `viaCore` for the keywords a
-library's own author copied from another and said so. The mechanism for
-dispatch is the same idea — a layer needing its own version of a name another
-layer owns registers under a slot-qualified key (`ext13:sprite col`), which the
-interpreter tries first.
-
-**Dispatch had a version of it too, and this used to say it did not.** Two
-PORTED products settle a shared name between them, one keeping the bare key as
-the default and the other qualifying. A product that is registered but NOT
-ported has no `ExtensionImpl` to take either half of that deal, so its programs
-got whichever ported product held the bare key — twenty names, including
-seventeen of Explode 2.01's and DME 2.0's `Nop`, which is a FUNCTION there and
-an instruction in AMCAF. `undeclaredLive` could not see any of it, because it
-requires both sides ported. `answeredForUnported` is the other half and the
-ported side now qualifies all twenty, so the bare keys are gone.
-
-Seven more were never wrong at all and only looked it: the report asked
-`impl.qualified` whether a name had been declared, and EasyLife reaches `long`,
-`word`, `pp crunch` and four others through `aliases`, which produce exactly
-the same `ext16:` key. It asks the dispatch table now. That also cleared
-`set protect` off the knowingly-undeclared list, where it had been sitting on a
-note that said aliases "cannot be qualified".
-
-The opposite failure is the live one, and it has bitten twice: an extension
-that IS implemented reporting 0% because no `ExtensionImpl` named its identity.
-EME 3.0 read 17% and `serial-1.2` read 0% while every one of their keywords
-ran. If a row looks impossibly low, check the `ids` before believing it.
-
-### System / environment
-
-Mostly done: `Run`, `Prg/Dev First$/Next$`, `System`, `Close
-Workbench/Editor`, `Set Buffer`, the `Amos *` window keywords, `Sprite
-Base`/`Icon Base` and the IFF ANIM `Frame *` family are all faithful, and
-`Prun` runs a second program in its own structure on a real program stack
-(Prg_Push/Prg_Pull). Missing: the editor-integration keywords.
+The last two are worth a line each because of what they needed. PlaySID needed
+a 6502 and a SID, because a PSID file is machine code and not a pattern table;
+`src/amiga/mos6502.ts` passes Klaus Dormann's functional test to the trap at
+$3469. OctaMix needed no new input at all in the end --- `DME_OctaMix.library`
+demands bit 7 of `flags2` at $212e64 and nothing in the corpus or `fixtures/`
+has it, so the port was written from the disassembly alone and `Omix Play` is
+the one keyword in this port whose engine has never been run against a module
+anyone wrote. `src/coverage/status.ts` says so in its own note rather than
+letting the 100% imply otherwise.
 
 ## Not applicable
 

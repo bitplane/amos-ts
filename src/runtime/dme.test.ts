@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { SID_BANK_NAME, XM_BANK_NAME, OMIX_BANK_NAME, DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -1314,5 +1314,604 @@ describe('the TFMX block', () => {
     const { rt } = run([TFLOAD, 'Tfmx Play 7'], TFMX)
     expect(rt.dme.tfmx.tickHz).toBeCloseTo(50, 2)
     expect(rt.dme.tfmxPlaying).toBe(true)
+  })
+})
+
+/**
+ * A one-part PSID small enough to build here: init gates voice 1, play bumps
+ * a RAM counter into the pulse width. What these check is DME's layer --- the
+ * "PSid    " bank, the argument shapes, the zero-based song number and the
+ * three error messages --- so the tune only has to run.
+ * ../amiga/playsid.ts carries the replay and its own tests.
+ */
+function psid(songs = 3, defaultSong = 1, magic = 'PSID'): Uint8Array {
+  const HEADER = 0x7c
+  const LOAD = 0x1000
+  const body = [
+    0xa9, 0x00, 0x8d, 0x00, 0xd4, 0xa9, 0x10, 0x8d, 0x01, 0xd4,
+    0xa9, 0x11, 0x8d, 0x04, 0xd4, 0xa9, 0x0f, 0x8d, 0x18, 0xd4, 0x60,
+    0xe6, 0x02, 0xa5, 0x02, 0x8d, 0x02, 0xd4, 0x60,
+  ]
+  const b = new Uint8Array(HEADER + body.length)
+  const w = (at: number, v: number): void => {
+    b[at] = (v >> 8) & 0xff
+    b[at + 1] = v & 0xff
+  }
+  for (let i = 0; i < 4; i++) b[i] = magic.charCodeAt(i)
+  w(4, 2)
+  w(6, HEADER)
+  w(8, LOAD)
+  w(0x0a, LOAD)
+  w(0x0c, LOAD + 0x15)
+  w(0x0e, songs)
+  w(0x10, defaultSong)
+  b.set(body, HEADER)
+  return b
+}
+
+const SID = { 'a.sid': psid() }
+const SIDLOAD = 'Sid Load "Work:a.sid",9'
+
+describe('the PlaySID block --- routines 256 to 268', () => {
+  it('Sid Load reserves a bank named "PSid    ", sized as every other DME load', () => {
+    const { rt } = run([SIDLOAD], SID)
+    const b = rt.memBanks.get(9)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(SID_BANK_NAME)
+    // the file rounded UP TO EVEN, plus eight ($7250-$725a), which a
+    // 153-byte header-plus-body makes visible where an even one would not
+    const n = psid().length
+    expect(n & 1).toBe(1)
+    expect(b.data.length).toBe(n + 1 + 8)
+  })
+
+  it('Sid Load checks the magic and nothing else, so a version 9 header passes', () => {
+    // `cmpi.l #$50534944,(a2)` at $728c is the whole test: CheckModule's
+    // version and data-offset checks are never reached from AMOS.
+    const bad = psid()
+    bad[4] = 0
+    bad[5] = 9
+    expect(() => run([SIDLOAD], { 'a.sid': bad })).not.toThrow()
+  })
+
+  it('a file that is not a PSID is message 13, and the bank goes with it', () => {
+    expect(() => run([SIDLOAD], { 'a.sid': psid(3, 1, 'RSID') })).toThrow(DME_ERRORS[13])
+  })
+
+  it('a bank number at or past 65,536 is AMOS error 23', () => {
+    expect(() => run(['Sid Load "Work:a.sid",65536'], SID)).toThrow()
+  })
+
+  it('Sid Play takes one argument or two, because of the $FE variant row', () => {
+    expect(() => run([SIDLOAD, 'Sid Play 9'], SID)).not.toThrow()
+    expect(() => run([SIDLOAD, 'Sid Play 9,2'], SID)).not.toThrow()
+  })
+
+  it("Sid Play's song number is ZERO-based, against the library's one-based StartSong", () => {
+    // `addq.l #$1,d7` at $7398. So `Sid Play b,0` is the FIRST song, and
+    // DME's own example walks SUB from 0 to `Sid Songs` minus one.
+    const { rt } = run([SIDLOAD, 'Sid Play 9,0'], SID)
+    expect(rt.dme.sid.song).toBe(0)
+    const two = run([SIDLOAD, 'Sid Play 9,2'], SID)
+    expect(two.rt.dme.sid.song).toBe(2)
+  })
+
+  it('Sid Play on a bank that is not a PSid is message 13', () => {
+    expect(() => run([LOAD, 'Sid Play 5'], MOD)).toThrow(DME_ERRORS[13])
+  })
+
+  it('plays: the tune runs a frame at a time and reaches Paula', () => {
+    const { rt, audio } = run([SIDLOAD, 'Sid Play 9', 'For I=0 To 9 : Wait Vbl : Next I'], SID)
+    expect(rt.dme.sid.frames).toBeGreaterThan(0)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  it('Sid Stop frees the emulation resource, which is why Sid Play allocates again', () => {
+    // `jsr -$42(a6)` then `jsr -$24(a6)` at $72fe and $730a.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Stop'], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    expect(rt.dme.sid.playMode).toBe(0)
+    // and it can be started again, which needs the resource back
+    expect(() => run([SIDLOAD, 'Sid Play 9', 'Sid Stop', 'Sid Play 9'], SID)).not.toThrow()
+  })
+
+  it('Sid Pause and Sid Cont walk the extension flag, not the library PlayMode', () => {
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause'], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    const back = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause', 'Sid Cont'], SID)
+    expect(back.rt.dme.sidPlaying).toBe(true)
+  })
+
+  it('a paused tune runs no frames', () => {
+    const { rt } = run(
+      [SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Pause', 'For I=0 To 9 : Wait Vbl : Next I'],
+      SID,
+    )
+    expect(rt.dme.sid.frames).toBeLessThan(3)
+  })
+
+  it('Sid Forward and Sid Rewind need something playing, and say message 16 when not', () => {
+    expect(() => run([SIDLOAD, 'Sid Forward'], SID)).toThrow(DME_ERRORS[16])
+    expect(() => run([SIDLOAD, 'Sid Rewind'], SID)).toThrow(DME_ERRORS[16])
+  })
+
+  it("Sid Forward runs the play routine sixteen extra times, a step of the extension's own", () => {
+    // `move.w #$10,d0` at $74a4 --- the keyword takes no argument where the
+    // library's ForwardSong does.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl'], SID)
+    const before = rt.dme.sid.frames
+    const after = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Forward'], SID)
+    expect(after.rt.dme.sid.frames).toBe(before + 16)
+  })
+
+  it('Sid Rewind sets the reverse flag first, then steps 32', () => {
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl'], SID)
+    const before = rt.dme.sid.frames
+    const after = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Rewind'], SID)
+    expect(after.rt.dme.sid.reverse).toBe(true)
+    expect(after.rt.dme.sid.frames).toBe(before + 32)
+  })
+
+  it('Sid Channel takes 1 to 4 and refuses everything else', () => {
+    // `cmp.l #$4,d7 / Rbhi` and `cmp.l #$1,d7 / Rblt` at $74f2 and $74fc.
+    for (const n of [1, 2, 3, 4]) {
+      expect(() => run([SIDLOAD, `Sid Channel ${n}`], SID)).not.toThrow()
+    }
+    expect(() => run([SIDLOAD, 'Sid Channel 0'], SID)).toThrow()
+    expect(() => run([SIDLOAD, 'Sid Channel 5'], SID)).toThrow()
+  })
+
+  it('=Sid Songs reads the bank, so it answers before anything is played', () => {
+    run([SIDLOAD, 'Print Sid Songs(9)'], SID)
+    expect(out()).toEqual(['3'])
+  })
+
+  it('=Sid Songs on a bank that is not a PSid is message 13', () => {
+    expect(() => run([LOAD, 'Print Sid Songs(5)'], MOD)).toThrow(DME_ERRORS[13])
+  })
+
+  it('reloading the bank that is playing stops it first, and another bank does not', () => {
+    // `cmp.w $f4(a2),d3 / bne` at $7234, the same test `Ptm Load` has.
+    const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', SIDLOAD], SID)
+    expect(rt.dme.sidPlaying).toBe(false)
+    const other = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Load "Work:a.sid",10'], SID)
+    expect(other.rt.dme.sidPlaying).toBe(true)
+  })
+})
+
+
+/**
+ * A minimal FastTracker 2 module: one channel, one pattern of two rows, one
+ * instrument of one 64-frame sample. Enough for the loader, the bank name and
+ * every keyword that reads the bank rather than the replayer.
+ */
+function xm(magic = 'Extended Module:', version = 0x0104, orders = 24): Uint8Array {
+  const hdr = 0x114
+  const patHdr = 9
+  const insHdr = 263
+  const smpHdr = 40
+  const pcm = 64
+  const packed = [49, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+  const d = new Uint8Array(0x3c + hdr + patHdr + packed.length + insHdr + smpHdr + pcm)
+  for (let i = 0; i < 16; i++) d[i] = magic.charCodeAt(i)
+  d[0x25] = 0x1a
+  const w = (at: number, v: number): void => {
+    d[at] = v & 0xff
+    d[at + 1] = (v >> 8) & 0xff
+  }
+  w(0x3a, version)
+  w(0x3c, hdr)
+  w(0x40, orders)
+  w(0x44, 1)
+  w(0x46, 1)
+  w(0x48, 1)
+  w(0x4a, 1)
+  w(0x4c, 6)
+  w(0x4e, 125)
+  let p = 0x3c + hdr
+  w(p, patHdr)
+  d[p + 5] = 2
+  w(p + 7, packed.length)
+  d.set(packed, p + patHdr)
+  p += patHdr + packed.length
+  w(p, insHdr)
+  w(p + 0x1b, 1)
+  w(p + 0x1d, smpHdr)
+  const sh = p + insHdr
+  w(sh, pcm)
+  d[sh + 0x0c] = 64
+  d[sh + smpHdr] = 64
+  return d
+}
+
+/** a `nCHN` ProTracker module, which `Xm Load` also accepts */
+function chn(tag = '4CHN', length = 7): Uint8Array {
+  const d = new Uint8Array(0x43c + 16)
+  for (let i = 0; i < 4; i++) d[0x438 + i] = tag.charCodeAt(i)
+  d[0x3b6] = length
+  return d
+}
+
+const XM = { 'a.xm': xm() }
+const XMLOAD = 'Xm Load "Work:a.xm",7'
+
+describe('the FastTracker block --- routines 51 to 63', () => {
+  it('Xm Load reserves a bank named "XMmod   ", rounded up to even plus eight', () => {
+    const { rt } = run([XMLOAD], XM)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(XM_BANK_NAME)
+    const n = xm().length
+    expect(b.data.length).toBe((n & 1 ? n + 1 : n) + 8)
+  })
+
+  /**
+   * $4248 compares four longs against "Extended Module:" and accepts, and
+   * $4262 masks the long at $438 to three bytes and accepts "CHN". The library
+   * takes `nnCH` and `TDZn` as well ($21098c), and the extension does not.
+   */
+  it('takes an XM and a nCHN module, and refuses a 16-channel one', () => {
+    expect(() => run([XMLOAD], XM)).not.toThrow()
+    expect(() => run([XMLOAD], { 'a.xm': chn('4CHN') })).not.toThrow()
+    expect(() => run([XMLOAD], { 'a.xm': chn('8CHN') })).not.toThrow()
+    // "16CH" has "6CH" in the low three bytes, so $4262 does not match it
+    expect(() => run([XMLOAD], { 'a.xm': chn('16CH') })).toThrow(DME_ERRORS[44])
+    expect(() => run([XMLOAD], { 'a.xm': chn('M.K.') })).toThrow(DME_ERRORS[44])
+  })
+
+  it('erases the bank when the check fails', () => {
+    const rt = (() => {
+      try {
+        return run([XMLOAD], { 'a.xm': chn('M.K.') }).rt
+      } catch {
+        return null
+      }
+    })()
+    expect(rt).toBeNull()
+  })
+
+  it('a bank number at or past 65,536 is AMOS error 23', () => {
+    expect(() => run(['Xm Load "Work:a.xm",65536'], XM)).toThrow()
+  })
+
+  /**
+   * $4248 only looks at the magic, so a 1.03 module LOADS. It is $210a2a
+   * inside the library that refuses to play it, by returning zero rather than
+   * by raising anything.
+   */
+  it('loads a version 1.03 module and then plays silence', () => {
+    const old = { 'a.xm': xm('Extended Module:', 0x0103) }
+    expect(() => run([XMLOAD, 'Xm Play 7'], old)).not.toThrow()
+    const { rt } = run([XMLOAD, 'Xm Play 7'], old)
+    expect(rt.dme.xmPlaying).toBe(false)
+  })
+
+  it('Xm Play on a bank that is not "XMmod   " is message 44', () => {
+    expect(() => run([LOAD, 'Xm Play 5'], MOD)).toThrow(DME_ERRORS[44])
+  })
+
+  /**
+   * $4314 is `cmpi.l #$80000000,(a3)`, the empty-argument convention: an
+   * omitted numeric slot arrives as $80000000 and the keyword substitutes the
+   * bank `Xm Load` filled. Written as the sentinel here, the way the
+   * `Ptm Play` tests above write it.
+   */
+  it('Xm Play with the empty-argument sentinel uses the bank Xm Load filled', () => {
+    const { rt } = run([XMLOAD, 'Xm Play $80000000'], XM)
+    expect(rt.dme.xmPlaying).toBe(true)
+    expect(rt.dme.xmBank).toBe(7)
+  })
+
+  it('plays: the tick reaches Paula', () => {
+    const { audio } = run([XMLOAD, 'Xm Play 7', 'For I=0 To 9 : Wait Vbl : Next I'], XM)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  /** $42d8: the flag at $f2(a0), and $f3(a0) is left alone */
+  it('Xm Stop clears the play flag and leaves the position readable', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', 'Xm Stop'], XM)
+    expect(rt.dme.xmPlaying).toBe(false)
+    expect(rt.dme.xmStarted).toBe(true)
+  })
+
+  /** $448c: 0 to 64, and $2103a8 stores what it is given */
+  it('Xm Volume takes 0 to 64 and nothing else', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Xm Volume 40'], XM)
+    expect(rt.dme.xm.master).toBe(40)
+    expect(() => run([XMLOAD, 'Xm Volume 65'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Xm Volume -1'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Xm Volume 0'], XM)).not.toThrow()
+  })
+
+  /** $44be and $44e4: message 55 when nothing is playing */
+  it('Xm Next Patt and Xm Prev Patt are message 55 before a play', () => {
+    expect(() => run([XMLOAD, 'Xm Next Patt'], XM)).toThrow(DME_ERRORS[55])
+    expect(() => run([XMLOAD, 'Xm Prev Patt'], XM)).toThrow(DME_ERRORS[55])
+    expect(() => run([XMLOAD, 'Xm Play 7', 'Xm Next Patt'], XM)).not.toThrow()
+  })
+
+  it('Xm Next Patt steps the order and reports it', () => {
+    run([XMLOAD, 'Xm Play 7', 'Xm Next Patt', 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['1'])
+  })
+
+  /**
+   * $210838 is `subq.w #$1,$cc(a5) / tst.w $cc(a5) / bgt`, so rewinding from
+   * order 1 does NOT reach order 0: it takes the module's restart position.
+   */
+  it('Xm Prev Patt from order 1 lands on the restart position', () => {
+    run([XMLOAD, 'Xm Play 7', 'Xm Next Patt', 'Xm Prev Patt', 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['0'])
+  })
+
+  /**
+   * $446a reads the BYTE at $40, which is the low half of a little-endian
+   * word, so a 256-order module reports zero.
+   */
+  it('=Xm Song Length reads one byte of the bank, and 256 orders read as 0', () => {
+    run([XMLOAD, 'Print Xm Song Length(7)'], XM)
+    expect(out()).toEqual(['24'])
+    run(['Xm Load "Work:b.xm",7', 'Print Xm Song Length(7)'], { 'b.xm': xm('Extended Module:', 0x0104, 256) })
+    expect(out()).toEqual(['0'])
+  })
+
+  /** $4478 takes $3b6 instead when the bank holds a `CHN` module */
+  it('=Xm Song Length reads $3b6 for a nCHN module', () => {
+    run([XMLOAD, 'Print Xm Song Length(7)'], { 'a.xm': chn('4CHN', 11) })
+    expect(out()).toEqual(['11'])
+  })
+
+  it('=Xm Song Length on a bank that is not "XMmod   " is message 44', () => {
+    expect(() => run([LOAD, 'Print Xm Song Length(5)'], MOD)).toThrow(DME_ERRORS[44])
+  })
+
+  /** $43fe: guarded by $f3(a2), so zero before the first play */
+  it('=Xm Song Pos is zero before anything is played', () => {
+    run([XMLOAD, 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['0'])
+  })
+
+  /** $450a: 0 to 31, and $2104b6 clears the byte as it reads it */
+  it('=Xm Vu takes 0 to 31 and reads the peak once', () => {
+    run([XMLOAD, 'Xm Play 7', 'For I=0 To 20 : Wait Vbl : Next I', 'Print Xm Vu(0);" ";Xm Vu(0)'], XM)
+    const [first, second] = out()[0]!.split(' ')
+    expect(Number(first)).toBeGreaterThan(0)
+    expect(Number(second)).toBe(0)
+    expect(() => run([XMLOAD, 'Print Xm Vu(32)'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Print Xm Vu(-1)'], XM)).toThrow()
+  })
+
+  it('reloading the bank that is playing stops it first, and another bank does not', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', XMLOAD], XM)
+    expect(rt.dme.xmPlaying).toBe(false)
+    const other = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', 'Xm Load "Work:a.xm",8'], XM)
+    expect(other.rt.dme.xmPlaying).toBe(true)
+  })
+})
+
+
+/**
+ * A minimal MMD2 in mixing mode: one block of one line, one play sequence, one
+ * section, one 8-bit instrument.
+ *
+ * Built here rather than taken from `fixtures/` for the reason the whole block
+ * exists: not one of the 202 MMD files on this machine has bit 7 of `flags2`,
+ * so a module `Omix Load` accepts has to be constructed. Every offset comes
+ * from `mmd2.ts`, which took them off instructions in the library.
+ */
+function mmd2mix(over: { id?: string; flags2?: number; channels?: number; tracks?: number } = {}): Uint8Array {
+  const SONG = 0x40
+  const SONG_LEN = 0x320
+  const BLOCKARR = SONG + SONG_LEN
+  const BLOCK = BLOCKARR + 8
+  const BLOCK_LEN = 8 + 4 * 4
+  const PSEQTAB = BLOCK + BLOCK_LEN
+  const PSEQ = PSEQTAB + 8
+  const PSEQ_LEN = 0x2a + 4
+  const SECTAB = PSEQ + PSEQ_LEN
+  const TRACKVOLS = SECTAB + 8
+  const SMPLARR = TRACKVOLS + 8
+  const SAMPLE = SMPLARR + 8
+  const SAMPLE_LEN = 6 + 64
+  const d = new Uint8Array(SAMPLE + SAMPLE_LEN + 16)
+
+  const w = (at: number, v: number): void => {
+    d[at] = (v >> 8) & 0xff
+    d[at + 1] = v & 0xff
+  }
+  const l = (at: number, v: number): void => {
+    w(at, (v >>> 16) & 0xffff)
+    w(at + 2, v & 0xffff)
+  }
+
+  const id = over.id ?? 'MMD2'
+  for (let i = 0; i < 4; i++) d[i] = id.charCodeAt(i)
+  l(4, d.length)
+  l(8, SONG)
+  l(0x10, BLOCKARR)
+  l(0x18, SMPLARR)
+  l(0x20, 0)
+  d[0x33] = 3 // extra_songs, which `=Omix Subsongs` reports
+
+  // one instrument: no repeat, volume 64
+  d[SONG + 6] = 64
+  w(SONG + 0x1f8, 1) // numblocks
+  w(SONG + 0x1fa, 1) // sections
+  l(SONG + 0x1fc, PSEQTAB)
+  l(SONG + 0x200, SECTAB)
+  l(SONG + 0x204, TRACKVOLS)
+  w(SONG + 0x208, over.tracks ?? 4)
+  w(SONG + 0x20a, 1) // numpseqs
+  l(SONG + 0x210, 0) // flags3
+  w(SONG + 0x214, 100) // voladj
+  w(SONG + 0x216, over.channels ?? 4)
+  w(SONG + 0x2fc, 33) // deftempo
+  d[SONG + 0x2ff] = 0
+  d[SONG + 0x300] = over.flags2 ?? 0x80 // FLAG2_MIX
+  d[SONG + 0x301] = 6 // tempo2
+  d[SONG + 0x312] = 64 // mastervol
+
+  l(BLOCKARR, BLOCK)
+  w(BLOCK, over.tracks ?? 4) // the block's own track count
+  w(BLOCK + 2, 0) // last line, so one line
+  // one note on track 0: note 25, instrument 1
+  d[BLOCK + 8] = 25
+  d[BLOCK + 9] = 1
+
+  l(PSEQTAB, PSEQ)
+  w(PSEQ + 0x28, 1) // one entry
+  w(PSEQ + 0x2a, 0) // block 0
+  w(SECTAB, 0)
+  for (let i = 0; i < 8; i++) d[TRACKVOLS + i] = 64
+
+  l(SMPLARR, SAMPLE)
+  l(SAMPLE, 64) // length
+  for (let i = 0; i < 64; i++) d[SAMPLE + 6 + i] = i < 32 ? 100 : -100 & 0xff
+  return d
+}
+
+const OMIX = { 'a.med': mmd2mix() }
+const OMIXLOAD = 'Omix Load "Work:a.med",4'
+
+describe('the OctaMix block --- routines 237 to 255', () => {
+  it('Omix Load reserves a bank named "OctaMix ", the file plus eight', () => {
+    const { rt } = run([OMIXLOAD], OMIX)
+    const b = rt.memBanks.get(4)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(OMIX_BANK_NAME)
+    // $6da4 adds eight and does NOT round up to even, unlike every other
+    // loader in this extension
+    expect(b.data.length).toBe(mmd2mix().length + 8)
+  })
+
+  /** $6dd6 takes MMD3 or MMD2 and message 6 otherwise */
+  it('takes MMD2 and MMD3 and refuses MMD0 and MMD1', () => {
+    expect(() => run([OMIXLOAD], OMIX)).not.toThrow()
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ id: 'MMD3' }) })).not.toThrow()
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ id: 'MMD1' }) })).toThrow(DME_ERRORS[6])
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ id: 'MMD0' }) })).toThrow(DME_ERRORS[6])
+  })
+
+  /**
+   * The whole reason this block took so long to reach. $6dfc demands that LVO
+   * -36 answers 2, and $212e64 answers 2 only for bit 7 of `flags2`. Every one
+   * of the 202 MMD files on this machine answers something else.
+   */
+  it('demands the mix bit, whatever the track count says', () => {
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ flags2: 0 }) })).toThrow(DME_ERRORS[10])
+    // the eight-channel bit is type 1, which is not 2
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ flags2: 0, tracks: 8, channels: 8 }) })).toThrow(DME_ERRORS[10])
+    // and the beat mask and the BPM bit are not the mix bit
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ flags2: 0x3f }) })).toThrow(DME_ERRORS[10])
+    expect(() => run([OMIXLOAD], { 'a.med': mmd2mix({ flags2: 0xbf }) })).not.toThrow()
+  })
+
+  it('a bank number at or past 65,536 is AMOS error 23', () => {
+    expect(() => run(['Omix Load "Work:a.med",65536'], OMIX)).toThrow()
+  })
+
+  it('Omix Play on a bank that is not "OctaMix " is message 6', () => {
+    expect(() => run([LOAD, 'Omix Play 5'], MOD)).toThrow(DME_ERRORS[6])
+  })
+
+  /**
+   * The one `Play` in this extension whose second parameter is real: the token
+   * table declares an unnamed "I0,0" variant and $6efa passes it to LVO -84.
+   */
+  it('Omix Play takes a sub-song, unlike every other Play here', () => {
+    expect(() => run([OMIXLOAD, 'Omix Play 4'], OMIX)).not.toThrow()
+    const { rt } = run([OMIXLOAD, 'Omix Play 4,2'], OMIX)
+    expect(rt.dme.omix!.omixSubsong).toBe(2)
+  })
+
+  it('plays: the tick reaches Paula', () => {
+    const { audio } = run([OMIXLOAD, 'Omix Play 4', 'For I=0 To 9 : Wait Vbl : Next I'], OMIX)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  it('Omix Stop clears the play flag and leaves the readers answering', () => {
+    const { rt } = run([OMIXLOAD, 'Omix Play 4', 'Wait Vbl', 'Omix Stop'], OMIX)
+    expect(rt.dme.omixPlaying).toBe(false)
+    expect(rt.dme.omixStarted).toBe(true)
+  })
+
+  it('Omix Cont needs something to continue', () => {
+    const { rt } = run([OMIXLOAD, 'Omix Cont'], OMIX)
+    expect(rt.dme.omixPlaying).toBe(false)
+    const back = run([OMIXLOAD, 'Omix Play 4', 'Wait Vbl', 'Omix Stop', 'Omix Cont'], OMIX)
+    expect(back.rt.dme.omixPlaying).toBe(true)
+  })
+
+  /** $705a and $709a: the ranges, and messages 21 and 22 while playing */
+  it('Omix Freq takes 1000 to 65535 and refuses while playing', () => {
+    const { rt } = run([OMIXLOAD, 'Omix Freq 22000'], OMIX)
+    expect(rt.dme.omix!.omixRequestedRate).toBe(22000)
+    expect(() => run([OMIXLOAD, 'Omix Freq 999'], OMIX)).toThrow()
+    expect(() => run([OMIXLOAD, 'Omix Freq 65536'], OMIX)).toThrow()
+    expect(() => run([OMIXLOAD, 'Omix Play 4', 'Omix Freq 22000'], OMIX)).toThrow(DME_ERRORS[21])
+  })
+
+  it('Omix Buffer takes 4 to 32764 and refuses while playing', () => {
+    const { rt } = run([OMIXLOAD, 'Omix Buffer 2048'], OMIX)
+    expect(rt.dme.omix!.omixBuffer).toBe(2048)
+    expect(() => run([OMIXLOAD, 'Omix Buffer 3'], OMIX)).toThrow()
+    expect(() => run([OMIXLOAD, 'Omix Buffer 32765'], OMIX)).toThrow()
+    expect(() => run([OMIXLOAD, 'Omix Play 4', 'Omix Buffer 2048'], OMIX)).toThrow(DME_ERRORS[22])
+  })
+
+  /** $7002 and $702e, both message 20 while playing */
+  it('Omix 14 Bit On and Off refuse while playing', () => {
+    const { rt } = run([OMIXLOAD, 'Omix 14 Bit On'], OMIX)
+    expect(rt.dme.omix!.omix14Bit).toBe(true)
+    const off = run([OMIXLOAD, 'Omix 14 Bit On', 'Omix 14 Bit Off'], OMIX)
+    expect(off.rt.dme.omix!.omix14Bit).toBe(false)
+    expect(() => run([OMIXLOAD, 'Omix Play 4', 'Omix 14 Bit On'], OMIX)).toThrow(DME_ERRORS[20])
+  })
+
+  /** $71a2 and $71c8: message 54 when nothing is playing */
+  it('Omix Next Patt and Omix Prev Patt are message 54 before a play', () => {
+    expect(() => run([OMIXLOAD, 'Omix Next Patt'], OMIX)).toThrow(DME_ERRORS[54])
+    expect(() => run([OMIXLOAD, 'Omix Prev Patt'], OMIX)).toThrow(DME_ERRORS[54])
+    expect(() => run([OMIXLOAD, 'Omix Play 4', 'Omix Next Patt'], OMIX)).not.toThrow()
+  })
+
+  /** $711e: the byte at module+$33 */
+  it('=Omix Subsongs reads one byte of the bank', () => {
+    run([OMIXLOAD, 'Print Omix Subsongs(4)'], OMIX)
+    expect(out()).toEqual(['3'])
+  })
+
+  /**
+   * $70fc branches to an `rts` that sets NEITHER d3 nor d2 when the id is not
+   * MMD3, so on an MMD2 the keyword returns whatever was on the stack. This
+   * port answers 0 rather than inventing it.
+   */
+  it('=Omix Song Length answers only for an MMD3', () => {
+    run([OMIXLOAD, 'Print Omix Song Length(4)'], OMIX)
+    expect(out()).toEqual(['0'])
+    run(['Omix Load "Work:b.med",4', 'Print Omix Song Length(4)'], { 'b.med': mmd2mix({ id: 'MMD3' }) })
+    // the byte at module+$5d, which is not a field any MMD spec names
+    expect(out()).toEqual(['0'])
+  })
+
+  it('=Omix Song Length on a bank that is not "OctaMix " is message 6', () => {
+    expect(() => run([LOAD, 'Print Omix Song Length(5)'], MOD)).toThrow(DME_ERRORS[6])
+  })
+
+  /** $715a and $717e: pseqnum at $2e and pline at $2c, both zero before a play */
+  it('=Omix Song Pos and =Omix Patt Pos are zero before anything plays', () => {
+    run([OMIXLOAD, 'Print Omix Song Pos;" ";Omix Patt Pos'], OMIX)
+    // AMOS puts a space before a positive number, so this is "0" and "0"
+    expect(out()).toEqual(['0  0'])
+  })
+
+  /** $71f8: `cmp.l #$40,d7 / bcc`, so 0 to 63 */
+  it('=Omix Vu takes 0 to 63 and nothing outside it', () => {
+    expect(() => run([OMIXLOAD, 'Print Omix Vu(0)'], OMIX)).not.toThrow()
+    expect(() => run([OMIXLOAD, 'Print Omix Vu(63)'], OMIX)).not.toThrow()
+    expect(() => run([OMIXLOAD, 'Print Omix Vu(64)'], OMIX)).toThrow()
+    expect(() => run([OMIXLOAD, 'Print Omix Vu(-1)'], OMIX)).toThrow()
+  })
+
+  it('reloading the bank that is playing stops it first', () => {
+    const { rt } = run([OMIXLOAD, 'Omix Play 4', 'Wait Vbl', OMIXLOAD], OMIX)
+    expect(rt.dme.omixPlaying).toBe(false)
   })
 })

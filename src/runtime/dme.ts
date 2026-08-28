@@ -96,11 +96,16 @@ import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
 import { parseTfmx } from '../amiga/tfmx'
 import { TfmxPlayer } from '../amiga/tfmxplay'
-import { MMD_EXTRA_SONGS_AT } from '../amiga/mmd2'
+import { MMD_EXTRA_SONGS_AT, MMD_PLINE_AT, MMD_PSEQNUM_AT, mmdMixType } from '../amiga/mmd2'
+import { OMIX_MAX_BUFFER, OMIX_MAX_CHANNELS, OMIX_MAX_RATE, OMIX_MIN_BUFFER, OMIX_MIN_RATE } from '../amiga/omix'
 import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
 import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
 import { S3mPlayer } from '../amiga/s3mplay'
+import { PlaySid, PAL_VERT_FREQ } from '../amiga/playsid'
+import { PSID_MAGIC } from '../amiga/psid'
+import { XM_MAGIC, parseXm } from '../amiga/xm'
+import { XmPlayer } from '../amiga/xmplay'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -146,8 +151,60 @@ export const DIGI_BANK_NAME = 'DigiMod '
 export const SMON_BANK_NAME = 'SoundMon'
 /** `$53334d6d` then `$6f642020` at $4774: "S3Mmod" and two spaces */
 export const S3M_BANK_NAME = 'S3Mmod  '
+
+/**
+ * `dc.b "Extended Module:XMmod   "` at $428c, twenty-four bytes: the
+ * sixteen $4248 compares four longs of, and then the bank name.
+ */
+export const XM_BANK_NAME = 'XMmod   '
+
+/** $4258's `move.l $438(a2),d0 / andi.l #$ffffff,d1`: "C", "H", "N" */
+export const XM_MOD_MAGIC_AT = 0x438
+export const XM_MOD_MAGIC = 0x43484e
+
+/** $44786a: the song length byte an XM keeps at $40 and a MOD at $3b6 */
+export const XM_LENGTH_AT = 0x40
+export const XM_MOD_LENGTH_AT = 0x3b6
+
+/** message 44, and message 55 when nothing is playing */
+export const XM_NOT_A_MODULE = 44
+export const XM_NOT_INITIALIZED = 55
+/** the eight bytes at $72ac, tested as `$50536964` and `$20202020` at -$8/-$4 */
+export const SID_BANK_NAME = 'PSid    '
+/**
+ * `=Sid Songs` reads ONE byte, at $754c: `move.b $f(a2),d3`.
+ *
+ * Offset $0f is the LOW half of the header's `number` word, so a file
+ * claiming 256 songs reports zero here. Nothing in the corpus has more than
+ * twelve and the SID format's own limit is 256, so the truncation is real and
+ * unreachable at once.
+ */
+export const SID_SONGS_AT = 0x0f
+/** `moveq #$10,d0` at $74b6 and $74e6, both when nothing is playing */
+const SID_NOT_INITIALIZED = 16
+/** `moveq #$d,d0` at $72a6, $73b4 and $755a: the bank is not named "PSid    " */
+const SID_NOT_A_MODULE = 13
+/** `moveq #$10,d0` into ForwardSong at $74a4 */
+const SID_FORWARD_STEPS = 0x10
+/** `moveq #$20,d0` into RewindSong at $74d6 */
+const SID_REWIND_STEPS = 0x20
 /** the eight bytes at $69e6, checked as "Octa" and "Med " at -$8 and -$4 */
 export const OMED_BANK_NAME = 'OctaMed '
+
+/** `dc.b "OctaMix "` at $6e42, checked as two longs at $6ed4 and $6ee0 */
+export const OMIX_BANK_NAME = 'OctaMix '
+
+/** `move.b $5d(a2),d3` at $710a, and only for an MMD3 */
+export const OMIX_MMD3_LENGTH_AT = 0x5d
+
+/** messages 6, 10 and 54 */
+export const OMIX_NOT_A_MODULE = 6
+export const OMIX_NOT_MIXING = 10
+export const OMIX_NOT_INITIALIZED = 54
+/** 20, 21 and 22: the three that fire only while something is playing */
+export const OMIX_14BIT_BUSY = 20
+export const OMIX_FREQ_BUSY = 21
+export const OMIX_BUFFER_BUSY = 22
 /** the eight at $4942, compared as "TFMX" and "Mod " at -$8 and -$4 */
 export const TFMX_BANK = 'TFMXMod '
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
@@ -329,11 +386,32 @@ export interface DmeState {
   omedStarted: boolean
   /** the eight bytes at $21033c, which `=Omed Vu` reads and clears */
   omedVu: Uint8Array
+
+  /**
+   * `DME_OctaMix.library`'s replay: the same OctaMED sequencer over a 1-to-64
+   * channel software mixer. `MedPlayer` in its `octamixplayer` build.
+   */
+  omix: MedPlayer | null
+  /** `$64(a2)`, the bank `Omix Load` last filled */
+  omixBank: number
+  /** `$6e(a2)`, which `Omix Stop` clears, and `$70(a2)`, which it does not */
+  omixPlaying: boolean
+  omixStarted: boolean
+  /** the 64 bytes LVO -120 reads and clears */
+  omixVu: Uint8Array
   s3m: S3mPlayer
   /** `$dc(a2)`, `$e6(a2)` and `$e7(a2)` */
   s3mBank: number
   s3mPlaying: boolean
   s3mStarted: boolean
+
+  /** FastTracker 2, the twelfth and last external replayer */
+  xm: XmPlayer
+  /** `$e8(a2)`, the bank `Xm Load` last filled */
+  xmBank: number
+  /** `$f2(a2)`, which `Xm Stop` clears, and `$f3(a2)`, which it does not */
+  xmPlaying: boolean
+  xmStarted: boolean
 
   /** BP SoundMon 2.0, the sixth --- four channels and a synth, no mixer */
   smon: SoundMon
@@ -358,6 +436,25 @@ export interface DmeState {
   fc13Bank: number
   fc13Playing: boolean
   fc13Started: boolean
+
+  /**
+   * `playsid.library` itself, which is the twelfth external replayer and the
+   * only one DME does not ship. See ../amiga/playsid.ts.
+   */
+  sid: PlaySid
+  /** `$f4(a2)`: the bank `Sid Load` last filled */
+  sidBank: number
+  /** `$fe(a2)`: playing, the flag every one of the eight instructions tests */
+  sidPlaying: boolean
+  /**
+   * `$f6(a2)`: the library base, null until routine 261 opens it.
+   *
+   * A boolean here rather than a pointer, because what the extension does
+   * with it is test it for zero and call through it. `Sid Stop` is the only
+   * keyword that closes anything, and it closes the emulation resource
+   * rather than the library.
+   */
+  sidOpened: boolean
 
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
@@ -403,12 +500,21 @@ export function newDmeState(rt?: Runtime): DmeState {
     omed: null,
     omedBank: 0,
     omedPlaying: false,
+    omix: null,
+    omixBank: 0,
+    omixPlaying: false,
+    omixStarted: false,
+    omixVu: new Uint8Array(OMIX_MAX_CHANNELS),
     omedStarted: false,
     omedVu: new Uint8Array(8),
     s3m: new S3mPlayer(() => rt?.host.audio),
     s3mBank: 0,
     s3mPlaying: false,
     s3mStarted: false,
+    xm: new XmPlayer(() => rt?.host.audio),
+    xmBank: 0,
+    xmPlaying: false,
+    xmStarted: false,
     dmed: null,
     dmedBank: 0,
     dmedPlaying: false,
@@ -424,6 +530,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     fc13Bank: 0,
     fc13Playing: false,
     fc13Started: false,
+    sid: new PlaySid(() => rt?.host.audio),
+    sidBank: 0,
+    sidPlaying: false,
+    sidOpened: false,
     samBank: 0,
     samVolume: 0x40,
   }
@@ -488,6 +598,33 @@ function omedFor(rt: Runtime, s: DmeState): MedPlayer {
   return player
 }
 
+/**
+ * Routine 242 ($6f2e): open the library once, at version 2, and initialise it.
+ *
+ * The version matters. `moveq #$2,d0` at $6f40 is the only "V2.0 or higher"
+ * open in the whole extension that is NOT spelled out in its error message,
+ * and `DME_OctaMix.library` is the one sibling that really is version 2 --- the
+ * FastTracker one this port did earlier is still at 1.0.
+ */
+function omixFor(rt: Runtime, s: DmeState): MedPlayer {
+  if (s.omix) return s.omix
+  const player = new MedPlayer(
+    {
+      get audio() {
+        return rt.audio
+      },
+      tick: () => rt.frames,
+      getBank: () => rt.memBanks.get(s.omixBank) ?? null,
+    },
+    'octamixplayer',
+  )
+  player.onVu = (voice, volume) => {
+    if (voice >= 0 && voice < OMIX_MAX_CHANNELS) s.omixVu[voice] = volume & 0xff
+  }
+  s.omix = player
+  return player
+}
+
 /** routine 92 ($4c86): `moveq #$17,d0 / Rjmp L_Error` */
 const badCall = (): never => {
   funcCall()
@@ -499,6 +636,36 @@ const dmeErr = (n: number): never => {
 }
 /** `moveq #$11,d0` (17) --- `Ptm Load` at $787c and `Ptm Play` at $794c */
 const notAModule = (): never => dmeErr(17)
+
+/**
+ * Routine 261 ($73c2): open `playsid.library` once and keep the base.
+ *
+ * `tst.l $f6(a2) / bne` skips it when the base is already there, otherwise
+ * `OpenLibrary` at exec -$228 with version 0 and the name at $740a. A failure
+ * is message 15.
+ *
+ * The routine's second half is dead: `moveq #$0,d0 / tst.l d0 / bne` can
+ * never branch, so message 14, "Can't initialize playsid.library", is
+ * unreachable in this extension. It is still in `DME_ERRORS` because the
+ * string is in the binary.
+ *
+ * DEVIATION: the library is always present here, because it is
+ * ../amiga/playsid.ts rather than a file in `LIBS:`. Message 15 therefore
+ * never fires, which is the one branch of this routine a program can see and
+ * this port cannot reach.
+ */
+function openPlaySid(s: DmeState): void {
+  if (s.sidOpened) return
+  s.sidOpened = true
+}
+
+/** Routine 258 ($72e8): `StopSong` at LVO -66 and `FreeEmulResource` at -36 */
+function sidStop(s: DmeState): void {
+  if (!s.sidPlaying) return
+  s.sidPlaying = false
+  s.sid.stopSong()
+  s.sid.freeEmulResource()
+}
 
 /** the eight bytes before a bank's data are its name; `Ptm Play` reads them as two longs */
 function isTrackerBank(rt: Runtime, n: number): boolean {
@@ -1759,6 +1926,134 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       s.s3mStarted = true
     },
 
+    /**
+     * Xm Load file$,bank --- routine 51 ($41d0).
+     *
+     * `moveq #$1,d1` at $4200 is Data alone, the second loader here to ask for
+     * no chip, and for the same reason ScreamTracker's does not: this library
+     * mixes in software and Paula only ever sees the four buffers LVO -30
+     * AllocMems for itself at $2101f2.
+     *
+     * The bank is checked TWICE and differently. $4248 compares four longs
+     * against "Extended Module:" and accepts; failing that, $4262 masks the
+     * long at $438 to its low three bytes and accepts "CHN", which is a
+     * multi-channel ProTracker module. Anything else is erased and is message
+     * 44. So the loader takes `4CHN` through `9CHN` but not `16CH` and not
+     * `M.K.`, where the LIBRARY's own detect at $21098c takes all of `nCHN`,
+     * `nnCH` and `TDZn` --- the extension is stricter than the thing it feeds.
+     */
+    'xm load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      // $41e8: reloading the bank that is playing stops it first
+      if (bank === s.xmBank && s.xmPlaying) {
+        s.xmPlaying = false
+        s.xm.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.xmBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, XM_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const magic = String.fromCharCode(...data.subarray(0, XM_MAGIC.length))
+      if (magic === XM_MAGIC) return
+      const tag =
+        ((data[XM_MOD_MAGIC_AT + 1] ?? 0) << 16) |
+        ((data[XM_MOD_MAGIC_AT + 2] ?? 0) << 8) |
+        (data[XM_MOD_MAGIC_AT + 3] ?? 0)
+      if (tag === XM_MOD_MAGIC) return
+      rt.eraseBank(bank)
+      dmeErr(XM_NOT_A_MODULE)
+    },
+
+    /**
+     * Xm Play [bank] --- routine 54 ($42f8) into 55, on the bank NAME.
+     *
+     * Routine 55 takes TWO parameters and the token table offers one. $42f8
+     * pushes $80000000 for the second, $4354 turns that back into a start
+     * order of zero, and nothing anywhere pushes anything else, so the order
+     * is always zero and the rest of $4354 is unreachable. The first
+     * parameter still uses the empty-argument convention: `Xm Play ,` leaves
+     * $80000000 on the stack and $4314 substitutes the bank `Xm Load` filled.
+     *
+     * DEVIATION: a bank holding a `nCHN` ProTracker module loads and then
+     * plays nothing. The library has a second sequencer for those --- $213874
+     * initialises it and $2139a8 is its tick, chosen by `$c4(a5)` at $210a4e
+     * --- and this port has only the FastTracker one. The library answers a
+     * module it cannot identify by returning zero from $21096a and starting
+     * no interrupt, which is silence rather than an error, so silence is what
+     * a MOD gets here too.
+     *
+     * DEFECT: three effects are computed and thrown away. Arpeggio and
+     * vibrato store their period into `$10(a4)` and tremolo its volume into
+     * `$12(a4)`, and the pass at $211bf4 that runs after every tick rewrites
+     * both registers from the channel block before the mixer reads them. A
+     * module that leans on `0xy`, `4xy` or `7xy` plays those notes flat and
+     * unmodulated. Tremor is in neither dispatch table and `Xxy` is past the
+     * end of both. `src/amiga/xmplay.ts` carries the instruction bytes.
+     */
+    'xm play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.xmPlaying = false
+      s.xm.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.xmBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== XM_BANK_NAME) dmeErr(XM_NOT_A_MODULE)
+      s.xmBank = bank
+      const song = parseXm(b!.data)
+      if (!song) return
+      s.xm.load(song)
+      s.xmPlaying = true
+      s.xmStarted = true
+    },
+
+    /** Xm Stop --- routine 53 ($42d8): the flag at $f2(a0), then LVO -36 */
+    'xm stop'() {
+      const s = st()
+      if (!s.xmPlaying) return
+      s.xmPlaying = false
+      s.xm.stop()
+    },
+
+    /**
+     * Xm Volume n --- routine 60 ($448c), 0 to 64 and an illegal argument
+     * outside it, into LVO -48.
+     *
+     * $2103a8 is `mulu.w #$40,d0 / lsr.w #$6,d0`, which is d0 for every value
+     * the range check lets through. The library multiplies by 64 and divides
+     * by 64 and stores what it was given.
+     */
+    'xm volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().xm.setMaster(v)
+    },
+
+    /**
+     * Xm Next Patt / Xm Prev Patt --- routines 61 ($44be) and 62 ($44e4),
+     * message 55 when nothing is playing, into LVO -60 and -54.
+     *
+     * $210838 rewinds with `subq.w #$1,$cc(a5) / tst.w $cc(a5) / bgt`, so an
+     * order of 1 does not land on 0: it lands on the module's restart
+     * position. Only a rewind from order 2 or higher steps by one.
+     */
+    'xm next patt'() {
+      const s = st()
+      if (!s.xmPlaying) dmeErr(XM_NOT_INITIALIZED)
+      s.xm.nextPattern()
+    },
+    'xm prev patt'() {
+      const s = st()
+      if (!s.xmPlaying) dmeErr(XM_NOT_INITIALIZED)
+      s.xm.prevPattern()
+    },
+
     /** S3m Stop --- routine 66 ($4612): the flag at $e6(a0), then LVO -36 */
     's3m stop'() {
       const s = st()
@@ -1956,6 +2251,166 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       s.omedStarted = true
     },
 
+    /**
+     * Omix Load file$,bank --- routine 237 ($6d70), a Data-only bank named
+     * "OctaMix " and the file length plus eight with NO rounding to even,
+     * which is the one loader here that does not.
+     *
+     * The content test is in two halves and the second is the whole story of
+     * this block. $6dd6 takes "MMD3" or "MMD2" and nothing else, message 6
+     * otherwise. Then $6df2 relocates through LVO -30 and $6df8 asks LVO -36
+     * what kind of module it is, and $6dfc demands the answer TWO. That is
+     * `mmdMixType`, and it is one bit: bit 7 of `flags2`. A module in
+     * four-channel or eight-channel mode is erased and is message 10 however
+     * many tracks it has.
+     *
+     * DEVIATION: LVO -30 relocates the bank in place, adding the load address
+     * to every stored offset. A bank here is already based at zero so nothing
+     * needs adding, and the bank is left exactly as the file was --- which a
+     * program could see by `Peek`ing it after a load.
+     */
+    'omix load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.omixBank && s.omixPlaying) {
+        s.omixPlaying = false
+        s.omix?.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.omixBank = bank
+      // $6da4 is `move.l d6,d2 / addq.l #$8,d2` and nothing else
+      rt.reserveBank(bank, bytes.length + 8, OMIX_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const id = String.fromCharCode(...data.subarray(0, 4))
+      if (id !== 'MMD3' && id !== 'MMD2') {
+        rt.eraseBank(bank)
+        dmeErr(OMIX_NOT_A_MODULE)
+      }
+      if (mmdMixType(data) !== 2) {
+        rt.eraseBank(bank)
+        dmeErr(OMIX_NOT_MIXING)
+      }
+    },
+
+    /**
+     * Omix Play [bank[,subsong]] --- routine 240 ($6e9e) into 241, on the bank
+     * NAME rather than on the id.
+     *
+     * Unlike every other `Play` in this extension the second parameter is
+     * REAL: the token table declares an unnamed "I0,0" variant at $01d4, and
+     * $6efa passes it to LVO -84 as the sub-song before LVO -54 starts the
+     * module. `Omix Play 5` is sub-song zero and `Omix Play 5,2` is the third.
+     */
+    'omix play'(it) {
+      const first = it.evalInt()
+      const song = it.accept(',') ? it.evalInt() : 0
+      const s = st()
+      s.omixPlaying = false
+      s.omix?.stop()
+      const bank = first === PTM_CURRENT_BANK ? s.omixBank : first
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      s.omixBank = bank
+      const player = omixFor(rt, s)
+      player.omixSubsong = song
+      player.play(bank, song)
+      s.omixPlaying = true
+      s.omixStarted = true
+    },
+
+    /** Omix Stop --- routine 239 ($6e7e): the flag at $6e(a0), then LVO -72 */
+    'omix stop'() {
+      const s = st()
+      if (!s.omixPlaying) return
+      s.omixPlaying = false
+      s.omix?.stop()
+    },
+
+    /** Omix Cont --- routine 244 ($6fd4): needs $6a(a0) set and $6e clear */
+    'omix cont'() {
+      const s = st()
+      if (s.omixPlaying) return
+      if (!s.omixStarted) return
+      s.omixPlaying = true
+      s.omix?.cont()
+    },
+
+    /**
+     * Omix 14 Bit On / Off --- routines 245 ($7002) and 246 ($702e), both into
+     * LVO -102, and both message 20 while something is playing.
+     *
+     * DEVIATION: the flag is kept and never acted on. $21183c picks one of four
+     * interrupt-and-converter pairs on it, and the 14-bit pair splits each
+     * sample into a high byte on one Paula pair and six low bits on the other
+     * at volume 1. `AudioSink` has one volume a voice and no way to sum two
+     * voices at a 64:1 ratio, so this port plays the 8-bit conversion either
+     * way. What a program can see is the flag and the error; what it cannot
+     * hear is the extra six bits.
+     */
+    'omix 14 bit on'() {
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_14BIT_BUSY)
+      omixFor(rt, s).omix14Bit = true
+    },
+    'omix 14 bit off'() {
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_14BIT_BUSY)
+      omixFor(rt, s).omix14Bit = false
+    },
+
+    /**
+     * Omix Freq n --- routine 247 ($705a), 1,000 to 65,535 and an AMOS error
+     * 23 outside it, message 21 while playing, into LVO -96.
+     *
+     * It is a REQUEST. $213610 turns it into a whole Paula period and $21365c
+     * divides the clock by that period again, and the second number is the one
+     * the mixer and the tempo actually use.
+     */
+    'omix freq'(it) {
+      const v = it.evalInt()
+      if (v < OMIX_MIN_RATE || v > OMIX_MAX_RATE) badCall()
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_FREQ_BUSY)
+      omixFor(rt, s).omixRequestedRate = v
+    },
+
+    /**
+     * Omix Buffer n --- routine 248 ($709a), 4 to 32,764, message 22 while
+     * playing, into LVO -90.
+     *
+     * DEVIATION: kept and not acted on. On the machine it is AUD0LEN and
+     * therefore the interrupt rate, and the mixer splices the sequencer against
+     * it at $2119be; this port mixes a whole tick at a time, so the buffer
+     * changes nothing it can hear. The range check and the error are real.
+     */
+    'omix buffer'(it) {
+      const v = it.evalInt()
+      if (v < OMIX_MIN_BUFFER || v > OMIX_MAX_BUFFER) badCall()
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_BUFFER_BUSY)
+      omixFor(rt, s).omixBuffer = v
+    },
+
+    /**
+     * Omix Next Patt / Omix Prev Patt --- routines 253 ($71a2) and 254
+     * ($71c8), message 54 when nothing is playing, into LVO -108 and -114.
+     */
+    'omix next patt'() {
+      const s = st()
+      if (!s.omixPlaying) dmeErr(OMIX_NOT_INITIALIZED)
+      s.omix?.octaNextPatt()
+    },
+    'omix prev patt'() {
+      const s = st()
+      if (!s.omixPlaying) dmeErr(OMIX_NOT_INITIALIZED)
+      s.omix?.octaPrevPatt()
+    },
+
     /** Omed Stop --- routine 222 ($6a2a): the flag at $60(a0), then LVO -$42 */
     'omed stop'() {
       const s = st()
@@ -2017,6 +2472,191 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (v < 0 || v > 0x40) badCall()
       st().s3m.master = v
     },
+
+    /**
+     * Sid Load file$, bank --- routine 256 ($7220), the same nine steps as
+     * `Ptm Load` with a different tag.
+     *
+     * `Rbsr routine 261` runs FIRST, so a machine with no `playsid.library`
+     * raises message 15 before the file is opened rather than after. The bank
+     * pops first (`move.l (a3)+,d3 / cmp.l #$10000,d3`), reloading the bank
+     * that is currently playing stops it, and the bank is a Work bank named
+     * "PSid    " sized as the file rounded up to even plus eight.
+     *
+     * The guide is explicit that a two-part module is not accepted: "It's only
+     * possible to load PlaySid mod's - One File Format - (no Data/Icon
+     * Files)." That is why DME never calls `ReadIcon`, the one public LVO of
+     * the library's fifteen that no keyword here reaches.
+     *
+     * The only check on the contents is `cmpi.l #$50534944,(a2)` at $728c ---
+     * the 'PSID' magic and nothing else. The header's version, its data
+     * offset and its song count are all `CheckModule`'s business, and
+     * `Sid Load` never calls it. A failed tag ERASES the bank ($72a0) before
+     * raising message 13, so a bad load leaves nothing behind.
+     */
+    'sid load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      openPlaySid(s)
+      if (bank >= 0x10000) badCall()
+      if (bank === s.sidBank && s.sidPlaying) sidStop(s)
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.sidBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, SID_BANK_NAME, true, true)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const magic = (data[0]! << 24) | (data[1]! << 16) | (data[2]! << 8) | data[3]!
+      if ((magic >>> 0) !== PSID_MAGIC) {
+        rt.eraseBank(bank)
+        dmeErr(SID_NOT_A_MODULE)
+      }
+    },
+
+    /**
+     * Sid Play bank [, song] --- routines 259 ($7314) and 260 ($731a).
+     *
+     * Two entries, because the token table's `!sid play` carries a $FE
+     * terminator and the nameless `I0,0` row after it is the two-argument
+     * variant. The one-argument form is six bytes: `clr.l -(a3)` pushes a
+     * zero song and falls into the other, so `Sid Play 3` IS
+     * `Sid Play 3,0`.
+     *
+     * DME's song number is ZERO-based and the library's is one-based:
+     * $7398 is `addq.l #$1,d7` before `jsr -$3c(a6)`. So `Sid Play b,0` asks
+     * `StartSong(1)`, and DME's own example walks `SUB` from 0 up to
+     * `Sid Songs - 1`. A bank of `$80000000` means the one `Sid Load` last
+     * used, which is the same sentinel `Ptm Play` takes.
+     *
+     * Then five library calls in order, at $736e to $739c:
+     *
+     *     -30  AllocEmulResource   and its result is NEVER TESTED
+     *     -96  SetVertFreq         60 on an NTSC machine, 50 otherwise
+     *     -54  SetModule           a2 as BOTH header and body, the one-part case
+     *     -60  StartSong           the song plus one
+     *
+     * DEFECT: `AllocEmulResource` returns `SID_LIBINUSE` when the resource is
+     * already held and DME ignores it, along with every other error the four
+     * calls can return. The audible effect is nil --- the library tolerates
+     * being asked twice, which is why $73a0 goes on to record the module
+     * regardless --- but a genuine out-of-memory would be silent.
+     */
+    'sid play'(it) {
+      const first = it.evalInt()
+      const song = it.accept(',') ? it.evalInt() : 0
+      const s = st()
+      const bank = first === PTM_CURRENT_BANK ? s.sidBank : first
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SID_BANK_NAME) dmeErr(SID_NOT_A_MODULE)
+      openPlaySid(s)
+      s.sid.allocEmulResource()
+      // $7372: `jsr $12c(a0)` is AMOS's own NTSC call and `tst.w d1` picks
+      // $3c or $32. `FnNTSC` returns 0 here --- the emulated machine is PAL
+      // and instr.ts says so --- so this arm is the only reachable one.
+      s.sid.setVertFreq(PAL_VERT_FREQ)
+      s.sid.setModule(b!.data)
+      s.sid.startSong((song + 1) & 0xffff)
+      s.sidBank = bank
+      s.sidPlaying = true
+    },
+
+    /**
+     * Sid Stop --- routine 258 ($72e8), and it does two things rather than one.
+     *
+     * `jsr -$42(a6)` is `StopSong` and `jsr -$24(a6)` right after it is
+     * `FreeEmulResource`, so stopping gives the 320KB back. That is why
+     * `Sid Play` allocates again every time instead of once.
+     */
+    'sid stop'() {
+      sidStop(st())
+    },
+
+    /**
+     * Sid Pause --- routine 264 ($746c), into LVO -72 `PauseSong`.
+     *
+     * Guarded on the extension's own flag rather than on the library's
+     * `PlayMode`, so pausing something already paused does nothing and
+     * cannot reach the library's `SID_NOPAUSE`.
+     */
+    'sid pause'() {
+      const s = st()
+      if (!s.sidPlaying) return
+      s.sidPlaying = false
+      s.sid.pauseSong()
+    },
+
+    /** Sid Cont --- routine 263 ($7446), into LVO -78 `ContinueSong` */
+    'sid cont'() {
+      const s = st()
+      if (s.sidPlaying) return
+      s.sidPlaying = true
+      s.sid.continueSong()
+    },
+
+    /**
+     * Sid Forward --- routine 265 ($7490): `ForwardSong(16)`, and the 16 is
+     * the extension's, not the caller's.
+     *
+     * `moveq #$0,d0 / move.w #$10,d0` at $74a2 is a fixed sixteen, which is
+     * why the keyword takes no argument where the library's LVO does. Nothing
+     * playing is message 16.
+     */
+    'sid forward'() {
+      const s = st()
+      if (!s.sidPlaying) dmeErr(SID_NOT_INITIALIZED)
+      s.sid.forwardSong(SID_FORWARD_STEPS)
+    },
+
+    /**
+     * Sid Rewind --- routine 266 ($74bc): `SetReverseEnable(1)` and then
+     * `RewindSong(32)`, twice Forward's step.
+     *
+     * Setting the reverse flag first is what playsid's own developer notes
+     * require of RewindSong, and DME is the reason the flag has no keyword of
+     * its own: nothing else in the extension ever writes it. The guide says
+     * only "Use this command to rewind a currently replaying Sid-Song."
+     */
+    'sid rewind'() {
+      const s = st()
+      if (!s.sidPlaying) dmeErr(SID_NOT_INITIALIZED)
+      s.sid.setReverseEnable(true)
+      s.sid.rewindSong(SID_REWIND_STEPS)
+    },
+
+    /**
+     * Sid Channel n --- routine 267 ($74ec), and it is the extension's one
+     * broken keyword.
+     *
+     * The range check is real: `cmp.l #$4,d7 / Rbhi` and `cmp.l #$1,d7 /
+     * Rblt` make anything outside 1 to 4 an AMOS error 23, and the guide
+     * states the intent --- "With this command you can choose,how many
+     * channels you will use for replaying Sid-Song."
+     *
+     * DEFECT: `SetChannelEnable` takes a POINTER to four 16-bit booleans ---
+     * `void SetChannelEnable( BOOL flags[4] )` in Developer.doc, and
+     * `$2102e8` copies eight bytes from A0. $7518 is `movea.l d7,a0`, which
+     * puts the COUNT in the address register. So the library reads its four
+     * flags from address 1, 2, 3 or 4, which on a real machine is the reset
+     * vectors and SysBase; on a 68000 the odd two are an address error as
+     * well. The keyword cannot do what its own example says it does.
+     *
+     * DEVIATION: nothing is mapped at address 1 to 4 here, so rather than
+     * invent bytes this enables all four channels, which is the state the
+     * library was in before the call. The range check, the error and the
+     * `SetReverseEnable(1)` at $7512 are all reproduced, because those are
+     * the parts of the keyword that work.
+     */
+    'sid channel'(it) {
+      const n = it.evalInt()
+      const s = st()
+      openPlaySid(s)
+      if (n < 1 || n > 4) badCall()
+      s.sid.setReverseEnable(true)
+      s.sid.setChannelEnable([true, true, true, true])
+    },
   }
 }
 
@@ -2035,6 +2675,25 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       const b = rt.memBanks.get(bank)
       if (!b || b.name.padEnd(8).slice(0, 8) !== THX_BANK_NAME) dmeErr(23)
       return VI(b!.data[THX_SUBSONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Sid Songs(bank) --- routine 268 ($7524), the block's only function.
+     *
+     * `L_Bnk_OrAdr` on the bank, the "PSid    " name checked as two longs at
+     * -$8 and -$4, then `move.b $f(a2),d3`: one byte out of the BANK, not out
+     * of the library, so it answers without a module being set. A bank that
+     * is not a PSid is message 13.
+     *
+     * It reads the header's song count at $0e as a BYTE from $0f, which is
+     * the low half. `SIDHeader.number` is a UWORD, so a file with 256 songs
+     * would report zero. Nothing has more than twelve.
+     */
+    'sid songs': (_, a) => {
+      const bank = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== SID_BANK_NAME) dmeErr(SID_NOT_A_MODULE)
+      return VI(b!.data[SID_SONGS_AT] ?? 0)
     },
 
     /**
@@ -2487,6 +3146,100 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       return VI(st().s3m.readVu(n))
     },
 
+    /**
+     * =Xm Song Length(bank) — routine 59 ($442e), which calls no vector and
+     * reads a BYTE.
+     *
+     * Which byte depends on what the bank holds: $4478 takes $3b6 for a `CHN`
+     * module, which is ProTracker's song length, and $446a takes $40 for an
+     * XM, which is the LOW half of a little-endian word. A 256-order module
+     * therefore reports 0. Message 44 when the bank is not named "XMmod   ".
+     */
+    'xm song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== XM_BANK_NAME) dmeErr(XM_NOT_A_MODULE)
+      const d = bank!.data
+      const tag = ((d[XM_MOD_MAGIC_AT + 1] ?? 0) << 16) | ((d[XM_MOD_MAGIC_AT + 2] ?? 0) << 8) | (d[XM_MOD_MAGIC_AT + 3] ?? 0)
+      return VI(tag === XM_MOD_MAGIC ? (d[XM_MOD_LENGTH_AT] ?? 0) : (d[XM_LENGTH_AT] ?? 0))
+    },
+
+    /**
+     * =Xm Song Pos — routine 58 ($43fe) into LVO -42, guarded by `$f3(a2)`.
+     *
+     * `Xm Stop` clears `$f2(a2)` and leaves `$f3(a2)` set, so the position
+     * survives a stop and this keeps reporting the order the module was on.
+     */
+    'xm song pos': () => VI(st().xmStarted ? st().xm.position : 0),
+
+    /** =Xm Vu(n) — routine 63 ($450a), 0..31, into LVO -66, read and cleared */
+    'xm vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 32) badCall()
+      return VI(st().xm.readVu(n))
+    },
+
+    /**
+     * =Omix Song Length(bank) — routine 249 ($70da), which calls no vector.
+     *
+     * DEFECT: it answers only for an MMD3. $70fc is `cmpi.l #$4d4d4433,(a2) /
+     * bne`, and the branch goes to the `rts` at $7116 WITHOUT setting d3 or d2
+     * --- so on an MMD2, which is the other id `Omix Load` accepts, the
+     * keyword returns whatever the expression stack happened to be holding.
+     * This port answers 0 there rather than inventing a register's contents.
+     *
+     * The byte it reads for an MMD3 is at module+$5d, which is not a field any
+     * MMD documentation names and is thirteen bytes past the end of the 52-byte
+     * header. Reproduced as read.
+     */
+    'omix song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      const d = bank!.data
+      if (String.fromCharCode(...d.subarray(0, 4)) !== 'MMD3') return VI(0)
+      return VI(d[OMIX_MMD3_LENGTH_AT] ?? 0)
+    },
+
+    /** =Omix Subsongs(bank) — routine 250 ($711e): the byte at module+$33 */
+    'omix subsongs': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      return VI(bank!.data[MMD_EXTRA_SONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Omix Song Pos — routine 251 ($715a), and it calls no vector either: it
+     * takes the bank's address and reads `pseqnum` at $2e, which the replay
+     * writes back into the module's own header as it plays. Guarded by
+     * `$70(a2)`, which `Omix Stop` leaves set.
+     */
+    'omix song pos': () => {
+      const s = st()
+      if (!s.omixStarted) return VI(0)
+      const bank = rt.memBanks.get(s.omixBank)
+      return VI(bank ? ((bank.data[MMD_PSEQNUM_AT] ?? 0) << 8) | (bank.data[MMD_PSEQNUM_AT + 1] ?? 0) : 0)
+    },
+
+    /** =Omix Patt Pos — routine 252 ($717e), the same shape reading `pline` at $2c */
+    'omix patt pos': () => {
+      const s = st()
+      if (!s.omixStarted) return VI(0)
+      const bank = rt.memBanks.get(s.omixBank)
+      return VI(bank ? ((bank.data[MMD_PLINE_AT] ?? 0) << 8) | (bank.data[MMD_PLINE_AT + 1] ?? 0) : 0)
+    },
+
+    /** =Omix Vu(n) — routine 255 ($71ee), 0..63, into LVO -120, read and cleared */
+    'omix vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= OMIX_MAX_CHANNELS) badCall()
+      const s = st()
+      const v = s.omixVu[n] ?? 0
+      s.omixVu[n] = 0
+      return VI(v)
+    },
+
     /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
     'dmed vu': (_, a) => {
       const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
@@ -2528,6 +3281,13 @@ export function dmeVbl(rt: Runtime): void {
   // its own tick is a buffer of mix rather than a register write, so one frame
   // is one tick here and the tempo shows in the buffer length instead
   if (s.s3mPlaying) s.s3m.vbl()
+  // OctaMix is the third OctaMED build: the same sequencer, and a tick that
+  // is a span of software mix rather than a DMA buffer or a CIA underflow
+  if (s.omixPlaying) s.omix?.vbl()
+  // FastTracker is ScreamTracker's shape exactly: a CIA at the module's BPM,
+  // and a tick that is a buffer of mix rather than a register write, so the
+  // tempo shows in `samplesPerTick` and not in how often this comes round
+  if (s.xmPlaying) s.xm.vbl()
   // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
   if (s.dmedPlaying) s.dmed?.vbl()
   // OctaMed is the same replay on a different clock: its tick is the end of a
@@ -2536,6 +3296,13 @@ export function dmeVbl(rt: Runtime): void {
   // TFMX is CIA-B timer B, 50 Hz by default and up to 500 when a subsong names
   // a divisor, so its own `vbl` counts the interrupts a frame owes it
   if (s.tfmxPlaying) s.tfmx.vbl()
+  // PlaySid runs the tune's own 6502 once a frame. `$210726` is hung off a
+  // CIA timer whose reload `$210a46` picks as $376c (PAL, 709,379/50) or
+  // $2e9c (NTSC), and the PSID speed bitmap chooses between the raster and
+  // that timer per song. Both are 50Hz here, so a CIA-speed tune runs at the
+  // raster's rate --- the same simplification every other replayer in this
+  // file carries, and the reason `usesCia` is recorded but not acted on.
+  if (s.sidPlaying) s.sid.tick()
   if (s.digiPlaying && s.digiUnpaused) {
     s.digiTime += 1 / VBL_HZ
     for (let guard = 0; guard < 64 && s.digiTime > 0; guard++) {

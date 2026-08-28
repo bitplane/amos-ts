@@ -8,16 +8,31 @@
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { describeWith } from '../testing/fixture'
 import {
+  MMD2_CHANNELS_AT,
+  MMD2_ECHODEPTH_AT,
+  MMD2_ECHOTYPE_AT,
+  MMD2_FLAGS3_AT,
   MMD2_NUMPSEQS_AT,
   MMD2_NUMTRACKS_AT,
   MMD2_PLAYSEQ_HEADER,
   MMD2_PLAYSEQ_LENGTH_AT,
+  MMD2_STEREOSEP_AT,
+  MMD2_VOLADJ_AT,
   MMD_BLOCK_HEADER,
+  MMD_FLAG2_BMASK,
+  MMD_FLAG2_BPM,
+  MMD_FLAG2_MIX,
+  MMD_FLAG_8CHANNEL,
+  MMD_FLAGS2_AT,
+  MMD_FLAGS_AT,
   MMD_INSTRUMENTS,
   MMD_INSTRUMENT_BYTES,
   MMD_NOTE_BYTES,
+  MMD_TEMPO2_AT,
   mmd2NoteAt,
+  mmdMixType,
   parseMmd2,
   type Mmd2Song,
 } from './mmd2'
@@ -151,5 +166,84 @@ describe.skipIf(!notears)('"No Tears", the four-track case', () => {
     // which is the point: the format, not the width, decides who plays it
     expect(song.id).toBe('MMD2')
     expect(song.extraSongs).toBe(0)
+  })
+})
+
+describe('the mixing-mode tail, which only DME_OctaMix.library reads', () => {
+  /** the fields sit between trackpans at $20c and deftempo at $2fc */
+  it('lays the mix fields out where the library indexes them', () => {
+    expect(MMD2_FLAGS3_AT).toBe(0x210)
+    expect(MMD2_VOLADJ_AT).toBe(0x214)
+    expect(MMD2_CHANNELS_AT).toBe(0x216)
+    expect(MMD2_ECHOTYPE_AT).toBe(0x218)
+    expect(MMD2_ECHODEPTH_AT).toBe(0x219)
+    expect(MMD2_STEREOSEP_AT).toBe(0x21c)
+    expect(MMD_TEMPO2_AT).toBe(0x301)
+  })
+
+  /** flags2 packs three things into one byte, and $2115ce reads two of them */
+  it('splits flags2 into a beat mask, a BPM bit and the mix bit', () => {
+    expect(MMD_FLAG2_BMASK).toBe(0x1f)
+    expect(MMD_FLAG2_BPM).toBe(0x20)
+    expect(MMD_FLAG2_MIX).toBe(0x80)
+    expect(MMD_FLAG2_BMASK | MMD_FLAG2_BPM | MMD_FLAG2_MIX).toBe(0xbf)
+  })
+
+  /**
+   * $212e5c, and the reason `Omix Load` refuses every module in `fixtures/`.
+   * Two bits, tested in that order, and a module with neither answers 0.
+   */
+  it('answers 2 for the mix bit, 1 for the eight-channel bit and 0 for neither', () => {
+    const mod = (flags: number, flags2: number): Uint8Array => {
+      const d = new Uint8Array(0x400)
+      d.set([0x4d, 0x4d, 0x44, 0x32])
+      // the song pointer, as a bank-relative offset
+      d[8] = 0
+      d[9] = 0
+      d[10] = 0
+      d[11] = 0x40
+      d[0x40 + MMD_FLAGS_AT] = flags
+      d[0x40 + MMD_FLAGS2_AT] = flags2
+      return d
+    }
+    expect(mmdMixType(mod(0, 0))).toBe(0)
+    expect(mmdMixType(mod(0, MMD_FLAG2_MIX))).toBe(2)
+    expect(mmdMixType(mod(MMD_FLAG_8CHANNEL, 0))).toBe(1)
+    // the mix bit is tested FIRST, so it wins when both are set
+    expect(mmdMixType(mod(MMD_FLAG_8CHANNEL, MMD_FLAG2_MIX))).toBe(2)
+    // and the beat mask and the BPM bit are not the mix bit
+    expect(mmdMixType(mod(0, MMD_FLAG2_BMASK | MMD_FLAG2_BPM))).toBe(0)
+  })
+
+  it('is 0 for anything too short to hold a song header', () => {
+    expect(mmdMixType(new Uint8Array(16))).toBe(0)
+  })
+})
+
+describeWith('an OctaMED Professional 6 module', load('omed-cuku'), (song) => {
+  /**
+   * The point of this suite. All three fixtures are MMD2 and none of them has
+   * the mix bit, which is why `Omix Load` refuses all 187 of the modules that
+   * shipped with the tracker that wrote them.
+   */
+  it('is a real MMD2 that OctaMix would refuse', () => {
+    expect(song.id).toBe('MMD2')
+    expect(song.mixType).not.toBe(2)
+    expect(song.flags2 & MMD_FLAG2_MIX).toBe(0)
+  })
+
+  it('reads the tempo tail every MMD song shares', () => {
+    expect(song.defTempo).toBeGreaterThan(0)
+    expect(song.tempo2).toBeGreaterThan(0)
+    // the beat mask plus one is what $2115d2 multiplies the BPM by
+    expect((song.flags2 & MMD_FLAG2_BMASK) + 1).toBeGreaterThan(0)
+  })
+
+  /**
+   * $213672 is `move.w $216(a4),d0 / bne / moveq #$4,d0`, so a module that
+   * never set the field mixes four channels rather than none.
+   */
+  it('defaults the channel count to four rather than zero', () => {
+    expect(song.channels).toBeGreaterThanOrEqual(4)
   })
 })
