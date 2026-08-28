@@ -2249,14 +2249,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       s.drawWindowFrame2()
     },
+    /*
+     * InTitleTop and InTitleBottom (+Lib.s:13181) copy the string through
+     * `Rbsr L_ChVerBuf` before WnTT sees it, and ChVerBuf2 (+Lib.s:3654) is
+     * `cmp.w #510,d0 / bcs.s Chv1 / move.w #509,d0` into the 512-byte
+     * Buffer: 510 characters and a terminator, whatever it was handed.
+     */
     'title top'(it) {
       const s = scr()
-      s.curWin.titleTop = it.evalStr()
+      s.curWin.titleTop = it.evalStr().slice(0, 510)
       s.drawWindowFrame2()
     },
     'title bottom'(it) {
       const s = scr()
-      s.curWin.titleBottom = it.evalStr()
+      s.curWin.titleBottom = it.evalStr().slice(0, 510)
       s.drawWindowFrame2()
     },
 
@@ -4682,14 +4688,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } while (it.accept(','))
     },
     pof(it) {
-      // assignment form: Pof(n) = position
+      /*
+       * InPof (+Lib.s:5127) is `move.l d3,d2 / Rbmi L_FonCall` before the
+       * Seek, so a negative position is error 23 and not a clamp to zero.
+       * The Seek itself is `moveq #-1,d3`, OFFSET_BEGINNING, and a failure
+       * is `tst.l d0 / Rbmi L_DiskError`.
+       *
+       * The reader is the same Seek with offset 0 and mode 0, which answers
+       * the position it was already at.
+       */
       it.expect('(')
       const c = rt.chan(it.evalInt())
       it.expect(')')
       it.expectOp('=')
       const v = it.evalInt()
-      if (c.mode === 'in') c.pos = Math.max(0, Math.min(c.data.length, v))
-      else c.out.length = Math.max(0, Math.min(c.out.length, v))
+      if (v < 0) funcCall()
+      if (c.mode === 'in') c.pos = Math.min(c.data.length, v)
+      else c.out.length = Math.min(c.out.length, v)
     },
     'set input'(it) {
       /*

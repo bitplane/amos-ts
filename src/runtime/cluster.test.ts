@@ -671,6 +671,9 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     // ErDisk table's first entry, so a second one is 79 not a generic fault
     expect(code('Mkdir "DH0:d"')).toBe(0)
     expect(code('Mkdir "DH0:d" : Mkdir "DH0:d"')).toBe(79)
+    // InPof (+Lib.s:5127) is `move.l d3,d2 / Rbmi L_FonCall` before the Seek
+    expect(code('Open Out 1,"DH0:p" : Pof(1)=-1')).toBe(23)
+    expect(code('Open Out 1,"DH0:p" : Pof(1)=0')).toBe(0)
   })
 })
 
