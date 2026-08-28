@@ -55,7 +55,7 @@ export interface Wind {
   /**
    * WiSys bit 1 (+W.s:13605): the cursor is a property of the WINDOW, not of
    * the screen. WOpen sets it on every window it creates (`bset #1,WiSys` at
-   * +W.s:13778, right before its AffCur), so a Curs Off does not carry into
+   * +W.s:13749, right before its AffCur), so a Curs Off does not carry into
    * the next window a program opens, and two windows can disagree.
    */
   cursor: boolean

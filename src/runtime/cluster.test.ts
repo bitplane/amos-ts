@@ -596,6 +596,29 @@ describe('integration: Run and the environment cluster', () => {
     expect(lines[3]).toBe('[' + '*sub'.padEnd(10) + ' '.repeat(8) + ']')
   })
 
+  it('a Set Dir width is rounded even, and its ceiling is unsigned', () => {
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InSetDir1 (+Lib.s:5498) is `cmp.l #EntNul,d3 / beq.s .Skip / and.l
+    // #$FFFFFFFE,d3 / Rbeq L_FonCall / cmp.l #106,d3 / Rbcc L_FonCall`. The
+    // AND runs first, so 1 becomes 0 and joins 0 in the refusal, and the
+    // ceiling is `Rbcc` -- unsigned, which is what catches the negatives.
+    expect(code('Set Dir 0')).toBe(23)
+    expect(code('Set Dir 1')).toBe(23)
+    expect(code('Set Dir 106')).toBe(23)
+    expect(code('Set Dir -2')).toBe(23)
+    expect(code('Set Dir -1')).toBe(23)
+    expect(code('Set Dir 104')).toBe(0)
+    // and the whole test is skipped when the width is left out
+    expect(code('Set Dir ,"*.info"')).toBe(0)
+  })
+
   it('Disc Info$ returns "VOLUME:" + 10-char free-byte field (FnDiscInfo +Lib.s:4995)', () => {
     const { out } = run('A$=Disc Info$("DH0:")\nPrint Left$(A$,Len(A$)-10)\nPrint Val(Right$(A$,10))')
     const lines = out.split('\n')
@@ -691,6 +714,23 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(code('Open Out 1,"DH0:x" : Append 1,"DH0:y"')).toBe(96)
     // and closing it first makes the slot free again
     expect(code('Open Out 1,"DH0:x" : Close 1 : Open Out 1,"DH0:y"')).toBe(0)
+    /*
+     * Open Random reaches the same two lines by another road: `move.w
+     * #$80,d0 / Rbsr L_RanApp` (+Lib.s:5220), and RanApp opens `move.l
+     * (a3)+,d0 / Rbsr L_GetFile / Rbne L_FilOO` (+Lib.s:5243) exactly as OpIn
+     * does. It was the one opener in the port that checked neither, so
+     * channel 0 opened and a second one dropped the first file in silence.
+     */
+    expect(code('Open Random 0,"DH0:r"')).toBe(23)
+    expect(code('Open Random 10,"DH0:r"')).toBe(23)
+    expect(code('Open Random 1,"DH0:r" : Open Random 1,"DH0:s"')).toBe(96)
+    expect(code('Open Out 1,"DH0:r" : Open Random 1,"DH0:s"')).toBe(96)
+    // and =Port reads the channel through GetFile too (FnPort +Lib.s:5023),
+    // so an out-of-range one is 23 before it is ever "not opened"
+    expect(code('A=Port(0)')).toBe(23)
+    expect(code('A=Port(10)')).toBe(23)
+    expect(code('A=Port(1)')).toBe(97)
+    expect(code('Open Out 1,"DH0:x" : A=Port(1)')).toBe(98)
     // Mkdir takes the same DiskError route, and ERROR_OBJECT_EXISTS is the
     // ErDisk table's first entry, so a second one is 79 not a generic fault
     expect(code('Mkdir "DH0:d"')).toBe(0)
@@ -910,6 +950,21 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     const { rt, out } = run(prog)
     expect(out).toBe(' 240\n')
     expect(rt.frozenSprites!.find((s) => s.n === 8)!.x).toBe(240) // snapshot updated
+  })
+
+  it('plain Update applies the buffered sprites too, because ActHs/AffHs are its tail', () => {
+    // InUpdate (+Lib.s:11444) ends `SyCall ActHs / SyCall AffHs` after the
+    // screen swap, and those two calls ARE InSpriteUpdate (+Lib.s:11479).
+    // The port stopped at SwapScS, so a sprite created after the freeze was
+    // never drawn -- the display reads `frozenSprites ?? []`.
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
+      'Sprite Update Off',
+      'Sprite 8,100,100,1',
+      'Update',
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.frozenSprites!.find((s) => s.n === 8)!.x).toBe(100)
   })
 })
 
@@ -1645,6 +1700,20 @@ describe('memory model', () => {
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     rt.runHeadless(50)
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '1', '2'])
+  })
+
+  it('a Load bank number is bounded above and means "the file decides" below zero', () => {
+    // InLoad2 (+Lib.s:3996) is `cmp.l #$10000,d3 / Rbge L_FonCall`, and only
+    // the two-argument entry has it -- InLoad1 (+Lib.s:3988) pushes EntNul
+    // and branches past. The test is signed, so 65536 stops and -1 does not.
+    const bad = 'Reserve As Work 5,100 : Save "DH0:a.abk",5 : Load "DH0:a.abk",65536'
+    expect(() => run(bad)).toThrow(/function call/)
+    // Below zero is not a bank number at all. `move.l d5,d3 / bpl.s .Skip1 /
+    // moveq #0,d3 / move.w (a2),d3 / bne.s .Skip1 / moveq #5,d3`
+    // (+Lib.s:4058) takes the number out of the bank header instead, which is
+    // the same path EntNul reaches by being negative.
+    const { rt } = run('Reserve As Work 5,100 : Save "DH0:a.abk",5 : Erase 5 : Load "DH0:a.abk",-1')
+    expect([...rt.memBanks.keys()]).toEqual([5])
   })
 
   it('reserves banks, peeks and pokes through fake addresses', () => {

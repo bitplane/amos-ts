@@ -1266,10 +1266,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.arexx.held = null
     },
 
-    // ---- the Dev * family (+Lib.s:3300-3385) ---------------------------
+    // ---- the Dev * family (+Lib.s:3274-3357) ---------------------------
     /**
      * Dev Open CHANNEL,NAME$,LENGTH,UNIT,FLAGS --- `Lib_Par InDevOpen`
-     * (+Lib.s:3303). An empty name is a function-call error and so is a
+     * (+Lib.s:3274). An empty name is a function-call error and so is a
      * LENGTH of zero or less (`Rble L_FonCall`); a channel already open is
      * error 140, from `Dev.Open`'s own `.AOp` arm.
      *
@@ -1282,6 +1282,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * Which names open is `DEV_MODELLED` in device.ts: this port has a back
      * end for trackdisk, serial, printer and parallel, and answering yes for
      * anything else would be claiming a device that does nothing.
+     *
+     * DEFECT: channel 7 is one slot past the end of the table. `Dev.GetA2`
+     * (+Lib.s:3020) admits 0 to 7 with `cmp.l #Dev_Max,d0 / Rbhi L_FonCall`
+     * and indexes with `mulu #12,d0`, but the table is `Dev_List rs.b
+     * 12*Dev_Max` (+Equ.s:1394), 84 bytes for seven slots. Channel 7 lands at
+     * offset 84, and `Lib_List rs.l 4*Lib_Max` starts there -- so `Dev Open 7`
+     * writes its twelve bytes over the base pointers of libraries 0, 1 and 2.
+     * Nothing here reproduces that: the three keywords that would show it,
+     * `=Lib Base`, `=Lib Call` and `Lib Close`, are the m68k-deferred set.
      */
     'dev open'(it) {
       const chan = it.evalInt()
@@ -1313,8 +1322,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Dev Close [CHANNEL] --- `InDevClose0` and `InDevClose1` (+Lib.s:3296,
-     * :3332), two entries on one name. With no argument `Dev.Close` sweeps
+     * Dev Close [CHANNEL] --- `InDevClose0` (+Lib.s:3296) and `InDevClose1`
+     * (+Lib.s:3303), two entries on one name. With no argument `Dev.Close` sweeps
      * every channel from Dev_Max down to zero; with one it closes that
      * channel alone. Closing a device that is not open is not an error, which
      * is `Dev.CloseA2`'s own behaviour.
@@ -1839,7 +1848,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * The screen may be omitted: `Get Palette,0` is in the corpus
      * (APD470/HomeRun2). An omitted slot has a defined value — the comma's
      * FUNCTION routine is `FnNull` (+ILib.s:3725), which loads `EntNul`
-     * ($80000000, +Equ.s:67) into d3 and steps the token pointer back two so
+     * ($80000000, +Equ.s:39) into d3 and steps the token pointer back two so
      * the collector's own comma-skip still lands right. Keywords that accept
      * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2621/4395)
      * compare every parameter against EntNul and leave the field alone.
@@ -2725,10 +2734,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = false
     },
     update() {
-      // InUpdate +Lib.s:11435: EffBob, ActBob, AffBob, SwapScS, then the
-      // hardware sprites. The swap is the half this used to leave out.
+      /*
+       * InUpdate (+Lib.s:11435) is six calls: `SyCall EffBob / ActBob /
+       * AffBob / EcCall SwapScS` and then, after the a5 restore, `SyCall
+       * ActHs / SyCall AffHs`.
+       *
+       * Those last two ARE InSpriteUpdate (+Lib.s:11479), which is nothing
+       * else, so Update does the sprite half as well as the bob half. The
+       * port stopped after the swap, so under Sprite Update Off a sprite
+       * moved and then Updated stayed at its frozen position -- and one
+       * created after the freeze was not drawn at all, because the display
+       * reads `frozenSprites ?? []`.
+       */
       rt.updateBobs()
       rt.swapDoubleBuffered()
+      if (!rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((s) => ({ ...s }))
     },
     'update every'(it) {
       // InUpdateEvery (+Lib.s:11490) is `cmp.l #65536,d3 / Rbcc L_FonCall`
@@ -3450,6 +3470,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // Load "file.abk"[,bank#] — install banks from an .Abk/.AMOS container
       const path = it.evalStr()
       const forced = it.accept(',') ? it.evalInt() : null
+      // InLoad2 (+Lib.s:3996) is `cmp.l #$10000,d3 / Rbge L_FonCall` and only
+      // the two-argument entry carries it; InLoad1 (+Lib.s:3988) pushes
+      // EntNul and branches straight into Load0. The test is SIGNED, so it
+      // stops 65536 and lets every negative number through to Bnk.Load
+      if (forced !== null && forced >= 0x10000) funcCall()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       const file = parseAmosFile(bytes)
@@ -3460,9 +3485,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.spriteBank = null
         rt.iconBank = null
       }
-      // a forced number applies only to a single-bank load; a multi-bank
-      // container restores each bank to its own stored number (Bnk.Load
-      // +Lib.s:4054) — forcing every bank would collide them
+      /*
+       * a forced number applies only to a single-bank load; a multi-bank
+       * container restores each bank to its own stored number (Bnk.Load,
+       * +Lib.s:4025) — forcing every bank would collide them
+       *
+       * A NEGATIVE number is not a bank number, it is the same request as
+       * leaving the argument out. `move.l d5,d3 / bpl.s .Skip1 / moveq #0,d3
+       * / move.w (a2),d3 / bne.s .Skip1 / moveq #5,d3` (+Lib.s:4058) reads
+       * the number out of the bank header and falls back to 5, and EntNul
+       * reaches it by being negative rather than by being EntNul. The port
+       * took -1 at face value and installed the bank at -1, where nothing
+       * that names a bank could reach it again.
+       */
+      const numbered = forced !== null && forced >= 0
       const single = file.banks.length === 1
       for (const bank of file.banks) {
         if (bank.kind === 'sprites' || bank.kind === 'icons') {
@@ -3485,7 +3521,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
             cur.images.push(...nb.images)
             cur.palette = nb.palette
           } else rt[slot] = nb
-        } else if (bank.kind === 'memory') rt.memBanks.set(single && forced !== null ? forced : bank.number || 5, bank)
+        } else if (bank.kind === 'memory') rt.memBanks.set(single && numbered ? forced : bank.number || 5, bank)
       }
     },
     // ---- audio ----
@@ -3791,7 +3827,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     exec(it) {
       /*
-       * Exec "command" — InExec (+Lib.s:3392), source tier and complete:
+       * Exec "command" — InExec (+Lib.s:3363), source tier and complete:
        *
        *     move.l  d3,a2 / move.w (a2)+,d2
        *     Rbeq    L_FonCall               ; an empty string is error 23
@@ -3936,7 +3972,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // there is no argument to read either.
     },
     'iff anim'(it) {
-      // InIffAnim +Lib.s:4538: Iff Anim "file" To screen[,times] — the
+      // InIffAnim2 +Lib.s:4509: Iff Anim "file" To screen[,times] — the
       // whole ANIM loads, frame 1 creates and double-buffers the
       // screen, then each frame waits the ANHD time, swaps, and plays
       // the next DLTA into the logical buffer (which is what makes
@@ -4725,7 +4761,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     bload(it) {
-      // InBload +Lib.s:4307: destination through Bnk.OrAdr — a bank
+      // InBload +Lib.s:4278: destination through Bnk.OrAdr — a bank
       // number names a RESERVED bank (missing = bank not reserved); the
       // whole file loads to the address (bounded here by the region;
       // the real machine would overrun into raw memory)
@@ -4738,7 +4774,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (m) m.data.set(bytes.subarray(0, m.data.length - m.off), m.off)
     },
     bsave(it) {
-      // InBSave +Lib.s:4307: end-start must be positive (Rbls FonCall);
+      // InBSave +Lib.s:4310: end-start must be positive (Rbls FonCall);
       // the start goes through Bnk.OrAdr
       const path = it.evalStr()
       it.expect(',')
@@ -4896,9 +4932,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- files (Open In/Out, Print #, sequential channels) ----
     'open random'(it) {
-      // InOpenRandom +Lib.s:5220 (RanApp $80): opens the existing file
-      // or creates it; the channel type is random-access
-      const n = it.evalInt()
+      /*
+       * InOpenRandom (+Lib.s:5220) is `move.w #$80,d0 / Rbsr L_RanApp`, and
+       * RanApp (+Lib.s:5243) opens on the same two lines Append does: `move.l
+       * (a3)+,d0 / Rbsr L_GetFile / Rbne L_FilOO`. So the channel goes
+       * through GetFile's 1-to-9 bound and a channel that already holds a
+       * handle is error 96, not a replacement.
+       *
+       * This is the one of the five openers that had neither. Open In, Open
+       * Out, Open Port and Append all reach openChan; Open Random wrote
+       * straight into the map, so `Open Random 0` opened channel 0 and a
+       * second Open Random on a live channel dropped the first file.
+       *
+       * The file itself is opened OLD and then NEW (+Lib.s:5247), which is
+       * why a missing one is created rather than a disc error.
+       */
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const data = rt.fs?.read(path)
@@ -5256,12 +5305,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       prev!.memBanks.set(n, bank)
     },
     'set dir'(it) {
-      // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
+      // InSetDir0/1 (+Lib.s:5496): Set Dir [width][,neg$] — width is
       // forced even (and.l #$FFFFFFFE), must be 2..104; the second arg is
       // the negative filename filter for listings
+      //
+      // `cmp.l #106,d3 / Rbcc L_FonCall` (+Lib.s:5502) is unsigned and runs
+      // AFTER the AND, so -1 arrives as $fffffffe and is refused with 200.
+      // A signed test let it through and stored a width of -2
       if (!(it.atStmtEnd() || it.nm() === ',')) {
         const w = it.evalInt() & ~1
-        if (w === 0 || w >= 106) funcCall()
+        if (w === 0 || w >>> 0 >= 106) funcCall()
         rt.dirWidth = w
       }
       if (it.accept(',')) rt.dirNegFilter = it.evalStr()
@@ -5509,20 +5562,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.iffMask = it.evalInt()
     },
     'save iff'(it) {
-      // InSaveIff1/2 +Lib.s:4595: save the screen as a compressed ILBM;
-      // the optional 2nd arg is the compression mode (must be < 3)
+      // InSaveIff1/2 (+Lib.s:4595, :4601): save the screen as a compressed
+      // ILBM; the optional 2nd arg is the compression mode (must be < 3)
       const path = it.evalStr()
-      if (it.accept(',')) {
-        const mode = it.evalInt()
-        if (mode >>> 0 >= 3) funcCall()
-      }
+      const mode = it.accept(',') ? it.evalInt() : 1
+      // InSaveIff2 opens `tst.l ScOnAd(a5) / Rbeq L_ScNOp` (+Lib.s:4603) and
+      // only then `cmp.l #3,d3 / Rbcc L_FonCall`, so with no screen open a
+      // bad compression mode still answers 47 and not 23
       const s = scr()
+      if (mode >>> 0 >= 3) funcCall()
       const camg = (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0) | (s.ehb ? 0x80 : 0)
       const bytes = encodeIlbm({ width: s.width, height: s.height, depth: s.depth, mode: camg, palette: [...s.palette], pixels: s.pixels })
       if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected', 84)
     },
     save(it) {
-      // InSave1/2 +Lib.s:3829: Save "file" = all banks (AmBs container);
+      // InSave1/2 +Lib.s:3819: Save "file" = all banks (AmBs container);
       // Save "file",n = bank n alone (AmBk/AmSp/AmIc)
       const path = it.evalStr()
       const n = it.accept(',') ? it.evalInt() : null
@@ -5530,10 +5584,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected', 84)
     },
     pload(it) {
-      // InPLoad +Lib.s:4254: load the code hunk of an AmigaDOS executable
+      // InPLoad +Lib.s:4225: load the code hunk of an AmigaDOS executable
       // into bank n as a Data bank (n<0 = chip RAM).
       //
-      // The name is NOT "Data". +Lib.s:4288 reserves with `Rlea L_BkAsm,0`,
+      // The name is NOT "Data". +Lib.s:4256 reserves with `Rlea L_BkAsm,0`,
       // so a Ploaded bank is called "Asm     " -- the Data BIT is set, and
       // the name says what the bank holds rather than which bit is on.
       const path = it.evalStr()
@@ -6063,7 +6117,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       return VI(r.frames)
     },
     'frame length'(it) {
-      // =Frame Length(f[,n]) — FnFormLength +Lib.s:4458: bytes for the
+      // =Frame Length(f[,n]) — FnFormLength2 +Lib.s:4435: bytes for the
       // next n FORMs (+4 for AenD) without moving the position
       it.expect('(')
       const f = it.evalInt()
@@ -6075,7 +6129,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       return VI(formSize(c.data, c.pos, n).bytes)
     },
     'frame play'(it) {
-      // =Frame Play(ad,n[,screen]) — FnFormPlay +Lib.s:4487: plays n
+      // =Frame Play(ad,n[,screen]) — FnFormPlay3 +Lib.s:4463: plays n
       // FORMs from the buffer; the screen argument creates the screen
       // at each BODY; returns the address after the played frames
       it.expect('(')
@@ -6087,7 +6141,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       return VI(framePlaySkip(rt, ad, n, param, false))
     },
     'frame skip'(it) {
-      // =Frame Skip(ad[,n]) — FnFormSkip +Lib.s:4513: bit 30 set, no
+      // =Frame Skip(ad[,n]) — FnFormSkip2 +Lib.s:4489: bit 30 set, no
       // drawing; returns the advanced address
       it.expect('(')
       const ad = it.evalInt()
@@ -6251,10 +6305,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      *
      * So -1 is "no character yet" and 0 to 255 is the character, which is why
      * a program loops on it rather than testing for zero.
+     *
+     * `GetFile` is `cmp.l #10,d0 / Rbcc L_FonCall / subq.l #1,d0 / Rbmi
+     * L_FonCall` (+Lib.s:4627), so it answers 23 outside 1 to 9 before it
+     * answers 97 for a channel nobody opened. Reading the map directly gave
+     * `=Port(0)` the wrong one of the two.
      */
     'port'(_, a) {
-      const c = rt.fileChans.get(int(a[0]!))
-      if (!c) throw new AmosError('file not opened', 97)
+      const c = rt.chan(int(a[0]!))
       if (!c.port) throw new AmosError('file type mismatch', 98)
       if (c.serial) {
         const got = c.serial.read()
@@ -7140,7 +7198,21 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(311)
     },
     'screen mode'(_, a) {
-      // FnScreenMode +Lib.s:8789: EcCon0 & $8004
+      /*
+       * FnScreenMode (+Lib.s:8789): GetScreen0, then EcCon0 & $8004, so
+       * hires and interlace survive and nothing else does.
+       *
+       * DEFECT: it is the one Screen query that ends `and.l #$00008004,d3 /
+       * rts` instead of `Ret_Int`, and Ret_Int is `moveq #0,d2 / rts`
+       * (+CEqu.s:22) -- d2 is the RESULT TYPE. Its four neighbours
+       * (FnScreenHeight0, FnScreenWidth0, FnScreenBase, FnScreenColour, all
+       * argumentless like this one) set it; this returns with whatever type
+       * the last evaluation left behind. Routines that skip Ret_Int legally
+       * are the ones whose argument already carries the type -- =Int and
+       * =Deek take an integer and give one back, =Psel$ hands its string
+       * argument straight back -- and this takes no argument at all.
+       * Nothing here reproduces that: a JS return value has one type.
+       */
       void a
       const s = rt.screen
       return VI((s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0))
