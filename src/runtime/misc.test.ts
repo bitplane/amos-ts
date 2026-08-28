@@ -721,6 +721,53 @@ describe.skipIf(!COMPACT_SRC)('AMOSPro Compact 2.0: source against binary', () =
   })
 })
 
+const REQUEST_SRC = amosSource('+Request.s')
+
+describe.skipIf(!REQUEST_SRC)('AMOSPro Request 2.0: source against binary', () => {
+  it('gives every keyword the routine number its Lib_Par sits at', () => {
+    // the table's order is on, off, wb and the source's is wb, on, off, so
+    // the numbers cross over --- which is the point of checking them
+    const slots: string[] = []
+    for (const line of REQUEST_SRC!) {
+      const m = /^\s+Lib_(Def|Par|Empty|Ini)\s*(\S*)/.exec(line)
+      if (!m || m[1] === 'Ini') continue
+      slots.push(m[2] === '' ? 'Empty' : m[2]!)
+    }
+    expect(slots).toEqual([
+      'Cold',
+      'Empty',
+      'InRequestWb',
+      'InRequestOn',
+      'InRequestOff',
+      'Empty',
+      'Empty',
+    ])
+    const table = EXTENSION_TOKENS.get(3)!
+    const named = (n: string): number => table.find((e) => e.name === n)!.instr
+    expect([named('request on'), named('request off'), named('request wb')]).toEqual([
+      slots.indexOf('InRequestOn'),
+      slots.indexOf('InRequestOff'),
+      slots.indexOf('InRequestWb'),
+    ])
+  })
+
+  it('is three constants handed to one SyCall, and nothing else', () => {
+    // 159 lines, and every instruction between the Lib_Par lines is one of
+    // these three. `Request_OnOff equ 100` (+Equ.s:364) reaches
+    // WRequest_OnOff, which is `move.w d0,T_ReqFlag(a5) / rts` (+W.s:15871).
+    const body = REQUEST_SRC!.join('\n')
+    expect((body.match(/SyCall\tRequest_OnOff/g) ?? []).length).toBe(3)
+    for (const [kw, val] of [
+      ['InRequestWb', '#1'],
+      ['InRequestOn', '#-1'],
+      ['InRequestOff', '#0'],
+    ] as const) {
+      const at = REQUEST_SRC!.findIndex((l) => l.includes(`Lib_Par\t${kw}`))
+      expect([kw, REQUEST_SRC![at + 2]!.trim()]).toEqual([kw, `moveq\t${val},d0`])
+    }
+  })
+})
+
 describe('Unpack (InUnpack1/2/3, +Compact.s:173/231/186)', () => {
   const SPACKED = ['Screen Open 0,320,100,16,Lowres', 'Cls 0 : Ink 4 : Bar 8,8 To 100,60', 'Spack 0 To 10']
 

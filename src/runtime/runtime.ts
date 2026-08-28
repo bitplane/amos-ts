@@ -3375,6 +3375,14 @@ export class Runtime {
    */
   private askForDisk(name: string): void {
     if (!this.diskRequests || this.noReq > 0) return
+    // `Request Off`, which is not the same switch. `pr_WindowPtr` above stops
+    // the handler ASKING; this one stops the answer coming from a person.
+    // AMOS owns intuition's AutoRequest by then, and with T_ReqFlag at zero
+    // `Req_In` falls to `Req_ANo` (+W.s:15923), which unwinds the call and
+    // returns `moveq #0,d0` — AutoRequest's 0 is the negative gadget. So
+    // every system requester answers Cancel the moment it is raised, and
+    // returning here is this port's Cancel.
+    if (this.requestMode === 0) return
     // the retry after a Cancel: one call through, then the refusal is spent,
     // because the machine asks again on the next `Lock`
     if (this.refusedDisk !== null && this.refusedDisk.toLowerCase() === name.toLowerCase()) {
@@ -3657,8 +3665,24 @@ export class Runtime {
   /** Auto View Off: newly opened screens stay hidden until View */
   autoView = true
   pendingView = new Set<number>()
-  /** Request On (1) / Off (0) / Wb (2) — no requesters exist in the port */
-  requestMode = 1
+  /**
+   * T_ReqFlag: where a system requester goes. -1 AMOS, 0 nowhere, 1 Workbench.
+   *
+   * The numbers are the machine's, because the dispatch tests their SIGN.
+   * `WRequest_OnOff` (+W.s:15871) is `move.w d0,T_ReqFlag(a5) / rts` and the
+   * three keywords hand it `moveq #-1`, `moveq #0` and `moveq #1`
+   * (+Request.s:118, :127, :109); `Req_In` (+W.s:15903) then reads it back
+   * with `tst.w T_ReqFlag(a5) / beq.s Req_ANo / bmi.s .AMOS`. -1 is the boot
+   * value, written by `WRequest_Start` (+W.s:9887).
+   *
+   * This is not a preference AMOS consults. `WRequest_Start` SetFunctions
+   * intuition's own vectors — `AutoRequest` at -$15c, and on Kickstart 2.0
+   * and up `EasyRequestArgs` at -$24c, both read out of `intuition_lib.fd`
+   * under the GUI 2.10 sources — so the flag decides what EVERY system
+   * requester does while AMOS is running, the handler's "please insert
+   * volume" among them.
+   */
+  requestMode: -1 | 0 | 1 = -1
   /** Set Font / Get Fonts state (single-face Topaz port) */
   currentFont = 1
   /** Get Fonts examination mask (Igf d1: 1 = rom, 2 = disc, 3 = both) */
