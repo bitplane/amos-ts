@@ -46,8 +46,9 @@ describe('console cursor movement', () => {
   it('Pen, Paper and Curs Pen take their colour through a BYTE (WnPp +Lib.s:13323)', () => {
     // InPen and InPaper print a three-byte template and WnPp fills the digit
     // in with `add.b #"0",d3`, so the colour reaches the console modulo 256.
-    // The check is at the far end (Pen/Paper +W.s:14864, 14850,
-    // `cmp.w EcNbCol(a4),d1 / bcc PErr7`) and sees only what survived.
+    // The check is at the far end, in Pen (+W.s:14864) and in Paper
+    // (+W.s:14850), both `cmp.w EcNbCol(a4),d1 / bcc PErr7`, and it sees only
+    // what survived.
     const open16 = 'Screen Open 0,320,200,16,Lowres\n'
     for (const stmt of ['Pen 256', 'Paper 256', 'Curs Pen 256', 'Pen 260']) {
       expect(() => run(open16 + stmt)).not.toThrow()
