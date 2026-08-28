@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 import { AmigaFS } from '../amiga/vfs'
+import { amosErrorCode, type AmosError } from './values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -56,6 +57,29 @@ describe('Not as a prefix operator (FnNot — a fresh New_Evalue)', () => {
 })
 
 describe('Every (interrupt-driven Gosub/Proc)', () => {
+  it('Every takes 1 to 32766, and Error clamps at 255', () => {
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InEvery +ILib.s:2040: `tst.l d3 / beq FonCall / cmp.l #32767,d3 / bcc
+    // FonCall`, and bcc fires ON 32767
+    expect(code('Every 0 Gosub T\nEnd\nT:\nReturn')).toBe(23)
+    expect(code('Every -1 Gosub T\nEnd\nT:\nReturn')).toBe(23)
+    expect(code('Every 32767 Gosub T\nEnd\nT:\nReturn')).toBe(23)
+    expect(code('Every 32766 Gosub T\nEnd\nT:\nReturn')).toBe(0)
+    // InError +Lib.s:11396 clamps with an UNSIGNED compare, so a negative
+    // arrives at 255 as well
+    expect(code('Error 300')).toBe(255)
+    expect(code('Error -1')).toBe(255)
+    expect(code('Error 255')).toBe(255)
+    expect(code('Error 23')).toBe(23)
+  })
+
   it('Every On/Off gate the periodic call without forgetting it', () => {
     const prog = [
       'N=0',

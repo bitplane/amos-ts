@@ -110,10 +110,85 @@ describe('console line and style state', () => {
 })
 
 describe('console escape-string functions', () => {
-  it('Repeat$ repeats a string, and rejects a negative count', () => {
-    expect(run('Print Repeat$("ab",3)').out).toBe('ababab\n')
-    expect(run('Print Len(Repeat$("x",0))').out).toBe(' 0\n')
-    expect(() => run('Print Repeat$("x",-1)')).toThrow(/Illegal function call/)
+  it('Repeat$ hands the repeating to the console, and takes 1 to 206', () => {
+    /*
+     * FnRepeat (+Lib.s:14108) goes through FinRpt (+Lib.s:14152), the routine
+     * Border$ and Zone$ also use, so the result is `Esc R 0` + text +
+     * `Esc R n` — six characters longer than the text, not n copies of it.
+     * Repete (+W.s:14993) is what turns that into n copies on the way out.
+     */
+    expect(run('Print Len(Repeat$("ab",3))').out).toBe(' 8\n')
+    const { out } = run('A$=Repeat$("ab",3) : Print Mid$(A$,2,1);Asc(Mid$(A$,3,1));Mid$(A$,7,1);Asc(Mid$(A$,8,1))')
+    expect(out).toBe('R 48R 51\n')
+    // and the console really does repeat it: six characters printed, not two
+    const { rt } = run('Print Repeat$("ab",3);')
+    expect(screen(rt).curX).toBe(6)
+    // one copy still prints once, and 206 is the last count that fits
+    expect(run('Print Repeat$("ab",1);').rt.screens.get(0)!.curX).toBe(2)
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // tst.l d3 / Rbeq and cmp.l #207,d3 / Rbcc, both landing on WFonCall
+    expect(code('A$=Repeat$("x",0)')).toBe(60)
+    expect(code('A$=Repeat$("x",-1)')).toBe(60)
+    expect(code('A$=Repeat$("x",207)')).toBe(60)
+    expect(code('A$=Repeat$("x",206)')).toBe(0)
+  })
+
+  it('Writing checks both modes, and the one-argument form resets the second', () => {
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,16,Lowres\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InWriting2 +Lib.s:13148: `cmp.l #3,d0 / Rbcc` on w2, `cmp.l #5,d1 /
+    // Rbcc` on w1, both landing on WFonCall
+    expect(code('Writing 5')).toBe(60)
+    expect(code('Writing 4')).toBe(0)
+    expect(code('Writing 0,3')).toBe(60)
+    expect(code('Writing 0,2')).toBe(0)
+    expect(code('Writing -1')).toBe(60)
+    // InWriting1 +Lib.s:13142 pushes its argument and clears d3 first
+    const { rt } = run('Screen Open 0,320,200,16,Lowres\nWriting 1,2 : Writing 3')
+    const w = rt.screens.get(0)!.curWin
+    expect([w.writing1, w.writing2]).toEqual([3, 0])
+    // Gr Writing refuses a negative (Rbmi L_FonCall, +Lib.s:10094)
+    expect(code('Gr Writing -1')).toBe(23)
+    // Autoback is 0 to 2, not 0 to 3, and its error is 23 (+Lib.s:9510)
+    expect(code('Autoback 3')).toBe(23)
+    expect(code('Autoback -1')).toBe(23)
+    expect(code('Autoback 2')).toBe(0)
+  })
+
+  it('Cline takes 1 to 206 and Set Tab 0 to 207, both error 60', () => {
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InCline1 (+Lib.s:13501) rejects 0 with tst.l and 207 with Rbcc
+    expect(code('Cline 0')).toBe(60)
+    expect(code('Cline -1')).toBe(60)
+    expect(code('Cline 207')).toBe(60)
+    expect(code('Cline 206')).toBe(0)
+    // the bare form counts to the window edge and has nothing to check
+    expect(code('Cline')).toBe(0)
+    // InSetTab (+Lib.s:13543) uses Rbhi, so 207 passes and 0 is allowed
+    expect(code('Set Tab 207')).toBe(0)
+    expect(code('Set Tab 208')).toBe(60)
+    expect(code('Set Tab -1')).toBe(60)
+    expect(code('Set Tab 0')).toBe(0)
   })
 
   it('Paper$ and Pen$ build the console colour escapes', () => {
@@ -152,6 +227,8 @@ describe('console escape-string functions', () => {
     }
     expect(code('A$=At(-5,6)')).toBe(60)
     expect(code('A$=At(5,-6)')).toBe(60)
+    // -1 is a typed value, not an empty slot: the sentinel is EntNul
+    expect(code('A$=At(-1,6)')).toBe(60)
     expect(code('A$=At(208,6)')).toBe(60)
     expect(code('A$=At(207,207)')).toBe(0)
     // Esc X n Esc Y n is six characters, one escape per slot given
@@ -161,9 +238,39 @@ describe('console escape-string functions', () => {
   })
 
   it('Cmove$ builds a relative cursor move, biased by 128', () => {
-    // Esc O (x+128) Esc N (y+128) — the bias lets negative moves travel as bytes
+    // Esc N (x+128) Esc O (y+128) — the bias lets negative moves travel as
+    // bytes, and FnCMoveD (+Lib.s:14060) writes the x escape first
     const { out } = run('A$=Cmove$(2,-3) : Print Asc(Mid$(A$,3,1));Asc(Mid$(A$,6,1))')
     expect(out).toBe(' 130 125\n')
+    expect(run('A$=Cmove$(2,-3) : Print Mid$(A$,2,1);Mid$(A$,5,1)').out).toBe('NO\n')
+  })
+
+  it('Cmove$ leaves out an axis that is zero or empty, and refuses 128', () => {
+    // tst.l d2 / beq and cmp.l #EntNul,d2 / beq skip the axis; with neither
+    // axis flagged, tst.w d4 / Rbeq L_Ret_ChVide returns the empty string
+    expect(run('Print Len(Cmove$(0,0))').out).toBe(' 0\n')
+    expect(run('Print Len(Cmove$(,))').out).toBe(' 0\n')
+    expect(run('Print Len(Cmove$(2,0))').out).toBe(' 3\n')
+    expect(run('Print Len(Cmove$(0,-3))').out).toBe(' 3\n')
+    // -1 is a real move now that an empty slot no longer arrives as -1
+    expect(run('Print Len(Cmove$(-1,0))').out).toBe(' 3\n')
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // cmp.l #128 / Rbge and cmp.l #-128 / Rble, so the range is -127..127
+    expect(code('A$=Cmove$(128,0)')).toBe(60)
+    expect(code('A$=Cmove$(-128,0)')).toBe(60)
+    expect(code('A$=Cmove$(0,128)')).toBe(60)
+    expect(code('A$=Cmove$(127,-127)')).toBe(0)
+    // the instruction biases first and compares unsigned, so it takes -128
+    expect(code('Cmove -128,127')).toBe(0)
+    expect(code('Cmove 128,0')).toBe(60)
+    expect(code('Cmove 0,-129')).toBe(60)
   })
 })
 

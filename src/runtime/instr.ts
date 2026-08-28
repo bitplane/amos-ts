@@ -267,10 +267,34 @@ function setMouseAxis(v: number, lo: number, hi: number): number {
 }
 
 /** Screen Width/Height(n): explicit n must be open (CheckScreenNumber + AdrEc) */
+/*
+ * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
+ * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
+ * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
+ *
+ * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
+ * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
+ * the range the constant enforces. A raw 6 is "Resume label not defined".
+ *
+ * The compare is unsigned, which is why one test covers both ends. Sixteen
+ * call sites reach it (+Lib.s:8739 through 9128), and the check runs before
+ * the screen is looked up, so 9 is error 50 and not "screen not opened".
+ */
+/** a 68000 `sub.w` result, sign-extended back out of the word */
+function word(a: number, b: number): number {
+  return ((a - b) << 16) >> 16
+}
+
+function checkScreenNumber(n: number): number {
+  if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+  return n
+}
+
 function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
-  if (a.length > 0 && int(a[0]!) >= 0) {
-    const s = rt.screens.get(int(a[0]!))
-    if (!s) throw new AmosError(`screen not opened: ${int(a[0]!)}`, 47)
+  if (a.length > 0 && int(a[0]!) !== ENT_NUL) {
+    const n = checkScreenNumber(int(a[0]!))
+    const s = rt.screens.get(n)
+    if (!s) throw new AmosError(`screen not opened: ${n}`, 47)
     return s
   }
   return rt.screen
@@ -802,17 +826,35 @@ function menuPath(it: It): number[] {
   return path
 }
 
+/**
+ * MnDim (+ILib.s:6967), which every menu flag keyword goes through.
+ *
+ * It picks the form off the NEXT TOKEN: `cmp.w #_TkPar1,(a6) / beq.s
+ * MnDim1`. A parenthesised list is a path, walked by MnFind, and a miss
+ * lands on MnINDef — `moveq #39,d0 / bra.s RunErr` (+ILib.s:1147), so error
+ * 39, "Menu item not defined", and RunErr adds no 44. A bare number is a
+ * level, checked against 1 and MnNDim and used to index MnDFlags.
+ *
+ * Thirteen keywords reach it (+Lib.s:15655 to 15729) and each then does one
+ * bset or bclr on the byte it returns. The port had split them in two: the
+ * seven layout keywords only took a level, the rest only took a path.
+ */
+/** the function-side half of MnDim: a path is always parenthesised here */
+function menuNodeOf(rt: Runtime, path: number[]): { x: number; y: number } {
+  const node = rt.menu.find(path)
+  if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
+  return node
+}
+
 function menuNodeFlag(it: It, rt: Runtime, set: number, clear: number): void {
-  // parens = a node path; a bare number = a whole level (MnDim +ILib.s:6967)
   if (it.nm() !== '(') {
     rt.menu.setLevelFlag(it.evalInt(), set, clear)
     return
   }
   const node = rt.menu.find(menuPath(it))
-  if (node) {
-    node.flags = (node.flags | set) & ~clear
-    rt.menu.change = true
-  }
+  if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
+  node.flags = (node.flags | set) & ~clear
+  rt.menu.change = true
 }
 
 /** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
@@ -1157,6 +1199,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens ----
     'screen open'(it) {
+      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count
       const n = it.evalInt()
       it.expect(',')
       // EcCree +W.s:2881 masks the bitmap width down to a multiple of 16
@@ -1167,14 +1210,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const nc = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      rt.openScreen(n, w, h, nc, mode)
+      rt.openScreen(checkScreenNumber(n), w, h, nc, mode)
       // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
       // Screen Open instruction adds the system flash (+Lib.s:8989);
       // HAM (4096) is 6 planes so it qualifies
       if (nc === 4096 || nc > 2) rt.installSystemFlash()
     },
     'screen close'(it) {
-      rt.closeScreen(optInt(it, rt.currentIndex))
+      rt.closeScreen(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     default() {
       // InDefault +Lib.s:8681: back to the boot display — every screen
@@ -1280,12 +1323,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.autoView = false
     },
     screen(it) {
-      rt.setCurrent(it.evalInt())
+      rt.setCurrent(checkScreenNumber(it.evalInt()))
     },
     'screen display'(it) {
       // EcView +W.s:3247: n,x,y,w,h with per-arg keep-current; w/h set the
       // displayed-window size (EcAWTx/EcAWTy). It does NOT un-hide the screen.
-      const s = byIndex(it.evalInt())
+      const s = byIndex(checkScreenNumber(it.evalInt()))
       if (it.accept(',')) {
         s.displayX = optInt(it, s.displayX)
         if (it.accept(',')) {
@@ -1298,25 +1341,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'screen offset'(it) {
-      const s = byIndex(it.evalInt())
+      const s = byIndex(checkScreenNumber(it.evalInt()))
       it.expect(',')
       s.offsetX = optInt(it, s.offsetX)
       if (it.accept(',')) s.offsetY = optInt(it, s.offsetY)
     },
+    // Screen Show and Screen Hide meet at ScShHi (+Lib.s:9057), which
+    // checks the number whichever of the two arrived with it
     'screen hide'(it) {
-      byIndex(optInt(it, rt.currentIndex)).visible = false
+      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = false
     },
     'screen show'(it) {
-      byIndex(optInt(it, rt.currentIndex)).visible = true
+      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = true
     },
     'screen to front'(it) {
-      rt.toFront(optInt(it, rt.currentIndex))
+      rt.toFront(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     'screen to back'(it) {
-      rt.toBack(optInt(it, rt.currentIndex))
+      rt.toBack(checkScreenNumber(optInt(it, rt.currentIndex)))
     },
     'screen swap'(it) {
-      const n = optInt(it, rt.currentIndex)
+      const n = checkScreenNumber(optInt(it, rt.currentIndex))
       rt.screens.get(n)?.swap()
     },
     'double buffer'() {
@@ -1325,7 +1370,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!scr().doubleBuffer()) throw new AmosError('Screen already in double buffering', 69)
     },
     autoback(it) {
-      scr().autoback = it.evalInt() & 3
+      // InAutoback (+Lib.s:9510) opens `cmp.l #3,d3 / Rbcc L_FonCall`, so
+      // the range is 0 to 2 and not 0 to 3, and the error is 23 rather than
+      // the 60 most of the console keywords raise. The port masked to 3,
+      // which turned Autoback 3 into a mode AMOS refuses.
+      const n = it.evalInt()
+      if (n >>> 0 >= 3) funcCall()
+      scr().autoback = n
     },
     'screen copy'(it) {
       const src = rt.resolveScreenId(it.evalInt())
@@ -1887,12 +1938,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().writeText('\x1c') // ChCRt +Lib.s:13361
     },
     cmove(it) {
-      // relative cursor move; elided arguments mean 0 (WnCm1/WnCm3)
-      const s = scr()
+      /*
+       * InCmove (+Lib.s:13276): elided arguments mean 0 (WnCm1/WnCm3), then
+       * `add.l #128,d0 / cmp.l #255,d0 / Rbhi L_WFonCall` on each. The
+       * compare is unsigned after the bias, so the range is -128..127 and a
+       * value outside it is error 60. The instruction takes -128 where the
+       * Cmove$ function refuses it, because Cmove$ tests the raw value.
+       */
       const dx = optInt(it, 0)
       it.accept(',')
       const dy = optInt(it, 0)
-      s.locate(Math.max(0, s.curX + dx), Math.max(0, s.curY + dy))
+      if ((dx + 128) >>> 0 > 255 || (dy + 128) >>> 0 > 255) {
+        throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      }
+      // ChCMv is a fixed six-byte template, so both escapes always go out.
+      // Sending them rather than calling locate() is what makes Cmove clamp
+      // at the window edge instead of erroring there.
+      scr().writeText('\x1bN' + String.fromCharCode((128 + dx) & 0xff) + '\x1bO' + String.fromCharCode((128 + dy) & 0xff))
     },
     clw(it) {
       void it
@@ -1923,8 +1985,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().setCursShape(rows)
     },
     cline(it) {
+      /*
+       * InCline0 (+Lib.s:13461) is the bare form and sends control code 26.
+       * InCline1 (+Lib.s:13501) takes the count and checks it first: `tst.l
+       * d3 / Rbeq L_WFonCall / cmp.l #255-48,d3 / Rbcc L_WFonCall`, so 1 to
+       * 206 and error 60 outside. The port took any number at all.
+       */
       const s = scr()
-      const n = it.atStmtEnd() ? s.cols - s.curX : it.evalInt()
+      const bare = it.atStmtEnd()
+      const n = bare ? s.cols - s.curX : it.evalInt()
+      if (!bare && (n === 0 || n >>> 0 >= 207)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       s.bar(s.curX * 8, s.curY * 8, (s.curX + n) * 8 - 1, s.curY * 8 + 7, s.paper)
     },
     'curs pen'(it) {
@@ -1952,18 +2022,44 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       })
     },
     writing(it) {
-      // Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
-      // 1 paper only, 2 pen on colour 0 (console escape 'W')
+      /*
+       * Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
+       * 1 paper only, 2 pen on colour 0 (console escape 'W').
+       *
+       * InWriting2 (+Lib.s:13148) checks both, `cmp.l #3,d0 / Rbcc` on w2
+       * and `cmp.l #5,d1 / Rbcc` on w1, so 0 to 2 and 0 to 4, error 60. The
+       * port masked instead, which let Writing 7 through as 7.
+       *
+       * InWriting1 (+Lib.s:13142) is the one-argument form, and it pushes
+       * its argument and sets d3 to zero before falling in — so `Writing 2`
+       * RESETS w2, where the port left the previous value standing.
+       */
       const w = scr().curWin
-      w.writing1 = it.evalInt() & 7
-      if (it.accept(',')) w.writing2 = it.evalInt() & 3
+      const w1 = it.evalInt()
+      const w2 = it.accept(',') ? it.evalInt() : 0
+      if (w1 >>> 0 >= 5 || w2 >>> 0 >= 3) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      w.writing1 = w1
+      w.writing2 = w2
     },
     'gr writing'(it) {
-      // SetDrMd: 0 JAM1 (transparent), 1 JAM2, 2 COMPLEMENT (XOR)
-      scr().grMode = it.evalInt() & 7
+      // SetDrMd: 0 JAM1 (transparent), 1 JAM2, 2 COMPLEMENT (XOR).
+      // InGrWriting (+Lib.s:10090) refuses a negative with Rbmi L_FonCall
+      // and passes everything else to SetDrMd whole, with no mask.
+      const n = it.evalInt()
+      if (n < 0) funcCall()
+      scr().grMode = n & 7
     },
     'set tab'(it) {
-      const n = Math.max(1, it.evalInt())
+      /*
+       * InSetTab (+Lib.s:13543) is `cmp.l #255-48,d3 / Rbhi L_WFonCall`, so
+       * 0 to 207 and error 60 outside. Rbhi rather than Cline's Rbcc, which
+       * is why 207 passes here and fails there, and why there is no tst.l:
+       * AMOS sends a tab of 0 straight to the window code. The port clamps
+       * it to 1 instead, because a tab of 0 has nothing to step by.
+       */
+      const raw = it.evalInt()
+      if (raw >>> 0 > 207) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      const n = Math.max(1, raw)
       scr().curWin.tab = n
       it.tabWidth = n // transcripts mirror the console
     },
@@ -3529,26 +3625,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.menu.change = true
     },
     'menu movable'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_TBOUGE, 0)
+      menuNodeFlag(it, rt, MF_TBOUGE, 0)
     },
     'menu static'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_TBOUGE)
+      menuNodeFlag(it, rt, 0, MF_TBOUGE)
     },
     'menu item movable'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_BOUGE, 0)
+      menuNodeFlag(it, rt, MF_BOUGE, 0)
     },
     'menu item static'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BOUGE)
+      menuNodeFlag(it, rt, 0, MF_BOUGE)
     },
     'menu bar'(it) {
-      // level layout styles (+Lib.s:15682): bar = vertical column
-      rt.menu.setLevelFlag(optInt(it, 1), MF_BAR, 0)
+      // level layout styles (+Lib.s:15653): bar = vertical column
+      menuNodeFlag(it, rt, MF_BAR, 0)
     },
     'menu line'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BAR | MF_TOTAL)
+      menuNodeFlag(it, rt, 0, MF_BAR | MF_TOTAL)
     },
     'menu tline'(it) {
-      rt.menu.setLevelFlag(optInt(it, 1), MF_TOTAL, MF_BAR)
+      menuNodeFlag(it, rt, MF_TOTAL, MF_BAR)
     },
     'menu active'(it) {
       menuNodeFlag(it, rt, 0, MF_OFF)
@@ -3753,7 +3849,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens extra ----
     'screen clone'(it) {
-      const n = it.evalInt()
+      const n = checkScreenNumber(it.evalInt())
       const src = scr()
       const clone = rt.openScreen(n, src.width, src.height, src.ham ? 4096 : src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
       // a shared BITMAP, which is what the keyword means: the clone points at
@@ -4307,11 +4403,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: existing ? [...existing] : [] })
     },
     close(it) {
+      // the bare form shuts every channel; a numbered one goes through
+      // GetFile like the rest, so 0 and 10 are error 23 and a channel that
+      // was never opened is 97 rather than a silent no-op
       if (it.atStmtEnd()) {
         for (const n of [...rt.fileChans.keys()]) rt.closeChannel(n)
         return
       }
-      rt.closeChannel(it.evalInt())
+      const n = it.evalInt()
+      rt.chan(n)
+      rt.closeChannel(n)
     },
     'print #'(it) {
       const n = it.evalInt()
@@ -4381,10 +4482,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       else c.out.length = Math.max(0, Math.min(c.out.length, v))
     },
     'set input'(it) {
+      /*
+       * InSetInput (+Lib.s:4650) checks ONE of its two arguments: `lsl.w
+       * #8,d3 / move.l (a3)+,d0 / cmp.l #256,d0 / Rbcc L_FonCall / or.w
+       * d3,d0`. So the first must be 0 to 255 and the second is shifted into
+       * the high byte of ChrInp whatever it is — a negative keeps its low
+       * byte, which is why -1 reads as the character 255 and so never
+       * matches. The port masked the first instead of refusing it.
+       */
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
-      rt.chrInp = [a & 0xff, b < 0 ? -1 : b & 0xff]
+      if (a >>> 0 >= 256) funcCall()
+      rt.chrInp = [a, b < 0 ? -1 : b & 0xff]
     },
     mkdir(it) {
       if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')
@@ -4966,22 +5076,6 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     if (scr().curWin.n === 0) throw new AmosError(ED_RUN_MESSAGES[62]!, 62)
   }
 
-  /*
-   * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
-   * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
-   * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
-   *
-   * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
-   * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
-   * the range the constant enforces. A raw 6 is "Resume label not defined".
-   *
-   * The compare is unsigned, which is why one test covers both ends.
-   */
-  function checkScreenNumber(n: number): number {
-    if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
-    return n
-  }
-
   function insObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const n = it.evalInt()
@@ -5286,6 +5380,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     if (n < 0 || n >= 64) funcCall()
     return rt.hwSprites.get(n)
   }
+
+  /*
+   * FnXBob, FnYBob and FnIBob (+Lib.s:12012, 12022, 12058) are the same four
+   * instructions as their sprite counterparts: `move.l d3,d1 / Rbmi
+   * L_FonCall / SyCall XYBob / Rbne L_FonCall`.
+   *
+   * XYBob is BobXY (+W.s:801), which opens `bsr BobAd / bne.s BobxyE`. BobAd
+   * (+W.s:1163) walks T_BbDeb's list comparing BbNb, and falls out of the
+   * walk at AdBb1 with `moveq #1,d0`. So a bob that was never made is an
+   * error, and NOT the zero an unused hardware sprite reads back — the
+   * sprites are a fixed table of 64, the bobs are a list of what exists.
+   *
+   * FonCall (+Lib.s:12958) is `moveq #23,d0 / Rbra L_GoError`. It reaches
+   * GoError rather than EcWiErr, so there is no 44 to add: it really is 23.
+   */
+  const bobXY = (n: number): { x: number; y: number; image: number } => {
+    if (n < 0) funcCall()
+    const b = rt.bobs.get(n)
+    if (!b) funcCall()
+    return b
+  }
   return {
     /**
      * =Arexx Exist("port") --- `FnArexxExist` (+Lib.s:14996), which is
@@ -5563,13 +5678,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- objects ----
     'x bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.x ?? 0)
+      return VI(bobXY(int(a[0]!)).x)
     },
     'y bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.y ?? 0)
+      return VI(bobXY(int(a[0]!)).y)
     },
     'i bob'(_, a) {
-      return VI(rt.bobs.get(int(a[0]!))?.image ?? 0)
+      return VI(bobXY(int(a[0]!)).image)
     },
     /*
      * FnXSprite, FnYSprite and FnISprite (+Lib.s:12035, 12045, 12067) are the
@@ -5885,16 +6000,20 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         m.choice = 0
         return VI(v)
       }
+      // FnChoice1 (+Lib.s:15641): `tst.l d3 / Rbls L_FonCall / cmp.l
+      // #MnNDim,d3 / Rbhi L_FonCall`, so 1 to 8 and error 23 outside. Rbls
+      // is unsigned low-or-same, which takes the negatives with the zero.
       const n = int(a[0]!)
+      if (n <= 0 || n > 8) funcCall()
       return VI(m.choix[n - 1] ?? 0)
     },
+    // FnXMenu and FnYMenu (+Lib.s:15618, 15627) open with the same Rjsr
+    // L_MnDim, so a path that names nothing is error 39, not a zero
     'x menu'(_, a) {
-      const node = rt.menu.find(a.map((v) => int(v)))
-      return VI(node ? node.x : 0)
+      return VI(menuNodeOf(rt, a.map((v) => int(v))).x)
     },
     'y menu'(_, a) {
-      const node = rt.menu.find(a.map((v) => int(v)))
-      return VI(node ? node.y : 0)
+      return VI(menuNodeOf(rt, a.map((v) => int(v))).y)
     },
 
     'dialog run'(it, a) {
@@ -6175,20 +6294,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
        *
        * The port read any negative as an absent slot, so At(-5,6) built the
        * same two-escape string as At(,6) instead of raising.
-       *
-       * One case is still wrong and cannot be fixed here: an omitted slot
-       * reaches this function as -1 rather than as EntNul, so At(-1,6) is
-       * indistinguishable from At(,6) and passes. Telling them apart needs the
-       * sentinel every function shares to become ENT_NUL, which is a change to
-       * the argument evaluator rather than to this keyword.
        */
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
-      const bad = (n: number): boolean => n !== -1 && n >>> 0 > 207
+      const bad = (n: number): boolean => n !== ENT_NUL && n >>> 0 > 207
       if (bad(x) || bad(y)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
-      if (x !== -1) out += '\x1bX' + String.fromCharCode(48 + x)
-      if (y !== -1) out += '\x1bY' + String.fromCharCode(48 + y)
+      if (x !== ENT_NUL) out += '\x1bX' + String.fromCharCode(48 + x)
+      if (y !== ENT_NUL) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
     },
 
@@ -6307,19 +6420,50 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     btst(_, a) {
       return VI(int(a[1]!) & (1 << (int(a[0]!) & 31)) ? -1 : 0)
     },
+    /*
+     * All four convert between the CURRENT WINDOW's text grid and screen
+     * pixels, and the port had been converting against the screen.
+     *
+     * WOpen's WiAdr (+W.s:13763) sets `WiDxI = d2` and `WiDyI = d3`, then
+     * adds 1 to WiDxI and WiTyCar to WiDyI when the window has a border. So
+     * WiDxI counts CHARACTERS and WiDyI counts PIXELS, which is why the two
+     * axes multiply and add in the opposite order below. WiTx and WiTy hold
+     * the inner size while the console is in "Mode INTERIEUR" (WiInt,
+     * +W.s:15583), which is where it rests.
+     */
     'x text'(_, a) {
-      const x = int(a[0]!) >> 3
-      return VI(x >= 0 && x < scr().width >> 3 ? x : -1)
+      // CXyWi +W.s:10841: `lsr.w #3,d1 / sub.w WiDxI(a0),d1 / bmi / cmp.w
+      // WiTxI(a0),d1 / bcc`, and both failures answer EntNul, not -1
+      const w = scr().curWin
+      const n = word((int(a[0]!) & 0xffff) >>> 3, w.x >> 3)
+      return VI(n < 0 || n >= w.cols ? ENT_NUL : n)
     },
     'y text'(_, a) {
-      const y = int(a[0]!) >> 3
-      return VI(y >= 0 && y < scr().height >> 3 ? y : -1)
+      // CXyWi +W.s:10831: `sub.w WiDyI(a0),d2 / bmi / divu WiTyCar(a0),d2 /
+      // cmp.w WiTyI(a0),d2 / bcc`. The divide is by the CHARACTER HEIGHT,
+      // where the X axis shifts by a fixed three.
+      const w = scr().curWin
+      const d = word(int(a[0]!), w.y)
+      if (d < 0) return VI(ENT_NUL)
+      const n = Math.floor(d / 8)
+      return VI(n >= w.rows ? ENT_NUL : n)
     },
     'x graphic'(_, a) {
-      return VI(int(a[0]!) * 8)
+      // WiXGr +W.s:15272: `cmp.w WiTx(a0),d1 / bcc.s WiXYo / add.w
+      // WiDxI(a0),d1 / lsl.w #3,d1`. WiXYo is `moveq #-1,d1` — this pair
+      // answers -1 where the text pair answers EntNul. FnXGraphic
+      // (+Lib.s:10872) refuses a negative first, with Rbmi L_FonCall.
+      const n = int(a[0]!)
+      if (n < 0) funcCall()
+      const w = scr().curWin
+      return VI(n >= w.cols ? -1 : (n + (w.x >> 3)) * 8)
     },
     'y graphic'(_, a) {
-      return VI(int(a[0]!) * 8)
+      // WiYGr +W.s:15281 shifts BEFORE it adds, because WiDyI is in pixels
+      const n = int(a[0]!)
+      if (n < 0) funcCall()
+      const w = scr().curWin
+      return VI(n >= w.rows ? -1 : n * 8 + w.y)
     },
     'mouse screen'(it, a) {
       void a
@@ -6353,9 +6497,31 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS('\x1bB' + String.fromCharCode(48 + fpn(int(a[0]!))))
     },
     'cmove$'(_, a) {
-      const x = a.length > 0 ? int(a[0]!) : 0
-      const y = a.length > 1 ? int(a[1]!) : 0
-      return VS('\x1bO' + String.fromCharCode(128 + x) + '\x1bN' + String.fromCharCode(128 + y))
+      /*
+       * FnCMoveD (+Lib.s:14060) walks each slot in turn: zero and EntNul both
+       * leave the axis out, and anything else must pass `cmp.l #128 / Rbge`
+       * and `cmp.l #-128 / Rble`, so the range is -127..127 and the error is
+       * WFonCall, 60. It counts the escapes it will need in d3 and flags them
+       * in d4, then `tst.w d4 / Rbeq L_Ret_ChVide` returns the empty string
+       * when neither axis was given.
+       *
+       * The x escape is written first and is Esc N; Esc O carries y. The port
+       * emitted both escapes every time, in the other order, on the other
+       * axes.
+       */
+      const axis = (v: import('../interp/values').Value | undefined): number => {
+        if (v === undefined) return 0
+        const n = int(v)
+        if (n === ENT_NUL || n === 0) return 0
+        if (n >= 128 || n <= -128) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+        return n
+      }
+      const x = axis(a[0])
+      const y = axis(a[1])
+      let out = ''
+      if (x !== 0) out += '\x1bN' + String.fromCharCode((128 + x) & 0xff)
+      if (y !== 0) out += '\x1bO' + String.fromCharCode((128 + y) & 0xff)
+      return VS(out)
     },
     'border$'(_, a) {
       // FnBorderD +Lib.s:14124: style 1-15 (0 and >=16 error); the text

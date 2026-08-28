@@ -155,10 +155,12 @@ export function ansiToAmos(input: string, state: LdosState): string {
         }
         break
       }
-      case 'A': out += '\x1bN' + String.fromCharCode(128 - n()); break // cursor up
-      case 'B': out += '\x1bN' + String.fromCharCode(128 + n()); break // down
-      case 'C': out += '\x1bO' + String.fromCharCode(128 + n()); break // right
-      case 'D': out += '\x1bO' + String.fromCharCode(128 - n()); break // left
+      // Esc O is the vertical move and Esc N the horizontal (ChCMv,
+      // +Lib.s:13295), so the row pair takes O and the column pair N
+      case 'A': out += '\x1bO' + String.fromCharCode(128 - n()); break // cursor up
+      case 'B': out += '\x1bO' + String.fromCharCode(128 + n()); break // down
+      case 'C': out += '\x1bN' + String.fromCharCode(128 + n()); break // right
+      case 'D': out += '\x1bN' + String.fromCharCode(128 - n()); break // left
       case 'H': {
         // ESC[y;xH is Locate x,y — note the ANSI order is row then column
         const y = nums[0] === undefined || nums[0]! < 0 ? 1 : nums[0]!

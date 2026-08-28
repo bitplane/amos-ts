@@ -205,9 +205,11 @@ describe('menu interaction', () => {
   })
 
   it('Menu Item Movable items drag with the left button (MnBGoch)', () => {
+    // the level flag has to come FIRST: MnIF (+Lib.s:17260) ORs MnDFlags
+    // into a node as it creates it, and nothing re-reads it afterwards
     const src = [
-      'Menu$(1)="A" : Menu$(1,1)="Long item"',
       'Menu Item Movable 2',
+      'Menu$(1)="A" : Menu$(1,1)="Long item"',
       'Menu On',
       'Do : Wait Vbl : Loop',
     ].join('\n')

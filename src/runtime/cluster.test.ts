@@ -42,6 +42,38 @@ describe('language cluster', () => {
     expect(run('Dim A$(2)\nA$(0)="c" : A$(1)="a" : A$(2)="b"\nSort A$(0)\nPrint A$(0);A$(1);A$(2)').out).toBe('abc\n')
   })
 
+  it('a Match that misses answers where the value would go', () => {
+    /*
+     * di7 (+ILib.s:4487) walks forward from where the halving stopped until
+     * it meets an element that is not smaller, and di8 answers `move.l
+     * d5,d3 / addq.l #1,d3 / neg.l d3`. So a miss is the negated insertion
+     * point counted from 1, and every miss in the array below has to name a
+     * different slot. The port answered the negated last midpoint, which
+     * gave -2 for four of these five.
+     */
+    const base = ['Dim A(4)', 'A(0)=1 : A(1)=3 : A(2)=5 : A(3)=7 : A(4)=9'].join('\n')
+    const m = (v: number): string => run(`${base}\nPrint Match(A(0),${v})`).out
+    expect(m(0)).toBe('-1\n') // before everything: insert at 0
+    expect(m(2)).toBe('-2\n')
+    expect(m(4)).toBe('-3\n')
+    expect(m(8)).toBe('-5\n')
+    expect(m(10)).toBe('-6\n') // past the end: insert at 5
+    // a hit is still the plain index
+    expect(m(1)).toBe(' 0\n')
+    expect(m(9)).toBe(' 4\n')
+    // TypeMis (+Lib.s:12872) is moveq #34, and it reaches GoError unchanged
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code(`${base}\nPrint Match(A(0),"x")`)).toBe(34)
+    expect(code('Dim A$(1)\nA$(0)="a" : A$(1)="b"\nPrint Match(A$(0),3)')).toBe(34)
+  })
+
   it('rotates and tests bits (Rol/Ror/Bset/Bclr/Bchg/Btst)', () => {
     expect(run('A=1 : Rol.b 1,A : Print A').out).toBe(' 2\n')
     expect(run('A=1 : Ror.b 1,A : Print A').out).toBe(' 128\n')
@@ -50,9 +82,39 @@ describe('language cluster', () => {
     expect(run('A=8 : Bchg 3,A : Print A').out).toBe(' 0\n')
   })
 
-  it('converts text and graphic coordinates', () => {
-    expect(run('Print X Text(80);Y Text(16);X Text(999)').out).toBe(' 10 2-1\n')
+  it('converts text and graphic coordinates against the current window', () => {
+    /*
+     * CXyWi (+W.s:10828) answers EntNul for a coordinate outside the window,
+     * at CXyw0 and CXyw3, where WiXGr and WiYGr (+W.s:15272) answer -1 at
+     * WiXYo. Two sentinels for the two directions, and the port returned -1
+     * for all four.
+     */
+    expect(run('Print X Text(80);Y Text(16);X Text(999)').out).toBe(' 10 2-2147483648\n')
     expect(run('Print X Graphic(10);Y Graphic(2)').out).toBe(' 80 16\n')
+    // FnXGraphic (+Lib.s:10872) opens Rbmi L_FonCall, which is 23
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('A=X Graphic(-1)')).toBe(23)
+    expect(code('A=Y Graphic(-1)')).toBe(23)
+    // past the window edge is -1, and the default window is 40 by 25
+    expect(run('Print X Graphic(40);Y Graphic(25)').out).toBe('-1-1\n')
+    /*
+     * A window away from the origin proves the offsets are real. WiAdr
+     * (+W.s:13763) writes WiDxI and WiDyI from the window's own position, so
+     * column 0 of window 1 is not column 0 of the screen, and the two
+     * directions have to invert each other. They did not: X Graphic ignored
+     * the window entirely and X Text measured against the whole screen.
+     */
+    const w = 'Screen Open 0,320,200,16,Lowres\nWind Open 1,40,32,10,5\n'
+    expect(run(`${w}Print X Text(X Graphic(3));Y Text(Y Graphic(2))`).out).toBe(' 3 2\n')
+    // and the window's own column 0 is not the screen's
+    expect(run(`${w}Print X Graphic(0)>0;Y Graphic(0)>0`).out).toBe('-1-1\n')
   })
 
   it('interprets escape strings from At/Pen$/Paper$ when printed', () => {
@@ -563,6 +625,35 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(() => run(['Open Random 1,"DH0:x"', 'Field 1,8 As N$', 'Get 1,0'].join('\n'))).toThrow(/illegal function call/i)
     expect(() => run(['Open Out 1,"DH0:x"', 'Field 1,8 As N$', 'N$="A" : Put 1,1'].join('\n'))).toThrow(/file type mismatch/i)
     expect(() => run(['Open Random 1,"DH0:x"', 'Field 1,0 As N$'].join('\n'))).toThrow(/illegal function call/i)
+  })
+
+  it('a file channel is 1 to 9, and an unopened one is error 97', () => {
+    /*
+     * GetFile (+Lib.s:4625) is `cmp.l #10,d0 / Rbcc L_FonCall / subq.l #1,d0
+     * / Rbmi L_FonCall`, and every caller follows it with `Rbeq L_FilNO`.
+     * FilNO (+Lib.s:12882) is `moveq #DEBase+18,d0 / Rbra L_GoError`, and
+     * `DEBase equ EcEBase+35-1` (+Equ.s:772) makes that 45 + 34 + 18 = 97 —
+     * "File not opened", which is what the arithmetic ought to land on.
+     */
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(code('Close 0')).toBe(23)
+    expect(code('Close 10')).toBe(23)
+    expect(code('Close -1')).toBe(23)
+    // in range but never opened: the port had been closing it silently
+    expect(code('Close 9')).toBe(97)
+    expect(code('Print #3,"x"')).toBe(97)
+    expect(code('Open Out 1,"DH0:x" : Close 1')).toBe(0)
+    // Set Input checks its first argument only (+Lib.s:4650)
+    expect(code('Set Input 256,0')).toBe(23)
+    expect(code('Set Input -1,0')).toBe(23)
+    expect(code('Set Input 255,999')).toBe(0)
   })
 })
 

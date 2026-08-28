@@ -125,16 +125,32 @@ function rolror(width: number, left: boolean): Instr {
 /** functions that parse their own arguments */
 export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
   match(it) {
-    // Match(A(0),value): binary search of a sorted array; negative
-    // -closest when not found
+    /*
+     * Match(A(0),value): a binary search of a sorted array (FnMatch
+     * +ILib.s:4449).
+     *
+     * The miss is the part the port had wrong. When the halving loop runs
+     * out (d6 reaches 0), di7 walks d5 FORWARD one element at a time until
+     * it meets one that is not smaller, and di8 then answers `move.l d5,d3 /
+     * addq.l #1,d3 / neg.l d3` — the negated insertion point, counted from
+     * 1. The port answered the negated last midpoint it happened to probe,
+     * which is not a position a caller can insert at.
+     *
+     * The types have to agree first. `cmp.b d2,d5 / beq.s di3 / subq.w #1,d5
+     * / beq.s di2 / bpl TypeMis` converts between integer and float and
+     * refuses a string against a number, where the port coerced both ends to
+     * strings and compared those. TypeMis (+Lib.s:12872) is `moveq #34,d0 /
+     * Rbra L_GoError`, so 34 with no 44 added.
+     */
     it.expect('(')
     const arr = it.parseArrayRef()
     it.expect(',')
     const v = it.evalExpr()
     it.expect(')')
+    const elemIsStr = arr.data.length > 0 && arr.data[0]!.k === 'str'
+    if (elemIsStr !== (v.k === 'str')) throw new AmosError(AMOS_ERRORS[34]!, 34)
     let lo = 0
     let hi = arr.data.length - 1
-    let closest = 0
     const cmp = (a: Value): number => {
       if (a.k === 'str' || v.k === 'str') {
         const x = str(a)
@@ -146,12 +162,12 @@ export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
     while (lo <= hi) {
       const mid = (lo + hi) >> 1
       const c = cmp(arr.data[mid]!)
-      closest = mid
       if (c === 0) return VI(mid)
       if (c < 0) lo = mid + 1
       else hi = mid - 1
     }
-    return VI(closest === 0 ? -1 : -closest)
+    // lo is the first index whose element is larger, which is where di7 stops
+    return VI(-(lo + 1))
   },
 }
 
@@ -695,8 +711,14 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   error(it) {
-    // Error n: raise error number n (InError +Lib.s:11396)
-    const n = it.evalInt()
+    /*
+     * Error n (InError +Lib.s:11396): `cmp.l #256,d3 / bcs.s .skip / move.l
+     * #255,d3`. The compare is unsigned, so it clamps a negative to 255 as
+     * well as anything past the table, and the program's own On Error
+     * handler sees 255 rather than a number no message exists for.
+     */
+    const raw = it.evalInt()
+    const n = raw >>> 0 >= 256 ? 255 : raw
     throw new AmosError(AMOS_ERRORS[n] ?? `Error ${n}`, n)
   },
   resume(it) {
@@ -803,8 +825,11 @@ export const INSTR: Record<string, Instr> = {
   },
   every(it) {
     // Every n Gosub label / Every n Proc NAME (InEvery)
+    // InEvery (+ILib.s:2040) is `tst.l d3 / beq FonCall / cmp.l #32767,d3 /
+    // bcc FonCall`. bcc fires ON 32767, so the last usable count is 32766
+    // and the port had been taking one more than AMOS does.
     const n = it.evalInt()
-    if (n <= 0 || n > 32767) funcCall()
+    if (n <= 0 || n >>> 0 >= 32767) funcCall()
     const kind = it.nm()
     if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('Every needs Gosub or Proc')
     it.advance()
@@ -1387,10 +1412,21 @@ export const FUNCS: Record<string, Func> = {
     return VS(AMOS_ERRORS[n] ?? '')
   },
   'repeat$'(_, a) {
+    /*
+     * FnRepeat (+Lib.s:14108) is `tst.l d3 / Rbeq L_WFonCall / cmp.l #207,d3
+     * / Rbcc L_WFonCall`, so the count is 1 to 206 and anything else is error
+     * 60. The compare is unsigned, which covers the negatives.
+     *
+     * It then builds ChRpt through FinRpt (+Lib.s:14152), the same routine
+     * Border$ and Zone$ use: `Esc R 0` + the text + `Esc R n`. The repeating
+     * is the console's job (Repete, +W.s:14993), not the string's, so the
+     * result is six characters longer than the text and NOT n copies of it.
+     * Returning n copies gave the right picture and the wrong Len.
+     */
     arity(a, 2)
     const n = int(a[1]!)
-    if (n < 0) funcCall()
-    return VS(str(a[0]!).repeat(n))
+    if (n === 0 || n >>> 0 >= 207) throw new AmosError(AMOS_ERRORS[60]!, 60)
+    return VS('\x1bR0' + str(a[0]!) + '\x1bR' + String.fromCharCode(48 + n))
   },
   'command line$'(_, a) {
     arity(a, 0)

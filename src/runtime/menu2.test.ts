@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL } from './menu'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -33,8 +34,7 @@ describe('menu level layout flags (+Lib.s:15682)', () => {
   it('Menu Bar, Menu Line and Menu Tline are mutually exclusive styles', () => {
     // Bar sets MF_BAR; Line clears both BAR and TOTAL; Tline sets TOTAL and
     // clears BAR — so a level is never left claiming two layouts at once.
-    // setLevelFlag indexes dFlags by level-1 and also rewrites every existing
-    // node at that depth, so the default and the live tree stay in step.
+    // setLevelFlag indexes dFlags by level-1 and touches nothing else.
     let rt = run(`${MENU}\nMenu Bar 2`)
     expect(rt.menu.dFlags[1]! & MF_BAR).toBe(MF_BAR)
     rt = run(`${MENU}\nMenu Bar 2 : Menu Line 2`)
@@ -53,6 +53,54 @@ describe('menu level layout flags (+Lib.s:15682)', () => {
     const rt = run(`${MENU}\nMenu Item Movable 1 : Menu Item Static 1`)
     expect(rt.menu.dFlags[0]! & MF_BOUGE).toBe(0)
     expect(run(`${MENU}\nMenu Item Movable 1`).menu.dFlags[0]! & MF_BOUGE).toBe(MF_BOUGE)
+  })
+
+  it('a level flag is a template for later menus, not a sweep over this one', () => {
+    /*
+     * MnDFlags is read in exactly two places: MnIF (+Lib.s:17260) ORs the
+     * level's byte into a node it is creating, and MenuReset (+Lib.s:17282)
+     * writes the defaults. Nothing reads it when drawing. So the order the
+     * program writes its lines in decides what happens, and the port had
+     * been walking the tree to make the order stop mattering.
+     */
+    const after = run(`${MENU}\nMenu Item Movable 2`)
+    expect(after.menu.find([1, 1])!.flags & MF_BOUGE).toBe(0)
+    const before = run(`Menu Item Movable 2\n${MENU}`)
+    expect(before.menu.find([1, 1])!.flags & MF_BOUGE).toBe(MF_BOUGE)
+    // the path form reaches one node and leaves the level default alone
+    const one = run(`${MENU}\nMenu Item Movable(1,1)`)
+    expect(one.menu.find([1, 1])!.flags & MF_BOUGE).toBe(MF_BOUGE)
+    expect(one.menu.find([1, 2])!.flags & MF_BOUGE).toBe(0)
+    expect(one.menu.dFlags[1]! & MF_BOUGE).toBe(0)
+  })
+
+  it('a level outside 1 to MnNDim is error 23, and a missing path is 39', () => {
+    // MnDim +ILib.s:6974: `tst.l d3 / beq FonCall / cmp.l #MnNDim,d3 / bhi
+    // FonCall`, with MnNDim equ 8 (+Equ.s:1400)
+    const code = (src: string): number => {
+      try {
+        run(`${MENU}\n${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const kw of ['Menu Bar', 'Menu Line', 'Menu Tline', 'Menu Movable', 'Menu Static', 'Menu Item Movable', 'Menu Item Static', 'Menu Active', 'Menu Inactive', 'Menu Separate']) {
+      expect([kw, code(`${kw} 0`)]).toEqual([kw, 23])
+      expect([kw, code(`${kw} 9`)]).toEqual([kw, 23])
+      expect([kw, code(`${kw} -1`)]).toEqual([kw, 23])
+      expect([kw, code(`${kw} 8`)]).toEqual([kw, 0])
+    }
+    expect(code('Menu Bar(9,9)')).toBe(39)
+    expect(code('Menu Bar(1,1)')).toBe(0)
+  })
+
+  it('every level but the first starts out title-movable', () => {
+    // MenuReset (+Lib.s:17282) sets MnTBouge on level 1 and again in the
+    // "Autres dimensions" loop for the other seven
+    const rt = run(MENU)
+    expect(rt.menu.dFlags[0]! & MF_TBOUGE).toBe(MF_TBOUGE)
+    for (let i = 1; i < 8; i++) expect([i, rt.menu.dFlags[i]! & MF_TBOUGE]).toEqual([i, MF_TBOUGE])
   })
 })
 
@@ -97,8 +145,10 @@ describe('menu structure', () => {
 
   it('X Menu and Y Menu read back an entry position', () => {
     expect(runOut(`${MENU}\nSet Menu(1,2) To 12,34\nPrint X Menu(1,2);Y Menu(1,2)`)).toBe(' 12 34\n')
-    // an entry that does not exist reads as zero rather than erroring
-    expect(runOut(`${MENU}\nPrint Y Menu(9,9)`)).toBe(' 0\n')
+    // FnYMenu (+Lib.s:15627) opens `Rjsr L_MnDim`, whose path form ends at
+    // MnINDef when MnFind comes back empty — `moveq #39,d0 / bra.s RunErr`
+    // (+ILib.s:1147), so "Menu item not defined" and not a zero
+    expect(() => runOut(`${MENU}\nPrint Y Menu(9,9)`)).toThrow(/Menu item not defined/)
   })
 })
 

@@ -133,6 +133,47 @@ describe('screen and window odds and ends', () => {
     expect(code('Dual Playfield 0,1')).toBe(0)
   })
 
+  it('every screen keyword that names a number checks it, error 50', () => {
+    // sixteen Rbsr L_CheckScreenNumber sites sit between +Lib.s:8739 and
+    // +Lib.s:9128, and the check runs BEFORE the screen is looked up. The
+    // port reached the lookup first, so an out-of-range number came back as
+    // 47 "screen not opened" — a number that can never name a screen at all.
+    const code = (src: string): number => {
+      try {
+        run(`Screen Open 0,320,200,4,Lowres
+${src}`)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    for (const src of [
+      'Screen 8', // InScreen +Lib.s:9128
+      'Screen Open 8,320,200,4,Lowres', // ScOo2 +Lib.s:8949
+      'Screen Close 8', // InScreenClose +Lib.s:8977
+      'Screen Display 8,,,,', // InScreenDisplay +Lib.s:9002
+      'Screen Offset 8,0,0', // InScreenOffset +Lib.s:9016
+      'Screen Hide 8', // ScShHi +Lib.s:9057
+      'Screen Show 8',
+      'Screen To Front 8', // +Lib.s:9098
+      'Screen To Back 8', // +Lib.s:9117
+      'Screen Swap 8', // InScreenSwap1 +Lib.s:8871
+      'Screen Clone 8', // InScreenClone +Lib.s:8912
+      'A=Screen Width(8)', // FnScreenWidth1 +Lib.s:8759
+      'A=Screen Height(8)', // FnScreenHeight1 +Lib.s:8739
+    ]) {
+      expect([src, code(src)]).toEqual([src, 50])
+    }
+    // the compare is unsigned, so a negative fails the same test
+    expect(code('Screen -1')).toBe(50)
+    expect(code('A=Screen Width(-1)')).toBe(50)
+    // 7 is in range but not open: that IS "screen not opened"
+    expect(code('Screen 7')).toBe(47)
+    // an empty slot still means the current screen, and is not a number
+    expect(code('A=Screen Width')).toBe(0)
+    expect(code('Screen Hide')).toBe(0)
+  })
+
   it('Wind Move and Wind Size refuse window 0 and a negative pair', () => {
     const code = (src: string): number => {
       try {
@@ -195,6 +236,30 @@ describe('screen and window odds and ends', () => {
       expect([f, bad(`${f}(0)`)]).toEqual([f, false])
     }
     expect(runOut('Screen Open 0,320,200,16,Lowres\nPrint X Sprite(5)')).toBe(' 0\n')
+  })
+
+  it('X Bob of a bob that was never made is an error, not zero', () => {
+    // FnXBob +Lib.s:12012 is the same four instructions, but XYBob is BobXY
+    // (+W.s:801) and it opens `bsr BobAd / bne.s BobxyE`. BobAd (+W.s:1163)
+    // walks T_BbDeb's list for a matching BbNb and leaves at AdBb1 with
+    // `moveq #1,d0` when there is none. The bobs are a list of what exists,
+    // where the hardware sprites are a fixed table of 64 — so an unmade bob
+    // fails where an unused sprite reads back zero.
+    const bad = (src: string): boolean => {
+      try {
+        runOut(`Screen Open 0,320,200,16,Lowres\nPrint ${src}`)
+        return false
+      } catch (e) {
+        return amosErrorCode(e as AmosError) === 23
+      }
+    }
+    for (const f of ['X Bob', 'Y Bob', 'I Bob']) {
+      expect([f, bad(`${f}(-1)`)]).toEqual([f, true])
+      expect([f, bad(`${f}(3)`)]).toEqual([f, true])
+    }
+    // once the bob exists, all three read it back
+    const made = 'Screen Open 0,320,200,16,Lowres\nGet Bob 1,0,0 To 16,16\nBob 3,40,50,1\n'
+    expect(runOut(`${made}Print X Bob(3);Y Bob(3);I Bob(3)`)).toBe(' 40 50 1\n')
   })
 
   it('there are ten scrolling zones, and an undefined one is error 72', () => {
