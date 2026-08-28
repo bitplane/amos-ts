@@ -509,6 +509,7 @@ const EXTRA_DOCS: Record<string, string[]> = {
     'aminet/ReqToolsDev/ReqTools/ReqTools.guide',
   ],
   'src/amiga/reqtools.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
+  'src/runtime/intuiextendreq.ts': ['aminet/ReqToolsDev/ReqTools/doc/reqtools.doc'],
   // Equates.Doc ships beside the equates file itself on Productivity1, and is
   // the only place the design is stated: that the Test pass pokes the value
   // into the source and the run time never opens the file again
