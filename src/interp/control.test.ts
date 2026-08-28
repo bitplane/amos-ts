@@ -66,8 +66,11 @@ describe('user-defined functions (Fn / Def Fn)', () => {
     // which is why the Test pass lets this through.
     expect(code(['Goto SKIP', 'Def Fn SQ(X)=X*X', 'SKIP:', 'Print Fn SQ(2)'].join('\n'))).toBe(15)
     expect(code('Def Fn SQ(X)=X*X\nPrint Fn SQ(1,2)')).toBe(16)
-    // and a string argument against a numeric parameter is TypeMis, 34
-    // (`cmp.b #1,d2 / bhi TypeMis`, +ILib.s:4232)
+    // and a string argument against a numeric parameter is TypeMis, 34.
+    // FnFn (+ILib.s:4237) tests the two types separately: `cmp.b #1,d1` for
+    // the parameter and, at FFn2, `cmp.b #1,d2 / bhi TypeMis` for the
+    // argument. Only 2 is above 1, so int against float coerces and either
+    // side being a string is the error.
     expect(code('Def Fn SQ(X)=X*X\nPrint Fn SQ("a")')).toBe(34)
   })
 })
