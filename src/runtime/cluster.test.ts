@@ -2507,6 +2507,19 @@ describe('function-argument To ranges (the "0,0T0" token specs)', () => {
     ].join('\n')
     // bob 2 overlaps, bob 3 does not — the range limits which are tested
     expect(run(src).out).toBe('-1 0\n')
+    // FnBobCol1 fills the range itself, `moveq #0,d2 / move.l #10000,d3`
+    const one = [
+      'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Bob 1,50,50,1 : Bob 2,50,50,1',
+      'Update : Wait Vbl',
+      'Print Bob Col(1)',
+    ].join('\n')
+    expect(run(one).out).toBe('-1\n')
+    // and FnBobCol3 puts Rbmi on all three arguments
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Bob Col(-1,2 To 2)'))).toThrow(/function call/)
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Bob Col(1,-1 To 2)'))).toThrow(/function call/)
+    // Sprite Col has the upper bound Bob Col lacks: `cmp.l #63,d3`
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Sprite Col(1,0 To 64)'))).toThrow(/function call/)
   })
 })
 

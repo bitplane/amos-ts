@@ -5981,10 +5981,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(hwSprite(int(a[0]!))?.image ?? 0)
     },
     'bob col'(_, a) {
-      return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
+      /*
+       * FnBobCol1 (+Lib.s:12365) fills the range in itself: `moveq #0,d2 /
+       * move.l #10000,d3`, so the one-argument form tests bobs 0 to 10000 —
+       * the same ceiling FnSpriteBobCol1 uses, and not the everything the
+       * port had been passing. FnBobCol3 (+Lib.s:12375) then puts `Rbmi
+       * L_FonCall` on all three arguments; unlike Sprite Col there is no
+       * upper bound on the pair, only the sign.
+       */
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 10000
+      if (n < 0 || first < 0 || last < 0) funcCall()
+      return VI(rt.bobColCheck(n, first, last))
     },
     'sprite col'(_, a) {
-      return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+      // FnSpriteCol1 (+Lib.s:12421) is `moveq #0,d2 / moveq #63,d3`, and
+      // FnSpriteCol3 opens `cmp.l #63,d3` — the one bound Bob Col lacks
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 63
+      if (n < 0 || first < 0 || last >>> 0 > 63) funcCall()
+      return VI(rt.spriteColCheck(n, first, last))
     },
     'bobsprite col'(_, a) {
       // FnBobSpriteCol1/3 +Lib.s:12338: bob n against hardware sprites
