@@ -1642,12 +1642,28 @@ export class Screen {
             w.curY = Math.max(0, Math.min(w.rows - 1, w.curY + (text.charCodeAt(ti + 2) || 128) - 128))
             ti += 2
             break
+          /*
+           * MemoCu (+W.s:15042), ESC "M" 0 to 3: memorise X, restore X,
+           * memorise Y, restore Y, and anything else falls to MemFin and does
+           * nothing.
+           *
+           * Both restores SKIP rather than clamp, and they do not agree with
+           * each other. ReX is `move.w WiMx(a5),d0 / beq.s MemFin / cmp.w
+           * WiTx(a5),d0 / bhi.s MemFin` -- a memorised column 0 is not
+           * restored at all, and the width itself passes because the test is
+           * bhi. ReY is only `cmp.w WiTy(a5),d0 / bcc.s MemFin`, with no zero
+           * test and the row count excluded. The port clamped both, which
+           * moves the cursor where AMOS leaves it alone.
+           */
           case 'M': {
             const m = arg(1)
             if (m === 0) w.memX = w.curX
             else if (m === 2) w.memY = w.curY
-            else if (m === 1) w.curX = Math.min(w.cols - 1, w.memX)
-            else w.curY = Math.min(w.rows - 1, w.memY)
+            else if (m === 1) {
+              if (w.memX !== 0 && w.memX <= w.cols) w.curX = w.memX
+            } else if (m === 3) {
+              if (w.memY < w.rows) w.curY = w.memY
+            }
             ti += 2
             break
           }
@@ -1657,6 +1673,13 @@ export class Screen {
         continue
       }
       switch (c) {
+        // DEVIATION: the control table (+W.s:16541) sends code 10 to CDown,
+        // the same as code 31, which moves down and keeps the column, and
+        // sends code 13 to CReturn (+W.s:14958) -- `move.w WiTx(a5),WiX(a5)`,
+        // which parks the cursor ON the window width rather than at zero.
+        // Print writes '\n' into this console, so code 10 is this port's own
+        // full newline. Reproducing the pair needs COut's wrap rule read
+        // first, and getting it wrong moves every line of output.
         case 10: // LF
           this.newline()
           break
