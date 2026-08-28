@@ -740,6 +740,26 @@ describe('double buffering and screens', () => {
     expect(on.screen.point(50, 90)).toBe(6)
   })
 
+  it('Scin\'s three-argument form starts the search below a screen (GetSIn +W.s:10879)', () => {
+    // two overlapping screens, 1 in front of 0
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Screen Display 0,128,50,,',
+      'Screen Open 1,320,200,16,Lowres : Screen Display 1,128,50,,',
+      'Screen To Front 1',
+    ].join('\n')
+    const v = (expr: string): number => Number(runOut(prog + '\nPrint ' + expr).trim())
+    const x = v('X Hard(1,10)')
+    const y = v('Y Hard(1,10)')
+    // two arguments: the frontmost screen over that point
+    expect(v(`Scin(${x},${y})`)).toBe(1)
+    // three: start at screen 1 and look no further forward, so still 1
+    expect(v(`Scin(1,${x},${y})`)).toBe(1)
+    // start at screen 0 and the one in front of it is not considered
+    expect(v(`Scin(0,${x},${y})`)).toBe(0)
+    // and the +1 bias makes -1 the whole list again
+    expect(v(`Scin(-1,${x},${y})`)).toBe(1)
+  })
+
   it('X Hard converts against the screen it is given (EcToD1 +W.s:10755)', () => {
     // two screens at different display positions, so "which screen" shows
     const prog = [

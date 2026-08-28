@@ -1636,12 +1636,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- palette ----
     colour(it) {
+      // InColour (+Lib.s:9185) hands both numbers to EcSCol (+W.s:3812),
+      // which is `and.w #31,d1` on the index and `and.w #$FFF,d2` on the
+      // value and cannot fail — `moveq #0,d0 / rts`. Both masks below are
+      // the routine's own, not a shortcut, and there is no error to raise.
       const s = scr()
       const n = it.evalInt()
       it.expect(',')
       s.palette[n & 31] = it.evalInt() & 0xfff
     },
     'colour back'(it) {
+      // EcSColB (+W.s:3878) opens `and.w #$FFF,d1` and nothing else
       rt.colourBack = it.evalInt() & 0xfff
     },
     palette(it) {
@@ -6190,11 +6195,32 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.fs?.read(name) != null ? -1 : 0)
     },
     scin(_, a) {
-      // ScIn(x,y): which screen is under this hardware coordinate?
+      /*
+       * Scin(x,y) asks which screen is under a hardware coordinate, and the
+       * THREE-argument form asks which one is under it AT OR BELOW a named
+       * screen. FnScIn3 (+Lib.s:11018) reads that screen out of the first
+       * argument and biases it, `addq.l #1,d3`, the same EcToD1 convention
+       * X Hard uses; FnScIn2 sets it to -1 so the +1 makes 0.
+       *
+       * GetSIn (+W.s:10879) then reads it: 0 or negative starts at the head
+       * of the priority list T_EcPri, and anything else resolves the screen
+       * and walks the list to ITS position first, so the search begins
+       * there. The port had been ignoring the argument and always starting
+       * at the front.
+       */
       const x = int(a[a.length - 2]!)
       const y = int(a[a.length - 1]!)
-      for (let i = rt.order.length - 1; i >= 0; i--) {
+      let start = rt.order.length - 1
+      if (a.length >= 3) {
+        const d3 = int(a[0]!) + 1
+        if (d3 > 0) {
+          start = rt.order.indexOf(d3 - 1)
+          if (start < 0) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+        }
+      }
+      for (let i = start; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
+        // `btst #BitHide,EcFlags(a0) / bne.s GSin1` skips a hidden screen
         if (!s || !s.visible) continue
         if (overScreen(s, x, y)) return VI(s.index)
       }
