@@ -266,8 +266,8 @@ export function makeIntuiextendIffInstructions(rt: Runtime): Record<string, Inst
       const buf = it.evalInt() >>> 0
       it.expect(',')
       const ctable = it.evalInt() >>> 0
-      getCtable(rt, buf, ctable)
-      decodePicture(rt, bitmap, buf)
+      ieIffGetColorTable(rt, buf, ctable)
+      ieIffDecodePicture(rt, bitmap, buf)
     },
 
     /**
@@ -363,7 +363,7 @@ export function makeIntuiextendIffInstructions(rt: Runtime): Record<string, Inst
  * Iff9's warning that "CMAX peut tres bien retourner un nombre de couleurs
  * superieure" is about a padded CMAP and not about this.
  */
-function getCtable(rt: Runtime, buf: number, dest: number): number {
+export function ieIffGetColorTable(rt: Runtime, buf: number, dest: number): number {
   const m = ieMem(rt)
   const chunk = ieIffFindChunk(rt, buf, ID.CMAP)
   if (chunk === 0) return 0
@@ -543,7 +543,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
     /** =Iff Get Ctable(_IFF,BUFFER) --- routine 317 ($58f6), -$36 */
     'iff get ctable': (_, a) => {
       open196()
-      return VI(getCtable(rt, i0(a, 0) >>> 0, i0(a, 1) >>> 0) | 0)
+      return VI(ieIffGetColorTable(rt, i0(a, 0) >>> 0, i0(a, 1) >>> 0) | 0)
     },
 
     /**
@@ -604,7 +604,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
     'iff decode picture': (_, a) => {
       open196()
       // the answer is 0 whether or not the decode worked; see the DEFECT above
-      decodePicture(rt, i0(a, 1) >>> 0, i0(a, 0) >>> 0)
+      ieIffDecodePicture(rt, i0(a, 1) >>> 0, i0(a, 0) >>> 0)
       return VI(0)
     },
 
@@ -663,7 +663,7 @@ export function makeIntuiextendIffFunctions(rt: Runtime): Record<string, Func> {
  * deeper picture than the screen loses its top planes rather than writing
  * past the bitmap.
  */
-function decodePicture(rt: Runtime, rpAddr: number, buf: number): boolean {
+export function ieIffDecodePicture(rt: Runtime, rpAddr: number, buf: number): boolean {
   const st = rt.intuiextend.iff
   const rp = ieRastPortAt(rt, rpAddr >>> 0)
   const bytes = iffBytes(rt, buf)

@@ -61,10 +61,8 @@ These are registered and detokenising but not implemented, so a program lists
 and loads with real keyword names instead of `{ext12:$02d4}` and then stops at
 the first extension keyword. The count is keywords with no handler at all.
 
-Five rows read 0%, and they divide by what is in the way rather than by
-size. One more row is listed with them and does NOT read 0%: DME 2.0 is
-part-done, and it stays here until every one of its keywords lands.
-`src/coverage/coverage.test.ts` checks both directions — every 0% row is
+Three rows read 0%, and they divide by what is in the way rather than by
+size. `src/coverage/coverage.test.ts` checks both directions — every 0% row is
 named, and no row is named that is FINISHED — so a ported extension cannot
 quietly stay on the list and a half-built one cannot quietly leave it.
 
@@ -73,7 +71,6 @@ Blocked on a back-end nothing here models:
 | extension | missing | what it is waiting on |
 |---|---|---|
 | OS DevKit 1.61 (`os-devkit-1.61`) | 1047 | a wrapper over most of AmigaOS. It needs the back-end, not the list. `gadtools` is modelled now and `datatypes` identifies without decoding, so what is left unmodelled is `asl`, `iffparse`, `commodities`, `workbench` and `amigaguide` |
-| IntuiExtend 1.6 (`intuiextend-1.6`) | 294 | nothing but the work. 2.01b is done, and 2.01b rebuilt the table, so the two share only 45 names of 294 and almost none at the same id. The port binds to the 2.01b id alone, so none of it reaches 1.6 yet; what is left is the same reading against a different set of routine numbers |
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
@@ -102,6 +99,38 @@ has it, so the port was written from the disassembly alone and `Omix Play` is
 the one keyword in this port whose engine has never been run against a module
 anyone wrote. `src/coverage/status.ts` says so in its own note rather than
 letting the 100% imply otherwise.
+
+**IntuiExtend 1.6 is done too, and it turned out to be mostly the same
+library.** The row's old note said the two builds "share only 45 names of
+294", which was the count that share a name AND a routine number. 284 of the
+294 names are in 2.01b's table as well. The tables were renumbered and the
+code very largely was not: each of those 284 routines was compared
+instruction by instruction in both binaries and 233 came out the same, 213 of
+them byte for byte. So the port binds to both identities, and
+`src/runtime/intuiextend16.ts` holds only the difference.
+
+Ten names are 1.6's alone. Six are spellings the author later fixed, down to
+`shearch` for `search`, and each points at a routine identical in both
+builds. Four are keywords 2.01b dropped, and three of those four deserved it:
+`Iff Make Palette` hands iff.library a colour count where GetColorTable wants
+the address to write the palette to, `Wb Menu Text` is a name sitting on
+`Iff Get Error`'s routine with a five-argument spec the routine never pops,
+and `Wb 3d Sort` is six bytes that pop two arguments and return, which is why
+the author's own `3dSort.asc` sorts its faces in BASIC.
+
+The 3D object format changed between the builds and nothing warns a program.
+1.6 objects have no `IE3D` stamp, count their points from zero, and take
+`Wb 3d Edge`'s two `To` arguments in the opposite order, while the token spec
+stayed `I0,0,0t0,0` in both. `Wb 3d Clear Object` is a real keyword here that
+zeroes an object's body; in 2.01b the name points at the routine that frees
+it.
+
+Two of 2.01b's defects are regressions this build does not have.
+`Wb 3d Move Object` is byte-identical in both and correct here, because the
+`move.w (a0)+` that reads a point count in 1.6 reads the high word of the
+magic in 2.01b. And `Wb Swatch`'s divisor list is a real ten-entry table at
+workspace+$198, which 1.6 points at and 2.01b does not: that is how the
+2.01b note now knows the pointer was right once and moved.
 
 **IntuiExtend 2.01b is done, and at 301 keywords it is the largest row this
 file has ever lost.** DME 2.0 held that at 184.

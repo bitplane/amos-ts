@@ -68,7 +68,7 @@ import type { Runtime } from './runtime'
 import { GUI_BANK_VERSIONS, readGuiBank } from './guibank'
 import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TCP_CHANNELS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, guiScaleRor, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
-import type { RastPort } from '../amiga/graphics'
+import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { encode, rowBytesFor } from '../amiga/planar'
 import { parseIlbm } from '../amiga/ilbm'
 import type { ObjectBank } from './objects'
@@ -894,30 +894,6 @@ function drawAmosImage(
   }
 }
 
-/**
- * `ScrollRaster(rp, dx, dy, xMin, yMin, xMax, yMax)` -- graphics.library -396,
- * which is the whole of `Gui Scroll`.
- *
- * The vacated edge goes to the RastPort's BgPen, which is what the real call
- * does with a simple RastPort. Positive dx moves the picture LEFT, as
- * graphics.library defines it and as the guide's "scrolls the area... by numx
- * pixels" leaves open.
- */
-function scrollRaster(rp: RastPort, dx: number, dy: number, x1: number, y1: number, x2: number, y2: number): void {
-  const w = x2 - x1 + 1
-  const h = y2 - y1 + 1
-  if (w <= 0 || h <= 0) return
-  const keep = new Uint8Array(w * h)
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) keep[y * w + x] = rp.point(x1 + x, y1 + y)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const sx = x + dx
-      const sy = y + dy
-      const v = sx < 0 || sx >= w || sy < 0 || sy >= h ? rp.bgPen : keep[sy * w + sx]!
-      rp.putPixel(x1 + x, y1 + y, v)
-    }
-  }
-}
 
 /** `BltBitMapRastPort` with minterm $c0: a straight copy, clipped both ends */
 function bltRect(

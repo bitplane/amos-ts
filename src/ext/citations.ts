@@ -381,6 +381,10 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/intuiextendpp.test.ts': ['intuiextend-2.01b'],
   'src/runtime/intuiextendapp.ts': ['intuiextend-2.01b'],
   'src/runtime/intuiextendapp.test.ts': ['intuiextend-2.01b'],
+  // both builds: the file is the difference between them, so a routine
+  // number in it may be either one's
+  'src/runtime/intuiextend16.ts': ['intuiextend-1.6', 'intuiextend-2.01b'],
+  'src/runtime/intuiextend16.test.ts': ['intuiextend-1.6', 'intuiextend-2.01b'],
   'src/runtime/musicraft.ts': ['musicraft-1.0'],
   'src/runtime/musicomega.ts': ['music-omega-1.0'],
   // the core's Sload/Ssave answer for AMCAF's too, and their doc block cites
