@@ -89,6 +89,7 @@ import {
   type IeNewWindow,
   type IeWindowState,
 } from './intuiextendwin'
+import { newIeMsgBlock, newIePortState, type IeMsgBlock, type IePortState } from './intuiextendmsg'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -200,6 +201,10 @@ export interface IntuiextendState {
    * this at zero, because a screen's RastPort address is derivable.
    */
   amosRp: number
+  /** workspace+$78 and +$6e0, the copy `Get Msg` takes before it replies */
+  msg: IeMsgBlock
+  /** the MsgPorts `Wb Create Msgport` and `Wb Create Port` made */
+  portState: IePortState
 }
 
 export function newIntuiextendState(): IntuiextendState {
@@ -233,6 +238,8 @@ export function newIntuiextendState(): IntuiextendState {
     pubModes: 0,
     pubStatus: 0,
     amosRp: 0,
+    msg: newIeMsgBlock(),
+    portState: newIePortState(),
   }
 }
 

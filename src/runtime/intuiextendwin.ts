@@ -166,6 +166,8 @@ export interface IeWindow {
   addr: number
   win: Window
   rp?: RastPortT
+  /** nw_IDCMPFlags as opened, and what `Wb New Idcmp`'s ModifyIDCMP replaces */
+  idcmpFlags: number
   minWidth: number
   minHeight: number
   maxWidth: number
@@ -286,6 +288,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
     ws.windows.set(addr, {
       addr,
       win: w,
+      idcmpFlags: nw.idcmpFlags,
       minWidth: nw.minWidth,
       minHeight: nw.minHeight,
       maxWidth: nw.maxWidth,

@@ -389,8 +389,13 @@ export class MemPool {
     // 8 bytes of dead space at the bottom so no real block sits at offset 0
     if (this.top === 0) this.top = 8
     const off = this.top
-    this.top += need
-    if (this.top > this.reserved) return 0
+    // the bump only happens once the block is known to fit. A request the pool
+    // cannot meet must leave it exactly as it was: IntuiExtend's
+    // `Wb Flush Memory` asks for 999,999,999 bytes precisely so that it will
+    // fail, and a refusal that consumed the pool anyway made every later
+    // allocation fail too.
+    if (off + need > this.reserved) return 0
+    this.top = off + need
     if (this.top > this.buffer.length) {
       let size = Math.max(this.buffer.length * 2, 0x10000)
       while (size < this.top) size *= 2
