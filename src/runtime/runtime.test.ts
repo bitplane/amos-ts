@@ -698,6 +698,19 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Set Pattern clears the old one before it looks at the argument (SPat +W.s:4695)', () => {
+    // a 6-row grab: SPat3 rounds DOWN to a power of two, so four rows
+    const base = 'Ink 5 : Bar 0,0 To 15,5 : Get Bob 1,0,0 To 16,6 : Cls 0\n'
+    expect(run(base + 'Set Pattern -1').screen.pattern).toHaveLength(4)
+    // `bsr EffPat` runs first, so a sprite that is not there still drops the
+    // pattern that was — the port used to leave it in place
+    expect(run(base + 'Set Pattern -1 : Set Pattern -99').screen.pattern).toBe(null)
+    expect(run(base + 'Set Pattern -1 : Set Pattern 0').screen.pattern).toBe(null)
+    // and the power-of-two search gives up at 128 rows, which is SPatE
+    const tall = 'Ink 5 : Bar 0,0 To 15,199 : Get Bob 1,0,0 To 16,200 : Cls 0\n'
+    expect(() => run(tall + 'Set Pattern -1')).toThrow(/function call/)
+  })
+
   it('Hot Spot\'s predefined codes reach the far edge on 2 AND 3 (SpotH +W.s:580)', () => {
     // a 12-wide grab: word 0 of a bob image is its WORD count, so the right
     // edge is 16, not 12

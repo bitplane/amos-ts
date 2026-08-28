@@ -1708,15 +1708,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'set pattern'(it) {
       const n = it.evalInt()
       const s = scr()
-      if (n === 0) {
-        s.pattern = null
-        return
-      }
+      // SPat (+W.s:4695) opens `bsr EffPat`, "efface l'ancien", BEFORE it
+      // looks at the argument at all. Every exit after that has already
+      // dropped the old pattern, including the quiet ones below, so
+      // `Set Pattern -99` with no sprite 99 leaves a solid fill and not the
+      // pattern that was there before it.
+      s.pattern = null
+      if (n === 0) return
       if (n < 0) {
-        // negative: a sprite image is the fill pattern (SPat1)
+        // negative: a sprite image is the fill pattern (SPat1 +W.s:4712).
+        // A missing bank, a number past the bank count and a null image all
+        // reach SPatX, which is `moveq #0,d0` — success, quietly.
         const img = rt.spriteBank?.image(-n)
         if (!img) return
-        const rows = Math.min(16, img.height)
+        /*
+         * SPat3 (+W.s:4729) walks d0 up in powers of two hunting for the
+         * height, and SPat4 backs off one step when it overshoots, so the
+         * pattern is the largest power of two NOT ABOVE the sprite. The
+         * search gives up once d3 reaches 8, which puts the ceiling at 128
+         * rows, and that exit is SPatE — error 23, not a silent clamp.
+         */
+        if (img.height > 128) funcCall()
+        let rows = 1
+        while (rows * 2 <= img.height) rows *= 2
         const bits = new Uint16Array(rows)
         for (let y = 0; y < rows; y++) {
           let row = 0
