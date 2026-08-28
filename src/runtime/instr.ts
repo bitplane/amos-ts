@@ -4075,7 +4075,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       menuCalc(rt.menu)
     },
     'menu base'(it) {
-      // MnBase +Lib.s:15624 — EntNul-style elision keeps a coordinate
+      /*
+       * InMenuBase (+Lib.s:15595) opens `move.l MnBase(a5),d0 / Rbeq
+       * L_MnNOp`, the same MnBase test Menu On makes 32 lines earlier -- and
+       * the two answer it differently. Menu On skips in silence; Menu Base
+       * raises MnNOp, `moveq #38,d0` (+Lib.s:15761), "Menu not opened". The
+       * port had the test on Menu On and nothing at all here, so setting a
+       * base before building the menu passed and then had no menu to move.
+       *
+       * EntNul-style elision keeps whichever coordinate was left out, and
+       * only a coordinate actually given sets MnFixed.
+       */
+      if (rt.menu.roots.length === 0) throw new AmosError(ED_RUN_MESSAGES[38]!, 38)
       const x = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
       if (it.accept(',')) {
         const y = it.atStmtEnd() ? null : it.evalInt()
@@ -4182,8 +4193,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (node) node.key = { kind: -1, asc: 0, scan, shift }
     },
     'menu to bank'(it) {
-      // +Lib.s:15401: serialise the tree as a "Menu    " bank
+      // +Lib.s:15401: serialise the tree as a "Menu    " bank. InMenuToBank
+      // opens `move.l MnBase(a5),d0 / Rbeq L_FonCall` (+Lib.s:15375), so with
+      // no menu built it is error 23 -- not Menu Base's 38, and not the empty
+      // bank the port used to write.
       const n = it.evalInt()
+      if (rt.menu.roots.length === 0) funcCall()
       rt.memBanks.set(n, {
         kind: 'memory',
         number: n,
@@ -4193,11 +4208,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         data: menuToBank(rt.menu),
       })
     },
+    /*
+     * InBankToMenu (+Lib.s:15465) throws the current menu away before it
+     * looks at anything: `Rjsr L_MnRaz / Rjsr L_MnClearVar` come first, and
+     * MnRaz (+Lib.s:17305) frees every node, clears MnAdEc and clears
+     * BitMenu in ActuMask -- so a Bank To Menu that then fails has left the
+     * program with no menu and the menu switched off.
+     *
+     * Then the checks, in this order: `tst.w ScOn(a5) / Rbeq L_ScNOp`, then
+     * `Bnk.GetAdr / Rbeq L_BkNoRes` for a bank that is not there at all, then
+     * `cmp.l (a1),d0 / Rbne L_FonCall` against the "Menu" identifier. A bank
+     * of the wrong type is error 23; only a missing one is 36. The port
+     * answered 36 to both and cleared nothing.
+     */
     'bank to menu'(it) {
-      // +Lib.s:15494: load a tree from a menu bank
       const n = it.evalInt()
+      rt.menu.roots = []
+      rt.menu.on = false
+      rt.menu.screenNb = -1
+      rt.menu.change = true
+      void rt.screen
       const bank = rt.memBanks.get(n)
-      if (!bank || !/^menu/i.test(bank.name)) throw new AmosError('bank not reserved')
+      if (!bank) throw new AmosError('bank not reserved', 36)
+      if (!/^menu/i.test(bank.name)) funcCall()
       bankToMenu(rt.menu, bank.data)
       if (rt.menu.screenNb < 0) rt.menu.screenNb = rt.currentIndex
     },
