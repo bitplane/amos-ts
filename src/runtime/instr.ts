@@ -2633,11 +2633,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
             img.hotY = b
           }
         } else if (img) {
-          // predefined code $XY: nibbles select left/middle/right, top/middle/bottom
+          /*
+           * Predefined code $XY. InHotSpot2 (+Lib.s:12552) does `and.w
+           * #%01110111,d1 / addq.w #1,d1`, and SpotH (+W.s:580) undoes the
+           * +1 straight away — it is there only so that 0 can go on meaning
+           * "explicit coordinates follow" at `tst.w d1 / beq.s Spo4`.
+           *
+           * Each axis then takes two bits and subtracts one: `bhi` keeps the
+           * far edge, `beq` halves it, and anything below zeroes it first.
+           * bhi is >=, so a nibble of 3 is the far edge as surely as 2 is —
+           * the port had 3 falling through to the near edge.
+           *
+           * The width is `move.w (a1),d2 / lsl.w #4,d2`: word 0 of a bob
+           * image is its WORD count, so the right edge is the grab rounded
+           * up to 16, not the width that was asked for.
+           */
           const cx = (a >> 4) & 3
           const cy = a & 3
-          img.hotX = cx === 1 ? img.width >> 1 : cx === 2 ? img.width : 0
-          img.hotY = cy === 1 ? img.height >> 1 : cy === 2 ? img.height : 0
+          const w16 = ((img.width + 15) >> 4) << 4
+          img.hotX = cx >= 2 ? w16 : cx === 1 ? w16 >> 1 : 0
+          img.hotY = cy >= 2 ? img.height : cy === 1 ? img.height >> 1 : 0
         }
       }
     },

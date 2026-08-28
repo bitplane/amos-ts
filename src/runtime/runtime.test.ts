@@ -698,6 +698,23 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Hot Spot\'s predefined codes reach the far edge on 2 AND 3 (SpotH +W.s:580)', () => {
+    // a 12-wide grab: word 0 of a bob image is its WORD count, so the right
+    // edge is 16, not 12
+    const base = 'Ink 5 : Bar 0,0 To 11,9 : Get Bob 1,0,0 To 12,10 : Cls 0\n'
+    const spot = (code: string): { x: number; y: number } => {
+      const im = run(base + 'Hot Spot 1,' + code).spriteBank!.image(1)!
+      return { x: im.hotX, y: im.hotY }
+    }
+    expect(spot('$00')).toEqual({ x: 0, y: 0 })
+    expect(spot('$11')).toEqual({ x: 8, y: 5 })
+    expect(spot('$22')).toEqual({ x: 16, y: 10 })
+    // `subq.w #1,d0 / bhi` is >=, so 3 lands on the far edge too
+    expect(spot('$33')).toEqual({ x: 16, y: 10 })
+    // and `and.w #%01110111` drops bit 3 of each nibble before any of that
+    expect(spot('$88')).toEqual({ x: 0, y: 0 })
+  })
+
   it('Get Bob Palette wants a bank to read (BkNoRes +Lib.s:12934)', () => {
     // `Rbsr L_Bnk.GetBobs / Rbeq L_BkNoRes`, and BkNoRes goes straight to
     // GoError with 36, so there is no +44 on this one
