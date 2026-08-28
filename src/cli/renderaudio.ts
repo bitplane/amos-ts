@@ -43,9 +43,12 @@ import { tokenize } from '../tokens/source'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { PlaySid } from '../amiga/playsid'
 import { checkPsid } from '../amiga/psid'
+import { isPlayableXm, parseXm } from '../amiga/xm'
+import { XmPlayer } from '../amiga/xmplay'
+import { XM_MIX_RATE } from '../amiga/xmmix'
 import type { MemoryBank } from '../loader/amosfile'
 
-export type Engine = ModFormat | 'track' | 'medext' | 'sid'
+export type Engine = ModFormat | 'track' | 'medext' | 'sid' | 'xm'
 
 /**
  * What the first bytes say it is.
@@ -60,6 +63,9 @@ export function detectEngine(d: Uint8Array): Engine | null {
   // PSID first, because ../amiga/modformat.ts answers for the eleven
   // replayers that are Amiga code and a PSID is not one of them: it is 6502.
   if (checkPsid(d)) return 'sid'
+  // and an XM is not one either: ../amiga/modformat.ts answers for the
+  // eleven Amiga replayers, and $210a2a is what decides this one
+  if (isPlayableXm(d)) return 'xm'
   return detectModule(d)
 }
 
@@ -103,6 +109,19 @@ export function renderModule(
     for (let f = 0; f < frames; f++) {
       ps.tick()
       mix.runTo((f + 1) / VBL_HZ)
+    }
+  } else if (engine === 'xm') {
+    const song = parseXm(data)
+    if (!song) throw new Error('not a FastTracker 2 module at version 1.04')
+    const xp = new XmPlayer(() => mix)
+    xp.load(song)
+    // the same shape as ScreamTracker: one buffer of mix a tick, and the BPM
+    // is in the buffer's LENGTH rather than in how often the tick comes round
+    let xt = 0
+    while (xt < opts.seconds) {
+      xp.vbl()
+      xt += xp.samplesPerTick / XM_MIX_RATE
+      mix.runTo(xt)
     }
   } else if (engine === 'thx') {
     const player = new ThxPlayer(() => mix)
@@ -275,7 +294,7 @@ if (process.argv[1]?.endsWith('renderaudio.ts')) {
   const [file, out] = files
   if (!file || !out) {
     console.error(
-      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|sid|track|medext]',
+      'usage: renderaudio <module> <out.wav> [--engine mod|p61|thx|med|omed|sfx|fc14|fc13|digi|smon|s3m|sid|xm|track|medext]',
     )
     console.error('                   [--seconds N] [--rate N] [--filter on|off] [--gain G]')
     console.error('                   [--machine a500|a1200]')

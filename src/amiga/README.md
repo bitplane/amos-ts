@@ -139,6 +139,11 @@ really does differ from the real one and saying where is the whole job.
 | `s3m.ts` | the ScreamTracker 3 module format: little-endian, and paragraph pointers |
 | `s3mmix.ts` | its 28 kHz mixer: unsigned bytes throughout, and a byte-swapped 16.16 position |
 | `s3mplay.ts` | its replay: two dispatch tables, and a vibrato that reads the command byte |
+| `xm.ts` | the FastTracker 2 module format: packed rows, delta samples, and 16-bit downconverted where it lies |
+| `xmmix.ts` | its 28,149 Hz mixer: a period table read from eight words below its label, and a linear table that is generated |
+| `xmplay.ts` | its replay: three effects whose results are overwritten before Paula sees them |
+| `omix.ts` | OctaMix's generated note tables and its two tempo modes, off DME_OctaMix.library |
+| `omixmix.ts` | its 1-to-64 channel mixer: a table for 8-bit samples, a shift for 16-bit, echo and a stereo spread |
 | `tfmx.ts` | the TFMX container and mdat: two files in one bank, and a subsong walk that miscounts |
 | `tfmxplay.ts` | its replay: three dispatch tables, a CIA-B clock, and a tempo that means two things |
 | `mmd2.ts` | OctaMED Pro's 5-8 channel format, where a block sets its own track count |
