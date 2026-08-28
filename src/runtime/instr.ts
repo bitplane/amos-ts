@@ -1463,12 +1463,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     ink(it) {
-      // Ink [pen][,[paper]][,[border]] — border goes to the outline pen
+      /*
+       * Ink [pen][,[paper]][,[border]]. InInk3 (+Lib.s:10069) unwinds the
+       * arguments backwards and each one is skipped when it holds EntNul:
+       * the BORDER arrives in d3 and goes straight into the RastPort with
+       * `move.b d3,27(a1)`, which is AOlPen; then `(a3)+` gives the paper to
+       * SetBPen and `(a3)+` the pen to SetAPen. Nothing is range-checked —
+       * the three graphics pens take whatever they are handed.
+       *
+       * All three land in RastPort BYTES, AOlPen directly and the other two
+       * through SetAPen/SetBPen, so `Ink 0,0,300` keeps 44.
+       */
       const s = scr()
-      if (it.nm() !== ',' && !it.atStmtEnd()) s.ink = it.evalInt()
+      if (it.nm() !== ',' && !it.atStmtEnd()) s.ink = it.evalInt() & 0xff
       if (it.accept(',')) {
-        if (it.nm() !== ',' && !it.atStmtEnd()) s.gPaper = it.evalInt()
-        if (it.accept(',') && !it.atStmtEnd()) s.gBorder = it.evalInt()
+        if (it.nm() !== ',' && !it.atStmtEnd()) s.gPaper = it.evalInt() & 0xff
+        if (it.accept(',') && !it.atStmtEnd()) s.gBorder = it.evalInt() & 0xff
       }
     },
     plot(it) {
@@ -1658,9 +1668,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.shifts.delete(rt.currentIndex)
     },
     'set line'(it) {
+      // InSetLine (+Lib.s:10108) is one `move.w d3,34(a0)` into the
+      // RastPort's LinePtrn, so the mask below is the instruction's own
       scr().linePattern = it.evalInt() & 0xffff
     },
     'set paint'(it) {
+      // InSetPaint (+Lib.s:9906) reads the RastPort Flags word, clears bit 3
+      // (AREAOUTLINE) and puts it back with `tst.l d3 / beq.s ISpt / bset
+      // #3,d0`, so any non-zero turns outlining on and 0 turns it off
       scr().outline = it.evalInt() !== 0
     },
     'set font'(it) {
