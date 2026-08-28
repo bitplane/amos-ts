@@ -107,6 +107,10 @@ import {
   makeIntuiextendSysFunctions,
   makeIntuiextendSysInstructions,
 } from './intuiextendsys'
+import {
+  makeIntuiextendGfxFunctions,
+  makeIntuiextendGfxInstructions,
+} from './intuiextendgfx'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8049,10 +8053,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: (rt) => ({
       ...makeIntuiextendInstructions(rt),
       ...makeIntuiextendSysInstructions(rt),
+      ...makeIntuiextendGfxInstructions(rt),
     }),
     functions: (rt) => ({
       ...makeIntuiextendFunctions(rt),
       ...makeIntuiextendSysFunctions(rt),
+      ...makeIntuiextendGfxFunctions(rt),
     }),
   },
   {

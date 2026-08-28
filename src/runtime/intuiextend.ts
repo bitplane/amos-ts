@@ -79,6 +79,7 @@ import type { Func, Instr } from '../interp/builtins'
 import { VI, int, type Value } from '../interp/values'
 import { MemPool } from '../amiga/exec'
 import { ieAntiqTable } from './intuiextendsys'
+import { newIePrintState, type IePrintState } from './intuiextendgfx'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -160,6 +161,12 @@ export interface IntuiextendState {
   taskPri: number
   /** what `Wb Setchip Rev` last asked graphics for; the machine is already AGA */
   chipRev: number
+  /** workspace+$88, the mode `Wb Paint` hands to graphics `Flood` */
+  paintMode: number
+  /** workspace+$b0, the IntuiText the whole `Wb Print` family writes */
+  print: IePrintState
+  /** rp_TxSpacing, which `Wb Text Spacing` writes and no RastPort here models */
+  textSpacing: number
 }
 
 export function newIntuiextendState(): IntuiextendState {
@@ -179,6 +186,9 @@ export function newIntuiextendState(): IntuiextendState {
     taskName: '',
     taskPri: 0,
     chipRev: 0,
+    paintMode: 0,
+    print: newIePrintState(),
+    textSpacing: 0,
   }
 }
 
