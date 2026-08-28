@@ -2188,10 +2188,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InCursPen (+Lib.s:13301) sends ESC "D" + the colour, so the change
       // reaches the cursor that is already drawn — CurCol (+W.s:14778) sits
       // inside the same bracket and refuses a colour the screen has not got
-      const n = it.evalInt()
+      // WnPp (+Lib.s:13323) adds the digit with `add.b #"0",d3`, a BYTE, so
+      // the colour arrives modulo 256 here too
+      const b = (it.evalInt() + 48) & 0xff
       const s = scr()
-      if (n < 0 || n >= s.nColors) throw new AmosError('illegal text window parameter', 60)
-      s.writeText(`\x1bD${String.fromCharCode(48 + n)}`)
+      if (b - 48 < 0 || b - 48 >= s.nColors) throw new AmosError('illegal text window parameter', 60)
+      s.writeText(`\x1bD${String.fromCharCode(b)}`)
     },
     'curs on'() {
       // InCursOn +Lib.s:13389 sends ESC "C1", and every console character

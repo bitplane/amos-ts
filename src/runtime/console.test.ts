@@ -43,6 +43,20 @@ describe('console cursor movement', () => {
     expect(screen(rt).curX).toBe(screen(rt).cols - 1)
   })
 
+  it('Pen, Paper and Curs Pen take their colour through a BYTE (WnPp +Lib.s:13323)', () => {
+    // InPen and InPaper print a three-byte template and WnPp fills the digit
+    // in with `add.b #"0",d3`, so the colour reaches the console modulo 256.
+    // The check is at the far end (Pen/Paper +W.s:14864, 14850,
+    // `cmp.w EcNbCol(a4),d1 / bcc PErr7`) and sees only what survived.
+    const open16 = 'Screen Open 0,320,200,16,Lowres\n'
+    for (const stmt of ['Pen 256', 'Paper 256', 'Curs Pen 256', 'Pen 260']) {
+      expect(() => run(open16 + stmt)).not.toThrow()
+    }
+    // 300 arrives as 44, which 16 colours still have not got
+    expect(() => run(open16 + 'Pen 300')).toThrow(/illegal text window parameter/)
+    expect(run(open16 + 'Pen 260 : Print "x"').rt.screen.curWin.pen).toBe(4)
+  })
+
   it('Curs On/Off and Curs Pen set cursor state without moving it', () => {
     let { rt } = run('Curs Off : Curs On')
     expect(screen(rt).cursorOn).toBe(true)

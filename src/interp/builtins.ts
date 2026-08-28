@@ -331,11 +331,22 @@ export const INSTR: Record<string, Instr> = {
     it.io.cls?.()
     it.col = 0
   },
+  /*
+   * Pen and Paper are not setters. InPen (+Lib.s:13317) and InPaper
+   * (+Lib.s:13309) each `lea` a three-byte template --- ESC "P" "0" and ESC
+   * "B" "0" --- and fall into WnPp (+Lib.s:13323), which is `add.b #"0",d3 /
+   * move.b d3,2(a1)` and then prints it. That add is a BYTE, so the colour
+   * reaches the console modulo 256: Pen 256 is Pen 0 and Pen 300 is Pen 44.
+   * The range check is at the far end, in Pen and Paper (+W.s:14864, 14850),
+   * and it is `cmp.w EcNbCol(a4),d1 / bcc PErr7` against the screen's own
+   * colour count. Checking the number the program wrote instead of the byte
+   * that survives the template refuses values AMOS accepts.
+   */
   pen(it) {
-    it.io.pen?.(it.evalInt())
+    it.io.pen?.((((it.evalInt() + 48) & 0xff) - 48) | 0)
   },
   paper(it) {
-    it.io.paper?.(it.evalInt())
+    it.io.paper?.((((it.evalInt() + 48) & 0xff) - 48) | 0)
   },
   'curs on': () => {},
   'curs off': () => {},
