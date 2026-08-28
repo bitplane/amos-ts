@@ -1389,12 +1389,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (const impl of new Set(rt.extSlotImpls().values())) impl.defaults?.(rt)
     },
     'default palette'(it) {
-      // InDefaultPalette +ILib.s:5360: colours for subsequently opened
-      // screens; elided entries keep their current default
+      // InDefaultPalette +ILib.s:5360 is `lea DefPal(a5),a0 / bsr Plt`, the
+      // same Plt that Palette uses. So the skip rule is the same one:
+      // `tst.l d3 / bmi.s Plt2` (+ILib.s:5392) steps over the store for any
+      // NEGATIVE value, not only for an elided slot. The port masked a
+      // negative into 12 bits and wrote it, turning `Default Palette -1` into
+      // white instead of leaving the default alone.
       let i = 0
       for (;;) {
         if (!(it.atStmtEnd() || it.nm() === ',')) {
-          if (i < 32) rt.defaultPalette[i] = it.evalInt() & 0xfff
+          const v = it.evalInt()
+          if (v >= 0 && i < 32) rt.defaultPalette[i] = v & 0xfff
         }
         i++
         if (!it.accept(',')) break
@@ -4750,6 +4755,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (tg.type !== 2) throw new AmosError('Type mismatch')
         if (len <= 0) funcCall()
         recSize += len
+        // Fld2 (+ILib.s:4776) sums the lengths and tests the RUNNING total:
+        // `add.l d0,d2 / cmp.l #String_Max,d2 / bcc FldFonc`, with
+        // String_Max $FFC0 (+Equ.s:1139). A record of 65472 bytes or more is
+        // a function-call error, because the record has to fit one AMOS
+        // string; the port summed without ever looking.
+        if (recSize >= 0xffc0) funcCall()
         fields.push({ len, get: () => str(tg.get()), set: (v: string) => tg.set(VS(v)) })
       } while (it.nm() === ',')
       c.fields = fields
