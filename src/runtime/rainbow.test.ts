@@ -281,10 +281,17 @@ describe('the out-of-the-box cursor (AffCur +W.s:13575 + Flash 3 +Lib.s:8989)', 
     const { rt } = boot('Flash Off : Colour 3,$F0F : Locate 0,0 : Cright : Cright')
     expect(pix12(rt, 2 * 8 * 2, 6 * 2)).toBe(0xf0f) // at the new cell
     expect(pix12(rt, 0, 6 * 2)).not.toBe(0xf0f) // and gone from the old one
-    // Remember X is ESC "M1" and behaves the same way
-    const { rt: rt2 } = boot('Flash Off : Colour 3,$F0F : Locate 0,0 : Memorize X : Cright : Remember X')
-    expect(pix12(rt2, 0, 6 * 2)).toBe(0xf0f)
-    expect(pix12(rt2, 1 * 8 * 2, 6 * 2)).not.toBe(0xf0f)
+    // Remember X is ESC "M1" and moves the drawn cursor the same way -- from a
+    // column that can be restored at all. ReX (+W.s:15055) opens `move.w
+    // WiMx(a5),d0 / beq.s MemFin`, so a memorised column 0 is never put back.
+    const { rt: rt2 } = boot('Flash Off : Colour 3,$F0F : Locate 2,0 : Memorize X : Cright : Remember X')
+    expect(pix12(rt2, 2 * 8 * 2, 6 * 2)).toBe(0xf0f)
+    expect(pix12(rt2, 3 * 8 * 2, 6 * 2)).not.toBe(0xf0f)
+    // and from column 0 the restore does nothing, so the cursor stays where
+    // Cright left it
+    const { rt: rt3 } = boot('Flash Off : Colour 3,$F0F : Locate 0,0 : Memorize X : Cright : Remember X')
+    expect(pix12(rt3, 1 * 8 * 2, 6 * 2)).toBe(0xf0f)
+    expect(pix12(rt3, 0, 6 * 2)).not.toBe(0xf0f)
   })
 
   it('Curs Pen recolours the cursor that is already drawn, and checks its range', () => {

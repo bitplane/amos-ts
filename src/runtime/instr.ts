@@ -665,9 +665,9 @@ function stosScan(src: string): { next: () => string; num: () => number; done: (
         p++
         any = true
       }
-      if (!any) throw new AmosError('syntax error in animation string')
+      if (!any) throw new AmosError('syntax error in animation string', 107)
     } else {
-      if (!/[0-9]/.test(ch)) throw new AmosError('syntax error in animation string')
+      if (!/[0-9]/.test(ch)) throw new AmosError('syntax error in animation string', 107)
       v = ch.charCodeAt(0) - 48
       while (/[0-9]/.test(sig[p] ?? '')) v = v * 10 + (sig[p++]!.charCodeAt(0) - 48)
     }
@@ -680,7 +680,7 @@ function stosScan(src: string): { next: () => string; num: () => number; done: (
 function parseStosAnim(src: string): { pairs: Array<[number, number]>; loop: boolean } {
   const s = stosScan(src)
   const synt = (): never => {
-    throw new AmosError('syntax error in animation string')
+    throw new AmosError('syntax error in animation string', 107)
   }
   const pairs: Array<[number, number]> = []
   if (s.next() !== '(') synt()
@@ -702,7 +702,7 @@ function parseStosAnim(src: string): { pairs: Array<[number, number]>; loop: boo
 export function parseStosMove(src: string): { start: number | null; groups: Array<[number, number, number]>; loop: boolean; endPos: number | null } {
   const s = stosScan(src)
   const synt = (): never => {
-    throw new AmosError('syntax error in animation string')
+    throw new AmosError('syntax error in animation string', 107)
   }
   let start: number | null = null
   let c = s.next()
@@ -816,7 +816,7 @@ function getPut(rt: Runtime, it: It): { c: NonNullable<ReturnType<Runtime['fileC
   const rec = it.evalInt()
   if (rec - 1 < 0 || rec - 1 >= 65500) funcCall()
   const c = rt.chan(n)
-  if (c.mode !== 'random' || !c.fields) throw new AmosError('file type mismatch')
+  if (c.mode !== 'random' || !c.fields) throw new AmosError('file type mismatch', 98)
   return { c, off: (rec - 1) * c.recSize! }
 }
 
@@ -912,7 +912,7 @@ function freeBytes(rt: Runtime, path: string): number {
 function dirListing(it: It, rt: Runtime, wide: boolean, printer: boolean): void {
   const path = it.atStmtEnd() ? '' : it.evalStr()
   const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
-  if (!entries) throw new AmosError('directory not found')
+  if (!entries) throw new AmosError('directory not found', 80)
   // no printer host, so the printer sink discards — as Lprint's does
   const out = printer ? (): void => {} : (t: string): void => it.write(t)
   if (!wide) {
@@ -1827,10 +1827,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (TSFont +W.s:4922); an unknown number is "font not available"
       const n = it.evalInt()
       if (n < 0) funcCall()
-      if (!rt.fontsListed) throw new AmosError('fonts not examined')
+      if (!rt.fontsListed) throw new AmosError('fonts not examined', 37)
       if (n === 0) return
       const entry = examinedFonts(rt)[n - 1]
-      if (!entry) throw new AmosError('font not available')
+      if (!entry) throw new AmosError('font not available', 44)
       rt.currentFont = n
       if (entry.file) {
         // a real disc font: load <dir><name>/<size> onto the screen. The dir
@@ -1838,7 +1838,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         // own drawer for one Ldisk Font brought in from elsewhere
         const bytes = rt.vfs?.read((entry.dir ?? 'Fonts:') + entry.file)
         const df = bytes ? parseDiskFont(bytes) : null
-        if (!df) throw new AmosError('font not available')
+        if (!df) throw new AmosError('font not available', 44)
         scr().font = df
       } else {
         scr().font = null // ROM/synthetic: the built-in 8x8 face
@@ -1993,7 +1993,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // then errors (code 8 → message 52, "Flash declaration error")
       if (seq === null) {
         rt.flashStop(reg)
-        throw new AmosError('flash declaration error')
+        throw new AmosError('flash declaration error', 52)
       }
       // Flash n,"" is the documented way to stop one colour — no error
       if (seq.length === 0) {
@@ -2046,7 +2046,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // returns 1, which EcWiErr maps to L_OOfMem (+Lib.s).
       const n = it.evalInt()
       const rb = rt.rainbows.get(n)
-      if (n >>> 0 >= 4 || !rb || rb.table.length === 0) throw new AmosError('out of memory')
+      if (n >>> 0 >= 4 || !rb || rb.table.length === 0) throw new AmosError('out of memory', 24)
       it.expect(',')
       if (!(it.atStmtEnd() || it.nm() === ',')) {
         rb.x = it.evalInt()
@@ -2120,7 +2120,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const v = it.evalInt()
       const rb = rt.rainbows.get(n)
       if (n >>> 0 >= 4 || !rb || rb.table.length === 0 || line < 0 || line >= rb.table.length)
-        throw new AmosError('out of memory')
+        throw new AmosError('out of memory', 24)
       rb.table[line] = v & 0xfff
     },
 
@@ -3550,7 +3550,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       const s = it.evalStr()
-      if (s.length < 256) throw new AmosError('256 characters for a wave')
+      if (s.length < 256) throw new AmosError('256 characters for a wave', 181)
       if (n <= 0) funcCall()
       const src = new Int8Array(256)
       for (let i = 0; i < 256; i++) src[i] = (s.charCodeAt(i) << 24) >> 24
@@ -3561,7 +3561,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // deleting resets every voice to wave 1
       const n = it.evalInt()
       if (n < 0) funcCall()
-      if (n === 0 || n === 1) throw new AmosError('wave 0 and 1 are reserved')
+      if (n === 0 || n === 1) throw new AmosError('wave 0 and 1 are reserved', 182)
       rt.music.delWave(n)
     },
     'set envel'(it) {
@@ -3666,7 +3666,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // the monitor up, or in a program the verifier marked an accessory, Run
       // chains the way Prun does instead of replacing its host -- which is
       // what lets an accessory hand control on and still come back.
-      if (it.atStmtEnd()) throw new AmosError('syntax error')
+      if (it.atStmtEnd()) throw new AmosError('syntax error', 22)
       if (it.direct !== 0) throw new AmosError(ED_RUN_MESSAGES[17]!, 17)
       const path = it.evalStr()
       if (it.program.accessory) {
@@ -3888,7 +3888,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const magic = String.fromCharCode(...bytes.slice(0, 4))
       if (magic !== 'MMD0' && magic !== 'MMD1') {
         rt.memBanks.delete(n)
-        throw new AmosError('not a med module')
+        throw new AmosError('not a med module', 189)
       }
     },
     'med play'(it) {
@@ -4288,11 +4288,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'shade off'() {
       scr().curWin.shade = false
     },
+    // InInverseOn/Off (+Lib.s:13397, :13405) print ESC "I1" and ESC "I0",
+    // and Inv (+W.s:14830) SWAPS WiPen and WiPaper rather than setting a
+    // rendering flag -- see Screen.setInverse
     'inverse on'() {
-      scr().curWin.inverse = true
+      scr().setInverse(true)
     },
     'inverse off'() {
-      scr().curWin.inverse = false
+      scr().setInverse(false)
     },
     'set text'(it) {
       // InSetText +Lib.s:9879: the rastport SoftStyle byte — it styles
@@ -4578,7 +4581,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!m) throw new AmosError('address error')
       const len = Math.min(end - base, m.data.length - m.off)
       if (!rt.vfs?.writeFile(path, Uint8Array.from(m.data.subarray(m.off, m.off + len)))) {
-        throw new AmosError('disc is write protected')
+        throw new AmosError('disc is write protected', 84)
       }
     },
     ppload(it) {
@@ -4665,7 +4668,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         name: bank.name,
         data: bank.data,
       })
-      if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected', 84)
     },
     'sam raw'(it) {
       // InSamRaw +Music.s:3157: freq<=500 then length<=256 error; plays
@@ -4757,10 +4760,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InGet +Lib.s:5262: Get #c,record — reads one record into the
       // Field variables; past the snapshot size is "end of file"
       const { c, off } = getPut(rt, it)
-      if (off >= c.fileSize!) throw new AmosError('end of file')
+      if (off >= c.fileSize!) throw new AmosError('end of file', 100)
       let pos = off
       for (const f of c.fields!) {
-        if (pos + f.len > c.data.length) throw new AmosError('disc error')
+        if (pos + f.len > c.data.length) throw new AmosError('disc error', 101)
         let s = ''
         for (let i = 0; i < f.len; i++) s += String.fromCharCode(c.data[pos + i]!)
         f.set(s)
@@ -4772,7 +4775,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // field, short strings space-padded); writing may extend the file
       // by one record (offset > size is "end of file")
       const { c, off } = getPut(rt, it)
-      if (off > c.fileSize!) throw new AmosError('end of file')
+      if (off > c.fileSize!) throw new AmosError('end of file', 100)
       const end = off + c.recSize!
       if (end > c.data.length) {
         const grown = new Uint8Array(end)
@@ -4866,7 +4869,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'print #'(it) {
       const n = it.evalInt()
       const c = rt.chan(n)
-      if (c.mode !== 'out') throw new AmosError('file type mismatch')
+      if (c.mode !== 'out') throw new AmosError('file type mismatch', 98)
       // A write to SPEAK: needs the voice loaded. Block and re-run the whole
       // statement, exactly as Say does — the arguments have not been consumed
       // yet, so this is the one point where the wait is free.
@@ -4962,7 +4965,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // "File already exists", and not the catch-all disc error.
       const path = it.evalStr()
       if (rt.vfs?.exists(path) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
-      if (!rt.vfs?.mkdir(path)) throw new AmosError('disc error')
+      if (!rt.vfs?.mkdir(path)) throw new AmosError('disc error', 101)
     },
     kill(it) {
       // DeleteFile() takes a file or an *empty* directory, and both failures
@@ -4982,7 +4985,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const to = it.evalStr()
       if (rt.vfs?.exists(from) == null) throw new AmosError('file not found', 81)
       if (rt.vfs.exists(to) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
-      if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
+      if (!rt.vfs.rename(from, to)) throw new AmosError('disc error', 101)
     },
     assign(it) {
       // InAssign +Lib.s:5596. The name is the FIRST argument and the path the
@@ -5039,21 +5042,41 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const c = cur.indexOf(':')
       vfs.currentDir = i > c ? cur.slice(0, i) : cur.slice(0, c + 1)
     },
+    /*
+     * Bgrab and Bsend move one bank between a Prun'd accessory and the
+     * program that started it. Both open `move.l d3,d0 / Rble L_FonCall`, and
+     * a `move` clears the carry so that bls is beq: a bank number of 0 or
+     * below is error 23.
+     *
+     * They are not mirror images. InBGrab (+Lib.s:2276) erases the
+     * destination first and then wants BOTH a previous program and the bank
+     * in it, `Rjsr L_Bnk.PrevProgram / beq.s .Err` and `Rbsr L_Bnk.GetAdr /
+     * beq.s .Err`, where .Err is L_BkNoRes -- error 36, and the destination
+     * stays erased. InBSend (+Lib.s:2304) wants a previous program with
+     * `Rbeq L_FonCall`, error 23 and not 36, erases the bank THERE, and then
+     * `Rbsr L_Bnk.GetAdr / beq.s .Ok` finishes quietly when the current
+     * program has no such bank to send.
+     */
     bgrab(it) {
-      // InBGrab +Lib.s:2303: pull bank n from the PREVIOUS program's
-      // list. There is no previous program in the port (yet — Prun), so
-      // the destination is erased and the grab fails: Bnk.Eff + BkNoRes
       const n = it.evalInt()
       if (n <= 0) funcCall()
-      rt.memBanks.delete(n)
-      throw new AmosError('bank not reserved')
+      rt.memBanks.delete(n) // Bnk.Eff on the destination, before anything can fail
+      const prev = rt.interp.previousProgramHost as { memBanks: Map<number, import('../loader/amosfile').MemoryBank> } | null
+      const bank = prev?.memBanks.get(n)
+      if (!bank) throw new AmosError(ED_RUN_MESSAGES[36]!, 36)
+      prev!.memBanks.delete(n) // Lst.Remove from the origin
+      rt.memBanks.set(n, bank) // Lst.Insert into ours
     },
     bsend(it) {
-      // InBSend +Lib.s:2304: push bank n to the previous program — with
-      // no previous program, Bnk.PrevProgram fails: function call error
       const n = it.evalInt()
       if (n <= 0) funcCall()
-      funcCall()
+      const prev = rt.interp.previousProgramHost as { memBanks: Map<number, import('../loader/amosfile').MemoryBank> } | null
+      if (!prev) funcCall()
+      prev!.memBanks.delete(n) // Bnk.Eff, on the previous program's list
+      const bank = rt.memBanks.get(n)
+      if (!bank) return // .Ok: nothing of ours to send, and no error
+      rt.memBanks.delete(n)
+      prev!.memBanks.set(n, bank)
     },
     'set dir'(it) {
       // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
@@ -5322,7 +5345,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const s = scr()
       const camg = (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0) | (s.ehb ? 0x80 : 0)
       const bytes = encodeIlbm({ width: s.width, height: s.height, depth: s.depth, mode: camg, palette: [...s.palette], pixels: s.pixels })
-      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected', 84)
     },
     save(it) {
       // InSave1/2 +Lib.s:3829: Save "file" = all banks (AmBs container);
@@ -5330,7 +5353,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       const n = it.accept(',') ? it.evalInt() : null
       const bytes = n === null ? rt.serializeAllBanks() : rt.serializeBank(n)
-      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected', 84)
     },
     pload(it) {
       // InPLoad +Lib.s:4254: load the code hunk of an AmigaDOS executable
@@ -5346,7 +5369,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`, ERR.FILE_NOT_FOUND)
       const data = extractCodeHunk(bytes)
-      if (!data) throw new AmosError('file format not recognised')
+      if (!data) throw new AmosError('file format not recognised', 95)
       const num = Math.abs(n)
       rt.memBanks.set(num, { kind: 'memory', number: num, memType: n < 0 ? 1 : 0, name: 'Asm', flags: 1, data })
     },
@@ -5832,7 +5855,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       it.expect(')')
       if (n <= 0 || dest <= 0) funcCall()
       const c = rt.chan(f)
-      if (c.mode !== 'in') throw new AmosError('file type mismatch')
+      if (c.mode !== 'in') throw new AmosError('file type mismatch', 98)
       let view: { data: Uint8Array; off: number } | null
       if (dest < 1024) {
         rt.memBanks.delete(dest)
@@ -5856,7 +5879,7 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It, tok: Tok)
       it.expect(')')
       if (n < 0 || n >= 32768) funcCall()
       const c = rt.chan(f)
-      if (c.mode !== 'in') throw new AmosError('file type mismatch')
+      if (c.mode !== 'in') throw new AmosError('file type mismatch', 98)
       return VI(formSize(c.data, c.pos, n).bytes)
     },
     'frame play'(it) {
@@ -6039,8 +6062,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      */
     'port'(_, a) {
       const c = rt.fileChans.get(int(a[0]!))
-      if (!c) throw new AmosError('file not opened')
-      if (!c.port) throw new AmosError('file type mismatch')
+      if (!c) throw new AmosError('file not opened', 97)
+      if (!c.port) throw new AmosError('file type mismatch', 98)
       if (c.serial) {
         const got = c.serial.read()
         return VI(got.length > 0 ? got[0]! & 0xff : -1)
@@ -6554,7 +6577,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (a.length === 2) {
         // Input$(channel, count): read raw bytes from the file
         const c = rt.chan(int(a[0]!))
-        if (c.mode !== 'in') throw new AmosError('file type mismatch')
+        if (c.mode !== 'in') throw new AmosError('file type mismatch', 98)
         const n = int(a[1]!)
         let out = ''
         for (let i = 0; i < n && c.pos < c.data.length; i++) out += String.fromCharCode(c.data[c.pos++]!)
@@ -6601,10 +6624,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // computed the same way from the same Info() call.
       const path = a.length > 0 ? str(a[0]!) : ''
       const vfs = rt.vfs
-      if (!vfs) throw new AmosError('device not available')
+      if (!vfs) throw new AmosError('device not available', 86)
       const r = vfs.resolve(path === '' ? vfs.currentDir : path)
       if (!r || vfs.exists(path === '' ? vfs.currentDir : path) === null) {
-        throw new AmosError('device not available')
+        throw new AmosError('device not available', 86)
       }
       // id_VolumeNode, then dl_Name at offset $28 — the VOLUME node, so a
       // disk asked about as `Df0:` still names itself. `AmigaFS.lockPath`
@@ -6853,7 +6876,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const line = int(a[1]!)
       const rb = rt.rainbows.get(n)
       if (n >>> 0 >= 4 || !rb || rb.table.length === 0 || line < 0 || line >= rb.table.length)
-        throw new AmosError('out of memory')
+        throw new AmosError('out of memory', 24)
       return VI(rb.table[line]!)
     },
     ntsc(_, a) {
@@ -6909,7 +6932,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // "Rom "/"Disc" at 34.
       const n = int(a[0]!)
       if (n < 0) funcCall()
-      if (!rt.fontsListed) throw new AmosError('fonts not examined')
+      if (!rt.fontsListed) throw new AmosError('fonts not examined', 37)
       const f = examinedFonts(rt)[n - 1]
       if (!f) return VS('')
       const out = (f.name + ' ').padEnd(30).slice(0, 30) + String(f.height).padEnd(4).slice(0, 4) + (f.type === 'Rom' ? 'Rom ' : 'Disc')

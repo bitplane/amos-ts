@@ -1219,11 +1219,8 @@ export class Screen {
   drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number, clipped = false, console = true): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
-    if (w.inverse) {
-      const t = pen
-      pen = paper
-      paper = t
-    }
+    // no swap here: Inv (+W.s:14830) swaps WiPen and WiPaper themselves, so
+    // by the time a glyph is drawn the two are already the right way round
     // COut (+W.s:15631) is `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2`
     // — the charset is indexed by the raw byte, and Change Print Font can
     // have replaced it with a 2KB bank
@@ -1593,7 +1590,7 @@ export class Screen {
            * fields are the same three the instructions set.
            */
           case 'I':
-            w.inverse = arg(1) !== 0
+            this.setInverse(arg(1) !== 0)
             ti += 2
             break
           case 'S':
@@ -1645,12 +1642,28 @@ export class Screen {
             w.curY = Math.max(0, Math.min(w.rows - 1, w.curY + (text.charCodeAt(ti + 2) || 128) - 128))
             ti += 2
             break
+          /*
+           * MemoCu (+W.s:15042), ESC "M" 0 to 3: memorise X, restore X,
+           * memorise Y, restore Y, and anything else falls to MemFin and does
+           * nothing.
+           *
+           * Both restores SKIP rather than clamp, and they do not agree with
+           * each other. ReX is `move.w WiMx(a5),d0 / beq.s MemFin / cmp.w
+           * WiTx(a5),d0 / bhi.s MemFin` -- a memorised column 0 is not
+           * restored at all, and the width itself passes because the test is
+           * bhi. ReY is only `cmp.w WiTy(a5),d0 / bcc.s MemFin`, with no zero
+           * test and the row count excluded. The port clamped both, which
+           * moves the cursor where AMOS leaves it alone.
+           */
           case 'M': {
             const m = arg(1)
             if (m === 0) w.memX = w.curX
             else if (m === 2) w.memY = w.curY
-            else if (m === 1) w.curX = Math.min(w.cols - 1, w.memX)
-            else w.curY = Math.min(w.rows - 1, w.memY)
+            else if (m === 1) {
+              if (w.memX !== 0 && w.memX <= w.cols) w.curX = w.memX
+            } else if (m === 3) {
+              if (w.memY < w.rows) w.curY = w.memY
+            }
             ti += 2
             break
           }
@@ -1660,6 +1673,13 @@ export class Screen {
         continue
       }
       switch (c) {
+        // DEVIATION: the control table (+W.s:16541) sends code 10 to CDown,
+        // the same as code 31, which moves down and keeps the column, and
+        // sends code 13 to CReturn (+W.s:14958) -- `move.w WiTx(a5),WiX(a5)`,
+        // which parks the cursor ON the window width rather than at zero.
+        // Print writes '\n' into this console, so code 10 is this port's own
+        // full newline. Reproducing the pair needs COut's wrap rule read
+        // first, and getting it wrong moves every line of output.
         case 10: // LF
           this.newline()
           break
@@ -1917,14 +1937,66 @@ export class Screen {
   }
 
   /** the Pen/Paper escapes error above the screen colour count (+W.s:14893) */
+  /**
+   * Inverse On/Off, which is Inv (+W.s:14830) reached through ESC "I":
+   *
+   *     Inv:    tst.w  d1 / bne.s InvOn
+   *             bclr   #2,WiSys(a5) / beq.s InvF     ; already off, nothing
+   *             bra.s  Inv1
+   *     InvOn:  bset   #2,WiSys(a5) / bne.s InvF     ; already on, nothing
+   *     Inv1:   move.w WiPaper(a5),d0
+   *             move.w WiPen(a5),WiPaper(a5)
+   *             move.w d0,WiPen(a5)
+   *             bsr    AdColor
+   *
+   * Inverse is not a rendering flag, it is a SWAP of the two colours, and the
+   * WiSys bit only records whether the swap is currently applied so that
+   * saying it twice does not undo it. The difference shows the moment a
+   * program sets a colour while inverted: `Pen 1 : Paper 2 : Inverse On :
+   * Pen 3 : Inverse Off` leaves pen 1 and paper 3 on the machine, and left
+   * pen 3 and paper 2 here.
+   */
+  setInverse(on: boolean): void {
+    const w = this.curWin
+    if (w.inverse === on) return
+    w.inverse = on
+    const t = w.pen
+    w.pen = w.paper
+    w.paper = t
+  }
+
+  /*
+   * Pen (+W.s:14864) and Paper (+W.s:14850) are the same seven instructions
+   * with the two registers exchanged:
+   *
+   *     cmp.w  EcNbCol(a4),d1 / bcc PErr7
+   *     bclr   #2,WiSys(a5) / beq.s Pen1
+   *     move.w WiPen(a5),WiPaper(a5)      ; Paper copies the other way
+   *   Pen1:
+   *     move.w d1,WiPen(a5)
+   *
+   * So naming a colour CANCELS an inversion, and the half not being set keeps
+   * whatever it was showing. `Inverse On : Pen 5` is not inverted text in 5,
+   * it is ordinary text in 5 on the paper that was being displayed.
+   */
   setPenChecked(n: number): void {
     if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
-    this.curWin.pen = n
+    const w = this.curWin
+    if (w.inverse) {
+      w.inverse = false
+      w.paper = w.pen
+    }
+    w.pen = n
   }
 
   setPaperChecked(n: number): void {
     if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
-    this.curWin.paper = n
+    const w = this.curWin
+    if (w.inverse) {
+      w.inverse = false
+      w.pen = w.paper
+    }
+    w.paper = n
   }
 
   /** Border$ start position (T_WiEncDX/DY — a task global on the 68k) */

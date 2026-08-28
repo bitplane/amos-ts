@@ -758,17 +758,30 @@ describe('error trapping', () => {
   it('jumps to an On Error Goto handler and reports the real error number', () => {
     const prog = [
       'On Error Goto OOPS',
-      'Error 12',
+      'Error 23',
       'Print "NOT REACHED"',
       'End',
       'OOPS:',
       'Print "CAUGHT";Errn',
     ].join('\n')
-    expect(run(prog)).toBe('CAUGHT 12\n') // Errn = the real error number
+    expect(run(prog)).toBe('CAUGHT 23\n') // Errn = the real error number
+  })
+
+  it('an error below 19 is not diverted at all, and 11 is the exception', () => {
+    // RunErr (+ILib.s:1266) is `moveq #19,d1` and then `cmp.w #11,d0 / beq.s
+    // .skip / cmp.w d1,d0 / bcs rErr1`. Error 12 cannot reach a handler.
+    const with12 = ['On Error Goto H', 'Error 12', 'End', 'H:', 'Print "CAUGHT"'].join('\n')
+    expect(() => run(with12)).toThrow(/math libraries/i)
+    // 11 is written into the test by name and does reach one
+    const with11 = ['On Error Goto H', 'Error 11', 'End', 'H:', 'Print "CAUGHT";Errn'].join('\n')
+    expect(run(with11)).toBe('CAUGHT 11\n')
+    // and 19 itself is the floor, so it passes
+    const with19 = ['On Error Goto H', 'Error 19', 'End', 'H:', 'Print "CAUGHT";Errn'].join('\n')
+    expect(run(with19)).toBe('CAUGHT 19\n')
   })
 
   it('resumes at the next statement', () => {
-    const prog = ['On Error Goto H', 'Error 1 : Print "AFTER"', 'End', 'H:', 'Resume Next'].join('\n')
+    const prog = ['On Error Goto H', 'Error 23 : Print "AFTER"', 'End', 'H:', 'Resume Next'].join('\n')
     expect(run(prog)).toBe('AFTER\n')
   })
 

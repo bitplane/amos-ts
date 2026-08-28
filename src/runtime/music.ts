@@ -260,9 +260,9 @@ export class MusicPlayer {
   music(n: number): void {
     if (n <= 0) funcCall()
     this.ensureBank()
-    if (!this.bound) throw new AmosError('music bank not found')
+    if (!this.bound) throw new AmosError('music bank not found', 183)
     const count = this.w(this.songBase)
-    if (n > count) throw new AmosError('music not defined')
+    if (n > count) throw new AmosError('music not defined', 184)
     if (this.stack.length >= 3) return // no room — current music keeps playing
     const songOff = this.songBase + this.l(this.songBase + 2 + n * 4 - 4)
     const voices: MuVoice[] = []
@@ -860,7 +860,7 @@ export class MusicPlayer {
     }
     // VPl0: wavetable — pick the mip for the octave, loop it at the note rate
     const rec = this.waves.get(w)
-    if (!rec) throw new AmosError('wave not defined')
+    if (!rec) throw new AmosError('wave not defined', 178)
     const [off, lenW] = TFREQ[Math.min(8, Math.floor(idx / 12))]!
     const lenBytes = lenW * 2
     const per = Math.max(124, Math.floor(PAULA_CLOCK / (lenBytes * ((TNOTES[idx] ?? 0) || 1))))
@@ -986,7 +986,7 @@ export class MusicPlayer {
   /** InDelWave (+Music.s:3405): also resets every voice to wave 1 (NoWave) */
   delWave(n: number): void {
     this.playOff(0b1111)
-    if (!this.waves.has(n)) throw new AmosError('wave not defined')
+    if (!this.waves.has(n)) throw new AmosError('wave not defined', 178)
     this.waves.delete(n)
     this.voiceWave = [1, 1, 1, 1]
   }
@@ -994,7 +994,7 @@ export class MusicPlayer {
   /** InSetEnvel (+Music.s:3426): set one phase and terminate after it */
   setEnvel(wave: number, phase: number, dur: number, vol: number): void {
     const rec = this.waves.get(wave)
-    if (!rec) throw new AmosError('wave not defined')
+    if (!rec) throw new AmosError('wave not defined', 178)
     rec.env[phase * 2] = dur
     rec.env[phase * 2 + 1] = vol
     if (phase * 2 + 2 < 16) rec.env[phase * 2 + 2] = 0
@@ -1002,7 +1002,7 @@ export class MusicPlayer {
 
   /** InWave (+Music.s:3373): Wave n To voices — the wave must exist */
   waveTo(n: number, mask: number): void {
-    if (!this.waves.has(n)) throw new AmosError('wave not defined')
+    if (!this.waves.has(n)) throw new AmosError('wave not defined', 178)
     for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = n
   }
 
@@ -1081,7 +1081,7 @@ export class MusicPlayer {
     if (!bank) throw new AmosError('bank not reserved')
     // `cmp.l #"Trac",-8(a2)` then `cmp.l #"ker ",-4(a2)`: the whole 8-byte
     // bank name, trailing space and all, not a prefix
-    if (bank.name.padEnd(8).slice(0, 8) !== 'Tracker ') throw new AmosError('not a tracker module')
+    if (bank.name.padEnd(8).slice(0, 8) !== 'Tracker ') throw new AmosError('not a tracker module', 186)
     // InSamStop0 + InTrackStop before the init
     for (let v = 0; v < 4; v++) this.host.audio.stop(v)
     this.trackStop()

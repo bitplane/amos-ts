@@ -247,7 +247,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
       // the header is NOT rewritten: routine 84 writes RecLe bytes and
       // nothing else, and DB_RecNum only reaches the file through
       // `Db Header Update`
-      if (!rt.vfs?.writeFile(c.path, c.image)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(c.path, c.image)) throw new AmosError('disc is write protected', 84)
     }
     c.saved = true
   }
@@ -345,7 +345,7 @@ export function makeSymBaseInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   const write = (c: SymBaseChannel): void => {
-    if (!rt.vfs?.writeFile(c.path, c.image)) throw new AmosError('disc is write protected')
+    if (!rt.vfs?.writeFile(c.path, c.image)) throw new AmosError('disc is write protected', 84)
   }
 
   /** the one-based field number, or AMOS error 23 (`Rble routine 90`) */

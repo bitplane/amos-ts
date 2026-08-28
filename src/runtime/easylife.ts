@@ -1914,7 +1914,7 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       // routine 59's own check, and the reason the guide tells you to wrap
       // this in On Error
       if (out.length > len) elError(8)
-      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected', 84)
       return VI(out.length)
     },
 
@@ -3514,7 +3514,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       body.set(bankHeaderBytes(num, flags, bank.name, bank.data.length))
       body.set(bank.data, BANK_NODE)
       const out = xpkGuard(rt, () => xpkPack(body, method, pw))
-      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected', 84)
     },
 
     /**
@@ -3540,7 +3540,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       const src = new Uint8Array(len)
       for (let i = 0; i < len; i++) src[i] = peekByte(rt, start + i)
       const out = xpkGuard(rt, () => xpkPack(src, method, pw))
-      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected', 84)
     },
 
     /**
@@ -3978,7 +3978,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const inst = it.evalInt() | 0
       const out = stCall(() => saveTree(rt, inst))
-      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected', 84)
     },
     /**
      * St Free All — routine 266 ($3834), `ELST_FreeBlocks(0)`.

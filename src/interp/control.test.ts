@@ -137,7 +137,7 @@ describe('error handling (Resume / Resume Label)', () => {
     // ("une expression") is the form that reaches the main program.
     const prog = [
       'On Error Proc H',
-      'Error 1',
+      'Error 23',
       'Print "not reached"',
       'End',
       'AFTER:',
@@ -155,7 +155,7 @@ describe('error handling (Resume / Resume Label)', () => {
   it('Resume Label needs an On Error PROC, not a Goto (NoOnErr +ILib.s:1922)', () => {
     // `tst.w ErrorChr(a5) / bpl NoOnErr` — bit 31 is what On Error Proc sets,
     // and error 5 says so in as many words
-    const prog = ['On Error Goto H', 'Error 1', 'End', 'AFTER:', 'End', 'H:', 'Resume Label "AFTER"'].join('\n')
+    const prog = ['On Error Goto H', 'Error 23', 'End', 'AFTER:', 'End', 'H:', 'Resume Label "AFTER"'].join('\n')
     expect(() => run(prog)).toThrow(/No ON ERROR PROC/)
   })
 
@@ -327,5 +327,27 @@ describe('banks and storage', () => {
   it('Dir lists a directory without disturbing the program', () => {
     const { out } = run('Dir "DH0:"\nPrint "after"')
     expect(out.endsWith('after\n')).toBe(true)
+  })
+})
+
+describe('For takes the loop variable\'s type for all three values', () => {
+  // InFor (+ILib.s:2073) runs the start, the limit and the step each through
+  // MMType (+ILib.s:2109), `cmp.b d1,d2 / bne.s MMt1 / rts` and then FlToInt1
+  // or IntToFl1. All three take the VARIABLE's type, not their own.
+  const ran = (loop: string): string =>
+    run(`N=0\n${loop}\nN=N+1\nNext\nPrint N`).out.trim()
+
+  it('truncates a fractional step on an integer variable', () => {
+    // step 0, so Next adds nothing and `tst.l d3 / bpl.s next1` takes the
+    // positive branch, where 10 is already past the limit. InFor makes no
+    // initial test, so the body has run once by then.
+    expect(ran('For A=10 To 1 Step -0.5')).toBe('1')
+    // the same loop on a float variable keeps the step and counts down
+    expect(ran('For B#=10 To 1 Step -0.5')).toBe('19')
+  })
+
+  it('truncates a fractional limit on an integer variable', () => {
+    expect(ran('For C=1 To 10.7')).toBe('10')
+    expect(ran('For D#=1 To 10.7')).toBe('10')
   })
 })

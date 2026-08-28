@@ -505,10 +505,17 @@ export const INSTR: Record<string, Instr> = {
     const vt = varType(t.flags)
     if (vt === 2) throw new AmosError('Type mismatch')
     it.expectOp('=')
-    const start = it.evalNum()
+    // InFor (+ILib.s:2073) runs the start, the limit and the step each through
+    // MMType (+ILib.s:2109), which is `cmp.b d1,d2 / bne.s MMt1 / rts` and
+    // then FlToInt1 or IntToFl1: all three take the LOOP VARIABLE's type, not
+    // their own. On an integer variable a fractional step is truncated, so
+    // `For A=10 To 1 Step -0.5` gets step 0, takes the positive branch at
+    // Next and stops at once. Keeping the float here counted down instead.
+    const mm = (n: number): number => (vt === 0 ? Math.trunc(n) | 0 : n)
+    const start = mm(it.evalNum())
     it.expect('to')
-    const limit = it.evalNum()
-    const step = it.accept('step') ? it.evalNum() : 1
+    const limit = mm(it.evalNum())
+    const step = it.accept('step') ? mm(it.evalNum()) : 1
     it.setVar(key, vt, VF(start))
     // InFor performs NO initial test: the body always runs at least once,
     // the comparison happens at Next. (c.after remains for Exit.)

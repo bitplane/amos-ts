@@ -641,7 +641,7 @@ export class MedPlayer {
     let n = bankArg ?? this.bank
     if (n >= 0x01000000) n = Math.floor((n - 0x01000000) / 0x00100000)
     const bank = this.host.getBank(n)
-    if (!bank || !bank.name.startsWith(this.bankPrefix)) throw new AmosError('not a med module')
+    if (!bank || !bank.name.startsWith(this.bankPrefix)) throw new AmosError('not a med module', 189)
     return n
   }
 

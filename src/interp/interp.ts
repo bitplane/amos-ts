@@ -585,8 +585,16 @@ export class Interp {
         // On Error Goto tests: an error in a typed line is never trapped, it
         // is reported to whoever typed it. The same instruction refuses to
         // trap errors 1000 and up, which are Edit and Direct themselves.
-        if (e instanceof AmosError && this.errorHandler !== null && !this.inError && this.direct === 0) {
-          this.errCode = amosErrorCode(e)
+        // RunErr (+ILib.s:1266) opens `moveq #19,d1` and then, once the
+        // closing routines have run, `cmp.w #11,d0 / beq.s .skip / cmp.w d1,d0
+        // / bcs rErr1`. An error BELOW 19 cannot be diverted at all, and 11,
+        // Out of variable space, is the single exception written into the
+        // test. So a handler never sees Stop (9), Out of stack space (13) or
+        // Illegal direct mode (17); those go straight to the report.
+        const code = e instanceof AmosError ? amosErrorCode(e) : 0
+        const divertible = code === 11 || code >= 19
+        if (e instanceof AmosError && divertible && this.errorHandler !== null && !this.inError && this.direct === 0) {
+          this.errCode = code
           this.inError = true
           this.errStmt = { li: this.stmtStart.li, ti: this.stmtStart.ti }
           this.errNext = this.afterCurrentStatement()
@@ -708,6 +716,23 @@ export class Interp {
   /** true while a Prun'd program is running (Prg_Previous is set) */
   get nestedProgram(): boolean {
     return this.progStack.length > 0
+  }
+
+  /**
+   * The state Prg_Push saved for the program underneath this one, which is
+   * what `Bnk.PrevProgram` repoints Cur_Banks at.
+   *
+   * Direct mode uses the same stack here and is not a program, so those
+   * entries are stepped over: on the 68000 a typed line runs inside the
+   * program it was typed at, and Prg_Previous still names that program's
+   * caller.
+   */
+  get previousProgramHost(): unknown {
+    for (let i = this.progStack.length - 1; i >= 0; i--) {
+      const e = this.progStack[i]!
+      if (!e.direct) return e.host
+    }
+    return null
   }
 
   /**

@@ -127,9 +127,15 @@ describe('language cluster', () => {
   })
 
   it('console styles: Inverse/Under On; Set Text only styles graphic Text (+Lib.s:9908)', () => {
-    const inv = run('Cls 0 : Inverse On : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
-    // inverse: background cells get the pen colour
+    // Inv (+W.s:14830) SWAPS WiPen and WiPaper -- it is not a rendering flag.
+    // Set the colours first and the swap shows: the cell fills with the pen.
+    const inv = run('Cls 0 : Pen 5 : Paper 0 : Inverse On : Locate 0,0 : Print "A"').rt
     expect(inv.screen.point(0, 0)).toBe(5)
+    // Naming a colour CANCELS the inversion instead. Pen (+W.s:14864) opens
+    // `bclr #2,WiSys(a5) / beq.s Pen1 / move.w WiPen(a5),WiPaper(a5)`, so this
+    // order prints ordinary text in 5 and the port used to invert it.
+    const cancelled = run('Cls 0 : Inverse On : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
+    expect(cancelled.screen.point(0, 0)).toBe(0)
     const und = run('Cls 0 : Under On : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
     for (let x = 0; x < 8; x++) expect(und.screen.point(x, 7)).toBe(5) // underline row
     // Set Text is the rastport SoftStyle: Print is NOT underlined...
