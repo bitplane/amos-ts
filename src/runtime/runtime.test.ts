@@ -698,6 +698,24 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Put Bob refuses a negative and a bob that is not there (InPutBob +Lib.s:12694)', () => {
+    // `move.l d3,d1 / Rbmi L_FonCall` then `SyCall PutBob / Rbne L_FonCall`
+    expect(() => run('Put Bob -1')).toThrow(/function call/)
+    expect(() => run('Put Bob 3')).toThrow(/function call/)
+    const ok = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8\nBob 3,10,10,1\nPut Bob 3'
+    expect(() => run(ok)).not.toThrow()
+  })
+
+  it('Del Block on a block that is not there is error 65 (BlDel +W.s:12463)', () => {
+    // `bsr FindBloc / bne.s FrBloc / moveq #BlE+2,d0` with BlE 19, so 19+2+44
+    expect(() => run('Del Block 7')).toThrow(/Block not found/)
+    expect(() => run('Del Cblock 7')).toThrow(/Block not found/)
+    // the bare form is a plain BlRaz and reports nothing
+    expect(() => run('Del Block')).not.toThrow()
+    const made = 'Ink 5 : Bar 0,0 To 9,9 : Get Block 7,0,0,10,10\nDel Block 7'
+    expect(() => run(made)).not.toThrow()
+  })
+
   it('Zoom measures the rectangle before it draws (ZooF +Lib.s:10692)', () => {
     // every check falls into L_FonCall, so a rectangle off the edge is an
     // error rather than a partly drawn picture

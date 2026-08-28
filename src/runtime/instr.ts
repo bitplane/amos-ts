@@ -2558,9 +2558,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // See Runtime.bobPut. Blitting a copy here instead put one in the
       // logical buffer only, so it flickered on a double-buffered screen and
       // the bob went on erasing itself normally.
+      //
+      // Both guards are on the instruction: `move.l d3,d1 / Rbmi L_FonCall`
+      // for a negative number, and `SyCall PutBob / Rbne L_FonCall` for a bob
+      // that is not on screen. The port returned quietly for both.
       const n = it.evalInt()
+      if (n < 0) funcCall()
       const bob = rt.bobs.get(n)
-      if (!bob) return
+      if (!bob) funcCall()
       const s = rt.screens.get(bob.screen) ?? scr()
       rt.bobPut.set(n, s.doubleBuffered ? 2 : 1)
     },
@@ -3832,8 +3837,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x, y, !b.mask)
     },
     'del block'(it) {
+      // InDelBlock0 is a bare `EcCall BlRaz` and says nothing about what it
+      // cleared. The one-argument form goes through BlDel (+W.s:12463), which
+      // is `bsr FindBloc / bne.s FrBloc / moveq #BlE+2,d0`, and the caller's
+      // `Rbne L_EcWiErr` turns that into 19+2+44.
       if (it.atStmtEnd()) rt.blocks.clear()
-      else rt.blocks.delete(blockNum(it))
+      else if (!rt.blocks.delete(blockNum(it))) throw new AmosError(ED_RUN_MESSAGES[65]!, 65)
     },
     'get cblock'(it) {
       /*
@@ -3878,8 +3887,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x & ~7, y, true)
     },
     'del cblock'(it) {
+      // FreeCBloc (+W.s:12309) reaches CBlE2, which is the same `moveq
+      // #BlE+2,d0` DelBloc uses, so a missing cblock reports the same 65
       if (it.atStmtEnd()) rt.cblocks.clear()
-      else rt.cblocks.delete(blockNum(it))
+      else if (!rt.cblocks.delete(blockNum(it))) throw new AmosError(ED_RUN_MESSAGES[65]!, 65)
     },
 
     // ---- screens extra ----
