@@ -363,6 +363,33 @@ function regSlot(n: number, limit: number, base: number): number {
 }
 
 /** `IReg` (:2705): `Rbsr L_RReg / move.l d3,(a0)` */
+/**
+ * Amreg's bounds, from AmRR (+Lib.s:11968), which measures before it reads.
+ *
+ * The one-argument form addresses a GLOBAL and is guarded by `cmp.l #26,d3 /
+ * Rbcc L_FonCall`, so R0 to R25. The test is unsigned, so a negative fails
+ * the same branch as an oversized one; the port had been answering 0 for
+ * out-of-range instead of raising anything.
+ */
+function amregGlobal(n: number): number {
+  if (n >>> 0 >= 26) funcCall()
+  return n
+}
+
+/**
+ * The two-argument form: `cmp.l #64,d1` on the channel, `cmp.l #10,d3` on the
+ * register. RegAMAL (+W.s:7884) then walks the channel list for a matching
+ * AmNb and answers `moveq #-1,d0` when there is none, which AmRR turns into
+ * the same error with `Rbmi L_FonCall`. Reading a register of a channel that
+ * has no AMAL program is error 23, not zero.
+ */
+function amregChannel(rt: Runtime, ch: number, reg: number): AmalChannel {
+  if (ch >>> 0 >= 64 || reg >>> 0 >= 10) funcCall()
+  const c = rt.channels.get(ch)
+  if (!c) funcCall()
+  return c
+}
+
 function writeReg(rt: Runtime, it: It, limit: number, base: number): void {
   it.expect('(')
   const n = it.evalInt()
@@ -4922,12 +4949,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(')')
       it.expectOp('=')
       const v = it.evalInt()
-      if (b === null) {
-        if (a >= 0 && a < 26) rt.amalGlobals[a] = v
-      } else {
-        const ch = rt.channels.get(a)
-        if (ch && b >= 0 && b < 10) ch.regs[b] = v
-      }
+      // IAmR (+Lib.s:11958) stores with `move.w d5,(a0)`, a WORD
+      if (b === null) rt.amalGlobals[amregGlobal(a)] = (v << 16) >> 16
+      else amregChannel(rt, a, b).regs[b] = (v << 16) >> 16
     },
 
     'load iff'(it) {
@@ -6049,13 +6073,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- AMAL ----
     amreg(_, a) {
+      // FAmR (+Lib.s:11964) reads `move.w (a0),d3 / ext.l d3`, a SIGNED word
       if (a.length === 2) {
-        const ch = rt.channels.get(int(a[0]!))
         const r = int(a[1]!)
-        return VI(ch && r >= 0 && r < 10 ? ch.regs[r]! : 0)
+        const ch = amregChannel(rt, int(a[0]!), r)
+        return VI((ch.regs[r]! << 16) >> 16)
       }
-      const n = int(a[0]!)
-      return VI(n >= 0 && n < 26 ? rt.amalGlobals[n]! : 0)
+      return VI((rt.amalGlobals[amregGlobal(int(a[0]!))]! << 16) >> 16)
     },
     chanan(_, a) {
       return VI(rt.channels.get(amChannel(int(a[0]!)))?.animating ? -1 : 0)

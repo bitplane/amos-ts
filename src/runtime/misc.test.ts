@@ -46,6 +46,24 @@ describe('AMAL channels', () => {
     expect(rt.channels.get(1)).toBeUndefined()
   })
 
+  it('Amreg measures its arguments and its registers are words (AmRR +Lib.s:11968)', () => {
+    const base = `${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\n`
+    // the global form is `cmp.l #26,d3 / Rbcc L_FonCall`, unsigned
+    expect(runOut(`Amreg(0)=7 : Print Amreg(0)`)).toBe(' 7\n')
+    expect(() => run(`Amreg(26)=1`)).toThrow(/function call/)
+    expect(() => run(`Amreg(-1)=1`)).toThrow(/function call/)
+    // the channel form is `cmp.l #64,d1` and `cmp.l #10,d3`
+    expect(runOut(`${base}Amreg(1,9)=5 : Print Amreg(1,9)`)).toBe(' 5\n')
+    expect(() => run(`${base}Amreg(1,10)=1`)).toThrow(/function call/)
+    expect(() => run(`${base}Amreg(64,0)=1`)).toThrow(/function call/)
+    // RegAMAL answers -1 for a channel with no AMAL program, and AmRR turns
+    // that into the same error rather than a zero
+    expect(() => run(`${GRAB}\nPrint Amreg(3,0)`)).toThrow(/function call/)
+    // IAmR stores a word and FAmR sign-extends it back
+    expect(runOut(`Amreg(0)=65535 : Print Amreg(0)`)).toBe('-1\n')
+    expect(runOut(`Amreg(0)=32768 : Print Amreg(0)`)).toBe('-32768\n')
+  })
+
   it('Amal Freeze is the one bit that On clears (AmBit $8000)', () => {
     const rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Freeze 1`)
     expect(rt.channels.get(1)!.frozen).toBe(true)
