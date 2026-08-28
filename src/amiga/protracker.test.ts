@@ -106,12 +106,12 @@ describe.skipIf(!existsSync(P61_LIB))('the tables came out of the shipped librar
    * The independent corroboration, and the only place AMOS's own transcription
    * of it is recorded.
    *
-   * `Sinus` at +Music.s:2146 is thirty-two `dc.b`s in a library that has
+   * `Sinus` at +Music.s:2120 is thirty-two `dc.b`s in a library that has
    * nothing to do with Player 6.1A, and they are the same thirty-two numbers.
    * Two Amiga replayers shipping the same table is what makes one copy of it
    * in `notes.ts` the right number of copies.
    */
-  it('is the same sine AMOS ships at +Music.s:2146', () => {
+  it('is the same sine AMOS ships at +Music.s:2120', () => {
     expect([...PT_SINE]).toEqual([
       0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
       0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18,

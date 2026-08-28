@@ -789,7 +789,7 @@ export class Runtime {
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are
-   * the same line. `Led On`/`Led Off` (InLedOn/Of +Music.s:3917) set it and
+   * the same line. `Led On`/`Led Off` (InLedOn/Of +Music.s:3891) set it and
    * First 0.1's `Change Led` is a `bchg`, so the bit has to be readable and
    * not just writable. True at boot, as the machine comes up with the filter
    * engaged and NullAudio already assumes.
@@ -2026,7 +2026,7 @@ export class Runtime {
       this.opal ? this.opal.ov.pool.buffer : null,
     ),
     // =Mubase points at the music extension data zone; the vumeter bytes at
-    // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
+    // MB+0..3 are the mapped part (FnMusicBase +Music.s:3881)
     bufferRegion('Mubase', Runtime.MUBASE_ADDR, 4, () => this.vuBytes),
     bufferRegion('The Game scratch', Runtime.TGE_SCRATCH_BASE, Runtime.TGE_SCRATCH_RESERVED, () =>
       this.thegame ? this.thegame.scratch : null,
@@ -4536,7 +4536,7 @@ export class Runtime {
   }
 
   /**
-   * FnVuMeter (+Music.s:3893): read AND clear the note-on byte the music
+   * FnVuMeter (+Music.s:3867): read AND clear the note-on byte the music
    * player stores per voice. Callers validate the range (BASIC errors on
    * voice>3, AMAL's Vu() returns 0 — AmVu +W.s:9036).
    */

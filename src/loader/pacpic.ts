@@ -141,10 +141,10 @@ export function parsePacPic(bytes: Uint8Array): PacPicture {
 }
 
 // ---------------------------------------------------------------------------
-// Pack / Spack — the encoder, from +Compact.s (Pack 478, GetSize 343)
+// Pack / Spack — the encoder, from +Compact.s (Pack 452, GetSize 317)
 // ---------------------------------------------------------------------------
 
-/** the square heights GetSize tries, TSize +Compact.s:459 */
+/** the square heights GetSize tries, TSize +Compact.s:446 */
 const SQUARE_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48, 64]
 
 export interface PackSource {

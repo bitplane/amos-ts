@@ -6361,7 +6361,7 @@ export const NOTES: Record<string, string> = {
   "printer error":
     "Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails",
   "printer online":
-    "Returns 0, meaning not online. That is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure path.",
+    "Returns 0, meaning not online. That is the DEFAULT in FnPrinterOnline (+IO_Ports.s:754), not its failure path.",
   "printer base":
     "Returns 0 -- the PrinterData/IORequest address, which does not exist here.",
   "parallel error":

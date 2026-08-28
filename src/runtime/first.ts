@@ -55,7 +55,7 @@ export function makeFirstInstructions(rt: Runtime): Record<string, Instr> {
      * without needing to know which it currently is.
      *
      * The core Music extension's `Led On` and `Led Off` drive the same bit
-     * (InLedOn/Of +Music.s:3917), so this reads the filter state back through
+     * (InLedOn/Of +Music.s:3891), so this reads the filter state back through
      * the same place they set it.
      */
     'change led'() {

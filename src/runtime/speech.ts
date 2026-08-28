@@ -24,7 +24,7 @@ import { AmosError } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 /**
- * Error 185, `7+178` at `OpNarE` (+Music.s:2508). AMOS raises it when
+ * Error 185, `7+178` at `OpNarE` (+Music.s:2482). AMOS raises it when
  * `OpenDevice` on narrator.device fails OR `OpenLibrary` on
  * translator.library does, so one message covers both halves of the speech
  * chain --- which is exactly the shape of this port's failure too, since
@@ -256,7 +256,7 @@ function slots(it: Parameters<Instr>[0], n: number): number[] {
 export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /**
-     * Say a$[,async] (InSay1/InSay2 +Music.s:2535/2540).
+     * Say a$[,async] (InSay1/InSay2 +Music.s:2509/2540).
      *
      * A leading `~` means the string is already phonemes: the routine skips
      * it, copies the rest verbatim and appends "Q#U" and two NULs. Anything
@@ -283,7 +283,7 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       const async = it.accept(',') ? it.evalInt() !== 0 : false
       const s = rt.speech
       if (!ensureLib(rt)) {
-        // OpNarE (+Music.s:2508) is what a machine with no narrator does, and
+        // OpNarE (+Music.s:2482) is what a machine with no narrator does, and
         // Say going quiet with no word said is the one thing it does not do
         if (s.failed) throw new AmosError(NO_NARRATOR, 185)
         it.block({ type: 'speech' }, true)

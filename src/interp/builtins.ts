@@ -1249,7 +1249,7 @@ export const INSTR: Record<string, Instr> = {
     it.doublePrecision = true
   },
   // AMOS Compiler directives. These steer the compiler pass; at runtime under
-  // the interpreter the original routines are bare `rts` (Rien, +CompExt.s:324)
+  // the interpreter the original routines are bare `rts` (Rien, +CompExt.s:298)
   // — so faithful behaviour is to consume the parameters and do nothing.
   'comp options'(it) {
     it.evalStr()
@@ -1547,8 +1547,8 @@ export const FUNCS: Record<string, Func> = {
   },
   // AMOS Compiler state reads: no native compiler is (or can be) loaded, so
   // these report "compiler absent" — the values the originals return when the
-  // APCMP overlay was never loaded (CompHere +CompExt.s:410 = 0, CompErr = "",
-  // CompSize +CompExt.s:444 = 0).
+  // APCMP overlay was never loaded (CompHere +CompExt.s:384 = 0, CompErr = "",
+  // CompSize +CompExt.s:418 = 0).
   'comp err$': (_, a) => {
     arity(a, 0)
     return VS('')

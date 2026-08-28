@@ -181,7 +181,7 @@ export function createSpeechBox(): HTMLElement {
       report(`${out.pcm.length} samples at ${out.sampleRate} Hz, ${ms} ms`)
     } catch (e) {
       // the same failure a program gets, spelled the way a program would see
-      // it: OpNarE (+Music.s:2508) raises 185 for either half of the chain
+      // it: OpNarE (+Music.s:2482) raises 185 for either half of the chain
       phon.textContent = ''
       report(`narrator-ts did not load — a program here would get error 185, "Can't open narrator". ${String(e)}`, true)
     } finally {

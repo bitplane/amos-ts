@@ -693,7 +693,7 @@ describe('compiler directives and program state (+CompExt.s / +ILib.s)', () => {
     return io.out
   }
 
-  it('Comp Test / Comp Options are runtime no-ops (Rien, +CompExt.s:324)', () => {
+  it('Comp Test / Comp Options are runtime no-ops (Rien, +CompExt.s:298)', () => {
     // the directives steer the compiler pass; under the interpreter they run
     // and produce nothing, so the program continues normally
     const prog = ['Comp Test On', 'Comp Options "REBUG"', 'Comp Test Off', 'Print "OK"'].join('\n')

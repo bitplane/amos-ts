@@ -51,7 +51,7 @@
  * NOTE: "In the original Amos Pro music extension, both of these [Track Loop
  * On/Of] commands led straight to an RTS instruction (it did absolutely
  * nothing!!). This just shows how much testing software houses actually do!"
- * — that is not true of AMOS Professional. `InTrackLoopOn` (+Music.s:4251) is
+ * — that is not true of AMOS Professional. `InTrackLoopOn` (+Music.s:4225) is
  * `Dload a0 / move.b #1,Track_Loop-MB(a0)`, and `mt_next` reads it at
  * +Music.s:1767 to decide whether to set Track_Stop. It works. EME shipped for
  * AMOS 1.3 as well and the remark may be true there; it is not true of the

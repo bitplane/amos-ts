@@ -11,7 +11,7 @@ import { AMOS_ERRORS } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 const table = new TokenTable(CORE_TOKENS)
-// IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:46)
+// IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:20)
 const exts = new Map([[6, extensionById('amospro-ioports-2.0')!.table]])
 
 function run(src: string): { rt: Runtime; out: string } {
@@ -60,7 +60,7 @@ describe('IOPorts: the shared device layer (Dev.*, +Lib.s:3068-3260)', () => {
 
 describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
   it('the channel number is an unsigned compare against NSerial', () => {
-    // GetSerial (+IO_Ports.s:636) is `cmp.l #NSerial,d0 / Rbcc L_IOFonc`,
+    // GetSerial (+IO_Ports.s:610) is `cmp.l #NSerial,d0 / Rbcc L_IOFonc`,
     // so a negative channel fails the same test a too-large one does
     expect(() => run('Serial Open 4,0')).toThrow(/function call/)
     expect(() => run('Serial Open -1,0')).toThrow(/function call/)
@@ -273,7 +273,7 @@ describe('IOPorts: the keywords with no observable result but real state', () =>
   })
 })
 
-describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:801/812/861)', () => {
+describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:775/812/861)', () => {
   const pre = ['Screen Open 0,320,200,32,Lowres', 'Cls 0', 'Ink 5', 'Bar 10,10 To 59,59', 'Printer Open'].join('\n')
 
   it('with no arguments it dumps the whole screen', () => {

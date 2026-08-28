@@ -104,7 +104,7 @@ export function unsquash(buf: Uint8Array): Uint8Array {
   return out
 }
 
-/** category offset ceilings (code_table, +CompExt.s:1166): 256/512/1024/4096 */
+/** category offset ceilings (code_table/o0-o6, +CompExt.s:1139): 256/512/1024/4096 */
 function usableLen(off: number, len: number): number {
   if (len < 2) return 0
   if (off < 256) return len // length 2+ all fit

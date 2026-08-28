@@ -3526,14 +3526,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     // ---- audio ----
     'sam bank'(it) {
-      // InSamBank +Music.s:3034: 1-16, else illegal function call
+      // InSamBank +Music.s:3008: 1-16, else illegal function call
       const n = it.evalInt()
       if (n <= 0 || n > 16) funcCall()
       rt.samBankNum = n
     },
     'sam play'(it) {
       // Sam Play n | Sam Play voices,n | Sam Play voices,n,freq
-      // (InSamPlay1-3 +Music.s:3128: an explicit frequency <=500 errors)
+      // (InSamPlay1-3 +Music.s:3102: an explicit frequency <=500 errors)
       const a = it.evalInt()
       let mask = 0b1111
       let n = a
@@ -3551,7 +3551,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.stopVoices((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
     },
     'sam swap'(it) {
-      // InSamSwap +Music.s:4080: Sam Swap voices To address,length —
+      // InSamSwap +Music.s:4054: Sam Swap voices To address,length —
       // queues the next buffer, picked up when the playing one ends
       const mask = it.evalInt()
       it.expect('to')
@@ -3639,7 +3639,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.audio.setLoop(v, -1)
     },
     volume(it) {
-      // InVolume1/2 +Music.s:2739: the one-argument form also sets the
+      // InVolume1/2 +Music.s:2713: the one-argument form also sets the
       // music master volume (L_MVol); out-of-range volume errors in Vol
       const a = it.evalInt()
       if (it.accept(',')) {
@@ -3656,15 +3656,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.playNote(0b1111, it.atStmtEnd() ? 70 : it.evalInt(), 1, ENV_BELL)
     },
     shoot() {
-      // InShoot +Music.s:2713: noise notes 60..63, one per voice
+      // InShoot +Music.s:2687: noise notes 60..63, one per voice
       rt.music.shout(60, ENV_SHOOT)
     },
     boom() {
-      // InBoom +Music.s:2702: noise notes 36..39 with the boom envelope
+      // InBoom +Music.s:2676: noise notes 36..39 with the boom envelope
       rt.music.shout(36, ENV_BOOM)
     },
     play(it) {
-      // InPlay2/3 +Music.s:2802: Play [voices,]note,wait — a negative
+      // InPlay2/3 +Music.s:2776: Play [voices,]note,wait — a negative
       // wait errors; a positive one behaves as Wait n after starting
       const a = it.evalInt()
       it.expect(',')
@@ -3686,7 +3686,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.playOff((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
     },
     'set wave'(it) {
-      // InSetWave +Music.s:3387: needs at least 256 characters (error
+      // InSetWave +Music.s:3361: needs at least 256 characters (error
       // 181), wave 0 illegal; the first 256 bytes become the waveform
       const n = it.evalInt()
       it.expect(',')
@@ -3698,7 +3698,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.setWave(n, src)
     },
     'del wave'(it) {
-      // InDelWave +Music.s:3405: waves 0 and 1 are reserved (error 182);
+      // InDelWave +Music.s:3379: waves 0 and 1 are reserved (error 182);
       // deleting resets every voice to wave 1
       const n = it.evalInt()
       if (n < 0) funcCall()
@@ -3722,24 +3722,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.setEnvel(wave, phase, dur, vol)
     },
     wave(it) {
-      // InWave +Music.s:3373: Wave n To voices
+      // InWave +Music.s:3347: Wave n To voices
       const n = it.evalInt()
       if (n < 0) funcCall()
       it.expect('to')
       rt.music.waveTo(n, it.evalInt() & 15)
     },
     'noise to'(it) {
-      // InNoiseTo +Music.s:3093
+      // InNoiseTo +Music.s:3067
       rt.music.noiseTo(it.evalInt() & 15)
     },
     sample(it) {
-      // InSampleTo +Music.s:3102: Sample n To voices
+      // InSampleTo +Music.s:3076: Sample n To voices
       const n = it.evalInt()
       it.expect('to')
       rt.music.sampleTo(n, it.evalInt() & 15)
     },
     voice(it) {
-      // InVoice +Music.s:3754: mask &15 -> VOnOf; only acts while a
+      // InVoice +Music.s:3728: mask &15 -> VOnOf; only acts while a
       // music is playing (stops/reclaims the player's voices)
       rt.music.voiceOnOff(it.evalInt() & 15)
     },
@@ -3752,19 +3752,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.musicOff()
     },
     'music stop'() {
-      // InMusicStop +Music.s:3701: zero the voice counters — the player
+      // InMusicStop +Music.s:3675: zero the voice counters — the player
       // pops the music stack at the next step-tick
       rt.music.musicStop()
     },
     tempo(it) {
-      // InTempo +Music.s:3878: 0-100 (unsigned compare), only affects a
+      // InTempo +Music.s:3852: 0-100 (unsigned compare), only affects a
       // playing music
       const t = it.evalInt()
       if (t < 0 || t > 100) funcCall()
       rt.music.tempo(t)
     },
     mvolume(it) {
-      // InMvolume +Music.s:3720: >=64 errors; rescales all stacked musics
+      // InMvolume +Music.s:3694: >=64 errors; rescales all stacked musics
       const v = it.evalInt()
       if (v < 0 || v >= 64) funcCall()
       rt.musicVolume = v & 63
@@ -3784,7 +3784,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.memBanks.set(n, { kind: 'memory', number: n, memType: 1, name: 'Tracker', flags: 0, data: bytes })
     },
     'track play'(it) {
-      // InTrackPlay0-2 +Music.s:4266: bank defaults to Track_Bank; the
+      // InTrackPlay0-2 +Music.s:4240: bank defaults to Track_Bank; the
       // pattern argument is "not supported in this version" there either
       let bank: number | null = null
       if (!it.atStmtEnd()) {
@@ -4033,7 +4033,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'med play'(it) {
-      // InMedPlay0-2 +Music.s:4603: Med Play [bank][,song] — the bank is
+      // InMedPlay0-2 +Music.s:4577: Med Play [bank][,song] — the bank is
       // verified first, then samples/tracker/med all stop before the start
       let bank: number | null = null
       let song = 0
@@ -4054,7 +4054,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.med.cont()
     },
     'med midi on'() {
-      // InMedMidiOn +Music.s:4702: flag only — no MIDI output in the port
+      // InMedMidiOn +Music.s:4676: flag only — no MIDI output in the port
       rt.music.med.midi = true
     },
     'track loop on'() {
@@ -4065,7 +4065,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'track loop of'() {
       rt.music.trackLoop = false
     },
-    // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
+    // InLedOn/Of +Music.s:3891: $BFE001 bit 1 — LED lit = low-pass filter engaged
     // the bit is READ back by First 0.1's `Change Led`, a bchg, so the state
     // has to live somewhere rather than only being written at the sink
     // the bit lives on ../amiga/cia.ts and drives the sink from there, so
@@ -4878,7 +4878,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected', 84)
     },
     'sam raw'(it) {
-      // InSamRaw +Music.s:3157: freq<=500 then length<=256 error; plays
+      // InSamRaw +Music.s:3131: freq<=500 then length<=256 error; plays
       // through GoSam, so Sam Loop On applies to raw plays too
       const mask = it.evalInt()
       it.expect(',')
@@ -6828,18 +6828,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- audio ----
     vumeter(_, a) {
-      // FnVuMeter +Music.s:3893: voice 0-3 else illegal function call
+      // FnVuMeter +Music.s:3867: voice 0-3 else illegal function call
       const v = int(a[0]!)
       if (v < 0 || v >= 4) funcCall()
       return VI(rt.vumeter(v))
     },
     mubase() {
-      // FnMusicBase +Music.s:3907: the extension data zone address; the
+      // FnMusicBase +Music.s:3881: the extension data zone address; the
       // vumeter bytes at +0..3 are mapped into the fake address space
       return VI(Runtime.MUBASE_ADDR)
     },
     'sam swapped'(_, a) {
-      // FnSamSwapped +Music.s:4055: voice 0-3 else illegal function call;
+      // FnSamSwapped +Music.s:4029: voice 0-3 else illegal function call;
       // 1 = voice off, 0 = swap pending, -1 = playing / swap consumed
       const v = int(a[0]!)
       if (v < 0 || v > 3) funcCall()
@@ -7342,7 +7342,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(m ? m.data[m.off]! : 0)
     },
     squash(_, a) {
-      // =Squash(address,length,fast,speed,colour) — Squash +CompExt.s:969.
+      // =Squash(address,length,fast,speed,colour) — Squash +CompExt.s:943.
       // Compresses in place and returns the compressed length, or -1 when the
       // result would not beat the original ("Squashed >= Normal").
       const address = int(a[0]!)

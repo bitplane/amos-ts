@@ -15,7 +15,7 @@ import {
 
 describe('the audio clock', () => {
   it('defaults to PAL, which is what AMOS assumes', () => {
-    // MusClock (+Music.s:851) holds this value; Set Ntsc is the keyword that
+    // MusClock (+Music.s:825) holds this value; Set Ntsc is the keyword that
     // would change a real machine's pitch
     expect(PAULA_CLOCK).toBe(PAULA_CLOCK_PAL)
     expect(PAULA_CLOCK_PAL).toBe(3546895)

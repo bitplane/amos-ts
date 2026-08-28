@@ -36,7 +36,7 @@ async function run(src: string, frames = 200): Promise<{ rt: Runtime; out: strin
   return { rt, out }
 }
 
-describe('Music extension: Say (InSay1/InSay2, +Music.s:2535/2540)', () => {
+describe('Music extension: Say (InSay1/InSay2, +Music.s:2509/2540)', () => {
   it('imports the voice on the first Say and blocks until it lands', async () => {
     const rt = new Runtime(tokenize('Say "hello"', table, exts), table, { extensions: exts, maxSteps: 500_000 })
     // synchronously, nothing can have loaded yet: runHeadless never yields to

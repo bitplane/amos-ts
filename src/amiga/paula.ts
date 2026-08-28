@@ -49,7 +49,7 @@ import { PT_PERIODS } from './notes'
 /**
  * The audio clock. Paula's sample rate is this divided by AUDxPER.
  *
- * PAL is what AMOS assumes — `MusClock` (+Music.s:851) holds this value —
+ * PAL is what AMOS assumes — `MusClock` (+Music.s:825) holds this value —
  * and the NTSC figure is here because `Set Ntsc` exists and a program that
  * switches gets a different pitch on the machine.
  */

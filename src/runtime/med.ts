@@ -345,7 +345,7 @@ export class MedPlayer {
   onVu: ((voice: number, volume: number) => void) | undefined
 
   private host: MedHost
-  /** Med_Bank (+Music.s:2274): default 7 */
+  /** Med_Bank (+Music.s:2248): default 7 */
   bank = 7
   /** Med_Midi flag — stored only, no MIDI output exists in the port */
   midi = false
@@ -603,7 +603,7 @@ export class MedPlayer {
     this.tickCount = 0
   }
 
-  /** InMedStop (+Music.s:4588) */
+  /** InMedStop (+Music.s:4562) */
   stop(): void {
     if (!this.on) return
     this.on = false
@@ -704,7 +704,7 @@ export class MedPlayer {
     this.line = this.line + (0x3f - line)
   }
 
-  /** MedClose (+Music.s:4711) */
+  /** MedClose (+Music.s:4685) */
   close(): void {
     this.stop()
     this.midi = false
@@ -713,7 +713,7 @@ export class MedPlayer {
 
   vbl(): void {
     if (!this.on) return
-    // MedCheck (+Music.s:4567): the bank vanished or was replaced
+    // MedCheck (+Music.s:4541): the bank vanished or was replaced
     const bank = this.host.getBank(this.bankNum)
     if (!bank || bank.data !== this.data || !bank.name.startsWith(this.bankPrefix)) {
       this.stop()

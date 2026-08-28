@@ -66,7 +66,7 @@ describe('sample playback', () => {
     expect(plays[0]!.freq).toBe(PAULA_CLOCK / samPeriod(4000))
   })
 
-  it('errors on an explicit frequency <= 500 (InSamPlay3 +Music.s:3148)', () => {
+  it('errors on an explicit frequency <= 500 (InSamPlay3 +Music.s:3122)', () => {
     expect(() => run('Sam Play 15,1,500')).toThrow(/illegal function call/i)
   })
 
@@ -119,14 +119,14 @@ describe('sample playback', () => {
     expect(a2.voiceState[1]!.loopStart).toBe(0)
   })
 
-  it('applies Volume to selected voices; default is 56 (MusDef +Music.s:918)', () => {
+  it('applies Volume to selected voices; default is 56 (MusDef +Music.s:892)', () => {
     const { audio, rt } = run('Volume %0011,20')
     expect(rt.voices[0]!.volume).toBe(20)
     expect(rt.voices[2]!.volume).toBe(56)
     expect(audio.events.filter((e) => e.kind === 'volume')).toHaveLength(2)
   })
 
-  it('Volume errors outside 0-63 and the 1-arg form sets music volume (InVolume1 +Music.s:2739)', () => {
+  it('Volume errors outside 0-63 and the 1-arg form sets music volume (InVolume1 +Music.s:2713)', () => {
     expect(() => run('Volume 64')).toThrow(/illegal function call/i)
     expect(() => run('Volume %0011,-1')).toThrow(/illegal function call/i)
     const { rt } = run('Volume 30')
@@ -137,7 +137,7 @@ describe('sample playback', () => {
     expect(rt2.musicVolume).toBe(56)
   })
 
-  it('Sam Raw validates length and frequency (InSamRaw +Music.s:3157)', () => {
+  it('Sam Raw validates length and frequency (InSamRaw +Music.s:3131)', () => {
     expect(() => run('Reserve As Work 10,1000\nSam Raw 15,Start(10),256,8000')).toThrow(/illegal function call/i)
     expect(() => run('Reserve As Work 10,1000\nSam Raw 15,Start(10),512,500')).toThrow(/illegal function call/i)
     const { audio } = run('Reserve As Work 10,1000\nSam Raw %0001,Start(10),512,8000')
@@ -145,7 +145,7 @@ describe('sample playback', () => {
     expect(play).toMatchObject({ voice: 0, length: 512, freq: PAULA_CLOCK / samPeriod(8000) })
   })
 
-  it('Led On/Off drives the power-LED low-pass filter (InLedOn +Music.s:3917)', () => {
+  it('Led On/Off drives the power-LED low-pass filter (InLedOn +Music.s:3891)', () => {
     const { audio } = run('Led Off\nLed On')
     expect(audio.events.filter((e) => e.kind === 'filter').map((e) => e.filter)).toEqual([false, true])
     expect(audio.filter).toBe(true)
@@ -163,7 +163,7 @@ describe('effects and vumeter', () => {
     expect(plays[0]!.freq).toBeCloseTo(PAULA_CLOCK / 251)
   })
 
-  it('Shoot and Boom play detuned noise on all four voices (Shout +Music.s:2722)', () => {
+  it('Shoot and Boom play detuned noise on all four voices (Shout +Music.s:2696)', () => {
     const { audio } = run('Shoot')
     const plays = audio.events.filter((e) => e.kind === 'play')
     expect(new Set(plays.map((p) => p.voice)).size).toBe(4)
@@ -183,7 +183,7 @@ describe('effects and vumeter', () => {
     expect(audio.voiceState[0]!.playing).toBe(false)
   })
 
-  it('Vumeter reads and clears the note-on byte (FnVuMeter +Music.s:3893)', () => {
+  it('Vumeter reads and clears the note-on byte (FnVuMeter +Music.s:3867)', () => {
     const audio = new NullAudio()
     const rt = new Runtime(
       tokenize('Print Vumeter(2)\nPrint Vumeter(2)', table, extensions),

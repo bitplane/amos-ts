@@ -132,7 +132,7 @@ describe('music and sample odds and ends', () => {
   })
 
   it('Mubase reports the music extension data zone address', () => {
-    // FnMusicBase +Music.s:3907 — the vumeter bytes live at +0..3, so the
+    // FnMusicBase +Music.s:3881 — the vumeter bytes live at +0..3, so the
     // address must be non-zero for Peek to reach them
     expect(runOut('Print Mubase<>0')).toBe('-1\n')
   })

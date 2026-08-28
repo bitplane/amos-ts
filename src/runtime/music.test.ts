@@ -15,9 +15,9 @@ const table = new TokenTable(CORE_TOKENS)
 const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs, true)]))
 
 // ---- synthetic "Music   " bank ------------------------------------------
-// Layout per BkNew (+Music.s:1017): longs at +0/+4/+8 -> instruments,
+// Layout per BkNew (+Music.s:991): longs at +0/+4/+8 -> instruments,
 // songs, patterns. Instrument records are 32 bytes at BankInst+2+n*32
-// (EtInst +Music.s:1338).
+// (EtInst +Music.s:1312).
 
 const cmd = (c: number, arg = 0): number => 0x8000 | (c << 8) | (arg & 0xff)
 const DELAY = (n: number): number => cmd(16, n)
@@ -125,7 +125,7 @@ describe('music bank player', () => {
     expect(rt.vumeter(0)).toBe(0)
   })
 
-  it('maps the vumeter bytes at =Mubase (FnMusicBase +Music.s:3907)', () => {
+  it('maps the vumeter bytes at =Mubase (FnMusicBase +Music.s:3881)', () => {
     const { rt } = boot('Music 1', musicBank(BASIC))
     frames(rt, 2)
     const m = rt.resolveAddr(Runtime.MUBASE_ADDR)
@@ -133,7 +133,7 @@ describe('music bank player', () => {
     expect(m!.data[m!.off]).toBe((63 * 56) >> 6)
   })
 
-  it('Tempo controls the step rate (MuCpt/MuTempo +Music.s:1144)', () => {
+  it('Tempo controls the step rate (MuCpt/MuTempo +Music.s:1118)', () => {
     // tempo 50 -> the counter wraps every second vbl
     const stream = [cmd(8, 50), cmd(9, 0), cmd(3, 63), 0x0143, DELAY(2), 0x0143, DELAY(2)]
     const { rt, audio } = boot('Music 1', musicBank(stream))
@@ -145,7 +145,7 @@ describe('music bank player', () => {
     expect(audio.events.filter((e) => e.kind === 'play')).toHaveLength(2)
   })
 
-  it('finishes and silences when every voice halts (MuFin +Music.s:1204)', () => {
+  it('finishes and silences when every voice halts (MuFin +Music.s:1178)', () => {
     const { rt, audio } = boot('Music 1', musicBank(BASIC))
     frames(rt, 8)
     expect(rt.music.playing).toBe(false)
@@ -168,7 +168,7 @@ describe('music bank player', () => {
     expect(rt2.music.playing).toBe(false)
   })
 
-  it('stacks up to three musics and resumes the previous on finish (MuBuffer +Music.s:1206)', () => {
+  it('stacks up to three musics and resumes the previous on finish (MuFin +Music.s:1178)', () => {
     // music 1 loops forever; music 2 (same song data) is cut by Music Stop
     const { rt, audio } = boot('Music 1\nMusic 1\nMusic 1\nMusic 1\nWait 5\nMusic Stop', musicBank(BASIC, { loopSong: true }))
     frames(rt, 4)
@@ -189,7 +189,7 @@ describe('music bank player', () => {
     expect(rt.music.playing).toBe(true)
   })
 
-  it('volume slide walks the volume down each effect vbl (MuVSl +Music.s:1562)', () => {
+  it('volume slide walks the volume down each effect vbl (MuVSl +Music.s:1536)', () => {
     const stream = [cmd(8, 50), cmd(9, 0), cmd(3, 40), 0x0143, cmd(13, 0x02), DELAY(30)]
     const { rt, audio } = boot('Music 1', musicBank(stream))
     frames(rt, 12)
@@ -274,7 +274,7 @@ describe('the wavetable synth (Play)', () => {
     expect(vols[0]!.volume).toBe(56)
   })
 
-  it('Play note,wait blocks like Wait (InPlay2 +Music.s:2802)', () => {
+  it('Play note,wait blocks like Wait (InPlay2 +Music.s:2776)', () => {
     const { rt } = boot('Play 40,10\nPrint "done"', sampBank)
     let out = ''
     rt.interp.io.write = (t) => (out += t)
@@ -286,7 +286,7 @@ describe('the wavetable synth (Play)', () => {
     expect(() => boot('Play 97,0', sampBank).rt.runHeadless(2)).toThrow(/illegal function call/i)
   })
 
-  it('Noise To routes a voice to the refreshed noise buffer (VPl4 +Music.s:2961)', () => {
+  it('Noise To routes a voice to the refreshed noise buffer (VPl4 +Music.s:2935)', () => {
     const { rt, audio } = boot('Noise To %0001\nPlay %0001,40,0', sampBank)
     frames(rt, 3)
     const play = audio.events.find((e) => e.kind === 'play')!
@@ -299,7 +299,7 @@ describe('the wavetable synth (Play)', () => {
     expect(after).not.toEqual(before)
   })
 
-  it('Sample To pitches a bank sample relative to A440 (VPl2 +Music.s:2947)', () => {
+  it('Sample To pitches a bank sample relative to A440 (VPl2 +Music.s:2921)', () => {
     const { rt, audio } = boot('Sample 1 To %0001\nPlay %0001,49,0', sampBank)
     frames(rt, 3)
     const play = audio.events.find((e) => e.kind === 'play')!
@@ -404,7 +404,7 @@ describe('the MOD tracker', () => {
     expect(a2.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(1)
   })
 
-  it('Track Stop silences all four voices (InTrackStop +Music.s:4229)', () => {
+  it('Track Stop silences all four voices (InTrackStop +Music.s:4203)', () => {
     const { rt, audio } = boot('Track Play\nWait 10\nTrack Stop', trackerBank())
     frames(rt, 20)
     expect(rt.music.mtOn).toBe(false)
@@ -512,7 +512,7 @@ describe('Sam Swap / Sload / Ssave', () => {
     expect(rt.music.samState[0]).toBe(1)
   })
 
-  it('Sam Swapped validates the voice (FnSamSwapped +Music.s:4055)', () => {
+  it('Sam Swapped validates the voice (FnSamSwapped +Music.s:4029)', () => {
     expect(() => boot('Print Sam Swapped(4)', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
     const { rt } = boot('Print Sam Swapped(0)', musicBank(BASIC))
     let out = ''

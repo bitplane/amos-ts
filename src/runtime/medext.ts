@@ -281,7 +281,7 @@ function setModule(rt: Runtime, data: Uint8Array | null): void {
  * A replayer over the extension's own module.
  *
  * `MedPlayer` was written for the Music extension, where the module is a
- * memory bank and `MedCheck` (+Music.s:4567) stops replay when that bank is
+ * memory bank and `MedCheck` (+Music.s:4541) stops replay when that bank is
  * freed or replaced. MED 7.1 has no bank, so the host answers with a pseudo-
  * bank named `Med` whose data is $3f2 — which makes the same check mean the
  * right thing here: replay stops when `Med Unload` clears the pointer.

@@ -48,7 +48,7 @@ import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
  * one error in this tree.
  */
 
-/** `NSerial equ 4` (+IO_Ports.s:69). */
+/** `NSerial equ 4` (+IO_Ports.s:43). */
 export const N_SERIAL = 4
 
 /** Error message bases, straight from the Dev.Open calls. */
@@ -159,7 +159,7 @@ export function newIoPortsState(): IoPortsState {
  * ------------------------------------------------------------------ */
 
 /**
- * GetSerial (+IO_Ports.s:636). An UNSIGNED compare against NSerial, so a
+ * GetSerial (+IO_Ports.s:610). An UNSIGNED compare against NSerial, so a
  * negative channel fails the same test a too-large one does — both are
  * error 23 rather than an out-of-range read.
  */
@@ -326,7 +326,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     'serial open': open,
 
     /**
-     * Serial Close [n] (InSerialClose0/1, +IO_Ports.s:351/357). With no
+     * Serial Close [n] (InSerialClose0/1, +IO_Ports.s:325/357). With no
      * argument it closes every channel, which is also what the extension's
      * own QUIT handler calls.
      */
@@ -344,7 +344,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial Send ser,A$ — InSerialSend (+IO_Ports.s:369). CMD_WRITE through
+     * Serial Send ser,A$ — InSerialSend (+IO_Ports.s:343). CMD_WRITE through
      * SendIO, so asynchronous. `move.w (a0)+,d0 / Rbeq L_IOFonc`: an empty
      * string is error 23 before the device is touched.
      */
@@ -361,7 +361,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial Out ser,address,length — InSerialOut (+IO_Ports.s:386). Length
+     * Serial Out ser,address,length — InSerialOut (+IO_Ports.s:360). Length
      * is tested before anything else and both zero and negative are error 23
      * (`move.l d3,d2 / Rbmi / Rbeq L_IOFonc`).
      *
@@ -384,7 +384,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /** Serial Speed ser,baud — IO_BAUD then SDCMD_SETPARAMS (Stpar). */
-    /** Serial Speed ser,baud — InSerialSpeed (+IO_Ports.s:458): IO_BAUD, Stpar. */
+    /** Serial Speed ser,baud — InSerialSpeed (+IO_Ports.s:432): IO_BAUD, Stpar. */
     'serial speed'(it) {
       const n = it.evalInt()
       it.expect(',')
@@ -395,7 +395,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial Bits ser,number,stop — InSerialBits (+IO_Ports.s:469).
+     * Serial Bits ser,number,stop — InSerialBits (+IO_Ports.s:443).
      * `move.b d1,IO_READLEN(a1) / move.b d1,IO_WRITELEN(a1)`: one argument
      * sets both directions, and both stores are BYTE-sized.
      */
@@ -432,7 +432,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial X ser,value — InSerialX (+IO_Ports.s:522). -1 disables XON/XOFF;
+     * Serial X ser,value — InSerialX (+IO_Ports.s:496). -1 disables XON/XOFF;
      * anything else enables it and becomes IO_CTLCHAR, the four control
      * characters packed into a long. `cmp.l #-1,d1` is a LONG compare here,
      * unlike Serial Parity's word dispatch above.
@@ -451,7 +451,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       stpar(ch)
     },
 
-    /** Serial Buf ser,length — InSerialBuf (+IO_Ports.s:537): IO_RBUFLEN. */
+    /** Serial Buf ser,length — InSerialBuf (+IO_Ports.s:511): IO_RBUFLEN. */
     'serial buf'(it) {
       const n = it.evalInt()
       it.expect(',')
@@ -462,7 +462,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Serial Fast ser — InSerialFast (+IO_Ports.s:548). Not just a speed
+     * Serial Fast ser — InSerialFast (+IO_Ports.s:522). Not just a speed
      * switch: it clears parity, disables XON/XOFF, forces 8 data bits both
      * ways and sets SERB_RAD_BOOGIE.
      *
@@ -480,14 +480,14 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       stpar(ch)
     },
 
-    /** Serial Slow ser — InSerialSlow (+IO_Ports.s:564): clears RAD_BOOGIE, nothing else. */
+    /** Serial Slow ser — InSerialSlow (+IO_Ports.s:538): clears RAD_BOOGIE, nothing else. */
     'serial slow'(it) {
       const ch = serialOpenChannel(rt, it.evalInt())
       ch.params.radBoogie = false
       stpar(ch)
     },
 
-    /** Serial Abort ser — InSerialAbort (+IO_Ports.s:622), straight to AbortIO. */
+    /** Serial Abort ser — InSerialAbort (+IO_Ports.s:596), straight to AbortIO. */
     'serial abort'(it) {
       const ch = serialChannel(rt, it.evalInt())
       devAbort(ch.dev)
@@ -505,7 +505,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Printer Close (InPrinterClose, +IO_Ports.s:707). It also puts back the
+     * Printer Close (InPrinterClose, +IO_Ports.s:681). It also puts back the
      * printer.device task's requester pointer that Printer Open replaced with
      * -1; neither the FindTask nor the $b8 poke has a counterpart here, there
      * being no task and no requester to suppress.
@@ -515,7 +515,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Printer Send A$ (InPrinterSend, +IO_Ports.s:741) — CMD_WRITE through
+     * Printer Send A$ (InPrinterSend, +IO_Ports.s:715) — CMD_WRITE through
      * SendIO, so ASYNCHRONOUS, and an empty string is error 23 first.
      *
      * The port used DoIO here and device.ts's own comment asserted the
@@ -532,7 +532,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Printer Out address,length (InPrinterOut, +IO_Ports.s:757) —
+     * Printer Out address,length (InPrinterOut, +IO_Ports.s:731) —
      * PRD_RAWWRITE through SendIO, as Printer Send.
      *
      * DEVIATION: `move.l d3,d0 / Rbeq L_IOFonc` rejects a length of zero and
@@ -550,14 +550,14 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       devSendIO(p)
     },
 
-    /** Printer Abort (InPrinterAbort, +IO_Ports.s:772), straight to AbortIO. */
+    /** Printer Abort (InPrinterAbort, +IO_Ports.s:746), straight to AbortIO. */
     'printer abort'() {
       devAbort(st().printer)
     },
 
     /**
      * Printer Dump [x1,y1 To x2,y2[,destCols,destRows,special]]
-     * (InPrinterDump0/4/7, +IO_Ports.s:801/812/861).
+     * (InPrinterDump0/4/7, +IO_Ports.s:775/812/861).
      *
      * A GRAPHICS dump, not a text one: L_Dump builds a colour map from the
      * screen's own palette (GetColorMap(32), then EcPal unpacked a nibble at
@@ -649,7 +649,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     /* ---------------- Parallel ---------------- */
 
     /**
-     * Parallel Open (InParallelOpen, +IO_Ports.s:1020). Like Printer Open it
+     * Parallel Open (InParallelOpen, +IO_Ports.s:994). Like Printer Open it
      * opens with `Rjsr L_PRT_Close` to shut AMOS's own Lprint channel first —
      * the parallel port and the printer are the same hardware. Its error
      * message base is 171 against the printer's 161, seven messages each.
@@ -658,13 +658,13 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       devOpen(st().parallel)
     },
 
-    /** Parallel Close (InParallelClose, +IO_Ports.s:1036), CloseA2 and no more. */
+    /** Parallel Close (InParallelClose, +IO_Ports.s:1010), CloseA2 and no more. */
     'parallel close'() {
       devClose(st().parallel)
     },
 
     /**
-     * Parallel Send A$ (InParallelSend, +IO_Ports.s:1044) — CMD_WRITE, and
+     * Parallel Send A$ (InParallelSend, +IO_Ports.s:1018) — CMD_WRITE, and
      * genuinely synchronous: `Rjmp L_Dev.DoIO`, where the Serial and Printer
      * equivalents both SendIO. An empty string is error 23.
      */
@@ -678,7 +678,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Parallel Out address,length (InParallelOut, +IO_Ports.s:1060) —
+     * Parallel Out address,length (InParallelOut, +IO_Ports.s:1034) —
      * PRD_RAWWRITE through DoIO. Same zero-only length check as Printer Out,
      * and the same deviation over negatives.
      */
@@ -692,7 +692,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       devDoIO(p)
     },
 
-    /** Parallel Abort (InParallelAbort, +IO_Ports.s:1075), straight to AbortIO. */
+    /** Parallel Abort (InParallelAbort, +IO_Ports.s:1049), straight to AbortIO. */
     'parallel abort'() {
       devAbort(st().parallel)
     },
@@ -708,7 +708,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * (`beq .Skip / moveq #-1,d3`). Errors 141 on a closed channel.
      */
     /**
-     * =Serial Check(n) — FnSerialCheck (+IO_Ports.s:574). CheckIO's result
+     * =Serial Check(n) — FnSerialCheck (+IO_Ports.s:548). CheckIO's result
      * normalised: `move.l d0,d3 / beq .Out / moveq #-1,d3`, so it is 0 or -1
      * and never the request pointer CheckIO actually returns.
      */
@@ -723,7 +723,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * Serial Input$, which returns an empty string in the same situation.
      */
     /**
-     * =Serial Get(n) — FnSerialGet (+IO_Ports.s:402). SDCMD_QUERY first, and
+     * =Serial Get(n) — FnSerialGet (+IO_Ports.s:376). SDCMD_QUERY first, and
      * an IO_ACTUAL of zero answers -1 without reading; otherwise one byte
      * through CMD_READ into the extension's own one-byte BufIn.
      */
@@ -760,7 +760,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /** =Serial Error(n). */
-    /** =Serial Error(n) — FnSerialError (+IO_Ports.s:587): IO_ERROR, one byte. */
+    /** =Serial Error(n) — FnSerialError (+IO_Ports.s:561): IO_ERROR, one byte. */
     'serial error'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
       void ch
@@ -769,7 +769,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Serial Status(n) — the modem control lines; nothing attached. */
     /**
-     * =Serial Status(n) — FnSerialStatus (+IO_Ports.s:598). SDCMD_QUERY, then
+     * =Serial Status(n) — FnSerialStatus (+IO_Ports.s:572). SDCMD_QUERY, then
      * the WORD at IO_STATUS: the modem lines as serial.device reports them.
      */
     'serial status'(_, a): Value {
@@ -783,7 +783,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * structure here, so this returns 0 — see the NOTES entry.
      */
     /**
-     * =Serial Base(n) — FnSerialBase (+IO_Ports.s:612): `move.l a1,d3`, the
+     * =Serial Base(n) — FnSerialBase (+IO_Ports.s:586): `move.l a1,d3`, the
      * address of the IOExtSer request itself, for programs that poke fields
      * the keywords do not reach.
      */
@@ -796,7 +796,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     /* ---------------- Printer ---------------- */
 
     /**
-     * =Printer Check (FnPrinterCheck, +IO_Ports.s:666) — CheckIO normalised
+     * =Printer Check (FnPrinterCheck, +IO_Ports.s:640) — CheckIO normalised
      * to 0 or -1, as the serial and parallel ones are.
      */
     'printer check'(): Value {
@@ -808,7 +808,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * port not ready; the source's failure path is `moveq #-1,d3`.
      */
     /**
-     * =Printer Online (FnPrinterOnline, +IO_Ports.s:780). PRD_QUERY into the
+     * =Printer Online (FnPrinterOnline, +IO_Ports.s:754). PRD_QUERY into the
      * extension's own Prt_Query long, then TWO conditions must both hold for
      * -1: `cmp.l #$1,IO_ACTUAL(a1) / bne .Skip` — the device must have
      * answered exactly one byte — and `btst #$0,(a0) / bne .Skip` — bit 0 of
@@ -820,13 +820,13 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
 
-    /** =Printer Error (FnPrinterError, +IO_Ports.s:730): IO_ERROR, one byte. */
+    /** =Printer Error (FnPrinterError, +IO_Ports.s:704): IO_ERROR, one byte. */
     'printer error'(): Value {
       devGetIO(st().printer)
       return VI(0)
     },
 
-    /** =Printer Base (FnPrinterBase, +IO_Ports.s:656): the IORequest address. */
+    /** =Printer Base (FnPrinterBase, +IO_Ports.s:630): the IORequest address. */
     'printer base'(): Value {
       devGetIO(st().printer)
       return VI(0)
@@ -834,7 +834,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
 
     /* ---------------- Parallel ---------------- */
 
-    /** =Parallel Check (FnParallelCheck, +IO_Ports.s:1008), CheckIO as 0 or -1. */
+    /** =Parallel Check (FnParallelCheck, +IO_Ports.s:982), CheckIO as 0 or -1. */
     'parallel check'(): Value {
       return VI(devCheckIO(st().parallel) === 0 ? 0 : -1)
     },
@@ -844,7 +844,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      * request. Nothing attached reads as 0.
      */
     /**
-     * =Parallel Status (FnParallelStatus, +IO_Ports.s:1083). PDCMD_QUERY,
+     * =Parallel Status (FnParallelStatus, +IO_Ports.s:1057). PDCMD_QUERY,
      * then `move.b $34(a1),d3` — io_PtrStatus at offset $34 of IOExtPar, the
      * printer's own handshake lines, one byte and not the word Serial Status
      * reads.
@@ -856,13 +856,13 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
 
-    /** =Parallel Error (FnParallelError, +IO_Ports.s:1097): IO_ERROR, one byte. */
+    /** =Parallel Error (FnParallelError, +IO_Ports.s:1071): IO_ERROR, one byte. */
     'parallel error'(): Value {
       devGetIO(st().parallel)
       return VI(0)
     },
 
-    /** =Parallel Base (FnParallelBase, +IO_Ports.s:998): the IORequest address. */
+    /** =Parallel Base (FnParallelBase, +IO_Ports.s:972): the IORequest address. */
     'parallel base'(): Value {
       devGetIO(st().parallel)
       return VI(0)
@@ -870,7 +870,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Parallel Input$(len[,timeout]) (FnParallelInput1/2). */
     /**
-     * =Parallel Input$(long[,stop]) — FnParallelInput1/2 (+IO_Ports.s:1110
+     * =Parallel Input$(long[,stop]) — FnParallelInput1/2 (+IO_Ports.s:1084
      * and :1118), which differ only in PARB_EOFMODE. The one-argument form
      * CLEARS it and reads a fixed count; the two-argument form SETS it and
      * fills all EIGHT bytes of IO_PTERMARRAY with the same terminator

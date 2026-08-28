@@ -63,6 +63,19 @@ const AMOS_SOURCES: Record<'corpus' | 'other', string> = {
   other: '../AMOS-Professional-Official',
 }
 
+/**
+ * The subdirectories a `+Name.s` may sit in, after the checkout root.
+ *
+ * The interpreter's own files are at the root, but `+Music.s`, `+IO_Ports.s`
+ * and `+Compact.s` are under `extensions/` and `+CompExt.s`, `+CLib.s` and
+ * `+APComp.s` under `compiler/`. Resolving only the root made every citation
+ * into those files answer null, which the two sweeps in
+ * `../ext/citations.test.ts` read as "nothing to check" rather than as a
+ * failure: 284 of them went unchecked, and 149 were numbered for the other
+ * checkout.
+ */
+const SOURCE_DIRS = ['', 'extensions/', 'compiler/', 'AMOSPro Sources/']
+
 const sourceCache = new Map<string, string[] | null>()
 
 /** one assembler file's lines, 0-indexed, or null when that checkout is absent */
@@ -70,9 +83,10 @@ export function amosSource(file: string, checkout: 'corpus' | 'other' = 'corpus'
   const key = `${checkout}/${file}`
   const had = sourceCache.get(key)
   if (had !== undefined) return had
-  const path = `${AMOS_SOURCES[checkout]}/${file}`
+  const root = AMOS_SOURCES[checkout]
+  const path = SOURCE_DIRS.map((d) => `${root}/${d}${file}`).find((p) => existsSync(p))
   // the sources read as binary (see CLAUDE.md), so latin1 rather than utf8
-  const lines = existsSync(path) ? readFileSync(path, 'latin1').split('\n') : null
+  const lines = path !== undefined ? readFileSync(path, 'latin1').split('\n') : null
   sourceCache.set(key, lines)
   return lines
 }

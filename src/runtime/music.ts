@@ -4,7 +4,7 @@
  * lines 1091-1665), driving the AudioSink instead of Paula registers.
  *
  * The bank (number 3, "Music   ") is converted Soundtracker: three
- * sections addressed by longs at payload +0/+4/+8 (BkNew +Music.s:1017)
+ * sections addressed by longs at payload +0/+4/+8 (BkNew +Music.s:991)
  * — instruments, songs, patterns. Instrument records are 32 bytes at
  * BankInst+2+n*32: sample offset.l, repeat offset.l, length.w (words),
  * repeat length.w, default volume.w, name (EtInst 1338, DoNote 1237,
@@ -83,7 +83,7 @@ const TEMPO_BASE = 100 // PAL (MusDef +Music.s:852)
 const PERIODS = [...AMIGA_PERIODS, 0, 0]
 
 /**
- * Sinus (+Music.s:2146) — the vibrato waveform, an unsigned half-sine.
+ * Sinus (+Music.s:2120) — the vibrato waveform, an unsigned half-sine.
  *
  * AMOS's thirty-two bytes are the ProTracker table value for value, so it is
  * `PT_SINE` in `../amiga/notes.ts`, shared with the two tracker replays. The
@@ -168,7 +168,7 @@ export class MusicPlayer {
   /** queued Sam Swap double-buffers (Sami_radr/rlong, +Music.s:4080) */
   private samSwaps: Array<{ pcm: Int8Array; hz: number; vol: number } | null> = [null, null, null, null]
   /**
-   * =Sam Swapped states (FnSamSwapped +Music.s:4055): 1 = voice's sample
+   * =Sam Swapped states (FnSamSwapped +Music.s:4029): 1 = voice's sample
    * interrupt is off, 0 = a swap is still pending, -1 = playing with the
    * swap consumed (ready for the next).
    */
@@ -278,20 +278,20 @@ export class MusicPlayer {
     this.stack.push({ voices, cpt: TEMPO_BASE, tempo: 17 })
   }
 
-  /** InMusicOff (+Music.s:3688) */
+  /** InMusicOff (+Music.s:3662) */
   musicOff(): void {
     this.stack = []
     this.mOff()
   }
 
-  /** InMusicStop (+Music.s:3701): zero the counters — the next step-tick pops */
+  /** InMusicStop (+Music.s:3675): zero the counters — the next step-tick pops */
   musicStop(): void {
     const s = this.cur()
     if (!s) return
     for (const V of s.voices) V.cpt = 0
   }
 
-  /** InTempo (+Music.s:3878): only affects the currently playing music */
+  /** InTempo (+Music.s:3852): only affects the currently playing music */
   tempo(t: number): void {
     const s = this.cur()
     if (s) s.tempo = t
@@ -384,7 +384,7 @@ export class MusicPlayer {
     let r = this.restart & 15
     if (!r) return
     this.restart = 0
-    this.dmask |= r // MuRs3 (+Music.s:1662)
+    this.dmask |= r // MuRs3 (+Music.s:1636)
     for (let v = 0; v < 4; v++) {
       if (!(r & (1 << v))) continue
       const V = s.voices[v]!
@@ -414,7 +414,7 @@ export class MusicPlayer {
     if (active === 0) this.finished()
   }
 
-  /** MuFin/MuFini (+Music.s:1204): pop the music stack */
+  /** MuFin/MuFini (+Music.s:1178): pop the music stack */
   private finished(): void {
     this.stack.pop()
     const prev = this.cur()
@@ -425,7 +425,7 @@ export class MusicPlayer {
     }
   }
 
-  /** MOff (+Music.s:2421): silence the player's voices */
+  /** MOff (+Music.s:2395): silence the player's voices */
   private mOff(): void {
     for (let v = 0; v < 4; v++) {
       if (!(this.dmask & (1 << v))) continue
@@ -435,7 +435,7 @@ export class MusicPlayer {
     }
   }
 
-  // ---- one step of one voice (MuStep +Music.s:1223) ----------------------
+  // ---- one step of one voice (MuStep +Music.s:1197) ----------------------
 
   private stepVoice(s: MuSong, v: number): void {
     const V = s.voices[v]!
@@ -452,7 +452,7 @@ export class MusicPlayer {
       }
       if (!(word & 0x8000)) {
         if (word & 0x4000) {
-          // OldNote (+Music.s:1259): low byte = duration, next word = note
+          // OldNote (+Music.s:1233): low byte = duration, next word = note
           V.cpt = word & 0xff
           const n = this.w(pos)
           pos += 2
@@ -754,7 +754,7 @@ export class MusicPlayer {
           break
         }
         case 'vsl': {
-          // MuVSl (+Music.s:1562): slide the default volume, rescale
+          // MuVSl (+Music.s:1536): slide the default volume, rescale
           const delta = V.value >= 0x8000 ? V.value - 0x10000 : V.value
           let dv = V.dvol + delta
           if (dv < 0) dv = 0
@@ -803,7 +803,7 @@ export class MusicPlayer {
   // ---- the wavetable synth (Play/Bell/Boom/Shoot, +Music.s:2676-3563) ----
 
   /**
-   * GoBel (+Music.s:2822): note 0-96, steal the voices from the music,
+   * GoBel (+Music.s:2796): note 0-96, steal the voices from the music,
    * start each one. forcedWave: -1 = the voice's Waves entry (Play),
    * 1 = the square (Bell), 0 = noise (Boom/Shoot via shout()).
    */
@@ -815,7 +815,7 @@ export class MusicPlayer {
     }
   }
 
-  /** Shout (+Music.s:2722): rising notes voice 3 down to 0 — "a stereo effect" */
+  /** Shout (+Music.s:2696): rising notes voice 3 down to 0 — "a stereo effect" */
   shout(baseNote: number, env: number[]): void {
     this.voiceOnOff(0)
     let note = baseNote
@@ -946,7 +946,7 @@ export class MusicPlayer {
       this.lastVol[v] = -1
       this.lastFreq[v] = 0
     }
-    this.restart = stopped // EnvOff overwrites MuReStart (+Music.s:3631)
+    this.restart = stopped // EnvOff overwrites MuReStart (+Music.s:3605)
   }
 
   /** a Sam Play on a voice kills its envelope and noise (SPl0/SPlay) */
@@ -957,7 +957,7 @@ export class MusicPlayer {
     this.samState[v] = -1
   }
 
-  /** InSamSwap (+Music.s:4080): queue the next buffer for playing voices */
+  /** InSamSwap (+Music.s:4054): queue the next buffer for playing voices */
   samSwap(mask: number, pcm: Int8Array): void {
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
@@ -974,7 +974,7 @@ export class MusicPlayer {
     this.samSwaps[v] = null
   }
 
-  /** InSetWave/NeWave (+Music.s:3387/3488): replacing stops all envelopes */
+  /** InSetWave/NeWave (+Music.s:3361/3488): replacing stops all envelopes */
   setWave(n: number, src: Int8Array): void {
     if (this.waves.has(n)) {
       this.playOff(0b1111)
@@ -983,7 +983,7 @@ export class MusicPlayer {
     this.waves.set(n, { env: ENV_DEF.slice(), data: waveMips(src) })
   }
 
-  /** InDelWave (+Music.s:3405): also resets every voice to wave 1 (NoWave) */
+  /** InDelWave (+Music.s:3379): also resets every voice to wave 1 (NoWave) */
   delWave(n: number): void {
     this.playOff(0b1111)
     if (!this.waves.has(n)) throw new AmosError('wave not defined', 178)
@@ -1000,7 +1000,7 @@ export class MusicPlayer {
     if (phase * 2 + 2 < 16) rec.env[phase * 2 + 2] = 0
   }
 
-  /** InWave (+Music.s:3373): Wave n To voices — the wave must exist */
+  /** InWave (+Music.s:3347): Wave n To voices — the wave must exist */
   waveTo(n: number, mask: number): void {
     if (!this.waves.has(n)) throw new AmosError('wave not defined', 178)
     for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = n
@@ -1010,7 +1010,7 @@ export class MusicPlayer {
     for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = 0
   }
 
-  /** InSampleTo (+Music.s:3102): Waves entry = -n */
+  /** InSampleTo (+Music.s:3076): Waves entry = -n */
   sampleTo(n: number, mask: number): void {
     this.host.getSample(n) // validates, GetSam errors propagate
     for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = -n
@@ -1023,7 +1023,7 @@ export class MusicPlayer {
   // collapsed into play() with the loop region, as with the bank player.
 
   mtOn = false
-  /** Track_Bank (+Music.s:2298): default 6 */
+  /** Track_Bank (+Music.s:2272): default 6 */
   trackBank = 6
   /** Track_Loop */
   trackLoop = false
@@ -1153,7 +1153,7 @@ export class MusicPlayer {
     return this.mtSpeed
   }
 
-  /** InTrackStop (+Music.s:4229) */
+  /** InTrackStop (+Music.s:4203) */
   trackStop(): void {
     if (!this.mtOn) return
     this.mtOn = false
@@ -1173,7 +1173,7 @@ export class MusicPlayer {
 
   private trackerVbl(): void {
     if (!this.mtOn) return
-    // TrackCheck (+Music.s:4211): the bank vanished or was replaced
+    // TrackCheck (+Music.s:4185): the bank vanished or was replaced
     const bank = this.host.getBank(this.mtBankNum)
     if (!bank || bank.data !== this.mtData || !bank.name.startsWith('Trac')) {
       this.trackStop()
