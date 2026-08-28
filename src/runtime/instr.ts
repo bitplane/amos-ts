@@ -5042,21 +5042,41 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const c = cur.indexOf(':')
       vfs.currentDir = i > c ? cur.slice(0, i) : cur.slice(0, c + 1)
     },
+    /*
+     * Bgrab and Bsend move one bank between a Prun'd accessory and the
+     * program that started it. Both open `move.l d3,d0 / Rble L_FonCall`, and
+     * a `move` clears the carry so that bls is beq: a bank number of 0 or
+     * below is error 23.
+     *
+     * They are not mirror images. InBGrab (+Lib.s:2276) erases the
+     * destination first and then wants BOTH a previous program and the bank
+     * in it, `Rjsr L_Bnk.PrevProgram / beq.s .Err` and `Rbsr L_Bnk.GetAdr /
+     * beq.s .Err`, where .Err is L_BkNoRes -- error 36, and the destination
+     * stays erased. InBSend (+Lib.s:2304) wants a previous program with
+     * `Rbeq L_FonCall`, error 23 and not 36, erases the bank THERE, and then
+     * `Rbsr L_Bnk.GetAdr / beq.s .Ok` finishes quietly when the current
+     * program has no such bank to send.
+     */
     bgrab(it) {
-      // InBGrab +Lib.s:2303: pull bank n from the PREVIOUS program's
-      // list. There is no previous program in the port (yet — Prun), so
-      // the destination is erased and the grab fails: Bnk.Eff + BkNoRes
       const n = it.evalInt()
       if (n <= 0) funcCall()
-      rt.memBanks.delete(n)
-      throw new AmosError('bank not reserved')
+      rt.memBanks.delete(n) // Bnk.Eff on the destination, before anything can fail
+      const prev = rt.interp.previousProgramHost as { memBanks: Map<number, import('../loader/amosfile').MemoryBank> } | null
+      const bank = prev?.memBanks.get(n)
+      if (!bank) throw new AmosError(ED_RUN_MESSAGES[36]!, 36)
+      prev!.memBanks.delete(n) // Lst.Remove from the origin
+      rt.memBanks.set(n, bank) // Lst.Insert into ours
     },
     bsend(it) {
-      // InBSend +Lib.s:2304: push bank n to the previous program — with
-      // no previous program, Bnk.PrevProgram fails: function call error
       const n = it.evalInt()
       if (n <= 0) funcCall()
-      funcCall()
+      const prev = rt.interp.previousProgramHost as { memBanks: Map<number, import('../loader/amosfile').MemoryBank> } | null
+      if (!prev) funcCall()
+      prev!.memBanks.delete(n) // Bnk.Eff, on the previous program's list
+      const bank = rt.memBanks.get(n)
+      if (!bank) return // .Ok: nothing of ours to send, and no error
+      rt.memBanks.delete(n)
+      prev!.memBanks.set(n, bank)
     },
     'set dir'(it) {
       // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is

@@ -711,6 +711,23 @@ export class Interp {
   }
 
   /**
+   * The state Prg_Push saved for the program underneath this one, which is
+   * what `Bnk.PrevProgram` repoints Cur_Banks at.
+   *
+   * Direct mode uses the same stack here and is not a program, so those
+   * entries are stepped over: on the 68000 a typed line runs inside the
+   * program it was typed at, and Prg_Previous still names that program's
+   * caller.
+   */
+  get previousProgramHost(): unknown {
+    for (let i = this.progStack.length - 1; i >= 0; i--) {
+      const e = this.progStack[i]!
+      if (!e.direct) return e.host
+    }
+    return null
+  }
+
+  /**
    * Prg_Push: stack this program's interpreter data and start a new one.
    * Prg_DataNew then clears the new program's state, which is what
    * replaceProgram already does for Run.
