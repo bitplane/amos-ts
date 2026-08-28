@@ -4126,6 +4126,143 @@ export const FAITHFUL = new Set<string>([
   // wrong register (`10 80` at $7666 of AMOSPro.Lib), and `InStrucD` stores a
   // pointer `FnStrucD` cannot follow.
   'equ', 'lvo', 'struc', 'struc$',
+  // IntuiExtend 2.01b and 1.6, CIERP Philippe's, slot 23. There is no source
+  // for either and none was needed: both code hunks read end to end, and
+  // routine 0 is `lea.l $1d28(pc),a3 / move.l a3,$258(a5)`, so the workspace
+  // every keyword reaches is static data inside the file and the shipped
+  // NewScreen, NewWindow and every table the library owns could be read out of
+  // it. The two builds were compared routine by routine as well --- 233 of the
+  // 284 shared names are the same code, 213 byte for byte --- so a citation
+  // here is checked against whichever binary owns the keyword.
+  // `src/runtime/intuiextend16.ts` holds the difference. The 3D block. `Wb 3d
+  // Point` (routine 183) is three 8-bit fixed-point rotations, an eye
+  // translation and a `divs.w` perspective divide, and the focal length is not
+  // a setting: it is twice whatever `Wb 3d Centre` was given. The trig table
+  // at workspace+$216 is 458 words and serves both sine and cosine ninety
+  // entries apart; it is `floor(256 * cos((i + 1) degrees))`, which reproduces
+  // 456 of the 458. Three defects are kept: `Wb 3d Position` does only the
+  // first of its three subtractions in 32 bits, `Wb 3d Move Edge` counts from
+  // zero where `Wb 3d Edge` counts from one, and 2.01b's `Wb 3d Move Object`
+  // reads the high word of the `IE3D` magic as its point count and walks
+  // 18,757 points off the end. 1.6 has no magic, so the same instruction there
+  // reads a real count and the keyword works.
+  'wb 3d point', 'wb 3d eye', 'wb 3d centre', 'wb 3d angle', 'wb 3d plot', 'wb 3d locate',
+  'wb 3d draw', 'wb 3d ink', 'wb 3d edge', 'wb 3d shape', 'wb 3d move edge', 'wb 3d move object',
+  'wb 3d erase object', 'wb 3d clear object', 'wb 3d draw object', 'wb 3d x', 'wb 3d y', 'wb 3d z',
+  'wb 3d position', 'wb 3d make object', 'wb 3d sort',
+  // Memory and addresses. The `Adr` family is one instruction each on a
+  // longword the caller owns; `Alloc Mem`/`Free Mem` are exec AllocMem and
+  // FreeMem with AMOS's own `$10001` MEMF_PUBLIC|MEMF_CLEAR, and the eight
+  // `M*` constants are the MEMF_ bits `exec/memory.i` gives. `Wb Peek`, `Write
+  // Mem` and `Wb Poke$` go through the same memory map `Peek`/`Poke` do, so a
+  // program that reads a block back itself agrees with the keyword. `Wb Mem
+  // Compare` answers the OFFSET of the first difference and its defect is
+  // kept: the count is a `dbra`, so it compares one byte more than it was
+  // given.
+  'adr inc', 'adr dec', 'adr add', 'adr sub', 'adr swap.b', 'adr swap.w', 'adr swap.l',
+  'alloc mem', 'avail mem', 'copy mem', 'free mem', 'write mem', 'wb peek', 'wb poke$',
+  'wb mem compare', 'mpublic', 'mchip', 'mfast', 'mlocal', 'mdma', 'mclear', 'mlargest', 'mtotal',
+  'str free', 'str store', 'wb flush memory', 'wb locker', 'quick scroll', 'wb free image',
+  'wb gauge',
+  // The IDCMP group, less the four whose notes name a difference. Every `Get
+  // Msg *` reads the copy routine 33 takes into workspace+$78 before it
+  // replies, at the offsets `intuition.i` gives for an IntuiMessage, and `Get
+  // Menu Code` unpacks MENUNUM/ITEMNUM/SUBNUM from im_Code the way
+  // `intuition.i`'s macros do. `Hard Mouse Key` goes to the silicon rather
+  // than to AMOS --- CIA-A port A bit 6 and POTGOR bits 10, 8, 14 and 12, all
+  // active low --- which is why both registers are in the memory map: a
+  // program that Peeks them gets the same answer. 1.6 reads three of those six
+  // and puts the middle button on bit 4 where 2.01b puts it on bit 2, and both
+  // are reproduced.
+  'get msg code', 'get msg scancode', 'get msg qualifier', 'get msg iadr', 'get msg xm',
+  'get msg ym', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
+  'wb create msgport', 'wb erase msgport', 'wb reply msg', 'wb new idcmp',
+  // Screens and windows. A screen address here is `SCREEN_CTRL_BASE + slot *
+  // SCREEN_CTRL_SLOT` and `Wb Screen Rastport` adds the $54 the library adds,
+  // so the arithmetic a program does on the answer works. The one NewScreen at
+  // workspace+$90 and the one NewWindow at +$1c are reused by every open,
+  // which is why two opens are not independent, and `Wb Screen Base`/`Wb Wind
+  // Base` answer the -1 the shipped workspace carries rather than zero. `Wb
+  // Screen Palette` keeps its defect: it hands LoadRGB4 the five arguments
+  // SetRGB4 takes. `Wb Check Aga` reads DENISEID at $dff07c and the VPOSR
+  // revision the same way routine 0 does.
+  'wb screen move', 'wb screen close', 'wb screen back', 'wb screen front', 'wb screen palette',
+  'wb screen colour', 'wb screen rastport', 'wb current screen', 'first screen', 'wb wind open',
+  'wb easy wind open', 'wb wind close', 'wb wind move', 'wb wind size', 'wb wind limit',
+  'wb wind back', 'wb wind front', 'wb wind title', 'wb change window box', 'wb zip window',
+  'wb wind base', 'wb wind rastport', 'amos rastport', 'x wind', 'y wind', 'wb bitplane',
+  'wb check aga', 'wb kill aga', 'wb lock pubscreen', 'wb unlock pubscreen', 'wb next pubscreen',
+  'wb set default pubscreen', 'wb set pubscreen mode', 'wb set pubscreen modes',
+  'wb pubscreen statut', 'wb pubscreen status', 'wb mouse on', 'wb mouse off', 'switch pal',
+  'switch ntsc', 'switch 72', 'wb open', 'wb close',
+  // Drawing, all of it graphics.library through a RastPort the port already
+  // models. Three defects are kept and named: `Wb Draw` leaves the graphics
+  // cursor where it started, `Wb Pset` writes through `SetAPen` and so changes
+  // the pen the next call inherits, and `Wb Set Colour` can never set a colour
+  // because it gives LoadRGB4 SetRGB4's arguments. `Wb Load Font` reads the
+  // `.font` descriptor itself rather than calling this port's `openDiskFont`,
+  // because the routine's test for the suffix is a dot five characters back
+  // and takes any four-letter extension for one. `Wb Itext` is NOT here: it
+  // allocates one byte where it wanted twenty and then branches past the code
+  // that would fill it in, and the note says so.
+  'wb plot', 'wb bar', 'wb curs', 'wb turtle curs', 'wb turtle plot', 'wb turtleplot',
+  'wb turtle draw', 'wb draw', 'wb bevel box', 'wb gfx ink', 'wb gfx mode', 'wb set line',
+  'wb load font', 'wb set colour', 'wb pset', 'wb circle', 'wb spline', 'wb roll screen',
+  'wb free itext', 'wb paint', 'wb paint mode', 'wb screen', 'wb point', 'wb get colour',
+  'wb blit copy', 'wb draw image', 'wb icon image', 'wb bob image', 'wb depth to colour',
+  // The text group writes one IntuiText at workspace+$b0 and reuses it, so `Wb
+  // Print Ink`, `Wb Print Mode` and the two moves are settings on a single
+  // structure rather than arguments. `Wb Print Xmove`'s defect is kept: it
+  // writes the byte the library reads back as a WORD.
+  'wb gfx text', 'wb gfx centre', 'wb gfx len', 'wb text spacing', 'wb text style', 'wb print',
+  'wb print ink', 'wb print mode', 'wb print locate', 'wb print xmove', 'wb print ymove',
+  'wb x print', 'wb y print', 'wb x locate', 'wb y locate',
+  // IFF, over the `iff.library` v23.2 the release ships and this port
+  // disassembles: 3,160 bytes, and byte-identical in the 1.6 and 2.01b
+  // archives. GetColorTable at -$36 keeps its defect --- `dbra d4` with d4
+  // holding the count runs count+1 times, so it writes one word more than it
+  // reports and reads the three bytes after the chunk to build it. 1.6's `Iff
+  // Make Palette` is the same vector reached with the arguments the other way
+  // round: a0 is where the library writes and the author's own node documents
+  // that argument as a colour count.
+  'iff close', 'iff open read', 'iff open write', 'iff find chunk', 'iff get bitmap header',
+  'iff get width', 'iff get height', 'iff get xpos', 'iff get ypos', 'iff get depth',
+  'iff get ctable', 'iff get vmode', 'iff get error', 'iff decode picture', 'iff compress block',
+  'iff decompress block', 'iff save bitmap', 'iff save clip', 'iff make palette', 'wb menu text',
+  // The requester group, over `reqtools.library` v38.1092, which is in the
+  // corpus with its includes and its full C source. `Rt Lib Open` keeps the
+  // defect that it answers success whether or not the library opened, and `Rt
+  // Text Req`, `Rt Palette Req` and `Rt Font Req` each keep one of their own
+  // that the notes name.
+  'rt lib open', 'rt lib close', 'rt free flist', 'rt file req', 'rt dir req', 'rt multifile req',
+  'rt get name$', 'rt get dir$', 'rt get flist$', 'rt text req', 'rt string req', 'rt number req',
+  'rt palette req', 'rt font req', 'rt screen mode req', 'rt get font name', 'rt get font size',
+  'rt get display id', 'rt get display width', 'rt get display height', 'rt get display depth',
+  'rt get overscan type', 'rt get autoscroll',
+  // trackdisk.device, over the DiskExtIO the group builds at workspace+$172
+  // and the answer it parks at +$194. `Wb Block Update` keeps its defect: it
+  // sends CMD_UPDATE with the length still set from the previous command.
+  'wb td open', 'wb td close', 'wb td error', 'wb td motor on', 'wb td motor off', 'wb block read',
+  'wb block write', 'wb block update', 'wb track read', 'wb track write', 'wb track format',
+  // The system group. `Sys Agnus`, `Sys Chip`, `Sys Cpu` and `Sys Math` read
+  // VPOSR, DENISEID and AttnFlags and answer for the machine this port models;
+  // 1.6's `Sys Cpu` tests three FPU bits 2.01b deleted and answers 41, 82 or
+  // 81 ahead of the CPU, which the modelled machine never reaches. `Pal Grey`,
+  // `Pal Antiq` and `Pal Filter` are the shipped arithmetic including the
+  // halves it does in words, and `Pal Negativ` is kept broken in both builds
+  // and broken differently in each: 1.6 subtracts the argument's high word,
+  // 2.01b never loads the argument at all. `Wb Swatch` reads the six battery-
+  // clock registers at $dc0000 and converts each with `andi.w #$f / addi.b
+  // #$30`; 1.6's copy points its divisor list at the real table at
+  // workspace+$198 and 2.01b's points at the buffer it writes the answer into,
+  // so a nibble above nine is two digits in one build and '?' in the other.
+  // `Wb Encrypt` and `Wb Decrypt` are `ror.b #$1` and `rol.b #$1` a byte at a
+  // time.
+  'pal grey', 'pal antiq', 'pal negativ', 'pal filter', 'int sqr', 'wb distance', 'wb swatch',
+  'wb fast hex', 'wb encrypt', 'wb decrypt', 'wb tag', 'what is', 'sys agnus', 'sys chip',
+  'sys cpu', 'sys math', 'sys kickstart', 'vbl freq', 'power freq', 'shires', 'my task',
+  'task name', 'unload seg', 'segment base', 'wb reset', 'wb kill menu', 'wb off menu',
+  'wb on menu', 'wb find menu item', 'app get numarg', 'app get arglist', 'pp start',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
