@@ -78,6 +78,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, int, type Value } from '../interp/values'
 import { MemPool } from '../amiga/exec'
+import { ieAntiqTable } from './intuiextendsys'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -145,6 +146,20 @@ export interface IntuiextendState {
   /** workspace+$5ce, $5d2 */
   centre: Int32Array
   heap: MemPool
+  /** workspace+$58, the sixteen-word sepia ramp `Pal Antiq` indexes */
+  readonly antiq: Int16Array
+  /** workspace+$84, what `Load Seg` fills and `Segment Base` reports */
+  segment: number
+  /** -$90(a5), the word `Wb Locker` writes and nothing in the library reads */
+  locker: number
+  /** -$1c(a5), the task pointer `My Task` hands back */
+  task: number
+  /** tc_Node.ln_Name, which `Task Name` points at a string rather than copying */
+  taskName: string
+  /** what `Set Taskpri` last recorded; there is one task and no scheduler */
+  taskPri: number
+  /** what `Wb Setchip Rev` last asked graphics for; the machine is already AGA */
+  chipRev: number
 }
 
 export function newIntuiextendState(): IntuiextendState {
@@ -155,8 +170,28 @@ export function newIntuiextendState(): IntuiextendState {
     eye: new Int32Array(3),
     centre: new Int32Array(2),
     heap: new MemPool(HEAP_BASE, HEAP_RESERVED),
+    antiq: ieAntiqTable(),
+    // routine 23 writes -1 here when LoadSeg fails, and nothing has loaded yet
+    segment: -1,
+    locker: 0,
+    // one modelled task; the pointer only has to be stable and non-zero
+    task: IE_TASK,
+    taskName: '',
+    taskPri: 0,
+    chipRev: 0,
   }
 }
+
+/**
+ * What `My Task` answers.
+ *
+ * AMOS keeps its own task pointer at `-$1c(a5)` and routine 17 is three
+ * instructions that hand it straight back. Nothing in the extension
+ * dereferences it; `Task Name` and `Set Taskpri` take a task from the caller
+ * and are the only things that would. A fixed non-zero value is therefore the
+ * whole of the observable behaviour.
+ */
+export const IE_TASK = 0x0100_0000
 
 /** the low word of a long, signed — every operand of a `muls.w` */
 const w = (v: number): number => (v << 16) >> 16
