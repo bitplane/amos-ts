@@ -2080,8 +2080,10 @@ describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13515
   })
 
   it('rejects arguments outside 1..4 (HVSc +Lib.s:13531)', () => {
-    expect(() => run('Hscroll 0')).toThrow(/function call/)
-    expect(() => run('Vscroll 5')).toThrow(/function call/)
+    // both exits are WFonCall, which is error 60 -- see the range test in
+    // 'what the keyboard and scroll keywords check' below
+    expect(() => run('Hscroll 0')).toThrow(/text window parameter/)
+    expect(() => run('Vscroll 5')).toThrow(/text window parameter/)
   })
 })
 
@@ -2704,5 +2706,48 @@ describe('Bob Off is a countdown, not a delete (BbDel +W.s:1272)', () => {
       ].join('\n'),
     )
     expect(out).toBe(' 0\n')
+  })
+})
+
+describe('what the keyboard and scroll keywords check (+Lib.s:13529)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('Hscroll and Vscroll are text window errors, not the catch-all', () => {
+    // HVSc (+Lib.s:13529) walks a table of four strings: `cmp.l #4,d3 / Rbhi
+    // L_WFonCall` then `subq.l #1,d3 / Rbmi L_WFonCall`, so 0 is caught by
+    // the decrement and a negative by the unsigned compare. Both exits are
+    // WFonCall, `moveq #16,d0 / Rbra L_EcWiErr` (+Lib.s:13003) -- error 60,
+    // the same one Cline and Set Tab raise eight lines away.
+    for (const kw of ['Hscroll', 'Vscroll']) {
+      expect(code(`${kw} 0`)).toBe(60)
+      expect(code(`${kw} 5`)).toBe(60)
+      expect(code(`${kw} -1`)).toBe(60)
+      expect(code(`${kw} 1`)).toBe(0)
+      expect(code(`${kw} 4`)).toBe(0)
+    }
+  })
+
+  it('Key$ reads a definition back through SsGtKy, not raw', () => {
+    // SsGtKy (+Lib.s:13739) builds a printable form: an apostrophe is
+    // dropped, a control byte becomes ".", chr(13) becomes "`".
+    const s = (src: string) => run(src).rt.interp.getVar('r$', 2)
+    expect(s('Key$(1)="plain" : R$=Key$(1)')).toEqual({ k: 'str', s: 'plain' })
+    expect(s('Key$(1)="a"+Chr$(7)+"b" : R$=Key$(1)')).toEqual({ k: 'str', s: 'a.b' })
+    expect(s(`Key$(1)="it's" : R$=Key$(1)`)).toEqual({ k: 'str', s: 'its' })
+    expect(s('Key$(1)="Dir"+Chr$(13)+Chr$(10) : R$=Key$(1)')).toEqual({ k: 'str', s: 'Dir`' })
+    // DEFECT: SGk2's `cmp.b #10,(a0)+` advances whichever way it branches and
+    // the `subq.l #1,a1` that should have given the byte back names the wrong
+    // register, so the "x" is eaten with the chr(10) that is not there
+    expect(s('Key$(1)="Dir"+Chr$(13)+"x" : R$=Key$(1)')).toEqual({ k: 'str', s: 'Dir`' })
+    // DEFECT: SGk4 steps a1 too, so a chr(1) drops itself without skipping
+    // the three scan-code bytes behind it
+    expect(s('Key$(1)="a"+Chr$(1)+"XYZb" : R$=Key$(1)')).toEqual({ k: 'str', s: 'aXYZb' })
   })
 })

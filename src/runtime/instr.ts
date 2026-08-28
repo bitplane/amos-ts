@@ -4364,19 +4364,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.frozenSprites = [...rt.hwSprites.values()].map((s2) => ({ ...s2 }))
       rt.spriteUpdateOn = false
     },
+    /*
+     * Both fall into HVSc (+Lib.s:13529), which walks a table of four
+     * null-terminated strings to reach the n'th:
+     *
+     *     cmp.l #4,d3 / Rbhi L_WFonCall
+     *   Hv1: subq.l #1,d3 / Rbmi L_WFonCall / beq.s Hv3
+     *   Hv2: tst.b (a1)+ / bne.s Hv2 / bra.s Hv1
+     *
+     * so 1 to 4, with 0 caught by the `Rbmi` after the first decrement and a
+     * negative by the unsigned `Rbhi` above it. Both exits are WFonCall,
+     * `moveq #16,d0 / Rbra L_EcWiErr` (+Lib.s:13003), which is error 60 and
+     * not the catch-all 23 the port raised -- the same 60 Cline and Set Tab
+     * eight lines up already had right.
+     */
     'hscroll'(it) {
-      // InHScroll +Lib.s:13515: n in 1..4 prints window control code 15+n
-      // — the scroll itself is the escape-code handler (ScG*/ScD*
-      // +W.s:14539), so Print Chr$(16) does the same thing
+      // n in 1..4 prints window control code 15+n — the scroll itself is the
+      // escape-code handler (ScG*/ScD* +W.s:14539), so Print Chr$(16) does
+      // the same thing (InHScroll +Lib.s:13515)
       const n = it.evalInt()
-      if (n < 1 || n > 4) funcCall()
+      if (n < 1 || n > 4) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       scr().writeText(String.fromCharCode(15 + n))
     },
     'vscroll'(it) {
       // InVScroll +Lib.s:13523: codes 19+n (ScBas/ScBasHaut/ScHaut/
       // ScHautBas +W.s:14657-14760)
       const n = it.evalInt()
-      if (n < 1 || n > 4) funcCall()
+      if (n < 1 || n > 4) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       scr().writeText(String.fromCharCode(19 + n))
     },
 

@@ -1569,13 +1569,52 @@ export const FUNCS: Record<string, Func> = {
     it.inp.lastShift = k.shift ?? 0
     return VS(k.ch)
   },
+  /*
+   * FnKeyD +Lib.s:13728: Key$(n) is the function-key DEFINITION string (set
+   * by Key$(n)="..."), NOT a keyboard read. It does not hand the stored bytes
+   * back, though -- it builds a printable form of them through SsGtKy
+   * (+Lib.s:13739):
+   *
+   *   SGk0: clr.b (a2) / move.b (a0)+,d0 / beq.s SGkX
+   *         cmp.b #13,d0  / beq.s SGk2
+   *         cmp.b #"'",d0 / beq.s SGk0        ; REM marker, dropped
+   *         cmp.b #1,d0   / beq.s SGk4        ; scan-code marker
+   *         cmp.b #32,d0  / bcc.s SGk1
+   *         moveq #".",d0                     ; any other control byte
+   *   SGk1: move.b d0,(a2)+ / addq.w #1,d3 / bra.s SGk0
+   *   SGk2: move.b #"`",d0
+   *         cmp.b #10,(a0)+ / beq.s SGk1
+   *         subq.l #1,a1 / bra.s SGk1
+   *   SGk4: addq.l #3,a1 / bra.s SGk0
+   *
+   * The port returned the raw definition, so a Return read back as chr(13)
+   * where AMOS shows a backquote, and a definition holding chr(7) came back
+   * with the chr(7) still in it.
+   *
+   * DEFECT: SGk2 and SGk4 step a1, and the string pointer is a0. SsGtKy saves
+   * a1 across the call and nothing else in the routine reads it, so both are
+   * meant to be a0 and neither does anything. The consequences are real and
+   * kept: `cmp.b #10,(a0)+` advances past the byte after a chr(13) whichever
+   * way it branches, so that byte is eaten even when it is not the chr(10)
+   * the `subq.l #1,a1` was there to give back; and a chr(1) drops itself
+   * without skipping the three scan-code bytes it introduces, which then
+   * come through as ordinary characters.
+   */
   'key$'(it, a) {
-    // FnKeyD +Lib.s:13728: Key$(n) is the function-key DEFINITION string
-    // (set by Key$(n)="..."), NOT a keyboard read
     arity(a, 1)
     const n = int(a[0]!)
     if (n < 1 || n > 20) funcCall()
-    return VS(it.inp.funcKeys[n - 1] ?? '')
+    const def = it.inp.funcKeys[n - 1] ?? ''
+    let out = ''
+    for (let i = 0; i < def.length; i++) {
+      const c = def.charCodeAt(i)
+      if (c === 13) {
+        out += '`'
+        i++ // (a0)+ runs on both sides of the branch
+      } else if (c === 39 || c === 1) continue
+      else out += c < 32 ? '.' : def[i]
+    }
+    return VS(out)
   },
   scancode(it, a) {
     // FnScancode +Lib.s:13602: returns the last scancode, then clears it
