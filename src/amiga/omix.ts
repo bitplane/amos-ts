@@ -91,17 +91,17 @@
  * the top of the range is quantised to whole periods, which is what a
  * period-driven Amiga replayer does anyway.
  *
- * What does not cancel at all is $213610, which asks Paula for
- * `3,579,545 / rate` and gets a whole number. Paula clocks that against
- * 3,546,895, so two errors land on top of each other: the 0.912% between the
- * clocks, and the fraction the period threw away.
+ * What does not cancel at all is the pair $213610 and $21365c. The first asks
+ * Paula for `3,579,545 / requested` as a whole number; the second divides the
+ * SAME constant by that period again and keeps the answer at `$2274(a6)` as
+ * the rate everything downstream actually uses --- the tempo at $2115fc, the
+ * steps, all of it. The requested rate is a request and is never used again.
  *
- * Below a rate of 32,840 the period is coarse enough that the clock always
- * wins and the stream is always slow --- 0.81% at 8,000, 0.65% at the default
- * 15,000, 0.26% at 28,000. Above 32,840 the rounding can outweigh the clock
- * and the stream runs FAST instead, worst at 65,083 and by 0.92%. `mmd2mix.ts`
- * records a flat 0.92% for this library, which is the clock on its own; what a
- * listener would measure moves with the rate and changes sign.
+ * So the period cancels too, and what is left is one ratio: the mixer builds
+ * its stream believing 3,579,545 and Paula clocks it at 3,546,895. That is
+ * 0.912%, flat, at every rate, and `mmd2mix.ts`'s "0.92%" for this library is
+ * exactly right. `omixActualRate` is the quantisation that DOES survive, and it
+ * moves the tempo rather than the pitch.
  */
 import { MMD_FLAG2_BMASK, MMD_FLAG2_BPM } from './mmd2'
 
@@ -285,13 +285,37 @@ export function omixSamplesPerTickFixed(rate: number, tempo: number, flags2: num
   return Math.floor(Math.floor((q * rate) / 16) / OMIX_TEMPO_DIVISOR) * 0x10000
 }
 
-/**
- * $213610: AUDxPER, and the one place the NTSC constant is not cancelled.
- *
- * `3,579,545 / rate` is the period the library hands Paula. On a PAL machine
- * Paula clocks that period against 3,546,895, so the stream is played 0.92%
- * slower than the mixer built it.
- */
+/** $213610: AUDxPER, from the rate the caller ASKED for */
 export function omixPaulaPeriod(rate: number): number {
   return rate > 0 ? Math.floor(OMIX_CLOCK / rate) : 0
 }
+
+/**
+ * $21365c: the rate the mixer actually runs at, as 16.16.
+ *
+ * `Omix Freq` is a request. $213610 turns it into a whole Paula period and
+ * $213662 divides the clock by that period again, so what comes back is the
+ * request quantised to whatever the period could express. 15,000 becomes
+ * 15,040.9; 28,000 becomes 28,185.4. Everything downstream reads THIS --- the
+ * tempo at $2115fc takes its high word and $2115c6 takes the whole long.
+ *
+ * $213668 is where the fraction comes from: the remainder of the first divide,
+ * shifted up and divided by the rate again.
+ */
+export function omixActualRate(requested: number): number {
+  const period = omixPaulaPeriod(requested)
+  if (period === 0) return 0
+  const q = Math.floor(OMIX_CLOCK / period)
+  const rem = OMIX_CLOCK - q * period
+  // $21366c divides the remainder, shifted into the high word, by the quotient
+  const frac = q > 0 ? Math.floor((rem * 0x10000) / q) : 0
+  return q * 0x10000 + (frac & 0xffff)
+}
+
+/** the integer half of `omixActualRate`, which is `$2274(a6)` on its own */
+export function omixRateHz(requested: number): number {
+  return Math.floor(omixActualRate(requested) / 0x10000)
+}
+
+/** `3,546,895 / 3,579,545`: the whole of the PAL error, and it is flat */
+export const OMIX_PAL_RATIO = 3546895 / OMIX_CLOCK

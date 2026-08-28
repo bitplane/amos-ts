@@ -30,7 +30,10 @@ import {
   omixBend,
   omixNoteTable,
   omixNoteTables,
+  OMIX_PAL_RATIO,
+  omixActualRate,
   omixPaulaPeriod,
+  omixRateHz,
   omixSamplesPerTick,
   omixSamplesPerTickFixed,
   omixTickHz,
@@ -299,31 +302,49 @@ describe('the two tempo modes', () => {
   })
 })
 
-describe('the one place the NTSC constant is not cancelled', () => {
+describe('the rate the mixer really runs at, and the flat PAL error', () => {
   /**
-   * $213610 asks Paula for `3,579,545 / rate`. Paula clocks it against
-   * 3,546,895 on a PAL machine, so the stream plays 0.92% slow. In the pitch
-   * path the same constant divides both ways and cancels; here it does not.
+   * $213610 turns the request into a whole period and $213662 divides the
+   * clock by that period again. The answer is what everything downstream uses,
+   * so `Omix Freq` is a request that gets quantised rather than a rate.
    */
-  it('asks Paula for an NTSC period, which is 0.92% out on PAL', () => {
-    const PAL = 3546895
-    // the clock on its own, which is the flat number mmd2mix.ts records
-    expect(1 - PAL / OMIX_CLOCK).toBeCloseTo(0.00912, 5)
-    // and what a listener would measure, which moves with the rate because
-    // $213610's period is a whole number
-    const err = (rate: number): number => 1 - PAL / omixPaulaPeriod(rate) / rate
-    expect(err(8000)).toBeCloseTo(0.0081, 3)
-    expect(err(15000)).toBeCloseTo(0.0065, 3)
-    expect(err(28000)).toBeCloseTo(0.0026, 3)
-    // Below 32,840 the period is coarse enough that the clock always wins and
-    // the stream is always slow. Above it the rounding can outweigh the clock
-    // and the stream runs FAST instead, worst at 65,083 and by 0.92%.
-    for (let rate = OMIX_MIN_RATE; rate < 32840; rate += 7) expect(err(rate)).toBeGreaterThan(0)
-    expect(err(32840)).toBeLessThan(0)
-    expect(err(65083)).toBeCloseTo(-0.0092, 4)
+  it('quantises the requested rate through a whole Paula period', () => {
+    expect(omixPaulaPeriod(15000)).toBe(238)
+    expect(omixRateHz(15000)).toBe(15040)
+    expect(omixRateHz(28000)).toBe(28185)
+    // and it is never far off, because the period is only coarse at the top
+    for (const r of [OMIX_MIN_RATE, 8000, 15000, 22050, 28000]) {
+      expect(Math.abs(omixRateHz(r) - r) / r).toBeLessThan(0.01)
+    }
+  })
+
+  it('keeps a fraction, which is why $211684 is read as a long', () => {
+    const fixed = omixActualRate(15000)
+    expect(Math.floor(fixed / 0x10000)).toBe(omixRateHz(15000))
+    expect(fixed % 0x10000).not.toBe(0)
   })
 
   it('is zero for a rate of zero rather than dividing by it', () => {
     expect(omixPaulaPeriod(0)).toBe(0)
+    expect(omixActualRate(0)).toBe(0)
+  })
+
+  /**
+   * The correction that matters. The period appears on both sides --- the
+   * mixer's rate is `NTSC / period` and Paula's is `PAL / period` --- so it
+   * cancels, and what is left is one flat ratio at every rate. An earlier
+   * reading of this file compared against the rate the CALLER asked for, which
+   * the library discards at $213662, and got a rate-dependent error that does
+   * not exist.
+   */
+  it('is 0.912% slow on PAL, flat, at every rate', () => {
+    const PAL = 3546895
+    expect(1 - OMIX_PAL_RATIO).toBeCloseTo(0.00912, 5)
+    for (let rate = OMIX_MIN_RATE; rate <= 60000; rate += 311) {
+      const period = omixPaulaPeriod(rate)
+      const mixerBelieves = OMIX_CLOCK / period
+      const paulaPlays = PAL / period
+      expect(paulaPlays / mixerBelieves).toBeCloseTo(OMIX_PAL_RATIO, 12)
+    }
   })
 })
