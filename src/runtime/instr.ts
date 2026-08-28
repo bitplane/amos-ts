@@ -6491,12 +6491,26 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.spriteColCheck(n, first, last))
     },
     'bobsprite col'(_, a) {
-      // FnBobSpriteCol1/3 +Lib.s:12338: bob n against hardware sprites
-      return VI(rt.bobSpriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+      // FnBobSpriteCol1/3 (+Lib.s:12338/12349): bob n against hardware
+      // sprites. The three-argument form is `cmp.l #63,d3 / Rbhi L_FonCall`
+      // then `Rbmi` on the other two, the same pair of rules Sprite Col
+      // carries — the targets are sprites, so the range end stops at 63.
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 63
+      if (n < 0 || first < 0 || last >>> 0 > 63) funcCall()
+      return VI(rt.bobSpriteColCheck(n, first, last))
     },
     'spritebob col'(_, a) {
-      // FnSpriteBobCol1/3 +Lib.s:12390: sprite n against bobs
-      return VI(rt.spriteBobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 10000))
+      // FnSpriteBobCol1/3 (+Lib.s:12390/12401): sprite n against bobs, so it
+      // follows Bob Col instead — `tst.l d3 / Rbmi L_FonCall` and nothing
+      // above it, because the ceiling on that side is the 10000 the
+      // one-argument form fills in.
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 10000
+      if (n < 0 || first < 0 || last < 0) funcCall()
+      return VI(rt.spriteBobColCheck(n, first, last))
     },
     hardcol(_, a) {
       // FnHardcol +Lib.s:12324: -1 or lower asks about the playfields,
