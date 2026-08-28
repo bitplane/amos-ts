@@ -2271,7 +2271,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sh = sy2 - sy1
       const dw = dx2 - dx1
       const dh = dy2 - dy1
-      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) funcCall()
+      // InZoom (+Lib.s:10567) measures the whole rectangle before it draws a
+      // pixel, and every failure lands on ZooF, which frees its table and
+      // falls into L_FonCall. The low/high pair test is `cmp.l d5,d4 / bcc`,
+      // UNSIGNED, so a negative low coordinate is caught there and needs no
+      // branch of its own; the screen-size test is `cmp.w`, which sees only
+      // the low word of a coordinate that already passed `bmi`.
+      const bad = (lo: number, hi: number, limit: number): boolean =>
+        hi < 0 || (hi & 0xffff) > limit || lo >>> 0 >= hi >>> 0
+      if (bad(dx1, dx2, dst.s.width) || bad(sx1, sx2, src.s.width)) funcCall()
+      if (bad(dy1, dy2, dst.s.height) || bad(sy1, sy2, src.s.height)) funcCall()
       for (let y = 0; y < dh; y++) {
         const ty = dy1 + y
         if (ty < 0 || ty >= dst.s.height) continue
