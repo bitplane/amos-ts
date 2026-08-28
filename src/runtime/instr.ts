@@ -215,6 +215,18 @@ function omittedArg(it: It): boolean {
 }
 
 /** `pair`, for the keywords whose original routine reaches `GrXY` */
+/**
+ * Draw's DESTINATION, which gets none of GrXY's care.
+ *
+ * InDraw and InDrawTo hand d0/d1 straight to RDraw, and graphics.library
+ * takes them as words. EntNul's low word is zero, so an omitted destination
+ * coordinate draws to 0 rather than staying where it was.
+ */
+function drawEnd(it: It): [number, number] {
+  const [x, y] = optPair(it)
+  return [(x ?? 0) << 16 >> 16, (y ?? 0) << 16 >> 16]
+}
+
 function optPair(it: It): [number | null, number | null] {
   const x = omittedArg(it) ? null : it.evalInt()
   it.expect(',')
@@ -1506,19 +1518,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.plot(x, y)
     },
     draw(it) {
+      /*
+       * InDraw (+Lib.s:9588) does not hand its start point to the draw at
+       * all. It pops the four arguments, puts the first two through `Rbsr
+       * L_GrXY` and then draws from wherever the cursor now is to the last
+       * two. GrXY is the same routine Gr Locate calls and skips an EntNul
+       * axis, and the spec is "I0,0t0,0", so `Draw ,100 To 200,50` keeps the
+       * graphics cursor's own x for the start. The port read the pair
+       * without elision and passed it straight to the line.
+       */
       const s = scr()
-      let x1 = s.grX
-      let y1 = s.grY
       if (!it.accept('to')) {
-        ;[x1, y1] = pair(it)
+        grXY(s, ...optPair(it))
         it.expect('to')
       }
-      const [x2, y2] = pair(it)
-      s.line(x1, y1, x2, y2)
+      const [x, y] = drawEnd(it)
+      s.line(s.grX, s.grY, x, y)
     },
     'draw to'(it) {
+      // InDrawTo (+Lib.s:9579) is the same tail without the GrXY
       const s = scr()
-      const [x, y] = pair(it)
+      const [x, y] = drawEnd(it)
       s.line(s.grX, s.grY, x, y)
     },
     'gr locate'(it) {
@@ -6597,9 +6617,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- flips, memory, conversions ----
     hrev(_, a) {
-      return VI(int(a[0]!) | 0x8000) // flip flag consumed by image()
+      // FnHRev +Lib.s:12707 is one `bset #15,d3`, and Retourne reads the two
+      // top bits off the image number before AdBob masks them away with $3FFF
+      return VI(int(a[0]!) | 0x8000)
     },
     vrev(_, a) {
+      // FnVRev +Lib.s:12712: `bset #14,d3`
       return VI(int(a[0]!) | 0x4000)
     },
     rev(_, a) {

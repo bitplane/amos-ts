@@ -728,6 +728,18 @@ describe('double buffering and screens', () => {
     expect(spot('$88')).toEqual({ x: 0, y: 0 })
   })
 
+  it('Draw moves the graphics cursor first, and that move takes elision (InDraw +Lib.s:9588)', () => {
+    // the four-argument form puts its START through GrXY, so an omitted axis
+    // keeps the cursor's own and the line begins there
+    const rt = run('Ink 6 : Gr Locate 40,40\nDraw ,80 To 40,90')
+    // x stayed 40, y moved to 80, so the line runs down column 40
+    expect(rt.screen.point(40, 85)).toBe(6)
+    expect(rt.screen.point(40, 70)).not.toBe(6) // above the start, untouched
+    // Draw To then continues from where that line ended, not from the start
+    const on = run('Ink 6 : Gr Locate 40,40\nDraw ,80 To 40,90\nDraw To 60,90')
+    expect(on.screen.point(50, 90)).toBe(6)
+  })
+
   it('X Hard converts against the screen it is given (EcToD1 +W.s:10755)', () => {
     // two screens at different display positions, so "which screen" shows
     const prog = [
