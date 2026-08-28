@@ -337,11 +337,32 @@ export const INSTR: Record<string, Instr> = {
   centre(it) {
     it.write(it.evalStr())
   },
+  /*
+   * Loca (+W.s:15335) is `cmp.w WiTy(a5),d2 / bcc PErr7` on the row and
+   * `move.w WiTx(a5),d0 / sub.w d1,d0 / bls PErr7` on the column. Both are
+   * unsigned, so -1 arrives as $ffff and fails them exactly as 500 does;
+   * PErr7 is `moveq #16,d0` (+W.s:15825), error 60.
+   *
+   * AMOS tells an omitted argument from a typed one by its value, not by its
+   * sign: RLoca (+W.s:15325) substitutes the current column and row only for
+   * EntNul, $80000000. The port used -1 as its omitted marker, so `Locate
+   * -1,0` meant `Locate ,0` and went through in silence.
+   */
   locate(it) {
     let x = -1
     let y = -1
-    if (!it.atStmtEnd() && it.nm() !== ',') x = it.evalInt()
-    if (it.accept(',') && !it.atStmtEnd()) y = it.evalInt()
+    let typedX = false
+    let typedY = false
+    if (!it.atStmtEnd() && it.nm() !== ',') {
+      x = it.evalInt()
+      typedX = true
+    }
+    if (it.accept(',') && !it.atStmtEnd()) {
+      y = it.evalInt()
+      typedY = true
+    }
+    // Loca tests the row first
+    if ((typedY && y < 0) || (typedX && x < 0)) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
     it.io.locate?.(x, y)
     if (x >= 0) it.col = x
   },
@@ -1279,6 +1300,31 @@ function arity(args: Value[], min: number, max = min): void {
 const toAngle = (it: Interp, v: number): number => (it.degrees ? (v * Math.PI) / 180 : v)
 const fromAngle = (it: Interp, v: number): number => (it.degrees ? (v * 180) / Math.PI : v)
 
+/*
+ * FnBin1 (+Lib.s:14239) and FnHex1 (+Lib.s:14256) set the digit count to -1;
+ * FnBin2 (+Lib.s:14246) and FnHex2 (+Lib.s:14263) pass what they were given.
+ * BinHex
+ * (+Lib.s:14270) reserves 33 or 9 bytes -- exactly "%" plus 32 digits, or "$"
+ * plus 8 -- and LongToHex (+Lib.s:25718) is what decides how many appear:
+ *
+ *     move.b #"$",(a0)+
+ *     tst.l  d3 / bmi.s ha0      ; already negative: proportional
+ *     neg.l  d3 / add.l #8,d3    ; else d3 = 8 - n, the digits to SKIP
+ *
+ * so a count above the width goes negative and lands in the same proportional
+ * mode as no count at all, and a count of 0 skips all eight and leaves the
+ * "$" on its own. That is what keeps the write inside the nine bytes Demande
+ * asked for. The port padded to whatever count it was handed, so
+ * `Hex$(255,100)` built a 101-character string and `Hex$(255,-1)` gave "$F".
+ */
+function binHex(a: Value[], radix: 2 | 16, width: number, prefix: string): Value {
+  const s = (int(a[0]!) >>> 0).toString(radix).toUpperCase()
+  const n = a.length === 2 ? int(a[1]!) : -1
+  if (n < 0 || n > width) return VS(prefix + s)
+  if (n === 0) return VS(prefix)
+  return VS(prefix + s.slice(-n).padStart(n, '0'))
+}
+
 export const FUNCS: Record<string, Func> = {
   // math
   abs(it, a) {
@@ -1468,15 +1514,11 @@ export const FUNCS: Record<string, Func> = {
   },
   'bin$'(_, a) {
     arity(a, 1, 2)
-    const s = (int(a[0]!) >>> 0).toString(2)
-    const digits = a.length === 2 ? int(a[1]!) : s.length
-    return VS('%' + s.slice(-digits).padStart(digits, '0'))
+    return binHex(a, 2, 32, '%')
   },
   'hex$'(_, a) {
     arity(a, 1, 2)
-    const s = (int(a[0]!) >>> 0).toString(16).toUpperCase()
-    const digits = a.length === 2 ? int(a[1]!) : s.length
-    return VS('$' + s.slice(-digits).padStart(digits, '0'))
+    return binHex(a, 16, 8, '$')
   },
 
   // misc
@@ -1548,13 +1590,52 @@ export const FUNCS: Record<string, Func> = {
     it.inp.lastShift = k.shift ?? 0
     return VS(k.ch)
   },
+  /*
+   * FnKeyD +Lib.s:13728: Key$(n) is the function-key DEFINITION string (set
+   * by Key$(n)="..."), NOT a keyboard read. It does not hand the stored bytes
+   * back, though -- it builds a printable form of them through SsGtKy
+   * (+Lib.s:13739):
+   *
+   *   SGk0: clr.b (a2) / move.b (a0)+,d0 / beq.s SGkX
+   *         cmp.b #13,d0  / beq.s SGk2
+   *         cmp.b #"'",d0 / beq.s SGk0        ; REM marker, dropped
+   *         cmp.b #1,d0   / beq.s SGk4        ; scan-code marker
+   *         cmp.b #32,d0  / bcc.s SGk1
+   *         moveq #".",d0                     ; any other control byte
+   *   SGk1: move.b d0,(a2)+ / addq.w #1,d3 / bra.s SGk0
+   *   SGk2: move.b #"`",d0
+   *         cmp.b #10,(a0)+ / beq.s SGk1
+   *         subq.l #1,a1 / bra.s SGk1
+   *   SGk4: addq.l #3,a1 / bra.s SGk0
+   *
+   * The port returned the raw definition, so a Return read back as chr(13)
+   * where AMOS shows a backquote, and a definition holding chr(7) came back
+   * with the chr(7) still in it.
+   *
+   * DEFECT: SGk2 and SGk4 step a1, and the string pointer is a0. SsGtKy saves
+   * a1 across the call and nothing else in the routine reads it, so both are
+   * meant to be a0 and neither does anything. The consequences are real and
+   * kept: `cmp.b #10,(a0)+` advances past the byte after a chr(13) whichever
+   * way it branches, so that byte is eaten even when it is not the chr(10)
+   * the `subq.l #1,a1` was there to give back; and a chr(1) drops itself
+   * without skipping the three scan-code bytes it introduces, which then
+   * come through as ordinary characters.
+   */
   'key$'(it, a) {
-    // FnKeyD +Lib.s:13728: Key$(n) is the function-key DEFINITION string
-    // (set by Key$(n)="..."), NOT a keyboard read
     arity(a, 1)
     const n = int(a[0]!)
     if (n < 1 || n > 20) funcCall()
-    return VS(it.inp.funcKeys[n - 1] ?? '')
+    const def = it.inp.funcKeys[n - 1] ?? ''
+    let out = ''
+    for (let i = 0; i < def.length; i++) {
+      const c = def.charCodeAt(i)
+      if (c === 13) {
+        out += '`'
+        i++ // (a0)+ runs on both sides of the branch
+      } else if (c === 39 || c === 1) continue
+      else out += c < 32 ? '.' : def[i]
+    }
+    return VS(out)
   },
   scancode(it, a) {
     // FnScancode +Lib.s:13602: returns the last scancode, then clears it

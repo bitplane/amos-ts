@@ -169,7 +169,9 @@ describe('menu banks', () => {
   })
 
   it('Bank To Menu refuses a bank that is not a menu bank', () => {
-    expect(() => run('Reserve As Work 4,100\nBank To Menu 4')).toThrow(/bank not reserved/)
+    // the wrong identifier is `Rbne L_FonCall`, a missing bank is BkNoRes --
+    // see 'a bank of the wrong type is 23' below
+    expect(() => run('Reserve As Work 4,100\nBank To Menu 4')).toThrow(/function call/)
     expect(() => run('Bank To Menu 9')).toThrow(/bank not reserved/)
   })
 })
@@ -233,5 +235,79 @@ describe('menu event control', () => {
     expect(run(`${MENU}\nMenu On`).menu.on).toBe(true)
     // Menu Off has no such guard, it is one bclr
     expect(run('Menu Off').menu.on).toBe(false)
+  })
+})
+
+describe('what the menu keywords do with no menu built (+Lib.s:15375)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('three keywords test MnBase and give three different answers', () => {
+    // Menu On is `tst.l MnBase(a5) / beq.s .Skip` (+Lib.s:15565) and does
+    // nothing at all; Menu Base is `Rbeq L_MnNOp` (+Lib.s:15598), error 38
+    // through `moveq #38,d0`; Menu To Bank is `Rbeq L_FonCall` (+Lib.s:15376),
+    // the catch-all 23.
+    expect(code('Menu On')).toBe(0)
+    expect(code('Menu Base 10,20')).toBe(38)
+    expect(code('Menu To Bank 5')).toBe(23)
+    expect(code(`${MENU}\nMenu Base 10,20`)).toBe(0)
+    expect(code(`${MENU}\nMenu To Bank 5`)).toBe(0)
+  })
+
+  it('Bank To Menu clears the menu before it checks anything', () => {
+    // `Rjsr L_MnRaz / Rjsr L_MnClearVar` are the first two instructions
+    // (+Lib.s:15467), and MnRaz (+Lib.s:17305) frees every node and clears
+    // BitMenu in ActuMask, so a failed Bank To Menu leaves no menu behind.
+    const rt = new Runtime(tokenize(`${MENU}\nMenu On : Bank To Menu 99`, table), table, { maxSteps: 300_000 })
+    expect(() => rt.runHeadless(1_000)).toThrow()
+    expect(rt.menu.roots).toEqual([])
+    expect(rt.menu.on).toBe(false)
+  })
+
+  it('a bank of the wrong type is 23, and only a missing one is 36', () => {
+    // `Bnk.GetAdr / Rbeq L_BkNoRes` catches the bank that is not there;
+    // `cmp.l (a1),d0 / Rbne L_FonCall` (+Lib.s:15478) catches the one whose
+    // identifier is not "Menu". The port answered 36 to both.
+    expect(code('Bank To Menu 5')).toBe(36)
+    expect(code(`${MENU}\nReserve As Data 6,100 : Bank To Menu 6`)).toBe(23)
+    expect(code(`${MENU}\nMenu To Bank 5 : Bank To Menu 5`)).toBe(0)
+  })
+})
+
+describe('the ten flag keywords and Menu Calc (+Lib.s:15673)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('Menu Calc is the fourth MnBase test, and it answers 38', () => {
+    // `tst.l MnBase(a5) / Rbeq L_MnNOp` (+Lib.s:15738), the same pair Menu
+    // Base has and a different answer from Menu On's silence and Menu To
+    // Bank's 23.
+    expect(code('Menu Calc')).toBe(38)
+    expect(code(`${MENU}\nMenu Calc`)).toBe(0)
+  })
+
+  it('Menu Link takes the level form too, and Menu Once the path form only', () => {
+    // MnDim's two arms are covered above for eight of the ten; Menu Link is
+    // the ninth and takes both. Menu Called and Menu Once take the path form
+    // alone, because MnDim fills a2 on that arm only and they are the two
+    // that write through it.
+    expect(code(`${MENU}\nMenu Link 0`)).toBe(23)
+    expect(code(`${MENU}\nMenu Link 8`)).toBe(0)
+    expect(code(`${MENU}\nMenu Link(9)`)).toBe(39)
+    expect(code(`${MENU}\nMenu Called(1,1)`)).toBe(0)
+    expect(code(`${MENU}\nMenu Called(9)`)).toBe(39)
+    expect(code(`${MENU}\nMenu Once(9)`)).toBe(39)
   })
 })

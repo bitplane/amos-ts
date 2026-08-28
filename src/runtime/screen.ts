@@ -1,5 +1,6 @@
 import { FONT8 } from './font.gen'
 import { AmosError } from '../interp/values'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { glyphBit, glyphMetrics } from '../amiga/diskfont'
 import type { DiskFont } from '../amiga/diskfont'
 import { rowBytesFor } from '../amiga/planar'
@@ -369,14 +370,11 @@ export class Screen {
   zones: Array<Zone | null> = []
 
   /**
-   * Where each open `Zone$` tag started, by zone number.
-   *
-   * `Zone$(text$,n)` prints `ESC Z n` on BOTH sides of its text, so the first
-   * tag has to be remembered until the second arrives and the pair becomes a
-   * rectangle. Same bracket `Border$` uses through `ESC E`, which is why the
-   * two are siblings in `+Lib.s`.
+   * WiZoDX/WiZoDY (+W.s:15099): the ONE corner `ESC Z 0` remembers, per
+   * window, for whichever `ESC Z n` closes over it next. It is not per zone
+   * number and there is no stack of them.
    */
-  private zoneOpen = new Map<number, { x: number; y: number }>()
+  private zoneAnchor: { x: number; y: number } | null = null
   /**
    * EasyLife's multi-zone index, when `ElMz Reserve` has laid one over the
    * table above — see MultiZoneTable. Null the rest of the time, which is
@@ -1520,23 +1518,47 @@ export class Screen {
            * left `Mouse Zone` with nothing to find, so the boxes in
            * AMOSPro_Examples' Help_3 could not be clicked at all.
            */
+          /*
+           * WiZone (+W.s:15095) opens `tst.b d1 / bne.s WiZ`, and the two
+           * sides are separate commands rather than an open and a close of
+           * one. Argument 0 stores a single anchor for the window --
+           * `move.w WiTx(a5),d0 / sub.w WiX(a5),d0 / move.w d0,WiZoDX(a5) /
+           * move.w WiY(a5),WiZoDY(a5)` -- and any other argument reads that
+           * anchor back and hands the rectangle to SySetZ. There is no zone
+           * 0 and no pairing by number, which is exactly why FinRpt numbers
+           * only the closing escape (+Lib.s:14155).
+           *
+           * The port paired instead: it opened a zone on the first `ESC Z n`
+           * and closed it on the second. `Print Chr$(27);"Z0";` is legal and
+           * is what Zone$ emits, so that opened a zone 0 which nothing ever
+           * closed.
+           *
+           * WiZ brackets SySetZ with `bsr CLeft` and `bsr CRight`, so the far
+           * corner is the last character PRINTED: `lsl.w #3,d4 / add.w #7,d4`
+           * over the stepped-back column gives x2 = (curX-1)*8+7, a pixel
+           * short of where the cursor stands.
+           *
+           * SySetZ (+W.s:11090) is the one that refuses: no table at all is
+           * NoZo, `moveq #29,d0` (+W.s:11059) and error 73; a zero number, a
+           * number above EcNZones, or a rectangle with no width or height is
+           * RzErr, `moveq #1,d0`, and EcWiErr sends 1 to OOfMem rather than
+           * adding 44 -- error 24. The port skipped all four in silence.
+           */
           case 'Z': {
             const z = arg(1)
-            const open = this.zoneOpen.get(z)
-            if (open === undefined) {
-              this.zoneOpen.set(z, { x: w.curX, y: w.curY })
+            if (z === 0) {
+              this.zoneAnchor = { x: w.curX, y: w.curY }
             } else {
-              this.zoneOpen.delete(z)
-              // screen pixels, and the far corner is EXCLUSIVE: `SySetZ`
-              // compares with unsigned `bhi`, so a zone must have width
-              if (z >= 1 && z <= this.zones.length && w.curX > open.x) {
-                this.zones[z - 1] = {
-                  x1: w.x + open.x * 8,
-                  y1: w.y + open.y * 8,
-                  x2: w.x + w.curX * 8,
-                  y2: w.y + (w.curY + 1) * 8,
-                }
+              if (this.zones.length === 0) throw new AmosError(ED_RUN_MESSAGES[73]!, 73)
+              const a = this.zoneAnchor ?? { x: 0, y: 0 }
+              const x1 = w.x + a.x * 8
+              const x2 = w.x + (w.curX - 1) * 8 + 7
+              const y1 = w.y + a.y * 8
+              const y2 = w.y + (w.curY + 1) * 8
+              if (z >>> 0 > this.zones.length || x1 >= x2 || y1 >= y2) {
+                throw new AmosError(ED_RUN_MESSAGES[24]!, 24)
               }
+              this.zones[z - 1] = { x1, y1, x2, y2 }
             }
             ti += 2
             break
@@ -2268,6 +2290,13 @@ export class Screen {
 
   private windOpenInner(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
     if (this.windows.has(n) && n !== 0) throw new AmosError('Text window already opened', 55)
+    // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
+    // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
+    // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads as
+    // 60 through EcWiErr, not as the catch-all 23. It sits AFTER WindFind's
+    // `beq WErr2` (+W.s:13663), so reopening an open window with a bad
+    // border is error 55 and not 60.
+    if (border < 0 || border > 16) throw new AmosError('illegal text window parameter', 60)
     const alignedX = (x >> 4) << 4
     const b = border !== 0 ? 8 : 0
     const src = this.curWin

@@ -2188,10 +2188,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- text console extras ----
+    /*
+     * WCentre (+W.s:15543) measures the string with Compte (+W.s:15597),
+     * which counts a printable byte as one and an ESC as none, skipping the
+     * two bytes behind it:
+     *
+     *     Copt1: tst.b (a0) / beq.s Copt2
+     *            addq.w #1,d0
+     *            cmp.b #27,(a0)+ / bne.s Copt1
+     *            subq.w #1,d0 / addq.l #2,a0 / bra.s Copt1
+     *
+     * So `Centre Pen$(3)+"Hi"` centres two characters, not five, and the
+     * port started it two columns to the left of where AMOS puts it.
+     *
+     * `sub.w d0,d1 / lsr.w #1,d1` is a LOGICAL shift, so a string wider than
+     * the window yields a column near 32767 and Loca refuses it. WCentre
+     * never tests what LocaX returned -- it falls straight into Prt -- so an
+     * over-long string prints from the column the cursor was already on,
+     * with no move and no error. The port homed it to column 0 instead.
+     */
     centre(it) {
       const s = scr()
       const t = it.evalStr()
-      s.locate(Math.max(0, (s.cols - t.length) >> 1), -1)
+      let visible = 0
+      for (let i = 0; i < t.length; i += t.charCodeAt(i) === 27 ? 3 : 1) {
+        if (t.charCodeAt(i) !== 27) visible++
+      }
+      if (visible <= s.cols) s.locate((s.cols - visible) >> 1, -1)
       s.writeText(t)
     },
     cdown() {
@@ -2348,16 +2371,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const border = it.accept(',') ? it.evalInt() : 0
-      // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
-      // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
-      // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads
-      // as 60 through EcWiErr, not as the catch-all 23.
-      if (border < 0 || border > 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
-      try {
-        scr().windOpen(n, x, y, w, h, border)
-      } catch (e) {
-        throw new AmosError((e as Error).message)
-      }
+      /*
+       * InWindopen7 (+Lib.s:13057) is `cmp.l #65536,d1 / Rbcc L_WFonCall`,
+       * and it is there because WOpen keeps the number in a word: `move.w
+       * d1,WiNumber(a5)` (+W.s:13664). The compare is unsigned, so a
+       * negative fails it too. Without the test `Wind Open 70000` opened
+       * window 4464 and =Windon said so.
+       *
+       * The number is checked in +Lib.s, before WOpen runs, so it beats the
+       * already-open test; the border check inside WOpen (+W.s:13676) loses
+       * to it, which is why that one moved down into windOpen.
+       */
+      if (n >>> 0 >= 65536) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      // windOpen already throws AmosError with WErr2's number; the catch that
+      // used to sit here rebuilt it as `new AmosError(message)`, and the
+      // second argument defaults to 0, so =Errn read 0 for every one of them
+      scr().windOpen(n, x, y, w, h, border)
     },
     'wind close'() {
       scr().windClose()
@@ -2394,11 +2423,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       })
     },
     window(it) {
-      try {
-        scr().selectWindow(it.evalInt())
-      } catch (e) {
-        throw new AmosError((e as Error).message)
-      }
+      // WQWind (+W.s:13826) is `bsr WindFind / bne WErr1`, and WErr1 is
+      // `moveq #10,d0` (+W.s:15827) which reaches error 54 through EcWiErr.
+      // selectWindow raises exactly that; the catch that used to wrap it
+      // threw the message away from its number and left =Errn reading 0.
+      scr().selectWindow(it.evalInt())
     },
     border(it) {
       // Border n[,paper][,pen], and n itself may be omitted: `Border,0,14`
@@ -4043,10 +4072,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.menu.on = false
     },
     'menu calc'() {
+      // InMenuCalc (+Lib.s:15738) is the fourth keyword to test MnBase, and
+      // it answers the way Menu Base does: `tst.l MnBase(a5) / Rbeq L_MnNOp`,
+      // error 38. Its second guard is the menu's own screen, `move.l
+      // MnAdEc(a5),d0 / Rbeq L_ScNOp` (+Lib.s:15743), which is what MnRaz
+      // clears -- so calculating after a Bank To Menu that failed is 38 here
+      // and never reaches the 47.
+      if (rt.menu.roots.length === 0) throw new AmosError(ED_RUN_MESSAGES[38]!, 38)
+      void rt.screen
       menuCalc(rt.menu)
     },
     'menu base'(it) {
-      // MnBase +Lib.s:15624 — EntNul-style elision keeps a coordinate
+      /*
+       * InMenuBase (+Lib.s:15595) opens `move.l MnBase(a5),d0 / Rbeq
+       * L_MnNOp`, the same MnBase test Menu On makes 32 lines earlier -- and
+       * the two answer it differently. Menu On skips in silence; Menu Base
+       * raises MnNOp, `moveq #38,d0` (+Lib.s:15761), "Menu not opened". The
+       * port had the test on Menu On and nothing at all here, so setting a
+       * base before building the menu passed and then had no menu to move.
+       *
+       * EntNul-style elision keeps whichever coordinate was left out, and
+       * only a coordinate actually given sets MnFixed.
+       */
+      if (rt.menu.roots.length === 0) throw new AmosError(ED_RUN_MESSAGES[38]!, 38)
       const x = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
       if (it.accept(',')) {
         const y = it.atStmtEnd() ? null : it.evalInt()
@@ -4153,8 +4201,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (node) node.key = { kind: -1, asc: 0, scan, shift }
     },
     'menu to bank'(it) {
-      // +Lib.s:15401: serialise the tree as a "Menu    " bank
+      // +Lib.s:15401: serialise the tree as a "Menu    " bank. InMenuToBank
+      // opens `move.l MnBase(a5),d0 / Rbeq L_FonCall` (+Lib.s:15375), so with
+      // no menu built it is error 23 -- not Menu Base's 38, and not the empty
+      // bank the port used to write.
       const n = it.evalInt()
+      if (rt.menu.roots.length === 0) funcCall()
       rt.memBanks.set(n, {
         kind: 'memory',
         number: n,
@@ -4164,11 +4216,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         data: menuToBank(rt.menu),
       })
     },
+    /*
+     * InBankToMenu (+Lib.s:15465) throws the current menu away before it
+     * looks at anything: `Rjsr L_MnRaz / Rjsr L_MnClearVar` come first, and
+     * MnRaz (+Lib.s:17305) frees every node, clears MnAdEc and clears
+     * BitMenu in ActuMask -- so a Bank To Menu that then fails has left the
+     * program with no menu and the menu switched off.
+     *
+     * Then the checks, in this order: `tst.w ScOn(a5) / Rbeq L_ScNOp`, then
+     * `Bnk.GetAdr / Rbeq L_BkNoRes` for a bank that is not there at all, then
+     * `cmp.l (a1),d0 / Rbne L_FonCall` against the "Menu" identifier. A bank
+     * of the wrong type is error 23; only a missing one is 36. The port
+     * answered 36 to both and cleared nothing.
+     */
     'bank to menu'(it) {
-      // +Lib.s:15494: load a tree from a menu bank
       const n = it.evalInt()
+      rt.menu.roots = []
+      rt.menu.on = false
+      rt.menu.screenNb = -1
+      rt.menu.change = true
+      void rt.screen
       const bank = rt.memBanks.get(n)
-      if (!bank || !/^menu/i.test(bank.name)) throw new AmosError('bank not reserved')
+      if (!bank) throw new AmosError('bank not reserved', 36)
+      if (!/^menu/i.test(bank.name)) funcCall()
       bankToMenu(rt.menu, bank.data)
       if (rt.menu.screenNb < 0) rt.menu.screenNb = rt.currentIndex
     },
@@ -4335,19 +4405,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.frozenSprites = [...rt.hwSprites.values()].map((s2) => ({ ...s2 }))
       rt.spriteUpdateOn = false
     },
+    /*
+     * Both fall into HVSc (+Lib.s:13529), which walks a table of four
+     * null-terminated strings to reach the n'th:
+     *
+     *     cmp.l #4,d3 / Rbhi L_WFonCall
+     *   Hv1: subq.l #1,d3 / Rbmi L_WFonCall / beq.s Hv3
+     *   Hv2: tst.b (a1)+ / bne.s Hv2 / bra.s Hv1
+     *
+     * so 1 to 4, with 0 caught by the `Rbmi` after the first decrement and a
+     * negative by the unsigned `Rbhi` above it. Both exits are WFonCall,
+     * `moveq #16,d0 / Rbra L_EcWiErr` (+Lib.s:13003), which is error 60 and
+     * not the catch-all 23 the port raised -- the same 60 Cline and Set Tab
+     * eight lines up already had right.
+     */
     'hscroll'(it) {
-      // InHScroll +Lib.s:13515: n in 1..4 prints window control code 15+n
-      // — the scroll itself is the escape-code handler (ScG*/ScD*
-      // +W.s:14539), so Print Chr$(16) does the same thing
+      // n in 1..4 prints window control code 15+n — the scroll itself is the
+      // escape-code handler (ScG*/ScD* +W.s:14539), so Print Chr$(16) does
+      // the same thing (InHScroll +Lib.s:13515)
       const n = it.evalInt()
-      if (n < 1 || n > 4) funcCall()
+      if (n < 1 || n > 4) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       scr().writeText(String.fromCharCode(15 + n))
     },
     'vscroll'(it) {
       // InVScroll +Lib.s:13523: codes 19+n (ScBas/ScBasHaut/ScHaut/
       // ScHautBas +W.s:14657-14760)
       const n = it.evalInt()
-      if (n < 1 || n > 4) funcCall()
+      if (n < 1 || n > 4) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       scr().writeText(String.fromCharCode(19 + n))
     },
 
@@ -6423,15 +6507,23 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       void a
       return VI(scr().curY)
     },
+    /*
+     * FnZoneD (+Lib.s:14138) is `tst.l d3 / Rbeq L_WFonCall / cmp.l #255-48,d3
+     * / Rbcc L_WFonCall`, so 1 to 206 and error 60 -- the same WFonCall
+     * Repeat$ raises, not the catch-all 23 the port used.
+     *
+     * Both escapes came out numbered, and only the closing one is. FinRpt
+     * (+Lib.s:14152) is shared with Border$ and Repeat$, and it writes the
+     * digit once: `add.b #"0",d3 / move.b d3,6(a0)`. Offset 6 is the second
+     * template's digit -- ChZon is `dc.b 27,"Z0",0,27,"Z0",0` -- so the
+     * leading escape keeps the "0" it was assembled with. Border$ already
+     * had that right eight lines away.
+     */
     'zone$'(_, a) {
-      // FnZoneD +Lib.s:14138: Zone$(text$,n) wraps text as a printable
-      // text-zone — ESC "Z" <n> text ESC "Z" <n> (n is the last arg, d3);
-      // n in 1..206 (sibling of Border$)
       const text = str(a[0]!)
       const n = int(a[1]!)
-      if (n < 1 || n >= 207) funcCall()
-      const tag = '\x1bZ' + String.fromCharCode(48 + n)
-      return VS(tag + text + tag)
+      if (n < 1 || n >= 207) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
+      return VS('\x1bZ0' + text + '\x1bZ' + String.fromCharCode(48 + n))
     },
 
     // ---- objects ----
@@ -7354,10 +7446,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'border$'(_, a) {
-      // FnBorderD +Lib.s:14124: style 1-15 (0 and >=16 error); the text
-      // is wrapped in Esc E 0 (store position) ... Esc E n (draw box)
+      // FnBorderD +Lib.s:14124: style 1-15, `tst.l d3 / Rbeq L_WFonCall /
+      // cmp.l #16,d3 / Rbcc L_WFonCall`, so error 60 and not 23. The text is
+      // wrapped in Esc E 0 (store position) ... Esc E n (draw box)
       const n = int(a[1]!)
-      if (n <= 0 || n >= 16) funcCall()
+      if (n <= 0 || n >= 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       return VS('\x1bE0' + str(a[0]!) + '\x1bE' + String.fromCharCode(48 + n))
     },
   }
