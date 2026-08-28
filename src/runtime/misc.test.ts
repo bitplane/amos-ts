@@ -33,18 +33,26 @@ function runOut(src: string): string {
 const GRAB = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0'
 
 describe('AMAL channels', () => {
-  it('Amal Off stops one channel, or every channel with no argument', () => {
+  it('Amal Off DELETES a channel, one or all (OnOfFrz +W.s:8302)', () => {
+    // `tst.w d3 / bmi.s DAMAL` unlinks the channel and gives its memory back
+    // with FreeMm, so Off is not a flag and the program is gone
     let rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Let X=X+1; Pause; Jump Loop"\nAmal On\nAmal Off 1`)
-    expect(rt.channels.get(1)!.on).toBe(false)
+    expect(rt.channels.get(1)).toBeUndefined()
     rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Off`)
-    expect(rt.channels.get(1)!.on).toBe(false)
+    expect(rt.channels.size).toBe(0)
     expect(rt.amalDefaultOn).toBe(false)
+    // and On afterwards has nothing left to unfreeze
+    rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Off 1\nAmal On 1`)
+    expect(rt.channels.get(1)).toBeUndefined()
   })
 
-  it('Amal Freeze suspends a channel without switching it off', () => {
+  it('Amal Freeze is the one bit that On clears (AmBit $8000)', () => {
     const rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Freeze 1`)
     expect(rt.channels.get(1)!.frozen).toBe(true)
     expect(rt.channels.get(1)!.on).toBe(true)
+    // unlike Off, a frozen channel is still there and On resumes it
+    const back = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Freeze 1\nAmal On 1`)
+    expect(back.channels.get(1)!.frozen).toBe(false)
   })
 
   it('Chanan reports whether a channel is running an animation', () => {

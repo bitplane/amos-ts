@@ -4780,59 +4780,42 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
+    /*
+     * Amal, Anim and Move On/Off/Freeze are nine keywords and one routine.
+     * InAmalOn0 and its eight siblings (+Lib.s:11631) each set two registers
+     * and branch to MvOnOf0: d2 is a STREAM MASK — %0001 AMAL, %0010 ANIM,
+     * %1100 Move, two bits because X and Y are separate streams — and d3 is
+     * the action, 1 on, -1 off, 0 freeze. d1 carries the channel, or -1 from
+     * the no-argument forms, which MvOAll (+W.s:8288) turns into a walk of
+     * the whole list. MvOAMAL picks the stream out with `move.w AmNb(a1),d7
+     * / and.w #$0003,d7 / btst d7,d2`, so the low two bits of a channel's
+     * number are its type: 0 AMAL, 1 Anim, 2 Move X, 3 Move Y.
+     *
+     * OnOfFrz (+W.s:8302) is where the surprise is. On and Freeze are one
+     * bit, `and.w #$7FFF,AmBit(a1)` against `or.w #$8000,AmBit(a1)`. OFF is
+     * not a bit at all: `tst.w d3 / bmi.s DAMAL` unlinks the channel from
+     * the list and hands its memory back through FreeMm. The animation is
+     * GONE, and a later On cannot restart it because there is nothing left
+     * to unfreeze. The port had Off as a flag, so `Amal Off 1 : Amal On 1`
+     * resumed a program AMOS had already freed.
+     */
     'anim on'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) {
-          s.anim.on = true
-          s.anim.frozen = false
-        }
-      }
+      stosOnOff(it, ['anim'], 1)
     },
     'anim off'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) s.anim.on = false
-      }
+      stosOnOff(it, ['anim'], -1)
     },
     'anim freeze'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) s.anim.frozen = true
-      }
+      stosOnOff(it, ['anim'], 0)
     },
     'move on'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) {
-            m.on = true
-            m.frozen = false
-          }
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], 1)
     },
     'move off'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) m.on = false
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], -1)
     },
     'move freeze'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) m.frozen = true
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], 0)
     },
     channel(it) {
       const n = it.evalInt()
@@ -4856,36 +4839,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (ch) ch.target = target
     },
     'amal on'(it) {
-      if (it.atStmtEnd()) {
-        rt.amalDefaultOn = true
-        for (const ch of rt.channels.values()) {
-          ch.on = true
-          ch.frozen = false
-        }
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) {
-        ch.on = true
-        ch.frozen = false
-      }
+      amalOnOff(it, 1)
     },
     'amal off'(it) {
-      if (it.atStmtEnd()) {
-        rt.amalDefaultOn = false
-        for (const ch of rt.channels.values()) ch.on = false
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) ch.on = false
+      amalOnOff(it, -1)
     },
     'amal freeze'(it) {
-      if (it.atStmtEnd()) {
-        for (const ch of rt.channels.values()) ch.frozen = true
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) ch.frozen = true
+      amalOnOff(it, 0)
     },
     amplay(it) {
       // InAmPlay2/4 +Lib.s:11988 → SetPlay +W.s:7908. The PLay instruction
@@ -5095,6 +5055,45 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * `moveq #DEBase+17,d0 / Rbra L_GoError` (+Lib.s:12879) — GoError, so no
    * +44, and DEBase is EcEBase+35-1, which puts it at 96.
    */
+  /**
+   * Anim/Move On, Off and Freeze. See the block comment on 'anim on'.
+   *
+   * @param act 1 clears the freeze bit, 0 sets it, -1 is DAMAL — the stream
+   * is unlinked and freed, not merely stopped.
+   */
+  function stosOnOff(it: It, streams: ('anim' | 'moveX' | 'moveY')[], act: 1 | 0 | -1): void {
+    const n = it.atStmtEnd() ? null : it.evalInt()
+    for (const [k, s] of rt.stosSlots) {
+      if (n !== null && k !== n) continue
+      for (const f of streams) {
+        const m = s[f]
+        if (!m) continue
+        if (act < 0) delete s[f]
+        else if (act === 0) m.frozen = true
+        else {
+          m.frozen = false
+          m.on = true
+        }
+      }
+    }
+  }
+
+  /** Amal On/Off/Freeze, the %0001 stream of the same routine */
+  function amalOnOff(it: It, act: 1 | 0 | -1): void {
+    const one = it.atStmtEnd() ? null : it.evalInt()
+    for (const k of [...rt.channels.keys()]) {
+      if (one !== null && k !== one) continue
+      const ch = rt.channels.get(k)!
+      if (act < 0) rt.channels.delete(k)
+      else if (act === 0) ch.frozen = true
+      else {
+        ch.frozen = false
+        ch.on = true
+      }
+    }
+    if (one === null && act !== 0) rt.amalDefaultOn = act > 0
+  }
+
   function openChan(n: number): number {
     if (n <= 0 || n >= 10) funcCall()
     if (rt.fileChans.has(n)) throw new AmosError(ED_RUN_MESSAGES[96]!, 96)
