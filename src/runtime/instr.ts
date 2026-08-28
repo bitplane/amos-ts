@@ -4630,19 +4630,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.mkdir(path)) throw new AmosError('disc error')
     },
     kill(it) {
-      // DeleteFile() takes a file or an *empty* directory; a full one comes
-      // back as a disc error rather than a missing file
+      // DeleteFile() takes a file or an *empty* directory, and both failures
+      // go through DiskError's ErDisk table (see Open In): a missing name is
+      // ERROR_OBJECT_NOT_FOUND 205, index 2, so 81; a full directory is
+      // ERROR_DIRECTORY_NOT_EMPTY 216, index 6, so 85 — not the catch-all.
       const path = it.evalStr()
-      if (rt.vfs?.exists(path) == null) throw new AmosError('file not found')
-      if (!rt.vfs.deleteFile(path)) throw new AmosError('disc error')
+      if (rt.vfs?.exists(path) == null) throw new AmosError('file not found', 81)
+      if (!rt.vfs.deleteFile(path)) throw new AmosError(ED_RUN_MESSAGES[85]!, 85)
     },
     rename(it) {
-      // Rename() also moves, within one volume — across devices, or onto
-      // something that already exists, it fails
+      // Rename() also moves, within one volume. Onto a name that is already
+      // taken it fails with ERROR_OBJECT_EXISTS 203, the ErDisk table's first
+      // entry, which is 79.
       const from = it.evalStr()
       it.expect('to')
       const to = it.evalStr()
-      if (rt.vfs?.exists(from) == null) throw new AmosError('file not found')
+      if (rt.vfs?.exists(from) == null) throw new AmosError('file not found', 81)
+      if (rt.vfs.exists(to) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
       if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
     },
     assign(it) {
