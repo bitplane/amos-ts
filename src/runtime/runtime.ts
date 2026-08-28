@@ -54,6 +54,7 @@ import { type JdState } from './jd'
 import { type SticksState } from './sticks'
 import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
+import type { IntuiextendState } from './intuiextend'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
 import type { CraftState } from './craft'
@@ -1318,6 +1319,20 @@ export class Runtime {
   static readonly DSAM_HEAP_RESERVED = 0x04000000
 
   /**
+   * IntuiExtend 2.01b's AllocMem heap.
+   *
+   * `Alloc Mem` (routine 35, $2ce2) is four instructions around
+   * `jsr -$c6(ExecBase)` and hands the address straight to the program, so a
+   * caller Peeks and Pokes through it; `Wb 3d Make Object` is one of its
+   * callers and lays an `IE3D` header at whatever address it was given. Both
+   * need real, ordered addresses in one space, which is what MemPool is for.
+   *
+   * 0x30000000 because nothing below D-Sam's heap at 0x34000000 is claimed.
+   */
+  static readonly INTUIEXTEND_HEAP_BASE = 0x30000000
+  static readonly INTUIEXTEND_HEAP_RESERVED = 0x04000000
+
+  /**
    * Explode 2.01's `Rs Structure` pool, and the strings `Rs Aptr` puts
    * pointers to.
    *
@@ -1415,6 +1430,8 @@ export class Runtime {
   gamesupport!: GameSupportState
   /** SLN 2.0's data zone (`MB` in sln_extII.s) — slot 24; see sln.ts */
   sln!: SlnState
+  /** IntuiExtend 2.01b's workspace, the static block at $1d28; see intuiextend.ts */
+  intuiextend!: IntuiextendState
   /** Make 1.30's forty-byte data zone, its two MinLists and its pool — slot 17 */
   make!: MakeState
   /** D-Sam 1.01's data zone, its sample list and the pool it lives in — slot 15 */
@@ -1507,9 +1524,12 @@ export class Runtime {
    */
   videoOff = false
   /**
-   * SPREN alone. `Mouse Off` (Misc_Extension.asm:141) clears it and there is
-   * no keyword anywhere that puts it back — the extension's own manual
-   * suggests someone add a `Mouse On`.
+   * SPREN alone. `Mouse Off` (Misc_Extension.asm:141) clears it and its own
+   * extension cannot put it back — the manual suggests the reader write a
+   * `Mouse On` — but IntuiExtend 2.01b ships the pair: routine 262 is
+   * `move.w #$8020,$dff096` and routine 263 `move.w #$20,$dff096`, the same
+   * bit set and cleared. Three extensions drive this one flag and none of
+   * them knows about the others, which is why it lives here.
    */
   spriteDma = true
   /**
@@ -1961,6 +1981,12 @@ export class Runtime {
     readOnlyRegister('JOY0DAT', JOY0DAT, 2, () => this.machine.joyDat(0)),
     readOnlyRegister('JOY1DAT', JOY1DAT, 2, () => this.machine.joyDat(1)),
     readOnlyRegister('POTGOR', POTGOR, 2, () => this.machine.potgor()),
+    bufferRegion(
+      'IntuiExtend heap',
+      Runtime.INTUIEXTEND_HEAP_BASE,
+      Runtime.INTUIEXTEND_HEAP_RESERVED,
+      () => (this.intuiextend ? this.intuiextend.heap.buffer : null),
+    ),
     bufferRegion('D-Sam samples', Runtime.DSAM_HEAP_BASE, Runtime.DSAM_HEAP_RESERVED, () =>
       this.dsam ? this.dsam.pool.buffer : null,
     ),

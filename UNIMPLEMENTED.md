@@ -73,7 +73,7 @@ Blocked on a back-end nothing here models:
 | extension | missing | what it is waiting on |
 |---|---|---|
 | OS DevKit 1.61 (`os-devkit-1.61`) | 1047 | a wrapper over most of AmigaOS. It needs the back-end, not the list. `gadtools` is modelled now and `datatypes` identifies without decoding, so what is left unmodelled is `asl`, `iffparse`, `commodities`, `workbench` and `amigaguide` |
-| IntuiExtend 2.01b / 1.6 (`intuiextend-2.01b`, `intuiextend-1.6`) | 301 / 294 | Intuition. 2.01b rebuilt its table, so the two share 45 names of 294 and almost none at the same id, which is why they are two rows |
+| IntuiExtend 1.6 (`intuiextend-1.6`) | 294 | nothing but the work. 2.01b is done, and 2.01b rebuilt the table, so the two share only 45 names of 294 and almost none at the same id. The port binds to the 2.01b id alone, so none of it reaches 1.6 yet; what is left is the same reading against a different set of routine numbers |
 | OrgAsm 1.0 (`orgasm-1.0`) | 13 | `intuition.library`, `gadtools.library` **and** 68k execution. Every keyword is one AmigaOS call — exec `Wait`/`WaitPort`/`OpenLibrary`/`CloseLibrary`, gadtools `GT_GetIMsg`/`GT_ReplyIMsg`, intuition `ItemAddress` and `DisplayAlert` — and the two that build the interface end in `jsr (a0)`, into the GadToolsBox blob the program Bloaded into bank 8. Read in full at 1,208 bytes, which is what moved it off the list below |
 | BSDSocket 1.1.4 (`bsdsocket-1.1.4`) | 30 | `bsdsocket.library` **and** a host networking boundary. The only row blocked on something outside AmigaOS |
 
@@ -102,6 +102,32 @@ has it, so the port was written from the disassembly alone and `Omix Play` is
 the one keyword in this port whose engine has never been run against a module
 anyone wrote. `src/coverage/status.ts` says so in its own note rather than
 letting the 100% imply otherwise.
+
+**IntuiExtend 2.01b is done, and at 301 keywords it is the largest row this
+file has ever lost.** DME 2.0 held that at 184.
+CIERP Philippe's 301 keywords are the widest Intuition and AmigaOS reach any
+third-party AMOS extension has outside OS DevKit: screens, windows, gadgets,
+menus, IDCMP, requesters through `reqtools.library`, pictures through
+`iff.library`, `trackdisk.device`, PowerPacker, a 3D transform and a fixed-
+point maths block. There is no source for it and none was needed; the whole
+23,084-byte hunk reads, and the workspace every keyword reaches through
+`$258(a5)` is static data inside it, so the shipped NewScreen, NewWindow and
+every table the library owns are in the file.
+
+Two of the seven library groups answer nothing, and that is the port being
+honest rather than incomplete. `workbench.library` and `icon.library` are not
+in `src/amiga/exec.ts`'s map, so `OpenLibrary` returns 0 and the five
+AppWindow and icon keywords take the failure arm they were written to take on
+a 1.3 machine. GameSupport's `Gsiconify` reached the same wall on the same two
+libraries and made the same choice.
+
+What the reading turned up along the way is in `src/coverage/status.ts` and in
+the port's own comments: `Wb Set Colour` hands SetRGB4's five arguments to
+LoadRGB4 and can never set a colour, `Wb Get Wbicon` unbalances its stack so a
+machine without `icon.library` does not return from it, `Wb Itext` allocates
+one byte where it wanted twenty and then branches past the code that fills it
+in, and `Wb Swatch` reads its divisor table out of the buffer it writes its
+answer into. That last one has never gone wrong, and the note says why.
 
 ## Not applicable
 
