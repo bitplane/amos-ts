@@ -98,6 +98,11 @@ import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } fro
 import { GUI_ERRORS, guiRelease, makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
 import { INT_ERRORS, makeIntFunctions, makeIntInstructions, newIntState } from './int'
 import { IEXT_ERRORS, makeIextFunctions, makeIextInstructions, newIextState } from './intuition'
+import {
+  makeIntuiextendFunctions,
+  makeIntuiextendInstructions,
+  newIntuiextendState,
+} from './intuiextend'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8023,6 +8028,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeIextInstructions,
     functions: makeIextFunctions,
     errors: IEXT_ERRORS,
+  },
+  {
+    /**
+     * Eric Sauvageau's IntuiExtend 2.01b.
+     *
+     * 301 keywords, and the extension carries its own workspace: routine 0 is
+     * `lea.l $1d28(pc),a3 / move.l a3,$258(a5)`, so every table it owns is
+     * static data inside the single code hunk and readable from the file.
+     * See ./intuiextend.ts.
+     */
+    ids: ['intuiextend-2.01b'],
+    init: (rt) => {
+      rt.intuiextend = newIntuiextendState()
+    },
+    instructions: makeIntuiextendInstructions,
+    functions: makeIntuiextendFunctions,
   },
   {
     /*
