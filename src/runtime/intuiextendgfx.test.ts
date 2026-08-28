@@ -213,3 +213,115 @@ describe('IntuiExtend 2.01b — Wb Paint', () => {
     expect(run('Wb Paint Mode 1').rt.intuiextend.paintMode).toBe(1)
   })
 })
+
+describe('IntuiExtend 2.01b — the drawing stragglers', () => {
+  /**
+   * DEFECT: routine 55 loads a0/d0/d1/d2/d3 --- SetRGB4's arguments --- and
+   * calls -$c0, which `graphics_lib.fd` gives as LoadRGB4(vp,colors,count).
+   * a1 is never set, so nothing the caller asked for reaches the palette.
+   */
+  it('Wb Set Colour leaves the palette alone', () => {
+    const b = run(`${SCREEN}S=Wb Screen Base\nWb Set Colour S To 3,15,0,0\nPrint Colour(3)`)
+    // whatever the palette held before, the keyword did not put $F00 there
+    expect(b.out().trim()).not.toBe('3840')
+  })
+
+  /** and it still takes its five arguments */
+  it('Wb Set Colour parses SCREEN To CNB,R,G,B', () => {
+    expect(ie.tokens.find((t) => t.name === 'wb set colour')!.spec).toBe('I0t0,0,0,0')
+    expect(() => run(`${SCREEN}S=Wb Screen Base\nWb Set Colour S To 3,15,0`)).toThrow()
+  })
+
+  /** the shared plotter at routine 200 takes the colour from the caller */
+  it('Wb Pset plots in the colour it is given', () => {
+    const b = run(`${SCREEN}Wb Pset 40,50,7`)
+    expect(b.rt.screen!.rp.point(40, 50)).toBe(7)
+  })
+
+  /**
+   * DEFECT: Gfxi says "Cette commande ne modifie pas la position du curseur
+   * graphique", and `movem.w d6-d7,$24(a2)` is the first instruction of the
+   * routine it branches into. X Graphic and Y Graphic read that cursor.
+   */
+  it('Wb Pset moves the graphics cursor the guide says it leaves alone', () => {
+    // rp_cp_x and rp_cp_y are the RastPort's own pair, which is not the
+    // cursor `X Graphic` reads: AMOS keeps that one itself
+    const b = run(`${SCREEN}Wb Pset 40,50,7`)
+    expect([b.rt.screen!.rp.cpX, b.rt.screen!.rp.cpY]).toEqual([40, 50])
+  })
+
+  /** the clip is an unsigned compare, so a negative coordinate falls out */
+  it('Wb Pset clips instead of wrapping', () => {
+    // no Print: the glyph would land on the pixel under test
+    const b = run(`${SCREEN}Wb Pset -1,-1,7\nWb Pset 5000,5000,7`)
+    expect(b.rt.screen!.rp.point(0, 0)).toBe(0)
+    expect(b.rt.screen!.rp.point(319, 255)).toBe(0)
+  })
+
+  /**
+   * `asl.l #$8,d3 / divu.w #$16a,d3` is radius / root two, one octant, and
+   * each step takes an integer square root of `r*r - x*x`.
+   */
+  it('Wb Circle draws a ring and leaves the middle empty', () => {
+    const b = run(`${SCREEN}Ink 5\nWb Circle 100,100,20`)
+    const rp = b.rt.screen!.rp
+    expect(rp.point(120, 100)).toBe(5)
+    expect(rp.point(80, 100)).toBe(5)
+    expect(rp.point(100, 120)).toBe(5)
+    expect(rp.point(100, 80)).toBe(5)
+    expect(rp.point(100, 100)).toBe(0)
+    expect(rp.point(110, 100)).toBe(0)
+  })
+
+  /** the pen is rp_FgPen, read as `move.b $19(a2),d7` */
+  it('Wb Circle draws in the current ink', () => {
+    const b = run(`${SCREEN}Ink 9\nWb Circle 60,60,10`)
+    expect(b.rt.screen!.rp.point(70, 60)).toBe(9)
+  })
+
+  /**
+   * The last `Draw` is outside the loop and goes back to (X0,Y0), so the
+   * curve closes on its own start and the cursor ends there.
+   */
+  it('Wb Spline closes back on its starting point', () => {
+    const b = run(`${SCREEN}Ink 4\nWb Spline 20,20 To 60,80 To 100,20,8`)
+    expect([b.rt.screen!.rp.cpX, b.rt.screen!.rp.cpY]).toEqual([20, 20])
+  })
+
+  /** and it puts ink down between the ends */
+  it('Wb Spline draws a curve', () => {
+    const b = run(`${SCREEN}Ink 4\nWb Spline 20,20 To 60,80 To 100,20,8`)
+    const rp = b.rt.screen!.rp
+    let lit = 0
+    for (let y = 0; y < 100; y++) for (let x = 0; x < 120; x++) if (rp.point(x, y) === 4) lit++
+    expect(lit).toBeGreaterThan(40)
+  })
+
+  /** `move.w $0(a2),d5 / beq` skips the divide, so NB of 0 draws one line */
+  it('Wb Spline with NB of zero still closes the curve', () => {
+    const b = run(`${SCREEN}Ink 4\nWb Spline 20,20 To 60,80 To 100,20,0`)
+    expect([b.rt.screen!.rp.cpX, b.rt.screen!.rp.cpY]).toEqual([20, 20])
+  })
+
+  /**
+   * Both arguments are RastPorts and every copy is one full-width row, so a
+   * roll between two screens moves pixels across.
+   */
+  it('Wb Roll Screen copies rows from one screen to the other', () => {
+    const b = run(
+      'Screen Open 0,320,256,16,Lowres\nCls 0\nInk 6\nBar 0,0 To 319,255\n' +
+        'Screen Open 1,320,256,16,Lowres\nCls 0\n' +
+        `Wb Roll Screen ${rpAddr(0)} To ${rpAddr(1)},2`,
+    )
+    const dst = b.rt.screens.get(1)!.rp
+    let lit = 0
+    for (let y = 0; y < 256; y++) if (dst.point(10, y) === 6) lit++
+    expect(lit).toBeGreaterThan(0)
+  })
+
+  /** an address that is not a screen RastPort does nothing at all */
+  it('Wb Roll Screen refuses a RastPort it does not know', () => {
+    const b = run(`${SCREEN}Wb Roll Screen 12345 To 67890,2\nPrint 1`)
+    expect(b.out().trim()).toBe('1')
+  })
+})

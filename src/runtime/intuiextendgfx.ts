@@ -299,6 +299,242 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
     },
 
     /**
+     * Wb Set Colour SCREEN To CNB,R,G,B — routine 55 ($2f12).
+     *
+     *     $2f12  move.l  (a3)+,d3      ; B
+     *     $2f14  move.l  (a3)+,d2      ; G
+     *     $2f16  move.l  (a3)+,d1      ; R
+     *     $2f18  move.l  (a3)+,d0      ; CNB
+     *     $2f1a  movea.l (a3)+,a0
+     *     $2f1c  adda.l  #$2c,a0       ; sc_ViewPort
+     *     $2f28  jsr     -$c0(a6)
+     *
+     * a0, d0, d1, d2 and d3 are exactly SetRGB4(vp,index,red,green,blue),
+     * which the fd puts at -$120. -$c0 is LoadRGB4(vp,colors,count), whose
+     * arguments are (a0/a1,d0).
+     *
+     * DEFECT: so it calls the wrong function. a1 is never set, and CNB
+     * arrives as LoadRGB4's COUNT --- the call copies CNB colour words from
+     * whatever address a1 held into the viewport's palette, and R, G and B
+     * are not read at all. Gfxk's "Definie la couleur CNB" cannot happen.
+     *
+     * `-$18ae(a5)` is GfxBase: the ten distinct LVOs this library calls
+     * through it are Text, SetFont, CloseFont, Draw, SetAPen, SetDrMd,
+     * ClipBlit, BltBitMapRastPort, SetChipRev and this one, and all ten
+     * resolve in `graphics_lib.fd`.
+     *
+     * The port does nothing, for the reason a wild jump is not reproduced:
+     * the bytes copied come from an address nothing defines.
+     */
+    'wb set colour'(it) {
+      it.evalInt()
+      it.expect('to')
+      for (let i = 0; i < 4; i++) {
+        if (i > 0) it.expect(',')
+        it.evalInt()
+      }
+    },
+
+    /**
+     * Wb Pset X,Y,C — routine 189 ($423e), which is three pops and a branch
+     * into the shared plotter at routine 200 ($445e).
+     *
+     * DEFECT: Gfxi promises "Cette commande ne modifie pas la position du
+     * curseur graphique", and routine 200's FIRST instruction is
+     * `movem.w d6-d7,$24(a2)` --- rp_cp_x and rp_cp_y, the graphics cursor.
+     * It moves it before it plots.
+     *
+     * The plotter clips with unsigned compares against bm_Rows and
+     * bm_BytesPerRow*8, so a negative coordinate reads as enormous and falls
+     * out. The bit number is `not.b d2 / andi.b #$f,d2`, four bits where
+     * three are wanted; it works because `bset` on memory takes the bit
+     * number modulo 8, and the inline copy of this loop inside `Wb Circle`
+     * writes the same thing correctly as `moveq #$7,d4 / andi.w #$7,d5 /
+     * sub.w d5,d4`.
+     */
+    'wb pset'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      const r = amosRp()
+      if (!r) return
+      r.cpX = lo(x)
+      r.cpY = lo(y)
+      r.putPixel(lo(x), lo(y), c & 0xff)
+    },
+
+    /**
+     * Wb Circle X,Y,RADIUS — routine 281 ($514c), and none of it is
+     * graphics.library: it walks the bitplanes itself.
+     *
+     * The step count is `asl.l #$8,d3 / divu.w #$16a,d3`, radius * 256 / 362,
+     * which is radius / root two rounded up --- one octant. For each x from
+     * there down to 0 it takes an integer square root of `radius*radius -
+     * x*x` in the binary-search loop at $5196 and plots the eight symmetric
+     * points, each through the same inlined plotter eight times over.
+     *
+     * The pen is rp_FgPen, read as `move.b $19(a2),d7` and pushed onto the
+     * ARGUMENT stack at $5184 so the eight blocks can read it back with
+     * `move.w (a3),d3`; $5422 pops it again.
+     */
+    'wb circle'(it) {
+      const x = lo(it.evalInt())
+      it.expect(',')
+      const y = lo(it.evalInt())
+      it.expect(',')
+      const radius = lo(it.evalInt())
+      const r = amosRp()
+      if (!r) return
+      const rr = (radius * radius) & 0xffff
+      let steps = Math.trunc(((radius & 0xffff) * 256) / 0x16a)
+      if (steps !== 0) steps += 1
+      const pen = r.fgPen
+      for (let i = steps - 1; i >= 0; i--) {
+        const v = (rr - ((i * i) & 0xffff)) & 0xffff
+        const q = Math.trunc(Math.sqrt(v))
+        // the search loop ends `cmp.w d1,d0 / blt / addq.w #$1,d1`, which
+        // rounds the root up when the square it found is short
+        const j = q * q < v ? q + 1 : q
+        for (const [dx, dy] of [
+          [i, j],
+          [j, i],
+          [j, -i],
+          [i, -j],
+          [-i, -j],
+          [-j, -i],
+          [-j, i],
+          [-i, j],
+        ] as const) {
+          r.putPixel(x + dx, y + dy, pen)
+        }
+      }
+    },
+
+    /**
+     * Wb Spline X0,Y0 To X1,Y1 To X2,Y2,NB — routine 193 ($429a).
+     *
+     * A quadratic de Casteljau in whole numbers. The workspace at +$5d6 holds
+     * NB and the four deltas the routine takes once:
+     *
+     *     +$0  NB          +$2  X0-X1     +$4  X1-X2
+     *     +$6  Y0-Y1       +$8  Y1-Y2     +$a  t
+     *
+     * and each step is `a = X1 - (X0-X1)*t/NB`, `b = X2 - (X1-X2)*t/NB`,
+     * `x = a - (a-b)*t/NB`, with every multiply `muls.w` and every divide
+     * `divs.w`, so the curve is walked in integers and NB of 0 skips the
+     * divide entirely (`move.w $0(a2),d5 / beq`).
+     *
+     * The start point is written straight into rp_cp_x and rp_cp_y at $42e2
+     * rather than through `Move`, and every step after it is `Draw` at -$f6.
+     * The last `Draw` at $43b4 is outside the loop and goes to (X0,Y0), the
+     * pair `movem.w d0-d1,-(a7)` saved at the top: the curve closes back on
+     * its own start.
+     *
+     * `$435e ext.l d5` is a typo for `ext.l d4` --- the other three divides
+     * extend d4 --- and costs nothing, because d5 is overwritten on the next
+     * instruction and every use of d4 is a word.
+     */
+    'wb spline'(it) {
+      const x0 = lo(it.evalInt())
+      it.expect(',')
+      const y0 = lo(it.evalInt())
+      it.expect('to')
+      const x1 = lo(it.evalInt())
+      it.expect(',')
+      const y1 = lo(it.evalInt())
+      it.expect('to')
+      const x2 = lo(it.evalInt())
+      it.expect(',')
+      const y2 = lo(it.evalInt())
+      it.expect(',')
+      const nb = lo(it.evalInt())
+      const r = amosRp()
+      if (!r) return
+      const dx0 = lo(x0 - x1)
+      const dx1 = lo(x1 - x2)
+      const dy0 = lo(y0 - y1)
+      const dy1 = lo(y1 - y2)
+      /** `muls.w` then `divs.w`, with a zero NB leaving the product alone */
+      const scale = (v: number, t: number): number => (nb === 0 ? lo(v * t) : lo(Math.trunc(lo(v * t) / nb)))
+      r.cpX = x0
+      r.cpY = y0
+      for (let t = 1; t !== nb; t++) {
+        const ax = lo(x1 - scale(dx0, t))
+        const bx = lo(x2 - scale(dx1, t))
+        const px = lo(ax - scale(lo(ax - bx), t))
+        const ay = lo(y1 - scale(dy0, t))
+        const by = lo(y2 - scale(dy1, t))
+        const py = lo(ay - scale(lo(ay - by), t))
+        r.draw(r.cpX, r.cpY, px & 0xffff, py & 0xffff, r.fgPen)
+        r.cpX = px & 0xffff
+        r.cpY = py & 0xffff
+        if (t > 0x7fff) break
+      }
+      r.draw(r.cpX, r.cpY, x0 & 0xffff, y0 & 0xffff, r.fgPen)
+      r.cpX = x0 & 0xffff
+      r.cpY = y0 & 0xffff
+    },
+
+    /**
+     * Wb Roll Screen SCRS To SCRD,PAS — routine 161 ($3bae).
+     *
+     * Index.guide lists it among three unfinished lines at the bottom of the
+     * file, `@{" Wb Roll Screen SCRS To SCRD,PAS` with no closing link, and
+     * there is no node for it anywhere.
+     *
+     * Both arguments are RastPorts: `movea.l $4(a2),a2` is rp_BitMap, and the
+     * width comes from `move.w (a2),d4 / asl.w #$3,d4` --- bm_BytesPerRow
+     * times eight --- with the height from bm_Rows. Every copy is ClipBlit
+     * (-$228) of ONE row, full width, minterm $c0:
+     *
+     *     $3bf6  move.w  d1,d3        ; yDest
+     *     $3bfc  move.w  d5,d1
+     *     $3bfe  add.w   d0,d1        ; ySrc = row + offset
+     *     $3c04  moveq   #$1,d5       ; one row high
+     *     $3c06  move.l  #$c0,d6      ; a plain copy
+     *
+     * so a row is read from `row + offset` and written to a destination line
+     * that counts DOWN from `row + (PAS-1)*2` while the offset counts up.
+     * `moveq #$f6,d5` at $3bc6 is dead: $3bce sets d5 to zero before it is
+     * ever read.
+     */
+    'wb roll screen'(it) {
+      const src = it.evalInt()
+      it.expect('to')
+      const dst = it.evalInt()
+      it.expect(',')
+      const pas = lo(it.evalInt())
+      const a = rastPortAt(src)
+      const b = rastPortAt(dst)
+      if (!a || !b) return
+      const step = lo(pas - 1)
+      const width = a.bitMap.bytesPerRow * 8
+      const rows = a.bitMap.height
+      /** one ClipBlit of a single full-width row */
+      const row = (ySrc: number, yDest: number): void => {
+        if (ySrc < 0 || ySrc >= rows || yDest < 0 || yDest >= b.bitMap.height) return
+        for (let x = 0; x < width; x++) b.putPixel(x, yDest, a.point(x, ySrc))
+      }
+      for (let r5 = 0; r5 !== rows - 1; r5++) {
+        let d1 = lo(r5 + step * 2)
+        let d0 = 0
+        for (;;) {
+          row(lo(r5 + d0), d1)
+          d1 = lo(d1 - 1)
+          row(lo(r5 + d0), d1)
+          d1 = lo(d1 - 1)
+          d0 = lo(d0 + 1)
+          if (step === d0) break
+          if (d0 > 0x7fff) break
+        }
+        row(r5, d1)
+        if (rows - 1 < 0) break
+      }
+    },
+
+    /**
      * Wb Paint RPORT To X,Y — routine 56 ($2f30), graphics `Flood` at -$14a,
      * with the mode from workspace+$88 rather than an argument.
      */
