@@ -33,18 +33,71 @@ function runOut(src: string): string {
 const GRAB = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0'
 
 describe('AMAL channels', () => {
-  it('Amal Off stops one channel, or every channel with no argument', () => {
+  it('Amal Off DELETES a channel, one or all (OnOfFrz +W.s:8302)', () => {
+    // `tst.w d3 / bmi.s DAMAL` unlinks the channel and gives its memory back
+    // with FreeMm, so Off is not a flag and the program is gone
     let rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Let X=X+1; Pause; Jump Loop"\nAmal On\nAmal Off 1`)
-    expect(rt.channels.get(1)!.on).toBe(false)
+    expect(rt.channels.get(1)).toBeUndefined()
     rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Off`)
-    expect(rt.channels.get(1)!.on).toBe(false)
+    expect(rt.channels.size).toBe(0)
     expect(rt.amalDefaultOn).toBe(false)
+    // and On afterwards has nothing left to unfreeze
+    rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Off 1\nAmal On 1`)
+    expect(rt.channels.get(1)).toBeUndefined()
   })
 
-  it('Amal Freeze suspends a channel without switching it off', () => {
+  it('Channel bounds the channel at 64 and the target by its kind (InChannel +ILib.s:5569)', () => {
+    expect(() => run(`${GRAB}\nChannel 63 To Bob 63`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 64 To Bob 1`)).toThrow(/function call/)
+    expect(() => run(`${GRAB}\nChannel -1 To Bob 1`)).toThrow(/function call/)
+    // d5 is set by the type ladder: 64 for Sprite and Bob...
+    expect(() => run(`${GRAB}\nChannel 1 To Bob 64`)).toThrow(/function call/)
+    // ...8 for the Screen forms...
+    expect(() => run(`${GRAB}\nChannel 1 To Screen Display 7`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 1 To Screen Display 8`)).toThrow(/function call/)
+    // ...and 4 for Rainbow
+    expect(() => run(`${GRAB}\nChannel 1 To Rainbow 3`)).not.toThrow()
+    expect(() => run(`${GRAB}\nChannel 1 To Rainbow 4`)).toThrow(/function call/)
+  })
+
+  it('Sprite Off takes the sprite\'s animation with it (DAdAMAL +W.s:8160)', () => {
+    // HsXOff calls DAdAMAL, which walks the list and DAMALs every stream
+    // whose AmAct matches the object
+    const prog = `${GRAB}\nSprite 1,100,100,1\nChannel 1 To Sprite 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\n`
+    expect(run(prog).channels.get(1)).toBeDefined()
+    expect(run(prog + 'Sprite Off 1').channels.get(1)).toBeUndefined()
+    // and the no-argument form is HsOff, the same sweep over every sprite
+    expect(run(prog + 'Sprite Off').channels.size).toBe(0)
+    // a different sprite's channel is left alone
+    const two = `${GRAB}\nSprite 2,50,50,1\nChannel 2 To Sprite 2\nAmal 2,"Loop: Pause; Jump Loop"\nAmal On\n`
+    expect(run(two + 'Sprite Off 1').channels.get(2)).toBeDefined()
+  })
+
+  it('Amreg measures its arguments and its registers are words (AmRR +Lib.s:11968)', () => {
+    const base = `${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\n`
+    // the global form is `cmp.l #26,d3 / Rbcc L_FonCall`, unsigned
+    expect(runOut(`Amreg(0)=7 : Print Amreg(0)`)).toBe(' 7\n')
+    expect(() => run(`Amreg(26)=1`)).toThrow(/function call/)
+    expect(() => run(`Amreg(-1)=1`)).toThrow(/function call/)
+    // the channel form is `cmp.l #64,d1` and `cmp.l #10,d3`
+    expect(runOut(`${base}Amreg(1,9)=5 : Print Amreg(1,9)`)).toBe(' 5\n')
+    expect(() => run(`${base}Amreg(1,10)=1`)).toThrow(/function call/)
+    expect(() => run(`${base}Amreg(64,0)=1`)).toThrow(/function call/)
+    // RegAMAL answers -1 for a channel with no AMAL program, and AmRR turns
+    // that into the same error rather than a zero
+    expect(() => run(`${GRAB}\nPrint Amreg(3,0)`)).toThrow(/function call/)
+    // IAmR stores a word and FAmR sign-extends it back
+    expect(runOut(`Amreg(0)=65535 : Print Amreg(0)`)).toBe('-1\n')
+    expect(runOut(`Amreg(0)=32768 : Print Amreg(0)`)).toBe('-32768\n')
+  })
+
+  it('Amal Freeze is the one bit that On clears (AmBit $8000)', () => {
     const rt = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Freeze 1`)
     expect(rt.channels.get(1)!.frozen).toBe(true)
     expect(rt.channels.get(1)!.on).toBe(true)
+    // unlike Off, a frozen channel is still there and On resumes it
+    const back = run(`${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\nAmal Freeze 1\nAmal On 1`)
+    expect(back.channels.get(1)!.frozen).toBe(false)
   })
 
   it('Chanan reports whether a channel is running an animation', () => {

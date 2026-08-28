@@ -128,6 +128,7 @@ import {
 import { fillSortKey } from '../amiga/vfs'
 import { joker, matchesJoker } from './joker'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
+import type { MenuNode } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 import { formLoad, formPlay, formSize } from './iffanim'
@@ -215,6 +216,18 @@ function omittedArg(it: It): boolean {
 }
 
 /** `pair`, for the keywords whose original routine reaches `GrXY` */
+/**
+ * Draw's DESTINATION, which gets none of GrXY's care.
+ *
+ * InDraw and InDrawTo hand d0/d1 straight to RDraw, and graphics.library
+ * takes them as words. EntNul's low word is zero, so an omitted destination
+ * coordinate draws to 0 rather than staying where it was.
+ */
+function drawEnd(it: It): [number, number] {
+  const [x, y] = optPair(it)
+  return [(x ?? 0) << 16 >> 16, (y ?? 0) << 16 >> 16]
+}
+
 function optPair(it: It): [number | null, number | null] {
   const x = omittedArg(it) ? null : it.evalInt()
   it.expect(',')
@@ -362,7 +375,34 @@ function regSlot(n: number, limit: number, base: number): number {
   return base + n
 }
 
-/** `IReg` (:2705): `Rbsr L_RReg / move.l d3,(a0)` */
+/** `IReg` (+ILib.s:2705): `Rbsr L_RReg / move.l d3,(a0)` */
+/**
+ * Amreg's bounds, from AmRR (+Lib.s:11968), which measures before it reads.
+ *
+ * The one-argument form addresses a GLOBAL and is guarded by `cmp.l #26,d3 /
+ * Rbcc L_FonCall`, so R0 to R25. The test is unsigned, so a negative fails
+ * the same branch as an oversized one; the port had been answering 0 for
+ * out-of-range instead of raising anything.
+ */
+function amregGlobal(n: number): number {
+  if (n >>> 0 >= 26) funcCall()
+  return n
+}
+
+/**
+ * The two-argument form: `cmp.l #64,d1` on the channel, `cmp.l #10,d3` on the
+ * register. RegAMAL (+W.s:7884) then walks the channel list for a matching
+ * AmNb and answers `moveq #-1,d0` when there is none, which AmRR turns into
+ * the same error with `Rbmi L_FonCall`. Reading a register of a channel that
+ * has no AMAL program is error 23, not zero.
+ */
+function amregChannel(rt: Runtime, ch: number, reg: number): AmalChannel {
+  if (ch >>> 0 >= 64 || reg >>> 0 >= 10) funcCall()
+  const c = rt.channels.get(ch)
+  if (!c) funcCall()
+  return c
+}
+
 function writeReg(rt: Runtime, it: It, limit: number, base: number): void {
   it.expect('(')
   const n = it.evalInt()
@@ -658,15 +698,36 @@ export function parseStosMove(src: string): { start: number | null; groups: Arra
  * the synthesized bank, negative n the mask pointer, which stays 0
  * (the 68k computes masks lazily).
  */
+/**
+ * Sprite Base and Icon Base, which share one routine.
+ *
+ * Sb (+Lib.s:12775) takes the absolute value, `tst.l d3 / bpl.s FsBi1 / neg.l
+ * d1`, calls AdBob or AdIcon for the checking, and then reads a longword out
+ * of the bank entry. The SIGN picks which longword: `tst.l d3 / bpl.s FsBi2 /
+ * addq.l #4,a2`, so a NEGATIVE number answers with the MASK pointer and a
+ * positive one with the image. The port used to short-circuit a negative to
+ * 0 without reading anything; it now reads the field the routine reads.
+ *
+ * The entry is eight bytes, image then mask, the same pair Paste Icon pokes
+ * $C0000000 into at 4(a2).
+ *
+ * DEVIATION: the answer is still 0, because objectBankImage leaves every
+ * mask pointer 0 — this port allocates no mask blocks and carries the mask
+ * as a per-image flag instead. Reading the right field costs nothing and
+ * means Sprite Base(-n) comes right on its own if that ever changes.
+ */
 function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   const idx = Math.abs(n) & 0x3fff
   if (idx === 0) funcCall()
   const bank = kind === 'sprites' ? rt.spriteBank : rt.iconBank
   if (!bank) throw new AmosError('bank not reserved', 36)
-  if (idx > bank.images.length) throw new AmosError('icon not defined')
-  if (n < 0) return 0
+  // AdBob and AdIcon both fail into AdBErr (+Lib.s:12816), which is `moveq
+  // #EcEBase+30-1,d0 / Rbra L_GoError` — 74 whichever bank it was, so a
+  // Sprite Base out of range really does say "Icon not defined". Its `tst.w
+  // d1 / Rbeq L_BkNoRes` on the bank count is the 36 above.
+  if (idx > bank.images.length) throw new AmosError(ED_RUN_MESSAGES[74]!, 74)
   const img = rt.objectBankImage(kind)!
-  const off = 2 + (idx - 1) * 8
+  const off = 2 + (idx - 1) * 8 + (n < 0 ? 4 : 0)
   return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
 }
 
@@ -810,10 +871,16 @@ function dirListing(it: It, rt: Runtime, wide: boolean, printer: boolean): void 
 function shiftArgs(it: It): { delay: number; first: number; last: number; wrap: boolean } {
   const delay = it.evalInt()
   it.expect(',')
-  const first = it.evalInt()
+  // ShD1 (+Lib.s:9337) pops the first colour and mends it rather than
+  // refusing it: `move.l (a3)+,d3 / bpl.s ShD3 / moveq #1,d3`. Colour 0 is
+  // the background and never joins a cycle, so a negative start becomes 1.
+  const firstRaw = it.evalInt()
+  const first = firstRaw < 0 ? 1 : firstRaw
   it.expect(',')
   const last = it.evalInt()
-  const wrap = it.accept(',') ? it.evalInt() !== 0 : true
+  // the spec is "I0,0,0,0", so the flag is a slot like the rest
+  it.expect(',')
+  const wrap = it.evalInt() !== 0
   return { delay: Math.max(1, delay), first, last, wrap }
 }
 
@@ -840,7 +907,7 @@ function menuPath(it: It): number[] {
  * seven layout keywords only took a level, the rest only took a path.
  */
 /** the function-side half of MnDim: a path is always parenthesised here */
-function menuNodeOf(rt: Runtime, path: number[]): { x: number; y: number } {
+function menuNodeOf(rt: Runtime, path: number[]): MenuNode {
   const node = rt.menu.find(path)
   if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
   return node
@@ -1430,12 +1497,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     ink(it) {
-      // Ink [pen][,[paper]][,[border]] — border goes to the outline pen
+      /*
+       * Ink [pen][,[paper]][,[border]]. InInk3 (+Lib.s:10069) unwinds the
+       * arguments backwards and each one is skipped when it holds EntNul:
+       * the BORDER arrives in d3 and goes straight into the RastPort with
+       * `move.b d3,27(a1)`, which is AOlPen; then `(a3)+` gives the paper to
+       * SetBPen and `(a3)+` the pen to SetAPen. Nothing is range-checked —
+       * the three graphics pens take whatever they are handed.
+       *
+       * All three land in RastPort BYTES, AOlPen directly and the other two
+       * through SetAPen/SetBPen, so `Ink 0,0,300` keeps 44.
+       */
       const s = scr()
-      if (it.nm() !== ',' && !it.atStmtEnd()) s.ink = it.evalInt()
+      if (it.nm() !== ',' && !it.atStmtEnd()) s.ink = it.evalInt() & 0xff
       if (it.accept(',')) {
-        if (it.nm() !== ',' && !it.atStmtEnd()) s.gPaper = it.evalInt()
-        if (it.accept(',') && !it.atStmtEnd()) s.gBorder = it.evalInt()
+        if (it.nm() !== ',' && !it.atStmtEnd()) s.gPaper = it.evalInt() & 0xff
+        if (it.accept(',') && !it.atStmtEnd()) s.gBorder = it.evalInt() & 0xff
       }
     },
     plot(it) {
@@ -1463,19 +1540,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.plot(x, y)
     },
     draw(it) {
+      /*
+       * InDraw (+Lib.s:9588) does not hand its start point to the draw at
+       * all. It pops the four arguments, puts the first two through `Rbsr
+       * L_GrXY` and then draws from wherever the cursor now is to the last
+       * two. GrXY is the same routine Gr Locate calls and skips an EntNul
+       * axis, and the spec is "I0,0t0,0", so `Draw ,100 To 200,50` keeps the
+       * graphics cursor's own x for the start. The port read the pair
+       * without elision and passed it straight to the line.
+       */
       const s = scr()
-      let x1 = s.grX
-      let y1 = s.grY
       if (!it.accept('to')) {
-        ;[x1, y1] = pair(it)
+        grXY(s, ...optPair(it))
         it.expect('to')
       }
-      const [x2, y2] = pair(it)
-      s.line(x1, y1, x2, y2)
+      const [x, y] = drawEnd(it)
+      s.line(s.grX, s.grY, x, y)
     },
     'draw to'(it) {
+      // InDrawTo (+Lib.s:9579) is the same tail without the GrXY
       const s = scr()
-      const [x, y] = pair(it)
+      const [x, y] = drawEnd(it)
       s.line(s.grX, s.grY, x, y)
     },
     'gr locate'(it) {
@@ -1572,12 +1657,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- palette ----
     colour(it) {
+      // InColour (+Lib.s:9185) hands both numbers to EcSCol (+W.s:3812),
+      // which is `and.w #31,d1` on the index and `and.w #$FFF,d2` on the
+      // value and cannot fail — `moveq #0,d0 / rts`. Both masks below are
+      // the routine's own, not a shortcut, and there is no error to raise.
       const s = scr()
       const n = it.evalInt()
       it.expect(',')
       s.palette[n & 31] = it.evalInt() & 0xfff
     },
     'colour back'(it) {
+      // EcSColB (+W.s:3878) opens `and.w #$FFF,d1` and nothing else
       rt.colourBack = it.evalInt() & 0xfff
     },
     palette(it) {
@@ -1625,9 +1715,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.shifts.delete(rt.currentIndex)
     },
     'set line'(it) {
+      // InSetLine (+Lib.s:10108) is one `move.w d3,34(a0)` into the
+      // RastPort's LinePtrn, so the mask below is the instruction's own
       scr().linePattern = it.evalInt() & 0xffff
     },
     'set paint'(it) {
+      // InSetPaint (+Lib.s:9906) reads the RastPort Flags word, clears bit 3
+      // (AREAOUTLINE) and puts it back with `tst.l d3 / beq.s ISpt / bset
+      // #3,d0`, so any non-zero turns outlining on and 0 turns it off
       scr().outline = it.evalInt() !== 0
     },
     'set font'(it) {
@@ -1702,15 +1797,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'set pattern'(it) {
       const n = it.evalInt()
       const s = scr()
-      if (n === 0) {
-        s.pattern = null
-        return
-      }
+      // SPat (+W.s:4695) opens `bsr EffPat`, "efface l'ancien", BEFORE it
+      // looks at the argument at all. Every exit after that has already
+      // dropped the old pattern, including the quiet ones below, so
+      // `Set Pattern -99` with no sprite 99 leaves a solid fill and not the
+      // pattern that was there before it.
+      s.pattern = null
+      if (n === 0) return
       if (n < 0) {
-        // negative: a sprite image is the fill pattern (SPat1)
+        // negative: a sprite image is the fill pattern (SPat1 +W.s:4712).
+        // A missing bank, a number past the bank count and a null image all
+        // reach SPatX, which is `moveq #0,d0` — success, quietly.
         const img = rt.spriteBank?.image(-n)
         if (!img) return
-        const rows = Math.min(16, img.height)
+        /*
+         * SPat3 (+W.s:4729) walks d0 up in powers of two hunting for the
+         * height, and SPat4 backs off one step when it overshoots, so the
+         * pattern is the largest power of two NOT ABOVE the sprite. The
+         * search gives up once d3 reaches 8, which puts the ceiling at 128
+         * rows, and that exit is SPatE — error 23, not a silent clamp.
+         */
+        if (img.height > 128) funcCall()
+        let rows = 1
+        while (rows * 2 <= img.height) rows *= 2
         const bits = new Uint16Array(rows)
         for (let y = 0; y < rows; y++) {
           let row = 0
@@ -2070,7 +2179,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [w, h] = pair(it)
       const border = it.accept(',') ? it.evalInt() : 0
-      if (border < 0 || border > 16) funcCall()
+      // WOpen (+W.s:13676) is `cmp.w #16,d7 / bhi WErr7`, so 16 itself is
+      // allowed here where Border's `cmp.l #16,d1 / bcc WErr7` stops at 15.
+      // Both land on WErr7, which is `moveq #16,d0` (+W.s:15839) and reads
+      // as 60 through EcWiErr, not as the catch-all 23.
+      if (border < 0 || border > 16) throw new AmosError(ED_RUN_MESSAGES[60]!, 60)
       try {
         scr().windOpen(n, x, y, w, h, border)
       } catch (e) {
@@ -2162,14 +2275,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       s.drawWindowFrame2()
     },
+    /*
+     * InTitleTop and InTitleBottom (+Lib.s:13181) copy the string through
+     * `Rbsr L_ChVerBuf` before WnTT sees it, and ChVerBuf2 (+Lib.s:3654) is
+     * `cmp.w #510,d0 / bcs.s Chv1 / move.w #509,d0` into the 512-byte
+     * Buffer: 510 characters and a terminator, whatever it was handed.
+     */
     'title top'(it) {
       const s = scr()
-      s.curWin.titleTop = it.evalStr()
+      s.curWin.titleTop = it.evalStr().slice(0, 510)
       s.drawWindowFrame2()
     },
     'title bottom'(it) {
       const s = scr()
-      s.curWin.titleBottom = it.evalStr()
+      s.curWin.titleBottom = it.evalStr().slice(0, 510)
       s.drawWindowFrame2()
     },
 
@@ -2342,7 +2461,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const y = optInt(it, cur?.y ?? 0)
       it.accept(',')
       // An omitted image leaves BbI alone (`cmp.l d7,d4 / beq.s CreBb8` at
-      // BobSet's CreBb7, +W.s), and a bob ResBOB has just made has BbI = 0: it
+      // BobSet's CreBb7, +W.s:1120), and a bob ResBOB has just made has BbI = 0: it
       // sets BbNb, BbEc, the limits, BbAPlan, BbACon, BbDecor and BbEff, and
       // never touches the image. Image 0 is not image 1 --- there is no image
       // 0, so the bob does not draw at all.
@@ -2439,14 +2558,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (it.nm() === 'to') {
         it.advance()
         const [x2, y2] = pair(it)
-        rt.bobLimits.set(-1, { x1: a, y1: b, x2, y2 })
+        setBobLimit(-1, a, b, x2, y2)
         return
       }
       it.expect(',')
       const y1 = it.evalInt()
       it.expect('to')
       const [x2, y2] = pair(it)
-      rt.bobLimits.set(a, { x1: b, y1, x2, y2 })
+      setBobLimit(a, b, y1, x2, y2)
     },
     'x mouse'(it) {
       // X Mouse = n (InXMouse +Lib.s:12079) -> MSetAb (+W.s:10921) with
@@ -2558,9 +2677,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // See Runtime.bobPut. Blitting a copy here instead put one in the
       // logical buffer only, so it flickered on a double-buffered screen and
       // the bob went on erasing itself normally.
+      //
+      // Both guards are on the instruction: `move.l d3,d1 / Rbmi L_FonCall`
+      // for a negative number, and `SyCall PutBob / Rbne L_FonCall` for a bob
+      // that is not on screen. The port returned quietly for both.
       const n = it.evalInt()
+      if (n < 0) funcCall()
       const bob = rt.bobs.get(n)
-      if (!bob) return
+      if (!bob) funcCall()
       const s = rt.screens.get(bob.screen) ?? scr()
       rt.bobPut.set(n, s.doubleBuffered ? 2 : 1)
     },
@@ -2600,8 +2724,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
+      // the icon pair of the same `Rbsr L_Bnk.GetIcons / Rbeq L_BkNoRes`
       const mask = it.atStmtEnd() ? -1 : it.evalInt()
-      const pal = rt.iconBank?.palette
+      const bank = rt.iconBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const pal = bank.palette
       if (pal) {
         for (let i = 0; i < Math.min(32, pal.length); i++) {
           if (mask & (1 << i)) scr().palette[i] = pal[i]!
@@ -2619,11 +2746,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
             img.hotY = b
           }
         } else if (img) {
-          // predefined code $XY: nibbles select left/middle/right, top/middle/bottom
+          /*
+           * Predefined code $XY. InHotSpot2 (+Lib.s:12552) does `and.w
+           * #%01110111,d1 / addq.w #1,d1`, and SpotH (+W.s:580) undoes the
+           * +1 straight away — it is there only so that 0 can go on meaning
+           * "explicit coordinates follow" at `tst.w d1 / beq.s Spo4`.
+           *
+           * Each axis then takes two bits and subtracts one: `bhi` keeps the
+           * far edge, `beq` halves it, and anything below zeroes it first.
+           * bhi is >=, so a nibble of 3 is the far edge as surely as 2 is —
+           * the port had 3 falling through to the near edge.
+           *
+           * The width is `move.w (a1),d2 / lsl.w #4,d2`: word 0 of a bob
+           * image is its WORD count, so the right edge is the grab rounded
+           * up to 16, not the width that was asked for.
+           */
           const cx = (a >> 4) & 3
           const cy = a & 3
-          img.hotX = cx === 1 ? img.width >> 1 : cx === 2 ? img.width : 0
-          img.hotY = cy === 1 ? img.height >> 1 : cy === 2 ? img.height : 0
+          const w16 = ((img.width + 15) >> 4) << 4
+          img.hotX = cx >= 2 ? w16 : cx === 1 ? w16 >> 1 : 0
+          img.hotY = cy >= 2 ? img.height : cy === 1 ? img.height >> 1 : 0
         }
       }
     },
@@ -2659,8 +2801,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.hwSprites.set(n, { n, x, y, image })
     },
     'sprite off'(it) {
-      if (it.atStmtEnd()) rt.hwSprites.clear()
-      else rt.hwSprites.delete(it.evalInt())
+      /*
+       * InSpriteOff0/1 (+Lib.s:12300) reach HsOff and HsXOff (+W.s:11412),
+       * and both call `bsr DAdAMAL` before they finish. DAdAMAL (+W.s:8160)
+       * walks the whole AMAL list and DAMALs every channel whose AmAct
+       * matches the object address, so switching a sprite off takes its
+       * animation with it: the AMAL program, the Anim and both Moves. The
+       * port had been removing the sprite and leaving its channels running
+       * against an object that was no longer there.
+       */
+      if (it.atStmtEnd()) {
+        killObjectAnim('sprite', null)
+        rt.hwSprites.clear()
+        return
+      }
+      const n = it.evalInt()
+      rt.hwSprites.delete(n)
+      killObjectAnim('sprite', n)
     },
     'sprite update'(it) {
       // InSpriteUpdate +Lib.s:11479: apply buffered changes now (ActHs+AffHs)
@@ -3694,13 +3851,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'menu link'(it) {
       menuNodeFlag(it, rt, 0, MF_SEP)
     },
+    /*
+     * InMenuCalled and InMenuOnce (+Lib.s:15721) are `Rjsr L_MnDim` and one
+     * write to MnFlag+1(a2), -1 against a clear. MnDim only sets a2 on its
+     * PATH arm, so the bare-level form of these two writes through a
+     * register the routine never filled — an AMOS bug, and the reason this
+     * port takes the path form only.
+     *
+     * A path that resolves to nothing is MnDim's own MnINDef, error 39,
+     * which the other menu keywords already raise and these two were
+     * swallowing.
+     */
     'menu called'(it) {
-      const node = rt.menu.find(menuPath(it))
-      if (node) node.called = true
+      menuNodeOf(rt, menuPath(it)).called = true
     },
     'menu once'(it) {
-      const node = rt.menu.find(menuPath(it))
-      if (node) node.called = false
+      menuNodeOf(rt, menuPath(it)).called = false
     },
     'menu del'(it) {
       // InMenuDel +ILib.s:6925: no path = wipe the whole tree
@@ -3820,7 +3986,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'put block'(it) {
       const b = rt.blocks.get(blockNum(it))
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       let x = b.x
       let y = b.y
       if (it.accept(',')) {
@@ -3832,8 +3998,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x, y, !b.mask)
     },
     'del block'(it) {
+      // InDelBlock0 is a bare `EcCall BlRaz` and says nothing about what it
+      // cleared. The one-argument form goes through BlDel (+W.s:12463), which
+      // is `bsr FindBloc / bne.s FrBloc / moveq #BlE+2,d0`, and the caller's
+      // `Rbne L_EcWiErr` turns that into 19+2+44.
       if (it.atStmtEnd()) rt.blocks.clear()
-      else rt.blocks.delete(blockNum(it))
+      else if (!rt.blocks.delete(blockNum(it))) throw new AmosError(ED_RUN_MESSAGES[65]!, 65)
     },
     'get cblock'(it) {
       /*
@@ -3866,7 +4036,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'put cblock'(it) {
       const b = rt.cblocks.get(blockNum(it))
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       let x = b.x
       let y = b.y
       if (it.accept(',')) {
@@ -3878,8 +4048,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x & ~7, y, true)
     },
     'del cblock'(it) {
+      // FreeCBloc (+W.s:12309) reaches CBlE2, which is the same `moveq
+      // #BlE+2,d0` DelBloc uses, so a missing cblock reports the same 65
       if (it.atStmtEnd()) rt.cblocks.clear()
-      else rt.cblocks.delete(blockNum(it))
+      else if (!rt.cblocks.delete(blockNum(it))) throw new AmosError(ED_RUN_MESSAGES[65]!, 65)
     },
 
     // ---- screens extra ----
@@ -4061,6 +4233,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const m = rt.resolveWrite(addr)
       if (m) m.data[m.off] = v & 0xff
     },
+    /*
+     * InDoke and InLoke (+Lib.s:2735) are what the source calls the
+     * "POKEDOKELOKE ameliores": `btst #0,d0` picks an odd address out and
+     * writes it a byte at a time, high byte first, instead of taking the
+     * 68000's address error. FnDeek and FnLeek (+Lib.s:2776) read the same
+     * way, and Deek's `moveq #0,d3` before the word makes it unsigned.
+     * Byte-wise big-endian access is therefore right at every address, which
+     * is what these already do.
+     */
     doke(it) {
       const addr = it.evalInt()
       it.expect(',')
@@ -4319,12 +4500,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // RevBloc +W.s:12591: FindBloc raises "Block not defined" on a missing
       // block, then Retourne mirrors the pixels along the chosen axis.
       const b = rt.blocks.get(it.evalInt())
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
     },
+    /*
+     * Hrev Block and Vrev Block (+Lib.s:11205) each load one bit into d2 and
+     * fall into Rev, which is `move.l d3,d1 / EcCall BlRev / Rbne
+     * L_EcWiErr`. RevBloc (+W.s:12592) opens `bsr FindBloc / beq BlNDef`,
+     * and BlNDef is `moveq #2,d0` — 46 through EcWiErr, "Block not defined".
+     *
+     * That is NOT Del Block's 65, "Block not found", which comes from
+     * `moveq #BlE+2,d0`. Two block-missing errors with two numbers, and the
+     * port had the right string on all four of these with no number at all,
+     * so they were reporting as the catch-all 23.
+     */
     'vrev block'(it) {
       const b = rt.blocks.get(it.evalInt())
-      if (!b) throw new AmosError('block not defined')
+      if (!b) throw new AmosError(ED_RUN_MESSAGES[46]!, 46)
       for (let y = 0; y < b.h >> 1; y++) {
         const a = b.pixels.slice(y * b.w, (y + 1) * b.w)
         b.pixels.copyWithin(y * b.w, (b.h - 1 - y) * b.w, (b.h - y) * b.w)
@@ -4399,8 +4591,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       if (c.data.length > c.fileSize!) c.fileSize = c.data.length
     },
+    /*
+     * OpIn (+Lib.s:5082) ends `DosCall _LVOOpen / tst.l d0 / Rbeq
+     * L_DiskError`, which reads as "a failed open is a disc error". It is
+     * not that blunt. DiskError (+Lib.s:12843) calls _LVOIoErr and DiskErr
+     * walks the AmigaDOS code down a table, adding the INDEX to DEBase:
+     *
+     *   ErDisk: 203,204,205,210,213,214,216,218,220,221,222,223,224,225,226
+     *
+     * so 203 is 79, 205 is 81, 226 is 93, and anything not in the table is
+     * `moveq #DEBase+15,d0`, 94. Every one of the fifteen lands on the
+     * message the AmigaDOS name predicts — 203 OBJECT_EXISTS on "File
+     * already exists", 205 OBJECT_NOT_FOUND on "File not found", 226 NO_DISK
+     * on "No disc in drive", 94 on "I/O error" — which is fifteen
+     * independent confirmations that DEBase is 79.
+     *
+     * A missing file is therefore 81 and not the generic 101, which is what
+     * these handlers already raise.
+     */
     'open in'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const data = rt.fs?.read(path)
@@ -4419,7 +4629,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * is what MODE_OLDFILE on an arbitrary string does on the machine too.
      */
     'open port'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       const serial = /^ser:/i.test(path) ? (rt.host?.serial?.open(0, DEV_SERIAL_DEFAULTS) ?? undefined) : undefined
@@ -4428,13 +4638,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fileChans.set(n, { mode: 'in', path, data, pos: 0, out: [], port: true, ...(serial ? { serial } : {}) })
     },
     'open out'(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [], ...speakChannel(rt, path) })
     },
     append(it) {
-      const n = it.evalInt()
+      const n = openChan(it.evalInt())
       it.expect(',')
       const path = it.evalStr()
       // Append to SPEAK: is Open Out to SPEAK: — there is nothing to append to
@@ -4515,14 +4725,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } while (it.accept(','))
     },
     pof(it) {
-      // assignment form: Pof(n) = position
+      /*
+       * InPof (+Lib.s:5127) is `move.l d3,d2 / Rbmi L_FonCall` before the
+       * Seek, so a negative position is error 23 and not a clamp to zero.
+       * The Seek itself is `moveq #-1,d3`, OFFSET_BEGINNING, and a failure
+       * is `tst.l d0 / Rbmi L_DiskError`.
+       *
+       * The reader is the same Seek with offset 0 and mode 0, which answers
+       * the position it was already at.
+       */
       it.expect('(')
       const c = rt.chan(it.evalInt())
       it.expect(')')
       it.expectOp('=')
       const v = it.evalInt()
-      if (c.mode === 'in') c.pos = Math.max(0, Math.min(c.data.length, v))
-      else c.out.length = Math.max(0, Math.min(c.out.length, v))
+      if (v < 0) funcCall()
+      if (c.mode === 'in') c.pos = Math.min(c.data.length, v)
+      else c.out.length = Math.min(c.out.length, v)
     },
     'set input'(it) {
       /*
@@ -4540,22 +4759,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.chrInp = [a, b < 0 ? -1 : b & 0xff]
     },
     mkdir(it) {
-      if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')
+      // InMkDir (+Lib.s:4912) is `DosCall _LVOCreateDir / tst.l d0 / Rbeq
+      // L_DiskError`, and DiskError puts IoErr through the ErDisk table
+      // documented above Open In. ERROR_OBJECT_EXISTS is 203, the table's
+      // first entry, so making a directory that is already there is 79,
+      // "File already exists", and not the catch-all disc error.
+      const path = it.evalStr()
+      if (rt.vfs?.exists(path) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
+      if (!rt.vfs?.mkdir(path)) throw new AmosError('disc error')
     },
     kill(it) {
-      // DeleteFile() takes a file or an *empty* directory; a full one comes
-      // back as a disc error rather than a missing file
+      // DeleteFile() takes a file or an *empty* directory, and both failures
+      // go through DiskError's ErDisk table (see Open In): a missing name is
+      // ERROR_OBJECT_NOT_FOUND 205, index 2, so 81; a full directory is
+      // ERROR_DIRECTORY_NOT_EMPTY 216, index 6, so 85 — not the catch-all.
       const path = it.evalStr()
-      if (rt.vfs?.exists(path) == null) throw new AmosError('file not found')
-      if (!rt.vfs.deleteFile(path)) throw new AmosError('disc error')
+      if (rt.vfs?.exists(path) == null) throw new AmosError('file not found', 81)
+      if (!rt.vfs.deleteFile(path)) throw new AmosError(ED_RUN_MESSAGES[85]!, 85)
     },
     rename(it) {
-      // Rename() also moves, within one volume — across devices, or onto
-      // something that already exists, it fails
+      // Rename() also moves, within one volume. Onto a name that is already
+      // taken it fails with ERROR_OBJECT_EXISTS 203, the ErDisk table's first
+      // entry, which is 79.
       const from = it.evalStr()
       it.expect('to')
       const to = it.evalStr()
-      if (rt.vfs?.exists(from) == null) throw new AmosError('file not found')
+      if (rt.vfs?.exists(from) == null) throw new AmosError('file not found', 81)
+      if (rt.vfs.exists(to) != null) throw new AmosError(ED_RUN_MESSAGES[79]!, 79)
       if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
     },
     assign(it) {
@@ -4689,62 +4919,58 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
+    /*
+     * Amal, Anim and Move On/Off/Freeze are nine keywords and one routine.
+     * InAmalOn0 and its eight siblings (+Lib.s:11631) each set two registers
+     * and branch to MvOnOf0: d2 is a STREAM MASK — %0001 AMAL, %0010 ANIM,
+     * %1100 Move, two bits because X and Y are separate streams — and d3 is
+     * the action, 1 on, -1 off, 0 freeze. d1 carries the channel, or -1 from
+     * the no-argument forms, which MvOAll (+W.s:8288) turns into a walk of
+     * the whole list. MvOAMAL picks the stream out with `move.w AmNb(a1),d7
+     * / and.w #$0003,d7 / btst d7,d2`, so the low two bits of a channel's
+     * number are its type: 0 AMAL, 1 Anim, 2 Move X, 3 Move Y.
+     *
+     * OnOfFrz (+W.s:8302) is where the surprise is. On and Freeze are one
+     * bit, `and.w #$7FFF,AmBit(a1)` against `or.w #$8000,AmBit(a1)`. OFF is
+     * not a bit at all: `tst.w d3 / bmi.s DAMAL` unlinks the channel from
+     * the list and hands its memory back through FreeMm. The animation is
+     * GONE, and a later On cannot restart it because there is nothing left
+     * to unfreeze. The port had Off as a flag, so `Amal Off 1 : Amal On 1`
+     * resumed a program AMOS had already freed.
+     */
     'anim on'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) {
-          s.anim.on = true
-          s.anim.frozen = false
-        }
-      }
+      stosOnOff(it, ['anim'], 1)
     },
     'anim off'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) s.anim.on = false
-      }
+      stosOnOff(it, ['anim'], -1)
     },
     'anim freeze'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        if (s.anim) s.anim.frozen = true
-      }
+      stosOnOff(it, ['anim'], 0)
     },
     'move on'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) {
-            m.on = true
-            m.frozen = false
-          }
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], 1)
     },
     'move off'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) m.on = false
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], -1)
     },
     'move freeze'(it) {
-      const n = it.atStmtEnd() ? null : it.evalInt()
-      for (const [k, s] of rt.stosSlots) {
-        if (n !== null && k !== n) continue
-        for (const m of [s.moveX, s.moveY]) {
-          if (m) m.frozen = true
-        }
-      }
+      stosOnOff(it, ['moveX', 'moveY'], 0)
     },
     channel(it) {
+      /*
+       * InChannel (+ILib.s:5569) bounds both numbers and the port bounded
+       * neither. The channel is `bsr New_Expentier / cmp.l #64,d3 / bcc
+       * FonCall`, so 0 to 63. The TARGET's ceiling arrives in d5, which the
+       * type ladder sets as it walks past: 64 for Sprite and Bob, 8 for the
+       * three Screen forms, 4 for Rainbow, then `cmp.l d5,d2 / bcc FonCall`.
+       * Both tests are unsigned, so a negative fails them as an enormous
+       * value would.
+       *
+       * The type codes are not consecutive. `addq.w #2,d4` before the
+       * Rainbow arm skips 5, so the byte written to AnCanaux is 6.
+       */
       const n = it.evalInt()
+      if (n >>> 0 >= 64) funcCall()
       it.expect('to')
       const kind = it.nm()
       if (
@@ -4759,42 +4985,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       it.advance()
       const m = it.evalInt()
+      const limit = kind === 'sprite' || kind === 'bob' ? 64 : kind === 'rainbow' ? 4 : 8
+      if (m >>> 0 >= limit) funcCall()
       const target = rt.makeChannelTarget(kind, m)
       rt.chanTargets.set(n, target)
       const ch = rt.channels.get(n)
       if (ch) ch.target = target
     },
     'amal on'(it) {
-      if (it.atStmtEnd()) {
-        rt.amalDefaultOn = true
-        for (const ch of rt.channels.values()) {
-          ch.on = true
-          ch.frozen = false
-        }
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) {
-        ch.on = true
-        ch.frozen = false
-      }
+      amalOnOff(it, 1)
     },
     'amal off'(it) {
-      if (it.atStmtEnd()) {
-        rt.amalDefaultOn = false
-        for (const ch of rt.channels.values()) ch.on = false
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) ch.on = false
+      amalOnOff(it, -1)
     },
     'amal freeze'(it) {
-      if (it.atStmtEnd()) {
-        for (const ch of rt.channels.values()) ch.frozen = true
-        return
-      }
-      const ch = rt.channels.get(it.evalInt())
-      if (ch) ch.frozen = true
+      amalOnOff(it, 0)
     },
     amplay(it) {
       // InAmPlay2/4 +Lib.s:11988 → SetPlay +W.s:7908. The PLay instruction
@@ -4871,12 +5076,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(')')
       it.expectOp('=')
       const v = it.evalInt()
-      if (b === null) {
-        if (a >= 0 && a < 26) rt.amalGlobals[a] = v
-      } else {
-        const ch = rt.channels.get(a)
-        if (ch && b >= 0 && b < 10) ch.regs[b] = v
-      }
+      // IAmR (+Lib.s:11958) stores with `move.w d5,(a0)`, a WORD
+      if (b === null) rt.amalGlobals[amregGlobal(a)] = (v << 16) >> 16
+      else amregChannel(rt, a, b).regs[b] = (v << 16) >> 16
     },
 
     'load iff'(it) {
@@ -4963,10 +5165,118 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     }
   }
 
+  /**
+   * BobLim (+W.s:1026), which measures once for the whole bob list.
+   *
+   * The x edges are snapped DOWN to a multiple of 16 by `and.w #$FFF0,d2`
+   * and `and.w #$FFF0,d4`, the blitter's word granularity, and every test
+   * after that is word-sized and unsigned. A failure reaches LBbE's `moveq
+   * #-1,d0`, which the caller turns into error 23 with `Rbne L_FonCall`.
+   *
+   * DEFECT: the vertical test is `cmp.w d2,d5 / bls.s LbbE`, which measures
+   * the BOTTOM edge against the LEFT one. d3 holds the top edge and appears
+   * in no test at all. So `Limit Bob 100,0 To 200,50` is refused for having
+   * a bottom edge above x1, and a tall strip down the right of the screen
+   * cannot be asked for however the numbers are written.
+   */
+  function setBobLimit(n: number, x1: number, y1: number, x2: number, y2: number): void {
+    // `move.l T_BbDeb(a5),d0 / beq LBbX` returns success before any of this,
+    // so with nothing drawn yet the instruction checks nothing and stores
+    // nothing — the limits live on the bobs, not beside them
+    if (rt.bobs.size === 0) return
+    const s = scr()
+    const gx1 = x1 & 0xfff0
+    const gx2 = x2 & 0xfff0
+    const gy2 = y2 & 0xffff
+    if (gx2 <= gx1) funcCall()
+    if (gy2 <= gx1) funcCall()
+    if (gx2 > (s.width & 0xffff)) funcCall()
+    if (gy2 > (s.height & 0xffff)) funcCall()
+    rt.bobLimits.set(n, { x1: gx1, y1: y1 & 0xffff, x2: gx2, y2: gy2 })
+  }
+
+  /**
+   * GetFile (+Lib.s:4625) for a channel about to be OPENED.
+   *
+   * The range is `cmp.l #10,d0 / Rbcc L_FonCall` then `subq.l #1,d0 / Rbmi
+   * L_FonCall`, so 1 to 9 and error 23 outside it. GetFile finishes with
+   * `move.l FhA(a2),d1`, which sets the flags from the file handle, and OpIn
+   * (+Lib.s:5077) reads them straight back: `Rbne L_FilOO`. A channel that
+   * already has a handle cannot be opened over the top of itself. FilOO is
+   * `moveq #DEBase+17,d0 / Rbra L_GoError` (+Lib.s:12879) — GoError, so no
+   * +44, and DEBase is EcEBase+35-1, which puts it at 96.
+   */
+  /**
+   * Anim/Move On, Off and Freeze. See the block comment on 'anim on'.
+   *
+   * @param act 1 clears the freeze bit, 0 sets it, -1 is DAMAL — the stream
+   * is unlinked and freed, not merely stopped.
+   */
+  function stosOnOff(it: It, streams: ('anim' | 'moveX' | 'moveY')[], act: 1 | 0 | -1): void {
+    const n = it.atStmtEnd() ? null : it.evalInt()
+    for (const [k, s] of rt.stosSlots) {
+      if (n !== null && k !== n) continue
+      for (const f of streams) {
+        const m = s[f]
+        if (!m) continue
+        if (act < 0) delete s[f]
+        else if (act === 0) m.frozen = true
+        else {
+          m.frozen = false
+          m.on = true
+        }
+      }
+    }
+  }
+
+  /**
+   * DAdAMAL (+W.s:8160): drop every animation stream attached to an object.
+   *
+   * It matches on `cmp.l AmAct(a1),d7`, the object's ADDRESS, so one call
+   * takes the AMAL program, the Anim and both Moves. A null n is HsOff's
+   * sweep of every object of that kind.
+   */
+  function killObjectAnim(kind: string, n: number | null): void {
+    for (const [k, ch] of [...rt.channels]) {
+      if (ch.target.kind === kind && (n === null || ch.target.n === n)) rt.channels.delete(k)
+    }
+    for (const [k, s] of [...rt.stosSlots]) {
+      if (s.target.kind === kind && (n === null || s.target.n === n)) rt.stosSlots.delete(k)
+    }
+  }
+
+  /** Amal On/Off/Freeze, the %0001 stream of the same routine */
+  function amalOnOff(it: It, act: 1 | 0 | -1): void {
+    const one = it.atStmtEnd() ? null : it.evalInt()
+    for (const k of [...rt.channels.keys()]) {
+      if (one !== null && k !== one) continue
+      const ch = rt.channels.get(k)!
+      if (act < 0) rt.channels.delete(k)
+      else if (act === 0) ch.frozen = true
+      else {
+        ch.frozen = false
+        ch.on = true
+      }
+    }
+    if (one === null && act !== 0) rt.amalDefaultOn = act > 0
+  }
+
+  function openChan(n: number): number {
+    if (n <= 0 || n >= 10) funcCall()
+    if (rt.fileChans.has(n)) throw new AmosError(ED_RUN_MESSAGES[96]!, 96)
+    return n
+  }
+
   function bankPalette(): Instr {
     return (it) => {
       const mask = it.atStmtEnd() ? -1 : it.evalInt()
-      const pal = rt.spriteBank?.palette
+      // InGetBobPal (+Lib.s:9235) opens `Rbsr L_Bnk.GetBobs / Rbeq
+      // L_BkNoRes`, and BkNoRes (+Lib.s:12934) is `moveq #36,d0 / Rbra
+      // L_GoError` — straight to GoError, so 36 with no +44, "Bank not
+      // reserved". With no bank the port had been doing nothing at all.
+      const bank = rt.spriteBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const pal = bank.palette
       if (pal) {
         for (let i = 0; i < Math.min(32, pal.length); i++) {
           if (mask & (1 << i)) scr().palette[i] = pal[i]!
@@ -5420,6 +5730,20 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
    * Rbcc L_FonCall`, and Movon, Chanan and Chanmv each open `Rbsr L_FnAm1`
    * (+Lib.s:11895, 11904, 11913) before they look at anything.
    */
+  /** EcToD1's screen pick, shared by the four coordinate converters */
+  const xyConv = (
+    a: readonly import('../interp/values').Value[],
+    pick: (s: Screen, v: number) => number,
+  ): import('../interp/values').Value => {
+    const v = int(a[a.length - 1]!)
+    if (a.length < 2) return VI(pick(scr(), v))
+    const d3 = int(a[0]!) + 1
+    if (d3 < 0) return VI(ENT_NUL)
+    if (d3 === 0) return VI(pick(scr(), v))
+    const s = rt.screens.get(d3 - 1)
+    if (!s) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+    return VI(pick(s, v))
+  }
   const amChannel = (n: number): number => {
     if (n < 0 || n >= 64) funcCall()
     return n
@@ -5606,17 +5930,34 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
      * the coordinate either way, and `scr()` is already the right screen
      * because the two-argument form selected it.
      */
+    /*
+     * X Screen, Y Screen, X Hard and Y Hard all convert against a NAMED
+     * screen when given one, and the port had been converting against the
+     * current one whatever it was told.
+     *
+     * FnXHard2 (+Lib.s:10754) reads the coordinate out of d3 and then pulls
+     * the screen off (a3) and does `addq.w #1,d3`; the one-argument forms
+     * set d3 to 0 outright. EcToD1 (+W.s:10755) reads that biased number:
+     * 0 is the current screen, positive indexes T_EcAdr at `-4(a0,d3.w)`
+     * which is screen d3-1, and a slot holding nothing falls to EcToD3's
+     * `moveq #3,d0`, which the caller's `Rbne L_EcWiErr` makes 47.
+     *
+     * The bias is visible from BASIC. `tst.w d3 / bmi.s EcToD4` measures
+     * the number AFTER the +1, so screen -1 arrives as 0 and means the
+     * current screen; only -2 and below reach EcToD4, which abandons the
+     * conversion and answers EntNul rather than raising anything.
+     */
     'x screen'(_, a) {
-      return VI(scr().hardToScreenX(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.hardToScreenX(v))
     },
     'y screen'(_, a) {
-      return VI(scr().hardToScreenY(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.hardToScreenY(v))
     },
     'x hard'(_, a) {
-      return VI(scr().screenToHardX(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.screenToHardX(v))
     },
     'y hard'(_, a) {
-      return VI(scr().screenToHardY(int(a[a.length - 1]!)))
+      return xyConv(a, (s, v) => s.screenToHardY(v))
     },
     'screen base'() {
       // FnScreenBase +Lib.s:8769: ScOnAd — the current screen's control
@@ -5768,10 +6109,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(hwSprite(int(a[0]!))?.image ?? 0)
     },
     'bob col'(_, a) {
-      return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
+      /*
+       * FnBobCol1 (+Lib.s:12365) fills the range in itself: `moveq #0,d2 /
+       * move.l #10000,d3`, so the one-argument form tests bobs 0 to 10000 —
+       * the same ceiling FnSpriteBobCol1 uses, and not the everything the
+       * port had been passing. FnBobCol3 (+Lib.s:12375) then puts `Rbmi
+       * L_FonCall` on all three arguments; unlike Sprite Col there is no
+       * upper bound on the pair, only the sign.
+       */
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 10000
+      if (n < 0 || first < 0 || last < 0) funcCall()
+      return VI(rt.bobColCheck(n, first, last))
     },
     'sprite col'(_, a) {
-      return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+      // FnSpriteCol1 (+Lib.s:12421) is `moveq #0,d2 / moveq #63,d3`, and
+      // FnSpriteCol3 opens `cmp.l #63,d3` — the one bound Bob Col lacks
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : 0
+      const last = a.length > 2 ? int(a[2]!) : 63
+      if (n < 0 || first < 0 || last >>> 0 > 63) funcCall()
+      return VI(rt.spriteColCheck(n, first, last))
     },
     'bobsprite col'(_, a) {
       // FnBobSpriteCol1/3 +Lib.s:12338: bob n against hardware sprites
@@ -5868,11 +6227,32 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.fs?.read(name) != null ? -1 : 0)
     },
     scin(_, a) {
-      // ScIn(x,y): which screen is under this hardware coordinate?
+      /*
+       * Scin(x,y) asks which screen is under a hardware coordinate, and the
+       * THREE-argument form asks which one is under it AT OR BELOW a named
+       * screen. FnScIn3 (+Lib.s:11018) reads that screen out of the first
+       * argument and biases it, `addq.l #1,d3`, the same EcToD1 convention
+       * X Hard uses; FnScIn2 sets it to -1 so the +1 makes 0.
+       *
+       * GetSIn (+W.s:10879) then reads it: 0 or negative starts at the head
+       * of the priority list T_EcPri, and anything else resolves the screen
+       * and walks the list to ITS position first, so the search begins
+       * there. The port had been ignoring the argument and always starting
+       * at the front.
+       */
       const x = int(a[a.length - 2]!)
       const y = int(a[a.length - 1]!)
-      for (let i = rt.order.length - 1; i >= 0; i--) {
+      let start = rt.order.length - 1
+      if (a.length >= 3) {
+        const d3 = int(a[0]!) + 1
+        if (d3 > 0) {
+          start = rt.order.indexOf(d3 - 1)
+          if (start < 0) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+        }
+      }
+      for (let i = start; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
+        // `btst #BitHide,EcFlags(a0) / bne.s GSin1` skips a hidden screen
         if (!s || !s.visible) continue
         if (overScreen(s, x, y)) return VI(s.index)
       }
@@ -5906,13 +6286,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- AMAL ----
     amreg(_, a) {
+      // FAmR (+Lib.s:11964) reads `move.w (a0),d3 / ext.l d3`, a SIGNED word
       if (a.length === 2) {
-        const ch = rt.channels.get(int(a[0]!))
         const r = int(a[1]!)
-        return VI(ch && r >= 0 && r < 10 ? ch.regs[r]! : 0)
+        const ch = amregChannel(rt, int(a[0]!), r)
+        return VI((ch.regs[r]! << 16) >> 16)
       }
-      const n = int(a[0]!)
-      return VI(n >= 0 && n < 26 ? rt.amalGlobals[n]! : 0)
+      return VI((rt.amalGlobals[amregGlobal(int(a[0]!))]! << 16) >> 16)
     },
     chanan(_, a) {
       return VI(rt.channels.get(amChannel(int(a[0]!)))?.animating ? -1 : 0)
@@ -5996,6 +6376,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'dir$'(_, a) {
+      // the reader half of Dir$ (+Lib.s:4799); the assignment form and its
+      // stray-volume fallback are on the instruction below
       void a
       return VS(rt.vfs?.currentDir ?? '')
     },
@@ -6366,9 +6748,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- flips, memory, conversions ----
     hrev(_, a) {
-      return VI(int(a[0]!) | 0x8000) // flip flag consumed by image()
+      // FnHRev +Lib.s:12707 is one `bset #15,d3`, and Retourne reads the two
+      // top bits off the image number before AdBob masks them away with $3FFF
+      return VI(int(a[0]!) | 0x8000)
     },
     vrev(_, a) {
+      // FnVRev +Lib.s:12712: `bset #14,d3`
       return VI(int(a[0]!) | 0x4000)
     },
     rev(_, a) {
@@ -6468,9 +6853,18 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) | 0)
     },
     'peek$'(_, a) {
+      // FPeekD (+Lib.s:2842) clamps the count to a string's own ceiling with
+      // `cmp.l #String_Max,d4 / bcs.s .Ln / move.w #String_Max,d4`, and
+      // String_Max is $FFC0 (+Equ.s:1139). The comparison is unsigned, so a
+      // negative length is a huge one and clamps to the same place.
+      //
+      // The third argument is a terminator CHARACTER, taken as the first byte
+      // of the string: FnPeekD3 (+Lib.s:2833) reads the length word first and
+      // an empty string leaves d2 at -1, which means no terminator at all.
+      // The matching byte ends the copy without joining it.
       const m = rt.resolveAddr(int(a[0]!))
       if (!m) return VS('')
-      const len = int(a[1]!)
+      const len = Math.min(int(a[1]!) >>> 0, 0xffc0)
       const stop = a.length > 2 ? str(a[2]!).charCodeAt(0) : -1
       let out = ''
       for (let i = 0; i < len && m.off + i < m.data.length; i++) {

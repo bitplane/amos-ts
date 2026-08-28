@@ -1567,8 +1567,13 @@ export class Runtime {
   }
 
   private copCheckOff(): void {
-    // CopEr1: every user list write requires Copper Off first
-    if (this.copperOn) throw new AmosError('copper not deactivated')
+    /*
+     * TCopMv (+W.s:6884) opens `tst.w T_CopON(a5) / bne.s CopEr1`, so every
+     * user-list write needs Copper Off first. CopErr (+Lib.s:12926) is
+     * `add.w #EcEBase+32-2,d0 / Rbra L_GoError`, which is 75 plus whatever
+     * d0 the routine failed with, and CopEr1 fails with 1.
+     */
+    if (this.copperOn) throw new AmosError(ED_RUN_MESSAGES[76]!, 76)
   }
 
   private copPut(w: number): void {
@@ -1584,7 +1589,7 @@ export class Runtime {
   /** Cop Wait x,y[,xmask,ymask] (TCopWt +W.s:6845) */
   copWait(x: number, y: number, mx: number, my: number): void {
     this.copCheckOff()
-    if (x >>> 0 >= 313 || y >>> 0 >= 313) throw new AmosError('copper parameter out of range')
+    if (x >>> 0 >= 313 || y >>> 0 >= 313) throw new AmosError(ED_RUN_MESSAGES[78]!, 78)
     if (y >= 256 && !this.copCross) {
       // the line-255 crossing wait, emitted once ($FFE1,$FFFE)
       this.copPut(0xffe1)
@@ -1598,7 +1603,9 @@ export class Runtime {
   /** Cop Move reg,value (TCopMv +W.s:6881) */
   copMove(reg: number, val: number): void {
     this.copCheckOff()
-    if (reg >>> 0 >= 512) throw new AmosError('copper parameter out of range')
+    // `cmp.w #512,d1 / bcc.s CopEr3` then `and.w #$01FE,d1`, so the register
+    // is bounded and then forced even. CopEr3 is 75 + 3.
+    if (reg >>> 0 >= 512) throw new AmosError(ED_RUN_MESSAGES[78]!, 78)
     this.copPut(reg & 0x1fe)
     this.copPut(val & 0xffff)
   }

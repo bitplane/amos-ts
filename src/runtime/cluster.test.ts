@@ -408,6 +408,22 @@ describe('integration: Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792)', () => {
     const prog = ['Cls 0 : Ink 5 : Bar 0,0 To 7,7', 'Get Bob 1,0,0 To 8,8', 'X=Sprite Base(9)'].join('\n')
     expect(() => run(prog)).toThrow(/icon not defined/i)
   })
+
+  it('a NEGATIVE Sprite Base reads the mask field, not a hardcoded zero (Sb +Lib.s:12779)', () => {
+    // `tst.l d3 / bpl.s FsBi2 / addq.l #4,a2` — the sign picks which of the
+    // entry's two longwords is read, image or mask. The mask reads 0 here
+    // because this port allocates no mask blocks (see objBase's DEVIATION),
+    // but it goes through the same bank entry and still refuses what the
+    // positive form refuses.
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7',
+      'Get Bob 1,0,0 To 8,8',
+      'Print Sprite Base(1)<>0;Sprite Base(-1)',
+    ].join('\n')
+    expect(run(prog).out.trim()).toBe('-1 0')
+    // the sign is not a bypass: AdBob still checks the number
+    expect(() => run('X=Sprite Base(-1)')).toThrow(/bank not reserved/i)
+  })
 })
 
 describe('integration: Run and the environment cluster', () => {
@@ -654,6 +670,26 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4740+L
     expect(code('Set Input 256,0')).toBe(23)
     expect(code('Set Input -1,0')).toBe(23)
     expect(code('Set Input 255,999')).toBe(0)
+    /*
+     * Opening reads the SAME GetFile the other way round. It ends `move.l
+     * FhA(a2),d1`, setting the flags from the handle, and OpIn (+Lib.s:5077)
+     * takes them straight to `Rbne L_FilOO`: a channel that already has a
+     * handle cannot be opened over itself. FilOO is `moveq #DEBase+17,d0 /
+     * Rbra L_GoError`, one below FilNO, so 96 — "File already opened".
+     */
+    expect(code('Open Out 0,"DH0:x"')).toBe(23)
+    expect(code('Open Out 10,"DH0:x"')).toBe(23)
+    expect(code('Open Out 1,"DH0:x" : Open Out 1,"DH0:y"')).toBe(96)
+    expect(code('Open Out 1,"DH0:x" : Append 1,"DH0:y"')).toBe(96)
+    // and closing it first makes the slot free again
+    expect(code('Open Out 1,"DH0:x" : Close 1 : Open Out 1,"DH0:y"')).toBe(0)
+    // Mkdir takes the same DiskError route, and ERROR_OBJECT_EXISTS is the
+    // ErDisk table's first entry, so a second one is 79 not a generic fault
+    expect(code('Mkdir "DH0:d"')).toBe(0)
+    expect(code('Mkdir "DH0:d" : Mkdir "DH0:d"')).toBe(79)
+    // InPof (+Lib.s:5127) is `move.l d3,d2 / Rbmi L_FonCall` before the Seek
+    expect(code('Open Out 1,"DH0:p" : Pof(1)=-1')).toBe(23)
+    expect(code('Open Out 1,"DH0:p" : Pof(1)=0')).toBe(0)
   })
 })
 
@@ -1327,7 +1363,7 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(0, 3)).toBe(5)
     expect(rt.screen.point(0, 0)).toBe(0)
     // a missing block raises the FindBloc "Block not defined" error
-    expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
+    expect(() => run('Hrev Block 9')).toThrow(/block not defined/i)
   })
 
   it('Ins Bob needs a bank rather than making one', () => {
@@ -2490,6 +2526,19 @@ describe('function-argument To ranges (the "0,0T0" token specs)', () => {
     ].join('\n')
     // bob 2 overlaps, bob 3 does not — the range limits which are tested
     expect(run(src).out).toBe('-1 0\n')
+    // FnBobCol1 fills the range itself, `moveq #0,d2 / move.l #10000,d3`
+    const one = [
+      'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Bob 1,50,50,1 : Bob 2,50,50,1',
+      'Update : Wait Vbl',
+      'Print Bob Col(1)',
+    ].join('\n')
+    expect(run(one).out).toBe('-1\n')
+    // and FnBobCol3 puts Rbmi on all three arguments
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Bob Col(-1,2 To 2)'))).toThrow(/function call/)
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Bob Col(1,-1 To 2)'))).toThrow(/function call/)
+    // Sprite Col has the upper bound Bob Col lacks: `cmp.l #63,d3`
+    expect(() => run(src.replace('Bob Col(1,2 To 2)', 'Sprite Col(1,0 To 64)'))).toThrow(/function call/)
   })
 })
 

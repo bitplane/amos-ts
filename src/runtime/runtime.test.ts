@@ -698,6 +698,118 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(142, 142)).toBe(1)
   })
 
+  it('Set Pattern clears the old one before it looks at the argument (SPat +W.s:4695)', () => {
+    // a 6-row grab: SPat3 rounds DOWN to a power of two, so four rows
+    const base = 'Ink 5 : Bar 0,0 To 15,5 : Get Bob 1,0,0 To 16,6 : Cls 0\n'
+    expect(run(base + 'Set Pattern -1').screen.pattern).toHaveLength(4)
+    // `bsr EffPat` runs first, so a sprite that is not there still drops the
+    // pattern that was — the port used to leave it in place
+    expect(run(base + 'Set Pattern -1 : Set Pattern -99').screen.pattern).toBe(null)
+    expect(run(base + 'Set Pattern -1 : Set Pattern 0').screen.pattern).toBe(null)
+    // and the power-of-two search gives up at 128 rows, which is SPatE
+    const tall = 'Ink 5 : Bar 0,0 To 15,199 : Get Bob 1,0,0 To 16,200 : Cls 0\n'
+    expect(() => run(tall + 'Set Pattern -1')).toThrow(/function call/)
+  })
+
+  it('Hot Spot\'s predefined codes reach the far edge on 2 AND 3 (SpotH +W.s:580)', () => {
+    // a 12-wide grab: word 0 of a bob image is its WORD count, so the right
+    // edge is 16, not 12
+    const base = 'Ink 5 : Bar 0,0 To 11,9 : Get Bob 1,0,0 To 12,10 : Cls 0\n'
+    const spot = (code: string): { x: number; y: number } => {
+      const im = run(base + 'Hot Spot 1,' + code).spriteBank!.image(1)!
+      return { x: im.hotX, y: im.hotY }
+    }
+    expect(spot('$00')).toEqual({ x: 0, y: 0 })
+    expect(spot('$11')).toEqual({ x: 8, y: 5 })
+    expect(spot('$22')).toEqual({ x: 16, y: 10 })
+    // `subq.w #1,d0 / bhi` is >=, so 3 lands on the far edge too
+    expect(spot('$33')).toEqual({ x: 16, y: 10 })
+    // and `and.w #%01110111` drops bit 3 of each nibble before any of that
+    expect(spot('$88')).toEqual({ x: 0, y: 0 })
+  })
+
+  it('Draw moves the graphics cursor first, and that move takes elision (InDraw +Lib.s:9588)', () => {
+    // the four-argument form puts its START through GrXY, so an omitted axis
+    // keeps the cursor's own and the line begins there
+    const rt = run('Ink 6 : Gr Locate 40,40\nDraw ,80 To 40,90')
+    // x stayed 40, y moved to 80, so the line runs down column 40
+    expect(rt.screen.point(40, 85)).toBe(6)
+    expect(rt.screen.point(40, 70)).not.toBe(6) // above the start, untouched
+    // Draw To then continues from where that line ended, not from the start
+    const on = run('Ink 6 : Gr Locate 40,40\nDraw ,80 To 40,90\nDraw To 60,90')
+    expect(on.screen.point(50, 90)).toBe(6)
+  })
+
+  it('Scin\'s three-argument form starts the search below a screen (GetSIn +W.s:10879)', () => {
+    // two overlapping screens, 1 in front of 0
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Screen Display 0,128,50,,',
+      'Screen Open 1,320,200,16,Lowres : Screen Display 1,128,50,,',
+      'Screen To Front 1',
+    ].join('\n')
+    const v = (expr: string): number => Number(runOut(prog + '\nPrint ' + expr).trim())
+    const x = v('X Hard(1,10)')
+    const y = v('Y Hard(1,10)')
+    // two arguments: the frontmost screen over that point
+    expect(v(`Scin(${x},${y})`)).toBe(1)
+    // three: start at screen 1 and look no further forward, so still 1
+    expect(v(`Scin(1,${x},${y})`)).toBe(1)
+    // start at screen 0 and the one in front of it is not considered
+    expect(v(`Scin(0,${x},${y})`)).toBe(0)
+    // and the +1 bias makes -1 the whole list again
+    expect(v(`Scin(-1,${x},${y})`)).toBe(1)
+  })
+
+  it('X Hard converts against the screen it is given (EcToD1 +W.s:10755)', () => {
+    // two screens at different display positions, so "which screen" shows
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Screen Display 0,128,50,,',
+      'Screen Open 1,320,200,16,Lowres : Screen Display 1,160,80,,',
+      'Screen 0',
+    ].join('\n')
+    const v = (expr: string): number => Number(runOut(prog + '\nPrint ' + expr).trim())
+    // one argument is the current screen, screen 0
+    const cur = v('X Hard(0)')
+    expect(v('X Hard(0,0)')).toBe(cur)
+    // naming screen 1 must NOT answer with screen 0's origin
+    expect(v('X Hard(1,0)')).not.toBe(cur)
+    expect(v('Y Hard(1,0)')).not.toBe(v('Y Hard(0)'))
+    // `addq.w #1,d3` biases the selector, so -1 arrives as 0: the current
+    // screen, not an error and not EntNul
+    expect(v('X Hard(-1,0)')).toBe(cur)
+    // only -2 and below reach EcToD4, which gives up and answers EntNul
+    expect(v('X Hard(-2,0)')).toBe(-2147483648)
+    // and a slot with no screen in it is EcToD3's `moveq #3,d0`, so 47
+    expect(() => run(prog + '\nPrint X Hard(5,0)')).toThrow(/creen not opened/)
+  })
+
+  it('Get Bob Palette wants a bank to read (BkNoRes +Lib.s:12934)', () => {
+    // `Rbsr L_Bnk.GetBobs / Rbeq L_BkNoRes`, and BkNoRes goes straight to
+    // GoError with 36, so there is no +44 on this one
+    expect(() => run('Get Bob Palette')).toThrow(/Bank not reserved/)
+    expect(() => run('Get Icon Palette')).toThrow(/Bank not reserved/)
+    const made = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8\nGet Bob Palette'
+    expect(() => run(made)).not.toThrow()
+  })
+
+  it('Put Bob refuses a negative and a bob that is not there (InPutBob +Lib.s:12694)', () => {
+    // `move.l d3,d1 / Rbmi L_FonCall` then `SyCall PutBob / Rbne L_FonCall`
+    expect(() => run('Put Bob -1')).toThrow(/function call/)
+    expect(() => run('Put Bob 3')).toThrow(/function call/)
+    const ok = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8\nBob 3,10,10,1\nPut Bob 3'
+    expect(() => run(ok)).not.toThrow()
+  })
+
+  it('Del Block on a block that is not there is error 65 (BlDel +W.s:12463)', () => {
+    // `bsr FindBloc / bne.s FrBloc / moveq #BlE+2,d0` with BlE 19, so 19+2+44
+    expect(() => run('Del Block 7')).toThrow(/Block not found/)
+    expect(() => run('Del Cblock 7')).toThrow(/Block not found/)
+    // the bare form is a plain BlRaz and reports nothing
+    expect(() => run('Del Block')).not.toThrow()
+    const made = 'Ink 5 : Bar 0,0 To 9,9 : Get Block 7,0,0,10,10\nDel Block 7'
+    expect(() => run(made)).not.toThrow()
+  })
+
   it('Zoom measures the rectangle before it draws (ZooF +Lib.s:10692)', () => {
     // every check falls into L_FonCall, so a rectangle off the edge is an
     // error rather than a partly drawn picture
@@ -723,10 +835,30 @@ describe('double buffering and screens', () => {
     trail.frame()
     expect(trail.screen.point(50, 50)).toBe(0) // blanked, not left behind
     expect(trail.screen.point(100, 50)).toBe(5)
-    const lim = run([...base, 'Limit Bob 40,40 To 80,80', 'Bob 1,300,190,1'].join('\n'))
+    // the bob comes FIRST: BobLim walks T_BbDeb and writes the edges onto
+    // the bobs it finds, so a limit set before anything is drawn is dropped
+    const lim = run([...base, 'Bob 1,300,190,1', 'Limit Bob 40,40 To 80,80'].join('\n'))
     const b = lim.bobs.get(1)!
     expect(b.x).toBeLessThanOrEqual(80)
     expect(b.y).toBeLessThanOrEqual(80)
+  })
+
+  it('Limit Bob needs a bob, snaps x to 16, and measures the bottom against the LEFT (BobLim +W.s:1026)', () => {
+    const base = ['Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0']
+    // `move.l T_BbDeb(a5),d0 / beq LBbX` returns before any check, so with
+    // nothing drawn even a nonsense rectangle is accepted in silence
+    expect(() => run([...base, 'Limit Bob 200,200 To 10,10'].join('\n'))).not.toThrow()
+    const withBob = [...base, 'Bob 1,50,50,1']
+    // `and.w #$FFF0,d2` and `and.w #$FFF0,d4` round both x edges down
+    const snapped = run([...withBob, 'Limit Bob 47,0 To 95,95'].join('\n'))
+    expect(snapped.bobLimits.get(-1)).toMatchObject({ x1: 32, x2: 80 })
+    // `cmp.w d2,d4 / bls.s LbbE` — an inverted or empty x span
+    expect(() => run([...withBob, 'Limit Bob 80,0 To 80,90'].join('\n'))).toThrow(/function call/)
+    // and `cmp.w d2,d5 / bls.s LbbE`, the bottom edge against x1 rather than
+    // y1, so a tall strip on the right cannot be asked for
+    expect(() => run([...withBob, 'Limit Bob 100,0 To 200,50'].join('\n'))).toThrow(/function call/)
+    // the same rectangle moved left is accepted, which is the giveaway
+    expect(() => run([...withBob, 'Limit Bob 16,0 To 200,50'].join('\n'))).not.toThrow()
   })
 
   it('Bob Update Off freezes the pipeline until Bob Draw', () => {

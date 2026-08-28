@@ -31,22 +31,27 @@ function runOut(src: string): string {
 const GRAB = 'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0'
 
 describe('STOS-style Anim and Move (their own slot table, not AMAL channels)', () => {
-  it('Anim Off stops an animation and Anim Freeze suspends it', () => {
+  it('Anim Off DELETES an animation where Anim Freeze suspends it (OnOfFrz +W.s:8302)', () => {
+    // the two are not neighbouring flags: freeze is `or.w #$8000,AmBit(a1)`
+    // and off is `bmi.s DAMAL`, which unlinks the stream and frees it
     let rt = run(`${GRAB}\nBob 1,10,10,1\nAnim 1,"(1,5)(1,5)"\nAnim On\nAnim Off 1`)
-    expect(rt.stosSlots.get(1)!.anim!.on).toBe(false)
+    expect(rt.stosSlots.get(1)!.anim).toBeUndefined()
     rt = run(`${GRAB}\nBob 1,10,10,1\nAnim 1,"(1,5)(1,5)"\nAnim On\nAnim Freeze 1`)
     expect(rt.stosSlots.get(1)!.anim!.frozen).toBe(true)
     // Anim On clears a freeze as well as switching the animation on
     rt = run(`${GRAB}\nBob 1,10,10,1\nAnim 1,"(1,5)(1,5)"\nAnim Freeze 1\nAnim On 1`)
     expect(rt.stosSlots.get(1)!.anim!.frozen).toBe(false)
+    // but nothing brings back one that was switched off
+    rt = run(`${GRAB}\nBob 1,10,10,1\nAnim 1,"(1,5)(1,5)"\nAnim On\nAnim Off 1\nAnim On 1`)
+    expect(rt.stosSlots.get(1)!.anim).toBeUndefined()
   })
 
   it('Anim Off with no number reaches every slot', () => {
     const rt = run(
       `${GRAB}\nBob 1,10,10,1\nBob 2,20,20,1\nAnim 1,"(1,5)(1,5)"\nAnim 2,"(1,5)(1,5)"\nAnim On\nAnim Off`,
     )
-    expect(rt.stosSlots.get(1)!.anim!.on).toBe(false)
-    expect(rt.stosSlots.get(2)!.anim!.on).toBe(false)
+    expect(rt.stosSlots.get(1)!.anim).toBeUndefined()
+    expect(rt.stosSlots.get(2)!.anim).toBeUndefined()
   })
 
   it('Move Y installs a vertical movement that Move Freeze suspends', () => {

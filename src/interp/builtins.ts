@@ -1452,6 +1452,16 @@ export const FUNCS: Record<string, Func> = {
   // runs beneath this one (FnPrgUnder +ILib.s:1697) and the program state word
   // (FnPrgState +ILib.s:1774) is the plain running state.
   'prg state': (_, a) => {
+    /*
+     * FnPrgState (+ILib.s:1778) is `move.w T_AMOState(a5),d3 / ext.l d3`, and
+     * T_AMOState has exactly two writers: `clr.w T_AMOState(a5)` under the
+     * comment "Mode RUN-ONLY" (+B.s:930), and `move.w #1,T_AMOState(a5)`
+     * under "Editeur present!" (+Edit.s:912). It answers whether the editor
+     * is loaded, not what a program is doing.
+     *
+     * DEVIATION: this returns the run-only 0 always. The runtime here does
+     * not know whether the browser editor is up, and nothing in it asks.
+     */
     arity(a, 0)
     return VI(0)
   },

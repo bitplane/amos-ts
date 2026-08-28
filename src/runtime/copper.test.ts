@@ -91,11 +91,13 @@ describe('user copper instructions (TCop* +W.s:6815-6935)', () => {
   })
 
   it('list writes require Copper Off, bounds are checked (CopEr1/CopEr3)', () => {
-    expect(() => run('Cop Move $180,0')).toThrow(/copper not deactivated/)
-    expect(() => run('Cop Swap')).toThrow(/copper not deactivated/)
-    expect(() => run('Cop Reset')).toThrow(/copper not deactivated/)
-    expect(() => run('Copper Off\nCop Move 512,0')).toThrow(/out of range/)
-    expect(() => run('Copper Off\nCop Wait 0,313')).toThrow(/out of range/)
+    // CopErr (+Lib.s:12926) is `add.w #EcEBase+32-2,d0`, so 75 plus the d0
+    // the routine failed with: CopEr1 is 76 and CopEr3 is 78
+    expect(() => run('Cop Move $180,0')).toThrow(/Copper not disabled/)
+    expect(() => run('Cop Swap')).toThrow(/Copper not disabled/)
+    expect(() => run('Cop Reset')).toThrow(/Copper not disabled/)
+    expect(() => run('Copper Off\nCop Move 512,0')).toThrow(/Illegal copper parameter/)
+    expect(() => run('Copper Off\nCop Wait 0,313')).toThrow(/Illegal copper parameter/)
     expect(() => run('Copper Off\nFor I=1 To 4000 : Cop Move 0,0 : Next I')).toThrow(/list too long/)
   })
 
