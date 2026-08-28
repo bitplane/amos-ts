@@ -17,12 +17,17 @@ import {
   OMIX_VOLADJ_NEUTRAL,
   OMIX_VOLUMES,
   OMIX_VOLUME_SCALE,
+  OMIX_ECHO_MS,
+  OMIX_SPREAD_BASE,
   omixChannelVolume,
+  omixEcho,
+  omixEchoFrames,
   omixMix,
   omixShift,
   omixStep,
   omixTrackScale,
   omixVoice,
+  omixStereoSpread,
   omixVolumeRow,
   omixVolumeTable,
 } from './omixmix'
@@ -299,5 +304,137 @@ describe('the inner loop', () => {
     omixMix(acc, 2, voice({ sixteenBit: true, shift: 4, volumeTable: null, end: 2 }), pcm)
     // -1 >> 4 is -1 and not 0
     expect(acc[0]).toBe(-1)
+  })
+})
+
+describe('the echo', () => {
+  /** $2134b4: `mix_echolen * rate / 1000`, so the field is milliseconds */
+  it('turns milliseconds into frames at the mixing rate', () => {
+    expect(OMIX_ECHO_MS).toBe(1000)
+    expect(omixEchoFrames(100, 15040)).toBe(1504)
+    expect(omixEchoFrames(250, 28185)).toBe(7046)
+    expect(omixEchoFrames(100, 0)).toBe(0)
+  })
+
+  /**
+   * The line holds what has ALREADY been echoed ($211a7c writes the sum back,
+   * not the input), so a single impulse comes round again and again, quieter
+   * each lap by the depth shift.
+   */
+  it('recirculates, because the sum goes back into the line', () => {
+    const line = new Int16Array(4)
+    const acc = new Int16Array(4)
+    acc[0] = 1024
+    let pos = omixEcho(acc, 4, line, 0, 1, false, 0)
+    expect(acc[0]).toBe(1024)
+    expect(line[0]).toBe(1024)
+    // four frames later the tap comes round
+    const next = new Int16Array(4)
+    pos = omixEcho(next, 4, line, pos, 1, false, 0)
+    expect(next[0]).toBe(512)
+    // and again, halved once more
+    const third = new Int16Array(4)
+    omixEcho(third, 4, line, pos, 1, false, 0)
+    expect(third[0]).toBe(256)
+  })
+
+  /** a deeper shift is a QUIETER echo, because it is `asr` and not a multiply */
+  it('gets quieter as the depth rises', () => {
+    const tap = (depth: number): number => {
+      const line = new Int16Array(2)
+      const a = new Int16Array(2)
+      a[0] = 4096
+      const p = omixEcho(a, 2, line, 0, depth, false, 0)
+      const b = new Int16Array(2)
+      omixEcho(b, 2, line, p, depth, false, 0)
+      return b[0]!
+    }
+    expect(tap(1)).toBe(2048)
+    expect(tap(2)).toBe(1024)
+    expect(tap(4)).toBe(256)
+  })
+
+  /** $211a50: the position wraps at the line length rather than running off */
+  it('wraps the line and keeps its place across calls', () => {
+    const line = new Int16Array(3)
+    const acc = new Int16Array(5)
+    const pos = omixEcho(acc, 5, line, 0, 1, false, 0)
+    expect(pos).toBeLessThanOrEqual(3)
+  })
+
+  /**
+   * $211adc, and the only thing that makes type 2 different: the right delayed
+   * sample lands on the LEFT output.
+   */
+  it('cross-feeds the sides for echo type 2 in stereo', () => {
+    const line = new Int16Array(4)
+    const acc = new Int16Array(4)
+    // one frame: left 1024, right 0
+    acc[0] = 1024
+    acc[1] = 0
+    const pos = omixEcho(acc, 2, line, 0, 1, true, 2)
+    const next = new Int16Array(4)
+    omixEcho(next, 2, line, pos, 1, true, 2)
+    // the left impulse comes back on the RIGHT
+    expect(next[1]).toBe(512)
+    expect(next[0]).toBe(0)
+  })
+
+  it('keeps each side on its own tap for any other type', () => {
+    const line = new Int16Array(4)
+    const acc = new Int16Array(4)
+    acc[0] = 1024
+    const pos = omixEcho(acc, 2, line, 0, 1, true, 1)
+    const next = new Int16Array(4)
+    omixEcho(next, 2, line, pos, 1, true, 1)
+    expect(next[0]).toBe(512)
+    expect(next[1]).toBe(0)
+  })
+})
+
+describe('the stereo spread', () => {
+  /** $211bd2 widens, $211c30 narrows, and the shift is five either side */
+  it('subtracts the other side for a positive separation', () => {
+    const acc = Int16Array.from([1024, 0])
+    omixStereoSpread(acc, 1, OMIX_SPREAD_BASE)
+    // a separation of five is a shift of zero: the whole of the other channel
+    expect(acc[0]).toBe(1024)
+    expect(acc[1]).toBe(-1024)
+  })
+
+  it('adds the other side for a negative separation', () => {
+    const acc = Int16Array.from([1024, 0])
+    omixStereoSpread(acc, 1, -OMIX_SPREAD_BASE)
+    expect(acc[0]).toBe(1024)
+    expect(acc[1]).toBe(1024)
+  })
+
+  /** a small separation is a big shift, so it barely moves */
+  it('moves less as the separation shrinks', () => {
+    const at = (sep: number): number => {
+      const acc = Int16Array.from([1024, 1024])
+      omixStereoSpread(acc, 1, sep)
+      return acc[0]!
+    }
+    expect(at(1)).toBe(1024 - (1024 >> 4))
+    expect(at(4)).toBe(1024 - (1024 >> 1))
+  })
+
+  /**
+   * Both sides are read before either is written ($211bda and $211bdc). A
+   * sequential version would feed the already-widened left into the right, and
+   * this is the case that tells them apart.
+   */
+  it('is a matrix and not two sequential subtractions', () => {
+    const acc = Int16Array.from([1024, 512])
+    omixStereoSpread(acc, 1, 4)
+    expect(acc[0]).toBe(1024 - (512 >> 1))
+    expect(acc[1]).toBe(512 - (1024 >> 1))
+  })
+
+  it('does nothing at all for a separation of zero', () => {
+    const acc = Int16Array.from([1024, 512])
+    omixStereoSpread(acc, 1, 0)
+    expect([...acc]).toEqual([1024, 512])
   })
 })

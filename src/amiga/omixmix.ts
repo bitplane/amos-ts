@@ -297,3 +297,120 @@ export function omixVolumeRow(table: Int16Array, volume: number): Int16Array {
   const v = Math.max(0, Math.min(OMIX_VOLUMES - 1, volume))
   return table.subarray(v * 256, v * 256 + 256)
 }
+
+// ---------------------------------------------------------------- the echo
+
+/** `move.l #$3e8,d1` at $2134c0: `mix_echolen` is in MILLISECONDS */
+export const OMIX_ECHO_MS = 1000
+
+/**
+ * $2134b4: how many frames of delay `mix_echolen` buys.
+ *
+ * `length * rate / 1000`, with `UDivMod32`, and then $2134cc doubles the byte
+ * count once for mono and twice for stereo. So the field really is a time and
+ * the buffer follows the rate.
+ */
+export function omixEchoFrames(echoLengthMs: number, rate: number): number {
+  if (rate <= 0) return 0
+  return Math.floor((echoLengthMs * rate) / OMIX_ECHO_MS)
+}
+
+/**
+ * $211a0c: a feedback delay, three ways.
+ *
+ * The core is four instructions and it is the same in all three:
+ *
+ *   move.w (a1),d0      the delayed sample
+ *   asr.w  d6,d0        `mix_echodepth`, a shift
+ *   add.w  d0,(a0)      into the output
+ *   move.w (a0)+,(a1)+  and the SUM goes back into the line
+ *
+ * Writing the sum back rather than the input is what makes it recirculate: the
+ * line holds signal that has already been echoed, so it decays by `2 ** -depth`
+ * a lap rather than repeating once.
+ *
+ * `type` 2 with stereo is the cross-feed at $211adc, which adds the right
+ * delayed sample to the LEFT output and the left to the right. Everything else
+ * runs each side through its own tap.
+ *
+ * `pos` walks the line in frames and wraps at `frames` ($211a50), and the mix
+ * buffer is consumed in the same units, which is why a delay shorter than a
+ * buffer is spliced across several passes rather than being one memcpy.
+ */
+export function omixEcho(
+  acc: Int16Array,
+  n: number,
+  line: Int16Array,
+  pos: number,
+  depth: number,
+  stereo: boolean,
+  type: number,
+): number {
+  const frames = stereo ? line.length >>> 1 : line.length
+  if (frames <= 0 || n <= 0) return pos
+  const cross = stereo && type === 2
+  let p = pos
+  for (let i = 0; i < n; i++) {
+    // $211a50: the read position wraps before the frame, not after it
+    if (p >= frames) p = 0
+    if (stereo) {
+      const l = acc[i * 2]!
+      const r = acc[i * 2 + 1]!
+      const dl = line[p * 2]!
+      const dr = line[p * 2 + 1]!
+      if (cross) {
+        acc[i * 2] = l + (dr >> depth)
+        acc[i * 2 + 1] = r + (dl >> depth)
+      } else {
+        acc[i * 2] = l + (dl >> depth)
+        acc[i * 2 + 1] = r + (dr >> depth)
+      }
+      line[p * 2] = acc[i * 2]!
+      line[p * 2 + 1] = acc[i * 2 + 1]!
+    } else {
+      acc[i] = acc[i]! + (line[p]! >> depth)
+      line[p] = acc[i]!
+    }
+    p++
+  }
+  return p
+}
+
+// -------------------------------------------------------- the stereo spread
+
+/** $211bd2 and $211c30: the shift is five either side of the separation */
+export const OMIX_SPREAD_BASE = 5
+
+/**
+ * $211bc4: `mix_stereosep` as a two-by-two matrix on the finished frames.
+ *
+ * A positive separation WIDENS by subtracting a shifted copy of the other side,
+ * a negative one narrows by adding it, and the shift is `5 - sep` or `sep + 5`.
+ * So a separation of 5 subtracts the whole of the other channel and a
+ * separation of -5 adds it, which is hard left-right and mono respectively.
+ *
+ * Both sides are read before either is written ($211bda and $211bdc), so it is
+ * a matrix and not two sequential subtractions. Getting that wrong would make
+ * the right channel depend on the already-widened left.
+ *
+ * $2119ee gates the whole thing on the field being non-zero AND bit 0 of
+ * flags3, so a mono song never reaches it whatever the separation says.
+ */
+export function omixStereoSpread(acc: Int16Array, n: number, separation: number): void {
+  if (separation === 0 || n <= 0) return
+  const widen = separation > 0
+  // `asr.w` takes its count modulo 64, so a separation past five wraps into an
+  // enormous shift rather than clamping. Reproduced by masking the same way.
+  const shift = (widen ? OMIX_SPREAD_BASE - separation : separation + OMIX_SPREAD_BASE) & 63
+  for (let i = 0; i < n; i++) {
+    const l = acc[i * 2]!
+    const r = acc[i * 2 + 1]!
+    if (widen) {
+      acc[i * 2] = l - (r >> shift)
+      acc[i * 2 + 1] = r - (l >> shift)
+    } else {
+      acc[i * 2] = l + (r >> shift)
+      acc[i * 2 + 1] = r + (l >> shift)
+    }
+  }
+}
