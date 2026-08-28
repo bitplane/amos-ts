@@ -1639,15 +1639,27 @@ export const FUNCS: Record<string, Func> = {
     return VI(it.trapCode)
   },
   errn(it, a) {
-    // =Errn: the number of the last trapped error (FnErrn +Lib.s:1716)
+    /*
+     * FnErrn (+Lib.s:1718) is `moveq #0,d3 / move.w ErrorOn(a5),d3 / beq.s
+     * .Skip / subq.w #1,d3`, and ErrorOn is the error number PLUS ONE
+     * (`addq.w #1,d0 / move.w d0,ErrorOn(a5)`, +ILib.s:1313). So the number
+     * is only there while ErrorOn is: every Resume clears it (`clr.w
+     * ErrorOn(a5)`) and Errn drops back to 0 rather than remembering. The
+     * port returned a code it never cleared, so a program reading Errn after
+     * its handler had resumed saw the old error instead of nothing.
+     */
     arity(a, 0)
-    return VI(it.errCode)
+    return VI(it.inError ? it.errCode : 0)
   },
-  'err$'(it, a) {
-    // =Err$(n): the message for error number n (FnErrD +Lib.s:1726)
+  'err$'(_, a) {
+    /*
+     * FnErrD (+Lib.s:1728) is `move.l d3,d0 / addq.l #1,d0` into GetMessage
+     * on Ed_RunMessages. The +1 is not an offset into the error numbers: the
+     * block opens `.Error1 EdT 0,<>` (+Editor_Config.s:825), so GetMessage's
+     * 1-based ordinal is one past the EdT number and Err$(n) lands on n.
+     */
     arity(a, 1)
-    const n = a.length > 0 && int(a[0]!) >= 0 ? int(a[0]!) : it.errCode
-    return VS(AMOS_ERRORS[n] ?? '')
+    return VS(AMOS_ERRORS[int(a[0]!)] ?? '')
   },
   'repeat$'(_, a) {
     /*

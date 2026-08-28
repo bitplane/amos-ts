@@ -4368,6 +4368,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
+      // InBankSwap bounds BOTH numbers before it touches a list: `Rble
+      // L_FonCall / cmp.l #$10000,d0 / Rbge L_FonCall` on b (+Lib.s:2209)
+      // and the same pair on a (+Lib.s:2216). So 1 to 65535, and bank 0 is
+      // as much an error as a negative. The port checked neither.
+      if (b <= 0 || b >= 0x10000 || a <= 0 || a >= 0x10000) funcCall()
       // NOTE: InBankSwap swaps the NUMBER fields in the one chain, so on the
       // machine `Bank Swap 1,5` leaves a Bob bank numbered 5. The two
       // representations here cannot express that -- an ObjectBank is parsed
