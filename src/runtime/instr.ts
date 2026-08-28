@@ -810,10 +810,16 @@ function dirListing(it: It, rt: Runtime, wide: boolean, printer: boolean): void 
 function shiftArgs(it: It): { delay: number; first: number; last: number; wrap: boolean } {
   const delay = it.evalInt()
   it.expect(',')
-  const first = it.evalInt()
+  // ShD1 (+Lib.s:9337) pops the first colour and mends it rather than
+  // refusing it: `move.l (a3)+,d3 / bpl.s ShD3 / moveq #1,d3`. Colour 0 is
+  // the background and never joins a cycle, so a negative start becomes 1.
+  const firstRaw = it.evalInt()
+  const first = firstRaw < 0 ? 1 : firstRaw
   it.expect(',')
   const last = it.evalInt()
-  const wrap = it.accept(',') ? it.evalInt() !== 0 : true
+  // the spec is "I0,0,0,0", so the flag is a slot like the rest
+  it.expect(',')
+  const wrap = it.evalInt() !== 0
   return { delay: Math.max(1, delay), first, last, wrap }
 }
 
