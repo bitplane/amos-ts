@@ -46,6 +46,19 @@ describe('AMAL channels', () => {
     expect(rt.channels.get(1)).toBeUndefined()
   })
 
+  it('Sprite Off takes the sprite\'s animation with it (DAdAMAL +W.s:8160)', () => {
+    // HsXOff calls DAdAMAL, which walks the list and DAMALs every stream
+    // whose AmAct matches the object
+    const prog = `${GRAB}\nSprite 1,100,100,1\nChannel 1 To Sprite 1\nAmal 1,"Loop: Pause; Jump Loop"\nAmal On\n`
+    expect(run(prog).channels.get(1)).toBeDefined()
+    expect(run(prog + 'Sprite Off 1').channels.get(1)).toBeUndefined()
+    // and the no-argument form is HsOff, the same sweep over every sprite
+    expect(run(prog + 'Sprite Off').channels.size).toBe(0)
+    // a different sprite's channel is left alone
+    const two = `${GRAB}\nSprite 2,50,50,1\nChannel 2 To Sprite 2\nAmal 2,"Loop: Pause; Jump Loop"\nAmal On\n`
+    expect(run(two + 'Sprite Off 1').channels.get(2)).toBeDefined()
+  })
+
   it('Amreg measures its arguments and its registers are words (AmRR +Lib.s:11968)', () => {
     const base = `${GRAB}\nChannel 1 To Bob 1\nAmal 1,"Loop: Pause; Jump Loop"\n`
     // the global form is `cmp.l #26,d3 / Rbcc L_FonCall`, unsigned

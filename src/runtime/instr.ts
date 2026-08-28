@@ -2768,8 +2768,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.hwSprites.set(n, { n, x, y, image })
     },
     'sprite off'(it) {
-      if (it.atStmtEnd()) rt.hwSprites.clear()
-      else rt.hwSprites.delete(it.evalInt())
+      /*
+       * InSpriteOff0/1 (+Lib.s:12300) reach HsOff and HsXOff (+W.s:11412),
+       * and both call `bsr DAdAMAL` before they finish. DAdAMAL (+W.s:8160)
+       * walks the whole AMAL list and DAMALs every channel whose AmAct
+       * matches the object address, so switching a sprite off takes its
+       * animation with it: the AMAL program, the Anim and both Moves. The
+       * port had been removing the sprite and leaving its channels running
+       * against an object that was no longer there.
+       */
+      if (it.atStmtEnd()) {
+        killObjectAnim('sprite', null)
+        rt.hwSprites.clear()
+        return
+      }
+      const n = it.evalInt()
+      rt.hwSprites.delete(n)
+      killObjectAnim('sprite', n)
     },
     'sprite update'(it) {
       // InSpriteUpdate +Lib.s:11479: apply buffered changes now (ActHs+AffHs)
@@ -5134,6 +5149,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
           m.on = true
         }
       }
+    }
+  }
+
+  /**
+   * DAdAMAL (+W.s:8160): drop every animation stream attached to an object.
+   *
+   * It matches on `cmp.l AmAct(a1),d7`, the object's ADDRESS, so one call
+   * takes the AMAL program, the Anim and both Moves. A null n is HsOff's
+   * sweep of every object of that kind.
+   */
+  function killObjectAnim(kind: string, n: number | null): void {
+    for (const [k, ch] of [...rt.channels]) {
+      if (ch.target.kind === kind && (n === null || ch.target.n === n)) rt.channels.delete(k)
+    }
+    for (const [k, s] of [...rt.stosSlots]) {
+      if (s.target.kind === kind && (n === null || s.target.n === n)) rt.stosSlots.delete(k)
     }
   }
 
