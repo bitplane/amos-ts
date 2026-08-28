@@ -201,6 +201,14 @@ describe('menu event control', () => {
     expect(() => run(`${MENU}\nOn Menu Print "x"`)).toThrow(/Syntax error/)
   })
 
+  it('Menu Called and Menu Once raise 39 for a path that is not there (MnDim)', () => {
+    // both are `Rjsr L_MnDim` plus one write to MnFlag+1(a2), and MnDim's
+    // own answer for an unresolvable path is MnINDef
+    expect(() => run(`${MENU}\nMenu Called(9,9)`)).toThrow(/Menu item not defined/)
+    expect(() => run(`${MENU}\nMenu Once(9,9)`)).toThrow(/Menu item not defined/)
+    expect(() => run(`${MENU}\nMenu Called(1,1) : Menu Once(1,1)`)).not.toThrow()
+  })
+
   it('Menu On does nothing without a menu (InMenuOn +Lib.s:15565)', () => {
     // `tst.l MnBase(a5) / beq.s .Skip` — the flag is not set for a menu that
     // might be built later

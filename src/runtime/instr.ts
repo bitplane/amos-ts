@@ -128,6 +128,7 @@ import {
 import { fillSortKey } from '../amiga/vfs'
 import { joker, matchesJoker } from './joker'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
+import type { MenuNode } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 import { formLoad, formPlay, formSize } from './iffanim'
@@ -885,7 +886,7 @@ function menuPath(it: It): number[] {
  * seven layout keywords only took a level, the rest only took a path.
  */
 /** the function-side half of MnDim: a path is always parenthesised here */
-function menuNodeOf(rt: Runtime, path: number[]): { x: number; y: number } {
+function menuNodeOf(rt: Runtime, path: number[]): MenuNode {
   const node = rt.menu.find(path)
   if (!node) throw new AmosError(ED_RUN_MESSAGES[39]!, 39)
   return node
@@ -3818,13 +3819,22 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'menu link'(it) {
       menuNodeFlag(it, rt, 0, MF_SEP)
     },
+    /*
+     * InMenuCalled and InMenuOnce (+Lib.s:15721) are `Rjsr L_MnDim` and one
+     * write to MnFlag+1(a2), -1 against a clear. MnDim only sets a2 on its
+     * PATH arm, so the bare-level form of these two writes through a
+     * register the routine never filled — an AMOS bug, and the reason this
+     * port takes the path form only.
+     *
+     * A path that resolves to nothing is MnDim's own MnINDef, error 39,
+     * which the other menu keywords already raise and these two were
+     * swallowing.
+     */
     'menu called'(it) {
-      const node = rt.menu.find(menuPath(it))
-      if (node) node.called = true
+      menuNodeOf(rt, menuPath(it)).called = true
     },
     'menu once'(it) {
-      const node = rt.menu.find(menuPath(it))
-      if (node) node.called = false
+      menuNodeOf(rt, menuPath(it)).called = false
     },
     'menu del'(it) {
       // InMenuDel +ILib.s:6925: no path = wipe the whole tree
