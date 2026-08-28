@@ -1531,6 +1531,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // re-initialise their own settings, and TURBO Plus puts Scene Icon Bank
       // and Scene Mask Palette back here. AMCAF's Extdefault is this same
       // hook reached one slot at a time -- see extimpl.ts
+      //
+      // Slot 3's is the Requester extension's, and it is inline here because
+      // its keywords are inline here. `Cold` installs `Warm` at
+      // `ExtAdr+ExtNb*16+4(a5)` (+Request.s:79) and Warm is one instruction,
+      // `Rbra L_InRequestOn` (:94) --- so Default puts the requester back to
+      // AMOS whatever a program set it to.
+      rt.requestMode = -1
       for (const impl of new Set(rt.extSlotImpls().values())) impl.defaults?.(rt)
     },
     'default palette'(it) {
@@ -2035,14 +2042,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fontsListed = 2
       rt.discFontCache = null
     },
+    /**
+     * Request On / Off / Wb --- InRequestOn (+Request.s:116), InRequestOff
+     * (:125) and InRequestWb (:107), the whole of a 159-line extension.
+     *
+     * Each is `moveq #N,d0 / SyCall Request_OnOff / rts` and the call is
+     * `move.w d0,T_ReqFlag(a5) / rts` (+W.s:15871), so the keywords ARE the
+     * three constants. See `Runtime.requestMode` for what the sign buys.
+     *
+     * Off is the one that does something a program can see. It does not mean
+     * "no requester on the screen": `Req_ANo` (+W.s:15923) throws the
+     * caller's frame away and answers `moveq #0,d0`, so every system
+     * requester is refused as if the person had picked the negative gadget.
+     */
     'request on'() {
-      rt.requestMode = 1
+      rt.requestMode = -1
     },
     'request off'() {
       rt.requestMode = 0
     },
     'request wb'() {
-      rt.requestMode = 2
+      rt.requestMode = 1
     },
     hslider(it) {
       slider(it, scr(), false)

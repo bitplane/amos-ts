@@ -4379,7 +4379,13 @@ export const NA = new Set<string>([
   // falls straight into `Go60`, a routine whose own comment reads ";put system
   // in NTSC mode" and whose first instruction reads `Flag_FatAgnus(a0)` with
   // a0 never loaded. It does the opposite of its name and then crashes on
-  // whatever a0 held. There is no behaviour to be faithful TO.
+  // whatever a0 held. There is no behaviour to be faithful TO. Two more
+  // things are wrong with the eight instructions after it: the FatAgnus test
+  // picks between `move.w #$0000,BEAMCON0` at :252 and the SAME instruction
+  // at :254, and the `bne.s .Error` that follows the second one can never
+  // branch, because a `move` of an immediate zero sets Z. So the "not
+  // available" exit, the only error path in the routine, is unreachable —
+  // and BEAMCON0 is written with zero either way, which clears the PAL bit.
   'multi off',
   'multi on',
   'pal on',
@@ -9268,11 +9274,16 @@ export const NOTES: Record<string, string> = {
   "border$":
     "FnBorderD +Lib.s:14124 / Encadre +W.s:15140. Source: +W.s:9640.",
   "request on":
-    "stored — the port never shows system requesters",
+    "T_ReqFlag = -1 (+Request.s:118), the boot value WRequest_Start writes (+W.s:9887), and what Default puts " +
+    "back through the extension's +$4 vector (+Request.s:79/94 into DefRunExtensions +ILib.s:386)",
   "request off":
-    "stored — the port never shows system requesters",
+    "T_ReqFlag = 0, and Req_In's `beq.s Req_ANo` (+W.s:15904) answers `moveq #0,d0` without asking anybody -- " +
+    "AutoRequest's 0 is the negative gadget, so every system requester is refused as a Cancel. The handler's " +
+    "\"please insert volume\" is refused here, which is what a program can see",
   "request wb":
-    "stored — the port never shows system requesters",
+    "T_ReqFlag = 1. The AMOS and Workbench requesters are one channel in this port, so On and Wb reach the " +
+    "same host hook; the machine keeps them apart and falls from either to the other when the target is not " +
+    "there (Req_In's WB_Closed test +W.s:15908 and its T_AMOSHere one :15914)",
   "prg state":
     "single-program runtime — returns the plain running state",
   "prg under":

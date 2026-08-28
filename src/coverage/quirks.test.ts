@@ -81,6 +81,31 @@ describe('deviation and defect markers', () => {
    * `DEFECT.` — is the drift this test exists to stop, because a grep for
    * `DEFECT:` has to find all of them or the catalogue is a lie.
    */
+  /**
+   * A NUL byte anywhere in a source file makes grep call the whole file
+   * binary, and a binary file matches SILENTLY --- no output, no count, no
+   * error. Every search over it comes back empty and reads as "not there".
+   *
+   * Two files had one, both deliberate and both written as a raw byte where
+   * an escape was meant: sln.ts's `?? '\u0000'` and this suite's sibling
+   * extimpl.test.ts, which joins an id to a name with one. sln.ts is 2,373
+   * lines answering 69 keywords, and for as long as the byte was in it every
+   * `grep 's disk state' src/runtime/sln.ts` answered nothing --- which is
+   * indistinguishable from the keyword being unimplemented, and was read that
+   * way. `\u0000` is the same character to the compiler and an ordinary line
+   * to grep.
+   *
+   * The AMOS sources have the same property for a different reason and
+   * CLAUDE.md says to pass `-a` when reading them. This tree should not need
+   * the flag.
+   */
+  it('no source file contains a NUL, which would make grep skip it', () => {
+    const withNul = sources(src)
+      .filter((f) => readFileSync(f).includes(0))
+      .map((f) => relative(src, f))
+    expect(withNul).toEqual([])
+  })
+
   it('every marker is spelled `WORD: `', () => {
     const bad = all.filter((m) => m.text !== ':').map((m) => `${at(m)} — ${m.word}${m.text}`)
     expect(bad).toEqual([])

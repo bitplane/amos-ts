@@ -63,7 +63,23 @@ const answered = new Set([...Object.keys(makeAllInstructions(rt)), ...Object.key
  * `source:` is unambiguous in context: CITED_BY already maps each file to the
  * extension that owns it, and a port's header names the source it means.
  */
-const CITES = /\broutines?\s+\d{1,4}|\$[0-9a-fA-F]{3,6}\b|\+\|?[\w.]+\.s:\d+|\bsource:\d+/
+/**
+ * What a reading looks like in prose: a jump-table routine, an engine
+ * address, or a line of AMOS source.
+ *
+ * CASE-INSENSITIVE, and it was not. `\broutines?\s+\d` without the flag sees
+ * "routine 74" and misses "Routine 74", which is the same citation with the
+ * sentence capitalised --- and a doc block that opens on the routine number
+ * is the commonest shape in the tree. sln.ts writes 39 of its citations that
+ * way against 48 lowercase, so 33 of its 69 keywords audited as UNREAD while
+ * their blocks named the routine, quoted its instructions and marked a defect
+ * in it. Across every port the count fell from 305 to 216, and five whole
+ * extensions left the list: sln-2.0 (33 reported), tools-1.01 (22),
+ * make-1.30 (12), powerbobs-1.0 (10) and lserial-2.1 (7) were fully read the
+ * whole time. What is left is mostly two ports, intuition-1.3b at 125 and
+ * gui-2.10 at 49.
+ */
+const CITES = /\broutines?\s+\d{1,4}|\$[0-9a-fA-F]{3,6}\b|\+\|?[\w.]+\.s:\d+|\bsource:\d+/i
 
 const plain = (n: string): string => n.replace(/^ext\d+:/, '')
 
