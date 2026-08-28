@@ -4717,10 +4717,15 @@ export class Runtime {
           this.pendingLine = null
           this.promptShown = false
           // A line typed at the console is already on screen character by
-          // character, so only the newline is owed. One submitted from
-          // outside — runHeadless fast-forwarding, or a host calling
-          // submitLine — still has to be shown.
-          io.write((this.inputEchoed ? '' : line) + '\n')
+          // character, so nothing is owed. One submitted from outside —
+          // runHeadless fast-forwarding, or a host calling submitLine —
+          // still has to be shown.
+          //
+          // The newline is NOT written here. `LEd_Loop` returns with the
+          // cursor where the typing stopped and Inn11 (+ILib.s:4984) prints
+          // it at the end of the whole statement, which is what `Input A$;`
+          // suppresses and what puts InnEnc's CR/LF in front of the `?? `.
+          io.write(this.inputEchoed ? '' : line)
           this.inputEchoed = false
           return line
         }

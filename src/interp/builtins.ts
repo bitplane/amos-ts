@@ -132,6 +132,18 @@ function inputAssign(target: { type: number; set(v: Value): void }, raw: string)
 }
 
 /**
+ * InnRet (+ILib.s:5008) is `dc.b 13,10,0` and InnEnc (+ILib.s:5010) is
+ * `dc.b 13,10,"?? ",0`. The second question mark is not a typo.
+ *
+ * DEVIATION: both are written here as a bare 10, for the reason `Screen`'s
+ * control-code switch already records — this console's code 10 IS the pair,
+ * and Print writes it alone. A literal 13,10 would land in the same place
+ * and read as two characters in every transcript.
+ */
+const INN_RET = '\n'
+const INN_ENC = '\n?? '
+
+/**
  * InnPut (+ILib.s:4912), the loop Input and Line Input share.
  *
  * They differ by one byte, pushed at entry: InInput pushes `","` and
@@ -147,6 +159,14 @@ function inputAssign(target: { type: number; set(v: Value): void }, raw: string)
  * A statement that blocks part-way has already filled some variables, so the
  * progress is remembered against the statement's address: re-running it must
  * not read a second line into a variable that already has one.
+ *
+ * The two strings are the routine's own, and neither is a newline the line
+ * editor supplied: `LEd_Loop` leaves the cursor where the typing stopped, and
+ * Inn11 (+ILib.s:4984) prints `InnRet` at the END of the whole statement,
+ * `cmp.w #_TkPVir,(a6)+ / beq.s InnFin` skipping it when a `;` closes the
+ * line. So `Input A$;` is how a program keeps the cursor on the same row, and
+ * the second and later lines of a multi-variable Input open with `InnEnc`
+ * rather than the plain `? ` the first one gets.
  */
 function readInputTargets(
   it: Interp,
@@ -154,16 +174,18 @@ function readInputTargets(
   prompt: string,
   targets: { type: number; set(v: Value): void }[],
   sep: string,
+  semi: boolean,
 ): 'jumped' | void {
   const saved = it.inputProgress
   let done = saved !== null && saved.at === key ? saved.done : 0
   let fields: string[] = []
   while (done < targets.length) {
     if (fields.length === 0) {
-      const line = it.io.input ? it.io.input(done === 0 ? prompt : '? ') : ''
+      const p = done === 0 ? prompt : INN_ENC
+      const line = it.io.input ? it.io.input(p) : ''
       if (line === undefined) {
         it.inputProgress = { at: key, done }
-        it.block({ type: 'input', prompt: done === 0 ? prompt : '? ' }, true)
+        it.block({ type: 'input', prompt: p }, true)
         return 'jumped'
       }
       fields = sep === '' ? [line] : line.split(sep)
@@ -172,6 +194,7 @@ function readInputTargets(
     done++
   }
   it.inputProgress = null
+  if (!semi) it.io.write(INN_RET)
 }
 
 /**
@@ -362,7 +385,7 @@ export const INSTR: Record<string, Instr> = {
     }
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
-    return readInputTargets(it, key, prompt, targets, ',')
+    return readInputTargets(it, key, prompt, targets, ',', it.accept(';'))
   },
   'line input'(it) {
     const key = `${it.pc.li}:${it.pc.ti}`
@@ -375,7 +398,7 @@ export const INSTR: Record<string, Instr> = {
     // takes the whole line and a second one needs a second line
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
-    return readInputTargets(it, key, prompt, targets, '')
+    return readInputTargets(it, key, prompt, targets, '', it.accept(';'))
   },
 
   // ---- variables ----
@@ -712,8 +735,16 @@ export const INSTR: Record<string, Instr> = {
     it.returnFromProc()
     return 'jumped'
   },
-  /** Unlike End Proc, V1_PopProc (+Verif.s:2268) does require the `]`. */
+  /**
+   * Unlike End Proc, V1_PopProc (+Verif.s:2268) does require the `]`.
+   *
+   * `RPopPro` (+ILib.s:2699) opens `tst.w ErrorOn(a5) / bne EProErr`, and
+   * `EProErr` (+ILib.s:1178) is `moveq #8,d0`, "Error procedure must RESUME
+   * to end". So the one way out of an On Error Proc handler is Resume: Pop
+   * Proc is refused, and refused BEFORE the `[` is looked at.
+   */
   'pop proc'(it) {
+    if (it.inError) throw new AmosError(ED_RUN_MESSAGES[8]!, 8)
     if (it.accept('[')) {
       const v = it.evalExpr()
       if (v.k === 'str') it.paramStr = v.s

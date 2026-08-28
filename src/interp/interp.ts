@@ -1481,7 +1481,8 @@ export class Interp {
     if (t === undefined || !('name' in t)) throw new AmosError('function name expected')
     this.advance()
     const def = this.userFns.get(varKey(t.name, 'flags' in t ? t.flags : 0))
-    if (!def) throw new AmosError(`Fn ${t.name.toUpperCase()} not defined`)
+    // FnNDef (+ILib.s:4265) is `moveq #15,d0`, and 15 is its own message
+    if (!def) throw new AmosError(`Fn ${t.name.toUpperCase()} not defined`, 15)
     const args: Value[] = []
     if (this.accept('(')) {
       if (!this.accept(')')) {
@@ -1493,7 +1494,10 @@ export class Interp {
         }
       }
     }
-    if (args.length !== def.params.length) throw new AmosError('wrong number of arguments')
+    // FnIlNb (+ILib.s:4263) is `moveq #16,d0` — FnFn reaches it from three
+    // places, a `(` the definition did not have, a comma count that runs out
+    // early, and a missing `)` or `=` in the stored definition
+    if (args.length !== def.params.length) throw new AmosError('wrong number of arguments', 16)
     // FnFn assigns parameters straight into the real variables via
     // FindVar — they keep their new values after the call
     def.params.forEach((prm, i) => {

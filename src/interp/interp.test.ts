@@ -880,6 +880,23 @@ describe('i/o', () => {
     expect(run('Input A,B\nPrint A+B', ['3,4'])).toBe('? 3,4\n 7\n') // promptless prints "? "
   })
 
+  it('a trailing ; on Input keeps the cursor where the typing stopped', () => {
+    // Inn11 (+ILib.s:4984): `cmp.w #_TkPVir,(a6)+ / beq.s InnFin` skips
+    // InnRet. Without the semicolon the same path prints it.
+    expect(run('Input A$;\nPrint "X"', ['hi'])).toBe('? hiX\n')
+    expect(run('Input A$\nPrint "X"', ['hi'])).toBe('? hi\nX\n')
+    expect(run('Line Input A$;\nPrint "X"', ['hi'])).toBe('? hiX\n')
+  })
+
+  it('a second line of a multi-variable Input is asked for with two question marks', () => {
+    // InnEnc (+ILib.s:5010) is `dc.b 13,10,"?? ",0` and Inn10 reaches it when
+    // the buffer has no comma left for the next variable
+    expect(run('Input A,B\nPrint A+B', ['3', '4'])).toBe('? 3\n?? 4\n 7\n')
+    // Line Input pushes a zero separator, so one variable eats the whole line
+    // and the second always needs a line of its own
+    expect(run('Line Input A$,B$\nPrint A$+B$', ['x,y', 'z'])).toBe('? x,y\n?? z\nx,yz\n')
+  })
+
   it('separates Print items with ; and tabs with , (default tab 4)', () => {
     expect(run('Print "A";"B"')).toBe('AB\n')
     expect(run('Print "A","B"')).toBe('A\tB\n') // raw TAB; the console expands it

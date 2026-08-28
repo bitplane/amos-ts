@@ -37,7 +37,9 @@ export class BufferIO implements AmosIO {
   input(prompt: string): string {
     this.write(prompt)
     const line = this.inputs.shift() ?? ''
-    this.write(line + '\n')
+    // the echo, and no newline: LEd_Loop leaves the cursor where the typing
+    // stopped and Inn11 (+ILib.s:4984) is what prints InnRet afterwards
+    this.write(line)
     return line
   }
 
