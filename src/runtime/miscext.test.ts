@@ -5,10 +5,14 @@ import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { JOY_FIRE } from '../interp/gameport'
 import { Runtime } from './runtime'
+import { CIAF_DSKCHANGE, CIAF_DSKTRACK0 } from '../amiga/cia'
+import { amosSource } from '../cli/corpus'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 23, which the source names itself: `ExtNb equ 23-1` (:26) */
 const misc = extensionById('misc-1.0')!
+/** the extension's whole source, which ships beside its binary */
+const MISC_SRC = amosSource('Misc-1.0/Misc_Extension.asm')
 
 function boot(src: string): Runtime {
   const exts = new Map([[23, misc.table]])
@@ -161,6 +165,19 @@ describe('Misc 1.0: the two that have nothing to do here', () => {
     // there is no floppy to insert and no Validator task to outlive (:176)
     const r = boot('Disk Wait : Cls 2').runHeadless(5)
     expect(r.status === 'ended' || r.status === 'stopped').toBe(true)
+  })
+
+  it.skipIf(!MISC_SRC)('Disk Wait masks track 0 where its comment says disk change', () => {
+    // `and.b #16,d0` under a "; Diskchange" comment. 16 is bit 4, and bit 4 of
+    // CIA-A port A is /TK0; disk change is bit 2, mask 4. The constants are
+    // this port's own, so the two can be held against each other here rather
+    // than against a recollection of the chip.
+    const line = MISC_SRC!.find((l) => l.includes('; Diskchange'))
+    expect(line).toMatch(/move\.b\s+\$bfe001,d0/)
+    const mask = MISC_SRC![MISC_SRC!.indexOf(line!) + 1]!
+    expect(mask).toMatch(/and\.b\s+#16,d0/)
+    expect(CIAF_DSKTRACK0).toBe(16)
+    expect(CIAF_DSKCHANGE).toBe(4)
   })
 })
 

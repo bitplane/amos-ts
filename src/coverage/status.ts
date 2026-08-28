@@ -4242,7 +4242,13 @@ export const NA = new Set<string>([
   // falls straight into `Go60`, a routine whose own comment reads ";put system
   // in NTSC mode" and whose first instruction reads `Flag_FatAgnus(a0)` with
   // a0 never loaded. It does the opposite of its name and then crashes on
-  // whatever a0 held. There is no behaviour to be faithful TO.
+  // whatever a0 held. There is no behaviour to be faithful TO. Two more
+  // things are wrong with the eight instructions after it: the FatAgnus test
+  // picks between `move.w #$0000,BEAMCON0` at :252 and the SAME instruction
+  // at :254, and the `bne.s .Error` that follows the second one can never
+  // branch, because a `move` of an immediate zero sets Z. So the "not
+  // available" exit, the only error path in the routine, is unreachable —
+  // and BEAMCON0 is written with zero either way, which clears the PAL bit.
   'multi off',
   'multi on',
   'pal on',

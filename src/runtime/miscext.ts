@@ -19,7 +19,10 @@
  *
  * "Maybe you already noticed that this extension is very buggy. Some commands
  * force AMOS to crash. Maybe I'll create a new version, but why don't you?"
- * That is the manual's third paragraph, and it is accurate — see `Pal On`.
+ * That is the manual's third paragraph, and it is accurate. `Pal On` is the
+ * one it is apologising for and it is not in this file: it reaches no
+ * behaviour to port, and the reading that establishes that is in the n/a
+ * entry beside `multi off` and `multi on` in ../coverage/status.ts.
  *
  * ## The shape of the library
  *
@@ -211,9 +214,18 @@ export function makeMiscExtInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Disk Wait — routine 13 (:176).
      *
-     * Two waits, in order. First `move.b $bfe001,d0 / and.b #16,d0 / bne` —
-     * spin until CIA-A port A bit 4 goes low, which is the disk-change line:
-     * wait for a disk to be put in. Then a 500-iteration delay, and a loop of
+     * Two waits, in order. First `move.b $bfe001,d0 / and.b #16,d0 / bne`,
+     * whose comment in the source is ";Diskchange" (:177).
+     *
+     * DEFECT: 16 is bit 4, and bit 4 of CIA-A's port A is /TK0 --- the head is
+     * over track 0. Disk change is bit 2, mask 4: `CIAF_DSKCHANGE = 1 << 2`
+     * against `CIAF_DSKTRACK0 = 1 << 4` in ../amiga/cia.ts. Both
+     * lines are active low and both belong to the SELECTED drive, so with no
+     * drive selected they read high and the loop never ends. The author wrote
+     * one constant for the other, and the manual's "Waits until disk is
+     * inserted" describes the keyword he meant to write.
+     *
+     * Then a 500-iteration delay, and a loop of
      * `Disable / FindName` over ExecBase's TaskReady ($196) and TaskWait
      * ($1a4) lists looking for a task called "Validator", `Enable`, repeat
      * until it is gone: wait for the disk to finish validating.
