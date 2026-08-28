@@ -1301,8 +1301,9 @@ const toAngle = (it: Interp, v: number): number => (it.degrees ? (v * Math.PI) /
 const fromAngle = (it: Interp, v: number): number => (it.degrees ? (v * 180) / Math.PI : v)
 
 /*
- * FnBin1 and FnHex1 (+Lib.s:14239, 14256) set the digit count to -1; FnBin2
- * and FnHex2 (+Lib.s:14246, 14263) pass the one they were given. BinHex
+ * FnBin1 (+Lib.s:14239) and FnHex1 (+Lib.s:14256) set the digit count to -1;
+ * FnBin2 (+Lib.s:14246) and FnHex2 (+Lib.s:14263) pass what they were given.
+ * BinHex
  * (+Lib.s:14270) reserves 33 or 9 bytes -- exactly "%" plus 32 digits, or "$"
  * plus 8 -- and LongToHex (+Lib.s:25718) is what decides how many appear:
  *

@@ -4072,6 +4072,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.menu.on = false
     },
     'menu calc'() {
+      // InMenuCalc (+Lib.s:15738) is the fourth keyword to test MnBase, and
+      // it answers the way Menu Base does: `tst.l MnBase(a5) / Rbeq L_MnNOp`,
+      // error 38. Its second guard is the menu's own screen, `move.l
+      // MnAdEc(a5),d0 / Rbeq L_ScNOp` (+Lib.s:15743), which is what MnRaz
+      // clears -- so calculating after a Bank To Menu that failed is 38 here
+      // and never reaches the 47.
+      if (rt.menu.roots.length === 0) throw new AmosError(ED_RUN_MESSAGES[38]!, 38)
+      void rt.screen
       menuCalc(rt.menu)
     },
     'menu base'(it) {

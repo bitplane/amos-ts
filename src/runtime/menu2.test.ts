@@ -279,3 +279,35 @@ describe('what the menu keywords do with no menu built (+Lib.s:15375)', () => {
     expect(code(`${MENU}\nMenu To Bank 5 : Bank To Menu 5`)).toBe(0)
   })
 })
+
+describe('the ten flag keywords and Menu Calc (+Lib.s:15673)', () => {
+  function code(src: string): number {
+    try {
+      run(src)
+      return 0
+    } catch (e) {
+      return amosErrorCode(e as AmosError)
+    }
+  }
+
+  it('Menu Calc is the fourth MnBase test, and it answers 38', () => {
+    // `tst.l MnBase(a5) / Rbeq L_MnNOp` (+Lib.s:15738), the same pair Menu
+    // Base has and a different answer from Menu On's silence and Menu To
+    // Bank's 23.
+    expect(code('Menu Calc')).toBe(38)
+    expect(code(`${MENU}\nMenu Calc`)).toBe(0)
+  })
+
+  it('Menu Link takes the level form too, and Menu Once the path form only', () => {
+    // MnDim's two arms are covered above for eight of the ten; Menu Link is
+    // the ninth and takes both. Menu Called and Menu Once take the path form
+    // alone, because MnDim fills a2 on that arm only and they are the two
+    // that write through it.
+    expect(code(`${MENU}\nMenu Link 0`)).toBe(23)
+    expect(code(`${MENU}\nMenu Link 8`)).toBe(0)
+    expect(code(`${MENU}\nMenu Link(9)`)).toBe(39)
+    expect(code(`${MENU}\nMenu Called(1,1)`)).toBe(0)
+    expect(code(`${MENU}\nMenu Called(9)`)).toBe(39)
+    expect(code(`${MENU}\nMenu Once(9)`)).toBe(39)
+  })
+})
