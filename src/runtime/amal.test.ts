@@ -310,6 +310,39 @@ describe('Amal n,# — programs stored in the bank', () => {
   })
 })
 
+describe('what MvA3 does before it looks at the string (+Lib.s:11808)', () => {
+  it('the declaration limit is 16 under the interrupt and 64 after Synchro Off', () => {
+    // `moveq #16,d0 / tst.w InterOff(a5) / beq.s InMva1 / moveq #64,d0`
+    // then `cmp.l d0,d6 / Rbcc L_FonCall` (+Lib.s:11816). All four
+    // declarations reach MvA3, so Amal carries the same limit as Anim and
+    // Move X, which is what this port had given the other three and not it.
+    for (const kw of ['Amal 16,"L RA=1"', 'Anim 16,"(1,2)"', 'Move X 16,"(1,1,1)"', 'Move Y 16,"(1,1,1)"']) {
+      expect(() => boot(kw)).toThrow(/function call/)
+      expect(() => boot(`Synchro Off : ${kw}`)).not.toThrow()
+    }
+    expect(() => boot('Synchro Off : Amal 64,"L RA=1"')).toThrow(/function call/)
+    // FnAm1 (+Lib.s:11920) does not share it: the queries take 0 to 63 flat
+    expect(() => boot('A=Movon(40)')).not.toThrow()
+    expect(() => boot('A=Movon(64)')).toThrow(/function call/)
+  })
+
+  it('a declaration that compiles clears =Amal Err', () => {
+    // `clr.w PAmalE(a5)` (+Lib.s:11814). The whole source tree touches that
+    // word three times — this clear, FnAmalerr's read and IAmE's write — so
+    // it is the only reset there is, and the port never had it.
+    // a bad string records the offset and stops the program, so the reset
+    // has to be watched across two runs rather than inside one
+    const bad = new Runtime(tokenize('Amal 0,"L RA=%%%"', table), table, { maxSteps: 200_000 })
+    expect(() => bad.runHeadless(1_000)).toThrow(/animation string/)
+    expect(bad.amalErrPos).not.toBe(0)
+
+    const good = new Runtime(tokenize('Amal 0,"L RA=1"\nE=Amalerr', table), table, { maxSteps: 200_000 })
+    good.amalErrPos = 7 // as a failed declaration would have left it
+    good.runHeadless(1_000)
+    expect(good.interp.getVar('e', 0)).toEqual({ k: 'int', n: 0 })
+  })
+})
+
 describe('For and Next count in either register file (AmFor/AmNxt +W.s:8840)', () => {
   it('takes a global RA-RZ as well as an internal R0-R9', () => {
     // AmFor reads the compiled register offset and branches on its SIGN:

@@ -1091,6 +1091,34 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * takes the bank path; only the low word of it is used (`move.w a1,d0`).
    * An empty table slot is not an error: it yields ChVide, the empty string.
    */
+  /**
+   * The channel a declaration may name, which is not the channel a query may.
+   *
+   * Amal, Anim, Move X and Move Y are four Lib_Par entries that all branch to
+   * MvA3, and the limit is decided there (+Lib.s:11816):
+   *
+   *     moveq #16,d0
+   *     tst.w InterOff(a5)
+   *     beq.s InMva1
+   *     moveq #64,d0
+   *     InMva1: cmp.l d0,d6 / Rbcc L_FonCall
+   *
+   * so 0 to 15 under the interrupt and 0 to 63 once Synchro Off has set
+   * InterOff. The queries do NOT share it: FnAm1 (+Lib.s:11920) is a flat
+   * `Rbmi` plus `cmp.l #64,d1 / Rbcc`, so =Movon(40) is legal while the
+   * `Amal 40` that would make it true is not.
+   *
+   * `clr.w PAmalE(a5)` (+Lib.s:11814) is the line above the limit, and it is
+   * the ONLY place =Amal Err is ever cleared — the whole tree has three
+   * references to that word, this one, the read in FnAmalerr and the write
+   * in IAmE. So a declaration that compiles resets it, and the port, which
+   * only ever wrote it, kept reporting the offset of an error two Amals ago.
+   */
+  const amDeclChannel = (n: number): number => {
+    rt.amalErrPos = 0
+    if (n >>> 0 >= (rt.synchroManual ? 64 : 16)) funcCall()
+    return n
+  }
   const amalSource = (it: It): string => {
     const bank = rt.refreshAmalBank()
     const v = it.evalExpr()
@@ -5157,7 +5185,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- AMAL ----
     amal(it) {
-      const n = it.evalInt()
+      // MvA3's limit is the one Anim, Move X and Move Y already carry: this
+      // keyword reaches the same routine and had gone without it, so
+      // `Amal 20,"..."` built a channel the interrupt never scans.
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const src = amalSource(it)
       let prog
@@ -5179,26 +5210,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     anim(it) {
       // Anim n,"(image,delay)...[L]" — an independent slot beside the
       // channel's AMAL program (ID channel*4+1, CreAMAL +W.s:7998)
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosAnim(amalSource(it))
       const slot = rt.stosSlot(n)
       slot.anim = { ...spec, idx: 0, left: 1, done: false, on: false, frozen: false }
     },
     'move x'(it) {
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveX = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
     'move y'(it) {
-      const n = it.evalInt()
-      const limit = rt.synchroManual ? 64 : 16
-      if (n >>> 0 >= limit) funcCall()
+      const n = amDeclChannel(it.evalInt())
       it.expect(',')
       const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
