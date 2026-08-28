@@ -596,6 +596,29 @@ describe('integration: Run and the environment cluster', () => {
     expect(lines[3]).toBe('[' + '*sub'.padEnd(10) + ' '.repeat(8) + ']')
   })
 
+  it('a Set Dir width is rounded even, and its ceiling is unsigned', () => {
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InSetDir1 (+Lib.s:5498) is `cmp.l #EntNul,d3 / beq.s .Skip / and.l
+    // #$FFFFFFFE,d3 / Rbeq L_FonCall / cmp.l #106,d3 / Rbcc L_FonCall`. The
+    // AND runs first, so 1 becomes 0 and joins 0 in the refusal, and the
+    // ceiling is `Rbcc` -- unsigned, which is what catches the negatives.
+    expect(code('Set Dir 0')).toBe(23)
+    expect(code('Set Dir 1')).toBe(23)
+    expect(code('Set Dir 106')).toBe(23)
+    expect(code('Set Dir -2')).toBe(23)
+    expect(code('Set Dir -1')).toBe(23)
+    expect(code('Set Dir 104')).toBe(0)
+    // and the whole test is skipped when the width is left out
+    expect(code('Set Dir ,"*.info"')).toBe(0)
+  })
+
   it('Disc Info$ returns "VOLUME:" + 10-char free-byte field (FnDiscInfo +Lib.s:4995)', () => {
     const { out } = run('A$=Disc Info$("DH0:")\nPrint Left$(A$,Len(A$)-10)\nPrint Val(Right$(A$,10))')
     const lines = out.split('\n')

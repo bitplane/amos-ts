@@ -5294,12 +5294,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       prev!.memBanks.set(n, bank)
     },
     'set dir'(it) {
-      // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
+      // InSetDir0/1 (+Lib.s:5496): Set Dir [width][,neg$] — width is
       // forced even (and.l #$FFFFFFFE), must be 2..104; the second arg is
       // the negative filename filter for listings
+      //
+      // `cmp.l #106,d3 / Rbcc L_FonCall` (+Lib.s:5502) is unsigned and runs
+      // AFTER the AND, so -1 arrives as $fffffffe and is refused with 200.
+      // A signed test let it through and stored a width of -2
       if (!(it.atStmtEnd() || it.nm() === ',')) {
         const w = it.evalInt() & ~1
-        if (w === 0 || w >= 106) funcCall()
+        if (w === 0 || w >>> 0 >= 106) funcCall()
         rt.dirWidth = w
       }
       if (it.accept(',')) rt.dirNegFilter = it.evalStr()
@@ -7183,7 +7187,21 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(311)
     },
     'screen mode'(_, a) {
-      // FnScreenMode +Lib.s:8789: EcCon0 & $8004
+      /*
+       * FnScreenMode (+Lib.s:8789): GetScreen0, then EcCon0 & $8004, so
+       * hires and interlace survive and nothing else does.
+       *
+       * DEFECT: it is the one Screen query that ends `and.l #$00008004,d3 /
+       * rts` instead of `Ret_Int`, and Ret_Int is `moveq #0,d2 / rts`
+       * (+CEqu.s:22) -- d2 is the RESULT TYPE. Its four neighbours
+       * (FnScreenHeight0, FnScreenWidth0, FnScreenBase, FnScreenColour, all
+       * argumentless like this one) set it; this returns with whatever type
+       * the last evaluation left behind. Routines that skip Ret_Int legally
+       * are the ones whose argument already carries the type -- =Int and
+       * =Deek take an integer and give one back, =Psel$ hands its string
+       * argument straight back -- and this takes no argument at all.
+       * Nothing here reproduces that: a JS return value has one type.
+       */
       void a
       const s = rt.screen
       return VI((s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0))
