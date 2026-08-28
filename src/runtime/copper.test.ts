@@ -908,3 +908,14 @@ describe('OpenWorkBench puts a real screen in the copper list', () => {
     expect(rt.order).not.toContain(WB_SLOT)
   })
 })
+
+describe('the flash and shift family need a screen open', () => {
+  // InFlashOff (+Lib.s:9285), InFlash (+Lib.s:9294), InShiftOff (+Lib.s:9310)
+  // and ShD1 (+Lib.s:9329) all open `tst.w ScOn(a5) / Rbeq L_ScNOp`. The port
+  // reached currentIndex, which answers 0 whether or not a screen is open.
+  it('raises 47 with nothing open', () => {
+    for (const stmt of ['Flash Off', 'Flash 1,"(FFF,5)"', 'Shift Off', 'Shift Up 1,2,15,1']) {
+      expect(() => run(`Screen Close 0\n${stmt}`)).toThrow(/screen not opened/i)
+    }
+  })
+})

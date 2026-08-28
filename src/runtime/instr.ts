@@ -1783,13 +1783,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dst = scr()
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
     },
+    // ShD1 (+Lib.s:9329) opens `tst.w ScOn(a5) / Rbeq L_ScNOp` before it pops
+    // a single argument, and InShiftOff (+Lib.s:9310) is that guard and one
+    // EcCall. The port reached currentIndex, which answers 0 whether or not a
+    // screen is open.
     'shift up'(it) {
+      void rt.screen
       rt.shifts.set(rt.currentIndex, { dir: 1, ...shiftArgs(it), count: 0 })
     },
     'shift down'(it) {
+      void rt.screen
       rt.shifts.set(rt.currentIndex, { dir: -1, ...shiftArgs(it), count: 0 })
     },
     'shift off'() {
+      void rt.screen
       rt.shifts.delete(rt.currentIndex)
     },
     'set line'(it) {
@@ -1957,10 +1964,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fade = { scr: scr(), delay, count: 0, targets }
     },
     'flash off'() {
-      // FlStop (+W.s:5256): stops the flashes of the ACTIVE screen only
+      // InFlashOff (+Lib.s:9285) is `tst.w ScOn(a5) / Rbeq L_ScNOp / EcCall
+      // FlRaz`, and FlStop (+W.s:5256) stops the flashes of the ACTIVE screen
+      // only
+      void rt.screen
       rt.flashOff()
     },
     flash(it) {
+      // InFlash (+Lib.s:9294) makes the same screen check before it reads the
+      // string, so no screen beats a bad declaration
+      void rt.screen
       const reg = it.evalInt()
       it.expect(',')
       const spec = it.evalStr()
