@@ -750,10 +750,30 @@ describe('double buffering and screens', () => {
     trail.frame()
     expect(trail.screen.point(50, 50)).toBe(0) // blanked, not left behind
     expect(trail.screen.point(100, 50)).toBe(5)
-    const lim = run([...base, 'Limit Bob 40,40 To 80,80', 'Bob 1,300,190,1'].join('\n'))
+    // the bob comes FIRST: BobLim walks T_BbDeb and writes the edges onto
+    // the bobs it finds, so a limit set before anything is drawn is dropped
+    const lim = run([...base, 'Bob 1,300,190,1', 'Limit Bob 40,40 To 80,80'].join('\n'))
     const b = lim.bobs.get(1)!
     expect(b.x).toBeLessThanOrEqual(80)
     expect(b.y).toBeLessThanOrEqual(80)
+  })
+
+  it('Limit Bob needs a bob, snaps x to 16, and measures the bottom against the LEFT (BobLim +W.s:1026)', () => {
+    const base = ['Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0']
+    // `move.l T_BbDeb(a5),d0 / beq LBbX` returns before any check, so with
+    // nothing drawn even a nonsense rectangle is accepted in silence
+    expect(() => run([...base, 'Limit Bob 200,200 To 10,10'].join('\n'))).not.toThrow()
+    const withBob = [...base, 'Bob 1,50,50,1']
+    // `and.w #$FFF0,d2` and `and.w #$FFF0,d4` round both x edges down
+    const snapped = run([...withBob, 'Limit Bob 47,0 To 95,95'].join('\n'))
+    expect(snapped.bobLimits.get(-1)).toMatchObject({ x1: 32, x2: 80 })
+    // `cmp.w d2,d4 / bls.s LbbE` — an inverted or empty x span
+    expect(() => run([...withBob, 'Limit Bob 80,0 To 80,90'].join('\n'))).toThrow(/function call/)
+    // and `cmp.w d2,d5 / bls.s LbbE`, the bottom edge against x1 rather than
+    // y1, so a tall strip on the right cannot be asked for
+    expect(() => run([...withBob, 'Limit Bob 100,0 To 200,50'].join('\n'))).toThrow(/function call/)
+    // the same rectangle moved left is accepted, which is the giveaway
+    expect(() => run([...withBob, 'Limit Bob 16,0 To 200,50'].join('\n'))).not.toThrow()
   })
 
   it('Bob Update Off freezes the pipeline until Bob Draw', () => {

@@ -2445,14 +2445,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (it.nm() === 'to') {
         it.advance()
         const [x2, y2] = pair(it)
-        rt.bobLimits.set(-1, { x1: a, y1: b, x2, y2 })
+        setBobLimit(-1, a, b, x2, y2)
         return
       }
       it.expect(',')
       const y1 = it.evalInt()
       it.expect('to')
       const [x2, y2] = pair(it)
-      rt.bobLimits.set(a, { x1: b, y1, x2, y2 })
+      setBobLimit(a, b, y1, x2, y2)
     },
     'x mouse'(it) {
       // X Mouse = n (InXMouse +Lib.s:12079) -> MSetAb (+W.s:10921) with
@@ -4981,6 +4981,36 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       rt.reserveBank(n, it.evalInt(), name, dataBank, chip)
     }
+  }
+
+  /**
+   * BobLim (+W.s:1026), which measures once for the whole bob list.
+   *
+   * The x edges are snapped DOWN to a multiple of 16 by `and.w #$FFF0,d2`
+   * and `and.w #$FFF0,d4`, the blitter's word granularity, and every test
+   * after that is word-sized and unsigned. A failure reaches LBbE's `moveq
+   * #-1,d0`, which the caller turns into error 23 with `Rbne L_FonCall`.
+   *
+   * DEFECT: the vertical test is `cmp.w d2,d5 / bls.s LbbE`, which measures
+   * the BOTTOM edge against the LEFT one. d3 holds the top edge and appears
+   * in no test at all. So `Limit Bob 100,0 To 200,50` is refused for having
+   * a bottom edge above x1, and a tall strip down the right of the screen
+   * cannot be asked for however the numbers are written.
+   */
+  function setBobLimit(n: number, x1: number, y1: number, x2: number, y2: number): void {
+    // `move.l T_BbDeb(a5),d0 / beq LBbX` returns success before any of this,
+    // so with nothing drawn yet the instruction checks nothing and stores
+    // nothing — the limits live on the bobs, not beside them
+    if (rt.bobs.size === 0) return
+    const s = scr()
+    const gx1 = x1 & 0xfff0
+    const gx2 = x2 & 0xfff0
+    const gy2 = y2 & 0xffff
+    if (gx2 <= gx1) funcCall()
+    if (gy2 <= gx1) funcCall()
+    if (gx2 > (s.width & 0xffff)) funcCall()
+    if (gy2 > (s.height & 0xffff)) funcCall()
+    rt.bobLimits.set(n, { x1: gx1, y1: y1 & 0xffff, x2: gx2, y2: gy2 })
   }
 
   function bankPalette(): Instr {
