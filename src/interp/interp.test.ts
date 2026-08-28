@@ -232,6 +232,37 @@ describe('string/math functions verified against the library source', () => {
 
   it('Val skips spaces inside numbers (ValRout)', () => {
     expect(run('Print Val("1 2 3")')).toBe(' 123\n')
+    // minichr2 (+ILib.s:7179) has no space skip, so hex stops at one
+    expect(run('Print Val("$1 0")')).toBe(' 1\n')
+    expect(run('Print Val("%1 1")')).toBe(' 3\n')
+  })
+
+  it('Val gives up on a number that does not fit (declong +ILib.s:7192)', () => {
+    // bmi rejects a total that has turned negative
+    expect(run('Print Val("2147483647")')).toBe(' 2147483647\n')
+    expect(run('Print Val("2147483648")')).toBe(' 0\n')
+    // ...but the digit add itself is allowed to wrap round
+    expect(run('Print Val("4294967297")')).toBe(' 1\n')
+    // and the sign is applied after the reader, so this is the same rejection
+    expect(run('Print Val("-2147483648")')).toBe(' 0\n')
+    expect(run('Print Val("-2147483647")')).toBe('-2147483647\n')
+  })
+
+  it('Val counts hex digits and measures binary (hexalong/binlong +ILib.s:7226)', () => {
+    // hexalong stops on the NINTH digit, whatever the value
+    expect(run('Print Val("$FFFFFFFF")')).toBe('-1\n')
+    expect(run('Print Val("$0FFFFFFF")')).toBe(' 268435455\n')
+    expect(run('Print Val("$0FFFFFFFF")')).toBe(' 0\n')
+    // binlong limits the value, not the digit count, so leading zeros are
+    // free: 30 of them and a "11" still reads as 3
+    expect(run('Print Val("%' + '0'.repeat(30) + '11")')).toBe(' 3\n')
+    expect(run('Print Val("%1' + '0'.repeat(32) + '")')).toBe(' 0\n')
+    // and `cmp.w #33,d3 / beq ddh1` jumps into DECLONG's loop, so a 33rd
+    // digit switches the reader to decimal and keeps the running total: 32
+    // zeros and a "11" is 1 in binary, then "1" as a decimal digit
+    expect(run('Print Val("%' + '0'.repeat(32) + '11")')).toBe(' 11\n')
+    // val8 negates after the reader, so a sign reaches hex too
+    expect(run('Print Val("-$10")')).toBe('-16\n')
   })
 
   it('Fix controls float display (InFix)', () => {

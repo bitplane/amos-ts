@@ -35,18 +35,94 @@ function doExit(it: Interp, tok: Tok, n: number): 'jumped' {
   return 'jumped'
 }
 
+/**
+ * declong (+ILib.s:7192), reading into a 32-bit accumulator the way the 68000
+ * does. The high word is multiplied on its own and checked with `tst d0`,
+ * which assembles WORD-sized, so a high word reaching 6554 overflows; `bcs`
+ * then catches the x10 carrying out of 32 bits, and `bmi` rejects a total that
+ * has turned negative. The digit add itself is allowed to wrap, so
+ * Val("4294967297") is 1 rather than an error. minichr (+ILib.s:7166) drops
+ * spaces, so "1 2 3" reads as 123.
+ *
+ * @param d0 the running total, non-zero only on the fall-through from binLong
+ * @returns the value, or null when the number is out of range
+ */
+function decLong(s: string, d0 = 0): number | null {
+  for (const ch of s) {
+    if (ch === ' ') continue
+    const d = ch.charCodeAt(0) - 48
+    if (d < 0 || d > 9) break
+    const hi = (d0 >>> 16) * 10
+    if (hi > 0xffff) return null
+    const t = ((hi << 16) >>> 0) + (d0 & 0xffff) * 10
+    if (t > 0xffff_ffff) return null
+    d0 = (t + d) >>> 0
+    if (d0 & 0x8000_0000) return null
+  }
+  return d0 | 0
+}
+
+/**
+ * hexalong (+ILib.s:7226): `cmp #9,d3 / beq ddh2` counts digits and gives up
+ * on the ninth, so $FFFFFFFF reads but $0FFFFFFFF is 0 even though it fits.
+ * There is no carry test, only that count. minichr2 (+ILib.s:7179) has no
+ * space skip either, unlike the decimal and binary readers, so Val("$1 0")
+ * is 1.
+ */
+function hexaLong(s: string): number | null {
+  let d0 = 0
+  let n = 0
+  for (const ch of s) {
+    const d = parseInt(ch, 16)
+    if (Number.isNaN(d)) break
+    d0 = ((d0 << 4) | d) >>> 0
+    if (++n === 9) return null
+  }
+  return d0 | 0
+}
+
+/**
+ * binlong (+ILib.s:7248): `roxl.l #1,d0 / bcs.s ddh2` rejects a 1 shifted off
+ * bit 31, so the limit is the value and leading zeros cost nothing. The digit
+ * counter is not a second limit: `cmp.w #33,d3 / beq ddh1` lands in declong's
+ * loop, not its error exit, so a 33rd digit switches the reader to decimal and
+ * keeps the total it already has.
+ */
+function binLong(s: string): number | null {
+  let d0 = 0
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!
+    if (ch === ' ') continue
+    if (ch !== '0' && ch !== '1') break
+    if (d0 & 0x8000_0000) return null
+    d0 = ((d0 << 1) | (ch === '1' ? 1 : 0)) >>> 0
+    if (++n === 33) return decLong(s.slice(i + 1), d0)
+  }
+  return d0 | 0
+}
+
 /** ValRout-style number parsing, shared by =Val and Input */
 export function parseAmosNumber(sIn: string): Value {
-  const s = sIn.replace(/ /g, '')
-  const hex = /^([+-]?)\$([0-9a-f]+)/i.exec(s)
-  if (hex) return VI(parseInt(hex[1] + hex[2]!, 16))
-  const bin = /^([+-]?)%([01]+)/.exec(s)
-  if (bin) return VI(parseInt(bin[1] + bin[2]!, 2))
-  const m = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
+  // val1/val1c (+ILib.s:7026): spaces are skipped before the sign and again
+  // before the radix character, and only one sign is taken
+  const lead = /^ *([+-]?) */.exec(sIn)!
+  const neg = lead[1] === '-'
+  const rest = sIn.slice(lead[0].length)
+  if (rest[0] === '$' || rest[0] === '%') {
+    // val8 (+ILib.s:7145) negates AFTER the reader, so the sign applies to
+    // hex and binary too
+    const n = rest[0] === '$' ? hexaLong(rest.slice(1)) : binLong(rest.slice(1))
+    return VI(n === null ? 0 : neg ? -n : n)
+  }
+  const s = rest.replace(/ /g, '')
+  const m = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
   if (!m) return VI(0)
   // val4 (+ILib.s:7093) branches on d3, which is set by a point or by an
   // exponent, never by the value, and the float arm goes through AscToFloat
-  return /[.eE]/.test(m[0]) ? VF(ascToFloat(m[0])) : VI(parseFloat(m[0]))
+  if (/[.eE]/.test(m[0])) return VF(ascToFloat((neg ? '-' : '') + m[0]))
+  const n = decLong(m[0])
+  return VI(n === null ? 0 : neg ? -n : n)
 }
 
 function inputAssign(target: { type: number; set(v: Value): void }, raw: string): void {
