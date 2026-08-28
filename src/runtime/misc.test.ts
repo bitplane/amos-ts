@@ -449,7 +449,7 @@ describe('mouse and joystick reads', () => {
   it('Jdown and Jright read the joystick without a stick attached', () => {
     // no hardware, so both directions read false rather than erroring
     expect(runOut('Print Jdown(1);Jright(1)')).toBe(' 0 0\n')
-    // port 2 does not exist: only 0 and 1 are real (FJ +Lib.s:13716)
+    // port 2 does not exist: only 0 and 1 are real (FJ +Lib.s:13684)
     expect(() => run('A=Jdown(2)')).toThrow(/Illegal function call/)
   })
 })

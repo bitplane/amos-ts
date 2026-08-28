@@ -1175,7 +1175,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      */
     'arexx open'(it) {
       const name = it.evalStr()
-      if (name.length >= 32) throw new AmosError('string too long')
+      // L_StooLong is error 21, ED_RUN_MESSAGES[21]
+      if (name.length >= 32) throw new AmosError(ED_RUN_MESSAGES[21]!, 21)
       for (const ch of name) if (ch <= ' ') funcCall()
       if (!rt.rexx.open(name)) funcCall()
       rt.arexx.port = name
@@ -2789,7 +2790,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // what Scan$ builds), and an apostrophe opens a comment that runs to
       // the next apostrophe and stores nothing.
       const s2 = it.evalStr()
-      if (s2.length >= 64) throw new AmosError('string too long')
+      // `cmp.w #64,d2 / Rbcc L_StooLong` (+Lib.s:13695) -- error 21, not the
+      // catch-all a numberless throw reports as
+      if (s2.length >= 64) throw new AmosError(ED_RUN_MESSAGES[21]!, 21)
       for (let i = 0; i < s2.length; i++) {
         const c = s2.charCodeAt(i)
         if (c === 39) {

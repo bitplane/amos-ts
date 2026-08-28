@@ -1033,7 +1033,8 @@ export const INSTR: Record<string, Instr> = {
     it.inp.keyQueue.length = 0
   },
   'key$'(it) {
-    // Set Key$(n)="def": store a function-key definition (+Lib.s:13757)
+    // Set Key$(n)="def": InKeyD (+Lib.s:13715) is `subq.l #1,d1 / cmp.l
+    // #20,d1 / Rbcc L_FonCall` before SetFunk, so n runs 1 to 20
     it.expect('(')
     const n = it.evalInt()
     it.expect(')')

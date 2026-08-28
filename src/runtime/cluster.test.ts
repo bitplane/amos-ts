@@ -801,6 +801,13 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(run(prog).out).toBe(' 2\n 3\n')
   })
 
+  it('Put Key refuses 64 characters with error 21 (+Lib.s:13695)', () => {
+    // `cmp.w #64,d2 / Rbcc L_StooLong` --- String too long, which is 21 and
+    // not the catch-all a throw with no number reports as
+    expect(() => run(`Put Key "${'x'.repeat(63)}"`)).not.toThrow()
+    expect(() => run(`Put Key "${'x'.repeat(64)}"`)).toThrow(/String too long/)
+  })
+
   it('Put Key appends to the keyboard buffer (InPutKey)', () => {
     const prog = ['Put Key "AB"', 'Print Inkey$;Inkey$'].join('\n')
     expect(run(prog).out).toBe('AB\n')
