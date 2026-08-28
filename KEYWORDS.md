@@ -84,7 +84,7 @@ is.
 | int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
-| intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
+| intuiextend-2.01b    |      301 |        8 |          292 |       0 |     100% |
 | intuition-1.3b       |      183 |      183 |            0 |       0 |     100% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
 | jd-5.3               |      130 |      127 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5395 |          287 |    1685 |      77% |
+| **total**            |     7422 |     5403 |          579 |    1384 |      81% |
 
 ## Not applicable, by what would retire it
 
@@ -175,11 +175,11 @@ exec's Forbid and Permit. There is one task here and nothing to forbid.
 
 `jd multi off`, `jd multi on`, `multi off`, `multi on`
 
-### syntax (4)
+### syntax (5)
 
 Reserved words that are part of somebody else's grammar, or have no construct in the shipped grammar that reaches them. There is no routine behind the token.
 
-`as`, `follow`, `follow off`, `screen size`
+`\x00rwb get menu adr`, `as`, `follow`, `follow off`, `screen size`
 
 ### dead-vector (4)
 
@@ -321,6 +321,66 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## interface (100%)
 
 - **approximated** (1): `resource$`
+
+## intuiextend-2.01b (100%)
+
+- **approximated** (292): `adr add`, `adr dec`, `adr inc`, `adr sub`, `adr swap.b`,
+  `adr swap.l`, `adr swap.w`, `alloc abs`, `alloc mem`, `amos rastport`, `app create icon`,
+  `app free icon`, `app get arglist`, `app get numarg`, `avail mem`, `copy mem`, `first screen`,
+  `free mem`, `get item msg`, `get menu code`, `get menu msg`, `get msg`, `get msg code`,
+  `get msg iadr`, `get msg qualifier`, `get msg scancode`, `get msg xm`, `get msg ym`,
+  `get subitem msg`, `hard mouse key`, `iff close`, `iff compress block`, `iff decode picture`,
+  `iff decompress block`, `iff display`, `iff find chunk`, `iff get bitmap header`,
+  `iff get ctable`, `iff get depth`, `iff get error`, `iff get height`, `iff get vmode`,
+  `iff get width`, `iff get xpos`, `iff get ypos`, `iff open read`, `iff open write`,
+  `iff save bitmap`, `iff save clip`, `iff write chunk`, `int sqr`, `load seg`, `mchip`,
+  `mclear`, `mdma`, `mfast`, `mlargest`, `mlocal`, `mpublic`, `mtotal`, `my task`, `pal antiq`,
+  `pal filter`, `pal grey`, `pal negativ`, `power freq`, `pp decrunch`, `pp start`, `pp write`,
+  `quick scroll`, `rt dir req`, `rt file req`, `rt font req`, `rt free flist`,
+  `rt get autoscroll`, `rt get dir$`, `rt get display depth`, `rt get display height`,
+  `rt get display id`, `rt get display width`, `rt get flist$`, `rt get font name`,
+  `rt get font size`, `rt get name$`, `rt get overscan type`, `rt lib close`, `rt lib open`,
+  `rt multifile req`, `rt number req`, `rt palette req`, `rt screen mode req`, `rt string req`,
+  `rt text req`, `search`, `segment base`, `set taskpri`, `shires`, `str free`, `str store`,
+  `switch 72`, `switch ntsc`, `switch pal`, `sys agnus`, `sys chip`, `sys cpu`, `sys kickstart`,
+  `sys math`, `task name`, `unload seg`, `vbl freq`, `wb 3d angle`, `wb 3d centre`,
+  `wb 3d clear object`, `wb 3d draw`, `wb 3d draw object`, `wb 3d edge`, `wb 3d erase object`,
+  `wb 3d eye`, `wb 3d ink`, `wb 3d locate`, `wb 3d make object`, `wb 3d move edge`,
+  `wb 3d move object`, `wb 3d plot`, `wb 3d point`, `wb 3d position`, `wb 3d shape`, `wb 3d x`,
+  `wb 3d y`, `wb 3d z`, `wb activate gadget`, `wb bar`, `wb bevel box`, `wb bevel gadget`,
+  `wb bitplane`, `wb blit copy`, `wb block read`, `wb block update`, `wb block write`,
+  `wb bob image`, `wb change window box`, `wb check aga`, `wb circle`, `wb close`,
+  `wb create msgport`, `wb create port`, `wb current screen`, `wb curs`, `wb date`,
+  `wb decrypt`, `wb depth`, `wb depth to colour`, `wb display alert`, `wb display beep`,
+  `wb distance`, `wb draw image`, `wb easy wind open`, `wb encrypt`, `wb erase msgport`,
+  `wb fast hex`, `wb find menu item`, `wb flush memory`, `wb free bool gadget`,
+  `wb free diskobject`, `wb free image`, `wb free itext`, `wb free num gadget`,
+  `wb free slide gadget`, `wb free str gadget`, `wb free toggle gadget`, `wb gadget id`,
+  `wb gadget image`, `wb gauge`, `wb get colour`, `wb get deficon`, `wb get menu`, `wb get msg`,
+  `wb get wbicon`, `wb gfx centre`, `wb gfx ink`, `wb gfx len`, `wb gfx mode`, `wb gfx text`,
+  `wb hpos`, `wb icon image`, `wb init bool gadget`, `wb init hslide gadget`,
+  `wb init mslide gadget`, `wb init num gadget`, `wb init str gadget`, `wb init toggle gadget`,
+  `wb init vslide gadget`, `wb insert gadget`, `wb itext`, `wb kill aga`, `wb kill menu`,
+  `wb load font`, `wb lock pubscreen`, `wb locker`, `wb mem compare`, `wb menu to window`,
+  `wb mouse off`, `wb mouse on`, `wb new hslide gadget`, `wb new idcmp`, `wb new mslide gadget`,
+  `wb new vslide gadget`, `wb next pubscreen`, `wb off gadget`, `wb off menu`, `wb on gadget`,
+  `wb on menu`, `wb open`, `wb open screen taglist`, `wb paint`, `wb paint mode`, `wb peek`,
+  `wb plot`, `wb point`, `wb poke$`, `wb print`, `wb print ink`, `wb print locate`,
+  `wb print mode`, `wb print xmove`, `wb print ymove`, `wb pset`, `wb pubscreen name`,
+  `wb pubscreen statut`, `wb refresh all gadget`, `wb refresh gadget`, `wb remove all gadget`,
+  `wb remove gadget`, `wb reply msg`, `wb reset`, `wb roll screen`, `wb screen`,
+  `wb screen back`, `wb screen close`, `wb screen colour`, `wb screen front`, `wb screen move`,
+  `wb screen open`, `wb screen palette`, `wb screen rastport`, `wb set colour`,
+  `wb set default pubscreen`, `wb set line`, `wb set pubscreen mode`, `wb set str centre`,
+  `wb set str left`, `wb set str right`, `wb setchip rev`, `wb slide swap look`, `wb spline`,
+  `wb swatch`, `wb tag`, `wb td close`, `wb td error`, `wb td motor off`, `wb td motor on`,
+  `wb td open`, `wb text spacing`, `wb text style`, `wb track format`, `wb track read`,
+  `wb track write`, `wb turtle curs`, `wb turtle draw`, `wb turtle plot`, `wb unlock pubscreen`,
+  `wb vpos`, `wb wind back`, `wb wind base`, `wb wind close`, `wb wind front`, `wb wind limit`,
+  `wb wind move`, `wb wind open`, `wb wind rastport`, `wb wind size`, `wb wind title`,
+  `wb window`, `wb x locate`, `wb x print`, `wb y locate`, `wb y print`, `wb zip window`,
+  `what is`, `write mem`, `x wind`, `y wind`
+- **n/a** (1): `\x00rwb get menu adr`
 
 ## jd-4.6 (100%)
 

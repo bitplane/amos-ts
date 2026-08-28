@@ -32,6 +32,7 @@ import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str, type Value } from '../interp/values'
 import { bltBitMap } from '../amiga/blitter'
 import { BOB_BANK } from './banks'
+import { NO_BATTCLOCK } from '../amiga/battclock'
 import type { IntuiextendState } from './intuiextend'
 
 /** sizeof(struct Image) — `move.l #$14,-(a3)` at $35a4 */
@@ -839,6 +840,55 @@ export function makeIntuiextendSysFunctions(rt: Runtime): Record<string, Func> {
     'wb distance': (_, a) => VI(ieDistance(i0(a, 0), i0(a, 1), i0(a, 2), i0(a, 3))),
     /** =Wb Depth To Colour(depth) — routine 316 ($58e4) */
     'wb depth to colour': (_, a) => VI(ieDepthToColour(i0(a, 0))),
+
+    /**
+     * =Wb Swatch --- routine 180 ($3f28), the battery clock as "HH:MM:SS".
+     *
+     * `lea $dc0000.l,a2` and six registers, each read with `move.w (a2)+,d0`
+     * and then advanced another two bytes by the helper's own `adda.l #$2,a2`
+     * at $3fc8, which is the four-byte stride the chip decodes at. The
+     * ../amiga/battclock.ts map has them in the order they come out:
+     * S1, S10, MI1, MI10, H1, H10.
+     *
+     * The digits land at workspace+$1c0 and the string is assembled at
+     * workspace+$1c6, highest register first with colons pushed in:
+     *
+     *     $3f60  move.w  #$8,(a1)+      ; the AMOS length word
+     *     $3f64  move.b  $5(a0),(a1)+   ; H10
+     *     $3f68  move.b  $4(a0),(a1)+   ; H1
+     *     $3f6c  move.b  #$3a,(a1)+     ; ':'
+     *
+     * Sysn: "HEURE$=Chaine sous le format 'HH:MM:SS'."
+     *
+     * ## The digit helper reads its divisors out of the answer
+     *
+     * DEFECT: $3f88 converts one nibble by repeated addition, walking a list
+     * of longword divisors, and it points a1 at workspace+$1c6. That is the
+     * buffer $3f56 writes the finished string into. A proper list, ten
+     * followed by zero, sits fourteen bytes earlier at workspace+$1b8, and
+     * the shipped image at +$1c6 holds `00 08` then "00:00:1978", which is a
+     * length word of eight and a result this routine left behind before the
+     * library was saved.
+     *
+     * It cannot go wrong, and that is why it survived. `andi.w #$f,d0` caps
+     * every value at fifteen, the walk stops at the first divisor it can
+     * subtract, and no long between +$1c6 and the zero at +$1e4 is smaller
+     * than twenty-eight. So the loop always falls through to $3fc0 and emits
+     * the nibble itself. The arithmetic the author wrote has never run.
+     *
+     * `addi.b #$30,d0` is the same conversion ../amiga/battclock.ts records
+     * for the two other extensions that touch the chip, so a nibble of
+     * fifteen comes out as "?" here too.
+     */
+    'wb swatch': () => {
+      const bc = rt.machine.battclock
+      // DEVIATION: with no board fitted every register reads zero and the
+      // answer is 00:00:00. ../amiga/battclock.ts, NO_BATTCLOCK, explains
+      // why zeros rather than a floating bus.
+      const regs = bc ? bc.read(rt.host.clock.now()) : NO_BATTCLOCK
+      const d = (n: number): string => String.fromCharCode(0x30 + (regs[n]! & 0xf))
+      return VS(`${d(5)}${d(4)}:${d(3)}${d(2)}:${d(1)}${d(0)}`)
+    },
 
     /** =Wb Fast Hex(n) — routine 112 ($36a4) */
     'wb fast hex': (_, a) => VS(ieFastHex(i0(a, 0))),

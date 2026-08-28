@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
 import { IE_RASTPORT_OFFSET, rolL3, rolW3, rorW3 } from './intuiextendgfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -323,5 +324,140 @@ describe('IntuiExtend 2.01b — the drawing stragglers', () => {
   it('Wb Roll Screen refuses a RastPort it does not know', () => {
     const b = run(`${SCREEN}Wb Roll Screen 12345 To 67890,2\nPrint 1`)
     expect(b.out().trim()).toBe('1')
+  })
+})
+
+/** a `.font` descriptor: FCH_ID, a count, then 260 bytes an entry */
+function descriptor(entries: Array<{ file: string; ySize: number }>): Uint8Array {
+  const out = new Uint8Array(4 + entries.length * 260)
+  const v = new DataView(out.buffer)
+  v.setUint16(0, 0x0f00)
+  v.setUint16(2, entries.length)
+  entries.forEach((e, i) => {
+    const off = 4 + i * 260
+    for (let j = 0; j < e.file.length; j++) out[off + j] = e.file.charCodeAt(j)
+    v.setUint16(off + 256, e.ySize)
+  })
+  return out
+}
+
+/** run with a Fonts: volume mounted, and record every path read out of it */
+function runFonts(src: string, files: Record<string, Uint8Array> = {}): { rt: Runtime; seen: string[] } {
+  const exts = new Map([[23, ie.table]])
+  const fs = new AmigaFS()
+  const vol = fs.mountMemory('Fonts')
+  for (const [name, data] of Object.entries(files)) vol.write(name.split('/'), data)
+  const rt = new Runtime(tokenize(src, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[23, ie]]),
+    maxSteps: 500_000,
+    fs,
+  })
+  const seen: string[] = []
+  const vfs = rt.vfs!
+  const orig = vfs.read.bind(vfs)
+  vfs.read = (path: string): Uint8Array | null => {
+    seen.push(path)
+    return orig(path)
+  }
+  mustFinish(rt.runHeadless(5000))
+  return { rt, seen }
+}
+
+describe('IntuiExtend 2.01b — Wb Load Font', () => {
+  const LOAD = (name: string, size = 8): string => `${SCREEN}Wb Load Font "${name}",${size},0 To ${rpAddr(0)}`
+
+  /** `cmpi.b #$2e,-$5(a1)` misses, so `move.l #$666f6e74,(a1)+` appends it */
+  it('appends .font to a name that has no dot five back', () => {
+    expect(runFonts(LOAD('topaz')).seen).toEqual(['Fonts:topaz.font'])
+  })
+
+  /** and leaves one alone that already carries it */
+  it('leaves a name that ends in .font', () => {
+    expect(runFonts(LOAD('topaz.font')).seen).toEqual(['Fonts:topaz.font'])
+  })
+
+  /**
+   * The test is a dot five characters back and nothing more, so any other
+   * four-letter extension is taken for one too. `../amiga/diskfont.ts`'s own
+   * `openDiskFont` would have appended here, which is why this keyword reads
+   * the descriptor itself.
+   */
+  it('takes any four-letter extension for .font', () => {
+    expect(runFonts(LOAD('thing.abcd')).seen).toEqual(['Fonts:thing.abcd'])
+  })
+
+  /** the size picks the entry, and the entry names the glyph file */
+  it('reads the glyph file the matching entry names', () => {
+    const files = { 'ruby.font': descriptor([{ file: 'ruby/9', ySize: 9 }]) }
+    expect(runFonts(LOAD('ruby', 9), files).seen).toEqual(['Fonts:ruby.font', 'Fonts:ruby/9'])
+  })
+
+  /** a size the descriptor does not carry stops before the glyph file */
+  it('stops when no entry has that size', () => {
+    const files = { 'ruby.font': descriptor([{ file: 'ruby/9', ySize: 9 }]) }
+    const r = runFonts(LOAD('ruby', 11), files)
+    expect(r.seen).toEqual(['Fonts:ruby.font'])
+    expect(r.rt.screens.get(0)!.rp.font).toBeNull()
+  })
+
+  /** SetFont is reached only for a font that opened, so a miss changes nothing */
+  it('leaves the RastPort font alone when nothing opens', () => {
+    expect(runFonts(LOAD('nosuch')).rt.screens.get(0)!.rp.font).toBeNull()
+  })
+
+  /** an address that is not a RastPort this port knows does nothing at all */
+  it('does nothing for a RastPort it does not know', () => {
+    expect(runFonts(`${SCREEN}Wb Load Font "topaz",8,0 To 12345`).seen).toEqual([])
+  })
+
+  /** NAME$,SIZE,FLAG To RP, and Miscm's "FLAG= ??" is ta_Style */
+  it('takes four arguments in the guide order', () => {
+    expect(ie.tokens.find((t) => t.name === 'wb load font')!.spec).toBe('I2,0,0t0')
+  })
+})
+
+describe('IntuiExtend 2.01b — Wb Itext and Wb Free Itext', () => {
+  const ITEXT = 'A=Wb Itext(1,2,0,10,20,0,0,0)\n'
+
+  /** routine 286 answers whatever AllocMem gave it */
+  it('Wb Itext answers an address', () => {
+    expect(run(`${ITEXT}Print A<>0`).out().trim()).toBe('-1')
+  })
+
+  /**
+   * DEFECT: the block is one byte, because the SIZE and TYPE constants at
+   * $548c and $5492 are pushed the wrong way round. Two in a row land closer
+   * together than the twenty an IntuiText needs.
+   */
+  it('the block is nowhere near twenty bytes', () => {
+    const out = run(`${ITEXT}B=Wb Itext(1,2,0,10,20,0,0,0)\nPrint B-A`).out().trim()
+    expect(Number(out)).toBeGreaterThan(0)
+    expect(Number(out)).toBeLessThan(20)
+  })
+
+  /**
+   * DEFECT: `Rbra routine 35` at $5498 is a branch, so routine 35's `rts`
+   * goes to this keyword's caller and the eighteen instructions that fill the
+   * structure in never run. FrontPen of 1 does not reach the block.
+   */
+  it('nothing the arguments say reaches the block', () => {
+    expect(run(`${ITEXT}Print Peek(A)`).out().trim()).toBe('0')
+  })
+
+  /** eight arguments, all integers, and an integer answer */
+  it('Wb Itext takes eight integers', () => {
+    expect(ie.tokens.find((t) => t.name === 'wb itext')!.spec).toBe('00,0,0,0,0,0,0,0')
+  })
+
+  /** `tst.l d0 / beq` at $54ce, so a null address is dropped */
+  it('Wb Free Itext ignores zero', () => {
+    expect(run('Wb Free Itext 0\nPrint 7').out().trim()).toBe('7')
+  })
+
+  /** and frees what it is given, which the next allocation then reuses */
+  it('Wb Free Itext gives the block back', () => {
+    const out = run(`${ITEXT}Wb Free Itext A\nB=Wb Itext(0,0,0,0,0,0,0,0)\nPrint A=B`).out().trim()
+    expect(out).toBe('-1')
   })
 })

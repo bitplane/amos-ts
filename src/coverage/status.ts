@@ -4332,6 +4332,28 @@ export const NA = new Set<string>([
   'cmpcall',
   'comp load',
   'comp del',
+  // IntuiExtend 2.01b: `Wb Get Menu Adr`, the long at wd_MenuStrip. Routine
+  // 114 ($36f6) is `movea.l (a3)+,a0 / move.l $1c(a0),d3`, four instructions,
+  // and `intuition.i`:700 puts wd_MenuStrip at $1c. Routine 289 is the same
+  // four instructions again under the name `Wb Get Menu`, which IS
+  // implemented and answers the same pointer, so nothing is missing here.
+  //
+  // What is wrong is the table entry. Two bytes, `ff 00`, sit in front of it
+  // at file offset $bc0, so the reader takes those for the instruction word,
+  // the intended `ff ff` for the function word, and the intended function
+  // number `00 72` --- 114 --- for the first two characters of the name. The
+  // rest lines up again at the next `$ff`, which is why one entry is damaged
+  // and its neighbours are not. IntuiExtend 1.6 carries routine 114 with the
+  // name intact, which is how the intended bytes are known rather than
+  // reconstructed.
+  //
+  // The name that comes out begins with a NUL. No source text spells a NUL,
+  // so the tokeniser can never match it and no program can name this keyword;
+  // the spec `00` would have parsed it as an integer function and the
+  // function word now reads $ffff, a null vector, and the instruction word
+  // $ff00 is routine 65,280 of a 400-entry jump table. Neither is reachable
+  // to be wrong. No handler is registered.
+  '\u0000rwb get menu adr',
   // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
   // system exists outside AmigaOS
 ])
@@ -4430,6 +4452,7 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   follow: 'syntax',
   'follow off': 'syntax',
   'screen size': 'syntax',
+  '\u0000rwb get menu adr': 'syntax',
   // the editor and the compiler overlay
   'kill editor': 'editor',
   monitor: 'editor',

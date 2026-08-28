@@ -73,7 +73,7 @@ import { VI, VS, int, str, type Value } from '../interp/values'
 import type { RastPort as RastPortT } from '../amiga/graphics'
 import { RastPort } from '../amiga/graphics'
 import { Runtime as RT } from './runtime'
-import { CUSTOMSCREEN, WBENCHSCREEN, WB_SLOT, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, WBENCHSCREEN, WB_HEIGHT, WB_SLOT, WB_WIDTH, type Window } from '../amiga/intuition'
 import type { IntuiextendState } from './intuiextend'
 
 /**
@@ -267,6 +267,51 @@ export function ieMem(rt: Runtime): IeMem {
   }
 }
 
+/**
+ * The screen tags `Wb Open Screen Taglist` acts on.
+ *
+ * Every number is out of OS-DevKit 1.61's `os_refs.guide`, node scrTAGS,
+ * which prints each tag beside its own value: SA_Left is ($80000021) and the
+ * run is unbroken to SA_DisplayID at ($80000032).
+ */
+export const IE_SA = {
+  LEFT: 0x8000_0021,
+  TOP: 0x8000_0022,
+  WIDTH: 0x8000_0023,
+  HEIGHT: 0x8000_0024,
+  DEPTH: 0x8000_0025,
+  DETAILPEN: 0x8000_0026,
+  BLOCKPEN: 0x8000_0027,
+  TITLE: 0x8000_0028,
+  DISPLAYID: 0x8000_0032,
+} as const
+
+/**
+ * Split an AMOS string into TagItems, eight bytes each and big-endian.
+ *
+ * This is the shape `Wb Tag` builds, which Miscn calls "Une chaine formatee
+ * de huit octets", so a program concatenates as many as it wants and hands
+ * over the result.
+ *
+ * DEVIATION: a TagItem list ends at TAG_DONE and Intuition reads until it
+ * finds one. A string carrying no zero tag runs the library off the end of
+ * the AMOS string heap; here the string itself is the bound.
+ */
+export function ieTagList(s: string): Array<[number, number]> {
+  const be = (at: number): number => {
+    let v = 0
+    for (let j = 0; j < 4; j++) v = ((v << 8) | (s.charCodeAt(at + j) & 0xff)) >>> 0
+    return v
+  }
+  const out: Array<[number, number]> = []
+  for (let i = 0; i + 8 <= s.length; i += 8) {
+    const tag = be(i)
+    if (tag === 0) break
+    out.push([tag, be(i + 4)])
+  }
+  return out
+}
+
 export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): IntuiextendState => rt.intuiextend
 
@@ -410,6 +455,79 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
       const slot = addr === 0 ? null : rt.intuition.slotOf(addr)
       const s = slot === null ? null : rt.screens.get(slot)
       if (s) s.displayX = ns.leftEdge
+    },
+
+    /**
+     * Wb Open Screen Taglist TAGLIST$ --- routine 265 ($4e54), eleven
+     * instructions end to end.
+     *
+     *     $4e54  movea.l  (a3)+,a1
+     *     $4e56  adda.l   #$2,a1        ; past the AMOS length word
+     *     $4e5c  suba.l   a0,a0         ; NewScreen = NULL
+     *     $4e60  movea.l  -$18a6(a5),a6
+     *     $4e64  jsr      -$264(a6)     ; OpenScreenTagList(a0/a1)
+     *     $4e6a  tst.l    d0
+     *     $4e6c  beq.b    $4e78
+     *     $4e76  move.l   d0,(a0)       ; workspace+$8c
+     *
+     * `intuition_lib.fd` gives -$264 as OpenScreenTagList(newScreen,tagList)
+     * (a0/a1). a0 is cleared, so there is no NewScreen at all and every
+     * attribute has to arrive as a tag.
+     *
+     * The tag list is the CHARACTERS of an AMOS string. Scrg says only
+     * "TAGLIST=Liste de Tag pour l'ecran", but Miscn names the other half:
+     * `TAG$=Wb Tag(TAG,VAL)`, whose answer is eight bytes, and concatenating
+     * those is how a program builds one.
+     *
+     * This is the one screen opener in the extension that tests its result.
+     * `Wb Screen Open` (routine 7) does `move.l d0,(a0)` with no `tst`, so a
+     * failure there puts 0 in workspace+$8c; a failure here leaves whatever
+     * was already in it, which after a close is the -1 routine 10 wrote.
+     *
+     * DEVIATION: seven tags are acted on and the rest are read and dropped.
+     * SA_DetailPen and SA_BlockPen have nowhere to go, because a screen here
+     * is a bitmap and a copper band and Intuition draws no furniture into it,
+     * and the pointer tags name structures a program cannot build in this
+     * port. The defaults are Intuition's own where `os_refs.guide` states
+     * them, SA_Depth "Default to 1" among them, and the Workbench screen's
+     * 640 by 256 where it does not.
+     */
+    'wb open screen taglist'(it) {
+      const tags = ieTagList(it.evalStr())
+      let width = WB_WIDTH
+      let height = WB_HEIGHT
+      let depth = 1
+      let left = 0
+      let top = 0
+      let mode = 0
+      let title = ''
+      for (const [tag, val] of tags) {
+        if (tag === IE_SA.LEFT) left = lo(val)
+        else if (tag === IE_SA.TOP) top = lo(val)
+        else if (tag === IE_SA.WIDTH) width = lo(val)
+        else if (tag === IE_SA.HEIGHT) height = lo(val)
+        else if (tag === IE_SA.DEPTH) depth = val & 0xff
+        else if (tag === IE_SA.DISPLAYID) mode = val >>> 0
+        else if (tag === IE_SA.TITLE) title = cstring(val)
+      }
+      const addr = rt.intuition.openScreen({
+        width,
+        height,
+        depth,
+        // the low word of a DisplayID is the ViewModes word the classic modes
+        // were always selected with, which is what `Wb Screen Open` takes
+        // whole: bit 15 HIRES and bit 2 LACE
+        hires: (mode & 0x8000) !== 0,
+        laced: (mode & 0x4) !== 0,
+        palette: [],
+        displayY: top,
+        title,
+      })
+      if (addr === 0) return
+      st().screenBase = addr
+      const slot = rt.intuition.slotOf(addr)
+      const scr = slot === null ? null : rt.screens.get(slot)
+      if (scr) scr.displayX = left
     },
 
     /**

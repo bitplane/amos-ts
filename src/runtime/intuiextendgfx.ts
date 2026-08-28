@@ -30,6 +30,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str, type Value } from '../interp/values'
 import type { RastPort } from '../amiga/graphics'
+import { parseDiskFont, parseFontDescriptor } from '../amiga/diskfont'
 import { Runtime as RT } from './runtime'
 import type { IntuiextendState } from './intuiextend'
 import { ieWindowRastPort } from './intuiextendwin'
@@ -299,6 +300,72 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
     },
 
     /**
+     * Wb Load Font NAME$,SIZE,FLAG To RP --- routine 272 ($4f60).
+     *
+     * The one keyword whose own guide gives up on it. Miscm is headed
+     * "System: v1.3+ (???)" and documents the third argument as "FLAG= ??".
+     * The disassembly answers it: `move.b d0,$6(a0)` is ta_Style, the
+     * TextAttr byte carrying FSF_BOLD, FSF_ITALIC and the rest.
+     *
+     *     $4f62  movea.l  $34(a2),a1    ; rp_Font, `rastport.i`:84
+     *     $4f6c  jsr      -$4e(a6)      ; graphics CloseFont(a1)
+     *     $4f72  lea      $5056(pc),a0  ; the one TextAttr
+     *     $4f78  move.b   d0,$6(a0)     ; ta_Style  <- FLAG
+     *     $4f7e  move.w   d0,$4(a0)     ; ta_YSize  <- SIZE
+     *     $4f82  move.b   #$2,$7(a0)    ; ta_Flags = FPF_DISKFONT
+     *     $4f8c  move.l   a1,(a0)       ; ta_Name -> the buffer at $5006
+     *     $4fba  jsr      -$228(a6)     ; OpenLibrary("diskfont.library", 0)
+     *     $4fce  jsr      -$1e(a6)      ; OpenDiskFont(a0)
+     *     $4fe0  jsr      -$42(a6)      ; graphics SetFont(rp,font)(a1,a0)
+     *     $4fec  jsr      -$19e(a6)     ; CloseLibrary
+     *
+     * -$4e and -$42 are CloseFont(textFont)(a1) and SetFont(rp,textFont)
+     * (a1,a0) in `graphics_lib.fd`. The name is copied out of the AMOS string
+     * and ".font" appended unless the fifth character from the end is already
+     * a dot:
+     *
+     *     $4f9a  cmpi.b   #$2e,-$5(a1)
+     *     $4fa6  move.l   #$666f6e74,(a1)+
+     *
+     * DEFECT: the CloseFont at $4f6c runs before anything has been opened and
+     * with no test of rp_Font. On the first call that field holds the screen's
+     * font, which Intuition opened and this code did not, so the very first
+     * `Wb Load Font` decrements a count belonging to somebody else. Miscm says
+     * only "RP=Rastport auquel la police sera affecter".
+     *
+     * DEFECT: the name buffer at $5006 ends where the TextAttr begins at
+     * $5056, which is eighty bytes, and the copy is `move.w (a0)+,d3 / subq.w
+     * #$1,d3 / move.b (a0)+,(a1)+ / dbra d3` with no bound. A name past
+     * seventy-four characters writes over the TextAttr the next instructions
+     * fill in, and an EMPTY name makes d3 -1, which `dbra` runs 65,536 times.
+     *
+     * The two halves of ../amiga/diskfont.ts are called here rather than its
+     * `openDiskFont`, because that helper appends ".font" whenever the name
+     * does not end in it and the routine's rule is the dot five back. The two
+     * disagree for a name ending in any other four-letter extension.
+     */
+    'wb load font'(it) {
+      const name = it.evalStr()
+      it.expect(',')
+      const size = lo(it.evalInt())
+      it.expect(',')
+      // FLAG, which is ta_Style; there is no bold or italic here to switch on
+      it.evalInt()
+      it.expect('to')
+      const rp = rastPortAt(it.evalInt())
+      if (!rp) return
+      // `cmpi.b #$2e,-$5(a1)`, the dot five back, and ".font" if it is absent
+      const full = name.length >= 5 && name[name.length - 5] === '.' ? name : `${name}.font`
+      const desc = rt.vfs?.read(`Fonts:${full}`) ?? null
+      const entries = desc ? parseFontDescriptor(desc) : null
+      const hit = entries?.find((e) => e.ySize === size)
+      const glyphs = hit ? (rt.vfs?.read(`Fonts:${hit.file}`) ?? null) : null
+      const face = glyphs ? parseDiskFont(glyphs) : null
+      // the routine reaches SetFont only when OpenDiskFont answered non-zero
+      if (face) rp.font = face
+    },
+
+    /**
      * Wb Set Colour SCREEN To CNB,R,G,B — routine 55 ($2f12).
      *
      *     $2f12  move.l  (a3)+,d3      ; B
@@ -532,6 +599,30 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
         row(r5, d1)
         if (rows - 1 < 0) break
       }
+    },
+
+    /**
+     * Wb Free Itext ITEXT --- routine 287 ($54cc).
+     *
+     *     $54cc  move.l   (a3)+,d0
+     *     $54ce  tst.l    d0
+     *     $54d0  beq.b    $54de
+     *     $54d2  move.l   d0,-(a3)      ; START
+     *     $54d4  move.l   #$14,-(a3)    ; LEN
+     *     $54da  Rbra     routine 5 (free mem)
+     *
+     * $14 is it_SIZEOF, twenty bytes (`intuition.i`:480-495). The two pushes
+     * are in argument order and `Free Mem START,LEN` pops the last one first,
+     * so this one is right, which is what makes its sibling wrong.
+     *
+     * Neither this keyword nor `Wb Itext` has a node in the guide or a line in
+     * Index.guide. They are the only two of the 301 with no documentation at
+     * all, and the state of `Wb Itext` says why.
+     */
+    'wb free itext'(it) {
+      const addr = it.evalInt() >>> 0
+      if (addr === 0) return
+      st().heap.freeMem(addr)
     },
 
     /**
@@ -770,6 +861,54 @@ export function makeIntuiextendGfxFunctions(rt: Runtime): Record<string, Func> {
   const s0 = (a: Value[], n: number): string => str(a[n] ?? VS(''))
 
   return {
+    /**
+     * =Wb Itext(FRONTPEN,BACKPEN,DRAWMODE,LEFTEDGE,TOPEDGE,FONT,TEXT,NEXT) ---
+     * routine 286 ($548c), an IntuiText built on the heap.
+     *
+     * Except that it is not built, and the block is not big enough to hold one
+     * if it were. The routine is two bugs stacked, and both are visible in six
+     * instructions:
+     *
+     *     $548c  move.l   #$1,-(a3)     ; first argument
+     *     $5492  move.l   #$14,-(a3)    ; second argument
+     *     $5498  Rbra     routine 35 (alloc mem)
+     *     $549c  tst.l    d3
+     *     ...
+     *     $54ca  rts
+     *
+     * DEFECT: the two constants are the wrong way round. `Alloc Mem(SIZE,
+     * TYPE)` is pushed left to right and routine 35 pops the last argument
+     * first, `move.l (a3)+,d1` then `move.l (a3)+,d0`, so it reaches exec
+     * AllocMem as size 1 and requirements $14. Twenty bytes of MEMF_PUBLIC
+     * was wanted. `Wb Free Itext` gets the same pair right, which is how the
+     * order is known rather than guessed.
+     *
+     * DEFECT: `Rbra` where `Rbsr` was meant. It is a branch, so routine 35's
+     * own `rts` returns to this keyword's caller and everything from $549c is
+     * unreachable: the eighteen instructions that fill in it_NextText,
+     * it_IText, it_ITextFont, it_TopEdge, it_LeftEdge, it_DrawMode,
+     * it_BackPen and it_FrontPen never run. The eight arguments they would
+     * have popped stay on the argument stack, thirty-two bytes of it, and
+     * every call leaks another eight.
+     *
+     * The dead code has a third mistake in it. `move.w d0,$2(a0)` writes a
+     * WORD where it_DrawMode is a byte at $2 and it_KludgeFill00 the pad at
+     * $3 (`intuition.i`:480-495), so a JAM1 or JAM2 of 0 to 3 would land in
+     * the pad and leave the mode 0.
+     *
+     * DEVIATION: this port allocates the one byte and answers its address,
+     * because that is what the keyword does. It does not reproduce the
+     * argument-stack leak: a3 here is not a machine register a keyword can
+     * leave unbalanced, and an interpreter that grew a stack every call would
+     * fail in a way the 68000 takes thousands of calls to reach.
+     */
+    'wb itext': (_, a) => {
+      // the eight arguments the dead code at $549c would have written
+      for (let i = 0; i < 8; i++) i0(a, i)
+      // AllocMem(1, $14): size and requirements, in that order and swapped
+      return VI(st().heap.alloc(1, { clear: false }) | 0)
+    },
+
     /**
      * =Wb Point(X,Y) — routine 264 ($4e04).
      *

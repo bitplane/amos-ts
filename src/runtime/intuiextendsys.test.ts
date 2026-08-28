@@ -361,3 +361,52 @@ describe('IntuiExtend 2.01b — Wb Reset', () => {
     expect(b.rt.machine.pendingReset).toEqual({ kind: 'cold', by: 'wb reset' })
   })
 })
+
+describe('IntuiExtend 2.01b — Wb Swatch', () => {
+  /** put a time in the six time registers, S1 first, and read it back */
+  const at = (h10: number, h1: number, m10: number, m1: number, s10: number, s1: number): string => {
+    const exts = new Map([[23, ie.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize('Print Wb Swatch', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[23, ie]]),
+      maxSteps: 100_000,
+      onText: (t) => (printed += t),
+    })
+    const bc = rt.machine.battclock!
+    const now = rt.host.clock.now()
+    bc.read(now)
+    const digits = [s1, s10, m1, m10, h1, h10]
+    for (let i = 0; i < 6; i++) bc.write(i, digits[i]!, now)
+    mustFinish(rt.runHeadless(5000))
+    return printed.trim()
+  }
+
+  /** Sysn: "HEURE$=Chaîne sous le format 'HH:MM:SS'." */
+  it('reads the six time registers as HH:MM:SS', () => {
+    expect(at(1, 4, 2, 5, 3, 6)).toBe('14:25:36')
+  })
+
+  /** the registers come off the chip S1 first, so the string is built backwards */
+  it('the highest register is the first character', () => {
+    expect(at(2, 3, 5, 9, 0, 1)).toBe('23:59:01')
+  })
+
+  it('midnight is all zeroes', () => {
+    expect(at(0, 0, 0, 0, 0, 0)).toBe('00:00:00')
+  })
+
+  /**
+   * `andi.w #$f,d0` then `addi.b #$30,d0`, which is the conversion
+   * ../amiga/battclock.ts records for the other two extensions that touch the
+   * chip: a nibble of fifteen leaves as "?".
+   */
+  it('a nibble past nine comes out as its own ASCII', () => {
+    expect(at(15, 15, 0, 0, 0, 0)).toBe('??:00:00')
+  })
+
+  /** no arguments, and a string answer */
+  it('takes nothing and answers a string', () => {
+    expect(ie.tokens.find((t) => t.name === 'wb swatch')!.spec).toBe('2')
+  })
+})

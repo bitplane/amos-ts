@@ -5,7 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { IE_NO_BASE, IE_WINDOW_BASE, IE_WINDOW_RP, newIeNewWindow } from './intuiextendwin'
+import { IE_NO_BASE, IE_SA, IE_WINDOW_BASE, IE_WINDOW_RP, ieTagList, newIeNewWindow } from './intuiextendwin'
 
 const table = new TokenTable(CORE_TOKENS)
 const ie = extensionById('intuiextend-2.01b')!
@@ -328,5 +328,80 @@ Print Wb Bitplane(R,2)=Logbase(2)`
 
   it('answers 0 for an address that is not a screen RastPort', () => {
     expect(lines('Print Wb Bitplane(12345,0)')).toEqual(['0'])
+  })
+})
+
+describe('IntuiExtend 2.01b — Wb Open Screen Taglist', () => {
+  /** `Wb Tag` is the other half: eight bytes, the tag then the value */
+  const tag = (t: number, v: number): string => `Wb Tag(${t | 0},${v})`
+  const list = (...pairs: Array<[number, number]>): string =>
+    [...pairs.map(([t, v]) => tag(t, v)), tag(0, 0)].join('+')
+
+  it('splits a Wb Tag string back into pairs', () => {
+    const one = ieTagList('\x80\x00\x00\x23\x00\x00\x01\x40')
+    expect(one).toEqual([[IE_SA.WIDTH, 320]])
+  })
+
+  /** TAG_DONE ends it, and everything after is not read */
+  it('stops at a zero tag', () => {
+    // SA_Width 320, then TAG_DONE, then an SA_Height nothing reaches
+    const src = '\x80\x00\x00\x23\x00\x00\x01\x40\x00\x00\x00\x00\x00\x00\x00\x00'
+    expect(ieTagList(src + '\x80\x00\x00\x24\x00\x00\x00\xc8')).toEqual([[IE_SA.WIDTH, 320]])
+  })
+
+  /** a trailing part-TagItem is short of eight bytes and is dropped */
+  it('ignores a partial TagItem at the end', () => {
+    expect(ieTagList('\x80\x00\x00\x23\x00\x00')).toEqual([])
+  })
+
+  /** SA_Width, SA_Height and SA_Depth are $80000023 to $80000025 */
+  it('opens a screen the tags describe', () => {
+    const src = `T$=${list([IE_SA.WIDTH, 320], [IE_SA.HEIGHT, 200], [IE_SA.DEPTH, 3])}\nWb Open Screen Taglist T$\nPrint Wb Screen Base<>0`
+    const b = run(src)
+    expect(b.out().trim()).toBe('-1')
+    const scr = b.rt.screens.get(b.rt.intuition.slotOf(b.rt.intuiextend.screenBase)!)!
+    expect([scr.rp.bitMap.width, scr.rp.bitMap.height, scr.rp.bitMap.depth]).toEqual([320, 200, 3])
+  })
+
+  /**
+   * a0 is cleared at $4e5c, so there is no NewScreen and an empty list gets
+   * every default: SA_Depth is "Default to 1" and the size is the Workbench
+   * screen's.
+   */
+  it('an empty list still opens a screen', () => {
+    const b = run(`T$=${tag(0, 0)}\nWb Open Screen Taglist T$\nPrint Wb Screen Base<>0`)
+    expect(b.out().trim()).toBe('-1')
+    const scr = b.rt.screens.get(b.rt.intuition.slotOf(b.rt.intuiextend.screenBase)!)!
+    expect([scr.rp.bitMap.width, scr.rp.bitMap.height, scr.rp.bitMap.depth]).toEqual([640, 256, 1])
+  })
+
+  /** SA_Top is the display position, which is what `Wb Screen Move` moves */
+  it('SA_Left and SA_Top place the screen', () => {
+    const src = `T$=${list([IE_SA.LEFT, 32], [IE_SA.TOP, 60], [IE_SA.WIDTH, 320], [IE_SA.HEIGHT, 100])}\nWb Open Screen Taglist T$`
+    const b = run(src)
+    const scr = b.rt.screens.get(b.rt.intuition.slotOf(b.rt.intuiextend.screenBase)!)!
+    expect([scr.displayX, scr.displayY]).toEqual([32, 60])
+  })
+
+  /** the low word of SA_DisplayID is the ViewModes word: bit 15 is HIRES */
+  it('SA_DisplayID picks the resolution', () => {
+    const src = `T$=${list([IE_SA.DISPLAYID, 0x8000], [IE_SA.WIDTH, 640], [IE_SA.HEIGHT, 200])}\nWb Open Screen Taglist T$`
+    const b = run(src)
+    const scr = b.rt.screens.get(b.rt.intuition.slotOf(b.rt.intuiextend.screenBase)!)!
+    expect(scr.hires).toBe(true)
+  })
+
+  /**
+   * Routine 265 is the one screen opener that tests OpenScreenTagList's
+   * result, so a failure leaves workspace+$8c alone. Routine 10 put -1 there.
+   */
+  it('a failed open leaves Wb Screen Base as it was', () => {
+    const src = `Wb Screen Open 0,0,320,200,3,0\nWb Screen Close Wb Screen Base\nT$=${list([IE_SA.WIDTH, 0], [IE_SA.HEIGHT, 0])}\nWb Open Screen Taglist T$\nPrint Wb Screen Base`
+    expect(run(src).out().trim()).toBe(String(IE_NO_BASE))
+  })
+
+  /** one string argument and no answer: the token table gives it "I2" */
+  it('takes one string and is an instruction', () => {
+    expect(ie.tokens.find((t) => t.name === 'wb open screen taglist')!.spec).toBe('I2')
   })
 })
