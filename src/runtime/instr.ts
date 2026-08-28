@@ -1355,7 +1355,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens ----
     'screen open'(it) {
-      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count
+      // ScOo2 (+Lib.s:8949) checks the screen number after the colour count,
+      // so the number goes down unchecked and rt.openScreen tests it in the
+      // right place
       const n = it.evalInt()
       it.expect(',')
       // EcCree +W.s:2881 masks the bitmap width down to a multiple of 16
@@ -1366,7 +1368,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const nc = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      rt.openScreen(checkScreenNumber(rt, n), w, h, nc, mode)
+      rt.openScreen(n, w, h, nc, mode)
       // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
       // Screen Open instruction adds the system flash (+Lib.s:8989);
       // HAM (4096) is 6 planes so it qualifies
@@ -1515,15 +1517,43 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'screen show'(it) {
       byIndex(checkScreenNumber(rt, optInt(it, rt.currentIndex))).visible = true
     },
+    // EcFirst and EcLast (+W.s:3274/3294) both open `bsr EcGet / beq EcE3`,
+    // and EcE3 is `moveq #3,d0` (+W.s:3130) through EcWiErr, which adds
+    // EcEBase-1 = 44 for error 47. Naming a screen that is not open is an
+    // error, not the silent no-op the port had.
     'screen to front'(it) {
-      rt.toFront(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
+      const n = checkScreenNumber(rt, optInt(it, rt.currentIndex))
+      byIndex(n)
+      rt.toFront(n)
     },
     'screen to back'(it) {
-      rt.toBack(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
-    },
-    'screen swap'(it) {
       const n = checkScreenNumber(rt, optInt(it, rt.currentIndex))
-      rt.screens.get(n)?.swap()
+      byIndex(n)
+      rt.toBack(n)
+    },
+    /**
+     * Screen Swap [n] --- two different routines, not one with a default.
+     *
+     * `InScreenSwap1` (+Lib.s:8869) is `Rbsr L_CheckScreenNumber / EcCall
+     * SwapSc`, and ScSwap (+W.s:2593) opens `bsr EcGet / beq EcE3`, so a
+     * screen that is not open is error 47. A screen that IS open but not
+     * double-buffered falls out at `btst #BitDble,EcFlags(a4) / beq EcOk`
+     * with no error.
+     *
+     * `InScreenSwap0` (+Lib.s:8859) calls ScSwapS instead (+W.s:2646), and
+     * that one is `lea T_EcAdr(a5),a1 / moveq #8-1,d6` over every slot: it
+     * swaps EVERY double-buffered screen, not the current one. The port
+     * swapped just the current screen either way, so a game double-buffering
+     * two screens and flipping them with a bare `Screen Swap` left the
+     * second one showing its logical buffer.
+     */
+    'screen swap'(it) {
+      if (it.atStmtEnd() || it.nm() === ',') {
+        void rt.screen // `tst.w ScOn(a5) / Rbeq L_ScNOp` guards the bare form
+        for (const s of rt.screens.values()) s.swap()
+        return
+      }
+      byIndex(checkScreenNumber(rt, it.evalInt())).swap()
     },
     'double buffer'() {
       // InDoubleBuffer +Lib.s:8853: `EcCall Double / Rbne L_EcWiErr`, so a
@@ -6153,7 +6183,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     screen(_, a) {
       void a
-      return VI(rt.currentIndex)
+      // FnScreen (+Lib.s:9137) is `move.w ScOn(a5),d3 / subq.w #1,d3 /
+      // ext.l d3`, and ScOn is a 1-based slot that Screen Close leaves at
+      // zero once the last screen goes (+Lib.s:8980). So the answer with
+      // nothing open is -1. The port returned currentIndex, which
+      // closeScreen falls back to 0, and 0 is a legal screen number.
+      return VI(rt.screens.size === 0 ? -1 : rt.currentIndex)
     },
     'screen width'(_, a) {
       // FnScreenWidth0/1 +Lib.s:8749: EcTx bitmap width; an explicit

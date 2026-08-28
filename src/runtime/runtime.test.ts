@@ -664,6 +664,50 @@ describe('double buffering and screens', () => {
     expect(s.displayBuffer[5 * s.width + 5]).toBe(5) // now it shows
   })
 
+  it('a bare Screen Swap swaps every double buffered screen too', () => {
+    // The keyword takes two different routines. `InScreenSwap1`
+    // (+Lib.s:8869) calls ScSwap, which is one named screen; `InScreenSwap0`
+    // (+Lib.s:8859) calls ScSwapS (+W.s:2646), the same all-eight walk
+    // Update uses. So `Screen Swap` and `Screen Swap 0` are not the same
+    // instruction with a default, and the port had been treating them as one.
+    const both = [
+      'Screen Open 0,320,200,2,0 : Double Buffer : Autoback 0 : Ink 1 : Plot 0,0',
+      'Screen Open 1,320,200,2,0 : Double Buffer : Autoback 0 : Ink 1 : Plot 0,0',
+      'Screen 0 : Screen Swap',
+    ].join('\n')
+    const rt = run(both)
+    expect(rt.screens.get(0)!.point(0, 0)).toBe(0) // logical is the blank one
+    expect(rt.screens.get(1)!.point(0, 0)).toBe(0)
+    // the numbered form leaves the screen it was not given alone
+    const one = both.replace('Screen 0 : Screen Swap', 'Screen 0 : Screen Swap 0')
+    const rt2 = run(one)
+    expect(rt2.screens.get(0)!.point(0, 0)).toBe(0)
+    expect(rt2.screens.get(1)!.point(0, 0)).toBe(1)
+  })
+
+  it('Screen Swap, To Front and To Back all refuse a screen that is not open', () => {
+    // EcGet fails and EcE3 (+W.s:3130) is `moveq #3,d0`, which EcWiErr
+    // (+Lib.s:12917) turns into 45+3-1 = 47. The port returned quietly.
+    for (const kw of ['Screen Swap 3', 'Screen To Front 3', 'Screen To Back 3']) {
+      expect(() => run(`Screen Open 0,320,200,2,0\n${kw}`)).toThrow(/screen not opened/i)
+    }
+  })
+
+  it('=Screen is -1 once the last screen closes', () => {
+    // FnScreen (+Lib.s:9137) reads the 1-based ScOn and subtracts one, so
+    // zero screens reads as -1 rather than as screen 0.
+    const rt = run('Screen Open 0,320,200,2,0 : Screen Close 0 : A=Screen')
+    expect(rt.interp.getVar('a', 0)).toEqual({ k: 'int', n: -1 })
+  })
+
+  it('Screen Open checks the colour count before the screen number', () => {
+    // IlNCo (+Lib.s:8944) sits above ScOo2's `Rbsr L_CheckScreenNumber`
+    // (+Lib.s:8949), so a call that is wrong in both ways reports the
+    // colours. The hires cap at +Lib.s:8952 is the one test that follows it.
+    expect(() => run('Screen Open 9,320,200,3,Lowres')).toThrow(/illegal number of colours/i)
+    expect(() => run('Screen Open 9,320,200,4,Lowres')).toThrow(/screen number/i)
+  })
+
   it('Update swaps every double buffered screen, Bob Draw swaps none', () => {
     // InUpdate (+Lib.s:11435) is EffBob, ActBob, AffBob then `EcCall
     // SwapScS`, and ScSwapS (+W.s:2526) walks all eight screens exchanging
