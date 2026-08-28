@@ -69,8 +69,8 @@ describe('the slot partition', () => {
    */
   it('Screen Open still refuses everything above the user range', () => {
     const rt = boot()
-    expect(() => rt.openScreen(8, 320, 200, 2, 0)).toThrow(/illegal screen number/i)
-    expect(() => rt.openScreen(12, 320, 200, 2, 0)).toThrow(/illegal screen number/i)
+    expect(() => rt.openScreen(8, 320, 200, 2, 0)).toThrow(/Valid screen numbers/i)
+    expect(() => rt.openScreen(12, 320, 200, 2, 0)).toThrow(/Valid screen numbers/i)
   })
 })
 

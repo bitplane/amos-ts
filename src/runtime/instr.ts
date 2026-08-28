@@ -280,32 +280,43 @@ function setMouseAxis(v: number, lo: number, hi: number): number {
 }
 
 /** Screen Width/Height(n): explicit n must be open (CheckScreenNumber + AdrEc) */
-/*
- * CheckScreenNumber (+Lib.s:9165): `tst.b Prg_Accessory(a5) / bne.s .Skip /
- * cmp.l #8,d1 / Rbcc L_IllScN`, so a program gets 0 to 7 and an accessory
- * 0 to 9. Nothing here runs as an accessory, so 8 is the bound.
- *
- * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the
- * 44 is error 50, "Valid screen numbers range 0 to 7" — the message names
- * the range the constant enforces. A raw 6 is "Resume label not defined".
- *
- * The compare is unsigned, which is why one test covers both ends. Sixteen
- * call sites reach it (+Lib.s:8739 through 9128), and the check runs before
- * the screen is looked up, so 9 is error 50 and not "screen not opened".
- */
 /** a 68000 `sub.w` result, sign-extended back out of the word */
 function word(a: number, b: number): number {
   return ((a - b) << 16) >> 16
 }
 
-function checkScreenNumber(n: number): number {
-  if (n >>> 0 >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+/**
+ * CheckScreenNumber (+Lib.s:9165), which every screen keyword goes through:
+ *
+ *     tst.b   Prg_Accessory(a5)
+ *     bne.s   .Skip
+ *     cmp.l   #8,d1 / Rbcc L_IllScN
+ *     rts
+ *   .Skip
+ *     cmp.l   #10,d1 / Rbcc L_IllScN
+ *
+ * An ACCESSORY gets ten screens and a normal program eight, and the two extra
+ * exist so an accessory can open a screen without taking one its host is
+ * using. Rbcc is unsigned, which is why one test covers both ends.
+ *
+ * IllScN (+Lib.s:12983) is `moveq #6,d0 / Rbra L_EcWiErr`, which after the 44
+ * is error 50, "Valid screen numbers range 0 to 7". The message says 7 even
+ * for an accessory, because IllScN is shared and nobody rewrote it. A raw 6
+ * is "Resume label not defined".
+ *
+ * Sixteen call sites reach it (+Lib.s:8739 through 9128), and the check runs
+ * before the screen is looked up, so 9 is error 50 in a normal program and
+ * not "screen not opened".
+ */
+function checkScreenNumber(rt: Runtime, n: number): number {
+  const limit = rt.interp.program.accessory ? 10 : 8
+  if (n >>> 0 >= limit) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
   return n
 }
 
 function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
   if (a.length > 0 && int(a[0]!) !== ENT_NUL) {
-    const n = checkScreenNumber(int(a[0]!))
+    const n = checkScreenNumber(rt, int(a[0]!))
     const s = rt.screens.get(n)
     if (!s) throw new AmosError(`screen not opened: ${n}`, 47)
     return s
@@ -1355,14 +1366,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const nc = it.evalInt()
       it.expect(',')
       const mode = it.evalInt()
-      rt.openScreen(checkScreenNumber(n), w, h, nc, mode)
+      rt.openScreen(checkScreenNumber(rt, n), w, h, nc, mode)
       // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
       // Screen Open instruction adds the system flash (+Lib.s:8989);
       // HAM (4096) is 6 planes so it qualifies
       if (nc === 4096 || nc > 2) rt.installSystemFlash()
     },
     'screen close'(it) {
-      rt.closeScreen(checkScreenNumber(optInt(it, rt.currentIndex)))
+      rt.closeScreen(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
     },
     default() {
       // InDefault +Lib.s:8681: back to the boot display — every screen
@@ -1397,9 +1408,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // (EcCon0 compared with the plane bits masked out), planes <= 3
       // each (2 in hires), and counts equal or the back one fewer.
       // (Error 70's exact message text is not in the source tree.)
-      const a = checkScreenNumber(it.evalInt())
+      const a = checkScreenNumber(rt, it.evalInt())
       it.expect(',')
-      const b = checkScreenNumber(it.evalInt())
+      const b = checkScreenNumber(rt, it.evalInt())
       const sa = rt.screens.get(a)
       const sb = rt.screens.get(b)
       if (!sa || !sb) throw new AmosError('screen not opened', 47)
@@ -1423,9 +1434,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // named screen's playfield comes to the front (BPLCON2 bit 6, PFBA)
       // InDualPriority (+Lib.s:8894) checks BOTH numbers, same as
       // InDualPlayfield (+Lib.s:8881) above
-      const a = checkScreenNumber(it.evalInt())
+      const a = checkScreenNumber(rt, it.evalInt())
       it.expect(',')
-      const b = checkScreenNumber(it.evalInt())
+      const b = checkScreenNumber(rt, it.evalInt())
       if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened', 47)
       const sa = rt.screens.get(a)!
       const sb = rt.screens.get(b)!
@@ -1468,12 +1479,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.autoView = false
     },
     screen(it) {
-      rt.setCurrent(checkScreenNumber(it.evalInt()))
+      rt.setCurrent(checkScreenNumber(rt, it.evalInt()))
     },
     'screen display'(it) {
       // EcView +W.s:3247: n,x,y,w,h with per-arg keep-current; w/h set the
       // displayed-window size (EcAWTx/EcAWTy). It does NOT un-hide the screen.
-      const s = byIndex(checkScreenNumber(it.evalInt()))
+      const s = byIndex(checkScreenNumber(rt, it.evalInt()))
       if (it.accept(',')) {
         s.displayX = optInt(it, s.displayX)
         if (it.accept(',')) {
@@ -1486,7 +1497,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'screen offset'(it) {
-      const s = byIndex(checkScreenNumber(it.evalInt()))
+      const s = byIndex(checkScreenNumber(rt, it.evalInt()))
       it.expect(',')
       s.offsetX = optInt(it, s.offsetX)
       if (it.accept(',')) s.offsetY = optInt(it, s.offsetY)
@@ -1494,19 +1505,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     // Screen Show and Screen Hide meet at ScShHi (+Lib.s:9057), which
     // checks the number whichever of the two arrived with it
     'screen hide'(it) {
-      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = false
+      byIndex(checkScreenNumber(rt, optInt(it, rt.currentIndex))).visible = false
     },
     'screen show'(it) {
-      byIndex(checkScreenNumber(optInt(it, rt.currentIndex))).visible = true
+      byIndex(checkScreenNumber(rt, optInt(it, rt.currentIndex))).visible = true
     },
     'screen to front'(it) {
-      rt.toFront(checkScreenNumber(optInt(it, rt.currentIndex)))
+      rt.toFront(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
     },
     'screen to back'(it) {
-      rt.toBack(checkScreenNumber(optInt(it, rt.currentIndex)))
+      rt.toBack(checkScreenNumber(rt, optInt(it, rt.currentIndex)))
     },
     'screen swap'(it) {
-      const n = checkScreenNumber(optInt(it, rt.currentIndex))
+      const n = checkScreenNumber(rt, optInt(it, rt.currentIndex))
       rt.screens.get(n)?.swap()
     },
     'double buffer'() {
@@ -3261,7 +3272,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const sy = it.evalInt()
       it.expect(',')
       const flash = it.evalInt()
-      if (n >>> 0 >= 8) throw new AmosError('illegal screen number', 50)
+      checkScreenNumber(rt, n)
       const g = rt.resource().graphics
       if (!g) throw new AmosError('resource bank not present')
       const s = rt.openScreen(n, sx, sy, g.nColors, g.mode & 0x8004)
@@ -3638,11 +3649,24 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.trackStop()
     },
     run(it) {
-      // InRun0/1 +ILib.s:1436: bare Run only works in direct mode —
-      // inside a program it is a syntax error; Run "file" chains to the
-      // new program (screens kept, banks replaced by the file's)
+      // InRun0 (+ILib.s:1436): bare Run only works in direct mode, and inside
+      // a program it is a syntax error. Run "file" is the other way round --
+      // InRun1 (+ILib.s:1447) opens `tst.w Direct(a5) / bne RIllDir`, and
+      // RIllDir (:1156) is `moveq #17,d0`, Illegal direct mode.
+      //
+      // Then two tests decide what Run MEANS: `tst.l Mon_Base(a5) / bne
+      // PRun_Acc` and `tst.b Prg_Accessory(a5) / bne PRun_Acc` (:1452). With
+      // the monitor up, or in a program the verifier marked an accessory, Run
+      // chains the way Prun does instead of replacing its host -- which is
+      // what lets an accessory hand control on and still come back.
       if (it.atStmtEnd()) throw new AmosError('syntax error')
-      rt.runFile(it.evalStr())
+      if (it.direct !== 0) throw new AmosError(ED_RUN_MESSAGES[17]!, 17)
+      const path = it.evalStr()
+      if (it.program.accessory) {
+        rt.prun(path, it.afterCurrentStatement())
+        return 'jumped'
+      }
+      rt.runFile(path)
       return 'jumped'
     },
     prun(it) {
@@ -3785,12 +3809,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.collide.clxcon = (0xf << 12) | ((enable & 0x3f) << 6) | (match & 0x3f)
     },
     'set accessory'() {
-      // The token table points this at L_InNull (+Lib.s:1474), and InNull
-      // is one instruction: rts (+ILib.s:3748). It marks the program as an
-      // accessory for the *editor* — the interpreter never reads the flag,
-      // which is why the commented-out Prg_Accessory test in InPRun
-      // (+ILib.s:1541) is commented out. Running one directly does nothing.
-      // $2578's spec is a bare "I", so there is no argument to read either.
+      // The token table points this at L_InNull (+Lib.s:1474) and InNull is
+      // one instruction, rts (+ILib.s:3748), so nothing happens HERE. The
+      // work is the verifier's: VerSetA (+Verif.s:826) is `bsr SetNot1.3 /
+      // addq.b #1,Prg_Accessory(a5)`, and Ver_APCmp (:1631) reads the same
+      // flag out of a saved program's APrg_MathFlags high byte.
+      //
+      // So the flag is set before the program runs and holds for all of it,
+      // including the lines above this statement. Two places read it back:
+      // CheckScreenNumber (+Lib.s:9163) gives an accessory ten screens rather
+      // than eight, and InRun1 (+ILib.s:1452) turns Run into Prun. This port
+      // carries it on Program.accessory, which ../interp/prescan.ts sets on
+      // the same pass the verifier would. $2578's spec is a bare "I", so
+      // there is no argument to read either.
     },
     'iff anim'(it) {
       // InIffAnim +Lib.s:4538: Iff Anim "file" To screen[,times] — the
@@ -4181,7 +4212,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- screens extra ----
     'screen clone'(it) {
-      const n = checkScreenNumber(it.evalInt())
+      const n = checkScreenNumber(rt, it.evalInt())
       const src = scr()
       const clone = rt.openScreen(n, src.width, src.height, src.ham ? 4096 : src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
       // a shared BITMAP, which is what the keyword means: the clone points at

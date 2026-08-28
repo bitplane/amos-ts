@@ -4918,7 +4918,12 @@ export class Runtime {
   }
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
-    if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`, 50)
+    // CheckScreenNumber (+Lib.s:9163) once more. Most callers have been
+    // through checkScreenNumber in ./instr.ts already, but the loader and the
+    // extensions reach this directly, and an accessory has ten screens.
+    if (n >>> 0 >= (this.interp.program.accessory ? 10 : 8)) {
+      throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+    }
     // InScreenOpen (+Lib.s:8919): 4096 = HAM — lowres only, 6 planes,
     // stored as 64 colours with the CAMG bit; otherwise the colour count
     // must be exactly a power of two 2..64 (error 5, "illegal number of
