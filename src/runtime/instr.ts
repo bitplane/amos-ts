@@ -4551,6 +4551,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const end = it.evalInt()
       it.expect('to')
       const dest = it.evalInt()
+      // InCopy (+Lib.s:2602) is `sub.l a0,d0 / Rbls L_FonCall`: the length is
+      // end minus start and `bls` catches both the zero and the borrow, so a
+      // Copy that would move nothing is error 23 rather than a no-op. The
+      // port returned quietly, which hid the swapped-argument mistake this
+      // check exists to report.
+      if (end - start <= 0) funcCall()
       const src = rt.resolveAddr(start)
       const dst = rt.resolveWrite(dest)
       if (!src || !dst) return
@@ -5650,7 +5656,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const m = it.accept('to') ? it.evalInt() : n
       const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
       if (!bank) throw new AmosError('bank not reserved')
-      if (!bank.delete(n, m)) {
+      /*
+       * IDIc3 (+Lib.s:2382), shared by Del Bob, Del Sprite and Del Icon:
+       *
+       *	move.l	(a3)+,d1	the FIRST written argument
+       *	Rble	L_FonCall
+       *	move.l	d3,d0		the second
+       *	Rble	L_FonCall
+       *	cmp.l	d1,d0
+       *	Rbhi	L_FonCall
+       *
+       * so both have to be 1 or more, and the second may not exceed the
+       * first. Bnk.DelBob then deletes every image whose number is `>= d0`
+       * and `<= d1` (+Lib.s:8357), and d0 is the SECOND argument — the range
+       * runs from the second to the first, the reverse of how `Del Sprite
+       * 5 To 10` reads. Written that way round it is error 23; the range it
+       * actually deletes is 10 To 5. The port bounded neither end.
+       */
+      if (n <= 0 || m <= 0 || m > n) funcCall()
+      if (!bank.delete(m, n)) {
         if (kind === 'icon') rt.iconBank = null
         else rt.spriteBank = null
       }

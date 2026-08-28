@@ -7,6 +7,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from './runtime'
 import { BNK } from './banks'
+import { amosErrorCode, type AmosError } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -168,6 +169,30 @@ describe('image banks and masks', () => {
       ),
     )
     expect(rt.spriteBank?.images.length).toBe(1)
+  })
+
+  it('Del Sprite\'s range runs from the SECOND argument to the first', () => {
+    // IDIc3 (+Lib.s:2382) reads d1 from the first written argument and d0
+    // from the second, refusing either at 0 or below and refusing `d0 > d1`.
+    // Bnk.DelBob then deletes the images numbered `>= d0` and `<= d1`
+    // (+Lib.s:8357), so the pair is used the other way round from how it
+    // reads: `Del Sprite 3 To 1` clears 1 to 3, and `Del Sprite 1 To 3` is
+    // error 23.
+    const grab = ['Ink 5 : Bar 0,0 To 7,7']
+    for (let i = 1; i <= 4; i++) grab.push(`Get Sprite ${i},0,0 To 8,8`)
+    const rt = run([...grab, 'Del Sprite 3 To 1'].join('\n'))
+    expect(rt.spriteBank?.images.length).toBe(1)
+    const bad = (src: string): number => {
+      try {
+        run([...grab, src].join('\n'))
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    expect(bad('Del Sprite 1 To 3')).toBe(23)
+    expect(bad('Del Sprite 0')).toBe(23)
+    expect(bad('Del Sprite 2 To 0')).toBe(23)
   })
 
   it('Ins Sprite and Ins Icon open a gap in the bank', () => {
