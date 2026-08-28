@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { SID_BANK_NAME, DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
+import { SID_BANK_NAME, XM_BANK_NAME, DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -1475,5 +1475,214 @@ describe('the PlaySID block --- routines 256 to 268', () => {
     expect(rt.dme.sidPlaying).toBe(false)
     const other = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Load "Work:a.sid",10'], SID)
     expect(other.rt.dme.sidPlaying).toBe(true)
+  })
+})
+
+
+/**
+ * A minimal FastTracker 2 module: one channel, one pattern of two rows, one
+ * instrument of one 64-frame sample. Enough for the loader, the bank name and
+ * every keyword that reads the bank rather than the replayer.
+ */
+function xm(magic = 'Extended Module:', version = 0x0104, orders = 24): Uint8Array {
+  const hdr = 0x114
+  const patHdr = 9
+  const insHdr = 263
+  const smpHdr = 40
+  const pcm = 64
+  const packed = [49, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+  const d = new Uint8Array(0x3c + hdr + patHdr + packed.length + insHdr + smpHdr + pcm)
+  for (let i = 0; i < 16; i++) d[i] = magic.charCodeAt(i)
+  d[0x25] = 0x1a
+  const w = (at: number, v: number): void => {
+    d[at] = v & 0xff
+    d[at + 1] = (v >> 8) & 0xff
+  }
+  w(0x3a, version)
+  w(0x3c, hdr)
+  w(0x40, orders)
+  w(0x44, 1)
+  w(0x46, 1)
+  w(0x48, 1)
+  w(0x4a, 1)
+  w(0x4c, 6)
+  w(0x4e, 125)
+  let p = 0x3c + hdr
+  w(p, patHdr)
+  d[p + 5] = 2
+  w(p + 7, packed.length)
+  d.set(packed, p + patHdr)
+  p += patHdr + packed.length
+  w(p, insHdr)
+  w(p + 0x1b, 1)
+  w(p + 0x1d, smpHdr)
+  const sh = p + insHdr
+  w(sh, pcm)
+  d[sh + 0x0c] = 64
+  d[sh + smpHdr] = 64
+  return d
+}
+
+/** a `nCHN` ProTracker module, which `Xm Load` also accepts */
+function chn(tag = '4CHN', length = 7): Uint8Array {
+  const d = new Uint8Array(0x43c + 16)
+  for (let i = 0; i < 4; i++) d[0x438 + i] = tag.charCodeAt(i)
+  d[0x3b6] = length
+  return d
+}
+
+const XM = { 'a.xm': xm() }
+const XMLOAD = 'Xm Load "Work:a.xm",7'
+
+describe('the FastTracker block --- routines 51 to 63', () => {
+  it('Xm Load reserves a bank named "XMmod   ", rounded up to even plus eight', () => {
+    const { rt } = run([XMLOAD], XM)
+    const b = rt.memBanks.get(7)!
+    expect(b.name.padEnd(8).slice(0, 8)).toBe(XM_BANK_NAME)
+    const n = xm().length
+    expect(b.data.length).toBe((n & 1 ? n + 1 : n) + 8)
+  })
+
+  /**
+   * $4248 compares four longs against "Extended Module:" and accepts, and
+   * $4262 masks the long at $438 to three bytes and accepts "CHN". The library
+   * takes `nnCH` and `TDZn` as well ($21098c), and the extension does not.
+   */
+  it('takes an XM and a nCHN module, and refuses a 16-channel one', () => {
+    expect(() => run([XMLOAD], XM)).not.toThrow()
+    expect(() => run([XMLOAD], { 'a.xm': chn('4CHN') })).not.toThrow()
+    expect(() => run([XMLOAD], { 'a.xm': chn('8CHN') })).not.toThrow()
+    // "16CH" has "6CH" in the low three bytes, so $4262 does not match it
+    expect(() => run([XMLOAD], { 'a.xm': chn('16CH') })).toThrow(DME_ERRORS[44])
+    expect(() => run([XMLOAD], { 'a.xm': chn('M.K.') })).toThrow(DME_ERRORS[44])
+  })
+
+  it('erases the bank when the check fails', () => {
+    const rt = (() => {
+      try {
+        return run([XMLOAD], { 'a.xm': chn('M.K.') }).rt
+      } catch {
+        return null
+      }
+    })()
+    expect(rt).toBeNull()
+  })
+
+  it('a bank number at or past 65,536 is AMOS error 23', () => {
+    expect(() => run(['Xm Load "Work:a.xm",65536'], XM)).toThrow()
+  })
+
+  /**
+   * $4248 only looks at the magic, so a 1.03 module LOADS. It is $210a2a
+   * inside the library that refuses to play it, by returning zero rather than
+   * by raising anything.
+   */
+  it('loads a version 1.03 module and then plays silence', () => {
+    const old = { 'a.xm': xm('Extended Module:', 0x0103) }
+    expect(() => run([XMLOAD, 'Xm Play 7'], old)).not.toThrow()
+    const { rt } = run([XMLOAD, 'Xm Play 7'], old)
+    expect(rt.dme.xmPlaying).toBe(false)
+  })
+
+  it('Xm Play on a bank that is not "XMmod   " is message 44', () => {
+    expect(() => run([LOAD, 'Xm Play 5'], MOD)).toThrow(DME_ERRORS[44])
+  })
+
+  /**
+   * $4314 is `cmpi.l #$80000000,(a3)`, the empty-argument convention: an
+   * omitted numeric slot arrives as $80000000 and the keyword substitutes the
+   * bank `Xm Load` filled. Written as the sentinel here, the way the
+   * `Ptm Play` tests above write it.
+   */
+  it('Xm Play with the empty-argument sentinel uses the bank Xm Load filled', () => {
+    const { rt } = run([XMLOAD, 'Xm Play $80000000'], XM)
+    expect(rt.dme.xmPlaying).toBe(true)
+    expect(rt.dme.xmBank).toBe(7)
+  })
+
+  it('plays: the tick reaches Paula', () => {
+    const { audio } = run([XMLOAD, 'Xm Play 7', 'For I=0 To 9 : Wait Vbl : Next I'], XM)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  /** $42d8: the flag at $f2(a0), and $f3(a0) is left alone */
+  it('Xm Stop clears the play flag and leaves the position readable', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', 'Xm Stop'], XM)
+    expect(rt.dme.xmPlaying).toBe(false)
+    expect(rt.dme.xmStarted).toBe(true)
+  })
+
+  /** $448c: 0 to 64, and $2103a8 stores what it is given */
+  it('Xm Volume takes 0 to 64 and nothing else', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Xm Volume 40'], XM)
+    expect(rt.dme.xm.master).toBe(40)
+    expect(() => run([XMLOAD, 'Xm Volume 65'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Xm Volume -1'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Xm Volume 0'], XM)).not.toThrow()
+  })
+
+  /** $44be and $44e4: message 55 when nothing is playing */
+  it('Xm Next Patt and Xm Prev Patt are message 55 before a play', () => {
+    expect(() => run([XMLOAD, 'Xm Next Patt'], XM)).toThrow(DME_ERRORS[55])
+    expect(() => run([XMLOAD, 'Xm Prev Patt'], XM)).toThrow(DME_ERRORS[55])
+    expect(() => run([XMLOAD, 'Xm Play 7', 'Xm Next Patt'], XM)).not.toThrow()
+  })
+
+  it('Xm Next Patt steps the order and reports it', () => {
+    run([XMLOAD, 'Xm Play 7', 'Xm Next Patt', 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['1'])
+  })
+
+  /**
+   * $210838 is `subq.w #$1,$cc(a5) / tst.w $cc(a5) / bgt`, so rewinding from
+   * order 1 does NOT reach order 0: it takes the module's restart position.
+   */
+  it('Xm Prev Patt from order 1 lands on the restart position', () => {
+    run([XMLOAD, 'Xm Play 7', 'Xm Next Patt', 'Xm Prev Patt', 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['0'])
+  })
+
+  /**
+   * $446a reads the BYTE at $40, which is the low half of a little-endian
+   * word, so a 256-order module reports zero.
+   */
+  it('=Xm Song Length reads one byte of the bank, and 256 orders read as 0', () => {
+    run([XMLOAD, 'Print Xm Song Length(7)'], XM)
+    expect(out()).toEqual(['24'])
+    run(['Xm Load "Work:b.xm",7', 'Print Xm Song Length(7)'], { 'b.xm': xm('Extended Module:', 0x0104, 256) })
+    expect(out()).toEqual(['0'])
+  })
+
+  /** $4478 takes $3b6 instead when the bank holds a `CHN` module */
+  it('=Xm Song Length reads $3b6 for a nCHN module', () => {
+    run([XMLOAD, 'Print Xm Song Length(7)'], { 'a.xm': chn('4CHN', 11) })
+    expect(out()).toEqual(['11'])
+  })
+
+  it('=Xm Song Length on a bank that is not "XMmod   " is message 44', () => {
+    expect(() => run([LOAD, 'Print Xm Song Length(5)'], MOD)).toThrow(DME_ERRORS[44])
+  })
+
+  /** $43fe: guarded by $f3(a2), so zero before the first play */
+  it('=Xm Song Pos is zero before anything is played', () => {
+    run([XMLOAD, 'Print Xm Song Pos'], XM)
+    expect(out()).toEqual(['0'])
+  })
+
+  /** $450a: 0 to 31, and $2104b6 clears the byte as it reads it */
+  it('=Xm Vu takes 0 to 31 and reads the peak once', () => {
+    run([XMLOAD, 'Xm Play 7', 'For I=0 To 20 : Wait Vbl : Next I', 'Print Xm Vu(0);" ";Xm Vu(0)'], XM)
+    const [first, second] = out()[0]!.split(' ')
+    expect(Number(first)).toBeGreaterThan(0)
+    expect(Number(second)).toBe(0)
+    expect(() => run([XMLOAD, 'Print Xm Vu(32)'], XM)).toThrow()
+    expect(() => run([XMLOAD, 'Print Xm Vu(-1)'], XM)).toThrow()
+  })
+
+  it('reloading the bank that is playing stops it first, and another bank does not', () => {
+    const { rt } = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', XMLOAD], XM)
+    expect(rt.dme.xmPlaying).toBe(false)
+    const other = run([XMLOAD, 'Xm Play 7', 'Wait Vbl', 'Xm Load "Work:a.xm",8'], XM)
+    expect(other.rt.dme.xmPlaying).toBe(true)
   })
 })

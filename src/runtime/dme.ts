@@ -103,6 +103,8 @@ import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
 import { S3mPlayer } from '../amiga/s3mplay'
 import { PlaySid, PAL_VERT_FREQ } from '../amiga/playsid'
 import { PSID_MAGIC } from '../amiga/psid'
+import { XM_MAGIC, parseXm } from '../amiga/xm'
+import { XmPlayer } from '../amiga/xmplay'
 
 /** the bank `Ptm Load` reserves, and the name `Ptm Play` insists on ($7882) */
 export const PTM_BANK_NAME = 'Tracker '
@@ -148,6 +150,24 @@ export const DIGI_BANK_NAME = 'DigiMod '
 export const SMON_BANK_NAME = 'SoundMon'
 /** `$53334d6d` then `$6f642020` at $4774: "S3Mmod" and two spaces */
 export const S3M_BANK_NAME = 'S3Mmod  '
+
+/**
+ * `dc.b "Extended Module:XMmod   "` at $428c, twenty-four bytes: the
+ * sixteen $4248 compares four longs of, and then the bank name.
+ */
+export const XM_BANK_NAME = 'XMmod   '
+
+/** $4258's `move.l $438(a2),d0 / andi.l #$ffffff,d1`: "C", "H", "N" */
+export const XM_MOD_MAGIC_AT = 0x438
+export const XM_MOD_MAGIC = 0x43484e
+
+/** $44786a: the song length byte an XM keeps at $40 and a MOD at $3b6 */
+export const XM_LENGTH_AT = 0x40
+export const XM_MOD_LENGTH_AT = 0x3b6
+
+/** message 44, and message 55 when nothing is playing */
+export const XM_NOT_A_MODULE = 44
+export const XM_NOT_INITIALIZED = 55
 /** the eight bytes at $72ac, tested as `$50536964` and `$20202020` at -$8/-$4 */
 export const SID_BANK_NAME = 'PSid    '
 /**
@@ -356,6 +376,14 @@ export interface DmeState {
   s3mPlaying: boolean
   s3mStarted: boolean
 
+  /** FastTracker 2, the twelfth and last external replayer */
+  xm: XmPlayer
+  /** `$e8(a2)`, the bank `Xm Load` last filled */
+  xmBank: number
+  /** `$f2(a2)`, which `Xm Stop` clears, and `$f3(a2)`, which it does not */
+  xmPlaying: boolean
+  xmStarted: boolean
+
   /** BP SoundMon 2.0, the sixth --- four channels and a synth, no mixer */
   smon: SoundMon
   /** `$8a(a2)`, `$94(a2)` and `$95(a2)` */
@@ -449,6 +477,10 @@ export function newDmeState(rt?: Runtime): DmeState {
     s3mBank: 0,
     s3mPlaying: false,
     s3mStarted: false,
+    xm: new XmPlayer(() => rt?.host.audio),
+    xmBank: 0,
+    xmPlaying: false,
+    xmStarted: false,
     dmed: null,
     dmedBank: 0,
     dmedPlaying: false,
@@ -1833,6 +1865,134 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       s.s3mStarted = true
     },
 
+    /**
+     * Xm Load file$,bank --- routine 51 ($41d0).
+     *
+     * `moveq #$1,d1` at $4200 is Data alone, the second loader here to ask for
+     * no chip, and for the same reason ScreamTracker's does not: this library
+     * mixes in software and Paula only ever sees the four buffers LVO -30
+     * AllocMems for itself at $2101f2.
+     *
+     * The bank is checked TWICE and differently. $4248 compares four longs
+     * against "Extended Module:" and accepts; failing that, $4262 masks the
+     * long at $438 to its low three bytes and accepts "CHN", which is a
+     * multi-channel ProTracker module. Anything else is erased and is message
+     * 44. So the loader takes `4CHN` through `9CHN` but not `16CH` and not
+     * `M.K.`, where the LIBRARY's own detect at $21098c takes all of `nCHN`,
+     * `nnCH` and `TDZn` --- the extension is stricter than the thing it feeds.
+     */
+    'xm load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      // $41e8: reloading the bank that is playing stops it first
+      if (bank === s.xmBank && s.xmPlaying) {
+        s.xmPlaying = false
+        s.xm.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.xmBank = bank
+      const size = (bytes.length & 1 ? bytes.length + 1 : bytes.length) + 8
+      rt.reserveBank(bank, size, XM_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const magic = String.fromCharCode(...data.subarray(0, XM_MAGIC.length))
+      if (magic === XM_MAGIC) return
+      const tag =
+        ((data[XM_MOD_MAGIC_AT + 1] ?? 0) << 16) |
+        ((data[XM_MOD_MAGIC_AT + 2] ?? 0) << 8) |
+        (data[XM_MOD_MAGIC_AT + 3] ?? 0)
+      if (tag === XM_MOD_MAGIC) return
+      rt.eraseBank(bank)
+      dmeErr(XM_NOT_A_MODULE)
+    },
+
+    /**
+     * Xm Play [bank] --- routine 54 ($42f8) into 55, on the bank NAME.
+     *
+     * Routine 55 takes TWO parameters and the token table offers one. $42f8
+     * pushes $80000000 for the second, $4354 turns that back into a start
+     * order of zero, and nothing anywhere pushes anything else, so the order
+     * is always zero and the rest of $4354 is unreachable. The first
+     * parameter still uses the empty-argument convention: `Xm Play ,` leaves
+     * $80000000 on the stack and $4314 substitutes the bank `Xm Load` filled.
+     *
+     * DEVIATION: a bank holding a `nCHN` ProTracker module loads and then
+     * plays nothing. The library has a second sequencer for those --- $213874
+     * initialises it and $2139a8 is its tick, chosen by `$c4(a5)` at $210a4e
+     * --- and this port has only the FastTracker one. The library answers a
+     * module it cannot identify by returning zero from $21096a and starting
+     * no interrupt, which is silence rather than an error, so silence is what
+     * a MOD gets here too.
+     *
+     * DEFECT: three effects are computed and thrown away. Arpeggio and
+     * vibrato store their period into `$10(a4)` and tremolo its volume into
+     * `$12(a4)`, and the pass at $211bf4 that runs after every tick rewrites
+     * both registers from the channel block before the mixer reads them. A
+     * module that leans on `0xy`, `4xy` or `7xy` plays those notes flat and
+     * unmodulated. Tremor is in neither dispatch table and `Xxy` is past the
+     * end of both. `src/amiga/xmplay.ts` carries the instruction bytes.
+     */
+    'xm play'(it) {
+      const arg = it.evalInt()
+      const s = st()
+      s.xmPlaying = false
+      s.xm.stop()
+      const bank = arg === PTM_CURRENT_BANK ? s.xmBank : arg
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== XM_BANK_NAME) dmeErr(XM_NOT_A_MODULE)
+      s.xmBank = bank
+      const song = parseXm(b!.data)
+      if (!song) return
+      s.xm.load(song)
+      s.xmPlaying = true
+      s.xmStarted = true
+    },
+
+    /** Xm Stop --- routine 53 ($42d8): the flag at $f2(a0), then LVO -36 */
+    'xm stop'() {
+      const s = st()
+      if (!s.xmPlaying) return
+      s.xmPlaying = false
+      s.xm.stop()
+    },
+
+    /**
+     * Xm Volume n --- routine 60 ($448c), 0 to 64 and an illegal argument
+     * outside it, into LVO -48.
+     *
+     * $2103a8 is `mulu.w #$40,d0 / lsr.w #$6,d0`, which is d0 for every value
+     * the range check lets through. The library multiplies by 64 and divides
+     * by 64 and stores what it was given.
+     */
+    'xm volume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 0x40) badCall()
+      st().xm.setMaster(v)
+    },
+
+    /**
+     * Xm Next Patt / Xm Prev Patt --- routines 61 ($44be) and 62 ($44e4),
+     * message 55 when nothing is playing, into LVO -60 and -54.
+     *
+     * $210838 rewinds with `subq.w #$1,$cc(a5) / tst.w $cc(a5) / bgt`, so an
+     * order of 1 does not land on 0: it lands on the module's restart
+     * position. Only a rewind from order 2 or higher steps by one.
+     */
+    'xm next patt'() {
+      const s = st()
+      if (!s.xmPlaying) dmeErr(XM_NOT_INITIALIZED)
+      s.xm.nextPattern()
+    },
+    'xm prev patt'() {
+      const s = st()
+      if (!s.xmPlaying) dmeErr(XM_NOT_INITIALIZED)
+      s.xm.prevPattern()
+    },
+
     /** S3m Stop --- routine 66 ($4612): the flag at $e6(a0), then LVO -36 */
     's3m stop'() {
       const s = st()
@@ -2765,6 +2925,39 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       return VI(st().s3m.readVu(n))
     },
 
+    /**
+     * =Xm Song Length(bank) — routine 59 ($442e), which calls no vector and
+     * reads a BYTE.
+     *
+     * Which byte depends on what the bank holds: $4478 takes $3b6 for a `CHN`
+     * module, which is ProTracker's song length, and $446a takes $40 for an
+     * XM, which is the LOW half of a little-endian word. A 256-order module
+     * therefore reports 0. Message 44 when the bank is not named "XMmod   ".
+     */
+    'xm song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== XM_BANK_NAME) dmeErr(XM_NOT_A_MODULE)
+      const d = bank!.data
+      const tag = ((d[XM_MOD_MAGIC_AT + 1] ?? 0) << 16) | ((d[XM_MOD_MAGIC_AT + 2] ?? 0) << 8) | (d[XM_MOD_MAGIC_AT + 3] ?? 0)
+      return VI(tag === XM_MOD_MAGIC ? (d[XM_MOD_LENGTH_AT] ?? 0) : (d[XM_LENGTH_AT] ?? 0))
+    },
+
+    /**
+     * =Xm Song Pos — routine 58 ($43fe) into LVO -42, guarded by `$f3(a2)`.
+     *
+     * `Xm Stop` clears `$f2(a2)` and leaves `$f3(a2)` set, so the position
+     * survives a stop and this keeps reporting the order the module was on.
+     */
+    'xm song pos': () => VI(st().xmStarted ? st().xm.position : 0),
+
+    /** =Xm Vu(n) — routine 63 ($450a), 0..31, into LVO -66, read and cleared */
+    'xm vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= 32) badCall()
+      return VI(st().xm.readVu(n))
+    },
+
     /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
     'dmed vu': (_, a) => {
       const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
@@ -2806,6 +2999,10 @@ export function dmeVbl(rt: Runtime): void {
   // its own tick is a buffer of mix rather than a register write, so one frame
   // is one tick here and the tempo shows in the buffer length instead
   if (s.s3mPlaying) s.s3m.vbl()
+  // FastTracker is ScreamTracker's shape exactly: a CIA at the module's BPM,
+  // and a tick that is a buffer of mix rather than a register write, so the
+  // tempo shows in `samplesPerTick` and not in how often this comes round
+  if (s.xmPlaying) s.xm.vbl()
   // MED drives itself off the frame count, as `runtime/medext.ts`'s copy does
   if (s.dmedPlaying) s.dmed?.vbl()
   // OctaMed is the same replay on a different clock: its tick is the end of a

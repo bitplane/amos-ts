@@ -87,17 +87,16 @@ display database to fill itself from.
 
 | extension | missing | evidence held |
 |---|---|---|
-| DME 2.0 (`dme-2.0`) | 24 | UNDER WAY, at 87%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Thirteen of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED and OctaMED, each read out of its own library in `libs/`, and now PlaySID out of `playsid.library` itself. Two blocks of keywords left: OctaMix (15) and FastTracker (9), and both are below rather than here --- each is blocked on something other than the work |
+| DME 2.0 (`dme-2.0`) | 15 | UNDER WAY, at 92%. Thomas Reetz's DOOM Music Extension, fifteen music formats in one library. Twelve of them are separate Amiga libraries it opens by name; four are inside the 46,208-byte hunk. **Fourteen of the fifteen play.** The four internal ones, and then SoundFX 1.3, FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED, OctaMED, FastTracker 2 and PlaySID, each read out of its own library. ONE block of keywords is left, OctaMix's fifteen, and it is below rather than here because it is blocked on an input rather than on the work |
 
-Both of DME's remaining blocks are blocked on something other than the work,
-which is why neither of them is simply next. PlaySID was the third and is
-done: it is the one that was blocked on WORK rather than on an input, which
-is why it went first.
+DME has one block left and it is blocked on an input rather than on the work,
+which is why it is not simply next. The other two are done: PlaySID needed a
+6502, and FastTracker needed a module to check against and turned out to have
+one already.
 
 | block | missing | what it is waiting on |
 |---|---|---|
 | OctaMix (`omix *`) | 15 | a module. `DME_OctaMix.library` refuses anything without `FLAG2_MIX` at $2130f4, and nothing in the 45,743-file corpus has the bit --- all 187 OctaMED Professional 6 modules are MMD2 without it. The library is mapped in `src/amiga/mmd2mix.ts`'s header rather than ported, because a port would have nothing to check against but its own reading |
-| FastTracker (`xm *`) | 9 | an `.xm` module. `DME_FastTracker.library` is held and readable at 26,324 bytes |
 
 **PlaySID is done, and it is the only row here that needed a processor.** A
 PSID file is not a music format in the sense the rest of this document uses
@@ -133,6 +132,43 @@ COUNT there instead, so the library reads its flags from address 1, 2, 3 or 4.
 On a 68000 the odd two are an address error as well. The range check and the
 error are real and are kept; the pointer is not, and `status.ts` carries the
 DEFECT.
+
+**FastTracker is done, and what it was waiting on was already in
+`fixtures/`.** The row above used to read "waiting on an `.xm` module", which
+stopped being true the moment `mus/play/XMPlayer-library` came off Aminet for
+a different reason: it ships `ExampleXM/visit_from_the_dead.xm`, 417,748
+bytes, 14 channels, 29 patterns and 46 instruments. That is the check the port
+is built against, and the check that matters is arithmetic rather than
+audible: a correct walk of the pattern and instrument chains ends on the
+file's LAST byte, and this one does.
+
+`src/amiga/xm.ts` is the container, `src/amiga/xmmix.ts` the 28,149 Hz mixer
+and `src/amiga/xmplay.ts` the sequencer. Three of the four tables the mixer
+needs are GENERATED rather than shipped and checked against the library's own
+bytes: the 104-word Amiga period table matches word for word, the 768-long
+linear frequency table is `floor(8363 * 64 * 2 ** (-n / 768))` and regenerates
+exactly, and the thirty-word headroom table matches including the two words
+BELOW it that a two- or three-channel module reads by accident.
+
+What makes this library interesting is how much of it does not work.
+`DME_FastTracker.library` is version 1.0 where its eleven siblings are 2.0,
+and it shows. Arpeggio, vibrato and tremolo each compute a result and store it
+into the voice registers at `$10(a4)` and `$12(a4)`; the pass at $211bf4 that
+runs after EVERY tick then rewrites both from the channel block, at $211d90
+and $211dc8, before the mixer reads them. So three of FastTracker's best-known
+effects move their internal state and bend nothing. Tremor's entry in both
+dispatch tables is the `rts` at $212a72, the panning slide is in neither
+table, and `Xxy` is past the end of both. And the volume envelope multiplies
+where it should divide at $211cc0, so a segment between two points reads
+`dy / (t * dx)` and falls away from the first point instead of climbing to the
+second --- the nodes themselves are exact, because a direct hit takes its own
+branch at $211c7a.
+
+All of it is reproduced. `Xm Play` is APPROXIMATED, and for one reason that is
+none of the above: `Xm Load` accepts a `nCHN` ProTracker module as well as an
+XM, the library has a second sequencer for those at $213874 and $2139a8, and
+this port has only the FastTracker one. A MOD in an `XMmod   ` bank loads and
+plays silence. The other eight keywords are faithful.
 
 **The sweep's answer is that nothing else is waiting.** No registered release
 shares every id it has in common with a ported one and goes unnamed, so there

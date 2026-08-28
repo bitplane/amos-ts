@@ -2762,6 +2762,20 @@ export const FAITHFUL = new Set<string>([
   'sid rewind',
   'sid channel',
   'sid songs',
+  // The FastTracker block over ../amiga/xm.ts, ../amiga/xmmix.ts and
+  // ../amiga/xmplay.ts, off DME_FastTracker.library 1.0 --- the last of the
+  // twelve external replayers and the only one still at version 1, which is
+  // why message 44 is the one "Can't load" line here with no version in it.
+  // `Xm Play` is NOT here, for the reason `S3m Play` is not, and for a second
+  // reason the note gives.
+  'xm load',
+  'xm stop',
+  'xm volume',
+  'xm next patt',
+  'xm prev patt',
+  'xm song length',
+  'xm song pos',
+  'xm vu',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -9847,6 +9861,70 @@ export const NOTES: Record<string, string> = {
     "`move.b $f(a2),d3`. One byte out of the BANK rather than the library, so it answers with no module " +
     "set, and offset $0f is the LOW half of SIDHeader.number --- a file claiming 256 songs would report " +
     "zero. Message 13 on a bank that is not a PSid.",
+  "xm load":
+    "routine 51 ($41d0), a Data-only bank named \"XMmod   \" ($429c) --- `moveq #$1,d1` at $4200, and the " +
+    "second loader here to ask for no chip, because this library mixes in software and Paula only sees the " +
+    "four buffers LVO -30 AllocMems for itself at $2101f2. The size is the file rounded up to even plus " +
+    "eight. The content check runs TWICE: $4248 compares four longs against \"Extended Module:\" and " +
+    "accepts, and failing that $4262 masks the long at $438 to three bytes and accepts \"CHN\". So the " +
+    "loader takes 4CHN through 9CHN but not 16CH and not M.K., where the library's own detect at $21098c " +
+    "takes nCHN, nnCH and TDZn --- the extension is stricter than the thing it feeds. Reloading the bank " +
+    "that is playing stops it first ($41e8), and a failed check erases the bank before message 44.",
+  "xm play":
+    "routines 54 ($42f8) and 55 ($4302), on the bank NAME rather than on the file magic. Routine 55 takes " +
+    "two parameters and the token table offers one: $42f8 pushes $80000000 for the second, $4354 turns " +
+    "that into a start order of zero, and nothing pushes anything else, so the order is always zero and " +
+    "the rest of $4354 cannot be reached. The first parameter keeps the empty-argument convention, so " +
+    "`Xm Play ,` uses the bank `Xm Load` filled ($4314). What runs underneath is src/amiga/xmplay.ts's " +
+    "sequencer over src/amiga/xmmix.ts's 28,149 Hz software mixer --- 3,546,895 / 126, which is what " +
+    "$215390 gets after asking for 28,000. APPROXIMATED for two reasons. The first is a MISSING ENGINE: " +
+    "the loader accepts a nCHN ProTracker module and the library has a second sequencer for it, $213874 " +
+    "to initialise and $2139a8 to tick, chosen by `$c4(a5)` at $210a4e. This port has only the " +
+    "FastTracker one, so a MOD in the bank loads and plays silence --- which is also what the library " +
+    "does with a module it cannot identify ($21096a returns zero and starts no interrupt), but for a " +
+    "different reason. The second is the mixer's own rounding: $210ee4 is `((clock / period) << 14) / " +
+    "(rate >> 4)` with three truncations kept, so C-4 plays at 8361 Hz rather than 8363 --- 0.02% --- and " +
+    "the drift reaches 0.33% at the bottom of the note range, where `floor(clock / period)` throws away " +
+    "the same fraction of a smaller quotient. Measured across all 84 notes, not estimated. DEFECT: arpeggio, vibrato and tremolo are computed and thrown away. $2123e4 and $2124ec " +
+    "store a period into `$10(a4)` and $212558 a volume into `$12(a4)` --- 3940 0010 and 3940 0012 --- " +
+    "and the pass at $211bf4 that $211b74 pushes as the return address of EVERY tick rewrites both from " +
+    "the channel block, $211d90 and $211dc8, before the mixer reads them. So `0xy`, `4xy` and `7xy` move " +
+    "their phases and bend nothing. Tremor's entry in both dispatch tables IS the rts at $212a72, the " +
+    "panning slide is in neither, and `Xxy` is past the end of both. The envelope is a third: $211cc0 " +
+    "multiplies where it should divide, so a segment between two points reads dy/(t*dx) instead of " +
+    "dy*t/dx and dips instead of ramping --- the nodes themselves are exact, because $211c7a takes a " +
+    "separate branch on a direct hit. All of it is reproduced; src/amiga/xmplay.ts carries the bytes.",
+  "xm stop":
+    "routine 53 ($42d8): the flag at $f2(a0) and then LVO -36, which drops DMACON's four audio bits, " +
+    "zeroes the four AUDxVOL and RemIntServers the AUD0 handler ($210312). $f3(a0) is NOT cleared, which " +
+    "is what lets `=Xm Song Pos` keep answering after a stop.",
+  "xm volume":
+    "routine 60 ($448c), 0 to 64 and an AMOS error 23 outside it, into LVO -48. $2103a8 is " +
+    "`mulu.w #$40,d0 / lsr.w #$6,d0`, which is the identity for every value the range check lets " +
+    "through: the library multiplies by 64, divides by 64, and stores what it was given at $78(a5).",
+  "xm next patt":
+    "routine 61 ($44be), message 55 when $f2(a2) is clear, into LVO -60. $2107c2 steps the order, zeroes " +
+    "the row, and re-seeks the pattern; past the last order it takes the module's restart position at " +
+    "$42(a0) rather than zero.",
+  "xm prev patt":
+    "routine 62 ($44e4), message 55 and LVO -54. $210838 is `subq.w #$1,$cc(a5) / tst.w $cc(a5) / bgt`, " +
+    "so an order of 1 does not step to 0 --- it takes the restart position, and only a rewind from order " +
+    "2 or higher moves by one. The `move.w d0,$76(a5)` at $210852 is dead: $210860 overwrites it from " +
+    "$cc(a5) eight bytes later.",
+  "xm song length":
+    "routine 59 ($442e), which calls no vector and reads a BYTE whose offset depends on the bank: $4478 " +
+    "takes $3b6 for a \"CHN\" module, which is ProTracker's song length, and $446a takes $40 for an XM, " +
+    "which is the LOW half of a little-endian word --- a 256-order module reports 0. Message 44 when the " +
+    "bank is not named \"XMmod   \", checked as two longs against $584d6d6f and $64202020.",
+  "xm song pos":
+    "routine 58 ($43fe) into LVO -42, which returns `$76(a5)` --- the ORDER, not the row. Guarded by " +
+    "$f3(a2), which `Xm Stop` leaves set, so the position survives a stop and reads 0 only before the " +
+    "first `Xm Play`.",
+  "xm vu":
+    "routine 63 ($450a), 0 to 31 and an AMOS error 23 outside it, into LVO -66. $2104a4 reads the byte " +
+    "from the 32-byte table at $2104c0 and CLEARS it in the same breath, and $211f88 is the only writer: " +
+    "a note trigger stores the sample's volume scaled by the master. So an `Xm Vu` that is never called " +
+    "keeps its last peak, and one called every frame sees each note exactly once.",
   "smon load":
     "routine 139 ($54f8), the same nine steps with a DATA and CHIP bank named \"SoundMon\" ($558c). Its tag " +
     "test is LOOSER than the library's: $5564 reads the LONG at $1a and clears the low byte before comparing " +
