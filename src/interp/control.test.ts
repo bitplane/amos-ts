@@ -47,6 +47,32 @@ describe('user-defined functions (Fn / Def Fn)', () => {
   it('a string function returns a string', () => {
     expect(run('Def Fn J$(A$,B$)=A$+"-"+B$\nPrint Fn J$("a","b")').out).toBe('a-b\n')
   })
+
+  it('the two ways Fn fails have numbers of their own, not 23', () => {
+    // FnNDef (+ILib.s:4265) is `moveq #15,d0` and FnIlNb (+ILib.s:4263) is
+    // `moveq #16,d0`. Both used to arrive numberless and report 23, which is
+    // the message a program printing Errn$ would have shown.
+    const code = (src: string): number => {
+      try {
+        run(src)
+        return 0
+      } catch (e) {
+        return amosErrorCode(e as AmosError)
+      }
+    }
+    // InDFn (+ILib.s:4194) pokes the body pointer into the variable at RUN
+    // time and FnFn opens `move.l (a0),d0 / beq FnNDef`, so a Def Fn the
+    // program jumped over leaves the slot empty. The name still resolves,
+    // which is why the Test pass lets this through.
+    expect(code(['Goto SKIP', 'Def Fn SQ(X)=X*X', 'SKIP:', 'Print Fn SQ(2)'].join('\n'))).toBe(15)
+    expect(code('Def Fn SQ(X)=X*X\nPrint Fn SQ(1,2)')).toBe(16)
+    // and a string argument against a numeric parameter is TypeMis, 34.
+    // FnFn (+ILib.s:4237) tests the two types separately: `cmp.b #1,d1` for
+    // the parameter and, at FFn2, `cmp.b #1,d2 / bhi TypeMis` for the
+    // argument. Only 2 is above 1, so int against float coerces and either
+    // side being a string is the error.
+    expect(code('Def Fn SQ(X)=X*X\nPrint Fn SQ("a")')).toBe(34)
+  })
 })
 
 describe('Not as a prefix operator (FnNot — a fresh New_Evalue)', () => {
@@ -161,6 +187,19 @@ describe('error handling (Resume / Resume Label)', () => {
 
   it('a bare Resume Label outside an error is error 7 (NoErr +ILib.s:1936)', () => {
     expect(() => run('Resume Label')).toThrow(/Resume without error/)
+  })
+
+  it('Pop Proc cannot leave an error handler — Resume is the only way out', () => {
+    // RPopPro (+ILib.s:2699) opens `tst.w ErrorOn(a5) / bne EProErr`, and
+    // EProErr (+ILib.s:1178) is `moveq #8,d0`. The test is BEFORE the `[`,
+    // so a Pop Proc carrying a value is refused just the same.
+    const prog = ['On Error Proc H', 'Error 23', 'End', 'Procedure H', '  Pop Proc', 'End Proc'].join('\n')
+    expect(() => run(prog)).toThrow(/must RESUME/)
+    const valued = ['On Error Proc H', 'Error 23', 'End', 'Procedure H', '  Pop Proc[1]', 'End Proc'].join('\n')
+    expect(() => run(valued)).toThrow(/must RESUME/)
+    // and outside a handler it is the ordinary early return
+    const ok = ['T', 'Print Param', 'Procedure T', '  Pop Proc[7]', 'End Proc'].join('\n')
+    expect(run(ok).out).toBe(' 7\n')
   })
 
 })

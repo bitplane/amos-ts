@@ -91,12 +91,24 @@ describe('Screen Open colour validation (InScreenOpen +Lib.s:8919)', () => {
     expect(() => boot('Screen Open 0,320,200,64,Lowres')).not.toThrow()
   })
 
-  it('HAM is 4096 colours, lowres only, stored as 64 (ScOo: moveq #64,d6)', () => {
+  it('HAM is 4096 colours, lowres only, stored as 64 but REPORTED as 4096', () => {
+    // ScOo (+Lib.s:8926) takes the 4096 apart: six planes, `moveq #64,d6` for
+    // the colour count Cree writes to EcNbCol, and `or.w #$0800,d5` for the
+    // mode word that becomes EcCon0. `tst.w d5 / Rbmi L_FonCall` is why Hires
+    // is refused — bit 15 of that same word is HIRES.
+    //
+    // FnScreenColour (+Lib.s:8777) then reads EcNbCol and throws it away
+    // again: `btst #3,EcCon0(a0) / beq.s .Skip / move.l #4096,d3`. btst
+    // against memory is byte-sized and the byte at EcCon0 is the high one, so
+    // bit 3 there is bit 11 of BPLCON0, HAM. The same file's `btst #7,
+    // EcCon0(a0)` (+W.s:6374) reads HIRES out of bit 15 the same way.
     expect(() => boot('Screen Open 0,320,200,4096,Hires')).toThrow(/function call/)
     const { rt, out } = boot('Screen Open 0,320,200,4096,Lowres\nPrint Screen Colour')
     expect(rt.screen.ham).toBe(true)
     expect(rt.screen.depth).toBe(6)
-    expect(out).toBe(' 64\n') // Screen Colour reports EcNbCol = 64, not 4096
+    expect(out).toBe(' 4096\n')
+    // and a plain six-plane screen, which stores the same 64, answers 64
+    expect(boot('Screen Open 0,320,200,64,Lowres\nPrint Screen Colour').out).toBe(' 64\n')
   })
 
   it('hires screens cap at 16 colours (ScOo2: cmp.w #4,d4)', () => {

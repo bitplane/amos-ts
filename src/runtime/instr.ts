@@ -6125,7 +6125,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen colour'(_, a) {
       void a
-      return VI(scr().nColors)
+      // FnScreenColour (+Lib.s:8777) reads EcNbCol, then
+      // `btst #3,EcCon0(a0) / beq.s .Skip / move.l #4096,d3`. btst against
+      // memory is byte-sized, so bit 3 of the high byte of BPLCON0 is bit 11,
+      // HAM. A HAM screen answers 4096 whatever its six planes hold.
+      const s = scr()
+      return VI(s.ham ? 4096 : s.nColors)
     },
     colour(_, a) {
       if (a.length !== 1) throw new AmosError('wrong number of arguments')
@@ -6197,7 +6202,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen base'() {
       // FnScreenBase +Lib.s:8769: ScOnAd — the current screen's control
-      // block (the Ec structure), mapped read-only so Deek/Leek walks work
+      // block (the Ec structure), mapped read-only so Deek/Leek walks work.
+      // GetScreen0 (+Lib.s:8799) is `move.l ScOnAd(a5),d0 / Rbeq L_ScNOp`,
+      // so with nothing open this is an error and not an address; the port's
+      // screenCtrlAddr is arithmetic and would answer for a closed slot.
+      void rt.screen
       return VI(rt.screenCtrlAddr(rt.currentIndex) | 0)
     },
     logic(_, a) {
