@@ -66,6 +66,45 @@ import {
   omedTickHz,
   type OmedSide,
 } from '../amiga/mmd2mix'
+import {
+  MMD_FLAG2_BPM,
+  MMD2_CHANNELS_AT,
+  MMD2_ECHODEPTH_AT,
+  MMD2_ECHOLEN_AT,
+  MMD2_ECHOTYPE_AT,
+  MMD2_FLAGS3_AT,
+  MMD2_STEREOSEP_AT,
+  MMD2_TRACKVOLS_AT,
+  MMD2_VOLADJ_AT,
+  MMD_FLAG3_STEREO,
+} from '../amiga/mmd2'
+import {
+  OMIX_CLOCK,
+  OMIX_DEFAULT_BUFFER,
+  OMIX_DEFAULT_RATE,
+  OMIX_MAX_CHANNELS,
+  OMIX_NOTES,
+  omixNoteTable,
+  omixRateHz,
+  omixSamplesPerTick,
+  omixTickHz,
+} from '../amiga/omix'
+import {
+  OMIX_FLAG_LOOP,
+  OMIX_FLAG_OFF,
+  omixChannelVolume,
+  omixEcho,
+  omixEchoFrames,
+  omixMix,
+  omixShift,
+  omixStep,
+  omixStereoSpread,
+  omixTrackScale,
+  omixVoice,
+  omixVolumeRow,
+  omixVolumeTable,
+  type OmixVoice,
+} from '../amiga/omixmix'
 
 /**
  * The CIA timer periods for primary tempos 1 to 10, read out of the table at
@@ -327,7 +366,19 @@ export interface MedHost {
  * `DME_OctaMed.library`: MMD2, up to eight tracks mixed two to a voice, and a
  * tick that is the length of a DMA buffer.
  */
-export type MedBuild = 'medplayer' | 'octaplayer'
+export type MedBuild = 'medplayer' | 'octaplayer' | 'octamixplayer'
+
+/**
+ * `medPeriod`'s table is sixty notes and wraps its top octave; OctaMix's is
+ * seventy-two and does not. The two agree to under a cent everywhere the first
+ * is valid, and MedPlayer note `n` is OctaMix entry `n + 24` --- checked across
+ * all sixty rather than read off the two tables.
+ *
+ * So the octamix build cannot borrow `medPeriod`: above note 35 it would play
+ * an octave low. It uses OctaMix's own tables and converts to a period, which
+ * is what $21218e does before any effect touches it.
+ */
+const OMIX_NOTE_OFFSET = 24
 
 /** $210882, $210896, $2108aa, $2108be: four blocks, and $78 further on is the
  *  second track of each pair */
@@ -402,6 +453,36 @@ export class MedPlayer {
   private pseqAt = 0
   /** the eight mixer sides, and the four buffers they are summed into */
   private sides: OmedSide[] = []
+  /** the $4c blocks at `$215950`, one per mixed channel */
+  private omixVoices: OmixVoice[] = []
+  /** the word accumulator $211968 clears and $21039c adds into */
+  private omixAcc = new Int16Array(0)
+  /** what the converters at $2116c6 and $21171c hand Paula */
+  private omixOut = new Int8Array(0)
+  /** `$2264(a6)`, the echo line, and `$226c(a6)`, its position */
+  private omixLine = new Int16Array(0)
+  private omixLinePos = 0
+  /** the 64 x 256 table at `$225c(a6)` and the shift at `$227e(a6)` */
+  private omixTable: Int16Array = new Int16Array(0)
+  private omixShiftAmt = 0
+  /** `$21591c` and `$215918`: what `Omix Freq` and `Omix Buffer` set */
+  omixRequestedRate = OMIX_DEFAULT_RATE
+  omixBuffer = OMIX_DEFAULT_BUFFER
+  /** `$215920`, which only `Omix 14 Bit On` and `Off` write */
+  omix14Bit = false
+  /** `$2159c4`, the subsong `Omix Play` asks for */
+  omixSubsong = 0
+  /** `$2274(a6)`: the request put through a whole Paula period and back */
+  private omixRate = OMIX_DEFAULT_RATE
+  /** the song's mixing tail, read once at load */
+  private omixChannels = 4
+  private omixVolAdj = 100
+  private omixFlags3 = 0
+  private omixEchoType = 0
+  private omixEchoDepth = 0
+  private omixStereoSep = 0
+  /** `$70(a3)`, one per channel: `trackvol * mastervol >> 4` */
+  private omixScales: number[] = []
   private buffers: Int8Array[] = []
   private pcm: Int8Array | null = null
   /** the byte `Omed Hq On` writes through LVO -$54 */
@@ -410,17 +491,68 @@ export class MedPlayer {
   constructor(host: MedHost, build: MedBuild = 'medplayer') {
     this.host = host
     this.build = build
-    if (build === 'octaplayer') this.resetMix()
+    if (build === 'octaplayer' || build === 'octamixplayer') this.resetMix()
   }
 
   private resetMix(): void {
     this.sides = [...Array(OMED_TRACKS)].map(() => ({ at: 0, end: 0, loop: 0, period: 0 }))
     this.buffers = [...Array(OMED_PAIRS)].map(() => new Int8Array(0))
+    if (this.build !== 'octamixplayer') return
+    this.omixVoices = [...Array(OMIX_MAX_CHANNELS)].map(() => omixVoice())
+    this.omixLinePos = 0
+    this.omixAcc = new Int16Array(0)
+    this.omixOut = new Int8Array(0)
+    this.omixLine = new Int16Array(0)
   }
 
-  /** how many tracks reach audio: four in medplayer whatever the block holds */
+  /**
+   * How many tracks reach audio: four in medplayer whatever the block holds,
+   * eight in octaplayer, and the song's own `channels` in octamix --- which
+   * $213672 reads at `$216` and defaults to FOUR rather than to none.
+   */
   private get tracks(): number {
+    if (this.build === 'octamixplayer') return this.omixChannels
     return this.build === 'octaplayer' ? OMED_TRACKS : 4
+  }
+
+  /** whether the finished stream is two channels, off bit 0 of flags3 */
+  private get omixStereo(): boolean {
+    return (this.omixFlags3 & MMD_FLAG3_STEREO) !== 0
+  }
+
+  /**
+   * $211132 with the period already found: OctaMix's own table gives a value,
+   * $21219a turns a period back into one, and $211146 divides it by the rate.
+   */
+  private omixStepFor(period: number): number {
+    if (period <= 0) return 0
+    return omixStep(Math.floor(OMIX_CLOCK / period), this.omixRate)
+  }
+
+  /**
+   * `medPeriod` for the two Paula builds, and OctaMix's own tables for the
+   * third, because the two do NOT agree everywhere.
+   *
+   * They agree to under a cent for sixty notes, which is how the offset of 24
+   * was established rather than read off. Above that `medPeriod` wraps --- its
+   * table is sixty entries and $212c88 repeats the top octave --- where
+   * OctaMix's runs to 72 and keeps climbing. Borrowing it would play the top
+   * octave of a mixing module a full octave low.
+   *
+   * The finetune field is MED's four bits, 0..7 then -8..-1, and $2132e4 builds
+   * its tables from -8 upward, so the two orderings need converting between.
+   */
+  private periodFor(note: number, finetune: number): number {
+    if (this.build !== 'octamixplayer') return medPeriod(note, finetune)
+    const ft = finetune & 0xf
+    const table = omixNoteTable(ft < 8 ? ft : ft - 16)
+    let idx = note + OMIX_NOTE_OFFSET
+    if (idx < 0) idx = 0
+    if (idx >= OMIX_NOTES) idx = OMIX_NOTES - 1
+    const value = table[idx]!
+    // $21218e turns the value into a period, which is what every effect in the
+    // sequencer then bends
+    return value > 0 ? Math.floor(OMIX_CLOCK / value) : 0
   }
 
   private w(off: number): number {
@@ -500,6 +632,7 @@ export class MedPlayer {
 
   /** "Med     " for medplayer, "OctaMed " for the DME_OctaMed veneer */
   private get bankPrefix(): string {
+    if (this.build === 'octamixplayer') return 'OctaMix'
     return this.build === 'octaplayer' ? 'OctaMed' : 'Med'
   }
 
@@ -561,8 +694,9 @@ export class MedPlayer {
     this.breakKind = 0
     this.keepLine = false
     this.lineJump = this.loopLine = this.loopCount = this.lineDelay = 0
+    if (this.build === 'octamixplayer') this.loadOmixSong(s)
     this.voices = [...Array(this.tracks)].map(newVoice)
-    if (this.build === 'octaplayer') {
+    if (this.build === 'octaplayer' || this.build === 'octamixplayer') {
       this.resetMix()
       this.pcm = new Int8Array(bank.data.buffer, bank.data.byteOffset, bank.data.length)
     }
@@ -607,7 +741,7 @@ export class MedPlayer {
   stop(): void {
     if (!this.on) return
     this.on = false
-    if (this.build === 'octaplayer') this.resetMix()
+    if (this.build === 'octaplayer' || this.build === 'octamixplayer') this.resetMix()
     for (let v = 0; v < 4; v++) this.host.audio.stop(v)
   }
 
@@ -646,6 +780,123 @@ export class MedPlayer {
       omedMix(buf, pcm, a, b, this.hq)
       const lead = this.voices[aLive ? v : v + OMED_PAIRS]!
       this.host.audio.play(v, buf, rate, clampVolume(lead.outVol), 0, n)
+    }
+  }
+
+  /**
+   * $212ef4 and $213334: everything about the song the MIXER needs, read once.
+   *
+   * The track volumes are the difference that bites. On an MMD0 they are
+   * sixteen bytes in the song tail at $302; on an MMD2 they are a POINTER at
+   * $204 to `numtracks` of them, and $212f16 takes that branch on the id byte.
+   * Reading the tail on an MMD2 gets zeroes and silences every track.
+   */
+  private loadOmixSong(song: number): void {
+    this.omixChannels = Math.max(1, Math.min(OMIX_MAX_CHANNELS, this.w(song + MMD2_CHANNELS_AT) || 4))
+    this.omixVolAdj = this.w(song + MMD2_VOLADJ_AT) || 100
+    this.omixFlags3 = this.l(song + MMD2_FLAGS3_AT)
+    this.omixEchoType = this.b(song + MMD2_ECHOTYPE_AT)
+    this.omixEchoDepth = this.b(song + MMD2_ECHODEPTH_AT)
+    this.omixStereoSep = (this.b(song + MMD2_STEREOSEP_AT) << 24) >> 24
+
+    this.omixRate = omixRateHz(this.omixRequestedRate)
+    this.omixTable = omixVolumeTable(this.omixChannels, this.omixVolAdj, this.omixFlags3)
+    this.omixShiftAmt = omixShift(this.omixChannels, this.omixVolAdj, this.omixFlags3)
+
+    // $212f16: the MMD2 arm, a pointer and a count, against $212f22's tail
+    this.omixScales = []
+    const vols = this.l(song + MMD2_TRACKVOLS_AT)
+    for (let v = 0; v < this.omixChannels; v++) {
+      const tv = vols !== 0 ? this.b(vols + v) : this.b(song + 0x302 + v)
+      this.omixScales.push(omixTrackScale(tv, this.mastervol))
+    }
+
+    // $2134b4: `mix_echolen * rate / 1000`, two bytes a frame mono and four
+    // stereo, and only when there is an echo type to run
+    const frames = this.omixEchoType !== 0 ? omixEchoFrames(this.w(song + MMD2_ECHOLEN_AT), this.omixRate) : 0
+    this.omixLine = new Int16Array(frames * (this.omixStereo ? 2 : 1))
+    this.omixLinePos = 0
+  }
+
+  /**
+   * $211968: clear the accumulator, mix every channel into it, then the echo
+   * and the stereo spread, then hand Paula the finished bytes.
+   *
+   * The library splices this against the sequencer --- $2119be ticks in the
+   * middle of a buffer when the tick falls there --- and this port ticks first
+   * and mixes a whole tick's worth, the way `emit` does for octaplayer.
+   *
+   * DEVIATION: a note that lands mid-buffer on the machine is heard at the
+   * buffer boundary here instead, which is at most one tick early. It is also
+   * why `Omix Buffer` is stored and not acted on: the buffer length is exactly
+   * the thing that splicing depends on.
+   *
+   * The converter at $2116c6 takes the HIGH byte of each accumulator word, so
+   * the eight bits Paula gets are the top of a sixteen-bit sum that nothing
+   * clamps. `omixmix.ts` says why that wraps rather than saturating.
+   */
+  private emitOmix(): void {
+    const pcm = this.pcm
+    if (!pcm) return
+    const flags2 = (this.bpm ? MMD_FLAG2_BPM : 0) | ((this.lpb - 1) & 0x1f)
+    const n = omixSamplesPerTick(this.omixRate, this.tempo, flags2)
+    if (n <= 0) return
+    const stereo = this.omixStereo
+    const words = stereo ? n * 2 : n
+    if (this.omixAcc.length !== words) {
+      this.omixAcc = new Int16Array(words)
+      this.omixOut = new Int8Array(words)
+    }
+    this.omixAcc.fill(0)
+
+    // $21039c walks the channel blocks; a voice out of range of the song's own
+    // count never had a block built for it
+    for (let v = 0; v < this.omixChannels; v++) {
+      const mv = this.omixVoices[v]
+      if (!mv) continue
+      if (stereo) {
+        // the accumulator is interleaved, so a mono voice is mixed into the
+        // side its channel number puts it on and left alone on the other
+        const side = new Int16Array(n)
+        if (omixMix(side, n, mv, pcm)) {
+          const at = v & 1
+          for (let i = 0; i < n; i++) this.omixAcc[i * 2 + at] = this.omixAcc[i * 2 + at]! + side[i]!
+        }
+      } else omixMix(this.omixAcc, n, mv, pcm)
+    }
+
+    // $2119dc, and only when there is a type: an echo of nothing is skipped
+    if (this.omixEchoType !== 0 && this.omixLine.length > 0) {
+      this.omixLinePos = omixEcho(
+        this.omixAcc,
+        n,
+        this.omixLine,
+        this.omixLinePos,
+        this.omixEchoDepth,
+        stereo,
+        this.omixEchoType,
+      )
+    }
+    // $2119ee: the separation must be non-zero AND the song must be stereo
+    if (stereo && this.omixStereoSep !== 0) omixStereoSpread(this.omixAcc, n, this.omixStereoSep)
+
+    // $2116dc: the high byte of each word, which is the whole of the 8-bit path
+    for (let i = 0; i < words; i++) this.omixOut[i] = this.omixAcc[i]! >> 8
+    const rate = this.omixRate
+    if (stereo) {
+      const l = new Int8Array(n)
+      const r = new Int8Array(n)
+      for (let i = 0; i < n; i++) {
+        l[i] = this.omixOut[i * 2]!
+        r[i] = this.omixOut[i * 2 + 1]!
+      }
+      // $2118b0: mode 3 puts one buffer on AUD0 and AUD3 and the other on
+      // AUD1 and AUD2, which is left and right doubled
+      this.host.audio.play(0, l, rate, 64, 0, n)
+      this.host.audio.play(1, r, rate, 64, 0, n)
+    } else {
+      this.host.audio.play(0, this.omixOut.subarray(0, n), rate, 64, 0, n)
+      this.host.audio.play(1, this.omixOut.subarray(0, n), rate, 64, 0, n)
     }
   }
 
@@ -737,6 +988,7 @@ export class MedPlayer {
       this.host.audio.runTo?.(this.next)
       this.tick()
       if (this.build === 'octaplayer') this.emit()
+      else if (this.build === 'octamixplayer') this.emitOmix()
       // AFTER the tick, because `Fxx` writes the CIA's reload latch and the
       // timer is already counting down the interval it was given. The new
       // period takes effect at the underflow, which is the next fire.
@@ -757,6 +1009,12 @@ export class MedPlayer {
    * ten-byte table at $212346 and nothing else.
    */
   private tickHz(): number {
+    if (this.build === 'octamixplayer') {
+      // $2115be picks the arm on bit 5 of flags2, which is the same bit
+      // medplayer calls `bpm`, and the beat mask lives in the low five
+      const flags2 = (this.bpm ? MMD_FLAG2_BPM : 0) | ((this.lpb - 1) & 0x1f)
+      return omixTickHz(this.omixRate, this.tempo, flags2)
+    }
     if (this.build === 'octaplayer')
       return omedTickHz(this.tempo, this.hq, (this.flags & OMED_FLAG_SLOWHQ) !== 0)
     return medTickHz(this.tempo, this.bpm, this.lpb)
@@ -954,6 +1212,9 @@ export class MedPlayer {
     // detail: $302 belongs to the MMD0 tail and holds zeroes, and scaling by
     // it would make every mixed track silent.
     if (this.build === 'octaplayer') return 0x100
+    // $212f28 reads BOTH, where octaplayer reads neither, and on an MMD2 the
+    // track volumes are a pointer at $204 rather than the MMD0 tail at $302
+    if (this.build === 'octamixplayer') return this.omixScales[v] ?? 0x100
     return (this.b(this.song + 0x302 + v) * this.mastervol) >> 4
   }
 
@@ -968,7 +1229,7 @@ export class MedPlayer {
     // A pure synth is the one caller that never runs the wrap at $21033a: it
     // is sent straight to $210574, where the only arithmetic is the 48 bytes
     // `synBias` stands for.
-    return medPeriod(V.synth > 0 ? n + V.synBias : medNoteWrap(n), V.finetune)
+    return this.periodFor(V.synth > 0 ? n + V.synBias : medNoteWrap(n), V.finetune)
   }
 
   /**
@@ -985,7 +1246,7 @@ export class MedPlayer {
           // $210be6 guards on the index and then reads $4e(a5), the row
           // pointer the last note-on left, so a synth track gets the synth one
           const idx = note - 1 + this.transp + V.strans
-          if (idx >= 0) V.portTarget = medPeriod(idx + V.synBias, V.finetune)
+          if (idx >= 0) V.portTarget = this.periodFor(idx + V.synBias, V.finetune)
         }
         if (d !== 0) V.portSpeed = d
         return true
@@ -1164,7 +1425,23 @@ export class MedPlayer {
     V.outPeriod = V.period
     V.outVol = V.vol
     V.sounding = true
-    if (this.build === 'octaplayer') {
+    if (this.build === 'octamixplayer') {
+      // $2111a4: the play pointer, the end and the loop length, as module
+      // offsets, because the mixer reads the bank in place
+      const mv = this.omixVoices[v]
+      if (mv) {
+        mv.sample = start
+        mv.position = 0
+        mv.fraction = 0
+        mv.end = (loopStart >= 0 ? start + loopEnd : end) - start
+        mv.loopLength = loopStart >= 0 ? loopEnd - loopStart : 0
+        mv.flags = loopStart >= 0 ? OMIX_FLAG_LOOP : 0
+        mv.sixteenBit = false
+        mv.shift = this.omixShiftAmt
+        mv.volumeTable = omixVolumeRow(this.omixTable, omixChannelVolume(V.vol, this.trackScale(v)))
+        mv.step = this.omixStepFor(V.period)
+      }
+    } else if (this.build === 'octaplayer') {
       // AUDxLC, AUDxLEN and the loop pointer, as module offsets: the mixer
       // reads the bank in place, exactly as $2108ee does
       const side = this.sides[v]!
@@ -1251,7 +1528,7 @@ export class MedPlayer {
         const half = r === 0 ? d & 0xf : r === 1 ? d >> 4 : 0
         const idx = V.note - 1 + half + this.transp + V.strans
         if (idx < 0) break
-        return medPeriod(idx, V.finetune)
+        return this.periodFor(idx, V.finetune)
       }
       case 0x1: // $210dea, clamped at 113 and nowhere else
         if (t === 0 && this.stSlide()) break
@@ -1439,7 +1716,7 @@ export class MedPlayer {
     // the arpeggio run, $210818
     if (V.arpPtr !== 0) {
       const step = (this.b(V.syn + SYN_WFTABLE + V.arpPtr) << 24) >> 24
-      d5 = medPeriod(V.baseNote + step + V.synBias, V.finetune)
+      d5 = this.periodFor(V.baseNote + step + V.synBias, V.finetune)
       let next = V.arpPtr + 1
       if (this.b(V.syn + SYN_WFTABLE + next) >= SYN_CMD) next = V.arpLoop
       V.arpPtr = next
@@ -1653,6 +1930,23 @@ export class MedPlayer {
     const start = ptr + 2
     const end = Math.min(d.length, start + words * 2)
     if (words === 0 || start >= end) return
+    if (this.build === 'octamixplayer') {
+      const mv = this.omixVoices[v]
+      if (mv) {
+        mv.sample = start
+        mv.position = 0
+        mv.fraction = 0
+        mv.end = end - start
+        mv.loopLength = end - start
+        mv.flags = OMIX_FLAG_LOOP
+        mv.sixteenBit = false
+        mv.shift = this.omixShiftAmt
+        mv.volumeTable = omixVolumeRow(this.omixTable, omixChannelVolume(V.vol, this.trackScale(v)))
+        mv.step = this.omixStepFor(V.period)
+      }
+      V.sounding = true
+      return
+    }
     if (this.build === 'octaplayer') {
       const side = this.sides[v]!
       side.at = start
@@ -1680,6 +1974,21 @@ export class MedPlayer {
    */
   private writeVoice(v: number, period: number): void {
     const V = this.voices[v]!
+    if (this.build === 'octamixplayer') {
+      // $211132 and $2111be: a step and a table row, because a mixed channel
+      // has neither an AUDxPER nor an AUDxVOL of its own
+      const mv = this.omixVoices[v]
+      V.outVol = V.tremVol >= 0 ? V.tremVol : V.vol
+      V.tremVol = -1
+      if (mv) {
+        // $211140: a period of nothing takes the channel OUT rather than
+        // stopping it at a step of zero
+        if (period <= 0) mv.flags |= OMIX_FLAG_OFF
+        else mv.step = this.omixStepFor(period)
+        mv.volumeTable = omixVolumeRow(this.omixTable, omixChannelVolume(V.outVol, this.trackScale(v)))
+      }
+      return
+    }
     if (this.build === 'octaplayer') {
       // $6(a2) and $7e(a2), which the mixer divides into rather than a
       // register Paula reads: a mixed track has no AUDxPER of its own

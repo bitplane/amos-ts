@@ -2776,6 +2776,26 @@ export const FAITHFUL = new Set<string>([
   'xm song length',
   'xm song pos',
   'xm vu',
+  // The OctaMix block over ../amiga/omix.ts and ../amiga/omixmix.ts, with the
+  // sequencer being ../runtime/med.ts's third build --- the same OctaMED
+  // replayer that already drives `Med` and `Omed`, because that is what
+  // DME_OctaMix.library is. `Omix Play` is NOT here: it is the only keyword in
+  // this port whose engine was never run against a module anyone wrote, and
+  // the note says so at length.
+  'omix load',
+  'omix stop',
+  'omix cont',
+  'omix 14 bit on',
+  'omix 14 bit off',
+  'omix freq',
+  'omix buffer',
+  'omix next patt',
+  'omix prev patt',
+  'omix song length',
+  'omix subsongs',
+  'omix song pos',
+  'omix patt pos',
+  'omix vu',
   // --- SymBase 0.94 / DBench 0.42, slot 21: Lázár Zoltán's xBase engine, one
   // product at two ages; see symbase.ts and dbf.ts. `Db Notify`, `Db Order`
   // and `Db Putn` are NOT here --- the first two want an open file handle
@@ -9925,6 +9945,84 @@ export const NOTES: Record<string, string> = {
     "from the 32-byte table at $2104c0 and CLEARS it in the same breath, and $211f88 is the only writer: " +
     "a note trigger stores the sample's volume scaled by the master. So an `Xm Vu` that is never called " +
     "keeps its last peak, and one called every frame sees each note exactly once.",
+  "omix load":
+    "routine 237 ($6d70), a Data-only bank named \"OctaMix \" ($6e42) and the file length plus eight with NO " +
+    "rounding to even --- the one loader in this extension that does not round. The content test is in two " +
+    "halves. $6dd6 takes \"MMD3\" or \"MMD2\" and is message 6 otherwise; then $6df2 relocates through LVO " +
+    "-30 and $6df8 asks LVO -36 what kind of module it is, and $6dfc demands the answer TWO. That routine, " +
+    "$212e5c, is six instructions: bit 7 of `flags2` answers 2, bit 6 of `flags` answers 1, neither answers " +
+    "0. So a module in four- or eight-channel mode is erased and is message 10 however many tracks it has, " +
+    "and that one bit is why this block was the last in DME to be ported --- not one of the 202 MMD files " +
+    "across the corpus and fixtures/ carries it. DEVIATION: LVO -30 relocates the bank in place by adding " +
+    "the load address to every stored offset; a bank here is based at zero so nothing needs adding and the " +
+    "bank is left as the file was, which a program could see by Peeking it after a load.",
+  "omix play":
+    "routines 240 ($6e9e) and 241, on the bank NAME, and the ONE Play in this extension whose second " +
+    "parameter is real: the token table declares an unnamed \"I0,0\" variant at $01d4 and $6efa passes it " +
+    "to LVO -84 as the sub-song before LVO -54 starts the module. What runs underneath is " +
+    "src/runtime/med.ts in its `octamixplayer` build --- the same OctaMED sequencer that already drives " +
+    "`Med` and `Omed`, which is what DME_OctaMix.library is --- over the mixer in src/amiga/omixmix.ts. " +
+    "APPROXIMATED, and the first reason is not arithmetic: NOTHING HERE WAS EVER PLAYED. LVO -36 demands a " +
+    "bit no module on this machine has, so every number in the engine is checked against the instruction " +
+    "that produces it and against arithmetic that has to hold --- an octave ratio of two, tempo 33 landing " +
+    "on 49.8 Hz, the note table reading as ProTracker's periods to within a unit --- and against nothing " +
+    "anyone has heard. The other reasons are specific. The tick is a whole span of mix where $2119be " +
+    "splices the sequencer into the middle of a buffer, so a note landing mid-buffer is heard at the " +
+    "boundary instead, at most one tick early. `Omix Buffer` is kept and not acted on, because that " +
+    "splicing is the only thing the buffer length changes here. `Omix 14 Bit` likewise: $21183c picks one " +
+    "of four interrupt-and-converter pairs on it and the 14-bit pair puts a high byte on one Paula pair " +
+    "and six low bits on the other at volume 1, which AudioSink has no way to sum at 64:1. And the mixer " +
+    "runs at the rate $21365c derives rather than the one asked for, which is faithful but means " +
+    "`Omix Freq 15000` mixes at 15,040.9. DEFECT: the NTSC colour clock $369e99 is used where a PAL " +
+    "machine wants 3,546,895, and it does not cancel: the mixer builds its stream believing one and Paula " +
+    "clocks it at the other, so everything plays 0.912% slow, flat, at every rate. Reproduced. " +
+    "src/amiga/omix.ts and src/amiga/omixmix.ts set out the rest.",
+  "omix stop":
+    "routine 239 ($6e7e): the flag at $6e(a0) and then LVO -72. $70(a0) is NOT cleared, which is what " +
+    "lets `=Omix Song Pos` and `=Omix Patt Pos` keep answering after a stop.",
+  "omix cont":
+    "routine 244 ($6fd4) into LVO -78, and it wants two things: a module address at $6a(a0) and the play " +
+    "flag CLEAR. $2130e0 is the same routine as Play with d0 zero, and the difference the register makes " +
+    "is $21317a, which skips clearing `pline` and the two counters --- so this resumes where the module " +
+    "was and Play starts it again.",
+  "omix 14 bit on":
+    "routine 245 ($7002) into LVO -102 with d0 set, message 20 when something is playing. DEVIATION: the " +
+    "flag is kept and never acted on, for the reason `omix play` gives.",
+  "omix 14 bit off": "routine 246 ($702e), the same into LVO -102 with d0 clear.",
+  "omix freq":
+    "routine 247 ($705a), 1,000 to 65,535 and an AMOS error 23 outside it, message 21 while playing, into " +
+    "LVO -96. It is a REQUEST rather than a rate: $213610 turns it into a whole Paula period and $21365c " +
+    "divides the clock by that period again, and the second number is what the mixer and both tempo arms " +
+    "actually read. 15,000 becomes 15,040.9.",
+  "omix buffer":
+    "routine 248 ($709a), 4 to 32,764, message 22 while playing, into LVO -90. DEVIATION: kept and not " +
+    "acted on. On the machine it is AUD0LEN and therefore the interrupt rate, and $2119be splices the " +
+    "sequencer against it; this port mixes a whole tick at a time. The range check and the error are real.",
+  "omix next patt":
+    "routine 253 ($71a2), message 54 when nothing is playing, into LVO -108. $21026c walks the play " +
+    "sequence and steps the SECTION when it runs out, which is `octaNextPatt` --- the same routine " +
+    "`Omed Next Patt` uses, because the two libraries share it.",
+  "omix prev patt": "routine 254 ($71c8), message 54, into LVO -114.",
+  "omix song length":
+    "routine 249 ($70da), which calls no vector. DEFECT: it answers only for an MMD3. $70fc is " +
+    "`cmpi.l #$4d4d4433,(a2) / bne` and the branch goes to the `rts` at $7116 WITHOUT setting d3 or d2, " +
+    "so on an MMD2 --- the other id `Omix Load` accepts --- the keyword returns whatever the expression " +
+    "stack was holding. This port answers 0 there rather than inventing a register's contents. The byte " +
+    "it reads for an MMD3 is at module+$5d, which is thirteen bytes past the end of the 52-byte header " +
+    "and is not a field any MMD documentation names; it is reproduced as read.",
+  "omix subsongs":
+    "routine 250 ($711e): L_Bnk_OrAdr, the \"OctaMix \" name as two longs, then `move.b $33(a2),d3`. " +
+    "One byte out of the BANK rather than the library, so it answers with nothing playing.",
+  "omix song pos":
+    "routine 251 ($715a), which calls no vector either: it takes the bank's address and reads `pseqnum` " +
+    "at $2e, which the replay writes back into the module's own header as it goes. Guarded by $70(a2), " +
+    "so 0 before the first `Omix Play` and still answering after a stop.",
+  "omix patt pos": "routine 252 ($717e), the same shape reading `pline` at $2c.",
+  "omix vu":
+    "routine 255 ($71ee), 0 to 63 and an AMOS error 23 outside it, into LVO -120. $21033e reads the byte " +
+    "and clears it in the same breath, so an `=Omix Vu` that is never called keeps its last peak and one " +
+    "called every frame sees each note exactly once. Sixty-four of them, where every other vu in this " +
+    "extension has four or eight.",
   "smon load":
     "routine 139 ($54f8), the same nine steps with a DATA and CHIP bank named \"SoundMon\" ($558c). Its tag " +
     "test is LOOSER than the library's: $5564 reads the LONG at $1a and clears the low byte before comparing " +

@@ -96,7 +96,8 @@ import { VBL_HZ } from '../amiga/paula'
 import { MedPlayer } from './med'
 import { parseTfmx } from '../amiga/tfmx'
 import { TfmxPlayer } from '../amiga/tfmxplay'
-import { MMD_EXTRA_SONGS_AT } from '../amiga/mmd2'
+import { MMD_EXTRA_SONGS_AT, MMD_PLINE_AT, MMD_PSEQNUM_AT, mmdMixType } from '../amiga/mmd2'
+import { OMIX_MAX_BUFFER, OMIX_MAX_CHANNELS, OMIX_MAX_RATE, OMIX_MIN_BUFFER, OMIX_MIN_RATE } from '../amiga/omix'
 import { SMON_MAGIC, SMON_MAGIC_AT, parseSmon } from '../amiga/soundmon'
 import { SoundMon } from '../amiga/soundmonplay'
 import { S3M_MAGIC, S3M_MAGIC_AT, parseS3m } from '../amiga/s3m'
@@ -189,6 +190,21 @@ const SID_FORWARD_STEPS = 0x10
 const SID_REWIND_STEPS = 0x20
 /** the eight bytes at $69e6, checked as "Octa" and "Med " at -$8 and -$4 */
 export const OMED_BANK_NAME = 'OctaMed '
+
+/** `dc.b "OctaMix "` at $6e42, checked as two longs at $6ed4 and $6ee0 */
+export const OMIX_BANK_NAME = 'OctaMix '
+
+/** `move.b $5d(a2),d3` at $710a, and only for an MMD3 */
+export const OMIX_MMD3_LENGTH_AT = 0x5d
+
+/** messages 6, 10 and 54 */
+export const OMIX_NOT_A_MODULE = 6
+export const OMIX_NOT_MIXING = 10
+export const OMIX_NOT_INITIALIZED = 54
+/** 20, 21 and 22: the three that fire only while something is playing */
+export const OMIX_14BIT_BUSY = 20
+export const OMIX_FREQ_BUSY = 21
+export const OMIX_BUFFER_BUSY = 22
 /** the eight at $4942, compared as "TFMX" and "Mod " at -$8 and -$4 */
 export const TFMX_BANK = 'TFMXMod '
 /** the bank `Dmed Load` reserves ($65a2), tested as "Med " and four spaces ($663c) */
@@ -370,6 +386,19 @@ export interface DmeState {
   omedStarted: boolean
   /** the eight bytes at $21033c, which `=Omed Vu` reads and clears */
   omedVu: Uint8Array
+
+  /**
+   * `DME_OctaMix.library`'s replay: the same OctaMED sequencer over a 1-to-64
+   * channel software mixer. `MedPlayer` in its `octamixplayer` build.
+   */
+  omix: MedPlayer | null
+  /** `$64(a2)`, the bank `Omix Load` last filled */
+  omixBank: number
+  /** `$6e(a2)`, which `Omix Stop` clears, and `$70(a2)`, which it does not */
+  omixPlaying: boolean
+  omixStarted: boolean
+  /** the 64 bytes LVO -120 reads and clears */
+  omixVu: Uint8Array
   s3m: S3mPlayer
   /** `$dc(a2)`, `$e6(a2)` and `$e7(a2)` */
   s3mBank: number
@@ -471,6 +500,11 @@ export function newDmeState(rt?: Runtime): DmeState {
     omed: null,
     omedBank: 0,
     omedPlaying: false,
+    omix: null,
+    omixBank: 0,
+    omixPlaying: false,
+    omixStarted: false,
+    omixVu: new Uint8Array(OMIX_MAX_CHANNELS),
     omedStarted: false,
     omedVu: new Uint8Array(8),
     s3m: new S3mPlayer(() => rt?.host.audio),
@@ -561,6 +595,33 @@ function omedFor(rt: Runtime, s: DmeState): MedPlayer {
     if (voice >= 0 && voice < 8) s.omedVu[voice] = volume & 0xff
   }
   s.omed = player
+  return player
+}
+
+/**
+ * Routine 242 ($6f2e): open the library once, at version 2, and initialise it.
+ *
+ * The version matters. `moveq #$2,d0` at $6f40 is the only "V2.0 or higher"
+ * open in the whole extension that is NOT spelled out in its error message,
+ * and `DME_OctaMix.library` is the one sibling that really is version 2 --- the
+ * FastTracker one this port did earlier is still at 1.0.
+ */
+function omixFor(rt: Runtime, s: DmeState): MedPlayer {
+  if (s.omix) return s.omix
+  const player = new MedPlayer(
+    {
+      get audio() {
+        return rt.audio
+      },
+      tick: () => rt.frames,
+      getBank: () => rt.memBanks.get(s.omixBank) ?? null,
+    },
+    'octamixplayer',
+  )
+  player.onVu = (voice, volume) => {
+    if (voice >= 0 && voice < OMIX_MAX_CHANNELS) s.omixVu[voice] = volume & 0xff
+  }
+  s.omix = player
   return player
 }
 
@@ -2190,6 +2251,166 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       s.omedStarted = true
     },
 
+    /**
+     * Omix Load file$,bank --- routine 237 ($6d70), a Data-only bank named
+     * "OctaMix " and the file length plus eight with NO rounding to even,
+     * which is the one loader here that does not.
+     *
+     * The content test is in two halves and the second is the whole story of
+     * this block. $6dd6 takes "MMD3" or "MMD2" and nothing else, message 6
+     * otherwise. Then $6df2 relocates through LVO -30 and $6df8 asks LVO -36
+     * what kind of module it is, and $6dfc demands the answer TWO. That is
+     * `mmdMixType`, and it is one bit: bit 7 of `flags2`. A module in
+     * four-channel or eight-channel mode is erased and is message 10 however
+     * many tracks it has.
+     *
+     * DEVIATION: LVO -30 relocates the bank in place, adding the load address
+     * to every stored offset. A bank here is already based at zero so nothing
+     * needs adding, and the bank is left exactly as the file was --- which a
+     * program could see by `Peek`ing it after a load.
+     */
+    'omix load'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = st()
+      if (bank >= 0x10000) badCall()
+      if (bank === s.omixBank && s.omixPlaying) {
+        s.omixPlaying = false
+        s.omix?.stop()
+      }
+      const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+      if (!bytes) throw new AmosError(`file not found: ${path}`, 94)
+      s.omixBank = bank
+      // $6da4 is `move.l d6,d2 / addq.l #$8,d2` and nothing else
+      rt.reserveBank(bank, bytes.length + 8, OMIX_BANK_NAME, true, false)
+      const data = rt.memBanks.get(bank)!.data
+      data.set(bytes.subarray(0, Math.min(bytes.length, data.length)))
+      const id = String.fromCharCode(...data.subarray(0, 4))
+      if (id !== 'MMD3' && id !== 'MMD2') {
+        rt.eraseBank(bank)
+        dmeErr(OMIX_NOT_A_MODULE)
+      }
+      if (mmdMixType(data) !== 2) {
+        rt.eraseBank(bank)
+        dmeErr(OMIX_NOT_MIXING)
+      }
+    },
+
+    /**
+     * Omix Play [bank[,subsong]] --- routine 240 ($6e9e) into 241, on the bank
+     * NAME rather than on the id.
+     *
+     * Unlike every other `Play` in this extension the second parameter is
+     * REAL: the token table declares an unnamed "I0,0" variant at $01d4, and
+     * $6efa passes it to LVO -84 as the sub-song before LVO -54 starts the
+     * module. `Omix Play 5` is sub-song zero and `Omix Play 5,2` is the third.
+     */
+    'omix play'(it) {
+      const first = it.evalInt()
+      const song = it.accept(',') ? it.evalInt() : 0
+      const s = st()
+      s.omixPlaying = false
+      s.omix?.stop()
+      const bank = first === PTM_CURRENT_BANK ? s.omixBank : first
+      const b = rt.memBanks.get(bank)
+      if (!b || b.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      s.omixBank = bank
+      const player = omixFor(rt, s)
+      player.omixSubsong = song
+      player.play(bank, song)
+      s.omixPlaying = true
+      s.omixStarted = true
+    },
+
+    /** Omix Stop --- routine 239 ($6e7e): the flag at $6e(a0), then LVO -72 */
+    'omix stop'() {
+      const s = st()
+      if (!s.omixPlaying) return
+      s.omixPlaying = false
+      s.omix?.stop()
+    },
+
+    /** Omix Cont --- routine 244 ($6fd4): needs $6a(a0) set and $6e clear */
+    'omix cont'() {
+      const s = st()
+      if (s.omixPlaying) return
+      if (!s.omixStarted) return
+      s.omixPlaying = true
+      s.omix?.cont()
+    },
+
+    /**
+     * Omix 14 Bit On / Off --- routines 245 ($7002) and 246 ($702e), both into
+     * LVO -102, and both message 20 while something is playing.
+     *
+     * DEVIATION: the flag is kept and never acted on. $21183c picks one of four
+     * interrupt-and-converter pairs on it, and the 14-bit pair splits each
+     * sample into a high byte on one Paula pair and six low bits on the other
+     * at volume 1. `AudioSink` has one volume a voice and no way to sum two
+     * voices at a 64:1 ratio, so this port plays the 8-bit conversion either
+     * way. What a program can see is the flag and the error; what it cannot
+     * hear is the extra six bits.
+     */
+    'omix 14 bit on'() {
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_14BIT_BUSY)
+      omixFor(rt, s).omix14Bit = true
+    },
+    'omix 14 bit off'() {
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_14BIT_BUSY)
+      omixFor(rt, s).omix14Bit = false
+    },
+
+    /**
+     * Omix Freq n --- routine 247 ($705a), 1,000 to 65,535 and an AMOS error
+     * 23 outside it, message 21 while playing, into LVO -96.
+     *
+     * It is a REQUEST. $213610 turns it into a whole Paula period and $21365c
+     * divides the clock by that period again, and the second number is the one
+     * the mixer and the tempo actually use.
+     */
+    'omix freq'(it) {
+      const v = it.evalInt()
+      if (v < OMIX_MIN_RATE || v > OMIX_MAX_RATE) badCall()
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_FREQ_BUSY)
+      omixFor(rt, s).omixRequestedRate = v
+    },
+
+    /**
+     * Omix Buffer n --- routine 248 ($709a), 4 to 32,764, message 22 while
+     * playing, into LVO -90.
+     *
+     * DEVIATION: kept and not acted on. On the machine it is AUD0LEN and
+     * therefore the interrupt rate, and the mixer splices the sequencer against
+     * it at $2119be; this port mixes a whole tick at a time, so the buffer
+     * changes nothing it can hear. The range check and the error are real.
+     */
+    'omix buffer'(it) {
+      const v = it.evalInt()
+      if (v < OMIX_MIN_BUFFER || v > OMIX_MAX_BUFFER) badCall()
+      const s = st()
+      if (s.omixPlaying) dmeErr(OMIX_BUFFER_BUSY)
+      omixFor(rt, s).omixBuffer = v
+    },
+
+    /**
+     * Omix Next Patt / Omix Prev Patt --- routines 253 ($71a2) and 254
+     * ($71c8), message 54 when nothing is playing, into LVO -108 and -114.
+     */
+    'omix next patt'() {
+      const s = st()
+      if (!s.omixPlaying) dmeErr(OMIX_NOT_INITIALIZED)
+      s.omix?.octaNextPatt()
+    },
+    'omix prev patt'() {
+      const s = st()
+      if (!s.omixPlaying) dmeErr(OMIX_NOT_INITIALIZED)
+      s.omix?.octaPrevPatt()
+    },
+
     /** Omed Stop --- routine 222 ($6a2a): the flag at $60(a0), then LVO -$42 */
     'omed stop'() {
       const s = st()
@@ -2958,6 +3179,67 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
       return VI(st().xm.readVu(n))
     },
 
+    /**
+     * =Omix Song Length(bank) — routine 249 ($70da), which calls no vector.
+     *
+     * DEFECT: it answers only for an MMD3. $70fc is `cmpi.l #$4d4d4433,(a2) /
+     * bne`, and the branch goes to the `rts` at $7116 WITHOUT setting d3 or d2
+     * --- so on an MMD2, which is the other id `Omix Load` accepts, the
+     * keyword returns whatever the expression stack happened to be holding.
+     * This port answers 0 there rather than inventing a register's contents.
+     *
+     * The byte it reads for an MMD3 is at module+$5d, which is not a field any
+     * MMD documentation names and is thirteen bytes past the end of the 52-byte
+     * header. Reproduced as read.
+     */
+    'omix song length': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      const d = bank!.data
+      if (String.fromCharCode(...d.subarray(0, 4)) !== 'MMD3') return VI(0)
+      return VI(d[OMIX_MMD3_LENGTH_AT] ?? 0)
+    },
+
+    /** =Omix Subsongs(bank) — routine 250 ($711e): the byte at module+$33 */
+    'omix subsongs': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? 0 : a[0]!.n) | 0
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.name.padEnd(8).slice(0, 8) !== OMIX_BANK_NAME) dmeErr(OMIX_NOT_A_MODULE)
+      return VI(bank!.data[MMD_EXTRA_SONGS_AT] ?? 0)
+    },
+
+    /**
+     * =Omix Song Pos — routine 251 ($715a), and it calls no vector either: it
+     * takes the bank's address and reads `pseqnum` at $2e, which the replay
+     * writes back into the module's own header as it plays. Guarded by
+     * `$70(a2)`, which `Omix Stop` leaves set.
+     */
+    'omix song pos': () => {
+      const s = st()
+      if (!s.omixStarted) return VI(0)
+      const bank = rt.memBanks.get(s.omixBank)
+      return VI(bank ? ((bank.data[MMD_PSEQNUM_AT] ?? 0) << 8) | (bank.data[MMD_PSEQNUM_AT + 1] ?? 0) : 0)
+    },
+
+    /** =Omix Patt Pos — routine 252 ($717e), the same shape reading `pline` at $2c */
+    'omix patt pos': () => {
+      const s = st()
+      if (!s.omixStarted) return VI(0)
+      const bank = rt.memBanks.get(s.omixBank)
+      return VI(bank ? ((bank.data[MMD_PLINE_AT] ?? 0) << 8) | (bank.data[MMD_PLINE_AT + 1] ?? 0) : 0)
+    },
+
+    /** =Omix Vu(n) — routine 255 ($71ee), 0..63, into LVO -120, read and cleared */
+    'omix vu': (_, a) => {
+      const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
+      if (n < 0 || n >= OMIX_MAX_CHANNELS) badCall()
+      const s = st()
+      const v = s.omixVu[n] ?? 0
+      s.omixVu[n] = 0
+      return VI(v)
+    },
+
     /** =Dmed Vu(n) — routine 219 ($68d0), 0..3, into LVO -102, read and cleared */
     'dmed vu': (_, a) => {
       const n = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
@@ -2999,6 +3281,9 @@ export function dmeVbl(rt: Runtime): void {
   // its own tick is a buffer of mix rather than a register write, so one frame
   // is one tick here and the tempo shows in the buffer length instead
   if (s.s3mPlaying) s.s3m.vbl()
+  // OctaMix is the third OctaMED build: the same sequencer, and a tick that
+  // is a span of software mix rather than a DMA buffer or a CIA underflow
+  if (s.omixPlaying) s.omix?.vbl()
   // FastTracker is ScreamTracker's shape exactly: a CIA at the module's BPM,
   // and a tick that is a buffer of mix rather than a register write, so the
   // tempo shows in `samplesPerTick` and not in how often this comes round
