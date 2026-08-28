@@ -32,6 +32,7 @@ import { VI, VS, int, str, type Value } from '../interp/values'
 import type { RastPort } from '../amiga/graphics'
 import { Runtime as RT } from './runtime'
 import type { IntuiextendState } from './intuiextend'
+import { ieWindowRastPort } from './intuiextendwin'
 
 /** `addi.w #$54,d3` at $259e — the Screen struct's RastPort offset */
 export const IE_RASTPORT_OFFSET = 0x54
@@ -84,12 +85,16 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
    * address that is not a screen's RastPort answers null and the keyword does
    * nothing, which is what the library does with a pointer into nowhere on a
    * machine that happens not to trap it.
+   *
+   * A WINDOW's RastPort is the other thing a program can pass here --
+   * `Wb Wind Rastport` hands one back and the guide's own warning is not to
+   * mix the two up -- and those are handles ./intuiextendwin.ts mints.
    */
   const rastPortAt = (addr: number): RastPort | null => {
     const off = (addr >>> 0) - IE_RASTPORT_OFFSET - RT.SCREEN_CTRL_BASE
-    if (off < 0 || off % RT.SCREEN_CTRL_SLOT !== 0) return null
+    if (off < 0 || off % RT.SCREEN_CTRL_SLOT !== 0) return ieWindowRastPort(rt, addr)
     const s = rt.screens.get(off / RT.SCREEN_CTRL_SLOT)
-    return s ? s.rp : null
+    return s ? s.rp : ieWindowRastPort(rt, addr)
   }
 
   /** the RastPort AMOS is drawing through, `-$18ca(a5)` */

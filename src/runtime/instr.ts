@@ -111,6 +111,10 @@ import {
   makeIntuiextendGfxFunctions,
   makeIntuiextendGfxInstructions,
 } from './intuiextendgfx'
+import {
+  makeIntuiextendWinFunctions,
+  makeIntuiextendWinInstructions,
+} from './intuiextendwin'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -8039,12 +8043,14 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   },
   {
     /**
-     * Eric Sauvageau's IntuiExtend 2.01b.
+     * CIERP Philippe's IntuiExtend 2.01b, which every .guide signs
+     * `@Author CIERP Philippe ©1995-98`.
      *
      * 301 keywords, and the extension carries its own workspace: routine 0 is
      * `lea.l $1d28(pc),a3 / move.l a3,$258(a5)`, so every table it owns is
-     * static data inside the single code hunk and readable from the file.
-     * See ./intuiextend.ts.
+     * static data inside the single code hunk and readable from the file --
+     * including the NewScreen and the NewWindow the screen and window group
+     * fills in. See ./intuiextend.ts.
      */
     ids: ['intuiextend-2.01b'],
     init: (rt) => {
@@ -8054,11 +8060,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       ...makeIntuiextendInstructions(rt),
       ...makeIntuiextendSysInstructions(rt),
       ...makeIntuiextendGfxInstructions(rt),
+      ...makeIntuiextendWinInstructions(rt),
     }),
     functions: (rt) => ({
       ...makeIntuiextendFunctions(rt),
       ...makeIntuiextendSysFunctions(rt),
       ...makeIntuiextendGfxFunctions(rt),
+      ...makeIntuiextendWinFunctions(rt),
     }),
   },
   {

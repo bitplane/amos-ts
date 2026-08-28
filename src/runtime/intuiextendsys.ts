@@ -647,9 +647,20 @@ export function makeIntuiextendSysInstructions(rt: Runtime): Record<string, Inst
       st().locker = lo(it.evalInt())
     },
 
-    /** Str Free addr — routine 247 ($4bba): frees the block Str Store made */
+    /**
+     * Str Free addr — routine 247 ($4bba): frees the block `Str Store` made.
+     *
+     *     movea.l (a3)+,a0
+     *     moveq   #$0,d0
+     *     move.w  -(a0),d0     ; back over the length word, and READ it
+     *     addq.w  #$3,d0
+     *
+     * so the argument is the TEXT address `Str Store` handed back and the
+     * block starts two bytes below it. The `-(a0)` is a full 32-bit
+     * decrement, unlike the `addq.w` that made the address.
+     */
     'str free'(it) {
-      st().heap.freeMem(it.evalInt() >>> 0)
+      st().heap.freeMem((it.evalInt() - 2) >>> 0)
     },
 
     /** Wb Free Image addr — routine 102 ($35ee), the 20 bytes back, ignoring 0 */
@@ -1016,10 +1027,22 @@ export function makeIntuiextendSysFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Str Store(a$) — routine 246 ($4b82).
      *
-     * Copies an AMOS string into an AllocMem block of length+3 bytes and
-     * returns the block: the length word, the text, and a terminating zero,
-     * so the result reads as a C string from base+2. -1 when the allocation
-     * fails.
+     * Copies an AMOS string into an AllocMem block of length+3 bytes: the
+     * length word, the text, and a terminating zero. What it RETURNS is the
+     * text, not the block --
+     *
+     *     $4b9e  movea.l d3,a0
+     *     $4ba0  addq.w  #$2,d3
+     *
+     * so the answer is base+2 and reads as a C string, which is what
+     * `Wb Wind Title` and every other keyword taking a string ADDRESS wants.
+     * `Str Free` undoes it with `move.w -(a0),d0`, reading the length word
+     * back from two bytes below. -1 when the allocation fails.
+     *
+     * DEFECT: `addq.w`, so the two stops at the word boundary. A block whose
+     * base low word is $FFFE or $FFFF answers 64K below itself, and `Str Free`
+     * -- whose `-(a0)` is a real 32-bit decrement -- then frees a block that
+     * was never allocated.
      */
     'str store': (_, a) => {
       const s = s0(a, 0)
@@ -1032,7 +1055,7 @@ export function makeIntuiextendSysFunctions(rt: Runtime): Record<string, Func> {
       put(addr, (s.length >>> 8) & 0xff)
       put(addr + 1, s.length & 0xff)
       for (let i = 0; i < s.length; i++) put(addr + 2 + i, s.charCodeAt(i))
-      return VI(addr | 0)
+      return VI(((addr & ~0xffff) | ((addr + 2) & 0xffff)) | 0)
     },
   }
 }

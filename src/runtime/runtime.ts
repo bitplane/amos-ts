@@ -1524,9 +1524,12 @@ export class Runtime {
    */
   videoOff = false
   /**
-   * SPREN alone. `Mouse Off` (Misc_Extension.asm:141) clears it and there is
-   * no keyword anywhere that puts it back — the extension's own manual
-   * suggests someone add a `Mouse On`.
+   * SPREN alone. `Mouse Off` (Misc_Extension.asm:141) clears it and its own
+   * extension cannot put it back — the manual suggests the reader write a
+   * `Mouse On` — but IntuiExtend 2.01b ships the pair: routine 262 is
+   * `move.w #$8020,$dff096` and routine 263 `move.w #$20,$dff096`, the same
+   * bit set and cleared. Three extensions drive this one flag and none of
+   * them knows about the others, which is why it lives here.
    */
   spriteDma = true
   /**

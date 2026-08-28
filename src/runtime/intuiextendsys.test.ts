@@ -314,10 +314,21 @@ describe('IntuiExtend 2.01b — memory and addresses', () => {
     expect(lines(src)).toEqual(['222222', '111111'])
   })
 
-  it('Str Store copies a string into a block that reads as a C string', () => {
-    const src = `A=Str Store("Hi")\nPrint Deek(A)\nPrint Peek(A+2)\nPrint Peek(A+3)\nPrint Peek(A+4)`
-    // the length word, then "Hi", then the terminator the routine adds
+  /**
+   * `addq.w #$2,d3` at $4ba0, so what comes back is the TEXT and the length
+   * word sits two bytes below it. `Str Free`'s `move.w -(a0),d0` reads it
+   * back from exactly there, which is what settles the offset.
+   */
+  it('Str Store answers the text, with the length word below it', () => {
+    const src = `A=Str Store("Hi")\nPrint Deek(A-2)\nPrint Peek(A)\nPrint Peek(A+1)\nPrint Peek(A+2)`
+    // the length two bytes below, then "Hi", then the terminator
     expect(lines(src)).toEqual(['2', '72', '105', '0'])
+  })
+
+  it('Str Free takes that same address and frees from two bytes below', () => {
+    // the pair round-trips: freeing must not throw, and the block comes back
+    const src = `A=Str Store("Hi")\nStr Free A\nB=Str Store("Hi")\nPrint A=B`
+    expect(lines(src)).toEqual(['-1'])
   })
 
   it('Segment Base is -1 until something loads, and Load Seg cannot here', () => {

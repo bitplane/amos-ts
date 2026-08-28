@@ -247,20 +247,39 @@ describe('IntuiExtend 2.01b — drawing', () => {
     expect(s.rp.point(151, 123)).toBe(3)
   })
 
-  it('Wb 3d Draw Object walks each polygon as three segments, not four', () => {
-    // a closed quad would return the cursor to its first corner; this leaves
-    // it on the fourth, because routine 318's inner loop runs `moveq #$3,d5`
+  /**
+   * Routine 318's inner loop runs `moveq #$3,d5`, three segments, and then
+   * closes: `move.w d7,(a6)+ / move.w d6,(a6)` at $5970 parks the FIRST
+   * corner's projected position in the four bytes at $59d8, and the
+   * `Rbsr routine 277` at $59c8 pushes them back and draws to them. Routine
+   * 277 ($50d4) is `Draw` on AMOS's own RastPort and nothing else.
+   *
+   * The bytes at $59c8 are `fe 31 01 15` — Rbsr routine $115, which is 277.
+   * A 68000 disassembler reads the $F-line word as a coprocessor opcode and
+   * swallows the operand, so the closing call vanishes and the polygon looks
+   * open. This test is what says it is not.
+   */
+  it('Wb 3d Draw Object closes each polygon back to its first corner', () => {
     const src = `${SCREEN}${setup(160, 128)}O=Wb 3d Make Object(4,1)\nWb 3d Edge 0,0,100 To 1,O\nWb 3d Edge 10,0,100 To 2,O\nWb 3d Edge 10,10,100 To 3,O\nWb 3d Edge 0,10,100 To 4,O\nWb 3d Shape 1,2,3,4 To 1,O\nWb 3d Draw Object O`
     const b = run(src)
     const s = b.rt.screen!
-    // the fourth corner projected, not the first
-    const fourth = run(`${setup(160, 128)}Wb 3d Point 0,10,100\nPrint Wb 3d X\nPrint Wb 3d Y`)
-    const [fx, fy] = fourth
+    // the FIRST corner projected, which is where the closing Draw lands
+    const first = run(`${setup(160, 128)}Wb 3d Point 0,0,100\nPrint Wb 3d X\nPrint Wb 3d Y`)
+    const [fx, fy] = first
       .out()
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean)
       .map(Number)
     expect([s.rp.cpX, s.rp.cpY]).toEqual([fx, fy])
+    // and that is not the fourth corner, so the closing segment really ran
+    const fourth = run(`${setup(160, 128)}Wb 3d Point 0,10,100\nPrint Wb 3d X\nPrint Wb 3d Y`)
+    const [gx, gy] = fourth
+      .out()
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map(Number)
+    expect([gx, gy]).not.toEqual([fx, fy])
   })
 })

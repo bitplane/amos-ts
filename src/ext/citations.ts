@@ -369,6 +369,7 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/intuiextend.ts': ['intuiextend-2.01b'],
   'src/runtime/intuiextendsys.ts': ['intuiextend-2.01b'],
   'src/runtime/intuiextendgfx.ts': ['intuiextend-2.01b'],
+  'src/runtime/intuiextendwin.ts': ['intuiextend-2.01b'],
   'src/runtime/musicraft.ts': ['musicraft-1.0'],
   'src/runtime/musicomega.ts': ['music-omega-1.0'],
   // the core's Sload/Ssave answer for AMCAF's too, and their doc block cites

@@ -80,6 +80,15 @@ import { VI, int, type Value } from '../interp/values'
 import { MemPool } from '../amiga/exec'
 import { ieAntiqTable } from './intuiextendsys'
 import { newIePrintState, type IePrintState } from './intuiextendgfx'
+import {
+  IE_NO_BASE,
+  newIeNewScreen,
+  newIeNewWindow,
+  newIeWindowState,
+  type IeNewScreen,
+  type IeNewWindow,
+  type IeWindowState,
+} from './intuiextendwin'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -167,6 +176,30 @@ export interface IntuiextendState {
   print: IePrintState
   /** rp_TxSpacing, which `Wb Text Spacing` writes and no RastPort here models */
   textSpacing: number
+  /** workspace+$90, the one NewScreen every `Wb Screen Open` fills and reuses */
+  newScreen: IeNewScreen
+  /** workspace+$1c, the one NewWindow, and the reason two opens are not independent */
+  newWindow: IeNewWindow
+  /** workspace+$8c, `Wb Screen Base`; -1 after a close, 0 after a failed open */
+  screenBase: number
+  /** workspace+$18, `Wb Wind Base` */
+  windBase: number
+  /** the open windows, by the handle `Wb Wind Base` hands out */
+  windowState: IeWindowState
+  /** workspace+$e6, what `Wb Next Pubscreen` fills and `Wb Pubscreen Name` reads */
+  pubName: string
+  /** what SetPubScreenModes last took, so the next call can answer the previous */
+  pubModes: number
+  /** the same, for PubScreenStatus */
+  pubStatus: number
+  /**
+   * -$18ca(a5) when `Wb Window` has pointed it at a window's RastPort.
+   *
+   * Zero means AMOS's own current screen, which is what the longword holds
+   * until something writes it. `Wb Screen` moves the screen instead and leaves
+   * this at zero, because a screen's RastPort address is derivable.
+   */
+  amosRp: number
 }
 
 export function newIntuiextendState(): IntuiextendState {
@@ -189,6 +222,17 @@ export function newIntuiextendState(): IntuiextendState {
     paintMode: 0,
     print: newIePrintState(),
     textSpacing: 0,
+    newScreen: newIeNewScreen(),
+    newWindow: newIeNewWindow(),
+    // `dc.l -1` in the shipped workspace at +$8c and +$18, which is also what
+    // a close writes back
+    screenBase: IE_NO_BASE,
+    windBase: IE_NO_BASE,
+    windowState: newIeWindowState(),
+    pubName: '',
+    pubModes: 0,
+    pubStatus: 0,
+    amosRp: 0,
   }
 }
 
@@ -559,9 +603,17 @@ export function makeIntuiextendInstructions(rt: Runtime): Record<string, Instr> 
     /**
      * Wb 3d Draw Object OBJECT — routine 318 ($591c).
      *
-     * For each polygon it projects the first corner and locates to it, then
-     * projects and draws to the other three. Three segments, not four: the
-     * outline is left open.
+     * An edge record is four vertex indices, so each one is a quadrilateral.
+     * The routine locates to the first corner, draws to the other three, and
+     * closes: `move.w d7,(a6)+ / move.w d6,(a6)` at $5970 parks the first
+     * corner's PROJECTED position in the four bytes at $59d8, and the
+     * `Rbsr routine 277` at $59c8 pushes them back and draws to them. Routine
+     * 277 ($50d4) is nothing but `Draw` on AMOS's own RastPort.
+     *
+     * Reading that closing call takes the AMOS escape decoder. $59c8 is
+     * `$fe31 $0115`, and a 68000 disassembler renders the $F-line word as a
+     * coprocessor opcode and swallows the operand, which loses the call and
+     * leaves the polygon looking open.
      *
      * The guide gives this one as `Wb 3d Draw Object OBJECT To RPORT` and is
      * dated 08/12/98 where the rest of the 3D nodes are 13/08/95. This build
@@ -575,30 +627,37 @@ export function makeIntuiextendInstructions(rt: Runtime): Record<string, Instr> 
       const shapesAt = (obj + 6 + points * 12) >>> 0
       const shapes = readWord(shapesAt) & 0xffff
       const scr = rt.screen
+      // `subq.w #$1 / asl.w #$2 / mulu.w #$3` — the first two keep the low
+      // word, the third reads only the low word and writes all 32 bits
       const pointAt = (n: number): [number, number, number] => {
-        const p = (obj + 6 + w((n - 1) * 12)) >>> 0
+        const p = (obj + 6 + ((((n - 1) << 2) & 0xffff) >>> 0) * 3) >>> 0
         return [readLong(p), readLong((p + 4) >>> 0), readLong((p + 8) >>> 0)]
+      }
+      const lineTo = (nx: number, ny: number): void => {
+        if (!scr) return
+        scr.rp.draw(scr.rp.cpX, scr.rp.cpY, nx, ny, scr.rp.fgPen)
+        scr.rp.cpX = nx
+        scr.rp.cpY = ny
       }
       for (let sIdx = 1; sIdx <= shapes; sIdx++) {
         const rec = (shapesAt + 2 + (sIdx - 1) * 8) >>> 0
         const first = readWord(rec) & 0xffff
         let [x, y, z] = pointAt(first)
         project(x, y, z)
+        // the four bytes at $59d8, written before the inner loop runs
+        const closeX = w(st().out[0]!)
+        const closeY = w(st().out[1]!)
         if (scr) {
-          scr.rp.cpX = w(st().out[0]!)
-          scr.rp.cpY = w(st().out[1]!)
+          scr.rp.cpX = closeX
+          scr.rp.cpY = closeY
         }
         for (let c = 1; c <= 3; c++) {
           const n = readWord((rec + c * 2) >>> 0) & 0xffff
           ;[x, y, z] = pointAt(n)
           project(x, y, z)
-          if (!scr) continue
-          const nx = w(st().out[0]!)
-          const ny = w(st().out[1]!)
-          scr.rp.draw(scr.rp.cpX, scr.rp.cpY, nx, ny, scr.rp.fgPen)
-          scr.rp.cpX = nx
-          scr.rp.cpY = ny
+          lineTo(w(st().out[0]!), w(st().out[1]!))
         }
+        lineTo(closeX, closeY)
       }
     },
   }
