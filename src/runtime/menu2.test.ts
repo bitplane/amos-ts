@@ -187,7 +187,7 @@ describe('menu event control', () => {
   })
 
   it('On Menu Off arms the jump, exactly as On Menu On does', () => {
-    // DEFECT reproduced. InOnMenuOff (+Lib.s:15335) is InOnMenuOn instruction
+    // DEFECT: reproduced here as well as in the port. InOnMenuOff (+Lib.s:15335) is InOnMenuOn instruction
     // for instruction: `tst.w OMnNb(a5) / beq.s .Skip / bset #BitJump,
     // ActuMask(a5)`. It sets the bit where it plainly means to clear it, and
     // the mislabelled "; ON MENU ON" comment above it is the copy-paste that
