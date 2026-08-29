@@ -223,7 +223,7 @@ export function makeMiscExtInstructions(rt: Runtime): Record<string, Instr> {
      * lines are active low and both belong to the SELECTED drive, so with no
      * drive selected they read high and the loop never ends. The author wrote
      * one constant for the other, and the manual's "Waits until you insert a
-     * new disk." describes the keyword he meant to write.
+     * new disk" describes the keyword they meant to write.
      *
      * Then a 500-iteration delay, and a loop of
      * `Disable / FindName` over ExecBase's TaskReady ($196) and TaskWait

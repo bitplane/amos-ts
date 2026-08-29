@@ -83,8 +83,8 @@ is.
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
-| intuiextend-1.6      |      294 |        0 |            0 |     294 |       0% |
-| intuiextend-2.01b    |      301 |        0 |            0 |     301 |       0% |
+| intuiextend-1.6      |      294 |      231 |           63 |       0 |     100% |
+| intuiextend-2.01b    |      301 |      239 |           61 |       0 |     100% |
 | intuition-1.3b       |      183 |      183 |            0 |       0 |     100% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
 | jd-5.3               |      130 |      127 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     5395 |          287 |    1685 |      77% |
+| **total**            |     7422 |     5865 |          411 |    1090 |      85% |
 
 ## Not applicable, by what would retire it
 
@@ -175,11 +175,11 @@ exec's Forbid and Permit. There is one task here and nothing to forbid.
 
 `jd multi off`, `jd multi on`, `multi off`, `multi on`
 
-### syntax (4)
+### syntax (5)
 
 Reserved words that are part of somebody else's grammar, or have no construct in the shipped grammar that reaches them. There is no routine behind the token.
 
-`as`, `follow`, `follow off`, `screen size`
+`\x00rwb get menu adr`, `as`, `follow`, `follow off`, `screen size`
 
 ### dead-vector (4)
 
@@ -321,6 +321,41 @@ The AMOS editor and the compiler overlay, neither of which exists here.
 ## interface (100%)
 
 - **approximated** (1): `resource$`
+
+## intuiextend-1.6 (100%)
+
+- **approximated** (63): `alloc abs`, `app create icon`, `app free icon`, `get menu msg`,
+  `get msg`, `iff display`, `iff write chunk`, `load seg`, `pp decrunch`, `pp write`,
+  `set taskpri`, `shearch`, `wb activate gadget`, `wb bevel gadget`, `wb create port`,
+  `wb date`, `wb depth`, `wb display alert`, `wb display beep`, `wb free bool gadget`,
+  `wb free diskobject`, `wb free num gadget`, `wb free slide gadget`, `wb free str gadget`,
+  `wb free toggle gadget`, `wb gadget id`, `wb gadget image`, `wb get deficon`, `wb get menu`,
+  `wb get menu adr`, `wb get msg`, `wb get wbicon`, `wb hpos`, `wb init bool gadget`,
+  `wb init hslide gadget`, `wb init mslide gadget`, `wb init num gadget`, `wb init str gadget`,
+  `wb init toggle gadget`, `wb init vslide gadget`, `wb insert gadget`, `wb itext`,
+  `wb menu to window`, `wb new hslide gadget`, `wb new mslide gadget`, `wb new vslide gadget`,
+  `wb off gadget`, `wb on gadget`, `wb open screen taglist`, `wb pubscreen name`,
+  `wb refresh all gadget`, `wb refresh gadget`, `wb remove all gedget`, `wb remove gadget`,
+  `wb screen open`, `wb scroll`, `wb set str centre`, `wb set str left`, `wb set str right`,
+  `wb setchip rev`, `wb slide swap look`, `wb vpos`, `wb window`
+
+## intuiextend-2.01b (100%)
+
+- **approximated** (61): `alloc abs`, `app create icon`, `app free icon`, `get menu msg`,
+  `get msg`, `iff display`, `iff write chunk`, `load seg`, `pp decrunch`, `pp write`, `search`,
+  `set taskpri`, `wb activate gadget`, `wb bevel gadget`, `wb create port`, `wb date`,
+  `wb depth`, `wb display alert`, `wb display beep`, `wb free bool gadget`,
+  `wb free diskobject`, `wb free num gadget`, `wb free slide gadget`, `wb free str gadget`,
+  `wb free toggle gadget`, `wb gadget id`, `wb gadget image`, `wb get deficon`, `wb get menu`,
+  `wb get msg`, `wb get wbicon`, `wb hpos`, `wb init bool gadget`, `wb init hslide gadget`,
+  `wb init mslide gadget`, `wb init num gadget`, `wb init str gadget`, `wb init toggle gadget`,
+  `wb init vslide gadget`, `wb insert gadget`, `wb itext`, `wb menu to window`,
+  `wb new hslide gadget`, `wb new mslide gadget`, `wb new vslide gadget`, `wb off gadget`,
+  `wb on gadget`, `wb open screen taglist`, `wb pubscreen name`, `wb refresh all gadget`,
+  `wb refresh gadget`, `wb remove all gadget`, `wb remove gadget`, `wb screen open`,
+  `wb set str centre`, `wb set str left`, `wb set str right`, `wb setchip rev`,
+  `wb slide swap look`, `wb vpos`, `wb window`
+- **n/a** (1): `\x00rwb get menu adr`
 
 ## jd-4.6 (100%)
 

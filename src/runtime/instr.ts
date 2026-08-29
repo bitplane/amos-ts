@@ -98,6 +98,59 @@ import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } fro
 import { GUI_ERRORS, guiRelease, makeGuiFunctions, makeGuiInstructions, newGuiState } from './gui'
 import { INT_ERRORS, makeIntFunctions, makeIntInstructions, newIntState } from './int'
 import { IEXT_ERRORS, makeIextFunctions, makeIextInstructions, newIextState } from './intuition'
+import {
+  makeIntuiextendFunctions,
+  makeIntuiextendInstructions,
+  newIntuiextendState,
+} from './intuiextend'
+import {
+  makeIntuiextendSysFunctions,
+  makeIntuiextendSysInstructions,
+} from './intuiextendsys'
+import {
+  makeIntuiextendGfxFunctions,
+  makeIntuiextendGfxInstructions,
+} from './intuiextendgfx'
+import {
+  makeIntuiextendWinFunctions,
+  makeIntuiextendWinInstructions,
+} from './intuiextendwin'
+import {
+  makeIntuiextendMsgFunctions,
+  makeIntuiextendMsgInstructions,
+} from './intuiextendmsg'
+import {
+  makeIntuiextendGadFunctions,
+  makeIntuiextendGadInstructions,
+} from './intuiextendgad'
+import {
+  makeIntuiextendMenuFunctions,
+  makeIntuiextendMenuInstructions,
+} from './intuiextendmenu'
+import {
+  makeIntuiextendReqFunctions,
+  makeIntuiextendReqInstructions,
+} from './intuiextendreq'
+import {
+  makeIntuiextendIffFunctions,
+  makeIntuiextendIffInstructions,
+} from './intuiextendiff'
+import {
+  makeIntuiextendTdFunctions,
+  makeIntuiextendTdInstructions,
+} from './intuiextendtd'
+import {
+  makeIntuiextendPpFunctions,
+  makeIntuiextendPpInstructions,
+} from './intuiextendpp'
+import {
+  makeIntuiextendAppFunctions,
+  makeIntuiextendAppInstructions,
+} from './intuiextendapp'
+import {
+  makeIntuiextend16Functions,
+  makeIntuiextend16Instructions,
+} from './intuiextend16'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
@@ -213,6 +266,29 @@ function blockNum(it: It): number {
  */
 function omittedArg(it: It): boolean {
   return it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to' || it.nm() === ')'
+}
+
+/**
+ * A screen number, which may be left blank.
+ *
+ * Every screen number lands in `L_GetEc` (+Lib.s:11289), and that routine
+ * reads EntNul as a number rather than refusing it. EntNul is negative as a
+ * long, so `tst.l d1 / bmi.s GtE1` takes the branch, but its low word is
+ * zero, so `GtE1 tst.w d1 / bpl.s GtE2` skips the ScOnAd path and GtE2 reads
+ * that zero as the screen number. `btst #30,d1` is clear, so it is the
+ * logical buffer.
+ *
+ * An omitted screen is therefore screen 0, which is not the current screen:
+ * -1 is what reaches ScOnAd, because its low word is negative too. Screen 0
+ * being closed still raises through `Rbeq L_ScNOp`.
+ *
+ * `screenArg` below is the other reading, and the difference is the routine
+ * rather than the keyword. The Zone family goes through EcToD1 (+W.s:10755),
+ * which tests the same low word and takes zero to mean `T_EcCourant`, the
+ * current screen, where GetEc takes it to mean screen 0.
+ */
+function getEcArg(it: It): number {
+  return omittedArg(it) ? ENT_NUL : it.evalInt()
 }
 
 /** `pair`, for the keywords whose original routine reaches `GrXY` */
@@ -1667,7 +1743,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().autoback = n
     },
     'screen copy'(it) {
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       let x1 = 0
       let y1 = 0
       let x2 = src.s.width
@@ -1682,7 +1758,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         y2 = it.evalInt()
       }
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       let dx = 0
       let dy = 0
       if (it.accept(',')) {
@@ -1913,15 +1989,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2595/4371)
      * compare every parameter against EntNul and leave the field alone.
      *
-     * Get Palette does not test for it, so the sentinel reaches `L_GetEc` as
-     * a screen number. It does not matter: mask 0 means `PalRout`'s
-     * `btst d0,d3` never fires, every entry stays the $FFFF "unchanged"
-     * marker, and nothing is copied whichever screen was named. The omitted
-     * slot resolves to the current screen here, which is the one choice that
-     * cannot throw.
+     * Get Palette does not test for it, so the sentinel reaches `L_GetEc`
+     * as a screen number, and that routine answers it: `getEcArg` above
+     * walks the branches. An omitted screen is screen 0, not the current
+     * one. The corpus line is `Get Palette,0`, where mask 0 means `PalRout`'s
+     * `btst d0,d3` never fires and nothing is copied whichever screen was
+     * named, but a mask with a bit set copies screen 0's colours.
      */
     'get palette'(it) {
-      const src = it.nm() === ',' ? scr() : byIndex(it.evalInt())
+      const src = byIndex(it.nm() === ',' ? 0 : it.evalInt())
       const mask = it.accept(',') ? it.evalInt() : -1
       const dst = scr()
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
@@ -2655,13 +2731,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     zoom(it) {
       // Zoom src,x1,y1,x2,y2 To dst,x1,y1,x2,y2 — scaled blit
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       it.expect(',')
       const [sx1, sy1] = pair(it)
       it.expect(',')
       const [sx2, sy2] = pair(it)
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       it.expect(',')
       const [dx1, dy1] = pair(it)
       it.expect(',')
@@ -2712,9 +2788,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
        * The port refused it outright, and would have walked backwards off
        * the buffer if it had not.
        */
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
@@ -5934,9 +6010,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * L_GoError / subq.w #1,d5`, and d5 is the bank COUNT that AdBob left there
    * (`move.w d1,d5`, d1 being Bnk.AdBob's documented "Max de bobs"). So
    * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what
-   * AMOSPro_Help.Txt promises of the bare form: "Affects all currently
-   * defined Icon images." The one-argument forms set `moveq #0,d5` and walk
-   * exactly one, "Creates a blitter mask for image number i.".
+   * AMOS's own help doc for the icon commands annotates the pair with: "make
+   * mask for all icons", "remove mask of all icons"
+   * (Examples/H-6/Help_65.AMOS).
+   * The one-argument forms set `moveq #0,d5` and walk exactly one.
    *
    * Both loops open `tst.l (a2) / beq.s .Skip`, so a hole in the bank is
    * stepped over in silence. Only the number itself can raise, through AdBob.
@@ -8710,6 +8787,58 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeIextInstructions,
     functions: makeIextFunctions,
     errors: IEXT_ERRORS,
+  },
+  {
+    /**
+     * CIERP Philippe's IntuiExtend 2.01b, which every .guide signs
+     * `@Author CIERP Philippe ©1995-98`.
+     *
+     * 301 keywords, and the extension carries its own workspace: routine 0 is
+     * `lea.l $1d28(pc),a3 / move.l a3,$258(a5)`, so every table it owns is
+     * static data inside the single code hunk and readable from the file --
+     * including the NewScreen and the NewWindow the screen and window group
+     * fills in. See ./intuiextend.ts.
+     */
+    ids: ['intuiextend-2.01b', 'intuiextend-1.6'],
+    init: (rt) => {
+      rt.intuiextend = newIntuiextendState()
+    },
+    instructions: (rt) => {
+      const base = {
+        ...makeIntuiextendInstructions(rt),
+        ...makeIntuiextendSysInstructions(rt),
+        ...makeIntuiextendGfxInstructions(rt),
+        ...makeIntuiextendWinInstructions(rt),
+        ...makeIntuiextendMsgInstructions(rt),
+        ...makeIntuiextendGadInstructions(rt),
+        ...makeIntuiextendMenuInstructions(rt),
+        ...makeIntuiextendReqInstructions(rt),
+        ...makeIntuiextendIffInstructions(rt),
+        ...makeIntuiextendTdInstructions(rt),
+        ...makeIntuiextendPpInstructions(rt),
+        ...makeIntuiextendAppInstructions(rt),
+      }
+      // 1.6 last, and every entry of it either a name 2.01b does not have or
+      // a wrapper that hands back to `base` when 2.01b is the build
+      return { ...base, ...makeIntuiextend16Instructions(rt, base) }
+    },
+    functions: (rt) => {
+      const base = {
+        ...makeIntuiextendFunctions(rt),
+        ...makeIntuiextendSysFunctions(rt),
+        ...makeIntuiextendGfxFunctions(rt),
+        ...makeIntuiextendWinFunctions(rt),
+        ...makeIntuiextendMsgFunctions(rt),
+        ...makeIntuiextendGadFunctions(rt),
+        ...makeIntuiextendMenuFunctions(rt),
+        ...makeIntuiextendReqFunctions(rt),
+        ...makeIntuiextendIffFunctions(rt),
+        ...makeIntuiextendTdFunctions(rt),
+        ...makeIntuiextendPpFunctions(rt),
+        ...makeIntuiextendAppFunctions(rt),
+      }
+      return { ...base, ...makeIntuiextend16Functions(rt, base) }
+    },
   },
   {
     /*

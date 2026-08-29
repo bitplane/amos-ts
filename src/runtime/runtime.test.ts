@@ -298,6 +298,21 @@ describe('drawing', () => {
     expect(rt.screens.get(0)!.palette[2]).toBe(0x333)
   })
 
+  it('Get Palette with the screen left out reads screen 0 (InGetPalette2 +Lib.s:9250)', () => {
+    // it pops the slot straight into d1 and calls GetEc without testing it,
+    // so the blank is a screen number like any other and resolves to 0
+    const prog = [
+      'Palette $111,$222,$333',
+      'Screen Open 1,320,200,16,Lowres',
+      'Palette $444,$555,$666',
+      'Get Palette ,%101',
+    ].join('\n')
+    const rt = run(prog)
+    expect(rt.screens.get(1)!.palette[0]).toBe(0x111)
+    expect(rt.screens.get(1)!.palette[1]).toBe(0x555) // masked out
+    expect(rt.screens.get(1)!.palette[2]).toBe(0x333)
+  })
+
   it('Get Palette with the screen omitted copies nothing, whatever it picked', () => {
     // `Get Palette,0` is in the PD corpus (APD470/HomeRun2) and used to reach
     // keyword dispatch as a bare ",". An omitted slot yields EntNul
@@ -740,6 +755,43 @@ describe('double buffering and screens', () => {
     expect(rt.screen.point(120, 120)).toBe(5) // 4x scaled bar
     expect(rt.screen.point(139, 139)).toBe(5)
     expect(rt.screen.point(142, 142)).toBe(1)
+  })
+
+  it('a blank screen number reads the same as an explicit 0 (GetEc +Lib.s:11289)', () => {
+    // EntNul is negative as a long, so `tst.l d1 / bmi.s GtE1` branches, but
+    // its low word is zero, so `GtE1 tst.w d1 / bpl.s GtE2` skips the ScOnAd
+    // path and GtE2 reads that zero as the screen number
+    const bar = 'Ink 5 : Bar 0,0 To 9,9\n'
+    const same = (blank: string, zero: string): void => {
+      expect(run(bar + blank).screens.get(0)!.pixels).toEqual(run(bar + zero).screens.get(0)!.pixels)
+    }
+    same('Zoom ,0,0,10,10 To ,100,100,140,140', 'Zoom 0,0,0,10,10 To 0,100,100,140,140')
+    same('Screen Copy ,0,0,10,10 To ,50,60', 'Screen Copy 0,0,0,10,10 To 0,50,60')
+  })
+
+  it('and it is screen 0, not whichever screen is current', () => {
+    // -1 is what reaches ScOnAd, because its low word is negative too
+    const rt = run('Ink 5 : Bar 0,0 To 9,9\nScreen Open 1,320,200,16,Lowres\nZoom ,0,0,10,10 To ,100,100,140,140')
+    expect(rt.screens.get(0)!.point(120, 120)).toBe(5)
+    expect(rt.screens.get(1)!.point(120, 120)).not.toBe(5)
+    // Appear's destination is the same slot, and screen 1 is current here, so
+    // a blank meaning "current" would leave screen 0 at colour 0
+    const ap = run(
+      [
+        'Screen Open 0,320,32,16,Lowres : Flash Off : Cls 0',
+        'Screen Open 1,320,32,16,Lowres : Flash Off : Cls 6',
+        'Appear 1 To ,7', // 7 is coprime with the pixel total, so all of it
+      ].join('\n'),
+    )
+    expect(ap.screens.get(0)!.pixels.every((v) => v === 6)).toBe(true)
+  })
+
+  it('but a slot with no comma beside it cannot be left blank', () => {
+    // the comma is what emits the sentinel: FnNull (+ILib.s:3725) is the
+    // comma's own function routine, so a slot that ends on `To` has nothing
+    // to produce one and the verifier refuses the line before it runs
+    expect(() => run('Appear To 1,1')).toThrow(/Syntax error/)
+    expect(() => run('Screen Copy , To 1')).toThrow(/Syntax error/)
   })
 
   it('Set Pattern clears the old one before it looks at the argument (SPat +W.s:4695)', () => {

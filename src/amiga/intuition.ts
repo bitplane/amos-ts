@@ -606,6 +606,22 @@ export interface StringInfo {
 }
 
 /**
+ * `struct Image` reduced to what drawing one needs: its offset from the
+ * gadget's top-left, its size, and one byte per pixel.
+ *
+ * `intuition.i`:534 has ImageData pointing at bitplanes and PlanePick saying
+ * which of the RastPort's each of them feeds. Resolving that is the caller's
+ * job because only the caller knows the address space the planes live in.
+ */
+export interface GadgetImage {
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  pixels: Uint8Array
+}
+
+/**
  * A gadget in a window, as much of `struct Gadget` as anything here fills in.
  * `id` is GadgetID at offset 38, which is what an IDCMP GADGETUP message's
  * caller reads back out of `IAddress`.
@@ -631,6 +647,15 @@ export interface UserGadget {
   borders?: readonly Border[]
   /** `gg_SelectRender`, drawn instead while GFLG_SELECTED is up */
   selectBorders?: readonly Border[]
+  /**
+   * `gg_GadgetRender` when GFLG_GADGIMAGE is set, so it is a `struct Image`
+   * rather than a Border chain. Chunky by the time it gets here: the caller
+   * has already read the planes through PlanePick and PlaneOnOff, which is
+   * the part that depends on where the image came from.
+   */
+  image?: GadgetImage
+  /** `gg_SelectRender` under GADGHIMAGE, the alternate image to blast in */
+  selectImage?: GadgetImage
   /** `gg_GadgetText`, a `struct IntuiText`: its pens, its offset and its text */
   text?: { leftEdge: number; topEdge: number; frontPen: number; text: string }
   /** `gg_SpecialInfo` for a PROPGADGET */
@@ -958,6 +983,23 @@ export class Intuition {
     w.flags |= WFLG_WINDOWACTIVE
     w.post(IDCMP_ACTIVEWINDOW, 0)
     this.dirty = true
+  }
+
+  /**
+   * ActivateGadget (-462): make a STRGADGET the one taking keystrokes.
+   *
+   * Intuition activates only a string gadget, and only one already in the
+   * window's list, so anything else answers FALSE. The cursor lands past the
+   * last character rather than at the start, which is where a click on empty
+   * space to the right of the text would have put it.
+   */
+  activateGadget(w: Window, g: UserGadget): boolean {
+    if (g.strInfo === undefined) return false
+    if (!w.gadgets.includes(g)) return false
+    this.activeString = { w, g }
+    g.strInfo.bufferPos = g.strInfo.buffer.length
+    this.dirty = true
+    return true
   }
 
   /** WindowToFront (-312) */
@@ -1456,6 +1498,24 @@ export class Intuition {
       for (let i = 0; i + 3 < b.xy.length; i += 2) {
         rp.draw(bx + b.xy[i]!, by + b.xy[i + 1]!, bx + b.xy[i + 2]!, by + b.xy[i + 3]!, b.pen)
       }
+    }
+    // GFLG_GADGIMAGE, `intuition.i`:256: GadgetRender is an Image and not a
+    // Border, and GADGHIMAGE highlighting swaps to SelectRender the same way
+    // the Border chains do. DrawImage is an opaque blit, so colour 0 lands
+    // rather than showing what was underneath
+    const img = (selected && g.selectImage !== undefined ? g.selectImage : g.image) ?? null
+    if (img !== null) {
+      const mode = rp.drawMode
+      const mask = rp.mask
+      rp.drawMode = 0
+      rp.mask = 0xff
+      for (let iy = 0; iy < img.height; iy++) {
+        for (let ix = 0; ix < img.width; ix++) {
+          rp.plot(gx + img.leftEdge + ix, gy + img.topEdge + iy, img.pixels[iy * img.width + ix]!)
+        }
+      }
+      rp.drawMode = mode
+      rp.mask = mask
     }
     if (g.prop !== undefined) this.renderKnob(rp, g, gx, gy)
     if (g.strInfo !== undefined) this.renderString(rp, w, g, gx, gy)

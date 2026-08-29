@@ -60,7 +60,7 @@
 import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { RastPort } from '../amiga/graphics'
+import { RastPort, scrollRaster } from '../amiga/graphics'
 import { CIAF_GAMEPORT0, CIAF_GAMEPORT1 } from '../amiga/cia'
 import { joyDatOf } from '../amiga/gameport'
 import { ICON_BANK } from './banks'
@@ -1774,47 +1774,6 @@ function rectTo(it: Parameters<Instr>[0]): [number, number, number, number] {
   return [x1, y1, x2, y2]
 }
 
-/**
- * ScrollRaster (-$18c): move the contents of a rectangle by (dx,dy) and fill
- * what that vacates.
- *
- * Positive dx and dy move the contents LEFT and UP, so the source of the
- * pixel that lands at (x,y) is (x+dx, y+dy). The whole rectangle is read
- * before any of it is written, because the source and destination overlap in
- * every interesting case.
- *
- * The write is a raster copy and not a drawn one: no draw mode, no pattern,
- * no mask. `putPixel` is that, so the clip is applied here instead.
- */
-function scrollRaster(rp: RastPort, dx: number, dy: number, x1: number, y1: number, x2: number, y2: number): void {
-  if (x1 > x2) [x1, x2] = [x2, x1]
-  if (y1 > y2) [y1, y2] = [y2, y1]
-  const c = rp.clip
-  if (c) {
-    x1 = Math.max(x1, c.x1)
-    y1 = Math.max(y1, c.y1)
-    x2 = Math.min(x2, c.x2)
-    y2 = Math.min(y2, c.y2)
-  }
-  x1 = Math.max(0, x1)
-  y1 = Math.max(0, y1)
-  x2 = Math.min(rp.width - 1, x2)
-  y2 = Math.min(rp.height - 1, y2)
-  if (x2 < x1 || y2 < y1) return
-  if (dx === 0 && dy === 0) return
-  const w = x2 - x1 + 1
-  const h = y2 - y1 + 1
-  const src = new Int16Array(w * h)
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) src[y * w + x] = rp.point(x1 + x, y1 + y)
-  for (let y = 0; y < h; y++) {
-    const sy = y + dy
-    for (let x = 0; x < w; x++) {
-      const sx = x + dx
-      const inside = sx >= 0 && sx < w && sy >= 0 && sy < h
-      rp.putPixel(x1 + x, y1 + y, inside ? src[sy * w + sx]! : rp.bgPen)
-    }
-  }
-}
 
 /**
  * Four comma-separated integers, the shape both open keywords start with.
