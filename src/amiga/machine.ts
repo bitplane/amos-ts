@@ -80,10 +80,11 @@
  *       WARM one in this list.
  *   the-game 0.9 r4               `G Reboot`  three instructions:
  *       `movea.l $4.w,a6 / jsr -$2d6(a6) / rts`. ColdReboot, no version check.
- *   os-devkit 1.61 r501           `_Cold Reboot`  NOT READ — the extension is
- *       unported and capstone was unavailable; the name and the extension's
- *       shape (thin `_`-prefixed wrappers over exec and dos) say ColdReboot,
- *       but nothing here has looked at the bytes.
+ *   os-devkit 1.61 r501           `_Cold Reboot`  routine 501 is a four-byte
+ *       `Rbra routine 1570`, and 1570 is `movea.l $4.w,a6 / jsr -$2d6(a6)`
+ *       between a `movem.l` pair. ColdReboot, no version check, so it is
+ *       COLD like the rest of this list. The trampoline is the extension's
+ *       usual shape: 1,012 of its 1,053 named routines are eight bytes.
  *
  * Two keywords that look like they belong here and do not, both caught by
  * reading rather than by their names: EasyLife's `Elreset` is a jump table

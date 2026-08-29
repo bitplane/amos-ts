@@ -284,15 +284,47 @@ describe('the address map', () => {
   })
 
   it('walks the delta-encoded table, in words', () => {
-    // jumpSize 6 (three routines), tokenSize 0, then deltas 0, 4, 8
+    // jumpSize 6 (three routines), tokenSize 0, libSize 40, titleSize 0,
+    // then deltas 4 and 8, and 18 + 6 + 0 + 40 + 0 spends all 64 bytes
     const code = new Uint8Array(64)
     const v = new DataView(code.buffer)
     v.setUint32(0, 6, false)
     v.setUint32(4, 0, false)
+    v.setUint32(8, 40, false)
     v.setUint16(18, 4, false)
     v.setUint16(20, 8, false)
     // routine 0 at 18+6 = 24, then +4 words, then +8 words
     expect(routineAddresses(code)).toEqual([24, 32, 48])
+  })
+
+  /**
+   * `os-devkit-1.61` and `bsdsocket-1.1.4` are the only two of the 84
+   * libraries in `fixtures/extensions` that write the magic, and both are
+   * unported, which is how a fixed 18 survived. Read at 18, OS DevKit's
+   * `"AP20"` becomes the first two deltas, $4150 and $3230, and routine 0
+   * comes out 33,440 bytes long.
+   */
+  it('starts the table at 22 when the header carries AP20', () => {
+    const code = new Uint8Array(64)
+    const v = new DataView(code.buffer)
+    v.setUint32(0, 6, false)
+    v.setUint32(4, 0, false)
+    v.setUint32(8, 36, false)
+    code.set([0x41, 0x50, 0x32, 0x30], 18)
+    v.setUint16(22, 4, false)
+    v.setUint16(24, 8, false)
+    // routine 0 at 22+6 = 28, not 24
+    expect(routineAddresses(code)).toEqual([28, 36, 52])
+  })
+
+  it('refuses a header whose sizes do not spend the hunk', () => {
+    // the same table, with libSize left at zero: 18 + 6 accounts for 24 of
+    // 64 bytes, and no library in the corpus leaves more than 4 over
+    const code = new Uint8Array(64)
+    const v = new DataView(code.buffer)
+    v.setUint32(0, 6, false)
+    v.setUint16(18, 4, false)
+    expect(routineAddresses(code)).toEqual([])
   })
 })
 
