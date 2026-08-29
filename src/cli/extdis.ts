@@ -31,7 +31,7 @@
  * Disassembly needs python3 with capstone (`CS_ARCH_M68K`). Without it the
  * address map still prints, which is the hard-won part.
  *
- * Run: npm run cli -- src/cli/extdis.ts <extension-id> [keyword] [--map]
+ * Run: npm run cli -- src/cli/extdis.ts <extension-id> [keyword] [--map|--all]
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -45,9 +45,10 @@ import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS
 
 const args = process.argv.slice(2)
 const showMap = args.includes('--map')
+const dumpAll = args.includes('--all')
 const [id, keyword] = args.filter((a) => !a.startsWith('--'))
 if (!id) {
-  console.error('usage: extdis <extension-id> [keyword] [--map]')
+  console.error('usage: extdis <extension-id> [keyword] [--map] [--all]')
   console.error(`known: ${REGISTRY.map((e) => e.id).join(', ')}`)
   process.exit(1)
 }
@@ -367,6 +368,17 @@ function disassemble(label: string, n: number): void {
       console.log(lines.join('\n'))
     }
   }
+}
+
+/**
+ * `--all` disassembles all 266 routines in one process. Reading a library is
+ * a whole-library job -- a state offset is only recognisable once it has been
+ * seen in four routines -- and 266 spawns of this script cost 266 capstone
+ * starts to answer a question one `grep` over one file answers better.
+ */
+if (dumpAll) {
+  for (let n = 0; n < addr.length; n++) disassemble(routineName(n), n)
+  process.exit(0)
 }
 
 if (keyword) {
