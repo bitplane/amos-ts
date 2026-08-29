@@ -172,6 +172,18 @@ describe('display differential sweep: modelled path vs copper interpreter', () =
     ])
   })
 
+  it('Screen Offset scrolling by a part of a word', () => {
+    // 48 above is three whole words, so it moved the bitplane pointers and
+    // nothing else --- which is why the scene above passed for as long as
+    // BPLCON1 went out hardcoded to zero. 53 is 3 words and 5 pixels, and the
+    // five have to come from the delay nibbles.
+    expectIdentical([
+      'Screen Open 0,640,400,16,Lowres : Curs Off : Cls 0',
+      'For I=0 To 15 : Ink I : Bar I*40,I*24 To I*40+38,I*24+22 : Next I',
+      'Screen Offset 0,53,32',
+    ])
+  })
+
   it('hires', () => {
     expectIdentical([
       'Screen Open 0,640,200,16,Hires : Curs Off : Cls 0',
@@ -297,5 +309,50 @@ describe('a screen wider than the display', () => {
     const scrolled = paint(open, [...draw, 'Screen Offset 0,700,0'])
     expect(lit(home)).toBe(0)
     expect(lit(scrolled)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Screen Offset moves by one pixel, not by one word.
+ *
+ * A bitplane pointer only moves a word at a time, so the coarse half of a
+ * scroll is 16 pixels wide. BPLCON1's PF1H/PF2H nibbles carry the rest.
+ * With BPLCON1 emitted as a hardcoded zero the picture stood still for
+ * sixteen consecutive offsets and then jumped, which is what Man Dog's
+ * `Screen Offset 0,N,0` looked like: a step every sixteenth iteration
+ * instead of a walk.
+ */
+describe('Screen Offset is pixel-accurate, not word-accurate', () => {
+  const barX = (off: number): number => {
+    const src = [
+      'Screen Open 0,640,256,16,Lowres : Curs Off : Flash Off : Hide On',
+      'Ink 0 : Bar 0,0 To 639,255',
+      'Ink 5 : Bar 200,0 To 203,255',
+      `Screen Offset 0,${off},0`,
+      'Wait Vbl',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 2_000_000 })
+    for (let i = 0; i < 12; i++) rt.frame()
+    const px = rt.composite().data
+    const row = 300
+    for (let x = 0; x < 640; x++) {
+      const i = (row * 640 + x) * 4
+      if (px[i] !== 0 || px[i + 1] !== 0 || px[i + 2] !== 0) return x
+    }
+    return -1
+  }
+
+  it('every offset from 0 to 17 moves the bar', () => {
+    // the composite doubles a lowres pixel, so one step of offset is two
+    // columns; the old behaviour was sixteen identical readings then a leap
+    const seen = Array.from({ length: 18 }, (_, off) => barX(off))
+    expect(seen).toEqual([400, 398, 396, 394, 392, 390, 388, 386, 384, 382, 380, 378, 376, 374, 372, 370, 368, 366])
+  })
+
+  it('a negative offset needs no special case', () => {
+    // `>>` floors and `&` gives a non-negative remainder, so -17 is one word
+    // back and one pixel right without a branch for the sign
+    expect(barX(-16) - barX(0)).toBe(32)
+    expect(barX(-17) - barX(-16)).toBe(2)
   })
 })

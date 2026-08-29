@@ -306,9 +306,31 @@ export class Display {
           put(0x180 + i * 2)
           put(f.palette[i]! & 0xfff)
         }
-        // bitplane pointers: the +1 window offset relative to the setup
-        // line cancels the -1, pointing at the band's first row
-        const rowOff = (L - f.displayY + f.offsetY) * f.rowBytes + ((f.offsetX >> 4) << 1)
+        /**
+         * The two halves of a horizontal scroll.
+         *
+         * A bitplane pointer can only move a WORD at a time, which is 16
+         * pixels, so on its own it scrolls in 16-pixel jumps --- and that is
+         * what `Screen Offset 0,N,0` did here for every N, sitting still for
+         * sixteen values and then leaping. The other half is BPLCON1, whose
+         * PF1H/PF2H nibbles delay a playfield by up to 15 pixels.
+         *
+         * The delay only ever shifts a playfield RIGHT, so a LEFT shift of
+         * `fine` is one extra word of pointer (16 left) plus a delay of
+         * `16 - fine` (that much back right). Hence the `+1` on the coarse
+         * word count whenever there is a remainder at all.
+         *
+         * The arithmetic holds for a negative offset without a special case,
+         * because `>>` floors and `&` returns a non-negative remainder:
+         * -17 gives coarse -1 and fine 15, which is one word back and one
+         * pixel right, and that is what -17 means.
+         */
+        const scroll = (s: Screen): { words: number; delay: number } => {
+          const fine = s.offsetX & 15
+          return { words: (s.offsetX >> 4) + (fine === 0 ? 0 : 1), delay: fine === 0 ? 0 : 16 - fine }
+        }
+        const sc = scroll(f)
+        const rowOff = (L - f.displayY + f.offsetY) * f.rowBytes + (sc.words << 1)
         const base = this.rt.screenChipBase(f.index) + (f.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
         /**
          * Bitplane pointers.
@@ -328,7 +350,7 @@ export class Display {
         }
         if (pf2 !== null) {
           const base2 = this.rt.screenChipBase(pf2.index) + (pf2.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
-          const rowOff2 = (L - pf2.displayY + pf2.offsetY) * pf2.rowBytes + ((pf2.offsetX >> 4) << 1)
+          const rowOff2 = (L - pf2.displayY + pf2.offsetY) * pf2.rowBytes + (scroll(pf2).words << 1)
           const n = Math.max(f.depth, pf2.depth)
           for (let i = 0; i < n; i++) {
             if (i < f.depth) emit(i * 2, (base + i * f.planeSize + rowOff) >>> 0)
@@ -383,8 +405,12 @@ export class Display {
             (f.laced ? 4 : 0)) &
             0xffff) >>> 0,
         )
+        // BPLCON1: PF1H in bits 0-3, PF2H in bits 4-7. A single playfield
+        // sets both to the same delay, because its planes are fetched as PF1
+        // and PF2 alike; dual playfield gives each bitmap its own, which is
+        // what lets two layers scroll at different speeds.
         put(0x102)
-        put(0)
+        put(((sc.delay & 15) | ((pf2 !== null ? scroll(pf2).delay : sc.delay) & 15) << 4) & 0xffff)
         put(0x104)
         // BPLCON2 is the screen's own EcCon2 (+W.s:6470), so a list copied
         // out of Cop Logic carries that screen's sprite priority with it
