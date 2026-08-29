@@ -166,6 +166,7 @@ import {
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
 import { CYCLES_PER_DISPATCH, CYCLES_PER_STATEMENT, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
+import { VBL_BUDGET_CAP } from './cost'
 import { MusicPlayer } from './music'
 
 /**
@@ -4750,11 +4751,40 @@ export class Runtime {
    * each cost into a CPU part and a chip-DMA part is what would fix that,
    * and nothing here measures the split yet.
    */
+  /** bus cycles last frame's bob pass took, charged against this frame */
+  private vblBobCycles = 0
+
   private frameBudgetOverride: number | null
 
   /** CPU cycles BASIC gets per vertical blank on the machine as configured */
   private get frameBudget(): number {
     return this.frameBudgetOverride ?? Math.round(this.machine.cpu.hz / VBL_HZ)
+  }
+
+  /**
+   * The frame, minus what the vertical blank already spent on bobs.
+   *
+   * The bob pass runs in the interrupt before BASIC gets the processor back,
+   * and every blitter cycle it uses is a bus cycle the 68000 does not get.
+   * That cost scales with the bobs ON SCREEN and their size and depth --- not
+   * with how many times the program called `Bob`, which is a few hundred
+   * cycles that draws nothing (BobSet, +W.s:890).
+   *
+   * This is what separates Q.A.B. from 18th Hole. The golf game's power bar
+   * delay has no bobs in it at all and is paced by statements alone, which is
+   * why it matched the measurement exactly. Q.A.B. carries up to thirty-odd
+   * asteroids and a ship, redrawn every frame, and its loop is nothing but
+   * `Bob` calls --- so under a statement-only model it could only ever run
+   * far too fast.
+   *
+   * `display.bobCycles` is last frame's figure, because the pass runs after
+   * BASIC in `frame()`. That is the right way round: the vertical blank
+   * happens at the top of a frame on the machine, so the bobs standing at the
+   * end of one frame are the ones the next frame's interrupt pays for.
+   */
+  private basicBudget(): number {
+    const frame = this.frameBudget
+    return Math.max(Math.round(frame * (1 - VBL_BUDGET_CAP)), frame - this.vblBobCycles)
   }
   private onText: ((text: string) => void) | undefined
 
@@ -5402,6 +5432,14 @@ export class Runtime {
   frame(): RunResult {
     this.interp.tick++
     this.frames++
+    // Take last frame's bob blitting and start counting again. Snapshotted
+    // here rather than reset inside `updateBobs` because a program can drive
+    // the pass itself: Chopper II runs `Update Off` and calls `Bob Draw` from
+    // BASIC, and that costs the blitter exactly the same as the automatic
+    // pass would. Resetting in `updateBobs` left those programs accumulating
+    // across every frame and never paying, or paying forever.
+    this.vblBobCycles = this.display.bobCycles
+    this.display.bobCycles = 0
     // MusInt is the first VBL routine (Mus_Cold +Music.s:848)
     this.music.vbl()
     // MED 7.1 drives its own copy of the replayer, off its own module rather
@@ -5491,7 +5529,7 @@ export class Runtime {
       const vfs = this.vfs
       if (vfs) vfs.missingVolume = (name) => this.askForDisk(name)
       try {
-        result = this.interp.run(this.frameBudget)
+        result = this.interp.run(this.basicBudget())
       } catch (e) {
         // A mistake in a typed line belongs to whoever typed it. The escape
         // screen prints it and asks for the next one; the program underneath

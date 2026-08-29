@@ -1094,6 +1094,39 @@ describe('the statement cost reproduces the 18th Hole power bar', () => {
     expect(after / a500).toBeCloseTo(2, 1)
   })
 
+  it('bobs cost the vertical blank, and that comes off BASIC', () => {
+    /*
+     * `Bob x,y,img` draws nothing. BobSet (+W.s:890) walks the bob list,
+     * pokes three words and sets `BitBobs` in T_Actualise; the drawing is the
+     * vertical blank's, once a frame however often the program moved things.
+     * So the cost follows the bobs ON SCREEN, and a loop that carries thirty
+     * of them loses most of its frame before it runs a statement.
+     *
+     * This is what separates Q.A.B. from 18th Hole. The golf game's delay
+     * loop has no bobs and is paced by statements alone; Q.A.B.'s loop is
+     * almost nothing but Bob calls over thirty-odd asteroids, and under a
+     * statement-only model it could only ever run far too fast.
+     */
+    const spin = (bobs: number): number => {
+      const src = [
+        'Screen Open 0,320,256,16,Lowres : Curs Off : Flash Off : Hide On',
+        'Double Buffer',
+        'Ink 5 : Bar 0,0 To 31,31 : Get Bob 1,0,0 To 32,32 : Cls 0',
+        'N=0',
+        'Do',
+        `  For I=1 To ${bobs} : Bob I,I*8,50,1 : Next I`,
+        '  Inc N',
+        'Loop',
+      ].join('\n')
+      const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000_000 })
+      for (let i = 0; i < 60; i++) rt.frame()
+      return Number((rt.interp as any).frames[0].vars.get('n').n)
+    }
+    // 32 bobs of 32x32 on four planes is about 69% of a frame gone before
+    // BASIC starts, on top of the statements that moved them
+    expect(spin(32)).toBeLessThan(spin(8) / 3)
+  })
+
   it('Next costs 681 cycles, not 206', () => {
     // 1,000 iterations of nothing but Next, so the answer is the Next cost
     // and almost nothing else: 1000 x 681 plus the three statements around
