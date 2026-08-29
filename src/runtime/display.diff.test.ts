@@ -246,3 +246,56 @@ describe('display differential sweep: modelled path vs copper interpreter', () =
     ])
   })
 })
+
+/**
+ * A screen wider than anything the hardware can show.
+ *
+ * `Screen Offset` exists so a program can open a big playfield and scroll a
+ * display-sized window along it, and Man Dog (bitplane.net, 1994) opens 1000
+ * pixels of lowres to walk ten bobs across. The display window is what
+ * DIWSTRT/DIWSTOP describe and it is capped at one screenful; the BITMAP is
+ * not.
+ *
+ * DIWSTOP's horizontal is eight bits, so emitting the bitmap width as the
+ * window wrapped it and the window closed before it opened. The screens went
+ * black. It looked like a size limit and was not: the visible area fell on a
+ * straight line of 1024 canvas pixels per pixel of screen width, zero at
+ * exactly 512 and full again at 832, then black once more above 928.
+ */
+describe('a screen wider than the display', () => {
+  const paint = (open: string, extra: string[] = []): Uint8ClampedArray => {
+    const rt = new Runtime(
+      tokenize([open, 'Curs Off : Flash Off : Hide On', 'Ink 5', 'Bar 0,0 To 2000,255', ...extra, 'Wait Vbl'].join('\n'), table),
+      table,
+      { maxSteps: 2_000_000 },
+    )
+    for (let i = 0; i < 30; i++) rt.frame()
+    return new Uint8ClampedArray(rt.composite().data)
+  }
+  const lit = (px: Uint8ClampedArray): number => {
+    let n = 0
+    for (let i = 0; i < px.length; i += 4) if (px[i] !== 0 || px[i + 1] !== 0 || px[i + 2] !== 0) n++
+    return n
+  }
+
+  // 512 and 992 were the two that rendered NOTHING, and 320 always worked.
+  // Every one of these covers the full 640x512 the doubled screen occupies.
+  for (const w of [320, 448, 512, 544, 640, 800, 992, 1024]) {
+    it(`renders a ${w}-wide lowres screen`, () => {
+      expect(lit(paint(`Screen Open 0,${w},256,16,Lowres`))).toBe(640 * 512)
+    })
+  }
+
+  it('scrolls the window along the bitmap rather than widening it', () => {
+    // The window is 320 lowres wide whatever the bitmap is, so a bar drawn
+    // only in the right-hand half is off-window until Screen Offset brings
+    // it over. Nothing here would move if the window had swallowed the whole
+    // 992 pixels.
+    const open = 'Screen Open 0,992,256,16,Lowres'
+    const draw = ['Ink 0 : Bar 0,0 To 2000,255', 'Ink 5 : Bar 700,0 To 900,255']
+    const home = paint(open, draw)
+    const scrolled = paint(open, [...draw, 'Screen Offset 0,700,0'])
+    expect(lit(home)).toBe(0)
+    expect(lit(scrolled)).toBeGreaterThan(0)
+  })
+})

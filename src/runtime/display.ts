@@ -43,6 +43,9 @@ export class Display {
   static readonly COMPOSITE_TOP = 26
   static readonly COMPOSITE_LINES = 286
 
+  /** Canvas columns in the composite: 640, so 640 hires pixels or 320 lores. */
+  static readonly COMPOSITE_WIDTH = 640
+
   /**
    * T_EcYMax (+W.s:2476): the last line the list may address, 311 on PAL —
    * NTSC sets 261 there instead, which this does not model. The list builder
@@ -124,8 +127,25 @@ export class Display {
     return colourResolver({ hi, lo, ham: s.ham || forceHam, ehb: s.ehb })
   }
 
+  /**
+   * The width of the DISPLAY WINDOW, which is not the width of the bitmap.
+   *
+   * A screen may be wider than anything the hardware can show --- that is the
+   * point of `Screen Offset`, and Man Dog opens 1000 pixels of lowres to
+   * scroll a 320-pixel view along. The window is what DIWSTRT/DIWSTOP and
+   * DDFSTRT/DDFSTOP describe, and it cannot exceed one screenful.
+   *
+   * DIWSTOP's horizontal is EIGHT BITS. Emitting an unclamped window wrapped
+   * it: `(hwx + winW) & 0xff` for a 992-wide screen is 97 against a DIWSTRT
+   * of 129, so the window closed before it opened and the screen rendered as
+   * nothing at all. The visible area fell on a straight line, 1024 canvas
+   * pixels per pixel of screen width, reaching zero at exactly 512 and full
+   * at 832 --- the signature of a window walking off the raster rather than
+   * of a size limit.
+   */
   private winWOf(s: Screen): number {
-    return s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
+    const want = s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
+    return Math.min(want, s.hires ? Display.COMPOSITE_WIDTH : Display.COMPOSITE_WIDTH >> 1)
   }
   private winHOf(s: Screen): number {
     return s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height
