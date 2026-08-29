@@ -191,7 +191,7 @@ describe('IntuiExtend 2.01b — the corrupted Wb Get Menu Adr entry', () => {
    */
   it('is the only table entry whose name is not typable', () => {
     const bad = ie.tokens.filter((t) => /[\x00-\x1f]/.test(t.name))
-    expect(bad.map((t) => t.name)).toEqual([' rwb get menu adr'])
+    expect(bad.map((t) => t.name)).toEqual(['\x00rwb get menu adr'])
     expect(bad[0]!.instr).toBe(0xff00)
     expect(bad[0]!.func).toBe(0xffff)
   })
