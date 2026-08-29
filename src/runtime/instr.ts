@@ -268,6 +268,29 @@ function omittedArg(it: It): boolean {
   return it.atStmtEnd() || it.nm() === ',' || it.nm() === 'to' || it.nm() === ')'
 }
 
+/**
+ * A screen number, which may be left blank.
+ *
+ * Every screen number lands in `L_GetEc` (+Lib.s:11289), and that routine
+ * reads EntNul as a number rather than refusing it. EntNul is negative as a
+ * long, so `tst.l d1 / bmi.s GtE1` takes the branch, but its low word is
+ * zero, so `GtE1 tst.w d1 / bpl.s GtE2` skips the ScOnAd path and GtE2 reads
+ * that zero as the screen number. `btst #30,d1` is clear, so it is the
+ * logical buffer.
+ *
+ * An omitted screen is therefore screen 0, which is not the current screen:
+ * -1 is what reaches ScOnAd, because its low word is negative too. Screen 0
+ * being closed still raises through `Rbeq L_ScNOp`.
+ *
+ * `screenArg` below is the other reading, and the difference is the routine
+ * rather than the keyword. The Zone family goes through EcToD1 (+W.s:10755),
+ * which tests the same low word and takes zero to mean `T_EcCourant`, the
+ * current screen, where GetEc takes it to mean screen 0.
+ */
+function getEcArg(it: It): number {
+  return omittedArg(it) ? ENT_NUL : it.evalInt()
+}
+
 /** `pair`, for the keywords whose original routine reaches `GrXY` */
 /**
  * Draw's DESTINATION, which gets none of GrXY's care.
@@ -1720,7 +1743,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().autoback = n
     },
     'screen copy'(it) {
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       let x1 = 0
       let y1 = 0
       let x2 = src.s.width
@@ -1735,7 +1758,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         y2 = it.evalInt()
       }
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       let dx = 0
       let dy = 0
       if (it.accept(',')) {
@@ -1966,15 +1989,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2595/4371)
      * compare every parameter against EntNul and leave the field alone.
      *
-     * Get Palette does not test for it, so the sentinel reaches `L_GetEc` as
-     * a screen number. It does not matter: mask 0 means `PalRout`'s
-     * `btst d0,d3` never fires, every entry stays the $FFFF "unchanged"
-     * marker, and nothing is copied whichever screen was named. The omitted
-     * slot resolves to the current screen here, which is the one choice that
-     * cannot throw.
+     * Get Palette does not test for it, so the sentinel reaches `L_GetEc`
+     * as a screen number, and that routine answers it: `getEcArg` above
+     * walks the branches. An omitted screen is screen 0, not the current
+     * one. The corpus line is `Get Palette,0`, where mask 0 means `PalRout`'s
+     * `btst d0,d3` never fires and nothing is copied whichever screen was
+     * named, but a mask with a bit set copies screen 0's colours.
      */
     'get palette'(it) {
-      const src = it.nm() === ',' ? scr() : byIndex(it.evalInt())
+      const src = byIndex(it.nm() === ',' ? 0 : it.evalInt())
       const mask = it.accept(',') ? it.evalInt() : -1
       const dst = scr()
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
@@ -2708,13 +2731,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     zoom(it) {
       // Zoom src,x1,y1,x2,y2 To dst,x1,y1,x2,y2 — scaled blit
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       it.expect(',')
       const [sx1, sy1] = pair(it)
       it.expect(',')
       const [sx2, sy2] = pair(it)
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       it.expect(',')
       const [dx1, dy1] = pair(it)
       it.expect(',')
@@ -2765,9 +2788,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
        * The port refused it outright, and would have walked backwards off
        * the buffer if it had not.
        */
-      const src = rt.resolveScreenId(it.evalInt())
+      const src = rt.resolveScreenId(getEcArg(it))
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt(), true)
+      const dst = rt.resolveScreenId(getEcArg(it), true)
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
