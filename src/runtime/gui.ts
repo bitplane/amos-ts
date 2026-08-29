@@ -1813,9 +1813,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * `Gui Pause vbls` — "pause the program for the specified number of vbl's
      * in a system friendly way, using 0% CPU time".
      *
-     * dos.library's Delay (-$c6), which counts TICKS. A tick is a fiftieth of
-     * a second and so is a PAL vertical blank, which is why the guide can
-     * call them vbls and be right on the machine this was written for.
+     * Routine 128 at $2fc4 is sixteen bytes and all of them are the call:
+     * the count off the stack, `movea.l $2b8(a5),a6` for the DOS base AMOS
+     * keeps there, and `jsr -$c6(a6)`, which is dos.library's Delay. Delay
+     * counts TICKS. A tick is a fiftieth of a second and so is a PAL vertical
+     * blank, which is why the guide can call them vbls and be right on the
+     * machine this was written for. Nothing is range-checked.
      */
     'gui pause': (it) => {
       const n = it.evalInt()
@@ -2168,12 +2171,28 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      *
      * "It can also be used to force a user to make a selection in a specific
      * window", which is what the exception is for.
+     *
+     * Routine 73 at $2648 takes the named window's own number out of `$c`,
+     * then walks the whole list from `$7c` along the `$4` links and sends
+     * every window whose `$c` differs into routine 234, which is what `Gui
+     * Off` is a six-byte trampoline to. `Gui Unlock`, routine 74 at $2684,
+     * walks the same list into routine 236 and skips nothing -- so unlock is
+     * not lock's inverse: it turns the excepted window on too, whether or not
+     * it was on before.
+     *
+     * The exception is a SKIP and not an unlock. $2676 is reached only on the
+     * numbers that differ, and the matching window goes straight to the link
+     * advance at $266a with nothing done to it, so a window already locked
+     * stays locked when the next `Gui Lock` names it. Routine 234 is
+     * idempotent besides -- `tst.l $1c(a0) / bne` leaves an already-disabled
+     * window alone -- which is what makes the skip observable rather than
+     * merely tidy.
      */
     'gui lock': (it) => {
       const g = s()
       const keep = it.evalInt()
       windowOf(g, keep)
-      for (const w of g.windows.values()) w.locked = w.number !== keep
+      for (const w of g.windows.values()) if (w.number !== keep) w.locked = true
     },
 
     /** `Gui Unlock` — unlock all of them */
@@ -2184,6 +2203,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * `Gui Ink colour` — "set the ink colour for future gfx commands such as
      * Gui Draw and Gui Plot".
+     *
+     * Routine 26 at $1f88 is `jsr -$156(a6)` on the graphics base, SetAPen,
+     * over the current gfx RastPort at `$1bc`. The `moveq #$b,d7` is error
+     * 11, "Gfx output not defined", and it is the only thing that can fail:
+     * the pen number goes through unexamined, so a colour past the depth is
+     * graphics.library's problem and not this keyword's.
      */
     'gui ink': (it) => {
       const n = it.evalInt()
@@ -2225,9 +2250,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * `Gui Cls colour` — "clears all of the current graphics output".
      *
-     * The guide warns what it is not: "Gui Cls will also clear all of the
-     * window borders! To clear only graphics, you should use the command Gui
-     * Clw". Since
+     * Routine 33 at $209a is `jsr -$ea(a6)`, SetRast, with the pen off the
+     * stack and the `$1bc` RastPort -- so the whole rastport goes, which is
+     * exactly why the guide warns what it is not: "Gui Cls will also clear
+     * all of the window borders! To clear only graphics, you should use the
+     * command Gui Clw". Since
      * a window here has no border drawn into its own bitmap, the two differ
      * only in which window they take, which is where that difference lives
      * until borders are drawn.
@@ -2409,6 +2436,21 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * This is gadtools' own DrawBevelBoxA, and `../amiga/gadtools.ts` reads
      * that same sentence out of GUI2.guide when it explains what recessed
      * means. The two agree because they are the same call.
+     *
+     * Routine 100 at $2a7c is the proof, and it settles the guide's own
+     * naming against itself. Five longs come off the stack into d4 down to
+     * d0, and `jsr -$78(a6)` on the gadtools base at `$124` is DrawBevelBoxA,
+     * whose gadtools_lib.fd line reads
+     * `DrawBevelBoxA(rport,left,top,width,height,taglist)(a0,d0/d1/d2/d3/a1)`.
+     * d0 to d3 are already in the right registers and nothing subtracts
+     * anything, so the guide's "Gui Bbox x,y,xx,yy" is a WIDTH and a HEIGHT
+     * wearing the names of a corner.
+     *
+     * The taglist is built in the state block itself at $2a9c: GT_VisualInfo
+     * ($80080034, which is GT_TAG_BASE + $34 in ../amiga/gadtools.ts, not the
+     * frame type it sits next to) from `$62`, then GTBB_Recessed ($80080033)
+     * carrying d4 ONLY when d4 is non-zero, then TAG_END. An absent tag is a
+     * recessed of zero, so the two spellings of "not recessed" agree.
      */
     'gui bbox': (it) => {
       const [x, y] = pair(it)
@@ -3961,8 +4003,17 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `A=Gui Width(window)` and `Gui Height(window)` — "the width of the
      * specified window in pixels", borders and all.
      *
-     * `Window.Width` at $8 and `Height` at $a, and `Gui X` and `Gui Y` are
-     * `LeftEdge` at $4 and `TopEdge` at $6 of the same struct.
+     * Routines 43 to 46, $21e0 to $2258, are the same thirty bytes four
+     * times over: find the window through routine 244, fall into 264 with
+     * `moveq #$a,d7` if there is none -- error 10 is "Window not open" --
+     * then take `$e(a0)` for the Intuition window and read one word out of
+     * it. `Window.Width` at $8 and `Height` at $a, `LeftEdge` at $4 and
+     * `TopEdge` at $6, all four named in includes/intuition/intuition.i.
+     *
+     * Each reads into a register cleared by `moveq #$0,d3` first, so all four
+     * are ZERO-extended from a signed word: a window dragged past the left
+     * edge answers 65535 and not -1. Nothing here can put a window at a
+     * negative edge, so the port never reaches the difference.
      */
     'gui width': (_, a): Value => VI(windowOf(s(), int(a[0]!)).width),
     'gui height': (_, a): Value => VI(windowOf(s(), int(a[0]!)).height),
@@ -3985,10 +4036,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `A=Gui X Gad(window,gadget)` and its three siblings — the gadget's box
      * "relative to the top-left of the window".
      *
-     * Four routines of twenty-six bytes each, and every one of them is the
-     * gadget lookup and one word: `$4`, `$6`, `$8` and `$a` of the LAID-OUT
-     * Gadget, which are its LeftEdge, TopEdge, Width and Height. Not the
-     * bank's NewGadget. That is why the guide points at them from `Gui
+     * Routines 79 to 82, $2794 to $2804, twenty-eight bytes each, and every
+     * one of them is the routine 246 gadget lookup and one word: `$4`, `$6`,
+     * `$8` and `$a` of the LAID-OUT Gadget, which are its LeftEdge, TopEdge,
+     * Width and Height. Not the bank's NewGadget. That is why the guide points at them from `Gui
      * Sensitive On`: the layout pass has already applied the font scale and
      * the border, and this is how a program finds out where things ended up.
      *
@@ -4313,10 +4364,32 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /** `A=Gui Os` — "the operating system version number", `$18a` */
     'gui os': (): Value => VI(GUI_OS_VERSION),
 
-    /** `A=Gui Window` — which window generated the last event */
+    /**
+     * `A=Gui Window` — which window generated the last event.
+     *
+     * Routine 8 at $1e0e reads the word at `$de` of the state block and
+     * `ext.l`s it, so this one is SIGN-extended where the geometry readers
+     * next door clear a register and `move.w` into it. The extension makes
+     * the choice per keyword rather than by habit, and here it means the
+     * field is allowed to answer a negative.
+     */
     'gui window': (): Value => VI(s().eventWindow()),
 
-    /** `A=Gui Selected` — the currently selected window */
+    /**
+     * `A=Gui Selected` — the currently selected window.
+     *
+     * Routine 220 at $49a8 does not keep this anywhere. It walks the window
+     * list from `$7c` along the `$4` links, tests `$18(a1) AND $2000` on each
+     * one's Intuition window -- wd_Flags, and WINDOWACTIVE EQU $2000 in
+     * intuition.i -- and answers the `$c` of the first that has it. So the
+     * question is put to Intuition every time, and only one window can carry
+     * the flag.
+     *
+     * DEVIATION: the fallthrough answers 0, which on the machine means no
+     * window of this program is active because the user is somewhere else
+     * entirely. Nothing here can be somewhere else, so `selected` is the
+     * whole truth and this never answers 0 while a window is open.
+     */
     'gui selected': (): Value => VI(s().selected),
 
     /**
@@ -4331,6 +4404,13 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `INK=Gui Point(X,Y)` — "Works in exactly the same way as the Amos
      * command Point. It will simply returns the colour of the point at the
      * specified X,Y coordinates."
+     *
+     * Routine 112 at $2ca2 is a straight pass to graphics.library: the
+     * current gfx RastPort at `$1bc`, then `jsr -$13e(a6)`, ReadPixel. The
+     * `moveq #$b,d7` above it is error 11, "Gfx output not defined", and it
+     * is raised on the rastport being zero rather than on the coordinates,
+     * which are never checked -- ReadPixel's own -1 for off-bitmap is the
+     * answer a program gets.
      */
     'gui point': (_, a): Value => VI(gfx(s()).rp.point(int(a[0]!), int(a[1]!))),
 
@@ -4341,6 +4421,19 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * "Gui Read is similar to Gui Code except it doesnt need to be called
      * after the specified gadget is selected", so unlike `Gui Code` this does
      * not reset itself.
+     *
+     * Routine 59 at $24e6 is the one keyword in the group with no error path
+     * at all. It calls routine 244 for the window and then `movea.l d0,a0`
+     * without testing d0, so a window that is not open is a null dereference;
+     * the gadget number is not checked either, it is just `mulu.w #$16,d1`
+     * into a table found at `$2e(a0)` and read at `$8`. Twenty-two bytes an
+     * entry. `Gui Read$` next door DOES test, and falls into 264 when routine
+     * 235 answers zero, so the asymmetry is in the extension rather than in
+     * the reading of it.
+     *
+     * DEVIATION: this answers 0 where the machine would take the exception.
+     * There is nothing to dereference here and a guru is not a behaviour a
+     * program can use.
      */
     'gui read': (_, a): Value => {
       const g = s()
@@ -4393,6 +4486,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * The guide's list opens "0 - BUTTON (with image)", which is GuiConv's
      * own kind 0 and gadtools' GENERIC, and is the fifth place this port has
      * seen that substitution stated.
+     *
+     * Routine 87 at $286c is fourteen bytes and decides nothing: the gadget
+     * and window come off the stack and go straight into routine 237, whose
+     * d0 is the answer. So the number is whatever the bank recorded, and the
+     * guide's list is a list of the CONVERTER's kinds.
      */
     'gui kind': (_, a): Value => {
       const g = s()

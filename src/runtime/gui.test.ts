@@ -219,6 +219,18 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(rt2.gui.windows.get(1)!.locked).toBe(false)
   })
 
+  /**
+   * Routine 73's exception is a SKIP: $2676 is reached only on the window
+   * numbers that differ, and the named one goes to the link advance at $266a
+   * untouched. So locking 1 and then naming 1 as the exception leaves 1
+   * locked, where an unlock-the-named reading would free it.
+   */
+  it('Gui Lock leaves the window it names alone rather than unlocking it', () => {
+    const rt = run('Gui Open 1,1 : Gui Open 2,1 : Gui Lock 2 : Gui Lock 1', bank)
+    expect(rt.gui.windows.get(1)!.locked).toBe(true)
+    expect(rt.gui.windows.get(2)!.locked).toBe(true)
+  })
+
   it('reports a queued gadget click through Wait, Code and Window', () => {
     const rt = run('Gui Open 1,1', bank)
     guiPost(rt, 1, 2, 55, 'typed')
