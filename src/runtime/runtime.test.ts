@@ -7,6 +7,7 @@ import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { FONT8 } from './font.gen'
 import { CYCLES_PER_DISPATCH, VBL_HZ } from '../amiga/paula'
+import { M68020 } from '../amiga/cpu'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -1063,6 +1064,34 @@ describe('the statement cost reproduces the 18th Hole power bar', () => {
     const perStatement = framesPer('A=1', 200) / 3
     expect(1 / perStatement).toBeGreaterThan(650)
     expect(1 / perStatement).toBeLessThan(720)
+  })
+
+  it('a colon costs a dispatch, not a statement', () => {
+    // AMOS's inner loop reads a word and jumps through the token table
+    // whatever the word is (+ILib.s:505), so a separator costs those seven
+    // instructions and an immediate rts. Two assignments on one line are
+    // therefore 2 x 206 + 88, not 3 x 206 --- and colons are everywhere in
+    // real AMOS source, so charging them as statements taxed whole programs.
+    // Both run the same two assignments, so the colon is the only difference:
+    // 206+88+206+206+206 = 912 against 206x4 = 824, a ratio of 1.107. Charged
+    // as a statement it was 1030 over 824, which is 1.25.
+    const ratio = framesPer('A=1 : B=2', 200) / framesPer('A=1\n  B=2', 200)
+    expect(ratio).toBeGreaterThan(1.08)
+    expect(ratio).toBeLessThan(1.14)
+  })
+
+  it('the processor sets the budget, so a faster one runs more BASIC', () => {
+    // The budget is read off machine.cpu.hz every frame rather than frozen at
+    // construction, so switching the processor in Config takes effect live.
+    // It was a constant before and the setting did nothing at all.
+    const rt = new Runtime(tokenize('N=0\nDo : Inc N : Loop', table), table, { maxSteps: 200_000_000 })
+    rt.frame()
+    const a500 = Number((rt.interp as any).frames[0].vars.get('n').n)
+    rt.machine.cpu = new M68020()
+    rt.frame()
+    const after = Number((rt.interp as any).frames[0].vars.get('n').n) - a500
+    // 68020 at 14.18 MHz against the 68000's 7.09: twice the cycles a frame
+    expect(after / a500).toBeCloseTo(2, 1)
   })
 
   it('Next costs 681 cycles, not 206', () => {

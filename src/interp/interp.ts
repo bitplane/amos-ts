@@ -360,6 +360,19 @@ export interface InterpOptions {
    * statements, and should carry on counting statements.
    */
   statementCost?: number
+  /**
+   * What a bare TOKEN costs when it is not a statement: a `:`, a `Then`, a
+   * label, a `Rem`.
+   *
+   * AMOS's inner loop reads a word and jumps through the token table whatever
+   * the word is (`+ILib.s:505`), so a separator costs the seven instructions
+   * of that loop and an immediate `rts` --- one dispatch, not a whole
+   * statement. The Runtime passes `CYCLES_PER_DISPATCH`.
+   *
+   * Defaults to `statementCost`, which is the behaviour this replaced, so a
+   * standalone Interp still counts every step as one.
+   */
+  dispatchCost?: number
 }
 
 export interface RunResult {
@@ -562,10 +575,25 @@ export class Interp {
     this.rawFuncs = { ...RAWFUNCS, ...opts.rawFunctions }
     this.inp = opts.input ?? newInputState()
     this.statementCost = opts.statementCost ?? 1
+    this.dispatchCost = opts.dispatchCost ?? this.statementCost
   }
 
   /** what one statement costs against run()'s slice; see InterpOptions */
   readonly statementCost: number
+  /** what a bare separator token costs instead; see InterpOptions */
+  readonly dispatchCost: number
+
+  /**
+   * The step just taken was one token, not a statement.
+   *
+   * `run` charges `statementCost` unless a step says otherwise, and the four
+   * that say otherwise are the ones that dispatch a token and return without
+   * doing any work: `:`, `Then`, a label, and `Rem`.
+   */
+  private stepCost: number | null = null
+  private dispatchOnly(): void {
+    this.stepCost = this.dispatchCost
+  }
 
   /**
    * Run "file" (RunII +ILib.s:1497): swap in a new program. Variables,
@@ -662,7 +690,8 @@ export class Interp {
         }
         throw e
       }
-      steps += this.statementCost + this.pendingCharge
+      steps += (this.stepCost ?? this.statementCost) + this.pendingCharge
+      this.stepCost = null
       this.pendingCharge = 0
     }
     return this.result(this.status ?? 'blocked', steps)
@@ -1677,9 +1706,13 @@ export class Interp {
 
     switch (tok.kind) {
       case 'label':
+        this.dispatchOnly()
         this.advance()
         return
       case 'rem':
+        // the Rem token's routine skips to the end of the line: one dispatch,
+        // however long the comment is
+        this.dispatchOnly()
         this.pc = { li: this.pc.li + 1, ti: 0 }
         return
       case 'var': {
@@ -1734,6 +1767,10 @@ export class Interp {
       case 'ext': {
         const name = this.names.of(tok)
         if (name === ':' || name === 'then') {
+          // a separator, not a statement. `A=1 : B=2` used to cost three
+          // statements where the machine spends two plus a dispatch, and
+          // AMOS programmers wrote colons everywhere.
+          this.dispatchOnly()
           this.advance()
           return
         }

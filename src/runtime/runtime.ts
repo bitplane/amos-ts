@@ -165,7 +165,7 @@ import {
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
-import { CYCLES_PER_STATEMENT, FRAME_CYCLES, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
+import { CYCLES_PER_DISPATCH, CYCLES_PER_STATEMENT, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
 import { MusicPlayer } from './music'
 
 /**
@@ -4734,7 +4734,28 @@ export class Runtime {
   private inputBuf = ''
   /** the console editor already echoed this line, so Input must not repeat it */
   private inputEchoed = false
-  private frameBudget: number
+  /**
+   * An explicit `frameBudget` from the caller, or null to follow the CPU.
+   *
+   * Null is the normal case and it is what makes `Config` -> processor do
+   * anything: the budget is read per frame off `machine.cpu.hz`, so swapping
+   * a 68000 for an 020 at 14.18 MHz doubles what BASIC gets through in a
+   * vertical blank, live, without rebuilding the Runtime.
+   *
+   * DEVIATION: the clock is the whole model of a faster machine. A real
+   * accelerator also brings fast RAM the interpreter is not fighting the
+   * display for, so the true speedup is bigger than the ratio of the two
+   * numbers and is not the same for every keyword --- Philippe Cierp timed
+   * `Point` at 1.25x between his two machines and `Copy` at 3.4x. Splitting
+   * each cost into a CPU part and a chip-DMA part is what would fix that,
+   * and nothing here measures the split yet.
+   */
+  private frameBudgetOverride: number | null
+
+  /** CPU cycles BASIC gets per vertical blank on the machine as configured */
+  private get frameBudget(): number {
+    return this.frameBudgetOverride ?? Math.round(this.machine.cpu.hz / VBL_HZ)
+  }
   private onText: ((text: string) => void) | undefined
 
   /**
@@ -4775,7 +4796,7 @@ export class Runtime {
   }
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
-    this.frameBudget = opts.frameBudget ?? FRAME_CYCLES
+    this.frameBudgetOverride = opts.frameBudget ?? null
     this.diskRequests = opts.diskRequests === true
     // before makeAllInstructions below: the ports' slot-qualified keywords are
     // bound from this
@@ -4846,6 +4867,7 @@ export class Runtime {
       rawFunctions: makeRawFunctions(this),
       input: this.input,
       statementCost: CYCLES_PER_STATEMENT,
+      dispatchCost: CYCLES_PER_DISPATCH,
     }
     if (opts.extensions) interpOpts.extensions = opts.extensions
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented
