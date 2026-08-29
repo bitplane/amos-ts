@@ -1344,7 +1344,13 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       if (opened !== null) opened.rp.font = rt.systemFont()
     },
 
-    /** `Gui Reset` — close all the windows */
+    /**
+     * `Gui Reset` — close all the windows.
+     *
+     * Routine 20 at $1f0a is four bytes, `Rbra routine 248`, with not even a
+     * stack pop in front of it. The keyword takes no arguments and has no
+     * error path.
+     */
     'gui reset': () => {
       s().reset()
     },
@@ -1972,10 +1978,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * `Gui Pub List Free` — "You MUST use this command when you have finished
      * with the list."
      *
-     * Clears the cursor and then unlocks, and does nothing when no list is
-     * held. Note that `Gui Pub Name$` frees the list ITSELF once it walks off
-     * the end, so the guide's own loop has already unlocked by the time this
-     * runs.
+     * Routine 107 at $2ba0 tests `$1da`, and does nothing at all when it is
+     * zero. Otherwise it clears the cursor first and only then calls
+     * intuition's UnlockPubScreenList at -$210, so the field can never be
+     * left pointing at a list somebody else may reuse. Note that `Gui Pub
+     * Name$` frees the list ITSELF once it walks off the end, so the guide's
+     * own loop has already unlocked by the time this runs.
      */
     'gui pub list free': () => {
       s().pubListAt = -1
@@ -1993,7 +2001,14 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
     },
 
-    /** `Gui Pub To Back SCREEN` — ScreenToBack (-$f6), with the same guard */
+    /**
+     * `Gui Pub To Back SCREEN` — ScreenToBack (-$f6), with the same guard.
+     *
+     * Routine 109 at $2bd8, twenty-four bytes: `moveq #$e,d7` before the
+     * argument is even popped, `Rble routine 264` on it, then the lock goes
+     * straight into a0. `Rble` is SIGNED, so a lock of zero and any negative
+     * are both error 14, and nothing else about the value is checked.
+     */
     'gui pub to back': (it) => {
       if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
     },
@@ -2329,7 +2344,15 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       w.grY = cy2
     },
 
-    /** `Gui Draw To x,y` — on from wherever the cursor was left, clamped */
+    /**
+     * `Gui Draw To x,y` — on from wherever the cursor was left, clamped.
+     *
+     * Routine 29 at $1ffa calls routine 31 for the move, then `jsr -$f6(a6)`
+     * on the GRAPHICS base, which is Draw. The base register is what settles
+     * that: -$f6 is ScreenToBack on the intuition base four keywords away in
+     * `Gui Pub To Back`, and the two libraries collide at that offset. Error
+     * 11 on a missing gfx rastport, as everywhere in this group.
+     */
     'gui draw to': (it) => {
       const [rx, ry] = pair(it)
       const w = gfx(s())
@@ -3807,9 +3830,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /**
      * `I=Gui App Id` — which AppIcon the last event -16 named.
      *
-     * `$90`, one longword, and the keyword is three instructions. "it returns
-     * the number of the used one like Gui Window returns the number of the
-     * used GUI."
+     * Routine 159 at $3ac6 is twelve bytes: load the state block, one
+     * `move.l` out of `$90`, `moveq #$0,d2`, rts. Nothing is tested. "it
+     * returns the number of the used one like Gui Window returns the number
+     * of the used GUI."
      *
      * The number is the WORD the program gave `Gui App Icon`, sign-extended:
      * AddAppIconA was handed the node as its id, so the pump has to
@@ -3901,6 +3925,12 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * `A=Gui Event` — the same answers without waiting.
      *
      * "It returns the value -7 if nothing is happened..."
+     *
+     * Routine 72 at $263a is fourteen bytes and two of the three instructions
+     * are the answer: `bset.b #$3,$85(a0)`, then `Rbra routine 9`, which is
+     * `Gui Wait` itself. So these are not two pumps but one with a flag, and
+     * sharing `pumpEvent` here is the shape the extension has rather than a
+     * convenience.
      */
     'gui event': (): Value => VI(pumpEvent(rt, s())),
 
@@ -4527,7 +4557,13 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       return VI(-1)
     },
 
-    /** `GAD=Gui Gadget` — the gadget a mouse or drag event named */
+    /**
+     * `GAD=Gui Gadget` — the gadget a mouse or drag event named.
+     *
+     * Routine 161 at $3b76 reads the word at `$102` and `ext.l`s it, so it
+     * joins `Gui Window` and `Gui Mouse Ey` on the sign-extended side of this
+     * extension's split, and the field is allowed to answer a negative.
+     */
     'gui gadget': (): Value => VI(s().activeGadget),
 
     /**
@@ -4925,13 +4961,20 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * The six readers — `Xfa Width`, `Height`, `Mode Id`, `Depth`, `Pack` and
-     * `Frames`. One `move` each out of `$2a8` to `$2b4`, no library, no
-     * error, and zero until an `Xfa Check` has succeeded.
+     * The six readers: `Xfa Width`, `Xfa Height`, `Xfa Mode Id`, `Xfa Depth`,
+     * `Xfa Pack` and `Xfa Frames`. Routines 174 to 179, $3f66 to $3fb6,
+     * twelve or fourteen bytes each and not one of them touches the library
+     * or can fail. Every one is a single `move` out of the state block, so
+     * they answer zero until an `Xfa Check` has succeeded.
      *
+     * `Xfa Check` fills all six and carries the header layout they came from.
+     * Width lands at `$2a8` already shifted, which is why the guide can say
      * "Returns the pixel width of the XFA animation file previously checked
-     * using the Xfa Check command" — width is stored in bytes and multiplied
-     * by eight on the way in, so what these answer is already pixels.
+     * using the Xfa Check command" of a field the file stores in bytes.
+     *
+     * The two byte fields, `Xfa Depth` at `$2b0` and `Xfa Pack` at `$2b2`,
+     * are read with `move.b` into a register cleared first, so they answer
+     * 0 to 255 and the two spare bytes between them are never touched.
      */
     'xfa width': (): Value => VI(s().xfa.width),
     'xfa height': (): Value => VI(s().xfa.height),
@@ -5022,9 +5065,13 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /**
      * `N=Tcp Get(channel,address,length)`. The only SYNCHRONOUS read.
      *
-     * WaitForChar (-$cc) with `Tcp Limit`'s microseconds, and only then dos
-     * Read (-$2a). A wait that comes back empty answers `moveq #$fe,d0`,
-     * which is -2, and nothing is read.
+     * 1.61's routine 84 at $1a94. The channel is scaled by four into a table
+     * of file handles at `$1d2` and raises error 20 when the slot is empty,
+     * then WaitForChar with `Tcp Limit`'s microseconds out of `$2ba`, and
+     * only then dos Read. Both are counted off dos_lib.fd, WaitForChar at
+     * -$cc and Read at -$2a, past the two private entries it declares. A
+     * wait that comes back empty answers `moveq #$fe,d0`, which is -2, and
+     * nothing is read.
      *
      * DEVIATION: WaitForChar here is "are there bytes left", which is the same
      * model ../runtime/instr.ts's `=Port` uses for the same call. On the
@@ -5243,8 +5290,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * The six readers 1.61's pump fills in from one reply, `$29e` through
-     * `$2c2`, each of them four instructions and no test.
+     * The six readers 1.61's pump fills in from one reply: `Tcp Code`, `Tcp
+     * Packet`, `Tcp Type`, `Tcp Channel`, `Tcp Buffer` and `Tcp Count`,
+     * spread over `$29e` through `$2c2` and each of them four instructions
+     * with no test. Routines 90 and 91 at $1b50 and $1b5c are the shape:
+     * load the state block, one `move.l`, `moveq #$0,d2`, rts.
      *
      * $31f8 writes all six out of the DosPacket the port just collected ---
      * dp_Res1, dp_Res2, dp_Arg2, and the packet's own `$30` and `$34` that
