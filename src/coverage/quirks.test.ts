@@ -26,7 +26,10 @@ function sources(dir: string): string[] {
   const out: string[] = []
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name)
-    if (e.isDirectory()) out.push(...sources(p))
+    // src/cli/tmp/ is gitignored and .gitignore calls it "throwaway one-off
+    // scripts while reading a binary". Scanning it means anyone who has one
+    // open fails the suite on a file that will never be committed
+    if (e.isDirectory() && e.name !== 'tmp') out.push(...sources(p))
     // this file is the one place that has to write the markers malformed, to
     // say what malformed means
     else if (e.name.endsWith('.ts') && !e.name.endsWith('.gen.ts') && p !== self) out.push(p)

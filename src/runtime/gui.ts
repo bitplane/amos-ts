@@ -1996,6 +1996,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * A lock of zero or less is "Illegal screen parameter": `moveq #$e,d7`
      * then `Rble` at $2bc4, before anything else. So the failure `Gui Pub
      * Screen` reports with a 0 raises here rather than being ignored.
+     *
+     * DEVIATION: the guard is all this does. `PUB_SCREENS` in ./guistate.ts
+     * is one name and no screen, so there is nothing to raise and the
+     * ScreenToFront half of the routine has no counterpart here. A program
+     * sees the error and never sees the effect.
      */
     'gui pub to front': (it) => {
       if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
@@ -2008,6 +2013,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * argument is even popped, `Rble routine 264` on it, then the lock goes
      * straight into a0. `Rble` is SIGNED, so a lock of zero and any negative
      * are both error 14, and nothing else about the value is checked.
+     *
+     * DEVIATION: as with `Gui Pub To Front`, only the guard survives.
      */
     'gui pub to back': (it) => {
       if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
@@ -4000,6 +4007,15 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * the number of. Error 10 when there is none, from the `moveq #$a,d7` at
      * $2a0a -- so this is the one pair that raises "Window not open" where
      * everything else drawing-shaped raises "Gfx output not defined".
+     *
+     * Routine 95 `ext.l`s its word where `Gui Mouse X` on the SCREEN clears a
+     * register and moves into it, so the machine answers -1 for a pointer one
+     * pixel left of the WINDOW and 65535 for one left of the screen, out of
+     * the same extension and the same author.
+     *
+     * DEVIATION: this subtracts the window corner from `screenMouse`, which
+     * clamps, so the negative that sign-extension exists to carry can never
+     * arrive. Intuition keeps wd_MouseX signed and clamps it to nothing.
      */
     'gui mouse wx': (it): Value => {
       const g = s()
