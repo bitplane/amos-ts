@@ -545,7 +545,14 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // Equates.Doc ships beside the equates file itself on Productivity1, and is
   // the only place the design is stated: that the Test pass pokes the value
   // into the source and the run time never opens the file again
-  'src/runtime/instr.ts': ['official-amos/Productivity1/Equates/Equates.Doc'],
+  // and Help_65.AMOS, the help page AMOS displays for the icon commands. It
+  // annotates each form with the range it covers, which is the only shipped
+  // statement that the no-argument Make Icon Mask means the whole bank.
+  // NOT_PROSE drops .amos, so a help page can only be reached by naming it
+  'src/runtime/instr.ts': [
+    'official-amos/Productivity1/Equates/Equates.Doc',
+    'official-amos/Examples/Examples/H-6/Help_65.AMOS',
+  ],
 }
 
 /** not prose: markup, code, or a disc image sitting beside the manual */

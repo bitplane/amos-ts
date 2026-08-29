@@ -5986,8 +5986,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * `InNoMask0` (+Lib.s:12509) both go `moveq #1,d1 / Rbsr L_AdBob / Rbne
    * L_GoError / subq.w #1,d5`, and d5 is the bank COUNT that AdBob left there
    * (`move.w d1,d5`, d1 being Bnk.AdBob's documented "Max de bobs"). So
-   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what the
-   * manual promises: "make mask for all icons", "remove mask of all icons".
+   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what
+   * AMOS's own help doc for the icon commands annotates the pair with: "make
+   * mask for all icons", "remove mask of all icons"
+   * (Examples/H-6/Help_65.AMOS).
    * The one-argument forms set `moveq #0,d5` and walk exactly one.
    *
    * Both loops open `tst.l (a2) / beq.s .Skip`, so a hole in the bank is
