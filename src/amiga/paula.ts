@@ -380,3 +380,14 @@ export class NullAudio implements AudioSink {
     this.filter = on
   }
 }
+
+/**
+ * The dispatch WITHOUT the callee's `rts`: 72 cycles.
+ *
+ * `CYCLES_PER_DISPATCH` counts the seven instructions that reach a keyword
+ * INCLUDING the `rts` that leaves it, which is right when a dispatch is the
+ * whole model. It double-counts once the keyword's own routine is costed from
+ * the assembler, because that walk ends on the same `rts` and charges it
+ * there. Subtract it here rather than in each caller.
+ */
+export const CYCLES_PER_DISPATCH_NET = CYCLES_PER_DISPATCH - 16

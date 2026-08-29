@@ -7,6 +7,7 @@ import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { FONT8 } from './font.gen'
 import { CYCLES_PER_DISPATCH, VBL_HZ } from '../amiga/paula'
+import { M68020 } from '../amiga/cpu'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -1058,11 +1059,81 @@ describe('the statement cost reproduces the 18th Hole power bar', () => {
     expect((step * 11) / VBL_HZ).toBeCloseTo(0.3, 1)
   })
 
-  it('a plain statement is 206 cycles, so a frame holds about 689 of them', () => {
-    // three statements an iteration: the body, Inc N, and Loop
+  it('an assignment is 646 cycles, so a frame holds about 265 statements', () => {
+    // Counted off the tokens rather than fitted. `A=1` dispatches three: the
+    // variable at 72+286 for `L_InVar`, the `=` at the bare 72 of a dispatch,
+    // and the constant at 72+32 for `L_FnCEntier`. 534 cycles, 646 once
+    // TOKEN_COST_SCALE is on, against 141,876 in a frame.
+    //
+    // The flat model said 206 and 689 statements a frame, taken from the
+    // While/Repeat/Do rows of Speed_Tests.AMOS. Those rows are not used any
+    // more: they disagree with the For/Next row by a factor of four in the
+    // same file, and the For/Next row is the one 18th Hole corroborates.
     const perStatement = framesPer('A=1', 200) / 3
-    expect(1 / perStatement).toBeGreaterThan(650)
-    expect(1 / perStatement).toBeLessThan(720)
+    expect(1 / perStatement).toBeGreaterThan(250)
+    expect(1 / perStatement).toBeLessThan(285)
+  })
+
+  it('a colon costs a dispatch, not a statement', () => {
+    // AMOS's inner loop reads a word and jumps through the token table
+    // whatever the word is (+ILib.s:476), so a separator costs that dispatch
+    // and `L_InNull`'s immediate rts: 72+16, or 106 with TOKEN_COST_SCALE on.
+    //
+    // Both bodies run the same two assignments, so the colon is the only
+    // difference. An iteration is 646+646 for them, 816 for `Inc N` and 150
+    // for `Loop`, so 2,258 against 2,364 with the colon: a ratio of 1.047.
+    // Charged as a whole statement instead it would be 2,904 over 2,258,
+    // which is 1.29, and colons are everywhere in real AMOS source.
+    const ratio = framesPer('A=1 : B=2', 200) / framesPer('A=1\n  B=2', 200)
+    expect(ratio).toBeGreaterThan(1.02)
+    expect(ratio).toBeLessThan(1.09)
+  })
+
+  it('the processor sets the budget, so a faster one runs more BASIC', () => {
+    // The budget is read off machine.cpu.hz every frame rather than frozen at
+    // construction, so switching the processor in Config takes effect live.
+    // It was a constant before and the setting did nothing at all.
+    const rt = new Runtime(tokenize('N=0\nDo : Inc N : Loop', table), table, { maxSteps: 200_000_000 })
+    rt.frame()
+    const a500 = Number((rt.interp as any).frames[0].vars.get('n').n)
+    rt.machine.cpu = new M68020()
+    rt.frame()
+    const after = Number((rt.interp as any).frames[0].vars.get('n').n) - a500
+    // 68020 at 14.18 MHz against the 68000's 7.09: twice the cycles a frame
+    expect(after / a500).toBeCloseTo(2, 1)
+  })
+
+  it('bobs cost the vertical blank, and that comes off BASIC', () => {
+    /*
+     * `Bob x,y,img` draws nothing. BobSet (+W.s:890) walks the bob list,
+     * pokes three words and sets `BitBobs` in T_Actualise; the drawing is the
+     * vertical blank's, once a frame however often the program moved things.
+     * So the cost follows the bobs ON SCREEN, and a loop that carries thirty
+     * of them loses most of its frame before it runs a statement.
+     *
+     * This is what separates Q.A.B. from 18th Hole. The golf game's delay
+     * loop has no bobs and is paced by statements alone; Q.A.B.'s loop is
+     * almost nothing but Bob calls over thirty-odd asteroids, and under a
+     * statement-only model it could only ever run far too fast.
+     */
+    const spin = (bobs: number): number => {
+      const src = [
+        'Screen Open 0,320,256,16,Lowres : Curs Off : Flash Off : Hide On',
+        'Double Buffer',
+        'Ink 5 : Bar 0,0 To 31,31 : Get Bob 1,0,0 To 32,32 : Cls 0',
+        'N=0',
+        'Do',
+        `  For I=1 To ${bobs} : Bob I,I*8,50,1 : Next I`,
+        '  Inc N',
+        'Loop',
+      ].join('\n')
+      const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000_000 })
+      for (let i = 0; i < 60; i++) rt.frame()
+      return Number((rt.interp as any).frames[0].vars.get('n').n)
+    }
+    // 32 bobs of 32x32 on four planes is about 69% of a frame gone before
+    // BASIC starts, on top of the statements that moved them
+    expect(spin(32)).toBeLessThan(spin(8) / 3)
   })
 
   it('Next costs 681 cycles, not 206', () => {

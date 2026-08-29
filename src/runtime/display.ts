@@ -31,6 +31,7 @@ import type { HwSprite } from './objects'
 import { COOKIE_CUT, mintermBit } from '../amiga/blitter'
 import { colourResolver } from '../amiga/planar'
 import { bobBltcon0 } from './objects'
+import { bobBlitCycles } from './cost'
 
 export class Display {
   constructor(private readonly rt: Runtime) {}
@@ -1158,6 +1159,13 @@ export class Display {
    * Screen Copy and Get Bob therefore see bobs, exactly as with a
    * single-buffered real AMOS.
    */
+  /**
+   * Bus cycles the last bob pass cost, for the Runtime to take off BASIC's
+   * frame. See `bobBlitCycles` in cost.ts: the bobs on screen are what costs,
+   * not the `Bob` calls that moved them.
+   */
+  bobCycles = 0
+
   updateBobs(): void {
     this.clearBobs()
     this.drawBobs()
@@ -1230,6 +1238,9 @@ export class Display {
       const x2 = Math.min(s.width, dx + img.width)
       const y2 = Math.min(s.height, dy + img.height)
       if (x1 >= x2 || y1 >= y2) continue
+      // what this bob costs the vertical blank, charged against next frame's
+      // BASIC. The clipped rectangle, because that is what actually blits.
+      this.bobCycles += bobBlitCycles(x2 - x1, y2 - y1, s.depth)
       /**
        * What `Bob Clear` will put back here, for all three `Set Bob` modes.
        *
