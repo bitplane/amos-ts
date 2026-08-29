@@ -405,3 +405,72 @@ describe('IntuiExtend 2.01b — Wb Open Screen Taglist', () => {
     expect(ie.tokens.find((t) => t.name === 'wb open screen taglist')!.spec).toBe('I2')
   })
 })
+
+/**
+ * The window and screen keywords the gate found nothing dispatching.
+ *
+ * These are the ones whose effect is on Intuition's own ordering rather than
+ * on a value a program can print, which is why they were easy to leave out:
+ * the assertion has to reach into the modelled library.
+ */
+describe('IntuiExtend 2.01b, reached through AMOS', () => {
+  const OPEN = 'Wb Screen Open 0,0,320,200,3,0\nS=Wb Screen Base\n'
+  const TWO = `${OPEN}Wb Wind Open S To 10,20,100,60,0\nA=Wb Wind Base\nWb Wind Open S To 30,40,100,60,0\nB=Wb Wind Base\n`
+
+  /** the window a program opened at a given left edge, whichever handle it got */
+  const byX = (b: { rt: Runtime }, x: number) =>
+    [...b.rt.intuiextend.windowState.windows.values()].find((w) => w.win.leftEdge === x)!
+
+  /** whichever window answers at a point, which is the one in front there */
+  const frontAt = (b: { rt: Runtime }, x: number, y: number) =>
+    b.rt.intuition.windowAt(byX(b, 10).win.screenSlot, x, y)
+
+  it('Wb Screen Back and Wb Screen Front reorder the screen (routines 11 and 12)', () => {
+    // ScreenToBack is -$f6 and ScreenToFront -$fc, each taking the address the
+    // routine pops into a0, so there has to be something else on screen for
+    // the move to be visible at all
+    const pre = `Screen Open 0,320,200,16,Lowres\n${OPEN}`
+    const back = run(`${pre}Wb Screen Back S`)
+    const slot = back.rt.intuition.slotOf(back.rt.intuiextend.screenBase)!
+    expect(back.rt.order[0]).toBe(slot)
+    const front = run(`${pre}Wb Screen Front S`)
+    expect(front.rt.order[front.rt.order.length - 1]).toBe(slot)
+  })
+
+  it('=Wb Current Screen is ib_ActiveScreen at $38 (routine 96, $33ac)', () => {
+    const b = run(`${OPEN}Print Wb Current Screen`)
+    expect(b.out().trim()).toBe(String(b.rt.intuiextend.screenBase))
+  })
+
+  it('Wb Wind Front and Wb Wind Back reorder windows (routines 31 and 30)', () => {
+    // WindowToFront is -$138 and WindowToBack -$132. The two windows overlap
+    // at (50,50), so whichever answers there is the one in front.
+    const base = run(TWO)
+    expect(frontAt(base, 50, 50)).toBe(byX(base, 30).win) // B opened last
+    const front = run(`${TWO}Wb Wind Front A`)
+    expect(frontAt(front, 50, 50)).toBe(byX(front, 10).win)
+    const back = run(`${TWO}Wb Wind Back B`)
+    expect(frontAt(back, 50, 50)).toBe(byX(back, 10).win)
+  })
+
+  it('Wb Zip Window toggles against the NewWindow the open left behind (routine 133, $387e)', () => {
+    // `Wb Wind Open` writes its own arguments into the shipped NewWindow, so
+    // a window that has not moved since counts as already zoomed
+    const b = run(`${OPEN}Wb Wind Open S To 10,20,100,60,0\nW=Wb Wind Base\nWb Zip Window W`)
+    const w = b.rt.intuiextend.windowState.windows.get(b.rt.intuiextend.windBase)!
+    expect([w.win.leftEdge, w.win.topEdge]).toEqual([0, 0])
+    // move it and the same keyword puts it back where it opened
+    const there = run(
+      `${OPEN}Wb Wind Open S To 10,20,100,60,0\nW=Wb Wind Base\nWb Wind Move W To 5,5\nWb Zip Window W`,
+    )
+    const t = there.rt.intuiextend.windowState.windows.get(there.rt.intuiextend.windBase)!
+    expect([t.win.leftEdge, t.win.topEdge]).toEqual([10, 20])
+  })
+
+  it('=Wb Unlock Pubscreen and =Wb Set Default Pubscreen answer nothing useful', () => {
+    // UnlockPubScreen (-$204) and SetDefaultPubScreen (-$21c) are both void,
+    // and each routine copies whatever the library left in d0 into d3
+    expect(lines('Print Wb Unlock Pubscreen("Workbench",0)')).toEqual(['0'])
+    expect(lines('Print Wb Set Default Pubscreen("Workbench")')).toEqual(['0'])
+  })
+})

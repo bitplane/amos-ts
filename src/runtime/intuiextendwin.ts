@@ -822,8 +822,11 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
      * Wb Zip Window WIND — routine 133 ($387e), ZipWindow at -$1f8.
      *
      * Swaps a window between its current box and its zoom box, which is what
-     * the zoom gadget does. There is no separate zoom box here, so the window
-     * toggles between where it is and the NewWindow's own 250x100 at (50,50).
+     * the zoom gadget does. There is no separate zoom box here, so the
+     * NewWindow in the workspace stands in for one. `Wb Wind Open` writes its
+     * own arguments into that structure, so a window that has not moved since
+     * it opened counts as already zoomed and goes to (0,0) at its maximum
+     * size; move it first and the toggle puts it back where it opened.
      *
      * The routine ends `move.l d0,d3 / moveq #$0,d2` and sets up a function
      * result, but its token entry has no function routine: the table says

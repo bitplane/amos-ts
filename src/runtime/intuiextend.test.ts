@@ -283,3 +283,14 @@ describe('IntuiExtend 2.01b — drawing', () => {
     expect([gx, gy]).not.toEqual([fx, fy])
   })
 })
+
+describe('IntuiExtend 2.01b, reached through AMOS', () => {
+  it('Wb 3d Erase Object frees the block it is given (routine 292, $55c4)', () => {
+    // `Str Store` hands back the TEXT address and its block starts two below,
+    // which is where `Str Free` reads the length word from. Free it through
+    // the object keyword and the next allocation of the same size comes back
+    // to the same place.
+    const src = 'A=Str Store("hello")\nWb 3d Erase Object A-2\nB=Str Store("hello")\nPrint A=B'
+    expect(lines(src)).toEqual(['-1'])
+  })
+})

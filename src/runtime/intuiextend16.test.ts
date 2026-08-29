@@ -413,3 +413,32 @@ describe('IntuiExtend 1.6 — the two 2.01b was right to drop', () => {
     expect(ie16.tokens.find((t) => t.name === 'wb menu text')!.spec).toBe('I0,0,0,2,0')
   })
 })
+
+describe('IntuiExtend 1.6, reached through AMOS', () => {
+  const SCREEN = 'Screen Open 0,320,256,16,Lowres\nCls 0\n'
+  const RP = (Runtime.SCREEN_CTRL_BASE + IE_RASTPORT_OFFSET) >>> 0
+
+  it('Wb Turtleplot draws at the cursor plus the offset and leaves it (routine 49, $2e54)', () => {
+    // the `add.w` at $2e60 is into d0 and d1, not into the RastPort, so the
+    // cursor is where it was
+    const b = run(`${SCREEN}Wb Gfx Ink ${RP} To 5,0\nWb Turtleplot ${RP} To 10,10`)
+    const rp = b.rt.screen!.rp
+    expect(rp.point(10, 10)).toBe(5)
+    expect([rp.cpX, rp.cpY]).toEqual([0, 0])
+  })
+
+  it('=Iff Make Palette writes to its second argument (routine 295, $55ce)', () => {
+    // the guide calls that argument a colour count. GetColorTable takes a0 as
+    // the buffer to fill and the routine pops a0 from the LAST argument, so a
+    // program following the guide writes its palette to low memory.
+    const src =
+      'Reserve As Work 10,64\nC=Start(10)\n' +
+      'Reserve As Work 11,64\nD=Start(11)\n' +
+      // FORM <len> ILBM CMAP <3> $f0,$00,$00
+      'Loke C,$464F524D\nLoke C+4,20\nLoke C+8,$494C424D\n' +
+      'Loke C+12,$434D4150\nLoke C+16,3\nLoke C+20,$F0000000\n' +
+      'N=Iff Make Palette(C,D)\nPrint N\nPrint Deek(D)\n'
+    // one colour reported, $f00 written, and each gun keeps its top four bits
+    expect(out(src)).toBe('1 3840')
+  })
+})

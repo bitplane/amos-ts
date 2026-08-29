@@ -251,22 +251,36 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
     },
 
     /**
-     * Wb Bevel Box RPORT To X1,Y1,X2,Y2,PEN1,PEN2 — routine 40 ($2d40).
+     * Wb Bevel Box RPORT To PEN1,PEN2,X1,Y1,X2,Y2 — routine 40 ($2d40).
      *
-     * Two `Draw` pairs in two pens: the top and left edges in the first, the
-     * bottom and right in the second, which is what makes the box look raised
-     * or sunk depending on which way round the caller passes them.
+     * The two pens are the SECOND and THIRD arguments, not the last two.
+     * $2d40 pops d7,d4,d5,d6,d3,d0,a1 and the pops run backwards through the
+     * argument list: `Wb Bar` at $2f4e pops d3,d2,d1,d0,a1 and hands them
+     * straight to RectFill as yMax,xMax,yMin,xMin, which settles the
+     * direction. So d0 is the second argument and `jsr -$156(a6)` gives it to
+     * SetAPen before a pixel is drawn. Read the other way round the routine
+     * would be taking a pen out of an X coordinate.
+     *
+     * `movem.w d6-d7,$24(a1)` seeds rp_cp_x and rp_cp_y at (X1,Y2) rather
+     * than calling Move, and the four Draws go left, top, right, bottom with
+     * a second SetAPen between the second and the third. PEN1 is therefore
+     * the left and top and PEN2 the bottom and right, which is what makes the
+     * box look raised or sunk depending which way round they are passed.
+     *
+     * That second SetAPen is the RastPort's own, so PEN2 is still its pen
+     * when the keyword returns.
      */
     'wb bevel box'(it) {
-      const [rp, x1, y1, x2, y2, p1, p2] = args(it, 6)
+      const [rp, p1, p2, x1, y1, x2, y2] = args(it, 6)
       const r = rastPortAt(rp!)
       if (!r) return
-      r.cpX = lo(x2!)
+      r.cpX = lo(x1!)
       r.cpY = lo(y2!)
-      r.draw(r.cpX, r.cpY, lo(x2!), lo(y1!), lo(p1!))
-      r.draw(lo(x2!), lo(y1!), lo(x1!), lo(y1!), lo(p1!))
-      r.draw(lo(x1!), lo(y1!), lo(x1!), lo(y2!), lo(p2!))
-      r.draw(lo(x1!), lo(y2!), lo(x2!), lo(y2!), lo(p2!))
+      r.draw(r.cpX, r.cpY, lo(x1!), lo(y1!), lo(p1!))
+      r.draw(lo(x1!), lo(y1!), lo(x2!), lo(y1!), lo(p1!))
+      r.draw(lo(x2!), lo(y1!), lo(x2!), lo(y2!), lo(p2!))
+      r.draw(lo(x2!), lo(y2!), lo(x1!), lo(y2!), lo(p2!))
+      r.fgPen = lo(p2!) & 0xff
     },
 
     /**
@@ -663,22 +677,30 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
       if (rt.screens.has(slot)) rt.currentIndex = slot
     },
 
-    /** Wb Gfx Text RPORT,X,Y To TXT$ — routine 116 ($371a), `Text` at -$3c */
+    /**
+     * Wb Gfx Text TXT$,X,Y To RPORT — routine 116 ($371a), `Text` at -$3c.
+     *
+     * The RastPort is LAST. Its token spec is `I2,0,0t0`, a string then two
+     * integers then the `To` argument, and $371a pops a1 first and the string
+     * last, which is the same order read backwards.
+     */
     'wb gfx text'(it) {
-      const rp = it.evalInt()
+      const s = it.evalStr()
       it.expect(',')
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
       it.expect('to')
-      const s = it.evalStr()
-      const r = rastPortAt(rp)
+      const r = rastPortAt(it.evalInt())
       if (!r) return
       r.text(lo(x), lo(y), s, r.fgPen)
     },
 
     /**
-     * Wb Gfx Centre RPORT,Y,X To TXT$ — routine 157 ($3b2a).
+     * Wb Gfx Centre TXT$,X,Y To RPORT — routine 157 ($3b2a).
+     *
+     * The same argument order as `Wb Gfx Text` above, spec `I2,0,0t0`, and
+     * $3b2a pops a1, then Y into $26(a1), then X into d2, then the string.
      *
      * The same `Text` call with the left edge backed off by `rol.w #$2` of
      * the length, which is four pixels a character: half of the eight
@@ -686,14 +708,13 @@ export function makeIntuiextendGfxInstructions(rt: Runtime): Record<string, Inst
      * off for anything else.
      */
     'wb gfx centre'(it) {
-      const rp = it.evalInt()
-      it.expect(',')
-      const y = it.evalInt()
+      const s = it.evalStr()
       it.expect(',')
       const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
       it.expect('to')
-      const s = it.evalStr()
-      const r = rastPortAt(rp)
+      const r = rastPortAt(it.evalInt())
       if (!r) return
       const cx = lo(lo(x) - (((s.length << 2) | ((s.length & 0xffff) >>> 14)) & 0xffff))
       r.text(cx, lo(y), s, r.fgPen)

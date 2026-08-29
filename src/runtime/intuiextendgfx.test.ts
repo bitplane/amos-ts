@@ -461,3 +461,57 @@ describe('IntuiExtend 2.01b — Wb Itext and Wb Free Itext', () => {
     expect(out).toBe('-1')
   })
 })
+
+/**
+ * The drawing keywords the gate found nothing dispatching.
+ *
+ * Writing them turned up an argument order that was wrong: see the Bevel Box
+ * test, which is the one that had to be read out of the routine rather than
+ * off the guide.
+ */
+describe('IntuiExtend 2.01b gfx, reached through AMOS', () => {
+  it('Wb Bevel Box takes its pens second and third (routine 40, $2d40)', () => {
+    // PEN1 draws the left and top edges, PEN2 the right and bottom
+    const b = run(`${SCREEN}Wb Bevel Box ${RP} To 2,3,10,10,30,20`)
+    const rp = b.rt.screen!.rp
+    expect(rp.point(10, 15)).toBe(2) // left
+    expect(rp.point(20, 10)).toBe(2) // top
+    expect(rp.point(30, 15)).toBe(3) // right
+    expect(rp.point(20, 20)).toBe(3) // bottom
+    // and the second SetAPen is the RastPort's, so PEN2 is what it is left on
+    expect(rp.fgPen).toBe(3)
+  })
+
+  it('Wb Gfx Text takes the RastPort last (routine 116, $371a)', () => {
+    // a screen RastPort has no rp_Font until something opens one, and
+    // ../amiga/graphics.ts draws nothing for that and advances eight pixels a
+    // character, so where the pen ends up is what says the string arrived
+    const rp = run(`${SCREEN}Wb Gfx Text "ABC",40,20 To ${RP}`).rt.screen!.rp
+    expect([rp.cpX, rp.cpY]).toEqual([40 + 3 * 8, 20])
+  })
+
+  it('Wb Gfx Centre backs off four pixels a character (routine 157, $3b2a)', () => {
+    // `rol.w #$2` of the length is four a character, half of the eight the
+    // font is, so "AB" from X=100 starts at 92 and the advance ends at 108
+    const rp = run(`${SCREEN}Wb Gfx Centre "AB",100,20 To ${RP}`).rt.screen!.rp
+    expect([rp.cpX, rp.cpY]).toEqual([92 + 2 * 8, 20])
+  })
+
+  it('Wb Text Spacing and Wb Text Style land in the struct (routines 118 and 119)', () => {
+    // rp_TxSpacing is at $40 and rp_AlgoStyle at $38
+    expect(run(`${SCREEN}Wb Text Spacing ${RP} To 3`).rt.intuiextend.textSpacing).toBe(3)
+    expect(run(`${SCREEN}Wb Text Style ${RP} To 2`).rt.screen!.rp.algoStyle).toBe(2)
+  })
+
+  it('Wb Print Mode sets the IntuiText DrawMode (routine 146, $39b4)', () => {
+    expect(run(`${SCREEN}Wb Print Mode 1`).rt.intuiextend.print.drawMode).toBe(1)
+  })
+
+  it('Wb Blit Copy moves a rectangle between RastPorts (routine 120, $375a)', () => {
+    // ClipBlit at -$228; only the $c0 straight copy is reachable here
+    const src = `${SCREEN}Wb Gfx Ink ${RP} To 4,0\nWb Bar ${RP} To 0,0,15,15\nWb Blit Copy ${RP},0,0,16,16 To ${RP},32,0,$C0`
+    const rp = run(src).rt.screen!.rp
+    expect(rp.point(35, 5)).toBe(4)
+    expect(rp.point(60, 5)).toBe(0)
+  })
+})

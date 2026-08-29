@@ -7,6 +7,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById } from '../ext/registry'
+import { IE_TASK } from './intuiextend'
 import { Runtime } from './runtime'
 import {
   IE_KICKSTART_VERSION,
@@ -408,5 +409,99 @@ describe('IntuiExtend 2.01b — Wb Swatch', () => {
   /** no arguments, and a string answer */
   it('takes nothing and answers a string', () => {
     expect(ie.tokens.find((t) => t.name === 'wb swatch')!.spec).toBe('2')
+  })
+})
+
+/**
+ * The same keywords, reached through AMOS rather than through their helpers.
+ *
+ * Everything above calls the exported function directly, which checks the
+ * arithmetic and not the wiring. A helper that is right and a keyword that
+ * never reaches it look identical from outside, so src/coverage/gate.ts
+ * fails the run when a FAITHFUL keyword is never dispatched. These are the
+ * dispatches.
+ */
+describe('IntuiExtend 2.01b, reached through AMOS', () => {
+  const W = 'Reserve As Work 5,64\n'
+  const SCREEN = 'Screen Open 0,320,256,16,Lowres\nCls 0\n'
+
+  it('Adr Dec takes one off the word (routine 234, $4a50)', () => {
+    expect(lines(`${W}Doke Start(5),1000\nAdr Dec Start(5)\nPrint Deek(Start(5))`)).toEqual(['999'])
+  })
+
+  it('Adr Swap.b exchanges two bytes (routine 236, $4a5e)', () => {
+    const src = `${W}Poke Start(5),11\nPoke Start(5)+1,22\nAdr Swap.b Start(5) To Start(5)+1\nPrint Peek(Start(5))\nPrint Peek(Start(5)+1)`
+    expect(lines(src)).toEqual(['22', '11'])
+  })
+
+  it('Wb Locker records its argument and does nothing else (routine 99, $3526)', () => {
+    // `move.w d0,-$90(a5)` is the entire routine, and no keyword reads the
+    // variable back, so running it is all there is to see
+    expect(lines('Wb Locker 3\nPrint "ok"')).toEqual(['ok'])
+  })
+
+  it('Wb Free Image ignores a null pointer (routine 102, $35ee)', () => {
+    expect(lines('Wb Free Image 0\nPrint "ok"')).toEqual(['ok'])
+  })
+
+  it('Unload Seg leaves the segment slot at -1 (routine 24, $2ba0)', () => {
+    // there is no 68000 here to have loaded one, so `Segment Base` reads the
+    // -1 the routine writes whether or not anything was unloaded
+    expect(lines('Unload Seg 0\nPrint Segment Base')).toEqual(['-1'])
+  })
+
+  it('Task Name points ln_Name at the string (routine 106, $3638)', () => {
+    expect(lines('Task Name "amos" To My Task\nPrint "ok"')).toEqual(['ok'])
+  })
+
+  it('Wb Gauge splits the bar at X1 + (X2-X1) * P / 100 (routine 242, $4aba)', () => {
+    // 0 + 99 * 50 / 100 is 49, so CJ runs to 49 and CF from 50
+    const src = `${SCREEN}Wb Gauge 50,2,3,0,0 To 99,9\nPrint Point(10,5)\nPrint Point(60,5)`
+    expect(lines(src)).toEqual(['2', '3'])
+  })
+
+  it('Quick Scroll copies a rectangle to an offset of itself (routine 282, $5426)', () => {
+    const src = `${SCREEN}Ink 5\nBar 0,0 To 15,15\nQuick Scroll 0,0 To 16,16,32,0\nPrint Point(35,5)`
+    expect(lines(src)).toEqual(['5'])
+  })
+
+  it('=Int Sqr, =Wb Distance and =Wb Depth To Colour (routines 276, 257, 316)', () => {
+    expect(val('Int Sqr(144)')).toBe('12')
+    // 3-4-5, through that same square root
+    expect(val('Wb Distance(0,0 To 3,4)')).toBe('5')
+    // every bit below depth set, and then one added, so 2^depth
+    expect(val('Wb Depth To Colour(4)')).toBe('16')
+  })
+
+  it('=Pal Grey, =Pal Antiq and =Pal Filter (routines 69, 70, 243)', () => {
+    expect(val('Pal Grey($900)')).toBe(String(0x333))
+    // 5+5+5 divides by three exactly, so nothing is left in the high word
+    expect(val('Pal Antiq($555)')).toBe(String(0x531))
+    expect(val('Pal Filter($FFF,$F0)')).toBe(String(0xf0))
+  })
+
+  it('=Wb Fast Hex, and =Wb Encrypt back through =Wb Decrypt', () => {
+    // 112 ($36a4) rols a nibble at a time, so all eight digits come out
+    expect(val('Wb Fast Hex(255)')).toBe('000000FF')
+    // 164 ($3c38) is `ror.b #$1` and 165 ($3c5e) is `rol.b #$1`
+    expect(val('Wb Decrypt(Wb Encrypt("Hello"))')).toBe('Hello')
+  })
+
+  it('=My Task is the pointer AMOS keeps at -$1c(a5) (routine 17, $25da)', () => {
+    expect(val('My Task')).toBe(String(IE_TASK))
+  })
+
+  it('=Wb Open answers a screen and =Wb Close succeeds (routines 14, 15)', () => {
+    const src = 'A=Wb Open\nIf A<>0 Then Print "opened"\nPrint Wb Close'
+    expect(lines(src)).toEqual(['opened', '1'])
+  })
+
+  it('=Wb Bob Image answers zero with no Bob bank (routine 101, $3590)', () => {
+    expect(val('Wb Bob Image(1)')).toBe('0')
+  })
+
+  it('=What Is reads the signature at an address (routine 22, $268c)', () => {
+    const src = `${W}Poke Start(5),Asc("Z")\nPoke Start(5)+1,Asc("O")\nPoke Start(5)+2,Asc("O")\nPoke Start(5)+3,Asc("M")\nPrint What Is(Start(5))`
+    expect(code(Number(lines(src)[0]))).toBe('ZOOM')
   })
 })
