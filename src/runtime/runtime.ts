@@ -2421,6 +2421,7 @@ export class Runtime {
           // OpenScreen BltClears the bitmap to pen 0, which is what a freshly
           // allocated one already is.
           s.bobBracket = this.bobBracket
+          s.autobackVbl = () => this.autobackVbl(s)
           this.screens.set(slot, s)
           this.order = this.order.filter((i) => i !== slot)
           // BEHIND everything: a Workbench screen that has just been opened
@@ -2754,6 +2755,7 @@ export class Runtime {
     // AvailMem cliff nor the retry is reachable here (NOTES).
     const s = new Screen(Runtime.EC_FSEL, this.pi.FsDSx, this.pi.FsDSy, res!.graphics?.nColors ?? 8, 0x8000)
     s.bobBracket = this.bobBracket
+    s.autobackVbl = () => this.autobackVbl(s)
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
@@ -2969,6 +2971,7 @@ export class Runtime {
     // which happens to default to the 640x200 this used to hard-code
     const s = new Screen(Runtime.EC_FSEL, this.pi.RtSx, this.pi.RtSy, g?.nColors ?? 8, (g?.mode ?? 0x8000) & 0x8004)
     s.bobBracket = this.bobBracket
+    s.autobackVbl = () => this.autobackVbl(s)
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
@@ -4729,6 +4732,43 @@ export class Runtime {
   private frameBudget: number
   private onText: ((text: string) => void) | undefined
 
+  /**
+   * Vertical blanks BASIC still owes before it may run again.
+   *
+   * AMOS's autoback bracket is `TAbk1 / op / TAbk2 / op / TAbk3` and under
+   * `Autoback 2` all three wait: `bsr WVbl` in TAbk1 (+W.s:3554), in TAbk2B
+   * (+W.s:3581) and in TAbk3B (+W.s:3609), the last two after a `ScSwapS`.
+   * So one bracketed keyword costs THREE frames, and only three keywords are
+   * bracketed --- `Cls`, `Paste Bob` and the `Print` family.
+   *
+   * This is a stall, not a block: the machine carries on. `WVbl` parks the
+   * 68000 and leaves every interrupt running, so the copper, the bobs and
+   * Paula are all still going, which is why the frame gate below skips only
+   * `interp.run` and nothing else.
+   */
+  private vblOwed = 0
+
+  /**
+   * Charge the autoback bracket's three vertical blanks.
+   *
+   * TAbk1 is `move.w EcAuto(a0),d0 / subq.w #1,d0 / ble.s TAbk1X` (+W.s:3551),
+   * so Autoback 0 and 1 skip the wait and only Autoback 2 pays it --- which
+   * is the value `Double Buffer` writes for you (`move.w #2,EcAuto(a4)`,
+   * +W.s:2770). A program that says `Autoback 0` afterwards, as Chopper II
+   * does, buys its speed back and gets the flicker with it.
+   */
+  autobackVbl(s: Screen): void {
+    if (!s.doubleBuffered || s.autoback !== 2) return
+    // TAbk1's WVbl ends the frame BASIC is standing in, so the rest of this
+    // frame's budget is gone: charging it is what stops the interpreter here
+    // rather than at the end of its slice. Without that the whole 1,612
+    // statements ran first and only then paid, so a menu loop still got its
+    // ninety iterations in frame one and stalled afterwards in a lump.
+    this.interp.charge(this.frameBudget)
+    // TAbk2B's and TAbk3B's are two whole frames after it.
+    this.vblOwed += 2
+  }
+
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
     this.frameBudget = opts.frameBudget ?? FRAME_DISPATCHES
     this.diskRequests = opts.diskRequests === true
@@ -5052,6 +5092,7 @@ export class Runtime {
       if (c !== undefined) s.palette[i] = c
     }
     s.bobBracket = this.bobBracket
+    s.autobackVbl = () => this.autobackVbl(s)
     // reopening a number closes what was there, and EcDel takes its bobs
     if (this.screens.has(n)) this.dropBobsOn(n)
     this.screens.set(n, s)
@@ -5404,7 +5445,16 @@ export class Runtime {
     // stopped program leaves running on the machine: Paula does not stop
     // because the editor is on screen. Only the interpreter stands still, and
     // only while no typed line is using it.
-    const held = this.directScreen.isOpen && this.interp.direct === 0
+    // An autoback bracket's WVbl parks BASIC and nothing else, so this is the
+    // same gate the escape screen uses rather than a new one. Paid down one
+    // frame at a time, here, so a program stalling on a Print still sees its
+    // bobs move and its music play underneath.
+    let owed = false
+    if (this.vblOwed > 0) {
+      this.vblOwed--
+      owed = true
+    }
+    const held = (this.directScreen.isOpen && this.interp.direct === 0) || owed
     if (!held && !this.interp.done && this.interp.blocked === null) {
       // The handler's requester belongs to the RUNNING PROGRAM's DOS calls
       // and to nothing else. A host browsing the same `AmigaFS` from a file

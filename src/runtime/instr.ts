@@ -3052,7 +3052,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // TPatch (+W.s:819) starts with `bsr Retourne`, so the Hrev/Vrev bits
       // on the number mirror the bank image in place before the paste
       const img = pasteImage(it.evalInt(), 'sprite')
-      rt.blit(scr(), img, x, y, img.opaque)
+      // Patch (+W.s:849) is `tst.w EcAuto(a0) / beq.s Patch2`, then
+      // TAbk1 / PBobA / TAbk2 / PBobA / TAbk3 --- the third of the three
+      // keywords that pays the autoback bracket's vertical blanks.
+      const s = scr()
+      s.autobackVbl?.()
+      rt.blit(s, img, x, y, img.opaque)
     },
     'paste icon'(it) {
       // InPasteIcon +Lib.s:12734 pastes THROUGH an existing mask and only

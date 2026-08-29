@@ -1215,3 +1215,63 @@ describe('bank names are held trimmed', () => {
     expect(bad, 'store the trimmed name and pad at the boundary instead').toEqual([])
   })
 })
+
+/**
+ * The autoback bracket's vertical blanks.
+ *
+ * `Cls`, `Paste Bob` and the `Print` family (through `AutoPrt`, +W.s:15496,
+ * which `WLocate` +W.s:15319 also goes through) run inside
+ * `TAbk1 / op / TAbk2 / op / TAbk3`. Under `Autoback 2` all three of those
+ * wait: `bsr WVbl` at +W.s:3554, +W.s:3581 and +W.s:3609, the last two after
+ * a `ScSwapS`. One bracketed keyword costs three frames.
+ *
+ * TAbk1 gates on `move.w EcAuto(a0),d0 / subq.w #1,d0 / ble.s TAbk1X`
+ * (+W.s:3551), so 0 and 1 skip it and only 2 pays --- and 2 is the value
+ * `Double Buffer` writes for you (+W.s:2770).
+ *
+ * This is most of why Battlements' menu was unusable. Its loop is five
+ * `Locate` and five `Print` on a double-buffered screen, so on an A500 the
+ * cursor stepped under twice a second, and the port was running it about
+ * four and a half thousand times a second.
+ */
+describe('the autoback bracket stalls BASIC (TAbk1/TAbk2B/TAbk3B)', () => {
+  const spin = (setup: string[], frames = 30): number => {
+    const src = [
+      'Screen Open 0,320,200,16,Lowres : Curs Off : Flash Off',
+      ...setup,
+      'N=0',
+      'Do',
+      '  Locate 0,5 : Print "x"',
+      '  Inc N',
+      'Loop',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 50_000_000 })
+    for (let i = 0; i < frames; i++) rt.frame()
+    return Number((rt.interp as any).frames[0].vars.get('n').n)
+  }
+
+  it('a Locate and a Print cost six frames on a double-buffered screen', () => {
+    // two bracketed keywords, three vertical blanks each
+    const n = spin(['Double Buffer'], 30)
+    expect(n).toBeGreaterThan(2)
+    expect(n).toBeLessThan(8)
+  })
+
+  it('Autoback 0 buys the speed back, which is what Chopper II does', () => {
+    // `tst.w EcAuto(a5) / beq` skips the bracket outright, so the loop goes
+    // back to being paced by the ordinary statement budget
+    expect(spin(['Double Buffer', 'Autoback 0'], 30)).toBeGreaterThan(1000)
+  })
+
+  it('Autoback 1 doubles the drawing but does not wait (+W.s:3551)', () => {
+    // `subq.w #1,d0 / ble` is taken at 1, so TAbk1 returns before its WVbl
+    // and TAbk2A only re-points the rastport
+    expect(spin(['Double Buffer', 'Autoback 1'], 30)).toBeGreaterThan(1000)
+  })
+
+  it('a single-buffered screen never pays it', () => {
+    // Print takes WPrt5 (+W.s:15530): TAbk1, then TAbk4, and TAbk4
+    // (+W.s:3613) is BobAct/BobAff with no wait in it at all
+    expect(spin([], 30)).toBeGreaterThan(1000)
+  })
+})

@@ -1172,6 +1172,10 @@ export class Screen {
    * It does NOT home the text cursor — only Clw (Cls with no argument) does.
    */
   cls(c = this.paper, x1 = 0, y1 = 0, x2 = this.width - 1, y2 = this.height - 1): void {
+    // Cls5 (+W.s:3663) is `tst.w EcAuto(a5) / beq.s Cls5W`, then the full
+    // TAbk1 / ClsR / TAbk2 / ClsR / TAbk3 bracket. Three waits under
+    // Autoback 2, and this is one of only three keywords that pays them.
+    this.autobackVbl?.()
     this.gfx(() => this.clsInner(c, x1, y1, x2, y2))
   }
 
@@ -1852,6 +1856,18 @@ export class Screen {
   private bobDepth = 0
 
   /**
+   * Charge the autoback bracket's three vertical blanks (Runtime.autobackVbl).
+   *
+   * Installed by the Runtime, and called from exactly the three places AMOS
+   * calls `TAbk1` from: `Cls` (+W.s:3665), `Paste Bob` (+W.s:852) and the
+   * `Print` family through `AutoPrt` (+W.s:15509). `Bar`, `Plot`, `Draw` and
+   * the rest are NOT in that list --- they draw into one buffer and do not
+   * wait, which is why a program that wants them to persist has to redraw
+   * them itself every frame.
+   */
+  autobackVbl: (() => void) | null = null
+
+  /**
    * One drawing keyword, bracketed. Re-entrant because the primitives call
    * each other: Box is four Draws and Polygon is a run of them, and AMOS
    * brackets the KEYWORD, not each line the keyword happens to blit.
@@ -1897,6 +1913,10 @@ export class Screen {
     // `scrollUp` are all console operations and the inner ones must not each
     // mirror again.
     if (this.consoleDepth === 0 && this.autoback !== 0 && this.phyBM !== null) {
+      // Same bracket, same three waits. `consoleDepth === 0` is what keeps a
+      // Print from paying them once per character: AutoPrt wraps the KEYWORD,
+      // and writeText -> putChar -> newline -> scrollUp are all inside it.
+      this.autobackVbl?.()
       const w = this.curWin
       const snap = { ...w }
       const encX = this.encX
