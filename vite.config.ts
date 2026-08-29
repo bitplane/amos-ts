@@ -90,6 +90,33 @@ function libraryDevServer(): Plugin {
  */
 export default defineConfig({
   plugins: [libraryDevServer()],
+
+  /**
+   * Keep the dev server's watcher out of the trees it must never walk.
+   *
+   * Vite ignores `.git`, `node_modules` and the build output by default and
+   * nothing else, so it was walking two directories that dwarf the source.
+   *
+   * `.claude/worktrees` holds SYMLINKS, and chokidar follows them: one to
+   * `../amos-files`, which is 45,743 corpus files, and one to a sibling AMOS
+   * checkout. Add a git worktree or two beside them and the dev server dies
+   * on `ENOSPC: System limit for number of file watchers reached` --- an
+   * inotify watch is a kernel object with a per-user cap, typically 8,192 or
+   * 128K, and the corpus alone can spend the lot. The error names whichever
+   * file happened to be next, so it reads like a problem with that file.
+   *
+   * `fixtures` is the same shape for the same reason: gitignored, 139 MB, and
+   * nothing the browser ever asks for.
+   *
+   * This is the watcher only. The library dev server above still READS
+   * `../amos-library` per request, which is outside the root and unaffected.
+   */
+  server: {
+    watch: {
+      ignored: ['**/.claude/**', '**/fixtures/**'],
+    },
+  },
+
   build: {
     lib: {
       entry: 'src/index.ts',
