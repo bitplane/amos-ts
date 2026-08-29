@@ -5933,9 +5933,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * `InNoMask0` (+Lib.s:12509) both go `moveq #1,d1 / Rbsr L_AdBob / Rbne
    * L_GoError / subq.w #1,d5`, and d5 is the bank COUNT that AdBob left there
    * (`move.w d1,d5`, d1 being Bnk.AdBob's documented "Max de bobs"). So
-   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what the
-   * manual promises: "make mask for all icons", "remove mask of all icons".
-   * The one-argument forms set `moveq #0,d5` and walk exactly one.
+   * `dbra d5,.Loop` in MkMa1 and NoMa1 walks the whole bank, which is what
+   * AMOSPro_Help.Txt promises of the bare form: "Affects all currently
+   * defined Icon images." The one-argument forms set `moveq #0,d5` and walk
+   * exactly one, "Creates a blitter mask for image number i.".
    *
    * Both loops open `tst.l (a2) / beq.s .Skip`, so a hole in the bank is
    * stepped over in silence. Only the number itself can raise, through AdBob.
