@@ -25,7 +25,8 @@ describe('version sweep', () => {
    * A failure here is not a bug in this file: it means a registered release
    * shares every id it has in common with a ported one, so naming it in that
    * port's `ids` would move it off 0% with no code written. Add the string,
-   * then run `extaudit <id>` to see what the release newly makes missing.
+   * then diff the release's token table against the port's handler keys: the
+   * names only the new release has are the ones that now need writing.
    */
   it('no registered release is an unbound later version of a ported one', () => {
     const bindable = sweep()

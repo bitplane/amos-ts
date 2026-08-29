@@ -27,7 +27,6 @@ CLI tools in `src/cli/`:
 | `m68k.ts` | the capstone bridge the three disassemblers share |
 | `oscalls.ts` | which AmigaOS library functions an extension actually calls |
 | `errscan.ts` | every `L_ErrorExt` call site in a binary, the registers set up, and the slot it states |
-| `extaudit.ts` | which of an extension's implemented keywords have been read against its binary |
 | `citecheck.ts` | every `routine N ($ADDR)` citation still names the code it claims to |
 | `contested.ts` | keyword names two ported products both claim, and who answers |
 | `renderaudio.ts` | play a module through its replayer and the mixer, and write a WAV (`--to-mod` unpacks a P61) |

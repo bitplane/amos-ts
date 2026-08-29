@@ -91,8 +91,10 @@ export type ExtEvidence =
    *
    * Note this tier is about availability, not about work done. It says the
    * evidence is there to be read, and says nothing about whether any
-   * particular keyword has been read yet — that is per-keyword, and
-   * src/cli/extaudit.ts is what measures it.
+   * particular keyword has been read yet. That is recorded per keyword and
+   * nowhere else: the routine number in the doc block above the handler, which
+   * src/ext/citations.test.ts resolves against the binary it names. A handler
+   * with no routine number has no reading behind it, and no tool infers one.
    */
   | 'disassembly'
   /**
