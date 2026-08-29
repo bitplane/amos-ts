@@ -8,9 +8,9 @@
  *
  * ## Evidence
  *
- * `AMOSPro_Ldos.lib` is held, so behaviour is read out of it: 82 of the 85
- * keywords cite the routine they came from, and `extaudit ldos-2.5` is what
- * says so. `LdosV25.DOC`, the extension's own 81KB manual, is the commentary
+ * `AMOSPro_Ldos.lib` is held, so behaviour is read out of it: 93 lines of this
+ * file name the routine a keyword came from, for 85 keywords, and
+ * `src/ext/citations.test.ts` resolves every one of them against the binary. `LdosV25.DOC`, the extension's own 81KB manual, is the commentary
  * beside it — every keyword with its syntax, parameter meanings, error
  * results and worked examples, which makes this one of the few ports where
  * the code and its own description can be read against each other line by

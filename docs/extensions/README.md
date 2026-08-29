@@ -75,10 +75,11 @@ library whose manifest called it `manual` tier:
 
 Two consequences worth stating where a porter will meet them. First, the tier
 is not a record of work done: `disassembly` says the evidence is there, not
-that anyone has read it. `src/cli/extaudit.ts` answers the per-keyword
-question, reporting how many implemented keywords cite the routine they came
-from and how many cite nothing, and that is the number to look at before
-believing a port is finished.
+that anyone has read it. Whether a particular keyword has been read is recorded
+in one place, the routine number in the doc block above its handler, and
+`src/ext/citations.test.ts` resolves each of those against the binary it names.
+A handler with no routine number has no reading behind it, and nothing infers
+one from the shape of the prose.
 
 Second, 68k machine code is never *executed* here, and reading it is the same
 activity as reading `+Lib.s`. Because it is never run, a binary-only extension
@@ -123,8 +124,9 @@ is a claim and not evidence. Eleven of the 62 have nothing but the binary.
 rule above. Nearly every row says `source` or `disassembly` because a held
 binary outranks any manual, so the column separates the extensions whose
 behaviour is knowable from the ones where a port would be guessing. It says
-nothing about how much of each is ported; `src/cli/extaudit.ts` answers that,
-per keyword.
+nothing about how much of each is ported. `UNIMPLEMENTED.md` lists the ids at
+0%, and a port under way is the only thing between the two: a row is meant to
+read 0% or 100% and nothing in between.
 
 | id                     | name                                  | evidence    | keywords | seen at | slot          |
 | ---------------------- | ------------------------------------- | ----------- | -------: | ------: | ------------- |
