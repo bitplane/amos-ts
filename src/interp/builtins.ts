@@ -583,13 +583,10 @@ export const INSTR: Record<string, Instr> = {
     // InNext ignores which variable is written after Next — it always
     // operates on the innermost loop (the token is skipped cosmetically)
     if (it.tok()?.kind === 'var') it.advance()
-    // `Next` is 3.3 ordinary statements: 681 cycles against 206, measured
-    // directly off Speed_Tests.AMOS, where `For A=1 To 10000: Next A` is the
-    // one row whose loop body is a single statement. Searching the loop stack
-    // for the named variable is what the difference buys. A bare For/Next is
-    // the delay loop AMOS programmers hand-rolled, so this is the charge that
-    // makes 18th Hole's power bar stoppable.
-    it.charge(it.statementCost * NEXT_EXTRA_STATEMENTS)
+    // `Next` used to charge 2.31 extra statements here, the difference between
+    // Speed_Tests.AMOS's 681 cycles and a flat 206. The per-token model prices
+    // it from `L_InNext` itself (+ILib.s:2115) and would charge that twice.
+    if (it.tokenCostFlat) it.charge(it.statementCost * NEXT_EXTRA_STATEMENTS)
     const top = it.loops[it.loops.length - 1]
     if (top === undefined || top.t !== 'for') throw new AmosError('Next without For')
     const v = num(it.getVar(top.varKey!, top.varT!)) + top.step!

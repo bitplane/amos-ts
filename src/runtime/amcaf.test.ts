@@ -66,7 +66,11 @@ function runAudio(src: string[]): { out: string; rt: Runtime; audio: NullAudio }
   return { out, rt, audio }
 }
 
-function run(src: string | string[], onUnimplemented?: 'throw' | 'skip'): { out: string; rt: Runtime } {
+function run(
+  src: string | string[],
+  onUnimplemented?: 'throw' | 'skip',
+  frames = 200,
+): { out: string; rt: Runtime } {
   let out = ''
   const rt = new Runtime(tokenize(Array.isArray(src) ? src.join('\n') : src, table, extensions), table, {
     maxSteps: 1_000_000,
@@ -74,7 +78,7 @@ function run(src: string | string[], onUnimplemented?: 'throw' | 'skip'): { out:
     ...(onUnimplemented ? { onUnimplemented } : {}),
     onText: (t) => (out += t),
   })
-  const r = rt.runHeadless(200)
+  const r = rt.runHeadless(frames)
   mustFinish(r)
   return { out, rt }
 }
@@ -2344,15 +2348,15 @@ describe('zoom, masks, C2P and remaining graphics', () => {
    */
   it('X Raster doubles the colour clock, Y Raster is nine bits wide', () => {
     // the modelled beam advances a line every 64 steps, so it takes a real
-    // loop to sweep a frame rather than a handful of statements
-    const { rt, out } = run([
-      ...scr,
-      'Hi=0',
-      'For I=0 To 24000',
-      'A=Y Raster : If A>Hi Then Hi=A',
-      'Next I',
-      'Print Hi;",";X Raster',
-    ])
+    // loop to sweep a frame rather than a handful of statements. 800 frames
+    // rather than the default 200 because the per-token cost model runs BASIC
+    // at about a third of the speed the flat one did, and 24,001 iterations no
+    // longer fit; the loop bound is what makes the beam wrap, so it stays.
+    const { rt, out } = run(
+      [...scr, 'Hi=0', 'For I=0 To 24000', 'A=Y Raster : If A>Hi Then Hi=A', 'Next I', 'Print Hi;",";X Raster'],
+      undefined,
+      800,
+    )
     const [hi, xr] = out.trim().split(',').map(Number)
     expect(hi).toBeGreaterThan(255) // impossible under an eight-bit read
     expect(hi).toBeLessThan(313) // and still inside a PAL frame

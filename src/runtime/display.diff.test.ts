@@ -73,7 +73,15 @@ interface Diff {
 }
 
 function sweep(scene: string[]): Diff {
-  const rt = new Runtime(tokenize(program(scene), table), table, { maxSteps: 8_000_000 })
+  // A huge frame budget, because this sweep is about what the two renderers
+  // draw and not about how fast BASIC runs. Both copy loops read `Cop Logic`,
+  // which AMOS rewrites every vertical blank, so a copy that spans frames is
+  // torn: the per-token cost model made them span three frames instead of one
+  // and the HAM6 scene came back 0.88% different, all of it in one band.
+  const rt = new Runtime(tokenize(program(scene), table), table, {
+    maxSteps: 8_000_000,
+    frameBudget: 200_000_000,
+  })
   const untilKeyWait = (): void => {
     for (let i = 0; i < 2000 && (rt.interp.blocked as { type?: string } | null)?.type !== 'waitKey'; i++) rt.frame()
   }

@@ -166,7 +166,7 @@ import {
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
 import { CYCLES_PER_DISPATCH, CYCLES_PER_STATEMENT, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
-import { VBL_BUDGET_CAP } from './cost'
+import { VBL_BUDGET_CAP, tokenCost } from './cost'
 import { MusicPlayer } from './music'
 
 /**
@@ -4898,6 +4898,9 @@ export class Runtime {
       input: this.input,
       statementCost: CYCLES_PER_STATEMENT,
       dispatchCost: CYCLES_PER_DISPATCH,
+      // per-token costing supersedes the two above; they stay for a standalone
+      // Interp and for the tests that count statements
+      tokenCost,
     }
     if (opts.extensions) interpOpts.extensions = opts.extensions
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented

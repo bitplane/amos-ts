@@ -1059,25 +1059,34 @@ describe('the statement cost reproduces the 18th Hole power bar', () => {
     expect((step * 11) / VBL_HZ).toBeCloseTo(0.3, 1)
   })
 
-  it('a plain statement is 206 cycles, so a frame holds about 689 of them', () => {
-    // three statements an iteration: the body, Inc N, and Loop
+  it('an assignment is 646 cycles, so a frame holds about 265 statements', () => {
+    // Counted off the tokens rather than fitted. `A=1` dispatches three: the
+    // variable at 72+286 for `L_InVar`, the `=` at the bare 72 of a dispatch,
+    // and the constant at 72+32 for `L_FnCEntier`. 534 cycles, 646 once
+    // TOKEN_COST_SCALE is on, against 141,876 in a frame.
+    //
+    // The flat model said 206 and 689 statements a frame, taken from the
+    // While/Repeat/Do rows of Speed_Tests.AMOS. Those rows are not used any
+    // more: they disagree with the For/Next row by a factor of four in the
+    // same file, and the For/Next row is the one 18th Hole corroborates.
     const perStatement = framesPer('A=1', 200) / 3
-    expect(1 / perStatement).toBeGreaterThan(650)
-    expect(1 / perStatement).toBeLessThan(720)
+    expect(1 / perStatement).toBeGreaterThan(250)
+    expect(1 / perStatement).toBeLessThan(285)
   })
 
   it('a colon costs a dispatch, not a statement', () => {
     // AMOS's inner loop reads a word and jumps through the token table
-    // whatever the word is (+ILib.s:505), so a separator costs those seven
-    // instructions and an immediate rts. Two assignments on one line are
-    // therefore 2 x 206 + 88, not 3 x 206 --- and colons are everywhere in
-    // real AMOS source, so charging them as statements taxed whole programs.
-    // Both run the same two assignments, so the colon is the only difference:
-    // 206+88+206+206+206 = 912 against 206x4 = 824, a ratio of 1.107. Charged
-    // as a statement it was 1030 over 824, which is 1.25.
+    // whatever the word is (+ILib.s:476), so a separator costs that dispatch
+    // and `L_InNull`'s immediate rts: 72+16, or 106 with TOKEN_COST_SCALE on.
+    //
+    // Both bodies run the same two assignments, so the colon is the only
+    // difference. An iteration is 646+646 for them, 816 for `Inc N` and 150
+    // for `Loop`, so 2,258 against 2,364 with the colon: a ratio of 1.047.
+    // Charged as a whole statement instead it would be 2,904 over 2,258,
+    // which is 1.29, and colons are everywhere in real AMOS source.
     const ratio = framesPer('A=1 : B=2', 200) / framesPer('A=1\n  B=2', 200)
-    expect(ratio).toBeGreaterThan(1.08)
-    expect(ratio).toBeLessThan(1.14)
+    expect(ratio).toBeGreaterThan(1.02)
+    expect(ratio).toBeLessThan(1.09)
   })
 
   it('the processor sets the budget, so a faster one runs more BASIC', () => {

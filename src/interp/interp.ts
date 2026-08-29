@@ -373,6 +373,21 @@ export interface InterpOptions {
    * standalone Interp still counts every step as one.
    */
   dispatchCost?: number
+  /**
+   * The price of one token, which replaces `statementCost` when it is given.
+   *
+   * A statement is not a unit of work on the machine. The ChrGet loop
+   * (+ILib.s:476) reads one token, indexes the token table, and jumps, so
+   * `Bob N+2,METX(N),METY(N),3` costs sixteen trips through it and `Next J`
+   * costs one. Charging both the same flat number is what made every
+   * bob-moving loop in the corpus run an order of magnitude too fast.
+   *
+   * `first` is true for the token that begins the statement, which runs its
+   * INSTRUCTION routine where the rest run their FUNCTION routine. The Runtime
+   * passes `tokenCost` from `../runtime/cost.ts`; a standalone Interp leaves
+   * this unset and carries on counting statements.
+   */
+  tokenCost?: (tok: Tok, first: boolean) => number
 }
 
 export interface RunResult {
@@ -576,12 +591,54 @@ export class Interp {
     this.inp = opts.input ?? newInputState()
     this.statementCost = opts.statementCost ?? 1
     this.dispatchCost = opts.dispatchCost ?? this.statementCost
+    this.tokenCost = opts.tokenCost ?? null
   }
 
   /** what one statement costs against run()'s slice; see InterpOptions */
   readonly statementCost: number
   /** what a bare separator token costs instead; see InterpOptions */
   readonly dispatchCost: number
+  /** per-token price, or null to charge a flat statement; see InterpOptions */
+  private readonly tokenCost: ((tok: Tok, first: boolean) => number) | null
+  /** true while costs are flat per statement, so keywords must charge their own extra */
+  get tokenCostFlat(): boolean {
+    return this.tokenCost === null
+  }
+  /** statement start -> its token cost, since a loop runs the same one often */
+  private readonly stmtCostCache = new Map<number, number>()
+
+  /**
+   * What the statement beginning at (li, ti) costs, by its own tokens.
+   *
+   * The span runs to the next `:` or `Then`, neither of them included: each is
+   * dispatched as a step of its own and charging it here as well would count
+   * it twice.
+   *
+   * `single` is for those steps. `:`, `Then`, a label and a `Rem` dispatch one
+   * token and return, which is what `dispatchOnly` already marks, and without
+   * it the `:` step charged the whole rest of the line and then the statement
+   * after it charged the same tokens again. `A=1 : B=2` came out 3.11 times a
+   * two-line `A=1` / `B=2` when the colon is worth about 9%.
+   */
+  private statementCycles(li: number, ti: number, single: boolean): number {
+    const key = li * 65536 + ti
+    const hit = this.stmtCostCache.get(key)
+    if (hit !== undefined) return hit
+    const toks = this.program.lines[li]?.tokens ?? []
+    let total = 0
+    for (let k = ti; k < toks.length; k++) {
+      const t = toks[k]!
+      if (k > ti) {
+        if (single) break
+        const n = this.names.of(t)
+        if (n === ':' || n === 'then') break
+      }
+      total += this.tokenCost!(t, k === ti)
+    }
+    const cost = Math.round(total)
+    this.stmtCostCache.set(key, cost)
+    return cost
+  }
 
   /**
    * The step just taken was one token, not a statement.
@@ -602,6 +659,9 @@ export class Interp {
    */
   replaceProgram(lines: TokenLine[]): void {
     ;(this as { program: Program }).program = prescan(lines, this.names)
+    // statement costs are keyed by line and token index, so they belong to
+    // the program that was loaded when they were computed
+    this.stmtCostCache.clear()
     this.pc = { li: 0, ti: 0 }
     this.frames = [newFrame(null, 0, 0)]
     this.loops = []
@@ -690,7 +750,14 @@ export class Interp {
         }
         throw e
       }
-      steps += (this.stepCost ?? this.statementCost) + this.pendingCharge
+      // `stmtStart`, not the pc as it stood before step(): step() skips a
+      // spent line before it begins, so the pc on the way in still points at
+      // the end of the previous statement. Reading it there charged `Inc N`
+      // and `Loop` nothing at all.
+      steps +=
+        (this.tokenCost !== null
+          ? this.statementCycles(this.stmtStart.li, this.stmtStart.ti, this.stepCost !== null)
+          : (this.stepCost ?? this.statementCost)) + this.pendingCharge
       this.stepCost = null
       this.pendingCharge = 0
     }
@@ -856,6 +923,9 @@ export class Interp {
   pushDirect(lines: TokenLine[], host: unknown = null): void {
     const state = this.saveProgramState()
     ;(this as { program: Program }).program = prescan(lines, this.names)
+    // statement costs are keyed by line and token index, so they belong to
+    // the program that was loaded when they were computed
+    this.stmtCostCache.clear()
     this.pc = { li: 0, ti: 0 }
     this.loops = []
     this.gosubs = []
@@ -900,6 +970,7 @@ export class Interp {
 
   private restoreProgramState(s: SavedProgram): void {
     ;(this as { program: Program }).program = s.program
+    this.stmtCostCache.clear()
     this.pc = s.pc
     this.frames = s.frames
     this.loops = s.loops
