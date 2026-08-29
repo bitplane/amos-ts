@@ -70,6 +70,15 @@ keyword lists that reformat into a 3,700 line diff.
 The corpus is at `../amos-files`, 45,743 files with a checksum index. Reading
 it needs `dangerouslyDisableSandbox: true`.
 
+When grep prints nothing, check that it read the file at all. One NUL byte
+anywhere makes grep call the whole file binary and match in silence: no
+output, no count, no error, and that is indistinguishable from the pattern
+being absent. The vendored AMOS sources really are binary, so read them with
+`grep -a`. This tree should not need the flag, and `src/coverage/quirks.test.ts`
+fails on any NUL in a source file. `grep -c` on a pattern you know is present
+is the one-second test; nothing where a `0` was expected means binary, not
+missing.
+
 Verify extracted sizes against the archive listing. 7-Zip has silently
 truncated corpus files twice while reporting success. `ancient` decodes the
 Amiga crunchers and is an independent check on our codecs, though it will not
