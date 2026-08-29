@@ -6,6 +6,7 @@ import { AMOS_ERRORS, AmosError, amosErrorCode, funcCall, int, num, str, truthy,
 import type { Value } from './values'
 import { MAX_PORT, PORT_MOUSE } from './gameport'
 import { ascToFloat } from '../tokens/numfmt'
+import { NEXT_EXTRA_STATEMENTS } from '../amiga/paula'
 import { ED_RUN_MESSAGES } from './errors.gen'
 
 /**
@@ -582,6 +583,13 @@ export const INSTR: Record<string, Instr> = {
     // InNext ignores which variable is written after Next — it always
     // operates on the innermost loop (the token is skipped cosmetically)
     if (it.tok()?.kind === 'var') it.advance()
+    // `Next` is 3.3 ordinary statements: 681 cycles against 206, measured
+    // directly off Speed_Tests.AMOS, where `For A=1 To 10000: Next A` is the
+    // one row whose loop body is a single statement. Searching the loop stack
+    // for the named variable is what the difference buys. A bare For/Next is
+    // the delay loop AMOS programmers hand-rolled, so this is the charge that
+    // makes 18th Hole's power bar stoppable.
+    it.charge(it.statementCost * NEXT_EXTRA_STATEMENTS)
     const top = it.loops[it.loops.length - 1]
     if (top === undefined || top.t !== 'for') throw new AmosError('Next without For')
     const v = num(it.getVar(top.varKey!, top.varT!)) + top.step!

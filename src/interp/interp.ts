@@ -349,6 +349,17 @@ export interface InterpOptions {
   /** functions that parse their own arguments (Match, Hunt, ...) */
   rawFunctions?: Record<string, (it: Interp, tok: Tok) => Value>
   input?: InputState
+  /**
+   * What one statement costs against `run`'s slice, in whatever unit the
+   * caller's budget is in.
+   *
+   * The Runtime passes `CYCLES_PER_STATEMENT` and a budget of one vertical
+   * blank's cycles, so the whole model is denominated in 68000 cycles. It
+   * defaults to 1 because an Interp built on its own has no machine behind
+   * it and nothing to convert to --- the census and the language tests count
+   * statements, and should carry on counting statements.
+   */
+  statementCost?: number
 }
 
 export interface RunResult {
@@ -550,7 +561,11 @@ export class Interp {
     this.funcs = opts.functions ? { ...FUNCS, ...opts.functions } : FUNCS
     this.rawFuncs = { ...RAWFUNCS, ...opts.rawFunctions }
     this.inp = opts.input ?? newInputState()
+    this.statementCost = opts.statementCost ?? 1
   }
+
+  /** what one statement costs against run()'s slice; see InterpOptions */
+  readonly statementCost: number
 
   /**
    * Run "file" (RunII +ILib.s:1497): swap in a new program. Variables,
@@ -600,10 +615,10 @@ export class Interp {
         this.status = 'maxSteps'
         break
       }
-      // `steps` is a cost, not a raw count: a statement is 1, but expensive
-      // blitter ops (Screen Copy, big Cls) charge their approximate cost so
-      // a busy no-Wait-Vbl loop paces like the real blitter instead of
-      // running thousands of iterations per displayed frame.
+      // `steps` is a COST, not a count. Under the Runtime the unit is 68000
+      // cycles and a statement is CYCLES_PER_STATEMENT of them, so a keyword
+      // that charges extra is charging cycles it really spent. Standalone the
+      // unit is one statement, which is what the census counts.
       if (steps > slice) return this.result('paused', steps)
       try {
         this.dispatchEvery()
@@ -647,7 +662,7 @@ export class Interp {
         }
         throw e
       }
-      steps += 1 + this.pendingCharge
+      steps += this.statementCost + this.pendingCharge
       this.pendingCharge = 0
     }
     return this.result(this.status ?? 'blocked', steps)

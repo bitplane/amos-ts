@@ -186,6 +186,7 @@ import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 import { formLoad, formPlay, formSize } from './iffanim'
 import { parsePpBank, writePpBank } from './ppbank'
+import { pixelGuessCycles } from './cost'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -1771,7 +1772,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       Screen.copyBuf(src.s, src.buf, x1, y1, x2, y2, dst.s, dst.buf, dx, dy)
       // charge the blitter cost so a no-Wait-Vbl loop that Screen Copies
       // every iteration paces realistically (~pixels/16 budget units)
-      it.charge((Math.max(0, x2 - x1) * Math.max(0, y2 - y1)) >> 4)
+      it.charge(pixelGuessCycles(Math.max(0, x2 - x1) * Math.max(0, y2 - y1)))
     },
 
     // ---- drawing ----

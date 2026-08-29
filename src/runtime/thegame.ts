@@ -850,6 +850,7 @@ import { Runtime } from './runtime'
 import { Screen } from './screen'
 import { BankImage } from './objects'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
+import { pixelGuessCycles } from './cost'
 
 /** an argument that arrived as a Value */
 const int = (v: unknown): number => Number((v as { n?: number } | undefined)?.n ?? 0) | 0
@@ -2988,7 +2989,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
           sc.plot(x, y, closestColour(sc, (avg(16) << 16) | (avg(8) << 8) | avg(0)))
         }
       }
-      it.charge((w * h) >> 4)
+      it.charge(pixelGuessCycles(w * h))
     },
 
     /**
@@ -3035,7 +3036,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
         dx,
         dy,
       )
-      it.charge((w * h) >> 4)
+      it.charge(pixelGuessCycles(w * h))
     },
 
     // ---- bobs ----
@@ -3255,7 +3256,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       const sc = bob.screen
       if (!img || !sc) return
       rt.blit(sc, { width: img.bitmap.width, height: img.bitmap.height, pixels: img.bitmap.pixels }, bob.x, bob.y, (bob.attrib & BBF_MASK) === 0)
-      it.charge((bob.width * bob.height) >> 4)
+      it.charge(pixelGuessCycles(bob.width * bob.height))
     },
 
     /**
@@ -3285,7 +3286,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
           sc.plot(x + dx, y + dy, src.pixels[dy * src.width + dx]!)
         }
       }
-      it.charge((TGE_SPASTE_WIDTH * TGE_SPASTE_HEIGHT) >> 4)
+      it.charge(pixelGuessCycles(TGE_SPASTE_WIDTH * TGE_SPASTE_HEIGHT))
     },
 
     /**
@@ -3523,7 +3524,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
         d1 = lo(d1, s16(d1) + 1)
         if ((d1 & 0xffff) === (yEnd & 0xffff)) break
       }
-      it.charge(drawn >> 2)
+      it.charge(pixelGuessCycles(drawn << 2))
     },
   }
 }

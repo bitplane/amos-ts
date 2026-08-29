@@ -117,24 +117,82 @@ export const CYCLES_PER_FRAME = Math.round(CPU_CLOCK_PAL / VBL_HZ)
 export const CYCLES_PER_DISPATCH = 88
 
 /**
- * Statements a frame can hold, and the port's default frame budget: 1,612.
+ * Statements a frame could hold if every keyword body were free: 1,612.
  *
- * `CYCLES_PER_FRAME / CYCLES_PER_DISPATCH`, which is the number of statements
- * a PAL A500 could dispatch in one vertical blank IF every keyword body took
- * no time at all. It is therefore a CEILING and not an estimate.
- *
- * The real figure is lower and by an unknown factor, for two reasons neither
- * of which is settled here: a keyword body costs something, and one statement
- * of this port is more than one of AMOS's dispatches — `A=A+1` is an
- * assignment routine plus the tokens its expression walks. Counting those is
- * the rest of the cost model.
- *
- * It replaced 20,000, which was nothing but a default that worked. That is
- * twelve times a whole frame's dispatch on its own, so any program polling
- * between vertical blanks ran BASIC at least twelve times too fast, and the
- * browser's audio starved because one frame of it cost 27ms of wall clock.
+ * `CYCLES_PER_FRAME / CYCLES_PER_DISPATCH`. It was the port's frame budget
+ * until the numbers below replaced it, and it was always a CEILING rather
+ * than an estimate: it assumes a keyword costs nothing beyond the seven
+ * instructions that reach it. Kept because it is the honest upper bound on
+ * how fast AMOS could possibly have gone, and quoting it as the machine's
+ * speed is the mistake it invites.
  */
 export const FRAME_DISPATCHES = Math.floor(CYCLES_PER_FRAME / CYCLES_PER_DISPATCH)
+
+/**
+ * What one ordinary AMOS statement actually cost: 206 cycles.
+ *
+ * MEASURED, not derived. `Speed_Tests.AMOS` on APD563 of the AMOS PD Library
+ * (AMOS 1.34, 640x200x2 hires) times four loop constructs over 10,000
+ * iterations each and prints the result in 50Hz ticks, which is 141,876
+ * cycles apiece:
+ *
+ *     For A=1 To 10000: Next A                    48   1 stmt/iter   681
+ *     A=1: While A<10000: Inc A: Wend             29   2 stmt/iter   206
+ *     A=1: Repeat: Inc A: Until A=10000           29   2 stmt/iter   206
+ *     A=1: Do: Inc A: Exit If A=10000: Loop       33   3 stmt/iter   156
+ *
+ * Two of the four land on 206 and the fourth is 24% under it, so 206 is the
+ * central figure for a statement that is not a `Next`. The spread is what a
+ * per-keyword table is for; this is the floor under it.
+ *
+ * The same file's ADDITION group is DISCARDED and the reason is arithmetic,
+ * not taste. It claims `For A=1 To 10000: Inc No: Next A` in 12 ticks, which
+ * is 2,500 statements in a frame; at AMOS's own 88-cycle dispatch loop that
+ * needs 220,000 cycles against the 141,876 a frame has. It cannot have
+ * happened. Its RATIOS survive and are worth keeping --- Inc : Add : `No=No+1`
+ * at 1 : 1.6 : 2.6, the expression evaluator showing up where you would
+ * expect it.
+ *
+ * This is 2.3x the bare dispatch above, which is the honest size of the gap
+ * that comment used to describe as unknown.
+ */
+export const CYCLES_PER_STATEMENT = 206
+
+/**
+ * `Next`, measured on its own: 681 cycles, 3.3 ordinary statements.
+ *
+ * The `For A=1 To 10000: Next A` row is the most direct number in the whole
+ * set, because the loop body IS one statement --- no division, no assumption
+ * about what shares the iteration. AMOS searches its loop stack for the named
+ * variable, and that is what the extra 475 cycles buy.
+ *
+ * It also happens to be the number that matters most, because a bare
+ * `For ... Next` is how AMOS programmers hand-rolled a delay. 18th Hole's
+ * power bar is `For J=0 To 280 : Next J` between each step, and reproducing
+ * 281 x 681 = 191,361 cycles, one and a third frames, is what makes that bar
+ * stoppable instead of a blur.
+ */
+export const CYCLES_PER_NEXT = 681
+
+/**
+ * What `Next` charges ON TOP of the statement it already is: 2.31 statements.
+ *
+ * A ratio rather than a cycle count, so that a machine with a different
+ * statement cost keeps the same shape instead of needing the difference
+ * recomputed. Every per-keyword cost that follows should be expressed this
+ * way for the same reason.
+ */
+export const NEXT_EXTRA_STATEMENTS = CYCLES_PER_NEXT / CYCLES_PER_STATEMENT - 1
+
+/**
+ * The port's frame budget, in CPU cycles: one PAL vertical blank.
+ *
+ * The unit is cycles rather than statements because every measurement we have
+ * is in cycles, because a keyword's cost has no sensible expression in
+ * statements, and because a machine with a different clock changes this
+ * number and nothing else.
+ */
+export const FRAME_CYCLES = CYCLES_PER_FRAME
 
 /**
  * AUDxVOL is six bits and saturates at 64, which is unity gain — NOT 63.

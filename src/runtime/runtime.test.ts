@@ -6,6 +6,7 @@ import { tokenize } from '../tokens/source'
 import { Machine } from '../amiga/machine'
 import { Runtime } from './runtime'
 import { FONT8 } from './font.gen'
+import { CYCLES_PER_DISPATCH, VBL_HZ } from '../amiga/paula'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -991,6 +992,12 @@ describe('composite', () => {
 })
 
 describe('frame-budget pacing (blitter cost)', () => {
+  // The budget is CPU cycles now, not statements. These two were written
+  // against a 20,000-STATEMENT budget, and 88 is the conversion between the
+  // two units (141,876 cycles a frame over 1,612 dispatches), so this is the
+  // same budget they always had.
+  const OLD_UNITS = 20_000 * CYCLES_PER_DISPATCH
+
   it('Screen Copy charges the frame budget so a no-Wait-Vbl loop paces like the blitter', () => {
     // a busy loop that Screen Copies a big region every iteration should run
     // only a handful of iterations per frame, not thousands
@@ -1003,20 +1010,68 @@ describe('frame-budget pacing (blitter cost)', () => {
       ' Inc N',
       'Loop',
     ].join('\n')
-    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 5_000_000, frameBudget: 20_000 })
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 5_000_000, frameBudget: OLD_UNITS })
     rt.frame() // one displayed frame
     const gf = (rt.interp as any).frames[0].vars
     const n = Number(gf.get('n').n)
-    // 320x256 = 81920 px, charged >>4 ≈ 5120/copy → ~3-4 iterations, not 1000s
+    // 320x256 = 81920 px, pixelGuessCycles ≈ 450k/copy → a handful, not 1000s
     expect(n).toBeGreaterThan(0)
     expect(n).toBeLessThan(20)
   })
 
   it('a cheap loop still runs its full statement budget (no over-charging)', () => {
-    const rt = new Runtime(tokenize('N=0\nDo : Inc N : Loop', table), table, { maxSteps: 5_000_000, frameBudget: 20_000 })
+    const rt = new Runtime(tokenize('N=0\nDo : Inc N : Loop', table), table, {
+      maxSteps: 5_000_000,
+      frameBudget: OLD_UNITS,
+    })
     rt.frame()
     const n = Number((rt.interp as any).frames[0].vars.get('n').n)
     expect(n).toBeGreaterThan(1000) // uncharged loop runs thousands per frame
+  })
+})
+
+/**
+ * The base statement cost, against the one loop we can check exactly.
+ *
+ * `Speed_Tests.AMOS` timed `For A=1 To 10000: Next A` at 48 ticks, which is
+ * 681 cycles an iteration, and 18th Hole's power bar is paced by
+ * `For J=0 To 280 : Next J` between each of its eleven steps. That is the
+ * same construct measured and used, with no modelling in between, so it is
+ * the one number in the timing work that can be checked rather than argued
+ * about.
+ */
+describe('the statement cost reproduces the 18th Hole power bar', () => {
+  const framesPer = (body: string, frames: number): number => {
+    const rt = new Runtime(tokenize(['N=0', 'Do', `  ${body}`, '  Inc N', 'Loop'].join('\n'), table), table, {
+      maxSteps: 200_000_000,
+    })
+    for (let i = 0; i < frames; i++) rt.frame()
+    return frames / Number((rt.interp as any).frames[0].vars.get('n').n)
+  }
+
+  it('one bar step is a frame and a third, and the sweep is 0.3 seconds', () => {
+    // 281 iterations x 681 cycles = 191,361, against 141,876 cycles a frame
+    const step = framesPer('For J=0 To 280 : Next J', 400)
+    expect(step).toBeGreaterThan(1.25)
+    expect(step).toBeLessThan(1.45)
+    // eleven steps, `For I=29 To 39` in _ENTERPOWER
+    expect((step * 11) / VBL_HZ).toBeCloseTo(0.3, 1)
+  })
+
+  it('a plain statement is 206 cycles, so a frame holds about 689 of them', () => {
+    // three statements an iteration: the body, Inc N, and Loop
+    const perStatement = framesPer('A=1', 200) / 3
+    expect(1 / perStatement).toBeGreaterThan(650)
+    expect(1 / perStatement).toBeLessThan(720)
+  })
+
+  it('Next costs 681 cycles, not 206', () => {
+    // 1,000 iterations of nothing but Next, so the answer is the Next cost
+    // and almost nothing else: 1000 x 681 plus the three statements around
+    // the loop is 681,618 cycles, which is 4.80 frames. Charged as an
+    // ordinary statement it would be 1.45, and that factor of 3.3 is why
+    // every hand-rolled AMOS delay ran fast.
+    expect(framesPer('For J=0 To 999 : Next J', 400)).toBeCloseTo(4.8, 1)
   })
 })
 

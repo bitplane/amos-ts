@@ -165,7 +165,7 @@ import {
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { parseSampleBank } from './audio'
-import { FRAME_DISPATCHES, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
+import { CYCLES_PER_STATEMENT, FRAME_CYCLES, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
 import { MusicPlayer } from './music'
 
 /**
@@ -441,7 +441,12 @@ export interface RuntimeOptions {
   onUnimplemented?: 'throw' | 'skip'
   maxSteps?: number
   /**
-   * Statements a `frame()` runs before yielding. Defaults to `FRAME_DISPATCHES`.
+   * CPU CYCLES a `frame()` spends on BASIC before yielding. Defaults to
+   * `FRAME_CYCLES`, one PAL vertical blank.
+   *
+   * The unit was statements until the loop-construct measurements landed and
+   * is cycles now, so a number passed here is 206 times what it used to be
+   * for the same amount of work.
    *
    * Lower it and a program that polls between vertical blanks gets less done
    * per frame, which is the whole point; raise it and BASIC outruns the
@@ -4770,7 +4775,7 @@ export class Runtime {
   }
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
-    this.frameBudget = opts.frameBudget ?? FRAME_DISPATCHES
+    this.frameBudget = opts.frameBudget ?? FRAME_CYCLES
     this.diskRequests = opts.diskRequests === true
     // before makeAllInstructions below: the ports' slot-qualified keywords are
     // bound from this
@@ -4840,6 +4845,7 @@ export class Runtime {
       functions: makeAllFunctions(this),
       rawFunctions: makeRawFunctions(this),
       input: this.input,
+      statementCost: CYCLES_PER_STATEMENT,
     }
     if (opts.extensions) interpOpts.extensions = opts.extensions
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented
