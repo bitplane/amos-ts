@@ -1899,9 +1899,9 @@ export class Screen {
   private consoleInner<T>(op: () => T): T {
     // AUTOBACK: with a double-buffered screen and `Autoback` non-zero, the
     // operation runs ONCE PER BUFFER. That is `AutoPrt` (+W.s:15496), which
-    // tests `BitDble` in EcFlags, saves the window and cursor state, calls the
-    // routine, puts the state back, switches buffers with TAbk1/TAbk2 and
-    // calls it AGAIN.
+    // tests `BitDble` in EcFlags, saves the window and cursor state, calls
+    // TAbk1 (+W.s:15509) and then the routine, puts the state back, and calls
+    // TAbk2 (+W.s:15521) and the routine AGAIN before TAbk3 (+W.s:15525).
     //
     // Without it the two buffers diverge the moment anything is printed, so
     // `Screen Swap` alternates between what was written this frame and what

@@ -1275,14 +1275,14 @@ describe('bank names are held trimmed', () => {
  * The autoback bracket's vertical blanks.
  *
  * `Cls`, `Paste Bob` and the `Print` family (through `AutoPrt`, +W.s:15496,
- * which `WLocate` +W.s:15319 also goes through) run inside
+ * which `WLocate` +W.s:15321 also goes through) run inside
  * `TAbk1 / op / TAbk2 / op / TAbk3`. Under `Autoback 2` all three of those
- * wait: `bsr WVbl` at +W.s:3554, +W.s:3581 and +W.s:3609, the last two after
+ * wait: `bsr WVbl` at +W.s:3554, +W.s:3581 and +W.s:3608, the last two after
  * a `ScSwapS`. One bracketed keyword costs three frames.
  *
  * TAbk1 gates on `move.w EcAuto(a0),d0 / subq.w #1,d0 / ble.s TAbk1X`
  * (+W.s:3551), so 0 and 1 skip it and only 2 pays --- and 2 is the value
- * `Double Buffer` writes for you (+W.s:2770).
+ * `Double Buffer` writes for you (+W.s:2769).
  *
  * This is most of why Battlements' menu was unusable. Its loop is five
  * `Locate` and five `Print` on a double-buffered screen, so on an A500 the
