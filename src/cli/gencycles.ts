@@ -40,6 +40,7 @@ import { join } from 'node:path'
 import { AMOS_SRC, SOURCES, loadSources, type Line, type Sources } from './amosasm'
 import { dbccCost, instrCost } from './m68kcost'
 import { CORE_TOKENS } from '../tokens/tables.gen'
+import { CYCLES_PER_DISPATCH_NET } from '../amiga/paula'
 
 /** `move.l T_WiVect(a5),a0` + `jsr n*4(a0)`, +Equ.s:740. */
 const VECTOR_DISPATCH = 16 + 22
@@ -56,8 +57,14 @@ const VECTOR_DISPATCH = 16 + 22
  *     jsr     (a0)                   16
  *
  * The routine's own `rts` is counted in the routine, not here.
+ *
+ * That is 70, and `CYCLES_PER_DISPATCH_NET` is 72, because `paula.ts` reads
+ * `MOVEA.L (d8,An,Xn),An` as 20 cycles where table 8-5 of the 68000 manual
+ * gives 18. The model charges the shared constant so there is one number
+ * rather than two; the 2 cycles are 2.8% of a dispatch and TOKEN_COST_SCALE
+ * is fitted over the top of them either way.
  */
-export const DISPATCH_CYCLES = 8 + 10 + 4 + 14 + 18 + 16
+export const DISPATCH_CYCLES = CYCLES_PER_DISPATCH_NET
 
 const COND = ['beq', 'bne', 'bcs', 'bcc', 'blt', 'bge', 'bls', 'bhi', 'ble', 'bgt', 'bmi', 'bpl', 'bvs', 'bvc']
 /** the R-macro conditional forms, +CEqu.s:88-125 */
