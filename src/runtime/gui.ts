@@ -46,15 +46,57 @@
  * a program does NOT get is a window rendered by gadtools: the gadgets are
  * read, laid out and answered for, and nothing paints their frames.
  *
- * ## The three libraries that are not here
+ * ## The three libraries that are not modelled
  *
  * `xfa.library` (the nine `Xfa` keywords and `Gui Save Iff`),
  * `amigaguide.library` (`Gui Guide`) and `bsdsocket.library` (2.10's eighteen
- * `Tcp` ones) are not modelled, and none of the three is in the corpus.
- * Every one of those keywords takes the branch the routine takes on a
- * machine without the library, which is a real path the extension carries
- * error strings for rather than a stub. A host capability for any of the
- * three would light its keywords up without changing them.
+ * `Tcp` ones) are not modelled. Every one of those keywords takes the branch
+ * the routine takes on a machine without the library, which is a real path
+ * the extension carries error strings for rather than a stub. A host
+ * capability for any of the three would light its keywords up without
+ * changing them.
+ *
+ * All three are READABLE, which is a different question and was answered
+ * wrong here for a year. GUI 2.10's own archive ships `GUI2/Tools/FD` with
+ * 54 `.fd` files, `xfa_lib.fd` and `bsdsocket_lib.fd` among them, so both
+ * APIs are named function by function; the archive also carries `XfaPlay`,
+ * `XFA-Util` and a 24KB `XFA-Util.guide` for the animation format.
+ * amigaguide.library is in the corpus eight times over, down to the Workbench
+ * 1.3, 2.1 and 3.0 Libs drawers on the AMOS PD Library CD. And a whole
+ * BSDSocket AMOS extension sits on Aminet with its assembler source, which
+ * is how a keyword group over bsdsocket is meant to look.
+ *
+ * That is what named the library each base belongs to, below. Fingerprinting
+ * a base by the SET of offsets called through it is not evidence and got
+ * four of seven wrong here, calling xfa.library iffparse and gadtools miami.
+ * The name string the `OpenLibrary` beside it loads is evidence.
+ *
+ * ## The state block's libraries
+ *
+ * `$268(a5)` is the extension's own block, `lea $183a(pc),a3` at $122c, and
+ * the name strings live inside it at $2f0 and up. Init opens six in a row at
+ * $1338-$13be and two more on demand, each `movea.l $268(a5),a1 / adda.l
+ * #name,a1 / OpenLibrary / move.l d0,base(a3)`:
+ *
+ *     $124  gadtools.library     $12c  diskfont.library
+ *     $130  workbench.library    $134  icon.library
+ *     $138  amigaguide.library   $13c  locale.library
+ *     $140  xfa.library          $144  bsdsocket.library
+ *
+ * amigaguide's is opened by `Gui Guide` itself at $394e and bsdsocket's by
+ * routine 227 at $4cce, which is why those two are the ones a program can
+ * reach without them.
+ *
+ * ## The errors
+ *
+ * Routine 264 is the whole extension's error exit: `lea $7952(pc),a0 / move.l
+ * d7,d0 / moveq #$17,d2 / Rjmp L_ErrorExt`. So d7 is an INDEX, carried in
+ * that register from wherever the failure was noticed, into 26 NUL-terminated
+ * strings starting at $7952 -- "Program Interrupted", "Unable to open
+ * window", "Gadget not defined", "Gui not defined", up to "Unable to open
+ * AppIcon". They are the extension's own, with no AMOS error number, which is
+ * what `L_ErrorExt` means. Reading a routine backwards from its `moveq
+ * #N,d7` is how each keyword's error was identified below.
  *
  * 1.61's TCP group is not among them. It is AmigaDOS: `Tcp Open` prepends
  * `TCP:` to a name and hands it to dos Open, so the network is a HANDLER and
@@ -2836,8 +2878,16 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * $3930 opens amigaguide.library once and keeps the base at `$138`, then
      * AllocVecs a $34-byte NewAmigaGuide, fills in `$4` with the document
      * name and `$8` with the screen at `$1d2`, and calls -$36 and -$42 back
-     * to back — open the guide, wait, close it. A library that will not open
-     * is not an error: $395e takes the `beq` straight to the rts.
+     * to back. Those are OpenAmigaGuideA and CloseAmigaGuide, counted off
+     * `##bias 30` in the amigaguide_lib.fd that ships in GUI 2.10's own
+     * Tools/FD drawer, past the two private entries the file declares first.
+     * Back to back is literal and there is no wait between them: the handle
+     * is closed at once, and it is amigaguide's own process that keeps the
+     * window up, so the guide's "Your program is freezed" describes what a
+     * user sees rather than anything this routine does.
+     *
+     * A library that will not open is not an error: $395e takes the `beq`
+     * straight to the rts.
      *
      * DEVIATION: there is no amigaguide.library here, so this port takes the
      * branch a machine without one takes and the keyword does nothing. That
@@ -3752,6 +3802,12 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * and the guide's own warning about what it is NOT: "Opened windows will
      * not close by themselves when the close gadget is clicked, you have to
      * monitor for it to happen".
+     *
+     * Routine 1 at $1c9a is six instructions and settles that the code is the
+     * CLOSER's answer rather than anything the caller supplies: routine 244
+     * finds the window or the routine falls into 264 with d7 still holding
+     * whatever it held, then `Rbsr routine 245` closes it and its d0 is
+     * returned unexamined as d3. Nothing between the two touches the value.
      */
     'gui close': (_, a): Value => VI(s().closeWindow(int(a[0]!))),
 
@@ -3761,14 +3817,18 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * "If it isn't, then FALSE is returned. If the window is open, it will
      * return with the window's structure address."
      *
-     * DEVIATION: the address. Nothing here has a `struct Window` at an
-     * address, and the guide's next line is "Dont fiddle with this structure
-     * unless you really know what you're doing to it!!", so what a program
-     * can legitimately do with the value is test it. This answers -1, which
-     * is AMOS's TRUE and is truthy in every test a program can write, rather
-     * than a number pretending to be a pointer.
+     * Routine 21 at $1f0e agrees with the guide against any reading of this
+     * as a boolean: it calls routine 244 to find the window record, answers 0
+     * if there is none, and otherwise answers `$e(a0)`, the Intuition window
+     * pointer. There is no -1 anywhere in the routine's 22 bytes.
+     *
+     * DEVIATION: the address, in ./guistate.ts. The guide's next line is
+     * "Dont fiddle with this structure unless you really know what you're
+     * doing to it!!", so a program may test the value and compare two of
+     * them, and both survive a stand-in. -1 did not: it made every open
+     * window compare equal.
      */
-    'gui exist': (_, a): Value => VI(s().exists(int(a[0]!)) ? -1 : 0),
+    'gui exist': (_, a): Value => VI(s().exists(int(a[0]!))),
 
     /**
      * `A=Gui Wait` — "will wait until the user interacts with your program".
@@ -3807,10 +3867,24 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *
      * "After Gui Code has been called, its value is automatically reset to -1
      * again, until the next call to Gui Wait loads it with a new value."
+     *
+     * Routine 2 at $1cb2 is where the -1 comes from, and it is a `moveq`
+     * rather than a constant anyone chose: `moveq #$ff,d0` sign-extends to
+     * $ffffffff, and it is only overwritten by `move.l $cc(a0),d0` when bit 0
+     * of $84 is set. `bclr.b #$0,$84(a0)` is the automatic reset, so the flag
+     * and not the value is what marks a code as fresh. A second read
+     * therefore answers -1 even if the event set the code to -1 itself.
      */
     'gui code': (): Value => VI(s().readCode()),
 
-    /** `A=Gui Code$` — the string half, for STRING gadgets */
+    /**
+     * `A=Gui Code$` — the string half, for STRING gadgets.
+     *
+     * Routine 3 at $1cd0 is routine 2's shape over bit 1 of the same $84 and
+     * a different field: it starts from `$662(a5)`, AMOS's empty string, and
+     * only builds one out of `$e0(a0)` through routine 249 when the bit is
+     * set. `moveq #$2,d2` on the way out is what marks the result a string.
+     */
     'gui code$': (): Value => VS(s().readCodeText()),
 
     /**
@@ -3827,6 +3901,19 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /**
      * `A=Gui Mouse X` and `A=Gui Mouse Y` — "the screen coordinates of the
      * mouse". See `screenMouse` for what stands in for the screen here.
+     *
+     * Routines 17 and 18, $1ed6 and $1ee8, nine words each: `movea.l
+     * $1d2(a5-block),a0` for the current screen, then `move.w $12(a0),d3` and
+     * `move.w $10(a0),d3` over a `moveq #$0,d3`. $12 and $10 are sc_MouseX
+     * and sc_MouseY in includes/intuition/screens.i, which ships with AMOS
+     * Professional, and the same struct's $c and $e are the Width and Height
+     * routine 251 takes off a screen at $6848.
+     *
+     * DEVIATION: the clamp. `moveq #$0,d3` before a `move.w` ZERO-extends, so
+     * the machine answers a mouse one pixel left of the screen as 65535
+     * rather than -1, and one past the right edge as the honest overshoot.
+     * `screenMouse` clamps to the screen instead, because the pointer here
+     * cannot leave the modelled screen in the first place.
      */
     'gui mouse x': (it): Value => VI(screenMouse(it, s())[0]),
     'gui mouse y': (it): Value => VI(screenMouse(it, s())[1]),

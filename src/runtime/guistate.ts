@@ -242,6 +242,14 @@ export const GUI_OS_VERSION = 40
  */
 export const PAL_MONITOR_ID = 0x0002_1000
 
+/**
+ * The band `Gui Exist` answers in, one above the $100000 `Gui Screen Base`
+ * uses. Two keywords hand out stand-in pointers and a program is entitled to
+ * find them different, so the bands are what keep `Gui Exist(1)` from
+ * equalling `Gui Screen Base(1)`.
+ */
+export const GUI_WINDOW_BASE = 0x0020_0000
+
 /** one screen `Gui Screen Open` made */
 export interface GuiScreen {
   number: number
@@ -1179,9 +1187,22 @@ export class GuiState {
     return [...this.windows.values()].sort((a, b) => b.depth - a.depth)
   }
 
-  /** `Gui Exist(window)`: false, or something truthy standing in for the address */
-  exists(n: number): boolean {
-    return this.windows.has(n)
+  /**
+   * `Gui Exist(window)`: 0, or a stand-in for the `struct Window` address.
+   *
+   * Routine 21 at $1f0e answers `$e(a0)` of the window record it found, and
+   * `$e` is where routine 251 reads the Intuition window from before taking
+   * `$8`/`$a` off it as Width and Height -- wd_Width and wd_Height in
+   * includes/intuition/intuition.i, so the field is wd_NextWindow's struct
+   * and the answer is a pointer. Zero when routine 244 finds nothing.
+   *
+   * DEVIATION: nothing here has a `struct Window` at an address. The number
+   * has to be non-zero, stable, and DIFFERENT per window, because those are
+   * the three properties a program can observe without dereferencing it, and
+   * `Gui Screen Base` already answers its own band the same way.
+   */
+  exists(n: number): number {
+    return this.windows.has(n) ? GUI_WINDOW_BASE + n : 0
   }
 
   /**
@@ -1191,11 +1212,19 @@ export class GuiState {
    * to front... no error will occur", so a repeat open is a select. The
    * geometry falls back to "the position and size as specified in the
    * GadToolsBox editor", which is what the bank's own header carries.
+   *
+   * Routine 239 opens with `moveq #$8,d7` -- error 8 is "Window already
+   * open" -- and then never uses it: at $5508 the window it found goes
+   * straight to `Rbsr routine 15`, which is `Gui To Front`, and then to
+   * routine 251 with d1 clear, which is the `Gui Gfx 0` retarget. d7 is
+   * cleared at $5518 and the routine returns success. So the front is
+   * literal, not a manner of speaking, and the prepared error is dead.
    */
   open(n: number, guiIndex: number, box?: { left: number; top: number; width: number; height: number }): GuiWindow | null {
     const existing = this.windows.get(n)
     if (existing !== undefined) {
       this.selected = n
+      existing.depth = ++this.depthTop
       return existing
     }
     const raw = this.designs[guiIndex]

@@ -146,11 +146,40 @@ describe('opening and closing', () => {
 
   it('Gui Exist is false once closed', () => {
     const s = stateWith(design(1))
-    expect(s.exists(1)).toBe(false)
+    expect(s.exists(1)).toBe(0)
     s.open(1, 0)
-    expect(s.exists(1)).toBe(true)
+    expect(s.exists(1)).toBeGreaterThan(0)
     s.closeWindow(1)
-    expect(s.exists(1)).toBe(false)
+    expect(s.exists(1)).toBe(0)
+  })
+
+  /**
+   * Routine 21 at $1f0e answers `$e(a0)`, the Intuition window pointer, and
+   * the guide says "it will return with the window's structure address". Two
+   * open windows are two addresses, which is the part -1 could not say.
+   */
+  it('Gui Exist tells two open windows apart', () => {
+    const s = stateWith(design(1), design(1))
+    s.open(1, 0)
+    s.open(2, 1)
+    expect(s.exists(1)).not.toBe(s.exists(2))
+    expect(s.exists(1)).toBeGreaterThan(0)
+    expect(s.exists(2)).toBeGreaterThan(0)
+  })
+
+  /**
+   * Routine 239 finds the open window at $5508 and hands it to `Rbsr routine
+   * 15`, which is `Gui To Front`; the `moveq #$8,d7` it prepared for "Window
+   * already open" is cleared at $5518 and never raised.
+   */
+  it('re-opening an open window pops it to the front', () => {
+    const s = stateWith(design(1), design(1))
+    s.open(1, 0)
+    s.open(2, 1)
+    expect(s.stack()[0]!.number).toBe(2)
+    s.open(1, 0)
+    expect(s.stack()[0]!.number).toBe(1)
+    expect(s.windows.size).toBe(2)
   })
 
   it('Gui Reset closes everything and forgets the last event', () => {
