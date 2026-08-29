@@ -64,9 +64,31 @@ describe('AMAL execution', () => {
     expect(rt.amalGlobals[0]).toBe(20) // (2+3)*4, not 14
   })
 
-  it('runs For/Next loops', () => {
-    const rt = boot(['Amal 3,"L RB=0 F R0=1 T 5 L RB=RB+R0 N R0"', 'Amal On'].join('\n'), 3)
-    expect(rt.amalGlobals[1]).toBe(15)
+  it('runs ONE For/Next body iteration per frame (AmNxt +W.s:8866)', () => {
+    // Staying in the loop is `move.l a1,AmPos(a6) / rts`, so the channel gives
+    // up the rest of the vertical blank and resumes at the body next frame.
+    // RB therefore walks the triangular numbers instead of reaching 15 at once.
+    // This is what paces AMAL movement: Chopper II's enemies are
+    // `F R0=1 T 36 L X=X-18 ... N R0`, one 18-pixel step per frame, so they
+    // cross in 36 frames. Running the loop out inside one frame put them
+    // across in under four.
+    const rt = boot(['Amal 3,"L RB=0 F R0=1 T 5 L RB=RB+R0 N R0"', 'Amal On'].join('\n'), 0)
+    const seen = [rt.amalGlobals[1]]
+    for (let i = 0; i < 7; i++) {
+      rt.frame()
+      seen.push(rt.amalGlobals[1])
+    }
+    expect(seen).toEqual([0, 1, 3, 6, 10, 15, 15, 15])
+  })
+
+  it('leaves the jump budget alone when a For loops back (+W.s:8872)', () => {
+    // `subq.w #1,d6` lives in AmJump and nowhere else, so a For/Next loop is
+    // not limited by the 10-jump budget --- it is limited to one iteration a
+    // frame, which is a different and much tighter thing. A 40-iteration loop
+    // takes 40 frames, not the 4 a budget of 10 would allow.
+    const rt = boot(['Amal 3,"L RB=0 F R0=1 T 40 L RB=RB+1 N R0"', 'Amal On'].join('\n'), 0)
+    for (let i = 0; i < 12; i++) rt.frame()
+    expect(rt.amalGlobals[1]).toBe(12)
   })
 
   it('survives infinite jump loops via the per-frame budget', () => {

@@ -7,8 +7,11 @@
  * - lowercase letters and unknown characters are comments/ignored
  * - expressions evaluate strictly left-to-right, 16-bit arithmetic
  * - Move uses 8.8→16.16 fixed-point slopes with a half-pixel bias
- * - Jump budget of 10 per frame (20 in autotest) — loops yield to the
- *   next frame instead of hanging
+ * - Jump budget of 10 per frame, 20 in autotest: `moveq #10,d6` +W.s:8449 and
+ *   `moveq #20,d6` +W.s:8441. Only AmJump spends it (`subq.w #1,d6`
+ *   +W.s:8872), so a `Jump` loop yields to the next frame instead of hanging
+ * - a `For` that loops back runs ONE body iteration per frame and returns
+ *   (AmNxt +W.s:8866), which is what paces AMAL movement
  * - Anim runs in the background while the main sequence continues
  * - labels are single letters A-Z; autotest is AU(...) with X to exit
  *   and D label to redirect the main sequence
@@ -757,9 +760,15 @@ export class AmalChannel {
             const v = sw16(this.loopReg(forOp.reg, host) + 1)
             this.setLoopReg(forOp.reg, v, host)
             if ((this.forLimits.get(op.forI) ?? 0) >= v) {
+              // AmNxt +W.s:8866-8868. Staying in the loop is `move.l a1,AmPos(a6)
+              // / rts`: a1 is the word after the limit, so the channel resumes at
+              // the body next vertical blank and runs ONE iteration per frame.
+              // The jump budget is untouched, because `Next` never reaches
+              // `subq.w #1,d6` (+W.s:8872, AmJump's alone). Falling out of the
+              // loop is the other arm, `move.w (a3)+,d0 / jmp 0(a4,d0.w)`, which
+              // carries on in the same frame -- so only the taken branch returns.
               this.pc = op.forI + 1
-              if (--budget <= 0) return
-              continue
+              return
             }
           }
           this.pc++
