@@ -17,3 +17,6 @@ src/cli/tmp/
 # the source imports and is rewritten for every question it answers
 probe.html
 audit/
+
+# temporary reports for coverage
+report.md

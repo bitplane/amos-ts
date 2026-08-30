@@ -17,6 +17,42 @@ import { ED_RUN_MESSAGES } from './errors.gen'
 export type Instr = (it: Interp, tok: Tok, addr: Addr) => void | 'jumped'
 export type Func = (it: Interp, args: Value[]) => Value
 
+/**
+ * Print0 (+ILib.s:5043): parse and format one Print/Lprint item list, sending
+ * the resulting character stream to the selected device.
+ */
+export function printItems(it: Interp, write: (text: string) => void): void {
+  let nl = true
+  while (!it.atStmtEnd()) {
+    if (it.accept(';')) {
+      nl = false
+      continue
+    }
+    if (it.accept(',')) {
+      write('\x09') // sp12: a literal TAB, interpreted by the output device
+      nl = false
+      continue
+    }
+    if (it.nm() === 'using') {
+      // Using formats exactly one following expression (sp11)
+      it.advance()
+      const fmt = it.evalStr()
+      // sp20 (+ILib.s:5104) copies the format into the 256-byte scratch at
+      // Buffer+256 and guards it with `cmp #120,d2 / bcc FonCall`. The
+      // comment beside it says "pas plus de 200 caracteres"; the branch says
+      // 120, and the branch is what runs.
+      if (fmt.length >= 120) funcCall()
+      it.accept(';')
+      write(formatUsing(fmt, it.evalExpr(), it))
+      nl = true
+      continue
+    }
+    write(it.formatValue(it.evalExpr()))
+    nl = true
+  }
+  if (nl) write('\n')
+}
+
 
 function jumpFalse(it: Interp, onFalse: Addr): 'jumped' {
   it.setPc(onFalse)
@@ -305,35 +341,7 @@ export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
 export const INSTR: Record<string, Instr> = {
   // ---- output ----
   print(it) {
-    let nl = true
-    while (!it.atStmtEnd()) {
-      if (it.accept(';')) {
-        nl = false
-        continue
-      }
-      if (it.accept(',')) {
-        it.write('\x09') // sp12: a literal TAB, interpreted by the console
-        nl = false
-        continue
-      }
-      if (it.nm() === 'using') {
-        // Using formats exactly one following expression (sp11)
-        it.advance()
-        const fmt = it.evalStr()
-        // sp20 (+ILib.s:5104) copies the format into the 256-byte scratch at
-        // Buffer+256 and guards it with `cmp #120,d2 / bcc FonCall`. The
-        // comment beside it says "pas plus de 200 caracteres"; the branch says
-        // 120, and the branch is what runs.
-        if (fmt.length >= 120) funcCall()
-        it.accept(';')
-        it.write(formatUsing(fmt, it.evalExpr(), it))
-        nl = true
-        continue
-      }
-      it.write(it.formatValue(it.evalExpr()))
-      nl = true
-    }
-    if (nl) it.write('\n')
+    printItems(it, (text) => it.write(text))
   },
   centre(it) {
     it.write(it.evalStr())
@@ -1167,11 +1175,9 @@ export const INSTR: Record<string, Instr> = {
     it.inp.funcKeys[n - 1] = def
   },
   lprint(it) {
-    // printer output — evaluated and discarded
-    while (!it.atStmtEnd()) {
-      if (it.accept(';') || it.accept(',')) continue
-      it.evalExpr()
-    }
+    // A standalone Interp has no printer device. Runtime overrides this with
+    // the host sink, while still sharing Print0's parser and formatter.
+    printItems(it, (): void => {})
   },
   fix(it) {
     // InFix: n 0-15 = digits after the point; >=16 = proportional
@@ -1798,4 +1804,3 @@ export const FUNCS: Record<string, Func> = {
     return VS('\x1f')
   },
 }
-

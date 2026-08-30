@@ -8988,9 +8988,10 @@ export const NOTES: Record<string, string> = {
     "as solid when every enabled plane carries the matching bit",
   "ldir":
     "InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5384) tests " +
-    "before it prints — set, the line goes to PRT_Print instead of the window.",
+    "before it prints — set, the line goes to PRT_Print instead of the window. The listing is formatted, but " +
+    "the printer branch currently discards it instead of calling Host.printer; this is the same gap as Lprint.",
   "ldir/w":
-    "InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer",
+    "InLDirW +Lib.s:5793 is the two-column form of the same path and shares Ldir's discarded printer output.",
   "read text":
     "InReadText1/3 +Lib.s:14678 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program " +
     "1 of the system default resource bank, run on its own EcFsel screen sized PI_RtSx x PI_RtSy.",
@@ -9002,11 +9003,15 @@ export const NOTES: Record<string, string> = {
   "input$":
     "keyboard form is non-blocking best effort",
   "start":
-    "fake address space: Start()-relative arithmetic works, absolute hardware addresses do not",
+    "FnStart +Lib.s:2452 returns the selected bank's data address. The synthetic address is stable and all " +
+    "Start()-relative access works; only arithmetic that leaves a mapped region cannot become an arbitrary " +
+    "Amiga memory access.",
   "peek":
-    "addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0",
+    "Mapped banks, Varptr cells, screen bitplanes and control blocks read through the virtual address space. " +
+    "An address outside every mapped region returns 0 instead of reading arbitrary Amiga memory.",
   "poke":
-    "writes into banks and screen bitplanes render; writes elsewhere are ignored",
+    "Mapped banks, Varptr cells and screen bitplanes are writable, and bitplane writes reach the renderer. An " +
+    "address outside every writable mapped region is ignored instead of writing arbitrary Amiga memory.",
   "shade on":
     "dither approximates the original shading",
   "match":
@@ -9148,11 +9153,10 @@ export const NOTES: Record<string, string> = {
     "Professional, so the keyword returns its last argument untouched. Nothing is approximated: this is what the " +
     "original does",
   "resource$":
-    "all six blocks are present. -1..-1000 read the interpreter-config messages (Sys_Messages), still a " +
-    "transcription and sparse where the original is; -1001 and deeper read the editor tables generated " +
-    "byte-for-byte out of +Editor_Config.s by src/cli/genedmsg.ts (Ed_Systeme, the menu block from " +
-    "bin/Editor_Menus.asc, the editor messages, the test-time errors and the run-time errors), and -6001 is a " +
-    "function call error as FnResource has it.",
+    "FnResource +ILib.s:6670 selects all six tables at the original thousand-entry boundaries. -1..-1000 " +
+    "read Sys_Messages from +Interpreter_Config.s; -1001 and deeper read the five editor tables generated " +
+    "byte-for-byte from +Editor_Config.s and bin/Editor_Menus.asc. Records are 1-based, out-of-range records " +
+    "inside a block are empty, and -6001 is the original function-call error boundary.",
   "set slider":
     "system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins",
   "mouse zone":
@@ -9243,7 +9247,8 @@ export const NOTES: Record<string, string> = {
   "mouse screen":
     "returns -1 when the pointer is over no screen (68k: EntNul)",
   "key speed":
-    "parsed and discarded.",
+    "InKeySpeed +Lib.s:2136 rejects either negative argument and passes both values to SyCall KeySpeed. The " +
+    "port reproduces the validation but discards the delay and rate, so keyboard repeat timing is unchanged.",
   "menu called":
     "items redraw every frame; (PR name) label procedures are not invoked",
   "menu movable":
@@ -9266,8 +9271,9 @@ export const NOTES: Record<string, string> = {
   "screen colour":
     "HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096",
   "screen base":
-    "a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); " +
-    "pokes into it are ignored",
+    "FnScreenBase +Lib.s:8769 returns ScOnAd, the current Ec control block. The synthetic block exposes live " +
+    "EcLogic/EcPhysic pointers, geometry, EcCon0, EcNbCol, EcPal, EcTPlan and EcTLigne for reads; writes to the " +
+    "control block are ignored.",
   "set font":
     "real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the " +
     "synthetic Workbench list with the 8x8 face stands in",
@@ -9308,22 +9314,27 @@ export const NOTES: Record<string, string> = {
     "in the AMOS source, so byte-exact parity is unverifiable.",
   "edit":
     "InEdit +ILib.s:1829 is `move.w #1000,d0 / bra RunErr`, which stops the program and hands 1000 to the " +
-    "editor. The number reaches RunResult.code and Ed_ErrRun (+Edit.s:8252) reads it, but nothing wires the " +
-    "editor to a run yet, so what happens on a headless run is that the program stops",
+    "editor. Amos.finishRun now passes that code through Ed_ErrRun (+Edit.s:8252), which reopens the editor " +
+    "without an alert; a Runtime used without an editor still exposes 1000 as its end code.",
   "direct":
     "InDirect +ILib.s:1837 is the same exit with 1001, which Ed_Errr (+Edit.s:8261) sends to Ed_ErrDirect and " +
-    "the escape screen. src/runtime/directscreen.ts has that screen but the editor's Ed_Escape (JFonc 28) is " +
-    "not ported, so the number is carried and the program stops",
+    "the escape screen. edRunReturn and Runtime.directScreen now perform that handoff, preserve the program's " +
+    "variables and return a typed Edit through Esc_Esc; a Runtime used without an editor exposes 1001 as its " +
+    "end code.",
   "free":
-    "FnFree +Lib.s:13571 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena " +
-    "exists here — returns a nominal figure",
+    "FnFree +Lib.s:13571 garbage-collects strings and reports TabBas-HiChaine. The port reports the configured " +
+    "32K variable region minus mapped Varptr storage; ordinary JS variables and strings do not consume that " +
+    "arena, so the result is a modelled figure rather than the original heap measurement.",
   "chip free":
-    "FnChipFree +Lib.s:2481 queries exec AvailMem(MEMF_CHIP).",
+    "FnChipFree +Lib.s:2481 queries exec AvailMem(MEMF_CHIP). The port queries its modelled A1200 chip pool, " +
+    "charging AMOS chip banks, screen bitplanes, object-bank images and D-Sam chip samples.",
   "fast free":
-    "FnFastFree +Lib.s:2488 queries exec AvailMem(MEMF_FAST).",
+    "FnFastFree +Lib.s:2488 queries exec AvailMem(MEMF_FAST). The port queries its modelled A1200 fast pool, " +
+    "charging non-chip AMOS banks and D-Sam fast samples.",
   "lprint":
-    "InLPrint +ILib.s:5038 routes Print to the printer device; no printer host, so the arguments are evaluated " +
-    "(for side effects) then discarded",
+    "InLPrint +ILib.s:5038 selects printer output with ImpFlg before entering the ordinary Print formatter. The " +
+    "port evaluates every expression but discards the formatted text instead of calling Host.printer, even " +
+    "though that host sink is defined for Lprint and Ldir.",
   "dual priority":
     "the EcE27 error message text is a guess — the string is not in the source tree",
   "hrev block":

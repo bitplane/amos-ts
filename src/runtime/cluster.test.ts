@@ -22,6 +22,21 @@ function run(src: string): { rt: Runtime; out: string } {
   return { rt, out }
 }
 
+function runWithPrinter(src: string): { out: string; paper: string } {
+  const fs = new AmigaFS()
+  fs.mountMemory('DH0')
+  let out = ''
+  let paper = ''
+  const rt = new Runtime(tokenize(src, table), table, {
+    maxSteps: 300_000,
+    fs,
+    onText: (t) => (out += t),
+    host: { printer: (t) => (paper += t) },
+  })
+  mustFinish(rt.runHeadless(1_000))
+  return { out, paper }
+}
+
 /** fixtures/ is gitignored, so the three corpus-file tests below skip in a
  *  fresh clone and in CI rather than failing. */
 const corpus = (rel: string): string => join(__dirname, '../../fixtures/official-amos', rel)
@@ -1028,6 +1043,12 @@ describe('text/console (vs +W.s / +ILib.s)', () => {
     expect(run('Print Using "##";123').out).toBe('23\n') // overflow digit dropped
     expect(run('Print Using "+##";5').out).toBe('+ 5\n') // sign slot
     expect(run('Print Using "##.##";3.5').out).toBe(' 3.50\n')
+  })
+
+  it('Lprint uses Print0 formatting but writes only to the printer', () => {
+    const got = runWithPrinter('Lprint "A",Using "###";42 : Lprint "B";')
+    expect(got.out).toBe('')
+    expect(got.paper).toBe('A\t 42\nB')
   })
 
   it('Zone$ wraps text in the ESC-Z text-zone codes (FnZoneD)', () => {
@@ -2524,6 +2545,10 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     const setup = ['Mkdir "DH0:sub"', 'Open Out 1,"DH0:f.dat" : Print #1,"x" : Close 1']
     expect(run([...setup, 'Ldir'].join('\n')).out).toBe('')
     expect(run([...setup, 'Ldir/W'].join('\n')).out).toBe('')
+    const printed = runWithPrinter([...setup, 'Ldir'].join('\n'))
+    expect(printed.out).toBe('')
+    expect(printed.paper).toContain('*sub\n')
+    expect(printed.paper).toContain(' f.dat\n')
     // the non-L forms of the very same code still print
     expect(run([...setup, 'Dir'].join('\n')).out).not.toBe('')
     // and a bad path still errors, so the listing really did run

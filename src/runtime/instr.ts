@@ -3,7 +3,7 @@ import { AmosError, ERR, VF, VI, VS, funcCall, int, num, str, varType } from '..
 import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
 import { BNK, isObjectBank } from './banks'
-import type { Instr, Func } from '../interp/builtins'
+import { printItems, type Instr, type Func } from '../interp/builtins'
 import type { Tok } from '../tokens/stream'
 import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { newLdosState, makeLdosFunctions, makeLdosInstructions } from './ldos'
@@ -990,8 +990,7 @@ function dirListing(it: It, rt: Runtime, wide: boolean, printer: boolean): void 
   const path = it.atStmtEnd() ? '' : it.evalStr()
   const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
   if (!entries) throw new AmosError('directory not found', 80)
-  // no printer host, so the printer sink discards — as Lprint's does
-  const out = printer ? (): void => {} : (t: string): void => it.write(t)
+  const out = printer ? (t: string): void => rt.host.printer?.(t) : (t: string): void => it.write(t)
   if (!wide) {
     for (const e of entries) out((e.isDir ? '*' + e.name : ' ' + e.name) + '\n')
     return
@@ -4746,6 +4745,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (delay < 0 || rate < 0) funcCall()
       // the rates themselves go no further: SyCall KeySpeed programs the
       // Amiga's own repeat thresholds, and the host keyboard owns those here
+    },
+    lprint(it) {
+      // InLPrint (+ILib.s:5038) selects the printer and falls into the same
+      // Print0 formatter as Print, so separators, Using and its newline rule
+      // are identical; only the character sink changes.
+      printItems(it, (text) => rt.host.printer?.(text))
     },
     'change mouse'(it) {
       // InChangeMouse +Lib.s:12185: shape 0 and below error before MChange
@@ -8935,7 +8940,7 @@ function funcLayers(rt: Runtime): Array<[string, Record<string, Func>]> {
  * `it.io.cls?.()`; the runtime `cls` is InCls +Lib.s:8722 with windows,
  * regions and colours).
  *
- * These nine are deliberate. Nothing exercises them — a standalone Interp is
+ * These ten are deliberate. Nothing exercises them — a standalone Interp is
  * only used by interp.test.ts and none of these appear there — so they are
  * kept as the fallback contract, not as tested code. `genmanifest` unions
  * builtins with the runtime layers when it decides what is implemented, so a
@@ -8948,6 +8953,8 @@ export const DECLARED_BUILTIN_SHADOWS = new Set<string>([
   'cls',
   'curs on',
   'curs off',
+  // standalone has no host printer; Runtime supplies the real device sink
+  'lprint',
   'set tab',
   // functions
   'at',
