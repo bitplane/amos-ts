@@ -419,6 +419,12 @@ describe('the sampler — routines 39 to 50', () => {
     expect(high.audio.voiceState[0]!.freq).toBe(30000)
   })
 
+  it('Dme Sam Freq leaves a playing sampler voice alone', () => {
+    const { audio } = run(['Reserve As Work 4,32', 'Dme Sam Raw 1,Start(4),16,8000', 'Dme Sam Freq 3,12000'], {})
+    expect(audio.voiceState[0]!.freq).toBe(8000)
+    expect(audio.voiceState[1]!.freq).toBe(12000)
+  })
+
   it('Dme Sam Stop is "stop all four": routine 44 pushes $f and falls through', () => {
     const { audio } = run(['Reserve As Work 4,32', 'Dme Sam Raw 15,Start(4),16,8000', 'Dme Sam Stop'], {})
     for (let v = 0; v < 4; v++) expect(audio.voiceState[v]!.playing).toBe(false)

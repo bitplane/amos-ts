@@ -459,6 +459,8 @@ export interface DmeState {
   /** data+$12c, data+$12a: the sampler's bank and volume */
   samBank: number
   samVolume: number
+  /** routine 50's four busy bytes, represented by their completion frame */
+  samEnd: number[]
 }
 
 export function newDmeState(rt?: Runtime): DmeState {
@@ -536,6 +538,7 @@ export function newDmeState(rt?: Runtime): DmeState {
     sidOpened: false,
     samBank: 0,
     samVolume: 0x40,
+    samEnd: [0, 0, 0, 0],
   }
   // the vu bytes at `$a(a0)` are the replayer's own, written per trigger and
   // cleared by the reader --- the same read-and-clear AMOS's `Vumeter` has
@@ -1090,8 +1093,10 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       if (hz < 0) hz = 0
       if (hz <= SAM_MIN_HZ) hz = SAM_MIN_HZ
       if (hz >= SAM_MAX_HZ) hz = SAM_MAX_HZ
+      const s = st()
       for (let v = 0; v < 4; v++) {
         if (!(mask & (1 << v))) continue
+        if (s.samEnd[v]! > rt.interp.tick) continue
         rt.host.audio?.setFrequency(v, hz)
       }
     },
@@ -1102,7 +1107,11 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
      * So "stop" is "stop all four", and there is no per-voice form.
      */
     'dme sam stop'() {
-      for (let v = 0; v < 4; v++) rt.host.audio?.stop(v)
+      const s = st()
+      for (let v = 0; v < 4; v++) {
+        rt.host.audio?.stop(v)
+        s.samEnd[v] = 0
+      }
     },
 
     /**
@@ -1145,6 +1154,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < pcm.length; i++) pcm[i] = (data[off + 14 + i]! << 24) >> 24
       for (let v = 0; v < 4; v++) {
         rt.host.audio?.play(v, pcm, hz, s.samVolume, loop ? 0 : pcm.length)
+        s.samEnd[v] = loop ? Infinity : rt.interp.tick + Math.ceil((pcm.length / hz) * 50)
       }
     },
 
@@ -1176,6 +1186,7 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
       for (let v = 0; v < 4; v++) {
         if (!(mask & (1 << v))) continue
         rt.host.audio?.play(v, pcm, hz, st().samVolume, pcm.length)
+        st().samEnd[v] = rt.interp.tick + Math.ceil((pcm.length / hz) * 50)
       }
     },
 
