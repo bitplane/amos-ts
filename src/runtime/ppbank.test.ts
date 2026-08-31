@@ -75,6 +75,12 @@ describe('Ppsave / Ppload keywords (+CompExt.s)', () => {
     expect(run(prog)).toBe('ABCDABCD 1024\n')
   })
 
+  it('rejects an explicit destination outside the unsigned word range', () => {
+    for (const n of [-1, 65536]) {
+      expect(() => run(`Reserve As Data 6,16\nPpsave "DH0:bank.pp",6\nPpload "DH0:bank.pp",${n}`)).toThrow()
+    }
+  })
+
   it('a POSITIVE number appends to the object bank, and no number overwrites', () => {
     /*
      * `tst.l d5 / ble .Over` then `Bnk.GetBobs / beq .Over / moveq #1,d0 ...

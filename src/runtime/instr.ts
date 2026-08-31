@@ -5031,7 +5031,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // Ppload "file"[,number] — InppLoad +CompExt.s:455. Loads a PowerPacked
       // "PPbk" bank; with no number the header's own bank number is used.
       const path = it.evalStr()
-      const forced = it.accept(',') ? it.evalInt() : -1
+      const forced = it.accept(',') ? it.evalInt() : null
+      // `cmp.l #$10000,d5 / Rbcc L_FCall` is unsigned: an explicitly
+      // supplied negative number and 65536 both fail. The omitted form has
+      // its own entry and reaches the header-number path without this test.
+      if (forced !== null && forced >>> 0 >= 0x10000) funcCall()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
       // the codec lives in ../amiga and raises plain Errors — an AMOS error
@@ -5076,14 +5080,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
          */
         const loaded = ObjectBank.fromSpriteBank(parsed)
         const into = kind === 'sprites' ? rt.spriteBank : rt.iconBank
-        if (forced > 0 && into && into.images.length > 0) {
+        if (forced !== null && forced > 0 && into && into.images.length > 0) {
           into.images = [...into.images, ...loaded.images]
           into.palette = loaded.palette
         } else if (kind === 'sprites') rt.spriteBank = loaded
         else rt.iconBank = loaded
         return
       }
-      const num = forced >= 0 ? forced : bank.number
+      const num = forced ?? bank.number
       rt.memBanks.set(num, {
         kind: 'memory',
         number: num,
