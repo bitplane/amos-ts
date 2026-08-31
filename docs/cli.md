@@ -43,8 +43,6 @@ change which programs are scanned.
 | `citecheck.ts` | batch-report source and routine citations; tests enforce the mechanical checks |
 | `contested.ts` | report keyword names claimed by more than one extension product |
 | `versweep.ts` | compare registered releases for bindable, added or renumbered tables |
-| `auditctx.ts` | assemble original source, port code, helpers, tests and coverage note for one core keyword |
-| `kwpriority.ts`, `kwaudit.ts` | prepare and run the optional core-keyword audit workflow |
 | `amosasm.ts`, `gencycles.ts`, `m68kcost.ts` | assembler parsing and cycle-cost analysis |
 | `craftx.ts` | unpack the CRAFT installer disk's `Data` blobs |
 

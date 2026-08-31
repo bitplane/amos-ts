@@ -16,7 +16,10 @@ src/cli/tmp/
 # the headless-Firefox probe page, which has to sit where Vite can resolve
 # the source imports and is rewritten for every question it answers
 probe.html
-audit/
-
 # temporary reports for coverage
 report.md
+
+# temporary state for the keyword audit; only its instructions belong in Git
+audit/*
+!audit/README.md
+!audit/LUNA.md
