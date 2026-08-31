@@ -39,8 +39,8 @@ jobs:
       # than accusing ~200 keywords of being unproven.
       #
       # So this is a build-break catch, not a fidelity proof. Proving
-      # fidelity still needs a local run with the corpus in place, and the
-      # census (src/cli/runreport.ts) needs it too.
+      # fidelity still needs a local run with the corpus in place. Exploratory
+      # whole-corpus reports such as src/cli/runreport.ts are local too.
       #
       # AMOS_ORACLE=1 makes a missing `ancient` a failure rather than a skip.
       # Without it the step above could be deleted and this job would stay

@@ -4531,7 +4531,7 @@ export type NaGroup =
   | 'multitasking'
   | 'syntax'
   | 'dead-vector'
-  | 'editor'
+  | 'editor-overlay'
 
 /** What each group is waiting on, in the order a reader should meet them. */
 export const NA_GROUPS: Record<NaGroup, string> = {
@@ -4556,8 +4556,10 @@ export const NA_GROUPS: Record<NaGroup, string> = {
     '-- one that does nothing IS faithful when the port does nothing too, and `Rnc Unpack` and ' +
     '`Gscontrollertype` are both counted for exactly that. There is no behaviour to be faithful TO here, ' +
     'because a Guru is not behaviour a port can offer.',
-  editor:
-    'The AMOS editor and the compiler overlay, neither of which exists here.',
+  'editor-overlay':
+    'Editor-table markers and native compiler-overlay operations that are not runnable AMOS language ' +
+    'constructs. The editor itself is ported; these entries either belong to its internal command grammar ' +
+    'or require the separate 68k compiler overlay.',
 }
 
 /**
@@ -4606,16 +4608,16 @@ export const NA_GROUP_OF: Record<string, NaGroup> = {
   'follow off': 'syntax',
   'screen size': 'syntax',
   '\u0000rwb get menu adr': 'syntax',
-  // the editor and the compiler overlay
-  'kill editor': 'editor',
-  monitor: 'editor',
-  include: 'editor',
-  '||apcmp||': 'editor',
-  '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/': 'editor',
-  ',': 'editor',
-  compile: 'editor',
-  'comp load': 'editor',
-  'comp del': 'editor',
+  // editor-table markers and the native compiler overlay
+  'kill editor': 'editor-overlay',
+  monitor: 'editor-overlay',
+  include: 'editor-overlay',
+  '||apcmp||': 'editor-overlay',
+  '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/': 'editor-overlay',
+  ',': 'editor-overlay',
+  compile: 'editor-overlay',
+  'comp load': 'editor-overlay',
+  'comp del': 'editor-overlay',
 }
 
 

@@ -4,8 +4,8 @@
  * `Ed_ResourceLoad` (+Edit.s:4738) loads `AMOSPro_Editor_Resource.Abk` off
  * disk and checks it is a resource bank (`cmp.l #"Reso",-8(a0)`), so unlike
  * the mouse bank this is not something the machine carries inside itself.
- * It is baked in anyway because there is no editor here to load it, and
- * everything the editor draws comes out of it: the AMOS logo, the twelve
+ * It is baked in so the browser editor does not depend on an AMOS installation
+ * being mounted, and everything the editor draws comes out of it: the AMOS logo, the twelve
  * editor buttons and thirteen escape-screen ones, the memory sliders and the
  * window borders. `src/loader/resource.ts` already decodes the format.
  *

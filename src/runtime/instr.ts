@@ -4114,7 +4114,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // WB_Close frees Workbench memory on the Amiga; nothing to close
     },
     'close editor'() {
-      // Ed_CloseEditor frees the editor; there is no editor in the port
+      // Ed_CloseEditor unloads a separate segment; the integrated editor has
+      // no segment lifetime to end
     },
     /**
      * `Call Editor n [,param [,line$]]` --- `InCallEditor1`/`2`/`3`

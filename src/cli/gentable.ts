@@ -20,7 +20,8 @@ const sys = join(root, 'fixtures', 'official-amos', 'APSystem')
  * The AGA release's own core library used to be generated alongside this one as
  * AGA_CORE_TOKENS. It was dropped because the two tables came out BYTE
  * IDENTICAL: the AGA build of AMOS Pro ships the same core token table, so a
- * second copy bought nothing but ~780 generated lines. scan.ts had been
+ * second copy bought nothing but ~780 generated lines. The former fixture
+ * census had been
  * retrying failed parses against it, which could never succeed for the same
  * reason.
  *

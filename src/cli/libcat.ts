@@ -2,14 +2,7 @@
  * Catalogue the extension libraries in a collection: what is here, what the
  * registry already knows, and what is new.
  *
- * ## Why this is separate from extscan
- *
- * `extscan.ts` asks what PROGRAMS used — it walks `.AMOS` files and works back
- * to the extension each slot must have held. That is the right question when
- * you have programs and want the libraries behind them, and its output is a
- * wanted list of token ids nothing explains.
- *
- * This asks the other half: given a pile of `.Lib` files, what ARE they? A
+ * Given a pile of `.Lib` files, what ARE they? A
  * collection can carry a library no program in it uses (Aminet's BSDSocket
  * extension arrives with three demos and nothing else), and it can carry
  * fifteen copies of one library under different names. Neither shows up in a
@@ -30,7 +23,8 @@
  * rather than a new extension. Everything else is `new`.
  *
  * Usage:
- *   npm run cli -- src/cli/libcat.ts <dir>... [--md out.md] [--all]
+ *   npm run cli -- src/cli/libcat.ts <dir>... [--all] [--gap]
+ *       [--keywords] [--json out.json] [--md out.md]
  */
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -44,11 +38,15 @@ import type { TokenEntry } from '../tokens/libtok'
 const args = process.argv.slice(2)
 const mdAt = args.indexOf('--md')
 const mdOut = mdAt >= 0 ? args[mdAt + 1] : undefined
+const jsonAt = args.indexOf('--json')
+const jsonOut = jsonAt >= 0 ? args[jsonAt + 1] : undefined
 const showAll = args.includes('--all')
-const consumed = new Set([mdAt + 1].filter((i) => i > 0))
+const showGap = args.includes('--gap')
+const showKeywords = args.includes('--keywords')
+const consumed = new Set([mdAt + 1, jsonAt + 1].filter((i) => i > 0))
 const roots = args.filter((a, i) => !a.startsWith('--') && !consumed.has(i))
 if (roots.length === 0) {
-  console.error('usage: libcat <dir>... [--md out.md] [--all]')
+  console.error('usage: libcat <dir>... [--all] [--gap] [--keywords] [--json out.json] [--md out.md]')
   process.exit(1)
 }
 
@@ -248,7 +246,7 @@ if (unreadable.length > 0) console.log(`  ${unreadable.length} .Lib file(s) pars
 console.log('')
 
 for (const r of rows) {
-  if (!showAll && r.verdict === 'known') continue
+  if ((!showAll && r.verdict === 'known') || (showGap && r.verdict === 'known')) continue
   const tag =
     r.verdict === 'known'
       ? `= ${r.match}`
@@ -261,6 +259,12 @@ for (const r of rows) {
   console.log(`           ${short(r.lib.file)}`)
   if (r.ver) console.log(`           $VER: ${r.ver}`)
   if (r.lib.copies.length > 1) console.log(`           ${r.lib.copies.length} copies`)
+  if (showKeywords) {
+    const names = r.lib.tokens
+      .map((t) => t.name.trim().replace(/^!/, ''))
+      .filter((n) => n !== '')
+    console.log(`           ${names.join(', ')}`)
+  }
 }
 if (!showAll && counts.known > 0) console.log(`\n(${counts.known} already-registered table(s) hidden; --all to show)`)
 
@@ -278,4 +282,36 @@ if (mdOut !== undefined) {
   })
   writeFileSync(mdOut, `${mdTable(['keywords', 'format', 'verdict', '`$VER`', 'path'], body)}\n`)
   console.log(`\nmarkdown written to ${mdOut}`)
+}
+
+if (jsonOut !== undefined) {
+  writeFileSync(
+    jsonOut,
+    `${JSON.stringify(
+      {
+        roots,
+        unreadable,
+        libraries: rows.map((r) => ({
+          verdict: r.verdict,
+          match: r.match,
+          overlap: r.overlap,
+          nameOverlap: r.nameOverlap,
+          extra: r.extra,
+          version: r.ver,
+          banner: r.banner,
+          id: r.lib.id,
+          file: r.lib.file,
+          copies: r.lib.copies,
+          format: r.lib.format,
+          sha256: r.lib.sha256,
+          entries: r.lib.tokens.length,
+          named: r.lib.named,
+          tokens: r.lib.tokens,
+        })),
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  console.log(`\nJSON written to ${jsonOut}`)
 }

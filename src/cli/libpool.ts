@@ -2,19 +2,16 @@
  * Read AMOS extension libraries off a directory tree and turn their token
  * tables into identification candidates.
  *
- * A collection that carries both programs and the `.Lib` files they needed —
- * a PD library disc, an install, a coverdisk rip — can identify its own slot
- * numbers: the token ids a program uses are byte offsets into one specific
- * table, so a library found next to the programs either accounts for every
- * observed id or is not what that slot held. This turns extscan's wanted
- * list from "find the extension with an entry at $04d2" into an answer.
+ * A PD library disc, install or coverdisk rip commonly carries many copies of
+ * the same table under different filenames. This module reads the supported
+ * layouts once and deduplicates them for `libcat`.
  *
  * The candidates produced here are deliberately *not* registry entries. They
  * carry no provenance, no evidence tier and no verified id base, so they are
  * a lead to be confirmed and written up by hand (see
  * docs/extensions/README.md), not something to be trusted on sight.
  *
- * Node-only — this is why it lives under src/cli rather than src/ext.
+ * Node-only — it reads directory trees and is not part of the package API.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -162,7 +159,7 @@ export function libAsExtension(lib: ScannedLib): Extension {
     titleStrings: [],
     sha256: lib.sha256,
     provenance: `scanned from ${lib.file}`,
-    notes: 'candidate from libscan — not a registry entry',
+    notes: 'candidate from libcat — not a registry entry',
     tokens: lib.tokens,
     table: new TokenTable(lib.tokens, true),
   } as Extension

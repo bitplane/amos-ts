@@ -20,15 +20,9 @@ middle means a thread was left hanging.
 `KEYWORDS.md` carries the counts. They are not repeated here, because a
 hand-copied total is a total that drifts, and this file has proved it twice.
 
-### The census
-
-The figures live in `README.md`, beside the command that produces them, and
-are deliberately not repeated here. Two copies is how this file came to say
-513 programs while README said the same thing differently and the truth was
-565.
-
-What belongs here is the part README does not carry: what the programs that
-stop are stopping on. That is the section at the end.
+`runreport` can measure a selected program tree, but its result depends on the
+roots and fixtures supplied. This document records the durable reasons programs
+stop rather than embedding another snapshot of a changing corpus.
 
 ## Not implemented
 
@@ -170,9 +164,10 @@ to have members. A group emptying out means a capability arrived.
 
 None of them is a gap. Each is a decision this port made: it does not execute
 68k, it has no debugger to trap into, no hardware below the modelled layer, no
-second task, no editor and no compiler overlay. Reverse one of those and a
-whole group changes classification at once, which is why they are worth
-watching as groups rather than as fifty separate lines.
+second task and no native compiler overlay. A few editor-table entries are
+markers or commands rather than runnable language constructs. Reverse one of
+those decisions and a whole group changes classification at once, which is why
+they are worth watching as groups rather than as fifty separate lines.
 
 ## Implemented but approximated — the honesty list
 
@@ -230,9 +225,10 @@ zero.
 
 **There is no AmigaOS.** `Doscall`/`Execall`/`Lib Open`/ARexx reach ROM and
 libraries. `request on`/`off`/`wb` suppress system requesters the port never
-shows. `direct`/`edit` need an editor and a direct window. `lfreq` calls
-`req.library`, which the manual itself apologises for; AMOS's own `Fsel$`
-stands in and returns the same thing.
+shows. `lfreq` calls `req.library`, which the manual itself apologises for;
+AMOS's own `Fsel$` stands in and returns the same thing. `Edit` and `Direct`
+are implemented by the composed editor/runtime and expose their original exit
+codes when a headless Runtime has no editor attached.
 
 **No machine is attached to the ports.** `serial base`/`error`/`status`,
 `printer base`/`error`/`online` and `parallel base`/`error`/`input$` report

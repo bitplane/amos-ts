@@ -81,7 +81,7 @@ function fakeAmosToolsStub(keywords: [name: string, spec: string][]): Uint8Array
 }
 
 function tree(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'libscan-'))
+  const dir = mkdtempSync(join(tmpdir(), 'libcat-'))
   mkdirSync(join(dir, 'sub'), { recursive: true })
   return dir
 }

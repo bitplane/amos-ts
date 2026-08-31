@@ -187,9 +187,9 @@ Calling it CRASHES the original: a jump through a null vector, a jump past the e
 
 `nop`, `pal on`, `s mask$`, `t planes`
 
-### editor (9)
+### editor-overlay (9)
 
-The AMOS editor and the compiler overlay, neither of which exists here.
+Editor-table markers and native compiler-overlay operations that are not runnable AMOS language constructs. The editor itself is ported; these entries either belong to its internal command grammar or require the separate 68k compiler overlay.
 
 `,`, `\\\\\\\\\\\\\\\/`, `comp del`, `comp load`, `compile`, `include`, `kill editor`,
 `monitor`, `||apcmp||`

@@ -95,7 +95,7 @@ function readHeader(r: BinReader): number[] {
  * It deliberately stops after that hunk's contents and never looks at the
  * trailing relocation, symbol or debug blocks. `loadHunks` must parse those to
  * completion and throws on anything it does not recognise, which is right for
- * a loader and wrong here — the corpus tools (`libscan`, `libpool`, `genext`)
+ * a loader and wrong here — the library tools (`libcat`, `libpool`, `genext`)
  * run over user-supplied `.Lib` files from outside the fixture set, where
  * being able to read the table out of a slightly odd file is the whole job.
  *

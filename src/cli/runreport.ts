@@ -5,18 +5,17 @@
  *   npm run cli -- src/cli/runreport.ts [dir...] [--frames N]
  *
  * Several roots may be given. That matters because the demand data this
- * project prioritises from comes from a much larger body of programs than the
- * fixtures tree: `libdemand` ranks extensions over ~5,000 archive programs,
- * while a fixtures-only census sees 488. Porting an extension against the
- * first and measuring against the second means every result reads "census
- * unchanged", which is exactly what happened to CText and Sticks.
+ * A wide compatibility report must include the archive as well as fixtures.
+ * Measuring only the small fixture tree can hide an improvement that affects
+ * programs elsewhere in the collected corpus.
  *
- *   # the committed baseline: reproducible, and what CI-adjacent runs use
+ *   # print every fixture error and skipped keyword
  *   npm run cli -- src/cli/runreport.ts --all
  *
- *   # the wide run: everything the archive holds as well
+ *   # the wide run: include everything the archive holds
  *   npm run cli -- src/cli/runreport.ts fixtures ../amos-files/sources --all
  *
+ * `--all` only expands the printed lists; it does not select more programs.
  * Programs outside the fixtures tree still get PROG:/PARENT:/RAM: and the
  * AMOSPro: volume, so an archive program with its own data files beside it
  * runs the same way it would on a machine with AMOS Pro installed.

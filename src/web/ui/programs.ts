@@ -15,7 +15,7 @@
  *
  * ## Per program, never merged
  *
- * `src/cli/extscan.ts` learned this the hard way and its header says so: a
+ * The corpus survey learned this the hard way: a
  * slot number belongs to a MACHINE, so two programs in one collection can hold
  * different extensions at the same slot, and merging their ids into one
  * fingerprint asks a question nothing has to answer. Slot 12 of one archive
@@ -76,7 +76,7 @@ export interface ProgramIndex {
   /**
    * Programs holding a slot the registry cannot explain.
    *
-   * The actionable output, and the reason `extscan` exists: an unidentified
+   * The actionable output: an unidentified
    * slot is a concrete request, "find the extension whose token table has an
    * entry at this offset taking this many arguments". Reachable by dropping a
    * file now rather than by running a CLI over a corpus.
