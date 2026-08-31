@@ -290,6 +290,33 @@ describe('the escape screen (Esc_Appear +Edit.s:9356)', () => {
   })
 })
 
+describe('the bar that closes off the escape screen (Ed_Enlarge +Edit.s:13793)', () => {
+  it('reaches both edges, with the bar\'s own caps on them', () => {
+    /*
+     * `Es_Pics+2` is 480 wide and `Ed_Sx` is 640 (+Editor_Config.s:30), so
+     * `Esc_Appear` draws it once at x=0 and then calls `Ed_Enlarge`: one
+     * `L_ScCopy` of (160,y1)-(480,y1+8) to (320,y1), whose registers are
+     * `D0=X1 D1=Y1 D2=X3 D3=Y3 D4=X2 D5=Y2` (+Lib.s:25398). The middle 320
+     * columns move 160 right and the right cap lands on the right edge.
+     *
+     * This port tiled the picture instead, which put a right cap at 478 and a
+     * fresh LEFT cap at 480 -- a notch three-quarters of the way along.
+     */
+    const rt = new Runtime(tokenize('Stop', table), table, { maxSteps: 200_000 })
+    rt.runHeadless(50)
+    rt.directScreen.open()
+    rt.runHeadless(5)
+    const s = rt.screens.get(9)!
+    expect(s.width).toBe(640)
+    const y = s.height - 4 // inside the bar, below its bevel
+    // the two-pixel highlight on the left and the two-pixel shadow on the right
+    expect([s.point(0, y), s.point(1, y)]).toEqual([5, 5])
+    expect([s.point(638, y), s.point(639, y)]).toEqual([2, 2])
+    // and nothing but fill in between: no second cap where the tile used to end
+    for (let x = 2; x < 638; x++) expect([x, s.point(x, y)]).toEqual([x, 6])
+  })
+})
+
 describe('the editor resource bank (Ed_ResourceLoad +Edit.s:4738)', () => {
   it('decodes, and holds the pictures at the numbers the editor names', () => {
     // +Edit.s:106-113 counts them out: Ed_Pics 1, Ed_BtPics +4, then twelve

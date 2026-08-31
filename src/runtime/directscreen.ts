@@ -53,6 +53,10 @@ const BUTTON_W = 32
 /** Es_Pics+2, the 480x8 bar Ed_Unpack lays under the text (+Edit.s:9463) */
 const BOTTOM_H = 8
 
+/** `move.l #160,d0` and `move.l #480,d4` in Ed_Enlarge (+Edit.s:13802) */
+const ENLARGE_FROM = 160
+const ENLARGE_TO = 480
+
 /** Esc_Appear builds `cmp.w #13,d6 / bls` worth of them (+Edit.s:9414) */
 const BUTTONS = 13
 
@@ -133,6 +137,21 @@ const BANNER = ED_MESSAGES[211] ?? 'Direct mode [ESC]'
  * out of the assembled binary because the vendored source had lost the bytes.
  */
 const NOTICE = [`${ED_MESSAGES[20] ?? 'AMOS Professional'}  ${ED_MESSAGES[21] ?? ''}`.trim(), ED_MESSAGES[22] ?? '']
+
+/**
+ * `L_ScCopy` of one strip of a screen onto itself, `Ed_Enlarge`'s only call.
+ *
+ * The blocks overlap -- 160..479 goes to 320..639 -- so the columns are read
+ * before any of them are written. The blitter does this with a descending
+ * copy; a row at a time off a saved buffer is the same answer.
+ */
+function stretch(s: Screen, from: number, y: number, to: number, width: number, height: number): void {
+  for (let row = 0; row < height; row++) {
+    const line = new Uint8Array(width)
+    for (let i = 0; i < width; i++) line[i] = s.point(from + i, y + row)
+    for (let i = 0; i < width; i++) s.plot(to + i, y + row, line[i]!)
+  }
+}
 
 export class DirectScreen {
   /** the editor's slot in the 8-11 band Runtime.SCREEN_SLOTS reserves for AMOS */
@@ -320,8 +339,16 @@ export class DirectScreen {
     // the bar that closes the bottom off under it
     const edge = g.image(ED_PICS.escape + 1)
     if (edge) for (let y = TITLE_H; y < s.height - BOTTOM_H; y += edge.height) put(ED_PICS.escape + 1, WIDTH - 16, y)
-    const bottom = g.image(ED_PICS.escape + 2)
-    if (bottom) for (let bx = 0; bx < WIDTH; bx += bottom.width) put(ED_PICS.escape + 2, bx, s.height - BOTTOM_H)
+    // The bar is 480 wide on a 640 screen, and `Ed_Enlarge` (+Edit.s:13793)
+    // is what makes up the difference: one `L_ScCopy` of (160,y1)-(480,y1+8)
+    // to (Ed_Sx-480+160, y1), which is 320. Its own documented registers are
+    // `D0=X1 D1=Y1 D2=X3 D3=Y3 D4=X2 D5=Y2` (+Lib.s:25398), so the middle 320
+    // columns move 160 pixels right and the bar's own right cap lands on the
+    // right edge. Tiling it instead put a right cap at 478 and a fresh LEFT
+    // cap at 480, which is the notch three-quarters of the way along.
+    const y = s.height - BOTTOM_H
+    put(ED_PICS.escape + 2, 0, y)
+    stretch(s, ENLARGE_FROM, y, WIDTH - ENLARGE_TO + ENLARGE_FROM, ENLARGE_TO - ENLARGE_FROM, BOTTOM_H)
   }
 
   /** Esc_Hide (+Edit.s:9528), then Ed_Hide (:9606) */
