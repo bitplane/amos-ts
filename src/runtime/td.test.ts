@@ -2077,6 +2077,13 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Visible ($211d64, the flag set at $21
     expect(vis('Td Object 1,"dice",0,0,-1500,0,0,0')).toBe(' 0')
   })
 
+  it('uses the bounding radius at the horizontal frustum margin', () => {
+    // At z=1500 the right plane is 5/8*z = 937.5. Dice's stored radius is
+    // 300, so a centre at 1200 still intersects it and one at 1240 does not.
+    expect(vis('Td Object 1,"dice",1200,0,1500,0,0,0')).toBe(' 1')
+    expect(vis('Td Object 1,"dice",1240,0,1500,0,0,0')).toBe(' 0')
+  })
+
   it('is true before anything has been redrawn, because the flag starts clear', () => {
     const { out } = run(`
       Td Load "dice"

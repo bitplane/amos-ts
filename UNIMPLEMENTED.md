@@ -180,12 +180,6 @@ furniture.
 
 ### Closable — nobody has done the work yet
 
-- `td visible` — answers whether the last `Td Redraw` put any of the object on
-  screen. The engine's answer comes from a culled-this-frame byte set by a
-  bounding-sphere distance test made before any face is looked at
-  (`$2190c8`), and that pass has not been read, so the two agree for an object
-  rejected by the near limit and can differ at the far margin.
-
 - `ldisk font` — reports whether the named font exists in the mounted `Fonts:`
   drawer, which is what the keyword is for, but cannot distinguish "already in
   memory" from "not on the disk": both answer false.

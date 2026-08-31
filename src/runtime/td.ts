@@ -864,6 +864,8 @@ export interface TdInstance extends TdFrame {
   priority?: number
   /** whether the last `Td Redraw` put any of this object on the screen */
   drawn?: boolean
+  /** the engine's +$f8 frustum-cull flag from the last object pass */
+  culled?: boolean
   /** `Td Surface` replacements, local to this live instance and keyed by face offset. */
   surfaces?: Map<number, TdObject>
   /** The four working vertices `Td Surface` assigns to a destination face. */
@@ -1407,15 +1409,10 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
       // clears it at the top of each object's pass and $2190c8 sets it when
       // the object fails the distance test, `d6 + a4+$b34 < d7`.
       //
-      // NOTES: that test is a bounding-sphere check made before any face is
-      // looked at, and the pass it lives in has not been read. This answers
-      // the same question a different way — whether the last Td Redraw put
-      // any of the object on the screen — so an object rejected wholly by the
-      // near limit agrees with the engine, while one the engine culls early
-      // for being too far and this one drops face by face may disagree at the
-      // margin. An object that has never been redrawn reads as visible, which
-      // is what the cleared byte gives.
-      return VI(tdInstance(rt.td, int(a[0] ?? VI(0))).drawn === false ? 0 : 1)
+      // The object's pass now reproduces those sphere/frustum tests and keeps
+      // their result separately from whether any individual face survived.
+      // An object never redrawn has a cleared flag and is therefore visible.
+      return VI(tdInstance(rt.td, int(a[0] ?? VI(0))).culled === true ? 0 : 1)
     },
     /**
      * =Td Pragma Status(a,b) — $212f54, and it is four instructions:
@@ -2394,9 +2391,42 @@ export function tdSortInstances(st: TdState): Array<[number, TdInstance]> {
   return list
 }
 
+/**
+ * The bounding-sphere frustum test at $21904a..$219158.
+ *
+ * The object's radius is already stored in the `.3DO` at +$10 in the same
+ * 4096-scaled coordinate system as the view origin. `$218de8` scales both by
+ * the per-object range shift. Horizontal extent is 5/8 of depth; vertical
+ * extents are screen-row counts times depth/256, exactly as the two calls to
+ * the engine's 32-bit multiply helper compute them.
+ */
+export function tdInstanceCulled(st: TdState, inst: TdInstance): boolean {
+  const shift = tdViewShift(st.viewpoint, inst)
+  const [x, y, z] = tdViewFor(st.viewpoint, inst, shift).origin
+  const v = new DataView(inst.object.file.block.buffer, inst.object.file.block.byteOffset, inst.object.file.block.byteLength)
+  const radius = (v.getInt32(0x10, false) >> shift) | 0
+  if (z < -radius) return true
+  const horizontal = ((z >> 3) + (z >> 1)) | 0
+  const depth = z >> 8
+  const centre = tdCentreRow(st.screenHeight)
+  const top = centre - (st.screenHeight - 1)
+  const bottomExtent = Math.imul(st.screenHeight - 1, depth)
+  const topExtent = Math.imul(-top, depth)
+  return horizontal + x < -radius ||
+    horizontal - x < -radius ||
+    bottomExtent - y < -radius ||
+    y + topExtent < -radius
+}
+
 export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFace[] }> {
   const out: Array<{ n: number; faces: TdScreenFace[] }> = []
   for (const [n, inst] of tdSortInstances(st)) {
+    inst.culled = tdInstanceCulled(st, inst)
+    if (inst.culled) {
+      inst.drawn = false
+      out.push({ n, faces: [] })
+      continue
+    }
     const g = parseTdGeometry(inst.object.file)
     // Td Anim deforms this instance's own copy of the points
     if (inst.points) g.points = inst.points

@@ -6768,11 +6768,8 @@ export const NOTES: Record<string, string> = {
     "The four anchors at a4+$486f are consumed by Td Surface at $212e34..$212e80. They select the destination " +
     "block vertices used for surface slots 1..4; Td Surface's low two mode bits select the engine's matching rotation.",
   "td visible":
-    "$211d64 answers 0 when the byte at $f8 of the instance is set and the one at $cb is clear. $f8 is a " +
-    "culled-this-frame flag: $219038 clears it at the top of each object's pass and $2190c8 sets it when the " +
-    "object fails a distance test, `d6 + a4+$b34 < d7`. An object rejected wholly by the near limit agrees with " +
-    "the engine; one the engine culls early for being too far, and this one drops face by face, can disagree at " +
-    "the margin.",
+    "$211d64 reads the instance's culled-this-frame byte. Td Redraw reproduces the bounding-sphere tests at " +
+    "$21904a..$219158 against the near, left, right, top and bottom frustum planes before visiting any face.",
   "td advanced":
     "Hands back an address on the Amiga: a4 itself for object zero, otherwise the instance pointer ($212f0c). " +
     "There is no address space here for one to mean anything in, so this answers zero — the same reason peek, " +

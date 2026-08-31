@@ -141,11 +141,8 @@ frame, not a property of the model.
 three that matter. Three separate things get confused here, so they are kept
 apart.
 
-**Approximated, meaning we fall short.** Two keywords:
+**Approximated, meaning we fall short.** One keyword:
 
-- **`td visible`**. Answered from our own face count rather than the engine's
-  bounding-sphere cull at `$2190c8`, which has not been read, so the two agree
-  for an object rejected by the near limit and can differ at the far margin.
 - **`td advanced`**. Hands back an Amiga address, and there is no address space
   here for one to mean anything in, so it answers zero.
 
