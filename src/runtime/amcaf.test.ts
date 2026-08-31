@@ -2393,6 +2393,20 @@ describe('zoom, masks, C2P and remaining graphics', () => {
     )
   })
 
+  it('Amcaf Version$ follows the bound release', () => {
+    const ext = extensionById('amcaf-1.40')!
+    const bound = new Map([[AMCAF_SLOT, ext]])
+    const tables = new Map([[AMCAF_SLOT, ext.table]])
+    let text = ''
+    const rt = new Runtime(tokenize('Print Amcaf Version$', table, tables), table, {
+      extensions: tables,
+      extBindings: bound,
+      onText: (s) => (text += s),
+    })
+    mustFinish(rt.runHeadless(20))
+    expect(text.trim()).toBe('AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges.')
+  })
+
   /**
    * The manual: *"After calling Amcaf Aga Notation On, all AMCAF commands and
    * functions take 24 bit values... The default setting is 12 bit."*

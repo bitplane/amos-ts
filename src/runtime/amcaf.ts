@@ -8849,7 +8849,12 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * manual both come from. The port's own "AMCAF 1.50" was never on any
      * machine.
      */
-    'amcaf version$': () => VS('AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.'),
+    'amcaf version$': () =>
+      VS(
+        [...(rt.extBindings?.values() ?? [])].some((ext) => ext.id === 'amcaf-1.40')
+          ? 'AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges.'
+          : 'AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.',
+      ),
 
 
     /**
