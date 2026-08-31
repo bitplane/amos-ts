@@ -653,6 +653,23 @@ describe('Pack / Spack', () => {
     const s = rt.screens.get(0)!
     expect([s.point(0, 0), s.point(319, 99)]).toEqual([6, 6])
   })
+
+  it('Unpack writes both buffers when autoback is enabled', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,100,16,Lowres',
+        'Cls 0 : Ink 6 : Bar 0,0 To 31,31',
+        'Spack 0 To 14',
+        'Double Buffer : Autoback 1',
+        'Cls 0',
+        'Unpack 14',
+      ].join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    expect(s.point(0, 0)).toBe(6)
+    s.swap()
+    expect(s.point(0, 0)).toBe(6)
+  })
 })
 
 /**

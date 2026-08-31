@@ -1887,6 +1887,32 @@ export class Screen {
   }
 
   /**
+   * Compact's `UPack` autoback bracket (+Compact.s:197-229).
+   *
+   * Unlike ordinary graphics primitives it runs whenever EcAuto is nonzero,
+   * and on a double-buffered screen executes the same bitmap write once on
+   * each buffer between AutoBack1/2/3.
+   */
+  unpackAutoback<T>(op: () => T): T {
+    if (this.autoback === 0) return op()
+    let out!: T
+    const draw = (): void => {
+      this.autobackVbl?.()
+      out = op()
+      if (this.phyBM === null) return
+      this.swap()
+      try {
+        out = op()
+      } finally {
+        this.swap()
+      }
+    }
+    if (this.bobBracket) this.bobBracket(draw)
+    else draw()
+    return out
+  }
+
+  /**
    * Run a console operation with the cursor lifted out of the bitmap and put
    * back after — the EffCur/AffCur bracket the 68k writes around each of them.
    * GRAPHICS operations deliberately do not use this: on the machine they draw

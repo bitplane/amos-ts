@@ -1237,7 +1237,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     if (s.depth !== pic.nPlanes) noPac()
     if ((x >>> 3) + (pic.width >>> 3) > s.rowBytes) noPac()
     if (y + pic.height > s.height) noPac()
-    rt.blit(s, pic, x, y, true, -1, true)
+    s.unpackAutoback(() => rt.blit(s, pic, x, y, true, -1, true))
   }
 
   /**
