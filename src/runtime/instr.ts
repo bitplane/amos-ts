@@ -7589,6 +7589,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // result would not beat the original ("Squashed >= Normal").
       const address = int(a[0]!)
       const length = int(a[1]!)
+      const fast = int(a[2]!)
       const speed = a.length >= 4 ? int(a[3]!) : 4095
       const colour = a.length >= 5 ? int(a[4]!) : 0
       if (length <= 0 || colour < 0 || colour >= 32) funcCall()
@@ -7596,7 +7597,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const m = rt.resolveWrite(address)
       if (!m) throw new AmosError('Address error', 25)
       const len = Math.min(length, m.data.length - m.off)
-      const packed = squashBytes(m.data.slice(m.off, m.off + len), Math.min(speed, 4096))
+      // A non-zero FAST enables the source's pre-scan table. That table is
+      // built with a fixed $1024 reach and replaces the caller's SPEED
+      // search limit; SPEED applies only to the non-scan path.
+      const window = fast !== 0 ? 4095 : speed
+      const packed = squashBytes(m.data.slice(m.off, m.off + len), window)
       if (!packed) return VI(-1)
       m.data.set(packed, m.off)
       return VI(packed.length)

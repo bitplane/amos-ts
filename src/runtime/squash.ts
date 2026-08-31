@@ -117,12 +117,13 @@ function usableLen(off: number, len: number): number {
  * Compress a block (Squash, +CompExt.s:1023). Returns the compressed bytes, or
  * null when the result is not at least 33 bytes smaller than the input — the
  * original's "inefficient compression" case (returns -1). `window` is the
- * forward match-search reach (the keyword's `speed`).
+ * forward match-search reach: the keyword's `speed` without pre-scan, or the
+ * pre-scan's fixed 4095-byte encodable offset when `fast` is enabled.
  *
- * This emits a standard Squasher stream (our faithful unsquash — and the
- * original — decode it), but uses a plain greedy longest-forward-match search
- * rather than porting ST Squasher's pre-scan/cost heuristics, so the exact
- * byte output may differ from the original encoder's.
+ * The source pre-scan is an acceleration index for the same greedy search:
+ * it chains occurrences of each two-byte prefix instead of comparing every
+ * position. Exhaustively searching the selected reach produces the same
+ * longest-match choice without its temporary 384 KiB allocation.
  */
 export function squash(input: Uint8Array, window = 4096): Uint8Array | null {
   const n = input.length

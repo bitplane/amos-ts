@@ -9300,8 +9300,8 @@ export const NOTES: Record<string, string> = {
   "comp here":
     "no native compiler overlay can load in the web port — always 0",
   "squash":
-    "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's " +
-    "pre-scan heuristic, so packed size may differ",
+    "decodes/encodes the exact Squasher format. FAST selects the source's fixed 4095-byte pre-scan reach while " +
+    "the non-scan path honours SPEED; the temporary pre-scan index is replaced by an exhaustive search of the same candidates",
   "ppload":
     "The bank's NAME is inside the crunched payload, not in the PPbk header: B_Copie2Buffer (+CompExt.s:800-808) " +
     "backs up eight bytes from the bank's data pointer onto the name Bnk.Reserve wrote there, and B_Length sizes " +

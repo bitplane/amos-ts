@@ -101,6 +101,27 @@ describe('Squasher II codec (+CompExt.s:1003-1534)', () => {
     const dv = new DataView(packed.buffer, packed.byteOffset, packed.byteLength)
     expect(dv.getUint32(packed.length - 4)).toBe(500) // last long = original length
   })
+
+  it('the fixed pre-scan reach can find matches beyond a short speed window', () => {
+    // An incompressible-looking block followed by an exact copy has no useful
+    // matches inside 256 bytes, but is a large win at the pre-scan's reach.
+    const half = new Uint8Array(700)
+    let x = 0x12345678
+    for (let i = 0; i < half.length; i++) {
+      x ^= x << 13
+      x ^= x >>> 17
+      x ^= x << 5
+      half[i] = x
+    }
+    const input = new Uint8Array(half.length * 2)
+    input.set(half)
+    input.set(half, half.length)
+    const slow = squash(input, 256)
+    const scanned = squash(input, 4095)
+    expect(scanned).not.toBeNull()
+    expect(scanned!.length).toBeLessThan(slow?.length ?? input.length)
+    expect(unsquash(scanned!)).toEqual(input)
+  })
 })
 
 describe('Squash / Unsquash keywords (+CompExt.s)', () => {
@@ -132,6 +153,16 @@ describe('Squash / Unsquash keywords (+CompExt.s)', () => {
       'Reserve As Work 6,64',
       'For I=0 To 15 : Poke Start(6)+I,I*17 : Next I',
       'Print Squash(Start(6),16,-1,4095,0)',
+    ].join('\n')
+    expect(run(prog)).toBe('-1\n')
+  })
+
+  it('FAST uses the pre-scan reach instead of the SPEED limit', () => {
+    const prog = [
+      'Reserve As Work 6,1400',
+      'For I=0 To 699 : Poke Start(6)+I,(I*73+I*I*19) And 255 : Next I',
+      'For I=0 To 699 : Poke Start(6)+700+I,Peek(Start(6)+I) : Next I',
+      'Print Squash(Start(6),1400,-1,256,0)>0',
     ].join('\n')
     expect(run(prog)).toBe('-1\n')
   })
