@@ -250,6 +250,14 @@ export interface SerialPortHandle {
   write(bytes: Uint8Array): void
   /** Take everything that has arrived since the last call. */
   read(): number[]
+  /**
+   * The most recently observed serial.device IO_STATUS word.
+   *
+   * Hosts whose API cannot expose modem lines may omit this. Callers then
+   * use serial.device's disconnected idle value, with its active-low lines
+   * deasserted.
+   */
+  status?(): number
   /** SDCMD_SETPARAMS — Serial Speed/Bits/Parity/X/Buf/Fast/Slow all land here. */
   setParams(params: SerialLineParams): void
   close(): void

@@ -38,6 +38,12 @@ interface WebSerialPort {
   close(): Promise<void>
   readable: ReadableStream<Uint8Array> | null
   writable: WritableStream<Uint8Array> | null
+  getSignals(): Promise<{
+    dataCarrierDetect: boolean
+    clearToSend: boolean
+    dataSetReady: boolean
+    ringIndicator: boolean
+  }>
 }
 
 interface WebSerial {
@@ -95,6 +101,9 @@ class WebSerialHandle implements SerialPortHandle {
   private closed = false
   /** set if the port failed; the channel then behaves like the modelled one */
   failed = false
+  /** serial.device IO_STATUS, initially the disconnected active-low state */
+  private lineStatus = 0x00f8
+  private pollingSignals = false
 
   constructor(
     private readonly port: WebSerialPort,
@@ -102,7 +111,10 @@ class WebSerialHandle implements SerialPortHandle {
   ) {
     this.tail = port
       .open(openOptions(params))
-      .then(() => this.pump())
+      .then(() => {
+        this.pollSignals()
+        return this.pump()
+      })
       .catch(() => {
         this.failed = true
       })
@@ -149,6 +161,33 @@ class WebSerialHandle implements SerialPortHandle {
     return out
   }
 
+  /** Refresh Web Serial's async modem inputs and return the cached word. */
+  status(): number {
+    this.pollSignals()
+    return this.lineStatus
+  }
+
+  private pollSignals(): void {
+    if (this.closed || this.failed || this.pollingSignals) return
+    this.pollingSignals = true
+    void this.port
+      .getSignals()
+      .then((s) => {
+        // Inputs are active low in IO_STATUS. Web Serial reports positive
+        // logic. Bit 2 is the A500/A2000 ring-indicator connection.
+        let v = this.lineStatus & ~0x003c
+        if (s.ringIndicator) v |= 0x0004
+        if (!s.dataSetReady) v |= 0x0008
+        if (!s.clearToSend) v |= 0x0010
+        if (!s.dataCarrierDetect) v |= 0x0020
+        this.lineStatus = v
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.pollingSignals = false
+      })
+  }
+
   /**
    * Re-opening is the only way to change the line settings — Web Serial has
    * no equivalent of SDCMD_SETPARAMS on a live port. Anything already
@@ -163,6 +202,7 @@ class WebSerialHandle implements SerialPortHandle {
         this.writer = null
         await this.port.close()
         await this.port.open(openOptions(params))
+        this.pollSignals()
         void this.pump()
       })
       .catch(() => {

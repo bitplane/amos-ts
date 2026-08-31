@@ -432,12 +432,14 @@ describe('IOPorts: a real host port (Host.serial)', () => {
     params: SerialLineParams[]
     closed: number
     units: number[]
+    status: { value: number }
   } {
     const written: number[] = []
     const incoming: number[] = []
     const params: SerialLineParams[] = []
     const units: number[] = []
     const rec = { closed: 0 }
+    const status = { value: 0xf8 }
     const host: SerialHost = {
       open(unit, p) {
         units.push(unit)
@@ -445,6 +447,7 @@ describe('IOPorts: a real host port (Host.serial)', () => {
         return {
           write: (b) => written.push(...b),
           read: () => incoming.splice(0, incoming.length),
+          status: () => status.value,
           setParams: (q) => params.push(q),
           close: () => (rec.closed += 1),
         }
@@ -456,6 +459,7 @@ describe('IOPorts: a real host port (Host.serial)', () => {
       incoming,
       params,
       units,
+      status,
       get closed() {
         return rec.closed
       },
@@ -500,6 +504,25 @@ describe('IOPorts: a real host port (Host.serial)', () => {
     // the rest stay queued — the port was drained in one go, as SDCMD_QUERY
     // reports everything waiting
     expect(rt.ioports.serial[0]!.rx).toEqual([2, 3])
+  })
+
+  it('Serial Status returns the host IO_STATUS snapshot as an unsigned word', () => {
+    const s = stubHost()
+    const rt = withHost('Serial Open 0,1', s)
+    s.status.value = 0x1534
+    const fns = makeIoPortsFunctions(rt)
+    expect(fns['serial status']!(rt.interp, [VI(0)])).toEqual(VI(0x1534))
+  })
+
+  it('Serial Status reports inactive modem lines without a host port', () => {
+    const none: SerialHost = { open: () => null }
+    const rt = new Runtime(tokenize('Serial Open 0,1', table, exts), table, {
+      extensions: exts,
+      host: { clock: fixedClock(), serial: none },
+    })
+    rt.runHeadless(100_000)
+    const fns = makeIoPortsFunctions(rt)
+    expect(fns['serial status']!(rt.interp, [VI(0)])).toEqual(VI(0xf8))
   })
 
   it('every parameter keyword pushes the settings at the port (Stpar)', () => {

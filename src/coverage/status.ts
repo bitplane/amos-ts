@@ -6582,7 +6582,8 @@ export const NOTES: Record<string, string> = {
   "serial parity":
     "The five AMOS settings are all recorded, but Web Serial takes none/even/odd only.",
   "serial status":
-    "Returns 0. Source: +IO_Ports.s:598.",
+    "Returns serial.device's IO_STATUS word. A Web Serial host supplies cached DSR, CTS, carrier and ring-indicator " +
+    "signals; a modelled disconnected port returns the documented active-low idle state.",
   "serial base":
     "Returns 0.",
   "printer error":

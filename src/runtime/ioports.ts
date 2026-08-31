@@ -289,6 +289,13 @@ function pump(ch: SerialChannel): void {
   if (ch.port) ch.rx.push(...ch.port.read())
 }
 
+/**
+ * serial.device IO_STATUS with every active-low modem line deasserted.
+ * Bits 3..7 are DSR, CTS, CD, RTS and DTR; the other status conditions are
+ * clear until a host reports them.
+ */
+const SERIAL_IDLE_STATUS = 0x00f8
+
 /* ------------------------------------------------------------------ *
  * Keywords
  * ------------------------------------------------------------------ */
@@ -810,8 +817,8 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
      */
     'serial status'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
-      void ch
-      return VI(0)
+      pump(ch)
+      return VI((ch.port?.status?.() ?? SERIAL_IDLE_STATUS) & 0xffff)
     },
 
     /**
