@@ -7522,9 +7522,8 @@ export const NOTES: Record<string, string> = {
     "image 0 passes it and then `subq.w #$1,d0 / lsl.w #$3,d0` indexes eight bytes BELOW the table -- the count " +
     "word and whatever precedes it.",
   "command name$":
-    "Routine 340 ($752c) asks three sources in order. DEVIATION: nothing here records the file a program was " +
-    "loaded from under a name the program itself could have used, so all three sources are empty and this answers " +
-    "empty -- the same nothing Tool Types$ gives, which keeps the pair consistent",
+    "Routine 340 ($752c) asks the process CLI command, Workbench startup argument and AMOS program name in order. " +
+    "The web and CLI loaders supply the launched filename in the program's own filesystem namespace; an anonymous runtime answers empty.",
   "convert grey":
     "Routine 79 is a four-byte `Rbra routine 356`; 356 ($7f10) is 690 bytes. NOTE: the sum can index past the " +
     "ramp's 192 bytes -- a destination deeper than six planes reads whatever follows $21b2 in the extension " +

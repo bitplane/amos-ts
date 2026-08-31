@@ -8170,13 +8170,11 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
        * three tails differing only in routine 367 for a BSTR against 366 for
        * a C string.
        *
-       * DEVIATION: nothing here records the file a program was loaded from
-       * under a name the program itself could have used, so all three sources
-       * are empty and this answers empty. A program using it to find its own
-       * Tool Types gets the same nothing Tool Types$ gives, which at least
-       * keeps the pair consistent.
+       * The loader supplies the matching name in the program's own VFS
+       * namespace. An anonymous Runtime has none, just as a task with none of
+       * the three source structures does.
        */
-      return VS('')
+      return VS(rt.commandName)
     },
 
     /**

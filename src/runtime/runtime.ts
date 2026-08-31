@@ -433,6 +433,11 @@ export interface EditorZap {
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
   /**
+   * The filename this program was launched under, in the program's own file
+   * namespace. AMCAF Command Name$ reads the CLI/WB/AMOS equivalent of this.
+   */
+  commandName?: string
+  /**
    * slot -> which extension, by registry identity (loader/program.ts supplies
    * it). Without it a port's slot-qualified keywords fall back to every slot
    * the registry has seen that extension at; with it they answer only where it
@@ -502,6 +507,8 @@ export type ScreenOwner = 'user' | 'amos' | 'game' | 'os'
 
 export class Runtime {
   readonly interp: Interp
+  /** filename supplied by the loader; empty for an anonymous token stream */
+  readonly commandName: string
   /**
    * The machine's input devices, plus this program's consumption of them.
    *
@@ -4826,6 +4833,7 @@ export class Runtime {
   }
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
+    this.commandName = opts.commandName ?? ''
     this.frameBudgetOverride = opts.frameBudget ?? null
     this.diskRequests = opts.diskRequests === true
     // before makeAllInstructions below: the ports' slot-qualified keywords are

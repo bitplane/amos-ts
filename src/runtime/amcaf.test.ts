@@ -152,6 +152,23 @@ describe('AMCAF identity', () => {
   })
 })
 
+describe('AMCAF Command Name$', () => {
+  it('returns the filename supplied by the program loader', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Command Name$', table, extensions), table, {
+      extensions,
+      commandName: 'PowerBackup.AMOS',
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(20))
+    expect(out).toBe('PowerBackup.AMOS\n')
+  })
+
+  it('is empty for an anonymous token stream', () => {
+    expect(run('Print "["+Command Name$+"]"').out).toBe('[]\n')
+  })
+})
+
 describe('AMCAF registration', () => {
   it('binds at slot 8: an AMCAF keyword resolves to its own name', () => {
     // the name in the error is the proof: a keyword nothing core knows can

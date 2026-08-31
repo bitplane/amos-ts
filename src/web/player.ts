@@ -1103,6 +1103,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     // ON, so it outlives every environment built here
     const shared = {
       machine,
+      commandName: name,
       onUnimplemented: 'skip' as const,
       audio,
       fs: vfs,

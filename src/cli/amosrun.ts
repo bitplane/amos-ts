@@ -5,6 +5,7 @@
  *   npm run cli -- src/cli/amosrun.ts <file> [--strict] [--frames N] [--dump out.ppm]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { loadProgram } from '../loader/program'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -31,6 +32,7 @@ const bytes = readFileSync(file)
 const { lines, extensions, bindings, amos } = loadProgram(bytes, table)
 
 const rt = new Runtime(lines, table, {
+  commandName: basename(file),
   extensions,
   extBindings: bindings,
   onUnimplemented: strict ? 'throw' : 'skip',
