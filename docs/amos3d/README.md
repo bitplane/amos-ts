@@ -141,10 +141,8 @@ frame, not a property of the model.
 three that matter. Three separate things get confused here, so they are kept
 apart.
 
-**Approximated, meaning we fall short.** Four keywords:
+**Approximated, meaning we fall short.** Two keywords:
 
-- **`td surface points`** and **`td surface points off`**. The four anchors are
-  recorded where the engine records them and nothing consumes them yet.
 - **`td visible`**. Answered from our own face count rather than the engine's
   bounding-sphere cull at `$2190c8`, which has not been read, so the two agree
   for an object rejected by the near limit and can differ at the far margin.

@@ -186,11 +186,6 @@ furniture.
   (`$2190c8`), and that pass has not been read, so the two agree for an object
   rejected by the near limit and can differ at the far margin.
 
-- `td surface points` — the four anchors are recorded where the engine records
-  them and nothing maps a surface through them. A surface's first four slots
-  are still the face's own corners; the only use of the anchors traced so far
-  is `Td Surface` validating them, and what consumes them has not been found.
-
 - `ldisk font` — reports whether the named font exists in the mounted `Fonts:`
   drawer, which is what the keyword is for, but cannot distinguish "already in
   memory" from "not on the disk": both answer false.

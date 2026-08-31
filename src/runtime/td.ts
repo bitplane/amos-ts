@@ -549,35 +549,52 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const dstFace = it.evalInt()
       it.expect(',')
-      // the sixth number is $24(a5), which nothing on the path traced from
-      // here reads; the demos pass 0 and 2
-      it.evalInt()
+      // The low two bits select one of four rotations at $212dd0.
+      const mode = it.evalInt() & 3
       const src = t.objects.get(name.toLowerCase())
       if (!src) tdError(5)
-      const dst = tdInstance(t, n).object
+      const inst = tdInstance(t, n)
+      const dst = inst.object
       // the block index is bounded by the count at +$20 and the face index by
       // the block's template at +$1a — "Block does not exist" then "Face does
       // not exist", in that order for the source and then for the destination
-      const faceAt = (obj: TdObject, block: number, face: number): number => {
+      const faceAt = (obj: TdObject, block: number, face: number): { at: number; firstVertex: number; vertices: number } => {
         const blocks = parseTdBlocks(obj.file)
         if (block < 0 || block >= blocks.length) tdError(24)
         const b = blocks[block]!
         const template = obj.linked.get(b.at + 0x0a)
         if (face < 0 || face >= (template ? parseTdTemplate(template.file).faces : 0)) tdError(25)
-        return parseTdGeometry(obj.file).facesAt + (b.baseFace + face) * TD_FACE_SIZE
+        const g = parseTdGeometry(obj.file)
+        return {
+          at: g.facesAt + (b.baseFace + face) * TD_FACE_SIZE,
+          firstVertex: b.firstVertex,
+          vertices: Math.max(0, (blocks[block + 1]?.firstVertex ?? g.points.length) - b.firstVertex),
+        }
       }
       const from = faceAt(src, srcBlock, srcFace)
       const to = faceAt(dst, dstBlock, dstFace)
-      const surface = src.linked.get(from)
-      if (surface) dst.linked.set(to, surface)
-      else dst.linked.delete(to)
+      const surface = src.linked.get(from.at)
+      if (!inst.surfaces) inst.surfaces = new Map()
+      if (surface) inst.surfaces.set(to.at, surface)
+      else inst.surfaces.delete(to.at)
+
+      // With Surface Points off, $212df4 derives four evenly spaced anchors
+      // from the destination block's point count. The On form replaces all
+      // four; $212d4a validates them as unsigned bytes against that count.
+      const anchors = t.surfacePoints ?? [0, to.vertices >> 2, to.vertices >> 1, (to.vertices >> 2) + (to.vertices >> 1)]
+      if (anchors.some((p) => p >= to.vertices)) tdError(20)
+      // The small-data table at a4+$34 maps anchors to the four surface
+      // slots. Three-point blocks repeat a vertex to remain quadrilateral.
+      const quad = [[3, 2, 1, 0], [2, 1, 0, 3], [1, 0, 3, 2], [0, 3, 2, 1]]
+      const tri = [[2, 3, 3, 2], [1, 0, 1, 1], [2, 0, 2, 2], [3, 0, 3, 3]]
+      const order = (to.vertices === 3 ? tri : quad)[mode]!
+      if (!inst.surfaceVertices) inst.surfaceVertices = new Map()
+      inst.surfaceVertices.set(to.at, order.map((i) => to.firstVertex + anchors[i]!))
     },
     'td surface points'(it) {
       // $212bde keeps four anchor bytes at a4+$486f..$4872 and sets the flag
-      // at a4+$4873. NOTES: they are recorded and nothing maps a surface
-      // through them — a surface's slots 1 to 4 are still the face's own four
-      // corners, as $217424 fills them. The engine only reads the anchors to
-      // validate them ($212d42), and what consumes them has not been found.
+      // at a4+$4873. Td Surface consumes them at $212e34..$212e80 to choose
+      // the four destination working vertices used as surface slots 1..4.
       const t = st()
       const n: number[] = [it.evalInt()]
       for (let i = 0; i < 3; i++) {
@@ -847,6 +864,10 @@ export interface TdInstance extends TdFrame {
   priority?: number
   /** whether the last `Td Redraw` put any of this object on the screen */
   drawn?: boolean
+  /** `Td Surface` replacements, local to this live instance and keyed by face offset. */
+  surfaces?: Map<number, TdObject>
+  /** The four working vertices `Td Surface` assigns to a destination face. */
+  surfaceVertices?: Map<number, number[]>
   /**
    * The instance's own copy of the model points, once `Td Anim` has touched
    * one. $2149ce copies the point list into the instance when the object is
@@ -2278,16 +2299,17 @@ export interface TdScreenFace {
  * the face record's own — a face's surface pointer is its first long — so
  * `linked` is keyed by exactly `face.at`.
  */
-export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView, obj?: TdObject): TdScreenFace[] {
+export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView, obj?: TdObject, inst?: TdInstance): TdScreenFace[] {
   const projected = g.points.map((p) => tdProject(view, tdRotate(attitude, p)))
   const blocks = obj ? parseTdBlocks(obj.file) : []
   const out: TdScreenFace[] = []
   for (const [i, face] of g.faces.entries()) {
     if (face.surface === 0) continue
-    const projectedFace = face.vertices.map((n) => projected[n]!)
+    const vertices = inst?.surfaceVertices?.get(face.at) ?? face.vertices
+    const projectedFace = vertices.map((n) => projected[n]!)
     if (projectedFace.some((p) => p.status !== 0)) continue
     const points = projectedFace.map((p) => ({ x: p.x, y: p.y }))
-    const surface = obj?.linked.get(face.at)
+    const surface = inst?.surfaces?.get(face.at) ?? obj?.linked.get(face.at)
     out.push({
       face,
       points,
@@ -2379,7 +2401,7 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
     // Td Anim deforms this instance's own copy of the points
     if (inst.points) g.points = inst.points
     const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])
-    const faces = tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object)
+    const faces = tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object, inst)
     inst.drawn = faces.length > 0
     out.push({ n, faces })
   }

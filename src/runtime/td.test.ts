@@ -10,7 +10,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { loadHunks } from '../amiga/hunk'
-import type { TdFrame, TdMatrix, TdObject, TdView } from './td'
+import type { TdFrame, TdMatrix, TdView } from './td'
 import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift } from './td'
 
 /**
@@ -1930,16 +1930,16 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Surface ($212c28, the bounds at $212c
     const { rt } = go('Td Surface "dice",0,0 To 1,0,3,0')
     const g = parseTdGeometry(rt.td.objects.get('dice')!.file)
     const linked = rt.td.objects.get('dice')!.linked
-    expect(linked.get(g.faces[3]!.at)!.name).toBe(linked.get(g.faces[0]!.at)!.name)
+    expect(rt.td.instances.get(1)!.surfaces!.get(g.faces[3]!.at)!.name).toBe(linked.get(g.faces[0]!.at)!.name)
   })
 
   it('leaves the other faces alone', () => {
-    const before = run('Td Load "dice"', objectAndLinks('dice.3DO')).rt.td.objects.get('dice')!
-    const names = (o: TdObject) => parseTdGeometry(o.file).faces.map((f) => o.linked.get(f.at)?.name ?? '')
-    const after = go('Td Surface "dice",0,0 To 1,0,3,0').rt.td.objects.get('dice')!
-    const a = names(before)
-    const b = names(after)
-    expect(b.filter((n, i) => n !== a[i])).toHaveLength(1)
+    const { rt } = go('Td Surface "dice",0,0 To 1,0,3,0')
+    const inst = rt.td.instances.get(1)!
+    expect(inst.surfaces!.size).toBe(1)
+    // The engine changes the live object's face, not the loaded source shared
+    // by another instance of the same named object.
+    expect(inst.object.linked.get([...inst.surfaces!.keys()][0]!)!.name).not.toBe([...inst.surfaces!.values()][0]!.name)
   })
 
   it('refuses a block or a face the object has not got', () => {
@@ -1958,6 +1958,20 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Surface ($212c28, the bounds at $212c
   it('Td Surface Points records four anchors and Off clears them', () => {
     expect(go('Td Surface Points 1,2,3,4').rt.td.surfacePoints).toEqual([1, 2, 3, 4])
     expect(go('Td Surface Points 1,2,3,4\nTd Surface Points Off').rt.td.surfacePoints).toBe(null)
+  })
+
+  it('Td Surface Points remaps the destination surface corners', () => {
+    const before = go('Td Surface "dice",0,0 To 1,0,3,0').rt.td.instances.get(1)!
+    const after = go('Td Surface Points 1,2,3,4\nTd Surface "dice",0,0 To 1,0,3,0').rt.td.instances.get(1)!
+    const face = parseTdGeometry(after.object.file).faces[3]!.at
+    expect(before.surfaceVertices!.get(face)).toEqual([6, 4, 2, 0])
+    expect(after.surfaceVertices!.get(face)).toEqual([4, 3, 2, 1])
+  })
+
+  it('Td Surface mode rotates the four mapped corners', () => {
+    const inst = go('Td Surface Points 1,2,3,4\nTd Surface "dice",0,0 To 1,0,3,2').rt.td.instances.get(1)!
+    const face = parseTdGeometry(inst.object.file).faces[3]!.at
+    expect(inst.surfaceVertices!.get(face)).toEqual([2, 1, 4, 3])
   })
 
   it('a moved surface shows up in what Td Redraw computes', () => {
