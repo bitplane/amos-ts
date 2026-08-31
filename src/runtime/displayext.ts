@@ -366,11 +366,8 @@ export function makeDisplayExtInstructions(rt: Runtime): Record<string, Instr> {
      * pointer back two bytes instead ($600), which is the same displacement
      * a delay of sixteen would be if the field went that far.
      *
-     * DEVIATION: this port's renderer adds BPLCON1's low nibble to where the
-     * fetch lands and ignores the high one (`dataStart`, display.ts), so
-     * playfield 2 scrolls in whole words here and smoothly on the machine.
-     * The bytes written are the machine's either way, and `Dlscreenoffset 0`
-     * — the playfield most programs move — is exact.
+     * The renderer applies the low and high nibbles to their respective
+     * playfield passes, preserving the independent fine scroll.
      */
     dlscreenoffset(it) {
       const which = it.evalInt()

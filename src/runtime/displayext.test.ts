@@ -21,6 +21,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { playfieldDelay } from './display'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -272,5 +273,13 @@ describe('Display 0.01 — Dlcopswap and Dlscreenoffset', () => {
     const s1 = rt.screenChipBase(1)
     expect(ptr(rt, 1, 0xe4)).toBe((s1 + 2 * 40 - 2) >>> 0)
     expect(ptr(rt, 1, 0xe0)).toBe((s0 - 2) >>> 0)
+  })
+
+  it('the playfield 2 BPLCON1 nibble changes its rendered pixel phase', () => {
+    // Dlscreenoffset 0,3 writes 13 low and 1,5 writes 11 high.
+    const rt = run(`${MERGE}\nDlscreenoffset 0,3,0\nDlscreenoffset 1,5,0`)
+    const packed = reg(rt, 1, 0x102)!
+    expect(playfieldDelay(packed, 1)).toBe(13)
+    expect(playfieldDelay(packed, 2)).toBe(11)
   })
 })

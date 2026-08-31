@@ -26,6 +26,11 @@ import { EMPTY_PLANE, Runtime } from './runtime'
 import type { Rainbow } from './runtime'
 import { AmosError } from '../interp/values'
 import type { Screen } from './screen'
+
+/** The independent dual-playfield delays packed into BPLCON1. */
+export function playfieldDelay(bplcon1: number, playfield: 1 | 2): number {
+  return playfield === 2 ? (bplcon1 >> 4) & 15 : bplcon1 & 15
+}
 import { BankImage } from './objects'
 import type { HwSprite } from './objects'
 import { COOKIE_CUT, mintermBit } from '../amiga/blitter'
@@ -758,7 +763,12 @@ export class Display {
             const rowSkew = laced ? ri * s.rowBytes : 0
             const pw = hires ? 1 : 2
             // where the first fetched pixel lands, in colour clocks
-            const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
+            // PF1H and PF2H are independent. Dual playfield is painted in
+            // separate passes, so each pass takes its own BPLCON1 nibble;
+            // applying PF1H to both made Dlscreenoffset's high-nibble write
+            // invisible.
+            const delay = playfieldDelay(bplcon1, dblpf && layer === 'pf2' ? 2 : 1)
+            const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + delay
             const originX = (dataStart - 1 - 128) * 2
             const colour = this.rowColours(s, hwPal, hwPalLo, ham)
             /** one pen straight out of the register file, as 24 bits */
