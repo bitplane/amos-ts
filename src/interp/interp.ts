@@ -834,6 +834,11 @@ export class Interp {
     // `InEnd` is 10 and `InStop` is 9. A caller that set `endCode` itself --
     // Edit, Direct and System -- keeps what it wrote
     if (this.endCode === 0) this.endCode = status === 'ended' ? 10 : 9
+    // `InEnd` (+ILib.s:520) is `moveq #NbEnd,d0 / bra RunErr` like every other
+    // stop, and `rErr1` (:1362) writes `d7-2` into `VerPos(a5)` before it
+    // leaves. So an ordinary End records a position too, and `Ed_Ligne` names
+    // its line rather than line 1.
+    this.endAt = this.stopOffset()
     // Prg_Pull (+Verif.s:4530). An accessory reaching the end of its program
     // does not stop the machine: the editor-return path pulls the program
     // stack, which puts back the interpreter data of whoever Prun'd it —

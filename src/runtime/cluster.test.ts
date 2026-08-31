@@ -2628,6 +2628,12 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     off.frame()
     expect(off.interp.endCode).toBe(0)
     expect(off.interp.endAt).toBe(-1)
+    // an ordinary End is the same exit: `InEnd` (+ILib.s:520) is
+    // `moveq #NbEnd,d0 / bra RunErr`, so it records a position as well
+    const done = new Runtime(tokenize('Print "one"\nPrint "two"\nEnd', table), table, { maxSteps: 300_000 })
+    done.runHeadless(50)
+    expect(done.interp.endCode).toBe(10)
+    expect(done.interp.endAt).toBeGreaterThan(0)
   })
 
   it('Break Off swallows Ctrl-C, and Break On takes the handler back off', () => {
