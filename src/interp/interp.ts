@@ -580,6 +580,8 @@ export class Interp {
   ) {
     this.names = new Names(table, opts.extensions ?? new Map())
     this.program = prescan(lines, this.names)
+    // the Test pass decided these, not the run: see Program.globals
+    this.globals = new Set(this.program.globals)
     this.io = opts.io ?? { write: () => {} }
     this.policy = opts.onUnimplemented ?? 'throw'
     // no default cap: an interactive session runs forever, like the
@@ -666,7 +668,7 @@ export class Interp {
     this.frames = [newFrame(null, 0, 0)]
     this.loops = []
     this.gosubs = []
-    this.globals = new Set()
+    this.globals = new Set(this.program.globals)
     this.dataPtr = { li: 0, ti: 0 }
     this.dataInStmt = false
     this.branchElseIf = null
@@ -1475,6 +1477,11 @@ export class Interp {
       throw new AmosError(`wrong number of parameters for ${name.toUpperCase()}`)
     }
     const frame = newFrame(this.afterCurrentStatement(), this.loops.length, this.gosubs.length)
+    // Its own phase has already been verified, so every Shared in the body
+    // is in force from the first statement -- including one written under
+    // the assignment it is meant to cover.
+    const shared = this.program.procShared.get(name)
+    if (shared) for (const k of shared) frame.shared.add(k)
     for (let i = 0; i < args.length; i++) {
       const p = proc.params[i]!
       const v = coerce(p.type, args[i]!)

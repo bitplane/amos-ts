@@ -338,6 +338,34 @@ export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
   },
 }
 
+/**
+ * Shared and Global at run time: walk the names and do nothing with them.
+ *
+ * `InShared` (+ILib.s:4177) serves both, and `Sha0` is the whole of it. It
+ * reads each name's length byte, steps over the name, skips an optional
+ * "()" and loops while the next token is a comma. It never touches a
+ * variable table.
+ *
+ * The binding happened when the editor Tested the program. `VerSha`
+ * (+Verif.s:3826) marks the variable's record, and which mark it gets is
+ * decided by `tst.w Phase(a5)` (:3879): in the main program the byte goes to
+ * 2, "Devient globale!", and inside a procedure it stops at 1, so a `Global`
+ * WRITTEN IN a procedure is only that procedure's Shared. `Program.globals`
+ * and `Program.procShared` hold both, read out by the prescan.
+ *
+ * The check for a variable is kept because a program built straight from
+ * text has not been through the `cmp.w #_TkVar,(a6)+ / bne VerSynt` that
+ * rejects it at +Verif.s:3842.
+ */
+function declaration(it: Interp, what: string): void {
+  do {
+    const t = it.tok()
+    if (t?.kind !== 'var') throw new AmosError(`variable expected in ${what}`)
+    it.advance()
+    if (it.accept('(')) it.expect(')')
+  } while (it.accept(','))
+}
+
 export const INSTR: Record<string, Instr> = {
   // ---- output ----
   print(it) {
@@ -795,44 +823,10 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   shared(it) {
-    // InShared (+ILib.s:4177) does nothing at run time — Sha0 walks its own
-    // argument list, steps over an optional "()", loops on a comma and
-    // returns. It never touches a variable table, because the editor's Test
-    // pass has already assigned the slots; the instruction only has to get
-    // out of the way at run time.
-    //
-    // So `Shared` in the MAIN program is not the no-op it looks like here: the
-    // names it lists are the main program's variables, and every procedure
-    // that mentions one gets that slot. Treating it as Global is what
-    // reproduces the observable behaviour. TURBO's Starfield demo does exactly
-    // this — Dim, then `Shared AANTAL,X_AS(),SPEED()` at the top level, then
-    // procedures using the arrays with no declaration of their own.
-    const frame = it.frames[it.frames.length - 1]!
-    const inProc = it.frames.length > 1
-    do {
-      const t = it.tok()
-      if (t?.kind !== 'var') throw new AmosError('variable expected in Shared')
-      it.advance()
-      // "Global Y()" declares the ARRAY Y, not the scalar Y — AMOS keeps
-      // them as separate variables, so the declaration has to as well or a
-      // scalar parameter named Y is wrongly treated as global (worms).
-      const isArray = it.accept('(')
-      if (isArray) it.expect(')')
-      const key = varKey(t.name, t.flags) + (isArray ? '()' : '')
-      if (inProc) frame.shared.add(key)
-      else it.globals.add(key)
-    } while (it.accept(','))
+    declaration(it, 'Shared')
   },
   global(it) {
-    do {
-      const t = it.tok()
-      if (t?.kind !== 'var') throw new AmosError('variable expected in Global')
-      it.advance()
-      // an array declaration is a different variable from the scalar
-      const isArray = it.accept('(')
-      if (isArray) it.expect(')')
-      it.globals.add(varKey(t.name, t.flags) + (isArray ? '()' : ''))
-    } while (it.accept(','))
+    declaration(it, 'Global')
   },
 
   // ---- data ----

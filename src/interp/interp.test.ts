@@ -413,6 +413,72 @@ describe('procedures', () => {
     expect(run(glob)).toBe(' 5\n')
   })
 
+  it('a Global declared after the call still binds (VerSha +Verif.s:3826)', () => {
+    // `InShared` is a no-op, so the declaration cannot take effect when the
+    // statement runs. It took effect when the editor Tested the program.
+    // `VerSha` verifies the WHOLE main program in Phase 0 and every procedure
+    // in a phase of its own afterwards (`PTest` +Verif.s:73), so a procedure
+    // sees every Global the main program declares, above the call or below it.
+    //
+    // 18th Hole is the game that needs it. `On H Proc _HOL1,.._HOL18` is one
+    // line above `Global GX,GY,IN,LA,SH,SW#,PL,BX#,BY#,..`, and `_HOL1` is
+    // `BX#=262 : BY#=188`, the tee. Binding on execution made those two a
+    // local pair thrown away at End Proc, and the ball teed off from 0,0.
+    // On hole 1 only, because every later hole re-enters at label 46 with
+    // the declaration already run.
+    const late = ['SETIT', 'Global G', 'Print G', 'Procedure SETIT', '   G=42', 'End Proc'].join('\n')
+    expect(run(late)).toBe(' 42\n')
+    // and a float, which is the pair 18th Hole loses
+    const float = ['SETIT', 'Global B#', 'Print B#', 'Procedure SETIT', '   B#=262', 'End Proc'].join('\n')
+    expect(run(float)).toBe(' 262\n')
+    // Shared in the main program is the same routine, so it hoists too
+    const sh = ['SETIT', 'Shared S', 'Print S', 'Procedure SETIT', '   S=7', 'End Proc'].join('\n')
+    expect(run(sh)).toBe(' 7\n')
+    // and Shared inside a procedure is verified in that procedure's own
+    // phase, so it covers the whole body rather than the lines below it
+    const inProc = ['V=1', 'BUMP', 'Print V', 'Procedure BUMP', '   V=9', '   Shared V', 'End Proc'].join('\n')
+    expect(run(inProc)).toBe(' 9\n')
+    // an array is a separate name, and hoists as one
+    const arr = ['Dim A(3)', 'SET', 'Global A()', 'Print A(1)', 'Procedure SET', '   A(1)=7', 'End Proc'].join('\n')
+    expect(run(arr)).toBe(' 7\n')
+    // and the construct 18th Hole actually calls the procedure with
+    const on = [
+      'H=1',
+      'On H Proc _HOL1,_HOL2',
+      'Global BX#,BY#',
+      'Print BX#;" ";BY#',
+      'Procedure _HOL1',
+      '   BX#=262 : BY#=188',
+      'End Proc',
+      'Procedure _HOL2',
+      '   BX#=277 : BY#=197',
+      'End Proc',
+    ].join('\n')
+    expect(run(on)).toBe(' 262  188\n')
+  })
+
+  it('Global inside a procedure is only that procedure Shared (+Verif.s:3878)', () => {
+    // `move.b #1,5(a2)` marks the record, and `tst.w Phase(a5) / bne.s Sh1c`
+    // skips the `addq.b #1,5(a2)` that would make it 2. So the 1 a procedure
+    // writes reaches the main program's variable and no further: P below
+    // shares X, and Q, which declares nothing, keeps its own.
+    const src = [
+      'X=1',
+      'P',
+      'Q',
+      'Print X',
+      'Procedure P',
+      '   Global X',
+      '   X=5',
+      'End Proc',
+      'Procedure Q',
+      '   X=99',
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe(' 5\n')
+  })
+
+
   it('Shared in the main program means Global (InShared +ILib.s:4177)', () => {
     // InShared does nothing at run time — Sha0 walks its own argument list,
     // steps over an optional "()", loops on a comma and returns, never

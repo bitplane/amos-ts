@@ -74,6 +74,27 @@ export interface Program {
   scopedLabels: Map<string, Addr>
   procs: Map<string, ProcInfo>
   ctrl: Map<Tok, Ctrl>
+  /**
+   * Every name the MAIN program declares Global or Shared, as a var key.
+   *
+   * `InShared` (+ILib.s:4177) does nothing at run time: `Sha0` reads each
+   * name's length, steps over it, skips an optional "()", loops on a comma
+   * and returns. The scoping is decided by the Test pass instead. `VerSha`
+   * (+Verif.s:3826) walks the whole main program in Phase 0, and `PTest`
+   * (:73) verifies every procedure in a phase of its own afterwards, so a
+   * procedure sees a Global written BELOW the line that calls it.
+   */
+  globals: Set<string>
+  /**
+   * Per-procedure `Shared` names, keyed by procedure name.
+   *
+   * Same routine, same reason: a procedure is one verify phase, so `Shared`
+   * covers the whole body rather than the statements after it. `Locale`
+   * (+Verif.s:3499) clears the global flags on the way in and `VerSha`'s
+   * `move.b #1,5(a2)` sets this one, which `tst.w Phase(a5) / bne.s Sh1c`
+   * (:3879) stops short of the 2 that means Global.
+   */
+  procShared: Map<string, Set<string>>
   /** every Data token, in program order (for Read/Restore) */
   dataToks: Addr[]
   /**
@@ -132,6 +153,8 @@ export function prescan(lines: TokenLine[], names: Names): Program {
     scopedLabels: new Map(),
     procs: new Map(),
     ctrl: new Map(),
+    globals: new Set(),
+    procShared: new Map(),
     dataToks: [],
     accessory: false,
     warnings: [],
@@ -230,6 +253,42 @@ export function prescan(lines: TokenLine[], names: Names): Program {
       if (name === undefined) continue
 
       switch (name) {
+        case 'global':
+        case 'shared': {
+          // Read the declaration here rather than when the statement runs.
+          // A procedure cannot nest in AMOS, so the innermost open proc is
+          // the phase this declaration belongs to; anything else is Phase 0.
+          let owner: string | null = null
+          for (let i = stack.length - 1; i >= 0; i--) {
+            const e = stack[i]!
+            if (e.t === 'proc') {
+              owner = e.info.name
+              break
+            }
+          }
+          let set = program.globals
+          if (owner !== null) {
+            set = program.procShared.get(owner) ?? new Set()
+            program.procShared.set(owner, set)
+          }
+          const at = (k: number): string | undefined => {
+            const t = toks[k]
+            return t === undefined ? undefined : names.of(t)
+          }
+          for (let k = ti + 1; k < toks.length; k++) {
+            const v = toks[k]
+            if (v === undefined || v.kind !== 'var') break
+            // `Global Y()` declares the ARRAY Y, a different variable from
+            // the scalar: `bset #6,d2` (+Verif.s:3853) goes into the flag
+            // byte the name search then compares.
+            const arr = at(k + 1) === '('
+            set.add(varKey(v.name, v.flags) + (arr ? '()' : ''))
+            if (arr) k += 2
+            if (at(k + 1) !== ',') break
+            k++
+          }
+          break
+        }
         case 'set accessory':
           // the verifier sets it, so it holds from the first line
           program.accessory = true
