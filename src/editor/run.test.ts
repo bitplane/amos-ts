@@ -157,7 +157,8 @@ describe('the ...Testing... box', () => {
   it('stays up when the test fails, because `jsr 4(a2)` is never reached', () => {
     const e = openRaw(big('Next A'))
     host(e)
-    expect(edCall(e, ED.RUN)).toBe(0)
+    // the alert `Ed_ErrTest` raised, which is the Test message
+    expect(edCall(e, ED.RUN)).toBe(e.testError)
     expect(e.testError).toBeGreaterThan(0) // the walk stopped
     expect(e.editor.tstMesOn).toBe(true)
     expect(e.editor.running).toEqual([])
@@ -277,6 +278,18 @@ describe('when the program stops', () => {
     expect(e.alertTime).toBe(200)
     expect(seen[0]!.which).toBe(59) // EdD_Ligne
     expect(seen[0]!.strings?.[0]).toBe(ED_RUN_MESSAGES[81])
+  })
+
+  it('names the message and the line for a Ctrl-C break', () => {
+    // `Tst00` (+ILib.s:961) is `moveq #9,d0 / bra RunErr`, and `RunErr` writes
+    // `VerPos(a5)` on the way out. A break that carried neither came up as
+    // " at line 1." with the message slot empty.
+    const e = open()
+    const { seen } = asks(e, 2)
+    const at = e.prog.findLine(1).at - e.prog.stBas
+    stop(e, 9, at)
+    expect(seen[0]!.strings?.[0]).toBe('Program interrupted')
+    expect(seen[0]!.values?.[1]).toBe(2)
   })
 
   it('puts the cursor on the byte the program stopped at', () => {

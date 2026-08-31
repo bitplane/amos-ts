@@ -5038,24 +5038,31 @@ function run(e: Edit, fn: () => void): number {
     }
     // the same shape again: `Ed_ErrTest` has already moved the cursor, and
     // the message it puts up comes from `Ed_TstMessages` rather than the
-    // editor's own table, so what is kept here is the code
-    if (err instanceof VerifyError) {
-      e.testError = err.code
-      return 0
-    }
-    if (!(err instanceof EditorAlert)) throw err
-    e.alert = err.code
-    e.alertTime = err.duration
-    e.alertText = err.text
+    // editor's own table, so what is kept here is the code.
+    //
+    // It is also SHOWN. `Ed_ErrTest` (+Edit.s:8246) is `bra.s Ed_Errr` with a
+    // negative d0, so `tst.l d0 / bmi Ed_ErrEdit` takes it straight to the
+    // alert, and `Ed_ErrEdit` ends `moveq #200,d1 / bsr Ed_Alert`. Keeping
+    // only the code left the status line blank: a program with a syntax error
+    // refused to run and said nothing about why.
+    const alert =
+      err instanceof VerifyError
+        ? new EditorAlert(err.code, 200, `${ED_TST_MESSAGES[err.code - 1] ?? `test error ${err.code}`}.`)
+        : err
+    if (err instanceof VerifyError) e.testError = err.code
+    if (!(alert instanceof EditorAlert)) throw alert
+    e.alert = alert.code
+    e.alertTime = alert.duration
+    e.alertText = alert.text
     if (e.editor.zappeuse) {
       // `Ed_ZapAlert` (:7614): the message the status line would have shown is
       // the remote call's answer instead, and the magic buffer is not written
       e.editor.zapError = -1
-      e.editor.zapMessage = err.code
-      e.editor.zapText = err.text
+      e.editor.zapMessage = alert.code
+      e.editor.zapText = alert.text
     } else {
-      e.editor.alertSaved = err.code
-      e.editor.alertSavedText = err.text
+      e.editor.alertSaved = alert.code
+      e.editor.alertSavedText = alert.text
     }
   }
   return e.alert

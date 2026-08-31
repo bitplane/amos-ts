@@ -812,6 +812,24 @@ export class Interp {
    */
   endCode = 0
 
+  /**
+   * `VerPos(a5)` for the same stop, or -1 when there is no offset to give.
+   *
+   * `RunErr` falls into `rErr1` (+ILib.s:1370), which writes `d7-2` there
+   * before it leaves, so a Ctrl-C break records a position exactly as a
+   * run-time error does. `Ed_Ligne` (+Edit.s:8344) names that line and
+   * `Ed_ErrEdit` (:8291) puts the cursor on it.
+   */
+  endAt = -1
+
+  /** `d7-2`: the source offset of the token the interpreter is sitting on */
+  private stopOffset(): number {
+    const line = this.program.lines[this.stmtStart.li]
+    if (!line?.offsets) return -1
+    const ti = Math.min(this.stmtStart.ti, line.tokens.length - 1)
+    return line.offsets[Math.max(0, ti)] ?? -1
+  }
+
   halt(status: 'ended' | 'stopped', returnToCaller = true): void {
     // `InEnd` is 10 and `InStop` is 9. A caller that set `endCode` itself --
     // Edit, Direct and System -- keeps what it wrote
@@ -1422,6 +1440,13 @@ export class Interp {
       // interrupted" (`moveq #9,d0 / bra RunErr`), so a program with `On Error
       // Goto` in force catches Ctrl-C and can carry on. This stops the
       // interpreter outright, which no handler can see.
+      //
+      // `moveq #9,d0` is the half that is NOT a deviation, and skipping it
+      // left `endCode` at 0. `Ed_GetError` (+Edit.s:8323) reads a zero out of
+      // the TEST table at index -1, so the requester came up as " at line 1."
+      // with no message in it at all.
+      this.endCode = 9
+      this.endAt = this.stopOffset()
       this.status = 'stopped'
       return
     }

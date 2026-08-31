@@ -1141,9 +1141,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
           // It refused, and said why on the status line. The program still
           // runs: the interpreter is more forgiving than the editor and a
           // player that will not play is worse than one that cannot edit.
-          // `Ed_FCall` answers 0 for a failed Test pass the same as for a
-          // success, so the reason is in `Ed_ErrTest`'s code and not in the
-          // alert. This is the one a program hits: the interpreter runs
+          // `Ed_ErrTest`'s own code is what names the reason -- the alert
+          // carries it too, but only `Edit.testError` says it was the Test
+          // pass. This is the one a program hits: the interpreter runs
           // things the Test pass will not have.
           const t = amos.testError
           const why = t.code >= 0 ? `the Test pass refused it: ${t.text}` : amos.alert.text || `Ed_Run answered ${alert}`
@@ -1363,7 +1363,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
             // `Ed_Errr` (+Edit.s:8261) is what opens the editor, or does not:
             // `Ed_Ligne` and `Ed_ErrEdit` both call `Ed_OpenEditor` and
             // `Ed_ErrDirect` opens the escape screen over it
-            amos.finishRun(rt.interp.endCode)
+            amos.finishRun(rt.interp.endCode, rt.interp.endAt)
             rt = amos.runtime ?? rt
             if (amos.inEscape) rt.directScreen.open()
           } else {

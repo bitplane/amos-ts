@@ -690,7 +690,7 @@ export class Amos {
     const rt = this.startRun()
     try {
       rt.runHeadless(this.opts.maxFrames ?? 5_000)
-      return this.finishRun(rt.interp.endCode)
+      return this.finishRun(rt.interp.endCode, rt.interp.endAt)
     } catch (e) {
       if (!(e instanceof AmosRuntimeError)) throw e
       return this.finishRun(e)
@@ -730,15 +730,15 @@ export class Amos {
    * Takes the number, or the error the interpreter threw, which carries the
    * number and `VerPos(a5)` with it.
    */
-  finishRun(end: number | AmosRuntimeError): number {
+  finishRun(end: number | AmosRuntimeError, endAt = -1): number {
     // `Ed_Ligne` (+Edit.s:8344) asks before it does anything else, so the
     // return from a run is as much a question as a command is
-    return this.attempt(() => this.errRun(end))
+    return this.attempt(() => this.errRun(end, endAt))
   }
 
-  private errRun(end: number | AmosRuntimeError): number {
+  private errRun(end: number | AmosRuntimeError, endAt: number): number {
     let code = 0
-    let at = -1
+    let at = endAt
     let text: string | null = null
     if (typeof end === 'number') code = end
     else {

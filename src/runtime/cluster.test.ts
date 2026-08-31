@@ -2605,6 +2605,31 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(rt2.interp.done).toBe(true)
   })
 
+  it('a break stops with error 9 and the offset it stopped on (Tst00 +ILib.s:961)', () => {
+    /*
+     * `moveq #9,d0 / bra RunErr`, and `RunErr` falls into `rErr1`
+     * (+ILib.s:1370), which writes `d7-2` into `VerPos(a5)`. Both halves are
+     * what `Ed_ErrRun` reads: without the 9, `Ed_GetError` (+Edit.s:8323)
+     * looked a zero up in the TEST table and the requester came up as
+     * " at line 1." with no message and no line.
+     */
+    const rt = new Runtime(tokenize('Print "one"\nDo : Wait Vbl : Loop', table), table, { maxSteps: 300_000 })
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.interp.requestBreak()
+    rt.frame()
+    expect(rt.interp.done).toBe(true)
+    expect(rt.interp.endCode).toBe(9)
+    // the second line, which is where the loop is
+    expect(rt.interp.endAt).toBeGreaterThan(0)
+    // `Break Off` swallows the key, so there is no stop to record
+    const off = new Runtime(tokenize('Break Off\nDo : Wait Vbl : Loop', table), table, { maxSteps: 300_000 })
+    for (let i = 0; i < 3; i++) off.frame()
+    off.interp.requestBreak()
+    off.frame()
+    expect(off.interp.endCode).toBe(0)
+    expect(off.interp.endAt).toBe(-1)
+  })
+
   it('Break Off swallows Ctrl-C, and Break On takes the handler back off', () => {
     /*
      * `Tst00` (+ILib.s:961) reads the ENABLE bit before it looks for a

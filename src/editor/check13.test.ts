@@ -73,7 +73,9 @@ describe('Ed_Check1.3', () => {
    */
   it('stops at the first thing 1.3 has not got', () => {
     const e = open('Print "one"\nSet Accessory\nPrint "two"')
-    expect(edCall(e, ED.CHECK_13)).toBe(0)
+    // `Ed_ErrTest` (+Edit.s:8246) ends in `Ed_Alert`, so the answer is the
+    // test message and not 0
+    expect(edCall(e, ED.CHECK_13)).toBe(47)
     expect(e.testError).toBe(47)
     expect(ED_TST_MESSAGES[46]).toBe('Instruction not compatible with AMOS 1.3')
     expect(e.line).toBe(1)

@@ -160,8 +160,9 @@ describe('Test', () => {
 
   it('puts the cursor on the byte the walk stopped at', () => {
     const e = untested('Print "one"\nPrint "two" : Next I')
-    expect(edCall(e, ED.TEST)).toBe(0)
-    // 34 is "NEXT without FOR" in Ed_TstMessages
+    // 34 is "NEXT without FOR" in Ed_TstMessages, and `Ed_ErrTest`
+    // (+Edit.s:8246) puts it up rather than answering 0
+    expect(edCall(e, ED.TEST)).toBe(34)
     expect(e.testError).toBe(34)
     expect(e.line).toBe(1)
     expect(e.xCu).toBe('Print "two" : '.length)
@@ -169,10 +170,21 @@ describe('Test', () => {
     expect(e.prog.modified).toBe(true)
   })
 
+  it('puts the reason on the status line, not just in testError', () => {
+    // `Ed_ErrTest` (+Edit.s:8246) is `bra.s Ed_Errr` with a negative d0, so
+    // `tst.l d0 / bmi Ed_ErrEdit` takes it to `Ed_Alert` with 200 frames.
+    // Keeping only the code left the line blank: Test said nothing and Run
+    // refused without saying why.
+    const e = untested('Print "one"\nNext I')
+    edCall(e, ED.TEST)
+    expect(e.alertText).toBe('NEXT without FOR.')
+    expect(e.alertTime).toBe(200)
+  })
+
   it('is run again by the next command that needs it', () => {
     const e = untested('Print "one"\nNext I')
-    expect(edCall(e, ED.TEST)).toBe(0)
-    expect(edCall(e, ED.TEST)).toBe(0)
+    expect(edCall(e, ED.TEST)).toBe(34)
+    expect(edCall(e, ED.TEST)).toBe(34)
     expect(e.testError).toBe(34)
   })
 
@@ -206,7 +218,7 @@ describe('an error inside a closed procedure', () => {
   it('keeps the address, and drops the cursor to column 0', () => {
     const e = broken()
     e.yCu = 0
-    expect(edCall(e, ED.TEST)).toBe(0)
+    expect(edCall(e, ED.TEST)).toBe(41)
     expect(e.testError).toBe(41) // Undefined label
     // `clr.w (sp)` in Ed_SetXY: the cursor cannot go inside a fold, so it
     // lands on the fold's line at column 0 and the real column is kept
