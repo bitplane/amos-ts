@@ -4793,7 +4793,7 @@ export class Runtime {
    *
    * AMOS's autoback bracket is `TAbk1 / op / TAbk2 / op / TAbk3` and under
    * `Autoback 2` all three wait: `bsr WVbl` in TAbk1 (+W.s:3554), in TAbk2B
-   * (+W.s:3581) and in TAbk3B (+W.s:3609), the last two after a `ScSwapS`.
+   * (+W.s:3581) and in TAbk3B (+W.s:3608), the last two after a `ScSwapS`.
    * So one bracketed keyword costs THREE frames, and only three keywords are
    * bracketed --- `Cls`, `Paste Bob` and the `Print` family.
    *
@@ -4810,7 +4810,7 @@ export class Runtime {
    * TAbk1 is `move.w EcAuto(a0),d0 / subq.w #1,d0 / ble.s TAbk1X` (+W.s:3551),
    * so Autoback 0 and 1 skip the wait and only Autoback 2 pays it --- which
    * is the value `Double Buffer` writes for you (`move.w #2,EcAuto(a4)`,
-   * +W.s:2770). A program that says `Autoback 0` afterwards, as Chopper II
+   * +W.s:2769). A program that says `Autoback 0` afterwards, as Chopper II
    * does, buys its speed back and gets the flicker with it.
    */
   autobackVbl(s: Screen): void {
