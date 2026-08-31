@@ -2815,6 +2815,20 @@ Gui Clone 1,False : Print Gui Colour(1) : Print Gui Screen Colours`
     expect(() => run('Gui Clone 9,True', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
   })
 
+  it('Gui Clone shows the live AMOS bitmap and restores the GUI bitmap', () => {
+    const src = `Screen Open 0,320,200,16,Lowres : Plot 7,9,3
+Gui Screen Open 1,320,200,16,0,"S" : Gui Clone 1,True`
+    const cloned = run(src, bank)
+    const screen = cloned.gui.screens.get(1)!
+    expect(screen.rp.bitMap).toBe(cloned.screen.rp.bitMap)
+    expect(screen.rp.point(7, 9)).toBe(3)
+
+    const restored = run(`${src} : Gui Clone 1,False`, bank)
+    const own = restored.gui.screens.get(1)!
+    expect(own.rp.bitMap).not.toBe(restored.screen.rp.bitMap)
+    expect(own.rp.point(7, 9)).toBe(0)
+  })
+
   /**
    * `Accessories/RTGBob.Amos` writes the bank this reads: a twelve-byte
    * header, 32 palette quads, 32 empty longwords for the pens and one

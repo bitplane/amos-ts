@@ -3194,6 +3194,13 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < screen.palette.length && i < from.length; i++) {
         setColour(screen, i, expand12(from[i]! & 0xfff))
       }
+      if (on) {
+        if (!screen.cloned) screen.cloneSaved = screen.rp.bitMap
+        screen.rp.bitMap = rt.screen.rp.bitMap
+      } else if (screen.cloned && screen.cloneSaved !== undefined) {
+        screen.rp.bitMap = screen.cloneSaved
+        delete screen.cloneSaved
+      }
       screen.cloned = on
     },
 
@@ -5412,4 +5419,3 @@ export function guiPost(
   }
   rt.gui.post(e)
 }
-

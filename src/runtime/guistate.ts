@@ -294,6 +294,8 @@ export interface GuiScreen {
    * a program can see of that here is which picture the screen is showing.
    */
   cloned: boolean
+  /** the GUI screen's own bitmap while `Gui Clone` points at AMOS's */
+  cloneSaved?: BitMap
 }
 
 /** a screen's RastPort, sized and coloured the way `Gui Screen Open` asked */
