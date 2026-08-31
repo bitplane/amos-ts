@@ -2733,7 +2733,7 @@ export function makeDmeFunctions(rt: Runtime): Record<string, Func> {
     'thx vu': (_, a) => {
       const v = Number(a[0]!.k === 'str' ? -1 : a[0]!.n) | 0
       if (v < 0 || v >= 4) badCall()
-      return VI(0)
+      return VI(st().thx.channels[v]!.volume)
     },
 
     /** =P61 Song Pos — routine 275 ($7708), guarded by data+$42 as `=Ptm Song Pos` is */

@@ -42,7 +42,7 @@ function mod(tag = 'M.K.', positions = 4): Uint8Array {
 
 let printed = ''
 
-function run(src: string[], files: Record<string, Uint8Array> = {}): { rt: Runtime; audio: NullAudio } {
+function run(src: string[], files: Record<string, Uint8Array> = {}, prep?: (rt: Runtime) => void): { rt: Runtime; audio: NullAudio } {
   const exts = new Map([[15, dme.table]])
   const fs = new AmigaFS()
   const vol = fs.mountMemory('Work')
@@ -58,6 +58,7 @@ function run(src: string[], files: Record<string, Uint8Array> = {}): { rt: Runti
     audio,
     fs,
   })
+  prep?.(rt)
   mustFinish(rt.runHeadless(2000))
   return { rt, audio }
 }
@@ -287,6 +288,13 @@ describe('the THX block — routines 187 to 201', () => {
   it('Thx Volume takes 0..64 and raises outside it', () => {
     expect(() => run([TLOAD, 'Thx Volume 65'], THX)).toThrow()
     expect(() => run([TLOAD, 'Thx Volume -1'], THX)).toThrow()
+  })
+
+  it('=Thx Vu reads the selected channel volume', () => {
+    run([TLOAD, 'Print Thx Vu(2)'], THX, (next) => {
+      next.dme.thx.channels[2]!.volume = 37
+    })
+    expect(out()).toEqual(['37'])
   })
 
   it('the six names it shares with THX 0.6 are its own, under its own slot', () => {
