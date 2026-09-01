@@ -123,6 +123,7 @@ import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
+import { displayModeOf } from '../amiga/displayinfo'
 
 export function newGuiState(release: GuiRelease = '2.10'): GuiState {
   const g = new GuiState()
@@ -4366,10 +4367,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * right about the 1 and wrong about the 0: an absent mode answers -1 or
      * lower.
      *
-     * DEVIATION: this port has no display database. Every mode answers
-     * available, which is the 1.
+     * The modeled PAL display database is built from the installed monitor
+     * driver. An id absent from it corresponds to DI_AVAIL_NOMONITOR (-2),
+     * so the routine's final addq makes the answer -1.
      */
-    'gui monitor': (): Value => VI(1),
+    'gui monitor': (_, a): Value => VI(displayModeOf(int(a[0]!) >>> 0) === null ? -1 : 1),
 
     /**
      * `A=Gui Aga(colour palette)` — "Convert an 8-bit palette value into AGA

@@ -1947,9 +1947,9 @@ describeWith('the screen group', exampleBank(), (bank) => {
     expect(GUI_OS_VERSION).toBeGreaterThanOrEqual(39)
   })
 
-  /** ModeNotAvailable plus one, and this port has no display database */
-  it('Gui Monitor answers available for everything', () => {
-    expect(runOut('Print Gui Monitor($A9004)', bank).out.trim()).toBe('1')
+  /** ModeNotAvailable plus one: 0 becomes 1, DI_AVAIL_NOMONITOR -2 becomes -1 */
+  it('Gui Monitor checks the installed PAL display database', () => {
+    expect(runOut('Print Gui Monitor($21000) : Print Gui Monitor($A9004)', bank).out.trim().split('\n')).toEqual(['1', '-1'])
   })
 })
 
