@@ -44,6 +44,10 @@ import {
   MUIM_LIST_DELETE_DRAG_IMAGE,
   MUIM_LIST_LAYOUT,
   MUIM_LIST_SET_DROP_MARK,
+  MUIM_NUMERIC_APPLY_DEFAULT,
+  MUIM_NUMERIC_MEASURE,
+  MUIM_NUMERIC_STRINGIFY_CURRENT,
+  MUIA_NUMERIC_APPLY_DEFAULT,
   MUIA_GADGET_ACTIVE,
   MUIA_GADGET_WINDOW,
   MUIA_MENUITEM_COPY_STRINGS,
@@ -1049,6 +1053,88 @@ describe('muimaster: Group.mui 19.35', () => {
     m.set(group, MUI.MUIA_Group_ActivePage, 0)
     m.doMui(group, MUI.MUIM_Import, [ds.address])
     expect(m.get(group, MUI.MUIA_Group_ActivePage)).toBe(1)
+  })
+})
+
+describe('muimaster: Numeric.mui 19.35', () => {
+  const poolText = (m: MuiMaster, address: number): string => {
+    let out = ''
+    for (let at = address - m.pool.base; m.pool.buffer[at] !== 0; at++) out += String.fromCharCode(m.pool.buffer[at]!)
+    return out
+  }
+
+  it('installs binary defaults, starts at Default when Value is absent, and clips signed values', () => {
+    const m = new MuiMaster()
+    const plain = m.newObjectA(MUIC.MUIC_Numeric)!
+    expect([
+      m.get(plain, MUI.MUIA_Numeric_Min), m.get(plain, MUI.MUIA_Numeric_Max),
+      m.get(plain, MUI.MUIA_Numeric_Value), m.get(plain, MUI.MUIA_Numeric_Default),
+      m.get(plain, MUI.MUIA_Numeric_CheckAllSizes), m.get(plain, MUI.MUIA_Numeric_Reverse),
+    ]).toEqual([0, 100, 0, 0, 0, 0])
+    const numeric = m.newObjectA(MUIC.MUIC_Numeric, [
+      tag(MUI.MUIA_Numeric_Min, -10), tag(MUI.MUIA_Numeric_Max, 10), tag(MUI.MUIA_Numeric_Default, 7),
+    ])!
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(7)
+    m.set(numeric, MUI.MUIA_Numeric_Value, 99)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(10)
+    m.set(numeric, MUI.MUIA_Numeric_Max, 4)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(4)
+    m.set(numeric, MUI.MUIA_Numeric_Min, 6)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(6)
+  })
+
+  it('implements default, increase/decrease, formatting, and all three private methods', () => {
+    const m = new MuiMaster()
+    const numeric = m.newObjectA(MUIC.MUIC_Numeric, [
+      tag(MUI.MUIA_Numeric_Min, -20), tag(MUI.MUIA_Numeric_Max, 20),
+      tag(MUI.MUIA_Numeric_Default, 3), tag(MUI.MUIA_Numeric_Value, 10),
+      tag(MUIA_NUMERIC_APPLY_DEFAULT, 1),
+    ])!
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_Decrease, [4])).toBe(0)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(6)
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_Increase, [2])).toBe(0)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(8)
+    expect(poolText(m, m.doMui(numeric, MUI.MUIM_Numeric_Stringify, [-12]))).toBe('-12')
+    expect(poolText(m, m.doMui(numeric, MUIM_NUMERIC_STRINGIFY_CURRENT))).toBe('8')
+    expect(m.doMui(numeric, MUIM_NUMERIC_APPLY_DEFAULT)).toBe(0)
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(3)
+    const writes = new Map<number, number>()
+    m.writeLong = (address, value) => { writes.set(address, value); return true }
+    expect(m.doMui(numeric, MUIM_NUMERIC_MEASURE, [0x1000, 0x1004])).toBe(0)
+    expect(writes.get(0x1000)).toBeGreaterThan(0)
+    expect(writes.get(0x1004)).toBeGreaterThan(0)
+  })
+
+  it('uses the binary inclusive-range scale arithmetic and mirrors Reverse results', () => {
+    const m = new MuiMaster()
+    const numeric = m.newObjectA(MUIC.MUIC_Numeric, [
+      tag(MUI.MUIA_Numeric_Min, -10), tag(MUI.MUIA_Numeric_Max, 10), tag(MUI.MUIA_Numeric_Value, 0),
+    ])!
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_ValueToScale, [0, 99])).toBe(49)
+    const scale = [0, 99, 75]
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_ScaleToValue, scale)).toBe(5)
+    expect(scale[2]).toBe(47)
+    m.set(numeric, MUI.MUIA_Numeric_Reverse, 1)
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_ValueToScale, [0, 99])).toBe(50)
+    expect(m.doMui(numeric, MUI.MUIM_Numeric_ScaleToValue, [0, 99, 75])).toBe(-5)
+  })
+
+  it('handles MUI keys and round-trips Value through its ExportID', () => {
+    const m = new MuiMaster()
+    const numeric = m.newObjectA(MUIC.MUIC_Numeric, [
+      tag(MUI.MUIA_Numeric_Min, 0), tag(MUI.MUIA_Numeric_Max, 100),
+      tag(MUI.MUIA_Numeric_Default, 25), tag(MUI.MUIA_Numeric_Value, 50),
+    ])!
+    m.doMui(numeric, MUI.MUIM_HandleInput, [0, 9])
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(51)
+    m.doMui(numeric, MUI.MUIM_HandleInput, [0, 1])
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(25)
+    m.setInternal(numeric, MUI.MUIA_ExportID, 0x1234)
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(numeric, MUI.MUIM_Export, [ds.address])
+    m.set(numeric, MUI.MUIA_Numeric_Value, 99)
+    m.doMui(numeric, MUI.MUIM_Import, [ds.address])
+    expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(25)
   })
 })
 

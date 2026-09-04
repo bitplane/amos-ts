@@ -238,6 +238,12 @@ export const MUIA_MENUITEM_COPY_STRINGS = 0x8042dc1b
 export const MUIM_APPLICATION_FLUSH_PUSHED = 0x80429954
 export const MUIM_APPLICATION_FIND_WINDOW = 0x8042f5e1
 export const MUIM_APPLICATION_CONFIG_CHANGED = 0x8042fe91
+/** Numeric.mui's three private 19.35 method-table entries. */
+export const MUIM_NUMERIC_STRINGIFY_CURRENT = 0x8042148f
+export const MUIM_NUMERIC_MEASURE = 0x8042a2f2
+export const MUIM_NUMERIC_APPLY_DEFAULT = 0x80421ecc
+/** Private construction attribute tested by MUIM_NUMERIC_APPLY_DEFAULT. */
+export const MUIA_NUMERIC_APPLY_DEFAULT = 0x80426652
 export const MUIM_APPLICATION_REFRESH_WINDOW = 0x80426771
 export const MUIM_APPLICATION_DEFAULT_NAME = 0x80423a3d
 export const MUIM_APPLICATION_NOOP = 0x8042c5b9
@@ -713,6 +719,20 @@ interface MuiGroupData extends Record<string, unknown> {
   changeDepth: number
 }
 
+interface MuiNumericData extends Record<string, unknown> {
+  bufferAddress: number
+  min: number
+  max: number
+  value: number
+  defaultValue: number
+  format: number
+  checkAllSizes: boolean
+  reverse: boolean
+  revLeftRight: boolean
+  revUpDown: boolean
+  applyDefault: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -778,6 +798,7 @@ export class MuiMaster {
   readonly propClass: BoopsiClass
   readonly listClass: BoopsiClass
   readonly groupClass: BoopsiClass
+  readonly numericClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -834,6 +855,7 @@ export class MuiMaster {
     this.propClass = this.byName.get(MUIC.MUIC_Prop)!
     this.listClass = this.byName.get(MUIC.MUIC_List)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
+    this.numericClass = this.byName.get(MUIC.MUIC_Numeric)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1606,6 +1628,32 @@ export class MuiMaster {
           stored.set(MUI.MUIA_Group_SameWidth, 0)
           stored.set(MUI.MUIA_Group_PageMode, 0)
         }
+        if (cl === this.numericClass) {
+          const numeric = made.instData<MuiNumericData>(cl)
+          numeric.bufferAddress = this.pool.alloc(33, { clear: true })
+          if (numeric.bufferAddress === 0) return 0
+          data(this, made).ownedAddresses.push(numeric.bufferAddress)
+          numeric.min = 0
+          numeric.max = 100
+          numeric.value = 0
+          numeric.defaultValue = 0
+          numeric.format = this.literalAddress('%ld')
+          numeric.checkAllSizes = false
+          numeric.reverse = false
+          numeric.revLeftRight = false
+          numeric.revUpDown = false
+          numeric.applyDefault = false
+          const stored = data(this, made).attrs
+          stored.set(MUI.MUIA_Numeric_Min, 0)
+          stored.set(MUI.MUIA_Numeric_Max, 100)
+          stored.set(MUI.MUIA_Numeric_Value, 0)
+          stored.set(MUI.MUIA_Numeric_Default, 0)
+          stored.set(MUI.MUIA_Numeric_Format, numeric.format)
+          stored.set(MUI.MUIA_Numeric_CheckAllSizes, 0)
+          stored.set(MUI.MUIA_Numeric_Reverse, 0)
+          stored.set(MUI.MUIA_Numeric_RevLeftRight, 0)
+          stored.set(MUI.MUIA_Numeric_RevUpDown, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1645,6 +1693,7 @@ export class MuiMaster {
         const rawAttrs = (msg as OpSet).attrs
         const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
+        if (cl === this.numericClass) this.finishNumericNew(made, attrs)
         if (cl === this.groupClass) {
           const stored = data(this, made).attrs
           const hasRows = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_Rows)
@@ -1751,6 +1800,7 @@ export class MuiMaster {
         if (cl === this.propClass) return this.setProp(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.listClass) return this.setList(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.groupClass) return this.setGroup(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.numericClass) return this.setNumeric(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1848,6 +1898,10 @@ export class MuiMaster {
         }
         if (cl === this.listClass) {
           const answer = this.getList(o, g)
+          if (answer) return answer
+        }
+        if (cl === this.numericClass) {
+          const answer = this.getNumeric(o, g)
           if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
@@ -2072,6 +2126,10 @@ export class MuiMaster {
           const answered = this.listMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
+        if (cl === this.numericClass) {
+          const answered = this.numericMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.areaClass) {
           const answered = this.areaMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -2079,6 +2137,249 @@ export class MuiMaster {
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
         return doSuperMethodA(cl, obj, msg)
       }
+    }
+  }
+
+  // -- Numeric ------------------------------------------------------------
+
+  private finishNumericNew(obj: BoopsiObject, attrs: readonly TagItem[]): void {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    const stored = data(this, obj).attrs
+    d.min = this.signed(stored.get(MUI.MUIA_Numeric_Min) ?? 0)
+    d.max = this.signed(stored.get(MUI.MUIA_Numeric_Max) ?? 100)
+    d.defaultValue = this.signed(stored.get(MUI.MUIA_Numeric_Default) ?? 0)
+    d.format = stored.get(MUI.MUIA_Numeric_Format) ?? this.literalAddress('%ld')
+    d.checkAllSizes = (stored.get(MUI.MUIA_Numeric_CheckAllSizes) ?? 0) !== 0
+    d.reverse = (stored.get(MUI.MUIA_Numeric_Reverse) ?? 0) !== 0
+    d.revLeftRight = (stored.get(MUI.MUIA_Numeric_RevLeftRight) ?? 0) !== 0
+    d.revUpDown = (stored.get(MUI.MUIA_Numeric_RevUpDown) ?? 0) !== 0
+    d.applyDefault = attrs.some((attr) => TAG(attr.tag) === MUIA_NUMERIC_APPLY_DEFAULT && attr.data !== 0)
+    const explicit = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Numeric_Value)
+    d.value = this.clipNumeric(d, explicit
+      ? this.signed(stored.get(MUI.MUIA_Numeric_Value) ?? 0)
+      : d.defaultValue)
+    this.syncNumeric(obj)
+  }
+
+  private clipNumeric(d: MuiNumericData, value: number): number {
+    // $2308a2 clips to Max and then Min, so Min wins for an inverted interval.
+    let clipped = this.signed(value)
+    if (clipped >= d.max) clipped = d.max
+    if (d.min > clipped) clipped = d.min
+    return clipped | 0
+  }
+
+  private syncNumeric(obj: BoopsiObject): void {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_Numeric_Min, d.min)
+    stored.set(MUI.MUIA_Numeric_Max, d.max)
+    stored.set(MUI.MUIA_Numeric_Value, d.value)
+    stored.set(MUI.MUIA_Numeric_Default, d.defaultValue)
+    stored.set(MUI.MUIA_Numeric_Format, d.format)
+    stored.set(MUI.MUIA_Numeric_CheckAllSizes, d.checkAllSizes ? 1 : 0)
+    stored.set(MUI.MUIA_Numeric_Reverse, d.reverse ? 1 : 0)
+    stored.set(MUI.MUIA_Numeric_RevLeftRight, d.revLeftRight ? 1 : 0)
+    stored.set(MUI.MUIA_Numeric_RevUpDown, d.revUpDown ? 1 : 0)
+  }
+
+  private setNumeric(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiNumericData>(cl)
+    let min = d.min
+    let max = d.max
+    let value = d.value
+    let privateCount = 0
+    const normalised = msg.attrs.map((raw) => {
+      const id = TAG(raw.tag)
+      if (id === MUIA_NUMERIC_APPLY_DEFAULT) {
+        d.applyDefault = raw.data !== 0
+        privateCount++
+        return raw
+      }
+      if (id === MUI.MUIA_Numeric_Min) min = this.signed(raw.data)
+      else if (id === MUI.MUIA_Numeric_Max) max = this.signed(raw.data)
+      else if (id === MUI.MUIA_Numeric_Value) value = this.signed(raw.data)
+      else if (id === MUI.MUIA_Numeric_Default) d.defaultValue = this.signed(raw.data)
+      else if (id === MUI.MUIA_Numeric_Format) d.format = raw.data
+      else if (id === MUI.MUIA_Numeric_CheckAllSizes) d.checkAllSizes = raw.data !== 0
+      else if (id === MUI.MUIA_Numeric_Reverse) d.reverse = raw.data !== 0
+      else if (id === MUI.MUIA_Numeric_RevLeftRight) d.revLeftRight = raw.data !== 0
+      else if (id === MUI.MUIA_Numeric_RevUpDown) d.revUpDown = raw.data !== 0
+      const numericLong = id === MUI.MUIA_Numeric_Min || id === MUI.MUIA_Numeric_Max ||
+        id === MUI.MUIA_Numeric_Default || id === MUI.MUIA_Numeric_Value
+      const numericBool = id === MUI.MUIA_Numeric_CheckAllSizes || id === MUI.MUIA_Numeric_Reverse ||
+        id === MUI.MUIA_Numeric_RevLeftRight || id === MUI.MUIA_Numeric_RevUpDown
+      return numericLong ? { tag: raw.tag, data: this.signed(raw.data) }
+        : numericBool ? { tag: raw.tag, data: raw.data === 0 ? 0 : 1 } : raw
+    })
+    d.min = min
+    d.max = max
+    d.value = this.clipNumeric(d, value)
+    const before = this.peek(obj, MUI.MUIA_Numeric_Value) ?? 0
+    const noNotify = normalised.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+    if (noNotify) this.suppressNotifications++
+    let answer = 0
+    try {
+      const own = this.applyOwn('Numeric', obj, normalised.map((attr) =>
+        TAG(attr.tag) === MUI.MUIA_Numeric_Value ? { ...attr, data: d.value } : attr), 's')
+      answer = (own ? this.setCount : 0) + privateCount + doSuperMethodA(cl, obj, { ...msg, attrs: normalised } as OpSet)
+      if (before !== d.value) this.setInternal(obj, MUI.MUIA_Numeric_Value, d.value)
+      this.syncNumeric(obj)
+    } finally {
+      if (noNotify) this.suppressNotifications--
+    }
+    if (before !== d.value) this.redrawArea(obj, 0x804)
+    return answer
+  }
+
+  private getNumeric(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    const id = TAG(msg.attrID)
+    const value = id === MUI.MUIA_Numeric_Min ? d.min
+      : id === MUI.MUIA_Numeric_Max ? d.max
+        : id === MUI.MUIA_Numeric_Value ? d.value
+          : id === MUI.MUIA_Numeric_Default ? d.defaultValue
+            : id === MUI.MUIA_Numeric_Format ? d.format
+              : id === MUI.MUIA_Numeric_CheckAllSizes ? (d.checkAllSizes ? 1 : 0)
+                : id === MUI.MUIA_Numeric_Reverse ? (d.reverse ? 1 : 0)
+                  : id === MUI.MUIA_Numeric_RevLeftRight ? (d.revLeftRight ? 1 : 0)
+                    : id === MUI.MUIA_Numeric_RevUpDown ? (d.revUpDown ? 1 : 0)
+                      : id === MUIA_NUMERIC_APPLY_DEFAULT ? (d.applyDefault ? 1 : 0)
+                        : undefined
+    if (value === undefined) return 0
+    msg.storage = value
+    return 1
+  }
+
+  private numericMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.numericClass, obj, msg)
+        return answer === 0 ? 0 : 1
+      }
+      case MUI.MUIM_Cleanup:
+        return doSuperMethodA(this.numericClass, obj, msg)
+      case MUI.MUIM_HandleInput:
+        this.handleNumericInput(obj, this.signed(params[1] ?? -1))
+        return doSuperMethodA(this.numericClass, obj, msg)
+      case MUI.MUIM_Export:
+        this.numericTransferValue(obj, params[0] ?? 0, true)
+        return 0
+      case MUI.MUIM_Import:
+        this.numericTransferValue(obj, params[0] ?? 0, false)
+        return 0
+      case MUI.MUIM_Numeric_SetDefault:
+        this.set(obj, MUI.MUIA_Numeric_Value, this.clipNumeric(d, d.defaultValue))
+        return 0
+      case MUI.MUIM_Numeric_Increase:
+        this.set(obj, MUI.MUIA_Numeric_Value, this.clipNumeric(d, d.value + this.signed(params[0] ?? 0)))
+        return 0
+      case MUI.MUIM_Numeric_Decrease:
+        this.set(obj, MUI.MUIA_Numeric_Value, this.clipNumeric(d, d.value - this.signed(params[0] ?? 0)))
+        return 0
+      case MUI.MUIM_Numeric_Stringify:
+        return this.stringifyNumeric(obj, this.signed(params[0] ?? 0))
+      case MUIM_NUMERIC_STRINGIFY_CURRENT:
+        return this.doMui(obj, MUI.MUIM_Numeric_Stringify, [d.value])
+      case MUIM_NUMERIC_MEASURE:
+        this.measureNumeric(obj, params[0] ?? 0, params[1] ?? 0)
+        return 0
+      case MUI.MUIM_Numeric_ValueToScale:
+        return this.numericValueToScale(d, this.signed(params[0] ?? 0), this.signed(params[1] ?? 0))
+      case MUI.MUIM_Numeric_ScaleToValue:
+        return this.numericScaleToValue(d, params)
+      case MUIM_NUMERIC_APPLY_DEFAULT:
+        if (d.applyDefault) this.set(obj, MUI.MUIA_Numeric_Value, d.defaultValue)
+        return 0
+      default: return null
+    }
+  }
+
+  private stringifyNumeric(obj: BoopsiObject, value: number): number {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    const text = rtFormat(this.textOfAddress(d.format), value).slice(0, 32)
+    const bytes = this.pool.buffer.subarray(d.bufferAddress - this.pool.base, d.bufferAddress - this.pool.base + 33)
+    bytes.fill(0)
+    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff
+    return d.bufferAddress
+  }
+
+  private measureNumeric(obj: BoopsiObject, widthAddress: number, heightAddress: number): void {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    const middle = Math.trunc((d.min + d.max) / 2)
+    let width = 0
+    const measure = (value: number): void => {
+      if (value < d.min || value > d.max) return
+      const at = this.doMui(obj, MUI.MUIM_Numeric_Stringify, [value])
+      width = Math.max(width, visibleLength(this.textOfAddress(at)) * this.fontX)
+    }
+    if (d.checkAllSizes) {
+      for (let value = d.min; value <= d.max; value++) measure(value)
+    } else {
+      for (const value of [d.min, d.max, d.min + 1, d.max - 1, middle, middle - 1, middle + 2]) measure(value)
+    }
+    this.writeLong?.(widthAddress, width)
+    this.writeLong?.(heightAddress, this.fontY)
+  }
+
+  private numericValueToScale(d: MuiNumericData, scaleMin: number, scaleMax: number): number {
+    const scaleSpan = scaleMax - scaleMin
+    const valueSpan = d.max - d.min
+    const numerator = BigInt(d.value - d.min) * BigInt(scaleSpan + 1) + BigInt(Math.trunc(scaleSpan / 2))
+    const denominator = BigInt(valueSpan + 1)
+    let scaled = denominator === 0n ? scaleMin : scaleMin + Number(numerator / denominator)
+    scaled = Math.max(scaleMin, Math.min(scaleMax, scaled))
+    if (d.reverse) scaled = scaleMax - scaled + scaleMin
+    return scaled | 0
+  }
+
+  private numericScaleToValue(d: MuiNumericData, params: readonly number[]): number {
+    const scaleMin = this.signed(params[0] ?? 0)
+    const scaleMax = this.signed(params[1] ?? 0)
+    const scale = this.signed(params[2] ?? 0)
+    const scaleSpan = scaleMax - scaleMin
+    const valueSpan = d.max - d.min
+    const denominator = BigInt(scaleSpan + 1)
+    const map = (position: number): number => denominator === 0n ? d.min
+      : d.min + Number(BigInt(position - scaleMin) * BigInt(valueSpan + 1) / denominator)
+    let value = this.clipNumeric(d, map(scale))
+    const currentScale = scaleMin + (valueSpan === -1 ? 0
+      : Number(BigInt(d.value - d.min) * BigInt(scaleSpan + 1) / BigInt(valueSpan + 1)))
+    if (Array.isArray(params)) (params as number[])[2] = currentScale | 0
+    if (d.reverse) value = d.max - value + d.min
+    return value | 0
+  }
+
+  private handleNumericInput(obj: BoopsiObject, key: number): void {
+    const d = obj.instData<MuiNumericData>(this.numericClass)
+    if (d.revUpDown && key >= 2 && key <= 7) key ^= 1
+    if (d.revLeftRight && key >= 8 && key <= 13) key ^= 1
+    const span = d.max - d.min
+    const page = span <= 10 ? 1 : span > 10_000 ? 1000 : span > 1000 ? 100 : 10
+    if (key === 1) this.doMui(obj, MUI.MUIM_Numeric_SetDefault)
+    else if (key === 2 || key === 9) this.doMui(obj, MUI.MUIM_Numeric_Increase, [d.reverse ? -1 : 1])
+    else if (key === 3 || key === 8) this.doMui(obj, MUI.MUIM_Numeric_Decrease, [d.reverse ? -1 : 1])
+    else if (key === 4 || key === 11) this.doMui(obj, MUI.MUIM_Numeric_Increase, [page])
+    else if (key === 5 || key === 10) this.doMui(obj, MUI.MUIM_Numeric_Decrease, [page])
+    else if (key === 6 || key === 12) this.set(obj, MUI.MUIA_Numeric_Value, d.reverse ? d.max : d.min)
+    else if (key === 7 || key === 13) this.set(obj, MUI.MUIA_Numeric_Value, d.reverse ? d.min : d.max)
+  }
+
+  private numericTransferValue(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const ds = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const bytes = new Uint8Array(4)
+      putLong(bytes, 0, obj.instData<MuiNumericData>(this.numericClass).value)
+      this.dataspaceAddBytes(ds, bytes, id)
+    } else {
+      const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
+      if (entry) this.set(obj, MUI.MUIA_Numeric_Value, this.poolLong(entry.address - this.pool.base + 16))
     }
   }
 
@@ -6000,6 +6301,13 @@ export function visibleLength(s: string): number {
 const TAG_NAME = new Map<number, string>(
   Object.entries(MUI).map(([k, v]) => [v as number, k] as [number, string]),
 )
+// Slider's four old spellings share Numeric's numeric values. They are not a
+// second set of attributes owned by Slider: Numeric's 19.35 dispatcher reads
+// them, and Slider reaches that dispatcher through its superclass.
+TAG_NAME.set(MUI.MUIA_Numeric_Min, 'MUIA_Numeric_Min')
+TAG_NAME.set(MUI.MUIA_Numeric_Max, 'MUIA_Numeric_Max')
+TAG_NAME.set(MUI.MUIA_Numeric_Value, 'MUIA_Numeric_Value')
+TAG_NAME.set(MUI.MUIA_Numeric_Reverse, 'MUIA_Numeric_Reverse')
 
 /**
  * The constant name behind a tag value, or "" for one MUI never defined.
