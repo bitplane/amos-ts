@@ -50,11 +50,11 @@
  *
  * `xfa.library` (the nine `Xfa` keywords and `Gui Save Iff`),
  * `amigaguide.library` (`Gui Guide`) and `bsdsocket.library` (2.10's eighteen
- * `Tcp` ones) are not modelled. Every one of those keywords takes the branch
- * the routine takes on a machine without the library, which is a real path
- * the extension carries error strings for rather than a stub. A host
- * capability for any of the three would light its keywords up without
- * changing them.
+ * `Tcp` ones) are not modelled. XFA and TCP take the routines' real absent-
+ * library branches. `Gui Guide` is stranger: against the highest image in
+ * the corpus it is a no-op even when the library opens, because GUI calls the
+ * wrong vectors (documented at that keyword). A host capability would be
+ * needed before any of these could expose their native UI/network effect.
  *
  * All three are READABLE, which is a different question and was answered
  * wrong here for a year. GUI 2.10's own archive ships `GUI2/Tools/FD` with
@@ -2927,22 +2927,24 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * $3930 opens amigaguide.library once and keeps the base at `$138`, then
      * AllocVecs a $34-byte NewAmigaGuide, fills in `$4` with the document
      * name and `$8` with the screen at `$1d2`, and calls -$36 and -$42 back
-     * to back. Those are OpenAmigaGuideA and CloseAmigaGuide, counted off
-     * `##bias 30` in the amigaguide_lib.fd that ships in GUI 2.10's own
-     * Tools/FD drawer, past the two private entries the file declares first.
-     * Back to back is literal and there is no wait between them: the handle
-     * is closed at once, and it is amigaguide's own process that keeps the
-     * window up, so the guide's "Your program is freezed" describes what a
-     * user sees rather than anything this routine does.
+     * to back.
+     *
+     * DEFECT: those are LockAmigaGuideBase and UnlockAmigaGuideBase, not
+     * OpenAmigaGuideA and CloseAmigaGuide. GUI 2.10's own V40 FD says so, and
+     * the highest available binary, amigaguide.library 39.11, settles it
+     * independently: -36 obtains the semaphore at library base+$60 and -42
+     * releases the key in d0. The allocated NewAmigaGuide is never read and
+     * no viewer is opened. The real Open/Close vectors are -54/-66. Thus the
+     * manual's claim that the program freezes until the document closes is
+     * not merely imprecise; this shipped routine cannot display it at all.
      *
      * A library that will not open is not an error: $395e takes the `beq`
      * straight to the rts.
      *
-     * DEVIATION: there is no amigaguide.library here, so this port takes the
-     * branch a machine without one takes and the keyword does nothing. That
-     * is a real path rather than a stub — the same shape as a clipboard with
-     * no CLIPS: handler — and the document name is still evaluated, which is
-     * all a program can observe.
+     * There is no modelled amigaguide.library here, so this port also does
+     * nothing after evaluating the document name. For this keyword that is
+     * the same externally visible result as running the shipped routine with
+     * 39.11 installed, rather than an omitted viewer implementation.
      */
     'gui guide': (it) => {
       it.evalStr()

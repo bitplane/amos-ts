@@ -8717,6 +8717,12 @@ export const NOTES: Record<string, string> = {
     "The catalog is read and parsed here, because on the machine that is locale.library's job rather than the " +
     "extension's -- OpenCatalogA is behind the shim. Its optional version is matched exactly against the major " +
     "version in FVER, while zero accepts any version, as locale.library 38.27 specifies.",
+  "gui guide":
+    "DEFECT in GUI 2.10, confirmed against the highest available amigaguide.library (39.11): routine 154 calls " +
+    "LVO -36/-42, which are LockAmigaGuideBase/UnlockAmigaGuideBase and merely acquire/release the library " +
+    "semaphore. OpenAmigaGuideA/CloseAmigaGuide are -54/-66. The allocated NewAmigaGuide is never consumed, so " +
+    "the shipped keyword displays nothing despite the manual promising to freeze until the guide is closed; the " +
+    "port reproduces its observable no-op after evaluating the filename.",
   "format date$":
     "Every directive the doc lists, plus %q and %Q which it does not -- and which matter, because the built-in " +
     "locale's own time formats are made of %Q, so without them Time$ would print a literal Q. Two deliberate " +

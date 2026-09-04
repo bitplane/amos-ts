@@ -2644,6 +2644,13 @@ Print Gui Wait : Print Gui Wait`
     expect(r.out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.MOUSEMOVE, GUI_EVENT.MOUSEMOVE])
     expect(w.strings.size).toBe(0)
   })
+
+  it('Gui Guide is a no-op because the extension calls Lock/Unlock, not Open/Close', () => {
+    // GUI 2.10 calls amigaguide.library -36/-42. In 39.11 those acquire and
+    // release the library semaphore; OpenAmigaGuideA/CloseAmigaGuide are
+    // -54/-66, so no document is opened even on the original machine.
+    expect(runOut('Gui Guide "RAM:no.guide" : Print 7', bank).out.trim()).toBe('7')
+  })
 })
 
 /**
