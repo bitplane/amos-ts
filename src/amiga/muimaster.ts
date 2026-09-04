@@ -110,7 +110,7 @@ import {
   type OpSet,
   type TagItem,
 } from './boopsi'
-import { MUI, MUIC, MUI_ATTR, MUI_OWNER, MUI_SUPER } from './muimaster.gen'
+import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
 
 /** muimaster_lib.fd, `##bias 30` — the four entry points EasyLife reaches */
 export const LVO_MUI_NewObjectA = -30
@@ -156,6 +156,52 @@ const CHILD_ATTRS: ReadonlySet<number> = new Set(
     .map(([n]) => MUI[n as keyof typeof MUI] as number)
     .filter((v) => !NOT_A_CHILD.has(v)),
 )
+
+/**
+ * The classes physically built into muimaster.library 19.35.
+ *
+ * This is the registry at $237088, not mui.h's larger class tree. The other
+ * classes named by the header are libraries in MUI:Libs/mui and must not be
+ * reported as available merely because their constants are known. Cclist is
+ * the converse: internal to the binary and absent from mui.h's drawing.
+ */
+export const MUI_BUILTIN_SUPER: Readonly<Record<string, string>> = {
+  Semaphore: 'rootclass',
+  Applist: 'Semaphore',
+  Cclist: 'Semaphore',
+  Dataspace: 'Semaphore',
+  Configdata: 'Dataspace',
+  Notify: 'rootclass',
+  Family: 'Notify',
+  Menustrip: 'Family',
+  Menu: 'Family',
+  Menuitem: 'Family',
+  Application: 'Notify',
+  Window: 'Notify',
+  Area: 'Notify',
+  Image: 'Area',
+  Bitmap: 'Area',
+  Bodychunk: 'Bitmap',
+  Text: 'Area',
+  Rectangle: 'Area',
+  Balance: 'Area',
+  Gadget: 'Area',
+  String: 'Gadget',
+  Prop: 'Gadget',
+  List: 'Area',
+  Group: 'Area',
+  Numeric: 'Area',
+  Slider: 'Numeric',
+  Cycle: 'Group',
+  Scrollbar: 'Group',
+  Listview: 'Group',
+  Radio: 'Group',
+  Popstring: 'Group',
+  Popobject: 'Popstring',
+  Poplist: 'Popobject',
+  Register: 'Group',
+  Mccprefs: 'Group',
+}
 
 /** one notification recorded by MUIM_Notify */
 export interface Notification {
@@ -257,20 +303,20 @@ export class MuiMaster {
 
     /*
      * Build in dependency order: a class cannot be made before its superclass.
-     * MUI_SUPER is a flat map, so walk it and resolve each parent on demand,
+     * The native registry is a flat map, so walk it and resolve each parent on demand,
      * which terminates because rootclass exists and the tree has no cycles.
      */
     const make = (name: string): BoopsiClass => {
       const have = this.byName.get(`${name}.mui`)
       if (have) return have
-      const supName = MUI_SUPER[name]
+      const supName = MUI_BUILTIN_SUPER[name]
       const sup = supName === undefined || supName === 'rootclass' ? boopsi.rootClass : make(supName)
       const cl = boopsi.makeClass(`${name}.mui`, sup, (c, o, m) => this.dispatch(name, c, o, m))
       if (!cl) throw new Error(`muimaster: cannot make ${name} under ${supName}`)
       this.byName.set(`${name}.mui`, cl)
       return cl
     }
-    for (const name of Object.keys(MUI_SUPER)) make(name)
+    for (const name of Object.keys(MUI_BUILTIN_SUPER)) make(name)
 
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!

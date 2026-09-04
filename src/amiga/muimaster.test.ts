@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OM_ADDMEMBER, OM_REMMEMBER, OM_SET, type BoopsiObject, type OpMember, type TagItem } from './boopsi'
-import { MUI_MAXMAX, MuiMaster, visibleLength } from './muimaster'
-import { MUI, MUIC, MUI_ATTR, MUI_OWNER, MUI_SUPER } from './muimaster.gen'
+import { MUI_BUILTIN_SUPER, MUI_MAXMAX, MuiMaster, visibleLength } from './muimaster'
+import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
 import { parseAmosFile } from '../loader/amosfile'
 
 const tag = (t: number, data: number): TagItem => ({ tag: t, data })
@@ -12,9 +12,8 @@ const tag = (t: number, data: number): TagItem => ({ tag: t, data })
 describe('muimaster: the class tree', () => {
   it('registers every class the header names, under the right parent', () => {
     const m = new MuiMaster()
-    // 65 MUIC_ names, less Cclist, which the drawn tree has no place for
-    expect(m.classNames.length).toBe(Object.keys(MUI_SUPER).length)
-    expect(m.findClass(MUIC.MUIC_Cclist)).toBeNull()
+    expect(m.classNames).toHaveLength(35)
+    expect(m.findClass('Cclist.mui')).not.toBeNull()
 
     const win = m.findClass(MUIC.MUIC_Window)!
     const notify = m.findClass(MUIC.MUIC_Notify)!
@@ -24,13 +23,19 @@ describe('muimaster: the class tree', () => {
     // Group is under Area, not Family, which is the one people misremember
     expect(m.findClass(MUIC.MUIC_Group)!.superClass).toBe(area)
     expect(m.findClass(MUIC.MUIC_Menustrip)!.superClass).toBe(m.findClass(MUIC.MUIC_Family))
-    // and Dtpic, which the drawing omits and Zune places under Area
-    expect(m.findClass(MUIC.MUIC_Dtpic)!.superClass).toBe(area)
+    // Dtpic is a separately loaded .mui class, not part of muimaster itself.
+    expect(m.findClass(MUIC.MUIC_Dtpic)).toBeNull()
   })
 
   it('every class descends from rootclass', () => {
     const m = new MuiMaster()
     for (const n of m.classNames) expect(m.findClass(n)!.isA(m.boopsi.rootClass)).toBe(true)
+  })
+
+  it('does not claim separately shipped classes are built in', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Gauge)).toBeNull()
+    expect(m.newObjectA(MUIC.MUIC_Popasl)).toBeNull()
   })
 
   it('a name MUI does not have answers null, which a program sees as 0', () => {
@@ -524,10 +529,10 @@ describe.skipIf(!existsSync(TAG_EDITOR))("muimaster.gen against EasyLife's own T
 })
 
 describe('muimaster: the generated table itself', () => {
-  it('every attribute is owned by a class that exists', () => {
+  it('every built-in attribute owner exists', () => {
     const m = new MuiMaster()
     for (const [attr, cls] of Object.entries(MUI_OWNER)) {
-      if (cls === 'Cclist') continue
+      if (!(cls in MUI_BUILTIN_SUPER)) continue
       expect(m.findClass(`${cls}.mui`), `${attr} -> ${cls}`).not.toBeNull()
     }
   })
