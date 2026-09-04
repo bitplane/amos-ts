@@ -2903,6 +2903,32 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawBalance: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          const shine = spec.dragging ? 1 : 2
+          const shadow = spec.dragging ? 2 : 1
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            if (spec.horizontalGroup) {
+              const x = left + Math.floor((spec.width - 1) / 2)
+              rp.draw(x, top + 1, x, bottom - 1, shine)
+              if (x + 1 <= right) rp.draw(x + 1, top + 1, x + 1, bottom - 1, shadow)
+            } else {
+              const y = top + Math.floor((spec.height - 1) / 2)
+              rp.draw(left + 1, y, right - 1, y, shine)
+              if (y + 1 <= bottom) rp.draw(left + 1, y + 1, right - 1, y + 1, shadow)
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }

@@ -46,6 +46,7 @@ import {
   type MuiBitmapRenderSpec,
   type MuiTextRenderSpec,
   type MuiRectangleRenderSpec,
+  type MuiBalanceRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -62,6 +63,7 @@ class TestWindowHost implements MuiWindowHost {
   bitmaps: MuiBitmapRenderSpec[] = []
   texts: MuiTextRenderSpec[] = []
   rectangles: MuiRectangleRenderSpec[] = []
+  balances: MuiBalanceRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -78,6 +80,7 @@ class TestWindowHost implements MuiWindowHost {
   drawBitmap(_handle: unknown, spec: MuiBitmapRenderSpec): void { this.bitmaps.push(spec) }
   drawText(_handle: unknown, spec: MuiTextRenderSpec): void { this.texts.push(spec) }
   drawRectangle(_handle: unknown, spec: MuiRectangleRenderSpec): void { this.rectangles.push(spec) }
+  drawBalance(_handle: unknown, spec: MuiBalanceRenderSpec): void { this.balances.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -546,6 +549,51 @@ describe('muimaster: Rectangle.mui 19.35', () => {
     const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, rectangle.address)])!
     m.set(win, MUI.MUIA_Window_Open, 1)
     expect(host.rectangles.at(-1)).toMatchObject({ hbar: true, vbar: false, title: 'Section' })
+  })
+})
+
+describe('muimaster: Balance.mui 19.35', () => {
+  it('uses a fixed three-pixel split axis and stretches across its parent', () => {
+    const m = new MuiMaster()
+    const horizontal = m.newObjectA(MUIC.MUIC_Balance)!
+    const hg = m.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Horiz, 1), tag(MUI.MUIA_Group_Child, horizontal.address),
+    ])!
+    expect(m.askMinMax(horizontal)).toEqual({ minW: 3, minH: 3, maxW: 3, maxH: MUI_MAXMAX, defW: 3, defH: 3 })
+    const vertical = m.newObjectA(MUIC.MUIC_Balance)!
+    m.newObjectA(MUIC.MUIC_Group, [tag(MUI.MUIA_Group_Horiz, 0), tag(MUI.MUIA_Group_Child, vertical.address)])!
+    expect(m.askMinMax(vertical)).toEqual({ minW: 3, minH: 3, maxW: MUI_MAXMAX, maxH: 3, defW: 3, defH: 3 })
+    expect(m.parent(horizontal)).toBe(hg)
+  })
+
+  it('turns a mouse drag into adjacent sibling weights and immediate relayout', () => {
+    const m = new MuiMaster()
+    const left = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const balance = m.newObjectA(MUIC.MUIC_Balance)!
+    const right = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const group = m.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Horiz, 1), tag(MUI.MUIA_Group_Spacing, 0),
+      tag(MUI.MUIA_Group_Child, left.address), tag(MUI.MUIA_Group_Child, balance.address),
+      tag(MUI.MUIA_Group_Child, right.address),
+    ])!
+    m.askMinMax(group)
+    m.layout(group, 0, 0, 203, 20)
+    m.doMui(balance, MUI.MUIM_Setup)
+    const box = m.boxOf(balance)!
+    m.doMui(balance, MUI.MUIM_HandleInput, [0x8, 0x68, 0, box.left, box.top])
+    m.doMui(balance, MUI.MUIM_HandleInput, [0x10, 0, 0, box.left + 20, box.top])
+    expect(m.boxOf(left)!.width).toBeGreaterThan(m.boxOf(right)!.width)
+    m.doMui(balance, MUI.MUIM_HandleInput, [0x8, 0xe8, 0, box.left + 20, box.top])
+  })
+
+  it('draws the orientation and active state through its host', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const balance = m.newObjectA(MUIC.MUIC_Balance)!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, balance.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.balances.at(-1)).toMatchObject({ horizontalGroup: false, dragging: false })
   })
 })
 

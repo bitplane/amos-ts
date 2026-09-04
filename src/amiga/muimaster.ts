@@ -507,6 +507,7 @@ export interface MuiWindowHost {
   drawBitmap?(handle: unknown, spec: MuiBitmapRenderSpec): void
   drawText?(handle: unknown, spec: MuiTextRenderSpec): void
   drawRectangle?(handle: unknown, spec: MuiRectangleRenderSpec): void
+  drawBalance?(handle: unknown, spec: MuiBalanceRenderSpec): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -548,6 +549,11 @@ export interface MuiRectangleRenderSpec extends Box {
   title: string
 }
 
+export interface MuiBalanceRenderSpec extends Box {
+  horizontalGroup: boolean
+  dragging: boolean
+}
+
 interface MuiWindowData extends Record<string, unknown> {
   handle: unknown | null
   nativeAddress: number
@@ -575,6 +581,12 @@ interface MuiBitmapData extends Record<string, unknown> {
 
 interface MuiBodychunkData extends Record<string, unknown> {
   setup: boolean
+}
+
+interface MuiBalanceData extends Record<string, unknown> {
+  dragging: boolean
+  startX: number
+  startY: number
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -635,6 +647,7 @@ export class MuiMaster {
   readonly bodychunkClass: BoopsiClass
   readonly textClass: BoopsiClass
   readonly rectangleClass: BoopsiClass
+  readonly balanceClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -685,6 +698,7 @@ export class MuiMaster {
     this.bodychunkClass = this.byName.get(MUIC.MUIC_Bodychunk)!
     this.textClass = this.byName.get(MUIC.MUIC_Text)!
     this.rectangleClass = this.byName.get(MUIC.MUIC_Rectangle)!
+    this.balanceClass = this.byName.get(MUIC.MUIC_Balance)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1248,6 +1262,12 @@ export class MuiMaster {
           d.set(MUI.MUIA_Rectangle_HBar, 0)
           d.set(MUI.MUIA_Rectangle_VBar, 0)
         }
+        if (cl === this.balanceClass) {
+          const balance = made.instData<MuiBalanceData>(cl)
+          balance.dragging = false
+          balance.startX = 0
+          balance.startY = 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1603,6 +1623,10 @@ export class MuiMaster {
         }
         if (cl === this.rectangleClass) {
           const answered = this.rectangleMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.balanceClass) {
+          const answered = this.balanceMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2373,6 +2397,99 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Balance ------------------------------------------------------------
+
+  private balanceMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const balance = obj.instData<MuiBalanceData>(this.balanceClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.balanceClass, obj, msg)
+        balance.dragging = false
+        return answer
+      }
+      case MUI.MUIM_Cleanup:
+        balance.dragging = false
+        return doSuperMethodA(this.balanceClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.balanceClass, obj, msg)
+        this.drawBalance(obj)
+        return 0
+      case MUI.MUIM_HandleInput:
+      case MUI.MUIM_HandleEvent:
+        return this.handleBalanceInput(obj, params)
+      default: return null
+    }
+  }
+
+  private balanceHorizontalGroup(obj: BoopsiObject): boolean {
+    const parent = data(this, obj).parent
+    return !!parent?.cl.isA(this.groupClass) && (this.peek(parent, MUI.MUIA_Group_Horiz) ?? 0) !== 0
+  }
+
+  private drawBalance(obj: BoopsiObject): void {
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    this.windowHost?.drawBalance?.(handle, {
+      ...box,
+      horizontalGroup: this.balanceHorizontalGroup(obj),
+      dragging: obj.instData<MuiBalanceData>(this.balanceClass).dragging,
+    })
+  }
+
+  private handleBalanceInput(obj: BoopsiObject, params: readonly number[]): number {
+    const balance = obj.instData<MuiBalanceData>(this.balanceClass)
+    const cls = params[0] ?? 0
+    const code = params[1] ?? 0
+    const x = this.signed(params[3] ?? 0)
+    const y = this.signed(params[4] ?? 0)
+    if (cls === IDCMP_MOUSEBUTTONS && code === 0x68 && this.areaAt(obj, x, y) === obj) {
+      balance.dragging = true
+      balance.startX = x
+      balance.startY = y
+      this.redrawArea(obj, 0x805)
+    } else if (cls === IDCMP_MOUSEBUTTONS && balance.dragging) {
+      balance.dragging = false
+      this.redrawArea(obj, 0x805)
+    } else if (cls === 0x10 && balance.dragging) {
+      this.resizeAtBalance(obj, x - balance.startX, y - balance.startY)
+      balance.startX = x
+      balance.startY = y
+    }
+    return 0
+  }
+
+  private resizeAtBalance(obj: BoopsiObject, dx: number, dy: number): void {
+    const parent = data(this, obj).parent
+    if (!parent?.cl.isA(this.groupClass)) return
+    const children = data(this, parent).children.filter((child) => child.cl.isA(this.areaClass) &&
+      (this.peek(child, MUI.MUIA_ShowMe) ?? 1) !== 0)
+    const at = children.indexOf(obj)
+    if (at <= 0 || at >= children.length - 1) return
+    const before = children[at - 1]!
+    const after = children[at + 1]!
+    const horiz = this.balanceHorizontalGroup(obj)
+    const first = this.boxOf(before)
+    const second = this.boxOf(after)
+    if (!first || !second) return
+    const delta = horiz ? dx : dy
+    const total = (horiz ? first.width + second.width : first.height + second.height)
+    if (total <= 0) return
+    const firstMin = this.minMaxOf(before) ?? this.askMinMax(before)
+    const secondMin = this.minMaxOf(after) ?? this.askMinMax(after)
+    const low = horiz ? firstMin.minW : firstMin.minH
+    const high = total - (horiz ? secondMin.minW : secondMin.minH)
+    const firstSize = Math.max(low, Math.min(high, (horiz ? first.width : first.height) + delta))
+    data(this, before).attrs.set(horiz ? MUI.MUIA_HorizWeight : MUI.MUIA_VertWeight, firstSize)
+    data(this, after).attrs.set(horiz ? MUI.MUIA_HorizWeight : MUI.MUIA_VertWeight, total - firstSize)
+    const parentBox = this.boxOf(parent)
+    if (parentBox) this.layout(parent, parentBox.left, parentBox.top, parentBox.width, parentBox.height)
+    this.redrawArea(parent, 0x805)
   }
 
   // -- Rectangle ----------------------------------------------------------
@@ -3732,6 +3849,13 @@ export class MuiMaster {
           add(0, 0, MUI_MAXMAX, MUI_MAXMAX)
         }
         return 0
+      case 'Balance': {
+        const parent = data(this, obj).parent
+        if (!parent?.cl.isA(this.groupClass)) add(3, 3, 3, 3)
+        else if (this.balanceHorizontalGroup(obj)) add(3, 3, 3, MUI_MAXMAX)
+        else add(3, 3, MUI_MAXMAX, 3)
+        return 0
+      }
       case 'Text':
         {
           const text = this.textDimensions(obj)
