@@ -8715,7 +8715,8 @@ export const NOTES: Record<string, string> = {
     "would do if the field had been cleared properly",
   "open catalog":
     "The catalog is read and parsed here, because on the machine that is locale.library's job rather than the " +
-    "extension's -- OpenCatalogA is behind the shim.",
+    "extension's -- OpenCatalogA is behind the shim. Its optional version is matched exactly against the major " +
+    "version in FVER, while zero accepts any version, as locale.library 38.27 specifies.",
   "format date$":
     "Every directive the doc lists, plus %q and %Q which it does not -- and which matter, because the built-in " +
     "locale's own time formats are made of %Q, so without them Time$ would print a literal Q. Two deliberate " +

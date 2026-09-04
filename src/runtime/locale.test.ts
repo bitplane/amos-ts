@@ -70,7 +70,7 @@ const chunk = (id: string, body: number[]): number[] => [
  * reader that made the same mistake and misread every real catalog ever
  * shipped. locale.corpus.test.ts is what caught it.
  */
-function catalog(language: string, strings: Array<[number, string]>): Uint8Array {
+function catalog(language: string, strings: Array<[number, string]>, version = 1): Uint8Array {
   const strs: number[] = []
   for (const [id, s] of strings) {
     const raw = [...cc(s), 0]
@@ -80,7 +80,7 @@ function catalog(language: string, strings: Array<[number, string]>): Uint8Array
   }
   const body = [
     ...cc('CTLG'),
-    ...chunk('FVER', [...cc('$VER: test.catalog 1.0'), 0]),
+    ...chunk('FVER', [...cc(`$VER: test.catalog ${version}.0`), 0]),
     ...chunk('LANG', [...cc(language), 0]),
     ...chunk('CSET', be32(0)),
     ...chunk('STRS', strs),
@@ -98,6 +98,7 @@ describe('the catalog reader', () => {
   it('reads the language and the strings out of a FORM CTLG', () => {
     const cat = parseCatalog(SWEDISH)!
     expect(cat.language).toBe('svenska')
+    expect(cat.version).toBe(1)
     expect(cat.strings.get(0)).toBe('Hej')
     expect(cat.strings.get(1)).toBe('Varlden')
     expect(cat.strings.get(5)).toBe('Avbryt')
@@ -152,8 +153,11 @@ describe('Open Catalog / Catalog String$', () => {
     expect(out.trim()).toBe('0')
   })
 
-  it('the optional VERSION argument parses as a third form', () => {
-    expect(() => run('Open Catalog "test.catalog","english",1')).not.toThrow()
+  it('the optional VERSION argument requires an exact FVER major version', () => {
+    const files = { 'DH0:test.catalog': catalog('svenska', [[0, 'Hej']], 3) }
+    expect(run('Open Catalog "test.catalog","english",3\nPrint Catalog Active<>0', files).out.trim()).toBe('-1')
+    expect(run('Open Catalog "test.catalog","english",2\nPrint Catalog Active', files).out.trim()).toBe('0')
+    expect(run('Open Catalog "test.catalog","english",0\nPrint Catalog Active<>0', files).out.trim()).toBe('-1')
   })
 
   it('is also found on the CATALOGS: search path', () => {

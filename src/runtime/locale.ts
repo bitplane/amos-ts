@@ -159,7 +159,7 @@ export function makeLocaleInstructions(rt: Runtime): Record<string, Instr> {
       const name = it.evalStr()
       it.expect(',')
       const builtin = it.evalStr()
-      if (it.accept(',')) it.evalInt() // VERSION: "must be exactly this version"
+      const version = it.accept(',') ? it.evalInt() : 0
       const s = st()
       s.catalog = null
       s.catalogPtr = 0
@@ -171,6 +171,9 @@ export function makeLocaleInstructions(rt: Runtime): Record<string, Instr> {
         if (!data) continue
         const cat = parseCatalog(data)
         if (!cat) continue
+        // OC_Version defaults to zero (accept any); a non-zero value must
+        // exactly match the catalog's FVER major version.
+        if (version !== 0 && cat.version !== version) continue
         if (cat.language !== '' && cat.language.toLowerCase() === builtin.toLowerCase()) continue
         s.catalog = cat
         s.catalogPtr = CATALOG_PTR

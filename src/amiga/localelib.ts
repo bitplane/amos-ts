@@ -217,6 +217,8 @@ function weekNumber(t: Civil, sundayFirst: boolean): number {
 
 export interface Catalog {
   language: string
+  /** Major version from the FVER `$VER:` string, or null when absent/malformed. */
+  version: number | null
   strings: Map<number, string>
 }
 
@@ -242,7 +244,7 @@ const be32 = (b: Uint8Array, o: number): number =>
  */
 export function parseCatalog(data: Uint8Array): Catalog | null {
   if (data.length < 12 || fourcc(data, 0) !== 'FORM' || fourcc(data, 8) !== 'CTLG') return null
-  const cat: Catalog = { language: '', strings: new Map() }
+  const cat: Catalog = { language: '', version: null, strings: new Map() }
   let p = 12
   const end = Math.min(data.length, 8 + be32(data, 4))
   while (p + 8 <= end) {
@@ -250,7 +252,12 @@ export function parseCatalog(data: Uint8Array): Catalog | null {
     const size = be32(data, p + 4)
     const body = p + 8
     if (body + size > data.length) break
-    if (id === 'LANG') {
+    if (id === 'FVER') {
+      let s = ''
+      for (let i = 0; i < size && data[body + i] !== 0; i++) s += String.fromCharCode(data[body + i]!)
+      const match = /(?:^|\s)(\d+)\.\d+(?:\s|$)/.exec(s)
+      if (match) cat.version = Number(match[1])
+    } else if (id === 'LANG') {
       let s = ''
       for (let i = 0; i < size && data[body + i] !== 0; i++) s += String.fromCharCode(data[body + i]!)
       cat.language = s
