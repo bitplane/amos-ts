@@ -506,6 +506,7 @@ export interface MuiWindowHost {
   drawImage?(handle: unknown, spec: MuiImageRenderSpec): void
   drawBitmap?(handle: unknown, spec: MuiBitmapRenderSpec): void
   drawText?(handle: unknown, spec: MuiTextRenderSpec): void
+  drawRectangle?(handle: unknown, spec: MuiRectangleRenderSpec): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -539,6 +540,12 @@ export interface MuiTextRenderSpec extends Box {
   contents: string
   preparse: string
   disabled: boolean
+}
+
+export interface MuiRectangleRenderSpec extends Box {
+  hbar: boolean
+  vbar: boolean
+  title: string
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -627,6 +634,7 @@ export class MuiMaster {
   readonly bitmapClass: BoopsiClass
   readonly bodychunkClass: BoopsiClass
   readonly textClass: BoopsiClass
+  readonly rectangleClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -676,6 +684,7 @@ export class MuiMaster {
     this.bitmapClass = this.byName.get(MUIC.MUIC_Bitmap)!
     this.bodychunkClass = this.byName.get(MUIC.MUIC_Bodychunk)!
     this.textClass = this.byName.get(MUIC.MUIC_Text)!
+    this.rectangleClass = this.byName.get(MUIC.MUIC_Rectangle)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1233,6 +1242,12 @@ export class MuiMaster {
           d.set(MUI.MUIA_Text_SetMin, 1)
           d.set(MUI.MUIA_Text_SetVMax, 1)
         }
+        if (cl === this.rectangleClass) {
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Rectangle_BarTitle, 0)
+          d.set(MUI.MUIA_Rectangle_HBar, 0)
+          d.set(MUI.MUIA_Rectangle_VBar, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1584,6 +1599,10 @@ export class MuiMaster {
         }
         if (cl === this.textClass) {
           const answered = this.textMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.rectangleClass) {
+          const answered = this.rectangleMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2354,6 +2373,25 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Rectangle ----------------------------------------------------------
+
+  private rectangleMethod(obj: BoopsiObject, msg: Msg): number | null {
+    if (msg.MethodID !== MUI.MUIM_Draw) return null
+    doSuperMethodA(this.rectangleClass, obj, msg)
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return 0
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return 0
+    this.windowHost?.drawRectangle?.(handle, {
+      ...box,
+      hbar: (this.peek(obj, MUI.MUIA_Rectangle_HBar) ?? 0) !== 0,
+      vbar: (this.peek(obj, MUI.MUIA_Rectangle_VBar) ?? 0) !== 0,
+      title: this.textOf(obj, MUI.MUIA_Rectangle_BarTitle),
+    })
+    return 0
   }
 
   // -- Text ---------------------------------------------------------------
@@ -3683,8 +3721,16 @@ export class MuiMaster {
         this.groupMinMax(obj, mm)
         return 0
       case 'Rectangle':
-        // a spacer: no content, and unlimited in both directions
-        add(0, 0, MUI_MAXMAX, MUI_MAXMAX)
+        if ((this.peek(obj, MUI.MUIA_Rectangle_HBar) ?? 0) !== 0) {
+          const title = this.textOf(obj, MUI.MUIA_Rectangle_BarTitle)
+          if (title !== '') add(visibleLength(title) * fx + 12, fy + 1, MUI_MAXMAX, MUI_MAXMAX)
+          else add(2, 2, MUI_MAXMAX, MUI_MAXMAX)
+        } else if ((this.peek(obj, MUI.MUIA_Rectangle_VBar) ?? 0) !== 0) {
+          add(2, 2, MUI_MAXMAX, MUI_MAXMAX)
+        } else {
+          // a spacer: no content, and unlimited in both directions
+          add(0, 0, MUI_MAXMAX, MUI_MAXMAX)
+        }
         return 0
       case 'Text':
         {

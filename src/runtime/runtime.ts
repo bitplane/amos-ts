@@ -2866,6 +2866,43 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawRectangle: (handle, spec) => {
+          if (!spec.hbar && !spec.vbar) return
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            if (spec.vbar) {
+              const x = left + Math.floor((spec.width - 1) / 2)
+              rp.draw(x, top, x, bottom, 1)
+              if (x + 1 <= right) rp.draw(x + 1, top, x + 1, bottom, 2)
+            } else {
+              const y = top + Math.floor((spec.height - 1) / 2)
+              const titleWidth = spec.title.length * (rp.font?.xSize ?? 8)
+              const gapLeft = left + Math.floor((spec.width - titleWidth) / 2) - 3
+              const gapRight = gapLeft + titleWidth + 6
+              const line = (x1: number, x2: number): void => {
+                if (x2 < x1) return
+                rp.draw(x1, y, x2, y, 1)
+                if (y + 1 <= bottom) rp.draw(x1, y + 1, x2, y + 1, 2)
+              }
+              if (spec.title === '') line(left, right)
+              else {
+                line(left, gapLeft)
+                line(gapRight, right)
+                rp.text(gapLeft + 3, y + Math.floor((rp.font?.ySize ?? 8) / 2), spec.title, 1)
+              }
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }

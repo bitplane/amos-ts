@@ -45,6 +45,7 @@ import {
   type MuiImageRenderSpec,
   type MuiBitmapRenderSpec,
   type MuiTextRenderSpec,
+  type MuiRectangleRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -60,6 +61,7 @@ class TestWindowHost implements MuiWindowHost {
   images: MuiImageRenderSpec[] = []
   bitmaps: MuiBitmapRenderSpec[] = []
   texts: MuiTextRenderSpec[] = []
+  rectangles: MuiRectangleRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -75,6 +77,7 @@ class TestWindowHost implements MuiWindowHost {
   drawImage(_handle: unknown, spec: MuiImageRenderSpec): void { this.images.push(spec) }
   drawBitmap(_handle: unknown, spec: MuiBitmapRenderSpec): void { this.bitmaps.push(spec) }
   drawText(_handle: unknown, spec: MuiTextRenderSpec): void { this.texts.push(spec) }
+  drawRectangle(_handle: unknown, spec: MuiRectangleRenderSpec): void { this.rectangles.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -507,6 +510,42 @@ describe('muimaster: Text.mui 19.35', () => {
     expect(m.textOf(text, MUI.MUIA_Text_Contents)).toBe('Second')
     expect(m.doMui(text, MUI.MUIM_Import, [ds.address])).toBe(0)
     expect(m.textOf(text, MUI.MUIA_Text_Contents)).toBe('First')
+  })
+})
+
+describe('muimaster: Rectangle.mui 19.35', () => {
+  it('keeps a plain rectangle as an unconstrained zero-size spacer', () => {
+    const m = new MuiMaster()
+    const rectangle = m.newObjectA(MUIC.MUIC_Rectangle)!
+    expect(m.get(rectangle, MUI.MUIA_Rectangle_HBar)).toBe(0)
+    expect(m.get(rectangle, MUI.MUIA_Rectangle_VBar)).toBe(0)
+    expect(m.askMinMax(rectangle)).toEqual({ minW: 0, minH: 0, maxW: MUI_MAXMAX, maxH: MUI_MAXMAX, defW: 0, defH: 0 })
+  })
+
+  it('measures vertical, horizontal, and titled bars using native rules', () => {
+    const m = new MuiMaster()
+    m.readString = (address) => address === 0x1000 ? 'Title' : ''
+    const vertical = m.newObjectA(MUIC.MUIC_Rectangle, [tag(MUI.MUIA_Rectangle_VBar, 1)])!
+    const horizontal = m.newObjectA(MUIC.MUIC_Rectangle, [tag(MUI.MUIA_Rectangle_HBar, 1)])!
+    const titled = m.newObjectA(MUIC.MUIC_Rectangle, [
+      tag(MUI.MUIA_Rectangle_HBar, 1), tag(MUI.MUIA_Rectangle_BarTitle, 0x1000),
+    ])!
+    expect(m.askMinMax(vertical)).toMatchObject({ minW: 2, minH: 2 })
+    expect(m.askMinMax(horizontal)).toMatchObject({ minW: 2, minH: 2 })
+    expect(m.askMinMax(titled)).toMatchObject({ minW: 52, minH: 9 })
+  })
+
+  it('draws bar orientation and title through the live host', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    m.readString = (address) => address === 0x1000 ? 'Section' : ''
+    const rectangle = m.newObjectA(MUIC.MUIC_Rectangle, [
+      tag(MUI.MUIA_Rectangle_HBar, 1), tag(MUI.MUIA_Rectangle_BarTitle, 0x1000),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, rectangle.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.rectangles.at(-1)).toMatchObject({ hbar: true, vbar: false, title: 'Section' })
   })
 })
 
