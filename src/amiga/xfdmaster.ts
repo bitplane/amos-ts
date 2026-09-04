@@ -188,6 +188,9 @@ export const XFDPFB = {
   /** V35 */
   KEY16: 6,
   KEY32: 7,
+  /** V38 */
+  RECOGLEN: 8,
+  USERTARGET: 9,
   /** V37, private to the library */
   EXTERN: 15,
 } as const
@@ -200,6 +203,8 @@ export const XFDPFF = {
   RELMODE: 1 << XFDPFB.RELMODE,
   KEY16: 1 << XFDPFB.KEY16,
   KEY32: 1 << XFDPFB.KEY32,
+  RECOGLEN: 1 << XFDPFB.RECOGLEN,
+  USERTARGET: 1 << XFDPFB.USERTARGET,
   EXTERN: 1 << XFDPFB.EXTERN,
 } as const
 
@@ -279,7 +284,7 @@ const be32 = (d: Uint8Array, at: number): number =>
 /**
  * The slaves this port has codecs for.
  *
- * Four, against the roughly seventy `xfd_Developer/Sources/ASM` ships. That
+ * Three, against the roughly seventy `xfd_Developer/Sources/ASM` ships. That
  * gap is the honest state of things and not a bug: each of these was written
  * because one extension needed it, and this file makes them reachable
  * together rather than conjuring the other sixty-six.
@@ -294,7 +299,7 @@ const be32 = (d: Uint8Array, at: number): number =>
 export const SLAVES: readonly XfdSlave[] = [
   {
     name: 'PowerPacker',
-    flags: XFDPFF.DATA,
+    flags: XFDPFF.DATA | XFDPFF.RECOGLEN,
     recogSize: 12,
     recog: (d) => d.length >= 12 && (be32(d, 0) === 0x50503230 || be32(d, 0) === 0x50503131),
     // the trailer is the decrunched length in the HIGH three bytes and the
@@ -311,7 +316,7 @@ export const SLAVES: readonly XfdSlave[] = [
   },
   {
     name: 'StoneCracker 4.04',
-    flags: XFDPFF.DATA,
+    flags: XFDPFF.DATA | XFDPFF.RECOGLEN,
     recogSize: 16,
     recog: isStoneCracked,
     length: (d) => (isStoneCracked(d) ? stcLength(d) : -1),
@@ -344,6 +349,10 @@ export function recogBuffer(bi: XfdBufferInfo, slaves: readonly XfdSlave[] = SLA
     return false
   }
   for (const s of slaves) {
+    // $420..$442: callers may restrict recognition to slaves advertising
+    // target-length recognition and/or support for a caller-owned target.
+    if (bi.flags !== undefined && (bi.flags & XFDFF.RECOGTARGETLEN) !== 0 && (s.flags & XFDPFF.RECOGLEN) === 0) continue
+    if (bi.flags !== undefined && (bi.flags & XFDFF.RECOGUSERTARGET) !== 0 && (s.flags & XFDPFF.USERTARGET) === 0) continue
     if (bi.sourceBuffer.length < s.recogSize) continue
     if (!s.recog(bi.sourceBuffer)) continue
     bi.packerName = s.name

@@ -50,6 +50,7 @@ describeIf('against the shipped headers', existsSync(HEADER), () => {
   it('every packer-flag BIT is the header s bit', () => {
     const doc = defines('XFDPFB_')
     for (const [name, bit] of Object.entries(XFDPFB)) expect(doc.get(`XFDPFB_${name}`), name).toBe(bit)
+    expect([...doc.keys()].filter((k) => !(k.slice(7) in XFDPFB))).toEqual([])
     // the FF constants really are 1 << the B constants
     for (const [name, bit] of Object.entries(XFDPFB)) {
       expect(XFDPFF[name as keyof typeof XFDPFF]).toBe(1 << bit)
@@ -90,7 +91,7 @@ describe('recognition', () => {
     const bi: XfdBufferInfo = { sourceBuffer: pp20Crunch(SAMPLE) }
     expect(recogBuffer(bi)).toBe(true)
     expect(bi.packerName).toBe('PowerPacker')
-    expect(bi.packerFlags).toBe(XFDPFF.DATA)
+    expect(bi.packerFlags).toBe(XFDPFF.DATA | XFDPFF.RECOGLEN)
     expect(bi.error).toBe(XFDERR.OK)
     expect(bi.finalTargetLen).toBe(SAMPLE.length)
   })
@@ -113,6 +114,17 @@ describe('recognition', () => {
     const bi: XfdBufferInfo = { sourceBuffer: new Uint8Array(0) }
     expect(recogBuffer(bi)).toBe(false)
     expect(bi.error).toBe(XFDERR.NOSOURCE)
+  })
+
+  it('honours the V38 recognition capability filters', () => {
+    const packed = pp20Crunch(SAMPLE)
+    const withLength: XfdBufferInfo = { sourceBuffer: packed, flags: XFDFF.RECOGTARGETLEN }
+    expect(recogBuffer(withLength)).toBe(true)
+    expect(withLength.packerFlags! & XFDPFF.RECOGLEN).toBe(XFDPFF.RECOGLEN)
+
+    const withUserTarget: XfdBufferInfo = { sourceBuffer: packed, flags: XFDFF.RECOGUSERTARGET }
+    expect(recogBuffer(withUserTarget)).toBe(false)
+    expect(withUserTarget.error).toBe(XFDERR.UNKNOWN)
   })
 
   /**
