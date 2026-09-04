@@ -751,6 +751,15 @@ interface MuiSliderData extends Record<string, unknown> {
   knobStart: number
 }
 
+interface MuiCycleData extends Record<string, unknown> {
+  entriesAddress: number
+  entries: number[]
+  active: number
+  label: BoopsiObject
+  image: BoopsiObject
+  pressed: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -818,6 +827,7 @@ export class MuiMaster {
   readonly groupClass: BoopsiClass
   readonly numericClass: BoopsiClass
   readonly sliderClass: BoopsiClass
+  readonly cycleClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -876,6 +886,7 @@ export class MuiMaster {
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.numericClass = this.byName.get(MUIC.MUIC_Numeric)!
     this.sliderClass = this.byName.get(MUIC.MUIC_Slider)!
+    this.cycleClass = this.byName.get(MUIC.MUIC_Cycle)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1692,6 +1703,10 @@ export class MuiMaster {
           stored.set(MUI.MUIA_Slider_Horiz, slider.horizontal ? 1 : 0)
           stored.set(MUI.MUIA_Slider_Quiet, slider.quiet ? 1 : 0)
         }
+        if (cl === this.cycleClass && !this.initCycle(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1732,6 +1747,11 @@ export class MuiMaster {
         const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         if (cl === this.numericClass) this.finishNumericNew(made, attrs)
+        if (cl === this.cycleClass) {
+          const cycle = made.instData<MuiCycleData>(cl)
+          data(this, made).attrs.set(MUI.MUIA_Cycle_Entries, cycle.entriesAddress)
+          data(this, made).attrs.set(MUI.MUIA_Cycle_Active, cycle.active)
+        }
         if (cl === this.groupClass) {
           const stored = data(this, made).attrs
           const hasRows = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_Rows)
@@ -1840,6 +1860,7 @@ export class MuiMaster {
         if (cl === this.groupClass) return this.setGroup(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.numericClass) return this.setNumeric(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.sliderClass) return this.setSlider(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.cycleClass) return this.setCycle(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1945,6 +1966,10 @@ export class MuiMaster {
         }
         if (cl === this.sliderClass && (TAG(g.attrID) === MUI.MUIA_Slider_Horiz || TAG(g.attrID) === MUI.MUIA_Group_Horiz)) {
           g.storage = o.instData<MuiSliderData>(cl).horizontal ? 1 : 0
+          return 1
+        }
+        if (cl === this.cycleClass && TAG(g.attrID) === MUI.MUIA_Cycle_Active) {
+          g.storage = o.instData<MuiCycleData>(cl).active
           return 1
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
@@ -2175,6 +2200,10 @@ export class MuiMaster {
         }
         if (cl === this.sliderClass) {
           const answered = this.sliderMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.cycleClass) {
+          const answered = this.cycleMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2572,6 +2601,172 @@ export class MuiMaster {
     } else if ((cls === IDCMP_MOUSEBUTTONS && code === 0xe8) || cls === 0x80000) {
       slider.dragging = false
       this.redrawArea(obj, 2)
+    }
+  }
+
+  // -- Cycle --------------------------------------------------------------
+
+  private pointerList(address: number): number[] {
+    const entries: number[] = []
+    if (address === 0) return entries
+    for (let i = 0; i < 0x10000; i++) {
+      const at = address + i * 4
+      const value = at >= this.pool.base && at + 4 <= this.pool.base + this.pool.buffer.length
+        ? this.poolLong(at - this.pool.base)
+        : this.readLong?.(at) ?? 0
+      if (value === 0) break
+      entries.push(value)
+    }
+    return entries
+  }
+
+  private initCycle(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const entriesAddress = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Cycle_Entries)?.data ?? 0
+    const entries = this.pointerList(entriesAddress)
+    if (entries.length === 0) return false
+    const requested = this.signed(attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Cycle_Active)?.data ?? 0)
+    const active = Math.max(0, Math.min(entries.length - 1, requested))
+    const label = this.newObjectA(MUIC.MUIC_Text, [
+      { tag: MUI.MUIA_Text_Contents, data: entries[active]! },
+      { tag: MUI.MUIA_Text_PreParse, data: this.literalAddress('\x1bc') },
+      { tag: MUI.MUIA_Background, data: MUI.MUII_ButtonBack },
+      { tag: MUI.MUIA_Text_SetMax, data: 1 },
+    ])
+    const image = this.newObjectA(MUIC.MUIC_Image, [
+      { tag: MUI.MUIA_Image_Spec, data: MUI.MUII_Cycle },
+      { tag: MUI.MUIA_Image_FreeHoriz, data: 0 },
+      { tag: MUI.MUIA_Image_FreeVert, data: 1 },
+      { tag: MUI.MUIA_Background, data: MUI.MUII_ButtonBack },
+    ])
+    if (!label || !image) {
+      if (label) this.disposeObject(label)
+      if (image) this.disposeObject(image)
+      return false
+    }
+    const d = obj.instData<MuiCycleData>(this.cycleClass)
+    d.entriesAddress = entriesAddress
+    d.entries = entries
+    d.active = active
+    d.label = label
+    d.image = image
+    d.pressed = false
+    const common = data(this, obj)
+    common.attrs.set(MUI.MUIA_Cycle_Entries, entriesAddress)
+    common.attrs.set(MUI.MUIA_Cycle_Active, active)
+    common.attrs.set(MUI.MUIA_Group_Horiz, 1)
+    common.attrs.set(MUI.MUIA_Group_Spacing, 0)
+    common.attrs.set(MUI.MUIA_Frame, MUI.MUIV_Frame_Button)
+    common.attrs.set(MUI.MUIA_Background, MUI.MUII_ButtonBack)
+    common.children.push(label, image)
+    data(this, label).parent = obj
+    data(this, image).parent = obj
+    this.setObjectContext(label, common.contextApplication, common.contextConfigdata)
+    this.setObjectContext(image, common.contextApplication, common.contextConfigdata)
+    this.rebuildGroupList(obj)
+    return true
+  }
+
+  private normaliseCycleActive(d: MuiCycleData, requested: number): number {
+    if (requested === -1) return d.active + 1 < d.entries.length ? d.active + 1 : 0
+    if (requested === -2) return d.active > 0 ? d.active - 1 : d.entries.length - 1
+    return Math.max(0, Math.min(d.entries.length - 1, requested))
+  }
+
+  private setCycle(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiCycleData>(cl)
+    let extra = 0
+    let requestedActive: number | null = null
+    for (const attr of msg.attrs) {
+      const id = TAG(attr.tag)
+      if (id === MUI.MUIA_Cycle_Entries && attr.data !== 0) {
+        const entries = this.pointerList(attr.data)
+        if (entries.length !== 0) {
+          d.entriesAddress = attr.data
+          d.entries = entries
+          d.active = Math.max(0, Math.min(entries.length - 1, d.active))
+          data(this, obj).attrs.set(MUI.MUIA_Cycle_Entries, attr.data)
+          this.set(d.label, MUI.MUIA_Text_Contents, entries[d.active]!)
+          extra++
+        }
+      } else if (id === MUI.MUIA_Cycle_Active) requestedActive = this.signed(attr.data)
+    }
+    const attrs = msg.attrs.map((attr) => TAG(attr.tag) === MUI.MUIA_Cycle_Active
+      ? { ...attr, data: this.normaliseCycleActive(d, this.signed(attr.data)) } : attr)
+    const own = this.applyOwn('Cycle', obj, attrs, 's')
+    const answer = extra + (own ? this.setCount : 0) + doSuperMethodA(cl, obj, { ...msg, attrs } as OpSet)
+    if (requestedActive !== null) {
+      const active = this.normaliseCycleActive(d, requestedActive)
+      if (active !== d.active) {
+        d.active = active
+        this.setInternal(obj, MUI.MUIA_Cycle_Active, active)
+        this.set(d.label, MUI.MUIA_Text_Contents, d.entries[active]!)
+      }
+    }
+    return answer
+  }
+
+  private cycleMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.cycleClass, obj, msg)
+        if (answer !== 0) this.redrawArea(obj, 0x408)
+        return answer === 0 ? 0 : 1
+      }
+      case MUI.MUIM_HandleInput:
+        this.handleCycleInput(obj, params)
+        return 0
+      case MUI.MUIM_Export:
+        this.cycleTransferActive(obj, params[0] ?? 0, true)
+        return 0
+      case MUI.MUIM_Import:
+        this.cycleTransferActive(obj, params[0] ?? 0, false)
+        return 0
+      default: return null
+    }
+  }
+
+  private handleCycleInput(obj: BoopsiObject, params: readonly number[]): void {
+    const d = obj.instData<MuiCycleData>(this.cycleClass)
+    const key = this.signed(params[1] ?? -1)
+    if (key === 2) this.set(obj, MUI.MUIA_Cycle_Active, -2)
+    else if (key === 3) this.set(obj, MUI.MUIA_Cycle_Active, -1)
+    else if (key === 4 || key === 6) this.set(obj, MUI.MUIA_Cycle_Active, 0)
+    else if (key === 5 || key === 7) this.set(obj, MUI.MUIA_Cycle_Active, d.entries.length - 1)
+    const cls = params[0] ?? 0
+    const code = params[1] ?? 0
+    const qualifier = params[2] ?? 0
+    const x = this.signed(params[3] ?? 0)
+    const y = this.signed(params[4] ?? 0)
+    const box = this.boxOf(obj)
+    const inside = !!box && x >= box.left && y >= box.top && x < box.left + box.width && y < box.top + box.height
+    if (cls === IDCMP_MOUSEBUTTONS && code === 0x68 && inside) {
+      d.pressed = true
+      this.setInternal(obj, MUI.MUIA_Selected, 1)
+      this.redrawArea(obj, 0x10)
+    } else if (cls === IDCMP_MOUSEMOVE && d.pressed) {
+      this.setInternal(obj, MUI.MUIA_Selected, inside ? 1 : 0)
+    } else if (cls === IDCMP_MOUSEBUTTONS && code === 0xe8 && d.pressed) {
+      if (inside) this.set(obj, MUI.MUIA_Cycle_Active, (qualifier & 3) !== 0 ? -2 : -1)
+      d.pressed = false
+      this.setInternal(obj, MUI.MUIA_Selected, 0)
+      this.redrawArea(obj, 0x10)
+    }
+  }
+
+  private cycleTransferActive(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const ds = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const bytes = new Uint8Array(4)
+      putLong(bytes, 0, obj.instData<MuiCycleData>(this.cycleClass).active)
+      this.dataspaceAddBytes(ds, bytes, id)
+    } else {
+      const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
+      if (entry) this.set(obj, MUI.MUIA_Cycle_Active, this.poolLong(entry.address - this.pool.base + 16))
     }
   }
 

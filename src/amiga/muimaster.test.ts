@@ -1205,6 +1205,80 @@ describe('muimaster: Slider.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Cycle.mui 19.35', () => {
+  const entries = (m: MuiMaster, labels: readonly string[]): number => {
+    const pointers = labels.map((label) => {
+      const bytes = Uint8Array.from([...label, '\0'], (char) => char.charCodeAt(0))
+      const address = m.pool.alloc(bytes.length)
+      m.pool.buffer.set(bytes, address - m.pool.base)
+      return address
+    })
+    const address = m.pool.alloc((pointers.length + 1) * 4, { clear: true })
+    const view = new DataView(m.pool.buffer.buffer, m.pool.buffer.byteOffset, m.pool.buffer.byteLength)
+    pointers.forEach((pointer, i) => view.setUint32(address - m.pool.base + i * 4, pointer, false))
+    return address
+  }
+
+  it('requires a non-empty terminated Entries array and builds the native Text/Image group', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Cycle)).toBeNull()
+    const list = entries(m, ['Zero', 'One', 'Two'])
+    const cycle = m.newObjectA(MUIC.MUIC_Cycle, [tag(MUI.MUIA_Cycle_Entries, list), tag(MUI.MUIA_Cycle_Active, 1)])!
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(1)
+    expect(m.peek(cycle, MUI.MUIA_Group_Horiz)).toBe(1)
+    expect(m.peek(cycle, MUI.MUIA_Group_Spacing)).toBe(0)
+    const children = m.children(cycle)
+    expect(children.map((child) => child.cl.id)).toEqual([MUIC.MUIC_Text, MUIC.MUIC_Image])
+    const contents = m.get(children[0]!, MUI.MUIA_Text_Contents)!
+    let text = ''
+    for (let at = contents - m.pool.base; m.pool.buffer[at] !== 0; at++) text += String.fromCharCode(m.pool.buffer[at]!)
+    expect(text).toBe('One')
+    expect(m.peek(children[1]!, MUI.MUIA_Image_Spec)).toBe(MUI.MUII_Cycle)
+  })
+
+  it('clips explicit values, wraps Next/Prev, and accepts replacement entry arrays', () => {
+    const m = new MuiMaster()
+    const cycle = m.newObjectA(MUIC.MUIC_Cycle, [
+      tag(MUI.MUIA_Cycle_Entries, entries(m, ['A', 'B', 'C'])), tag(MUI.MUIA_Cycle_Active, 99),
+    ])!
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(2)
+    m.set(cycle, MUI.MUIA_Cycle_Active, MUI.MUIV_Cycle_Active_Next)
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(0)
+    m.set(cycle, MUI.MUIA_Cycle_Active, MUI.MUIV_Cycle_Active_Prev)
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(2)
+    m.set(cycle, MUI.MUIA_Cycle_Entries, entries(m, ['Only']))
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(0)
+  })
+
+  it('cycles on MUI keys and verified mouse release, with Shift selecting previous', () => {
+    const m = new MuiMaster()
+    const cycle = m.newObjectA(MUIC.MUIC_Cycle, [tag(MUI.MUIA_Cycle_Entries, entries(m, ['A', 'B', 'C']))])!
+    m.doMui(cycle, MUI.MUIM_HandleInput, [0, 3])
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(1)
+    m.layout(cycle, 0, 0, 80, 16)
+    m.doMui(cycle, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 10, 8])
+    expect(m.get(cycle, MUI.MUIA_Selected)).toBe(1)
+    m.doMui(cycle, MUI.MUIM_HandleInput, [0x8, 0xe8, 0, 10, 8])
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(2)
+    m.doMui(cycle, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 10, 8])
+    m.doMui(cycle, MUI.MUIM_HandleInput, [0x8, 0xe8, 1, 10, 8])
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(1)
+  })
+
+  it('round-trips Active through Dataspace by ExportID', () => {
+    const m = new MuiMaster()
+    const cycle = m.newObjectA(MUIC.MUIC_Cycle, [
+      tag(MUI.MUIA_Cycle_Entries, entries(m, ['A', 'B', 'C'])), tag(MUI.MUIA_Cycle_Active, 2),
+    ])!
+    m.setInternal(cycle, MUI.MUIA_ExportID, 77)
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(cycle, MUI.MUIM_Export, [ds.address])
+    m.set(cycle, MUI.MUIA_Cycle_Active, 0)
+    m.doMui(cycle, MUI.MUIM_Import, [ds.address])
+    expect(m.get(cycle, MUI.MUIA_Cycle_Active)).toBe(2)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
