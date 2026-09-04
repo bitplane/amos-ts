@@ -603,6 +603,13 @@ export interface StringInfo {
   bufferPos: number
   /** `si_LongInt`, live only under GACT_LONGINT */
   longInt: number
+  /** MUI's optional character whitelist/blacklist, applied by its edit hook. */
+  accept?: string
+  reject?: string
+  /** Draw one marker per character instead of revealing the buffer. */
+  secret?: boolean
+  /** MUI consumes this after Return generates GADGETUP. */
+  accepted?: boolean
 }
 
 /**
@@ -1354,6 +1361,7 @@ export class Intuition {
     if (ch === '\r' || ch === '\n') {
       this.activeString = null
       this.commitString(a.g)
+      si.accepted = true
       a.w.post(IDCMP_GADGETUP, 0, 0, seconds, micros, a.g.id)
       return true
     }
@@ -1369,6 +1377,8 @@ export class Intuition {
       return true
     }
     if (ch < ' ') return false
+    if (si.accept && !si.accept.includes(ch)) return true
+    if (si.reject?.includes(ch)) return true
     // `si_MaxChars` counts the NUL, so the text can be one shorter than it
     if (si.buffer.length >= si.maxChars - 1) return true
     si.buffer = si.buffer.slice(0, si.bufferPos) + ch + si.buffer.slice(si.bufferPos)
@@ -1635,7 +1645,7 @@ export class Intuition {
     const font = this.host.systemFont()
     if (!font) return
     const act = g.activation ?? 0
-    const shown = si.buffer
+    const shown = si.secret ? '*'.repeat(si.buffer.length) : si.buffer
     const tw = shown.length * font.xSize
     let tx = gx
     if ((act & GACT_STRINGCENTER) !== 0) tx = gx + Math.trunc((g.width - tw) / 2)

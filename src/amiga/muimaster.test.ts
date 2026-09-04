@@ -51,6 +51,7 @@ import {
   type MuiTextRenderSpec,
   type MuiRectangleRenderSpec,
   type MuiBalanceRenderSpec,
+  type MuiStringGadgetState,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -71,6 +72,8 @@ class TestWindowHost implements MuiWindowHost {
   gadgets: Array<{ handle: unknown, address: number, box: { left: number, top: number, width: number, height: number }, disabled: boolean }> = []
   hiddenGadgets: number[] = []
   refreshedGadgets: number[] = []
+  activatedGadgets: number[] = []
+  stringGadgets = new Map<number, { state: MuiStringGadgetState, activation: number }>()
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -93,6 +96,11 @@ class TestWindowHost implements MuiWindowHost {
   }
   hideGadget(_handle: unknown, address: number): void { this.hiddenGadgets.push(address) }
   refreshGadget(_handle: unknown, address: number): void { this.refreshedGadgets.push(address) }
+  activateGadget(_handle: unknown, address: number): void { this.activatedGadgets.push(address) }
+  configureStringGadget(address: number, state: MuiStringGadgetState, activation: number): void {
+    this.stringGadgets.set(address, { state, activation })
+  }
+  disposeGadget(address: number): void { this.stringGadgets.delete(address) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -656,6 +664,89 @@ describe('muimaster: Gadget.mui 19.35', () => {
     expect(host.hiddenGadgets).toContain(0x567800)
     m.disposeObject(gadget)
     expect(host.hiddenGadgets.filter((address) => address === 0x567800)).toHaveLength(1)
+  })
+})
+
+describe('muimaster: String.mui 19.35', () => {
+  const poolText = (m: MuiMaster, address: number): string => {
+    let result = ''
+    for (let at = address - m.pool.base; m.pool.buffer[at] !== 0; at++) result += String.fromCharCode(m.pool.buffer[at]!)
+    return result
+  }
+
+  it('builds the owned Intuition gadget with native defaults and exact min/max additions', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    m.readString = (at) => at === 0x1000 ? 'hello' : ''
+    const string = m.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_String_Contents, 0x1000)])!
+    const address = m.get(string, MUI.MUIA_Gadget_Gadget)!
+    expect(address).not.toBe(0)
+    expect(m.get(string, MUI.MUIA_String_MaxLen)).toBe(127)
+    expect(m.get(string, MUI.MUIA_String_Format)).toBe(MUI.MUIV_String_Format_Left)
+    expect(poolText(m, m.get(string, MUI.MUIA_String_Contents)!)).toBe('hello')
+    expect(host.stringGadgets.get(address)?.state).toMatchObject({ buffer: 'hello', maxChars: 128, secret: false })
+    expect(m.askMinMax(string)).toEqual({ minW: 20, minH: 8, maxW: 10000, maxH: 8, defW: 100, defH: 8 })
+  })
+
+  it('shares live edits, filters settings, acknowledges gadget-up, and formats integers', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const strings = new Map([[0x1000, 'abc'], [0x1100, 'xyz'], [0x1200, '09'], [0x1300, '5']])
+    m.readString = (at) => strings.get(at) ?? ''
+    const string = m.newObjectA(MUIC.MUIC_String, [
+      tag(MUI.MUIA_String_Contents, 0x1000), tag(MUI.MUIA_String_MaxLen, 5),
+      tag(MUI.MUIA_String_Accept, 0x1200), tag(MUI.MUIA_String_Reject, 0x1300),
+      tag(MUI.MUIA_String_Secret, 1), tag(MUI.MUIA_String_Format, MUI.MUIV_String_Format_Right),
+    ])!
+    const address = m.get(string, MUI.MUIA_Gadget_Gadget)!
+    const state = host.stringGadgets.get(address)!.state
+    expect(host.stringGadgets.get(address)!.activation & 0x400).not.toBe(0)
+    expect(state).toMatchObject({ accept: '09', reject: '5', secret: true })
+    state.buffer = '9876'
+    state.bufferPos = 4
+    m.doMui(string, MUI.MUIM_HandleInput, [0x40, 0, 0, 0, 0, 0, 0, address])
+    expect(poolText(m, m.get(string, MUI.MUIA_String_Acknowledge)!)).toBe('9876')
+    expect(m.set(string, MUI.MUIA_String_Integer, -42)).toBe(1)
+    expect(m.get(string, MUI.MUIA_String_Integer)).toBe(-42)
+    expect(poolText(m, m.get(string, MUI.MUIA_String_Contents)!)).toBe('-42')
+  })
+
+  it('exports and imports Contents and releases its platform gadget on disposal', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    m.readString = (at) => at === 0x1000 ? 'saved' : ''
+    const source = m.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_String_Contents, 0x1000), tag(MUI.MUIA_ExportID, 7)])!
+    const address = m.get(source, MUI.MUIA_Gadget_Gadget)!
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(source, MUI.MUIM_Export, [ds.address])
+    const target = m.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_ExportID, 7)])!
+    m.doMui(target, MUI.MUIM_Import, [ds.address])
+    expect(poolText(m, m.get(target, MUI.MUIA_String_Contents)!)).toBe('saved')
+    m.disposeObject(source)
+    expect(host.stringGadgets.has(address)).toBe(false)
+  })
+
+  it('advances to the next cycle-chain string only after Return acceptance', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const first = m.newObjectA(MUIC.MUIC_String, [
+      tag(MUI.MUIA_CycleChain, 1), tag(MUI.MUIA_String_AdvanceOnCR, 1),
+    ])!
+    const second = m.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_CycleChain, 1)])!
+    const group = m.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Child, first.address), tag(MUI.MUIA_Group_Child, second.address),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, group.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    const firstAddress = m.get(first, MUI.MUIA_Gadget_Gadget)!
+    host.stringGadgets.get(firstAddress)!.state.accepted = true
+    m.doMui(first, MUI.MUIM_HandleInput, [0x40, 0, 0, 0, 0, 0, 0, firstAddress])
+    expect(m.get(win, MUI.MUIA_Window_ActiveObject)).toBe(second.address)
+    expect(host.activatedGadgets).toEqual([m.get(second, MUI.MUIA_Gadget_Gadget)])
   })
 })
 

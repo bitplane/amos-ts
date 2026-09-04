@@ -29,7 +29,7 @@ import {
   type UserGadget,
 } from '../amiga/intuition'
 import { Boopsi, type BoopsiObject } from '../amiga/boopsi'
-import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster } from '../amiga/muimaster'
+import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster, type MuiStringGadgetState } from '../amiga/muimaster'
 import { MUI } from '../amiga/muimaster.gen'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
@@ -2555,6 +2555,7 @@ export class Runtime {
       mui.applicationNow = () => this.frames * 20
       const asWindow = (handle: unknown): Window => handle as Window
       const muiGadgets = new Map<number, UserGadget>()
+      const muiStrings = new Map<number, { state: MuiStringGadgetState, activation: number }>()
       mui.windowHost = {
         open: (spec) => {
           const int = this.intuition
@@ -2944,6 +2945,12 @@ export class Runtime {
             }
             muiGadgets.set(address, gadget)
           }
+          const string = muiStrings.get(address)
+          if (string) {
+            gadget.kind = 0x0004
+            gadget.activation = string.activation
+            gadget.strInfo = string.state
+          }
           gadget.leftEdge = w.borderLeft + box.left
           gadget.topEdge = w.borderTop + box.top
           gadget.width = Math.max(1, box.width)
@@ -2970,6 +2977,23 @@ export class Runtime {
         refreshGadget: (handle, address) => {
           const gadget = muiGadgets.get(address)
           if (gadget) this.intuition.refreshWindowGadget(asWindow(handle), gadget)
+        },
+        activateGadget: (handle, address) => {
+          const gadget = muiGadgets.get(address)
+          if (gadget) this.intuition.activateGadget(asWindow(handle), gadget)
+        },
+        configureStringGadget: (address, state, activation) => {
+          muiStrings.set(address, { state, activation })
+          const gadget = muiGadgets.get(address)
+          if (gadget) {
+            gadget.kind = 0x0004
+            gadget.activation = activation
+            gadget.strInfo = state
+          }
+        },
+        disposeGadget: (address) => {
+          muiStrings.delete(address)
+          muiGadgets.delete(address)
         },
       }
       this.muiBase = mui
