@@ -30,7 +30,7 @@
  * at all, its list starting at -42.
  *
  * The vector is not empty. In the icon.library from the AMOS PD Library CD
- * (Library3.0/ICON.LIBRARY, 5,688 bytes) it is a C stub at $19a that pushes
+ * (Library3.0/ICON.LIBRARY, 4,732 loaded bytes) it is a C stub at $19a that pushes
  * a0 and calls a real function, and once every RELOC32 is applied that
  * function is at $5ec: it allocates a block, reads the named file into it,
  * copies eleven longs and eight fields into the block, and answers the block
