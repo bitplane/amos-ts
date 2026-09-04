@@ -307,10 +307,10 @@ describe('the ASL font requester', () => {
     expect(st.names).toContain('times.font')
     // one row a NAME, however many sizes it has
     expect(new Set(st.names).size).toBe(st.names.length)
-    expect(st.setup.name).toBe(st.names[0])
+    // asl 39.4 seeds fo_Attr with topaz/8 before applying caller tags
+    expect(st.setup.name).toBe('topaz.font')
     expect(st.sizes.length).toBeGreaterThan(0)
-    // a request that named no size takes the first the face has
-    expect(st.setup.size).toBe(st.sizes[0])
+    expect(st.setup.size).toBe(8)
   })
 
   /** a new face has its own sizes, and the old index means nothing in them */

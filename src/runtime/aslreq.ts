@@ -308,6 +308,10 @@ function sizesOf(rt: Runtime, name: string): number[] {
   return [...out].sort((a, b) => a - b)
 }
 
+/** fo_Attr seeded by asl 39.4's allocator at $21178e-$21179a. */
+const ASL_DEFAULT_FONT_NAME = 'topaz.font'
+const ASL_DEFAULT_FONT_SIZE = 8
+
 /** Open the font requester. Null when there is no screen to put it on. */
 export function startAslFont(rt: Runtime, setup: AslFontSetup, slot: number | null): AslFontState | null {
   const on = slot ?? WB_SLOT
@@ -331,12 +335,14 @@ export function startAslFont(rt: Runtime, setup: AslFontSetup, slot: number | nu
   const rp = new RastPort(scr.rp.bitMap)
   rp.font = rt.systemFont()
   const names = [...new Set(availFonts(rt).map((f) => f.name))].sort()
-  const nameSel = names.indexOf(setup.name)
-  const name = nameSel < 0 ? (names[0] ?? '') : setup.name
+  const initialName = setup.name === '' ? ASL_DEFAULT_FONT_NAME : setup.name
+  const initialSize = setup.size === 0 ? ASL_DEFAULT_FONT_SIZE : setup.size
+  const nameSel = names.indexOf(initialName)
+  const name = nameSel < 0 ? (names[0] ?? '') : initialName
   const sizes = sizesOf(rt, name)
-  // a request that named no size takes the first the face has, which is what
-  // the requester shows selected when it opens
-  const sizeSel = Math.max(0, sizes.indexOf(setup.size))
+  // A missing or unavailable requested size selects the first size of the
+  // chosen face. The missing case starts from AllocAslRequest's topaz/8.
+  const sizeSel = Math.max(0, sizes.indexOf(initialSize))
   return {
     setup: { ...setup, name, size: sizes[sizeSel] ?? 0 },
     window,
