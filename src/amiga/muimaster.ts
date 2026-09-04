@@ -296,6 +296,12 @@ export const MUIM_LIST_SET_DROP_MARK = 0x80429e97
 export const MUIM_LIST_CREATE_DRAG_IMAGE = 0x80424534
 export const MUIM_LIST_DELETE_DRAG_IMAGE = 0x80425a68
 export const MUIM_LIST_COLUMN_OFFSET = 0x8042e09e
+export const MUIM_GROUP_TRANSFER_CHILDREN = 0x8042fb67
+export const MUIM_GROUP_EXIT_CHANGE2 = 0x8042e541
+export const MUIM_GROUP_RUN_LAYOUT_HOOK = 0x80425906
+export const MUIM_GROUP_MOVE_TO_TAIL = 0x8042ff4e
+export const MUIM_GROUP_COLLECT_CYCLE = 0x8042b22e
+export const MUIM_GROUP_CLEAR_CYCLE = 0x8042c520
 /** Cclist.mui's private 19.35 catalogue operations. */
 export const MUIM_CCLIST_ADD_CLASS = 0x80421bc7
 export const MUIM_CCLIST_FILL_LIST = 0x8042f821
@@ -310,6 +316,17 @@ const IDCMP_RAWKEY = 0x400
 const IDCMP_ACTIVEWINDOW = 0x40000
 const IDCMP_INACTIVEWINDOW = 0x80000
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
+const GROUP_AREA_PASSTHROUGH = new Set<number>([
+  OM_ADDTAIL, OM_REMOVE, OM_NOTIFY, OM_UPDATE,
+  0x80424d50, 0x80428d73, MUI.MUIM_CallHook, MUI.MUIM_Set,
+  MUI.MUIM_DragQuery, MUI.MUIM_DragBegin, MUI.MUIM_DragReport, MUI.MUIM_DragDrop, MUI.MUIM_DragFinish,
+  MUI.MUIM_MultiSet, MUI.MUIM_ContextMenuChoice, MUI.MUIM_ContextMenuBuild,
+  0x8042491a, 0x80422c0c, 0x8042af9f, 0x80428f6c,
+  MUI.MUIM_GetConfigItem, MUI.MUIM_DrawBackground, 0x8042f8a4,
+  MUI.MUIM_CreateShortHelp, MUI.MUIM_DeleteShortHelp,
+  0x80424f05, 0x80428daf, 0x8042eb6f, 0x80423037, 0x804216bb,
+  MUI.MUIM_CreateBubble, MUI.MUIM_DeleteBubble,
+])
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
 export const MUI_MEMORY_BASE = 0x2c000000
@@ -690,6 +707,12 @@ interface MuiListData extends Record<string, unknown> {
   dragImageHandle: number
 }
 
+interface MuiGroupData extends Record<string, unknown> {
+  listAddress: number
+  nodesAddress: number
+  changeDepth: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -1066,17 +1089,29 @@ export class MuiMaster {
    * ... give it a weight of 200 (and 100 for the right gadget) ... it will
    * become twice as big (about 66 pixel) as the right one (34 pixel)".
    *
-   * NOTE: this is the one-dimensional case. `MUIA_Group_Columns` and
-   * `MUIA_Group_Rows` make a group a grid, and neither is laid out here —
-   * a grid group falls back to its `MUIA_Group_Horiz` axis, which puts the
-   * right children in the right order and the wrong ones on the wrong row.
-   * Nothing in the corpus uses one yet.
+   * Rows and columns use the same bounded weight distribution over their
+   * native per-track aggregates; page groups lay out only ActivePage.
    */
   private layoutGroup(obj: BoopsiObject): void {
     const box = this.boxOf(obj)
     if (!box) return
     const kids = data(this, obj).children.filter((c) => c.cl.isA(this.areaClass))
     if (kids.length === 0) return
+
+    if ((this.peek(obj, MUI.MUIA_Group_PageMode) ?? 0) !== 0) {
+      const page = Math.max(0, Math.min(kids.length - 1, this.peek(obj, MUI.MUIA_Group_ActivePage) ?? 0))
+      const inner = this.innerOf(obj)
+      for (let i = 0; i < kids.length; i++) data(this, kids[i]!).attrs.set(MUI.MUIA_ShowMe, i === page ? 1 : 0)
+      this.layout(kids[page]!, box.left + inner.left, box.top + inner.top,
+        Math.max(0, box.width - inner.left - inner.right), Math.max(0, box.height - inner.top - inner.bottom))
+      return
+    }
+
+    const shape = this.groupShape(obj, kids.length)
+    if (shape.columns > 1 && shape.rows > 1) {
+      this.layoutGroupGrid(obj, kids, shape.columns, shape.rows)
+      return
+    }
 
     const horiz = (this.peek(obj, MUI.MUIA_Group_Horiz) ?? 0) !== 0
     const spacing = this.spacingOf(obj, horiz)
@@ -1093,6 +1128,19 @@ export class MuiMaster {
 
     const min = mm.map((m) => (horiz ? m.minW : m.minH))
     const max = mm.map((m) => (horiz ? m.maxW : m.maxH))
+    const sameAlong = (this.peek(obj, horiz ? MUI.MUIA_Group_SameWidth : MUI.MUIA_Group_SameHeight) ?? 0) !== 0
+    if (sameAlong) {
+      const each = Math.max(0, Math.floor(room / kids.length))
+      let at = horiz ? x0 : y0
+      for (let i = 0; i < kids.length; i++) {
+        const alongSize = Math.max(min[i]!, Math.min(max[i]!, each))
+        const other = Math.min(across, horiz ? mm[i]!.maxH : mm[i]!.maxW)
+        if (horiz) this.layout(kids[i]!, at, y0, alongSize, other)
+        else this.layout(kids[i]!, x0, at, other, alongSize)
+        at += alongSize + spacing
+      }
+      return
+    }
     /*
      * A child with no weight of its own is weightless if it cannot grow and
      * weighs 100 if it can, which is what makes two plain string gadgets
@@ -1152,6 +1200,80 @@ export class MuiMaster {
     }
   }
 
+  private groupShape(obj: BoopsiObject, count: number): { columns: number, rows: number } {
+    const requestedColumns = Math.max(1, this.peek(obj, MUI.MUIA_Group_Columns) ?? 1)
+    const requestedRows = Math.max(1, this.peek(obj, MUI.MUIA_Group_Rows) ?? 0x7fff)
+    if (requestedColumns === 0x7fff) return { columns: Math.max(1, count), rows: 1 }
+    if (requestedRows === 0x7fff) {
+      const columns = Math.max(1, Math.min(count, requestedColumns))
+      return { columns, rows: Math.max(1, Math.ceil(count / columns)) }
+    }
+    const columns = Math.max(1, Math.min(count, requestedColumns))
+    return { columns, rows: Math.max(1, Math.ceil(count / columns)) }
+  }
+
+  private layoutGroupGrid(obj: BoopsiObject, kids: BoopsiObject[], columns: number, rows: number): void {
+    const box = this.boxOf(obj)!
+    const inner = this.innerOf(obj)
+    const x0 = box.left + inner.left
+    const y0 = box.top + inner.top
+    const width = Math.max(0, box.width - inner.left - inner.right)
+    const height = Math.max(0, box.height - inner.top - inner.bottom)
+    const hspace = this.spacingOf(obj, true)
+    const vspace = this.spacingOf(obj, false)
+    const mm = kids.map((child) => this.minMaxOf(child) ?? this.askMinMax(child))
+    const columnItems = Array.from({ length: columns }, (_, column) => mm.map((value, i) => ({ value, i })).filter((_, i) => i % columns === column))
+    const rowItems = Array.from({ length: rows }, (_, row) => mm.map((value, i) => ({ value, i })).slice(row * columns, (row + 1) * columns))
+    const sameW = (this.peek(obj, MUI.MUIA_Group_SameWidth) ?? 0) !== 0
+    const sameH = (this.peek(obj, MUI.MUIA_Group_SameHeight) ?? 0) !== 0
+    const colMin = columnItems.map((items) => Math.max(0, ...items.map(({ value }) => value.minW)))
+    const colMax = columnItems.map((items) => Math.min(MUI_MAXMAX, ...items.map(({ value }) => value.maxW)))
+    const rowMin = rowItems.map((items) => Math.max(0, ...items.map(({ value }) => value.minH)))
+    const rowMax = rowItems.map((items) => Math.min(MUI_MAXMAX, ...items.map(({ value }) => value.maxH)))
+    if (sameW) colMin.fill(Math.max(...colMin))
+    if (sameH) rowMin.fill(Math.max(...rowMin))
+    const colWeight = columnItems.map((items) => Math.max(1, Math.floor(items.reduce((sum, { i }) =>
+      sum + (this.peek(kids[i]!, MUI.MUIA_HorizWeight) ?? 100), 0) / Math.max(1, items.length))))
+    const rowWeight = rowItems.map((items) => Math.max(1, Math.floor(items.reduce((sum, { i }) =>
+      sum + (this.peek(kids[i]!, MUI.MUIA_VertWeight) ?? 100), 0) / Math.max(1, items.length))))
+    const colSize = this.distributeTracks(Math.max(0, width - hspace * (columns - 1)), colMin, colMax, colWeight)
+    const rowSize = this.distributeTracks(Math.max(0, height - vspace * (rows - 1)), rowMin, rowMax, rowWeight)
+    const colAt: number[] = []
+    const rowAt: number[] = []
+    for (let i = 0, at = x0; i < columns; at += colSize[i]! + hspace, i++) colAt.push(at)
+    for (let i = 0, at = y0; i < rows; at += rowSize[i]! + vspace, i++) rowAt.push(at)
+    for (let i = 0; i < kids.length; i++) {
+      const column = i % columns
+      const row = Math.floor(i / columns)
+      const w = Math.min(colSize[column]!, mm[i]!.maxW)
+      const h = Math.min(rowSize[row]!, mm[i]!.maxH)
+      this.layout(kids[i]!, colAt[column]! + Math.floor((colSize[column]! - w) / 2),
+        rowAt[row]! + Math.floor((rowSize[row]! - h) / 2), w, h)
+    }
+  }
+
+  private distributeTracks(total: number, min: number[], max: number[], weight: number[]): number[] {
+    const size = min.slice()
+    const settled = min.map((_, i) => weight[i] === 0)
+    for (let pass = 0; pass <= min.length; pass++) {
+      const open = min.map((_, i) => i).filter((i) => !settled[i])
+      if (open.length === 0) break
+      const totalWeight = open.reduce((sum, i) => sum + weight[i]!, 0)
+      const taken = size.reduce((sum, value, i) => sum + (settled[i] ? value : 0), 0)
+      let used = 0
+      let clamped = false
+      for (const [n, i] of open.entries()) {
+        const want = n === open.length - 1 ? total - taken - used : Math.floor(((total - taken) * weight[i]!) / totalWeight)
+        used += want
+        const fit = Math.max(min[i]!, Math.min(max[i]!, want))
+        size[i] = fit
+        if (fit !== want) { settled[i] = true; clamped = true }
+      }
+      if (!clamped) break
+    }
+    return size
+  }
+
   /**
    * `MUIA_Group_Spacing` and its two axis-specific forms.
    *
@@ -1163,6 +1285,70 @@ export class MuiMaster {
   private spacingOf(obj: BoopsiObject, horiz: boolean): number {
     const own = this.peek(obj, horiz ? MUI.MUIA_Group_HorizSpacing : MUI.MUIA_Group_VertSpacing)
     return own ?? this.peek(obj, MUI.MUIA_Group_Spacing) ?? 1
+  }
+
+  private setGroup(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const active = msg.attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Group_ActivePage)
+    const rest = active ? msg.attrs.filter((attr) => TAG(attr.tag) !== MUI.MUIA_Group_ActivePage) : msg.attrs
+    let own = 0
+    if (active) {
+      const count = data(this, obj).children.length
+      const old = this.peek(obj, MUI.MUIA_Group_ActivePage) ?? 0
+      let page = active.data | 0
+      if (page === (MUI.MUIV_Group_ActivePage_Last | 0)) page = count - 1
+      else if (page === (MUI.MUIV_Group_ActivePage_Prev | 0)) page = old - 1
+      else if (page === (MUI.MUIV_Group_ActivePage_Next | 0)) page = old + 1
+      else if (page === (MUI.MUIV_Group_ActivePage_Advance | 0)) page = count === 0 ? 0 : (old + 1) % count
+      page = count === 0 ? 0 : Math.max(0, Math.min(count - 1, page))
+      const children = data(this, obj).children
+      if (page !== old && obj.instData<MuiAreaData>(this.areaClass).shown) {
+        if (children[old]) this.doMui(children[old]!, MUI.MUIM_Hide)
+        if (children[page]) this.doMui(children[page]!, MUI.MUIM_Show)
+      }
+      this.setInternal(obj, MUI.MUIA_Group_ActivePage, page)
+      own++
+    }
+    const ok = this.applyOwn('Group', obj, rest, 's')
+    own += ok ? this.setCount : 0
+    const answer = own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+    if (own !== 0 && obj.instData<MuiGroupData>(cl).changeDepth === 0) this.relayoutGroup(obj)
+    return answer
+  }
+
+  private relayoutGroup(obj: BoopsiObject): void {
+    if (this.boxOf(obj)) {
+      for (const child of data(this, obj).children) this.askMinMax(child)
+      this.layoutGroup(obj)
+      this.redrawArea(obj, 1)
+    }
+  }
+
+  /** Group exposes the same MinList shape as the native embedded child list. */
+  private rebuildGroupList(obj: BoopsiObject): void {
+    const group = obj.instData<MuiGroupData>(this.groupClass)
+    if (!group?.listAddress) return
+    if (group.nodesAddress !== 0) {
+      this.pool.freeMem(group.nodesAddress)
+      const owned = data(this, obj).ownedAddresses
+      const i = owned.indexOf(group.nodesAddress)
+      if (i >= 0) owned.splice(i, 1)
+      group.nodesAddress = 0
+    }
+    const children = data(this, obj).children
+    if (children.length !== 0) {
+      group.nodesAddress = this.pool.alloc(children.length * 12, { clear: true })
+      if (group.nodesAddress !== 0) data(this, obj).ownedAddresses.push(group.nodesAddress)
+    }
+    const off = group.listAddress - this.pool.base
+    this.putPoolLong(off, group.nodesAddress)
+    this.putPoolLong(off + 4, 0)
+    this.putPoolLong(off + 8, children.length === 0 ? group.listAddress : group.nodesAddress + (children.length - 1) * 12)
+    for (let i = 0; i < children.length && group.nodesAddress !== 0; i++) {
+      const at = group.nodesAddress - this.pool.base + i * 12
+      this.putPoolLong(at, i + 1 < children.length ? group.nodesAddress + (i + 1) * 12 : 0)
+      this.putPoolLong(at + 4, i === 0 ? group.listAddress : group.nodesAddress + (i - 1) * 12)
+      this.putPoolLong(at + 8, children[i]!.address)
+    }
   }
 
   /** `MUIA_InnerLeft` and friends, which a frame's own padding adds to */
@@ -1403,6 +1589,23 @@ export class MuiMaster {
           }
         }
         if (cl === this.listClass) this.initList(made, (msg as OpSet).attrs)
+        if (cl === this.groupClass) {
+          const group = made.instData<MuiGroupData>(cl)
+          group.listAddress = this.pool.alloc(12, { clear: true })
+          group.nodesAddress = 0
+          group.changeDepth = 0
+          if (group.listAddress === 0) return 0
+          data(this, made).ownedAddresses.push(group.listAddress)
+          const stored = data(this, made).attrs
+          stored.set(MUI.MUIA_Group_ActivePage, 0)
+          stored.set(MUI.MUIA_Group_Columns, 1)
+          stored.set(MUI.MUIA_Group_Rows, 0x7fff)
+          stored.set(MUI.MUIA_Group_HorizSpacing, 1)
+          stored.set(MUI.MUIA_Group_VertSpacing, 1)
+          stored.set(MUI.MUIA_Group_SameHeight, 0)
+          stored.set(MUI.MUIA_Group_SameWidth, 0)
+          stored.set(MUI.MUIA_Group_PageMode, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1442,6 +1645,24 @@ export class MuiMaster {
         const rawAttrs = (msg as OpSet).attrs
         const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
+        if (cl === this.groupClass) {
+          const stored = data(this, made).attrs
+          const hasRows = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_Rows)
+          const hasColumns = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_Columns)
+          if (!hasRows && !hasColumns && (stored.get(MUI.MUIA_Group_Horiz) ?? 0) !== 0) {
+            stored.set(MUI.MUIA_Group_Rows, 1)
+            stored.set(MUI.MUIA_Group_Columns, 0x7fff)
+          }
+          const spacing = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Group_Spacing)?.data
+          if (spacing !== undefined) {
+            if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_HorizSpacing)) stored.set(MUI.MUIA_Group_HorizSpacing, spacing)
+            if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Group_VertSpacing)) stored.set(MUI.MUIA_Group_VertSpacing, spacing)
+          }
+          if ((stored.get(MUI.MUIA_Group_SameSize) ?? 0) !== 0) {
+            stored.set(MUI.MUIA_Group_SameWidth, 1)
+            stored.set(MUI.MUIA_Group_SameHeight, 1)
+          }
+        }
         if (cl === this.areaClass) {
           const weight = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Weight)?.data
           const d = data(this, made).attrs
@@ -1470,6 +1691,7 @@ export class MuiMaster {
           this.copyWindowString(made, MUI.MUIA_Window_ScreenTitle)
         }
         if (cl === this.familyClass) this.rebuildFamilyList(made)
+        if (cl === this.groupClass) this.rebuildGroupList(made)
         return made.address
       }
 
@@ -1528,6 +1750,7 @@ export class MuiMaster {
         if (cl === this.stringClass) return this.setString(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.propClass) return this.setProp(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.listClass) return this.setList(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.groupClass) return this.setGroup(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1571,6 +1794,10 @@ export class MuiMaster {
         const o = obj as BoopsiObject
         if (cl === this.familyClass && TAG(g.attrID) === MUI.MUIA_Family_List) {
           g.storage = o.instData<MuiFamilyData>(cl).listAddress
+          return 1
+        }
+        if (cl === this.groupClass && TAG(g.attrID) === MUI.MUIA_Group_ChildList) {
+          g.storage = o.instData<MuiGroupData>(cl).listAddress
           return 1
         }
         if (cl === this.menuitemClass && TAG(g.attrID) === MUI.MUIA_Menuitem_Trigger) {
@@ -1727,6 +1954,22 @@ export class MuiMaster {
           // $2350f8 and $23511a both explicitly clear d0.
           return 0
         }
+        if (cl === this.groupClass) {
+          const d = data(this, o)
+          const i = d.children.indexOf(child)
+          if (msg.MethodID === OM_ADDMEMBER && i < 0) {
+            d.children.push(child)
+            data(this, child).parent = o
+            data(this, child).contextApplication = d.contextApplication
+            data(this, child).contextConfigdata = d.contextConfigdata
+          } else if (msg.MethodID === OM_REMMEMBER && i >= 0) {
+            d.children.splice(i, 1)
+            data(this, child).parent = null
+          }
+          this.rebuildGroupList(o)
+          if (o.instData<MuiGroupData>(cl).changeDepth === 0) this.relayoutGroup(o)
+          return 1
+        }
         const d = data(this, o)
         if (msg.MethodID === OM_ADDMEMBER) {
           if (!d.children.includes(child)) d.children.push(child)
@@ -1743,6 +1986,7 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.groupClass) return this.groupMethod(obj as BoopsiObject, msg)
         if (cl === this.menuitemClass) {
           const answered = this.menuitemMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1836,6 +2080,194 @@ export class MuiMaster {
         return doSuperMethodA(cl, obj, msg)
       }
     }
+  }
+
+  private groupMethod(obj: BoopsiObject, msg: Msg): number {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const group = obj.instData<MuiGroupData>(this.groupClass)
+    const children = [...data(this, obj).children]
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.groupClass, obj, msg)
+        if (answer === 0) return 0
+        const setup: BoopsiObject[] = []
+        for (const child of children) {
+          if (this.doMui(child, MUI.MUIM_Setup) === 0) {
+            for (const previous of setup.reverse()) this.doMui(previous, MUI.MUIM_Cleanup)
+            doSuperMethodA(this.groupClass, obj, { MethodID: MUI.MUIM_Cleanup })
+            return 0
+          }
+          setup.push(child)
+        }
+        return 1
+      }
+      case MUI.MUIM_Cleanup:
+        for (const child of children) this.doMui(child, MUI.MUIM_Cleanup)
+        return doSuperMethodA(this.groupClass, obj, msg)
+      case MUI.MUIM_Show: {
+        const answer = doSuperMethodA(this.groupClass, obj, msg)
+        if (answer === 0) return 0
+        const visible = this.groupVisibleChildren(obj, children)
+        for (const child of visible) this.doMui(child, MUI.MUIM_Show)
+        return 1
+      }
+      case MUI.MUIM_Hide:
+        for (const child of children) this.doMui(child, MUI.MUIM_Hide)
+        return doSuperMethodA(this.groupClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.groupClass, obj, msg)
+        for (const child of this.groupVisibleChildren(obj, children)) child.cl.dispatcher(child.cl, child, msg)
+        return 0
+      case MUI.MUIM_HandleInput:
+        if ((params[0] ?? 0) !== 0) {
+          for (const child of this.groupVisibleChildren(obj, children)) child.cl.dispatcher(child.cl, child, msg)
+        }
+        doSuperMethodA(this.groupClass, obj, msg)
+        return 0
+      case MUI.MUIM_Notify: {
+        const attr = params[0] ?? 0
+        const local = new Set<number>([MUI.MUIA_AppMessage, MUI.MUIA_Group_ActivePage,
+          MUI.MUIA_Virtgroup_Top, MUI.MUIA_Virtgroup_Left, MUI.MUIA_ContextMenuTrigger])
+        if (!local.has(attr)) for (const child of children) child.cl.dispatcher(child.cl, child, msg)
+        doSuperMethodA(this.groupClass, obj, msg)
+        return 0
+      }
+      case MUI.MUIM_Export:
+      case MUI.MUIM_Import: {
+        for (const child of children) child.cl.dispatcher(child.cl, child, msg)
+        const dataspace = this.boopsi.objectAt(params[0] ?? 0)
+        const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+        if (!dataspace?.cl.isA(this.dataspaceClass) || id === 0) return 0
+        const ds = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+        if (msg.MethodID === MUI.MUIM_Export) {
+          const value = this.peek(obj, MUI.MUIA_Group_ActivePage) ?? 0
+          this.dataspaceAddBytes(ds, Uint8Array.of(value >>> 24, value >>> 16, value >>> 8, value), id)
+        } else {
+          const entry = ds.entries.find((candidate) => candidate.id === TAG(id))
+          if (entry && entry.length >= 4) this.set(obj, MUI.MUIA_Group_ActivePage, this.poolLong(entry.address - this.pool.base + 16))
+        }
+        return 0
+      }
+      case MUI.MUIM_FindUData: {
+        if ((this.peek(obj, MUI.MUIA_UserData) ?? 0) === (params[0] ?? 0)) return obj.address
+        for (const child of children) {
+          const found = this.doMui(child, MUI.MUIM_FindUData, [params[0] ?? 0])
+          if (found !== 0) return found
+        }
+        return 0
+      }
+      case MUI.MUIM_GetUData: {
+        const found = this.groupMethod(obj, { MethodID: MUI.MUIM_FindUData, params: [params[0] ?? 0] } as Msg)
+        const target = this.boopsi.objectAt(found)
+        return target ? this.getToAddress(target, params[1] ?? 0, params[2] ?? 0) : 0
+      }
+      case MUI.MUIM_SetUData:
+      case MUI.MUIM_SetUDataOnce: {
+        const setMatching = (target: BoopsiObject): boolean => {
+          if ((this.peek(target, MUI.MUIA_UserData) ?? 0) === (params[0] ?? 0)) {
+            this.set(target, params[1] ?? 0, params[2] ?? 0)
+            if (msg.MethodID === MUI.MUIM_SetUDataOnce) return true
+          }
+          if (target.cl.isA(this.groupClass)) for (const child of data(this, target).children) if (setMatching(child)) return true
+          return false
+        }
+        setMatching(obj)
+        return msg.MethodID === MUI.MUIM_SetUDataOnce && this.groupMethod(obj,
+          { MethodID: MUI.MUIM_FindUData, params: [params[0] ?? 0] } as Msg) !== 0 ? 1 : 0
+      }
+      case MUIM_AREA_LAYOUT:
+      case MUIM_AREA_FIND_AT:
+        return doSuperMethodA(this.groupClass, obj, msg)
+      case MUIM_GROUP_TRANSFER_CHILDREN: {
+        const target = this.boopsi.objectAt(params[0] ?? 0)
+        if (!target?.cl.isA(this.groupClass)) return 0
+        for (const child of children) {
+          this.remMember(obj, child)
+          this.addMember(target, child)
+        }
+        return 0
+      }
+      case MUI.MUIM_Group_InitChange:
+        group.changeDepth++
+        return 1
+      case MUI.MUIM_Group_ExitChange:
+        if (group.changeDepth > 0) group.changeDepth--
+        if (group.changeDepth === 0) this.relayoutGroup(obj)
+        return 0
+      case MUIM_GROUP_EXIT_CHANGE2:
+        if (group.changeDepth > 0) group.changeDepth--
+        if (group.changeDepth === 0) this.relayoutGroup(obj)
+        return 0
+      case MUIM_GROUP_RUN_LAYOUT_HOOK:
+        // Native invokes MUIA_Group_LayoutHook through utility.library.
+        // Executing a guest 68k hook is outside this port's agreed scope.
+        return 0
+      case MUIM_GROUP_MOVE_TO_TAIL: {
+        const child = this.boopsi.objectAt(params[0] ?? 0)
+        if (!child) return 0
+        const at = data(this, obj).children.indexOf(child)
+        if (at >= 0) {
+          data(this, obj).children.splice(at, 1)
+          data(this, obj).children.push(child)
+          this.rebuildGroupList(obj)
+        }
+        return 0
+      }
+      case MUIM_NOTIFY_IS_SELF: {
+        const wanted = this.boopsi.objectAt(params[0] ?? 0)
+        if (!wanted) return 0
+        const contains = (parent: BoopsiObject): boolean => parent === wanted ||
+          (parent.cl.isA(this.groupClass) && data(this, parent).children.some(contains))
+        return contains(obj) ? wanted.address : 0
+      }
+      case MUIM_GROUP_COLLECT_CYCLE: {
+        const output = params[0] ?? 0
+        let count = (params[1] ?? 0) | 0
+        const collect = (parent: BoopsiObject): void => {
+          if (count >= 256) return
+          if (parent !== obj && (this.peek(parent, MUI.MUIA_CycleChain) ?? 0) !== 0 && (this.peek(parent, MUI.MUIA_Disabled) ?? 0) === 0) {
+            this.writeLong?.(output + count * 4, parent.address)
+            count++
+          }
+          if (parent.cl.isA(this.groupClass)) for (const child of data(this, parent).children) collect(child)
+        }
+        collect(obj)
+        return 0
+      }
+      case MUIM_GROUP_CLEAR_CYCLE:
+        return 0
+      case MUI.MUIM_Group_Sort: {
+        const ordered: BoopsiObject[] = []
+        for (const address of params) {
+          if (address === 0) break
+          const child = this.boopsi.objectAt(address)
+          if (!child || !children.includes(child) || ordered.includes(child)) return 0
+          ordered.push(child)
+        }
+        if (ordered.length !== children.length) return 0
+        data(this, obj).children = ordered
+        this.rebuildGroupList(obj)
+        if (group.changeDepth === 0) this.relayoutGroup(obj)
+        return 0
+      }
+      case 0x8042a0d6:
+      case 0x8042d2d2:
+        // These invoke the custom layout hook. Guest 68k hooks are explicitly
+        // outside this port, but the native methods still answer zero.
+        return 0
+      default:
+        if (GROUP_AREA_PASSTHROUGH.has(msg.MethodID)) return doSuperMethodA(this.groupClass, obj, msg)
+        for (const child of children) child.cl.dispatcher(child.cl, child, msg)
+        return doSuperMethodA(this.groupClass, obj, msg)
+    }
+  }
+
+  private groupVisibleChildren(obj: BoopsiObject, children = [...data(this, obj).children]): BoopsiObject[] {
+    if ((this.peek(obj, MUI.MUIA_Group_PageMode) ?? 0) === 0) {
+      return children.filter((child) => (this.peek(child, MUI.MUIA_ShowMe) ?? 1) !== 0)
+    }
+    const page = Math.max(0, Math.min(children.length - 1, this.peek(obj, MUI.MUIA_Group_ActivePage) ?? 0))
+    return children[page] ? [children[page]!] : []
   }
 
   /**
@@ -5174,24 +5606,57 @@ export class MuiMaster {
   private groupMinMax(obj: BoopsiObject, mm: MinMax): void {
     const kids = data(this, obj).children.filter((c) => c.cl.isA(this.areaClass))
     if (kids.length === 0) return
+    const each = kids.map((k) => this.minMaxOf(k) ?? this.askMinMax(k))
+    if ((this.peek(obj, MUI.MUIA_Group_PageMode) ?? 0) !== 0) {
+      mm.minW += Math.max(...each.map((m) => m.minW))
+      mm.minH += Math.max(...each.map((m) => m.minH))
+      mm.defW += Math.max(...each.map((m) => m.defW))
+      mm.defH += Math.max(...each.map((m) => m.defH))
+      mm.maxW += Math.min(...each.map((m) => m.maxW))
+      mm.maxH += Math.min(...each.map((m) => m.maxH))
+      return
+    }
+    const shape = this.groupShape(obj, kids.length)
+    if (shape.columns > 1 && shape.rows > 1) {
+      const hspace = this.spacingOf(obj, true) * (shape.columns - 1)
+      const vspace = this.spacingOf(obj, false) * (shape.rows - 1)
+      const columns = Array.from({ length: shape.columns }, (_, column) => each.filter((_, i) => i % shape.columns === column))
+      const rows = Array.from({ length: shape.rows }, (_, row) => each.slice(row * shape.columns, (row + 1) * shape.columns))
+      const sameW = (this.peek(obj, MUI.MUIA_Group_SameWidth) ?? 0) !== 0
+      const sameH = (this.peek(obj, MUI.MUIA_Group_SameHeight) ?? 0) !== 0
+      const width = (key: keyof MinMax): number => sameW
+        ? Math.max(...each.map((m) => m[key])) * shape.columns
+        : columns.reduce((sum, column) => sum + Math.max(...column.map((m) => m[key])), 0)
+      const height = (key: keyof MinMax): number => sameH
+        ? Math.max(...each.map((m) => m[key])) * shape.rows
+        : rows.reduce((sum, row) => sum + Math.max(...row.map((m) => m[key])), 0)
+      mm.minW += width('minW') + hspace
+      mm.defW += width('defW') + hspace
+      mm.maxW += width('maxW') + hspace
+      mm.minH += height('minH') + vspace
+      mm.defH += height('defH') + vspace
+      mm.maxH += height('maxH') + vspace
+      return
+    }
     const horiz = (this.peek(obj, MUI.MUIA_Group_Horiz) ?? 0) !== 0
     const gaps = this.spacingOf(obj, horiz) * (kids.length - 1)
-    const each = kids.map((k) => this.minMaxOf(k) ?? this.askMinMax(k))
 
     const sum = (f: (m: MinMax) => number): number => each.reduce((a, m) => a + f(m), 0)
     const most = (f: (m: MinMax) => number): number => each.reduce((a, m) => Math.max(a, f(m)), 0)
 
     if (horiz) {
-      mm.minW += sum((m) => m.minW) + gaps
-      mm.defW += sum((m) => m.defW) + gaps
-      mm.maxW += sum((m) => m.maxW) + gaps
+      const same = (this.peek(obj, MUI.MUIA_Group_SameWidth) ?? 0) !== 0
+      mm.minW += (same ? most((m) => m.minW) * kids.length : sum((m) => m.minW)) + gaps
+      mm.defW += (same ? most((m) => m.defW) * kids.length : sum((m) => m.defW)) + gaps
+      mm.maxW += (same ? Math.min(...each.map((m) => m.maxW)) * kids.length : sum((m) => m.maxW)) + gaps
       mm.minH += most((m) => m.minH)
       mm.defH += most((m) => m.defH)
       mm.maxH += Math.min(...each.map((m) => m.maxH))
     } else {
-      mm.minH += sum((m) => m.minH) + gaps
-      mm.defH += sum((m) => m.defH) + gaps
-      mm.maxH += sum((m) => m.maxH) + gaps
+      const same = (this.peek(obj, MUI.MUIA_Group_SameHeight) ?? 0) !== 0
+      mm.minH += (same ? most((m) => m.minH) * kids.length : sum((m) => m.minH)) + gaps
+      mm.defH += (same ? most((m) => m.defH) * kids.length : sum((m) => m.defH)) + gaps
+      mm.maxH += (same ? Math.min(...each.map((m) => m.maxH)) * kids.length : sum((m) => m.maxH)) + gaps
       mm.minW += most((m) => m.minW)
       mm.defW += most((m) => m.defW)
       mm.maxW += Math.min(...each.map((m) => m.maxW))

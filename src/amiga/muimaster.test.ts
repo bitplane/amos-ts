@@ -999,6 +999,59 @@ describe('muimaster: the object tree', () => {
   })
 })
 
+describe('muimaster: Group.mui 19.35', () => {
+  it('installs native defaults and exposes an addressable child MinList', () => {
+    const m = new MuiMaster()
+    const a = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const b = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const group = m.newObjectA(MUIC.MUIC_Group, [tag(MUI.MUIA_Group_Child, a.address), tag(MUI.MUIA_Group_Child, b.address)])!
+    expect(m.get(group, MUI.MUIA_Group_HorizSpacing)).toBe(1)
+    const list = m.get(group, MUI.MUIA_Group_ChildList)!
+    const view = new DataView(m.pool.buffer.buffer, m.pool.buffer.byteOffset, m.pool.buffer.byteLength)
+    const first = view.getUint32(list - m.pool.base, false)
+    expect(view.getUint32(first - m.pool.base + 8, false)).toBe(a.address)
+  })
+
+  it('lays out rows and columns as a grid', () => {
+    const m = new MuiMaster()
+    const kids = Array.from({ length: 4 }, () => m.newObjectA(MUIC.MUIC_Rectangle)!)
+    const group = m.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Columns, 2),
+      ...kids.map((child) => tag(MUI.MUIA_Group_Child, child.address)),
+    ])!
+    m.layout(group, 0, 0, 101, 81)
+    expect(kids.map((child) => m.boxOf(child))).toEqual([
+      { left: 0, top: 0, width: 50, height: 40 },
+      { left: 51, top: 0, width: 50, height: 40 },
+      { left: 0, top: 41, width: 50, height: 40 },
+      { left: 51, top: 41, width: 50, height: 40 },
+    ])
+  })
+
+  it('switches pages and batches membership changes until ExitChange', () => {
+    const m = new MuiMaster()
+    const a = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const b = m.newObjectA(MUIC.MUIC_Rectangle)!
+    const group = m.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_PageMode, 1), tag(MUI.MUIA_Group_Child, a.address), tag(MUI.MUIA_Group_Child, b.address),
+    ])!
+    m.layout(group, 2, 3, 40, 20)
+    m.set(group, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_Next)
+    expect(m.get(group, MUI.MUIA_Group_ActivePage)).toBe(1)
+    expect([m.get(a, MUI.MUIA_ShowMe), m.get(b, MUI.MUIA_ShowMe)]).toEqual([0, 1])
+    expect(m.doMui(group, MUI.MUIM_Group_InitChange)).toBe(1)
+    expect(m.doMui(group, MUI.MUIM_Group_Sort, [b.address, a.address, 0])).toBe(0)
+    expect(m.children(group)).toEqual([b, a])
+    expect(m.doMui(group, MUI.MUIM_Group_ExitChange)).toBe(0)
+    m.setInternal(group, MUI.MUIA_ExportID, 44)
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(group, MUI.MUIM_Export, [ds.address])
+    m.set(group, MUI.MUIA_Group_ActivePage, 0)
+    m.doMui(group, MUI.MUIM_Import, [ds.address])
+    expect(m.get(group, MUI.MUIA_Group_ActivePage)).toBe(1)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
