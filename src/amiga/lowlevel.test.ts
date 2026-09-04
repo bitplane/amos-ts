@@ -1,5 +1,5 @@
 /**
- * lowlevel.library's joyport half, against AROS.
+ * lowlevel.library's joyport half, against lowlevel 40.35 and AROS.
  *
  * The reference is `arch/m68k-amiga/lowlevel/readjoyport.c` and
  * `compiler/include/libraries/lowlevel.h`. What is checked here is the
@@ -80,10 +80,24 @@ describe('the constants agree with libraries/lowlevel.h', () => {
 })
 
 describe('ReadJoyPort', () => {
-  it('answers NOTAVAIL for a port that is not 0 or 1', () => {
+  it('answers NOTAVAIL outside the binary\'s four-entry port table', () => {
     const p = ports()
-    expect(readJoyPort(p, 2)).toBe(JP_TYPE_NOTAVAIL)
+    expect(readJoyPort(p, 4)).toBe(JP_TYPE_NOTAVAIL)
     expect(readJoyPort(p, -1)).toBe(JP_TYPE_NOTAVAIL)
+  })
+
+  it('accepts adaptor ports 2 and 3 when the host supplies them', () => {
+    // lowlevel 40.35 bounds with `cmp.l #3,d2` and uses four port records.
+    const p = [newController(), newController(), newController(), newController()]
+    p[2]!.dirs = DIR_DOWN
+    p[3]!.buttons = BTN_RED
+    expect(readJoyPort(p, 2)).toBe(JP_TYPE_JOYSTK | JPF_JOY_DOWN)
+    expect(readJoyPort(p, 3)).toBe(JP_TYPE_JOYSTK | JPF_BUTTON_RED)
+  })
+
+  it('reports absent adaptor ports as unavailable on a two-port machine', () => {
+    expect(readJoyPort(ports(), 2)).toBe(JP_TYPE_NOTAVAIL)
+    expect(readJoyPort(ports(), 3)).toBe(JP_TYPE_NOTAVAIL)
   })
 
   it('answers NOTAVAIL for an empty port', () => {

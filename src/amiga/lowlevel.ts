@@ -10,15 +10,18 @@
  *
  * ## Evidence
  *
- * Written against AROS: `compiler/include/libraries/lowlevel.h` for the
- * constants and `arch/m68k-amiga/lowlevel/readjoyport.c` for the behaviour.
- * The same tier and the same checkout as `localelib.ts`, and for the same
- * reason — there is no Commodore binary here to outrank it, and AROS is a
- * reimplementation that had to satisfy the programs.
+ * Written initially against AROS: `compiler/include/libraries/lowlevel.h`
+ * for the constants and `arch/m68k-amiga/lowlevel/readjoyport.c` for the
+ * behaviour. It is now checked against the highest original image held,
+ * `lowlevel 40.35 (30.7.93)`. Its `ReadJoyPort` at $210c18 accepts logical
+ * ports 0..3 (`cmp.l #3,d2`) and dispatches through a four-word port table;
+ * its button/direction packing and `ElapsedTime` conversion agree with the
+ * AROS account below.
  *
  * What AROS's m68k `ReadJoyPort` does, in order:
  *
- *  - a port other than 0 or 1 answers `JP_TYPE_NOTAVAIL`.
+ *  - a port outside 0..3 answers `JP_TYPE_NOTAVAIL`; 2 and 3 are the two
+ *    logical ports supplied by a supported four-player adaptor.
  *  - `llPortOpen` autosenses once per port and remembers the answer in
  *    `llad_PortType`. It polls for a game controller; if that fails it settles
  *    on `JP_TYPE_JOYSTK`. `SetJoyPortAttrs`'s `SJA_Type` forces the answer and
@@ -64,8 +67,8 @@ import {
   type Controller,
 } from './controller'
 
-/** `ReadJoyPort` answers for ports 0 and 1 and nothing else */
-export const MAX_JOYPORT = 1
+/** `ReadJoyPort` 40.35 indexes a four-entry table for logical ports 0..3. */
+export const MAX_JOYPORT = 3
 
 // -- return value, from libraries/lowlevel.h ------------------------------
 
@@ -159,8 +162,9 @@ function buttonsFor(c: Controller): number {
 /**
  * `ULONG ReadJoyPort(ULONG port)`.
  *
- * `ports` is indexed the way the hardware is — 0 is the mouse port, 1 the
- * joystick port — which is also `Joy()`'s numbering.
+ * `ports` is indexed the way lowlevel exposes it: 0 is the mouse port, 1 the
+ * joystick port, and 2/3 are optional adaptor ports. A two-port machine has
+ * no entries at 2/3 and therefore answers `JP_TYPE_NOTAVAIL` for them.
  */
 export function readJoyPort(ports: readonly Controller[], port: number): number {
   if (port < 0 || port > MAX_JOYPORT) return JP_TYPE_NOTAVAIL
