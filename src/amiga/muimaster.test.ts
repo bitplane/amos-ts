@@ -52,6 +52,7 @@ import {
   type MuiRectangleRenderSpec,
   type MuiBalanceRenderSpec,
   type MuiStringGadgetState,
+  type MuiPropGadgetState,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -74,6 +75,7 @@ class TestWindowHost implements MuiWindowHost {
   refreshedGadgets: number[] = []
   activatedGadgets: number[] = []
   stringGadgets = new Map<number, { state: MuiStringGadgetState, activation: number }>()
+  propGadgets = new Map<number, { state: MuiPropGadgetState, horizontal: boolean }>()
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -100,7 +102,10 @@ class TestWindowHost implements MuiWindowHost {
   configureStringGadget(address: number, state: MuiStringGadgetState, activation: number): void {
     this.stringGadgets.set(address, { state, activation })
   }
-  disposeGadget(address: number): void { this.stringGadgets.delete(address) }
+  configurePropGadget(address: number, state: MuiPropGadgetState, horizontal: boolean): void {
+    this.propGadgets.set(address, { state, horizontal })
+  }
+  disposeGadget(address: number): void { this.stringGadgets.delete(address); this.propGadgets.delete(address) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -747,6 +752,57 @@ describe('muimaster: String.mui 19.35', () => {
     m.doMui(first, MUI.MUIM_HandleInput, [0x40, 0, 0, 0, 0, 0, 0, firstAddress])
     expect(m.get(win, MUI.MUIA_Window_ActiveObject)).toBe(second.address)
     expect(host.activatedGadgets).toEqual([m.get(second, MUI.MUIA_Gadget_Gadget)])
+  })
+})
+
+describe('muimaster: Prop.mui 19.35', () => {
+  it('normalises its range and exposes proportional Pot/Body state', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const prop = m.newObjectA(MUIC.MUIC_Prop, [
+      tag(MUI.MUIA_Prop_Entries, 100), tag(MUI.MUIA_Prop_Visible, 20),
+      tag(MUI.MUIA_Prop_First, 40), tag(MUI.MUIA_Prop_Horiz, 1),
+    ])!
+    const address = m.get(prop, MUI.MUIA_Gadget_Gadget)!
+    const native = host.propGadgets.get(address)!
+    expect(native.horizontal).toBe(true)
+    expect(native.state.horizPot).toBeCloseTo(0x7fff, -1)
+    expect(native.state.horizBody).toBeCloseTo(0x3333, -1)
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(40)
+    expect(m.set(prop, MUI.MUIA_Prop_First, 999)).toBe(1)
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(80)
+    expect(m.set(prop, MUI.MUIA_Prop_Visible, 120)).toBe(1)
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(0)
+  })
+
+  it('uses the exact native normal and window-border min/max additions', () => {
+    const m = new MuiMaster()
+    const vertical = m.newObjectA(MUIC.MUIC_Prop)!
+    expect(m.askMinMax(vertical)).toEqual({ minW: 6, minH: 12, maxW: 10000, maxH: 10000, defW: 6, defH: 50 })
+    const horizontal = m.newObjectA(MUIC.MUIC_Prop, [tag(MUI.MUIA_Prop_Horiz, 1)])!
+    expect(m.askMinMax(horizontal)).toEqual({ minW: 12, minH: 6, maxW: 10000, maxH: 10000, defW: 50, defH: 6 })
+    const border = m.newObjectA(MUIC.MUIC_Prop, [tag(MUI.MUIA_Prop_UseWinBorder, MUI.MUIV_Prop_UseWinBorder_Right)])!
+    expect(m.askMinMax(border)).toEqual({ minW: 0, minH: 0, maxW: 0, maxH: 10000, defW: 0, defH: 0 })
+  })
+
+  it('tracks live knob movement and implements increase/decrease with clamping', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const prop = m.newObjectA(MUIC.MUIC_Prop, [
+      tag(MUI.MUIA_Prop_Entries, 10), tag(MUI.MUIA_Prop_Visible, 2), tag(MUI.MUIA_Prop_First, 1),
+    ])!
+    const address = m.get(prop, MUI.MUIA_Gadget_Gadget)!
+    host.propGadgets.get(address)!.state.vertPot = 0xffff
+    m.doMui(prop, MUI.MUIM_HandleInput, [0x200, 0, 0, 0, 0, 0, 0, address])
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(8)
+    expect(m.doMui(prop, MUI.MUIM_Prop_Decrease, [3])).toBe(0)
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(5)
+    m.doMui(prop, MUI.MUIM_Prop_Increase, [99])
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(8)
+    m.disposeObject(prop)
+    expect(host.propGadgets.has(address)).toBe(false)
   })
 })
 

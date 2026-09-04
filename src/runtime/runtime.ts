@@ -29,7 +29,7 @@ import {
   type UserGadget,
 } from '../amiga/intuition'
 import { Boopsi, type BoopsiObject } from '../amiga/boopsi'
-import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster, type MuiStringGadgetState } from '../amiga/muimaster'
+import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster, type MuiPropGadgetState, type MuiStringGadgetState } from '../amiga/muimaster'
 import { MUI } from '../amiga/muimaster.gen'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
@@ -2556,6 +2556,7 @@ export class Runtime {
       const asWindow = (handle: unknown): Window => handle as Window
       const muiGadgets = new Map<number, UserGadget>()
       const muiStrings = new Map<number, { state: MuiStringGadgetState, activation: number }>()
+      const muiProps = new Map<number, { state: MuiPropGadgetState, horizontal: boolean }>()
       mui.windowHost = {
         open: (spec) => {
           const int = this.intuition
@@ -2951,6 +2952,12 @@ export class Runtime {
             gadget.activation = string.activation
             gadget.strInfo = string.state
           }
+          const prop = muiProps.get(address)
+          if (prop) {
+            gadget.kind = 0x0003
+            gadget.activation = 0x0003
+            gadget.prop = prop.state
+          }
           gadget.leftEdge = w.borderLeft + box.left
           gadget.topEdge = w.borderTop + box.top
           gadget.width = Math.max(1, box.width)
@@ -2991,8 +2998,18 @@ export class Runtime {
             gadget.strInfo = state
           }
         },
+        configurePropGadget: (address, state, horizontal) => {
+          muiProps.set(address, { state, horizontal })
+          const gadget = muiGadgets.get(address)
+          if (gadget) {
+            gadget.kind = 0x0003
+            gadget.activation = 0x0003
+            gadget.prop = state
+          }
+        },
         disposeGadget: (address) => {
           muiStrings.delete(address)
+          muiProps.delete(address)
           muiGadgets.delete(address)
         },
       }

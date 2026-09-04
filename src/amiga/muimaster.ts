@@ -516,7 +516,17 @@ export interface MuiWindowHost {
   refreshGadget?(handle: unknown, address: number): void
   activateGadget?(handle: unknown, address: number): void
   configureStringGadget?(address: number, state: MuiStringGadgetState, activation: number): void
+  configurePropGadget?(address: number, state: MuiPropGadgetState, horizontal: boolean): void
   disposeGadget?(address: number): void
+}
+
+/** Mutable PropInfo state shared with the Intuition platform adapter. */
+export interface MuiPropGadgetState {
+  flags: number
+  horizPot: number
+  vertPot: number
+  horizBody: number
+  vertBody: number
 }
 
 /** Mutable StringInfo state shared with the Intuition platform adapter. */
@@ -626,6 +636,18 @@ interface MuiStringData extends Record<string, unknown> {
   acknowledgeAddress: number
 }
 
+interface MuiPropData extends Record<string, unknown> {
+  state: MuiPropGadgetState
+  gadgetAddress: number
+  entries: number
+  visible: number
+  first: number
+  horizontal: boolean
+  slider: boolean
+  useWinBorder: number
+  deltaFactor: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -687,6 +709,7 @@ export class MuiMaster {
   readonly balanceClass: BoopsiClass
   readonly gadgetClass: BoopsiClass
   readonly stringClass: BoopsiClass
+  readonly propClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -740,6 +763,7 @@ export class MuiMaster {
     this.balanceClass = this.byName.get(MUIC.MUIC_Balance)!
     this.gadgetClass = this.byName.get(MUIC.MUIC_Gadget)!
     this.stringClass = this.byName.get(MUIC.MUIC_String)!
+    this.propClass = this.byName.get(MUIC.MUIC_Prop)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1325,6 +1349,12 @@ export class MuiMaster {
             return 0
           }
         }
+        if (cl === this.propClass) {
+          if (!this.initProp(made, (msg as OpSet).attrs)) {
+            this.boopsi.disposeObject(made)
+            return 0
+          }
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1444,6 +1474,7 @@ export class MuiMaster {
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.stringClass) return this.setString(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.propClass) return this.setProp(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1529,6 +1560,10 @@ export class MuiMaster {
         }
         if (cl === this.stringClass) {
           const answer = this.getString(o, g)
+          if (answer) return answer
+        }
+        if (cl === this.propClass) {
+          const answer = this.getProp(o, g)
           if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
@@ -1722,6 +1757,10 @@ export class MuiMaster {
         }
         if (cl === this.stringClass) {
           const answered = this.stringMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.propClass) {
+          const answered = this.propMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2564,40 +2603,50 @@ export class MuiMaster {
     for (const attr of msg.attrs) {
       const id = TAG(attr.tag)
       switch (id) {
-        case MUI.MUIA_String_Contents:
+        case MUI.MUIA_String_Contents: {
+          const old = d.state.buffer
           if (attr.data !== 0xff) d.state.buffer = attr.data === 0 ? '' : this.textOfAddress(attr.data)
           d.state.bufferPos = Math.min(d.state.buffer.length, d.state.maxChars - 1)
           d.state.displayPos = 0
+          if (d.state.buffer !== old) this.setInternal(obj, id, d.bufferAddress)
           own++
           break
-        case MUI.MUIA_String_Integer:
+        }
+        case MUI.MUIA_String_Integer: {
+          const old = d.state.buffer
           d.state.longInt = attr.data | 0
           d.state.buffer = String(attr.data | 0)
           d.state.bufferPos = Math.min(d.state.buffer.length, d.state.maxChars - 1)
           d.state.displayPos = 0
+          if (d.state.buffer !== old) this.setInternal(obj, MUI.MUIA_String_Contents, d.bufferAddress)
           own++
           break
+        }
         case MUI.MUIA_String_BufferPos:
           d.state.bufferPos = attr.data | 0
+          this.setInternal(obj, id, d.state.bufferPos)
           own++
           break
         case MUI.MUIA_String_DisplayPos:
           d.state.displayPos = attr.data | 0
+          this.setInternal(obj, id, d.state.displayPos)
           own++
           break
         case MUI.MUIA_String_Accept:
           d.state.accept = this.textOfAddress(attr.data)
+          this.setInternal(obj, id, attr.data)
           own++
           break
         case MUI.MUIA_String_Reject:
           d.state.reject = this.textOfAddress(attr.data)
+          this.setInternal(obj, id, attr.data)
           own++
           break
         case MUI.MUIA_String_AdvanceOnCR:
         case MUI.MUIA_String_AttachedList:
         case MUI.MUIA_String_EditHook:
         case MUI.MUIA_String_LonelyEditHook:
-          data(this, obj).attrs.set(id, attr.data)
+          this.setInternal(obj, id, attr.data)
           own++
           break
         default: rest.push(attr)
@@ -2700,6 +2749,123 @@ export class MuiMaster {
     } else {
       const entry = d.entries.find((candidate) => candidate.id === TAG(id))
       if (entry) this.set(obj, MUI.MUIA_String_Contents, entry.address + 16)
+    }
+  }
+
+  // -- Prop ---------------------------------------------------------------
+
+  private initProp(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const value = (attr: number, fallback: number): number =>
+      attrs.find((item) => TAG(item.tag) === attr)?.data ?? fallback
+    const gadgetAddress = this.pool.alloc(44, { clear: true })
+    if (gadgetAddress === 0) return false
+    data(this, obj).ownedAddresses.push(gadgetAddress)
+    const d = obj.instData<MuiPropData>(this.propClass)
+    d.gadgetAddress = gadgetAddress
+    d.entries = Math.max(0, value(MUI.MUIA_Prop_Entries, 0) | 0)
+    d.visible = Math.max(0, value(MUI.MUIA_Prop_Visible, 0) | 0)
+    d.first = value(MUI.MUIA_Prop_First, 0) | 0
+    d.horizontal = value(MUI.MUIA_Prop_Horiz, 0) !== 0
+    d.slider = value(MUI.MUIA_Prop_Slider, 0) !== 0
+    d.useWinBorder = value(MUI.MUIA_Prop_UseWinBorder, MUI.MUIV_Prop_UseWinBorder_None) | 0
+    d.deltaFactor = 1
+    d.state = { flags: 1, horizPot: 0, vertPot: 0, horizBody: 0xffff, vertBody: 0xffff }
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_Gadget_Gadget, gadgetAddress)
+    stored.set(MUI.MUIA_Prop_Entries, d.entries)
+    stored.set(MUI.MUIA_Prop_Visible, d.visible)
+    stored.set(MUI.MUIA_Prop_First, d.first)
+    stored.set(MUI.MUIA_Prop_Horiz, d.horizontal ? 1 : 0)
+    stored.set(MUI.MUIA_Prop_Slider, d.slider ? 1 : 0)
+    stored.set(MUI.MUIA_Prop_UseWinBorder, d.useWinBorder)
+    const gadget = obj.instData<MuiGadgetData>(this.gadgetClass)
+    gadget.gadget = gadgetAddress
+    this.syncProp(obj, false)
+    return true
+  }
+
+  private syncProp(obj: BoopsiObject, fromGadget: boolean): void {
+    const d = obj.instData<MuiPropData>(this.propClass)
+    const limit = Math.max(0, d.entries - d.visible)
+    if (fromGadget) {
+      const pot = d.horizontal ? d.state.horizPot : d.state.vertPot
+      d.first = limit === 0 ? 0 : Math.round((pot * limit) / 0xffff)
+    }
+    d.first = Math.max(0, Math.min(limit, d.first))
+    const pot = limit === 0 ? 0 : Math.round((d.first * 0xffff) / limit)
+    const body = d.entries <= 0 ? 0xffff : Math.min(0xffff, Math.round((d.visible * 0xffff) / d.entries))
+    d.state.flags = 1 | (d.horizontal ? 2 : 4)
+    d.state.horizPot = d.horizontal ? pot : 0
+    d.state.vertPot = d.horizontal ? 0 : pot
+    d.state.horizBody = d.horizontal ? body : 0xffff
+    d.state.vertBody = d.horizontal ? 0xffff : body
+    this.windowHost?.configurePropGadget?.(d.gadgetAddress, d.state, d.horizontal)
+  }
+
+  private setProp(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiPropData>(cl)
+    const before = { entries: d.entries, visible: d.visible, first: d.first, slider: d.slider }
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      switch (TAG(attr.tag)) {
+        case MUI.MUIA_Prop_Entries: d.entries = Math.max(0, attr.data | 0); own++; break
+        case MUI.MUIA_Prop_Visible: d.visible = Math.max(0, attr.data | 0); own++; break
+        case MUI.MUIA_Prop_First: d.first = attr.data | 0; own++; break
+        case MUI.MUIA_Prop_Slider:
+          d.slider = attr.data !== 0
+          own++
+          break
+        default: rest.push(attr)
+      }
+    }
+    this.syncProp(obj, false)
+    if (d.entries !== before.entries) this.setInternal(obj, MUI.MUIA_Prop_Entries, d.entries)
+    if (d.visible !== before.visible) this.setInternal(obj, MUI.MUIA_Prop_Visible, d.visible)
+    if (d.first !== before.first) this.setInternal(obj, MUI.MUIA_Prop_First, d.first)
+    if (d.slider !== before.slider) this.setInternal(obj, MUI.MUIA_Prop_Slider, d.slider ? 1 : 0)
+    if (own !== 0) this.redrawArea(obj, 1)
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private getProp(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiPropData>(this.propClass)
+    this.syncProp(obj, true)
+    switch (TAG(msg.attrID)) {
+      case MUI.MUIA_Prop_Entries: msg.storage = d.entries; return 1
+      case MUI.MUIA_Prop_Visible: msg.storage = d.visible; return 1
+      case MUI.MUIA_Prop_First: msg.storage = d.first; return 1
+      case MUI.MUIA_Prop_Horiz: msg.storage = d.horizontal ? 1 : 0; return 1
+      case MUI.MUIA_Prop_Slider: msg.storage = d.slider ? 1 : 0; return 1
+      default: return 0
+    }
+  }
+
+  private propMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiPropData>(this.propClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup:
+        this.syncProp(obj, false)
+        return doSuperMethodA(this.propClass, obj, msg)
+      case MUI.MUIM_Cleanup:
+        return doSuperMethodA(this.propClass, obj, msg)
+      case MUI.MUIM_HandleInput: {
+        const cls = params[0] ?? 0
+        if ((cls === 0x20 || cls === 0x40 || cls === 0x200) && (params[7] ?? 0) === d.gadgetAddress) {
+          const old = d.first
+          this.syncProp(obj, true)
+          if (d.first !== old) this.setInternal(obj, MUI.MUIA_Prop_First, d.first)
+        }
+        return doSuperMethodA(this.propClass, obj, msg)
+      }
+      case MUI.MUIM_Prop_Increase:
+        this.set(obj, MUI.MUIA_Prop_First, d.first + (params[0] ?? 0))
+        return 0
+      case MUI.MUIM_Prop_Decrease:
+        this.set(obj, MUI.MUIA_Prop_First, d.first - (params[0] ?? 0))
+        return 0
+      default: return null
     }
   }
 
@@ -4248,6 +4414,14 @@ export class MuiMaster {
       case 'String': {
         // 19.35 adds these exact values after Gadget/Area's own frame bounds.
         add(20, fy, MUI_MAXMAX, fy, 100, fy)
+        return 0
+      }
+      case 'Prop': {
+        const d = obj.instData<MuiPropData>(this.propClass)
+        if (d.useWinBorder !== MUI.MUIV_Prop_UseWinBorder_None) {
+          add(0, 0, d.horizontal ? MUI_MAXMAX : 0, d.horizontal ? 0 : MUI_MAXMAX)
+        } else if (d.horizontal) add(12, 6, MUI_MAXMAX, MUI_MAXMAX, 50, 6)
+        else add(6, 12, MUI_MAXMAX, MUI_MAXMAX, 6, 50)
         return 0
       }
       case 'Image':
