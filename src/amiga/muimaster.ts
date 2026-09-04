@@ -233,6 +233,8 @@ export const MUIM_MENUSTRIP_FREE = 0x8042e15f
 export const MUIM_MENUSTRIP_UPDATE = 0x8042ed51
 export const MUIM_MENU_FILL_NEWMENU = 0x804207c9
 export const MUIM_MENU_SYNC = 0x804241d4
+/** Private construction tag set by MUIO_Menuitem_CopyStrings. */
+export const MUIA_MENUITEM_COPY_STRINGS = 0x8042dc1b
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -371,6 +373,10 @@ interface MuiMenustripData extends Record<string, unknown> {
   handles: Set<number>
 }
 
+interface MuiMenuitemData extends Record<string, unknown> {
+  copyStrings: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -412,6 +418,7 @@ export class MuiMaster {
   readonly familyClass: BoopsiClass
   readonly menustripClass: BoopsiClass
   readonly menuClass: BoopsiClass
+  readonly menuitemClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
@@ -456,6 +463,7 @@ export class MuiMaster {
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.menustripClass = this.byName.get(MUIC.MUIC_Menustrip)!
     this.menuClass = this.byName.get(MUIC.MUIC_Menu)!
+    this.menuitemClass = this.byName.get(MUIC.MUIC_Menuitem)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
@@ -902,8 +910,26 @@ export class MuiMaster {
           data(this, made).attrs.set(MUI.MUIA_Menu_Title, this.literalAddress('Unnamed'))
           data(this, made).attrs.set(MUI.MUIA_Menu_Enabled, 1)
         }
-        const attrs = (msg as OpSet).attrs
+        if (cl === this.menuitemClass) {
+          made.instData<MuiMenuitemData>(cl).copyStrings = false
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Menuitem_Title, this.literalAddress('Unnamed'))
+          d.set(MUI.MUIA_Menuitem_Shortcut, 0)
+          d.set(MUI.MUIA_Menuitem_Exclude, 0)
+          d.set(MUI.MUIA_Menuitem_Toggle, 0)
+          d.set(MUI.MUIA_Menuitem_Checked, 0)
+          d.set(MUI.MUIA_Menuitem_Checkit, 0)
+          d.set(MUI.MUIA_Menuitem_Enabled, 1)
+          d.set(MUI.MUIA_Menuitem_CommandString, 0)
+        }
+        const rawAttrs = (msg as OpSet).attrs
+        const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
+        if (cl === this.menuitemClass) {
+          const copy = attrs.some((attr) => TAG(attr.tag) === MUIA_MENUITEM_COPY_STRINGS && attr.data !== 0)
+          made.instData<MuiMenuitemData>(cl).copyStrings = copy
+          if (copy) this.copyMenuitemStrings(made)
+        }
         if (cl === this.familyClass) this.rebuildFamilyList(made)
         return made.address
       }
@@ -932,6 +958,7 @@ export class MuiMaster {
          * (Notify's) without Text knowing either exists. The answer is the
          * total, because OM_SET's contract is how many attributes were used.
          */
+        if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
           let change = 0
@@ -969,6 +996,10 @@ export class MuiMaster {
         const o = obj as BoopsiObject
         if (cl === this.familyClass && TAG(g.attrID) === MUI.MUIA_Family_List) {
           g.storage = o.instData<MuiFamilyData>(cl).listAddress
+          return 1
+        }
+        if (cl === this.menuitemClass && TAG(g.attrID) === MUI.MUIA_Menuitem_Trigger) {
+          g.storage = 0
           return 1
         }
         if (cl === this.familyClass) {
@@ -1037,6 +1068,11 @@ export class MuiMaster {
           this.menuUpdateParent(o, 3)
           return 0
         }
+        if (cl === this.menuitemClass) {
+          doSuperMethodA(cl, obj, msg)
+          this.menuitemUpdateParent(o, 3)
+          return 0
+        }
         if (cl === this.menustripClass) {
           doSuperMethodA(cl, obj, msg)
           this.menustripUpdate(o)
@@ -1071,6 +1107,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.menuitemClass) {
+          const answered = this.menuitemMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.menuClass) {
           const answered = this.menuMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1169,6 +1209,187 @@ export class MuiMaster {
   }
 
   // -- Family ------------------------------------------------------------
+
+  /** Menuitem's OM_SET, including the live-menu side effects in 19.35. */
+  private setMenuitem(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    let change = 0
+    let trigger = 0
+    let checkedBecameTrue = false
+    const oldStrings = new Map<number, number>()
+    const attrs = this.normaliseMenuitemAttrs(msg.attrs)
+    for (const attr of attrs) {
+      switch (TAG(attr.tag)) {
+        case MUI.MUIA_Menuitem_Title:
+        case MUI.MUIA_Menuitem_Shortcut:
+          oldStrings.set(TAG(attr.tag), this.peek(obj, attr.tag) ?? 0)
+          change = 2
+          break
+        case MUI.MUIA_Menuitem_Exclude:
+        case MUI.MUIA_Menuitem_Checkit:
+          change = 2
+          break
+        case MUI.MUIA_Menuitem_Checked:
+          if ((this.peek(obj, attr.tag) ?? 0) !== attr.data) {
+            change ||= 1
+            checkedBecameTrue = attr.data !== 0
+          }
+          break
+        case MUI.MUIA_Menuitem_Enabled:
+          if ((this.peek(obj, attr.tag) ?? 0) !== attr.data) change ||= 1
+          break
+        case MUI.MUIA_Menuitem_Trigger:
+          trigger = attr.data
+          break
+      }
+    }
+    const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+    if (noNotify) this.suppressNotifications++
+    let answer = 0
+    try {
+      const ownMsg: OpSet = { ...msg, attrs }
+      const ok = this.applyOwn('Menuitem', obj, attrs, 's')
+      answer = (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, ownMsg)
+      if (obj.instData<MuiMenuitemData>(cl).copyStrings) {
+        for (const attr of oldStrings.keys()) this.copyMenuitemString(obj, attr, this.peek(obj, attr) ?? 0, oldStrings.get(attr) ?? 0)
+      }
+      if (trigger !== 0 && (this.peek(obj, MUI.MUIA_Menuitem_Checkit) ?? 0) !== 0) {
+        const checked = this.readByte(trigger + 12) & 1
+        if ((this.peek(obj, MUI.MUIA_Menuitem_Checked) ?? 0) !== checked) this.set(obj, MUI.MUIA_Menuitem_Checked, checked)
+      }
+    } finally {
+      if (noNotify) this.suppressNotifications--
+    }
+    if (checkedBecameTrue) {
+      const exclude = this.peek(obj, MUI.MUIA_Menuitem_Exclude) ?? 0
+      const parent = data(this, obj).parent
+      if (exclude !== 0 && parent) this.doMui(parent, MUIM_FAMILY_EXCLUSIVE, [obj.address, exclude])
+    }
+    if (change !== 0) this.menuitemUpdateParent(obj, change)
+    return answer
+  }
+
+  private normaliseMenuitemAttrs(attrs: readonly TagItem[]): readonly TagItem[] {
+    const booleans = new Set<number>([
+      MUI.MUIA_Menuitem_Toggle,
+      MUI.MUIA_Menuitem_Checked,
+      MUI.MUIA_Menuitem_Checkit,
+      MUI.MUIA_Menuitem_Enabled,
+      MUI.MUIA_Menuitem_CommandString,
+    ])
+    return attrs.map((attr) => booleans.has(TAG(attr.tag)) ? { tag: attr.tag, data: attr.data === 0 ? 0 : 1 } : attr)
+  }
+
+  /** The two private Menuitem methods plus its persistence specialisation. */
+  private menuitemMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUIM_MENU_SYNC: {
+        const address = params[0] ?? 0
+        let hi = this.readByte(address + 12)
+        let lo = this.readByte(address + 13)
+        hi = (this.peek(obj, MUI.MUIA_Menuitem_Checked) ?? 0) !== 0 ? hi | 1 : hi & 0xfe
+        lo = (this.peek(obj, MUI.MUIA_Menuitem_Enabled) ?? 1) !== 0 ? lo | 0x10 : lo & 0xef
+        this.writeBytes(address + 12, Uint8Array.of(hi, lo))
+        return 0
+      }
+      case MUIM_MENU_FILL_NEWMENU: {
+        let address = params[0] ?? 0
+        const type = params[1] ?? 2
+        let title = this.peek(obj, MUI.MUIA_Menuitem_Title) ?? this.literalAddress('Unnamed')
+        let shortcut = this.peek(obj, MUI.MUIA_Menuitem_Shortcut) ?? 0
+        if (TAG(shortcut) === MUI.MUIV_Menuitem_Shortcut_Check) {
+          if (TAG(title) !== 0xffffffff && this.textOfAddress(title).length === 1) {
+            shortcut = title
+            title = (title + 2) >>> 0
+          } else shortcut = 0
+        }
+        let flags = 0
+        if ((this.peek(obj, MUI.MUIA_Menuitem_Enabled) ?? 1) === 0) flags |= 0x10
+        if ((this.peek(obj, MUI.MUIA_Menuitem_Checkit) ?? 0) !== 0) flags |= 0x0001
+        if ((this.peek(obj, MUI.MUIA_Menuitem_Checked) ?? 0) !== 0) flags |= 0x0100
+        if ((this.peek(obj, MUI.MUIA_Menuitem_Toggle) ?? 0) !== 0) flags |= 0x0008
+        if ((this.peek(obj, MUI.MUIA_Menuitem_CommandString) ?? 0) !== 0) flags |= 0x0004
+        const record = new Uint8Array(20)
+        record[0] = type
+        putLong(record, 2, title)
+        putLong(record, 6, shortcut)
+        putWord(record, 10, flags)
+        putLong(record, 12, this.peek(obj, MUI.MUIA_Menuitem_Exclude) ?? 0)
+        putLong(record, 16, obj.address)
+        if (!this.writeBytes(address, record)) return 0
+        address += 20
+        for (const child of data(this, obj).children) {
+          if (this.doMui(child, MUIM_MENU_FILL_NEWMENU, [address, type + 1]) === 0) return 0
+          address += this.menuTreeSize(child) * 20
+        }
+        return 1
+      }
+      case MUI.MUIM_Export:
+        this.menuitemTransferChecked(obj, params[0] ?? 0, true)
+        return doSuperMethodA(this.menuitemClass, obj, msg)
+      case MUI.MUIM_Import:
+        this.menuitemTransferChecked(obj, params[0] ?? 0, false)
+        return doSuperMethodA(this.menuitemClass, obj, msg)
+      default:
+        return null
+    }
+  }
+
+  private menuitemTransferChecked(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    if ((this.peek(obj, MUI.MUIA_Menuitem_Checkit) ?? 0) === 0) return
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ObjectID) ?? this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const d = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const bytes = new Uint8Array(4)
+      putLong(bytes, 0, this.peek(obj, MUI.MUIA_Menuitem_Checked) ?? 0)
+      this.dataspaceAddBytes(d, bytes, id)
+    } else {
+      const entry = d.entries.find((candidate) => candidate.id === TAG(id))
+      if (entry && entry.length >= 4) this.set(obj, MUI.MUIA_Menuitem_Checked, this.poolLong(entry.address - this.pool.base + 16))
+    }
+  }
+
+  private copyMenuitemStrings(obj: BoopsiObject): void {
+    for (const attr of [MUI.MUIA_Menuitem_Title, MUI.MUIA_Menuitem_Shortcut]) {
+      const source = this.peek(obj, attr) ?? 0
+      this.copyMenuitemString(obj, attr, source, 0)
+    }
+  }
+
+  private copyMenuitemString(obj: BoopsiObject, attr: number, source: number, old: number): void {
+    let address = source
+    if (source !== 0 && TAG(source) !== 0xffffffff) {
+      const bytes = Uint8Array.from([...this.textOfAddress(source), '\0'], (c) => c.charCodeAt(0))
+      address = this.pool.alloc(bytes.length)
+      if (address !== 0) {
+        this.pool.buffer.set(bytes, address - this.pool.base)
+        data(this, obj).ownedAddresses.push(address)
+      }
+    }
+    const owned = data(this, obj).ownedAddresses
+    const i = owned.indexOf(old)
+    if (i >= 0) {
+      this.pool.freeMem(old)
+      owned.splice(i, 1)
+    }
+    data(this, obj).attrs.set(attr, address)
+  }
+
+  private readByte(address: number): number {
+    if (address >= this.pool.base && address < this.pool.base + this.pool.buffer.length) {
+      return this.pool.buffer[address - this.pool.base] ?? 0
+    }
+    return this.readMemory?.(address, 1)?.[0] ?? 0
+  }
+
+  private menuitemUpdateParent(obj: BoopsiObject, kind: number): void {
+    let parent = data(this, obj).parent
+    while (parent && !parent.cl.isA(this.menustripClass)) parent = data(this, parent).parent
+    if (parent) this.doMui(parent, MUIM_MENUSTRIP_UPDATE, [obj.address, kind])
+  }
 
   private menuMethod(obj: BoopsiObject, msg: Msg): number | null {
     const params = (msg as Msg & { params?: readonly number[] }).params ?? []

@@ -24,6 +24,7 @@ import {
   MUIM_MENUSTRIP_FREE,
   MUIM_MENUSTRIP_UPDATE,
   MUIM_MENU_SYNC,
+  MUIA_MENUITEM_COPY_STRINGS,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -568,6 +569,135 @@ describe('muimaster: Menu', () => {
     m.set(menu, MUI.MUIA_Menu_Enabled, 0)
     send(menu, MUIM_MENU_SYNC, memory)
     expect(m.pool.buffer[memory + 13 - m.pool.base]! & 1).toBe(0)
+  })
+})
+
+describe('muimaster: Menuitem', () => {
+  const long = (m: MuiMaster, address: number): number => {
+    const at = address - m.pool.base
+    return (((m.pool.buffer[at]! << 24) | (m.pool.buffer[at + 1]! << 16) | (m.pool.buffer[at + 2]! << 8) | m.pool.buffer[at + 3]!) >>> 0)
+  }
+  const word = (m: MuiMaster, address: number): number => {
+    const at = address - m.pool.base
+    return (m.pool.buffer[at]! << 8) | m.pool.buffer[at + 1]!
+  }
+
+  it('defaults exactly like the native constructor', () => {
+    const m = new MuiMaster()
+    const item = m.newObjectA(MUIC.MUIC_Menuitem)!
+    expect(m.get(item, MUI.MUIA_Menuitem_Enabled)).toBe(1)
+    expect(m.get(item, MUI.MUIA_Menuitem_Title)).not.toBe(0)
+    expect(m.get(item, MUI.MUIA_Menuitem_Shortcut)).toBe(0)
+    expect(m.get(item, MUI.MUIA_Menuitem_Exclude)).toBe(0)
+    expect(m.get(item, MUI.MUIA_Menuitem_Trigger)).toBe(0)
+  })
+
+  it('fills its native NewMenu record and recursively advances subitem types', () => {
+    const m = new MuiMaster()
+    const sub = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Title, 0x2222)])!
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [
+      tag(MUI.MUIA_Menuitem_Title, 0x1111),
+      tag(MUI.MUIA_Menuitem_Shortcut, 0x3333),
+      tag(MUI.MUIA_Menuitem_Exclude, 0xa5a5),
+      tag(MUI.MUIA_Menuitem_Checkit, 1),
+      tag(MUI.MUIA_Menuitem_Checked, 1),
+      tag(MUI.MUIA_Menuitem_Toggle, 1),
+      tag(MUI.MUIA_Menuitem_CommandString, 1),
+      tag(MUI.MUIA_Menuitem_Enabled, 0),
+      tag(MUI.MUIA_Family_Child, sub.address),
+    ])!
+    const menu = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Family_Child, item.address)])!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    const at = handle + 20
+    expect(m.pool.buffer[at - m.pool.base]).toBe(2)
+    expect(long(m, at + 2)).toBe(0x1111)
+    expect(long(m, at + 6)).toBe(0x3333)
+    expect(word(m, at + 10)).toBe(0x11d)
+    expect(long(m, at + 12)).toBe(0xa5a5)
+    expect(long(m, at + 16)).toBe(item.address)
+    expect(m.pool.buffer[at + 20 - m.pool.base]).toBe(3)
+  })
+
+  it('synchronizes checked and enabled into the live Intuition MenuItem flags', () => {
+    const m = new MuiMaster()
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [
+      tag(MUI.MUIA_Menuitem_Checked, 1),
+      tag(MUI.MUIA_Menuitem_Enabled, 1),
+    ])!
+    const memory = m.pool.alloc(24, { clear: true })
+    send(item, MUIM_MENU_SYNC, memory)
+    expect(word(m, memory + 12)).toBe(0x110)
+    m.set(item, MUI.MUIA_Menuitem_Checked, 0)
+    m.set(item, MUI.MUIA_Menuitem_Enabled, 0)
+    send(item, MUIM_MENU_SYNC, memory)
+    expect(word(m, memory + 12)).toBe(0)
+  })
+
+  it('applies exclusion through its parent and reports live menu changes', () => {
+    const m = new MuiMaster()
+    const a = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Checkit, 1), tag(MUI.MUIA_Menuitem_Exclude, 2)])!
+    const b = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Checked, 1)])!
+    const menu = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Family_Child, a.address), tag(MUI.MUIA_Family_Child, b.address)])!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    let changes = 0
+    m.menuChanged = () => changes++
+    m.set(a, MUI.MUIA_Menuitem_Checked, 1)
+    expect(m.get(b, MUI.MUIA_Menuitem_Checked)).toBe(0)
+    // One synchronization for this item and one for the excluded sibling.
+    expect(changes).toBe(2)
+    send(strip, MUIM_MENUSTRIP_FREE, handle)
+  })
+
+  it('imports and exports checked state only for checkable identified items', () => {
+    const m = new MuiMaster()
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [
+      tag(MUI.MUIA_ObjectID, 77),
+      tag(MUI.MUIA_Menuitem_Checkit, 1),
+      tag(MUI.MUIA_Menuitem_Checked, 1),
+    ])!
+    expect(send(item, MUI.MUIM_Export, ds.address)).toBe(0)
+    m.set(item, MUI.MUIA_Menuitem_Checked, 0)
+    expect(send(item, MUI.MUIM_Import, ds.address)).toBe(0)
+    expect(m.get(item, MUI.MUIA_Menuitem_Checked)).toBe(1)
+  })
+
+  it('uses Trigger to mirror a selected native check item without retaining its pointer', () => {
+    const m = new MuiMaster()
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Checkit, 1)])!
+    const native = m.pool.alloc(24, { clear: true })
+    m.pool.buffer[native + 12 - m.pool.base] = 1
+    m.set(item, MUI.MUIA_Menuitem_Trigger, native)
+    expect(m.get(item, MUI.MUIA_Menuitem_Checked)).toBe(1)
+    expect(m.get(item, MUI.MUIA_Menuitem_Trigger)).toBe(0)
+  })
+
+  it('owns constructor and replacement strings when the private copy tag is set', () => {
+    const m = new MuiMaster()
+    const poolText = (address: number): string => {
+      let text = ''
+      for (let at = address - m.pool.base; m.pool.buffer[at] !== 0; at++) text += String.fromCharCode(m.pool.buffer[at]!)
+      return text
+    }
+    const source = m.pool.alloc(8, { clear: true })
+    m.pool.buffer.set(Uint8Array.from([79, 112, 101, 110, 0]), source - m.pool.base)
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [
+      tag(MUI.MUIA_Menuitem_Title, source),
+      tag(MUIA_MENUITEM_COPY_STRINGS, 1),
+    ])!
+    const first = m.get(item, MUI.MUIA_Menuitem_Title)!
+    expect(first).not.toBe(source)
+    expect(m.pool.sizeOf(first)).not.toBe(0)
+    m.pool.buffer[source - m.pool.base] = 88
+    expect(poolText(first)).toBe('Open')
+
+    m.set(item, MUI.MUIA_Menuitem_Title, source)
+    const second = m.get(item, MUI.MUIA_Menuitem_Title)!
+    expect(second).not.toBe(source)
+    expect(m.pool.sizeOf(first)).toBe(0)
+    expect(poolText(second)).toBe('Xpen')
   })
 })
 
