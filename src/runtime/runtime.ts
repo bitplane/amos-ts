@@ -15,8 +15,9 @@ import type { IextState } from './intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
 import { Intuition } from '../amiga/intuition'
-import { Boopsi } from '../amiga/boopsi'
+import { Boopsi, type BoopsiObject } from '../amiga/boopsi'
 import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster } from '../amiga/muimaster'
+import { MUI } from '../amiga/muimaster.gen'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
 import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
@@ -2520,6 +2521,25 @@ export class Runtime {
         }
         return true
       }
+      const settingsPath = (application: BoopsiObject, name: number): string => {
+        if ((name >>> 0) !== 0 && (name >>> 0) !== 0xffffffff) return mui.readString?.(name) ?? ''
+        const base = mui.textOf(application, MUI.MUIA_Application_Base) || 'UNNAMED'
+        return `${(name >>> 0) === 0xffffffff ? 'ENVARC' : 'ENV'}:MUI/${base}.cfg`
+      }
+      mui.applicationSave = (application, name, bytes) => {
+        const fs = this.vfs
+        const path = settingsPath(application, name)
+        if (!fs || path === '') return false
+        if ((name >>> 0) === 0 || (name >>> 0) === 0xffffffff) fs.mkdir(`${(name >>> 0) === 0xffffffff ? 'ENVARC' : 'ENV'}:MUI`)
+        const written = fs.writeFile(path, bytes)
+        if (written) this.stampFile(path)
+        return written
+      }
+      mui.applicationLoad = (application, name) => {
+        const path = settingsPath(application, name)
+        return path === '' ? null : this.vfs?.readFile(path) ?? null
+      }
+      mui.applicationNow = () => this.frames * 20
       this.muiBase = mui
     }
     return this.muiBase

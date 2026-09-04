@@ -235,6 +235,28 @@ export const MUIM_MENU_FILL_NEWMENU = 0x804207c9
 export const MUIM_MENU_SYNC = 0x804241d4
 /** Private construction tag set by MUIO_Menuitem_CopyStrings. */
 export const MUIA_MENUITEM_COPY_STRINGS = 0x8042dc1b
+export const MUIM_APPLICATION_FLUSH_PUSHED = 0x80429954
+export const MUIM_APPLICATION_FIND_WINDOW = 0x8042f5e1
+export const MUIM_APPLICATION_CONFIG_CHANGED = 0x8042fe91
+export const MUIM_APPLICATION_REFRESH_WINDOW = 0x80426771
+export const MUIM_APPLICATION_DEFAULT_NAME = 0x80423a3d
+export const MUIM_APPLICATION_NOOP = 0x8042c5b9
+export const MUIM_APPLICATION_PREFS_AVAILABLE = 0x80426b99
+export const MUIM_APPLICATION_CLOSE_CONFIG = 0x80429d2f
+export const MUIM_APPLICATION_APPLY_CONFIG = 0x8042c58b
+export const MUIM_APPLICATION_REXX_COMMAND = 0x80426e36
+export const MUIM_APPLICATION_WAKE_CONFIG = 0x8042fe91
+export const MUIM_APPLICATION_SAVE_NAMED = 0x80420b19
+export const MUIM_APPLICATION_LOAD_NAMED = 0x8042c862
+export const MUIM_APPLICATION_CONFIG_RESPONSE = 0x8042a08c
+export const MUIM_APPLICATION_NEW_PREFS = 0x80424a8b
+export const MUIM_APPLICATION_HELP_REQUEST = 0x8042df8a
+export const MUIM_APPLICATION_REQUEST = 0x8042ba68
+export const MUIM_APPLICATION_BROADCAST = 0x8042ca1f
+export const MUIM_APPLICATION_SET_MENU_CHECK_PRIVATE = 0x804233d4
+export const MUIM_APPLICATION_GET_MENU_CHECK_PRIVATE = 0x804205b2
+export const MUIM_APPLICATION_SET_MENU_STATE_PRIVATE = 0x80426697
+export const MUIM_APPLICATION_GET_MENU_STATE_PRIVATE = 0x80421526
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -377,6 +399,18 @@ interface MuiMenuitemData extends Record<string, unknown> {
   copyStrings: boolean
 }
 
+interface MuiApplicationData extends Record<string, unknown> {
+  bufferedReturnIDs: number[]
+  pushed: Array<{ target: BoopsiObject; message: number[] }>
+  inputHandlers: number[]
+  inputDeadlines: Map<number, number>
+  sleepDepth: number
+  listAddress: number
+  nodesAddress: number
+  configdata: BoopsiObject | null
+  configDirty: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -403,10 +437,19 @@ export class MuiMaster {
   readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
   /** Window/Application platform bridge for a live Intuition menu strip. */
   menuChanged: ((menustrip: BoopsiObject) => void) | null = null
+  /** Platform boundaries used by Application methods; Runtime supplies these as its subsystems land. */
+  applicationRefresh: ((window: BoopsiObject) => void) | null = null
+  applicationHelp: ((application: BoopsiObject, object: BoopsiObject | null, flags: number) => number) | null = null
+  applicationAbout: ((application: BoopsiObject, reference: BoopsiObject | null) => void) | null = null
+  applicationConfig: ((application: BoopsiObject, open: boolean) => number) | null = null
+  applicationSave: ((application: BoopsiObject, name: number, bytes: Uint8Array) => boolean) | null = null
+  applicationLoad: ((application: BoopsiObject, name: number) => Uint8Array | null) | null = null
+  applicationNow: () => number = () => Date.now()
   private readonly configDefaultPointers = new Map<number, number>()
   private suppressNotifications = 0
   private sharedConfigdata: BoopsiObject | null = null
   private readonly literalPointers = new Map<string, number>()
+  private readonly applications = new Set<BoopsiObject>()
   /** "Window.mui" -> its class, which is what MUI_NewObjectA is given */
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
@@ -922,6 +965,42 @@ export class MuiMaster {
           d.set(MUI.MUIA_Menuitem_Enabled, 1)
           d.set(MUI.MUIA_Menuitem_CommandString, 0)
         }
+        if (cl === this.applicationClass) {
+          const requested = (msg as OpSet).attrs
+          if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
+            const title = requested.find((attr) => TAG(attr.tag) === MUI.MUIA_Application_Title)?.data ?? this.literalAddress('Unnamed')
+            const running = [...this.applications].find((candidate) => this.sameText(this.peek(candidate, MUI.MUIA_Application_Title) ?? 0, title))
+            if (running) {
+              this.setInternal(running, MUI.MUIA_Application_DoubleStart, 1)
+              this.boopsi.disposeObject(made)
+              return 0
+            }
+          }
+          const app = made.instData<MuiApplicationData>(cl)
+          app.bufferedReturnIDs = []
+          app.pushed = []
+          app.inputHandlers = []
+          app.inputDeadlines = new Map()
+          app.sleepDepth = 0
+          app.listAddress = this.pool.alloc(12, { clear: true })
+          app.nodesAddress = 0
+          app.configdata = this.newObjectA(MUIC.MUIC_Configdata)
+          app.configDirty = false
+          if (app.listAddress === 0 || !app.configdata) return 0
+          data(this, made).ownedAddresses.push(app.listAddress)
+          data(this, made).attrs.set(MUI.MUIA_Application_Active, 1)
+          data(this, made).attrs.set(MUI.MUIA_Application_Iconified, 0)
+          data(this, made).attrs.set(MUI.MUIA_Application_DoubleStart, 0)
+          data(this, made).attrs.set(MUI.MUIA_Application_ForceQuit, 0)
+          data(this, made).attrs.set(MUI.MUIA_Application_Title, this.literalAddress('Unnamed'))
+          data(this, made).attrs.set(MUI.MUIA_Application_Version, this.literalAddress('$VER: Unnamed 0.0'))
+          data(this, made).attrs.set(MUI.MUIA_Application_Copyright, this.literalAddress('?'))
+          data(this, made).attrs.set(MUI.MUIA_Application_Author, this.literalAddress('?'))
+          data(this, made).attrs.set(MUI.MUIA_Application_Description, this.literalAddress('?'))
+          data(this, made).attrs.set(MUI.MUIA_Application_Base, this.literalAddress('UNNAMED'))
+          data(this, made).attrs.set(MUI.MUIA_Application_UseCommodities, 1)
+          data(this, made).attrs.set(MUI.MUIA_Application_UseRexx, 1)
+        }
         const rawAttrs = (msg as OpSet).attrs
         const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
@@ -930,12 +1009,27 @@ export class MuiMaster {
           made.instData<MuiMenuitemData>(cl).copyStrings = copy
           if (copy) this.copyMenuitemStrings(made)
         }
+        if (cl === this.applicationClass) {
+          const app = made.instData<MuiApplicationData>(cl)
+          this.copyApplicationStrings(made)
+          data(this, made).contextApplication = made
+          data(this, made).contextConfigdata = app.configdata
+          for (const child of data(this, made).children) this.setObjectContext(child, made, app.configdata)
+          this.rebuildApplicationList(made)
+          this.applications.add(made)
+        }
         if (cl === this.familyClass) this.rebuildFamilyList(made)
         return made.address
       }
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.applicationClass) {
+          const app = o.instData<MuiApplicationData>(cl)
+          if (app.configdata) this.boopsi.disposeObject(app.configdata)
+          app.configdata = null
+          this.applications.delete(o)
+        }
         if (cl === this.menustripClass) {
           for (const handle of o.instData<MuiMenustripData>(cl).handles) this.pool.freeMem(handle)
           o.instData<MuiMenustripData>(cl).handles.clear()
@@ -959,6 +1053,7 @@ export class MuiMaster {
          * total, because OM_SET's contract is how many attributes were used.
          */
         if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
           let change = 0
@@ -1001,6 +1096,18 @@ export class MuiMaster {
         if (cl === this.menuitemClass && TAG(g.attrID) === MUI.MUIA_Menuitem_Trigger) {
           g.storage = 0
           return 1
+        }
+        if (cl === this.applicationClass) {
+          const app = o.instData<MuiApplicationData>(cl)
+          const computed = TAG(g.attrID) === MUI.MUIA_Application_WindowList
+            ? app.listAddress
+            : TAG(g.attrID) === MUI.MUIA_Application_Broker || TAG(g.attrID) === MUI.MUIA_Application_BrokerPort || TAG(g.attrID) === MUI.MUIA_Application_RexxMsg
+              ? this.peek(o, g.attrID) ?? 0
+              : undefined
+          if (computed !== undefined) {
+            g.storage = computed
+            return 1
+          }
         }
         if (cl === this.familyClass) {
           for (const child of data(this, o).children) {
@@ -1063,6 +1170,10 @@ export class MuiMaster {
       case OM_REMMEMBER: {
         const o = obj as BoopsiObject
         const child = (msg as OpMember).object
+        if (cl === this.applicationClass) {
+          const answer = msg.MethodID === OM_ADDMEMBER ? this.applicationAdd(o, child) : this.applicationRemove(o, child)
+          return answer
+        }
         if (cl === this.menuClass) {
           doSuperMethodA(cl, obj, msg)
           this.menuUpdateParent(o, 3)
@@ -1166,7 +1277,7 @@ export class MuiMaster {
           const found = this.get(member, attr) ?? 0
           if (attr === MUI.MUIA_Application_BrokerPort) {
             if (found === wanted) return member.address
-          } else if (found !== 0 && this.readString?.(found) === this.readString?.(wanted)) {
+          } else if (found !== 0 && this.sameText(found, wanted)) {
             return member.address
           }
         }
@@ -1912,6 +2023,105 @@ export class MuiMaster {
 
   // -- Application --------------------------------------------------------
 
+  private setApplication(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const app = obj.instData<MuiApplicationData>(cl)
+    const attrs = msg.attrs.map((attr) => {
+      const tag = TAG(attr.tag)
+      if (tag === MUI.MUIA_Application_Sleep) {
+        app.sleepDepth = Math.max(0, app.sleepDepth + (attr.data === 0 ? -1 : 1))
+        return { tag: attr.tag, data: app.sleepDepth === 0 ? 0 : 1 }
+      }
+      if (tag === MUI.MUIA_Application_Active || tag === MUI.MUIA_Application_Iconified) {
+        return { tag: attr.tag, data: attr.data === 0 ? 0 : 1 }
+      }
+      return attr
+    })
+    const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+    if (noNotify) this.suppressNotifications++
+    try {
+      const ownMsg: OpSet = { ...msg, attrs }
+      const ok = this.applyOwn('Application', obj, attrs, 's')
+      return (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, ownMsg)
+    } finally {
+      if (noNotify) this.suppressNotifications--
+    }
+  }
+
+  private copyApplicationStrings(obj: BoopsiObject): void {
+    for (const attr of [
+      MUI.MUIA_Application_Title,
+      MUI.MUIA_Application_Version,
+      MUI.MUIA_Application_Copyright,
+      MUI.MUIA_Application_Author,
+      MUI.MUIA_Application_Description,
+      MUI.MUIA_Application_Base,
+    ]) {
+      const source = this.peek(obj, attr) ?? 0
+      let value = this.textOfAddress(source)
+      if (attr === MUI.MUIA_Application_Base) value = value.toUpperCase()
+      const bytes = Uint8Array.from([...value, '\0'], (c) => c.charCodeAt(0))
+      const address = this.pool.alloc(bytes.length)
+      if (address === 0) continue
+      this.pool.buffer.set(bytes, address - this.pool.base)
+      data(this, obj).ownedAddresses.push(address)
+      data(this, obj).attrs.set(attr, address)
+    }
+  }
+
+  private applicationAdd(obj: BoopsiObject, child: BoopsiObject): number {
+    const children = data(this, obj).children
+    if (!children.includes(child)) children.push(child)
+    data(this, child).parent = obj
+    const app = obj.instData<MuiApplicationData>(this.applicationClass)
+    this.setObjectContext(child, obj, app.configdata)
+    this.rebuildApplicationList(obj)
+    return 1
+  }
+
+  private applicationRemove(obj: BoopsiObject, child: BoopsiObject): number {
+    const children = data(this, obj).children
+    const i = children.indexOf(child)
+    if (i >= 0) children.splice(i, 1)
+    data(this, child).parent = null
+    this.setObjectContext(child, null, null)
+    const app = obj.instData<MuiApplicationData>(this.applicationClass)
+    for (const queued of app.pushed) if (queued.target === child) queued.message = []
+    this.rebuildApplicationList(obj)
+    return 1
+  }
+
+  private setObjectContext(obj: BoopsiObject, application: BoopsiObject | null, configdata: BoopsiObject | null): void {
+    data(this, obj).contextApplication = application
+    data(this, obj).contextConfigdata = configdata
+    for (const child of data(this, obj).children) this.setObjectContext(child, application, configdata)
+  }
+
+  private rebuildApplicationList(obj: BoopsiObject): void {
+    const app = obj.instData<MuiApplicationData>(this.applicationClass)
+    if (!app?.listAddress) return
+    if (app.nodesAddress !== 0) {
+      this.pool.freeMem(app.nodesAddress)
+      const i = data(this, obj).ownedAddresses.indexOf(app.nodesAddress)
+      if (i >= 0) data(this, obj).ownedAddresses.splice(i, 1)
+      app.nodesAddress = 0
+    }
+    const windows = data(this, obj).children.filter((child) => child.cl.isA(this.windowClass))
+    if (windows.length !== 0) {
+      app.nodesAddress = this.pool.alloc(windows.length * 12, { clear: true })
+      if (app.nodesAddress !== 0) data(this, obj).ownedAddresses.push(app.nodesAddress)
+    }
+    const off = app.listAddress - this.pool.base
+    this.putPoolLong(off, app.nodesAddress)
+    this.putPoolLong(off + 4, 0)
+    this.putPoolLong(off + 8, windows.length === 0 ? app.listAddress : app.nodesAddress + (windows.length - 1) * 12)
+    for (let i = 0; i < windows.length && app.nodesAddress !== 0; i++) {
+      const at = app.nodesAddress - this.pool.base + i * 12
+      this.putPoolLong(at, i + 1 < windows.length ? app.nodesAddress + (i + 1) * 12 : 0)
+      this.putPoolLong(at + 4, i === 0 ? app.listAddress : app.nodesAddress + (i - 1) * 12)
+      this.putPoolLong(at + 8, windows[i]!.address)
+    }
+  }
+
   /**
    * The event loop, as far as one exists without a Wait().
    *
@@ -1944,6 +2154,8 @@ export class MuiMaster {
    */
   private applicationMethod(obj: BoopsiObject, msg: Msg): number | null {
     const p = msg as Msg & { params?: readonly number[] }
+    const params = p.params ?? []
+    const app = obj.instData<MuiApplicationData>(this.applicationClass)
     switch (msg.MethodID) {
       case MUI.MUIM_Application_ReturnID: {
         const [id = 0] = p.params ?? []
@@ -1954,12 +2166,240 @@ export class MuiMaster {
       }
       case MUI.MUIM_Application_Input:
       case MUI.MUIM_Application_NewInput: {
-        // "answer the first node's first longword", and 0 for an empty queue
-        return data(this, obj).returnIDs.shift() ?? 0
+        const signalAddress = params[0] ?? 0
+        const received = signalAddress === 0 ? 0 : (this.readLong?.(signalAddress) ?? 0)
+        if (signalAddress !== 0) this.writeLong?.(signalAddress, 0)
+        const buffered = received !== 0 ? app.bufferedReturnIDs.shift() : undefined
+        if (buffered !== undefined) return buffered
+        const returned = data(this, obj).returnIDs.shift()
+        if (returned !== undefined) return returned
+        const pushed = app.pushed.shift()
+        if (pushed && pushed.message.length !== 0) {
+          const [method = 0, ...rest] = pushed.message
+          pushed.target.cl.dispatcher(pushed.target.cl, pushed.target, { MethodID: method, params: rest } as Msg)
+        }
+        this.runApplicationInputHandlers(app, received)
+        return 0
       }
+      case MUI.MUIM_Application_InputBuffered: {
+        const result = app.bufferedReturnIDs.shift() ?? data(this, obj).returnIDs.shift() ?? 0
+        if (result === 0) {
+          const pushed = app.pushed.shift()
+          if (pushed && pushed.message.length !== 0) {
+            const [method = 0, ...rest] = pushed.message
+            pushed.target.cl.dispatcher(pushed.target.cl, pushed.target, { MethodID: method, params: rest } as Msg)
+          }
+          this.runApplicationInputHandlers(app, 0)
+        }
+        if (result !== 0) app.bufferedReturnIDs.push(result)
+        return 0
+      }
+      case MUI.MUIM_Application_PushMethod: {
+        const target = this.boopsi.objectAt(params[0] ?? 0)
+        const count = params[1] ?? 0
+        if (!target || count < 1 || count > 7 || params.length < count + 2) return 0
+        app.pushed.push({ target, message: params.slice(2, count + 2) })
+        return 1
+      }
+      case MUIM_APPLICATION_FLUSH_PUSHED: {
+        const target = this.boopsi.objectAt(params[0] ?? 0)
+        if (target) for (const queued of app.pushed) if (queued.target === target) queued.message = []
+        return 0
+      }
+      case MUI.MUIM_Application_AddInputHandler: {
+        const node = params[0] ?? 0
+        if (node !== 0 && !app.inputHandlers.includes(node)) {
+          app.inputHandlers.push(node)
+          if ((this.readByte(node + 19) & 1) !== 0) {
+            app.inputDeadlines.set(node, this.applicationNow() + (this.readLong?.(node + 12) ?? 0))
+          }
+        }
+        return 0
+      }
+      case MUI.MUIM_Application_RemInputHandler: {
+        const i = app.inputHandlers.indexOf(params[0] ?? 0)
+        if (i >= 0) app.inputHandlers.splice(i, 1)
+        app.inputDeadlines.delete(params[0] ?? 0)
+        return 0
+      }
+      case MUI.MUIM_Application_CheckRefresh:
+        for (const child of data(this, obj).children) if (child.cl.isA(this.windowClass)) this.applicationRefresh?.(child)
+        return 0
+      case MUI.MUIM_Application_SetConfigItem:
+        if (app.configdata) this.doMui(app.configdata, MUIM_CONFIGDATA_SET, [params[0] ?? 0, params[1] ?? 0])
+        app.configDirty = true
+        return 0
+      case MUI.MUIM_Application_Save:
+      case MUIM_APPLICATION_SAVE_NAMED:
+        return this.applicationSaveSettings(obj, params[0] ?? 0)
+      case MUI.MUIM_Application_Load:
+      case MUIM_APPLICATION_LOAD_NAMED:
+        return this.applicationLoadSettings(obj, params[0] ?? 0)
+      case MUI.MUIM_Application_SetMenuCheck:
+      case MUIM_APPLICATION_SET_MENU_CHECK_PRIVATE:
+        return this.applicationSetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Checked, params[1] ?? 0)
+      case MUI.MUIM_Application_GetMenuCheck:
+      case MUIM_APPLICATION_GET_MENU_CHECK_PRIVATE:
+        return this.applicationGetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Checked)
+      case MUI.MUIM_Application_SetMenuState:
+      case MUIM_APPLICATION_SET_MENU_STATE_PRIVATE:
+        return this.applicationSetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Enabled, params[1] ?? 0)
+      case MUI.MUIM_Application_GetMenuState:
+      case MUIM_APPLICATION_GET_MENU_STATE_PRIVATE:
+        return this.applicationGetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Enabled)
+      case MUI.MUIM_Application_ShowHelp:
+        return this.applicationHelp?.(obj, this.boopsi.objectAt(params[0] ?? 0), params[3] ?? 0) ?? 0
+      case MUI.MUIM_Application_AboutMUI:
+        this.applicationAbout?.(obj, this.boopsi.objectAt(params[0] ?? 0))
+        return 0
+      case MUI.MUIM_Application_OpenConfigWindow:
+        return this.applicationConfig?.(obj, true) ?? 0
+      case MUIM_APPLICATION_CLOSE_CONFIG:
+        this.applicationConfig?.(obj, false)
+        return 0
+      case MUIM_APPLICATION_APPLY_CONFIG:
+      case MUIM_APPLICATION_CONFIG_RESPONSE:
+        app.configDirty = false
+        return 0
+      case MUIM_APPLICATION_WAKE_CONFIG:
+        app.configDirty = true
+        return 0
+      case MUIM_APPLICATION_DEFAULT_NAME:
+        return params[0] ?? 0
+      case MUIM_APPLICATION_PREFS_AVAILABLE:
+        return this.applicationLoad === null ? 0 : 1
+      case MUIM_APPLICATION_FIND_WINDOW: {
+        const wanted = params[0] ?? 0
+        for (const child of data(this, obj).children) {
+          if (child.cl.isA(this.windowClass) && (this.get(child, MUI.MUIA_Window_Window) ?? 0) === wanted) return child.address
+        }
+        return 0
+      }
+      case MUIM_APPLICATION_BROADCAST:
+        for (const child of data(this, obj).children) child.cl.dispatcher(child.cl, child, msg)
+        return 0
+      case MUIM_APPLICATION_REXX_COMMAND:
+        // Its only application-specific effect is invoking guest hooks, the
+        // explicit boundary of this port; queued MC_TEMPLATE_ID commands
+        // already arrive through ReturnID.
+        return 0
+      case MUIM_APPLICATION_NEW_PREFS:
+      case MUIM_APPLICATION_HELP_REQUEST:
+      case MUIM_APPLICATION_REQUEST:
+      case MUIM_APPLICATION_NOOP:
+        // These construct separately shipped helper classes or system
+        // requesters. Their user-visible paths are the callbacks above.
+        return 0
+      case MUI.MUIM_FindUData:
+      case MUI.MUIM_GetUData:
+      case MUI.MUIM_SetUData:
+        return this.applicationUserData(obj, msg)
       default:
         return null
     }
+  }
+
+  private runApplicationInputHandlers(app: MuiApplicationData, received: number): void {
+    for (const address of [...app.inputHandlers]) {
+      const target = this.boopsi.objectAt(this.readLong?.(address + 8) ?? 0)
+      const signals = this.readLong?.(address + 12) ?? 0
+      const method = this.readLong?.(address + 20) ?? 0
+      const flags = this.readByte(address + 19)
+      const timer = (flags & 1) !== 0
+      const due = !timer || this.applicationNow() >= (app.inputDeadlines.get(address) ?? 0)
+      if (target && method !== 0 && due && (timer || received === 0 || (signals & received) !== 0)) {
+        this.doMui(target, method, [received, address])
+        if (timer) app.inputDeadlines.set(address, this.applicationNow() + Math.max(1, signals))
+      }
+    }
+  }
+
+  private applicationSaveSettings(obj: BoopsiObject, name: number): number {
+    if (!this.applicationSave) return 0
+    const ds = this.newObjectA(MUIC.MUIC_Dataspace)
+    if (!ds) return 0
+    try {
+      for (const child of data(this, obj).children) this.doMui(child, MUI.MUIM_Export, [ds.address])
+      const entries = ds.instData<MuiDataspaceData>(this.dataspaceClass).entries
+      const payloadSize = entries.reduce((size, entry) => size + 8 + entry.length, 0)
+      const bytes = new Uint8Array(20 + payloadSize + (payloadSize & 1))
+      putLong(bytes, 0, 0x464f524d) // FORM
+      putLong(bytes, 4, bytes.length - 8)
+      putLong(bytes, 8, 0x50524546) // PREF
+      putLong(bytes, 12, 0x4d554943) // MUIC
+      putLong(bytes, 16, payloadSize)
+      let at = 20
+      for (const entry of entries) {
+        putLong(bytes, at, entry.id)
+        putLong(bytes, at + 4, entry.length)
+        bytes.set(this.pool.buffer.subarray(entry.address - this.pool.base + 16, entry.address - this.pool.base + 16 + entry.length), at + 8)
+        at += 8 + entry.length
+      }
+      return this.applicationSave(obj, name, bytes) ? 1 : 0
+    } finally {
+      this.disposeObject(ds)
+    }
+  }
+
+  private applicationLoadSettings(obj: BoopsiObject, name: number): number {
+    const bytes = this.applicationLoad?.(obj, name) ?? null
+    if (!bytes || bytes.length < 20 || getLong(bytes, 0) !== 0x464f524d || getLong(bytes, 8) !== 0x50524546 || getLong(bytes, 12) !== 0x4d554943) return 0
+    const payloadSize = getLong(bytes, 16)
+    if (payloadSize > bytes.length - 20) return 0
+    const ds = this.newObjectA(MUIC.MUIC_Dataspace)
+    if (!ds) return 0
+    try {
+      const d = ds.instData<MuiDataspaceData>(this.dataspaceClass)
+      let at = 20
+      const end = 20 + payloadSize
+      while (at + 8 <= end) {
+        const id = getLong(bytes, at)
+        const length = getLong(bytes, at + 4)
+        at += 8
+        if (length > end - at) return 0
+        this.dataspaceAddBytes(d, bytes.subarray(at, at + length), id)
+        at += length
+      }
+      if (at !== end) return 0
+      for (const child of data(this, obj).children) this.doMui(child, MUI.MUIM_Import, [ds.address])
+      return 1
+    } finally {
+      this.disposeObject(ds)
+    }
+  }
+
+  private applicationUserData(obj: BoopsiObject, msg: Msg): number {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    if (msg.MethodID === MUI.MUIM_FindUData && (this.peek(obj, MUI.MUIA_UserData) ?? 0) === (params[0] ?? 0)) return obj.address
+    if (msg.MethodID !== MUI.MUIM_FindUData && (this.peek(obj, MUI.MUIA_UserData) ?? 0) === (params[0] ?? 0)) {
+      if (msg.MethodID === MUI.MUIM_GetUData) return this.getToAddress(obj, params[1] ?? 0, params[2] ?? 0)
+      this.set(obj, params[1] ?? 0, params[2] ?? 0)
+    }
+    const app = obj.instData<MuiApplicationData>(this.applicationClass)
+    const targets = [...(app.configdata ? [app.configdata] : []), ...data(this, obj).children]
+    for (const target of targets) {
+      const answer = this.doMui(target, msg.MethodID, params)
+      if (msg.MethodID === MUI.MUIM_FindUData || msg.MethodID === MUI.MUIM_GetUData) {
+        if (answer !== 0) return answer
+      }
+    }
+    return 0
+  }
+
+  private applicationMenuitem(obj: BoopsiObject, id: number): BoopsiObject | null {
+    const found = this.doMui(obj, MUI.MUIM_FindUData, [id])
+    const item = this.boopsi.objectAt(found)
+    return item?.cl.isA(this.menuitemClass) ? item : null
+  }
+
+  private applicationSetMenu(obj: BoopsiObject, id: number, attr: number, value: number): number {
+    const item = this.applicationMenuitem(obj, id)
+    return item ? this.set(item, attr, value) : 0
+  }
+
+  private applicationGetMenu(obj: BoopsiObject, id: number, attr: number): number {
+    const item = this.applicationMenuitem(obj, id)
+    return item ? (this.get(item, attr) ?? 2) : 2
   }
 
   /**
@@ -2292,6 +2732,10 @@ export class MuiMaster {
       return out
     }
     return address === 0 ? '' : (this.readString?.(address) ?? '')
+  }
+
+  private sameText(a: number, b: number): boolean {
+    return a === b || this.textOfAddress(a) === this.textOfAddress(b)
   }
 
   /**

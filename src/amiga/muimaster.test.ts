@@ -701,6 +701,163 @@ describe('muimaster: Menuitem', () => {
   })
 })
 
+describe('muimaster: Application', () => {
+  it('copies the exact native metadata defaults and enforces SingleTask by title', () => {
+    const m = new MuiMaster()
+    const text = (address: number): string => {
+      let value = ''
+      for (let at = address - m.pool.base; m.pool.buffer[at] !== 0; at++) value += String.fromCharCode(m.pool.buffer[at]!)
+      return value
+    }
+    const first = m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_SingleTask, 1)])!
+    expect(text(m.get(first, MUI.MUIA_Application_Title)!)).toBe('Unnamed')
+    expect(text(m.get(first, MUI.MUIA_Application_Version)!)).toBe('$VER: Unnamed 0.0')
+    expect(text(m.get(first, MUI.MUIA_Application_Base)!)).toBe('UNNAMED')
+    expect(m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_SingleTask, 1)])).toBeNull()
+    expect(m.get(first, MUI.MUIA_Application_DoubleStart)).toBe(1)
+  })
+
+  it('owns windows, exposes a native list, and propagates application context', () => {
+    const m = new MuiMaster()
+    const text = m.newObjectA(MUIC.MUIC_Text)!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, text.address)])!
+    const app = m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_Window, win.address)])!
+    expect(m.parent(win)).toBe(app)
+    expect(m.get(text, MUI.MUIA_ApplicationObject)).toBe(app.address)
+    const list = m.get(app, MUI.MUIA_Application_WindowList)!
+    const at = list - m.pool.base
+    const node = (((m.pool.buffer[at]! << 24) | (m.pool.buffer[at + 1]! << 16) | (m.pool.buffer[at + 2]! << 8) | m.pool.buffer[at + 3]!) >>> 0)
+    const no = node - m.pool.base + 8
+    expect((((m.pool.buffer[no]! << 24) | (m.pool.buffer[no + 1]! << 16) | (m.pool.buffer[no + 2]! << 8) | m.pool.buffer[no + 3]!) >>> 0)).toBe(win.address)
+  })
+
+  it('drains return IDs before one copied PushMethod message', () => {
+    const m = new MuiMaster()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    const target = m.newObjectA(MUIC.MUIC_Notify)!
+    expect(send(app, MUI.MUIM_Application_PushMethod, target.address, 3, MUI.MUIM_Set, MUI.MUIA_UserData, 42)).toBe(1)
+    send(app, MUI.MUIM_Application_ReturnID, 7)
+    expect(send(app, MUI.MUIM_Application_NewInput, 0)).toBe(7)
+    expect(m.get(target, MUI.MUIA_UserData)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_NewInput, 0)).toBe(0)
+    expect(m.get(target, MUI.MUIA_UserData)).toBe(42)
+  })
+
+  it('InputBuffered preserves an ID for the next ordinary input call', () => {
+    const m = new MuiMaster()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    const signal = m.pool.alloc(4, { clear: true })
+    m.readLong = (address) => address === signal ? 1 : 0
+    const writes = new Map<number, number>()
+    m.writeLong = (address, value) => (writes.set(address, value), true)
+    send(app, MUI.MUIM_Application_ReturnID, 9)
+    expect(send(app, MUI.MUIM_Application_InputBuffered)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_NewInput, signal)).toBe(9)
+    expect(writes.get(signal)).toBe(0)
+  })
+
+  it('adds and removes native input-handler nodes and invokes their method', () => {
+    const m = new MuiMaster()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    const node = m.pool.alloc(24, { clear: true })
+    const signal = m.pool.alloc(4, { clear: true })
+    const longs = new Map<number, number>([[signal, 4], [node + 8, app.address], [node + 12, 4], [node + 20, MUI.MUIM_Application_ReturnID]])
+    m.readLong = (address) => longs.get(address) ?? 0
+    m.writeLong = () => true
+    expect(send(app, MUI.MUIM_Application_AddInputHandler, node)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_NewInput, signal)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_NewInput, 0)).toBe(4)
+    expect(send(app, MUI.MUIM_Application_RemInputHandler, node)).toBe(0)
+  })
+
+  it('schedules MUIIHNF_TIMER handlers by their millisecond interval', () => {
+    const m = new MuiMaster()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    const node = m.pool.alloc(24, { clear: true })
+    m.pool.buffer[node + 19 - m.pool.base] = 1
+    const longs = new Map<number, number>([[node + 8, app.address], [node + 12, 100], [node + 20, MUI.MUIM_Application_ShowHelp]])
+    m.readLong = (address) => longs.get(address) ?? 0
+    let now = 0
+    let calls = 0
+    m.applicationNow = () => now
+    m.applicationHelp = () => ++calls
+    send(app, MUI.MUIM_Application_AddInputHandler, node)
+    now = 99
+    send(app, MUI.MUIM_Application_NewInput, 0)
+    expect(calls).toBe(0)
+    now = 100
+    send(app, MUI.MUIM_Application_NewInput, 0)
+    expect(calls).toBe(1)
+    now = 199
+    send(app, MUI.MUIM_Application_NewInput, 0)
+    expect(calls).toBe(1)
+    now = 200
+    send(app, MUI.MUIM_Application_NewInput, 0)
+    expect(calls).toBe(2)
+  })
+
+  it('sets and gets menu state by recursively finding Menuitem userdata', () => {
+    const m = new MuiMaster()
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_UserData, 55)])!
+    const menu = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Family_Child, item.address)])!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const app = m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_Menustrip, strip.address)])!
+    expect(send(app, MUI.MUIM_Application_SetMenuCheck, 55, 1)).toBeGreaterThan(0)
+    expect(send(app, MUI.MUIM_Application_GetMenuCheck, 55)).toBe(1)
+    expect(send(app, MUI.MUIM_Application_SetMenuState, 55, 0)).toBeGreaterThan(0)
+    expect(send(app, MUI.MUIM_Application_GetMenuState, 55)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_GetMenuState, 999)).toBe(2)
+  })
+
+  it('round-trips identified child state through the native Dataspace payload', () => {
+    const m = new MuiMaster()
+    const item = m.newObjectA(MUIC.MUIC_Menuitem, [
+      tag(MUI.MUIA_ObjectID, 0x1234),
+      tag(MUI.MUIA_Menuitem_Checkit, 1),
+      tag(MUI.MUIA_Menuitem_Checked, 1),
+    ])!
+    const menu = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Family_Child, item.address)])!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const app = m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_Menustrip, strip.address)])!
+    let saved: Uint8Array | null = null
+    m.applicationSave = (application, name, bytes) => {
+      expect(application).toBe(app)
+      expect(name).toBe(7)
+      saved = bytes.slice()
+      return true
+    }
+    expect(send(app, MUI.MUIM_Application_Save, 7)).toBe(1)
+    expect(saved && [...saved]).toEqual([
+      0x46, 0x4f, 0x52, 0x4d, 0, 0, 0, 24, 0x50, 0x52, 0x45, 0x46,
+      0x4d, 0x55, 0x49, 0x43, 0, 0, 0, 12,
+      0, 0, 0x12, 0x34, 0, 0, 0, 4, 0, 0, 0, 1,
+    ])
+    m.set(item, MUI.MUIA_Menuitem_Checked, 0)
+    m.applicationLoad = (application, name) => application === app && name === 7 ? saved : null
+    expect(send(app, MUI.MUIM_Application_Load, 7)).toBe(1)
+    expect(m.get(item, MUI.MUIA_Menuitem_Checked)).toBe(1)
+  })
+
+  it('nests Sleep and exposes system helper operations through platform bridges', () => {
+    const m = new MuiMaster()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    m.set(app, MUI.MUIA_Application_Sleep, 1)
+    m.set(app, MUI.MUIA_Application_Sleep, 1)
+    m.set(app, MUI.MUIA_Application_Sleep, 0)
+    expect(m.peek(app, MUI.MUIA_Application_Sleep)).toBe(1)
+    m.set(app, MUI.MUIA_Application_Sleep, 0)
+    expect(m.peek(app, MUI.MUIA_Application_Sleep)).toBe(0)
+
+    let about = 0
+    let config = 0
+    m.applicationAbout = () => { about++ }
+    m.applicationConfig = (_application, open) => (config += open ? 1 : -1)
+    expect(send(app, MUI.MUIM_Application_AboutMUI, 0)).toBe(0)
+    expect(send(app, MUI.MUIM_Application_OpenConfigWindow)).toBe(1)
+    expect([about, config]).toEqual([1, 1])
+  })
+})
+
 /** send a method the way EasyLife does: an id and a run of longwords */
 function send(obj: BoopsiObject, method: number, ...params: number[]): number {
   return obj.cl.dispatcher(obj.cl, obj, { MethodID: method, params } as never)
