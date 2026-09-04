@@ -22,6 +22,27 @@ describe('OpenDiskFont descriptor lookup', () => {
     expect(openDiskFont(read, 'topaz', 8)).toBeNull()
     expect(paths).toEqual(['Fonts:topaz'])
   })
+
+  it('prefers an exact style when a size has regular and bold entries', () => {
+    const desc = new Uint8Array(4 + 260 * 2)
+    const view = new DataView(desc.buffer)
+    view.setUint16(0, 0x0f00)
+    view.setUint16(2, 2)
+    const entry = (index: number, file: string, style: number): void => {
+      const at = 4 + index * 260
+      for (let i = 0; i < file.length; i++) desc[at + i] = file.charCodeAt(i)
+      view.setUint16(at + 256, 8)
+      desc[at + 258] = style
+    }
+    entry(0, 'AM/8', 0)
+    entry(1, 'AM/8b', 2)
+    const paths: string[] = []
+    openDiskFont((path) => {
+      paths.push(path)
+      return path === 'Fonts:am.font' ? desc : null
+    }, 'am.font', 8, 2)
+    expect(paths).toEqual(['Fonts:am.font', 'Fonts:AM/8b'])
+  })
 })
 
 describe.skipIf(!existsSync(FONTS))('Amiga diskfont format (fonts from the original partition)', () => {

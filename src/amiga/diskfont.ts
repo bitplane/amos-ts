@@ -163,9 +163,10 @@ export function glyphMetrics(f: DiskFont, ch: number): { kern: number; width: nu
  *
  * The library resolves `ta_Name` against the FONTS: assign — `topaz.font`
  * names the descriptor `Fonts:topaz.font`, whose entries each point at a
- * loadable size file such as `topaz/8`. Only the size is matched here; a real
- * OpenDiskFont also weighs ta_Style and will accept a near miss, and neither
- * of those is something a caller in this port asks for yet.
+ * loadable size file such as `topaz/8`. An exact size and style is preferred,
+ * as `WeighTAMatch` does; when no exact style exists the first size match is
+ * retained. Full near-size scoring is graphics.library behaviour and cannot
+ * be derived from this binary alone.
  *
  * `ta_Name` is used as the descriptor filename exactly as supplied. The
  * library does not append `.font`: extensions which promise that convenience
@@ -182,10 +183,12 @@ export function openDiskFont(
   read: (path: string) => Uint8Array | null,
   name: string,
   ySize: number,
+  style = 0,
 ): DiskFont | null {
   const desc = read(`Fonts:${name}`)
   const entries = desc ? parseFontDescriptor(desc) : null
-  const hit = entries?.find((e) => e.ySize === ySize)
+  const sized = entries?.filter((e) => e.ySize === ySize) ?? []
+  const hit = sized.find((e) => e.style === (style & 0xff)) ?? sized[0]
   if (!hit) return null
   const glyphs = read(`Fonts:${hit.file}`)
   return glyphs ? parseDiskFont(glyphs) : null

@@ -356,8 +356,9 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const size = it.evalInt()
       it.expect(',')
       const style = it.evalInt()
-      void style // "You can't use the style parameter with scalable fonts yet"
-      rt.aga.rp.font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size)
+      // "You can't use the style parameter with scalable fonts yet"; bitmap
+      // descriptor styles still go through OpenDiskFont's TextAttr matching.
+      rt.aga.rp.font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size, style)
     },
     'aga get block'(it) {
       // routine 18 ($1434): 0..4000 or error 8. The mask argument is the

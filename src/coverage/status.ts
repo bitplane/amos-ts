@@ -7457,8 +7457,8 @@ export const NOTES: Record<string, string> = {
     "cached at $374(a2), OpenDiskFont (`jsr -$1e(a6)`) and SetFont (`jsr -$42(a6)`). NOTE: message 9 cannot fire " +
     "here, because diskfont.library is modelled and so never absent, where the real one is a 51,200-byte file on " +
     "the Fonts disk a program could genuinely be running without. NOTE: `style` is stored into ta_Style and then " +
-    "weighed inside OpenDiskFont, which will accept a near miss; this port's openDiskFont matches on the SIZE " +
-    "alone, so the style is parsed, bounded and ignored",
+    "weighed inside OpenDiskFont. Exact size/style descriptor matches are honoured; graphics.library's " +
+    "WeighTAMatch owns non-exact near-match scoring, which is not modelled",
   "ppfromdisk":
     "Routine 237 ($5a80), 256 bytes, is a universal loader and not a PowerPacker one. It opens the file (routine " +
     "357, failing to 391, error 81), takes its size (359) and reads EIGHT bytes (360, failing to 392 after a " +

@@ -3630,10 +3630,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * never absent, where the real one is a 51,200-byte file on the Fonts disk
      * that a program could genuinely be running without.
      *
-     * NOTE: `style` is stored into ta_Style and then decided inside
-     * OpenDiskFont, which weighs it and will accept a near miss. This port's
-     * openDiskFont matches on the SIZE alone, so the style is parsed, bounded
-     * and ignored -- as its own header already says.
+     * `style` is stored into ta_Style and decided inside OpenDiskFont. Exact
+     * descriptor styles are honoured; graphics.library owns the remaining
+     * near-match scoring.
      */
     'change font'(it) {
       const name = it.evalStr()
@@ -3643,11 +3642,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         height = it.evalInt()
         if (it.accept(',')) style = it.evalInt()
       }
-      void style
       const s = rt.screen
       if (!s) amcafScreenErr()
       const family = name.length >= 5 && name[name.length - 5] === '.' ? name : `${name}.font`
-      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, family, height & 0xffff)
+      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, family, height & 0xffff, style)
       if (!f) amcafMsg(10) // "Couldn't open font"
       s.rp.font = f
     },
