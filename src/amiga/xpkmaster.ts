@@ -305,6 +305,8 @@ export interface XpkFib {
 export interface XpkPacker {
   /** the four-character id that goes in `xsh_Type` */
   readonly name: string
+  /** `XpkInfo+2`, the newest stream format version this sub-library reads */
+  readonly version?: number
   /** XpkInfo+$0c, `xpi_LongName`, what the packer calls itself */
   readonly longName: string
   /** XpkInfo+$1c, `xpi_MaxChunk`; zero or absent means the packer sets no ceiling */
@@ -2209,6 +2211,11 @@ export function xpkExamine(data: Uint8Array, password?: string): XpkFib {
     // compressor is not installed fails before a byte of it is unpacked.
     const packer = XPK_PACKERS.get(type)
     if (packer === undefined) throw new XpkError(XPKERR_MISSINGLIB) // $cf4
+    // $648..$660: xsh_SubVrs is the minimum sub-library format version. The
+    // master's probe compares it with XpkInfo+2 immediately after opening the
+    // method and reports SUBTOOOLD before returning the fib. All bundled
+    // packers implement version 1; custom registry entries may say otherwise.
+    if (at(data, 34) > (packer.version ?? 1)) throw new XpkError(XPKERR_SUBTOOOLD)
     return {
       kind: 'xpk',
       type,
@@ -2391,7 +2398,7 @@ export function xpkPack(data: Uint8Array, method: string, password?: string): Ui
   // which would otherwise leak the plaintext.
   if (password === undefined) header.set(data.subarray(0, 16), 16)
   header[32] = flags
-  header[34] = 1 // xsh_SubVrs -- the version of the sub-library this needs
+  header[34] = packer.version ?? 1 // xsh_SubVrs -- the version of the sub-library this needs
   header[35] = 1 // xsh_MasVrs -- and of the master
   parts.push(header)
 

@@ -231,6 +231,14 @@ describe('xpkExamine on a real XPKF header', () => {
     expect(codeOf(() => xpkExamine(header('HUFF', 100)))).toBe(0)
   })
 
+  it('rejects a stream requiring a newer sub-library format', () => {
+    const h = header('NONE', 100)
+    h[34] = 2
+    h[33] = 0
+    h[33] = xpkHeaderChecksum(h, 0, 36)
+    expect(codeOf(() => xpkExamine(h))).toBe(XPKERR_SUBTOOOLD)
+  })
+
   it('reads the lengths and versions the master reads', () => {
     const fib = xpkExamine(header('NONE', 4321))
     expect(fib).toEqual({
