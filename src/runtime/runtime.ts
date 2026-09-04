@@ -2512,6 +2512,14 @@ export class Runtime {
         p.set(0, value)
         return true
       }
+      mui.writeMemory = (address, bytes) => {
+        for (let i = 0; i < bytes.length; i++) {
+          const m = this.resolveWrite((address + i) >>> 0)
+          if (!m) return false
+          m.data[m.off] = bytes[i]!
+        }
+        return true
+      }
       this.muiBase = mui
     }
     return this.muiBase

@@ -17,6 +17,8 @@ import {
   MUIM_CONFIGDATA_GET,
   MUIM_CONFIGDATA_HAS,
   MUIM_CONFIGDATA_SET,
+  MUIM_NOTIFY_IS_SELF,
+  MUIM_NOTIFY_SET_CONTEXT,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -403,7 +405,7 @@ describe('muimaster: notification', () => {
     // when the source closes, put a title on the destination. The trigger is
     // "..g" — a program cannot Set it, the user does, so the change comes
     // through setInternal exactly as it would from an IDCMP_CLOSEWINDOW
-    send(src, MUI.MUIM_Notify, MUI.MUIA_Window_CloseRequest, 1, dst.address, MUI.MUIM_Set, MUI.MUIA_Window_Title, 42)
+    send(src, MUI.MUIM_Notify, MUI.MUIA_Window_CloseRequest, 1, dst.address, 3, MUI.MUIM_Set, MUI.MUIA_Window_Title, 42)
     expect(m.notifications(src).length).toBe(1)
 
     m.setInternal(src, MUI.MUIA_Window_CloseRequest, 0)
@@ -422,6 +424,7 @@ describe('muimaster: notification', () => {
       MUI.MUIA_Window_Activate,
       MUI.MUIV_EveryTime,
       dst.address,
+      3,
       MUI.MUIM_Set,
       MUI.MUIA_Window_Title,
       MUI.MUIV_TriggerValue,
@@ -447,6 +450,7 @@ describe('muimaster: notification', () => {
       MUI.MUIA_Pressed,
       0,
       MUI.MUIV_Notify_Application,
+      3,
       MUI.MUIM_Set,
       MUI.MUIA_Application_Active,
       1,
@@ -454,12 +458,12 @@ describe('muimaster: notification', () => {
     m.setInternal(text, MUI.MUIA_Pressed, 0)
     expect(m.get(app, MUI.MUIA_Application_Active)).toBe(1)
 
-    send(text, MUI.MUIM_Notify, MUI.MUIA_Disabled, 1, MUI.MUIV_Notify_Window, MUI.MUIM_Set, MUI.MUIA_Window_Title, 5)
+    send(text, MUI.MUIM_Notify, MUI.MUIA_Disabled, 1, MUI.MUIV_Notify_Window, 3, MUI.MUIM_Set, MUI.MUIA_Window_Title, 5)
     m.set(text, MUI.MUIA_Disabled, 1)
     expect(m.get(win, MUI.MUIA_Window_Title)).toBe(5)
 
     // and Self, which is a notification an object sends to itself
-    send(win, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, 1, MUI.MUIV_Notify_Self, MUI.MUIM_Set, MUI.MUIA_UserData, 3)
+    send(win, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, 1, MUI.MUIV_Notify_Self, 3, MUI.MUIM_Set, MUI.MUIA_UserData, 3)
     m.set(win, MUI.MUIA_Window_Activate, 1)
     expect(m.get(win, MUI.MUIA_UserData)).toBe(3)
     expect(m.parent(text)).toBe(group)
@@ -468,10 +472,95 @@ describe('muimaster: notification', () => {
   it('MUIM_KillNotify drops the triggers on one attribute', () => {
     const m = new MuiMaster()
     const src = m.newObjectA(MUIC.MUIC_Window)!
-    send(src, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, 1, MUI.MUIV_Notify_Self, MUI.MUIM_Set, 0, 0)
+    send(src, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, 1, MUI.MUIV_Notify_Self, 3, MUI.MUIM_Set, 0, 0)
     expect(m.notifications(src).length).toBe(1)
     send(src, MUI.MUIM_KillNotify, MUI.MUIA_Window_Activate)
     expect(m.notifications(src).length).toBe(0)
+  })
+
+  it('kills only the first matching notification, optionally restricted by destination', () => {
+    const m = new MuiMaster()
+    const src = m.newObjectA(MUIC.MUIC_Window)!
+    const a = m.newObjectA(MUIC.MUIC_Window)!
+    const b = m.newObjectA(MUIC.MUIC_Window)!
+    for (const dest of [a, b, a]) send(src, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, 1, dest.address, 1, MUI.MUIM_Set)
+    expect(send(src, MUI.MUIM_KillNotifyObj, MUI.MUIA_Window_Activate, a.address)).toBe(0)
+    expect(m.notifications(src).map((n) => typeof n.dest === 'number' ? n.dest : n.dest.address)).toEqual([b.address, a.address])
+    send(src, MUI.MUIM_KillNotify, MUI.MUIA_Window_Activate)
+    expect(m.notifications(src)).toHaveLength(1)
+  })
+
+  it('NoNotifySet changes an attribute without firing its notification', () => {
+    const m = new MuiMaster()
+    const src = m.newObjectA(MUIC.MUIC_Window)!
+    send(src, MUI.MUIM_Notify, MUI.MUIA_Window_Activate, MUI.MUIV_EveryTime, src.address, 3, MUI.MUIM_Set, MUI.MUIA_UserData, 7)
+    expect(send(src, MUI.MUIM_NoNotifySet, MUI.MUIA_Window_Activate, 1)).toBe(1)
+    expect(m.get(src, MUI.MUIA_Window_Activate)).toBe(1)
+    expect(m.get(src, MUI.MUIA_UserData)).toBe(0)
+
+    src.cl.dispatcher(src.cl, src, {
+      MethodID: OM_SET,
+      attrs: [tag(MUI.MUIA_Window_Activate, 2), tag(MUI.MUIA_NoNotify, 1)],
+    } as never)
+    expect(m.get(src, MUI.MUIA_Window_Activate)).toBe(2)
+    expect(m.get(src, MUI.MUIA_UserData)).toBe(0)
+  })
+
+  it('SetAsString formats values and MultiSet updates each terminated object', () => {
+    const m = new MuiMaster()
+    const strings = new Map([[0x1000, 'value %ld / %s'], [0x1004, 'ok']])
+    m.readString = (address) => strings.get(address) ?? ''
+    const text = m.newObjectA(MUIC.MUIC_Text)!
+    expect(send(text, MUI.MUIM_SetAsString, MUI.MUIA_Text_Contents, 0x1000, 42, 0x1004)).toBe(1)
+    const pointer = m.get(text, MUI.MUIA_Text_Contents)!
+    expect(String.fromCharCode(...m.pool.buffer.slice(pointer - m.pool.base, pointer - m.pool.base + 14))).toBe('value 42 / ok\0')
+    const a = m.newObjectA(MUIC.MUIC_Text)!
+    const b = m.newObjectA(MUIC.MUIC_Text)!
+    expect(send(text, MUI.MUIM_MultiSet, MUI.MUIA_Disabled, 1, a.address, b.address, 0)).toBe(0)
+    expect([m.get(a, MUI.MUIA_Disabled), m.get(b, MUI.MUIA_Disabled)]).toEqual([1, 1])
+  })
+
+  it('writes longwords and strings through the guest memory bridge', () => {
+    const m = new MuiMaster()
+    const obj = m.newObjectA(MUIC.MUIC_Notify)!
+    let long: [number, number] | null = null
+    let bytes: [number, number[]] | null = null
+    m.writeLong = (address, value) => (long = [address, value], true)
+    m.readString = (address) => address === 0x1000 ? 'hello' : ''
+    m.writeMemory = (address, value) => (bytes = [address, [...value]], true)
+    expect(send(obj, MUI.MUIM_WriteLong, 0x12345678, 0x2000)).toBe(0)
+    expect(long).toEqual([0x2000, 0x12345678])
+    expect(send(obj, MUI.MUIM_WriteString, 0x1000, 0x3000)).toBe(0)
+    expect(bytes).toEqual([0x3000, [104, 101, 108, 108, 111, 0]])
+  })
+
+  it('implements local userdata search, set, get, and the private context methods', () => {
+    const m = new MuiMaster()
+    const obj = m.newObjectA(MUIC.MUIC_Notify, [tag(MUI.MUIA_UserData, 55)])!
+    const longs = new Map<number, number>()
+    m.writeLong = (address, value) => (longs.set(address, value), true)
+    expect(send(obj, MUI.MUIM_FindUData, 55)).toBe(obj.address)
+    expect(send(obj, MUI.MUIM_SetUData, 55, MUI.MUIA_ExportID, 99)).toBe(1)
+    expect(send(obj, MUI.MUIM_GetUData, 55, MUI.MUIA_ExportID, 0x2000)).toBe(1)
+    expect(longs.get(0x2000)).toBe(99)
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    expect(send(obj, MUIM_NOTIFY_SET_CONTEXT, app.address)).toBe(0)
+    expect(m.get(obj, MUI.MUIA_UserData)).toBe(55)
+    expect(m.get(obj, MUI.MUIA_ApplicationObject)).toBe(app.address)
+    expect(send(obj, MUIM_NOTIFY_IS_SELF, obj.address)).toBe(obj.address)
+    expect(send(obj, MUIM_NOTIFY_IS_SELF, 0xdead)).toBe(0)
+  })
+
+  it('answers computed Notify attributes and delegates GetConfigItem', () => {
+    const m = new MuiMaster()
+    const obj = m.newObjectA(MUIC.MUIC_Notify)!
+    const longs = new Map<number, number>()
+    m.writeLong = (address, value) => (longs.set(address, value), true)
+    expect([m.get(obj, MUI.MUIA_Version), m.get(obj, MUI.MUIA_Revision)]).toEqual([19, 35])
+    expect(m.get(obj, MUI.MUIA_AppMessage)).toBe(0)
+    expect(send(obj, MUI.MUIM_GetConfigItem, 1, 0x2000)).toBe(1)
+    expect(longs.get(0x2000)).toBe(4)
+    expect(send(obj, MUI.MUIM_CallHook, 0x1000)).toBe(0)
   })
 })
 

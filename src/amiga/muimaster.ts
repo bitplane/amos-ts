@@ -112,6 +112,7 @@ import {
 } from './boopsi'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
 import { MemPool } from './exec'
+import { rtFormat } from './reqtools'
 
 /** muimaster_lib.fd, `##bias 30` — the four entry points EasyLife reaches */
 export const LVO_MUI_NewObjectA = -30
@@ -220,6 +221,9 @@ export const MUIM_CONFIGDATA_SET = 0x80428b0e
 export const MUIM_CONFIGDATA_ACCEPTS = 0x8042e075
 export const MUIA_CONFIGDATA_FALLBACK = 0x8042e03a
 export const MUIA_CONFIGDATA_SELECTOR = 0x80420444
+export const MUIM_NOTIFY_SET_CONTEXT = 0x8042d532
+export const MUIM_NOTIFY_IS_SELF = 0x8042038f
+const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
 export const MUI_MEMORY_BASE = 0x2c000000
@@ -252,6 +256,8 @@ export interface Notification {
   dest: BoopsiObject | number
   /** the method longwords: `[MethodID, ...params]` */
   params: readonly number[]
+  /** bit 31 of FollowParams: eligible for the private kill-all sentinel */
+  killableAll?: boolean
 }
 
 /**
@@ -314,6 +320,9 @@ interface MuiData extends Record<string, unknown> {
    * off the queue, exactly as it does in the library.
    */
   quitting?: boolean
+  ownedAddresses: number[]
+  contextApplication: BoopsiObject | null
+  contextConfigdata: BoopsiObject | null
 }
 
 /** The SignalSemaphore embedded in Semaphore.mui's instance data. */
@@ -363,10 +372,13 @@ export class MuiMaster {
   readMemory: ((address: number, length: number) => Uint8Array | null) | null = null
   readLong: ((address: number) => number | null) | null = null
   writeLong: ((address: number, value: number) => boolean) | null = null
+  writeMemory: ((address: number, bytes: Uint8Array) => boolean) | null = null
   /** iffparse bridge: one pushed chunk's payload, and the current chunk when reading. */
   writeIffChunk: ((handle: number, type: number, id: number, bytes: Uint8Array) => number) | null = null
   readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
   private readonly configDefaultPointers = new Map<number, number>()
+  private suppressNotifications = 0
+  private sharedConfigdata: BoopsiObject | null = null
   /** "Window.mui" -> its class, which is what MUI_NewObjectA is given */
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
@@ -825,6 +837,9 @@ export class MuiMaster {
           d.parent = null
           d.notifies = []
           d.returnIDs = []
+          d.ownedAddresses = []
+          d.contextApplication = null
+          d.contextConfigdata = null
         }
         if (cl === this.semaphoreClass) {
           const sem = made.instData<MuiSemaphoreData>(cl)
@@ -857,6 +872,7 @@ export class MuiMaster {
           // children first, and take a copy: each child's own OM_DISPOSE
           // unlinks it from this list on the way out
           for (const c of [...data(this, o).children]) this.boopsi.disposeObject(c)
+          for (const address of data(this, o).ownedAddresses) this.pool.freeMem(address)
         }
         return doSuperMethodA(cl, obj, msg)
       }
@@ -869,9 +885,16 @@ export class MuiMaster {
          * (Notify's) without Text knowing either exists. The answer is the
          * total, because OM_SET's contract is how many attributes were used.
          */
-        const configCount = cl === this.configdataClass ? this.applyConfigdataAttrs(obj as BoopsiObject, (msg as OpSet).attrs) : 0
-        const ok = this.applyOwn(name, obj as BoopsiObject, (msg as OpSet).attrs, 's')
-        return configCount + (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+        const attrs = (msg as OpSet).attrs
+        const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+        if (noNotify) this.suppressNotifications++
+        try {
+          const configCount = cl === this.configdataClass ? this.applyConfigdataAttrs(obj as BoopsiObject, attrs) : 0
+          const ok = this.applyOwn(name, obj as BoopsiObject, attrs, 's')
+          return configCount + (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+        } finally {
+          if (noNotify) this.suppressNotifications--
+        }
       }
 
       case OM_GET: {
@@ -880,6 +903,23 @@ export class MuiMaster {
         if (cl === this.configdataClass && TAG(g.attrID) === MUIA_CONFIGDATA_FALLBACK) {
           g.storage = o.instData<MuiConfigdataData>(cl).fallback?.address ?? 0
           return 1
+        }
+        if (name === 'Notify') {
+          const computed = TAG(g.attrID) === MUI.MUIA_Version
+            ? 19
+            : TAG(g.attrID) === MUI.MUIA_Revision
+              ? 35
+              : TAG(g.attrID) === MUI.MUIA_AppMessage
+                ? 0
+                : TAG(g.attrID) === MUI.MUIA_Parent
+                  ? this.parent(o)?.address ?? 0
+                  : TAG(g.attrID) === MUI.MUIA_ApplicationObject
+                    ? (data(this, o).contextApplication ?? this.ancestorOf(o, this.applicationClass))?.address ?? 0
+                    : undefined
+          if (computed !== undefined) {
+            g.storage = computed
+            return 1
+          }
         }
         /*
          * The four geometry attributes are `..g` and MUI fills them in
@@ -1527,6 +1567,7 @@ export class MuiMaster {
     let used = 0
     for (const raw of attrs) {
       const t = { tag: TAG(raw.tag), data: raw.data }
+      if (t.tag === MUI.MUIA_NoNotify) continue
       const n = nameOf(t.tag)
       if (MUI_OWNER[n] !== name) continue
       const flags = MUI_ATTR[n]?.flags
@@ -1554,34 +1595,135 @@ export class MuiMaster {
   /** the methods Notify itself implements, for every object in MUI */
   private notifyMethod(cl: BoopsiClass, obj: BoopsiObject, msg: Msg): number {
     const p = msg as Msg & { params?: readonly number[] }
+    const params = p.params ?? []
     switch (msg.MethodID) {
       case MUI.MUIM_Set: {
         // MUIP_Set { MethodID; attr; value } — EasyLife's Mui Set and Mui Set
         // Str both send this rather than OM_SET, which is why routine 206's
         // inline message is three longwords rather than a taglist
-        const [attr = 0, value = 0] = p.params ?? []
+        const [attr = 0, value = 0] = params
         return this.set(obj, attr, value)
+      }
+      case MUI.MUIM_NoNotifySet: {
+        const [attr = 0, value = 0] = params
+        this.suppressNotifications++
+        try {
+          return this.set(obj, attr, value)
+        } finally {
+          this.suppressNotifications--
+        }
       }
       case MUI.MUIM_Notify: {
         // MUIP_Notify { MethodID; TrigAttr; TrigVal; DestObj; FollowParams... }
-        const [trigAttr = 0, trigVal = 0, dest = 0, ...rest] = p.params ?? []
+        const [trigAttr = 0, trigVal = 0, dest = 0, countWord = 0, ...follow] = params
+        const count = TAG(countWord) & 0x7fffffff
         data(this, obj).notifies.push({
           trigAttr: TAG(trigAttr),
           trigVal,
           dest: this.boopsi.objectAt(dest) ?? dest,
-          params: rest,
+          params: follow.slice(0, count),
+          killableAll: (TAG(countWord) & 0x80000000) !== 0,
         })
         return 1
       }
       case MUI.MUIM_KillNotify: {
-        const [trigAttr = 0] = p.params ?? []
-        const d = data(this, obj)
-        d.notifies = d.notifies.filter((n) => n.trigAttr !== TAG(trigAttr))
-        return 1
+        return this.killNotify(obj, params[0] ?? 0, 0)
       }
+      case MUI.MUIM_KillNotifyObj:
+        return this.killNotify(obj, params[0] ?? 0, params[1] ?? 0)
+      case MUI.MUIM_CallHook:
+        // Guest 68k hook execution is the explicit boundary of this port.
+        return 0
+      case MUI.MUIM_SetAsString: {
+        const [attr = 0, formatAddress = 0, ...args] = params
+        const format = this.textOfAddress(formatAddress)
+        let ai = 0
+        const text = format.replace(/%%|%(-?)(\d*)(ld|lu|s)/g, (spec, _minus: string, _width: string, kind: string) => {
+          if (spec === '%%') return '%'
+          const value = args[ai++] ?? 0
+          return rtFormat(spec, kind === 's' ? this.textOfAddress(value) : value)
+        })
+        const bytes = Uint8Array.from([...text.slice(0, 1023), '\0'], (c) => c.charCodeAt(0))
+        const address = this.pool.alloc(bytes.length)
+        if (address === 0) return 0
+        this.pool.buffer.set(bytes, address - this.pool.base)
+        data(this, obj).ownedAddresses.push(address)
+        return this.set(obj, attr, address)
+      }
+      case MUI.MUIM_MultiSet: {
+        const [attr = 0, value = 0, ...objects] = params
+        for (const address of objects) {
+          if (address === 0) break
+          const target = this.boopsi.objectAt(address)
+          if (target) this.set(target, attr, value)
+        }
+        return 0
+      }
+      case MUI.MUIM_WriteLong:
+        this.writeLong?.(params[1] ?? 0, params[0] ?? 0)
+        return 0
+      case MUI.MUIM_WriteString: {
+        const text = params[0] === 0 ? '' : this.textOfAddress(params[0] ?? 0)
+        this.writeMemory?.(params[1] ?? 0, Uint8Array.from([...text, '\0'], (c) => c.charCodeAt(0)))
+        return 0
+      }
+      case MUIM_NOTIFY_SET_CONTEXT: {
+        const context = this.boopsi.objectAt(params[0] ?? 0)
+        if (context?.cl.isA(this.applicationClass)) data(this, obj).contextApplication = context
+        if (context?.cl.isA(this.configdataClass)) data(this, obj).contextConfigdata = context
+        return 0
+      }
+      case MUI.MUIM_FindUData:
+        return (this.peek(obj, MUI.MUIA_UserData) ?? 0) === (params[0] ?? 0) ? obj.address : 0
+      case MUI.MUIM_SetUData:
+      case MUI.MUIM_SetUDataOnce:
+        if ((this.peek(obj, MUI.MUIA_UserData) ?? 0) !== (params[0] ?? 0)) return 0
+        this.set(obj, params[1] ?? 0, params[2] ?? 0)
+        return 1
+      case MUI.MUIM_GetUData:
+        if ((this.peek(obj, MUI.MUIA_UserData) ?? 0) !== (params[0] ?? 0)) return 0
+        return this.getToAddress(obj, params[1] ?? 0, params[2] ?? 0)
+      case MUI.MUIM_GetConfigItem: {
+        this.sharedConfigdata ??= this.newObjectA(MUIC.MUIC_Configdata)
+        const config = data(this, obj).contextConfigdata ?? this.sharedConfigdata
+        return config
+          ? this.doMui(config, MUIM_CONFIGDATA_GET, [params[0] ?? 0, params[1] ?? 0])
+          : 0
+      }
+      case MUIM_NOTIFY_IS_SELF:
+        return params[0] === obj.address ? obj.address : 0
       default:
         return doSuperMethodA(cl, obj, msg)
     }
+  }
+
+  private killNotify(obj: BoopsiObject, trigAttr: number, destAddress: number): number {
+    const d = data(this, obj)
+    const i = d.notifies.findIndex((n) => {
+      const dest = typeof n.dest === 'number' ? n.dest : n.dest.address
+      const attrMatches = TAG(trigAttr) === MUIV_KILLNOTIFY_ALL ? n.killableAll === true : n.trigAttr === TAG(trigAttr)
+      return (destAddress === 0 || dest === destAddress) && attrMatches
+    })
+    if (i >= 0) d.notifies.splice(i, 1)
+    return 0
+  }
+
+  private getToAddress(obj: BoopsiObject, attr: number, storage: number): number {
+    const value = this.get(obj, attr)
+    if (value === null) return 0
+    this.writeLong?.(storage, value)
+    return 1
+  }
+
+  private textOfAddress(address: number): string {
+    if (address >= this.pool.base && address < this.pool.base + this.pool.buffer.length) {
+      let out = ''
+      for (let at = address - this.pool.base; at < this.pool.buffer.length && this.pool.buffer[at] !== 0; at++) {
+        out += String.fromCharCode(this.pool.buffer[at]!)
+      }
+      return out
+    }
+    return address === 0 ? '' : (this.readString?.(address) ?? '')
   }
 
   /**
@@ -1594,14 +1736,25 @@ export class MuiMaster {
    * its substitution never occupy the same slot.
    */
   private fire(obj: BoopsiObject, attr: number, value: number): void {
+    if (this.suppressNotifications !== 0) return
     for (const n of [...data(this, obj).notifies]) {
       if (n.trigAttr !== attr) continue
       if (n.trigVal !== value && TAG(n.trigVal) !== MUI.MUIV_EveryTime) continue
       const dest = this.resolveDest(obj, n.dest)
       if (!dest || n.params.length === 0) continue
-      const params = n.params.map((v) =>
-        TAG(v) === MUI.MUIV_TriggerValue ? value : TAG(v) === MUI.MUIV_NotTriggerValue ? (value === 0 ? 1 : 0) : v,
-      )
+      let substitutions = 0
+      const params = n.params.map((v) => {
+        if (substitutions >= 4) return v
+        if (TAG(v) === MUI.MUIV_TriggerValue) {
+          substitutions++
+          return value
+        }
+        if (TAG(v) === MUI.MUIV_NotTriggerValue) {
+          substitutions++
+          return value === 0 ? 1 : 0
+        }
+        return v
+      })
       const [method = 0, ...rest] = params
       dest.cl.dispatcher(dest.cl, dest, { MethodID: method, params: rest } as Msg)
     }
