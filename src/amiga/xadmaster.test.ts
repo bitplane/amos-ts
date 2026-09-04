@@ -40,6 +40,7 @@ describeIf('against the shipped headers', existsSync(HEADER), () => {
       expect(doc.get(`XADFIB_${name}`), name).toBe(bit)
       expect(XADFIF[name as keyof typeof XADFIF]).toBe(1 << bit)
     }
+    expect([...doc.keys()].filter((k) => !(k.slice(7) in XADFIB))).toEqual([])
   })
 
   /**
