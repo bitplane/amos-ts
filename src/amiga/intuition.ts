@@ -1039,6 +1039,10 @@ export class Intuition {
     return this.open.includes(w) ? this.host.screenAddr(w.screenSlot) : 0
   }
 
+  windowRastPort(w: Window): RastPort | null {
+    return this.open.includes(w) ? this.host.screenRast(w.screenSlot) : null
+  }
+
   /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */
   screenDimensions(address = 0): { width: number; height: number } | null {
     if (address === 0 && this.openWorkBench() === 0) return null

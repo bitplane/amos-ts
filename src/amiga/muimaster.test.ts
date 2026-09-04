@@ -26,12 +26,22 @@ import {
   MUIM_MENU_SYNC,
   MUIM_WINDOW_REPLACE_ROOT,
   MUIM_WINDOW_TRUE,
+  MUIM_AREA_CREATE_DRAG_IMAGE,
+  MUIM_AREA_DELETE_DRAG_IMAGE,
+  MUIM_AREA_DISABLE_NESTED,
+  MUIM_AREA_ENABLE_NESTED,
+  MUIM_AREA_FALSE,
+  MUIM_AREA_FIND_AT,
+  MUIM_AREA_HIT_TEST,
+  MUIM_AREA_LAYOUT,
+  MUIM_AREA_TRUE,
   MUIA_MENUITEM_COPY_STRINGS,
   MuiMaster,
   type MuiWindowEvent,
   type MuiWindowGeometry,
   type MuiWindowHost,
   type MuiWindowSpec,
+  type MuiAreaRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -43,6 +53,7 @@ class TestWindowHost implements MuiWindowHost {
   opened: MuiWindowSpec[] = []
   events: MuiWindowEvent[] = []
   calls: string[] = []
+  draws: MuiAreaRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -54,6 +65,7 @@ class TestWindowHost implements MuiWindowHost {
   screenToBack(): void { this.calls.push('screen-back') }
   setTitles(_handle: unknown, title: string, screenTitle: string): void { this.calls.push(`titles:${title}:${screenTitle}`) }
   poll(): MuiWindowEvent[] { return this.events.splice(0) }
+  drawArea(_handle: unknown, spec: MuiAreaRenderSpec): void { this.draws.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -219,6 +231,89 @@ describe('muimaster: Window.mui 19.35', () => {
     expect(m.doMui(win, MUIM_WINDOW_REPLACE_ROOT, [replacement.address])).toBe(root.address)
     expect(m.get(win, MUI.MUIA_Window_RootObject)).toBe(replacement.address)
     expect(m.parent(root)).toBeNull()
+  })
+})
+
+describe('muimaster: Area.mui 19.35', () => {
+  it('installs the constructor defaults and normalises mutable state', () => {
+    const m = new MuiMaster()
+    const area = m.newObjectA(MUIC.MUIC_Area)!
+    expect(m.peek(area, MUI.MUIA_Weight)).toBe(100)
+    expect(m.get(area, MUI.MUIA_ShowMe)).toBe(1)
+    expect(m.peek(area, MUI.MUIA_InputMode)).toBe(MUI.MUIV_InputMode_None)
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(0)
+    expect(m.set(area, MUI.MUIA_Selected, 29)).toBe(1)
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(1)
+  })
+
+  it('sets up, lays out, draws through its window, and exposes live edges', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const area = m.newObjectA(MUIC.MUIC_Area, [
+      tag(MUI.MUIA_Frame, MUI.MUIV_Frame_Button),
+      tag(MUI.MUIA_Background, 5),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, area.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    // A bare Area contributes no stretchable content, so it keeps the box
+    // but reports that a larger-than-maximum layout does not fit.
+    expect(m.doMui(area, MUIM_AREA_LAYOUT, [3, 4, 30, 20])).toBe(0)
+    expect(m.get(area, MUI.MUIA_LeftEdge)).toBe(3)
+    expect(m.get(area, MUI.MUIA_RightEdge)).toBe(32)
+    m.doMui(area, MUI.MUIM_Draw, [0x805])
+    expect(host.draws.at(-1)).toMatchObject({ left: 3, top: 4, width: 30, height: 20, frame: MUI.MUIV_Frame_Button })
+    m.doMui(area, MUI.MUIM_Hide)
+    const count = host.draws.length
+    m.doMui(area, MUI.MUIM_Draw)
+    expect(host.draws).toHaveLength(count)
+  })
+
+  it('implements hit testing and all three selection input modes', () => {
+    const m = new MuiMaster()
+    const area = m.newObjectA(MUIC.MUIC_Area, [tag(MUI.MUIA_InputMode, MUI.MUIV_InputMode_RelVerify)])!
+    m.layout(area, 10, 20, 40, 30)
+    expect(m.doMui(area, MUI.MUIM_Setup)).toBe(1)
+    expect(m.doMui(area, MUIM_AREA_FIND_AT, [15, 25])).toBe(area.address)
+    expect(m.doMui(area, MUIM_AREA_HIT_TEST, [4, 4])).toBe(0)
+    m.doMui(area, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 15, 25])
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(1)
+    m.doMui(area, MUI.MUIM_HandleInput, [0x8, 0xe8, 0, 15, 25])
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(0)
+    m.set(area, MUI.MUIA_InputMode, MUI.MUIV_InputMode_Toggle)
+    m.doMui(area, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 15, 25])
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(1)
+  })
+
+  it('nests disabled state and implements constant and image-handle methods', () => {
+    const m = new MuiMaster()
+    const area = m.newObjectA(MUIC.MUIC_Area)!
+    expect(m.doMui(area, MUIM_AREA_DISABLE_NESTED)).toBe(1)
+    expect(m.doMui(area, MUIM_AREA_DISABLE_NESTED)).toBe(0)
+    expect(m.get(area, MUI.MUIA_Disabled)).toBe(1)
+    expect(m.doMui(area, MUIM_AREA_ENABLE_NESTED)).toBe(0)
+    expect(m.doMui(area, MUIM_AREA_ENABLE_NESTED)).toBe(1)
+    expect(m.get(area, MUI.MUIA_Disabled)).toBe(0)
+    expect(m.doMui(area, MUIM_AREA_FALSE)).toBe(0)
+    expect(m.doMui(area, MUIM_AREA_TRUE)).toBe(1)
+    const image = m.doMui(area, MUIM_AREA_CREATE_DRAG_IMAGE, [1, 2])
+    expect(image).not.toBe(0)
+    expect(m.doMui(area, MUIM_AREA_DELETE_DRAG_IMAGE, [image])).toBe(0)
+  })
+
+  it('applies fixed dimensions after leaf sizing and persists Selected by ExportID', () => {
+    const m = new MuiMaster()
+    const area = m.newObjectA(MUIC.MUIC_Text, [
+      tag(MUI.MUIA_Text_Contents, 0), tag(MUI.MUIA_FixWidth, 37),
+      tag(MUI.MUIA_FixHeight, 19), tag(MUI.MUIA_ExportID, 0x41524541),
+      tag(MUI.MUIA_Selected, 1),
+    ])!
+    expect(m.askMinMax(area)).toEqual({ minW: 37, minH: 19, maxW: 37, maxH: 19, defW: 37, defH: 19 })
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    expect(m.doMui(area, MUI.MUIM_Export, [ds.address])).toBe(0)
+    m.set(area, MUI.MUIA_Selected, 0)
+    expect(m.doMui(area, MUI.MUIM_Import, [ds.address])).toBe(0)
+    expect(m.get(area, MUI.MUIA_Selected)).toBe(1)
   })
 })
 

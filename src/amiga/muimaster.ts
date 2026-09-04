@@ -272,6 +272,21 @@ export const MUIM_WINDOW_BROADCAST = 0x8042d532
 export const MUIM_WINDOW_ROOT_METHOD = 0x8042867c
 export const MUIM_WINDOW_UPDATE_TITLES = 0x8042926f
 export const MUIM_WINDOW_REPLACE_ROOT = 0x8042fd4d
+export const MUIM_AREA_LAYOUT = 0x8042845b
+export const MUIM_AREA_NOOP = 0x80424d50
+export const MUIM_AREA_RESET_SETUP = 0x80421407
+export const MUIM_AREA_FIND_AT = 0x8042867c
+export const MUIM_AREA_REDRAW = 0x8042491a
+export const MUIM_AREA_DEACTIVATE = 0x80422c0c
+export const MUIM_AREA_ENABLE_NESTED = 0x80428f6c
+export const MUIM_AREA_DISABLE_NESTED = 0x8042af9f
+export const MUIM_AREA_FALSE = 0x80428d73
+export const MUIM_AREA_TRUE = 0x8042f8a4
+export const MUIM_AREA_CREATE_DRAG_IMAGE = 0x80424f05
+export const MUIM_AREA_DELETE_DRAG_IMAGE = 0x80428daf
+export const MUIM_AREA_CREATE_BUBBLE_IMAGE = 0x8042eb6f
+export const MUIM_AREA_DELETE_BUBBLE_IMAGE = 0x80423037
+export const MUIM_AREA_HIT_TEST = 0x804216bb
 
 const IDCMP_NEWSIZE = 0x2
 const IDCMP_REFRESHWINDOW = 0x4
@@ -487,6 +502,16 @@ export interface MuiWindowHost {
   screenToBack(handle: unknown): void
   setTitles(handle: unknown, title: string, screenTitle: string): void
   poll(handle: unknown): MuiWindowEvent[]
+  drawArea?(handle: unknown, spec: MuiAreaRenderSpec): void
+}
+
+export interface MuiAreaRenderSpec extends Box {
+  background: number
+  frame: number
+  selected: boolean
+  disabled: boolean
+  fill: boolean
+  drawFlags: number
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -494,6 +519,15 @@ interface MuiWindowData extends Record<string, unknown> {
   nativeAddress: number
   eventHandlers: number[]
   sleepDepth: number
+}
+
+interface MuiAreaData extends Record<string, unknown> {
+  setup: boolean
+  shown: boolean
+  disableDepth: number
+  dragging: boolean
+  drawFlags: number
+  handles: Set<number>
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -800,6 +834,7 @@ export class MuiMaster {
   askMinMax(obj: BoopsiObject): MinMax {
     const mm: MinMax = { minW: 0, minH: 0, maxW: 0, maxH: 0, defW: 0, defH: 0 }
     obj.cl.dispatcher(obj.cl, obj, { MethodID: MUI.MUIM_AskMinMax, mm } as Msg)
+    if (obj.cl.isA(this.areaClass)) this.constrainAreaMinMax(obj, mm)
     // MUI_MAXMAX is a ceiling rather than a sum: a group of three unlimited
     // children is unlimited, not three times unlimited
     mm.maxW = Math.min(mm.maxW, MUI_MAXMAX)
@@ -1079,6 +1114,33 @@ export class MuiMaster {
           d.set(MUI.MUIA_Window_Title, 0)
           d.set(MUI.MUIA_Window_ScreenTitle, 0)
         }
+        if (cl === this.areaClass) {
+          const area = made.instData<MuiAreaData>(cl)
+          area.setup = false
+          area.shown = true
+          area.disableDepth = 0
+          area.dragging = false
+          area.drawFlags = 0
+          area.handles = new Set()
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Weight, 100)
+          d.set(MUI.MUIA_HorizWeight, 100)
+          d.set(MUI.MUIA_VertWeight, 100)
+          d.set(MUI.MUIA_Background, 0)
+          d.set(MUI.MUIA_Frame, MUI.MUIV_Frame_None)
+          d.set(MUI.MUIA_InputMode, MUI.MUIV_InputMode_None)
+          d.set(MUI.MUIA_ShowMe, 1)
+          d.set(MUI.MUIA_FillArea, 1)
+          d.set(MUI.MUIA_ShowSelState, 1)
+          d.set(MUI.MUIA_Disabled, 0)
+          d.set(MUI.MUIA_Selected, 0)
+          d.set(MUI.MUIA_Pressed, 0)
+          d.set(MUI.MUIA_Draggable, 0)
+          d.set(MUI.MUIA_Dropable, 0)
+          d.set(MUI.MUIA_CycleChain, 0)
+          d.set(MUI.MUIA_ControlChar, 0)
+          d.set(MUI.MUIA_Timer, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1118,6 +1180,14 @@ export class MuiMaster {
         const rawAttrs = (msg as OpSet).attrs
         const attrs = cl === this.menuitemClass ? this.normaliseMenuitemAttrs(rawAttrs) : rawAttrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
+        if (cl === this.areaClass) {
+          const weight = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Weight)?.data
+          const d = data(this, made).attrs
+          if (weight !== undefined) {
+            if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_HorizWeight)) d.set(MUI.MUIA_HorizWeight, Math.max(0, weight))
+            if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_VertWeight)) d.set(MUI.MUIA_VertWeight, Math.max(0, weight))
+          }
+        }
         if (cl === this.menuitemClass) {
           const copy = attrs.some((attr) => TAG(attr.tag) === MUIA_MENUITEM_COPY_STRINGS && attr.data !== 0)
           made.instData<MuiMenuitemData>(cl).copyStrings = copy
@@ -1142,6 +1212,11 @@ export class MuiMaster {
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.areaClass) {
+          const area = o.instData<MuiAreaData>(cl)
+          for (const handle of area.handles) this.releaseAreaHandle(o, handle)
+          area.handles.clear()
+        }
         if (cl === this.windowClass) this.closeMuiWindow(o)
         if (cl === this.applicationClass) {
           const app = o.instData<MuiApplicationData>(cl)
@@ -1174,6 +1249,7 @@ export class MuiMaster {
         if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.areaClass) return this.setArea(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
           let change = 0
@@ -1231,6 +1307,13 @@ export class MuiMaster {
         }
         if (cl === this.windowClass) {
           const computed = this.getWindow(o, TAG(g.attrID))
+          if (computed !== undefined) {
+            g.storage = computed
+            return 1
+          }
+        }
+        if (cl === this.areaClass) {
+          const computed = this.getArea(o, TAG(g.attrID))
           if (computed !== undefined) {
             g.storage = computed
             return 1
@@ -1384,6 +1467,10 @@ export class MuiMaster {
         }
         if (cl === this.windowClass) {
           const answered = this.windowMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.areaClass) {
+          const answered = this.areaMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
@@ -2152,6 +2239,301 @@ export class MuiMaster {
     this.pool.buffer[off + 3] = value
   }
 
+  // -- Area ---------------------------------------------------------------
+
+  private setArea(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const area = obj.instData<MuiAreaData>(cl)
+    const attrs = msg.attrs.map((raw) => {
+      const tag = TAG(raw.tag)
+      if (tag === MUI.MUIA_Disabled || tag === MUI.MUIA_Selected || tag === MUI.MUIA_ShowMe ||
+          tag === MUI.MUIA_Draggable || tag === MUI.MUIA_Dropable || tag === MUI.MUIA_ShowSelState) {
+        return { tag: raw.tag, data: raw.data === 0 ? 0 : 1 }
+      }
+      if (tag === MUI.MUIA_Weight || tag === MUI.MUIA_HorizWeight || tag === MUI.MUIA_VertWeight) {
+        return { tag: raw.tag, data: Math.max(0, raw.data) }
+      }
+      return raw
+    })
+    const beforeDisabled = this.peek(obj, MUI.MUIA_Disabled) ?? 0
+    const beforeSelected = this.peek(obj, MUI.MUIA_Selected) ?? 0
+    const beforeShow = this.peek(obj, MUI.MUIA_ShowMe) ?? 1
+    const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+    if (noNotify) this.suppressNotifications++
+    let answer = 0
+    try {
+      const own = this.applyOwn('Area', obj, attrs, 's')
+      answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, { ...msg, attrs } as OpSet)
+    } finally {
+      if (noNotify) this.suppressNotifications--
+    }
+    area.shown = (this.peek(obj, MUI.MUIA_ShowMe) ?? 1) !== 0
+    if (beforeDisabled !== (this.peek(obj, MUI.MUIA_Disabled) ?? 0) ||
+        beforeSelected !== (this.peek(obj, MUI.MUIA_Selected) ?? 0) ||
+        beforeShow !== (this.peek(obj, MUI.MUIA_ShowMe) ?? 1)) this.redrawArea(obj, 0x805)
+    return answer
+  }
+
+  private getArea(obj: BoopsiObject, attr: number): number | undefined {
+    const box = this.boxOf(obj)
+    switch (attr) {
+      case MUI.MUIA_LeftEdge: return box?.left
+      case MUI.MUIA_TopEdge: return box?.top
+      case MUI.MUIA_Width: return box?.width
+      case MUI.MUIA_Height: return box?.height
+      case MUI.MUIA_RightEdge: return box ? box.left + box.width - 1 : undefined
+      case MUI.MUIA_BottomEdge: return box ? box.top + box.height - 1 : undefined
+      case MUI.MUIA_WindowObject: return this.ancestorOf(obj, this.windowClass)?.address ?? 0
+      case MUI.MUIA_Window: {
+        const window = this.ancestorOf(obj, this.windowClass)
+        return window?.instData<MuiWindowData>(this.windowClass).nativeAddress ?? 0
+      }
+      default: return undefined
+    }
+  }
+
+  private areaMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const area = obj.instData<MuiAreaData>(this.areaClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup:
+        area.setup = true
+        return 1
+      case MUIM_AREA_RESET_SETUP:
+        area.setup = true
+        return 1
+      case MUI.MUIM_Cleanup:
+        area.setup = false
+        area.dragging = false
+        return 0
+      case MUI.MUIM_Show:
+        area.shown = true
+        return 1
+      case MUI.MUIM_Hide:
+        area.shown = false
+        return 0
+      case MUI.MUIM_Draw:
+        this.drawArea(obj, params[0] ?? 0)
+        return 0
+      case MUI.MUIM_DrawBackground:
+        this.drawArea(obj, params[5] ?? 0)
+        return 0
+      case MUI.MUIM_HandleInput:
+      case MUI.MUIM_HandleEvent:
+        return this.handleAreaInput(obj, params)
+      case MUI.MUIM_Export:
+        this.areaTransferSelected(obj, params[0] ?? 0, true)
+        return doSuperMethodA(this.areaClass, obj, msg)
+      case MUI.MUIM_Import:
+        this.areaTransferSelected(obj, params[0] ?? 0, false)
+        return doSuperMethodA(this.areaClass, obj, msg)
+      case MUI.MUIM_DragQuery: return 0
+      case MUI.MUIM_DragReport: return 1
+      case MUI.MUIM_DragBegin:
+        area.dragging = true
+        this.redrawArea(obj, 0x800)
+        return 0
+      case MUI.MUIM_DragFinish:
+        area.dragging = false
+        this.redrawArea(obj, 0x805)
+        return 0
+      case MUI.MUIM_ContextMenuChoice:
+        this.setInternal(obj, MUI.MUIA_ContextMenuTrigger, params[0] ?? 0)
+        return 0
+      case MUI.MUIM_ContextMenuBuild:
+        return this.peek(obj, MUI.MUIA_ContextMenu) ?? 0
+      case MUIM_AREA_FIND_AT:
+        return this.areaAt(obj, this.signed(params[0] ?? 0), this.signed(params[1] ?? 0))?.address ?? 0
+      case MUIM_AREA_LAYOUT:
+        if (params.length >= 4) {
+          this.layout(obj, this.signed(params[0] ?? 0), this.signed(params[1] ?? 0), this.signed(params[2] ?? 0), this.signed(params[3] ?? 0))
+          return this.areaFits(obj) ? 1 : 0
+        }
+        return 0
+      case MUIM_AREA_REDRAW:
+        this.redrawArea(obj, 4)
+        return area.setup ? 1 : 0
+      case MUIM_AREA_DEACTIVATE:
+        if ((this.peek(obj, MUI.MUIA_Selected) ?? 0) !== 0) this.setInternal(obj, MUI.MUIA_Selected, 0)
+        this.setInternal(obj, MUI.MUIA_Pressed, 0)
+        this.redrawArea(obj, 0x805)
+        return 1
+      case MUIM_AREA_ENABLE_NESTED:
+        area.disableDepth = Math.max(0, area.disableDepth - 1)
+        if (area.disableDepth === 0) this.setInternal(obj, MUI.MUIA_Disabled, 0)
+        return area.disableDepth === 0 ? 1 : 0
+      case MUIM_AREA_DISABLE_NESTED:
+        area.disableDepth = Math.min(63, area.disableDepth + 1)
+        if (area.disableDepth === 1) this.setInternal(obj, MUI.MUIA_Disabled, 1)
+        return area.disableDepth === 1 ? 1 : 0
+      case MUIM_AREA_FALSE:
+      case MUIM_AREA_NOOP:
+        return 0
+      case MUIM_AREA_TRUE:
+        return 1
+      case MUI.MUIM_CreateShortHelp:
+        return this.peek(obj, MUI.MUIA_ShortHelp) ?? 0
+      case MUI.MUIM_DeleteShortHelp:
+        return 0
+      case MUIM_AREA_DELETE_DRAG_IMAGE:
+      case MUIM_AREA_DELETE_BUBBLE_IMAGE:
+        this.releaseAreaHandle(obj, params[0] ?? 0)
+        return 0
+      case MUIM_AREA_CREATE_DRAG_IMAGE:
+      case MUIM_AREA_CREATE_BUBBLE_IMAGE:
+      case MUI.MUIM_CreateBubble:
+        return this.createAreaHandle(obj, params)
+      case MUI.MUIM_DeleteBubble:
+        this.releaseAreaHandle(obj, params[0] ?? 0)
+        return 0
+      case MUIM_AREA_HIT_TEST:
+        return this.areaAt(obj, this.signed(params[0] ?? 0), this.signed(params[1] ?? 0)) ? 1 : 0
+      default: return null
+    }
+  }
+
+  private drawArea(obj: BoopsiObject, drawFlags: number): void {
+    const area = obj.instData<MuiAreaData>(this.areaClass)
+    area.drawFlags = drawFlags
+    if (!area.setup || !area.shown) return
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    this.windowHost?.drawArea?.(handle, {
+      ...box,
+      background: this.peek(obj, MUI.MUIA_Background) ?? 0,
+      frame: this.peek(obj, MUI.MUIA_Frame) ?? MUI.MUIV_Frame_None,
+      selected: (this.peek(obj, MUI.MUIA_ShowSelState) ?? 1) !== 0 &&
+        (this.peek(obj, MUI.MUIA_Selected) ?? 0) !== 0,
+      disabled: (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0,
+      fill: (this.peek(obj, MUI.MUIA_FillArea) ?? 1) !== 0,
+      drawFlags,
+    })
+  }
+
+  private redrawArea(obj: BoopsiObject, flags: number): void {
+    const area = obj.instData<MuiAreaData>(this.areaClass)
+    area.drawFlags |= flags
+    if (area.setup) this.drawArea(obj, area.drawFlags)
+  }
+
+  private areaAt(obj: BoopsiObject, x: number, y: number): BoopsiObject | null {
+    const area = obj.instData<MuiAreaData>(this.areaClass)
+    const box = this.boxOf(obj)
+    if (!area.setup || !area.shown || (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0 || !box ||
+        x < box.left || y < box.top || x >= box.left + box.width || y >= box.top + box.height) return null
+    for (const child of [...data(this, obj).children].reverse()) {
+      if (!child.cl.isA(this.areaClass)) continue
+      const found = this.areaAt(child, x, y)
+      if (found) return found
+    }
+    return obj
+  }
+
+  private areaFits(obj: BoopsiObject): boolean {
+    const box = this.boxOf(obj)
+    const mm = this.minMaxOf(obj) ?? this.askMinMax(obj)
+    return !!box && box.width >= mm.minW && box.height >= mm.minH && box.width <= mm.maxW && box.height <= mm.maxH
+  }
+
+  private handleAreaInput(obj: BoopsiObject, params: readonly number[]): number {
+    const cls = params[0] ?? 0
+    const code = params[1] ?? 0
+    const qualifier = params[2] ?? 0
+    const x = this.signed(params[3] ?? 0)
+    const y = this.signed(params[4] ?? 0)
+    if ((this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0 || (this.peek(obj, MUI.MUIA_ShowMe) ?? 1) === 0) return 0
+    const inside = this.areaAt(obj, x, y) === obj
+    const mode = this.peek(obj, MUI.MUIA_InputMode) ?? MUI.MUIV_InputMode_None
+    if (cls === IDCMP_RAWKEY) {
+      const control = this.peek(obj, MUI.MUIA_ControlChar) ?? 0
+      if (control !== 0 && (code & 0xff) === (control & 0xff)) this.pressArea(obj)
+      return 0
+    }
+    if (cls !== IDCMP_MOUSEBUTTONS) return 0
+    const down = code === 0x68
+    const up = code === 0xe8
+    if (down && inside) {
+      if (mode === MUI.MUIV_InputMode_Toggle) {
+        this.setInternal(obj, MUI.MUIA_Selected, (this.peek(obj, MUI.MUIA_Selected) ?? 0) === 0 ? 1 : 0)
+        this.pressArea(obj)
+      } else if (mode === MUI.MUIV_InputMode_Immediate || mode === MUI.MUIV_InputMode_RelVerify) {
+        this.setInternal(obj, MUI.MUIA_Selected, 1)
+        if (mode === MUI.MUIV_InputMode_Immediate) this.pressArea(obj)
+      }
+      this.redrawArea(obj, 0x805)
+    } else if (up && (mode === MUI.MUIV_InputMode_Immediate || mode === MUI.MUIV_InputMode_RelVerify)) {
+      if (mode === MUI.MUIV_InputMode_RelVerify && inside && (this.peek(obj, MUI.MUIA_Selected) ?? 0) !== 0) this.pressArea(obj)
+      this.setInternal(obj, MUI.MUIA_Selected, 0)
+      this.redrawArea(obj, 0x805)
+    }
+    void qualifier
+    return 0
+  }
+
+  private pressArea(obj: BoopsiObject): void {
+    this.setInternal(obj, MUI.MUIA_Pressed, 1)
+    this.setInternal(obj, MUI.MUIA_Pressed, 0)
+  }
+
+  private areaTransferSelected(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const d = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const bytes = new Uint8Array(4)
+      putLong(bytes, 0, this.peek(obj, MUI.MUIA_Selected) ?? 0)
+      this.dataspaceAddBytes(d, bytes, id)
+    } else {
+      const entry = d.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
+      if (entry) this.set(obj, MUI.MUIA_Selected, this.poolLong(entry.address - this.pool.base + 16))
+    }
+  }
+
+  private createAreaHandle(obj: BoopsiObject, params: readonly number[]): number {
+    const address = this.pool.alloc(20, { clear: true })
+    if (address === 0) return 0
+    const box = this.boxOf(obj)
+    const off = address - this.pool.base
+    this.putPoolLong(off, obj.address)
+    this.putPoolLong(off + 4, params[0] ?? box?.left ?? 0)
+    this.putPoolLong(off + 8, params[1] ?? box?.top ?? 0)
+    this.putPoolLong(off + 12, box?.width ?? 0)
+    this.putPoolLong(off + 16, box?.height ?? 0)
+    obj.instData<MuiAreaData>(this.areaClass).handles.add(address)
+    return address
+  }
+
+  private releaseAreaHandle(obj: BoopsiObject, address: number): void {
+    if (address === 0) return
+    const handles = obj.instData<MuiAreaData>(this.areaClass).handles
+    if (!handles.delete(address)) return
+    this.pool.freeMem(address)
+  }
+
+  /** Apply Area's absolute constraints after the leaf has added its content. */
+  private constrainAreaMinMax(obj: BoopsiObject, mm: MinMax): void {
+    const fixedTextWidth = this.peek(obj, MUI.MUIA_FixWidthTxt) ?? 0
+    const fixedTextHeight = this.peek(obj, MUI.MUIA_FixHeightTxt) ?? 0
+    const fixedW = this.peek(obj, MUI.MUIA_FixWidth) ??
+      (fixedTextWidth === 0 ? 0 : visibleLength(this.readString?.(fixedTextWidth) ?? '') * this.fontX)
+    const fixedH = this.peek(obj, MUI.MUIA_FixHeight) ??
+      (fixedTextHeight === 0 ? 0 : this.fontY)
+    if (fixedW > 0) mm.minW = mm.defW = mm.maxW = fixedW
+    else {
+      const maxW = this.peek(obj, MUI.MUIA_MaxWidth) ?? 0
+      if (maxW > 0) mm.maxW = Math.min(mm.maxW, maxW)
+    }
+    if (fixedH > 0) mm.minH = mm.defH = mm.maxH = fixedH
+    else {
+      const maxH = this.peek(obj, MUI.MUIA_MaxHeight) ?? 0
+      if (maxH > 0) mm.maxH = Math.min(mm.maxH, maxH)
+    }
+  }
+
   // -- Window -------------------------------------------------------------
 
   private copyWindowString(obj: BoopsiObject, attr: number, source = this.peek(obj, attr) ?? 0): void {
@@ -2217,7 +2599,10 @@ export class MuiMaster {
     win.handle = handle
     win.nativeAddress = this.pool.alloc(4, { clear: true })
     const geometry = this.windowHost.geometry(handle)
+    this.doMui(root, MUI.MUIM_Setup)
     this.layout(root, 0, 0, Math.max(0, geometry.width), Math.max(0, geometry.height))
+    this.doMui(root, MUI.MUIM_Show)
+    this.doMui(root, MUI.MUIM_Draw, [0x805])
     this.setInternal(obj, MUI.MUIA_Window_Open, 1)
     this.setInternal(obj, MUI.MUIA_Window_Activate, geometry.active ? 1 : 0)
     return true
@@ -2225,6 +2610,11 @@ export class MuiMaster {
 
   private closeMuiWindow(obj: BoopsiObject): void {
     const win = obj.instData<MuiWindowData>(this.windowClass)
+    const root = this.windowRoot(obj)
+    if (root && win.handle !== null) {
+      this.doMui(root, MUI.MUIM_Hide)
+      this.doMui(root, MUI.MUIM_Cleanup)
+    }
     if (win.handle !== null) this.windowHost?.close(win.handle)
     win.handle = null
     if (win.nativeAddress !== 0) this.pool.freeMem(win.nativeAddress)
@@ -2443,6 +2833,11 @@ export class MuiMaster {
         event.seconds, event.micros, event.iaddress, node,
       ]) & 1) break
     }
+    const root = this.windowRoot(obj)
+    if (root) this.doMui(root, MUI.MUIM_HandleInput, [
+      event.class, event.code, event.qualifier, event.mouseX, event.mouseY,
+      event.seconds, event.micros, event.iaddress,
+    ])
     if (event.class === IDCMP_CLOSEWINDOW) this.setInternal(obj, MUI.MUIA_Window_CloseRequest, 1)
     else if (event.class === IDCMP_ACTIVEWINDOW) this.setInternal(obj, MUI.MUIA_Window_Activate, 1)
     else if (event.class === IDCMP_INACTIVEWINDOW) this.setInternal(obj, MUI.MUIA_Window_Activate, 0)

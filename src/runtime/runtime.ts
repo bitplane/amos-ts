@@ -2604,6 +2604,53 @@ export class Runtime {
           for (let event = w.getMsg(); event; event = w.getMsg()) events.push(event)
           return events
         },
+        drawArea: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const x1 = w.leftEdge + w.borderLeft + spec.left
+          const y1 = w.topEdge + w.borderTop + spec.top
+          const x2 = x1 + spec.width - 1
+          const y2 = y1 + spec.height - 1
+          const backgroundPen = spec.selected ? 3 : (spec.background & 0xff)
+          const frames: ReadonlyArray<{ depth: number; recessed: boolean }> = [
+            { depth: 0, recessed: false }, // None
+            { depth: 1, recessed: false }, // Button
+            { depth: 2, recessed: false }, // ImageButton
+            { depth: 1, recessed: true },  // Text
+            { depth: 1, recessed: true },  // String
+            { depth: 2, recessed: true },  // ReadList
+            { depth: 2, recessed: true },  // InputList
+            { depth: 1, recessed: true },  // Prop
+            { depth: 1, recessed: true },  // Gauge
+            { depth: 2, recessed: false }, // Group
+            { depth: 1, recessed: false }, // PopUp
+            { depth: 2, recessed: true },  // Virtual
+            { depth: 2, recessed: true },  // Slider
+          ]
+          const frame = frames[spec.frame] ?? frames[0]!
+          try {
+            rp.clip = { x1, y1, x2, y2 }
+            if (spec.fill) rp.rectFill(x1, y1, x2, y2, backgroundPen)
+            let light = frame.recessed ? 1 : 2
+            let dark = frame.recessed ? 2 : 1
+            if (spec.selected) [light, dark] = [dark, light]
+            for (let inset = 0; inset < frame.depth; inset++) {
+              rp.draw(x1 + inset, y2 - inset, x1 + inset, y1 + inset, light)
+              rp.draw(x1 + inset, y1 + inset, x2 - inset, y1 + inset, light)
+              rp.draw(x2 - inset, y1 + inset, x2 - inset, y2 - inset, dark)
+              rp.draw(x2 - inset, y2 - inset, x1 + inset, y2 - inset, dark)
+            }
+            if (spec.disabled) {
+              for (let y = y1 + 1; y < y2; y += 2) {
+                for (let x = x1 + 1 + (y & 2 ? 1 : 0); x < x2; x += 2) rp.plot(x, y, 1)
+              }
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }
