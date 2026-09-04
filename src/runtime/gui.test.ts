@@ -1216,6 +1216,13 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
 })
 
 describe('the ASL screen and font group', () => {
+  it('uses ASL 39.4 allocation geometry for the screen-mode requester', () => {
+    const b = boot('A=Gui Asl Screen')
+    park(b)
+    const w = b.rt.aslMode!.window
+    expect([w.leftEdge, w.topEdge, w.width, w.height]).toEqual([30, 20, 318, 198])
+  })
+
   /** "If the value returned is -1 then the user hit Cancel on the requester" */
   it('Gui Asl Screen answers cancel, and the readers answer zeros', () => {
     const out = runOut('Print Gui Asl Screen : Print Gui Asl Id : Print Gui Asl Width : Print Gui Asl Height : Print Gui Asl Depth').out
@@ -1236,6 +1243,13 @@ describe('the ASL screen and font group', () => {
 
   it('Gui Asl Font answers cancel, and Gui Font Size 0 beside it', () => {
     expect(runOut('Print "["+Gui Asl Font+"]" : Print Gui Font Size').out.trim()).toBe('[]\n 0')
+  })
+
+  it('uses ASL 39.4 allocation geometry for the font requester', () => {
+    const b = boot('A$=Gui Asl Font')
+    park(b)
+    const w = b.rt.aslFont!.window
+    expect([w.leftEdge, w.topEdge, w.width, w.height]).toEqual([30, 20, 318, 198])
   })
 
   /** routine 124 takes width, height, DisplayID and the colour count from `$150` */

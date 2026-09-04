@@ -3565,7 +3565,9 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * There IS a display database now, ../amiga/displayinfo.ts, and it holds
      * what `Devs/Monitors/PAL` registers: six modes, their DisplayIDs and
      * their names read straight out of the driver's own table at file offset
-     * `0x12d8`. So the requester opens and answers a real id.
+     * `0x12d8`. So the requester opens and answers a real id. ASL 39.4's
+     * screen-mode allocator supplies 30,20,318,198 at $21311a-$21312c; GUI
+     * adds no geometry tags to its request, so those defaults apply.
      */
     'gui asl screen': (it): Value => {
       const g = s()
@@ -3593,10 +3595,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
           hail: '',
           okText: '',
           cancelText: '',
-          left: 40,
-          top: 30,
-          width: 300,
-          height: 170,
+          left: 30,
+          top: 20,
+          width: 318,
+          height: 198,
           id: g.aslScreen.displayID,
           displayWidth: g.aslScreen.width,
           displayHeight: g.aslScreen.height,
@@ -3650,7 +3652,9 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * The requester is REAL now, ../amiga/asl.ts's --- the same one Int 1.0's
      * `Wb Asl Req` and BUtility's `Baslfilereq` open. Routine 56 asks for it
      * with a ONE-tag list, `move.l #$80080002,(a1)` and a TAG_DONE after it,
-     * so ASL_Window and nothing else: no pens, no style, no draw mode.
+     * so ASL_Window and nothing else: no pens, no style, no draw mode. ASL
+     * 39.4's font allocator supplies 30,20,318,198 at $21172e-$211740, which
+     * therefore remain the requester's geometry.
      */
     'gui asl font': (it): Value => {
       const g = s()
@@ -3677,7 +3681,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       // AslRequest, so a cancel leaves 0 beside the empty string
       g.aslFontSize = 0
       const started = rt.startAslFontRequest(
-        { hail: '', okText: '', cancelText: '', left: 40, top: 30, width: 300, height: 190, name: '', size: 0 },
+        { hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198, name: '', size: 0 },
         null,
       )
       if (!started) return VS('')
