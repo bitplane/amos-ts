@@ -42,6 +42,7 @@ import {
   type MuiWindowHost,
   type MuiWindowSpec,
   type MuiAreaRenderSpec,
+  type MuiImageRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -54,6 +55,7 @@ class TestWindowHost implements MuiWindowHost {
   events: MuiWindowEvent[] = []
   calls: string[] = []
   draws: MuiAreaRenderSpec[] = []
+  images: MuiImageRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -66,6 +68,7 @@ class TestWindowHost implements MuiWindowHost {
   setTitles(_handle: unknown, title: string, screenTitle: string): void { this.calls.push(`titles:${title}:${screenTitle}`) }
   poll(): MuiWindowEvent[] { return this.events.splice(0) }
   drawArea(_handle: unknown, spec: MuiAreaRenderSpec): void { this.draws.push(spec) }
+  drawImage(_handle: unknown, spec: MuiImageRenderSpec): void { this.images.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -314,6 +317,59 @@ describe('muimaster: Area.mui 19.35', () => {
     m.set(area, MUI.MUIA_Selected, 0)
     expect(m.doMui(area, MUI.MUIM_Import, [ds.address])).toBe(0)
     expect(m.get(area, MUI.MUIA_Selected)).toBe(1)
+  })
+})
+
+describe('muimaster: Image.mui 19.35', () => {
+  it('defaults its seven attributes and standard images have native fixed bounds', () => {
+    const m = new MuiMaster()
+    const image = m.newObjectA(MUIC.MUIC_Image, [tag(MUI.MUIA_Image_Spec, MUI.MUII_CheckMark)])!
+    expect(m.peek(image, MUI.MUIA_Image_State)).toBe(0)
+    expect(m.peek(image, MUI.MUIA_Image_FreeHoriz)).toBe(0)
+    expect(m.peek(image, MUI.MUIA_Image_FreeVert)).toBe(0)
+    expect(m.askMinMax(image)).toEqual({ minW: 16, minH: 8, maxW: 16, maxH: 8, defW: 16, defH: 8 })
+  })
+
+  it('makes only the requested standard-image axes freely resizable', () => {
+    const m = new MuiMaster()
+    const horiz = m.newObjectA(MUIC.MUIC_Image, [
+      tag(MUI.MUIA_Image_Spec, MUI.MUII_ArrowRight), tag(MUI.MUIA_Image_FreeHoriz, 1),
+    ])!
+    const vertical = m.newObjectA(MUIC.MUIC_Image, [
+      tag(MUI.MUIA_Image_Spec, MUI.MUII_ArrowDown), tag(MUI.MUIA_Image_FreeVert, 1),
+    ])!
+    expect(m.askMinMax(horiz)).toMatchObject({ minW: 16, maxW: MUI_MAXMAX, minH: 8, maxH: 8 })
+    expect(m.askMinMax(vertical)).toMatchObject({ minW: 16, maxW: 16, minH: 8, maxH: MUI_MAXMAX })
+  })
+
+  it('takes exact fixed dimensions from a conventional struct Image', () => {
+    const m = new MuiMaster()
+    const memory = new Uint8Array(32)
+    memory[4] = 0
+    memory[5] = 23
+    memory[6] = 0
+    memory[7] = 11
+    m.readMemory = (address, length) => address >= 0x1000 && address + length <= 0x1020
+      ? memory.slice(address - 0x1000, address - 0x1000 + length) : null
+    const image = m.newObjectA(MUIC.MUIC_Image, [tag(MUI.MUIA_Image_OldImage, 0x1000)])!
+    expect(m.askMinMax(image)).toEqual({ minW: 23, minH: 11, maxW: 23, maxH: 11, defW: 23, defH: 11 })
+  })
+
+  it('resolves on Setup and draws Selected as IDS_SELECTED through the host', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const image = m.newObjectA(MUIC.MUIC_Image, [
+      tag(MUI.MUIA_Image_Spec, MUI.MUII_RadioButton), tag(MUI.MUIA_Selected, 1),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, image.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.images.at(-1)).toMatchObject({ spec: MUI.MUII_RadioButton, oldImage: 0, state: 1 })
+    m.set(image, MUI.MUIA_Selected, 0)
+    m.set(image, MUI.MUIA_Image_State, 3)
+    m.doMui(image, MUI.MUIM_Draw, [1])
+    expect(host.images.at(-1)?.state).toBe(3)
+    expect(m.doMui(image, MUI.MUIM_Cleanup)).toBe(0)
   })
 })
 

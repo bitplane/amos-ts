@@ -503,6 +503,7 @@ export interface MuiWindowHost {
   setTitles(handle: unknown, title: string, screenTitle: string): void
   poll(handle: unknown): MuiWindowEvent[]
   drawArea?(handle: unknown, spec: MuiAreaRenderSpec): void
+  drawImage?(handle: unknown, spec: MuiImageRenderSpec): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -512,6 +513,12 @@ export interface MuiAreaRenderSpec extends Box {
   disabled: boolean
   fill: boolean
   drawFlags: number
+}
+
+export interface MuiImageRenderSpec extends Box {
+  spec: number
+  oldImage: number
+  state: number
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -528,6 +535,10 @@ interface MuiAreaData extends Record<string, unknown> {
   dragging: boolean
   drawFlags: number
   handles: Set<number>
+}
+
+interface MuiImageData extends Record<string, unknown> {
+  setup: boolean
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -583,6 +594,7 @@ export class MuiMaster {
   readonly menuClass: BoopsiClass
   readonly menuitemClass: BoopsiClass
   readonly areaClass: BoopsiClass
+  readonly imageClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -628,6 +640,7 @@ export class MuiMaster {
     this.menuClass = this.byName.get(MUIC.MUIC_Menu)!
     this.menuitemClass = this.byName.get(MUIC.MUIC_Menuitem)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
+    this.imageClass = this.byName.get(MUIC.MUIC_Image)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1141,6 +1154,18 @@ export class MuiMaster {
           d.set(MUI.MUIA_ControlChar, 0)
           d.set(MUI.MUIA_Timer, 0)
         }
+        if (cl === this.imageClass) {
+          made.instData<MuiImageData>(cl).setup = false
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Image_Spec, 0)
+          d.set(MUI.MUIA_Image_OldImage, 0)
+          d.set(MUI.MUIA_Image_State, 0)
+          d.set(MUI.MUIA_Image_FontMatch, 0)
+          d.set(MUI.MUIA_Image_FontMatchWidth, 0)
+          d.set(MUI.MUIA_Image_FontMatchHeight, 0)
+          d.set(MUI.MUIA_Image_FreeHoriz, 0)
+          d.set(MUI.MUIA_Image_FreeVert, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1249,6 +1274,7 @@ export class MuiMaster {
         if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.areaClass) return this.setArea(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
@@ -1467,6 +1493,10 @@ export class MuiMaster {
         }
         if (cl === this.windowClass) {
           const answered = this.windowMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.imageClass) {
+          const answered = this.imageMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2237,6 +2267,75 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Image --------------------------------------------------------------
+
+  private setImage(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const beforeState = this.peek(obj, MUI.MUIA_Image_State) ?? 0
+    const beforeSelected = this.peek(obj, MUI.MUIA_Selected) ?? 0
+    const own = this.applyOwn('Image', obj, msg.attrs, 's')
+    const answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+    if (beforeState !== (this.peek(obj, MUI.MUIA_Image_State) ?? 0) ||
+        beforeSelected !== (this.peek(obj, MUI.MUIA_Selected) ?? 0)) this.redrawArea(obj, 4)
+    return answer
+  }
+
+  private imageMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const image = obj.instData<MuiImageData>(this.imageClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.imageClass, obj, msg)
+        image.setup = answer !== 0
+        return answer
+      }
+      case MUI.MUIM_Cleanup:
+        image.setup = false
+        return doSuperMethodA(this.imageClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.imageClass, obj, msg)
+        this.drawImage(obj)
+        return 0
+      default: return null
+    }
+  }
+
+  private drawImage(obj: BoopsiObject): void {
+    if (!obj.instData<MuiImageData>(this.imageClass).setup) return
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    const explicit = this.peek(obj, MUI.MUIA_Image_State) ?? 0
+    this.windowHost?.drawImage?.(handle, {
+      ...box,
+      spec: this.peek(obj, MUI.MUIA_Image_Spec) ?? 0,
+      oldImage: this.peek(obj, MUI.MUIA_Image_OldImage) ?? 0,
+      state: (this.peek(obj, MUI.MUIA_Selected) ?? 0) !== 0 ? 1 : explicit,
+    })
+  }
+
+  private imageMetrics(obj: BoopsiObject): { minW: number; minH: number; maxW: number; maxH: number; defW: number; defH: number } {
+    const old = this.peek(obj, MUI.MUIA_Image_OldImage) ?? 0
+    let width = this.fontX * 2
+    let height = this.fontY
+    if (old !== 0) {
+      const raw = this.readMemory?.(old + 4, 4)
+      if (raw?.length === 4) {
+        width = (raw[0]! << 8) | raw[1]!
+        height = (raw[2]! << 8) | raw[3]!
+      }
+    }
+    if ((this.peek(obj, MUI.MUIA_Image_FontMatch) ?? 0) !== 0 ||
+        (this.peek(obj, MUI.MUIA_Image_FontMatchWidth) ?? 0) !== 0) width = Math.max(width, this.fontX * 2)
+    if ((this.peek(obj, MUI.MUIA_Image_FontMatch) ?? 0) !== 0 ||
+        (this.peek(obj, MUI.MUIA_Image_FontMatchHeight) ?? 0) !== 0) height = Math.max(height, this.fontY)
+    return {
+      minW: width, minH: height, defW: width, defH: height,
+      maxW: old === 0 && (this.peek(obj, MUI.MUIA_Image_FreeHoriz) ?? 0) !== 0 ? MUI_MAXMAX : width,
+      maxH: old === 0 && (this.peek(obj, MUI.MUIA_Image_FreeVert) ?? 0) !== 0 ? MUI_MAXMAX : height,
+    }
   }
 
   // -- Area ---------------------------------------------------------------
@@ -3345,8 +3444,13 @@ export class MuiMaster {
         return 0
       }
       case 'Image':
-        // MUI's built-in images are drawn to the font's box
-        add(fx * 2, fy, 0, 0)
+        // Old Intuition images are fixed at their struct Image dimensions;
+        // resolved MUI specs expose one independently stretchable axis for
+        // each Free* flag.
+        {
+          const image = this.imageMetrics(obj)
+          add(image.minW, image.minH, image.maxW, image.maxH, image.defW, image.defH)
+        }
         return 0
       case 'Gauge':
         // a bar: unlimited along its axis, one line across

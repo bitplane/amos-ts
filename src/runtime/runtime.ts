@@ -2651,6 +2651,102 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawImage: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          const ink = spec.state === 0 ? 1 : 2
+          const plotOldImage = (): boolean => {
+            if (spec.oldImage === 0) return false
+            const head = this.resolveAddr(spec.oldImage)
+            if (!head || head.off + 18 > head.data.length) return false
+            const u16 = (at: number): number => (head.data[head.off + at]! << 8) | head.data[head.off + at + 1]!
+            const s16 = (at: number): number => (u16(at) << 16) >> 16
+            const u32 = (at: number): number => (((head.data[head.off + at]! << 24) |
+              (head.data[head.off + at + 1]! << 16) | (head.data[head.off + at + 2]! << 8) |
+              head.data[head.off + at + 3]!) >>> 0)
+            const width = u16(4)
+            const height = u16(6)
+            const depth = u16(8)
+            const dataAddress = u32(10)
+            const bits = this.resolveAddr(dataAddress)
+            if (!bits || width === 0 || height === 0 || depth === 0) return false
+            const rowBytes = ((width + 15) >>> 4) * 2
+            const planeSize = rowBytes * height
+            const pick = head.data[head.off + 14]!
+            const onOff = head.data[head.off + 15]!
+            for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                let colour = onOff
+                let sourcePlane = 0
+                for (let destPlane = 0; destPlane < 8; destPlane++) {
+                  if ((pick & (1 << destPlane)) === 0) continue
+                  if (sourcePlane < depth) {
+                    const at = bits.off + sourcePlane * planeSize + y * rowBytes + (x >>> 3)
+                    if (at < bits.data.length && (bits.data[at]! & (0x80 >>> (x & 7))) !== 0) colour |= 1 << destPlane
+                    else colour &= ~(1 << destPlane)
+                  }
+                  sourcePlane++
+                }
+                rp.plot(left + s16(0) + x, top + s16(2) + y, colour)
+              }
+            }
+            return true
+          }
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            if (plotOldImage()) return
+            const textSpec = spec.spec > MUI.MUII_LASTPAT ? mui.readString?.(spec.spec) ?? '' : ''
+            const parsed = /^(?:0|1|6):(\d+)$/.exec(textSpec)
+            const id = parsed ? Number(parsed[1]) : spec.spec
+            const cx = (left + right) >> 1
+            const cy = (top + bottom) >> 1
+            if (id >= MUI.MUII_BACKGROUND) {
+              rp.rectFill(left, top, right, bottom, id & 3)
+            } else if (id >= MUI.MUII_ArrowUp && id <= MUI.MUII_ArrowRight) {
+              const radius = Math.max(1, Math.min(spec.width, spec.height) >> 2)
+              for (let n = 0; n <= radius; n++) {
+                if (id === MUI.MUII_ArrowUp) rp.draw(cx - n, cy + n, cx + n, cy + n, ink)
+                else if (id === MUI.MUII_ArrowDown) rp.draw(cx - n, cy - n, cx + n, cy - n, ink)
+                else if (id === MUI.MUII_ArrowLeft) rp.draw(cx + n, cy - n, cx + n, cy + n, ink)
+                else rp.draw(cx - n, cy - n, cx - n, cy + n, ink)
+              }
+            } else if (id === MUI.MUII_CheckMark) {
+              rp.draw(left + 2, cy, cx - 1, bottom - 2, ink)
+              rp.draw(cx - 1, bottom - 2, right - 2, top + 2, ink)
+            } else if (id === MUI.MUII_RadioButton) {
+              rp.draw(left + 2, cy, cx, top + 2, ink)
+              rp.draw(cx, top + 2, right - 2, cy, ink)
+              rp.draw(right - 2, cy, cx, bottom - 2, ink)
+              rp.draw(cx, bottom - 2, left + 2, cy, ink)
+              if (spec.state !== 0) rp.rectFill(cx - 1, cy - 1, cx + 1, cy + 1, ink)
+            } else if (id === MUI.MUII_TapePlay || id === MUI.MUII_TapePlayBack) {
+              for (let n = 0; n <= Math.max(1, (bottom - top) >> 2); n++) {
+                const x = id === MUI.MUII_TapePlay ? cx - n : cx + n
+                rp.draw(x, cy - n, x, cy + n, ink)
+              }
+            } else if (id === MUI.MUII_TapePause) {
+              rp.rectFill(cx - 3, top + 2, cx - 1, bottom - 2, ink)
+              rp.rectFill(cx + 1, top + 2, cx + 3, bottom - 2, ink)
+            } else if (id === MUI.MUII_TapeStop) {
+              rp.rectFill(left + 3, top + 2, right - 3, bottom - 2, ink)
+            } else if (id === MUI.MUII_TapeRecord) {
+              rp.rectFill(cx - 2, cy - 2, cx + 2, cy + 2, ink)
+            } else {
+              rp.draw(left + 1, top + 1, right - 1, top + 1, 2)
+              rp.draw(right - 1, top + 1, right - 1, bottom - 1, 1)
+              rp.draw(right - 1, bottom - 1, left + 1, bottom - 1, 1)
+              rp.draw(left + 1, bottom - 1, left + 1, top + 1, 2)
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }
