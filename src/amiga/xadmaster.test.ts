@@ -9,13 +9,14 @@
  */
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
-import { CLIENTS, LHA_CLIENT, LVO, TAR_CLIENT, XADERR, XADFIB, XADFIF, ZIP_CLIENT, fileUnArc, getErrorText, getInfo, recogFile, unarchive } from './xadmaster'
+import { CLIENTS, LHA_CLIENT, LVO, TAR_CLIENT, XADERR, XADERR_TEXT, XADFIB, XADFIF, ZIP_CLIENT, fileUnArc, getErrorText, getInfo, recogFile, unarchive } from './xadmaster'
 import { describeIf } from '../testing/fixture'
 
 const INC = 'fixtures/aminet/xad/xad/Include'
 const HEADER = `${INC}/C/libraries/xadmaster.h`
 const FD = `${INC}/FD/xadmaster_lib.fd`
 const ARCHIVE = 'fixtures/aminet/xfd/xfdmaster.lha'
+const LIB = 'fixtures/aminet/xad/xad/Libs/xadmaster.library'
 
 describeIf('against the shipped headers', existsSync(HEADER), () => {
   /** the header is ISO-8859, so it is read as latin1 and not utf8 */
@@ -121,12 +122,17 @@ describe('recognition', () => {
 })
 
 describe('errors', () => {
-  it('gives the header s own wording and falls back to UNKNOWN', () => {
-    expect(getErrorText(XADERR.FILETYPE)).toBe('unknown file type')
+  it('gives the binary wording and falls back to UNKNOWN', () => {
+    expect(getErrorText(XADERR.FILETYPE)).toBe('filetype is unknown')
     expect(getErrorText(XADERR.EMPTY)).toBe('source contains no files')
-    // the header's own typo, kept: "buffer was to short"
-    expect(getErrorText(XADERR.SHORTBUFFER)).toBe('buffer was to short')
+    expect(getErrorText(XADERR.SHORTBUFFER)).toBe('buffer too short')
     expect(getErrorText(0x7fff)).toBe('unknown error')
+  })
+
+  it.skipIf(!existsSync(LIB))('uses the English strings embedded in xadmaster.library 12.1', () => {
+    const binary = readFileSync(LIB, 'latin1')
+    expect(binary).toContain('xadmaster 12.1 (28.09.2003)')
+    for (const text of Object.values(XADERR_TEXT)) expect(binary).toContain(`${text}\0`)
   })
 
   it('has text for every code', () => {

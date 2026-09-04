@@ -122,40 +122,37 @@ export const XADERR = {
 } as const
 
 /**
- * The header's own trailing comments.
- *
- * DEVIATION: a real `xadGetErrorText` (-72) returns strings from inside the
- * library and, in a localised install, from a catalog: `xadmasterlang.lha`
- * ships German, French and Polish. These are the English comments the strings
- * were written from, not that call's answer.
+ * The exact built-in English strings returned by `xadGetErrorText` at
+ * `$12a90`. A localised install may replace them through locale.library;
+ * `xadmasterlang.lha` ships German, French and Polish catalogs.
  */
 export const XADERR_TEXT: Readonly<Record<number, string>> = {
   [XADERR.OK]: 'no error',
   [XADERR.UNKNOWN]: 'unknown error',
-  [XADERR.INPUT]: 'input data buffers border exceeded',
-  [XADERR.OUTPUT]: 'output data buffers border exceeded',
-  [XADERR.BADPARAMS]: 'function called with illegal parameters',
-  [XADERR.NOMEMORY]: 'not enough memory available',
-  [XADERR.ILLEGALDATA]: 'data is corrupted',
+  [XADERR.INPUT]: 'error reading input',
+  [XADERR.OUTPUT]: 'error writing output',
+  [XADERR.BADPARAMS]: 'function call with bad parameters',
+  [XADERR.NOMEMORY]: 'not enough memory',
+  [XADERR.ILLEGALDATA]: 'input data is illegal or corrupted',
   [XADERR.NOTSUPPORTED]: 'command is not supported',
-  [XADERR.RESOURCE]: 'required resource missing',
-  [XADERR.DECRUNCH]: 'error on decrunching',
-  [XADERR.FILETYPE]: 'unknown file type',
+  [XADERR.RESOURCE]: 'missing required resource',
+  [XADERR.DECRUNCH]: 'error on decrunching data',
+  [XADERR.FILETYPE]: 'filetype is unknown',
   [XADERR.OPENFILE]: 'opening file failed',
-  [XADERR.SKIP]: 'file, disk has been skipped',
-  [XADERR.BREAK]: 'user break in progress hook',
+  [XADERR.SKIP]: 'file has been skipped',
+  [XADERR.BREAK]: 'user break',
   [XADERR.FILEEXISTS]: 'file already exists',
   [XADERR.PASSWORD]: 'missing or wrong password',
   [XADERR.MAKEDIR]: 'could not create directory',
   [XADERR.CHECKSUM]: 'wrong checksum',
-  [XADERR.VERIFY]: 'verify failed (disk hook)',
+  [XADERR.VERIFY]: 'verify failed',
   [XADERR.GEOMETRY]: 'wrong drive geometry',
   [XADERR.DATAFORMAT]: 'unknown data format',
   [XADERR.EMPTY]: 'source contains no files',
   [XADERR.FILESYSTEM]: 'unknown filesystem',
   [XADERR.FILEDIR]: 'name of file exists as directory',
-  [XADERR.SHORTBUFFER]: 'buffer was to short',
-  [XADERR.ENCODING]: 'text encoding was defective',
+  [XADERR.SHORTBUFFER]: 'buffer too short',
+  [XADERR.ENCODING]: 'text encoding defective',
 }
 
 /** `xadGetErrorText(errnum)` (-72). See the DEVIATION on XADERR_TEXT. */
