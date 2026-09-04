@@ -290,6 +290,12 @@ export const MUIM_AREA_HIT_TEST = 0x804216bb
 export const MUIA_GADGET_ACTIVE = 0x804232d2
 export const MUIA_GADGET_WINDOW = 0x804282bc
 export const MUIM_STRING_DRAW_BACKGROUND = 0x80428d73
+/** List.mui 19.35 private method-table ids used by layout and dragging. */
+export const MUIM_LIST_LAYOUT = 0x8042845b
+export const MUIM_LIST_SET_DROP_MARK = 0x80429e97
+export const MUIM_LIST_CREATE_DRAG_IMAGE = 0x80424534
+export const MUIM_LIST_DELETE_DRAG_IMAGE = 0x80425a68
+export const MUIM_LIST_COLUMN_OFFSET = 0x8042e09e
 
 const IDCMP_NEWSIZE = 0x2
 const IDCMP_REFRESHWINDOW = 0x4
@@ -511,6 +517,7 @@ export interface MuiWindowHost {
   drawText?(handle: unknown, spec: MuiTextRenderSpec): void
   drawRectangle?(handle: unknown, spec: MuiRectangleRenderSpec): void
   drawBalance?(handle: unknown, spec: MuiBalanceRenderSpec): void
+  drawList?(handle: unknown, spec: MuiListRenderSpec): void
   showGadget?(handle: unknown, address: number, box: Box, disabled: boolean): void
   hideGadget?(handle: unknown, address: number): void
   refreshGadget?(handle: unknown, address: number): void
@@ -550,6 +557,14 @@ export interface MuiAreaRenderSpec extends Box {
   disabled: boolean
   fill: boolean
   drawFlags: number
+}
+
+export interface MuiListRenderSpec extends Box {
+  title: string
+  rows: readonly { text: string, active: boolean, selected: boolean }[]
+  first: number
+  lineHeight: number
+  disabled: boolean
 }
 
 export interface MuiImageRenderSpec extends Box {
@@ -648,6 +663,26 @@ interface MuiPropData extends Record<string, unknown> {
   deltaFactor: number
 }
 
+interface MuiListEntry {
+  address: number
+  selected: boolean
+  owned: boolean
+}
+
+interface MuiListData extends Record<string, unknown> {
+  entries: MuiListEntry[]
+  active: number
+  first: number
+  visible: number
+  insertPosition: number
+  dropMark: number
+  quiet: boolean
+  dirty: boolean
+  lineHeight: number
+  imageHandles: Map<number, BoopsiObject>
+  dragImageHandle: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -710,6 +745,7 @@ export class MuiMaster {
   readonly gadgetClass: BoopsiClass
   readonly stringClass: BoopsiClass
   readonly propClass: BoopsiClass
+  readonly listClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -764,6 +800,7 @@ export class MuiMaster {
     this.gadgetClass = this.byName.get(MUIC.MUIC_Gadget)!
     this.stringClass = this.byName.get(MUIC.MUIC_String)!
     this.propClass = this.byName.get(MUIC.MUIC_Prop)!
+    this.listClass = this.byName.get(MUIC.MUIC_List)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1355,6 +1392,7 @@ export class MuiMaster {
             return 0
           }
         }
+        if (cl === this.listClass) this.initList(made, (msg as OpSet).attrs)
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1441,6 +1479,7 @@ export class MuiMaster {
           for (const handle of area.handles) this.releaseAreaHandle(o, handle)
           area.handles.clear()
         }
+        if (cl === this.listClass) this.clearList(o, true)
         if (cl === this.windowClass) this.closeMuiWindow(o)
         if (cl === this.applicationClass) {
           const app = o.instData<MuiApplicationData>(cl)
@@ -1475,6 +1514,7 @@ export class MuiMaster {
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.stringClass) return this.setString(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.propClass) return this.setProp(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.listClass) return this.setList(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1564,6 +1604,10 @@ export class MuiMaster {
         }
         if (cl === this.propClass) {
           const answer = this.getProp(o, g)
+          if (answer) return answer
+        }
+        if (cl === this.listClass) {
+          const answer = this.getList(o, g)
           if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
@@ -1761,6 +1805,10 @@ export class MuiMaster {
         }
         if (cl === this.propClass) {
           const answered = this.propMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.listClass) {
+          const answered = this.listMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2867,6 +2915,563 @@ export class MuiMaster {
         return 0
       default: return null
     }
+  }
+
+  // -- List ---------------------------------------------------------------
+
+  private initList(obj: BoopsiObject, attrs: readonly TagItem[]): void {
+    const value = (attr: number, fallback: number): number =>
+      attrs.find((item) => TAG(item.tag) === attr)?.data ?? fallback
+    const d = obj.instData<MuiListData>(this.listClass)
+    d.entries = []
+    d.active = MUI.MUIV_List_Active_Off | 0
+    d.first = 0
+    d.visible = -1
+    d.insertPosition = -1
+    d.dropMark = -1
+    d.quiet = false
+    d.dirty = true
+    d.lineHeight = Math.max(this.fontY, value(MUI.MUIA_List_MinLineHeight, 0) | 0)
+    d.imageHandles = new Map()
+    d.dragImageHandle = 0
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_List_Active, d.active)
+    stored.set(MUI.MUIA_List_AutoVisible, value(MUI.MUIA_List_AutoVisible, 0) !== 0 ? 1 : 0)
+    stored.set(MUI.MUIA_List_CompareHook, value(MUI.MUIA_List_CompareHook, 0))
+    stored.set(MUI.MUIA_List_ConstructHook, value(MUI.MUIA_List_ConstructHook, 0))
+    stored.set(MUI.MUIA_List_DestructHook, value(MUI.MUIA_List_DestructHook, 0))
+    stored.set(MUI.MUIA_List_DisplayHook, value(MUI.MUIA_List_DisplayHook, 0))
+    stored.set(MUI.MUIA_List_DragSortable, value(MUI.MUIA_List_DragSortable, 0) !== 0 ? 1 : 0)
+    stored.set(MUI.MUIA_List_DropMark, -1)
+    stored.set(MUI.MUIA_List_Entries, 0)
+    stored.set(MUI.MUIA_List_First, 0)
+    stored.set(MUI.MUIA_List_Format, value(MUI.MUIA_List_Format, 0))
+    stored.set(MUI.MUIA_List_InsertPosition, -1)
+    stored.set(MUI.MUIA_List_MultiTestHook, value(MUI.MUIA_List_MultiTestHook, 0))
+    stored.set(MUI.MUIA_List_ShowDropMarks, value(MUI.MUIA_List_ShowDropMarks, 1) !== 0 ? 1 : 0)
+    stored.set(MUI.MUIA_List_Title, value(MUI.MUIA_List_Title, 0))
+    stored.set(MUI.MUIA_List_Visible, -1)
+    const source = value(MUI.MUIA_List_SourceArray, 0)
+    if (source !== 0 && this.readLong) {
+      for (let i = 0; ; i++) {
+        const address = this.readLong(source + i * 4) ?? 0
+        if (address === 0) break
+        this.listInsertOne(obj, address, d.entries.length, false)
+      }
+    }
+  }
+
+  private listCopyEntry(obj: BoopsiObject, address: number): MuiListEntry | null {
+    const construct = this.peek(obj, MUI.MUIA_List_ConstructHook) ?? 0
+    if ((construct >>> 0) !== MUI.MUIV_List_ConstructHook_String) return { address, selected: false, owned: false }
+    const text = this.textOfAddress(address)
+    const copy = this.pool.alloc(text.length + 1, { clear: true })
+    if (copy === 0) return null
+    for (let i = 0; i < text.length; i++) this.pool.buffer[copy - this.pool.base + i] = text.charCodeAt(i)
+    return { address: copy, selected: false, owned: true }
+  }
+
+  private listFreeEntry(entry: MuiListEntry): void {
+    if (entry.owned) this.pool.freeMem(entry.address)
+  }
+
+  private listInsertOne(obj: BoopsiObject, address: number, position: number, sorted: boolean): number {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const entry = this.listCopyEntry(obj, address)
+    if (!entry) return -1
+    let at = Math.max(0, Math.min(d.entries.length, position))
+    if (sorted) {
+      const key = this.textOfAddress(entry.address).toLocaleLowerCase()
+      at = d.entries.findIndex((item) => this.textOfAddress(item.address).toLocaleLowerCase() > key)
+      if (at < 0) at = d.entries.length
+    }
+    d.entries.splice(at, 0, entry)
+    if (d.active >= at) d.active++
+    d.insertPosition = at
+    this.listChanged(obj)
+    return at
+  }
+
+  private listChanged(obj: BoopsiObject): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    d.active = d.entries.length === 0 ? -1 : Math.max(-1, Math.min(d.entries.length - 1, d.active))
+    const maxFirst = Math.max(0, d.entries.length - Math.max(0, d.visible))
+    d.first = Math.max(0, Math.min(maxFirst, d.first))
+    d.dirty = true
+    this.setInternal(obj, MUI.MUIA_List_Entries, d.entries.length)
+    this.setInternal(obj, MUI.MUIA_List_Active, d.active)
+    this.setInternal(obj, MUI.MUIA_List_First, d.first)
+    this.setInternal(obj, MUI.MUIA_List_InsertPosition, d.insertPosition)
+    if (!d.quiet) this.redrawArea(obj, 1)
+  }
+
+  private clearList(obj: BoopsiObject, disposing = false): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    for (const entry of d.entries) this.listFreeEntry(entry)
+    d.entries = []
+    for (const [handle, image] of d.imageHandles) {
+      this.doMui(image, MUI.MUIM_Cleanup)
+      this.pool.freeMem(handle)
+    }
+    d.imageHandles.clear()
+    if (d.dragImageHandle !== 0) this.pool.freeMem(d.dragImageHandle)
+    d.dragImageHandle = 0
+    d.active = -1
+    d.first = 0
+    d.insertPosition = -1
+    if (!disposing) this.listChanged(obj)
+  }
+
+  private setList(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiListData>(cl)
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      const id = TAG(attr.tag)
+      switch (id) {
+        case MUI.MUIA_List_Active: {
+          const old = d.active
+          d.active = this.listActivePosition(d, attr.data | 0)
+          if (d.active !== old) this.setInternal(obj, id, d.active)
+          if ((this.peek(obj, MUI.MUIA_List_AutoVisible) ?? 0) !== 0) this.listJump(obj, d.active)
+          own++
+          break
+        }
+        case MUI.MUIA_List_Quiet:
+          d.quiet = attr.data !== 0
+          if (!d.quiet && d.dirty) this.redrawArea(obj, 1)
+          own++
+          break
+        case MUI.MUIA_List_Format:
+        case MUI.MUIA_List_Title:
+        case MUI.MUIA_List_CompareHook:
+        case MUI.MUIA_List_ConstructHook:
+        case MUI.MUIA_List_DestructHook:
+        case MUI.MUIA_List_DisplayHook:
+        case MUI.MUIA_List_MultiTestHook:
+        case MUI.MUIA_List_AutoVisible:
+        case MUI.MUIA_List_DragSortable:
+        case MUI.MUIA_List_ShowDropMarks:
+          this.setInternal(obj, id, attr.data)
+          d.dirty = true
+          own++
+          break
+        default: rest.push(attr)
+      }
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private getList(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiListData>(this.listClass)
+    switch (TAG(msg.attrID)) {
+      case MUI.MUIA_List_Active: msg.storage = d.active; return 1
+      case MUI.MUIA_List_Entries: msg.storage = d.entries.length; return 1
+      case MUI.MUIA_List_First: msg.storage = d.visible < 0 ? -1 : d.first; return 1
+      case MUI.MUIA_List_Visible: msg.storage = d.visible; return 1
+      case MUI.MUIA_List_InsertPosition: msg.storage = d.insertPosition; return 1
+      case MUI.MUIA_List_DropMark: msg.storage = d.dropMark; return 1
+      default: return 0
+    }
+  }
+
+  private listActivePosition(d: MuiListData, requested: number): number {
+    if (d.entries.length === 0 || requested === (MUI.MUIV_List_Active_Off | 0)) return -1
+    switch (requested) {
+      case -2: return 0
+      case -3: return d.entries.length - 1
+      case -4: return Math.max(0, d.active - 1)
+      case -5: return Math.min(d.entries.length - 1, d.active + 1)
+      case -6: return Math.max(0, d.active - Math.max(1, d.visible))
+      case -7: return Math.min(d.entries.length - 1, d.active + Math.max(1, d.visible))
+      default: return Math.max(0, Math.min(d.entries.length - 1, requested))
+    }
+  }
+
+  private listIndex(d: MuiListData, requested: number, second = false): number {
+    if (requested >= 0) return Math.max(0, Math.min(d.entries.length - 1, requested))
+    if (requested === -1) return d.active
+    if (requested === -2) return d.entries.length - 1
+    if (requested === -3 && second) return Math.min(d.entries.length - 1, d.active + 1)
+    if (requested === -4 && second) return Math.max(0, d.active - 1)
+    return -1
+  }
+
+  private listJump(obj: BoopsiObject, requested: number): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const at = requested === -1 ? d.active : requested === -2 ? d.entries.length - 1 :
+      requested === -3 ? d.first + 1 : requested === -4 ? d.first - 1 : requested
+    if (at < 0 || d.visible <= 0) return
+    if (at < d.first) d.first = at
+    else if (at >= d.first + d.visible) d.first = at - d.visible + 1
+    d.first = Math.max(0, Math.min(Math.max(0, d.entries.length - d.visible), d.first))
+    this.setInternal(obj, MUI.MUIA_List_First, d.first)
+    this.redrawArea(obj, 1)
+  }
+
+  private listMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiListData>(this.listClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup:
+        d.lineHeight = Math.max(this.fontY, this.peek(obj, MUI.MUIA_List_MinLineHeight) ?? 0)
+        return doSuperMethodA(this.listClass, obj, msg)
+      case MUI.MUIM_Cleanup:
+        d.visible = -1
+        this.setInternal(obj, MUI.MUIA_List_Visible, -1)
+        return doSuperMethodA(this.listClass, obj, msg)
+      case MUI.MUIM_Show: {
+        const answer = doSuperMethodA(this.listClass, obj, msg)
+        this.updateListVisible(obj)
+        if ((this.peek(obj, MUI.MUIA_List_AutoVisible) ?? 0) !== 0) this.listJump(obj, d.active)
+        return answer
+      }
+      case MUI.MUIM_Hide:
+        d.visible = -1
+        this.setInternal(obj, MUI.MUIA_List_Visible, -1)
+        return doSuperMethodA(this.listClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.listClass, obj, msg)
+        this.drawList(obj)
+        return 0
+      case MUIM_LIST_LAYOUT: {
+        const answer = doSuperMethodA(this.listClass, obj, msg)
+        this.updateListVisible(obj)
+        return answer
+      }
+      case MUI.MUIM_List_GetEntry: {
+        const at = (p[0] ?? 0) === MUI.MUIV_List_GetEntry_Active ? d.active : (p[0] ?? 0) | 0
+        this.writeLong?.(p[1] ?? 0, at >= 0 && at < d.entries.length ? d.entries[at]!.address : 0)
+        return 0
+      }
+      case MUI.MUIM_List_Insert: {
+        const source = p[0] ?? 0
+        const count = (p[1] ?? 0) | 0
+        const requested = (p[2] ?? 0) | 0
+        const sorted = requested === (MUI.MUIV_List_Insert_Sorted | 0)
+        let at = requested === (MUI.MUIV_List_Insert_Active | 0) ? Math.max(0, d.active) :
+          requested === (MUI.MUIV_List_Insert_Bottom | 0) || sorted ? d.entries.length : requested
+        const limit = count < 0 ? Number.MAX_SAFE_INTEGER : count
+        for (let i = 0; i < limit; i++) {
+          const entry = this.readLong?.(source + i * 4) ?? 0
+          if (entry === 0 && count < 0) break
+          if (entry !== 0) {
+            const inserted = this.listInsertOne(obj, entry, at, sorted)
+            if (!sorted && inserted >= 0) at = inserted + 1
+          }
+        }
+        return 0
+      }
+      case MUI.MUIM_List_InsertSingle: {
+        const requested = (p[1] ?? 0) | 0
+        const sorted = requested === (MUI.MUIV_List_Insert_Sorted | 0)
+        const at = requested === (MUI.MUIV_List_Insert_Active | 0) ? Math.max(0, d.active) :
+          requested === (MUI.MUIV_List_Insert_Bottom | 0) || sorted ? d.entries.length : requested
+        this.listInsertOne(obj, p[0] ?? 0, at, sorted)
+        return 0
+      }
+      case MUI.MUIM_List_Remove:
+        this.listRemove(obj, (p[0] ?? 0) | 0)
+        return 0
+      case MUI.MUIM_List_Clear:
+        this.clearList(obj)
+        return 0
+      case MUI.MUIM_List_Sort:
+        this.listSort(obj)
+        return 0
+      case MUI.MUIM_List_Jump:
+        this.listJump(obj, (p[0] ?? 0) | 0)
+        return 0
+      case MUI.MUIM_List_Redraw:
+        d.dirty = true
+        if (!d.quiet) this.redrawArea(obj, 1)
+        return 0
+      case MUI.MUIM_List_Select:
+        return this.listSelect(obj, (p[0] ?? 0) | 0, (p[1] ?? 0) | 0, p[2] ?? 0)
+      case MUI.MUIM_List_Exchange:
+        this.listExchange(obj, (p[0] ?? 0) | 0, (p[1] ?? 0) | 0, false)
+        return 0
+      case MUI.MUIM_List_Move:
+        this.listExchange(obj, (p[0] ?? 0) | 0, (p[1] ?? 0) | 0, true)
+        return 0
+      case MUI.MUIM_List_NextSelected:
+        return this.listNextSelected(obj, p[0] ?? 0)
+      case MUI.MUIM_List_TestPos:
+        this.listTestPos(obj, (p[0] ?? 0) | 0, (p[1] ?? 0) | 0, p[2] ?? 0)
+        return 1
+      case MUI.MUIM_List_CreateImage: {
+        const image = this.boopsi.objectAt(p[0] ?? 0)
+        if (!image) return 0
+        if (this.doMui(image, MUI.MUIM_Setup) === 0) return 0
+        const handle = this.pool.alloc(8, { clear: true })
+        if (handle !== 0) d.imageHandles.set(handle, image)
+        else this.doMui(image, MUI.MUIM_Cleanup)
+        return handle
+      }
+      case MUI.MUIM_List_DeleteImage: {
+        const handle = p[0] ?? 0
+        const image = d.imageHandles.get(handle)
+        if (image) {
+          this.doMui(image, MUI.MUIM_Cleanup)
+          d.imageHandles.delete(handle)
+          this.pool.freeMem(handle)
+        }
+        return 0
+      }
+      case MUIM_LIST_SET_DROP_MARK:
+        this.listSetDropMark(obj, (p[0] ?? -1) | 0)
+        return 0
+      case MUIM_LIST_CREATE_DRAG_IMAGE:
+        if (d.dragImageHandle === 0) d.dragImageHandle = this.pool.alloc(8, { clear: true })
+        return d.dragImageHandle
+      case MUIM_LIST_DELETE_DRAG_IMAGE:
+        if (d.dragImageHandle !== 0) this.pool.freeMem(d.dragImageHandle)
+        d.dragImageHandle = 0
+        return 0
+      case MUIM_LIST_COLUMN_OFFSET:
+        return (p[0] ?? 0) === 0 ? 0 : -1
+      case MUI.MUIM_Export:
+        this.listTransfer(obj, p[0] ?? 0, true)
+        return 0
+      case MUI.MUIM_Import:
+        this.listTransfer(obj, p[0] ?? 0, false)
+        return 0
+      case MUI.MUIM_HandleInput:
+        return this.handleListInput(obj, p, msg)
+      case MUI.MUIM_DragQuery:
+        return (p[0] ?? 0) === obj.address && (this.peek(obj, MUI.MUIA_List_DragSortable) ?? 0) !== 0
+          ? MUI.MUIV_DragQuery_Accept : MUI.MUIV_DragQuery_Refuse
+      case MUI.MUIM_DragBegin:
+        d.dropMark = d.active < 0 ? d.entries.length : d.active
+        this.setInternal(obj, MUI.MUIA_List_DropMark, d.dropMark)
+        return 1
+      case MUI.MUIM_DragReport:
+        if ((p[3] ?? 0) === 0) return MUI.MUIV_DragReport_Refresh
+        this.listDropMarkAt(obj, (p[1] ?? 0) | 0, (p[2] ?? 0) | 0)
+        return MUI.MUIV_DragReport_Lock
+      case MUI.MUIM_DragFinish:
+        d.dropMark = -1
+        this.setInternal(obj, MUI.MUIA_List_DropMark, -1)
+        return 0
+      case MUI.MUIM_DragDrop:
+        return this.listDragDrop(obj, p[0] ?? 0)
+      default: return null
+    }
+  }
+
+  private listSetDropMark(obj: BoopsiObject, requested: number): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const mark = Math.max(-1, Math.min(d.entries.length, requested))
+    if (mark === d.dropMark) return
+    d.dropMark = mark
+    this.setInternal(obj, MUI.MUIA_List_DropMark, mark)
+    if (mark >= 0) this.listJump(obj, Math.min(mark, Math.max(0, d.entries.length - 1)))
+    this.redrawArea(obj, 1)
+  }
+
+  private listDropMarkAt(obj: BoopsiObject, x: number, y: number): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const box = this.boxOf(obj)
+    if (!box || x < box.left || x >= box.left + box.width) return
+    const titleRows = (this.peek(obj, MUI.MUIA_List_Title) ?? 0) !== 0 ? 1 : 0
+    const relative = y - box.top - titleRows * d.lineHeight
+    const row = Math.floor(relative / Math.max(1, d.lineHeight))
+    const lowerHalf = relative - row * d.lineHeight > d.lineHeight / 2
+    this.listSetDropMark(obj, Math.max(0, Math.min(d.entries.length, d.first + row + (lowerHalf ? 1 : 0))))
+  }
+
+  private updateListVisible(obj: BoopsiObject): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const box = this.boxOf(obj)
+    if (!box) return
+    const titleRows = (this.peek(obj, MUI.MUIA_List_Title) ?? 0) !== 0 ? 1 : 0
+    d.visible = Math.max(0, Math.floor(box.height / Math.max(1, d.lineHeight)) - titleRows)
+    this.setInternal(obj, MUI.MUIA_List_Visible, d.visible)
+    d.first = Math.min(d.first, Math.max(0, d.entries.length - d.visible))
+    this.setInternal(obj, MUI.MUIA_List_First, d.first)
+  }
+
+  private listRemove(obj: BoopsiObject, requested: number): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    if (requested === (MUI.MUIV_List_Remove_Selected | 0)) {
+      for (let i = d.entries.length - 1; i >= 0; i--) if (d.entries[i]!.selected) {
+        this.listFreeEntry(d.entries[i]!)
+        d.entries.splice(i, 1)
+      }
+    } else {
+      const at = requested === (MUI.MUIV_List_Remove_Active | 0) ? d.active :
+        requested === (MUI.MUIV_List_Remove_Last | 0) ? d.entries.length - 1 : requested
+      if (at < 0 || at >= d.entries.length) return
+      this.listFreeEntry(d.entries[at]!)
+      d.entries.splice(at, 1)
+      if (d.active >= d.entries.length) d.active = d.entries.length - 1
+    }
+    this.listChanged(obj)
+  }
+
+  private listSort(obj: BoopsiObject): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const active = d.entries[d.active]
+    if ((this.peek(obj, MUI.MUIA_List_CompareHook) ?? 0) === 0) {
+      d.entries.sort((a, b) => this.textOfAddress(a.address).localeCompare(this.textOfAddress(b.address), undefined, { sensitivity: 'accent' }))
+    }
+    d.active = active ? d.entries.indexOf(active) : -1
+    this.listChanged(obj)
+  }
+
+  private listSelect(obj: BoopsiObject, requested: number, kind: number, stateAddress: number): number {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const indexes = requested === (MUI.MUIV_List_Select_All | 0)
+      ? d.entries.map((_, i) => i)
+      : [requested === (MUI.MUIV_List_Select_Active | 0) ? d.active : requested]
+    if (kind === MUI.MUIV_List_Select_Ask && requested === (MUI.MUIV_List_Select_All | 0)) {
+      this.writeLong?.(stateAddress, d.entries.filter((entry) => entry.selected).length)
+      return 1
+    }
+    for (const at of indexes) if (at >= 0 && at < d.entries.length) {
+      const entry = d.entries[at]!
+      if (kind === MUI.MUIV_List_Select_On) entry.selected = true
+      else if (kind === MUI.MUIV_List_Select_Off) entry.selected = false
+      else if (kind === MUI.MUIV_List_Select_Toggle) entry.selected = !entry.selected
+      if (stateAddress !== 0) this.writeLong?.(stateAddress, entry.selected ? 1 : 0)
+    }
+    if (kind !== MUI.MUIV_List_Select_Ask) this.redrawArea(obj, 1)
+    return indexes.some((at) => at >= 0 && at < d.entries.length) ? 1 : 0
+  }
+
+  private listExchange(obj: BoopsiObject, fromValue: number, toValue: number, move: boolean): void {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const from = this.listIndex(d, fromValue)
+    const to = this.listIndex(d, toValue, true)
+    if (from < 0 || to < 0 || from === to) return
+    const active = d.entries[d.active]
+    if (move) d.entries.splice(to, 0, d.entries.splice(from, 1)[0]!)
+    else [d.entries[from], d.entries[to]] = [d.entries[to]!, d.entries[from]!]
+    d.active = active ? d.entries.indexOf(active) : -1
+    this.listChanged(obj)
+  }
+
+  private listNextSelected(obj: BoopsiObject, address: number): number {
+    const d = obj.instData<MuiListData>(this.listClass)
+    const selected = d.entries.some((entry) => entry.selected)
+    const previous = (this.readLong?.(address) ?? -1) | 0
+    let found = -1
+    for (let i = previous + 1; i < d.entries.length; i++) {
+      if (selected ? d.entries[i]!.selected : i === d.active) { found = i; break }
+    }
+    this.writeLong?.(address, found)
+    return found >= 0 ? 1 : 0
+  }
+
+  private listTestPos(obj: BoopsiObject, x: number, y: number, address: number): void {
+    if (address === 0) return
+    const d = obj.instData<MuiListData>(this.listClass)
+    const box = this.boxOf(obj)
+    let entry = -1
+    let flags = 0
+    let yoff = 0
+    if (box) {
+      if (y < box.top) flags |= 1
+      else if (y >= box.top + box.height) flags |= 2
+      if (x < box.left) flags |= 4
+      else if (x >= box.left + box.width) flags |= 8
+      const titleRows = (this.peek(obj, MUI.MUIA_List_Title) ?? 0) !== 0 ? 1 : 0
+      const row = Math.floor((y - box.top) / Math.max(1, d.lineHeight)) - titleRows
+      if (flags === 0 && row >= 0 && row < d.visible && d.first + row < d.entries.length) {
+        entry = d.first + row
+        yoff = (y - box.top - (row + titleRows) * d.lineHeight) - Math.floor(d.lineHeight / 2)
+      }
+    }
+    const bytes = new Uint8Array(12)
+    const view = new DataView(bytes.buffer)
+    view.setInt32(0, entry, false)
+    view.setInt16(4, entry < 0 ? -1 : 0, false)
+    view.setUint16(6, flags, false)
+    view.setInt16(8, box ? x - box.left : 0, false)
+    view.setInt16(10, yoff, false)
+    this.writeMemory?.(address, bytes)
+  }
+
+  private drawList(obj: BoopsiObject): void {
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    const d = obj.instData<MuiListData>(this.listClass)
+    this.updateListVisible(obj)
+    const end = Math.min(d.entries.length, d.first + Math.max(0, d.visible))
+    this.windowHost?.drawList?.(handle, {
+      ...box,
+      title: this.textOf(obj, MUI.MUIA_List_Title),
+      rows: d.entries.slice(d.first, end).map((entry, index) => ({
+        text: this.textOfAddress(entry.address),
+        active: d.first + index === d.active,
+        selected: entry.selected,
+      })),
+      first: d.first,
+      lineHeight: d.lineHeight,
+      disabled: (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0,
+    })
+    d.dirty = false
+  }
+
+  private handleListInput(obj: BoopsiObject, params: readonly number[], msg: Msg): number {
+    const cls = params[0] ?? 0
+    if (cls === 0x8) {
+      const d = obj.instData<MuiListData>(this.listClass)
+      const box = this.boxOf(obj)
+      if (box) {
+        const titleRows = (this.peek(obj, MUI.MUIA_List_Title) ?? 0) !== 0 ? 1 : 0
+        const row = Math.floor(((params[4] ?? 0) - box.top) / Math.max(1, d.lineHeight)) - titleRows
+        const at = d.first + row
+        if (row >= 0 && at < d.entries.length) {
+          d.active = at
+          this.setInternal(obj, MUI.MUIA_List_Active, at)
+          this.redrawArea(obj, 1)
+        }
+      }
+    }
+    return doSuperMethodA(this.listClass, obj, msg)
+  }
+
+  private listTransfer(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const d = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const value = obj.instData<MuiListData>(this.listClass).active
+      const bytes = Uint8Array.of(value >>> 24, value >>> 16, value >>> 8, value)
+      this.dataspaceAddBytes(d, bytes, id)
+    } else {
+      const entry = d.entries.find((candidate) => candidate.id === TAG(id))
+      if (entry && entry.length >= 4) this.set(obj, MUI.MUIA_List_Active, this.poolLong(entry.address - this.pool.base + 16))
+    }
+  }
+
+  private listDragDrop(obj: BoopsiObject, sourceAddress: number): number {
+    const source = this.boopsi.objectAt(sourceAddress)
+    if (!source?.cl.isA(this.listClass)) return 0
+    const target = obj.instData<MuiListData>(this.listClass)
+    const from = source.instData<MuiListData>(this.listClass)
+    const moving = from.entries.filter((entry) => entry.selected || (!from.entries.some((item) => item.selected) && from.entries.indexOf(entry) === from.active))
+    let at = target.dropMark < 0 ? target.entries.length : target.dropMark
+    for (const entry of moving) this.listInsertOne(obj, entry.address, at++, false)
+    if (source === obj && (this.peek(obj, MUI.MUIA_List_DragSortable) ?? 0) !== 0) {
+      for (const entry of moving) {
+        const index = from.entries.indexOf(entry)
+        if (index >= 0) {
+          from.entries.splice(index, 1)
+          this.listFreeEntry(entry)
+        }
+      }
+      this.listChanged(source)
+    }
+    target.dropMark = -1
+    this.setInternal(obj, MUI.MUIA_List_DropMark, -1)
+    return 1
   }
 
   private setGadget(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
@@ -4424,6 +5029,19 @@ export class MuiMaster {
         else add(6, 12, MUI_MAXMAX, MUI_MAXMAX, 6, 50)
         return 0
       }
+      case 'List': {
+        const d = obj.instData<MuiListData>(this.listClass)
+        const adjustHeight = (this.peek(obj, MUI.MUIA_List_AdjustHeight) ?? 0) !== 0
+        const adjustWidth = (this.peek(obj, MUI.MUIA_List_AdjustWidth) ?? 0) !== 0
+        const title = this.textOf(obj, MUI.MUIA_List_Title)
+        const widest = Math.max(0, title.length, ...d.entries.map((entry) => visibleLength(this.textOfAddress(entry.address)))) * fx
+        const rows = Math.max(3, d.entries.length + (title === '' ? 0 : 1))
+        const width = adjustWidth ? widest : 40
+        const height = adjustHeight ? rows * d.lineHeight : 3 * d.lineHeight
+        add(width, height, adjustWidth ? width : MUI_MAXMAX, adjustHeight ? height : MUI_MAXMAX,
+          adjustWidth ? width : 100, adjustHeight ? height : 8 * d.lineHeight)
+        return 0
+      }
       case 'Image':
         // Old Intuition images are fixed at their struct Image dimensions;
         // resolved MUI specs expose one independently stretchable axis for
@@ -4452,7 +5070,6 @@ export class MuiMaster {
         // a text box with something on the right to click
         add(fx * 6, fy, MUI_MAXMAX, 0)
         return 0
-      case 'List':
       case 'Listview':
       case 'Floattext':
       case 'Dirlist':

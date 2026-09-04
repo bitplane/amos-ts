@@ -2933,6 +2933,36 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawList: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          const baseline = rp.font?.baseline ?? 6
+          let y = top
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            rp.rectFill(left, top, right, bottom, 0)
+            if (spec.title !== '') {
+              rp.rectFill(left, y, right, Math.min(bottom, y + spec.lineHeight - 1), 1)
+              rp.text(left + 2, y + baseline, spec.title, 2)
+              y += spec.lineHeight
+            }
+            for (const row of spec.rows) {
+              if (y > bottom) break
+              if (row.active || row.selected) rp.rectFill(left, y, right, Math.min(bottom, y + spec.lineHeight - 1), row.active ? 2 : 1)
+              const text = row.text.replace(/\x1bO\[[0-9a-fA-F]{8}\]/g, '').replace(/\x1b./g, '')
+              rp.text(left + 2, y + baseline, text, spec.disabled ? 1 : row.active ? 0 : 2)
+              y += spec.lineHeight
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
         showGadget: (handle, address, box, disabled) => {
           const w = asWindow(handle)
           const memory = this.resolveAddr(address)

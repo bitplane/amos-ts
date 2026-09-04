@@ -37,6 +37,11 @@ import {
   MUIM_AREA_REDRAW,
   MUIM_AREA_DEACTIVATE,
   MUIM_AREA_TRUE,
+  MUIM_LIST_COLUMN_OFFSET,
+  MUIM_LIST_CREATE_DRAG_IMAGE,
+  MUIM_LIST_DELETE_DRAG_IMAGE,
+  MUIM_LIST_LAYOUT,
+  MUIM_LIST_SET_DROP_MARK,
   MUIA_GADGET_ACTIVE,
   MUIA_GADGET_WINDOW,
   MUIA_MENUITEM_COPY_STRINGS,
@@ -53,6 +58,7 @@ import {
   type MuiBalanceRenderSpec,
   type MuiStringGadgetState,
   type MuiPropGadgetState,
+  type MuiListRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -76,6 +82,7 @@ class TestWindowHost implements MuiWindowHost {
   activatedGadgets: number[] = []
   stringGadgets = new Map<number, { state: MuiStringGadgetState, activation: number }>()
   propGadgets = new Map<number, { state: MuiPropGadgetState, horizontal: boolean }>()
+  lists: MuiListRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -93,6 +100,7 @@ class TestWindowHost implements MuiWindowHost {
   drawText(_handle: unknown, spec: MuiTextRenderSpec): void { this.texts.push(spec) }
   drawRectangle(_handle: unknown, spec: MuiRectangleRenderSpec): void { this.rectangles.push(spec) }
   drawBalance(_handle: unknown, spec: MuiBalanceRenderSpec): void { this.balances.push(spec) }
+  drawList(_handle: unknown, spec: MuiListRenderSpec): void { this.lists.push(spec) }
   showGadget(handle: unknown, address: number, box: { left: number, top: number, width: number, height: number }, disabled: boolean): void {
     this.gadgets.push({ handle, address, box, disabled })
   }
@@ -803,6 +811,139 @@ describe('muimaster: Prop.mui 19.35', () => {
     expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(8)
     m.disposeObject(prop)
     expect(host.propGadgets.has(address)).toBe(false)
+  })
+})
+
+describe('muimaster: List.mui 19.35', () => {
+  const make = () => {
+    const m = new MuiMaster()
+    const strings = new Map<number, string>([[0x1000, 'Charlie'], [0x1100, 'alpha'], [0x1200, 'Bravo'], [0x1300, 'Title']])
+    const longs = new Map<number, number>()
+    const writes = new Map<number, number>()
+    const byteWrites = new Map<number, Uint8Array>()
+    m.readString = (at) => strings.get(at) ?? ''
+    m.readLong = (at) => longs.get(at) ?? writes.get(at) ?? 0
+    m.writeLong = (at, value) => { writes.set(at, value); return true }
+    m.writeMemory = (at, bytes) => { byteWrites.set(at, bytes.slice()); return true }
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    return { m, strings, longs, writes, byteWrites, list }
+  }
+
+  const entries = (m: MuiMaster, list: BoopsiObject): number[] => {
+    const result: number[] = []
+    for (let i = 0; ; i++) {
+      m.doMui(list, MUI.MUIM_List_GetEntry, [i, 0x9000])
+      const address = m.readLong?.(0x9000) ?? 0
+      if (address === 0) return result
+      result.push(address)
+    }
+  }
+
+  it('implements insertion, retrieval, active normalization, removal, clear, and sorting', () => {
+    const { m, writes, list } = make()
+    m.doMui(list, MUI.MUIM_List_InsertSingle, [0x1000, MUI.MUIV_List_Insert_Bottom])
+    m.doMui(list, MUI.MUIM_List_InsertSingle, [0x1100, MUI.MUIV_List_Insert_Top])
+    m.doMui(list, MUI.MUIM_List_InsertSingle, [0x1200, MUI.MUIV_List_Insert_Sorted])
+    expect(entries(m, list)).toEqual([0x1100, 0x1200, 0x1000])
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(3)
+    expect(m.get(list, MUI.MUIA_List_InsertPosition)).toBe(1)
+    m.set(list, MUI.MUIA_List_Active, MUI.MUIV_List_Active_Bottom)
+    expect(m.get(list, MUI.MUIA_List_Active)).toBe(2)
+    m.doMui(list, MUI.MUIM_List_GetEntry, [MUI.MUIV_List_GetEntry_Active, 0x9010])
+    expect(writes.get(0x9010)).toBe(0x1000)
+    m.doMui(list, MUI.MUIM_List_Remove, [MUI.MUIV_List_Remove_Active])
+    expect(entries(m, list)).toEqual([0x1100, 0x1200])
+    m.doMui(list, MUI.MUIM_List_Clear)
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(0)
+  })
+
+  it('inserts pointer arrays and owns copies only for the native String hooks', () => {
+    const { m, longs } = make()
+    longs.set(0x8000, 0x1000); longs.set(0x8004, 0x1100); longs.set(0x8008, 0)
+    const list = m.newObjectA(MUIC.MUIC_List, [
+      tag(MUI.MUIA_List_ConstructHook, MUI.MUIV_List_ConstructHook_String),
+      tag(MUI.MUIA_List_DestructHook, MUI.MUIV_List_DestructHook_String),
+      tag(MUI.MUIA_List_SourceArray, 0x8000),
+    ])!
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(2)
+    const copied = entries(m, list)
+    expect(copied[0]).not.toBe(0x1000)
+    expect(String.fromCharCode(...m.pool.buffer.slice(copied[0]! - m.pool.base, copied[0]! - m.pool.base + 8))).toBe('Charlie\0')
+    m.disposeObject(list)
+    expect(m.pool.alloc(8)).toBe(copied[0])
+  })
+
+  it('selects, iterates, exchanges, moves, and removes selected entries', () => {
+    const { m, writes, list } = make()
+    for (const address of [0x1000, 0x1100, 0x1200]) m.doMui(list, MUI.MUIM_List_InsertSingle, [address, MUI.MUIV_List_Insert_Bottom])
+    m.doMui(list, MUI.MUIM_List_Select, [1, MUI.MUIV_List_Select_On, 0x9020])
+    expect(writes.get(0x9020)).toBe(1)
+    writes.set(0x9030, MUI.MUIV_List_NextSelected_Start)
+    m.doMui(list, MUI.MUIM_List_NextSelected, [0x9030])
+    expect(writes.get(0x9030)).toBe(1)
+    m.doMui(list, MUI.MUIM_List_NextSelected, [0x9030])
+    expect(writes.get(0x9030)).toBe(MUI.MUIV_List_NextSelected_End | 0)
+    m.doMui(list, MUI.MUIM_List_Exchange, [0, MUI.MUIV_List_Exchange_Bottom])
+    expect(entries(m, list)).toEqual([0x1200, 0x1100, 0x1000])
+    m.doMui(list, MUI.MUIM_List_Move, [MUI.MUIV_List_Move_Bottom, MUI.MUIV_List_Move_Top])
+    expect(entries(m, list)).toEqual([0x1000, 0x1200, 0x1100])
+    m.doMui(list, MUI.MUIM_List_Remove, [MUI.MUIV_List_Remove_Selected])
+    expect(entries(m, list)).toEqual([0x1000, 0x1200])
+  })
+
+  it('uses native default dimensions, computes visibility, draws, jumps, and tests positions', () => {
+    const { m, byteWrites, list } = make()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    for (const address of [0x1000, 0x1100, 0x1200]) m.doMui(list, MUI.MUIM_List_InsertSingle, [address, MUI.MUIV_List_Insert_Bottom])
+    expect(m.askMinMax(list)).toEqual({ minW: 40, minH: 24, maxW: 10000, maxH: 10000, defW: 100, defH: 64 })
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, list.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(m.get(list, MUI.MUIA_List_Visible)).toBe(10)
+    expect(host.lists.at(-1)?.rows.map((row) => row.text)).toEqual(['Charlie', 'alpha', 'Bravo'])
+    m.doMui(list, MUI.MUIM_List_TestPos, [4, 12, 0x9100])
+    const result = byteWrites.get(0x9100)!
+    expect(new DataView(result.buffer).getInt32(0, false)).toBe(1)
+    m.doMui(list, MUI.MUIM_List_Jump, [2])
+    expect(m.get(list, MUI.MUIA_List_First)).toBe(0)
+    m.set(win, MUI.MUIA_Window_Open, 0)
+    expect(m.get(list, MUI.MUIA_List_Visible)).toBe(-1)
+  })
+
+  it('round-trips active state through Dataspace and manages list image handles', () => {
+    const { m, list } = make()
+    m.doMui(list, MUI.MUIM_List_InsertSingle, [0x1000, MUI.MUIV_List_Insert_Bottom])
+    m.set(list, MUI.MUIA_List_Active, 0)
+    m.setInternal(list, MUI.MUIA_ExportID, 77)
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(list, MUI.MUIM_Export, [ds.address])
+    m.set(list, MUI.MUIA_List_Active, MUI.MUIV_List_Active_Off)
+    m.doMui(list, MUI.MUIM_Import, [ds.address])
+    expect(m.get(list, MUI.MUIA_List_Active)).toBe(0)
+    const image = m.newObjectA(MUIC.MUIC_Image)!
+    const handle = m.doMui(list, MUI.MUIM_List_CreateImage, [image.address, 0])
+    expect(handle).not.toBe(0)
+    expect(m.doMui(list, MUI.MUIM_List_DeleteImage, [handle])).toBe(0)
+    expect(m.pool.alloc(8)).toBe(handle)
+  })
+
+  it('implements the five private 19.35 methods and same-list drag protocol', () => {
+    const { m, list } = make()
+    for (const address of [0x1000, 0x1100, 0x1200]) m.doMui(list, MUI.MUIM_List_InsertSingle, [address, MUI.MUIV_List_Insert_Bottom])
+    m.set(list, MUI.MUIA_List_DragSortable, 1)
+    expect(m.doMui(list, MUI.MUIM_DragQuery, [list.address])).toBe(MUI.MUIV_DragQuery_Accept)
+    expect(m.doMui(list, MUI.MUIM_DragQuery, [0xdeadbeef])).toBe(MUI.MUIV_DragQuery_Refuse)
+    expect(m.doMui(list, MUIM_LIST_SET_DROP_MARK, [99])).toBe(0)
+    expect(m.get(list, MUI.MUIA_List_DropMark)).toBe(3)
+    expect(m.doMui(list, MUIM_LIST_COLUMN_OFFSET, [0])).toBe(0)
+    expect(m.doMui(list, MUIM_LIST_COLUMN_OFFSET, [1])).toBe(-1)
+    expect(m.doMui(list, MUIM_LIST_LAYOUT)).toBe(0)
+    const dragImage = m.doMui(list, MUIM_LIST_CREATE_DRAG_IMAGE)
+    expect(dragImage).not.toBe(0)
+    expect(m.doMui(list, MUIM_LIST_CREATE_DRAG_IMAGE)).toBe(dragImage)
+    expect(m.doMui(list, MUIM_LIST_DELETE_DRAG_IMAGE, [dragImage])).toBe(0)
+    expect(m.pool.alloc(8)).toBe(dragImage)
+    expect(m.doMui(list, MUI.MUIM_DragReport, [list.address, 0, 0, 0])).toBe(MUI.MUIV_DragReport_Refresh)
   })
 })
 
