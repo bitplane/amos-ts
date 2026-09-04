@@ -274,6 +274,12 @@ interface MuiData extends Record<string, unknown> {
   quitting?: boolean
 }
 
+/** The SignalSemaphore embedded in Semaphore.mui's instance data. */
+interface MuiSemaphoreData extends Record<string, unknown> {
+  exclusive: number
+  shared: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -292,6 +298,7 @@ export class MuiMaster {
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
   readonly notifyClass: BoopsiClass
+  readonly semaphoreClass: BoopsiClass
   readonly familyClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
@@ -318,6 +325,7 @@ export class MuiMaster {
     }
     for (const name of Object.keys(MUI_BUILTIN_SUPER)) make(name)
 
+    this.semaphoreClass = this.byName.get('Semaphore.mui')!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
@@ -728,6 +736,11 @@ export class MuiMaster {
           d.notifies = []
           d.returnIDs = []
         }
+        if (cl === this.semaphoreClass) {
+          const sem = made.instData<MuiSemaphoreData>(cl)
+          sem.exclusive = 0
+          sem.shared = 0
+        }
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         return made.address
@@ -808,6 +821,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.semaphoreClass) {
+          const answered = this.semaphoreMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.applicationClass) {
           const answered = this.applicationMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -815,6 +832,37 @@ export class MuiMaster {
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
         return doSuperMethodA(cl, obj, msg)
       }
+    }
+  }
+
+  /**
+   * Semaphore.mui is a SignalSemaphore embedded in an object. JavaScript runs
+   * this machine on one task, so no other owner can contend; the two Attempt
+   * calls consequently succeed exactly as Exec does for the current owner.
+   * Counts are retained because ObtainSemaphore is recursive and Dataspace,
+   * Configdata and their callers legitimately nest these methods.
+   */
+  private semaphoreMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const sem = obj.instData<MuiSemaphoreData>(this.semaphoreClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Semaphore_Obtain:
+        sem.exclusive++
+        return 0
+      case MUI.MUIM_Semaphore_ObtainShared:
+        sem.shared++
+        return 0
+      case MUI.MUIM_Semaphore_Attempt:
+        sem.exclusive++
+        return 1
+      case MUI.MUIM_Semaphore_AttemptShared:
+        sem.shared++
+        return 1
+      case MUI.MUIM_Semaphore_Release:
+        if (sem.exclusive > 0) sem.exclusive--
+        else if (sem.shared > 0) sem.shared--
+        return 0
+      default:
+        return null
     }
   }
 

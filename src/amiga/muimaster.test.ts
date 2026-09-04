@@ -164,6 +164,28 @@ describe('muimaster: the object tree', () => {
   })
 })
 
+describe('muimaster: Semaphore', () => {
+  it('implements the five Exec semaphore operations exposed by 19.35', () => {
+    const m = new MuiMaster()
+    const sem = m.newObjectA('Semaphore.mui')!
+    expect(send(sem, MUI.MUIM_Semaphore_Obtain)).toBe(0)
+    expect(send(sem, MUI.MUIM_Semaphore_Attempt)).toBe(1)
+    expect(send(sem, MUI.MUIM_Semaphore_Release)).toBe(0)
+    expect(send(sem, MUI.MUIM_Semaphore_Release)).toBe(0)
+    expect(send(sem, MUI.MUIM_Semaphore_ObtainShared)).toBe(0)
+    expect(send(sem, MUI.MUIM_Semaphore_AttemptShared)).toBe(1)
+    expect(send(sem, MUI.MUIM_Semaphore_Release)).toBe(0)
+    expect(send(sem, MUI.MUIM_Semaphore_Release)).toBe(0)
+  })
+
+  it('is inherited by Dataspace', () => {
+    const m = new MuiMaster()
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    expect(send(ds, MUI.MUIM_Semaphore_Attempt)).toBe(1)
+    expect(send(ds, MUI.MUIM_Semaphore_Release)).toBe(0)
+  })
+})
+
 /** send a method the way EasyLife does: an id and a run of longwords */
 function send(obj: BoopsiObject, method: number, ...params: number[]): number {
   return obj.cl.dispatcher(obj.cl, obj, { MethodID: method, params } as never)
