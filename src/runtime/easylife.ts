@@ -3901,7 +3901,11 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       const dest = it.evalInt() | 0
       it.expect(',')
       const params = longsOf(str(it.evalExpr()))
-      rt.mui.doMui(obj, MUI.MUIM_Notify, [tag, value, dest, ...params])
+      // EasyLife routine 215 writes FollowParams itself after measuring the
+      // caller's method string.  doMui receives the complete native message,
+      // so include that field rather than passing the older abbreviated
+      // representation used by the initial port.
+      rt.mui.doMui(obj, MUI.MUIM_Notify, [tag, value, dest, params.length, ...params])
       muiFlushNode(rt, 0)
     },
     /**
