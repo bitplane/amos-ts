@@ -88,7 +88,7 @@ import type { AudioSink } from './host'
 import { Mos6502, type Bus } from './mos6502'
 import { PAULA_CLOCK, MIN_PERIOD, MAX_VOLUME } from './paula'
 import { parsePsid, psidSongUsesCia, SIDF_SIDSONG, type PsidHeader } from './psid'
-import { C64_CLOCK_NTSC, C64_CLOCK_PAL, CTRL_GATE, SidChip, sidFreqHz } from './sidchip'
+import { C64_CLOCK_NTSC, C64_CLOCK_PAL, CTRL_GATE, SidChip, sidFreqHz, type SidVoice } from './sidchip'
 
 /** playsidbase.h's eleven error codes, unchanged. */
 export const SID_NOMEMORY = -1
@@ -139,6 +139,8 @@ export const NTSC_VERT_FREQ = 60
  */
 export class C64Bus implements Bus {
   readonly ram = new Uint8Array(0x10000)
+  /** Used by PlaySID's optional reverse log; called before a RAM byte changes. */
+  onRamWrite: ((addr: number, previous: number) => void) | null = null
 
   constructor(readonly sid: SidChip) {}
 
@@ -154,8 +156,34 @@ export class C64Bus implements Bus {
       this.sid.write(a & 0x1f, value)
       return
     }
-    this.ram[a] = value & 0xff
+    const v = value & 0xff
+    if (this.ram[a] !== v) this.onRamWrite?.(a, this.ram[a]!)
+    this.ram[a] = v
   }
+}
+
+interface ReverseFrame {
+  ram: Map<number, number>
+  sid: {
+    regs: Uint8Array
+    voices: SidVoice[]
+    volume: number
+    filterCutoff: number
+    filterVoices: number
+    voice3Off: boolean
+    sampleMode: number
+  }
+  cpu: {
+    a: number
+    x: number
+    y: number
+    sp: number
+    pc: number
+    p: number
+    jammed: boolean
+    cycles: number
+  }
+  frames: number
 }
 
 interface VoiceOut {
@@ -200,6 +228,8 @@ export class PlaySid {
   private loadAddress = 0
   private initAddress = 0
   private playAddress = 0
+  /** Sparse per-play undo records, allocated only while reverse is enabled. */
+  private readonly reverseFrames: ReverseFrame[] = []
   private readonly out: VoiceOut[] = [
     { length: 0, rate: 0, volume: -1, buffer: null },
     { length: 0, rate: 0, volume: -1, buffer: null },
@@ -303,6 +333,7 @@ export class PlaySid {
 
     this.playMode = PM_PLAY
     this.frames = 0
+    this.reverseFrames.length = 0
     return 0
   }
 
@@ -343,12 +374,32 @@ export class PlaySid {
 
   /**
    * LVO -90, `$210532`. Developer.doc: "The reverse flag needs to be set!",
-   * and the library means it --- with `$68(a6)` clear this runs the tune
-   * FORWARD, because all it can do is call the play routine again.
+   * and the library means it. `$210ef6` restores one entry from the reverse
+   * log and `$21054e` decrements the frame counter after each successful
+   * restore. The native log is sparse too (its documentation budgets about
+   * 30KB per minute), rather than retaining a 64KB RAM image per frame.
    */
   rewindSong(speed: number): void {
-    if (this.playMode !== PM_PLAY) return
-    for (let i = 0; i < speed; i++) this.callPlay()
+    if (this.playMode !== PM_PLAY || !this.reverse) return
+    let restored = false
+    for (let i = 0; i < speed; i++) {
+      const frame = this.reverseFrames.pop()
+      if (!frame) break
+      restored = true
+      for (const [addr, previous] of frame.ram) this.bus.ram[addr] = previous
+      this.sid.regs.set(frame.sid.regs)
+      for (let v = 0; v < 3; v++) Object.assign(this.sid.voices[v]!, frame.sid.voices[v]!)
+      this.sid.volume = frame.sid.volume
+      this.sid.filterCutoff = frame.sid.filterCutoff
+      this.sid.filterVoices = frame.sid.filterVoices
+      this.sid.voice3Off = frame.sid.voice3Off
+      this.sid.sampleMode = frame.sid.sampleMode
+      Object.assign(this.cpu, frame.cpu)
+      this.frames = frame.frames
+    }
+    if (!restored) return
+    for (let v = 0; v < 3; v++) this.out[v]!.volume = -1
+    this.render()
   }
 
   /** LVO -96, `$2102bc`. 50 for PAL or 60 for NTSC, and nothing else has a branch. */
@@ -371,6 +422,7 @@ export class PlaySid {
   /** LVO -108, `$2102e2`. */
   setReverseEnable(on: boolean): void {
     this.reverse = on
+    if (!on) this.reverseFrames.length = 0
   }
 
   // --- the interrupt --------------------------------------------------------
@@ -390,16 +442,53 @@ export class PlaySid {
   }
 
   private callPlay(): void {
+    const reverseFrame = this.reverse ? this.captureReverseFrame() : null
+    if (reverseFrame) {
+      this.bus.onRamWrite = (addr, previous) => {
+        if (!reverseFrame.ram.has(addr)) reverseFrame.ram.set(addr, previous)
+      }
+    }
     this.sid.sampleMode = 0
-    if (this.playAddress !== 0) {
-      this.cpu.runUntilReturn(this.playAddress)
-    } else {
-      // `$2108a6`: a tune with no play address installed its own interrupt,
-      // so the vector it left at $0314 is where the play routine is.
-      const vector = this.bus.ram[0x0314]! | (this.bus.ram[0x0315]! << 8)
-      if (vector !== 0) this.cpu.runUntilReturn(vector)
+    try {
+      if (this.playAddress !== 0) {
+        this.cpu.runUntilReturn(this.playAddress)
+      } else {
+        // `$2108a6`: a tune with no play address installed its own interrupt,
+        // so the vector it left at $0314 is where the play routine is.
+        const vector = this.bus.ram[0x0314]! | (this.bus.ram[0x0315]! << 8)
+        if (vector !== 0) this.cpu.runUntilReturn(vector)
+      }
+    } finally {
+      this.bus.onRamWrite = null
     }
     this.frames++
+    if (reverseFrame) this.reverseFrames.push(reverseFrame)
+  }
+
+  private captureReverseFrame(): ReverseFrame {
+    return {
+      ram: new Map(),
+      sid: {
+        regs: this.sid.regs.slice(),
+        voices: this.sid.voices.map((voice) => ({ ...voice })),
+        volume: this.sid.volume,
+        filterCutoff: this.sid.filterCutoff,
+        filterVoices: this.sid.filterVoices,
+        voice3Off: this.sid.voice3Off,
+        sampleMode: this.sid.sampleMode,
+      },
+      cpu: {
+        a: this.cpu.a,
+        x: this.cpu.x,
+        y: this.cpu.y,
+        sp: this.cpu.sp,
+        pc: this.cpu.pc,
+        p: this.cpu.p,
+        jammed: this.cpu.jammed,
+        cycles: this.cpu.cycles,
+      },
+      frames: this.frames,
+    }
   }
 
   /**

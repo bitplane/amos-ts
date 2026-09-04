@@ -374,6 +374,53 @@ describeWith('Last Ninja 2, out of DME\'s own example', exampleBank(), (bank) =>
     expect(ps.frames).toBe(at + 16)
   })
 
+  it('RewindSong restores logged RAM, SID, CPU and frame state', () => {
+    const ps = new PlaySid(() => new NullAudio())
+    ps.setModule(tinyTune())
+    ps.startSong(1)
+    ps.setReverseEnable(true)
+
+    const initialPulse = ps.sid.voices[0]!.pulseWidth
+    const initialCpu = { a: ps.cpu.a, pc: ps.cpu.pc, cycles: ps.cpu.cycles }
+    ps.tick()
+    const first = {
+      counter: ps.bus.ram[2],
+      pulse: ps.sid.voices[0]!.pulseWidth,
+      env: ps.sid.voices[0]!.env,
+      a: ps.cpu.a,
+      pc: ps.cpu.pc,
+      cycles: ps.cpu.cycles,
+    }
+    ps.tick()
+
+    ps.rewindSong(1)
+    expect(ps.frames).toBe(1)
+    expect(ps.bus.ram[2]).toBe(first.counter)
+    expect(ps.sid.voices[0]!.pulseWidth).toBe(first.pulse)
+    expect(ps.sid.voices[0]!.env).toBe(first.env)
+    expect({ a: ps.cpu.a, pc: ps.cpu.pc, cycles: ps.cpu.cycles }).toEqual({
+      a: first.a,
+      pc: first.pc,
+      cycles: first.cycles,
+    })
+
+    ps.rewindSong(99)
+    expect(ps.frames).toBe(0)
+    expect(ps.bus.ram[2]).toBe(0)
+    expect(ps.sid.voices[0]!.pulseWidth).toBe(initialPulse)
+    expect({ a: ps.cpu.a, pc: ps.cpu.pc, cycles: ps.cpu.cycles }).toEqual(initialCpu)
+  })
+
+  it('RewindSong has no history unless reverse logging was enabled', () => {
+    const ps = new PlaySid(() => undefined)
+    ps.setModule(tinyTune())
+    ps.startSong(1)
+    ps.tick()
+    ps.rewindSong(1)
+    expect(ps.frames).toBe(1)
+    expect(ps.bus.ram[2]).toBe(1)
+  })
+
   it('each of the twelve songs starts, and the thirteenth does not', () => {
     const ps = new PlaySid(() => new NullAudio())
     ps.setModule(bank)
