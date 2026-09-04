@@ -46,11 +46,10 @@
  * ships in its own `Tools/FD` and carries nine more entries. The behaviour is
  * `Include/Autodocs/xfdmaster.doc`, 32KB of Commodore-style autodocs.
  *
- * NOTE: the library BINARY is not held and nothing here was disassembled. It
- * did not need to be. A documented interface plus the shipped headers is
- * better evidence for an interface than a disassembly would be, and the part
- * that would need the binary, which slave wins when two recognise the same
- * file, is called out at `recogBuffer`.
+ * The matching user archive supplies `xfdmaster.library` 39.15 (09.03.2003),
+ * 78,448 bytes on disk and 75,192 bytes loaded. Its resident and vectors have
+ * now been checked against the FD, and its callable behaviour settles the
+ * details below that the interface documentation cannot.
  */
 import { isImploded, explodeChecked } from './imploder'
 import { pp20Decrunch } from './powerpacker'
@@ -135,46 +134,41 @@ export const XFDERR = {
 } as const
 
 /**
- * The error strings, which are the header's own trailing comments rather than
- * the library's `xfdGetErrorText` output.
- *
- * DEVIATION: a real `xfdGetErrorText` (-78) returns text from inside the
- * binary, and no binary is held. These read the same because the comments are
- * what the strings were written from, but they are not that call's answer and
- * a caller comparing them byte for byte against a real machine would find
- * differences.
+ * The exact strings returned by `xfdGetErrorText` at `$9e0`, including its
+ * unusual leading slash for success and lower-case spelling. The fallback is
+ * the table's `$ffff` entry.
  */
 export const XFDERR_TEXT: Readonly<Record<number, string>> = {
-  [XFDERR.OK]: 'No errors',
-  [XFDERR.NOMEMORY]: 'Error allocating memory',
-  [XFDERR.NOSLAVE]: 'No slave entry in info structure',
-  [XFDERR.NOTSUPPORTED]: "Slave doesn't support called function",
-  [XFDERR.UNKNOWN]: 'Unknown file',
-  [XFDERR.NOSOURCE]: 'No sourcebuffer/seglist specified',
-  [XFDERR.WRONGPASSWORD]: 'Wrong password for decrunching',
-  [XFDERR.BADHUNK]: 'Bad hunk structure',
-  [XFDERR.CORRUPTEDDATA]: 'Crunched data is corrupted',
-  [XFDERR.MISSINGRESOURCE]: 'Missing resource (eg. library)',
-  [XFDERR.WRONGKEY]: 'Wrong 16/32 bit key',
-  [XFDERR.BETTERCPU]: 'Better CPU required',
-  [XFDERR.HOOKBREAK]: 'Hook caused break',
-  [XFDERR.DOSERROR]: 'Dos error',
-  [XFDERR.NOTARGET]: 'No user target given',
-  [XFDERR.TARGETTOOSMALL]: 'User target is too small',
-  [XFDERR.TARGETNOTSUPPORTED]: 'User target not supported',
-  [XFDERR.UNDEFINEDHUNK]: 'Undefined hunk type',
-  [XFDERR.NOHUNKHEADER]: 'File is not executable',
-  [XFDERR.BADEXTTYPE]: 'Bad hunk_ext type',
-  [XFDERR.BUFFERTRUNCATED]: 'Unexpected end of file',
-  [XFDERR.WRONGHUNKAMOUNT]: 'Wrong amount of hunks',
-  [XFDERR.NOOVERLAYS]: 'Overlays not allowed',
-  [XFDERR.UNSUPPORTEDHUNK]: 'Hunk type not supported',
-  [XFDERR.BADRELMODE]: 'Unknown XFDREL_#? mode',
+  [XFDERR.OK]: '/no errors',
+  [XFDERR.NOMEMORY]: 'out of memory',
+  [XFDERR.NOSLAVE]: 'missing slave entry',
+  [XFDERR.NOTSUPPORTED]: 'not supported',
+  [XFDERR.UNKNOWN]: 'unknown file',
+  [XFDERR.NOSOURCE]: 'no source specified',
+  [XFDERR.WRONGPASSWORD]: 'wrong password',
+  [XFDERR.BADHUNK]: 'bad hunk structure',
+  [XFDERR.CORRUPTEDDATA]: 'corrupted data',
+  [XFDERR.MISSINGRESOURCE]: 'missing resource',
+  [XFDERR.WRONGKEY]: 'wrong 16/32 bit key',
+  [XFDERR.BETTERCPU]: 'better cpu required',
+  [XFDERR.HOOKBREAK]: 'hook caused break',
+  [XFDERR.DOSERROR]: 'dos error',
+  [XFDERR.NOTARGET]: 'no user target',
+  [XFDERR.TARGETTOOSMALL]: 'user target too small',
+  [XFDERR.TARGETNOTSUPPORTED]: 'user target not supported',
+  [XFDERR.UNDEFINEDHUNK]: 'undefined hunk type',
+  [XFDERR.NOHUNKHEADER]: 'file is not executable',
+  [XFDERR.BADEXTTYPE]: 'bad hunk_ext type',
+  [XFDERR.BUFFERTRUNCATED]: 'buffer truncated',
+  [XFDERR.WRONGHUNKAMOUNT]: 'wrong amount of hunks',
+  [XFDERR.NOOVERLAYS]: 'overlays not allowed',
+  [XFDERR.UNSUPPORTEDHUNK]: 'unsupported hunk type',
+  [XFDERR.BADRELMODE]: 'unknown relocation mode',
 }
 
 /** `xfdGetErrorText(error)` (-78). See the DEVIATION on XFDERR_TEXT. */
 export function getErrorText(error: number): string {
-  return XFDERR_TEXT[error] ?? 'Unknown error'
+  return XFDERR_TEXT[error] ?? 'undefined error'
 }
 
 /**
@@ -334,7 +328,7 @@ export const SLAVES: readonly XfdSlave[] = [
  * slaves that can say.
  *
  * DEVIATION: which slave wins when two recognise the same file. The library
- * walks a list whose order lives in the binary, and no binary is held. This
+ * walks its installed list, while this
  * takes the first slave in `SLAVES` that recognises, which is a stated rule
  * rather than the library's. It costs nothing today because all three
  * recognisers are distinct four-byte magics, and it will cost something the

@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { LVO, SLAVES, XFDERR, XFDFF, XFDPFB, XFDPFF, decrunchBuffer, getErrorText, recogBuffer, unpack } from './xfdmaster'
+import { LVO, SLAVES, XFDERR, XFDERR_TEXT, XFDFF, XFDPFB, XFDPFF, decrunchBuffer, getErrorText, recogBuffer, unpack } from './xfdmaster'
 import type { XfdBufferInfo } from './xfdmaster'
 import { pp20Crunch } from './powerpacker'
 import { stcCrunch } from './stonecracker'
@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs'
 const DEV = 'fixtures/aminet/xfd/xfd_Developer'
 const HEADER = `${DEV}/Include/C/libraries/xfdmaster.h`
 const FD = `${DEV}/Include/FD/xfdmaster_lib.fd`
+const LIB = 'fixtures/aminet/xfd/xfd_User/Libs/xfdmaster.library'
 
 /** something with structure, so a wrong decrunch cannot look right */
 const SAMPLE = Uint8Array.from({ length: 4096 }, (_, i) => (i * 7 + (i >> 5)) & 0xff)
@@ -209,17 +210,25 @@ describe('the slave list', () => {
 })
 
 describe('error text', () => {
-  it('gives the header s own wording, and a fallback for anything else', () => {
-    expect(getErrorText(XFDERR.UNKNOWN)).toBe('Unknown file')
-    expect(getErrorText(XFDERR.CORRUPTEDDATA)).toBe('Crunched data is corrupted')
-    expect(getErrorText(XFDERR.NOHUNKHEADER)).toBe('File is not executable')
-    expect(getErrorText(0x7fff)).toBe('Unknown error')
+  it('gives the binary wording, and its fallback for anything else', () => {
+    expect(getErrorText(XFDERR.OK)).toBe('/no errors')
+    expect(getErrorText(XFDERR.UNKNOWN)).toBe('unknown file')
+    expect(getErrorText(XFDERR.CORRUPTEDDATA)).toBe('corrupted data')
+    expect(getErrorText(XFDERR.NOHUNKHEADER)).toBe('file is not executable')
+    expect(getErrorText(0x7fff)).toBe('undefined error')
   })
 
   it('has text for every code', () => {
     for (const [name, code] of Object.entries(XFDERR)) {
-      expect(getErrorText(code), name).not.toBe('Unknown error')
+      expect(getErrorText(code), name).not.toBe('undefined error')
     }
+  })
+
+  it.skipIf(!existsSync(LIB))('uses the strings embedded in xfdmaster.library 39.15', () => {
+    const binary = readFileSync(LIB, 'latin1')
+    expect(binary).toContain('xfdmaster 39.15 (09.03.2003)')
+    for (const text of Object.values(XFDERR_TEXT)) expect(binary).toContain(`${text}\0`)
+    expect(binary).toContain('undefined error\0')
   })
 
   it('keeps the flag families apart', () => {
