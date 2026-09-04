@@ -24,14 +24,37 @@ import {
   MUIM_MENUSTRIP_FREE,
   MUIM_MENUSTRIP_UPDATE,
   MUIM_MENU_SYNC,
+  MUIM_WINDOW_REPLACE_ROOT,
+  MUIM_WINDOW_TRUE,
   MUIA_MENUITEM_COPY_STRINGS,
   MuiMaster,
+  type MuiWindowEvent,
+  type MuiWindowGeometry,
+  type MuiWindowHost,
+  type MuiWindowSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
 import { parseAmosFile } from '../loader/amosfile'
 
 const tag = (t: number, data: number): TagItem => ({ tag: t, data })
+
+class TestWindowHost implements MuiWindowHost {
+  opened: MuiWindowSpec[] = []
+  events: MuiWindowEvent[] = []
+  calls: string[] = []
+  geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
+  open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
+  close(): void { this.calls.push('close') }
+  geometry(): MuiWindowGeometry { return this.geometryValue }
+  activate(): void { this.calls.push('activate') }
+  toFront(): void { this.calls.push('front') }
+  toBack(): void { this.calls.push('back') }
+  screenToFront(): void { this.calls.push('screen-front') }
+  screenToBack(): void { this.calls.push('screen-back') }
+  setTitles(_handle: unknown, title: string, screenTitle: string): void { this.calls.push(`titles:${title}:${screenTitle}`) }
+  poll(): MuiWindowEvent[] { return this.events.splice(0) }
+}
 
 describe('muimaster: the class tree', () => {
   it('registers every class the header names, under the right parent', () => {
@@ -135,6 +158,67 @@ describe('muimaster: attributes go to the class that owns them', () => {
       attrs: [tag(MUI.MUIA_Window_Title, 1), tag(MUI.MUIA_Window_Open, 1), tag(0x8042_dead, 1)],
     }
     expect(w.cl.dispatcher(w.cl, w, msg)).toBe(2)
+  })
+})
+
+describe('muimaster: Window.mui 19.35', () => {
+  const make = () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    const strings = new Map([[0x1000, 'Main'], [0x1100, 'Screen']])
+    m.readString = (address) => strings.get(address) ?? ''
+    m.windowHost = host
+    const root = m.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 0x1000)])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [
+      tag(MUI.MUIA_Window_Title, 0x1000),
+      tag(MUI.MUIA_Window_ScreenTitle, 0x1100),
+      tag(MUI.MUIA_Window_RootObject, root.address),
+      tag(MUI.MUIA_Window_ID, 0x57494e31),
+    ])!
+    return { m, host, root, win }
+  }
+
+  it('opens through the platform boundary, exposes live geometry, and lays out its root', () => {
+    const { m, host, root, win } = make()
+    expect(m.set(win, MUI.MUIA_Window_Open, 1)).toBe(1)
+    expect(host.opened[0]?.title).toBe('Main')
+    expect(m.get(win, MUI.MUIA_Window_Open)).toBe(1)
+    expect(m.get(win, MUI.MUIA_Window_Window)).not.toBe(0)
+    expect(m.get(win, MUI.MUIA_Window_LeftEdge)).toBe(10)
+    expect(m.get(win, MUI.MUIA_Window_Screen)).toBe(0x7777)
+    expect(m.boxOf(root)).toEqual({ left: 0, top: 0, width: 160, height: 80 })
+    m.set(win, MUI.MUIA_Window_Open, 0)
+    expect(host.calls).toContain('close')
+    expect(m.get(win, MUI.MUIA_Window_Window)).toBe(0)
+  })
+
+  it('drains Intuition events from Application input and raises CloseRequest', () => {
+    const { m, host, win } = make()
+    const app = m.newObjectA(MUIC.MUIC_Application)!
+    m.addMember(app, win)
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    host.events.push({ class: 0x200, code: 0, qualifier: 0, mouseX: 0, mouseY: 0, seconds: 0, micros: 0, iaddress: 0 })
+    m.doMui(app, MUI.MUIM_Application_NewInput)
+    expect(m.get(win, MUI.MUIA_Window_CloseRequest)).toBe(1)
+  })
+
+  it('implements ordering, nested sleep, cycle chain, aliases, and root replacement', () => {
+    const { m, host, root, win } = make()
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    m.doMui(win, MUI.MUIM_Window_ToFront)
+    m.doMui(win, MUI.MUIM_Window_ScreenToBack)
+    expect(host.calls).toEqual(expect.arrayContaining(['front', 'screen-back']))
+    m.set(win, MUI.MUIA_Window_Sleep, 1)
+    m.set(win, MUI.MUIA_Window_Sleep, 1)
+    m.set(win, MUI.MUIA_Window_Sleep, 0)
+    expect(m.get(win, MUI.MUIA_Window_Sleep)).toBe(1)
+    m.doMui(win, MUI.MUIM_Window_SetCycleChain, [root.address, 0])
+    expect(m.get(root, MUI.MUIA_CycleChain)).toBe(1)
+    expect(m.doMui(win, MUIM_WINDOW_TRUE)).toBe(1)
+    const replacement = m.newObjectA(MUIC.MUIC_Text)!
+    expect(m.doMui(win, MUIM_WINDOW_REPLACE_ROOT, [replacement.address])).toBe(root.address)
+    expect(m.get(win, MUI.MUIA_Window_RootObject)).toBe(replacement.address)
+    expect(m.parent(root)).toBeNull()
   })
 })
 

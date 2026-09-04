@@ -1026,6 +1026,40 @@ export class Intuition {
     this.dirty = true
   }
 
+  /** SetWindowTitles (-276), including the active window's screen-bar title. */
+  setWindowTitles(w: Window, title: string, screenTitle: string): void {
+    if (!this.open.includes(w)) return
+    w.title = title
+    w.screenTitle = screenTitle
+    this.dirty = true
+  }
+
+  /** The screen pointer carried by a live Window. */
+  windowScreenAddress(w: Window): number {
+    return this.open.includes(w) ? this.host.screenAddr(w.screenSlot) : 0
+  }
+
+  /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */
+  screenDimensions(address = 0): { width: number; height: number } | null {
+    if (address === 0 && this.openWorkBench() === 0) return null
+    const slot = address === 0 ? WB_SLOT : this.slotOf(address)
+    if (slot === null) return null
+    const size = this.host.screenSize(slot)
+    return size ? { width: size.width, height: size.height } : null
+  }
+
+  windowScreenToFront(w: Window): void {
+    if (!this.open.includes(w)) return
+    this.host.screenToFront(w.screenSlot)
+    this.dirty = true
+  }
+
+  windowScreenToBack(w: Window): void {
+    if (!this.open.includes(w)) return
+    this.host.screenToBack(w.screenSlot)
+    this.dirty = true
+  }
+
   /**
    * MoveWindow (-168). Clamped to the screen.
    *

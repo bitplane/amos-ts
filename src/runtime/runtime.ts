@@ -14,7 +14,19 @@ import type { IntState } from './int'
 import type { IextState } from './intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
-import { Intuition } from '../amiga/intuition'
+import {
+  Intuition,
+  CUSTOMSCREEN,
+  WBENCHSCREEN,
+  WFLG_ACTIVATE,
+  WFLG_BACKDROP,
+  WFLG_BORDERLESS,
+  WFLG_CLOSEGADGET,
+  WFLG_DEPTHGADGET,
+  WFLG_DRAGBAR,
+  WFLG_SIZEGADGET,
+  type Window,
+} from '../amiga/intuition'
 import { Boopsi, type BoopsiObject } from '../amiga/boopsi'
 import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster } from '../amiga/muimaster'
 import { MUI } from '../amiga/muimaster.gen'
@@ -2540,6 +2552,59 @@ export class Runtime {
         return path === '' ? null : this.vfs?.readFile(path) ?? null
       }
       mui.applicationNow = () => this.frames * 20
+      const asWindow = (handle: unknown): Window => handle as Window
+      mui.windowHost = {
+        open: (spec) => {
+          const int = this.intuition
+          const screenSlot = spec.screenAddress === 0 ? undefined : int.slotOf(spec.screenAddress) ?? undefined
+          const screen = int.screenDimensions(spec.screenAddress)
+          if (!screen) return null
+          const screenWidth = screen.width
+          const screenHeight = screen.height
+          const width = Math.max(1, Math.min(screenWidth, spec.width))
+          const height = Math.max(1, Math.min(screenHeight, spec.height))
+          const left = spec.left < 0 ? Math.floor((screenWidth - width) / 2) : Math.min(spec.left, screenWidth - width)
+          const top = spec.top < 0 ? Math.floor((screenHeight - height) / 2) : Math.min(spec.top, screenHeight - height)
+          let flags = 0
+          if (spec.flags.activate) flags |= WFLG_ACTIVATE
+          if (spec.flags.backdrop) flags |= WFLG_BACKDROP
+          if (spec.flags.borderless) flags |= WFLG_BORDERLESS
+          if (spec.flags.closeGadget) flags |= WFLG_CLOSEGADGET
+          if (spec.flags.depthGadget) flags |= WFLG_DEPTHGADGET
+          if (spec.flags.dragBar) flags |= WFLG_DRAGBAR
+          if (spec.flags.sizeGadget) flags |= WFLG_SIZEGADGET
+          const opened = int.openWindow({
+            leftEdge: left, topEdge: top, width, height,
+            detailPen: 1, blockPen: 0,
+            idcmpFlags: 0x2 | 0x4 | 0x8 | 0x10 | 0x100 | 0x200 | 0x400 | 0x40000 | 0x80000,
+            flags, title: spec.title,
+            type: screenSlot === undefined ? WBENCHSCREEN : CUSTOMSCREEN,
+            ...(screenSlot === undefined ? {} : { screenSlot }),
+          })
+          if (opened) opened.screenTitle = spec.screenTitle
+          return opened
+        },
+        close: (handle) => { this.intuition.closeWindow(asWindow(handle)) },
+        geometry: (handle) => {
+          const w = asWindow(handle)
+          return {
+            left: w.leftEdge, top: w.topEdge, width: w.width, height: w.height,
+            screenAddress: this.intuition.windowScreenAddress(w), active: w.active,
+          }
+        },
+        activate: (handle) => this.intuition.activateWindow(asWindow(handle)),
+        toFront: (handle) => this.intuition.windowToFront(asWindow(handle)),
+        toBack: (handle) => this.intuition.windowToBack(asWindow(handle)),
+        screenToFront: (handle) => this.intuition.windowScreenToFront(asWindow(handle)),
+        screenToBack: (handle) => this.intuition.windowScreenToBack(asWindow(handle)),
+        setTitles: (handle, title, screenTitle) => this.intuition.setWindowTitles(asWindow(handle), title, screenTitle),
+        poll: (handle) => {
+          const events = []
+          const w = asWindow(handle)
+          for (let event = w.getMsg(); event; event = w.getMsg()) events.push(event)
+          return events
+        },
+      }
       this.muiBase = mui
     }
     return this.muiBase

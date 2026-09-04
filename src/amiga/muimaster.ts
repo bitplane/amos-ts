@@ -257,6 +257,31 @@ export const MUIM_APPLICATION_SET_MENU_CHECK_PRIVATE = 0x804233d4
 export const MUIM_APPLICATION_GET_MENU_CHECK_PRIVATE = 0x804205b2
 export const MUIM_APPLICATION_SET_MENU_STATE_PRIVATE = 0x80426697
 export const MUIM_APPLICATION_GET_MENU_STATE_PRIVATE = 0x80421526
+/** Window.mui 19.35 private method-table ids, retained because built-ins call them. */
+export const MUIM_WINDOW_LAYOUT = 0x80425ebe
+export const MUIM_WINDOW_VALIDATE_SIZE = 0x80427c9b
+export const MUIM_WINDOW_HANDLE_EVENT = 0x80426a85
+export const MUIM_WINDOW_REFRESH = 0x80426771
+export const MUIM_WINDOW_CLIP_ON = 0x8042671f
+export const MUIM_WINDOW_CLIP_OFF = 0x8042174e
+export const MUIM_WINDOW_ICONIFY = 0x80422cc0
+export const MUIM_WINDOW_TRUE = 0x8042c34c
+export const MUIM_WINDOW_FALSE = 0x8042ab26
+export const MUIM_WINDOW_CONTEXT_MENU = 0x8042ca1f
+export const MUIM_WINDOW_BROADCAST = 0x8042d532
+export const MUIM_WINDOW_ROOT_METHOD = 0x8042867c
+export const MUIM_WINDOW_UPDATE_TITLES = 0x8042926f
+export const MUIM_WINDOW_REPLACE_ROOT = 0x8042fd4d
+
+const IDCMP_NEWSIZE = 0x2
+const IDCMP_REFRESHWINDOW = 0x4
+const IDCMP_MOUSEBUTTONS = 0x8
+const IDCMP_MOUSEMOVE = 0x10
+const IDCMP_MENUPICK = 0x100
+const IDCMP_CLOSEWINDOW = 0x200
+const IDCMP_RAWKEY = 0x400
+const IDCMP_ACTIVEWINDOW = 0x40000
+const IDCMP_INACTIVEWINDOW = 0x80000
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -411,6 +436,66 @@ interface MuiApplicationData extends Record<string, unknown> {
   configDirty: boolean
 }
 
+export interface MuiWindowSpec {
+  left: number
+  top: number
+  width: number
+  height: number
+  title: string
+  screenTitle: string
+  publicScreen: string
+  screenAddress: number
+  flags: {
+    activate: boolean
+    backdrop: boolean
+    borderless: boolean
+    closeGadget: boolean
+    depthGadget: boolean
+    dragBar: boolean
+    sizeGadget: boolean
+  }
+}
+
+export interface MuiWindowGeometry {
+  left: number
+  top: number
+  width: number
+  height: number
+  screenAddress: number
+  active: boolean
+}
+
+export interface MuiWindowEvent {
+  class: number
+  code: number
+  qualifier: number
+  mouseX: number
+  mouseY: number
+  seconds: number
+  micros: number
+  iaddress: number
+}
+
+export interface MuiWindowHost {
+  open(spec: MuiWindowSpec): unknown | null
+  close(handle: unknown): void
+  geometry(handle: unknown): MuiWindowGeometry
+  activate(handle: unknown): void
+  toFront(handle: unknown): void
+  toBack(handle: unknown): void
+  screenToFront(handle: unknown): void
+  screenToBack(handle: unknown): void
+  setTitles(handle: unknown, title: string, screenTitle: string): void
+  poll(handle: unknown): MuiWindowEvent[]
+}
+
+interface MuiWindowData extends Record<string, unknown> {
+  handle: unknown | null
+  nativeAddress: number
+  eventHandlers: number[]
+  sleepDepth: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -437,6 +522,7 @@ export class MuiMaster {
   readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
   /** Window/Application platform bridge for a live Intuition menu strip. */
   menuChanged: ((menustrip: BoopsiObject) => void) | null = null
+  windowHost: MuiWindowHost | null = null
   /** Platform boundaries used by Application methods; Runtime supplies these as its subsystems land. */
   applicationRefresh: ((window: BoopsiObject) => void) | null = null
   applicationHelp: ((application: BoopsiObject, object: BoopsiObject | null, flags: number) => number) | null = null
@@ -965,6 +1051,34 @@ export class MuiMaster {
           d.set(MUI.MUIA_Menuitem_Enabled, 1)
           d.set(MUI.MUIA_Menuitem_CommandString, 0)
         }
+        if (cl === this.windowClass) {
+          const win = made.instData<MuiWindowData>(cl)
+          win.handle = null
+          win.nativeAddress = 0
+          win.eventHandlers = []
+          win.sleepDepth = 0
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Window_Activate, 0)
+          d.set(MUI.MUIA_Window_ActiveObject, 0)
+          d.set(MUI.MUIA_Window_AltLeftEdge, MUI.MUIV_Window_AltLeftEdge_NoChange)
+          d.set(MUI.MUIA_Window_AltTopEdge, MUI.MUIV_Window_AltTopEdge_NoChange)
+          d.set(MUI.MUIA_Window_AltWidth, MUI.MUIV_Window_AltWidth_Scaled)
+          d.set(MUI.MUIA_Window_AltHeight, MUI.MUIV_Window_AltHeight_Scaled)
+          d.set(MUI.MUIA_Window_CloseRequest, 0)
+          d.set(MUI.MUIA_Window_DefaultObject, 0)
+          d.set(MUI.MUIA_Window_DragBar, 1)
+          d.set(MUI.MUIA_Window_DepthGadget, 1)
+          d.set(MUI.MUIA_Window_CloseGadget, 1)
+          d.set(MUI.MUIA_Window_SizeGadget, 1)
+          d.set(MUI.MUIA_Window_LeftEdge, MUI.MUIV_Window_LeftEdge_Centered)
+          d.set(MUI.MUIA_Window_TopEdge, MUI.MUIV_Window_TopEdge_Centered)
+          d.set(MUI.MUIA_Window_Width, MUI.MUIV_Window_Width_Default)
+          d.set(MUI.MUIA_Window_Height, MUI.MUIV_Window_Height_Default)
+          d.set(MUI.MUIA_Window_Open, 0)
+          d.set(MUI.MUIA_Window_Sleep, 0)
+          d.set(MUI.MUIA_Window_Title, 0)
+          d.set(MUI.MUIA_Window_ScreenTitle, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1018,12 +1132,17 @@ export class MuiMaster {
           this.rebuildApplicationList(made)
           this.applications.add(made)
         }
+        if (cl === this.windowClass) {
+          this.copyWindowString(made, MUI.MUIA_Window_Title)
+          this.copyWindowString(made, MUI.MUIA_Window_ScreenTitle)
+        }
         if (cl === this.familyClass) this.rebuildFamilyList(made)
         return made.address
       }
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.windowClass) this.closeMuiWindow(o)
         if (cl === this.applicationClass) {
           const app = o.instData<MuiApplicationData>(cl)
           if (app.configdata) this.boopsi.disposeObject(app.configdata)
@@ -1054,6 +1173,7 @@ export class MuiMaster {
          */
         if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
           let change = 0
@@ -1104,6 +1224,13 @@ export class MuiMaster {
             : TAG(g.attrID) === MUI.MUIA_Application_Broker || TAG(g.attrID) === MUI.MUIA_Application_BrokerPort || TAG(g.attrID) === MUI.MUIA_Application_RexxMsg
               ? this.peek(o, g.attrID) ?? 0
               : undefined
+          if (computed !== undefined) {
+            g.storage = computed
+            return 1
+          }
+        }
+        if (cl === this.windowClass) {
+          const computed = this.getWindow(o, TAG(g.attrID))
           if (computed !== undefined) {
             g.storage = computed
             return 1
@@ -1253,6 +1380,10 @@ export class MuiMaster {
         }
         if (cl === this.applicationClass) {
           const answered = this.applicationMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.windowClass) {
+          const answered = this.windowMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
@@ -2021,6 +2152,360 @@ export class MuiMaster {
     this.pool.buffer[off + 3] = value
   }
 
+  // -- Window -------------------------------------------------------------
+
+  private copyWindowString(obj: BoopsiObject, attr: number, source = this.peek(obj, attr) ?? 0): void {
+    const d = data(this, obj)
+    const old = d.attrs.get(attr) ?? 0
+    const readable = source >= this.pool.base && source < this.pool.base + this.pool.buffer.length || this.textOfAddress(source) !== ''
+    if (source !== 0 && !readable) {
+      d.attrs.set(attr, source)
+      return
+    }
+    let address = 0
+    if (source !== 0) {
+      const bytes = Uint8Array.from([...this.textOfAddress(source), '\0'], (c) => c.charCodeAt(0))
+      address = this.pool.alloc(bytes.length)
+      if (address !== 0) {
+        this.pool.buffer.set(bytes, address - this.pool.base)
+        d.ownedAddresses.push(address)
+      }
+    }
+    const i = d.ownedAddresses.indexOf(old)
+    if (i >= 0 && old !== address) {
+      this.pool.freeMem(old)
+      d.ownedAddresses.splice(i, 1)
+    }
+    d.attrs.set(attr, address)
+  }
+
+  private windowRoot(obj: BoopsiObject): BoopsiObject | null {
+    return this.boopsi.objectAt(this.peek(obj, MUI.MUIA_Window_RootObject) ?? 0)
+  }
+
+  private openMuiWindow(obj: BoopsiObject): boolean {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    if (win.handle !== null) return true
+    if (!this.windowHost) return false
+    const root = this.windowRoot(obj)
+    if (!root) return false
+    const mm = this.askMinMax(root)
+    const rawWidth = this.peek(obj, MUI.MUIA_Window_Width) ?? MUI.MUIV_Window_Width_Default
+    const rawHeight = this.peek(obj, MUI.MUIA_Window_Height) ?? MUI.MUIV_Window_Height_Default
+    const width = TAG(rawWidth) === MUI.MUIV_Window_Width_Default ? Math.max(80, mm.defW + 8) : rawWidth
+    const height = TAG(rawHeight) === MUI.MUIV_Window_Height_Default ? Math.max(32, mm.defH + 20) : rawHeight
+    const handle = this.windowHost.open({
+      left: this.signed(this.peek(obj, MUI.MUIA_Window_LeftEdge) ?? -1),
+      top: this.signed(this.peek(obj, MUI.MUIA_Window_TopEdge) ?? -1),
+      width: this.signed(width),
+      height: this.signed(height),
+      title: this.textOf(obj, MUI.MUIA_Window_Title),
+      screenTitle: this.textOf(obj, MUI.MUIA_Window_ScreenTitle),
+      publicScreen: this.textOf(obj, MUI.MUIA_Window_PublicScreen),
+      screenAddress: this.peek(obj, MUI.MUIA_Window_Screen) ?? 0,
+      flags: {
+        activate: (this.peek(obj, MUI.MUIA_Window_Activate) ?? 0) !== 0,
+        backdrop: (this.peek(obj, MUI.MUIA_Window_Backdrop) ?? 0) !== 0,
+        borderless: (this.peek(obj, MUI.MUIA_Window_Borderless) ?? 0) !== 0,
+        closeGadget: (this.peek(obj, MUI.MUIA_Window_CloseGadget) ?? 1) !== 0,
+        depthGadget: (this.peek(obj, MUI.MUIA_Window_DepthGadget) ?? 1) !== 0,
+        dragBar: (this.peek(obj, MUI.MUIA_Window_DragBar) ?? 1) !== 0,
+        sizeGadget: (this.peek(obj, MUI.MUIA_Window_SizeGadget) ?? 1) !== 0,
+      },
+    })
+    if (handle === null) return false
+    win.handle = handle
+    win.nativeAddress = this.pool.alloc(4, { clear: true })
+    const geometry = this.windowHost.geometry(handle)
+    this.layout(root, 0, 0, Math.max(0, geometry.width), Math.max(0, geometry.height))
+    this.setInternal(obj, MUI.MUIA_Window_Open, 1)
+    this.setInternal(obj, MUI.MUIA_Window_Activate, geometry.active ? 1 : 0)
+    return true
+  }
+
+  private closeMuiWindow(obj: BoopsiObject): void {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    if (win.handle !== null) this.windowHost?.close(win.handle)
+    win.handle = null
+    if (win.nativeAddress !== 0) this.pool.freeMem(win.nativeAddress)
+    win.nativeAddress = 0
+    this.setInternal(obj, MUI.MUIA_Window_Open, 0)
+    this.setInternal(obj, MUI.MUIA_Window_Activate, 0)
+  }
+
+  private setWindow(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const win = obj.instData<MuiWindowData>(cl)
+    const attrs: TagItem[] = []
+    const stringAttrs: TagItem[] = []
+    let requestedOpen: boolean | null = null
+    let replacedRoot = false
+    for (const raw of msg.attrs) {
+      const tag = TAG(raw.tag)
+      if (tag === MUI.MUIA_Window_Open) {
+        requestedOpen = raw.data !== 0
+        continue
+      }
+      if (tag === MUI.MUIA_Window_Sleep) {
+        win.sleepDepth = Math.max(0, win.sleepDepth + (raw.data === 0 ? -1 : 1))
+        attrs.push({ tag: raw.tag, data: win.sleepDepth === 0 ? 0 : 1 })
+      } else if (tag === MUI.MUIA_Window_Activate) {
+        attrs.push(raw)
+        if (raw.data !== 0 && win.handle !== null) this.windowHost?.activate(win.handle)
+      } else if (tag === MUI.MUIA_Window_Title || tag === MUI.MUIA_Window_ScreenTitle) {
+        attrs.push(raw)
+        stringAttrs.push(raw)
+      } else if (tag === MUI.MUIA_Window_RootObject) {
+        this.replaceWindowRoot(obj, this.boopsi.objectAt(raw.data))
+        replacedRoot = true
+      } else attrs.push(raw)
+    }
+    const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
+    if (noNotify) this.suppressNotifications++
+    let answer = 0
+    try {
+      const own = this.applyOwn('Window', obj, attrs, 's')
+      answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, { ...msg, attrs } as OpSet)
+    } finally {
+      if (noNotify) this.suppressNotifications--
+    }
+    for (const attr of stringAttrs) this.copyWindowString(obj, TAG(attr.tag), attr.data)
+    if (stringAttrs.length !== 0 && win.handle !== null) this.windowHost?.setTitles(
+      win.handle, this.textOf(obj, MUI.MUIA_Window_Title), this.textOf(obj, MUI.MUIA_Window_ScreenTitle),
+    )
+    if (replacedRoot) answer++
+    if (requestedOpen !== null) {
+      if (requestedOpen) this.openMuiWindow(obj)
+      else this.closeMuiWindow(obj)
+      answer++
+    }
+    return answer
+  }
+
+  private getWindow(obj: BoopsiObject, attr: number): number | undefined {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    const geometry = win.handle === null ? null : this.windowHost?.geometry(win.handle) ?? null
+    switch (attr) {
+      case MUI.MUIA_Window_Window: return win.nativeAddress
+      case MUI.MUIA_Window_Open: return win.handle === null ? 0 : 1
+      case MUI.MUIA_Window_Activate: return geometry ? (geometry.active ? 1 : 0) : this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_LeftEdge: return geometry?.left ?? this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_TopEdge: return geometry?.top ?? this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_Width: return geometry?.width ?? this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_Height: return geometry?.height ?? this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_Screen: return geometry?.screenAddress ?? this.peek(obj, attr) ?? 0
+      case MUI.MUIA_Window_Sleep: return win.sleepDepth === 0 ? 0 : 1
+      default: return undefined
+    }
+  }
+
+  private replaceWindowRoot(obj: BoopsiObject, replacement: BoopsiObject | null): number {
+    const old = this.windowRoot(obj)
+    if (old === replacement) return old?.address ?? 0
+    const d = data(this, obj)
+    if (old) {
+      const i = d.children.indexOf(old)
+      if (i >= 0) d.children.splice(i, 1)
+      data(this, old).parent = null
+    }
+    d.attrs.set(MUI.MUIA_Window_RootObject, replacement?.address ?? 0)
+    if (replacement) {
+      if (!d.children.includes(replacement)) d.children.push(replacement)
+      data(this, replacement).parent = obj
+      const win = obj.instData<MuiWindowData>(this.windowClass)
+      if (win.handle !== null && this.windowHost) {
+        const g = this.windowHost.geometry(win.handle)
+        this.askMinMax(replacement)
+        this.layout(replacement, 0, 0, g.width, g.height)
+      }
+    }
+    return old?.address ?? 0
+  }
+
+  private windowMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    const host = this.windowHost
+    switch (msg.MethodID) {
+      case MUI.MUIM_Window_SetCycleChain:
+        for (const address of params) {
+          if (address === 0) break
+          const child = this.boopsi.objectAt(address)
+          if (child) this.set(child, MUI.MUIA_CycleChain, 1)
+        }
+        return 0
+      case MUI.MUIM_Window_ToFront:
+        if (win.handle !== null) host?.toFront(win.handle)
+        return 0
+      case MUI.MUIM_Window_ToBack:
+        if (win.handle !== null) host?.toBack(win.handle)
+        return 0
+      case MUI.MUIM_Window_ScreenToFront:
+        if (win.handle !== null) host?.screenToFront(win.handle)
+        return 0
+      case MUI.MUIM_Window_ScreenToBack:
+        if (win.handle !== null) host?.screenToBack(win.handle)
+        return 0
+      case MUI.MUIM_Window_AddEventHandler: {
+        const node = params[0] ?? 0
+        if (node !== 0 && !win.eventHandlers.includes(node)) {
+          win.eventHandlers.push(node)
+          win.eventHandlers.sort((a, b) => this.signedByte(this.readByte(b + 9)) - this.signedByte(this.readByte(a + 9)))
+        }
+        return 0
+      }
+      case MUI.MUIM_Window_RemEventHandler: {
+        const i = win.eventHandlers.indexOf(params[0] ?? 0)
+        if (i >= 0) win.eventHandlers.splice(i, 1)
+        return 0
+      }
+      case MUIM_WINDOW_HANDLE_EVENT:
+        this.handleWindowEvent(obj, {
+          class: params[0] ?? 0, code: params[1] ?? 0, qualifier: params[2] ?? 0,
+          mouseX: params[3] ?? 0, mouseY: params[4] ?? 0, seconds: params[5] ?? 0,
+          micros: params[6] ?? 0, iaddress: params[7] ?? 0,
+        })
+        return 0
+      case MUIM_WINDOW_LAYOUT:
+      case MUIM_WINDOW_REFRESH: {
+        const root = this.windowRoot(obj)
+        if (root && win.handle !== null && host) {
+          const g = host.geometry(win.handle)
+          this.askMinMax(root)
+          this.layout(root, 0, 0, g.width, g.height)
+        }
+        return 0
+      }
+      case MUIM_WINDOW_VALIDATE_SIZE:
+        return win.handle === null ? 0 : 1
+      case MUI.MUIM_Window_Snapshot:
+        return this.windowSnapshot(obj, params[0] ?? 0)
+      case MUIM_WINDOW_ICONIFY:
+        if (data(this, obj).contextApplication) this.set(data(this, obj).contextApplication!, MUI.MUIA_Application_Iconified, 1)
+        return 0
+      case MUIM_WINDOW_TRUE: return 1
+      case MUIM_WINDOW_FALSE: return 0
+      case MUI.MUIM_Window_SetMenuCheck:
+      case MUIM_APPLICATION_SET_MENU_CHECK_PRIVATE:
+        return this.windowSetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Checked, params[1] ?? 0)
+      case MUI.MUIM_Window_GetMenuCheck:
+      case MUIM_APPLICATION_GET_MENU_CHECK_PRIVATE:
+        return this.windowGetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Checked)
+      case MUI.MUIM_Window_SetMenuState:
+      case MUIM_APPLICATION_SET_MENU_STATE_PRIVATE:
+        return this.windowSetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Enabled, params[1] ?? 0)
+      case MUI.MUIM_Window_GetMenuState:
+      case MUIM_APPLICATION_GET_MENU_STATE_PRIVATE:
+        return this.windowGetMenu(obj, params[0] ?? 0, MUI.MUIA_Menuitem_Enabled)
+      case MUI.MUIM_FindUData:
+      case MUI.MUIM_GetUData:
+      case MUI.MUIM_SetUData:
+        return this.windowUserData(obj, msg)
+      case MUI.MUIM_Export:
+      case MUI.MUIM_Import:
+        for (const child of this.windowOwnedObjects(obj)) this.doMui(child, msg.MethodID, params)
+        return doSuperMethodA(this.windowClass, obj, msg)
+      case MUIM_WINDOW_BROADCAST:
+        doSuperMethodA(this.windowClass, obj, msg)
+        for (const child of this.windowOwnedObjects(obj)) child.cl.dispatcher(child.cl, child, msg)
+        return 0
+      case MUIM_WINDOW_ROOT_METHOD: {
+        const root = this.windowRoot(obj)
+        return root && params.length !== 0 ? this.doMui(root, params[0] ?? 0, params.slice(1)) : 0
+      }
+      case MUIM_WINDOW_UPDATE_TITLES:
+        if (win.handle === null || !host) return 0
+        host.setTitles(win.handle, this.textOf(obj, MUI.MUIA_Window_Title), this.textOf(obj, MUI.MUIA_Window_ScreenTitle))
+        return 1
+      case MUIM_WINDOW_REPLACE_ROOT:
+        return this.replaceWindowRoot(obj, this.boopsi.objectAt(params[0] ?? 0))
+      case MUIM_WINDOW_CLIP_ON: return win.handle === null ? 0 : 1
+      case MUIM_WINDOW_CLIP_OFF:
+      case MUIM_WINDOW_CONTEXT_MENU:
+        return 0
+      default: return null
+    }
+  }
+
+  private pollWindow(obj: BoopsiObject): void {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    if (win.handle === null || !this.windowHost) return
+    for (const event of this.windowHost.poll(win.handle)) this.handleWindowEvent(obj, event)
+  }
+
+  private handleWindowEvent(obj: BoopsiObject, event: MuiWindowEvent): void {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    for (const node of [...win.eventHandlers]) {
+      const mask = this.readLong?.(node + 20) ?? 0
+      if ((mask & event.class) === 0) continue
+      const target = this.boopsi.objectAt(this.readLong?.(node + 12) ?? 0)
+      if (target && this.doMui(target, MUI.MUIM_HandleEvent, [
+        event.class, event.code, event.qualifier, event.mouseX, event.mouseY,
+        event.seconds, event.micros, event.iaddress, node,
+      ]) & 1) break
+    }
+    if (event.class === IDCMP_CLOSEWINDOW) this.setInternal(obj, MUI.MUIA_Window_CloseRequest, 1)
+    else if (event.class === IDCMP_ACTIVEWINDOW) this.setInternal(obj, MUI.MUIA_Window_Activate, 1)
+    else if (event.class === IDCMP_INACTIVEWINDOW) this.setInternal(obj, MUI.MUIA_Window_Activate, 0)
+    else if (event.class === IDCMP_NEWSIZE || event.class === IDCMP_REFRESHWINDOW) this.windowMethod(obj, { MethodID: MUIM_WINDOW_REFRESH } as Msg)
+    else if (event.class === IDCMP_MOUSEMOVE || event.class === IDCMP_MOUSEBUTTONS) {
+      this.setInternal(obj, MUI.MUIA_Window_MouseObject, this.windowRoot(obj)?.address ?? 0)
+    } else if (event.class === IDCMP_MENUPICK) this.setInternal(obj, MUI.MUIA_Window_MenuAction, event.code)
+    else if (event.class === IDCMP_RAWKEY) this.setInternal(obj, MUI.MUIA_Window_InputEvent, event.code)
+  }
+
+  private windowOwnedObjects(obj: BoopsiObject): BoopsiObject[] {
+    const result: BoopsiObject[] = []
+    for (const attr of [MUI.MUIA_Window_RootObject, MUI.MUIA_Window_Menustrip]) {
+      const child = this.boopsi.objectAt(this.peek(obj, attr) ?? 0)
+      if (child && !result.includes(child)) result.push(child)
+    }
+    return result
+  }
+
+  private windowUserData(obj: BoopsiObject, msg: Msg): number {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const own = this.notifyMethod(this.notifyClass, obj, msg)
+    if ((msg.MethodID === MUI.MUIM_FindUData || msg.MethodID === MUI.MUIM_GetUData) && own !== 0) return own
+    for (const child of this.windowOwnedObjects(obj)) {
+      const answer = this.doMui(child, msg.MethodID, params)
+      if ((msg.MethodID === MUI.MUIM_FindUData || msg.MethodID === MUI.MUIM_GetUData) && answer !== 0) return answer
+    }
+    return 0
+  }
+
+  private windowMenuitem(obj: BoopsiObject, id: number): BoopsiObject | null {
+    const strip = this.boopsi.objectAt(this.peek(obj, MUI.MUIA_Window_Menustrip) ?? 0)
+    if (!strip) return null
+    const item = this.boopsi.objectAt(this.doMui(strip, MUI.MUIM_FindUData, [id]))
+    return item?.cl.isA(this.menuitemClass) ? item : null
+  }
+
+  private windowSetMenu(obj: BoopsiObject, id: number, attr: number, value: number): number {
+    const item = this.windowMenuitem(obj, id)
+    return item ? this.set(item, attr, value) : 0
+  }
+
+  private windowGetMenu(obj: BoopsiObject, id: number, attr: number): number {
+    const item = this.windowMenuitem(obj, id)
+    return item ? (this.get(item, attr) ?? 2) : 2
+  }
+
+  private windowSnapshot(obj: BoopsiObject, _flags: number): number {
+    const win = obj.instData<MuiWindowData>(this.windowClass)
+    const app = data(this, obj).contextApplication
+    if (win.handle === null || !app || !this.windowHost) return 0
+    const g = this.windowHost.geometry(win.handle)
+    const ds = app.instData<MuiApplicationData>(this.applicationClass).configdata
+    const id = this.peek(obj, MUI.MUIA_Window_ID) ?? 0
+    if (!ds || id === 0) return 0
+    const bytes = new Uint8Array(16)
+    putLong(bytes, 0, g.left); putLong(bytes, 4, g.top); putLong(bytes, 8, g.width); putLong(bytes, 12, g.height)
+    return this.dataspaceAddBytes(ds.instData<MuiDataspaceData>(this.dataspaceClass), bytes, id) === 0 ? 0 : 1
+  }
+
+  private signed(value: number): number { return value | 0 }
+  private signedByte(value: number): number { return value & 0x80 ? value - 0x100 : value }
+
   // -- Application --------------------------------------------------------
 
   private setApplication(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
@@ -2166,6 +2651,7 @@ export class MuiMaster {
       }
       case MUI.MUIM_Application_Input:
       case MUI.MUIM_Application_NewInput: {
+        for (const child of data(this, obj).children) if (child.cl.isA(this.windowClass)) this.pollWindow(child)
         const signalAddress = params[0] ?? 0
         const received = signalAddress === 0 ? 0 : (this.readLong?.(signalAddress) ?? 0)
         if (signalAddress !== 0) this.writeLong?.(signalAddress, 0)
@@ -2182,6 +2668,7 @@ export class MuiMaster {
         return 0
       }
       case MUI.MUIM_Application_InputBuffered: {
+        for (const child of data(this, obj).children) if (child.cl.isA(this.windowClass)) this.pollWindow(child)
         const result = app.bufferedReturnIDs.shift() ?? data(this, obj).returnIDs.shift() ?? 0
         if (result === 0) {
           const pushed = app.pushed.shift()
@@ -2548,7 +3035,7 @@ export class MuiMaster {
 
   textOf(obj: BoopsiObject, tag: number): string {
     const at = this.peek(obj, tag) ?? 0
-    return at === 0 ? '' : (this.readString?.(at) ?? '')
+    return this.textOfAddress(at)
   }
 
   /** how many attributes the last applyOwn consumed — OM_SET's answer */
