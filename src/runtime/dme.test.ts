@@ -1457,12 +1457,15 @@ describe('the PlaySID block --- routines 256 to 268', () => {
     expect(after.rt.dme.sid.frames).toBe(before + 16)
   })
 
-  it('Sid Rewind sets the reverse flag first, then steps 32', () => {
+  it('Sid Rewind sets the reverse flag first, but cannot restore history that was not logged', () => {
     const { rt } = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl'], SID)
     const before = rt.dme.sid.frames
     const after = run([SIDLOAD, 'Sid Play 9', 'Wait Vbl', 'Sid Rewind'], SID)
     expect(after.rt.dme.sid.reverse).toBe(true)
-    expect(after.rt.dme.sid.frames).toBe(before + 32)
+    // SetReverseEnable is called immediately before RewindSong. The corrected
+    // PlaySID port only has undo records for frames played while that flag was
+    // already enabled, so the first DME rewind has nothing to restore.
+    expect(after.rt.dme.sid.frames).toBe(before)
   })
 
   it('Sid Channel takes 1 to 4 and refuses everything else', () => {
