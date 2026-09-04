@@ -1279,6 +1279,67 @@ describe('muimaster: Cycle.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Scrollbar.mui 19.35', () => {
+  it('builds a Prop and oriented arrow Images in the configured native order', () => {
+    const m = new MuiMaster()
+    const bar = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Group_Horiz, 1), tag(MUI.MUIA_Scrollbar_Type, MUI.MUIV_Scrollbar_Type_Sym),
+      tag(MUI.MUIA_Prop_Entries, 20), tag(MUI.MUIA_Prop_Visible, 5), tag(MUI.MUIA_Prop_First, 3),
+    ])!
+    const [dec, prop, inc] = m.children(bar)
+    expect([dec!.cl.id, prop!.cl.id, inc!.cl.id]).toEqual([MUIC.MUIC_Image, MUIC.MUIC_Prop, MUIC.MUIC_Image])
+    expect(m.peek(dec!, MUI.MUIA_Image_Spec)).toBe(MUI.MUII_ArrowLeft)
+    expect(m.peek(inc!, MUI.MUIA_Image_Spec)).toBe(MUI.MUII_ArrowRight)
+    expect(m.get(prop!, MUI.MUIA_Prop_Horiz)).toBe(1)
+    expect(m.get(prop!, MUI.MUIA_Prop_First)).toBe(3)
+  })
+
+  it('places both arrows at the selected end and lets window-border Props suppress them', () => {
+    const m = new MuiMaster()
+    const top = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Scrollbar_Type, MUI.MUIV_Scrollbar_Type_Top),
+    ])!
+    expect(m.children(top).map((child) => child.cl.id)).toEqual([MUIC.MUIC_Image, MUIC.MUIC_Image, MUIC.MUIC_Prop])
+    const border = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Prop_UseWinBorder, MUI.MUIV_Prop_UseWinBorder_Right),
+    ])!
+    expect(m.children(border).map((child) => child.cl.id)).toEqual([MUIC.MUIC_Prop])
+  })
+
+  it('maps orientation-specific MUI keys to unit, edge, and page Prop changes', () => {
+    const m = new MuiMaster()
+    const vertical = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Prop_Entries, 100), tag(MUI.MUIA_Prop_Visible, 10), tag(MUI.MUIA_Prop_First, 20),
+    ])!
+    const prop = m.children(vertical).find((child) => child.cl.id === MUIC.MUIC_Prop)!
+    m.doMui(vertical, MUI.MUIM_HandleInput, [0, 3])
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(21)
+    m.doMui(vertical, MUI.MUIM_HandleInput, [0, 4])
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(0)
+    m.doMui(vertical, MUI.MUIM_HandleInput, [0, 7])
+    expect(m.get(prop, MUI.MUIA_Prop_First)).toBe(9)
+    const horizontal = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Group_Horiz, 1), tag(MUI.MUIA_Prop_Entries, 100),
+      tag(MUI.MUIA_Prop_Visible, 10), tag(MUI.MUIA_Prop_First, 20),
+    ])!
+    const hprop = m.children(horizontal).find((child) => child.cl.id === MUIC.MUIC_Prop)!
+    m.doMui(horizontal, MUI.MUIM_HandleInput, [0, 9])
+    expect(m.get(hprop, MUI.MUIA_Prop_First)).toBe(21)
+  })
+
+  it('wires both arrow presses to signed Prop increments', () => {
+    const m = new MuiMaster()
+    const bar = m.newObjectA(MUIC.MUIC_Scrollbar, [
+      tag(MUI.MUIA_Prop_Entries, 20), tag(MUI.MUIA_Prop_Visible, 5), tag(MUI.MUIA_Prop_First, 10),
+    ])!
+    const [dec, prop, inc] = m.children(bar)
+    m.setInternal(dec!, MUI.MUIA_Pressed, 1)
+    expect(m.get(prop!, MUI.MUIA_Prop_First)).toBe(9)
+    m.setInternal(inc!, MUI.MUIA_Pressed, 1)
+    expect(m.get(prop!, MUI.MUIA_Prop_First)).toBe(10)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()

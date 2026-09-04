@@ -760,6 +760,14 @@ interface MuiCycleData extends Record<string, unknown> {
   pressed: boolean
 }
 
+interface MuiScrollbarData extends Record<string, unknown> {
+  prop: BoopsiObject
+  decrement: BoopsiObject
+  increment: BoopsiObject
+  horizontal: boolean
+  type: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -828,6 +836,7 @@ export class MuiMaster {
   readonly numericClass: BoopsiClass
   readonly sliderClass: BoopsiClass
   readonly cycleClass: BoopsiClass
+  readonly scrollbarClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -887,6 +896,7 @@ export class MuiMaster {
     this.numericClass = this.byName.get(MUIC.MUIC_Numeric)!
     this.sliderClass = this.byName.get(MUIC.MUIC_Slider)!
     this.cycleClass = this.byName.get(MUIC.MUIC_Cycle)!
+    this.scrollbarClass = this.byName.get(MUIC.MUIC_Scrollbar)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1707,6 +1717,10 @@ export class MuiMaster {
           this.boopsi.disposeObject(made)
           return 0
         }
+        if (cl === this.scrollbarClass && !this.initScrollbar(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -2204,6 +2218,10 @@ export class MuiMaster {
         }
         if (cl === this.cycleClass) {
           const answered = this.cycleMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.scrollbarClass) {
+          const answered = this.scrollbarMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2768,6 +2786,96 @@ export class MuiMaster {
       const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
       if (entry) this.set(obj, MUI.MUIA_Cycle_Active, this.poolLong(entry.address - this.pool.base + 16))
     }
+  }
+
+  // -- Scrollbar ----------------------------------------------------------
+
+  private initScrollbar(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const horizontal = (attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Group_Horiz)?.data ?? 0) !== 0
+    const type = this.signed(attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Scrollbar_Type)?.data ??
+      MUI.MUIV_Scrollbar_Type_Default)
+    const useWinBorder = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Prop_UseWinBorder)?.data ??
+      MUI.MUIV_Prop_UseWinBorder_None
+    const prop = this.newObjectA(MUIC.MUIC_Prop, [
+      ...attrs,
+      { tag: MUI.MUIA_Prop_Horiz, data: horizontal ? 1 : 0 },
+      { tag: MUI.MUIA_Prop_UseWinBorder, data: useWinBorder },
+      { tag: MUI.MUIA_Frame, data: MUI.MUIV_Frame_Prop },
+    ])
+    const image = (spec: number): BoopsiObject | null => this.newObjectA(MUIC.MUIC_Image, [
+      { tag: MUI.MUIA_Image_Spec, data: spec },
+      { tag: MUI.MUIA_Image_FontMatch, data: 1 },
+      { tag: MUI.MUIA_Frame, data: MUI.MUIV_Frame_ImageButton },
+      { tag: MUI.MUIA_InputMode, data: MUI.MUIV_InputMode_RelVerify },
+      { tag: MUI.MUIA_Background, data: MUI.MUII_ButtonBack },
+    ])
+    const decrement = image(horizontal ? MUI.MUII_ArrowLeft : MUI.MUII_ArrowUp)
+    const increment = image(horizontal ? MUI.MUII_ArrowRight : MUI.MUII_ArrowDown)
+    if (!prop || !decrement || !increment) {
+      if (prop) this.disposeObject(prop)
+      if (decrement) this.disposeObject(decrement)
+      if (increment) this.disposeObject(increment)
+      return false
+    }
+    const d = obj.instData<MuiScrollbarData>(this.scrollbarClass)
+    d.prop = prop
+    d.decrement = decrement
+    d.increment = increment
+    d.horizontal = horizontal
+    d.type = type
+    const common = data(this, obj)
+    common.attrs.set(MUI.MUIA_Group_Horiz, horizontal ? 1 : 0)
+    common.attrs.set(MUI.MUIA_Group_Spacing, 0)
+    common.attrs.set(MUI.MUIA_Scrollbar_Type, type)
+    const effective = type === MUI.MUIV_Scrollbar_Type_Default ? MUI.MUIV_Scrollbar_Type_Sym : type
+    const children = useWinBorder !== MUI.MUIV_Prop_UseWinBorder_None ? [prop]
+      : effective === MUI.MUIV_Scrollbar_Type_Top ? [decrement, increment, prop]
+        : effective === MUI.MUIV_Scrollbar_Type_Sym ? [decrement, prop, increment]
+          : [prop, decrement, increment]
+    common.children.push(...children)
+    for (const child of children) {
+      data(this, child).parent = obj
+      this.setObjectContext(child, common.contextApplication, common.contextConfigdata)
+    }
+    // 19.35 wires each image's repeating Timer to Prop_Increase. Pressed is
+    // the one-shot equivalent supplied by this port's Intuition input path.
+    this.doMui(decrement, MUI.MUIM_Notify,
+      [MUI.MUIA_Pressed, 1, prop.address, 2, MUI.MUIM_Prop_Increase, -1])
+    this.doMui(increment, MUI.MUIM_Notify,
+      [MUI.MUIA_Pressed, 1, prop.address, 2, MUI.MUIM_Prop_Increase, 1])
+    this.rebuildGroupList(obj)
+    return true
+  }
+
+  private scrollbarMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiScrollbarData>(this.scrollbarClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.scrollbarClass, obj, msg)
+        if (answer !== 0) this.redrawArea(obj, 0x400)
+        return answer === 0 ? 0 : 1
+      }
+      case MUI.MUIM_Cleanup:
+        return doSuperMethodA(this.scrollbarClass, obj, msg)
+      case MUI.MUIM_HandleInput:
+        this.handleScrollbarKey(d, this.signed(params[1] ?? -1))
+        return doSuperMethodA(this.scrollbarClass, obj, msg)
+      default: return null
+    }
+  }
+
+  private handleScrollbarKey(d: MuiScrollbarData, key: number): void {
+    const firstKey = d.horizontal ? 8 : 2
+    const offset = key - firstKey
+    if (offset < 0 || offset >= 6) return
+    const visible = Math.max(1, this.get(d.prop, MUI.MUIA_Prop_Visible) ?? 1)
+    if (offset === 0) this.doMui(d.prop, MUI.MUIM_Prop_Increase, [-1])
+    else if (offset === 1) this.doMui(d.prop, MUI.MUIM_Prop_Increase, [1])
+    else if (offset === 2) this.set(d.prop, MUI.MUIA_Prop_First, 0)
+    else if (offset === 3) this.set(d.prop, MUI.MUIA_Prop_First, 99_999)
+    else if (offset === 4) this.doMui(d.prop, MUI.MUIM_Prop_Increase, [1 - visible])
+    else this.doMui(d.prop, MUI.MUIM_Prop_Increase, [visible - 1])
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {
