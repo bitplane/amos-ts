@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
-import { glyphBit, glyphMetrics, parseDiskFont, parseFontDescriptor } from './diskfont'
+import { glyphBit, glyphMetrics, openDiskFont, parseDiskFont, parseFontDescriptor } from './diskfont'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
@@ -11,6 +11,18 @@ import { AmigaFS } from '../amiga/vfs'
 import { NodeVolume } from '../cli/nodefs'
 
 const FONTS = join(__dirname, '..', '..', 'fixtures', 'fonts')
+
+describe('OpenDiskFont descriptor lookup', () => {
+  it('uses ta_Name verbatim rather than adding a .font suffix', () => {
+    const paths: string[] = []
+    const read = (path: string): Uint8Array | null => {
+      paths.push(path)
+      return null
+    }
+    expect(openDiskFont(read, 'topaz', 8)).toBeNull()
+    expect(paths).toEqual(['Fonts:topaz'])
+  })
+})
 
 describe.skipIf(!existsSync(FONTS))('Amiga diskfont format (fonts from the original partition)', () => {
   it('parses .font descriptors (FontContentsHeader $0F00, 260-byte entries)', () => {

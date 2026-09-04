@@ -3620,8 +3620,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * The suffix is appended by `cmpi.b #$2e,-$5(a1) / beq` then five literal
      * bytes — and the changelog dates it: *"Change Font now adds '.font'
-     * automatically, if needed. (Thx Markus)"*. `openDiskFont` here already
-     * did that, worked out from other callers; the binary agrees exactly.
+     * automatically, if needed. (Thx Markus)"*. The comparison is with the
+     * character five bytes from the end, so any four-letter extension counts.
      *
      * The two failures are AMCAF's own requester, not AMOS errors: a missing
      * diskfont.library is message 9 and a font that will not open is 10.
@@ -3646,7 +3646,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       void style
       const s = rt.screen
       if (!s) amcafScreenErr()
-      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, height & 0xffff)
+      const family = name.length >= 5 && name[name.length - 5] === '.' ? name : `${name}.font`
+      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, family, height & 0xffff)
       if (!f) amcafMsg(10) // "Couldn't open font"
       s.rp.font = f
     },

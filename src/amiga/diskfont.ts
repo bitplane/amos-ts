@@ -167,11 +167,9 @@ export function glyphMetrics(f: DiskFont, ch: number): { kern: number; width: nu
  * OpenDiskFont also weighs ta_Style and will accept a near miss, and neither
  * of those is something a caller in this port asks for yet.
  *
- * The `.font` suffix is added when the caller left it off. The library itself
- * does not — `ta_Name` is a filename and "topaz" would simply not be found —
- * but AMOS extensions pass whatever the BASIC program typed, and every
- * surviving example passes the suffix. Accepting both costs nothing and turns
- * a silent nothing-happens into the font the program meant.
+ * `ta_Name` is used as the descriptor filename exactly as supplied. The
+ * library does not append `.font`: extensions which promise that convenience
+ * do it before this call, while a bare name from any other caller fails.
  *
  * `read` is a path reader rather than a filesystem: this file is a format
  * decoder and has no business holding a volume.
@@ -185,8 +183,7 @@ export function openDiskFont(
   name: string,
   ySize: number,
 ): DiskFont | null {
-  const family = /\.font$/i.test(name) ? name : `${name}.font`
-  const desc = read(`Fonts:${family}`)
+  const desc = read(`Fonts:${name}`)
   const entries = desc ? parseFontDescriptor(desc) : null
   const hit = entries?.find((e) => e.ySize === ySize)
   if (!hit) return null
