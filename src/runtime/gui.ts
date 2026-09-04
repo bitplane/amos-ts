@@ -3748,20 +3748,21 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *
      * "Asl.library not found!" is error 13, the `moveq #$d,d7` at $7520.
      *
-     * APPROXIMATED: AMOS's own file selector stands in, the way BUtility's
-     * `Baslfilereq` uses it. What a program can observe -- modal, a path or
-     * an empty string, and the two halves readable afterwards -- is the same;
-     * the chrome and the pattern gadget are not.
+     * The requester is ../amiga/asl.ts's ASL file requester, shared with
+     * BUtility's `Baslfilereq` and Int's `Wb Asl Req`. AllocAslRequest 39.4
+     * seeds a file requester with left 30, top 20, width 318 and height 178
+     * at $218d6c-$218d82; this routine supplies no geometry tags, so those
+     * are the dimensions used here.
      */
     'gui asl$': (it, a): Value => {
       const g = s()
-      if (rt.fsel !== null) {
-        if (!rt.fsel.done) {
-          it.block({ type: 'fsel' }, true)
+      if (rt.asl) {
+        if (!rt.asl.done) {
+          it.block({ type: 'asl' }, true)
           return VS('')
         }
-        const r = rt.fsel.result
-        rt.fsel = null
+        const r = rt.asl.result
+        rt.asl = null
         // $75b8 clears both before the request, so a cancel leaves them empty
         if (r === '') return VS('')
         const cut = Math.max(r.lastIndexOf('/'), r.lastIndexOf(':'))
@@ -3775,9 +3776,24 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       // dates the fourth, "Now Gui Asl$ allows pattern matching" in 1.6
       const [title, dir, file] = [str(a[0]!), str(a[1]!), str(a[2]!)]
       const pattern = a[3] === undefined ? '' : str(a[3])
-      const start = pattern !== '' && /[#?*]/.test(pattern) ? (dir === '' ? pattern : `${dir}/${pattern}`) : dir
-      if (!rt.startFsel(start, file, title, '')) return VS('')
-      it.block({ type: 'fsel' }, true)
+      if (!rt.startAslRequest(
+        {
+          hail: title,
+          okText: '',
+          cancelText: '',
+          left: 30,
+          top: 20,
+          width: 318,
+          height: 178,
+          dir: dir === '' ? (rt.vfs?.currentDir ?? '') : dir,
+          file,
+          pattern,
+          rejectIcons: false,
+          doPatterns: true,
+        },
+        null,
+      )) return VS('')
+      it.block({ type: 'asl' }, true)
       return VS('')
     },
 

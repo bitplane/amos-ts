@@ -1180,8 +1180,9 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
   it('Gui Asl$ joins the drawer and the file, and splits them for the readers', () => {
     const b = boot('A$=Gui Asl$("Pick","RAM:","x.txt","#?") : Print "["+A$+"]["+Gui File$+"]["+Gui Dir$+"]"')
     park(b)
-    expect(b.rt.fsel).not.toBeNull()
-    b.rt.finishFselNow('RAM:Work/thing.txt')
+    expect(b.rt.asl).not.toBeNull()
+    b.rt.asl!.result = 'RAM:Work/thing.txt'
+    b.rt.asl!.done = true
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('[RAM:Work/thing.txt][thing.txt][RAM:Work]')
   })
@@ -1190,7 +1191,8 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
   it('a file in the root of a volume gets no separator of its own', () => {
     const b = boot('A$=Gui Asl$("Pick","","","") : Print "["+A$+"]["+Gui Dir$+"]"')
     park(b)
-    b.rt.finishFselNow('RAM:thing.txt')
+    b.rt.asl!.result = 'RAM:thing.txt'
+    b.rt.asl!.done = true
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('[RAM:thing.txt][RAM:]')
   })
@@ -1199,7 +1201,8 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
   it('a cancel empties the two readers as well', () => {
     const b = boot('A$=Gui Asl$("Pick","RAM:","keep.txt","") : Print "["+A$+"]["+Gui File$+"]["+Gui Dir$+"]"')
     park(b)
-    b.rt.finishFselNow('')
+    b.rt.asl!.result = ''
+    b.rt.asl!.done = true
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('[][][]')
   })
