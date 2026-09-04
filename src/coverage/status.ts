@@ -8722,8 +8722,9 @@ export const NOTES: Record<string, string> = {
     "departures from AROS, whose FormatDate this is written against: %j is leap-correct here where AROS computes " +
     "mday+dayspermonth[month] with no adjustment while its own %U/%W apply one (the two disagree from 1 March of " +
     "any leap year, and the source carries a 'TODO: Julian date not tested' beside it), and %Z expands to nothing " +
-    "because AROS marks it 'Unimplemented in 3.1'. %I is left as AROS has it -- hour%12, so noon and midnight " +
-    "both print 00 -- and flagged as the one directive whose output looks wrong rather than merely different",
+    "because AROS marks it 'Unimplemented in 3.1'. The original locale.library 38.27 machine code confirms %j's " +
+    "leap-aware calculation and confirms that %I/%Q replace an hour%12 remainder of zero with 12; both differ " +
+    "from AROS and are explicitly tested",
   "date$":
     "One of six keywords that are Format Date$ with a locale-supplied format string.",
   "locale string$":

@@ -136,19 +136,17 @@ function printDigits(n: number, fill: string | null, len: number): string {
  * are built from %Q. The compound directives are expanded by recursion, which
  * is what the doc's "same as ..." means and what AROS literally does.
  *
- * Two places where this deliberately does NOT follow AROS, both noted because
- * AROS is a reimplementation and its bugs are not evidence of AmigaOS's:
+ * Two places where AmigaOS 38.27 does NOT follow AROS, both noted because
+ * AROS is a reimplementation and its behaviour is not evidence of AmigaOS's:
  *
  *  - %j. AROS computes `mday + dayspermonth[month]` with no leap-year
  *    adjustment, while its own %U/%W apply one; the two disagree with each
  *    other from 1 March of any leap year, and the source carries a "TODO:
  *    Julian date not tested" beside it. The documented meaning is the day of
  *    the year, so this is leap-correct.
- *  - %I. AROS prints `hour % 12`, which makes both noon and midnight "00".
- *    That is what it does and it is left alone here, because 12-hour clocks
- *    genuinely disagree about the hour and the doc says only "hour using
- *    12-hour style" — but it is the one directive where a program's output
- *    would look wrong rather than merely different, so it is called out.
+ *  - %I/%Q. AROS prints `hour % 12`, which makes both noon and midnight zero.
+ *    The 38.27 machine code explicitly replaces a zero remainder with 12
+ *    before applying the padded (%I) or unpadded (%Q) representation.
  *
  * %Z is documented nowhere in the extension and expands to nothing: AROS
  * marks it "Unimplemented in 3.1", so %C loses that field on a real machine
@@ -175,14 +173,14 @@ export function formatDate(fmt: string, t: Civil, lang?: Language | null): strin
       case 'x': case 'D': out += rec('%m/%d/%y'); break
       case 'e': out += printDigits(t.day, ' ', 2); break
       case 'H': out += printDigits(t.hour, '0', 2); break
-      case 'I': out += printDigits(t.hour % 12, '0', 2); break
+      case 'I': out += printDigits(t.hour % 12 || 12, '0', 2); break
       case 'j': out += printDigits(yearDay(t), '0', 3); break
       case 'm': out += printDigits(t.month, '0', 2); break
       case 'M': out += printDigits(t.min, '0', 2); break
       case 'n': out += '\n'; break
       case 'p': out += getLocaleStr(t.hour < 12 ? STR_ID.AM_STR : STR_ID.PM_STR, lang); break
       case 'q': out += printDigits(t.hour, null, 2); break
-      case 'Q': out += printDigits(t.hour % 12, null, 2); break
+      case 'Q': out += printDigits(t.hour % 12 || 12, null, 2); break
       case 'r': out += rec('%I:%M:%S %p'); break
       case 'R': out += rec('%H:%M'); break
       case 'S': out += printDigits(t.sec, '0', 2); break

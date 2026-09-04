@@ -9,6 +9,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { fixedClock, FIXED_DATE } from '../amiga/host'
 import { parseLanguage, type Language } from '../amiga/language'
+import { formatDate } from '../amiga/localelib'
 import { parseCatalog } from './locale'
 
 /**
@@ -297,11 +298,13 @@ describe('Format Date$ — every directive the doc lists', () => {
     expect(val('Format Date$("%Q")')).toBe('2')
   })
 
-  it('%I is hour%12, so noon and midnight both print 00', () => {
-    // AROS's formatdate.c is `PrintDigits(cData.hour % 12, '0', 2)` with no
-    // 0-becomes-12 special case. Left as it is, and flagged: this is the one
-    // directive where a program's output looks wrong rather than different.
-    expect(val('Format Date$("%I")')).toBe('02') // 14:30
+  it('%I and %Q use 12, not zero, at noon and midnight', () => {
+    // locale.library 38.27 divides the hour by 12 and explicitly replaces a
+    // zero remainder with 12 before choosing padded or unpadded output.
+    const civil = { year: 1994, month: 7, day: 12, weekday: 2, hour: 0, min: 0, sec: 0 }
+    expect(formatDate('%I/%Q', civil)).toBe('12/12')
+    expect(formatDate('%I/%Q', { ...civil, hour: 12 })).toBe('12/12')
+    expect(formatDate('%I/%Q', { ...civil, hour: 14 })).toBe('02/2')
   })
 
   it('%p switches at noon', () => {
