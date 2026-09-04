@@ -96,11 +96,15 @@
 import {
   Boopsi,
   OM_ADDMEMBER,
+  OM_ADDTAIL,
   OM_DISPOSE,
   OM_GET,
   OM_NEW,
+  OM_NOTIFY,
+  OM_REMOVE,
   OM_REMMEMBER,
   OM_SET,
+  OM_UPDATE,
   doSuperMethodA,
   type BoopsiClass,
   type BoopsiObject,
@@ -223,6 +227,7 @@ export const MUIA_CONFIGDATA_FALLBACK = 0x8042e03a
 export const MUIA_CONFIGDATA_SELECTOR = 0x80420444
 export const MUIM_NOTIFY_SET_CONTEXT = 0x8042d532
 export const MUIM_NOTIFY_IS_SELF = 0x8042038f
+export const MUIM_FAMILY_EXCLUSIVE = 0x8042c399
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -350,6 +355,11 @@ interface MuiDataspaceData extends Record<string, unknown> {
 interface MuiConfigdataData extends Record<string, unknown> {
   fallback: BoopsiObject | null
   selector: number
+}
+
+interface MuiFamilyData extends Record<string, unknown> {
+  listAddress: number
+  nodesAddress: number
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -860,8 +870,17 @@ export class MuiMaster {
           made.instData<MuiDataspaceData>(this.dataspaceClass).configRecords = true
           this.applyConfigdataAttrs(made, (msg as OpSet).attrs)
         }
+        if (cl === this.familyClass) {
+          const family = made.instData<MuiFamilyData>(cl)
+          family.listAddress = this.pool.alloc(12, { clear: true })
+          family.nodesAddress = 0
+          if (family.listAddress === 0) return 0
+          data(this, made).ownedAddresses.push(family.listAddress)
+          this.rebuildFamilyList(made)
+        }
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
+        if (cl === this.familyClass) this.rebuildFamilyList(made)
         return made.address
       }
 
@@ -885,6 +904,11 @@ export class MuiMaster {
          * (Notify's) without Text knowing either exists. The answer is the
          * total, because OM_SET's contract is how many attributes were used.
          */
+        if (cl === this.familyClass) {
+          doSuperMethodA(cl, obj, msg)
+          for (const child of [...data(this, obj as BoopsiObject).children]) child.cl.dispatcher(child.cl, child, msg)
+          return 0
+        }
         const attrs = (msg as OpSet).attrs
         const noNotify = attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_NoNotify && attr.data !== 0)
         if (noNotify) this.suppressNotifications++
@@ -900,6 +924,16 @@ export class MuiMaster {
       case OM_GET: {
         const g = msg as OpGet
         const o = obj as BoopsiObject
+        if (cl === this.familyClass && TAG(g.attrID) === MUI.MUIA_Family_List) {
+          g.storage = o.instData<MuiFamilyData>(cl).listAddress
+          return 1
+        }
+        if (cl === this.familyClass) {
+          for (const child of data(this, o).children) {
+            if (child.cl.dispatcher(child.cl, child, msg) !== 0) return 1
+          }
+          return doSuperMethodA(cl, obj, msg)
+        }
         if (cl === this.configdataClass && TAG(g.attrID) === MUIA_CONFIGDATA_FALLBACK) {
           g.storage = o.instData<MuiConfigdataData>(cl).fallback?.address ?? 0
           return 1
@@ -955,6 +989,11 @@ export class MuiMaster {
       case OM_REMMEMBER: {
         const o = obj as BoopsiObject
         const child = (msg as OpMember).object
+        if (cl === this.familyClass) {
+          return msg.MethodID === OM_ADDMEMBER
+            ? this.familyAdd(o, child, 'tail')
+            : this.familyRemove(o, child)
+        }
         if (cl === this.applistClass) {
           const members = o.instData<MuiApplistData>(cl).members
           const i = members.indexOf(child)
@@ -979,6 +1018,11 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.familyClass) {
+          const answered = this.familyMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+          for (const child of [...data(this, obj as BoopsiObject).children]) child.cl.dispatcher(child.cl, child, msg)
+        }
         if (cl === this.configdataClass) {
           const answered = this.configdataMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1060,6 +1104,131 @@ export class MuiMaster {
         return 0
       default:
         return null
+    }
+  }
+
+  // -- Family ------------------------------------------------------------
+
+  private familyMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Family_AddTail:
+        return this.familyAdd(obj, this.boopsi.objectAt(params[0] ?? 0), 'tail')
+      case MUI.MUIM_Family_AddHead:
+        return this.familyAdd(obj, this.boopsi.objectAt(params[0] ?? 0), 'head')
+      case MUI.MUIM_Family_Insert:
+        return this.familyAdd(obj, this.boopsi.objectAt(params[0] ?? 0), 'after', this.boopsi.objectAt(params[1] ?? 0))
+      case MUI.MUIM_Family_Remove:
+        return this.familyRemove(obj, this.boopsi.objectAt(params[0] ?? 0))
+      case MUI.MUIM_Family_Transfer: {
+        const target = this.boopsi.objectAt(params[0] ?? 0)
+        if (!target) return 0
+        for (const child of [...data(this, obj).children]) {
+          this.familyRemove(obj, child)
+          this.addMember(target, child)
+        }
+        return 0
+      }
+      case MUI.MUIM_Family_Sort: {
+        const wanted: BoopsiObject[] = []
+        for (const address of params) {
+          if (address === 0) break
+          const child = this.boopsi.objectAt(address)
+          if (child) wanted.push(child)
+        }
+        const children = data(this, obj).children
+        if (wanted.length === children.length && wanted.every((child) => children.includes(child)) && new Set(wanted).size === children.length) {
+          children.splice(0, children.length, ...wanted)
+          this.rebuildFamilyList(obj)
+        }
+        return 0
+      }
+      case MUI.MUIM_FindUData: {
+        const own = this.peek(obj, MUI.MUIA_UserData) ?? 0
+        if (own === (params[0] ?? 0)) return obj.address
+        for (const child of data(this, obj).children) {
+          const found = this.doMui(child, MUI.MUIM_FindUData, [params[0] ?? 0])
+          if (found !== 0) return found
+        }
+        return 0
+      }
+      case MUI.MUIM_GetUData: {
+        const found = this.familyMethod(obj, { MethodID: MUI.MUIM_FindUData, params: [params[0] ?? 0] } as Msg) ?? 0
+        const target = this.boopsi.objectAt(found)
+        return target ? this.getToAddress(target, params[1] ?? 0, params[2] ?? 0) : 0
+      }
+      case MUIM_FAMILY_EXCLUSIVE: {
+        const except = this.boopsi.objectAt(params[0] ?? 0)
+        let bit = 1
+        for (const child of data(this, obj).children) {
+          if (child !== except && ((params[1] ?? 0) & bit) !== 0) this.set(child, MUI.MUIA_Menuitem_Checked, 0)
+          bit = (bit * 2) >>> 0
+          if (bit === 0x80000000) break
+        }
+        return 0
+      }
+      case OM_ADDTAIL:
+      case OM_REMOVE:
+      case OM_NOTIFY:
+      case OM_UPDATE:
+        return 0
+      default:
+        return null
+    }
+  }
+
+  private familyAdd(obj: BoopsiObject, child: BoopsiObject | null, where: 'head' | 'tail' | 'after', pred: BoopsiObject | null = null): number {
+    if (!child) return 0
+    const children = data(this, obj).children
+    const old = children.indexOf(child)
+    if (old >= 0) children.splice(old, 1)
+    if (where === 'head') children.unshift(child)
+    else if (where === 'after') {
+      const i = pred ? children.indexOf(pred) : -1
+      children.splice(i < 0 ? children.length : i + 1, 0, child)
+    } else children.push(child)
+    data(this, child).parent = obj
+    data(this, child).contextApplication = data(this, obj).contextApplication
+    data(this, child).contextConfigdata = data(this, obj).contextConfigdata
+    this.rebuildFamilyList(obj)
+    return 1
+  }
+
+  private familyRemove(obj: BoopsiObject, child: BoopsiObject | null): number {
+    if (!child) return 0
+    const children = data(this, obj).children
+    const i = children.indexOf(child)
+    if (i >= 0) children.splice(i, 1)
+    data(this, child).parent = null
+    this.rebuildFamilyList(obj)
+    return 1
+  }
+
+  /** A MinList header and twelve-byte nodes whose +8 longword is the object. */
+  private rebuildFamilyList(obj: BoopsiObject): void {
+    const family = obj.instData<MuiFamilyData>(this.familyClass)
+    if (!family?.listAddress) return
+    if (family.nodesAddress !== 0) {
+      this.pool.freeMem(family.nodesAddress)
+      const owned = data(this, obj).ownedAddresses
+      const i = owned.indexOf(family.nodesAddress)
+      if (i >= 0) owned.splice(i, 1)
+      family.nodesAddress = 0
+    }
+    const children = data(this, obj).children
+    if (children.length !== 0) {
+      family.nodesAddress = this.pool.alloc(children.length * 12, { clear: true })
+      if (family.nodesAddress !== 0) data(this, obj).ownedAddresses.push(family.nodesAddress)
+    }
+    const listOff = family.listAddress - this.pool.base
+    this.putPoolLong(listOff, family.nodesAddress)
+    this.putPoolLong(listOff + 4, 0)
+    this.putPoolLong(listOff + 8, children.length === 0 ? family.listAddress : family.nodesAddress + (children.length - 1) * 12)
+    for (let i = 0; i < children.length && family.nodesAddress !== 0; i++) {
+      const at = family.nodesAddress - this.pool.base + i * 12
+      this.putPoolLong(at, i + 1 < children.length ? family.nodesAddress + (i + 1) * 12 : 0)
+      this.putPoolLong(at + 4, i === 0 ? family.listAddress : family.nodesAddress + (i - 1) * 12)
+      this.putPoolLong(at + 8, children[i]!.address)
     }
   }
 
@@ -1569,7 +1738,7 @@ export class MuiMaster {
       const t = { tag: TAG(raw.tag), data: raw.data }
       if (t.tag === MUI.MUIA_NoNotify) continue
       const n = nameOf(t.tag)
-      if (MUI_OWNER[n] !== name) continue
+      if (MUI_OWNER[n] !== name && !(name === 'Family' && t.tag === MUI.MUIA_Group_Child)) continue
       const flags = MUI_ATTR[n]?.flags
       if (flags !== undefined && !flags.includes(need)) continue
       used++

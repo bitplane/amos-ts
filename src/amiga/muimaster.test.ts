@@ -19,6 +19,7 @@ import {
   MUIM_CONFIGDATA_SET,
   MUIM_NOTIFY_IS_SELF,
   MUIM_NOTIFY_SET_CONTEXT,
+  MUIM_FAMILY_EXCLUSIVE,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -382,6 +383,79 @@ describe('muimaster: Configdata', () => {
     expect(send(obj, MUIM_CONFIGDATA_HAS, 1)).toBe(1)
     send(obj, MUIM_DATASPACE_PRUNE, 0)
     expect(send(obj, MUIM_CONFIGDATA_HAS, 1)).toBe(0)
+  })
+})
+
+describe('muimaster: Family', () => {
+  it('adds at head, tail and after a predecessor, then removes and sorts', () => {
+    const m = new MuiMaster()
+    const family = m.newObjectA(MUIC.MUIC_Family)!
+    const a = m.newObjectA(MUIC.MUIC_Notify)!
+    const b = m.newObjectA(MUIC.MUIC_Notify)!
+    const c = m.newObjectA(MUIC.MUIC_Notify)!
+    expect(send(family, MUI.MUIM_Family_AddTail, a.address)).toBe(1)
+    expect(send(family, MUI.MUIM_Family_AddHead, b.address)).toBe(1)
+    expect(send(family, MUI.MUIM_Family_Insert, c.address, b.address)).toBe(1)
+    expect(m.children(family)).toEqual([b, c, a])
+    send(family, MUI.MUIM_Family_Sort, a.address, b.address, c.address, 0)
+    expect(m.children(family)).toEqual([a, b, c])
+    send(family, MUI.MUIM_Family_Sort, a.address, b.address, 0)
+    expect(m.children(family)).toEqual([a, b, c])
+    expect(send(family, MUI.MUIM_Family_Remove, b.address)).toBe(1)
+    expect(m.children(family)).toEqual([a, c])
+    expect(m.parent(b)).toBeNull()
+  })
+
+  it('accepts both Family_Child and Group_Child during construction', () => {
+    const m = new MuiMaster()
+    const a = m.newObjectA(MUIC.MUIC_Notify)!
+    const b = m.newObjectA(MUIC.MUIC_Notify)!
+    const family = m.newObjectA(MUIC.MUIC_Family, [
+      tag(MUI.MUIA_Family_Child, a.address),
+      tag(MUI.MUIA_Group_Child, b.address),
+    ])!
+    expect(m.children(family)).toEqual([a, b])
+  })
+
+  it('exposes an addressable MinList-shaped child list', () => {
+    const m = new MuiMaster()
+    const child = m.newObjectA(MUIC.MUIC_Notify)!
+    const family = m.newObjectA(MUIC.MUIC_Family, [tag(MUI.MUIA_Family_Child, child.address)])!
+    const list = m.get(family, MUI.MUIA_Family_List)!
+    const long = (at: number): number => {
+      const off = at - m.pool.base
+      return (((m.pool.buffer[off]! << 24) | (m.pool.buffer[off + 1]! << 16) | (m.pool.buffer[off + 2]! << 8) | m.pool.buffer[off + 3]!) >>> 0)
+    }
+    const node = long(list)
+    expect(node).not.toBe(0)
+    expect(long(node + 8)).toBe(child.address)
+  })
+
+  it('transfers children in order and recursively searches and gets userdata', () => {
+    const m = new MuiMaster()
+    const child = m.newObjectA(MUIC.MUIC_Notify, [tag(MUI.MUIA_UserData, 77), tag(MUI.MUIA_ExportID, 88)])!
+    const from = m.newObjectA(MUIC.MUIC_Family, [tag(MUI.MUIA_Family_Child, child.address)])!
+    const to = m.newObjectA(MUIC.MUIC_Family)!
+    expect(m.get(from, MUI.MUIA_ExportID)).toBe(88)
+    expect(send(from, MUI.MUIM_FindUData, 77)).toBe(child.address)
+    const values = new Map<number, number>()
+    m.writeLong = (address, value) => (values.set(address, value), true)
+    expect(send(from, MUI.MUIM_GetUData, 77, MUI.MUIA_ExportID, 0x2000)).toBe(1)
+    expect(values.get(0x2000)).toBe(88)
+    expect(send(from, MUI.MUIM_Family_Transfer, to.address)).toBe(0)
+    expect(m.children(from)).toEqual([])
+    expect(m.children(to)).toEqual([child])
+  })
+
+  it('broadcasts unowned methods and implements masked menu exclusivity', () => {
+    const m = new MuiMaster()
+    const a = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Checked, 1)])!
+    const b = m.newObjectA(MUIC.MUIC_Menuitem, [tag(MUI.MUIA_Menuitem_Checked, 1)])!
+    const family = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Family_Child, a.address), tag(MUI.MUIA_Family_Child, b.address)])!
+    send(family, MUI.MUIM_SetUData, 0, MUI.MUIA_UserData, 9)
+    expect([m.get(a, MUI.MUIA_UserData), m.get(b, MUI.MUIA_UserData)]).toEqual([9, 9])
+    expect(send(family, MUIM_FAMILY_EXCLUSIVE, a.address, 3)).toBe(0)
+    expect([m.get(a, MUI.MUIA_Menuitem_Checked), m.get(b, MUI.MUIA_Menuitem_Checked)]).toEqual([1, 0])
   })
 })
 
