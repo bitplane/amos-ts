@@ -111,6 +111,7 @@ import {
   type TagItem,
 } from './boopsi'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
+import { MemPool } from './exec'
 
 /** muimaster_lib.fd, `##bias 30` — the four entry points EasyLife reaches */
 export const LVO_MUI_NewObjectA = -30
@@ -207,6 +208,15 @@ export const MUI_BUILTIN_SUPER: Readonly<Record<string, string>> = {
 export const MUIM_APPLIST_BROADCAST = 0x8042615c
 export const MUIM_APPLIST_FIND = 0x8042e50f
 
+/** Private Dataspace operations present in 19.35's method table. */
+export const MUIM_DATASPACE_EQUAL = 0x8042b393
+export const MUIM_DATASPACE_PRUNE = 0x8042032e
+export const MUIM_DATASPACE_NEXT = 0x80421873
+
+/** Synthetic address range containing Dataspace's AllocPooled records. */
+export const MUI_MEMORY_BASE = 0x2c000000
+export const MUI_MEMORY_RESERVED = 0x04000000
+
 /** one notification recorded by MUIM_Notify */
 export interface Notification {
   trigAttr: number
@@ -288,6 +298,16 @@ interface MuiApplistData extends Record<string, unknown> {
   members: BoopsiObject[]
 }
 
+interface MuiDataspaceEntry {
+  address: number
+  id: number
+  length: number
+}
+
+interface MuiDataspaceData extends Record<string, unknown> {
+  entries: MuiDataspaceEntry[]
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -302,12 +322,22 @@ function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
  */
 export class MuiMaster {
   readonly boopsi: Boopsi
+  /** The native class allocates Dataspace records from a pool and returns pointers into it. */
+  readonly pool = new MemPool(MUI_MEMORY_BASE, MUI_MEMORY_RESERVED)
+  /** Runtime memory bridge used when a method receives or updates a guest pointer. */
+  readMemory: ((address: number, length: number) => Uint8Array | null) | null = null
+  readLong: ((address: number) => number | null) | null = null
+  writeLong: ((address: number, value: number) => boolean) | null = null
+  /** iffparse bridge: one pushed chunk's payload, and the current chunk when reading. */
+  writeIffChunk: ((handle: number, type: number, id: number, bytes: Uint8Array) => number) | null = null
+  readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
   /** "Window.mui" -> its class, which is what MUI_NewObjectA is given */
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
   readonly notifyClass: BoopsiClass
   readonly semaphoreClass: BoopsiClass
   readonly applistClass: BoopsiClass
+  readonly dataspaceClass: BoopsiClass
   readonly familyClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
@@ -336,6 +366,7 @@ export class MuiMaster {
 
     this.semaphoreClass = this.byName.get('Semaphore.mui')!
     this.applistClass = this.byName.get('Applist.mui')!
+    this.dataspaceClass = this.byName.get(MUIC.MUIC_Dataspace)!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
@@ -752,6 +783,7 @@ export class MuiMaster {
           sem.shared = 0
         }
         if (cl === this.applistClass) made.instData<MuiApplistData>(cl).members = []
+        if (cl === this.dataspaceClass) made.instData<MuiDataspaceData>(cl).entries = []
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         return made.address
@@ -759,6 +791,7 @@ export class MuiMaster {
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.dataspaceClass) this.dataspaceClear(o)
         if (cl === this.notifyClass) {
           // children first, and take a copy: each child's own OM_DISPOSE
           // unlinks it from this list on the way out
@@ -840,6 +873,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.dataspaceClass) {
+          const answered = this.dataspaceMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.applistClass) {
           const answered = this.applistMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -914,6 +951,186 @@ export class MuiMaster {
       default:
         return null
     }
+  }
+
+  // -- Dataspace ---------------------------------------------------------
+
+  /**
+   * Dataspace's records are the native sixteen-byte list node followed by
+   * the copied bytes: next/prev/id/length/data.  Keeping that exact layout is
+   * observable because Find returns `record + 16`, while the private iterator
+   * used by Merge returns the record itself.
+   */
+  private dataspaceMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiDataspaceData>(this.dataspaceClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Dataspace_Add: {
+        const [source = 0, length = 0, id = 0] = params
+        if (length < 0) return 0
+        const bytes = this.readMemory?.(source, length) ?? null
+        if (!bytes || bytes.length < length) return 0
+        const address = this.pool.alloc(16 + length)
+        if (address === 0) return 0
+        const old = d.entries.findIndex((entry) => entry.id === TAG(id))
+        if (old >= 0) {
+          this.pool.freeMem(d.entries[old]!.address)
+          d.entries.splice(old, 1)
+        }
+        const entry = { address, id: TAG(id), length }
+        d.entries.push(entry)
+        this.pool.buffer.set(bytes.subarray(0, length), address - this.pool.base + 16)
+        this.linkDataspace(d)
+        return (address + 16) >>> 0
+      }
+      case MUI.MUIM_Dataspace_Remove: {
+        const [id = 0] = params
+        const i = d.entries.findIndex((entry) => entry.id === TAG(id))
+        if (i < 0) return 0
+        const [entry] = d.entries.splice(i, 1)
+        const answer = (entry!.address + 16) >>> 0
+        this.pool.freeMem(entry!.address)
+        this.linkDataspace(d)
+        return answer
+      }
+      case MUI.MUIM_Dataspace_Find: {
+        const [id = 0] = params
+        const entry = d.entries.find((candidate) => candidate.id === TAG(id))
+        return entry ? (entry.address + 16) >>> 0 : 0
+      }
+      case MUI.MUIM_Dataspace_Clear:
+        this.dataspaceClear(obj)
+        return 0
+      case MUI.MUIM_Dataspace_Merge: {
+        const source = this.boopsi.objectAt(params[0] ?? 0)
+        if (!source?.cl.isA(this.dataspaceClass)) return 0
+        let count = 0
+        for (const entry of [...source.instData<MuiDataspaceData>(this.dataspaceClass).entries]) {
+          if (this.dataspaceMethod(obj, {
+            MethodID: MUI.MUIM_Dataspace_Add,
+            params: [(entry.address + 16) >>> 0, entry.length, entry.id],
+          } as Msg) !== 0) count++
+        }
+        return count
+      }
+      case MUI.MUIM_Dataspace_WriteIFF: {
+        const [handle = 0, type = 0, id = 0] = params
+        if (!this.writeIffChunk) return -4 // IFFERR_NOMEM: native cannot open iffparse context
+        const size = d.entries.reduce((sum, entry) => sum + 8 + entry.length, 0)
+        const bytes = new Uint8Array(size)
+        let at = 0
+        for (const entry of d.entries) {
+          putLong(bytes, at, entry.id)
+          putLong(bytes, at + 4, entry.length)
+          bytes.set(this.pool.buffer.subarray(entry.address - this.pool.base + 16, entry.address - this.pool.base + 16 + entry.length), at + 8)
+          at += 8 + entry.length
+        }
+        return this.writeIffChunk(handle, TAG(type), TAG(id), bytes)
+      }
+      case MUI.MUIM_Dataspace_ReadIFF: {
+        const [handle = 0] = params
+        if (!this.readIffChunk) return -4
+        const chunk = this.readIffChunk(handle)
+        if (typeof chunk === 'number') return chunk
+        if (chunk === null) return 0
+        let at = 0
+        while (at + 8 <= chunk.length) {
+          const id = getLong(chunk, at)
+          const length = getLong(chunk, at + 4)
+          at += 8
+          if (length > chunk.length - at) return -4
+          const address = this.pool.alloc(16 + length)
+          if (address === 0) return -4
+          const old = d.entries.findIndex((entry) => entry.id === id)
+          if (old >= 0) {
+            this.pool.freeMem(d.entries[old]!.address)
+            d.entries.splice(old, 1)
+          }
+          d.entries.push({ address, id, length })
+          this.pool.buffer.set(chunk.subarray(at, at + length), address - this.pool.base + 16)
+          at += length
+        }
+        if (at !== chunk.length) return -4
+        this.linkDataspace(d)
+        return 0
+      }
+      case MUIM_DATASPACE_EQUAL: {
+        const other = this.boopsi.objectAt(params[0] ?? 0)
+        if (!other?.cl.isA(this.dataspaceClass)) return 0
+        return this.dataspaceEqual(d, other.instData<MuiDataspaceData>(this.dataspaceClass)) ? 1 : 0
+      }
+      case MUIM_DATASPACE_PRUNE: {
+        const other = this.boopsi.objectAt(params[0] ?? 0)
+        if (!other?.cl.isA(this.dataspaceClass)) return 0
+        const od = other.instData<MuiDataspaceData>(this.dataspaceClass)
+        for (const entry of [...d.entries]) {
+          const match = od.entries.find((candidate) => candidate.id === entry.id)
+          if (match && this.dataspaceEntryEqual(entry, match)) this.dataspaceRemoveEntry(d, entry)
+        }
+        return 0
+      }
+      case MUIM_DATASPACE_NEXT: {
+        const cursorAddress = params[0] ?? 0
+        const cursor = this.readLong?.(cursorAddress) ?? 0
+        const i = cursor === 0 ? 0 : d.entries.findIndex((entry) => entry.address === TAG(cursor))
+        if (i < 0 || i >= d.entries.length) {
+          this.writeLong?.(cursorAddress, 0)
+          return 0
+        }
+        const entry = d.entries[i]!
+        this.writeLong?.(cursorAddress, d.entries[i + 1]?.address ?? 0)
+        return entry.address
+      }
+      default:
+        return null
+    }
+  }
+
+  private dataspaceClear(obj: BoopsiObject): void {
+    const d = obj.instData<MuiDataspaceData>(this.dataspaceClass)
+    for (const entry of d.entries) this.pool.freeMem(entry.address)
+    d.entries = []
+  }
+
+  private dataspaceRemoveEntry(d: MuiDataspaceData, entry: MuiDataspaceEntry): void {
+    const i = d.entries.indexOf(entry)
+    if (i >= 0) d.entries.splice(i, 1)
+    this.pool.freeMem(entry.address)
+    this.linkDataspace(d)
+  }
+
+  private dataspaceEqual(a: MuiDataspaceData, b: MuiDataspaceData): boolean {
+    return a.entries.length === b.entries.length && a.entries.every((entry) => {
+      const other = b.entries.find((candidate) => candidate.id === entry.id)
+      return other !== undefined && this.dataspaceEntryEqual(entry, other)
+    })
+  }
+
+  private dataspaceEntryEqual(a: MuiDataspaceEntry, b: MuiDataspaceEntry): boolean {
+    if (a.length !== b.length) return false
+    const ao = a.address - this.pool.base + 16
+    const bo = b.address - this.pool.base + 16
+    for (let i = 0; i < a.length; i++) if (this.pool.buffer[ao + i] !== this.pool.buffer[bo + i]) return false
+    return true
+  }
+
+  /** Rebuild the native MinList links and the two scalar header fields. */
+  private linkDataspace(d: MuiDataspaceData): void {
+    for (let i = 0; i < d.entries.length; i++) {
+      const entry = d.entries[i]!
+      const off = entry.address - this.pool.base
+      this.putPoolLong(off, d.entries[i + 1]?.address ?? 0)
+      this.putPoolLong(off + 4, d.entries[i - 1]?.address ?? 0)
+      this.putPoolLong(off + 8, entry.id)
+      this.putPoolLong(off + 12, entry.length)
+    }
+  }
+
+  private putPoolLong(off: number, value: number): void {
+    this.pool.buffer[off] = value >>> 24
+    this.pool.buffer[off + 1] = value >>> 16
+    this.pool.buffer[off + 2] = value >>> 8
+    this.pool.buffer[off + 3] = value
   }
 
   // -- Application --------------------------------------------------------
@@ -1263,6 +1480,16 @@ export class MuiMaster {
  * a lookup keyed on the unsigned value misses every attribute in MUI.
  */
 const TAG = (t: number): number => t >>> 0
+
+const getLong = (bytes: Uint8Array, at: number): number =>
+  (((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0)
+
+function putLong(bytes: Uint8Array, at: number, value: number): void {
+  bytes[at] = value >>> 24
+  bytes[at + 1] = value >>> 16
+  bytes[at + 2] = value >>> 8
+  bytes[at + 3] = value
+}
 
 /**
  * A label's length in characters, with MUI's own escapes taken out.

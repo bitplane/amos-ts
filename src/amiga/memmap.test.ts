@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { Runtime } from '../runtime/runtime'
 import { findRegion, regionOverlaps, type MemRegion } from './memmap'
+import { MUI, MUIC } from './muimaster.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -48,6 +49,17 @@ describe('address space map', () => {
     expect(m?.data[m.off]).toBe(0x5a)
     // past the buffer it stops mapping again, rather than reading off the end
     expect(rt.resolveAddr(Runtime.TEMP_BUFFER_BASE + 16)).toBeNull()
+  })
+
+  it('maps bytes returned by Dataspace Find into the shared address space', () => {
+    const rt = boot()
+    rt.tempBuffer = Uint8Array.of(0x12, 0x34, 0x56)
+    const ds = rt.mui.newObjectA(MUIC.MUIC_Dataspace)!
+    const pointer = rt.mui.doMui(ds, MUI.MUIM_Dataspace_Add, [Runtime.TEMP_BUFFER_BASE, 3, 7])
+    expect(pointer).not.toBe(0)
+    const mapped = rt.resolveAddr(pointer)
+    expect(mapped && [...mapped.data.slice(mapped.off, mapped.off + 3)]).toEqual([0x12, 0x34, 0x56])
+    expect(findRegion(regions(rt), pointer)?.name).toBe('MUI dataspace')
   })
 
   it('a slotted region claims its whole span, so an empty slot is null not fall-through', () => {

@@ -8,6 +8,9 @@ import {
   MUI_MAXMAX,
   MUIM_APPLIST_BROADCAST,
   MUIM_APPLIST_FIND,
+  MUIM_DATASPACE_EQUAL,
+  MUIM_DATASPACE_NEXT,
+  MUIM_DATASPACE_PRUNE,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -222,6 +225,98 @@ describe('muimaster: Applist', () => {
     expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_Title, 3)).toBe(b.address)
     expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_BrokerPort, 0x1234)).toBe(a.address)
     expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_BrokerPort, 0x9999)).toBe(0)
+  })
+})
+
+describe('muimaster: Dataspace', () => {
+  function harness(): { m: MuiMaster; put: (bytes: number[]) => number; longs: Map<number, number> } {
+    const m = new MuiMaster()
+    const input = new Uint8Array(256)
+    let used = 0
+    const put = (bytes: number[]): number => {
+      const at = 0x1000 + used
+      input.set(bytes, used)
+      used += bytes.length
+      return at
+    }
+    m.readMemory = (address, length) => {
+      if (address >= 0x1000 && address + length <= 0x1000 + input.length) {
+        return input.slice(address - 0x1000, address - 0x1000 + length)
+      }
+      if (address >= m.pool.base && address + length <= m.pool.base + m.pool.buffer.length) {
+        return m.pool.buffer.slice(address - m.pool.base, address - m.pool.base + length)
+      }
+      return null
+    }
+    const longs = new Map<number, number>()
+    m.readLong = (address) => longs.get(address) ?? 0
+    m.writeLong = (address, value) => (longs.set(address, value >>> 0), true)
+    return { m, put, longs }
+  }
+
+  it('copies, finds, replaces, removes and clears addressable byte records', () => {
+    const { m, put } = harness()
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    const first = send(ds, MUI.MUIM_Dataspace_Add, put([1, 2, 3]), 3, 42)
+    expect(first).not.toBe(0)
+    expect(send(ds, MUI.MUIM_Dataspace_Find, 42)).toBe(first)
+    expect([...m.pool.buffer.slice(first - m.pool.base, first - m.pool.base + 3)]).toEqual([1, 2, 3])
+    const second = send(ds, MUI.MUIM_Dataspace_Add, put([9, 8]), 2, 42)
+    expect(send(ds, MUI.MUIM_Dataspace_Find, 42)).toBe(second)
+    expect([...m.pool.buffer.slice(second - m.pool.base, second - m.pool.base + 2)]).toEqual([9, 8])
+    expect(send(ds, MUI.MUIM_Dataspace_Remove, 42)).toBe(second)
+    expect(send(ds, MUI.MUIM_Dataspace_Remove, 42)).toBe(0)
+    send(ds, MUI.MUIM_Dataspace_Add, put([7]), 1, 1)
+    expect(send(ds, MUI.MUIM_Dataspace_Clear)).toBe(0)
+    expect(send(ds, MUI.MUIM_Dataspace_Find, 1)).toBe(0)
+  })
+
+  it('merges, compares and prunes records by id, length and contents', () => {
+    const { m, put } = harness()
+    const a = m.newObjectA(MUIC.MUIC_Dataspace)!
+    const b = m.newObjectA(MUIC.MUIC_Dataspace)!
+    send(a, MUI.MUIM_Dataspace_Add, put([1]), 1, 10)
+    send(b, MUI.MUIM_Dataspace_Add, put([1]), 1, 10)
+    send(b, MUI.MUIM_Dataspace_Add, put([2, 3]), 2, 20)
+    expect(send(a, MUIM_DATASPACE_EQUAL, b.address)).toBe(0)
+    expect(send(a, MUI.MUIM_Dataspace_Merge, b.address)).toBe(2)
+    expect(send(a, MUIM_DATASPACE_EQUAL, b.address)).toBe(1)
+    expect(send(a, MUIM_DATASPACE_PRUNE, b.address)).toBe(0)
+    expect(send(a, MUI.MUIM_Dataspace_Find, 10)).toBe(0)
+    expect(send(a, MUI.MUIM_Dataspace_Find, 20)).toBe(0)
+  })
+
+  it('the private iterator returns native record headers and advances its cursor', () => {
+    const { m, put, longs } = harness()
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    const payload1 = send(ds, MUI.MUIM_Dataspace_Add, put([4]), 1, 11)
+    const payload2 = send(ds, MUI.MUIM_Dataspace_Add, put([5]), 1, 12)
+    const cursor = 0x2000
+    expect(send(ds, MUIM_DATASPACE_NEXT, cursor)).toBe(payload1 - 16)
+    expect(longs.get(cursor)).toBe(payload2 - 16)
+    expect(send(ds, MUIM_DATASPACE_NEXT, cursor)).toBe(payload2 - 16)
+    expect(longs.get(cursor)).toBe(0)
+    expect(send(ds, MUIM_DATASPACE_NEXT, cursor)).toBe(payload1 - 16)
+  })
+
+  it('writes and reads the native id/length/data IFF chunk payload', () => {
+    const { m, put } = harness()
+    const source = m.newObjectA(MUIC.MUIC_Dataspace)!
+    send(source, MUI.MUIM_Dataspace_Add, put([0xaa, 0xbb]), 2, 0x11223344)
+    let saved: Uint8Array | null = null
+    m.writeIffChunk = (handle, type, id, bytes) => {
+      expect([handle, type, id]).toEqual([9, 0x50524546, 0x4d554943])
+      saved = bytes.slice()
+      return 0
+    }
+    expect(send(source, MUI.MUIM_Dataspace_WriteIFF, 9, 0x50524546, 0x4d554943)).toBe(0)
+    expect(saved && [...saved]).toEqual([0x11, 0x22, 0x33, 0x44, 0, 0, 0, 2, 0xaa, 0xbb])
+
+    const target = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.readIffChunk = (handle) => (handle === 9 ? saved : -1)
+    expect(send(target, MUI.MUIM_Dataspace_ReadIFF, 9)).toBe(0)
+    const found = send(target, MUI.MUIM_Dataspace_Find, 0x11223344)
+    expect([...m.pool.buffer.slice(found - m.pool.base, found - m.pool.base + 2)]).toEqual([0xaa, 0xbb])
   })
 })
 

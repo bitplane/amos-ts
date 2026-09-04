@@ -16,7 +16,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
 import { Intuition } from '../amiga/intuition'
 import { Boopsi } from '../amiga/boopsi'
-import { MuiMaster } from '../amiga/muimaster'
+import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster } from '../amiga/muimaster'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
 import { bufferRegion, byteRegister, claimedRegion, findRegion, readOnlyRegister, slottedRegion, within } from '../amiga/memmap'
@@ -1345,6 +1345,10 @@ export class Runtime {
   static readonly INTUIEXTEND_HEAP_BASE = 0x30000000
   static readonly INTUIEXTEND_HEAP_RESERVED = 0x04000000
 
+  /** Dataspace's native AllocPooled records, exposed by MUIM_Dataspace_Find. */
+  static readonly MUI_MEMORY_BASE = MUI_MEMORY_BASE
+  static readonly MUI_MEMORY_RESERVED = MUI_MEMORY_RESERVED
+
   /**
    * Explode 2.01's `Rs Structure` pool, and the strings `Rs Aptr` puts
    * pointers to.
@@ -1994,6 +1998,9 @@ export class Runtime {
     readOnlyRegister('JOY0DAT', JOY0DAT, 2, () => this.machine.joyDat(0)),
     readOnlyRegister('JOY1DAT', JOY1DAT, 2, () => this.machine.joyDat(1)),
     readOnlyRegister('POTGOR', POTGOR, 2, () => this.machine.potgor()),
+    bufferRegion('MUI dataspace', Runtime.MUI_MEMORY_BASE, Runtime.MUI_MEMORY_RESERVED, () =>
+      this.muiBase ? this.muiBase.pool.buffer : null,
+    ),
     bufferRegion(
       'IntuiExtend heap',
       Runtime.INTUIEXTEND_HEAP_BASE,
@@ -2487,7 +2494,26 @@ export class Runtime {
   private muiBase: MuiMaster | null = null
 
   get mui(): MuiMaster {
-    this.muiBase ??= new MuiMaster(this.boopsi)
+    if (!this.muiBase) {
+      const mui = new MuiMaster(this.boopsi)
+      mui.readMemory = (address, length) => {
+        const out = new Uint8Array(length)
+        for (let i = 0; i < length; i++) {
+          const m = this.resolveAddr((address + i) >>> 0)
+          if (!m) return null
+          out[i] = m.data[m.off]!
+        }
+        return out
+      }
+      mui.readLong = (address) => this.longsAt(address, false)?.getU(0) ?? null
+      mui.writeLong = (address, value) => {
+        const p = this.longsAt(address, true)
+        if (!p) return false
+        p.set(0, value)
+        return true
+      }
+      this.muiBase = mui
+    }
     return this.muiBase
   }
 
