@@ -222,17 +222,12 @@ describe('the ASL file requester', () => {
     expect(b.rt.asl).not.toBeNull()
   })
 
-  /**
-   * DEVIATION: the font and screen-mode requesters open nothing. The library
-   * has both and this port has neither, and the routine's own shape makes it
-   * harmless -- `cmpi.l #$0,d4 / bne` after AslRequest means only the FILE
-   * type goes on to join a path, so the other two answer the empty string on
-   * the machine as well.
-   */
-  it('the font and screen-mode types are not this requester', () => {
+  /** `cmpi.l #$0,d4 / bne` means both dialogs open but neither returns a path. */
+  it('the font and screen-mode types open their own requester', () => {
     for (const type of [1, 2]) {
       const b = boot(`F$=Wb Asl Req("P","Ok","Cancel",${type},1,20,20,280,160)\nPrint "["+F$+"]"`)
       expect(b.rt.asl).toBeNull()
+      expect(type === 1 ? b.rt.aslFont : b.rt.aslMode).not.toBeNull()
       mustFinish(b.rt.runHeadless(200))
       expect(b.out().trim()).toBe('[]')
     }

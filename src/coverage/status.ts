@@ -5193,9 +5193,9 @@ export const NOTES: Record<string, string> = {
     "already ends in one or in a `:`. The FILE requester is ../amiga/asl.ts and ../runtime/aslreq.ts: every " +
     "word it puts on screen is read out of `asl.library` itself (the WB 3.0 copy in the corpus carries " +
     "`asl 39.4 (18.8.92)` at $4e), and its PIXEL LAYOUT is modelled rather than ported, which asl.ts's header " +
-    "says in as many words. DEVIATION: the FONT and SCREEN-MODE requesters open nothing and answer the empty " +
-    "string. The routine's own shape softens that -- `cmpi.l #$0,d4 / bne` after AslRequest means only the file " +
-    "type goes on to join a path, so neither answers one on the machine either.",
+    "says in as many words. The FONT and SCREEN-MODE requesters are separate layouts on the same frame and both " +
+    "open, but `cmpi.l #$0,d4 / bne` after AslRequest means only the file type goes on to join a path, so neither " +
+    "answers a string on the machine or in the port.",
   "wb image to window":
     "Routine 50 ($3998), 1,190 bytes: a full ILBM decoder over BMHD, CMAP, CRNG and CAMG, unpacking the BODY " +
     "into memory it AllocMems, then DrawImage (-$72) at 0,0 and LoadRGB4 (-$c0). So the picture lands at the " +

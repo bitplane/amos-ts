@@ -3,8 +3,9 @@
  *
  * ## What is sourced here, and what is not
  *
- * `asl.library` itself is in the corpus, three copies of it, and the WB 3.0
- * one is an ordinary hunk binary carrying `asl 39.4 (18.8.92)` at $4e. Every
+ * `asl.library` itself is in the corpus in seven files spanning three distinct
+ * releases. The highest, WB 3.0's 39.4 (18.8.92), is an ordinary hunk binary.
+ * Every
  * STRING below is read out of it and quoted as it is spelled there: the
  * default titles at $5b82, $5b24 and $5966, the field labels at $5b9e, $5ba6
  * and $5bac, and the buttons at $5b8e, $5b96, $5ca0 and $5ca6. The library
