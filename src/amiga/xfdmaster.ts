@@ -366,11 +366,9 @@ export function recogBuffer(bi: XfdBufferInfo, slaves: readonly XfdSlave[] = SLA
 /**
  * `xfdDecrunchBuffer(bufferinfo)` (-60).
  *
- * Recognises first when nothing has, which is what a caller that skipped
- * `recogBuffer` would get on the machine through the Slave field being empty:
- * XFDERR_NOSLAVE.
- *
- * DEVIATION: recognising here instead, which is friendlier and is one line.
+ * The caller must have successfully called `recogBuffer` first. The binary at
+ * `$4fa..$502` reads the private Slave pointer and returns XFDERR_NOSLAVE when
+ * it is null; it does not perform recognition as a convenience.
  *
  * A codec that throws or answers null becomes XFDERR_CORRUPTEDDATA, which is
  * the header's "Crunched data is corrupted" and is what a truncated or
@@ -379,7 +377,10 @@ export function recogBuffer(bi: XfdBufferInfo, slaves: readonly XfdSlave[] = SLA
 export function decrunchBuffer(bi: XfdBufferInfo, slaves: readonly XfdSlave[] = SLAVES): boolean {
   bi.targetBuffer = undefined
   bi.targetBufSaveLen = undefined
-  if (bi.packerName === undefined && !recogBuffer(bi, slaves)) return false
+  if (bi.packerName === undefined) {
+    bi.error = XFDERR.NOSLAVE
+    return false
+  }
   const slave = slaves.find((s) => s.name === bi.packerName)
   if (slave === undefined) {
     bi.error = XFDERR.NOSLAVE

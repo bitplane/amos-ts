@@ -133,6 +133,7 @@ describe('recognition', () => {
 describe('decrunching', () => {
   it('round-trips PowerPacker back to the exact bytes', () => {
     const bi: XfdBufferInfo = { sourceBuffer: pp20Crunch(SAMPLE) }
+    expect(recogBuffer(bi)).toBe(true)
     expect(decrunchBuffer(bi)).toBe(true)
     expect(bi.error).toBe(XFDERR.OK)
     expect(bi.targetBufSaveLen).toBe(SAMPLE.length)
@@ -141,16 +142,16 @@ describe('decrunching', () => {
 
   it('round-trips StoneCracker back to the exact bytes', () => {
     const bi: XfdBufferInfo = { sourceBuffer: stcCrunch(SAMPLE) }
+    expect(recogBuffer(bi)).toBe(true)
     expect(decrunchBuffer(bi)).toBe(true)
     expect([...bi.targetBuffer!]).toEqual([...SAMPLE])
   })
 
-  /** recognising first is this port's convenience; the machine answers NOSLAVE */
-  it('recognises on its own when the caller skipped recogBuffer', () => {
+  it('answers NOSLAVE when the caller skipped recogBuffer', () => {
     const bi: XfdBufferInfo = { sourceBuffer: pp20Crunch(SAMPLE) }
     expect(bi.packerName).toBeUndefined()
-    expect(decrunchBuffer(bi)).toBe(true)
-    expect(bi.packerName).toBe('PowerPacker')
+    expect(decrunchBuffer(bi)).toBe(false)
+    expect(bi.error).toBe(XFDERR.NOSLAVE)
   })
 
   /**
