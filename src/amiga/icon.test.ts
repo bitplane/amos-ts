@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { ICON_MAGIC, iconToolTypes } from './icon'
+import { ICON_MAGIC, ICON_VERSION, iconToolTypes } from './icon'
 
 describe('iconToolTypes: what is not an icon', () => {
   it('rejects anything without the $E310 magic, and anything too short', () => {
@@ -12,18 +12,32 @@ describe('iconToolTypes: what is not an icon', () => {
     expect(iconToolTypes(short)).toBeNull()
   })
 
+  it('requires WB_DISKVERSION 1 as icon.library 34.2 does', () => {
+    const b = new Uint8Array(78)
+    const dv = new DataView(b.buffer)
+    dv.setUint16(0, ICON_MAGIC)
+    expect(iconToolTypes(b)).toBeNull()
+    dv.setUint16(2, ICON_VERSION)
+    expect(iconToolTypes(b)).toEqual([])
+    dv.setUint16(2, 2)
+    expect(iconToolTypes(b)).toBeNull()
+  })
+
   it('a truncated icon is null, not an icon with no tool types', () => {
     // magic and a non-zero do_ToolTypes, but the file stops before the array
     const b = new Uint8Array(78)
     const dv = new DataView(b.buffer)
     dv.setUint16(0, ICON_MAGIC)
+    dv.setUint16(2, ICON_VERSION)
     dv.setUint32(0x36, 0x1234)
     expect(iconToolTypes(b)).toBeNull()
   })
 
   it('a DiskObject with a null do_ToolTypes has none, which is not the same as null', () => {
     const b = new Uint8Array(78)
-    new DataView(b.buffer).setUint16(0, ICON_MAGIC)
+    const dv = new DataView(b.buffer)
+    dv.setUint16(0, ICON_MAGIC)
+    dv.setUint16(2, ICON_VERSION)
     expect(iconToolTypes(b)).toEqual([])
   })
 })

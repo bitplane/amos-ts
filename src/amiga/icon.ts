@@ -41,6 +41,8 @@
 
 /** `do_Magic` — WB_DISKMAGIC. A file without it is not an icon. */
 export const ICON_MAGIC = 0xe310
+/** `do_Version` — WB_DISKVERSION, checked beside the magic by 34.2. */
+export const ICON_VERSION = 1
 
 /** `sizeof(struct DiskObject)` */
 const DISK_OBJECT_BYTES = 78
@@ -110,7 +112,7 @@ export interface Icon {
 export function readIcon(bytes: Uint8Array): Icon | null {
   if (bytes.length < DISK_OBJECT_BYTES) return null
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.length)
-  if (dv.getUint16(0) !== ICON_MAGIC) return null
+  if (dv.getUint16(0) !== ICON_MAGIC || dv.getUint16(2) !== ICON_VERSION) return null
 
   const gadgetRender = dv.getUint32(0x16)
   const selectRender = dv.getUint32(0x1a)
