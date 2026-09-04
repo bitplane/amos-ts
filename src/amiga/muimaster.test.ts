@@ -23,6 +23,7 @@ import {
   MUIM_MENUSTRIP_BUILD,
   MUIM_MENUSTRIP_FREE,
   MUIM_MENUSTRIP_UPDATE,
+  MUIM_MENU_SYNC,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -511,6 +512,62 @@ describe('muimaster: Menustrip', () => {
     const b = send(strip, MUIM_MENUSTRIP_BUILD)
     m.disposeObject(strip)
     expect([m.pool.sizeOf(a), m.pool.sizeOf(b)]).toEqual([0, 0])
+  })
+})
+
+describe('muimaster: Menu', () => {
+  const long = (m: MuiMaster, address: number): number => {
+    const at = address - m.pool.base
+    return (((m.pool.buffer[at]! << 24) | (m.pool.buffer[at + 1]! << 16) | (m.pool.buffer[at + 2]! << 8) | m.pool.buffer[at + 3]!) >>> 0)
+  }
+
+  it('defaults to an enabled menu titled Unnamed', () => {
+    const m = new MuiMaster()
+    const menu = m.newObjectA(MUIC.MUIC_Menu)!
+    expect(m.get(menu, MUI.MUIA_Menu_Enabled)).toBe(1)
+    const title = m.get(menu, MUI.MUIA_Menu_Title)!
+    expect(String.fromCharCode(...m.pool.buffer.slice(title - m.pool.base, title - m.pool.base + 8))).toBe('Unnamed\0')
+  })
+
+  it('fills the exact 20-byte NewMenu title record used by Menustrip', () => {
+    const m = new MuiMaster()
+    const menu = m.newObjectA(MUIC.MUIC_Menu, [tag(MUI.MUIA_Menu_Title, 0x12345678)])!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    expect(handle).not.toBe(0)
+    expect(m.pool.buffer[handle - m.pool.base]).toBe(1)
+    expect(long(m, handle + 2)).toBe(0x12345678)
+    const key = long(m, handle + 6)
+    expect(String.fromCharCode(...m.pool.buffer.slice(key - m.pool.base, key - m.pool.base + 2))).toBe('a\0')
+    expect(((m.pool.buffer[handle + 10 - m.pool.base]! << 8) | m.pool.buffer[handle + 11 - m.pool.base]!)).toBe(0)
+    expect(long(m, handle + 16)).toBe(menu.address)
+    expect([...m.pool.buffer.slice(handle - m.pool.base + 20, handle - m.pool.base + 40)]).toEqual(new Array(20).fill(0))
+  })
+
+  it('updates its parent for attributes and family mutations', () => {
+    const m = new MuiMaster()
+    const menu = m.newObjectA(MUIC.MUIC_Menu)!
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip, [tag(MUI.MUIA_Family_Child, menu.address)])!
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    let updates = 0
+    m.menuChanged = () => updates++
+    m.set(menu, MUI.MUIA_Menu_Enabled, 0)
+    m.set(menu, MUI.MUIA_Menu_Title, 0x1111)
+    const item = m.newObjectA(MUIC.MUIC_Menuitem)!
+    expect(send(menu, MUI.MUIM_Family_AddTail, item.address)).toBe(0)
+    expect(updates).toBe(3)
+    send(strip, MUIM_MENUSTRIP_FREE, handle)
+  })
+
+  it('synchronizes enabled state into bit zero of an Intuition Menu', () => {
+    const m = new MuiMaster()
+    const menu = m.newObjectA(MUIC.MUIC_Menu)!
+    const memory = m.pool.alloc(16, { clear: true })
+    expect(send(menu, MUIM_MENU_SYNC, memory)).toBe(0)
+    expect(m.pool.buffer[memory + 13 - m.pool.base]! & 1).toBe(1)
+    m.set(menu, MUI.MUIA_Menu_Enabled, 0)
+    send(menu, MUIM_MENU_SYNC, memory)
+    expect(m.pool.buffer[memory + 13 - m.pool.base]! & 1).toBe(0)
   })
 })
 

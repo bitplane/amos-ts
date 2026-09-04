@@ -232,6 +232,7 @@ export const MUIM_MENUSTRIP_BUILD = 0x80427efd
 export const MUIM_MENUSTRIP_FREE = 0x8042e15f
 export const MUIM_MENUSTRIP_UPDATE = 0x8042ed51
 export const MUIM_MENU_FILL_NEWMENU = 0x804207c9
+export const MUIM_MENU_SYNC = 0x804241d4
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -399,6 +400,7 @@ export class MuiMaster {
   private readonly configDefaultPointers = new Map<number, number>()
   private suppressNotifications = 0
   private sharedConfigdata: BoopsiObject | null = null
+  private readonly literalPointers = new Map<string, number>()
   /** "Window.mui" -> its class, which is what MUI_NewObjectA is given */
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
@@ -409,6 +411,7 @@ export class MuiMaster {
   readonly configdataClass: BoopsiClass
   readonly familyClass: BoopsiClass
   readonly menustripClass: BoopsiClass
+  readonly menuClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
@@ -452,6 +455,7 @@ export class MuiMaster {
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.menustripClass = this.byName.get(MUIC.MUIC_Menustrip)!
+    this.menuClass = this.byName.get(MUIC.MUIC_Menu)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
@@ -894,6 +898,10 @@ export class MuiMaster {
           made.instData<MuiMenustripData>(cl).handles = new Set()
           data(this, made).attrs.set(MUI.MUIA_Menustrip_Enabled, 1)
         }
+        if (cl === this.menuClass) {
+          data(this, made).attrs.set(MUI.MUIA_Menu_Title, this.literalAddress('Unnamed'))
+          data(this, made).attrs.set(MUI.MUIA_Menu_Enabled, 1)
+        }
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         if (cl === this.familyClass) this.rebuildFamilyList(made)
@@ -924,6 +932,21 @@ export class MuiMaster {
          * (Notify's) without Text knowing either exists. The answer is the
          * total, because OM_SET's contract is how many attributes were used.
          */
+        if (cl === this.menuClass) {
+          const attrs = (msg as OpSet).attrs
+          let change = 0
+          for (const attr of attrs) {
+            if (TAG(attr.tag) === MUI.MUIA_Menuitem_Title) {
+              this.setInternal(obj as BoopsiObject, MUI.MUIA_Menu_Title, attr.data)
+              change = 2
+            } else if (TAG(attr.tag) === MUI.MUIA_Menu_Title) change = 2
+            else if (TAG(attr.tag) === MUI.MUIA_Menu_Enabled) change ||= 1
+          }
+          const own = this.applyOwn(name, obj as BoopsiObject, attrs, 's') ? this.setCount : 0
+          const answer = own + doSuperMethodA(cl, obj, msg)
+          if (change !== 0) this.menuUpdateParent(obj as BoopsiObject, change)
+          return answer
+        }
         if (cl === this.familyClass) {
           doSuperMethodA(cl, obj, msg)
           for (const child of [...data(this, obj as BoopsiObject).children]) child.cl.dispatcher(child.cl, child, msg)
@@ -1009,6 +1032,11 @@ export class MuiMaster {
       case OM_REMMEMBER: {
         const o = obj as BoopsiObject
         const child = (msg as OpMember).object
+        if (cl === this.menuClass) {
+          doSuperMethodA(cl, obj, msg)
+          this.menuUpdateParent(o, 3)
+          return 0
+        }
         if (cl === this.menustripClass) {
           doSuperMethodA(cl, obj, msg)
           this.menustripUpdate(o)
@@ -1043,6 +1071,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.menuClass) {
+          const answered = this.menuMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.menustripClass) {
           const answered = this.menustripMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1138,6 +1170,72 @@ export class MuiMaster {
 
   // -- Family ------------------------------------------------------------
 
+  private menuMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUIM_MENU_FILL_NEWMENU: {
+        let address = params[0] ?? 0
+        const type = params[1] ?? 1
+        const record = new Uint8Array(20)
+        record[0] = type
+        putWord(record, 10, (this.peek(obj, MUI.MUIA_Menu_Enabled) ?? 1) !== 0 ? 0 : 1)
+        putLong(record, 2, this.peek(obj, MUI.MUIA_Menu_Title) ?? this.literalAddress('Unnamed'))
+        putLong(record, 6, this.literalAddress('a'))
+        putLong(record, 16, obj.address)
+        if (!this.writeBytes(address, record)) return 0
+        address += 20
+        for (const child of data(this, obj).children) {
+          if (this.doMui(child, MUIM_MENU_FILL_NEWMENU, [address, type + 1]) === 0) return 0
+          address += this.menuTreeSize(child) * 20
+        }
+        return 1
+      }
+      case MUIM_MENU_SYNC: {
+        const address = params[0] ?? 0
+        const old = address + 13 >= this.pool.base && address + 13 < this.pool.base + this.pool.buffer.length
+          ? this.pool.buffer[address + 13 - this.pool.base]!
+          : this.readMemory?.(address + 13, 1)?.[0] ?? 0
+        const enabled = (this.peek(obj, MUI.MUIA_Menu_Enabled) ?? 1) !== 0
+        this.writeBytes(address + 13, Uint8Array.of(enabled ? old | 1 : old & 0xfe))
+        return 0
+      }
+      case MUI.MUIM_Family_AddTail:
+      case MUI.MUIM_Family_AddHead:
+      case MUI.MUIM_Family_Insert:
+      case MUI.MUIM_Family_Remove:
+        doSuperMethodA(this.menuClass, obj, msg)
+        this.menuUpdateParent(obj, 3)
+        return 0
+      default:
+        return null
+    }
+  }
+
+  private menuUpdateParent(obj: BoopsiObject, kind: number): void {
+    const parent = data(this, obj).parent
+    if (parent?.cl.isA(this.menustripClass)) this.doMui(parent, MUIM_MENUSTRIP_UPDATE, [obj.address, kind])
+  }
+
+  private literalAddress(value: string): number {
+    const have = this.literalPointers.get(value)
+    if (have !== undefined) return have
+    const bytes = Uint8Array.from([...value, '\0'], (c) => c.charCodeAt(0))
+    const address = this.pool.alloc(bytes.length)
+    if (address !== 0) {
+      this.pool.buffer.set(bytes, address - this.pool.base)
+      this.literalPointers.set(value, address)
+    }
+    return address
+  }
+
+  private writeBytes(address: number, bytes: Uint8Array): boolean {
+    if (address >= this.pool.base && address + bytes.length <= this.pool.base + this.pool.buffer.length) {
+      this.pool.buffer.set(bytes, address - this.pool.base)
+      return true
+    }
+    return this.writeMemory?.(address, bytes) ?? false
+  }
+
   private menustripMethod(obj: BoopsiObject, msg: Msg): number | null {
     const params = (msg as Msg & { params?: readonly number[] }).params ?? []
     const d = obj.instData<MuiMenustripData>(this.menustripClass)
@@ -1146,11 +1244,13 @@ export class MuiMaster {
         const count = this.menuTreeSize(obj) + 1
         const handle = this.pool.alloc(count * 20, { clear: true })
         if (handle === 0) return 0
+        let address = handle
         for (const child of data(this, obj).children) {
-          if (this.doMui(child, MUIM_MENU_FILL_NEWMENU, [handle, 1]) === 0) {
+          if (this.doMui(child, MUIM_MENU_FILL_NEWMENU, [address, 1]) === 0) {
             this.pool.freeMem(handle)
             return 0
           }
+          address += this.menuTreeSize(child) * 20
         }
         d.handles.add(handle)
         return handle
@@ -2058,6 +2158,11 @@ function putLong(bytes: Uint8Array, at: number, value: number): void {
   bytes[at + 1] = value >>> 16
   bytes[at + 2] = value >>> 8
   bytes[at + 3] = value
+}
+
+function putWord(bytes: Uint8Array, at: number, value: number): void {
+  bytes[at] = value >>> 8
+  bytes[at + 1] = value
 }
 
 function hexBytes(hex: string): Uint8Array {
