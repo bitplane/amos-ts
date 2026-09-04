@@ -20,6 +20,9 @@ import {
   MUIM_NOTIFY_IS_SELF,
   MUIM_NOTIFY_SET_CONTEXT,
   MUIM_FAMILY_EXCLUSIVE,
+  MUIM_MENUSTRIP_BUILD,
+  MUIM_MENUSTRIP_FREE,
+  MUIM_MENUSTRIP_UPDATE,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -456,6 +459,58 @@ describe('muimaster: Family', () => {
     expect([m.get(a, MUI.MUIA_UserData), m.get(b, MUI.MUIA_UserData)]).toEqual([9, 9])
     expect(send(family, MUIM_FAMILY_EXCLUSIVE, a.address, 3)).toBe(0)
     expect([m.get(a, MUI.MUIA_Menuitem_Checked), m.get(b, MUI.MUIA_Menuitem_Checked)]).toEqual([1, 0])
+  })
+})
+
+describe('muimaster: Menustrip', () => {
+  it('is enabled by default and exposes its settable enabled state', () => {
+    const m = new MuiMaster()
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip)!
+    expect(m.get(strip, MUI.MUIA_Menustrip_Enabled)).toBe(1)
+    expect(m.set(strip, MUI.MUIA_Menustrip_Enabled, 0)).toBeGreaterThan(0)
+    expect(m.get(strip, MUI.MUIA_Menustrip_Enabled)).toBe(0)
+  })
+
+  it('builds and frees a cleared twenty-byte NewMenu terminator', () => {
+    const m = new MuiMaster()
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip)!
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    expect(handle).not.toBe(0)
+    expect(m.pool.sizeOf(handle)).toBe(24) // MemPool rounds the native 20 bytes to eight-byte alignment
+    expect([...m.pool.buffer.slice(handle - m.pool.base, handle - m.pool.base + 20)]).toEqual(new Array(20).fill(0))
+    expect(send(strip, MUIM_MENUSTRIP_FREE, handle)).toBe(0)
+    expect(m.pool.sizeOf(handle)).toBe(0)
+  })
+
+  it('forwards family mutations and rebuilds only while a menu handle is live', () => {
+    const m = new MuiMaster()
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip)!
+    const menu = m.newObjectA(MUIC.MUIC_Menu)!
+    let updates = 0
+    m.menuChanged = (got) => {
+      expect(got).toBe(strip)
+      updates++
+    }
+    const handle = send(strip, MUIM_MENUSTRIP_BUILD)
+    expect(send(strip, MUI.MUIM_Family_AddTail, menu.address)).toBe(0)
+    expect(m.children(strip)).toEqual([menu])
+    expect(updates).toBe(1)
+    expect(send(strip, MUIM_MENUSTRIP_UPDATE, 1, 2)).toBe(0)
+    expect(updates).toBe(2)
+    expect(m.remMember(strip, menu)).toBe(0)
+    expect(updates).toBe(3)
+    send(strip, MUIM_MENUSTRIP_FREE, handle)
+    m.addMember(strip, menu)
+    expect(updates).toBe(3)
+  })
+
+  it('disposing a strip releases every outstanding built menu', () => {
+    const m = new MuiMaster()
+    const strip = m.newObjectA(MUIC.MUIC_Menustrip)!
+    const a = send(strip, MUIM_MENUSTRIP_BUILD)
+    const b = send(strip, MUIM_MENUSTRIP_BUILD)
+    m.disposeObject(strip)
+    expect([m.pool.sizeOf(a), m.pool.sizeOf(b)]).toEqual([0, 0])
   })
 })
 

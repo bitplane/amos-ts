@@ -228,6 +228,10 @@ export const MUIA_CONFIGDATA_SELECTOR = 0x80420444
 export const MUIM_NOTIFY_SET_CONTEXT = 0x8042d532
 export const MUIM_NOTIFY_IS_SELF = 0x8042038f
 export const MUIM_FAMILY_EXCLUSIVE = 0x8042c399
+export const MUIM_MENUSTRIP_BUILD = 0x80427efd
+export const MUIM_MENUSTRIP_FREE = 0x8042e15f
+export const MUIM_MENUSTRIP_UPDATE = 0x8042ed51
+export const MUIM_MENU_FILL_NEWMENU = 0x804207c9
 const MUIV_KILLNOTIFY_ALL = 0xabcd1234
 
 /** Synthetic address range containing Dataspace's AllocPooled records. */
@@ -362,6 +366,10 @@ interface MuiFamilyData extends Record<string, unknown> {
   nodesAddress: number
 }
 
+interface MuiMenustripData extends Record<string, unknown> {
+  handles: Set<number>
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -386,6 +394,8 @@ export class MuiMaster {
   /** iffparse bridge: one pushed chunk's payload, and the current chunk when reading. */
   writeIffChunk: ((handle: number, type: number, id: number, bytes: Uint8Array) => number) | null = null
   readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
+  /** Window/Application platform bridge for a live Intuition menu strip. */
+  menuChanged: ((menustrip: BoopsiObject) => void) | null = null
   private readonly configDefaultPointers = new Map<number, number>()
   private suppressNotifications = 0
   private sharedConfigdata: BoopsiObject | null = null
@@ -398,6 +408,7 @@ export class MuiMaster {
   readonly dataspaceClass: BoopsiClass
   readonly configdataClass: BoopsiClass
   readonly familyClass: BoopsiClass
+  readonly menustripClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
@@ -440,6 +451,7 @@ export class MuiMaster {
     this.configdataClass = this.byName.get(MUIC.MUIC_Configdata)!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
+    this.menustripClass = this.byName.get(MUIC.MUIC_Menustrip)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
@@ -878,6 +890,10 @@ export class MuiMaster {
           data(this, made).ownedAddresses.push(family.listAddress)
           this.rebuildFamilyList(made)
         }
+        if (cl === this.menustripClass) {
+          made.instData<MuiMenustripData>(cl).handles = new Set()
+          data(this, made).attrs.set(MUI.MUIA_Menustrip_Enabled, 1)
+        }
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         if (cl === this.familyClass) this.rebuildFamilyList(made)
@@ -886,6 +902,10 @@ export class MuiMaster {
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.menustripClass) {
+          for (const handle of o.instData<MuiMenustripData>(cl).handles) this.pool.freeMem(handle)
+          o.instData<MuiMenustripData>(cl).handles.clear()
+        }
         if (cl === this.dataspaceClass) this.dataspaceClear(o)
         if (cl === this.notifyClass) {
           // children first, and take a copy: each child's own OM_DISPOSE
@@ -989,6 +1009,11 @@ export class MuiMaster {
       case OM_REMMEMBER: {
         const o = obj as BoopsiObject
         const child = (msg as OpMember).object
+        if (cl === this.menustripClass) {
+          doSuperMethodA(cl, obj, msg)
+          this.menustripUpdate(o)
+          return 0
+        }
         if (cl === this.familyClass) {
           return msg.MethodID === OM_ADDMEMBER
             ? this.familyAdd(o, child, 'tail')
@@ -1018,6 +1043,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.menustripClass) {
+          const answered = this.menustripMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.familyClass) {
           const answered = this.familyMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1108,6 +1137,55 @@ export class MuiMaster {
   }
 
   // -- Family ------------------------------------------------------------
+
+  private menustripMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiMenustripData>(this.menustripClass)
+    switch (msg.MethodID) {
+      case MUIM_MENUSTRIP_BUILD: {
+        const count = this.menuTreeSize(obj) + 1
+        const handle = this.pool.alloc(count * 20, { clear: true })
+        if (handle === 0) return 0
+        for (const child of data(this, obj).children) {
+          if (this.doMui(child, MUIM_MENU_FILL_NEWMENU, [handle, 1]) === 0) {
+            this.pool.freeMem(handle)
+            return 0
+          }
+        }
+        d.handles.add(handle)
+        return handle
+      }
+      case MUIM_MENUSTRIP_FREE: {
+        const handle = params[0] ?? 0
+        if (d.handles.delete(handle)) this.pool.freeMem(handle)
+        return 0
+      }
+      case MUIM_MENUSTRIP_UPDATE:
+        this.menustripUpdate(obj)
+        return 0
+      case MUI.MUIM_Family_AddTail:
+      case MUI.MUIM_Family_AddHead:
+      case MUI.MUIM_Family_Insert:
+      case MUI.MUIM_Family_Remove:
+        doSuperMethodA(this.menustripClass, obj, msg)
+        this.menustripUpdate(obj)
+        return 0
+      default:
+        return null
+    }
+  }
+
+  private menuTreeSize(obj: BoopsiObject): number {
+    let count = 0
+    for (const child of data(this, obj).children) count += 1 + this.menuTreeSize(child)
+    return count
+  }
+
+  private menustripUpdate(obj: BoopsiObject): void {
+    // Native rebuilds the attached Intuition menu only while at least one
+    // Build handle is live. The platform attachment lands with Window.
+    if (obj.instData<MuiMenustripData>(this.menustripClass).handles.size !== 0) this.menuChanged?.(obj)
+  }
 
   private familyMethod(obj: BoopsiObject, msg: Msg): number | null {
     const params = (msg as Msg & { params?: readonly number[] }).params ?? []
