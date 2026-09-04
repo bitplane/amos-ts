@@ -11,6 +11,12 @@ import {
   MUIM_DATASPACE_EQUAL,
   MUIM_DATASPACE_NEXT,
   MUIM_DATASPACE_PRUNE,
+  MUIA_CONFIGDATA_FALLBACK,
+  MUIA_CONFIGDATA_SELECTOR,
+  MUIM_CONFIGDATA_ACCEPTS,
+  MUIM_CONFIGDATA_GET,
+  MUIM_CONFIGDATA_HAS,
+  MUIM_CONFIGDATA_SET,
   MuiMaster,
   visibleLength,
 } from './muimaster'
@@ -317,6 +323,63 @@ describe('muimaster: Dataspace', () => {
     expect(send(target, MUI.MUIM_Dataspace_ReadIFF, 9)).toBe(0)
     const found = send(target, MUI.MUIM_Dataspace_Find, 0x11223344)
     expect([...m.pool.buffer.slice(found - m.pool.base, found - m.pool.base + 2)]).toEqual([0xaa, 0xbb])
+  })
+})
+
+describe('muimaster: Configdata', () => {
+  function configured(attrs: TagItem[] = []): { m: MuiMaster; obj: BoopsiObject; longs: Map<number, number> } {
+    const m = new MuiMaster()
+    const longs = new Map<number, number>()
+    m.readLong = (address) => longs.get(address) ?? 0
+    m.writeLong = (address, value) => (longs.set(address, value >>> 0), true)
+    return { m, obj: m.newObjectA(MUIC.MUIC_Configdata, attrs)!, longs }
+  }
+
+  it('gets scalar and string defaults from the native 150-entry table', () => {
+    const { m, obj, longs } = configured()
+    expect(send(obj, MUIM_CONFIGDATA_GET, 1, 0x2000)).toBe(1)
+    expect(longs.get(0x2000)).toBe(4)
+    expect(send(obj, MUIM_CONFIGDATA_GET, 24, 0x2004)).toBe(1)
+    const pointer = longs.get(0x2004)!
+    expect(String.fromCharCode(...m.pool.buffer.slice(pointer - m.pool.base, pointer - m.pool.base + 7))).toBe('300000\0')
+    expect(send(obj, MUIM_CONFIGDATA_GET, 151, 0x2008)).toBe(0)
+  })
+
+  it('sets scalar and string items, reports presence, and follows a fallback', () => {
+    const { m, obj: fallback, longs } = configured()
+    expect(send(fallback, MUIM_CONFIGDATA_SET, 1, 99)).not.toBe(0)
+    m.readString = (address) => (address === 0x3000 ? '123456' : '')
+    expect(send(fallback, MUIM_CONFIGDATA_SET, 24, 0x3000)).not.toBe(0)
+    const obj = m.newObjectA(MUIC.MUIC_Configdata, [tag(MUIA_CONFIGDATA_FALLBACK, fallback.address)])!
+    expect(m.get(obj, MUIA_CONFIGDATA_FALLBACK)).toBe(fallback.address)
+    expect(send(obj, MUIM_CONFIGDATA_HAS, 1)).toBe(1)
+    expect(send(obj, MUIM_CONFIGDATA_GET, 1, 0x2000)).toBe(1)
+    expect(longs.get(0x2000)).toBe(99)
+    expect(send(obj, MUIM_CONFIGDATA_GET, 24, 0x2004)).toBe(1)
+    const pointer = longs.get(0x2004)!
+    expect(String.fromCharCode(...m.pool.buffer.slice(pointer - m.pool.base, pointer - m.pool.base + 7))).toBe('123456\0')
+  })
+
+  it('applies positive and preference-group selectors to Dataspace mutations', () => {
+    const one = configured([tag(MUIA_CONFIGDATA_SELECTOR, 24)])
+    one.m.readMemory = (_address, length) => new Uint8Array(length)
+    expect(send(one.obj, MUIM_CONFIGDATA_ACCEPTS, 24)).toBe(1)
+    expect(send(one.obj, MUIM_CONFIGDATA_ACCEPTS, 25)).toBe(0)
+    expect(send(one.obj, MUI.MUIM_Dataspace_Add, 0x1000, 1, 25)).toBe(0)
+    expect(send(one.obj, MUI.MUIM_Dataspace_Add, 0x1000, 1, 24)).not.toBe(0)
+
+    const group = configured([tag(MUIA_CONFIGDATA_SELECTOR, -2)]) // -(group + 1): group 1
+    expect(send(group.obj, MUIM_CONFIGDATA_ACCEPTS, 1)).toBe(1)
+    expect(send(group.obj, MUIM_CONFIGDATA_ACCEPTS, 5)).toBe(0)
+    expect(send(group.obj, MUIM_CONFIGDATA_ACCEPTS, 0x80000001)).toBe(0)
+  })
+
+  it('prunes values equal to native defaults when no comparison object is supplied', () => {
+    const { obj } = configured()
+    expect(send(obj, MUIM_CONFIGDATA_SET, 1, 4)).not.toBe(0)
+    expect(send(obj, MUIM_CONFIGDATA_HAS, 1)).toBe(1)
+    send(obj, MUIM_DATASPACE_PRUNE, 0)
+    expect(send(obj, MUIM_CONFIGDATA_HAS, 1)).toBe(0)
   })
 })
 

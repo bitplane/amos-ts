@@ -213,9 +213,37 @@ export const MUIM_DATASPACE_EQUAL = 0x8042b393
 export const MUIM_DATASPACE_PRUNE = 0x8042032e
 export const MUIM_DATASPACE_NEXT = 0x80421873
 
+/** Configdata's private API and attributes, recovered from its 19.35 table. */
+export const MUIM_CONFIGDATA_GET = 0x8042539a
+export const MUIM_CONFIGDATA_HAS = 0x80421162
+export const MUIM_CONFIGDATA_SET = 0x80428b0e
+export const MUIM_CONFIGDATA_ACCEPTS = 0x8042e075
+export const MUIA_CONFIGDATA_FALLBACK = 0x8042e03a
+export const MUIA_CONFIGDATA_SELECTOR = 0x80420444
+
 /** Synthetic address range containing Dataspace's AllocPooled records. */
 export const MUI_MEMORY_BASE = 0x2c000000
 export const MUI_MEMORY_RESERVED = 0x04000000
+
+/**
+ * Configdata's 150 eight-byte descriptors at $236b48. Byte zero is the
+ * one-based id, byte one is its preference group, byte three carries the
+ * string flag, and the longword is the default. Pointer defaults are replaced
+ * below with their pointed-to text, since native code addresses are not guest
+ * addresses in this port.
+ */
+const CONFIG_GROUPS = hexBytes(
+  '01010101030302020607070707010202040401000063630904040701010107010702010063636363006303030a080707060a02040205010103070a06040307070706060606030304080808060a0a0a0a0a0a0a020a0a0a0a0a0205050a0a0909090909090909090909090909090909090909090901010101630109000000630300000608080808050909090909090905636363090207',
+)
+const CONFIG_FLAGS = hexBytes(
+  '000000000303030303030203030002020202000000000004020203000004060406060404000000000400070706070707040607060707040407070604060707070707070707070706070707040606060606060607060606060607070706060404040404040404040404040404040404040404040400000000000000000000000700000007070707070000040400000407000000000707',
+)
+const CONFIG_DEFAULTS: readonly number[] = [
+  4,4,3,3,4,1,6,3,0,1,1,0,0,0,0,1,2,0,0,1,0,0,6,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,2165842,2165842,0,2165844,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,20,3,0,0,0,0,0,0,1,0,0,0,1,3,0,0,0,2166394,2165842,1,0,0,
+]
+const CONFIG_TEXT: Readonly<Record<number, string>> = {
+  24:'300000',30:'',31:'',32:'',33:'',34:'',35:'',36:'',39:'',40:'',41:'',42:'000000',43:'202211',44:'202211',45:'212211',46:'302211',47:'212211',48:'202211',49:'202211',50:'210000',51:'314444',52:'112211',53:'212211',54:'400000',55:'',56:'0:137',57:'',58:'',59:'',60:'',61:'0:130',62:'0:131',63:'0:131',64:'0:135',65:'0:138',66:'1:0',67:'1:1',68:'1:2',69:'1:3',70:'1:4',71:'1:5',72:'1:6',73:'1:7',74:'1:8',75:'1:9',76:'0:129',77:'1:10',78:'1:11',79:'1:12',80:'1:13',81:'1:14',82:'1:15',83:'1:16',84:'',85:'1:17',86:'1:18',87:'1:19',88:'1:20',89:'1:21',90:'',91:'',92:'',93:'1:22',94:'1:23',95:'-upstroke return',96:'-repeat space',97:'-repeat up',98:'-repeat down',99:'-repeat shift up',100:'-repeat shift down',101:'control up',102:'control down',103:'-repeat left',104:'-repeat right',105:'-repeat control left',106:'-repeat control right',107:'shift left',108:'shift right',109:'-repeat tab',110:'-repeat shift tab',111:'control tab',112:'esc',113:'-repeat alt tab',114:'-repeat alt shift tab',115:'help',116:'control p',128:'',132:'m2',133:'m5',134:'m2',135:'m5',136:'',139:'control',140:'',143:'m0',144:'202200',146:'control',147:'',149:'',150:'',
+}
 
 /** one notification recorded by MUIM_Notify */
 export interface Notification {
@@ -306,6 +334,13 @@ interface MuiDataspaceEntry {
 
 interface MuiDataspaceData extends Record<string, unknown> {
   entries: MuiDataspaceEntry[]
+  filterIds: boolean
+  configRecords: boolean
+}
+
+interface MuiConfigdataData extends Record<string, unknown> {
+  fallback: BoopsiObject | null
+  selector: number
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -331,6 +366,7 @@ export class MuiMaster {
   /** iffparse bridge: one pushed chunk's payload, and the current chunk when reading. */
   writeIffChunk: ((handle: number, type: number, id: number, bytes: Uint8Array) => number) | null = null
   readIffChunk: ((handle: number) => Uint8Array | number | null) | null = null
+  private readonly configDefaultPointers = new Map<number, number>()
   /** "Window.mui" -> its class, which is what MUI_NewObjectA is given */
   private readonly byName = new Map<string, BoopsiClass>()
   /** the classes whose behaviour this file specialises, by name */
@@ -338,6 +374,7 @@ export class MuiMaster {
   readonly semaphoreClass: BoopsiClass
   readonly applistClass: BoopsiClass
   readonly dataspaceClass: BoopsiClass
+  readonly configdataClass: BoopsiClass
   readonly familyClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
@@ -346,6 +383,17 @@ export class MuiMaster {
 
   constructor(boopsi = new Boopsi()) {
     this.boopsi = boopsi
+    const internedDefaults = new Map<string, number>()
+    for (const [key, value] of Object.entries(CONFIG_TEXT)) {
+      let address = internedDefaults.get(value) ?? 0
+      if (address === 0) {
+        const bytes = Uint8Array.from([...value, '\0'], (c) => c.charCodeAt(0))
+        address = this.pool.alloc(bytes.length)
+        this.pool.buffer.set(bytes, address - this.pool.base)
+        internedDefaults.set(value, address)
+      }
+      this.configDefaultPointers.set(Number(key), address)
+    }
 
     /*
      * Build in dependency order: a class cannot be made before its superclass.
@@ -367,6 +415,7 @@ export class MuiMaster {
     this.semaphoreClass = this.byName.get('Semaphore.mui')!
     this.applistClass = this.byName.get('Applist.mui')!
     this.dataspaceClass = this.byName.get(MUIC.MUIC_Dataspace)!
+    this.configdataClass = this.byName.get(MUIC.MUIC_Configdata)!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
@@ -783,7 +832,19 @@ export class MuiMaster {
           sem.shared = 0
         }
         if (cl === this.applistClass) made.instData<MuiApplistData>(cl).members = []
-        if (cl === this.dataspaceClass) made.instData<MuiDataspaceData>(cl).entries = []
+        if (cl === this.dataspaceClass) {
+          const ds = made.instData<MuiDataspaceData>(cl)
+          ds.entries = []
+          ds.filterIds = false
+          ds.configRecords = false
+        }
+        if (cl === this.configdataClass) {
+          const cd = made.instData<MuiConfigdataData>(cl)
+          cd.fallback = null
+          cd.selector = 0
+          made.instData<MuiDataspaceData>(this.dataspaceClass).configRecords = true
+          this.applyConfigdataAttrs(made, (msg as OpSet).attrs)
+        }
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         return made.address
@@ -808,13 +869,18 @@ export class MuiMaster {
          * (Notify's) without Text knowing either exists. The answer is the
          * total, because OM_SET's contract is how many attributes were used.
          */
+        const configCount = cl === this.configdataClass ? this.applyConfigdataAttrs(obj as BoopsiObject, (msg as OpSet).attrs) : 0
         const ok = this.applyOwn(name, obj as BoopsiObject, (msg as OpSet).attrs, 's')
-        return (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+        return configCount + (ok ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
       }
 
       case OM_GET: {
         const g = msg as OpGet
         const o = obj as BoopsiObject
+        if (cl === this.configdataClass && TAG(g.attrID) === MUIA_CONFIGDATA_FALLBACK) {
+          g.storage = o.instData<MuiConfigdataData>(cl).fallback?.address ?? 0
+          return 1
+        }
         /*
          * The four geometry attributes are `..g` and MUI fills them in
          * itself: they read the box the layout put the object in rather than
@@ -873,6 +939,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.configdataClass) {
+          const answered = this.configdataMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.dataspaceClass) {
           const answered = this.dataspaceMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -953,6 +1023,84 @@ export class MuiMaster {
     }
   }
 
+  // -- Configdata --------------------------------------------------------
+
+  private applyConfigdataAttrs(obj: BoopsiObject, attrs: readonly TagItem[]): number {
+    const d = obj.instData<MuiConfigdataData>(this.configdataClass)
+    let used = 0
+    for (const attr of attrs) {
+      if (TAG(attr.tag) === MUIA_CONFIGDATA_FALLBACK) {
+        d.fallback = this.boopsi.objectAt(attr.data)
+        used++
+      } else if (TAG(attr.tag) === MUIA_CONFIGDATA_SELECTOR) {
+        d.selector = attr.data | 0
+        obj.instData<MuiDataspaceData>(this.dataspaceClass).filterIds = true
+        used++
+      }
+    }
+    return used
+  }
+
+  /** The four binary-only operations over Configdata's descriptor table. */
+  private configdataMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const cd = obj.instData<MuiConfigdataData>(this.configdataClass)
+    const ds = obj.instData<MuiDataspaceData>(this.dataspaceClass)
+    const id = TAG(params[0] ?? 0)
+    switch (msg.MethodID) {
+      case MUIM_CONFIGDATA_GET: {
+        const storage = params[1] ?? 0
+        const own = ds.entries.find((entry) => entry.id === id)
+        if (own) {
+          const value = (id & 0x80000000) !== 0 || (CONFIG_FLAGS[id - 1]! & 4) !== 0
+            ? (own.address + 16) >>> 0
+            : this.poolLong(own.address - this.pool.base + 16)
+          this.writeLong?.(storage, value)
+          return 1
+        }
+        if (cd.fallback) return this.doMui(cd.fallback, MUIM_CONFIGDATA_GET, [id, storage])
+        if (!this.configDescriptor(id)) return 0
+        this.writeLong?.(storage, this.configDefault(id))
+        return 1
+      }
+      case MUIM_CONFIGDATA_HAS:
+        if (!this.configDescriptor(id)) return 0
+        if (ds.entries.some((entry) => entry.id === id)) return 1
+        return cd.fallback ? this.doMui(cd.fallback, MUIM_CONFIGDATA_HAS, [id]) : 0
+      case MUIM_CONFIGDATA_SET: {
+        if (!this.configDescriptor(id)) return 0
+        const value = params[1] ?? 0
+        if ((CONFIG_FLAGS[id - 1]! & 4) !== 0) {
+          const s = value === 0 ? '' : (this.readString?.(value) ?? '')
+          return this.dataspaceAddBytes(ds, Uint8Array.from([...s, '\0'], (c) => c.charCodeAt(0)), id)
+        }
+        const bytes = new Uint8Array(4)
+        putLong(bytes, 0, value)
+        return this.dataspaceAddBytes(ds, bytes, id)
+      }
+      case MUIM_CONFIGDATA_ACCEPTS:
+        if ((id & 0x80000000) !== 0) return cd.selector === 0 ? 1 : 0
+        if (!this.configDescriptor(id)) return 0
+        if (cd.selector > 0 && cd.selector !== id) return 0
+        if (cd.selector < 0 && CONFIG_GROUPS[id - 1] !== -(cd.selector + 1)) return 0
+        return 1
+      default:
+        return null
+    }
+  }
+
+  private configDescriptor(id: number): boolean {
+    return id >= 1 && id <= CONFIG_DEFAULTS.length
+  }
+
+  private configDefault(id: number): number {
+    return this.configDefaultPointers.get(id) ?? CONFIG_DEFAULTS[id - 1] ?? 0
+  }
+
+  private poolLong(off: number): number {
+    return getLong(this.pool.buffer, off)
+  }
+
   // -- Dataspace ---------------------------------------------------------
 
   /**
@@ -967,24 +1115,15 @@ export class MuiMaster {
     switch (msg.MethodID) {
       case MUI.MUIM_Dataspace_Add: {
         const [source = 0, length = 0, id = 0] = params
+        if (d.filterIds && this.configdataMethod(obj, { MethodID: MUIM_CONFIGDATA_ACCEPTS, params: [id] } as Msg) === 0) return 0
         if (length < 0) return 0
         const bytes = this.readMemory?.(source, length) ?? null
         if (!bytes || bytes.length < length) return 0
-        const address = this.pool.alloc(16 + length)
-        if (address === 0) return 0
-        const old = d.entries.findIndex((entry) => entry.id === TAG(id))
-        if (old >= 0) {
-          this.pool.freeMem(d.entries[old]!.address)
-          d.entries.splice(old, 1)
-        }
-        const entry = { address, id: TAG(id), length }
-        d.entries.push(entry)
-        this.pool.buffer.set(bytes.subarray(0, length), address - this.pool.base + 16)
-        this.linkDataspace(d)
-        return (address + 16) >>> 0
+        return this.dataspaceAddBytes(d, bytes.subarray(0, length), id)
       }
       case MUI.MUIM_Dataspace_Remove: {
         const [id = 0] = params
+        if (d.filterIds && this.configdataMethod(obj, { MethodID: MUIM_CONFIGDATA_ACCEPTS, params: [id] } as Msg) === 0) return 0
         const i = d.entries.findIndex((entry) => entry.id === TAG(id))
         if (i < 0) return 0
         const [entry] = d.entries.splice(i, 1)
@@ -1061,11 +1200,14 @@ export class MuiMaster {
       }
       case MUIM_DATASPACE_PRUNE: {
         const other = this.boopsi.objectAt(params[0] ?? 0)
-        if (!other?.cl.isA(this.dataspaceClass)) return 0
-        const od = other.instData<MuiDataspaceData>(this.dataspaceClass)
+        const od = other?.cl.isA(this.dataspaceClass)
+          ? other.instData<MuiDataspaceData>(this.dataspaceClass)
+          : null
         for (const entry of [...d.entries]) {
-          const match = od.entries.find((candidate) => candidate.id === entry.id)
-          if (match && this.dataspaceEntryEqual(entry, match)) this.dataspaceRemoveEntry(d, entry)
+          const match = od?.entries.find((candidate) => candidate.id === entry.id)
+          if ((match && this.dataspaceEntryEqual(entry, match)) || (!match && this.dataspaceEntryMatchesDefault(entry))) {
+            this.dataspaceRemoveEntry(d, entry)
+          }
         }
         return 0
       }
@@ -1092,6 +1234,20 @@ export class MuiMaster {
     d.entries = []
   }
 
+  private dataspaceAddBytes(d: MuiDataspaceData, bytes: Uint8Array, id: number): number {
+    const address = this.pool.alloc(16 + bytes.length)
+    if (address === 0) return 0
+    const old = d.entries.findIndex((entry) => entry.id === TAG(id))
+    if (old >= 0) {
+      this.pool.freeMem(d.entries[old]!.address)
+      d.entries.splice(old, 1)
+    }
+    d.entries.push({ address, id: TAG(id), length: bytes.length })
+    this.pool.buffer.set(bytes, address - this.pool.base + 16)
+    this.linkDataspace(d)
+    return (address + 16) >>> 0
+  }
+
   private dataspaceRemoveEntry(d: MuiDataspaceData, entry: MuiDataspaceEntry): void {
     const i = d.entries.indexOf(entry)
     if (i >= 0) d.entries.splice(i, 1)
@@ -1112,6 +1268,19 @@ export class MuiMaster {
     const bo = b.address - this.pool.base + 16
     for (let i = 0; i < a.length; i++) if (this.pool.buffer[ao + i] !== this.pool.buffer[bo + i]) return false
     return true
+  }
+
+  private dataspaceEntryMatchesDefault(entry: MuiDataspaceEntry): boolean {
+    if (!this.configDescriptor(entry.id)) return false
+    const text = (CONFIG_FLAGS[entry.id - 1]! & 4) !== 0 ? CONFIG_TEXT[entry.id] : undefined
+    const off = entry.address - this.pool.base + 16
+    if (text !== undefined) {
+      const expected = Uint8Array.from([...text, '\0'], (c) => c.charCodeAt(0))
+      if (entry.length !== expected.length) return false
+      for (let i = 0; i < expected.length; i++) if (this.pool.buffer[off + i] !== expected[i]) return false
+      return true
+    }
+    return entry.length === 4 && this.poolLong(off) === this.configDefault(entry.id)
   }
 
   /** Rebuild the native MinList links and the two scalar header fields. */
@@ -1489,6 +1658,12 @@ function putLong(bytes: Uint8Array, at: number, value: number): void {
   bytes[at + 1] = value >>> 16
   bytes[at + 2] = value >>> 8
   bytes[at + 3] = value
+}
+
+function hexBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length >> 1)
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return out
 }
 
 /**
