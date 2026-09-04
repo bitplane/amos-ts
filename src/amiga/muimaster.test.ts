@@ -44,6 +44,7 @@ import {
   type MuiAreaRenderSpec,
   type MuiImageRenderSpec,
   type MuiBitmapRenderSpec,
+  type MuiTextRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -58,6 +59,7 @@ class TestWindowHost implements MuiWindowHost {
   draws: MuiAreaRenderSpec[] = []
   images: MuiImageRenderSpec[] = []
   bitmaps: MuiBitmapRenderSpec[] = []
+  texts: MuiTextRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -72,6 +74,7 @@ class TestWindowHost implements MuiWindowHost {
   drawArea(_handle: unknown, spec: MuiAreaRenderSpec): void { this.draws.push(spec) }
   drawImage(_handle: unknown, spec: MuiImageRenderSpec): void { this.images.push(spec) }
   drawBitmap(_handle: unknown, spec: MuiBitmapRenderSpec): void { this.bitmaps.push(spec) }
+  drawText(_handle: unknown, spec: MuiTextRenderSpec): void { this.texts.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -309,12 +312,14 @@ describe('muimaster: Area.mui 19.35', () => {
 
   it('applies fixed dimensions after leaf sizing and persists Selected by ExportID', () => {
     const m = new MuiMaster()
-    const area = m.newObjectA(MUIC.MUIC_Text, [
+    const fixed = m.newObjectA(MUIC.MUIC_Text, [
       tag(MUI.MUIA_Text_Contents, 0), tag(MUI.MUIA_FixWidth, 37),
-      tag(MUI.MUIA_FixHeight, 19), tag(MUI.MUIA_ExportID, 0x41524541),
-      tag(MUI.MUIA_Selected, 1),
+      tag(MUI.MUIA_FixHeight, 19),
     ])!
-    expect(m.askMinMax(area)).toEqual({ minW: 37, minH: 19, maxW: 37, maxH: 19, defW: 37, defH: 19 })
+    expect(m.askMinMax(fixed)).toEqual({ minW: 37, minH: 19, maxW: 37, maxH: 19, defW: 37, defH: 19 })
+    const area = m.newObjectA(MUIC.MUIC_Area, [
+      tag(MUI.MUIA_ExportID, 0x41524541), tag(MUI.MUIA_Selected, 1),
+    ])!
     const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
     expect(m.doMui(area, MUI.MUIM_Export, [ds.address])).toBe(0)
     m.set(area, MUI.MUIA_Selected, 0)
@@ -448,6 +453,60 @@ describe('muimaster: Bodychunk.mui 19.35', () => {
     })
     expect(m.doMui(body, MUI.MUIM_Cleanup)).toBe(0)
     expect(m.get(body, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0)
+  })
+})
+
+describe('muimaster: Text.mui 19.35', () => {
+  it('uses the native SetMin/SetMax/SetVMax defaults and owns Contents', () => {
+    const m = new MuiMaster()
+    m.readString = (address) => address === 0x1000 ? 'Hello' : ''
+    const text = m.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 0x1000)])!
+    expect(m.peek(text, MUI.MUIA_Text_SetMin)).toBe(1)
+    expect(m.peek(text, MUI.MUIA_Text_SetMax)).toBe(0)
+    expect(m.peek(text, MUI.MUIA_Text_SetVMax)).toBe(1)
+    expect(m.get(text, MUI.MUIA_Text_Contents)).not.toBe(0x1000)
+    expect(m.textOf(text, MUI.MUIA_Text_Contents)).toBe('Hello')
+  })
+
+  it('measures multiline preparsed text and applies all three sizing flags', () => {
+    const m = new MuiMaster()
+    m.readString = (address) => address === 0x1000 ? '\x1bcWide\nxx' : ''
+    const fixed = m.newObjectA(MUIC.MUIC_Text, [
+      tag(MUI.MUIA_Text_Contents, 0x1000), tag(MUI.MUIA_Text_SetMax, 1),
+    ])!
+    expect(m.askMinMax(fixed)).toEqual({ minW: 32, minH: 16, maxW: 32, maxH: 16, defW: 32, defH: 16 })
+    const free = m.newObjectA(MUIC.MUIC_Text, [
+      tag(MUI.MUIA_Text_Contents, 0x1000), tag(MUI.MUIA_Text_SetMin, 0),
+      tag(MUI.MUIA_Text_SetVMax, 0),
+    ])!
+    expect(m.askMinMax(free)).toEqual({ minW: 0, minH: 16, maxW: MUI_MAXMAX, maxH: MUI_MAXMAX, defW: 32, defH: 16 })
+  })
+
+  it('draws contents and preparse through the live window host', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    m.readString = (address) => address === 0x1000 ? 'Label' : address === 0x1100 ? '\x1bc' : ''
+    const text = m.newObjectA(MUIC.MUIC_Text, [
+      tag(MUI.MUIA_Text_Contents, 0x1000), tag(MUI.MUIA_Text_PreParse, 0x1100),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, text.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.texts.at(-1)).toMatchObject({ contents: 'Label', preparse: '\x1bc', disabled: false })
+  })
+
+  it('exports and imports the owned Contents string by ExportID', () => {
+    const m = new MuiMaster()
+    m.readString = (address) => address === 0x1000 ? 'First' : address === 0x1100 ? 'Second' : ''
+    const text = m.newObjectA(MUIC.MUIC_Text, [
+      tag(MUI.MUIA_Text_Contents, 0x1000), tag(MUI.MUIA_ExportID, 0x54455854),
+    ])!
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    expect(m.doMui(text, MUI.MUIM_Export, [ds.address])).toBe(0)
+    m.set(text, MUI.MUIA_Text_Contents, 0x1100)
+    expect(m.textOf(text, MUI.MUIA_Text_Contents)).toBe('Second')
+    expect(m.doMui(text, MUI.MUIM_Import, [ds.address])).toBe(0)
+    expect(m.textOf(text, MUI.MUIA_Text_Contents)).toBe('First')
   })
 })
 
@@ -1353,9 +1412,11 @@ describe('muimaster: notification', () => {
 describe('muimaster: MUI_MakeObjectA', () => {
   it('MUIO_Button and MUIO_PopButton are the two EasyLife reaches', () => {
     const m = new MuiMaster()
+    m.readString = (address) => address === 0x1000 ? 'Button' : ''
     const b = m.makeObjectA(MUI.MUIO_Button, [0x1000])!
     expect(b.cl).toBe(m.findClass(MUIC.MUIC_Text))
-    expect(m.get(b, MUI.MUIA_Text_Contents)).toBe(0x1000)
+    expect(m.get(b, MUI.MUIA_Text_Contents)).not.toBe(0x1000)
+    expect(m.textOf(b, MUI.MUIA_Text_Contents)).toBe('Button')
     // MUIA_Frame is "i.." and therefore invisible to a program, which is why
     // the check goes through peek rather than get
     expect(m.peek(b, MUI.MUIA_Frame)).toBe(MUI.MUIV_Frame_Button)

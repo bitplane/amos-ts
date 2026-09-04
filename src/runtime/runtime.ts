@@ -2819,6 +2819,53 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawText: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.contents === '') return
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          const fontWidth = rp.font?.xSize ?? 8
+          const fontHeight = rp.font?.ySize ?? 8
+          const baseline = rp.font?.baseline ?? 6
+          const parse = (source: string): { text: string; align: 'left' | 'center' | 'right'; pen: number } => {
+            let text = ''
+            let align: 'left' | 'center' | 'right' = 'left'
+            let pen = spec.disabled ? 1 : 2
+            for (let i = 0; i < source.length; i++) {
+              if (source.charCodeAt(i) !== 27) {
+                text += source[i]!
+                continue
+              }
+              const command = source[++i] ?? ''
+              if (command === 'c') align = 'center'
+              else if (command === 'r') align = 'right'
+              else if (command === 'l') align = 'left'
+              else if (command === '2') pen = 2
+              else if (command === '8') pen = 1
+            }
+            return { text, align, pen }
+          }
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            const prefix = parse(spec.preparse)
+            const lines = spec.contents.split('\n')
+            const blockHeight = lines.length * fontHeight
+            const firstTop = top + Math.max(0, Math.floor((spec.height - blockHeight) / 2))
+            for (let row = 0; row < lines.length; row++) {
+              const line = parse(spec.preparse + lines[row]!)
+              const width = line.text.length * fontWidth
+              const x = line.align === 'center' ? left + Math.floor((spec.width - width) / 2)
+                : line.align === 'right' ? right - width + 1 : left
+              rp.text(x, firstTop + row * fontHeight + baseline, line.text, line.pen || prefix.pen)
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }

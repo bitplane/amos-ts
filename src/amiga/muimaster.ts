@@ -505,6 +505,7 @@ export interface MuiWindowHost {
   drawArea?(handle: unknown, spec: MuiAreaRenderSpec): void
   drawImage?(handle: unknown, spec: MuiImageRenderSpec): void
   drawBitmap?(handle: unknown, spec: MuiBitmapRenderSpec): void
+  drawText?(handle: unknown, spec: MuiTextRenderSpec): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -532,6 +533,12 @@ export interface MuiBitmapRenderSpec extends Box {
   depth: number
   compression: number
   masking: number
+}
+
+export interface MuiTextRenderSpec extends Box {
+  contents: string
+  preparse: string
+  disabled: boolean
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -619,6 +626,7 @@ export class MuiMaster {
   readonly imageClass: BoopsiClass
   readonly bitmapClass: BoopsiClass
   readonly bodychunkClass: BoopsiClass
+  readonly textClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -667,6 +675,7 @@ export class MuiMaster {
     this.imageClass = this.byName.get(MUIC.MUIC_Image)!
     this.bitmapClass = this.byName.get(MUIC.MUIC_Bitmap)!
     this.bodychunkClass = this.byName.get(MUIC.MUIC_Bodychunk)!
+    this.textClass = this.byName.get(MUIC.MUIC_Text)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1215,6 +1224,15 @@ export class MuiMaster {
           d.set(MUI.MUIA_Bodychunk_Compression, 0)
           d.set(MUI.MUIA_Bodychunk_Masking, 0)
         }
+        if (cl === this.textClass) {
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Text_Contents, 0)
+          d.set(MUI.MUIA_Text_PreParse, 0)
+          d.set(MUI.MUIA_Text_HiChar, 0)
+          d.set(MUI.MUIA_Text_SetMax, 0)
+          d.set(MUI.MUIA_Text_SetMin, 1)
+          d.set(MUI.MUIA_Text_SetVMax, 1)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1262,6 +1280,7 @@ export class MuiMaster {
             if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_VertWeight)) d.set(MUI.MUIA_VertWeight, Math.max(0, weight))
           }
         }
+        if (cl === this.textClass) this.copyTextContents(made, this.peek(made, MUI.MUIA_Text_Contents) ?? 0, 0)
         if (cl === this.menuitemClass) {
           const copy = attrs.some((attr) => TAG(attr.tag) === MUIA_MENUITEM_COPY_STRINGS && attr.data !== 0)
           made.instData<MuiMenuitemData>(cl).copyStrings = copy
@@ -1326,6 +1345,7 @@ export class MuiMaster {
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bodychunkClass) return this.setBodychunk(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.textClass) return this.setText(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.areaClass) return this.setArea(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
@@ -1560,6 +1580,10 @@ export class MuiMaster {
         }
         if (cl === this.bodychunkClass) {
           const answered = this.bodychunkMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.textClass) {
+          const answered = this.textMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2330,6 +2354,94 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Text ---------------------------------------------------------------
+
+  private setText(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const oldContents = this.peek(obj, MUI.MUIA_Text_Contents) ?? 0
+    const contents = msg.attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Text_Contents)?.data
+    const own = this.applyOwn('Text', obj, msg.attrs, 's')
+    const answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+    if (contents !== undefined) this.copyTextContents(obj, contents, oldContents)
+    if (msg.attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Text_Contents || TAG(attr.tag) === MUI.MUIA_Text_PreParse ||
+        TAG(attr.tag) === MUI.MUIA_Text_SetVMax)) this.redrawArea(obj, 1)
+    return answer
+  }
+
+  private copyTextContents(obj: BoopsiObject, source: number, old: number): void {
+    let address = 0
+    if (source !== 0) {
+      const bytes = Uint8Array.from([...this.textOfAddress(source), '\0'], (c) => c.charCodeAt(0))
+      address = this.pool.alloc(bytes.length)
+      if (address !== 0) {
+        this.pool.buffer.set(bytes, address - this.pool.base)
+        data(this, obj).ownedAddresses.push(address)
+      }
+    }
+    const owned = data(this, obj).ownedAddresses
+    const i = owned.indexOf(old)
+    if (i >= 0 && old !== address) {
+      this.pool.freeMem(old)
+      owned.splice(i, 1)
+    }
+    data(this, obj).attrs.set(MUI.MUIA_Text_Contents, address)
+  }
+
+  private textMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.textClass, obj, msg)
+        this.drawText(obj)
+        return 0
+      case MUI.MUIM_Export:
+        this.textTransferContents(obj, params[0] ?? 0, true)
+        return 0
+      case MUI.MUIM_Import:
+        this.textTransferContents(obj, params[0] ?? 0, false)
+        return 0
+      default: return null
+    }
+  }
+
+  private drawText(obj: BoopsiObject): void {
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    this.windowHost?.drawText?.(handle, {
+      ...box,
+      contents: this.textOf(obj, MUI.MUIA_Text_Contents),
+      preparse: this.textOf(obj, MUI.MUIA_Text_PreParse),
+      disabled: (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0,
+    })
+  }
+
+  private textTransferContents(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const d = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const value = this.textOf(obj, MUI.MUIA_Text_Contents)
+      this.dataspaceAddBytes(d, Uint8Array.from([...value, '\0'], (c) => c.charCodeAt(0)), id)
+    } else {
+      const entry = d.entries.find((candidate) => candidate.id === TAG(id))
+      if (entry) this.set(obj, MUI.MUIA_Text_Contents, entry.address + 16)
+    }
+  }
+
+  private textDimensions(obj: BoopsiObject): { width: number; height: number } {
+    const text = this.textOf(obj, MUI.MUIA_Text_Contents)
+    if (text === '') return { width: 0, height: this.fontY }
+    const lines = text.split('\n')
+    return {
+      width: Math.max(...lines.map((line) => visibleLength(line))) * this.fontX,
+      height: lines.length * this.fontY,
+    }
   }
 
   // -- Bodychunk ----------------------------------------------------------
@@ -3559,9 +3671,6 @@ export class MuiMaster {
       mm.defW += defW
       mm.defH += defH
     }
-    /** how many characters WIDE a label is: its escapes take no room */
-    const chars = (tag: number): number => visibleLength(this.textOf(obj, tag))
-
     switch (name) {
       case 'Area': {
         // the frame and the inner spacing, which is what a superclass "thinks
@@ -3578,9 +3687,17 @@ export class MuiMaster {
         add(0, 0, MUI_MAXMAX, MUI_MAXMAX)
         return 0
       case 'Text':
-        // as wide as its text and one line tall; text stretches, it does not
-        // grow taller
-        add(chars(MUI.MUIA_Text_Contents) * fx, fy, MUI_MAXMAX, 0)
+        {
+          const text = this.textDimensions(obj)
+          add(
+            (this.peek(obj, MUI.MUIA_Text_SetMin) ?? 1) !== 0 ? text.width : 0,
+            text.height,
+            (this.peek(obj, MUI.MUIA_Text_SetMax) ?? 0) !== 0 ? text.width : MUI_MAXMAX,
+            (this.peek(obj, MUI.MUIA_Text_SetVMax) ?? 1) !== 0 ? text.height : MUI_MAXMAX,
+            text.width,
+            text.height,
+          )
+        }
         return 0
       case 'String': {
         // a fixed-height edit box: three characters at minimum, the declared
