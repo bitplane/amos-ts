@@ -130,7 +130,7 @@ import { fillRow } from '../amiga/blitter'
 import { iconToolTypes } from '../amiga/icon'
 import { parseSampleBank } from './audio'
 import { Protracker, parseMod } from '../amiga/protracker'
-import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { pp20Crunch, pp20Decrunch, ppEfficiency } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
 import { isObjectBank } from './banks'
@@ -4361,13 +4361,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *   Rbsr 362 / -$66 / Rbsr 354      close, free the handle, free the buffer
      *   tst.b d5 / Rbne 392             a short write is error 94
      *
-     * NOTE: the efficiency is accepted and does not change the output. It is
-     * passed straight to powerpacker.library, which turns 0..4 into the
-     * four-byte table a PP20 file carries at offset 4 -- and that mapping is
-     * inside that library, not in this binary, so there is nothing here to
-     * read it from. This port crunches at [9,10,12,13], which is the table
-     * every PP20 file in the corpus actually carries. There is also no range
-     * check: the routine hands whatever it was given to the library.
+     * The efficiency is passed straight to powerpacker.library. Version 36.10
+     * maps 0..4 to five four-byte offset-width tables at $210854; invalid
+     * values retain level 2's defaults. The shared codec uses that exact
+     * mapping, including the no-range-check case.
      *
      * NOTE: message 5 cannot fire. The PP20 codec is ours (../amiga/
      * powerpacker.ts), so powerpacker.library is never absent -- where on the
@@ -4384,11 +4381,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       // `moveq #$4,d0` in routine 235 -- "best, but slow" is the default
       let eff = 4
       if (it.accept(',')) eff = it.evalInt()
-      void eff
       if (!b) amcafErr()
       let out: Uint8Array
       try {
-        out = pp20Crunch(b.data)
+        out = pp20Crunch(b.data, ppEfficiency(eff))
       } catch {
         amcafMsg(6) // "Crunching error"
       }

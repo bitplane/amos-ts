@@ -14,7 +14,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
-import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { PP_EFFICIENCY, pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { Runtime } from './runtime'
 import { IE_PP_HEADER } from './intuiextendpp'
 
@@ -181,12 +181,12 @@ describe('IntuiExtend 2.01b — Pp Crunch', () => {
     expect(n).toBe(pp20Crunch(TEXT).length - IE_PP_HEADER)
   })
 
-  /** EFF and LARG reach ppAllocCrunchInfo and neither changes the output here */
-  it('every efficiency and buffer size gives the same size', () => {
-    const src =
-      'For E=0 To 4\nR=Pp Decrunch("RAM:plain.txt",4,0)\nPrint Pp Crunch(Pp Start,Pp Len,E,E);\nPrint " ";\nPp Free\nNext E'
-    const sizes = out(src).split(/\s+/).filter(Boolean)
-    expect(new Set(sizes).size).toBe(1)
+  /** LARG remains internal, while EFF selects the encoder's offset widths. */
+  it('accepts every efficiency and returns a crunched body', () => {
+    for (let eff = 0; eff <= 4; eff++) {
+      const src = `R=Pp Decrunch("RAM:plain.txt",4,0)\nPrint Pp Crunch(Pp Start,Pp Len,2,${eff})`
+      expect(Number(out(src))).toBeGreaterThan(0)
+    }
   })
 })
 
@@ -214,16 +214,15 @@ describe('IntuiExtend 2.01b — Pp Write', () => {
     expect(out(src)).toBe('0 512 65')
   })
 
-  /**
-   * DEVIATION: EFF picks the header table on the machine, and Pp5 tells the
-   * caller to keep it in step with `Pp Crunch`'s. Here the mapping is inside
-   * powerpacker.library, so the header is [9,10,12,13] whatever it is given
-   * and a mismatch cannot break the file.
-   */
-  it('writes the same header whatever EFF it is given', () => {
-    const one = boot(`${SAVE}`).rt.vfs!.readFile('RAM:out.pp')!
-    const two = boot(SAVE.replace('To N,4', 'To N,0')).rt.vfs!.readFile('RAM:out.pp')!
-    expect([...two.subarray(4, 8)]).toEqual([...one.subarray(4, 8)])
+  it('writes each of powerpacker.library 36.10\'s five efficiency tables', () => {
+    for (let eff = 0; eff <= 4; eff++) {
+      const src =
+        `R=Pp Decrunch("RAM:plain.txt",4,0)\nS=Pp Start\n` +
+        `N=Pp Crunch(S,Pp Len,2,${eff})\nPp Write "RAM:out.pp",S To N,${eff}\n`
+      const file = boot(src).rt.vfs!.readFile('RAM:out.pp')!
+      expect([...file.subarray(4, 8)]).toEqual([...PP_EFFICIENCY[eff]!])
+      expect(pp20Decrunch(file)).toEqual(TEXT)
+    }
   })
 
   /** MODE_NEWFILE, so a file of the same name goes: Pp5 says "il sera écrasé" */

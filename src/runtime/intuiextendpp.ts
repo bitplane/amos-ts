@@ -93,18 +93,11 @@
  * writes. powerpacker.library is therefore never absent here and neither
  * undefined-return path above can be reached.
  *
- * NOTE: EFF and LARG are accepted and change nothing. EFF 0 to 4 becomes the
- * four-byte offset-width table a PP20 file carries at byte 4, and LARG is
- * ppAllocCrunchInfo's D1, the match-search buffer size. Both mappings live
- * inside powerpacker.library, a separate file this binary only calls, so there
- * is nothing here to read them out of. This port crunches at [9,10,12,13], the
- * table every PP20 file in the corpus carries.
- *
- * DEVIATION: because of that, `Pp Write` writes [9,10,12,13] whatever EFF it
- * was given. On the machine a mismatch matters, which is why Pp5 says "EFF=
- * Reporter l'efficacité de 'Pp Crunch'." The header describes the body, and
- * the wrong number in it makes a file no decruncher can read. Here the two
- * always agree.
+ * EFF 0 to 4 becomes the four-byte offset-width table a PP20 file carries at
+ * byte 4. That mapping is now read from powerpacker.library 36.10 itself; an
+ * out-of-range value leaves ppAllocCrunchInfo's level-2 defaults in place.
+ * LARG is ppAllocCrunchInfo's D1 match-search buffer size and remains an
+ * implementation detail here: this encoder searches the format's full range.
  *
  * DEVIATION: ppLoadData's crypted answers, PP_CRYPTED and PP_PASSERR, are
  * never returned. The codec does not implement PowerPacker's encrypted files,
@@ -120,7 +113,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, int, str, type Value } from '../interp/values'
-import { DEFAULT_EFFICIENCY, pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { pp20Crunch, pp20Decrunch, ppEfficiency } from '../amiga/powerpacker'
 import { ieMem } from './intuiextendwin'
 import type { IntuiextendState } from './intuiextend'
 
@@ -219,13 +212,14 @@ export function makeIntuiextendPpInstructions(rt: Runtime): Record<string, Instr
       it.expect('to')
       const length = it.evalInt() | 0
       it.expect(',')
-      // EFF, which reaches ppWriteDataHeader as D1 and picks the header table
-      it.evalInt()
+      // EFF reaches ppWriteDataHeader as D1 and indexes its five-long table.
+      const eff = it.evalInt()
       const n = Math.max(0, length)
       const m = ieMem(rt)
       const out = new Uint8Array(IE_PP_HEADER + n)
       out.set(PP20_ID, 0)
-      for (let i = 0; i < 4; i++) out[4 + i] = DEFAULT_EFFICIENCY[i]!
+      const widths = ppEfficiency(eff)
+      for (let i = 0; i < 4; i++) out[4 + i] = widths[i]!
       for (let i = 0; i < n; i++) out[IE_PP_HEADER + i] = m.byte((start + i) >>> 0)
       rt.vfs?.writeFile(path, out)
     },
@@ -321,16 +315,16 @@ export function makeIntuiextendPpFunctions(rt: Runtime): Record<string, Func> {
     'pp crunch': (_, a) => {
       const start = i0(a, 0) >>> 0
       const length = i0(a, 1)
-      // LARG, ppAllocCrunchInfo's D1, and EFF, its D0
+      // LARG is ppAllocCrunchInfo's D1; EFF is its D0.
       i0(a, 2)
-      i0(a, 3)
+      const eff = i0(a, 3)
       if (start === 0 || length <= 0) return VI(0)
       const m = ieMem(rt)
       const src = new Uint8Array(length)
       for (let i = 0; i < length; i++) src[i] = m.byte((start + i) >>> 0)
       let file: Uint8Array
       try {
-        file = pp20Crunch(src)
+        file = pp20Crunch(src, ppEfficiency(eff))
       } catch {
         return VI(0)
       }

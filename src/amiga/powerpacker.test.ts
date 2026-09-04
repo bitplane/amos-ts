@@ -3,7 +3,24 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { CHECKED, HAS_ANCIENT, ORACLE, ORACLE_REQUIRED, ancientIdentify, ancientVerify } from '../testing/oracle'
-import { pp20Crunch, pp20Decrunch } from './powerpacker'
+import { PP_EFFICIENCY, pp20Crunch, pp20Decrunch, ppEfficiency } from './powerpacker'
+
+describe('PowerPacker 36.10 efficiency tables', () => {
+  it('matches the five longwords at $210854', () => {
+    expect(PP_EFFICIENCY).toEqual([
+      [9, 9, 9, 9],
+      [9, 10, 10, 10],
+      [9, 10, 11, 11],
+      [9, 10, 12, 12],
+      [9, 10, 12, 13],
+    ])
+  })
+
+  it('uses level 2 for an invalid value, as ppAllocCrunchInfo does', () => {
+    expect(ppEfficiency(-1)).toBe(PP_EFFICIENCY[2])
+    expect(ppEfficiency(99)).toBe(PP_EFFICIENCY[2])
+  })
+})
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0

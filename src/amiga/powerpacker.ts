@@ -64,7 +64,22 @@
  */
 
 const PP20 = 0x50503230 // "PP20"
-export const DEFAULT_EFFICIENCY = [9, 10, 12, 13] as const
+
+/** The five tables powerpacker.library 36.10 builds for levels 0..4. */
+export const PP_EFFICIENCY = [
+  [9, 9, 9, 9],
+  [9, 10, 10, 10],
+  [9, 10, 11, 11],
+  [9, 10, 12, 12],
+  [9, 10, 12, 13],
+] as const
+
+export const DEFAULT_EFFICIENCY = PP_EFFICIENCY[4]
+
+/** Invalid levels leave ppAllocCrunchInfo's initial level-2 values intact. */
+export function ppEfficiency(level: number): readonly number[] {
+  return PP_EFFICIENCY[level] ?? PP_EFFICIENCY[2]
+}
 
 /** split `v` into groups of `bits` bits, all but the last equal to `cont`. */
 function countGroups(v: number, cont: number, _bits: number): number[] {

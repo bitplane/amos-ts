@@ -7371,8 +7371,10 @@ export const NOTES: Record<string, string> = {
     "354: FreeMem($364(a2), $368(a2))), opens powerpacker.library VERSION 35 (routine 368, failing to message 5 " +
     "'No powerpacker.library'), pops its three arguments and immediately pushes the efficiency back as scratch, " +
     "resolves the bank, and refuses one with either type bit set -- `move.w -$c(a0),d0 / andi.w #$c,d0` -- with " +
-    "message 4, 'No icons- or spritesbanks allowed'. NOTE: the efficiency is accepted and does not change the " +
-    "output. NOTE: message 5 cannot fire, because the PP20 codec is ours (src/amiga/powerpacker.ts) and so " +
+    "message 4, 'No icons- or spritesbanks allowed'. PowerPacker 36.10's ppAllocCrunchInfo supplies the recovered " +
+    "0..4 efficiency tables [9,9,9,9] through [9,10,12,13], with invalid values retaining level 2; the argument " +
+    "now changes both the encoded body and its matching header. NOTE: message 5 cannot fire, because the PP20 " +
+    "codec is ours (src/amiga/powerpacker.ts) and so " +
     "powerpacker.library is never absent, where on the machine it is a separate file a program may be running " +
     "without Source: +Equ.s:1867-8.",
   "launch":

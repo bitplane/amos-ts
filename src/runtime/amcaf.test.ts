@@ -10,7 +10,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
-import { pp20Crunch } from '../amiga/powerpacker'
+import { PP_EFFICIENCY, pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { implode } from '../amiga/imploder'
 import { NodeVolume } from '../cli/nodefs'
 import { Machine } from '../amiga/machine'
@@ -4830,13 +4830,17 @@ describe('AMCAF: Pptodisk (routines 234 and 235)', () => {
     expect([...fs.readFile('Work:b.pp')!.subarray(4, 8)]).toEqual([9, 10, 12, 13])
   })
 
-  it('the third argument is accepted and changes nothing', () => {
-    // it is handed straight to powerpacker.library, and the 0..4 to table
-    // mapping lives there rather than in this binary. No range check either
-    const a = boot([...fill, 'Pptodisk "Work:b.pp",5']).fs.readFile('Work:b.pp')!
-    for (const eff of ['0', '2', '4', '99', '-1']) {
-      const b = boot([...fill, `Pptodisk "Work:c.pp",5,${eff}`]).fs.readFile('Work:c.pp')!
-      expect([...b]).toEqual([...a])
+  it('the third argument selects powerpacker.library\'s efficiency table', () => {
+    for (let eff = 0; eff <= 4; eff++) {
+      const { rt, fs } = boot([...fill, `Pptodisk "Work:c.pp",5,${eff}`])
+      const packed = fs.readFile('Work:c.pp')!
+      expect([...packed.subarray(4, 8)]).toEqual([...PP_EFFICIENCY[eff]!])
+      expect([...pp20Decrunch(packed)]).toEqual([...rt.memBanks.get(5)!.data])
+    }
+    // There is no caller-side range check; 36.10 retains level 2's defaults.
+    for (const eff of [-1, 99]) {
+      const packed = boot([...fill, `Pptodisk "Work:c.pp",5,${eff}`]).fs.readFile('Work:c.pp')!
+      expect([...packed.subarray(4, 8)]).toEqual([...PP_EFFICIENCY[2]])
     }
   })
 
