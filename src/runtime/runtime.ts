@@ -2750,19 +2750,45 @@ export class Runtime {
         drawBitmap: (handle, spec) => {
           const w = asWindow(handle)
           const rp = this.intuition.windowRastPort(w)
-          const header = this.resolveAddr(spec.bitmap)
-          if (!rp || !header || header.off + 40 > header.data.length) return
-          const u16 = (at: number): number => (header.data[header.off + at]! << 8) | header.data[header.off + at + 1]!
-          const u32 = (at: number): number => (((header.data[header.off + at]! << 24) |
-            (header.data[header.off + at + 1]! << 16) | (header.data[header.off + at + 2]! << 8) |
-            header.data[header.off + at + 3]!) >>> 0)
-          const rowBytes = u16(0)
-          const rows = u16(2)
-          const depth = Math.min(8, header.data[header.off + 5]!)
+          if (!rp) return
+          const header = spec.body === 0 ? this.resolveAddr(spec.bitmap) : null
+          if (spec.body === 0 && (!header || header.off + 40 > header.data.length)) return
+          const u16 = (at: number): number => (header!.data[header!.off + at]! << 8) | header!.data[header!.off + at + 1]!
+          const u32 = (at: number): number => (((header!.data[header!.off + at]! << 24) |
+            (header!.data[header!.off + at + 1]! << 16) | (header!.data[header!.off + at + 2]! << 8) |
+            header!.data[header!.off + at + 3]!) >>> 0)
+          const rowBytes = spec.body === 0 ? u16(0) : ((spec.sourceWidth + 15) >>> 4) * 2
+          const rows = spec.body === 0 ? u16(2) : spec.sourceHeight
+          const depth = Math.min(8, spec.body === 0 ? header!.data[header!.off + 5]! : spec.depth)
           const width = Math.min(spec.width, spec.sourceWidth || rowBytes * 8)
           const height = Math.min(spec.height, spec.sourceHeight || rows)
           if (rowBytes === 0 || width <= 0 || height <= 0 || depth === 0) return
-          const planes = Array.from({ length: depth }, (_, plane) => this.resolveAddr(u32(8 + plane * 4)))
+          const body = spec.body === 0 ? null : this.resolveAddr(spec.body)
+          let decoded: Uint8Array | null = null
+          const storedPlanes = depth + (spec.masking === 1 ? 1 : 0)
+          if (body) {
+            const needed = rowBytes * rows * storedPlanes
+            decoded = new Uint8Array(needed)
+            if (spec.compression === 1) {
+              let source = body.off
+              let target = 0
+              while (target < needed && source < body.data.length) {
+                const control = (body.data[source++]! << 24) >> 24
+                if (control >= 0) {
+                  const count = control + 1
+                  for (let i = 0; i < count && target < needed && source < body.data.length; i++) decoded[target++] = body.data[source++]!
+                } else if (control !== -128 && source < body.data.length) {
+                  const value = body.data[source++]!
+                  for (let i = 0; i < 1 - control && target < needed; i++) decoded[target++] = value
+                }
+              }
+            } else {
+              decoded.set(body.data.slice(body.off, Math.min(body.data.length, body.off + needed)))
+            }
+          }
+          const planes = spec.body === 0
+            ? Array.from({ length: depth }, (_, plane) => this.resolveAddr(u32(8 + plane * 4)))
+            : []
           const mapping = spec.mappingTable === 0 ? null : this.resolveAddr(spec.mappingTable)
           const saved = rp.snapshot()
           const left = w.leftEdge + w.borderLeft + spec.left
@@ -2774,9 +2800,15 @@ export class Runtime {
                 let colour = 0
                 for (let plane = 0; plane < depth; plane++) {
                   const source = planes[plane]
-                  if (!source) continue
-                  const at = source.off + y * rowBytes + (x >>> 3)
-                  if (at < source.data.length && (source.data[at]! & (0x80 >>> (x & 7))) !== 0) colour |= 1 << plane
+                  const at = spec.body === 0
+                    ? (source?.off ?? 0) + y * rowBytes + (x >>> 3)
+                    : (y * storedPlanes + plane) * rowBytes + (x >>> 3)
+                  const byte = spec.body === 0 ? (source && at < source.data.length ? source.data[at]! : 0) : decoded?.[at] ?? 0
+                  if ((byte & (0x80 >>> (x & 7))) !== 0) colour |= 1 << plane
+                }
+                if (decoded && spec.masking === 1) {
+                  const maskAt = (y * storedPlanes + depth) * rowBytes + (x >>> 3)
+                  if (((decoded[maskAt] ?? 0) & (0x80 >>> (x & 7))) === 0) continue
                 }
                 if (colour === (spec.transparent >>> 0)) continue
                 if (mapping && mapping.off + colour < mapping.data.length) colour = mapping.data[mapping.off + colour]!

@@ -417,6 +417,40 @@ describe('muimaster: Bitmap.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Bodychunk.mui 19.35', () => {
+  it('stores and returns the six constructor fields decoded by the native class', () => {
+    const m = new MuiMaster()
+    const body = m.newObjectA(MUIC.MUIC_Bodychunk, [
+      tag(MUI.MUIA_Bodychunk_Body, 0x4000), tag(MUI.MUIA_Bodychunk_Depth, 3),
+      tag(MUI.MUIA_Bodychunk_Compression, 1), tag(MUI.MUIA_Bodychunk_Masking, 1),
+      tag(MUI.MUIA_Bitmap_Width, 17), tag(MUI.MUIA_Bitmap_Height, 9),
+    ])!
+    expect(m.get(body, MUI.MUIA_Bodychunk_Body)).toBe(0x4000)
+    expect(m.get(body, MUI.MUIA_Bodychunk_Depth)).toBe(3)
+    expect(m.get(body, MUI.MUIA_Bodychunk_Compression)).toBe(1)
+    expect(m.get(body, MUI.MUIA_Bodychunk_Masking)).toBe(1)
+  })
+
+  it('converts BODY data at Setup, delegates Bitmap drawing, and releases it at Cleanup', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const body = m.newObjectA(MUIC.MUIC_Bodychunk, [
+      tag(MUI.MUIA_Bodychunk_Body, 0x4000), tag(MUI.MUIA_Bodychunk_Depth, 2),
+      tag(MUI.MUIA_Bodychunk_Compression, 1), tag(MUI.MUIA_Bodychunk_Masking, 1),
+      tag(MUI.MUIA_Bitmap_Width, 16), tag(MUI.MUIA_Bitmap_Height, 8),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, body.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(m.get(body, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0x4000)
+    expect(host.bitmaps.at(-1)).toMatchObject({
+      body: 0x4000, depth: 2, compression: 1, masking: 1, sourceWidth: 16, sourceHeight: 8,
+    })
+    expect(m.doMui(body, MUI.MUIM_Cleanup)).toBe(0)
+    expect(m.get(body, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0)
+  })
+})
+
 describe('muimaster: the object tree', () => {
   it('a child attribute makes a real parent/child link', () => {
     const m = new MuiMaster()

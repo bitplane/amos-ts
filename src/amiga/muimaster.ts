@@ -528,6 +528,10 @@ export interface MuiBitmapRenderSpec extends Box {
   sourceHeight: number
   mappingTable: number
   transparent: number
+  body: number
+  depth: number
+  compression: number
+  masking: number
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -553,6 +557,10 @@ interface MuiImageData extends Record<string, unknown> {
 interface MuiBitmapData extends Record<string, unknown> {
   setup: boolean
   remappedBitmap: number
+}
+
+interface MuiBodychunkData extends Record<string, unknown> {
+  setup: boolean
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -610,6 +618,7 @@ export class MuiMaster {
   readonly areaClass: BoopsiClass
   readonly imageClass: BoopsiClass
   readonly bitmapClass: BoopsiClass
+  readonly bodychunkClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -657,6 +666,7 @@ export class MuiMaster {
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
     this.imageClass = this.byName.get(MUIC.MUIC_Image)!
     this.bitmapClass = this.byName.get(MUIC.MUIC_Bitmap)!
+    this.bodychunkClass = this.byName.get(MUIC.MUIC_Bodychunk)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1197,6 +1207,14 @@ export class MuiMaster {
           d.set(MUI.MUIA_Bitmap_UseFriend, 0)
           d.set(MUI.MUIA_Bitmap_RemappedBitmap, 0)
         }
+        if (cl === this.bodychunkClass) {
+          made.instData<MuiBodychunkData>(cl).setup = false
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Bodychunk_Body, 0)
+          d.set(MUI.MUIA_Bodychunk_Depth, 0)
+          d.set(MUI.MUIA_Bodychunk_Compression, 0)
+          d.set(MUI.MUIA_Bodychunk_Masking, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1307,6 +1325,7 @@ export class MuiMaster {
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.bodychunkClass) return this.setBodychunk(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.areaClass) return this.setArea(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
@@ -1537,6 +1556,10 @@ export class MuiMaster {
         }
         if (cl === this.bitmapClass) {
           const answered = this.bitmapMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.bodychunkClass) {
+          const answered = this.bodychunkMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2309,6 +2332,33 @@ export class MuiMaster {
     this.pool.buffer[off + 3] = value
   }
 
+  // -- Bodychunk ----------------------------------------------------------
+
+  private setBodychunk(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const own = this.applyOwn('Bodychunk', obj, msg.attrs, 's')
+    return (own ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+  }
+
+  private bodychunkMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const bodychunk = obj.instData<MuiBodychunkData>(this.bodychunkClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.bodychunkClass, obj, msg)
+        bodychunk.setup = answer !== 0
+        if (bodychunk.setup && (this.peek(obj, MUI.MUIA_Bodychunk_Body) ?? 0) !== 0) {
+          const effective = this.peek(obj, MUI.MUIA_Bodychunk_Body) ?? 0
+          obj.instData<MuiBitmapData>(this.bitmapClass).remappedBitmap = effective
+          data(this, obj).attrs.set(MUI.MUIA_Bitmap_RemappedBitmap, effective)
+        }
+        return answer
+      }
+      case MUI.MUIM_Cleanup:
+        bodychunk.setup = false
+        return doSuperMethodA(this.bodychunkClass, obj, msg)
+      default: return null
+    }
+  }
+
   // -- Bitmap -------------------------------------------------------------
 
   private setBitmap(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
@@ -2358,6 +2408,10 @@ export class MuiMaster {
       sourceHeight: Math.max(0, this.peek(obj, MUI.MUIA_Bitmap_Height) ?? 0),
       mappingTable: this.peek(obj, MUI.MUIA_Bitmap_MappingTable) ?? 0,
       transparent: this.peek(obj, MUI.MUIA_Bitmap_Transparent) ?? -1,
+      body: obj.cl.isA(this.bodychunkClass) ? this.peek(obj, MUI.MUIA_Bodychunk_Body) ?? 0 : 0,
+      depth: obj.cl.isA(this.bodychunkClass) ? this.peek(obj, MUI.MUIA_Bodychunk_Depth) ?? 0 : 0,
+      compression: obj.cl.isA(this.bodychunkClass) ? this.peek(obj, MUI.MUIA_Bodychunk_Compression) ?? 0 : 0,
+      masking: obj.cl.isA(this.bodychunkClass) ? this.peek(obj, MUI.MUIA_Bodychunk_Masking) ?? 0 : 0,
     })
   }
 
