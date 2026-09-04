@@ -2747,6 +2747,46 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawBitmap: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          const header = this.resolveAddr(spec.bitmap)
+          if (!rp || !header || header.off + 40 > header.data.length) return
+          const u16 = (at: number): number => (header.data[header.off + at]! << 8) | header.data[header.off + at + 1]!
+          const u32 = (at: number): number => (((header.data[header.off + at]! << 24) |
+            (header.data[header.off + at + 1]! << 16) | (header.data[header.off + at + 2]! << 8) |
+            header.data[header.off + at + 3]!) >>> 0)
+          const rowBytes = u16(0)
+          const rows = u16(2)
+          const depth = Math.min(8, header.data[header.off + 5]!)
+          const width = Math.min(spec.width, spec.sourceWidth || rowBytes * 8)
+          const height = Math.min(spec.height, spec.sourceHeight || rows)
+          if (rowBytes === 0 || width <= 0 || height <= 0 || depth === 0) return
+          const planes = Array.from({ length: depth }, (_, plane) => this.resolveAddr(u32(8 + plane * 4)))
+          const mapping = spec.mappingTable === 0 ? null : this.resolveAddr(spec.mappingTable)
+          const saved = rp.snapshot()
+          const left = w.leftEdge + w.borderLeft + spec.left
+          const top = w.topEdge + w.borderTop + spec.top
+          try {
+            rp.clip = { x1: left, y1: top, x2: left + spec.width - 1, y2: top + spec.height - 1 }
+            for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                let colour = 0
+                for (let plane = 0; plane < depth; plane++) {
+                  const source = planes[plane]
+                  if (!source) continue
+                  const at = source.off + y * rowBytes + (x >>> 3)
+                  if (at < source.data.length && (source.data[at]! & (0x80 >>> (x & 7))) !== 0) colour |= 1 << plane
+                }
+                if (colour === (spec.transparent >>> 0)) continue
+                if (mapping && mapping.off + colour < mapping.data.length) colour = mapping.data[mapping.off + colour]!
+                rp.plot(left + x, top + y, colour)
+              }
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
       }
       this.muiBase = mui
     }

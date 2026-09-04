@@ -43,6 +43,7 @@ import {
   type MuiWindowSpec,
   type MuiAreaRenderSpec,
   type MuiImageRenderSpec,
+  type MuiBitmapRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -56,6 +57,7 @@ class TestWindowHost implements MuiWindowHost {
   calls: string[] = []
   draws: MuiAreaRenderSpec[] = []
   images: MuiImageRenderSpec[] = []
+  bitmaps: MuiBitmapRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -69,6 +71,7 @@ class TestWindowHost implements MuiWindowHost {
   poll(): MuiWindowEvent[] { return this.events.splice(0) }
   drawArea(_handle: unknown, spec: MuiAreaRenderSpec): void { this.draws.push(spec) }
   drawImage(_handle: unknown, spec: MuiImageRenderSpec): void { this.images.push(spec) }
+  drawBitmap(_handle: unknown, spec: MuiBitmapRenderSpec): void { this.bitmaps.push(spec) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -370,6 +373,47 @@ describe('muimaster: Image.mui 19.35', () => {
     m.doMui(image, MUI.MUIM_Draw, [1])
     expect(host.images.at(-1)?.state).toBe(3)
     expect(m.doMui(image, MUI.MUIM_Cleanup)).toBe(0)
+  })
+})
+
+describe('muimaster: Bitmap.mui 19.35', () => {
+  it('installs the native constructor defaults and the 1..10000 size range', () => {
+    const m = new MuiMaster()
+    const bitmap = m.newObjectA(MUIC.MUIC_Bitmap)!
+    expect(m.get(bitmap, MUI.MUIA_Bitmap_Bitmap)).toBe(0)
+    expect(m.get(bitmap, MUI.MUIA_Bitmap_Transparent)).toBe(-1)
+    expect(m.get(bitmap, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0)
+    expect(m.askMinMax(bitmap)).toEqual({
+      minW: 1, minH: 1, maxW: MUI_MAXMAX, maxH: MUI_MAXMAX, defW: 1, defH: 1,
+    })
+  })
+
+  it('exposes its effective bitmap during Setup and clears it during Cleanup', () => {
+    const m = new MuiMaster()
+    const bitmap = m.newObjectA(MUIC.MUIC_Bitmap, [tag(MUI.MUIA_Bitmap_Bitmap, 0x1234)])!
+    expect(m.doMui(bitmap, MUI.MUIM_Setup)).toBe(1)
+    expect(m.get(bitmap, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0x1234)
+    expect(m.doMui(bitmap, MUI.MUIM_Cleanup)).toBe(0)
+    expect(m.get(bitmap, MUI.MUIA_Bitmap_RemappedBitmap)).toBe(0)
+  })
+
+  it('draws the declared source rectangle with mapping and transparency metadata', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const bitmap = m.newObjectA(MUIC.MUIC_Bitmap, [
+      tag(MUI.MUIA_Bitmap_Bitmap, 0x2000), tag(MUI.MUIA_Bitmap_Width, 13),
+      tag(MUI.MUIA_Bitmap_Height, 7), tag(MUI.MUIA_Bitmap_MappingTable, 0x3000),
+      tag(MUI.MUIA_Bitmap_Transparent, 2),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, bitmap.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.bitmaps.at(-1)).toMatchObject({
+      bitmap: 0x2000, sourceWidth: 13, sourceHeight: 7, mappingTable: 0x3000, transparent: 2,
+    })
+    m.set(bitmap, MUI.MUIA_Bitmap_Width, 9)
+    m.doMui(bitmap, MUI.MUIM_Draw, [1])
+    expect(host.bitmaps.at(-1)?.sourceWidth).toBe(9)
   })
 })
 

@@ -504,6 +504,7 @@ export interface MuiWindowHost {
   poll(handle: unknown): MuiWindowEvent[]
   drawArea?(handle: unknown, spec: MuiAreaRenderSpec): void
   drawImage?(handle: unknown, spec: MuiImageRenderSpec): void
+  drawBitmap?(handle: unknown, spec: MuiBitmapRenderSpec): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -519,6 +520,14 @@ export interface MuiImageRenderSpec extends Box {
   spec: number
   oldImage: number
   state: number
+}
+
+export interface MuiBitmapRenderSpec extends Box {
+  bitmap: number
+  sourceWidth: number
+  sourceHeight: number
+  mappingTable: number
+  transparent: number
 }
 
 interface MuiWindowData extends Record<string, unknown> {
@@ -539,6 +548,11 @@ interface MuiAreaData extends Record<string, unknown> {
 
 interface MuiImageData extends Record<string, unknown> {
   setup: boolean
+}
+
+interface MuiBitmapData extends Record<string, unknown> {
+  setup: boolean
+  remappedBitmap: number
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -595,6 +609,7 @@ export class MuiMaster {
   readonly menuitemClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly imageClass: BoopsiClass
+  readonly bitmapClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -641,6 +656,7 @@ export class MuiMaster {
     this.menuitemClass = this.byName.get(MUIC.MUIC_Menuitem)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
     this.imageClass = this.byName.get(MUIC.MUIC_Image)!
+    this.bitmapClass = this.byName.get(MUIC.MUIC_Bitmap)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1166,6 +1182,21 @@ export class MuiMaster {
           d.set(MUI.MUIA_Image_FreeHoriz, 0)
           d.set(MUI.MUIA_Image_FreeVert, 0)
         }
+        if (cl === this.bitmapClass) {
+          const bitmap = made.instData<MuiBitmapData>(cl)
+          bitmap.setup = false
+          bitmap.remappedBitmap = 0
+          const d = data(this, made).attrs
+          d.set(MUI.MUIA_Bitmap_Bitmap, 0)
+          d.set(MUI.MUIA_Bitmap_Width, 0)
+          d.set(MUI.MUIA_Bitmap_Height, 0)
+          d.set(MUI.MUIA_Bitmap_MappingTable, 0)
+          d.set(MUI.MUIA_Bitmap_SourceColors, 0)
+          d.set(MUI.MUIA_Bitmap_Transparent, -1)
+          d.set(MUI.MUIA_Bitmap_Precision, 0)
+          d.set(MUI.MUIA_Bitmap_UseFriend, 0)
+          d.set(MUI.MUIA_Bitmap_RemappedBitmap, 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1275,6 +1306,7 @@ export class MuiMaster {
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.areaClass) return this.setArea(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.menuClass) {
           const attrs = (msg as OpSet).attrs
@@ -1337,6 +1369,10 @@ export class MuiMaster {
             g.storage = computed
             return 1
           }
+        }
+        if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
+          g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
+          return 1
         }
         if (cl === this.areaClass) {
           const computed = this.getArea(o, TAG(g.attrID))
@@ -1497,6 +1533,10 @@ export class MuiMaster {
         }
         if (cl === this.imageClass) {
           const answered = this.imageMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.bitmapClass) {
+          const answered = this.bitmapMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2267,6 +2307,58 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Bitmap -------------------------------------------------------------
+
+  private setBitmap(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const own = this.applyOwn('Bitmap', obj, msg.attrs, 's')
+    const answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, msg)
+    if (msg.attrs.some((attr) => MUI_OWNER[TAG(attr.tag)] === 'Bitmap')) this.redrawArea(obj, 1)
+    return answer
+  }
+
+  private bitmapMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const bitmap = obj.instData<MuiBitmapData>(this.bitmapClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.bitmapClass, obj, msg)
+        bitmap.setup = answer !== 0
+        // The native class exposes the remapped friend bitmap. Rendering in
+        // this port applies the mapping directly, so the source pointer is
+        // also the effective, addressable bitmap identity.
+        bitmap.remappedBitmap = bitmap.setup ? this.peek(obj, MUI.MUIA_Bitmap_Bitmap) ?? 0 : 0
+        data(this, obj).attrs.set(MUI.MUIA_Bitmap_RemappedBitmap, bitmap.remappedBitmap)
+        return answer
+      }
+      case MUI.MUIM_Cleanup:
+        bitmap.setup = false
+        bitmap.remappedBitmap = 0
+        data(this, obj).attrs.set(MUI.MUIA_Bitmap_RemappedBitmap, 0)
+        return doSuperMethodA(this.bitmapClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.bitmapClass, obj, msg)
+        this.drawBitmap(obj)
+        return 0
+      default: return null
+    }
+  }
+
+  private drawBitmap(obj: BoopsiObject): void {
+    if (!obj.instData<MuiBitmapData>(this.bitmapClass).setup) return
+    const window = this.ancestorOf(obj, this.windowClass)
+    const box = this.boxOf(obj)
+    if (!window || !box) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    this.windowHost?.drawBitmap?.(handle, {
+      ...box,
+      bitmap: this.peek(obj, MUI.MUIA_Bitmap_Bitmap) ?? 0,
+      sourceWidth: Math.max(0, this.peek(obj, MUI.MUIA_Bitmap_Width) ?? 0),
+      sourceHeight: Math.max(0, this.peek(obj, MUI.MUIA_Bitmap_Height) ?? 0),
+      mappingTable: this.peek(obj, MUI.MUIA_Bitmap_MappingTable) ?? 0,
+      transparent: this.peek(obj, MUI.MUIA_Bitmap_Transparent) ?? -1,
+    })
   }
 
   // -- Image --------------------------------------------------------------
@@ -3451,6 +3543,11 @@ export class MuiMaster {
           const image = this.imageMetrics(obj)
           add(image.minW, image.minH, image.maxW, image.maxH, image.defW, image.defH)
         }
+        return 0
+      case 'Bitmap':
+        // The class deliberately does not constrain itself to the source
+        // bitmap: the shipped handler adds 1/1 and 10000/10000 verbatim.
+        add(1, 1, MUI_MAXMAX, MUI_MAXMAX)
         return 0
       case 'Gauge':
         // a bar: unlimited along its axis, one line across
