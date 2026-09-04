@@ -492,10 +492,19 @@ export function startAslMode(rt: Runtime, setup: AslModeSetup, slot: number | nu
   const rp = new RastPort(scr.rp.bitMap)
   rp.font = rt.systemFont()
   const modes = DISPLAY_MODES
-  const at = Math.max(0, modes.findIndex((m) => m.id === setup.id))
-  const chosen = modes[at]!
+  const at = modes.findIndex((m) => m.id === setup.id)
+  // AllocAslRequest 39.4 seeds the public ScreenModeRequester fields with
+  // ID 0, 640x200 and depth 2 at $21314a-$21315e. Width and height are
+  // independent request values, not properties to replace merely because
+  // the ID names a database row.
+  const initial = {
+    ...setup,
+    displayWidth: setup.displayWidth === 0 ? 640 : setup.displayWidth,
+    displayHeight: setup.displayHeight === 0 ? 200 : setup.displayHeight,
+    depth: setup.depth === 0 ? 2 : setup.depth,
+  }
   return {
-    setup: { ...setup, id: chosen.id, displayWidth: chosen.width, displayHeight: chosen.height },
+    setup: initial,
     window,
     slot: on,
     rp,

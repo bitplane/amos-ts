@@ -3354,6 +3354,13 @@ describe('GUI 2.10: the screen-mode requester', () => {
     expect(st.modes.map((m) => m.id)).toEqual([0x21000, 0x29000, 0x29020, 0x21004, 0x29004, 0x29024])
   })
 
+  it('opens on the result fields seeded by ASL 39.4 allocation', () => {
+    const b = open('A=Gui Asl Screen')
+    const st = b.rt.aslMode!
+    expect([st.setup.id, st.setup.displayWidth, st.setup.displayHeight, st.setup.depth]).toEqual([0, 640, 200, 2])
+    expect(st.selected).toBe(-1)
+  })
+
   it('answers the DisplayID, and the four readers take the fields off it', () => {
     const b = open('A=Gui Asl Screen : Print Hex$(A);" ";Gui Asl Id;" ";Gui Asl Width;" ";Gui Asl Height;" ";Gui Asl Depth')
     const st = b.rt.aslMode!
