@@ -3,7 +3,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OM_ADDMEMBER, OM_REMMEMBER, OM_SET, type BoopsiObject, type OpMember, type TagItem } from './boopsi'
-import { MUI_BUILTIN_SUPER, MUI_MAXMAX, MuiMaster, visibleLength } from './muimaster'
+import {
+  MUI_BUILTIN_SUPER,
+  MUI_MAXMAX,
+  MUIM_APPLIST_BROADCAST,
+  MUIM_APPLIST_FIND,
+  MuiMaster,
+  visibleLength,
+} from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
 import { parseAmosFile } from '../loader/amosfile'
 
@@ -183,6 +190,38 @@ describe('muimaster: Semaphore', () => {
     const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
     expect(send(ds, MUI.MUIM_Semaphore_Attempt)).toBe(1)
     expect(send(ds, MUI.MUIM_Semaphore_Release)).toBe(0)
+  })
+})
+
+describe('muimaster: Applist', () => {
+  it('adds, removes and broadcasts to its applications', () => {
+    const m = new MuiMaster()
+    const list = m.newObjectA('Applist.mui')!
+    const a = m.newObjectA(MUIC.MUIC_Application)!
+    const b = m.newObjectA(MUIC.MUIC_Application)!
+    expect(m.addMember(list, a)).toBe(0)
+    expect(m.addMember(list, b)).toBe(0)
+    expect(send(list, MUIM_APPLIST_BROADCAST, MUI.MUIM_Set, MUI.MUIA_Application_Sleep, 1)).toBe(0)
+    expect([m.peek(a, MUI.MUIA_Application_Sleep), m.peek(b, MUI.MUIA_Application_Sleep)]).toEqual([1, 1])
+    expect(m.remMember(list, a)).toBe(0)
+    send(list, MUIM_APPLIST_BROADCAST, MUI.MUIM_Set, MUI.MUIA_Application_Sleep, 0)
+    expect([m.peek(a, MUI.MUIA_Application_Sleep), m.peek(b, MUI.MUIA_Application_Sleep)]).toEqual([1, 0])
+  })
+
+  it('finds an application by string value or exact broker port', () => {
+    const m = new MuiMaster()
+    m.readString = (at) => new Map([[1, 'One'], [2, 'Two'], [3, 'Two']]).get(at) ?? ''
+    const list = m.newObjectA('Applist.mui')!
+    const a = m.newObjectA(MUIC.MUIC_Application, [
+      tag(MUI.MUIA_Application_Title, 1),
+    ])!
+    m.setInternal(a, MUI.MUIA_Application_BrokerPort, 0x1234)
+    const b = m.newObjectA(MUIC.MUIC_Application, [tag(MUI.MUIA_Application_Title, 2)])!
+    m.addMember(list, a)
+    m.addMember(list, b)
+    expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_Title, 3)).toBe(b.address)
+    expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_BrokerPort, 0x1234)).toBe(a.address)
+    expect(send(list, MUIM_APPLIST_FIND, MUI.MUIA_Application_BrokerPort, 0x9999)).toBe(0)
   })
 })
 

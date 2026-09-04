@@ -203,6 +203,10 @@ export const MUI_BUILTIN_SUPER: Readonly<Record<string, string>> = {
   Mccprefs: 'Group',
 }
 
+/** Private Applist methods present in 19.35's table but absent from mui.h. */
+export const MUIM_APPLIST_BROADCAST = 0x8042615c
+export const MUIM_APPLIST_FIND = 0x8042e50f
+
 /** one notification recorded by MUIM_Notify */
 export interface Notification {
   trigAttr: number
@@ -280,6 +284,10 @@ interface MuiSemaphoreData extends Record<string, unknown> {
   shared: number
 }
 
+interface MuiApplistData extends Record<string, unknown> {
+  members: BoopsiObject[]
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -299,6 +307,7 @@ export class MuiMaster {
   /** the classes whose behaviour this file specialises, by name */
   readonly notifyClass: BoopsiClass
   readonly semaphoreClass: BoopsiClass
+  readonly applistClass: BoopsiClass
   readonly familyClass: BoopsiClass
   readonly areaClass: BoopsiClass
   readonly groupClass: BoopsiClass
@@ -326,6 +335,7 @@ export class MuiMaster {
     for (const name of Object.keys(MUI_BUILTIN_SUPER)) make(name)
 
     this.semaphoreClass = this.byName.get('Semaphore.mui')!
+    this.applistClass = this.byName.get('Applist.mui')!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
     this.familyClass = this.byName.get(MUIC.MUIC_Family)!
     this.areaClass = this.byName.get(MUIC.MUIC_Area)!
@@ -741,6 +751,7 @@ export class MuiMaster {
           sem.exclusive = 0
           sem.shared = 0
         }
+        if (cl === this.applistClass) made.instData<MuiApplistData>(cl).members = []
         const attrs = (msg as OpSet).attrs
         if (!this.applyOwn(name, made, attrs, 'i')) return 0
         return made.address
@@ -805,6 +816,14 @@ export class MuiMaster {
       case OM_REMMEMBER: {
         const o = obj as BoopsiObject
         const child = (msg as OpMember).object
+        if (cl === this.applistClass) {
+          const members = o.instData<MuiApplistData>(cl).members
+          const i = members.indexOf(child)
+          if (msg.MethodID === OM_ADDMEMBER && i < 0) members.push(child)
+          else if (msg.MethodID === OM_REMMEMBER && i >= 0) members.splice(i, 1)
+          // $2350f8 and $23511a both explicitly clear d0.
+          return 0
+        }
         const d = data(this, o)
         if (msg.MethodID === OM_ADDMEMBER) {
           if (!d.children.includes(child)) d.children.push(child)
@@ -821,6 +840,10 @@ export class MuiMaster {
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
       default: {
+        if (cl === this.applistClass) {
+          const answered = this.applistMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.semaphoreClass) {
           const answered = this.semaphoreMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -832,6 +855,33 @@ export class MuiMaster {
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
         return doSuperMethodA(cl, obj, msg)
       }
+    }
+  }
+
+  /** The two private operations Application uses on the global app list. */
+  private applistMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const members = obj.instData<MuiApplistData>(this.applistClass).members
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUIM_APPLIST_BROADCAST: {
+        const [method = 0, ...rest] = params
+        for (const member of members) this.doMui(member, method, rest)
+        return 0
+      }
+      case MUIM_APPLIST_FIND: {
+        const [attr = 0, wanted = 0] = params
+        for (const member of members) {
+          const found = this.get(member, attr) ?? 0
+          if (attr === MUI.MUIA_Application_BrokerPort) {
+            if (found === wanted) return member.address
+          } else if (found !== 0 && this.readString?.(found) === this.readString?.(wanted)) {
+            return member.address
+          }
+        }
+        return 0
+      }
+      default:
+        return null
     }
   }
 
