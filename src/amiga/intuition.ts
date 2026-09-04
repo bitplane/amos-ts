@@ -623,8 +623,9 @@ export interface GadgetImage {
 
 /**
  * A gadget in a window, as much of `struct Gadget` as anything here fills in.
- * `id` is GadgetID at offset 38, which is what an IDCMP GADGETUP message's
- * caller reads back out of `IAddress`.
+ * `id` is the value posted as an IDCMP message's `IAddress`. Native Intuition
+ * uses the gadget pointer there; owned AMOS gadgets use their synthetic ID,
+ * while a MUI Gadget wrapper supplies the actual guest pointer.
  */
 export interface UserGadget {
   leftEdge: number
@@ -1041,6 +1042,26 @@ export class Intuition {
 
   windowRastPort(w: Window): RastPort | null {
     return this.open.includes(w) ? this.host.screenRast(w.screenSlot) : null
+  }
+
+  /** AddGadget/RemoveGadget/RefreshGList for platform-owned gadget wrappers. */
+  attachWindowGadget(w: Window, gadget: UserGadget): void {
+    if (!this.windows.includes(w) || w.gadgets.includes(gadget)) return
+    w.gadgets.push(gadget)
+    this.dirty = true
+  }
+
+  detachWindowGadget(w: Window, gadget: UserGadget): void {
+    const at = w.gadgets.indexOf(gadget)
+    if (at < 0) return
+    w.gadgets.splice(at, 1)
+    if (this.armedGadget?.g === gadget) this.armedGadget = null
+    if (this.activeString?.g === gadget) this.activeString = null
+    this.dirty = true
+  }
+
+  refreshWindowGadget(w: Window, gadget: UserGadget): void {
+    if (this.windows.includes(w) && w.gadgets.includes(gadget)) this.dirty = true
   }
 
   /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */

@@ -287,6 +287,8 @@ export const MUIM_AREA_DELETE_DRAG_IMAGE = 0x80428daf
 export const MUIM_AREA_CREATE_BUBBLE_IMAGE = 0x8042eb6f
 export const MUIM_AREA_DELETE_BUBBLE_IMAGE = 0x80423037
 export const MUIM_AREA_HIT_TEST = 0x804216bb
+export const MUIA_GADGET_ACTIVE = 0x804232d2
+export const MUIA_GADGET_WINDOW = 0x804282bc
 
 const IDCMP_NEWSIZE = 0x2
 const IDCMP_REFRESHWINDOW = 0x4
@@ -508,6 +510,9 @@ export interface MuiWindowHost {
   drawText?(handle: unknown, spec: MuiTextRenderSpec): void
   drawRectangle?(handle: unknown, spec: MuiRectangleRenderSpec): void
   drawBalance?(handle: unknown, spec: MuiBalanceRenderSpec): void
+  showGadget?(handle: unknown, address: number, box: Box, disabled: boolean): void
+  hideGadget?(handle: unknown, address: number): void
+  refreshGadget?(handle: unknown, address: number): void
 }
 
 export interface MuiAreaRenderSpec extends Box {
@@ -589,6 +594,13 @@ interface MuiBalanceData extends Record<string, unknown> {
   startY: number
 }
 
+interface MuiGadgetData extends Record<string, unknown> {
+  gadget: number
+  handle: unknown | null
+  attached: boolean
+  active: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -648,6 +660,7 @@ export class MuiMaster {
   readonly textClass: BoopsiClass
   readonly rectangleClass: BoopsiClass
   readonly balanceClass: BoopsiClass
+  readonly gadgetClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
@@ -699,6 +712,7 @@ export class MuiMaster {
     this.textClass = this.byName.get(MUIC.MUIC_Text)!
     this.rectangleClass = this.byName.get(MUIC.MUIC_Rectangle)!
     this.balanceClass = this.byName.get(MUIC.MUIC_Balance)!
+    this.gadgetClass = this.byName.get(MUIC.MUIC_Gadget)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
@@ -1268,6 +1282,16 @@ export class MuiMaster {
           balance.startX = 0
           balance.startY = 0
         }
+        if (cl === this.gadgetClass) {
+          const gadget = made.instData<MuiGadgetData>(cl)
+          gadget.gadget = 0
+          gadget.handle = null
+          gadget.attached = false
+          gadget.active = false
+          const requested = (msg as OpSet).attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Gadget_Gadget)
+          if (requested) gadget.gadget = requested.data
+          data(this, made).attrs.set(MUI.MUIA_Gadget_Gadget, gadget.gadget)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1340,6 +1364,14 @@ export class MuiMaster {
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.gadgetClass) {
+          const gadget = o.instData<MuiGadgetData>(cl)
+          if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) {
+            this.windowHost?.hideGadget?.(gadget.handle, gadget.gadget)
+          }
+          gadget.attached = false
+          gadget.handle = null
+        }
         if (cl === this.areaClass) {
           const area = o.instData<MuiAreaData>(cl)
           for (const handle of area.handles) this.releaseAreaHandle(o, handle)
@@ -1377,6 +1409,7 @@ export class MuiMaster {
         if (cl === this.menuitemClass) return this.setMenuitem(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.applicationClass) return this.setApplication(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.windowClass) return this.setWindow(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bodychunkClass) return this.setBodychunk(obj as BoopsiObject, cl, msg as OpSet)
@@ -1441,6 +1474,21 @@ export class MuiMaster {
           const computed = this.getWindow(o, TAG(g.attrID))
           if (computed !== undefined) {
             g.storage = computed
+            return 1
+          }
+        }
+        if (cl === this.gadgetClass) {
+          const gadget = o.instData<MuiGadgetData>(cl)
+          if (TAG(g.attrID) === MUI.MUIA_Gadget_Gadget) {
+            g.storage = gadget.gadget
+            return 1
+          }
+          if (TAG(g.attrID) === MUIA_GADGET_ACTIVE) {
+            g.storage = gadget.active ? 1 : 0
+            return 1
+          }
+          if (TAG(g.attrID) === MUIA_GADGET_WINDOW) {
+            g.storage = gadget.handle === null ? 0 : this.get(o, MUI.MUIA_Window) ?? 0
             return 1
           }
         }
@@ -1627,6 +1675,10 @@ export class MuiMaster {
         }
         if (cl === this.balanceClass) {
           const answered = this.balanceMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.gadgetClass) {
+          const answered = this.gadgetMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2397,6 +2449,80 @@ export class MuiMaster {
     this.pool.buffer[off + 1] = value >>> 16
     this.pool.buffer[off + 2] = value >>> 8
     this.pool.buffer[off + 3] = value
+  }
+
+  // -- Gadget -------------------------------------------------------------
+
+  private setGadget(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const gadget = obj.instData<MuiGadgetData>(cl)
+    const attrs: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      if (TAG(attr.tag) === MUI.MUIA_Gadget_Gadget) {
+        if (gadget.attached && gadget.handle !== null) this.windowHost?.hideGadget?.(gadget.handle, gadget.gadget)
+        gadget.gadget = attr.data
+        data(this, obj).attrs.set(MUI.MUIA_Gadget_Gadget, attr.data)
+        own++
+        if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) {
+          const box = this.gadgetBox(obj)
+          if (box) this.windowHost?.showGadget?.(gadget.handle, gadget.gadget, box, (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0)
+        }
+      } else if (TAG(attr.tag) === MUIA_GADGET_ACTIVE) {
+        gadget.active = attr.data !== 0
+        own++
+      } else attrs.push(attr)
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs } as OpSet)
+  }
+
+  private gadgetMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const gadget = obj.instData<MuiGadgetData>(this.gadgetClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Show: {
+        const answer = doSuperMethodA(this.gadgetClass, obj, msg)
+        if (answer === 0) return 0
+        const window = this.ancestorOf(obj, this.windowClass)
+        const box = this.gadgetBox(obj)
+        const handle = window?.instData<MuiWindowData>(this.windowClass).handle ?? null
+        gadget.handle = handle
+        if (handle !== null && box && gadget.gadget !== 0) {
+          this.windowHost?.showGadget?.(handle, gadget.gadget, box, (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0)
+          gadget.attached = true
+        }
+        return 1
+      }
+      case MUI.MUIM_Hide:
+        if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) this.windowHost?.hideGadget?.(gadget.handle, gadget.gadget)
+        gadget.attached = false
+        gadget.handle = null
+        return doSuperMethodA(this.gadgetClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.gadgetClass, obj, msg)
+        if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) this.windowHost?.refreshGadget?.(gadget.handle, gadget.gadget)
+        return 0
+      case MUIM_AREA_REDRAW:
+        if (!gadget.attached || gadget.handle === null || gadget.gadget === 0) return 0
+        this.windowHost?.refreshGadget?.(gadget.handle, gadget.gadget)
+        return 1
+      case MUIM_AREA_DEACTIVATE:
+        if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) this.windowHost?.refreshGadget?.(gadget.handle, gadget.gadget)
+        gadget.active = false
+        return 0
+      default: return null
+    }
+  }
+
+  /** `_mleft/_mtop/_mwidth/_mheight`: Area's box after frame/inner padding. */
+  private gadgetBox(obj: BoopsiObject): Box | null {
+    const box = this.boxOf(obj)
+    if (!box) return null
+    const inner = this.innerOf(obj)
+    return {
+      left: box.left + inner.left,
+      top: box.top + inner.top,
+      width: Math.max(0, box.width - inner.left - inner.right),
+      height: Math.max(0, box.height - inner.top - inner.bottom),
+    }
   }
 
   // -- Balance ------------------------------------------------------------

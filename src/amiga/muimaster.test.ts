@@ -34,7 +34,11 @@ import {
   MUIM_AREA_FIND_AT,
   MUIM_AREA_HIT_TEST,
   MUIM_AREA_LAYOUT,
+  MUIM_AREA_REDRAW,
+  MUIM_AREA_DEACTIVATE,
   MUIM_AREA_TRUE,
+  MUIA_GADGET_ACTIVE,
+  MUIA_GADGET_WINDOW,
   MUIA_MENUITEM_COPY_STRINGS,
   MuiMaster,
   type MuiWindowEvent,
@@ -64,6 +68,9 @@ class TestWindowHost implements MuiWindowHost {
   texts: MuiTextRenderSpec[] = []
   rectangles: MuiRectangleRenderSpec[] = []
   balances: MuiBalanceRenderSpec[] = []
+  gadgets: Array<{ handle: unknown, address: number, box: { left: number, top: number, width: number, height: number }, disabled: boolean }> = []
+  hiddenGadgets: number[] = []
+  refreshedGadgets: number[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -81,6 +88,11 @@ class TestWindowHost implements MuiWindowHost {
   drawText(_handle: unknown, spec: MuiTextRenderSpec): void { this.texts.push(spec) }
   drawRectangle(_handle: unknown, spec: MuiRectangleRenderSpec): void { this.rectangles.push(spec) }
   drawBalance(_handle: unknown, spec: MuiBalanceRenderSpec): void { this.balances.push(spec) }
+  showGadget(handle: unknown, address: number, box: { left: number, top: number, width: number, height: number }, disabled: boolean): void {
+    this.gadgets.push({ handle, address, box, disabled })
+  }
+  hideGadget(_handle: unknown, address: number): void { this.hiddenGadgets.push(address) }
+  refreshGadget(_handle: unknown, address: number): void { this.refreshedGadgets.push(address) }
 }
 
 describe('muimaster: the class tree', () => {
@@ -594,6 +606,56 @@ describe('muimaster: Balance.mui 19.35', () => {
     const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, balance.address)])!
     m.set(win, MUI.MUIA_Window_Open, 1)
     expect(host.balances.at(-1)).toMatchObject({ horizontalGroup: false, dragging: false })
+  })
+})
+
+describe('muimaster: Gadget.mui 19.35', () => {
+  const make = () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const gadget = m.newObjectA(MUIC.MUIC_Gadget, [
+      tag(MUI.MUIA_Gadget_Gadget, 0x123400),
+      tag(MUI.MUIA_Frame, MUI.MUIV_Frame_Button),
+      tag(MUI.MUIA_InnerLeft, 1),
+      tag(MUI.MUIA_InnerTop, 2),
+      tag(MUI.MUIA_Disabled, 1),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, gadget.address)])!
+    return { m, host, gadget, win }
+  }
+
+  it('exposes its borrowed gadget and attaches it over Area\'s inner box', () => {
+    const { m, host, gadget, win } = make()
+    expect(m.get(gadget, MUI.MUIA_Gadget_Gadget)).toBe(0x123400)
+    expect(m.get(gadget, MUIA_GADGET_ACTIVE)).toBe(0)
+    expect(m.get(gadget, MUIA_GADGET_WINDOW)).toBe(0)
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    expect(host.gadgets.at(-1)).toMatchObject({
+      address: 0x123400,
+      box: { left: 3, top: 4, width: 155, height: 74 },
+      disabled: true,
+    })
+    expect(m.get(gadget, MUIA_GADGET_WINDOW)).not.toBe(0)
+  })
+
+  it('refreshes, deactivates, replaces, hides, and disposes without owning the gadget', () => {
+    const { m, host, gadget, win } = make()
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    host.refreshedGadgets.length = 0
+    expect(m.doMui(gadget, MUIM_AREA_REDRAW)).toBe(1)
+    expect(host.refreshedGadgets).toEqual([0x123400])
+    expect(m.set(gadget, MUIA_GADGET_ACTIVE, 1)).toBe(1)
+    expect(m.get(gadget, MUIA_GADGET_ACTIVE)).toBe(1)
+    expect(m.doMui(gadget, MUIM_AREA_DEACTIVATE)).toBe(0)
+    expect(m.get(gadget, MUIA_GADGET_ACTIVE)).toBe(0)
+    expect(m.set(gadget, MUI.MUIA_Gadget_Gadget, 0x567800)).toBe(1)
+    expect(host.hiddenGadgets).toContain(0x123400)
+    expect(host.gadgets.at(-1)?.address).toBe(0x567800)
+    m.set(win, MUI.MUIA_Window_Open, 0)
+    expect(host.hiddenGadgets).toContain(0x567800)
+    m.disposeObject(gadget)
+    expect(host.hiddenGadgets.filter((address) => address === 0x567800)).toHaveLength(1)
   })
 })
 

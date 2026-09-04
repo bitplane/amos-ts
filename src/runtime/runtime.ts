@@ -26,6 +26,7 @@ import {
   WFLG_DRAGBAR,
   WFLG_SIZEGADGET,
   type Window,
+  type UserGadget,
 } from '../amiga/intuition'
 import { Boopsi, type BoopsiObject } from '../amiga/boopsi'
 import { MUI_MEMORY_BASE, MUI_MEMORY_RESERVED, MuiMaster } from '../amiga/muimaster'
@@ -2553,6 +2554,7 @@ export class Runtime {
       }
       mui.applicationNow = () => this.frames * 20
       const asWindow = (handle: unknown): Window => handle as Window
+      const muiGadgets = new Map<number, UserGadget>()
       mui.windowHost = {
         open: (spec) => {
           const int = this.intuition
@@ -2928,6 +2930,46 @@ export class Runtime {
           } finally {
             rp.restore(saved)
           }
+        },
+        showGadget: (handle, address, box, disabled) => {
+          const w = asWindow(handle)
+          const memory = this.resolveAddr(address)
+          const word = (at: number): number => memory && memory.off + at + 1 < memory.data.length
+            ? (memory.data[memory.off + at]! << 8) | memory.data[memory.off + at + 1]! : 0
+          let gadget = muiGadgets.get(address)
+          if (!gadget) {
+            gadget = {
+              leftEdge: 0, topEdge: 0, width: 1, height: 1,
+              id: address, flags: word(12), activation: word(14), kind: word(16),
+            }
+            muiGadgets.set(address, gadget)
+          }
+          gadget.leftEdge = w.borderLeft + box.left
+          gadget.topEdge = w.borderTop + box.top
+          gadget.width = Math.max(1, box.width)
+          gadget.height = Math.max(1, box.height)
+          gadget.flags = (word(12) & ~0x100) | (disabled ? 0x100 : 0)
+          const write = this.resolveWrite(address)
+          if (write && write.off + 13 < write.data.length) {
+            const putWord = (at: number, value: number): void => {
+              write.data[write.off + at] = value >>> 8
+              write.data[write.off + at + 1] = value
+            }
+            putWord(0, gadget.leftEdge)
+            putWord(2, gadget.topEdge)
+            putWord(4, gadget.width)
+            putWord(6, gadget.height)
+            putWord(12, gadget.flags)
+          }
+          this.intuition.attachWindowGadget(w, gadget)
+        },
+        hideGadget: (handle, address) => {
+          const gadget = muiGadgets.get(address)
+          if (gadget) this.intuition.detachWindowGadget(asWindow(handle), gadget)
+        },
+        refreshGadget: (handle, address) => {
+          const gadget = muiGadgets.get(address)
+          if (gadget) this.intuition.refreshWindowGadget(asWindow(handle), gadget)
         },
       }
       this.muiBase = mui
