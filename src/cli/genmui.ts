@@ -103,10 +103,10 @@ for (const raw of src.split('\n')) {
  * `superclass MUIC_Area`, which is also the only thing it could be — a Dtpic
  * displays a picture, and Area is where displaying happens.
  *
- * Cclist is left out. Its autodoc is three lines and one of them is "This is a
- * private class"; it has no attributes, no methods and nothing anywhere says
- * what it descends from. An absent class means `MUI_NewObjectA("Cclist.mui")`
- * answers 0, which is the right answer for a private class asked for by name.
+ * Cclist stays out of the public header-derived tree because its autodoc only
+ * says "This is a private class". The binary audit subsequently recovered it
+ * as a Semaphore subclass with three methods; muimaster.ts therefore adds it
+ * to the built-in registry explicitly, without pretending mui.h declared it.
  */
 const DRAWN_OMITS: ReadonlyMap<string, string | null> = new Map([
   ['Dtpic', 'Area'],

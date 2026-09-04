@@ -296,6 +296,9 @@ export const MUIM_LIST_SET_DROP_MARK = 0x80429e97
 export const MUIM_LIST_CREATE_DRAG_IMAGE = 0x80424534
 export const MUIM_LIST_DELETE_DRAG_IMAGE = 0x80425a68
 export const MUIM_LIST_COLUMN_OFFSET = 0x8042e09e
+/** Cclist.mui's private 19.35 catalogue operations. */
+export const MUIM_CCLIST_ADD_CLASS = 0x80421bc7
+export const MUIM_CCLIST_FILL_LIST = 0x8042f821
 
 const IDCMP_NEWSIZE = 0x2
 const IDCMP_REFRESHWINDOW = 0x4
@@ -416,6 +419,10 @@ interface MuiSemaphoreData extends Record<string, unknown> {
 
 interface MuiApplistData extends Record<string, unknown> {
   members: BoopsiObject[]
+}
+
+interface MuiCclistData extends Record<string, unknown> {
+  records: Array<{ address: number, name: string }>
 }
 
 interface MuiDataspaceEntry {
@@ -729,6 +736,7 @@ export class MuiMaster {
   readonly notifyClass: BoopsiClass
   readonly semaphoreClass: BoopsiClass
   readonly applistClass: BoopsiClass
+  readonly cclistClass: BoopsiClass
   readonly dataspaceClass: BoopsiClass
   readonly configdataClass: BoopsiClass
   readonly familyClass: BoopsiClass
@@ -783,6 +791,7 @@ export class MuiMaster {
 
     this.semaphoreClass = this.byName.get('Semaphore.mui')!
     this.applistClass = this.byName.get('Applist.mui')!
+    this.cclistClass = this.byName.get('Cclist.mui')!
     this.dataspaceClass = this.byName.get(MUIC.MUIC_Dataspace)!
     this.configdataClass = this.byName.get(MUIC.MUIC_Configdata)!
     this.notifyClass = this.byName.get(MUIC.MUIC_Notify)!
@@ -1218,6 +1227,7 @@ export class MuiMaster {
           sem.shared = 0
         }
         if (cl === this.applistClass) made.instData<MuiApplistData>(cl).members = []
+        if (cl === this.cclistClass) made.instData<MuiCclistData>(cl).records = []
         if (cl === this.dataspaceClass) {
           const ds = made.instData<MuiDataspaceData>(cl)
           ds.entries = []
@@ -1480,6 +1490,9 @@ export class MuiMaster {
           area.handles.clear()
         }
         if (cl === this.listClass) this.clearList(o, true)
+        if (cl === this.cclistClass) {
+          for (const record of o.instData<MuiCclistData>(cl).records) this.pool.freeMem(record.address)
+        }
         if (cl === this.windowClass) this.closeMuiWindow(o)
         if (cl === this.applicationClass) {
           const app = o.instData<MuiApplicationData>(cl)
@@ -1759,6 +1772,10 @@ export class MuiMaster {
           const answered = this.applistMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
+        if (cl === this.cclistClass) {
+          const answered = this.cclistMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.semaphoreClass) {
           const answered = this.semaphoreMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
@@ -1819,6 +1836,68 @@ export class MuiMaster {
         return doSuperMethodA(cl, obj, msg)
       }
     }
+  }
+
+  /**
+   * Cclist is MUI's private copyright catalogue. Its add operation follows a
+   * MUI_CustomClass to the owning library's embedded `$VER:` string; the fill
+   * operation copies the catalogue into a List while redraw is suppressed.
+   */
+  private cclistMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const d = obj.instData<MuiCclistData>(this.cclistClass)
+    switch (msg.MethodID) {
+      case MUIM_CCLIST_ADD_CLASS: {
+        const source = p[0] ?? 0
+        const cl = this.readLong?.(source + 0x18) ?? 0
+        const library = cl === 0 ? 0 : this.readLong?.(cl + 0x10) ?? 0
+        const versionAddress = library === 0 ? source : this.readLong?.(library + 0x18) ?? 0
+        const parsed = this.parseVersionRecord(this.textOfAddress(versionAddress))
+        if (!parsed) return 0
+        this.doMui(obj, MUI.MUIM_Semaphore_Obtain)
+        try {
+          if (d.records.some((record) => record.name === parsed[0])) return 0
+          const strings = parsed.map((value) => Uint8Array.from([...value, '\0'], (c) => c.charCodeAt(0)))
+          const size = 24 + strings.reduce((sum, bytes) => sum + bytes.length, 0)
+          const address = this.pool.alloc(size, { clear: true })
+          if (address === 0) return 0
+          const bytes = this.pool.buffer.subarray(address - this.pool.base, address - this.pool.base + size)
+          let at = 24
+          for (let i = 0; i < strings.length; i++) {
+            putLong(bytes, 8 + i * 4, address + at)
+            bytes.set(strings[i]!, at)
+            at += strings[i]!.length
+          }
+          d.records.push({ address, name: parsed[0] })
+        } finally {
+          this.doMui(obj, MUI.MUIM_Semaphore_Release)
+        }
+        return 0
+      }
+      case MUIM_CCLIST_FILL_LIST: {
+        const list = this.boopsi.objectAt(p[0] ?? 0)
+        if (!list?.cl.isA(this.listClass)) return 0
+        this.set(list, MUI.MUIA_List_Quiet, 1)
+        this.doMui(list, MUI.MUIM_List_Clear)
+        this.doMui(obj, MUI.MUIM_Semaphore_Obtain)
+        for (const record of d.records) {
+          this.doMui(list, MUI.MUIM_List_InsertSingle, [record.address, MUI.MUIV_List_Insert_Bottom])
+        }
+        this.doMui(obj, MUI.MUIM_Semaphore_Release)
+        this.set(list, MUI.MUIA_List_Quiet, 0)
+        return 0
+      }
+      default: return null
+    }
+  }
+
+  private parseVersionRecord(raw: string): [string, string, string, string] | null {
+    if (!raw.startsWith('$VER:')) return null
+    const clean = raw.slice(5).replace(/[\x00-\x1f].*$/s, '').trim()
+    const match = /^(\S+)\s+(\S+)(?:\s+\(([^)]*)\))?\s*(.*)$/.exec(clean)
+    if (!match) return null
+    const tail = (match[4] ?? '').replace(/^(?:Copyright|©)\s*/i, '').trim()
+    return [match[1]!, match[2]!, match[3] ?? '', tail]
   }
 
   /** The two private operations Application uses on the global app list. */

@@ -8,6 +8,8 @@ import {
   MUI_MAXMAX,
   MUIM_APPLIST_BROADCAST,
   MUIM_APPLIST_FIND,
+  MUIM_CCLIST_ADD_CLASS,
+  MUIM_CCLIST_FILL_LIST,
   MUIM_DATASPACE_EQUAL,
   MUIM_DATASPACE_NEXT,
   MUIM_DATASPACE_PRUNE,
@@ -1016,6 +1018,42 @@ describe('muimaster: Semaphore', () => {
     const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
     expect(send(ds, MUI.MUIM_Semaphore_Attempt)).toBe(1)
     expect(send(ds, MUI.MUIM_Semaphore_Release)).toBe(0)
+  })
+})
+
+describe('muimaster: Cclist 19.35', () => {
+  it('parses unique $VER records and atomically fills a List with native record pointers', () => {
+    const m = new MuiMaster()
+    const strings = new Map<number, string>([
+      [0x1000, '$VER: Foo.mui 1.2 (03.04.95) Copyright Stefan Stuntz'],
+      [0x1100, '$VER: Bar.mui 2.0 (10.10.96) © Example Author'],
+    ])
+    const writes = new Map<number, number>()
+    m.readString = (at) => strings.get(at) ?? ''
+    m.readLong = () => 0
+    m.writeLong = (at, value) => { writes.set(at, value); return true }
+    const cc = m.newObjectA('Cclist.mui')!
+    expect(send(cc, MUIM_CCLIST_ADD_CLASS, 0x1000)).toBe(0)
+    send(cc, MUIM_CCLIST_ADD_CLASS, 0x1000)
+    send(cc, MUIM_CCLIST_ADD_CLASS, 0x1100)
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    expect(send(cc, MUIM_CCLIST_FILL_LIST, list.address)).toBe(0)
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(2)
+    m.doMui(list, MUI.MUIM_List_GetEntry, [0, 0x9000])
+    const record = writes.get(0x9000)!
+    const offset = record - m.pool.base
+    const view = new DataView(m.pool.buffer.buffer, m.pool.buffer.byteOffset, m.pool.buffer.byteLength)
+    const name = view.getUint32(offset + 8, false)
+    const version = view.getUint32(offset + 12, false)
+    const date = view.getUint32(offset + 16, false)
+    const owner = view.getUint32(offset + 20, false)
+    expect([name, version, date, owner].map((at) => {
+      let text = ''
+      for (let i = at - m.pool.base; m.pool.buffer[i] !== 0; i++) text += String.fromCharCode(m.pool.buffer[i]!)
+      return text
+    })).toEqual(['Foo.mui', '1.2', '03.04.95', 'Stefan Stuntz'])
+    expect(send(cc, MUI.MUIM_Semaphore_Attempt)).toBe(1)
+    expect(send(cc, MUI.MUIM_Semaphore_Release)).toBe(0)
   })
 })
 
