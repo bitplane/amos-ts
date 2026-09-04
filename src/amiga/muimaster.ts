@@ -548,6 +548,7 @@ export interface MuiWindowHost {
   drawRectangle?(handle: unknown, spec: MuiRectangleRenderSpec): void
   drawBalance?(handle: unknown, spec: MuiBalanceRenderSpec): void
   drawList?(handle: unknown, spec: MuiListRenderSpec): void
+  drawSlider?(handle: unknown, spec: MuiSliderRenderSpec): void
   showGadget?(handle: unknown, address: number, box: Box, disabled: boolean): void
   hideGadget?(handle: unknown, address: number): void
   refreshGadget?(handle: unknown, address: number): void
@@ -594,6 +595,14 @@ export interface MuiListRenderSpec extends Box {
   rows: readonly { text: string, active: boolean, selected: boolean }[]
   first: number
   lineHeight: number
+  disabled: boolean
+}
+
+export interface MuiSliderRenderSpec extends Box {
+  horizontal: boolean
+  knob: Box
+  label: string
+  quiet: boolean
   disabled: boolean
 }
 
@@ -733,6 +742,15 @@ interface MuiNumericData extends Record<string, unknown> {
   applyDefault: boolean
 }
 
+interface MuiSliderData extends Record<string, unknown> {
+  horizontal: boolean
+  quiet: boolean
+  setup: boolean
+  dragging: boolean
+  dragStart: number
+  knobStart: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -799,6 +817,7 @@ export class MuiMaster {
   readonly listClass: BoopsiClass
   readonly groupClass: BoopsiClass
   readonly numericClass: BoopsiClass
+  readonly sliderClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -856,6 +875,7 @@ export class MuiMaster {
     this.listClass = this.byName.get(MUIC.MUIC_List)!
     this.groupClass = this.byName.get(MUIC.MUIC_Group)!
     this.numericClass = this.byName.get(MUIC.MUIC_Numeric)!
+    this.sliderClass = this.byName.get(MUIC.MUIC_Slider)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1654,6 +1674,24 @@ export class MuiMaster {
           stored.set(MUI.MUIA_Numeric_RevLeftRight, 0)
           stored.set(MUI.MUIA_Numeric_RevUpDown, 0)
         }
+        if (cl === this.sliderClass) {
+          const slider = made.instData<MuiSliderData>(cl)
+          slider.horizontal = false
+          slider.quiet = false
+          slider.setup = false
+          slider.dragging = false
+          slider.dragStart = 0
+          slider.knobStart = 0
+          const attrs = (msg as OpSet).attrs
+          const stored = data(this, made).attrs
+          if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Frame)) stored.set(MUI.MUIA_Frame, MUI.MUIV_Frame_Slider)
+          if (!attrs.some((attr) => TAG(attr.tag) === MUI.MUIA_Background)) stored.set(MUI.MUIA_Background, MUI.MUII_SliderBack)
+          const horiz = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Slider_Horiz || TAG(attr.tag) === MUI.MUIA_Group_Horiz)
+          slider.horizontal = (horiz?.data ?? 0) !== 0
+          slider.quiet = (attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Slider_Quiet)?.data ?? 0) !== 0
+          stored.set(MUI.MUIA_Slider_Horiz, slider.horizontal ? 1 : 0)
+          stored.set(MUI.MUIA_Slider_Quiet, slider.quiet ? 1 : 0)
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1801,6 +1839,7 @@ export class MuiMaster {
         if (cl === this.listClass) return this.setList(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.groupClass) return this.setGroup(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.numericClass) return this.setNumeric(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.sliderClass) return this.setSlider(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1903,6 +1942,10 @@ export class MuiMaster {
         if (cl === this.numericClass) {
           const answer = this.getNumeric(o, g)
           if (answer) return answer
+        }
+        if (cl === this.sliderClass && (TAG(g.attrID) === MUI.MUIA_Slider_Horiz || TAG(g.attrID) === MUI.MUIA_Group_Horiz)) {
+          g.storage = o.instData<MuiSliderData>(cl).horizontal ? 1 : 0
+          return 1
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
           g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
@@ -2128,6 +2171,10 @@ export class MuiMaster {
         }
         if (cl === this.numericClass) {
           const answered = this.numericMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.sliderClass) {
+          const answered = this.sliderMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2380,6 +2427,151 @@ export class MuiMaster {
     } else {
       const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
       if (entry) this.set(obj, MUI.MUIA_Numeric_Value, this.poolLong(entry.address - this.pool.base + 16))
+    }
+  }
+
+  // -- Slider -------------------------------------------------------------
+
+  private setSlider(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiSliderData>(cl)
+    const before = d.horizontal
+    const attrs = msg.attrs.map((raw) => {
+      const id = TAG(raw.tag)
+      if (id === MUI.MUIA_Slider_Horiz || id === MUI.MUIA_Group_Horiz) {
+        d.horizontal = raw.data !== 0
+        return { tag: id === MUI.MUIA_Group_Horiz ? MUI.MUIA_Slider_Horiz : raw.tag, data: d.horizontal ? 1 : 0 }
+      }
+      return raw
+    })
+    const own = this.applyOwn('Slider', obj, attrs, 's')
+    const answer = (own ? this.setCount : 0) + doSuperMethodA(cl, obj, { ...msg, attrs } as OpSet)
+    data(this, obj).attrs.set(MUI.MUIA_Slider_Horiz, d.horizontal ? 1 : 0)
+    if (before !== d.horizontal) {
+      delete data(this, obj).minmax
+      this.redrawArea(obj, 0x804)
+    }
+    return answer
+  }
+
+  private sliderMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const params = (msg as Msg & { params?: readonly number[] }).params ?? []
+    const slider = obj.instData<MuiSliderData>(this.sliderClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.sliderClass, obj, msg)
+        slider.setup = answer !== 0
+        if (slider.setup) this.redrawArea(obj, 0x408)
+        return answer === 0 ? 0 : 1
+      }
+      case MUI.MUIM_Cleanup:
+        slider.setup = false
+        slider.dragging = false
+        return doSuperMethodA(this.sliderClass, obj, msg)
+      case MUI.MUIM_Show:
+        return doSuperMethodA(this.sliderClass, obj, msg)
+      case MUI.MUIM_Draw:
+        doSuperMethodA(this.sliderClass, obj, msg)
+        this.drawSlider(obj)
+        return 0
+      case MUI.MUIM_HandleInput:
+        this.handleSliderInput(obj, params)
+        return doSuperMethodA(this.sliderClass, obj, msg)
+      default: return null
+    }
+  }
+
+  private sliderLabelSize(obj: BoopsiObject): { width: number; height: number } {
+    const numeric = obj.instData<MuiNumericData>(this.numericClass)
+    const middle = Math.trunc((numeric.min + numeric.max) / 2)
+    let width = 0
+    for (const value of [numeric.min, numeric.max, numeric.min + 1, numeric.max - 1, middle, middle - 1, middle + 2]) {
+      if (value < numeric.min || value > numeric.max) continue
+      const label = this.textOfAddress(this.doMui(obj, MUI.MUIM_Numeric_Stringify, [value]))
+      width = Math.max(width, visibleLength(label) * this.fontX)
+    }
+    return { width, height: this.fontY }
+  }
+
+  private sliderGeometry(obj: BoopsiObject): { content: Box; knob: Box } | null {
+    const box = this.boxOf(obj)
+    if (!box) return null
+    const inner = this.innerOf(obj)
+    const content = {
+      left: box.left + inner.left,
+      top: box.top + inner.top,
+      width: Math.max(1, box.width - inner.left - inner.right),
+      height: Math.max(1, box.height - inner.top - inner.bottom),
+    }
+    const slider = obj.instData<MuiSliderData>(this.sliderClass)
+    const label = this.sliderLabelSize(obj)
+    const knobWidth = slider.horizontal ? Math.min(content.width, Math.max(5, label.width + 4)) : content.width
+    const knobHeight = slider.horizontal ? content.height : Math.min(content.height, Math.max(5, label.height + 2))
+    const scaleMax = slider.horizontal ? content.left + content.width - knobWidth : content.top + content.height - knobHeight
+    const numeric = obj.instData<MuiNumericData>(this.numericClass)
+    const position = this.numericValueToScale(numeric, slider.horizontal ? content.left : content.top, scaleMax)
+    return {
+      content,
+      knob: slider.horizontal
+        ? { left: position, top: content.top, width: knobWidth, height: knobHeight }
+        : { left: content.left, top: position, width: knobWidth, height: knobHeight },
+    }
+  }
+
+  private drawSlider(obj: BoopsiObject): void {
+    const slider = obj.instData<MuiSliderData>(this.sliderClass)
+    const geometry = this.sliderGeometry(obj)
+    if (!slider.setup || !geometry) return
+    const window = this.ancestorOf(obj, this.windowClass)
+    if (!window) return
+    const handle = window.instData<MuiWindowData>(this.windowClass).handle
+    if (handle === null) return
+    const numeric = obj.instData<MuiNumericData>(this.numericClass)
+    this.windowHost?.drawSlider?.(handle, {
+      ...geometry.content,
+      horizontal: slider.horizontal,
+      knob: geometry.knob,
+      label: this.textOfAddress(this.doMui(obj, MUI.MUIM_Numeric_Stringify, [numeric.value])),
+      quiet: slider.quiet,
+      disabled: (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0,
+    })
+  }
+
+  private handleSliderInput(obj: BoopsiObject, params: readonly number[]): void {
+    const slider = obj.instData<MuiSliderData>(this.sliderClass)
+    const geometry = this.sliderGeometry(obj)
+    if (!geometry || (this.peek(obj, MUI.MUIA_Disabled) ?? 0) !== 0) return
+    const cls = params[0] ?? 0
+    const code = params[1] ?? 0
+    const x = this.signed(params[3] ?? 0)
+    const y = this.signed(params[4] ?? 0)
+    const coordinate = slider.horizontal ? x : y
+    const knobStart = slider.horizontal ? geometry.knob.left : geometry.knob.top
+    const knobSize = slider.horizontal ? geometry.knob.width : geometry.knob.height
+    if (cls === IDCMP_MOUSEBUTTONS && code === 0x68) {
+      const reverse = obj.instData<MuiNumericData>(this.numericClass).reverse
+      if (coordinate < knobStart) this.doMui(obj,
+        reverse ? MUI.MUIM_Numeric_Increase : MUI.MUIM_Numeric_Decrease, [1])
+      else if (coordinate >= knobStart + knobSize) this.doMui(obj,
+        reverse ? MUI.MUIM_Numeric_Decrease : MUI.MUIM_Numeric_Increase, [1])
+      else {
+        slider.dragging = true
+        slider.dragStart = coordinate
+        slider.knobStart = knobStart
+      }
+      this.redrawArea(obj, 2)
+    } else if (cls === IDCMP_MOUSEMOVE && slider.dragging) {
+      const start = slider.horizontal ? geometry.content.left : geometry.content.top
+      const end = slider.horizontal
+        ? geometry.content.left + geometry.content.width - knobSize
+        : geometry.content.top + geometry.content.height - knobSize
+      const position = Math.max(start, Math.min(end, slider.knobStart + coordinate - slider.dragStart))
+      const mutable = [start, end, position]
+      const value = this.numericScaleToValue(obj.instData<MuiNumericData>(this.numericClass), mutable)
+      this.set(obj, MUI.MUIA_Numeric_Value, value)
+      this.redrawArea(obj, 2)
+    } else if ((cls === IDCMP_MOUSEBUTTONS && code === 0xe8) || cls === 0x80000) {
+      slider.dragging = false
+      this.redrawArea(obj, 2)
     }
   }
 
@@ -5796,6 +5988,16 @@ export class MuiMaster {
       case 'Group':
         this.groupMinMax(obj, mm)
         return 0
+      case 'Slider': {
+        const slider = obj.instData<MuiSliderData>(this.sliderClass)
+        const label = this.sliderLabelSize(obj)
+        if (slider.horizontal) {
+          add(label.width + 1, label.height, MUI_MAXMAX, label.height, label.width * 4, label.height)
+        } else {
+          add(label.width, label.height + 1, label.width, MUI_MAXMAX, label.width, label.height * 4)
+        }
+        return 0
+      }
       case 'Rectangle':
         if ((this.peek(obj, MUI.MUIA_Rectangle_HBar) ?? 0) !== 0) {
           const title = this.textOf(obj, MUI.MUIA_Rectangle_BarTitle)

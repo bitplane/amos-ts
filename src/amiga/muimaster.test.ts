@@ -65,6 +65,7 @@ import {
   type MuiStringGadgetState,
   type MuiPropGadgetState,
   type MuiListRenderSpec,
+  type MuiSliderRenderSpec,
   visibleLength,
 } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER } from './muimaster.gen'
@@ -89,6 +90,7 @@ class TestWindowHost implements MuiWindowHost {
   stringGadgets = new Map<number, { state: MuiStringGadgetState, activation: number }>()
   propGadgets = new Map<number, { state: MuiPropGadgetState, horizontal: boolean }>()
   lists: MuiListRenderSpec[] = []
+  sliders: MuiSliderRenderSpec[] = []
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -107,6 +109,7 @@ class TestWindowHost implements MuiWindowHost {
   drawRectangle(_handle: unknown, spec: MuiRectangleRenderSpec): void { this.rectangles.push(spec) }
   drawBalance(_handle: unknown, spec: MuiBalanceRenderSpec): void { this.balances.push(spec) }
   drawList(_handle: unknown, spec: MuiListRenderSpec): void { this.lists.push(spec) }
+  drawSlider(_handle: unknown, spec: MuiSliderRenderSpec): void { this.sliders.push(spec) }
   showGadget(handle: unknown, address: number, box: { left: number, top: number, width: number, height: number }, disabled: boolean): void {
     this.gadgets.push({ handle, address, box, disabled })
   }
@@ -1135,6 +1138,70 @@ describe('muimaster: Numeric.mui 19.35', () => {
     m.set(numeric, MUI.MUIA_Numeric_Value, 99)
     m.doMui(numeric, MUI.MUIM_Import, [ds.address])
     expect(m.get(numeric, MUI.MUIA_Numeric_Value)).toBe(25)
+  })
+})
+
+describe('muimaster: Slider.mui 19.35', () => {
+  it('injects the native slider frame/background and accepts both horizontal aliases', () => {
+    const m = new MuiMaster()
+    const slider = m.newObjectA(MUIC.MUIC_Slider)!
+    expect(m.peek(slider, MUI.MUIA_Frame)).toBe(MUI.MUIV_Frame_Slider)
+    expect(m.peek(slider, MUI.MUIA_Background)).toBe(MUI.MUII_SliderBack)
+    expect(m.get(slider, MUI.MUIA_Slider_Horiz)).toBe(0)
+    m.set(slider, MUI.MUIA_Group_Horiz, 1)
+    expect(m.get(slider, MUI.MUIA_Slider_Horiz)).toBe(1)
+    expect(m.get(slider, MUI.MUIA_Group_Horiz)).toBe(1)
+  })
+
+  it('adds the formatted knob dimensions on the correct axis', () => {
+    const m = new MuiMaster()
+    const vertical = m.newObjectA(MUIC.MUIC_Slider)!
+    const horizontal = m.newObjectA(MUIC.MUIC_Slider, [tag(MUI.MUIA_Slider_Horiz, 1)])!
+    const v = m.askMinMax(vertical)
+    const h = m.askMinMax(horizontal)
+    expect(v.minH).toBeGreaterThan(h.minH)
+    expect(h.minW).toBeGreaterThan(v.minW)
+    expect(v.maxH).toBe(MUI_MAXMAX)
+    expect(h.maxW).toBe(MUI_MAXMAX)
+  })
+
+  it('draws the Stuntzi-style track, formatted knob, orientation, and quiet state', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const slider = m.newObjectA(MUIC.MUIC_Slider, [
+      tag(MUI.MUIA_Slider_Horiz, 1), tag(MUI.MUIA_Numeric_Value, 42), tag(MUI.MUIA_Slider_Quiet, 1),
+    ])!
+    const win = m.newObjectA(MUIC.MUIC_Window, [tag(MUI.MUIA_Window_RootObject, slider.address)])!
+    m.set(win, MUI.MUIA_Window_Open, 1)
+    m.doMui(slider, MUI.MUIM_Setup)
+    m.doMui(slider, MUI.MUIM_Show)
+    m.doMui(slider, MUI.MUIM_Draw, [3])
+    expect(host.sliders.at(-1)).toMatchObject({ horizontal: true, label: '42', quiet: true })
+    expect(host.sliders.at(-1)!.knob.width).toBeGreaterThan(0)
+  })
+
+  it('steps the track and preserves the grab offset while dragging', () => {
+    const m = new MuiMaster()
+    const slider = m.newObjectA(MUIC.MUIC_Slider, [
+      tag(MUI.MUIA_Slider_Horiz, 1), tag(MUI.MUIA_Numeric_Min, 0),
+      tag(MUI.MUIA_Numeric_Max, 100), tag(MUI.MUIA_Numeric_Value, 50),
+    ])!
+    m.layout(slider, 0, 0, 104, 16)
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 100, 8])
+    expect(m.get(slider, MUI.MUIA_Numeric_Value)).toBe(51)
+    m.set(slider, MUI.MUIA_Numeric_Value, 50)
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 52, 8])
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x10, 0, 0, 72, 8])
+    expect(m.get(slider, MUI.MUIA_Numeric_Value)).toBeGreaterThan(50)
+    const released = m.get(slider, MUI.MUIA_Numeric_Value)!
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x8, 0xe8, 0, 72, 8])
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x10, 0, 0, 20, 8])
+    expect(m.get(slider, MUI.MUIA_Numeric_Value)).toBe(released)
+    m.set(slider, MUI.MUIA_Numeric_Reverse, 1)
+    m.set(slider, MUI.MUIA_Numeric_Value, 50)
+    m.doMui(slider, MUI.MUIM_HandleInput, [0x8, 0x68, 0, 100, 8])
+    expect(m.get(slider, MUI.MUIA_Numeric_Value)).toBe(49)
   })
 })
 

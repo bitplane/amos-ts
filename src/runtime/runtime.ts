@@ -2655,6 +2655,46 @@ export class Runtime {
             rp.restore(saved)
           }
         },
+        drawSlider: (handle, spec) => {
+          const w = asWindow(handle)
+          const rp = this.intuition.windowRastPort(w)
+          if (!rp || spec.width <= 0 || spec.height <= 0) return
+          const saved = rp.snapshot()
+          const ox = w.leftEdge + w.borderLeft
+          const oy = w.topEdge + w.borderTop
+          const left = ox + spec.left
+          const top = oy + spec.top
+          const right = left + spec.width - 1
+          const bottom = top + spec.height - 1
+          const knobLeft = ox + spec.knob.left
+          const knobTop = oy + spec.knob.top
+          const knobRight = knobLeft + spec.knob.width - 1
+          const knobBottom = knobTop + spec.knob.height - 1
+          try {
+            rp.clip = { x1: left, y1: top, x2: right, y2: bottom }
+            if (spec.horizontal) {
+              const y = (top + bottom) >> 1
+              rp.draw(left, y, right, y, 1)
+              if (y < bottom) rp.draw(left, y + 1, right, y + 1, 2)
+            } else {
+              const x = (left + right) >> 1
+              rp.draw(x, top, x, bottom, 1)
+              if (x < right) rp.draw(x + 1, top, x + 1, bottom, 2)
+            }
+            rp.rectFill(knobLeft + 1, knobTop + 1, knobRight - 1, knobBottom - 1, spec.disabled ? 1 : 0)
+            rp.draw(knobLeft, knobBottom, knobLeft, knobTop, 2)
+            rp.draw(knobLeft, knobTop, knobRight, knobTop, 2)
+            rp.draw(knobRight, knobTop, knobRight, knobBottom, 1)
+            rp.draw(knobRight, knobBottom, knobLeft, knobBottom, 1)
+            if (!spec.quiet && spec.label !== '') {
+              const width = spec.label.length * (rp.font?.xSize ?? 8)
+              const baseline = Math.floor((spec.knob.height - (rp.font?.ySize ?? 8)) / 2) + (rp.font?.baseline ?? 6)
+              rp.text(knobLeft + Math.max(1, Math.floor((spec.knob.width - width) / 2)), knobTop + baseline, spec.label, 1)
+            }
+          } finally {
+            rp.restore(saved)
+          }
+        },
         drawImage: (handle, spec) => {
           const w = asWindow(handle)
           const rp = this.intuition.windowRastPort(w)
