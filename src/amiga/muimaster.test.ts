@@ -1340,6 +1340,66 @@ describe('muimaster: Scrollbar.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Listview.mui 19.35', () => {
+  it('requires a List and builds the native horizontal List/Scrollbar composite', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Listview)).toBeNull()
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    const view = m.newObjectA(MUIC.MUIC_Listview, [
+      tag(MUI.MUIA_Listview_List, list.address),
+      tag(MUI.MUIA_Listview_ScrollerPos, MUI.MUIV_Listview_ScrollerPos_Left),
+    ])!
+    expect(m.children(view).map((child) => child.cl.id)).toEqual([MUIC.MUIC_Scrollbar, MUIC.MUIC_List])
+    expect(m.get(view, MUI.MUIA_Listview_List)).toBe(list.address)
+    expect(m.peek(view, MUI.MUIA_Group_Horiz)).toBe(1)
+    expect(m.peek(view, MUI.MUIA_Group_Spacing)).toBe(0)
+  })
+
+  it('omits the Scrollbar for ScrollerPos_None', () => {
+    const m = new MuiMaster()
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    const view = m.newObjectA(MUIC.MUIC_Listview, [
+      tag(MUI.MUIA_Listview_List, list.address),
+      tag(MUI.MUIA_Listview_ScrollerPos, MUI.MUIV_Listview_ScrollerPos_None),
+    ])!
+    expect(m.children(view)).toEqual([list])
+  })
+
+  it('forwards the twelve native List methods and mirrors List/Prop state', () => {
+    const m = new MuiMaster()
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    const view = m.newObjectA(MUIC.MUIC_Listview, [tag(MUI.MUIA_Listview_List, list.address)])!
+    m.doMui(view, MUI.MUIM_List_InsertSingle, [0x1000, MUI.MUIV_List_Insert_Bottom])
+    m.doMui(view, MUI.MUIM_List_InsertSingle, [0x1100, MUI.MUIV_List_Insert_Bottom])
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(2)
+    const scrollbar = m.children(view).find((child) => child.cl.id === MUIC.MUIC_Scrollbar)!
+    const prop = m.children(scrollbar).find((child) => child.cl.id === MUIC.MUIC_Prop)!
+    expect(m.get(prop, MUI.MUIA_Prop_Entries)).toBe(2)
+    m.set(prop, MUI.MUIA_Prop_First, 1)
+    // List_Get reports -1 while it is not laid out; the mirrored internal
+    // first position is nevertheless retained for the eventual Setup.
+    expect(m.peek(list, MUI.MUIA_List_First)).toBe(1)
+    m.doMui(view, MUI.MUIM_List_Clear)
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(0)
+  })
+
+  it('maps list navigation keys and emits the transient selection attributes', () => {
+    const m = new MuiMaster()
+    const list = m.newObjectA(MUIC.MUIC_List)!
+    for (const address of [0x1000, 0x1100, 0x1200]) {
+      m.doMui(list, MUI.MUIM_List_InsertSingle, [address, MUI.MUIV_List_Insert_Bottom])
+    }
+    const view = m.newObjectA(MUIC.MUIC_Listview, [
+      tag(MUI.MUIA_Listview_List, list.address), tag(MUI.MUIA_Listview_DefClickColumn, 2),
+    ])!
+    m.set(list, MUI.MUIA_List_Active, 1)
+    m.doMui(view, MUI.MUIM_HandleInput, [0, 1])
+    expect(m.get(list, MUI.MUIA_List_Active)).toBe(2)
+    expect(m.get(view, MUI.MUIA_Listview_ClickColumn)).toBe(2)
+    expect(m.get(view, MUI.MUIA_Listview_SelectChange)).toBe(0)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()

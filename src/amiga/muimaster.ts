@@ -768,6 +768,16 @@ interface MuiScrollbarData extends Record<string, unknown> {
   type: number
 }
 
+interface MuiListviewData extends Record<string, unknown> {
+  list: BoopsiObject
+  scrollbar: BoopsiObject | null
+  input: boolean
+  dragType: number
+  multiSelect: number
+  clickColumn: number
+  defaultClickColumn: number
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -837,6 +847,7 @@ export class MuiMaster {
   readonly sliderClass: BoopsiClass
   readonly cycleClass: BoopsiClass
   readonly scrollbarClass: BoopsiClass
+  readonly listviewClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -897,6 +908,7 @@ export class MuiMaster {
     this.sliderClass = this.byName.get(MUIC.MUIC_Slider)!
     this.cycleClass = this.byName.get(MUIC.MUIC_Cycle)!
     this.scrollbarClass = this.byName.get(MUIC.MUIC_Scrollbar)!
+    this.listviewClass = this.byName.get(MUIC.MUIC_Listview)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1721,6 +1733,10 @@ export class MuiMaster {
           this.boopsi.disposeObject(made)
           return 0
         }
+        if (cl === this.listviewClass && !this.initListview(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1875,6 +1891,7 @@ export class MuiMaster {
         if (cl === this.numericClass) return this.setNumeric(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.sliderClass) return this.setSlider(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.cycleClass) return this.setCycle(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.listviewClass) return this.setListview(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -1985,6 +2002,10 @@ export class MuiMaster {
         if (cl === this.cycleClass && TAG(g.attrID) === MUI.MUIA_Cycle_Active) {
           g.storage = o.instData<MuiCycleData>(cl).active
           return 1
+        }
+        if (cl === this.listviewClass) {
+          const answer = this.getListview(o, g)
+          if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
           g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
@@ -2222,6 +2243,10 @@ export class MuiMaster {
         }
         if (cl === this.scrollbarClass) {
           const answered = this.scrollbarMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.listviewClass) {
+          const answered = this.listviewMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -2876,6 +2901,136 @@ export class MuiMaster {
     else if (offset === 3) this.set(d.prop, MUI.MUIA_Prop_First, 99_999)
     else if (offset === 4) this.doMui(d.prop, MUI.MUIM_Prop_Increase, [1 - visible])
     else this.doMui(d.prop, MUI.MUIM_Prop_Increase, [visible - 1])
+  }
+
+  // -- Listview -----------------------------------------------------------
+
+  private initListview(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const value = (id: number, fallback: number): number => attrs.find((a) => TAG(a.tag) === id)?.data ?? fallback
+    const list = this.boopsi.objectAt(value(MUI.MUIA_Listview_List, 0))
+    if (!list?.cl.isA(this.listClass)) return false
+    const pos = this.signed(value(MUI.MUIA_Listview_ScrollerPos, MUI.MUIV_Listview_ScrollerPos_Default))
+    const scrollbar = pos === MUI.MUIV_Listview_ScrollerPos_None ? null : this.newObjectA(MUIC.MUIC_Scrollbar, [
+      { tag: MUI.MUIA_Prop_Entries, data: this.get(list, MUI.MUIA_List_Entries) ?? 0 },
+      { tag: MUI.MUIA_Prop_First, data: Math.max(0, this.get(list, MUI.MUIA_List_First) ?? 0) },
+      { tag: MUI.MUIA_Prop_Visible, data: Math.max(0, this.get(list, MUI.MUIA_List_Visible) ?? 0) },
+    ])
+    if (pos !== MUI.MUIV_Listview_ScrollerPos_None && !scrollbar) return false
+    const d = obj.instData<MuiListviewData>(this.listviewClass)
+    d.list = list
+    d.scrollbar = scrollbar
+    d.input = value(MUI.MUIA_Listview_Input, 1) !== 0
+    d.dragType = this.signed(value(MUI.MUIA_Listview_DragType, MUI.MUIV_Listview_DragType_None))
+    d.multiSelect = this.signed(value(MUI.MUIA_Listview_MultiSelect, MUI.MUIV_Listview_MultiSelect_Default))
+    d.clickColumn = -1
+    d.defaultClickColumn = this.signed(value(MUI.MUIA_Listview_DefClickColumn, 0))
+    const stored = data(this, obj).attrs
+    for (const [id, val] of [
+      [MUI.MUIA_Group_Horiz, 1], [MUI.MUIA_Group_Spacing, 0], [MUI.MUIA_Listview_List, list.address],
+      [MUI.MUIA_Listview_Input, d.input ? 1 : 0], [MUI.MUIA_Listview_DragType, d.dragType],
+      [MUI.MUIA_Listview_MultiSelect, d.multiSelect], [MUI.MUIA_Listview_ScrollerPos, pos],
+      [MUI.MUIA_Listview_ClickColumn, -1], [MUI.MUIA_Listview_DefClickColumn, d.defaultClickColumn],
+      [MUI.MUIA_Listview_DoubleClick, 0], [MUI.MUIA_Listview_SelectChange, 0],
+    ] as const) stored.set(id, val)
+    const children = scrollbar && pos === MUI.MUIV_Listview_ScrollerPos_Left ? [scrollbar, list]
+      : scrollbar ? [list, scrollbar] : [list]
+    data(this, obj).children.push(...children)
+    for (const child of children) {
+      data(this, child).parent = obj
+      this.setObjectContext(child, data(this, obj).contextApplication, data(this, obj).contextConfigdata)
+    }
+    this.rebuildGroupList(obj)
+    if (scrollbar) {
+      const prop = scrollbar.instData<MuiScrollbarData>(this.scrollbarClass).prop
+      const mirror = (source: BoopsiObject, sourceAttr: number, target: BoopsiObject, targetAttr: number): void => {
+        this.doMui(source, MUI.MUIM_Notify, [sourceAttr, MUI.MUIV_EveryTime, target.address, 3,
+          MUI.MUIM_Set, targetAttr, MUI.MUIV_TriggerValue])
+      }
+      mirror(list, MUI.MUIA_List_First, prop, MUI.MUIA_Prop_First)
+      mirror(prop, MUI.MUIA_Prop_First, list, MUI.MUIA_List_First)
+      mirror(list, MUI.MUIA_List_Entries, prop, MUI.MUIA_Prop_Entries)
+      mirror(list, MUI.MUIA_List_Visible, prop, MUI.MUIA_Prop_Visible)
+    }
+    return true
+  }
+
+  private setListview(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiListviewData>(cl)
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      const id = TAG(attr.tag)
+      if (id === MUI.MUIA_Listview_DragType) d.dragType = this.signed(attr.data)
+      else if (id === MUI.MUIA_Listview_MultiSelect) d.multiSelect = this.signed(attr.data)
+      else if (id === MUI.MUIA_Listview_ClickColumn) d.clickColumn = this.signed(attr.data)
+      else if (id === MUI.MUIA_Listview_DefClickColumn) d.defaultClickColumn = this.signed(attr.data)
+      else if (id === MUI.MUIA_Listview_Input) d.input = attr.data !== 0
+      else if (id === MUI.MUIA_ControlChar) {
+        data(this, obj).attrs.set(id, attr.data & 0xff)
+        own++
+        continue
+      } else {
+        rest.push(attr)
+        continue
+      }
+      data(this, obj).attrs.set(id, this.signed(attr.data))
+      own++
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private getListview(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiListviewData>(this.listviewClass)
+    switch (TAG(msg.attrID)) {
+      case MUI.MUIA_Listview_List: msg.storage = d.list.address; return 1
+      case MUI.MUIA_Listview_ClickColumn: msg.storage = d.clickColumn; return 1
+      case MUI.MUIA_Listview_DefClickColumn: msg.storage = d.defaultClickColumn; return 1
+      case MUI.MUIA_Listview_DragType: msg.storage = d.dragType; return 1
+      case MUI.MUIA_Listview_DoubleClick:
+      case MUI.MUIA_Listview_SelectChange: msg.storage = 0; return 1
+      default: return 0
+    }
+  }
+
+  private listviewMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const d = obj.instData<MuiListviewData>(this.listviewClass)
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.listviewClass, obj, msg)
+        if (answer !== 0) this.setInternal(d.list, MUI.MUIA_ShowSelState, d.input ? 1 : 0)
+        return answer === 0 ? 0 : 1
+      }
+      case MUI.MUIM_HandleInput: {
+        if (!d.input) return doSuperMethodA(this.listviewClass, obj, msg)
+        const before = this.get(d.list, MUI.MUIA_List_Active) ?? -1
+        const key = this.signed(p[1] ?? -1)
+        const positions = [-4, -5, -6, -7, -2, -3]
+        if (key >= 0 && key < positions.length) this.set(d.list, MUI.MUIA_List_Active, positions[key]!)
+        else this.doMui(d.list, MUI.MUIM_HandleInput, p)
+        const after = this.get(d.list, MUI.MUIA_List_Active) ?? -1
+        if (after !== before) {
+          d.clickColumn = d.defaultClickColumn
+          this.setInternal(obj, MUI.MUIA_Listview_ClickColumn, d.clickColumn)
+          this.setInternal(obj, MUI.MUIA_Listview_SelectChange, 1)
+        }
+        return doSuperMethodA(this.listviewClass, obj, msg)
+      }
+      case MUI.MUIM_List_TestPos:
+      case MUI.MUIM_List_GetEntry:
+      case MUI.MUIM_List_Insert:
+      case MUI.MUIM_List_InsertSingle:
+      case MUI.MUIM_List_Remove:
+      case MUI.MUIM_List_NextSelected:
+      case MUI.MUIM_List_Clear:
+      case MUI.MUIM_List_Sort:
+      case MUI.MUIM_List_Jump:
+      case MUI.MUIM_List_Redraw:
+      case MUI.MUIM_List_Select:
+      case MUI.MUIM_List_Exchange:
+        return this.doMui(d.list, msg.MethodID, p)
+      default: return null
+    }
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {
@@ -4341,6 +4496,14 @@ export class MuiMaster {
           d.active = this.listActivePosition(d, attr.data | 0)
           if (d.active !== old) this.setInternal(obj, id, d.active)
           if ((this.peek(obj, MUI.MUIA_List_AutoVisible) ?? 0) !== 0) this.listJump(obj, d.active)
+          own++
+          break
+        }
+        case MUI.MUIA_List_First: {
+          const visible = Math.max(0, d.visible)
+          d.first = Math.max(0, Math.min(Math.max(0, d.entries.length - visible), this.signed(attr.data)))
+          this.setInternal(obj, id, d.first)
+          d.dirty = true
           own++
           break
         }
