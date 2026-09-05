@@ -1641,6 +1641,19 @@ describe('muimaster: Register.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Mccprefs.mui 19.35', () => {
+  it('faithfully has no methods of its own and passes Group behavior through', () => {
+    const m = new MuiMaster()
+    const child = m.newObjectA(MUIC.MUIC_Text)!
+    const prefs = m.newObjectA(MUIC.MUIC_Mccprefs, [
+      tag(MUI.MUIA_Group_Child, child.address), tag(MUI.MUIA_Group_Horiz, 1),
+    ])!
+    expect(m.children(prefs).map((item) => item.address)).toEqual([child.address])
+    expect(m.peek(prefs, MUI.MUIA_Group_Horiz)).toBe(1)
+    expect(m.addMember(prefs, m.newObjectA(MUIC.MUIC_Rectangle)!)).toBe(1)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
