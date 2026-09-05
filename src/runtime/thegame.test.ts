@@ -1279,7 +1279,7 @@ describe('starting and stopping GMS', () => {
 
   it('=G Amiga answers ExecBase AttnFlags for the machine this port models', () => {
     expect(vals('Print G Amiga')).toEqual([TGE_ATTN_FLAGS])
-    expect(TGE_ATTN_FLAGS).toBe(2) // AFB_68020, no FPU: an A1200
+    expect(TGE_ATTN_FLAGS).toBe(3) // AFB_68010 is also set for a 68020; no FPU
   })
 
   /** DEFECT: a beq and a bra.w to the same exit, and the block is never freed */

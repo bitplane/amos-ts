@@ -1154,13 +1154,14 @@ export const GMS_DPKERNEL = 'GMS:libs/dpkernel.library'
 /**
  * ExecBase +$128, `AttnFlags`, as the machine this port models has it.
  *
- * AFB_68020 and nothing else. The identity is settled elsewhere and has to
- * stay consistent with it: AMCAF's `=Cpu` answers 68020, TURBO's `Cpu Info`
+ * AFB_68020 plus AFB_68010, which Exec explicitly also sets on a 68020, and
+ * no FPU. The identity is settled elsewhere and has to stay consistent with
+ * it: AMCAF's `=Cpu` answers 68020, TURBO's `Cpu Info`
  * answers 20, JD's `=Jd Cpu` agrees, and all three read this word and test
  * bit 3 down to bit 0. `=G Amiga` is the only keyword in the port that hands
  * the word back raw.
  */
-export const TGE_ATTN_FLAGS = 1 << 1
+export const TGE_ATTN_FLAGS = (1 << 0) | (1 << 1)
 
 /**
  * Routine 90 ($2f36) minus its arguments — the body `G Init Gms` and

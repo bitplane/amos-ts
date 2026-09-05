@@ -290,6 +290,12 @@ auditMany('partial', 'priority-ordered AddIntServer registration exists, but arb
 auditMany('partial', 'current/named task lookup and signed priority state are modelled, but there is no multitasking scheduler for priority to affect', [
   '_task find', '_task set pri',
 ])
+auditMany('faithful', 'CurrentTime uses the 1978 epoch and the Exec/AttnFlags worker transformations are modelled exactly', [
+  '_sys time', '_sys version', '_sys revision', '_sys cpu', '_sys fpu',
+])
+auditMany('partial', 'the display View exists semantically, but has no stable native raw View pointer or structure layout', [
+  '_sys view',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

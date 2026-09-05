@@ -441,6 +441,24 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all six system time, display and identity queries', () => {
+    const system = rows.filter((row) => row.namespace === '_sys' && !['_sys own', '_sys disown'].includes(row.name))
+    expect(system).toHaveLength(6)
+    expect(system.filter((row) => row.status === 'faithful')).toHaveLength(5)
+    expect(system.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_sys view'])
+    expect(system.some((row) => row.status === 'review')).toBe(false)
+    expect(system.find((row) => row.name === '_sys time')).toMatchObject({
+      workers: [1583], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -84 })],
+    })
+    expect(system.find((row) => row.name === '_sys view')).toMatchObject({
+      workers: [1592], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -294 })],
+    })
+    expect(system.find((row) => row.name === '_sys version')?.workers).toEqual([1744])
+    expect(system.find((row) => row.name === '_sys revision')?.workers).toEqual([1745])
+    expect(system.find((row) => row.name === '_sys cpu')?.workers).toEqual([1753])
+    expect(system.find((row) => row.name === '_sys fpu')?.workers).toEqual([1754])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
