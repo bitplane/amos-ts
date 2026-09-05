@@ -84,7 +84,8 @@
  *       `Rbra routine 1570`, and 1570 is `movea.l $4.w,a6 / jsr -$2d6(a6)`
  *       between a `movem.l` pair. ColdReboot, no version check, so it is
  *       COLD like the rest of this list. The trampoline is the extension's
- *       usual shape: 1,012 of its 1,053 named routines are eight bytes.
+ *       usual shape: 1,009 of the 1,053 distinct routines named by keywords
+ *       occupy eight bytes.
  *
  * Two keywords that look like they belong here and do not, both caught by
  * reading rather than by their names: EasyLife's `Elreset` is a jump table
