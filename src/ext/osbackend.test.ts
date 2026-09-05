@@ -22,7 +22,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
   it('does not confuse a machine-layer module with completed operation coverage', () => {
     expect(rows.find((row) => row.name === '_cold reboot')).toMatchObject({
-      status: 'review',
+      status: 'faithful',
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
@@ -150,6 +150,26 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(stone.find((row) => row.name === '_fx balance')).toMatchObject({
       workers: [1907],
       osCalls: [expect.objectContaining({ library: 'stoneplayer.library', lvo: -156 })],
+    })
+  })
+
+  it('classifies the direct CPU memory accessors and cold reboot', () => {
+    const names = ['_cpu word', '_cpu uword', '_cpu long', '_cold reboot']
+    const direct = rows.filter((row) => names.includes(row.name))
+    expect(direct).toHaveLength(4)
+    expect(direct.every((row) => row.status === 'faithful')).toBe(true)
+    expect(direct.find((row) => row.name === '_cpu word')).toMatchObject({
+      routines: [10, 11], workers: [10, 11],
+    })
+    expect(direct.find((row) => row.name === '_cpu uword')).toMatchObject({
+      routines: [12, 13], workers: [12, 13],
+    })
+    expect(direct.find((row) => row.name === '_cpu long')).toMatchObject({
+      routines: [14, 15], workers: [14, 15],
+    })
+    expect(direct.find((row) => row.name === '_cold reboot')).toMatchObject({
+      workers: [1570],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -726 })],
     })
   })
 

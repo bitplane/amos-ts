@@ -153,6 +153,12 @@ auditMany('missing', 'stoneplayer.library and its installed player state are not
 auditMany('partial', 'AMOS Samples-bank selection and Paula playback exist, but the absent stoneplayer.library wrapper and its extended playback controls do not', [
   '_fx play', '_fx bank',
 ])
+auditMany('faithful', 'the workers are direct big-endian memory reads/writes, including signed and unsigned word results, which the machine memory backend models', [
+  '_cpu word', '_cpu uword', '_cpu long',
+])
+auditMany('faithful', 'the worker calls exec ColdReboot and the machine backend records the same cold-reset request', [
+  '_cold reboot',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
