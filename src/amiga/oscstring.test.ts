@@ -27,4 +27,11 @@ describe('OS DevKit private strings: routines 1466-1473', () => {
     const at = text - heap.memory.base
     expect([...heap.memory.buffer.subarray(at - 3, at)]).toEqual([0x12, 0x34, 0x56])
   })
+
+  it('_to str allocates and copies an AMOS string into C form', () => {
+    const heap = new OsCStringHeap(0x4000, 0x100)
+    const text = heap.fromAmos('AMOS')
+    expect(heap.get(text)).toBe('AMOS')
+    expect(heap.memory.buffer[text - heap.memory.base + 4]).toBe(0)
+  })
 })

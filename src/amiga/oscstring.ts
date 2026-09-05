@@ -44,6 +44,13 @@ export class OsCStringHeap {
     return (block + HEADER) >>> 0
   }
 
+  /** routine 1475 (`_to str`): allocate to the AMOS length and CopyMem its bytes. */
+  fromAmos(value: string): number {
+    const text = this.alloc(value.length)
+    if (text !== 0) this.put(text, value)
+    return text
+  }
+
   free(text: number): void {
     this.memory.freeMem((text - HEADER) >>> 0)
   }

@@ -180,6 +180,15 @@ auditMany('faithful', 'AllocVec flag handling, size header and FreeVec lifecycle
 auditMany('partial', 'V39 pool creation, requirements, allocation/free and deletion are modelled; native puddle/threshold placement is not', [
   '_pool create', '_pool delete', '_pool alloc', '_pool free',
 ])
+auditMany('faithful', 'the exact 68k word join and three distinct sign-extension operations are modelled', [
+  '_join.w', '_ext.b', '_ext.w', '_ext.l',
+])
+auditMany('faithful', 'fixed-width big-endian AMOS binary-string packing and unpacking are modelled', [
+  '_chr$.l', '_chr$.w', '_val.l', '_val.w',
+])
+auditMany('faithful', 'AMOS-to-C allocation/copy and the static empty AMOS string are modelled', [
+  '_to str', '_0$',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

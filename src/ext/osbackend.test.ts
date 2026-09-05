@@ -219,6 +219,23 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(pool.map((row) => row.workers[0])).toEqual([1784, 1785, 1786, 1787])
   })
 
+  it('classifies all local scalar and binary-string conversions', () => {
+    const names = [
+      '_join.w', '_ext.b', '_ext.w', '_ext.l', '_chr$.l', '_chr$.w', '_val.l', '_val.w', '_to str', '_0$',
+    ]
+    const scalar = rows.filter((row) => names.includes(row.name))
+    expect(scalar).toHaveLength(10)
+    expect(scalar.every((row) => row.status === 'faithful')).toBe(true)
+    expect(scalar.find((row) => row.name === '_join.w')?.workers).toEqual([1752])
+    expect(scalar.find((row) => row.name === '_ext.w')?.workers).toEqual([1758])
+    expect(scalar.find((row) => row.name === '_chr$.l')?.workers).toEqual([26])
+    expect(scalar.find((row) => row.name === '_val.w')?.workers).toEqual([29])
+    expect(scalar.find((row) => row.name === '_to str')).toMatchObject({
+      workers: [1475],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -624 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
