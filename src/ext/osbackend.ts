@@ -354,6 +354,12 @@ auditMany('partial', 'valid plane assignment exists, but the shipped signed comp
 auditMany('partial', 'managed planar BitMaps and their attributes exist, but friend-bitmap and BMF_INTERLEAVED allocation layouts do not', [
   '_bm alloc', '_bm free', '_bm what attr',
 ])
+auditMany('faithful', 'managed ColorMaps implement allocation, lifetime and exact RGB4/RGB32 component conversion and range reads', [
+  '_cm alloc', '_cm free', '_rgb4 get', '_rgb4 cm set', '_rgb32 get', '_rgb32 cm set',
+])
+auditMany('partial', 'screen palettes exist, but these workers take arbitrary native ViewPort and raw colour-table pointers', [
+  '_rgb4 load', '_rgb4 set', '_rgb32 load', '_rgb32 set',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

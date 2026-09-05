@@ -614,6 +614,33 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(bitMap.find((row) => row.name === '_bm what plane')?.workers).toEqual([1694])
   })
 
+  it('classifies the complete ColorMap and RGB4/RGB32 family', () => {
+    const names = (prefix: string): string[] => rows.filter((row) => row.namespace === prefix).map((row) => row.name)
+    expect(names('_cm')).toHaveLength(2)
+    expect(names('_rgb4')).toHaveLength(4)
+    expect(names('_rgb32')).toHaveLength(4)
+    const colour = rows.filter((row) => ['_cm', '_rgb4', '_rgb32'].includes(row.namespace))
+    expect(colour.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_cm alloc', '_cm free', '_rgb32 cm set', '_rgb32 get', '_rgb4 cm set', '_rgb4 get',
+    ])
+    expect(colour.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_rgb32 load', '_rgb32 set', '_rgb4 load', '_rgb4 set',
+    ])
+    expect(colour.some((row) => row.status === 'review')).toBe(false)
+    expect(colour.find((row) => row.name === '_cm alloc')).toMatchObject({
+      workers: [1664], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -570 })],
+    })
+    expect(colour.find((row) => row.name === '_rgb4 get')).toMatchObject({
+      workers: [1618], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -582 })],
+    })
+    expect(colour.find((row) => row.name === '_rgb32 get')).toMatchObject({
+      workers: [1669], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -900 })],
+    })
+    expect(colour.find((row) => row.name === '_rgb32 cm set')).toMatchObject({
+      workers: [1672], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -996 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
