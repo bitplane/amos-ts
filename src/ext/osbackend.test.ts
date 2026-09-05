@@ -560,6 +560,14 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(attrs.every((row) => row.osCalls.length === 0)).toBe(true)
   })
 
+  it('classifies all five RasInfo operations', () => {
+    const rasInfo = rows.filter((row) => row.namespace === '_ri')
+    expect(rasInfo).toHaveLength(5)
+    expect(rasInfo.every((row) => row.status === 'faithful')).toBe(true)
+    expect(rasInfo.map((row) => row.workers[0])).toEqual([1731, 1732, 1733, 1734, 1735])
+    expect(rasInfo.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

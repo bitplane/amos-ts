@@ -331,6 +331,9 @@ auditMany('partial', 'text drawing and metrics exist, but arbitrary native TextA
 auditMany('faithful', 'the complete eight-byte TextAttr layout and exact pointer, word and byte reads/writes are represented', [
   '_ta set', '_ta what name', '_ta what height', '_ta what style', '_ta what flags',
 ])
+auditMany('faithful', 'the complete 12-byte RasInfo layout and exact pointer and signed-word reads/writes are represented', [
+  '_ri set', '_ri what next', '_ri what bmap', '_ri what x', '_ri what y',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
