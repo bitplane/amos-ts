@@ -62,6 +62,16 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(lowlevel.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies every Locale and Catalog keyword at operation level', () => {
+    const locale = rows.filter((row) => row.namespace === '_loc' || row.namespace === '_cat')
+    expect(locale).toHaveLength(7)
+    expect(locale.filter((row) => row.status === 'faithful').map((row) => row.name).sort())
+      .toEqual(['_cat close', '_cat str', '_loc close', '_loc init'])
+    expect(locale.filter((row) => row.status === 'partial').map((row) => row.name).sort())
+      .toEqual(['_cat open', '_loc open', '_loc str'])
+    expect(locale.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
