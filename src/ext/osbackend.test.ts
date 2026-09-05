@@ -916,6 +916,50 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('finishes the DOS audit with segments, processes and notifications', () => {
+    const names = [
+      '_dos seg load', '_dos seg unload', '_dos new proc',
+      '_dos sig notify', '_dos msg notify', '_dos end notify',
+    ]
+    const finalDos = rows.filter((row) => names.includes(row.name))
+    expect(finalDos).toHaveLength(6)
+    expect(finalDos.every((row) => row.status === 'partial')).toBe(true)
+
+    const process = new Map<string, [number, number]>([
+      ['_dos seg load', [1842, -768]], ['_dos seg unload', [1843, -156]], ['_dos new proc', [1844, -498]],
+    ])
+    for (const [name, [worker, lvo]] of process) {
+      expect(finalDos.find((row) => row.name === name)).toMatchObject({
+        workers: [worker], osCalls: [expect.objectContaining({ library: 'dos.library', lvo })],
+      })
+    }
+
+    expect(finalDos.find((row) => row.name === '_dos sig notify')).toMatchObject({
+      workers: [1854],
+      osCalls: [
+        expect.objectContaining({ library: 'exec.library', lvo: -684 }),
+        expect.objectContaining({ library: 'dos.library', lvo: -888 }),
+        expect.objectContaining({ library: 'exec.library', lvo: -690 }),
+      ],
+    })
+    expect(finalDos.find((row) => row.name === '_dos msg notify')).toMatchObject({
+      workers: [1855],
+      osCalls: [
+        expect.objectContaining({ library: 'exec.library', lvo: -684 }),
+        expect.objectContaining({ library: 'dos.library', lvo: -888 }),
+        expect.objectContaining({ library: 'exec.library', lvo: -690 }),
+      ],
+    })
+    expect(finalDos.find((row) => row.name === '_dos end notify')).toMatchObject({
+      workers: [1856],
+      osCalls: [
+        expect.objectContaining({ library: 'dos.library', lvo: -894 }),
+        expect.objectContaining({ library: 'exec.library', lvo: -690 }),
+      ],
+    })
+    expect(rows.some((row) => row.status === 'review' && row.family === 'dos')).toBe(false)
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

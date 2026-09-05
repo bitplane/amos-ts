@@ -227,6 +227,12 @@ auditMany('partial', 'AmigaDOS error strings are mapped where callers need them,
 auditMany('missing', 'dos.library ReportEvent requester/reporting behavior is not modelled', [
   '_dos report',
 ])
+auditMany('partial', 'Amiga hunk loading and host process launch exist, but native segment lists, unloading and CreateNewProc tag lists are not exposed', [
+  '_dos seg load', '_dos seg unload', '_dos new proc',
+])
+auditMany('partial', 'filesystem change subscriptions exist, but native NotifyRequest allocation and task-signal or MsgPort delivery are not integrated', [
+  '_dos sig notify', '_dos msg notify', '_dos end notify',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
