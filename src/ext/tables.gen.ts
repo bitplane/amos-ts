@@ -8235,7 +8235,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "f5bb665a91416cca066573c130734490f90feb6543f4196209863bca6c1794b1",
     "provenance": "kyzer.me.uk/amos/amosfactory/dme.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-dme/. 692,668 bytes, sha256 e9f0baa035f6c38606bb6d6ccad4924d1e33b03e206a6c6ca31dc949c3312338 -- the \"676Kb - LhA\" the AMOS extension list promised. That list's own download link was lha/dme.lha on amigau.com and the Wayback Machine never captured it; kyzer's AMOS Factory mirror had it. SLOT 15, AND THE BINARY SAYS SO: routine 0 stores its AllocMem'd block with `move.l d0,$1d8(a5)` and returns `moveq #$e,d0`, and ($1d8-$f8)/16+1 is 15 on the ExtAdr layout (+Equ.s:1157) with $e the slot zero-based. Jens Vang Petersen's AMOS extension pages, 1997-1998, said 15 too, and also record \"PRO Version: 2.00\", no TC version, and Public Domain. IT REFUSES TO LOAD ANYWHERE ELSE: the first instruction after the register save is `cmp.l #$41506578,d1` --- the ASCII `APex` --- and a mismatch returns -1 without allocating anything.",
-    "notes": "Plays OctaMED, ProTracker and several other module formats, one set of keywords per format."
+    "notes": "Plays fifteen tracker and chip-music formats plus raw samples, one keyword block per player."
   },
   {
     "id": "dump-1.0",
