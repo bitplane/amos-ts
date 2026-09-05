@@ -11185,7 +11185,7 @@ reads a word from a stale pointer as a length and then that many bytes. d4 is ne
 reproduce reading through a stale pointer. DEFECTS besides: Bnk_GetAdr untested, and the same disconnected \
 `tst.l d0` on the OpenLibrary result that G Decrypt has. A bank that is not reserved raises AMOS's own \"Bank \
 not reserved\" here, where the machine writes through a zero a0 -- a DEVIATION, there being no address zero. \
-S403 is not implemented: this is the keyword that can be handed one",
+The decoder accepts both S403 and S404, matching stc.library's two dispatch arms",
   "g word$":
     "Routine 81 ($2be0). APPROXIMATED. The guide says \"Not DONE\" and the routine agrees. Both scans put \
 `cmp.w d5,d3` immediately before `cmp.b d7,d0`, so the length compare's flags are gone before anything branches \

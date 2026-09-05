@@ -22,7 +22,7 @@
  *
  *     -$2a  AllocWork    -> d0 = a $5f88-byte work buffer, +8 for its own size
  *     -$30  FreeWork     a1 = that
- *     -$36  Decrunch     a0 = destination, a1 = crunched -> d0 = 1, or 0 for
+ *     -$24  Decrunch     a0 = destination, a1 = crunched -> d0 = 1, or 0 for
  *                        a magic it does not know
  *     -$42  FreeFileBuf  a1 = a buffer from -$6c
  *     -$48  ReadFile     a0 = a buffer from -$6c -> d0 = bytes read
@@ -30,12 +30,11 @@
  *     -$6c  AllocFileBuf a0 = name, d0 = slack -> a buffer with the name and
  *                        the file's size in a 122-byte header behind it
  *
- * `Decrunch` also knows `S403`, at $958, which is a different format with a
- * different bit order and a table of its own at $994. It is NOT implemented
- * here: The Game's cruncher writes `S404` unconditionally (`move.l
- * #$53343034,(a6)+` at $3b6), so nothing this port produces or is handed by
- * `G Decrypt` can be one. `G Stc Unpack` can be handed anything, and that is
- * where the gap has to be closed.
+ * `Decrunch` also knows `S403`, at $958. It is the older backwards format:
+ * bits are least-significant first, matches select one of four offset tables,
+ * and lengths are 2, 3, 4 or a run of three-bit additions above 5. The Game's
+ * cruncher writes `S404`, but `G Stc Unpack` can be handed either, so both
+ * decoder arms are implemented here.
  *
  * ## The file
  *
@@ -136,6 +135,23 @@ export const STC_S404 = 0x53343034
 /** `S403`, which `Decrunch` at $958 handles and this file does not */
 export const STC_S403 = 0x53343033
 
+/** Public identity and the vectors The Game calls on the held binary. */
+export const STC_LIBRARY = {
+  name: 'stc.library',
+  version: 3,
+  revision: 322,
+  librarySize: 74,
+  lvo: {
+    allocWork: -42,
+    freeWork: -48,
+    decrunch: -36,
+    freeFileBuffer: -66,
+    readFile: -72,
+    crunch: -96,
+    allocFileBuffer: -108,
+  },
+} as const
+
 /** the largest offset class's bit count, which The Game asks for by tag */
 export const STC_OFFSET_BITS = 12
 /** `lea $20(a0),a2` and `lea $220(a0),a2`: the three offset classes' bases */
@@ -147,7 +163,9 @@ const MIN_MATCH = 2
 
 /** whether a buffer opens with a StoneCracker magic this file can decrunch */
 export function isStoneCracked(data: Uint8Array): boolean {
-  return data.length >= 16 && read32(data, 0) === STC_S404
+  if (data.length < 16) return false
+  const magic = read32(data, 0)
+  return magic === STC_S403 || magic === STC_S404
 }
 
 /** the decrunched length a crunched buffer declares, without decrunching it */
@@ -164,13 +182,15 @@ const read16 = (d: Uint8Array, at: number): number => (((d[at] ?? 0) << 8) | (d[
  * Decrunch an `S404` buffer, or `null` for a magic this does not know.
  *
  * `null` rather than a throw because that is what the library answers: LVO
- * -$36 tests both magics and returns d0 = 0 having done nothing, and both of
+ * -$24 tests both magics and returns d0 = 0 having done nothing, and both of
  * The Game's callers test the result. An `S403` buffer lands here too, and it
  * is worth being clear that answering null for one is a limitation of this
  * file and not of the format.
  */
 export function stcDecrunch(data: Uint8Array): Uint8Array | null {
-  if (data.length < 16 || read32(data, 0) !== STC_S404) return null
+  if (data.length < 16) return null
+  if (read32(data, 0) === STC_S403) return stcDecrunch403(data)
+  if (read32(data, 0) !== STC_S404) return null
 
   const length = read32(data, 8)
   const out = new Uint8Array(length)
@@ -285,6 +305,75 @@ export function stcDecrunch(data: Uint8Array): Uint8Array | null {
     }
   }
 
+  return out
+}
+
+/** The older S403 arm at $958, whose bitstream runs least-significant first. */
+function stcDecrunch403(data: Uint8Array): Uint8Array | null {
+  const length = read32(data, 8)
+  const out = new Uint8Array(length)
+  // After reading the offset at +$0c, (a1)+ has advanced to +$10 before the
+  // offset is added. The resulting pointer addresses the valid-bit count;
+  // its seed word is immediately before it.
+  let rp = 16 + read32(data, 12)
+  if (rp < 2 || rp + 2 > data.length) return null
+  let remaining = read16(data, rp)
+  rp -= 2
+  let buffer = read16(data, rp)
+  let w = length
+
+  const bit = (): number => {
+    if (remaining === 0) {
+      rp -= 2
+      if (rp < 16) return 0
+      buffer = read16(data, rp)
+      remaining = 16
+    }
+    const value = buffer & 1
+    buffer >>>= 1
+    remaining--
+    return value
+  }
+  const bits = (count: number): number => {
+    let value = 0
+    for (let i = 0; i < count; i++) value |= bit() << i
+    return value
+  }
+
+  const widths = [5, 8, 10, 12] as const
+  const bases = [1, 33, 289, 1313] as const
+  while (w > 0) {
+    if (bit() === 0) {
+      out[--w] = bits(8)
+      continue
+    }
+
+    const cls = bits(2)
+    let src = w + bases[cls]! + bits(widths[cls]!)
+    let len: number
+    const length2 = bit()
+    if (length2 !== 0) len = 2
+    else {
+      const length3 = bit()
+      if (length3 !== 0) len = 3
+      else {
+        const length4 = bit()
+        if (length4 !== 0) len = 4
+        else {
+          len = 5
+          for (;;) {
+            const add = bits(3)
+            len += add
+            if (add !== 7) break
+          }
+        }
+      }
+    }
+    for (let i = 0; i < len && w > 0; i++) {
+      const value = --src < length ? out[src]! : 0
+      out[--w] = value
+    }
+  }
   return out
 }
 

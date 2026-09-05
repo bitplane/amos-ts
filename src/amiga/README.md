@@ -213,7 +213,7 @@ is still never run.
 | `icon.ts` | `icon.library`'s `.info` file: the DiskObject and its imagery |
 | `imploder.ts` | the Imploder's IMP! codec |
 | `bytekiller.ts` | ByteKiller, decrunch only |
-| `stonecracker.ts` | StoneCracker 4.04 (`S404`), decrunch and crunch |
+| `stonecracker.ts` | `stc.library` 3.322: `S403`/`S404` decrunch and `S404` crunch |
 | `lh.ts` | `lh.library` 1.8: both codecs and the audited public vector contract |
 | `lha.ts` | the LHA archive, its three header levels, and the lh5 codec |
 | `zip.ts` | ZIP through its central directory, and the platform's inflate |
