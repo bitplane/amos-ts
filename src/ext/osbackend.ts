@@ -374,6 +374,12 @@ auditMany('partial', 'hardware sprite rendering exists, but arbitrary native Sim
   '_spr change', '_spr free', '_spr get', '_spr move', '_spr a data alloc', '_spr a data free', '_spr a change',
   '_spr a get',
 ])
+auditMany('faithful', 'blits are synchronous and non-contending, so OwnBlitter, DisownBlitter and WaitBlit have their exact observable effect', [
+  '_blt own', '_blt disown', '_blt wait',
+])
+auditMany('partial', 'planar blitting and clipping exist, but raw-memory clears, arbitrary masks/patterns/RastPorts and every graphics.library minterm are not exposed', [
+  '_blt clr', '_blt msk bm to rp', '_blt pattern', '_blt clip',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

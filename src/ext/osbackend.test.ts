@@ -685,6 +685,28 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(sprite.find((row) => row.name === '_spr set pos')?.workers).toEqual([1743])
   })
 
+  it('classifies all seven blitter operations against the synchronous planar backend', () => {
+    const blitter = rows.filter((row) => row.namespace === '_blt')
+    expect(blitter).toHaveLength(7)
+    expect(blitter.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_blt disown', '_blt own', '_blt wait',
+    ])
+    expect(blitter.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_blt clip', '_blt clr', '_blt msk bm to rp', '_blt pattern',
+    ])
+    expect(blitter.some((row) => row.status === 'review')).toBe(false)
+    const expected = new Map<string, [number, number]>([
+      ['_blt clr', [1632, -300]], ['_blt msk bm to rp', [1633, -636]],
+      ['_blt pattern', [1634, -312]], ['_blt clip', [1635, -552]],
+      ['_blt disown', [1636, -462]], ['_blt own', [1637, -456]], ['_blt wait', [1638, -228]],
+    ])
+    for (const row of blitter) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
+    }
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
