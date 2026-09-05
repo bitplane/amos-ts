@@ -255,6 +255,15 @@ auditMany('faithful', 'allocation, lifetime and signed-word coordinate pairs at 
 auditMany('faithful', 'the packed six-byte BooleanInfo word/unaligned-long layout is represented at exact widths', [
   '_bi set flags', '_bi set mask', '_bi set', '_bi what flags', '_bi what mask',
 ])
+auditMany('partial', 'managed palettes support nearest colours and allocation state, but arbitrary native ColorMaps, precision/tag policy and shared-pen ownership are not exposed', [
+  '_pen find', '_pen obtain best', '_pen obtain', '_pen release', '_pen set max',
+])
+auditMany('partial', 'the PAL display-mode database provides compatible IDs and geometry, but BestModeIDA/CoerceMode tag and monitor-driver selection are incomplete', [
+  '_mode best id', '_mode coerce',
+])
+auditMany('partial', 'View/ViewPort geometry exists, but CalcIVG requires arbitrary native structures and graphics-driver state', [
+  '_calc ivg',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

@@ -1015,6 +1015,24 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(boolean.every((row) => row.osCalls.length === 0)).toBe(true)
   })
 
+  it('classifies V39 pen, mode-selection and IVG operations', () => {
+    const expected = new Map<string, [number, number]>([
+      ['_pen find', [1682, -1008]], ['_pen obtain best', [1683, -840]],
+      ['_pen obtain', [1684, -954]], ['_pen release', [1685, -948]],
+      ['_pen set max', [1686, -990]], ['_calc ivg', [1687, -828]],
+      ['_mode best id', [1788, -1050]], ['_mode coerce', [1789, -936]],
+    ])
+    const operations = rows.filter((row) => expected.has(row.name))
+    expect(operations).toHaveLength(8)
+    expect(operations.every((row) => row.status === 'partial')).toBe(true)
+    for (const row of operations) {
+      const [worker, lvo] = expected.get(row.name)!
+      expect(row).toMatchObject({
+        workers: [worker], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo })],
+      })
+    }
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
