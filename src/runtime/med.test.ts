@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { loadHunks } from '../amiga/hunk'
 import { NullAudio, PAULA_CLOCK_NTSC, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
 import { PaulaMixer } from '../amiga/mixer'
+import { residents } from '../cli/libdis'
 import { MED_SINUS, MedPlayer, medPeriod, medTickHz, medTimer } from './med'
 
 /**
@@ -94,6 +95,26 @@ describe('the CIA clock the constants imply', () => {
  *   ../amos-files/sources/amos-pd-library-cd-1994/files/Library2.0/MEDPLAYER.library
  */
 const LIB = join(__dirname, '../../fixtures/libs/medplayer/medplayer-1f2ca57f.library')
+
+const FAMILY = [
+  ['medplayer-a93c8e42.library', 'medplayer.library', 7, 21],
+  ['octaplayer-b27d6bb2.library', 'octaplayer.library', 7, 18],
+  ['octamixplayer-d57a34d6.library', 'octamixplayer.library', 7, 17],
+] as const
+
+describe('the shipped MED 7.1 player family', () => {
+  for (const [file, name, version, vectors] of FAMILY) {
+    const path = join(__dirname, '../../fixtures/libs/medplayer', file)
+    it.skipIf(!existsSync(path))(`${name} exposes its complete version-${version} table`, () => {
+      const loaded = loadHunks(readFileSync(path))
+      const resident = residents({ data: loaded.image, base: loaded.base })[0]!
+      expect(resident.name).toBe(name)
+      expect(resident.version).toBe(version)
+      expect(resident.vectors.size).toBe(vectors)
+      expect([...resident.vectors.keys()]).toEqual(Array.from({ length: vectors }, (_, i) => -6 * (i + 1)))
+    })
+  }
+})
 
 describe.skipIf(!existsSync(LIB))('against medplayer.library itself', () => {
   const image = ((): { at: (a: number) => number } => {

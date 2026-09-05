@@ -18,8 +18,9 @@ Three builds of `medplayer.library`, all of which call themselves
 | `a93c8e42` | 19,928 | `MEDExt71/Libs`, in two archives | ships with the MED 7.1 extension, 21 LVOs |
 
 Plus `octaplayer.library` (5 to 8 channels, MMD2) and `octamixplayer.library`
-(0 to 64 channels, MMD3), both from MEDExt71. Neither is read here. They need
-the software mixer, and holding them does not change that: see #116.
+(0 to 64 channels, MMD3), both from MEDExt71. They are now implemented by the
+same sequencer in `src/runtime/med.ts`, over the distinct mixers in
+`src/amiga/mmd2mix.ts` and `src/amiga/omixmix.ts`.
 
 Everything below is `1f2ca57f`, because that is the build sitting in
 `Library2.0` next to the AMOS Professional system files, and `+Music.s` is what
@@ -302,10 +303,26 @@ build it, gets that wrong.
     npx tsx src/cli/libdis.ts fixtures/libs/medplayer/medplayer-1f2ca57f.library \
       --lvo -66 --to '$2111e0'
 
-The five binaries are vendored under `fixtures/libs/medplayer/`, named by the
+The six distinct binaries are vendored under `fixtures/libs/medplayer/`, named by the
 first four bytes of their checksum. `fixtures/` is gitignored: they are read
 for behaviour and never redistributed. Copy them out of the corpus with
 
     ../amos-files/sources/amos-pd-library-cd-1994/files/Library2.0/MEDPLAYER.library
     ../amos-files/sources/aminet-dev-amos/files/medext71/MEDExt71/Libs/*.library
     ../amos-files/sources/amos-pd-library-cd-1994/files/Library1.3/MEDPLAYER.LIBRARY
+
+## Family audit
+
+The version-7 builds shipped with MED 7.1 are the authoritative set for the
+shared extension: `medplayer.library` exposes 21 vectors (17 library calls
+after the four Exec vectors), `octaplayer.library` exposes 18 (14 calls), and
+`octamixplayer.library` exposes 17 (13 calls). The older version-2 builds are
+retained as corroborating binaries, not selected in preference to version 7.
+
+The audit found that the two software-mixed implementations existed but were
+still hidden from `OpenLibrary`, and that MED 7.1 always constructed the
+four-channel build regardless of its selected mode. Both Octa libraries are
+now advertised at version 7, mode 1 constructs `octaplayer`, and mode 2
+constructs `octamixplayer`. HQ, MIDI, 14-bit mode, requested mixing rate and
+buffer size are also copied into the selected player and updated there after
+initialisation.

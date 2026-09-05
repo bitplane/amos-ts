@@ -57,7 +57,7 @@ describe('exec: OpenLibrary', () => {
   it('answers 0 for a library nothing models', () => {
     // the honest answer, and the one that matters most as more extensions
     // arrive: BSDSocket wants bsdsocket.library and there are no sockets here
-    for (const name of ['bsdsocket.library', 'octaplayer.library', 'octamixplayer.library']) {
+    for (const name of ['bsdsocket.library', 'octaplayer.library.old', 'octamixplayer.library.old']) {
       expect(openLibrary(name, 0), name).toBe(0)
       expect(libraryPresent(name), name).toBe(false)
     }

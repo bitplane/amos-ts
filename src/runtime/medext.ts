@@ -102,7 +102,7 @@ import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
-import { MedPlayer } from './med'
+import { MedPlayer, type MedBuild } from './med'
 import { openLibrary } from '../amiga/exec'
 
 /**
@@ -289,7 +289,8 @@ function setModule(rt: Runtime, data: Uint8Array | null): void {
 function newPlayer(rt: Runtime): MedPlayer {
   const st = rt.medExt
   const bank = { name: 'Med', get data(): Uint8Array { return st.module ?? new Uint8Array(0) } }
-  return new MedPlayer({
+  const build: MedBuild = st.mode === 1 ? 'octaplayer' : st.mode === 2 ? 'octamixplayer' : 'medplayer'
+  const player = new MedPlayer({
     get audio() {
       return rt.audio
     },
@@ -297,7 +298,13 @@ function newPlayer(rt: Runtime): MedPlayer {
     // CIA clock cannot be allowed to run backwards when a game uses it
     tick: () => rt.frames,
     getBank: () => (st.module ? bank : null),
-  })
+  }, build)
+  player.midi = st.midi
+  player.hq = st.hq !== 0
+  player.omix14Bit = st.bit14
+  player.omixRequestedRate = st.mixFreq
+  player.omixBuffer = st.mixBuffer
+  return player
 }
 
 /**
@@ -412,6 +419,7 @@ export function makeMedExtInstructions(rt: Runtime): Record<string, Instr> {
       checkPlayer(s)
       s.midi = midi !== 0
       s.player ??= newPlayer(rt)
+      s.player.midi = s.midi
     },
 
     /**
@@ -519,7 +527,10 @@ export function makeMedExtInstructions(rt: Runtime): Record<string, Instr> {
       const s = st()
       const v = it.evalInt()
       checkPlayer(s)
-      if (s.mode === 1) s.hq = v
+      if (s.mode === 1) {
+        s.hq = v
+        if (s.player?.build === 'octaplayer') s.player.hq = v !== 0
+      }
     },
 
     /**
@@ -568,14 +579,20 @@ export function makeMedExtInstructions(rt: Runtime): Record<string, Instr> {
     'med 14bit mode on'() {
       const s = st()
       checkPlayer(s)
-      if (s.mode === 2) s.bit14 = true
+      if (s.mode === 2) {
+        s.bit14 = true
+        if (s.player?.build === 'octamixplayer') s.player.omix14Bit = true
+      }
     },
 
     /** Med 14bit Mode Off — routine 30 ($dc8), the `moveq #$0,d0` entry. */
     'med 14bit mode off'() {
       const s = st()
       checkPlayer(s)
-      if (s.mode === 2) s.bit14 = false
+      if (s.mode === 2) {
+        s.bit14 = false
+        if (s.player?.build === 'octamixplayer') s.player.omix14Bit = false
+      }
     },
 
     /**
@@ -588,7 +605,10 @@ export function makeMedExtInstructions(rt: Runtime): Record<string, Instr> {
       const s = st()
       const f = it.evalInt()
       checkPlayer(s)
-      if (s.mode === 2) s.mixFreq = f
+      if (s.mode === 2) {
+        s.mixFreq = f
+        if (s.player?.build === 'octamixplayer') s.player.omixRequestedRate = f
+      }
     },
 
     /** Med Set Mixbuffer n — routine 32 ($e26). MODE 2 ONLY, unchecked. */
@@ -596,7 +616,10 @@ export function makeMedExtInstructions(rt: Runtime): Record<string, Instr> {
       const s = st()
       const n = it.evalInt()
       checkPlayer(s)
-      if (s.mode === 2) s.mixBuffer = n
+      if (s.mode === 2) {
+        s.mixBuffer = n
+        if (s.player?.build === 'octamixplayer') s.player.omixBuffer = n
+      }
     },
   }
 }

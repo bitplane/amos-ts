@@ -129,13 +129,10 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
   // Version 7 because MED 7.1 opens all three of its players with
   // `moveq #$7,d0` and takes anything below as absent.
   //
-  // Its two siblings are NOT here, because neither is ported yet.
-  // `octaplayer.library` (5-8 channel MMD2) and `octamixplayer.library`
-  // (0-64 channel MMD3) mix several voices into each of Paula's four in
-  // software. That used to be the reason they were excluded, and it has
-  // stopped being true: digimix.ts pairs two channels into a voice and
-  // s3mmix.ts sums twelve at a fixed rate. What is missing now is the work,
-  // not the back-end. Both replayers are in fixtures under libs/medplayer,
+  // Its two siblings are modelled by the same sequencer in runtime/med.ts:
+  // `octaplayer.library` mixes 5-8 MMD2 tracks into Paula's four voices and
+  // `octamixplayer.library` mixes up to 64 MMD3 tracks into a finished stream.
+  // Both replayers are in fixtures under libs/medplayer,
   // and DOOM Productions wrapped both — DME_OctaMed.library shares 73% of
   // its bytes with octaplayer and DME_OctaMix 70% with octamixplayer — so
   // each has two independent copies to read. Nor is either short of a module
@@ -143,17 +140,28 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
   // (`cmpi.l #"MMD3"` down to `#"MMD0"`, at $3044 of octaplayer and $3f8e of
   // octamixplayer), so the 187 MMD2 modules OctaMED Pro 6 shipped feed both.
   // What separates the three libraries is how many tracks reach audio, not
-  // which files they take. Leaving them out makes OpenLibrary answer 0, which
-  // is the case MED 7.1 already handles and reports in its own words. See
-  // runtime/medext.ts.
+  // which files they take. See runtime/medext.ts.
   [
     'medplayer.library',
     {
       version: 7,
       about:
         "OctaMED's replayer for four-channel MMD0 and MMD1 modules. MED 7.1 opens it with " +
-        '`moveq #$7,d0` and treats anything older as absent. Its 5-8 and 0-64 channel siblings ' +
-        'are not modelled, so a program asking for those is told no.',
+        '`moveq #$7,d0` and treats anything older as absent.',
+    },
+  ],
+  [
+    'octaplayer.library',
+    {
+      version: 7,
+      about: "OctaMED's 5-8 channel MMD2 replayer and two-tracks-per-Paula-voice mixer.",
+    },
+  ],
+  [
+    'octamixplayer.library',
+    {
+      version: 7,
+      about: "OctaMED's software-mixed MMD3 replayer for up to 64 channels.",
     },
   ],
   // the joyport and timer halves, modelled by ../amiga/lowlevel.ts. Two ports

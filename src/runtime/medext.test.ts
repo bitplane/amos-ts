@@ -79,9 +79,8 @@ describe('MED 7.1 — the shim over the three player libraries', () => {
   it('routine 0 opens medplayer and leaves the mode at 0 (routine 0, $2aa)', () => {
     const { rt } = boot('')
     expect(rt.medExt.medBase).toBeGreaterThan(0)
-    // octaplayer and octamixplayer are declared absent: no software mixer
-    expect(rt.medExt.octaBase).toBe(0)
-    expect(rt.medExt.octaMixBase).toBe(0)
+    expect(rt.medExt.octaBase).toBeGreaterThan(0)
+    expect(rt.medExt.octaMixBase).toBeGreaterThan(0)
     expect(rt.medExt.mode).toBe(0)
     expect(rt.medExt.module).toBeNull()
   })
@@ -125,21 +124,25 @@ describe('MED 7.1 — the shim over the three player libraries', () => {
     expect(rt.medExt.fastLoaded).toBe(true)
   })
 
-  it('mode 1 and mode 2 report the library that never opened (routine 37, $e52)', () => {
-    // DEVIATION: the machine would jump through a zero base here, because
-    // routine 37 runs at $684 with the OLD mode still in $3f6
-    expect(() => run('Med Load "x.med",1', MOD0)).toThrow(MED_ERRORS[5])
-    expect(() => run('Med Load "x.med",2', MOD0)).toThrow(MED_ERRORS[6])
-  })
-
-  it('a mode whose library IS installed loads (the same routine 37, taken the other way)', () => {
-    // an Amiga with octamixplayer present, which is the only way the mode-2
-    // keywords below are reachable at all
-    const { rt } = run('Med Load "x.med",2', MOD0, (r) => {
-      r.medExt.octaMixBase = 0x7f20_0000
-    })
+  it('mode 1 and mode 2 load through their installed version-7 libraries', () => {
+    expect(run('Med Load "x.med",1', MOD0).rt.medExt.mode).toBe(1)
+    const { rt } = run('Med Load "x.med",2', MOD0)
     expect(rt.medExt.mode).toBe(2)
     expect(rt.medExt.module).not.toBeNull()
+  })
+
+  it('Med Init Player selects the current library build and carries its controls into it', () => {
+    const octa = run('Med Load "x.med",1\nMed Set Hq 1\nMed Init Player 0', MOD0).rt.medExt.player!
+    expect(octa.build).toBe('octaplayer')
+    expect(octa.hq).toBe(true)
+    const mix = run(
+      'Med Load "x.med",2\nMed 14bit Mode Off\nMed Set Mixing Freq 28800\nMed Set Mixbuffer 4096\nMed Init Player 0',
+      MOD0,
+    ).rt.medExt.player!
+    expect(mix.build).toBe('octamixplayer')
+    expect(mix.omix14Bit).toBe(false)
+    expect(mix.omixRequestedRate).toBe(28800)
+    expect(mix.omixBuffer).toBe(4096)
   })
 })
 
