@@ -305,6 +305,12 @@ auditMany('partial', 'the operation exists, but ROM alert presentation or staged
 auditMany('partial', 'mode names and nominal geometry exist, but the full monitor-driver DisplayInfo data records do not', [
   '_disp info get',
 ])
+auditMany('missing', 'the old-style native Requester record, gadget/border chains and activation lifecycle are not modelled', [
+  '_req init', '_req do', '_req end',
+])
+auditMany('partial', 'host-backed alert requesters exist, but arbitrary native EasyStruct formatting and raw argument arrays do not', [
+  '_req easy',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

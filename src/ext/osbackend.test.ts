@@ -484,6 +484,28 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('separates old-style Requester records from the host-backed EasyRequest path', () => {
+    const requesters = rows.filter((row) => row.namespace === '_req')
+    expect(requesters).toHaveLength(4)
+    expect(requesters.filter((row) => row.status === 'missing').map((row) => row.name).sort()).toEqual([
+      '_req do', '_req end', '_req init',
+    ])
+    expect(requesters.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_req easy'])
+    expect(requesters.some((row) => row.status === 'review')).toBe(false)
+    expect(requesters.find((row) => row.name === '_req init')).toMatchObject({
+      workers: [1572], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -138 })],
+    })
+    expect(requesters.find((row) => row.name === '_req do')).toMatchObject({
+      workers: [1573], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -240 })],
+    })
+    expect(requesters.find((row) => row.name === '_req end')).toMatchObject({
+      workers: [1574], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -120 })],
+    })
+    expect(requesters.find((row) => row.name === '_req easy')).toMatchObject({
+      workers: [1575], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -588 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
