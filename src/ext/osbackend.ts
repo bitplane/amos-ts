@@ -91,6 +91,11 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_icon get', { status: 'partial', reason: 'machine code aliases _icon load after AMOS path conversion' }],
   ['_icon del', { status: 'missing', reason: 'machine code aliases _icon kill after AMOS path conversion' }],
   ['_icon put', { status: 'missing', reason: 'machine code aliases _icon save after AMOS path conversion' }],
+  ['_li new', { status: 'partial', reason: 'LayerInfo exists, but requires host dimensions instead of native dimensionless allocation' }],
+  ['_li free', { status: 'partial', reason: 'LayerInfo has managed lifetime but no native DisposeLayerInfo invalidation semantics' }],
+  ['_layer create behind', { status: 'partial', reason: 'layer ordering and clipping exist; bitmap, RastPort and backfill-hook binding do not' }],
+  ['_layer create upfront', { status: 'partial', reason: 'layer ordering and clipping exist; bitmap, RastPort and backfill-hook binding do not' }],
+  ['_layer delete', { status: 'partial', reason: 'chain deletion and exposure exist; native bitmap restoration and backfill do not' }],
 ])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!

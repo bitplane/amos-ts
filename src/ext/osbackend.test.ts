@@ -96,6 +96,14 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(icon.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies every Layers keyword at operation level', () => {
+    const layers = rows.filter((row) => row.namespace === '_layer' || row.namespace === '_li')
+    expect(layers).toHaveLength(5)
+    expect(layers.every((row) => row.status === 'partial')).toBe(true)
+    expect(layers.map((row) => row.osCalls[0]?.lvo).sort((a, b) => a! - b!))
+      .toEqual([-150, -144, -90, -42, -36])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
