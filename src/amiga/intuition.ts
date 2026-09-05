@@ -408,6 +408,27 @@ export class Window {
 
   flags: number
 
+  /** SetPointer's per-window sprite definition; null after ClearPointer. */
+  pointer: { data: number; height: number; width: number; xOffset: number; yOffset: number } | null = null
+
+  setPointer(data: number, height: number, width: number, xOffset: number, yOffset: number): void {
+    this.pointer = {
+      data: data >>> 0,
+      height: height & 0xffff,
+      width: width & 0xffff,
+      xOffset: (xOffset << 16) >> 16,
+      yOffset: (yOffset << 16) >> 16,
+    }
+  }
+
+  clearPointer(): void { this.pointer = null }
+
+  /** ReportMouse(TRUE/FALSE), which toggles WFLG_REPORTMOUSE. */
+  reportMouse(enabled: boolean): void {
+    if (enabled) this.flags |= WFLG_REPORTMOUSE
+    else this.flags &= ~WFLG_REPORTMOUSE
+  }
+
   /**
    * wd_ScreenTitle, the second string SetWindowTitles takes.
    *
@@ -535,6 +556,21 @@ export class Window {
     }
     return null
   }
+}
+
+/** LockIBase/UnlockIBase tokens for the backend's single execution thread. */
+export class IntuitionBaseLock {
+  private next = 1
+  private readonly held = new Set<number>()
+
+  lock(_dontLock: number): number {
+    const token = this.next++
+    this.held.add(token)
+    return token
+  }
+
+  unlock(token: number): void { this.held.delete(token) }
+  isHeld(token: number): boolean { return this.held.has(token) }
 }
 
 /**

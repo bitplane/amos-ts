@@ -506,6 +506,33 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies pointer, mouse-report and IntuitionBase lock helpers', () => {
+    const helpers = rows.filter((row) => ['_ptr', '_mouse', '_ibase'].includes(row.namespace))
+    expect(helpers).toHaveLength(6)
+    expect(helpers.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_ibase lock', '_ibase unlock', '_mouse report', '_mouse unreport',
+    ])
+    expect(helpers.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_ptr clear', '_ptr set',
+    ])
+    expect(helpers.some((row) => row.status === 'review')).toBe(false)
+    expect(helpers.find((row) => row.name === '_ptr clear')).toMatchObject({
+      workers: [1581], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -60 })],
+    })
+    expect(helpers.find((row) => row.name === '_ptr set')).toMatchObject({
+      workers: [1582], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -270 })],
+    })
+    expect(helpers.find((row) => row.name === '_mouse report')).toMatchObject({
+      workers: [1587], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -234 })],
+    })
+    expect(helpers.find((row) => row.name === '_ibase lock')).toMatchObject({
+      workers: [1589], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -414 })],
+    })
+    expect(helpers.find((row) => row.name === '_ibase unlock')).toMatchObject({
+      workers: [1590], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -420 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

@@ -311,6 +311,15 @@ auditMany('missing', 'the old-style native Requester record, gadget/border chain
 auditMany('partial', 'host-backed alert requesters exist, but arbitrary native EasyStruct formatting and raw argument arrays do not', [
   '_req easy',
 ])
+auditMany('partial', 'SetPointer arguments and clearing are retained per window, but the custom sprite image is not rendered', [
+  '_ptr set', '_ptr clear',
+])
+auditMany('faithful', 'ReportMouse toggles the exact WFLG_REPORTMOUSE window flag', [
+  '_mouse report', '_mouse unreport',
+])
+auditMany('faithful', 'LockIBase/UnlockIBase token pairing is represented exactly in the single-threaded backend', [
+  '_ibase lock', '_ibase unlock',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
