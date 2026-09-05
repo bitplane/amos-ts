@@ -144,6 +144,18 @@ describe('MED 7.1 — the shim over the three player libraries', () => {
     expect(mix.omixRequestedRate).toBe(28800)
     expect(mix.omixBuffer).toBe(4096)
   })
+
+  it('mode-specific controls continue to update an installed player', () => {
+    const octa = run('Med Load "x.med",1\nMed Init Player 0\nMed Set Hq 1', MOD0).rt.medExt.player!
+    expect(octa.hq).toBe(true)
+    const mix = run(
+      'Med Load "x.med",2\nMed Init Player 0\nMed 14bit Mode Off\nMed Set Mixing Freq 22000\nMed Set Mixbuffer 2048',
+      MOD0,
+    ).rt.medExt.player!
+    expect(mix.omix14Bit).toBe(false)
+    expect(mix.omixRequestedRate).toBe(22000)
+    expect(mix.omixBuffer).toBe(2048)
+  })
 })
 
 describe('MED 7.1 — the fourteen keywords that need a module', () => {
