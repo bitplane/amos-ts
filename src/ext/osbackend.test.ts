@@ -826,6 +826,18 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.some((row) => row.status === 'review' && row.family === 'graphics')).toBe(false)
   })
 
+  it('classifies all three DateStamp-to-string wrappers', () => {
+    const names = ['_dos day$', '_dos date$', '_dos time$']
+    const dates = rows.filter((row) => names.includes(row.name))
+    expect(dates).toHaveLength(3)
+    expect(dates.every((row) => row.status === 'partial')).toBe(true)
+    expect(dates.map((row) => row.workers[0])).toEqual([1845, 1846, 1847])
+    for (const row of dates) {
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'dos.library', lvo: -192 }))
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'dos.library', lvo: -744 }))
+    }
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

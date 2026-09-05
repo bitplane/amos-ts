@@ -411,6 +411,9 @@ auditMany('faithful', 'the V39 setters map exactly to the managed RastPort write
 auditMany('partial', 'scaling, scrolling and RastPort attributes exist in narrower forms, but native BitScaleArgs/DDA rounding, layer backfill and raw tag get-pointers are incomplete', [
   '_scale bm', '_scale div', '_rp bf scroll', '_rp what attrs', '_rp set attrs',
 ])
+auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateToStr localization, Preferences-driven FORMAT_DEF and native DateTime buffers do not', [
+  '_dos day$', '_dos date$', '_dos time$',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
