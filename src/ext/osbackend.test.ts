@@ -14,8 +14,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('accounts for every named token-table entry', () => {
     const summary = osBackendSummary(rows)
     expect(summary.total).toBe(1047)
-    expect(summary.referencedRoutines).toBe(1053)
-    expect(summary.eightByteRoutines).toBe(1009)
+    expect(summary.referencedRoutines).toBe(1075)
+    expect(summary.eightByteRoutines).toBe(1031)
     expect(rows.filter((row) => row.status === 'faithful' || row.status === 'partial' || row.status === 'missing' || row.status === 'review'))
       .toHaveLength(1047)
   })
@@ -197,7 +197,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(memory).toHaveLength(15)
     expect(memory.every((row) => row.status === 'faithful')).toBe(true)
     expect(memory.find((row) => row.name === '_str alloc')?.workers).toEqual([1470])
-    expect(memory.find((row) => row.name === '_str put')?.workers).toEqual([1473])
+    expect(memory.find((row) => row.name === '_str put')?.workers).toEqual([1473, 1474])
     expect(memory.find((row) => row.name === '_struct byte')).toMatchObject({
       routines: [16, 17], workers: [16, 17],
     })
@@ -836,6 +836,36 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'dos.library', lvo: -192 }))
       expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'dos.library', lvo: -744 }))
     }
+  })
+
+  it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
+    const variables = rows.filter((row) => row.name.startsWith('_dos var '))
+    expect(variables).toHaveLength(3)
+    expect(variables.every((row) => row.status === 'partial')).toBe(true)
+    expect(variables.find((row) => row.name === '_dos var del')).toMatchObject({
+      workers: [34], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -912 })],
+    })
+    expect(variables.find((row) => row.name === '_dos var find')).toMatchObject({
+      workers: [35], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -918 })],
+    })
+    expect(variables.find((row) => row.name === '_dos var value$')).toMatchObject({ workers: [36, 37] })
+
+    const cli = rows.filter((row) => row.namespace === '_cli')
+    expect(cli).toHaveLength(3)
+    expect(cli.every((row) => row.status === 'missing')).toBe(true)
+    expect(cli.find((row) => row.name === '_cli read args')).toMatchObject({
+      routines: [791], workers: [1861],
+      osCalls: [
+        expect.objectContaining({ library: 'dos.library', lvo: -858 }),
+        expect.objectContaining({ library: 'dos.library', lvo: -798 }),
+      ],
+    })
+    expect(cli.find((row) => row.name === '_cli what arg$')).toMatchObject({
+      routines: [792, 794], workers: [1862, 1864],
+    })
+    expect(cli.find((row) => row.name === '_cli what arg')).toMatchObject({
+      routines: [793, 795], workers: [1863, 1865],
+    })
   })
 
   it('makes every previously stated missing family explicit', () => {

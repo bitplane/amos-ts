@@ -414,6 +414,12 @@ auditMany('partial', 'scaling, scrolling and RastPort attributes exist in narrow
 auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateToStr localization, Preferences-driven FORMAT_DEF and native DateTime buffers do not', [
   '_dos day$', '_dos date$', '_dos time$',
 ])
+auditMany('partial', 'global ENV: variable storage exists, but local-variable lists, FindVar pointers and the full DOS flag surface do not', [
+  '_dos var del', '_dos var find', '_dos var value$',
+])
+auditMany('missing', 'dos.library ReadArgs template parsing and OS DevKit’s retained 256-slot result table have no backend', [
+  '_cli read args', '_cli what arg$', '_cli what arg',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
@@ -440,13 +446,22 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
     }
     return current
   }
-  return entries.filter((entry) => entry.name).map((entry) => {
+  return entries.flatMap((entry, index) => {
+    if (!entry.name) return []
     const name = entry.name!.replace(/^!/, '')
     const namespace = namespaceOf(name)
     const missing = MISSING.find((f) => f.names(name, namespace))
     const modelled = MODELLED.get(namespace)
     const audited = AUDITED.get(name)
-    const routines = [...new Set([entry.instr, entry.func].filter((n) => n !== undefined && n !== 1 && n !== 0xffff))]
+    // A leading `!` means this named token owns the following empty-name
+    // entries: overload continuations in the binary token table. Keep one
+    // keyword row, but cite and scan every implementation routine it exposes.
+    const variants = [entry]
+    if (entry.name.startsWith('!')) {
+      for (let i = index + 1; i < entries.length && !entries[i]!.name; i++) variants.push(entries[i]!)
+    }
+    const routines = [...new Set(variants.flatMap((variant) => [variant.instr, variant.func])
+      .filter((n) => n !== undefined && n !== 1 && n !== 0xffff))]
     // Invalid routine references are review items, never silently "covered".
     const valid = routines.every((n) => addresses[n!] !== undefined)
     const workers = routines.map(worker)
