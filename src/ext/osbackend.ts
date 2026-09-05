@@ -213,6 +213,20 @@ auditMany('faithful', 'directory validation and lock-derived current-directory r
 auditMany('faithful', 'the no-requester existence probe returns the same AMOS boolean for files and directories', [
   '_dos exist',
 ])
+auditMany('partial', 'sequential and random file streams provide the operation, but OS DevKit raw DOS file handles, caller-owned buffers and packet-level modes are not exposed', [
+  '_dos open', '_dos close', '_dos seek', '_dos read', '_dos write', '_dos f getc', '_dos f gets',
+  '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos mode', '_dos f name',
+  '_dos opin', '_dos opout', '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
+])
+auditMany('missing', 'the process-wide dos.library IoErr/SetIoErr state is not modelled', [
+  '_dos err', '_dos set err',
+])
+auditMany('partial', 'AmigaDOS error strings are mapped where callers need them, but arbitrary Fault buffer formatting is not exposed', [
+  '_dos fault',
+])
+auditMany('missing', 'dos.library ReportEvent requester/reporting behavior is not modelled', [
+  '_dos report',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

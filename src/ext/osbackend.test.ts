@@ -26,7 +26,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
-    expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'review', family: 'dos' })
+    expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'partial', family: 'dos' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
       status: 'partial',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
@@ -871,6 +871,49 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(paths.find((row) => row.name === '_dos set dir$')?.workers).toEqual([1835])
     expect(paths.find((row) => row.name === '_file part')?.workers).toEqual([1840])
     expect(paths.find((row) => row.name === '_dos exist')?.workers).toEqual([1816])
+  })
+
+  it('classifies DOS file handles, buffered I/O and error state', () => {
+    const ioNames = [
+      '_dos open', '_dos close', '_dos seek', '_dos read', '_dos write', '_dos f getc', '_dos f gets',
+      '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos mode', '_dos f name', '_dos opin', '_dos opout',
+      '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
+    ]
+    const io = rows.filter((row) => ioNames.includes(row.name))
+    expect(io).toHaveLength(20)
+    expect(io.every((row) => row.status === 'partial')).toBe(true)
+
+    const direct = new Map<string, [number, number]>([
+      ['_dos open', [1801, -30]], ['_dos close', [1802, -36]], ['_dos seek', [1806, -66]],
+      ['_dos read', [1811, -42]], ['_dos write', [1812, -48]], ['_dos f getc', [1818, -306]],
+      ['_dos f gets', [1819, -336]], ['_dos f putc', [1820, -312]], ['_dos f puts', [1821, -342]],
+      ['_dos f ungetc', [1822, -318]], ['_dos mode', [1823, -450]], ['_dos f name', [1824, -408]],
+    ])
+    for (const [name, [worker, lvo]] of direct) {
+      expect(io.find((row) => row.name === name)).toMatchObject({
+        workers: [worker], osCalls: [expect.objectContaining({ library: 'dos.library', lvo })],
+      })
+    }
+    const local = new Map<string, number>([
+      ['_dos opin', 1803], ['_dos opout', 1804], ['_dos append', 1805], ['_dos print', 1813],
+      ['_dos input', 1814], ['_dos eof', 1815], ['_dos lof', 1817], ['_fh name$', 1825],
+    ])
+    for (const [name, worker] of local) expect(io.find((row) => row.name === name)?.workers).toEqual([worker])
+
+    const errors = rows.filter((row) => ['_dos err', '_dos report', '_dos fault', '_dos set err'].includes(row.name))
+    expect(errors).toHaveLength(4)
+    expect(errors.find((row) => row.name === '_dos err')).toMatchObject({
+      status: 'missing', workers: [1807], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -132 })],
+    })
+    expect(errors.find((row) => row.name === '_dos report')).toMatchObject({
+      status: 'missing', workers: [1808], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -480 })],
+    })
+    expect(errors.find((row) => row.name === '_dos fault')).toMatchObject({
+      status: 'partial', workers: [1809], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -468 })],
+    })
+    expect(errors.find((row) => row.name === '_dos set err')).toMatchObject({
+      status: 'missing', workers: [1810], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -462 })],
+    })
   })
 
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
