@@ -811,6 +811,12 @@ interface MuiPopobjectData extends Record<string, unknown> {
   popupWindow: BoopsiObject | null
 }
 
+interface MuiPoplistData extends Record<string, unknown> {
+  array: number
+  list: BoopsiObject
+  listview: BoopsiObject
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -884,6 +890,7 @@ export class MuiMaster {
   readonly radioClass: BoopsiClass
   readonly popstringClass: BoopsiClass
   readonly popobjectClass: BoopsiClass
+  readonly poplistClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -948,6 +955,7 @@ export class MuiMaster {
     this.radioClass = this.byName.get(MUIC.MUIC_Radio)!
     this.popstringClass = this.byName.get(MUIC.MUIC_Popstring)!
     this.popobjectClass = this.byName.get(MUIC.MUIC_Popobject)!
+    this.poplistClass = this.byName.get(MUIC.MUIC_Poplist)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1506,7 +1514,15 @@ export class MuiMaster {
   private dispatch(name: string, cl: BoopsiClass, obj: BoopsiObject | BoopsiClass, msg: Msg): number {
     switch (msg.MethodID) {
       case OM_NEW: {
-        const made = this.boopsi.objectAt(doSuperMethodA(cl, obj, msg))
+        let newMsg = msg as OpSet
+        let poplistParts: { array: number; list: BoopsiObject; listview: BoopsiObject } | null = null
+        if (cl === this.poplistClass) {
+          poplistParts = this.preparePoplist((msg as OpSet).attrs)
+          if (!poplistParts) return 0
+          newMsg = { ...msg, attrs: [...(msg as OpSet).attrs,
+            { tag: MUI.MUIA_Popobject_Object, data: poplistParts.listview.address }] } as OpSet
+        }
+        const made = this.boopsi.objectAt(doSuperMethodA(cl, obj, newMsg))
         if (!made) return 0
         if (cl === this.notifyClass) {
           // the record every object carries, created once at the root of the
@@ -1787,6 +1803,15 @@ export class MuiMaster {
         if (cl === this.popobjectClass && !this.initPopobject(made, (msg as OpSet).attrs)) {
           this.boopsi.disposeObject(made)
           return 0
+        }
+        if (cl === this.poplistClass && poplistParts) {
+          const d = made.instData<MuiPoplistData>(cl)
+          d.array = poplistParts.array
+          d.list = poplistParts.list
+          d.listview = poplistParts.listview
+          data(this, made).attrs.set(MUI.MUIA_Poplist_Array, d.array)
+          this.doMui(d.listview, MUI.MUIM_Notify, [MUI.MUIA_Listview_DoubleClick, 1, made.address, 2,
+            MUI.MUIM_Popstring_Close, 1])
         }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
@@ -3350,6 +3375,7 @@ export class MuiMaster {
     if (!d.open) return
     // closeHook is retained for native state/get semantics; executing guest
     // hook code is intentionally outside this implementation boundary.
+    if (obj.cl.isA(this.poplistClass) && _success !== 0) this.poplistObjectToString(obj)
     if (obj.cl.isA(this.popobjectClass)) this.closePopobject(obj)
     d.open = false
     if (!d.toggle) this.setInternal(d.button, MUI.MUIA_Selected, 0)
@@ -3445,6 +3471,7 @@ export class MuiMaster {
   private openPopobject(obj: BoopsiObject): boolean {
     const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
     if (d.popupWindow) return true
+    if (obj.cl.isA(this.poplistClass)) this.poplistStringToObject(obj)
     const box = this.boxOf(obj)
     const window = this.newObjectA(MUIC.MUIC_Window, [
       { tag: MUI.MUIA_Window_RootObject, data: d.object.address },
@@ -3476,6 +3503,43 @@ export class MuiMaster {
     data(this, d.object).parent = null
     d.popupWindow = null
     this.disposeObject(window)
+  }
+
+  // -- Poplist ------------------------------------------------------------
+
+  private preparePoplist(attrs: readonly TagItem[]): { array: number; list: BoopsiObject; listview: BoopsiObject } | null {
+    const array = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Poplist_Array)?.data ?? 0
+    const list = this.newObjectA(MUIC.MUIC_List, [
+      { tag: MUI.MUIA_List_SourceArray, data: array },
+      { tag: MUI.MUIA_List_AdjustWidth, data: 1 },
+    ])
+    if (!list) return null
+    const listview = this.newObjectA(MUIC.MUIC_Listview, [{ tag: MUI.MUIA_Listview_List, data: list.address }])
+    if (!listview) {
+      this.disposeObject(list)
+      return null
+    }
+    return { array, list, listview }
+  }
+
+  private poplistStringToObject(obj: BoopsiObject): void {
+    const d = obj.instData<MuiPoplistData>(this.poplistClass)
+    const string = obj.instData<MuiPopstringData>(this.popstringClass).string
+    if (!string) return
+    const wanted = this.textOfAddress(this.get(string, MUI.MUIA_String_Contents) ?? 0)
+    const entries = d.list.instData<MuiListData>(this.listClass).entries
+    const active = entries.findIndex((entry) => this.textOfAddress(entry.address) === wanted)
+    this.set(d.list, MUI.MUIA_List_Active, active)
+  }
+
+  private poplistObjectToString(obj: BoopsiObject): void {
+    const d = obj.instData<MuiPoplistData>(this.poplistClass)
+    const string = obj.instData<MuiPopstringData>(this.popstringClass).string
+    if (!string) return
+    const list = d.list.instData<MuiListData>(this.listClass)
+    const entry = list.active >= 0 ? list.entries[list.active] : undefined
+    this.set(string, MUI.MUIA_String_Contents, entry?.address ?? 0)
+    this.setInternal(string, MUI.MUIA_String_Acknowledge, this.get(string, MUI.MUIA_String_Contents) ?? 0)
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {

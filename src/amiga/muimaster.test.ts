@@ -1554,6 +1554,59 @@ describe('muimaster: Popobject.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Poplist.mui 19.35', () => {
+  function makePoplist(m: MuiMaster): { pop: BoopsiObject; string: BoopsiObject; button: BoopsiObject } {
+    const longs = new Map([[0x8000, 0x1000], [0x8004, 0x1100], [0x8008, 0]])
+    const strings = new Map([[0x1000, 'Alpha'], [0x1100, 'Beta'], [0x1200, 'Beta']])
+    m.readLong = (address) => longs.get(address) ?? 0
+    m.readString = (address) => strings.get(address) ?? ''
+    const string = m.newObjectA(MUIC.MUIC_String)!
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const pop = m.newObjectA(MUIC.MUIC_Poplist, [
+      tag(MUI.MUIA_Popstring_String, string.address), tag(MUI.MUIA_Popstring_Button, button.address),
+      tag(MUI.MUIA_Poplist_Array, 0x8000),
+    ])!
+    return { pop, string, button }
+  }
+
+  it('builds its List and Listview popup from the terminated source array', () => {
+    const m = new MuiMaster()
+    const { pop } = makePoplist(m)
+    const popup = m.boopsi.objectAt(m.get(pop, MUI.MUIA_Popobject_Object)!)!
+    expect(popup.cl.id).toBe(MUIC.MUIC_Listview)
+    const list = m.boopsi.objectAt(m.get(popup, MUI.MUIA_Listview_List)!)!
+    expect(m.get(list, MUI.MUIA_List_Entries)).toBe(2)
+  })
+
+  it('matches String contents on open and copies the accepted active entry back on close', () => {
+    const m = new MuiMaster()
+    m.windowHost = new TestWindowHost()
+    const { pop, string } = makePoplist(m)
+    m.set(string, MUI.MUIA_String_Contents, 0x1200)
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    const view = m.boopsi.objectAt(m.get(pop, MUI.MUIA_Popobject_Object)!)!
+    const list = m.boopsi.objectAt(m.get(view, MUI.MUIA_Listview_List)!)!
+    expect(m.get(list, MUI.MUIA_List_Active)).toBe(1)
+    m.set(list, MUI.MUIA_List_Active, 0)
+    m.doMui(pop, MUI.MUIM_Popstring_Close, [1])
+    const contents = m.get(string, MUI.MUIA_String_Contents)!
+    let text = ''
+    for (let at = contents - m.pool.base; m.pool.buffer[at] !== 0; at++) text += String.fromCharCode(m.pool.buffer[at]!)
+    expect(text).toBe('Alpha')
+  })
+
+  it('wires Listview double-click to a successful popup close', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const { pop } = makePoplist(m)
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    const view = m.boopsi.objectAt(m.get(pop, MUI.MUIA_Popobject_Object)!)!
+    m.setInternal(view, MUI.MUIA_Listview_DoubleClick, 1)
+    expect(host.calls).toContain('close')
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
