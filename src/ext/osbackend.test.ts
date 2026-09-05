@@ -999,6 +999,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(channel.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies Dots arrays and the packed BooleanInfo record', () => {
+    const dots = rows.filter((row) => row.namespace === '_dots')
+    expect(dots).toHaveLength(5)
+    expect(dots.every((row) => row.status === 'faithful')).toBe(true)
+    expect(dots.map((row) => row.workers[0])).toEqual([1384, 1385, 1783, 1386, 1387])
+    expect(dots.find((row) => row.name === '_dots free')?.osCalls).toContainEqual(
+      expect.objectContaining({ library: 'exec.library', lvo: -690 }),
+    )
+
+    const boolean = rows.filter((row) => row.namespace === '_bi')
+    expect(boolean).toHaveLength(5)
+    expect(boolean.every((row) => row.status === 'faithful')).toBe(true)
+    expect(boolean.map((row) => row.workers[0])).toEqual([1404, 1405, 1406, 1407, 1408])
+    expect(boolean.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

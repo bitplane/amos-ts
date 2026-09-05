@@ -249,6 +249,12 @@ auditMany('faithful', 'the four-long list header, private 24-byte node header an
 auditMany('partial', 'node replacement and prefix preservation are modelled, but the shipped max(old,new) copy overflow cannot corrupt adjacent managed allocations', [
   '_chn new length',
 ])
+auditMany('faithful', 'allocation, lifetime and signed-word coordinate pairs at four-byte strides are represented exactly', [
+  '_dots set', '_dots alloc', '_dots free', '_dots what x', '_dots what y',
+])
+auditMany('faithful', 'the packed six-byte BooleanInfo word/unaligned-long layout is represented at exact widths', [
+  '_bi set flags', '_bi set mask', '_bi set', '_bi what flags', '_bi what mask',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

@@ -3,6 +3,7 @@ import {
   newNativeBorder, setBorderCorner, setBorderDots, setBorderDraw, setPropInfo, setStringBuffers,
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
   nativeIntuiMessage, notifyRequest, notifyUserData,
+  allocDots, setDot, newNativeBooleanInfo, setBooleanInfo,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
@@ -81,6 +82,18 @@ describe('OS DevKit native Intuition structures', () => {
 
   it('reads NotifyRequest user data as an unsigned pointer-sized field', () => {
     expect(notifyUserData({ userData: -1 })).toBe(0xffff_ffff)
+  })
+
+  it('stores Dots as signed word pairs at four-byte strides', () => {
+    const dots = allocDots(2)
+    setDot(dots, 1, 0xffff, 0x8001)
+    expect(dots).toEqual([{ x: 0, y: 0 }, { x: -1, y: -32767 }])
+  })
+
+  it('stores the packed BooleanInfo word and unaligned long at native widths', () => {
+    const info = newNativeBooleanInfo()
+    setBooleanInfo(info, 0x12345, -1)
+    expect(info).toEqual({ flags: 0x2345, mask: 0xffff_ffff })
   })
 
   it('writes every byte, word and pointer of the 20-byte IntuiText record', () => {

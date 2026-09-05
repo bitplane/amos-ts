@@ -217,6 +217,31 @@ export function notifyUserData(request: NativeNotifyRequest): number {
   return request.userData >>> 0
 }
 
+/** A graphics coordinate pair: two signed words, four bytes per entry. */
+export interface NativeDot { x: number; y: number }
+
+export function allocDots(count: number): NativeDot[] {
+  return Array.from({ length: Math.max(0, count | 0) }, () => ({ x: 0, y: 0 }))
+}
+
+export function setDot(dots: NativeDot[], index: number, x: number, y: number): void {
+  const dot = dots[index]
+  if (dot) {
+    dot.x = (x << 16) >> 16
+    dot.y = (y << 16) >> 16
+  }
+}
+
+/** Six-byte BooleanInfo: a word followed immediately by an unaligned long. */
+export interface NativeBooleanInfo { flags: number; mask: number }
+
+export const newNativeBooleanInfo = (): NativeBooleanInfo => ({ flags: 0, mask: 0 })
+
+export function setBooleanInfo(info: NativeBooleanInfo, flags: number, mask: number): void {
+  info.flags = flags & 0xffff
+  info.mask = mask >>> 0
+}
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number
