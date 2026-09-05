@@ -817,6 +817,12 @@ interface MuiPoplistData extends Record<string, unknown> {
   listview: BoopsiObject
 }
 
+interface MuiRegisterData extends Record<string, unknown> {
+  titlesAddress: number
+  titles: number[]
+  frame: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -891,6 +897,7 @@ export class MuiMaster {
   readonly popstringClass: BoopsiClass
   readonly popobjectClass: BoopsiClass
   readonly poplistClass: BoopsiClass
+  readonly registerClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -956,6 +963,7 @@ export class MuiMaster {
     this.popstringClass = this.byName.get(MUIC.MUIC_Popstring)!
     this.popobjectClass = this.byName.get(MUIC.MUIC_Popobject)!
     this.poplistClass = this.byName.get(MUIC.MUIC_Poplist)!
+    this.registerClass = this.byName.get(MUIC.MUIC_Register)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1813,6 +1821,10 @@ export class MuiMaster {
           this.doMui(d.listview, MUI.MUIM_Notify, [MUI.MUIA_Listview_DoubleClick, 1, made.address, 2,
             MUI.MUIM_Popstring_Close, 1])
         }
+        if (cl === this.registerClass && !this.initRegister(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -2102,6 +2114,10 @@ export class MuiMaster {
           const answer = this.getPopobject(o, g)
           if (answer) return answer
         }
+        if (cl === this.registerClass && TAG(g.attrID) === MUI.MUIA_Register_Titles) {
+          g.storage = o.instData<MuiRegisterData>(cl).titlesAddress
+          return 1
+        }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
           g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
           return 1
@@ -2354,6 +2370,10 @@ export class MuiMaster {
         }
         if (cl === this.popobjectClass) {
           const answered = this.popobjectMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.registerClass) {
+          const answered = this.registerMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -3540,6 +3560,58 @@ export class MuiMaster {
     const entry = list.active >= 0 ? list.entries[list.active] : undefined
     this.set(string, MUI.MUIA_String_Contents, entry?.address ?? 0)
     this.setInternal(string, MUI.MUIA_String_Acknowledge, this.get(string, MUI.MUIA_String_Contents) ?? 0)
+  }
+
+  // -- Register -----------------------------------------------------------
+
+  private initRegister(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const titlesAddress = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Register_Titles)?.data ?? 0
+    const titles = this.pointerList(titlesAddress)
+    if (titles.length === 0) return false
+    const d = obj.instData<MuiRegisterData>(this.registerClass)
+    d.titlesAddress = titlesAddress
+    d.titles = titles
+    d.frame = (attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Register_Frame)?.data ?? 1) !== 0
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_Register_Titles, titlesAddress)
+    stored.set(MUI.MUIA_Register_Frame, d.frame ? 1 : 0)
+    stored.set(MUI.MUIA_Group_PageMode, 1)
+    if (d.frame) stored.set(MUI.MUIA_Frame, MUI.MUIV_Frame_Group)
+    stored.set(MUI.MUIA_FrameTitle, titles[0]!)
+    return true
+  }
+
+  private registerMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const d = obj.instData<MuiRegisterData>(this.registerClass)
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup: {
+        const answer = doSuperMethodA(this.registerClass, obj, msg)
+        if (answer !== 0) this.updateRegisterTitle(obj)
+        return answer
+      }
+      case MUI.MUIM_Cleanup:
+        return doSuperMethodA(this.registerClass, obj, msg)
+      case MUI.MUIM_HandleInput: {
+        const key = this.signed(p[1] ?? -1)
+        if (key === 2 || key === 8) this.set(obj, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_Prev)
+        else if (key === 3 || key === 9) this.set(obj, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_Next)
+        else if (key === 4) this.set(obj, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_First)
+        else if (key === 5) this.set(obj, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_Last)
+        else if (key === 0 || key === 1) this.set(obj, MUI.MUIA_Group_ActivePage, MUI.MUIV_Group_ActivePage_Advance)
+        this.updateRegisterTitle(obj)
+        return doSuperMethodA(this.registerClass, obj, msg)
+      }
+      default:
+        void d
+        return null
+    }
+  }
+
+  private updateRegisterTitle(obj: BoopsiObject): void {
+    const d = obj.instData<MuiRegisterData>(this.registerClass)
+    const active = this.get(obj, MUI.MUIA_Group_ActivePage) ?? 0
+    this.setInternal(obj, MUI.MUIA_FrameTitle, d.titles[Math.max(0, Math.min(d.titles.length - 1, active))] ?? 0)
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {

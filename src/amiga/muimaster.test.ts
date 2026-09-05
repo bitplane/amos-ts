@@ -1607,6 +1607,40 @@ describe('muimaster: Poplist.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Register.mui 19.35', () => {
+  function makeRegister(m: MuiMaster, frame = 1): BoopsiObject {
+    const pointers = new Map([[0x8000, 0x1000], [0x8004, 0x1100], [0x8008, 0]])
+    m.readLong = (address) => pointers.get(address) ?? 0
+    const first = m.newObjectA(MUIC.MUIC_Text)!
+    const second = m.newObjectA(MUIC.MUIC_Text)!
+    return m.newObjectA(MUIC.MUIC_Register, [
+      tag(MUI.MUIA_Register_Titles, 0x8000), tag(MUI.MUIA_Register_Frame, frame),
+      tag(MUI.MUIA_Group_Child, first.address), tag(MUI.MUIA_Group_Child, second.address),
+    ])!
+  }
+
+  it('requires a terminated title array and installs native page-mode frame state', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Register)).toBeNull()
+    const register = makeRegister(m)
+    expect(m.get(register, MUI.MUIA_Register_Titles)).toBe(0x8000)
+    expect(m.peek(register, MUI.MUIA_Group_PageMode)).toBe(1)
+    expect(m.peek(register, MUI.MUIA_Frame)).toBe(MUI.MUIV_Frame_Group)
+    expect(m.peek(register, MUI.MUIA_FrameTitle)).toBe(0x1000)
+  })
+
+  it('honors Frame=False and navigates pages while updating the active title', () => {
+    const m = new MuiMaster()
+    const register = makeRegister(m, 0)
+    expect(m.peek(register, MUI.MUIA_Frame)).toBe(MUI.MUIV_Frame_None)
+    m.doMui(register, MUI.MUIM_HandleInput, [0, 3])
+    expect(m.get(register, MUI.MUIA_Group_ActivePage)).toBe(1)
+    expect(m.peek(register, MUI.MUIA_FrameTitle)).toBe(0x1100)
+    m.doMui(register, MUI.MUIM_HandleInput, [0, 4])
+    expect(m.get(register, MUI.MUIA_Group_ActivePage)).toBe(0)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
