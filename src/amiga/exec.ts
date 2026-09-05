@@ -105,6 +105,29 @@ interface Modelled {
 }
 
 const MODELLED: ReadonlyMap<string, Modelled> = new Map([
+  // The native display/window stack. These are concrete TypeScript modules,
+  // not claims of complete OS DevKit coverage: graphics.ts, intuition.ts,
+  // gadtools.ts and layers.ts each model the operations audited separately.
+  [
+    'graphics.library',
+    { version: 40, about: 'Bitmaps, RastPorts, drawing, palettes, sprites and display structures.' },
+  ],
+  [
+    'intuition.library',
+    { version: 40, about: 'Screens, windows, gadgets, requesters, menus and input messages.' },
+  ],
+  [
+    'gadtools.library',
+    { version: 40, about: 'GadTools gadgets, menus, visual information and bevel rendering.' },
+  ],
+  [
+    'icon.library',
+    { version: 40, about: 'Workbench DiskObject decoding and ToolType lookup/matching.' },
+  ],
+  [
+    'layers.library',
+    { version: 40, about: 'Layer ordering, clipping, movement, sizing and damage exposure.' },
+  ],
   // File classification from Workbench's DEVS:DataTypes descriptors. The
   // object-oriented half of datatypes.library is not claimed here; callers
   // can obtain and release descriptors through ./datatypes.ts.

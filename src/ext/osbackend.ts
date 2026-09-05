@@ -201,6 +201,16 @@ auditMany('partial', 'synthetic library open/close and base metadata exist, but 
 auditMany('missing', 'the worker invokes an arbitrary negative LVO with a complete 68k register frame, and no 68k execution backend exists', [
   '_lib call',
 ])
+auditMany('faithful', 'the worker returns a stable base for a library with a concrete registered backend', [
+  '_base dos', '_base gfx', '_base int', '_base gad', '_base asl', '_base icon', '_base loc', '_base dt',
+  '_base layers',
+])
+auditMany('partial', 'the underlying object exists, but the backend does not expose its native raw pointer layout', [
+  '_base topaz', '_base tag',
+])
+auditMany('missing', 'workbench.library and a Workbench desktop base are not modelled', [
+  '_base wb',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

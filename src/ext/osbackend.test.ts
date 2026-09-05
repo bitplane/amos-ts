@@ -271,6 +271,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies every native base getter individually', () => {
+    const bases = rows.filter((row) => row.namespace === '_base')
+    expect(bases).toHaveLength(14)
+    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(9)
+    expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_base tag', '_base topaz',
+    ])
+    expect(bases.filter((row) => row.status === 'missing').map((row) => row.name).sort()).toEqual([
+      '_base cx', '_base iff', '_base wb',
+    ])
+    expect(bases.some((row) => row.status === 'review')).toBe(false)
+    expect(bases.find((row) => row.name === '_base gfx')?.workers).toEqual([1748])
+    expect(bases.find((row) => row.name === '_base layers')?.workers).toEqual([1152])
+    expect(bases.find((row) => row.name === '_base tag')?.workers).toEqual([1323])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
