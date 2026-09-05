@@ -1216,7 +1216,7 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
 })
 
 describe('the ASL screen and font group', () => {
-  it('uses ASL 39.4 allocation geometry for the screen-mode requester', () => {
+  it.skipIf(!existsSync(DEFAULT_ABK))('uses ASL 39.4 allocation geometry for the screen-mode requester', () => {
     const b = boot('A=Gui Asl Screen')
     park(b)
     const w = b.rt.aslMode!.window
@@ -1245,7 +1245,7 @@ describe('the ASL screen and font group', () => {
     expect(runOut('Print "["+Gui Asl Font+"]" : Print Gui Font Size').out.trim()).toBe('[]\n 0')
   })
 
-  it('uses ASL 39.4 allocation geometry for the font requester', () => {
+  it.skipIf(!existsSync(DEFAULT_ABK))('uses ASL 39.4 allocation geometry for the font requester', () => {
     const b = boot('A$=Gui Asl Font')
     park(b)
     const w = b.rt.aslFont!.window
