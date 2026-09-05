@@ -184,6 +184,13 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies the graphics SetChipRev wrapper against the shared chipset state', () => {
+    expect(rows.find((row) => row.name === '_chip set rev')).toMatchObject({
+      status: 'partial', workers: [1688],
+      osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -888 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

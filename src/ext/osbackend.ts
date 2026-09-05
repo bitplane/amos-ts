@@ -165,6 +165,9 @@ auditMany('faithful', 'CacheClearU is an exact no-op over the backend coherent m
 auditMany('partial', 'CacheControl masked state and its previous-value result are modelled, but there is no 68k execution cache for the flags to affect', [
   '_cache ctrl',
 ])
+auditMany('partial', 'SetChipRev request state is modelled, but the emulated graphics chipset remains fixed as AGA', [
+  '_chip set rev',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
