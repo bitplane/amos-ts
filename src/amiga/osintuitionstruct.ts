@@ -117,3 +117,53 @@ export function setStringInfo(
   info.longInt = longInt | 0
   info.keyMap = keyMap >>> 0
 }
+
+/** `struct Image`, intuition.i: left/top/size/depth/data/pick/onoff/next. */
+export interface NativeImage {
+  left: number
+  top: number
+  width: number
+  height: number
+  depth: number
+  data: number
+  planePick: number
+  planeOnOff: number
+  next: number
+}
+
+export const newNativeImage = (): NativeImage => ({
+  left: 0, top: 0, width: 0, height: 0, depth: 0, data: 0, planePick: 0, planeOnOff: 0, next: 0,
+})
+
+export function setImageBody(
+  image: NativeImage | null,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  depth: number,
+  data: number,
+): void {
+  if (!image) return
+  Object.assign(image, {
+    left: left & 0xffff,
+    top: top & 0xffff,
+    width: width & 0xffff,
+    height: height & 0xffff,
+    depth: depth & 0xffff,
+    data: data >>> 0,
+  })
+}
+
+export function setImagePlanes(image: NativeImage | null, planePick: number, planeOnOff: number): void {
+  if (!image) return
+  image.planePick = planePick & 0xff
+  image.planeOnOff = planeOnOff & 0xff
+}
+
+/** intuition PointInImage, with the packed point unpacked by the wrapper. */
+export function pointInImage(image: NativeImage, x: number, y: number): boolean {
+  const left = (image.left << 16) >> 16
+  const top = (image.top << 16) >> 16
+  return x >= left && y >= top && x < left + image.width && y < top + image.height
+}

@@ -233,6 +233,14 @@ auditMany('faithful', 'all 36 bytes of StringInfo and the exact partial/full set
   '_si what nb chars', '_si what disp count', '_si what cleft', '_si what ctop', '_si what ext',
   '_si what integer', '_si what keymap',
 ])
+auditMany('faithful', 'the complete native Image record, its exact setters/readers and PointInImage geometry are represented', [
+  '_img set body', '_img set planes', '_img set next', '_img point in', '_img what left', '_img what top',
+  '_img what width', '_img what height', '_img what depth', '_img what body', '_img what pick',
+  '_img what onoff', '_img what next',
+])
+auditMany('partial', 'image rendering exists, but native planar pointer chains, EraseImage restoration and DrawImageState state imagery are incomplete', [
+  '_img erase', '_img draw state', '_img draw',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

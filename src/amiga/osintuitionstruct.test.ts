@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   newNativeBorder, setBorderCorner, setBorderDots, setBorderDraw, setPropInfo, setStringBuffers,
-  setStringInfo, type NativePropInfo, type NativeStringInfo,
+  newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
+  type NativePropInfo, type NativeStringInfo,
 } from './osintuitionstruct'
 
 describe('OS DevKit native Intuition structures', () => {
@@ -42,5 +43,20 @@ describe('OS DevKit native Intuition structures', () => {
       buffer: 11, undoBuffer: 12, bufferPos: 13, maxChars: 14, dispPos: 15,
       extension: 16, longInt: -17, keyMap: 18,
     })
+  })
+
+  it('writes every native Image field and tests points against its offset box', () => {
+    const image = newNativeImage()
+    setImageBody(image, -2, 3, 10, 5, 2, 0x1234_5678)
+    setImagePlanes(image, 0x1ff, 0x102)
+    image.next = 0x8765_4321
+    expect(image).toMatchObject({
+      left: 0xfffe, top: 3, width: 10, height: 5, depth: 2, data: 0x1234_5678,
+      planePick: 0xff, planeOnOff: 2, next: 0x8765_4321,
+    })
+    expect(pointInImage(image, -2, 3)).toBe(true)
+    expect(pointInImage(image, 7, 7)).toBe(true)
+    expect(pointInImage(image, 8, 7)).toBe(false)
+    expect(pointInImage(image, 7, 8)).toBe(false)
   })
 })

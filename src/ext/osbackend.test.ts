@@ -311,6 +311,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(native.find((row) => row.name === '_si what keymap')?.workers).toEqual([1438])
   })
 
+  it('classifies all sixteen native Image operations', () => {
+    const images = rows.filter((row) => row.namespace === '_img')
+    expect(images).toHaveLength(16)
+    expect(images.filter((row) => row.status === 'faithful')).toHaveLength(13)
+    expect(images.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_img draw', '_img draw state', '_img erase',
+    ])
+    expect(images.some((row) => row.status === 'review')).toBe(false)
+    expect(images.find((row) => row.name === '_img set body')?.workers).toEqual([1388])
+    expect(images.find((row) => row.name === '_img point in')).toMatchObject({
+      workers: [1394],
+      osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -624 })],
+    })
+    expect(images.find((row) => row.name === '_img what next')?.workers).toEqual([1403])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
