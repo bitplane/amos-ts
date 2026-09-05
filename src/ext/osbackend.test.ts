@@ -236,6 +236,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies WBArg field readers and DOS path helpers', () => {
+    const args = rows.filter((row) => row.namespace === '_arg')
+    expect(args).toHaveLength(2)
+    expect(args.every((row) => row.status === 'faithful')).toBe(true)
+    expect(args.map((row) => row.workers[0])).toEqual([1866, 1867])
+
+    const paths = rows.filter((row) => row.namespace === '_path')
+    expect(paths).toHaveLength(2)
+    expect(paths.every((row) => row.status === 'partial')).toBe(true)
+    expect(paths.find((row) => row.name === '_path add')).toMatchObject({
+      workers: [1839],
+      osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -882 })],
+    })
+    expect(paths.find((row) => row.name === '_path part')?.workers).toEqual([1841])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

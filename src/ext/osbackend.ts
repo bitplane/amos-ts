@@ -189,6 +189,12 @@ auditMany('faithful', 'fixed-width big-endian AMOS binary-string packing and unp
 auditMany('faithful', 'AMOS-to-C allocation/copy and the static empty AMOS string are modelled', [
   '_to str', '_0$',
 ])
+auditMany('faithful', 'guarded one-based WBArg name and lock field access is modelled', [
+  '_arg what str', '_arg what lock',
+])
+auditMany('partial', 'Amiga path joining and directory-part extraction exist, but native fixed-buffer and full DOS AddPart edge semantics are not modelled', [
+  '_path add', '_path part',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
