@@ -184,6 +184,40 @@ export function protectionString(protection: number): string {
 export const FFS_BLOCK_DATA = 512
 export const OFS_BLOCK_DATA = 488
 
+/* ------------------------------------------------------------------ *
+ * dos.library path parts
+ * ------------------------------------------------------------------ */
+
+/**
+ * The string beginning at the pointer returned by dos.library `FilePart()`.
+ *
+ * A colon separates a device from its first component just as a slash
+ * separates drawers. The returned pointer is one byte past the last such
+ * separator, so a trailing separator quite deliberately answers an empty
+ * string.
+ */
+export function dosFilePart(path: string): string {
+  const at = Math.max(path.lastIndexOf(':'), path.lastIndexOf('/'))
+  return path.slice(at + 1)
+}
+
+/**
+ * The bytes preceding the pointer returned by dos.library `PathPart()`.
+ *
+ * `PathPart` points AT a final slash, but immediately after a device colon.
+ * This slightly asymmetric rule is visible in OS DevKit's shipped example:
+ * `RAM:ENV/Sys/serial.prefs` yields `RAM:ENV/Sys`, while `RAM:file` yields
+ * `RAM:`. Returning the prefix is more useful in TypeScript than returning a
+ * pointer into a C string, while preserving the exact observable text.
+ */
+export function dosPathPart(path: string): string {
+  const slash = path.lastIndexOf('/')
+  const colon = path.lastIndexOf(':')
+  if (slash > colon) return path.slice(0, slash)
+  if (colon >= 0) return path.slice(0, colon + 1)
+  return ''
+}
+
 /**
  * `struct InfoData`, what `Info()` fills in — dos/dos.h.
  *

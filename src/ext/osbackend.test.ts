@@ -838,6 +838,41 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies DOS locks, path parts, current directory and existence', () => {
+    const names = [
+      '_dos lock', '_dos unlock', '_dos l open', '_dos l name', '_dos dir',
+      '_dos add part', '_dos file part', '_dos path part', '_file part', '_lock name$',
+      '_dos what dir$', '_dos rd lock', '_dos wr lock', '_dos set dir$', '_dos exist',
+    ]
+    const paths = rows.filter((row) => names.includes(row.name))
+    expect(paths).toHaveLength(15)
+    expect(paths.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_dos exist', '_dos set dir$', '_dos what dir$', '_file part',
+    ])
+    expect(paths.filter((row) => row.status === 'partial')).toHaveLength(11)
+
+    const expected = new Map<string, [number, number]>([
+      ['_dos lock', [1826, -84]], ['_dos unlock', [1827, -90]],
+      // Despite its guide saying "Lock Handle in File Handle", this worker
+      // calls ParentDir. The binary, not that stale sentence, is authoritative.
+      ['_dos l open', [1828, -378]], ['_dos l name', [1829, -402]],
+      ['_dos dir', [1830, -126]], ['_dos add part', [1836, -882]],
+      ['_dos file part', [1837, -870]], ['_dos path part', [1838, -876]],
+    ])
+    for (const [name, [worker, lvo]] of expected) {
+      expect(paths.find((row) => row.name === name)).toMatchObject({
+        workers: [worker], osCalls: [expect.objectContaining({ library: 'dos.library', lvo })],
+      })
+    }
+    expect(paths.find((row) => row.name === '_dos rd lock')?.workers).toEqual([1831])
+    expect(paths.find((row) => row.name === '_dos wr lock')?.workers).toEqual([1832])
+    expect(paths.find((row) => row.name === '_lock name$')?.workers).toEqual([1833])
+    expect(paths.find((row) => row.name === '_dos what dir$')?.workers).toEqual([1834])
+    expect(paths.find((row) => row.name === '_dos set dir$')?.workers).toEqual([1835])
+    expect(paths.find((row) => row.name === '_file part')?.workers).toEqual([1840])
+    expect(paths.find((row) => row.name === '_dos exist')?.workers).toEqual([1816])
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

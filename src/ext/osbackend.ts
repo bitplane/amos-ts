@@ -195,6 +195,24 @@ auditMany('faithful', 'guarded one-based WBArg name and lock field access is mod
 auditMany('partial', 'Amiga path joining and directory-part extraction exist, but native fixed-buffer and full DOS AddPart edge semantics are not modelled', [
   '_path add', '_path part',
 ])
+auditMany('partial', 'filesystem paths exist, but native BPTR lock identity, shared/exclusive ownership and lock-to-handle lifetime are not exposed', [
+  '_dos lock', '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_dos wr lock', '_lock name$',
+])
+auditMany('partial', 'the path operation is modelled, but these entry points operate on caller-owned C buffers and pointers that the backend does not expose', [
+  '_dos add part', '_dos file part', '_dos path part',
+])
+auditMany('faithful', 'dos.library FilePart boundary rules are modelled for the AMOS-string wrapper', [
+  '_file part',
+])
+auditMany('faithful', 'the VFS current directory is stored in the canonical name a lock would return', [
+  '_dos what dir$',
+])
+auditMany('faithful', 'directory validation and lock-derived current-directory replacement are modelled', [
+  '_dos set dir$',
+])
+auditMany('faithful', 'the no-requester existence probe returns the same AMOS boolean for files and directories', [
+  '_dos exist',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

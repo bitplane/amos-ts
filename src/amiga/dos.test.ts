@@ -28,10 +28,31 @@ import {
   ST_SOFTLINK,
   ST_USERDIR,
   blocksFor,
+  dosFilePart,
+  dosPathPart,
   entryType,
   isDirType,
   permits,
 } from './dos'
+
+describe('dos.library path parts', () => {
+  it('reproduces the OS DevKit FilePart and PathPart example', () => {
+    const path = 'RAM:ENV/Sys/serial.prefs'
+    expect(dosFilePart(path)).toBe('serial.prefs')
+    expect(dosPathPart(path)).toBe('RAM:ENV/Sys')
+  })
+
+  it('treats the device colon and drawer slash as distinct boundaries', () => {
+    expect(dosFilePart('RAM:file')).toBe('file')
+    expect(dosPathPart('RAM:file')).toBe('RAM:')
+    expect(dosFilePart('drawer/file')).toBe('file')
+    expect(dosPathPart('drawer/file')).toBe('drawer')
+    expect(dosFilePart('file')).toBe('file')
+    expect(dosPathPart('file')).toBe('')
+    expect(dosFilePart('RAM:drawer/')).toBe('')
+    expect(dosPathPart('RAM:drawer/')).toBe('RAM:drawer')
+  })
+})
 
 describe('fib_DirEntryType', () => {
   /**
