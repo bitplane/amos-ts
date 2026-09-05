@@ -383,6 +383,12 @@ auditMany('partial', 'planar blitting and clipping exist, but raw-memory clears,
 auditMany('faithful', 'the complete eight-byte TmpRas record and the identical library/direct initialization plus both long reads are represented', [
   '_tmpras init', '_tr set', '_tr what raster', '_tr what size',
 ])
+auditMany('faithful', 'RastPort font assignment and masked algorithmic-style reads/writes are represented exactly', [
+  '_font style', '_font set', '_font soft style',
+])
+auditMany('partial', 'disk-font parsing and lookup exist, but native TextAttr/TextFont pointers, the resident font list and open-count ownership are not integrated', [
+  '_font add', '_font ask', '_font close', '_font open', '_font rem', '_font load',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

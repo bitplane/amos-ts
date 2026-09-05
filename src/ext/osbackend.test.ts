@@ -720,6 +720,28 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(tmpRas.find((row) => row.name === '_tr what size')?.workers).toEqual([1712])
   })
 
+  it('classifies all nine resident and disk-font operations', () => {
+    const font = rows.filter((row) => row.namespace === '_font')
+    expect(font).toHaveLength(9)
+    expect(font.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_font set', '_font soft style', '_font style',
+    ])
+    expect(font.filter((row) => row.status === 'partial')).toHaveLength(6)
+    expect(font.some((row) => row.status === 'review')).toBe(false)
+    const expected = new Map<string, [number, string, number]>([
+      ['_font add', [1651, 'graphics.library', -480]], ['_font ask', [1652, 'graphics.library', -474]],
+      ['_font style', [1653, 'graphics.library', -84]], ['_font close', [1654, 'graphics.library', -78]],
+      ['_font open', [1655, 'graphics.library', -72]], ['_font rem', [1656, 'graphics.library', -486]],
+      ['_font set', [1657, 'graphics.library', -66]], ['_font soft style', [1658, 'graphics.library', -90]],
+      ['_font load', [1659, 'diskfont.library', -30]],
+    ])
+    for (const row of font) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: evidence[1], lvo: evidence[2] }))
+    }
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
