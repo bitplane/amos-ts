@@ -205,6 +205,7 @@ is still never run.
 
 | `audio.ts` | Paula's audio half, and which board's fixed output filter is after it |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
+| `ptreplay.ts` | `ptreplay.library` 6.6's binary-pinned public contract |
 | `patternlib.ts` | `pattern.library` 5.00, a THIRD pattern grammar and not `dospattern`'s |
 | `xpkmaster.ts` | `xpkmaster.library` 2.2: the XPK container and seven compressor libraries |
 | `xfdmaster.ts` | `xfdmaster.library`: is one file crunched, and the slaves that uncrunch it |

@@ -846,6 +846,7 @@ import {
 } from '../amiga/lowlevel'
 import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
+import { PTREPLAY_LIBRARY } from '../amiga/ptreplay'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
 import { BankImage } from './objects'
@@ -857,6 +858,9 @@ const int = (v: unknown): number => Number((v as { n?: number } | undefined)?.n 
 
 /** ptreplay $3a6: `move.w #$39,$e(a5)` — what PlayModule sets the volume to */
 export const PT_PLAY_VOLUME = 57
+
+/** Re-exported for consumers auditing The Game's library dependency. */
+export { PTREPLAY_LIBRARY }
 
 /** the handle this port hands out; ptreplay's is an address and its value never shows */
 const PT_HANDLE = 1
@@ -2108,12 +2112,17 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * Routine 21 ($19b2) — `G Ptvolume LEVEL`. *"Sound volume/level from
      * 0-63"*, which is the guide's range and not the library's: ptreplay $59e
      * stores the word with no clamp at all, and its own PlayModule uses 57.
+     * It also requires handle +$08 (playing) to be non-zero, so setting the
+     * volume before PlayModule is a no-op rather than a saved preference.
      */
     'g ptvolume': (it) => {
       const s = st()
       const v = it.evalInt()
-      if (!live(s)) return
-      s.replay.master = v < 0 ? 0 : v > 64 ? 64 : v
+      if (!live(s) || !s.replay.playing) return
+      // ptreplay stores d0.w verbatim. Paula clamps only when the scaled
+      // channel value is written, so values outside the guide's range remain
+      // observable to the fade machinery.
+      s.replay.master = v & 0xffff
       // ptreplay writes the volume word and leaves the fade bytes counting, so
       // a fade in flight carries on from the new level; with no fade running
       // the target has to follow, or Protracker's own pass drifts it back
@@ -2154,16 +2163,15 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * ptreplay $7fe answers it: `move.b d0,-$c(a0)`, the song position, the
      * same byte `G Ptpos` reads back.
      *
-     * DEVIATION: ptreplay writes the byte raw, with no test against the song's
-     * length, and lets the interrupt find it. `Protracker.setPosition` sends a
-     * position past the end back to 0, so the two differ for an out-of-range
-     * argument.
+     * ptreplay writes the byte raw, with no test against the song's length.
+     * Do not use `Protracker.setPosition` here: that is Player 6.1A's bounded
+     * API and would make an immediately following `G Ptpos` disagree.
      */
     'g ptset pos': (it) => {
       const s = st()
       const pos = it.evalInt() & 0xff
       if (!live(s)) return
-      s.replay.setPosition(pos)
+      s.replay.pos = pos
     },
 
     // ---- the GMS display ----

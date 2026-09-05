@@ -221,6 +221,18 @@ describe('G Ptvolume', () => {
     expect(rt.thegame.replay.master).toBe(30)
   })
 
+  it('does nothing before PlayModule sets the playing flag', () => {
+    const rt = run(['G Ptload "RAM:song.mod"', 'G Ptvolume 30'], withRam())
+    expect(rt.thegame.replay.master).toBe(64)
+  })
+
+  it('stores the raw word even outside the guide’s 0-63 range', () => {
+    const high = run(['G Ptload "RAM:song.mod"', 'G Ptplay', 'G Ptvolume 300'], withRam())
+    expect(high.thegame.replay.master).toBe(300)
+    const negative = run(['G Ptload "RAM:song.mod"', 'G Ptplay', 'G Ptvolume -1'], withRam())
+    expect(negative.thegame.replay.master).toBe(0xffff)
+  })
+
   /** the 0-63 in the guide is the guide's; ptreplay $59e stores the word unclamped */
   it('needs a module: the library null-checks the handle', () => {
     const rt = run('G Ptvolume 30', withRam())
@@ -292,6 +304,15 @@ describe('G Ptset Pos, G Ptpos and G Ptlength', () => {
         withRam(modFile([0, 0, 0, 0, 0, 0])),
       ),
     ).toEqual([2])
+  })
+
+  it('keeps an out-of-range position byte until the player consumes it', () => {
+    expect(
+      vals(
+        ['G Ptload "RAM:song.mod"', 'G Ptplay', 'G Ptset Pos 200', 'Print G Ptpos'],
+        withRam(modFile([0, 0, 0])),
+      ),
+    ).toEqual([200])
   })
 
   /**
