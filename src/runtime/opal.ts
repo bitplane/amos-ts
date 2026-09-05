@@ -321,7 +321,10 @@ export function makeOpalInstructions(rt: Runtime): Record<string, Instr> {
      */
     ovsetsprite24(it) {
       const [data, n] = args(it, 2)
-      if (n! >= 0 && n! < 8) card().sprites[n!] = data! | 0
+      const ov = card()
+      // $2164 returns before even validating the number when the card is not
+      // active; the eight-entry test at $2180 is unsigned on the original.
+      if (ov.active !== 0 && n! >= 0 && n! < 8) ov.sprites[n!] = data! | 0
     },
 
     /** Routine 14 ($aa8) — `Ovamigapriority`: *"clears the OVPRI bit of all CoPro instructions"* */
@@ -440,16 +443,17 @@ export function makeOpalInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Routine 24 ($b84) — `Ovscroll24 DX,DY`, *"by modifying the video load address
-     * register"*. A line is `Modulo` address counts, so `DY` lines are
-     * `DY * Modulo`. *"This function also clears the ADDLOAD bit on the first
-     * CoPro instruction if it is not already cleared."*
+     * register"*. v4.3 at `$38ae` negates both arguments and multiplies DY by
+     * the hardware constant 371 (not `OS_Modulo`), then clears ADDLOAD and
+     * pushes the new address to the card. Positive coordinates therefore move
+     * the viewport by subtracting from its load address.
      */
     ovscroll24(it) {
       const [dx, dy] = args(it, 2)
       const ov = card()
-      const modulo = ov.active === 0 ? 371 : ov.peek16(ov.active + OS.Modulo)
-      ov.addressReg = (ov.addressReg + dx! + dy! * modulo) >>> 0
-      if (ov.active !== 0) ov.poke32(ov.active + OS.AddressReg, ov.addressReg)
+      if (ov.active === 0) return
+      ov.addressReg = (ov.addressReg - dx! - dy! * 371) >>> 0
+      ov.poke32(ov.active + OS.AddressReg, ov.addressReg)
       ov.copro[0] = ov.copro[0]! & ~ADDLOAD
     },
 

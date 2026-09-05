@@ -121,6 +121,31 @@ describe('the pixel layout', () => {
   })
 })
 
+describe('the v4.3 drawing primitives', () => {
+  it('DrawLine24 excludes the final point of a non-degenerate line', () => {
+    const ov = card()
+    const s = screen(ov, 0, 16, 16)
+    setPen(ov, s, 7, 8, 9)
+    ov.drawLine(s, 1, 2, 4, 2)
+    expect([0, 1, 2, 3, 4, 5].map((x) => at(ov, s, x, 2))).toEqual([
+      [0, 0, 0],
+      [7, 8, 9],
+      [7, 8, 9],
+      [7, 8, 9],
+      [0, 0, 0],
+      [0, 0, 0],
+    ])
+  })
+
+  it('DrawLine24 still draws a degenerate one-point line', () => {
+    const ov = card()
+    const s = screen(ov, 0, 16, 16)
+    setPen(ov, s, 1, 2, 3)
+    ov.drawLine(s, 6, 7, 6, 7)
+    expect(at(ov, s, 6, 7)).toEqual([1, 2, 3])
+  })
+})
+
 describe('frames and segments', () => {
   /**
    * `WriteFrame24` at hunk $3a36. `UpdatePFStencil24` pins the 8-bit numbering

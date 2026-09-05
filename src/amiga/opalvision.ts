@@ -1041,7 +1041,10 @@ export class OpalVision {
     }
   }
 
-  /** `DrawLine24`, Bresenham, clipped per pixel as the AutoDoc's CONSIDERATIONS require */
+  /**
+   * `DrawLine24`, transcribed from v4.3 `$5df8`. It is Bresenham with one
+   * unusual observable: a non-degenerate line does not draw its final point.
+   */
   drawLine(scrn: number, x1: number, y1: number, x2: number, y2: number): void {
     const dx0 = this.relX(scrn)
     const dy0 = this.relY(scrn)
@@ -1050,29 +1053,40 @@ export class OpalVision {
     const ex = x2 + dx0
     const ey = y2 + dy0
     const value = this.pen(scrn)
-    const dx = Math.abs(ex - x)
-    const dy = -Math.abs(ey - y)
-    const sx = x < ex ? 1 : -1
-    const sy = y < ey ? 1 : -1
-    let err = dx + dy
-    for (;;) {
-      if (this.inClip(scrn, x, y)) this.putPixel(scrn, x, y, value)
-      if (x === ex && y === ey) break
-      const e2 = 2 * err
-      if (e2 >= dy) {
-        err += dy
-        x += sx
-      }
-      if (e2 <= dx) {
-        err += dx
-        y += sy
-      }
+    let major = Math.abs(ex - x)
+    let minor = Math.abs(ey - y)
+    let steep = false
+    let end = ex
+    if (minor > major) {
+      steep = true
+      ;[major, minor] = [minor, major]
+      ;[x, y] = [y, x]
+      end = ey
     }
+    let error = minor * 2 - major
+    const errorDown = (minor - major) * 2
+    const errorUp = minor * 2
+    const yStep = y > (steep ? ex : ey) ? -1 : 1
+    const xStep = x < end ? 1 : -1
+    // The binary plots once for a point, otherwise stops just before `end`.
+    do {
+      const px = steep ? y : x
+      const py = steep ? x : y
+      if (this.inClip(scrn, px, py)) this.putPixel(scrn, px, py, value)
+      if (error < 0) error += errorUp
+      else {
+        y += yStep
+        error += errorDown
+      }
+      x += xStep
+    } while (xStep > 0 ? x < end : x > end)
   }
 
   /**
    * `DrawEllipse24 (OScrn, cx, cy, a, b)` — *"a = horizontal radius of ellipse
-   * (must be >0)"*, *"set a=b for circles"*, clipped.
+   * (must be >0)"*, *"set a=b for circles"*, clipped. The integer recurrence
+   * is transcribed from v4.3 `$5c8e`; in particular it emits all four
+   * symmetric points even where they coincide on an axis.
    */
   drawEllipse(scrn: number, cx0: number, cy0: number, a: number, b: number): void {
     if (a <= 0 || b <= 0) return
@@ -1082,49 +1096,53 @@ export class OpalVision {
     const plot = (x: number, y: number): void => {
       if (this.inClip(scrn, x, y)) this.putPixel(scrn, x, y, value)
     }
-    // midpoint ellipse, four-way symmetric
-    let x = 0
-    let y = b
+    const four = (x: number, y: number): void => {
+      plot(cx + x, cy + y)
+      plot(cx - x, cy + y)
+      plot(cx + x, cy - y)
+      plot(cx - x, cy - y)
+    }
     const a2 = a * a
     const b2 = b * b
-    let d1 = b2 - a2 * b + 0.25 * a2
-    let dx = 2 * b2 * x
-    let dy = 2 * a2 * y
-    while (dx < dy) {
-      plot(cx + x, cy + y)
-      plot(cx - x, cy + y)
-      plot(cx + x, cy - y)
-      plot(cx - x, cy - y)
+    const twoA2 = 2 * a2
+    const fourA2 = 4 * a2
+    const twoB2 = 2 * b2
+    const fourB2 = 4 * b2
+    let x = a
+    let y = 0
+    let yDelta = 0
+    let xDelta = fourB2 * a
+    let d1 = twoA2 - xDelta / 2 + b2
+    let d2 = twoB2 - xDelta + a2
+
+    while (d2 < 0) {
+      four(x, y)
+      y++
+      yDelta += fourA2
       if (d1 < 0) {
-        x++
-        dx += 2 * b2
-        d1 += dx + b2
+        d1 += yDelta + twoA2
+        d2 += yDelta
       } else {
-        x++
-        y--
-        dx += 2 * b2
-        dy -= 2 * a2
-        d1 += dx - dy + b2
+        x--
+        xDelta -= fourB2
+        d1 += yDelta + twoA2 - xDelta
+        d2 += yDelta + twoB2 - xDelta
       }
     }
-    let d2 = b2 * (x + 0.5) * (x + 0.5) + a2 * (y - 1) * (y - 1) - a2 * b2
-    while (y >= 0) {
-      plot(cx + x, cy + y)
-      plot(cx - x, cy + y)
-      plot(cx + x, cy - y)
-      plot(cx - x, cy - y)
-      if (d2 > 0) {
-        y--
-        dy -= 2 * a2
-        d2 += a2 - dy
+
+    while (x > 0) {
+      four(x, y)
+      x--
+      xDelta -= fourB2
+      if (d2 < 0) {
+        y++
+        yDelta += fourA2
+        d2 += twoB2 + yDelta - xDelta
       } else {
-        y--
-        x++
-        dx += 2 * b2
-        dy -= 2 * a2
-        d2 += dx - dy + a2
+        d2 += twoB2 - xDelta
       }
     }
+    four(x, y)
   }
   /* -- memory format conversion ----------------------------------------- */
 

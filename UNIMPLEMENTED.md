@@ -195,14 +195,13 @@ furniture.
   decoder replicates chrominance where libjpeg filters it, which can put a
   4:2:0 picture about ten levels off what an Amiga would show.
 
-- `ovdrawline24`, `ovdrawellipse24` — the AutoDocs fix the arguments and the
-  clipping and say nothing about which pixels a slope lands on, and the
-  library's own two routines have not been disassembled, so these are
-  Bresenham and midpoint and can differ by a pixel.
+- `ovappendcopper24` — the v4.3 routine has now been read: it appends a small
+  hardware copper tail to each of twelve caller-owned lists. The port retains
+  which lists are attached, but does not execute or rewrite Amiga copper
+  instructions because that display is not composited here.
 
-- `ovscroll24`, `ovpalettemap24`, `ovappendcopper24`, `ovsetsprite24`,
-  `ovsetloadaddress24` — four routines not yet read, followed from their
-  AutoDoc descriptions alone.
+- `ovsetsprite24` — the v4.3 validation and state are reproduced, but the
+  Amiga sprite itself is not composited into the OpalVision display.
 
 ### Will not close — the deviation is structural
 

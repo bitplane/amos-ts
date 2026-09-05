@@ -11619,27 +11619,27 @@ as the instruction it is -- the mirror image of G Blur's entry",
     "parallel port under Forbid. It is the only thing in the library that READS the frame buffer, which is why " +
     "the twelve segments have contents here at all",
   "ovdrawline24":
-    "Routine 39 ($d38). APPROXIMATED: the AutoDoc fixes the arguments and the clipping -- \"clipped ... per " +
-    "pixel\" -- but not which pixels a diagonal lands on, and the library's own line routine has not been read, " +
-    "so this is Bresenham and may differ by a pixel on a slope",
+    "Routine 39 ($d38). v4.3 $5df8 supplies the exact integer Bresenham decisions and its unusual endpoint " +
+    "rule: a non-degenerate line stops before the final point; a one-point line draws once",
   "ovdrawellipse24":
-    "Routine 68 ($101e). APPROXIMATED for the same reason as Ovdrawline24: \"a = horizontal radius of ellipse " +
-    "(must be >0)\" and \"set a=b for circles\" fix the arguments, and the midpoint ellipse here is not the " +
-    "library's algorithm",
+    "Routine 68 ($101e). v4.3 $5c8e supplies the integer two-region recurrence, including four writes at each " +
+    "step even where symmetric points coincide on an axis; WritePixel24 supplies per-pixel clipping",
   "ovscroll24":
-    "Routine 24 ($b84). APPROXIMATED: the routine at hunk $01d8e has not been read, so what is here follows the " +
-    "AutoDoc's description of the move and not its edge behaviour",
+    "Routine 24 ($b84). v4.3 $38ae negates DX and DY, multiplies DY by the fixed hardware stride 371, adds " +
+    "that displacement to the load address, clears ADDLOAD on the first CoPro instruction and updates the card",
   "ovpalettemap24":
-    "Routine 22 ($b5a). APPROXIMATED: the AutoDoc says what palette mapping is for, not what the routine does to " +
-    "a screen that is already mapped",
+    "Routine 22 ($b5a). v4.3 $3918 masks ON to bit zero, changes the palette-map control shadow, and dispatches " +
+    "the matching register update; it returns without change for a 15-bit active screen",
   "ovappendcopper24":
     "Routine 18 ($af8). APPROXIMATED: the CoPro instruction list is modelled and the append is not read from the " +
     "library",
   "ovsetsprite24":
-    "Routine 13 ($a90). APPROXIMATED: the sprite pointer is stored and nothing displays it, because the Amiga " +
-    "half of an OpalVision display is not composited here",
+    "Routine 13 ($a90). v4.3 $2164 returns when no display is active, accepts sprite numbers 0..7, NULL removes " +
+    "one and -1 resolves the active system sprite. APPROXIMATED only because the Amiga sprite is not composited",
   "ovsetloadaddress24":
-    "Routine 31 ($c7c). APPROXIMATED: the palette load address register is kept and no update reads it back",
+    "Routine 31 ($c7c). v4.3 $1eca reads the displayed screen's OS_AddressReg, encodes its bits through the " +
+    "library's four lookup tables into the twelve copper lists, and initiates the register update; the port keeps " +
+    "the equivalent card register because it has no hardware copper",
   "ovfadein24":
     "Routine 34 ($cc4). APPROXIMATED: the fade is a timed ramp on the machine and instant here, and the endpoint " +
     "is what is modelled. It does nothing to a 15-bit screen, which is the Depth test the routine opens with",

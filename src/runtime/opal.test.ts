@@ -385,6 +385,23 @@ describe('the extension source is wrong in three places', () => {
 })
 
 describe('the display registers', () => {
+  it('Ovscroll24 subtracts DX plus 371 times DY and is inert without a display', () => {
+    const b = run([
+      'Ovscroll24 2,3',
+      'S=Ovopenscreen24(0)',
+      'Loke S+136,2000',
+      'Ovsetloadaddress24',
+      'Ovscroll24 2,3',
+    ])
+    expect(b.rt.opal.ov.addressReg).toBe(885)
+    expect(b.rt.opal.ov.peek32(b.rt.opal.ov.active + OS.AddressReg)).toBe(885)
+  })
+
+  it('Ovsetsprite24 is inert until a display is active', () => {
+    const b = run(['Ovsetsprite24 123,2', 'S=Ovopenscreen24(0)', 'Ovsetsprite24 456,2'])
+    expect(b.rt.opal.ov.sprites[2]).toBe(456)
+  })
+
   it('Ovsetdisplaybottom24 moves LastCoProIns and Ovcleardisplaybottom24 puts it back', () => {
     expect(
       vals([
