@@ -380,6 +380,9 @@ auditMany('faithful', 'blits are synchronous and non-contending, so OwnBlitter, 
 auditMany('partial', 'planar blitting and clipping exist, but raw-memory clears, arbitrary masks/patterns/RastPorts and every graphics.library minterm are not exposed', [
   '_blt clr', '_blt msk bm to rp', '_blt pattern', '_blt clip',
 ])
+auditMany('faithful', 'the complete eight-byte TmpRas record and the identical library/direct initialization plus both long reads are represented', [
+  '_tmpras init', '_tr set', '_tr what raster', '_tr what size',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

@@ -71,6 +71,21 @@ export function setSimpleSpritePosition(sprite: NativeSimpleSprite | null, x: nu
   sprite.y = y & 0xffff
 }
 
+/** Complete eight-byte graphics.library `struct TmpRas`. */
+export interface NativeTmpRas {
+  rasPtr: number
+  size: number
+}
+
+export const newNativeTmpRas = (): NativeTmpRas => ({ rasPtr: 0, size: 0 })
+
+/** Both InitTmpRas and OS DevKit routine 1710 store these same two longs. */
+export function initTmpRas(tmpRas: NativeTmpRas | null, raster: number, size: number): void {
+  if (!tmpRas) return
+  tmpRas.rasPtr = raster >>> 0
+  tmpRas.size = size >>> 0
+}
+
 /** `struct RasInfo`: next/BitMap pointers followed by signed X/Y offsets. */
 export interface NativeRasInfo {
   next: number

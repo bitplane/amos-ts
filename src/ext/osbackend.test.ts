@@ -707,6 +707,19 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies both TmpRas initialization paths and both field reads', () => {
+    const names = ['_tmpras init', '_tr set', '_tr what raster', '_tr what size']
+    const tmpRas = rows.filter((row) => names.includes(row.name))
+    expect(tmpRas).toHaveLength(4)
+    expect(tmpRas.every((row) => row.status === 'faithful')).toBe(true)
+    expect(tmpRas.find((row) => row.name === '_tmpras init')).toMatchObject({
+      workers: [1631], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -468 })],
+    })
+    expect(tmpRas.find((row) => row.name === '_tr set')?.workers).toEqual([1710])
+    expect(tmpRas.find((row) => row.name === '_tr what raster')?.workers).toEqual([1711])
+    expect(tmpRas.find((row) => row.name === '_tr what size')?.workers).toEqual([1712])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

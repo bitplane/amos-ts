@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bitMapPlane, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeSimpleSprite, newNativeView,
-  newNativeViewPort,
+  bitMapPlane, initTmpRas, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeSimpleSprite,
+  newNativeTmpRas, newNativeView, newNativeViewPort,
   osDevKitViewPortWidth, osDevKitViewPortY, setBitMapData, setBitMapPlane, setOsDevKitView,
   setRasInfo, setSimpleSpriteHeight, setSimpleSpriteNumber, setSimpleSpritePosition, setViewPortBody,
 } from './osgraphicsstruct'
@@ -32,6 +32,12 @@ describe('OS DevKit native graphics structures', () => {
     setSimpleSpriteNumber(sprite, 0x10002)
     setSimpleSpritePosition(sprite, -1, -2)
     expect(sprite).toEqual({ posCtlData: 0x1234_5678, height: 1, x: 0xffff, y: 0xfffe, number: 2 })
+  })
+
+  it('initializes the complete TmpRas record as two unsigned longs', () => {
+    const tmpRas = newNativeTmpRas()
+    initTmpRas(tmpRas, -1, 0x1_0000_0001)
+    expect(tmpRas).toEqual({ rasPtr: 0xffff_ffff, size: 1 })
   })
 
   it('writes every pointer and signed word of the 12-byte RasInfo', () => {
