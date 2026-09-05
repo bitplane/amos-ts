@@ -203,6 +203,22 @@ export function omixVoice(): OmixVoice {
 }
 
 /**
+ * $211734-$211746: split the word accumulator for OctaMix's 14-bit path.
+ * The main channel gets the signed high byte at volume 64; its same-side
+ * partner gets bits 7..2 of the low byte at volume 1.
+ */
+export function omixSplit14(acc: Int16Array): { high: Int8Array; low: Int8Array } {
+  const high = new Int8Array(acc.length)
+  const low = new Int8Array(acc.length)
+  for (let i = 0; i < acc.length; i++) {
+    const sample = acc[i]!
+    high[i] = sample >> 8
+    low[i] = (sample & 0xff) >>> 2
+  }
+  return { high, low }
+}
+
+/**
  * $21062c and $210556: one voice into the accumulator for `n` samples.
  *
  * `pcm` is the module, because the mixer reads the bank in place; `voice.sample`

@@ -96,6 +96,7 @@ import {
   omixEcho,
   omixEchoFrames,
   omixMix,
+  omixSplit14,
   omixShift,
   omixStep,
   omixStereoSpread,
@@ -886,17 +887,32 @@ export class MedPlayer {
     if (stereo) {
       const l = new Int8Array(n)
       const r = new Int8Array(n)
+      const ll = this.omix14Bit ? new Int8Array(n) : null
+      const rl = this.omix14Bit ? new Int8Array(n) : null
+      const split = this.omix14Bit ? omixSplit14(this.omixAcc) : null
       for (let i = 0; i < n; i++) {
         l[i] = this.omixOut[i * 2]!
         r[i] = this.omixOut[i * 2 + 1]!
+        if (split && ll && rl) {
+          ll[i] = split.low[i * 2]!
+          rl[i] = split.low[i * 2 + 1]!
+        }
       }
-      // $2118b0: mode 3 puts one buffer on AUD0 and AUD3 and the other on
-      // AUD1 and AUD2, which is left and right doubled
       this.host.audio.play(0, l, rate, 64, 0, n)
       this.host.audio.play(1, r, rate, 64, 0, n)
+      if (ll && rl) {
+        this.host.audio.play(3, ll, rate, 1, 0, n)
+        this.host.audio.play(2, rl, rate, 1, 0, n)
+      }
     } else {
-      this.host.audio.play(0, this.omixOut.subarray(0, n), rate, 64, 0, n)
-      this.host.audio.play(1, this.omixOut.subarray(0, n), rate, 64, 0, n)
+      const high = this.omixOut.subarray(0, n)
+      this.host.audio.play(0, high, rate, 64, 0, n)
+      this.host.audio.play(1, high, rate, 64, 0, n)
+      if (this.omix14Bit) {
+        const low = omixSplit14(this.omixAcc.subarray(0, n)).low
+        this.host.audio.play(3, low, rate, 1, 0, n)
+        this.host.audio.play(2, low, rate, 1, 0, n)
+      }
     }
   }
 

@@ -7,6 +7,8 @@
  * ../amiga/protracker.ts is what plays it and has its own tests.
  */
 import { describe, expect, it } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -17,6 +19,36 @@ import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
 import { SID_BANK_NAME, XM_BANK_NAME, OMIX_BANK_NAME, DIGI_BANK_NAME, DMED_BANK_NAME, DME_ERRORS, S3M_BANK_NAME, SMON_BANK_NAME, FC13_BANK_NAME, FC14_BANK_NAME, PTM_BANK_NAME, PTM_SONG_LENGTH_AT, PTM_TAG_AT, SFX_BANK_NAME } from './dme'
 import { SFX_LENGTH_AT, SFX_PATTERNS_AT } from '../amiga/soundfx'
+import { loadHunks } from '../amiga/hunk'
+import { residents } from '../cli/libdis'
+
+const DME_LIBRARIES = [
+  ['DME_DigiBooster.library', 2, 16],
+  ['DME_FC1.3.library', 2, 14],
+  ['DME_FC1.4.library', 2, 14],
+  ['DME_FastTracker.library', 1, 11],
+  ['DME_Med.library', 2, 17],
+  ['DME_OctaMed.library', 2, 17],
+  ['DME_OctaMix.library', 2, 20],
+  ['DME_ScreamTracker.library', 2, 11],
+  ['DME_SoundFX1.3.library', 2, 14],
+  ['DME_SoundMon2.0.library', 2, 14],
+  ['DME_TFMX.library', 1, 14],
+] as const
+
+describe('the complete DME library family', () => {
+  for (const [name, version, vectors] of DME_LIBRARIES) {
+    const path = join(__dirname, '../../fixtures/libs/dme', name)
+    it.skipIf(!existsSync(path))(`${name} exposes its complete table`, () => {
+      const loaded = loadHunks(readFileSync(path))
+      const resident = residents({ data: loaded.image, base: loaded.base })[0]!
+      expect(resident.name).toBe(name)
+      expect(resident.version).toBe(version)
+      expect(resident.vectors.size).toBe(vectors)
+      expect([...resident.vectors.keys()]).toEqual(Array.from({ length: vectors }, (_, i) => -6 * (i + 1)))
+    })
+  }
+})
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -1841,6 +1873,15 @@ describe('the OctaMix block --- routines 237 to 255', () => {
   it('plays: the tick reaches Paula', () => {
     const { audio } = run([OMIXLOAD, 'Omix Play 4', 'For I=0 To 9 : Wait Vbl : Next I'], OMIX)
     expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+  })
+
+  it('14-bit play drives the volume-1 residual pair as well as the main pair', () => {
+    const { audio } = run([OMIXLOAD, 'Omix 14 Bit On', 'Omix Play 4', 'For I=0 To 9 : Wait Vbl : Next I'], OMIX)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.some((e) => e.voice === 0 && e.volume === 64)).toBe(true)
+    expect(plays.some((e) => e.voice === 1 && e.volume === 64)).toBe(true)
+    expect(plays.some((e) => e.voice === 2 && e.volume === 1)).toBe(true)
+    expect(plays.some((e) => e.voice === 3 && e.volume === 1)).toBe(true)
   })
 
   it('Omix Stop clears the play flag and leaves the readers answering', () => {

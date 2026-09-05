@@ -23,6 +23,7 @@ import {
   omixEcho,
   omixEchoFrames,
   omixMix,
+  omixSplit14,
   omixShift,
   omixStep,
   omixTrackScale,
@@ -31,6 +32,14 @@ import {
   omixVolumeRow,
   omixVolumeTable,
 } from './omixmix'
+
+describe('the 14-bit converter', () => {
+  it('puts the high byte on the main channel and the next six bits on its volume-1 partner', () => {
+    const { high, low } = omixSplit14(new Int16Array([0x1234, -0x1234, 0x7fff, -0x8000]))
+    expect([...high]).toEqual([0x12, -0x13, 0x7f, -0x80])
+    expect([...low]).toEqual([0x0d, 0x33, 0x3f, 0])
+  })
+})
 
 describe('the step', () => {
   /** $211146 and $21114e: a quotient and then the remainder's fraction */

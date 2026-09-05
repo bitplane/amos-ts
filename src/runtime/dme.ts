@@ -14,14 +14,13 @@
  * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
  * column to the entry.
  *
- * Those four were the first batch, over engines this port already had. Five
- * of the external ones have followed: `sfx13` over ../amiga/soundfx.ts, `fc14`
- * over ../amiga/fc14.ts, `fc13` over ../amiga/fc13.ts and `db` over
- * ../amiga/digiplay.ts, each read out of its own library in `libs/`, and then
- * `dmed` --- which needed no new engine at all, because `DME_Med.library` is
- * medplayer.library behind the same veneer and ../runtime/med.ts was read out
- * of medplayer.library itself for the Music extension. 12, 12, 12, 15 and 12
- * keywords. The other six replayer libraries are #146.
+ * Those four were the first batch, over engines this port already had. All
+ * eleven external replayers now follow: SoundFX, both FutureComposer builds,
+ * DigiBooster, MED, SoundMon, TFMX, OctaMED, OctaMix, ScreamTracker and
+ * FastTracker. Each was read from the corresponding binary in
+ * `fixtures/libs/dme`; its format, mixer and replay live under `../amiga`.
+ * `DME_Med.library` is the one that needed no separate engine because it is
+ * medplayer.library behind DOOM's veneer and shares `MedPlayer` with Music.
  *
  * ## Evidence
  *
@@ -237,8 +236,8 @@ export const DME_BANK_FLAGS = { data: true, chip: true }
  * The whole table is here because the indices are what the routines cite:
  * `Ptm Load` is `moveq #$11,d0` (17), `Thx Subsongs` is `#$17` (23), the
  * sampler is `#$3a` and `#$3b` (58 and 59). Fifty of the sixty belong to the
- * eleven external libraries and are #146's; they are kept so a later batch
- * does not have to renumber anything.
+ * eleven external libraries. The table stays whole because those indices are
+ * part of the binary interface and must not be renumbered.
  */
 export const DME_ERRORS = [
   'Not a 4 channel module', // 0
@@ -2355,13 +2354,10 @@ export function makeDmeInstructions(rt: Runtime): Record<string, Instr> {
      * Omix 14 Bit On / Off --- routines 245 ($7002) and 246 ($702e), both into
      * LVO -102, and both message 20 while something is playing.
      *
-     * DEVIATION: the flag is kept and never acted on. $21183c picks one of four
-     * interrupt-and-converter pairs on it, and the 14-bit pair splits each
-     * sample into a high byte on one Paula pair and six low bits on the other
-     * at volume 1. `AudioSink` has one volume a voice and no way to sum two
-     * voices at a 64:1 ratio, so this port plays the 8-bit conversion either
-     * way. What a program can see is the flag and the error; what it cannot
-     * hear is the extra six bits.
+     * $21183c picks one of four interrupt-and-converter pairs. The 14-bit pair
+     * splits each sample into a high byte on one Paula channel and six low
+     * bits on its same-side partner at volume 1; `MedPlayer.emitOmix` follows
+     * that pairing through the four-voice AudioSink.
      */
     'omix 14 bit on'() {
       const s = st()
