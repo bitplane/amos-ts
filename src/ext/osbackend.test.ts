@@ -123,6 +123,15 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(high.find((row) => row.name === '_gt menu what check')?.workers).toEqual([3189])
   })
 
+  it('classifies all Utility-adjacent tag, date, ToolType and ID helpers', () => {
+    const names = ['_tag', '_ut', '_tool', '_id']
+    const utility = rows.filter((row) => names.includes(row.namespace))
+    expect(utility).toHaveLength(18)
+    expect(utility.filter((row) => row.status === 'faithful')).toHaveLength(17)
+    expect(utility.find((row) => row.name === '_id unique')?.status).toBe('partial')
+    expect(utility.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

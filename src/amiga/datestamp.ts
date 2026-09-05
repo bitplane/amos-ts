@@ -98,6 +98,20 @@ export function civilFromStamp(days: number, mins: number, ticks: number): Civil
   }
 }
 
+/** utility.library `Amiga2Date`: seconds since 1 January 1978 to ClockData. */
+export function amiga2Date(seconds: number): Civil {
+  const d = new Date(STAMP_EPOCH + Math.trunc(seconds) * 1000)
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    min: d.getUTCMinutes(),
+    sec: d.getUTCSeconds(),
+    weekday: d.getUTCDay(),
+  }
+}
+
 /** a wall-clock Date as a DateStamp, in the host's local time */
 export function dateToStamp(d: Date): DateStamp {
   const utcMidnight = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())

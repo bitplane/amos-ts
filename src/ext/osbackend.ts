@@ -134,6 +134,18 @@ auditMany('partial', 'the underlying gadget/menu/bank primitive exists, but OS D
   '_gt add bob item', '_gt add bob sub', '_gt menu on', '_gt menu off', '_gt menu set check',
   '_gt menu clear check', '_gt menu what check',
 ])
+auditMany('faithful', 'TagItem list construction and utility.library lookup semantics are modelled', [
+  '_tag list alloc', '_tag set', '_tag done', '_tag list free', '_tag find', '_tag data',
+])
+auditMany('faithful', 'Amiga2Date and the ClockData field conversion are modelled from the 1978 epoch', [
+  '_ut sec', '_ut min', '_ut hour', '_ut day', '_ut month', '_ut year',
+])
+auditMany('faithful', 'icon.library ToolType lookup and pre-V44 pipe-value matching are modelled', [
+  '_tool find', '_tool match', '_tool get$', '_tool exist', '_tool val match$',
+])
+auditMany('partial', 'GetUniqueID is process-local and unique, but does not share native utility.library global state', [
+  '_id unique',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

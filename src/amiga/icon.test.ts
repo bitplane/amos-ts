@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { ICON_MAGIC, ICON_VERSION, iconToolTypes } from './icon'
+import { ICON_MAGIC, ICON_VERSION, findToolType, iconToolTypes, matchToolValue } from './icon'
 
 describe('iconToolTypes: what is not an icon', () => {
   it('rejects anything without the $E310 magic, and anything too short', () => {
@@ -39,6 +39,23 @@ describe('iconToolTypes: what is not an icon', () => {
     dv.setUint16(0, ICON_MAGIC)
     dv.setUint16(2, ICON_VERSION)
     expect(iconToolTypes(b)).toEqual([])
+  })
+})
+
+describe('icon.library ToolType helpers', () => {
+  const types = ['FILETYPE=PaintProgram|ILBM', 'DONOTWAIT', 'MODE= fast |slow']
+
+  it('finds names case-insensitively and returns the value after equals', () => {
+    expect(findToolType(types, 'filetype')).toBe('PaintProgram|ILBM')
+    expect(findToolType(types, 'DONOTWAIT')).toBe('')
+    expect(findToolType(types, 'missing')).toBeNull()
+  })
+
+  it('matches pipe-separated alternatives case-insensitively without V44 trimming', () => {
+    expect(matchToolValue('PaintProgram|ILBM', 'ilbm')).toBe(true)
+    expect(matchToolValue('a|b|c', 'a|b')).toBe(false)
+    expect(matchToolValue(' fast |slow', 'fast')).toBe(false)
+    expect(matchToolValue(' fast |slow', ' fast ')).toBe(true)
   })
 })
 

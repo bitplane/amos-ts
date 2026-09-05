@@ -219,3 +219,27 @@ export function readIcon(bytes: Uint8Array): Icon | null {
 export function iconToolTypes(bytes: Uint8Array): string[] | null {
   return readIcon(bytes)?.toolTypes ?? null
 }
+
+/**
+ * `FindToolType` (-96): the value after NAME=, case-insensitive on NAME.
+ * A flag-style entry with no equals sign returns the empty value.
+ */
+export function findToolType(toolTypes: readonly string[], name: string): string | null {
+  const wanted = name.toLocaleUpperCase('en-US')
+  for (const entry of toolTypes) {
+    const eq = entry.indexOf('=')
+    const key = eq < 0 ? entry : entry.slice(0, eq)
+    if (key.toLocaleUpperCase('en-US') === wanted) return eq < 0 ? '' : entry.slice(eq + 1)
+  }
+  return null
+}
+
+/**
+ * `MatchToolValue` (-102), as icon.library before V44 implements it: `|`
+ * separates alternatives and comparison is case-insensitive. V44's later
+ * whitespace trimming is deliberately absent from this OS 3.x backend.
+ */
+export function matchToolValue(typeString: string, value: string): boolean {
+  const wanted = value.toLocaleUpperCase('en-US')
+  return typeString.split('|').some((part) => part.toLocaleUpperCase('en-US') === wanted)
+}
