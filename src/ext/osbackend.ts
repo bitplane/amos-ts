@@ -334,6 +334,9 @@ auditMany('faithful', 'the complete eight-byte TextAttr layout and exact pointer
 auditMany('faithful', 'the complete 12-byte RasInfo layout and exact pointer and signed-word reads/writes are represented', [
   '_ri set', '_ri what next', '_ri what bmap', '_ri what x', '_ri what y',
 ])
+auditMany('faithful', 'the complete View fields and signed readers are represented, including the shipped setter overwriting Y/X at $c instead of modes at $10', [
+  '_view set', '_view what vport', '_view what x', '_view what y', '_view what modes',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

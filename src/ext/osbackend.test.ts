@@ -568,6 +568,14 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rasInfo.every((row) => row.osCalls.length === 0)).toBe(true)
   })
 
+  it('classifies all five View operations including the shipped setter defect', () => {
+    const view = rows.filter((row) => row.namespace === '_view')
+    expect(view).toHaveLength(5)
+    expect(view.every((row) => row.status === 'faithful')).toBe(true)
+    expect(view.map((row) => row.workers[0])).toEqual([1713, 1714, 1715, 1716, 1717])
+    expect(view.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
