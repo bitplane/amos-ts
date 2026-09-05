@@ -778,6 +778,14 @@ interface MuiListviewData extends Record<string, unknown> {
   defaultClickColumn: number
 }
 
+interface MuiRadioData extends Record<string, unknown> {
+  entriesAddress: number
+  entries: number[]
+  active: number
+  images: BoopsiObject[]
+  labels: BoopsiObject[]
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -848,6 +856,7 @@ export class MuiMaster {
   readonly cycleClass: BoopsiClass
   readonly scrollbarClass: BoopsiClass
   readonly listviewClass: BoopsiClass
+  readonly radioClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -909,6 +918,7 @@ export class MuiMaster {
     this.cycleClass = this.byName.get(MUIC.MUIC_Cycle)!
     this.scrollbarClass = this.byName.get(MUIC.MUIC_Scrollbar)!
     this.listviewClass = this.byName.get(MUIC.MUIC_Listview)!
+    this.radioClass = this.byName.get(MUIC.MUIC_Radio)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1737,6 +1747,10 @@ export class MuiMaster {
           this.boopsi.disposeObject(made)
           return 0
         }
+        if (cl === this.radioClass && !this.initRadio(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1892,6 +1906,7 @@ export class MuiMaster {
         if (cl === this.sliderClass) return this.setSlider(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.cycleClass) return this.setCycle(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.listviewClass) return this.setListview(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.radioClass) return this.setRadio(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -2006,6 +2021,10 @@ export class MuiMaster {
         if (cl === this.listviewClass) {
           const answer = this.getListview(o, g)
           if (answer) return answer
+        }
+        if (cl === this.radioClass && TAG(g.attrID) === MUI.MUIA_Radio_Active) {
+          g.storage = o.instData<MuiRadioData>(cl).active
+          return 1
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
           g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
@@ -2247,6 +2266,10 @@ export class MuiMaster {
         }
         if (cl === this.listviewClass) {
           const answered = this.listviewMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.radioClass) {
+          const answered = this.radioMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -3030,6 +3053,137 @@ export class MuiMaster {
       case MUI.MUIM_List_Exchange:
         return this.doMui(d.list, msg.MethodID, p)
       default: return null
+    }
+  }
+
+  // -- Radio --------------------------------------------------------------
+
+  private initRadio(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const entriesAddress = attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Radio_Entries)?.data ?? 0
+    const entries = this.pointerList(entriesAddress)
+    if (entries.length === 0) return false
+    const d = obj.instData<MuiRadioData>(this.radioClass)
+    d.entriesAddress = entriesAddress
+    d.entries = entries
+    d.active = this.signed(attrs.find((attr) => TAG(attr.tag) === MUI.MUIA_Radio_Active)?.data ?? 0)
+    if (d.active < 0 || d.active >= entries.length) d.active = 0
+    d.images = []
+    d.labels = []
+    const rows: BoopsiObject[] = []
+    for (let i = 0; i < entries.length; i++) {
+      const image = this.newObjectA(MUIC.MUIC_Image, [
+        { tag: MUI.MUIA_Image_Spec, data: MUI.MUII_RadioButton },
+        { tag: MUI.MUIA_Image_FontMatchHeight, data: 1 },
+        { tag: MUI.MUIA_ShowSelState, data: 0 },
+        { tag: MUI.MUIA_InputMode, data: MUI.MUIV_InputMode_Immediate },
+      ])
+      const spacer = this.newObjectA(MUIC.MUIC_Rectangle, [{ tag: MUI.MUIA_HorizWeight, data: 0 }])
+      const label = this.newObjectA(MUIC.MUIC_Text, [
+        { tag: MUI.MUIA_Text_Contents, data: entries[i]! },
+        { tag: MUI.MUIA_Text_SetMax, data: 1 },
+        { tag: MUI.MUIA_ShowSelState, data: 0 },
+        { tag: MUI.MUIA_InputMode, data: MUI.MUIV_InputMode_Immediate },
+      ])
+      if (!image || !spacer || !label) {
+        for (const made of [image, spacer, label, ...rows]) if (made) this.disposeObject(made)
+        return false
+      }
+      const row = this.newObjectA(MUIC.MUIC_Group, [
+        { tag: MUI.MUIA_Group_Horiz, data: 1 }, { tag: MUI.MUIA_Group_Spacing, data: 0 },
+        { tag: MUI.MUIA_Group_Child, data: image.address }, { tag: MUI.MUIA_Group_Child, data: spacer.address },
+        { tag: MUI.MUIA_Group_Child, data: label.address },
+      ])
+      if (!row) {
+        for (const made of [image, spacer, label, ...rows]) this.disposeObject(made)
+        return false
+      }
+      d.images.push(image)
+      d.labels.push(label)
+      rows.push(row)
+    }
+    data(this, obj).children.push(...rows)
+    for (const row of rows) data(this, row).parent = obj
+    data(this, obj).attrs.set(MUI.MUIA_Radio_Entries, entriesAddress)
+    data(this, obj).attrs.set(MUI.MUIA_Radio_Active, d.active)
+    this.rebuildGroupList(obj)
+    for (let i = 0; i < entries.length; i++) {
+      for (const item of [d.images[i]!, d.labels[i]!]) {
+        this.doMui(item, MUI.MUIM_Notify,
+          [MUI.MUIA_Selected, 1, obj.address, 3, MUI.MUIM_Set, MUI.MUIA_Radio_Active, i])
+      }
+    }
+    this.radioSelect(obj, d.active)
+    return true
+  }
+
+  private radioSelect(obj: BoopsiObject, requested: number): boolean {
+    const d = obj.instData<MuiRadioData>(this.radioClass)
+    if (requested < 0 || requested >= d.entries.length || requested === d.active &&
+      (this.peek(d.images[requested]!, MUI.MUIA_Selected) ?? 0) !== 0) return false
+    const previous = d.active
+    d.active = requested
+    if (previous >= 0 && previous < d.entries.length) {
+      this.setInternal(d.images[previous]!, MUI.MUIA_Selected, 0)
+      this.setInternal(d.labels[previous]!, MUI.MUIA_Selected, 0)
+    }
+    this.setInternal(d.images[requested]!, MUI.MUIA_Selected, 1)
+    this.setInternal(d.labels[requested]!, MUI.MUIA_Selected, 1)
+    this.setInternal(obj, MUI.MUIA_Radio_Active, requested)
+    return true
+  }
+
+  private setRadio(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      if (TAG(attr.tag) === MUI.MUIA_Radio_Active) {
+        this.radioSelect(obj, this.signed(attr.data))
+        own++
+      } else if (TAG(attr.tag) === MUI.MUIA_ControlChar) {
+        data(this, obj).attrs.set(MUI.MUIA_ControlChar, attr.data & 0xff)
+        own++
+      } else rest.push(attr)
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private radioMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const d = obj.instData<MuiRadioData>(this.radioClass)
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup:
+        return doSuperMethodA(this.radioClass, obj, msg)
+      case MUI.MUIM_HandleInput: {
+        const key = this.signed(p[1] ?? -1)
+        if (key === 2 || key === 8) this.radioSelect(obj, Math.max(0, d.active - 1))
+        else if (key === 3 || key === 9) this.radioSelect(obj, Math.min(d.entries.length - 1, d.active + 1))
+        else if (key === 4) this.radioSelect(obj, 0)
+        else if (key === 5) this.radioSelect(obj, d.entries.length - 1)
+        return doSuperMethodA(this.radioClass, obj, msg)
+      }
+      case MUI.MUIM_Export:
+        this.radioTransfer(obj, p[0] ?? 0, true)
+        return 0
+      case MUI.MUIM_Import:
+        this.radioTransfer(obj, p[0] ?? 0, false)
+        return 0
+      default: return null
+    }
+  }
+
+  private radioTransfer(obj: BoopsiObject, dataspaceAddress: number, exporting: boolean): void {
+    const dataspace = this.boopsi.objectAt(dataspaceAddress)
+    if (!dataspace?.cl.isA(this.dataspaceClass)) return
+    const id = this.peek(obj, MUI.MUIA_ExportID) ?? 0
+    if (id === 0) return
+    const ds = dataspace.instData<MuiDataspaceData>(this.dataspaceClass)
+    if (exporting) {
+      const bytes = new Uint8Array(4)
+      putLong(bytes, 0, obj.instData<MuiRadioData>(this.radioClass).active)
+      this.dataspaceAddBytes(ds, bytes, id)
+    } else {
+      const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
+      if (entry) this.set(obj, MUI.MUIA_Radio_Active, this.poolLong(entry.address - this.pool.base + 16))
     }
   }
 

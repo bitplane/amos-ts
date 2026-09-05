@@ -1400,6 +1400,51 @@ describe('muimaster: Listview.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Radio.mui 19.35', () => {
+  function makeRadio(m: MuiMaster, extra: TagItem[] = []): BoopsiObject {
+    const pointers = new Map([[0x8000, 0x1000], [0x8004, 0x1100], [0x8008, 0]])
+    m.readLong = (address) => pointers.get(address) ?? 0
+    return m.newObjectA(MUIC.MUIC_Radio, [tag(MUI.MUIA_Radio_Entries, 0x8000), ...extra])!
+  }
+
+  it('requires entries and builds one native image/spacer/text row per choice', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Radio)).toBeNull()
+    const radio = makeRadio(m)
+    expect(m.children(radio)).toHaveLength(2)
+    expect(m.children(m.children(radio)[0]!).map((child) => child.cl.id)).toEqual([
+      MUIC.MUIC_Image, MUIC.MUIC_Rectangle, MUIC.MUIC_Text,
+    ])
+    expect(m.peek(m.children(m.children(radio)[0]!)[0]!, MUI.MUIA_Image_Spec)).toBe(MUI.MUII_RadioButton)
+  })
+
+  it('keeps the image and label selection exclusive and navigates by MUI key', () => {
+    const m = new MuiMaster()
+    const radio = makeRadio(m)
+    const first = m.children(m.children(radio)[0]!)
+    const second = m.children(m.children(radio)[1]!)
+    expect([m.peek(first[0]!, MUI.MUIA_Selected), m.peek(first[2]!, MUI.MUIA_Selected)]).toEqual([1, 1])
+    m.doMui(radio, MUI.MUIM_HandleInput, [0, 3])
+    expect(m.get(radio, MUI.MUIA_Radio_Active)).toBe(1)
+    expect([m.peek(first[0]!, MUI.MUIA_Selected), m.peek(second[0]!, MUI.MUIA_Selected)]).toEqual([0, 1])
+    m.setInternal(first[2]!, MUI.MUIA_Selected, 1)
+    expect(m.get(radio, MUI.MUIA_Radio_Active)).toBe(0)
+  })
+
+  it('ignores out-of-range values and persists Active by ExportID', () => {
+    const m = new MuiMaster()
+    const radio = makeRadio(m, [tag(MUI.MUIA_ExportID, 77)])
+    m.set(radio, MUI.MUIA_Radio_Active, 1)
+    m.set(radio, MUI.MUIA_Radio_Active, 9)
+    expect(m.get(radio, MUI.MUIA_Radio_Active)).toBe(1)
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.doMui(radio, MUI.MUIM_Export, [ds.address])
+    m.set(radio, MUI.MUIA_Radio_Active, 0)
+    m.doMui(radio, MUI.MUIM_Import, [ds.address])
+    expect(m.get(radio, MUI.MUIA_Radio_Active)).toBe(1)
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()
