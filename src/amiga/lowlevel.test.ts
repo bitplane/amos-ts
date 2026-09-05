@@ -45,6 +45,7 @@ import {
   SJA_TYPE_AUTOSENSE,
   SJA_TYPE_GAMECTLR,
   SJA_TYPE_MOUSE,
+  keyQuery,
   readJoyPort,
   setJoyPortType,
 } from './lowlevel'
@@ -183,5 +184,15 @@ describe('SetJoyPortAttrs SJA_Type', () => {
 
   it('refuses a port it does not have', () => {
     expect(setJoyPortType(ports(), 5, SJA_TYPE_MOUSE)).toBe(false)
+  })
+})
+
+describe('KeyQuery', () => {
+  it('reads raw-key membership and rejects values outside the keycode byte', () => {
+    const held = new Set([0x20, 0x63])
+    expect(keyQuery(held, 0x20)).toBe(true)
+    expect(keyQuery(held, 0x21)).toBe(false)
+    expect(keyQuery(held, -1)).toBe(false)
+    expect(keyQuery(held, 0x80)).toBe(false)
   })
 })

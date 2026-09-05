@@ -217,6 +217,11 @@ export function setJoyPortType(ports: readonly Controller[], port: number, sja: 
   }
 }
 
+/** `BOOL KeyQuery(ULONG key)` — LVO -48, using Amiga raw keycodes. */
+export function keyQuery(held: ReadonlySet<number>, key: number): boolean {
+  return key >= 0 && key <= 0x7f && held.has(key)
+}
+
 // -- the timer half -------------------------------------------------------
 
 /**

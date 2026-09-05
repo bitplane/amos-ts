@@ -44,7 +44,7 @@ const MODELLED = new Map<string, string>([
   ['_joy', 'lowlevel'], ['_layer', 'layers'], ['_li', 'layers'],
 ])
 
-const DATATYPES_AUDIT = new Map<string, { status: OsBackendStatus; reason: string }>([
+const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt init', { status: 'faithful', reason: 'OpenLibrary(datypes.library, 39) succeeds against the V40 registry entry' }],
   ['_dt obtain', { status: 'partial', reason: 'memory descriptor matching exists, but tie ordering is not yet binary-faithful' }],
   ['_dt release', { status: 'faithful', reason: 'shared immutable descriptors make ReleaseDataType observably a no-op' }],
@@ -59,6 +59,14 @@ const DATATYPES_AUDIT = new Map<string, { status: OsBackendStatus; reason: strin
   ['_dt what triggers', { status: 'missing', reason: 'datatype trigger method tables are not modelled' }],
   ['_dt do', { status: 'missing', reason: 'datatype object methods are not modelled' }],
   ['_dt str$', { status: 'missing', reason: 'GetDTString is not modelled' }],
+  ['_sys own', { status: 'missing', reason: 'lowlevel SystemControlA ownership is not modelled' }],
+  ['_sys disown', { status: 'missing', reason: 'lowlevel SystemControlA ownership is not modelled' }],
+  ['_joy set', { status: 'partial', reason: 'port type forcing exists, but hardware autosense is represented by host state' }],
+  ['_joy init', { status: 'partial', reason: 'port autosense exists, but hardware polling is represented by host state' }],
+  ['_joy read', { status: 'partial', reason: 'joyport bits are modelled; mouse motion and hardware polling are not' }],
+  ['_joy type', { status: 'partial', reason: 'joyport type is modelled; hardware autosense is represented by host state' }],
+  ['_time elapsed', { status: 'partial', reason: 'elapsed-time state is modelled at frame rather than E-clock granularity' }],
+  ['_key pressed', { status: 'faithful', reason: 'KeyQuery reads the machine keyboard held-key set by raw keycode' }],
 ])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
@@ -91,7 +99,7 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
     const namespace = namespaceOf(name)
     const missing = MISSING.find((f) => f.names(name, namespace))
     const modelled = MODELLED.get(namespace)
-    const audited = DATATYPES_AUDIT.get(name)
+    const audited = AUDITED.get(name)
     const routines = [...new Set([entry.instr, entry.func].filter((n) => n !== undefined && n !== 1 && n !== 0xffff))]
     // Invalid routine references are review items, never silently "covered".
     const valid = routines.every((n) => addresses[n!] !== undefined)
