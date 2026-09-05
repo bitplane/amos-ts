@@ -251,6 +251,14 @@ auditMany('partial', 'GadTools message filtering and reply accounting exist, but
 auditMany('faithful', 'the NotifyMessage request pointer at offset $1a is represented exactly', [
   '_nmsg what nreq',
 ])
+auditMany('faithful', 'the exact 14-byte Exec List/Node layouts, sentinels, field widths, allocation and list algorithms are modelled', [
+  '_lnod set head', '_lnod set tail', '_lnod set type', '_lnod alloc', '_lnod free',
+  '_lnod what head', '_lnod what tail', '_lnod what type',
+  '_nod set succ', '_nod set pred', '_nod set type', '_nod set name', '_nod set pri', '_nod alloc', '_nod free',
+  '_nod ins', '_nod rem', '_nod h add', '_nod h rem', '_nod t add', '_nod t rem', '_nod enqueue',
+  '_nod find name', '_nod what succ', '_nod what pred', '_nod what type', '_nod what pri', '_nod what name',
+  '_nod what start',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

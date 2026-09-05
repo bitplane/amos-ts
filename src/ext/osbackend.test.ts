@@ -351,6 +351,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(messages.find((row) => row.name === '_nmsg what nreq')?.workers).toEqual([1857])
   })
 
+  it('classifies every Exec List and Node operation', () => {
+    const nodes = rows.filter((row) => row.namespace === '_lnod' || row.namespace === '_nod')
+    expect(nodes).toHaveLength(29)
+    expect(nodes.every((row) => row.status === 'faithful')).toBe(true)
+    expect(nodes.find((row) => row.name === '_lnod set head')?.workers).toEqual([1439])
+    expect(nodes.find((row) => row.name === '_nod what start')?.workers).toEqual([1465])
+    expect(nodes.find((row) => row.name === '_lnod free')).toMatchObject({
+      workers: [1783],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -690 })],
+    })
+    expect(nodes.find((row) => row.name === '_nod ins')?.osCalls)
+      .toEqual([expect.objectContaining({ library: 'exec.library', lvo: -234 })])
+    expect(nodes.find((row) => row.name === '_nod find name')?.osCalls)
+      .toEqual([expect.objectContaining({ library: 'exec.library', lvo: -276 })])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
