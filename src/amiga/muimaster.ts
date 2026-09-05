@@ -218,6 +218,11 @@ export const MUIM_DATASPACE_EQUAL = 0x8042b393
 export const MUIM_DATASPACE_PRUNE = 0x8042032e
 export const MUIM_DATASPACE_NEXT = 0x80421873
 
+/** Private Popstring operations in the 19.35 table. */
+export const MUIM_POPSTRING_FINISH_CLOSE = 0x8042303d
+export const MUIM_POPSTRING_FORWARD_A = 0x8042491a
+export const MUIM_POPSTRING_FORWARD_B = 0x80422c0c
+
 /** Configdata's private API and attributes, recovered from its 19.35 table. */
 export const MUIM_CONFIGDATA_GET = 0x8042539a
 export const MUIM_CONFIGDATA_HAS = 0x80421162
@@ -786,6 +791,15 @@ interface MuiRadioData extends Record<string, unknown> {
   labels: BoopsiObject[]
 }
 
+interface MuiPopstringData extends Record<string, unknown> {
+  string: BoopsiObject | null
+  button: BoopsiObject
+  openHook: number
+  closeHook: number
+  toggle: boolean
+  open: boolean
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -857,6 +871,7 @@ export class MuiMaster {
   readonly scrollbarClass: BoopsiClass
   readonly listviewClass: BoopsiClass
   readonly radioClass: BoopsiClass
+  readonly popstringClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -919,6 +934,7 @@ export class MuiMaster {
     this.scrollbarClass = this.byName.get(MUIC.MUIC_Scrollbar)!
     this.listviewClass = this.byName.get(MUIC.MUIC_Listview)!
     this.radioClass = this.byName.get(MUIC.MUIC_Radio)!
+    this.popstringClass = this.byName.get(MUIC.MUIC_Popstring)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1751,6 +1767,10 @@ export class MuiMaster {
           this.boopsi.disposeObject(made)
           return 0
         }
+        if (cl === this.popstringClass && !this.initPopstring(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1907,6 +1927,7 @@ export class MuiMaster {
         if (cl === this.cycleClass) return this.setCycle(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.listviewClass) return this.setListview(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.radioClass) return this.setRadio(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.popstringClass) return this.setPopstring(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -2025,6 +2046,10 @@ export class MuiMaster {
         if (cl === this.radioClass && TAG(g.attrID) === MUI.MUIA_Radio_Active) {
           g.storage = o.instData<MuiRadioData>(cl).active
           return 1
+        }
+        if (cl === this.popstringClass) {
+          const answer = this.getPopstring(o, g)
+          if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
           g.storage = o.instData<MuiBitmapData>(cl).remappedBitmap
@@ -2270,6 +2295,10 @@ export class MuiMaster {
         }
         if (cl === this.radioClass) {
           const answered = this.radioMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.popstringClass) {
+          const answered = this.popstringMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -3185,6 +3214,111 @@ export class MuiMaster {
       const entry = ds.entries.find((candidate) => candidate.id === TAG(id) && candidate.length >= 4)
       if (entry) this.set(obj, MUI.MUIA_Radio_Active, this.poolLong(entry.address - this.pool.base + 16))
     }
+  }
+
+  // -- Popstring ----------------------------------------------------------
+
+  private initPopstring(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const value = (id: number, fallback = 0): number => attrs.find((a) => TAG(a.tag) === id)?.data ?? fallback
+    const stringAddress = value(MUI.MUIA_Popstring_String)
+    const string = stringAddress === 0 ? null : this.boopsi.objectAt(stringAddress)
+    const button = this.boopsi.objectAt(value(MUI.MUIA_Popstring_Button))
+    if ((stringAddress !== 0 && !string) || !button) return false
+    const d = obj.instData<MuiPopstringData>(this.popstringClass)
+    d.string = string
+    d.button = button
+    d.openHook = value(MUI.MUIA_Popstring_OpenHook)
+    d.closeHook = value(MUI.MUIA_Popstring_CloseHook)
+    d.toggle = value(MUI.MUIA_Popstring_Toggle) !== 0
+    d.open = false
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_Group_Horiz, 1)
+    stored.set(MUI.MUIA_Group_Spacing, 1)
+    stored.set(MUI.MUIA_Popstring_String, string?.address ?? 0)
+    stored.set(MUI.MUIA_Popstring_Button, button.address)
+    stored.set(MUI.MUIA_Popstring_OpenHook, d.openHook)
+    stored.set(MUI.MUIA_Popstring_CloseHook, d.closeHook)
+    stored.set(MUI.MUIA_Popstring_Toggle, d.toggle ? 1 : 0)
+    const children = string ? [string, button] : [button]
+    data(this, obj).children.push(...children)
+    for (const child of children) data(this, child).parent = obj
+    this.rebuildGroupList(obj)
+    this.doMui(button, MUI.MUIM_Notify,
+      [MUI.MUIA_Pressed, 0, obj.address, 1, MUI.MUIM_Popstring_Open])
+    return true
+  }
+
+  private setPopstring(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiPopstringData>(cl)
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      const id = TAG(attr.tag)
+      if (id === MUI.MUIA_Popstring_Toggle) d.toggle = attr.data !== 0
+      else if (id === MUI.MUIA_Popstring_OpenHook) d.openHook = attr.data
+      else if (id === MUI.MUIA_Popstring_CloseHook) d.closeHook = attr.data
+      else {
+        rest.push(attr)
+        continue
+      }
+      data(this, obj).attrs.set(id, attr.data)
+      own++
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private getPopstring(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiPopstringData>(this.popstringClass)
+    switch (TAG(msg.attrID)) {
+      case MUI.MUIA_Popstring_String: msg.storage = d.string?.address ?? 0; return 1
+      case MUI.MUIA_Popstring_Button: msg.storage = d.button.address; return 1
+      case MUI.MUIA_Popstring_OpenHook: msg.storage = d.openHook; return 1
+      case MUI.MUIA_Popstring_CloseHook: msg.storage = d.closeHook; return 1
+      case MUI.MUIA_Popstring_Toggle: msg.storage = d.toggle ? 1 : 0; return 1
+      default: return 0
+    }
+  }
+
+  private popstringMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const d = obj.instData<MuiPopstringData>(this.popstringClass)
+    const p = (msg as Msg & { params?: readonly number[] }).params ?? []
+    switch (msg.MethodID) {
+      case MUI.MUIM_Cleanup:
+        if (d.open) this.finishPopstringClose(obj, 0)
+        return doSuperMethodA(this.popstringClass, obj, msg)
+      case MUI.MUIM_Popstring_Open:
+        if (d.open) {
+          if (d.toggle) this.finishPopstringClose(obj, 0)
+          return 0
+        }
+        // The native class calls the supplied 68k Hook here. Hook execution
+        // is outside this port, but a non-null hook still represents a popup
+        // provider and therefore controls whether the open state can begin.
+        if (d.openHook !== 0) {
+          d.open = true
+          this.setInternal(d.button, MUI.MUIA_Selected, 1)
+        }
+        return 0
+      case MUI.MUIM_Popstring_Close:
+      case MUIM_POPSTRING_FINISH_CLOSE:
+        this.finishPopstringClose(obj, p[0] ?? 0)
+        return 0
+      case MUI.MUIM_Import:
+      case MUI.MUIM_Export:
+      case MUIM_POPSTRING_FORWARD_A:
+      case MUIM_POPSTRING_FORWARD_B:
+        return d.string ? this.doMui(d.string, msg.MethodID, p) : 0
+      default: return null
+    }
+  }
+
+  private finishPopstringClose(obj: BoopsiObject, _success: number): void {
+    const d = obj.instData<MuiPopstringData>(this.popstringClass)
+    if (!d.open) return
+    // closeHook is retained for native state/get semantics; executing guest
+    // hook code is intentionally outside this implementation boundary.
+    d.open = false
+    if (!d.toggle) this.setInternal(d.button, MUI.MUIA_Selected, 0)
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {

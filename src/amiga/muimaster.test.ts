@@ -13,6 +13,8 @@ import {
   MUIM_DATASPACE_EQUAL,
   MUIM_DATASPACE_NEXT,
   MUIM_DATASPACE_PRUNE,
+  MUIM_POPSTRING_FORWARD_A,
+  MUIM_POPSTRING_FORWARD_B,
   MUIA_CONFIGDATA_FALLBACK,
   MUIA_CONFIGDATA_SELECTOR,
   MUIM_CONFIGDATA_ACCEPTS,
@@ -1442,6 +1444,61 @@ describe('muimaster: Radio.mui 19.35', () => {
     m.set(radio, MUI.MUIA_Radio_Active, 0)
     m.doMui(radio, MUI.MUIM_Import, [ds.address])
     expect(m.get(radio, MUI.MUIA_Radio_Active)).toBe(1)
+  })
+})
+
+describe('muimaster: Popstring.mui 19.35', () => {
+  it('requires a Button, accepts an optional String, and builds the native horizontal group', () => {
+    const m = new MuiMaster()
+    expect(m.newObjectA(MUIC.MUIC_Popstring)).toBeNull()
+    const string = m.newObjectA(MUIC.MUIC_String)!
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const pop = m.newObjectA(MUIC.MUIC_Popstring, [
+      tag(MUI.MUIA_Popstring_String, string.address), tag(MUI.MUIA_Popstring_Button, button.address),
+    ])!
+    expect(m.children(pop)).toEqual([string, button])
+    expect(m.get(pop, MUI.MUIA_Popstring_String)).toBe(string.address)
+    expect(m.get(pop, MUI.MUIA_Popstring_Button)).toBe(button.address)
+    expect(m.peek(pop, MUI.MUIA_Group_Horiz)).toBe(1)
+  })
+
+  it('opens from a released Button, closes, and applies Toggle to a second open', () => {
+    const m = new MuiMaster()
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const pop = m.newObjectA(MUIC.MUIC_Popstring, [
+      tag(MUI.MUIA_Popstring_Button, button.address), tag(MUI.MUIA_Popstring_OpenHook, 0x1234),
+    ])!
+    m.setInternal(button, MUI.MUIA_Pressed, 1)
+    m.setInternal(button, MUI.MUIA_Pressed, 0)
+    expect(m.peek(button, MUI.MUIA_Selected)).toBe(1)
+    m.doMui(pop, MUI.MUIM_Popstring_Close, [1])
+    expect(m.peek(button, MUI.MUIA_Selected)).toBe(0)
+    m.set(pop, MUI.MUIA_Popstring_Toggle, 1)
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    expect(m.peek(button, MUI.MUIA_Selected)).toBe(1)
+  })
+
+  it('forwards persistence and both private 19.35 messages to its String', () => {
+    const m = new MuiMaster()
+    m.readString = (address) => new Map([[0x1000, 'saved'], [0x1100, 'changed']]).get(address) ?? ''
+    const string = m.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_ExportID, 91)])!
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const pop = m.newObjectA(MUIC.MUIC_Popstring, [
+      tag(MUI.MUIA_Popstring_String, string.address), tag(MUI.MUIA_Popstring_Button, button.address),
+    ])!
+    const ds = m.newObjectA(MUIC.MUIC_Dataspace)!
+    m.set(string, MUI.MUIA_String_Contents, 0x1000)
+    m.doMui(pop, MUI.MUIM_Export, [ds.address])
+    m.set(string, MUI.MUIA_String_Contents, 0x1100)
+    m.doMui(pop, MUI.MUIM_Import, [ds.address])
+    const contents = m.get(string, MUI.MUIA_String_Contents)!
+    let restored = ''
+    for (let at = contents - m.pool.base; m.pool.buffer[at] !== 0; at++) restored += String.fromCharCode(m.pool.buffer[at]!)
+    expect(restored).toBe('saved')
+    expect(m.doMui(pop, MUIM_POPSTRING_FORWARD_A)).toBe(0)
+    expect(m.doMui(pop, MUIM_POPSTRING_FORWARD_B)).toBe(0)
   })
 })
 
