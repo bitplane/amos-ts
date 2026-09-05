@@ -1049,6 +1049,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies bootstrap names, register frames and native call hooks', () => {
+    expect(rows.find((row) => row.name === '_dreg')).toMatchObject({
+      status: 'partial', routines: [38, 39], workers: [38, 39], osCalls: [],
+    })
+    expect(rows.find((row) => row.name === '_areg')).toMatchObject({
+      status: 'partial', routines: [40, 41], workers: [40, 41], osCalls: [],
+    })
+    expect(rows.find((row) => row.name === '_call')).toMatchObject({ status: 'missing', workers: [43] })
+    expect(rows.find((row) => row.name === '_amos name')).toMatchObject({ status: 'partial', workers: [1478] })
+    expect(rows.find((row) => row.name === '_low init')).toMatchObject({
+      status: 'faithful', routines: [], workers: [], osCalls: [],
+    })
+    expect(rows.find((row) => row.name === 'a3 pointer')).toMatchObject({ status: 'missing', workers: [3232] })
+    expect(rows.find((row) => row.name === 'give me')).toMatchObject({ status: 'missing', workers: [45] })
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

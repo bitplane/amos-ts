@@ -30,3 +30,19 @@ export const valLong = (value: string): number =>
   ((byte(value, 0) << 24) | (byte(value, 1) << 16) | (byte(value, 2) << 8) | byte(value, 3)) | 0
 
 export const valWord = (value: string): number => (byte(value, 0) << 8) | byte(value, 1)
+
+/** The d0-d7/a0-a7 frame used by `_dreg`, `_areg`, `_call` and `_lib call`. */
+export class OsRegisterFrame {
+  readonly d = new Int32Array(8)
+  readonly a = new Int32Array(8)
+
+  setData(register: number, value: number): void { if (register >= 0 && register < 8) this.d[register] = value | 0 }
+  data(register: number): number { return register >= 0 && register < 8 ? this.d[register]! : 0 }
+  setAddress(register: number, value: number): void { if (register >= 0 && register < 8) this.a[register] = value | 0 }
+  address(register: number): number { return register >= 0 && register < 8 ? this.a[register]! : 0 }
+}
+
+/** Routine 1478's private editor/library name: a tilde plus at most 31 bytes. */
+export function osAmosName(name: string): string {
+  return '~' + name.slice(0, 31)
+}

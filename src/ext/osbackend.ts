@@ -267,6 +267,24 @@ auditMany('partial', 'View/ViewPort geometry exists, but CalcIVG requires arbitr
 auditMany('faithful', 'the 32 independent pointer classes, deduplicating Set, direct Add, lookup and gap-closing removal are represented exactly', [
   'track set', 'track unset', 'track add', 'track exist',
 ])
+auditMany('partial', 'the complete eight-data/eight-address longword register frame is represented, but out-of-range indices cannot corrupt adjacent extension state', [
+  '_dreg', '_areg',
+])
+auditMany('missing', 'the worker jumps to arbitrary native code with the saved register frame, and no 68k execution backend exists', [
+  '_call',
+])
+auditMany('partial', 'the tilde-prefixed, 31-byte-truncated extension name is modelled, but the native editor refresh flag is not exposed', [
+  '_amos name',
+])
+auditMany('faithful', 'the token is encoded with the extension null function and has no worker or side effect', [
+  '_low init',
+])
+auditMany('missing', 'the native AMOS evaluation-stack pointer has no stable address in the TypeScript interpreter', [
+  'a3 pointer',
+])
+auditMany('missing', 'the worker returns an internal AMOS channel-table pointer whose raw layout is not exposed', [
+  'give me',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
