@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { LH_P_CODE, LH_P_LEN, LH_POS_CODE, LH_POS_EXTRA } from './lh'
+import { LH_LIBRARY, LH_P_CODE, LH_P_LEN, LH_POS_CODE, LH_POS_EXTRA } from './lh'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const path = join(root, 'fixtures', 'libs', 'lh.library')
@@ -48,6 +48,15 @@ describe.skipIf(!present)('lh.library 1.8, as shipped', () => {
     // which are Explode's own equates at source lines 98-101
     expect([at(4), at(5), at(6), at(7)]).toEqual([0x152, 0x1aa, 0x1ce, 0x1f6])
     expect(at(8)).toBe(0xffffffff)
+    expect(LH_LIBRARY).toMatchObject({
+      name: 'lh.library',
+      version: 1,
+      revision: 8,
+      infoSize: 28,
+      decodeAuxSize: 4500,
+      encodeAuxSize: 40000,
+      lvo: { createBuffer: -30, deleteBuffer: -36, encode: -42, decode: -48 },
+    })
   })
 
   it('CreateBuffer asks for 40000 bytes to encode with and 4500 to decode', () => {
@@ -58,6 +67,18 @@ describe.skipIf(!present)('lh.library 1.8, as shipped', () => {
     expect(long(0x168)).toBe(0x9c40)
     // and the struct it hands back is 28 bytes -- `moveq #$1c,d0`
     expect(c[0x17f]).toBe(0x1c)
+  })
+
+  it('validates the encoder work size but not the decoder work size', () => {
+    const c = hunk()
+    // LhEncode: cmpi.l #40000,$14(a0), followed by bmi failure.
+    expect([...c.subarray(0x1d2, 0x1dc)]).toEqual([0x0c, 0xa8, 0x00, 0x00, 0x9c, 0x40, 0x00, 0x14, 0x6b, 0x16])
+    // LhDecode checks a0, source and destination, then jumps. In particular
+    // the complete 20-byte entry contains no access to offset $14.
+    expect([...c.subarray(0x1f6, 0x20a)]).toEqual([
+      0x20, 0x08, 0x67, 0x10, 0x20, 0x10, 0x67, 0x0c, 0x20, 0x28,
+      0x00, 0x08, 0x67, 0x06, 0x4e, 0xf9, 0x00, 0x00, 0x02, 0x10,
+    ])
   })
 
   it('and the position table is exactly the one lh.ts builds, all 512 bytes', () => {

@@ -1669,7 +1669,9 @@ export const FAITHFUL = new Set<string>([
   // all -- the tree stops adapting at MAX_FREQ instead of rebuilding, on both
   // sides -- and the encoder skips LZHUF's F-position tree seeding. All of it
   // is pinned against the shipped binary in lh.corpus.test.ts, including the
-  // defect: `LhEncode` WRITES lh_DstSize and reads it nowhere, so `Lpk Pack`'s
+  // CreateBuffer sizes and asymmetric entry checks (Encode validates its
+  // 40000-byte work area; Decode does not validate its 4500-byte area), and
+  // the defect: `LhEncode` WRITES lh_DstSize and reads it nowhere, so `Lpk Pack`'s
   // SrcSize + SrcSize/8 destination is a heap overrun for anything short and
   // incompressible.
   'lpk unpack', 'lpk pack',

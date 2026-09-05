@@ -69,6 +69,22 @@
  * LZHUF will not read it once either side passes $8000.
  */
 
+/** Public identity and vector contract of the audited library binary. */
+export const LH_LIBRARY = {
+  name: 'lh.library',
+  version: 1,
+  revision: 8,
+  infoSize: 28,
+  decodeAuxSize: 4_500,
+  encodeAuxSize: 40_000,
+  lvo: {
+    createBuffer: -30,
+    deleteBuffer: -36,
+    encode: -42,
+    decode: -48,
+  },
+} as const
+
 /** `N_CHAR` — 256 literals, 60 lengths, one end marker */
 const N_CHAR = 317
 /** `T` — every node of the tree */
@@ -429,10 +445,17 @@ export function lhUnpackBank(bank: Uint8Array): Uint8Array | null {
  *     text_buf   $1152   4156 WORDS, one byte each, zero-filled
  *     lson       $31ca   4097 words
  *     rson       $51cc   4353 words, the last 256 being the hash heads
- *     dad        $73ce   4096 words, all NIL
+ *     dad        $73ce   4097 words allocated; the first 4096 are set to NIL
  *
  * — plus the tree at the front, which is at exactly the offsets the decoder
  * uses, so ./Tree serves both.
+ *
+ * `CreateBuffer(0)` selects the 40000-byte encoder buffer; any non-zero mode
+ * selects the 4500-byte decoder buffer. The LhEncode entry rejects a buffer
+ * smaller than 40000 bytes. LhDecode notably makes no corresponding size
+ * check: it validates only the info pointer, source and destination before
+ * entering the decoder. That asymmetry is the shipped vector contract, not a
+ * reason for this allocation-free TypeScript API to accept a work buffer.
  *
  * ## What had to come from the binary
  *

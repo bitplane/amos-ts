@@ -213,7 +213,7 @@ is still never run.
 | `imploder.ts` | the Imploder's IMP! codec |
 | `bytekiller.ts` | ByteKiller, decrunch only |
 | `stonecracker.ts` | StoneCracker 4.04 (`S404`), decrunch and crunch |
-| `lh.ts` | `lh.library` 1.8, LhDecode and LhEncode |
+| `lh.ts` | `lh.library` 1.8: both codecs and the audited public vector contract |
 | `lha.ts` | the LHA archive, its three header levels, and the lh5 codec |
 | `zip.ts` | ZIP through its central directory, and the platform's inflate |
 | `tar.ts` | TAR, the ustar layout |
