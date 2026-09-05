@@ -392,6 +392,26 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies every direct Exec memory operation and its misleading alias', () => {
+    const memory = rows.filter((row) => row.namespace === '_mem')
+    expect(memory).toHaveLength(6)
+    expect(memory.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_mem abs alloc', '_mem alloc', '_mem copy', '_mem free',
+    ])
+    expect(memory.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_mem avail', '_mem type',
+    ])
+    expect(memory.some((row) => row.status === 'review')).toBe(false)
+    expect(memory.find((row) => row.name === '_mem alloc')?.workers).toEqual([1117])
+    expect(memory.find((row) => row.name === '_mem abs alloc')?.workers).toEqual([1117])
+    expect(memory.find((row) => row.name === '_mem copy')).toMatchObject({
+      workers: [1120], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -624 })],
+    })
+    expect(memory.find((row) => row.name === '_mem type')).toMatchObject({
+      workers: [1121], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -534 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

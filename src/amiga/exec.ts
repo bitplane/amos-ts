@@ -85,6 +85,18 @@ export function availMem(pools: MemoryPools, used: MemoryInUse, flags: number = 
   return chip + fast
 }
 
+/** Exec CopyMem over arbitrary alignments and lengths; overlap is outside its contract. */
+export function copyMem(
+  source: Uint8Array,
+  sourceOffset: number,
+  destination: Uint8Array,
+  destinationOffset: number,
+  length: number,
+): void {
+  if (length <= 0) return
+  destination.set(source.subarray(sourceOffset, sourceOffset + length), destinationOffset)
+}
+
 // ---- the library list ------------------------------------------------------
 
 /**
@@ -501,6 +513,17 @@ export class MemPool {
       if (len !== undefined && off >= b && off < b + len) return true
     }
     return false
+  }
+
+  /** TypeOfMem attributes for any byte in a live allocation, or zero. */
+  typeOfMem(addr: number): number {
+    const off = (addr >>> 0) - this.base
+    for (const [start, len] of this.live) {
+      if (off >= start && off < start + len) {
+        return MEMF.PUBLIC | (this.chipBlocks.has(start) ? MEMF.CHIP : MEMF.FAST)
+      }
+    }
+    return 0
   }
 
   /** the length a block was given, or 0 */

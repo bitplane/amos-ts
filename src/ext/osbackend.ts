@@ -275,6 +275,12 @@ auditMany('partial', 'the immediate result is exact, but an empty wait cannot su
 auditMany('partial', 'GetMsg FIFO removal exists, but the workers raw TypeOfMem guard is not represented', [
   '_msg get',
 ])
+auditMany('faithful', 'AllocMem/FreeMem and arbitrary-alignment CopyMem behavior are modelled; the abs spelling aliases the same AllocMem worker', [
+  '_mem alloc', '_mem abs alloc', '_mem free', '_mem copy',
+])
+auditMany('partial', 'the result is modelled, but separately owned runtime regions do not form one fragmenting global Exec memory arena', [
+  '_mem avail', '_mem type',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

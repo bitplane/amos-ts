@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  A1200_POOLS, ExecPool, MEMF, availMem, closeLibrary, libraryPresent, libraryRevision, libraryVersion,
+  A1200_POOLS, ExecPool, MEMF, MemPool, availMem, closeLibrary, copyMem, libraryPresent, libraryRevision, libraryVersion,
   modelledLibraryAt, openLibrary,
 } from './exec'
 
@@ -40,6 +40,26 @@ describe('exec: AvailMem', () => {
     // memory at all
     expect(A1200_POOLS.chip).toBe(2 * 1024 * 1024)
     expect(A1200_POOLS.fast).toBe(8 * 1024 * 1024)
+  })
+})
+
+describe('exec: memory operations', () => {
+  it('copies arbitrary byte lengths between unaligned regions', () => {
+    const source = new Uint8Array([1, 2, 3, 4, 5])
+    const destination = new Uint8Array(6)
+    copyMem(source, 1, destination, 2, 3)
+    expect([...destination]).toEqual([0, 0, 2, 3, 4, 0])
+  })
+
+  it('reports native memory attributes for every byte of a live allocation', () => {
+    const pool = new MemPool(0x1000, 0x1000)
+    const chip = pool.alloc(9, { chip: true })
+    const fast = pool.alloc(8)
+    expect(pool.typeOfMem(chip + 8)).toBe(MEMF.PUBLIC | MEMF.CHIP)
+    expect(pool.typeOfMem(fast)).toBe(MEMF.PUBLIC | MEMF.FAST)
+    expect(pool.typeOfMem(0xdead)).toBe(0)
+    pool.freeMem(chip)
+    expect(pool.typeOfMem(chip)).toBe(0)
   })
 })
 
