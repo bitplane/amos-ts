@@ -328,6 +328,9 @@ auditMany('faithful', 'the complete 20-byte IntuiText layout and every byte, wor
 auditMany('partial', 'text drawing and metrics exist, but arbitrary native TextAttr, C-string and next-pointer chains are not traversed', [
   '_it print', '_it what len',
 ])
+auditMany('faithful', 'the complete eight-byte TextAttr layout and exact pointer, word and byte reads/writes are represented', [
+  '_ta set', '_ta what name', '_ta what height', '_ta what style', '_ta what flags',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

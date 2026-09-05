@@ -552,6 +552,14 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all five TextAttr operations', () => {
+    const attrs = rows.filter((row) => row.namespace === '_ta')
+    expect(attrs).toHaveLength(5)
+    expect(attrs.every((row) => row.status === 'faithful')).toBe(true)
+    expect(attrs.map((row) => row.workers[0])).toEqual([1736, 1737, 1738, 1739, 1740])
+    expect(attrs.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

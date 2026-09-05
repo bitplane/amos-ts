@@ -255,3 +255,21 @@ export function setIntuiText(
   text.text = value >>> 0
   text.next = next >>> 0
 }
+
+/** `struct TextAttr`: name pointer, Y size word, style byte and flags byte. */
+export interface NativeTextAttr {
+  name: number
+  ySize: number
+  style: number
+  flags: number
+}
+
+export const newNativeTextAttr = (): NativeTextAttr => ({ name: 0, ySize: 0, style: 0, flags: 0 })
+
+export function setTextAttr(attr: NativeTextAttr | null, name: number, ySize: number, style: number, flags: number): void {
+  if (!attr) return
+  attr.name = name >>> 0
+  attr.ySize = ySize & 0xffff
+  attr.style = style & 0xff
+  attr.flags = flags & 0xff
+}

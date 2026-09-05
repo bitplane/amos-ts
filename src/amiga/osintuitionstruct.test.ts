@@ -4,6 +4,7 @@ import {
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
   nativeIntuiMessage, notifyRequest,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
+  newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
 } from './osintuitionstruct'
 
@@ -88,5 +89,11 @@ describe('OS DevKit native Intuition structures', () => {
       frontPen: 4, backPen: 5, drawMode: 6, left: 0xfff9, top: 0xfff8,
       font: 0xffff_fff7, text: 0xffff_fff6, next: 0xffff_fff5,
     })
+  })
+
+  it('writes every field of the eight-byte TextAttr record at native widths', () => {
+    const attr = newNativeTextAttr()
+    setTextAttr(attr, -1, 0x12345, 0x102, 0x203)
+    expect(attr).toEqual({ name: 0xffff_ffff, ySize: 0x2345, style: 2, flags: 3 })
   })
 })
