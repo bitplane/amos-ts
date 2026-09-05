@@ -214,6 +214,25 @@ auditMany('missing', 'workbench.library and a Workbench desktop base are not mod
 auditMany('partial', 'four-field timestamp comparison is modelled with the Workbench half-second default, but user Preferences do not supply the interval', [
   '_dbl click',
 ])
+auditMany('faithful', 'the complete native Border layout and its byte/word/long field mutations and reads are modelled', [
+  '_bd set draw', '_bd set corner', '_bd set dots', '_bd set next', '_bd set', '_bd what front pen',
+  '_bd what back pen', '_bd what draw mode', '_bd what left', '_bd what top', '_bd what dots nb',
+  '_bd what dots', '_bd what next',
+])
+auditMany('partial', 'Border polyline rendering exists, but native address-chain traversal and every draw-mode side effect are not modelled', [
+  '_bd draw',
+])
+auditMany('faithful', 'all eleven native PropInfo words, including calculated geometry and increments, are represented', [
+  '_pi set', '_pi what flags', '_pi what % horiz', '_pi what % vert', '_pi what % width',
+  '_pi what % height', '_pi what width', '_pi what height', '_pi what hinc', '_pi what vinc',
+  '_pi what left', '_pi what top',
+])
+auditMany('faithful', 'all 36 bytes of StringInfo and the exact partial/full setters are represented', [
+  '_si set buf', '_si set ext', '_si set integer', '_si set keymap', '_si set', '_si what buf',
+  '_si what undo buf', '_si what pos buf', '_si what max chars', '_si what disp chars', '_si what undo pos',
+  '_si what nb chars', '_si what disp count', '_si what cleft', '_si what ctop', '_si what ext',
+  '_si what integer', '_si what keymap',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

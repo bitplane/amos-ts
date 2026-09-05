@@ -294,6 +294,23 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all 44 Border, PropInfo and StringInfo operations', () => {
+    const native = rows.filter((row) => ['_bd', '_pi', '_si'].includes(row.namespace))
+    expect(native).toHaveLength(44)
+    expect(native.filter((row) => row.status === 'faithful')).toHaveLength(43)
+    expect(native.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_bd draw'])
+    expect(native.some((row) => row.status === 'review')).toBe(false)
+    expect(native.find((row) => row.name === '_bd set draw')?.workers).toEqual([1370])
+    expect(native.find((row) => row.name === '_bd draw')).toMatchObject({
+      workers: [1375],
+      osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -108 })],
+    })
+    expect(native.find((row) => row.name === '_pi set')?.workers).toEqual([1409])
+    expect(native.find((row) => row.name === '_pi what top')?.workers).toEqual([1420])
+    expect(native.find((row) => row.name === '_si set')?.workers).toEqual([1425])
+    expect(native.find((row) => row.name === '_si what keymap')?.workers).toEqual([1438])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
