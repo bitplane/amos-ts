@@ -318,6 +318,16 @@ auditMany('partial', 'the high-level GadTools bank workflows are partial; these 
 auditMany('partial', 'planar Bob rendering exists, but this worker directly mutates arbitrary Bob/Image and RastPort memory plus blitter registers', [
   '_bob blit',
 ])
+auditMany('faithful', 'the complete exposed 44-byte Gadget record and exact pointer/unsigned-word setters and readers are represented', [
+  '_gad set next', '_gad set body', '_gad set fat', '_gad set render', '_gad set text',
+  '_gad set spec info', '_gad set user', '_gad what next', '_gad what left', '_gad what top',
+  '_gad what width', '_gad what height', '_gad what flags', '_gad what activation', '_gad what type',
+  '_gad what render', '_gad what h render', '_gad what text', '_gad what spec info',
+  '_gad what user id', '_gad what user data',
+])
+auditMany('partial', 'managed gadget lifecycle and property state exist, but arbitrary native Gadget/Window chains and refresh rendering are not integrated', [
+  '_gad activate', '_gad add', '_gad modif prop', '_gad off', '_gad on', '_gad refresh', '_gad remove',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

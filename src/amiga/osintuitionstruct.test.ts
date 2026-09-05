@@ -4,6 +4,7 @@ import {
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
   nativeIntuiMessage, notifyRequest, notifyUserData,
   allocDots, setDot, newNativeBooleanInfo, setBooleanInfo,
+  newNativeGadget, setGadgetBody, setGadgetFlags, setGadgetRender, setGadgetUser,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
@@ -94,6 +95,23 @@ describe('OS DevKit native Intuition structures', () => {
     const info = newNativeBooleanInfo()
     setBooleanInfo(info, 0x12345, -1)
     expect(info).toEqual({ flags: 0x2345, mask: 0xffff_ffff })
+  })
+
+  it('stores all exposed Gadget words and pointers at their native widths', () => {
+    const g = newNativeGadget()
+    setGadgetBody(g, -1, 0x12345, 0x23456, 0x34567)
+    setGadgetFlags(g, 0x45678, 0x56789, 0x6789a)
+    setGadgetRender(g, -1, -2)
+    setGadgetUser(g, 0x789ab, -3)
+    g.next = 1
+    g.text = 2
+    g.specialInfo = 3
+    expect(g).toMatchObject({
+      next: 1, left: 0xffff, top: 0x2345, width: 0x3456, height: 0x4567,
+      flags: 0x5678, activation: 0x6789, type: 0x789a,
+      render: 0xffff_ffff, selectRender: 0xffff_fffe, text: 2,
+      specialInfo: 3, id: 0x89ab, userData: 0xffff_fffd,
+    })
   })
 
   it('writes every byte, word and pointer of the 20-byte IntuiText record', () => {

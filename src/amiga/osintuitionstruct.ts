@@ -242,6 +242,54 @@ export function setBooleanInfo(info: NativeBooleanInfo, flags: number, mask: num
   info.mask = mask >>> 0
 }
 
+/** The public 44-byte `struct Gadget` fields OS DevKit exposes. */
+export interface NativeGadget {
+  next: number
+  left: number
+  top: number
+  width: number
+  height: number
+  flags: number
+  activation: number
+  type: number
+  render: number
+  selectRender: number
+  text: number
+  mutualExclude: number
+  specialInfo: number
+  id: number
+  userData: number
+}
+
+export const newNativeGadget = (): NativeGadget => ({
+  next: 0, left: 0, top: 0, width: 0, height: 0,
+  flags: 0, activation: 0, type: 0, render: 0, selectRender: 0,
+  text: 0, mutualExclude: 0, specialInfo: 0, id: 0, userData: 0,
+})
+
+export function setGadgetBody(g: NativeGadget, left: number, top: number, width: number, height: number): void {
+  g.left = left & 0xffff
+  g.top = top & 0xffff
+  g.width = width & 0xffff
+  g.height = height & 0xffff
+}
+
+export function setGadgetFlags(g: NativeGadget, flags: number, activation: number, type: number): void {
+  g.flags = flags & 0xffff
+  g.activation = activation & 0xffff
+  g.type = type & 0xffff
+}
+
+export function setGadgetRender(g: NativeGadget, render: number, selected: number): void {
+  g.render = render >>> 0
+  g.selectRender = selected >>> 0
+}
+
+export function setGadgetUser(g: NativeGadget, id: number, data: number): void {
+  g.id = id & 0xffff
+  g.userData = data >>> 0
+}
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number

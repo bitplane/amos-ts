@@ -1104,6 +1104,31 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.filter((row) => row.status === 'review' && row.family !== 'intuition')).toEqual([])
   })
 
+  it('classifies all 28 native Gadget operations', () => {
+    const gadgets = rows.filter((row) => row.namespace === '_gad')
+    expect(gadgets).toHaveLength(28)
+    expect(gadgets.filter((row) => row.status === 'faithful')).toHaveLength(21)
+    expect(gadgets.filter((row) => row.status === 'partial')).toHaveLength(7)
+    const calls = new Map<string, [number, number]>([
+      ['_gad activate', [1333, -462]], ['_gad add', [1334, -438]],
+      ['_gad modif prop', [1335, -468]], ['_gad off', [1336, -174]],
+      ['_gad on', [1337, -186]], ['_gad refresh', [1338, -432]],
+      ['_gad remove', [1339, -444]],
+    ])
+    for (const [name, [worker, lvo]] of calls) {
+      expect(gadgets.find((row) => row.name === name)).toMatchObject({
+        status: 'partial', workers: [worker],
+        osCalls: [expect.objectContaining({ library: 'intuition.library', lvo })],
+      })
+    }
+    const fieldWorkers = gadgets.filter((row) => row.status === 'faithful').map((row) => row.workers[0])
+    expect(fieldWorkers).toEqual([
+      1326, 1327, 1328, 1329, 1330, 1331, 1332,
+      1340, 1341, 1342, 1343, 1344, 1345, 1346, 1347, 1348, 1349, 1350, 1351, 1352, 1353,
+    ])
+    expect(gadgets.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
