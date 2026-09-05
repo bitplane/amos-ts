@@ -1033,6 +1033,22 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies all four internal resource-tracker workers', () => {
+    const tracker = rows.filter((row) => row.namespace === 'track')
+    expect(tracker).toHaveLength(4)
+    expect(tracker.every((row) => row.status === 'faithful')).toBe(true)
+    expect(tracker.find((row) => row.name === 'track set')?.workers).toEqual([1883])
+    expect(tracker.find((row) => row.name === 'track unset')?.workers).toEqual([1884])
+    expect(tracker.find((row) => row.name === 'track exist')?.workers).toEqual([1885])
+    expect(tracker.find((row) => row.name === 'track add')).toMatchObject({
+      workers: [1886],
+      osCalls: [
+        expect.objectContaining({ library: 'exec.library', lvo: -684 }),
+        expect.objectContaining({ library: 'exec.library', lvo: -690 }),
+      ],
+    })
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

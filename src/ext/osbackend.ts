@@ -264,6 +264,9 @@ auditMany('partial', 'the PAL display-mode database provides compatible IDs and 
 auditMany('partial', 'View/ViewPort geometry exists, but CalcIVG requires arbitrary native structures and graphics-driver state', [
   '_calc ivg',
 ])
+auditMany('faithful', 'the 32 independent pointer classes, deduplicating Set, direct Add, lookup and gap-closing removal are represented exactly', [
+  'track set', 'track unset', 'track add', 'track exist',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
