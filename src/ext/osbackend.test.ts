@@ -211,6 +211,14 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all four V39 pooled-allocation calls', () => {
+    const pool = rows.filter((row) => row.namespace === '_pool')
+    expect(pool).toHaveLength(4)
+    expect(pool.every((row) => row.status === 'partial')).toBe(true)
+    expect(pool.map((row) => row.osCalls[0]?.lvo)).toEqual([-696, -702, -708, -714])
+    expect(pool.map((row) => row.workers[0])).toEqual([1784, 1785, 1786, 1787])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

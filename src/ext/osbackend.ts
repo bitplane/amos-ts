@@ -177,6 +177,9 @@ auditMany('faithful', 'the signed and unsigned offset memory fields and cleared 
 auditMany('faithful', 'AllocVec flag handling, size header and FreeVec lifecycle are modelled by the shared Exec memory backend', [
   '_vec alloc', '_vec free',
 ])
+auditMany('partial', 'V39 pool creation, requirements, allocation/free and deletion are modelled; native puddle/threshold placement is not', [
+  '_pool create', '_pool delete', '_pool alloc', '_pool free',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { A1200_POOLS, MEMF, availMem, closeLibrary, libraryPresent, openLibrary } from './exec'
+import { A1200_POOLS, ExecPool, MEMF, availMem, closeLibrary, libraryPresent, openLibrary } from './exec'
 
 describe('exec: AvailMem', () => {
   const empty = { chip: 0, fast: 0 }
@@ -91,5 +91,32 @@ describe('exec: OpenLibrary', () => {
 
   it('closing is safe and releases nothing', () => {
     expect(() => closeLibrary(openLibrary('locale.library', 38))).not.toThrow()
+  })
+})
+
+describe('exec: V39 pooled allocation', () => {
+  it('keeps requirements and clears/attributes each allocation', () => {
+    const pool = new ExecPool(0x6000, 0x1000, MEMF.PUBLIC | MEMF.CHIP | MEMF.CLEAR, 4096, 256)
+    const a = pool.alloc(13)
+    expect(a).toBeGreaterThan(0)
+    expect(pool.memory.sizeOf(a)).toBe(16)
+    expect(pool.memory.chip(a)).toBe(true)
+    expect([...pool.memory.buffer.subarray(a - pool.memory.base, a - pool.memory.base + 13)])
+      .toEqual(new Array(13).fill(0))
+    expect(pool.puddleSize).toBe(4096)
+    expect(pool.thresholdSize).toBe(256)
+  })
+
+  it('frees individual blocks and DeletePool invalidates the whole lifetime', () => {
+    const pool = new ExecPool(0x7000, 0x1000, MEMF.PUBLIC, 4096, 256)
+    const a = pool.alloc(8)
+    const b = pool.alloc(8)
+    pool.free(a, 8)
+    expect(pool.memory.sizeOf(a)).toBe(0)
+    expect(pool.memory.sizeOf(b)).toBe(8)
+    pool.delete()
+    expect(pool.memory.sizeOf(b)).toBe(0)
+    expect(pool.alloc(8)).toBe(0)
+    expect(() => pool.delete()).not.toThrow()
   })
 })

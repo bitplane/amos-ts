@@ -493,6 +493,15 @@ export class MemPool {
     return { chip, fast }
   }
 
+  /** DeletePool/free-all: invalidate every block and return to initial state. */
+  releaseAll(): void {
+    this.buffer = new Uint8Array(0)
+    this.top = 0
+    this.free = []
+    this.live.clear()
+    this.chipBlocks.clear()
+  }
+
   /**
    * Hand back the FRONT of a block and keep the rest.
    *
@@ -510,5 +519,43 @@ export class MemPool {
     if (chip) this.chipBlocks.add(off + bytes)
     this.free.push({ off, len: bytes })
     this.free.sort((a, b) => a.off - b.off)
+  }
+}
+
+/**
+ * Exec V39 pooled allocation. Puddle placement is intentionally not exposed:
+ * the backend preserves the pool's requirements, isolated lifetime, clearing
+ * and chip attribution, while `MemPool` supplies deterministic host addresses.
+ */
+export class ExecPool {
+  readonly memory: MemPool
+  deleted = false
+
+  constructor(
+    base: number,
+    reserved: number,
+    readonly requirements: number,
+    readonly puddleSize: number,
+    readonly thresholdSize: number,
+  ) {
+    this.memory = new MemPool(base, reserved)
+  }
+
+  alloc(size: number): number {
+    if (this.deleted) return 0
+    return this.memory.alloc(size, {
+      clear: (this.requirements & MEMF.CLEAR) !== 0,
+      chip: (this.requirements & MEMF.CHIP) !== 0,
+    })
+  }
+
+  free(address: number, _size: number): void {
+    if (!this.deleted && address !== 0) this.memory.freeMem(address)
+  }
+
+  delete(): void {
+    if (this.deleted) return
+    this.memory.releaseAll()
+    this.deleted = true
   }
 }
