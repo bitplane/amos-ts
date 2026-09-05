@@ -77,6 +77,12 @@ export const newNativeView = (): NativeView => ({
   viewPort: 0, lofCopper: 0, shfCopper: 0, dyOffset: 0, dxOffset: 0, modes: 0,
 })
 
+/** graphics.library InitView clears the complete public View record. */
+export function initView(view: NativeView | null): void {
+  if (!view) return
+  Object.assign(view, newNativeView())
+}
+
 /**
  * Routine 1713 exactly, including its defect: the final long write targets
  * `$c`, replacing Y and X with the high/low halves of `modes`; v_Modes at
@@ -119,6 +125,12 @@ export const newNativeViewPort = (): NativeViewPort => ({
   dWidth: 0, dHeight: 0, dxOffset: 0, dyOffset: 0, modes: 0,
   spritePriority: 0, extendedModes: 0, rasInfo: 0,
 })
+
+/** graphics.library InitVPort clears the complete public ViewPort record. */
+export function initViewPort(viewPort: NativeViewPort | null): void {
+  if (!viewPort) return
+  Object.assign(viewPort, newNativeViewPort())
+}
 
 export function setViewPortBody(
   viewPort: NativeViewPort | null,

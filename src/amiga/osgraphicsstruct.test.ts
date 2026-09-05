@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bitMapPlane, newNativeBitMap, newNativeRasInfo, newNativeView, newNativeViewPort,
+  bitMapPlane, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeView, newNativeViewPort,
   osDevKitViewPortWidth, osDevKitViewPortY, setBitMapData, setBitMapPlane, setOsDevKitView,
   setRasInfo, setViewPortBody,
 } from './osgraphicsstruct'
@@ -64,5 +64,14 @@ describe('OS DevKit native graphics structures', () => {
     expect(osDevKitViewPortWidth(0x12345)).toBe(0x2345)
     expect(osDevKitViewPortY(staleD0)).toBe(0x8001)
     expect(osDevKitViewPortY(staleD0)).not.toBe(argument.dyOffset)
+  })
+
+  it('initializes complete View and ViewPort records', () => {
+    const view = { ...newNativeView(), viewPort: 1, lofCopper: 2, modes: 3 }
+    const viewPort = { ...newNativeViewPort(), next: 1, modes: 2, rasInfo: 3 }
+    initView(view)
+    initViewPort(viewPort)
+    expect(view).toEqual(newNativeView())
+    expect(viewPort).toEqual(newNativeViewPort())
   })
 })

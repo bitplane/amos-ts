@@ -360,6 +360,13 @@ auditMany('faithful', 'managed ColorMaps implement allocation, lifetime and exac
 auditMany('partial', 'screen palettes exist, but these workers take arbitrary native ViewPort and raw colour-table pointers', [
   '_rgb4 load', '_rgb4 set', '_rgb32 load', '_rgb32 set',
 ])
+auditMany('faithful', 'complete public View and ViewPort records can be initialized exactly', [
+  '_cop init view', '_cop init vport',
+])
+auditMany('partial', 'the copper interpreter and VBL/display operations exist, but arbitrary native View graphs and tag-list control are not integrated', [
+  '_cop load view', '_cop make vport', '_cop mrg', '_cop scroll vport', '_cop vbeam pos', '_cop wait tof',
+  '_cop control', '_cop wait bottom',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

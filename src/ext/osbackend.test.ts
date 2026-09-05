@@ -641,6 +641,28 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all ten Copper lifecycle and beam operations', () => {
+    const copper = rows.filter((row) => row.namespace === '_cop')
+    expect(copper).toHaveLength(10)
+    expect(copper.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_cop init view', '_cop init vport',
+    ])
+    expect(copper.filter((row) => row.status === 'partial')).toHaveLength(8)
+    expect(copper.some((row) => row.status === 'review')).toBe(false)
+    const expected = new Map<string, [number, number]>([
+      ['_cop init view', [1641, -360]], ['_cop init vport', [1642, -204]],
+      ['_cop load view', [1643, -222]], ['_cop make vport', [1644, -216]],
+      ['_cop mrg', [1645, -210]], ['_cop scroll vport', [1646, -588]],
+      ['_cop vbeam pos', [1647, -384]], ['_cop wait tof', [1648, -270]],
+      ['_cop control', [1649, -708]], ['_cop wait bottom', [1650, -402]],
+    ])
+    for (const row of copper) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
+    }
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
