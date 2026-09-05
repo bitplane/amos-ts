@@ -9,6 +9,7 @@ export interface OsCall {
 const A5_BASES: Readonly<Record<number, string>> = {
   [-0x18a6]: 'intuition.library',
   [-0x18ae]: 'graphics.library',
+  [-0x18b2]: 'layers.library',
   [0x2b8]: 'dos.library',
 }
 
@@ -53,6 +54,7 @@ export function scanOsCalls(code: Uint8Array, from = 0, to = code.length): OsCal
   const dv = new DataView(code.buffer, code.byteOffset, code.byteLength)
   const calls: OsCall[] = []
   const source: Array<string | null> = [null, null, null, null, null, null, null, null]
+  const dataSource: Array<string | null> = [null, null, null, null, null, null, null, null]
   for (let i = from; i + 2 <= to; i += 2) {
     const op = dv.getUint16(i)
     if ((op & 0xf1ff) === 0x2078 && i + 4 <= to && dv.getUint16(i + 2) === 4) {
@@ -75,6 +77,16 @@ export function scanOsCalls(code: Uint8Array, from = 0, to = code.length): OsCal
     }
     if ((op & 0xf1f8) === 0x2050) {
       source[(op >> 9) & 7] = source[op & 7] ?? null
+      continue
+    }
+    // move.l (aS),dD followed by movea.l dD,aA. OS DevKit's ASL wrappers
+    // use this spelling instead of loading the library base straight to a6.
+    if ((op & 0xf1f8) === 0x2010) {
+      dataSource[(op >> 9) & 7] = source[op & 7] ?? null
+      continue
+    }
+    if ((op & 0xf1f8) === 0x2040) {
+      source[(op >> 9) & 7] = dataSource[op & 7] ?? null
       continue
     }
     const d5 = moveaDest(op, 5)
@@ -101,10 +113,6 @@ export function scanOsCalls(code: Uint8Array, from = 0, to = code.length): OsCal
       if (lvo < 0) calls.push(library ? { chain, library, lvo } : { chain, lvo })
       i += 2
       continue
-    }
-    if ((op & 0xf1c0) === 0x2040 || (op & 0xf1c0) === 0x2140) {
-      const d = (op >> 9) & 7
-      if ((op & 0x01c0) === 0x0040) source[d] = null
     }
   }
   return calls

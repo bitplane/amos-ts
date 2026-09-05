@@ -33,6 +33,12 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_ggad create')).toMatchObject({
       osCalls: [{ library: 'gadtools.library', lvo: -30 }],
     })
+    expect(rows.find((row) => row.name === '_font load')?.osCalls).toContainEqual({
+      chain: '?', library: 'diskfont.library', lvo: -30,
+    })
+    expect(rows.find((row) => row.name === '_ag display')?.osCalls).toContainEqual({
+      chain: '?', library: 'amigaguide.library', lvo: -54,
+    })
   })
 
   it('makes every previously stated missing family explicit', () => {

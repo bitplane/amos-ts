@@ -45,6 +45,14 @@ const MODELLED = new Map<string, string>([
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
+/** Lazy OpenLibrary paths whose inline names were verified in their workers. */
+const openedByWorker = (name: string): string | undefined => {
+  if (name === '_font load') return 'diskfont.library'
+  if (name === '_ag display') return 'amigaguide.library'
+  if (name === '_sp install') return 'stoneplayer.library'
+  return undefined
+}
+
 export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBackendRow[] {
   const addresses = routineAddresses(code)
   const layout = libLayout(code)
@@ -75,7 +83,9 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
       const to = addresses[routine + 1] ?? layout?.end
       if (from === undefined || to === undefined) continue
       for (const call of scanOsCalls(code, from, to)) {
-        calls.set(`${call.library ?? call.chain}:${call.lvo}`, call)
+        const library = call.library ?? openedByWorker(name)
+        const resolved = library ? { ...call, library } : call
+        calls.set(`${library ?? call.chain}:${call.lvo}`, resolved)
       }
     }
     return {
