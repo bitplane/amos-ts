@@ -960,6 +960,20 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.some((row) => row.status === 'review' && row.family === 'dos')).toBe(false)
   })
 
+  it('classifies NotifyRequest user data and Workbench program identity', () => {
+    expect(rows.find((row) => row.name === '_nr what user')).toMatchObject({
+      status: 'faithful', workers: [1858], osCalls: [],
+    })
+    expect(rows.find((row) => row.name === '_prg dir$')).toMatchObject({
+      // 1859 reaches NameFromLock indirectly through local worker 1829;
+      // osCalls deliberately records only calls in the resolved worker.
+      status: 'partial', workers: [1859], osCalls: [],
+    })
+    expect(rows.find((row) => row.name === '_prg name$')).toMatchObject({
+      status: 'partial', workers: [1860], osCalls: [],
+    })
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

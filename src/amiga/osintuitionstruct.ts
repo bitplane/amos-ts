@@ -208,6 +208,15 @@ export function notifyRequest(message: NativeNotifyMessage): number {
   return message.request >>> 0
 }
 
+/** `struct NotifyRequest.nr_UserData`, read by OS DevKit routine 1858 at +8. */
+export interface NativeNotifyRequest {
+  userData: number
+}
+
+export function notifyUserData(request: NativeNotifyRequest): number {
+  return request.userData >>> 0
+}
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number

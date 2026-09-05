@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   newNativeBorder, setBorderCorner, setBorderDots, setBorderDraw, setPropInfo, setStringBuffers,
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
-  nativeIntuiMessage, notifyRequest,
+  nativeIntuiMessage, notifyRequest, notifyUserData,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
@@ -77,6 +77,10 @@ describe('OS DevKit native Intuition structures', () => {
 
   it('reads the NotifyMessage request pointer at its native width', () => {
     expect(notifyRequest({ request: -1 })).toBe(0xffff_ffff)
+  })
+
+  it('reads NotifyRequest user data as an unsigned pointer-sized field', () => {
+    expect(notifyUserData({ userData: -1 })).toBe(0xffff_ffff)
   })
 
   it('writes every byte, word and pointer of the 20-byte IntuiText record', () => {

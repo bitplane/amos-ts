@@ -233,6 +233,12 @@ auditMany('partial', 'Amiga hunk loading and host process launch exist, but nati
 auditMany('partial', 'filesystem change subscriptions exist, but native NotifyRequest allocation and task-signal or MsgPort delivery are not integrated', [
   '_dos sig notify', '_dos msg notify', '_dos end notify',
 ])
+auditMany('faithful', 'the NotifyRequest user-data longword at offset 8 is represented exactly', [
+  '_nr what user',
+])
+auditMany('partial', 'the launch name and current directory exist, but the original Workbench WBArg lock/name pair is not retained independently after startup', [
+  '_prg dir$', '_prg name$',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
