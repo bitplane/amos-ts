@@ -1065,6 +1065,45 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === 'give me')).toMatchObject({ status: 'missing', workers: [45] })
   })
 
+  it('finishes every non-Intuition family with BOOPSI and miscellaneous calls', () => {
+    const statuses = new Map<string, 'faithful' | 'partial' | 'missing'>([
+      ['_alert', 'missing'], ['_rfsh begin', 'partial'], ['_rfsh end', 'partial'],
+      ['_query overscan', 'partial'], ['_obj new', 'partial'], ['_obj free', 'faithful'],
+      ['_obj what attr', 'faithful'], ['_obj set attrs', 'partial'], ['_obj do', 'partial'],
+      ['_class get file', 'missing'], ['_print', 'partial'], ['_request choice', 'partial'],
+      ['reserve as gt gadgets', 'partial'], ['reserve as gt menus', 'partial'], ['_bob blit', 'partial'],
+    ])
+    const operations = rows.filter((row) => statuses.has(row.name))
+    expect(operations).toHaveLength(15)
+    for (const row of operations) expect(row.status, row.name).toBe(statuses.get(row.name))
+
+    const direct = new Map<string, [number, string, number]>([
+      ['_alert', [1569, 'exec.library', -108]], ['_rfsh begin', [1577, 'intuition.library', -354]],
+      ['_rfsh end', [1578, 'intuition.library', -366]], ['_query overscan', [1593, 'intuition.library', -474]],
+      ['_obj new', [1887, 'intuition.library', -636]], ['_obj free', [1888, 'intuition.library', -642]],
+      ['_obj what attr', [1889, 'intuition.library', -654]],
+      ['_obj set attrs', [1890, 'intuition.library', -660]], ['_obj do', [1891, 'intuition.library', -810]],
+      ['_print', [1897, 'dos.library', -948]], ['_bob blit', [44, 'graphics.library', -456]],
+    ])
+    for (const [name, [worker, library, lvo]] of direct) {
+      expect(rows.find((row) => row.name === name)).toMatchObject({
+        workers: [worker], osCalls: expect.arrayContaining([expect.objectContaining({ library, lvo })]),
+      })
+    }
+    expect(rows.find((row) => row.name === '_class get file')).toMatchObject({
+      workers: [1892], osCalls: expect.arrayContaining([
+        expect.objectContaining({ library: 'intuition.library', lvo: -678 }),
+        expect.objectContaining({ library: 'intuition.library', lvo: -36 }),
+        expect.objectContaining({ library: 'intuition.library', lvo: -120 }),
+        expect.objectContaining({ library: 'intuition.library', lvo: -108 }),
+      ]),
+    })
+    expect(rows.find((row) => row.name === '_request choice')?.workers).toEqual([1576])
+    expect(rows.find((row) => row.name === 'reserve as gt gadgets')?.workers).toEqual([3115])
+    expect(rows.find((row) => row.name === 'reserve as gt menus')?.workers).toEqual([3172])
+    expect(rows.filter((row) => row.status === 'review' && row.family !== 'intuition')).toEqual([])
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

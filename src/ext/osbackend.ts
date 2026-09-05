@@ -285,6 +285,39 @@ auditMany('missing', 'the native AMOS evaluation-stack pointer has no stable add
 auditMany('missing', 'the worker returns an internal AMOS channel-table pointer whose raw layout is not exposed', [
   'give me',
 ])
+auditMany('missing', 'native Exec Alert presentation and its Workbench shutdown interaction are not modelled', [
+  '_alert',
+])
+auditMany('partial', 'managed windows have refresh state and redraw paths, but arbitrary native BeginRefresh/EndRefresh layer damage is not exposed', [
+  '_rfsh begin', '_rfsh end',
+])
+auditMany('partial', 'nominal PAL mode geometry exists, but QueryOverscan against arbitrary monitor-driver rectangles is incomplete', [
+  '_query overscan',
+])
+auditMany('partial', 'registered managed BOOPSI classes can construct objects, but arbitrary public class names and native tag pointers are not exposed', [
+  '_obj new',
+])
+auditMany('faithful', 'managed BOOPSI objects implement DisposeObject and nullable GetAttr success/value semantics exactly', [
+  '_obj free', '_obj what attr',
+])
+auditMany('partial', 'BOOPSI attribute/method dispatch exists, but arbitrary native tag lists and message structures cannot be dispatched', [
+  '_obj set attrs', '_obj do',
+])
+auditMany('missing', 'OS DevKit’s custom file-backed image class and its embedded native dispatcher are not modelled', [
+  '_class get file',
+])
+auditMany('partial', 'console output exists, but dos.library VPrintf formatting through a native argument stream is not exposed', [
+  '_print',
+])
+auditMany('partial', 'choice requesters exist through the host UI, but the native EasyStruct formatting/return lifecycle is not exposed', [
+  '_request choice',
+])
+auditMany('partial', 'the high-level GadTools bank workflows are partial; these two tokens are exact aliases into those same reservations', [
+  'reserve as gt gadgets', 'reserve as gt menus',
+])
+auditMany('partial', 'planar Bob rendering exists, but this worker directly mutates arbitrary Bob/Image and RastPort memory plus blitter registers', [
+  '_bob blit',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
