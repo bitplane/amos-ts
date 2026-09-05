@@ -52,6 +52,28 @@ export abstract class Cpu implements Device {
    * nothing reports a 68030 that is not there.
    */
   ignoreClock = false
+
+  /** Exec's logical cache enable/burst state, as returned by CacheControl. */
+  cacheBits = 0
+
+  /**
+   * `CacheControl(cacheBits, cacheMask)`: replace only masked bits and return
+   * the complete previous state. Actual instruction timing is deliberately
+   * absent with the 68k executor; keeping the control word still preserves
+   * every value the API exposes directly.
+   */
+  cacheControl(cacheBits: number, cacheMask: number): number {
+    const old = this.cacheBits >>> 0
+    this.cacheBits = ((old & ~cacheMask) | (cacheBits & cacheMask)) >>> 0
+    return old
+  }
+
+  /**
+   * `CacheClearU`: host memory is coherent, so all writes are already visible
+   * to every subsequent data or instruction read. There is no stale cache to
+   * invalidate and the exact backend operation is consequently a no-op.
+   */
+  clearCaches(): void {}
 }
 
 /** the 68000 every stock Amiga shipped with, at the PAL rate */

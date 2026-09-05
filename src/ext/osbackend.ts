@@ -159,6 +159,12 @@ auditMany('faithful', 'the workers are direct big-endian memory reads/writes, in
 auditMany('faithful', 'the worker calls exec ColdReboot and the machine backend records the same cold-reset request', [
   '_cold reboot',
 ])
+auditMany('faithful', 'CacheClearU is an exact no-op over the backend coherent memory model', [
+  '_cache clr',
+])
+auditMany('partial', 'CacheControl masked state and its previous-value result are modelled, but there is no 68k execution cache for the flags to affect', [
+  '_cache ctrl',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

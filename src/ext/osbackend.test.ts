@@ -173,6 +173,17 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies both Exec cache operations from their exact LVOs', () => {
+    expect(rows.find((row) => row.name === '_cache clr')).toMatchObject({
+      status: 'faithful', workers: [1755],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -636 })],
+    })
+    expect(rows.find((row) => row.name === '_cache ctrl')).toMatchObject({
+      status: 'partial', workers: [1756],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -648 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
