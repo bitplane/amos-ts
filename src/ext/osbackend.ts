@@ -296,6 +296,15 @@ auditMany('faithful', 'CurrentTime uses the 1978 epoch and the Exec/AttnFlags wo
 auditMany('partial', 'the display View exists semantically, but has no stable native raw View pointer or structure layout', [
   '_sys view',
 ])
+auditMany('faithful', 'FindDisplayInfo resolves the installed PAL monitor database by exact DisplayID', [
+  '_disp info find',
+])
+auditMany('partial', 'the operation exists, but ROM alert presentation or staged native View/copper rebuild state is not represented', [
+  '_disp alert', '_disp remake', '_disp rethink',
+])
+auditMany('partial', 'mode names and nominal geometry exist, but the full monitor-driver DisplayInfo data records do not', [
+  '_disp info get',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

@@ -459,6 +459,31 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(system.find((row) => row.name === '_sys fpu')?.workers).toEqual([1754])
   })
 
+  it('classifies all five display-control and display-database operations', () => {
+    const display = rows.filter((row) => row.namespace === '_disp')
+    expect(display).toHaveLength(5)
+    expect(display.filter((row) => row.status === 'faithful').map((row) => row.name)).toEqual(['_disp info find'])
+    expect(display.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_disp alert', '_disp info get', '_disp remake', '_disp rethink',
+    ])
+    expect(display.some((row) => row.status === 'review')).toBe(false)
+    expect(display.find((row) => row.name === '_disp alert')).toMatchObject({
+      workers: [1571], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -90 })],
+    })
+    expect(display.find((row) => row.name === '_disp remake')).toMatchObject({
+      workers: [1579], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -384 })],
+    })
+    expect(display.find((row) => row.name === '_disp rethink')).toMatchObject({
+      workers: [1580], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -390 })],
+    })
+    expect(display.find((row) => row.name === '_disp info find')).toMatchObject({
+      workers: [1790], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -726 })],
+    })
+    expect(display.find((row) => row.name === '_disp info get')).toMatchObject({
+      workers: [1791], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -756 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
