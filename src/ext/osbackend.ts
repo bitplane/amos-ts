@@ -389,6 +389,10 @@ auditMany('faithful', 'RastPort font assignment and masked algorithmic-style rea
 auditMany('partial', 'disk-font parsing and lookup exist, but native TextAttr/TextFont pointers, the resident font list and open-count ownership are not integrated', [
   '_font add', '_font ask', '_font close', '_font open', '_font rem', '_font load',
 ])
+auditMany('partial', 'polygon, ellipse, flood and rectangle rendering exist, but caller-owned native RastPort/AreaInfo/TmpRas records and raw raster allocation are not integrated', [
+  '_area draw', '_area ellipse', '_area end', '_area move', '_rp flood', '_area init', '_rp bar',
+  '_rast alloc', '_rast free',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

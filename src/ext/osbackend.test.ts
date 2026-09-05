@@ -742,6 +742,26 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies all nine area-fill and raster-allocation operations', () => {
+    const names = [
+      '_area draw', '_area ellipse', '_area end', '_area move', '_rp flood', '_area init', '_rp bar',
+      '_rast alloc', '_rast free',
+    ]
+    const area = rows.filter((row) => names.includes(row.name))
+    expect(area).toHaveLength(9)
+    expect(area.every((row) => row.status === 'partial')).toBe(true)
+    const expected = new Map<string, [number, number]>([
+      ['_area draw', [1622, -258]], ['_area ellipse', [1623, -186]], ['_area end', [1624, -264]],
+      ['_area move', [1625, -252]], ['_rp flood', [1626, -330]], ['_area init', [1627, -282]],
+      ['_rp bar', [1628, -306]], ['_rast alloc', [1629, -492]], ['_rast free', [1630, -498]],
+    ])
+    for (const row of area) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
+    }
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
