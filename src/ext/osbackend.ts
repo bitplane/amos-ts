@@ -74,6 +74,14 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_cat open', { status: 'partial', reason: 'catalog decoding is faithful, but locale path selection and OpenCatalog tags are not modelled' }],
   ['_cat close', { status: 'faithful', reason: 'parsed catalogs need no observable close lifecycle' }],
   ['_cat str', { status: 'faithful', reason: 'GetCatalogStr returns the catalog value or caller default exactly' }],
+  ['_asl alloc', { status: 'partial', reason: 'all three requester types allocate, but only the tag subset used by existing ports is modelled' }],
+  ['_asl do', { status: 'partial', reason: 'file, font and screen-mode dialogs run, but arbitrary native requester tags are not modelled' }],
+  ['_asl free', { status: 'faithful', reason: 'requester state has no observable resources after the modal request ends' }],
+  ['_asl what file', { status: 'faithful', reason: 'the file requester preserves its selected file field' }],
+  ['_asl what drawer', { status: 'faithful', reason: 'the file requester preserves its selected drawer field' }],
+  ['_asl what nb args', { status: 'missing', reason: 'ASL multi-selection and its WBArg array are not modelled' }],
+  ['_asl what font', { status: 'faithful', reason: 'the font requester preserves its selected font name' }],
+  ['_asl file$', { status: 'faithful', reason: 'the modal file requester and joined selected path are modelled' }],
 ])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!

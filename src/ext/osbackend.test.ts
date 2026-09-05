@@ -72,6 +72,17 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(locale.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies every ASL keyword at operation level', () => {
+    const asl = rows.filter((row) => row.namespace === '_asl')
+    expect(asl).toHaveLength(8)
+    expect(asl.filter((row) => row.status === 'faithful')).toHaveLength(5)
+    expect(asl.filter((row) => row.status === 'partial').map((row) => row.name).sort())
+      .toEqual(['_asl alloc', '_asl do'])
+    expect(asl.filter((row) => row.status === 'missing').map((row) => row.name))
+      .toEqual(['_asl what nb args'])
+    expect(asl.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
