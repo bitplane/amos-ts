@@ -1,5 +1,6 @@
 import type { TokenEntry } from '../tokens/libtok'
-import { routineAddresses } from './routines'
+import { scanOsCalls, type OsCall } from './oscalls'
+import { libLayout, routineAddresses } from './routines'
 
 export type OsBackendStatus = 'modelled' | 'missing' | 'review'
 
@@ -13,6 +14,8 @@ export interface OsBackendRow {
   /** Entry routines after following the extension's Rbra forwarding chain. */
   workers: number[]
   eightByteRoutines: number[]
+  /** Calls made by the resolved worker routine, deduplicated by library/LVO. */
+  osCalls: OsCall[]
 }
 
 /** Families whose absence is already established, kept as executable data. */
@@ -44,6 +47,7 @@ const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[
 
 export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBackendRow[] {
   const addresses = routineAddresses(code)
+  const layout = libLayout(code)
   const worker = (routine: number): number => {
     let current = routine
     const seen = new Set<number>()
@@ -51,8 +55,8 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
       seen.add(current)
       const at = addresses[current]
       if (at === undefined || code[at] !== 0xfe || code[at + 1] !== 0x21) break
-      // Rbra stores the one-based routine number in its pseudo-op payload.
-      current = (((code[at + 2] ?? 0) << 8) | (code[at + 3] ?? 0)) - 1
+      // A plain C_Code call stores this library's zero-based routine index.
+      current = ((code[at + 2] ?? 0) << 8) | (code[at + 3] ?? 0)
     }
     return current
   }
@@ -64,6 +68,16 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
     const routines = [...new Set([entry.instr, entry.func].filter((n) => n !== undefined && n !== 1 && n !== 0xffff))]
     // Invalid routine references are review items, never silently "covered".
     const valid = routines.every((n) => addresses[n!] !== undefined)
+    const workers = routines.map(worker)
+    const calls = new Map<string, OsCall>()
+    for (const routine of workers) {
+      const from = addresses[routine]
+      const to = addresses[routine + 1] ?? layout?.end
+      if (from === undefined || to === undefined) continue
+      for (const call of scanOsCalls(code, from, to)) {
+        calls.set(`${call.library ?? call.chain}:${call.lvo}`, call)
+      }
+    }
     return {
       name,
       tokenId: entry.id,
@@ -71,11 +85,12 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
       namespace,
       status: missing ? 'missing' : modelled && valid ? 'modelled' : 'review',
       family: missing?.family ?? modelled ?? namespace,
-      workers: routines.map(worker),
+      workers,
       eightByteRoutines: routines.filter((routine) => {
         const at = addresses[routine]
         return at !== undefined && addresses[routine + 1] === at + 8
       }),
+      osCalls: [...calls.values()],
     }
   })
 }
@@ -87,6 +102,9 @@ export function osBackendSummary(rows: OsBackendRow[]): {
   referencedRoutines: number
   workers: number
   eightByteRoutines: number
+  keywordsWithOsCalls: number
+  untracedOsCalls: number
+  byLibrary: Array<{ library: string; keywords: number; lvos: number }>
 } {
   const byStatus: Record<OsBackendStatus, number> = { modelled: 0, missing: 0, review: 0 }
   const groups = new Map<string, { family: string; status: OsBackendStatus; keywords: number }>()
@@ -101,6 +119,18 @@ export function osBackendSummary(rows: OsBackendRow[]): {
   const workers = new Set(rows.flatMap((row) => row.workers))
   const eightByteRoutines = new Set<number>()
   for (const row of rows) for (const routine of row.eightByteRoutines) eightByteRoutines.add(routine)
+  const libraries = new Map<string, { keywords: Set<number>; lvos: Set<number> }>()
+  let untracedOsCalls = 0
+  for (const row of rows) for (const call of row.osCalls) {
+    if (!call.library) {
+      untracedOsCalls++
+      continue
+    }
+    const group = libraries.get(call.library) ?? { keywords: new Set<number>(), lvos: new Set<number>() }
+    group.keywords.add(row.tokenId)
+    group.lvos.add(call.lvo)
+    libraries.set(call.library, group)
+  }
   return {
     total: rows.length,
     byStatus,
@@ -108,5 +138,12 @@ export function osBackendSummary(rows: OsBackendRow[]): {
     referencedRoutines: routines.size,
     workers: workers.size,
     eightByteRoutines: eightByteRoutines.size,
+    keywordsWithOsCalls: rows.filter((row) => row.osCalls.length > 0).length,
+    untracedOsCalls,
+    byLibrary: [...libraries].map(([library, group]) => ({
+      library,
+      keywords: group.keywords.size,
+      lvos: group.lvos.size,
+    })).sort((a, b) => b.keywords - a.keywords),
   }
 }

@@ -21,7 +21,13 @@ else {
   console.log(`  referenced routines         ${summary.referencedRoutines}`)
   console.log(`  resolved worker routines    ${summary.workers}`)
   console.log(`  eight-byte routines         ${summary.eightByteRoutines}`)
-  console.log('')
+  console.log(`  keywords with direct calls  ${summary.keywordsWithOsCalls}`)
+  console.log(`  untraced direct calls       ${summary.untracedOsCalls}`)
+  console.log('\nDirect calls by library (keywords / distinct LVOs)')
+  for (const row of summary.byLibrary) {
+    console.log(`  ${row.library.padEnd(22)} ${String(row.keywords).padStart(3)} / ${row.lvos}`)
+  }
+  console.log('\nNamespace audit')
   for (const group of summary.byFamily) {
     console.log(`${group.status.padEnd(8)} ${group.family.padEnd(16)} ${String(group.keywords).padStart(4)}`)
   }

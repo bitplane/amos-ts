@@ -41,38 +41,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { firstCodeHunk } from '../amiga/hunk'
+import { libraryForChain, scanOsCalls } from '../ext/oscalls'
 import { REGISTRY, extensionById } from '../ext/registry'
-
-/**
- * The a5 offsets AMOS keeps library bases at. Named where a ported keyword
- * has already pinned one against its own disassembly; the rest print raw,
- * because a guessed name is worse than a number.
- */
-const A5_BASES: Record<number, string> = {
-  // easylife.ts `elwb open`: `movea.l -$18a6(a5),a6 / jsr -$d2(a6)` is
-  // OpenWorkBench, which is intuition.library's -210
-  [-0x18a6]: 'intuition.library',
-  // GfxBase, NOT DiskfontBase. easylife.ts `elopen font` builds a TextAttr
-  // and calls `-$48` off this base, which is graphics OpenFont (-72), and
-  // only on a miss does it OpenLibrary("diskfont.library") for OpenDiskFont
-  // at that library's -30. JD-Int settles it beyond doubt: it calls
-  // seventeen LVOs off this slot, down to -498, and diskfont.library has
-  // FOUR functions. -240 and -246 are Move and Draw.
-  [-0x18ae]: 'graphics.library',
-  // Easylife.Library's SaveTree takes DOSBase from here ($2b8)
-  [0x2b8]: 'dos.library',
-}
-
-/**
- * Chains an extension builds for itself. JD-Int's routine 0 ($376-$39e)
- * registers its data block at `$208(a5)` and copies the two bases it wants
- * into it — IntuitionBase from `-$18a6(a5)` to block+$14, GfxBase from
- * `-$18ae(a5)` to block+$18 — so every call site reaches them two steps out.
- */
-const CHAIN_BASES: Record<string, string> = {
-  'a5+520>+20': 'intuition.library',
-  'a5+520>+24': 'graphics.library',
-}
 
 /** `intuition_lib.fd` and friends: one function per line, LVO -30 downwards */
 function fdNames(dir: string): Record<string, Record<number, string>> {
@@ -112,94 +82,6 @@ const libFiles = (dir: string): string[] => {
   return out
 }
 
-/**
- * `movea.l d16(aS),aD` is `0010 DDD 001 101 SSS` — 0x2068 | D<<9 | S.
- *
- * The top nibble matters and leaving it out is what made the first draft
- * useless: without it every opcode whose low nine bits happened to be $6D
- * read as a base load and wiped the register map, so the calls that were
- * really traceable came out as `?` and the ones that were not came out as
- * nothing at all.
- */
-const moveaDest = (op: number, src: number): number =>
-  (op & 0xf1ff) === (0x2068 | src) ? (op >> 9) & 7 : -1
-
-interface Call {
-  chain: string
-  lvo: number
-}
-
-function scan(code: Uint8Array): Call[] {
-  const dv = new DataView(code.buffer, code.byteOffset, code.byteLength)
-  const calls: Call[] = []
-  /** where each address register was last loaded from, as a printable chain */
-  const from: Array<string | null> = [null, null, null, null, null, null, null, null]
-  for (let i = 0; i + 2 <= code.length; i += 2) {
-    const op = dv.getUint16(i)
-    // movea.l $4.w,aD and movea.l $4.l,aD -- ExecBase, the one absolute
-    // address on the machine. Both spellings ship: EasyLife writes the word
-    // form, JD-Int the long one ($762: `movea.l $4.l,a6`).
-    if ((op & 0xf1ff) === 0x2078 && i + 4 <= code.length && dv.getUint16(i + 2) === 4) {
-      from[(op >> 9) & 7] = 'exec'
-      i += 2
-      continue
-    }
-    if ((op & 0xf1ff) === 0x2079 && i + 6 <= code.length && dv.getUint32(i + 2) === 4) {
-      from[(op >> 9) & 7] = 'exec'
-      i += 4
-      continue
-    }
-    // lea d16(aS),aD -- JD-Int reaches its base slot by ADDRESS and then
-    // dereferences, `lea $14(a3),a3 / movea.l (a3),a6`, so both halves have
-    // to be followed or the whole extension reads as untraceable
-    if ((op & 0xf1f8) === 0x41e8 && i + 4 <= code.length) {
-      const s = op & 7
-      const d = (op >> 9) & 7
-      const off = dv.getInt16(i + 2)
-      from[d] = from[s] === null ? null : `${from[s]}>${off >= 0 ? '+' : ''}${off}`
-      i += 2
-      continue
-    }
-    // movea.l (aS),aD -- the dereference that follows it
-    if ((op & 0xf1f8) === 0x2050) {
-      from[(op >> 9) & 7] = from[op & 7] ?? null
-      continue
-    }
-    // movea.l d16(a5),aD -- a base straight out of AMOS's workspace
-    const d5 = moveaDest(op, 5)
-    if (d5 >= 0 && i + 4 <= code.length) {
-      const slot = dv.getInt16(i + 2)
-      from[d5] = `a5${slot >= 0 ? '+' : ''}${slot}`
-      i += 2
-      continue
-    }
-    // movea.l d16(aS),aD -- a second step off a block we already traced
-    let stepped = false
-    for (let s = 0; s < 8 && !stepped; s++) {
-      const dD = moveaDest(op, s)
-      if (dD < 0 || from[s] === null || i + 4 > code.length) continue
-      const off = dv.getInt16(i + 2)
-      from[dD] = `${from[s]}>${off >= 0 ? '+' : ''}${off}`
-      i += 2
-      stepped = true
-    }
-    if (stepped) continue
-    // jsr d16(aN) with a NEGATIVE displacement -- a library call
-    if ((op & 0xfff8) === 0x4ea8 && i + 4 <= code.length) {
-      const reg = op & 7
-      const d = dv.getInt16(i + 2)
-      if (d < 0) calls.push({ chain: from[reg] ?? '?', lvo: d })
-      i += 2
-      continue
-    }
-    // anything that writes an address register we are not modelling
-    if ((op & 0xf1c0) === 0x2040 || (op & 0xf1c0) === 0x2140) {
-      const d = (op >> 9) & 7
-      if ((op & 0x01c0) === 0x0040) from[d] = null
-    }
-  }
-  return calls
-}
 
 const args = process.argv.slice(2)
 const fdAt = args.indexOf('--fd')
@@ -231,7 +113,7 @@ for (const id of ids) {
     } catch {
       continue
     }
-    for (const c of scan(code)) {
+    for (const c of scanOsCalls(code)) {
       if (!groups.has(c.chain)) groups.set(c.chain, new Map())
       const g = groups.get(c.chain)!
       g.set(c.lvo, (g.get(c.lvo) ?? 0) + 1)
@@ -239,9 +121,7 @@ for (const id of ids) {
   }
   console.log(`\n${id}`)
   for (const [chain, g] of [...groups].sort((a, b) => b[1].size - a[1].size)) {
-    const slot = /^a5([+-]\d+)$/.exec(chain)
-    const lib =
-      chain === 'exec' ? 'exec.library' : (CHAIN_BASES[chain] ?? (slot ? A5_BASES[Number(slot[1])] : undefined))
+    const lib = libraryForChain(chain)
     console.log(`  ${chain}${lib ? `  = ${lib}` : ''}  — ${g.size} distinct LVOs`)
     for (const lvo of [...g.keys()].sort((a, b) => b - a)) {
       const nm = lib ? (NAMES[lib]?.[lvo] ?? '') : ''

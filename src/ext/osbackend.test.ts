@@ -21,12 +21,25 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   })
 
   it('does not confuse a machine-layer module with completed operation coverage', () => {
-    expect(rows.find((row) => row.name === '_cold reboot')).toMatchObject({ status: 'review' })
+    expect(rows.find((row) => row.name === '_cold reboot')).toMatchObject({
+      status: 'review',
+      workers: [1570],
+      osCalls: [{ library: 'exec.library', lvo: -726 }],
+    })
     expect(rows.find((row) => row.name === '_rp draw')).toMatchObject({ status: 'modelled', family: 'graphics' })
+    expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
+      osCalls: [{ library: 'datatypes.library', lvo: -36 }],
+    })
+    expect(rows.find((row) => row.name === '_ggad create')).toMatchObject({
+      osCalls: [{ library: 'gadtools.library', lvo: -30 }],
+    })
   })
 
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
+    expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
+      chain: 'a5+552>+728', library: 'iffparse.library', lvo: -42,
+    })
     expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'missing', family: 'commodities' })
     expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'missing', family: 'workbench' })
     expect(rows.find((row) => row.name === '_prfs set')).toMatchObject({ status: 'missing', family: 'preferences' })
