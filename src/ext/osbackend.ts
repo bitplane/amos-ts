@@ -328,6 +328,18 @@ auditMany('faithful', 'the complete exposed 44-byte Gadget record and exact poin
 auditMany('partial', 'managed gadget lifecycle and property state exist, but arbitrary native Gadget/Window chains and refresh rendering are not integrated', [
   '_gad activate', '_gad add', '_gad modif prop', '_gad off', '_gad on', '_gad refresh', '_gad remove',
 ])
+auditMany('faithful', 'the retained NewScreen definition and directly exposed public Screen fields use the exact pointer, byte and word widths', [
+  '_scr def body', '_scr def pens', '_scr def title', '_scr def font', '_scr def bmap',
+  '_scr def vmodes', '_scr def type', '_scr set title', '_scr set def title',
+  '_scr what next', '_scr what title', '_scr what def title', '_scr what bmap', '_scr what first wnd',
+  '_scr what font', '_scr what layer', '_scr what width', '_scr what height', '_scr what depth',
+  '_scr what d pen', '_scr what b pen', '_scr what x mouse', '_scr what y mouse', '_scr what barh',
+  '_scr what vmodes', '_scr what type',
+  '_scr wdef title', '_scr wdef bmap', '_scr wdef vmodes', '_scr wdef type', '_scr wdef font',
+])
+auditMany('partial', 'screen ordering/active state and embedded ViewPort/RastPort/LayerInfo exist, but their native interior addresses are not stable', [
+  '_scr what front', '_scr what active', '_scr what vport', '_scr what rport', '_scr what layer info',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

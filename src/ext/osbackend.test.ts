@@ -1129,6 +1129,32 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(gadgets.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies retained screen definitions and direct public Screen fields', () => {
+    const faithful = [
+      '_scr def body', '_scr def pens', '_scr def title', '_scr def font', '_scr def bmap',
+      '_scr def vmodes', '_scr def type', '_scr set title', '_scr set def title',
+      '_scr what next', '_scr what title', '_scr what def title', '_scr what bmap', '_scr what first wnd',
+      '_scr what font', '_scr what layer', '_scr what width', '_scr what height', '_scr what depth',
+      '_scr what d pen', '_scr what b pen', '_scr what x mouse', '_scr what y mouse', '_scr what barh',
+      '_scr what vmodes', '_scr what type', '_scr wdef title', '_scr wdef bmap', '_scr wdef vmodes',
+      '_scr wdef type', '_scr wdef font',
+    ]
+    const interior = ['_scr what front', '_scr what active', '_scr what vport', '_scr what rport', '_scr what layer info']
+    expect(rows.filter((row) => faithful.includes(row.name)).every((row) => row.status === 'faithful')).toBe(true)
+    expect(rows.filter((row) => interior.includes(row.name)).every((row) => row.status === 'partial')).toBe(true)
+    expect(rows.filter((row) => faithful.includes(row.name))).toHaveLength(31)
+    expect(rows.filter((row) => interior.includes(row.name))).toHaveLength(5)
+    const expected = new Map<string, number>([
+      ['_scr def body', 1158], ['_scr def pens', 1159], ['_scr def font', 1160],
+      ['_scr def bmap', 1161], ['_scr def vmodes', 1162], ['_scr def type', 1163],
+      ['_scr def title', 1164], ['_scr set title', 1165], ['_scr set def title', 1166],
+      ['_scr what front', 1192], ['_scr what next', 1193], ['_scr what active', 1194],
+      ['_scr what vport', 1197], ['_scr what rport', 1198], ['_scr what layer info', 1202],
+      ['_scr wdef font', 1218],
+    ])
+    for (const [name, worker] of expected) expect(rows.find((row) => row.name === name)?.workers).toEqual([worker])
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

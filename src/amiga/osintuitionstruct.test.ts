@@ -5,6 +5,7 @@ import {
   nativeIntuiMessage, notifyRequest, notifyUserData,
   allocDots, setDot, newNativeBooleanInfo, setBooleanInfo,
   newNativeGadget, setGadgetBody, setGadgetFlags, setGadgetRender, setGadgetUser,
+  newNativeScreenDefinition, setScreenDefinitionBody, nativeScreenFields,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
@@ -111,6 +112,27 @@ describe('OS DevKit native Intuition structures', () => {
       flags: 0x5678, activation: 0x6789, type: 0x789a,
       render: 0xffff_ffff, selectRender: 0xffff_fffe, text: 2,
       specialInfo: 3, id: 0x89ab, userData: 0xffff_fffd,
+    })
+  })
+
+  it('stores the retained NewScreen definition and public Screen widths', () => {
+    const d = newNativeScreenDefinition()
+    setScreenDefinitionBody(d, -1, 0x12345, 0x23456, 0x34567, 0x45678)
+    d.detailPen = 0x101
+    d.blockPen = 0x202
+    d.viewModes = 0x56789
+    expect(d).toMatchObject({
+      left: 0xffff, top: 0x2345, width: 0x3456, height: 0x4567, depth: 0x5678,
+      detailPen: 0x101, blockPen: 0x202, viewModes: 0x56789,
+    })
+    expect(nativeScreenFields({
+      next: -1, firstWindow: -2, title: -3, defaultTitle: -4, font: -5, bitMap: -6, layer: -7,
+      width: -8, height: -9, depth: -10, detailPen: -11, blockPen: -12,
+      mouseX: 0xffff, mouseY: 0x8001, barHeight: -13, viewModes: -14, type: -15,
+    })).toMatchObject({
+      next: 0xffff_ffff, width: 0xfff8, height: 0xfff7, depth: 0xf6,
+      detailPen: 0xf5, blockPen: 0xf4, mouseX: -1, mouseY: -32767,
+      barHeight: 0xf3, viewModes: 0xfff2, type: 0xfff1,
     })
   })
 

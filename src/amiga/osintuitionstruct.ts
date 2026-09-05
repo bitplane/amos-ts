@@ -290,6 +290,48 @@ export function setGadgetUser(g: NativeGadget, id: number, data: number): void {
   g.userData = data >>> 0
 }
 
+/** OS DevKit's retained `NewScreen` definition used by its OpenScreen wrappers. */
+export interface NativeScreenDefinition {
+  left: number; top: number; width: number; height: number; depth: number
+  detailPen: number; blockPen: number; viewModes: number; type: number
+  font: number; title: number; bitMap: number
+}
+
+export const newNativeScreenDefinition = (): NativeScreenDefinition => ({
+  left: 0, top: 0, width: 0, height: 0, depth: 0,
+  detailPen: 0, blockPen: 0, viewModes: 0, type: 0,
+  font: 0, title: 0, bitMap: 0,
+})
+
+export function setScreenDefinitionBody(
+  s: NativeScreenDefinition, left: number, top: number, width: number, height: number, depth: number,
+): void {
+  s.left = left & 0xffff
+  s.top = top & 0xffff
+  s.width = width & 0xffff
+  s.height = height & 0xffff
+  s.depth = depth & 0xffff
+}
+
+/** The scalar/pointer fields read directly from public `struct Screen`. */
+export interface NativeScreenFields {
+  next: number; firstWindow: number; title: number; defaultTitle: number
+  font: number; bitMap: number; layer: number
+  width: number; height: number; depth: number
+  detailPen: number; blockPen: number; mouseX: number; mouseY: number
+  barHeight: number; viewModes: number; type: number
+}
+
+export const nativeScreenFields = (s: NativeScreenFields): NativeScreenFields => ({
+  next: s.next >>> 0, firstWindow: s.firstWindow >>> 0,
+  title: s.title >>> 0, defaultTitle: s.defaultTitle >>> 0,
+  font: s.font >>> 0, bitMap: s.bitMap >>> 0, layer: s.layer >>> 0,
+  width: s.width & 0xffff, height: s.height & 0xffff, depth: s.depth & 0xff,
+  detailPen: s.detailPen & 0xff, blockPen: s.blockPen & 0xff,
+  mouseX: (s.mouseX << 16) >> 16, mouseY: (s.mouseY << 16) >> 16,
+  barHeight: s.barHeight & 0xff, viewModes: s.viewModes & 0xffff, type: s.type & 0xffff,
+})
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number
