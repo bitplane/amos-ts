@@ -337,6 +337,14 @@ auditMany('faithful', 'the complete 12-byte RasInfo layout and exact pointer and
 auditMany('faithful', 'the complete View fields and signed readers are represented, including the shipped setter overwriting Y/X at $c instead of modes at $10', [
   '_view set', '_view what vport', '_view what x', '_view what y', '_view what modes',
 ])
+auditMany('faithful', 'the complete ViewPort fields are represented, including the shipped word-sized sprite-priority write, absolute-$18 width read and stale-d0 Y read defects', [
+  '_vp set next', '_vp set body', '_vp set cmap', '_vp set ras info', '_vp what next', '_vp what cmap',
+  '_vp what ras info', '_vp what width', '_vp what height', '_vp what x', '_vp what y', '_vp what modes',
+  '_vp what spr pri',
+])
+auditMany('partial', 'mode IDs exist for managed screens, but arbitrary native ViewPort extended-mode metadata is not represented', [
+  '_vp get mode',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

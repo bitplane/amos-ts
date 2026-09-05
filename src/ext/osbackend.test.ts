@@ -576,6 +576,20 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(view.every((row) => row.osCalls.length === 0)).toBe(true)
   })
 
+  it('classifies all fourteen ViewPort operations including both shipped reader defects', () => {
+    const viewPort = rows.filter((row) => row.namespace === '_vp')
+    expect(viewPort).toHaveLength(14)
+    expect(viewPort.filter((row) => row.status === 'faithful')).toHaveLength(13)
+    expect(viewPort.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_vp get mode'])
+    expect(viewPort.some((row) => row.status === 'review')).toBe(false)
+    expect(viewPort.find((row) => row.name === '_vp set next')?.workers).toEqual([1718])
+    expect(viewPort.find((row) => row.name === '_vp what width')?.workers).toEqual([1725])
+    expect(viewPort.find((row) => row.name === '_vp what y')?.workers).toEqual([1728])
+    expect(viewPort.find((row) => row.name === '_vp get mode')).toMatchObject({
+      workers: [1792], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -792 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

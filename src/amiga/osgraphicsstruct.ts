@@ -50,3 +50,55 @@ export function setOsDevKitView(
   // The big-endian long lands as high word Y, low word X.
   view.dyOffset = modes >> 16
 }
+
+/** Complete public `struct ViewPort` fields through vp_RasInfo at `$24`. */
+export interface NativeViewPort {
+  next: number
+  colorMap: number
+  dspIns: number
+  sprIns: number
+  clrIns: number
+  uCopIns: number
+  dWidth: number
+  dHeight: number
+  dxOffset: number
+  dyOffset: number
+  modes: number
+  spritePriority: number
+  extendedModes: number
+  rasInfo: number
+}
+
+export const newNativeViewPort = (): NativeViewPort => ({
+  next: 0, colorMap: 0, dspIns: 0, sprIns: 0, clrIns: 0, uCopIns: 0,
+  dWidth: 0, dHeight: 0, dxOffset: 0, dyOffset: 0, modes: 0,
+  spritePriority: 0, extendedModes: 0, rasInfo: 0,
+})
+
+export function setViewPortBody(
+  viewPort: NativeViewPort | null,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  modes: number,
+  spritePriority: number,
+): void {
+  if (!viewPort) return
+  viewPort.dxOffset = x & 0xffff
+  viewPort.dyOffset = y & 0xffff
+  viewPort.dWidth = width & 0xffff
+  viewPort.dHeight = height & 0xffff
+  viewPort.modes = modes & 0xffff
+  // Routine 1719 uses move.w at $22 even though vp_SpritePriorities is a byte.
+  // On 68k the high byte lands there and the low byte clobbers vp_ExtendedModes.
+  const priorityWord = spritePriority & 0xffff
+  viewPort.spritePriority = priorityWord >>> 8
+  viewPort.extendedModes = priorityWord & 0xff
+}
+
+/** Routine 1725's missing `(a0)`: return the word at absolute address `$18`. */
+export const osDevKitViewPortWidth = (absoluteWord18: number): number => absoluteWord18 & 0xffff
+
+/** Routine 1728's wrong source register: dereference stale d0, not argument d3. */
+export const osDevKitViewPortY = (viewPortFromD0: NativeViewPort): number => viewPortFromD0.dyOffset & 0xffff
