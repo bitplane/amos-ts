@@ -34,7 +34,7 @@
  * Disassembly needs python3 with capstone (`CS_ARCH_M68K`). Without it the
  * address map still prints, which is the hard-won part.
  *
- * Run: npm run cli -- src/cli/extdis.ts <extension-id> [keyword] [--map|--all]
+ * Run: npm run cli -- src/cli/extdis.ts <extension-id> [keyword|#routine|#first-last] [--map|--all]
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -394,7 +394,19 @@ if (dumpAll) {
 
 if (keyword) {
   // "#333" dumps a routine the token table does not name — the shared worker
-  // behind a trampoline
+  // behind a trampoline. "#333-340" dumps a bounded run without paying for
+  // and discarding the output of `--all`.
+  const byRange = /^#(\d+)-(\d+)$/.exec(keyword)
+  if (byRange) {
+    const first = Number(byRange[1])
+    const last = Number(byRange[2])
+    if (first > last || last >= addr.length) {
+      console.error(`\n${id} has ${addr.length} routines; invalid range ${keyword}`)
+      process.exit(1)
+    }
+    for (let n = first; n <= last; n++) disassemble(routineName(n), n)
+    process.exit(0)
+  }
   const byNumber = /^#(\d+)$/.exec(keyword)
   if (byNumber) {
     const n = Number(byNumber[1])
