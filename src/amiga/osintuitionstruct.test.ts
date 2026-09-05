@@ -5,13 +5,20 @@ import {
   nativeIntuiMessage, notifyRequest, notifyUserData,
   allocDots, setDot, newNativeBooleanInfo, setBooleanInfo,
   newNativeGadget, setGadgetBody, setGadgetFlags, setGadgetRender, setGadgetUser,
-  newNativeScreenDefinition, setScreenDefinitionBody, nativeScreenFields,
+  newNativeScreenDefinition, setScreenDefinitionBody, nativeScreenFields, NativeScreenDrawInfoPens,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
 } from './osintuitionstruct'
 
 describe('OS DevKit native Intuition structures', () => {
+  it('retains the V1 and V2 DrawInfo pen words exactly as routines 3005-3006', () => {
+    const defaults = new NativeScreenDrawInfoPens()
+    defaults.defineV1([0x10001, 2, 3, 4, 5, 6, 7, 8, -1])
+    defaults.defineV2([10, 11, 0x1000c])
+    expect([...defaults.pens]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 0xffff, 10, 11, 12])
+  })
+
   it('writes Border bytes/words/longs exactly as routines 1370-1373', () => {
     const b = newNativeBorder()
     setBorderDraw(b, 0x101, 0x202, 0x303)

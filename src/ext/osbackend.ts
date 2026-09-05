@@ -352,6 +352,29 @@ auditMany('partial', 'DrawInfo fields and screen pen policy are represented, but
 auditMany('partial', 'Workbench and managed public-screen state exist, but the process-wide Intuition public-screen registry, native lock identity and mode/status policy are not complete', [
   '_scr def pub', '_scr pub lock', '_scr pub unlock', '_scr pub modes', '_scr pub status',
 ])
+auditMany('faithful', 'the private V1 and V2 DrawInfo default arrays preserve all twelve pen words in their exact order', [
+  '_scr id def dri pens v1', '_scr id def dri pens v2',
+])
+auditMany('partial', 'the screen operation exists, but OS DevKit private numbered-screen records and arbitrary native Screen/RastPort/ViewPort pointers are not integrated', [
+  '_scr id open', '_scr id close', '_scr id tag open', '_scr id base', '_scr id rport', '_scr id vport',
+  '_scr id show', '_scr id hide', '_scr id from wb', '_scr id from pub', '_scr id from pointer',
+  '_scr id beep', '_scr id move', '_scr id use', '_scr id in use', '_scr id offset',
+  '_scr id height', '_scr id width', '_scr id depth', '_scr id mode',
+])
+auditMany('partial', 'screen palette and DrawInfo policy exist, but the current OS DevKit screen-ID binding and arbitrary external pen pointer are not exposed', [
+  '_scr id get pal', '_scr id set pal', '_scr id get aga pal', '_scr id set aga pal',
+  '_scr id colour', '_scr id aga colour', '_scr id fix dri pens',
+])
+auditMany('partial', 'screen-relative mouse reads exist, but the OS DevKit screen-ID binding and input.device pointer warping are not exposed end to end', [
+  '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
+])
+auditMany('partial', 'the RastPort drawing primitive exists, but OS DevKit current-screen selection, native clipping/layer ownership or associated temporary allocations are not integrated', [
+  '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',
+  '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse', '_scr id gr locate',
+  '_scr id set paint', '_scr id pattern on', '_scr id pattern off', '_scr id set low pattern',
+  '_scr id set high pattern', '_scr id paint', '_scr id bar', '_scr id fill ellipse', '_scr id text',
+  '_scr id point', '_scr id scroll', '_scr id put bob',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

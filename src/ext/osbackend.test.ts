@@ -1175,6 +1175,44 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies every high-level screen-ID wrapper and its indirect worker', () => {
+    const workers = new Map<string, number>([
+      ['_scr id open', 2987], ['_scr id close', 2988], ['_scr id tag open', 2989],
+      ['_scr id base', 2990], ['_scr id rport', 2991], ['_scr id vport', 2992],
+      ['_scr id show', 2993], ['_scr id hide', 2994], ['_scr id from wb', 2995],
+      ['_scr id from pub', 2996], ['_scr id from pointer', 2997], ['_scr id beep', 2998],
+      ['_scr id move', 2999], ['_scr id offset', 3000], ['_scr id get pal', 3001],
+      ['_scr id set pal', 3002], ['_scr id get aga pal', 3003], ['_scr id set aga pal', 3004],
+      ['_scr id def dri pens v1', 3005], ['_scr id def dri pens v2', 3006],
+      ['_scr id fix dri pens', 3007], ['_scr id use', 3008], ['_scr id in use', 3009],
+      ['_scr id x mouse', 3010], ['_scr id y mouse', 3011], ['_scr id set mouse pos', 3012],
+      ['_scr id height', 3013], ['_scr id width', 3014], ['_scr id mode', 3015],
+      ['_scr id depth', 3016], ['_scr id clip', 3017], ['_scr id cls', 3020],
+      ['_scr id ink', 3021], ['_scr id gr writing', 3022], ['_scr id plot', 3023],
+      ['_scr id set line', 3024], ['_scr id rect', 3025], ['_scr id line to', 3026],
+      ['_scr id line', 3027], ['_scr id ellipse', 3028], ['_scr id gr locate', 3029],
+      ['_scr id set paint', 3030], ['_scr id pattern on', 3031], ['_scr id pattern off', 3032],
+      ['_scr id set low pattern', 3033], ['_scr id set high pattern', 3034],
+      ['_scr id paint', 3035], ['_scr id bar', 3036], ['_scr id fill ellipse', 3037],
+      ['_scr id text', 3038], ['_scr id point', 3039], ['_scr id scroll', 3040],
+      ['_scr id put bob', 3041],
+    ])
+    const idRows = rows.filter((row) => row.name.startsWith('_scr id '))
+    expect(idRows).toHaveLength(55)
+    expect(workers.size).toBe(53)
+    for (const [name, worker] of workers) expect(rows.find((row) => row.name === name)?.workers).toEqual([worker])
+    expect(rows.find((row) => row.name === '_scr id colour')).toMatchObject({ workers: [3002, 3001] })
+    expect(rows.find((row) => row.name === '_scr id aga colour')).toMatchObject({ workers: [3004, 3003] })
+    expect(idRows.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_scr id def dri pens v1', '_scr id def dri pens v2',
+    ])
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(53)
+    expect(idRows.some((row) => row.status === 'review')).toBe(false)
+    expect(rows.find((row) => row.name === '_scr id set mouse pos')?.osCalls).toEqual([
+      expect.objectContaining({ library: 'exec.library', lvo: -456 }),
+    ])
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)

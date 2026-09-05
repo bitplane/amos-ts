@@ -332,6 +332,21 @@ export const nativeScreenFields = (s: NativeScreenFields): NativeScreenFields =>
   barHeight: s.barHeight & 0xff, viewModes: s.viewModes & 0xffff, type: s.type & 0xffff,
 })
 
+/** OS DevKit's private twelve-word DrawInfo pen defaults at $1b0..$1c7. */
+export class NativeScreenDrawInfoPens {
+  readonly pens = new Uint16Array(12)
+
+  /** Routine 3005: nine V1 words, DETAIL through HIGHLIGHTTEXT. */
+  defineV1(values: readonly number[]): void {
+    for (let i = 0; i < 9; i++) this.pens[i] = values[i] ?? 0
+  }
+
+  /** Routine 3006: the three V2 bar pens immediately following V1. */
+  defineV2(values: readonly number[]): void {
+    for (let i = 0; i < 3; i++) this.pens[9 + i] = values[i] ?? 0
+  }
+}
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number
