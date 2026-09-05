@@ -590,6 +590,30 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all ten BitMap operations and the negative plane-index defect', () => {
+    const bitMap = rows.filter((row) => row.namespace === '_bm')
+    expect(bitMap).toHaveLength(10)
+    expect(bitMap.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_bm set datas', '_bm what depth', '_bm what flags', '_bm what height', '_bm what modulo', '_bm what plane',
+    ])
+    expect(bitMap.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_bm alloc', '_bm free', '_bm set plane', '_bm what attr',
+    ])
+    expect(bitMap.some((row) => row.status === 'review')).toBe(false)
+    expect(bitMap.find((row) => row.name === '_bm alloc')).toMatchObject({
+      workers: [1673], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -918 })],
+    })
+    expect(bitMap.find((row) => row.name === '_bm free')).toMatchObject({
+      workers: [1674], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -924 })],
+    })
+    expect(bitMap.find((row) => row.name === '_bm what attr')).toMatchObject({
+      workers: [1675], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -960 })],
+    })
+    expect(bitMap.find((row) => row.name === '_bm set datas')?.workers).toEqual([1689])
+    expect(bitMap.find((row) => row.name === '_bm set plane')?.workers).toEqual([1690])
+    expect(bitMap.find((row) => row.name === '_bm what plane')?.workers).toEqual([1694])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

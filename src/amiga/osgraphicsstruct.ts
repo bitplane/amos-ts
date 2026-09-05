@@ -1,5 +1,50 @@
 /** Fixed-layout graphics.library records manipulated directly by OS DevKit. */
 
+/** Public 40-byte `struct BitMap`, including all eight plane pointers. */
+export interface NativeBitMap {
+  bytesPerRow: number
+  rows: number
+  flags: number
+  depth: number
+  pad: number
+  planes: number[]
+}
+
+export const newNativeBitMap = (): NativeBitMap => ({
+  bytesPerRow: 0, rows: 0, flags: 0, depth: 0, pad: 0, planes: Array<number>(8).fill(0),
+})
+
+/** Routine 1689's word/word/byte/byte writes at offsets `$0..$5`. */
+export function setBitMapData(
+  bitMap: NativeBitMap | null,
+  bytesPerRow: number,
+  rows: number,
+  depth: number,
+  flags: number,
+): void {
+  if (!bitMap) return
+  bitMap.bytesPerRow = bytesPerRow & 0xffff
+  bitMap.rows = rows & 0xffff
+  bitMap.depth = depth & 0xff
+  bitMap.flags = flags & 0xff
+}
+
+/**
+ * Routine 1690's useful range. Its signed byte comparison accidentally accepts
+ * negative indices and writes before `bm_Planes`; native corruption is omitted.
+ */
+export function setBitMapPlane(bitMap: NativeBitMap | null, plane: number, pointer: number): boolean {
+  if (!bitMap || plane < 0 || plane >= bitMap.depth) return false
+  bitMap.planes[plane] = pointer >>> 0
+  return true
+}
+
+/** Routine 1694 rejects negative and out-of-depth indices and otherwise reads a long. */
+export function bitMapPlane(bitMap: NativeBitMap | null, plane: number): number {
+  if (!bitMap || plane < 0 || plane >= bitMap.depth) return 0
+  return bitMap.planes[plane] ?? 0
+}
+
 /** `struct RasInfo`: next/BitMap pointers followed by signed X/Y offsets. */
 export interface NativeRasInfo {
   next: number

@@ -345,6 +345,15 @@ auditMany('faithful', 'the complete ViewPort fields are represented, including t
 auditMany('partial', 'mode IDs exist for managed screens, but arbitrary native ViewPort extended-mode metadata is not represented', [
   '_vp get mode',
 ])
+auditMany('faithful', 'the complete 40-byte BitMap structure and exact word, byte and bounded plane reads are represented', [
+  '_bm set datas', '_bm what modulo', '_bm what height', '_bm what depth', '_bm what flags', '_bm what plane',
+])
+auditMany('partial', 'valid plane assignment exists, but the shipped signed comparison also permits negative native-memory writes before bm_Planes', [
+  '_bm set plane',
+])
+auditMany('partial', 'managed planar BitMaps and their attributes exist, but friend-bitmap and BMF_INTERLEAVED allocation layouts do not', [
+  '_bm alloc', '_bm free', '_bm what attr',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

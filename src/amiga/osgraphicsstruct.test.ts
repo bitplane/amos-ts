@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
-  newNativeRasInfo, newNativeView, newNativeViewPort, osDevKitViewPortWidth, osDevKitViewPortY,
-  setOsDevKitView, setRasInfo, setViewPortBody,
+  bitMapPlane, newNativeBitMap, newNativeRasInfo, newNativeView, newNativeViewPort,
+  osDevKitViewPortWidth, osDevKitViewPortY, setBitMapData, setBitMapPlane, setOsDevKitView,
+  setRasInfo, setViewPortBody,
 } from './osgraphicsstruct'
 
 describe('OS DevKit native graphics structures', () => {
+  it('writes the exact BitMap scalar widths and valid plane slots', () => {
+    const bitMap = newNativeBitMap()
+    bitMap.pad = 0x9876
+    setBitMapData(bitMap, 0x10002, 0x10003, 0x104, 0x105)
+    expect(bitMap).toMatchObject({ bytesPerRow: 2, rows: 3, flags: 5, depth: 4, pad: 0x9876 })
+    expect(setBitMapPlane(bitMap, 3, 0xfedc_ba98)).toBe(true)
+    expect(bitMapPlane(bitMap, 3)).toBe(0xfedc_ba98)
+    expect(bitMapPlane(bitMap, 4)).toBe(0)
+    expect(bitMapPlane(bitMap, -1)).toBe(0)
+  })
+
+  it('does not reproduce _bm set plane negative-index memory corruption', () => {
+    const bitMap = newNativeBitMap()
+    bitMap.depth = 2
+    expect(setBitMapPlane(bitMap, -1, 0xdead_beef)).toBe(false)
+    expect(bitMap.planes).toEqual(Array<number>(8).fill(0))
+  })
+
   it('writes every pointer and signed word of the 12-byte RasInfo', () => {
     const info = newNativeRasInfo()
     setRasInfo(info, -1, -2, 0xffff, 0x8001)
