@@ -168,6 +168,15 @@ auditMany('partial', 'CacheControl masked state and its previous-value result ar
 auditMany('partial', 'SetChipRev request state is modelled, but the emulated graphics chipset remains fixed as AGA', [
   '_chip set rev',
 ])
+auditMany('faithful', 'the private seven-byte-header C-string allocation, metadata, bounded copy and conversion operations are modelled', [
+  '_str len', '_str get', '_str alloc', '_str free', '_str pos', '_str put',
+])
+auditMany('faithful', 'the signed and unsigned offset memory fields and cleared AllocVec lifecycle are modelled', [
+  '_struct alloc', '_struct free', '_struct byte', '_struct ubyte', '_struct word', '_struct uword', '_struct long',
+])
+auditMany('faithful', 'AllocVec flag handling, size header and FreeVec lifecycle are modelled by the shared Exec memory backend', [
+  '_vec alloc', '_vec free',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

@@ -191,6 +191,26 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies every local string, structure and vector operation', () => {
+    const namespaces = ['_str', '_struct', '_vec']
+    const memory = rows.filter((row) => namespaces.includes(row.namespace))
+    expect(memory).toHaveLength(15)
+    expect(memory.every((row) => row.status === 'faithful')).toBe(true)
+    expect(memory.find((row) => row.name === '_str alloc')?.workers).toEqual([1470])
+    expect(memory.find((row) => row.name === '_str put')?.workers).toEqual([1473])
+    expect(memory.find((row) => row.name === '_struct byte')).toMatchObject({
+      routines: [16, 17], workers: [16, 17],
+    })
+    expect(memory.find((row) => row.name === '_struct free')).toMatchObject({
+      workers: [1783],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -690 })],
+    })
+    expect(memory.find((row) => row.name === '_vec alloc')).toMatchObject({
+      workers: [1782],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -684 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
