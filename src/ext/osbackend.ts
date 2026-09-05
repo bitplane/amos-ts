@@ -259,6 +259,22 @@ auditMany('faithful', 'the exact 14-byte Exec List/Node layouts, sentinels, fiel
   '_nod find name', '_nod what succ', '_nod what pred', '_nod what type', '_nod what pri', '_nod what name',
   '_nod what start',
 ])
+auditMany('faithful', 'native MsgPort creation, deletion, naming, signal fields and public-port registry behavior are modelled', [
+  '_port add', '_port rem', '_port find', '_port create', '_port delete',
+  '_port what sig nb', '_port what sig task',
+])
+auditMany('faithful', 'native Message FIFO delivery, reply routing and exact reply-port/length fields are modelled', [
+  '_msg put', '_msg reply', '_msg what length', '_msg what reply port',
+])
+auditMany('faithful', 'signal-bit allocation/free, masked SetSignal state and task Signal delivery are modelled', [
+  '_sig alloc', '_sig free', '_sig set', '_sig put',
+])
+auditMany('partial', 'the immediate result is exact, but an empty wait cannot suspend and reschedule a TypeScript task', [
+  '_port wait', '_sig wait',
+])
+auditMany('partial', 'GetMsg FIFO removal exists, but the workers raw TypeOfMem guard is not represented', [
+  '_msg get',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

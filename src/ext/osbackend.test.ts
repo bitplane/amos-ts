@@ -367,6 +367,31 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       .toEqual([expect.objectContaining({ library: 'exec.library', lvo: -276 })])
   })
 
+  it('classifies every Exec port, message and signal operation', () => {
+    const ipc = rows.filter((row) => ['_port', '_msg', '_sig'].includes(row.namespace))
+    expect(ipc).toHaveLength(18)
+    expect(ipc.filter((row) => row.status === 'faithful')).toHaveLength(15)
+    expect(ipc.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_msg get', '_port wait', '_sig wait',
+    ])
+    expect(ipc.some((row) => row.status === 'review')).toBe(false)
+    expect(ipc.find((row) => row.name === '_port create')).toMatchObject({
+      workers: [1538], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -666 })],
+    })
+    expect(ipc.find((row) => row.name === '_msg get')).toMatchObject({
+      workers: [1540],
+      osCalls: expect.arrayContaining([
+        expect.objectContaining({ library: 'exec.library', lvo: -306 }),
+        expect.objectContaining({ library: 'exec.library', lvo: -372 }),
+      ]),
+    })
+    expect(ipc.find((row) => row.name === '_msg what reply port')?.workers).toEqual([1546])
+    expect(ipc.find((row) => row.name === '_port what sig task')?.workers).toEqual([1556])
+    expect(ipc.find((row) => row.name === '_sig wait')).toMatchObject({
+      workers: [1562], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -318 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

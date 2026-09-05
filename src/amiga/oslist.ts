@@ -52,11 +52,16 @@ export class ExecListHeap {
 
   allocList(): number {
     const list = this.alloc(14)
+    this.initList(list)
+    return list
+  }
+
+  /** Initialize a List embedded in a larger native allocation. */
+  initList(list: number): void {
     // NewList: lh_Head=&lh_Tail, lh_Tail=NULL, lh_TailPred=&lh_Head.
     this.writeU32(list, list + 4)
     this.writeU32(list + 4, 0)
     this.writeU32(list + 8, list)
-    return list
   }
 
   allocNode(extraBytes = 0): number {
@@ -166,7 +171,7 @@ export class ExecListHeap {
     this.insert(list, node, pred)
   }
 
-  private cString(address: number): string {
+  cString(address: number): string {
     if (address === 0) return ''
     let result = ''
     for (let at = address; this.readU8(at) !== 0; at++) result += String.fromCharCode(this.readU8(at))
