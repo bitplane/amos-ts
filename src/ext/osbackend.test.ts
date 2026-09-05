@@ -26,7 +26,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
-    expect(rows.find((row) => row.name === '_scale bm')).toMatchObject({ status: 'review', family: 'graphics' })
+    expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'review', family: 'dos' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
       status: 'partial',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
@@ -803,6 +803,27 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       expect(row.workers).toEqual([evidence[0]])
       expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
     }
+  })
+
+  it('finishes the graphics audit with scaling and V39 RastPort operations', () => {
+    const names = ['_scale bm', '_scale div', '_rp wr msk', '_rp bf scroll', '_rp o pen', '_rp what attrs', '_rp set attrs']
+    const finalGraphics = rows.filter((row) => names.includes(row.name))
+    expect(finalGraphics).toHaveLength(7)
+    expect(finalGraphics.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_rp o pen', '_rp wr msk',
+    ])
+    expect(finalGraphics.filter((row) => row.status === 'partial')).toHaveLength(5)
+    const expected = new Map<string, [number, number]>([
+      ['_scale bm', [1639, -678]], ['_scale div', [1640, -684]], ['_rp wr msk', [1666, -984]],
+      ['_rp bf scroll', [1667, -1002]], ['_rp o pen', [1668, -978]],
+      ['_rp what attrs', [1676, -1044]], ['_rp set attrs', [1677, -1038]],
+    ])
+    for (const row of finalGraphics) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
+    }
+    expect(rows.some((row) => row.status === 'review' && row.family === 'graphics')).toBe(false)
   })
 
   it('makes every previously stated missing family explicit', () => {

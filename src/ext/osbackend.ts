@@ -405,6 +405,12 @@ auditMany('faithful', 'managed RastPorts implement the exact state changes and p
 auditMany('partial', 'related rendering exists, but native layer/font clear geometry, raw PolyDraw coordinate arrays and ScrollRaster exposure behavior are not complete', [
   '_rp clr eol', '_rp clr scr', '_rp poly draw', '_rp scroll',
 ])
+auditMany('faithful', 'the V39 setters map exactly to the managed RastPort write-mask and outline-pen fields', [
+  '_rp wr msk', '_rp o pen',
+])
+auditMany('partial', 'scaling, scrolling and RastPort attributes exist in narrower forms, but native BitScaleArgs/DDA rounding, layer backfill and raw tag get-pointers are incomplete', [
+  '_scale bm', '_scale div', '_rp bf scroll', '_rp what attrs', '_rp set attrs',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
