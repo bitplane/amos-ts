@@ -1,26 +1,28 @@
 /**
  * DME 2.0 — Thomas Reetz's "DOOM Music Extension", at slot 15.
  *
- * Fifteen music formats in one extension, 220 named keywords, and by some
- * distance the widest audio surface in the registry. DOOM Productions was the
- * author's demo group; the game has nothing to do with it.
+ * Fifteen music formats plus a raw-sample player in one extension, 220 named
+ * keywords, and by some distance the widest audio surface in the registry.
+ * DOOM Productions was the author's demo group; the game has nothing to do
+ * with it.
  *
  * ## Which formats are in this binary and which are not
  *
- * Twelve of the fifteen formats are separate Amiga libraries the extension
- * opens by name — each has its own versioned error string in the hunk, from
- * *"Can't load DME_OctaMix.library V2.0 or higher"* down. FOUR ARE INSIDE
- * THESE 46,208 BYTES and have no library name and no load error anywhere:
- * `ptm`, `thx`, `p61` and `dme sam`, which is the guide's own Internal-Player
- * column to the entry.
+ * Twelve of the fifteen players are separate Amiga libraries the extension
+ * opens by name — the eleven `DME_*` binaries plus `playsid.library`. Each has
+ * a load-error string in the hunk, from *"Can't load DME_OctaMix.library V2.0
+ * or higher"* down. THREE PLAYERS AND THE SAMPLER ARE INSIDE THESE 46,208
+ * BYTES and have no library name or load error: `ptm`, `thx`, `p61` and
+ * `dme sam`, which is the guide's own Internal-Player column to the entry.
  *
  * Those four were the first batch, over engines this port already had. All
- * eleven external replayers now follow: SoundFX, both FutureComposer builds,
+ * eleven DME-prefixed external replayers now follow: SoundFX, both FutureComposer builds,
  * DigiBooster, MED, SoundMon, TFMX, OctaMED, OctaMix, ScreamTracker and
  * FastTracker. Each was read from the corresponding binary in
  * `fixtures/libs/dme`; its format, mixer and replay live under `../amiga`.
  * `DME_Med.library` is the one that needed no separate engine because it is
  * medplayer.library behind DOOM's veneer and shares `MedPlayer` with Music.
+ * The twelfth external player, PlaySID, lives in `../amiga/playsid.ts`.
  *
  * ## Evidence
  *

@@ -8101,8 +8101,8 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   },
   {
     // DME 2.0 at slot 15 --- Thomas Reetz's DOOM Music Extension, fifteen
-    // formats in one library. Batch 1 of two: the ProTracker block over
-    // ../amiga/protracker.ts, plus the 37 `nop` rows. See dme.ts.
+    // formats plus its raw-sample player. All internal and external player
+    // blocks are implemented; see dme.ts and its per-format amiga modules.
     ids: ['dme-2.0'],
     init: (rt) => {
       rt.dme = newDmeState(rt)
@@ -8304,9 +8304,8 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     /**
      * All six, because DME 2.0 carries a `thx *` block with the same six names
      * and NOT ONE id in common — so a program written for one detokenises to
-     * nonsense under the other. DME's is unported; binding these by bare name
-     * would hand its programs this implementation of a keyword that means
-     * something else to them.
+     * nonsense under the other. Both are ported, but binding either by bare
+     * name would hand programs the implementation for the wrong token ids.
      */
     qualified: ['thx play', 'thx stop', 'thx load', 'thx volume', 'thx subsongs', 'thx end'],
   },

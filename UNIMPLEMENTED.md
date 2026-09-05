@@ -77,12 +77,12 @@ are the FONT and SCREEN-MODE requesters, and the screen-mode one still has no
 display database to fill itself from.
 
 **DME 2.0 is done, and it was the largest row in this file.** Thomas Reetz's
-DOOM Music Extension is fifteen music formats in one library: twelve are
-separate Amiga libraries it opens by name and four are inside the 46,208-byte
-hunk. All fifteen play. The four internal ones, and then SoundFX 1.3,
-FutureComposer 1.4 and 1.3, SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3,
-MED, OctaMED, FastTracker 2, PlaySID and OctaMix, each read out of its own
-library.
+DOOM Music Extension is fifteen music formats plus a raw-sample player:
+twelve players are separate Amiga libraries it opens by name, while three
+players and the sampler are inside the 46,208-byte hunk. All fifteen formats
+play. The internal players, and then SoundFX 1.3, FutureComposer 1.4 and 1.3,
+SoundMon 2.0, DigiBooster 1.x, ScreamTracker 3, MED, OctaMED, FastTracker 2,
+TFMX, PlaySID and OctaMix, were each read from their own engine or library.
 
 The last two are worth a line each because of what they needed. PlaySID needed
 a 6502 and a SID, because a PSID file is machine code and not a pattern table;
