@@ -375,6 +375,37 @@ auditMany('partial', 'the RastPort drawing primitive exists, but OS DevKit curre
   '_scr id set high pattern', '_scr id paint', '_scr id bar', '_scr id fill ellipse', '_scr id text',
   '_scr id point', '_scr id scroll', '_scr id put bob',
 ])
+auditMany('faithful', 'the retained 48-byte NewWindow definition preserves the exact byte, word and pointer fields', [
+  '_wnd def body', '_wnd def limits', '_wnd def pens', '_wnd def idcmp', '_wnd def flags', '_wnd def gad',
+  '_wnd def image', '_wnd def title', '_wnd def scr', '_wnd def type', '_wnd def bmap',
+  '_wnd wdef left', '_wnd wdef top', '_wnd wdef width', '_wnd wdef height', '_wnd wdef d pen',
+  '_wnd wdef b pen', '_wnd wdef idcmp', '_wnd wdef flags', '_wnd wdef gad', '_wnd wdef image',
+  '_wnd wdef title', '_wnd wdef scr', '_wnd wdef min width', '_wnd wdef min height',
+  '_wnd wdef max width', '_wnd wdef max height', '_wnd wdef type', '_wnd wdef bmap',
+])
+auditMany('faithful', 'the public Window field is represented with the exact pointer, unsigned byte/word or signed mouse-coordinate width', [
+  '_wnd what front', '_wnd what next', '_wnd what title', '_wnd what scr title', '_wnd what scr',
+  '_wnd what rport', '_wnd what left', '_wnd what top', '_wnd what width', '_wnd what height',
+  '_wnd what x mouse', '_wnd what y mouse', '_wnd what min width', '_wnd what min height',
+  '_wnd what max width', '_wnd what max height', '_wnd what flags', '_wnd what menu',
+  '_wnd what first req', '_wnd what dm req', '_wnd what count req', '_wnd what bdr left',
+  '_wnd what bdr top', '_wnd what bdr right', '_wnd what bdr bottom', '_wnd what first gad',
+  '_wnd what parent', '_wnd what descendant', '_wnd what pointer height', '_wnd what pointer width',
+  '_wnd what pointer xoff', '_wnd what pointer yoff', '_wnd what idcmp', '_wnd what user port',
+  '_wnd what port', '_wnd what int msg', '_wnd what d pen', '_wnd what b pen', '_wnd what image',
+  '_wnd what user data', '_wnd what ext data', '_wnd what layer', '_wnd what font',
+])
+auditMany('partial', 'managed window lifecycle, geometry, ordering and titles exist, but these workers accept arbitrary native Window/NewWindow/tag pointers and rendering ownership', [
+  '_wnd set titles', '_wnd set pointera', '_wnd set limits', '_wnd set idcmp', '_wnd open', '_wnd tag open',
+  '_wnd close', '_wnd activate', '_wnd move', '_wnd box', '_wnd size', '_wnd refresh frame', '_wnd to back',
+  '_wnd to front', '_wnd in front of', '_wnd scroll raster', '_wnd zip',
+])
+auditMany('partial', 'the window state exists, but global native active/ViewPort identity is unavailable; _wnd what pointer also tests stale a0 before loading its argument', [
+  '_wnd what active', '_wnd what vport', '_wnd what pointer',
+])
+auditMany('partial', 'managed message queues exist, but OS DevKit shared UserPort attachment, blocking waits and native message ownership are not exposed', [
+  '_wnd wait port', '_wnd clear port', '_wnd share port', '_wnd unshare port',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

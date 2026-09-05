@@ -6,6 +6,7 @@ import {
   allocDots, setDot, newNativeBooleanInfo, setBooleanInfo,
   newNativeGadget, setGadgetBody, setGadgetFlags, setGadgetRender, setGadgetUser,
   newNativeScreenDefinition, setScreenDefinitionBody, nativeScreenFields, NativeScreenDrawInfoPens,
+  newNativeWindowDefinition, nativeWindowDefinition, nativeWindowFields, type NativeWindowFields,
   newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   newNativeTextAttr, setTextAttr,
   type NativePropInfo, type NativeStringInfo,
@@ -17,6 +18,31 @@ describe('OS DevKit native Intuition structures', () => {
     defaults.defineV1([0x10001, 2, 3, 4, 5, 6, 7, 8, -1])
     defaults.defineV2([10, 11, 0x1000c])
     expect([...defaults.pens]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 0xffff, 10, 11, 12])
+  })
+
+  it('applies every NewWindow field width used by routines 1219-1229 and 1301-1318', () => {
+    const d = newNativeWindowDefinition()
+    for (const key of Object.keys(d) as Array<keyof typeof d>) d[key] = -1
+    const got = nativeWindowDefinition(d)
+    expect([got.left, got.height, got.minWidth, got.maxHeight, got.type]).toEqual(Array(5).fill(0xffff))
+    expect([got.detailPen, got.blockPen]).toEqual([0xff, 0xff])
+    expect([got.idcmp, got.firstGadget, got.bitMap]).toEqual(Array(3).fill(0xffff_ffff))
+  })
+
+  it('applies the public Window pointer, unsigned and signed field reads of routines 1257-1300', () => {
+    const input = Object.fromEntries([
+      'next', 'left', 'top', 'width', 'height', 'mouseY', 'mouseX', 'minWidth', 'minHeight', 'maxWidth',
+      'maxHeight', 'flags', 'menuStrip', 'title', 'firstRequest', 'dmRequest', 'requestCount', 'screen',
+      'rastPort', 'borderLeft', 'borderTop', 'borderRight', 'borderBottom', 'firstGadget', 'parent',
+      'descendant', 'pointer', 'pointerHeight', 'pointerWidth', 'pointerXOffset', 'pointerYOffset', 'idcmp',
+      'userPort', 'windowPort', 'intuiMessage', 'detailPen', 'blockPen', 'image', 'screenTitle', 'extData',
+      'userData', 'layer', 'font',
+    ].map((key) => [key, -2])) as unknown as NativeWindowFields
+    const got = nativeWindowFields(input)
+    expect([got.mouseX, got.mouseY]).toEqual([-2, -2])
+    expect([got.left, got.width, got.requestCount]).toEqual(Array(3).fill(0xfffe))
+    expect([got.borderLeft, got.pointerYOffset, got.detailPen]).toEqual(Array(3).fill(0xfe))
+    expect([got.next, got.rastPort, got.userData]).toEqual(Array(3).fill(0xffff_fffe))
   })
 
   it('writes Border bytes/words/longs exactly as routines 1370-1373', () => {

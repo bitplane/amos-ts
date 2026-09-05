@@ -347,6 +347,67 @@ export class NativeScreenDrawInfoPens {
   }
 }
 
+/** The 48-byte `struct NewWindow` retained by OS DevKit at private +$162. */
+export interface NativeWindowDefinition {
+  left: number; top: number; width: number; height: number
+  detailPen: number; blockPen: number; idcmp: number; flags: number
+  firstGadget: number; checkMark: number; title: number; screen: number; bitMap: number
+  minWidth: number; minHeight: number; maxWidth: number; maxHeight: number; type: number
+}
+
+export const newNativeWindowDefinition = (): NativeWindowDefinition => ({
+  left: 0, top: 0, width: 0, height: 0, detailPen: 0, blockPen: 0,
+  idcmp: 0, flags: 0, firstGadget: 0, checkMark: 0, title: 0, screen: 0, bitMap: 0,
+  minWidth: 0, minHeight: 0, maxWidth: 0, maxHeight: 0, type: 0,
+})
+
+export function nativeWindowDefinition(d: NativeWindowDefinition): NativeWindowDefinition {
+  return {
+    left: d.left & 0xffff, top: d.top & 0xffff, width: d.width & 0xffff, height: d.height & 0xffff,
+    detailPen: d.detailPen & 0xff, blockPen: d.blockPen & 0xff,
+    idcmp: d.idcmp >>> 0, flags: d.flags >>> 0,
+    firstGadget: d.firstGadget >>> 0, checkMark: d.checkMark >>> 0, title: d.title >>> 0,
+    screen: d.screen >>> 0, bitMap: d.bitMap >>> 0,
+    minWidth: d.minWidth & 0xffff, minHeight: d.minHeight & 0xffff,
+    maxWidth: d.maxWidth & 0xffff, maxHeight: d.maxHeight & 0xffff, type: d.type & 0xffff,
+  }
+}
+
+/** Every public `struct Window` field read directly by routines 1257-1300. */
+export interface NativeWindowFields {
+  next: number; left: number; top: number; width: number; height: number
+  mouseY: number; mouseX: number; minWidth: number; minHeight: number; maxWidth: number; maxHeight: number
+  flags: number; menuStrip: number; title: number; firstRequest: number; dmRequest: number; requestCount: number
+  screen: number; rastPort: number; borderLeft: number; borderTop: number; borderRight: number; borderBottom: number
+  firstGadget: number; parent: number; descendant: number; pointer: number
+  pointerHeight: number; pointerWidth: number; pointerXOffset: number; pointerYOffset: number
+  idcmp: number; userPort: number; windowPort: number; intuiMessage: number
+  detailPen: number; blockPen: number; image: number; screenTitle: number
+  extData: number; userData: number; layer: number; font: number
+}
+
+export function nativeWindowFields(w: NativeWindowFields): NativeWindowFields {
+  const u16 = (v: number): number => v & 0xffff
+  const s16 = (v: number): number => (v << 16) >> 16
+  const u8 = (v: number): number => v & 0xff
+  const u32 = (v: number): number => v >>> 0
+  return {
+    next: u32(w.next), left: u16(w.left), top: u16(w.top), width: u16(w.width), height: u16(w.height),
+    mouseY: s16(w.mouseY), mouseX: s16(w.mouseX), minWidth: u16(w.minWidth), minHeight: u16(w.minHeight),
+    maxWidth: u16(w.maxWidth), maxHeight: u16(w.maxHeight), flags: u32(w.flags), menuStrip: u32(w.menuStrip),
+    title: u32(w.title), firstRequest: u32(w.firstRequest), dmRequest: u32(w.dmRequest),
+    requestCount: u16(w.requestCount), screen: u32(w.screen), rastPort: u32(w.rastPort),
+    borderLeft: u8(w.borderLeft), borderTop: u8(w.borderTop), borderRight: u8(w.borderRight),
+    borderBottom: u8(w.borderBottom), firstGadget: u32(w.firstGadget), parent: u32(w.parent),
+    descendant: u32(w.descendant), pointer: u32(w.pointer), pointerHeight: u8(w.pointerHeight),
+    pointerWidth: u8(w.pointerWidth), pointerXOffset: u8(w.pointerXOffset), pointerYOffset: u8(w.pointerYOffset),
+    idcmp: u32(w.idcmp), userPort: u32(w.userPort), windowPort: u32(w.windowPort),
+    intuiMessage: u32(w.intuiMessage), detailPen: u8(w.detailPen), blockPen: u8(w.blockPen),
+    image: u32(w.image), screenTitle: u32(w.screenTitle), extData: u32(w.extData),
+    userData: u32(w.userData), layer: u32(w.layer), font: u32(w.font),
+  }
+}
+
 /** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
 export interface NativeIntuiText {
   frontPen: number

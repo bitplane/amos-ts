@@ -1213,6 +1213,81 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     ])
   })
 
+  it('classifies every low-level Window definition, field and operation', () => {
+    const low = rows.filter((row) => row.namespace === '_wnd' && !row.name.startsWith('_wnd id '))
+    expect(low).toHaveLength(96)
+    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(72)
+    expect(low.filter((row) => row.status === 'partial')).toHaveLength(24)
+    expect(low.some((row) => row.status === 'review')).toBe(false)
+
+    const definitions = [
+      '_wnd def body', '_wnd def limits', '_wnd def pens', '_wnd def idcmp', '_wnd def flags', '_wnd def gad',
+      '_wnd def image', '_wnd def title', '_wnd def scr', '_wnd def type', '_wnd def bmap',
+    ]
+    definitions.forEach((name, i) => expect(rows.find((row) => row.name === name)?.workers).toEqual([1219 + i]))
+    const wdefs = [
+      '_wnd wdef left', '_wnd wdef top', '_wnd wdef width', '_wnd wdef height', '_wnd wdef d pen',
+      '_wnd wdef b pen', '_wnd wdef idcmp', '_wnd wdef flags', '_wnd wdef gad', '_wnd wdef image',
+      '_wnd wdef title', '_wnd wdef scr', '_wnd wdef min width', '_wnd wdef min height',
+      '_wnd wdef max width', '_wnd wdef max height', '_wnd wdef type', '_wnd wdef bmap',
+    ]
+    wdefs.forEach((name, i) => expect(rows.find((row) => row.name === name)?.workers).toEqual([1301 + i]))
+
+    const fieldWorkers = new Map<string, number>([
+      ['_wnd what front', 1257], ['_wnd what scr', 1258], ['_wnd what next', 1259],
+      ['_wnd what title', 1260], ['_wnd what rport', 1261], ['_wnd what left', 1262],
+      ['_wnd what top', 1263], ['_wnd what width', 1264], ['_wnd what height', 1265],
+      ['_wnd what x mouse', 1266], ['_wnd what y mouse', 1267], ['_wnd what min width', 1268],
+      ['_wnd what min height', 1269], ['_wnd what max width', 1270], ['_wnd what max height', 1271],
+      ['_wnd what flags', 1272], ['_wnd what menu', 1273], ['_wnd what first req', 1274],
+      ['_wnd what dm req', 1275], ['_wnd what count req', 1276], ['_wnd what bdr left', 1277],
+      ['_wnd what bdr top', 1278], ['_wnd what bdr right', 1279], ['_wnd what bdr bottom', 1280],
+      ['_wnd what first gad', 1281], ['_wnd what parent', 1282], ['_wnd what descendant', 1283],
+      ['_wnd what pointer height', 1285], ['_wnd what pointer width', 1286],
+      ['_wnd what pointer xoff', 1287], ['_wnd what pointer yoff', 1288], ['_wnd what idcmp', 1289],
+      ['_wnd what user port', 1290], ['_wnd what port', 1291], ['_wnd what int msg', 1292],
+      ['_wnd what d pen', 1293], ['_wnd what b pen', 1294], ['_wnd what image', 1295],
+      ['_wnd what user data', 1296], ['_wnd what ext data', 1297], ['_wnd what layer', 1298],
+      ['_wnd what font', 1299], ['_wnd what scr title', 1300],
+    ])
+    for (const [name, worker] of fieldWorkers) expect(rows.find((row) => row.name === name)).toMatchObject({
+      status: 'faithful', workers: [worker],
+    })
+    expect(rows.find((row) => row.name === '_wnd what pointer')).toMatchObject({ status: 'partial', workers: [1284] })
+    expect(rows.find((row) => row.name === '_wnd what active')).toMatchObject({ status: 'partial', workers: [1256] })
+    expect(rows.find((row) => row.name === '_wnd what vport')).toMatchObject({
+      status: 'partial', workers: [1591],
+      osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -300 })],
+    })
+
+    const calls = new Map<string, [number[], string, number]>([
+      ['_wnd set titles', [[1230], 'intuition.library', -276]],
+      ['_wnd set pointera', [[1231], 'intuition.library', -816]],
+      ['_wnd set limits', [[1232], 'intuition.library', -318]],
+      ['_wnd set idcmp', [[1233], 'intuition.library', -150]],
+      ['_wnd open', [[1234, 1235, 1236, 1237], 'intuition.library', -204]],
+      ['_wnd tag open', [[1238, 1239], 'intuition.library', -606]],
+      ['_wnd close', [[1240], 'intuition.library', -54]],
+      ['_wnd activate', [[1241], 'intuition.library', -450]],
+      ['_wnd move', [[1247], 'intuition.library', -168]],
+      ['_wnd box', [[1248], 'intuition.library', -486]],
+      ['_wnd size', [[1249], 'intuition.library', -288]],
+      ['_wnd refresh frame', [[1250], 'intuition.library', -456]],
+      ['_wnd to back', [[1251], 'intuition.library', -306]],
+      ['_wnd to front', [[1252], 'intuition.library', -312]],
+      ['_wnd in front of', [[1253], 'intuition.library', -480]],
+      ['_wnd scroll raster', [[1254], 'intuition.library', -798]],
+      ['_wnd zip', [[1255], 'intuition.library', -504]],
+      ['_wnd wait port', [[1244], 'gadtools.library', -72]],
+      ['_wnd clear port', [[1243], 'exec.library', -252]],
+      ['_wnd share port', [[1245], 'intuition.library', -150]],
+      ['_wnd unshare port', [[1242], 'intuition.library', -150]],
+    ])
+    for (const [name, [workers, library, lvo]] of calls) expect(rows.find((row) => row.name === name)).toMatchObject({
+      status: 'partial', workers, osCalls: expect.arrayContaining([expect.objectContaining({ library, lvo })]),
+    })
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
