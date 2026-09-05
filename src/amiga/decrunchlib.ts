@@ -13,13 +13,14 @@
  * tries them, answering the name it answers. `Dpk Name$` therefore behaves as
  * the original does.
  *
- * Decrunching is NOT complete and cannot honestly be made so. The library is
- * roughly seventy decrunchers in 27KB, and the dispatch at $1060 is a jump
- * table with a distinct routine behind almost every id. This port decrunches
- * the ONE data format it already had a decruncher for — PowerPacker, id $48,
- * via ./powerpacker.ts — and refuses the rest, which is a real outcome rather
- * than an invented one: the library's own `dlDecrunch` returns zero for
- * anything it cannot handle and Explode simply leaves the bank alone.
+ * Decrunching is NOT complete. The library is roughly seventy decrunchers in
+ * 27KB, and the dispatch at $1060 is a jump table with a distinct routine
+ * behind almost every id. This port decrunches the ONE data format it already
+ * had a compatible decruncher for — PowerPacker, id $48, via
+ * ./powerpacker.ts — and refuses the rest. That is a finite porting backlog,
+ * not undocumented behaviour: each missing algorithm is present in the
+ * machine code. Returning no output is the safe substitute because Explode
+ * already handles `dlDecrunch` returning zero by leaving the bank alone.
  *
  * The gap is stateable rather than vague. `DL_DECRUNCHES` is the set of ids
  * this file will act on; every other id in ./decrunchlib.gen.ts identifies
@@ -56,6 +57,19 @@
  */
 import { DL_DATA_MAGICS, DL_SCAN, DL_SIGNATURES } from './decrunchlib.gen'
 import { pp20Decrunch } from './powerpacker'
+
+/** Resident metadata and every public LVO in the held 35.237 binary. */
+export const DECRUNCH_NAME = 'decrunch.library'
+export const DECRUNCH_VERSION = 35
+export const DECRUNCH_REVISION = 237
+export const DL_LVO = {
+  dlAllocItem: -30,
+  dlFreeItem: -36,
+  dlInitItem: -42,
+  dlDecrunch: -48,
+  /** The unnamed ninth vector: load and relocate a crunched executable. */
+  dlLoadExecutable: -54,
+} as const
 
 /** what `dlInitItem` fills in when it recognises something */
 export interface DlItem {
@@ -116,8 +130,8 @@ export function dlSkipHunkHeader(data: Uint8Array, from = 0): number {
 
 /** stage one: the data magics, in table order */
 function identifyData(data: Uint8Array): DlItem | null {
-  if (data.length < 4) return null
-  const first = u32(data, 0)
+  if (data.length < 2) return null
+  const first = data.length >= 4 ? u32(data, 0) : -1
   for (const m of DL_DATA_MAGICS) {
     const hit = m.width === 4 ? first === m.magic : u16(data, 0) === m.magic
     if (!hit) continue

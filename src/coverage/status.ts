@@ -5281,8 +5281,9 @@ export const NOTES: Record<string, string> = {
     "no NUL after it prints whatever follows it in memory. Here the string is what prints, which is the whole " +
     "of what this port can say about memory it does not own.",
   "dpk unpack":
-    "Routine 76 ($1806) over decrunch.library, and APPROXIMATED because the library is roughly seventy " +
-    "decrunchers in 27KB and this port has one of the formats it knows. Identification is complete -- every " +
+    "Routine 76 ($1806) over decrunch.library 35.237, whose nine-vector public surface, complete 93-format " +
+    "recognizer and dispatch were re-audited against the held binary. APPROXIMATED because the library is " +
+    "roughly seventy decrunchers in 27KB and this port has one of the formats it knows. Identification is complete -- every " +
     "format, in the order the library tries them, answering the name it answers -- so `Dpk Name$` is faithful " +
     "and this keyword recognises everything. What it UNPACKS is PowerPacker data, id $48, through " +
     "../amiga/powerpacker.ts. Anything else is left alone, which is the library's own outcome for a format it " +

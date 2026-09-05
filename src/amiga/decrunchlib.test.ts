@@ -56,6 +56,14 @@ describe('decrunch.library: the data magics', () => {
     expect(dlInitItem(d)?.name).toBe('DragPack 2.52 D')
   })
 
+  it('does not require two unrelated bytes after DragPack\'s WORD signature', () => {
+    // `$2f8 cmpi.w #$4248,(a0)` is reached after the longword comparisons;
+    // those may read beyond a tiny allocation on Amiga, but this final match
+    // itself only needs the two bytes it declares.
+    expect(dlInitItem(Uint8Array.from([0x42, 0x48]))?.name).toBe('DragPack 2.52 D')
+    expect(dlInitItem(Uint8Array.from([0x42, 0x48, 0xff]))?.name).toBe('DragPack 2.52 D')
+  })
+
   it('TurtleSmasher needs its second longword too, and is refused without it', () => {
     const m = magic('TurtleSmasher 2.00 D')
     expect(dlInitItem(buf(16, { 0: m.magic }))).toBe(null)

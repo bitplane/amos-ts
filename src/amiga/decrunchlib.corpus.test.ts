@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DL_DATA_MAGICS, DL_ID_STRING, DL_SCAN, DL_SIGNATURES } from './decrunchlib.gen'
+import { DECRUNCH_NAME, DECRUNCH_REVISION, DECRUNCH_VERSION, DL_LVO } from './decrunchlib'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const path = join(root, 'fixtures', 'libs', 'decrunch.library')
@@ -43,6 +44,8 @@ describe.skipIf(!present)('decrunch.library 35.237, as shipped', () => {
     expect(raw.toString('latin1')).toContain(DL_ID_STRING)
     expect(DL_ID_STRING).toContain('Georg Hörmann')
     expect(DL_ID_STRING).toContain('LICENCEWARE')
+    expect(DECRUNCH_NAME).toBe('decrunch.library')
+    expect(DL_ID_STRING).toContain(`${DECRUNCH_VERSION}.${DECRUNCH_REVISION}`)
   })
 
   it('exports its functions through a WORD-relative vector table', () => {
@@ -61,6 +64,7 @@ describe.skipIf(!present)('decrunch.library 35.237, as shipped', () => {
     // and Explode's own equates at source lines 78-81, in ITS order:
     // dlAllocItem, dlFreeItem, dlInitItem, dlDecrunch
     expect([lvo(30), lvo(36), lvo(42), lvo(48)]).toEqual([0x13c, 0x162, 0x182, 0x1060])
+    expect(Object.values(DL_LVO)).toEqual([-30, -36, -42, -48, -54])
   })
 
   it('and a ninth function Explode never names, which is the executable loader', () => {

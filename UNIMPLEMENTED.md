@@ -189,6 +189,12 @@ furniture.
   to `ADR` (device type, unit number, handler name) is not modelled, so the
   address argument is accepted and ignored.
 
+- `dpk unpack` — `decrunch.library` 35.237 identifies all 93 formats, but the
+  port currently executes only its PowerPacker-data arm. The other fifteen
+  data handlers and the executable loader/decrunch paths are present in the
+  held machine code and are a large but finite porting backlog; recognition
+  and `Dpk Name$` are already complete.
+
 - `ovloadimage24`/`ovloadiff24`, `ovsavejpeg24` — the IFF half is exact and
   the JPEG half is conformant but not byte-identical: the forward DCT is this
   port's own float transform where the library uses IJG's integer one, and the
