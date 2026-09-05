@@ -36,7 +36,7 @@ change which programs are scanned.
 | `libcat.ts` | catalogue `.Lib` token tables as known, variant, renumbered or new; supports `--gap`, `--keywords`, `--json` and `--md` |
 | `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | resolve an AMOS 3D keyword to its engine routine and disassemble it |
-| `muidis.ts` | resolve a MUI class method to `muimaster.library` code; `--tree` prints the class tree |
+| `muidis.ts` | resolve a MUI class method to `muimaster.library` 19.35 code; `--tree` prints all 35 built-ins and their 507 table entries |
 | `libdis.ts` | walk an Amiga library's resident/function tables and disassemble its routines |
 | `oscalls.ts` | report the AmigaOS library functions an extension calls |
 | `errscan.ts` | report every registered binary's `L_ErrorExt` call sites and register setup |

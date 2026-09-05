@@ -105,6 +105,22 @@ it in a subsystem and every other caller silently inherits behaviour it has no
 source for. `DEVIATION:` *is* allowed here, because the modelled machine
 really does differ from the real one and saying where is the whole job.
 
+## MUI 3.8 coverage
+
+`muimaster.ts` models the 35 classes built into `muimaster.library` 19.35.
+Their authoritative dispatcher tables contain 507 entries; `npm run cli --
+src/cli/muidis.ts --tree` derives both totals directly from the library and
+prints the count for every class. `Mccprefs.mui` is the sole pass-through and
+has no table of its own. Classes shipped separately under `MUI/Libs/mui` are
+external MCCs and are intentionally outside this built-in audit.
+
+The implementation includes the object tree, group layout, Stuntzi-style
+frames and standard images, Intuition-backed windows and input, Dataspace
+persistence, popup composites, and the synchronous `MUI_RequestA` host
+boundary. EasyLife's twenty MUI commands call this same implementation.
+Supplied guest 68k hooks are retained as attributes but are not executed;
+that is the explicit emulation boundary rather than a missing built-in class.
+
 ## Contents
 
 | module | models |
@@ -120,7 +136,7 @@ really does differ from the real one and saying where is the whole job.
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |
 | `reqtools.ts` | `reqtools.library` 38.1092: its tags, every message in the binary, and `req.c`'s layout arithmetic |
 | `displayinfo.ts` | the display database one monitor driver fills: `Devs/Monitors/PAL`'s six ids and their names |
-| `muimaster.ts` | MUI's class factory: 64 classes, attributes, the object tree, notification |
+| `muimaster.ts` | MUI 3.8's 35 built-in classes and 507 method-table entries, object tree, layout, rendering, input, persistence and request boundary |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |
 | `ffp.ts` | Motorola Fast Floating Point: the 32-bit format `mathffp.library` provides, and the add, multiply and divide AMOS links a copy of |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |

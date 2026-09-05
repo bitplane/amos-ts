@@ -34,12 +34,10 @@
  * everything that needed `easylife.library` or `muimaster.library` and is
  * therefore the subset that stands alone.
  *
- * ## What is not here, and why
+ * ## The one deliberately omitted keyword
  *
- * Twenty-one of the 233 names. Twenty are MUI and wait on a `muimaster` of
- * V8 or better; the archive's is 7.973 and routine 233 demands V8.
- *
- * The twenty-first is `Eltest`, and it is the author's own scaffolding.
+ * `Eltest` is the author's own scaffolding. The twenty MUI commands formerly
+ * omitted here now run through `src/amiga/muimaster.ts` 19.35.
  *
  * It exists in **1.09 alone** — 1.0 does not have it, 1.44 does not, and
  * 1.10 does not either. In 1.09 it is the LAST entry of a 220-entry table,
@@ -2601,6 +2599,7 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
           str(a[1] ?? VS('')),
           str(a[2] ?? VS('')),
           str(a[3] ?? VS('')),
+          str(a[4] ?? VS('')),
         ),
       ),
     /**

@@ -2502,7 +2502,7 @@ export class Runtime {
   /**
    * `muimaster.library`, built on that object space.
    *
-   * Lazy for the same reason Intuition is: constructing it registers 64
+   * Lazy for the same reason Intuition is: constructing it registers 35
    * classes, and the overwhelming majority of AMOS programs never name one.
    */
   private muiBase: MuiMaster | null = null

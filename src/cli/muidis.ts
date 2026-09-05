@@ -240,7 +240,8 @@ const classes = classTable()
 
 if (wantTree || positional.length === 0) {
   if (wantTree) {
-    console.log(`${classes.length} built-in classes, from the table at 0x${classes[0]!.entry.toString(16)}`)
+    const methodCount = classes.reduce((sum, c) => sum + (methodsOf(c)?.length ?? 0), 0)
+    console.log(`${classes.length} built-in classes, ${methodCount} method-table entries, from the table at 0x${classes[0]!.entry.toString(16)}`)
     for (const c of classes) {
       const ms = methodsOf(c)
       console.log(

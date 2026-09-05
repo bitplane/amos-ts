@@ -58,6 +58,7 @@ import {
   type MuiWindowGeometry,
   type MuiWindowHost,
   type MuiWindowSpec,
+  type MuiRequesterSpec,
   type MuiAreaRenderSpec,
   type MuiImageRenderSpec,
   type MuiBitmapRenderSpec,
@@ -93,6 +94,8 @@ class TestWindowHost implements MuiWindowHost {
   propGadgets = new Map<number, { state: MuiPropGadgetState, horizontal: boolean }>()
   lists: MuiListRenderSpec[] = []
   sliders: MuiSliderRenderSpec[] = []
+  requests: MuiRequesterSpec[] = []
+  requestResult = 0
   geometryValue: MuiWindowGeometry = { left: 10, top: 12, width: 160, height: 80, screenAddress: 0x7777, active: true }
   open(spec: MuiWindowSpec): unknown { this.opened.push(spec); return {} }
   close(): void { this.calls.push('close') }
@@ -104,6 +107,7 @@ class TestWindowHost implements MuiWindowHost {
   screenToBack(): void { this.calls.push('screen-back') }
   setTitles(_handle: unknown, title: string, screenTitle: string): void { this.calls.push(`titles:${title}:${screenTitle}`) }
   poll(): MuiWindowEvent[] { return this.events.splice(0) }
+  request(spec: MuiRequesterSpec): number { this.requests.push(spec); return this.requestResult }
   drawArea(_handle: unknown, spec: MuiAreaRenderSpec): void { this.draws.push(spec) }
   drawImage(_handle: unknown, spec: MuiImageRenderSpec): void { this.images.push(spec) }
   drawBitmap(_handle: unknown, spec: MuiBitmapRenderSpec): void { this.bitmaps.push(spec) }
@@ -229,6 +233,26 @@ describe('muimaster: attributes go to the class that owns them', () => {
       attrs: [tag(MUI.MUIA_Window_Title, 1), tag(MUI.MUIA_Window_Open, 1), tag(0x8042_dead, 1)],
     }
     expect(w.cl.dispatcher(w.cl, w, msg)).toBe(2)
+  })
+})
+
+describe('muimaster: MUI_RequestA', () => {
+  it('formats the parameter array, preserves native gadget numbering, and uses the modal host boundary', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    host.requestResult = 2
+    m.windowHost = host
+    m.readString = (address) => address === 0x2000 ? 'world' : ''
+    const params = String.fromCharCode(0, 0, 0, 7, 0, 0, 0x20, 0)
+    expect(m.requestA(null, null, 'Question', 'Yes|Maybe|No', '%ld hello %s %%', params)).toBe(2)
+    expect(host.requests).toEqual([{
+      parent: null, title: 'Question', gadgets: ['Yes', 'Maybe', 'No'], message: '7 hello world %',
+    }])
+  })
+
+  it('returns the native rightmost Cancel result when the host has no requester UI', () => {
+    const m = new MuiMaster()
+    expect(m.requestA(null, null, 'Question', 'Ok|Cancel', 'Continue?')).toBe(0)
   })
 })
 

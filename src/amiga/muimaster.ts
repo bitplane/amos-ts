@@ -535,6 +535,13 @@ export interface MuiWindowEvent {
   iaddress: number
 }
 
+export interface MuiRequesterSpec {
+  parent: unknown | null
+  title: string
+  gadgets: readonly string[]
+  message: string
+}
+
 export interface MuiWindowHost {
   open(spec: MuiWindowSpec): unknown | null
   close(handle: unknown): void
@@ -546,6 +553,8 @@ export interface MuiWindowHost {
   screenToBack(handle: unknown): void
   setTitles(handle: unknown, title: string, screenTitle: string): void
   poll(handle: unknown): MuiWindowEvent[]
+  /** Synchronous modal boundary used by MUI_RequestA; absent means Cancel. */
+  request?(spec: MuiRequesterSpec): number
   drawArea?(handle: unknown, spec: MuiAreaRenderSpec): void
   drawImage?(handle: unknown, spec: MuiImageRenderSpec): void
   drawBitmap?(handle: unknown, spec: MuiBitmapRenderSpec): void
@@ -1118,25 +1127,31 @@ export class MuiMaster {
    * guide blames Commodore, and it is right to — MUI is matching
    * `EZRequestArgs`, whose "negative" gadget has always been 0.
    *
-   * A requester is a modal MUI window and this port has no input to give it,
-   * so it answers 0 — the rightmost button, which is the one every requester
-   * makes its cancel. That is the safe answer rather than the true one; see
-   * the NOTE, and it becomes real when the input slice lands.
-   *
-   * NOTE: `flags` and `params` are accepted and ignored. MUI 3.8 defines no
-   * flags at all (the autodoc says "must be 0"), and `params` is the argument
-   * array for the format string's `%ld`/`%s` codes, which needs the text
-   * engine that is not here yet.
+   * The host owns the blocking modal interaction. A headless host can omit
+   * it, in which case the rightmost (Cancel) gadget, numbered zero, wins.
+   * MUI 3.8 defines no flags (the autodoc requires zero).
    */
   requestA(
     _app: BoopsiObject | null,
-    _win: BoopsiObject | null,
-    _title: string,
+    win: BoopsiObject | null,
+    title: string,
     gadgets: string,
-    _format: string,
+    format: string,
+    params = '',
   ): number {
-    // the count is still worth deriving: it is what a caller checks against
-    return gadgets === '' ? 0 : 0
+    const args: number[] = []
+    for (let i = 0; i + 3 < params.length; i += 4) {
+      args.push((((params.charCodeAt(i) & 0xff) << 24) | ((params.charCodeAt(i + 1) & 0xff) << 16) |
+        ((params.charCodeAt(i + 2) & 0xff) << 8) | (params.charCodeAt(i + 3) & 0xff)) >>> 0)
+    }
+    let ai = 0
+    const message = format.replace(/%%|%(-?)(\d*)(ld|lu|s)/g, (spec, _minus: string, _width: string, kind: string) => {
+      if (spec === '%%') return '%'
+      const value = args[ai++] ?? 0
+      return kind === 's' ? this.textOfAddress(value) : rtFormat(spec, kind === 'ld' ? value | 0 : value)
+    })
+    const parent = win?.instData<MuiWindowData>(this.windowClass).handle ?? null
+    return this.windowHost?.request?.({ parent, title, gadgets: gadgets.split('|'), message }) ?? 0
   }
 
   // -- layout -------------------------------------------------------------
@@ -1515,9 +1530,9 @@ export class MuiMaster {
    * MUI's classes differ in what they OWN and what they DO. What they own is
    * data — `MUI_OWNER` says which attributes are whose — so one function can
    * serve every class for the storing part, and the specialised behaviour is
-   * the handful of `if`s below it. That is what makes 65 classes tractable in
-   * one file and what lets a later slice add drawing to Area without touching
-   * the other sixty-four.
+   * the handful of `if`s below it. That is what makes the 35 built-in classes
+   * tractable in one file while keeping their shared superclass behavior in
+   * one place.
    */
   private dispatch(name: string, cl: BoopsiClass, obj: BoopsiObject | BoopsiClass, msg: Msg): number {
     switch (msg.MethodID) {
