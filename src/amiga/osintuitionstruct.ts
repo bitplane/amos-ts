@@ -207,3 +207,51 @@ export interface NativeNotifyMessage {
 export function notifyRequest(message: NativeNotifyMessage): number {
   return message.request >>> 0
 }
+
+/** `struct IntuiText`, intuition.i: three bytes, pad, two words, three pointers. */
+export interface NativeIntuiText {
+  frontPen: number
+  backPen: number
+  drawMode: number
+  left: number
+  top: number
+  font: number
+  text: number
+  next: number
+}
+
+export const newNativeIntuiText = (): NativeIntuiText => ({
+  frontPen: 0, backPen: 0, drawMode: 0, left: 0, top: 0, font: 0, text: 0, next: 0,
+})
+
+export function setIntuiTextDraw(text: NativeIntuiText | null, frontPen: number, backPen: number, drawMode: number): void {
+  if (!text) return
+  text.frontPen = frontPen & 0xff
+  text.backPen = backPen & 0xff
+  text.drawMode = drawMode & 0xff
+}
+
+export function setIntuiTextCorner(text: NativeIntuiText | null, left: number, top: number): void {
+  if (!text) return
+  text.left = left & 0xffff
+  text.top = top & 0xffff
+}
+
+export function setIntuiText(
+  text: NativeIntuiText | null,
+  frontPen: number,
+  backPen: number,
+  drawMode: number,
+  left: number,
+  top: number,
+  font: number,
+  value: number,
+  next: number,
+): void {
+  if (!text) return
+  setIntuiTextDraw(text, frontPen, backPen, drawMode)
+  setIntuiTextCorner(text, left, top)
+  text.font = font >>> 0
+  text.text = value >>> 0
+  text.next = next >>> 0
+}

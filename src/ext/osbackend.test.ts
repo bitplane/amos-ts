@@ -533,6 +533,25 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies every IntuiText field, drawing and measurement operation', () => {
+    const text = rows.filter((row) => row.namespace === '_it')
+    expect(text).toHaveLength(16)
+    expect(text.filter((row) => row.status === 'faithful')).toHaveLength(14)
+    expect(text.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_it print', '_it what len',
+    ])
+    expect(text.some((row) => row.status === 'review')).toBe(false)
+    expect(text.find((row) => row.name === '_it set draw')?.workers).toEqual([1354])
+    expect(text.find((row) => row.name === '_it set')?.workers).toEqual([1359])
+    expect(text.find((row) => row.name === '_it print')).toMatchObject({
+      workers: [1360], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -216 })],
+    })
+    expect(text.find((row) => row.name === '_it what next')?.workers).toEqual([1368])
+    expect(text.find((row) => row.name === '_it what len')).toMatchObject({
+      workers: [1369], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -330 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

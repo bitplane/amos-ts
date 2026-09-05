@@ -3,6 +3,7 @@ import {
   newNativeBorder, setBorderCorner, setBorderDots, setBorderDraw, setPropInfo, setStringBuffers,
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
   nativeIntuiMessage, notifyRequest,
+  newNativeIntuiText, setIntuiText, setIntuiTextCorner, setIntuiTextDraw,
   type NativePropInfo, type NativeStringInfo,
 } from './osintuitionstruct'
 
@@ -75,5 +76,17 @@ describe('OS DevKit native Intuition structures', () => {
 
   it('reads the NotifyMessage request pointer at its native width', () => {
     expect(notifyRequest({ request: -1 })).toBe(0xffff_ffff)
+  })
+
+  it('writes every byte, word and pointer of the 20-byte IntuiText record', () => {
+    const text = newNativeIntuiText()
+    setIntuiTextDraw(text, 0x101, 0x202, 0x303)
+    setIntuiTextCorner(text, -1, 0x12345)
+    expect(text).toMatchObject({ frontPen: 1, backPen: 2, drawMode: 3, left: 0xffff, top: 0x2345 })
+    setIntuiText(text, 4, 5, 6, -7, -8, -9, -10, -11)
+    expect(text).toEqual({
+      frontPen: 4, backPen: 5, drawMode: 6, left: 0xfff9, top: 0xfff8,
+      font: 0xffff_fff7, text: 0xffff_fff6, next: 0xffff_fff5,
+    })
   })
 })

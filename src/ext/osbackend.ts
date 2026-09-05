@@ -320,6 +320,14 @@ auditMany('faithful', 'ReportMouse toggles the exact WFLG_REPORTMOUSE window fla
 auditMany('faithful', 'LockIBase/UnlockIBase token pairing is represented exactly in the single-threaded backend', [
   '_ibase lock', '_ibase unlock',
 ])
+auditMany('faithful', 'the complete 20-byte IntuiText layout and every byte, word and pointer setter/reader are represented', [
+  '_it set draw', '_it set corner', '_it set font', '_it set str', '_it set next', '_it set',
+  '_it what front pen', '_it what back pen', '_it what draw mode', '_it what left', '_it what top',
+  '_it what font', '_it what str', '_it what next',
+])
+auditMany('partial', 'text drawing and metrics exist, but arbitrary native TextAttr, C-string and next-pointer chains are not traversed', [
+  '_it print', '_it what len',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
