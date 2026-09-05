@@ -227,6 +227,7 @@ is still never run.
 | `ilbm.ts` | IFF ILBM: BMHD/CMAP/CAMG/BODY, ByteRun1, and the EHB palette |
 | `jpeg.ts` | baseline JPEG, ISO/IEC 10918-1, Huffman and 8-bit tables |
 | `opalvision.ts` | OpalVision, Opal Technology's 24-bit framebuffer, and `opal.library` |
+| `opalreq.ts` | `opalreq.library` 1.10's synchronous file-request boundary and public structure |
 | `gms.ts` | the Games Master System's module registry and jump tables |
 | `rexx.ts` | ARexx public message ports |
 | `language.ts` | the language names and codes `locale.library` and Workbench share |
