@@ -114,6 +114,15 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(low.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies all 73 high-level GadTools bank commands individually', () => {
+    const high = rows.filter((row) => row.namespace === '_gt')
+    expect(high).toHaveLength(73)
+    expect(high.every((row) => row.status === 'partial')).toBe(true)
+    expect(high.find((row) => row.name === '_gt button')?.workers).toEqual([3121])
+    expect(high.find((row) => row.name === '_gt boopsi')?.workers).toEqual([3158])
+    expect(high.find((row) => row.name === '_gt menu what check')?.workers).toEqual([3189])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
