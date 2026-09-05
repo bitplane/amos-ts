@@ -277,6 +277,12 @@ export function obtainDataType(data: Uint8Array, types: readonly DataTypeHeader[
   return best
 }
 
+/**
+ * `ReleaseDataType(dt)` (-42). Descriptors are immutable shared records in
+ * this backend, so releasing one has no observable work to perform.
+ */
+export function releaseDataType(_dt: DataTypeHeader | null): void {}
+
 /** every descriptor that matched, most specific first, for a caller that wants to see the tie */
 export function candidates(data: Uint8Array, types: readonly DataTypeHeader[]): DataTypeHeader[] {
   return types

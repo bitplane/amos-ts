@@ -46,6 +46,11 @@ describe('exec: OpenLibrary', () => {
     expect(libraryPresent('locale.library')).toBe(true)
   })
 
+  it('opens the modelled descriptor half of datatypes.library at V40', () => {
+    expect(openLibrary('datatypes.library', 40)).toBeGreaterThan(0)
+    expect(openLibrary('datatypes.library', 41)).toBe(0)
+  })
+
   it('is case-insensitive, as AmigaDOS names are', () => {
     expect(openLibrary('LOCALE.LIBRARY', 38)).toBe(openLibrary('locale.library', 38))
   })

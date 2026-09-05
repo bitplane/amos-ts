@@ -105,6 +105,18 @@ interface Modelled {
 }
 
 const MODELLED: ReadonlyMap<string, Modelled> = new Map([
+  // File classification from Workbench's DEVS:DataTypes descriptors. The
+  // object-oriented half of datatypes.library is not claimed here; callers
+  // can obtain and release descriptors through ./datatypes.ts.
+  [
+    'datatypes.library',
+    {
+      version: 40,
+      about:
+        'Workbench file-type descriptors and mask matching. Descriptor obtain/release is modelled; ' +
+        'datatype objects, layout and methods are not.',
+    },
+  ],
   // catalogs, FormatDate, collation and case — ../amiga/localelib.ts
   [
     'locale.library',

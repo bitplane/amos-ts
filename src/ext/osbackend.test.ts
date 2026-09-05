@@ -16,7 +16,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(summary.total).toBe(1047)
     expect(summary.referencedRoutines).toBe(1053)
     expect(summary.eightByteRoutines).toBe(1009)
-    expect(rows.filter((row) => row.status === 'modelled' || row.status === 'missing' || row.status === 'review'))
+    expect(rows.filter((row) => row.status === 'faithful' || row.status === 'partial' || row.status === 'missing' || row.status === 'review'))
       .toHaveLength(1047)
   })
 
@@ -26,8 +26,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
-    expect(rows.find((row) => row.name === '_rp draw')).toMatchObject({ status: 'modelled', family: 'graphics' })
+    expect(rows.find((row) => row.name === '_rp draw')).toMatchObject({ status: 'review', family: 'graphics' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
+      status: 'partial',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
     })
     expect(rows.find((row) => row.name === '_ggad create')).toMatchObject({
@@ -39,6 +40,16 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_ag display')?.osCalls).toContainEqual({
       chain: '?', library: 'amigaguide.library', lvo: -54,
     })
+  })
+
+  it('classifies every DataTypes keyword at operation level', () => {
+    const dt = rows.filter((row) => row.namespace === '_dt')
+    expect(dt).toHaveLength(14)
+    expect(dt.filter((row) => row.status === 'faithful').map((row) => row.name).sort())
+      .toEqual(['_dt init', '_dt release'])
+    expect(dt.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_dt obtain'])
+    expect(dt.filter((row) => row.status === 'missing')).toHaveLength(11)
+    expect(dt.some((row) => row.status === 'review')).toBe(false)
   })
 
   it('makes every previously stated missing family explicit', () => {

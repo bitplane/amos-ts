@@ -2,7 +2,7 @@ import type { TokenEntry } from '../tokens/libtok'
 import { scanOsCalls, type OsCall } from './oscalls'
 import { libLayout, routineAddresses } from './routines'
 
-export type OsBackendStatus = 'modelled' | 'missing' | 'review'
+export type OsBackendStatus = 'faithful' | 'partial' | 'missing' | 'review'
 
 export interface OsBackendRow {
   name: string
@@ -11,6 +11,7 @@ export interface OsBackendRow {
   namespace: string
   status: OsBackendStatus
   family: string
+  reason: string
   /** Entry routines after following the extension's Rbra forwarding chain. */
   workers: number[]
   eightByteRoutines: number[]
@@ -43,6 +44,23 @@ const MODELLED = new Map<string, string>([
   ['_joy', 'lowlevel'], ['_layer', 'layers'], ['_li', 'layers'],
 ])
 
+const DATATYPES_AUDIT = new Map<string, { status: OsBackendStatus; reason: string }>([
+  ['_dt init', { status: 'faithful', reason: 'OpenLibrary(datypes.library, 39) succeeds against the V40 registry entry' }],
+  ['_dt obtain', { status: 'partial', reason: 'memory descriptor matching exists, but tie ordering is not yet binary-faithful' }],
+  ['_dt release', { status: 'faithful', reason: 'shared immutable descriptors make ReleaseDataType observably a no-op' }],
+  ['_dt create', { status: 'missing', reason: 'datatype objects are not modelled' }],
+  ['_dt delete', { status: 'missing', reason: 'datatype objects are not modelled' }],
+  ['_dt set attrs', { status: 'missing', reason: 'datatype object attributes are not modelled' }],
+  ['_dt what attrs', { status: 'missing', reason: 'datatype object attributes are not modelled' }],
+  ['_dt add', { status: 'missing', reason: 'datatype objects cannot be attached to windows' }],
+  ['_dt remove', { status: 'missing', reason: 'datatype objects cannot be detached from windows' }],
+  ['_dt refresh', { status: 'missing', reason: 'datatype object layout and rendering are not modelled' }],
+  ['_dt what methods', { status: 'missing', reason: 'datatype class method tables are not modelled' }],
+  ['_dt what triggers', { status: 'missing', reason: 'datatype trigger method tables are not modelled' }],
+  ['_dt do', { status: 'missing', reason: 'datatype object methods are not modelled' }],
+  ['_dt str$', { status: 'missing', reason: 'GetDTString is not modelled' }],
+])
+
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
 /** Lazy OpenLibrary paths whose inline names were verified in their workers. */
@@ -73,6 +91,7 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
     const namespace = namespaceOf(name)
     const missing = MISSING.find((f) => f.names(name, namespace))
     const modelled = MODELLED.get(namespace)
+    const audited = DATATYPES_AUDIT.get(name)
     const routines = [...new Set([entry.instr, entry.func].filter((n) => n !== undefined && n !== 1 && n !== 0xffff))]
     // Invalid routine references are review items, never silently "covered".
     const valid = routines.every((n) => addresses[n!] !== undefined)
@@ -93,8 +112,13 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
       tokenId: entry.id,
       routines: routines as number[],
       namespace,
-      status: missing ? 'missing' : modelled && valid ? 'modelled' : 'review',
+      status: audited?.status ?? (missing ? 'missing' : 'review'),
       family: missing?.family ?? modelled ?? namespace,
+      reason: audited?.reason ?? (missing
+        ? `${missing.family}.library has no backend`
+        : modelled && valid
+          ? `${modelled} family exists; exact operation not audited yet`
+          : valid ? 'local or indirect operation not audited yet' : 'invalid routine reference'),
       workers,
       eightByteRoutines: routines.filter((routine) => {
         const at = addresses[routine]
@@ -116,7 +140,7 @@ export function osBackendSummary(rows: OsBackendRow[]): {
   untracedOsCalls: number
   byLibrary: Array<{ library: string; keywords: number; lvos: number }>
 } {
-  const byStatus: Record<OsBackendStatus, number> = { modelled: 0, missing: 0, review: 0 }
+  const byStatus: Record<OsBackendStatus, number> = { faithful: 0, partial: 0, missing: 0, review: 0 }
   const groups = new Map<string, { family: string; status: OsBackendStatus; keywords: number }>()
   for (const row of rows) {
     byStatus[row.status]++

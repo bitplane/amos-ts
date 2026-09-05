@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTF, DTHD, GID, LVO, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor } from './datatypes'
+import { DTF, DTHD, GID, LVO, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
@@ -158,6 +158,12 @@ describe('matching', () => {
 
   it('answers null for something no descriptor claims', () => {
     expect(obtainDataType(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), SHIPPED_DATATYPES)).toBeNull()
+  })
+
+  it('releases shared descriptors without invalidating them', () => {
+    const dt = obtainDataType(ilbm('ILBM'), SHIPPED_DATATYPES)
+    releaseDataType(dt)
+    expect(dt?.baseName).toBe('ilbm')
   })
 
   it('will not match data shorter than the mask', () => {
