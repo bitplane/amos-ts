@@ -340,6 +340,18 @@ auditMany('faithful', 'the retained NewScreen definition and directly exposed pu
 auditMany('partial', 'screen ordering/active state and embedded ViewPort/RastPort/LayerInfo exist, but their native interior addresses are not stable', [
   '_scr what front', '_scr what active', '_scr what vport', '_scr what rport', '_scr what layer info',
 ])
+auditMany('partial', 'managed screen lifecycle, ordering and relative positioning exist, but OS DevKit accepts arbitrary native NewScreen, Screen and TagItem pointers', [
+  '_scr open', '_scr tag open', '_scr close', '_scr move', '_scr position', '_scr to back', '_scr to front',
+])
+auditMany('partial', 'the corresponding screen presentation state exists, but Intuition title-bar rendering and DisplayBeep colour inversion are not modelled', [
+  '_scr beep', '_scr show title', '_scr hide title',
+])
+auditMany('partial', 'DrawInfo fields and screen pen policy are represented, but GetScreenDrawInfo does not expose a tracked native allocation tied to an arbitrary Screen pointer', [
+  '_scr dinf get', '_scr dinf free',
+])
+auditMany('partial', 'Workbench and managed public-screen state exist, but the process-wide Intuition public-screen registry, native lock identity and mode/status policy are not complete', [
+  '_scr def pub', '_scr pub lock', '_scr pub unlock', '_scr pub modes', '_scr pub status',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

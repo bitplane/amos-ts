@@ -1155,6 +1155,26 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     for (const [name, worker] of expected) expect(rows.find((row) => row.name === name)?.workers).toEqual([worker])
   })
 
+  it('classifies all 17 low-level screen lifecycle and public-screen operations', () => {
+    const calls = new Map<string, [number[], number]>([
+      ['_scr def pub', [[1167], -540]], ['_scr open', [[1168, 1169, 1170, 1171], -198]],
+      ['_scr tag open', [[1172, 1173], -612]], ['_scr close', [[1174], -66]],
+      ['_scr beep', [[1175], -96]], ['_scr move', [[1176], -162]],
+      ['_scr to back', [[1177], -246]], ['_scr to front', [[1178], -252]],
+      ['_scr position', [[1179], -792]], ['_scr show title', [[1180], -282]],
+      ['_scr hide title', [[1181], -282]], ['_scr dinf get', [[1182], -690]],
+      ['_scr dinf free', [[1183], -696]], ['_scr pub lock', [[1184], -510]],
+      ['_scr pub unlock', [[1185], -516]], ['_scr pub modes', [[1186], -546]],
+      ['_scr pub status', [[1187], -552]],
+    ])
+    for (const [name, [workers, lvo]] of calls) {
+      expect(rows.find((row) => row.name === name)).toMatchObject({
+        status: 'partial', workers,
+        osCalls: [expect.objectContaining({ library: 'intuition.library', lvo })],
+      })
+    }
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
