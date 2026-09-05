@@ -26,7 +26,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
-    expect(rows.find((row) => row.name === '_rp draw')).toMatchObject({ status: 'review', family: 'graphics' })
+    expect(rows.find((row) => row.name === '_scale bm')).toMatchObject({ status: 'review', family: 'graphics' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
       status: 'partial',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
@@ -775,6 +775,34 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       1696, 1697, 1698, 1699, 1700, 1701, 1702, 1703, 1704, 1705, 1706, 1707, 1708, 1709,
     ])
     expect(fields.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
+  it('classifies all fifteen classic RastPort drawing operations', () => {
+    const names = [
+      '_rp move', '_rp a pen', '_rp b pen', '_rp dr md', '_rp rast', '_rp clr eol', '_rp clr scr',
+      '_rp draw', '_rp poly draw', '_rp ellipse', '_rp point', '_rp plot', '_rp scroll', '_rp text', '_rp len text',
+    ]
+    const drawing = rows.filter((row) => names.includes(row.name))
+    expect(drawing).toHaveLength(15)
+    expect(drawing.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_rp a pen', '_rp b pen', '_rp dr md', '_rp draw', '_rp ellipse', '_rp len text', '_rp move',
+      '_rp plot', '_rp point', '_rp rast', '_rp text',
+    ])
+    expect(drawing.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_rp clr eol', '_rp clr scr', '_rp poly draw', '_rp scroll',
+    ])
+    const expected = new Map<string, [number, number]>([
+      ['_rp move', [1603, -240]], ['_rp a pen', [1604, -342]], ['_rp b pen', [1605, -348]],
+      ['_rp dr md', [1606, -354]], ['_rp rast', [1607, -234]], ['_rp clr eol', [1608, -42]],
+      ['_rp clr scr', [1609, -48]], ['_rp draw', [1610, -246]], ['_rp poly draw', [1611, -336]],
+      ['_rp ellipse', [1612, -180]], ['_rp point', [1613, -318]], ['_rp plot', [1614, -324]],
+      ['_rp scroll', [1615, -396]], ['_rp text', [1616, -60]], ['_rp len text', [1617, -54]],
+    ])
+    for (const row of drawing) {
+      const evidence = expected.get(row.name)!
+      expect(row.workers).toEqual([evidence[0]])
+      expect(row.osCalls).toContainEqual(expect.objectContaining({ library: 'graphics.library', lvo: evidence[1] }))
+    }
   })
 
   it('makes every previously stated missing family explicit', () => {

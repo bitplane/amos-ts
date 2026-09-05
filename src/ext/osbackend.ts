@@ -398,6 +398,13 @@ auditMany('faithful', 'the native RastPort fields, exact pointer/byte/word sette
   '_rp set wr msk', '_rp what layer', '_rp what bmap', '_rp what tmpras', '_rp what area info',
   '_rp what text base', '_rp what xgr', '_rp what ygr',
 ])
+auditMany('faithful', 'managed RastPorts implement the exact state changes and planar drawing/read/text operations used by these calls', [
+  '_rp move', '_rp a pen', '_rp b pen', '_rp dr md', '_rp rast', '_rp draw', '_rp ellipse',
+  '_rp point', '_rp plot', '_rp text', '_rp len text',
+])
+auditMany('partial', 'related rendering exists, but native layer/font clear geometry, raw PolyDraw coordinate arrays and ScrollRaster exposure behavior are not complete', [
+  '_rp clr eol', '_rp clr scr', '_rp poly draw', '_rp scroll',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
