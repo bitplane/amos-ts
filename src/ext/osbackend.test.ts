@@ -429,6 +429,18 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies both Exec task operations against the single-task scheduler model', () => {
+    const tasks = rows.filter((row) => row.namespace === '_task')
+    expect(tasks).toHaveLength(2)
+    expect(tasks.every((row) => row.status === 'partial')).toBe(true)
+    expect(tasks.find((row) => row.name === '_task find')).toMatchObject({
+      workers: [1567], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -294 })],
+    })
+    expect(tasks.find((row) => row.name === '_task set pri')).toMatchObject({
+      workers: [1568], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -300 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

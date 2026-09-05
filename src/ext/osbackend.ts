@@ -287,6 +287,9 @@ auditMany('faithful', 'the exact 22-byte Interrupt allocation, data/code fields,
 auditMany('partial', 'priority-ordered AddIntServer registration exists, but arbitrary native 68k handler code cannot execute', [
   '_int add',
 ])
+auditMany('partial', 'current/named task lookup and signed priority state are modelled, but there is no multitasking scheduler for priority to affect', [
+  '_task find', '_task set pri',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
