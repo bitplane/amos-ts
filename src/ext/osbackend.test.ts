@@ -327,6 +327,30 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(images.find((row) => row.name === '_img what next')?.workers).toEqual([1403])
   })
 
+  it('classifies every IntuiMessage, GadTools message and NotifyMessage operation', () => {
+    const messages = rows.filter((row) => ['_imsg', '_gmsg', '_nmsg'].includes(row.namespace))
+    expect(messages).toHaveLength(12)
+    expect(messages.filter((row) => row.status === 'faithful')).toHaveLength(10)
+    expect(messages.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_gmsg get', '_gmsg reply',
+    ])
+    expect(messages.some((row) => row.status === 'review')).toBe(false)
+    expect(messages.find((row) => row.name === '_gmsg get')).toMatchObject({
+      workers: [1543],
+      osCalls: expect.arrayContaining([
+        expect.objectContaining({ library: 'exec.library', lvo: -306 }),
+        expect.objectContaining({ library: 'gadtools.library', lvo: -72 }),
+      ]),
+    })
+    expect(messages.find((row) => row.name === '_gmsg reply')).toMatchObject({
+      workers: [1544],
+      osCalls: [expect.objectContaining({ library: 'gadtools.library', lvo: -78 })],
+    })
+    expect(messages.find((row) => row.name === '_imsg what class')?.workers).toEqual([1547])
+    expect(messages.find((row) => row.name === '_imsg what wnd')?.workers).toEqual([1555])
+    expect(messages.find((row) => row.name === '_nmsg what nreq')?.workers).toEqual([1857])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

@@ -167,3 +167,43 @@ export function pointInImage(image: NativeImage, x: number, y: number): boolean 
   const top = (image.top << 16) >> 16
   return x >= left && y >= top && x < left + image.width && y < top + image.height
 }
+
+/**
+ * `struct IntuiMessage` after its 20-byte Exec Message header.  OS DevKit
+ * routines 1547-1555 are straight reads of these fields at $14..$2c.
+ */
+export interface NativeIntuiMessage {
+  class: number
+  code: number
+  qualifier: number
+  iaddress: number
+  mouseX: number
+  mouseY: number
+  seconds: number
+  micros: number
+  idcmpWindow: number
+}
+
+/** Apply the byte widths and signedness of those nine machine-code reads. */
+export function nativeIntuiMessage(message: NativeIntuiMessage): NativeIntuiMessage {
+  return {
+    class: message.class >>> 0,
+    code: message.code & 0xffff,
+    qualifier: message.qualifier & 0xffff,
+    iaddress: message.iaddress >>> 0,
+    mouseX: (message.mouseX << 16) >> 16,
+    mouseY: (message.mouseY << 16) >> 16,
+    seconds: message.seconds >>> 0,
+    micros: message.micros >>> 0,
+    idcmpWindow: message.idcmpWindow >>> 0,
+  }
+}
+
+/** `struct NotifyMessage.nm_NReq`, read by routine 1857 at offset $1a. */
+export interface NativeNotifyMessage {
+  request: number
+}
+
+export function notifyRequest(message: NativeNotifyMessage): number {
+  return message.request >>> 0
+}

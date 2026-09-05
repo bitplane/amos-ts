@@ -241,6 +241,16 @@ auditMany('faithful', 'the complete native Image record, its exact setters/reade
 auditMany('partial', 'image rendering exists, but native planar pointer chains, EraseImage restoration and DrawImageState state imagery are incomplete', [
   '_img erase', '_img draw state', '_img draw',
 ])
+auditMany('faithful', 'all nine IntuiMessage fields and their exact long, unsigned-word and signed-word reads are represented', [
+  '_imsg what class', '_imsg what code', '_imsg what qualifier', '_imsg what item',
+  '_imsg what x mouse', '_imsg what y mouse', '_imsg what seconds', '_imsg what micros', '_imsg what wnd',
+])
+auditMany('partial', 'GadTools message filtering and reply accounting exist, but the workers native TypeOfMem guard and sentinel pointer are not represented', [
+  '_gmsg get', '_gmsg reply',
+])
+auditMany('faithful', 'the NotifyMessage request pointer at offset $1a is represented exactly', [
+  '_nmsg what nreq',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

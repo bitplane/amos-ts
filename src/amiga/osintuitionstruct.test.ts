@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   newNativeBorder, setBorderCorner, setBorderDots, setBorderDraw, setPropInfo, setStringBuffers,
   newNativeImage, pointInImage, setImageBody, setImagePlanes, setStringInfo,
+  nativeIntuiMessage, notifyRequest,
   type NativePropInfo, type NativeStringInfo,
 } from './osintuitionstruct'
 
@@ -58,5 +59,21 @@ describe('OS DevKit native Intuition structures', () => {
     expect(pointInImage(image, 7, 7)).toBe(true)
     expect(pointInImage(image, 8, 7)).toBe(false)
     expect(pointInImage(image, 7, 8)).toBe(false)
+  })
+
+  it('retains every IntuiMessage field with the worker reads signed exactly', () => {
+    expect(nativeIntuiMessage({
+      class: -1, code: -2, qualifier: 0x12345, iaddress: -3,
+      mouseX: 0xffff, mouseY: 0x8001, seconds: -4, micros: -5,
+      idcmpWindow: -6,
+    })).toEqual({
+      class: 0xffff_ffff, code: 0xfffe, qualifier: 0x2345, iaddress: 0xffff_fffd,
+      mouseX: -1, mouseY: -32767, seconds: 0xffff_fffc, micros: 0xffff_fffb,
+      idcmpWindow: 0xffff_fffa,
+    })
+  })
+
+  it('reads the NotifyMessage request pointer at its native width', () => {
+    expect(notifyRequest({ request: -1 })).toBe(0xffff_ffff)
   })
 })
