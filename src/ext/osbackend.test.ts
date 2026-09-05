@@ -412,6 +412,23 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies every Exec Interrupt operation', () => {
+    const interrupts = rows.filter((row) => row.namespace === '_int')
+    expect(interrupts).toHaveLength(5)
+    expect(interrupts.filter((row) => row.status === 'faithful')).toHaveLength(4)
+    expect(interrupts.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_int add'])
+    expect(interrupts.some((row) => row.status === 'review')).toBe(false)
+    expect(interrupts.find((row) => row.name === '_int alloc')?.workers).toEqual([1563])
+    expect(interrupts.find((row) => row.name === '_int free')?.workers).toEqual([1783])
+    expect(interrupts.find((row) => row.name === '_int set')?.workers).toEqual([1564])
+    expect(interrupts.find((row) => row.name === '_int add')).toMatchObject({
+      workers: [1565], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -168 })],
+    })
+    expect(interrupts.find((row) => row.name === '_int rem')).toMatchObject({
+      workers: [1566], osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -174 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

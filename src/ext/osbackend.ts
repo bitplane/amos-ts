@@ -281,6 +281,12 @@ auditMany('faithful', 'AllocMem/FreeMem and arbitrary-alignment CopyMem behavior
 auditMany('partial', 'the result is modelled, but separately owned runtime regions do not form one fragmenting global Exec memory arena', [
   '_mem avail', '_mem type',
 ])
+auditMany('faithful', 'the exact 22-byte Interrupt allocation, data/code fields, removal and FreeVec lifetime are modelled', [
+  '_int alloc', '_int free', '_int set', '_int rem',
+])
+auditMany('partial', 'priority-ordered AddIntServer registration exists, but arbitrary native 68k handler code cannot execute', [
+  '_int add',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
