@@ -239,6 +239,16 @@ auditMany('faithful', 'the NotifyRequest user-data longword at offset 8 is repre
 auditMany('partial', 'the launch name and current directory exist, but the original Workbench WBArg lock/name pair is not retained independently after startup', [
   '_prg dir$', '_prg name$',
 ])
+auditMany('faithful', 'the four-long list header, private 24-byte node header and exact one-based list algorithms are represented', [
+  '_chn set number', '_chn set default', '_chn set first', '_chn set last',
+  '_chn set list', '_chn set length', '_chn set next', '_chn set previous',
+  '_chn what number', '_chn what default', '_chn what first', '_chn what last',
+  '_chn what list', '_chn what length', '_chn what next', '_chn what previous',
+  '_chn list alloc', '_chn add', '_chn location', '_chn find', '_chn free', '_chn list free', '_chn ins', '_chn swap',
+])
+auditMany('partial', 'node replacement and prefix preservation are modelled, but the shipped max(old,new) copy overflow cannot corrupt adjacent managed allocations', [
+  '_chn new length',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

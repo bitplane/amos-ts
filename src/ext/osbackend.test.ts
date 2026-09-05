@@ -974,6 +974,31 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all channel-list fields and algorithms', () => {
+    const channel = rows.filter((row) => row.namespace === '_chn')
+    expect(channel).toHaveLength(25)
+    expect(channel.filter((row) => row.status === 'faithful')).toHaveLength(24)
+    expect(channel.find((row) => row.name === '_chn new length')).toMatchObject({
+      status: 'partial', workers: [1142], osCalls: [],
+    })
+    const singleWorkers = new Map<string, number>([
+      ['_chn set number', 1122], ['_chn set default', 1123], ['_chn set first', 1124],
+      ['_chn set last', 1125], ['_chn set list', 1126], ['_chn set length', 1127],
+      ['_chn set next', 1128], ['_chn set previous', 1129], ['_chn what number', 1130],
+      ['_chn what default', 1131], ['_chn what first', 1132], ['_chn what last', 1133],
+      ['_chn what list', 1134], ['_chn what length', 1135], ['_chn what next', 1136],
+      ['_chn what previous', 1137], ['_chn list alloc', 1138], ['_chn location', 1140],
+      ['_chn find', 1141], ['_chn list free', 1145], ['_chn swap', 1151],
+    ])
+    for (const [name, worker] of singleWorkers) {
+      expect(channel.find((row) => row.name === name)).toMatchObject({ workers: [worker], osCalls: [] })
+    }
+    expect(channel.find((row) => row.name === '_chn add')?.workers).toEqual([1139, 1146])
+    expect(channel.find((row) => row.name === '_chn free')?.workers).toEqual([1143, 1144])
+    expect(channel.find((row) => row.name === '_chn ins')?.workers).toEqual([1147, 1148, 1149, 1150])
+    expect(channel.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
