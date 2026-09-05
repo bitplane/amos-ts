@@ -83,6 +83,19 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(asl.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies every Icon keyword and its three aliases at operation level', () => {
+    const icon = rows.filter((row) => row.namespace === '_icon')
+    expect(icon).toHaveLength(9)
+    expect(icon.filter((row) => row.status === 'faithful').map((row) => row.name)).toEqual(['_icon free'])
+    expect(icon.filter((row) => row.status === 'partial').map((row) => row.name).sort())
+      .toEqual(['_icon get', '_icon load'])
+    expect(icon.filter((row) => row.status === 'missing')).toHaveLength(6)
+    expect(icon.find((row) => row.name === '_icon get')?.workers).toEqual([1777])
+    expect(icon.find((row) => row.name === '_icon del')?.workers).toEqual([1778])
+    expect(icon.find((row) => row.name === '_icon put')?.workers).toEqual([1779])
+    expect(icon.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

@@ -82,6 +82,15 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_asl what nb args', { status: 'missing', reason: 'ASL multi-selection and its WBArg array are not modelled' }],
   ['_asl what font', { status: 'faithful', reason: 'the font requester preserves its selected font name' }],
   ['_asl file$', { status: 'faithful', reason: 'the modal file requester and joined selected path are modelled' }],
+  ['_icon kill', { status: 'missing', reason: 'DeleteDiskObject and icon-file deletion are not modelled' }],
+  ['_icon free', { status: 'faithful', reason: 'decoded immutable DiskObjects have no observable allocation lifecycle' }],
+  ['_icon def', { status: 'missing', reason: 'GetDefDiskObject and default icon allocation are not modelled' }],
+  ['_icon load', { status: 'partial', reason: 'DiskObject files decode, but coordinates, DrawerData contents and ToolWindow are not retained' }],
+  ['_icon save', { status: 'missing', reason: 'PutDiskObject serialization is not modelled' }],
+  ['_icon info', { status: 'missing', reason: 'workbench.library Info window integration is not modelled' }],
+  ['_icon get', { status: 'partial', reason: 'machine code aliases _icon load after AMOS path conversion' }],
+  ['_icon del', { status: 'missing', reason: 'machine code aliases _icon kill after AMOS path conversion' }],
+  ['_icon put', { status: 'missing', reason: 'machine code aliases _icon save after AMOS path conversion' }],
 ])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
