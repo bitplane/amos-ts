@@ -146,6 +146,13 @@ auditMany('faithful', 'icon.library ToolType lookup and pre-V44 pipe-value match
 auditMany('partial', 'GetUniqueID is process-local and unique, but does not share native utility.library global state', [
   '_id unique',
 ])
+auditMany('missing', 'stoneplayer.library and its installed player state are not modelled; the library binary is not shipped with OS DevKit or present in the held library set', [
+  '_sp install', '_sp play', '_sp stop', '_sp remove', '_sp volume', '_sp balance', '_sp speed', '_sp mix',
+  '_sp check', '_fx balance',
+])
+auditMany('partial', 'AMOS Samples-bank selection and Paula playback exist, but the absent stoneplayer.library wrapper and its extended playback controls do not', [
+  '_fx play', '_fx bank',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

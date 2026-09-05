@@ -132,6 +132,27 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(utility.some((row) => row.status === 'review')).toBe(false)
   })
 
+  it('classifies all StonePlayer and sample-effect helpers from their resolved workers', () => {
+    const stone = rows.filter((row) => row.namespace === '_sp' || row.namespace === '_fx')
+    expect(stone).toHaveLength(12)
+    expect(stone.filter((row) => row.status === 'missing')).toHaveLength(10)
+    expect(stone.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_fx bank', '_fx play',
+    ])
+    expect(stone.some((row) => row.status === 'review')).toBe(false)
+    expect(stone.find((row) => row.name === '_sp play')).toMatchObject({
+      workers: [1899],
+      osCalls: expect.arrayContaining([
+        expect.objectContaining({ library: 'stoneplayer.library', lvo: -42 }),
+        expect.objectContaining({ library: 'stoneplayer.library', lvo: -54 }),
+      ]),
+    })
+    expect(stone.find((row) => row.name === '_fx balance')).toMatchObject({
+      workers: [1907],
+      osCalls: [expect.objectContaining({ library: 'stoneplayer.library', lvo: -156 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
