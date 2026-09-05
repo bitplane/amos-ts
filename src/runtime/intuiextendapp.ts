@@ -82,13 +82,12 @@
  *
  * ## What this port answers
  *
- * DEVIATION: neither library is modelled. `../amiga/exec.ts`'s map carries
- * neither name, and `openLibrary` answers 0 for anything not in it, so
- * workspace+$8 and +$c stay zero and five of the seven keywords take their
- * own no-library arm. `../amiga/icon.ts` is the `.info` FILE FORMAT, which is
- * a different thing from icon.library, and there is no Workbench backdrop
- * here for an AppIcon to sit on. GameSupport's `Gsiconify` reached the same
- * wall on the same two libraries and made the same choice.
+ * DEVIATION: workbench.library and icon.library's AppIcon/default-icon
+ * operations are not modelled. The shared registry does open icon.library
+ * for its implemented `.info` file operations, but these handlers retain the
+ * same failure/no-op surface until the separate calls used here have a
+ * backend. There is no Workbench backdrop here for an AppIcon to sit on.
+ * GameSupport's `Gsiconify` reaches the same workbench.library boundary.
  *
  * That arm is a real machine's behaviour too. App.guide marks five of these
  * "System: v2.0+", and on 1.3 workbench.library does not exist.
@@ -141,8 +140,8 @@ export function makeIntuiextendAppInstructions(_rt: Runtime): Record<string, Ins
      * structure IconObject", and it is the only one of the seven marked
      * "System: v1.3+" rather than v2.0.
      *
-     * The library test comes first, so with icon.library absent the argument
-     * is popped and nothing is read through it.
+     * This port does not expose a raw DiskObject pointer, so the argument is
+     * consumed and the managed icon backend has nothing it can free here.
      */
     'wb free diskobject'(it) {
       it.evalInt()

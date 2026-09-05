@@ -149,9 +149,9 @@ export interface GameSupportState {
   /** $52 — non-zero when lowlevel.library opened, which here it does */
   lowlevel: boolean
   /**
-   * $56 and $5a — workbench.library and icon.library, which here it does NOT.
-   * Both come from `libraryPresent`, so the flags say what the port models
-   * rather than what this file would like. `Gsiconify` is the only reader.
+   * $56 and $5a — workbench.library and icon.library. The latter has a
+   * file-operation backend; the former and icon.library's AppIcon half do
+   * not. Both flags come from the process-wide library registry.
    */
   workbench: boolean
   icon: boolean
@@ -1395,12 +1395,10 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      *
      * ## Why this port answers 1
      *
-     * `workbench.library` is not modelled and neither is `icon.library`'s
-     * AppIcon half — `../amiga/icon.ts` is the `.info` FILE FORMAT, which is a
-     * different thing. `../amiga/exec.ts`'s own list makes the argument for
-     * leaving them out: *"Listing them would be claiming a back-end that does
-     * not exist; leaving them out makes OpenLibrary answer 0, which is the
-     * case [the extension] already handles and reports in its own words."*
+     * `workbench.library` is not modelled, and `icon.library`'s model covers
+     * the `.info` file operations rather than its AppIcon half. The registry
+     * therefore opens icon.library but this still takes the first failure arm
+     * on workbench.library.
      *
      * So this takes the first arm, which is a real machine without Workbench
      * 2, and is exactly what the routine does there. What would make the other
@@ -1416,8 +1414,8 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
       if (a.length > 1) void str(a[1]!)
       const st2 = rt.gamesupport
       if (!st2.workbench || !st2.icon) return VI(1)
-      // unreachable while neither library is modelled, and deliberately not
-      // faked: there is no AppIcon to add and no port to wait on
+      // still unreachable while workbench.library is absent, and deliberately
+      // not faked: there is no AppIcon to add and no port to wait on
       return VI(1)
     },
 

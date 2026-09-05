@@ -1079,12 +1079,11 @@ describe('GameSupport: Gsiconify', () => {
   })
 
   it('reports the two libraries the way the port actually models them', () => {
-    // neither is modelled: ../amiga/icon.ts is the .info FILE FORMAT, which is
-    // not icon.library's AppIcon half, and there is no workbench.library at
-    // all. The flags come from libraryPresent so this file cannot claim
-    // otherwise --- see ../amiga/exec.ts's own argument for the same choice.
+    // icon.library's file operations are now modelled; its AppIcon half and
+    // workbench.library are still absent. Gsiconify therefore still takes the
+    // first failure arm above, but the registry flags must tell the truth.
     const { rt } = boot('')
     expect(rt.gamesupport.workbench).toBe(false)
-    expect(rt.gamesupport.icon).toBe(false)
+    expect(rt.gamesupport.icon).toBe(true)
   })
 })

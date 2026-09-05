@@ -131,6 +131,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |
 | `layers.ts` | `layers.library`: the layer chain, `Region`, and the damage list |
 | `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
+| `doubleclick.ts` | Intuition's seconds/micros double-click interval test |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |
@@ -138,6 +139,22 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `displayinfo.ts` | the display database one monitor driver fills: `Devs/Monitors/PAL`'s six ids and their names |
 | `muimaster.ts` | MUI 3.8's 35 built-in classes and 507 method-table entries, object tree, layout, rendering, input, persistence and request boundary |
 | `muimaster.gen.ts` | its constants, generated from MUI 3.8's header by `src/cli/genmui.ts` |
+| `utility.ts` | utility.library tag lookup, date conversion and unique IDs |
+| `wbarg.ts` | the startup Workbench argument pair retained by a process |
+| `oschannel.ts` | OS DevKit's private linked channel-list records and operations |
+| `oscolormap.ts` | OS DevKit's pen allocation and display-mode selection helpers |
+| `oscstring.ts` | OS DevKit's private-header C-string allocation and conversion |
+| `osfontops.ts` | OS DevKit's font-selection and soft-style operations |
+| `osgraphicsstruct.ts` | native graphics structures exposed directly by OS DevKit |
+| `osinterrupt.ts` | OS DevKit's native Interrupt record and lifecycle |
+| `osintuitionstruct.ts` | native Intuition structures and field widths exposed by OS DevKit |
+| `oslist.ts` | OS DevKit's native Exec List/Node algorithms |
+| `osmessage.ts` | OS DevKit's native message/port helpers |
+| `osscalar.ts` | OS DevKit's saved register frame and private scalar state |
+| `ossystem.ts` | OS DevKit's cache, chipset and reset request state |
+| `ostask.ts` | OS DevKit's task scheduling/priority facade |
+| `ostracker.ts` | OS DevKit's 32-class resource tracker |
+| `oswindowid.ts` | OS DevKit's high-level Window-ID records and copied event accessors |
 | `ffp.ts` | Motorola Fast Floating Point: the 32-bit format `mathffp.library` provides, and the add, multiply and divide AMOS links a copy of |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |
 | `mixer.ts` | the four voices summed into stereo PCM, and the clock that dates a register write |

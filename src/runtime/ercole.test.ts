@@ -133,7 +133,8 @@ describe('Ercole 1.7 — the game-port extras', () => {
     // `moveq #$0,d0` --- any version will do
     expect(num('Print Library Open("dos.library")')).toBeGreaterThan(0)
     expect(num('Print Library Open("locale.library")')).toBeGreaterThan(0)
-    expect(() => run('Print Library Open("intuition.library")')).toThrow(ERCOLE_ERRORS[1])
+    expect(num('Print Library Open("intuition.library")')).toBeGreaterThan(0)
+    expect(() => run('Print Library Open("not-a-library.library")')).toThrow(ERCOLE_ERRORS[1])
   })
 
   it('Library Close checks nothing at all (routine 5, $346)', () => {

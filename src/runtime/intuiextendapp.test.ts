@@ -1,11 +1,10 @@
 /**
  * IntuiExtend 2.01b, the AppWindow and icon group.
  *
- * Five of the seven go through workbench.library or icon.library, neither of
- * which `../amiga/exec.ts` answers for, so what is pinned is each routine's
- * own no-library arm and the value it means by failure. The two `App Get`
- * keywords touch no library at all: they read an AppMessage, and those tests
- * build one.
+ * Five of the seven go through workbench.library or icon.library. The latter
+ * now has a file-operation backend, while the former and the AppIcon/default
+ * icon operations are absent. The two `App Get` keywords touch no library at
+ * all: they read an AppMessage, and those tests build one.
  */
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
@@ -74,11 +73,11 @@ const out = (src: string, seed?: Seed): string =>
     .trim()
     .replace(/\s+/g, ' ')
 
-describe('IntuiExtend 2.01b — neither library is there to open', () => {
-  /** routine 51's OpenLibrary and routine 52's both come back empty */
-  it('exec answers 0 for workbench.library and icon.library', () => {
+describe('IntuiExtend 2.01b — Workbench/AppIcon operations are absent', () => {
+  /** routine 51 still fails; routine 52 now sees the modelled icon library */
+  it('exec reports the current workbench.library and icon.library registry', () => {
     expect(openLibrary('workbench.library')).toBe(0)
-    expect(openLibrary('icon.library')).toBe(0)
+    expect(openLibrary('icon.library')).toBeGreaterThan(0)
   })
 
   /** $4b7a `moveq #$ff,d3`, the arm taken when workspace+$8 is zero */
