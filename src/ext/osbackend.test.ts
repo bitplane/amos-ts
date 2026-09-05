@@ -287,6 +287,13 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(bases.find((row) => row.name === '_base tag')?.workers).toEqual([1323])
   })
 
+  it('classifies Intuition DoubleClick with its four timestamp arguments', () => {
+    expect(rows.find((row) => row.name === '_dbl click')).toMatchObject({
+      status: 'partial', workers: [1584],
+      osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -102 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

@@ -211,6 +211,9 @@ auditMany('partial', 'the underlying object exists, but the backend does not exp
 auditMany('missing', 'workbench.library and a Workbench desktop base are not modelled', [
   '_base wb',
 ])
+auditMany('partial', 'four-field timestamp comparison is modelled with the Workbench half-second default, but user Preferences do not supply the interval', [
+  '_dbl click',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
