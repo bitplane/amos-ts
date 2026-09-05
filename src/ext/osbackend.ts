@@ -195,6 +195,12 @@ auditMany('faithful', 'guarded one-based WBArg name and lock field access is mod
 auditMany('partial', 'Amiga path joining and directory-part extraction exist, but native fixed-buffer and full DOS AddPart edge semantics are not modelled', [
   '_path add', '_path part',
 ])
+auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
+  '_lib version', '_lib revision', '_lib open', '_lib close',
+])
+auditMany('missing', 'the worker invokes an arbitrary negative LVO with a complete 68k register frame, and no 68k execution backend exists', [
+  '_lib call',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

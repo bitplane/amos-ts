@@ -311,6 +311,8 @@ export interface ModelledLibrary {
   name: string
   /** the highest version `OpenLibrary` will answer for */
   version: number
+  /** synthetic libraries do not claim a binary build revision */
+  revision: number
   /** the synthetic base it answers with, which nothing dereferences */
   base: number
   /** what the library is, for a page listing it */
@@ -328,10 +330,19 @@ export function modelledLibraries(): ModelledLibrary[] {
   return [...MODELLED].map(([name, m], i) => ({
     name,
     version: m.version,
+    revision: 0,
     base: BASE_ORIGIN + i * BASE_STRIDE,
     about: m.about,
   }))
 }
+
+/** Resolve one of this backend's synthetic bases as `_lib version/revision` do. */
+export function modelledLibraryAt(base: number): ModelledLibrary | null {
+  return modelledLibraries().find((library) => library.base === (base >>> 0)) ?? null
+}
+
+export const libraryVersion = (base: number): number => modelledLibraryAt(base)?.version ?? 0
+export const libraryRevision = (base: number): number => modelledLibraryAt(base)?.revision ?? 0
 
 /**
  * CloseLibrary — nothing to release.

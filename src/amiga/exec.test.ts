@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { A1200_POOLS, ExecPool, MEMF, availMem, closeLibrary, libraryPresent, openLibrary } from './exec'
+import {
+  A1200_POOLS, ExecPool, MEMF, availMem, closeLibrary, libraryPresent, libraryRevision, libraryVersion,
+  modelledLibraryAt, openLibrary,
+} from './exec'
 
 describe('exec: AvailMem', () => {
   const empty = { chip: 0, fast: 0 }
@@ -91,6 +94,15 @@ describe('exec: OpenLibrary', () => {
 
   it('closing is safe and releases nothing', () => {
     expect(() => closeLibrary(openLibrary('locale.library', 38))).not.toThrow()
+  })
+
+  it('resolves synthetic bases for OS DevKit library version/revision reads', () => {
+    const base = openLibrary('locale.library', 38)
+    expect(modelledLibraryAt(base)?.name).toBe('locale.library')
+    expect(libraryVersion(base)).toBe(38)
+    expect(libraryRevision(base)).toBe(0)
+    expect(modelledLibraryAt(0)).toBeNull()
+    expect(libraryVersion(0)).toBe(0)
   })
 })
 

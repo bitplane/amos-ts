@@ -252,6 +252,25 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(paths.find((row) => row.name === '_path part')?.workers).toEqual([1841])
   })
 
+  it('classifies all five generic library operations', () => {
+    const library = rows.filter((row) => row.namespace === '_lib')
+    expect(library).toHaveLength(5)
+    expect(library.filter((row) => row.status === 'partial')).toHaveLength(4)
+    expect(library.find((row) => row.name === '_lib call')).toMatchObject({
+      status: 'missing', routines: [42], workers: [42],
+    })
+    expect(library.find((row) => row.name === '_lib version')?.workers).toEqual([1480])
+    expect(library.find((row) => row.name === '_lib revision')?.workers).toEqual([1481])
+    expect(library.find((row) => row.name === '_lib open')).toMatchObject({
+      workers: [3190],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -552 })],
+    })
+    expect(library.find((row) => row.name === '_lib close')).toMatchObject({
+      workers: [3191],
+      osCalls: [expect.objectContaining({ library: 'exec.library', lvo: -414 })],
+    })
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
