@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bitMapPlane, initTmpRas, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeSimpleSprite,
-  newNativeTmpRas, newNativeView, newNativeViewPort,
+  bitMapPlane, initTmpRas, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeRastPort,
+  newNativeSimpleSprite, newNativeTmpRas, newNativeView, newNativeViewPort, rastPortCursorX, rastPortCursorY,
+  rastPortTextBaseline,
   osDevKitViewPortWidth, osDevKitViewPortY, setBitMapData, setBitMapPlane, setOsDevKitView,
-  setRasInfo, setSimpleSpriteHeight, setSimpleSpriteNumber, setSimpleSpritePosition, setViewPortBody,
+  setRasInfo, setRastPortLinePattern, setRastPortMask, setRastPortOutlinePen, setRastPortPointer,
+  setSimpleSpriteHeight, setSimpleSpriteNumber, setSimpleSpritePosition, setViewPortBody,
 } from './osgraphicsstruct'
 
 describe('OS DevKit native graphics structures', () => {
@@ -38,6 +40,32 @@ describe('OS DevKit native graphics structures', () => {
     const tmpRas = newNativeTmpRas()
     initTmpRas(tmpRas, -1, 0x1_0000_0001)
     expect(tmpRas).toEqual({ rasPtr: 0xffff_ffff, size: 1 })
+  })
+
+  it('writes the local RastPort pointer, pen, line and mask fields exactly', () => {
+    const rastPort = newNativeRastPort()
+    setRastPortPointer(rastPort, 'layer', -1)
+    setRastPortPointer(rastPort, 'bitMap', 2)
+    setRastPortPointer(rastPort, 'tmpRas', 3)
+    setRastPortPointer(rastPort, 'areaInfo', 4)
+    setRastPortOutlinePen(rastPort, 0x105)
+    setRastPortOutlinePen(rastPort, 0x8000_0000)
+    setRastPortLinePattern(rastPort, 0x1_2345)
+    setRastPortMask(rastPort, 0x106)
+    expect(rastPort).toMatchObject({
+      layer: 0xffff_ffff, bitMap: 2, tmpRas: 3, areaInfo: 4,
+      outlinePen: 5, linePtrn: 0x2345, mask: 6,
+    })
+  })
+
+  it('uses signed cursor words and an unsigned text-baseline word', () => {
+    const rastPort = newNativeRastPort()
+    rastPort.cpX = 0x8001
+    rastPort.cpY = 0xffff
+    rastPort.txBaseline = 0x8002
+    expect(rastPortCursorX(rastPort)).toBe(-32767)
+    expect(rastPortCursorY(rastPort)).toBe(-1)
+    expect(rastPortTextBaseline(rastPort)).toBe(32770)
   })
 
   it('writes every pointer and signed word of the 12-byte RasInfo', () => {

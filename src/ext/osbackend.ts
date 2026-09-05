@@ -393,6 +393,11 @@ auditMany('partial', 'polygon, ellipse, flood and rectangle rendering exist, but
   '_area draw', '_area ellipse', '_area end', '_area move', '_rp flood', '_area init', '_rp bar',
   '_rast alloc', '_rast free',
 ])
+auditMany('faithful', 'the native RastPort fields, exact pointer/byte/word setters, outline-pen sentinel and signed cursor readers are represented', [
+  '_rp set layer', '_rp set bmap', '_rp set tmpras', '_rp set area info', '_rp set o pen', '_rp set line',
+  '_rp set wr msk', '_rp what layer', '_rp what bmap', '_rp what tmpras', '_rp what area info',
+  '_rp what text base', '_rp what xgr', '_rp what ygr',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

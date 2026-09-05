@@ -762,6 +762,21 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies all fourteen direct RastPort structure operations', () => {
+    const names = [
+      '_rp set layer', '_rp set bmap', '_rp set tmpras', '_rp set area info', '_rp set o pen', '_rp set line',
+      '_rp set wr msk', '_rp what layer', '_rp what bmap', '_rp what tmpras', '_rp what area info',
+      '_rp what text base', '_rp what xgr', '_rp what ygr',
+    ]
+    const fields = rows.filter((row) => names.includes(row.name))
+    expect(fields).toHaveLength(14)
+    expect(fields.every((row) => row.status === 'faithful')).toBe(true)
+    expect(fields.map((row) => row.workers[0])).toEqual([
+      1696, 1697, 1698, 1699, 1700, 1701, 1702, 1703, 1704, 1705, 1706, 1707, 1708, 1709,
+    ])
+    expect(fields.every((row) => row.osCalls.length === 0)).toBe(true)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

@@ -86,6 +86,70 @@ export function initTmpRas(tmpRas: NativeTmpRas | null, raster: number, size: nu
   tmpRas.size = size >>> 0
 }
 
+/** Public graphics.library `struct RastPort` fields used by OS DevKit. */
+export interface NativeRastPort {
+  layer: number
+  bitMap: number
+  areaPtrn: number
+  tmpRas: number
+  areaInfo: number
+  gelsInfo: number
+  mask: number
+  fgPen: number
+  bgPen: number
+  outlinePen: number
+  drawMode: number
+  areaPtSz: number
+  linePatCnt: number
+  flags: number
+  linePtrn: number
+  cpX: number
+  cpY: number
+  font: number
+  algoStyle: number
+  txFlags: number
+  txHeight: number
+  txWidth: number
+  txBaseline: number
+  txSpacing: number
+  user: number
+}
+
+export const newNativeRastPort = (): NativeRastPort => ({
+  layer: 0, bitMap: 0, areaPtrn: 0, tmpRas: 0, areaInfo: 0, gelsInfo: 0,
+  mask: 0, fgPen: 0, bgPen: 0, outlinePen: 0, drawMode: 0, areaPtSz: 0,
+  linePatCnt: 0, flags: 0, linePtrn: 0, cpX: 0, cpY: 0, font: 0,
+  algoStyle: 0, txFlags: 0, txHeight: 0, txWidth: 0, txBaseline: 0,
+  txSpacing: 0, user: 0,
+})
+
+type RastPortPointerField = 'layer' | 'bitMap' | 'tmpRas' | 'areaInfo'
+
+export function setRastPortPointer(
+  rastPort: NativeRastPort | null,
+  field: RastPortPointerField,
+  pointer: number,
+): void {
+  if (rastPort) rastPort[field] = pointer >>> 0
+}
+
+/** Routine 1700 treats `$80000000` as “keep the current outline pen”. */
+export function setRastPortOutlinePen(rastPort: NativeRastPort | null, pen: number): void {
+  if (rastPort && (pen >>> 0) !== 0x8000_0000) rastPort.outlinePen = pen & 0xff
+}
+
+export function setRastPortLinePattern(rastPort: NativeRastPort | null, pattern: number): void {
+  if (rastPort) rastPort.linePtrn = pattern & 0xffff
+}
+
+export function setRastPortMask(rastPort: NativeRastPort | null, mask: number): void {
+  if (rastPort) rastPort.mask = mask & 0xff
+}
+
+export const rastPortCursorX = (rastPort: NativeRastPort): number => (rastPort.cpX << 16) >> 16
+export const rastPortCursorY = (rastPort: NativeRastPort): number => (rastPort.cpY << 16) >> 16
+export const rastPortTextBaseline = (rastPort: NativeRastPort): number => rastPort.txBaseline & 0xffff
+
 /** `struct RasInfo`: next/BitMap pointers followed by signed X/Y offsets. */
 export interface NativeRasInfo {
   next: number
