@@ -367,6 +367,13 @@ auditMany('partial', 'the copper interpreter and VBL/display operations exist, b
   '_cop load view', '_cop make vport', '_cop mrg', '_cop scroll vport', '_cop vbeam pos', '_cop wait tof',
   '_cop control', '_cop wait bottom',
 ])
+auditMany('faithful', 'the SimpleSprite public prefix and exact word-sized height, number and position writes are represented', [
+  '_spr set height', '_spr set nb', '_spr set pos',
+])
+auditMany('partial', 'hardware sprite rendering exists, but arbitrary native SimpleSprite/ExtSprite, ViewPort and tag-list ownership is not integrated', [
+  '_spr change', '_spr free', '_spr get', '_spr move', '_spr a data alloc', '_spr a data free', '_spr a change',
+  '_spr a get',
+])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 

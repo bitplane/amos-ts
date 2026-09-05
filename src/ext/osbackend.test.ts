@@ -663,6 +663,28 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     }
   })
 
+  it('classifies all eleven classic and V39 sprite operations', () => {
+    const sprite = rows.filter((row) => row.namespace === '_spr')
+    expect(sprite).toHaveLength(11)
+    expect(sprite.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_spr set height', '_spr set nb', '_spr set pos',
+    ])
+    expect(sprite.filter((row) => row.status === 'partial')).toHaveLength(8)
+    expect(sprite.some((row) => row.status === 'review')).toBe(false)
+    expect(sprite.find((row) => row.name === '_spr get')).toMatchObject({
+      workers: [1662], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -408 })],
+    })
+    expect(sprite.find((row) => row.name === '_spr a data alloc')).toMatchObject({
+      workers: [1678], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -1020 })],
+    })
+    expect(sprite.find((row) => row.name === '_spr a change')).toMatchObject({
+      workers: [1680], osCalls: [expect.objectContaining({ library: 'graphics.library', lvo: -1026 })],
+    })
+    expect(sprite.find((row) => row.name === '_spr set height')?.workers).toEqual([1741])
+    expect(sprite.find((row) => row.name === '_spr set nb')?.workers).toEqual([1742])
+    expect(sprite.find((row) => row.name === '_spr set pos')?.workers).toEqual([1743])
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({

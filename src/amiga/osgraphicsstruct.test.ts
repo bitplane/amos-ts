@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bitMapPlane, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeView, newNativeViewPort,
+  bitMapPlane, initView, initViewPort, newNativeBitMap, newNativeRasInfo, newNativeSimpleSprite, newNativeView,
+  newNativeViewPort,
   osDevKitViewPortWidth, osDevKitViewPortY, setBitMapData, setBitMapPlane, setOsDevKitView,
-  setRasInfo, setViewPortBody,
+  setRasInfo, setSimpleSpriteHeight, setSimpleSpriteNumber, setSimpleSpritePosition, setViewPortBody,
 } from './osgraphicsstruct'
 
 describe('OS DevKit native graphics structures', () => {
@@ -22,6 +23,15 @@ describe('OS DevKit native graphics structures', () => {
     bitMap.depth = 2
     expect(setBitMapPlane(bitMap, -1, 0xdead_beef)).toBe(false)
     expect(bitMap.planes).toEqual(Array<number>(8).fill(0))
+  })
+
+  it('writes the three SimpleSprite fields at unsigned word width', () => {
+    const sprite = newNativeSimpleSprite()
+    sprite.posCtlData = 0x1234_5678
+    setSimpleSpriteHeight(sprite, 0x10001)
+    setSimpleSpriteNumber(sprite, 0x10002)
+    setSimpleSpritePosition(sprite, -1, -2)
+    expect(sprite).toEqual({ posCtlData: 0x1234_5678, height: 1, x: 0xffff, y: 0xfffe, number: 2 })
   })
 
   it('writes every pointer and signed word of the 12-byte RasInfo', () => {

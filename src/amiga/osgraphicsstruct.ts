@@ -45,6 +45,32 @@ export function bitMapPlane(bitMap: NativeBitMap | null, plane: number): number 
   return bitMap.planes[plane] ?? 0
 }
 
+/** Public prefix of graphics.library `struct SimpleSprite`, offsets `$0..$b`. */
+export interface NativeSimpleSprite {
+  posCtlData: number
+  height: number
+  x: number
+  y: number
+  number: number
+}
+
+export const newNativeSimpleSprite = (): NativeSimpleSprite => ({ posCtlData: 0, height: 0, x: 0, y: 0, number: 0 })
+
+/** Routines 1741-1743: direct unsigned word writes into SimpleSprite. */
+export function setSimpleSpriteHeight(sprite: NativeSimpleSprite | null, height: number): void {
+  if (sprite) sprite.height = height & 0xffff
+}
+
+export function setSimpleSpriteNumber(sprite: NativeSimpleSprite | null, number: number): void {
+  if (sprite) sprite.number = number & 0xffff
+}
+
+export function setSimpleSpritePosition(sprite: NativeSimpleSprite | null, x: number, y: number): void {
+  if (!sprite) return
+  sprite.x = x & 0xffff
+  sprite.y = y & 0xffff
+}
+
 /** `struct RasInfo`: next/BitMap pointers followed by signed X/Y offsets. */
 export interface NativeRasInfo {
   next: number
