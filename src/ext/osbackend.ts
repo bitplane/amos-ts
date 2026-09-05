@@ -406,6 +406,39 @@ auditMany('partial', 'the window state exists, but global native active/ViewPort
 auditMany('partial', 'managed message queues exist, but OS DevKit shared UserPort attachment, blocking waits and native message ownership are not exposed', [
   '_wnd wait port', '_wnd clear port', '_wnd share port', '_wnd unshare port',
 ])
+auditMany('faithful', 'the dynamically grown 28-byte Window-ID record, current selection and caller Data long are represented exactly', [
+  '_wnd id base', '_wnd id use', '_wnd id in use', '_wnd id data',
+])
+auditMany('faithful', 'the copied IntuiMessage, Gadget fields and MENUNUM/ITEMNUM/SUBNUM bitfields use the exact widths and -1 sentinels', [
+  '_wnd id event wnd', '_wnd id event code', '_wnd id event qualifier', '_wnd id event gadget',
+  '_wnd id event gt bank', '_wnd id event menu', '_wnd id event item', '_wnd id event sub',
+  '_wnd id event x mouse', '_wnd id event y mouse',
+])
+auditMany('faithful', 'the selected Window/RastPort query delegates to the exact public field operation', [
+  '_wnd id x mouse', '_wnd id y mouse', '_wnd id xgr', '_wnd id ygr', '_wnd id x', '_wnd id y',
+  '_wnd id width', '_wnd id height', '_wnd id top bdr', '_wnd id bottom bdr', '_wnd id left bdr',
+  '_wnd id right bdr', '_wnd id inner width', '_wnd id inner height', '_wnd id inner x mouse',
+  '_wnd id inner y mouse',
+])
+auditMany('faithful', 'the Window-ID wrapper selects the exact managed RastPort primitive; both private eight-word pattern arrays are retained', [
+  '_wnd id plot', '_wnd id rect', '_wnd id line to', '_wnd id line', '_wnd id ellipse', '_wnd id cls',
+  '_wnd id ink', '_wnd id gr writing', '_wnd id text', '_wnd id gr locate', '_wnd id set paint',
+  '_wnd id pattern on', '_wnd id pattern off', '_wnd id set low pattern', '_wnd id set high pattern',
+  '_wnd id set line', '_wnd id point',
+])
+auditMany('partial', 'the private Window-ID record is modelled, but native window/tag lifecycle, owned clip resources and integrated current-window attachment are not complete', [
+  '_wnd id open', '_wnd id close', '_wnd id tag open', '_wnd id limits', '_wnd id move', '_wnd id size',
+  '_wnd id box', '_wnd id titles', '_wnd id activate', '_wnd id lock', '_wnd id unlock',
+])
+auditMany('partial', 'message fields are represented, but blocking/filtering the native shared UserPort and walking a native MenuItem chain are not integrated', [
+  '_wnd id wait event', '_wnd id next event', '_wnd id mask event', '_wnd id event next menu',
+])
+auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
+  '_wnd id mouse', '_wnd id set mouse pos',
+])
+auditMany('partial', 'the drawing operation has a managed analogue, but native AreaInfo/TmpRas, ScrollRaster exposure or Bob-to-RastPort ownership remains incomplete', [
+  '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
+])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])

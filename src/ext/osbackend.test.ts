@@ -1288,6 +1288,47 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
   })
 
+  it('classifies all 69 high-level Window-ID records, events and delegates', () => {
+    const expected = new Map<string, number[]>([
+      ['_wnd id open', [3043]], ['_wnd id close', [3045]], ['_wnd id tag open', [3044]],
+      ['_wnd id base', [3048]], ['_wnd id use', [3049]], ['_wnd id in use', [3050]],
+      ['_wnd id wait event', [3055]], ['_wnd id event wnd', [3057]], ['_wnd id event code', [3058]],
+      ['_wnd id event qualifier', [3059]], ['_wnd id event gadget', [3060]],
+      ['_wnd id event menu', [3062]], ['_wnd id event item', [3063]], ['_wnd id event sub', [3064]],
+      ['_wnd id event next menu', [3065]], ['_wnd id event x mouse', [3066]],
+      ['_wnd id event y mouse', [3067]], ['_wnd id limits', [3068]], ['_wnd id move', [3069]],
+      ['_wnd id size', [3070]], ['_wnd id box', [3071]], ['_wnd id titles', [3072]],
+      ['_wnd id activate', [3073]], ['_wnd id x mouse', [3074]], ['_wnd id y mouse', [3075]],
+      ['_wnd id xgr', [3077]], ['_wnd id ygr', [3078]], ['_wnd id x', [3079]], ['_wnd id y', [3080]],
+      ['_wnd id width', [3081]], ['_wnd id height', [3082]], ['_wnd id top bdr', [3083]],
+      ['_wnd id bottom bdr', [3084]], ['_wnd id left bdr', [3085]], ['_wnd id right bdr', [3086]],
+      ['_wnd id inner width', [3087]], ['_wnd id inner height', [3088]],
+      ['_wnd id inner x mouse', [3089]], ['_wnd id inner y mouse', [3090]],
+      ['_wnd id plot', [3091]], ['_wnd id rect', [3092]], ['_wnd id line to', [3093]],
+      ['_wnd id line', [3094]], ['_wnd id ellipse', [3095]], ['_wnd id cls', [3096]],
+      ['_wnd id ink', [3097]], ['_wnd id gr writing', [3098]], ['_wnd id text', [3099]],
+      ['_wnd id bar', [3100]], ['_wnd id gr locate', [3101]], ['_wnd id paint', [3102]],
+      ['_wnd id fill ellipse', [3103]], ['_wnd id set paint', [3104]],
+      ['_wnd id pattern on', [3105]], ['_wnd id pattern off', [3106]],
+      ['_wnd id set low pattern', [3107]], ['_wnd id set high pattern', [3108]],
+      ['_wnd id set line', [3109]], ['_wnd id point', [3110]], ['_wnd id scroll', [3111]],
+      ['_wnd id put bob', [3112]], ['_wnd id lock', [3052]], ['_wnd id unlock', [3051]],
+      ['_wnd id next event', [3056]], ['_wnd id mouse', [3053]], ['_wnd id data', [3046, 3047]],
+      ['_wnd id event gt bank', [3061]], ['_wnd id mask event', [3054]],
+      ['_wnd id set mouse pos', [3076]],
+    ])
+    const idRows = rows.filter((row) => row.name.startsWith('_wnd id '))
+    expect(expected.size).toBe(69)
+    expect(idRows).toHaveLength(69)
+    for (const [name, workers] of expected) expect(rows.find((row) => row.name === name)?.workers).toEqual(workers)
+    expect(idRows.filter((row) => row.status === 'faithful')).toHaveLength(47)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(22)
+    expect(idRows.some((row) => row.status === 'review')).toBe(false)
+    expect(rows.find((row) => row.name === '_wnd id set mouse pos')?.osCalls).toEqual([
+      expect.objectContaining({ library: 'exec.library', lvo: -456 }),
+    ])
+  })
+
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
