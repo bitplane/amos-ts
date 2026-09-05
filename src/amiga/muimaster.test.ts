@@ -1502,6 +1502,58 @@ describe('muimaster: Popstring.mui 19.35', () => {
   })
 })
 
+describe('muimaster: Popobject.mui 19.35', () => {
+  it('requires a popup Object and exposes all seven native attributes', () => {
+    const m = new MuiMaster()
+    const failedButton = m.newObjectA(MUIC.MUIC_Image)!
+    expect(m.newObjectA(MUIC.MUIC_Popobject, [tag(MUI.MUIA_Popstring_Button, failedButton.address)])).toBeNull()
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const object = m.newObjectA(MUIC.MUIC_Text)!
+    const pop = m.newObjectA(MUIC.MUIC_Popobject, [
+      tag(MUI.MUIA_Popstring_Button, button.address), tag(MUI.MUIA_Popobject_Object, object.address),
+      tag(MUI.MUIA_Popobject_Follow, 0), tag(MUI.MUIA_Popobject_Light, 0),
+      tag(MUI.MUIA_Popobject_ObjStrHook, 11), tag(MUI.MUIA_Popobject_StrObjHook, 12),
+      tag(MUI.MUIA_Popobject_WindowHook, 13),
+    ])!
+    expect(m.get(pop, MUI.MUIA_Popobject_Object)).toBe(object.address)
+    expect(m.get(pop, MUI.MUIA_Popobject_Follow)).toBe(0)
+    expect(m.get(pop, MUI.MUIA_Popobject_Light)).toBe(0)
+    expect(m.get(pop, MUI.MUIA_Popobject_ObjStrHook)).toBe(11)
+    expect(m.get(pop, MUI.MUIA_Popobject_StrObjHook)).toBe(12)
+    expect(m.get(pop, MUI.MUIA_Popobject_WindowHook)).toBe(13)
+  })
+
+  it('opens the popup Object in a transient borderless host window and closes it on Hide', () => {
+    const m = new MuiMaster()
+    const host = new TestWindowHost()
+    m.windowHost = host
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const object = m.newObjectA(MUIC.MUIC_Text)!
+    const pop = m.newObjectA(MUIC.MUIC_Popobject, [
+      tag(MUI.MUIA_Popstring_Button, button.address), tag(MUI.MUIA_Popobject_Object, object.address),
+    ])!
+    m.doMui(pop, MUI.MUIM_Popstring_Open)
+    expect(host.opened).toHaveLength(1)
+    expect(host.opened[0]!.flags.borderless).toBe(true)
+    expect(m.peek(button, MUI.MUIA_Selected)).toBe(1)
+    m.doMui(pop, MUI.MUIM_Hide)
+    expect(host.calls).toContain('close')
+    expect(m.parent(object)).toBeNull()
+  })
+
+  it('owns and disposes the popup Object even though it is not a visible group child', () => {
+    const m = new MuiMaster()
+    const button = m.newObjectA(MUIC.MUIC_Image)!
+    const object = m.newObjectA(MUIC.MUIC_Text)!
+    const pop = m.newObjectA(MUIC.MUIC_Popobject, [
+      tag(MUI.MUIA_Popstring_Button, button.address), tag(MUI.MUIA_Popobject_Object, object.address),
+    ])!
+    expect(m.children(pop).map((child) => child.address)).toEqual([button.address, object.address])
+    m.disposeObject(pop)
+    expect(m.boopsi.objectAt(object.address)).toBeNull()
+  })
+})
+
 describe('muimaster: Semaphore', () => {
   it('implements the five Exec semaphore operations exposed by 19.35', () => {
     const m = new MuiMaster()

@@ -800,6 +800,17 @@ interface MuiPopstringData extends Record<string, unknown> {
   open: boolean
 }
 
+interface MuiPopobjectData extends Record<string, unknown> {
+  object: BoopsiObject
+  follow: boolean
+  light: boolean
+  volatile: boolean
+  objStrHook: number
+  strObjHook: number
+  windowHook: number
+  popupWindow: BoopsiObject | null
+}
+
 /** the per-object record, which lives on the Notify slice of every object */
 function data(mui: MuiMaster, obj: BoopsiObject): MuiData {
   return obj.instData<MuiData>(mui.notifyClass)
@@ -872,6 +883,7 @@ export class MuiMaster {
   readonly listviewClass: BoopsiClass
   readonly radioClass: BoopsiClass
   readonly popstringClass: BoopsiClass
+  readonly popobjectClass: BoopsiClass
   readonly windowClass: BoopsiClass
   readonly applicationClass: BoopsiClass
 
@@ -935,6 +947,7 @@ export class MuiMaster {
     this.listviewClass = this.byName.get(MUIC.MUIC_Listview)!
     this.radioClass = this.byName.get(MUIC.MUIC_Radio)!
     this.popstringClass = this.byName.get(MUIC.MUIC_Popstring)!
+    this.popobjectClass = this.byName.get(MUIC.MUIC_Popobject)!
     this.windowClass = this.byName.get(MUIC.MUIC_Window)!
     this.applicationClass = this.byName.get(MUIC.MUIC_Application)!
   }
@@ -1771,6 +1784,10 @@ export class MuiMaster {
           this.boopsi.disposeObject(made)
           return 0
         }
+        if (cl === this.popobjectClass && !this.initPopobject(made, (msg as OpSet).attrs)) {
+          this.boopsi.disposeObject(made)
+          return 0
+        }
         if (cl === this.applicationClass) {
           const requested = (msg as OpSet).attrs
           if (requested.some((attr) => TAG(attr.tag) === MUI.MUIA_Application_SingleTask && attr.data !== 0)) {
@@ -1868,6 +1885,10 @@ export class MuiMaster {
 
       case OM_DISPOSE: {
         const o = obj as BoopsiObject
+        if (cl === this.popobjectClass) {
+          const popup = o.instData<MuiPopobjectData>(cl)
+          if (popup.object) this.closePopobject(o)
+        }
         if (cl === this.gadgetClass) {
           const gadget = o.instData<MuiGadgetData>(cl)
           if (gadget.attached && gadget.handle !== null && gadget.gadget !== 0) {
@@ -1928,6 +1949,7 @@ export class MuiMaster {
         if (cl === this.listviewClass) return this.setListview(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.radioClass) return this.setRadio(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.popstringClass) return this.setPopstring(obj as BoopsiObject, cl, msg as OpSet)
+        if (cl === this.popobjectClass) return this.setPopobject(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.gadgetClass) return this.setGadget(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.imageClass) return this.setImage(obj as BoopsiObject, cl, msg as OpSet)
         if (cl === this.bitmapClass) return this.setBitmap(obj as BoopsiObject, cl, msg as OpSet)
@@ -2049,6 +2071,10 @@ export class MuiMaster {
         }
         if (cl === this.popstringClass) {
           const answer = this.getPopstring(o, g)
+          if (answer) return answer
+        }
+        if (cl === this.popobjectClass) {
+          const answer = this.getPopobject(o, g)
           if (answer) return answer
         }
         if (cl === this.bitmapClass && TAG(g.attrID) === MUI.MUIA_Bitmap_RemappedBitmap) {
@@ -2299,6 +2325,10 @@ export class MuiMaster {
         }
         if (cl === this.popstringClass) {
           const answered = this.popstringMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
+        if (cl === this.popobjectClass) {
+          const answered = this.popobjectMethod(obj as BoopsiObject, msg)
           if (answered !== null) return answered
         }
         if (cl === this.areaClass) {
@@ -3295,8 +3325,11 @@ export class MuiMaster {
         // is outside this port, but a non-null hook still represents a popup
         // provider and therefore controls whether the open state can begin.
         if (d.openHook !== 0) {
-          d.open = true
-          this.setInternal(d.button, MUI.MUIA_Selected, 1)
+          const opened = obj.cl.isA(this.popobjectClass) ? this.openPopobject(obj) : true
+          if (opened) {
+            d.open = true
+            this.setInternal(d.button, MUI.MUIA_Selected, 1)
+          }
         }
         return 0
       case MUI.MUIM_Popstring_Close:
@@ -3317,8 +3350,132 @@ export class MuiMaster {
     if (!d.open) return
     // closeHook is retained for native state/get semantics; executing guest
     // hook code is intentionally outside this implementation boundary.
+    if (obj.cl.isA(this.popobjectClass)) this.closePopobject(obj)
     d.open = false
     if (!d.toggle) this.setInternal(d.button, MUI.MUIA_Selected, 0)
+  }
+
+  // -- Popobject ----------------------------------------------------------
+
+  private initPopobject(obj: BoopsiObject, attrs: readonly TagItem[]): boolean {
+    const value = (id: number, fallback = 0): number => attrs.find((a) => TAG(a.tag) === id)?.data ?? fallback
+    const popupObject = this.boopsi.objectAt(value(MUI.MUIA_Popobject_Object))
+    if (!popupObject) return false
+    const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
+    d.object = popupObject
+    d.follow = value(MUI.MUIA_Popobject_Follow, 1) !== 0
+    d.light = value(MUI.MUIA_Popobject_Light, 1) !== 0
+    d.volatile = value(MUI.MUIA_Popobject_Volatile) !== 0
+    d.objStrHook = value(MUI.MUIA_Popobject_ObjStrHook)
+    d.strObjHook = value(MUI.MUIA_Popobject_StrObjHook)
+    d.windowHook = value(MUI.MUIA_Popobject_WindowHook)
+    d.popupWindow = null
+    const stored = data(this, obj).attrs
+    stored.set(MUI.MUIA_Popobject_Object, popupObject.address)
+    stored.set(MUI.MUIA_Popobject_Follow, d.follow ? 1 : 0)
+    stored.set(MUI.MUIA_Popobject_Light, d.light ? 1 : 0)
+    stored.set(MUI.MUIA_Popobject_Volatile, d.volatile ? 1 : 0)
+    stored.set(MUI.MUIA_Popobject_ObjStrHook, d.objStrHook)
+    stored.set(MUI.MUIA_Popobject_StrObjHook, d.strObjHook)
+    stored.set(MUI.MUIA_Popobject_WindowHook, d.windowHook)
+    // Popobject replaces any caller-supplied Popstring hooks with its own
+    // native open/close pair. Non-zero sentinels preserve that dispatch gate.
+    const base = obj.instData<MuiPopstringData>(this.popstringClass)
+    base.openHook = 1
+    base.closeHook = 1
+    data(this, obj).attrs.set(MUI.MUIA_Popstring_OpenHook, 1)
+    data(this, obj).attrs.set(MUI.MUIA_Popstring_CloseHook, 1)
+    return true
+  }
+
+  private setPopobject(obj: BoopsiObject, cl: BoopsiClass, msg: OpSet): number {
+    const d = obj.instData<MuiPopobjectData>(cl)
+    const rest: TagItem[] = []
+    let own = 0
+    for (const attr of msg.attrs) {
+      const id = TAG(attr.tag)
+      if (id === MUI.MUIA_Popobject_Follow) d.follow = attr.data !== 0
+      else if (id === MUI.MUIA_Popobject_Light) d.light = attr.data !== 0
+      else if (id === MUI.MUIA_Popobject_Volatile) d.volatile = attr.data !== 0
+      else if (id === MUI.MUIA_Popobject_ObjStrHook) d.objStrHook = attr.data
+      else if (id === MUI.MUIA_Popobject_StrObjHook) d.strObjHook = attr.data
+      else if (id === MUI.MUIA_Popobject_WindowHook) d.windowHook = attr.data
+      else {
+        rest.push(attr)
+        continue
+      }
+      data(this, obj).attrs.set(id, attr.data)
+      own++
+    }
+    return own + doSuperMethodA(cl, obj, { ...msg, attrs: rest } as OpSet)
+  }
+
+  private getPopobject(obj: BoopsiObject, msg: OpGet): number {
+    const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
+    switch (TAG(msg.attrID)) {
+      case MUI.MUIA_Popobject_Object: msg.storage = d.object.address; return 1
+      case MUI.MUIA_Popobject_Follow: msg.storage = d.follow ? 1 : 0; return 1
+      case MUI.MUIA_Popobject_Light: msg.storage = d.light ? 1 : 0; return 1
+      case MUI.MUIA_Popobject_Volatile: msg.storage = d.volatile ? 1 : 0; return 1
+      case MUI.MUIA_Popobject_ObjStrHook: msg.storage = d.objStrHook; return 1
+      case MUI.MUIA_Popobject_StrObjHook: msg.storage = d.strObjHook; return 1
+      case MUI.MUIA_Popobject_WindowHook: msg.storage = d.windowHook; return 1
+      default: return 0
+    }
+  }
+
+  private popobjectMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
+    switch (msg.MethodID) {
+      case MUI.MUIM_Setup:
+        return doSuperMethodA(this.popobjectClass, obj, msg)
+      case MUI.MUIM_Cleanup:
+      case MUI.MUIM_Hide:
+        if (d.popupWindow) this.finishPopstringClose(obj, 0)
+        return doSuperMethodA(this.popobjectClass, obj, msg)
+      case MUI.MUIM_Draw:
+      case MUI.MUIM_HandleInput:
+        // The native handlers keep an open popup aligned with a moving
+        // parent when Follow is set; host geometry is refreshed on reopen.
+        return doSuperMethodA(this.popobjectClass, obj, msg)
+      default: return null
+    }
+  }
+
+  private openPopobject(obj: BoopsiObject): boolean {
+    const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
+    if (d.popupWindow) return true
+    const box = this.boxOf(obj)
+    const window = this.newObjectA(MUIC.MUIC_Window, [
+      { tag: MUI.MUIA_Window_RootObject, data: d.object.address },
+      { tag: MUI.MUIA_Window_Borderless, data: d.light ? 1 : 0 },
+      { tag: MUI.MUIA_Window_Activate, data: 1 },
+      { tag: MUI.MUIA_Window_LeftEdge, data: box?.left ?? -1 },
+      { tag: MUI.MUIA_Window_TopEdge, data: box ? box.top + box.height : -1 },
+    ])
+    if (!window || this.set(window, MUI.MUIA_Window_Open, 1) === 0 ||
+      (this.get(window, MUI.MUIA_Window_Open) ?? 0) === 0) {
+      if (window) {
+        data(this, window).children = []
+        data(this, d.object).parent = null
+        this.disposeObject(window)
+      }
+      return false
+    }
+    d.popupWindow = window
+    return true
+  }
+
+  private closePopobject(obj: BoopsiObject): void {
+    const d = obj.instData<MuiPopobjectData>(this.popobjectClass)
+    if (!d.object) return
+    const window = d.popupWindow
+    if (!window) return
+    this.set(window, MUI.MUIA_Window_Open, 0)
+    data(this, window).children = data(this, window).children.filter((child) => child !== d.object)
+    data(this, d.object).parent = null
+    d.popupWindow = null
+    this.disposeObject(window)
   }
 
   private groupMethod(obj: BoopsiObject, msg: Msg): number {
