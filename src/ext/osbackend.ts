@@ -98,6 +98,28 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_layer delete', { status: 'partial', reason: 'chain deletion and exposure exist; native bitmap restoration and backfill do not' }],
 ])
 
+const auditMany = (status: OsBackendStatus, reason: string, names: readonly string[]): void => {
+  for (const name of names) AUDITED.set(name, { status, reason })
+}
+
+auditMany('faithful', 'the GadTools structure field or managed-object lifecycle is represented exactly', [
+  '_ggad def body', '_ggad def text', '_ggad def id', '_ggad def flags', '_ggad def user', '_ggad def vinf',
+  '_ggad def font', '_ggad context', '_ggad free', '_ggad vinf free', '_ggad vinf get', '_ggad wdef left',
+  '_ggad wdef top', '_ggad wdef width', '_ggad wdef height', '_ggad wdef text', '_ggad wdef font', '_ggad wdef id',
+  '_ggad wdef flags', '_ggad wdef user', '_ggad wdef vinf', '_ggad define', '_ggad add',
+])
+auditMany('partial', 'the GadTools operation exists but arbitrary native tags or rendering side effects are not all modelled', [
+  '_ggad set attrs', '_ggad create', '_ggad draw box', '_ggad what attrs', '_ggad refresh',
+])
+auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are represented exactly', [
+  '_gmn set', '_gmn list alloc', '_gmn list free', '_gmn end', '_gmn create', '_gmn free', '_gmn layout',
+  '_menu off', '_menu on', '_menu what address', '_menu what menu nb', '_menu what item nb',
+  '_menu what sub nb', '_menu what flags', '_menu what user', '_menu what next sel',
+])
+auditMany('missing', 'window menu-strip or shared-port attachment is not modelled', [
+  '_menu set', '_menu clear', '_menu share',
+])
+
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
 
 /** Lazy OpenLibrary paths whose inline names were verified in their workers. */

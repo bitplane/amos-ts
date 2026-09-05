@@ -104,6 +104,16 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       .toEqual([-150, -144, -90, -42, -36])
   })
 
+  it('classifies all 47 low-level GadTools and menu keywords', () => {
+    const low = rows.filter((row) => row.namespace === '_ggad' || row.namespace === '_gmn' || row.namespace === '_menu')
+    expect(low).toHaveLength(47)
+    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(39)
+    expect(low.filter((row) => row.status === 'partial')).toHaveLength(5)
+    expect(low.filter((row) => row.status === 'missing').map((row) => row.name).sort())
+      .toEqual(['_menu clear', '_menu set', '_menu share'])
+    expect(low.some((row) => row.status === 'review')).toBe(false)
+  })
+
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
