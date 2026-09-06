@@ -66,6 +66,24 @@ export const FAITHFUL = new Set<string>([
   '_struct word',
   '_struct uword',
   '_struct long',
+  // OS DevKit direct CPU memory routines 10-15, LockIBase workers 1589/1590,
+  // ColdReboot worker 1570, and the retained
+  // concrete library-base workers 1152/1747-1751/1781/1794/1882.
+  '_cpu word',
+  '_cpu uword',
+  '_cpu long',
+  '_ibase lock',
+  '_ibase unlock',
+  '_cold reboot',
+  '_base dos',
+  '_base gfx',
+  '_base int',
+  '_base gad',
+  '_base asl',
+  '_base icon',
+  '_base loc',
+  '_base dt',
+  '_base layers',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

@@ -8,8 +8,9 @@
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
-import { MEMF, type MemPool } from '../amiga/exec'
+import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
+import { IntuitionBaseLock } from '../amiga/intuition'
 import {
   chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, valLong, valWord,
 } from '../amiga/osscalar'
@@ -23,11 +24,12 @@ export interface OsDevKitState {
   strings: OsCStringHeap
   /** routine 1320's null/EntNul target: the library's private TagItem list. */
   defaultTags: Array<{ tag: number; data: number }>
+  ibase: IntuitionBaseLock
 }
 
 export const newOsDevKitState = (): OsDevKitState => {
   const strings = new OsCStringHeap()
-  return { memory: strings.memory, strings, defaultTags: [] }
+  return { memory: strings.memory, strings, defaultTags: [], ibase: new IntuitionBaseLock() }
 }
 
 const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
@@ -109,6 +111,14 @@ function structSet(rt: Runtime, width: StructWidth): Instr {
   }
 }
 
+function cpuSet(rt: Runtime, width: 2 | 4): Instr {
+  return (it) => {
+    it.expect('(')
+    const address = it.evalInt(); it.expect(')'); it.expectOp('=')
+    structWrite(rt, address, width, it.evalInt())
+  }
+}
+
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
@@ -179,6 +189,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_struct word': structSet(rt, 2),
     '_struct uword': structSet(rt, 2),
     '_struct long': structSet(rt, 4),
+    /** routines 10/12/14: assignment-form direct word/long stores. */
+    '_cpu word': cpuSet(rt, 2),
+    '_cpu uword': cpuSet(rt, 2),
+    '_cpu long': cpuSet(rt, 4),
+    /** worker 1590: release the token returned by LockIBase. */
+    '_ibase unlock'(it) { st().ibase.unlock(it.evalInt()) },
+    /** worker 1570 calls Exec ColdReboot and never returns. */
+    '_cold reboot'(it) {
+      rt.machine.requestReset('cold', '_cold reboot')
+      it.halt('ended')
+      return 'jumped'
+    },
   }
 }
 
@@ -249,6 +271,21 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_struct word'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 2, true)) },
     '_struct uword'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 2, false)) },
     '_struct long'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 4, true)) },
+    /** routines 11-15: direct CPU-sized reads. */
+    '_cpu word'(_, a) { return VI(structRead(rt, n(a, 0), 2, true)) },
+    '_cpu uword'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_cpu long'(_, a) { return VI(structRead(rt, n(a, 0), 4, true)) },
+    /** workers 1589 and 1747-1751/1781/1794/1882/1152. */
+    '_ibase lock'(_, a) { return VI(st().ibase.lock(n(a, 0))) },
+    '_base dos'() { return VI(openLibrary('dos.library', 36)) },
+    '_base gfx'() { return VI(openLibrary('graphics.library', 36)) },
+    '_base int'() { return VI(openLibrary('intuition.library', 36)) },
+    '_base gad'() { return VI(openLibrary('gadtools.library', 36)) },
+    '_base asl'() { return VI(openLibrary('asl.library', 36)) },
+    '_base icon'() { return VI(openLibrary('icon.library', 36)) },
+    '_base loc'() { return VI(openLibrary('locale.library', 36)) },
+    '_base dt'() { return VI(openLibrary('datatypes.library', 36)) },
+    '_base layers'() { return VI(openLibrary('layers.library', 36)) },
   }
 }
 

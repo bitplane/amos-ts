@@ -118,3 +118,32 @@ describe('OS DevKit 1.61 native memory', () => {
     expect(run(source).output).toBe('-128\t 255\n-32767\t 65535\t$80000001\n')
   })
 })
+
+describe('OS DevKit 1.61 low-level machine wrappers', () => {
+  it('reads and writes direct CPU words and longs (routines 10-15)', () => {
+    const source = [
+      'Reserve As Work 1,8 : P=Start(1)',
+      '_cpu word(P)=$8001 : _cpu uword(P+2)=$ffff : _cpu long(P+4)=$80000001',
+      'Print _cpu word(P),_cpu uword(P+2),Hex$(_cpu long(P+4))',
+    ].join('\n')
+    expect(run(source).output).toBe('-32767\t 65535\t$80000001\n')
+  })
+
+  it('returns distinct LockIBase tokens and accepts their matching unlocks (workers 1589/1590)', () => {
+    expect(run('A=_ibase lock(0) : B=_ibase lock(1) : Print A<>B : _ibase unlock A : _ibase unlock B').output)
+      .toBe('-1\n')
+  })
+
+  it('returns every concrete library base retained by extension initialization', () => {
+    const source = [
+      'Print _base dos<>0,_base gfx<>0,_base int<>0,_base gad<>0,_base asl<>0',
+      'Print _base icon<>0,_base loc<>0,_base dt<>0,_base layers<>0',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t-1\t-1\t-1\n-1\t-1\t-1\t-1\n')
+  })
+
+  it('records Exec ColdReboot as a machine reset request (worker 1570)', () => {
+    const { rt } = run('_cold reboot')
+    expect(rt.machine.pendingReset).toEqual({ kind: 'cold', by: '_cold reboot' })
+  })
+})

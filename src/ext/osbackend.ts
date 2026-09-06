@@ -66,7 +66,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_joy read', { status: 'partial', reason: 'joyport bits are modelled; mouse motion and hardware polling are not' }],
   ['_joy type', { status: 'partial', reason: 'joyport type is modelled; hardware autosense is represented by host state' }],
   ['_time elapsed', { status: 'partial', reason: 'elapsed-time state is modelled at frame rather than E-clock granularity' }],
-  ['_key pressed', { status: 'faithful', reason: 'KeyQuery reads the machine keyboard held-key set by raw keycode' }],
+  ['_key pressed', { status: 'missing', reason: 'the shipped no-argument worker calls lowlevel QueryKeys without initializing its required a0 query-array pointer or d1 array size, so it has no deterministic native result to reproduce' }],
   ['_loc init', { status: 'faithful', reason: 'OpenLibrary(locale.library, 38) succeeds at the requested version' }],
   ['_loc open', { status: 'partial', reason: 'OpenLocale is represented by the fixed built-in English locale, not user preferences' }],
   ['_loc close', { status: 'faithful', reason: 'the immutable built-in Locale has no observable close lifecycle' }],
