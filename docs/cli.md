@@ -39,7 +39,7 @@ change which programs are scanned.
 | `muidis.ts` | resolve a MUI class method to `muimaster.library` 19.35 code; `--tree` prints all 35 built-ins and their 507 table entries |
 | `libdis.ts` | walk an Amiga library's resident/function tables and disassemble its routines |
 | `oscalls.ts` | report the AmigaOS library functions an extension calls |
-| `osbackend.ts` | classify OS DevKit keywords as faithful, partial, missing, or still under review and trace direct library/LVO calls per resolved worker; `--json` emits every row and reason |
+| `osbackend.ts` | report the completed operation-level audit of reusable backend support for every OS DevKit keyword (faithful, partial, or missing) and trace direct library/LVO calls per resolved worker; these are backend verdicts, not callable keyword coverage; `--json` emits every row and reason |
 | `errscan.ts` | report every registered binary's `L_ErrorExt` call sites and register setup |
 | `citecheck.ts` | batch-report source and routine citations; tests enforce the mechanical checks |
 | `contested.ts` | report keyword names claimed by more than one extension product |
