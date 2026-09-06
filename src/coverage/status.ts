@@ -61,6 +61,11 @@ export const FAITHFUL = new Set<string>([
   '_vec free',
   '_struct alloc',
   '_struct free',
+  '_struct byte',
+  '_struct ubyte',
+  '_struct word',
+  '_struct uword',
+  '_struct long',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

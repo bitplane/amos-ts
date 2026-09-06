@@ -82,6 +82,33 @@ function writeLong(rt: Runtime, address: number, value: number): void {
   rt.longsAt(address >>> 0, true)?.set(0, value)
 }
 
+type StructWidth = 1 | 2 | 4
+
+function structRead(rt: Runtime, address: number, width: StructWidth, signed: boolean): number {
+  const m = rt.resolveAddr(address >>> 0)
+  if (!m || m.off + width > m.data.length) return 0
+  let value = 0
+  for (let i = 0; i < width; i++) value = (value << 8) | m.data[m.off + i]!
+  if (width === 4) return value | 0
+  const bits = width * 8
+  return signed && value >= 2 ** (bits - 1) ? value - 2 ** bits : value
+}
+
+function structWrite(rt: Runtime, address: number, width: StructWidth, value: number): void {
+  const m = rt.resolveWrite(address >>> 0)
+  if (!m || m.off + width > m.data.length) return
+  for (let i = 0; i < width; i++) m.data[m.off + i] = value >>> ((width - i - 1) * 8)
+}
+
+function structSet(rt: Runtime, width: StructWidth): Instr {
+  return (it) => {
+    it.expect('(')
+    const base = it.evalInt(); it.expect(',')
+    const displacement = it.evalInt(); it.expect(')'); it.expectOp('=')
+    structWrite(rt, base + displacement, width, it.evalInt())
+  }
+}
+
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
@@ -146,6 +173,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_vec free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
     '_struct free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    /** routines 16/18/20/22/24: assignment-form writes at base+displacement. */
+    '_struct byte': structSet(rt, 1),
+    '_struct ubyte': structSet(rt, 1),
+    '_struct word': structSet(rt, 2),
+    '_struct uword': structSet(rt, 2),
+    '_struct long': structSet(rt, 4),
   }
 }
 
@@ -210,6 +243,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_mem abs alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: (n(a, 1) & MEMF.CLEAR) !== 0, chip: (n(a, 1) & MEMF.CHIP) !== 0 })) },
     '_vec alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: (n(a, 1) & MEMF.CLEAR) !== 0, chip: (n(a, 1) & MEMF.CHIP) !== 0 })) },
     '_struct alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: true })) },
+    /** routines 17/19/21/23/25: signed/unsigned reads at base+displacement. */
+    '_struct byte'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 1, true)) },
+    '_struct ubyte'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 1, false)) },
+    '_struct word'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 2, true)) },
+    '_struct uword'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 2, false)) },
+    '_struct long'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1), 4, true)) },
   }
 }
 

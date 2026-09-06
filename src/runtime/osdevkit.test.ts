@@ -104,4 +104,17 @@ describe('OS DevKit 1.61 native memory', () => {
     expect(output).toBe('$123480FF\t 0\n')
     expect(rt.osdevkit.memory.sizeOf(rt.osdevkit.memory.base)).toBe(0)
   })
+
+  it('reads and writes signed and unsigned structure fields (routines 16-25)', () => {
+    const source = [
+      'S=_struct alloc(12)',
+      '_struct byte(S,0)=$80 : _struct ubyte(S,1)=$ff',
+      '_struct word(S,2)=$8001 : _struct uword(S,4)=$ffff',
+      '_struct long(S,6)=$80000001',
+      'Print _struct byte(S,0),_struct ubyte(S,1)',
+      'Print _struct word(S,2),_struct uword(S,4),Hex$(_struct long(S,6))',
+      '_struct free S',
+    ].join('\n')
+    expect(run(source).output).toBe('-128\t 255\n-32767\t 65535\t$80000001\n')
+  })
 })
