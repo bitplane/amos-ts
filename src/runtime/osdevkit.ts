@@ -13,6 +13,10 @@ import { amiga2Date } from '../amiga/datestamp'
 import { IntuitionBaseLock } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import {
+  allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
+  type NativeColorMap,
+} from '../amiga/oscolormap'
+import {
   chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, valLong, valWord,
 } from '../amiga/osscalar'
 import {
@@ -27,11 +31,12 @@ export interface OsDevKitState {
   defaultTags: Array<{ tag: number; data: number }>
   ibase: IntuitionBaseLock
   exec: ExecSystem
+  colorMaps: Map<number, NativeColorMap>
 }
 
 export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
-  return { memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec }
+  return { memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map() }
 }
 
 const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
@@ -468,6 +473,83 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       structWrite(rt, info! + 12, 2, display!); structWrite(rt, info! + 24, 4, extension!)
       structWrite(rt, info! + 28, 4, integer!); structWrite(rt, info! + 32, 4, keyMap!)
     },
+    /** Native graphics records, workers 562, 572-573, 588 and 620-674. */
+    '_tmpras init'(it) {
+      const [tmp, raster, size] = readArgs(it, 3)
+      structWrite(rt, tmp!, 4, raster!); structWrite(rt, tmp! + 4, 4, size!)
+    },
+    '_tr set'(it) {
+      const [tmp, raster, size] = readArgs(it, 3)
+      structWrite(rt, tmp!, 4, raster!); structWrite(rt, tmp! + 4, 4, size!)
+    },
+    '_cop init view'(it) {
+      const view = it.evalInt(); for (let at = 0; at < 18; at++) structWrite(rt, view + at, 1, 0)
+    },
+    '_cop init vport'(it) {
+      const viewPort = it.evalInt(); for (let at = 0; at < 40; at++) structWrite(rt, viewPort + at, 1, 0)
+    },
+    '_bm set datas'(it) {
+      const [bitmap, modulo, height, depth, flags] = readArgs(it, 5)
+      structWrite(rt, bitmap!, 2, modulo!); structWrite(rt, bitmap! + 2, 2, height!)
+      structWrite(rt, bitmap! + 4, 1, flags!); structWrite(rt, bitmap! + 5, 1, depth!)
+    },
+    '_rp set layer'(it) { const [rp, p] = readArgs(it, 2); structWrite(rt, rp!, 4, p!) },
+    '_rp set bmap'(it) { const [rp, p] = readArgs(it, 2); structWrite(rt, rp! + 4, 4, p!) },
+    '_rp set tmpras'(it) { const [rp, p] = readArgs(it, 2); structWrite(rt, rp! + 12, 4, p!) },
+    '_rp set area info'(it) { const [rp, p] = readArgs(it, 2); structWrite(rt, rp! + 16, 4, p!) },
+    '_rp set o pen'(it) {
+      const [rp, pen] = readArgs(it, 2); if ((pen! >>> 0) !== 0x8000_0000) structWrite(rt, rp! + 27, 1, pen!)
+    },
+    '_rp set line'(it) { const [rp, pattern] = readArgs(it, 2); structWrite(rt, rp! + 34, 2, pattern!) },
+    '_rp set wr msk'(it) { const [rp, mask] = readArgs(it, 2); structWrite(rt, rp! + 24, 1, mask!) },
+    '_rp wr msk'(it) { const [rp, mask] = readArgs(it, 2); structWrite(rt, rp! + 24, 1, mask!) },
+    '_rp o pen'(it) { const [rp, pen] = readArgs(it, 2); structWrite(rt, rp! + 27, 1, pen!) },
+    '_font set'(it) { const [rp, font] = readArgs(it, 2); if (font !== 0) structWrite(rt, rp! + 52, 4, font!) },
+    '_view set'(it) {
+      const [view, viewPort, _x, _y, modes] = readArgs(it, 5)
+      structWrite(rt, view!, 4, viewPort!); structWrite(rt, view! + 12, 4, modes!)
+    },
+    '_vp set next'(it) { const [vp, next] = readArgs(it, 2); structWrite(rt, vp!, 4, next!) },
+    '_vp set body'(it) {
+      const [vp, x, y, width, height, modes, priority] = readArgs(it, 7)
+      structWrite(rt, vp! + 24, 2, width!); structWrite(rt, vp! + 26, 2, height!)
+      structWrite(rt, vp! + 28, 2, x!); structWrite(rt, vp! + 30, 2, y!)
+      structWrite(rt, vp! + 32, 2, modes!); structWrite(rt, vp! + 34, 2, priority!)
+    },
+    '_vp set cmap'(it) { const [vp, map] = readArgs(it, 2); structWrite(rt, vp! + 4, 4, map!) },
+    '_vp set ras info'(it) { const [vp, info] = readArgs(it, 2); structWrite(rt, vp! + 36, 4, info!) },
+    '_ri set'(it) {
+      const [info, next, bitmap, x, y] = readArgs(it, 5)
+      structWrite(rt, info!, 4, next!); structWrite(rt, info! + 4, 4, bitmap!)
+      structWrite(rt, info! + 8, 2, x!); structWrite(rt, info! + 10, 2, y!)
+    },
+    '_spr set height'(it) { const [sprite, height] = readArgs(it, 2); structWrite(rt, sprite! + 4, 2, height!) },
+    '_spr set nb'(it) { const [sprite, number] = readArgs(it, 2); structWrite(rt, sprite! + 10, 2, number!) },
+    '_spr set pos'(it) {
+      const [sprite, x, y] = readArgs(it, 3)
+      structWrite(rt, sprite! + 6, 2, x!); structWrite(rt, sprite! + 8, 2, y!)
+    },
+    '_cm free'(it) {
+      const address = it.evalInt(); const map = st().colorMaps.get(address) ?? null
+      freeColorMap(map); st().colorMaps.delete(address); st().memory.freeMem(address >>> 0)
+    },
+    '_rgb4 cm set'(it) {
+      const [map, index, red, green, blue] = readArgs(it, 5)
+      setRgb4ColorMap(st().colorMaps.get(map!) ?? null, index!, red!, green!, blue!)
+    },
+    '_rgb32 cm set'(it) {
+      const [map, index, red, green, blue] = readArgs(it, 5)
+      setRgb32ColorMap(st().colorMaps.get(map!) ?? null, index!, red!, green!, blue!)
+    },
+    '_rgb32 get'(it) {
+      const [map, first, count, destination] = readArgs(it, 4)
+      const values = getRgb32(st().colorMaps.get(map!) ?? null, first!, count!)
+      values.forEach((value, i) => structWrite(rt, destination! + i * 4, 4, value))
+    },
+    // Synchronous, non-contending blitter: these calls have no observable state.
+    '_blt own'() {},
+    '_blt disown'() {},
+    '_blt wait'() {},
   }
 }
 
@@ -687,6 +769,52 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_si what ext'(_, a) { return VI(structRead(rt, n(a, 0) + 24, 4, false)) },
     '_si what integer'(_, a) { return VI(structRead(rt, n(a, 0) + 28, 4, true)) },
     '_si what keymap'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 4, false)) },
+    '_tr what raster'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_tr what size'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_bm what modulo'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_bm what height'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 2, false)) },
+    '_bm what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 1, false)) },
+    '_bm what depth'(_, a) { return VI(structRead(rt, n(a, 0) + 5, 1, false)) },
+    '_bm what plane'(_, a) {
+      const bitmap = n(a, 0); const plane = n(a, 1); const depth = structRead(rt, bitmap + 5, 1, false)
+      return VI(plane < 0 || plane >= depth ? 0 : structRead(rt, bitmap + 8 + plane * 4, 4, false))
+    },
+    '_rp what layer'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_rp what bmap'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_rp what tmpras'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 4, false)) },
+    '_rp what area info'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 4, false)) },
+    '_rp what text base'(_, a) { return VI(structRead(rt, n(a, 0) + 62, 2, false)) },
+    '_rp what xgr'(_, a) { return VI(structRead(rt, n(a, 0) + 36, 2, true)) },
+    '_rp what ygr'(_, a) { return VI(structRead(rt, n(a, 0) + 38, 2, true)) },
+    '_font style'(_, a) { return VI(structRead(rt, n(a, 0) + 56, 1, false)) },
+    '_font soft style'(_, a) {
+      const rp = n(a, 0); const style = n(a, 1); const enable = n(a, 2)
+      const old = structRead(rt, rp + 56, 1, false); const next = (old & ~enable) | (style & enable)
+      structWrite(rt, rp + 56, 1, next); return VI(next & 0xff)
+    },
+    '_view what vport'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_view what x'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, true)) },
+    '_view what y'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, true)) },
+    '_view what modes'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
+    '_vp what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_vp what cmap'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_vp what ras info'(_, a) { return VI(structRead(rt, n(a, 0) + 36, 4, false)) },
+    '_vp what width'() { return VI(structRead(rt, 0x18, 2, false)) },
+    '_vp what height'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 2, false)) },
+    '_vp what x'(_, a) { return VI(structRead(rt, n(a, 0) + 28, 2, false)) },
+    '_vp what y'(_, a) { return VI(structRead(rt, n(a, 0) + 30, 2, false)) },
+    '_vp what modes'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 2, false)) },
+    '_vp what spr pri'(_, a) { return VI(structRead(rt, n(a, 0) + 34, 1, false)) },
+    '_ri what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_ri what bmap'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_ri what x'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, true)) },
+    '_ri what y'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, true)) },
+    '_cm alloc'(_, a) {
+      const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
+      if (address !== 0) st().colorMaps.set(address, map)
+      return VI(address)
+    },
+    '_rgb4 get'(_, a) { return VI(getRgb4(st().colorMaps.get(n(a, 0)) ?? null, n(a, 1))) },
   }
 }
 

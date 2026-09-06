@@ -334,3 +334,64 @@ describe('OS DevKit 1.61 native Intuition data structures', () => {
     )
   })
 })
+
+describe('OS DevKit 1.61 native graphics records', () => {
+  it('round-trips BitMap, TmpRas and SimpleSprite fields at native widths', () => {
+    const source = [
+      'B=_struct alloc(40) : _bm set datas B,$12345,$23456,$103,$104 : Loke B+8,$12345678',
+      'Print Hex$(_bm what modulo(B)),Hex$(_bm what height(B)),_bm what depth(B),_bm what flags(B)',
+      'Print Hex$(_bm what plane(B,0)),_bm what plane(B,3)',
+      'T=_struct alloc(8) : _tmpras init T,$23456789,$3456789a',
+      'Print Hex$(_tr what raster(T)),Hex$(_tr what size(T)) : _tr set T,3,4',
+      'S=_struct alloc(12) : _spr set height S,$12345 : _spr set nb S,$23456 : _spr set pos S,$34567,$45678',
+      'Print Hex$(_struct uword(S,4)),Hex$(_struct uword(S,6)),Hex$(_struct uword(S,8)),Hex$(_struct uword(S,10))',
+      '_struct free B : _struct free T : _struct free S',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      '$2345\t$3456\t 3\t 4\n$12345678\t 0\n$23456789\t$3456789A\n$2345\t$4567\t$5678\t$3456\n',
+    )
+  })
+
+  it('initializes and exposes RastPort fields and font style', () => {
+    const source = [
+      'R=_struct alloc(72)',
+      '_rp set layer R,1 : _rp set bmap R,2 : _rp set tmpras R,3 : _rp set area info R,4',
+      '_rp set o pen R,5 : _rp set o pen R,$80000000 : _rp set line R,$12345 : _rp set wr msk R,$106',
+      'Doke R+36,$8001 : Doke R+38,$ffff : Doke R+62,$8002',
+      'Print _rp what layer(R),_rp what bmap(R),_rp what tmpras(R),_rp what area info(R)',
+      'Print _rp what xgr(R),_rp what ygr(R),_rp what text base(R)',
+      '_rp wr msk R,7 : _rp o pen R,8 : _font set R,9',
+      'Print _struct ubyte(R,24),_struct ubyte(R,27),_struct long(R,52)',
+      '_struct ubyte(R,56)=$a5 : Print Hex$(_font style(R)),Hex$(_font soft style(R,$3c,$0f))',
+      '_struct free R',
+    ].join('\n')
+    expect(run(source).output).toBe(' 1\t 2\t 3\t 4\n-32767\t-1\t 32770\n 7\t 8\t 9\n$A5\t$AC\n')
+  })
+
+  it('reproduces View and ViewPort setters, including their shipped defects', () => {
+    const source = [
+      'V=_struct alloc(18) : _cop init view V : _view set V,$12345678,10,20,$92348001',
+      'Print Hex$(_view what vport(V)),_view what x(V),_view what y(V),_view what modes(V)',
+      'P=_struct alloc(40) : _cop init vport P : _vp set next P,1 : _vp set cmap P,2 : _vp set ras info P,3',
+      '_vp set body P,$ffff,$fffe,100,200,$12345,$6789',
+      'Print _vp what next(P),_vp what cmap(P),_vp what ras info(P)',
+      'Print _vp what width(P),_vp what height(P),Hex$(_vp what x(P)),Hex$(_vp what y(P)),Hex$(_vp what modes(P)),Hex$(_vp what spr pri(P))',
+      '_struct free V : _struct free P',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      '$12345678\t-32767\t-28108\t 0\n 1\t 2\t 3\n 0\t 200\t$FFFF\t$FFFE\t$2345\t$67\n',
+    )
+  })
+
+  it('round-trips signed RasInfo offsets and managed ColorMap components', () => {
+    const source = [
+      'I=_struct alloc(12) : _ri set I,$12345678,$23456789,-2,-32767',
+      'Print Hex$(_ri what next(I)),Hex$(_ri what bmap(I)),_ri what x(I),_ri what y(I)',
+      'C=_cm alloc(3) : _rgb4 cm set C,1,$a,$b,$c : Print Hex$(_rgb4 get(C,1))',
+      '_rgb32 cm set C,2,$89abcdef,$12345678,$fedcba98 : O=_struct alloc(12) : _rgb32 get C,2,1,O',
+      'Print Hex$(Leek(O)),Hex$(Leek(O+4)),Hex$(Leek(O+8))',
+      '_blt own : _blt wait : _blt disown : _cm free C : _struct free I : _struct free O',
+    ].join('\n')
+    expect(run(source).output).toBe('$12345678\t$23456789\t-2\t-32767\n$ABC\n$89ABCDEF\t$12345678\t$FEDCBA98\n')
+  })
+})
