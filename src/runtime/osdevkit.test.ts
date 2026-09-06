@@ -440,6 +440,18 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('-1\t-1\t-1\t-1\t 4\t 2\t 20\t 10\n')
   })
 
+  it('shares native TextFont ownership with RastPort text and TextAttr records', () => {
+    const source = [
+      'N=_to str("topaz.font") : A=_struct alloc(8) : _ta set A,N,8,0,0',
+      'F=_font open(A) : D=_font load(A) : Print F<>0,D=F,_struct uword(F,20)',
+      'R=_struct alloc(72) : _font set R,F : Print _font style(R),_font soft style(R,3,1),_font style(R),_rp len text(R,"AB")',
+      'Q=_struct alloc(8) : _font ask R,Q : Print _str get(_struct long(Q,0)),_struct uword(Q,4),_struct ubyte(Q,6),_struct ubyte(Q,7)',
+      '_font rem F : _font add F : _font close D : _font close F',
+      '_struct free Q : _struct free R : _struct free A : _str free N',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t 8\n 0\t 1\t 1\t 16\ntopaz.font\t 8\t 0\t 0\n')
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

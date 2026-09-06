@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      339 |           46 |     662 |      37% |
+| os-devkit-1.61       |     1047 |      339 |           52 |     656 |      37% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6204 |          457 |     705 |      90% |
+| **total**            |     7422 |     6204 |          463 |     699 |      91% |
 
 ## Not applicable, by what would retire it
 
@@ -431,7 +431,8 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (37%)
 
-- **approximated** (46): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (52): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+  `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
   `_ggad create`, `_ggad set attrs`, `_img draw`, `_img draw state`, `_img erase`,
   `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
   `_scr id base`, `_scr id close`, `_scr id cls`, `_scr id depth`, `_scr id ellipse`,

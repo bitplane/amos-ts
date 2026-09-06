@@ -630,7 +630,7 @@ auditMany('faithful', 'the complete eight-byte TmpRas record and the identical l
 auditMany('faithful', 'RastPort font assignment and masked algorithmic-style reads/writes are represented exactly', [
   '_font style', '_font set', '_font soft style',
 ])
-auditMany('partial', 'disk-font parsing and lookup exist, but native TextAttr/TextFont pointers, the resident font list and open-count ownership are not integrated', [
+auditMany('partial', 'TextAttr/TextFont pointers, resident membership, open counts and disk-font parsing now share RastPort rendering ownership; arbitrary external TextFont memory and full WeighTAMatch scoring remain incomplete', [
   '_font add', '_font ask', '_font close', '_font open', '_font rem', '_font load',
 ])
 auditMany('faithful', 'caller-owned AreaInfo/TmpRas records, RASSIZE chip allocation and direct RastPort fill primitives are integrated', [

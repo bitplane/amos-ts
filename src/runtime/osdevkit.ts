@@ -15,6 +15,7 @@ import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
+import { glyphBit, glyphMetrics, openDiskFont, type DiskFont } from '../amiga/diskfont'
 import {
   allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
@@ -49,6 +50,7 @@ export interface OsDevKitState {
   nativeGadgets: Map<number, UserGadget>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
+  fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
 }
 
 export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKitState => {
@@ -62,6 +64,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
     layerInfos: new Map(), layers: new Map(),
+    fonts: new Map(),
   }
 }
 
@@ -434,6 +437,39 @@ function createNativeLayer(rt: Runtime, state: OsDevKitState, args: readonly num
   state.layers.set(address, { owner: infoAddress, layer, bitmap, backfill: args[7]! >>> 0 }); return address
 }
 
+function nativeFont(state: OsDevKitState, font: DiskFont, resident: boolean): number {
+  for (const [address, held] of state.fonts) if (held.font === font) { held.opens++; if (resident) held.resident = true; return address }
+  const address = state.memory.alloc(52, { clear: true }); if (address === 0) return 0
+  const name = state.strings.fromAmos(font.name)
+  set32(state, address + 10, name)
+  // The remaining public TextFont scalar fields are byte/word values.
+  const off = address - state.memory.base
+  state.memory.buffer[off + 20] = font.ySize >>> 8; state.memory.buffer[off + 21] = font.ySize
+  state.memory.buffer[off + 22] = font.style; state.memory.buffer[off + 23] = font.flags
+  state.memory.buffer[off + 24] = font.xSize >>> 8; state.memory.buffer[off + 25] = font.xSize
+  state.memory.buffer[off + 26] = font.baseline >>> 8; state.memory.buffer[off + 27] = font.baseline
+  state.memory.buffer[off + 32] = font.loChar; state.memory.buffer[off + 33] = font.hiChar
+  state.fonts.set(address, { font, opens: 1, resident, name }); return address
+}
+
+function textAttr(rt: Runtime, state: OsDevKitState, address: number): { name: string; ySize: number; style: number; flags: number } | null {
+  if (address === 0) return null
+  const name = state.strings.get(structRead(rt, address, 4, false))
+  return { name, ySize: structRead(rt, address + 4, 2, false), style: structRead(rt, address + 6, 1, false), flags: structRead(rt, address + 7, 1, false) }
+}
+
+function drawNativeText(rt: Runtime, state: OsDevKitState, rp: number, value: string, ox = 0, oy = 0): void {
+  const raster = nativeRaster(rt, rp); const held = state.fonts.get(structRead(rt, rp + 52, 4, false) >>> 0)
+  let x = structRead(rt, rp + 36, 2, true); const baseline = structRead(rt, rp + 38, 2, true)
+  if (!raster || !held) { structWrite(rt, rp + 36, 2, x + value.length * 8); return }
+  for (const ch of value) {
+    const code = ch.charCodeAt(0); const metrics = glyphMetrics(held.font, code)
+    for (let y = 0; y < held.font.ySize; y++) for (let gx = 0; gx < metrics.width; gx++) if (glyphBit(held.font, code, gx, y)) nativePlot(rt, raster, ox + x + metrics.kern + gx, oy + baseline - held.font.baseline + y)
+    x += metrics.advance
+  }
+  structWrite(rt, rp + 36, 2, x)
+}
+
 function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false): boolean {
   const screen = rt.screens.get(slot)
   if (!screen) return false
@@ -450,6 +486,7 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
   structWrite(rt, rastPort + 4, 4, bitMap); structWrite(rt, rastPort + 24, 1, 0xff)
   structWrite(rt, rastPort + 25, 1, screen.rp.fgPen); structWrite(rt, rastPort + 26, 1, screen.rp.bgPen)
   structWrite(rt, rastPort + 28, 1, screen.rp.drawMode); structWrite(rt, rastPort + 34, 2, screen.rp.linePtrn)
+  structWrite(rt, rastPort + 52, 4, nativeFont(state, screen.font ?? rt.systemFont(), true))
   state.screenIds.set(id, {
     slot, base: (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0,
     rastPort, viewPort, bitMap, owned,
@@ -474,6 +511,7 @@ function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { 
   structWrite(rt, rastPort + 4, 4, bitMap); structWrite(rt, rastPort + 24, 1, 0xff)
   structWrite(rt, rastPort + 25, 1, screen.rp.fgPen); structWrite(rt, rastPort + 26, 1, screen.rp.bgPen)
   structWrite(rt, rastPort + 28, 1, screen.rp.drawMode); structWrite(rt, rastPort + 34, 2, screen.rp.linePtrn)
+  structWrite(rt, rastPort + 52, 4, nativeFont(state, screen.font ?? rt.systemFont(), true))
   return { rastPort, bitMap }
 }
 
@@ -846,6 +884,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_rp wr msk'(it) { const [rp, mask] = readArgs(it, 2); structWrite(rt, rp! + 24, 1, mask!) },
     '_rp o pen'(it) { const [rp, pen] = readArgs(it, 2); structWrite(rt, rp! + 27, 1, pen!) },
     '_font set'(it) { const [rp, font] = readArgs(it, 2); if (font !== 0) structWrite(rt, rp! + 52, 4, font!) },
+    '_font add'(it) { const held = st().fonts.get(it.evalInt() >>> 0); if (held) held.resident = true },
+    '_font rem'(it) { const held = st().fonts.get(it.evalInt() >>> 0); if (held) held.resident = false },
+    '_font close'(it) { const held = st().fonts.get(it.evalInt() >>> 0); if (held && held.opens > 0) held.opens-- },
+    '_font ask'(it) {
+      const [rp, attr] = readArgs(it, 2); if (rp === 0 || attr === 0) return
+      const held = st().fonts.get(structRead(rt, rp! + 52, 4, false) >>> 0); if (!held) return
+      structWrite(rt, attr!, 4, held.name); structWrite(rt, attr! + 4, 2, held.font.ySize)
+      structWrite(rt, attr! + 6, 1, held.font.style); structWrite(rt, attr! + 7, 1, held.font.flags)
+    },
     '_view set'(it) {
       const [view, viewPort, _x, _y, modes] = readArgs(it, 5)
       structWrite(rt, view!, 4, viewPort!); structWrite(rt, view! + 12, 4, modes!)
@@ -926,8 +973,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_rp text'(it) {
       const rp = it.evalInt(); it.expect(','); const value = it.evalStr()
-      // A null rp_Font has no glyph source, but Text still advances the cursor.
-      structWrite(rt, rp + 36, 2, structRead(rt, rp + 36, 2, true) + value.length * 8)
+      drawNativeText(rt, st(), rp, value)
     },
     '_bd draw'(it) {
       const [first, rp, offsetX, offsetY] = readArgs(it, 4); const raster = nativeRaster(rt, rp!)
@@ -1038,7 +1084,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr id text'(it) {
       const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr()
       const raster = currentScreenRaster(rt, st()); if (!raster) return
-      structWrite(rt, raster.rp + 36, 2, x + value.length * 8); structWrite(rt, raster.rp + 38, 2, y)
+      structWrite(rt, raster.rp + 36, 2, x); structWrite(rt, raster.rp + 38, 2, y); drawNativeText(rt, st(), raster.rp, value)
     },
     /** Window-ID lifecycle, workers 3042-3047, over Intuition and shared native graphics. */
     '_wnd id open'(it) {
@@ -1143,7 +1189,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd id text'(it) {
       const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr(); const t = currentWindowTarget(rt, st())
-      if (t) { structWrite(rt, t.raster.rp + 36, 2, x + value.length * 8); structWrite(rt, t.raster.rp + 38, 2, y) }
+      if (t) { structWrite(rt, t.raster.rp + 36, 2, x); structWrite(rt, t.raster.rp + 38, 2, y); drawNativeText(rt, st(), t.raster.rp, value, t.ox, t.oy) }
     },
     '_wnd id set paint'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 32, 1, value ? 0x08 : 0) },
     '_wnd id pattern off'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 0) },
@@ -1452,6 +1498,21 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_rp what xgr'(_, a) { return VI(structRead(rt, n(a, 0) + 36, 2, true)) },
     '_rp what ygr'(_, a) { return VI(structRead(rt, n(a, 0) + 38, 2, true)) },
     '_font style'(_, a) { return VI(structRead(rt, n(a, 0) + 56, 1, false)) },
+    '_font open'(_, a) {
+      const attr = textAttr(rt, st(), n(a, 0)); if (!attr) return VI(0)
+      const system = rt.systemFont()
+      if (system.name.toLowerCase() === attr.name.toLowerCase() && system.ySize === attr.ySize && (system.style & attr.style) === attr.style) return VI(nativeFont(st(), system, true))
+      for (const [address, held] of st().fonts) if (held.resident && held.font.name.toLowerCase() === attr.name.toLowerCase() && held.font.ySize === attr.ySize && (held.font.style & attr.style) === attr.style) { held.opens++; return VI(address) }
+      return VI(0)
+    },
+    '_font load'(_, a) {
+      const attr = textAttr(rt, st(), n(a, 0)); if (!attr) return VI(0)
+      const system = rt.systemFont()
+      if (system.name.toLowerCase() === attr.name.toLowerCase() && system.ySize === attr.ySize && (system.style & attr.style) === attr.style) return VI(nativeFont(st(), system, true))
+      for (const [address, held] of st().fonts) if (held.resident && held.font.name.toLowerCase() === attr.name.toLowerCase() && held.font.ySize === attr.ySize && (held.font.style & attr.style) === attr.style) { held.opens++; return VI(address) }
+      const font = openDiskFont((path) => rt.vfs?.read(path) ?? null, attr.name, attr.ySize, attr.style)
+      return VI(font ? nativeFont(st(), font, false) : 0)
+    },
     '_font soft style'(_, a) {
       const rp = n(a, 0); const style = n(a, 1); const enable = n(a, 2)
       const old = structRead(rt, rp + 56, 1, false); const next = (old & ~enable) | (style & enable)
@@ -1477,7 +1538,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_rp point'(_, a) {
       const raster = nativeRaster(rt, n(a, 0)); return VI(raster ? nativePoint(rt, raster, n(a, 1), n(a, 2)) : -1)
     },
-    '_rp len text'(_, a) { return VI(str(a[1] ?? VS('')).length * 8) },
+    '_rp len text'(_, a) {
+      const rp = n(a, 0); const value = str(a[1] ?? VS('')); const held = st().fonts.get(structRead(rt, rp + 52, 4, false) >>> 0)
+      return VI(held ? [...value].reduce((width, ch) => width + glyphMetrics(held.font, ch.charCodeAt(0)).advance, 0) : value.length * 8)
+    },
     '_scr id base'(_, a) { return VI(st().screenIds.get(n(a, 0))?.base ?? 0) },
     '_scr id rport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.rastPort ?? 0) },
     '_scr id vport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.viewPort ?? 0) },
