@@ -486,6 +486,20 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('-1\t 0\t 1\t 0\t 3\n-1\t 640\n')
   })
 
+  it('owns DrawInfo records and captures the selected Screen-ID pen policy', () => {
+    const source = [
+      '_scr id def dri pens v1 10,11,12,13,14,15,16,17,18',
+      '_scr id def dri pens v2 19,20,21 : _scr id fix dri pens -1',
+      '_scr id open 3,0,0,160,100,4,0,15,"Pens" : S=_scr id base(3) : D=_scr dinf get(S)',
+      'P=_struct long(D,4) : Print D<>0,_struct uword(D,0),_struct uword(D,2),_struct uword(D,12)',
+      'Print _struct uword(P,0),_struct uword(P,16),_struct uword(P,18),_struct uword(P,22),_struct long(D,8)<>0',
+      '_scr dinf free S,D : _scr id close 3',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe('-1\t 2\t 12\t 4\n 10\t 18\t 19\t 21\t-1\n')
+    expect(rt.osdevkit.drawInfos.size).toBe(0)
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

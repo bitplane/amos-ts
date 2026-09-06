@@ -14,6 +14,7 @@ import { CUSTOMSCREEN, IntuitionBaseLock, WB_SLOT, type UserGadget, type Window 
 import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
+import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
 import { glyphBit, glyphMetrics, openDiskFont, type DiskFont } from '../amiga/diskfont'
 import {
@@ -27,6 +28,7 @@ import {
   A1200_ATTN_FLAGS, EXEC_SOFT_VERSION, EXEC_VERSION, systemCpu, systemFpu,
 } from '../amiga/ossystem'
 import type { Runtime } from './runtime'
+import { screenPens } from './aslreq'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -40,6 +42,13 @@ export interface OsDevKitState {
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
   screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean; publicLock: boolean }>
+  /** DrawInfo blocks returned by GetScreenDrawInfo, keyed by their native pointer. */
+  drawInfos: Map<number, { screen: number; font: number }>
+  drawInfoDefaults: NativeScreenDrawInfoPens
+  /** 0 for system pens, -1 for drawInfoDefaults, otherwise a caller pen-array pointer. */
+  drawInfoPenSource: number
+  /** SA_Pens policy captured by each screen opened through the Screen-ID wrapper. */
+  screenDrawInfoPens: Map<number, number[]>
   currentScreenId: number
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
@@ -58,7 +67,9 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
   const strings = new OsCStringHeap(exec.pool)
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
-    screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
+    screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
+    drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
+    windowIds: new OsWindowIds(), windowHandles: new Map(),
     windowPatterns: new OsWindowPatterns(), fillPatternAddress: 0,
     areaPaths: new Map(),
     gadtools,
@@ -526,11 +537,61 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
   return true
 }
 
+/** Resolve one of Runtime's stable synthetic `struct Screen *` addresses. */
+function managedScreenSlot(rt: Runtime, address: number): number | null {
+  const relative = (address >>> 0) - SCREEN_CTRL_BASE
+  if (relative < 0 || relative % SCREEN_CTRL_SLOT !== 0) return null
+  const slot = relative / SCREEN_CTRL_SLOT
+  return rt.screens.has(slot) ? slot : null
+}
+
+function selectedDrawInfoPens(rt: Runtime, state: OsDevKitState, depth: number): number[] {
+  if (state.drawInfoPenSource === -1) return Array.from(state.drawInfoDefaults.pens)
+  if (state.drawInfoPenSource !== 0) {
+    return Array.from({ length: 12 }, (_, i) => structRead(rt, state.drawInfoPenSource + i * 2, 2, false))
+  }
+  return Array.from(screenPens(depth).pens)
+}
+
+/** GetScreenDrawInfo: a tracked 50-byte public record with its pen array. */
+function allocScreenDrawInfo(rt: Runtime, state: OsDevKitState, screenAddress: number): number {
+  const slot = managedScreenSlot(rt, screenAddress)
+  if (slot === null) return 0
+  const screen = rt.screens.get(slot)
+  if (!screen) return 0
+  // Keep the 24-byte pen array behind the public 50-byte structure. Intuition
+  // owns both and FreeScreenDrawInfo releases them as one allocation.
+  const address = state.memory.alloc(74, { clear: true })
+  if (address === 0) return 0
+  const pensAddress = address + 50
+  const pens = state.screenDrawInfoPens.get(slot) ?? Array.from(screenPens(screen.depth).pens)
+  for (let i = 0; i < 12; i++) structWrite(rt, pensAddress + i * 2, 2, pens[i] ?? 0)
+  const font = nativeFont(state, screen.font ?? rt.systemFont(), true)
+  structWrite(rt, address, 2, 2) // DRI_VERSION = 2 on the V39 machine model
+  structWrite(rt, address + 2, 2, 12)
+  structWrite(rt, address + 4, 4, pensAddress)
+  structWrite(rt, address + 8, 4, font)
+  structWrite(rt, address + 12, 2, screen.depth)
+  structWrite(rt, address + 14, 2, screen.hires ? 1 : 2)
+  structWrite(rt, address + 16, 2, screen.laced ? 1 : 2)
+  state.drawInfos.set(address, { screen: screenAddress >>> 0, font })
+  return address
+}
+
+function freeScreenDrawInfo(state: OsDevKitState, screenAddress: number, address: number): void {
+  const held = state.drawInfos.get(address >>> 0)
+  if (!held || held.screen !== (screenAddress >>> 0)) return
+  const font = state.fonts.get(held.font)
+  if (font && font.opens > 0) font.opens--
+  state.drawInfos.delete(address >>> 0)
+  state.memory.freeMem(address >>> 0)
+}
+
 function closeScreenId(rt: Runtime, state: OsDevKitState, id: number): void {
   const record = state.screenIds.get(id)
   if (!record) return
   state.memory.freeMem(record.rastPort); state.memory.freeMem(record.viewPort); state.memory.freeMem(record.bitMap)
-  if (record.owned) rt.intuition.closeScreen(record.base)
+  if (record.owned) { state.screenDrawInfoPens.delete(record.slot); rt.intuition.closeScreen(record.base) }
   if (record.publicLock) rt.intuition.unlockPubScreen(record.base)
   state.screenIds.delete(id)
   if (state.currentScreenId === id) state.currentScreenId = -1
@@ -1087,6 +1148,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     /** Screen-ID wrappers over stable native records bound to managed screens. */
     '_scr def pub'(it) { rt.intuition.setDefaultPubScreen(cString(rt, it.evalInt() >>> 0)) },
+    '_scr dinf free'(it) {
+      const [screen, drawInfo] = readArgs(it, 2)
+      freeScreenDrawInfo(st(), screen!, drawInfo!)
+    },
+    '_scr id def dri pens v1'(it) { st().drawInfoDefaults.defineV1(readArgs(it, 9)) },
+    '_scr id def dri pens v2'(it) { st().drawInfoDefaults.defineV2(readArgs(it, 3)) },
+    '_scr id fix dri pens'(it) { st().drawInfoPenSource = it.evalInt() },
     '_scr id open'(it) {
       const [id, x, y, width, height, depth, mode, _type] = readArgs(it, 8)
       it.expect(','); const title = it.evalStr()
@@ -1102,6 +1170,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const screen = rt.screens.get(slot)!
       screen.displayX = x!
       if (!bindScreenId(rt, st(), id!, slot, true)) rt.intuition.closeScreen(address)
+      else st().screenDrawInfoPens.set(slot, selectedDrawInfoPens(rt, st(), screen.depth))
     },
     '_scr id from pointer'(it) {
       const [id, pointer] = readArgs(it, 2)
@@ -1405,7 +1474,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const screenBase = n(a, 0); const binding = [...st().screenIds.values()].find((s) => s.base === (screenBase >>> 0))
       if (!binding) return VI(0)
       const screen = rt.screens.get(binding.slot); if (!screen) return VI(0)
-      const depth = screen.depth; const pens = Array.from({ length: Math.max(12, 1 << Math.min(8, depth)) }, (_, i) => i)
+      const depth = screen.depth
+      const pens = st().screenDrawInfoPens.get(binding.slot) ?? Array.from(screenPens(depth).pens)
       return VI(st().gadtools.getVisualInfo(binding.slot, { numPens: pens.length, pens, depth }).address)
     },
     '_ggad wdef left'() { return VI(st().gadgetDef.leftEdge) },
@@ -1715,6 +1785,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const rp = n(a, 0); const value = str(a[1] ?? VS('')); const held = st().fonts.get(structRead(rt, rp + 52, 4, false) >>> 0)
       return VI(held ? [...value].reduce((width, ch) => width + glyphMetrics(held.font, ch.charCodeAt(0)).advance, 0) : value.length * 8)
     },
+    '_scr dinf get'(_, a) { return VI(allocScreenDrawInfo(rt, st(), n(a, 0))) },
     '_scr id base'(_, a) { return VI(st().screenIds.get(n(a, 0))?.base ?? 0) },
     '_scr id rport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.rastPort ?? 0) },
     '_scr id vport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.viewPort ?? 0) },

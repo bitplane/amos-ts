@@ -346,7 +346,7 @@ auditMany('partial', 'managed screen lifecycle, ordering and relative positionin
 auditMany('partial', 'the corresponding screen presentation state exists, but Intuition title-bar rendering and DisplayBeep colour inversion are not modelled', [
   '_scr beep', '_scr show title', '_scr hide title',
 ])
-auditMany('partial', 'DrawInfo fields and screen pen policy are represented, but GetScreenDrawInfo does not expose a tracked native allocation tied to an arbitrary Screen pointer', [
+auditMany('partial', 'GetScreenDrawInfo owns a tracked native record, pen array and font tied to managed Screen pointers; system checkmark/key imagery and arbitrary external Screen structures remain incomplete', [
   '_scr dinf get', '_scr dinf free',
 ])
 auditMany('partial', 'Workbench and GUI-owned custom screens now share process-wide Intuition publication, locking and ordering; arbitrary external Screen pointers and native list locks remain outside it', [
@@ -361,7 +361,7 @@ auditMany('partial', 'numbered screens own shared Intuition screens and stable m
   '_scr id beep', '_scr id move', '_scr id use', '_scr id in use', '_scr id offset',
   '_scr id height', '_scr id width', '_scr id depth', '_scr id mode',
 ])
-auditMany('partial', 'the selected Screen-ID reads and writes the shared ECS/AGA palette; FixDrawInfoPens still accepts an arbitrary external pen pointer', [
+auditMany('partial', 'the selected Screen-ID shares ECS/AGA palette state and captures system, private or caller-memory DrawInfo pens for native screens and GadTools; invalid external-pointer behavior is managed safely', [
   '_scr id get pal', '_scr id set pal', '_scr id get aga pal', '_scr id set aga pal',
   '_scr id colour', '_scr id aga colour', '_scr id fix dri pens',
 ])
