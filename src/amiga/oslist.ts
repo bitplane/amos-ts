@@ -7,6 +7,12 @@ interface Block {
   data: Uint8Array
 }
 
+/** Raw native memory outside Exec's own allocator (banks, extension heaps, devices). */
+export interface ExecAddressSpace {
+  readU8(address: number): number | null
+  writeU8(address: number, value: number): boolean
+}
+
 /**
  * A small big-endian address space for Exec's 14-byte `List` and `Node`
  * records. Keeping addresses, including the List's embedded tail sentinel,
@@ -16,7 +22,7 @@ export class ExecListHeap {
   private next = 0x7c00_0000
   private readonly blocks = new Map<number, Block>()
 
-  constructor(readonly pool?: MemPool) {}
+  constructor(readonly pool?: MemPool, readonly addressSpace?: ExecAddressSpace) {}
 
   private alloc(bytes: number): number {
     if (this.pool) return this.pool.alloc(Math.max(1, bytes), { clear: true })
@@ -44,21 +50,36 @@ export class ExecListHeap {
   }
 
   readU8(address: number): number {
+    if (this.pool && this.pool.typeOfMem(address) === 0) {
+      const value = this.addressSpace?.readU8(address >>> 0)
+      if (value !== null && value !== undefined) return value
+    }
     const { block, offset } = this.block(address)
     return block.data[offset]!
   }
 
   writeU8(address: number, value: number): void {
+    if (this.pool && this.pool.typeOfMem(address) === 0 && this.addressSpace?.writeU8(address >>> 0, value)) return
     const { block, offset } = this.block(address)
     block.data[offset] = value
   }
 
   readU32(address: number): number {
+    if (this.pool && (this.pool.typeOfMem(address) === 0 || this.pool.typeOfMem(address + 3) === 0)) {
+      const bytes = [0, 1, 2, 3].map((i) => this.addressSpace?.readU8((address + i) >>> 0))
+      if (bytes.every((value) => value !== null && value !== undefined)) {
+        return (((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0)
+      }
+    }
     const { block, offset } = this.block(address, 4)
     return new DataView(block.data.buffer, block.data.byteOffset).getUint32(offset)
   }
 
   writeU32(address: number, value: number): void {
+    if (this.pool && (this.pool.typeOfMem(address) === 0 || this.pool.typeOfMem(address + 3) === 0)) {
+      const bytes = [value >>> 24, value >>> 16, value >>> 8, value]
+      if (bytes.every((byte, i) => this.addressSpace?.writeU8((address + i) >>> 0, byte) === true)) return
+    }
     const { block, offset } = this.block(address, 4)
     new DataView(block.data.buffer, block.data.byteOffset).setUint32(offset, value >>> 0)
   }

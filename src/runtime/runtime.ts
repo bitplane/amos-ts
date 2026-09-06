@@ -526,7 +526,18 @@ export class Runtime {
   static readonly OS_DEVKIT_MEMORY_BASE = 0x3a100000
   static readonly OS_DEVKIT_MEMORY_RESERVED = 0x00f00000
   /** Shared now by OS DevKit; other native-facing modules migrate here as audited. */
-  readonly exec = new ExecSystem(Runtime.OS_DEVKIT_MEMORY_BASE, Runtime.OS_DEVKIT_MEMORY_RESERVED)
+  readonly exec = new ExecSystem(Runtime.OS_DEVKIT_MEMORY_BASE, Runtime.OS_DEVKIT_MEMORY_RESERVED, {
+    readU8: (address) => {
+      const m = this.resolveAddr(address)
+      return m ? (m.data[m.off] ?? null) : null
+    },
+    writeU8: (address, value) => {
+      const m = this.resolveWrite(address)
+      if (!m) return false
+      m.data[m.off] = value
+      return true
+    },
+  })
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string

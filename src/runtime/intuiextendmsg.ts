@@ -54,6 +54,7 @@
  * MemFlags.guide, Menu.guide, Text.guide and IDCMP.guide.
  */
 import type { Runtime } from './runtime'
+import type { ExecMessageSystem } from '../amiga/osmessage'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str, type Value } from '../interp/values'
 import type { IntuiextendState } from './intuiextend'
@@ -128,26 +129,24 @@ export interface IePort {
   addr: number
   name: string
   pri: number
-  /** exec's own queue. Nothing in this port puts a message on one yet. */
-  queue: number[]
 }
 
 export interface IePortState {
   ports: Map<number, IePort>
-  next: number
+  exec: ExecMessageSystem
   /** workspace+$6e4, the message `Wb Get Msg` last took off a port */
   lastMsg: number
 }
 
-export function newIePortState(): IePortState {
-  return { ports: new Map(), next: 0, lastMsg: 0 }
+export function newIePortState(exec: ExecMessageSystem): IePortState {
+  return { ports: new Map(), exec, lastMsg: 0 }
 }
 
 /**
- * Where a `struct MsgPort *` lives. Handles, like the window ones, and for
- * the same reason: nothing here lays a MsgPort out in addressable memory.
+ * Historical synthetic-port range, retained for fixture helpers only. Live
+ * ports now come from the runtime-wide mapped Exec service.
  */
-export const IE_PORT_BASE = 0x4c00_0000
+export const IE_PORT_BASE = 0x3a10_0010
 export const IE_PORT_STEP = 0x40
 
 /**
@@ -331,6 +330,7 @@ export function makeIntuiextendMsgInstructions(rt: Runtime): Record<string, Inst
     'wb erase msgport'(it) {
       const addr = it.evalInt()
       if (addr === 0) return
+      st().portState.exec.deletePort(addr)
       st().portState.ports.delete(addr >>> 0)
     },
 
@@ -343,6 +343,7 @@ export function makeIntuiextendMsgInstructions(rt: Runtime): Record<string, Inst
      * before it hands the class back.
      */
     'wb reply msg'() {
+      st().portState.exec.replyMsg(st().portState.lastMsg)
       st().portState.lastMsg = 0
     },
   }
@@ -689,8 +690,8 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
      */
     'wb create msgport': () => {
       const ps = st().portState
-      const addr = (IE_PORT_BASE + ps.next++ * IE_PORT_STEP) >>> 0
-      ps.ports.set(addr, { addr, name: '', pri: 0, queue: [] })
+      const addr = ps.exec.createPort()
+      ps.ports.set(addr, { addr, name: '', pri: 0 })
       return VI(addr)
     },
 
@@ -723,8 +724,12 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
       const name = s0(a, 0)
       const pri = i0(a, 1)
       const ps = st().portState
-      const addr = (IE_PORT_BASE + ps.next++ * IE_PORT_STEP) >>> 0
-      ps.ports.set(addr, { addr, name, pri: (pri << 24) >> 24, queue: [] })
+      const signedPri = (pri << 24) >> 24
+      const addr = ps.exec.createPort(name, signedPri, IE_PORT_ALLOC)
+      if (addr !== 0) {
+        ps.exec.addPort(addr)
+        ps.ports.set(addr, { addr, name, pri: signedPri })
+      }
       return VI(0)
     },
 
@@ -746,9 +751,9 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
     'wb get msg': (_, a) => {
       const addr = i0(a, 0)
       if (addr === 0) return VI(-1)
-      const p = st().portState.ports.get(addr >>> 0)
-      if (!p || p.queue.length === 0) return VI(-1)
-      const m = p.queue.shift()!
+      if (!st().portState.ports.has(addr >>> 0)) return VI(-1)
+      const m = st().portState.exec.getMsg(addr)
+      if (m === 0) return VI(-1)
       st().portState.lastMsg = m
       return VI(m)
     },

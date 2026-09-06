@@ -57,7 +57,10 @@ function boot(src: string, seed?: Seed): { rt: Runtime; out: () => string } {
     m.setLong(msg + IE_AM.NUMARGS, seed.numArgs ?? names.length)
     m.setLong(msg + IE_AM.ARGLIST, list)
     if (seed.onPort) {
-      ext.portState.ports.set(IE_PORT_BASE, { addr: IE_PORT_BASE, name: 'test', pri: 0, queue: [msg] })
+      const port = ext.portState.exec.createPort('test')
+      expect(port).toBe(IE_PORT_BASE)
+      ext.portState.ports.set(port, { addr: port, name: 'test', pri: 0 })
+      ext.portState.exec.putMsg(port, msg)
     } else {
       ext.portState.lastMsg = msg
     }

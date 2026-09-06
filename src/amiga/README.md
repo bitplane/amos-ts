@@ -149,6 +149,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `oscstring.ts` | OS DevKit's private-header C-string allocation and conversion |
 | `osfontops.ts` | OS DevKit's font-selection and soft-style operations |
 | `osgraphicsstruct.ts` | native graphics structures exposed directly by OS DevKit |
+| `osexec.ts` | the runtime-wide mapped Exec composition point for tasks, signals, ports, messages, lists and interrupts |
 | `osinterrupt.ts` | OS DevKit's native Interrupt record and lifecycle |
 | `osintuitionstruct.ts` | native Intuition structures and field widths exposed by OS DevKit |
 | `oslist.ts` | OS DevKit's native Exec List/Node algorithms |

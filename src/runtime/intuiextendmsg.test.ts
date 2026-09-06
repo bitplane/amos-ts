@@ -295,6 +295,9 @@ describe('IntuiExtend 2.01b — message ports', () => {
     expect(b.out().trim()).toBe('0')
     // the port was made all the same
     expect(b.rt.intuiextend.portState.ports.size).toBe(1)
+    const port = b.rt.exec.messages.findPort('test')
+    expect(port).toBeGreaterThan(0)
+    expect(b.rt.exec.pool.sizeOf(port)).toBe(IE_PORT_ALLOC)
   })
 
   /**

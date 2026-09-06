@@ -38,13 +38,18 @@ export class ExecMessageSystem {
     return this.tasks.wait(mask)
   }
 
-  createPort(name = '', priority = 0): number {
+  createPort(name = '', priority = 0, allocationBytes = 34): number {
     const bit = this.allocSignal(-1)
     if (bit < 0) return 0
-    const port = this.memory.allocNode(20) // MP_SIZE = 34
+    // A port never owns ln_Name. This backing copy stands in for the caller's
+    // C string, so place it before deliberately undersized records: IntuiExtend
+    // 2.01b allocates 32 bytes for a 34-byte MsgPort and its two-byte overflow
+    // must not destroy the name that AddPort is about to inspect.
+    const nameAddress = name === '' ? 0 : this.memory.allocCString(name)
+    const port = this.memory.allocNode(Math.max(0, (allocationBytes | 0) - 14))
     this.memory.setNodeType(port, NT_MSGPORT)
     this.memory.setNodePriority(port, priority)
-    if (name !== '') this.memory.setNodeName(port, this.memory.allocCString(name))
+    if (nameAddress !== 0) this.memory.setNodeName(port, nameAddress)
     this.memory.writeU8(port + 14, 0) // PA_SIGNAL
     this.memory.writeU8(port + 15, bit)
     this.memory.writeU32(port + 16, this.currentTask)

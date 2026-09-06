@@ -8,7 +8,7 @@
  */
 import { MemPool } from './exec'
 import { ExecInterruptSystem } from './osinterrupt'
-import { ExecListHeap } from './oslist'
+import { ExecListHeap, type ExecAddressSpace } from './oslist'
 import { ExecMessageSystem } from './osmessage'
 import { ExecTaskSystem } from './ostask'
 
@@ -19,9 +19,9 @@ export class ExecSystem {
   readonly messages: ExecMessageSystem
   readonly interrupts: ExecInterruptSystem
 
-  constructor(base: number, reserved: number) {
+  constructor(base: number, reserved: number, addressSpace?: ExecAddressSpace) {
     this.pool = new MemPool(base, reserved)
-    this.memory = new ExecListHeap(this.pool)
+    this.memory = new ExecListHeap(this.pool, addressSpace)
     this.tasks = new ExecTaskSystem()
     this.messages = new ExecMessageSystem(this.memory, this.tasks)
     this.interrupts = new ExecInterruptSystem(this.memory)

@@ -95,6 +95,7 @@ import { newIeReqState, type IeReqState } from './intuiextendreq'
 import { newIeIffState, type IeIffState } from './intuiextendiff'
 import { newIeTdState, type IeTdState } from './intuiextendtd'
 import { newIePpState, type IePpState } from './intuiextendpp'
+import type { ExecSystem } from '../amiga/osexec'
 
 /** `cmp.l #$49453344` at $4f0a, $55f0 and $5920 — 'IE3D' */
 export const IE3D_MAGIC = 0x49453344
@@ -230,7 +231,7 @@ export interface IntuiextendState {
   is16: boolean | null
 }
 
-export function newIntuiextendState(): IntuiextendState {
+export function newIntuiextendState(exec: ExecSystem): IntuiextendState {
   return {
     cos: ieCosTable(),
     trig: new Int16Array(6),
@@ -267,7 +268,7 @@ export function newIntuiextendState(): IntuiextendState {
     pubStatus: 0,
     amosRp: 0,
     msg: newIeMsgBlock(),
-    portState: newIePortState(),
+    portState: newIePortState(exec.messages),
     is16: null,
   }
 }

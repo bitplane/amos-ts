@@ -8830,7 +8830,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      */
     ids: ['intuiextend-2.01b', 'intuiextend-1.6'],
     init: (rt) => {
-      rt.intuiextend = newIntuiextendState()
+      rt.intuiextend = newIntuiextendState(rt.exec)
     },
     instructions: (rt) => {
       const base = {

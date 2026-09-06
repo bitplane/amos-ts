@@ -661,8 +661,7 @@ export function makeIntuiextend16Functions(
      */
     'wb get msg': only16('wb get msg', (_, a) => {
       const addr = i0(a, 0)
-      const p = st().portState.ports.get(addr >>> 0)
-      const msg = p && p.queue.length > 0 ? p.queue.shift()! : 0
+      const msg = st().portState.ports.has(addr >>> 0) ? st().portState.exec.getMsg(addr) : 0
       if (msg !== 0) st().portState.lastMsg = msg
       return VI(ieMem(rt).long((msg + 0x14) >>> 0) | 0)
     }),
