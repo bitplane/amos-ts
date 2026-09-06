@@ -1650,6 +1650,23 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [id, x, y] = readArgs(it, 3); const handle = st().windowHandles.get(id!)
       if (handle) setScreenMousePosition(rt, handle.window.screenSlot, handle.window.leftEdge + x!, handle.window.topEdge + y!)
     },
+    '_wnd id mouse'(it) {
+      const [id, number, _resolution] = readArgs(it, 3); const handle = st().windowHandles.get(id!)
+      if (!handle) return
+      if (number! < 0) {
+        // WA_BusyPointer via SetWindowPointerA. The pointer object is owned by
+        // Intuition; this stable sentinel distinguishes it from caller data.
+        handle.window.setPointer(0x8000_0000, 16, 1, 0, 0)
+        return
+      }
+      if (number === 0) { handle.window.clearPointer(); return }
+      const image = rt.spriteBank?.image(number!)
+      if (!image) return
+      // pointerclass receives the temporary BitMap plus negative hotspots.
+      // Object banks have one synthetic base, so retain the image number in
+      // the otherwise opaque pointer identity exposed by struct Window.
+      handle.window.setPointer(rt.bankBase(1) + number!, image.height, Math.ceil(image.width / 16), -image.hotX, -image.hotY)
+    },
   }
 }
 

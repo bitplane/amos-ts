@@ -701,4 +701,28 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     ].join('\n')
     expect(run(source).output).toBe(' 17\t 11\n')
   })
+
+  it('sets, clears and selects the busy pointer through Window-ID ownership', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,30,16,0,0,0,"Mouse"',
+      '_wnd id mouse 3,1,0',
+    ].join('\n')
+    const { rt } = run(source, (runtime) => {
+      runtime.spriteBank = new ObjectBank()
+      runtime.spriteBank.images.push(new BankImage(16, 9, 2, 3, 4))
+    })
+    const window = rt.osdevkit.windowHandles.get(3)!.window
+    expect(window.pointer).toEqual({ data: rt.bankBase(1) + 1, height: 9, width: 1, xOffset: -3, yOffset: -4 })
+    const busy = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,30,16,0,0,0,"Mouse" : _wnd id mouse 3,-1,0',
+    ].join('\n')).rt.osdevkit.windowHandles.get(3)!.window
+    expect(busy.pointer?.data).toBe(0x8000_0000)
+    const cleared = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,30,16,0,0,0,"Mouse" : _wnd id mouse 3,-1,0 : _wnd id mouse 3,0,0',
+    ].join('\n')).rt.osdevkit.windowHandles.get(3)!.window
+    expect(cleared.pointer).toBeNull()
+  })
 })
