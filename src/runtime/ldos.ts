@@ -1147,7 +1147,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
         if (!serial) return VI(-1)
       }
       if (st.devicePort === 0) {
-        st.devicePort = rt.exec.messages.createPort()
+        st.devicePort = rt.exec.messages.createPort('', 0, 34, false)
         if (st.devicePort === 0) {
           serial?.close()
           return VI(-1)

@@ -63,4 +63,13 @@ describe('OS DevKit Exec messages, ports and signals', () => {
     expect(() => exec.portSignalBit(port)).toThrow(RangeError)
     expect(exec.allocSignal(bit)).toBe(bit)
   })
+
+  it('does not claim or free the signal bit of an embedded static port', () => {
+    const exec = new ExecMessageSystem()
+    expect(exec.allocSignal(0)).toBe(0)
+    const port = exec.createPort('', 0, 34, false)
+    expect(exec.portSignalBit(port)).toBe(0)
+    exec.deletePort(port)
+    expect(exec.allocSignal(0)).toBe(-1)
+  })
 })

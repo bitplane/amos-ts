@@ -9,6 +9,7 @@ export class ExecMessageSystem {
   readonly memory: ExecListHeap
   readonly tasks: ExecTaskSystem
   private readonly publicPorts = new Map<string, number>()
+  private readonly portOwnsSignal = new Set<number>()
 
   constructor(memory = new ExecListHeap(), tasks = new ExecTaskSystem()) {
     this.memory = memory
@@ -38,8 +39,8 @@ export class ExecMessageSystem {
     return this.tasks.wait(mask)
   }
 
-  createPort(name = '', priority = 0, allocationBytes = 34): number {
-    const bit = this.allocSignal(-1)
+  createPort(name = '', priority = 0, allocationBytes = 34, allocateSignal = true): number {
+    const bit = allocateSignal ? this.allocSignal(-1) : 0
     if (bit < 0) return 0
     // A port never owns ln_Name. This backing copy stands in for the caller's
     // C string, so place it before deliberately undersized records: IntuiExtend
@@ -54,13 +55,14 @@ export class ExecMessageSystem {
     this.memory.writeU8(port + 15, bit)
     this.memory.writeU32(port + 16, this.currentTask)
     this.memory.initList(port + 20)
+    if (allocateSignal) this.portOwnsSignal.add(port)
     return port
   }
 
   deletePort(port: number): void {
     if (port === 0) return
     this.remPort(port)
-    this.freeSignal(this.portSignalBit(port))
+    if (this.portOwnsSignal.delete(port)) this.freeSignal(this.portSignalBit(port))
     this.memory.free(port)
   }
 

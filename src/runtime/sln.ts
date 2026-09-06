@@ -255,7 +255,7 @@ export function newSlnState(rt?: Runtime): SlnState {
     samBankNr: 0,
     volume: [0, 0, 0, 0],
     voices: Array.from({ length: 4 }, () => ({ stopAt: 0, base: 0, len: 0 })),
-    disk: { open: false, unit: 0, motor: false, pending: null },
+    disk: { open: false, unit: 0, motor: false, pending: null, port: 0 },
     trackTempo: 6,
     music: { replay: new Protracker(() => rt?.host.audio), times: 0 },
   }
@@ -1113,6 +1113,8 @@ export interface SlnDisk {
    * `S Disk Wait` completes it and `S Disk Abort` throws it away.
    */
   pending: { write: boolean; length: number; buffer: number; offset: number } | null
+  /** TrackMsg, the static MsgPort embedded in the extension data zone */
+  port: number
 }
 
 /* ---- the tracker player ------------------------------------------------ *
@@ -1341,9 +1343,13 @@ export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
     's disk open'(it): void {
       const unit = it.evalInt()
       const st = rt.sln
-      st.disk = { open: false, unit: 0, motor: false, pending: null }
+      const oldPort = st.disk.port
+      st.disk = { open: false, unit: 0, motor: false, pending: null, port: oldPort }
       if (unit < 0 || unit > 3) slnError(7)
-      st.disk = { open: true, unit, motor: false, pending: null }
+      const port = oldPort || rt.exec.messages.createPort('', 0, 34, false)
+      if (port === 0) slnError(7)
+      rt.exec.messages.addPort(port)
+      st.disk = { open: true, unit, motor: false, pending: null, port }
       st.status |= 1 << 13
     },
     /**
@@ -1355,7 +1361,8 @@ export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
     's disk close'(): void {
       const st = rt.sln
       if (!st.disk.open) return
-      st.disk = { open: false, unit: st.disk.unit, motor: false, pending: null }
+      rt.exec.messages.remPort(st.disk.port)
+      st.disk = { open: false, unit: st.disk.unit, motor: false, pending: null, port: st.disk.port }
       st.status &= ~(1 << 13)
     },
     /** routine 66 — TD_MOTOR with io_Length 1 */
