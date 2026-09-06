@@ -10,7 +10,7 @@ import { Runtime } from './runtime'
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
 
-function run(source: string): { rt: Runtime; output: string } {
+function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
   const extensions = new Map([[20, os.table]])
   let output = ''
   const rt = new Runtime(tokenize(source, core, extensions), core, {
@@ -20,6 +20,7 @@ function run(source: string): { rt: Runtime; output: string } {
     maxSteps: 200_000,
     onText: (text) => { output += text },
   })
+  prepare?.(rt)
   mustFinish(rt.runHeadless(100))
   return { rt, output }
 }
@@ -517,6 +518,29 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
       '_scr id close 7 : Print _scr id base(7)',
     ].join('\n')
     expect(run(source).output).toBe(' 7\t-1\t-1\t-1\n 32\t 16\t 2\t 0\n 3\n 25\n 0\n 0\n')
+  })
+
+  it('clips drawing through the shared screen RastPort while SetRast still clears all of it', () => {
+    const source = [
+      'Screen Open 0,16,8,4,Lowres : _scr id from pointer 7,Screen Base : _scr id use 7',
+      '_scr id ink 3,0,0 : _scr id clip 4,2 To 7,4 : _scr id bar 0,0 To 15,7',
+      'A=_scr id point(3,2) : B=_scr id point(4,2) : C=_scr id point(7,4) : D=_scr id point(8,4)',
+      '_scr id cls 1 : E=_scr id point(0,0) : F=_scr id point(15,7) : Print A,B,C,D : Print E,F',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 1\t 3\t 3\t 1\n 1\t 1\n')
+    expect(rt.screen.rp.clip).toEqual({ x1: 4, y1: 2, x2: 7, y2: 4 })
+  })
+
+  it('binds a non-Workbench public screen to its actual native slot', () => {
+    const { output } = run('_scr id from pub 9,"Shared" : Print _scr id width(9),_scr id height(9)', (rt) => {
+      const address = rt.intuition.openScreen({
+        width: 123, height: 77, depth: 2, hires: false, laced: false,
+        palette: [], displayY: 0, title: 'Shared',
+      })
+      expect(rt.intuition.publishPubScreen('Shared', address)).toBe(true)
+    })
+    expect(output).toBe(' 123\t 77\n')
   })
 })
 

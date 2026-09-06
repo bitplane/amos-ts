@@ -355,20 +355,20 @@ auditMany('partial', 'Workbench and GUI-owned custom screens now share process-w
 auditMany('faithful', 'the private V1 and V2 DrawInfo default arrays preserve all twelve pen words in their exact order', [
   '_scr id def dri pens v1', '_scr id def dri pens v2',
 ])
-auditMany('partial', 'the screen operation exists, but OS DevKit private numbered-screen records and arbitrary native Screen/RastPort/ViewPort pointers are not integrated', [
+auditMany('partial', 'numbered screens own shared Intuition screens and stable mapped Screen/RastPort/ViewPort records; arbitrary external structures and TagItem screen opens remain incomplete', [
   '_scr id open', '_scr id close', '_scr id tag open', '_scr id base', '_scr id rport', '_scr id vport',
   '_scr id show', '_scr id hide', '_scr id from wb', '_scr id from pub', '_scr id from pointer',
   '_scr id beep', '_scr id move', '_scr id use', '_scr id in use', '_scr id offset',
   '_scr id height', '_scr id width', '_scr id depth', '_scr id mode',
 ])
-auditMany('partial', 'screen palette and DrawInfo policy exist, but the current OS DevKit screen-ID binding and arbitrary external pen pointer are not exposed', [
+auditMany('partial', 'the selected Screen-ID reads and writes the shared ECS/AGA palette; FixDrawInfoPens still accepts an arbitrary external pen pointer', [
   '_scr id get pal', '_scr id set pal', '_scr id get aga pal', '_scr id set aga pal',
   '_scr id colour', '_scr id aga colour', '_scr id fix dri pens',
 ])
-auditMany('partial', 'screen-relative mouse reads exist, but the OS DevKit screen-ID binding and input.device pointer warping are not exposed end to end', [
+auditMany('partial', 'Screen-ID mouse reads and positioning share display offsets and resolution conversion; positioning updates host input directly rather than delivering an input.device event', [
   '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
 ])
-auditMany('partial', 'the RastPort drawing primitive exists, but OS DevKit current-screen selection, native clipping/layer ownership or associated temporary allocations are not integrated', [
+auditMany('partial', 'the selected Screen-ID draws through its shared native RastPort and clipping rectangle; ellipse/flood fidelity, temporary AreaInfo/TmpRas exposure and Bob ownership remain incomplete', [
   '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',
   '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse', '_scr id gr locate',
   '_scr id set paint', '_scr id pattern on', '_scr id pattern off', '_scr id set low pattern',

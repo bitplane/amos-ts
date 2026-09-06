@@ -250,6 +250,8 @@ interface NativeRaster {
   height: number
   depth: number
   width: number
+  /** Inclusive clipping rectangle imposed by the selected native RastPort. */
+  clip?: { x1: number; y1: number; x2: number; y2: number } | null
 }
 
 function nativeRaster(rt: Runtime, rp: number): NativeRaster | null {
@@ -273,8 +275,14 @@ function nativePoint(rt: Runtime, raster: NativeRaster, x: number, y: number): n
   return color
 }
 
+function insideNativeRaster(raster: NativeRaster, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return false
+  const clip = raster.clip
+  return !clip || (x >= clip.x1 && y >= clip.y1 && x <= clip.x2 && y <= clip.y2)
+}
+
 function nativePlot(rt: Runtime, raster: NativeRaster, x: number, y: number): void {
-  if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return
+  if (!insideNativeRaster(raster, x, y)) return
   const fg = structRead(rt, raster.rp + 25, 1, false)
   const mode = structRead(rt, raster.rp + 28, 1, false)
   const mask = structRead(rt, raster.rp + 24, 1, false)
@@ -292,8 +300,9 @@ function nativePlot(rt: Runtime, raster: NativeRaster, x: number, y: number): vo
   }
 }
 
-function nativePutColor(rt: Runtime, raster: NativeRaster, x: number, y: number, color: number): void {
+function nativePutColor(rt: Runtime, raster: NativeRaster, x: number, y: number, color: number, ignoreClip = false): void {
   if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return
+  if (!ignoreClip && !insideNativeRaster(raster, x, y)) return
   const mask = structRead(rt, raster.rp + 24, 1, false)
   for (let plane = 0; plane < raster.depth; plane++) {
     if ((mask & (1 << plane)) === 0) continue
@@ -529,7 +538,10 @@ function closeScreenId(rt: Runtime, state: OsDevKitState, id: number): void {
 
 function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | null {
   const record = state.screenIds.get(state.currentScreenId)
-  return record ? nativeRaster(rt, record.rastPort) : null
+  if (!record) return null
+  const raster = nativeRaster(rt, record.rastPort)
+  if (raster) raster.clip = rt.screens.get(record.slot)?.rp.clip ?? null
+  return raster
 }
 
 function currentScreen(rt: Runtime, state: OsDevKitState) {
@@ -1108,7 +1120,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_scr id from pub'(it) {
       const id = it.evalInt(); it.expect(','); const address = rt.intuition.lockPubScreen(it.evalStr())
-      if (address !== 0 && !bindScreenId(rt, st(), id, WB_SLOT, false, true)) rt.intuition.unlockPubScreen(address)
+      if (address === 0) return
+      const slot = address === SCREEN_CTRL_BASE + WB_SLOT * SCREEN_CTRL_SLOT ? WB_SLOT : rt.intuition.slotOf(address)
+      if (slot === null || !bindScreenId(rt, st(), id, slot, false, true)) rt.intuition.unlockPubScreen(address)
     },
     '_scr pub unlock'(it) { rt.intuition.unlockPubScreen(it.evalInt() >>> 0) },
     '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = true },
@@ -1132,6 +1146,14 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         // EcVX/EcVY. Invert Screen.MouseX/Y here, including scroll offsets.
         rt.input.mouseX = screen.displayX + (x! - screen.offsetX) / (screen.hires ? 2 : 1)
         rt.input.mouseY = screen.displayY + (y! - screen.offsetY) / (screen.laced ? 2 : 1)
+      }
+    },
+    '_scr id clip'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
+      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); const screen = currentScreen(rt, st())
+      if (screen) screen.rp.clip = {
+        x1: Math.min(x1, x2), y1: Math.min(y1, y2),
+        x2: Math.max(x1, x2), y2: Math.max(y1, y2),
       }
     },
     '_scr id set pal'(it) {
@@ -1166,7 +1188,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const pen = it.evalInt(); const raster = currentScreenRaster(rt, st())
       if (!raster) return
       const old = structRead(rt, raster.rp + 25, 1, false); structWrite(rt, raster.rp + 25, 1, pen)
-      for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) nativePutColor(rt, raster, x, y, pen)
+      // SetRast fills the BitMap itself and therefore ignores the RastPort's
+      // clipping layer, unlike the drawing calls around it.
+      for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) nativePutColor(rt, raster, x, y, pen, true)
       structWrite(rt, raster.rp + 25, 1, old)
     },
     '_scr id plot'(it) {
