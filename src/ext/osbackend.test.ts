@@ -7,10 +7,14 @@ import { auditOsBackend, osBackendSummary } from './osbackend'
 
 const path = join('fixtures', 'extensions', 'os-devkit-1.61', 'AMOSPro_OS_DevKit.Lib')
 const present = existsSync(path)
+// Vitest invokes a describe callback while collecting even when skipIf is
+// true. Keep the fixture read outside that callback and guard it explicitly,
+// otherwise a clean CI checkout fails before the skipped suite is registered.
+const rows = present
+  ? auditOsBackend(EXT_TABLES['os-devkit-1.61']!, firstCodeHunk(new Uint8Array(readFileSync(path))))
+  : []
 
 describe.skipIf(!present)('OS DevKit backend inventory', () => {
-  const rows = auditOsBackend(EXT_TABLES['os-devkit-1.61']!, firstCodeHunk(new Uint8Array(readFileSync(path))))
-
   it('accounts for every named token-table entry', () => {
     const summary = osBackendSummary(rows)
     expect(summary.total).toBe(1047)
