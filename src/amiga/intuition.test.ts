@@ -23,6 +23,7 @@ import {
 } from './intuition'
 import type { NewWindow, ScreenHost, ScreenSpec } from './intuition'
 import { BitMap, RastPort } from './graphics'
+import { ExecSystem } from './osexec'
 import { rowBytesFor } from './planar'
 
 /** the smallest thing that can hold a screen: what the AMOS side does, minus AMOS */
@@ -208,6 +209,34 @@ describe('the Workbench palette, against Preferences on the disk', () => {
 })
 
 describe('OpenWindow / CloseWindow (-204 / -72)', () => {
+  it('uses a mapped Exec UserPort for native IntuiMessages', () => {
+    const { host } = fakeHost()
+    const exec = new ExecSystem(0x3000_0000, 0x1_0000)
+    const i = new Intuition(host, exec.messages)
+    const w = i.openWindow(ICONIFY)!
+    w.mouseX = -2
+    w.mouseY = 3
+
+    expect(w.userPort).not.toBe(0)
+    expect(w.post(IDCMP_CLOSEWINDOW, 0x1234, 0x5678, 9, 10, 0x1234_5678)).toBe(true)
+    expect(exec.messages.pending(w.userPort)).toBe(1)
+    expect(w.getMsg()).toEqual({
+      class: IDCMP_CLOSEWINDOW,
+      code: 0x1234,
+      qualifier: 0x5678,
+      iaddress: 0x1234_5678,
+      mouseX: -2,
+      mouseY: 3,
+      seconds: 9,
+      micros: 10,
+    })
+    expect(exec.messages.pending(w.userPort)).toBe(0)
+
+    const userPort = w.userPort
+    expect(i.closeWindow(w)).toBe(true)
+    expect(() => exec.messages.portSignalBit(userPort)).toThrow(RangeError)
+  })
+
   it('opens the Workbench itself when the NewWindow says WBENCHSCREEN', () => {
     const { host, open } = fakeHost()
     const i = new Intuition(host)

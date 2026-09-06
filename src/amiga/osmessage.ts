@@ -97,6 +97,13 @@ export class ExecMessageSystem {
 
   getMsg(port: number): number { return port === 0 ? 0 : this.memory.remHead(port + 20) }
 
+  pending(port: number): number {
+    if (port === 0) return 0
+    let count = 0
+    for (let message = this.memory.listHead(port + 20); message !== port + 24; message = this.memory.nodeSucc(message)) count++
+    return count
+  }
+
   putMsg(port: number, message: number): void {
     if (port === 0 || message === 0) return
     this.memory.addTail(port + 20, message)

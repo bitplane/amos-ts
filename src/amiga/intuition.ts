@@ -57,6 +57,7 @@
 import type { DiskFont } from './diskfont'
 import type { RastPort } from './graphics'
 import { LayerInfo, Region, type Layer, type Rect } from './layers'
+import type { ExecMessageSystem } from './osmessage'
 
 /** the Workbench screen's colours, from Preferences on the 1.3 disk */
 export const WB_PALETTE: readonly number[] = [
@@ -402,8 +403,10 @@ export class Window {
     readonly blockPen: number,
     readonly closeWidth: number,
     readonly depthWidth: number,
+    private readonly exec?: ExecMessageSystem,
   ) {
     this.flags = flags
+    this.userPort = exec?.createPort() ?? 0
   }
 
   flags: number
@@ -482,6 +485,8 @@ export class Window {
 
   /** the UserPort's queue. Held oldest first, which is what GetMsg pops. */
   private readonly queue: IntuiMessage[] = []
+  /** mapped `wd_UserPort` when this Window belongs to a Runtime */
+  readonly userPort: number
 
   /**
    * exec GetMsg on the window's UserPort. Null when the port is empty.
@@ -493,12 +498,39 @@ export class Window {
    * nothing in this port — see the DEFECT note on that keyword.
    */
   getMsg(): IntuiMessage | null {
+    if (this.exec && this.userPort !== 0) {
+      const message = this.exec.getMsg(this.userPort)
+      if (message === 0) return null
+      const memory = this.exec.memory
+      const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
+      const signedWord = (at: number): number => (word(at) << 16) >> 16
+      const result = {
+        class: memory.readU32(message + 20),
+        code: word(message + 24),
+        qualifier: word(message + 26),
+        iaddress: memory.readU32(message + 28),
+        mouseX: signedWord(message + 32),
+        mouseY: signedWord(message + 34),
+        seconds: memory.readU32(message + 36),
+        micros: memory.readU32(message + 40),
+      }
+      memory.free(message)
+      return result
+    }
     return this.queue.shift() ?? null
   }
 
   /** how many messages are waiting, for a test to look at */
   get pending(): number {
+    if (this.exec && this.userPort !== 0) return this.exec.pending(this.userPort)
     return this.queue.length
+  }
+
+  dispose(): void {
+    if (this.exec && this.userPort !== 0) {
+      while (this.getMsg() !== null) { /* release queued native messages */ }
+      this.exec.deletePort(this.userPort)
+    }
   }
 
   /**
@@ -509,7 +541,7 @@ export class Window {
    */
   post(cls: number, code: number, qualifier = 0, seconds = 0, micros = 0, iaddress = 0): boolean {
     if ((this.idcmpFlags & cls) === 0) return false
-    this.queue.push({
+    const message = {
       class: cls,
       code,
       qualifier,
@@ -518,7 +550,24 @@ export class Window {
       seconds,
       micros,
       iaddress,
-    })
+    }
+    if (this.exec && this.userPort !== 0) {
+      const native = this.exec.allocMessage(0, 52)
+      const memory = this.exec.memory
+      const setWord = (at: number, value: number): void => {
+        memory.writeU8(at, value >>> 8)
+        memory.writeU8(at + 1, value)
+      }
+      memory.writeU32(native + 20, message.class)
+      setWord(native + 24, message.code)
+      setWord(native + 26, message.qualifier)
+      memory.writeU32(native + 28, message.iaddress)
+      setWord(native + 32, message.mouseX)
+      setWord(native + 34, message.mouseY)
+      memory.writeU32(native + 36, message.seconds)
+      memory.writeU32(native + 40, message.micros)
+      this.exec.putMsg(this.userPort, native)
+    } else this.queue.push(message)
     return true
   }
 
@@ -709,7 +758,7 @@ export interface UserGadget {
 }
 
 export class Intuition {
-  constructor(private readonly host: ScreenHost) {}
+  constructor(private readonly host: ScreenHost, private readonly exec?: ExecMessageSystem) {}
 
   /**
    * Visitors — anything that has claimed the Workbench screen and would be
@@ -888,6 +937,7 @@ export class Intuition {
       nw.blockPen,
       size.hires ? CLOSE_WIDTH_MEDRES : CLOSE_WIDTH_LORES,
       size.hires ? DEPTH_WIDTH_MEDRES : DEPTH_WIDTH_LORES,
+      this.exec,
     )
     if (backdrop) this.open.unshift(w)
     else this.open.push(w)
@@ -1001,6 +1051,7 @@ export class Intuition {
     const i = this.open.indexOf(w)
     if (i < 0) return false
     this.open.splice(i, 1)
+    w.dispose()
     this.info(w.screenSlot)?.deleteLayer(w.layer)
     if (w.screenSlot === WB_SLOT && this.visitors > 0) this.visitors--
     if (this.drag?.w === w) this.drag = null

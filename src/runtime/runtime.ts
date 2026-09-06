@@ -2505,7 +2505,7 @@ export class Runtime {
         },
         screenRast: (slot) => this.screens.get(slot)?.rp ?? null,
         systemFont: () => intuitionFont(),
-      })
+      }, this.exec.messages)
     }
     return this.intuitionBase
   }
