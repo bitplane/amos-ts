@@ -29,6 +29,7 @@ import {
 } from '../amiga/ossystem'
 import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
+import { blitToRastPort } from './objects'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -1328,6 +1329,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, raster, left + tx, top + ty, pixels[y * width + x]!)
       }
     },
+    '_scr id put bob'(it) {
+      const [number, x, y] = readArgs(it, 3)
+      const screen = currentScreen(rt, st()); const image = number! > 0 ? rt.spriteBank?.image(number!) : undefined
+      if (screen && image) blitToRastPort(screen.rp, image, x!, y!, true)
+    },
     /** Window-ID lifecycle, workers 3042-3047, over Intuition and shared native graphics. */
     '_wnd id open'(it) {
       const [id, x, y, width, height, flags, idcmp, _gadgetBank] = readArgs(it, 8)
@@ -1428,6 +1434,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         const tx = x - dx; const ty = y - dy
         if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, t.raster, t.ox + left + tx, t.oy + top + ty, pixels[y * width + x]!)
       }
+    },
+    '_wnd id put bob'(it) {
+      const [number, x, y] = readArgs(it, 3); const t = currentWindowTarget(rt, st())
+      const screen = t ? rt.screens.get(t.window.screenSlot) : undefined
+      const image = number! > 0 ? rt.spriteBank?.image(number!) : undefined
+      if (t && screen && image) blitToRastPort(
+        screen.rp, image, t.ox + x!, t.oy + y!, true, -1, true,
+        { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 },
+      )
     },
     '_wnd id text'(it) {
       const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr(); const t = currentWindowTarget(rt, st())

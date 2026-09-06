@@ -1,6 +1,6 @@
 import type { Sprite, SpriteBank } from '../loader/amosfile'
 import { bankRowBytesFor } from '../amiga/planar'
-import { BitMap } from '../amiga/graphics'
+import { BitMap, type ClipRect, type RastPort } from '../amiga/graphics'
 import { COOKIE_CUT } from '../amiga/blitter'
 import { funcCall } from '../interp/values'
 
@@ -94,6 +94,40 @@ export class BankImage {
   }
   pixelAt(x: number, y: number): number {
     return this.bm.pixelAt(x, y)
+  }
+}
+
+/**
+ * The one static image compositor used by AMOS Paste Bob/Icon, GUI's
+ * DrawImage wrappers and OS DevKit's Screen/Window-ID Bob wrappers.
+ *
+ * The callers retain their own image-number, hot-spot and error semantics;
+ * this owns the common destination behavior: clipping, transparency and
+ * preservation of planes outside a write mask.
+ */
+export function blitToRastPort(
+  rp: RastPort,
+  img: { width: number; height: number; pixels: Uint8Array },
+  dx: number,
+  dy: number,
+  opaque: boolean,
+  planeMask = -1,
+  ignoreClip = false,
+  extraClip: ClipRect | null = null,
+): void {
+  for (let y = 0; y < img.height; y++) {
+    const ty = dy + y
+    if (ty < 0 || ty >= rp.height) continue
+    for (let x = 0; x < img.width; x++) {
+      const value = img.pixels[y * img.width + x]!
+      if (!opaque && value === 0) continue
+      const tx = dx + x
+      if (tx < 0 || tx >= rp.width) continue
+      if (!ignoreClip && !rp.inClip(tx, ty)) continue
+      if (extraClip && (tx < extraClip.x1 || ty < extraClip.y1 || tx > extraClip.x2 || ty > extraClip.y2)) continue
+      const old = planeMask === -1 ? 0 : rp.point(tx, ty)
+      rp.putPixel(tx, ty, planeMask === -1 ? value : (old & ~planeMask) | (value & planeMask))
+    }
   }
 }
 

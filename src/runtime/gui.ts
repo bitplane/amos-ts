@@ -113,7 +113,7 @@ import type { GuiScreen } from './guistate'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { encode, rowBytesFor } from '../amiga/planar'
 import { parseIlbm } from '../amiga/ilbm'
-import type { ObjectBank } from './objects'
+import { blitToRastPort, type ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
@@ -918,39 +918,6 @@ function xfaArgs(it: Interp): void {
   }
 }
 
-/**
- * `DrawImage` of an AMOS image into a RastPort, which is what routine 256 at
- * $746c builds a `struct Image` for.
- *
- * The header it reads is the AMOS one: a width word in SIXTEENS (`mulu.w
- * #$10`), a height word, a depth word, then four bytes it steps over --
- * the hot spot -- and the planes. The depth is clipped to the destination
- * BitMap's own at $74aa, and PlanePick at `$21e` is `$ff00 rol depth`, so a
- * pixel is masked to that many bits.
- *
- * DrawImage is opaque: colour 0 is drawn, not skipped, which is the one way
- * this differs from AMOS's own `Paste Bob`.
- */
-function drawAmosImage(
-  rp: RastPort,
-  img: { width: number; height: number; depth: number; pixels: Uint8Array },
-  x: number,
-  y: number,
-): void {
-  const depth = Math.min(img.depth, rp.bitMap.depth)
-  const mask = ((1 << depth) - 1) & 0xff
-  for (let iy = 0; iy < img.height; iy++) {
-    const ty = y + iy
-    if (ty < 0 || ty >= rp.bitMap.height) continue
-    for (let ix = 0; ix < img.width; ix++) {
-      const tx = x + ix
-      if (tx < 0 || tx >= rp.bitMap.width) continue
-      rp.putPixel(tx, ty, img.pixels[iy * img.width + ix]! & mask)
-    }
-  }
-}
-
-
 /** `BltBitMapRastPort` with minterm $c0: a straight copy, clipped both ends */
 function bltRect(
   src: RastPort,
@@ -997,7 +964,7 @@ function pasteBankImage(rt: Runtime, it: Interp, bank: ObjectBank | null): void 
   const y = it.evalInt()
   const img = n <= 0 ? undefined : bank?.image(n)
   if (img === undefined) guiError(GUI_ERR.IMAGE_NOT_RESERVED)
-  drawAmosImage(gfx(rt.gui).rp, img, x, y)
+  blitToRastPort(gfx(rt.gui).rp, img, x, y, true)
 }
 
 /**
@@ -3077,7 +3044,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const [x, y] = pair(it)
       const b = rt.blocks.get(n)
       if (b === undefined) guiError(GUI_ERR.IMAGE_NOT_RESERVED)
-      drawAmosImage(gfx(s()).rp, { width: b.w, height: b.h, depth: 8, pixels: b.pixels }, x, y)
+      blitToRastPort(gfx(s()).rp, { width: b.w, height: b.h, pixels: b.pixels }, x, y, true)
     },
     'gui paste icon': (it) => {
       pasteBankImage(rt, it, rt.iconBank)

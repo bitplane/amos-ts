@@ -368,7 +368,7 @@ auditMany('partial', 'the selected Screen-ID shares ECS/AGA palette state and ca
 auditMany('partial', 'Screen-ID mouse reads and positioning share display offsets and resolution conversion; positioning updates host input directly rather than delivering an input.device event', [
   '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
 ])
-auditMany('partial', 'the selected Screen-ID draws through its shared native RastPort and clipping rectangle; ellipse/flood fidelity, temporary AreaInfo/TmpRas exposure and Bob ownership remain incomplete', [
+auditMany('partial', 'the selected Screen-ID draws and pastes AMOS Bob images through its shared native RastPort and clipping rectangle; ellipse/flood fidelity and temporary AreaInfo/TmpRas exposure remain incomplete', [
   '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',
   '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse', '_scr id gr locate',
   '_scr id set paint', '_scr id pattern on', '_scr id pattern off', '_scr id set low pattern',
@@ -436,7 +436,7 @@ auditMany('partial', 'message fields are represented, but blocking/filtering the
 auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
   '_wnd id mouse', '_wnd id set mouse pos',
 ])
-auditMany('partial', 'bar, fill, flood and scrolling now draw through the selected native Window-ID RastPort; AreaInfo patterns, TmpRas scratch/exposure and Bob ownership remain incomplete', [
+auditMany('partial', 'bar, fill, flood, scrolling and AMOS Bob images now share the selected native Window-ID target; AreaInfo patterns and TmpRas scratch/exposure remain incomplete', [
   '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
 ])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [

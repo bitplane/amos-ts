@@ -6,6 +6,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/source'
 import { fixedClock } from '../amiga/host'
 import { Runtime } from './runtime'
+import { BankImage, ObjectBank } from './objects'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
@@ -518,6 +519,16 @@ describe('OS DevKit 1.61 native graphics records', () => {
 })
 
 describe('OS DevKit 1.61 screen-ID graphics binding', () => {
+  const withBob = (rt: Runtime): void => {
+    const image = new BankImage(16, 2, 2, 0, 0)
+    image.planes.fill(0)
+    for (let plane = 0; plane < 2; plane++) for (let y = 0; y < 2; y++) {
+      image.planes[plane * image.planeSize + y * image.rowBytes] = 0xff
+    }
+    image.planes = Uint8Array.from(image.planes)
+    const bank = new ObjectBank(); bank.images = [image]; rt.spriteBank = bank
+  }
+
   it('binds an existing screen to stable native records and the shared planar drawing path', () => {
     const source = [
       'Screen Open 0,32,16,4,Lowres',
@@ -555,6 +566,17 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
       expect(rt.intuition.publishPubScreen('Shared', address)).toBe(true)
     })
     expect(output).toBe(' 123\t 77\n')
+  })
+
+  it('pastes the same AMOS Bob image through Screen-ID and clipped Window-ID targets', () => {
+    const source = [
+      'Screen Open 0,32,16,4,Lowres : _scr id from pointer 7,Screen Base : _scr id use 7',
+      '_scr id put bob 1,2,2 : A=_scr id point(2,2) : B=_scr id point(9,3) : C=_scr id point(10,3)',
+      '_wnd id open 1,8,4,8,4,0,0,0,"Bob" : _wnd id use 1 : _wnd id put bob 1,0,0',
+      'D=_scr id point(8,4) : E=_scr id point(15,5) : F=_scr id point(16,5)',
+      'Print A,B,C : Print D,E,F',
+    ].join('\n')
+    expect(run(source, withBob).output).toBe(' 3\t 3\t 0\n 3\t 3\t 1\n')
   })
 })
 

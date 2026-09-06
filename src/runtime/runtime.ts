@@ -138,8 +138,7 @@ import type { OsDevKitState } from './osdevkit'
 import { ExecSystem } from '../amiga/osexec'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
-import { ObjectBank } from './objects'
-import { BankImage } from './objects'
+import { BankImage, ObjectBank, blitToRastPort } from './objects'
 import { Display } from './display'
 import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite } from './objects'
@@ -5632,20 +5631,8 @@ export class Runtime {
     ignoreClip = false,
   ): void {
     // Mask Iff: -1 (all planes) unless a program restricted the load;
-    // masking a pixel keeps the destination's bits outside the mask
-    for (let y = 0; y < img.height; y++) {
-      const ty = dy + y
-      if (ty < 0 || ty >= s.height) continue
-      for (let x = 0; x < img.width; x++) {
-        const v = img.pixels[y * img.width + x]!
-        if (!opaque && v === 0) continue
-        const tx = dx + x
-        if (tx < 0 || tx >= s.width) continue
-        if (!ignoreClip && !s.inClip(tx, ty)) continue
-        const old = s.point(tx, ty)
-        s.putPixel(tx, ty, planeMask === -1 ? v : (old & ~planeMask) | (v & planeMask))
-      }
-    }
+    // masking a pixel keeps the destination's bits outside the mask.
+    blitToRastPort(s.rp, img, dx, dy, opaque, planeMask, ignoreClip)
   }
 
   /** Mask Iff plane mask obeyed by Load Iff (IffMask; -1 = all planes) */
