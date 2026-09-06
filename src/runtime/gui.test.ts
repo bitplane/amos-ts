@@ -1263,7 +1263,9 @@ describe('the ASL screen and font group', () => {
   })
 
   it('and takes a font name and size in its second form', () => {
-    const rt = run('Gui Asl Open 3,"Picked","topaz.font",11')
+    const rt = runOut('Gui Asl Open 3,"Picked","topaz.font",11', undefined, (r) =>
+      Object.assign(r.gui.aslScreen, { displayID: 0x29000, width: 640, height: 256, depth: 2 }),
+    ).rt
     const sc = rt.gui.screens.get(3)!
     expect([sc.fontName, sc.fontSize]).toEqual(['topaz.font', 11])
   })
@@ -1761,9 +1763,8 @@ describeWith('the array group', demoBank(), (bank) => {
 /**
  * The public screen group.
  *
- * Intuition always keeps the Workbench public, and nothing else here opens a
- * screen, so the list has one name on it. That is also what a real Workbench
- * with nothing else running looks like.
+ * Intuition always keeps the Workbench public. Screens opened later by the
+ * GUI extension join the same registry when `Gui Pub Mode` publishes them.
  */
 describeWith('the public screen group', exampleBank(), (bank) => {
   it('locks the Workbench by name and refuses anything else', () => {
@@ -1819,13 +1820,7 @@ describeWith('the public screen group', exampleBank(), (bank) => {
     expect(() => run('A=Gui Pub Screen("Workbench") : Gui Pub To Front A', bank)).not.toThrow()
   })
 
-  /**
-   * These two take one of this extension's OWN screens, by number through
-   * routine 259. With `Gui Screen Open` not built there are none, so Gui Pub
-   * Mode raises 17 and Gui Pub Check answers 0 -- which is what the binary
-   * does for a number that names nothing, since $49ea takes the zero count
-   * rather than erroring.
-   */
+  /** These two take one of this extension's own screens through routine 259. */
   it('Gui Pub Mode raises with no screens open, and Gui Pub Check answers 0', () => {
     expect(() => run('Gui Pub Mode 1,0', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
     expect(runOut('Print Gui Pub Check(1)', bank).out.trim()).toBe('0')
@@ -1833,9 +1828,8 @@ describeWith('the public screen group', exampleBank(), (bank) => {
 })
 
 /**
- * The screen group. These raise no pixels, for the same reason the windows do
- * not; what is here is the geometry, the mode and the names every other
- * keyword in the group reads back.
+ * The screen group. Each one is now an Intuition-owned native display screen,
+ * so its pixels, palette, ordering and public identity are shared too.
  */
 describeWith('the screen group', exampleBank(), (bank) => {
   const open = 'Gui Screen Open 1,640,256,16,$8000,"Test"'
@@ -1945,6 +1939,19 @@ describeWith('the screen group', exampleBank(), (bank) => {
     expect(run(open, bank).gui.screens.get(1)!.isPublic).toBe(false)
     expect(run(`${open} : Gui Pub Mode 1,1`, bank).gui.screens.get(1)!.isPublic).toBe(true)
     expect(run(`${open} : Gui Pub Mode 1,1 : Gui Pub Mode 1,0`, bank).gui.screens.get(1)!.isPublic).toBe(false)
+  })
+
+  it('publishes the native screen by its original name and locks the same pointer', () => {
+    const rt = run(`${open} : Gui Pub Mode 1,1 : A=Gui Pub Screen("Test")`, bank)
+    expect(rt.gui.pubLock).toBe(rt.gui.screens.get(1)!.address)
+    expect(rt.intuition.pubScreenNames()).toEqual(['Workbench', 'Test'])
+  })
+
+  it('releases its own public lock before closing the screen', () => {
+    const rt = run(`${open} : Gui Pub Mode 1,1 : A=Gui Pub Screen("Test") : Gui Screen Close 1`, bank)
+    expect(rt.gui.screens.size).toBe(0)
+    expect(rt.gui.pubLock).toBe(0)
+    expect(rt.intuition.pubScreenNames()).toEqual(['Workbench'])
   })
 
   it('closing a screen forgets it and leaves no current one', () => {

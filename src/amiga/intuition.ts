@@ -775,19 +775,44 @@ export class Intuition {
   private defaultPublicScreen = 'Workbench'
   private publicScreenModes = 0
   private readonly publicScreenStatus = new Map<number, number>()
+  /** Lower-case lookup key to the public name as published and its Screen pointer. */
+  private readonly publishedScreens = new Map<string, { name: string; address: number }>()
+  private readonly publicLocks = new Map<number, number>()
 
   setDefaultPubScreen(name: string): void { this.defaultPublicScreen = name }
 
   lockPubScreen(name: string): number {
     const wanted = (name === '' ? this.defaultPublicScreen : name).toLowerCase()
-    if (wanted !== 'workbench') return 0
-    const address = this.openWorkBench()
-    if (address !== 0) this.addVisitor()
+    const address = wanted === 'workbench' ? this.openWorkBench() : this.publishedScreens.get(wanted)?.address ?? 0
+    if (address !== 0) this.publicLocks.set(address, (this.publicLocks.get(address) ?? 0) + 1)
     return address
   }
 
   unlockPubScreen(address: number): void {
-    if ((address >>> 0) === (this.host.screenAddr(WB_SLOT) >>> 0)) this.removeVisitor()
+    const key = address >>> 0; const held = this.publicLocks.get(key) ?? 0
+    if (held <= 1) this.publicLocks.delete(key); else this.publicLocks.set(key, held - 1)
+  }
+
+  publishPubScreen(name: string, address: number): boolean {
+    const key = name.toLowerCase()
+    if (key === '' || key === 'workbench' || address === 0 || this.slotOf(address) === null || this.publishedScreens.has(key)) return false
+    this.publishedScreens.set(key, { name, address: address >>> 0 }); return true
+  }
+
+  unpublishPubScreen(address: number): void {
+    for (const [key, published] of this.publishedScreens) if (published.address === (address >>> 0)) this.publishedScreens.delete(key)
+  }
+
+  pubScreenNames(): string[] { return ['Workbench', ...[...this.publishedScreens.values()].map((screen) => screen.name)] }
+
+  pubScreenToFront(address: number): void {
+    if ((address >>> 0) === (this.host.screenAddr(WB_SLOT) >>> 0)) this.wBenchToFront()
+    else this.screenToFront(address)
+  }
+
+  pubScreenToBack(address: number): void {
+    if ((address >>> 0) === (this.host.screenAddr(WB_SLOT) >>> 0)) this.wBenchToBack()
+    else this.screenToBack(address)
   }
 
   setPubScreenModes(modes: number): number {
@@ -832,6 +857,7 @@ export class Intuition {
   closeWorkBench(): boolean {
     if (!this.host.isOpen(WB_SLOT)) return false
     if (this.visitors !== 0) return false
+    if ((this.publicLocks.get(this.host.screenAddr(WB_SLOT) >>> 0) ?? 0) !== 0) return false
     if (!this.host.closeScreen(WB_SLOT)) return false
     // the layer chain belonged to that bitmap and the bitmap is gone
     this.infos.delete(WB_SLOT)
@@ -1046,6 +1072,8 @@ export class Intuition {
     const slot = this.slotOf(addr)
     if (slot === null) return false
     if (this.open.some((w) => w.screenSlot === slot)) return false
+    if ((this.publicLocks.get(addr >>> 0) ?? 0) !== 0) return false
+    this.unpublishPubScreen(addr)
     this.infos.delete(slot)
     this.dirty = true
     return this.host.closeScreen(slot)

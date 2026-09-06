@@ -22,6 +22,7 @@ import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
 import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
+import type { Screen } from './screen'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
 
 /**
@@ -212,17 +213,6 @@ export const GUI_MAX_ZONES = 5000
 export const GUI_ZONE_SIZE = 8
 
 /**
- * The public screens this port has.
- *
- * Intuition always keeps the Workbench on the list, and nothing else here
- * opens a screen yet -- `Gui Screen Open` is not built, and it is what would
- * add to this. So the list has one name, and `Gui Pub List` walking it to the
- * end after one entry is the machine's own behaviour on a Workbench with
- * nothing else running.
- */
-export const PUB_SCREENS: readonly string[] = ['Workbench']
-
-/**
  * What `Gui Os` answers, `$18a` of the extension's state.
  *
  * Nothing else in this port declares a Kickstart version. 40 is 3.1, which is
@@ -294,6 +284,10 @@ export interface GuiScreen {
    * a program can see of that here is which picture the screen is showing.
    */
   cloned: boolean
+  /** The shared Intuition screen; null only for the unreachable 1.5 beta record. */
+  native: Screen | null
+  /** `struct Screen *`, shared with every extension and the public registry. */
+  address: number
   /** the GUI screen's own bitmap while `Gui Clone` points at AMOS's */
   cloneSaved?: BitMap
 }
@@ -355,6 +349,8 @@ export function workbenchScreen(): GuiScreen {
     palette: defaultPalette(WB_DEPTH),
     rp: newScreenPort(WB_WIDTH, WB_HEIGHT, WB_DEPTH),
     cloned: false,
+    native: null,
+    address: 0,
   }
 }
 
@@ -940,9 +936,8 @@ export class GuiState {
   /**
    * `$1ce`: the public screen `Gui Pub Screen` locked, or 0.
    *
-   * A LOCK on the machine, which is a Screen pointer; a token here, because
-   * a program can only test it for zero and hand it back to `Gui Pub To
-   * Front`. `$1d2` follows it, which is why locking a public screen also
+   * This is the shared Intuition Screen pointer, just as it is on the
+   * machine. `$1d2` follows it, which is why locking a public screen also
    * changes what `Gui Mouse X` reads.
    */
   pubLock = 0

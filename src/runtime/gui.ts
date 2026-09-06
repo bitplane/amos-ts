@@ -108,7 +108,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { GUI_BANK_VERSIONS, readGuiBank } from './guibank'
-import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, PUB_SCREENS, TCP_CHANNELS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, guiScaleRor, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
+import { GUI_CENTRE_X, GUI_CENTRE_Y, GUI_EVENT, GUI_MAX_ZONES, GUI_OS_VERSION, GUI_TITLE_MAX, GuiState, PAL_MONITOR_ID, TCP_CHANNELS, TOPAZ_SIZE, defaultPalette, depthForColours, expand12, guiScale, guiScaleRor, newScreenPort, newWindowPort, packMenuNumber } from './guistate'
 import type { GuiScreen } from './guistate'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { encode, rowBytesFor } from '../amiga/planar'
@@ -118,7 +118,7 @@ import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import { drawBevelBox, KIND, MENU_FLAG, PEN, TAG, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
@@ -381,6 +381,8 @@ function screenOpenBeta(g: GuiState, it: Interp): void {
     palette: defaultPalette(depth),
     rp: newScreenPort(width, height, depth),
     cloned: false,
+    native: null,
+    address: 0,
   })
 }
 
@@ -691,6 +693,20 @@ function joinAsl(dir: string, file: string): string {
 function setColour(screen: GuiScreen, index: number, rgb: number): void {
   if (index < 0 || index >= screen.palette.length) return
   screen.palette[index] = rgb
+  if (screen.native) {
+    const r = (rgb >>> 16) & 0xff; const g = (rgb >>> 8) & 0xff; const b = rgb & 0xff
+    screen.native.palette[index] = ((r >>> 4) << 8) | ((g >>> 4) << 4) | (b >>> 4)
+    screen.native.paletteLo[index] = ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+  }
+}
+
+/** Read the shared ColorMap, including changes made through another extension. */
+function screenColour(screen: GuiScreen, index: number): number {
+  if (!screen.native || index < 0 || index >= screen.palette.length) return screen.palette[index] ?? 0
+  const hi = screen.native.palette[index] ?? 0
+  const lo = screen.native.paletteLo[index] ?? 0
+  const component = (shift: number): number => (((hi >>> shift) & 15) << 4) | ((lo >>> shift) & 15)
+  return (component(8) << 16) | (component(4) << 8) | component(0)
 }
 
 /**
@@ -796,17 +812,14 @@ function currentScreen(g: GuiState): GuiScreen {
  * `$10`, which are `Screen.MouseX` and `Screen.MouseY` -- the two are stored
  * Y first, which is why the offsets look swapped.
  *
- * DEVIATION: there is no Screen under these windows here. The pointer this
- * port has is AMOS's, in hardware coordinates, so it is converted the way
- * `Screen.hardToScreenX` converts for a hires 640-wide Workbench: twice the
- * distance from the standard display origin at 128, and down from the
- * Workbench's own top edge at line 44. Clamped to the screen box, because
- * intuition does not let the pointer leave it and a program reading a
- * negative MouseX would be reading something the machine cannot produce.
+ * The shared Intuition Screen converts AMOS's hardware pointer into its own
+ * display coordinates. The fallback is only for the unreachable 1.5 beta
+ * record, which predates this extension's native-screen path.
  */
 function screenMouse(it: Interp, g: GuiState): [number, number] {
-  const x = (it.inp.mouseX - 128) * 2
-  const y = it.inp.mouseY - WB_DISPLAY_Y
+  const native = g.current?.native
+  const x = native ? native.hardToScreenX(it.inp.mouseX) : (it.inp.mouseX - 128) * 2
+  const y = native ? native.hardToScreenY(it.inp.mouseY) : it.inp.mouseY - WB_DISPLAY_Y
   const w = g.current?.width ?? WB_WIDTH
   const h = g.current?.height ?? WB_HEIGHT
   return [Math.max(0, Math.min(w - 1, x)), Math.max(0, Math.min(h - 1, y))]
@@ -1653,7 +1666,15 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const sm = g.aslScreen
       if (n === 0 || g.screens.has(n)) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
       const depth = depthForColours(coloursForDepth(sm.depth))
-      g.screens.set(n, {
+      const address = rt.intuition.openScreen({
+        width: sm.width, height: sm.height, depth,
+        hires: (sm.displayID & 0x8000) !== 0, laced: (sm.displayID & 4) !== 0,
+        palette: [], displayY: 0, title: name,
+      })
+      const slot = address === 0 ? null : rt.intuition.slotOf(address)
+      const native = slot === null ? null : rt.screens.get(slot) ?? null
+      if (!native) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      const opened: GuiScreen = {
         number: n,
         width: sm.width,
         height: sm.height,
@@ -1667,12 +1688,18 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         showTitle: true,
         isPublic: false,
         palette: defaultPalette(depth),
-        rp: newScreenPort(sm.width, sm.height, depth),
+        rp: native.rp,
         cloned: false,
-      })
+        native,
+        address,
+      }
+      for (const [i, colour] of opened.palette.entries()) setColour(opened, i, colour)
+      g.screens.set(n, opened)
       g.current = g.screens.get(n)!
+      if (g.pubLock !== 0) rt.intuition.unlockPubScreen(g.pubLock)
       g.pubLock = 0
       g.pubName = ''
+      g.beforeLock = null
     },
 
     /**
@@ -1929,6 +1956,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui pub free': () => {
       const g = s()
       if (g.pubLock === 0) return
+      rt.intuition.unlockPubScreen(g.pubLock)
       g.pubLock = 0
       g.pubName = ''
       g.current = g.beforeLock
@@ -1974,13 +2002,13 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * then `Rble` at $2bc4, before anything else. So the failure `Gui Pub
      * Screen` reports with a 0 raises here rather than being ignored.
      *
-     * DEVIATION: the guard is all this does. `PUB_SCREENS` in ./guistate.ts
-     * is one name and no screen, so there is nothing to raise and the
-     * ScreenToFront half of the routine has no counterpart here. A program
-     * sees the error and never sees the effect.
+     * The lock is now the shared Intuition Screen pointer, so ordering is the
+     * same operation OS DevKit and IntuiExtend see.
      */
     'gui pub to front': (it) => {
-      if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      const address = it.evalInt()
+      if (address <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      rt.intuition.pubScreenToFront(address)
     },
 
     /**
@@ -1991,10 +2019,12 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * straight into a0. `Rble` is SIGNED, so a lock of zero and any negative
      * are both error 14, and nothing else about the value is checked.
      *
-     * DEVIATION: as with `Gui Pub To Front`, only the guard survives.
+     * Uses the same shared Intuition ordering as the front operation.
      */
     'gui pub to back': (it) => {
-      if (it.evalInt() <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      const address = it.evalInt()
+      if (address <= 0) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      rt.intuition.pubScreenToBack(address)
     },
 
     /**
@@ -2012,7 +2042,9 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const g = s()
       const screen = screenOf(g, it.evalInt())
       it.expect(',')
-      screen.isPublic = it.evalInt() !== 0
+      const publish = it.evalInt() !== 0
+      if (publish && !screen.isPublic) screen.isPublic = rt.intuition.publishPubScreen(screen.name, screen.address)
+      else if (!publish && screen.isPublic) { rt.intuition.unpublishPubScreen(screen.address); screen.isPublic = false }
     },
 
     /**
@@ -2069,11 +2101,20 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       // $217c for every reason it can fail. Three of the extension's own
       // messages are unreachable through this keyword.
       if (g.screens.has(n)) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
+      const depth = depthForColours(colours)
+      const address = rt.intuition.openScreen({
+        width, height, depth,
+        hires: (modeID & 0x8000) !== 0, laced: (modeID & 4) !== 0,
+        palette: [], displayY: 0, title: name,
+      })
+      const slot = address === 0 ? null : rt.intuition.slotOf(address)
+      const native = slot === null ? null : rt.screens.get(slot) ?? null
+      if (!native) guiError(GUI_ERR.ILLEGAL_SCREEN_PARAMETER)
       const screen: GuiScreen = {
         number: n,
         width,
         height,
-        depth: depthForColours(colours),
+        depth,
         modeID,
         name,
         fontName,
@@ -2082,14 +2123,19 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         top: 0,
         showTitle: true,
         isPublic: false,
-        palette: defaultPalette(depthForColours(colours)),
-        rp: newScreenPort(width, height, depthForColours(colours)),
+        palette: defaultPalette(depth),
+        rp: native.rp,
         cloned: false,
+        native,
+        address,
       }
+      for (const [i, colour] of screen.palette.entries()) setColour(screen, i, colour)
       g.screens.set(n, screen)
       g.current = screen
+      if (g.pubLock !== 0) rt.intuition.unlockPubScreen(g.pubLock)
       g.pubLock = 0
       g.pubName = ''
+      g.beforeLock = null
     },
 
     /**
@@ -2102,6 +2148,14 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui screen close': (it) => {
       const g = s()
       const screen = screenOf(g, it.evalInt())
+      if (g.pubLock === screen.address) {
+        rt.intuition.unlockPubScreen(g.pubLock)
+        g.pubLock = 0
+        g.pubName = ''
+        g.current = g.beforeLock
+        g.beforeLock = null
+      }
+      if (screen.address !== 0 && !rt.intuition.closeScreen(screen.address)) return
       g.screens.delete(screen.number)
       if (g.current === screen) g.current = null
     },
@@ -2128,6 +2182,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       screen.left = it.evalInt()
       it.expect(',')
       screen.top = it.evalInt()
+      if (screen.native) { screen.native.displayX = screen.left; screen.native.displayY = screen.top }
     },
 
     /**
@@ -3504,7 +3559,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui colour': (_, a): Value => {
       const g = s()
       if (g.current === null) return VI(0)
-      return VI(g.current.palette[int(a[0]!)] ?? 0)
+      return VI(screenColour(g.current, int(a[0]!)))
     },
 
     /**
@@ -4281,15 +4336,27 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui pub screen': (_, a): Value => {
       const g = s()
       const name = str(a[0]!)
+      if (g.pubLock !== 0) {
+        rt.intuition.unlockPubScreen(g.pubLock)
+        g.current = g.beforeLock
+        g.beforeLock = null
+      }
       g.pubLock = 0
       g.pubName = ''
-      if (!PUB_SCREENS.includes(name)) return VI(0)
+      const address = rt.intuition.lockPubScreen(name)
+      if (address === 0) return VI(0)
       g.pubName = name
-      g.pubLock = PUB_SCREENS.indexOf(name) + 1
+      g.pubLock = address
       // $2b0a stores the lock in `$1d2` as well, so the locked screen becomes
       // the one `Gui Screen Width` and `Gui Mouse X` answer about
       g.beforeLock = g.current
-      g.current = g.workbench
+      const owned = [...g.screens.values()].find((screen) => screen.address === address)
+      if (owned) g.current = owned
+      else {
+        const native = rt.screens.get(WB_SLOT)!
+        g.workbench.native = native; g.workbench.address = address; g.workbench.rp = native.rp
+        g.current = g.workbench
+      }
       return VI(g.pubLock)
     },
 
@@ -4312,7 +4379,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     'gui pub name$': (): Value => {
       const g = s()
       if (g.pubListAt < 0) return VS('')
-      const name = PUB_SCREENS[g.pubListAt]
+      const name = rt.intuition.pubScreenNames()[g.pubListAt]
       if (name === undefined) {
         g.pubListAt = -1
         return VS('')

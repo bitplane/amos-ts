@@ -181,6 +181,24 @@ describe('WBenchToFront / WBenchToBack (-342 / -336)', () => {
   })
 })
 
+describe('the shared public-screen registry', () => {
+  it('publishes custom screens case-insensitively while preserving their displayed name', () => {
+    const { host } = fakeHost()
+    const intuition = new Intuition(host)
+    const address = intuition.openScreen({
+      width: 320, height: 200, depth: 2, hires: false, laced: false,
+      palette: [], displayY: 0, title: 'Tools',
+    })
+    expect(intuition.publishPubScreen('MyTools', address)).toBe(true)
+    expect(intuition.pubScreenNames()).toEqual(['Workbench', 'MyTools'])
+    expect(intuition.lockPubScreen('mytools')).toBe(address)
+    expect(intuition.closeScreen(address)).toBe(false)
+    intuition.unlockPubScreen(address)
+    expect(intuition.closeScreen(address)).toBe(true)
+    expect(intuition.pubScreenNames()).toEqual(['Workbench'])
+  })
+})
+
 describe('the Workbench palette, against Preferences on the disk', () => {
   /**
    * `devs/system-configuration` from Workbench 1.3 rev 34.20 (GB) is a
