@@ -324,7 +324,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       sevenWire = it.evalInt()
     }
     const ch = serialChannel(rt, logic)
-    devOpen(ch.dev)
+    devOpen(ch.dev, rt.exec.messages)
     const p = ch.params
     p.shared = shared !== 0
     p.sevenWire = sevenWire !== 0
@@ -364,7 +364,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const shut = (ch: SerialChannel): void => {
         ch.port?.close()
         ch.port = null
-        devClose(ch.dev)
+        devClose(ch.dev, rt.exec.messages)
       }
       if (it.atStmtEnd()) {
         for (const ch of st().serial) shut(ch)
@@ -534,7 +534,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * want printer.device.
      */
     'printer open'() {
-      devOpen(st().printer)
+      devOpen(st().printer, rt.exec.messages)
     },
 
     /**
@@ -544,7 +544,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * being no task and no requester to suppress.
      */
     'printer close'() {
-      devClose(st().printer)
+      devClose(st().printer, rt.exec.messages)
     },
 
     /**
@@ -710,12 +710,12 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * message base is 171 against the printer's 161, seven messages each.
      */
     'parallel open'() {
-      devOpen(st().parallel)
+      devOpen(st().parallel, rt.exec.messages)
     },
 
     /** Parallel Close (InParallelClose, +IO_Ports.s:1010), CloseA2 and no more. */
     'parallel close'() {
-      devClose(st().parallel)
+      devClose(st().parallel, rt.exec.messages)
     },
 
     /**

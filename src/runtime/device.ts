@@ -28,6 +28,7 @@
 import { AmosError, funcCall } from '../interp/values'
 import type { SerialLineParams, SerialPortHandle } from '../amiga/host'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import type { ExecMessageSystem } from '../amiga/osmessage'
 
 /**
  * AMOS run-time error N, with the interpreter's own wording.
@@ -62,19 +63,23 @@ export interface DevSlot {
   /** `10(a2)`/`11(a2)` — this device's error message base and count */
   errBase: number
   errCount: number
+  /** CreateMsgPort result used by the IORequest, when attached to a Runtime */
+  port: number
 }
 
 /** a slot for a device whose error block starts at `errBase` */
 export function newDevSlot(errBase: number, errCount: number): DevSlot {
-  return { open: false, state: 0, errBase, errCount }
+  return { open: false, state: 0, errBase, errCount, port: 0 }
 }
 
 /**
  * Dev.Open (+Lib.s:3068). Opening a device that is already open is error
  * 140 — it does NOT silently succeed, and it does not reset the parameters.
  */
-export function devOpen(slot: DevSlot): void {
+export function devOpen(slot: DevSlot, exec?: ExecMessageSystem): void {
   if (slot.open) throw ioError(140)
+  if (exec && slot.port === 0) slot.port = exec.createPort()
+  if (exec && slot.port === 0) throw ioError(slot.errBase)
   slot.open = true
   slot.state = 0
 }
@@ -90,7 +95,9 @@ export function devGetIO(slot: DevSlot): void {
 }
 
 /** Dev.CloseA2. Closing a device that is not open is not an error. */
-export function devClose(slot: DevSlot): void {
+export function devClose(slot: DevSlot, exec?: ExecMessageSystem): void {
+  if (exec && slot.port !== 0) exec.deletePort(slot.port)
+  slot.port = 0
   slot.open = false
   slot.state = 0
 }

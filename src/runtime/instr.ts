@@ -1439,7 +1439,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (!serial) throw ioError(145)
       }
       const slot = newDevSlot(145, 1)
-      devOpen(slot)
+      devOpen(slot, rt.exec.messages)
       const addr = Runtime.DEV_IO_BASE + chan * DEV_IO_STRIDE
       rt.dev.io.fill(0, chan * DEV_IO_STRIDE, (chan + 1) * DEV_IO_STRIDE)
       rt.dev.channels.set(chan, { slot, name, unit, flags, addr, len, ...(serial ? { serial } : {}) })
@@ -1455,7 +1455,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'dev close'(it) {
       if (it.atStmtEnd()) {
         for (const c of rt.dev.channels.values()) {
-          devClose(c.slot)
+          devClose(c.slot, rt.exec.messages)
           c.serial?.close()
         }
         rt.dev.channels.clear()
@@ -1464,7 +1464,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const chan = it.evalInt()
       const c = devSlotOf(rt.dev, chan)
       if (c) {
-        devClose(c.slot)
+        devClose(c.slot, rt.exec.messages)
         c.serial?.close()
       }
       rt.dev.channels.delete(chan)

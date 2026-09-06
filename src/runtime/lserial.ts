@@ -115,6 +115,8 @@ export interface LSerialDevice {
   tx: number[]
   /** the host's port when one was granted; null is the modelled one */
   port: SerialPortHandle | null
+  /** the two CreatePort results used by the read and write IORequests */
+  replyPorts: [number, number]
 }
 
 export interface LSerialState {
@@ -248,11 +250,17 @@ export function makeLSerialInstructions(rt: Runtime): Record<string, Instr> {
         rx: [],
         tx: [],
         port: null,
+        replyPorts: [0, 0],
       }
       // A device this port does not model is "Unable to open device!", which
       // is exactly what a machine without it answers. serial.device is the
       // one there is a back-end for.
       if (name.toLowerCase() !== 'serial.device') lserError(2)
+      dev.replyPorts = [rt.exec.messages.createPort(), rt.exec.messages.createPort()]
+      if (dev.replyPorts.some((port) => port === 0)) {
+        for (const port of dev.replyPorts) if (port !== 0) rt.exec.messages.deletePort(port)
+        lserError(2)
+      }
       dev.port = rt.host.serial?.open(unit, lineParams(dev)) ?? null
       st.dev = dev
       st.mulBusy = false
@@ -271,6 +279,7 @@ export function makeLSerialInstructions(rt: Runtime): Record<string, Instr> {
     'lser close'() {
       const st = rt.lserial
       st.dev?.port?.close()
+      if (st.dev) for (const port of st.dev.replyPorts) rt.exec.messages.deletePort(port)
       st.dev = null
       st.mulBusy = false
     },
