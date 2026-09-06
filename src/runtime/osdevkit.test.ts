@@ -430,6 +430,16 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('-1\t-1\t 8\n-1\t-1\t-1\t-1\n 3\t 0\n-1\t-1\t 2\n 2\n 2\n')
   })
 
+  it('owns native LayerInfo and Layer wrappers over caller BitMaps', () => {
+    const source = [
+      'B=_struct alloc(40) : _bm set datas B,4,16,2,0 : L=_li new',
+      'A=_layer create behind(L,B,0,0,31,15,65,0) : Z=_layer create upfront(L,B,4,2,20,10,2,$12345678)',
+      'Print L<>0,A<>0,Z<>0,_struct long(A,8)=B,_struct word(Z,16),_struct word(Z,18),_struct word(Z,20),_struct word(Z,22)',
+      '_layer delete Z : _layer delete A : _li free L : _struct free B',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t-1\t-1\t 4\t 2\t 20\t 10\n')
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

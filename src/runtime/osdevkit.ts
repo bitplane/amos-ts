@@ -14,6 +14,7 @@ import { CUSTOMSCREEN, IntuitionBaseLock, type UserGadget, type Window } from '.
 import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
+import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
 import {
   allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
@@ -46,6 +47,8 @@ export interface OsDevKitState {
   gadtools: GadTools
   gadgetDef: NewGadget & { textPointer: number; font: number }
   nativeGadgets: Map<number, UserGadget>
+  layerInfos: Map<number, LayerInfo | null>
+  layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
 }
 
 export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKitState => {
@@ -58,6 +61,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gadtools,
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
+    layerInfos: new Map(), layers: new Map(),
   }
 }
 
@@ -412,6 +416,24 @@ function endArea(rt: Runtime, state: OsDevKitState, rp: number): number {
   return -1
 }
 
+function createNativeLayer(rt: Runtime, state: OsDevKitState, args: readonly number[], upfront: boolean): number {
+  const infoAddress = args[0]! >>> 0; const bitmap = args[1]! >>> 0
+  if (!state.layerInfos.has(infoAddress) || bitmap === 0) return 0
+  let info = state.layerInfos.get(infoAddress) ?? null
+  if (!info) {
+    const width = structRead(rt, bitmap, 2, false) * 8; const height = structRead(rt, bitmap + 2, 2, false)
+    if (width <= 0 || height <= 0) return 0
+    info = new LayerInfo(width, height); state.layerInfos.set(infoAddress, info)
+  }
+  const rect = { minX: args[2]!, minY: args[3]!, maxX: args[4]!, maxY: args[5]! }
+  const layer = upfront ? info.createUpfrontLayer(rect, refreshFromFlags(args[6]!)) : info.createBehindLayer(rect, refreshFromFlags(args[6]!))
+  layer.backdrop = (args[6]! & 0x40) !== 0
+  const address = state.memory.alloc(160, { clear: true }); if (address === 0) { info.deleteLayer(layer); return 0 }
+  structWrite(rt, address + 8, 4, bitmap); structWrite(rt, address + 16, 2, rect.minX); structWrite(rt, address + 18, 2, rect.minY)
+  structWrite(rt, address + 20, 2, rect.maxX); structWrite(rt, address + 22, 2, rect.maxY)
+  state.layers.set(address, { owner: infoAddress, layer, bitmap, backfill: args[7]! >>> 0 }); return address
+}
+
 function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false): boolean {
   const screen = rt.screens.get(slot)
   if (!screen) return false
@@ -515,6 +537,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_ggad free'(it) { const g = st().gadtools.gadget(it.evalInt()); if (g) st().gadtools.freeGadgets(g) },
     '_ggad vinf free'(it) { st().gadtools.freeVisualInfo(it.evalInt()) },
+    '_li free'(it) {
+      const address = it.evalInt() >>> 0; const info = st().layerInfos.get(address)
+      if (info) for (const [layerAddress, owned] of st().layers) if (owned.owner === address) { st().memory.freeMem(layerAddress); st().layers.delete(layerAddress) }
+      st().layerInfos.delete(address); st().memory.freeMem(address)
+    },
+    '_layer delete'(it) {
+      const address = it.evalInt() >>> 0; const owned = st().layers.get(address); if (!owned) return
+      st().layerInfos.get(owned.owner)?.deleteLayer(owned.layer); st().layers.delete(address); st().memory.freeMem(address)
+    },
     /** routine 1471: subtract the seven-byte private header, then FreeVec. */
     '_str free'(it) {
       heap().free(it.evalInt())
@@ -1127,6 +1158,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_li new'() {
+      const address = st().memory.alloc(112, { clear: true }); if (address !== 0) st().layerInfos.set(address, null); return VI(address)
+    },
+    '_layer create behind'(_, a) { return VI(createNativeLayer(rt, st(), a.map((v) => int(v)), false)) },
+    '_layer create upfront'(_, a) { return VI(createNativeLayer(rt, st(), a.map((v) => int(v)), true)) },
     '_ggad context'(_, a) {
       const destination = n(a, 0); if (destination === 0) return VI(0)
       const context = st().gadtools.createContext(); structWrite(rt, destination, 4, context.address); return VI(-1)

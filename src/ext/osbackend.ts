@@ -91,11 +91,11 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_icon get', { status: 'partial', reason: 'machine code aliases _icon load after AMOS path conversion' }],
   ['_icon del', { status: 'missing', reason: 'machine code aliases _icon kill after AMOS path conversion' }],
   ['_icon put', { status: 'missing', reason: 'machine code aliases _icon save after AMOS path conversion' }],
-  ['_li new', { status: 'partial', reason: 'LayerInfo exists, but requires host dimensions instead of native dimensionless allocation' }],
-  ['_li free', { status: 'partial', reason: 'LayerInfo has managed lifetime but no native DisposeLayerInfo invalidation semantics' }],
-  ['_layer create behind', { status: 'partial', reason: 'layer ordering and clipping exist; bitmap, RastPort and backfill-hook binding do not' }],
-  ['_layer create upfront', { status: 'partial', reason: 'layer ordering and clipping exist; bitmap, RastPort and backfill-hook binding do not' }],
-  ['_layer delete', { status: 'partial', reason: 'chain deletion and exposure exist; native bitmap restoration and backfill do not' }],
+  ['_li new', { status: 'partial', reason: 'dimensionless native ownership now wraps LayerInfo, with bitmap dimensions bound by the first created layer; the raw Layer_Info layout is not exposed' }],
+  ['_li free', { status: 'partial', reason: 'owned native Layer wrappers are invalidated and freed with LayerInfo, but the raw Layer_Info layout is not exposed' }],
+  ['_layer create behind', { status: 'partial', reason: 'native identity, bitmap binding, geometry, refresh type, backdrop and ordering are integrated; RastPort and executable backfill hooks are not' }],
+  ['_layer create upfront', { status: 'partial', reason: 'native identity, bitmap binding, geometry, refresh type, backdrop and ordering are integrated; RastPort and executable backfill hooks are not' }],
+  ['_layer delete', { status: 'partial', reason: 'native ownership, chain deletion and exposure are integrated; bitmap restoration and executable backfill hooks are not' }],
 ])
 
 const auditMany = (status: OsBackendStatus, reason: string, names: readonly string[]): void => {

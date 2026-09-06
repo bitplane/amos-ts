@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      339 |           41 |     667 |      36% |
+| os-devkit-1.61       |     1047 |      339 |           46 |     662 |      37% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6204 |          452 |     710 |      90% |
+| **total**            |     7422 |     6204 |          457 |     705 |      90% |
 
 ## Not applicable, by what would retire it
 
@@ -429,10 +429,11 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (36%)
+## os-devkit-1.61 (37%)
 
-- **approximated** (41): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (46): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
   `_ggad create`, `_ggad set attrs`, `_img draw`, `_img draw state`, `_img erase`,
+  `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
   `_scr id base`, `_scr id close`, `_scr id cls`, `_scr id depth`, `_scr id ellipse`,
   `_scr id from pointer`, `_scr id gr locate`, `_scr id gr writing`, `_scr id height`,
   `_scr id hide`, `_scr id in use`, `_scr id ink`, `_scr id line`, `_scr id line to`,
