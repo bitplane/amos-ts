@@ -557,6 +557,17 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
     expect(rt.screen.rp.clip).toEqual({ x1: 4, y1: 2, x2: 7, y2: 4 })
   })
 
+  it('uses the shared RastPort pattern and transient scratch raster for area fills', () => {
+    const source = [
+      'Screen Open 0,24,12,4,Lowres : _scr id from pointer 7,Screen Base : _scr id use 7',
+      '_scr id ink 3,1,0 : _scr id set low pattern $aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa',
+      '_scr id set high pattern $aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa : _scr id pattern on',
+      '_scr id fill ellipse 8,5,5,3 : A=_scr id point(8,5) : B=_scr id point(9,5)',
+      '_scr id pattern off : _scr id paint 2,10,0 : C=_scr id point(2,10) : Print A,B,C',
+    ].join('\n')
+    expect(run(source).output).toBe(' 3\t 1\t 3\n')
+  })
+
   it('binds a non-Workbench public screen to its actual native slot', () => {
     const { output } = run('_scr id from pub 9,"Shared" : Print _scr id width(9),_scr id height(9)', (rt) => {
       const address = rt.intuition.openScreen({

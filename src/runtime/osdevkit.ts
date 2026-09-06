@@ -30,6 +30,7 @@ import {
 import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
+import type { RastPort } from '../amiga/graphics'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -609,6 +610,36 @@ function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | 
 function currentScreen(rt: Runtime, state: OsDevKitState) {
   const record = state.screenIds.get(state.currentScreenId)
   return record ? rt.screens.get(record.slot) : undefined
+}
+
+/** Copy the public native RastPort fields into the shared drawing backend. */
+function syncNativeRastPort(rt: Runtime, raster: NativeRaster, rp: RastPort): void {
+  rp.mask = structRead(rt, raster.rp + 24, 1, false)
+  rp.fgPen = structRead(rt, raster.rp + 25, 1, false)
+  rp.bgPen = structRead(rt, raster.rp + 26, 1, false)
+  rp.aOlPen = structRead(rt, raster.rp + 27, 1, false)
+  rp.drawMode = structRead(rt, raster.rp + 28, 1, false)
+  rp.linePtrn = structRead(rt, raster.rp + 34, 2, false)
+  rp.outline = (structRead(rt, raster.rp + 32, 2, false) & 8) !== 0
+  const pattern = structRead(rt, raster.rp + 8, 4, false) >>> 0
+  if (pattern === 0) rp.areaPtrn = null
+  else {
+    const size = Math.max(0, Math.min(4, structRead(rt, raster.rp + 29, 1, true)))
+    rp.areaPtrn = Uint16Array.from({ length: 1 << (size + 1) }, (_, i) => structRead(rt, pattern + i * 2, 2, false))
+  }
+}
+
+/**
+ * Screen/Window-ID Paint and AreaEnd allocate one temporary one-bit raster,
+ * use it synchronously, and free it before returning.
+ */
+function withTemporaryRaster(state: OsDevKitState, width: number, height: number, draw: () => void): boolean {
+  // The shipped worker is `(width >> 3) + 1`, not word-aligned AllocRaster.
+  const size = ((Math.max(0, width) >> 3) + 1) * Math.max(0, height)
+  const raster = state.memory.alloc(size, { clear: true, chip: true })
+  if (raster === 0) return false
+  try { draw() } finally { state.memory.freeMem(raster) }
+  return true
 }
 
 function screenRgb24(rt: Runtime, state: OsDevKitState, pen: number): number {
@@ -1310,12 +1341,16 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativeFillColor(rt, raster, x, y)
     },
     '_scr id fill ellipse'(it) {
-      const [cx, cy, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st())
-      if (raster) nativeFillEllipse(rt, raster, cx!, cy!, rx!, ry!)
+      const [cx, cy, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st()); const screen = currentScreen(rt, st())
+      if (!raster || !screen) return
+      syncNativeRastPort(rt, raster, screen.rp)
+      withTemporaryRaster(st(), screen.width, screen.height, () => screen.rp.ellipse(cx!, cy!, rx!, ry!, screen.rp.fgPen, true))
     },
     '_scr id paint'(it) {
-      const [x, y, mode] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
-      if (raster) nativeFlood(rt, raster, mode!, x!, y!)
+      const [x, y, mode] = readArgs(it, 3); const raster = currentScreenRaster(rt, st()); const screen = currentScreen(rt, st())
+      if (!raster || !screen) return
+      syncNativeRastPort(rt, raster, screen.rp)
+      withTemporaryRaster(st(), screen.width, screen.height, () => screen.rp.flood(mode!, x!, y!))
     },
     '_scr id scroll'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
@@ -1417,11 +1452,22 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd id fill ellipse'(it) {
       const [cx, cy, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (!t || rx! <= 0 || ry! <= 0) return
-      nativeFillEllipse(rt, t.raster, t.ox + cx!, t.oy + cy!, rx!, ry!)
+      const screen = rt.screens.get(t.window.screenSlot); if (!screen) return
+      const saved = screen.rp.snapshot(); syncNativeRastPort(rt, t.raster, screen.rp)
+      screen.rp.clip = { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 }
+      try {
+        withTemporaryRaster(st(), t.window.width, t.window.height, () =>
+          screen.rp.ellipse(t.ox + cx!, t.oy + cy!, rx!, ry!, screen.rp.fgPen, true))
+      } finally { screen.rp.restore(saved) }
     },
     '_wnd id paint'(it) {
       const [sx, sy, mode] = readArgs(it, 3); const t = currentWindowTarget(rt, st()); if (!t) return
-      nativeFlood(rt, t.raster, mode!, t.ox + sx!, t.oy + sy!)
+      const screen = rt.screens.get(t.window.screenSlot); if (!screen) return
+      const saved = screen.rp.snapshot(); syncNativeRastPort(rt, t.raster, screen.rp)
+      screen.rp.clip = { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 }
+      try {
+        withTemporaryRaster(st(), t.window.width, t.window.height, () => screen.rp.flood(mode!, t.ox + sx!, t.oy + sy!))
+      } finally { screen.rp.restore(saved) }
     },
     '_wnd id scroll'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()

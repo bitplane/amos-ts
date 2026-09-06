@@ -465,6 +465,15 @@ export class RastPort {
     this.bitMap.fillSpan(y, x1, x2, this.masked(0, c))
   }
 
+  /** One AreaFill span: unlike RectFill, this consumes rp_AreaPtrn. */
+  private areaHline(x1: number, x2: number, y: number, c: number): void {
+    if (!this.areaPtrn || this.areaPtrn.length === 0) { this.hline(x1, x2, y, c); return }
+    if (x1 > x2) [x1, x2] = [x2, x1]
+    x1 = Math.max(0, x1); x2 = Math.min(this.width - 1, x2)
+    const row = this.areaPtrn[y & (this.areaPtrn.length - 1)] ?? 0
+    for (let x = x1; x <= x2; x++) this.plot(x, y, (row & (0x8000 >>> (x & 15))) !== 0 ? c : this.bgPen)
+  }
+
   /**
    * A span that replaces whatever is under it, whatever `Gr Writing` says.
    *
@@ -727,7 +736,7 @@ export class RastPort {
       const yHi = Math.min(ry, this.height - 1 - cy)
       for (let y = yLo; y <= yHi; y++) {
         const w = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))))
-        this.hline(cx - w, cx + w, cy + y, c)
+        this.areaHline(cx - w, cx + w, cy + y, c)
       }
       return
     }
