@@ -37,6 +37,7 @@ import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
+import { doMethodA, getAttr, setAttrsA } from '../amiga/boopsi'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -81,6 +82,8 @@ export interface OsDevKitState {
   menuItemRefs: Map<number, MenuItem>
   menuItemAddresses: Map<MenuItem, number>
   nextMenuItemAddress: number
+  /** BOOPSI handles created through OS DevKit's private object registry 21. */
+  boopsiObjects: Set<number>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -101,6 +104,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
     newMenuLists: new Map(), menuItemRefs: new Map(), menuItemAddresses: new Map(), nextMenuItemAddress: 0x7300_0000,
+    boopsiObjects: new Set(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1716,6 +1720,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const strip = st().gadtools.menuStrip(it.evalInt() >>> 0)
       if (strip) st().gadtools.freeMenus(strip)
     },
+    '_obj free'(it) {
+      const address = it.evalInt() >>> 0
+      if (!st().boopsiObjects.delete(address)) return
+      const object = rt.boopsi.objectAt(address)
+      if (object) rt.boopsi.disposeObject(object)
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -1769,6 +1779,32 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_gmn layout'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
       return VI(strip && st().gadtools.layoutMenus(strip, n(a, 1), undefined) ? -1 : 0)
+    },
+    '_obj new'(_, a) {
+      const privateClass = n(a, 0) >>> 0
+      const className = str(a[1] ?? VS(''))
+      if (privateClass !== 0 || className === '') return VI(0)
+      const object = rt.boopsi.newObjectA(className, tagItems(st(), n(a, 2)))
+      if (!object) return VI(0)
+      st().boopsiObjects.add(object.address)
+      return VI(object.address)
+    },
+    '_obj what attr'(_, a) {
+      const object = rt.boopsi.objectAt(n(a, 0) >>> 0)
+      if (!object || !st().boopsiObjects.has(object.address)) return VI(0)
+      return VI(getAttr(n(a, 1) >>> 0, object) ?? 0)
+    },
+    '_obj set attrs'(_, a) {
+      const object = rt.boopsi.objectAt(n(a, 0) >>> 0)
+      if (!object || !st().boopsiObjects.has(object.address)) return VI(0)
+      // Window and Requester are GInfo context in SetGadgetAttrsA; generic
+      // attribute ownership remains the BOOPSI object's, not the window's.
+      return VI(setAttrsA(object, tagItems(st(), n(a, 3))))
+    },
+    '_obj do'(_, a) {
+      const object = rt.boopsi.objectAt(n(a, 0) >>> 0); const message = n(a, 3) >>> 0
+      if (!object || !st().boopsiObjects.has(object.address) || message === 0) return VI(0)
+      return VI(doMethodA(object, { MethodID: structRead(rt, message, 4, false) >>> 0 }))
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)

@@ -592,6 +592,19 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
 })
 
 describe('OS DevKit 1.61 shared GadTools ownership', () => {
+  it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
+    const source = [
+      'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',
+      'O=_obj new(0,"gadgetclass",T) : Print O<>0,_obj what attr(O,$80030001)',
+      'U=_tag list alloc(2) : _tag set U,$80030001,34 : _tag done U',
+      'Print _obj set attrs(O,0,0,U),_obj what attr(O,$80030001)',
+      'M=_struct alloc(4) : Loke M,$105 : Print _obj do(O,0,0,M)',
+      '_obj free O : Print _obj what attr(O,$80030001)',
+      '_struct free M : _tag list free U : _tag list free T',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t 12\n 1\t 34\n 1\n 0\n')
+  })
+
   it('builds its native gadget defaults and contexts in the runtime GadTools object space', () => {
     const source = [
       'Screen Open 0,32,16,4,Lowres : _scr id from pointer 1,Screen Base',
