@@ -461,12 +461,17 @@ describe('OS DevKit 1.61 native graphics records', () => {
       'Print _scr id x mouse(3),_scr id y mouse(3)',
       '_scr id set pal 2,$abc : Print Hex$(_scr id get pal(2))',
       '_scr id set aga pal 3,$12abef : Print Hex$(_scr id get aga pal(3))',
+      '_scr id ink 3,1,2 : _scr id set low pattern $aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa',
+      '_scr id set high pattern $aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa,$aaaa : _scr id pattern on',
+      '_scr id bar 0,0 To 3,1 : Print _scr id point(0,0),_scr id point(1,0)',
+      '_scr id pattern off : _scr id fill ellipse 8,8,2,2 : Print _scr id point(8,8)',
+      '_scr id ink 2,1,3 : _scr id paint 8,8,0 : Print _scr id point(8,8)',
       '_scr id close 3 : Print _scr id base(3),_scr id in use',
       '_scr id from wb 4 : Print _scr id base(4)<>0,_scr id width(4),_scr id height(4)',
       '_scr id close 4',
     ].join('\n')
     const { rt, output } = run(source)
-    expect(output).toBe(' 3\t-1\t-1\t-1\n 160\t 100\t 4\t$8004\n 40\t 30\n$ABC\n$12ABEF\n 0\t-1\n-1\t 640\t 256\n')
+    expect(output).toBe(' 3\t-1\t-1\t-1\n 160\t 100\t 4\t$8004\n 40\t 30\n$ABC\n$12ABEF\n 3\t 1\n 3\n 2\n 0\t-1\n-1\t 640\t 256\n')
     expect(rt.intuition.workBenchOpen()).toBe(true)
   })
 

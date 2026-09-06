@@ -44,6 +44,7 @@ export interface OsDevKitState {
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
   windowPatterns: OsWindowPatterns
+  fillPatternAddress: number
   areaPaths: Map<number, Array<{ kind: 'move' | 'draw' | 'ellipse'; values: number[] }>>
   gadtools: GadTools
   gadgetDef: NewGadget & { textPointer: number; font: number }
@@ -58,7 +59,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
-    windowPatterns: new OsWindowPatterns(),
+    windowPatterns: new OsWindowPatterns(), fillPatternAddress: 0,
     areaPaths: new Map(),
     gadtools,
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
@@ -66,6 +67,27 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
+}
+
+function setFillPattern(state: OsDevKitState, high: boolean, values: readonly number[]): void {
+  if (high) state.windowPatterns.setHigh(values); else state.windowPatterns.setLow(values)
+  if (state.fillPatternAddress === 0) return
+  const words = high ? state.windowPatterns.high : state.windowPatterns.low
+  for (let i = 0; i < 8; i++) set32Word(state, state.fillPatternAddress + (high ? 16 : 0) + i * 2, words[i]!)
+}
+
+function fillPatternAddress(state: OsDevKitState): number {
+  if (state.fillPatternAddress !== 0) return state.fillPatternAddress
+  state.fillPatternAddress = state.memory.alloc(32, { clear: true })
+  if (state.fillPatternAddress !== 0) {
+    const low = Array.from(state.windowPatterns.low); const high = Array.from(state.windowPatterns.high)
+    setFillPattern(state, false, low); setFillPattern(state, true, high)
+  }
+  return state.fillPatternAddress
+}
+
+function set32Word(state: OsDevKitState, address: number, value: number): void {
+  const at = offset(state, address); state.memory.buffer[at] = value >>> 8; state.memory.buffer[at + 1] = value
 }
 
 const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
@@ -1174,6 +1196,38 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const raster = currentScreenRaster(rt, st()); if (!raster) return
       structWrite(rt, raster.rp + 36, 2, x); structWrite(rt, raster.rp + 38, 2, y); drawNativeText(rt, st(), raster.rp, value)
     },
+    '_scr id set paint'(it) { const raster = currentScreenRaster(rt, st()); const value = it.evalInt(); if (raster) structWrite(rt, raster.rp + 32, 1, value ? 0x08 : 0) },
+    '_scr id pattern off'() { const raster = currentScreenRaster(rt, st()); if (raster) structWrite(rt, raster.rp + 8, 4, 0) },
+    '_scr id pattern on'() {
+      const raster = currentScreenRaster(rt, st()); if (raster) { structWrite(rt, raster.rp + 8, 4, fillPatternAddress(st())); structWrite(rt, raster.rp + 29, 1, 3) }
+    },
+    '_scr id set low pattern'(it) { setFillPattern(st(), false, readArgs(it, 8)) },
+    '_scr id set high pattern'(it) { setFillPattern(st(), true, readArgs(it, 8)) },
+    '_scr id bar'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      const raster = currentScreenRaster(rt, st()); if (!raster) return
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativeFillColor(rt, raster, x, y)
+    },
+    '_scr id fill ellipse'(it) {
+      const [cx, cy, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st())
+      if (raster) nativeFillEllipse(rt, raster, cx!, cy!, rx!, ry!)
+    },
+    '_scr id paint'(it) {
+      const [x, y, mode] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
+      if (raster) nativeFlood(rt, raster, mode!, x!, y!)
+    },
+    '_scr id scroll'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
+      const raster = currentScreenRaster(rt, st()); if (!raster) return
+      const left = Math.min(x1, x2); const top = Math.min(y1, y2); const width = Math.abs(x2 - x1) + 1; const height = Math.abs(y2 - y1) + 1
+      const pixels = Array.from({ length: width * height }, (_, i) => nativePoint(rt, raster, left + i % width, top + Math.floor(i / width)))
+      const back = structRead(rt, raster.rp + 26, 1, false)
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) nativePutColor(rt, raster, left + x, top + y, back)
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const tx = x - dx; const ty = y - dy
+        if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, raster, left + tx, top + ty, pixels[y * width + x]!)
+      }
+    },
     /** Window-ID lifecycle, workers 3042-3047, over Intuition and shared native graphics. */
     '_wnd id open'(it) {
       const [id, x, y, width, height, flags, idcmp, _gadgetBank] = readArgs(it, 8)
@@ -1281,9 +1335,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd id set paint'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 32, 1, value ? 0x08 : 0) },
     '_wnd id pattern off'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 0) },
-    '_wnd id pattern on'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 1) },
-    '_wnd id set low pattern'(it) { st().windowPatterns.setLow(readArgs(it, 8)) },
-    '_wnd id set high pattern'(it) { st().windowPatterns.setHigh(readArgs(it, 8)) },
+    '_wnd id pattern on'() { const t = currentWindowTarget(rt, st()); if (t) { structWrite(rt, t.raster.rp + 8, 4, fillPatternAddress(st())); structWrite(rt, t.raster.rp + 29, 1, 3) } },
+    '_wnd id set low pattern'(it) { setFillPattern(st(), false, readArgs(it, 8)) },
+    '_wnd id set high pattern'(it) { setFillPattern(st(), true, readArgs(it, 8)) },
   }
 }
 
