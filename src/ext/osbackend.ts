@@ -403,7 +403,7 @@ auditMany('partial', 'managed window lifecycle, geometry, ordering and titles ex
 auditMany('partial', 'the window state exists, but global native active/ViewPort identity is unavailable; _wnd what pointer also tests stale a0 before loading its argument', [
   '_wnd what active', '_wnd what vport', '_wnd what pointer',
 ])
-auditMany('partial', 'managed message queues exist, but OS DevKit shared UserPort attachment, blocking waits and native message ownership are not exposed', [
+auditMany('partial', 'runtime windows now use shared mapped Exec UserPorts and native IntuiMessages; OS DevKit share/unshare policy, scheduler-backed blocking waits and reply ownership remain to be integrated', [
   '_wnd wait port', '_wnd clear port', '_wnd share port', '_wnd unshare port',
 ])
 auditMany('faithful', 'the dynamically grown 28-byte Window-ID record, current selection and caller Data long are represented exactly', [

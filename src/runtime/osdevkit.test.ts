@@ -242,3 +242,31 @@ describe('OS DevKit 1.61 channel records', () => {
     expect(run(source).output).toBe(' 3\t 2\t-1\n 3\t 2\n 6\t 3\n 3\n')
   })
 })
+
+describe('OS DevKit 1.61 native event and utility structures', () => {
+  it('reads every IntuiMessage field at its native width (workers 478-486)', () => {
+    const source = [
+      'M=_struct alloc(48)',
+      'Loke M+20,$80000001 : Doke M+24,$fedc : Doke M+26,$cafe : Loke M+28,$12345678',
+      'Doke M+32,$fffe : Doke M+34,3 : Loke M+36,9 : Loke M+40,10 : Loke M+44,$23456789',
+      'Print Hex$(_imsg what class(M)),Hex$(_imsg what code(M)),Hex$(_imsg what qualifier(M))',
+      'Print Hex$(_imsg what item(M)),_imsg what x mouse(M),_imsg what y mouse(M)',
+      'Print _imsg what seconds(M),_imsg what micros(M),Hex$(_imsg what wnd(M))',
+      '_struct free M',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      '$80000001\t$FEDC\t$CAFE\n$12345678\t-2\t 3\n 9\t 10\t$23456789\n',
+    )
+  })
+
+  it('allocates signed coordinate pairs and fills a native TextAttr', () => {
+    const source = [
+      'D=_dots alloc(2) : _dots set D,1,-2,32767',
+      'T=_struct alloc(8) : _ta set T,$12345678,$fedc,$ab,$cd',
+      'Print _dots what x(D,1),_dots what y(D,1)',
+      'Print Hex$(_ta what name(T)),Hex$(_ta what height(T)),Hex$(_ta what style(T)),Hex$(_ta what flags(T))',
+      '_dots free D : _struct free T',
+    ].join('\n')
+    expect(run(source).output).toBe('-2\t 32767\n$12345678\t$FEDC\t$AB\t$CD\n')
+  })
+})

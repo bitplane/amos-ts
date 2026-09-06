@@ -160,6 +160,27 @@ export const FAITHFUL = new Set<string>([
   '_chn list free',
   '_chn ins',
   '_chn swap',
+  // Native IntuiMessage, coordinate-pair and TextAttr layouts, workers
+  // 314-318, 478-486 and 667-671.
+  '_dots set',
+  '_dots alloc',
+  '_dots free',
+  '_dots what x',
+  '_dots what y',
+  '_imsg what class',
+  '_imsg what code',
+  '_imsg what qualifier',
+  '_imsg what item',
+  '_imsg what x mouse',
+  '_imsg what y mouse',
+  '_imsg what seconds',
+  '_imsg what micros',
+  '_imsg what wnd',
+  '_ta set',
+  '_ta what name',
+  '_ta what height',
+  '_ta what style',
+  '_ta what flags',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

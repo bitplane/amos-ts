@@ -204,6 +204,15 @@ function cpuSet(rt: Runtime, width: 2 | 4): Instr {
   }
 }
 
+function readArgs(it: Parameters<Instr>[0], count: number): number[] {
+  const out: number[] = []
+  for (let i = 0; i < count; i++) {
+    if (i !== 0) it.expect(',')
+    out.push(it.evalInt())
+  }
+  return out
+}
+
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
@@ -366,6 +375,21 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     /** routine 1151 is a six-byte no-op that only consumes both arguments. */
     '_chn swap'(it) { it.evalInt(); it.expect(','); it.evalInt() },
+    /** workers 314-318: cleared signed-word coordinate pairs. */
+    '_dots set'(it) {
+      const [dots, index, x, y] = readArgs(it, 4)
+      structWrite(rt, dots! + index! * 4, 2, x!)
+      structWrite(rt, dots! + index! * 4 + 2, 2, y!)
+    },
+    '_dots free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    /** worker 667: struct TextAttr, including its trailing byte fields. */
+    '_ta set'(it) {
+      const [attr, name, ySize, style, flags] = readArgs(it, 5)
+      structWrite(rt, attr!, 4, name!)
+      structWrite(rt, attr! + 4, 2, ySize!)
+      structWrite(rt, attr! + 6, 1, style!)
+      structWrite(rt, attr! + 7, 1, flags!)
+    },
   }
 }
 
@@ -519,6 +543,23 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const before = n(a, 0)
       return VI(channelInsert(st(), before, a.length > 1 ? n(a, 1) : get32(st(), get32(st(), before - 20) + 4)))
     },
+    '_dots alloc'(_, a) { return VI(st().memory.alloc(Math.max(0, n(a, 0)) * 4, { clear: true })) },
+    '_dots what x'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1) * 4, 2, true)) },
+    '_dots what y'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1) * 4 + 2, 2, true)) },
+    /** workers 478-486: public IntuiMessage fields at offsets $14..$2c. */
+    '_imsg what class'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 4, false)) },
+    '_imsg what code'(_, a) { return VI(structRead(rt, n(a, 0) + 24, 2, false)) },
+    '_imsg what qualifier'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 2, false)) },
+    '_imsg what item'(_, a) { return VI(structRead(rt, n(a, 0) + 28, 4, false)) },
+    '_imsg what x mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 2, true)) },
+    '_imsg what y mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 34, 2, true)) },
+    '_imsg what seconds'(_, a) { return VI(structRead(rt, n(a, 0) + 36, 4, false)) },
+    '_imsg what micros'(_, a) { return VI(structRead(rt, n(a, 0) + 40, 4, false)) },
+    '_imsg what wnd'(_, a) { return VI(structRead(rt, n(a, 0) + 44, 4, false)) },
+    '_ta what name'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_ta what height'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
+    '_ta what style'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 1, false)) },
+    '_ta what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 7, 1, false)) },
   }
 }
 
