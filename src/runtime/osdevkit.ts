@@ -390,6 +390,61 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       structWrite(rt, attr! + 6, 1, style!)
       structWrite(rt, attr! + 7, 1, flags!)
     },
+    /** workers 300-304: struct Border at byte-exact native offsets. */
+    '_bd set draw'(it) {
+      const [border, front, back, mode] = readArgs(it, 4)
+      structWrite(rt, border! + 4, 1, front!); structWrite(rt, border! + 5, 1, back!)
+      structWrite(rt, border! + 6, 1, mode!)
+    },
+    '_bd set corner'(it) {
+      const [border, left, top] = readArgs(it, 3)
+      structWrite(rt, border!, 2, left!); structWrite(rt, border! + 2, 2, top!)
+    },
+    '_bd set dots'(it) {
+      const [border, count, dots] = readArgs(it, 3)
+      structWrite(rt, border! + 7, 1, count!); structWrite(rt, border! + 8, 4, dots!)
+    },
+    '_bd set next'(it) {
+      const [border, next] = readArgs(it, 2); structWrite(rt, border! + 12, 4, next!)
+    },
+    '_bd set'(it) {
+      const [border, left, top, front, back, mode, count, dots, next] = readArgs(it, 9)
+      structWrite(rt, border!, 2, left!); structWrite(rt, border! + 2, 2, top!)
+      structWrite(rt, border! + 4, 1, front!); structWrite(rt, border! + 5, 1, back!)
+      structWrite(rt, border! + 6, 1, mode!); structWrite(rt, border! + 7, 1, count!)
+      structWrite(rt, border! + 8, 4, dots!); structWrite(rt, border! + 12, 4, next!)
+    },
+    /** workers 319-321: struct Image setters. */
+    '_img set body'(it) {
+      const [image, left, top, width, height, depth, data] = readArgs(it, 7)
+      for (const [at, value] of [[0, left], [2, top], [4, width], [6, height], [8, depth]] as const) {
+        structWrite(rt, image! + at, 2, value!)
+      }
+      structWrite(rt, image! + 10, 4, data!)
+    },
+    '_img set planes'(it) {
+      const [image, pick, onOff] = readArgs(it, 3)
+      structWrite(rt, image! + 14, 1, pick!); structWrite(rt, image! + 15, 1, onOff!)
+    },
+    '_img set next'(it) {
+      const [image, next] = readArgs(it, 2); structWrite(rt, image! + 16, 4, next!)
+    },
+    /** workers 335-337: packed, deliberately unaligned BooleanInfo. */
+    '_bi set flags'(it) {
+      const [info, flags] = readArgs(it, 2); structWrite(rt, info!, 2, flags!)
+    },
+    '_bi set mask'(it) {
+      const [info, mask] = readArgs(it, 2); structWrite(rt, info! + 2, 4, mask!)
+    },
+    '_bi set'(it) {
+      const [info, flags, mask] = readArgs(it, 3)
+      structWrite(rt, info!, 2, flags!); structWrite(rt, info! + 2, 4, mask!)
+    },
+    /** worker 340 writes only the first five PropInfo words. */
+    '_pi set'(it) {
+      const [prop, ...values] = readArgs(it, 6)
+      values.forEach((value, i) => structWrite(rt, prop! + i * 2, 2, value))
+    },
   }
 }
 
@@ -560,6 +615,42 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_ta what height'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
     '_ta what style'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 1, false)) },
     '_ta what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 7, 1, false)) },
+    '_bd what front pen'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 1, false)) },
+    '_bd what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 5, 1, false)) },
+    '_bd what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 1, false)) },
+    '_bd what left'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_bd what top'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 2, false)) },
+    '_bd what dots nb'(_, a) { return VI(structRead(rt, n(a, 0) + 7, 1, false)) },
+    '_bd what dots'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
+    '_bd what next'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 4, false)) },
+    '_img point in'(_, a) {
+      const image = n(a, 0); const x = n(a, 1); const y = n(a, 2)
+      const left = structRead(rt, image, 2, true); const top = structRead(rt, image + 2, 2, true)
+      const width = structRead(rt, image + 4, 2, false); const height = structRead(rt, image + 6, 2, false)
+      return VI(x >= left && y >= top && x < left + width && y < top + height ? -1 : 0)
+    },
+    '_img what left'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_img what top'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 2, false)) },
+    '_img what width'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
+    '_img what height'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, false)) },
+    '_img what depth'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, false)) },
+    '_img what body'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 4, false)) },
+    '_img what pick'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 1, false)) },
+    '_img what onoff'(_, a) { return VI(structRead(rt, n(a, 0) + 15, 1, false)) },
+    '_img what next'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 4, false)) },
+    '_bi what flags'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_bi what mask'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 4, false)) },
+    '_pi what flags'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
+    '_pi what % horiz'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 2, false)) },
+    '_pi what % vert'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
+    '_pi what % width'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, false)) },
+    '_pi what % height'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, false)) },
+    '_pi what width'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, false)) },
+    '_pi what height'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, false)) },
+    '_pi what hinc'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, false)) },
+    '_pi what vinc'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
+    '_pi what left'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 2, false)) },
+    '_pi what top'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 2, false)) },
   }
 }
 

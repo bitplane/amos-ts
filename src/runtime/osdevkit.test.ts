@@ -270,3 +270,48 @@ describe('OS DevKit 1.61 native event and utility structures', () => {
     expect(run(source).output).toBe('-2\t 32767\n$12345678\t$FEDC\t$AB\t$CD\n')
   })
 })
+
+describe('OS DevKit 1.61 native Intuition data structures', () => {
+  it('sets and reads complete Border and BooleanInfo records (workers 300-313, 335-339)', () => {
+    const source = [
+      'B=_struct alloc(16) : _bd set B,$ffff,$2345,$101,$202,$303,$104,$87654321,$12345678',
+      'Print _bd what left(B),_bd what top(B),_bd what front pen(B),_bd what back pen(B)',
+      'Print _bd what draw mode(B),_bd what dots nb(B),Hex$(_bd what dots(B)),Hex$(_bd what next(B))',
+      '_bd set draw B,7,8,9 : _bd set corner B,10,11 : _bd set dots B,12,13 : _bd set next B,14',
+      'Print _bd what left(B),_bd what top(B),_bd what front pen(B),_bd what dots nb(B),_bd what next(B)',
+      'I=_struct alloc(6) : _bi set I,$12345,$ffffffff',
+      'Print Hex$(_bi what flags(I)),Hex$(_bi what mask(I))',
+      '_bi set flags I,2 : _bi set mask I,3 : Print _bi what flags(I),_bi what mask(I)',
+      '_struct free B : _struct free I',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      ' 65535\t 9029\t 1\t 2\n 3\t 4\t$87654321\t$12345678\n 10\t 11\t 7\t 12\t 14\n$2345\t$FFFFFFFF\n 2\t 3\n',
+    )
+  })
+
+  it('sets and reads Image geometry, planes and links (workers 319-334)', () => {
+    const source = [
+      'I=_struct alloc(20)',
+      '_img set body I,-2,3,10,5,2,$12345678 : _img set planes I,$1ff,$102 : _img set next I,$87654321',
+      'Print _img point in(I,-2,3),_img point in(I,7,7),_img point in(I,8,7)',
+      'Print Hex$(_img what left(I)),_img what top(I),_img what width(I),_img what height(I),_img what depth(I)',
+      'Print Hex$(_img what body(I)),Hex$(_img what pick(I)),_img what onoff(I),Hex$(_img what next(I))',
+      '_struct free I',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      '-1\t-1\t 0\n$FFFE\t 3\t 10\t 5\t 2\n$12345678\t$FF\t 2\t$87654321\n',
+    )
+  })
+
+  it('sets the first five PropInfo words without disturbing calculated geometry', () => {
+    const source = [
+      'P=_struct alloc(22)',
+      'Doke P+10,6 : Doke P+12,7 : Doke P+14,8 : Doke P+16,9 : Doke P+18,10 : Doke P+20,11',
+      '_pi set P,1,2,3,4,5',
+      'Print _pi what flags(P),_pi what % horiz(P),_pi what % vert(P),_pi what % width(P),_pi what % height(P)',
+      'Print _pi what width(P),_pi what height(P),_pi what hinc(P),_pi what vinc(P),_pi what left(P),_pi what top(P)',
+      '_struct free P',
+    ].join('\n')
+    expect(run(source).output).toBe(' 1\t 2\t 3\t 4\t 5\n 6\t 7\t 8\t 9\t 10\t 11\n')
+  })
+})
