@@ -314,4 +314,23 @@ describe('OS DevKit 1.61 native Intuition data structures', () => {
     ].join('\n')
     expect(run(source).output).toBe(' 1\t 2\t 3\t 4\t 5\n 6\t 7\t 8\t 9\t 10\t 11\n')
   })
+
+  it('sets complete and partial StringInfo fields at offsets 0 through $20', () => {
+    const source = [
+      'S=_struct alloc(36)',
+      'Doke S+14,6 : Doke S+16,7 : Doke S+18,8 : Doke S+20,9 : Doke S+22,10',
+      '_si set S,11,12,13,14,15,16,-17,18',
+      'Print _si what buf(S),_si what undo buf(S),_si what pos buf(S),_si what max chars(S),_si what disp chars(S)',
+      'Print _si what undo pos(S),_si what nb chars(S),_si what disp count(S),_si what cleft(S),_si what ctop(S)',
+      'Print _si what ext(S),_si what integer(S),_si what keymap(S)',
+      '_si set buf S,21,22,23,24,25 : _si set ext S,26 : _si set integer S,-27 : _si set keymap S,28',
+      'Print _si what buf(S),_si what undo buf(S),_si what pos buf(S),_si what max chars(S),_si what disp chars(S)',
+      'Print _si what ext(S),_si what integer(S),_si what keymap(S),_si what undo pos(S)',
+      '_struct free S',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      ' 11\t 12\t 13\t 14\t 15\n 6\t 7\t 8\t 9\t 10\n 16\t-17\t 18\n' +
+      ' 21\t 22\t 23\t 24\t 25\n 26\t-27\t 28\t 6\n',
+    )
+  })
 })

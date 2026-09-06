@@ -445,6 +445,29 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [prop, ...values] = readArgs(it, 6)
       values.forEach((value, i) => structWrite(rt, prop! + i * 2, 2, value))
     },
+    /** workers 352-356: partial and complete struct StringInfo setters. */
+    '_si set buf'(it) {
+      const [info, buffer, undo, position, maxChars, display] = readArgs(it, 6)
+      structWrite(rt, info!, 4, buffer!); structWrite(rt, info! + 4, 4, undo!)
+      structWrite(rt, info! + 8, 2, position!); structWrite(rt, info! + 10, 2, maxChars!)
+      structWrite(rt, info! + 12, 2, display!)
+    },
+    '_si set ext'(it) {
+      const [info, extension] = readArgs(it, 2); structWrite(rt, info! + 24, 4, extension!)
+    },
+    '_si set integer'(it) {
+      const [info, integer] = readArgs(it, 2); structWrite(rt, info! + 28, 4, integer!)
+    },
+    '_si set keymap'(it) {
+      const [info, keyMap] = readArgs(it, 2); structWrite(rt, info! + 32, 4, keyMap!)
+    },
+    '_si set'(it) {
+      const [info, buffer, undo, position, maxChars, display, extension, integer, keyMap] = readArgs(it, 9)
+      structWrite(rt, info!, 4, buffer!); structWrite(rt, info! + 4, 4, undo!)
+      structWrite(rt, info! + 8, 2, position!); structWrite(rt, info! + 10, 2, maxChars!)
+      structWrite(rt, info! + 12, 2, display!); structWrite(rt, info! + 24, 4, extension!)
+      structWrite(rt, info! + 28, 4, integer!); structWrite(rt, info! + 32, 4, keyMap!)
+    },
   }
 }
 
@@ -651,6 +674,19 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_pi what vinc'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
     '_pi what left'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 2, false)) },
     '_pi what top'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 2, false)) },
+    '_si what buf'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_si what undo buf'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_si what pos buf'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, false)) },
+    '_si what max chars'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, false)) },
+    '_si what disp chars'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, false)) },
+    '_si what undo pos'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, false)) },
+    '_si what nb chars'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
+    '_si what disp count'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 2, false)) },
+    '_si what cleft'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 2, false)) },
+    '_si what ctop'(_, a) { return VI(structRead(rt, n(a, 0) + 22, 2, false)) },
+    '_si what ext'(_, a) { return VI(structRead(rt, n(a, 0) + 24, 4, false)) },
+    '_si what integer'(_, a) { return VI(structRead(rt, n(a, 0) + 28, 4, true)) },
+    '_si what keymap'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 4, false)) },
   }
 }
 
