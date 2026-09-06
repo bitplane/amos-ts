@@ -755,6 +755,14 @@ function selectedWindowHandle(state: OsDevKitState): { id: number; window: Windo
   return handle ? { id, ...handle } : null
 }
 
+/** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
+function setScreenMousePosition(rt: Runtime, slot: number, x: number, y: number): void {
+  const screen = rt.screens.get(slot)
+  if (!screen) return
+  rt.input.mouseX = screen.displayX + (x - screen.offsetX) / (screen.hires ? 2 : 1)
+  rt.input.mouseY = screen.displayY + (y - screen.offsetY) / (screen.laced ? 2 : 1)
+}
+
 /** GT_GetIMsg/GetMsg + the worker's 52-byte copy and immediate reply. */
 function takeWindowEvent(state: OsDevKitState, mask = -1): number {
   if (state.windowPort === 0) return 0
@@ -1371,14 +1379,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_scr id set mouse pos'(it) {
       const [id, x, y] = readArgs(it, 3); const record = st().screenIds.get(id!)
-      const screen = record ? rt.screens.get(record.slot) : undefined
-      if (screen) {
-        // IECLASS_POINTERPOS/IESUBCLASS_PIXEL takes coordinates in the
-        // screen's viewport, unlike AMOS X/Y Hard which deliberately ignore
-        // EcVX/EcVY. Invert Screen.MouseX/Y here, including scroll offsets.
-        rt.input.mouseX = screen.displayX + (x! - screen.offsetX) / (screen.hires ? 2 : 1)
-        rt.input.mouseY = screen.displayY + (y! - screen.offsetY) / (screen.laced ? 2 : 1)
-      }
+      // Unlike AMOS X/Y Hard, POINTERPOS coordinates are in the viewport.
+      if (record) setScreenMousePosition(rt, record.slot, x!, y!)
     },
     '_scr id clip'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
@@ -1644,6 +1646,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd id pattern on'() { const t = currentWindowTarget(rt, st()); if (t) { structWrite(rt, t.raster.rp + 8, 4, fillPatternAddress(st())); structWrite(rt, t.raster.rp + 29, 1, 3) } },
     '_wnd id set low pattern'(it) { setFillPattern(st(), false, readArgs(it, 8)) },
     '_wnd id set high pattern'(it) { setFillPattern(st(), true, readArgs(it, 8)) },
+    '_wnd id set mouse pos'(it) {
+      const [id, x, y] = readArgs(it, 3); const handle = st().windowHandles.get(id!)
+      if (handle) setScreenMousePosition(rt, handle.window.screenSlot, handle.window.leftEdge + x!, handle.window.topEdge + y!)
+    },
   }
 }
 

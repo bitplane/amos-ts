@@ -444,8 +444,11 @@ auditMany('faithful', 'the one shared Window-ID UserPort, nonblocking GetMsg/GT_
 auditMany('partial', 'the copied menu code is represented, but no Window-ID menu strip can be attached until _menu set/share is integrated', [
   '_wnd id event next menu',
 ])
-auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
-  '_wnd id mouse', '_wnd id set mouse pos',
+auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership is not exposed end to end', [
+  '_wnd id mouse',
+])
+auditMany('faithful', 'the input.device pixel-position event is folded into the shared input pointer with Window-relative coordinates', [
+  '_wnd id set mouse pos',
 ])
 auditMany('partial', 'bar, patterned area-fill, flood, scrolling and AMOS Bob images use the same Window-ID shared-RastPort adapter; fill operations use worker-sized transient scratch raster ownership, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
   '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',

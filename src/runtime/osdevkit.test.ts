@@ -691,4 +691,14 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     ].join('\n')
     expect(run(source).output).toBe('-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 0\t 0\t 0\n')
   })
+
+  it('warps the shared input pointer relative to a Window-ID', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,12,7,30,16,0,0,0,"Mouse"',
+      '_wnd id set mouse pos 3,5,4 : Print _scr id x mouse(1),_scr id y mouse(1)',
+      '_wnd id close 3 : _scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe(' 17\t 11\n')
+  })
 })
