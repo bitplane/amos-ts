@@ -339,6 +339,8 @@ export interface LdosState {
   eoln: number
   /** the single Ldevice channel: the IORequest at +$298 and its port at +$2c8 */
   device: LdosDevice | null
+  /** the static workspace MsgPort at +$2c8; RemPort does not free its signal */
+  devicePort: number
 }
 
 /**
@@ -351,12 +353,14 @@ export interface LdosDevice {
   flags: number
   /** io_Error at `$1f(a1)`, which `=Ldevice Error` reads as an unsigned byte */
   error: number
+  /** the native reply MsgPort, allocated from the runtime-wide Exec service */
+  port: number
   serial?: SerialPortHandle
 }
 
 export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, freqDir: '', freqFile: '', freqX: 3, freqY: 11,
   freqDevWidth: 12, freqFileWidth: 30, freqFiles: 14, freqFontSize: 0, ansiPending: '', devices: null,
-  hicol: true, ansiBright: 0, eoln: 10, device: null })
+  hicol: true, ansiBright: 0, eoln: 10, device: null, devicePort: 0 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -523,7 +527,9 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
      * error.
      */
     'ldevice close'() {
-      rt.ldos.device?.serial?.close()
+      const device = rt.ldos.device
+      device?.serial?.close()
+      if (device) rt.exec.messages.remPort(device.port)
       rt.ldos.device = null
     },
 
@@ -1140,7 +1146,16 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
         serial = rt.host?.serial?.open(unit, DEV_SERIAL_DEFAULTS) ?? undefined
         if (!serial) return VI(-1)
       }
-      st.device = { name, unit, flags, error: 0, ...(serial ? { serial } : {}) }
+      if (st.devicePort === 0) {
+        st.devicePort = rt.exec.messages.createPort()
+        if (st.devicePort === 0) {
+          serial?.close()
+          return VI(-1)
+        }
+      }
+      const port = st.devicePort
+      rt.exec.messages.addPort(port)
+      st.device = { name, unit, flags, error: 0, port, ...(serial ? { serial } : {}) }
       return VI(0)
     },
 
@@ -1850,6 +1865,8 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
        */
       const commands = str(a[0] ?? VS(''))
       const window = str(a[1] ?? VS(''))
+      const port = rt.exec.messages.createPort('ldos')
+      if (port !== 0) rt.exec.messages.addPort(port)
       // `Write(commands)` then 24 bytes at $359f, byte for byte
       rt.vfs?.writeFile('t:ld.t', latin1(commands + 't:sig_ldos\nEndCli >NIL:\n'))
       // "NewCli " at $3502 runs straight into the window string at $3509
@@ -1857,6 +1874,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
         command: `NewCli ${window} from t:ld.t`,
         io: { input: null, output: null },
       })
+      if (port !== 0) rt.exec.messages.deletePort(port)
       return VI(0)
     },
     'lexecute'(_, a) {
