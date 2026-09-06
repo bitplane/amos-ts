@@ -30,7 +30,7 @@ import {
 import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
-import type { RastPort } from '../amiga/graphics'
+import { scrollRaster, type RastPort } from '../amiga/graphics'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -621,11 +621,46 @@ function syncNativeRastPort(rt: Runtime, raster: NativeRaster, rp: RastPort): vo
   rp.drawMode = structRead(rt, raster.rp + 28, 1, false)
   rp.linePtrn = structRead(rt, raster.rp + 34, 2, false)
   rp.outline = (structRead(rt, raster.rp + 32, 2, false) & 8) !== 0
+  rp.cpX = structRead(rt, raster.rp + 36, 2, true)
+  rp.cpY = structRead(rt, raster.rp + 38, 2, true)
+  rp.font = rt.osdevkit.fonts.get(structRead(rt, raster.rp + 52, 4, false) >>> 0)?.font ?? null
   const pattern = structRead(rt, raster.rp + 8, 4, false) >>> 0
   if (pattern === 0) rp.areaPtrn = null
   else {
     const size = Math.max(0, Math.min(4, structRead(rt, raster.rp + 29, 1, true)))
     rp.areaPtrn = Uint16Array.from({ length: 1 << (size + 1) }, (_, i) => structRead(rt, pattern + i * 2, 2, false))
+  }
+}
+
+function writeNativeRastPort(rt: Runtime, raster: NativeRaster, rp: RastPort, ox = 0, oy = 0): void {
+  structWrite(rt, raster.rp + 36, 2, rp.cpX - ox)
+  structWrite(rt, raster.rp + 38, 2, rp.cpY - oy)
+}
+
+/** Borrow the selected managed Screen-ID's one shared drawing backend. */
+function withScreenRastPort<T>(rt: Runtime, state: OsDevKitState, draw: (rp: RastPort) => T): T | undefined {
+  const raster = currentScreenRaster(rt, state); const screen = currentScreen(rt, state)
+  if (!raster || !screen) return undefined
+  syncNativeRastPort(rt, raster, screen.rp)
+  try { return draw(screen.rp) } finally { writeNativeRastPort(rt, raster, screen.rp) }
+}
+
+/** Borrow a screen RastPort for a Window-ID without leaking its private state. */
+function withWindowRastPort<T>(rt: Runtime, state: OsDevKitState, draw: (rp: RastPort, ox: number, oy: number, window: Window) => T): T | undefined {
+  const target = currentWindowTarget(rt, state)
+  if (!target) return undefined
+  const screen = rt.screens.get(target.window.screenSlot)
+  if (!screen) return undefined
+  const saved = screen.rp.snapshot()
+  syncNativeRastPort(rt, target.raster, screen.rp)
+  screen.rp.cpX += target.ox; screen.rp.cpY += target.oy
+  screen.rp.clip = {
+    x1: target.ox, y1: target.oy,
+    x2: target.ox + target.window.width - 1, y2: target.oy + target.window.height - 1,
+  }
+  try { return draw(screen.rp, target.ox, target.oy, target.window) } finally {
+    writeNativeRastPort(rt, target.raster, screen.rp, target.ox, target.oy)
+    screen.rp.restore(saved)
   }
 }
 
@@ -1286,16 +1321,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       else it.evalInt()
     },
     '_scr id cls'(it) {
-      const pen = it.evalInt(); const raster = currentScreenRaster(rt, st())
-      if (!raster) return
-      const old = structRead(rt, raster.rp + 25, 1, false); structWrite(rt, raster.rp + 25, 1, pen)
-      // SetRast fills the BitMap itself and therefore ignores the RastPort's
-      // clipping layer, unlike the drawing calls around it.
-      for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) nativePutColor(rt, raster, x, y, pen, true)
-      structWrite(rt, raster.rp + 25, 1, old)
+      const pen = it.evalInt()
+      withScreenRastPort(rt, st(), rp => rp.setRast(pen))
     },
     '_scr id plot'(it) {
-      const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st()); if (raster) nativePlot(rt, raster, x!, y!)
+      const [x, y] = readArgs(it, 2); withScreenRastPort(rt, st(), rp => rp.plot(x!, y!))
     },
     '_scr id set line'(it) {
       const raster = currentScreenRaster(rt, st()); if (raster) structWrite(rt, raster.rp + 34, 2, it.evalInt())
@@ -1303,21 +1333,19 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_scr id rect'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
-      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); const raster = currentScreenRaster(rt, st())
-      if (raster) { nativeDraw(rt, raster, x1, y1, x2, y1); nativeDraw(rt, raster, x2, y1, x2, y2); nativeDraw(rt, raster, x2, y2, x1, y2); nativeDraw(rt, raster, x1, y2, x1, y1) }
+      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      withScreenRastPort(rt, st(), rp => { rp.draw(x1, y1, x2, y1); rp.draw(x2, y1, x2, y2); rp.draw(x2, y2, x1, y2); rp.draw(x1, y2, x1, y1) })
     },
     '_scr id line to'(it) {
-      const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st())
-      if (raster) nativeDraw(rt, raster, structRead(rt, raster.rp + 36, 2, true), structRead(rt, raster.rp + 38, 2, true), x!, y!)
+      const [x, y] = readArgs(it, 2); withScreenRastPort(rt, st(), rp => rp.draw(rp.cpX, rp.cpY, x!, y!))
     },
     '_scr id line'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
-      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); const raster = currentScreenRaster(rt, st())
-      if (raster) nativeDraw(rt, raster, x1, y1, x2, y2)
+      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      withScreenRastPort(rt, st(), rp => rp.draw(x1, y1, x2, y2))
     },
     '_scr id ellipse'(it) {
-      const [x, y, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st())
-      if (raster) nativeEllipse(rt, raster, x!, y!, rx!, ry!)
+      const [x, y, rx, ry] = readArgs(it, 4); withScreenRastPort(rt, st(), rp => rp.ellipse(x!, y!, rx!, ry!))
     },
     '_scr id gr locate'(it) {
       const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st())
@@ -1325,8 +1353,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_scr id text'(it) {
       const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr()
-      const raster = currentScreenRaster(rt, st()); if (!raster) return
-      structWrite(rt, raster.rp + 36, 2, x); structWrite(rt, raster.rp + 38, 2, y); drawNativeText(rt, st(), raster.rp, value)
+      withScreenRastPort(rt, st(), rp => rp.text(x, y, value))
     },
     '_scr id set paint'(it) { const raster = currentScreenRaster(rt, st()); const value = it.evalInt(); if (raster) structWrite(rt, raster.rp + 32, 1, value ? 0x08 : 0) },
     '_scr id pattern off'() { const raster = currentScreenRaster(rt, st()); if (raster) structWrite(rt, raster.rp + 8, 4, 0) },
@@ -1337,37 +1364,24 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr id set high pattern'(it) { setFillPattern(st(), true, readArgs(it, 8)) },
     '_scr id bar'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
-      const raster = currentScreenRaster(rt, st()); if (!raster) return
-      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativeFillColor(rt, raster, x, y)
+      withScreenRastPort(rt, st(), rp => rp.areaRectFill(x1, y1, x2, y2))
     },
     '_scr id fill ellipse'(it) {
-      const [cx, cy, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st()); const screen = currentScreen(rt, st())
-      if (!raster || !screen) return
-      syncNativeRastPort(rt, raster, screen.rp)
-      withTemporaryRaster(st(), screen.width, screen.height, () => screen.rp.ellipse(cx!, cy!, rx!, ry!, screen.rp.fgPen, true))
+      const [cx, cy, rx, ry] = readArgs(it, 4)
+      withScreenRastPort(rt, st(), rp => withTemporaryRaster(st(), rp.width, rp.height, () => rp.ellipse(cx!, cy!, rx!, ry!, rp.fgPen, true)))
     },
     '_scr id paint'(it) {
-      const [x, y, mode] = readArgs(it, 3); const raster = currentScreenRaster(rt, st()); const screen = currentScreen(rt, st())
-      if (!raster || !screen) return
-      syncNativeRastPort(rt, raster, screen.rp)
-      withTemporaryRaster(st(), screen.width, screen.height, () => screen.rp.flood(mode!, x!, y!))
+      const [x, y, mode] = readArgs(it, 3)
+      withScreenRastPort(rt, st(), rp => withTemporaryRaster(st(), rp.width, rp.height, () => rp.flood(mode!, x!, y!)))
     },
     '_scr id scroll'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
-      const raster = currentScreenRaster(rt, st()); if (!raster) return
-      const left = Math.min(x1, x2); const top = Math.min(y1, y2); const width = Math.abs(x2 - x1) + 1; const height = Math.abs(y2 - y1) + 1
-      const pixels = Array.from({ length: width * height }, (_, i) => nativePoint(rt, raster, left + i % width, top + Math.floor(i / width)))
-      const back = structRead(rt, raster.rp + 26, 1, false)
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) nativePutColor(rt, raster, left + x, top + y, back)
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        const tx = x - dx; const ty = y - dy
-        if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, raster, left + tx, top + ty, pixels[y * width + x]!)
-      }
+      withScreenRastPort(rt, st(), rp => scrollRaster(rp, dx, dy, x1, y1, x2, y2))
     },
     '_scr id put bob'(it) {
       const [number, x, y] = readArgs(it, 3)
-      const screen = currentScreen(rt, st()); const image = number! > 0 ? rt.spriteBank?.image(number!) : undefined
-      if (screen && image) blitToRastPort(screen.rp, image, x!, y!, true)
+      const image = number! > 0 ? rt.spriteBank?.image(number!) : undefined
+      if (image) withScreenRastPort(rt, st(), rp => blitToRastPort(rp, image, x!, y!, true))
     },
     /** Window-ID lifecycle, workers 3042-3047, over Intuition and shared native graphics. */
     '_wnd id open'(it) {
@@ -1415,84 +1429,61 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd id gr writing'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 28, 1, value) },
     '_wnd id set line'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 34, 2, value) },
-    '_wnd id plot'(it) { const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st()); if (t) nativePlot(rt, t.raster, t.ox + x!, t.oy + y!) },
+    '_wnd id plot'(it) { const [x, y] = readArgs(it, 2); withWindowRastPort(rt, st(), (rp, ox, oy) => rp.plot(ox + x!, oy + y!)) },
     '_wnd id gr locate'(it) {
       const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st())
       if (t) { structWrite(rt, t.raster.rp + 36, 2, x!); structWrite(rt, t.raster.rp + 38, 2, y!) }
     },
     '_wnd id line to'(it) {
-      const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st()); if (!t) return
-      const fromX = structRead(rt, t.raster.rp + 36, 2, true); const fromY = structRead(rt, t.raster.rp + 38, 2, true)
-      nativeDraw(rt, t.raster, t.ox + fromX, t.oy + fromY, t.ox + x!, t.oy + y!)
-      structWrite(rt, t.raster.rp + 36, 2, x!); structWrite(rt, t.raster.rp + 38, 2, y!)
+      const [x, y] = readArgs(it, 2)
+      withWindowRastPort(rt, st(), (rp, ox, oy) => rp.draw(rp.cpX, rp.cpY, ox + x!, oy + y!))
     },
     '_wnd id line'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
-      const t = currentWindowTarget(rt, st()); if (!t) return
-      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y1, t.ox + x2, t.oy + y2)
-      structWrite(rt, t.raster.rp + 36, 2, x2); structWrite(rt, t.raster.rp + 38, 2, y2)
+      withWindowRastPort(rt, st(), (rp, ox, oy) => rp.draw(ox + x1, oy + y1, ox + x2, oy + y2))
     },
     '_wnd id rect'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
-      const t = currentWindowTarget(rt, st()); if (!t) return
-      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y1, t.ox + x2, t.oy + y1)
-      nativeDraw(rt, t.raster, t.ox + x2, t.oy + y1, t.ox + x2, t.oy + y2)
-      nativeDraw(rt, t.raster, t.ox + x2, t.oy + y2, t.ox + x1, t.oy + y2)
-      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y2, t.ox + x1, t.oy + y1)
+      withWindowRastPort(rt, st(), (rp, ox, oy) => {
+        rp.draw(ox + x1, oy + y1, ox + x2, oy + y1); rp.draw(ox + x2, oy + y1, ox + x2, oy + y2)
+        rp.draw(ox + x2, oy + y2, ox + x1, oy + y2); rp.draw(ox + x1, oy + y2, ox + x1, oy + y1)
+      })
     },
-    '_wnd id ellipse'(it) { const [x, y, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (t) nativeEllipse(rt, t.raster, t.ox + x!, t.oy + y!, rx!, ry!) },
+    '_wnd id ellipse'(it) { const [x, y, rx, ry] = readArgs(it, 4); withWindowRastPort(rt, st(), (rp, ox, oy) => rp.ellipse(ox + x!, oy + y!, rx!, ry!)) },
     '_wnd id cls'(it) {
-      const pen = it.evalInt(); const t = currentWindowTarget(rt, st()); if (!t) return
-      for (let y = 0; y < t.window.height; y++) for (let x = 0; x < t.window.width; x++) nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
+      const pen = it.evalInt()
+      withWindowRastPort(rt, st(), (rp, ox, oy, window) => {
+        rp.rectFillReplace(ox, oy, ox + window.width - 1, oy + window.height - 1, pen)
+      })
     },
     '_wnd id bar'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
-      const t = currentWindowTarget(rt, st()); if (!t) return
-      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativeFillColor(rt, t.raster, t.ox + x, t.oy + y)
+      withWindowRastPort(rt, st(), (rp, ox, oy) => rp.areaRectFill(ox + x1, oy + y1, ox + x2, oy + y2))
     },
     '_wnd id fill ellipse'(it) {
-      const [cx, cy, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (!t || rx! <= 0 || ry! <= 0) return
-      const screen = rt.screens.get(t.window.screenSlot); if (!screen) return
-      const saved = screen.rp.snapshot(); syncNativeRastPort(rt, t.raster, screen.rp)
-      screen.rp.clip = { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 }
-      try {
-        withTemporaryRaster(st(), t.window.width, t.window.height, () =>
-          screen.rp.ellipse(t.ox + cx!, t.oy + cy!, rx!, ry!, screen.rp.fgPen, true))
-      } finally { screen.rp.restore(saved) }
+      const [cx, cy, rx, ry] = readArgs(it, 4); if (rx! <= 0 || ry! <= 0) return
+      withWindowRastPort(rt, st(), (rp, ox, oy, window) => {
+        return withTemporaryRaster(st(), window.width, window.height, () => rp.ellipse(ox + cx!, oy + cy!, rx!, ry!, rp.fgPen, true))
+      })
     },
     '_wnd id paint'(it) {
-      const [sx, sy, mode] = readArgs(it, 3); const t = currentWindowTarget(rt, st()); if (!t) return
-      const screen = rt.screens.get(t.window.screenSlot); if (!screen) return
-      const saved = screen.rp.snapshot(); syncNativeRastPort(rt, t.raster, screen.rp)
-      screen.rp.clip = { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 }
-      try {
-        withTemporaryRaster(st(), t.window.width, t.window.height, () => screen.rp.flood(mode!, t.ox + sx!, t.oy + sy!))
-      } finally { screen.rp.restore(saved) }
+      const [sx, sy, mode] = readArgs(it, 3)
+      withWindowRastPort(rt, st(), (rp, ox, oy, window) => {
+        return withTemporaryRaster(st(), window.width, window.height, () => rp.flood(mode!, ox + sx!, oy + sy!))
+      })
     },
     '_wnd id scroll'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
-      const t = currentWindowTarget(rt, st()); if (!t) return
-      const left = Math.min(x1, x2); const top = Math.min(y1, y2); const width = Math.abs(x2 - x1) + 1; const height = Math.abs(y2 - y1) + 1
-      const pixels = Array.from({ length: width * height }, (_, i) => nativePoint(rt, t.raster, t.ox + left + i % width, t.oy + top + Math.floor(i / width)))
-      const back = structRead(rt, t.raster.rp + 26, 1, false)
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) nativePutColor(rt, t.raster, t.ox + left + x, t.oy + top + y, back)
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        const tx = x - dx; const ty = y - dy
-        if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, t.raster, t.ox + left + tx, t.oy + top + ty, pixels[y * width + x]!)
-      }
+      withWindowRastPort(rt, st(), (rp, ox, oy) => scrollRaster(rp, dx, dy, ox + x1, oy + y1, ox + x2, oy + y2))
     },
     '_wnd id put bob'(it) {
-      const [number, x, y] = readArgs(it, 3); const t = currentWindowTarget(rt, st())
-      const screen = t ? rt.screens.get(t.window.screenSlot) : undefined
+      const [number, x, y] = readArgs(it, 3)
       const image = number! > 0 ? rt.spriteBank?.image(number!) : undefined
-      if (t && screen && image) blitToRastPort(
-        screen.rp, image, t.ox + x!, t.oy + y!, true, -1, true,
-        { x1: t.ox, y1: t.oy, x2: t.ox + t.window.width - 1, y2: t.oy + t.window.height - 1 },
-      )
+      if (image) withWindowRastPort(rt, st(), (rp, ox, oy) => blitToRastPort(rp, image, ox + x!, oy + y!, true))
     },
     '_wnd id text'(it) {
-      const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr(); const t = currentWindowTarget(rt, st())
-      if (t) { structWrite(rt, t.raster.rp + 36, 2, x); structWrite(rt, t.raster.rp + 38, 2, y); drawNativeText(rt, st(), t.raster.rp, value, t.ox, t.oy) }
+      const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr()
+      withWindowRastPort(rt, st(), (rp, ox, oy) => rp.text(ox + x, oy + y, value))
     },
     '_wnd id set paint'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 32, 1, value ? 0x08 : 0) },
     '_wnd id pattern off'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 0) },
@@ -1881,12 +1872,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_scr id get aga pal'(_, a) { return VI(screenRgb24(rt, st(), n(a, 0))) },
     '_scr id aga colour'(_, a) { return VI(screenRgb24(rt, st(), n(a, 0))) },
-    '_scr id point'(_, a) {
-      const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)
-    },
+    '_scr id point'(_, a) { return VI(withScreenRastPort(rt, st(), rp => rp.point(n(a, 0), n(a, 1))) ?? -1) },
     '_wnd id base'(_, a) { return VI(st().windowIds.base(n(a, 0))) },
     '_wnd id in use'() { return VI(st().windowIds.currentId) },
-    '_wnd id point'(_, a) { const t = currentWindowTarget(rt, st()); return VI(t ? nativePoint(rt, t.raster, t.ox + n(a, 0), t.oy + n(a, 1)) : -1) },
+    '_wnd id point'(_, a) { return VI(withWindowRastPort(rt, st(), (rp, ox, oy) => rp.point(ox + n(a, 0), oy + n(a, 1))) ?? -1) },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
       if (address !== 0) st().colorMaps.set(address, map)

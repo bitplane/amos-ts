@@ -570,6 +570,20 @@ export class RastPort {
     for (let y = yLo; y <= yHi; y++) this.hline(x1, x2, y, c)
   }
 
+  /** AreaFill a rectangle, applying rp_AreaPtrn and the background pen. */
+  areaRectFill(x1: number, y1: number, x2: number, y2: number, c = this.fgPen): void {
+    if (x1 > x2) [x1, x2] = [x2, x1]
+    if (y1 > y2) [y1, y2] = [y2, y1]
+    for (let y = Math.max(0, y1); y <= Math.min(this.height - 1, y2); y++) this.areaHline(x1, x2, y, c)
+  }
+
+  /** A solid, clipped rectangle that ignores draw mode but honours rp_Mask. */
+  rectFillReplace(x1: number, y1: number, x2: number, y2: number, c = this.fgPen): void {
+    if (x1 > x2) [x1, x2] = [x2, x1]
+    if (y1 > y2) [y1, y2] = [y2, y1]
+    for (let y = Math.max(0, y1); y <= Math.min(this.height - 1, y2); y++) this.hlineReplace(x1, x2, y, c)
+  }
+
   /**
    * Draw — a line from (x1,y1) to (x2,y2), leaving the graphics cursor at
    * the far end.

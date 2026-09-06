@@ -637,9 +637,11 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
       '_wnd id text 1,8,"abc" : Print _rp what xgr(_struct long(_wnd id base(3),50))',
       '_wnd id set paint 1 : _wnd id pattern on : _wnd id pattern off',
       '_wnd id set low pattern 1,2,3,4,5,6,7,8 : _wnd id set high pattern 9,10,11,12,13,14,15,16',
-      '_wnd id ink 2,0,1 : _wnd id paint 20,10,0 : _wnd id scroll 0,0 To 8,8,1,0',
+      '_wnd id ink 7,4,1 : _wnd id paint 20,10,0 : _wnd id scroll 0,0 To 8,8,1,0',
       '_wnd id close 3 : _scr id close 1',
     ].join('\n')
-    expect(run(source).output).toBe(' 3\n 3\n 25\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 3\n 3\n 25\n')
+    expect(rt.screen.rp.snapshot()).toMatchObject({ fgPen: 2, bgPen: 1, drawMode: 1, cpX: 0, cpY: 0 })
   })
 })

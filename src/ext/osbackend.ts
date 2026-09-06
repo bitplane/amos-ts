@@ -368,7 +368,7 @@ auditMany('partial', 'the selected Screen-ID shares ECS/AGA palette state and ca
 auditMany('partial', 'Screen-ID mouse reads and positioning share display offsets and resolution conversion; positioning updates host input directly rather than delivering an input.device event', [
   '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
 ])
-auditMany('partial', 'the selected Screen-ID draws, patterned area-fills, floods and pastes AMOS Bob images through its shared native RastPort; scratch raster allocation follows the worker, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
+auditMany('partial', 'the selected Screen-ID routes drawing, text, scrolling, patterned area-fill, flood and AMOS Bob images through the shared RastPort; scratch raster allocation follows the worker, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
   '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',
   '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse', '_scr id gr locate',
   '_scr id set paint', '_scr id pattern on', '_scr id pattern off', '_scr id set low pattern',
@@ -420,7 +420,7 @@ auditMany('faithful', 'the selected Window/RastPort query delegates to the exact
   '_wnd id right bdr', '_wnd id inner width', '_wnd id inner height', '_wnd id inner x mouse',
   '_wnd id inner y mouse',
 ])
-auditMany('faithful', 'the Window-ID wrapper selects the exact managed RastPort primitive; both private eight-word pattern arrays are retained', [
+auditMany('faithful', 'one Window-ID adapter synchronizes native state, coordinates and clipping around the shared RastPort primitive; both private eight-word pattern arrays are retained', [
   '_wnd id plot', '_wnd id rect', '_wnd id line to', '_wnd id line', '_wnd id ellipse', '_wnd id cls',
   '_wnd id ink', '_wnd id gr writing', '_wnd id text', '_wnd id gr locate', '_wnd id set paint',
   '_wnd id pattern on', '_wnd id pattern off', '_wnd id set low pattern', '_wnd id set high pattern',
@@ -436,7 +436,7 @@ auditMany('partial', 'message fields are represented, but blocking/filtering the
 auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
   '_wnd id mouse', '_wnd id set mouse pos',
 ])
-auditMany('partial', 'bar, patterned area-fill, flood, scrolling and AMOS Bob images share the selected native Window-ID target; fill operations use worker-sized transient scratch raster ownership, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
+auditMany('partial', 'bar, patterned area-fill, flood, scrolling and AMOS Bob images use the same Window-ID shared-RastPort adapter; fill operations use worker-sized transient scratch raster ownership, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
   '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
 ])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
