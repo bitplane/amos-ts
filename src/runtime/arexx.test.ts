@@ -51,6 +51,15 @@ describe('Arexx Open', () => {
     expect(run('Print Arexx Exist("MYPORT") : Arexx Open "MYPORT" : Print Arexx Exist("MYPORT")')).toBe('0\n-1')
   })
 
+  it('registers on the runtime-wide native Exec port list', () => {
+    const b = boot('Arexx Open "MYPORT" : Wait Vbl')
+    b.rt.frame()
+    const port = b.rt.exec.messages.findPort('MYPORT')
+    expect(port).not.toBe(0)
+    expect(b.rt.rexx.post('MYPORT', rexxMessage('PING'))).toBe(true)
+    expect(b.rt.exec.messages.pending(port)).toBe(1)
+  })
+
   it('and names are case-sensitive, as exec FindPort is', () => {
     expect(run('Arexx Open "MYPORT" : Print Arexx Exist("myport")')).toBe('0')
   })

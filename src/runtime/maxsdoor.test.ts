@@ -138,8 +138,9 @@ describe('MAXS Door 0.20 — with no BBS running', () => {
 describe('MAXS Door 0.20 — the protocol', () => {
   it('M_Portopen finds the port and answers non-zero', () => {
     const b = bbs()
-    run('Print M_Portopen(1)', b)
-    expect(out()).toBe('-1')
+    const rt = run('Print M_Portopen(1)', b)
+    expect(Number(out())).toBe(rt.maxsDoor.reply)
+    expect(rt.maxsDoor.reply).toBeGreaterThan(0)
   })
 
   it('a node the BBS did not publish still finds nothing', () => {

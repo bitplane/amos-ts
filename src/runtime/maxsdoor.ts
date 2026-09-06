@@ -104,14 +104,14 @@ export interface MaxsDoorState {
   msg: Uint8Array
   /** `MAXDoorPort` — what `FindPort` returned, or null */
   door: PortHandle | null
-  /** `MyReplyPort` — `CreatePort(NULL,NULL)`, which cannot fail here */
-  reply: boolean
+  /** `MyReplyPort` — the mapped port returned by `CreatePort(NULL,NULL)` */
+  reply: number
   /** the name `M_PortOpen` looked up, kept so a test can read it back */
   name: string
 }
 
 export function newMaxsDoorState(): MaxsDoorState {
-  return { msg: new Uint8Array(DOOR_MSG_LENGTH), door: null, reply: false, name: '' }
+  return { msg: new Uint8Array(DOOR_MSG_LENGTH), door: null, reply: 0, name: '' }
 }
 
 export function makeMaxsDoorFunctions(rt: Runtime): Record<string, Func> {
@@ -210,20 +210,22 @@ export function makeMaxsDoorFunctions(rt: Runtime): Record<string, Func> {
       const s = st()
       s.msg.fill(0)
       s.door = null
-      s.reply = false
+      s.reply = 0
       const node = int(a[0]!)
       s.name = DOOR_PORT_NAME + String.fromCharCode((node + 48) & 0xff)
       const found = rt.host.ports?.find?.(s.name)
       if (!found) return VI(0)
       s.door = found
-      s.reply = true
+      s.reply = rt.exec.messages.createPort()
+      if (s.reply === 0) {
+        s.door = null
+        return VI(0)
+      }
       // NT_MESSAGE is 5 (exec/nodes.i), at the Node's ln_Type byte
       s.msg[0x08] = 5
       w(0x12, DOOR_MSG_LENGTH)
-      // the reply port's address, which is the value the routine leaves in
-      // d0. There are no addresses for exec structures here, so this is the
-      // truth a program tests -- non-zero means the port opened
-      return VI(-1)
+      // The routine really leaves the CreatePort result in d0.
+      return VI(s.reply)
     },
 
     /**
@@ -240,7 +242,8 @@ export function makeMaxsDoorFunctions(rt: Runtime): Record<string, Func> {
       w(DOOR_COMMAND, 20)
       send()
       s.door = null
-      s.reply = false
+      if (s.reply !== 0) rt.exec.messages.deletePort(s.reply)
+      s.reply = 0
       return VI(0)
     },
 

@@ -1535,7 +1535,7 @@ export class Runtime {
    * them. Public so a host can drive an AMOS program from outside: register
    * nothing and `post` to the port the program opened. See amiga/rexx.ts.
    */
-  rexx = new RexxPorts()
+  rexx = new RexxPorts(this.exec.messages)
   /** the core Arexx family's own port and the message it is holding */
   arexx: { port: string | null; held: RexxMessage | null } = { port: null, held: null }
   /**

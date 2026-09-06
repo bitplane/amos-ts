@@ -202,7 +202,8 @@ export interface Host {
    */
   process?: ProcessHost
   /**
-   * A public exec message port another task published, found by name.
+   * Gateway to a public Exec message port owned by a task outside this
+   * runtime, found by name.
    *
    * One caller so far and it is a whole extension: MAXS Door Handler 0.20's
    * `M_PortOpen(node)` does `FindPort("DoorControlN")` and every one of its
@@ -212,6 +213,11 @@ export interface Host {
    * extension's author specified completely, since every routine tests
    * `MAXDoorPort` for zero and returns zero without sending.
    *
+   * This is deliberately not the runtime's public-port registry: native
+   * ports owned by emulated code use the shared ExecSystem. This adapter is
+   * only for an external peer which cannot put a native message into mapped
+   * memory or be scheduled to reply yet.
+   *
    * The name is the whole address, as `FindPort` takes it. `send` gets the
    * message BYTES and replies in place, because that is what a reply is here:
    * the sender's own 106 bytes come back with `Command` and `Data` written
@@ -220,7 +226,7 @@ export interface Host {
   ports?: PortHost
 }
 
-/** Public message ports, by the name `FindPort` looks them up under. */
+/** External public-message-port gateways, by the name `FindPort` uses. */
 export interface PortHost {
   /** `FindPort(name)` — undefined when no task has published that name */
   find?(name: string): PortHandle | undefined

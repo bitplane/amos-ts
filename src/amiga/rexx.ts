@@ -26,6 +26,7 @@
  * sends to the port the program opened, and `open` is public so a host can
  * register `REXX` itself and answer commands.
  */
+import { ExecMessageSystem } from './osmessage'
 
 /** `rm_Action` bit: the sender wants a result string back, not just a code */
 export const RXFF_RESULT = 1 << 17
@@ -65,11 +66,14 @@ export function rexxMessage(command: string, wantsResult = false): RexxMessage {
  * script addressing "MYPORT".
  */
 export class RexxPorts {
-  private readonly ports = new Map<string, RexxMessage[]>()
+  private readonly ports = new Map<string, number>()
+  private readonly messages = new Map<number, RexxMessage>()
+
+  constructor(private readonly exec = new ExecMessageSystem()) {}
 
   /** `FindPort` — whether a port of this name is registered */
   exists(name: string): boolean {
-    return this.ports.has(name)
+    return this.exec.findPort(name) !== 0
   }
 
   /**
@@ -79,13 +83,23 @@ export class RexxPorts {
    * and the one both libraries' error arms are written for.
    */
   open(name: string): boolean {
-    if (this.ports.has(name)) return false
-    this.ports.set(name, [])
+    if (this.exec.findPort(name) !== 0) return false
+    const port = this.exec.createPort(name)
+    if (port === 0) return false
+    this.exec.addPort(port)
+    this.ports.set(name, port)
     return true
   }
 
   /** `RemPort` — and anything still queued goes with it, unanswered */
   close(name: string): void {
+    const port = this.ports.get(name)
+    if (port === undefined) return
+    for (let message = this.exec.getMsg(port); message !== 0; message = this.exec.getMsg(port)) {
+      this.messages.delete(message)
+      this.exec.memory.free(message)
+    }
+    this.exec.deletePort(port)
     this.ports.delete(name)
   }
 
@@ -94,20 +108,29 @@ export class RexxPorts {
    * This is the seam a host drives an AMOS program through.
    */
   post(name: string, msg: RexxMessage): boolean {
-    const q = this.ports.get(name)
-    if (!q) return false
-    q.push(msg)
+    const port = this.exec.findPort(name)
+    if (port === 0) return false
+    const message = this.exec.allocMessage()
+    this.messages.set(message, msg)
+    this.exec.putMsg(port, message)
     return true
   }
 
   /** `GetMsg` — take the next message, or null when the port is quiet */
   take(name: string): RexxMessage | null {
-    return this.ports.get(name)?.shift() ?? null
+    const port = this.exec.findPort(name)
+    if (port === 0) return null
+    const message = this.exec.getMsg(port)
+    if (message === 0) return null
+    const result = this.messages.get(message) ?? null
+    this.messages.delete(message)
+    this.exec.memory.free(message)
+    return result
   }
 
   /** how many are waiting, for a host that wants to know */
   pending(name: string): number {
-    return this.ports.get(name)?.length ?? 0
+    return this.exec.pending(this.exec.findPort(name))
   }
 
   /** every registered name, for a host listing what a program has opened */
