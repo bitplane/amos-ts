@@ -399,7 +399,7 @@ describe('OS DevKit 1.61 native graphics records', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',
       '_bm set datas B,2,4,2,0 : Loke B+8,P : Loke B+12,P+8',
-      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff : _rp a pen R,3 : _rp dr md R,0',
+      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff : _rp a pen R,3 : _rp b pen R,1 : _rp dr md R,0',
       '_rp plot R,0,0 : Print _rp point(R,0,0),Hex$(Peek(P)),Hex$(Peek(P+8))',
       '_rp dr md R,2 : _rp plot R,0,0 : Print _rp point(R,0,0)',
       '_rp dr md R,0 : _rp rast R,0 : _rp move R,0,0 : _rp draw R,3,0',
