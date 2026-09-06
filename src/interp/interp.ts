@@ -1374,7 +1374,7 @@ export class Interp {
                 }
               }
             }
-            return fn(this, args)
+            return fn(this, args, t)
           }
           if (this.policy === 'skip') {
             // skip mode: consume the arguments without evaluating (some
@@ -2043,4 +2043,3 @@ function binOp(op: string, a: Value, b: Value, double = false): Value {
       throw new AmosError(`unimplemented operator: ${op}`)
   }
 }
-

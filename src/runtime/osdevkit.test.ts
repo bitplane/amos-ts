@@ -147,3 +147,66 @@ describe('OS DevKit 1.61 low-level machine wrappers', () => {
     expect(rt.machine.pendingReset).toEqual({ kind: 'cold', by: '_cold reboot' })
   })
 })
+
+describe('OS DevKit 1.61 Exec List and Node wrappers', () => {
+  it('round-trips every public List and Node field at its native width (workers 1439-1465)', () => {
+    const source = [
+      'L=_lnod alloc : N=_nod alloc(4)',
+      '_lnod set head L,$12345678 : _lnod set tail L,$23456789 : _lnod set type L,$101',
+      '_nod set succ N,$3456789a : _nod set pred N,$456789ab',
+      '_nod set type N,$102 : _nod set pri N,$ff : _nod set name N,$56789abc',
+      'Print Hex$(_lnod what head(L)),Hex$(_lnod what tail(L)),_lnod what type(L)',
+      'Print Hex$(_nod what succ(N)),Hex$(_nod what pred(N)),_nod what type(N),_nod what pri(N)',
+      'Print Hex$(_nod what name(N)),_nod what start(N)-N',
+      '_nod free N : _lnod free L',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      '$12345678\t$23456789\t 1\n$3456789A\t$456789AB\t 2\t-1\n$56789ABC\t 14\n',
+    )
+  })
+
+  it('inserts, removes, searches and priority-enqueues through Exec sentinels', () => {
+    const source = [
+      'L=_lnod alloc : A=_nod alloc(0) : B=_nod alloc(0) : C=_nod alloc(0)',
+      '_nod set pri A,1 : _nod set pri B,3 : _nod set name C,_to str("C")',
+      '_nod h add L,B : _nod h add L,A : _nod ins L,C,A',
+      'Print _lnod what head(L)=A,_nod what succ(A)=C,_nod what pred(C)=A,_lnod what tail(L)=B',
+      'Print _nod find name(L,_nod what name(C))=C',
+      '_nod rem C : _nod t rem L : _nod h rem L',
+      '_nod t add L,A : _nod enqueue L,B : Print _lnod what head(L)=B',
+      '_nod free A : _nod free B : _nod free C : _lnod free L',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t-1\t-1\n-1\n-1\n')
+  })
+})
+
+describe('OS DevKit 1.61 channel records', () => {
+  it('round-trips all list and private data-header fields (workers 1122-1137)', () => {
+    const source = [
+      'L=_chn list alloc(3) : A=_chn add(L)',
+      '_chn set number L,7 : _chn set default L,8 : _chn set first L,$12345678 : _chn set last L,$23456789',
+      '_chn set list A,$3456789a : _chn set length A,9',
+      '_chn set next A,$456789ab : _chn set previous A,$56789abc',
+      'Print _chn what number(L),_chn what default(L),Hex$(_chn what first(L)),Hex$(_chn what last(L))',
+      'Print Hex$(_chn what list(A)),_chn what length(A),Hex$(_chn what next(A)),Hex$(_chn what previous(A))',
+      '_mem free A-24,27 : _mem free L,16',
+    ].join('\n')
+    expect(run(source).output).toBe(
+      ' 7\t 8\t$12345678\t$23456789\n$3456789A\t 9\t$456789AB\t$56789ABC\n',
+    )
+  })
+
+  it('adds, inserts, locates, finds and frees linked channel allocations', () => {
+    const source = [
+      'L=_chn list alloc(3) : A=_chn add(L) : C=_chn add(L,5)',
+      'B=_chn ins(C,4)',
+      'Print _chn what number(L),_chn location(B),_chn find(L,2)=B',
+      'D=_chn ins(L To 2) : Print _chn what length(D),_chn location(D)',
+      'E=_chn ins(L,6 To 3) : Print _chn what length(E),_chn location(E)',
+      '_chn swap A,C : _chn free L,2 : _chn free A',
+      'Print _chn what number(L)',
+      '_chn list free L',
+    ].join('\n')
+    expect(run(source).output).toBe(' 3\t 2\t-1\n 3\t 2\n 6\t 3\n 3\n')
+  })
+})

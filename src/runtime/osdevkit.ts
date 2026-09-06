@@ -46,6 +46,128 @@ const set32 = (st: OsDevKitState, address: number, value: number): void => {
   b[at + 2] = value >>> 8
   b[at + 3] = value
 }
+const get8 = (st: OsDevKitState, address: number): number => st.memory.buffer[offset(st, address)] ?? 0
+const set8 = (st: OsDevKitState, address: number, value: number): void => {
+  st.memory.buffer[offset(st, address)] = value
+}
+
+function listInsert(st: OsDevKitState, list: number, node: number, predecessor: number): void {
+  if (list === 0 || node === 0) return
+  const pred = predecessor === 0 ? list : predecessor
+  const succ = get32(st, pred)
+  set32(st, node, succ)
+  set32(st, node + 4, pred)
+  set32(st, pred, node)
+  set32(st, succ + 4, node)
+}
+
+function listRemove(st: OsDevKitState, node: number): void {
+  if (node === 0) return
+  const succ = get32(st, node)
+  const pred = get32(st, node + 4)
+  set32(st, pred, succ)
+  set32(st, succ + 4, pred)
+}
+
+function listRemoveHead(st: OsDevKitState, list: number): number {
+  if (list === 0) return 0
+  const node = get32(st, list)
+  if (node === (list + 4) >>> 0) return 0
+  listRemove(st, node)
+  return node
+}
+
+function listRemoveTail(st: OsDevKitState, list: number): number {
+  if (list === 0) return 0
+  const node = get32(st, list + 8)
+  if (node === (list >>> 0)) return 0
+  listRemove(st, node)
+  return node
+}
+
+function cString(rt: Runtime, address: number): string {
+  if (address === 0) return ''
+  let result = ''
+  for (let at = address >>> 0; ; at++) {
+    const m = rt.resolveAddr(at)
+    if (!m || m.data[m.off] === 0) break
+    result += String.fromCharCode(m.data[m.off]!)
+  }
+  return result
+}
+
+function channelFind(st: OsDevKitState, list: number, position: number): number {
+  if (list === 0 || position <= 0 || position > get32(st, list)) return 0
+  let node = get32(st, list + 8)
+  for (let at = 1; at < position; at++) node = get32(st, node - 12)
+  return node
+}
+
+function channelLocation(st: OsDevKitState, node: number): number {
+  if (node === 0) return 0
+  const list = get32(st, node - 20)
+  let cursor = get32(st, list + 8)
+  for (let position = 1; cursor !== 0; position++, cursor = get32(st, cursor - 12)) {
+    if (cursor === (node >>> 0)) return position
+  }
+  return 0
+}
+
+function channelAdd(st: OsDevKitState, list: number, length: number): number {
+  if (list === 0) return 0
+  const size = Math.max(0, length | 0)
+  const base = st.memory.alloc(size + 24, { clear: true })
+  if (base === 0) return 0
+  const node = (base + 24) >>> 0
+  const previous = get32(st, list + 12)
+  set32(st, node - 24, size)
+  set32(st, node - 20, list)
+  set32(st, node - 16, previous)
+  set32(st, node - 8, previous)
+  set32(st, node - 4, list)
+  set32(st, list, get32(st, list) + 1)
+  set32(st, list + 12, node)
+  if (get32(st, list + 8) === 0) set32(st, list + 8, node)
+  else {
+    set32(st, previous - 12, node)
+    set32(st, previous - 4, node)
+  }
+  return node
+}
+
+function channelInsert(st: OsDevKitState, before: number, length: number): number {
+  if (before === 0) return 0
+  const list = get32(st, before - 20)
+  const previous = get32(st, before - 16)
+  const size = Math.max(0, length | 0)
+  const base = st.memory.alloc(size + 24, { clear: true })
+  if (base === 0) return 0
+  const node = (base + 24) >>> 0
+  set32(st, node - 24, size)
+  set32(st, node - 20, list)
+  set32(st, node - 16, previous)
+  set32(st, node - 12, before)
+  set32(st, node - 8, previous)
+  set32(st, node - 4, before)
+  set32(st, before - 16, node)
+  set32(st, list, get32(st, list) + 1)
+  if (previous === 0) set32(st, list + 8, node)
+  else set32(st, previous - 12, node)
+  return node
+}
+
+function channelFree(st: OsDevKitState, node: number): void {
+  if (node === 0) return
+  const list = get32(st, node - 20)
+  const previous = get32(st, node - 16)
+  const next = get32(st, node - 12)
+  if (previous === 0) set32(st, list + 8, next)
+  else set32(st, previous - 12, next)
+  if (next === 0) set32(st, list + 12, previous)
+  else set32(st, next - 16, previous)
+  set32(st, list, get32(st, list) - 1)
+  st.memory.freeMem((node - 24) >>> 0)
+}
 
 function tagItems(st: OsDevKitState, list: number): Array<{ tag: number; data: number; address: number }> {
   if (list === 0 || list === -0x8000_0000) return st.defaultTags.map((t, i) => ({ ...t, address: 0x50_000000 + i * 8 }))
@@ -201,6 +323,68 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       it.halt('ended')
       return 'jumped'
     },
+    /** workers 1439-1455: native Exec List/Node fields and algorithms. */
+    '_lnod set head'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
+    '_lnod set tail'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 8, it.evalInt()) },
+    '_lnod set type'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 12, it.evalInt()) },
+    '_nod set succ'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
+    '_nod set pred'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 4, it.evalInt()) },
+    '_nod set type'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 8, it.evalInt()) },
+    '_nod set name'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 10, it.evalInt()) },
+    '_nod set pri'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 9, it.evalInt()) },
+    '_lnod free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    '_nod free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    '_nod ins'(it) {
+      const list = it.evalInt(); it.expect(',')
+      const node = it.evalInt(); it.expect(',')
+      listInsert(st(), list, node, it.evalInt())
+    },
+    '_nod rem'(it) { listRemove(st(), it.evalInt()) },
+    '_nod h add'(it) {
+      const list = it.evalInt(); it.expect(','); listInsert(st(), list, it.evalInt(), list)
+    },
+    '_nod h rem'(it) { listRemoveHead(st(), it.evalInt()) },
+    '_nod t add'(it) {
+      const list = it.evalInt(); it.expect(','); listInsert(st(), list, it.evalInt(), get32(st(), list + 8))
+    },
+    '_nod t rem'(it) { listRemoveTail(st(), it.evalInt()) },
+    '_nod enqueue'(it) {
+      const list = it.evalInt(); it.expect(',')
+      const node = it.evalInt()
+      if (list === 0 || node === 0) return
+      const priority = (get8(st(), node + 9) << 24) >> 24
+      let pred = list
+      let cursor = get32(st(), list)
+      while (cursor !== (list + 4) >>> 0 && ((get8(st(), cursor + 9) << 24) >> 24) >= priority) {
+        pred = cursor
+        cursor = get32(st(), cursor)
+      }
+      listInsert(st(), list, node, pred)
+    },
+    /** workers 1122-1129 and 1143-1151: channel fields and lifetime. */
+    '_chn set number'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
+    '_chn set default'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 4, it.evalInt()) },
+    '_chn set first'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 8, it.evalInt()) },
+    '_chn set last'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 12, it.evalInt()) },
+    '_chn set list'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p - 20, it.evalInt()) },
+    '_chn set length'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p - 24, it.evalInt()) },
+    '_chn set next'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p - 12, it.evalInt()) },
+    '_chn set previous'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p - 16, it.evalInt()) },
+    '_chn free'(it, tok) {
+      const first = it.evalInt()
+      const node = tok.kind === 'ext' && tok.id === 0x0272
+        ? (it.expect(','), channelFind(st(), first, it.evalInt()))
+        : first
+      channelFree(st(), node)
+    },
+    '_chn list free'(it) {
+      const list = it.evalInt()
+      if (list === 0) return
+      while (get32(st(), list + 8) !== 0) channelFree(st(), get32(st(), list + 8))
+      st().memory.freeMem(list >>> 0)
+    },
+    /** routine 1151 is a six-byte no-op that only consumes both arguments. */
+    '_chn swap'(it) { it.evalInt(); it.expect(','); it.evalInt() },
   }
 }
 
@@ -286,6 +470,66 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_base loc'() { return VI(openLibrary('locale.library', 36)) },
     '_base dt'() { return VI(openLibrary('datatypes.library', 36)) },
     '_base layers'() { return VI(openLibrary('layers.library', 36)) },
+    /** workers 1447/1448 and 1456-1465: list allocation, search and field reads. */
+    '_lnod alloc'() {
+      const list = st().memory.alloc(14, { clear: true })
+      if (list !== 0) {
+        set32(st(), list, list + 4)
+        set32(st(), list + 8, list)
+      }
+      return VI(list)
+    },
+    '_nod alloc'(_, a) { return VI(st().memory.alloc(Math.max(0, n(a, 0)) + 14, { clear: true })) },
+    '_nod find name'(_, a) {
+      const start = n(a, 0)
+      const name = n(a, 1)
+      if (start === 0 || name === 0) return VI(0)
+      const wanted = cString(rt, name)
+      for (let node = get32(st(), start); node !== 0 && get32(st(), node) !== 0; node = get32(st(), node)) {
+        if (cString(rt, get32(st(), node + 10)) === wanted) return VI(node)
+      }
+      return VI(0)
+    },
+    '_lnod what head'(_, a) { return VI(get32(st(), n(a, 0))) },
+    '_lnod what tail'(_, a) { return VI(get32(st(), n(a, 0) + 8)) },
+    '_lnod what type'(_, a) { return VI(get8(st(), n(a, 0) + 12)) },
+    '_nod what succ'(_, a) { return VI(get32(st(), n(a, 0))) },
+    '_nod what pred'(_, a) { return VI(get32(st(), n(a, 0) + 4)) },
+    '_nod what type'(_, a) { return VI(get8(st(), n(a, 0) + 8)) },
+    '_nod what pri'(_, a) { return VI((get8(st(), n(a, 0) + 9) << 24) >> 24) },
+    '_nod what name'(_, a) { return VI(get32(st(), n(a, 0) + 10)) },
+    '_nod what start'(_, a) { return VI((n(a, 0) + 14) >>> 0) },
+    /** workers 1130-1142 and 1146-1150: channel reads and constructors. */
+    '_chn what number'(_, a) { return VI(get32(st(), n(a, 0))) },
+    '_chn what default'(_, a) { return VI(get32(st(), n(a, 0) + 4)) },
+    '_chn what first'(_, a) { return VI(get32(st(), n(a, 0) + 8)) },
+    '_chn what last'(_, a) { return VI(get32(st(), n(a, 0) + 12)) },
+    '_chn what list'(_, a) { return VI(get32(st(), n(a, 0) - 20)) },
+    '_chn what length'(_, a) { return VI(get32(st(), n(a, 0) - 24)) },
+    '_chn what next'(_, a) { return VI(get32(st(), n(a, 0) - 12)) },
+    '_chn what previous'(_, a) { return VI(get32(st(), n(a, 0) - 16)) },
+    '_chn list alloc'(_, a) {
+      const list = st().memory.alloc(16, { clear: true })
+      if (list !== 0) set32(st(), list + 4, n(a, 0))
+      return VI(list)
+    },
+    '_chn add'(_, a) {
+      const list = n(a, 0)
+      return VI(channelAdd(st(), list, a.length > 1 ? n(a, 1) : get32(st(), list + 4)))
+    },
+    '_chn location'(_, a) { return VI(channelLocation(st(), n(a, 0))) },
+    '_chn find'(_, a) { return VI(channelFind(st(), n(a, 0), n(a, 1))) },
+    '_chn ins'(_, a, tok) {
+      const id = tok?.kind === 'ext' ? tok.id : 0
+      if (id === 0x02ac || id === 0x02b6) {
+        const list = n(a, 0)
+        const length = id === 0x02b6 ? n(a, 1) : get32(st(), list + 4)
+        const position = id === 0x02b6 ? n(a, 2) : n(a, 1)
+        return VI(channelInsert(st(), channelFind(st(), list, position), length))
+      }
+      const before = n(a, 0)
+      return VI(channelInsert(st(), before, a.length > 1 ? n(a, 1) : get32(st(), get32(st(), before - 20) + 4)))
+    },
   }
 }
 

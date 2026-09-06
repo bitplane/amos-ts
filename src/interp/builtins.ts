@@ -15,7 +15,7 @@ import { ED_RUN_MESSAGES } from './errors.gen'
  * pc to a new statement (skips the statement-boundary check).
  */
 export type Instr = (it: Interp, tok: Tok, addr: Addr) => void | 'jumped'
-export type Func = (it: Interp, args: Value[]) => Value
+export type Func = (it: Interp, args: Value[], tok?: Tok) => Value
 
 /**
  * Print0 (+ILib.s:5043): parse and format one Print/Lprint item list, sending

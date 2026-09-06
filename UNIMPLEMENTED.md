@@ -60,13 +60,14 @@ size. `src/coverage/coverage.test.ts` checks both directions — every 0% row is
 named, and no row is named that is FINISHED — so a ported extension cannot
 quietly stay on the list and a half-built one cannot quietly leave it.
 
-OS DevKit 1.61 is now **in progress**. Its first 62 faithful handlers cover
+OS DevKit 1.61 is now **in progress**. Its first 115 faithful handlers cover
 private C strings, fixed-width scalar/string conversion, Exec identity and
 time, cache clearing, TagItem lists, Utility date fields, and native memory,
 vector, structure allocation, and signed/unsigned structure field access.
 The callable set also includes retained native library bases, direct CPU memory,
-IntuitionBase locking, and cold reboot. `KEYWORDS.md` is authoritative for the
-live count: 62 faithful and 985 missing at this stage. The completed backend audit
+IntuitionBase locking, cold reboot, Exec List/Node algorithms, and the private
+channel-list records. `KEYWORDS.md` is authoritative for the live count: 115
+faithful and 932 missing at this stage. The completed backend audit
 is a larger inventory of reusable capability—552 faithful, 388 partial and 107
 missing—but those figures do not become keyword coverage until handlers call
 that capability through the extension interface.
