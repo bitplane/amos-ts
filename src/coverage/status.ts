@@ -37,6 +37,30 @@ export const FAITHFUL = new Set<string>([
   '_sys cpu',
   '_sys fpu',
   '_cache clr',
+  // --- OS DevKit 1.61, native utility slice ---
+  // TagItem workers 1319-1325, Utility Amiga2Date workers 1848-1853,
+  // AllocMem/CopyMem workers 1117-1120, AllocVec 1782/1783, and structure
+  // allocation worker 1477. See runtime/osdevkit.ts and its integration tests.
+  '_tag list alloc',
+  '_tag set',
+  '_tag done',
+  '_tag list free',
+  '_tag find',
+  '_tag data',
+  '_ut sec',
+  '_ut min',
+  '_ut hour',
+  '_ut day',
+  '_ut month',
+  '_ut year',
+  '_mem alloc',
+  '_mem abs alloc',
+  '_mem free',
+  '_mem copy',
+  '_vec alloc',
+  '_vec free',
+  '_struct alloc',
+  '_struct free',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

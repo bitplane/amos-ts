@@ -44,7 +44,7 @@ describe('OS DevKit 1.61 private C strings', () => {
   it('allocates, copies, measures, reads and frees (workers 1466-1475)', () => {
     const { rt, output } = run('P=_str alloc(4) : _str pos P,$1234,$56 : _str put "ABCDE",P : Print _str len(P),_str get(P) : _str free P')
     expect(output).toBe(' 4\tABCD\n')
-    expect(rt.osdevkit.strings.memory.sizeOf(0x5c00_0008)).toBe(0)
+    expect(rt.osdevkit.strings.memory.sizeOf(rt.osdevkit.memory.base + 8)).toBe(0)
   })
 
   it('supports the delimiter overloads and custom terminator worker', () => {
@@ -63,5 +63,45 @@ describe('OS DevKit 1.61 system operations', () => {
     const address = rt.bankRef(1)!.address
     expect(rt.longsAt(address, false)?.get(0)).toBeGreaterThan(0)
     expect(rt.longsAt(address + 4, false)?.get(0)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('extracts every Utility Amiga2Date field from the live clock (workers 1848-1853)', () => {
+    expect(run('Print _ut sec,_ut min,_ut hour,_ut day,_ut month,_ut year').output).toBe(
+      ' 0\t 30\t 14\t 12\t 7\t 1994\n',
+    )
+  })
+})
+
+describe('OS DevKit 1.61 tag lists', () => {
+  it('allocates, appends, terminates, finds, reads and frees TagItems (workers 1319-1325)', () => {
+    const source = [
+      'T=_tag list alloc(2)',
+      '_tag set T,$80000001,123',
+      '_tag set T,$80000002,456',
+      '_tag done T',
+      'Print _tag find(T,$80000002)-T,_tag data(T,$80000001,-1),_tag data(T,99,-1)',
+      '_tag list free T',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 8\t 123\t-1\n')
+    expect(rt.osdevkit.memory.sizeOf(rt.osdevkit.memory.base)).toBe(0)
+  })
+})
+
+describe('OS DevKit 1.61 native memory', () => {
+  it('maps AllocMem/AllocVec blocks, copies bytes, clears structures and frees each form', () => {
+    const source = [
+      'A=_mem alloc(8,$10001)',
+      'B=_vec alloc(8,$10001)',
+      'C=_mem abs alloc(4,1)',
+      'S=_struct alloc(4)',
+      'Loke A,$123480ff',
+      '_mem copy A,B,4',
+      'Print Hex$(Leek(B)),Leek(S)',
+      '_mem free A,8 : _vec free B : _mem free C,4 : _struct free S',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe('$123480FF\t 0\n')
+    expect(rt.osdevkit.memory.sizeOf(rt.osdevkit.memory.base)).toBe(0)
   })
 })

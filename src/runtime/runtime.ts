@@ -521,6 +521,9 @@ export const EMPTY_PLANE = new Uint8Array(0)
 export type ScreenOwner = 'user' | 'amos' | 'game' | 'os'
 
 export class Runtime {
+  /** OS DevKit's AllocMem/AllocVec arena, between CRAFT's pages and Dev IORequests. */
+  static readonly OS_DEVKIT_MEMORY_BASE = 0x3a100000
+  static readonly OS_DEVKIT_MEMORY_RESERVED = 0x00f00000
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string
@@ -2035,6 +2038,12 @@ export class Runtime {
     ),
     bufferRegion('CRAFT turtle', Runtime.CRAFT_TURTLE_BASE, Runtime.CRAFT_TURTLE_RESERVED, () =>
       this.craft ? new Uint8Array(this.craft.turtle.buffer) : null,
+    ),
+    bufferRegion(
+      'OS DevKit heap',
+      Runtime.OS_DEVKIT_MEMORY_BASE,
+      Runtime.OS_DEVKIT_MEMORY_RESERVED,
+      () => (this.osdevkit ? this.osdevkit.memory.buffer : null),
     ),
     bufferRegion('Dev IORequests', Runtime.DEV_IO_BASE, Runtime.DEV_IO_RESERVED, () => this.dev.io),
     bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>

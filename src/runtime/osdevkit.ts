@@ -8,6 +8,8 @@
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
+import { MEMF, type MemPool } from '../amiga/exec'
+import { amiga2Date } from '../amiga/datestamp'
 import {
   chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, valLong, valWord,
 } from '../amiga/osscalar'
@@ -17,16 +19,71 @@ import {
 import type { Runtime } from './runtime'
 
 export interface OsDevKitState {
+  memory: MemPool
   strings: OsCStringHeap
+  /** routine 1320's null/EntNul target: the library's private TagItem list. */
+  defaultTags: Array<{ tag: number; data: number }>
 }
 
-export const newOsDevKitState = (): OsDevKitState => ({ strings: new OsCStringHeap() })
+export const newOsDevKitState = (): OsDevKitState => {
+  const strings = new OsCStringHeap()
+  return { memory: strings.memory, strings, defaultTags: [] }
+}
+
+const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
+const get32 = (st: OsDevKitState, address: number): number => {
+  const at = offset(st, address)
+  const b = st.memory.buffer
+  return (((b[at]! << 24) | (b[at + 1]! << 16) | (b[at + 2]! << 8) | b[at + 3]!) >>> 0)
+}
+const set32 = (st: OsDevKitState, address: number, value: number): void => {
+  const at = offset(st, address)
+  const b = st.memory.buffer
+  b[at] = value >>> 24
+  b[at + 1] = value >>> 16
+  b[at + 2] = value >>> 8
+  b[at + 3] = value
+}
+
+function tagItems(st: OsDevKitState, list: number): Array<{ tag: number; data: number; address: number }> {
+  if (list === 0 || list === -0x8000_0000) return st.defaultTags.map((t, i) => ({ ...t, address: 0x50_000000 + i * 8 }))
+  const out: Array<{ tag: number; data: number; address: number }> = []
+  for (let at = list >>> 0; ; at += 8) {
+    const tag = get32(st, at)
+    if (tag === 0) break
+    out.push({ tag, data: get32(st, at + 4) | 0, address: at })
+  }
+  return out
+}
+
+function setTag(st: OsDevKitState, list: number, tag: number, data: number): void {
+  if (list === 0 || list === -0x8000_0000) {
+    st.defaultTags.push({ tag: tag >>> 0, data: data | 0 })
+    return
+  }
+  const used = get32(st, list - 4)
+  const capacity = get32(st, list - 8)
+  if (used + 1 >= capacity) return
+  set32(st, list + used * 4, tag)
+  set32(st, list + used * 4 + 4, data)
+  set32(st, list - 4, used + 2)
+}
+
+function finishTags(st: OsDevKitState, list: number): void {
+  if (list === 0 || list === -0x8000_0000) {
+    st.defaultTags.push({ tag: 0, data: 0 })
+    return
+  }
+  set32(st, list + get32(st, list - 4) * 4, 0)
+  set32(st, list - 4, 0)
+}
 
 function writeLong(rt: Runtime, address: number, value: number): void {
   rt.longsAt(address >>> 0, true)?.set(0, value)
 }
 
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
+  const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   return {
     /** routine 1471: subtract the seven-byte private header, then FreeVec. */
@@ -60,10 +117,40 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     /** routine 1755 is Exec CacheClearU; coherent managed memory needs no flush. */
     '_cache clr'() {},
+    /** workers 1320-1322: append a pair, terminate/reset the cursor, and FreeVec. */
+    '_tag set'(it) {
+      const list = it.evalInt(); it.expect(',')
+      const tag = it.evalInt(); it.expect(',')
+      setTag(st(), list, tag, it.evalInt())
+    },
+    '_tag done'(it) { finishTags(st(), it.evalInt()) },
+    '_tag list free'(it) {
+      const list = it.evalInt()
+      if (list !== 0) st().memory.freeMem((list - 8) >>> 0)
+    },
+    /** workers 1118/1120 and 1783: shared arena lifetime and byte-exact CopyMem. */
+    '_mem free'(it) {
+      const address = it.evalInt(); it.expect(','); it.evalInt()
+      st().memory.freeMem(address >>> 0)
+    },
+    '_mem copy'(it) {
+      const source = it.evalInt(); it.expect(',')
+      const destination = it.evalInt(); it.expect(',')
+      const length = it.evalInt()
+      for (let i = 0; i < length; i++) {
+        const from = rt.resolveAddr((source + i) >>> 0)
+        const to = rt.resolveWrite((destination + i) >>> 0)
+        if (!from || !to) break
+        to.data[to.off] = from.data[from.off]!
+      }
+    },
+    '_vec free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    '_struct free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
   }
 }
 
 export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
+  const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
@@ -94,5 +181,39 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_sys revision'() { return VI(EXEC_SOFT_VERSION) },
     '_sys cpu'() { return VI(systemCpu(A1200_ATTN_FLAGS)) },
     '_sys fpu'() { return VI(systemFpu(A1200_ATTN_FLAGS)) },
+    /** worker 1319: capacity in longwords, cursor, then count+1 TagItems. */
+    '_tag list alloc'(_, a) {
+      const count = Math.max(0, n(a, 0))
+      const base = st().memory.alloc(count * 8 + 12, { clear: true })
+      if (base === 0) return VI(0)
+      set32(st(), base, count * 2)
+      return VI((base + 8) >>> 0)
+    },
+    /** utility FindTagItem/GetTagData, workers 1324/1325. */
+    '_tag find'(_, a) {
+      const found = tagItems(st(), n(a, 0)).find((t) => t.tag === (n(a, 1) >>> 0))
+      return VI(found?.address ?? 0)
+    },
+    '_tag data'(_, a) {
+      const found = tagItems(st(), n(a, 0)).find((t) => t.tag === (n(a, 1) >>> 0))
+      return VI(found?.data ?? n(a, 2))
+    },
+    /** workers 1848-1853 call Amiga2Date on the live system seconds. */
+    '_ut sec'() { return VI(nowCivil(rt).sec) },
+    '_ut min'() { return VI(nowCivil(rt).min) },
+    '_ut hour'() { return VI(nowCivil(rt).hour) },
+    '_ut day'() { return VI(nowCivil(rt).day) },
+    '_ut month'() { return VI(nowCivil(rt).month) },
+    '_ut year'() { return VI(nowCivil(rt).year) },
+    /** workers 1117 and 1782: AllocMem/AllocVec over the shared mapped arena. */
+    '_mem alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: (n(a, 1) & MEMF.CLEAR) !== 0, chip: (n(a, 1) & MEMF.CHIP) !== 0 })) },
+    '_mem abs alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: (n(a, 1) & MEMF.CLEAR) !== 0, chip: (n(a, 1) & MEMF.CHIP) !== 0 })) },
+    '_vec alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: (n(a, 1) & MEMF.CLEAR) !== 0, chip: (n(a, 1) & MEMF.CHIP) !== 0 })) },
+    '_struct alloc'(_, a) { return VI(st().memory.alloc(n(a, 0), { clear: true })) },
   }
+}
+
+function nowCivil(rt: Runtime): ReturnType<typeof amiga2Date> {
+  const now = rt.host.clock.now()
+  return amiga2Date(now.days * 86_400 + now.mins * 60 + Math.floor(now.ticks / 50))
 }

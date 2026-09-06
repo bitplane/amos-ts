@@ -14,7 +14,7 @@ const OVERHEAD = 8
 export class OsCStringHeap {
   readonly memory: MemPool
 
-  constructor(base = 0x5c00_0000, reserved = 0x0100_0000) {
+  constructor(base = 0x3a10_0000, reserved = 0x00f0_0000) {
     this.memory = new MemPool(base, reserved)
   }
 
