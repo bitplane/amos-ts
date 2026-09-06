@@ -485,7 +485,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const out: number[] = []
       for (let i = 0; i < 256; i++) {
         const hi = s.palette[i] ?? 0
-        const lo = rt.copRegs.palLo[i] ?? hi
+        const lo = s.paletteLo[i] ?? hi
         out.push((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff)
       }
       for (let y = 0; y < AGA_H; y++) {
@@ -523,7 +523,8 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
         const o = i * 4
         s.palette[i] = (((src[o] ?? 0) << 8) | (src[o + 1] ?? 0)) & 0xfff
         rt.copRegs.pal[i] = s.palette[i]!
-        rt.copRegs.palLo[i] = (((src[o + 2] ?? 0) << 8) | (src[o + 3] ?? 0)) & 0xfff
+        s.paletteLo[i] = (((src[o + 2] ?? 0) << 8) | (src[o + 3] ?? 0)) & 0xfff
+        rt.copRegs.palLo[i] = s.paletteLo[i]!
       }
       // the runs
       let p = 1024
@@ -618,7 +619,7 @@ function setAgaColour(rt: Runtime, n: number, r: number, g: number, b: number): 
   for (let i = 0; i < 8; i++) {
     if (st.screens[i]! < 0) continue
     const s = rt.screens.get(i)
-    if (s) s.palette[n & 0xff] = hi
+    if (s) { s.palette[n & 0xff] = hi; s.paletteLo[n & 0xff] = lo }
   }
 }
 
@@ -629,7 +630,8 @@ export function makeAgaFunctions(rt: Runtime): Record<string, Func> {
       // the colour 'n'. Red = $00FF0000, Blue = $000000FF"
       const n = int(a[0]!) & 0xff
       const hi = rt.copRegs.pal[n] ?? 0
-      const lo = rt.copRegs.palLo[n] ?? 0
+      const screen = rt.screens.get(rt.aga.screens[rt.aga.current] ?? -1)
+      const lo = screen?.paletteLo[n] ?? rt.copRegs.palLo[n] ?? 0
       const r = (((hi >> 8) & 15) << 4) | ((lo >> 8) & 15)
       const g = (((hi >> 4) & 15) << 4) | ((lo >> 4) & 15)
       const b = ((hi & 15) << 4) | (lo & 15)

@@ -302,6 +302,12 @@ export class Screen {
     p.set(DEFAULT_PALETTE)
     return p
   })()
+  /** AGA LOCT half of each colour register; ECS colours mirror their high nibbles. */
+  paletteLo = ((): Uint16Array => {
+    const p = new Uint16Array(256)
+    p.set(DEFAULT_PALETTE)
+    return p
+  })()
   hires: boolean
   laced: boolean
   /** HAM6 (Screen Open with 4096 colours; CAMG bit $800) */

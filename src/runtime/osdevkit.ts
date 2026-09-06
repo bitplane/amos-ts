@@ -514,6 +514,25 @@ function currentScreen(rt: Runtime, state: OsDevKitState) {
   return record ? rt.screens.get(record.slot) : undefined
 }
 
+function screenRgb24(rt: Runtime, state: OsDevKitState, pen: number): number {
+  const screen = currentScreen(rt, state)
+  if (!screen || pen < 0 || pen >= screen.palette.length) return 0
+  const hi = screen.palette[pen]!; const lo = screen.paletteLo[pen]!
+  return (((((hi >> 8) & 15) << 4) | ((lo >> 8) & 15)) << 16) |
+    (((((hi >> 4) & 15) << 4) | ((lo >> 4) & 15)) << 8) |
+    (((hi & 15) << 4) | (lo & 15))
+}
+
+function setScreenRgb24(rt: Runtime, state: OsDevKitState, pen: number, colour: number): void {
+  const screen = currentScreen(rt, state)
+  if (!screen || pen < 0 || pen >= screen.palette.length) return
+  const r = (colour >>> 16) & 0xff; const g = (colour >>> 8) & 0xff; const b = colour & 0xff
+  screen.palette[pen] = ((r >>> 4) << 8) | ((g >>> 4) << 4) | (b >>> 4)
+  screen.paletteLo[pen] = ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+  rt.copRegs.pal[pen] = screen.palette[pen]!
+  rt.copRegs.palLo[pen] = screen.paletteLo[pen]!
+}
+
 function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { rastPort: number; bitMap: number } | null {
   const screen = rt.screens.get(window.screenSlot)
   if (!screen) return null
@@ -1088,11 +1107,21 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_scr id set pal'(it) {
       const [pen, colour] = readArgs(it, 2); const screen = currentScreen(rt, st())
-      if (screen && pen! >= 0 && pen! < screen.palette.length) screen.palette[pen!] = colour! & 0xfff
+      if (screen && pen! >= 0 && pen! < screen.palette.length) {
+        screen.palette[pen!] = colour! & 0xfff; screen.paletteLo[pen!] = colour! & 0xfff
+      }
     },
     '_scr id colour'(it) {
       const [pen, colour] = readArgs(it, 2); const screen = currentScreen(rt, st())
-      if (screen && pen! >= 0 && pen! < screen.palette.length) screen.palette[pen!] = colour! & 0xfff
+      if (screen && pen! >= 0 && pen! < screen.palette.length) {
+        screen.palette[pen!] = colour! & 0xfff; screen.paletteLo[pen!] = colour! & 0xfff
+      }
+    },
+    '_scr id set aga pal'(it) {
+      const [pen, colour] = readArgs(it, 2); setScreenRgb24(rt, st(), pen!, colour!)
+    },
+    '_scr id aga colour'(it) {
+      const [pen, colour] = readArgs(it, 2); setScreenRgb24(rt, st(), pen!, colour!)
     },
     '_scr id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
@@ -1628,6 +1657,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const pen = n(a, 0); const screen = currentScreen(rt, st())
       return VI(screen && pen >= 0 && pen < screen.palette.length ? screen.palette[pen]! & 0xfff : 0)
     },
+    '_scr id get aga pal'(_, a) { return VI(screenRgb24(rt, st(), n(a, 0))) },
+    '_scr id aga colour'(_, a) { return VI(screenRgb24(rt, st(), n(a, 0))) },
     '_scr id point'(_, a) {
       const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)
     },

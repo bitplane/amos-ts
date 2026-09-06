@@ -125,7 +125,7 @@ export class Display {
      */
     const n = pal ? pal.length : s.palette.length
     const hi = (i: number): number => (pal ? pal[i % n]! : s.palette[i % n]! & 0xfff)
-    const lo = (i: number): number => (palLo ? palLo[i % n]! : hi(i))
+    const lo = (i: number): number => (palLo ? palLo[i % n]! : s.paletteLo[i % n]! & 0xfff)
     // The join, HAM's state machine and EHB's halving all moved to
     // ../amiga/planar.ts when the Files panel's picture preview became a
     // second caller for them. What stays here is where the palette comes
