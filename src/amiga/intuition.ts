@@ -361,6 +361,10 @@ export interface NewWindow {
   type: number
   /** which screen, when Type is CUSTOMSCREEN */
   screenSlot?: number
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
 }
 
 /** exec's `struct Message` as Intuition fills it in for a window's UserPort */
@@ -410,6 +414,12 @@ export class Window {
   }
 
   flags: number
+  minWidth = 1
+  minHeight = 1
+  maxWidth = 0xffff
+  maxHeight = 0xffff
+  /** Number of active old-style Request() overlays on this window. */
+  requesterDepth = 0
 
   /** SetPointer's per-window sprite definition; null after ClearPointer. */
   pointer: { data: number; height: number; width: number; xOffset: number; yOffset: number } | null = null
@@ -996,6 +1006,10 @@ export class Intuition {
       size.hires ? DEPTH_WIDTH_MEDRES : DEPTH_WIDTH_LORES,
       this.exec,
     )
+    w.minWidth = nw.minWidth ?? 1
+    w.minHeight = nw.minHeight ?? 1
+    w.maxWidth = nw.maxWidth && nw.maxWidth > 0 ? nw.maxWidth : 0xffff
+    w.maxHeight = nw.maxHeight && nw.maxHeight > 0 ? nw.maxHeight : 0xffff
     if (backdrop) this.open.unshift(w)
     else this.open.push(w)
     if (slot === WB_SLOT) this.visitors++
@@ -1188,6 +1202,30 @@ export class Intuition {
     this.dirty = true
   }
 
+  /** WindowLimits (-318), retained by the public Window fields and sizing. */
+  windowLimits(w: Window, minWidth: number, minHeight: number, maxWidth: number, maxHeight: number): boolean {
+    if (!this.open.includes(w)) return false
+    w.minWidth = Math.max(1, minWidth & 0xffff)
+    w.minHeight = Math.max(1, minHeight & 0xffff)
+    w.maxWidth = Math.max(w.minWidth, maxWidth & 0xffff)
+    w.maxHeight = Math.max(w.minHeight, maxHeight & 0xffff)
+    return true
+  }
+
+  /** Request/EndRequest ownership; rendering the caller's raw chains is separate. */
+  request(w: Window): boolean {
+    if (!this.open.includes(w) || w.requesterDepth !== 0) return false
+    w.requesterDepth = 1
+    this.dirty = true
+    return true
+  }
+
+  endRequest(w: Window): void {
+    if (!this.open.includes(w) || w.requesterDepth === 0) return
+    w.requesterDepth = 0
+    this.dirty = true
+  }
+
   /** The screen pointer carried by a live Window. */
   windowScreenAddress(w: Window): number {
     return this.open.includes(w) ? this.host.screenAddr(w.screenSlot) : 0
@@ -1269,10 +1307,25 @@ export class Intuition {
     const size = this.host.screenSize(w.screenSlot)
     const li = this.info(w.screenSlot)
     if (!size || !li) return
-    const width = Math.max(1, Math.min(size.width - w.leftEdge, w.width + dx))
-    const height = Math.max(1, Math.min(size.height - w.topEdge, w.height + dy))
+    const width = Math.max(w.minWidth, Math.min(w.maxWidth, size.width - w.leftEdge, w.width + dx))
+    const height = Math.max(w.minHeight, Math.min(w.maxHeight, size.height - w.topEdge, w.height + dy))
     if (width === w.width && height === w.height) return
     li.sizeLayer(w.layer, width - w.width, height - w.height)
+    this.dirty = true
+  }
+
+  /** ChangeWindowBox (-486): absolute geometry in one public operation. */
+  changeWindowBox(w: Window, left: number, top: number, width: number, height: number): void {
+    const screen = this.host.screenSize(w.screenSlot); const li = this.info(w.screenSlot)
+    if (!this.open.includes(w) || !screen || !li) return
+    // ChangeWindowBox is the forced absolute operation and does not consult
+    // WindowLimits (unlike SizeWindow and the size gadget).
+    const nextWidth = Math.max(1, Math.min(screen.width, width))
+    const nextHeight = Math.max(1, Math.min(screen.height, height))
+    const nextLeft = Math.max(0, Math.min(screen.width - nextWidth, left))
+    const nextTop = Math.max(0, Math.min(screen.height - nextHeight, top))
+    li.moveLayer(w.layer, nextLeft - w.leftEdge, nextTop - w.topEdge)
+    li.sizeLayer(w.layer, nextWidth - w.width, nextHeight - w.height)
     this.dirty = true
   }
 

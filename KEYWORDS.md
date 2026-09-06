@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |           65 |     620 |      41% |
+| os-devkit-1.61       |     1047 |      362 |           90 |     595 |      43% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          476 |     663 |      91% |
+| **total**            |     7422 |     6227 |          501 |     638 |      91% |
 
 ## Not applicable, by what would retire it
 
@@ -429,9 +429,9 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (41%)
+## os-devkit-1.61 (43%)
 
-- **approximated** (65): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (90): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
   `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
   `_ggad create`, `_ggad set attrs`, `_img draw`, `_img draw state`, `_img erase`,
   `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
@@ -443,8 +443,13 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_scr id pattern on`, `_scr id plot`, `_scr id point`, `_scr id put bob`, `_scr id rect`,
   `_scr id scroll`, `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`,
   `_scr id set paint`, `_scr id text`, `_scr pub lock`, `_scr pub modes`, `_scr pub status`,
-  `_scr pub unlock`, `_wnd id bar`, `_wnd id close`, `_wnd id fill ellipse`, `_wnd id open`,
-  `_wnd id paint`, `_wnd id put bob`, `_wnd id scroll`
+  `_scr pub unlock`, `_wnd id activate`, `_wnd id bar`, `_wnd id bottom bdr`, `_wnd id box`,
+  `_wnd id close`, `_wnd id fill ellipse`, `_wnd id height`, `_wnd id inner height`,
+  `_wnd id inner width`, `_wnd id inner x mouse`, `_wnd id inner y mouse`, `_wnd id left bdr`,
+  `_wnd id limits`, `_wnd id lock`, `_wnd id move`, `_wnd id open`, `_wnd id paint`,
+  `_wnd id put bob`, `_wnd id right bdr`, `_wnd id scroll`, `_wnd id size`, `_wnd id tag open`,
+  `_wnd id titles`, `_wnd id top bdr`, `_wnd id unlock`, `_wnd id width`, `_wnd id x`,
+  `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`
 
 ## powerbobs-1.0 (100%)
 

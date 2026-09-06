@@ -384,6 +384,10 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
             flags: nw.flags,
             title: '',
             type: nw.type,
+            minWidth: nw.minWidth,
+            minHeight: nw.minHeight,
+            maxWidth: nw.maxWidth,
+            maxHeight: nw.maxHeight,
             ...(nw.type === WBENCHSCREEN ? {} : { screenSlot: slot }),
           })
     if (!w) {
@@ -729,10 +733,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
     'wb wind size'(it) {
       const [addr, dx, dy] = toArgs(it, 2)
       const w = windowAt(addr!)
-      if (!w) return
-      const width = Math.max(w.minWidth, Math.min(w.maxWidth, w.win.width + lo(dx!)))
-      const height = Math.max(w.minHeight, Math.min(w.maxHeight, w.win.height + lo(dy!)))
-      rt.intuition.sizeWindow(w.win, width - w.win.width, height - w.win.height)
+      if (w) rt.intuition.sizeWindow(w.win, lo(dx!), lo(dy!))
     },
 
     /**
@@ -750,6 +751,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
       w.minHeight = lo(minH!)
       w.maxWidth = lo(maxW!)
       w.maxHeight = lo(maxH!)
+      rt.intuition.windowLimits(w.win, w.minWidth, w.minHeight, w.maxWidth, w.maxHeight)
     },
 
     /** Wb Wind Back WINDOW — routine 30 ($2c16), WindowToBack at -$132 */
@@ -814,8 +816,7 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
       const [addr, x, y, width, height] = toArgs(it, 4)
       const w = windowAt(addr!)
       if (!w) return
-      rt.intuition.moveWindow(w.win, lo(x!) - w.win.leftEdge, lo(y!) - w.win.topEdge)
-      rt.intuition.sizeWindow(w.win, lo(width!) - w.win.width, lo(height!) - w.win.height)
+      rt.intuition.changeWindowBox(w.win, lo(x!), lo(y!), lo(width!), lo(height!))
     },
 
     /**

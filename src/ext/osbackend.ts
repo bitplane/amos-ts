@@ -426,9 +426,17 @@ auditMany('faithful', 'one Window-ID adapter synchronizes native state, coordina
   '_wnd id pattern on', '_wnd id pattern off', '_wnd id set low pattern', '_wnd id set high pattern',
   '_wnd id set line', '_wnd id point',
 ])
-auditMany('partial', 'simple Window-ID open/close now owns Intuition windows and mapped native RastPort records; tag opens, private clip allocations and the remaining lifecycle mutations are incomplete', [
-  '_wnd id open', '_wnd id close', '_wnd id tag open', '_wnd id limits', '_wnd id move', '_wnd id size',
-  '_wnd id box', '_wnd id titles', '_wnd id activate', '_wnd id lock', '_wnd id unlock',
+auditMany('partial', 'Window-ID open/close owns shared Intuition windows, native RastPort records and the private Requester; tag opening handles the core V39 geometry, pen, IDCMP, title, screen and limit tags rather than the entire WA_* surface', [
+  '_wnd id open', '_wnd id close', '_wnd id tag open',
+])
+auditMany('partial', 'WindowLimits, MoveWindow, SizeWindow and ChangeWindowBox share Intuition geometry and public fields; off-screen movement remains safely clamped by the host window policy', [
+  '_wnd id limits', '_wnd id move', '_wnd id size', '_wnd id box',
+])
+auditMany('faithful', 'the selected or explicitly activated shared Window owns both retained title strings and active-window ordering', [
+  '_wnd id titles', '_wnd id activate',
+])
+auditMany('partial', 'the private 112-byte Requester and Request/EndRequest active lifecycle are owned; arbitrary native requester gadget and border chains are not rendered', [
+  '_wnd id lock', '_wnd id unlock',
 ])
 auditMany('partial', 'message fields are represented, but blocking/filtering the native shared UserPort and walking a native MenuItem chain are not integrated', [
   '_wnd id wait event', '_wnd id next event', '_wnd id mask event', '_wnd id event next menu',

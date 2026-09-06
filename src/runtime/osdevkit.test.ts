@@ -644,4 +644,37 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     expect(output).toBe(' 3\n 3\n 25\n')
     expect(rt.screen.rp.snapshot()).toMatchObject({ fgPen: 2, bgPen: 1, drawMode: 1, cpX: 0, cpY: 0 })
   })
+
+  it('applies limits, delta geometry, absolute boxes, titles, activation and requester locking', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,2,1,30,16,0,0,0,"First" : _wnd id open 4,40,1,20,12,0,0,0,"Other"',
+      '_wnd id use 3 : _wnd id limits 12,8,36,20 : _wnd id size -99,-99 : _wnd id move 5,4',
+      '_wnd id box 9,6,25,14 : _wnd id titles "Renamed","Screen name"',
+      'W=_wnd id base(3) : Print _wnd id x,_wnd id y,_wnd id width,_wnd id height',
+      'Print _struct uword(W,16),_struct uword(W,18),_struct uword(W,20),_struct uword(W,22)',
+      'Print _str get(_struct long(W,32)),_str get(_struct long(W,104))',
+      '_wnd id lock 3 : _wnd id lock 3 : _wnd id unlock 3 : _wnd id activate 4 : Print _wnd id in use',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 9\t 6\t 25\t 14\n 12\t 8\t 36\t 20\nRenamed\tScreen name\n 4\n')
+    expect(rt.osdevkit.windowHandles.get(3)?.window.requesterDepth).toBe(0)
+    expect(rt.osdevkit.windowHandles.get(3)?.window.active).toBe(false)
+    expect(rt.osdevkit.windowHandles.get(4)?.window.active).toBe(true)
+  })
+
+  it('opens a Window-ID from the OpenWindowTagList geometry and ownership tags', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      'T=_tag list alloc(10) : P=_to str("Tagged")',
+      '_tag set T,$80000064,7 : _tag set T,$80000065,5 : _tag set T,$80000066,28 : _tag set T,$80000067,15',
+      '_tag set T,$8000006E,P : _tag set T,$80000070,_scr id base(1)',
+      '_tag set T,$80000072,10 : _tag set T,$80000073,8 : _tag set T,$80000074,32 : _tag set T,$80000075,18 : _tag done T',
+      '_wnd id tag open 6,T : W=_wnd id base(6)',
+      'Print W<>0,_wnd id x,_wnd id y,_wnd id width,_wnd id height,_str get(_struct long(W,32))',
+      'Print _struct uword(W,16),_struct uword(W,18),_struct uword(W,20),_struct uword(W,22)',
+      '_wnd id close 6 : _tag list free T : _str free P',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t 7\t 5\t 28\t 15\tTagged\n 10\t 8\t 32\t 18\n')
+  })
 })

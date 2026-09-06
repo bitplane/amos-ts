@@ -10,7 +10,7 @@ import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
-import { CUSTOMSCREEN, IntuitionBaseLock, WB_SLOT, type UserGadget, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, type UserGadget, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
@@ -34,6 +34,14 @@ import { scrollRaster, type RastPort } from '../amiga/graphics'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
+
+// intuition/intuition.h: WA_Dummy + 1 through the OpenWindowTagList core.
+const WA = {
+  Left: 0x80000064, Top: 0x80000065, Width: 0x80000066, Height: 0x80000067,
+  DetailPen: 0x80000068, BlockPen: 0x80000069, IDCMP: 0x8000006a, Flags: 0x8000006b,
+  Title: 0x8000006e, ScreenTitle: 0x8000006f, CustomScreen: 0x80000070,
+  MinWidth: 0x80000072, MinHeight: 0x80000073, MaxWidth: 0x80000074, MaxHeight: 0x80000075,
+} as const
 
 export interface OsDevKitState {
   memory: MemPool
@@ -719,6 +727,50 @@ function currentWindowTarget(rt: Runtime, state: OsDevKitState): {
   return handle && raster ? { raster, window: handle.window, ox: handle.window.leftEdge, oy: handle.window.topEdge } : null
 }
 
+function syncWindowBase(rt: Runtime, state: OsDevKitState, id: number): void {
+  const record = state.windowIds.record(id); const handle = state.windowHandles.get(id)
+  if (!record || !handle || record.base === 0) return
+  const { window: w } = handle; const base = record.base
+  structWrite(rt, base + 4, 2, w.leftEdge); structWrite(rt, base + 6, 2, w.topEdge)
+  structWrite(rt, base + 8, 2, w.width); structWrite(rt, base + 10, 2, w.height)
+  structWrite(rt, base + 16, 2, w.minWidth); structWrite(rt, base + 18, 2, w.minHeight)
+  structWrite(rt, base + 20, 2, w.maxWidth); structWrite(rt, base + 22, 2, w.maxHeight)
+  structWrite(rt, base + 24, 4, w.flags)
+}
+
+function syncAllWindowBases(rt: Runtime, state: OsDevKitState): void {
+  for (const id of state.windowHandles.keys()) syncWindowBase(rt, state, id)
+}
+
+function selectedWindowHandle(state: OsDevKitState): { id: number; window: Window; rastPort: number; bitMap: number } | null {
+  const id = state.windowIds.currentId; const handle = state.windowHandles.get(id)
+  return handle ? { id, ...handle } : null
+}
+
+function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: Window, title: string): boolean {
+  const graphics = bindWindowRaster(rt, state, window)
+  if (!graphics) { rt.intuition.closeWindow(window); return false }
+  const base = state.memory.alloc(120, { clear: true })
+  const requester = state.memory.alloc(112, { clear: true })
+  if (base === 0 || requester === 0) {
+    if (base !== 0) state.memory.freeMem(base)
+    if (requester !== 0) state.memory.freeMem(requester)
+    state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
+    return false
+  }
+  const titleAddress = state.strings.fromAmos(title)
+  structWrite(rt, base + 32, 4, titleAddress)
+  structWrite(rt, base + 46, 4, rt.intuition.windowScreenAddress(window))
+  structWrite(rt, base + 50, 4, graphics.rastPort)
+  structWrite(rt, base + 78, 4, window.idcmpFlags); structWrite(rt, base + 82, 4, window.userPort)
+  const record = state.windowIds.attach(id, base, graphics.rastPort)
+  if (!record) return false
+  record.title = titleAddress; record.owned0 = requester
+  state.windowHandles.set(id, { window, ...graphics })
+  syncAllWindowBases(rt, state)
+  return true
+}
+
 function structSet(rt: Runtime, width: StructWidth): Instr {
   return (it) => {
     it.expect('(')
@@ -1388,38 +1440,96 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [id, x, y, width, height, flags, idcmp, _gadgetBank] = readArgs(it, 8)
       it.expect(','); const title = it.evalStr()
       const screen = st().screenIds.get(st().currentScreenId)
-      if (!screen || st().windowIds.base(id!) !== 0) return
+      if (!screen || id! < 0 || st().windowIds.base(id!) !== 0) return
       const window = rt.intuition.openWindow({
         leftEdge: x!, topEdge: y!, width: width!, height: height!, detailPen: 0, blockPen: 1,
         idcmpFlags: idcmp!, flags: flags!, title, type: CUSTOMSCREEN, screenSlot: screen.slot,
       })
       if (!window) return
-      const graphics = bindWindowRaster(rt, st(), window)
-      if (!graphics) { rt.intuition.closeWindow(window); return }
-      const base = st().memory.alloc(120, { clear: true })
-      if (base === 0) { st().memory.freeMem(graphics.rastPort); st().memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window); return }
-      const titleAddress = heap().fromAmos(title)
-      structWrite(rt, base + 4, 2, window.leftEdge); structWrite(rt, base + 6, 2, window.topEdge)
-      structWrite(rt, base + 8, 2, window.width); structWrite(rt, base + 10, 2, window.height)
-      structWrite(rt, base + 24, 4, window.flags); structWrite(rt, base + 32, 4, titleAddress)
-      structWrite(rt, base + 46, 4, screen.base); structWrite(rt, base + 50, 4, graphics.rastPort)
-      structWrite(rt, base + 78, 4, idcmp!); structWrite(rt, base + 82, 4, window.userPort)
-      const record = st().windowIds.attach(id!, base, graphics.rastPort)
-      if (record) record.title = titleAddress
-      st().windowHandles.set(id!, { window, ...graphics })
+      attachWindowId(rt, st(), id!, window, title)
+    },
+    '_wnd id tag open'(it) {
+      const id = it.evalInt(); it.expect(','); const list = it.evalInt()
+      if (id < 0 || st().windowIds.base(id) !== 0) return
+      const tags = tagItems(st(), list)
+      const value = (tag: number, fallback: number): number => tags.find(t => t.tag === tag)?.data ?? fallback
+      const custom = value(WA.CustomScreen, 0) >>> 0
+      const slot = custom === 0 ? WB_SLOT : managedScreenSlot(rt, custom)
+      if (slot === null) return
+      const title = cString(rt, value(WA.Title, 0) >>> 0)
+      const window = rt.intuition.openWindow({
+        leftEdge: value(WA.Left, 0), topEdge: value(WA.Top, 0),
+        width: value(WA.Width, 0), height: value(WA.Height, 0),
+        detailPen: value(WA.DetailPen, 0), blockPen: value(WA.BlockPen, 1),
+        idcmpFlags: value(WA.IDCMP, 0), flags: value(WA.Flags, 0), title,
+        type: custom === 0 ? WBENCHSCREEN : CUSTOMSCREEN, ...(custom === 0 ? {} : { screenSlot: slot }),
+        minWidth: value(WA.MinWidth, 1), minHeight: value(WA.MinHeight, 1),
+        maxWidth: value(WA.MaxWidth, 0xffff), maxHeight: value(WA.MaxHeight, 0xffff),
+      })
+      if (!window || !attachWindowId(rt, st(), id, window, title)) return
+      const screenTitle = cString(rt, value(WA.ScreenTitle, 0) >>> 0)
+      if (screenTitle !== '') {
+        const record = st().windowIds.record(id)!
+        record.screenTitle = heap().fromAmos(screenTitle)
+        structWrite(rt, record.base + 104, 4, record.screenTitle)
+        rt.intuition.setWindowTitles(window, title, screenTitle)
+      }
     },
     '_wnd id close'(it) {
       const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.close(id)
       if (!handle || !record) return
       rt.intuition.closeWindow(handle.window)
       if (record.title !== 0) heap().free(record.title)
+      if (record.screenTitle !== 0) heap().free(record.screenTitle)
       for (const owned of [record.owned0, record.owned1, record.owned2]) if (owned !== 0) st().memory.freeMem(owned)
       st().memory.freeMem(handle.rastPort); st().memory.freeMem(handle.bitMap); st().memory.freeMem(record.base)
       st().windowHandles.delete(id)
+      syncAllWindowBases(rt, st())
     },
     '_wnd id use'(it) {
       const id = it.evalInt(); const handle = st().windowHandles.get(id)
       st().windowIds.use(id, handle?.rastPort ?? 0)
+    },
+    '_wnd id limits'(it) {
+      const [minWidth, minHeight, maxWidth, maxHeight] = readArgs(it, 4); const selected = selectedWindowHandle(st())
+      if (!selected) return
+      rt.intuition.windowLimits(selected.window, minWidth!, minHeight!, maxWidth!, maxHeight!)
+      syncWindowBase(rt, st(), selected.id)
+    },
+    '_wnd id move'(it) {
+      const [dx, dy] = readArgs(it, 2); const selected = selectedWindowHandle(st()); if (!selected) return
+      rt.intuition.moveWindow(selected.window, dx!, dy!); syncWindowBase(rt, st(), selected.id)
+    },
+    '_wnd id size'(it) {
+      const [dx, dy] = readArgs(it, 2); const selected = selectedWindowHandle(st()); if (!selected) return
+      rt.intuition.sizeWindow(selected.window, dx!, dy!); syncWindowBase(rt, st(), selected.id)
+    },
+    '_wnd id box'(it) {
+      const [left, top, width, height] = readArgs(it, 4); const selected = selectedWindowHandle(st()); if (!selected) return
+      rt.intuition.changeWindowBox(selected.window, left!, top!, width!, height!); syncWindowBase(rt, st(), selected.id)
+    },
+    '_wnd id titles'(it) {
+      const title = it.evalStr(); it.expect(','); const screenTitle = it.evalStr(); const selected = selectedWindowHandle(st())
+      if (!selected) return
+      const record = st().windowIds.record(selected.id)!
+      if (record.title !== 0) heap().free(record.title)
+      if (record.screenTitle !== 0) heap().free(record.screenTitle)
+      record.title = heap().fromAmos(title); record.screenTitle = heap().fromAmos(screenTitle)
+      structWrite(rt, record.base + 32, 4, record.title); structWrite(rt, record.base + 104, 4, record.screenTitle)
+      rt.intuition.setWindowTitles(selected.window, title, screenTitle)
+    },
+    '_wnd id activate'(it) {
+      const id = it.evalInt(); const handle = st().windowHandles.get(id); if (!handle) return
+      rt.intuition.activateWindow(handle.window); st().windowIds.use(id, handle.rastPort)
+      syncAllWindowBases(rt, st())
+    },
+    '_wnd id lock'(it) {
+      const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.record(id)
+      if (handle && record?.owned0) rt.intuition.request(handle.window)
+    },
+    '_wnd id unlock'(it) {
+      const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.record(id)
+      if (handle && record?.owned0) rt.intuition.endRequest(handle.window)
     },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
@@ -1875,6 +1985,34 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id point'(_, a) { return VI(withScreenRastPort(rt, st(), rp => rp.point(n(a, 0), n(a, 1))) ?? -1) },
     '_wnd id base'(_, a) { return VI(st().windowIds.base(n(a, 0))) },
     '_wnd id in use'() { return VI(st().windowIds.currentId) },
+    '_wnd id x mouse'() { return VI(selectedWindowHandle(st())?.window.mouseX ?? 0) },
+    '_wnd id y mouse'() { return VI(selectedWindowHandle(st())?.window.mouseY ?? 0) },
+    '_wnd id xgr'() {
+      const selected = selectedWindowHandle(st()); return VI(selected ? structRead(rt, selected.rastPort + 36, 2, true) : 0)
+    },
+    '_wnd id ygr'() {
+      const selected = selectedWindowHandle(st()); return VI(selected ? structRead(rt, selected.rastPort + 38, 2, true) : 0)
+    },
+    '_wnd id x'() { return VI(selectedWindowHandle(st())?.window.leftEdge ?? 0) },
+    '_wnd id y'() { return VI(selectedWindowHandle(st())?.window.topEdge ?? 0) },
+    '_wnd id width'() { return VI(selectedWindowHandle(st())?.window.width ?? 0) },
+    '_wnd id height'() { return VI(selectedWindowHandle(st())?.window.height ?? 0) },
+    '_wnd id top bdr'() { return VI(selectedWindowHandle(st())?.window.borderTop ?? 0) },
+    '_wnd id bottom bdr'() { return VI(selectedWindowHandle(st())?.window.borderBottom ?? 0) },
+    '_wnd id left bdr'() { return VI(selectedWindowHandle(st())?.window.borderLeft ?? 0) },
+    '_wnd id right bdr'() { return VI(selectedWindowHandle(st())?.window.borderRight ?? 0) },
+    '_wnd id inner width'() {
+      const w = selectedWindowHandle(st())?.window; return VI(w ? w.width - w.borderLeft - w.borderRight : 0)
+    },
+    '_wnd id inner height'() {
+      const w = selectedWindowHandle(st())?.window; return VI(w ? w.height - w.borderTop - w.borderBottom : 0)
+    },
+    '_wnd id inner x mouse'() {
+      const w = selectedWindowHandle(st())?.window; return VI(w ? w.mouseX - w.borderLeft : 0)
+    },
+    '_wnd id inner y mouse'() {
+      const w = selectedWindowHandle(st())?.window; return VI(w ? w.mouseY - w.borderTop : 0)
+    },
     '_wnd id point'(_, a) { return VI(withWindowRastPort(rt, st(), (rp, ox, oy) => rp.point(ox + n(a, 0), oy + n(a, 1))) ?? -1) },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
