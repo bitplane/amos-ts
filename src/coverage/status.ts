@@ -37,6 +37,28 @@ export const FAITHFUL = new Set<string>([
   '_sys cpu',
   '_sys fpu',
   '_cache clr',
+  // OS DevKit private Screen-ID workers 2987-3000 and 3010-3012. These own
+  // Intuition screens, stable native graphics records, viewport placement
+  // and input.device-style screen-relative pointer positioning as one path.
+  '_scr id open',
+  '_scr id close',
+  '_scr id from wb',
+  '_scr id base',
+  '_scr id rport',
+  '_scr id vport',
+  '_scr id show',
+  '_scr id hide',
+  '_scr id move',
+  '_scr id use',
+  '_scr id in use',
+  '_scr id offset',
+  '_scr id height',
+  '_scr id width',
+  '_scr id depth',
+  '_scr id mode',
+  '_scr id x mouse',
+  '_scr id y mouse',
+  '_scr id set mouse pos',
   // --- OS DevKit 1.61, native utility slice ---
   // TagItem workers 1319-1325, Utility Amiga2Date workers 1848-1853,
   // AllocMem/CopyMem workers 1117-1120, AllocVec 1782/1783, and structure

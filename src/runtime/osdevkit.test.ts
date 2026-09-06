@@ -452,6 +452,22 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('-1\t-1\t 8\n 0\t 1\t 1\t 16\ntopaz.font\t 8\t 0\t 0\n')
   })
 
+  it('owns the private Screen-ID lifecycle over Intuition screens', () => {
+    const source = [
+      '_scr id open 3,12,20,160,100,4,$8004,15,"Native"',
+      'Print _scr id in use,_scr id base(3)<>0,_scr id rport(3)<>0,_scr id vport(3)<>0',
+      'Print _scr id width(3),_scr id height(3),_scr id depth(3),Hex$(_scr id mode(3))',
+      '_scr id move 3,5,-2 : _scr id offset 3,7,9 : _scr id set mouse pos 3,40,30',
+      'Print _scr id x mouse(3),_scr id y mouse(3)',
+      '_scr id close 3 : Print _scr id base(3),_scr id in use',
+      '_scr id from wb 4 : Print _scr id base(4)<>0,_scr id width(4),_scr id height(4)',
+      '_scr id close 4',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 3\t-1\t-1\t-1\n 160\t 100\t 4\t$8004\n 40\t 30\n 0\t-1\n-1\t 640\t 256\n')
+    expect(rt.intuition.workBenchOpen()).toBe(true)
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

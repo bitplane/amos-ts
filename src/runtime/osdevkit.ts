@@ -10,7 +10,7 @@ import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
-import { CUSTOMSCREEN, IntuitionBaseLock, type UserGadget, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, IntuitionBaseLock, WB_SLOT, type UserGadget, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
@@ -493,6 +493,15 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
   })
   state.currentScreenId = id
   return true
+}
+
+function closeScreenId(rt: Runtime, state: OsDevKitState, id: number): void {
+  const record = state.screenIds.get(id)
+  if (!record) return
+  state.memory.freeMem(record.rastPort); state.memory.freeMem(record.viewPort); state.memory.freeMem(record.bitMap)
+  if (record.owned) rt.intuition.closeScreen(record.base)
+  state.screenIds.delete(id)
+  if (state.currentScreenId === id) state.currentScreenId = -1
 }
 
 function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | null {
@@ -1018,6 +1027,22 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     /** Screen-ID wrappers over stable native records bound to managed screens. */
+    '_scr id open'(it) {
+      const [id, x, y, width, height, depth, mode, _type] = readArgs(it, 8)
+      it.expect(','); const title = it.evalStr()
+      closeScreenId(rt, st(), id!)
+      const address = rt.intuition.openScreen({
+        width: width!, height: height!, depth: depth!,
+        hires: (mode! & 0x8000) !== 0, laced: (mode! & 4) !== 0,
+        palette: [], displayY: y!, title,
+      })
+      if (address === 0) return
+      const slot = rt.intuition.slotOf(address)
+      if (slot === null) return
+      const screen = rt.screens.get(slot)!
+      screen.displayX = x!
+      if (!bindScreenId(rt, st(), id!, slot, true)) rt.intuition.closeScreen(address)
+    },
     '_scr id from pointer'(it) {
       const [id, pointer] = readArgs(it, 2)
       const relative = (pointer! >>> 0) - SCREEN_CTRL_BASE
@@ -1027,14 +1052,35 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const id = it.evalInt(); if (st().screenIds.has(id)) st().currentScreenId = id
     },
     '_scr id close'(it) {
-      const id = it.evalInt(); const record = st().screenIds.get(id)
-      if (!record) return
-      st().memory.freeMem(record.rastPort); st().memory.freeMem(record.viewPort); st().memory.freeMem(record.bitMap)
-      if (record.owned) rt.closeScreen(record.slot)
-      st().screenIds.delete(id); if (st().currentScreenId === id) st().currentScreenId = -1
+      closeScreenId(rt, st(), it.evalInt())
+    },
+    '_scr id from wb'(it) {
+      const id = it.evalInt(); const address = rt.intuition.openWorkBench()
+      if (address !== 0) bindScreenId(rt, st(), id, WB_SLOT)
     },
     '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = true },
     '_scr id hide'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = false },
+    '_scr id move'(it) {
+      const [id, dx, dy] = readArgs(it, 3); const record = st().screenIds.get(id!)
+      const screen = record ? rt.screens.get(record.slot) : undefined
+      if (screen) { screen.displayX += dx!; screen.displayY += dy! }
+    },
+    '_scr id offset'(it) {
+      const [id, x, y] = readArgs(it, 3); const record = st().screenIds.get(id!)
+      const screen = record ? rt.screens.get(record.slot) : undefined
+      if (screen) { screen.offsetX = x!; screen.offsetY = y! }
+    },
+    '_scr id set mouse pos'(it) {
+      const [id, x, y] = readArgs(it, 3); const record = st().screenIds.get(id!)
+      const screen = record ? rt.screens.get(record.slot) : undefined
+      if (screen) {
+        // IECLASS_POINTERPOS/IESUBCLASS_PIXEL takes coordinates in the
+        // screen's viewport, unlike AMOS X/Y Hard which deliberately ignore
+        // EcVX/EcVY. Invert Screen.MouseX/Y here, including scroll offsets.
+        rt.input.mouseX = screen.displayX + (x! - screen.offsetX) / (screen.hires ? 2 : 1)
+        rt.input.mouseY = screen.displayY + (y! - screen.offsetY) / (screen.laced ? 2 : 1)
+      }
+    },
     '_scr id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
       if (!raster) return
@@ -1552,6 +1598,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id mode'(_, a) {
       const r = st().screenIds.get(n(a, 0)); const screen = r ? rt.screens.get(r.slot) : undefined
       return VI(screen ? (screen.hires ? 0x8000 : 0) | (screen.ham ? 0x800 : 0) | (screen.laced ? 4 : 0) : 0)
+    },
+    '_scr id x mouse'(_, a) {
+      const r = st().screenIds.get(n(a, 0)); const screen = r ? rt.screens.get(r.slot) : undefined
+      return VI(screen ? rt.mouseOnScreen(screen).x : 0)
+    },
+    '_scr id y mouse'(_, a) {
+      const r = st().screenIds.get(n(a, 0)); const screen = r ? rt.screens.get(r.slot) : undefined
+      return VI(screen ? rt.mouseOnScreen(screen).y : 0)
     },
     '_scr id point'(_, a) {
       const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)
