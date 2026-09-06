@@ -10,9 +10,10 @@ import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
-import { CUSTOMSCREEN, IntuitionBaseLock, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, IntuitionBaseLock, type UserGadget, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
+import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
 import {
   allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
@@ -42,15 +43,21 @@ export interface OsDevKitState {
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
   windowPatterns: OsWindowPatterns
   areaPaths: Map<number, Array<{ kind: 'move' | 'draw' | 'ellipse'; values: number[] }>>
+  gadtools: GadTools
+  gadgetDef: NewGadget & { textPointer: number; font: number }
+  nativeGadgets: Map<number, UserGadget>
 }
 
-export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
+export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
     windowPatterns: new OsWindowPatterns(),
     areaPaths: new Map(),
+    gadtools,
+    gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
+    nativeGadgets: new Map(),
   }
 }
 
@@ -486,6 +493,28 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   return {
+    '_ggad def body'(it) {
+      const [left, top, width, height] = readArgs(it, 4); Object.assign(st().gadgetDef, { leftEdge: left!, topEdge: top!, width: width!, height: height! })
+    },
+    '_ggad def text'(it) { const p = it.evalInt(); st().gadgetDef.textPointer = p; st().gadgetDef.gadgetText = st().strings.get(p) },
+    '_ggad def id'(it) { st().gadgetDef.gadgetID = it.evalInt() & 0xffff },
+    '_ggad def flags'(it) { st().gadgetDef.flags = it.evalInt() | 0 },
+    '_ggad def user'(it) { st().gadgetDef.userData = it.evalInt() | 0 },
+    '_ggad def vinf'(it) { st().gadgetDef.visualInfo = it.evalInt() | 0 },
+    '_ggad def font'(it) { st().gadgetDef.font = it.evalInt() | 0 },
+    '_ggad define'(it) {
+      const [left, top, width, height, text, flags, id, user] = readArgs(it, 8)
+      Object.assign(st().gadgetDef, {
+        leftEdge: left!, topEdge: top!, width: width!, height: height!, textPointer: text!,
+        gadgetText: st().strings.get(text!), flags: flags!, gadgetID: id! & 0xffff, userData: user!,
+      })
+    },
+    '_ggad set attrs'(it) {
+      const [gadget, _window, _requester, tags] = readArgs(it, 4); const g = st().gadtools.gadget(gadget!)
+      if (g) st().gadtools.setGadgetAttrs(g, tagItems(st(), tags!))
+    },
+    '_ggad free'(it) { const g = st().gadtools.gadget(it.evalInt()); if (g) st().gadtools.freeGadgets(g) },
+    '_ggad vinf free'(it) { st().gadtools.freeVisualInfo(it.evalInt()) },
     /** routine 1471: subtract the seven-byte private header, then FreeVec. */
     '_str free'(it) {
       heap().free(it.evalInt())
@@ -1098,6 +1127,58 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_ggad context'(_, a) {
+      const destination = n(a, 0); if (destination === 0) return VI(0)
+      const context = st().gadtools.createContext(); structWrite(rt, destination, 4, context.address); return VI(-1)
+    },
+    '_ggad create'(_, a) {
+      const explicit = a.length >= 4; const defAt = explicit ? n(a, 0) : 0
+      const kind = n(a, explicit ? 1 : 0) as GadgetKind
+      const previous = st().gadtools.gadget(n(a, explicit ? 2 : 1)); const tagsAt = n(a, explicit ? 3 : 2)
+      const d = st().gadgetDef
+      const ng: NewGadget = defAt === 0 ? d : {
+        leftEdge: structRead(rt, defAt, 2, true), topEdge: structRead(rt, defAt + 2, 2, true),
+        width: structRead(rt, defAt + 4, 2, false), height: structRead(rt, defAt + 6, 2, false),
+        gadgetText: st().strings.get(structRead(rt, defAt + 8, 4, false)),
+        gadgetID: structRead(rt, defAt + 16, 2, false), flags: structRead(rt, defAt + 18, 4, false),
+        visualInfo: structRead(rt, defAt + 22, 4, false), userData: structRead(rt, defAt + 26, 4, false),
+      }
+      if (!(Object.values(KIND) as number[]).includes(kind)) return VI(0)
+      return VI(st().gadtools.createGadget(kind, previous, ng, tagItems(st(), tagsAt))?.address ?? 0)
+    },
+    '_ggad vinf get'(_, a) {
+      const screenBase = n(a, 0); const binding = [...st().screenIds.values()].find((s) => s.base === (screenBase >>> 0))
+      if (!binding) return VI(0)
+      const screen = rt.screens.get(binding.slot); if (!screen) return VI(0)
+      const depth = screen.depth; const pens = Array.from({ length: Math.max(12, 1 << Math.min(8, depth)) }, (_, i) => i)
+      return VI(st().gadtools.getVisualInfo(binding.slot, { numPens: pens.length, pens, depth }).address)
+    },
+    '_ggad wdef left'() { return VI(st().gadgetDef.leftEdge) },
+    '_ggad wdef top'() { return VI(st().gadgetDef.topEdge) },
+    '_ggad wdef width'() { return VI(st().gadgetDef.width) },
+    '_ggad wdef height'() { return VI(st().gadgetDef.height) },
+    '_ggad wdef text'() { return VI(st().gadgetDef.textPointer) },
+    '_ggad wdef font'() { return VI(st().gadgetDef.font) },
+    '_ggad wdef id'() { return VI(st().gadgetDef.gadgetID) },
+    '_ggad wdef flags'() { return VI(st().gadgetDef.flags) },
+    '_ggad wdef user'() { return VI(st().gadgetDef.userData ?? 0) },
+    '_ggad wdef vinf'() { return VI(st().gadgetDef.visualInfo) },
+    '_ggad add'(_, a) {
+      const first = st().gadtools.gadget(n(a, 0)); const windowBase = n(a, 1) >>> 0
+      const id = st().windowIds.records.findIndex((record) => record.base === windowBase); const handle = st().windowHandles.get(id)
+      if (!first || !handle) return VI(-1)
+      const at = Math.max(0, Math.min(n(a, 2) < 0 ? handle.window.gadgets.length : n(a, 2), handle.window.gadgets.length))
+      const gadgets = st().gadtools.chain(first).map((g) => {
+        let native = st().nativeGadgets.get(g.address)
+        if (!native) {
+          native = { leftEdge: g.leftEdge, topEdge: g.topEdge, width: g.width, height: g.height, id: g.address, kind: g.kind, flags: g.flags }
+          st().nativeGadgets.set(g.address, native)
+        }
+        return native
+      })
+      handle.window.gadgets.splice(at, 0, ...gadgets.filter((g) => !handle.window.gadgets.includes(g)))
+      return VI(at)
+    },
     /** routines 1466/1467: C length, optionally stopped by a caller byte. */
     '_str len'(_, a) { return VI(heap().length(n(a, 0), a.length > 1 ? n(a, 1) : 0)) },
     /** routines 1468/1469: copy that same bounded C span into an AMOS string. */

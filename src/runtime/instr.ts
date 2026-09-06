@@ -7818,7 +7818,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     ids: ['os-devkit-1.61'],
     init: (rt) => {
-      rt.osdevkit = newOsDevKitState(rt.exec)
+      rt.osdevkit = newOsDevKitState(rt.exec, rt.gadtools)
     },
     instructions: makeOsDevKitInstructions,
     functions: makeOsDevKitFunctions,

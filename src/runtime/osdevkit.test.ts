@@ -465,6 +465,25 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
   })
 })
 
+describe('OS DevKit 1.61 shared GadTools ownership', () => {
+  it('builds its native gadget defaults and contexts in the runtime GadTools object space', () => {
+    const source = [
+      'Screen Open 0,32,16,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 1,0,0,32,16,0,0,0,"GadTools"',
+      'T=_to str("Go") : V=_ggad vinf get(Screen Base,0)',
+      '_ggad def body -2,-3,20,9 : _ggad def text T : _ggad def id $12345 : _ggad def flags $20',
+      '_ggad def user $12345678 : _ggad def vinf V : _ggad def font $23456789',
+      'Print _ggad wdef left,_ggad wdef top,_ggad wdef width,_ggad wdef height',
+      'Print _ggad wdef text=T,Hex$(_ggad wdef id),Hex$(_ggad wdef flags),Hex$(_ggad wdef user),_ggad wdef vinf=V,Hex$(_ggad wdef font)',
+      'P=_struct alloc(4) : Print _ggad context(P) : C=_struct long(P,0) : G=_ggad create(1,C,0) : Print C<>0,G<>0',
+      'Print _ggad add(G,_wnd id base(1),-1) : _ggad define 1,2,3,4,T,$10,$11111,$22222222',
+      'Print _ggad wdef left,_ggad wdef top,_ggad wdef width,_ggad wdef height,Hex$(_ggad wdef font),Hex$(_ggad wdef flags),Hex$(_ggad wdef id),Hex$(_ggad wdef user)',
+      '_ggad free C : _ggad vinf free V : _struct free P : _str free T : _wnd id close 1 : _scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe('-2\t-3\t 20\t 9\n-1\t$2345\t$20\t$12345678\t-1\t$23456789\n-1\n-1\t-1\n 0\n 1\t 2\t 3\t 4\t$23456789\t$10\t$1111\t$22222222\n')
+  })
+})
+
 describe('OS DevKit 1.61 Window-ID lifecycle', () => {
   it('opens, selects and closes an owned native window wrapper on the current screen', () => {
     const source = [
