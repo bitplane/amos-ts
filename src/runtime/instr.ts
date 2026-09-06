@@ -11,6 +11,7 @@ import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
 import { newTftState, makeTftFunctions, makeTftInstructions } from './tft'
 import { newJvpState, JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from './jvp'
 import { newLocaleState, makeLocaleFunctions, makeLocaleInstructions } from './locale'
+import { makeOsDevKitFunctions, makeOsDevKitInstructions, newOsDevKitState } from './osdevkit'
 import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { AMCAF_ERRORS, newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
@@ -7814,6 +7815,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * registered extension at all.
  */
 const EXT_IMPLS: readonly ExtensionImpl[] = [
+  {
+    ids: ['os-devkit-1.61'],
+    init: (rt) => {
+      rt.osdevkit = newOsDevKitState()
+    },
+    instructions: makeOsDevKitInstructions,
+    functions: makeOsDevKitFunctions,
+  },
   {
     ids: ['tft-0.6', 'tft-0.7'],
     init: (rt) => {

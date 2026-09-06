@@ -55,19 +55,19 @@ export class OsCStringHeap {
     this.memory.freeMem((text - HEADER) >>> 0)
   }
 
-  length(text: number): number {
+  length(text: number, terminator = 0): number {
     if (text === 0) return 0
     const b = this.memory.buffer
     let at = this.off(text)
     let n = 0
-    while (at >= 0 && at < b.length && b[at++] !== 0) n++
+    while (at >= 0 && at < b.length && b[at++] !== (terminator & 0xff)) n++
     return n
   }
 
-  get(text: number): string {
+  get(text: number, terminator = 0): string {
     if (text === 0) return ''
     const at = this.off(text)
-    return String.fromCharCode(...this.memory.buffer.subarray(at, at + this.length(text)))
+    return String.fromCharCode(...this.memory.buffer.subarray(at, at + this.length(text, terminator)))
   }
 
   position(text: number, position: number, value: number): void {
@@ -77,12 +77,12 @@ export class OsCStringHeap {
     this.memory.buffer[at - 1] = value
   }
 
-  put(text: number, value: string): void {
+  put(text: number, value: string, terminator = 0): void {
     if (text === 0) return
     const at = this.off(text)
     const capacity = this.u32(at - HEADER) - OVERHEAD
     const length = Math.min(capacity, value.length)
     for (let i = 0; i < length; i++) this.memory.buffer[at + i] = value.charCodeAt(i) & 0xff
-    this.memory.buffer[at + length] = 0
+    this.memory.buffer[at + length] = terminator
   }
 }

@@ -10,6 +10,33 @@
 
 /** Verified against the original implementation or real artifacts. */
 export const FAITHFUL = new Set<string>([
+  // --- OS DevKit 1.61, first callable slice ---
+  // Every entry is read from the AP20 binary through its Rbra worker. The
+  // private C-string workers are 1466-1476, scalar transforms 26-29 and
+  // 1752/1757-1759, system identity 675/676/1753/1754, CurrentTime 512 and
+  // CacheClearU 1755. See runtime/osdevkit.ts and its integration tests.
+  '_str len',
+  '_str get',
+  '_str alloc',
+  '_str free',
+  '_str pos',
+  '_str put',
+  '_to str',
+  '_0$',
+  '_join.w',
+  '_ext.b',
+  '_ext.w',
+  '_ext.l',
+  '_chr$.l',
+  '_chr$.w',
+  '_val.l',
+  '_val.w',
+  '_sys time',
+  '_sys version',
+  '_sys revision',
+  '_sys cpu',
+  '_sys fpu',
+  '_cache clr',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

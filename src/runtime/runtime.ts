@@ -133,6 +133,7 @@ import { type LdosState } from './ldos'
 import { tftVbl, type TftState } from './tft'
 import { type JvpState } from './jvp'
 import { type LocaleState } from './locale'
+import type { OsDevKitState } from './osdevkit'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { ObjectBank } from './objects'
@@ -778,6 +779,8 @@ export class Runtime {
   jvp!: JvpState
   /** Locale: the open catalog, and the emit description file */
   locale!: LocaleState
+  /** OS DevKit 1.61 private state; populated by its ExtensionImpl. */
+  osdevkit!: OsDevKitState
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
   turbo!: TurboState
