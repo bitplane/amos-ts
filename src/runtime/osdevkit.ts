@@ -39,7 +39,7 @@ export interface OsDevKitState {
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
-  screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean }>
+  screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean; publicLock: boolean }>
   currentScreenId: number
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
@@ -492,7 +492,7 @@ function drawNativeText(rt: Runtime, state: OsDevKitState, rp: number, value: st
   structWrite(rt, rp + 36, 2, x)
 }
 
-function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false): boolean {
+function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false, publicLock = false): boolean {
   const screen = rt.screens.get(slot)
   if (!screen) return false
   const old = state.screenIds.get(id)
@@ -511,7 +511,7 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
   structWrite(rt, rastPort + 52, 4, nativeFont(state, screen.font ?? rt.systemFont(), true))
   state.screenIds.set(id, {
     slot, base: (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0,
-    rastPort, viewPort, bitMap, owned,
+    rastPort, viewPort, bitMap, owned, publicLock,
   })
   state.currentScreenId = id
   return true
@@ -522,6 +522,7 @@ function closeScreenId(rt: Runtime, state: OsDevKitState, id: number): void {
   if (!record) return
   state.memory.freeMem(record.rastPort); state.memory.freeMem(record.viewPort); state.memory.freeMem(record.bitMap)
   if (record.owned) rt.intuition.closeScreen(record.base)
+  if (record.publicLock) rt.intuition.unlockPubScreen(record.base)
   state.screenIds.delete(id)
   if (state.currentScreenId === id) state.currentScreenId = -1
 }
@@ -1073,6 +1074,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     /** Screen-ID wrappers over stable native records bound to managed screens. */
+    '_scr def pub'(it) { rt.intuition.setDefaultPubScreen(cString(rt, it.evalInt() >>> 0)) },
     '_scr id open'(it) {
       const [id, x, y, width, height, depth, mode, _type] = readArgs(it, 8)
       it.expect(','); const title = it.evalStr()
@@ -1104,6 +1106,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const id = it.evalInt(); const address = rt.intuition.openWorkBench()
       if (address !== 0) bindScreenId(rt, st(), id, WB_SLOT)
     },
+    '_scr id from pub'(it) {
+      const id = it.evalInt(); it.expect(','); const address = rt.intuition.lockPubScreen(it.evalStr())
+      if (address !== 0 && !bindScreenId(rt, st(), id, WB_SLOT, false, true)) rt.intuition.unlockPubScreen(address)
+    },
+    '_scr pub unlock'(it) { rt.intuition.unlockPubScreen(it.evalInt() >>> 0) },
     '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = true },
     '_scr id hide'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = false },
     '_scr id move'(it) {
@@ -1706,6 +1713,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id get pal'(_, a) {
       const pen = n(a, 0); const screen = currentScreen(rt, st())
       return VI(screen && pen >= 0 && pen < screen.palette.length ? screen.palette[pen]! & 0xfff : 0)
+    },
+    '_scr pub lock'(_, a) { return VI(rt.intuition.lockPubScreen(cString(rt, n(a, 0) >>> 0))) },
+    '_scr pub modes'(_, a) { return VI(rt.intuition.setPubScreenModes(n(a, 0))) },
+    '_scr pub status'(_, a) {
+      const screen = n(a, 0); return VI(screen === 0 ? -1 : rt.intuition.pubScreenStatus(screen, n(a, 1)))
     },
     '_scr id colour'(_, a) {
       const pen = n(a, 0); const screen = currentScreen(rt, st())

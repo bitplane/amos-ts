@@ -205,10 +205,6 @@ export interface IntuiextendState {
   pp: IePpState
   /** workspace+$e6, what `Wb Next Pubscreen` fills and `Wb Pubscreen Name` reads */
   pubName: string
-  /** what SetPubScreenModes last took, so the next call can answer the previous */
-  pubModes: number
-  /** the same, for PubScreenStatus */
-  pubStatus: number
   /**
    * -$18ca(a5) when `Wb Window` has pointed it at a window's RastPort.
    *
@@ -264,8 +260,6 @@ export function newIntuiextendState(exec: ExecSystem): IntuiextendState {
     td: newIeTdState(),
     pp: newIePpState(),
     pubName: '',
-    pubModes: 0,
-    pubStatus: 0,
     amosRp: 0,
     msg: newIeMsgBlock(),
     portState: newIePortState(exec.messages),

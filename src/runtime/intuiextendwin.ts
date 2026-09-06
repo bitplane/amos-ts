@@ -1125,11 +1125,7 @@ export function makeIntuiextendWinFunctions(rt: Runtime): Record<string, Func> {
      * what LockPubScreen does for a screen that is not there.
      */
     'wb lock pubscreen': (_, a) => {
-      const name = s0(a, 0)
-      if (name !== '' && name.toLowerCase() !== 'workbench') return VI(0)
-      const addr = rt.intuition.openWorkBench()
-      if (addr !== 0) rt.intuition.addVisitor()
-      return VI(addr)
+      return VI(rt.intuition.lockPubScreen(s0(a, 0)))
     },
 
     /**
@@ -1143,8 +1139,7 @@ export function makeIntuiextendWinFunctions(rt: Runtime): Record<string, Func> {
      */
     'wb unlock pubscreen': (_, a) => {
       s0(a, 0)
-      i0(a, 1)
-      rt.intuition.removeVisitor()
+      rt.intuition.unlockPubScreen(i0(a, 1))
       return VI(0)
     },
 
@@ -1181,7 +1176,7 @@ export function makeIntuiextendWinFunctions(rt: Runtime): Record<string, Func> {
      * and naming a different default cannot change which.
      */
     'wb set default pubscreen': (_, a) => {
-      s0(a, 0)
+      rt.intuition.setDefaultPubScreen(s0(a, 0))
       return VI(0)
     },
 
@@ -1192,9 +1187,7 @@ export function makeIntuiextendWinFunctions(rt: Runtime): Record<string, Func> {
      * The guide names the two bits: "MODE=1 > Shangai", 2 > PopPubScreen.
      */
     'wb set pubscreen mode': (_, a) => {
-      const was = st().pubModes
-      st().pubModes = i0(a, 0) & 0xffff
-      return VI(was)
+      return VI(rt.intuition.setPubScreenModes(i0(a, 0)))
     },
 
     /**
@@ -1205,10 +1198,7 @@ export function makeIntuiextendWinFunctions(rt: Runtime): Record<string, Func> {
      * spells it Statut, and the table decides what a program can type.
      */
     'wb pubscreen statut': (_, a) => {
-      i0(a, 0)
-      const was = st().pubStatus
-      st().pubStatus = i0(a, 1) & 0xffff
-      return VI(was)
+      return VI(rt.intuition.pubScreenStatus(i0(a, 0), i0(a, 1)))
     },
 
     /**

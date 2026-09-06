@@ -475,6 +475,16 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(rt.intuition.workBenchOpen()).toBe(true)
   })
 
+  it('shares the Intuition public-screen registry and lock ownership', () => {
+    const source = [
+      'N=_to str("Workbench") : _scr def pub N : P=_scr pub lock(N)',
+      'Print P<>0,_scr pub modes(1),_scr pub modes(2),_scr pub status(P,3),_scr pub status(P,0)',
+      '_scr pub unlock P : _scr id from pub 5,"Workbench"',
+      'Print _scr id base(5)=P,_scr id width(5) : _scr id close 5 : _str free N',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t 0\t 1\t 0\t 3\n-1\t 640\n')
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

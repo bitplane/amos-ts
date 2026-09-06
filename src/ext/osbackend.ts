@@ -349,7 +349,7 @@ auditMany('partial', 'the corresponding screen presentation state exists, but In
 auditMany('partial', 'DrawInfo fields and screen pen policy are represented, but GetScreenDrawInfo does not expose a tracked native allocation tied to an arbitrary Screen pointer', [
   '_scr dinf get', '_scr dinf free',
 ])
-auditMany('partial', 'Workbench and managed public-screen state exist, but the process-wide Intuition public-screen registry, native lock identity and mode/status policy are not complete', [
+auditMany('partial', 'Workbench locks, defaults, modes and status now share process-wide Intuition ownership across OS DevKit and IntuiExtend; publishing GUI-owned custom screens into that registry remains incomplete', [
   '_scr def pub', '_scr pub lock', '_scr pub unlock', '_scr pub modes', '_scr pub status',
 ])
 auditMany('faithful', 'the private V1 and V2 DrawInfo default arrays preserve all twelve pen words in their exact order', [

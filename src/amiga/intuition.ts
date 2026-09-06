@@ -772,6 +772,37 @@ export class Intuition {
    * window of its own.
    */
   private visitors = 0
+  private defaultPublicScreen = 'Workbench'
+  private publicScreenModes = 0
+  private readonly publicScreenStatus = new Map<number, number>()
+
+  setDefaultPubScreen(name: string): void { this.defaultPublicScreen = name }
+
+  lockPubScreen(name: string): number {
+    const wanted = (name === '' ? this.defaultPublicScreen : name).toLowerCase()
+    if (wanted !== 'workbench') return 0
+    const address = this.openWorkBench()
+    if (address !== 0) this.addVisitor()
+    return address
+  }
+
+  unlockPubScreen(address: number): void {
+    if ((address >>> 0) === (this.host.screenAddr(WB_SLOT) >>> 0)) this.removeVisitor()
+  }
+
+  setPubScreenModes(modes: number): number {
+    const old = this.publicScreenModes
+    this.publicScreenModes = modes & 0xffff
+    return old
+  }
+
+  pubScreenStatus(address: number, status: number): number {
+    const key = address === 0 ? this.host.screenAddr(WB_SLOT) >>> 0 : address >>> 0
+    if (address !== 0 && (key !== (this.host.screenAddr(WB_SLOT) >>> 0) || !this.host.isOpen(WB_SLOT))) return -1
+    const old = this.publicScreenStatus.get(key) ?? 0
+    this.publicScreenStatus.set(key, status & 0xffff)
+    return old
+  }
 
   /** intuition.library -210. The existing screen if there is one, else a new
    * one; 0 if it could not be opened. */
