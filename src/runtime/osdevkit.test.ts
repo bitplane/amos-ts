@@ -459,12 +459,13 @@ describe('OS DevKit 1.61 native graphics records', () => {
       'Print _scr id width(3),_scr id height(3),_scr id depth(3),Hex$(_scr id mode(3))',
       '_scr id move 3,5,-2 : _scr id offset 3,7,9 : _scr id set mouse pos 3,40,30',
       'Print _scr id x mouse(3),_scr id y mouse(3)',
+      '_scr id set pal 2,$abc : Print Hex$(_scr id get pal(2))',
       '_scr id close 3 : Print _scr id base(3),_scr id in use',
       '_scr id from wb 4 : Print _scr id base(4)<>0,_scr id width(4),_scr id height(4)',
       '_scr id close 4',
     ].join('\n')
     const { rt, output } = run(source)
-    expect(output).toBe(' 3\t-1\t-1\t-1\n 160\t 100\t 4\t$8004\n 40\t 30\n 0\t-1\n-1\t 640\t 256\n')
+    expect(output).toBe(' 3\t-1\t-1\t-1\n 160\t 100\t 4\t$8004\n 40\t 30\n$ABC\n 0\t-1\n-1\t 640\t 256\n')
     expect(rt.intuition.workBenchOpen()).toBe(true)
   })
 

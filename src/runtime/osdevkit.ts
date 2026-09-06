@@ -509,6 +509,11 @@ function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | 
   return record ? nativeRaster(rt, record.rastPort) : null
 }
 
+function currentScreen(rt: Runtime, state: OsDevKitState) {
+  const record = state.screenIds.get(state.currentScreenId)
+  return record ? rt.screens.get(record.slot) : undefined
+}
+
 function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { rastPort: number; bitMap: number } | null {
   const screen = rt.screens.get(window.screenSlot)
   if (!screen) return null
@@ -1081,6 +1086,14 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         rt.input.mouseY = screen.displayY + (y! - screen.offsetY) / (screen.laced ? 2 : 1)
       }
     },
+    '_scr id set pal'(it) {
+      const [pen, colour] = readArgs(it, 2); const screen = currentScreen(rt, st())
+      if (screen && pen! >= 0 && pen! < screen.palette.length) screen.palette[pen!] = colour! & 0xfff
+    },
+    '_scr id colour'(it) {
+      const [pen, colour] = readArgs(it, 2); const screen = currentScreen(rt, st())
+      if (screen && pen! >= 0 && pen! < screen.palette.length) screen.palette[pen!] = colour! & 0xfff
+    },
     '_scr id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
       if (!raster) return
@@ -1606,6 +1619,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id y mouse'(_, a) {
       const r = st().screenIds.get(n(a, 0)); const screen = r ? rt.screens.get(r.slot) : undefined
       return VI(screen ? rt.mouseOnScreen(screen).y : 0)
+    },
+    '_scr id get pal'(_, a) {
+      const pen = n(a, 0); const screen = currentScreen(rt, st())
+      return VI(screen && pen >= 0 && pen < screen.palette.length ? screen.palette[pen]! & 0xfff : 0)
+    },
+    '_scr id colour'(_, a) {
+      const pen = n(a, 0); const screen = currentScreen(rt, st())
+      return VI(screen && pen >= 0 && pen < screen.palette.length ? screen.palette[pen]! & 0xfff : 0)
     },
     '_scr id point'(_, a) {
       const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)

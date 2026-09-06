@@ -59,6 +59,8 @@ export const FAITHFUL = new Set<string>([
   '_scr id x mouse',
   '_scr id y mouse',
   '_scr id set mouse pos',
+  '_scr id get pal',
+  '_scr id set pal',
   // --- OS DevKit 1.61, native utility slice ---
   // TagItem workers 1319-1325, Utility Amiga2Date workers 1848-1853,
   // AllocMem/CopyMem workers 1117-1120, AllocVec 1782/1783, and structure
