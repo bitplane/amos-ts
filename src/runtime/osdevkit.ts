@@ -12,7 +12,7 @@ import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import { CUSTOMSCREEN, IntuitionBaseLock, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
-import { OsWindowIds } from '../amiga/oswindowid'
+import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
 import {
   allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
@@ -40,6 +40,7 @@ export interface OsDevKitState {
   currentScreenId: number
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
+  windowPatterns: OsWindowPatterns
 }
 
 export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
@@ -47,6 +48,7 @@ export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
+    windowPatterns: new OsWindowPatterns(),
   }
 }
 
@@ -356,6 +358,14 @@ function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { 
   structWrite(rt, rastPort + 25, 1, screen.rp.fgPen); structWrite(rt, rastPort + 26, 1, screen.rp.bgPen)
   structWrite(rt, rastPort + 28, 1, screen.rp.drawMode); structWrite(rt, rastPort + 34, 2, screen.rp.linePtrn)
   return { rastPort, bitMap }
+}
+
+function currentWindowTarget(rt: Runtime, state: OsDevKitState): {
+  raster: NativeRaster; window: Window; ox: number; oy: number
+} | null {
+  const handle = state.windowHandles.get(state.windowIds.currentId)
+  const raster = handle ? nativeRaster(rt, handle.rastPort) : null
+  return handle && raster ? { raster, window: handle.window, ox: handle.window.leftEdge, oy: handle.window.topEdge } : null
 }
 
 function structSet(rt: Runtime, width: StructWidth): Instr {
@@ -903,6 +913,89 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const id = it.evalInt(); const handle = st().windowHandles.get(id)
       st().windowIds.use(id, handle?.rastPort ?? 0)
     },
+    '_wnd id ink'(it) {
+      const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
+      if (!target) return
+      structWrite(rt, target.raster.rp + 25, 1, front!); structWrite(rt, target.raster.rp + 26, 1, back!)
+      structWrite(rt, target.raster.rp + 27, 1, outline!)
+    },
+    '_wnd id gr writing'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 28, 1, value) },
+    '_wnd id set line'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 34, 2, value) },
+    '_wnd id plot'(it) { const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st()); if (t) nativePlot(rt, t.raster, t.ox + x!, t.oy + y!) },
+    '_wnd id gr locate'(it) {
+      const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st())
+      if (t) { structWrite(rt, t.raster.rp + 36, 2, x!); structWrite(rt, t.raster.rp + 38, 2, y!) }
+    },
+    '_wnd id line to'(it) {
+      const [x, y] = readArgs(it, 2); const t = currentWindowTarget(rt, st()); if (!t) return
+      const fromX = structRead(rt, t.raster.rp + 36, 2, true); const fromY = structRead(rt, t.raster.rp + 38, 2, true)
+      nativeDraw(rt, t.raster, t.ox + fromX, t.oy + fromY, t.ox + x!, t.oy + y!)
+      structWrite(rt, t.raster.rp + 36, 2, x!); structWrite(rt, t.raster.rp + 38, 2, y!)
+    },
+    '_wnd id line'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      const t = currentWindowTarget(rt, st()); if (!t) return
+      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y1, t.ox + x2, t.oy + y2)
+      structWrite(rt, t.raster.rp + 36, 2, x2); structWrite(rt, t.raster.rp + 38, 2, y2)
+    },
+    '_wnd id rect'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      const t = currentWindowTarget(rt, st()); if (!t) return
+      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y1, t.ox + x2, t.oy + y1)
+      nativeDraw(rt, t.raster, t.ox + x2, t.oy + y1, t.ox + x2, t.oy + y2)
+      nativeDraw(rt, t.raster, t.ox + x2, t.oy + y2, t.ox + x1, t.oy + y2)
+      nativeDraw(rt, t.raster, t.ox + x1, t.oy + y2, t.ox + x1, t.oy + y1)
+    },
+    '_wnd id ellipse'(it) { const [x, y, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (t) nativeEllipse(rt, t.raster, t.ox + x!, t.oy + y!, rx!, ry!) },
+    '_wnd id cls'(it) {
+      const pen = it.evalInt(); const t = currentWindowTarget(rt, st()); if (!t) return
+      for (let y = 0; y < t.window.height; y++) for (let x = 0; x < t.window.width; x++) nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
+    },
+    '_wnd id bar'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
+      const t = currentWindowTarget(rt, st()); if (!t) return
+      const pen = structRead(rt, t.raster.rp + 25, 1, false)
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
+    },
+    '_wnd id fill ellipse'(it) {
+      const [cx, cy, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (!t || rx! <= 0 || ry! <= 0) return
+      const pen = structRead(rt, t.raster.rp + 25, 1, false)
+      for (let y = -ry!; y <= ry!; y++) { const width = Math.floor(rx! * Math.sqrt(Math.max(0, 1 - y * y / (ry! * ry!)))); for (let x = -width; x <= width; x++) nativePutColor(rt, t.raster, t.ox + cx! + x, t.oy + cy! + y, pen) }
+    },
+    '_wnd id paint'(it) {
+      const [sx, sy, mode] = readArgs(it, 3); const t = currentWindowTarget(rt, st()); if (!t) return
+      const seed = nativePoint(rt, t.raster, t.ox + sx!, t.oy + sy!); const outline = structRead(rt, t.raster.rp + 27, 1, false)
+      const pen = structRead(rt, t.raster.rp + 25, 1, false); const seen = new Set<number>(); const open: Array<[number, number]> = [[sx!, sy!]]
+      while (open.length) {
+        const [x, y] = open.pop()!; const key = y * t.window.width + x
+        if (seen.has(key) || x < 0 || y < 0 || x >= t.window.width || y >= t.window.height) continue
+        const color = nativePoint(rt, t.raster, t.ox + x, t.oy + y)
+        if (mode === 0 ? color !== seed : color === outline) continue
+        seen.add(key); nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
+        open.push([x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1])
+      }
+    },
+    '_wnd id scroll'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
+      const t = currentWindowTarget(rt, st()); if (!t) return
+      const left = Math.min(x1, x2); const top = Math.min(y1, y2); const width = Math.abs(x2 - x1) + 1; const height = Math.abs(y2 - y1) + 1
+      const pixels = Array.from({ length: width * height }, (_, i) => nativePoint(rt, t.raster, t.ox + left + i % width, t.oy + top + Math.floor(i / width)))
+      const back = structRead(rt, t.raster.rp + 26, 1, false)
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) nativePutColor(rt, t.raster, t.ox + left + x, t.oy + top + y, back)
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const tx = x - dx; const ty = y - dy
+        if (tx >= 0 && ty >= 0 && tx < width && ty < height) nativePutColor(rt, t.raster, t.ox + left + tx, t.oy + top + ty, pixels[y * width + x]!)
+      }
+    },
+    '_wnd id text'(it) {
+      const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr(); const t = currentWindowTarget(rt, st())
+      if (t) { structWrite(rt, t.raster.rp + 36, 2, x + value.length * 8); structWrite(rt, t.raster.rp + 38, 2, y) }
+    },
+    '_wnd id set paint'(it) { const value = it.evalInt(); const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 32, 1, value ? 0x08 : 0) },
+    '_wnd id pattern off'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 0) },
+    '_wnd id pattern on'() { const t = currentWindowTarget(rt, st()); if (t) structWrite(rt, t.raster.rp + 8, 4, 1) },
+    '_wnd id set low pattern'(it) { st().windowPatterns.setLow(readArgs(it, 8)) },
+    '_wnd id set high pattern'(it) { st().windowPatterns.setHigh(readArgs(it, 8)) },
   }
 }
 
@@ -1182,6 +1275,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_wnd id base'(_, a) { return VI(st().windowIds.base(n(a, 0))) },
     '_wnd id in use'() { return VI(st().windowIds.currentId) },
+    '_wnd id point'(_, a) { const t = currentWindowTarget(rt, st()); return VI(t ? nativePoint(rt, t.raster, t.ox + n(a, 0), t.oy + n(a, 1)) : -1) },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
       if (address !== 0) st().colorMaps.set(address, map)

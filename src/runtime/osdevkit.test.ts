@@ -460,4 +460,22 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     ].join('\n')
     expect(run(source).output).toBe('-1\t 3\n 2\t 1\t 32\t 16\n-1\t-1\t-1\n 3\n 0\t-1\n')
   })
+
+  it('draws through the selected window native RastPort and its window-relative origin', () => {
+    const source = [
+      'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,2,1,32,16,0,0,0,"Draw" : _wnd id use 3',
+      '_wnd id cls 0 : _wnd id ink 3,0,1 : _wnd id gr writing 0 : _wnd id set line $ffff',
+      '_wnd id plot 1,1 : Print _wnd id point(1,1)',
+      '_wnd id gr locate 0,2 : _wnd id line to 3,2 : _wnd id line 0,3 To 3,3',
+      '_wnd id rect 4,1 To 7,3 : _wnd id ellipse 10,5,2,1 : _wnd id bar 12,1 To 14,3',
+      '_wnd id fill ellipse 18,5,2,1 : Print _wnd id point(18,5)',
+      '_wnd id text 1,8,"abc" : Print _rp what xgr(_struct long(_wnd id base(3),50))',
+      '_wnd id set paint 1 : _wnd id pattern on : _wnd id pattern off',
+      '_wnd id set low pattern 1,2,3,4,5,6,7,8 : _wnd id set high pattern 9,10,11,12,13,14,15,16',
+      '_wnd id ink 2,0,1 : _wnd id paint 20,10,0 : _wnd id scroll 0,0 To 8,8,1,0',
+      '_wnd id close 3 : _scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe(' 3\n 3\n 25\n')
+  })
 })

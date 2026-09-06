@@ -436,7 +436,7 @@ auditMany('partial', 'message fields are represented, but blocking/filtering the
 auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
   '_wnd id mouse', '_wnd id set mouse pos',
 ])
-auditMany('partial', 'the drawing operation has a managed analogue, but native AreaInfo/TmpRas, ScrollRaster exposure or Bob-to-RastPort ownership remains incomplete', [
+auditMany('partial', 'bar, fill, flood and scrolling now draw through the selected native Window-ID RastPort; AreaInfo patterns, TmpRas scratch/exposure and Bob ownership remain incomplete', [
   '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
 ])
 auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [

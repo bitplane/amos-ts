@@ -331,6 +331,26 @@ export const FAITHFUL = new Set<string>([
   '_wnd id base',
   '_wnd id use',
   '_wnd id in use',
+  // Window-ID graphics workers 3091-3099/3101/3104-3110. These select the
+  // current Window record and delegate to its native RastPort; the private
+  // low/high AreaPtrn halves written by 3107/3108 are retained as words.
+  '_wnd id plot',
+  '_wnd id rect',
+  '_wnd id line to',
+  '_wnd id line',
+  '_wnd id ellipse',
+  '_wnd id cls',
+  '_wnd id ink',
+  '_wnd id gr writing',
+  '_wnd id text',
+  '_wnd id gr locate',
+  '_wnd id set paint',
+  '_wnd id pattern on',
+  '_wnd id pattern off',
+  '_wnd id set low pattern',
+  '_wnd id set high pattern',
+  '_wnd id set line',
+  '_wnd id point',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor
