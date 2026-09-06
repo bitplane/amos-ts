@@ -11,6 +11,7 @@ import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import { IntuitionBaseLock } from '../amiga/intuition'
+import type { ExecSystem } from '../amiga/osexec'
 import {
   chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, valLong, valWord,
 } from '../amiga/osscalar'
@@ -25,11 +26,12 @@ export interface OsDevKitState {
   /** routine 1320's null/EntNul target: the library's private TagItem list. */
   defaultTags: Array<{ tag: number; data: number }>
   ibase: IntuitionBaseLock
+  exec: ExecSystem
 }
 
-export const newOsDevKitState = (): OsDevKitState => {
-  const strings = new OsCStringHeap()
-  return { memory: strings.memory, strings, defaultTags: [], ibase: new IntuitionBaseLock() }
+export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
+  const strings = new OsCStringHeap(exec.pool)
+  return { memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec }
 }
 
 const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
@@ -46,45 +48,6 @@ const set32 = (st: OsDevKitState, address: number, value: number): void => {
   b[at + 2] = value >>> 8
   b[at + 3] = value
 }
-const get8 = (st: OsDevKitState, address: number): number => st.memory.buffer[offset(st, address)] ?? 0
-const set8 = (st: OsDevKitState, address: number, value: number): void => {
-  st.memory.buffer[offset(st, address)] = value
-}
-
-function listInsert(st: OsDevKitState, list: number, node: number, predecessor: number): void {
-  if (list === 0 || node === 0) return
-  const pred = predecessor === 0 ? list : predecessor
-  const succ = get32(st, pred)
-  set32(st, node, succ)
-  set32(st, node + 4, pred)
-  set32(st, pred, node)
-  set32(st, succ + 4, node)
-}
-
-function listRemove(st: OsDevKitState, node: number): void {
-  if (node === 0) return
-  const succ = get32(st, node)
-  const pred = get32(st, node + 4)
-  set32(st, pred, succ)
-  set32(st, succ + 4, pred)
-}
-
-function listRemoveHead(st: OsDevKitState, list: number): number {
-  if (list === 0) return 0
-  const node = get32(st, list)
-  if (node === (list + 4) >>> 0) return 0
-  listRemove(st, node)
-  return node
-}
-
-function listRemoveTail(st: OsDevKitState, list: number): number {
-  if (list === 0) return 0
-  const node = get32(st, list + 8)
-  if (node === (list >>> 0)) return 0
-  listRemove(st, node)
-  return node
-}
-
 function cString(rt: Runtime, address: number): string {
   if (address === 0) return ''
   let result = ''
@@ -323,43 +286,61 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       it.halt('ended')
       return 'jumped'
     },
+    /** workers 1534/1535/1538 and 1541: Exec public-port and message delivery. */
+    '_port add'(it) { st().exec.messages.addPort(it.evalInt()) },
+    '_port rem'(it) { st().exec.messages.remPort(it.evalInt()) },
+    '_port delete'(it) { st().exec.messages.deletePort(it.evalInt()) },
+    '_msg put'(it) {
+      const port = it.evalInt(); it.expect(',')
+      st().exec.messages.putMsg(port, it.evalInt())
+    },
+    '_msg reply'(it) { st().exec.messages.replyMsg(it.evalInt()) },
+    /** workers 1559/1561: Exec signal ownership and delivery. */
+    '_sig free'(it) { st().exec.messages.freeSignal(it.evalInt()) },
+    '_sig put'(it) {
+      const task = it.evalInt(); it.expect(',')
+      st().exec.messages.signal(task, it.evalInt())
+    },
+    /** workers 1564-1566: native Interrupt lifetime and server removal. */
+    '_int free'(it) { st().exec.interrupts.free(it.evalInt()) },
+    '_int set'(it) {
+      const interrupt = it.evalInt(); it.expect(',')
+      const data = it.evalInt(); it.expect(',')
+      st().exec.interrupts.set(interrupt, data, it.evalInt())
+    },
+    '_int rem'(it) {
+      const vector = it.evalInt(); it.expect(',')
+      st().exec.interrupts.rem(vector, it.evalInt())
+    },
     /** workers 1439-1455: native Exec List/Node fields and algorithms. */
-    '_lnod set head'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
-    '_lnod set tail'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 8, it.evalInt()) },
-    '_lnod set type'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 12, it.evalInt()) },
-    '_nod set succ'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
-    '_nod set pred'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 4, it.evalInt()) },
-    '_nod set type'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 8, it.evalInt()) },
-    '_nod set name'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p + 10, it.evalInt()) },
-    '_nod set pri'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set8(st(), p + 9, it.evalInt()) },
-    '_lnod free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
-    '_nod free'(it) { st().memory.freeMem(it.evalInt() >>> 0) },
+    '_lnod set head'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setListHead(p, it.evalInt()) },
+    '_lnod set tail'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setListTail(p, it.evalInt()) },
+    '_lnod set type'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setListType(p, it.evalInt()) },
+    '_nod set succ'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setNodeSucc(p, it.evalInt()) },
+    '_nod set pred'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setNodePred(p, it.evalInt()) },
+    '_nod set type'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setNodeType(p, it.evalInt()) },
+    '_nod set name'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setNodeName(p, it.evalInt()) },
+    '_nod set pri'(it) { const p = it.evalInt(); it.expect(','); st().exec.memory.setNodePriority(p, it.evalInt()) },
+    '_lnod free'(it) { st().exec.memory.free(it.evalInt()) },
+    '_nod free'(it) { st().exec.memory.free(it.evalInt()) },
     '_nod ins'(it) {
       const list = it.evalInt(); it.expect(',')
       const node = it.evalInt(); it.expect(',')
-      listInsert(st(), list, node, it.evalInt())
+      st().exec.memory.insert(list, node, it.evalInt())
     },
-    '_nod rem'(it) { listRemove(st(), it.evalInt()) },
+    '_nod rem'(it) { st().exec.memory.remove(it.evalInt()) },
     '_nod h add'(it) {
-      const list = it.evalInt(); it.expect(','); listInsert(st(), list, it.evalInt(), list)
+      const list = it.evalInt(); it.expect(','); st().exec.memory.addHead(list, it.evalInt())
     },
-    '_nod h rem'(it) { listRemoveHead(st(), it.evalInt()) },
+    '_nod h rem'(it) { st().exec.memory.remHead(it.evalInt()) },
     '_nod t add'(it) {
-      const list = it.evalInt(); it.expect(','); listInsert(st(), list, it.evalInt(), get32(st(), list + 8))
+      const list = it.evalInt(); it.expect(','); st().exec.memory.addTail(list, it.evalInt())
     },
-    '_nod t rem'(it) { listRemoveTail(st(), it.evalInt()) },
+    '_nod t rem'(it) { st().exec.memory.remTail(it.evalInt()) },
     '_nod enqueue'(it) {
       const list = it.evalInt(); it.expect(',')
       const node = it.evalInt()
-      if (list === 0 || node === 0) return
-      const priority = (get8(st(), node + 9) << 24) >> 24
-      let pred = list
-      let cursor = get32(st(), list)
-      while (cursor !== (list + 4) >>> 0 && ((get8(st(), cursor + 9) << 24) >> 24) >= priority) {
-        pred = cursor
-        cursor = get32(st(), cursor)
-      }
-      listInsert(st(), list, node, pred)
+      st().exec.memory.enqueue(list, node)
     },
     /** workers 1122-1129 and 1143-1151: channel fields and lifetime. */
     '_chn set number'(it) { const p = it.evalInt(); it.expect(','); if (p !== 0) set32(st(), p, it.evalInt()) },
@@ -470,16 +451,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_base loc'() { return VI(openLibrary('locale.library', 36)) },
     '_base dt'() { return VI(openLibrary('datatypes.library', 36)) },
     '_base layers'() { return VI(openLibrary('layers.library', 36)) },
+    /** workers 1536/1537/1539 and 1545/1557/1558: native MsgPort access. */
+    '_port find'(_, a) { return VI(st().exec.messages.findPort(cString(rt, n(a, 0)))) },
+    '_port create'() { return VI(st().exec.messages.createPort()) },
+    '_port what sig nb'(_, a) { return VI(st().exec.messages.portSignalBit(n(a, 0))) },
+    '_port what sig task'(_, a) { return VI(st().exec.messages.portSignalTask(n(a, 0))) },
+    /** workers 1542/1543 and 1796: exact Message structure fields. */
+    '_msg what length'(_, a) { return VI(st().exec.messages.messageLength(n(a, 0))) },
+    '_msg what reply port'(_, a) { return VI(st().exec.messages.messageReplyPort(n(a, 0))) },
+    /** workers 1559/1560: AllocSignal and masked SetSignal. */
+    '_sig alloc'(_, a) { return VI(st().exec.messages.allocSignal(n(a, 0))) },
+    '_sig set'(_, a) { return VI(st().exec.messages.setSignal(n(a, 0), n(a, 1))) },
+    /** worker 1563: cleared 22-byte native Interrupt allocation. */
+    '_int alloc'() { return VI(st().exec.interrupts.alloc()) },
     /** workers 1447/1448 and 1456-1465: list allocation, search and field reads. */
     '_lnod alloc'() {
-      const list = st().memory.alloc(14, { clear: true })
-      if (list !== 0) {
-        set32(st(), list, list + 4)
-        set32(st(), list + 8, list)
-      }
-      return VI(list)
+      return VI(st().exec.memory.allocList())
     },
-    '_nod alloc'(_, a) { return VI(st().memory.alloc(Math.max(0, n(a, 0)) + 14, { clear: true })) },
+    '_nod alloc'(_, a) { return VI(st().exec.memory.allocNode(Math.max(0, n(a, 0)))) },
     '_nod find name'(_, a) {
       const start = n(a, 0)
       const name = n(a, 1)
@@ -490,15 +479,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(0)
     },
-    '_lnod what head'(_, a) { return VI(get32(st(), n(a, 0))) },
-    '_lnod what tail'(_, a) { return VI(get32(st(), n(a, 0) + 8)) },
-    '_lnod what type'(_, a) { return VI(get8(st(), n(a, 0) + 12)) },
-    '_nod what succ'(_, a) { return VI(get32(st(), n(a, 0))) },
-    '_nod what pred'(_, a) { return VI(get32(st(), n(a, 0) + 4)) },
-    '_nod what type'(_, a) { return VI(get8(st(), n(a, 0) + 8)) },
-    '_nod what pri'(_, a) { return VI((get8(st(), n(a, 0) + 9) << 24) >> 24) },
-    '_nod what name'(_, a) { return VI(get32(st(), n(a, 0) + 10)) },
-    '_nod what start'(_, a) { return VI((n(a, 0) + 14) >>> 0) },
+    '_lnod what head'(_, a) { return VI(st().exec.memory.listHead(n(a, 0))) },
+    '_lnod what tail'(_, a) { return VI(st().exec.memory.listTail(n(a, 0))) },
+    '_lnod what type'(_, a) { return VI(st().exec.memory.listType(n(a, 0))) },
+    '_nod what succ'(_, a) { return VI(st().exec.memory.nodeSucc(n(a, 0))) },
+    '_nod what pred'(_, a) { return VI(st().exec.memory.nodePred(n(a, 0))) },
+    '_nod what type'(_, a) { return VI(st().exec.memory.nodeType(n(a, 0))) },
+    '_nod what pri'(_, a) { return VI(st().exec.memory.nodePriority(n(a, 0))) },
+    '_nod what name'(_, a) { return VI(st().exec.memory.nodeName(n(a, 0))) },
+    '_nod what start'(_, a) { return VI(st().exec.memory.nodeStart(n(a, 0))) },
     /** workers 1130-1142 and 1146-1150: channel reads and constructors. */
     '_chn what number'(_, a) { return VI(get32(st(), n(a, 0))) },
     '_chn what default'(_, a) { return VI(get32(st(), n(a, 0) + 4)) },

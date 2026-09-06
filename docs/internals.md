@@ -48,6 +48,13 @@ fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
   rather than trusting inline branch links. Nothing blocks the thread: `Wait`,
   `Wait Key`, `Wait Vbl` and `Input` set a `blocked` state the 50 Hz driver
   releases.
+- **Native Exec.** One runtime-wide mapped arena and task identity now back
+  native Lists/Nodes, signals, MsgPorts/Messages and interrupt-server chains
+  (`src/amiga/osexec.ts`). OS DevKit consumes that service rather than owning
+  parallel address and queue models. Other extensions migrate to it when their
+  binary audit shows compatible Exec behavior. Empty blocking waits remain an
+  interpreter/scheduler boundary, and arbitrary `is_Code` callbacks remain a
+  future 68k-execution boundary; neither is approximated inside an extension.
 - **Display.** Complete, and **planar**. Screens and bank images are Amiga
   bitplanes with a chunky view derived from them, so `Logbase` pokes, bitplane
   extensions and a copper list aiming planes anywhere all address the real

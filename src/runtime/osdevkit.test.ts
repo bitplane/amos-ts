@@ -180,6 +180,38 @@ describe('OS DevKit 1.61 Exec List and Node wrappers', () => {
   })
 })
 
+describe('OS DevKit 1.61 shared Exec services', () => {
+  it('uses one mapped arena for OS allocations, lists, ports and messages', () => {
+    const source = [
+      'P=_port create : _nod set name P,_to str("public") : _port add P',
+      'Print _port find(_nod what name(P))=P,_port what sig task(P)<>0,_port what sig nb(P)>=0',
+      'R=_port create : M=_nod alloc(6) : Loke M+14,R : Doke M+18,$1234',
+      '_msg put P,M',
+      'Print Hex$(_msg what length(M)),_msg what reply port(M)=R',
+      '_msg reply M : A=_lnod what head(R+20) : _nod h rem R+20 : Print A=M',
+      '_port rem P : Print _port find(_nod what name(P))=0',
+      '_nod free M : _port delete P : _port delete R',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe('-1\t-1\t-1\n$1234\t-1\n-1\n-1\n')
+    expect(rt.osdevkit.memory).toBe(rt.exec.pool)
+    expect(rt.osdevkit.exec).toBe(rt.exec)
+  })
+
+  it('shares signal state and native Interrupt records through the runtime Exec service', () => {
+    const source = [
+      'S=_sig alloc(-1) : Print S,_sig set(5,7),_sig set(2,3)',
+      'T=_port create : _sig put _port what sig task(T),8 : _port delete T : _sig free S',
+      'I=_int alloc : _int set I,$12345678,$23456789',
+      'Print Hex$(Leek(I+14)),Hex$(Leek(I+18))',
+      '_int rem 5,I : _int free I',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe(' 0\t 0\t 5\n$12345678\t$23456789\n')
+    expect(rt.exec.pool.sizeOf(rt.exec.pool.base + 8)).toBe(0)
+  })
+})
+
 describe('OS DevKit 1.61 channel records', () => {
   it('round-trips all list and private data-header fields (workers 1122-1137)', () => {
     const source = [

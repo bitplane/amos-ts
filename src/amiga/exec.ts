@@ -1,12 +1,13 @@
 /**
  * exec.library — the memory pools, the library list, and `AllocMem`.
  *
- * Deliberately not the whole of exec. There is one task here, so Forbid and
- * Permit have nothing to forbid and stay n/a where they are; message ports,
- * signals and Wait have no second task to talk to. Modelling them now would be
- * inventing machinery to sit unused, and the three things AMOS and its
- * extensions genuinely ask exec for are how much memory is free, whether a
- * library is present, and a block of memory with an address.
+ * Deliberately not the whole of exec. This file owns memory and library
+ * mechanism; address-bearing Lists, tasks, message ports, signals and
+ * interrupt chains compose around it in `osexec.ts`. There is still only one
+ * runnable task, so a Wait that finds no pending signal cannot resume until a
+ * scheduler exists, and registered native interrupt code cannot run until a
+ * 68k execution engine exists. Those are explicit boundaries, not reasons for
+ * extensions to grow private substitutes.
  *
  * ## What lives here and what does not
  *

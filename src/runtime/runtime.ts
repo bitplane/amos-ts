@@ -134,6 +134,7 @@ import { tftVbl, type TftState } from './tft'
 import { type JvpState } from './jvp'
 import { type LocaleState } from './locale'
 import type { OsDevKitState } from './osdevkit'
+import { ExecSystem } from '../amiga/osexec'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { ObjectBank } from './objects'
@@ -524,6 +525,8 @@ export class Runtime {
   /** OS DevKit's AllocMem/AllocVec arena, between CRAFT's pages and Dev IORequests. */
   static readonly OS_DEVKIT_MEMORY_BASE = 0x3a100000
   static readonly OS_DEVKIT_MEMORY_RESERVED = 0x00f00000
+  /** Shared now by OS DevKit; other native-facing modules migrate here as audited. */
+  readonly exec = new ExecSystem(Runtime.OS_DEVKIT_MEMORY_BASE, Runtime.OS_DEVKIT_MEMORY_RESERVED)
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string
@@ -2040,10 +2043,10 @@ export class Runtime {
       this.craft ? new Uint8Array(this.craft.turtle.buffer) : null,
     ),
     bufferRegion(
-      'OS DevKit heap',
+      'Exec native heap',
       Runtime.OS_DEVKIT_MEMORY_BASE,
       Runtime.OS_DEVKIT_MEMORY_RESERVED,
-      () => (this.osdevkit ? this.osdevkit.memory.buffer : null),
+      () => this.exec.pool.buffer,
     ),
     bufferRegion('Dev IORequests', Runtime.DEV_IO_BASE, Runtime.DEV_IO_RESERVED, () => this.dev.io),
     bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>

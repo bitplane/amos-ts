@@ -14,8 +14,10 @@ const OVERHEAD = 8
 export class OsCStringHeap {
   readonly memory: MemPool
 
-  constructor(base = 0x3a10_0000, reserved = 0x00f0_0000) {
-    this.memory = new MemPool(base, reserved)
+  constructor(memoryOrBase: MemPool | number = 0x3a10_0000, reserved = 0x00f0_0000) {
+    this.memory = typeof memoryOrBase === 'number'
+      ? new MemPool(memoryOrBase, reserved)
+      : memoryOrBase
   }
 
   private off(addr: number): number {

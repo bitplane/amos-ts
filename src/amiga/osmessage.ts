@@ -5,11 +5,17 @@ export const NT_MESSAGE = 5
 
 /** Native Exec MsgPort, Message and signal behavior used by OS DevKit. */
 export class ExecMessageSystem {
-  readonly memory = new ExecListHeap()
-  readonly currentTask = 0x7b00_0000
+  readonly memory: ExecListHeap
+  readonly currentTask: number
   private allocatedSignals = 0
-  private readonly taskSignals = new Map<number, number>([[this.currentTask, 0]])
+  private readonly taskSignals = new Map<number, number>()
   private readonly publicPorts = new Map<string, number>()
+
+  constructor(memory = new ExecListHeap(), currentTask = 0x7b00_0000) {
+    this.memory = memory
+    this.currentTask = currentTask
+    this.taskSignals.set(currentTask, 0)
+  }
 
   allocSignal(request = -1): number {
     let bit = request | 0

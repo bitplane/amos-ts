@@ -1,4 +1,6 @@
-/** Binary-compatible managed backing for OS DevKit's Exec List/Node helpers. */
+/** Binary-compatible managed backing for Exec List/Node helpers. */
+
+import type { MemPool } from './exec'
 
 interface Block {
   base: number
@@ -14,7 +16,10 @@ export class ExecListHeap {
   private next = 0x7c00_0000
   private readonly blocks = new Map<number, Block>()
 
+  constructor(readonly pool?: MemPool) {}
+
   private alloc(bytes: number): number {
+    if (this.pool) return this.pool.alloc(Math.max(1, bytes), { clear: true })
     const base = this.next
     const size = Math.max(1, bytes)
     this.next = (base + size + 3) & ~3
@@ -23,6 +28,14 @@ export class ExecListHeap {
   }
 
   private block(address: number, bytes = 1): { block: Block; offset: number } {
+    if (this.pool) {
+      const offset = (address >>> 0) - this.pool.base
+      if (
+        offset >= 0 && offset + bytes <= this.pool.buffer.length &&
+        this.pool.typeOfMem(address) !== 0 && this.pool.typeOfMem(address + bytes - 1) !== 0
+      ) return { block: { base: this.pool.base, data: this.pool.buffer }, offset }
+      throw new RangeError(`invalid Exec address $${(address >>> 0).toString(16)}`)
+    }
     for (const block of this.blocks.values()) {
       const offset = address - block.base
       if (offset >= 0 && offset + bytes <= block.data.length) return { block, offset }
@@ -70,13 +83,14 @@ export class ExecListHeap {
 
   allocCString(text: string): number {
     const address = this.alloc(text.length + 1)
-    const { block } = this.block(address)
-    for (let i = 0; i < text.length; i++) block.data[i] = text.charCodeAt(i) & 0xff
+    for (let i = 0; i < text.length; i++) this.writeU8(address + i, text.charCodeAt(i))
     return address
   }
 
   free(address: number): void {
-    if (address !== 0) this.blocks.delete(address)
+    if (address === 0) return
+    if (this.pool) this.pool.freeMem(address)
+    else this.blocks.delete(address)
   }
 
   setListHead(list: number, head: number): void {
