@@ -44,10 +44,13 @@ second extension. Where the pool is MAPPED still belongs to the caller: the
 base and the size come from the caller's own memory region, because that
 region is the caller's declaration and not exec's.
 
-The other half of exec is deliberately absent. There is one task in this port,
-so Forbid and Permit have nothing to forbid and stay n/a; message ports and
-signals have no second task to talk to. Modelling them now would be inventing
-machinery to sit unused.
+The address-bearing half now composes around that allocator in `osexec.ts`:
+one mapped native arena, task identity and signal state back Exec Lists,
+MsgPorts, Messages and interrupt-server chains. There is still only one
+runnable task, so Forbid/Permit remain n/a and an empty Wait has no scheduler
+to suspend into. Native interrupt callbacks likewise need the future 68k
+engine. These are boundaries of the shared service, rather than invitations
+for each extension to invent its own ports or signal masks.
 
 **The gameport is the case that split in two**, and it is the best example
 here because the rule was applied twice and gave different answers.

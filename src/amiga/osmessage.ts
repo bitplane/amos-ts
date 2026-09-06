@@ -1,4 +1,5 @@
 import { ExecListHeap } from './oslist'
+import { ExecTaskSystem } from './ostask'
 
 export const NT_MSGPORT = 4
 export const NT_MESSAGE = 5
@@ -6,52 +7,35 @@ export const NT_MESSAGE = 5
 /** Native Exec MsgPort, Message and signal behavior used by OS DevKit. */
 export class ExecMessageSystem {
   readonly memory: ExecListHeap
-  readonly currentTask: number
-  private allocatedSignals = 0
-  private readonly taskSignals = new Map<number, number>()
+  readonly tasks: ExecTaskSystem
   private readonly publicPorts = new Map<string, number>()
 
-  constructor(memory = new ExecListHeap(), currentTask = 0x7b00_0000) {
+  constructor(memory = new ExecListHeap(), tasks = new ExecTaskSystem()) {
     this.memory = memory
-    this.currentTask = currentTask
-    this.taskSignals.set(currentTask, 0)
+    this.tasks = tasks
   }
 
+  get currentTask(): number { return this.tasks.currentTask }
+
   allocSignal(request = -1): number {
-    let bit = request | 0
-    if (bit === -1) {
-      bit = -1
-      for (let candidate = 0; candidate < 32; candidate++) {
-        if ((this.allocatedSignals & (1 << candidate)) === 0) { bit = candidate; break }
-      }
-    }
-    if (bit < 0 || bit > 31 || (this.allocatedSignals & (1 << bit)) !== 0) return -1
-    this.allocatedSignals = (this.allocatedSignals | (1 << bit)) >>> 0
-    return bit
+    return this.tasks.allocSignal(request)
   }
 
   freeSignal(bit: number): void {
-    if (bit >= 0 && bit < 32) this.allocatedSignals = (this.allocatedSignals & ~(1 << bit)) >>> 0
+    this.tasks.freeSignal(bit)
   }
 
   setSignal(value: number, mask: number): number {
-    const old = this.taskSignals.get(this.currentTask) ?? 0
-    this.taskSignals.set(this.currentTask, ((old & ~mask) | (value & mask)) >>> 0)
-    return old >>> 0
+    return this.tasks.setSignal(value, mask)
   }
 
   signal(task: number, mask: number): void {
-    if (task === 0) return
-    this.taskSignals.set(task, ((this.taskSignals.get(task) ?? 0) | mask) >>> 0)
+    this.tasks.signal(task, mask)
   }
 
   /** Returns null where native Wait would suspend the current task. */
   wait(mask: number): number | null {
-    const pending = this.taskSignals.get(this.currentTask) ?? 0
-    const received = (pending & mask) >>> 0
-    if (received === 0) return null
-    this.taskSignals.set(this.currentTask, (pending & ~received) >>> 0)
-    return received
+    return this.tasks.wait(mask)
   }
 
   createPort(name = '', priority = 0): number {

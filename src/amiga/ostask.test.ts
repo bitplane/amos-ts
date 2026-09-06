@@ -19,4 +19,15 @@ describe('OS DevKit Exec task operations', () => {
     expect(exec.setPriority(worker, 3)).toBe(-127)
     expect(exec.priority(worker)).toBe(3)
   })
+
+  it('owns signal allocation and pending masks for the future scheduler boundary', () => {
+    const exec = new ExecTaskSystem()
+    expect(exec.allocSignal(-1)).toBe(0)
+    expect(exec.setSignal(0b1010, 0b1111)).toBe(0)
+    exec.signal(exec.currentTask, 0b0100)
+    expect(exec.wait(0b1100)).toBe(0b1100)
+    expect(exec.wait(0b1100)).toBeNull()
+    exec.freeSignal(0)
+    expect(exec.allocSignal(0)).toBe(0)
+  })
 })

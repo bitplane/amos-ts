@@ -23,7 +23,7 @@ export class ExecSystem {
     this.pool = new MemPool(base, reserved)
     this.memory = new ExecListHeap(this.pool)
     this.tasks = new ExecTaskSystem()
-    this.messages = new ExecMessageSystem(this.memory, this.tasks.currentTask)
+    this.messages = new ExecMessageSystem(this.memory, this.tasks)
     this.interrupts = new ExecInterruptSystem(this.memory)
   }
 }
