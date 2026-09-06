@@ -24,6 +24,9 @@ import {
 } from '../amiga/ossystem'
 import type { Runtime } from './runtime'
 
+const SCREEN_CTRL_BASE = 0x4800_0000
+const SCREEN_CTRL_SLOT = 0x1000
+
 export interface OsDevKitState {
   memory: MemPool
   strings: OsCStringHeap
@@ -32,11 +35,16 @@ export interface OsDevKitState {
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
+  screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean }>
+  currentScreenId: number
 }
 
 export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
-  return { memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map() }
+  return {
+    memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
+    screenIds: new Map(), currentScreenId: -1,
+  }
 }
 
 const offset = (st: OsDevKitState, address: number): number => (address >>> 0) - st.memory.base
@@ -302,6 +310,35 @@ function nativeEllipse(rt: Runtime, raster: NativeRaster, cx: number, cy: number
     nativeDraw(rt, raster, px, py, x, y); px = x; py = y
   }
   structWrite(rt, raster.rp + 36, 2, oldX); structWrite(rt, raster.rp + 38, 2, oldY)
+}
+
+function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false): boolean {
+  const screen = rt.screens.get(slot)
+  if (!screen) return false
+  const old = state.screenIds.get(id)
+  if (old) {
+    state.memory.freeMem(old.rastPort); state.memory.freeMem(old.viewPort); state.memory.freeMem(old.bitMap)
+  }
+  const bitMap = state.memory.alloc(40, { clear: true })
+  const rastPort = state.memory.alloc(72, { clear: true })
+  const viewPort = state.memory.alloc(40, { clear: true })
+  structWrite(rt, bitMap, 2, screen.rowBytes); structWrite(rt, bitMap + 2, 2, screen.height)
+  structWrite(rt, bitMap + 5, 1, screen.depth)
+  for (let plane = 0; plane < screen.depth; plane++) structWrite(rt, bitMap + 8 + plane * 4, 4, rt.screenChipBase(slot) + plane * screen.planeSize)
+  structWrite(rt, rastPort + 4, 4, bitMap); structWrite(rt, rastPort + 24, 1, 0xff)
+  structWrite(rt, rastPort + 25, 1, screen.rp.fgPen); structWrite(rt, rastPort + 26, 1, screen.rp.bgPen)
+  structWrite(rt, rastPort + 28, 1, screen.rp.drawMode); structWrite(rt, rastPort + 34, 2, screen.rp.linePtrn)
+  state.screenIds.set(id, {
+    slot, base: (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0,
+    rastPort, viewPort, bitMap, owned,
+  })
+  state.currentScreenId = id
+  return true
+}
+
+function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | null {
+  const record = state.screenIds.get(state.currentScreenId)
+  return record ? nativeRaster(rt, record.rastPort) : null
 }
 
 function structSet(rt: Runtime, width: StructWidth): Instr {
@@ -742,6 +779,75 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
     },
+    /** Screen-ID wrappers over stable native records bound to managed screens. */
+    '_scr id from pointer'(it) {
+      const [id, pointer] = readArgs(it, 2)
+      const relative = (pointer! >>> 0) - SCREEN_CTRL_BASE
+      if (relative >= 0 && relative % SCREEN_CTRL_SLOT === 0) bindScreenId(rt, st(), id!, relative / SCREEN_CTRL_SLOT)
+    },
+    '_scr id use'(it) {
+      const id = it.evalInt(); if (st().screenIds.has(id)) st().currentScreenId = id
+    },
+    '_scr id close'(it) {
+      const id = it.evalInt(); const record = st().screenIds.get(id)
+      if (!record) return
+      st().memory.freeMem(record.rastPort); st().memory.freeMem(record.viewPort); st().memory.freeMem(record.bitMap)
+      if (record.owned) rt.closeScreen(record.slot)
+      st().screenIds.delete(id); if (st().currentScreenId === id) st().currentScreenId = -1
+    },
+    '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = true },
+    '_scr id hide'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = false },
+    '_scr id ink'(it) {
+      const [front, back, outline] = readArgs(it, 3); const raster = currentScreenRaster(rt, st())
+      if (!raster) return
+      structWrite(rt, raster.rp + 25, 1, front!); structWrite(rt, raster.rp + 26, 1, back!)
+      structWrite(rt, raster.rp + 27, 1, outline!)
+    },
+    '_scr id gr writing'(it) {
+      const raster = currentScreenRaster(rt, st()); if (raster) structWrite(rt, raster.rp + 28, 1, it.evalInt())
+      else it.evalInt()
+    },
+    '_scr id cls'(it) {
+      const pen = it.evalInt(); const raster = currentScreenRaster(rt, st())
+      if (!raster) return
+      const old = structRead(rt, raster.rp + 25, 1, false); structWrite(rt, raster.rp + 25, 1, pen)
+      for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) nativePutColor(rt, raster, x, y, pen)
+      structWrite(rt, raster.rp + 25, 1, old)
+    },
+    '_scr id plot'(it) {
+      const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st()); if (raster) nativePlot(rt, raster, x!, y!)
+    },
+    '_scr id set line'(it) {
+      const raster = currentScreenRaster(rt, st()); if (raster) structWrite(rt, raster.rp + 34, 2, it.evalInt())
+      else it.evalInt()
+    },
+    '_scr id rect'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
+      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); const raster = currentScreenRaster(rt, st())
+      if (raster) { nativeDraw(rt, raster, x1, y1, x2, y1); nativeDraw(rt, raster, x2, y1, x2, y2); nativeDraw(rt, raster, x2, y2, x1, y2); nativeDraw(rt, raster, x1, y2, x1, y1) }
+    },
+    '_scr id line to'(it) {
+      const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st())
+      if (raster) nativeDraw(rt, raster, structRead(rt, raster.rp + 36, 2, true), structRead(rt, raster.rp + 38, 2, true), x!, y!)
+    },
+    '_scr id line'(it) {
+      const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to')
+      const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); const raster = currentScreenRaster(rt, st())
+      if (raster) nativeDraw(rt, raster, x1, y1, x2, y2)
+    },
+    '_scr id ellipse'(it) {
+      const [x, y, rx, ry] = readArgs(it, 4); const raster = currentScreenRaster(rt, st())
+      if (raster) nativeEllipse(rt, raster, x!, y!, rx!, ry!)
+    },
+    '_scr id gr locate'(it) {
+      const [x, y] = readArgs(it, 2); const raster = currentScreenRaster(rt, st())
+      if (raster) { structWrite(rt, raster.rp + 36, 2, x!); structWrite(rt, raster.rp + 38, 2, y!) }
+    },
+    '_scr id text'(it) {
+      const x = it.evalInt(); it.expect(','); const y = it.evalInt(); it.expect(','); const value = it.evalStr()
+      const raster = currentScreenRaster(rt, st()); if (!raster) return
+      structWrite(rt, raster.rp + 36, 2, x + value.length * 8); structWrite(rt, raster.rp + 38, 2, y)
+    },
   }
 }
 
@@ -1005,6 +1111,20 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const raster = nativeRaster(rt, n(a, 0)); return VI(raster ? nativePoint(rt, raster, n(a, 1), n(a, 2)) : -1)
     },
     '_rp len text'(_, a) { return VI(str(a[1] ?? VS('')).length * 8) },
+    '_scr id base'(_, a) { return VI(st().screenIds.get(n(a, 0))?.base ?? 0) },
+    '_scr id rport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.rastPort ?? 0) },
+    '_scr id vport'(_, a) { return VI(st().screenIds.get(n(a, 0))?.viewPort ?? 0) },
+    '_scr id in use'() { return VI(st().currentScreenId) },
+    '_scr id width'(_, a) { const r = st().screenIds.get(n(a, 0)); return VI(r ? rt.screens.get(r.slot)!.width : 0) },
+    '_scr id height'(_, a) { const r = st().screenIds.get(n(a, 0)); return VI(r ? rt.screens.get(r.slot)!.height : 0) },
+    '_scr id depth'(_, a) { const r = st().screenIds.get(n(a, 0)); return VI(r ? rt.screens.get(r.slot)!.depth : 0) },
+    '_scr id mode'(_, a) {
+      const r = st().screenIds.get(n(a, 0)); const screen = r ? rt.screens.get(r.slot) : undefined
+      return VI(screen ? (screen.hires ? 0x8000 : 0) | (screen.ham ? 0x800 : 0) | (screen.laced ? 4 : 0) : 0)
+    },
+    '_scr id point'(_, a) {
+      const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)
+    },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
       if (address !== 0) st().colorMaps.set(address, map)

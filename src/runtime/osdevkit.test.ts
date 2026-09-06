@@ -427,3 +427,21 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('$F0\t$F0\n 3\n 0\n 0\n')
   })
 })
+
+describe('OS DevKit 1.61 screen-ID graphics binding', () => {
+  it('binds an existing screen to stable native records and the shared planar drawing path', () => {
+    const source = [
+      'Screen Open 0,32,16,4,Lowres',
+      '_scr id from pointer 7,Screen Base : _scr id use 7',
+      'Print _scr id in use,_scr id base(7)=Screen Base,_scr id rport(7)<>0,_scr id vport(7)<>0',
+      'Print _scr id width(7),_scr id height(7),_scr id depth(7),_scr id mode(7)',
+      '_scr id ink 3,0,0 : _scr id gr writing 0 : _scr id set line $ffff',
+      '_scr id plot 1,1 : Print _scr id point(1,1)',
+      '_scr id gr locate 0,2 : _scr id line to 3,2 : _scr id rect 4,1 To 7,3 : _scr id ellipse 10,5,2,1',
+      '_scr id text 1,8,"abc" : Print _rp what xgr(_scr id rport(7))',
+      '_scr id hide 7 : _scr id show 7 : _scr id cls 0 : Print _scr id point(1,1)',
+      '_scr id close 7 : Print _scr id base(7)',
+    ].join('\n')
+    expect(run(source).output).toBe(' 7\t-1\t-1\t-1\n 32\t 16\t 2\t 0\n 3\n 25\n 0\n 0\n')
+  })
+})
