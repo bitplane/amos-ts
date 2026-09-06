@@ -125,8 +125,8 @@ import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
 
-export function newGuiState(release: GuiRelease = '2.10'): GuiState {
-  const g = new GuiState()
+export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools): GuiState {
+  const g = new GuiState(gadtools)
   g.release = release
   return g
 }

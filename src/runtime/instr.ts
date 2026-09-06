@@ -8794,7 +8794,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      */
     ids: ['gui-2.10', 'gui-1.61', 'gui-1.5b'],
     init: (rt) => {
-      rt.gui = newGuiState(guiRelease(rt))
+      rt.gui = newGuiState(guiRelease(rt), rt.gadtools)
     },
     instructions: makeGuiInstructions,
     functions: makeGuiFunctions,
@@ -8880,7 +8880,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      */
     ids: ['int-1.0'],
     init: (rt) => {
-      rt.int = newIntState()
+      rt.int = newIntState(rt.gadtools)
     },
     instructions: makeIntInstructions,
     functions: makeIntFunctions,

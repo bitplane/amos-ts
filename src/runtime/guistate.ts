@@ -759,6 +759,7 @@ export interface GuiEvent {
  * this is the AMOS side that names them by number.
  */
 export class GuiState {
+  constructor(readonly gt: GadTools = new GadTools()) {}
   /**
    * Which of the three releases the program bound, since one body of code
    * serves all of them.
@@ -1127,7 +1128,6 @@ export class GuiState {
    * One per state rather than one per window, because a strip outlives the
    * keyword that made it and `Gui Menu Check` has to find it again.
    */
-  readonly gt = new GadTools()
   /**
    * The menu number the last MENUPICK carried, at `$ee` of the library's
    * state, and whether one is waiting, which is bit 2 of `$84`.

@@ -123,6 +123,7 @@ import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
 import type { Extension } from '../ext/registry'
+import { GadTools } from '../amiga/gadtools'
 import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
 import { extensionImpls, makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { implsBySlot, type ExtensionImpl } from './extimpl'
@@ -538,6 +539,8 @@ export class Runtime {
       return true
     },
   })
+  /** One gadtools.library object space shared by every extension in this process. */
+  readonly gadtools = new GadTools()
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string

@@ -188,6 +188,7 @@ interface IntMenuEntry {
 }
 
 export class IntState {
+  constructor(readonly gt: GadTools = new GadTools()) {}
   /** `$d94`, the window every drawing keyword works on; `Wb Window Num` sets it */
   window = 0
   /** `$e02`, the window `Wb Event` last polled or `Wb Open Window` last made */
@@ -220,7 +221,6 @@ export class IntState {
    * the first keyword that needs either opens both and every later one finds
    * them there.
    */
-  readonly gt = new GadTools()
   /** `Wb Flash Screen`, which has nothing to flash here; see the keyword */
   beeps = 0
   /** `$134e`, the gadtools chain per window, in the order CreateGadgetA made it */
@@ -271,8 +271,8 @@ const GT_STRING_MAX = 20
 
 
 
-export function newIntState(): IntState {
-  return new IntState()
+export function newIntState(gadtools?: GadTools): IntState {
+  return new IntState(gadtools)
 }
 
 /**
