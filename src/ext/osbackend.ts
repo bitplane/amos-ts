@@ -426,7 +426,7 @@ auditMany('faithful', 'the Window-ID wrapper selects the exact managed RastPort 
   '_wnd id pattern on', '_wnd id pattern off', '_wnd id set low pattern', '_wnd id set high pattern',
   '_wnd id set line', '_wnd id point',
 ])
-auditMany('partial', 'the private Window-ID record is modelled, but native window/tag lifecycle, owned clip resources and integrated current-window attachment are not complete', [
+auditMany('partial', 'simple Window-ID open/close now owns Intuition windows and mapped native RastPort records; tag opens, private clip allocations and the remaining lifecycle mutations are incomplete', [
   '_wnd id open', '_wnd id close', '_wnd id tag open', '_wnd id limits', '_wnd id move', '_wnd id size',
   '_wnd id box', '_wnd id titles', '_wnd id activate', '_wnd id lock', '_wnd id unlock',
 ])

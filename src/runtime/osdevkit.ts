@@ -10,8 +10,9 @@ import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
-import { IntuitionBaseLock } from '../amiga/intuition'
+import { CUSTOMSCREEN, IntuitionBaseLock, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
+import { OsWindowIds } from '../amiga/oswindowid'
 import {
   allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
@@ -37,13 +38,15 @@ export interface OsDevKitState {
   colorMaps: Map<number, NativeColorMap>
   screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean }>
   currentScreenId: number
+  windowIds: OsWindowIds
+  windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
 }
 
 export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
-    screenIds: new Map(), currentScreenId: -1,
+    screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
   }
 }
 
@@ -339,6 +342,20 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
 function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | null {
   const record = state.screenIds.get(state.currentScreenId)
   return record ? nativeRaster(rt, record.rastPort) : null
+}
+
+function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { rastPort: number; bitMap: number } | null {
+  const screen = rt.screens.get(window.screenSlot)
+  if (!screen) return null
+  const bitMap = state.memory.alloc(40, { clear: true }); const rastPort = state.memory.alloc(72, { clear: true })
+  if (bitMap === 0 || rastPort === 0) return null
+  structWrite(rt, bitMap, 2, screen.rowBytes); structWrite(rt, bitMap + 2, 2, screen.height)
+  structWrite(rt, bitMap + 5, 1, screen.depth)
+  for (let plane = 0; plane < screen.depth; plane++) structWrite(rt, bitMap + 8 + plane * 4, 4, rt.screenChipBase(window.screenSlot) + plane * screen.planeSize)
+  structWrite(rt, rastPort + 4, 4, bitMap); structWrite(rt, rastPort + 24, 1, 0xff)
+  structWrite(rt, rastPort + 25, 1, screen.rp.fgPen); structWrite(rt, rastPort + 26, 1, screen.rp.bgPen)
+  structWrite(rt, rastPort + 28, 1, screen.rp.drawMode); structWrite(rt, rastPort + 34, 2, screen.rp.linePtrn)
+  return { rastPort, bitMap }
 }
 
 function structSet(rt: Runtime, width: StructWidth): Instr {
@@ -848,6 +865,44 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const raster = currentScreenRaster(rt, st()); if (!raster) return
       structWrite(rt, raster.rp + 36, 2, x + value.length * 8); structWrite(rt, raster.rp + 38, 2, y)
     },
+    /** Window-ID lifecycle, workers 3042-3047, over Intuition and shared native graphics. */
+    '_wnd id open'(it) {
+      const [id, x, y, width, height, flags, idcmp, _gadgetBank] = readArgs(it, 8)
+      it.expect(','); const title = it.evalStr()
+      const screen = st().screenIds.get(st().currentScreenId)
+      if (!screen || st().windowIds.base(id!) !== 0) return
+      const window = rt.intuition.openWindow({
+        leftEdge: x!, topEdge: y!, width: width!, height: height!, detailPen: 0, blockPen: 1,
+        idcmpFlags: idcmp!, flags: flags!, title, type: CUSTOMSCREEN, screenSlot: screen.slot,
+      })
+      if (!window) return
+      const graphics = bindWindowRaster(rt, st(), window)
+      if (!graphics) { rt.intuition.closeWindow(window); return }
+      const base = st().memory.alloc(120, { clear: true })
+      if (base === 0) { st().memory.freeMem(graphics.rastPort); st().memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window); return }
+      const titleAddress = heap().fromAmos(title)
+      structWrite(rt, base + 4, 2, window.leftEdge); structWrite(rt, base + 6, 2, window.topEdge)
+      structWrite(rt, base + 8, 2, window.width); structWrite(rt, base + 10, 2, window.height)
+      structWrite(rt, base + 24, 4, window.flags); structWrite(rt, base + 32, 4, titleAddress)
+      structWrite(rt, base + 46, 4, screen.base); structWrite(rt, base + 50, 4, graphics.rastPort)
+      structWrite(rt, base + 78, 4, idcmp!); structWrite(rt, base + 82, 4, window.userPort)
+      const record = st().windowIds.attach(id!, base, graphics.rastPort)
+      if (record) record.title = titleAddress
+      st().windowHandles.set(id!, { window, ...graphics })
+    },
+    '_wnd id close'(it) {
+      const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.close(id)
+      if (!handle || !record) return
+      rt.intuition.closeWindow(handle.window)
+      if (record.title !== 0) heap().free(record.title)
+      for (const owned of [record.owned0, record.owned1, record.owned2]) if (owned !== 0) st().memory.freeMem(owned)
+      st().memory.freeMem(handle.rastPort); st().memory.freeMem(handle.bitMap); st().memory.freeMem(record.base)
+      st().windowHandles.delete(id)
+    },
+    '_wnd id use'(it) {
+      const id = it.evalInt(); const handle = st().windowHandles.get(id)
+      st().windowIds.use(id, handle?.rastPort ?? 0)
+    },
   }
 }
 
@@ -1125,6 +1180,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id point'(_, a) {
       const raster = currentScreenRaster(rt, st()); return VI(raster ? nativePoint(rt, raster, n(a, 0), n(a, 1)) : -1)
     },
+    '_wnd id base'(_, a) { return VI(st().windowIds.base(n(a, 0))) },
+    '_wnd id in use'() { return VI(st().windowIds.currentId) },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
       if (address !== 0) st().colorMaps.set(address, map)

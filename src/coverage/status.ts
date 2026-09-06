@@ -327,6 +327,10 @@ export const FAITHFUL = new Set<string>([
   '_rp plot',
   '_rp text',
   '_rp len text',
+  // Window-ID selection and native identity, workers 3042/3046/3048.
+  '_wnd id base',
+  '_wnd id use',
+  '_wnd id in use',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

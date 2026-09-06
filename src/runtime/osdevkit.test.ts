@@ -445,3 +445,19 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
     expect(run(source).output).toBe(' 7\t-1\t-1\t-1\n 32\t 16\t 2\t 0\n 3\n 25\n 0\n 0\n')
   })
 })
+
+describe('OS DevKit 1.61 Window-ID lifecycle', () => {
+  it('opens, selects and closes an owned native window wrapper on the current screen', () => {
+    const source = [
+      'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,2,1,32,16,0,$200,0,"Native"',
+      'W=_wnd id base(3) : Print W<>0,_wnd id in use',
+      'Print _struct uword(W,4),_struct uword(W,6),_struct uword(W,8),_struct uword(W,10)',
+      'Print _struct long(W,46)=_scr id base(1),_struct long(W,50)<>0,_struct long(W,82)<>0',
+      '_wnd id use 3 : Print _wnd id in use',
+      '_wnd id close 3 : Print _wnd id base(3),_wnd id in use',
+      '_scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t 3\n 2\t 1\t 32\t 16\n-1\t-1\t-1\n 3\n 0\t-1\n')
+  })
+})
