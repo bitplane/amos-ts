@@ -41,6 +41,7 @@ export interface OsDevKitState {
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
   windowPatterns: OsWindowPatterns
+  areaPaths: Map<number, Array<{ kind: 'move' | 'draw' | 'ellipse'; values: number[] }>>
 }
 
 export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
@@ -49,6 +50,7 @@ export const newOsDevKitState = (exec: ExecSystem): OsDevKitState => {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), currentScreenId: -1, windowIds: new OsWindowIds(), windowHandles: new Map(),
     windowPatterns: new OsWindowPatterns(),
+    areaPaths: new Map(),
   }
 }
 
@@ -315,6 +317,92 @@ function nativeEllipse(rt: Runtime, raster: NativeRaster, cx: number, cy: number
     nativeDraw(rt, raster, px, py, x, y); px = x; py = y
   }
   structWrite(rt, raster.rp + 36, 2, oldX); structWrite(rt, raster.rp + 38, 2, oldY)
+}
+
+function nativeFillColor(rt: Runtime, raster: NativeRaster, x: number, y: number): void {
+  const pattern = structRead(rt, raster.rp + 8, 4, false) >>> 0
+  if (pattern === 0) { nativePlot(rt, raster, x, y); return }
+  const size = Math.min(4, structRead(rt, raster.rp + 29, 1, true))
+  const rows = 1 << Math.max(0, size + 1)
+  const word = structRead(rt, pattern + (y & (rows - 1)) * 2, 2, false)
+  const useFront = (word & (0x8000 >>> (x & 15))) !== 0
+  nativePutColor(rt, raster, x, y, structRead(rt, raster.rp + (useFront ? 25 : 26), 1, false))
+}
+
+function nativeFillPolygon(rt: Runtime, raster: NativeRaster, points: Array<[number, number]>): void {
+  if (points.length < 3) return
+  let minY = Infinity; let maxY = -Infinity
+  for (const [, y] of points) { minY = Math.min(minY, y); maxY = Math.max(maxY, y) }
+  for (let y = Math.ceil(minY); y <= Math.floor(maxY); y++) {
+    const xs: number[] = []
+    for (let i = 0; i < points.length; i++) {
+      const [x1, y1] = points[i]!; const [x2, y2] = points[(i + 1) % points.length]!
+      if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+    }
+    xs.sort((a, b) => a - b)
+    for (let i = 0; i + 1 < xs.length; i += 2) for (let x = Math.ceil(xs[i]!); x <= Math.floor(xs[i + 1]!); x++) nativeFillColor(rt, raster, x, y)
+  }
+}
+
+function nativeFillEllipse(rt: Runtime, raster: NativeRaster, cx: number, cy: number, rx: number, ry: number): void {
+  if (rx <= 0 || ry <= 0) return
+  for (let y = -ry; y <= ry; y++) {
+    const width = Math.floor(rx * Math.sqrt(Math.max(0, 1 - y * y / (ry * ry))))
+    for (let x = -width; x <= width; x++) nativeFillColor(rt, raster, cx + x, cy + y)
+  }
+}
+
+function nativeFlood(rt: Runtime, raster: NativeRaster, mode: number, sx: number, sy: number): void {
+  const seed = nativePoint(rt, raster, sx, sy); if (seed < 0) return
+  const outline = structRead(rt, raster.rp + 27, 1, false); const seen = new Set<number>()
+  const open: Array<[number, number]> = [[sx, sy]]
+  while (open.length) {
+    const [x, y] = open.pop()!; const key = y * raster.width + x
+    if (seen.has(key) || x < 0 || y < 0 || x >= raster.width || y >= raster.height) continue
+    const color = nativePoint(rt, raster, x, y)
+    if (mode === 0 ? color !== seed : color === outline) continue
+    seen.add(key); nativeFillColor(rt, raster, x, y)
+    open.push([x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1])
+  }
+}
+
+function appendArea(rt: Runtime, state: OsDevKitState, rp: number, kind: 'move' | 'draw' | 'ellipse', values: number[]): number {
+  const area = structRead(rt, rp + 16, 4, false) >>> 0
+  if (area === 0) return 0
+  const count = structRead(rt, area + 16, 2, false); const max = structRead(rt, area + 18, 2, false)
+  const needed = kind === 'ellipse' ? 2 : 1
+  if (count + needed > max) return 0
+  const vector = structRead(rt, area + 4, 4, false) >>> 0
+  const flags = structRead(rt, area + 12, 4, false) >>> 0
+  if (kind === 'ellipse') {
+    for (let i = 0; i < 4; i++) structWrite(rt, vector + i * 2, 2, values[i]!)
+    structWrite(rt, flags, 1, 2); structWrite(rt, flags + 1, 1, 2)
+    structWrite(rt, area + 4, 4, vector + 8); structWrite(rt, area + 12, 4, flags + 2)
+  } else {
+    structWrite(rt, vector, 2, values[0]!); structWrite(rt, vector + 2, 2, values[1]!)
+    structWrite(rt, flags, 1, kind === 'move' ? 0 : 1)
+    structWrite(rt, area + 4, 4, vector + 4); structWrite(rt, area + 12, 4, flags + 1)
+    if (count === 0) { structWrite(rt, area + 20, 2, values[0]!); structWrite(rt, area + 22, 2, values[1]!) }
+  }
+  structWrite(rt, area + 16, 2, count + needed)
+  const path = state.areaPaths.get(area) ?? []; path.push({ kind, values }); state.areaPaths.set(area, path)
+  return -1
+}
+
+function endArea(rt: Runtime, state: OsDevKitState, rp: number): number {
+  const raster = nativeRaster(rt, rp); const area = structRead(rt, rp + 16, 4, false) >>> 0
+  if (!raster || area === 0) return 0
+  const path = state.areaPaths.get(area) ?? []; let polygon: Array<[number, number]> = []
+  const flush = () => { nativeFillPolygon(rt, raster, polygon); polygon = [] }
+  for (const command of path) {
+    if (command.kind === 'move') { flush(); polygon.push([command.values[0]!, command.values[1]!]) }
+    else if (command.kind === 'draw') polygon.push([command.values[0]!, command.values[1]!])
+    else { flush(); nativeFillEllipse(rt, raster, command.values[0]!, command.values[1]!, command.values[2]!, command.values[3]!) }
+  }
+  flush(); state.areaPaths.set(area, [])
+  const vectors = structRead(rt, area, 4, false); const flags = structRead(rt, area + 8, 4, false)
+  structWrite(rt, area + 4, 4, vectors); structWrite(rt, area + 12, 4, flags); structWrite(rt, area + 16, 2, 0)
+  return -1
 }
 
 function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: number, owned = false): boolean {
@@ -658,6 +746,23 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [tmp, raster, size] = readArgs(it, 3)
       structWrite(rt, tmp!, 4, raster!); structWrite(rt, tmp! + 4, 4, size!)
     },
+    '_area init'(it) {
+      const [area, buffer, maxVectors] = readArgs(it, 3)
+      if (area === 0 || buffer === 0) return
+      structWrite(rt, area!, 4, buffer!); structWrite(rt, area! + 4, 4, buffer!)
+      structWrite(rt, area! + 8, 4, buffer! + maxVectors! * 4); structWrite(rt, area! + 12, 4, buffer! + maxVectors! * 4)
+      structWrite(rt, area! + 16, 2, 0); structWrite(rt, area! + 18, 2, maxVectors!)
+      structWrite(rt, area! + 20, 2, 0); structWrite(rt, area! + 22, 2, 0); st().areaPaths.set(area!, [])
+    },
+    '_rp flood'(it) {
+      const [rp, mode, x, y] = readArgs(it, 4); const raster = nativeRaster(rt, rp!)
+      if (raster && structRead(rt, rp! + 12, 4, false) !== 0) nativeFlood(rt, raster, mode!, x!, y!)
+    },
+    '_rp bar'(it) {
+      const [rp, x1, y1, x2, y2] = readArgs(it, 5); const raster = nativeRaster(rt, rp!); if (!raster) return
+      for (let y = Math.min(y1!, y2!); y <= Math.max(y1!, y2!); y++) for (let x = Math.min(x1!, x2!); x <= Math.max(x1!, x2!); x++) nativeFillColor(rt, raster, x, y)
+    },
+    '_rast free'(it) { const [raster] = readArgs(it, 3); if (raster !== 0) st().memory.freeMem(raster! >>> 0) },
     '_cop init view'(it) {
       const view = it.evalInt(); for (let at = 0; at < 18; at++) structWrite(rt, view + at, 1, 0)
     },
@@ -954,26 +1059,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd id bar'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt()
       const t = currentWindowTarget(rt, st()); if (!t) return
-      const pen = structRead(rt, t.raster.rp + 25, 1, false)
-      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) nativeFillColor(rt, t.raster, t.ox + x, t.oy + y)
     },
     '_wnd id fill ellipse'(it) {
       const [cx, cy, rx, ry] = readArgs(it, 4); const t = currentWindowTarget(rt, st()); if (!t || rx! <= 0 || ry! <= 0) return
-      const pen = structRead(rt, t.raster.rp + 25, 1, false)
-      for (let y = -ry!; y <= ry!; y++) { const width = Math.floor(rx! * Math.sqrt(Math.max(0, 1 - y * y / (ry! * ry!)))); for (let x = -width; x <= width; x++) nativePutColor(rt, t.raster, t.ox + cx! + x, t.oy + cy! + y, pen) }
+      nativeFillEllipse(rt, t.raster, t.ox + cx!, t.oy + cy!, rx!, ry!)
     },
     '_wnd id paint'(it) {
       const [sx, sy, mode] = readArgs(it, 3); const t = currentWindowTarget(rt, st()); if (!t) return
-      const seed = nativePoint(rt, t.raster, t.ox + sx!, t.oy + sy!); const outline = structRead(rt, t.raster.rp + 27, 1, false)
-      const pen = structRead(rt, t.raster.rp + 25, 1, false); const seen = new Set<number>(); const open: Array<[number, number]> = [[sx!, sy!]]
-      while (open.length) {
-        const [x, y] = open.pop()!; const key = y * t.window.width + x
-        if (seen.has(key) || x < 0 || y < 0 || x >= t.window.width || y >= t.window.height) continue
-        const color = nativePoint(rt, t.raster, t.ox + x, t.oy + y)
-        if (mode === 0 ? color !== seed : color === outline) continue
-        seen.add(key); nativePutColor(rt, t.raster, t.ox + x, t.oy + y, pen)
-        open.push([x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1])
-      }
+      nativeFlood(rt, t.raster, mode!, t.ox + sx!, t.oy + sy!)
     },
     '_wnd id scroll'(it) {
       const x1 = it.evalInt(); it.expect(','); const y1 = it.evalInt(); it.expect('to'); const x2 = it.evalInt(); it.expect(','); const y2 = it.evalInt(); it.expect(','); const dx = it.evalInt(); it.expect(','); const dy = it.evalInt()
@@ -1217,6 +1311,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_si what keymap'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 4, false)) },
     '_tr what raster'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
     '_tr what size'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_area draw'(_, a) { return VI(appendArea(rt, st(), n(a, 0), 'draw', [n(a, 1), n(a, 2)])) },
+    '_area ellipse'(_, a) { return VI(appendArea(rt, st(), n(a, 0), 'ellipse', [n(a, 1), n(a, 2), n(a, 3), n(a, 4)])) },
+    '_area end'(_, a) { return VI(endArea(rt, st(), n(a, 0))) },
+    '_area move'(_, a) { return VI(appendArea(rt, st(), n(a, 0), 'move', [n(a, 1), n(a, 2)])) },
+    '_rast alloc'(_, a) {
+      const width = n(a, 0); const height = n(a, 1); const bytes = (((width + 15) >>> 4) * 2) * height
+      return VI(st().memory.alloc(bytes, { clear: true, chip: true }))
+    },
     '_bm what modulo'(_, a) { return VI(structRead(rt, n(a, 0), 2, false)) },
     '_bm what height'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 2, false)) },
     '_bm what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 1, false)) },

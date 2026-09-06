@@ -327,6 +327,14 @@ export const FAITHFUL = new Set<string>([
   '_rp plot',
   '_rp text',
   '_rp len text',
+  // OS DevKit graphics.library wrappers 1626-1630: native TmpRas-gated
+  // flood, InitArea's complete 24-byte record, patterned RectFill, and
+  // AllocRaster/FreeRaster's zeroed chip-memory RASSIZE allocation.
+  '_rp flood',
+  '_area init',
+  '_rp bar',
+  '_rast alloc',
+  '_rast free',
   // Window-ID selection and native identity, workers 3042/3046/3048.
   '_wnd id base',
   '_wnd id use',

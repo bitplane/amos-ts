@@ -749,7 +749,12 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     ]
     const area = rows.filter((row) => names.includes(row.name))
     expect(area).toHaveLength(9)
-    expect(area.every((row) => row.status === 'partial')).toBe(true)
+    expect(area.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
+      '_area init', '_rast alloc', '_rast free', '_rp bar', '_rp flood',
+    ])
+    expect(area.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_area draw', '_area ellipse', '_area end', '_area move',
+    ])
     const expected = new Map<string, [number, number]>([
       ['_area draw', [1622, -258]], ['_area ellipse', [1623, -186]], ['_area end', [1624, -264]],
       ['_area move', [1625, -252]], ['_rp flood', [1626, -330]], ['_area init', [1627, -282]],

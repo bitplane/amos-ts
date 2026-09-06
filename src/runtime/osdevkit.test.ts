@@ -411,6 +411,25 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 3\t$80\t$80\n 0\n$F0\t 3\t 0\n 3\n 25\t 32\n')
   })
 
+  it('uses caller-owned AreaInfo and TmpRas records for fills and raster allocation', () => {
+    const source = [
+      'P=_struct alloc(64) : B=_struct alloc(40) : R=_struct alloc(72)',
+      '_bm set datas B,4,8,2,0 : Loke B+8,P : Loke B+12,P+32',
+      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff : _rp a pen R,3 : _rp b pen R,0 : _rp set o pen R,1',
+      'T=_struct alloc(8) : S=_rast alloc(32,8) : _tr set T,S,32 : _rp set tmpras R,T',
+      'A=_struct alloc(24) : V=_struct alloc(40) : _area init A,V,8 : _rp set area info R,A',
+      'Print _struct long(A,0)=V,_struct long(A,8)=V+32,_struct uword(A,18)',
+      'Print _area move(R,1,1),_area draw(R,8,1),_area draw(R,1,6),_area end(R)',
+      'Print _rp point(R,2,2),_struct uword(A,16)',
+      '_rp a pen R,2 : Print _area ellipse(R,16,4,3,2),_area end(R),_rp point(R,16,4)',
+      '_rp bar R,20,1,22,3 : Print _rp point(R,21,2)',
+      '_rp rast R,0 : _rp a pen R,1 : _rp move R,24,1 : _rp draw R,30,1 : _rp draw R,30,6 : _rp draw R,24,6 : _rp draw R,24,1',
+      '_rp a pen R,2 : _rp flood R,1,26,3 : Print _rp point(R,26,3)',
+      '_rast free S,32,8 : _struct free T : _struct free A : _struct free V : _struct free P : _struct free B : _struct free R',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t 8\n-1\t-1\t-1\t-1\n 3\t 0\n-1\t-1\t 2\n 2\n 2\n')
+  })
+
   it('folds native Border and Image chains into that same planar target', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

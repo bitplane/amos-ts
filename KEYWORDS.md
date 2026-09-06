@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      311 |           35 |     701 |      33% |
+| os-devkit-1.61       |     1047 |      316 |           39 |     692 |      34% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6176 |          446 |     744 |      90% |
+| **total**            |     7422 |     6181 |          450 |     735 |      90% |
 
 ## Not applicable, by what would retire it
 
@@ -429,16 +429,16 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (33%)
+## os-devkit-1.61 (34%)
 
-- **approximated** (35): `_bd draw`, `_img draw`, `_img draw state`, `_img erase`,
-  `_scr id base`, `_scr id close`, `_scr id cls`, `_scr id depth`, `_scr id ellipse`,
-  `_scr id from pointer`, `_scr id gr locate`, `_scr id gr writing`, `_scr id height`,
-  `_scr id hide`, `_scr id in use`, `_scr id ink`, `_scr id line`, `_scr id line to`,
-  `_scr id mode`, `_scr id plot`, `_scr id point`, `_scr id rect`, `_scr id rport`,
-  `_scr id set line`, `_scr id show`, `_scr id text`, `_scr id use`, `_scr id vport`,
-  `_scr id width`, `_wnd id bar`, `_wnd id close`, `_wnd id fill ellipse`, `_wnd id open`,
-  `_wnd id paint`, `_wnd id scroll`
+- **approximated** (39): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+  `_img draw`, `_img draw state`, `_img erase`, `_scr id base`, `_scr id close`, `_scr id cls`,
+  `_scr id depth`, `_scr id ellipse`, `_scr id from pointer`, `_scr id gr locate`,
+  `_scr id gr writing`, `_scr id height`, `_scr id hide`, `_scr id in use`, `_scr id ink`,
+  `_scr id line`, `_scr id line to`, `_scr id mode`, `_scr id plot`, `_scr id point`,
+  `_scr id rect`, `_scr id rport`, `_scr id set line`, `_scr id show`, `_scr id text`,
+  `_scr id use`, `_scr id vport`, `_scr id width`, `_wnd id bar`, `_wnd id close`,
+  `_wnd id fill ellipse`, `_wnd id open`, `_wnd id paint`, `_wnd id scroll`
 
 ## powerbobs-1.0 (100%)
 
