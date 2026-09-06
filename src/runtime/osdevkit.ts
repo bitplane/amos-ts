@@ -241,6 +241,39 @@ function nativePlot(rt: Runtime, raster: NativeRaster, x: number, y: number): vo
   }
 }
 
+function nativePutColor(rt: Runtime, raster: NativeRaster, x: number, y: number, color: number): void {
+  if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return
+  const mask = structRead(rt, raster.rp + 24, 1, false)
+  for (let plane = 0; plane < raster.depth; plane++) {
+    if ((mask & (1 << plane)) === 0) continue
+    const address = structRead(rt, raster.bitmap + 8 + plane * 4, 4, false) >>> 0
+    const byte = rt.resolveWrite(address + y * raster.bytesPerRow + (x >>> 3))
+    if (!byte) continue
+    const bit = 1 << (7 - (x & 7))
+    byte.data[byte.off] = (color & (1 << plane)) !== 0 ? byte.data[byte.off]! | bit : byte.data[byte.off]! & ~bit
+  }
+}
+
+function nativeDrawImage(rt: Runtime, image: number, raster: NativeRaster, offsetX: number, offsetY: number): void {
+  const left = structRead(rt, image, 2, true); const top = structRead(rt, image + 2, 2, true)
+  const width = structRead(rt, image + 4, 2, false); const height = structRead(rt, image + 6, 2, false)
+  const depth = structRead(rt, image + 8, 2, false); const data = structRead(rt, image + 10, 4, false) >>> 0
+  const pick = structRead(rt, image + 14, 1, false); const onOff = structRead(rt, image + 15, 1, false)
+  const rowBytes = ((width + 15) >>> 4) * 2; const planeBytes = rowBytes * height
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    let color = 0; let sourcePlane = 0
+    for (let bit = 0; bit < 8; bit++) {
+      if ((pick & (1 << bit)) === 0) { if ((onOff & (1 << bit)) !== 0) color |= 1 << bit; continue }
+      if (sourcePlane < depth) {
+        const byte = rt.resolveAddr(data + sourcePlane * planeBytes + y * rowBytes + (x >>> 3))
+        if (byte && (byte.data[byte.off]! & (0x80 >>> (x & 7))) !== 0) color |= 1 << bit
+      }
+      sourcePlane++
+    }
+    nativePutColor(rt, raster, offsetX + left + x, offsetY + top + y, color)
+  }
+}
+
 function nativeDraw(rt: Runtime, raster: NativeRaster, x1: number, y1: number, x2: number, y2: number): void {
   const dx = Math.abs(x2 - x1); const sx = x1 < x2 ? 1 : -1
   const dy = -Math.abs(y2 - y1); const sy = y1 < y2 ? 1 : -1
@@ -666,6 +699,48 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const rp = it.evalInt(); it.expect(','); const value = it.evalStr()
       // A null rp_Font has no glyph source, but Text still advances the cursor.
       structWrite(rt, rp + 36, 2, structRead(rt, rp + 36, 2, true) + value.length * 8)
+    },
+    '_bd draw'(it) {
+      const [first, rp, offsetX, offsetY] = readArgs(it, 4); const raster = nativeRaster(rt, rp!)
+      if (!raster) return
+      for (let border = first! >>> 0; border !== 0; border = structRead(rt, border + 12, 4, false) >>> 0) {
+        const left = structRead(rt, border, 2, true) + offsetX!; const top = structRead(rt, border + 2, 2, true) + offsetY!
+        structWrite(rt, rp! + 25, 1, structRead(rt, border + 4, 1, false))
+        structWrite(rt, rp! + 26, 1, structRead(rt, border + 5, 1, false))
+        structWrite(rt, rp! + 28, 1, structRead(rt, border + 6, 1, false))
+        const count = structRead(rt, border + 7, 1, false); const dots = structRead(rt, border + 8, 4, false) >>> 0
+        if (count === 0 || dots === 0) continue
+        let x = left + structRead(rt, dots, 2, true); let y = top + structRead(rt, dots + 2, 2, true)
+        for (let i = 1; i < count; i++) {
+          const nx = left + structRead(rt, dots + i * 4, 2, true)
+          const ny = top + structRead(rt, dots + i * 4 + 2, 2, true)
+          nativeDraw(rt, raster, x, y, nx, ny); x = nx; y = ny
+        }
+      }
+    },
+    '_img erase'(it) {
+      const [image, rp, x, y] = readArgs(it, 4); const raster = nativeRaster(rt, rp!)
+      if (!raster) return
+      const left = structRead(rt, image!, 2, true) + x!; const top = structRead(rt, image! + 2, 2, true) + y!
+      const width = structRead(rt, image! + 4, 2, false); const height = structRead(rt, image! + 6, 2, false)
+      for (let iy = 0; iy < height; iy++) for (let ix = 0; ix < width; ix++) nativePutColor(rt, raster, left + ix, top + iy, 0)
+    },
+    '_img draw'(it) {
+      const [image, rp, x, y] = readArgs(it, 4); const raster = nativeRaster(rt, rp!)
+      if (raster) nativeDrawImage(rt, image!, raster, x!, y!)
+    },
+    '_img draw state'(it) {
+      const [image, rp, x, y, state, _drawInfo] = readArgs(it, 6); const raster = nativeRaster(rt, rp!)
+      if (!raster) return
+      nativeDrawImage(rt, image!, raster, x!, y!)
+      // IDS_SELECTED is the one state representable without DrawInfo pen policy.
+      if (state === 1) {
+        const left = structRead(rt, image!, 2, true) + x!; const top = structRead(rt, image! + 2, 2, true) + y!
+        const width = structRead(rt, image! + 4, 2, false); const height = structRead(rt, image! + 6, 2, false)
+        for (let iy = 0; iy < height; iy++) for (let ix = 0; ix < width; ix++) {
+          nativePutColor(rt, raster, left + ix, top + iy, ~nativePoint(rt, raster, left + ix, top + iy))
+        }
+      }
     },
   }
 }

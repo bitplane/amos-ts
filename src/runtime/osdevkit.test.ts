@@ -410,4 +410,20 @@ describe('OS DevKit 1.61 native graphics records', () => {
     ].join('\n')
     expect(run(source).output).toBe(' 3\t$80\t$80\n 0\n$F0\t 3\t 0\n 3\n 25\t 32\n')
   })
+
+  it('folds native Border and Image chains into that same planar target', () => {
+    const source = [
+      'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',
+      '_bm set datas B,2,4,2,0 : Loke B+8,P : Loke B+12,P+8',
+      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff',
+      'D=_dots alloc(2) : _dots set D,0,0,0 : _dots set D,1,3,0',
+      'H=_struct alloc(16) : _bd set H,0,0,3,0,0,2,D,0 : _bd draw H,R,0,0',
+      'Print Hex$(Peek(P)),Hex$(Peek(P+8))',
+      'Q=_struct alloc(2) : Poke Q,$80 : I=_struct alloc(20) : _img set body I,4,1,1,1,1,Q : _img set planes I,1,2',
+      '_img draw I,R,0,0 : Print _rp point(R,4,1) : _img erase I,R,0,0 : Print _rp point(R,4,1)',
+      '_img draw state I,R,0,0,1,0 : Print _rp point(R,4,1)',
+      '_dots free D : _struct free H : _struct free Q : _struct free I : _struct free P : _struct free B : _struct free R',
+    ].join('\n')
+    expect(run(source).output).toBe('$F0\t$F0\n 3\n 0\n 0\n')
+  })
 })
