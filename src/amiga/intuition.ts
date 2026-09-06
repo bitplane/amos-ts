@@ -496,7 +496,19 @@ export class Window {
   /** the UserPort's queue. Held oldest first, which is what GetMsg pops. */
   private readonly queue: IntuiMessage[] = []
   /** mapped `wd_UserPort` when this Window belongs to a Runtime */
-  readonly userPort: number
+  userPort: number
+  private ownsUserPort = true
+  /** Native wd_Window pointer copied into IntuiMessage.IDCMPWindow. */
+  private eventWindowAddress = 0
+
+  /** Replace the initially allocated private port with an owner's shared port. */
+  shareUserPort(port: number, windowAddress: number): void {
+    if (!this.exec || port === 0) return
+    if (this.ownsUserPort && this.userPort !== 0) this.exec.deletePort(this.userPort)
+    this.userPort = port >>> 0
+    this.eventWindowAddress = windowAddress >>> 0
+    this.ownsUserPort = false
+  }
 
   /**
    * exec GetMsg on the window's UserPort. Null when the port is empty.
@@ -537,7 +549,7 @@ export class Window {
   }
 
   dispose(): void {
-    if (this.exec && this.userPort !== 0) {
+    if (this.exec && this.userPort !== 0 && this.ownsUserPort) {
       while (this.getMsg() !== null) { /* release queued native messages */ }
       this.exec.deletePort(this.userPort)
     }
@@ -576,6 +588,7 @@ export class Window {
       setWord(native + 34, message.mouseY)
       memory.writeU32(native + 36, message.seconds)
       memory.writeU32(native + 40, message.micros)
+      memory.writeU32(native + 44, this.eventWindowAddress)
       this.exec.putMsg(this.userPort, native)
     } else this.queue.push(message)
     return true

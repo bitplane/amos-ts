@@ -677,4 +677,18 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     ].join('\n')
     expect(run(source).output).toBe('-1\t 7\t 5\t 28\t 15\tTagged\n 10\t 8\t 32\t 18\n')
   })
+
+  it('filters and copies events from the one shared Window-ID UserPort', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,2,1,30,16,0,$C0000,0,"First" : _wnd id open 4,40,1,20,12,0,$C0000,0,"Other"',
+      'W3=_wnd id base(3) : W4=_wnd id base(4) : Print _struct long(W3,82)=_struct long(W4,82),_wnd id wait event',
+      '_wnd id activate 3 : _wnd id activate 4',
+      'A=_wnd id mask event($80000) : Print Hex$(A),_wnd id event wnd,_wnd id event code,_wnd id event qualifier',
+      'B=_wnd id next event : Print Hex$(B),_wnd id event wnd,_wnd id event gadget,_wnd id event gt bank',
+      'Print _wnd id event menu,_wnd id event item,_wnd id event sub,_wnd id event x mouse,_wnd id event y mouse,_wnd id next event',
+      '_wnd id close 3 : _wnd id close 4 : _scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 0\t 0\t 0\n')
+  })
 })

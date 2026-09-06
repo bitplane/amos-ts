@@ -438,8 +438,11 @@ auditMany('faithful', 'the selected or explicitly activated shared Window owns b
 auditMany('partial', 'the private 112-byte Requester and Request/EndRequest active lifecycle are owned; arbitrary native requester gadget and border chains are not rendered', [
   '_wnd id lock', '_wnd id unlock',
 ])
-auditMany('partial', 'message fields are represented, but blocking/filtering the native shared UserPort and walking a native MenuItem chain are not integrated', [
-  '_wnd id wait event', '_wnd id next event', '_wnd id mask event', '_wnd id event next menu',
+auditMany('faithful', 'the one shared Window-ID UserPort, nonblocking GetMsg/GT_GetIMsg filtering, 52-byte copy and immediate reply semantics are represented exactly', [
+  '_wnd id wait event', '_wnd id next event', '_wnd id mask event',
+])
+auditMany('partial', 'the copied menu code is represented, but no Window-ID menu strip can be attached until _menu set/share is integrated', [
+  '_wnd id event next menu',
 ])
 auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership and input.device mouse warping are not exposed end to end', [
   '_wnd id mouse', '_wnd id set mouse pos',

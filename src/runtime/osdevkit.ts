@@ -12,7 +12,10 @@ import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import { CUSTOMSCREEN, IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, type UserGadget, type Window } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
-import { OsWindowIds, OsWindowPatterns } from '../amiga/oswindowid'
+import {
+  OsWindowIds, OsWindowPatterns, eventCode, eventGadget, eventGadgetBank, eventItem, eventMenu,
+  eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
+} from '../amiga/oswindowid'
 import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
@@ -63,6 +66,9 @@ export interface OsDevKitState {
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
   windowPatterns: OsWindowPatterns
+  /** The one MsgPort assigned to every Window-ID, as in private +$2f0. */
+  windowPort: number
+  windowEvent: OsWindowEvent
   fillPatternAddress: number
   areaPaths: Map<number, Array<{ kind: 'move' | 'draw' | 'ellipse'; values: number[] }>>
   gadtools: GadTools
@@ -80,7 +86,9 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(),
-    windowPatterns: new OsWindowPatterns(), fillPatternAddress: 0,
+    windowPatterns: new OsWindowPatterns(), windowPort: 0,
+    windowEvent: { class: 0, code: 0, qualifier: 0, gadgetId: null, gadgetUserData: null, windowId: -1, mouseX: 0, mouseY: 0 },
+    fillPatternAddress: 0,
     areaPaths: new Map(),
     gadtools,
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
@@ -747,6 +755,35 @@ function selectedWindowHandle(state: OsDevKitState): { id: number; window: Windo
   return handle ? { id, ...handle } : null
 }
 
+/** GT_GetIMsg/GetMsg + the worker's 52-byte copy and immediate reply. */
+function takeWindowEvent(state: OsDevKitState, mask = -1): number {
+  if (state.windowPort === 0) return 0
+  const memory = state.exec.messages.memory
+  for (;;) {
+    const message = state.exec.messages.getMsg(state.windowPort)
+    if (message === 0) return 0
+    const cls = memory.readU32(message + 20) >>> 0
+    if ((cls & (mask >>> 0)) === 0) { memory.free(message); continue }
+    const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
+    const signedWord = (at: number): number => (word(at) << 16) >> 16
+    const item = memory.readU32(message + 28) >>> 0
+    const gadget = state.gadtools.gadget(item)
+    const windowBase = memory.readU32(message + 44) >>> 0
+    state.windowEvent = {
+      class: cls,
+      code: word(message + 24),
+      qualifier: word(message + 26),
+      gadgetId: gadget?.id ?? null,
+      gadgetUserData: gadget?.userData ?? null,
+      windowId: state.windowIds.records.findIndex(record => record.base === windowBase),
+      mouseX: signedWord(message + 32),
+      mouseY: signedWord(message + 34),
+    }
+    memory.free(message)
+    return cls | 0
+  }
+}
+
 function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: Window, title: string): boolean {
   const graphics = bindWindowRaster(rt, state, window)
   if (!graphics) { rt.intuition.closeWindow(window); return false }
@@ -759,10 +796,17 @@ function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: W
     return false
   }
   const titleAddress = state.strings.fromAmos(title)
+  if (state.windowPort === 0) state.windowPort = state.exec.messages.createPort()
+  if (state.windowPort === 0) {
+    state.strings.free(titleAddress); state.memory.freeMem(base); state.memory.freeMem(requester)
+    state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
+    return false
+  }
+  window.shareUserPort(state.windowPort, base)
   structWrite(rt, base + 32, 4, titleAddress)
   structWrite(rt, base + 46, 4, rt.intuition.windowScreenAddress(window))
   structWrite(rt, base + 50, 4, graphics.rastPort)
-  structWrite(rt, base + 78, 4, window.idcmpFlags); structWrite(rt, base + 82, 4, window.userPort)
+  structWrite(rt, base + 78, 4, window.idcmpFlags); structWrite(rt, base + 82, 4, state.windowPort)
   const record = state.windowIds.attach(id, base, graphics.rastPort)
   if (!record) return false
   record.title = titleAddress; record.owned0 = requester
@@ -1985,6 +2029,20 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr id point'(_, a) { return VI(withScreenRastPort(rt, st(), rp => rp.point(n(a, 0), n(a, 1))) ?? -1) },
     '_wnd id base'(_, a) { return VI(st().windowIds.base(n(a, 0))) },
     '_wnd id in use'() { return VI(st().windowIds.currentId) },
+    '_wnd id mask event'(_, a) { return VI(takeWindowEvent(st(), n(a, 0))) },
+    '_wnd id wait event'() { return VI(takeWindowEvent(st())) },
+    '_wnd id next event'() { return VI(takeWindowEvent(st())) },
+    '_wnd id event wnd'() { return VI(eventWindow(st().windowEvent)) },
+    '_wnd id event code'() { return VI(eventCode(st().windowEvent)) },
+    '_wnd id event qualifier'() { return VI(eventQualifier(st().windowEvent)) },
+    '_wnd id event gadget'() { return VI(eventGadget(st().windowEvent)) },
+    '_wnd id event gt bank'() { return VI(eventGadgetBank(st().windowEvent)) },
+    '_wnd id event menu'() { return VI(eventMenu(st().windowEvent)) },
+    '_wnd id event item'() { return VI(eventItem(st().windowEvent)) },
+    '_wnd id event sub'() { return VI(eventSub(st().windowEvent)) },
+    '_wnd id event next menu'() { return VI(0) },
+    '_wnd id event x mouse'() { return VI(eventMouseX(st().windowEvent)) },
+    '_wnd id event y mouse'() { return VI(eventMouseY(st().windowEvent)) },
     '_wnd id x mouse'() { return VI(selectedWindowHandle(st())?.window.mouseX ?? 0) },
     '_wnd id y mouse'() { return VI(selectedWindowHandle(st())?.window.mouseY ?? 0) },
     '_wnd id xgr'() {
