@@ -423,6 +423,8 @@ export class Window {
 
   /** SetPointer's per-window sprite definition; null after ClearPointer. */
   pointer: { data: number; height: number; width: number; xOffset: number; yOffset: number } | null = null
+  /** Intuition MenuStrip pointer currently attached to this window. */
+  menuStrip = 0
 
   setPointer(data: number, height: number, width: number, xOffset: number, yOffset: number): void {
     this.pointer = {
@@ -435,6 +437,9 @@ export class Window {
   }
 
   clearPointer(): void { this.pointer = null }
+
+  setMenuStrip(address: number): void { this.menuStrip = address >>> 0 }
+  clearMenuStrip(): void { this.menuStrip = 0 }
 
   /** ReportMouse(TRUE/FALSE), which toggles WFLG_REPORTMOUSE. */
   reportMouse(enabled: boolean): void {

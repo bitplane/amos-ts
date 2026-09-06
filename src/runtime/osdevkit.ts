@@ -16,7 +16,10 @@ import {
   OsWindowIds, OsWindowPatterns, eventCode, eventGadget, eventGadgetBank, eventItem, eventMenu,
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
-import { KIND, type GadgetKind, type GadTools, type NewGadget } from '../amiga/gadtools'
+import {
+  BARLABEL, KIND, MENUNULL, NM, itemNum, menuNum, subNum,
+  type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
+} from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
 import { glyphBit, glyphMetrics, openDiskFont, type DiskFont } from '../amiga/diskfont'
@@ -74,6 +77,10 @@ export interface OsDevKitState {
   gadtools: GadTools
   gadgetDef: NewGadget & { textPointer: number; font: number }
   nativeGadgets: Map<number, UserGadget>
+  newMenuLists: Map<number, { capacity: number; cursor: number; entries: NewMenu[] }>
+  menuItemRefs: Map<number, MenuItem>
+  menuItemAddresses: Map<MenuItem, number>
+  nextMenuItemAddress: number
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -93,6 +100,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gadtools,
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
+    newMenuLists: new Map(), menuItemRefs: new Map(), menuItemAddresses: new Map(), nextMenuItemAddress: 0x7300_0000,
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -744,6 +752,7 @@ function syncWindowBase(rt: Runtime, state: OsDevKitState, id: number): void {
   structWrite(rt, base + 16, 2, w.minWidth); structWrite(rt, base + 18, 2, w.minHeight)
   structWrite(rt, base + 20, 2, w.maxWidth); structWrite(rt, base + 22, 2, w.maxHeight)
   structWrite(rt, base + 24, 4, w.flags)
+  structWrite(rt, base + 54, 4, w.menuStrip)
 }
 
 function syncAllWindowBases(rt: Runtime, state: OsDevKitState): void {
@@ -753,6 +762,21 @@ function syncAllWindowBases(rt: Runtime, state: OsDevKitState): void {
 function selectedWindowHandle(state: OsDevKitState): { id: number; window: Window; rastPort: number; bitMap: number } | null {
   const id = state.windowIds.currentId; const handle = state.windowHandles.get(id)
   return handle ? { id, ...handle } : null
+}
+
+function windowAtBase(state: OsDevKitState, base: number): Window | null {
+  const id = state.windowIds.records.findIndex(record => record.base === (base >>> 0))
+  return id < 0 ? null : state.windowHandles.get(id)?.window ?? null
+}
+
+function menuItemAddress(state: OsDevKitState, item: MenuItem | null): number {
+  if (!item) return 0
+  const old = state.menuItemAddresses.get(item)
+  if (old !== undefined) return old
+  const address = state.nextMenuItemAddress
+  state.nextMenuItemAddress += 0x100
+  state.menuItemAddresses.set(item, address); state.menuItemRefs.set(address, item)
+  return address
 }
 
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
@@ -1667,6 +1691,51 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       // the otherwise opaque pointer identity exposed by struct Window.
       handle.window.setPointer(rt.bankBase(1) + number!, image.height, Math.ceil(image.width / 16), -image.hotX, -image.hotY)
     },
+    '_gmn set'(it) {
+      const [address, type, label, command, flags, mutualExclude, userData] = readArgs(it, 7)
+      const list = st().newMenuLists.get(address! >>> 0)
+      if (!list || list.cursor >= list.capacity) return
+      list.entries[list.cursor++] = {
+        type: type! & 0xff,
+        label: label === -1 ? BARLABEL : cString(rt, label! >>> 0),
+        commKey: command === 0 ? '' : cString(rt, command! >>> 0),
+        flags: flags! & 0xffff, mutualExclude: mutualExclude! | 0, userData: userData! >>> 0,
+      }
+    },
+    '_gmn end'(it) {
+      const list = st().newMenuLists.get(it.evalInt() >>> 0)
+      if (!list) return
+      list.entries[list.cursor] = { type: NM.END, label: '' }
+      list.cursor = 0
+    },
+    '_gmn list free'(it) {
+      const address = it.evalInt() >>> 0
+      if (st().newMenuLists.delete(address)) st().memory.freeMem(address - 8)
+    },
+    '_gmn free'(it) {
+      const strip = st().gadtools.menuStrip(it.evalInt() >>> 0)
+      if (strip) st().gadtools.freeMenus(strip)
+    },
+    '_menu set'(it) {
+      const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
+      if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
+    },
+    '_menu clear'(it) {
+      const window = windowAtBase(st(), it.evalInt()); if (window) { window.clearMenuStrip(); syncAllWindowBases(rt, st()) }
+    },
+    '_menu share'(it) {
+      const base = it.evalInt(); it.expect('to'); const address = it.evalInt()
+      const window = windowAtBase(st(), base); const strip = st().gadtools.menuStrip(address >>> 0)
+      if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
+    },
+    '_menu off'(it) {
+      const [base, number] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = window ? st().gadtools.menuStrip(window.menuStrip) : null
+      if (strip) st().gadtools.offMenu(strip, number!)
+    },
+    '_menu on'(it) {
+      const [base, number] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = window ? st().gadtools.menuStrip(window.menuStrip) : null
+      if (strip) st().gadtools.onMenu(strip, number!)
+    },
   }
 }
 
@@ -1684,6 +1753,36 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const destination = n(a, 0); if (destination === 0) return VI(0)
       const context = st().gadtools.createContext(); structWrite(rt, destination, 4, context.address); return VI(-1)
     },
+    '_gmn list alloc'(_, a) {
+      const capacity = n(a, 0) & 0xffff
+      const base = st().memory.alloc(capacity * 20 + 28, { clear: true })
+      if (base === 0) return VI(0)
+      const address = (base + 8) >>> 0
+      st().newMenuLists.set(address, { capacity, cursor: 0, entries: [] })
+      return VI(address)
+    },
+    '_gmn create'(_, a) {
+      const list = st().newMenuLists.get(n(a, 0) >>> 0)
+      if (!list) return VI(0)
+      return VI(st().gadtools.createMenus(list.entries, tagItems(st(), n(a, 1)))?.address ?? 0)
+    },
+    '_gmn layout'(_, a) {
+      const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
+      return VI(strip && st().gadtools.layoutMenus(strip, n(a, 1), undefined) ? -1 : 0)
+    },
+    '_menu what address'(_, a) {
+      const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
+      return VI(menuItemAddress(st(), strip ? st().gadtools.itemAddress(strip, n(a, 1)) : null))
+    },
+    '_menu what menu nb'(_, a) { return VI(menuNum(n(a, 0))) },
+    '_menu what item nb'(_, a) { return VI(itemNum(n(a, 0))) },
+    '_menu what sub nb'(_, a) { return VI(subNum(n(a, 0))) },
+    '_menu what flags'(_, a) {
+      const item = st().menuItemRefs.get(n(a, 0) >>> 0)
+      return VI(item ? (item.flags & ~0x110) | (item.disabled ? 0x10 : 0) | (item.checked ? 0x100 : 0) : 0)
+    },
+    '_menu what user'(_, a) { return VI(st().menuItemRefs.get(n(a, 0) >>> 0)?.userData ?? 0) },
+    '_menu what next sel'(_, a) { return VI(st().menuItemRefs.get(n(a, 0) >>> 0)?.nextSelect ?? 0) },
     '_ggad create'(_, a) {
       const explicit = a.length >= 4; const defAt = explicit ? n(a, 0) : 0
       const kind = n(a, explicit ? 1 : 0) as GadgetKind
@@ -2063,7 +2162,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd id event menu'() { return VI(eventMenu(st().windowEvent)) },
     '_wnd id event item'() { return VI(eventItem(st().windowEvent)) },
     '_wnd id event sub'() { return VI(eventSub(st().windowEvent)) },
-    '_wnd id event next menu'() { return VI(0) },
+    '_wnd id event next menu'() {
+      const event = st().windowEvent
+      const handle = st().windowHandles.get(event.windowId)
+      const strip = handle ? st().gadtools.menuStrip(handle.window.menuStrip) : null
+      const item = strip ? st().gadtools.itemAddress(strip, event.code) : null
+      if (!item) return VI(0)
+      event.code = item.nextSelect & 0xffff
+      return VI(event.code === MENUNULL ? 0 : -1)
+    },
     '_wnd id event x mouse'() { return VI(eventMouseX(st().windowEvent)) },
     '_wnd id event y mouse'() { return VI(eventMouseY(st().windowEvent)) },
     '_wnd id x mouse'() { return VI(selectedWindowHandle(st())?.window.mouseX ?? 0) },

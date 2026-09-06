@@ -111,10 +111,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies all 47 low-level GadTools and menu keywords', () => {
     const low = rows.filter((row) => row.namespace === '_ggad' || row.namespace === '_gmn' || row.namespace === '_menu')
     expect(low).toHaveLength(47)
-    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(39)
+    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(42)
     expect(low.filter((row) => row.status === 'partial')).toHaveLength(5)
-    expect(low.filter((row) => row.status === 'missing').map((row) => row.name).sort())
-      .toEqual(['_menu clear', '_menu set', '_menu share'])
+    expect(low.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(low.some((row) => row.status === 'review')).toBe(false)
   })
 
@@ -1330,8 +1329,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(expected.size).toBe(69)
     expect(idRows).toHaveLength(69)
     for (const [name, workers] of expected) expect(rows.find((row) => row.name === name)?.workers).toEqual(workers)
-    expect(idRows.filter((row) => row.status === 'faithful')).toHaveLength(53)
-    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(16)
+    expect(idRows.filter((row) => row.status === 'faithful')).toHaveLength(54)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(15)
     expect(idRows.some((row) => row.status === 'review')).toBe(false)
     expect(rows.find((row) => row.name === '_wnd id set mouse pos')?.osCalls).toEqual([
       expect.objectContaining({ library: 'exec.library', lvo: -456 }),

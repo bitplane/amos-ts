@@ -115,8 +115,6 @@ auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are rep
   '_gmn set', '_gmn list alloc', '_gmn list free', '_gmn end', '_gmn create', '_gmn free', '_gmn layout',
   '_menu off', '_menu on', '_menu what address', '_menu what menu nb', '_menu what item nb',
   '_menu what sub nb', '_menu what flags', '_menu what user', '_menu what next sel',
-])
-auditMany('missing', 'window menu-strip or shared-port attachment is not modelled', [
   '_menu set', '_menu clear', '_menu share',
 ])
 auditMany('partial', 'the underlying gadget/menu/bank primitive exists, but OS DevKit high-level bank integration is not implemented', [
@@ -441,7 +439,7 @@ auditMany('partial', 'the private 112-byte Requester and Request/EndRequest acti
 auditMany('faithful', 'the one shared Window-ID UserPort, nonblocking GetMsg/GT_GetIMsg filtering, 52-byte copy and immediate reply semantics are represented exactly', [
   '_wnd id wait event', '_wnd id next event', '_wnd id mask event',
 ])
-auditMany('partial', 'the copied menu code is represented, but no Window-ID menu strip can be attached until _menu set/share is integrated', [
+auditMany('faithful', 'ItemAddress walks the attached shared GadTools MenuStrip and copies its unsigned NextSelect word into the retained event code', [
   '_wnd id event next menu',
 ])
 auditMany('partial', 'pointer-bank conversion exists, but native SetPointer ownership is not exposed end to end', [

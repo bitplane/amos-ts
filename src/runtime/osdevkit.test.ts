@@ -608,6 +608,23 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     ].join('\n')
     expect(run(source).output).toBe('-2\t-3\t 20\t 9\n-1\t$2345\t$20\t$12345678\t-1\t$23456789\n-1\n-1\t-1\n 0\n 1\t 2\t 3\t 4\t$23456789\t$10\t$1111\t$22222222\n')
   })
+
+  it('builds, lays out and attaches one shared native menu tree', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,40,20,0,$100,0,"Menu" : W=_wnd id base(3)',
+      'A=_to str("Project") : B=_to str("Open") : K=_to str("O")',
+      'N=_gmn list alloc(2) : _gmn set N,1,A,0,0,0,11 : _gmn set N,2,B,K,$101,0,$12345678 : _gmn end N',
+      'M=_gmn create(N,0) : V=_ggad vinf get(Screen Base,0) : Print M<>0,_gmn layout(M,V,0)',
+      'I=_menu what address(M,$f800) : Print I<>0,_menu what menu nb($f800),_menu what item nb($f800),_menu what sub nb($f800)',
+      'Print Hex$(_menu what flags(I)),Hex$(_menu what user(I)),Hex$(_menu what next sel(I))',
+      '_menu set W,M : Print _struct long(W,54)=M : _menu off W,$f800 : Print Hex$(_menu what flags(I))',
+      '_menu on W,$f800 : _menu share W To M : _menu clear W : Print _struct long(W,54)',
+      '_gmn free M : _gmn list free N : _ggad vinf free V : _str free A : _str free B : _str free K',
+      '_wnd id close 3 : _scr id close 1',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\n-1\t 0\t 0\t 31\n$101\t$12345678\t$FFFF\n-1\n$111\n 0\n')
+  })
 })
 
 describe('OS DevKit 1.61 Window-ID lifecycle', () => {
