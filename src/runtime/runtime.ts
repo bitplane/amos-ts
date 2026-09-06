@@ -2524,6 +2524,7 @@ export class Runtime {
 
   get boopsi(): Boopsi {
     this.boopsiBase ??= new Boopsi()
+    this.boopsiBase.ensureIntuitionClasses()
     return this.boopsiBase
   }
 

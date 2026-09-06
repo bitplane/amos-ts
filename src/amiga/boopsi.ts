@@ -231,6 +231,7 @@ export class Boopsi {
   private readonly classes = new Map<string, BoopsiClass>()
   private readonly objects = new Map<number, BoopsiObject>()
   private next = OBJ_ORIGIN
+  private intuitionClassesReady = false
 
   /** the class every other class descends from */
   readonly rootClass: BoopsiClass
@@ -273,6 +274,62 @@ export class Boopsi {
       }
     })
     this.classes.set('rootclass', this.rootClass)
+  }
+
+  /**
+   * Register Intuition's public BOOPSI classes in this same object space.
+   *
+   * They are lazy because most programs never open the object API, and MUI
+   * must still share them rather than growing a second registry. The generic
+   * classes retain arbitrary tags: their concrete drawing/input behavior is
+   * supplied by consumers such as GadTools, while BOOPSI owns identity,
+   * inheritance and OM_NEW/OM_SET/OM_GET semantics.
+   */
+  ensureIntuitionClasses(): void {
+    if (this.intuitionClassesReady) return
+    this.intuitionClassesReady = true
+    const make = (id: string, superId: string): void => {
+      this.makeClass(id, superId, (cl, obj, msg) => {
+        if (msg.MethodID === OM_NEW) {
+          const made = this.objectAt(doSuperMethodA(cl, obj, msg))
+          if (!made) return 0
+          const attrs = made.instData<{ attrs: Map<number, number> }>(cl)
+          attrs.attrs = new Map()
+          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE) attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
+          return made.address
+        }
+        if (msg.MethodID === OM_SET || msg.MethodID === OM_UPDATE) {
+          const attrs = (obj as BoopsiObject).instData<{ attrs?: Map<number, number> }>(cl)
+          attrs.attrs ??= new Map()
+          let used = 0
+          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE) {
+            attrs.attrs.set(tag.tag >>> 0, tag.data | 0); used++
+          }
+          return used
+        }
+        if (msg.MethodID === OM_GET) {
+          const get = msg as OpGet
+          const value = (obj as BoopsiObject).instData<{ attrs?: Map<number, number> }>(cl).attrs?.get(get.attrID >>> 0)
+          if (value === undefined) return doSuperMethodA(cl, obj, msg)
+          get.storage = value
+          return 1
+        }
+        return doSuperMethodA(cl, obj, msg)
+      })
+    }
+
+    make('imageclass', 'rootclass')
+    make('frameiclass', 'imageclass')
+    make('sysiclass', 'imageclass')
+    make('fillrectclass', 'imageclass')
+    make('gadgetclass', 'rootclass')
+    make('buttongclass', 'gadgetclass')
+    make('frbuttonclass', 'buttongclass')
+    make('propgclass', 'gadgetclass')
+    make('strgclass', 'gadgetclass')
+    make('groupgclass', 'gadgetclass')
+    make('modelclass', 'rootclass')
+    make('icclass', 'rootclass')
   }
 
   /**

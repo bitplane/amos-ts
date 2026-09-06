@@ -195,6 +195,21 @@ describe('BOOPSI: subclassing', () => {
 })
 
 describe('BOOPSI: classes', () => {
+  it('registers Intuition public classes lazily with shared tag-backed attributes', () => {
+    const b = new Boopsi()
+    expect(b.findClass('gadgetclass')).toBeNull()
+    b.ensureIntuitionClasses()
+    const string = b.findClass('strgclass')!
+    expect(string.isA(b.findClass('gadgetclass')!)).toBe(true)
+    const o = b.newObjectA(string, [{ tag: A_Colour, data: 7 }])!
+    expect(getAttr(A_Colour, o)).toBe(7)
+    expect(setAttrsA(o, [{ tag: A_Colour, data: 9 }, { tag: A_Depth, data: 4 }])).toBe(2)
+    expect(getAttr(A_Colour, o)).toBe(9)
+    expect(getAttr(A_Depth, o)).toBe(4)
+    b.disposeObject(o)
+    expect(b.objectAt(o.address)).toBeNull()
+  })
+
   it('MakeClass refuses an unknown superclass and registers a named one', () => {
     const b = new Boopsi()
     expect(b.makeClass('orphan', 'nosuchclass', () => 0)).toBeNull()
