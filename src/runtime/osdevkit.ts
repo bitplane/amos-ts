@@ -192,6 +192,85 @@ function structWrite(rt: Runtime, address: number, width: StructWidth, value: nu
   for (let i = 0; i < width; i++) m.data[m.off + i] = value >>> ((width - i - 1) * 8)
 }
 
+interface NativeRaster {
+  rp: number
+  bitmap: number
+  bytesPerRow: number
+  height: number
+  depth: number
+  width: number
+}
+
+function nativeRaster(rt: Runtime, rp: number): NativeRaster | null {
+  const bitmap = structRead(rt, rp + 4, 4, false) >>> 0
+  if (bitmap === 0) return null
+  const bytesPerRow = structRead(rt, bitmap, 2, false)
+  const height = structRead(rt, bitmap + 2, 2, false)
+  const depth = Math.min(8, structRead(rt, bitmap + 5, 1, false))
+  if (bytesPerRow === 0 || height === 0 || depth === 0) return null
+  return { rp, bitmap, bytesPerRow, height, depth, width: bytesPerRow * 8 }
+}
+
+function nativePoint(rt: Runtime, raster: NativeRaster, x: number, y: number): number {
+  if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return -1
+  let color = 0
+  for (let plane = 0; plane < raster.depth; plane++) {
+    const address = structRead(rt, raster.bitmap + 8 + plane * 4, 4, false) >>> 0
+    const byte = rt.resolveAddr(address + y * raster.bytesPerRow + (x >>> 3))
+    if (byte && ((byte.data[byte.off]! >>> (7 - (x & 7))) & 1) !== 0) color |= 1 << plane
+  }
+  return color
+}
+
+function nativePlot(rt: Runtime, raster: NativeRaster, x: number, y: number): void {
+  if (x < 0 || y < 0 || x >= raster.width || y >= raster.height) return
+  const fg = structRead(rt, raster.rp + 25, 1, false)
+  const mode = structRead(rt, raster.rp + 28, 1, false)
+  const mask = structRead(rt, raster.rp + 24, 1, false)
+  const old = nativePoint(rt, raster, x, y)
+  const colorMask = (1 << raster.depth) - 1
+  const wanted = mode === 2 ? (~old & colorMask) : fg
+  const next = ((old & ~mask) | (wanted & mask)) & colorMask
+  for (let plane = 0; plane < raster.depth; plane++) {
+    if ((mask & (1 << plane)) === 0) continue
+    const address = structRead(rt, raster.bitmap + 8 + plane * 4, 4, false) >>> 0
+    const byte = rt.resolveWrite(address + y * raster.bytesPerRow + (x >>> 3))
+    if (!byte) continue
+    const bit = 1 << (7 - (x & 7))
+    byte.data[byte.off] = (next & (1 << plane)) !== 0 ? byte.data[byte.off]! | bit : byte.data[byte.off]! & ~bit
+  }
+}
+
+function nativeDraw(rt: Runtime, raster: NativeRaster, x1: number, y1: number, x2: number, y2: number): void {
+  const dx = Math.abs(x2 - x1); const sx = x1 < x2 ? 1 : -1
+  const dy = -Math.abs(y2 - y1); const sy = y1 < y2 ? 1 : -1
+  let error = dx + dy
+  const pattern = structRead(rt, raster.rp + 34, 2, false)
+  let patternBit = 15
+  for (;;) {
+    if (((pattern >>> patternBit) & 1) !== 0) nativePlot(rt, raster, x1, y1)
+    patternBit = patternBit === 0 ? 15 : patternBit - 1
+    if (x1 === x2 && y1 === y2) break
+    const twice = 2 * error
+    if (twice >= dy) { error += dy; x1 += sx }
+    if (twice <= dx) { error += dx; y1 += sy }
+  }
+  structWrite(rt, raster.rp + 36, 2, x2); structWrite(rt, raster.rp + 38, 2, y2)
+}
+
+function nativeEllipse(rt: Runtime, raster: NativeRaster, cx: number, cy: number, rx: number, ry: number): void {
+  if (rx <= 0 || ry <= 0) { nativePlot(rt, raster, cx, cy); return }
+  const oldX = structRead(rt, raster.rp + 36, 2, true); const oldY = structRead(rt, raster.rp + 38, 2, true)
+  let px = cx + rx; let py = cy
+  const steps = Math.min(4096, Math.max(16, (rx + ry) * 2))
+  for (let i = 1; i <= steps; i++) {
+    const angle = i / steps * Math.PI * 2
+    const x = cx + Math.round(rx * Math.cos(angle)); const y = cy + Math.round(ry * Math.sin(angle))
+    nativeDraw(rt, raster, px, py, x, y); px = x; py = y
+  }
+  structWrite(rt, raster.rp + 36, 2, oldX); structWrite(rt, raster.rp + 38, 2, oldY)
+}
+
 function structSet(rt: Runtime, width: StructWidth): Instr {
   return (it) => {
     it.expect('(')
@@ -550,6 +629,44 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_blt own'() {},
     '_blt disown'() {},
     '_blt wait'() {},
+    /** workers 534-547 over caller-owned native RastPort and BitMap memory. */
+    '_rp move'(it) {
+      const [rp, x, y] = readArgs(it, 3)
+      structWrite(rt, rp! + 36, 2, x!); structWrite(rt, rp! + 38, 2, y!)
+    },
+    '_rp a pen'(it) { const [rp, pen] = readArgs(it, 2); structWrite(rt, rp! + 25, 1, pen!) },
+    '_rp b pen'(it) { const [rp, pen] = readArgs(it, 2); structWrite(rt, rp! + 26, 1, pen!) },
+    '_rp dr md'(it) { const [rp, mode] = readArgs(it, 2); structWrite(rt, rp! + 28, 1, mode!) },
+    '_rp rast'(it) {
+      const [rp, pen] = readArgs(it, 2); const raster = nativeRaster(rt, rp!)
+      if (!raster) return
+      const mask = structRead(rt, rp! + 24, 1, false)
+      for (let plane = 0; plane < raster.depth; plane++) {
+        if ((mask & (1 << plane)) === 0) continue
+        const address = structRead(rt, raster.bitmap + 8 + plane * 4, 4, false) >>> 0
+        for (let at = 0; at < raster.bytesPerRow * raster.height; at++) {
+          const byte = rt.resolveWrite(address + at)
+          if (byte) byte.data[byte.off] = (pen! & (1 << plane)) !== 0 ? 0xff : 0
+        }
+      }
+    },
+    '_rp draw'(it) {
+      const [rp, x, y] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
+      if (raster) nativeDraw(rt, raster, structRead(rt, rp! + 36, 2, true), structRead(rt, rp! + 38, 2, true), x!, y!)
+    },
+    '_rp ellipse'(it) {
+      const [rp, x, y, rx, ry] = readArgs(it, 5); const raster = nativeRaster(rt, rp!)
+      if (raster) nativeEllipse(rt, raster, x!, y!, rx!, ry!)
+    },
+    '_rp plot'(it) {
+      const [rp, x, y] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
+      if (raster) nativePlot(rt, raster, x!, y!)
+    },
+    '_rp text'(it) {
+      const rp = it.evalInt(); it.expect(','); const value = it.evalStr()
+      // A null rp_Font has no glyph source, but Text still advances the cursor.
+      structWrite(rt, rp + 36, 2, structRead(rt, rp + 36, 2, true) + value.length * 8)
+    },
   }
 }
 
@@ -809,6 +926,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_ri what bmap'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
     '_ri what x'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, true)) },
     '_ri what y'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, true)) },
+    '_rp point'(_, a) {
+      const raster = nativeRaster(rt, n(a, 0)); return VI(raster ? nativePoint(rt, raster, n(a, 1), n(a, 2)) : -1)
+    },
+    '_rp len text'(_, a) { return VI(str(a[1] ?? VS('')).length * 8) },
     '_cm alloc'(_, a) {
       const map = allocColorMap(n(a, 0)); const address = st().memory.alloc(8, { clear: true })
       if (address !== 0) st().colorMaps.set(address, map)

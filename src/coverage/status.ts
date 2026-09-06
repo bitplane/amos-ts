@@ -314,6 +314,19 @@ export const FAITHFUL = new Set<string>([
   '_spr set height',
   '_spr set nb',
   '_spr set pos',
+  // RastPort state and planar operations over caller-owned mapped BitMap
+  // plane pointers, workers 534-549.
+  '_rp move',
+  '_rp a pen',
+  '_rp b pen',
+  '_rp dr md',
+  '_rp rast',
+  '_rp draw',
+  '_rp ellipse',
+  '_rp point',
+  '_rp plot',
+  '_rp text',
+  '_rp len text',
   // core semantics audited against +ILib.s (New_Evalue and operators),
   // exercised by tests citing the routines
   'int', // SPFloor

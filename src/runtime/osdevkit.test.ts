@@ -394,4 +394,20 @@ describe('OS DevKit 1.61 native graphics records', () => {
     ].join('\n')
     expect(run(source).output).toBe('$12345678\t$23456789\t-2\t-32767\n$ABC\n$89ABCDEF\t$12345678\t$FEDCBA98\n')
   })
+
+  it('draws through caller-owned native RastPort, BitMap and plane pointers', () => {
+    const source = [
+      'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',
+      '_bm set datas B,2,4,2,0 : Loke B+8,P : Loke B+12,P+8',
+      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff : _rp a pen R,3 : _rp dr md R,0',
+      '_rp plot R,0,0 : Print _rp point(R,0,0),Hex$(Peek(P)),Hex$(Peek(P+8))',
+      '_rp dr md R,2 : _rp plot R,0,0 : Print _rp point(R,0,0)',
+      '_rp dr md R,0 : _rp rast R,0 : _rp move R,0,0 : _rp draw R,3,0',
+      'Print Hex$(Peek(P)),_rp what xgr(R),_rp what ygr(R)',
+      '_rp ellipse R,8,2,2,1 : Print _rp point(R,10,2)',
+      '_rp move R,1,2 : _rp text R,"abc" : Print _rp what xgr(R),_rp len text(R,"abcd")',
+      '_struct free P : _struct free B : _struct free R',
+    ].join('\n')
+    expect(run(source).output).toBe(' 3\t$80\t$80\n 0\n$F0\t 3\t 0\n 3\n 25\t 32\n')
+  })
 })
