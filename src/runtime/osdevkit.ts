@@ -2971,6 +2971,13 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_scr what vport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.viewPort ?? 0) },
     '_scr what rport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.rastPort ?? 0) },
+    '_query overscan'(_, a) {
+      const mode = displayModeOf(n(a, 0) >>> 0); const rect = n(a, 1) >>> 0; const type = n(a, 2)
+      if (!mode || rect === 0 || type < 1 || type > 4) return VI(0)
+      structWrite(rt, rect, 2, 0); structWrite(rt, rect + 2, 2, 0)
+      structWrite(rt, rect + 4, 2, mode.width - 1); structWrite(rt, rect + 6, 2, mode.height - 1)
+      return VI(-1)
+    },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
     '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },

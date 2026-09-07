@@ -751,6 +751,14 @@ describe('OS DevKit 1.61 system operations', () => {
     expect(output).toBe('-1\t-1\t-1\t-1\n-1\n')
     expect(rt.osdevkit.screenIds.size).toBe(0)
   })
+
+  it('queries installed display-mode overscan into a native Rectangle', () => {
+    expect(run([
+      'R=_struct alloc(8) : Print _query overscan($21000,R,1)',
+      'Print _struct word(R,0),_struct word(R,2),_struct word(R,4),_struct word(R,6)',
+      'Print _query overscan($deadbeef,R,1),_query overscan($21000,R,0) : _struct free R',
+    ].join('\n')).output).toBe('-1\n 0\t 0\t 319\t 255\n 0\t 0\n')
+  })
 })
 
 describe('OS DevKit 1.61 tag lists', () => {
