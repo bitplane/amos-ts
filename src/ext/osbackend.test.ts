@@ -247,7 +247,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
     const paths = rows.filter((row) => row.namespace === '_path')
     expect(paths).toHaveLength(2)
-    expect(paths.every((row) => row.status === 'partial')).toBe(true)
+    expect(paths.every((row) => row.status === 'faithful')).toBe(true)
     expect(paths.find((row) => row.name === '_path add')).toMatchObject({
       workers: [1839],
       osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -882 })],

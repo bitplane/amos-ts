@@ -2773,6 +2773,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       if (address === 0) return VI(0)
       return VI((address + dosPathPart(cString(rt, address)).length) >>> 0)
     },
+    '_path add'(_, a) { return VS(joinAmigaPath(str(a[0] ?? VS('')), str(a[1] ?? VS(''))).slice(0, 1022)) },
+    '_file part'(_, a) { return VS(dosFilePart(str(a[0] ?? VS('')))) },
+    '_path part'(_, a) { return VS(dosPathPart(str(a[0] ?? VS('')))) },
     '_dos report'(_, a) { return VI(rt.dos.report(n(a, 0), n(a, 1), n(a, 2), n(a, 3)) ? -1 : 0) },
     '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },
     '_dos var find'(_, a) { return VI(st().dosVariables.find(str(a[0] ?? VS('')), n(a, 1))) },

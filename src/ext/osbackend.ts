@@ -220,8 +220,8 @@ auditMany('faithful', 'AMOS-to-C allocation/copy and the static empty AMOS strin
 auditMany('faithful', 'guarded one-based WBArg name and lock field access is modelled', [
   '_arg what str', '_arg what lock',
 ])
-auditMany('partial', 'Amiga path joining and directory-part extraction exist, but native fixed-buffer and full DOS AddPart edge semantics are not modelled', [
-  '_path add', '_path part',
+auditMany('faithful', 'the AMOS-string wrappers share the same AddPart, FilePart and PathPart boundary rules as their caller-memory forms', [
+  '_path add', '_path part', '_file part',
 ])
 auditMany('faithful', 'shared DOS lock identities retain paths across ParentDir, NameFromLock, CurrentDir and explicit release', [
   '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_lock name$',
@@ -231,9 +231,6 @@ auditMany('partial', 'native lock identities and access modes are retained, but 
 ])
 auditMany('faithful', 'the native path operations mutate caller-owned C buffers or return the exact pointer boundary within them', [
   '_dos add part', '_dos file part', '_dos path part',
-])
-auditMany('faithful', 'dos.library FilePart boundary rules are modelled for the AMOS-string wrapper', [
-  '_file part',
 ])
 auditMany('faithful', 'the VFS current directory is stored in the canonical name a lock would return', [
   '_dos what dir$',

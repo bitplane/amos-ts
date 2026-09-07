@@ -213,6 +213,11 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('-1\tRAM:ENV/Sys/serial.prefs\n 12\t 11\tserial.prefs\tRAM:ENV/Sys\n 0\tRAM:ENV/Sys/serial.prefs\n')
   })
 
+  it('exposes the same DOS path boundaries through AMOS strings', () => {
+    expect(run('Print _path add("RAM:ENV/Sys","serial.prefs"),_path part("RAM:ENV/Sys/serial.prefs"),_file part("RAM:ENV/Sys/serial.prefs")').output)
+      .toBe('RAM:ENV/Sys/serial.prefs\tRAM:ENV/Sys\tserial.prefs\n')
+  })
+
   it('shares native DOS handles across raw, buffered and convenience I/O', () => {
     const { output } = run([
       'N=_to str("RAM:dos.bin") : B=_str alloc(16) : _str put "ABC",B',
