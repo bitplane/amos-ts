@@ -3224,6 +3224,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const base = n(a, 0) >>> 0; const window = windowAtBase(st(), base)
       return VI(window ? takeWindowEvent(st(), n(a, 1), base, window.userPort) : 0)
     },
+    '_event wait port'(_, a) { return VI(takeWindowEvent(st(), n(a, 1), 0, n(a, 0) >>> 0)) },
     '_wnd wdef left'() { return VI(structRead(rt, windowDefinitionAddress(st()), 2, false)) },
     '_wnd wdef top'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 2, 2, false)) },
     '_wnd wdef width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 4, 2, false)) },

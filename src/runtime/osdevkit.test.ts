@@ -349,6 +349,15 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.intuition.windows).toHaveLength(0)
   })
 
+  it('filters arbitrary Intuition UserPorts through the shared event copy', () => {
+    expect(run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 2,1,1,30,15,0,$40000,0,"Events" : W=_wnd id base(2)',
+      '_wnd activate W : Print Hex$(_event wait port(_wnd what user port(W),$40000)),_wnd id event wnd',
+      '_wnd close W : _scr id close 1',
+    ].join('\n')).output).toBe('$40000\t 2\n')
+  })
+
   it('opens all managed raw Window forms without consuming Window-ID slots', () => {
     const { rt, output } = run([
       'Screen Open 0,100,60,4,Lowres : _scr id from pointer 1,Screen Base : T=_to str("Raw")',
