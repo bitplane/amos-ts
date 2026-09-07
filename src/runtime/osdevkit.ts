@@ -123,6 +123,7 @@ export interface OsDevKitState {
   dosVariables: DosVariables
   readArgs: ReadArgs
   dataTypes: DataTypesService
+  dosNotifications: Map<number, { stop: () => void; name: number; messages: number[] }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -157,7 +158,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
-    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), aslRequests: new Map(),
+    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1127,6 +1128,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_dos close'(it) { rt.dos.close(rt.vfs, it.evalInt()) },
     '_dos unlock'(it) { rt.dos.unlock(it.evalInt()) },
     '_dos set dir$'(it) { rt.vfs?.setCurrentDir(it.evalStr()) },
+    '_dos end notify'(it) {
+      const address = it.evalInt() >>> 0, notify = st().dosNotifications.get(address)
+      if (!notify) return
+      notify.stop(); st().strings.free(notify.name)
+      for (const message of notify.messages) st().exec.memory.free(message)
+      st().memory.freeMem(address); st().dosNotifications.delete(address)
+    },
     '_cx uninstall'() { st().commodities.uninstall() },
     '_cx id create'(it) { const [id, type, arg1, arg2] = readArgs(it, 4); st().commodities.create(id!, type!, arg1!, arg2!) },
     '_cx id delete'(it) { st().commodities.delete(st().commodities.ids.get(it.evalInt()) ?? 0) },
@@ -2685,6 +2693,41 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const end = rt.resolveWrite(buffer + lock.path.length); if (!end) return VI(0); end.data[end.off] = 0
       return VI(-1)
     },
+    '_dos sig notify'(_, a) {
+      const path = cString(rt, n(a, 0)), task = n(a, 1) >>> 0, signal = n(a, 2), user = n(a, 3)
+      if (!rt.vfs || !path || signal < 0 || signal > 31) return VI(0)
+      const request = st().memory.alloc(48, { clear: true }), name = st().strings.fromAmos(path)
+      structWrite(rt, request, 4, name); structWrite(rt, request + 8, 4, user); structWrite(rt, request + 12, 4, 0x4000_0000)
+      structWrite(rt, request + 16, 4, task); structWrite(rt, request + 20, 1, signal)
+      const folded = path.toLowerCase(), directory = rt.vfs.exists(path) === 'dir'
+      const stop = rt.vfs.watch(event => {
+        const changed = event.path.toLowerCase()
+        if (changed === folded || (directory && changed.startsWith(`${folded.replace(/\/$/, '')}/`))) st().exec.messages.signal(task, 1 << signal)
+      })
+      st().dosNotifications.set(request, { stop, name, messages: [] })
+      return VI(request)
+    },
+    '_dos msg notify'(_, a) {
+      const path = cString(rt, n(a, 0)), port = n(a, 1) >>> 0, user = n(a, 2)
+      if (!rt.vfs || !path || port === 0) return VI(0)
+      const request = st().memory.alloc(48, { clear: true }), name = st().strings.fromAmos(path)
+      structWrite(rt, request, 4, name); structWrite(rt, request + 8, 4, user); structWrite(rt, request + 12, 4, 0x4000_0001)
+      structWrite(rt, request + 16, 4, port)
+      const messages: number[] = [], folded = path.toLowerCase(), directory = rt.vfs.exists(path) === 'dir'
+      const stop = rt.vfs.watch(event => {
+        const changed = event.path.toLowerCase()
+        if (changed !== folded && !(directory && changed.startsWith(`${folded.replace(/\/$/, '')}/`))) return
+        const message = st().exec.messages.allocMessage(0, 38); messages.push(message)
+        st().exec.memory.writeU32(message + 20, 0x4000_0000)
+        structWrite(rt, message + 24, 2, 0x1234)
+        st().exec.memory.writeU32(message + 26, request)
+        st().exec.messages.putMsg(port, message)
+      })
+      st().dosNotifications.set(request, { stop, name, messages })
+      return VI(request)
+    },
+    '_nmsg what nreq'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 4, false)) },
+    '_nr what user'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
     '_dos set err'(_, a) { return VI(rt.dos.setIoErr(n(a, 0))) },
     '_dos fault'(_, a) {
       const code = n(a, 0), headerAddress = n(a, 1) >>> 0
@@ -3064,9 +3107,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     /** workers 1542/1543 and 1796: exact Message structure fields. */
     '_msg what length'(_, a) { return VI(st().exec.messages.messageLength(n(a, 0))) },
     '_msg what reply port'(_, a) { return VI(st().exec.messages.messageReplyPort(n(a, 0))) },
+    '_msg get'(_, a) { return VI(st().exec.messages.getMsg(n(a, 0))) },
     /** workers 1559/1560: AllocSignal and masked SetSignal. */
     '_sig alloc'(_, a) { return VI(st().exec.messages.allocSignal(n(a, 0))) },
     '_sig set'(_, a) { return VI(st().exec.messages.setSignal(n(a, 0), n(a, 1))) },
+    '_sig wait'(_, a) { return VI(st().exec.messages.wait(n(a, 0)) ?? 0) },
+    '_task find'(_, a) { const address = n(a, 0) >>> 0; return VI(st().exec.tasks.find(address === 0 ? null : cString(rt, address))) },
     /** worker 1563: cleared 22-byte native Interrupt allocation. */
     '_int alloc'() { return VI(st().exec.interrupts.alloc()) },
     /** workers 1447/1448 and 1456-1465: list allocation, search and field reads. */

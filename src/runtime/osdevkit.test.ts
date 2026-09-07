@@ -238,6 +238,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('-1\t-1\tRAM:one/two\tRAM:one\t-1\tRAM:one/two\n-1\tRAM:one/two\tRAM:\n')
   })
 
+  it('delivers DOS notifications through shared Exec signals and messages', () => {
+    const { output } = run([
+      'P=_to str("RAM:watched") : T=_task find(0)',
+      'S=_dos sig notify(P,T,5,77) : H=_dos opout("RAM:watched") : _dos close H',
+      'Print S<>0,_nr what user(S),_sig wait(32) : _dos end notify S',
+      'Q=_port create : M=_dos msg notify(P,Q,88)',
+      'H=_dos opout("RAM:watched") : _dos close H : E=_msg get(Q)',
+      'Print M<>0,_nr what user(M),E<>0,_nmsg what nreq(E)=M,_imsg what class(E),_imsg what code(E)',
+      '_dos end notify M : _port delete Q : _str free P',
+    ].join('\n'))
+    expect(output).toBe('-1\t 77\t 32\n-1\t 88\t-1\t-1\t 1073741824\t 4660\n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',

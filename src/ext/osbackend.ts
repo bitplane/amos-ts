@@ -264,7 +264,7 @@ auditMany('partial', 'ReportEvent retains the exact error, type, argument and de
 auditMany('partial', 'Amiga hunk loading and host process launch exist, but native segment lists, unloading and CreateNewProc tag lists are not exposed', [
   '_dos seg load', '_dos seg unload', '_dos new proc',
 ])
-auditMany('partial', 'filesystem change subscriptions exist, but native NotifyRequest allocation and task-signal or MsgPort delivery are not integrated', [
+auditMany('faithful', 'native NotifyRequest records subscribe to the shared VFS and deliver through the shared Exec task signals or MsgPort messages', [
   '_dos sig notify', '_dos msg notify', '_dos end notify',
 ])
 auditMany('faithful', 'the NotifyRequest user-data longword at offset 8 is represented exactly', [

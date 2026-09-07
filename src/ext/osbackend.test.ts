@@ -933,7 +933,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     ]
     const finalDos = rows.filter((row) => names.includes(row.name))
     expect(finalDos).toHaveLength(6)
-    expect(finalDos.every((row) => row.status === 'partial')).toBe(true)
+    expect(finalDos.filter((row) => row.name.includes('notify')).every((row) => row.status === 'faithful')).toBe(true)
+    expect(finalDos.filter((row) => !row.name.includes('notify')).every((row) => row.status === 'partial')).toBe(true)
 
     const process = new Map<string, [number, number]>([
       ['_dos seg load', [1842, -768]], ['_dos seg unload', [1843, -156]], ['_dos new proc', [1844, -498]],
