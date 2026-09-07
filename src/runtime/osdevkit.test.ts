@@ -217,6 +217,21 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 40\t 0\t 0\n 104\t 3\t 3\t 0\n-1\n')
   })
 
+  it('wires cache, chipset, ViewPort mode and saved register controls', () => {
+    const { rt, output } = run([
+      'Print Hex$(_cache ctrl($A,$F)),Hex$(_cache ctrl($5,$3))',
+      'Print Hex$(_chip set rev(3)),Hex$(_chip set rev(-1))',
+      'V=_struct alloc(40) : Doke V+32,$8123 : Print Hex$(_vp get mode(V)) : _struct free V',
+      '_dreg(2)=$12345678 : _areg(7)=-9 : _dreg(9)=10',
+      'Print Hex$(_dreg(2)),_areg(7),_dreg(9)',
+      '_amos name "abcdefghijklmnopqrstuvwxyz0123456789"',
+    ].join('\n'))
+    expect(output).toBe('$0\t$A\n$F\t$3\n$8123\n$12345678\t-9\t 0\n')
+    expect(rt.machine.cpu.cacheBits).toBe(9)
+    expect(rt.osdevkit.chipRevision).toBe(0xf)
+    expect(rt.osdevkit.amosName).toBe('~abcdefghijklmnopqrstuvwxyz0123')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

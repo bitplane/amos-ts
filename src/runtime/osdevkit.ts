@@ -147,6 +147,10 @@ export interface OsDevKitState {
   locales: Map<number, Map<number, number>>
   /** Managed OpenCatalog handles and their stable translated string pointers. */
   catalogs: Map<number, { catalog: Catalog; strings: Map<number, number> }>
+  chipRevision: number
+  amosName: string
+  dataRegisters: Int32Array
+  addressRegisters: Int32Array
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -183,7 +187,8 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
-    locales: new Map(), catalogs: new Map(), aslRequests: new Map(),
+    locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
+    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1287,6 +1292,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const font = attr ? [...st().fonts].find(([, held]) => held.font.name.toLowerCase() === attr.name.toLowerCase() && held.font.ySize === attr.ySize)?.[0] : undefined
       if (font !== undefined) structWrite(rt, rp! + 52, 4, font)
       drawNativeText(rt, st(), rp!, value)
+    },
+    '_amos name'(it) { st().amosName = `~${it.evalStr()}`.slice(0, 31) },
+    '_dreg'(it) {
+      it.expect('('); const register = it.evalInt(); it.expect(')'); it.expectOp('='); const value = it.evalInt()
+      if (register >= 0 && register < 8) st().dataRegisters[register] = value
+    },
+    '_areg'(it) {
+      it.expect('('); const register = it.evalInt(); it.expect(')'); it.expectOp('='); const value = it.evalInt()
+      if (register >= 0 && register < 8) st().addressRegisters[register] = value
     },
     '_loc close'(it) {
       const handle = it.evalInt() >>> 0; const locale = st().locales.get(handle)
@@ -2768,6 +2782,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_lib version'(_, a) { return VI(libraryVersion(n(a, 0))) },
     '_lib revision'(_, a) { return VI(libraryRevision(n(a, 0))) },
+    '_cache ctrl'(_, a) { return VI(rt.machine.cpu.cacheControl(n(a, 0), n(a, 1))) },
+    '_chip set rev'(_, a) { const old = st().chipRevision; const requested = n(a, 0); st().chipRevision = requested === -1 ? 0xf : requested & 0xf; return VI(old) },
+    '_vp get mode'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 2, false)) },
+    '_dreg'(_, a) { const register = n(a, 0); return VI(register >= 0 && register < 8 ? st().dataRegisters[register]! : 0) },
+    '_areg'(_, a) { const register = n(a, 0); return VI(register >= 0 && register < 8 ? st().addressRegisters[register]! : 0) },
     '_mem avail'(_, a) {
       const own = st().memory.usage(); const used = rt.memoryInUse()
       return VI(availMem(A1200_POOLS, { chip: own.chip + used.chip, fast: own.fast + used.fast }, n(a, 0)))
