@@ -592,6 +592,11 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
 })
 
 describe('OS DevKit 1.61 shared GadTools ownership', () => {
+  const withGtBob = (rt: Runtime): void => {
+    const first = new BankImage(16, 2, 2, 0, 0); first.planes.fill(0xff)
+    const second = new BankImage(16, 3, 2, 0, 0); second.planes.fill(0x55)
+    const bank = new ObjectBank(); bank.images = [first, second]; rt.spriteBank = bank
+  }
   it('owns high-level gadget banks and their one-window attachment lifecycle', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
@@ -685,6 +690,21 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(output).toBe('-1\t 20\n 25\n')
     expect(rt.osdevkit.gtGadgetBanks.get(11)?.objects.get(0)?.cl.id).toBe('gadgetclass')
     expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(1)
+  })
+
+  it('shares native Image and BitMap records with Bob-backed image gadgets', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 3,0,0,40,20,0,0,0,"Images"',
+      'Reserve As Gt Gadgets 12,2,0 : I=_gt make image(1) : B=_gt make bitmap(1)',
+      'Print _struct uword(I,4),_struct uword(I,6),_struct uword(B,0),_struct uword(B,2)',
+      '_gt image 0,1,2,1,I,I : _gt bob 1,2,5,1,1,2 : _gt gadgets attach 12',
+      '_gt set bob 1,2,1 : _gt set image 0,I,I',
+    ].join('\n')
+    const { rt, output } = run(source, withGtBob)
+    expect(output).toBe(' 16\t 2\t 2\t 2\n')
+    expect(rt.osdevkit.gtGadgetBanks.get(12)?.gadgets.get(0)).toMatchObject({ width: 16, height: 2 })
+    expect(rt.osdevkit.gtGadgetBanks.get(12)?.gadgets.get(1)).toMatchObject({ width: 16, height: 3 })
+    expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(2)
   })
 
   it('builds its native gadget defaults and contexts in the runtime GadTools object space', () => {

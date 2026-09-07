@@ -41,6 +41,7 @@ import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
+import { ieReadImage } from './intuiextendgad'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -815,6 +816,8 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
     info.bufferPos = Math.min(info.bufferPos, buffer.length); info.longInt = gadget.kind === KIND.INTEGER ? gadget.number ?? 0 : 0
     native.strInfo = info
   }
+  if (gadget.image) native.image = gadget.image; else delete native.image
+  if (gadget.selectImage) native.selectImage = gadget.selectImage; else delete native.selectImage
   return native
 }
 
@@ -855,6 +858,35 @@ function addGtGadget(rt: Runtime, state: OsDevKitState, id: number, kind: Gadget
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
   if (window) rt.intuition.attachWindowGadget(window, native)
   return gadget
+}
+
+/** Build the native Image record emitted by workers 1005/1006 around a Bob. */
+function makeGtImage(rt: Runtime, state: OsDevKitState, number: number): number {
+  const image = rt.spriteBank?.image(number)
+  if (!image) return 0
+  image.flush()
+  const address = state.memory.alloc(20 + image.planes.length, { clear: true, chip: true })
+  if (address === 0) return 0
+  const data = address + 20; const off = data - state.memory.base
+  state.memory.buffer.set(image.planes, off)
+  set32Word(state, address + 4, image.width); set32Word(state, address + 6, image.height); set32Word(state, address + 8, image.depth)
+  set32(state, address + 10, data)
+  state.memory.buffer[address + 14 - state.memory.base] = (1 << Math.min(image.depth, 8)) - 1
+  return address
+}
+
+/** Build a native BitMap header plus its contiguous Bob planes. */
+function makeGtBitmap(rt: Runtime, state: OsDevKitState, number: number): number {
+  const image = rt.spriteBank?.image(number)
+  if (!image) return 0
+  image.flush()
+  const address = state.memory.alloc(40 + image.planes.length, { clear: true, chip: true })
+  if (address === 0) return 0
+  const data = address + 40; state.memory.buffer.set(image.planes, data - state.memory.base)
+  set32Word(state, address, image.rowBytes); set32Word(state, address + 2, image.height)
+  state.memory.buffer[address + 5 - state.memory.base] = image.depth
+  for (let plane = 0; plane < image.depth && plane < 8; plane++) set32(state, address + 8 + plane * 4, data + plane * image.planeSize)
+  return address
 }
 
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
@@ -2070,6 +2102,37 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const window = st().windowHandles.get(bank.attachedWindowId)?.window
       if (window) rt.intuition.attachWindowGadget(window, nativeBoopsiGadget(object))
     },
+    '_gt image'(it) {
+      const [id, x, y, flags, normal, selected] = readArgs(it, 6)
+      const first = ieReadImage(rt, normal!); const second = ieReadImage(rt, selected!)
+      if (!first) return
+      const gadget = addGtGadget(rt, st(), id!, KIND.BUTTON, [x!, y!, first.width, first.height, flags!], '')
+      if (gadget) Object.assign(gadget, { imageAddress: normal, selectImageAddress: selected, image: first, selectImage: second ?? first })
+    },
+    '_gt set image'(it) {
+      const [id, normal, selected] = readArgs(it, 3)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      const first = ieReadImage(rt, normal!); const second = ieReadImage(rt, selected!)
+      if (!gadget || !first) return
+      Object.assign(gadget, { width: first.width, height: first.height, imageAddress: normal, selectImageAddress: selected, image: first, selectImage: second ?? first })
+      nativeGadget(st(), gadget)
+    },
+    '_gt bob'(it) {
+      const [id, x, y, flags, normalBob, selectedBob] = readArgs(it, 6)
+      const normal = makeGtImage(rt, st(), normalBob!); const selected = makeGtImage(rt, st(), selectedBob!)
+      if (normal === 0) return
+      const first = ieReadImage(rt, normal)!; const gadget = addGtGadget(rt, st(), id!, KIND.BUTTON, [x!, y!, first.width, first.height, flags!], '')
+      if (gadget) Object.assign(gadget, { imageAddress: normal, selectImageAddress: selected, image: first, selectImage: ieReadImage(rt, selected) ?? first })
+    },
+    '_gt set bob'(it) {
+      const [id, normalBob, selectedBob] = readArgs(it, 3)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (!gadget) return
+      const normal = makeGtImage(rt, st(), normalBob!); const selected = makeGtImage(rt, st(), selectedBob!); const first = ieReadImage(rt, normal)
+      if (!first) return
+      Object.assign(gadget, { width: first.width, height: first.height, imageAddress: normal, selectImageAddress: selected, image: first, selectImage: ieReadImage(rt, selected) ?? first })
+      nativeGadget(st(), gadget)
+    },
     '_gt set attrs'(it) {
       const [id, tags] = readArgs(it, 2); const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(id!)
       if (object) setAttrsA(object, tagItems(st(), tags!))
@@ -2170,6 +2233,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(n(a, 0))
       return VI(object ? getAttr(n(a, 1) >>> 0, object) ?? 0 : 0)
     },
+    '_gt make image'(_, a) { return VI(makeGtImage(rt, st(), n(a, 0))) },
+    '_gt make bitmap'(_, a) { return VI(makeGtBitmap(rt, st(), n(a, 0))) },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
       return VI(menuItemAddress(st(), strip ? st().gadtools.itemAddress(strip, n(a, 1)) : null))

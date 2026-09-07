@@ -122,7 +122,7 @@
  * really does travel inside a tag value. Addresses are never reused.
  */
 import type { RastPort } from './graphics'
-import { IDCMP_GADGETUP, type IntuiMessage } from './intuition'
+import { IDCMP_GADGETUP, type GadgetImage, type IntuiMessage } from './intuition'
 /**
  * The jump table, from `gadtools_lib.fd`.
  *
@@ -685,6 +685,11 @@ export interface Gadget {
   color?: number
   colorOffset?: number
   colorTable?: number
+  /** Native Intuition Image pointers used by OS DevKit image buttons. */
+  imageAddress?: number
+  selectImageAddress?: number
+  image?: GadgetImage
+  selectImage?: GadgetImage
   /** Presentation tags retained so every front-end observes one object state. */
   border?: boolean
   frontPen?: number
