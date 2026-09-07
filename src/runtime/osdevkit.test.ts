@@ -256,6 +256,27 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('-1\t 77\t 32\n-1\t 88\t-1\t-1\t 1073741824\t 4660\n')
   })
 
+  it('loads mapped hunk segments and launches NP_Seglist processes through the host seam', () => {
+    const source = [
+      'F=_to str("RAM:tool") : S=_dos seg load(F,0) : N=_to str("Worker")',
+      'T=_tag list alloc(4) : _tag set T,$800003E9,S : _tag set T,$800003F3,8192',
+      '_tag set T,$800003F4,N : _tag set T,$800003F5,3 : _tag done T',
+      'P=_dos new proc(T) : Print S<>0,P<>0,_dos seg unload(S)',
+      '_tag list free T : _str free N : _str free F',
+    ].join('\n')
+    let launched: { name: string; priority: number; stackSize: number } | null = null
+    const { rt, output } = run(source, runtime => {
+      const longs = [0x3f3, 0, 1, 0, 0, 1, 0x3e9, 1, 0x4e75_0000, 0x3f2]
+      const bytes = new Uint8Array(longs.length * 4), view = new DataView(bytes.buffer)
+      longs.forEach((value, i) => view.setUint32(i * 4, value))
+      runtime.vfs?.writeFile('RAM:tool', bytes)
+      runtime.host.process = { launch: request => { launched = request; return true } }
+    })
+    expect(output).toBe('-1\t-1\t-1\n')
+    expect(launched).toEqual({ name: 'RAM:tool', priority: 3, stackSize: 8192 })
+    expect(rt.osdevkit.dosSegments.size).toBe(0)
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',

@@ -258,7 +258,7 @@ auditMany('partial', 'Fault writes its prefix, translated or numeric error and N
 auditMany('partial', 'ReportEvent retains the exact error, type, argument and device in shared DOS state; native requester presentation remains a host boundary', [
   '_dos report',
 ])
-auditMany('partial', 'Amiga hunk loading and host process launch exist, but native segment lists, unloading and CreateNewProc tag lists are not exposed', [
+auditMany('partial', 'Amiga hunks are relocated into mapped memory, unloaded, and NP_Seglist processes use the host launch seam; multi-hunk BPTR link headers and NP_Entry native execution await the 68k engine', [
   '_dos seg load', '_dos seg unload', '_dos new proc',
 ])
 auditMany('faithful', 'native NotifyRequest records subscribe to the shared VFS and deliver through the shared Exec task signals or MsgPort messages', [

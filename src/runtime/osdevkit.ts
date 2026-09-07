@@ -51,6 +51,7 @@ import { joinAmigaPath, type AmigaFS } from '../amiga/vfs'
 import { DataTypesService, dataTypeString } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
+import { loadHunks } from '../amiga/hunk'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -124,6 +125,7 @@ export interface OsDevKitState {
   readArgs: ReadArgs
   dataTypes: DataTypesService
   dosNotifications: Map<number, { stop: () => void; name: number; messages: number[] }>
+  dosSegments: Map<number, { base: number; path: string; size: number }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -158,7 +160,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
-    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), aslRequests: new Map(),
+    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -2692,6 +2694,36 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       for (let i = 0; i < lock.path.length; i++) { const m = rt.resolveWrite(buffer + i); if (!m) return VI(0); m.data[m.off] = lock.path.charCodeAt(i) & 0xff }
       const end = rt.resolveWrite(buffer + lock.path.length); if (!end) return VI(0); end.data[end.off] = 0
       return VI(-1)
+    },
+    '_dos seg load'(_, a) {
+      const path = cString(rt, n(a, 0)); if (!path) return VI(0)
+      const bytes = rt.vfs?.readFile(path); if (!bytes) { rt.dos.ioErr = 205; return VI(0) }
+      try {
+        const probe = loadHunks(bytes, 0), base = st().memory.alloc(probe.image.length + 4, { clear: true })
+        if (!base) { rt.dos.ioErr = 103; return VI(0) }
+        const loaded = loadHunks(bytes, base + 4)
+        for (let i = 0; i < loaded.image.length; i++) { const m = rt.resolveWrite(base + 4 + i); if (m) m.data[m.off] = loaded.image[i]! }
+        const segment = base >>> 2
+        st().dosSegments.set(segment, { base, path, size: loaded.image.length + 4 }); rt.dos.ioErr = 0
+        return VI(segment)
+      } catch { rt.dos.ioErr = 121; return VI(0) }
+    },
+    '_dos seg unload'(_, a) {
+      const segment = n(a, 0) >>> 0, loaded = st().dosSegments.get(segment)
+      if (!loaded) return VI(0)
+      st().memory.freeMem(loaded.base); st().dosSegments.delete(segment)
+      return VI(-1)
+    },
+    '_dos new proc'(_, a) {
+      const tags = new Map(tagItems(st(), n(a, 0)).map(item => [item.tag >>> 0, item.data]))
+      const NP_DUMMY = 0x8000_03e8, segment = (tags.get(NP_DUMMY + 1) ?? 0) >>> 0
+      const loaded = st().dosSegments.get(segment); if (!loaded) return VI(0)
+      const nameAddress = (tags.get(NP_DUMMY + 12) ?? 0) >>> 0
+      const name = nameAddress ? cString(rt, nameAddress) : 'New Process'
+      const priority = (tags.get(NP_DUMMY + 13) ?? 0) << 24 >> 24
+      const stackSize = tags.get(NP_DUMMY + 11) ?? 4000
+      if (!rt.host.process?.launch?.({ name: loaded.path, priority, stackSize })) return VI(0)
+      return VI(st().exec.tasks.register(name, priority))
     },
     '_dos sig notify'(_, a) {
       const path = cString(rt, n(a, 0)), task = n(a, 1) >>> 0, signal = n(a, 2), user = n(a, 3)
