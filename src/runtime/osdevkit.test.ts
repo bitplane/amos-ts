@@ -640,6 +640,23 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(gadgets?.get(5)).toMatchObject({ kind: 11, horizontal: false, level: -2, min: -10, max: 10 })
   })
 
+  it('snapshots AMOS string arrays into shared Cycle, ListView and MX label state', () => {
+    const source = [
+      'Dim A$(2) : A$(0)="One" : A$(1)="Two" : A$(2)="Three"',
+      'Dim B$(1) : B$(0)="Alpha" : B$(1)="Beta"',
+      'Screen Open 0,100,60,4,Lowres : _scr id from pointer 1,Screen Base : Reserve As Gt Gadgets 10,3,0',
+      '_gt cycle 0,1,1,30,8,0,"Cycle",Array(A$(0)),1',
+      '_gt set listview mode 2,1,1,12,0,3 : _gt listview 1,1,12,40,24,0,"List",Array(A$(0)),2',
+      '_gt mx 2,50,1,20,8,0,"Mx",Array(A$(0)),2',
+      '_gt set cycle 0,Array(B$(0)),0 : _gt set listview 1,Array(B$(0)),1,0,1 : _gt set mx 2,2',
+    ].join('\n')
+    const { rt } = run(source)
+    const gadgets = rt.osdevkit.gtGadgetBanks.get(10)?.gadgets
+    expect(gadgets?.get(0)).toMatchObject({ kind: 7, labels: ['Alpha', 'Beta'], active: 0 })
+    expect(gadgets?.get(1)).toMatchObject({ kind: 4, listLabels: ['Alpha', 'Beta'], selected: 1, top: 0 })
+    expect(gadgets?.get(2)).toMatchObject({ kind: 5, labels: ['One', 'Two', 'Three'], active: 2 })
+  })
+
   it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
     const source = [
       'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',

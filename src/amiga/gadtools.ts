@@ -675,6 +675,11 @@ export interface Gadget {
   /** LISTVIEW: GTLV_Labels, GTLV_Top, GTLV_Selected */
   listLabels?: readonly string[]
   selected?: number
+  readOnly?: boolean
+  scrollWidth?: number
+  makeVisible?: number
+  showSelected?: number
+  spacing?: number
   /** PALETTE: GTPA_Depth, GTPA_Color, GTPA_ColorOffset */
   paletteDepth?: number
   color?: number
@@ -760,10 +765,15 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTLV_Labels) return ((g.listLabels = list()), true)
       if (tag === TAG.GTLV_Top) return ((g.top = data), true)
       if (tag === TAG.GTLV_Selected) return ((g.selected = data), true)
+      if (tag === TAG.GTLV_ReadOnly) return ((g.readOnly = data !== 0), true)
+      if (tag === TAG.GTLV_ScrollWidth) return ((g.scrollWidth = data), true)
+      if (tag === TAG.GTLV_MakeVisible) return ((g.makeVisible = data), true)
+      if (tag === TAG.GTLV_ShowSelected) return ((g.showSelected = data), true)
       break
     case KIND.MX:
       if (tag === TAG.GTMX_Labels) return ((g.labels = list()), true)
       if (tag === TAG.GTMX_Active) return ((g.active = data), true)
+      if (tag === TAG.GTMX_Spacing) return ((g.spacing = data), true)
       break
     case KIND.NUMBER:
       if (tag === TAG.GTNM_Number) return ((g.number = data), true)

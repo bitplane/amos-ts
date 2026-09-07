@@ -92,6 +92,7 @@ export interface OsDevKitState {
   gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
   gtIntegerMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
   gtStringMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
+  gtListViewMode: { top: number; makeVisible: number; readOnly: boolean; scrollWidth: number; show: number; spacing: number }
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -117,6 +118,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
     gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     gtStringMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
+    gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -929,6 +931,10 @@ function readArgs(it: Parameters<Instr>[0], count: number): number[] {
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
+  const labelsAt = (address: number): readonly string[] => {
+    const array = rt.dialogArrays.get(address)
+    return array?.type === 2 ? array.data.map(value => value.k === 'str' ? value.s : '') : []
+  }
   const addScroller = (it: Parameters<Instr>[0], horizontal: boolean): void => {
     const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const arrows = it.evalInt()
     const gadget = addGtGadget(rt, st(), id!, KIND.SCROLLER, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTSC_Arrows, data: arrows }])
@@ -1856,6 +1862,55 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTCB_Checked, data: checked! }])
       const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
       if (window) rt.intuition.refreshWindowGadget(window, nativeGadget(st(), gadget))
+    },
+    '_gt cycle'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const array = it.evalInt(); it.expect(','); const selected = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.CYCLE, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTCY_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTCY_Active, data: selected! },
+      ])
+    },
+    '_gt set cycle'(it) {
+      const [id, array, selected] = readArgs(it, 3)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.CYCLE) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTCY_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTCY_Active, data: selected! },
+      ])
+    },
+    '_gt set listview mode'(it) {
+      const [top, makeVisible, readOnly, scrollWidth, show, spacing] = readArgs(it, 6)
+      st().gtListViewMode = { top: top!, makeVisible: makeVisible!, readOnly: readOnly !== 0, scrollWidth: scrollWidth!, show: show!, spacing: spacing! }
+    },
+    '_gt listview'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const array = it.evalInt(); it.expect(','); const selected = it.evalInt(); const mode = st().gtListViewMode
+      const gadget = addGtGadget(rt, st(), id!, KIND.LISTVIEW, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTLV_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTLV_Selected, data: selected! },
+        { tag: TAG.GTLV_Top, data: mode.top }, { tag: TAG.GTLV_MakeVisible, data: mode.makeVisible },
+        { tag: TAG.GTLV_ReadOnly, data: mode.readOnly ? -1 : 0 }, { tag: TAG.GTLV_ScrollWidth, data: mode.scrollWidth },
+        { tag: TAG.GTLV_ShowSelected, data: mode.show },
+      ])
+      if (gadget) gadget.spacing = mode.spacing
+    },
+    '_gt set listview'(it) {
+      const [id, array, selected, top, makeVisible] = readArgs(it, 5)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.LISTVIEW) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTLV_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTLV_Selected, data: selected! },
+        { tag: TAG.GTLV_Top, data: top! }, { tag: TAG.GTLV_MakeVisible, data: makeVisible! },
+      ])
+    },
+    '_gt mx'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const array = it.evalInt(); it.expect(','); const spacing = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.MX, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTMX_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTMX_Spacing, data: spacing! },
+      ])
+    },
+    '_gt set mx'(it) {
+      const [id, selected] = readArgs(it, 2)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.MX) st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTMX_Active, data: selected! }])
     },
     '_gt set integer mode'(it) {
       const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
