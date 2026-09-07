@@ -58,6 +58,7 @@ import type { DiskFont } from './diskfont'
 import type { RastPort } from './graphics'
 import { LayerInfo, Region, type Layer, type Rect } from './layers'
 import type { ExecMessageSystem } from './osmessage'
+import { DEFAULT_DOUBLE_CLICK_MICROS, doubleClick as withinDoubleClick } from './doubleclick'
 
 /** the Workbench screen's colours, from Preferences on the 1.3 disk */
 export const WB_PALETTE: readonly number[] = [
@@ -789,6 +790,15 @@ export interface UserGadget {
 
 export class Intuition {
   constructor(private readonly host: ScreenHost, private readonly exec?: ExecMessageSystem) {}
+  doubleClickMicros = DEFAULT_DOUBLE_CLICK_MICROS
+
+  doubleClick(firstSeconds: number, firstMicros: number, secondSeconds: number, secondMicros: number): boolean {
+    return withinDoubleClick(firstSeconds, firstMicros, secondSeconds, secondMicros, this.doubleClickMicros)
+  }
+
+  doubleClickFrames(first: number, second: number): boolean {
+    return this.doubleClick(0, first * 20_000, 0, second * 20_000)
+  }
 
   /**
    * Visitors — anything that has claimed the Workbench screen and would be

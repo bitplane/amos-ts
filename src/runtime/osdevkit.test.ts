@@ -393,6 +393,12 @@ describe('OS DevKit 1.61 low-level machine wrappers', () => {
     expect(output).toBe(' 1\t 2\n')
     expect(rt.uniqueIds.get()).toBe(3)
   })
+  it('uses Intuition shared double-click preference timing', () => {
+    const { output } = run('Print _dbl click(1,800000,2,100000),_dbl click(2,0,1,999999)')
+    expect(output).toBe(' 1\t 0\n')
+    const narrow = run('Print _dbl click(1,0,1,150000)', rt => { rt.intuition.doubleClickMicros = 100_000 })
+    expect(narrow.output).toBe(' 0\n')
+  })
 
   it('records Exec ColdReboot as a machine reset request (worker 1570)', () => {
     const { rt } = run('_cold reboot')

@@ -290,7 +290,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
   it('classifies Intuition DoubleClick with its four timestamp arguments', () => {
     expect(rows.find((row) => row.name === '_dbl click')).toMatchObject({
-      status: 'partial', workers: [1584],
+      status: 'faithful', workers: [1584],
       osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -102 })],
     })
   })

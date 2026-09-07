@@ -494,7 +494,7 @@ auditMany('faithful', 'the worker returns a stable base for a library with a con
 auditMany('faithful', 'the embedded Topaz TextAttr and default TagItem list are exposed through mapped native records', [
   '_base topaz', '_base tag',
 ])
-auditMany('partial', 'four-field timestamp comparison is modelled with the Workbench half-second default, but user Preferences do not supply the interval', [
+auditMany('faithful', 'the four timestamps use Intuition shared double-click policy, including ordering and the configured interval', [
   '_dbl click',
 ])
 auditMany('faithful', 'the complete native Border layout and its byte/word/long field mutations and reads are modelled', [

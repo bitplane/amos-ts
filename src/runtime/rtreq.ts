@@ -421,16 +421,6 @@ export interface RtFileState {
   sub: RtReqState | null
 }
 
-/**
- * The double-click window, in frames.
- *
- * The library asks `DoubleClick (glob->sec, glob->mic, im.Seconds,
- * im.Micros)`, which measures against the user's Preferences interval. There
- * is no Preferences here, so this is the Workbench default of half a second
- * counted in PAL frames.
- */
-const DOUBLE_CLICK_FRAMES = 25
-
 /** `EndsInDotInfo`: the pattern is matched against the name with `.info` off */
 const dotInfo = (name: string): boolean => name.toLowerCase().endsWith('.info')
 
@@ -630,7 +620,7 @@ function rtClickRow(rt: Runtime, st: RtFileState, index: number, shift: boolean,
   const e = st.rows[st.first + index]
   if (!e) return
   const multi = (st.setup.flags & FREQF.MULTISELECT) !== 0
-  const dbl = st.clickRow === st.first + index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
+  const dbl = st.clickRow === st.first + index && rt.intuition.doubleClickFrames(st.clickFrame, frame)
   st.clickRow = st.first + index
   st.clickFrame = frame
 
@@ -959,7 +949,7 @@ export function stepRtFont(rt: Runtime, st: RtFontState, frame: number): void {
       if (!row) continue
       // `case FONT:` --- the name gadget takes `str` with DOTFONTSTR back on
       // the end, and ta_YSize, ta_Flags and ta_Style all come off the entry
-      const double = st.clickRow === index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
+      const double = st.clickRow === index && rt.intuition.doubleClickFrames(st.clickFrame, frame)
       st.name = `${row.name}.font`
       st.size = row.size
       st.selected = index
@@ -1253,7 +1243,7 @@ export function stepRtScreen(rt: Runtime, st: RtScreenState, frame: number): voi
       if (!row) continue
       // `case SCRMODE:` --- the name box takes the row's name, `modeid` takes
       // its `re_Size`, and GetModeDimensions and DisplayModeAttrs follow
-      const double = st.clickRow === index && frame - st.clickFrame <= DOUBLE_CLICK_FRAMES
+      const double = st.clickRow === index && rt.intuition.doubleClickFrames(st.clickFrame, frame)
       st.selected = index
       st.modeId = row.id
       const size = rtModeSize(row.id)

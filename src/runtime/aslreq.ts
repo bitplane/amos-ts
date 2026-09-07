@@ -238,7 +238,7 @@ export function stepAsl(rt: Runtime, st: AslState, frame: number): void {
     if (!row) continue
     // a second click on the same row within half a second enters a drawer,
     // which is what a double-click is here; a single one only selects
-    const dbl = st.clickRow === i && frame - st.clickFrame <= 25
+    const dbl = st.clickRow === i && rt.intuition.doubleClickFrames(st.clickFrame, frame)
     st.clickRow = i
     st.clickFrame = frame
     st.selected = i
