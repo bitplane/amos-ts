@@ -1425,8 +1425,8 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
       'M=_gmn create(N,0) : V=_ggad vinf get(Screen Base,0) : Print M<>0,_gmn layout(M,V,0)',
       'I=_menu what address(M,$f800) : Print I<>0,_menu what menu nb($f800),_menu what item nb($f800),_menu what sub nb($f800)',
       'Print Hex$(_menu what flags(I)),Hex$(_menu what user(I)),Hex$(_menu what next sel(I))',
-      '_menu set W,M : Print _struct long(W,54)=M : _menu off W,$f800 : Print Hex$(_menu what flags(I))',
-      '_menu on W,$f800 : _menu share W To M : _menu clear W : Print _struct long(W,54)',
+      '_menu set W,M : Print _struct long(W,28)=M : _menu off W,$f800 : Print Hex$(_menu what flags(I))',
+      '_menu on W,$f800 : _menu share W To M : _menu clear W : Print _struct long(W,28)',
       '_gmn free M : _gmn list free N : _ggad vinf free V : _str free A : _str free B : _str free K',
       '_wnd id close 3 : _scr id close 1',
     ].join('\n')
@@ -1506,14 +1506,14 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
       '_wnd id open 3,2,1,30,16,0,$C0000,0,"First" : _wnd id open 4,40,1,20,12,0,$C0000,0,"Other"',
-      'W3=_wnd id base(3) : W4=_wnd id base(4) : Print _struct long(W3,82)=_struct long(W4,82),_wnd id wait event',
+      'W3=_wnd id base(3) : W4=_wnd id base(4) : Print Hex$(_struct long(W3,82)),_struct long(W3,86)=_struct long(W4,86),_wnd id wait event',
       '_wnd id activate 3 : _wnd id activate 4',
       'A=_wnd id mask event($80000) : Print Hex$(A),_wnd id event wnd,_wnd id event code,_wnd id event qualifier',
       'B=_wnd id next event : Print Hex$(B),_wnd id event wnd,_wnd id event gadget,_wnd id event gt bank',
       'Print _wnd id event menu,_wnd id event item,_wnd id event sub,_wnd id event x mouse,_wnd id event y mouse,_wnd id next event',
       '_wnd id close 3 : _wnd id close 4 : _scr id close 1',
     ].join('\n')
-    expect(run(source).output).toBe('-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 0\t 0\t 0\n')
+    expect(run(source).output).toBe('$C0000\t-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 0\t 0\t 0\n')
   })
 
   it('warps the shared input pointer relative to a Window-ID', () => {

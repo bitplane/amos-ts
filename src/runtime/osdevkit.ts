@@ -939,7 +939,7 @@ function syncWindowBase(rt: Runtime, state: OsDevKitState, id: number): void {
   structWrite(rt, base + 16, 2, w.minWidth); structWrite(rt, base + 18, 2, w.minHeight)
   structWrite(rt, base + 20, 2, w.maxWidth); structWrite(rt, base + 22, 2, w.maxHeight)
   structWrite(rt, base + 24, 4, w.flags)
-  structWrite(rt, base + 54, 4, w.menuStrip)
+  structWrite(rt, base + 28, 4, w.menuStrip)
 }
 
 function syncAllWindowBases(rt: Runtime, state: OsDevKitState): void {
@@ -1132,7 +1132,7 @@ function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: W
   structWrite(rt, base + 32, 4, titleAddress)
   structWrite(rt, base + 46, 4, rt.intuition.windowScreenAddress(window))
   structWrite(rt, base + 50, 4, graphics.rastPort)
-  structWrite(rt, base + 78, 4, window.idcmpFlags); structWrite(rt, base + 82, 4, state.windowPort)
+  structWrite(rt, base + 82, 4, window.idcmpFlags); structWrite(rt, base + 86, 4, state.windowPort)
   const record = state.windowIds.attach(id, base, graphics.rastPort)
   if (!record) return false
   record.title = titleAddress; record.owned0 = requester
@@ -1311,7 +1311,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd set idcmp'(it) {
       const [base, flags] = readArgs(it, 2); const window = windowAtBase(st(), base!)
-      if (window) { window.modifyIDCMP(flags!); structWrite(rt, base! + 78, 4, flags!) }
+      if (window) { window.modifyIDCMP(flags!); structWrite(rt, base! + 82, 4, flags!) }
     },
     '_wnd activate'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) { rt.intuition.activateWindow(window); syncAllWindowBases(rt, st()) } },
     '_wnd move'(it) { const [base, x, y] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.moveWindow(window, x!, y!); syncAllWindowBases(rt, st()) } },
@@ -2851,7 +2851,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd what pointer width'(_, a) { return VI(structRead(rt, n(a, 0) + 79, 1, false)) },
     '_wnd what pointer xoff'(_, a) { return VI(structRead(rt, n(a, 0) + 80, 1, false)) },
     '_wnd what pointer yoff'(_, a) { return VI(structRead(rt, n(a, 0) + 81, 1, false)) },
-    '_wnd what idcmp'(_, a) { return VI(structRead(rt, n(a, 0) + 78, 4, false)) },
+    '_wnd what idcmp'(_, a) { return VI(structRead(rt, n(a, 0) + 82, 4, false)) },
     '_wnd what user port'(_, a) { return VI(structRead(rt, n(a, 0) + 86, 4, false)) },
     '_wnd what port'(_, a) { return VI(structRead(rt, n(a, 0) + 90, 4, false)) },
     '_wnd what int msg'(_, a) { return VI(structRead(rt, n(a, 0) + 94, 4, false)) },
