@@ -672,6 +672,21 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(run(source).output).toBe('-1\t 12\n 1\t 34\n 1\n 0\n')
   })
 
+  it('owns high-level public BOOPSI gadgets in the selected gadget bank', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 3,0,0,40,20,0,0,0,"BOOPSI"',
+      'Reserve As Gt Gadgets 11,2,0 : T=_tag list alloc(5)',
+      '_tag set T,$80030001,2 : _tag set T,$80030002,3 : _tag set T,$80030003,20 : _tag set T,$80030004,7 : _tag done T',
+      '_gt boopsi 0,0,"gadgetclass",T : _gt gadgets attach 11 : Print _gt base(0)<>0,_gt what attr(0,$80030003)',
+      'U=_tag list alloc(2) : _tag set U,$80030003,25 : _tag done U : _gt set attrs 0,U : Print _gt what attr(0,$80030003)',
+      '_tag list free U : _tag list free T',
+    ].join('\n')
+    const { rt, output } = run(source)
+    expect(output).toBe('-1\t 20\n 25\n')
+    expect(rt.osdevkit.gtGadgetBanks.get(11)?.objects.get(0)?.cl.id).toBe('gadgetclass')
+    expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(1)
+  })
+
   it('builds its native gadget defaults and contexts in the runtime GadTools object space', () => {
     const source = [
       'Screen Open 0,32,16,4,Lowres : _scr id from pointer 1,Screen Base',

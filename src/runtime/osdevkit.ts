@@ -40,7 +40,7 @@ import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
-import { doMethodA, getAttr, setAttrsA } from '../amiga/boopsi'
+import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -87,7 +87,7 @@ export interface OsDevKitState {
   nextMenuItemAddress: number
   /** BOOPSI handles created through OS DevKit's private object registry 21. */
   boopsiObjects: Set<number>
-  gtGadgetBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; context: Gadget; gadgets: Map<number, Gadget>; attachedWindowId: number }>
+  gtGadgetBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; context: Gadget; gadgets: Map<number, Gadget>; objects: Map<number, BoopsiObject>; attachedWindowId: number }>
   currentGtGadgetBank: number
   gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
   gtIntegerMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
@@ -818,9 +818,23 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
   return native
 }
 
-function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<number, Gadget>; attachedWindowId: number }): void {
+function nativeBoopsiGadget(object: BoopsiObject): UserGadget {
+  const attr = (id: number, fallback = 0): number => getAttr(id, object) ?? fallback
+  return {
+    leftEdge: attr(0x8003_0001), topEdge: attr(0x8003_0002), width: attr(0x8003_0003), height: attr(0x8003_0004),
+    id: object.address, flags: attr(0x8003_000e) !== 0 ? GFLG_GADGDISABLED : 0,
+  }
+}
+
+function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<number, Gadget>; objects: Map<number, BoopsiObject>; attachedWindowId: number }): void {
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
-  if (window) for (const gadget of bank.gadgets.values()) rt.intuition.detachWindowGadget(window, nativeGadget(state, gadget))
+  if (window) {
+    for (const gadget of bank.gadgets.values()) rt.intuition.detachWindowGadget(window, nativeGadget(state, gadget))
+    for (const object of bank.objects.values()) {
+      const native = window.gadgets.find(gadget => gadget.id === object.address)
+      if (native) rt.intuition.detachWindowGadget(window, native)
+    }
+  }
   bank.attachedWindowId = -1
 }
 
@@ -1817,7 +1831,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const visual = st().gadtools.getVisualInfo(screenSlot!, { numPens: pens.length, pens, depth: screen.depth })
       st().gtGadgetBanks.set(number!, {
         max: max! & 0xffff, screenSlot: screenSlot!, visualInfo: visual.address,
-        context: st().gadtools.createContext(), gadgets: new Map(), attachedWindowId: -1,
+        context: st().gadtools.createContext(), gadgets: new Map(), objects: new Map(), attachedWindowId: -1,
       })
       st().currentGtGadgetBank = number!
     },
@@ -1831,12 +1845,14 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (!bank || !window) return
       detachGtBank(rt, st(), bank)
       for (const gadget of bank.gadgets.values()) rt.intuition.attachWindowGadget(window, nativeGadget(st(), gadget))
+      for (const object of bank.objects.values()) rt.intuition.attachWindowGadget(window, nativeBoopsiGadget(object))
       bank.attachedWindowId = id
     },
     '_gt gadgets erase'(it) {
       const number = it.evalInt() & 0xffff; const bank = st().gtGadgetBanks.get(number)
       if (!bank) return
       detachGtBank(rt, st(), bank); st().gadtools.freeGadgets(bank.context); st().gadtools.freeVisualInfo(bank.visualInfo)
+      for (const object of bank.objects.values()) rt.boopsi.disposeObject(object)
       st().gtGadgetBanks.delete(number); rt.eraseBank(number)
     },
     '_gt set mode'(it) {
@@ -2041,6 +2057,23 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
       if (gadget && window) rt.intuition.refreshWindowGadget(window, nativeGadget(st(), gadget))
     },
+    '_gt boopsi'(it) {
+      const id = it.evalInt(); it.expect(','); const privateClass = it.evalInt(); it.expect(','); const publicClass = it.evalStr(); it.expect(','); const tags = it.evalInt()
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank)
+      if (!bank || id < 0 || id >= bank.max || bank.gadgets.has(id) || bank.objects.has(id)) return
+      // Private class pointers cannot exist until a library backend registers
+      // their native addresses. Public classes use the shared registry now.
+      if (privateClass !== 0 || publicClass === '') return
+      const object = rt.boopsi.newObjectA(publicClass, tagItems(st(), tags))
+      if (!object) return
+      bank.objects.set(id, object)
+      const window = st().windowHandles.get(bank.attachedWindowId)?.window
+      if (window) rt.intuition.attachWindowGadget(window, nativeBoopsiGadget(object))
+    },
+    '_gt set attrs'(it) {
+      const [id, tags] = readArgs(it, 2); const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(id!)
+      if (object) setAttrsA(object, tagItems(st(), tags!))
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -2130,7 +2163,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       return VS(gadget?.kind === KIND.STRING ? gadget.string ?? '' : '')
     },
     '_gt base'(_, a) {
-      return VI(st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))?.address ?? 0)
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const id = n(a, 0)
+      return VI(bank?.gadgets.get(id)?.address ?? bank?.objects.get(id)?.address ?? 0)
+    },
+    '_gt what attr'(_, a) {
+      const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(n(a, 0))
+      return VI(object ? getAttr(n(a, 1) >>> 0, object) ?? 0 : 0)
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
