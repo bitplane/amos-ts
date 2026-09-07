@@ -1880,6 +1880,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const window = windowAtBase(st(), base)
       if (window) rt.intuition.helpControl(window, flags)
     },
+    '_sp stop'() { rt.stonePlayer.stop() },
+    '_sp remove'() { rt.stonePlayer.remove() },
+    '_sp volume'(it) { const left = it.evalInt(); it.expect(','); const right = it.evalInt(); rt.stonePlayer.leftVolume = left; rt.stonePlayer.rightVolume = right },
+    '_sp balance'(it) { const left = it.evalInt(); it.expect(','); const right = it.evalInt(); rt.stonePlayer.balance = right - left },
+    '_sp speed'(it) { rt.stonePlayer.speed = it.evalInt() },
+    '_sp mix'(it) { rt.stonePlayer.setMixFrequency(it.evalInt()) },
+    '_fx balance'(it) { rt.stonePlayer.balance = it.evalInt() },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
       if (!target) return
@@ -2482,6 +2489,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       if (handle !== 0) rt.amigaGuide.close(handle)
       return VI(handle)
     },
+    '_sp install'() { return VI(rt.stonePlayer.install()) },
+    '_sp play'(_, a) { return VI(rt.stonePlayer.play(n(a, 0) >>> 0, n(a, 1) >>> 0)) },
+    '_sp check'(_, a) { return VI(rt.stonePlayer.check(n(a, 0) >>> 0, n(a, 1) >>> 0)) },
     '_asl what file'(_, a) {
       const requester = n(a, 0) >>> 0
       if (a.length < 2) return VI(requester === 0 ? 0 : structRead(rt, requester + 4, 4, false))

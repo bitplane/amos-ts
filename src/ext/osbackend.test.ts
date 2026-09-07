@@ -137,10 +137,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies all StonePlayer and sample-effect helpers from their resolved workers', () => {
     const stone = rows.filter((row) => row.namespace === '_sp' || row.namespace === '_fx')
     expect(stone).toHaveLength(12)
-    expect(stone.filter((row) => row.status === 'missing')).toHaveLength(10)
-    expect(stone.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_fx bank', '_fx play',
-    ])
+    expect(stone.filter((row) => row.status === 'missing')).toHaveLength(0)
+    expect(stone.every((row) => row.status === 'partial')).toBe(true)
     expect(stone.some((row) => row.status === 'review')).toBe(false)
     expect(stone.find((row) => row.name === '_sp play')).toMatchObject({
       workers: [1899],

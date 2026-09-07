@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          317 |     368 |      65% |
+| os-devkit-1.61       |     1047 |      362 |          327 |     358 |      66% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          728 |     411 |      94% |
+| **total**            |     7422 |     6227 |          738 |     401 |      95% |
 
 ## Not applicable, by what would retire it
 
@@ -429,9 +429,9 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (65%)
+## os-devkit-1.61 (66%)
 
-- **approximated** (317): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (327): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_asl alloc`, `_asl do`, `_asl file$`,
   `_asl free`, `_asl what drawer`, `_asl what file`, `_asl what font`, `_asl what nb args`,
@@ -447,15 +447,16 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_dt delete`, `_dt do`, `_dt init`, `_dt obtain`, `_dt refresh`, `_dt release`, `_dt remove`,
   `_dt set attrs`, `_dt str$`, `_dt what attrs`, `_dt what methods`, `_dt what triggers`,
   `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
-  `_ggad create`, `_ggad set attrs`, `_gmn create`, `_gmn end`, `_gmn free`, `_gmn layout`,
-  `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt activate`, `_gt add bob item`,
-  `_gt add bob sub`, `_gt add image item`, `_gt add image sub`, `_gt add item`, `_gt add menu`,
-  `_gt add sub`, `_gt base`, `_gt begin refresh`, `_gt bevel box`, `_gt bob`, `_gt boopsi`,
-  `_gt button`, `_gt checkbox`, `_gt cycle`, `_gt disable`, `_gt enable`, `_gt end refresh`,
-  `_gt free array`, `_gt free list`, `_gt gadgets attach`, `_gt gadgets bank`,
-  `_gt gadgets erase`, `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt image`,
-  `_gt integer`, `_gt listview`, `_gt make array`, `_gt make bitmap`, `_gt make image`,
-  `_gt make list`, `_gt menu clear check`, `_gt menu off`, `_gt menu on`, `_gt menu set check`,
+  `_fx balance`, `_ggad create`, `_ggad set attrs`, `_gmn create`, `_gmn end`, `_gmn free`,
+  `_gmn layout`, `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt activate`,
+  `_gt add bob item`, `_gt add bob sub`, `_gt add image item`, `_gt add image sub`,
+  `_gt add item`, `_gt add menu`, `_gt add sub`, `_gt base`, `_gt begin refresh`,
+  `_gt bevel box`, `_gt bob`, `_gt boopsi`, `_gt button`, `_gt checkbox`, `_gt cycle`,
+  `_gt disable`, `_gt enable`, `_gt end refresh`, `_gt free array`, `_gt free list`,
+  `_gt gadgets attach`, `_gt gadgets bank`, `_gt gadgets erase`, `_gt gadgets remove`,
+  `_gt h scroller`, `_gt h slider`, `_gt image`, `_gt integer`, `_gt listview`,
+  `_gt make array`, `_gt make bitmap`, `_gt make image`, `_gt make list`,
+  `_gt menu clear check`, `_gt menu off`, `_gt menu on`, `_gt menu set check`,
   `_gt menu what check`, `_gt menus attach`, `_gt menus bank`, `_gt menus erase`, `_gt mx`,
   `_gt number`, `_gt palette`, `_gt refresh`, `_gt refresh wnd`, `_gt set attrs`, `_gt set bob`,
   `_gt set checkbox`, `_gt set cycle`, `_gt set image`, `_gt set integer`,
@@ -480,19 +481,21 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_scr id paint`, `_scr id pattern off`, `_scr id pattern on`, `_scr id plot`, `_scr id point`,
   `_scr id put bob`, `_scr id rect`, `_scr id scroll`, `_scr id set high pattern`,
   `_scr id set line`, `_scr id set low pattern`, `_scr id set paint`, `_scr id text`,
-  `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`, `_sys disown`,
-  `_sys own`, `_time elapsed`, `_wb close`, `_wb msg`, `_wb open`, `_wb to back`,
-  `_wb to front`, `_wnd id activate`, `_wnd id bar`, `_wnd id bottom bdr`, `_wnd id box`,
-  `_wnd id close`, `_wnd id event code`, `_wnd id event gadget`, `_wnd id event gt bank`,
-  `_wnd id event item`, `_wnd id event menu`, `_wnd id event next menu`,
-  `_wnd id event qualifier`, `_wnd id event sub`, `_wnd id event wnd`, `_wnd id event x mouse`,
-  `_wnd id event y mouse`, `_wnd id fill ellipse`, `_wnd id height`, `_wnd id inner height`,
-  `_wnd id inner width`, `_wnd id inner x mouse`, `_wnd id inner y mouse`, `_wnd id left bdr`,
-  `_wnd id limits`, `_wnd id lock`, `_wnd id mask event`, `_wnd id mouse`, `_wnd id move`,
-  `_wnd id next event`, `_wnd id open`, `_wnd id paint`, `_wnd id put bob`, `_wnd id right bdr`,
-  `_wnd id scroll`, `_wnd id set mouse pos`, `_wnd id size`, `_wnd id tag open`,
-  `_wnd id titles`, `_wnd id top bdr`, `_wnd id unlock`, `_wnd id wait event`, `_wnd id width`,
-  `_wnd id x`, `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`,
+  `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`, `_sp balance`,
+  `_sp check`, `_sp install`, `_sp mix`, `_sp play`, `_sp remove`, `_sp speed`, `_sp stop`,
+  `_sp volume`, `_sys disown`, `_sys own`, `_time elapsed`, `_wb close`, `_wb msg`, `_wb open`,
+  `_wb to back`, `_wb to front`, `_wnd id activate`, `_wnd id bar`, `_wnd id bottom bdr`,
+  `_wnd id box`, `_wnd id close`, `_wnd id event code`, `_wnd id event gadget`,
+  `_wnd id event gt bank`, `_wnd id event item`, `_wnd id event menu`,
+  `_wnd id event next menu`, `_wnd id event qualifier`, `_wnd id event sub`,
+  `_wnd id event wnd`, `_wnd id event x mouse`, `_wnd id event y mouse`, `_wnd id fill ellipse`,
+  `_wnd id height`, `_wnd id inner height`, `_wnd id inner width`, `_wnd id inner x mouse`,
+  `_wnd id inner y mouse`, `_wnd id left bdr`, `_wnd id limits`, `_wnd id lock`,
+  `_wnd id mask event`, `_wnd id mouse`, `_wnd id move`, `_wnd id next event`, `_wnd id open`,
+  `_wnd id paint`, `_wnd id put bob`, `_wnd id right bdr`, `_wnd id scroll`,
+  `_wnd id set mouse pos`, `_wnd id size`, `_wnd id tag open`, `_wnd id titles`,
+  `_wnd id top bdr`, `_wnd id unlock`, `_wnd id wait event`, `_wnd id width`, `_wnd id x`,
+  `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`,
   `reserve as gt gadgets`, `reserve as gt menus`
 
 ## powerbobs-1.0 (100%)

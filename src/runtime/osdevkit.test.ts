@@ -144,6 +144,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.boopsi.classAt(rt.osdevkit.fileImageClass)?.superClass?.id).toBe('imageclass')
   })
 
+  it('shares the binary-derived StonePlayer control protocol', () => {
+    const { rt, output } = run([
+      'Print _sp install,_sp play(0,200),_sp play(100,0),_sp play(100,200),_sp check(100,200)',
+      '_sp volume 12,34 : _sp balance 10,30 : _sp speed 7 : _sp mix 22050 : _fx balance -8',
+      '_sp stop : _sp remove',
+    ].join('\n'))
+    expect(output).toBe(' 1\t 250\t 249\t 0\t-1\n')
+    expect(rt.stonePlayer).toMatchObject({ installed: false, playing: false, leftVolume: 12, rightVolume: 34, balance: -8, speed: 7, mixPeriod: 158 })
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')

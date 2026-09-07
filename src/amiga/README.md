@@ -145,6 +145,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |
 | `amigaguide.ts` | `amigaguide.library` client handles and shared document-launch lifecycle |
+| `stoneplayer.ts` | shared `stoneplayer.library` wrapper state; decoding remains blocked on the absent library binary |
 | `reqtools.ts` | `reqtools.library` 38.1092: its tags, every message in the binary, and `req.c`'s layout arithmetic |
 | `displayinfo.ts` | the display database one monitor driver fills: `Devs/Monitors/PAL`'s six ids and their names |
 | `muimaster.ts` | MUI 3.8's 35 built-in classes and 507 method-table entries, object tree, layout, rendering, input, persistence and request boundary |

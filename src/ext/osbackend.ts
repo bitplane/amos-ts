@@ -171,7 +171,7 @@ auditMany('faithful', 'icon.library ToolType lookup and pre-V44 pipe-value match
 auditMany('partial', 'GetUniqueID is process-local and unique, but does not share native utility.library global state', [
   '_id unique',
 ])
-auditMany('missing', 'stoneplayer.library and its installed player state are not modelled; the library binary is not shipped with OS DevKit or present in the held library set', [
+auditMany('partial', 'the binary-derived StonePlayer install, playback-control, validation and conversion state is shared; sample decoding cannot be audited or implemented without any held stoneplayer.library binary', [
   '_sp install', '_sp play', '_sp stop', '_sp remove', '_sp volume', '_sp balance', '_sp speed', '_sp mix',
   '_sp check', '_fx balance',
 ])

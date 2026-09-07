@@ -140,6 +140,7 @@ import { IconLibrary } from '../amiga/iconlibrary'
 import { Workbench } from '../amiga/workbench'
 import { AmigaGuide } from '../amiga/amigaguide'
 import { LowLevelSystem } from '../amiga/lowlevel'
+import { StonePlayer } from '../amiga/stoneplayer'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -553,6 +554,8 @@ export class Runtime {
   readonly amigaGuide = new AmigaGuide()
   /** Process-wide lowlevel.library ownership and future scheduler controls. */
   readonly lowlevel = new LowLevelSystem()
+  /** Shared stoneplayer.library control state; decoding awaits a held binary. */
+  readonly stonePlayer = new StonePlayer()
   /** Process-wide dos.library IoErr and reporting state. */
   readonly dos = new DosSystem()
   readonly interp: Interp
