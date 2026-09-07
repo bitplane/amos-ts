@@ -48,6 +48,8 @@ import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
 import type { AmigaFS } from '../amiga/vfs'
+import { DataTypesService, dataTypeString } from '../amiga/datatypes'
+import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -112,6 +114,7 @@ export interface OsDevKitState {
   commodities: Commodities
   dosVariables: DosVariables
   readArgs: ReadArgs
+  dataTypes: DataTypesService
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -143,6 +146,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
+    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1068,6 +1072,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_dt delete'(it) { st().dataTypes.dispose(it.evalInt() >>> 0) },
+    '_dt release'(it) { st().dataTypes.release(it.evalInt() >>> 0) },
+    '_dt set attrs'(it) {
+      const [object, window, requester, tags] = readArgs(it, 4); const o = st().dataTypes.objects.get(object! >>> 0); if (!o) return
+      o.window = window! >>> 0; o.requester = requester! >>> 0
+      for (const tag of tagItems(st(), tags! >>> 0)) o.attributes.set(tag.tag, tag.data)
+    },
+    '_dt refresh'(it) {
+      const [object, window, requester, tags] = readArgs(it, 4); const o = st().dataTypes.objects.get(object! >>> 0); if (!o) return
+      o.window = window! >>> 0; o.requester = requester! >>> 0
+      for (const tag of tagItems(st(), tags! >>> 0)) o.attributes.set(tag.tag, tag.data)
+    },
     '_dos var value$'(it) {
       it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')
       st().dosVariables.set(name, it.evalStr(), flags)
@@ -2313,6 +2329,26 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_dt init'() { return VI(openLibrary('datatypes.library', 39)) },
+    '_dt create'(_, a) {
+      const path = cString(rt, n(a, 0)); const attrs = new Map(tagItems(st(), n(a, 1)).map(t => [t.tag, t.data]))
+      return VI(st().dataTypes.create(path, rt.vfs?.readFile(path) ?? null, attrs))
+    },
+    '_dt what attrs'(_, a) {
+      const o = st().dataTypes.objects.get(n(a, 0) >>> 0); if (!o) return VI(0); let count = 0
+      for (const tag of tagItems(st(), n(a, 1))) { const value = o.attributes.get(tag.tag); if (value !== undefined && tag.data !== 0) { structWrite(rt, tag.data, 4, value); count++ } }
+      return VI(count)
+    },
+    '_dt obtain'(_, a) {
+      const source = n(a, 1); const path = cString(rt, source); const bytes = path ? rt.vfs?.readFile(path) ?? null : null
+      return VI(st().dataTypes.obtain(bytes))
+    },
+    '_dt add'(_, a) { return VI(st().dataTypes.add(n(a, 0) >>> 0, n(a, 1) >>> 0, n(a, 2) >>> 0, n(a, 3))) },
+    '_dt remove'(_, a) { return VI(st().dataTypes.remove(n(a, 1) >>> 0, n(a, 0) >>> 0)) },
+    '_dt what methods'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? st().dataTypes.methodList(false) : 0) },
+    '_dt what triggers'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? st().dataTypes.methodList(true) : 0) },
+    '_dt do'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? 1 : 0) },
+    '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },
     '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },
     '_dos var find'(_, a) { return VI(st().dosVariables.find(str(a[0] ?? VS('')), n(a, 1))) },
     '_dos var value$'(_, a) { return VS(st().dosVariables.get(str(a[0] ?? VS('')), n(a, 1))) },

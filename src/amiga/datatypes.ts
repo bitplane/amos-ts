@@ -289,3 +289,56 @@ export function candidates(data: Uint8Array, types: readonly DataTypeHeader[]): 
     .filter((dt) => maskMatches(dt, data))
     .sort((a, b) => b.priority - a.priority || b.mask.length - a.mask.length)
 }
+
+export interface DataTypeObject {
+  address: number
+  path: string
+  descriptor: DataTypeHeader
+  attributes: Map<number, number>
+  window: number
+  requester: number
+  position: number
+}
+
+/** Shared native-facing DataTypes object lifecycle used by OS extensions. */
+export class DataTypesService {
+  readonly objects = new Map<number, DataTypeObject>()
+  readonly obtained = new Map<number, DataTypeHeader>()
+  private methods = 0
+  private triggers = 0
+  constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[]) {}
+
+  create(path: string, bytes: Uint8Array | null, attributes: ReadonlyMap<number, number>): number {
+    if (!bytes) return 0
+    const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
+    const address = this.memory.alloc(48, { clear: true }); if (!address) return 0
+    this.objects.set(address, { address, path, descriptor, attributes: new Map(attributes), window: 0, requester: 0, position: -1 })
+    return address
+  }
+  dispose(address: number): void { if (this.objects.delete(address)) this.memory.freeMem(address) }
+  obtain(bytes: Uint8Array | null): number {
+    if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
+    const address = this.memory.alloc(32, { clear: true }); if (address) this.obtained.set(address, descriptor); return address
+  }
+  release(address: number): void { if (this.obtained.delete(address)) this.memory.freeMem(address) }
+  add(object: number, window: number, requester: number, position: number): number {
+    const o = this.objects.get(object); if (!o) return 0; o.window = window; o.requester = requester; o.position = position; return position
+  }
+  remove(object: number, window: number): number {
+    const o = this.objects.get(object); if (!o || (window !== 0 && o.window !== window)) return -1
+    const old = o.position; o.window = 0; o.requester = 0; o.position = -1; return old
+  }
+  methodList(triggers = false): number {
+    const existing = triggers ? this.triggers : this.methods; if (existing) return existing
+    const values = triggers ? [0x401, 0] : [0x100, 0x101, 0x102, 0x103, 0]
+    const address = this.memory.alloc(values.length * 4, { clear: true }); if (!address) return 0
+    const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
+    values.forEach((value, i) => dv.setUint32(at + i * 4, value)); if (triggers) this.triggers = address; else this.methods = address
+    return address
+  }
+}
+
+/** V40 GetDTString ids used by datatypes.library. Unknown ids return empty. */
+export const dataTypeString = (id: number): string => ({
+  0: 'DataTypes', 1: 'Could not open datatype', 2: 'Unknown datatype', 3: 'DataType error',
+}[id] ?? '')

@@ -30,6 +30,19 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('integrates DataTypes objects, attributes and window attachment on the shared backend', () => {
+    const ilbm = Uint8Array.from([0x46,0x4f,0x52,0x4d,0,0,0,4,0x49,0x4c,0x42,0x4d])
+    const { rt, output } = run([
+      'T=_tag list alloc(1) : _tag set T,$80001001,77 : _tag done T',
+      'O=_dt create(_to str("RAM:image.iff"),T) : Print _dt init<>0,O<>0,_dt add(O,123,0,4)',
+      'Reserve As Data 1,4 : Q=_tag list alloc(1) : _tag set Q,$80001001,Start(1) : _tag done Q',
+      'Print _dt what attrs(O,Q),Leek(Start(1)),_dt what methods(O)<>0,_dt what triggers(O)<>0,_dt do(O,123,0,0)',
+      'Print _dt remove(123,O),Len(_dt str$(0)),_dt obtain(2,_to str("RAM:image.iff"),0)<>0 : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(output).toBe('-1\t-1\t 4\n 1\t 77\t-1\t-1\t 1\n 4\t 9\t-1\n')
+    expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
+  })
+
   it('shares DOS variables through ENV: and parses CLI templates once', () => {
     const { rt, output } = run([
       '_dos var value$("Editor",256)="AMOS Pro"',
