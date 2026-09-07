@@ -90,6 +90,7 @@ export interface OsDevKitState {
   gtGadgetBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; context: Gadget; gadgets: Map<number, Gadget>; attachedWindowId: number }>
   currentGtGadgetBank: number
   gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
+  gtIntegerMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -113,6 +114,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     boopsiObjects: new Set(),
     gtGadgetBanks: new Map(), currentGtGadgetBank: 0,
     gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
+    gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1839,6 +1841,22 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
       if (window) rt.intuition.refreshWindowGadget(window, nativeGadget(st(), gadget))
     },
+    '_gt set integer mode'(it) {
+      const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
+      st().gtIntegerMode = { tabCycle: tabCycle !== 0, maxChars: maxChars!, exitHelp: exitHelp !== 0, replaceMode: replaceMode !== 0 }
+    },
+    '_gt integer'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const value = it.evalInt(); it.expect(','); it.evalInt() // justification lives in StringExtend
+      addGtGadget(rt, st(), id!, KIND.INTEGER, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTIN_Number, data: value }, { tag: TAG.GTIN_MaxChars, data: st().gtIntegerMode.maxChars },
+      ])
+    },
+    '_gt set integer'(it) {
+      const [id, value] = readArgs(it, 2); const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id!)
+      if (gadget?.kind !== KIND.INTEGER) return
+      st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTIN_Number, data: value! }])
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -1918,6 +1936,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0); const message = n(a, 3) >>> 0
       if (!object || !st().boopsiObjects.has(object.address) || message === 0) return VI(0)
       return VI(doMethodA(object, { MethodID: structRead(rt, message, 4, false) >>> 0 }))
+    },
+    '_gt what integer'(_, a) {
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))
+      return VI(gadget?.kind === KIND.INTEGER ? gadget.number ?? 0 : 0)
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
