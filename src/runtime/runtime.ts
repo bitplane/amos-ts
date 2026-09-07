@@ -138,6 +138,7 @@ import type { OsDevKitState } from './osdevkit'
 import { ExecSystem } from '../amiga/osexec'
 import { IconLibrary } from '../amiga/iconlibrary'
 import { Workbench } from '../amiga/workbench'
+import { AmigaGuide } from '../amiga/amigaguide'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -547,6 +548,8 @@ export class Runtime {
   readonly icons = new IconLibrary(this.exec.pool, () => this.vfs)
   /** One workbench.library AppItem registry over shared Exec messages. */
   readonly workbench = new Workbench(this.exec.messages)
+  /** One amigaguide.library client registry shared by native-facing modules. */
+  readonly amigaGuide = new AmigaGuide()
   /** Process-wide dos.library IoErr and reporting state. */
   readonly dos = new DosSystem()
   readonly interp: Interp

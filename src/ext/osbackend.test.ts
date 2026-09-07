@@ -1375,6 +1375,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'partial', family: 'workbench' })
     expect(rows.filter((row) => row.namespace === '_prfs')).toHaveLength(3)
     expect(rows.filter((row) => row.namespace === '_prfs').every((row) => row.status === 'faithful')).toBe(true)
-    expect(rows.find((row) => row.name === '_help ctrl')).toMatchObject({ status: 'missing', family: 'amigaguide' })
+    expect(rows.find((row) => row.name === '_help ctrl')).toMatchObject({ status: 'faithful' })
+    expect(rows.filter((row) => row.namespace === '_ag').map((row) => row.status)).toEqual(['partial', 'partial'])
   })
 })

@@ -21,7 +21,6 @@ export interface OsBackendRow {
 
 /** Families whose absence is already established, kept as executable data. */
 const MISSING: Array<{ family: string; names: (name: string, namespace: string) => boolean }> = [
-  { family: 'amigaguide', names: (_n, ns) => ns === '_ag' || ns === '_help' },
 ]
 
 /** Backends with concrete machine-layer modules; operation coverage still needs review. */
@@ -43,6 +42,9 @@ const MODELLED = new Map<string, string>([
 ])
 
 const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
+  ['_help ctrl', { status: 'faithful', reason: 'V39 HelpControl flags are retained on the shared native Window exactly' }],
+  ['_ag display', { status: 'partial', reason: 'the process-wide AmigaGuide client lifecycle and returned closed handle are exact; document presentation remains a host boundary' }],
+  ['_ag show', { status: 'partial', reason: 'the AMOS-string wrapper shares the AmigaGuide client lifecycle; document presentation remains a host boundary' }],
   ['_prfs get def', { status: 'faithful', reason: 'the obsolete shipped worker discards its argument and clears both integer result registers' }],
   ['_prfs get', { status: 'faithful', reason: 'the obsolete shipped worker aliases _prfs get def and returns zero without reading Preferences' }],
   ['_prfs set', { status: 'faithful', reason: 'the obsolete shipped worker discards both arguments and clears both integer result registers' }],

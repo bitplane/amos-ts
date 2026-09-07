@@ -1862,6 +1862,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       st().aslRequests.delete(requester)
       st().memory.freeMem(requester)
     },
+    '_help ctrl'(it) {
+      const base = it.evalInt() >>> 0; it.expect(','); const flags = it.evalInt()
+      const window = windowAtBase(st(), base)
+      if (window) rt.intuition.helpControl(window, flags)
+    },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
       if (!target) return
@@ -2447,6 +2452,22 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         dir: dir || (rt.vfs?.currentDir ?? ''), file, pattern, rejectIcons: false, doPatterns: true,
       }, window?.screenSlot ?? null)) return VS('')
       it.block({ type: 'asl' }, true); return VS('')
+    },
+    '_ag display'(_, a) {
+      const screen = n(a, 0) >>> 0
+      const name = cString(rt, n(a, 1))
+      const baseName = cString(rt, n(a, 2))
+      const context = n(a, 3) >>> 0
+      const handle = rt.amigaGuide.open(name, screen, baseName, context)
+      if (handle !== 0) rt.amigaGuide.close(handle)
+      // Worker 1895 preserves OpenAmigaGuideA's handle in d0 across Close.
+      return VI(handle)
+    },
+    '_ag show'(_, a) {
+      const screen = n(a, 0) >>> 0; const name = str(a[1] ?? VS(''))
+      const handle = rt.amigaGuide.open(name, screen)
+      if (handle !== 0) rt.amigaGuide.close(handle)
+      return VI(handle)
     },
     '_asl what file'(_, a) {
       const requester = n(a, 0) >>> 0

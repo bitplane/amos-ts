@@ -420,6 +420,8 @@ export class Window {
   maxHeight = 0xffff
   /** Number of active old-style Request() overlays on this window. */
   requesterDepth = 0
+  /** HelpControl flags most recently installed for this window. */
+  helpControlFlags = 0
 
   /** SetPointer's per-window sprite definition; null after ClearPointer. */
   pointer: { data: number; height: number; width: number; xOffset: number; yOffset: number } | null = null
@@ -1242,6 +1244,12 @@ export class Intuition {
     if (!this.open.includes(w) || w.requesterDepth === 0) return
     w.requesterDepth = 0
     this.dirty = true
+  }
+
+  /** HelpControl (-828), introduced by intuition.library V39. */
+  helpControl(w: Window, flags: number): void {
+    if (!this.open.includes(w)) return
+    w.helpControlFlags = flags >>> 0
   }
 
   /** The screen pointer carried by a live Window. */

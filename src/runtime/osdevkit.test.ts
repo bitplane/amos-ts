@@ -103,6 +103,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(mode.output()).toBe(' 1\n 167940\t 640\t 512\t 4\n')
   })
 
+  it('shares HelpControl window state and the process-wide AmigaGuide lifecycle', () => {
+    const { rt, output } = run([
+      'Screen Open 0,200,100,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,10,10,160,80,0,0,0,"Help" : W=_wnd id base(3) : _help ctrl W,$1234',
+      'N=_to str("RAM:manual.guide") : B=_to str("Manual")',
+      'Print _ag display(_scr id base(1),N,B,7)<>0,_ag show(_scr id base(1),"RAM:other.guide")<>0',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\n')
+    expect(rt.osdevkit.windowHandles.get(3)?.window.helpControlFlags).toBe(0x1234)
+    expect(rt.amigaGuide.active.size).toBe(0)
+    expect(rt.amigaGuide.lastLaunch).toMatchObject({ name: 'RAM:other.guide', baseName: '', context: 0 })
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')
