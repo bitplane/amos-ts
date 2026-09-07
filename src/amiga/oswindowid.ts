@@ -21,6 +21,8 @@ const blank = (): OsWindowIdRecord => ({
 /** The dynamically enlarged table built by routine 3042. */
 export class OsWindowIds {
   readonly records: OsWindowIdRecord[] = []
+  private readonly anonymous = new Map<number, OsWindowIdRecord>()
+  private nextAnonymous = -1
   currentId = -1
   currentBase = 0
   currentRastPort = 0
@@ -39,11 +41,32 @@ export class OsWindowIds {
     return r
   }
 
+  /** Attach raw `_wnd Open` ownership without consuming caller-visible IDs. */
+  attachAnonymous(base: number): { id: number; record: OsWindowIdRecord } {
+    const id = this.nextAnonymous--
+    const record = blank(); record.base = base >>> 0
+    this.anonymous.set(id, record)
+    return { id, record }
+  }
+
+  recordForKey(id: number): OsWindowIdRecord | null {
+    return id < 0 ? this.anonymous.get(id) ?? null : this.record(id)
+  }
+
+  keyAtBase(base: number): number | null {
+    const address = base >>> 0
+    const id = this.records.findIndex(record => record.base === address)
+    if (id >= 0) return id
+    for (const [key, record] of this.anonymous) if (record.base === address) return key
+    return null
+  }
+
   close(id: number): OsWindowIdRecord | null {
-    const r = this.record(id)
+    const r = this.recordForKey(id)
     if (!r || r.base === 0) return null
     const old = { ...r }
-    Object.assign(r, blank())
+    if (id < 0) this.anonymous.delete(id)
+    else Object.assign(r, blank())
     if (this.currentId === id) {
       this.currentId = -1
       this.currentBase = 0

@@ -227,7 +227,15 @@ function screenDefinitionAddress(state: OsDevKitState): number {
 }
 
 function windowDefinitionAddress(state: OsDevKitState): number {
-  if (state.windowDefinition === 0) state.windowDefinition = state.memory.alloc(48, { clear: true })
+  if (state.windowDefinition === 0) {
+    state.windowDefinition = state.memory.alloc(48, { clear: true })
+    if (state.windowDefinition !== 0) {
+      set32Word(state, state.windowDefinition, 16); set32Word(state, state.windowDefinition + 2, 16)
+      set32Word(state, state.windowDefinition + 4, 64); set32Word(state, state.windowDefinition + 6, 64)
+      state.memory.buffer[state.windowDefinition + 9 - state.memory.base] = 1
+      set32(state, state.windowDefinition + 14, 2); set32Word(state, state.windowDefinition + 46, WBENCHSCREEN)
+    }
+  }
   return state.windowDefinition
 }
 
@@ -876,8 +884,8 @@ function withWindowRastPort<T>(rt: Runtime, state: OsDevKitState, draw: (rp: Ras
 }
 
 function withWindowBaseRastPort<T>(rt: Runtime, state: OsDevKitState, base: number, draw: (rp: RastPort, ox: number, oy: number, window: Window) => T): T | undefined {
-  const id = state.windowIds.records.findIndex(record => record.base === (base >>> 0))
-  const handle = id < 0 ? undefined : state.windowHandles.get(id)
+  const id = state.windowIds.keyAtBase(base)
+  const handle = id === null ? undefined : state.windowHandles.get(id)
   const raster = handle ? nativeRaster(rt, handle.rastPort) : null
   const screen = handle ? rt.screens.get(handle.window.screenSlot) : undefined
   if (!handle || !raster || !screen) return undefined
@@ -946,7 +954,7 @@ function currentWindowTarget(rt: Runtime, state: OsDevKitState): {
 }
 
 function syncWindowBase(rt: Runtime, state: OsDevKitState, id: number): void {
-  const record = state.windowIds.record(id); const handle = state.windowHandles.get(id)
+  const record = state.windowIds.recordForKey(id); const handle = state.windowHandles.get(id)
   if (!record || !handle || record.base === 0) return
   const { window: w } = handle; const base = record.base
   structWrite(rt, base + 4, 2, w.leftEdge); structWrite(rt, base + 6, 2, w.topEdge)
@@ -967,13 +975,13 @@ function selectedWindowHandle(state: OsDevKitState): { id: number; window: Windo
 }
 
 function windowAtBase(state: OsDevKitState, base: number): Window | null {
-  const id = state.windowIds.records.findIndex(record => record.base === (base >>> 0))
-  return id < 0 ? null : state.windowHandles.get(id)?.window ?? null
+  const id = state.windowIds.keyAtBase(base)
+  return id === null ? null : state.windowHandles.get(id)?.window ?? null
 }
 
 function windowBase(state: OsDevKitState, window: Window | null): number {
   if (!window) return 0
-  for (const [id, handle] of state.windowHandles) if (handle.window === window) return state.windowIds.record(id)?.base ?? 0
+  for (const [id, handle] of state.windowHandles) if (handle.window === window) return state.windowIds.recordForKey(id)?.base ?? 0
   return 0
 }
 
@@ -1128,7 +1136,7 @@ function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, po
       qualifier: word(message + 26),
       gadgetId: gadget?.id ?? null,
       gadgetUserData: gadget?.userData ?? null,
-      windowId: state.windowIds.records.findIndex(record => record.base === windowBase),
+      windowId: state.windowIds.keyAtBase(windowBase) ?? -1,
       mouseX: signedWord(message + 32),
       mouseY: signedWord(message + 34),
     }
@@ -1149,35 +1157,47 @@ function clearWindowPort(state: OsDevKitState, base: number): void {
   }
 }
 
-function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: Window, title: string): boolean {
+function attachWindowId(
+  rt: Runtime,
+  state: OsDevKitState,
+  id: number | null,
+  window: Window,
+  title: string,
+  options: { sharePort?: boolean; titleAddress?: number } = {},
+): number {
+  const sharePort = options.sharePort ?? true
   const graphics = bindWindowRaster(rt, state, window)
-  if (!graphics) { rt.intuition.closeWindow(window); return false }
-  const base = state.memory.alloc(120, { clear: true })
-  const requester = state.memory.alloc(112, { clear: true })
-  if (base === 0 || requester === 0) {
+  if (!graphics) { rt.intuition.closeWindow(window); return 0 }
+  const base = state.memory.alloc(136, { clear: true })
+  const requester = sharePort ? state.memory.alloc(112, { clear: true }) : 0
+  if (base === 0 || (sharePort && requester === 0)) {
     if (base !== 0) state.memory.freeMem(base)
     if (requester !== 0) state.memory.freeMem(requester)
     state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
-    return false
+    return 0
   }
-  const titleAddress = state.strings.fromAmos(title)
-  if (state.windowPort === 0) state.windowPort = state.exec.messages.createPort()
-  if (state.windowPort === 0) {
-    state.strings.free(titleAddress); state.memory.freeMem(base); state.memory.freeMem(requester)
+  const ownsTitle = options.titleAddress === undefined
+  const titleAddress = options.titleAddress ?? state.strings.fromAmos(title)
+  if (sharePort && state.windowPort === 0) state.windowPort = state.exec.messages.createPort()
+  if (sharePort && state.windowPort === 0) {
+    if (ownsTitle) state.strings.free(titleAddress)
+    state.memory.freeMem(base); state.memory.freeMem(requester)
     state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
-    return false
+    return 0
   }
-  window.shareUserPort(state.windowPort, base)
+  if (sharePort) window.shareUserPort(state.windowPort, base)
   structWrite(rt, base + 32, 4, titleAddress)
   structWrite(rt, base + 46, 4, rt.intuition.windowScreenAddress(window))
   structWrite(rt, base + 50, 4, graphics.rastPort)
-  structWrite(rt, base + 82, 4, window.idcmpFlags); structWrite(rt, base + 86, 4, state.windowPort)
-  const record = state.windowIds.attach(id, base, graphics.rastPort)
-  if (!record) return false
-  record.title = titleAddress; record.owned0 = requester
-  state.windowHandles.set(id, { window, ...graphics })
+  structWrite(rt, base + 82, 4, window.idcmpFlags); structWrite(rt, base + 86, 4, window.userPort)
+  const attached = id === null ? state.windowIds.attachAnonymous(base) : null
+  const key = attached?.id ?? id!
+  const record = attached?.record ?? state.windowIds.attach(key, base, graphics.rastPort)
+  if (!record) return 0
+  record.title = ownsTitle ? titleAddress : 0; record.owned0 = requester
+  state.windowHandles.set(key, { window, ...graphics })
   syncAllWindowBases(rt, state)
-  return true
+  return base
 }
 
 function closeWindowId(rt: Runtime, state: OsDevKitState, id: number): boolean {
@@ -1192,6 +1212,41 @@ function closeWindowId(rt: Runtime, state: OsDevKitState, id: number): boolean {
   state.windowHandles.delete(id)
   syncAllWindowBases(rt, state)
   return true
+}
+
+interface RawWindowSpec {
+  left: number; top: number; width: number; height: number
+  detailPen: number; blockPen: number; idcmp: number; flags: number
+  titleAddress: number; screenAddress: number; type: number
+  minWidth: number; minHeight: number; maxWidth: number; maxHeight: number
+}
+
+function rawWindowSpec(rt: Runtime, address: number): RawWindowSpec {
+  return {
+    left: structRead(rt, address, 2, true), top: structRead(rt, address + 2, 2, true),
+    width: structRead(rt, address + 4, 2, false), height: structRead(rt, address + 6, 2, false),
+    detailPen: structRead(rt, address + 8, 1, false), blockPen: structRead(rt, address + 9, 1, false),
+    idcmp: structRead(rt, address + 10, 4, false), flags: structRead(rt, address + 14, 4, false),
+    titleAddress: structRead(rt, address + 26, 4, false), screenAddress: structRead(rt, address + 30, 4, false),
+    minWidth: structRead(rt, address + 38, 2, false), minHeight: structRead(rt, address + 40, 2, false),
+    maxWidth: structRead(rt, address + 42, 2, false), maxHeight: structRead(rt, address + 44, 2, false),
+    type: structRead(rt, address + 46, 2, false),
+  }
+}
+
+function openRawWindow(rt: Runtime, state: OsDevKitState, spec: RawWindowSpec): number {
+  const custom = spec.type !== WBENCHSCREEN
+  const slot = custom ? managedScreenSlot(rt, spec.screenAddress) : WB_SLOT
+  if (slot === null) return 0
+  const title = cString(rt, spec.titleAddress)
+  const window = rt.intuition.openWindow({
+    leftEdge: spec.left, topEdge: spec.top, width: spec.width, height: spec.height,
+    detailPen: spec.detailPen, blockPen: spec.blockPen, idcmpFlags: spec.idcmp, flags: spec.flags,
+    title, type: custom ? CUSTOMSCREEN : WBENCHSCREEN, ...(custom ? { screenSlot: slot } : {}),
+    minWidth: spec.minWidth || 1, minHeight: spec.minHeight || 1,
+    maxWidth: spec.maxWidth || 0xffff, maxHeight: spec.maxHeight || 0xffff,
+  })
+  return window ? attachWindowId(rt, state, null, window, title, { sharePort: false, titleAddress: spec.titleAddress }) : 0
 }
 
 function structSet(rt: Runtime, width: StructWidth): Instr {
@@ -1368,8 +1423,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wnd close'(it) {
       const base = it.evalInt() >>> 0
-      const id = st().windowIds.records.findIndex(record => record.base === base)
-      if (id >= 0) closeWindowId(rt, st(), id)
+      const id = st().windowIds.keyAtBase(base)
+      if (id !== null) closeWindowId(rt, st(), id)
     },
     '_wnd clear port'(it) { clearWindowPort(st(), it.evalInt()) },
     '_wnd unshare port'(it) {
@@ -2842,6 +2897,34 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
     'track exist'(_, a) { return VI(st().tracker.find(n(a, 0), n(a, 1))) },
+    '_wnd open'(_, a) {
+      const definition = a.length === 1 ? n(a, 0) >>> 0 : windowDefinitionAddress(st())
+      if (definition === 0) return VI(0)
+      const spec = rawWindowSpec(rt, definition)
+      if (a.length === 4) {
+        spec.left = n(a, 0); spec.top = n(a, 1); spec.width = n(a, 2); spec.height = n(a, 3)
+      } else if (a.length === 7) {
+        spec.screenAddress = n(a, 0) >>> 0; spec.type = spec.screenAddress === 0 ? WBENCHSCREEN : CUSTOMSCREEN
+        spec.left = n(a, 1); spec.top = n(a, 2); spec.width = n(a, 3); spec.height = n(a, 4)
+        spec.flags = n(a, 5); spec.idcmp = n(a, 6)
+      }
+      return VI(openRawWindow(rt, st(), spec))
+    },
+    '_wnd tag open'(_, a) {
+      const definition = a.length > 1 && (n(a, 0) >>> 0) !== 0x8000_0000 ? n(a, 0) >>> 0 : windowDefinitionAddress(st())
+      if (definition === 0) return VI(0)
+      const spec = rawWindowSpec(rt, definition); const tags = tagItems(st(), n(a, a.length - 1))
+      const value = (tag: number, fallback: number): number => tags.find(item => item.tag === tag)?.data ?? fallback
+      spec.left = value(WA.Left, spec.left); spec.top = value(WA.Top, spec.top)
+      spec.width = value(WA.Width, spec.width); spec.height = value(WA.Height, spec.height)
+      spec.detailPen = value(WA.DetailPen, spec.detailPen); spec.blockPen = value(WA.BlockPen, spec.blockPen)
+      spec.idcmp = value(WA.IDCMP, spec.idcmp); spec.flags = value(WA.Flags, spec.flags)
+      spec.titleAddress = value(WA.Title, spec.titleAddress); spec.screenAddress = value(WA.CustomScreen, spec.screenAddress)
+      spec.type = spec.screenAddress === 0 ? WBENCHSCREEN : CUSTOMSCREEN
+      spec.minWidth = value(WA.MinWidth, spec.minWidth); spec.minHeight = value(WA.MinHeight, spec.minHeight)
+      spec.maxWidth = value(WA.MaxWidth, spec.maxWidth); spec.maxHeight = value(WA.MaxHeight, spec.maxHeight)
+      return VI(openRawWindow(rt, st(), spec))
+    },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
     '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },
@@ -3699,7 +3782,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_ggad wdef vinf'() { return VI(st().gadgetDef.visualInfo) },
     '_ggad add'(_, a) {
       const first = st().gadtools.gadget(n(a, 0)); const windowBase = n(a, 1) >>> 0
-      const id = st().windowIds.records.findIndex((record) => record.base === windowBase); const handle = st().windowHandles.get(id)
+      const id = st().windowIds.keyAtBase(windowBase); const handle = id === null ? undefined : st().windowHandles.get(id)
       if (!first || !handle) return VI(-1)
       const at = Math.max(0, Math.min(n(a, 2) < 0 ? handle.window.gadgets.length : n(a, 2), handle.window.gadgets.length))
       const gadgets = st().gadtools.chain(first).map((g) => nativeGadget(st(), g))

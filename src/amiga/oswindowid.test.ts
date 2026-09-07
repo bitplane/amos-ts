@@ -27,6 +27,16 @@ describe('OS DevKit high-level Window IDs', () => {
     expect([ids.currentId, ids.currentBase, ids.currentRastPort]).toEqual([-1, 0, 0])
   })
 
+  it('keeps raw Window records outside caller-visible Window-ID space', () => {
+    const ids = new OsWindowIds()
+    const raw = ids.attachAnonymous(0x1234)
+    expect(raw.id).toBeLessThan(0)
+    expect(ids.records).toHaveLength(0)
+    expect(ids.keyAtBase(0x1234)).toBe(raw.id)
+    expect(ids.close(raw.id)?.base).toBe(0x1234)
+    expect(ids.keyAtBase(0x1234)).toBeNull()
+  })
+
   it('retains both eight-word area pattern halves', () => {
     const p = new OsWindowPatterns()
     p.setLow([1, 2, 3, 4, 5, 6, 7, -1])
