@@ -1153,6 +1153,20 @@ function attachWindowId(rt: Runtime, state: OsDevKitState, id: number, window: W
   return true
 }
 
+function closeWindowId(rt: Runtime, state: OsDevKitState, id: number): boolean {
+  const handle = state.windowHandles.get(id); const record = state.windowIds.close(id)
+  if (!handle || !record) return false
+  for (const [requester, window] of state.requesterWindows) if (window === handle.window) state.requesterWindows.delete(requester)
+  rt.intuition.closeWindow(handle.window)
+  if (record.title !== 0) state.strings.free(record.title)
+  if (record.screenTitle !== 0) state.strings.free(record.screenTitle)
+  for (const owned of [record.owned0, record.owned1, record.owned2]) if (owned !== 0) state.memory.freeMem(owned)
+  state.memory.freeMem(handle.rastPort); state.memory.freeMem(handle.bitMap); state.memory.freeMem(record.base)
+  state.windowHandles.delete(id)
+  syncAllWindowBases(rt, state)
+  return true
+}
+
 function structSet(rt: Runtime, width: StructWidth): Instr {
   return (it) => {
     it.expect('(')
@@ -1324,6 +1338,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd set idcmp'(it) {
       const [base, flags] = readArgs(it, 2); const window = windowAtBase(st(), base!)
       if (window) { window.modifyIDCMP(flags!); structWrite(rt, base! + 82, 4, flags!) }
+    },
+    '_wnd close'(it) {
+      const base = it.evalInt() >>> 0
+      const id = st().windowIds.records.findIndex(record => record.base === base)
+      if (id >= 0) closeWindowId(rt, st(), id)
     },
     '_wnd activate'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) { rt.intuition.activateWindow(window); syncAllWindowBases(rt, st()) } },
     '_wnd move'(it) { const [base, x, y] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.moveWindow(window, x!, y!); syncAllWindowBases(rt, st()) } },
@@ -2175,16 +2194,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     '_wnd id close'(it) {
-      const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.close(id)
-      if (!handle || !record) return
-      for (const [requester, window] of st().requesterWindows) if (window === handle.window) st().requesterWindows.delete(requester)
-      rt.intuition.closeWindow(handle.window)
-      if (record.title !== 0) heap().free(record.title)
-      if (record.screenTitle !== 0) heap().free(record.screenTitle)
-      for (const owned of [record.owned0, record.owned1, record.owned2]) if (owned !== 0) st().memory.freeMem(owned)
-      st().memory.freeMem(handle.rastPort); st().memory.freeMem(handle.bitMap); st().memory.freeMem(record.base)
-      st().windowHandles.delete(id)
-      syncAllWindowBases(rt, st())
+      closeWindowId(rt, st(), it.evalInt())
     },
     '_wnd id use'(it) {
       const id = it.evalInt(); const handle = st().windowHandles.get(id)

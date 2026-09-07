@@ -312,6 +312,17 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.intuition.windows).toHaveLength(0)
   })
 
+  it('closes a managed native Window pointer through the raw lifecycle worker', () => {
+    const { rt, output } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 2,1,2,30,20,0,0,0,"Raw close" : W=_wnd id base(2)',
+      '_wnd close W : Print _wnd id base(2),_wnd what active',
+      '_scr id close 1',
+    ].join('\n'))
+    expect(output).toBe(' 0\t 0\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
