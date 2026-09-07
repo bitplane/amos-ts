@@ -333,14 +333,90 @@ export function fibBytes(f: FibFields): Uint8Array {
 export interface DosReport { error: number; type: number; argument: number; device: number }
 
 /** Process-wide dos.library result state (`IoErr`, `SetIoErr`, `ReportEvent`). */
+export interface DosFile {
+  path: string
+  mode: number
+  data: Uint8Array
+  position: number
+  ungot: number | null
+}
+
+export interface DosStorage {
+  readFile(path: string): Uint8Array | null
+  writeFile(path: string, data: Uint8Array): void
+}
+
 export class DosSystem {
   ioErr = 0
   lastReport: DosReport | null = null
+  readonly files = new Map<number, DosFile>()
+  private nextFile = 1
   setIoErr(value: number): number { const old = this.ioErr; this.ioErr = value | 0; return old }
   fault(code: number, header: string | null): string | null { return dosFaultText(code, header) }
   report(error: number, type: number, argument: number, device: number): boolean {
     this.ioErr = error | 0
     this.lastReport = { error: error | 0, type: type | 0, argument: argument >>> 0, device: device >>> 0 }
     return true
+  }
+  open(storage: DosStorage | null | undefined, path: string, mode: number): number {
+    if (!storage || !path || ![1004, 1005, 1006].includes(mode | 0)) { this.ioErr = 205; return 0 }
+    const old = storage.readFile(path)
+    if (!old && mode === 1005) { this.ioErr = 205; return 0 }
+    const data = mode === 1006 ? new Uint8Array() : Uint8Array.from(old ?? [])
+    if (mode === 1006 || (mode === 1004 && !old)) storage.writeFile(path, data)
+    const handle = (0x7f40_0000 + this.nextFile++ * 4) >>> 0
+    this.files.set(handle, { path, mode: mode | 0, data, position: 0, ungot: null })
+    this.ioErr = 0
+    return handle
+  }
+  close(storage: DosStorage | null | undefined, handle: number): boolean {
+    const file = this.files.get(handle >>> 0)
+    if (!file) { this.ioErr = 211; return false }
+    if (file.mode !== 1005) storage?.writeFile(file.path, file.data)
+    this.files.delete(handle >>> 0)
+    return true
+  }
+  file(handle: number): DosFile | null { return this.files.get(handle >>> 0) ?? null }
+  seek(handle: number, offset: number, mode: number): number {
+    const file = this.file(handle)
+    if (!file) { this.ioErr = 211; return -1 }
+    const old = file.position
+    const position = (mode === -1 ? 0 : mode === 0 ? old : mode === 1 ? file.data.length : Number.NaN) + (offset | 0)
+    if (!Number.isFinite(position) || position < 0) { this.ioErr = 219; return -1 }
+    file.position = position
+    file.ungot = null
+    return old
+  }
+  read(handle: number, length: number): Uint8Array | null {
+    const file = this.file(handle)
+    if (!file || length < 0) { this.ioErr = 211; return null }
+    const out: number[] = []
+    if (file.ungot !== null && length > 0) { out.push(file.ungot); file.ungot = null }
+    const count = Math.min(length - out.length, Math.max(0, file.data.length - file.position))
+    for (let i = 0; i < count; i++) out.push(file.data[file.position++]!)
+    return Uint8Array.from(out)
+  }
+  write(storage: DosStorage | null | undefined, handle: number, bytes: Uint8Array): number {
+    const file = this.file(handle)
+    if (!file || file.mode === 1005) { this.ioErr = 223; return -1 }
+    const end = file.position + bytes.length
+    if (end > file.data.length) { const grown = new Uint8Array(end); grown.set(file.data); file.data = grown }
+    file.data.set(bytes, file.position); file.position = end; file.ungot = null
+    storage?.writeFile(file.path, file.data)
+    return bytes.length
+  }
+  getc(handle: number): number { const b = this.read(handle, 1); return !b || b.length === 0 ? -1 : b[0]! }
+  ungetc(handle: number, value: number): number {
+    const file = this.file(handle)
+    if (!file || file.ungot !== null) return -1
+    if (value === -1) { if (file.position === 0) return -1; value = file.data[file.position - 1]! }
+    file.ungot = value & 0xff
+    return value & 0xff
+  }
+  gets(handle: number, length: number): Uint8Array | null {
+    if (length <= 0 || !this.file(handle)) return null
+    const out: number[] = []
+    while (out.length < length - 1) { const c = this.getc(handle); if (c < 0) break; out.push(c); if (c === 0 || c === 10) break }
+    return out.length === 0 ? null : Uint8Array.from(out)
   }
 }

@@ -213,6 +213,20 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('-1\tRAM:ENV/Sys/serial.prefs\n 12\t 11\tserial.prefs\tRAM:ENV/Sys\n 0\tRAM:ENV/Sys/serial.prefs\n')
   })
 
+  it('shares native DOS handles across raw, buffered and convenience I/O', () => {
+    const { output } = run([
+      'N=_to str("RAM:dos.bin") : B=_str alloc(16) : _str put "ABC",B',
+      'H=_dos open(N,1006) : Print H<>0,_dos write(H,B,3),_dos seek(H,0,1)',
+      'Print _dos f putc(H,68),_dos lof(H),_fh name$(H) : _dos close H',
+      'H=_dos opin("RAM:dos.bin") : Print _dos f getc(H),_dos f ungetc(H,-1),_dos f getc(H)',
+      'Print _dos read(H,B,3),Peek$(B,3),_dos eof(H) : _dos close H',
+      'H=_dos append("RAM:dos.bin") : Print _dos print(H,"EF"),_dos lof(H) : _dos close H',
+      'H=_dos opin("RAM:dos.bin") : Print _dos input(H),_dos eof(H) : _dos close H',
+      '_str free B : _str free N',
+    ].join('\n'))
+    expect(output).toBe('-1\t 3\t 3\n 68\t 4\tRAM:dos.bin\n 65\t 65\t 65\n 3\tBCD\t-1\n-1\t 6\nABCDEF\t-1\n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',

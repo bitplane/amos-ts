@@ -30,7 +30,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       workers: [1570],
       osCalls: [{ library: 'exec.library', lvo: -726 }],
     })
-    expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'partial', family: 'dos' })
+    expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'faithful', family: 'dos' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
       status: 'partial',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
@@ -889,7 +889,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     ]
     const io = rows.filter((row) => ioNames.includes(row.name))
     expect(io).toHaveLength(20)
-    expect(io.every((row) => row.status === 'partial')).toBe(true)
+    expect(io.filter((row) => row.name !== '_dos mode').every((row) => row.status === 'faithful')).toBe(true)
+    expect(io.find((row) => row.name === '_dos mode')?.status).toBe('partial')
 
     const direct = new Map<string, [number, number]>([
       ['_dos open', [1801, -30]], ['_dos close', [1802, -36]], ['_dos seek', [1806, -66]],

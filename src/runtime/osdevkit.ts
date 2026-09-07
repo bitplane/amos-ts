@@ -1124,6 +1124,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')
       st().dosVariables.set(name, it.evalStr(), flags)
     },
+    '_dos close'(it) { rt.dos.close(rt.vfs, it.evalInt()) },
     '_cx uninstall'() { st().commodities.uninstall() },
     '_cx id create'(it) { const [id, type, arg1, arg2] = readArgs(it, 4); st().commodities.create(id!, type!, arg1!, arg2!) },
     '_cx id delete'(it) { st().commodities.delete(st().commodities.ids.get(it.evalInt()) ?? 0) },
@@ -2618,6 +2619,55 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_dt do'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? 1 : 0) },
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },
     '_dos err'() { return VI(rt.dos.ioErr) },
+    '_dos open'(_, a) { return VI(rt.dos.open(rt.vfs, cString(rt, n(a, 0)), n(a, 1))) },
+    '_dos opin'(_, a) { return VI(rt.dos.open(rt.vfs, str(a[0] ?? VS('')), 1005)) },
+    '_dos opout'(_, a) { return VI(rt.dos.open(rt.vfs, str(a[0] ?? VS('')), 1006)) },
+    '_dos append'(_, a) {
+      const handle = rt.dos.open(rt.vfs, str(a[0] ?? VS('')), 1004)
+      if (handle) rt.dos.seek(handle, 0, 1)
+      return VI(handle)
+    },
+    '_dos seek'(_, a) { return VI(rt.dos.seek(n(a, 0), n(a, 1), n(a, 2))) },
+    '_dos read'(_, a) {
+      const buffer = n(a, 1) >>> 0, bytes = rt.dos.read(n(a, 0), n(a, 2))
+      if (!bytes) return VI(-1)
+      for (let i = 0; i < bytes.length; i++) { const m = rt.resolveWrite(buffer + i); if (!m) return VI(-1); m.data[m.off] = bytes[i]! }
+      return VI(bytes.length)
+    },
+    '_dos write'(_, a) {
+      const buffer = n(a, 1) >>> 0, length = n(a, 2); if (length < 0) return VI(-1)
+      const bytes = new Uint8Array(length)
+      for (let i = 0; i < length; i++) { const m = rt.resolveAddr(buffer + i); if (!m) return VI(-1); bytes[i] = m.data[m.off]! }
+      return VI(rt.dos.write(rt.vfs, n(a, 0), bytes))
+    },
+    '_dos f getc'(_, a) { return VI(rt.dos.getc(n(a, 0))) },
+    '_dos f gets'(_, a) {
+      const buffer = n(a, 1) >>> 0, length = n(a, 2), bytes = rt.dos.gets(n(a, 0), length)
+      if (!bytes || buffer === 0) return VI(0)
+      for (let i = 0; i < bytes.length; i++) { const m = rt.resolveWrite(buffer + i); if (!m) return VI(0); m.data[m.off] = bytes[i]! }
+      const end = rt.resolveWrite(buffer + bytes.length); if (!end) return VI(0); end.data[end.off] = 0
+      return VI(buffer)
+    },
+    '_dos f putc'(_, a) { return VI(rt.dos.write(rt.vfs, n(a, 0), Uint8Array.of(n(a, 1))) < 0 ? -1 : n(a, 1) & 0xff) },
+    '_dos f puts'(_, a) { return VI(rt.dos.write(rt.vfs, n(a, 0), new TextEncoder().encode(cString(rt, n(a, 1)))) < 0 ? -1 : 0) },
+    '_dos f ungetc'(_, a) { return VI(rt.dos.ungetc(n(a, 0), n(a, 1))) },
+    '_dos f name'(_, a) {
+      const file = rt.dos.file(n(a, 0)), buffer = n(a, 1) >>> 0, length = n(a, 2)
+      if (!file || !buffer || file.path.length + 1 > length) return VI(0)
+      for (let i = 0; i < file.path.length; i++) { const m = rt.resolveWrite(buffer + i); if (!m) return VI(0); m.data[m.off] = file.path.charCodeAt(i) & 0xff }
+      const end = rt.resolveWrite(buffer + file.path.length); if (!end) return VI(0); end.data[end.off] = 0
+      return VI(-1)
+    },
+    '_fh name$'(_, a) { return VS(rt.dos.file(n(a, 0))?.path ?? '') },
+    '_dos mode'(_, a) { return VI(rt.dos.file(n(a, 0)) && [0, 1].includes(n(a, 1)) && [-2, -1].includes(n(a, 2)) ? -1 : 0) },
+    '_dos print'(_, a) { return VI(rt.dos.write(rt.vfs, n(a, 0), new TextEncoder().encode(str(a[1] ?? VS('')))) < 0 ? 0 : -1) },
+    '_dos input'(_, a) {
+      const bytes = rt.dos.gets(n(a, 0), 65536); if (!bytes) return VS('')
+      let end = bytes.length; if (end && bytes[end - 1] === 10) end--; if (end && bytes[end - 1] === 13) end--
+      return VS(String.fromCharCode(...bytes.subarray(0, end)))
+    },
+    '_dos eof'(_, a) { const file = rt.dos.file(n(a, 0)); return VI(!file || (file.ungot === null && file.position >= file.data.length) ? -1 : 0) },
+    '_dos lof'(_, a) { return VI(rt.dos.file(n(a, 0))?.data.length ?? 0) },
     '_dos set err'(_, a) { return VI(rt.dos.setIoErr(n(a, 0))) },
     '_dos fault'(_, a) {
       const code = n(a, 0), headerAddress = n(a, 1) >>> 0

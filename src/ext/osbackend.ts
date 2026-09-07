@@ -241,10 +241,13 @@ auditMany('faithful', 'directory validation and lock-derived current-directory r
 auditMany('faithful', 'the no-requester existence probe returns the same AMOS boolean for files and directories', [
   '_dos exist',
 ])
-auditMany('partial', 'sequential and random file streams provide the operation, but OS DevKit raw DOS file handles, caller-owned buffers and packet-level modes are not exposed', [
+auditMany('faithful', 'shared native-style DOS handles provide raw and buffered I/O, seek state, names, append and the AMOS-string convenience wrappers', [
   '_dos open', '_dos close', '_dos seek', '_dos read', '_dos write', '_dos f getc', '_dos f gets',
-  '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos mode', '_dos f name',
+  '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos f name',
   '_dos opin', '_dos opout', '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
+])
+auditMany('partial', 'valid file handles and lock-mode constants are checked, but shared/exclusive filesystem packet locking is not enforced', [
+  '_dos mode',
 ])
 auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [
   '_dos err', '_dos set err',
