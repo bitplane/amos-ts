@@ -2760,6 +2760,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_nmsg what nreq'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 4, false)) },
     '_nr what user'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
+    '_prg dir$'() { return VS(rt.commandName ? dosPathPart(rt.commandName) : '') },
+    '_prg name$'() { return VS(rt.commandName ? dosFilePart(rt.commandName) : '') },
     '_dos set err'(_, a) { return VI(rt.dos.setIoErr(n(a, 0))) },
     '_dos fault'(_, a) {
       const code = n(a, 0), headerAddress = n(a, 1) >>> 0

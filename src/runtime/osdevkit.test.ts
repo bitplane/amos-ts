@@ -277,6 +277,13 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.dosSegments.size).toBe(0)
   })
 
+  it('derives Workbench program identity from the retained launch name', () => {
+    const { output } = run('Print _prg dir$,_prg name$', runtime => {
+      Object.defineProperty(runtime, 'commandName', { value: 'RAM:Tools/paint.amos' })
+    })
+    expect(output).toBe('RAM:Tools\tpaint.amos\n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',
