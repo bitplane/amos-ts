@@ -1121,6 +1121,17 @@ describe('OS DevKit 1.61 native graphics records', () => {
     ].join('\n')).output).toBe('-1\t-1\t 3\t 4\t$8004\n-1\n')
   })
 
+  it('scrolls a shared ViewPort and exposes/yields to the modelled beam', () => {
+    const { rt, output } = run([
+      '_scr id open 1,0,0,80,40,3,0,0,"Copper" : V=_scr id vport(1) : R=_struct alloc(12)',
+      '_ri set R,0,0,-3,7 : _vp set ras info V,R : _cop scroll vport V : Print _cop vbeam pos',
+      '_cop wait tof : Print 1 : _cop wait bottom V : Print 2',
+      '_scr id close 1 : _struct free R',
+    ].join('\n'))
+    expect(output).toMatch(/^ \d+\n 1\n 2\n$/)
+    expect(rt.frames).toBeGreaterThanOrEqual(2)
+  })
+
   it('round-trips signed RasInfo offsets and managed ColorMap components', () => {
     const source = [
       'I=_struct alloc(12) : _ri set I,$12345678,$23456789,-2,-32767',

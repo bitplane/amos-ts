@@ -2022,6 +2022,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const view = it.evalInt(); for (let at = 0; at < 18; at++) structWrite(rt, view + at, 1, 0)
     },
     '_cop load view'(it) { st().activeView = it.evalInt() >>> 0 },
+    '_cop scroll vport'(it) {
+      const viewPort = it.evalInt() >>> 0; const record = [...st().screenIds.values()].find(entry => entry.viewPort === viewPort)
+      const screen = record ? rt.screens.get(record.slot) : undefined; const rasInfo = structRead(rt, viewPort + 20, 4, false) >>> 0
+      if (screen && rasInfo !== 0) { screen.offsetX = structRead(rt, rasInfo + 8, 2, true); screen.offsetY = structRead(rt, rasInfo + 10, 2, true) }
+    },
+    '_cop wait tof'(it) { it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }) },
+    '_cop wait bottom'(it) { it.evalInt(); it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }) },
     '_cop init vport'(it) {
       const viewPort = it.evalInt(); for (let at = 0; at < 40; at++) structWrite(rt, viewPort + at, 1, 0)
     },
@@ -3113,6 +3120,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
     },
     '_sys view'() { return VI(st().activeView || systemViewAddress(rt, st())) },
+    '_cop vbeam pos'() { return VI(rt.interp.beamLine()) },
     '_scr what active'() {
       const slot = rt.intuition.activeWindow?.screenSlot ?? rt.order[rt.order.length - 1]
       return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
