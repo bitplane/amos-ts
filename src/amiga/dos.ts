@@ -296,3 +296,17 @@ export function fibBytes(f: FibFields): Uint8Array {
   put(FIB_COMMENT, f.comment, MAX_COMMENT)
   return out
 }
+
+export interface DosReport { error: number; type: number; argument: number; device: number }
+
+/** Process-wide dos.library result state (`IoErr`, `SetIoErr`, `ReportEvent`). */
+export class DosSystem {
+  ioErr = 0
+  lastReport: DosReport | null = null
+  setIoErr(value: number): number { const old = this.ioErr; this.ioErr = value | 0; return old }
+  report(error: number, type: number, argument: number, device: number): boolean {
+    this.ioErr = error | 0
+    this.lastReport = { error: error | 0, type: type | 0, argument: argument >>> 0, device: device >>> 0 }
+    return true
+  }
+}

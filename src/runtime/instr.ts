@@ -8205,7 +8205,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // init hook and nothing to tear down. See craft.ts.
     ids: ['craft-1.0'],
     init: (rt) => {
-      rt.craft = newCraftState()
+      rt.craft = newCraftState(rt.dos)
     },
     // "This instruction is automatically executed when an AMOS program is run
     // or a Default instruction is used" -- the manual on Dr Forget, and it
@@ -8372,7 +8372,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      */
     ids: ['amcaf-1.40', 'amcaf-1.50'],
     init: (rt) => {
-      rt.amcaf = newAmcafState()
+      rt.amcaf = newAmcafState(rt.dos)
     },
     instructions: makeAmcafInstructions,
     functions: makeAmcafFunctions,

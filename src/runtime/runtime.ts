@@ -146,6 +146,7 @@ import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
+import { DosSystem } from '../amiga/dos'
 import { CIAA_PRA, CIAA_PRB, CIAA_SDR, CIAB_DDRB, CIAB_PRA, CIAB_PRB } from '../amiga/cia'
 import { JOY0DAT, JOY1DAT, POTGOR } from '../amiga/gameport'
 import { AmalChannel } from './amal'
@@ -546,6 +547,8 @@ export class Runtime {
   readonly icons = new IconLibrary(this.exec.pool, () => this.vfs)
   /** One workbench.library AppItem registry over shared Exec messages. */
   readonly workbench = new Workbench(this.exec.messages)
+  /** Process-wide dos.library IoErr and reporting state. */
+  readonly dos = new DosSystem()
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string

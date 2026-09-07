@@ -909,16 +909,16 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const errors = rows.filter((row) => ['_dos err', '_dos report', '_dos fault', '_dos set err'].includes(row.name))
     expect(errors).toHaveLength(4)
     expect(errors.find((row) => row.name === '_dos err')).toMatchObject({
-      status: 'missing', workers: [1807], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -132 })],
+      status: 'faithful', workers: [1807], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -132 })],
     })
     expect(errors.find((row) => row.name === '_dos report')).toMatchObject({
-      status: 'missing', workers: [1808], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -480 })],
+      status: 'partial', workers: [1808], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -480 })],
     })
     expect(errors.find((row) => row.name === '_dos fault')).toMatchObject({
       status: 'partial', workers: [1809], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -468 })],
     })
     expect(errors.find((row) => row.name === '_dos set err')).toMatchObject({
-      status: 'missing', workers: [1810], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -462 })],
+      status: 'faithful', workers: [1810], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -462 })],
     })
   })
 

@@ -126,6 +126,7 @@ import type { Interp } from '../interp/interp'
 import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
+import type { DosSystem } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
 import { iconToolTypes } from '../amiga/icon'
 import { parseSampleBank } from './audio'
@@ -510,8 +511,9 @@ export interface AmcafState {
   readonly present: true
 }
 
-export function newAmcafState(): AmcafState {
-  return {
+export function newAmcafState(dos?: DosSystem): AmcafState {
+  let localIoError = 0
+  const state: AmcafState = {
     examine: { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB },
     ioError: 0,
     notationBits: 4,
@@ -555,6 +557,12 @@ export function newAmcafState(): AmcafState {
     palettes: Array.from({ length: 8 }, () => new Uint16Array(32)),
     present: true,
   }
+  Object.defineProperty(state, 'ioError', {
+    enumerable: true,
+    get: () => dos?.ioErr ?? localIoError,
+    set: (value: number) => { localIoError = value | 0; if (dos) dos.ioErr = value | 0 },
+  })
+  return state
 }
 
 /**

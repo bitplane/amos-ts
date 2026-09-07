@@ -30,6 +30,12 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
+    const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
+    expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')
+    expect(rt.dos.lastReport).toEqual({ error: 212, type: 1, argument: 0x1234, device: 0x5678 })
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',

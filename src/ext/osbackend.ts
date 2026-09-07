@@ -239,13 +239,13 @@ auditMany('partial', 'sequential and random file streams provide the operation, 
   '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos mode', '_dos f name',
   '_dos opin', '_dos opout', '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
 ])
-auditMany('missing', 'the process-wide dos.library IoErr/SetIoErr state is not modelled', [
+auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [
   '_dos err', '_dos set err',
 ])
 auditMany('partial', 'AmigaDOS error strings are mapped where callers need them, but arbitrary Fault buffer formatting is not exposed', [
   '_dos fault',
 ])
-auditMany('missing', 'dos.library ReportEvent requester/reporting behavior is not modelled', [
+auditMany('partial', 'ReportEvent retains the exact error, type, argument and device in shared DOS state; native requester presentation remains a host boundary', [
   '_dos report',
 ])
 auditMany('partial', 'Amiga hunk loading and host process launch exist, but native segment lists, unloading and CreateNewProc tag lists are not exposed', [

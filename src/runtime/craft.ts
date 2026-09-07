@@ -95,6 +95,7 @@ import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { FIB_SIZEOF, ID_WRITE_PROTECTED, MAX_COMMENT, entryType, fibBytes, type FibFields } from '../amiga/dos'
+import type { DosSystem } from '../amiga/dos'
 import { joinAmigaPath } from '../amiga/vfs'
 import type { VolumeInfo } from '../amiga/vfs'
 import type { Screen } from './screen'
@@ -199,10 +200,11 @@ const TRF_PROP = 5
 /** the Tr Remember slots hold something */
 const TRF_REM = 6
 
-export const newCraftState = (): CraftState => {
+export const newCraftState = (dos?: DosSystem): CraftState => {
   const turtle = new DataView(new ArrayBuffer(TR_SIZEOF))
   trResetBlock(turtle)
-  return {
+  let localIoError = 0
+  const state: CraftState = {
     scan: null,
     scanType: 0,
     fib: new Uint8Array(FIB_SIZEOF),
@@ -213,6 +215,12 @@ export const newCraftState = (): CraftState => {
     system: newCraftSystem(),
     request: null,
   }
+  Object.defineProperty(state, 'ioError', {
+    enumerable: true,
+    get: () => dos?.ioErr ?? localIoError,
+    set: (value: number) => { localIoError = value | 0; if (dos) dos.ioErr = value | 0 },
+  })
+  return state
 }
 
 /** AMOS error 23, "Illegal function call" — routine 206 */

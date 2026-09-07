@@ -217,7 +217,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 
 | `localelib.ts` | `locale.library`: catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
-| `dos.ts` | `dos.library`'s FileInfoBlock: entry types, protection bits, offsets |
+| `dos.ts` | `dos.library` FileInfoBlock definitions plus process-wide `IoErr`, `SetIoErr` and `ReportEvent` state |
 | `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
 | `speak.ts` | `SPEAK:`, the speech handler. MODELLED, see its own header |
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |

@@ -56,7 +56,7 @@ fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
   interpreter/scheduler boundary, and arbitrary `is_Code` callbacks remain a
   future 68k-execution boundary; neither is approximated inside an extension.
 - **Shared AmigaOS services.** IFF FORM/chunk parsing, Commodities brokers and
-  object graphs, DOS variables, and CLI `ReadArgs` results are machine-facing
+  object graphs, DOS variables, process-wide `IoErr`/`ReportEvent`, and CLI `ReadArgs` results are machine-facing
   services under `src/amiga/`, not OS DevKit-private substitutes. Global DOS
   variables are the same `ENV:` files seen by LDos and ordinary filesystem
   operations; Commodities uses the native Exec message-port service. These
