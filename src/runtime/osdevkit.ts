@@ -118,7 +118,7 @@ export interface OsDevKitState {
   readArgs: ReadArgs
   dataTypes: DataTypesService
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
-  aslRequests: Map<number, { type: number }>
+  aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[] }>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -1856,7 +1856,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_asl free'(it) {
       const requester = it.evalInt() >>> 0
-      if (st().aslRequests.delete(requester)) st().memory.freeMem(requester)
+      const record = st().aslRequests.get(requester)
+      if (!record) return
+      for (const address of record.ownedStrings) heap().free(address)
+      st().aslRequests.delete(requester)
+      st().memory.freeMem(requester)
     },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
@@ -2375,8 +2379,74 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const type = n(a, 0)
       if (type < 0 || type > 2) return VI(0)
       const requester = st().memory.alloc(64, { clear: true })
-      if (requester !== 0) st().aslRequests.set(requester, { type })
+      if (requester !== 0) st().aslRequests.set(requester, { type, pending: false, ownedStrings: [] })
       return VI(requester)
+    },
+    '_asl do'(it, a) {
+      const requester = n(a, 0) >>> 0; const record = st().aslRequests.get(requester)
+      if (!record) return VI(0)
+      if (record.pending) {
+        if (record.type === 0 && rt.asl) {
+          if (!rt.asl.done) { it.block({ type: 'asl' }, true); return VI(0) }
+          const result = rt.asl.result; const setup = rt.asl.setup; rt.asl = null; record.pending = false
+          if (result === '') return VI(0)
+          for (const address of record.ownedStrings) heap().free(address)
+          const file = heap().fromAmos(setup.file); const drawer = heap().fromAmos(setup.dir)
+          record.ownedStrings = [file, drawer]; structWrite(rt, requester + 4, 4, file); structWrite(rt, requester + 8, 4, drawer)
+          structWrite(rt, requester + 32, 4, 0); structWrite(rt, requester + 36, 4, 0)
+          return VI(1)
+        }
+        if (record.type === 1 && rt.aslFont) {
+          if (!rt.aslFont.done) { it.block({ type: 'asl' }, true); return VI(0) }
+          const font = rt.aslFont; rt.aslFont = null; record.pending = false
+          if (font.result === '') return VI(0)
+          for (const address of record.ownedStrings) heap().free(address)
+          const name = heap().fromAmos(font.result); record.ownedStrings = [name]
+          structWrite(rt, requester + 8, 4, name); structWrite(rt, requester + 12, 2, font.resultSize)
+          return VI(1)
+        }
+        if (record.type === 2 && rt.aslMode) {
+          if (!rt.aslMode.done) { it.block({ type: 'asl' }, true); return VI(0) }
+          const mode = rt.aslMode; rt.aslMode = null; record.pending = false
+          if (mode.result === -1) return VI(0)
+          structWrite(rt, requester, 4, mode.result); structWrite(rt, requester + 4, 4, mode.setup.displayWidth)
+          structWrite(rt, requester + 8, 4, mode.setup.displayHeight); structWrite(rt, requester + 12, 2, mode.setup.depth)
+          return VI(1)
+        }
+        record.pending = false
+        return VI(0)
+      }
+      const window = windowAtBase(st(), n(a, 1)); const slot = window?.screenSlot ?? null
+      let started = false
+      if (record.type === 0) started = rt.startAslRequest({
+        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 178,
+        dir: cString(rt, structRead(rt, requester + 8, 4, false)) || (rt.vfs?.currentDir ?? ''),
+        file: cString(rt, structRead(rt, requester + 4, 4, false)), pattern: '', rejectIcons: false, doPatterns: true,
+      }, slot)
+      else if (record.type === 1) started = rt.startAslFontRequest({
+        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198,
+        name: cString(rt, structRead(rt, requester + 8, 4, false)), size: structRead(rt, requester + 12, 2, false),
+      }, slot)
+      else started = rt.startAslModeRequest({
+        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198,
+        id: structRead(rt, requester, 4, false), displayWidth: structRead(rt, requester + 4, 4, false),
+        displayHeight: structRead(rt, requester + 8, 4, false), depth: structRead(rt, requester + 12, 2, false),
+      }, slot)
+      if (!started) return VI(0)
+      record.pending = true; it.block({ type: 'asl' }, true); return VI(0)
+    },
+    '_asl file$'(it, a) {
+      if (rt.asl) {
+        if (!rt.asl.done) { it.block({ type: 'asl' }, true); return VS('') }
+        const result = rt.asl.result; rt.asl = null; return VS(result)
+      }
+      const window = windowAtBase(st(), n(a, 0)); const title = str(a[1] ?? VS('')); const dir = str(a[2] ?? VS(''))
+      const file = str(a[3] ?? VS('')); const pattern = str(a[4] ?? VS(''))
+      if (!rt.startAslRequest({
+        hail: title, okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 178,
+        dir: dir || (rt.vfs?.currentDir ?? ''), file, pattern, rejectIcons: false, doPatterns: true,
+      }, window?.screenSlot ?? null)) return VS('')
+      it.block({ type: 'asl' }, true); return VS('')
     },
     '_asl what file'(_, a) {
       const requester = n(a, 0) >>> 0

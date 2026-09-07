@@ -12,7 +12,7 @@ import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
 
-function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
+function boot(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: () => string } {
   const extensions = new Map([[20, os.table]])
   const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume()); fs.mount('ENV', new MemoryVolume())
   let output = ''
@@ -25,8 +25,13 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
     onText: (text) => { output += text },
   })
   prepare?.(rt)
-  mustFinish(rt.runHeadless(100))
-  return { rt, output }
+  return { rt, output: () => output }
+}
+
+function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
+  const b = boot(source, prepare)
+  mustFinish(b.rt.runHeadless(100))
+  return { rt: b.rt, output: b.output() }
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
@@ -58,6 +63,44 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'))
     expect(output).toBe('-1\t 111\t 333\t 444\t 0\n 222\t 2\t-1\n')
     expect(rt.osdevkit.aslRequests.size).toBe(0)
+  })
+
+  it('runs _asl do through the shared modal file requester and updates its public fields', () => {
+    const b = boot('R=_asl alloc(0,0) : Print _asl do(R,0) : Print _str get(_asl what drawer(R)),_str get(_asl what file(R)) : _asl free R')
+    b.rt.frame()
+    expect(b.rt.asl).not.toBeNull()
+    b.rt.asl!.setup.dir = 'RAM:Work'
+    b.rt.asl!.setup.file = 'picked.amos'
+    b.rt.asl!.result = 'RAM:Work/picked.amos'
+    b.rt.asl!.done = true
+    mustFinish(b.rt.runHeadless(100))
+    expect(b.output()).toBe(' 1\nRAM:Work\tpicked.amos\n')
+    expect(b.rt.osdevkit.aslRequests.size).toBe(0)
+  })
+
+  it('runs _asl file$ through the same requester and returns its selected path', () => {
+    const b = boot('Print "["+_asl file$(0,"Pick","RAM:","old.amos","#?.amos")+"]"')
+    b.rt.frame()
+    expect(b.rt.asl?.setup).toMatchObject({ hail: 'Pick', dir: 'RAM:', file: 'old.amos', pattern: '#?.amos' })
+    b.rt.asl!.result = 'RAM:new.amos'
+    b.rt.asl!.done = true
+    mustFinish(b.rt.runHeadless(100))
+    expect(b.output()).toBe('[RAM:new.amos]\n')
+  })
+
+  it('writes modal font and screen-mode results into their native public records', () => {
+    const font = boot('R=_asl alloc(1,0) : Print _asl do(R,0) : T=_asl what font(R) : Print _str get(_struct long(T,0)),_struct uword(T,4) : _asl free R')
+    font.rt.frame()
+    font.rt.aslFont!.result = 'courier.font'; font.rt.aslFont!.resultSize = 13; font.rt.aslFont!.done = true
+    mustFinish(font.rt.runHeadless(100))
+    expect(font.output()).toBe(' 1\ncourier.font\t 13\n')
+
+    const mode = boot('R=_asl alloc(2,0) : Print _asl do(R,0) : Print _struct long(R,0),_struct long(R,4),_struct long(R,8),_struct uword(R,12) : _asl free R')
+    mode.rt.frame()
+    Object.assign(mode.rt.aslMode!.setup, { displayWidth: 640, displayHeight: 512, depth: 4 })
+    mode.rt.aslMode!.result = 0x00029004; mode.rt.aslMode!.done = true
+    mustFinish(mode.rt.runHeadless(100))
+    expect(mode.output()).toBe(' 1\n 167940\t 640\t 512\t 4\n')
   })
 
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
