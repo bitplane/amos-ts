@@ -12,7 +12,7 @@ import { MEMF, closeLibrary, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
   CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
-  IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, type UserGadget, type Window,
+  IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, WFLG_REPORTMOUSE, type UserGadget, type Window,
 } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import {
@@ -55,6 +55,7 @@ import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
 import { findToolType, matchToolValue } from '../amiga/icon'
+import { displayModeOf } from '../amiga/displayinfo'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -137,6 +138,8 @@ export interface OsDevKitState {
   tracker: OsResourceTracker
   /** Stable FindToolType result pointers, owned for each managed DiskObject. */
   toolTypePointers: Map<number, Map<string, number>>
+  /** Stable FindDisplayInfo handles keyed by installed DisplayID. */
+  displayInfoHandles: Map<number, number>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -172,7 +175,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
-    tracker: new OsResourceTracker(), toolTypePointers: new Map(), aslRequests: new Map(),
+    tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1225,6 +1228,20 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd def scr'(it) { structWrite(rt, windowDefinitionAddress(st()) + 30, 4, it.evalInt()) },
     '_wnd def type'(it) { structWrite(rt, windowDefinitionAddress(st()) + 46, 2, it.evalInt()) },
     '_wnd def bmap'(it) { structWrite(rt, windowDefinitionAddress(st()) + 34, 4, it.evalInt()) },
+    '_mouse report'(it) {
+      const base = it.evalInt() >>> 0; const window = windowAtBase(st(), base)
+      if (window) { window.reportMouse(true); syncAllWindowBases(rt, st()) }
+      else structWrite(rt, base + 24, 4, structRead(rt, base + 24, 4, false) | WFLG_REPORTMOUSE)
+    },
+    '_mouse unreport'(it) {
+      const base = it.evalInt() >>> 0; const window = windowAtBase(st(), base)
+      if (window) { window.reportMouse(false); syncAllWindowBases(rt, st()) }
+      else structWrite(rt, base + 24, 4, structRead(rt, base + 24, 4, false) & ~WFLG_REPORTMOUSE)
+    },
+    '_wnd id data'(it) {
+      it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
+      st().windowIds.setData(id, it.evalInt())
+    },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) {
@@ -2675,6 +2692,17 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd wdef max height'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 44, 2, false)) },
     '_wnd wdef type'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 46, 2, false)) },
     '_wnd wdef bmap'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 34, 4, false)) },
+    '_disp info find'(_, a) {
+      const id = n(a, 0) >>> 0
+      if (!displayModeOf(id)) return VI(0)
+      let handle = st().displayInfoHandles.get(id)
+      if (handle === undefined) {
+        handle = st().memory.alloc(4, { clear: true }); if (handle !== 0) structWrite(rt, handle, 4, id)
+        st().displayInfoHandles.set(id, handle)
+      }
+      return VI(handle)
+    },
+    '_wnd id data'(_, a) { return VI(st().windowIds.data(n(a, 0))) },
     '_arg what str'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))

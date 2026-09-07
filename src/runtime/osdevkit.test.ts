@@ -169,6 +169,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'))
   })
 
+  it('wires ReportMouse, display handles and Window-ID data into shared state', () => {
+    const { output } = run([
+      'Reserve As Work 1,136 : W=Start(1) : Loke W+24,$10000000',
+      '_mouse report W : Print Hex$(Leek(W+24)) : _mouse unreport W : Print Hex$(Leek(W+24))',
+      'H=_disp info find($21000) : Print H<>0,Leek(H)=$21000,_disp info find($21000)=H,_disp info find($11000)',
+      '_wnd id data(7)=$89ABCDEF : Print Hex$(_wnd id data(7)),_wnd id data(6)',
+    ].join('\n'))
+    expect(output).toBe('$10000200\n$10000000\n-1\t-1\t-1\t 0\n$89ABCDEF\t 0\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
