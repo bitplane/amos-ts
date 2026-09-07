@@ -1224,6 +1224,17 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       it.halt('ended')
       return 'jumped'
     },
+    /** worker 1569 calls Exec Alert after bringing the Workbench forward. */
+    '_alert'(it) {
+      const number = it.evalInt() >>> 0
+      rt.intuition.wBenchToFront()
+      const alert = rt.exec.alert(number, '_alert')
+      if (alert.deadEnd) {
+        rt.machine.requestReset('cold', `_alert $${number.toString(16)}`)
+        it.halt('ended')
+        return 'jumped'
+      }
+    },
     /** workers 1534/1535/1538 and 1541: Exec public-port and message delivery. */
     '_port add'(it) { st().exec.messages.addPort(it.evalInt()) },
     '_port rem'(it) { st().exec.messages.remPort(it.evalInt()) },

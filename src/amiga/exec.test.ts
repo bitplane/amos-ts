@@ -76,12 +76,11 @@ describe('exec: OpenLibrary', () => {
 
   it('opens each concrete native GUI/graphics backend at OS DevKit V36', () => {
     for (const name of [
-      'graphics.library', 'intuition.library', 'gadtools.library', 'icon.library', 'layers.library',
+      'graphics.library', 'intuition.library', 'gadtools.library', 'icon.library', 'layers.library', 'workbench.library',
     ]) {
       expect(openLibrary(name, 36), name).toBeGreaterThan(0)
       expect(openLibrary(name, 41), name).toBe(0)
     }
-    expect(openLibrary('workbench.library', 36)).toBe(0)
   })
 
   it('is case-insensitive, as AmigaDOS names are', () => {

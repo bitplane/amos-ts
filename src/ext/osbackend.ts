@@ -310,7 +310,7 @@ auditMany('missing', 'the native AMOS evaluation-stack pointer has no stable add
 auditMany('missing', 'the worker returns an internal AMOS channel-table pointer whose raw layout is not exposed', [
   'give me',
 ])
-auditMany('missing', 'native Exec Alert presentation and its Workbench shutdown interaction are not modelled', [
+auditMany('partial', 'shared Exec alert state, recoverable return, dead-end reset and Workbench ordering are modelled; native Guru presentation is not rendered', [
   '_alert',
 ])
 auditMany('partial', 'managed windows have refresh state and redraw paths, but arbitrary native BeginRefresh/EndRefresh layer damage is not exposed', [

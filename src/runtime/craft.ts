@@ -1968,7 +1968,8 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
     'guru meditation'(it) {
       const n = it.evalInt()
       it.expect(',')
-      it.evalInt()
+      const data = it.evalInt()
+      rt.exec.alert((n | 0x8000_0000) >>> 0, 'guru meditation', data)
       rt.machine.requestReset('cold', `guru meditation $${(n >>> 0).toString(16)}`)
     },
 

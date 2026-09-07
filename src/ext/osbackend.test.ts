@@ -1074,7 +1074,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
   it('finishes every non-Intuition family with BOOPSI and miscellaneous calls', () => {
     const statuses = new Map<string, 'faithful' | 'partial' | 'missing'>([
-      ['_alert', 'missing'], ['_rfsh begin', 'partial'], ['_rfsh end', 'partial'],
+      ['_alert', 'partial'], ['_rfsh begin', 'partial'], ['_rfsh end', 'partial'],
       ['_query overscan', 'partial'], ['_obj new', 'partial'], ['_obj free', 'faithful'],
       ['_obj what attr', 'faithful'], ['_obj set attrs', 'partial'], ['_obj do', 'partial'],
       ['_class get file', 'missing'], ['_print', 'partial'], ['_request choice', 'partial'],

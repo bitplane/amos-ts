@@ -12,12 +12,20 @@ import { ExecListHeap, type ExecAddressSpace } from './oslist'
 import { ExecMessageSystem } from './osmessage'
 import { ExecTaskSystem } from './ostask'
 
+export interface ExecAlert {
+  number: number
+  source: string
+  data?: number
+  deadEnd: boolean
+}
+
 export class ExecSystem {
   readonly pool: MemPool
   readonly memory: ExecListHeap
   readonly tasks: ExecTaskSystem
   readonly messages: ExecMessageSystem
   readonly interrupts: ExecInterruptSystem
+  lastAlert: ExecAlert | null = null
 
   constructor(base: number, reserved: number, addressSpace?: ExecAddressSpace) {
     this.pool = new MemPool(base, reserved)
@@ -25,5 +33,12 @@ export class ExecSystem {
     this.tasks = new ExecTaskSystem()
     this.messages = new ExecMessageSystem(this.memory, this.tasks)
     this.interrupts = new ExecInterruptSystem(this.memory)
+  }
+
+  /** Exec Alert (-108): retain the process-wide alert for UI/reset policy. */
+  alert(number: number, source: string, data?: number): ExecAlert {
+    const alert = { number: number >>> 0, source, ...(data === undefined ? {} : { data: data >>> 0 }), deadEnd: (number >>> 0) >= 0x8000_0000 }
+    this.lastAlert = alert
+    return alert
   }
 }

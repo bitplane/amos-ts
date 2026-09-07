@@ -122,6 +122,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.lowlevel.ownsSystem).toBe(false)
   })
 
+  it('shares recoverable and dead-end Exec Alert state with reset policy', () => {
+    const recoverable = run('_alert $12345678 : Print 1')
+    expect(recoverable.output).toBe(' 1\n')
+    expect(recoverable.rt.exec.lastAlert).toEqual({ number: 0x12345678, source: '_alert', deadEnd: false })
+    expect(recoverable.rt.machine.pendingReset).toBeNull()
+
+    const deadEnd = run('_alert $80000001 : Print 2')
+    expect(deadEnd.output).toBe('')
+    expect(deadEnd.rt.exec.lastAlert).toEqual({ number: 0x80000001, source: '_alert', deadEnd: true })
+    expect(deadEnd.rt.machine.pendingReset).toEqual({ kind: 'cold', by: '_alert $80000001' })
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')
