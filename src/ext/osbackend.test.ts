@@ -277,9 +277,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every native base getter individually', () => {
     const bases = rows.filter((row) => row.namespace === '_base')
     expect(bases).toHaveLength(14)
-    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(10)
+    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(12)
     expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_base cx', '_base iff', '_base tag', '_base topaz',
+      '_base cx', '_base iff',
     ])
     expect(bases.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(bases.some((row) => row.status === 'review')).toBe(false)

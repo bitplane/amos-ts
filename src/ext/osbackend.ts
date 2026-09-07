@@ -491,7 +491,7 @@ auditMany('faithful', 'the worker returns a stable base for a library with a con
   '_base dos', '_base gfx', '_base int', '_base gad', '_base asl', '_base icon', '_base loc', '_base dt',
   '_base layers', '_base wb',
 ])
-auditMany('partial', 'the underlying object exists, but the backend does not expose its native raw pointer layout', [
+auditMany('faithful', 'the embedded Topaz TextAttr and default TagItem list are exposed through mapped native records', [
   '_base topaz', '_base tag',
 ])
 auditMany('partial', 'four-field timestamp comparison is modelled with the Workbench half-second default, but user Preferences do not supply the interval', [

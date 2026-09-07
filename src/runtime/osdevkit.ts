@@ -66,7 +66,10 @@ export interface OsDevKitState {
   memory: MemPool
   strings: OsCStringHeap
   /** routine 1320's null/EntNul target: the library's private TagItem list. */
-  defaultTags: Array<{ tag: number; data: number }>
+  defaultTagAddress: number
+  defaultTagCursor: number
+  /** Embedded TextAttr returned by `_base topaz`. */
+  topazTextAttr: number
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
@@ -128,8 +131,9 @@ export interface OsDevKitState {
 
 export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () => AmigaFS | null = () => null): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
-  return {
-    memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
+  const state: OsDevKitState = {
+    memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
+    topazTextAttr: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
@@ -156,6 +160,23 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
+  return state
+}
+
+function defaultTagsAddress(state: OsDevKitState): number {
+  if (state.defaultTagAddress === 0) state.defaultTagAddress = state.memory.alloc(512, { clear: true })
+  return state.defaultTagAddress
+}
+
+function topazTextAttrAddress(state: OsDevKitState): number {
+  if (state.topazTextAttr !== 0) return state.topazTextAttr
+  const address = state.memory.alloc(8, { clear: true })
+  if (address === 0) return 0
+  state.topazTextAttr = address
+  set32(state, address, state.strings.fromAmos('topaz.font'))
+  set32Word(state, address + 4, 8)
+  state.memory.buffer[address + 7 - state.memory.base] = 1
+  return address
 }
 
 function setFillPattern(state: OsDevKitState, high: boolean, values: readonly number[]): void {
@@ -278,7 +299,7 @@ function channelFree(st: OsDevKitState, node: number): void {
 }
 
 function tagItems(st: OsDevKitState, list: number): Array<{ tag: number; data: number; address: number }> {
-  if (list === 0 || list === -0x8000_0000) return st.defaultTags.map((t, i) => ({ ...t, address: 0x50_000000 + i * 8 }))
+  if (list === 0 || list === -0x8000_0000) list = defaultTagsAddress(st)
   const out: Array<{ tag: number; data: number; address: number }> = []
   for (let at = list >>> 0; ; at += 8) {
     const tag = get32(st, at)
@@ -290,7 +311,10 @@ function tagItems(st: OsDevKitState, list: number): Array<{ tag: number; data: n
 
 function setTag(st: OsDevKitState, list: number, tag: number, data: number): void {
   if (list === 0 || list === -0x8000_0000) {
-    st.defaultTags.push({ tag: tag >>> 0, data: data | 0 })
+    const base = defaultTagsAddress(st); const at = base + st.defaultTagCursor * 8
+    if (base !== 0 && st.defaultTagCursor < 63) {
+      set32(st, at, tag); set32(st, at + 4, data); st.defaultTagCursor++
+    }
     return
   }
   const used = get32(st, list - 4)
@@ -303,7 +327,9 @@ function setTag(st: OsDevKitState, list: number, tag: number, data: number): voi
 
 function finishTags(st: OsDevKitState, list: number): void {
   if (list === 0 || list === -0x8000_0000) {
-    st.defaultTags.push({ tag: 0, data: 0 })
+    const base = defaultTagsAddress(st)
+    if (base !== 0) set32(st, base + st.defaultTagCursor * 8, 0)
+    st.defaultTagCursor = 0
     return
   }
   set32(st, list + get32(st, list - 4) * 4, 0)
@@ -2914,6 +2940,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_base loc'() { return VI(openLibrary('locale.library', 36)) },
     '_base dt'() { return VI(openLibrary('datatypes.library', 36)) },
     '_base layers'() { return VI(openLibrary('layers.library', 36)) },
+    '_base topaz'() { return VI(topazTextAttrAddress(st())) },
+    '_base tag'() { return VI(defaultTagsAddress(st())) },
     /** workers 1536/1537/1539 and 1545/1557/1558: native MsgPort access. */
     '_port find'(_, a) { return VI(st().exec.messages.findPort(cString(rt, n(a, 0)))) },
     '_port create'() { return VI(st().exec.messages.createPort()) },

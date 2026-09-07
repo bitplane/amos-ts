@@ -380,6 +380,14 @@ describe('OS DevKit 1.61 low-level machine wrappers', () => {
     ].join('\n')
     expect(run(source).output).toBe('-1\t-1\t-1\t-1\t-1\n-1\t-1\t-1\t-1\n')
   })
+  it('exposes mapped embedded Topaz and default TagItem records', () => {
+    const { output } = run([
+      'A=_base topaz : Print _str get(_ta what name(A)),_ta what height(A),_ta what flags(A)',
+      '_tag set 0,$12345678,99 : _tag done 0 : T=_base tag',
+      'Print Hex$(_struct long(T,0)),_struct long(T,4),_struct long(T,8)',
+    ].join('\n'))
+    expect(output).toBe('topaz.font\t 8\t 1\n$12345678\t 99\t 0\n')
+  })
 
   it('records Exec ColdReboot as a machine reset request (worker 1570)', () => {
     const { rt } = run('_cold reboot')
