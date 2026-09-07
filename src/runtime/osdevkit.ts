@@ -2610,6 +2610,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_joy read'(_, a) { return VI(readJoyPort(rt.input.ports, n(a, 0)) | 0) },
     '_joy type'(_, a) { return VI((readJoyPort(rt.input.ports, n(a, 0)) & JP_TYPE_MASK) >>> 28) },
     '_time elapsed'() { return VI(elapsedTime(st().lowlevelClock, Math.floor((rt.interp.tick * 65536) / 50))) },
+    /**
+     * Worker 9 accidentally calls QueryKeys with uninitialised a0/d1.  Preserve
+     * the apparent intent with a stable raw-key query instead of emulating
+     * whatever memory corruption happened to supply on a particular run.
+     */
     '_key pressed'() {
       for (let key = 0; key <= 0x7f; key++) if (keyQuery(rt.input.keys, key)) return VI(key)
       return VI(0)

@@ -59,10 +59,12 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every direct LowLevel keyword at operation level', () => {
     const lowlevel = rows.filter((row) => row.osCalls.some((call) => call.library === 'lowlevel.library'))
     expect(lowlevel).toHaveLength(8)
-    expect(lowlevel.find((row) => row.name === '_key pressed')?.status).toBe('missing')
-    expect(lowlevel.filter((row) => row.status === 'partial')).toHaveLength(7)
-    expect(lowlevel.filter((row) => row.status === 'missing').map((row) => row.name).sort())
-      .toEqual(['_key pressed'])
+    expect(lowlevel.find((row) => row.name === '_key pressed')).toMatchObject({
+      status: 'partial',
+      workers: [9],
+    })
+    expect(lowlevel.filter((row) => row.status === 'partial')).toHaveLength(8)
+    expect(lowlevel.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(lowlevel.some((row) => row.status === 'review')).toBe(false)
   })
 
