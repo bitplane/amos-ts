@@ -10,14 +10,17 @@ import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
-import { CUSTOMSCREEN, IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, type UserGadget, type Window } from '../amiga/intuition'
+import {
+  CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
+  IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, type UserGadget, type Window,
+} from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
 import {
   OsWindowIds, OsWindowPatterns, eventCode, eventGadget, eventGadgetBank, eventItem, eventMenu,
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
 import {
-  BARLABEL, KIND, MENUNULL, NM, itemNum, menuNum, subNum,
+  BARLABEL, KIND, MENUNULL, NM, TAG, itemNum, menuNum, subNum,
   type Gadget, type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
@@ -804,6 +807,25 @@ function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<nu
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
   if (window) for (const gadget of bank.gadgets.values()) rt.intuition.detachWindowGadget(window, nativeGadget(state, gadget))
   bank.attachedWindowId = -1
+}
+
+function addGtGadget(rt: Runtime, state: OsDevKitState, id: number, kind: GadgetKind, body: readonly number[], text: string, tags: readonly { tag: number; data: number }[] = []): Gadget | null {
+  const bank = state.gtGadgetBanks.get(state.currentGtGadgetBank)
+  if (!bank || id < 0 || id >= bank.max || bank.gadgets.has(id)) return null
+  const previous = [...bank.gadgets.values()].at(-1) ?? bank.context
+  const gadget = state.gadtools.createGadget(kind, previous, {
+    leftEdge: body[0] ?? 0, topEdge: body[1] ?? 0, width: body[2] ?? 0, height: body[3] ?? 0,
+    gadgetText: text, gadgetID: id, flags: body[4] ?? 0, visualInfo: bank.visualInfo, userData: state.currentGtGadgetBank,
+  }, tags)
+  if (!gadget) return null
+  gadget.disabled = state.gtMode.disabled
+  bank.gadgets.set(id, gadget)
+  const native = nativeGadget(state, gadget)
+  native.flags = (native.flags ?? 0) | (state.gtMode.disabled ? GFLG_GADGDISABLED : 0)
+  native.activation = (state.gtMode.immediate ? GACT_GADGIMMEDIATE : 0) | (state.gtMode.relVerify ? GACT_RELVERIFY : 0)
+  const window = state.windowHandles.get(bank.attachedWindowId)?.window
+  if (window) rt.intuition.attachWindowGadget(window, native)
+  return gadget
 }
 
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
@@ -1801,6 +1823,21 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_gt end refresh'(it) {
       const window = windowAtBase(st(), it.evalInt()); it.expect(','); const complete = it.evalInt()
       window?.layer.endUpdate(complete !== 0)
+    },
+    '_gt button'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      addGtGadget(rt, st(), id!, KIND.BUTTON, [x!, y!, width!, height!, flags!], text)
+    },
+    '_gt checkbox'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const checked = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.CHECKBOX, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTCB_Checked, data: checked }])
+    },
+    '_gt set checkbox'(it) {
+      const [id, checked] = readArgs(it, 2); const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id!)
+      if (gadget?.kind !== KIND.CHECKBOX) return
+      st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTCB_Checked, data: checked! }])
+      const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
+      if (window) rt.intuition.refreshWindowGadget(window, nativeGadget(st(), gadget))
     },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)

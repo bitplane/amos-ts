@@ -596,13 +596,18 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
       '_wnd id open 3,0,0,40,20,0,0,0,"Gadgets"',
-      'Reserve As Gt Gadgets 7,4,0 : _gt gadgets attach 7 : W=_wnd id base(3)',
+      'Reserve As Gt Gadgets 7,4,0 : _gt set mode 0,"_",1,1',
+      '_gt button 0,1,2,20,7,0,"Go" : _gt checkbox 1,2,10,20,7,0,"Check",1',
+      '_gt gadgets attach 7 : _gt set checkbox 1,0 : W=_wnd id base(3)',
       '_gt begin refresh W : _gt end refresh W,-1 : _gt refresh wnd W,0',
       '_gt set mode 1,"_",1,0 : Reserve As Gt Gadgets 8,2,0 : _gt gadgets erase 8',
     ].join('\n')
     const { rt } = run(source)
     expect(rt.bankRef(7)?.name).toBe('GT Gads')
     expect(rt.osdevkit.gtGadgetBanks.get(7)).toMatchObject({ max: 4, screenSlot: 0, attachedWindowId: 3 })
+    expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(0)).toMatchObject({ kind: 1, text: 'Go' })
+    expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(1)).toMatchObject({ kind: 2, checked: false })
+    expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(2)
     expect(rt.osdevkit.gtGadgetBanks.has(8)).toBe(false)
     expect(rt.osdevkit.gtMode).toEqual({ disabled: true, underscore: '_', immediate: true, relVerify: false })
   })
