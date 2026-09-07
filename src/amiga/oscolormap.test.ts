@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap } from './oscolormap'
+import { allocColorMap, findColor, freeColorMap, getRgb4, getRgb32, obtainBestPen, obtainPen, releasePen, setRgb4ColorMap, setRgb32ColorMap } from './oscolormap'
 
 describe('OS DevKit graphics.library ColorMap operations', () => {
   it('allocates cleared entries and makes freed maps inert', () => {
@@ -23,5 +23,15 @@ describe('OS DevKit graphics.library ColorMap operations', () => {
     setRgb32ColorMap(map, 1, 0x89ab_cdef, 0x1234_5678, 0xfedc_ba98)
     expect(getRgb32(map, 1, 5)).toEqual(new Uint32Array([0x89ab_cdef, 0x1234_5678, 0xfedc_ba98, 0, 0, 0]))
     expect(getRgb4(map, 1)).toBe(0x81f)
+  })
+
+  it('finds, obtains, exclusively holds and releases shared pens', () => {
+    const map = allocColorMap(3)
+    setRgb32ColorMap(map, 0, 0, 0, 0); setRgb32ColorMap(map, 1, 0xffff_ffff, 0, 0)
+    expect(findColor(map, 0xf000_0000, 0, 0, 2)).toBe(1)
+    expect(obtainPen(map, 1, 1, 2, 3, 1)).toBe(1)
+    expect(obtainPen(map, 1, 1, 2, 3, 0)).toBe(-1)
+    releasePen(map, 1)
+    expect(obtainBestPen(map, 0, 0, 0)).toBe(0)
   })
 })

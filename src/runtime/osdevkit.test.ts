@@ -1124,6 +1124,17 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe('$12345678\t$23456789\t-2\t-32767\n$ABC\n$89ABCDEF\t$12345678\t$FEDCBA98\n')
   })
 
+  it('finds, obtains and releases ColorMap pens and records RastPort pen limits', () => {
+    const { rt, output } = run([
+      'C=_cm alloc(3) : _rgb32 cm set C,0,0,0,0 : _rgb32 cm set C,1,$ffffffff,0,0',
+      'Print _pen find(C,$f0000000,0,0,2),_pen obtain(C,1,1,2,3,1),_pen obtain(C,1,1,2,3,0)',
+      '_pen release C,1 : Print _pen obtain best(C,0,0,0,0)',
+      'R=_struct alloc(72) : _pen set max R,17 : _struct free R : _cm free C',
+    ].join('\n'))
+    expect(output).toBe(' 1\t 1\t-1\n 0\n')
+    expect([...rt.osdevkit.rastPortMaxPens.values()]).toEqual([17])
+  })
+
   it('draws through caller-owned native RastPort, BitMap and plane pointers', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',

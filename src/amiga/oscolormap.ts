@@ -3,12 +3,14 @@
 export interface NativeColorMap {
   readonly count: number
   readonly components: Uint32Array
+  readonly references: Uint16Array
+  readonly exclusive: Uint8Array
   freed: boolean
 }
 
 export function allocColorMap(count: number): NativeColorMap {
   const n = Math.max(0, count | 0)
-  return { count: n, components: new Uint32Array(n * 3), freed: false }
+  return { count: n, components: new Uint32Array(n * 3), references: new Uint16Array(n), exclusive: new Uint8Array(n), freed: false }
 }
 
 /** FreeColorMap(NULL) is harmless; retained objects become unusable. */
@@ -65,4 +67,37 @@ export function getRgb32(colorMap: NativeColorMap | null, first: number, count: 
   if (!colorMap || colorMap.freed || count <= 0 || first < 0 || first >= colorMap.count) return new Uint32Array()
   const take = Math.min(count, colorMap.count - first)
   return colorMap.components.slice(first * 3, (first + take) * 3)
+}
+
+export function findColor(colorMap: NativeColorMap | null, red: number, green: number, blue: number, maxPen: number): number {
+  if (!colorMap || colorMap.freed || colorMap.count === 0) return -1
+  const last = Math.min(colorMap.count - 1, maxPen < 0 ? colorMap.count - 1 : maxPen); let best = -1; let distance = Number.POSITIVE_INFINITY
+  for (let pen = 0; pen <= last; pen++) {
+    const at = pen * 3
+    const dr = (colorMap.components[at]! >>> 16) - (red >>> 16); const dg = (colorMap.components[at + 1]! >>> 16) - (green >>> 16); const db = (colorMap.components[at + 2]! >>> 16) - (blue >>> 16)
+    const next = dr * dr + dg * dg + db * db; if (next < distance) { distance = next; best = pen }
+  }
+  return best
+}
+
+export function obtainPen(colorMap: NativeColorMap | null, requested: number, red: number, green: number, blue: number, flags: number): number {
+  if (!colorMap || colorMap.freed) return -1
+  let pen = requested
+  if (pen < 0) pen = [...colorMap.references].findIndex((refs, i) => refs === 0 && colorMap.exclusive[i] === 0)
+  if (pen < 0 || pen >= colorMap.count || colorMap.exclusive[pen] !== 0 || ((flags & 1) !== 0 && colorMap.references[pen] !== 0)) return -1
+  if ((flags & 2) === 0) setRgb32ColorMap(colorMap, pen, red, green, blue)
+  colorMap.references[pen] = colorMap.references[pen]! + 1
+  if ((flags & 1) !== 0) colorMap.exclusive[pen] = 1
+  return pen
+}
+
+export function obtainBestPen(colorMap: NativeColorMap | null, red: number, green: number, blue: number): number {
+  const pen = findColor(colorMap, red, green, blue, -1)
+  if (pen >= 0 && colorMap) colorMap.references[pen] = colorMap.references[pen]! + 1
+  return pen
+}
+
+export function releasePen(colorMap: NativeColorMap | null, pen: number): void {
+  if (!colorMap || colorMap.freed || pen < 0 || pen >= colorMap.count || colorMap.references[pen] === 0) return
+  colorMap.references[pen] = colorMap.references[pen]! - 1; if (colorMap.references[pen] === 0) colorMap.exclusive[pen] = 0
 }

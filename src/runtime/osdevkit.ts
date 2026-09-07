@@ -29,7 +29,7 @@ import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
 import { glyphBit, glyphMetrics, openDiskFont, type DiskFont } from '../amiga/diskfont'
 import {
-  allocColorMap, freeColorMap, getRgb4, getRgb32, setRgb4ColorMap, setRgb32ColorMap,
+  allocColorMap, findColor, freeColorMap, getRgb4, getRgb32, obtainBestPen, obtainPen, releasePen, setRgb4ColorMap, setRgb32ColorMap,
   type NativeColorMap,
 } from '../amiga/oscolormap'
 import {
@@ -86,6 +86,7 @@ export interface OsDevKitState {
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
+  rastPortMaxPens: Map<number, number>
   screenIds: Map<number, { slot: number; base: number; rastPort: number; viewPort: number; bitMap: number; owned: boolean; publicLock: boolean }>
   /** DrawInfo blocks returned by GetScreenDrawInfo, keyed by their native pointer. */
   drawInfos: Map<number, { screen: number; font: number }>
@@ -165,7 +166,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
     memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
-    topazTextAttr: 0, screenDefinition: 0, windowDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
+    topazTextAttr: 0, screenDefinition: 0, windowDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(), rastPortMaxPens: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
@@ -2166,6 +2167,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         putNativeBitmapPixel(rt, dst, dstX + x, dstY + y, nativeBitmapPixel(rt, src, srcX + Math.floor(x * srcWidth / dstWidth), srcY + Math.floor(y * srcHeight / dstHeight)))
       }
     },
+    '_pen release'(it) { const [map, pen] = readArgs(it, 2); releasePen(st().colorMaps.get(map! >>> 0) ?? null, pen!) },
+    '_pen set max'(it) { const [rastPort, maxPen] = readArgs(it, 2); st().rastPortMaxPens.set(rastPort! >>> 0, maxPen! & 0xffff) },
     '_rp draw'(it) {
       const [rp, x, y] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
       if (raster) nativeDraw(rt, raster, structRead(rt, rp! + 36, 2, true), structRead(rt, rp! + 38, 2, true), x!, y!)
@@ -3112,6 +3115,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const denominator = n(a, 2) & 0xffff
       return VI(denominator === 0 ? 0 : Math.floor((n(a, 0) & 0xffff) * (n(a, 1) & 0xffff) / denominator))
     },
+    '_pen find'(_, a) { return VI(findColor(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3), n(a, 4))) },
+    '_pen obtain best'(_, a) { return VI(obtainBestPen(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3))) },
+    '_pen obtain'(_, a) { return VI(obtainPen(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3), n(a, 4), n(a, 5))) },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
     '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },
