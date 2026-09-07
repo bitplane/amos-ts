@@ -21,7 +21,6 @@ export interface OsBackendRow {
 
 /** Families whose absence is already established, kept as executable data. */
 const MISSING: Array<{ family: string; names: (name: string, namespace: string) => boolean }> = [
-  { family: 'preferences', names: (_n, ns) => ns === '_prfs' },
   { family: 'amigaguide', names: (_n, ns) => ns === '_ag' || ns === '_help' },
 ]
 
@@ -44,6 +43,9 @@ const MODELLED = new Map<string, string>([
 ])
 
 const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
+  ['_prfs get def', { status: 'faithful', reason: 'the obsolete shipped worker discards its argument and clears both integer result registers' }],
+  ['_prfs get', { status: 'faithful', reason: 'the obsolete shipped worker aliases _prfs get def and returns zero without reading Preferences' }],
+  ['_prfs set', { status: 'faithful', reason: 'the obsolete shipped worker discards both arguments and clears both integer result registers' }],
   ['_dt init', { status: 'faithful', reason: 'OpenLibrary(datypes.library, 39) succeeds against the V40 registry entry' }],
   ['_dt obtain', { status: 'partial', reason: 'memory descriptor matching exists, but tie ordering is not yet binary-faithful' }],
   ['_dt release', { status: 'faithful', reason: 'shared immutable descriptors make ReleaseDataType observably a no-op' }],

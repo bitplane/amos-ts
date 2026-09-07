@@ -2332,6 +2332,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    /**
+     * Routines 1585/1586: these Preferences entry points are explicitly
+     * obsolete in the guide and the shipped workers are eight-byte stubs.
+     * AMOS has already evaluated the arguments before dispatch reaches us;
+     * each worker merely drops them and clears both integer result registers.
+     */
+    '_prfs get def'() { return VI(0) },
+    '_prfs get'() { return VI(0) },
+    '_prfs set'() { return VI(0) },
     '_wb close'() { return VI(rt.intuition.closeWorkBench() ? -1 : 0) },
     '_wb open'() { return VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0) },
     '_wb msg'() { return VI(rt.workbench.message) },

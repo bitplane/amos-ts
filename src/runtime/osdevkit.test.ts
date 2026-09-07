@@ -30,6 +30,11 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
+    const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
+    expect(output).toBe(' 0\t 0\t 0\n')
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')
