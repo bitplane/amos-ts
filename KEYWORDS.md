@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          152 |     533 |      49% |
+| os-devkit-1.61       |     1047 |      362 |          162 |     523 |      50% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          563 |     576 |      92% |
+| **total**            |     7422 |     6227 |          573 |     566 |      92% |
 
 ## Not applicable, by what would retire it
 
@@ -429,23 +429,25 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (49%)
+## os-devkit-1.61 (50%)
 
-- **approximated** (152): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (162): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
   `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
   `_ggad create`, `_ggad set attrs`, `_gmn create`, `_gmn end`, `_gmn free`, `_gmn layout`,
   `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt begin refresh`, `_gt button`,
   `_gt checkbox`, `_gt end refresh`, `_gt gadgets attach`, `_gt gadgets bank`,
-  `_gt gadgets erase`, `_gt gadgets remove`, `_gt integer`, `_gt refresh wnd`,
-  `_gt set checkbox`, `_gt set integer`, `_gt set integer mode`, `_gt set mode`,
-  `_gt set string`, `_gt set string mode`, `_gt set text`, `_gt string`, `_gt text`,
-  `_gt what integer`, `_gt what string`, `_img draw`, `_img draw state`, `_img erase`,
-  `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
-  `_menu clear`, `_menu off`, `_menu on`, `_menu set`, `_menu share`, `_menu what address`,
-  `_menu what flags`, `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`,
-  `_menu what sub nb`, `_menu what user`, `_obj do`, `_obj free`, `_obj new`, `_obj set attrs`,
-  `_obj what attr`, `_scr def pub`, `_scr dinf free`, `_scr dinf get`, `_scr id aga colour`,
-  `_scr id bar`, `_scr id clip`, `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`,
+  `_gt gadgets erase`, `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt integer`,
+  `_gt number`, `_gt palette`, `_gt refresh wnd`, `_gt set checkbox`, `_gt set integer`,
+  `_gt set integer mode`, `_gt set mode`, `_gt set number`, `_gt set palette`,
+  `_gt set scroller`, `_gt set slider`, `_gt set string`, `_gt set string mode`, `_gt set text`,
+  `_gt string`, `_gt text`, `_gt v scroller`, `_gt v slider`, `_gt what integer`,
+  `_gt what string`, `_img draw`, `_img draw state`, `_img erase`, `_layer create behind`,
+  `_layer create upfront`, `_layer delete`, `_li free`, `_li new`, `_menu clear`, `_menu off`,
+  `_menu on`, `_menu set`, `_menu share`, `_menu what address`, `_menu what flags`,
+  `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`, `_menu what sub nb`,
+  `_menu what user`, `_obj do`, `_obj free`, `_obj new`, `_obj set attrs`, `_obj what attr`,
+  `_scr def pub`, `_scr dinf free`, `_scr dinf get`, `_scr id aga colour`, `_scr id bar`,
+  `_scr id clip`, `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`,
   `_scr id def dri pens v2`, `_scr id ellipse`, `_scr id fill ellipse`, `_scr id fix dri pens`,
   `_scr id from pointer`, `_scr id from pub`, `_scr id gr locate`, `_scr id gr writing`,
   `_scr id ink`, `_scr id line`, `_scr id line to`, `_scr id paint`, `_scr id pattern off`,

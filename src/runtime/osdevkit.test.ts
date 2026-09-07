@@ -620,6 +620,26 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.gtMode).toEqual({ disabled: true, underscore: '_', immediate: true, relVerify: false })
   })
 
+  it('routes scalar display, palette, scroller and slider state through shared GadTools', () => {
+    const source = [
+      'Screen Open 0,100,60,4,Lowres : _scr id from pointer 1,Screen Base : Reserve As Gt Gadgets 9,8,0',
+      '_gt number 0,1,1,20,7,0,"Number",5,1 : _gt set number 0,42,1,0,0,"%ld"',
+      '_gt palette 1,1,9,30,8,0,"Palette",4,3 : _gt set palette 1,5,2,0',
+      '_gt h scroller 2,1,18,40,8,0,"H",6 : _gt v scroller 3,45,18,8,30,0,"V",4',
+      '_gt set scroller 2,7,10,100 : _gt set scroller 3,2,4,20',
+      '_gt h slider 4,1,28,40,8,0,"HS",$30001,"%ld" : _gt v slider 5,55,18,8,30,0,"VS",$40002,"%02ld"',
+      '_gt set slider 4,25,10,50,0,"%ld" : _gt set slider 5,-2,-10,10,0,"%ld"',
+    ].join('\n')
+    const { rt } = run(source)
+    const gadgets = rt.osdevkit.gtGadgetBanks.get(9)?.gadgets
+    expect(gadgets?.get(0)).toMatchObject({ kind: 6, number: 42 })
+    expect(gadgets?.get(1)).toMatchObject({ kind: 8, paletteDepth: 4, color: 5, colorOffset: 2 })
+    expect(gadgets?.get(2)).toMatchObject({ kind: 9, horizontal: true, top: 7, visible: 10, total: 100 })
+    expect(gadgets?.get(3)).toMatchObject({ kind: 9, horizontal: false, top: 2, visible: 4, total: 20 })
+    expect(gadgets?.get(4)).toMatchObject({ kind: 11, horizontal: true, level: 25, min: 10, max: 50 })
+    expect(gadgets?.get(5)).toMatchObject({ kind: 11, horizontal: false, level: -2, min: -10, max: 10 })
+  })
+
   it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
     const source = [
       'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',

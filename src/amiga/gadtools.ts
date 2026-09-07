@@ -679,6 +679,18 @@ export interface Gadget {
   paletteDepth?: number
   color?: number
   colorOffset?: number
+  colorTable?: number
+  /** Presentation tags retained so every front-end observes one object state. */
+  border?: boolean
+  frontPen?: number
+  backPen?: number
+  justification?: number
+  format?: string
+  maxNumberLen?: number
+  arrows?: number
+  horizontal?: boolean
+  maxLevelLen?: number
+  levelPlace?: number
 }
 
 /**
@@ -755,6 +767,12 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       break
     case KIND.NUMBER:
       if (tag === TAG.GTNM_Number) return ((g.number = data), true)
+      if (tag === TAG.GTNM_Border) return ((g.border = data !== 0), true)
+      if (tag === TAG.GTNM_FrontPen) return ((g.frontPen = data), true)
+      if (tag === TAG.GTNM_BackPen) return ((g.backPen = data), true)
+      if (tag === TAG.GTNM_Justification) return ((g.justification = data), true)
+      if (tag === TAG.GTNM_Format) return ((g.format = str()), true)
+      if (tag === TAG.GTNM_MaxNumberLen) return ((g.maxNumberLen = data), true)
       break
     case KIND.CYCLE:
       if (tag === TAG.GTCY_Labels) return ((g.labels = list()), true)
@@ -764,16 +782,22 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTPA_Depth) return ((g.paletteDepth = data), true)
       if (tag === TAG.GTPA_Color) return ((g.color = data), true)
       if (tag === TAG.GTPA_ColorOffset) return ((g.colorOffset = data), true)
+      if (tag === TAG.GTPA_ColorTable) return ((g.colorTable = data), true)
       break
     case KIND.SCROLLER:
       if (tag === TAG.GTSC_Top) return ((g.top = data), true)
       if (tag === TAG.GTSC_Total) return ((g.total = data), true)
       if (tag === TAG.GTSC_Visible) return ((g.visible = data), true)
+      if (tag === TAG.GTSC_Arrows) return ((g.arrows = data), true)
       break
     case KIND.SLIDER:
       if (tag === TAG.GTSL_Min) return ((g.min = data), true)
       if (tag === TAG.GTSL_Max) return ((g.max = data), true)
       if (tag === TAG.GTSL_Level) return ((g.level = data), true)
+      if (tag === TAG.GTSL_MaxLevelLen) return ((g.maxLevelLen = data), true)
+      if (tag === TAG.GTSL_LevelFormat) return ((g.format = str()), true)
+      if (tag === TAG.GTSL_LevelPlace) return ((g.levelPlace = data), true)
+      if (tag === TAG.GTSL_Justification) return ((g.justification = data), true)
       break
     case KIND.STRING:
       if (tag === TAG.GTST_String) return ((g.string = str()), true)
@@ -781,6 +805,10 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       break
     case KIND.TEXT:
       if (tag === TAG.GTTX_Text) return ((g.displayText = str()), true)
+      if (tag === TAG.GTTX_Border) return ((g.border = data !== 0), true)
+      if (tag === TAG.GTNM_FrontPen) return ((g.frontPen = data), true)
+      if (tag === TAG.GTNM_BackPen) return ((g.backPen = data), true)
+      if (tag === TAG.GTNM_Justification) return ((g.justification = data), true)
       break
     default:
       break

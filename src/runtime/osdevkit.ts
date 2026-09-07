@@ -929,6 +929,20 @@ function readArgs(it: Parameters<Instr>[0], count: number): number[] {
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
+  const addScroller = (it: Parameters<Instr>[0], horizontal: boolean): void => {
+    const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const arrows = it.evalInt()
+    const gadget = addGtGadget(rt, st(), id!, KIND.SCROLLER, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTSC_Arrows, data: arrows }])
+    if (gadget) gadget.horizontal = horizontal
+  }
+  const addSlider = (it: Parameters<Instr>[0], horizontal: boolean): void => {
+    const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+    it.expect(','); const levelSettings = it.evalInt(); it.expect(','); const format = it.evalStr()
+    const gadget = addGtGadget(rt, st(), id!, KIND.SLIDER, [x!, y!, width!, height!, flags!], text, [
+      { tag: TAG.GTSL_MaxLevelLen, data: levelSettings >>> 16 }, { tag: TAG.GTSL_LevelPlace, data: levelSettings & 0xffff },
+      { tag: TAG.GTSL_LevelFormat, data: st().gadtools.stringRef(format) },
+    ])
+    if (gadget) gadget.horizontal = horizontal
+  }
   return {
     '_ggad def body'(it) {
       const [left, top, width, height] = readArgs(it, 4); Object.assign(st().gadgetDef, { leftEdge: left!, topEdge: top!, width: width!, height: height! })
@@ -1886,10 +1900,62 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_gt set text'(it) {
       const id = it.evalInt(); it.expect(','); const value = it.evalStr()
-      it.expect(','); it.evalInt(); it.expect(','); it.evalInt(); it.expect(','); it.evalInt() // pens and justification are IntuiText fields
+      it.expect(','); const frontPen = it.evalInt(); it.expect(','); const backPen = it.evalInt(); it.expect(','); const justification = it.evalInt()
       const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id)
       if (gadget?.kind !== KIND.TEXT) return
-      st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTTX_Text, data: st().gadtools.stringRef(value) }])
+      st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTTX_Text, data: st().gadtools.stringRef(value) }, { tag: TAG.GTNM_FrontPen, data: frontPen },
+        { tag: TAG.GTNM_BackPen, data: backPen }, { tag: TAG.GTNM_Justification, data: justification },
+      ])
+    },
+    '_gt number'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const maxChars = it.evalInt(); it.expect(','); const border = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.NUMBER, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTNM_MaxNumberLen, data: maxChars }, { tag: TAG.GTNM_Border, data: border },
+      ])
+    },
+    '_gt set number'(it) {
+      const [id, value, frontPen, backPen, justification] = readArgs(it, 5); it.expect(','); const format = it.evalStr()
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.NUMBER) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTNM_Number, data: value! }, { tag: TAG.GTNM_FrontPen, data: frontPen! },
+        { tag: TAG.GTNM_BackPen, data: backPen! }, { tag: TAG.GTNM_Justification, data: justification! },
+        { tag: TAG.GTNM_Format, data: st().gadtools.stringRef(format) },
+      ])
+    },
+    '_gt palette'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const depth = it.evalInt(); it.expect(','); const selected = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.PALETTE, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTPA_Depth, data: depth! }, { tag: TAG.GTPA_Color, data: selected! },
+      ])
+    },
+    '_gt set palette'(it) {
+      const [id, color, offset, colorTable] = readArgs(it, 4)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.PALETTE) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTPA_Color, data: color! }, { tag: TAG.GTPA_ColorOffset, data: offset! }, { tag: TAG.GTPA_ColorTable, data: colorTable! },
+      ])
+    },
+    '_gt h scroller'(it) { addScroller(it, true) },
+    '_gt v scroller'(it) { addScroller(it, false) },
+    '_gt set scroller'(it) {
+      const [id, top, visible, total] = readArgs(it, 4)
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.SCROLLER) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTSC_Top, data: top! }, { tag: TAG.GTSC_Visible, data: visible! }, { tag: TAG.GTSC_Total, data: total! },
+      ])
+    },
+    '_gt h slider'(it) { addSlider(it, true) },
+    '_gt v slider'(it) { addSlider(it, false) },
+    '_gt set slider'(it) {
+      const [id, level, min, max, justification] = readArgs(it, 5); it.expect(','); const format = it.evalStr()
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
+      if (gadget?.kind === KIND.SLIDER) st().gadtools.setGadgetAttrs(gadget, [
+        { tag: TAG.GTSL_Level, data: level! }, { tag: TAG.GTSL_Min, data: min! }, { tag: TAG.GTSL_Max, data: max! },
+        { tag: TAG.GTSL_Justification, data: justification! }, { tag: TAG.GTSL_LevelFormat, data: st().gadtools.stringRef(format) },
+      ])
     },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
