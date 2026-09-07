@@ -197,6 +197,15 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.catalogs.size).toBe(0)
   })
 
+  it('exposes shared library metadata and Exec memory queries', () => {
+    const { output } = run([
+      'G=_lib open("graphics.library",0) : Print _lib version(G),_lib revision(G),_lib version(0)',
+      'A=_mem avail(2) : P=_mem alloc(100,2) : Print A-_mem avail(2),_mem type(P),_mem type(P+99),_mem type(0)',
+      '_mem free P,100 : Print _mem avail(2)=A : _lib close G',
+    ].join('\n'))
+    expect(output).toBe(' 40\t 0\t 0\n 104\t 3\t 3\t 0\n-1\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

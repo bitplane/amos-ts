@@ -8,7 +8,9 @@
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
-import { MEMF, closeLibrary, type MemPool, openLibrary } from '../amiga/exec'
+import {
+  A1200_POOLS, MEMF, availMem, closeLibrary, libraryRevision, libraryVersion, type MemPool, openLibrary,
+} from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
   CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
@@ -2719,6 +2721,16 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         st().displayInfoHandles.set(id, handle)
       }
       return VI(handle)
+    },
+    '_lib version'(_, a) { return VI(libraryVersion(n(a, 0))) },
+    '_lib revision'(_, a) { return VI(libraryRevision(n(a, 0))) },
+    '_mem avail'(_, a) {
+      const own = st().memory.usage(); const used = rt.memoryInUse()
+      return VI(availMem(A1200_POOLS, { chip: own.chip + used.chip, fast: own.fast + used.fast }, n(a, 0)))
+    },
+    '_mem type'(_, a) {
+      const address = n(a, 0) >>> 0; const own = st().memory.typeOfMem(address)
+      return VI(own !== 0 ? own : rt.resolveAddr(address) ? MEMF.PUBLIC | MEMF.FAST : 0)
     },
     '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {
