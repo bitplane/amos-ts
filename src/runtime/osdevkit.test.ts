@@ -36,6 +36,17 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('wires the binary-derived 32-class resource tracker into all four keywords', () => {
+    const { rt, output } = run([
+      'Track Set 3,$1234 : Track Set 3,$1234 : Track Add 3,$1234',
+      'Print Track Exist(3,$1234),Track Exist(4,$1234)',
+      'Track Unset 3,$1234 : Print Track Exist(3,$1234)',
+      'Track Unset 3,$1234 : Print Track Exist(3,$1234)',
+    ].join('\n'))
+    expect(output).toBe(' 1\t 0\n 1\n 0\n')
+    expect(rt.osdevkit.tracker.entries(3)).toEqual([])
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

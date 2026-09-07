@@ -52,6 +52,7 @@ import { DataTypesService, dataTypeString } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
+import { OsResourceTracker } from '../amiga/ostracker'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -126,6 +127,8 @@ export interface OsDevKitState {
   dataTypes: DataTypesService
   dosNotifications: Map<number, { stop: () => void; name: number; messages: number[] }>
   dosSegments: Map<number, { base: number; path: string; size: number }>
+  /** OS DevKit's private 32-class pointer tracker (workers 1883-1886). */
+  tracker: OsResourceTracker
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -160,7 +163,8 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
-    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(), aslRequests: new Map(),
+    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
+    tracker: new OsResourceTracker(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1108,6 +1112,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    'track set'(it) {
+      const [type, pointer] = readArgs(it, 2); st().tracker.set(type!, pointer!)
+    },
+    'track unset'(it) {
+      const [type, pointer] = readArgs(it, 2); st().tracker.unset(type!, pointer!)
+    },
+    'track add'(it) {
+      const [type, pointer] = readArgs(it, 2); st().tracker.add(type!, pointer!)
+    },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) { rt.icons.free(it.evalInt() >>> 0) },
@@ -2448,6 +2461,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    'track exist'(_, a) { return VI(st().tracker.find(n(a, 0), n(a, 1))) },
     /**
      * Routines 1585/1586: these Preferences entry points are explicitly
      * obsolete in the guide and the shipped workers are eight-byte stubs.
