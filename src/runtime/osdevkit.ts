@@ -77,6 +77,8 @@ export interface OsDevKitState {
   topazTextAttr: number
   /** Private 32-byte NewScreen definition mutated by `_scr def ...`. */
   screenDefinition: number
+  /** Private 48-byte NewWindow definition mutated by `_wnd def ...`. */
+  windowDefinition: number
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
@@ -146,7 +148,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
     memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
-    topazTextAttr: 0, screenDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
+    topazTextAttr: 0, screenDefinition: 0, windowDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
@@ -202,6 +204,11 @@ function screenDefinitionAddress(state: OsDevKitState): number {
   state.memory.buffer[address + 11 - state.memory.base] = 1
   set32(state, address + 16, topazTextAttrAddress(state))
   return address
+}
+
+function windowDefinitionAddress(state: OsDevKitState): number {
+  if (state.windowDefinition === 0) state.windowDefinition = state.memory.alloc(48, { clear: true })
+  return state.windowDefinition
 }
 
 function setFillPattern(state: OsDevKitState, high: boolean, values: readonly number[]): void {
@@ -1198,6 +1205,26 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr def type'(it) { structWrite(rt, screenDefinitionAddress(st()) + 14, 2, it.evalInt()) },
     '_scr set title'(it) { const [base, title] = readArgs(it, 2); structWrite(rt, base! + 22, 4, title!) },
     '_scr set def title'(it) { const [base, title] = readArgs(it, 2); structWrite(rt, base! + 26, 4, title!) },
+    '_wnd def body'(it) {
+      const values = readArgs(it, 4); const base = windowDefinitionAddress(st())
+      values.forEach((value, i) => structWrite(rt, base + i * 2, 2, value))
+    },
+    '_wnd def limits'(it) {
+      const values = readArgs(it, 4); const base = windowDefinitionAddress(st())
+      values.forEach((value, i) => structWrite(rt, base + 38 + i * 2, 2, value))
+    },
+    '_wnd def pens'(it) {
+      const [detail, block] = readArgs(it, 2); const base = windowDefinitionAddress(st())
+      structWrite(rt, base + 8, 1, detail!); structWrite(rt, base + 9, 1, block!)
+    },
+    '_wnd def idcmp'(it) { structWrite(rt, windowDefinitionAddress(st()) + 10, 4, it.evalInt()) },
+    '_wnd def flags'(it) { structWrite(rt, windowDefinitionAddress(st()) + 14, 4, it.evalInt()) },
+    '_wnd def gad'(it) { structWrite(rt, windowDefinitionAddress(st()) + 18, 4, it.evalInt()) },
+    '_wnd def image'(it) { structWrite(rt, windowDefinitionAddress(st()) + 22, 4, it.evalInt()) },
+    '_wnd def title'(it) { structWrite(rt, windowDefinitionAddress(st()) + 26, 4, it.evalInt()) },
+    '_wnd def scr'(it) { structWrite(rt, windowDefinitionAddress(st()) + 30, 4, it.evalInt()) },
+    '_wnd def type'(it) { structWrite(rt, windowDefinitionAddress(st()) + 46, 2, it.evalInt()) },
+    '_wnd def bmap'(it) { structWrite(rt, windowDefinitionAddress(st()) + 34, 4, it.evalInt()) },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) {
@@ -2587,6 +2614,67 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scr wdef vmodes'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 12, 2, false)) },
     '_scr wdef type'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 14, 2, false)) },
     '_scr wdef font'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 16, 4, false)) },
+    '_wnd what front'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_wnd what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_wnd what title'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 4, false)) },
+    '_wnd what scr title'(_, a) { return VI(structRead(rt, n(a, 0) + 104, 4, false)) },
+    '_wnd what scr'(_, a) { return VI(structRead(rt, n(a, 0) + 46, 4, false)) },
+    '_wnd what rport'(_, a) { return VI(structRead(rt, n(a, 0) + 50, 4, false)) },
+    '_wnd what left'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
+    '_wnd what top'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, false)) },
+    '_wnd what width'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, false)) },
+    '_wnd what height'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, false)) },
+    '_wnd what x mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, true)) },
+    '_wnd what y mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, true)) },
+    '_wnd what min width'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
+    '_wnd what min height'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 2, false)) },
+    '_wnd what max width'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 2, false)) },
+    '_wnd what max height'(_, a) { return VI(structRead(rt, n(a, 0) + 22, 2, false)) },
+    '_wnd what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 24, 4, false)) },
+    '_wnd what menu'(_, a) { return VI(structRead(rt, n(a, 0) + 28, 4, false)) },
+    '_wnd what first req'(_, a) { return VI(structRead(rt, n(a, 0) + 36, 4, false)) },
+    '_wnd what dm req'(_, a) { return VI(structRead(rt, n(a, 0) + 40, 4, false)) },
+    '_wnd what count req'(_, a) { return VI(structRead(rt, n(a, 0) + 44, 2, false)) },
+    '_wnd what bdr left'(_, a) { return VI(structRead(rt, n(a, 0) + 54, 1, false)) },
+    '_wnd what bdr top'(_, a) { return VI(structRead(rt, n(a, 0) + 55, 1, false)) },
+    '_wnd what bdr right'(_, a) { return VI(structRead(rt, n(a, 0) + 56, 1, false)) },
+    '_wnd what bdr bottom'(_, a) { return VI(structRead(rt, n(a, 0) + 57, 1, false)) },
+    '_wnd what first gad'(_, a) { return VI(structRead(rt, n(a, 0) + 62, 4, false)) },
+    '_wnd what parent'(_, a) { return VI(structRead(rt, n(a, 0) + 66, 4, false)) },
+    '_wnd what descendant'(_, a) { return VI(structRead(rt, n(a, 0) + 70, 4, false)) },
+    '_wnd what pointer height'(_, a) { return VI(structRead(rt, n(a, 0) + 78, 1, false)) },
+    '_wnd what pointer width'(_, a) { return VI(structRead(rt, n(a, 0) + 79, 1, false)) },
+    '_wnd what pointer xoff'(_, a) { return VI(structRead(rt, n(a, 0) + 80, 1, false)) },
+    '_wnd what pointer yoff'(_, a) { return VI(structRead(rt, n(a, 0) + 81, 1, false)) },
+    '_wnd what idcmp'(_, a) { return VI(structRead(rt, n(a, 0) + 82, 4, false)) },
+    '_wnd what user port'(_, a) { return VI(structRead(rt, n(a, 0) + 86, 4, false)) },
+    '_wnd what port'(_, a) { return VI(structRead(rt, n(a, 0) + 90, 4, false)) },
+    '_wnd what int msg'(_, a) { return VI(structRead(rt, n(a, 0) + 94, 4, false)) },
+    '_wnd what d pen'(_, a) { return VI(structRead(rt, n(a, 0) + 98, 1, false)) },
+    '_wnd what b pen'(_, a) { return VI(structRead(rt, n(a, 0) + 99, 1, false)) },
+    '_wnd what image'(_, a) { return VI(structRead(rt, n(a, 0) + 100, 4, false)) },
+    '_wnd what user data'(_, a) { return VI(structRead(rt, n(a, 0) + 120, 4, false)) },
+    '_wnd what ext data'(_, a) { return VI(structRead(rt, n(a, 0) + 116, 4, false)) },
+    '_wnd what layer'(_, a) { return VI(structRead(rt, n(a, 0) + 124, 4, false)) },
+    '_wnd what font'(_, a) { return VI(structRead(rt, n(a, 0) + 128, 4, false)) },
+    '_wnd wdef left'() { return VI(structRead(rt, windowDefinitionAddress(st()), 2, false)) },
+    '_wnd wdef top'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 2, 2, false)) },
+    '_wnd wdef width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 4, 2, false)) },
+    '_wnd wdef height'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 6, 2, false)) },
+    '_wnd wdef d pen'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 8, 1, false)) },
+    '_wnd wdef b pen'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 9, 1, false)) },
+    '_wnd wdef idcmp'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 10, 4, false)) },
+    '_wnd wdef flags'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 14, 4, false)) },
+    '_wnd wdef gad'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 18, 4, false)) },
+    '_wnd wdef image'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 22, 4, false)) },
+    '_wnd wdef title'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 26, 4, false)) },
+    '_wnd wdef scr'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 30, 4, false)) },
+    '_wnd wdef min width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 38, 2, false)) },
+    '_wnd wdef min height'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 40, 2, false)) },
+    '_wnd wdef max width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 42, 2, false)) },
+    '_wnd wdef max height'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 44, 2, false)) },
+    '_wnd wdef type'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 46, 2, false)) },
+    '_wnd wdef bmap'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 34, 4, false)) },
     '_arg what str'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))

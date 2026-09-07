@@ -137,6 +137,38 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'))
   })
 
+  it('retains NewWindow definitions and exposes the complete public Window prefix', () => {
+    const { output } = run([
+      '_wnd def body 1,2,320,100 : _wnd def limits 10,20,640,256 : _wnd def pens 3,4',
+      '_wnd def idcmp $11111111 : _wnd def flags $22222222 : _wnd def gad $33333333',
+      '_wnd def image $44444444 : _wnd def title $55555555 : _wnd def scr $66666666',
+      '_wnd def bmap $77777777 : _wnd def type $8888',
+      'Print _wnd wdef left,_wnd wdef top,_wnd wdef width,_wnd wdef height,_wnd wdef d pen,_wnd wdef b pen',
+      'Print Hex$(_wnd wdef idcmp),Hex$(_wnd wdef flags),Hex$(_wnd wdef gad),Hex$(_wnd wdef image)',
+      'Print Hex$(_wnd wdef title),Hex$(_wnd wdef scr),Hex$(_wnd wdef bmap),Hex$(_wnd wdef type)',
+      'Print _wnd wdef min width,_wnd wdef min height,_wnd wdef max width,_wnd wdef max height',
+      'Reserve As Work 1,144 : W=Start(1) : S=W+136',
+      'Loke S+4,$10111213 : Loke W,$20212223 : Loke W+32,$30313233 : Loke W+46,$40414243 : Loke W+50,$50515253',
+      'Doke W+4,11 : Doke W+6,12 : Doke W+8,320 : Doke W+10,100 : Doke W+12,-5 : Doke W+14,-6',
+      'Poke W+54,1 : Poke W+55,2 : Poke W+56,3 : Poke W+57,4 : Loke W+124,$60616263 : Loke W+128,$70717273',
+      'Print Hex$(_wnd what front(S)),Hex$(_wnd what next(W)),Hex$(_wnd what title(W)),Hex$(_wnd what scr(W)),Hex$(_wnd what rport(W))',
+      'Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W),_wnd what x mouse(W),_wnd what y mouse(W)',
+      'Print _wnd what bdr left(W),_wnd what bdr top(W),_wnd what bdr right(W),_wnd what bdr bottom(W)',
+      'Print Hex$(_wnd what layer(W)),Hex$(_wnd what font(W))',
+    ].join('\n'))
+    expect(output).toBe([
+      ' 1\t 2\t 320\t 100\t 3\t 4',
+      '$11111111\t$22222222\t$33333333\t$44444444',
+      '$55555555\t$66666666\t$77777777\t$8888',
+      ' 10\t 20\t 640\t 256',
+      '$10111213\t$20212223\t$30313233\t$40414243\t$50515253',
+      ' 11\t 12\t 320\t 100\t-6\t-5',
+      ' 1\t 2\t 3\t 4',
+      '$60616263\t$70717273',
+      '',
+    ].join('\n'))
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
