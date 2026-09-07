@@ -47,6 +47,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.requesterWindows.size).toBe(0)
   })
 
+  it('allocates ASL public records and follows their exact field and WBArg offsets', () => {
+    const { rt, output } = run([
+      'R=_asl alloc(0,0) : Reserve As Work 2,16 : A=Start(2)',
+      'Loke R+4,111 : Loke R+8,222 : Loke R+32,2 : Loke R+36,A',
+      'Loke A+4,333 : Loke A+12,444',
+      'Print R<>0,_asl what file(R),_asl what file(R,1),_asl what file(R,2),_asl what file(R,3)',
+      'Print _asl what drawer(R),_asl what nb args(R),_asl what font(R)=R+8',
+      '_asl free R',
+    ].join('\n'))
+    expect(output).toBe('-1\t 111\t 333\t 444\t 0\n 222\t 2\t-1\n')
+    expect(rt.osdevkit.aslRequests.size).toBe(0)
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')

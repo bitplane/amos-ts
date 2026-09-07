@@ -117,6 +117,8 @@ export interface OsDevKitState {
   dosVariables: DosVariables
   readArgs: ReadArgs
   dataTypes: DataTypesService
+  /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
+  aslRequests: Map<number, { type: number }>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -148,7 +150,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
-    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES),
+    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1852,6 +1854,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         st().requesterWindows.delete(requester)
       }
     },
+    '_asl free'(it) {
+      const requester = it.evalInt() >>> 0
+      if (st().aslRequests.delete(requester)) st().memory.freeMem(requester)
+    },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
       if (!target) return
@@ -2365,6 +2371,27 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       st().requesterWindows.set(requester, window)
       return VI(1)
     },
+    '_asl alloc'(_, a) {
+      const type = n(a, 0)
+      if (type < 0 || type > 2) return VI(0)
+      const requester = st().memory.alloc(64, { clear: true })
+      if (requester !== 0) st().aslRequests.set(requester, { type })
+      return VI(requester)
+    },
+    '_asl what file'(_, a) {
+      const requester = n(a, 0) >>> 0
+      if (a.length < 2) return VI(requester === 0 ? 0 : structRead(rt, requester + 4, 4, false))
+      const selection = n(a, 1)
+      if (selection < 1 || requester === 0) return VI(0)
+      const count = structRead(rt, requester + 32, 4, false)
+      const args = structRead(rt, requester + 36, 4, false)
+      if (selection > count || args === 0) return VI(0)
+      return VI(structRead(rt, args + selection * 8 - 4, 4, false))
+    },
+    '_asl what drawer'(_, a) { const requester = n(a, 0) >>> 0; return VI(requester === 0 ? 0 : structRead(rt, requester + 8, 4, false)) },
+    '_asl what nb args'(_, a) { const requester = n(a, 0) >>> 0; return VI(requester === 0 ? 0 : structRead(rt, requester + 32, 4, false)) },
+    /** FontRequest embeds its public TextAttr at offset eight; this returns its address, not a field. */
+    '_asl what font'(_, a) { const requester = n(a, 0) >>> 0; return VI(requester === 0 ? 0 : requester + 8) },
     '_wb close'() { return VI(rt.intuition.closeWorkBench() ? -1 : 0) },
     '_wb open'() { return VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0) },
     '_wb msg'() { return VI(rt.workbench.message) },

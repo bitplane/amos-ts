@@ -79,11 +79,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every ASL keyword at operation level', () => {
     const asl = rows.filter((row) => row.namespace === '_asl')
     expect(asl).toHaveLength(8)
-    expect(asl.filter((row) => row.status === 'faithful')).toHaveLength(5)
+    expect(asl.filter((row) => row.status === 'faithful')).toHaveLength(6)
     expect(asl.filter((row) => row.status === 'partial').map((row) => row.name).sort())
       .toEqual(['_asl alloc', '_asl do'])
-    expect(asl.filter((row) => row.status === 'missing').map((row) => row.name))
-      .toEqual(['_asl what nb args'])
+    expect(asl.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(asl.some((row) => row.status === 'review')).toBe(false)
   })
 
