@@ -91,6 +91,7 @@ export interface OsDevKitState {
   currentGtGadgetBank: number
   gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
   gtIntegerMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
+  gtStringMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -115,6 +116,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtGadgetBanks: new Map(), currentGtGadgetBank: 0,
     gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
     gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
+    gtStringMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1857,6 +1859,38 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (gadget?.kind !== KIND.INTEGER) return
       st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTIN_Number, data: value! }])
     },
+    '_gt set string mode'(it) {
+      const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
+      st().gtStringMode = { tabCycle: tabCycle !== 0, maxChars: maxChars!, exitHelp: exitHelp !== 0, replaceMode: replaceMode !== 0 }
+    },
+    '_gt string'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const value = it.evalStr(); it.expect(','); it.evalInt() // justification belongs to StringExtend
+      addGtGadget(rt, st(), id!, KIND.STRING, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTST_String, data: st().gadtools.stringRef(value) },
+        { tag: TAG.GTST_MaxChars, data: st().gtStringMode.maxChars },
+      ])
+    },
+    '_gt set string'(it) {
+      const id = it.evalInt(); it.expect(','); const value = it.evalStr()
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id)
+      if (gadget?.kind !== KIND.STRING) return
+      st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTST_String, data: st().gadtools.stringRef(value) }])
+    },
+    '_gt text'(it) {
+      const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
+      it.expect(','); const value = it.evalStr(); it.expect(','); const border = it.evalInt()
+      addGtGadget(rt, st(), id!, KIND.TEXT, [x!, y!, width!, height!, flags!], text, [
+        { tag: TAG.GTTX_Text, data: st().gadtools.stringRef(value) }, { tag: TAG.GTTX_Border, data: border },
+      ])
+    },
+    '_gt set text'(it) {
+      const id = it.evalInt(); it.expect(','); const value = it.evalStr()
+      it.expect(','); it.evalInt(); it.expect(','); it.evalInt(); it.expect(','); it.evalInt() // pens and justification are IntuiText fields
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id)
+      if (gadget?.kind !== KIND.TEXT) return
+      st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTTX_Text, data: st().gadtools.stringRef(value) }])
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -1940,6 +1974,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_gt what integer'(_, a) {
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))
       return VI(gadget?.kind === KIND.INTEGER ? gadget.number ?? 0 : 0)
+    },
+    '_gt what string'(_, a) {
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))
+      return VS(gadget?.kind === KIND.STRING ? gadget.string ?? '' : '')
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)

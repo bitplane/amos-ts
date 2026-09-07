@@ -596,21 +596,26 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
       '_wnd id open 3,0,0,40,20,0,0,0,"Gadgets"',
-      'Reserve As Gt Gadgets 7,4,0 : _gt set mode 0,"_",1,1',
+      'Reserve As Gt Gadgets 7,6,0 : _gt set mode 0,"_",1,1',
       '_gt button 0,1,2,20,7,0,"Go" : _gt checkbox 1,2,10,20,7,0,"Check",1',
       '_gt set integer mode 1,6,1,1 : _gt integer 2,2,18,25,7,0,"Value",12,0',
-      '_gt gadgets attach 7 : _gt set checkbox 1,0 : _gt set integer 2,34 : Print _gt what integer(2) : W=_wnd id base(3)',
+      '_gt set string mode 1,12,1,1 : _gt string 3,2,26,30,7,0,"Name","AMOS",0',
+      '_gt text 4,35,2,30,7,0,"","Ready",1',
+      '_gt gadgets attach 7 : _gt set checkbox 1,0 : _gt set integer 2,34 : _gt set string 3,"AMOS Pro" : _gt set text 4,"Running",1,0,0',
+      'Print _gt what integer(2),_gt what string(3) : W=_wnd id base(3)',
       '_gt begin refresh W : _gt end refresh W,-1 : _gt refresh wnd W,0',
       '_gt set mode 1,"_",1,0 : Reserve As Gt Gadgets 8,2,0 : _gt gadgets erase 8',
     ].join('\n')
     const { rt, output } = run(source)
-    expect(output).toBe(' 34\n')
+    expect(output).toBe(' 34\tAMOS Pro\n')
     expect(rt.bankRef(7)?.name).toBe('GT Gads')
-    expect(rt.osdevkit.gtGadgetBanks.get(7)).toMatchObject({ max: 4, screenSlot: 0, attachedWindowId: 3 })
+    expect(rt.osdevkit.gtGadgetBanks.get(7)).toMatchObject({ max: 6, screenSlot: 0, attachedWindowId: 3 })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(0)).toMatchObject({ kind: 1, text: 'Go' })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(1)).toMatchObject({ kind: 2, checked: false })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(2)).toMatchObject({ kind: 3, number: 34, maxChars: 6 })
-    expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(3)
+    expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(3)).toMatchObject({ kind: 12, string: 'AMOS Pro', maxChars: 12 })
+    expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(4)).toMatchObject({ kind: 13, displayText: 'Running' })
+    expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(5)
     expect(rt.osdevkit.gtGadgetBanks.has(8)).toBe(false)
     expect(rt.osdevkit.gtMode).toEqual({ disabled: true, underscore: '_', immediate: true, relVerify: false })
   })
