@@ -402,7 +402,7 @@ export class Window {
     readonly screenSlot: number,
     readonly layer: Layer,
     public title: string,
-    readonly idcmpFlags: number,
+    public idcmpFlags: number,
     flags: number,
     readonly detailPen: number,
     readonly blockPen: number,
@@ -449,6 +449,9 @@ export class Window {
     if (enabled) this.flags |= WFLG_REPORTMOUSE
     else this.flags &= ~WFLG_REPORTMOUSE
   }
+
+  /** ModifyIDCMP: replace the event subscription mask for this window. */
+  modifyIDCMP(flags: number): void { this.idcmpFlags = flags >>> 0 }
 
   /**
    * wd_ScreenTitle, the second string SetWindowTitles takes.

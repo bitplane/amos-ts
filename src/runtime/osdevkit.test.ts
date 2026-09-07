@@ -294,6 +294,22 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.exec.interrupts.servers(4)).toEqual([])
   })
 
+  it('folds raw Window mutation and pointer calls into Window-ID Intuition state', () => {
+    const { rt, output } = run([
+      'Screen Open 0,200,100,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 2,10,10,80,50,0,0,0,"Old" : W=_wnd id base(2)',
+      'T=_to str("New") : S=_to str("Screen") : _wnd set titles W,T,S : _wnd set idcmp W,$12345678',
+      '_wnd set limits W,20,20,120,80 : _wnd move W,5,6 : _wnd size W,10,10',
+      'Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W),Hex$(_wnd what idcmp(W))',
+      'Print _str get(_wnd what title(W)),_str get(_wnd what scr title(W))',
+      '_ptr set W,$11111111,16,2,-3,4 : _wnd activate W : _wnd to back W : _wnd to front W',
+      '_wnd box W,1,2,60,40 : Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W)',
+      '_ptr clear W : _wnd id close 2 : _scr id close 1',
+    ].join('\n'))
+    expect(output).toBe(' 15\t 16\t 90\t 60\t$12345678\nNew\tScreen\n 1\t 2\t 60\t 40\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

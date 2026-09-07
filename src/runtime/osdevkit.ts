@@ -1301,6 +1301,33 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (window) { window.reportMouse(false); syncAllWindowBases(rt, st()) }
       else structWrite(rt, base + 24, 4, structRead(rt, base + 24, 4, false) & ~WFLG_REPORTMOUSE)
     },
+    '_wnd set titles'(it) {
+      const [base, title, screenTitle] = readArgs(it, 3); const window = windowAtBase(st(), base!)
+      if (window) { rt.intuition.setWindowTitles(window, cString(rt, title! >>> 0), cString(rt, screenTitle! >>> 0)); structWrite(rt, base! + 32, 4, title!); structWrite(rt, base! + 104, 4, screenTitle!) }
+    },
+    '_wnd set limits'(it) {
+      const [base, minWidth, minHeight, maxWidth, maxHeight] = readArgs(it, 5); const window = windowAtBase(st(), base!)
+      if (window) { rt.intuition.windowLimits(window, minWidth!, minHeight!, maxWidth!, maxHeight!); syncAllWindowBases(rt, st()) }
+    },
+    '_wnd set idcmp'(it) {
+      const [base, flags] = readArgs(it, 2); const window = windowAtBase(st(), base!)
+      if (window) { window.modifyIDCMP(flags!); structWrite(rt, base! + 78, 4, flags!) }
+    },
+    '_wnd activate'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) { rt.intuition.activateWindow(window); syncAllWindowBases(rt, st()) } },
+    '_wnd move'(it) { const [base, x, y] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.moveWindow(window, x!, y!); syncAllWindowBases(rt, st()) } },
+    '_wnd box'(it) { const [base, x, y, width, height] = readArgs(it, 5); const window = windowAtBase(st(), base!); if (window) { rt.intuition.changeWindowBox(window, x!, y!, width!, height!); syncAllWindowBases(rt, st()) } },
+    '_wnd size'(it) { const [base, width, height] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.sizeWindow(window, width!, height!); syncAllWindowBases(rt, st()) } },
+    '_wnd to back'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToBack(window) },
+    '_wnd to front'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToFront(window) },
+    '_wnd in front of'(it) {
+      const [base, behind] = readArgs(it, 2); const window = windowAtBase(st(), base!), target = windowAtBase(st(), behind!)
+      if (window && target && window.screenSlot === target.screenSlot) { rt.intuition.windowToFront(target); rt.intuition.windowToFront(window) }
+    },
+    '_ptr clear'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) window.clearPointer() },
+    '_ptr set'(it) {
+      const [base, data, height, width, xOffset, yOffset] = readArgs(it, 6); const window = windowAtBase(st(), base!)
+      if (window) window.setPointer(data!, height!, width!, xOffset!, yOffset!)
+    },
     '_wnd id data'(it) {
       it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
       st().windowIds.setData(id, it.evalInt())
@@ -2824,7 +2851,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd what pointer width'(_, a) { return VI(structRead(rt, n(a, 0) + 79, 1, false)) },
     '_wnd what pointer xoff'(_, a) { return VI(structRead(rt, n(a, 0) + 80, 1, false)) },
     '_wnd what pointer yoff'(_, a) { return VI(structRead(rt, n(a, 0) + 81, 1, false)) },
-    '_wnd what idcmp'(_, a) { return VI(structRead(rt, n(a, 0) + 82, 4, false)) },
+    '_wnd what idcmp'(_, a) { return VI(structRead(rt, n(a, 0) + 78, 4, false)) },
     '_wnd what user port'(_, a) { return VI(structRead(rt, n(a, 0) + 86, 4, false)) },
     '_wnd what port'(_, a) { return VI(structRead(rt, n(a, 0) + 90, 4, false)) },
     '_wnd what int msg'(_, a) { return VI(structRead(rt, n(a, 0) + 94, 4, false)) },
