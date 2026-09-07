@@ -75,6 +75,8 @@ export interface OsDevKitState {
   defaultTagCursor: number
   /** Embedded TextAttr returned by `_base topaz`. */
   topazTextAttr: number
+  /** Private 32-byte NewScreen definition mutated by `_scr def ...`. */
+  screenDefinition: number
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
@@ -144,7 +146,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
     memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
-    topazTextAttr: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
+    topazTextAttr: 0, screenDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
@@ -188,6 +190,17 @@ function topazTextAttrAddress(state: OsDevKitState): number {
   set32(state, address, state.strings.fromAmos('topaz.font'))
   set32Word(state, address + 4, 8)
   state.memory.buffer[address + 7 - state.memory.base] = 1
+  return address
+}
+
+function screenDefinitionAddress(state: OsDevKitState): number {
+  if (state.screenDefinition !== 0) return state.screenDefinition
+  const address = state.memory.alloc(32, { clear: true })
+  if (address === 0) return 0
+  state.screenDefinition = address
+  set32Word(state, address + 4, 640); set32Word(state, address + 6, 256); set32Word(state, address + 8, 3)
+  state.memory.buffer[address + 11 - state.memory.base] = 1
+  set32(state, address + 16, topazTextAttrAddress(state))
   return address
 }
 
@@ -1170,6 +1183,21 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_gad set user'(it) {
       const [base, id, value] = readArgs(it, 3); structWrite(rt, base! + 38, 2, id!); structWrite(rt, base! + 40, 4, value!)
     },
+    '_scr def body'(it) {
+      const values = readArgs(it, 5); const base = screenDefinitionAddress(st())
+      values.forEach((value, i) => structWrite(rt, base + i * 2, 2, value))
+    },
+    '_scr def pens'(it) {
+      const [detail, block] = readArgs(it, 2); const base = screenDefinitionAddress(st())
+      structWrite(rt, base + 10, 1, detail!); structWrite(rt, base + 11, 1, block!)
+    },
+    '_scr def title'(it) { structWrite(rt, screenDefinitionAddress(st()) + 20, 4, it.evalInt()) },
+    '_scr def font'(it) { structWrite(rt, screenDefinitionAddress(st()) + 16, 4, it.evalInt()) },
+    '_scr def bmap'(it) { structWrite(rt, screenDefinitionAddress(st()) + 28, 4, it.evalInt()) },
+    '_scr def vmodes'(it) { structWrite(rt, screenDefinitionAddress(st()) + 12, 2, it.evalInt()) },
+    '_scr def type'(it) { structWrite(rt, screenDefinitionAddress(st()) + 14, 2, it.evalInt()) },
+    '_scr set title'(it) { const [base, title] = readArgs(it, 2); structWrite(rt, base! + 22, 4, title!) },
+    '_scr set def title'(it) { const [base, title] = readArgs(it, 2); structWrite(rt, base! + 26, 4, title!) },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) {
@@ -2537,6 +2565,28 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_gad what spec info'(_, a) { return VI(structRead(rt, n(a, 0) + 34, 4, false)) },
     '_gad what user id'(_, a) { return VI(structRead(rt, n(a, 0) + 38, 2, false)) },
     '_gad what user data'(_, a) { return VI(structRead(rt, n(a, 0) + 40, 4, false)) },
+    '_scr what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_scr what title'(_, a) { return VI(structRead(rt, n(a, 0) + 22, 4, false)) },
+    '_scr what def title'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 4, false)) },
+    '_scr what bmap'(_, a) { return VI((n(a, 0) + 184) >>> 0) },
+    '_scr what first wnd'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 4, false)) },
+    '_scr what font'(_, a) { return VI(structRead(rt, n(a, 0) + 40, 4, false)) },
+    '_scr what layer'(_, a) { return VI(structRead(rt, n(a, 0) + 334, 4, false)) },
+    '_scr what width'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, false)) },
+    '_scr what height'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, false)) },
+    '_scr what depth'(_, a) { return VI(structRead(rt, n(a, 0) + 189, 1, false)) },
+    '_scr what d pen'(_, a) { return VI(structRead(rt, n(a, 0) + 330, 1, false)) },
+    '_scr what b pen'(_, a) { return VI(structRead(rt, n(a, 0) + 331, 1, false)) },
+    '_scr what x mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 2, true)) },
+    '_scr what y mouse'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, true)) },
+    '_scr what barh'(_, a) { return VI(structRead(rt, n(a, 0) + 30, 1, false)) },
+    '_scr what vmodes'(_, a) { return VI(structRead(rt, n(a, 0) + 76, 2, false)) },
+    '_scr what type'(_, a) { return VI(structRead(rt, n(a, 0) + 20, 2, false)) },
+    '_scr wdef title'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 20, 4, false)) },
+    '_scr wdef bmap'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 28, 4, false)) },
+    '_scr wdef vmodes'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 12, 2, false)) },
+    '_scr wdef type'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 14, 2, false)) },
+    '_scr wdef font'() { return VI(structRead(rt, screenDefinitionAddress(st()) + 16, 4, false)) },
     '_arg what str'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))

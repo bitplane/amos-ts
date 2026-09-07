@@ -108,6 +108,35 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'))
   })
 
+  it('retains NewScreen defaults and reads the exact public Screen fields', () => {
+    const { output } = run([
+      '_scr def body -1,-2,320,200,5 : _scr def pens 6,7',
+      '_scr def title $11111111 : _scr def font $22222222 : _scr def bmap $33333333',
+      '_scr def vmodes $4444 : _scr def type $5555',
+      'Print Hex$(_scr wdef title),Hex$(_scr wdef font),Hex$(_scr wdef bmap),Hex$(_scr wdef vmodes),Hex$(_scr wdef type)',
+      'Reserve As Work 1,346 : S=Start(1)',
+      'Loke S,$10111213 : Loke S+4,$20212223 : Doke S+12,640 : Doke S+14,256',
+      'Doke S+16,-30 : Doke S+18,-40 : Doke S+20,$1234 : Loke S+22,$31323334 : Loke S+26,$41424344',
+      'Poke S+30,9 : Loke S+40,$51525354 : Doke S+76,$6162 : Poke S+189,6',
+      'Poke S+330,10 : Poke S+331,11 : Loke S+334,$71727374',
+      'Print Hex$(_scr what next(S)),Hex$(_scr what first wnd(S)),_scr what width(S),_scr what height(S)',
+      'Print _scr what x mouse(S),_scr what y mouse(S),Hex$(_scr what title(S)),Hex$(_scr what def title(S))',
+      'Print Hex$(_scr what font(S)),_scr what depth(S),_scr what d pen(S),_scr what b pen(S),_scr what barh(S)',
+      'Print Hex$(_scr what vmodes(S)),Hex$(_scr what type(S)),Hex$(_scr what layer(S)),_scr what bmap(S)=S+184',
+      '_scr set title S,$81828384 : _scr set def title S,$91929394',
+      'Print Hex$(_scr what title(S)),Hex$(_scr what def title(S))',
+    ].join('\n'))
+    expect(output).toBe([
+      '$11111111\t$22222222\t$33333333\t$4444\t$5555',
+      '$10111213\t$20212223\t 640\t 256',
+      '-40\t-30\t$31323334\t$41424344',
+      '$51525354\t 6\t 10\t 11\t 9',
+      '$6162\t$1234\t$71727374\t-1',
+      '$81828384\t$91929394',
+      '',
+    ].join('\n'))
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
