@@ -151,6 +151,7 @@ export interface OsDevKitState {
   amosName: string
   dataRegisters: Int32Array
   addressRegisters: Int32Array
+  pools: Map<number, { requirements: number; puddleSize: number; thresholdSize: number; allocations: Set<number> }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -188,7 +189,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
-    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), aslRequests: new Map(),
+    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1313,6 +1314,17 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (!catalog) return
       for (const address of catalog.strings.values()) heap().free(address)
       st().catalogs.delete(handle); st().memory.freeMem(handle)
+    },
+    '_pool delete'(it) {
+      const handle = it.evalInt() >>> 0; const pool = st().pools.get(handle)
+      if (!pool) return
+      for (const address of pool.allocations) st().memory.freeMem(address)
+      st().pools.delete(handle); st().memory.freeMem(handle)
+    },
+    '_pool free'(it) {
+      const [handle, address, _size] = readArgs(it, 3); const pool = st().pools.get(handle! >>> 0)
+      if (!pool?.allocations.delete(address! >>> 0)) return
+      st().memory.freeMem(address! >>> 0)
     },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
@@ -2793,7 +2805,23 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_mem type'(_, a) {
       const address = n(a, 0) >>> 0; const own = st().memory.typeOfMem(address)
-      return VI(own !== 0 ? own : rt.resolveAddr(address) ? MEMF.PUBLIC | MEMF.FAST : 0)
+      if (address >= st().memory.base && address < st().memory.base + st().memory.reserved) return VI(own)
+      return VI(rt.resolveAddr(address) ? MEMF.PUBLIC | MEMF.FAST : 0)
+    },
+    '_pool create'(_, a) {
+      const handle = st().memory.alloc(16, { clear: true })
+      if (handle !== 0) st().pools.set(handle, {
+        requirements: n(a, 0), puddleSize: n(a, 1) >>> 0, thresholdSize: n(a, 2) >>> 0, allocations: new Set(),
+      })
+      return VI(handle)
+    },
+    '_pool alloc'(_, a) {
+      const pool = st().pools.get(n(a, 0) >>> 0); if (!pool) return VI(0)
+      const address = st().memory.alloc(n(a, 1), {
+        clear: (pool.requirements & MEMF.CLEAR) !== 0, chip: (pool.requirements & MEMF.CHIP) !== 0,
+      })
+      if (address !== 0) pool.allocations.add(address)
+      return VI(address)
     },
     '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {

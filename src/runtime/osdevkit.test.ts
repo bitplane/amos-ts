@@ -232,6 +232,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.amosName).toBe('~abcdefghijklmnopqrstuvwxyz0123')
   })
 
+  it('shares V39 pool allocations with the native arena and owns their lifetime', () => {
+    const { rt, output } = run([
+      'X=_mem alloc(8,0) : Poke X,99 : _mem free X,8',
+      'P=_pool create($10002,4096,256) : A=_pool alloc(P,8)',
+      'Print P<>0,A<>0,_mem type(A),Peek(A)',
+      '_pool free P,A,8 : Print _mem type(A)',
+      'B=_pool alloc(P,8) : _pool delete P : Print _mem type(B)',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\t 3\t 0\n 0\n 0\n')
+    expect(rt.osdevkit.pools.size).toBe(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
