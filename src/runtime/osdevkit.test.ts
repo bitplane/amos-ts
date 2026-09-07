@@ -729,6 +729,24 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(2)
   })
 
+  it('builds high-level menu banks on the shared menu-strip backend', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 3,0,0,40,20,0,$100,0,"Menus"',
+      'Reserve As Gt Menus 14,2,0 : _gt add menu "Project",0',
+      '_gt add item "Open","O",$101,0 : _gt add sub "Recent","R",1,0',
+      'I=_gt make image(1) : _gt add image item I,"",0,0 : _gt add bob item 2,"",0,0',
+      '_gt menus attach 14 : _gt menu clear check 0,0,-1 : Print _gt menu what check(0,0,-1)',
+      '_gt menu set check 0,0,-1 : Print _gt menu what check(0,0,-1) : _gt menu off 0,0,-1 : _gt menu on 0,0,-1',
+    ].join('\n')
+    const { rt, output } = run(source, withGtBob)
+    expect(output).toBe(' 0\n-1\n')
+    const bank = rt.osdevkit.gtMenuBanks.get(14)!
+    expect(bank.strip?.menus[0]?.items).toHaveLength(3)
+    expect(bank.strip?.menus[0]?.items[0]?.subItems).toHaveLength(1)
+    expect(bank.strip?.menus[0]?.items[1]?.image).toBeDefined()
+    expect(rt.osdevkit.windowHandles.get(3)?.window.menuStrip).toBe(bank.strip?.address)
+  })
+
   it('builds its native gadget defaults and contexts in the runtime GadTools object space', () => {
     const source = [
       'Screen Open 0,32,16,4,Lowres : _scr id from pointer 1,Screen Base',

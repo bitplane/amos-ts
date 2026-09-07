@@ -977,6 +977,8 @@ export interface NewMenu {
   mutualExclude?: number
   /** nm_UserData */
   userData?: number
+  imageAddress?: number
+  image?: GadgetImage
 }
 
 /**
@@ -1011,6 +1013,8 @@ export interface MenuItem {
    */
   nextSelect: number
   subItems: MenuItem[]
+  imageAddress?: number
+  image?: GadgetImage
 }
 
 /** `struct Menu`: one title on the bar, and the items under it */
@@ -1603,6 +1607,8 @@ export class GadTools {
       disabled: (flags & MENU_FLAG.NM_ITEMDISABLED) !== 0,
       nextSelect: MENUNULL,
       subItems: [],
+      ...(e.imageAddress === undefined ? {} : { imageAddress: e.imageAddress }),
+      ...(e.image === undefined ? {} : { image: e.image }),
     }
   }
 

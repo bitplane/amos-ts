@@ -20,8 +20,8 @@ import {
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
 import {
-  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, itemNum, menuNum, subNum,
-  type Gadget, type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
+  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, fullMenuNum, itemNum, menuNum, subNum,
+  type Gadget, type GadgetKind, type GadTools, type MenuItem, type MenuStrip, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
@@ -96,6 +96,8 @@ export interface OsDevKitState {
   gtListViewMode: { top: number; makeVisible: number; readOnly: boolean; scrollWidth: number; show: number; spacing: number }
   gtArrays: Map<number, number[]>
   gtLists: Map<number, number[]>
+  gtMenuBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; entries: NewMenu[]; strip: MenuStrip | null }>
+  currentGtMenuBank: number
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -123,6 +125,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtStringMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
+    gtMenuBanks: new Map(), currentGtMenuBank: 0,
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -901,6 +904,13 @@ function freeGtStrings(state: OsDevKitState, pointers: readonly number[]): void 
   for (const pointer of pointers) state.strings.free(pointer)
 }
 
+function rebuildGtMenu(state: OsDevKitState, bank: { visualInfo: number; entries: NewMenu[]; strip: MenuStrip | null }): MenuStrip | null {
+  if (bank.strip) state.gadtools.freeMenus(bank.strip)
+  bank.strip = state.gadtools.createMenus([...bank.entries, { type: NM.END, label: '' }])
+  if (bank.strip) state.gadtools.layoutMenus(bank.strip, bank.visualInfo)
+  return bank.strip
+}
+
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
 function setScreenMousePosition(rt: Runtime, slot: number, x: number, y: number): void {
   const screen = rt.screens.get(slot)
@@ -999,6 +1009,33 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const labelsAt = (address: number): readonly string[] => gtLabels(rt, address)
+  const menuLabel = (it: Parameters<Instr>[0]): string | typeof BARLABEL => {
+    const kind = it.tok()?.kind
+    return kind === 'int' || kind === 'bin' || kind === 'hex' ? (it.evalInt() === -1 ? BARLABEL : '') : it.evalStr()
+  }
+  const addGtMenuEntry = (entry: NewMenu): void => {
+    const bank = st().gtMenuBanks.get(st().currentGtMenuBank)
+    if (!bank || (entry.type === NM.TITLE && bank.entries.filter(item => item.type === NM.TITLE).length >= bank.max)) return
+    bank.entries.push(entry); rebuildGtMenu(st(), bank)
+  }
+  const addGtImageMenu = (it: Parameters<Instr>[0], type: number, bob: boolean): void => {
+    let imageAddress = it.evalInt(); it.expect(','); const key = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(','); const mutex = it.evalInt()
+    if (imageAddress === -1) { addGtMenuEntry({ type, label: BARLABEL, commKey: key, flags, mutualExclude: mutex }); return }
+    if (bob) imageAddress = makeGtImage(rt, st(), imageAddress)
+    const image = ieReadImage(rt, imageAddress)
+    if (image) addGtMenuEntry({ type, label: '', commKey: key, flags, mutualExclude: mutex, imageAddress, image })
+  }
+  const changeGtMenu = (it: Parameters<Instr>[0], action: 'on' | 'off' | 'check' | 'clear'): void => {
+    const [menu, item, sub] = readArgs(it, 3); const strip = st().gtMenuBanks.get(st().currentGtMenuBank)?.strip
+    if (!strip) return
+    const number = fullMenuNum(menu!, item!, sub!)
+    if (action === 'on') st().gadtools.onMenu(strip, number)
+    else if (action === 'off') st().gadtools.offMenu(strip, number)
+    else {
+      const target = st().gadtools.itemAddress(strip, number)
+      if (target && (target.flags & 1) !== 0) target.checked = action === 'check'
+    }
+  }
   const addScroller = (it: Parameters<Instr>[0], horizontal: boolean): void => {
     const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const arrows = it.evalInt()
     const gadget = addGtGadget(rt, st(), id!, KIND.SCROLLER, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTSC_Arrows, data: arrows }])
@@ -2164,6 +2201,49 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: GTBB_FRAMETYPE, data: type! }, { tag: GTBB_RECESSED, data: recessed! }, { tag: TAG.GT_VisualInfo, data: visualInfo },
       ]))
     },
+    'reserve as gt menus'(it) {
+      const [number, max, screenSlot] = readArgs(it, 3)
+      if (number! <= 0 || max! < 0 || !rt.screens.has(screenSlot!)) return
+      const old = st().gtMenuBanks.get(number!); if (old?.strip) st().gadtools.freeMenus(old.strip)
+      if (old) st().gadtools.freeVisualInfo(old.visualInfo)
+      rt.reserveBank(number!, max! * 20 + 32, 'GT Menus', false)
+      const screen = rt.screens.get(screenSlot!)!; const pens = Array.from(screenPens(screen.depth).pens)
+      const visualInfo = st().gadtools.getVisualInfo(screenSlot!, { numPens: pens.length, pens, depth: screen.depth }).address
+      st().gtMenuBanks.set(number!, { max: max!, screenSlot: screenSlot!, visualInfo, entries: [], strip: null }); st().currentGtMenuBank = number!
+    },
+    '_gt menus bank'(it) { st().currentGtMenuBank = it.evalInt() },
+    '_gt menus erase'(it) {
+      const number = it.evalInt(); const bank = st().gtMenuBanks.get(number)
+      if (!bank) return
+      if (bank.strip) st().gadtools.freeMenus(bank.strip); st().gadtools.freeVisualInfo(bank.visualInfo)
+      st().gtMenuBanks.delete(number); rt.eraseBank(number)
+    },
+    '_gt menus attach'(it) {
+      const number = it.evalInt(); const window = st().windowHandles.get(st().windowIds.currentId)?.window
+      if (!window) return
+      if (number === 0) { window.clearMenuStrip(); syncAllWindowBases(rt, st()); return }
+      const bank = st().gtMenuBanks.get(number); const strip = bank?.strip ?? (bank ? rebuildGtMenu(st(), bank) : null)
+      if (strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
+    },
+    '_gt add menu'(it) {
+      const label = it.evalStr(); it.expect(','); addGtMenuEntry({ type: NM.TITLE, label, flags: it.evalInt() })
+    },
+    '_gt add item'(it) {
+      const label = menuLabel(it); it.expect(','); const key = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(','); const mutex = it.evalInt()
+      addGtMenuEntry({ type: NM.ITEM, label, commKey: key, flags, mutualExclude: mutex })
+    },
+    '_gt add sub'(it) {
+      const label = menuLabel(it); it.expect(','); const key = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(','); const mutex = it.evalInt()
+      addGtMenuEntry({ type: NM.SUB, label, commKey: key, flags, mutualExclude: mutex })
+    },
+    '_gt add image item'(it) { addGtImageMenu(it, NM.IM_ITEM, false) },
+    '_gt add image sub'(it) { addGtImageMenu(it, NM.IM_SUB, false) },
+    '_gt add bob item'(it) { addGtImageMenu(it, NM.IM_ITEM, true) },
+    '_gt add bob sub'(it) { addGtImageMenu(it, NM.IM_SUB, true) },
+    '_gt menu on'(it) { changeGtMenu(it, 'on') },
+    '_gt menu off'(it) { changeGtMenu(it, 'off') },
+    '_gt menu set check'(it) { changeGtMenu(it, 'check') },
+    '_gt menu clear check'(it) { changeGtMenu(it, 'clear') },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -2276,6 +2356,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         st().exec.memory.setNodeName(node, name); st().exec.memory.addTail(list, node); allocations.push(node, name)
       }
       st().gtLists.set(list, allocations); return VI(list)
+    },
+    '_gt menu what check'(_, a) {
+      const strip = st().gtMenuBanks.get(st().currentGtMenuBank)?.strip
+      const item = strip ? st().gadtools.itemAddress(strip, fullMenuNum(n(a, 0), n(a, 1), n(a, 2))) : null
+      return VI(item?.checked ? -1 : 0)
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
