@@ -521,6 +521,13 @@ export class Window {
     this.ownsUserPort = false
   }
 
+  /** Leave a shared UserPort detached, as ModifyIDCMP(0) plus wd_UserPort=NULL does. */
+  unshareUserPort(): void {
+    if (this.ownsUserPort) return
+    this.userPort = 0
+    this.eventWindowAddress = 0
+  }
+
   /**
    * exec GetMsg on the window's UserPort. Null when the port is empty.
    *

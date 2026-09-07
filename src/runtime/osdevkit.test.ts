@@ -335,6 +335,20 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 0\t 3\n')
   })
 
+  it('shares, filters, clears and detaches Window UserPorts through the Exec queue', () => {
+    const { rt, output } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 2,1,1,30,15,0,$C0000,0,"Ports" : _wnd id open 3,35,1,30,15,0,0,0,"Other"',
+      'W=_wnd id base(2) : P=_port create : _wnd share port W,P : _wnd id activate 2',
+      'Print _wnd what user port(W)=P,Hex$(_wnd wait port(W,$40000)),_wnd id event wnd',
+      '_wnd id activate 3 : _wnd id activate 2 : _wnd clear port W : Print _port wait(P)',
+      '_wnd unshare port W : Print _wnd what user port(W),_wnd what idcmp(W)',
+      '_wnd close W : _wnd id close 3 : _port delete P : _scr id close 1',
+    ].join('\n'))
+    expect(output).toBe('-1\t$40000\t 2\n 0\n 0\t 0\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

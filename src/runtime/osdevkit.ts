@@ -1109,19 +1109,19 @@ function setScreenMousePosition(rt: Runtime, slot: number, x: number, y: number)
 }
 
 /** GT_GetIMsg/GetMsg + the worker's 52-byte copy and immediate reply. */
-function takeWindowEvent(state: OsDevKitState, mask = -1): number {
-  if (state.windowPort === 0) return 0
+function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, port = state.windowPort): number {
+  if (port === 0) return 0
   const memory = state.exec.messages.memory
   for (;;) {
-    const message = state.exec.messages.getMsg(state.windowPort)
+    const message = state.exec.messages.getMsg(port)
     if (message === 0) return 0
     const cls = memory.readU32(message + 20) >>> 0
-    if ((cls & (mask >>> 0)) === 0) { memory.free(message); continue }
+    const windowBase = memory.readU32(message + 44) >>> 0
+    if ((expectedWindow !== 0 && windowBase !== (expectedWindow >>> 0)) || (cls & (mask >>> 0)) === 0) { memory.free(message); continue }
     const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
     const signedWord = (at: number): number => (word(at) << 16) >> 16
     const item = memory.readU32(message + 28) >>> 0
     const gadget = state.gadtools.gadget(item)
-    const windowBase = memory.readU32(message + 44) >>> 0
     state.windowEvent = {
       class: cls,
       code: word(message + 24),
@@ -1134,6 +1134,18 @@ function takeWindowEvent(state: OsDevKitState, mask = -1): number {
     }
     memory.free(message)
     return cls | 0
+  }
+}
+
+function clearWindowPort(state: OsDevKitState, base: number): void {
+  const window = windowAtBase(state, base); const port = window?.userPort ?? 0
+  if (!window || port === 0) return
+  const messages = state.exec.messages; const count = messages.pending(port)
+  for (let i = 0; i < count; i++) {
+    const message = messages.getMsg(port)
+    if (message === 0) break
+    if (messages.memory.readU32(message + 44) === (base >>> 0)) messages.memory.free(message)
+    else messages.putMsg(port, message)
   }
 }
 
@@ -1358,6 +1370,19 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const base = it.evalInt() >>> 0
       const id = st().windowIds.records.findIndex(record => record.base === base)
       if (id >= 0) closeWindowId(rt, st(), id)
+    },
+    '_wnd clear port'(it) { clearWindowPort(st(), it.evalInt()) },
+    '_wnd unshare port'(it) {
+      const base = it.evalInt() >>> 0; const window = windowAtBase(st(), base)
+      if (!window) return
+      clearWindowPort(st(), base); window.modifyIDCMP(0); window.unshareUserPort()
+      structWrite(rt, base + 82, 4, 0); structWrite(rt, base + 86, 4, 0)
+    },
+    '_wnd share port'(it) {
+      const [base, port] = readArgs(it, 2); const window = windowAtBase(st(), base!)
+      if (!window || port === 0) return
+      clearWindowPort(st(), base!); window.shareUserPort(port! >>> 0, base! >>> 0)
+      structWrite(rt, base! + 86, 4, port!)
     },
     '_wnd activate'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) { rt.intuition.activateWindow(window); syncAllWindowBases(rt, st()) } },
     '_wnd move'(it) { const [base, x, y] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.moveWindow(window, x!, y!); syncAllWindowBases(rt, st()) } },
@@ -2913,6 +2938,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd what active'() { return VI(windowBase(st(), rt.intuition.activeWindow)) },
     '_wnd what pointer'(_, a) { return VI(windowAtBase(st(), n(a, 0))?.pointer?.data ?? 0) },
     '_wnd what vport'(_, a) { return VI(windowViewPort(st(), windowAtBase(st(), n(a, 0)))) },
+    '_wnd wait port'(_, a) {
+      const base = n(a, 0) >>> 0; const window = windowAtBase(st(), base)
+      return VI(window ? takeWindowEvent(st(), n(a, 1), base, window.userPort) : 0)
+    },
     '_wnd wdef left'() { return VI(structRead(rt, windowDefinitionAddress(st()), 2, false)) },
     '_wnd wdef top'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 2, 2, false)) },
     '_wnd wdef width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 4, 2, false)) },
