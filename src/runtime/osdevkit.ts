@@ -81,6 +81,8 @@ export interface OsDevKitState {
   currentScreenId: number
   windowIds: OsWindowIds
   windowHandles: Map<number, { window: Window; rastPort: number; bitMap: number }>
+  /** Caller-owned old-style Requester pointers currently attached to a Window. */
+  requesterWindows: Map<number, Window>
   windowPatterns: OsWindowPatterns
   /** The one MsgPort assigned to every Window-ID, as in private +$2f0. */
   windowPort: number
@@ -126,7 +128,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
-    windowIds: new OsWindowIds(), windowHandles: new Map(),
+    windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
     windowPatterns: new OsWindowPatterns(), windowPort: 0,
     windowEvent: { class: 0, code: 0, qualifier: 0, gadgetId: null, gadgetUserData: null, windowId: -1, mouseX: 0, mouseY: 0 },
     fillPatternAddress: 0,
@@ -1782,6 +1784,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd id close'(it) {
       const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.close(id)
       if (!handle || !record) return
+      for (const [requester, window] of st().requesterWindows) if (window === handle.window) st().requesterWindows.delete(requester)
       rt.intuition.closeWindow(handle.window)
       if (record.title !== 0) heap().free(record.title)
       if (record.screenTitle !== 0) heap().free(record.screenTitle)
@@ -1834,6 +1837,20 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd id unlock'(it) {
       const id = it.evalInt(); const handle = st().windowHandles.get(id); const record = st().windowIds.record(id)
       if (handle && record?.owned0) rt.intuition.endRequest(handle.window)
+    },
+    '_req init'(it) {
+      const requester = it.evalInt() >>> 0
+      if (requester === 0) return
+      for (let i = 0; i < 112; i++) structWrite(rt, requester + i, 1, 0)
+      st().requesterWindows.delete(requester)
+    },
+    '_req end'(it) {
+      const requester = it.evalInt() >>> 0; it.expect(','); const base = it.evalInt() >>> 0
+      const window = windowAtBase(st(), base)
+      if (window && st().requesterWindows.get(requester) === window) {
+        rt.intuition.endRequest(window)
+        st().requesterWindows.delete(requester)
+      }
     },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
@@ -2341,6 +2358,13 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_prfs get def'() { return VI(0) },
     '_prfs get'() { return VI(0) },
     '_prfs set'() { return VI(0) },
+    '_req do'(_, a) {
+      const requester = n(a, 0) >>> 0; const window = windowAtBase(st(), n(a, 1))
+      if (requester === 0 || !window || st().requesterWindows.has(requester)) return VI(0)
+      if (!rt.intuition.request(window)) return VI(0)
+      st().requesterWindows.set(requester, window)
+      return VI(1)
+    },
     '_wb close'() { return VI(rt.intuition.closeWorkBench() ? -1 : 0) },
     '_wb open'() { return VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0) },
     '_wb msg'() { return VI(rt.workbench.message) },

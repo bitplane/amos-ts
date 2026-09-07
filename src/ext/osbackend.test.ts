@@ -488,10 +488,12 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('separates old-style Requester records from the host-backed EasyRequest path', () => {
     const requesters = rows.filter((row) => row.namespace === '_req')
     expect(requesters).toHaveLength(4)
-    expect(requesters.filter((row) => row.status === 'missing').map((row) => row.name).sort()).toEqual([
-      '_req do', '_req end', '_req init',
+    expect(requesters.filter((row) => row.status === 'missing')).toHaveLength(0)
+    expect(requesters.filter((row) => row.namespace === '_req' && ['_req do', '_req end', '_req init'].includes(row.name))
+      .every((row) => row.status === 'partial')).toBe(true)
+    expect(requesters.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_req do', '_req easy', '_req end', '_req init',
     ])
-    expect(requesters.filter((row) => row.status === 'partial').map((row) => row.name)).toEqual(['_req easy'])
     expect(requesters.some((row) => row.status === 'review')).toBe(false)
     expect(requesters.find((row) => row.name === '_req init')).toMatchObject({
       workers: [1572], osCalls: [expect.objectContaining({ library: 'intuition.library', lvo: -138 })],

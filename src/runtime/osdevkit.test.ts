@@ -35,6 +35,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 0\t 0\t 0\n')
   })
 
+  it('folds caller-owned old-style Requesters into the shared Window lifecycle', () => {
+    const { rt, output } = run([
+      'Reserve As Work 1,112 : R=Start(1) : Doke R,$1234 : _req init R',
+      'Screen Open 0,200,100,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,10,10,160,80,0,0,0,"Requester" : W=_wnd id base(3)',
+      'Print Deek(R),_req do(R,W),_req do(R,W) : _req end R,W : Print _req do(R,W)',
+      '_wnd id close 3 : _scr id close 1',
+    ].join('\n'))
+    expect(output).toBe(' 0\t 1\t 0\n 1\n')
+    expect(rt.osdevkit.requesterWindows.size).toBe(0)
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')
