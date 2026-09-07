@@ -57,7 +57,7 @@ import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
 import { findToolType, matchToolValue } from '../amiga/icon'
-import { displayModeOf } from '../amiga/displayinfo'
+import { DISPLAY_MODES, displayModeOf } from '../amiga/displayinfo'
 import { getCatalogStr, getLocaleStr, parseCatalog, type Catalog } from '../amiga/localelib'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
@@ -3184,6 +3184,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_scale div'(_, a) {
       const denominator = n(a, 2) & 0xffff
       return VI(denominator === 0 ? 0 : Math.floor((n(a, 0) & 0xffff) * (n(a, 1) & 0xffff) / denominator))
+    },
+    '_mode best id'(_, a) {
+      const tags = tagItems(st(), n(a, 0)); const value = (tag: number, fallback: number): number => tags.find(item => item.tag === tag)?.data ?? fallback
+      const must = value(0x8000_0001, 0) >>> 0; const mustNot = value(0x8000_0002, 0) >>> 0
+      const source = displayModeOf(value(0x8000_000a, 0) >>> 0); const width = value(0x8000_0006, value(0x8000_0004, source?.width ?? 640))
+      const height = value(0x8000_0007, value(0x8000_0005, source?.height ?? 200)); const monitor = value(0x8000_0009, 0) >>> 0
+      const flagsOf = (id: number): number => 0x270 | ((id & 4) !== 0 ? 1 : 0)
+      const candidates = DISPLAY_MODES.filter(mode => (monitor === 0 || (mode.id & 0xffff_1000) === (monitor & 0xffff_1000)) &&
+        (flagsOf(mode.id) & must) === must && (flagsOf(mode.id) & mustNot) === 0)
+      candidates.sort((left, right) => Math.abs(left.width - width) + Math.abs(left.height - height) - Math.abs(right.width - width) - Math.abs(right.height - height))
+      return VI(candidates[0]?.id ?? -1)
+    },
+    '_mode coerce'(_, a) {
+      const viewPort = n(a, 0); const monitor = n(a, 1) >>> 0; const avoidFlicker = (n(a, 2) & 2) !== 0
+      const width = structRead(rt, viewPort + 24, 2, false); const height = structRead(rt, viewPort + 26, 2, false)
+      const candidates = DISPLAY_MODES.filter(mode => (monitor === 0 || (mode.id & 0xffff_1000) === (monitor & 0xffff_1000)) && (!avoidFlicker || (mode.id & 4) === 0))
+      candidates.sort((left, right) => Math.abs(left.width - width) + Math.abs(left.height - height) - Math.abs(right.width - width) - Math.abs(right.height - height))
+      return VI(candidates[0]?.id ?? -1)
     },
     '_pen find'(_, a) { return VI(findColor(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3), n(a, 4))) },
     '_pen obtain best'(_, a) { return VI(obtainBestPen(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3))) },

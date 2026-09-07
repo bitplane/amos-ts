@@ -768,6 +768,16 @@ describe('OS DevKit 1.61 system operations', () => {
       'Print _query overscan($deadbeef,R,1),_query overscan($21000,R,0) : _struct free R',
     ].join('\n')).output).toBe('-1\n 0\t 0\t 319\t 255\n 0\t 0\n')
   })
+
+  it('selects and coerces modes from the shared installed display database', () => {
+    expect(run([
+      'T=_tag list alloc(4) : _tag set T,$80000004,320 : _tag set T,$80000005,256 : _tag set T,$80000009,$21000 : _tag done T',
+      'U=_tag list alloc(4) : _tag set U,$80000004,320 : _tag set U,$80000005,256 : _tag set U,$80000001,1 : _tag done U',
+      'Print Hex$(_mode best id(T)),Hex$(_mode best id(U))',
+      'V=_struct alloc(40) : _vp set body V,0,0,640,512,0,0 : Print Hex$(_mode coerce(V,$21000,0)),Hex$(_mode coerce(V,$21000,2))',
+      '_struct free V : _tag list free U : _tag list free T',
+    ].join('\n')).output).toBe('$21000\t$21004\n$29004\t$29000\n')
+  })
 })
 
 describe('OS DevKit 1.61 tag lists', () => {
