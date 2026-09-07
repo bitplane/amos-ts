@@ -732,6 +732,12 @@ describe('OS DevKit 1.61 system operations', () => {
       ' 0\t 30\t 14\t 12\t 7\t 1994\n',
     )
   })
+
+  it('formats DOS day, date variants and time from the same live clock', () => {
+    expect(run('Print _dos day$,_dos date$(0),_dos date$(1),_dos date$(2),_dos date$(3),_dos date$(4),_dos time$').output).toBe(
+      'Tuesday\t12-Jul-94\t94-07-12\t07-12-94\t12-07-94\t12-Jul-94\t14:30:00\n',
+    )
+  })
 })
 
 describe('OS DevKit 1.61 tag lists', () => {

@@ -2925,6 +2925,19 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       spec.maxWidth = value(WA.MaxWidth, spec.maxWidth); spec.maxHeight = value(WA.MaxHeight, spec.maxHeight)
       return VI(openRawWindow(rt, st(), spec))
     },
+    '_dos day$'() {
+      return VS(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][nowCivil(rt).weekday]!)
+    },
+    '_dos date$'(_, a) {
+      const date = nowCivil(rt); const dd = String(date.day).padStart(2, '0'); const mm = String(date.month).padStart(2, '0')
+      const yy = String(date.year % 100).padStart(2, '0'); const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.month - 1]!
+      const value = n(a, 0)
+      return VS(value === 1 ? `${yy}-${mm}-${dd}` : value === 2 ? `${mm}-${dd}-${yy}` : value === 3 ? `${dd}-${mm}-${yy}` : `${dd}-${month}-${yy}`)
+    },
+    '_dos time$'() {
+      const date = nowCivil(rt); const two = (value: number): string => String(value).padStart(2, '0')
+      return VS(`${two(date.hour)}:${two(date.min)}:${two(date.sec)}`)
+    },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
     '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },
