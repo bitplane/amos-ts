@@ -116,6 +116,12 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.amigaGuide.lastLaunch).toMatchObject({ name: 'RAM:other.guide', baseName: '', context: 0 })
   })
 
+  it('shares lowlevel SystemControlA takeover state with the runtime', () => {
+    const { rt, output } = run('_sys own : Print 1 : _sys disown : Print 2')
+    expect(output).toBe(' 1\n 2\n')
+    expect(rt.lowlevel.ownsSystem).toBe(false)
+  })
+
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })
     expect(output).toBe(' 111\t 111\t 205\t-1\t 212\n')

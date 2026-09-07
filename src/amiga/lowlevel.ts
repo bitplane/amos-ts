@@ -131,6 +131,18 @@ export const SJA_TYPE_GAMECTLR = 1
 export const SJA_TYPE_MOUSE = 2
 export const SJA_TYPE_JOYSTK = 3
 
+/** SCON_TakeOverSys, the SystemControlA tag used by OS DevKit. */
+export const SCON_TAKE_OVER_SYS = 0xc0c0_0000
+
+/** Process-wide lowlevel.library state that later scheduler work can consume. */
+export class LowLevelSystem {
+  ownsSystem = false
+
+  systemControl(tag: number, data: number): void {
+    if ((tag >>> 0) === SCON_TAKE_OVER_SYS) this.ownsSystem = data !== 0
+  }
+}
+
 /**
  * Every button, paired with where `ReadJoyPort` puts it.
  *

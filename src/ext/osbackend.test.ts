@@ -60,9 +60,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const lowlevel = rows.filter((row) => row.osCalls.some((call) => call.library === 'lowlevel.library'))
     expect(lowlevel).toHaveLength(8)
     expect(lowlevel.find((row) => row.name === '_key pressed')?.status).toBe('missing')
-    expect(lowlevel.filter((row) => row.status === 'partial')).toHaveLength(5)
+    expect(lowlevel.filter((row) => row.status === 'partial')).toHaveLength(7)
     expect(lowlevel.filter((row) => row.status === 'missing').map((row) => row.name).sort())
-      .toEqual(['_key pressed', '_sys disown', '_sys own'])
+      .toEqual(['_key pressed'])
     expect(lowlevel.some((row) => row.status === 'review')).toBe(false)
   })
 

@@ -208,7 +208,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `controller.ts` | what is plugged into a gameport |
 | `parallel.ts` | what is plugged into the parallel port: the four-player adaptor and a printer |
 | `serialport.ts` | what is plugged into the serial port, which is its three input handshake lines |
-| `lowlevel.ts` | `lowlevel.library`, the joyport half |
+| `lowlevel.ts` | `lowlevel.library`: joyports, elapsed time and process-wide system takeover state |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `battclock.ts` | the battery clock at $DC0000: sixteen BCD nibbles, and nothing reads it after boot |
 | `vfs.ts` | `AmigaFS`: volumes, assigns, paths, file metadata |

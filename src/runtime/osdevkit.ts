@@ -42,7 +42,7 @@ import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
-import { JP_TYPE_MASK, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
+import { JP_TYPE_MASK, SCON_TAKE_OVER_SYS, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 import { IffParse } from '../amiga/iffparse'
 import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
@@ -1113,8 +1113,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const base = it.evalInt() >>> 0
       if (st().openLibraries.delete(base)) closeLibrary(base)
     },
-    '_sys own'() { rt.copperOn = false },
-    '_sys disown'() { rt.copperOn = true },
+    '_sys own'() { rt.lowlevel.systemControl(SCON_TAKE_OVER_SYS, -1); rt.copperOn = false },
+    '_sys disown'() { rt.lowlevel.systemControl(SCON_TAKE_OVER_SYS, 0); rt.copperOn = true },
     '_ggad def body'(it) {
       const [left, top, width, height] = readArgs(it, 4); Object.assign(st().gadgetDef, { leftEdge: left!, topEdge: top!, width: width!, height: height! })
     },

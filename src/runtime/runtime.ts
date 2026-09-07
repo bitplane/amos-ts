@@ -139,6 +139,7 @@ import { ExecSystem } from '../amiga/osexec'
 import { IconLibrary } from '../amiga/iconlibrary'
 import { Workbench } from '../amiga/workbench'
 import { AmigaGuide } from '../amiga/amigaguide'
+import { LowLevelSystem } from '../amiga/lowlevel'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -550,6 +551,8 @@ export class Runtime {
   readonly workbench = new Workbench(this.exec.messages)
   /** One amigaguide.library client registry shared by native-facing modules. */
   readonly amigaGuide = new AmigaGuide()
+  /** Process-wide lowlevel.library ownership and future scheduler controls. */
+  readonly lowlevel = new LowLevelSystem()
   /** Process-wide dos.library IoErr and reporting state. */
   readonly dos = new DosSystem()
   readonly interp: Interp
