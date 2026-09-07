@@ -1159,6 +1159,21 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 1\t 1\t 0\t 17\n')
   })
 
+  it('adds, activates, updates, refreshes and removes raw native Gadget lists', () => {
+    const { rt, output } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 2,0,0,60,30,0,0,0,"Gadgets" : W=_wnd id base(2)',
+      'G=_struct alloc(44) : H=_struct alloc(44) : I=_struct alloc(24) : S=_to str("abc")',
+      '_gad set next G,H : _gad set body G,2,10,20,8 : _gad set fat G,0,0,4 : _si set buf I,S,0,3,8,0 : _gad set spec info G,I',
+      '_gad set body H,25,10,20,8 : _gad set fat H,0,0,1',
+      'Print _gad add(G,W,0,-1,2),_gad activate(G,W,0)',
+      '_gad off G,W,0 : Print Hex$(_gad what flags(G)) : _gad on G,W,0 : Print Hex$(_gad what flags(G))',
+      '_gad modif prop H,W,0,$11,$22,$33,$44,$55,1 : _gad refresh G,W,0,2 : Print _gad remove(G,W,2)',
+      '_wnd id close 2 : _scr id close 1 : _str free S : _struct free I : _struct free H : _struct free G',
+    ].join('\n'))
+    expect(output).toBe(' 0\t-1\n$100\n$0\n 0\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+  })
+
   it('uses caller-owned AreaInfo and TmpRas records for fills and raster allocation', () => {
     const source = [
       'P=_struct alloc(64) : B=_struct alloc(40) : R=_struct alloc(72)',

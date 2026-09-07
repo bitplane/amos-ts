@@ -1288,6 +1288,24 @@ export class Intuition {
     this.dirty = true
   }
 
+  addWindowGadgets(w: Window, gadgets: readonly UserGadget[], position: number): number {
+    if (!this.windows.includes(w)) return -1
+    const at = position < 0 ? w.gadgets.length : Math.min(position, w.gadgets.length)
+    const fresh = gadgets.filter(gadget => !w.gadgets.includes(gadget))
+    w.gadgets.splice(at, 0, ...fresh); if (fresh.length > 0) this.dirty = true
+    return at
+  }
+
+  removeWindowGadgets(w: Window, first: UserGadget, count: number): number {
+    if (!this.windows.includes(w)) return -1
+    const at = w.gadgets.indexOf(first); if (at < 0) return -1
+    const removed = w.gadgets.splice(at, count < 0 ? w.gadgets.length - at : count)
+    if (removed.some(gadget => this.armedGadget?.g === gadget)) this.armedGadget = null
+    if (removed.some(gadget => this.activeString?.g === gadget)) this.activeString = null
+    if (removed.length > 0) this.dirty = true
+    return at
+  }
+
   detachWindowGadget(w: Window, gadget: UserGadget): void {
     const at = w.gadgets.indexOf(gadget)
     if (at < 0) return

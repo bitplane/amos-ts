@@ -1064,6 +1064,38 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
   return native
 }
 
+function nativeGadgetAt(rt: Runtime, state: OsDevKitState, address: number): UserGadget | null {
+  const base = address >>> 0; if (base === 0) return null
+  let gadget = state.nativeGadgets.get(base)
+  if (!gadget) {
+    gadget = { leftEdge: 0, topEdge: 0, width: 0, height: 0, id: base }
+    state.nativeGadgets.set(base, gadget)
+  }
+  gadget.leftEdge = structRead(rt, base + 4, 2, true); gadget.topEdge = structRead(rt, base + 6, 2, true)
+  gadget.width = structRead(rt, base + 8, 2, true); gadget.height = structRead(rt, base + 10, 2, true)
+  gadget.flags = structRead(rt, base + 12, 2, false); gadget.activation = structRead(rt, base + 14, 2, false)
+  gadget.kind = structRead(rt, base + 16, 2, false); gadget.id = base
+  const info = structRead(rt, base + 34, 4, false) >>> 0
+  if (info !== 0 && ((gadget.kind ?? 0) & 7) === 4) {
+    const buffer = cString(rt, structRead(rt, info, 4, false) >>> 0)
+    gadget.strInfo = {
+      buffer, bufferPos: structRead(rt, info + 8, 2, false), maxChars: structRead(rt, info + 10, 2, false),
+      longInt: structRead(rt, info + 18, 4, true),
+    }
+  }
+  return gadget
+}
+
+function nativeGadgetList(rt: Runtime, state: OsDevKitState, first: number, count: number): UserGadget[] {
+  const out: UserGadget[] = []; const seen = new Set<number>(); let address = first >>> 0
+  const limit = count < 0 ? Number.POSITIVE_INFINITY : count
+  while (address !== 0 && !seen.has(address) && out.length < limit) {
+    seen.add(address); const gadget = nativeGadgetAt(rt, state, address); if (!gadget) break
+    out.push(gadget); address = structRead(rt, address, 4, false) >>> 0
+  }
+  return out
+}
+
 function nativeBoopsiGadget(object: BoopsiObject): UserGadget {
   const attr = (id: number, fallback = 0): number => getAttr(id, object) ?? fallback
   return {
@@ -1403,6 +1435,24 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_gad set spec info'(it) { const [base, value] = readArgs(it, 2); structWrite(rt, base! + 34, 4, value!) },
     '_gad set user'(it) {
       const [base, id, value] = readArgs(it, 3); structWrite(rt, base! + 38, 2, id!); structWrite(rt, base! + 40, 4, value!)
+    },
+    '_gad off'(it) {
+      const [base, windowBase, _requester] = readArgs(it, 3); const gadget = nativeGadgetAt(rt, st(), base!); const window = windowAtBase(st(), windowBase!)
+      if (gadget && window) { gadget.flags = (gadget.flags ?? 0) | GFLG_GADGDISABLED; structWrite(rt, base! + 12, 2, gadget.flags); rt.intuition.refreshWindowGadget(window, gadget) }
+    },
+    '_gad on'(it) {
+      const [base, windowBase, _requester] = readArgs(it, 3); const gadget = nativeGadgetAt(rt, st(), base!); const window = windowAtBase(st(), windowBase!)
+      if (gadget && window) { gadget.flags = (gadget.flags ?? 0) & ~GFLG_GADGDISABLED; structWrite(rt, base! + 12, 2, gadget.flags); rt.intuition.refreshWindowGadget(window, gadget) }
+    },
+    '_gad refresh'(it) {
+      const [base, windowBase, _requester, count] = readArgs(it, 4); const window = windowAtBase(st(), windowBase!)
+      if (window) for (const gadget of nativeGadgetList(rt, st(), base!, count!)) rt.intuition.refreshWindowGadget(window, gadget)
+    },
+    '_gad modif prop'(it) {
+      const [base, windowBase, _requester, flags, horizPot, vertPot, horizBody, vertBody, count] = readArgs(it, 9)
+      const info = structRead(rt, base! + 34, 4, false) >>> 0; const window = windowAtBase(st(), windowBase!)
+      if (info !== 0) [flags!, horizPot!, vertPot!, horizBody!, vertBody!].forEach((value, i) => structWrite(rt, info + i * 2, 2, value))
+      if (window) for (const gadget of nativeGadgetList(rt, st(), base!, count!)) rt.intuition.refreshWindowGadget(window, gadget)
     },
     '_scr def body'(it) {
       const values = readArgs(it, 5); const base = screenDefinitionAddress(st())
@@ -3075,6 +3125,18 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const attr = textAttr(rt, st(), structRead(rt, text + 8, 4, false))
       const held = attr ? [...st().fonts.values()].find(({ font }) => font.name.toLowerCase() === attr.name.toLowerCase() && font.ySize === attr.ySize) : undefined
       return VI(held ? [...value].reduce((width, ch) => width + glyphMetrics(held.font, ch.charCodeAt(0)).advance, 0) : value.length * 8)
+    },
+    '_gad activate'(_, a) {
+      const gadget = nativeGadgetAt(rt, st(), n(a, 0)); const window = windowAtBase(st(), n(a, 1))
+      return VI(gadget && window && rt.intuition.activateGadget(window, gadget) ? -1 : 0)
+    },
+    '_gad add'(_, a) {
+      const first = n(a, 0); const window = windowAtBase(st(), n(a, 1)); const position = n(a, 3); const count = n(a, 4)
+      return VI(window ? rt.intuition.addWindowGadgets(window, nativeGadgetList(rt, st(), first, count), position) : -1)
+    },
+    '_gad remove'(_, a) {
+      const gadget = nativeGadgetAt(rt, st(), n(a, 0)); const window = windowAtBase(st(), n(a, 1))
+      return VI(gadget && window ? rt.intuition.removeWindowGadgets(window, gadget, n(a, 2)) : -1)
     },
     '_gad what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
     '_gad what left'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
