@@ -1131,6 +1131,21 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 3\t$80\t$80\n 0\n$F0\t 3\t 0\n 3\n 25\t 32\n')
   })
 
+  it('clears, poly-draws and scrolls caller-owned native RastPorts', () => {
+    const source = [
+      'P=_struct alloc(32) : B=_struct alloc(40) : R=_struct alloc(72) : D=_struct alloc(12)',
+      '_bm set datas B,4,4,2,0 : Loke B+8,P : Loke B+12,P+16',
+      '_rp set bmap R,B : _rp set wr msk R,3 : _rp set line R,$ffff : _rp a pen R,3 : _rp b pen R,1 : _rp dr md R,0',
+      '_struct word(D,0)=5 : _struct word(D,2)=1 : _struct word(D,4)=5 : _struct word(D,6)=3 : _struct word(D,8)=8 : _struct word(D,10)=3',
+      '_rp move R,2,1 : _rp poly draw R,3,D : Print _rp point(R,5,2)',
+      '_rp plot R,10,2 : _rp scroll R,1,0,0,0 To 20,3 : Print _rp point(R,9,2),_rp point(R,20,2)',
+      '_rp move R,4,2 : _rp clr eol R : Print _rp point(R,9,2)',
+      '_rp a pen R,3 : _rp plot R,2,3 : _rp move R,4,2 : _rp clr scr R : Print _rp point(R,2,3)',
+      '_struct free D : _struct free P : _struct free B : _struct free R',
+    ].join('\n')
+    expect(run(source).output).toBe(' 3\n 3\t 1\n 1\n 1\n')
+  })
+
   it('uses caller-owned AreaInfo and TmpRas records for fills and raster allocation', () => {
     const source = [
       'P=_struct alloc(64) : B=_struct alloc(40) : R=_struct alloc(72)',

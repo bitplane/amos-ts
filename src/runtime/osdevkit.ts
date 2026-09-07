@@ -526,6 +526,20 @@ function nativePutColor(rt: Runtime, raster: NativeRaster, x: number, y: number,
   }
 }
 
+function nativeScrollRaster(rt: Runtime, raster: NativeRaster, dx: number, dy: number, x1: number, y1: number, x2: number, y2: number): void {
+  if (x1 > x2) [x1, x2] = [x2, x1]
+  if (y1 > y2) [y1, y2] = [y2, y1]
+  x1 = Math.max(0, x1); y1 = Math.max(0, y1); x2 = Math.min(raster.width - 1, x2); y2 = Math.min(raster.height - 1, y2)
+  if (x2 < x1 || y2 < y1 || (dx === 0 && dy === 0)) return
+  const width = x2 - x1 + 1; const height = y2 - y1 + 1; const source = new Int16Array(width * height)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) source[y * width + x] = nativePoint(rt, raster, x1 + x, y1 + y)
+  const background = structRead(rt, raster.rp + 26, 1, false)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const sx = x + dx; const sy = y + dy
+    nativePutColor(rt, raster, x1 + x, y1 + y, sx >= 0 && sx < width && sy >= 0 && sy < height ? source[sy * width + sx]! : background)
+  }
+}
+
 function nativeDrawImage(rt: Runtime, image: number, raster: NativeRaster, offsetX: number, offsetY: number): void {
   const left = structRead(rt, image, 2, true); const top = structRead(rt, image + 2, 2, true)
   const width = structRead(rt, image + 4, 2, false); const height = structRead(rt, image + 6, 2, false)
@@ -2035,6 +2049,39 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
           if (byte) byte.data[byte.off] = (pen! & (1 << plane)) !== 0 ? 0xff : 0
         }
       }
+    },
+    '_rp clr eol'(it) {
+      const rp = it.evalInt(); const raster = nativeRaster(rt, rp)
+      if (!raster) return
+      const x = structRead(rt, rp + 36, 2, true); const baseline = structRead(rt, rp + 38, 2, true)
+      const font = st().fonts.get(structRead(rt, rp + 52, 4, false) >>> 0)?.font ?? rt.systemFont()
+      const pen = structRead(rt, rp + 26, 1, false)
+      for (let y = baseline - font.baseline; y < baseline - font.baseline + font.ySize; y++) for (let px = x; px < raster.width; px++) nativePutColor(rt, raster, px, y, pen)
+    },
+    '_rp clr scr'(it) {
+      const rp = it.evalInt(); const raster = nativeRaster(rt, rp)
+      if (!raster) return
+      const x = structRead(rt, rp + 36, 2, true); const baseline = structRead(rt, rp + 38, 2, true)
+      const font = st().fonts.get(structRead(rt, rp + 52, 4, false) >>> 0)?.font ?? rt.systemFont()
+      const pen = structRead(rt, rp + 26, 1, false); const top = baseline - font.baseline
+      for (let y = top; y < raster.height; y++) for (let px = y === top ? x : 0; px < raster.width; px++) nativePutColor(rt, raster, px, y, pen)
+    },
+    '_rp poly draw'(it) {
+      const [rp, count, dots] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
+      if (!raster) return
+      let x = structRead(rt, rp! + 36, 2, true); let y = structRead(rt, rp! + 38, 2, true)
+      for (let i = 0; i < count!; i++) {
+        const nx = structRead(rt, dots! + i * 4, 2, true); const ny = structRead(rt, dots! + i * 4 + 2, 2, true)
+        nativeDraw(rt, raster, x, y, nx, ny); x = nx; y = ny
+      }
+    },
+    '_rp scroll'(it) {
+      const [rp, dx, dy, x1, y1] = readArgs(it, 5); it.expect('to'); const [x2, y2] = readArgs(it, 2)
+      const raster = nativeRaster(rt, rp!); if (raster) nativeScrollRaster(rt, raster, dx!, dy!, x1!, y1!, x2!, y2!)
+    },
+    '_rp bf scroll'(it) {
+      const [rp, dx, dy, x1, y1] = readArgs(it, 5); it.expect('to'); const [x2, y2] = readArgs(it, 2)
+      const raster = nativeRaster(rt, rp!); if (raster) nativeScrollRaster(rt, raster, dx!, dy!, x1!, y1!, x2!, y2!)
     },
     '_rp draw'(it) {
       const [rp, x, y] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
