@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { firstCodeHunk } from '../amiga/hunk'
 import { EXT_TABLES } from './tables.gen'
 import { auditOsBackend, osBackendSummary } from './osbackend'
+import { makeOsDevKitFunctions, makeOsDevKitInstructions } from '../runtime/osdevkit'
 
 const path = join('fixtures', 'extensions', 'os-devkit-1.61', 'AMOSPro_OS_DevKit.Lib')
 const present = existsSync(path)
@@ -15,6 +16,16 @@ const rows = present
   : []
 
 describe.skipIf(!present)('OS DevKit backend inventory', () => {
+  it('never labels an operation faithful without a callable extension handler', () => {
+    // Handler factories only capture Runtime here; none of the handlers run.
+    const runtime = {} as Parameters<typeof makeOsDevKitFunctions>[0]
+    const handlers = new Set([
+      ...Object.keys(makeOsDevKitInstructions(runtime)),
+      ...Object.keys(makeOsDevKitFunctions(runtime)),
+    ])
+    expect(rows.filter((row) => row.status === 'faithful' && !handlers.has(row.name)).map((row) => row.name)).toEqual([])
+  })
+
   it('accounts for every named token-table entry', () => {
     const summary = osBackendSummary(rows)
     expect(summary.total).toBe(1047)
