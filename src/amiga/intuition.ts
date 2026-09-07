@@ -1294,6 +1294,11 @@ export class Intuition {
     if (this.windows.includes(w) && w.gadgets.includes(gadget)) this.dirty = true
   }
 
+  /** RefreshWindowFrame: invalidate this managed window's border decorations. */
+  refreshWindowFrame(w: Window): void {
+    if (this.windows.includes(w)) this.dirty = true
+  }
+
   /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */
   screenDimensions(address = 0): { width: number; height: number } | null {
     if (address === 0 && this.openWorkBench() === 0) return null

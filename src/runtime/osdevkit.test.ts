@@ -323,6 +323,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.intuition.windows).toHaveLength(0)
   })
 
+  it('refreshes and scrolls through a raw Window pointer on the shared raster backend', () => {
+    const { output } = run([
+      'Screen Open 0,40,20,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 2,5,3,20,10,0,0,0,"Raster" : W=_wnd id base(2)',
+      '_wnd id use 2 : _wnd id cls 0 : _wnd id ink 3,0,1 : _wnd id plot 5,5',
+      '_wnd refresh frame W : _wnd scroll raster W,1,0,0,0 To 10,8',
+      'Print _wnd id point(5,5),_wnd id point(4,5)',
+      '_wnd close W : _scr id close 1',
+    ].join('\n'))
+    expect(output).toBe(' 0\t 3\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

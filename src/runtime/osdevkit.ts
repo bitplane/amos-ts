@@ -875,6 +875,21 @@ function withWindowRastPort<T>(rt: Runtime, state: OsDevKitState, draw: (rp: Ras
   }
 }
 
+function withWindowBaseRastPort<T>(rt: Runtime, state: OsDevKitState, base: number, draw: (rp: RastPort, ox: number, oy: number, window: Window) => T): T | undefined {
+  const id = state.windowIds.records.findIndex(record => record.base === (base >>> 0))
+  const handle = id < 0 ? undefined : state.windowHandles.get(id)
+  const raster = handle ? nativeRaster(rt, handle.rastPort) : null
+  const screen = handle ? rt.screens.get(handle.window.screenSlot) : undefined
+  if (!handle || !raster || !screen) return undefined
+  const saved = screen.rp.snapshot(); const ox = handle.window.leftEdge; const oy = handle.window.topEdge
+  syncNativeRastPort(rt, raster, screen.rp)
+  screen.rp.cpX += ox; screen.rp.cpY += oy
+  screen.rp.clip = { x1: ox, y1: oy, x2: ox + handle.window.width - 1, y2: oy + handle.window.height - 1 }
+  try { return draw(screen.rp, ox, oy, handle.window) } finally {
+    writeNativeRastPort(rt, raster, screen.rp, ox, oy); screen.rp.restore(saved)
+  }
+}
+
 /**
  * Screen/Window-ID Paint and AreaEnd allocate one temporary one-bit raster,
  * use it synchronously, and free it before returning.
@@ -1348,11 +1363,16 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd move'(it) { const [base, x, y] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.moveWindow(window, x!, y!); syncAllWindowBases(rt, st()) } },
     '_wnd box'(it) { const [base, x, y, width, height] = readArgs(it, 5); const window = windowAtBase(st(), base!); if (window) { rt.intuition.changeWindowBox(window, x!, y!, width!, height!); syncAllWindowBases(rt, st()) } },
     '_wnd size'(it) { const [base, width, height] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.sizeWindow(window, width!, height!); syncAllWindowBases(rt, st()) } },
+    '_wnd refresh frame'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.refreshWindowFrame(window) },
     '_wnd to back'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToBack(window) },
     '_wnd to front'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToFront(window) },
     '_wnd in front of'(it) {
       const [base, behind] = readArgs(it, 2); const window = windowAtBase(st(), base!), target = windowAtBase(st(), behind!)
       if (window && target && window.screenSlot === target.screenSlot) { rt.intuition.windowToFront(target); rt.intuition.windowToFront(window) }
+    },
+    '_wnd scroll raster'(it) {
+      const [base, dx, dy, x1, y1] = readArgs(it, 5); it.expect('to'); const [x2, y2] = readArgs(it, 2)
+      withWindowBaseRastPort(rt, st(), base!, (rp, ox, oy) => scrollRaster(rp, dx!, dy!, ox + x1!, oy + y1!, ox + x2!, oy + y2!))
     },
     '_ptr clear'(it) {
       const base = it.evalInt() >>> 0; const window = windowAtBase(st(), base)
