@@ -21,7 +21,6 @@ export interface OsBackendRow {
 
 /** Families whose absence is already established, kept as executable data. */
 const MISSING: Array<{ family: string; names: (name: string, namespace: string) => boolean }> = [
-  { family: 'workbench', names: (_n, ns) => ns === '_wb' || ns === '_app' },
   { family: 'preferences', names: (_n, ns) => ns === '_prfs' },
   { family: 'amigaguide', names: (_n, ns) => ns === '_ag' || ns === '_help' },
 ]
@@ -41,6 +40,7 @@ const MODELLED = new Map<string, string>([
   ['_icon', 'icon'], ['_dt', 'datatypes'], ['_loc', 'locale'], ['_cat', 'locale'],
   ['_joy', 'lowlevel'], ['_layer', 'layers'], ['_li', 'layers'], ['_iff', 'iffparse'],
   ['_chunk', 'iffparse'], ['_cx', 'commodities'], ['_event', 'commodities'],
+  ['_wb', 'workbench'], ['_app', 'workbench'],
 ])
 
 const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
@@ -81,15 +81,15 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_asl what nb args', { status: 'missing', reason: 'ASL multi-selection and its WBArg array are not modelled' }],
   ['_asl what font', { status: 'faithful', reason: 'the font requester preserves its selected font name' }],
   ['_asl file$', { status: 'faithful', reason: 'the modal file requester and joined selected path are modelled' }],
-  ['_icon kill', { status: 'missing', reason: 'DeleteDiskObject and icon-file deletion are not modelled' }],
-  ['_icon free', { status: 'faithful', reason: 'decoded immutable DiskObjects have no observable allocation lifecycle' }],
-  ['_icon def', { status: 'missing', reason: 'GetDefDiskObject and default icon allocation are not modelled' }],
+  ['_icon kill', { status: 'faithful', reason: 'DeleteDiskObject removes the shared VFS .info file with icon.library suffix rules' }],
+  ['_icon free', { status: 'faithful', reason: 'shared DiskObjects have one native-address allocation and free lifecycle' }],
+  ['_icon def', { status: 'partial', reason: 'default DiskObjects cover every icon type and owned field; ROM artwork and full DrawerData defaults are not reproduced' }],
   ['_icon load', { status: 'partial', reason: 'DiskObject files decode, but coordinates, DrawerData contents and ToolWindow are not retained' }],
-  ['_icon save', { status: 'missing', reason: 'PutDiskObject serialization is not modelled' }],
-  ['_icon info', { status: 'missing', reason: 'workbench.library Info window integration is not modelled' }],
+  ['_icon save', { status: 'partial', reason: 'PutDiskObject serializes every field retained by the shared decoder; unretained coordinates and ToolWindow cannot round-trip' }],
+  ['_icon info', { status: 'partial', reason: 'the icon is resolved and validated, but the Workbench information window is not rendered' }],
   ['_icon get', { status: 'partial', reason: 'machine code aliases _icon load after AMOS path conversion' }],
-  ['_icon del', { status: 'missing', reason: 'machine code aliases _icon kill after AMOS path conversion' }],
-  ['_icon put', { status: 'missing', reason: 'machine code aliases _icon save after AMOS path conversion' }],
+  ['_icon del', { status: 'faithful', reason: 'machine code aliases the shared DeleteDiskObject path after AMOS path conversion' }],
+  ['_icon put', { status: 'partial', reason: 'machine code aliases the shared retained-field PutDiskObject serializer after AMOS path conversion' }],
   ['_li new', { status: 'partial', reason: 'dimensionless native ownership now wraps LayerInfo, with bitmap dimensions bound by the first created layer; the raw Layer_Info layout is not exposed' }],
   ['_li free', { status: 'partial', reason: 'owned native Layer wrappers are invalidated and freed with LayerInfo, but the raw Layer_Info layout is not exposed' }],
   ['_layer create behind', { status: 'partial', reason: 'native identity, bitmap binding, geometry, refresh type, backdrop and ordering are integrated; RastPort and executable backfill hooks are not' }],
@@ -117,6 +117,12 @@ auditMany('partial', 'DOS local variables and global ENV: files share one backen
 ])
 auditMany('partial', 'a shared ReadArgs template/result backend handles keyed, required, switch, numeric, multi and rest arguments; native RDArgs allocation and every quoting edge remain incomplete', [
   '_cli read args', '_cli what arg$', '_cli what arg',
+])
+auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [
+  '_wb open', '_wb close', '_wb to back', '_wb to front',
+])
+auditMany('partial', 'one workbench.library AppItem registry supplies native addresses and Exec ports; desktop rendering and complete AppMessage production remain incomplete', [
+  '_app add icon', '_app add menu', '_app add wnd', '_app rem icon', '_app rem menu', '_app rem wnd', '_wb msg',
 ])
 
 auditMany('faithful', 'the GadTools structure field or managed-object lifecycle is represented exactly', [
@@ -476,13 +482,10 @@ auditMany('missing', 'the worker invokes an arbitrary negative LVO with a comple
 ])
 auditMany('faithful', 'the worker returns a stable base for a library with a concrete registered backend', [
   '_base dos', '_base gfx', '_base int', '_base gad', '_base asl', '_base icon', '_base loc', '_base dt',
-  '_base layers',
+  '_base layers', '_base wb',
 ])
 auditMany('partial', 'the underlying object exists, but the backend does not expose its native raw pointer layout', [
   '_base topaz', '_base tag',
-])
-auditMany('missing', 'workbench.library and a Workbench desktop base are not modelled', [
-  '_base wb',
 ])
 auditMany('partial', 'four-field timestamp comparison is modelled with the Workbench half-second default, but user Preferences do not supply the interval', [
   '_dbl click',

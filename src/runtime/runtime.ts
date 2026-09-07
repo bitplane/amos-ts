@@ -136,6 +136,8 @@ import { type JvpState } from './jvp'
 import { type LocaleState } from './locale'
 import type { OsDevKitState } from './osdevkit'
 import { ExecSystem } from '../amiga/osexec'
+import { IconLibrary } from '../amiga/iconlibrary'
+import { Workbench } from '../amiga/workbench'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -540,6 +542,10 @@ export class Runtime {
   })
   /** One gadtools.library object space shared by every extension in this process. */
   readonly gadtools = new GadTools()
+  /** One icon.library DiskObject space shared by every extension. */
+  readonly icons = new IconLibrary(this.exec.pool, () => this.vfs)
+  /** One workbench.library AppItem registry over shared Exec messages. */
+  readonly workbench = new Workbench(this.exec.messages)
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string

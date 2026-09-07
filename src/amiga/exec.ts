@@ -135,15 +135,18 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
   ],
   [
     'icon.library',
-    { version: 40, about: 'Workbench DiskObject decoding and ToolType lookup/matching.' },
+    { version: 40, about: 'Workbench DiskObject decoding, serialization and ToolType lookup/matching.' },
+  ],
+  [
+    'workbench.library',
+    { version: 40, about: 'Workbench AppIcon, AppMenuItem and AppWindow ownership.' },
   ],
   [
     'layers.library',
     { version: 40, about: 'Layer ordering, clipping, movement, sizing and damage exposure.' },
   ],
-  // File classification from Workbench's DEVS:DataTypes descriptors. The
-  // object-oriented half of datatypes.library is not claimed here; callers
-  // can obtain and release descriptors through ./datatypes.ts.
+  // File classification and the shared object lifecycle from Workbench's
+  // DEVS:DataTypes descriptors.
   [
     'datatypes.library',
     {

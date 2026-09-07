@@ -90,10 +90,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every Icon keyword and its three aliases at operation level', () => {
     const icon = rows.filter((row) => row.namespace === '_icon')
     expect(icon).toHaveLength(9)
-    expect(icon.filter((row) => row.status === 'faithful').map((row) => row.name)).toEqual(['_icon free'])
+    expect(icon.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual(['_icon del', '_icon free', '_icon kill'])
     expect(icon.filter((row) => row.status === 'partial').map((row) => row.name).sort())
-      .toEqual(['_icon get', '_icon load'])
-    expect(icon.filter((row) => row.status === 'missing')).toHaveLength(6)
+      .toEqual(['_icon def', '_icon get', '_icon info', '_icon load', '_icon put', '_icon save'])
+    expect(icon.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(icon.find((row) => row.name === '_icon get')?.workers).toEqual([1777])
     expect(icon.find((row) => row.name === '_icon del')?.workers).toEqual([1778])
     expect(icon.find((row) => row.name === '_icon put')?.workers).toEqual([1779])
@@ -277,13 +277,11 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every native base getter individually', () => {
     const bases = rows.filter((row) => row.namespace === '_base')
     expect(bases).toHaveLength(14)
-    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(9)
+    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(10)
     expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
       '_base cx', '_base iff', '_base tag', '_base topaz',
     ])
-    expect(bases.filter((row) => row.status === 'missing').map((row) => row.name).sort()).toEqual([
-      '_base wb',
-    ])
+    expect(bases.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(bases.some((row) => row.status === 'review')).toBe(false)
     expect(bases.find((row) => row.name === '_base gfx')?.workers).toEqual([1748])
     expect(bases.find((row) => row.name === '_base layers')?.workers).toEqual([1152])
@@ -1373,7 +1371,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       chain: 'a5+552>+728', library: 'iffparse.library', lvo: -42,
     })
     expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'partial', family: 'commodities' })
-    expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'missing', family: 'workbench' })
+    expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'partial', family: 'workbench' })
     expect(rows.find((row) => row.name === '_prfs set')).toMatchObject({ status: 'missing', family: 'preferences' })
     expect(rows.find((row) => row.name === '_help ctrl')).toMatchObject({ status: 'missing', family: 'amigaguide' })
   })

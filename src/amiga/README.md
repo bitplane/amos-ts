@@ -134,6 +134,8 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |
 | `layers.ts` | `layers.library`: the layer chain, `Region`, and the damage list |
 | `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
+| `iconlibrary.ts` | shared `icon.library` DiskObject allocation, defaults, VFS loading, saving and deletion |
+| `workbench.ts` | shared `workbench.library` AppIcon, AppMenuItem and AppWindow ownership over Exec ports |
 | `doubleclick.ts` | Intuition's seconds/micros double-click interval test |
 | `commodities.ts` | `commodities.library` brokers, Cx object graphs and Exec-backed event queues |
 | `dosvars.ts` | DOS local variables and global `ENV:` variable files |

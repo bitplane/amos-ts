@@ -125,8 +125,8 @@ import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
 
-export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools): GuiState {
-  const g = new GuiState(gadtools)
+export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench): GuiState {
+  const g = new GuiState(gadtools, workbench)
   g.release = release
   return g
 }
@@ -1717,7 +1717,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       g.open(from.number, from.gui)
       g.iconifyGadget = mode
       g.sensitive = sensitive
-      g.apps.delete(app.handle)
+      g.deleteAppHandle(app.handle)
     },
 
     /**
@@ -1729,9 +1729,10 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * the .info extension", which is icon.library's rule rather than this
      * extension's.
      *
-     * DEVIATION: no icon is read and nothing appears. There is no Workbench
-     * screen under these windows yet, so what the keyword leaves is the node:
-     * a number, a name and a path that `Gui App Remove` can find again. The
+     * The AppIcon node is allocated by the runtime-wide Workbench service,
+     * shared with OS DevKit. Desktop icon rendering and loading this command's
+     * optional icon path remain presentation work; the shared node retains
+     * the number, name and path that `Gui App Remove` can find again. The
      * `moveq #$19,d7` at $3c90 raises error 25, "Unable to open AppIcon",
      * when AllocVec or AddAppIconA fails, and neither can here.
      */

@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          274 |     411 |      61% |
+| os-devkit-1.61       |     1047 |      362 |          295 |     390 |      63% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          685 |     454 |      94% |
+| **total**            |     7422 |     6227 |          706 |     433 |      94% |
 
 ## Not applicable, by what would retire it
 
@@ -429,19 +429,20 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (61%)
+## os-devkit-1.61 (63%)
 
-- **approximated** (274): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_base cx`,
-  `_base iff`, `_bd draw`, `_chunk child`, `_chunk current`, `_chunk end`, `_chunk parent`,
-  `_chunk read`, `_chunk what id`, `_chunk what scan`, `_chunk what size`, `_chunk what type`,
-  `_chunk write`, `_cli read args`, `_cli what arg`, `_cli what arg$`, `_cx broker`,
-  `_cx disable`, `_cx enable`, `_cx id activate`, `_cx id attach`, `_cx id base`,
-  `_cx id clear error`, `_cx id create`, `_cx id delete`, `_cx id error`, `_cx id event data`,
-  `_cx id event id`, `_cx id event type`, `_cx id inactivate`, `_cx id next event`,
-  `_cx id remove`, `_cx id type`, `_cx id wait event`, `_cx init`, `_cx install`,
-  `_cx msg port`, `_cx uninstall`, `_dos var del`, `_dos var find`, `_dos var value$`,
-  `_dt add`, `_dt create`, `_dt delete`, `_dt do`, `_dt init`, `_dt obtain`, `_dt refresh`,
-  `_dt release`, `_dt remove`, `_dt set attrs`, `_dt str$`, `_dt what attrs`,
+- **approximated** (295): `_app add icon`, `_app add menu`, `_app add wnd`, `_app rem icon`,
+  `_app rem menu`, `_app rem wnd`, `_area draw`, `_area ellipse`, `_area end`, `_area move`,
+  `_base cx`, `_base iff`, `_base wb`, `_bd draw`, `_chunk child`, `_chunk current`,
+  `_chunk end`, `_chunk parent`, `_chunk read`, `_chunk what id`, `_chunk what scan`,
+  `_chunk what size`, `_chunk what type`, `_chunk write`, `_cli read args`, `_cli what arg`,
+  `_cli what arg$`, `_cx broker`, `_cx disable`, `_cx enable`, `_cx id activate`,
+  `_cx id attach`, `_cx id base`, `_cx id clear error`, `_cx id create`, `_cx id delete`,
+  `_cx id error`, `_cx id event data`, `_cx id event id`, `_cx id event type`,
+  `_cx id inactivate`, `_cx id next event`, `_cx id remove`, `_cx id type`, `_cx id wait event`,
+  `_cx init`, `_cx install`, `_cx msg port`, `_cx uninstall`, `_dos var del`, `_dos var find`,
+  `_dos var value$`, `_dt add`, `_dt create`, `_dt delete`, `_dt do`, `_dt init`, `_dt obtain`,
+  `_dt refresh`, `_dt release`, `_dt remove`, `_dt set attrs`, `_dt str$`, `_dt what attrs`,
   `_dt what methods`, `_dt what triggers`, `_font add`, `_font ask`, `_font close`,
   `_font load`, `_font open`, `_font rem`, `_ggad create`, `_ggad set attrs`, `_gmn create`,
   `_gmn end`, `_gmn free`, `_gmn layout`, `_gmn list alloc`, `_gmn list free`, `_gmn set`,
@@ -460,23 +461,25 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_gt set mx`, `_gt set number`, `_gt set palette`, `_gt set scroller`, `_gt set slider`,
   `_gt set string`, `_gt set string mode`, `_gt set text`, `_gt string`, `_gt text`,
   `_gt v scroller`, `_gt v slider`, `_gt what attr`, `_gt what integer`, `_gt what string`,
-  `_iff close`, `_iff init`, `_iff open in`, `_iff open out`, `_iff parse`, `_img draw`,
-  `_img draw state`, `_img erase`, `_joy init`, `_joy read`, `_joy set`, `_joy type`,
-  `_key pressed`, `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`,
-  `_li new`, `_lib close`, `_lib open`, `_low init`, `_menu clear`, `_menu off`, `_menu on`,
-  `_menu set`, `_menu share`, `_menu what address`, `_menu what flags`, `_menu what item nb`,
-  `_menu what menu nb`, `_menu what next sel`, `_menu what sub nb`, `_menu what user`,
-  `_obj do`, `_obj free`, `_obj new`, `_obj set attrs`, `_obj what attr`, `_scr def pub`,
-  `_scr dinf free`, `_scr dinf get`, `_scr id aga colour`, `_scr id bar`, `_scr id clip`,
-  `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`, `_scr id def dri pens v2`,
-  `_scr id ellipse`, `_scr id fill ellipse`, `_scr id fix dri pens`, `_scr id from pointer`,
-  `_scr id from pub`, `_scr id gr locate`, `_scr id gr writing`, `_scr id ink`, `_scr id line`,
-  `_scr id line to`, `_scr id paint`, `_scr id pattern off`, `_scr id pattern on`,
-  `_scr id plot`, `_scr id point`, `_scr id put bob`, `_scr id rect`, `_scr id scroll`,
-  `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`,
+  `_icon def`, `_icon del`, `_icon free`, `_icon get`, `_icon info`, `_icon kill`, `_icon load`,
+  `_icon put`, `_icon save`, `_iff close`, `_iff init`, `_iff open in`, `_iff open out`,
+  `_iff parse`, `_img draw`, `_img draw state`, `_img erase`, `_joy init`, `_joy read`,
+  `_joy set`, `_joy type`, `_key pressed`, `_layer create behind`, `_layer create upfront`,
+  `_layer delete`, `_li free`, `_li new`, `_lib close`, `_lib open`, `_low init`, `_menu clear`,
+  `_menu off`, `_menu on`, `_menu set`, `_menu share`, `_menu what address`, `_menu what flags`,
+  `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`, `_menu what sub nb`,
+  `_menu what user`, `_obj do`, `_obj free`, `_obj new`, `_obj set attrs`, `_obj what attr`,
+  `_scr def pub`, `_scr dinf free`, `_scr dinf get`, `_scr id aga colour`, `_scr id bar`,
+  `_scr id clip`, `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`,
+  `_scr id def dri pens v2`, `_scr id ellipse`, `_scr id fill ellipse`, `_scr id fix dri pens`,
+  `_scr id from pointer`, `_scr id from pub`, `_scr id gr locate`, `_scr id gr writing`,
+  `_scr id ink`, `_scr id line`, `_scr id line to`, `_scr id paint`, `_scr id pattern off`,
+  `_scr id pattern on`, `_scr id plot`, `_scr id point`, `_scr id put bob`, `_scr id rect`,
+  `_scr id scroll`, `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`,
   `_scr id set paint`, `_scr id text`, `_scr pub lock`, `_scr pub modes`, `_scr pub status`,
-  `_scr pub unlock`, `_sys disown`, `_sys own`, `_time elapsed`, `_wnd id activate`,
-  `_wnd id bar`, `_wnd id bottom bdr`, `_wnd id box`, `_wnd id close`, `_wnd id event code`,
+  `_scr pub unlock`, `_sys disown`, `_sys own`, `_time elapsed`, `_wb close`, `_wb msg`,
+  `_wb open`, `_wb to back`, `_wb to front`, `_wnd id activate`, `_wnd id bar`,
+  `_wnd id bottom bdr`, `_wnd id box`, `_wnd id close`, `_wnd id event code`,
   `_wnd id event gadget`, `_wnd id event gt bank`, `_wnd id event item`, `_wnd id event menu`,
   `_wnd id event next menu`, `_wnd id event qualifier`, `_wnd id event sub`,
   `_wnd id event wnd`, `_wnd id event x mouse`, `_wnd id event y mouse`, `_wnd id fill ellipse`,

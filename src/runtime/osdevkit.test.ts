@@ -30,6 +30,21 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
+    const { rt, output } = run([
+      'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',
+      'P=_port create : D=_icon def(3) : A=_app add icon(7,99,_to str("Tool"),P,0,D,0)',
+      'M=_app add menu(8,88,_to str("Menu"),P,0) : W=_app add wnd(9,77,123,P,0)',
+      'Print A<>0,M<>0,W<>0,_app rem icon(A),_app rem menu(M),_app rem wnd(W)',
+      'Print _icon put("RAM:tool",D),_icon info(0,"RAM:tool") : _icon free D',
+      'E=_icon get("RAM:tool") : Print E<>0,_icon del("RAM:tool") : _icon free E',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\n-1\t-1\n-1\t-1\t-1\t-1\t-1\t-1\n-1\t-1\n-1\t-1\n')
+    expect(rt.workbench.items.size).toBe(0)
+    expect(rt.icons.objects.size).toBe(0)
+    expect(rt.vfs?.exists('RAM:tool.info')).toBe(null)
+  })
+
   it('integrates DataTypes objects, attributes and window attachment on the shared backend', () => {
     const ilbm = Uint8Array.from([0x46,0x4f,0x52,0x4d,0,0,0,4,0x49,0x4c,0x42,0x4d])
     const { rt, output } = run([

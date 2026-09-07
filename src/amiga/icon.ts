@@ -208,6 +208,25 @@ export function readIcon(bytes: Uint8Array): Icon | null {
   return { type, normal, selected, defaultTool: tool, toolTypes: types, stackSize, drawer: drawerData !== 0 }
 }
 
+/** PutDiskObject's portable on-disk form for the fields this backend owns. */
+export function writeIcon(icon: Icon): Uint8Array {
+  const out: number[] = new Array(DISK_OBJECT_BYTES).fill(0)
+  const set16 = (at: number, n: number): void => { out[at] = n >>> 8 & 255; out[at + 1] = n & 255 }
+  const set32 = (at: number, n: number): void => { out[at] = n >>> 24; out[at + 1] = n >>> 16 & 255; out[at + 2] = n >>> 8 & 255; out[at + 3] = n & 255 }
+  set16(0, ICON_MAGIC); set16(2, ICON_VERSION); out[0x30] = icon.type & 255
+  set32(0x16, icon.normal ? 1 : 0); set32(0x1a, icon.selected ? 1 : 0); set32(0x32, icon.defaultTool ? 1 : 0)
+  set32(0x36, icon.toolTypes.length ? 1 : 0); set32(0x42, icon.drawer ? 1 : 0); set32(0x4a, icon.stackSize)
+  if (icon.drawer) out.push(...new Array(DRAWER_DATA_BYTES).fill(0))
+  const image = (im: IconImage): void => {
+    const at = out.length; out.push(...new Array(IMAGE_BYTES).fill(0)); set16(at + 4, im.width); set16(at + 6, im.height); set16(at + 8, im.depth); set32(at + 10, im.data.length ? 1 : 0); out.push(...im.data)
+  }
+  if (icon.normal) image(icon.normal); if (icon.selected) image(icon.selected)
+  const string = (s: string): void => { const bytes = [...s].map(c => c.charCodeAt(0) & 255); const n = bytes.length + 1; out.push(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255, ...bytes, 0) }
+  if (icon.defaultTool) string(icon.defaultTool)
+  if (icon.toolTypes.length) { const n = (icon.toolTypes.length + 1) * 4; out.push(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255); for (const t of icon.toolTypes) string(t) }
+  return Uint8Array.from(out)
+}
+
 /**
  * The Tool Types of an icon, in file order.
  *

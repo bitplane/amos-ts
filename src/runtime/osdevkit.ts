@@ -1072,6 +1072,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_wb to back'() { rt.intuition.wBenchToBack() },
+    '_wb to front'() { rt.intuition.wBenchToFront() },
+    '_icon free'(it) { rt.icons.free(it.evalInt() >>> 0) },
     '_dt delete'(it) { st().dataTypes.dispose(it.evalInt() >>> 0) },
     '_dt release'(it) { st().dataTypes.release(it.evalInt() >>> 0) },
     '_dt set attrs'(it) {
@@ -2329,6 +2332,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_wb close'() { return VI(rt.intuition.closeWorkBench() ? -1 : 0) },
+    '_wb open'() { return VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0) },
+    '_wb msg'() { return VI(rt.workbench.message) },
+    '_base wb'() { return VI(openLibrary('workbench.library', 36)) },
+    '_app add icon'(_, a) { return VI(rt.workbench.add('icon', n(a, 0), n(a, 1), n(a, 2), n(a, 3), n(a, 5), n(a, 6))) },
+    '_app add menu'(_, a) { return VI(rt.workbench.add('menu', n(a, 0), n(a, 1), n(a, 2), n(a, 3), 0, n(a, 4))) },
+    '_app add wnd'(_, a) { return VI(rt.workbench.add('window', n(a, 0), n(a, 1), 0, n(a, 3), n(a, 2), n(a, 4))) },
+    '_app rem icon'(_, a) { return VI(rt.workbench.remove(n(a, 0) >>> 0, 'icon') ? -1 : 0) },
+    '_app rem menu'(_, a) { return VI(rt.workbench.remove(n(a, 0) >>> 0, 'menu') ? -1 : 0) },
+    '_app rem wnd'(_, a) { return VI(rt.workbench.remove(n(a, 0) >>> 0, 'window') ? -1 : 0) },
+    '_icon kill'(_, a) { return VI(rt.icons.kill(cString(rt, n(a, 0))) ? -1 : 0) },
+    '_icon def'(_, a) { return VI(rt.icons.def(n(a, 0))) },
+    '_icon load'(_, a) { return VI(rt.icons.load(cString(rt, n(a, 0)))) },
+    '_icon save'(_, a) { return VI(rt.icons.save(cString(rt, n(a, 0)), n(a, 1) >>> 0) ? -1 : 0) },
+    '_icon get'(_, a) { return VI(rt.icons.load(str(a[0] ?? VS('')))) },
+    '_icon del'(_, a) { return VI(rt.icons.kill(str(a[0] ?? VS(''))) ? -1 : 0) },
+    '_icon put'(_, a) { return VI(rt.icons.save(str(a[0] ?? VS('')), n(a, 1) >>> 0) ? -1 : 0) },
+    '_icon info'(_, a) { const p = rt.icons.load(str(a[1] ?? VS(''))); if (p) rt.icons.free(p); return VI(p ? -1 : 0) },
     '_dt init'() { return VI(openLibrary('datatypes.library', 39)) },
     '_dt create'(_, a) {
       const path = cString(rt, n(a, 0)); const attrs = new Map(tagItems(st(), n(a, 1)).map(t => [t.tag, t.data]))

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { ICON_MAGIC, ICON_VERSION, findToolType, iconToolTypes, matchToolValue } from './icon'
+import { ICON_MAGIC, ICON_VERSION, findToolType, iconToolTypes, matchToolValue, readIcon, writeIcon } from './icon'
+
+it('serializes every DiskObject field owned by the shared icon backend', () => {
+  const icon = { type: 4, normal: { width: 16, height: 1, depth: 1, data: Uint8Array.from([0x80, 0]) }, selected: null, defaultTool: 'SYS:Tools/Edit', toolTypes: ['FILETYPE=AMOS', 'QUIET'], stackSize: 8192, drawer: false }
+  expect(readIcon(writeIcon(icon))).toEqual(icon)
+})
 
 describe('iconToolTypes: what is not an icon', () => {
   it('rejects anything without the $E310 magic, and anything too short', () => {

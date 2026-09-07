@@ -24,6 +24,7 @@ import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import type { Screen } from './screen'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
+import type { Workbench } from '../amiga/workbench'
 
 /**
  * How many bitplanes a GUI window gets.
@@ -429,9 +430,8 @@ export interface GuiApp {
   /**
    * What `Gui Iconify` answers and `Gui Uniconify` takes back.
    *
-   * DEVIATION: the machine returns the node's ADDRESS, which is what the
-   * guide's "Iconify ID" is. Nothing here has an address, and a program can
-   * only hand the number straight back, so this counts from 1.
+   * The machine returns the AppIcon node's address. This now comes from the
+   * runtime-wide Workbench AppItem registry, shared with OS DevKit.
    */
   handle: number
   /** `$8`, and a WORD: `move.w d0,$8(a4)` truncates whatever it was given */
@@ -755,7 +755,7 @@ export interface GuiEvent {
  * this is the AMOS side that names them by number.
  */
 export class GuiState {
-  constructor(readonly gt: GadTools = new GadTools()) {}
+  constructor(readonly gt: GadTools = new GadTools(), private readonly wbService?: Workbench) {}
   /**
    * Which of the three releases the program bound, since one body of code
    * serves all of them.
@@ -1533,7 +1533,8 @@ export class GuiState {
    * at $76ea is where it lands.
    */
   addApp(id: number, name: string, icon: string, window: GuiApp['window']): GuiApp {
-    const app: GuiApp = { handle: ++this.handles, id: id & 0xffff, name, icon, window }
+    const shared = this.wbService?.add('icon', id & 0xffff, 0, 0, 0, 0, 0) ?? 0
+    const app: GuiApp = { handle: shared || ++this.handles, id: id & 0xffff, name, icon, window }
     this.apps.set(app.handle, app)
     return app
   }
@@ -1548,11 +1549,13 @@ export class GuiState {
   removeAppById(id: number): void {
     for (const app of this.apps.values()) {
       if (app.id === (id & 0xffff)) {
-        this.apps.delete(app.handle)
+        this.deleteAppHandle(app.handle)
         return
       }
     }
   }
+
+  deleteAppHandle(handle: number): void { this.apps.delete(handle); this.wbService?.remove(handle, 'icon') }
 
   /**
    * `Gui App Name$`, one name per call and the empty string when the queue is
