@@ -152,6 +152,7 @@ export interface OsDevKitState {
   dataRegisters: Int32Array
   addressRegisters: Int32Array
   pools: Map<number, { requirements: number; puddleSize: number; thresholdSize: number; allocations: Set<number> }>
+  bitMaps: Map<number, { width: number; flags: number; ownedPlanes: number[] }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -189,7 +190,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
-    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), aslRequests: new Map(),
+    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1345,6 +1346,16 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [handle, address, _size] = readArgs(it, 3); const pool = st().pools.get(handle! >>> 0)
       if (!pool?.allocations.delete(address! >>> 0)) return
       st().memory.freeMem(address! >>> 0)
+    },
+    '_bm free'(it) {
+      const address = it.evalInt() >>> 0; const bitmap = st().bitMaps.get(address)
+      if (!bitmap) return
+      for (const plane of bitmap.ownedPlanes) st().memory.freeMem(plane)
+      st().bitMaps.delete(address); st().memory.freeMem(address)
+    },
+    '_bm set plane'(it) {
+      const [bitmap, plane, address] = readArgs(it, 3)
+      if (plane! >= 0 && plane! < 8) structWrite(rt, bitmap! + 8 + plane! * 4, 4, address!)
     },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
@@ -2861,6 +2872,31 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       })
       if (address !== 0) pool.allocations.add(address)
       return VI(address)
+    },
+    '_bm alloc'(_, a) {
+      const width = n(a, 0), height = n(a, 1), depth = n(a, 2), flags = n(a, 3)
+      if (width <= 0 || height <= 0 || depth <= 0 || depth > 8) return VI(0)
+      const bitmap = st().memory.alloc(40, { clear: true }); if (bitmap === 0) return VI(0)
+      const rowBytes = Math.ceil(width / 16) * 2; const ownedPlanes: number[] = []
+      for (let plane = 0; plane < depth; plane++) {
+        const address = st().memory.alloc(rowBytes * height, { clear: (flags & 1) !== 0, chip: true })
+        if (address === 0) {
+          for (const owned of ownedPlanes) st().memory.freeMem(owned)
+          st().memory.freeMem(bitmap); return VI(0)
+        }
+        ownedPlanes.push(address); structWrite(rt, bitmap + 8 + plane * 4, 4, address)
+      }
+      structWrite(rt, bitmap, 2, rowBytes); structWrite(rt, bitmap + 2, 2, height)
+      structWrite(rt, bitmap + 4, 1, flags); structWrite(rt, bitmap + 5, 1, depth)
+      st().bitMaps.set(bitmap, { width, flags, ownedPlanes }); return VI(bitmap)
+    },
+    '_bm what attr'(_, a) {
+      const address = n(a, 0), attribute = n(a, 1), bitmap = st().bitMaps.get(address >>> 0)
+      if (attribute === 0) return VI(structRead(rt, address + 2, 2, false))
+      if (attribute === 4) return VI(structRead(rt, address + 5, 1, false))
+      if (attribute === 8) return VI(bitmap?.width ?? structRead(rt, address, 2, false) * 8)
+      if (attribute === 12) return VI(bitmap?.flags ?? structRead(rt, address + 4, 1, false))
+      return VI(0)
     },
     '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {

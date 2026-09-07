@@ -258,6 +258,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('$ABC\n$123\t$456\n$123456\n$789ABC\n')
   })
 
+  it('allocates native BitMaps and planes in the shared memory arena', () => {
+    const { rt, output } = run([
+      'B=_bm alloc(17,3,2,1,0) : P=_bm what plane(B,0)',
+      'Print B<>0,P<>0,_bm what modulo(B),_bm what height(B),_bm what depth(B),_bm what flags(B)',
+      'Print _bm what attr(B,0),_bm what attr(B,4),_bm what attr(B,8),_bm what attr(B,12),Peek(P)',
+      '_bm set plane B,1,$12345678 : Print Hex$(_bm what plane(B,1))',
+      '_bm free B',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\t 4\t 3\t 2\t 1\n 3\t 2\t 17\t 1\t 0\n$12345678\n')
+    expect(rt.osdevkit.bitMaps.size).toBe(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
