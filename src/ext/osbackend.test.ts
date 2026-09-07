@@ -279,10 +279,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(bases).toHaveLength(14)
     expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(9)
     expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_base tag', '_base topaz',
+      '_base cx', '_base iff', '_base tag', '_base topaz',
     ])
     expect(bases.filter((row) => row.status === 'missing').map((row) => row.name).sort()).toEqual([
-      '_base cx', '_base iff', '_base wb',
+      '_base wb',
     ])
     expect(bases.some((row) => row.status === 'review')).toBe(false)
     expect(bases.find((row) => row.name === '_base gfx')?.workers).toEqual([1748])
@@ -1351,7 +1351,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
     const cli = rows.filter((row) => row.namespace === '_cli')
     expect(cli).toHaveLength(3)
-    expect(cli.every((row) => row.status === 'missing')).toBe(true)
+    expect(cli.every((row) => row.status === 'partial')).toBe(true)
     expect(cli.find((row) => row.name === '_cli read args')).toMatchObject({
       routines: [791], workers: [1861],
       osCalls: [
@@ -1368,11 +1368,11 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   })
 
   it('makes every previously stated missing family explicit', () => {
-    expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'missing', family: 'iffparse' })
+    expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'partial', family: 'iffparse' })
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
       chain: 'a5+552>+728', library: 'iffparse.library', lvo: -42,
     })
-    expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'missing', family: 'commodities' })
+    expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'partial', family: 'commodities' })
     expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'missing', family: 'workbench' })
     expect(rows.find((row) => row.name === '_prfs set')).toMatchObject({ status: 'missing', family: 'preferences' })
     expect(rows.find((row) => row.name === '_help ctrl')).toMatchObject({ status: 'missing', family: 'amigaguide' })

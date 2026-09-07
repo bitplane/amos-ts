@@ -21,8 +21,6 @@ export interface OsBackendRow {
 
 /** Families whose absence is already established, kept as executable data. */
 const MISSING: Array<{ family: string; names: (name: string, namespace: string) => boolean }> = [
-  { family: 'iffparse', names: (n, ns) => ns === '_iff' || ns === '_chunk' || n === '_base iff' },
-  { family: 'commodities', names: (n, ns) => ns === '_cx' || ns === '_event' || n === '_base cx' },
   { family: 'workbench', names: (_n, ns) => ns === '_wb' || ns === '_app' },
   { family: 'preferences', names: (_n, ns) => ns === '_prfs' },
   { family: 'amigaguide', names: (_n, ns) => ns === '_ag' || ns === '_help' },
@@ -41,7 +39,8 @@ const MODELLED = new Map<string, string>([
   ['_gt', 'gadtools'], ['_gmn', 'gadtools'], ['_menu', 'gadtools'], ['_dos', 'dos'],
   ['_cli', 'dos'], ['_lock', 'dos'], ['_file', 'dos'], ['_fh', 'dos'], ['_asl', 'asl'],
   ['_icon', 'icon'], ['_dt', 'datatypes'], ['_loc', 'locale'], ['_cat', 'locale'],
-  ['_joy', 'lowlevel'], ['_layer', 'layers'], ['_li', 'layers'],
+  ['_joy', 'lowlevel'], ['_layer', 'layers'], ['_li', 'layers'], ['_iff', 'iffparse'],
+  ['_chunk', 'iffparse'], ['_cx', 'commodities'], ['_event', 'commodities'],
 ])
 
 const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
@@ -101,6 +100,24 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
 const auditMany = (status: OsBackendStatus, reason: string, names: readonly string[]): void => {
   for (const name of names) AUDITED.set(name, { status, reason })
 }
+
+auditMany('partial', 'shared iffparse handles implement nested FORM/chunk scanning, native-buffer reads and streamed output; full ParseIFF control modes and raw ContextNode layout remain incomplete', [
+  '_iff init', '_base iff', '_iff parse', '_iff open in', '_iff open out', '_iff close',
+  '_chunk current', '_chunk parent', '_chunk read', '_chunk write', '_chunk child', '_chunk end',
+  '_chunk what size', '_chunk what scan', '_chunk what type', '_chunk what id',
+])
+auditMany('partial', 'shared Commodities brokers, Cx object graphs and native Exec message queues are modelled; the runtime input stream does not yet synthesize every commodity event', [
+  '_cx init', '_base cx', '_cx install', '_cx uninstall', '_cx broker', '_cx enable', '_cx disable',
+  '_cx id base', '_cx id create', '_cx id delete', '_cx msg port', '_cx id type', '_cx id error',
+  '_cx id clear error', '_cx id activate', '_cx id inactivate', '_cx id attach', '_cx id remove',
+  '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
+])
+auditMany('partial', 'DOS local variables and global ENV: files share one backend; native LocalVar list layout and every binary/SAVE flag combination remain incomplete', [
+  '_dos var del', '_dos var find', '_dos var value$',
+])
+auditMany('partial', 'a shared ReadArgs template/result backend handles keyed, required, switch, numeric, multi and rest arguments; native RDArgs allocation and every quoting edge remain incomplete', [
+  '_cli read args', '_cli what arg$', '_cli what arg',
+])
 
 auditMany('faithful', 'the GadTools structure field or managed-object lifecycle is represented exactly', [
   '_ggad def body', '_ggad def text', '_ggad def id', '_ggad def flags', '_ggad def user', '_ggad def vinf',
@@ -675,8 +692,11 @@ auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateT
 auditMany('partial', 'global ENV: variable storage exists, but local-variable lists, FindVar pointers and the full DOS flag surface do not', [
   '_dos var del', '_dos var find', '_dos var value$',
 ])
-auditMany('missing', 'dos.library ReadArgs template parsing and OS DevKit’s retained 256-slot result table have no backend', [
+auditMany('partial', 'the shared ReadArgs template/result backend handles the documented field modes; native RDArgs allocation and every quoting edge remain incomplete', [
   '_cli read args', '_cli what arg$', '_cli what arg',
+])
+auditMany('partial', 'the Commodities event queue shares native Exec messages and GadTools filtering; scheduler-backed blocking remains incomplete', [
+  '_event wait port',
 ])
 
 const namespaceOf = (name: string): string => name.replace(/^!/, '').split(' ')[0]!
