@@ -226,7 +226,7 @@ auditMany('partial', 'Amiga path joining and directory-part extraction exist, bu
 auditMany('partial', 'filesystem paths exist, but native BPTR lock identity, shared/exclusive ownership and lock-to-handle lifetime are not exposed', [
   '_dos lock', '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_dos wr lock', '_lock name$',
 ])
-auditMany('partial', 'the path operation is modelled, but these entry points operate on caller-owned C buffers and pointers that the backend does not expose', [
+auditMany('faithful', 'the native path operations mutate caller-owned C buffers or return the exact pointer boundary within them', [
   '_dos add part', '_dos file part', '_dos path part',
 ])
 auditMany('faithful', 'dos.library FilePart boundary rules are modelled for the AMOS-string wrapper', [

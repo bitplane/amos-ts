@@ -47,9 +47,10 @@ import { IffParse } from '../amiga/iffparse'
 import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
-import type { AmigaFS } from '../amiga/vfs'
+import { joinAmigaPath, type AmigaFS } from '../amiga/vfs'
 import { DataTypesService, dataTypeString } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
+import { dosFilePart, dosPathPart } from '../amiga/dos'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -2635,6 +2636,32 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       // The native result is unusable through at least V47; the extension's
       // own manual consequently specifies no meaning for this value.
       return VI(0)
+    },
+    '_dos add part'(_, a) {
+      const pathAddress = n(a, 0) >>> 0, nameAddress = n(a, 1) >>> 0, length = n(a, 2)
+      if (pathAddress === 0 || nameAddress === 0 || length <= 0) return VI(0)
+      const value = joinAmigaPath(cString(rt, pathAddress), cString(rt, nameAddress))
+      if (value.length + 1 > length) return VI(0)
+      for (let i = 0; i < value.length; i++) {
+        const m = rt.resolveWrite(pathAddress + i)
+        if (!m) return VI(0)
+        m.data[m.off] = value.charCodeAt(i) & 0xff
+      }
+      const end = rt.resolveWrite(pathAddress + value.length)
+      if (!end) return VI(0)
+      end.data[end.off] = 0
+      return VI(-1)
+    },
+    '_dos file part'(_, a) {
+      const address = n(a, 0) >>> 0
+      if (address === 0) return VI(0)
+      const path = cString(rt, address)
+      return VI((address + path.length - dosFilePart(path).length) >>> 0)
+    },
+    '_dos path part'(_, a) {
+      const address = n(a, 0) >>> 0
+      if (address === 0) return VI(0)
+      return VI((address + dosPathPart(cString(rt, address)).length) >>> 0)
     },
     '_dos report'(_, a) { return VI(rt.dos.report(n(a, 0), n(a, 1), n(a, 2), n(a, 3)) ? -1 : 0) },
     '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },

@@ -201,6 +201,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 0\tLoad: Object not found\nObject \n')
   })
 
+  it('mutates and returns pointers into caller-owned DOS path strings', () => {
+    const { output } = run([
+      'P=_str alloc(40) : N=_to str("serial.prefs") : _str put "RAM:ENV/Sys",P',
+      'Print _dos add part(P,N,40),_str get(P)',
+      'F=_dos file part(P) : D=_dos path part(P)',
+      'Print F-P,D-P,_str get(F),Peek$(P,D-P)',
+      'Print _dos add part(P,N,8),_str get(P)',
+      '_str free N : _str free P',
+    ].join('\n'))
+    expect(output).toBe('-1\tRAM:ENV/Sys/serial.prefs\n 12\t 11\tserial.prefs\tRAM:ENV/Sys\n 0\tRAM:ENV/Sys/serial.prefs\n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',

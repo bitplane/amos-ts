@@ -855,9 +855,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const paths = rows.filter((row) => names.includes(row.name))
     expect(paths).toHaveLength(15)
     expect(paths.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
-      '_dos exist', '_dos set dir$', '_dos what dir$', '_file part',
+      '_dos add part', '_dos exist', '_dos file part', '_dos path part', '_dos set dir$', '_dos what dir$', '_file part',
     ])
-    expect(paths.filter((row) => row.status === 'partial')).toHaveLength(11)
+    expect(paths.filter((row) => row.status === 'partial')).toHaveLength(8)
 
     const expected = new Map<string, [number, number]>([
       ['_dos lock', [1826, -84]], ['_dos unlock', [1827, -90]],
