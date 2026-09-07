@@ -270,6 +270,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.bitMaps.size).toBe(0)
   })
 
+  it('owns classic hardware sprite slots through native SimpleSprite records', () => {
+    const { rt, output } = run([
+      'S=_struct alloc(12) : N=_spr get(S,3) : Print N,_spr get(S,4),_struct uword(S,10)',
+      '_spr change $11111111,S,$22222222 : _spr move $33333333,S,-5,300',
+      'Print Hex$(_struct long(S,0)),_struct word(S,6),_struct word(S,8)',
+      '_spr free N : _spr free 4 : T=_struct alloc(12) : Print _spr get(T,-1)',
+      '_spr free 0 : _struct free T : _struct free S',
+    ].join('\n'))
+    expect(output).toBe(' 3\t 4\t 4\n$22222222\t-5\t 300\n 0\n')
+    expect(rt.osdevkit.hardwareSprites.every((entry) => entry === null)).toBe(true)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

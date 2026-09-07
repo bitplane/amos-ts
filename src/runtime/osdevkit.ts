@@ -153,6 +153,7 @@ export interface OsDevKitState {
   addressRegisters: Int32Array
   pools: Map<number, { requirements: number; puddleSize: number; thresholdSize: number; allocations: Set<number> }>
   bitMaps: Map<number, { width: number; flags: number; ownedPlanes: number[] }>
+  hardwareSprites: Array<{ sprite: number; data: number; viewPort: number } | null>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -190,7 +191,8 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
-    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(), aslRequests: new Map(),
+    dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(),
+    hardwareSprites: Array.from({ length: 8 }, () => null), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1356,6 +1358,23 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_bm set plane'(it) {
       const [bitmap, plane, address] = readArgs(it, 3)
       if (plane! >= 0 && plane! < 8) structWrite(rt, bitmap! + 8 + plane! * 4, 4, address!)
+    },
+    '_spr change'(it) {
+      const [viewPort, sprite, data] = readArgs(it, 3); const number = structRead(rt, sprite! + 10, 2, false)
+      if (number < 8 && st().hardwareSprites[number]?.sprite === (sprite! >>> 0)) {
+        st().hardwareSprites[number] = { sprite: sprite! >>> 0, data: data! >>> 0, viewPort: viewPort! >>> 0 }
+        structWrite(rt, sprite!, 4, data!)
+      }
+    },
+    '_spr free'(it) {
+      const number = it.evalInt(); if (number >= 0 && number < 8) st().hardwareSprites[number] = null
+    },
+    '_spr move'(it) {
+      const [viewPort, sprite, x, y] = readArgs(it, 4); const number = structRead(rt, sprite! + 10, 2, false)
+      if (number < 8 && st().hardwareSprites[number]?.sprite === (sprite! >>> 0)) {
+        st().hardwareSprites[number]!.viewPort = viewPort! >>> 0
+        structWrite(rt, sprite! + 6, 2, x!); structWrite(rt, sprite! + 8, 2, y!)
+      }
     },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
@@ -2897,6 +2916,13 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       if (attribute === 8) return VI(bitmap?.width ?? structRead(rt, address, 2, false) * 8)
       if (attribute === 12) return VI(bitmap?.flags ?? structRead(rt, address + 4, 1, false))
       return VI(0)
+    },
+    '_spr get'(_, a) {
+      const sprite = n(a, 0) >>> 0; const requested = n(a, 1)
+      const number = requested === -1 ? st().hardwareSprites.findIndex((entry) => entry === null) : requested
+      if (sprite === 0 || number < 0 || number >= 8 || st().hardwareSprites[number] !== null) return VI(-1)
+      st().hardwareSprites[number] = { sprite, data: structRead(rt, sprite, 4, false), viewPort: 0 }
+      structWrite(rt, sprite + 10, 2, number); return VI(number)
     },
     '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {
