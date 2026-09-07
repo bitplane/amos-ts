@@ -218,6 +218,39 @@ export function dosPathPart(path: string): string {
   return ''
 }
 
+/* ------------------------------------------------------------------ *
+ * dos.library error text
+ * ------------------------------------------------------------------ */
+
+/** Error catalogue recovered from AMCAF 1.50's pre-V37 fallback table. */
+const DOS_ERRORS: Readonly<Record<number, string>> = {
+  49: 'file not executable', 103: 'not enough memory available', 121: 'file is not executable',
+  202: 'object is in use', 203: 'object already exists', 204: 'directory not found',
+  205: 'object not found', 207: 'object is too large', 210: 'object name invalid',
+  211: 'invalid object lock', 212: 'object is not of required type', 213: 'disk is not validated',
+  214: 'disk is write-protected', 215: 'rename across devices attempted', 216: 'directory not empty',
+  217: 'too many levels', 218: 'device (or volume) is not mounted', 219: 'seek failure',
+  220: 'comment is too long', 221: 'disk full', 222: 'object is protected from deletion',
+  223: 'file is write protected', 224: 'file is read protected', 225: 'not a valid DOS disk',
+  226: 'no disk in drive', 232: 'no more entries in directory',
+}
+
+/** AMCAF-compatible lower-case text; an unknown error has no table entry. */
+export function dosErrorText(code: number): string { return DOS_ERRORS[code | 0] ?? '' }
+
+/**
+ * Text written by `Fault()`, excluding its final NUL. A non-NULL empty
+ * header still produces `": "`; AMCAF 1.50 relies on precisely that detail.
+ * Code zero is the native no-write case.
+ */
+export function dosFaultText(code: number, header: string | null): string | null {
+  code |= 0
+  if (code === 0) return null
+  const error = dosErrorText(code)
+  const message = error ? error[0]!.toUpperCase() + error.slice(1) : String(code)
+  return `${header === null ? '' : `${header}: `}${message}`
+}
+
 /**
  * `struct InfoData`, what `Info()` fills in — dos/dos.h.
  *
@@ -304,6 +337,7 @@ export class DosSystem {
   ioErr = 0
   lastReport: DosReport | null = null
   setIoErr(value: number): number { const old = this.ioErr; this.ioErr = value | 0; return old }
+  fault(code: number, header: string | null): string | null { return dosFaultText(code, header) }
   report(error: number, type: number, argument: number, device: number): boolean {
     this.ioErr = error | 0
     this.lastReport = { error: error | 0, type: type | 0, argument: argument >>> 0, device: device >>> 0 }

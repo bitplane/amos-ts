@@ -2618,6 +2618,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },
     '_dos err'() { return VI(rt.dos.ioErr) },
     '_dos set err'(_, a) { return VI(rt.dos.setIoErr(n(a, 0))) },
+    '_dos fault'(_, a) {
+      const code = n(a, 0), headerAddress = n(a, 1) >>> 0
+      const buffer = n(a, 2) >>> 0, length = n(a, 3)
+      const value = rt.dos.fault(code, headerAddress === 0 ? null : cString(rt, headerAddress))
+      if (value === null || buffer === 0 || length <= 0) return VI(0)
+      const bytes = new TextEncoder().encode(value)
+      const count = Math.min(bytes.length, Math.max(0, length - 1))
+      for (let i = 0; i < count; i++) {
+        const m = rt.resolveWrite(buffer + i)
+        if (!m) break
+        m.data[m.off] = bytes[i]!
+      }
+      const end = rt.resolveWrite(buffer + count)
+      if (end) end.data[end.off] = 0
+      // The native result is unusable through at least V47; the extension's
+      // own manual consequently specifies no meaning for this value.
+      return VI(0)
+    },
     '_dos report'(_, a) { return VI(rt.dos.report(n(a, 0), n(a, 1), n(a, 2), n(a, 3)) ? -1 : 0) },
     '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },
     '_dos var find'(_, a) { return VI(st().dosVariables.find(str(a[0] ?? VS('')), n(a, 1))) },

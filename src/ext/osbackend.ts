@@ -249,7 +249,7 @@ auditMany('partial', 'sequential and random file streams provide the operation, 
 auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [
   '_dos err', '_dos set err',
 ])
-auditMany('partial', 'AmigaDOS error strings are mapped where callers need them, but arbitrary Fault buffer formatting is not exposed', [
+auditMany('partial', 'Fault writes its prefix, translated or numeric error and NUL into caller memory with native truncation; the catalogue covers the errors recovered from AMCAF rather than every handler-defined code', [
   '_dos fault',
 ])
 auditMany('partial', 'ReportEvent retains the exact error, type, argument and device in shared DOS state; native requester presentation remains a host boundary', [

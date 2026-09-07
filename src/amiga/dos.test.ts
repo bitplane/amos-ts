@@ -28,12 +28,25 @@ import {
   ST_SOFTLINK,
   ST_USERDIR,
   blocksFor,
+  dosErrorText,
   dosFilePart,
+  dosFaultText,
   dosPathPart,
   entryType,
   isDirType,
   permits,
 } from './dos'
+
+describe('dos.library error text', () => {
+  it('shares the AMCAF catalogue and preserves Fault header semantics', () => {
+    expect(dosErrorText(205)).toBe('object not found')
+    expect(dosErrorText(999)).toBe('')
+    expect(dosFaultText(205, 'Load')).toBe('Load: Object not found')
+    expect(dosFaultText(205, '')).toBe(': Object not found')
+    expect(dosFaultText(999, null)).toBe('999')
+    expect(dosFaultText(0, 'ignored')).toBeNull()
+  })
+})
 
 describe('dos.library path parts', () => {
   it('reproduces the OS DevKit FilePart and PathPart example', () => {

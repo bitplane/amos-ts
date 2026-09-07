@@ -125,7 +125,7 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import { AmosError, funcCall, int, str, type Value, VI, VS } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
-import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
+import { MAX_COMMENT, blocksFor, dosErrorText, entryType, protectionString } from '../amiga/dos'
 import type { DosSystem } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
 import { iconToolTypes } from '../amiga/icon'
@@ -5309,36 +5309,6 @@ function saveBank(rt: Runtime, it: Interp): void {
  * what both arms give: "If no error number exists, an empty string will be
  * returned".
  */
-const DOS_ERRORS: Record<number, string> = {
-  49: 'file not executable',
-  103: 'not enough memory available',
-  121: 'file is not executable',
-  202: 'object is in use',
-  203: 'object already exists',
-  204: 'directory not found',
-  205: 'object not found',
-  207: 'object is too large',
-  210: 'object name invalid',
-  211: 'invalid object lock',
-  212: 'object is not of required type',
-  213: 'disk is not validated',
-  214: 'disk is write-protected',
-  215: 'rename across devices attempted',
-  216: 'directory not empty',
-  217: 'too many levels',
-  218: 'device (or volume) is not mounted',
-  219: 'seek failure',
-  220: 'comment is too long',
-  221: 'disk full',
-  222: 'object is protected from deletion',
-  223: 'file is write protected',
-  224: 'file is read protected',
-  225: 'not a valid DOS disk',
-  226: 'no disk in drive',
-  232: 'no more entries in directory',
-}
-const dosErrorText = (n: number): string => DOS_ERRORS[n] ?? ''
-
 /**
  * The tool types of an icon, one per line.
  *

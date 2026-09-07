@@ -191,6 +191,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.dos.lastReport).toEqual({ error: 212, type: 1, argument: 0x1234, device: 0x5678 })
   })
 
+  it('writes dos.library Fault text into caller-owned C buffers', () => {
+    const { output } = run([
+      'B=_struct alloc(32) : H=_to str("Load")',
+      'Print _dos fault(205,H,B,32),_str get(B)',
+      'R=_dos fault(205,0,B,8) : Print _str get(B)',
+      '_str free H : _struct free B',
+    ].join('\n'))
+    expect(output).toBe(' 0\tLoad: Object not found\nObject \n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',
