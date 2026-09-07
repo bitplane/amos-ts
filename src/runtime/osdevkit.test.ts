@@ -7,17 +7,20 @@ import { tokenize } from '../tokens/source'
 import { fixedClock } from '../amiga/host'
 import { Runtime } from './runtime'
 import { BankImage, ObjectBank } from './objects'
+import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
 
 function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
   const extensions = new Map([[20, os.table]])
+  const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume())
   let output = ''
   const rt = new Runtime(tokenize(source, core, extensions), core, {
     extensions,
     extBindings: new Map([[20, os]]),
     host: { clock: fixedClock() },
+    fs,
     maxSteps: 200_000,
     onText: (text) => { output += text },
   })
@@ -27,6 +30,16 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('uses one iffparse backend for nested input chunks and native buffers', () => {
+    const iff = Uint8Array.from([0x46,0x4f,0x52,0x4d, 0,0,0,14, 0x54,0x45,0x53,0x54, 0x44,0x41,0x54,0x41, 0,0,0,2, 0x12,0x34])
+    const { output } = run([
+      'Reserve As Data 1,2 : H=_iff open in("RAM:test.iff")',
+      'Print _iff init<>0,_iff parse(H,1),Hex$(_chunk what id(_chunk current(H))),Hex$(_chunk what type(_chunk current(H)))',
+      'Print _iff parse(H,1),Hex$(_chunk what id(_chunk current(H))),_chunk read(H,Start(1),2),Hex$(Deek(Start(1))) : _iff close H',
+    ].join('\n'), rt => rt.vfs?.writeFile('RAM:test.iff', iff))
+    expect(output).toBe('-1\t 0\t$464F524D\t$54455354\n 0\t$44415441\t 2\t$1234\n')
+  })
+
   it('shares libraries, lowlevel input, timing and display ownership with the runtime', () => {
     const source = [
       'L=_lib open("lowlevel.library",40) : B=_low init : Print L<>0,B=L',

@@ -43,6 +43,7 @@ import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
 import { JP_TYPE_MASK, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
+import { IffParse } from '../amiga/iffparse'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -102,6 +103,8 @@ export interface OsDevKitState {
   openLibraries: Set<number>
   lowlevelBase: number
   lowlevelClock: { last: number }
+  iff: IffParse
+  iffBase: number
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -130,7 +133,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
-    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 },
+    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1056,6 +1059,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_iff close'(it) {
+      const result = st().iff.close(it.evalInt() >>> 0)
+      if (result) rt.vfs?.writeFile(result.path, result.bytes)
+    },
     '_lib close'(it) {
       const base = it.evalInt() >>> 0
       if (st().openLibraries.delete(base)) closeLibrary(base)
@@ -2283,6 +2290,29 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_iff init'() { st().iffBase = openLibrary('iffparse.library', 0); return VI(st().iffBase) },
+    '_base iff'() { return VI(st().iffBase) },
+    '_iff open in'(_, a) { const path = str(a[0] ?? VS('')); const bytes = rt.vfs?.readFile(path); return VI(bytes ? st().iff.openIn(path, bytes) : 0) },
+    '_iff open out'(_, a) { return VI(st().iff.openOut(str(a[0] ?? VS('')))) },
+    '_iff parse'(_, a) { return VI(st().iff.parse(n(a, 0) >>> 0, n(a, 1))) },
+    '_chunk current'(_, a) { return VI(st().iff.current(n(a, 0) >>> 0)) },
+    '_chunk parent'(_, a) { return VI(st().iff.parent(n(a, 0) >>> 0)) },
+    '_chunk read'(_, a) {
+      const buffer = n(a, 1) >>> 0, bytes = st().iff.read(n(a, 0) >>> 0, n(a, 2)); if (!bytes) return VI(-4)
+      for (let i = 0; i < bytes.length; i++) { const m = rt.resolveWrite(buffer + i); if (m) m.data[m.off] = bytes[i]! }
+      return VI(bytes.length)
+    },
+    '_chunk write'(_, a) {
+      const buffer = n(a, 1) >>> 0, bytes = new Uint8Array(Math.max(0, n(a, 2)))
+      for (let i = 0; i < bytes.length; i++) { const m = rt.resolveAddr(buffer + i); bytes[i] = m?.data[m.off] ?? 0 }
+      return VI(st().iff.write(n(a, 0) >>> 0, bytes))
+    },
+    '_chunk child'(_, a) { return VI(st().iff.push(n(a, 0) >>> 0, n(a, 1) >>> 0, n(a, 2) >>> 0, n(a, 3))) },
+    '_chunk end'(_, a) { return VI(st().iff.pop(n(a, 0) >>> 0)) },
+    '_chunk what size'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.size ?? 0) },
+    '_chunk what scan'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.scan ?? 0) },
+    '_chunk what type'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.type ?? 0) },
+    '_chunk what id'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.id ?? 0) },
     '_low init'() {
       st().lowlevelBase = openLibrary('lowlevel.library', 0)
       st().lowlevelClock.last = Math.floor((rt.interp.tick * 65536) / 50)

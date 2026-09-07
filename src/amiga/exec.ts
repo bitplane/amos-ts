@@ -226,6 +226,10 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
         'AmigaOS 3.1 for games.',
     },
   ],
+  [
+    'iffparse.library',
+    { version: 40, about: 'Shared IFF FORM/chunk parsing and writing service.' },
+  ],
   // the XPK compression master --- ../amiga/xpkmaster.ts is a real port of the
   // stream format and the packer registry, and EasyLife already drives it.
   // Version 4 because that is what BUtility's routine 0 asks for.
