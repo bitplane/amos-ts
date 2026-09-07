@@ -1146,6 +1146,19 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 3\n 3\t 1\n 1\n 1\n')
   })
 
+  it('scales caller-owned planar BitMaps and shares ScaleDiv arithmetic', () => {
+    const source = [
+      'SP=_struct alloc(4) : DP=_struct alloc(8) : S=_struct alloc(40) : D=_struct alloc(40) : R=_struct alloc(72) : A=_struct alloc(48)',
+      '_bm set datas S,2,2,1,0 : Loke S+8,SP : _bm set datas D,2,4,1,0 : Loke D+8,DP',
+      '_rp set bmap R,S : _rp set wr msk R,1 : _rp a pen R,1 : _rp plot R,0,0',
+      '_struct word(A,4)=2 : _struct word(A,6)=2 : _struct word(A,16)=4 : _struct word(A,18)=4',
+      '_struct long(A,24)=S : _struct long(A,28)=D : _scale bm A : _rp set bmap R,D',
+      'Print _rp point(R,0,0),_rp point(R,1,1),_rp point(R,2,0),_scale div(7,10,4)',
+      '_struct free A : _struct free R : _struct free D : _struct free S : _struct free DP : _struct free SP',
+    ].join('\n')
+    expect(run(source).output).toBe(' 1\t 1\t 0\t 17\n')
+  })
+
   it('uses caller-owned AreaInfo and TmpRas records for fills and raster allocation', () => {
     const source = [
       'P=_struct alloc(64) : B=_struct alloc(40) : R=_struct alloc(72)',

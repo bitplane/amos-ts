@@ -540,6 +540,27 @@ function nativeScrollRaster(rt: Runtime, raster: NativeRaster, dx: number, dy: n
   }
 }
 
+function nativeBitmapPixel(rt: Runtime, bitmap: number, x: number, y: number): number {
+  const rowBytes = structRead(rt, bitmap, 2, false); const height = structRead(rt, bitmap + 2, 2, false)
+  const depth = Math.min(8, structRead(rt, bitmap + 5, 1, false)); if (x < 0 || y < 0 || x >= rowBytes * 8 || y >= height) return 0
+  let colour = 0
+  for (let plane = 0; plane < depth; plane++) {
+    const data = structRead(rt, bitmap + 8 + plane * 4, 4, false) >>> 0; const byte = rt.resolveAddr(data + y * rowBytes + (x >>> 3))
+    if (byte && (byte.data[byte.off]! & (0x80 >>> (x & 7))) !== 0) colour |= 1 << plane
+  }
+  return colour
+}
+
+function putNativeBitmapPixel(rt: Runtime, bitmap: number, x: number, y: number, colour: number): void {
+  const rowBytes = structRead(rt, bitmap, 2, false); const height = structRead(rt, bitmap + 2, 2, false)
+  const depth = Math.min(8, structRead(rt, bitmap + 5, 1, false)); if (x < 0 || y < 0 || x >= rowBytes * 8 || y >= height) return
+  for (let plane = 0; plane < depth; plane++) {
+    const data = structRead(rt, bitmap + 8 + plane * 4, 4, false) >>> 0; const byte = rt.resolveWrite(data + y * rowBytes + (x >>> 3))
+    if (!byte) continue
+    const bit = 0x80 >>> (x & 7); byte.data[byte.off] = (colour & (1 << plane)) !== 0 ? byte.data[byte.off]! | bit : byte.data[byte.off]! & ~bit
+  }
+}
+
 function nativeDrawImage(rt: Runtime, image: number, raster: NativeRaster, offsetX: number, offsetY: number): void {
   const left = structRead(rt, image, 2, true); const top = structRead(rt, image + 2, 2, true)
   const width = structRead(rt, image + 4, 2, false); const height = structRead(rt, image + 6, 2, false)
@@ -2083,6 +2104,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [rp, dx, dy, x1, y1] = readArgs(it, 5); it.expect('to'); const [x2, y2] = readArgs(it, 2)
       const raster = nativeRaster(rt, rp!); if (raster) nativeScrollRaster(rt, raster, dx!, dy!, x1!, y1!, x2!, y2!)
     },
+    '_scale bm'(it) {
+      const args = it.evalInt() >>> 0; if (args === 0) return
+      const srcX = structRead(rt, args, 2, false); const srcY = structRead(rt, args + 2, 2, false)
+      const srcWidth = structRead(rt, args + 4, 2, false); const srcHeight = structRead(rt, args + 6, 2, false)
+      const dstX = structRead(rt, args + 12, 2, false); const dstY = structRead(rt, args + 14, 2, false)
+      const dstWidth = structRead(rt, args + 16, 2, false); const dstHeight = structRead(rt, args + 18, 2, false)
+      const src = structRead(rt, args + 24, 4, false) >>> 0; const dst = structRead(rt, args + 28, 4, false) >>> 0
+      if (src === 0 || dst === 0 || srcWidth === 0 || srcHeight === 0 || dstWidth === 0 || dstHeight === 0) return
+      for (let y = 0; y < dstHeight; y++) for (let x = 0; x < dstWidth; x++) {
+        putNativeBitmapPixel(rt, dst, dstX + x, dstY + y, nativeBitmapPixel(rt, src, srcX + Math.floor(x * srcWidth / dstWidth), srcY + Math.floor(y * srcHeight / dstHeight)))
+      }
+    },
     '_rp draw'(it) {
       const [rp, x, y] = readArgs(it, 3); const raster = nativeRaster(rt, rp!)
       if (raster) nativeDraw(rt, raster, structRead(rt, rp! + 36, 2, true), structRead(rt, rp! + 38, 2, true), x!, y!)
@@ -3024,6 +3057,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       structWrite(rt, rect, 2, 0); structWrite(rt, rect + 2, 2, 0)
       structWrite(rt, rect + 4, 2, mode.width - 1); structWrite(rt, rect + 6, 2, mode.height - 1)
       return VI(-1)
+    },
+    '_scale div'(_, a) {
+      const denominator = n(a, 2) & 0xffff
+      return VI(denominator === 0 ? 0 : Math.floor((n(a, 0) & 0xffff) * (n(a, 1) & 0xffff) / denominator))
     },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
