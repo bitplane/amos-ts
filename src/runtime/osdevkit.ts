@@ -40,7 +40,7 @@ import type { Runtime } from './runtime'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
-import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
+import { doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
 import { JP_TYPE_MASK, SCON_TAKE_OVER_SYS, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 import { IffParse } from '../amiga/iffparse'
@@ -98,6 +98,8 @@ export interface OsDevKitState {
   nextMenuItemAddress: number
   /** BOOPSI handles created through OS DevKit's private object registry 21. */
   boopsiObjects: Set<number>
+  /** Cached private imageclass subclass returned by worker 1892. */
+  fileImageClass: number
   gtGadgetBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; context: Gadget; gadgets: Map<number, Gadget>; objects: Map<number, BoopsiObject>; attachedWindowId: number }>
   currentGtGadgetBank: number
   gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
@@ -139,7 +141,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
     newMenuLists: new Map(), menuItemRefs: new Map(), menuItemAddresses: new Map(), nextMenuItemAddress: 0x7300_0000,
-    boopsiObjects: new Set(),
+    boopsiObjects: new Set(), fileImageClass: 0,
     gtGadgetBanks: new Map(), currentGtGadgetBank: 0,
     gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
     gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
@@ -2631,11 +2633,20 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_obj new'(_, a) {
       const privateClass = n(a, 0) >>> 0
       const className = str(a[1] ?? VS(''))
-      if (privateClass !== 0 || className === '') return VI(0)
-      const object = rt.boopsi.newObjectA(className, tagItems(st(), n(a, 2)))
+      const cl = privateClass === 0 ? className : rt.boopsi.classAt(privateClass)
+      if (!cl) return VI(0)
+      const object = rt.boopsi.newObjectA(cl, tagItems(st(), n(a, 2)))
       if (!object) return VI(0)
       st().boopsiObjects.add(object.address)
       return VI(object.address)
+    },
+    '_class get file'() {
+      if (st().fileImageClass !== 0) return VI(st().fileImageClass)
+      rt.boopsi.ensureIntuitionClasses()
+      const cl = rt.boopsi.makeClass('', 'imageclass', (entered, object, message) => doSuperMethodA(entered, object, message))
+      if (!cl) return VI(0)
+      st().fileImageClass = rt.boopsi.classHandle(cl)
+      return VI(st().fileImageClass)
     },
     '_obj what attr'(_, a) {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0)

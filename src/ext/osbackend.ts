@@ -328,7 +328,7 @@ auditMany('faithful', 'managed BOOPSI objects implement DisposeObject and nullab
 auditMany('partial', 'BOOPSI attribute/method dispatch exists, but arbitrary native tag lists and message structures cannot be dispatched', [
   '_obj set attrs', '_obj do',
 ])
-auditMany('missing', 'OS DevKit’s custom file-backed image class and its embedded native dispatcher are not modelled', [
+auditMany('partial', 'the cached private imageclass subclass and native class-handle path are shared with BOOPSI; its custom datatype-backed IM_DRAW rendering remains incomplete', [
   '_class get file',
 ])
 auditMany('partial', 'console output exists, but dos.library VPrintf formatting through a native argument stream is not exposed', [

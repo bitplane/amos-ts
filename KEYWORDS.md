@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          316 |     369 |      65% |
+| os-devkit-1.61       |     1047 |      362 |          317 |     368 |      65% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          727 |     412 |      94% |
+| **total**            |     7422 |     6227 |          728 |     411 |      94% |
 
 ## Not applicable, by what would retire it
 
@@ -431,16 +431,16 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (65%)
 
-- **approximated** (316): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (317): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_asl alloc`, `_asl do`, `_asl file$`,
   `_asl free`, `_asl what drawer`, `_asl what file`, `_asl what font`, `_asl what nb args`,
   `_base cx`, `_base iff`, `_base wb`, `_bd draw`, `_chunk child`, `_chunk current`,
   `_chunk end`, `_chunk parent`, `_chunk read`, `_chunk what id`, `_chunk what scan`,
-  `_chunk what size`, `_chunk what type`, `_chunk write`, `_cli read args`, `_cli what arg`,
-  `_cli what arg$`, `_cx broker`, `_cx disable`, `_cx enable`, `_cx id activate`,
-  `_cx id attach`, `_cx id base`, `_cx id clear error`, `_cx id create`, `_cx id delete`,
-  `_cx id error`, `_cx id event data`, `_cx id event id`, `_cx id event type`,
+  `_chunk what size`, `_chunk what type`, `_chunk write`, `_class get file`, `_cli read args`,
+  `_cli what arg`, `_cli what arg$`, `_cx broker`, `_cx disable`, `_cx enable`,
+  `_cx id activate`, `_cx id attach`, `_cx id base`, `_cx id clear error`, `_cx id create`,
+  `_cx id delete`, `_cx id error`, `_cx id event data`, `_cx id event id`, `_cx id event type`,
   `_cx id inactivate`, `_cx id next event`, `_cx id remove`, `_cx id type`, `_cx id wait event`,
   `_cx init`, `_cx install`, `_cx msg port`, `_cx uninstall`, `_dos err`, `_dos report`,
   `_dos set err`, `_dos var del`, `_dos var find`, `_dos var value$`, `_dt add`, `_dt create`,

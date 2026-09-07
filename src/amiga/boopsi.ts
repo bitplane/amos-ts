@@ -186,6 +186,8 @@ export class BoopsiClass {
  */
 const OBJ_ORIGIN = 0x7e00_0000
 const OBJ_STRIDE = 8
+const CLASS_ORIGIN = 0x7d00_0000
+const CLASS_STRIDE = 0x100
 
 /** `struct _Object` and the public object it precedes, as one thing. */
 export class BoopsiObject {
@@ -229,8 +231,11 @@ export class BoopsiObject {
  */
 export class Boopsi {
   private readonly classes = new Map<string, BoopsiClass>()
+  private readonly classHandles = new Map<number, BoopsiClass>()
+  private readonly handlesByClass = new Map<BoopsiClass, number>()
   private readonly objects = new Map<number, BoopsiObject>()
   private next = OBJ_ORIGIN
+  private nextClass = CLASS_ORIGIN
   private intuitionClassesReady = false
 
   /** the class every other class descends from */
@@ -353,6 +358,21 @@ export class Boopsi {
     return this.classes.get(id) ?? null
   }
 
+  /** Stable caller-visible IClass pointer for native-facing extensions. */
+  classHandle(cl: BoopsiClass): number {
+    const old = this.handlesByClass.get(cl)
+    if (old !== undefined) return old
+    const handle = this.nextClass
+    this.nextClass += CLASS_STRIDE
+    this.classHandles.set(handle, cl)
+    this.handlesByClass.set(cl, handle)
+    return handle
+  }
+
+  classAt(handle: number): BoopsiClass | null {
+    return this.classHandles.get(handle >>> 0) ?? null
+  }
+
   /**
    * FreeClass — refuses while objects or subclasses are outstanding.
    *
@@ -363,6 +383,8 @@ export class Boopsi {
     if (cl.objectCount > 0 || cl.subclassCount > 0) return false
     if (cl.superClass) cl.superClass.subclassCount--
     if (this.classes.get(cl.id) === cl) this.classes.delete(cl.id)
+    const handle = this.handlesByClass.get(cl)
+    if (handle !== undefined) { this.handlesByClass.delete(cl); this.classHandles.delete(handle) }
     return true
   }
 
