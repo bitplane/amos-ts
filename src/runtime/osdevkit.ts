@@ -352,6 +352,32 @@ function channelFree(st: OsDevKitState, node: number): void {
   st.memory.freeMem((node - 24) >>> 0)
 }
 
+function channelResize(st: OsDevKitState, node: number, length: number): number {
+  if (node === 0) return 0
+  const size = Math.max(0, length | 0); const oldSize = get32(st, node - 24)
+  const base = st.memory.alloc(size + 24, { clear: true })
+  if (base === 0) return 0
+  const replacement = (base + 24) >>> 0
+  st.memory.buffer.set(
+    st.memory.buffer.subarray(offset(st, node - 24), offset(st, node) + Math.min(oldSize, size)),
+    offset(st, base),
+  )
+  set32(st, replacement - 24, size)
+  const list = get32(st, replacement - 20), previous = get32(st, replacement - 16), next = get32(st, replacement - 12)
+  if (get32(st, list + 8) === (node >>> 0)) set32(st, list + 8, replacement)
+  if (get32(st, list + 12) === (node >>> 0)) set32(st, list + 12, replacement)
+  if (previous !== 0) {
+    if (get32(st, previous - 12) === (node >>> 0)) set32(st, previous - 12, replacement)
+    if (get32(st, previous - 4) === (node >>> 0)) set32(st, previous - 4, replacement)
+  }
+  if (next !== 0) {
+    if (get32(st, next - 16) === (node >>> 0)) set32(st, next - 16, replacement)
+    if (get32(st, next - 8) === (node >>> 0)) set32(st, next - 8, replacement)
+  }
+  st.memory.freeMem((node - 24) >>> 0)
+  return replacement
+}
+
 function tagItems(st: OsDevKitState, list: number): Array<{ tag: number; data: number; address: number }> {
   if (list === 0 || list === -0x8000_0000) list = defaultTagsAddress(st)
   const out: Array<{ tag: number; data: number; address: number }> = []
@@ -3557,6 +3583,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const before = n(a, 0)
       return VI(channelInsert(st(), before, a.length > 1 ? n(a, 1) : get32(st(), get32(st(), before - 20) + 4)))
     },
+    '_chn new length'(_, a) { return VI(channelResize(st(), n(a, 0) >>> 0, n(a, 1))) },
     '_dots alloc'(_, a) { return VI(st().memory.alloc(Math.max(0, n(a, 0)) * 4, { clear: true })) },
     '_dots what x'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1) * 4, 2, true)) },
     '_dots what y'(_, a) { return VI(structRead(rt, n(a, 0) + n(a, 1) * 4 + 2, 2, true)) },

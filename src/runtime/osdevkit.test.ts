@@ -762,6 +762,18 @@ describe('OS DevKit 1.61 channel records', () => {
     ].join('\n')
     expect(run(source).output).toBe(' 3\t 2\t-1\n 3\t 2\n 6\t 3\n 3\n')
   })
+
+  it('replaces a channel allocation while preserving links and its data prefix', () => {
+    const source = [
+      'L=_chn list alloc(3) : A=_chn add(L,3) : B=_chn add(L,2)',
+      '_struct ubyte(A,0)=10 : _struct ubyte(A,1)=20 : _struct ubyte(A,2)=30',
+      'N=_chn new length(A,6)',
+      'Print N<>0,N<>A,_chn what length(N),_chn what first(L)=N,_chn what previous(B)=N',
+      'Print _struct ubyte(N,0),_struct ubyte(N,1),_struct ubyte(N,2),_struct ubyte(N,3)',
+      '_chn list free L',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t 6\t-1\t-1\n 10\t 20\t 30\t 0\n')
+  })
 })
 
 describe('OS DevKit 1.61 native event and utility structures', () => {
