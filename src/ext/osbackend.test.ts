@@ -140,7 +140,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const stone = rows.filter((row) => row.namespace === '_sp' || row.namespace === '_fx')
     expect(stone).toHaveLength(12)
     expect(stone.filter((row) => row.status === 'missing')).toHaveLength(0)
-    expect(stone.every((row) => row.status === 'partial')).toBe(true)
+    expect(stone.filter((row) => row.status === 'faithful').map((row) => row.name)).toEqual(['_fx bank'])
+    expect(stone.filter((row) => row.status === 'partial')).toHaveLength(11)
     expect(stone.some((row) => row.status === 'review')).toBe(false)
     expect(stone.find((row) => row.name === '_sp play')).toMatchObject({
       workers: [1899],

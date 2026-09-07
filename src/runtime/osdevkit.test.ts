@@ -154,6 +154,10 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 1\t 250\t 249\t 0\t-1\n')
     expect(rt.stonePlayer).toMatchObject({ installed: false, playing: false, leftVolume: 12, rightVolume: 34, balance: -8, speed: 7, mixPeriod: 158 })
   })
+  it('selects the shared AMOS Samples bank through FX worker 1911', () => {
+    const { rt } = run('_fx bank 65535 : _fx bank 0')
+    expect(rt.samBankNum).toBe(65535)
+  })
 
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })

@@ -1887,6 +1887,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_sp speed'(it) { rt.stonePlayer.speed = it.evalInt() },
     '_sp mix'(it) { rt.stonePlayer.setMixFrequency(it.evalInt()) },
     '_fx balance'(it) { rt.stonePlayer.balance = it.evalInt() },
+    /** Worker 1911: select any positive 16-bit AMOS Samples bank number. */
+    '_fx bank'(it) {
+      const number = it.evalInt()
+      if (number <= 0 || number > 0xffff) return
+      rt.samBankNum = number
+    },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
       if (!target) return
