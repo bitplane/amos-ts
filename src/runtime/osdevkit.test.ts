@@ -738,6 +738,19 @@ describe('OS DevKit 1.61 system operations', () => {
       'Tuesday\t12-Jul-94\t94-07-12\t07-12-94\t12-07-94\t12-Jul-94\t14:30:00\n',
     )
   })
+
+  it('folds raw Screen geometry, ordering, title and native graphics queries into Screen-ID state', () => {
+    const { rt, output } = run([
+      '_scr id open 1,3,20,80,40,3,0,0,"One" : A=_scr id base(1)',
+      '_scr id open 2,0,10,80,40,3,0,0,"Two" : B=_scr id base(2)',
+      'Print _scr what front=B,_scr what active=B,_scr what rport(A)=_scr id rport(1),_scr what vport(A)=_scr id vport(1)',
+      '_scr move A,4,5 : _scr position B,7,8 : _scr to front A : _scr hide title A',
+      'Print _scr what front=A : _scr show title A : _scr to back A',
+      '_scr close B : _scr close A',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\t-1\t-1\n-1\n')
+    expect(rt.osdevkit.screenIds.size).toBe(0)
+  })
 })
 
 describe('OS DevKit 1.61 tag lists', () => {

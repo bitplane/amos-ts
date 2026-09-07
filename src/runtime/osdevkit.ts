@@ -746,6 +746,11 @@ function managedScreenSlot(rt: Runtime, address: number): number | null {
   return rt.screens.has(slot) ? slot : null
 }
 
+function screenRecordAtBase(state: OsDevKitState, base: number) {
+  for (const [id, record] of state.screenIds) if (record.base === (base >>> 0)) return { id, record }
+  return null
+}
+
 function selectedDrawInfoPens(rt: Runtime, state: OsDevKitState, depth: number): number[] {
   if (state.drawInfoPenSource === -1) return Array.from(state.drawInfoDefaults.pens)
   if (state.drawInfoPenSource !== 0) {
@@ -2095,6 +2100,24 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [screen, drawInfo] = readArgs(it, 2)
       freeScreenDrawInfo(st(), screen!, drawInfo!)
     },
+    '_scr close'(it) {
+      const found = screenRecordAtBase(st(), it.evalInt())
+      if (found) closeScreenId(rt, st(), found.id)
+    },
+    '_scr move'(it) {
+      const [base, dx, dy] = readArgs(it, 3); const found = screenRecordAtBase(st(), base!)
+      const screen = found ? rt.screens.get(found.record.slot) : undefined
+      if (screen) { screen.displayX += dx!; screen.displayY -= dy! }
+    },
+    '_scr position'(it) {
+      const [base, x, y] = readArgs(it, 3); const found = screenRecordAtBase(st(), base!)
+      const screen = found ? rt.screens.get(found.record.slot) : undefined
+      if (screen) { screen.displayX = x!; screen.displayY = y! }
+    },
+    '_scr to back'(it) { const slot = managedScreenSlot(rt, it.evalInt()); if (slot !== null) rt.toBack(slot) },
+    '_scr to front'(it) { const slot = managedScreenSlot(rt, it.evalInt()); if (slot !== null) rt.toFront(slot) },
+    '_scr show title'(it) { const slot = managedScreenSlot(rt, it.evalInt()); if (slot !== null) rt.screens.get(slot)!.intuitionTitleVisible = true },
+    '_scr hide title'(it) { const slot = managedScreenSlot(rt, it.evalInt()); if (slot !== null) rt.screens.get(slot)!.intuitionTitleVisible = false },
     '_scr id def dri pens v1'(it) { st().drawInfoDefaults.defineV1(readArgs(it, 9)) },
     '_scr id def dri pens v2'(it) { st().drawInfoDefaults.defineV2(readArgs(it, 3)) },
     '_scr id fix dri pens'(it) { st().drawInfoPenSource = it.evalInt() },
@@ -2938,6 +2961,16 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const date = nowCivil(rt); const two = (value: number): string => String(value).padStart(2, '0')
       return VS(`${two(date.hour)}:${two(date.min)}:${two(date.sec)}`)
     },
+    '_scr what front'() {
+      const slot = rt.order[rt.order.length - 1]
+      return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
+    },
+    '_scr what active'() {
+      const slot = rt.intuition.activeWindow?.screenSlot ?? rt.order[rt.order.length - 1]
+      return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
+    },
+    '_scr what vport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.viewPort ?? 0) },
+    '_scr what rport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.rastPort ?? 0) },
     '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
     '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
     '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },

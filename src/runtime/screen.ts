@@ -184,6 +184,8 @@ export function sliderMetrics(span: number, total: number, pos: number, size: nu
 }
 
 export class Screen {
+  /** Intuition ShowTitle state for screens opened or adopted through the OS backend. */
+  intuitionTitleVisible = true
   /**
    * BITPLANES ARE THE BITMAP. The chunky array is a cache of them.
    *
