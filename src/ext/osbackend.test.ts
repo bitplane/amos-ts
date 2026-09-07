@@ -131,8 +131,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const names = ['_tag', '_ut', '_tool', '_id']
     const utility = rows.filter((row) => names.includes(row.namespace))
     expect(utility).toHaveLength(18)
-    expect(utility.filter((row) => row.status === 'faithful')).toHaveLength(17)
-    expect(utility.find((row) => row.name === '_id unique')?.status).toBe('partial')
+    expect(utility.filter((row) => row.status === 'faithful')).toHaveLength(18)
+    expect(utility.find((row) => row.name === '_id unique')?.status).toBe('faithful')
     expect(utility.some((row) => row.status === 'review')).toBe(false)
   })
 

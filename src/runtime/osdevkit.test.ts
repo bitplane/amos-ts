@@ -388,6 +388,11 @@ describe('OS DevKit 1.61 low-level machine wrappers', () => {
     ].join('\n'))
     expect(output).toBe('topaz.font\t 8\t 1\n$12345678\t 99\t 0\n')
   })
+  it('uses the machine-wide utility GetUniqueID source', () => {
+    const { rt, output } = run('Print _id unique,_id unique')
+    expect(output).toBe(' 1\t 2\n')
+    expect(rt.uniqueIds.get()).toBe(3)
+  })
 
   it('records Exec ColdReboot as a machine reset request (worker 1570)', () => {
     const { rt } = run('_cold reboot')

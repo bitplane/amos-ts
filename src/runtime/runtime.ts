@@ -190,6 +190,7 @@ import { parseSampleBank } from './audio'
 import { CYCLES_PER_DISPATCH, CYCLES_PER_STATEMENT, NullAudio, VBL_HZ, periodToHz, samPeriod } from '../amiga/paula'
 import { VBL_BUDGET_CAP, tokenCost } from './cost'
 import { MusicPlayer } from './music'
+import { UniqueIdSource } from '../amiga/utility'
 
 /**
  * Motorola FFP float format (mathffp.library): bits 31-8 = normalized
@@ -556,6 +557,7 @@ export class Runtime {
   readonly lowlevel = new LowLevelSystem()
   /** Shared stoneplayer.library control state; decoding awaits a held binary. */
   readonly stonePlayer = new StonePlayer()
+  readonly uniqueIds = new UniqueIdSource()
   /** Process-wide dos.library IoErr and reporting state. */
   readonly dos = new DosSystem()
   readonly interp: Interp

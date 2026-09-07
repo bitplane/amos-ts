@@ -2942,6 +2942,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_base layers'() { return VI(openLibrary('layers.library', 36)) },
     '_base topaz'() { return VI(topazTextAttrAddress(st())) },
     '_base tag'() { return VI(defaultTagsAddress(st())) },
+    '_id unique'() { return VI(rt.uniqueIds.get()) },
     /** workers 1536/1537/1539 and 1545/1557/1558: native MsgPort access. */
     '_port find'(_, a) { return VI(st().exec.messages.findPort(cString(rt, n(a, 0)))) },
     '_port create'() { return VI(st().exec.messages.createPort()) },

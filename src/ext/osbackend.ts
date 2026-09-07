@@ -168,7 +168,7 @@ auditMany('faithful', 'Amiga2Date and the ClockData field conversion are modelle
 auditMany('faithful', 'icon.library ToolType lookup and pre-V44 pipe-value matching are modelled', [
   '_tool find', '_tool match', '_tool get$', '_tool exist', '_tool val match$',
 ])
-auditMany('partial', 'GetUniqueID is process-local and unique, but does not share native utility.library global state', [
+auditMany('faithful', 'GetUniqueID is owned by the machine-wide utility service and returns non-zero, non-repeating unsigned IDs', [
   '_id unique',
 ])
 auditMany('partial', 'the binary-derived StonePlayer install, playback-control, validation and conversion state is shared; sample decoding cannot be audited or implemented without any held stoneplayer.library binary', [
