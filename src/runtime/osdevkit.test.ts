@@ -664,6 +664,17 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(gadgets?.get(2)).toMatchObject({ kind: 5, labels: ['One', 'Two', 'Three'], active: 2 })
   })
 
+  it('converts string arrays into native pointer arrays and Exec lists', () => {
+    const source = [
+      'Dim A$(1) : A$(0)="Alpha" : A$(1)="Beta" : H=Array(A$(0))',
+      'P=_gt make array(H) : L=_gt make list(H)',
+      'Print P<>0,_struct long(P,0)<>0,_struct long(P,4)<>0,_struct long(P,8)',
+      'N=_lnod what head(L) : Print L<>0,N<>L+4,_nod what name(N)<>0',
+      '_gt free array P : _gt free list L',
+    ].join('\n')
+    expect(run(source).output).toBe('-1\t-1\t-1\t 0\n-1\t-1\t-1\n')
+  })
+
   it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
     const source = [
       'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',

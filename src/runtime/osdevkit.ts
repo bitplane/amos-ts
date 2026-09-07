@@ -94,6 +94,8 @@ export interface OsDevKitState {
   gtIntegerMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
   gtStringMode: { tabCycle: boolean; maxChars: number; exitHelp: boolean; replaceMode: boolean }
   gtListViewMode: { top: number; makeVisible: number; readOnly: boolean; scrollWidth: number; show: number; spacing: number }
+  gtArrays: Map<number, number[]>
+  gtLists: Map<number, number[]>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -120,6 +122,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     gtStringMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
+    gtArrays: new Map(), gtLists: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -889,6 +892,15 @@ function makeGtBitmap(rt: Runtime, state: OsDevKitState, number: number): number
   return address
 }
 
+function gtLabels(rt: Runtime, address: number): readonly string[] {
+  const array = rt.dialogArrays.get(address)
+  return array?.type === 2 ? array.data.map(value => value.k === 'str' ? value.s : '') : []
+}
+
+function freeGtStrings(state: OsDevKitState, pointers: readonly number[]): void {
+  for (const pointer of pointers) state.strings.free(pointer)
+}
+
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
 function setScreenMousePosition(rt: Runtime, slot: number, x: number, y: number): void {
   const screen = rt.screens.get(slot)
@@ -986,10 +998,7 @@ function readArgs(it: Parameters<Instr>[0], count: number): number[] {
 export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): OsDevKitState => rt.osdevkit
   const heap = (): OsCStringHeap => rt.osdevkit.strings
-  const labelsAt = (address: number): readonly string[] => {
-    const array = rt.dialogArrays.get(address)
-    return array?.type === 2 ? array.data.map(value => value.k === 'str' ? value.s : '') : []
-  }
+  const labelsAt = (address: number): readonly string[] => gtLabels(rt, address)
   const addScroller = (it: Parameters<Instr>[0], horizontal: boolean): void => {
     const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const arrows = it.evalInt()
     const gadget = addGtGadget(rt, st(), id!, KIND.SCROLLER, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTSC_Arrows, data: arrows }])
@@ -2137,6 +2146,17 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [id, tags] = readArgs(it, 2); const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(id!)
       if (object) setAttrsA(object, tagItems(st(), tags!))
     },
+    '_gt free array'(it) {
+      const address = it.evalInt() >>> 0; const strings = st().gtArrays.get(address)
+      if (!strings) return
+      freeGtStrings(st(), strings); st().gtArrays.delete(address); st().memory.freeMem(address)
+    },
+    '_gt free list'(it) {
+      const address = it.evalInt() >>> 0; const allocations = st().gtLists.get(address)
+      if (!allocations) return
+      for (const allocation of allocations) st().exec.memory.free(allocation)
+      st().gtLists.delete(address); st().exec.memory.free(address)
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -2235,6 +2255,21 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_gt make image'(_, a) { return VI(makeGtImage(rt, st(), n(a, 0))) },
     '_gt make bitmap'(_, a) { return VI(makeGtBitmap(rt, st(), n(a, 0))) },
+    '_gt make array'(_, a) {
+      const labels = gtLabels(rt, n(a, 0)); const address = st().memory.alloc((labels.length + 1) * 4, { clear: true })
+      if (address === 0) return VI(0)
+      const pointers = labels.map(label => st().strings.fromAmos(label))
+      for (let i = 0; i < pointers.length; i++) set32(st(), address + i * 4, pointers[i]!)
+      st().gtArrays.set(address, pointers); return VI(address)
+    },
+    '_gt make list'(_, a) {
+      const labels = gtLabels(rt, n(a, 0)); const list = st().exec.memory.allocList(); const allocations: number[] = []
+      for (const label of labels) {
+        const name = st().exec.memory.allocCString(label); const node = st().exec.memory.allocNode()
+        st().exec.memory.setNodeName(node, name); st().exec.memory.addTail(list, node); allocations.push(node, name)
+      }
+      st().gtLists.set(list, allocations); return VI(list)
+    },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)
       return VI(menuItemAddress(st(), strip ? st().gadtools.itemAddress(strip, n(a, 1)) : null))
