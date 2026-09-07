@@ -302,11 +302,13 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       '_wnd set limits W,20,20,120,80 : _wnd move W,5,6 : _wnd size W,10,10',
       'Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W),Hex$(_wnd what idcmp(W))',
       'Print _str get(_wnd what title(W)),_str get(_wnd what scr title(W))',
-      '_ptr set W,$11111111,16,2,-3,4 : _wnd activate W : _wnd to back W : _wnd to front W',
+      '_ptr set W,$11111111,16,2,-3,4 : _wnd activate W : Print Hex$(_wnd what pointer(W)),_wnd what active=W,_wnd what vport(W)=_scr id vport(1)',
+      'Print Hex$(_struct long(W,74)),_wnd what pointer height(W),_wnd what pointer width(W),_wnd what pointer xoff(W),_wnd what pointer yoff(W)',
+      '_wnd to back W : _wnd to front W',
       '_wnd box W,1,2,60,40 : Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W)',
       '_ptr clear W : _wnd id close 2 : _scr id close 1',
     ].join('\n'))
-    expect(output).toBe(' 15\t 16\t 90\t 60\t$12345678\nNew\tScreen\n 1\t 2\t 60\t 40\n')
+    expect(output).toBe(' 15\t 16\t 90\t 60\t$12345678\nNew\tScreen\n$11111111\t-1\t-1\n$11111111\t 16\t 2\t 253\t 4\n 1\t 2\t 60\t 40\n')
     expect(rt.intuition.windows).toHaveLength(0)
   })
 

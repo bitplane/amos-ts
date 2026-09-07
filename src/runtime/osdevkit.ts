@@ -956,6 +956,18 @@ function windowAtBase(state: OsDevKitState, base: number): Window | null {
   return id < 0 ? null : state.windowHandles.get(id)?.window ?? null
 }
 
+function windowBase(state: OsDevKitState, window: Window | null): number {
+  if (!window) return 0
+  for (const [id, handle] of state.windowHandles) if (handle.window === window) return state.windowIds.record(id)?.base ?? 0
+  return 0
+}
+
+function windowViewPort(state: OsDevKitState, window: Window | null): number {
+  if (!window) return 0
+  for (const record of state.screenIds.values()) if (record.slot === window.screenSlot) return record.viewPort
+  return 0
+}
+
 function menuItemAddress(state: OsDevKitState, item: MenuItem | null): number {
   if (!item) return 0
   const old = state.menuItemAddresses.get(item)
@@ -1323,10 +1335,16 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [base, behind] = readArgs(it, 2); const window = windowAtBase(st(), base!), target = windowAtBase(st(), behind!)
       if (window && target && window.screenSlot === target.screenSlot) { rt.intuition.windowToFront(target); rt.intuition.windowToFront(window) }
     },
-    '_ptr clear'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) window.clearPointer() },
+    '_ptr clear'(it) {
+      const base = it.evalInt() >>> 0; const window = windowAtBase(st(), base)
+      if (window) window.clearPointer()
+      structWrite(rt, base + 74, 4, 0); structWrite(rt, base + 78, 4, 0)
+    },
     '_ptr set'(it) {
       const [base, data, height, width, xOffset, yOffset] = readArgs(it, 6); const window = windowAtBase(st(), base!)
       if (window) window.setPointer(data!, height!, width!, xOffset!, yOffset!)
+      structWrite(rt, base! + 74, 4, data!); structWrite(rt, base! + 78, 1, height!); structWrite(rt, base! + 79, 1, width!)
+      structWrite(rt, base! + 80, 1, xOffset!); structWrite(rt, base! + 81, 1, yOffset!)
     },
     '_wnd id data'(it) {
       it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
@@ -2862,6 +2880,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd what ext data'(_, a) { return VI(structRead(rt, n(a, 0) + 116, 4, false)) },
     '_wnd what layer'(_, a) { return VI(structRead(rt, n(a, 0) + 124, 4, false)) },
     '_wnd what font'(_, a) { return VI(structRead(rt, n(a, 0) + 128, 4, false)) },
+    '_wnd what active'() { return VI(windowBase(st(), rt.intuition.activeWindow)) },
+    '_wnd what pointer'(_, a) { return VI(windowAtBase(st(), n(a, 0))?.pointer?.data ?? 0) },
+    '_wnd what vport'(_, a) { return VI(windowViewPort(st(), windowAtBase(st(), n(a, 0)))) },
     '_wnd wdef left'() { return VI(structRead(rt, windowDefinitionAddress(st()), 2, false)) },
     '_wnd wdef top'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 2, 2, false)) },
     '_wnd wdef width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 4, 2, false)) },
