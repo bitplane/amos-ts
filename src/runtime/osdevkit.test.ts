@@ -1097,7 +1097,7 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 1\t 2\t 3\t 4\n-32767\t-1\t 32770\n 7\t 8\t 9\n$A5\t$AC\n')
   })
 
-  it('reproduces View and ViewPort setters, including their shipped defects', () => {
+  it('reproduces native View and ViewPort field widths', () => {
     const source = [
       'V=_struct alloc(18) : _cop init view V : _view set V,$12345678,10,20,$92348001',
       'Print Hex$(_view what vport(V)),_view what x(V),_view what y(V),_view what modes(V)',
@@ -1108,8 +1108,17 @@ describe('OS DevKit 1.61 native graphics records', () => {
       '_struct free V : _struct free P',
     ].join('\n')
     expect(run(source).output).toBe(
-      '$12345678\t-32767\t-28108\t 0\n 1\t 2\t 3\n 0\t 200\t$FFFF\t$FFFE\t$2345\t$67\n',
+      '$12345678\t 10\t 20\t 32769\n 1\t 2\t 3\n 0\t 200\t$FFFF\t$FFFE\t$2345\t$67\n',
     )
+  })
+
+  it('exposes and replaces the graphics system active View', () => {
+    expect(run([
+      '_scr id open 1,3,4,80,40,3,$8004,0,"View" : V=_sys view',
+      'Print V<>0,_view what vport(V)=_scr id vport(1),_view what x(V),_view what y(V),Hex$(_view what modes(V))',
+      'N=_struct alloc(18) : _cop init view N : _cop load view N : Print _sys view=N',
+      '_scr id close 1 : _struct free N',
+    ].join('\n')).output).toBe('-1\t-1\t 3\t 4\t$8004\n-1\n')
   })
 
   it('round-trips signed RasInfo offsets and managed ColorMap components', () => {

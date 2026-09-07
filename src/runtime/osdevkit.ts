@@ -83,6 +83,8 @@ export interface OsDevKitState {
   screenDefinition: number
   /** Private 48-byte NewWindow definition mutated by `_wnd def ...`. */
   windowDefinition: number
+  systemView: number
+  activeView: number
   ibase: IntuitionBaseLock
   exec: ExecSystem
   colorMaps: Map<number, NativeColorMap>
@@ -166,7 +168,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
     memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
-    topazTextAttr: 0, screenDefinition: 0, windowDefinition: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(), rastPortMaxPens: new Map(),
+    topazTextAttr: 0, screenDefinition: 0, windowDefinition: 0, systemView: 0, activeView: 0, ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(), rastPortMaxPens: new Map(),
     screenIds: new Map(), drawInfos: new Map(), drawInfoDefaults: new NativeScreenDrawInfoPens(),
     drawInfoPenSource: 0, screenDrawInfoPens: new Map(), currentScreenId: -1,
     windowIds: new OsWindowIds(), windowHandles: new Map(), requesterWindows: new Map(),
@@ -785,6 +787,17 @@ function managedScreenSlot(rt: Runtime, address: number): number | null {
 function screenRecordAtBase(state: OsDevKitState, base: number) {
   for (const [id, record] of state.screenIds) if (record.base === (base >>> 0)) return { id, record }
   return null
+}
+
+function systemViewAddress(rt: Runtime, state: OsDevKitState): number {
+  if (state.systemView === 0) state.systemView = state.memory.alloc(18, { clear: true })
+  if (state.systemView === 0) return 0
+  const slot = rt.order[rt.order.length - 1]; const screen = slot === undefined ? undefined : rt.screens.get(slot)
+  const record = slot === undefined ? undefined : [...state.screenIds.values()].find(entry => entry.slot === slot)
+  structWrite(rt, state.systemView, 4, record?.viewPort ?? 0)
+  structWrite(rt, state.systemView + 12, 2, screen?.displayY ?? 0); structWrite(rt, state.systemView + 14, 2, screen?.displayX ?? 0)
+  structWrite(rt, state.systemView + 16, 2, screen ? (screen.hires ? 0x8000 : 0) | (screen.laced ? 4 : 0) : 0)
+  return state.systemView
 }
 
 function selectedDrawInfoPens(rt: Runtime, state: OsDevKitState, depth: number): number[] {
@@ -2008,6 +2021,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_cop init view'(it) {
       const view = it.evalInt(); for (let at = 0; at < 18; at++) structWrite(rt, view + at, 1, 0)
     },
+    '_cop load view'(it) { st().activeView = it.evalInt() >>> 0 },
     '_cop init vport'(it) {
       const viewPort = it.evalInt(); for (let at = 0; at < 40; at++) structWrite(rt, viewPort + at, 1, 0)
     },
@@ -2038,8 +2052,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       structWrite(rt, attr! + 6, 1, held.font.style); structWrite(rt, attr! + 7, 1, held.font.flags)
     },
     '_view set'(it) {
-      const [view, viewPort, _x, _y, modes] = readArgs(it, 5)
-      structWrite(rt, view!, 4, viewPort!); structWrite(rt, view! + 12, 4, modes!)
+      const [view, viewPort, x, y, modes] = readArgs(it, 5)
+      structWrite(rt, view!, 4, viewPort!); structWrite(rt, view! + 12, 2, y!); structWrite(rt, view! + 14, 2, x!); structWrite(rt, view! + 16, 2, modes!)
     },
     '_vp set next'(it) { const [vp, next] = readArgs(it, 2); structWrite(rt, vp!, 4, next!) },
     '_vp set body'(it) {
@@ -3098,6 +3112,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const slot = rt.order[rt.order.length - 1]
       return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
     },
+    '_sys view'() { return VI(st().activeView || systemViewAddress(rt, st())) },
     '_scr what active'() {
       const slot = rt.intuition.activeWindow?.screenSlot ?? rt.order[rt.order.length - 1]
       return VI(slot === undefined ? 0 : (SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT) >>> 0)
