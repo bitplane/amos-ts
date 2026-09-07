@@ -120,7 +120,7 @@ export interface OsDevKitState {
   readArgs: ReadArgs
   dataTypes: DataTypesService
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
-  aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[] }>
+  aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -2428,7 +2428,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const type = n(a, 0)
       if (type < 0 || type > 2) return VI(0)
       const requester = st().memory.alloc(64, { clear: true })
-      if (requester !== 0) st().aslRequests.set(requester, { type, pending: false, ownedStrings: [] })
+      if (requester !== 0) st().aslRequests.set(requester, {
+        type, pending: false, ownedStrings: [],
+        allocTags: tagItems(st(), n(a, 1)).map(({ tag, data }) => ({ tag, data })),
+      })
       return VI(requester)
     },
     '_asl do'(it, a) {
@@ -2465,21 +2468,40 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         record.pending = false
         return VI(0)
       }
-      const window = windowAtBase(st(), n(a, 1)); const slot = window?.screenSlot ?? null
+      const requestTags = tagItems(st(), n(a, 1))
+      const tags = new Map(record.allocTags.map(item => [item.tag, item.data]))
+      for (const item of requestTags) tags.set(item.tag, item.data)
+      const tagged = (tag: number, fallback: number): number => tags.get(tag) ?? fallback
+      const taggedString = (tag: number): string => cString(rt, tagged(tag, 0) >>> 0)
+      const screen = tagged(0x8008_0028, 0) >>> 0
+      const parent = windowAtBase(st(), tagged(0x8008_0002, 0))
+      const slot = screen !== 0 ? managedScreenSlot(rt, screen) : parent?.screenSlot ?? null
+      const common = {
+        hail: taggedString(0x8008_0001), okText: taggedString(0x8008_0012),
+        cancelText: taggedString(0x8008_0013), left: tagged(0x8008_0003, 30),
+        top: tagged(0x8008_0004, 20), width: tagged(0x8008_0005, 318),
+        height: tagged(0x8008_0006, record.type === 0 ? 178 : 198),
+      }
       let started = false
       if (record.type === 0) started = rt.startAslRequest({
-        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 178,
-        dir: cString(rt, structRead(rt, requester + 8, 4, false)) || (rt.vfs?.currentDir ?? ''),
-        file: cString(rt, structRead(rt, requester + 4, 4, false)), pattern: '', rejectIcons: false, doPatterns: true,
+        ...common,
+        dir: taggedString(0x8008_0009) || cString(rt, structRead(rt, requester + 8, 4, false)) || (rt.vfs?.currentDir ?? ''),
+        file: taggedString(0x8008_0008) || cString(rt, structRead(rt, requester + 4, 4, false)),
+        pattern: taggedString(0x8008_000a),
+        rejectIcons: tagged(0x8008_003c, tagged(0x8008_0016, 0) & 4) !== 0,
+        doPatterns: tagged(0x8008_002e, tagged(0x8008_0014, 1) & 1) !== 0,
       }, slot)
       else if (record.type === 1) started = rt.startAslFontRequest({
-        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198,
-        name: cString(rt, structRead(rt, requester + 8, 4, false)), size: structRead(rt, requester + 12, 2, false),
+        ...common,
+        name: taggedString(0x8008_000a) || cString(rt, structRead(rt, requester + 8, 4, false)),
+        size: tagged(0x8008_000b, structRead(rt, requester + 12, 2, false) || 8),
       }, slot)
       else started = rt.startAslModeRequest({
-        hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198,
-        id: structRead(rt, requester, 4, false), displayWidth: structRead(rt, requester + 4, 4, false),
-        displayHeight: structRead(rt, requester + 8, 4, false), depth: structRead(rt, requester + 12, 2, false),
+        ...common,
+        id: tagged(0x8008_00c8, structRead(rt, requester, 4, false)),
+        displayWidth: tagged(0x8008_00ca, structRead(rt, requester + 4, 4, false) || 640),
+        displayHeight: tagged(0x8008_00cc, structRead(rt, requester + 8, 4, false) || 200),
+        depth: tagged(0x8008_00ce, structRead(rt, requester + 12, 2, false) || 2),
       }, slot)
       if (!started) return VI(0)
       record.pending = true; it.block({ type: 'asl' }, true); return VI(0)

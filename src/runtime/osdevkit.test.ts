@@ -79,6 +79,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(b.rt.osdevkit.aslRequests.size).toBe(0)
   })
 
+  it('merges allocation and request TagItems for ASL worker 1595', () => {
+    const b = boot([
+      'D=_to str("RAM:Work") : F=_to str("old.amos") : A=_to str("Allocated") : Q=_to str("Requested")',
+      'T=_tag list alloc(4) : _tag set T,$80080009,D : _tag set T,$80080008,F : _tag set T,$80080001,A : _tag done T',
+      'U=_tag list alloc(4) : _tag set U,$80080001,Q : _tag set U,$80080005,260 : _tag set U,$8008003c,1 : _tag done U',
+      'R=_asl alloc(0,T) : X=_asl do(R,U)',
+    ].join('\n'))
+    b.rt.frame()
+    expect(b.rt.asl?.setup).toMatchObject({
+      hail: 'Requested', dir: 'RAM:Work', file: 'old.amos', width: 260, rejectIcons: true,
+    })
+  })
+
   it('runs _asl file$ through the same requester and returns its selected path', () => {
     const b = boot('Print "["+_asl file$(0,"Pick","RAM:","old.amos","#?.amos")+"]"')
     b.rt.frame()
