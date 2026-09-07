@@ -75,6 +75,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('PaintProgram|ILBM\t-1\t-1\nPaintProgram|ILBM\t-1\t 0\n-1\t 0\n')
   })
 
+  it('reads and writes the exact 20-byte native IntuiText layout', () => {
+    const { output } = run([
+      'Reserve As Work 1,40 : A=Start(1) : B=A+20',
+      '_it set A,3,4,5,-12,-34,$11223344,$55667788,B',
+      'Print _it what front pen(A),_it what back pen(A),_it what draw mode(A)',
+      'Print _it what left(A),_it what top(A),Hex$(_it what font(A)),Hex$(_it what str(A)),_it what next(A)=B',
+      '_it set draw A,7,8,9 : _it set corner A,123,234 : _it set font A,1 : _it set str A,2 : _it set next A,3',
+      'Print _it what front pen(A),_it what back pen(A),_it what draw mode(A),_it what left(A),_it what top(A)',
+      'Print _it what font(A),_it what str(A),_it what next(A)',
+    ].join('\n'))
+    expect(output).toBe(' 3\t 4\t 5\n-12\t-34\t$11223344\t$55667788\t-1\n 7\t 8\t 9\t 123\t 234\n 1\t 2\t 3\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

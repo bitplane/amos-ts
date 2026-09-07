@@ -1136,6 +1136,22 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     'track add'(it) {
       const [type, pointer] = readArgs(it, 2); st().tracker.add(type!, pointer!)
     },
+    '_it set draw'(it) {
+      const [base, front, back, mode] = readArgs(it, 4)
+      structWrite(rt, base!, 1, front!); structWrite(rt, base! + 1, 1, back!); structWrite(rt, base! + 2, 1, mode!)
+    },
+    '_it set corner'(it) {
+      const [base, left, top] = readArgs(it, 3); structWrite(rt, base! + 4, 2, left!); structWrite(rt, base! + 6, 2, top!)
+    },
+    '_it set font'(it) { const [base, font] = readArgs(it, 2); structWrite(rt, base! + 8, 4, font!) },
+    '_it set str'(it) { const [base, value] = readArgs(it, 2); structWrite(rt, base! + 12, 4, value!) },
+    '_it set next'(it) { const [base, next] = readArgs(it, 2); structWrite(rt, base! + 16, 4, next!) },
+    '_it set'(it) {
+      const [base, front, back, mode, left, top, font, value, next] = readArgs(it, 9)
+      structWrite(rt, base!, 1, front!); structWrite(rt, base! + 1, 1, back!); structWrite(rt, base! + 2, 1, mode!)
+      structWrite(rt, base! + 4, 2, left!); structWrite(rt, base! + 6, 2, top!)
+      structWrite(rt, base! + 8, 4, font!); structWrite(rt, base! + 12, 4, value!); structWrite(rt, base! + 16, 4, next!)
+    },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) {
@@ -2481,6 +2497,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
     'track exist'(_, a) { return VI(st().tracker.find(n(a, 0), n(a, 1))) },
+    '_it what front pen'(_, a) { return VI(structRead(rt, n(a, 0), 1, false)) },
+    '_it what back pen'(_, a) { return VI(structRead(rt, n(a, 0) + 1, 1, false)) },
+    '_it what draw mode'(_, a) { return VI(structRead(rt, n(a, 0) + 2, 1, false)) },
+    '_it what left'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, true)) },
+    '_it what top'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, true)) },
+    '_it what font'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
+    '_it what str'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 4, false)) },
+    '_it what next'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 4, false)) },
     '_arg what str'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))
