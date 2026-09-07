@@ -8,7 +8,7 @@
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
-import { MEMF, type MemPool, openLibrary } from '../amiga/exec'
+import { MEMF, closeLibrary, type MemPool, openLibrary } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
   CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
@@ -42,6 +42,7 @@ import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
+import { JP_TYPE_MASK, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -98,6 +99,9 @@ export interface OsDevKitState {
   gtLists: Map<number, number[]>
   gtMenuBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; entries: NewMenu[]; strip: MenuStrip | null }>
   currentGtMenuBank: number
+  openLibraries: Set<number>
+  lowlevelBase: number
+  lowlevelClock: { last: number }
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -126,6 +130,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
+    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 },
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1051,6 +1056,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_lib close'(it) {
+      const base = it.evalInt() >>> 0
+      if (st().openLibraries.delete(base)) closeLibrary(base)
+    },
+    '_sys own'() { rt.copperOn = false },
+    '_sys disown'() { rt.copperOn = true },
     '_ggad def body'(it) {
       const [left, top, width, height] = readArgs(it, 4); Object.assign(st().gadgetDef, { leftEdge: left!, topEdge: top!, width: width!, height: height! })
     },
@@ -2272,6 +2283,31 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_low init'() {
+      st().lowlevelBase = openLibrary('lowlevel.library', 0)
+      st().lowlevelClock.last = Math.floor((rt.interp.tick * 65536) / 50)
+      return VI(st().lowlevelBase)
+    },
+    '_lib open'(_, a) {
+      const base = openLibrary(str(a[0] ?? VS('')), n(a, 1))
+      if (base !== 0) st().openLibraries.add(base)
+      return VI(base)
+    },
+    '_joy set'(_, a) {
+      const port = n(a, 0); const old = (readJoyPort(rt.input.ports, port) & JP_TYPE_MASK) >>> 28
+      setJoyPortType(rt.input.ports, port, n(a, 1)); return VI(old)
+    },
+    '_joy init'(_, a) {
+      const port = n(a, 0); const old = (readJoyPort(rt.input.ports, port) & JP_TYPE_MASK) >>> 28
+      setJoyPortType(rt.input.ports, port, SJA_TYPE_AUTOSENSE); return VI(old)
+    },
+    '_joy read'(_, a) { return VI(readJoyPort(rt.input.ports, n(a, 0)) | 0) },
+    '_joy type'(_, a) { return VI((readJoyPort(rt.input.ports, n(a, 0)) & JP_TYPE_MASK) >>> 28) },
+    '_time elapsed'() { return VI(elapsedTime(st().lowlevelClock, Math.floor((rt.interp.tick * 65536) / 50))) },
+    '_key pressed'() {
+      for (let key = 0; key <= 0x7f; key++) if (keyQuery(rt.input.keys, key)) return VI(key)
+      return VI(0)
+    },
     '_li new'() {
       const address = st().memory.alloc(112, { clear: true }); if (address !== 0) st().layerInfos.set(address, null); return VI(address)
     },

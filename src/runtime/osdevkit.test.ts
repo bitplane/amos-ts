@@ -27,6 +27,18 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('shares libraries, lowlevel input, timing and display ownership with the runtime', () => {
+    const source = [
+      'L=_lib open("lowlevel.library",40) : B=_low init : Print L<>0,B=L',
+      'Print _joy type(1),_joy set(1,1),_joy type(1),_joy init(1),_joy type(1)',
+      'Print _time elapsed,_key pressed : _sys own : _sys disown : _lib close L',
+    ].join('\n')
+    const { rt, output } = run(source, runtime => runtime.input.keys.add(32))
+    expect(output).toBe('-1\t-1\n 3\t 3\t 1\t 1\t 3\n 0\t 32\n')
+    expect(rt.copperOn).toBe(true)
+    expect(rt.osdevkit.openLibraries.size).toBe(0)
+  })
+
   it('runs the exact word joins and sign extensions (workers 1752, 1757-1759)', () => {
     const { output } = run('Print Hex$(_join.w($12345678,$abcd9abc))\nPrint _ext.b($80),Hex$(_ext.w($12345680)),_ext.l($8001)')
     expect(output).toBe('$9ABC1234\n-128\t$1234FF80\t-32767\n')
