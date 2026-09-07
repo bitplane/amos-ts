@@ -675,6 +675,17 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(run(source).output).toBe('-1\t-1\t-1\t 0\n-1\t-1\t-1\n')
   })
 
+  it('draws bevel boxes through the selected window and shared visual info', () => {
+    const source = [
+      'Screen Open 0,40,20,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,30,16,0,0,0,"Bevel" : Reserve As Gt Gadgets 13,1,0',
+      '_gt bevel box 0,2,2,12,8,0',
+    ].join('\n')
+    const { rt } = run(source)
+    const pixels = rt.screens.get(0)!.pixels
+    expect(pixels.some(pixel => pixel !== 0)).toBe(true)
+  })
+
   it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
     const source = [
       'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',

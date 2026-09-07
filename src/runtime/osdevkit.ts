@@ -20,7 +20,7 @@ import {
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
 import {
-  BARLABEL, KIND, MENUNULL, NM, TAG, itemNum, menuNum, subNum,
+  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, itemNum, menuNum, subNum,
   type Gadget, type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
@@ -2156,6 +2156,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (!allocations) return
       for (const allocation of allocations) st().exec.memory.free(allocation)
       st().gtLists.delete(address); st().exec.memory.free(address)
+    },
+    '_gt bevel box'(it) {
+      const [type, x, y, width, height, recessed] = readArgs(it, 6)
+      const visualInfo = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.visualInfo ?? 0
+      withWindowRastPort(rt, st(), (rp, ox, oy) => st().gadtools.drawBevelBoxA(rp, ox + x!, oy + y!, width!, height!, [
+        { tag: GTBB_FRAMETYPE, data: type! }, { tag: GTBB_RECESSED, data: recessed! }, { tag: TAG.GT_VisualInfo, data: visualInfo },
+      ]))
     },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
