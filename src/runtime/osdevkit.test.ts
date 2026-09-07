@@ -1199,6 +1199,19 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 1\t 1\t 0\t 17\n')
   })
 
+  it('clears graphic memory and blits native RastPorts and masked BitMaps', () => {
+    const source = [
+      'SP=_struct alloc(8) : DP=_struct alloc(8) : M=_struct alloc(2) : S=_struct alloc(40) : D=_struct alloc(40) : SR=_struct alloc(72) : DR=_struct alloc(72)',
+      '_bm set datas S,2,4,1,0 : Loke S+8,SP : _bm set datas D,2,4,1,0 : Loke D+8,DP',
+      '_rp set bmap SR,S : _rp set wr msk SR,1 : _rp a pen SR,1 : _rp plot SR,1,1',
+      '_rp set bmap DR,D : _rp set wr msk DR,1 : _blt clip SR,0,0 To DR,2,0,8,4,$c0 : Print _rp point(DR,3,1)',
+      'Poke M,$80 : _rp plot SR,0,0 : _blt msk bm to rp S,$00000000 To DR,$00000000,$00080004,$c0,M',
+      'Print _rp point(DR,0,0),_rp point(DR,1,1) : _blt clr DP,8,0 : Print _rp point(DR,0,0)',
+      '_struct free DR : _struct free SR : _struct free D : _struct free S : _struct free M : _struct free DP : _struct free SP',
+    ].join('\n')
+    expect(run(source).output).toBe(' 1\n 1\t 0\n 0\n')
+  })
+
   it('adds, activates, updates, refreshes and removes raw native Gadget lists', () => {
     const { rt, output } = run([
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 2,0,0,60,30,0,0,0,"Gadgets" : W=_wnd id base(2)',

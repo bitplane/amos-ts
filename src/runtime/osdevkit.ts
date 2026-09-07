@@ -564,6 +564,15 @@ function putNativeBitmapPixel(rt: Runtime, bitmap: number, x: number, y: number,
   }
 }
 
+function blitMinterm(source: number, destination: number, depth: number, minterm: number): number {
+  let result = 0
+  for (let plane = 0; plane < depth; plane++) {
+    const s = (source >>> plane) & 1; const d = (destination >>> plane) & 1
+    if (((minterm >>> (4 | (s << 1) | d)) & 1) !== 0) result |= 1 << plane
+  }
+  return result
+}
+
 function nativeDrawImage(rt: Runtime, image: number, raster: NativeRaster, offsetX: number, offsetY: number): void {
   const left = structRead(rt, image, 2, true); const top = structRead(rt, image + 2, 2, true)
   const width = structRead(rt, image + 4, 2, false); const height = structRead(rt, image + 6, 2, false)
@@ -2122,6 +2131,35 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_blt own'() {},
     '_blt disown'() {},
     '_blt wait'() {},
+    '_blt clr'(it) {
+      const [address, count, flags] = readArgs(it, 3); const size = (flags! & 2) !== 0 ? (count! >>> 16) * (count! & 0xffff) : count! & ~1
+      for (let at = 0; at < size; at++) { const byte = rt.resolveWrite((address! >>> 0) + at); if (byte) byte.data[byte.off] = 0 }
+    },
+    '_blt clip'(it) {
+      const sourceRp = it.evalInt(); it.expect(','); const sourceX = it.evalInt(); it.expect(','); const sourceY = it.evalInt(); it.expect('to')
+      const [destinationRp, destinationX, destinationY, width, height, minterm] = readArgs(it, 6)
+      const source = nativeRaster(rt, sourceRp); const destination = nativeRaster(rt, destinationRp!)
+      if (!source || !destination || width! <= 0 || height! <= 0) return
+      const pixels = new Int16Array(width! * height!)
+      for (let y = 0; y < height!; y++) for (let x = 0; x < width!; x++) pixels[y * width! + x] = nativePoint(rt, source, sourceX + x, sourceY + y)
+      for (let y = 0; y < height!; y++) for (let x = 0; x < width!; x++) {
+        const dx = destinationX! + x; const dy = destinationY! + y
+        nativePutColor(rt, destination, dx, dy, blitMinterm(pixels[y * width! + x]!, nativePoint(rt, destination, dx, dy), destination.depth, minterm!))
+      }
+    },
+    '_blt msk bm to rp'(it) {
+      const bitmap = it.evalInt(); it.expect(','); const sourceXY = it.evalInt(); it.expect('to')
+      const [destinationRp, destinationXY, dimensions, minterm, mask] = readArgs(it, 5); const destination = nativeRaster(rt, destinationRp!)
+      if (!destination) return
+      const signed = (word: number): number => (word << 16) >> 16
+      const sx = signed(sourceXY >>> 16), sy = signed(sourceXY & 0xffff); const dx = signed(destinationXY! >>> 16), dy = signed(destinationXY! & 0xffff)
+      const width = dimensions! >>> 16; const height = dimensions! & 0xffff; const maskRow = ((width + 15) >>> 4) * 2
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        if (mask !== 0) { const byte = rt.resolveAddr((mask! >>> 0) + y * maskRow + (x >>> 3)); if (!byte || (byte.data[byte.off]! & (0x80 >>> (x & 7))) === 0) continue }
+        const tx = dx + x; const ty = dy + y
+        nativePutColor(rt, destination, tx, ty, blitMinterm(nativeBitmapPixel(rt, bitmap, sx + x, sy + y), nativePoint(rt, destination, tx, ty), destination.depth, minterm!))
+      }
+    },
     /** workers 534-547 over caller-owned native RastPort and BitMap memory. */
     '_rp move'(it) {
       const [rp, x, y] = readArgs(it, 3)
