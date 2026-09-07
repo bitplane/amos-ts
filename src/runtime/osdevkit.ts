@@ -56,6 +56,7 @@ import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
 import { findToolType, matchToolValue } from '../amiga/icon'
 import { displayModeOf } from '../amiga/displayinfo'
+import { getCatalogStr, getLocaleStr, parseCatalog, type Catalog } from '../amiga/localelib'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -140,6 +141,10 @@ export interface OsDevKitState {
   toolTypePointers: Map<number, Map<string, number>>
   /** Stable FindDisplayInfo handles keyed by installed DisplayID. */
   displayInfoHandles: Map<number, number>
+  /** Managed OpenLocale handles and their stable GetLocaleStr pointers. */
+  locales: Map<number, Map<number, number>>
+  /** Managed OpenCatalog handles and their stable translated string pointers. */
+  catalogs: Map<number, { catalog: Catalog; strings: Map<number, number> }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -175,7 +180,8 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
-    tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), aslRequests: new Map(),
+    tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
+    locales: new Map(), catalogs: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1241,6 +1247,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd id data'(it) {
       it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
       st().windowIds.setData(id, it.evalInt())
+    },
+    '_loc close'(it) {
+      const handle = it.evalInt() >>> 0; const locale = st().locales.get(handle)
+      if (!locale) return
+      for (const address of locale.values()) heap().free(address)
+      st().locales.delete(handle); st().memory.freeMem(handle)
+    },
+    '_cat close'(it) {
+      const handle = it.evalInt() >>> 0; const catalog = st().catalogs.get(handle)
+      if (!catalog) return
+      for (const address of catalog.strings.values()) heap().free(address)
+      st().catalogs.delete(handle); st().memory.freeMem(handle)
     },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
@@ -2701,6 +2719,39 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         st().displayInfoHandles.set(id, handle)
       }
       return VI(handle)
+    },
+    '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
+    '_loc open'(_, a) {
+      // The reproducible machine locale is the built-in English locale. A
+      // named .language backend is intentionally left to the partial verdict.
+      if (n(a, 0) !== 0) return VI(0)
+      const handle = st().memory.alloc(132, { clear: true })
+      if (handle !== 0) st().locales.set(handle, new Map())
+      return VI(handle)
+    },
+    '_loc str'(_, a) {
+      const handle = n(a, 0) >>> 0; const id = n(a, 1); const locale = st().locales.get(handle)
+      if (!locale) return VI(0)
+      let pointer = locale.get(id)
+      if (pointer === undefined) { pointer = heap().fromAmos(getLocaleStr(id)); locale.set(id, pointer) }
+      return VI(pointer)
+    },
+    '_cat open'(_, a) {
+      if (!st().locales.has(n(a, 0) >>> 0)) return VI(0)
+      const bytes = rt.vfs?.readFile(cString(rt, n(a, 1) >>> 0)); const catalog = bytes ? parseCatalog(bytes) : null
+      if (!catalog) return VI(0)
+      const handle = st().memory.alloc(4, { clear: true })
+      if (handle !== 0) st().catalogs.set(handle, { catalog, strings: new Map() })
+      return VI(handle)
+    },
+    '_cat str'(_, a) {
+      const record = st().catalogs.get(n(a, 0) >>> 0); const id = n(a, 1); const fallback = n(a, 2) >>> 0
+      if (!record) return VI(fallback)
+      if (!record.catalog.strings.has(id)) return VI(fallback)
+      const value = getCatalogStr(record.catalog, id, cString(rt, fallback))
+      let pointer = record.strings.get(id)
+      if (pointer === undefined) { pointer = heap().fromAmos(value); record.strings.set(id, pointer) }
+      return VI(pointer)
     },
     '_wnd id data'(_, a) { return VI(st().windowIds.data(n(a, 0))) },
     '_arg what str'(_, a) {

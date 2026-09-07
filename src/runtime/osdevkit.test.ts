@@ -179,6 +179,24 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('$10000200\n$10000000\n-1\t-1\t-1\t 0\n$89ABCDEF\t 0\n')
   })
 
+  it('shares Locale strings and catalog parsing through managed native handles', () => {
+    const { rt, output } = run([
+      'L=_loc open(0) : P=_loc str(L,$27) : Print _loc init,L<>0,_str get(P),_loc str(L,$27)=P',
+      'N=_to str("RAM:test.catalog") : D=_to str("Default") : C=_cat open(L,N,0)',
+      'T=_cat str(C,7,D) : Print C<>0,_str get(T),_cat str(C,8,D)=D,_cat str(0,7,D)=D',
+      '_cat close C : _loc close L',
+    ].join('\n'), (runtime) => {
+      runtime.vfs!.writeFile('RAM:test.catalog', Uint8Array.from([
+        70, 79, 82, 77, 0, 0, 0, 28, 67, 84, 76, 71,
+        83, 84, 82, 83, 0, 0, 0, 16,
+        0, 0, 0, 7, 0, 0, 0, 6, 83, 97, 108, 117, 116, 0, 0, 0,
+      ]))
+    })
+    expect(output).toBe('-1\t-1\tYes\t-1\n-1\tSalut\t-1\t-1\n')
+    expect(rt.osdevkit.locales.size).toBe(0)
+    expect(rt.osdevkit.catalogs.size).toBe(0)
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
