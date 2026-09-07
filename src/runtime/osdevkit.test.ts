@@ -88,6 +88,26 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 3\t 4\t 5\n-12\t-34\t$11223344\t$55667788\t-1\n 7\t 8\t 9\t 123\t 234\n 1\t 2\t 3\n')
   })
 
+  it('exposes every field of the 44-byte native Gadget layout', () => {
+    const { output } = run([
+      'Reserve As Work 1,44 : G=Start(1)',
+      '_gad set next G,$10111213 : _gad set body G,$8001,$8002,$8003,$8004',
+      '_gad set fat G,$2122,$2324,$2526 : _gad set render G,$31323334,$41424344',
+      '_gad set text G,$51525354 : _gad set spec info G,$61626364 : _gad set user G,$7172,$81828384',
+      'Print Hex$(_gad what next(G)),Hex$(_gad what left(G)),Hex$(_gad what top(G)),Hex$(_gad what width(G)),Hex$(_gad what height(G))',
+      'Print Hex$(_gad what flags(G)),Hex$(_gad what activation(G)),Hex$(_gad what type(G))',
+      'Print Hex$(_gad what render(G)),Hex$(_gad what h render(G)),Hex$(_gad what text(G))',
+      'Print Hex$(_gad what spec info(G)),Hex$(_gad what user id(G)),Hex$(_gad what user data(G))',
+    ].join('\n'))
+    expect(output).toBe([
+      '$10111213\t$8001\t$8002\t$8003\t$8004',
+      '$2122\t$2324\t$2526',
+      '$31323334\t$41424344\t$51525354',
+      '$61626364\t$7172\t$81828384',
+      '',
+    ].join('\n'))
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

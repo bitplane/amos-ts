@@ -1152,6 +1152,24 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       structWrite(rt, base! + 4, 2, left!); structWrite(rt, base! + 6, 2, top!)
       structWrite(rt, base! + 8, 4, font!); structWrite(rt, base! + 12, 4, value!); structWrite(rt, base! + 16, 4, next!)
     },
+    '_gad set next'(it) { const [base, value] = readArgs(it, 2); structWrite(rt, base!, 4, value!) },
+    '_gad set body'(it) {
+      const [base, left, top, width, height] = readArgs(it, 5)
+      structWrite(rt, base! + 4, 2, left!); structWrite(rt, base! + 6, 2, top!)
+      structWrite(rt, base! + 8, 2, width!); structWrite(rt, base! + 10, 2, height!)
+    },
+    '_gad set fat'(it) {
+      const [base, flags, activation, type] = readArgs(it, 4)
+      structWrite(rt, base! + 12, 2, flags!); structWrite(rt, base! + 14, 2, activation!); structWrite(rt, base! + 16, 2, type!)
+    },
+    '_gad set render'(it) {
+      const [base, normal, selected] = readArgs(it, 3); structWrite(rt, base! + 18, 4, normal!); structWrite(rt, base! + 22, 4, selected!)
+    },
+    '_gad set text'(it) { const [base, value] = readArgs(it, 2); structWrite(rt, base! + 26, 4, value!) },
+    '_gad set spec info'(it) { const [base, value] = readArgs(it, 2); structWrite(rt, base! + 34, 4, value!) },
+    '_gad set user'(it) {
+      const [base, id, value] = readArgs(it, 3); structWrite(rt, base! + 38, 2, id!); structWrite(rt, base! + 40, 4, value!)
+    },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
     '_icon free'(it) {
@@ -2505,6 +2523,20 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_it what font'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
     '_it what str'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 4, false)) },
     '_it what next'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 4, false)) },
+    '_gad what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
+    '_gad what left'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
+    '_gad what top'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, false)) },
+    '_gad what width'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 2, false)) },
+    '_gad what height'(_, a) { return VI(structRead(rt, n(a, 0) + 10, 2, false)) },
+    '_gad what flags'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 2, false)) },
+    '_gad what activation'(_, a) { return VI(structRead(rt, n(a, 0) + 14, 2, false)) },
+    '_gad what type'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 2, false)) },
+    '_gad what render'(_, a) { return VI(structRead(rt, n(a, 0) + 18, 4, false)) },
+    '_gad what h render'(_, a) { return VI(structRead(rt, n(a, 0) + 22, 4, false)) },
+    '_gad what text'(_, a) { return VI(structRead(rt, n(a, 0) + 26, 4, false)) },
+    '_gad what spec info'(_, a) { return VI(structRead(rt, n(a, 0) + 34, 4, false)) },
+    '_gad what user id'(_, a) { return VI(structRead(rt, n(a, 0) + 38, 2, false)) },
+    '_gad what user data'(_, a) { return VI(structRead(rt, n(a, 0) + 40, 4, false)) },
     '_arg what str'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))
