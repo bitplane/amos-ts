@@ -1558,6 +1558,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       st().exec.messages.putMsg(port, it.evalInt())
     },
     '_msg reply'(it) { st().exec.messages.replyMsg(it.evalInt()) },
+    '_gmsg reply'(it) { st().exec.messages.replyMsg(it.evalInt()) },
     /** workers 1559/1561: Exec signal ownership and delivery. */
     '_sig free'(it) { st().exec.messages.freeSignal(it.evalInt()) },
     '_sig put'(it) {
@@ -1571,6 +1572,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const data = it.evalInt(); it.expect(',')
       st().exec.interrupts.set(interrupt, data, it.evalInt())
     },
+    '_int add'(it) { const [vector, interrupt] = readArgs(it, 2); st().exec.interrupts.add(vector!, interrupt!) },
     '_int rem'(it) {
       const vector = it.evalInt(); it.expect(',')
       st().exec.interrupts.rem(vector, it.evalInt())
@@ -3692,6 +3694,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_sig set'(_, a) { return VI(st().exec.messages.setSignal(n(a, 0), n(a, 1))) },
     '_sig wait'(_, a) { return VI(st().exec.messages.wait(n(a, 0)) ?? 0) },
     '_task find'(_, a) { const address = n(a, 0) >>> 0; return VI(st().exec.tasks.find(address === 0 ? null : cString(rt, address))) },
+    '_task set pri'(_, a) { return VI(st().exec.tasks.setPriority(n(a, 0), n(a, 1))) },
+    '_port wait'(_, a) { return VI(st().exec.messages.waitPort(n(a, 0)) ?? 0) },
+    '_gmsg get'(_, a) { return VI(st().exec.messages.getMsg(n(a, 0))) },
     /** worker 1563: cleared 22-byte native Interrupt allocation. */
     '_int alloc'() { return VI(st().exec.interrupts.alloc()) },
     /** workers 1447/1448 and 1456-1465: list allocation, search and field reads. */

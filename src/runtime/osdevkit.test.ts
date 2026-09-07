@@ -282,6 +282,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.hardwareSprites.every((entry) => entry === null)).toBe(true)
   })
 
+  it('wires task priority, interrupt chains and message waits through shared Exec', () => {
+    const { rt, output } = run([
+      'T=_task find(0) : Print _task set pri(T,5),_task set pri(T,-3)',
+      'I=_int alloc : _nod set pri I,7 : _int add 4,I',
+      'P=_port create : Print _port wait(P),_gmsg get(P) : _gmsg reply 0',
+      '_int rem 4,I : _int free I : _port delete P',
+    ].join('\n'))
+    expect(output).toBe(' 0\t 5\n 0\t 0\n')
+    expect(rt.exec.tasks.priority(rt.exec.tasks.currentTask)).toBe(-3)
+    expect(rt.exec.interrupts.servers(4)).toEqual([])
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')
