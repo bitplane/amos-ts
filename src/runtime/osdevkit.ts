@@ -1893,6 +1893,24 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (number <= 0 || number > 0xffff) return
       rt.samBankNum = number
     },
+    /** Workers 1908/1909: AMOS Samples bank playback on an eight-bit mask. */
+    '_fx play'(it, tok) {
+      const mask = it.evalInt(); it.expect(','); const sampleNumber = it.evalInt()
+      // The five-argument form is worker 1910's raw native callback entry.
+      // Its callback must execute to choose one of the eight software channels.
+      if (tok.kind === 'ext' && tok.id === 0x3daa) {
+        it.expect(','); it.evalInt(); it.expect(','); it.evalInt(); it.expect(','); it.evalInt()
+        return
+      }
+      const frequency = it.accept(',') ? it.evalInt() : null
+      const sample = rt.getSample(sampleNumber)
+      const hz = frequency ?? sample.freq
+      if (hz <= 0) return
+      rt.stonePlayer.playSample(mask & 0xff, sampleNumber, hz)
+      // The shared sink is Paula-shaped. StonePlayer retains channels 4..7;
+      // channels 0..3 take the normal AMOS voice/music ownership path.
+      rt.samPlay(mask & 0x0f, sample.pcm, hz)
+    },
     '_wnd id ink'(it) {
       const [front, back, outline] = readArgs(it, 3); const target = currentWindowTarget(rt, st())
       if (!target) return

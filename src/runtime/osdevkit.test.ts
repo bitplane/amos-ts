@@ -158,6 +158,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     const { rt } = run('_fx bank 65535 : _fx bank 0')
     expect(rt.samBankNum).toBe(65535)
   })
+  it('routes Samples-bank FX playback through eight shared StonePlayer channels', () => {
+    const record = [
+      ...new TextEncoder().encode('TICK    '), 0x20, 0xab, 0, 0, 0, 4,
+      10, 20, 30, 40,
+    ]
+    const data = new Uint8Array([0, 1, 0, 0, 0, 6, ...record])
+    const { rt } = run('_fx bank 5 : _fx play %10010001,1,9000', runtime => {
+      runtime.memBanks.set(5, { kind: 'memory', number: 5, memType: 1, name: 'Samples', flags: 0, data })
+    })
+    expect([...rt.stonePlayer.fxChannels.keys()]).toEqual([0, 4, 7])
+    expect(rt.stonePlayer.fxChannels.get(7)).toEqual({ sample: 1, frequency: 9000, volume: 64 })
+    expect(rt.stonePlayer.playing).toBe(true)
+  })
 
   it('shares process-wide DOS IoErr and records ReportEvent arguments', () => {
     const { rt, output } = run('Print _dos err,_dos set err(205),_dos err,_dos report(212,1,$1234,$5678),_dos err', runtime => { runtime.craft.ioError = 111 })

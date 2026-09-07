@@ -178,7 +178,7 @@ auditMany('partial', 'the binary-derived StonePlayer install, playback-control, 
 auditMany('faithful', 'worker 1911 selects the same positive unsigned-word AMOS Samples bank used by the shared sample backend', [
   '_fx bank',
 ])
-auditMany('partial', 'AMOS Samples parsing and StonePlayer control state exist, but its eight-channel callback mixer used by these overloads is not yet implemented', [
+auditMany('partial', 'Samples-bank overloads retain all eight StonePlayer channels and render the four Paula channels; the raw callback overload and software mixing of channels 5-8 require native callback execution', [
   '_fx play',
 ])
 auditMany('faithful', 'the workers are direct big-endian memory reads/writes, including signed and unsigned word results, which the machine memory backend models', [

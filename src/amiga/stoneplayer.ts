@@ -9,10 +9,12 @@ export class StonePlayer {
   balance = 0
   speed = 0
   mixPeriod = 124
+  /** Eight software channels selected by `_fx play`'s callback stubs. */
+  readonly fxChannels = new Map<number, { sample: number; frequency: number; volume: number }>()
 
   install(): number { this.installed = true; this.playing = false; return 1 }
   remove(): void { this.stop(); this.installed = false; this.start = 0; this.end = 0 }
-  stop(): void { this.playing = false }
+  stop(): void { this.playing = false; this.fxChannels.clear() }
 
   play(start: number, end: number): number {
     if (start === 0) return 250
@@ -29,5 +31,12 @@ export class StonePlayer {
   setMixFrequency(frequency: number): void {
     if (frequency <= 0) return
     this.mixPeriod = Math.max(124, Math.trunc(0x3548de / frequency))
+  }
+
+  playSample(mask: number, sample: number, frequency: number, volume = 64): void {
+    for (let channel = 0; channel < 8; channel++) {
+      if (mask & (1 << channel)) this.fxChannels.set(channel, { sample, frequency, volume })
+    }
+    this.playing = this.fxChannels.size !== 0
   }
 }
