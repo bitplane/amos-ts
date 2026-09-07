@@ -88,6 +88,17 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 3\t 4\t 5\n-12\t-34\t$11223344\t$55667788\t-1\n 7\t 8\t 9\t 123\t 234\n 1\t 2\t 3\n')
   })
 
+  it('uses native IntuiText fields for metrics and RastPort text state', () => {
+    const { output } = run([
+      'I=_struct alloc(20) : R=_struct alloc(72) : S=_to str("Hi")',
+      '_it set I,3,4,5,5,7,0,S,0 : Print _it what len(I)',
+      '_it print I,R,10,20',
+      'Print _struct ubyte(R,25),_struct ubyte(R,26),_struct ubyte(R,28),_struct word(R,36),_struct word(R,38)',
+      '_struct free R : _struct free I : _str free S',
+    ].join('\n'))
+    expect(output).toBe(' 16\n 3\t 4\t 5\t 31\t 27\n')
+  })
+
   it('exposes every field of the 44-byte native Gadget layout', () => {
     const { output } = run([
       'Reserve As Work 1,44 : G=Start(1)',

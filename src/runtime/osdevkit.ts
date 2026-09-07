@@ -1276,6 +1276,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
       st().windowIds.setData(id, it.evalInt())
     },
+    '_it print'(it) {
+      const [text, rp, x, y] = readArgs(it, 4); const value = cString(rt, structRead(rt, text! + 12, 4, false))
+      structWrite(rt, rp! + 25, 1, structRead(rt, text!, 1, false))
+      structWrite(rt, rp! + 26, 1, structRead(rt, text! + 1, 1, false))
+      structWrite(rt, rp! + 28, 1, structRead(rt, text! + 2, 1, false))
+      structWrite(rt, rp! + 36, 2, x! + structRead(rt, text! + 4, 2, true))
+      structWrite(rt, rp! + 38, 2, y! + structRead(rt, text! + 6, 2, true))
+      const attr = textAttr(rt, st(), structRead(rt, text! + 8, 4, false))
+      const font = attr ? [...st().fonts].find(([, held]) => held.font.name.toLowerCase() === attr.name.toLowerCase() && held.font.ySize === attr.ySize)?.[0] : undefined
+      if (font !== undefined) structWrite(rt, rp! + 52, 4, font)
+      drawNativeText(rt, st(), rp!, value)
+    },
     '_loc close'(it) {
       const handle = it.evalInt() >>> 0; const locale = st().locales.get(handle)
       if (!locale) return
@@ -2641,6 +2653,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_it what font'(_, a) { return VI(structRead(rt, n(a, 0) + 8, 4, false)) },
     '_it what str'(_, a) { return VI(structRead(rt, n(a, 0) + 12, 4, false)) },
     '_it what next'(_, a) { return VI(structRead(rt, n(a, 0) + 16, 4, false)) },
+    '_it what len'(_, a) {
+      const text = n(a, 0); const value = cString(rt, structRead(rt, text + 12, 4, false))
+      const attr = textAttr(rt, st(), structRead(rt, text + 8, 4, false))
+      const held = attr ? [...st().fonts.values()].find(({ font }) => font.name.toLowerCase() === attr.name.toLowerCase() && font.ySize === attr.ySize) : undefined
+      return VI(held ? [...value].reduce((width, ch) => width + glyphMetrics(held.font, ch.charCodeAt(0)).advance, 0) : value.length * 8)
+    },
     '_gad what next'(_, a) { return VI(structRead(rt, n(a, 0), 4, false)) },
     '_gad what left'(_, a) { return VI(structRead(rt, n(a, 0) + 4, 2, false)) },
     '_gad what top'(_, a) { return VI(structRead(rt, n(a, 0) + 6, 2, false)) },
