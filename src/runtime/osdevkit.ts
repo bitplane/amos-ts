@@ -54,6 +54,7 @@ import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
+import { findToolType, matchToolValue } from '../amiga/icon'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -130,6 +131,8 @@ export interface OsDevKitState {
   dosSegments: Map<number, { base: number; path: string; size: number }>
   /** OS DevKit's private 32-class pointer tracker (workers 1883-1886). */
   tracker: OsResourceTracker
+  /** Stable FindToolType result pointers, owned for each managed DiskObject. */
+  toolTypePointers: Map<number, Map<string, number>>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -165,7 +168,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
-    tracker: new OsResourceTracker(), aslRequests: new Map(),
+    tracker: new OsResourceTracker(), toolTypePointers: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1135,7 +1138,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_wb to back'() { rt.intuition.wBenchToBack() },
     '_wb to front'() { rt.intuition.wBenchToFront() },
-    '_icon free'(it) { rt.icons.free(it.evalInt() >>> 0) },
+    '_icon free'(it) {
+      const icon = it.evalInt() >>> 0
+      for (const address of st().toolTypePointers.get(icon)?.values() ?? []) heap().free(address)
+      st().toolTypePointers.delete(icon); rt.icons.free(icon)
+    },
     '_dt delete'(it) { st().dataTypes.dispose(it.evalInt() >>> 0) },
     '_dt release'(it) { st().dataTypes.release(it.evalInt() >>> 0) },
     '_dt set attrs'(it) {
@@ -2481,6 +2488,30 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_arg what lock'(_, a) {
       const address = n(a, 0) >>> 0; const count = n(a, 1)
       return VI(wbArgLock(wbArgsAt(rt, address, count), count, n(a, 2)))
+    },
+    '_tool find'(_, a) {
+      const object = n(a, 0) >>> 0; const icon = rt.icons.objects.get(object)
+      const value = icon ? findToolType(icon.toolTypes, cString(rt, n(a, 1) >>> 0)) : null
+      if (value === null) return VI(0)
+      let pointers = st().toolTypePointers.get(object)
+      if (!pointers) { pointers = new Map(); st().toolTypePointers.set(object, pointers) }
+      let pointer = pointers.get(value)
+      if (pointer === undefined) { pointer = heap().fromAmos(value); pointers.set(value, pointer) }
+      return VI(pointer)
+    },
+    '_tool match'(_, a) {
+      return VI(matchToolValue(cString(rt, n(a, 0) >>> 0), cString(rt, n(a, 1) >>> 0)) ? -1 : 0)
+    },
+    '_tool get$'(_, a) {
+      const icon = rt.icons.objects.get(n(a, 0) >>> 0)
+      return VS(icon ? findToolType(icon.toolTypes, str(a[1] ?? VS(''))) ?? '' : '')
+    },
+    '_tool exist'(_, a) {
+      const icon = rt.icons.objects.get(n(a, 0) >>> 0)
+      return VI(icon && findToolType(icon.toolTypes, str(a[1] ?? VS(''))) !== null ? -1 : 0)
+    },
+    '_tool val match$'(_, a) {
+      return VI(matchToolValue(str(a[0] ?? VS('')), str(a[1] ?? VS(''))) ? -1 : 0)
     },
     /**
      * Routines 1585/1586: these Preferences entry points are explicitly

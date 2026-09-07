@@ -9,6 +9,7 @@ import { Runtime } from './runtime'
 import { BankImage, ObjectBank } from './objects'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { KIND } from '../amiga/gadtools'
+import { writeIcon } from '../amiga/icon'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
@@ -55,6 +56,23 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'Print _arg what str(A,2,0),_arg what lock(A,2,3),_arg what str(0,2,1)',
     ].join('\n'))
     expect(output).toBe(' 48059\t 8738\n 0\t 0\t 0\n')
+  })
+
+  it('folds all pointer and AMOS-string ToolType wrappers into icon.library', () => {
+    const { output } = run([
+      'N=_to str("RAM:tool") : T=_to str("filetype") : V=_to str("paintprogram")',
+      'D=_icon load(N) : P=_tool find(D,T)',
+      'Print _str get(P),_tool match(P,V),P=_tool find(D,T)',
+      'Print _tool get$(D,"FILETYPE"),_tool exist(D,"quiet"),_tool exist(D,"missing")',
+      'Print _tool val match$("ILBM|AMOS","amos"),_tool val match$("ILBM | AMOS","AMOS")',
+      '_icon free D',
+    ].join('\n'), (rt) => {
+      rt.vfs!.writeFile('RAM:tool.info', writeIcon({
+        type: 4, normal: null, selected: null, defaultTool: '',
+        toolTypes: ['FILETYPE=PaintProgram|ILBM', 'QUIET'], stackSize: 4096, drawer: false,
+      }))
+    })
+    expect(output).toBe('PaintProgram|ILBM\t-1\t-1\nPaintProgram|ILBM\t-1\t 0\n-1\t 0\n')
   })
 
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
