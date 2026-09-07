@@ -230,6 +230,10 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
     'iffparse.library',
     { version: 40, about: 'Shared IFF FORM/chunk parsing and writing service.' },
   ],
+  [
+    'commodities.library',
+    { version: 40, about: 'Input-event broker and commodity object graph.' },
+  ],
   // the XPK compression master --- ../amiga/xpkmaster.ts is a real port of the
   // stream format and the packer registry, and EasyLife already drives it.
   // Version 4 because that is what BUtility's routine 0 asks for.

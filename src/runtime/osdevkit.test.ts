@@ -30,6 +30,18 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('shares a Commodities broker, object graph and Exec message port', () => {
+    const { rt, output } = run([
+      'Print _cx init<>0,_cx install("Tool","Title","Description",1,0,0)',
+      '_cx id create 1,1,10,20 : _cx id create 2,3,30,40 : _cx id attach 2 To 1',
+      'Print _cx broker<>0,_cx msg port<>0,_cx id base(1)<>0,_cx id type(2),_cx id error(2)',
+      '_cx id inactivate 2 : _cx id activate 2 : _cx disable : _cx enable : _cx uninstall',
+    ].join('\n'))
+    expect(output).toBe('-1\t 0\n-1\t-1\t-1\t 3\t 0\n')
+    expect(rt.osdevkit.commodities.objects.size).toBe(0)
+    expect(rt.osdevkit.commodities.port).toBe(0)
+  })
+
   it('uses one iffparse backend for nested input chunks and native buffers', () => {
     const iff = Uint8Array.from([0x46,0x4f,0x52,0x4d, 0,0,0,14, 0x54,0x45,0x53,0x54, 0x44,0x41,0x54,0x41, 0,0,0,2, 0x12,0x34])
     const { output } = run([

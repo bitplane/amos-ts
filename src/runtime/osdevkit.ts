@@ -44,6 +44,7 @@ import { doMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boops
 import { ieReadImage } from './intuiextendgad'
 import { JP_TYPE_MASK, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 import { IffParse } from '../amiga/iffparse'
+import { Commodities } from '../amiga/commodities'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -105,6 +106,7 @@ export interface OsDevKitState {
   lowlevelClock: { last: number }
   iff: IffParse
   iffBase: number
+  commodities: Commodities
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -134,6 +136,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
+    commodities: new Commodities(exec.messages),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1059,6 +1062,16 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_cx uninstall'() { st().commodities.uninstall() },
+    '_cx id create'(it) { const [id, type, arg1, arg2] = readArgs(it, 4); st().commodities.create(id!, type!, arg1!, arg2!) },
+    '_cx id delete'(it) { st().commodities.delete(st().commodities.ids.get(it.evalInt()) ?? 0) },
+    '_cx id clear error'(it) { const o = st().commodities.objects.get(st().commodities.ids.get(it.evalInt()) ?? 0); if (o) o.error = 0 },
+    '_cx id activate'(it) { const o = st().commodities.objects.get(st().commodities.ids.get(it.evalInt()) ?? 0); if (o) o.active = true },
+    '_cx id inactivate'(it) { const o = st().commodities.objects.get(st().commodities.ids.get(it.evalInt()) ?? 0); if (o) o.active = false },
+    '_cx id attach'(it) { const child = it.evalInt(); it.expect('to'); const parent = it.evalInt(); st().commodities.attach(st().commodities.ids.get(child) ?? 0, st().commodities.ids.get(parent) ?? 0) },
+    '_cx id remove'(it) { st().commodities.remove(st().commodities.ids.get(it.evalInt()) ?? 0) },
+    '_cx enable'() { st().commodities.enabled = true; const o = st().commodities.objects.get(st().commodities.broker); if (o) o.active = true },
+    '_cx disable'() { st().commodities.enabled = false; const o = st().commodities.objects.get(st().commodities.broker); if (o) o.active = false },
     '_iff close'(it) {
       const result = st().iff.close(it.evalInt() >>> 0)
       if (result) rt.vfs?.writeFile(result.path, result.bytes)
@@ -2290,6 +2303,19 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_cx init'() { st().commodities.base = openLibrary('commodities.library', 0); return VI(st().commodities.base) },
+    '_base cx'() { return VI(st().commodities.base) },
+    '_cx install'(_, a) { return VI(st().commodities.install(str(a[0] ?? VS('')), n(a, 3), n(a, 4), n(a, 5))) },
+    '_cx broker'() { return VI(st().commodities.broker) },
+    '_cx id base'(_, a) { return VI(st().commodities.ids.get(n(a, 0)) ?? 0) },
+    '_cx msg port'() { return VI(st().commodities.port) },
+    '_cx id type'(_, a) { return VI(st().commodities.objects.get(st().commodities.ids.get(n(a, 0)) ?? 0)?.type ?? 0) },
+    '_cx id error'(_, a) { return VI(st().commodities.objects.get(st().commodities.ids.get(n(a, 0)) ?? 0)?.error ?? 0) },
+    '_cx id wait event'() { return VI(st().commodities.next(true)) },
+    '_cx id next event'() { return VI(st().commodities.next(false)) },
+    '_cx id event type'() { return VI(st().commodities.current?.type ?? 0) },
+    '_cx id event id'() { return VI(st().commodities.current?.id ?? 0) },
+    '_cx id event data'() { return VI(st().commodities.current?.data ?? 0) },
     '_iff init'() { st().iffBase = openLibrary('iffparse.library', 0); return VI(st().iffBase) },
     '_base iff'() { return VI(st().iffBase) },
     '_iff open in'(_, a) { const path = str(a[0] ?? VS('')); const bytes = rt.vfs?.readFile(path); return VI(bytes ? st().iff.openIn(path, bytes) : 0) },
