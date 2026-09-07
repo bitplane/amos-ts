@@ -8,6 +8,7 @@ import { fixedClock } from '../amiga/host'
 import { Runtime } from './runtime'
 import { BankImage, ObjectBank } from './objects'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
+import { KIND } from '../amiga/gadtools'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
@@ -803,6 +804,23 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     const second = new BankImage(16, 3, 2, 0, 0); second.planes.fill(0x55)
     const bank = new ObjectBank(); bank.images = [first, second]; rt.spriteBank = bank
   }
+  it('creates a low-level GadTools gadget from worker 1498 GA tags', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      'P=_struct alloc(4) : X=_ggad context(P) : C=_struct long(P,0) : V=_ggad vinf get(Screen Base,0) : S=_to str("Tagged") : T=_tag list alloc(9)',
+      '_tag set T,$80030001,3 : _tag set T,$80030003,4 : _tag set T,$80030005,20 : _tag set T,$80030007,8',
+      '_tag set T,$80030009,S : _tag set T,$80030010,37 : _tag set T,$80030011,$1234 : _tag set T,$80080034,V : _tag done T',
+      'G=_gt create(1,C,0,$55,T) : Print G',
+    ].join('\n')
+    const { rt, output } = run(source)
+    const address = Number(output.trim())
+    expect(address).toBeGreaterThan(0)
+    expect(rt.osdevkit.gadtools.gadget(address)).toMatchObject({
+      kind: KIND.BUTTON, leftEdge: 3, topEdge: 4, width: 20, height: 8,
+      text: 'Tagged', id: 37, flags: 0x55, userData: 0x1234,
+    })
+    expect(rt.osdevkit.gadtools.gadget(address)?.visualInfo).toBeGreaterThan(0)
+  })
   it('owns high-level gadget banks and their one-window attachment lifecycle', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',

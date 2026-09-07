@@ -144,7 +144,7 @@ auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are rep
   '_menu what sub nb', '_menu what flags', '_menu what user', '_menu what next sel',
   '_menu set', '_menu clear', '_menu share',
 ])
-auditMany('partial', 'the underlying gadget/menu/bank primitive exists, but OS DevKit high-level bank integration is not implemented', [
+auditMany('partial', 'shared GadTools owns high-level gadget/menu banks, BOOPSI and image objects, attachment, refresh and events; native rendering, TextAttr use and every tag edge remain incomplete', [
   '_gt refresh wnd', '_gt begin refresh', '_gt end refresh', '_gt create',
   '_gt gadgets bank', '_gt gadgets erase', '_gt gadgets attach', '_gt gadgets remove', '_gt set mode',
   '_gt button', '_gt checkbox', '_gt set checkbox', '_gt cycle', '_gt set cycle', '_gt set integer mode',

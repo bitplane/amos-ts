@@ -2696,6 +2696,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(n(a, 0))
       return VI(object ? getAttr(n(a, 1) >>> 0, object) ?? 0 : 0)
     },
+    /** Worker 1498: derive NewGadget fields from GA_* tags, then CreateGadgetA. */
+    '_gt create'(_, a) {
+      const kind = n(a, 0) as GadgetKind
+      if (!(Object.values(KIND) as number[]).includes(kind)) return VI(0)
+      const previous = st().gadtools.gadget(n(a, 1))
+      const tags = tagItems(st(), n(a, 4))
+      const data = (tag: number): number => tags.find(item => item.tag === tag)?.data ?? 0
+      const ng: NewGadget = {
+        leftEdge: data(0x8003_0001), topEdge: data(0x8003_0003),
+        width: data(0x8003_0005), height: data(0x8003_0007),
+        gadgetText: cString(rt, data(0x8003_0009) >>> 0),
+        gadgetID: data(0x8003_0010) & 0xffff, flags: n(a, 3),
+        visualInfo: data(0x8008_0034) >>> 0, userData: data(0x8003_0011) >>> 0,
+      }
+      // a[2] is ng_TextAttr. Managed font rendering has no native pointer for
+      // this field; the remaining public NewGadget fields are retained above.
+      return VI(st().gadtools.createGadget(kind, previous, ng, tags)?.address ?? 0)
+    },
     '_gt make image'(_, a) { return VI(makeGtImage(rt, st(), n(a, 0))) },
     '_gt make bitmap'(_, a) { return VI(makeGtBitmap(rt, st(), n(a, 0))) },
     '_gt make array'(_, a) {
