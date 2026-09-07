@@ -18,7 +18,7 @@ import {
 } from '../amiga/oswindowid'
 import {
   BARLABEL, KIND, MENUNULL, NM, itemNum, menuNum, subNum,
-  type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
+  type Gadget, type GadgetKind, type GadTools, type MenuItem, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
 import { LayerInfo, refreshFromFlags, type Layer } from '../amiga/layers'
@@ -84,6 +84,9 @@ export interface OsDevKitState {
   nextMenuItemAddress: number
   /** BOOPSI handles created through OS DevKit's private object registry 21. */
   boopsiObjects: Set<number>
+  gtGadgetBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; context: Gadget; gadgets: Map<number, Gadget>; attachedWindowId: number }>
+  currentGtGadgetBank: number
+  gtMode: { disabled: boolean; underscore: string; immediate: boolean; relVerify: boolean }
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
@@ -105,6 +108,8 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     nativeGadgets: new Map(),
     newMenuLists: new Map(), menuItemRefs: new Map(), menuItemAddresses: new Map(), nextMenuItemAddress: 0x7300_0000,
     boopsiObjects: new Set(),
+    gtGadgetBanks: new Map(), currentGtGadgetBank: 0,
+    gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -781,6 +786,24 @@ function menuItemAddress(state: OsDevKitState, item: MenuItem | null): number {
   state.nextMenuItemAddress += 0x100
   state.menuItemAddresses.set(item, address); state.menuItemRefs.set(address, item)
   return address
+}
+
+function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
+  let native = state.nativeGadgets.get(gadget.address)
+  if (!native) {
+    native = {
+      leftEdge: gadget.leftEdge, topEdge: gadget.topEdge, width: gadget.width, height: gadget.height,
+      id: gadget.address, kind: gadget.kind, flags: gadget.flags,
+    }
+    state.nativeGadgets.set(gadget.address, native)
+  }
+  return native
+}
+
+function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<number, Gadget>; attachedWindowId: number }): void {
+  const window = state.windowHandles.get(bank.attachedWindowId)?.window
+  if (window) for (const gadget of bank.gadgets.values()) rt.intuition.detachWindowGadget(window, nativeGadget(state, gadget))
+  bank.attachedWindowId = -1
 }
 
 /** Send an IECLASS_POINTERPOS/IESUBCLASS_PIXEL position in one screen's viewport. */
@@ -1726,6 +1749,59 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const object = rt.boopsi.objectAt(address)
       if (object) rt.boopsi.disposeObject(object)
     },
+    'reserve as gt gadgets'(it) {
+      const [number, max, screenSlot] = readArgs(it, 3)
+      if (number! <= 0 || number! > 0xffff || max! < 0 || !rt.screens.has(screenSlot!)) return
+      const old = st().gtGadgetBanks.get(number!)
+      if (old) {
+        detachGtBank(rt, st(), old); st().gadtools.freeGadgets(old.context); st().gadtools.freeVisualInfo(old.visualInfo)
+      }
+      rt.reserveBank(number!, max! * 16 + 32, 'GT Gads', false)
+      const screen = rt.screens.get(screenSlot!)!
+      const pens = Array.from(screenPens(screen.depth).pens)
+      const visual = st().gadtools.getVisualInfo(screenSlot!, { numPens: pens.length, pens, depth: screen.depth })
+      st().gtGadgetBanks.set(number!, {
+        max: max! & 0xffff, screenSlot: screenSlot!, visualInfo: visual.address,
+        context: st().gadtools.createContext(), gadgets: new Map(), attachedWindowId: -1,
+      })
+      st().currentGtGadgetBank = number!
+    },
+    '_gt gadgets bank'(it) { st().currentGtGadgetBank = it.evalInt() & 0xffff },
+    '_gt gadgets remove'(it) {
+      const bank = st().gtGadgetBanks.get(it.evalInt() & 0xffff); if (bank) detachGtBank(rt, st(), bank)
+    },
+    '_gt gadgets attach'(it) {
+      const bank = st().gtGadgetBanks.get(it.evalInt() & 0xffff); const id = st().windowIds.currentId
+      const window = st().windowHandles.get(id)?.window
+      if (!bank || !window) return
+      detachGtBank(rt, st(), bank)
+      for (const gadget of bank.gadgets.values()) rt.intuition.attachWindowGadget(window, nativeGadget(st(), gadget))
+      bank.attachedWindowId = id
+    },
+    '_gt gadgets erase'(it) {
+      const number = it.evalInt() & 0xffff; const bank = st().gtGadgetBanks.get(number)
+      if (!bank) return
+      detachGtBank(rt, st(), bank); st().gadtools.freeGadgets(bank.context); st().gadtools.freeVisualInfo(bank.visualInfo)
+      st().gtGadgetBanks.delete(number); rt.eraseBank(number)
+    },
+    '_gt set mode'(it) {
+      const disabled = it.evalInt(); it.expect(','); const underscore = it.evalStr(); it.expect(',')
+      const immediate = it.evalInt(); it.expect(','); const relVerify = it.evalInt()
+      st().gtMode = {
+        disabled: disabled !== 0, underscore: underscore.length === 0 ? '' : underscore[0]!,
+        immediate: immediate !== 0, relVerify: relVerify !== 0,
+      }
+    },
+    '_gt refresh wnd'(it) {
+      const base = it.evalInt(); it.expect(','); it.evalInt()
+      const window = windowAtBase(st(), base)
+      if (window) for (const gadget of window.gadgets) rt.intuition.refreshWindowGadget(window, gadget)
+    },
+    '_gt begin refresh'(it) { windowAtBase(st(), it.evalInt())?.layer.beginUpdate() },
+    '_gt end refresh'(it) {
+      const window = windowAtBase(st(), it.evalInt()); it.expect(','); const complete = it.evalInt()
+      window?.layer.endUpdate(complete !== 0)
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -1857,14 +1933,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const id = st().windowIds.records.findIndex((record) => record.base === windowBase); const handle = st().windowHandles.get(id)
       if (!first || !handle) return VI(-1)
       const at = Math.max(0, Math.min(n(a, 2) < 0 ? handle.window.gadgets.length : n(a, 2), handle.window.gadgets.length))
-      const gadgets = st().gadtools.chain(first).map((g) => {
-        let native = st().nativeGadgets.get(g.address)
-        if (!native) {
-          native = { leftEdge: g.leftEdge, topEdge: g.topEdge, width: g.width, height: g.height, id: g.address, kind: g.kind, flags: g.flags }
-          st().nativeGadgets.set(g.address, native)
-        }
-        return native
-      })
+      const gadgets = st().gadtools.chain(first).map((g) => nativeGadget(st(), g))
       handle.window.gadgets.splice(at, 0, ...gadgets.filter((g) => !handle.window.gadgets.includes(g)))
       return VI(at)
     },

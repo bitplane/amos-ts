@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          130 |     555 |      47% |
+| os-devkit-1.61       |     1047 |      362 |          139 |     546 |      48% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          541 |     598 |      92% |
+| **total**            |     7422 |     6227 |          550 |     589 |      92% |
 
 ## Not applicable, by what would retire it
 
@@ -429,12 +429,14 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `ovregwait24`, `ovsavejpeg24`, `ovscroll24`, `ovsetloadaddress24`, `ovsetsprite24`,
   `ovupdatedelay24`
 
-## os-devkit-1.61 (47%)
+## os-devkit-1.61 (48%)
 
-- **approximated** (130): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (139): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
   `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
   `_ggad create`, `_ggad set attrs`, `_gmn create`, `_gmn end`, `_gmn free`, `_gmn layout`,
-  `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_img draw`, `_img draw state`, `_img erase`,
+  `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt begin refresh`, `_gt end refresh`,
+  `_gt gadgets attach`, `_gt gadgets bank`, `_gt gadgets erase`, `_gt gadgets remove`,
+  `_gt refresh wnd`, `_gt set mode`, `_img draw`, `_img draw state`, `_img erase`,
   `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
   `_menu clear`, `_menu off`, `_menu on`, `_menu set`, `_menu share`, `_menu what address`,
   `_menu what flags`, `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`,
@@ -457,7 +459,8 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_wnd id next event`, `_wnd id open`, `_wnd id paint`, `_wnd id put bob`, `_wnd id right bdr`,
   `_wnd id scroll`, `_wnd id set mouse pos`, `_wnd id size`, `_wnd id tag open`,
   `_wnd id titles`, `_wnd id top bdr`, `_wnd id unlock`, `_wnd id wait event`, `_wnd id width`,
-  `_wnd id x`, `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`
+  `_wnd id x`, `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`,
+  `reserve as gt gadgets`
 
 ## powerbobs-1.0 (100%)
 

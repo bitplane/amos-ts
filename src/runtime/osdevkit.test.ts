@@ -592,6 +592,21 @@ describe('OS DevKit 1.61 screen-ID graphics binding', () => {
 })
 
 describe('OS DevKit 1.61 shared GadTools ownership', () => {
+  it('owns high-level gadget banks and their one-window attachment lifecycle', () => {
+    const source = [
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,0,0,40,20,0,0,0,"Gadgets"',
+      'Reserve As Gt Gadgets 7,4,0 : _gt gadgets attach 7 : W=_wnd id base(3)',
+      '_gt begin refresh W : _gt end refresh W,-1 : _gt refresh wnd W,0',
+      '_gt set mode 1,"_",1,0 : Reserve As Gt Gadgets 8,2,0 : _gt gadgets erase 8',
+    ].join('\n')
+    const { rt } = run(source)
+    expect(rt.bankRef(7)?.name).toBe('GT Gads')
+    expect(rt.osdevkit.gtGadgetBanks.get(7)).toMatchObject({ max: 4, screenSlot: 0, attachedWindowId: 3 })
+    expect(rt.osdevkit.gtGadgetBanks.has(8)).toBe(false)
+    expect(rt.osdevkit.gtMode).toEqual({ disabled: true, underscore: '_', immediate: true, relVerify: false })
+  })
+
   it('uses the machine-wide BOOPSI registry for public Intuition objects', () => {
     const source = [
       'T=_tag list alloc(2) : _tag set T,$80030001,12 : _tag done T',
