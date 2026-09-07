@@ -806,6 +806,15 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
     }
     state.nativeGadgets.set(gadget.address, native)
   }
+  native.leftEdge = gadget.leftEdge; native.topEdge = gadget.topEdge; native.width = gadget.width; native.height = gadget.height
+  native.flags = gadget.flags | (gadget.disabled ? GFLG_GADGDISABLED : 0)
+  if (gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER) {
+    const buffer = gadget.kind === KIND.STRING ? gadget.string ?? '' : String(gadget.number ?? 0)
+    const info = native.strInfo ?? { buffer, maxChars: 11, bufferPos: buffer.length, longInt: 0 }
+    info.buffer = buffer; info.maxChars = (gadget.maxChars ?? 10) + 1
+    info.bufferPos = Math.min(info.bufferPos, buffer.length); info.longInt = gadget.kind === KIND.INTEGER ? gadget.number ?? 0 : 0
+    native.strInfo = info
+  }
   return native
 }
 
@@ -2012,6 +2021,26 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: TAG.GTSL_Justification, data: justification! }, { tag: TAG.GTSL_LevelFormat, data: st().gadtools.stringRef(format) },
       ])
     },
+    '_gt disable'(it) {
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(it.evalInt())
+      if (!gadget) return
+      gadget.disabled = true; nativeGadget(st(), gadget).flags = (nativeGadget(st(), gadget).flags ?? 0) | GFLG_GADGDISABLED
+    },
+    '_gt enable'(it) {
+      const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(it.evalInt())
+      if (!gadget) return
+      gadget.disabled = false; nativeGadget(st(), gadget).flags = (nativeGadget(st(), gadget).flags ?? 0) & ~GFLG_GADGDISABLED
+    },
+    '_gt activate'(it) {
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(it.evalInt())
+      const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
+      if (gadget && window) rt.intuition.activateGadget(window, nativeGadget(st(), gadget))
+    },
+    '_gt refresh'(it) {
+      const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(it.evalInt())
+      const window = bank && st().windowHandles.get(bank.attachedWindowId)?.window
+      if (gadget && window) rt.intuition.refreshWindowGadget(window, nativeGadget(st(), gadget))
+    },
     '_menu set'(it) {
       const [base, address] = readArgs(it, 2); const window = windowAtBase(st(), base!); const strip = st().gadtools.menuStrip(address! >>> 0)
       if (window && strip) { window.setMenuStrip(strip.address); syncAllWindowBases(rt, st()) }
@@ -2099,6 +2128,9 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_gt what string'(_, a) {
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))
       return VS(gadget?.kind === KIND.STRING ? gadget.string ?? '' : '')
+    },
+    '_gt base'(_, a) {
+      return VI(st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))?.address ?? 0)
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)

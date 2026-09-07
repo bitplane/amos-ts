@@ -603,11 +603,12 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
       '_gt text 4,35,2,30,7,0,"","Ready",1',
       '_gt gadgets attach 7 : _gt set checkbox 1,0 : _gt set integer 2,34 : _gt set string 3,"AMOS Pro" : _gt set text 4,"Running",1,0,0',
       'Print _gt what integer(2),_gt what string(3) : W=_wnd id base(3)',
+      '_gt disable 3 : _gt enable 3 : _gt activate 3 : _gt refresh 3 : Print _gt base(3)<>0',
       '_gt begin refresh W : _gt end refresh W,-1 : _gt refresh wnd W,0',
       '_gt set mode 1,"_",1,0 : Reserve As Gt Gadgets 8,2,0 : _gt gadgets erase 8',
     ].join('\n')
     const { rt, output } = run(source)
-    expect(output).toBe(' 34\tAMOS Pro\n')
+    expect(output).toBe(' 34\tAMOS Pro\n-1\n')
     expect(rt.bankRef(7)?.name).toBe('GT Gads')
     expect(rt.osdevkit.gtGadgetBanks.get(7)).toMatchObject({ max: 6, screenSlot: 0, attachedWindowId: 3 })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(0)).toMatchObject({ kind: 1, text: 'Go' })
@@ -615,6 +616,7 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(2)).toMatchObject({ kind: 3, number: 34, maxChars: 6 })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(3)).toMatchObject({ kind: 12, string: 'AMOS Pro', maxChars: 12 })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(4)).toMatchObject({ kind: 13, displayText: 'Running' })
+    expect(rt.osdevkit.nativeGadgets.get(rt.osdevkit.gtGadgetBanks.get(7)!.gadgets.get(3)!.address)?.strInfo).toMatchObject({ buffer: 'AMOS Pro', maxChars: 13 })
     expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(5)
     expect(rt.osdevkit.gtGadgetBanks.has(8)).toBe(false)
     expect(rt.osdevkit.gtMode).toEqual({ disabled: true, underscore: '_', immediate: true, relVerify: false })

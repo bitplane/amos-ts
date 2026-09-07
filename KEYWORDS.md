@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          169 |     516 |      51% |
+| os-devkit-1.61       |     1047 |      362 |          174 |     511 |      51% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |          580 |     559 |      92% |
+| **total**            |     7422 |     6227 |          585 |     554 |      92% |
 
 ## Not applicable, by what would retire it
 
@@ -431,13 +431,14 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (51%)
 
-- **approximated** (169): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
+- **approximated** (174): `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_bd draw`,
   `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`,
   `_ggad create`, `_ggad set attrs`, `_gmn create`, `_gmn end`, `_gmn free`, `_gmn layout`,
-  `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt begin refresh`, `_gt button`,
-  `_gt checkbox`, `_gt cycle`, `_gt end refresh`, `_gt gadgets attach`, `_gt gadgets bank`,
-  `_gt gadgets erase`, `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt integer`,
-  `_gt listview`, `_gt mx`, `_gt number`, `_gt palette`, `_gt refresh wnd`, `_gt set checkbox`,
+  `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gt activate`, `_gt base`,
+  `_gt begin refresh`, `_gt button`, `_gt checkbox`, `_gt cycle`, `_gt disable`, `_gt enable`,
+  `_gt end refresh`, `_gt gadgets attach`, `_gt gadgets bank`, `_gt gadgets erase`,
+  `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt integer`, `_gt listview`,
+  `_gt mx`, `_gt number`, `_gt palette`, `_gt refresh`, `_gt refresh wnd`, `_gt set checkbox`,
   `_gt set cycle`, `_gt set integer`, `_gt set integer mode`, `_gt set listview`,
   `_gt set listview mode`, `_gt set mode`, `_gt set mx`, `_gt set number`, `_gt set palette`,
   `_gt set scroller`, `_gt set slider`, `_gt set string`, `_gt set string mode`, `_gt set text`,
