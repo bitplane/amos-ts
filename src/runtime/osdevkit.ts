@@ -2160,6 +2160,15 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         nativePutColor(rt, destination, tx, ty, blitMinterm(nativeBitmapPixel(rt, bitmap, sx + x, sy + y), nativePoint(rt, destination, tx, ty), destination.depth, minterm!))
       }
     },
+    '_blt pattern'(it) {
+      const [rastPort, mask, x0, y0, x1, y1, bytesPerRow] = readArgs(it, 7); const raster = nativeRaster(rt, rastPort!)
+      if (!raster) return
+      const left = Math.min(x0!, x1!), top = Math.min(y0!, y1!), right = Math.max(x0!, x1!), bottom = Math.max(y0!, y1!)
+      for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) {
+        if (mask !== 0) { const byte = rt.resolveAddr((mask! >>> 0) + (y - top) * bytesPerRow! + ((x - left) >>> 3)); if (!byte || (byte.data[byte.off]! & (0x80 >>> ((x - left) & 7))) === 0) continue }
+        nativeFillColor(rt, raster, x, y)
+      }
+    },
     /** workers 534-547 over caller-owned native RastPort and BitMap memory. */
     '_rp move'(it) {
       const [rp, x, y] = readArgs(it, 3)

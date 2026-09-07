@@ -1207,9 +1207,10 @@ describe('OS DevKit 1.61 native graphics records', () => {
       '_rp set bmap DR,D : _rp set wr msk DR,1 : _blt clip SR,0,0 To DR,2,0,8,4,$c0 : Print _rp point(DR,3,1)',
       'Poke M,$80 : _rp plot SR,0,0 : _blt msk bm to rp S,$00000000 To DR,$00000000,$00080004,$c0,M',
       'Print _rp point(DR,0,0),_rp point(DR,1,1) : _blt clr DP,8,0 : Print _rp point(DR,0,0)',
+      '_rp a pen DR,1 : Poke M,$a0 : _blt pattern DR,M,0,2,7,2,1 : Print _rp point(DR,0,2),_rp point(DR,1,2),_rp point(DR,2,2)',
       '_struct free DR : _struct free SR : _struct free D : _struct free S : _struct free M : _struct free DP : _struct free SP',
     ].join('\n')
-    expect(run(source).output).toBe(' 1\n 1\t 0\n 0\n')
+    expect(run(source).output).toBe(' 1\n 1\t 0\n 0\n 1\t 0\t 1\n')
   })
 
   it('adds, activates, updates, refreshes and removes raw native Gadget lists', () => {
