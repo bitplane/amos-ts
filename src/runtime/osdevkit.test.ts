@@ -244,6 +244,20 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.pools.size).toBe(0)
   })
 
+  it('routes ViewPort RGB4 and RGB32 updates into the selected shared screen', () => {
+    const { output } = run([
+      '_scr id open 1,0,0,64,32,4,0,0,"Palette" : V=_scr id vport(1)',
+      '_rgb4 set V,2,$A,$B,$C : Print Hex$(_scr id get pal(2))',
+      'T=_struct alloc(4) : Doke T,$0123 : Doke T+2,$0456 : _rgb4 load V,T,2',
+      'Print Hex$(_scr id get pal(0)),Hex$(_scr id get pal(1))',
+      '_rgb32 set V,3,$12000000,$34000000,$56000000 : Print Hex$(_scr id get aga pal(3))',
+      'U=_struct alloc(16) : Doke U,1 : Doke U+2,4 : Loke U+4,$78000000 : Loke U+8,$9A000000 : Loke U+12,$BC000000',
+      '_rgb32 load V,U : Print Hex$(_scr id get aga pal(4))',
+      '_struct free U : _struct free T : _scr id close 1',
+    ].join('\n'))
+    expect(output).toBe('$ABC\n$123\t$456\n$123456\n$789ABC\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

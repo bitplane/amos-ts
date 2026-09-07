@@ -800,6 +800,26 @@ function currentScreen(rt: Runtime, state: OsDevKitState) {
   return record ? rt.screens.get(record.slot) : undefined
 }
 
+function screenAtViewPort(rt: Runtime, state: OsDevKitState, viewPort: number) {
+  const record = [...state.screenIds.values()].find((entry) => entry.viewPort === (viewPort >>> 0))
+  return record ? rt.screens.get(record.slot) : undefined
+}
+
+function setViewPortRgb(rt: Runtime, state: OsDevKitState, viewPort: number, pen: number, red: number, green: number, blue: number, bits: 4 | 32): void {
+  const screen = screenAtViewPort(rt, state, viewPort)
+  if (screen && pen >= 0 && pen < screen.palette.length) {
+    const r = bits === 4 ? red & 15 : red >>> 24
+    const g = bits === 4 ? green & 15 : green >>> 24
+    const b = bits === 4 ? blue & 15 : blue >>> 24
+    screen.palette[pen] = ((r >>> (bits === 4 ? 0 : 4)) << 8) | ((g >>> (bits === 4 ? 0 : 4)) << 4) | (b >>> (bits === 4 ? 0 : 4))
+    screen.paletteLo[pen] = bits === 4 ? screen.palette[pen]! : ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+    return
+  }
+  const map = state.colorMaps.get(structRead(rt, viewPort + 4, 4, false)) ?? null
+  if (bits === 4) setRgb4ColorMap(map, pen, red, green, blue)
+  else setRgb32ColorMap(map, pen, red, green, blue)
+}
+
 /** Copy the public native RastPort fields into the shared drawing backend. */
 function syncNativeRastPort(rt: Runtime, raster: NativeRaster, rp: RastPort): void {
   rp.mask = structRead(rt, raster.rp + 24, 1, false)
@@ -1770,6 +1790,25 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [map, first, count, destination] = readArgs(it, 4)
       const values = getRgb32(st().colorMaps.get(map!) ?? null, first!, count!)
       values.forEach((value, i) => structWrite(rt, destination! + i * 4, 4, value))
+    },
+    '_rgb4 load'(it) {
+      const [viewPort, table, count] = readArgs(it, 3)
+      for (let pen = 0; pen < count!; pen++) {
+        const colour = structRead(rt, table! + pen * 2, 2, false)
+        setViewPortRgb(rt, st(), viewPort!, pen, colour >>> 8, colour >>> 4, colour, 4)
+      }
+    },
+    '_rgb4 set'(it) {
+      const [viewPort, pen, red, green, blue] = readArgs(it, 5); setViewPortRgb(rt, st(), viewPort!, pen!, red!, green!, blue!, 4)
+    },
+    '_rgb32 load'(it) {
+      const [viewPort, table] = readArgs(it, 2); const count = structRead(rt, table!, 2, false); const first = structRead(rt, table! + 2, 2, false)
+      for (let i = 0; i < count; i++) setViewPortRgb(rt, st(), viewPort!, first + i,
+        structRead(rt, table! + 4 + i * 12, 4, false), structRead(rt, table! + 8 + i * 12, 4, false),
+        structRead(rt, table! + 12 + i * 12, 4, false), 32)
+    },
+    '_rgb32 set'(it) {
+      const [viewPort, pen, red, green, blue] = readArgs(it, 5); setViewPortRgb(rt, st(), viewPort!, pen!, red!, green!, blue!, 32)
     },
     // Synchronous, non-contending blitter: these calls have no observable state.
     '_blt own'() {},
