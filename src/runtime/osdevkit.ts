@@ -1125,6 +1125,8 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       st().dosVariables.set(name, it.evalStr(), flags)
     },
     '_dos close'(it) { rt.dos.close(rt.vfs, it.evalInt()) },
+    '_dos unlock'(it) { rt.dos.unlock(it.evalInt()) },
+    '_dos set dir$'(it) { rt.vfs?.setCurrentDir(it.evalStr()) },
     '_cx uninstall'() { st().commodities.uninstall() },
     '_cx id create'(it) { const [id, type, arg1, arg2] = readArgs(it, 4); st().commodities.create(id!, type!, arg1!, arg2!) },
     '_cx id delete'(it) { st().commodities.delete(st().commodities.ids.get(it.evalInt()) ?? 0) },
@@ -2668,6 +2670,21 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_dos eof'(_, a) { const file = rt.dos.file(n(a, 0)); return VI(!file || (file.ungot === null && file.position >= file.data.length) ? -1 : 0) },
     '_dos lof'(_, a) { return VI(rt.dos.file(n(a, 0))?.data.length ?? 0) },
+    '_dos lock'(_, a) { return VI(rt.dos.lock(rt.vfs, cString(rt, n(a, 0)), n(a, 1))) },
+    '_dos rd lock'(_, a) { return VI(rt.dos.lock(rt.vfs, str(a[0] ?? VS('')), -2)) },
+    '_dos wr lock'(_, a) { return VI(rt.dos.lock(rt.vfs, str(a[0] ?? VS('')), -1)) },
+    '_dos l open'(_, a) { return VI(rt.dos.parentLock(rt.vfs, n(a, 0))) },
+    '_dos dir'(_, a) { return VI(rt.dos.currentDir(rt.vfs, n(a, 0))) },
+    '_lock name$'(_, a) { return VS(rt.dos.lockInfo(n(a, 0))?.path ?? '') },
+    '_dos what dir$'() { return VS(rt.vfs?.currentDir ?? '') },
+    '_dos exist'(_, a) { return VI(rt.vfs?.exists(str(a[0] ?? VS(''))) ? -1 : 0) },
+    '_dos l name'(_, a) {
+      const lock = rt.dos.lockInfo(n(a, 0)), buffer = n(a, 1) >>> 0, length = n(a, 2)
+      if (!lock || !buffer || lock.path.length + 1 > length) return VI(0)
+      for (let i = 0; i < lock.path.length; i++) { const m = rt.resolveWrite(buffer + i); if (!m) return VI(0); m.data[m.off] = lock.path.charCodeAt(i) & 0xff }
+      const end = rt.resolveWrite(buffer + lock.path.length); if (!end) return VI(0); end.data[end.off] = 0
+      return VI(-1)
+    },
     '_dos set err'(_, a) { return VI(rt.dos.setIoErr(n(a, 0))) },
     '_dos fault'(_, a) {
       const code = n(a, 0), headerAddress = n(a, 1) >>> 0

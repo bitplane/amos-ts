@@ -346,11 +346,21 @@ export interface DosStorage {
   writeFile(path: string, data: Uint8Array): void
 }
 
+export interface DosFilesystem extends DosStorage {
+  currentDir: string
+  exists(path: string): 'file' | 'dir' | null
+  setCurrentDir(path: string): boolean
+}
+
+export interface DosLock { path: string; access: -2 | -1 }
+
 export class DosSystem {
   ioErr = 0
   lastReport: DosReport | null = null
   readonly files = new Map<number, DosFile>()
+  readonly locks = new Map<number, DosLock>()
   private nextFile = 1
+  private nextLock = 1
   setIoErr(value: number): number { const old = this.ioErr; this.ioErr = value | 0; return old }
   fault(code: number, header: string | null): string | null { return dosFaultText(code, header) }
   report(error: number, type: number, argument: number, device: number): boolean {
@@ -418,5 +428,27 @@ export class DosSystem {
     const out: number[] = []
     while (out.length < length - 1) { const c = this.getc(handle); if (c < 0) break; out.push(c); if (c === 0 || c === 10) break }
     return out.length === 0 ? null : Uint8Array.from(out)
+  }
+  lock(fs: DosFilesystem | null | undefined, path: string, access: number): number {
+    if (!fs || ![-2, -1].includes(access) || fs.exists(path) === null) { this.ioErr = 205; return 0 }
+    const handle = (0x7f50_0000 + this.nextLock++ * 4) >>> 0
+    this.locks.set(handle, { path, access: access as -2 | -1 })
+    this.ioErr = 0
+    return handle
+  }
+  unlock(handle: number): boolean { return this.locks.delete(handle >>> 0) }
+  lockInfo(handle: number): DosLock | null { return this.locks.get(handle >>> 0) ?? null }
+  parentLock(fs: DosFilesystem | null | undefined, handle: number): number {
+    const lock = this.lockInfo(handle)
+    if (!lock) return 0
+    const parent = dosPathPart(lock.path)
+    return parent === lock.path ? 0 : this.lock(fs, parent, -2)
+  }
+  currentDir(fs: DosFilesystem | null | undefined, handle: number): number {
+    const lock = this.lockInfo(handle)
+    if (!fs || !lock) return 0
+    const old = this.lock(fs, fs.currentDir, -2)
+    if (!fs.setCurrentDir(lock.path)) { if (old) this.unlock(old); return 0 }
+    return old
   }
 }

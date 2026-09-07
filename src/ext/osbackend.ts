@@ -223,8 +223,11 @@ auditMany('faithful', 'guarded one-based WBArg name and lock field access is mod
 auditMany('partial', 'Amiga path joining and directory-part extraction exist, but native fixed-buffer and full DOS AddPart edge semantics are not modelled', [
   '_path add', '_path part',
 ])
-auditMany('partial', 'filesystem paths exist, but native BPTR lock identity, shared/exclusive ownership and lock-to-handle lifetime are not exposed', [
-  '_dos lock', '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_dos wr lock', '_lock name$',
+auditMany('faithful', 'shared DOS lock identities retain paths across ParentDir, NameFromLock, CurrentDir and explicit release', [
+  '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_lock name$',
+])
+auditMany('partial', 'native lock identities and access modes are retained, but exclusive locks cannot prevent independent host filesystem mutation', [
+  '_dos lock', '_dos wr lock',
 ])
 auditMany('faithful', 'the native path operations mutate caller-owned C buffers or return the exact pointer boundary within them', [
   '_dos add part', '_dos file part', '_dos path part',

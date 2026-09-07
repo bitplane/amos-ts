@@ -227,6 +227,17 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('-1\t 3\t 3\n 68\t 4\tRAM:dos.bin\n 65\t 65\t 65\n 3\tBCD\t-1\n-1\t 6\nABCDEF\t-1\n')
   })
 
+  it('retains DOS lock identity through names, parents and CurrentDir', () => {
+    const { output } = run([
+      'Mkdir "RAM:one" : Mkdir "RAM:one/two"',
+      'L=_dos rd lock("RAM:one/two") : P=_dos l open(L) : B=_str alloc(32)',
+      'Print L<>0,P<>0,_lock name$(L),_lock name$(P),_dos l name(L,B,32),_str get(B)',
+      'O=_dos dir(L) : Print O<>0,_dos what dir$,_lock name$(O)',
+      '_dos unlock O : _dos unlock P : _dos unlock L : _str free B',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\tRAM:one/two\tRAM:one\t-1\tRAM:one/two\n-1\tRAM:one/two\tRAM:\n')
+  })
+
   it('shares Workbench lifecycle, AppItems and serialized DiskObjects', () => {
     const { rt, output } = run([
       'Print _base wb<>0,_wb open : _wb to back : _wb to front : Print _wb close,_wb open',
