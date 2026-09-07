@@ -55,6 +55,13 @@ fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
   binary audit shows compatible Exec behavior. Empty blocking waits remain an
   interpreter/scheduler boundary, and arbitrary `is_Code` callbacks remain a
   future 68k-execution boundary; neither is approximated inside an extension.
+- **Shared AmigaOS services.** IFF FORM/chunk parsing, Commodities brokers and
+  object graphs, DOS variables, and CLI `ReadArgs` results are machine-facing
+  services under `src/amiga/`, not OS DevKit-private substitutes. Global DOS
+  variables are the same `ENV:` files seen by LDos and ordinary filesystem
+  operations; Commodities uses the native Exec message-port service. These
+  seams are intended to accept the future input pipeline, scheduler, and 68k
+  execution engine without introducing a second extension-local system.
 - **Display.** Complete, and **planar**. Screens and bank images are Amiga
   bitplanes with a chunky view derived from them, so `Logbase` pokes, bitplane
   extensions and a copper list aiming planes anywhere all address the real

@@ -499,12 +499,15 @@ collected corpus covers the large surviving AMOS collections, and the token
 tables and observed slot evidence recovered from those programs are recorded in
 the manifests.
 
-Three registered products currently remain at 0%:
+Two registered products currently remain at 0%:
 
 - BSDSocket 1.1.4 needs a host networking boundary and a model of
   `bsdsocket.library`.
 - OrgAsm 1.0 reaches AmigaOS and then executes application-supplied 68k code.
-- OS DevKit 1.61 exposes the much larger AmigaOS API surface.
+
+OS DevKit 1.61 is implemented incrementally over the runtime-wide AmigaOS
+services. Its remaining surface and current classifications are reported by
+`KEYWORDS.md`; it is no longer accurate to describe the extension as 0%.
 
 Their exact keyword counts and blockers belong in `KEYWORDS.md` and
 `UNIMPLEMENTED.md`; they are not copied here. Everything else registered has

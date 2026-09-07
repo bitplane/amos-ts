@@ -45,6 +45,9 @@ import { ieReadImage } from './intuiextendgad'
 import { JP_TYPE_MASK, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 import { IffParse } from '../amiga/iffparse'
 import { Commodities } from '../amiga/commodities'
+import { DosVariables } from '../amiga/dosvars'
+import { ReadArgs } from '../amiga/readargs'
+import type { AmigaFS } from '../amiga/vfs'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -107,12 +110,14 @@ export interface OsDevKitState {
   iff: IffParse
   iffBase: number
   commodities: Commodities
+  dosVariables: DosVariables
+  readArgs: ReadArgs
   layerInfos: Map<number, LayerInfo | null>
   layers: Map<number, { owner: number; layer: Layer; bitmap: number; backfill: number }>
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
 }
 
-export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKitState => {
+export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () => AmigaFS | null = () => null): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
   return {
     memory: exec.pool, strings, defaultTags: [], ibase: new IntuitionBaseLock(), exec, colorMaps: new Map(),
@@ -137,6 +142,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools): OsDevKit
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
     commodities: new Commodities(exec.messages),
+    dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1062,6 +1068,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     if (gadget) gadget.horizontal = horizontal
   }
   return {
+    '_dos var value$'(it) {
+      it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')
+      st().dosVariables.set(name, it.evalStr(), flags)
+    },
     '_cx uninstall'() { st().commodities.uninstall() },
     '_cx id create'(it) { const [id, type, arg1, arg2] = readArgs(it, 4); st().commodities.create(id!, type!, arg1!, arg2!) },
     '_cx id delete'(it) { st().commodities.delete(st().commodities.ids.get(it.evalInt()) ?? 0) },
@@ -2303,6 +2313,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const heap = (): OsCStringHeap => rt.osdevkit.strings
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
+    '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },
+    '_dos var find'(_, a) { return VI(st().dosVariables.find(str(a[0] ?? VS('')), n(a, 1))) },
+    '_dos var value$'(_, a) { return VS(st().dosVariables.get(str(a[0] ?? VS('')), n(a, 1))) },
+    '_cli read args'(_, a) { return VI(st().readArgs.read(str(a[0] ?? VS('')), str(a[1] ?? VS(''))) ? -1 : 0) },
+    '_cli what arg$'(_, a) { return VS(st().readArgs.string(n(a, 0), n(a, 1))) },
+    '_cli what arg'(_, a) { return VI(st().readArgs.number(n(a, 0), n(a, 1))) },
     '_cx init'() { st().commodities.base = openLibrary('commodities.library', 0); return VI(st().commodities.base) },
     '_base cx'() { return VI(st().commodities.base) },
     '_cx install'(_, a) { return VI(st().commodities.install(str(a[0] ?? VS('')), n(a, 3), n(a, 4), n(a, 5))) },

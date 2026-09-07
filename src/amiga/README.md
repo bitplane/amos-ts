@@ -135,6 +135,10 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `layers.ts` | `layers.library`: the layer chain, `Region`, and the damage list |
 | `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
 | `doubleclick.ts` | Intuition's seconds/micros double-click interval test |
+| `commodities.ts` | `commodities.library` brokers, Cx object graphs and Exec-backed event queues |
+| `dosvars.ts` | DOS local variables and global `ENV:` variable files |
+| `iffparse.ts` | `iffparse.library` FORM/chunk scope parsing and streamed output |
+| `readargs.ts` | DOS `ReadArgs`: CLI tokenisation, templates and typed result arrays |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |

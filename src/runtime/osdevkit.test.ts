@@ -14,7 +14,7 @@ const os = extensionById('os-devkit-1.61')!
 
 function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
   const extensions = new Map([[20, os.table]])
-  const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume())
+  const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume()); fs.mount('ENV', new MemoryVolume())
   let output = ''
   const rt = new Runtime(tokenize(source, core, extensions), core, {
     extensions,
@@ -30,6 +30,17 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('shares DOS variables through ENV: and parses CLI templates once', () => {
+    const { rt, output } = run([
+      '_dos var value$("Editor",256)="AMOS Pro"',
+      'Print _dos var value$("editor",256),_dos var find("EDITOR",0)<>0',
+      'Print _cli read args("FILE=demo.amos COUNT=12 QUIET","FILE/A/K,COUNT/N/K,QUIET/S")',
+      'Print _cli what arg$(0),_cli what arg(1),_cli what arg(2),_dos var del("editor",256)',
+    ].join('\n'))
+    expect(output).toBe('AMOS Pro\t-1\n-1\ndemo.amos\t 12\t-1\t-1\n')
+    expect(rt.vfs?.readFile('ENV:Editor')).toBe(null)
+  })
+
   it('shares a Commodities broker, object graph and Exec message port', () => {
     const { rt, output } = run([
       'Print _cx init<>0,_cx install("Tool","Title","Description",1,0,0)',
