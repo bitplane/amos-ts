@@ -47,6 +47,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.tracker.entries(3)).toEqual([])
   })
 
+  it('exposes guarded one-based WBArg name and lock fields from native memory', () => {
+    const { output } = run([
+      'Reserve As Work 1,16 : A=Start(1)',
+      'Loke A,$1111 : Loke A+4,$AAAA : Loke A+8,$2222 : Loke A+12,$BBBB',
+      'Print _arg what str(A,2,2),_arg what lock(A,2,2)',
+      'Print _arg what str(A,2,0),_arg what lock(A,2,3),_arg what str(0,2,1)',
+    ].join('\n'))
+    expect(output).toBe(' 48059\t 8738\n 0\t 0\t 0\n')
+  })
+
   it('reproduces the three obsolete Preferences workers as zero-returning stubs', () => {
     const { output } = run('Print _prfs get def(123,1),_prfs get(456,2),_prfs set(789,3,1)')
     expect(output).toBe(' 0\t 0\t 0\n')

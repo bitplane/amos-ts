@@ -53,6 +53,7 @@ import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
+import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
 const SCREEN_CTRL_SLOT = 0x1000
@@ -231,6 +232,17 @@ function cString(rt: Runtime, address: number): string {
     result += String.fromCharCode(m.data[m.off]!)
   }
   return result
+}
+
+function wbArgsAt(rt: Runtime, address: number, count: number): WbArg[] | null {
+  if (address === 0 || count < 0) return null
+  const args: WbArg[] = []
+  for (let i = 0; i < count; i++) {
+    const at = address + i * 8
+    if (!rt.resolveAddr(at) || !rt.resolveAddr(at + 7)) return null
+    args.push({ lock: structRead(rt, at, 4, false), name: structRead(rt, at + 4, 4, false) })
+  }
+  return args
 }
 
 function channelFind(st: OsDevKitState, list: number, position: number): number {
@@ -2462,6 +2474,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
   const n = (a: Parameters<Func>[1], at: number): number => int(a[at] ?? VI(0))
   return {
     'track exist'(_, a) { return VI(st().tracker.find(n(a, 0), n(a, 1))) },
+    '_arg what str'(_, a) {
+      const address = n(a, 0) >>> 0; const count = n(a, 1)
+      return VI(wbArgName(wbArgsAt(rt, address, count), count, n(a, 2)))
+    },
+    '_arg what lock'(_, a) {
+      const address = n(a, 0) >>> 0; const count = n(a, 1)
+      return VI(wbArgLock(wbArgsAt(rt, address, count), count, n(a, 2)))
+    },
     /**
      * Routines 1585/1586: these Preferences entry points are explicitly
      * obsolete in the guide and the shipped workers are eight-byte stubs.
