@@ -7816,6 +7816,21 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  */
 const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
+    // The stock Compact library is part of AMOS Professional's ordinary
+    // runtime here: Pack, Spack and Unpack live with the screens and banks
+    // they operate on. Attribute those core handlers to the library identity
+    // so coverage and the Extensions panel agree about the port.
+    ids: ['amospro-compact-2.0'],
+    viaCore: ['pack', 'spack', 'unpack'],
+  },
+  {
+    // Request is the same shape: three stores into AMOS's system requester
+    // routing flag, implemented beside that core state rather than in a
+    // separate runtime module.
+    ids: ['amospro-request-2.0'],
+    viaCore: ['request on', 'request off', 'request wb'],
+  },
+  {
     ids: ['os-devkit-1.61'],
     init: (rt) => {
       rt.osdevkit = newOsDevKitState(rt.exec, rt.gadtools, {
