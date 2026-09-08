@@ -249,7 +249,7 @@ auditMany('partial', 'valid file handles and lock-mode constants are checked, bu
 auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [
   '_dos err', '_dos set err',
 ])
-auditMany('partial', 'Fault writes its prefix, translated or numeric error and NUL into caller memory with native truncation; the catalogue covers the errors recovered from AMCAF rather than every handler-defined code', [
+auditMany('partial', 'Fault writes its prefix, complete English system error catalogue or numeric fallback and NUL into caller memory with native truncation; locale.library translation remains host-fixed', [
   '_dos fault',
 ])
 auditMany('partial', 'ReportEvent retains the exact error, type, argument and device in shared DOS state; native requester presentation remains a host boundary', [

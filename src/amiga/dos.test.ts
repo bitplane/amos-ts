@@ -46,6 +46,16 @@ describe('dos.library error text', () => {
     expect(dosFaultText(999, null)).toBe('999')
     expect(dosFaultText(0, 'ignored')).toBeNull()
   })
+
+  it('covers every handler-defined DOS error number in the held system equates', () => {
+    const codes = [
+      103, 105, 114, 115, 116, 117, 118, 119, 120, 121, 122,
+      201, 202, 203, 204, 205, 206, 207, 209, 210, 211, 212, 213, 214, 215,
+      216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 232, 233, 234,
+      235, 236, 240, 241, 242, 243,
+    ]
+    for (const code of codes) expect(dosErrorText(code), String(code)).not.toBe('')
+  })
 })
 
 describe('dos.library path parts', () => {

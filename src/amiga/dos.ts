@@ -222,17 +222,27 @@ export function dosPathPart(path: string): string {
  * dos.library error text
  * ------------------------------------------------------------------ */
 
-/** Error catalogue recovered from AMCAF 1.50's pre-V37 fallback table. */
+/**
+ * English dos.library error catalogue. AMCAF 1.50 supplies the longer V36
+ * fallback spellings; the remaining canonical numbers are independently
+ * listed by the corpus APD489 `Error_Codes.Doc` table.
+ */
 const DOS_ERRORS: Readonly<Record<number, string>> = {
-  49: 'file not executable', 103: 'not enough memory available', 121: 'file is not executable',
-  202: 'object is in use', 203: 'object already exists', 204: 'directory not found',
-  205: 'object not found', 207: 'object is too large', 210: 'object name invalid',
+  49: 'file not executable', 103: 'not enough memory available', 105: 'task table full',
+  114: 'bad template', 115: 'bad number', 116: 'required argument missing',
+  117: 'key needs argument', 118: 'too many arguments', 119: 'unmatched quotes',
+  120: 'line too long', 121: 'file is not executable', 122: 'invalid resident library',
+  201: 'no default directory', 202: 'object is in use', 203: 'object already exists',
+  204: 'directory not found', 205: 'object not found', 206: 'bad stream name',
+  207: 'object is too large', 209: 'action not known', 210: 'object name invalid',
   211: 'invalid object lock', 212: 'object is not of required type', 213: 'disk is not validated',
   214: 'disk is write-protected', 215: 'rename across devices attempted', 216: 'directory not empty',
   217: 'too many levels', 218: 'device (or volume) is not mounted', 219: 'seek failure',
   220: 'comment is too long', 221: 'disk full', 222: 'object is protected from deletion',
   223: 'file is write protected', 224: 'file is read protected', 225: 'not a valid DOS disk',
-  226: 'no disk in drive', 232: 'no more entries in directory',
+  226: 'no disk in drive', 232: 'no more entries in directory', 233: 'is soft link',
+  234: 'object linked', 235: 'bad hunk', 236: 'not implemented', 240: 'record not locked',
+  241: 'lock collision', 242: 'lock timeout', 243: 'unlock error',
 }
 
 /** AMCAF-compatible lower-case text; an unknown error has no table entry. */
