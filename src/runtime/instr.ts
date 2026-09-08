@@ -7822,7 +7822,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         iff: rt.iffParse,
         commodities: rt.commodities,
         dataTypes: rt.dataTypes,
-      }, () => rt.vfs)
+        dosVariables: rt.dosVariables,
+        readArgs: rt.readArgs,
+      })
     },
     instructions: makeOsDevKitInstructions,
     functions: makeOsDevKitFunctions,

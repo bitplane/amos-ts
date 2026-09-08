@@ -44,6 +44,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.iff).toBe(rt.iffParse)
     expect(rt.osdevkit.commodities).toBe(rt.commodities)
     expect(rt.osdevkit.dataTypes).toBe(rt.dataTypes)
+    expect(rt.osdevkit.dosVariables).toBe(rt.dosVariables)
+    expect(rt.osdevkit.readArgs).toBe(rt.readArgs)
   })
 
   it('wires the binary-derived 32-class resource tracker into all four keywords', () => {

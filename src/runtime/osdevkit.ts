@@ -51,7 +51,7 @@ import { IffParse } from '../amiga/iffparse'
 import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
-import { joinAmigaPath, type AmigaFS } from '../amiga/vfs'
+import { joinAmigaPath } from '../amiga/vfs'
 import { DataTypesService, dataTypeString } from '../amiga/datatypes'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
@@ -171,13 +171,14 @@ export interface OsDevKitServices {
   iff: IffParse
   commodities: Commodities
   dataTypes: DataTypesService
+  dosVariables: DosVariables
+  readArgs: ReadArgs
 }
 
 export const newOsDevKitState = (
   exec: ExecSystem,
   gadtools: GadTools,
   services: OsDevKitServices,
-  fs: () => AmigaFS | null = () => null,
 ): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
@@ -204,7 +205,7 @@ export const newOsDevKitState = (
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
     openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: services.iff, iffBase: 0,
     commodities: services.commodities,
-    dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
+    dosVariables: services.dosVariables, readArgs: services.readArgs,
     dataTypes: services.dataTypes, dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), requester: null,
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',

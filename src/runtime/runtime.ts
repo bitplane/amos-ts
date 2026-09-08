@@ -145,6 +145,8 @@ import { IffParse } from '../amiga/iffparse'
 import { Commodities } from '../amiga/commodities'
 import { DataTypesService } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
+import { DosVariables } from '../amiga/dosvars'
+import { ReadArgs } from '../amiga/readargs'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -561,6 +563,10 @@ export class Runtime {
   readonly commodities = new Commodities(this.exec.messages)
   /** One datatypes.library object space backed by the installed descriptors. */
   readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES)
+  /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
+  readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)
+  /** Process-wide dos.library command-line template parser and current result. */
+  readonly readArgs = new ReadArgs()
   /** One amigaguide.library client registry shared by native-facing modules. */
   readonly amigaGuide = new AmigaGuide()
   /** Process-wide lowlevel.library ownership and future scheduler controls. */
