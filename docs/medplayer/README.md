@@ -1,10 +1,7 @@
 # medplayer.library
 
-`src/runtime/med.ts` implements the `Med *` keywords of the stock Music
-extension. Its replay was once written from the published MMD0/MMD1 format, on
-the stated grounds that the player itself "is NOT part of the AMOS source".
-That is true and it was never the question. The library is in the corpus, in
-sixteen places, this is what it says, and the port now follows it.
+`src/runtime/med.ts` implements the stock Music extension's `Med *` keywords
+from the `medplayer.library` binary paired with AMOS Professional.
 
 ## What is held
 

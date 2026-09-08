@@ -1,8 +1,8 @@
 # Subsystems, formats and semantics
 
-What each part of the port covers, and what reading the original turned up
-along the way. `KEYWORDS.md` is the per-keyword index and `UNIMPLEMENTED.md`
-is where the port knowingly falls short; this is the middle ground.
+What each subsystem covers and which recovered formats or semantics it owns.
+`KEYWORDS.md` is the generated per-keyword index; `UNIMPLEMENTED.md` summarizes
+the remaining backend boundaries.
 
 ## Where it lives
 
@@ -35,11 +35,9 @@ fixtures/    gitignored. Real .AMOS programs and .Abk banks for testing
   (hunk file, then `AP20` header, then `C_Tk` table), and the editor's own
   `Detok` and `Tokenise` ported byte for byte from `+Edit.s`. Every line of
   every program the project can reach goes out through one and back through
-  the other and has to come back as the bytes it started as, once the fields
-  the verifier owns are cleared: 124,468 lines under `fixtures/` and 1,063,966
-  across the 3,873 programs in the corpus index. 0.18% do not, and each is a
-  case the text cannot decide, classified by what is in the bytes rather than
-  by which file it came from. A second tokenizer resolves procedure calls up
+  the other and has to return the original bytes once verifier-owned fields
+  are cleared. Ambiguous cases are classified from the bytes rather than the
+  filename. A second tokenizer resolves procedure calls up
   front, which `Tokenise` leaves to the verifier, so tests can be written in
   AMOS source.
 - **Interpreter.** Values, AMOS precedence and type rules, all control flow,
@@ -145,9 +143,7 @@ Language semantics recovered from the assembly and the corpus:
   Test pass, `+Verif.s`: it decides what a bare name really is, swaps an
   instruction for the argument-count variant its arguments fit, counts an
   extension's arguments into the byte behind its slot, and fills the branch
-  links and variable offsets. 3,732 of the 3,873 programs in the corpus walk
-  through it and 1,091 come out byte for byte identical to what the Amiga
-  saved, and a program listed and retyped and verified again is the same bytes
-  in all 539 fixtures cases the sweep can compare.
+  links and variable offsets. Corpus and fixture tests check byte-for-byte
+  round trips without publishing a changing corpus snapshot here.
 - `Restore` and `Gosub` accept computed string expressions as label names, for
   instance `Restore "Rn"+Mid$(Str$(N),2)`.

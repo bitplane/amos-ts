@@ -5,24 +5,11 @@ any language could have called: a filesystem, `locale.library`, the DateStamp
 calendar. AMOS itself, its interpreter and the extension ports live in
 `src/runtime`, and they are *callers* of this layer.
 
-The split exists because the alternative was already happening. Before it,
-`days since 1 January 1978 -> civil date` had been written four separate
-times: in the host clock, in JD, in LDos and inside locale.library's
-formatter. The locale back-end had exactly one importer while looking, from
-its own documentation, like a shared subsystem. The next extension that wanted a date
-would have written a fifth.
-
 ## What belongs here
 
-A module belongs in `src/amiga` when **more than one caller could reasonably
-need it and none of them owns it**. `locale.library` qualifies even though only
-the Locale extension calls it today, because JD and LDos both do dates and both
-have their own copies. The filesystem qualifies obviously.
-
-A module does **not** belong here just because it models something Amiga-ish.
-LDos's LZ codec is LDos's. The Music extension's speech keywords are the AMOS
-side of `narrator.device`, not the device. If one extension owns it, it stays
-in `src/runtime` next to that extension.
+A module belongs in `src/amiga` when multiple callers could reasonably need it
+and no extension owns it. Shared AMOS mechanisms remain in `src/runtime`; an
+extension-specific codec or quirk remains with that extension.
 
 And "shared" is not enough on its own. It has to be shared *and* AmigaOS.
 AMOS's device layer (`Dev.Open` and friends, +Lib.s:3068) is shared by every
@@ -36,42 +23,9 @@ point rather than blunting it: exec owns the pool sizes and the arithmetic,
 while what is *in* a pool stays with the Runtime, because a bank is chip only
 because an AMOS bank flag says so. Mechanism here, accounting there.
 
-`MemPool`, first-fit `AllocMem` and `FreeMem` over one mapped buffer, arrived
-there the long way and is the rule working. It was written inside `sln.ts`
-with a note saying it would move if a second extension ever wanted `AllocMem`;
-Make 1.30, whose whole first half is `Ma Malloc` and exec lists, is that
-second extension. Where the pool is MAPPED still belongs to the caller: the
-base and the size come from the caller's own memory region, because that
-region is the caller's declaration and not exec's.
-
-The address-bearing half now composes around that allocator in `osexec.ts`:
-one mapped native arena, task identity and signal state back Exec Lists,
-MsgPorts, Messages and interrupt-server chains. There is still only one
-runnable task, so Forbid/Permit remain n/a and an empty Wait has no scheduler
-to suspend into. Native interrupt callbacks likewise need the future 68k
-engine. These are boundaries of the shared service, rather than invitations
-for each extension to invent its own ports or signal masks.
-
-**The gameport is the case that split in two**, and it is the best example
-here because the rule was applied twice and gave different answers.
-
-What is shared between AMOS's `Joy()`, Sticks' `Multi Joy`, the web player's
-two keyboard presets and its gamepad reader is the packing `1` up, `2` down,
-`4` left, `8` right, `16` fire. That is AMOS's surface rather than the
-machine's, so it went to `../interp/gameport.ts`. None of the hardware's
-numbers appear in it.
-
-The AmigaOS half was then not written, on the grounds that it had no caller:
-`input.joy` already arrives in AMOS's packing from the host, so nothing needed
-the quadrature counters decoded. It has callers now. GameSupport's
-`Gsmousedx`/`Gsmousedy` difference JOY1DAT's two bytes frame to frame, and
-Ercole's `Pad Fire` reads bit 9 and bit 1 of each register, so the register
-itself is shared and unambiguously hardware. `gameport.ts` exists, and
-`gameport.ts`'s own header opens by explaining why it did not.
-
-Both decisions were right when they were made. A module belongs here when a
-second caller appears, not before, and this document said the file would never
-exist for as long as that was true.
+`osexec.ts` composes the mapped Exec arena, library registry, tasks, signals,
+lists, ports, messages and interrupts. There is one runnable task; native
+interrupt callbacks and arbitrary 68k code remain future engine boundaries.
 
 ## The rule that matters: mechanism, not policy
 

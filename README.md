@@ -19,8 +19,9 @@ so you can put your old games on the web.
 Click a shot to play it, or drop a file (.amos, .adf, .zip, .lha etc) into 
 **[amos.bitplane.net](https://amos.bitplane.net)** and see how it plays.
 
-Keyword support covers most of the extensions I could find, but mostly hasn't
-been play tested. Timings are a bit wrong, work is ongoing.
+The AMOS language and the extensions already taken on are broadly complete.
+Some native-machine behavior remains approximated; `KEYWORDS.md` records the
+current per-keyword status.
 
 ## Embed it
 
@@ -72,14 +73,14 @@ the exit code. A run can report every test passing and still exit 1.
 
 ## Status
 
-Core AMOS Professional is done. `KEYWORDS.md` is an index of the missing
-extension keywords, and carries the counts. Faithful means checked against the
-shipped 68k source or a dissassembled binary.
+Core AMOS Professional is complete. `KEYWORDS.md` is the generated coverage
+inventory. Faithful means the observable behavior was checked against shipped
+source or a disassembled binary; it does not claim cycle-exact emulation.
 
 `src/amiga/` contains shims for dos, graphics, intuition, asl, locale, diskfont,
 workbench and a few more, modelled as far as the programs reach.
-`UNIMPLEMENTED.md` is where the port knowingly differs from the original, split
-into what could be closed and what can't.
+`UNIMPLEMENTED.md` summarizes the remaining backend boundaries without
+duplicating the generated keyword list.
 
 ## Fixtures
 

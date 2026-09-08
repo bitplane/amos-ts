@@ -124,9 +124,8 @@ is a claim and not evidence. Eleven of the 62 have nothing but the binary.
 rule above. Nearly every row says `source` or `disassembly` because a held
 binary outranks any manual, so the column separates the extensions whose
 behaviour is knowable from the ones where a port would be guessing. It says
-nothing about how much of each is ported. `UNIMPLEMENTED.md` lists the ids at
-0%, and a port under way is the only thing between the two: a row is meant to
-read 0% or 100% and nothing in between.
+nothing about how much of each is ported. `KEYWORDS.md` is the generated
+coverage inventory; `UNIMPLEMENTED.md` summarizes backend boundaries.
 
 | id                     | name                                  | evidence    | keywords | seen at | slot          |
 | ---------------------- | ------------------------------------- | ----------- | -------: | ------: | ------------- |
@@ -510,8 +509,8 @@ services. All operations which have a faithful or partial shared backend are
 now callable through the extension. The only handlerless keywords are the four
 that require a real 68k/AMOS ABI boundary: `_lib call`, `_call`, `a3 pointer`
 and `give me`. Its remaining fidelity/evidence gaps and current classifications
-are reported by `KEYWORDS.md`; its rounded 100% is not a claim that the 681
-explicitly approximated operations have complete binary fidelity.
+are reported by `KEYWORDS.md`; its rounded coverage is not a claim of complete
+binary fidelity for approximated operations.
 
 Their exact keyword counts and blockers belong in `KEYWORDS.md` and
 `UNIMPLEMENTED.md`; they are not copied here. Everything else registered has

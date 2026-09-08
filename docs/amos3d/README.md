@@ -137,14 +137,15 @@ frame, not a property of the model.
 
 ## Where the port stops, and where the original did
 
-`src/coverage/status.ts` is authoritative and `UNIMPLEMENTED.md` argues the
-three that matter. Three separate things get confused here, so they are kept
-apart.
+`src/coverage/status.ts` is authoritative. The distinctions below keep an
+observable approximation separate from a changed mechanism and an original
+defect.
 
 **Approximated, meaning we fall short.** One keyword:
 
-- **`td advanced`**. Hands back an Amiga address, and there is no address space
-  here for one to mean anything in, so it answers zero.
+- **`td advanced`**. Hands back an internal engine pointer. The runtime maps
+  owned banks and structures, but not AMOS 3D's private native object arena, so
+  it answers zero.
 
 **Faithful, with the mechanism swapped.** `td redraw` is classified faithful
 and carries a note saying why the classification is not the whole story: the

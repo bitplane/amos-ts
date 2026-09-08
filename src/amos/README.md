@@ -238,7 +238,7 @@ Edit_Segment(a5) / beq FonCall`, and this port raises the same Illegal function
 call. Three of CRAFT's accessories in the corpus stop there, which is what they
 would do on a real machine started the same way.
 
-## What is not here yet
+## Native editor boundaries
 
 The monitor. `Ed_GoMonitor` runs, and answers "Monitor not found." because
 `Editor.loadMonitor` has nothing to load: +Monitor.s is a 68k debugger and
@@ -250,10 +250,9 @@ and `escapeBack` brings it back; what happens in between is
 one-line editor already. `Esc_Loop`'s own arrows, which resize the escape
 screen against `Es_Y1`/`Es_Y2`, are pixel geometry and are not ported.
 
-The window that runs is the one `Ed_Run` named. `Edt_Runned(a5)` is that
-window and it is not always the current one: `Ed_RunHidden` (+Edit.s:8105)
-runs a program in a window with no screen area at all, and `Amos.machine`
-used to build the interpreter out of `this.window` whatever it was asked for.
+The window that runs is the one `Ed_Run` named. `Edt_Runned(a5)` is not always
+the current window: `Ed_RunHidden` (+Edit.s:8105) runs a program in a window
+with no screen area.
 
 That is also what `Call Editor` needed. `Ed_ZapX` (:2737) opens by comparing
 `Edt_Runned` with `Edt_Current` and refuses -6 when they are the same, so with
