@@ -1612,14 +1612,24 @@ export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean
   }
 
   const faces: TdFace[] = []
+  const blocks = parseTdBlocks(file)
   let multipart = false
   for (let at = facesAt; at + TD_FACE_SIZE <= facesEnd && at + TD_FACE_SIZE <= b.length; at += TD_FACE_SIZE) {
+    const faceNumber = (at - facesAt) / TD_FACE_SIZE
+    const block = blocks[tdBlockForFace(blocks, faceNumber)]
+    // Face records are copied from templates, so their working-vertex
+    // offsets are local to that block. $214dd6 installs the block's first
+    // working vertex and the face walker adds it before dereferencing. This
+    // was invisible on one-block objects (their base is zero) and folded
+    // every later part of buildings such as bungalow2 onto the first one.
+    const firstVertex = block?.firstVertex ?? 0
     const vertices: number[] = []
     let ok = true
     for (let i = 0; i < 4; i++) {
       const ref = v.getUint16(at + 4 + i * 2, false)
-      if (ref % TD_VERTEX_STRIDE !== 0 || ref / TD_VERTEX_STRIDE >= points.length) { ok = false; break }
-      vertices.push(ref / TD_VERTEX_STRIDE)
+      const point = firstVertex + ref / TD_VERTEX_STRIDE
+      if (ref % TD_VERTEX_STRIDE !== 0 || point >= points.length) { ok = false; break }
+      vertices.push(point)
     }
     if (!ok) { multipart = true; break }
     faces.push({ at, surface: v.getUint32(at, false), vertices })

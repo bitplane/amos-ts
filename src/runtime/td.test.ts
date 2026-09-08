@@ -364,6 +364,14 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
     }
   })
 
+  it('adds each block’s first vertex to its template-local face references', () => {
+    const file = parseTdFile(new Uint8Array(readFileSync('fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects/bungalow2.3DO')))
+    const blocks = parseTdBlocks(file)
+    const geometry = parseTdGeometry(file)
+    expect(blocks.map((block) => block.firstVertex)).toEqual([0, 5])
+    expect(geometry.faces[blocks[1]!.baseFace]!.vertices.every((point) => point >= 5)).toBe(true)
+  })
+
   it('stops at the two objects that carry a second template', () => {
     // 3d2 and monitor2 link two templates and break the face run with a
     // further header; everything else is a flat list of sixteen-byte records
