@@ -961,6 +961,23 @@ function withWindowBaseRastPort<T>(rt: Runtime, state: OsDevKitState, base: numb
   }
 }
 
+/** Borrow a managed screen/window RastPort addressed through its native wrapper. */
+function withNativeRastPort<T>(rt: Runtime, state: OsDevKitState, address: number, draw: (rp: RastPort) => T): T | undefined {
+  for (const record of state.screenIds.values()) if (record.rastPort === (address >>> 0)) {
+    const screen = rt.screens.get(record.slot); const raster = nativeRaster(rt, address)
+    if (!screen || !raster) return undefined
+    const saved = screen.rp.snapshot(); syncNativeRastPort(rt, raster, screen.rp)
+    try { return draw(screen.rp) } finally { writeNativeRastPort(rt, raster, screen.rp); screen.rp.restore(saved) }
+  }
+  for (const handle of state.windowHandles.values()) if (handle.rastPort === (address >>> 0)) {
+    const screen = rt.screens.get(handle.window.screenSlot); const raster = nativeRaster(rt, address)
+    if (!screen || !raster) return undefined
+    const saved = screen.rp.snapshot(); syncNativeRastPort(rt, raster, screen.rp)
+    try { return draw(screen.rp) } finally { writeNativeRastPort(rt, raster, screen.rp); screen.rp.restore(saved) }
+  }
+  return undefined
+}
+
 /**
  * Screen/Window-ID Paint and AreaEnd allocate one temporary one-bit raster,
  * use it synchronously, and free it before returning.
@@ -1725,6 +1742,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_ggad set attrs'(it) {
       const [gadget, _window, _requester, tags] = readArgs(it, 4); const g = st().gadtools.gadget(gadget!)
       if (g) st().gadtools.setGadgetAttrs(g, tagItems(st(), tags!))
+    },
+    '_ggad draw box'(it) {
+      const [rastPort, x, y, width, height, tags] = readArgs(it, 6)
+      withNativeRastPort(rt, st(), rastPort!, rp => st().gadtools.drawBevelBoxA(rp, x!, y!, width!, height!, tagItems(st(), tags!)))
+    },
+    '_ggad refresh'(it) {
+      const [gadget, windowBase, _requester] = readArgs(it, 3); const first = st().gadtools.gadget(gadget!)
+      if (!first) return
+      withWindowBaseRastPort(rt, st(), windowBase!, (rp) => {
+        const visual = st().gadtools.visualInfo(first.visualInfo)
+        if (visual) st().gadtools.refreshWindow(rp, first, visual.drawInfo)
+      })
     },
     '_ggad free'(it) { const g = st().gadtools.gadget(it.evalInt()); if (g) st().gadtools.freeGadgets(g) },
     '_ggad vinf free'(it) { st().gadtools.freeVisualInfo(it.evalInt()) },
@@ -3919,6 +3948,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_ggad context'(_, a) {
       const destination = n(a, 0); if (destination === 0) return VI(0)
       const context = st().gadtools.createContext(); structWrite(rt, destination, 4, context.address); return VI(-1)
+    },
+    '_ggad what attrs'(_, a) {
+      const gadget = st().gadtools.gadget(n(a, 0)); if (!gadget) return VI(0)
+      let count = 0
+      for (const item of tagItems(st(), n(a, 3))) {
+        const value = st().gadtools.getGadgetAttr(gadget, item.tag)
+        if (value !== undefined && item.data !== 0) { structWrite(rt, item.data, 4, value); count++ }
+      }
+      return VI(count)
     },
     '_gmn list alloc'(_, a) {
       const capacity = n(a, 0) & 0xffff

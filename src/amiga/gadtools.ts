@@ -1210,6 +1210,68 @@ export class GadTools {
     return taken
   }
 
+  /** `GT_GetGadgetAttrsA` (-174), returning one scalar for its caller to write through ti_Data. */
+  getGadgetAttr(g: Gadget, tag: number): number | undefined {
+    if (g.freed) return undefined
+    if (tag === 0x8003_000e) return g.disabled ? 1 : 0 // GA_Disabled
+    switch (g.kind) {
+      case KIND.CHECKBOX: if (tag === TAG.GTCB_Checked) return g.checked ? 1 : 0; break
+      case KIND.INTEGER:
+        if (tag === TAG.GTIN_Number) return g.number ?? 0
+        if (tag === TAG.GTIN_MaxChars) return g.maxChars ?? 10
+        break
+      case KIND.LISTVIEW:
+        if (tag === TAG.GTLV_Top) return g.top ?? 0
+        if (tag === TAG.GTLV_Selected) return g.selected ?? 0
+        if (tag === TAG.GTLV_ReadOnly) return g.readOnly ? 1 : 0
+        if (tag === TAG.GTLV_ScrollWidth) return g.scrollWidth ?? 16
+        if (tag === TAG.GTLV_MakeVisible) return g.makeVisible ?? 0
+        if (tag === TAG.GTLV_ShowSelected) return g.showSelected ?? 0
+        break
+      case KIND.MX:
+        if (tag === TAG.GTMX_Active) return g.active ?? 0
+        if (tag === TAG.GTMX_Spacing) return g.spacing ?? 1
+        break
+      case KIND.NUMBER:
+        if (tag === TAG.GTNM_Number) return g.number ?? 0
+        if (tag === TAG.GTNM_Border) return g.border ? 1 : 0
+        if (tag === TAG.GTNM_FrontPen) return g.frontPen ?? 0
+        if (tag === TAG.GTNM_BackPen) return g.backPen ?? 0
+        if (tag === TAG.GTNM_Justification) return g.justification ?? 0
+        if (tag === TAG.GTNM_MaxNumberLen) return g.maxNumberLen ?? 0
+        break
+      case KIND.CYCLE: if (tag === TAG.GTCY_Active) return g.active ?? 0; break
+      case KIND.PALETTE:
+        if (tag === TAG.GTPA_Depth) return g.paletteDepth ?? 1
+        if (tag === TAG.GTPA_Color) return g.color ?? 1
+        if (tag === TAG.GTPA_ColorOffset) return g.colorOffset ?? 0
+        if (tag === TAG.GTPA_ColorTable) return g.colorTable ?? 0
+        break
+      case KIND.SCROLLER:
+        if (tag === TAG.GTSC_Top) return g.top ?? 0
+        if (tag === TAG.GTSC_Total) return g.total ?? 0
+        if (tag === TAG.GTSC_Visible) return g.visible ?? 2
+        if (tag === TAG.GTSC_Arrows) return g.arrows ?? 0
+        break
+      case KIND.SLIDER:
+        if (tag === TAG.GTSL_Min) return g.min ?? 0
+        if (tag === TAG.GTSL_Max) return g.max ?? 15
+        if (tag === TAG.GTSL_Level) return g.level ?? 0
+        if (tag === TAG.GTSL_MaxLevelLen) return g.maxLevelLen ?? 2
+        if (tag === TAG.GTSL_LevelPlace) return g.levelPlace ?? 0
+        if (tag === TAG.GTSL_Justification) return g.justification ?? 0
+        break
+      case KIND.STRING: if (tag === TAG.GTST_MaxChars) return g.maxChars ?? 0; break
+      case KIND.TEXT:
+        if (tag === TAG.GTTX_Border) return g.border ? 1 : 0
+        if (tag === TAG.GTNM_FrontPen) return g.frontPen ?? 0
+        if (tag === TAG.GTNM_BackPen) return g.backPen ?? 0
+        if (tag === TAG.GTNM_Justification) return g.justification ?? 0
+        break
+    }
+    return undefined
+  }
+
   /**
    * `FreeGadgets(gad)` (-36). Walks the chain from the context down, so a
    * caller frees the whole interface with the one pointer it kept.

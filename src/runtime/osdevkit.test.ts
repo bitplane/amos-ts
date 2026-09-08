@@ -1439,6 +1439,17 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     })
     expect(rt.osdevkit.gadtools.gadget(address)?.visualInfo).toBeGreaterThan(0)
   })
+
+  it('gets requested low-level gadget attributes through ti_Data pointers', () => {
+    const source = [
+      'P=_struct alloc(4) : O=_struct alloc(8) : C=_ggad context(P) : G0=_struct long(P,0)',
+      'T=_tag list alloc(3) : _tag set T,$80080026,-4 : _tag set T,$80080027,40 : _tag set T,$80080028,7 : _tag done T',
+      'G=_ggad create(11,G0,T) : Q=_tag list alloc(3)',
+      '_tag set Q,$80080026,O : _tag set Q,$80080028,O+4 : _tag set Q,$8008000F,O : _tag done Q',
+      'Print _ggad what attrs(G,0,0,Q),_struct long(O,0),_struct long(O,4)',
+    ].join('\n')
+    expect(run(source).output).toBe(' 2\t-4\t 7\n')
+  })
   it('owns high-level gadget banks and their one-window attachment lifecycle', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',

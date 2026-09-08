@@ -469,6 +469,19 @@ describe('tags', () => {
     expect(g.active).toBeUndefined()
   })
 
+  it('GT_GetGadgetAttrsA exposes only scalar attributes owned by the gadget kind', () => {
+    const gt = new GadTools()
+    const g = gt.createGadget(KIND.SLIDER, null, ng(), [
+      { tag: TAG.GTSL_Min, data: -4 }, { tag: TAG.GTSL_Max, data: 40 }, { tag: TAG.GTSL_Level, data: 7 },
+    ])!
+    expect(gt.getGadgetAttr(g, TAG.GTSL_Min)).toBe(-4)
+    expect(gt.getGadgetAttr(g, TAG.GTSL_Max)).toBe(40)
+    expect(gt.getGadgetAttr(g, TAG.GTSL_Level)).toBe(7)
+    expect(gt.getGadgetAttr(g, TAG.GTCY_Active)).toBeUndefined()
+    gt.freeGadgets(g)
+    expect(gt.getGadgetAttr(g, TAG.GTSL_Level)).toBeUndefined()
+  })
+
   it('sets nothing on a freed gadget', () => {
     const gt = new GadTools()
     const g = gt.createGadget(KIND.SLIDER, null, ng())!
