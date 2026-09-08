@@ -108,10 +108,13 @@ const auditMany = (status: OsBackendStatus, reason: string, names: readonly stri
   }
 }
 
-auditMany('partial', 'shared iffparse handles implement SCAN/STEP/RAWSTEP, nested FORM/LIST/CAT/PROP scopes, streamed I/O and the exact public ContextNode prefix; native DOS stream-handle identity and installed callback handlers remain outside the backend', [
-  '_iff init', '_base iff', '_iff parse', '_iff open in', '_iff open out', '_iff close',
-  '_chunk current', '_chunk parent', '_chunk read', '_chunk write', '_chunk child', '_chunk end',
+auditMany('faithful', 'the shared iffparse.library base and exact public ContextNode hierarchy and fields are exposed directly', [
+  '_iff init', '_base iff', '_chunk current', '_chunk parent',
   '_chunk what size', '_chunk what scan', '_chunk what type', '_chunk what id',
+])
+auditMany('partial', 'shared iffparse handles implement SCAN/STEP/RAWSTEP, nested scopes and streamed I/O; native DOS stream-handle identity and installed callback handlers remain outside the backend', [
+  '_iff parse', '_iff open in', '_iff open out', '_iff close',
+  '_chunk read', '_chunk write', '_chunk child', '_chunk end',
 ])
 auditMany('faithful', 'the shared commodities.library base, broker lifecycle, Cx object graph, activation and error state are represented exactly', [
   '_cx init', '_base cx', '_cx uninstall', '_cx broker', '_cx enable', '_cx disable',

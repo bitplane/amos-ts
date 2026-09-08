@@ -288,10 +288,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every native base getter individually', () => {
     const bases = rows.filter((row) => row.namespace === '_base')
     expect(bases).toHaveLength(14)
-    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(13)
-    expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_base iff',
-    ])
+    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(14)
+    expect(bases.filter((row) => row.status === 'partial')).toEqual([])
     expect(bases.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(bases.some((row) => row.status === 'review')).toBe(false)
     expect(bases.find((row) => row.name === '_base gfx')?.workers).toEqual([1748])
@@ -1384,6 +1382,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
 
   it('makes every previously stated missing family explicit', () => {
     expect(rows.find((row) => row.name === '_iff parse')).toMatchObject({ status: 'partial', family: 'iffparse' })
+    expect(rows.find((row) => row.name === '_base iff')).toMatchObject({ status: 'faithful', family: '_base' })
+    expect(rows.filter((row) => row.name.startsWith('_chunk what ')).every((row) => row.status === 'faithful')).toBe(true)
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
       chain: 'a5+552>+728', library: 'iffparse.library', lvo: -42,
     })
