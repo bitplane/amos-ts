@@ -785,6 +785,44 @@ function bindScreenId(rt: Runtime, state: OsDevKitState, id: number, slot: numbe
   return true
 }
 
+function anonymousScreenKey(state: OsDevKitState): number {
+  let key = -0x4000_0000
+  while (state.screenIds.has(key)) key--
+  return key
+}
+
+function openNativeScreen(rt: Runtime, state: OsDevKitState, key: number, definition: number, tags: readonly { tag: number; data: number }[] = []): number {
+  const value = (tag: number, fallback: number): number => tags.find(item => item.tag === tag)?.data ?? fallback
+  const left = value(0x8000_0021, structRead(rt, definition, 2, true))
+  const top = value(0x8000_0022, structRead(rt, definition + 2, 2, true))
+  const width = value(0x8000_0023, structRead(rt, definition + 4, 2, false))
+  const height = value(0x8000_0024, structRead(rt, definition + 6, 2, false))
+  const depth = value(0x8000_0025, structRead(rt, definition + 8, 2, false))
+  const mode = value(0x8000_0032, structRead(rt, definition + 12, 2, false)) >>> 0
+  const type = value(0x8000_002d, structRead(rt, definition + 14, 2, false))
+  const title = cString(rt, value(0x8000_0028, structRead(rt, definition + 20, 4, false)) >>> 0)
+  const error = value(0x8000_002a, 0) >>> 0
+  closeScreenId(rt, state, key)
+  const address = (type & 0xf) === WBENCHSCREEN ? rt.intuition.openWorkBench() : rt.intuition.openScreen({
+    width, height, depth, hires: (mode & 0x8000) !== 0, laced: (mode & 4) !== 0,
+    palette: [], displayY: top, title,
+  })
+  if (address === 0) { if (error !== 0) structWrite(rt, error, 4, 1); return 0 }
+  const slot = rt.intuition.slotOf(address)
+  if (slot === null || !bindScreenId(rt, state, key, slot, (type & 0xf) !== WBENCHSCREEN)) {
+    if ((type & 0xf) !== WBENCHSCREEN) rt.intuition.closeScreen(address)
+    if (error !== 0) structWrite(rt, error, 4, 1)
+    return 0
+  }
+  const screen = rt.screens.get(slot)!; screen.displayX = left
+  screen.intuitionTitleVisible = value(0x8000_0036, 1) !== 0
+  const pens = value(0x8000_003a, 0) >>> 0
+  state.screenDrawInfoPens.set(slot, pens === 0 ? selectedDrawInfoPens(rt, state, screen.depth) : Array.from({ length: 12 }, (_, i) => structRead(rt, pens + i * 2, 2, false)))
+  if (value(0x8000_0037, 0) !== 0) rt.toBack(slot)
+  if (error !== 0) structWrite(rt, error, 4, 0)
+  return address
+}
+
 /** Resolve one of Runtime's stable synthetic `struct Screen *` addresses. */
 function managedScreenSlot(rt: Runtime, address: number): number | null {
   const relative = (address >>> 0) - SCREEN_CTRL_BASE
@@ -2382,21 +2420,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr id def dri pens v2'(it) { st().drawInfoDefaults.defineV2(readArgs(it, 3)) },
     '_scr id fix dri pens'(it) { st().drawInfoPenSource = it.evalInt() },
     '_scr id open'(it) {
-      const [id, x, y, width, height, depth, mode, _type] = readArgs(it, 8)
+      const [id, x, y, width, height, depth, mode, bitMap] = readArgs(it, 8)
       it.expect(','); const title = it.evalStr()
-      closeScreenId(rt, st(), id!)
-      const address = rt.intuition.openScreen({
-        width: width!, height: height!, depth: depth!,
-        hires: (mode! & 0x8000) !== 0, laced: (mode! & 4) !== 0,
-        palette: [], displayY: y!, title,
-      })
-      if (address === 0) return
-      const slot = rt.intuition.slotOf(address)
-      if (slot === null) return
-      const screen = rt.screens.get(slot)!
-      screen.displayX = x!
-      if (!bindScreenId(rt, st(), id!, slot, true)) rt.intuition.closeScreen(address)
-      else st().screenDrawInfoPens.set(slot, selectedDrawInfoPens(rt, st(), screen.depth))
+      const definition = st().memory.alloc(32, { clear: true }); if (definition === 0) return
+      const titleAddress = st().strings.fromAmos(title)
+      structWrite(rt, definition, 2, x!); structWrite(rt, definition + 2, 2, y!); structWrite(rt, definition + 4, 2, width!)
+      structWrite(rt, definition + 6, 2, height!); structWrite(rt, definition + 8, 2, depth!); structWrite(rt, definition + 12, 2, mode!)
+      structWrite(rt, definition + 14, 2, 15); structWrite(rt, definition + 20, 4, titleAddress); structWrite(rt, definition + 28, 4, bitMap!)
+      openNativeScreen(rt, st(), id!, definition); st().strings.free(titleAddress); st().memory.freeMem(definition)
+    },
+    '_scr id tag open'(it) {
+      const [id, tags] = readArgs(it, 2)
+      openNativeScreen(rt, st(), id!, screenDefinitionAddress(st()), tagItems(st(), tags!))
     },
     '_scr id from pointer'(it) {
       const [id, pointer] = readArgs(it, 2)
@@ -3233,6 +3268,23 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_scr what vport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.viewPort ?? 0) },
     '_scr what rport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.rastPort ?? 0) },
+    '_scr open'(_, a) {
+      let definition = screenDefinitionAddress(st()); let temporary = 0
+      if (a.length === 1) definition = n(a, 0) >>> 0
+      else if (a.length === 3 || a.length === 5) {
+        temporary = st().memory.alloc(32, { clear: true }); if (temporary === 0) return VI(0)
+        definition = temporary
+        structWrite(rt, definition + 4, 2, n(a, 0)); structWrite(rt, definition + 6, 2, n(a, 1)); structWrite(rt, definition + 8, 2, n(a, 2))
+        structWrite(rt, definition + 12, 2, a.length === 5 ? n(a, 3) : 0); structWrite(rt, definition + 14, 2, a.length === 5 ? n(a, 4) : 15)
+      }
+      const address = openNativeScreen(rt, st(), anonymousScreenKey(st()), definition)
+      if (temporary !== 0) st().memory.freeMem(temporary)
+      return VI(address)
+    },
+    '_scr tag open'(_, a) {
+      const definition = a.length > 1 ? n(a, 0) >>> 0 : screenDefinitionAddress(st())
+      return VI(openNativeScreen(rt, st(), anonymousScreenKey(st()), definition, tagItems(st(), n(a, a.length - 1))))
+    },
     '_query overscan'(_, a) {
       const mode = displayModeOf(n(a, 0) >>> 0); const rect = n(a, 1) >>> 0; const type = n(a, 2)
       if (!mode || rect === 0 || type < 1 || type > 4) return VI(0)

@@ -771,6 +771,19 @@ describe('OS DevKit 1.61 system operations', () => {
     expect(rt.osdevkit.screenIds.size).toBe(0)
   })
 
+  it('opens raw and numbered screens through one tagged Intuition lifecycle', () => {
+    const { rt, output } = run([
+      'S=_scr open(48,24,3) : Print S<>0,_scr what rport(S)<>0',
+      'T=_tag list alloc(7) : N=_to str("Tagged") : E=_struct alloc(4)',
+      '_tag set T,$80000021,6 : _tag set T,$80000022,9 : _tag set T,$80000023,64 : _tag set T,$80000024,32',
+      '_tag set T,$80000025,4 : _tag set T,$80000028,N : _tag set T,$8000002A,E : _tag done T',
+      '_scr id tag open 7,T : Print _scr id width(7),_scr id height(7),_scr id depth(7),Leek(E)',
+      'Print _scr id base(7)<>S,_scr id in use : _scr id close 7 : _scr close S',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\n 64\t 32\t 4\t 0\n-1\t 7\n')
+    expect(rt.osdevkit.screenIds.size).toBe(0)
+  })
+
   it('queries installed display-mode overscan into a native Rectangle', () => {
     expect(run([
       'R=_struct alloc(8) : Print _query overscan($21000,R,1)',
