@@ -382,9 +382,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every Exec port, message and signal operation', () => {
     const ipc = rows.filter((row) => ['_port', '_msg', '_sig'].includes(row.namespace))
     expect(ipc).toHaveLength(18)
-    expect(ipc.filter((row) => row.status === 'faithful')).toHaveLength(15)
+    expect(ipc.filter((row) => row.status === 'faithful')).toHaveLength(17)
     expect(ipc.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_msg get', '_port wait', '_sig wait',
+      '_msg get',
     ])
     expect(ipc.some((row) => row.status === 'review')).toBe(false)
     expect(ipc.find((row) => row.name === '_port create')).toMatchObject({
