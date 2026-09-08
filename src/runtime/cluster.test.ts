@@ -9,6 +9,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
 import { amosErrorCode, type AmosError } from '../interp/values'
+import { WB_SLOT } from '../amiga/intuition'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -513,6 +514,14 @@ describe('integration: Run and the environment cluster', () => {
   it('the environment cluster: Amos Here, Set Buffer, Close Workbench are quiet', () => {
     const { out } = run(['Amos To Front', 'Amos To Back', 'Amos Lock', 'Amos Unlock', 'Close Workbench', 'Close Editor', 'Set Buffer 20', 'Print Amos Here'].join('\n'))
     expect(out.trim()).toBe('-1')
+  })
+
+  it('Close Workbench closes the shared Intuition screen', () => {
+    const rt = new Runtime(tokenize('Close Workbench', table), table, { maxSteps: 10_000 })
+    expect(rt.intuition.openWorkBench()).toBeGreaterThan(0)
+    expect(rt.screens.has(WB_SLOT)).toBe(true)
+    mustFinish(rt.runHeadless(10))
+    expect(rt.screens.has(WB_SLOT)).toBe(false)
   })
 
   it('System ends the program like Edit/Direct (run-error 1002)', () => {

@@ -4112,7 +4112,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.noFlip = false
     },
     'close workbench'() {
-      // WB_Close frees Workbench memory on the Amiga; nothing to close
+      rt.intuition.closeWorkBench()
     },
     'close editor'() {
       // Ed_CloseEditor unloads a separate segment; the integrated editor has

@@ -2951,10 +2951,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * OpenWorkBench answering NULL -- which is what it does when it cannot --
      * is zero, passes, and clears the flag anyway.
      *
-     * NOTE: there is no Workbench screen to reopen, and closing it here frees
-     * nothing, so this has nothing to undo.
+     * This delegates to the process-wide Intuition screen lifecycle, shared
+     * with core `Close Workbench` and every other native-facing extension.
      */
-    'open workbench'() {},
+    'open workbench'() { rt.intuition.openWorkBench() },
 
 
     /**

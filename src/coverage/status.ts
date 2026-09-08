@@ -7062,8 +7062,7 @@ export const NOTES: Record<string, string> = {
     "the count or a hole in the table. Note they ask for the icon bank unconditionally where Icon Check reads its " +
     "bank number out of the Scene Icon Bank setting, so the two disagree about which bank 'the icons' means",
   "workbench open":
-    "The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench " +
-    "memory to free.",
+    "The counterpart to Close Workbench; both now share intuition.library's process-wide Workbench screen lifecycle.",
   "memory fill":
     "Both fill loops in routine 140 ($4810) decrement the count after writing and continue while it is not yet " +
     "negative, so the region is inclusive of the END address: Memory Fill a To b writes b-a+1 bytes. The manual's " +
@@ -9601,7 +9600,7 @@ export const NOTES: Record<string, string> = {
   "amos lock":
     "the T_NoFlip flag is stored; no host flipping exists to suppress",
   "close workbench":
-    "no Workbench memory to free",
+    "WB_Close delegates to the shared intuition.library Workbench screen lifecycle",
   "close editor":
     "no editor memory to free",
   "dev first$":

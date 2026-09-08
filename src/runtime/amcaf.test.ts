@@ -15,6 +15,7 @@ import { implode } from '../amiga/imploder'
 import { NodeVolume } from '../cli/nodefs'
 import { Machine } from '../amiga/machine'
 import { BTN_BLUE, BTN_FORWARD, BTN_GREEN, BTN_PLAY, BTN_RED, BTN_REVERSE, BTN_YELLOW, CTRL_GAMEPAD } from '../amiga/controller'
+import { WB_SLOT } from '../amiga/intuition'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -3519,8 +3520,9 @@ describe('vectors and extension internals', () => {
     expect(p('Amos Cli')).toBe('1')
   })
 
-  it('Audio Lock, Flush Libs and Open Workbench have nothing to do here', () => {
-    expect(() => run(['Audio Lock', 'Audio Free', 'Flush Libs', 'Open Workbench'])).not.toThrow()
+  it('Open Workbench uses the shared Intuition screen lifecycle', () => {
+    const { rt } = run(['Audio Lock', 'Audio Free', 'Flush Libs', 'Open Workbench'])
+    expect(rt.screens.has(WB_SLOT)).toBe(true)
   })
 })
 
