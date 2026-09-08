@@ -46,6 +46,7 @@ import { createViewer } from './viewer'
 import { viewsFor, type ViewHost } from './views'
 import { detectModule } from '../../amiga/modformat'
 import type { ModFormat } from '../../amiga/modformat'
+import { decodeDataTypeText } from '../../amiga/datatype-text'
 
 export interface FilesOptions {
   vfs: AmigaFS
@@ -204,7 +205,7 @@ function listingOf(bytes: Uint8Array): string | null {
  * dispatch that fills it, because two lists is how a row comes to have a
  * caret that reveals nothing (or a view nothing can reach).
  */
-const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'model', 'text', 'program', 'bank', 'icon', 'data'])
+const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'model', 'text', 'document', 'program', 'bank', 'icon', 'data'])
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
   const { vfs } = opts
@@ -504,6 +505,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     const listing = kind.name === 'AMOS program' ? listingOf(bytes) : null
     const text =
       listing ??
+      decodeDataTypeText(bytes, kind.name) ??
       // Latin-1 and not UTF-8: a listing saved out of the AMOS editor is one
       // byte per character, and the pound sign is $a3 in both AmigaDOS and
       // Latin-1 where UTF-8 would reject it
@@ -673,7 +675,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
                 const members = membersOf(kind, bytes)
                 if (members !== null) return membersBody(bodyEl, members)
               }
-              if (kind.group === 'text' || kind.group === 'program') return textBody(bodyEl, bytes, kind)
+              if (kind.group === 'text' || kind.group === 'document' || kind.group === 'program') return textBody(bodyEl, bytes, kind)
               bodyEl.appendChild(facts([['protection', protectionText(meta.protection)]]))
             },
           }
