@@ -69,7 +69,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'), (rt) => {
       rt.vfs!.writeFile('RAM:tool.info', writeIcon({
         type: 4, normal: null, selected: null, defaultTool: '',
-        toolTypes: ['FILETYPE=PaintProgram|ILBM', 'QUIET'], stackSize: 4096, drawer: false,
+        toolTypes: ['FILETYPE=PaintProgram|ILBM', 'QUIET'], currentX: 0, currentY: 0,
+        stackSize: 4096, drawer: false, drawerData: null, toolWindow: '',
       }))
     })
     expect(output).toBe('PaintProgram|ILBM\t-1\t-1\nPaintProgram|ILBM\t-1\t 0\n-1\t 0\n')

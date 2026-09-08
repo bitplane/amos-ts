@@ -114,7 +114,8 @@ const withRam = (data = modFile([0, 0, 0, 0])): AmigaFS => {
 const withIcon = (): AmigaFS => {
   const fs = withRam()
   fs.writeFile('RAM:icon.info', writeIcon({
-    type: 3, normal: null, selected: null, defaultTool: '', toolTypes: [], stackSize: 4096, drawer: false,
+    type: 3, normal: null, selected: null, defaultTool: '', toolTypes: [], currentX: 0, currentY: 0,
+    stackSize: 4096, drawer: false, drawerData: null, toolWindow: '',
   }))
   return fs
 }

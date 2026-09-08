@@ -92,10 +92,17 @@ export interface Icon {
   /** `do_DefaultTool`, the program a project opens with */
   defaultTool: string
   toolTypes: string[]
+  /** do_CurrentX/do_CurrentY, signed positions including NO_ICON_POSITION. */
+  currentX: number
+  currentY: number
   /** `do_StackSize`, which is a number a program was given and not a size */
   stackSize: number
   /** was there a DrawerData, which is what makes this a drawer rather than a tool */
   drawer: boolean
+  /** Exact struct DrawerData bytes when do_DrawerData is present. */
+  drawerData: Uint8Array | null
+  /** do_ToolWindow, serialized after ToolTypes. */
+  toolWindow: string
 }
 
 /**
@@ -124,12 +131,19 @@ export function readIcon(bytes: Uint8Array): Icon | null {
   const type = dv.getUint8(0x30)
   const defaultTool = dv.getUint32(0x32)
   const toolTypes = dv.getUint32(0x36)
+  const currentX = dv.getInt32(0x3a)
+  const currentY = dv.getInt32(0x3e)
   const drawerData = dv.getUint32(0x42)
   const toolWindow = dv.getUint32(0x46)
   const stackSize = dv.getUint32(0x4a)
 
   let p = DISK_OBJECT_BYTES
-  if (drawerData) p += DRAWER_DATA_BYTES
+  let drawer: Uint8Array | null = null
+  if (drawerData) {
+    if (p + DRAWER_DATA_BYTES > bytes.length) return null
+    drawer = bytes.slice(p, p + DRAWER_DATA_BYTES)
+    p += DRAWER_DATA_BYTES
+  }
 
   /**
    * A `struct Image` and, if it has any, its bitplanes.
@@ -203,9 +217,13 @@ export function readIcon(bytes: Uint8Array): Icon | null {
     }
   }
 
-  // do_ToolWindow follows and is not read; naming it keeps the walk honest
-  void toolWindow
-  return { type, normal, selected, defaultTool: tool, toolTypes: types, stackSize, drawer: drawerData !== 0 }
+  let window = ''
+  if (toolWindow) {
+    const s = readString()
+    if (s === null) return null
+    window = s
+  }
+  return { type, normal, selected, defaultTool: tool, toolTypes: types, currentX, currentY, stackSize, drawer: drawerData !== 0, drawerData: drawer, toolWindow: window }
 }
 
 /** PutDiskObject's portable on-disk form for the fields this backend owns. */
@@ -215,8 +233,12 @@ export function writeIcon(icon: Icon): Uint8Array {
   const set32 = (at: number, n: number): void => { out[at] = n >>> 24; out[at + 1] = n >>> 16 & 255; out[at + 2] = n >>> 8 & 255; out[at + 3] = n & 255 }
   set16(0, ICON_MAGIC); set16(2, ICON_VERSION); out[0x30] = icon.type & 255
   set32(0x16, icon.normal ? 1 : 0); set32(0x1a, icon.selected ? 1 : 0); set32(0x32, icon.defaultTool ? 1 : 0)
-  set32(0x36, icon.toolTypes.length ? 1 : 0); set32(0x42, icon.drawer ? 1 : 0); set32(0x4a, icon.stackSize)
-  if (icon.drawer) out.push(...new Array(DRAWER_DATA_BYTES).fill(0))
+  set32(0x36, icon.toolTypes.length ? 1 : 0); set32(0x3a, icon.currentX); set32(0x3e, icon.currentY)
+  set32(0x42, icon.drawer ? 1 : 0); set32(0x46, icon.toolWindow ? 1 : 0); set32(0x4a, icon.stackSize)
+  if (icon.drawer) {
+    const data = icon.drawerData ?? new Uint8Array(0)
+    for (let i = 0; i < DRAWER_DATA_BYTES; i++) out.push(data[i] ?? 0)
+  }
   const image = (im: IconImage): void => {
     const at = out.length; out.push(...new Array(IMAGE_BYTES).fill(0)); set16(at + 4, im.width); set16(at + 6, im.height); set16(at + 8, im.depth); set32(at + 10, im.data.length ? 1 : 0); out.push(...im.data)
   }
@@ -224,6 +246,7 @@ export function writeIcon(icon: Icon): Uint8Array {
   const string = (s: string): void => { const bytes = [...s].map(c => c.charCodeAt(0) & 255); const n = bytes.length + 1; out.push(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255, ...bytes, 0) }
   if (icon.defaultTool) string(icon.defaultTool)
   if (icon.toolTypes.length) { const n = (icon.toolTypes.length + 1) * 4; out.push(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255); for (const t of icon.toolTypes) string(t) }
+  if (icon.toolWindow) string(icon.toolWindow)
   return Uint8Array.from(out)
 }
 
