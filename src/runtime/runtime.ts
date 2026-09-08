@@ -141,6 +141,10 @@ import { Workbench } from '../amiga/workbench'
 import { AmigaGuide } from '../amiga/amigaguide'
 import { LowLevelSystem } from '../amiga/lowlevel'
 import { StonePlayer } from '../amiga/stoneplayer'
+import { IffParse } from '../amiga/iffparse'
+import { Commodities } from '../amiga/commodities'
+import { DataTypesService } from '../amiga/datatypes'
+import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { blitVbl, starsVbl, type TurboState } from './turbo'
 import { type TdState } from './td'
 import { BankImage, ObjectBank, blitToRastPort } from './objects'
@@ -551,6 +555,12 @@ export class Runtime {
   readonly icons = new IconLibrary(this.exec.pool, () => this.vfs)
   /** One workbench.library AppItem registry over shared Exec messages. */
   readonly workbench = new Workbench(this.exec.messages)
+  /** One iffparse.library handle space shared by native-facing modules. */
+  readonly iffParse = new IffParse(this.exec.pool)
+  /** One commodities.library broker and message space over shared Exec messages. */
+  readonly commodities = new Commodities(this.exec.messages)
+  /** One datatypes.library object space backed by the installed descriptors. */
+  readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES)
   /** One amigaguide.library client registry shared by native-facing modules. */
   readonly amigaGuide = new AmigaGuide()
   /** Process-wide lowlevel.library ownership and future scheduler controls. */

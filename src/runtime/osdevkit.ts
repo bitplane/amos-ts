@@ -53,7 +53,6 @@ import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
 import { joinAmigaPath, type AmigaFS } from '../amiga/vfs'
 import { DataTypesService, dataTypeString } from '../amiga/datatypes'
-import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
@@ -168,7 +167,18 @@ export interface OsDevKitState {
   fonts: Map<number, { font: DiskFont; opens: number; resident: boolean; name: number }>
 }
 
-export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () => AmigaFS | null = () => null): OsDevKitState => {
+export interface OsDevKitServices {
+  iff: IffParse
+  commodities: Commodities
+  dataTypes: DataTypesService
+}
+
+export const newOsDevKitState = (
+  exec: ExecSystem,
+  gadtools: GadTools,
+  services: OsDevKitServices,
+  fs: () => AmigaFS | null = () => null,
+): OsDevKitState => {
   const strings = new OsCStringHeap(exec.pool)
   const state: OsDevKitState = {
     memory: exec.pool, strings, defaultTagAddress: 0, defaultTagCursor: 0,
@@ -192,10 +202,10 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
-    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: new IffParse(exec.pool), iffBase: 0,
-    commodities: new Commodities(exec.messages),
+    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: services.iff, iffBase: 0,
+    commodities: services.commodities,
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
-    dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
+    dataTypes: services.dataTypes, dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), requester: null,
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
     dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(),

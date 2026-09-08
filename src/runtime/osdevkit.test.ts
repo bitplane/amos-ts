@@ -37,6 +37,13 @@ function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; ou
 }
 
 describe('OS DevKit 1.61 callable scalar slice', () => {
+  it('uses process-wide IFFParse, Commodities, and DataTypes services', () => {
+    const { rt } = run('Print _base wb<>0')
+    expect(rt.osdevkit.iff).toBe(rt.iffParse)
+    expect(rt.osdevkit.commodities).toBe(rt.commodities)
+    expect(rt.osdevkit.dataTypes).toBe(rt.dataTypes)
+  })
+
   it('wires the binary-derived 32-class resource tracker into all four keywords', () => {
     const { rt, output } = run([
       'Track Set 3,$1234 : Track Set 3,$1234 : Track Add 3,$1234',
