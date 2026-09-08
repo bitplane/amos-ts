@@ -572,9 +572,11 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         const b = blocks[block]!
         const template = obj.linked.get(b.at + 0x0a)
         if (face < 0 || face >= (template ? parseTdTemplate(template.file).faces : 0)) tdError(25)
-        const g = parseTdGeometry(obj.file)
+        const g = tdObjectGeometry(obj)
+        const resolved = g.faces[b.baseFace + face]
+        if (!resolved) tdError(25)
         return {
-          at: g.facesAt + (b.baseFace + face) * TD_FACE_SIZE,
+          at: resolved.at,
           firstVertex: b.firstVertex,
           vertices: Math.max(0, (blocks[block + 1]?.firstVertex ?? g.points.length) - b.firstVertex),
         }
@@ -1614,10 +1616,9 @@ export const TD_FACE_SIZE = 16
  * of the release's 35 objects, so this checks them against each other and
  * reports the terminator's position as the count.
  *
- * NOTE: two of the demo objects — 3d2 and monitor2 — carry a second template
- * link and interleave a further header inside the face range, so their face
- * list is not a flat run of records. They come back with `multipart` set and
- * only the faces up to the break; the sub-object tree is not modelled.
+ * NOTE: this raw view flags 3d2 and monitor2 because their explicit surface
+ * records are not one flat array. `tdObjectGeometry` resolves those records
+ * through the template/surface link groups and returns their complete models.
  */
 export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean } {
   const b = file.block
@@ -1674,9 +1675,28 @@ export function tdObjectGeometry(obj: TdObject): TdGeometry & { multipart: boole
   const raw = parseTdGeometry(obj.file)
   const b = obj.file.block
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const blocks = parseTdBlocks(obj.file)
+  const explicit = new Map<string, TdFace>()
+  let linkedBlock = -1
+  for (const link of obj.file.links) {
+    if (link.type === TD_LINK_TEMPLATE) {
+      linkedBlock = blocks.findIndex((block) => block.at + 0x0a === link.offset)
+      continue
+    }
+    if (link.type !== TD_LINK_SURFACE || linkedBlock < 0 || link.offset + TD_FACE_SIZE > b.length) continue
+    const block = blocks[linkedBlock]!
+    const templateObject = obj.linked.get(block.at + 0x0a)
+    if (!templateObject) continue
+    const template = parseTdTemplate(templateObject.file)
+    const vertices = [0, 1, 2, 3].map((i) => block.firstVertex + v.getUint16(link.offset + 4 + i * 2, false) / TD_VERTEX_STRIDE)
+    if (vertices.some((point) => !Number.isInteger(point) || point >= raw.points.length)) continue
+    const wanted = [...new Set(vertices.map((point) => point - block.firstVertex))].sort((a, c) => a - c).join(',')
+    const face = template.faceVertices.findIndex((points) => [...new Set(points)].sort((a, c) => a - c).join(',') === wanted)
+    if (face >= 0) explicit.set(`${linkedBlock}:${face}`, { at: link.offset, surface: v.getUint32(link.offset, false), vertices })
+  }
   const faces: TdFace[] = []
   let complete = true
-  for (const block of parseTdBlocks(obj.file)) {
+  for (const [blockIndex, block] of blocks.entries()) {
     const linked = obj.linked.get(block.at + 0x0a)
     if (!linked) { complete = false; continue }
     const template = parseTdTemplate(linked.file)
@@ -1687,18 +1707,18 @@ export function tdObjectGeometry(obj: TdObject): TdGeometry & { multipart: boole
       // links use that order to rotate/reflect their construction across a
       // face (GAME and OVER deliberately differ); replacing it with the
       // template order turns artwork upside down. Blank records inherit.
-      const explicit = raw.faces.find((face) => face.at === at)
-      const vertices = explicit && new Set(explicit.vertices).size >= 3
-        ? explicit.vertices
+      const own = explicit.get(`${blockIndex}:${i}`)
+      const vertices = own
+        ? own.vertices
         : template.faceVertices[i]!.map((point) => block.firstVertex + point)
       if (at + TD_FACE_SIZE > raw.facesEnd || vertices.some((point) => point >= raw.points.length)) {
         complete = false
         continue
       }
-      faces.push({ at, surface: v.getUint32(at, false), vertices })
+      faces.push({ at: own?.at ?? at, surface: own?.surface ?? 0, vertices })
     }
   }
-  return { ...raw, faces, multipart: raw.multipart || !complete }
+  return { ...raw, faces, multipart: !complete }
 }
 
 // ---- blocks and colour ----

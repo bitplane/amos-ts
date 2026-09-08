@@ -425,6 +425,19 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
     expect(multi).toEqual(['3d2.3DO', 'monitor2.3DO'])
   })
 
+  it('resolves every face of the formerly multipart objects through their link groups', () => {
+    for (const name of ['3d2.3DO', 'monitor2.3DO']) {
+      const { rt } = run(`Td Load "${name}"`, objectAndLinks(name))
+      const object = rt.td.objects.get(name.toLowerCase())!
+      const geometry = tdObjectGeometry(object)
+      expect(geometry.multipart, name).toBe(false)
+      expect(geometry.faces.length, name).toBe(parseTdBlocks(object.file).length * 6)
+      for (const link of object.file.links.filter((item) => item.type === 2)) {
+        expect(geometry.faces.some((face) => face.at === link.offset), `${name} surface at ${link.offset}`).toBe(true)
+      }
+    }
+  })
+
   it('matches every external surface link to a face record', () => {
     // a type-2 link names the offset its surface pointer is patched into, and
     // that offset is a face's +0 — dice gives all six of its faces one
