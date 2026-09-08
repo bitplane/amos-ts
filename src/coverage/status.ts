@@ -7146,7 +7146,9 @@ export const NOTES: Record<string, string> = {
     "The 78-byte definition record captures the scene and icon banks as pointers, so a definition outlives the " +
     "Scene Bank setting that made it and Scene 16 Restore keeps drawing from wherever it was pointed.",
   "td keep on":
-    "A cache switch: 'Td Keep Off tells 3D not to keep objects in memory, but to load them each time'.",
+    "The extension DEFAULT routine passes this flag to its teardown: On preserves loaded definitions between " +
+    "program runs, while both modes remove live instances and reset transient state. The loader also accepts an " +
+    "already-resident name only while Keep is On. The engine clears the flag at startup, so Keep starts Off.",
   "td quit":
     "'Unload the 3D extensions along with all objects and release all 3D memory.' There is no separately loaded " +
     "engine here to unload — c3d.lib is this module — so it is the object clear and the state reset",

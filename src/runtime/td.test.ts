@@ -11,7 +11,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { loadHunks } from '../amiga/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdObjectGeometry, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift, type TdObject } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdDefault, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdObjectGeometry, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift, type TdObject } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -164,6 +164,11 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D loading keywords (engine binary + the de
     expect(() => run('Td Load "polygons"\nTd Clear All\nTd Load "polygons"', files)).not.toThrow()
   })
 
+  it('Keep On accepts an object definition left resident by an earlier run', () => {
+    const files = objectAndLinks('polygons.3DO')
+    expect(() => run('Td Keep On\nTd Load "polygons"\nTd Load "polygons"', files)).not.toThrow()
+  })
+
   it('Td Load prefixes the Td Dir directory', () => {
     const files: Record<string, Uint8Array> = {}
     for (const [k, v] of Object.entries(objectAndLinks('polygons.3DO'))) files['objects/' + k] = v
@@ -188,9 +193,20 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D loading keywords (engine binary + the de
     ).toThrow(/Can’t change screen size while objects exist/)
   })
 
-  it('Td Keep and Td Quit record what the manual says they do', () => {
+  it('Td Keep defaults Off and controls definitions across extension defaults', () => {
+    expect(run('').rt.td.keep).toBe(false)
     expect(run('Td Keep Off').rt.td.keep).toBe(false)
     expect(run('Td Keep Off\nTd Keep On').rt.td.keep).toBe(true)
+    const kept = run('Td Keep On\nTd Load "polygons"\nTd Object 1,"polygons",0,0,100,0,0,0', objectAndLinks('polygons.3DO')).rt
+    tdDefault(kept)
+    expect(kept.td.keep).toBe(true)
+    expect(kept.td.objects.has('polygons')).toBe(true)
+    expect(kept.td.instances.size).toBe(0)
+    expect(kept.td.dir).toBe('')
+
+    kept.td.keep = false
+    tdDefault(kept)
+    expect(kept.td.objects.size).toBe(0)
     const { rt } = run('Td Load "polygons"\nTd Quit', objectAndLinks('polygons.3DO'))
     expect(rt.td.objects.size).toBe(0)
   })

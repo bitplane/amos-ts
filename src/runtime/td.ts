@@ -229,7 +229,9 @@ export interface TdState {
 
 export const newTdState = (): TdState => ({
   dir: '',
-  keep: true,
+  // $21064e clears the engine flag at startup; the manual agrees that Keep
+  // starts Off.
+  keep: false,
   objects: new Map(),
   screenHeight: 0,
   instances: new Map(),
@@ -288,8 +290,24 @@ const LINK_KIND: Record<number, { ext: string; missing: number; bad: number }> =
 export function tdLoad(st: TdState, read: (path: string) => Uint8Array | null, name: string): TdObject {
   const clamped = name.slice(0, 199)
   const key = clamped.toLowerCase()
-  if (st.objects.has(key)) tdError(13)
+  const resident = st.objects.get(key)
+  // $219bbc: an existing name is accepted when Keep is On (the loader
+  // returns -1 to its caller), but is error 13 when Keep is Off. This is what
+  // lets the same program be run again without reloading its definitions.
+  if (resident) {
+    if (st.keep) return resident
+    tdError(13)
+  }
   return tdLoadFile(st, read, clamped, '.3DO', 6, 21)
+}
+
+/** AMOS extension DEFAULT hook at $2106da, run before each program. */
+export function tdDefault(rt: Runtime): void {
+  const old = rt.td
+  const next = newTdState()
+  next.keep = old.keep
+  if (old.keep) next.objects = old.objects
+  rt.td = next
 }
 
 function tdLoadFile(
@@ -320,9 +338,7 @@ function tdLoadFile(
 // ---- keywords ----
 
 /**
- * The phase-2 slice: everything to do with getting objects off disc. The
- * transform, camera and drawing keywords are not registered yet, so they stay
- * honestly missing in the manifest rather than silently doing nothing.
+ * The complete instruction half of the AMOS 3D extension.
  */
 export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): TdState => rt.td
@@ -375,9 +391,9 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
      * `moveq #$0,d2` -- and both then `jmp -$226(a2)` into the same engine
      * entry. So On and Off are one setter called with 1 and 0.
      *
-     * "Td Keep Off tells 3D not to keep objects in memory, but to load them
-     * each time" — a caching switch, so with no cache to speak of here it
-     * records the setting and Td Load consults it.
+     * The flag is consulted both by Td Load and by the extension DEFAULT hook:
+     * On accepts an already-resident definition and carries definitions into
+     * the next run; Off rejects a duplicate and clears definitions next run.
      */
     'td keep on'() {
       st().keep = true

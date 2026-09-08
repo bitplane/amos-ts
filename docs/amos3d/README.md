@@ -51,12 +51,13 @@ Three extensions, one container. `.3DO` is an object, `.3DT` a template, `.3DS`
 a surface. The loader is at `$219ba4`; the five section offsets at `+$38`
 through `+$40` become pointers.
 
-### Pens are plane masks, not colours
+### Pens and the occupancy plane
 
-A pen is **two bits**, EOR'd into the bottom two bitplanes: bit 0 selects plane
-0, bit 1 selects plane 1. This is why `Td Background` puts its picture at plane
-0 and full depth: the 3D draws *over* it changing only the bottom two bits, so
-the picture keeps its upper planes and the objects appear in front.
+A surface pen occupies the bottom two bitplanes. Bitplane 3 is the 3D occupancy
+mask, and plane 2 survives from the picture underneath. `Td Background` called
+after `Td Redraw` copies only into pixels not marked in bitplane 3, putting the
+picture behind the objects; called first, colours 8–15 protect foreground pixels
+from the later redraw.
 
 ### Block colours are dither pairs
 
@@ -141,11 +142,14 @@ frame, not a property of the model.
 observable approximation separate from a changed mechanism and an original
 defect.
 
-**Approximated, meaning we fall short.** One keyword:
+**Approximated, meaning we fall short.** Four keywords:
 
 - **`td advanced`**. Hands back an internal engine pointer. The runtime maps
   owned banks and structures, but not AMOS 3D's private native object arena, so
   it answers zero.
+- **`td visible`** and **`td surface points on/off`** preserve their observable
+  high-level behavior, but use the port's reconstructed render state and face
+  mapping rather than native object pointers.
 
 **Faithful, with the mechanism swapped.** `td redraw` is classified faithful
 and carries a note saying why the classification is not the whole story: the

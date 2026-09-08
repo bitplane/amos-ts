@@ -156,7 +156,7 @@ import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdin
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
 import { makeExplodeFunctions, makeExplodeInstructions, newExplodeState } from './explode'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
-import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
+import { newTdState, tdDefault, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile, parseSpriteBankBody } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
@@ -8359,6 +8359,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeTdInstructions,
     functions: makeTdFunctions,
     errors: TD_ERRORS,
+    defaults: tdDefault,
   },
   {
     ids: ['personal-1.0b', 'personnal-1.1'],
