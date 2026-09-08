@@ -113,10 +113,13 @@ auditMany('partial', 'shared iffparse handles implement SCAN/STEP/RAWSTEP, neste
   '_chunk current', '_chunk parent', '_chunk read', '_chunk write', '_chunk child', '_chunk end',
   '_chunk what size', '_chunk what scan', '_chunk what type', '_chunk what id',
 ])
-auditMany('partial', 'shared Commodities brokers, Cx object graphs and native Exec message queues are modelled; the runtime input stream does not yet synthesize every commodity event', [
-  '_cx init', '_base cx', '_cx install', '_cx uninstall', '_cx broker', '_cx enable', '_cx disable',
+auditMany('faithful', 'the shared commodities.library base, broker lifecycle, Cx object graph, activation and error state are represented exactly', [
+  '_cx init', '_base cx', '_cx uninstall', '_cx broker', '_cx enable', '_cx disable',
   '_cx id base', '_cx id create', '_cx id delete', '_cx msg port', '_cx id type', '_cx id error',
   '_cx id clear error', '_cx id activate', '_cx id inactivate', '_cx id attach', '_cx id remove',
+])
+auditMany('partial', 'broker installation cannot detect commodities owned by other host processes, and the runtime input stream does not yet synthesize every commodity event', [
+  '_cx install',
   '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
 ])
 auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [

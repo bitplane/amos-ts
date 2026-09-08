@@ -288,9 +288,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies every native base getter individually', () => {
     const bases = rows.filter((row) => row.namespace === '_base')
     expect(bases).toHaveLength(14)
-    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(12)
+    expect(bases.filter((row) => row.status === 'faithful')).toHaveLength(13)
     expect(bases.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
-      '_base cx', '_base iff',
+      '_base iff',
     ])
     expect(bases.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(bases.some((row) => row.status === 'review')).toBe(false)
@@ -1387,7 +1387,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_iff parse')?.osCalls).toContainEqual({
       chain: 'a5+552>+728', library: 'iffparse.library', lvo: -42,
     })
-    expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'partial', family: 'commodities' })
+    expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'faithful', family: 'commodities' })
+    expect(rows.filter((row) => row.namespace === '_cx' && row.status === 'partial').map((row) => row.name)).toEqual([
+      '_cx install', '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
+    ])
     expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'partial', family: 'workbench' })
     expect(rows.filter((row) => row.namespace === '_prfs')).toHaveLength(3)
     expect(rows.filter((row) => row.namespace === '_prfs').every((row) => row.status === 'faithful')).toBe(true)
