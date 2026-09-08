@@ -67,7 +67,11 @@ function lzw(data: Uint8Array): number[] {
       code(prefix)
       if (next < 4096) {
         dict.set(key, next++)
-        if (next === (1 << width) && width < 12) width++
+        // The decoder creates a dictionary entry only after reading the next
+        // code, so the writer changes width one allocation later. Advancing
+        // at equality makes code 254 ten bits while a conforming decoder is
+        // still reading nine, corrupting streams at the 256-colour boundary.
+        if (next > (1 << width) && width < 12) width++
       } else {
         code(256)
         dict = reset()

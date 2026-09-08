@@ -29,11 +29,7 @@
  *
  * ## What it does not do
  *
- * GIF and PCX are identified by `../amiga/datatypes.gen.ts` and have no
- * decoder here; MacPaint, BMP and ICO use their shared datatype decoders. The panel says so by name rather than
- * showing an empty box: a format this port can NAME and cannot READ is a
- * different state from one it does not recognise, and the row should say
- * which.
+ * Every installed picture datatype uses a shared decoder from `../amiga`.
  */
 import { parseIlbm } from '../amiga/ilbm'
 import { parsePacPic } from '../loader/pacpic'
@@ -42,6 +38,7 @@ import { colourResolver } from '../amiga/planar'
 import { decodeMacPaint } from '../amiga/macpaint'
 import { decodeBmp, decodeIco, type IndexedBitmap } from '../amiga/windowsbitmap'
 import { decodePcx } from '../amiga/pcx'
+import { decodeGif } from '../amiga/gif'
 
 export interface Picture {
   width: number
@@ -253,6 +250,10 @@ export function decodePicture(bytes: Uint8Array, name: string): Picture | null {
     }
     if (name === 'Zsoft PCX') {
       const image = decodePcx(bytes)
+      return image ? fromIndexedBitmap(image) : null
+    }
+    if (name === 'GIF') {
+      const image = decodeGif(bytes)
       return image ? fromIndexedBitmap(image) : null
     }
   } catch {

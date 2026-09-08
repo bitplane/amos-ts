@@ -20,6 +20,7 @@ import { keyboardSdr } from '../amiga/keyboard'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { AmigaFS } from '../amiga/vfs'
 import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
+import { encodeGif } from '../web/gif'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 25 — "alter extension number 25 to :APSystem/AMOSPro_Int.Lib" */
@@ -1396,8 +1397,14 @@ describe('Int 1.0: Wb Dt Image To Screen', () => {
     return pcx
   }
 
+  function gif(): Uint8Array {
+    const rgba = new Uint8ClampedArray(2 * 4)
+    rgba.set([0, 0, 0, 255, 255, 255, 255, 255])
+    return encodeGif([{ width: 2, height: 1, rgba, delay: 1 }])
+  }
+
   function go(src: string): { rt: Runtime; out: string } {
-    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'pic.pcx': zsoftPcx(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
+    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'pic.pcx': zsoftPcx(), 'pic.gif': gif(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
     mustFinish(b.rt.runHeadless(3_000))
     return { rt: b.rt, out: b.out().trim() }
   }
@@ -1469,6 +1476,12 @@ Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
 
   it('loads a ZSoft PCX through the same datatype path', () => {
     const r = go('Wb Dt Image To Screen 0,0,"pic.pcx",1,1')
+    const data = r.rt.memBanks.get(1)!.data
+    expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 8])
+  })
+
+  it('loads a GIF through the same datatype path', () => {
+    const r = go('Wb Dt Image To Screen 0,0,"pic.gif",1,1')
     const data = r.rt.memBanks.get(1)!.data
     expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 8])
   })

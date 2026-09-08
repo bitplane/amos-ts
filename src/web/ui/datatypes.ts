@@ -8,7 +8,7 @@ const SUPPORT: Readonly<Record<string, Support>> = {
   '8svx': { level: 'decode', detail: 'sample data and Fibonacci compression' },
   amigaguide: { level: 'identify', detail: 'client lifecycle; document rendering is not implemented' },
   ascii: { level: 'identify', detail: 'plain and formatted text identification' },
-  gif: { level: 'identify', detail: 'identified; image decoding is not implemented' },
+  gif: { level: 'decode', detail: 'GIF87a/GIF89a indexed pictures, interlace and transparency' },
   ilbm: { level: 'decode', detail: 'planar, HAM and extra-half-brite pictures' },
   jpeg: { level: 'decode', detail: 'baseline JPEG pictures' },
   macpaint: { level: 'decode', detail: 'PackBits monochrome pictures' },
