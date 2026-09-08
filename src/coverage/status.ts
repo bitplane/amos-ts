@@ -6531,8 +6531,8 @@ export const NOTES: Record<string, string> = {
     "DisplayBeep (-96) with a NULL screen -- beep EVERY screen, which is the name. DEFECT: routine 32 never " +
     "checks what OpenLibrary returned, going straight to `movea.l d0,a6`, and never closes the library, so all " +
     "six keywords that use it leak a reference each call; the base is kept at $1b02 and overwritten. Routine 42 " +
-    "exists to say \"Cannot open reqtools.library\" and has no caller anywhere in the file. DEVIATION: no display " +
-    "beep is modelled -- AMOS's own screens are the display here and there is no Workbench flash behind them.",
+    "exists to say \"Cannot open reqtools.library\" and has no caller anywhere in the file. The NULL-screen call " +
+    "uses the shared Intuition display-notification backend.",
   "delta change bank":
     "Routine 36 ($231a), 1.6. `Delta Change Bank Start(OLDBANK) To NEWBANK` renumbers a bank by poking its " +
     "header: AMOS keeps the number in the longword sixteen bytes before the data Start() answers, and this " +

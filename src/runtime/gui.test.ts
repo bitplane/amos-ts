@@ -1107,7 +1107,9 @@ describeWith('the window management group', exampleBank(), (bank) => {
   })
 
   it('Gui Beep asks for one, and Gui Wait Vbl takes a count or none', () => {
-    expect(run('Gui Beep : Gui Beep', bank).gui.beeps).toBe(2)
+    const rt = run('Gui Beep : Gui Beep', bank)
+    expect(rt.gui.beeps).toBe(2)
+    expect(rt.intuition.displayBeeps).toEqual([0, 0])
     expect(() => run('Gui Wait Vbl', bank)).not.toThrow()
     expect(() => run('Gui Wait Vbl 3 : Gui Pause 2', bank)).not.toThrow()
   })

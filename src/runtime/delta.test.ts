@@ -426,8 +426,11 @@ describe('Delta 1.6: tasks, Workbench and the machine', () => {
     expect(text16('Delta Blit Off : Print 1').trim()).toBe('1')
   })
 
-  it('Delta Crash and Delta Beep All are reached and show nothing', () => {
-    expect(text16('Delta Crash 1234 : Delta Beep All : Print 1').trim()).toBe('1')
+  it('Delta Crash is reached and Delta Beep All uses shared Intuition', () => {
+    const b = boot16('Delta Crash 1234 : Delta Beep All : Print 1')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('1')
+    expect(b.rt.intuition.displayBeeps).toEqual([0])
   })
 
   it('Delta Intuition Message evaluates both arguments', () => {

@@ -630,12 +630,11 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
      * so every call to any of the six keywords that use it leaks a reference.
      * The base is kept at $1b02 and simply overwritten each time.
      *
-     * DEVIATION: no display beep is modelled. AMOS's own screens are the
-     * display here and there is no Workbench flash behind them, so the
-     * keyword is reached and nothing is shown.
+     * The NULL-screen call goes through the same Intuition notification
+     * backend as OS DevKit and GUI.
      */
     'delta beep all'() {
-      // no display beep: nothing here flashes a screen
+      rt.intuition.displayBeep(0)
     },
 
     /**

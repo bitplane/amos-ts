@@ -1777,14 +1777,16 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * open screen, which is what intuition's own autodoc calls "beep all of
      * the screens".
      *
-     * DEVIATION: nothing flashes. These windows raise no pixels yet and the
-     * port has no Workbench screen to invert, so the call is counted instead.
-     * What the user would get on the machine also depends on their own
+     * The shared Intuition backend records the NULL-screen call for every
+     * display owner; the host presentation still depends on its own visual or
+     * audible notification policy. What the user gets on the machine likewise
+     * depends on their own
      * Preferences, which the guide is careful to say: "or perform the playing
      * of a sample, depending on how you have your workbench preferences set".
      */
     'gui beep': () => {
       s().beeps++
+      rt.intuition.displayBeep(0)
     },
 
     /**
