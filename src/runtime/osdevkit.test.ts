@@ -14,12 +14,14 @@ import { writeIcon } from '../amiga/icon'
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
 
-function boot(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: () => string } {
+function boot(source: string, prepare?: (rt: Runtime) => void, launch?: { commandName: string; currentDir: string }): { rt: Runtime; output: () => string } {
   const extensions = new Map([[20, os.table]])
   const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume()); fs.mount('ENV', new MemoryVolume())
+  if (launch) fs.currentDir = launch.currentDir
   let output = ''
   const rt = new Runtime(tokenize(source, core, extensions), core, {
     extensions,
+    ...(launch ? { commandName: launch.commandName } : {}),
     extBindings: new Map([[20, os]]),
     host: { clock: fixedClock() },
     fs,
@@ -30,8 +32,8 @@ function boot(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; o
   return { rt, output: () => output }
 }
 
-function run(source: string, prepare?: (rt: Runtime) => void): { rt: Runtime; output: string } {
-  const b = boot(source, prepare)
+function run(source: string, prepare?: (rt: Runtime) => void, launch?: { commandName: string; currentDir: string }): { rt: Runtime; output: string } {
+  const b = boot(source, prepare, launch)
   mustFinish(b.rt.runHeadless(100))
   return { rt: b.rt, output: b.output() }
 }
@@ -679,8 +681,15 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
   })
 
   it('derives Workbench program identity from the retained launch name', () => {
+    const { output } = run('Print _prg dir$,_prg name$', undefined, { commandName: 'RAM:Tools/paint.amos', currentDir: 'RAM:Other' })
+    expect(output).toBe('RAM:Tools\tpaint.amos\n')
+  })
+
+  it('retains a basename launch drawer independently of later CurrentDir changes', () => {
     const { output } = run('Print _prg dir$,_prg name$', runtime => {
-      Object.defineProperty(runtime, 'commandName', { value: 'RAM:Tools/paint.amos' })
+      runtime.vfs!.currentDir = 'RAM:Elsewhere'
+    }, {
+      commandName: 'paint.amos', currentDir: 'RAM:Tools',
     })
     expect(output).toBe('RAM:Tools\tpaint.amos\n')
   })

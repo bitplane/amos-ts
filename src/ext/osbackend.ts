@@ -267,7 +267,7 @@ auditMany('faithful', 'native NotifyRequest records subscribe to the shared VFS 
 auditMany('faithful', 'the NotifyRequest user-data longword at offset 8 is represented exactly', [
   '_nr what user',
 ])
-auditMany('partial', 'the launch name and current directory exist, but the original Workbench WBArg lock/name pair is not retained independently after startup', [
+auditMany('faithful', 'the immutable CLI/Workbench launch drawer and filename are retained independently of later CurrentDir changes', [
   '_prg dir$', '_prg name$',
 ])
 auditMany('faithful', 'the four-long list header, private 24-byte node header and exact one-based list algorithms are represented', [

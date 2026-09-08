@@ -989,10 +989,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_prg dir$')).toMatchObject({
       // 1859 reaches NameFromLock indirectly through local worker 1829;
       // osCalls deliberately records only calls in the resolved worker.
-      status: 'partial', workers: [1859], osCalls: [],
+      status: 'faithful', workers: [1859], osCalls: [],
     })
     expect(rows.find((row) => row.name === '_prg name$')).toMatchObject({
-      status: 'partial', workers: [1860], osCalls: [],
+      status: 'faithful', workers: [1860], osCalls: [],
     })
   })
 

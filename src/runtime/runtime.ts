@@ -153,7 +153,7 @@ import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
-import { DosSystem } from '../amiga/dos'
+import { DosSystem, dosFilePart, dosPathPart } from '../amiga/dos'
 import { CIAA_PRA, CIAA_PRB, CIAA_SDR, CIAB_DDRB, CIAB_PRA, CIAB_PRB } from '../amiga/cia'
 import { JOY0DAT, JOY1DAT, POTGOR } from '../amiga/gameport'
 import { AmalChannel } from './amal'
@@ -573,6 +573,9 @@ export class Runtime {
   readonly interp: Interp
   /** filename supplied by the loader; empty for an anonymous token stream */
   readonly commandName: string
+  /** Immutable Workbench/CLI startup identity, independent of later CurrentDir changes. */
+  readonly launchDirectory: string
+  readonly launchFileName: string
   /**
    * The machine's input devices, plus this program's consumption of them.
    *
@@ -5565,6 +5568,8 @@ export class Runtime {
     this.interp.onProgramPop = (host) => this.restoreProgramBanks(host)
     this.table = table
     this.fs = this.host.fs ?? null
+    this.launchFileName = this.commandName ? dosFilePart(this.commandName) : ''
+    this.launchDirectory = this.commandName ? (dosPathPart(this.commandName) || this.vfs?.currentDir || '') : ''
     // the filesystem and the machine have to agree about what is in the
     // drives, and there is one answer: the drives themselves. Without this
     // `DF0:` would be a mount name again and a disk could be in the drive
