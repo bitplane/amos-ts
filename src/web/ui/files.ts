@@ -47,6 +47,7 @@ import { viewsFor, type ViewHost } from './views'
 import { detectModule } from '../../amiga/modformat'
 import type { ModFormat } from '../../amiga/modformat'
 import { decodeDataTypeText } from '../../amiga/datatype-text'
+import { decode8svx, voice8svxSampleBank } from '../../amiga/iff8svx'
 
 export interface FilesOptions {
   vfs: AmigaFS
@@ -205,7 +206,7 @@ function listingOf(bytes: Uint8Array): string | null {
  * dispatch that fills it, because two lists is how a row comes to have a
  * caret that reveals nothing (or a view nothing can reach).
  */
-const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'model', 'text', 'document', 'program', 'bank', 'icon', 'data'])
+const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'model', 'sound', 'text', 'document', 'program', 'bank', 'icon', 'data'])
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
   const { vfs } = opts
@@ -528,6 +529,27 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     body.appendChild(note)
   }
 
+  /** IFF 8SVX through the same Samples-bank and `Sam Play` route as bank previews. */
+  function soundBody(body: HTMLElement, bytes: Uint8Array): void {
+    const voice = decode8svx(bytes)
+    if (voice === null) {
+      body.appendChild(facts([['sound', '8SVX data this cannot decode']]))
+      return
+    }
+    const play = document.createElement('button')
+    play.type = 'button'
+    play.className = 'act'
+    play.textContent = '▶ play'
+    play.addEventListener('click', () => opts.playSample?.(voice.name || '8SVX', 5, voice8svxSampleBank(voice), 1))
+    if (opts.playSample === undefined) play.disabled = true
+    body.append(play, facts([
+      ['rate', `${voice.rate} Hz`],
+      ['length', `${voice.left.length} samples · ${(voice.left.length / voice.rate).toFixed(2)}s`],
+      ['channels', voice.channels === 2 ? 'stereo (mixed for AMOS playback)' : 'mono'],
+      ['compression', voice.compression === 1 ? 'Fibonacci delta' : 'none'],
+    ]))
+  }
+
   /**
    * Which tab each open file was last showing.
    *
@@ -658,6 +680,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               const note = meta.comment.trim()
               if (note !== '') bodyEl.appendChild(facts([['comment', note]]))
               if (kind.group === 'picture') return pictureBody(bodyEl, bytes, kind)
+              if (kind.group === 'sound') return soundBody(bodyEl, bytes)
               // A program and a bank file are both SEVERAL things, and the
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
