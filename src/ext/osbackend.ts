@@ -702,7 +702,7 @@ auditMany('partial', 'scaling, scrolling and RastPort attributes exist in narrow
 auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateToStr localization, Preferences-driven FORMAT_DEF and native DateTime buffers do not', [
   '_dos day$', '_dos date$', '_dos time$',
 ])
-auditMany('partial', 'global ENV: variable storage exists, but local-variable lists, FindVar pointers and the full DOS flag surface do not', [
+auditMany('partial', 'local precedence, hierarchical names, text/binary reads, ENV:/ENVARC: storage and exact public FindVar LocalVar records are shared; process-list sentinels, wrapper-buffer truncation/IoErr and remaining version edges are incomplete', [
   '_dos var del', '_dos var find', '_dos var value$',
 ])
 auditMany('partial', 'the shared ReadArgs template/result backend handles the documented field modes; native RDArgs allocation and every quoting edge remain incomplete', [

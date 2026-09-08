@@ -729,7 +729,7 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'Print _cli read args("FILE=demo.amos COUNT=12 QUIET","FILE/A/K,COUNT/N/K,QUIET/S")',
       'Print _cli what arg$(0),_cli what arg(1),_cli what arg(2),_dos var del("editor",256)',
     ].join('\n'))
-    expect(output).toBe('AMOS Pro\t-1\n-1\ndemo.amos\t 12\t-1\t-1\n')
+    expect(output).toBe('AMOS Pro\t 0\n-1\ndemo.amos\t 12\t-1\t-1\n')
     expect(rt.vfs?.readFile('ENV:Editor')).toBe(null)
   })
 
