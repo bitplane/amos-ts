@@ -1337,16 +1337,12 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D rasteriser (screen mapping $2126b6/$2126
     }
     // 16000 of those are the untouched rows below the 3D area
     expect(painted - 16000).toBeGreaterThan(2000)
-    // dice's one block is [1,2] and its pips are pens 1 and 2, so only the
-    // bottom two planes are ever touched
-    for (const p of pens) expect(p).toBeLessThan(4)
-    expect([...pens].sort()).toEqual([1, 2])
-    expect(pens.has(1) && pens.has(2)).toBe(true)
+    // Dice's block is [1,2]; bitplane 3 marks every occupied 3D pixel.
+    expect([...pens].sort((a, b) => a - b)).toEqual([1, 9, 10]) // 1 is the untouched area below Td Screen Height
   })
 
-  it('leaves the upper planes alone, because a pen is a two-bit mask', () => {
-    // $21042a and $210438 EOR into planes 0 and 1 only, so a background in
-    // the high planes shows through the low two bits the 3D writes
+  it('uses bitplane 3 as a foreground mask', () => {
+    // Existing colours 8..15 are foreground and must not be overwritten.
     const { rt } = run(`
       Td Screen Height 150
       Screen Open 0,320,200,16,0
@@ -1358,9 +1354,7 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D rasteriser (screen mapping $2126b6/$2126
     const s = rt.screen
     const seen = new Set<number>()
     for (let y = 1; y < 150; y++) for (let x = 0; x < 320; x++) seen.add(s.point(x, y))
-    // 12 is %1100: every pixel keeps those two bits and only the low two move
-    for (const p of seen) expect(p & ~3).toBe(12)
-    expect(seen.size).toBeGreaterThan(1)
+    expect(seen).toEqual(new Set([12]))
   })
 
   it('the engine writes bitplanes, so AMOS\'s draw mode does not reach it', () => {
@@ -2060,9 +2054,7 @@ describe('AMOS 3D Td Background ($210c54)', () => {
     expect(rt.screen.point(319, 149)).toBe(3)
   })
 
-  it('keeps the planes it does not cover', () => {
-    // a four-colour source covers planes 0 and 1 only, so a destination
-    // pixel's higher bits survive underneath it
+  it('keeps pixels already marked as foreground in bitplane 3', () => {
     const { rt } = run(`
       Screen Open 1,320,200,4,0
       Cls 3
@@ -2071,7 +2063,28 @@ describe('AMOS 3D Td Background ($210c54)', () => {
       Ink 12 : Bar 0,0 To 319,149
       Td Background 1,0,0,320,150 To 0,0
     `, {})
-    expect(rt.screen.point(10, 10)).toBe(12 | 3)
+    expect(rt.screen.point(10, 10)).toBe(12)
+  })
+
+  it('draws behind 3D when called after Td Redraw', () => {
+    const { rt } = run(`
+      Screen Open 1,320,200,4,0 : Cls 3
+      Screen Open 0,320,200,16,0 : Td Screen Height 150
+      Td Load "dice" : Td Object 1,"dice",0,0,1500,0,0,0
+      Td Cls : Td Redraw
+      Td Background 1,0,0,320,150 To 0,0
+    `, objectAndLinks('dice.3DO'))
+    expect(rt.screen.point(160, 75) & 8).toBe(8)
+    expect(rt.screen.point(0, 1)).toBe(3)
+  })
+
+  it('accepts the optional destination plane', () => {
+    const { rt } = run(`
+      Screen Open 1,320,200,2,0 : Cls 1
+      Screen Open 0,320,200,16,0 : Td Screen Height 150 : Cls 0
+      Td Background 1,0,0,320,150 To 0,0,2
+    `, {})
+    expect(rt.screen.point(10, 10)).toBe(4)
   })
 
   it('honours the destination corner', () => {

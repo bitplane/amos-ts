@@ -28,8 +28,9 @@
  * ## What is faithful here, and what is not
  *
  * The model is faithful: the file formats, the object and instance
- * structures, the transform chain, the coordinate systems and the visibility
- * rules all come out of the engine. The rasteriser is not. Reproducing
+ * structures, the transform chain, coordinate systems, visibility rules and
+ * bitplane-3 occupancy model all come out of the engine. The edge stepping is
+ * not pixel-exact. Reproducing
  * Voodoo's edge stepping and fill rule pixel-for-pixel is most of the work in
  * the engine and none of what a game depends on, so polygons are filled by
  * our own scanline code and that deviation carries a NOTES entry.
@@ -480,9 +481,8 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
      * Td Background screen, sx, sy, w, h To dx, dy — $210c54, and the
      * demos write it exactly so: `Td Background 1,0,0,320,180 To 0,0`.
      *
-     * It puts a picture *underneath* the 3D, which is the other half of the
-     * reason a pen only ever touches the bottom two bitplanes: the picture
-     * goes down at full depth and the objects then change two bits of it.
+     * It puts a picture *underneath* the 3D when called after Td Redraw by
+     * preserving every destination pixel marked in bitplane 3.
      * A source deeper than the destination is "Too many planes for 3d
      * background", and handing it the screen it is drawing on is "3d
      * background source screen is current screen".
@@ -502,17 +502,19 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       const dx = it.evalInt()
       it.expect(',')
       const dy = it.evalInt()
+      let plane = 0
+      if (it.accept(',')) plane = it.evalInt()
 
       const dest = rt.screen
       const src = rt.screens.get(from)
       if (!src || src === dest) tdError(26)
       if (dest.height < t.screenHeight || dest.depth < 4 || dest.width !== TD_SCREEN_WIDTH) tdError(11)
-      if (src.depth + TD_BACKGROUND_PLANE > dest.depth) tdError(27)
+      if (plane < 0 || src.depth + plane > dest.depth) tdError(27)
       // $210cdc onwards: nothing to do for a destination off the right or
       // below the 3D area, or for a rectangle with no width or height
       if (dx > TD_SCREEN_WIDTH - 1 || dy >= t.screenHeight - 1 || w < 1 || h < 1) return
       // the source replaces the planes it covers and leaves any above it
-      const mask = ((1 << src.depth) - 1) << TD_BACKGROUND_PLANE
+      const mask = ((1 << src.depth) - 1) << plane
       const keep = ~mask
       for (let y = 0; y < h; y++) {
         const ty = dy + y
@@ -523,7 +525,13 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
           const p = src.point(sx + x, sy + y)
           // outside the source is left alone rather than read as zero
           if (p < 0) continue
-          dest.plot(tx, ty, (dest.point(tx, ty) & keep) | ((p << TD_BACKGROUND_PLANE) & mask))
+          const old = dest.point(tx, ty)
+          // Bitplane 3 is the engine's occupancy mask. A background drawn
+          // after Td Redraw only reaches pixels no object claimed; drawn
+          // before it, source colours 8..15 reserve foreground pixels which
+          // the subsequent 3D pass must leave alone.
+          if ((old & TD_MASK_PEN) !== 0) continue
+          dest.plot(tx, ty, (old & keep) | ((p << plane) & mask))
         }
       }
     },
@@ -780,10 +788,10 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       // builds that instance's matrix, so an animation set this frame moves
       // the object this frame
       tdStepAnims(t)
-      // tdRedrawFaces hands back the engine's order, front-most first; a
-      // painter has to go the other way for the front-most to end up on top
+      // The engine draws front-most first and uses bitplane 3 as an occupancy
+      // mask, so later objects cannot overwrite pixels already claimed.
       const rp = tdRastPort(s2)
-      for (const inst of tdRedrawFaces(t).reverse()) {
+      for (const inst of tdRedrawFaces(t)) {
         for (const f of inst.faces) tdDrawFace(rp, t.screenHeight, f)
       }
     },
@@ -2390,15 +2398,8 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView,
  * at +$52, its attitude at +$12/+$16/+$1a — with the transform and projection
  * behind it. What it does not do is fill anything.
  *
- * Every face arrives with its surface's polygons already evaluated, so what is
- * left is the scanline fill itself.
- *
- * NOTES: the port stops one step short of pixels. A face's own colour is a
- * dither pair rather than a pen — `Td Set Colour` writes two bytes through
- * $38(part) out of the sixteen pairs at a4+$54, each naming two of the bottom
- * four pens — and where a part's pair points before any Td Set Colour has not
- * been located, so the faces themselves have no colour to be filled with yet.
- * The surfaces on top of them do: their pens come out of the `.3DS`.
+ * Every face arrives with its block colour and surface polygons evaluated;
+ * only rasterisation remains.
  */
 /**
  * The draw order, from the bubble sort at $218cc4.
@@ -2430,10 +2431,8 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView,
  * into depends on the algorithm, and the bubble sort is reproduced rather than
  * handed to `Array.sort`.
  *
- * NOTES: first in this list is the front-most, and the port paints in reverse
- * so the front-most lands on top. The engine gets there the other way round,
- * drawing front to back; with a blitter mask that is the same picture, but it
- * is not the same mechanism, which is already noted against `td redraw`.
+ * First in this list is the front-most. The renderer follows that order and
+ * bitplane 3 prevents anything later from overwriting occupied pixels.
  */
 export function tdSortInstances(st: TdState): Array<[number, TdInstance]> {
   const list = [...st.instances].sort((a, b) => a[0] - b[0])
@@ -2514,12 +2513,13 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
  * copies a sixteen-colour picture on to a sixteen-colour screen, which only
  * fits with nothing to spare.
  *
- * Zero is also the reading that makes sense of the rasteriser. The background
- * is a full-depth picture and the 3D draws *over* it, changing only the
- * bottom two bits of each pixel, which is why a pen is a two-bit plane mask.
- * The picture keeps its upper planes and the objects appear in front of it.
+ * Zero is the documented default; the optional eighth argument selects a
+ * different first destination plane.
  */
 export const TD_BACKGROUND_PLANE = 0
+
+/** bitplane 3, reserved by AMOS 3D as its foreground/occupancy mask */
+export const TD_MASK_PEN = 8
 
 /** the only width the engine will draw on, checked at $211418 */
 export const TD_SCREEN_WIDTH = 320
@@ -2599,10 +2599,9 @@ export function tdScanFill(points: Array<{ x: number; y: number }>, span: (y: nu
 /**
  * The rasteriser's own RastPort, over the screen's bitmap.
  *
- * A 3D pen is a two-bit plane mask — $21042a and $210438 btst bit 0 and bit 1
- * and EOR into plane 0 and plane 1 — so only the bottom two planes of a pixel
- * are touched and whatever the upper ones hold, a `Td Background` for
- * instance, survives underneath. That is `rp_Mask = %11`, and it used to be
+ * A surface pen controls planes 0 and 1 ($21042a/$210438), while bitplane 3
+ * marks occupied 3D pixels. Plane 2 survives from the picture underneath.
+ * That is `rp_Mask = %1011`, and it used to be
  * written out longhand as a read-merge-write in a `tdPen` helper over a
  * hand-rolled two-method `TdRaster` interface.
  *
@@ -2619,7 +2618,9 @@ export function tdScanFill(points: Array<{ x: number; y: number }>, span: (y: nu
  */
 function tdRastPort(s: { rp: RastPort }): RastPort {
   const rp = new RastPort(s.rp.bitMap)
-  rp.mask = 0b11
+  // planes 0/1 hold the virtual surface pen and plane 3 is occupancy.
+  // Plane 2 belongs to the picture underneath and survives the object.
+  rp.mask = 0b1011
   rp.drawMode = 0 // JAM1: opaque, and never the caller's COMPLEMENT
   return rp
 }
@@ -2639,19 +2640,25 @@ function tdRastPort(s: { rp: RastPort }): RastPort {
 export function tdDrawFace(t: RastPort, height: number, f: TdScreenFace): void {
   const rows = Math.min(height, t.height)
   const px = (p: { x: number; y: number }) => ({ x: tdScreenX(p.x), y: tdScreenY(height, p.y) })
-  const paint = (poly: Array<{ x: number; y: number }>, pen: (x: number, y: number) => number): void => {
+  const claimed = new Set<number>()
+  const paint = (poly: Array<{ x: number; y: number }>, pen: (x: number, y: number) => number, surface = false): void => {
     tdScanFill(poly.map(px), (y, x0, x1) => {
       // row zero is outside the engine's own bounds, and so is anything past
       // the 3D area or either side of the 320 columns
       if (y < 1 || y >= rows) return
       // rp_Mask does the plane merge: the write lands in planes 0 and 1 and
       // leaves the rest of the pixel alone
-      for (let x = Math.max(0, x0); x <= Math.min(TD_SCREEN_WIDTH - 1, x1); x++) t.plot(x, y, pen(x, y))
+      for (let x = Math.max(0, x0); x <= Math.min(TD_SCREEN_WIDTH - 1, x1); x++) {
+        const key = y * TD_SCREEN_WIDTH + x
+        if (surface ? !claimed.has(key) : (t.point(x, y) & TD_MASK_PEN) !== 0) continue
+        t.plot(x, y, TD_MASK_PEN | pen(x, y))
+        if (!surface) claimed.add(key)
+      }
     })
   }
   const [a, b] = f.colour
   paint(f.points, (x, y) => ((x + y) & 1 ? b : a))
-  for (const fill of f.fills) paint(fill.points, () => fill.pen)
+  for (const fill of f.fills) paint(fill.points, () => fill.pen, true)
 }
 
 // ---- animation ----
