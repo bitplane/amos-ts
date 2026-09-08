@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemPool } from './exec'
 import { AmigaFS, MemoryVolume } from './vfs'
-import { DosVariables, GVF_BINARY_VAR, GVF_GLOBAL_ONLY, GVF_LOCAL_ONLY, GVF_SAVE_VAR, LV_ALIAS, LV_VAR } from './dosvars'
+import { DosVariables, GVF_BINARY_VAR, GVF_DONT_NULL_TERM, GVF_GLOBAL_ONLY, GVF_LOCAL_ONLY, GVF_SAVE_VAR, LV_ALIAS, LV_VAR } from './dosvars'
 
 const setup = (): { vars: DosVariables; memory: MemPool; fs: AmigaFS } => {
   const memory = new MemPool(0x1000_0000, 0x10000); const fs = new AmigaFS()
@@ -34,5 +34,13 @@ describe('dos.library variables', () => {
     expect(vars.get('Nested/Value', GVF_GLOBAL_ONLY)).toBe('first')
     expect(vars.get('Nested/Value', GVF_GLOBAL_ONLY | GVF_BINARY_VAR)).toBe(value)
     expect(fs.readFile('ENVARC:Nested/Value')).toEqual(Uint8Array.from(value, c => c.charCodeAt(0)))
+  })
+
+  it('honours the GetVar buffer boundary and failure result', () => {
+    const { vars } = setup(); expect(vars.set('Long', 'abcdef', 0)).toBe(true)
+    expect(vars.read('Long', 0, 4)).toEqual({ value: 'abc', result: 3, ioErr: 0 })
+    expect(vars.read('Long', GVF_DONT_NULL_TERM, 4)).toEqual({ value: 'abcd', result: 4, ioErr: 0 })
+    expect(vars.read('Missing', 0, 4)).toEqual({ value: '', result: -1, ioErr: 205 })
+    expect(vars.read('Long', 0, 0)).toEqual({ value: '', result: -1, ioErr: 115 })
   })
 })

@@ -699,8 +699,11 @@ auditMany('partial', 'scaling, scrolling and RastPort attributes exist in narrow
 auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateToStr localization, Preferences-driven FORMAT_DEF and native DateTime buffers do not', [
   '_dos day$', '_dos date$', '_dos time$',
 ])
-auditMany('partial', 'local precedence, hierarchical names, text/binary reads, ENV:/ENVARC: storage and exact public FindVar LocalVar records are shared; process-list sentinels, wrapper-buffer truncation/IoErr and remaining version edges are incomplete', [
-  '_dos var del', '_dos var find', '_dos var value$',
+auditMany('faithful', 'DeleteVar and FindVar use shared local/global storage, type selection and exact public LocalVar records', [
+  '_dos var del', '_dos var find',
+])
+auditMany('partial', 'local precedence, hierarchical names, text/binary reads, ENV:/ENVARC: storage, the wrapper buffer limit and IoErr are shared; binary-string termination and remaining dos.library version edges are incomplete', [
+  '_dos var value$',
 ])
 auditMany('partial', 'the shared ReadArgs backend handles aliases, quoting/escapes, required, switch/toggle, keyword, numeric, multi redistribution and rest fields; native RDArgs allocation, prompting/default arrays and remaining parser limits are incomplete', [
   '_cli read args', '_cli what arg$', '_cli what arg',

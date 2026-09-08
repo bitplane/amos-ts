@@ -4194,7 +4194,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_dos report'(_, a) { return VI(rt.dos.report(n(a, 0), n(a, 1), n(a, 2), n(a, 3)) ? -1 : 0) },
     '_dos var del'(_, a) { return VI(st().dosVariables.delete(str(a[0] ?? VS('')), n(a, 1)) ? -1 : 0) },
     '_dos var find'(_, a) { return VI(st().dosVariables.find(str(a[0] ?? VS('')), n(a, 1))) },
-    '_dos var value$'(_, a) { return VS(st().dosVariables.get(str(a[0] ?? VS('')), n(a, 1))) },
+    '_dos var value$'(_, a) {
+      const read = st().dosVariables.read(str(a[0] ?? VS('')), n(a, 1), 0x3ff)
+      rt.dos.ioErr = read.ioErr
+      return VS(read.value)
+    },
     '_cli read args'(_, a) { return VI(st().readArgs.read(str(a[0] ?? VS('')), str(a[1] ?? VS(''))) ? -1 : 0) },
     '_cli what arg$'(_, a) { return VS(st().readArgs.string(n(a, 0), n(a, 1))) },
     '_cli what arg'(_, a) { return VI(st().readArgs.number(n(a, 0), n(a, 1))) },

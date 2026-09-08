@@ -761,6 +761,15 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.vfs?.readFile('ENV:Editor')).toBe(null)
   })
 
+  it('uses the native DOS-variable string buffer limit and IoErr', () => {
+    const { output } = run([
+      '_dos var value$("Long",512)=String$("x",1100)',
+      'Print Len(_dos var value$("Long",512)),_dos err',
+      'Print _dos var value$("Missing",512),_dos err',
+    ].join('\n'))
+    expect(output).toBe(' 1022\t 0\n\t 205\n')
+  })
+
   it('shares a Commodities broker, object graph and Exec message port', () => {
     const { rt, output } = run([
       'Print _cx init<>0,_cx install("Tool","Title","Description",1,0,0)',

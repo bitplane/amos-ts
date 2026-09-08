@@ -10,18 +10,32 @@ export const LV_VAR = 0
 export const LV_ALIAS = 1
 
 interface LocalVariable { name: string; value: string; flags: number; node: number; nameAddress: number; valueAddress: number }
+export interface DosVariableRead { value: string; result: number; ioErr: number }
 
 /** dos.library GetVar/SetVar/DeleteVar/FindVar state shared by extensions. */
 export class DosVariables {
   private readonly local = new Map<string, LocalVariable>()
   constructor(private readonly memory: MemPool, private readonly fs: () => AmigaFS | null) {}
   get(name: string, flags: number): string {
+    return this.read(name, flags, Number.MAX_SAFE_INTEGER).value
+  }
+  /** GetVar's caller-buffer boundary and return/error contract. */
+  read(name: string, flags: number, size: number): DosVariableRead {
+    if (size <= 0) return { value: '', result: -1, ioErr: 115 }
     const key = name.toLowerCase()
     const type = flags & 0xff
     const local = this.local.get(key)
-    if ((flags & GVF_GLOBAL_ONLY) === 0 && local?.flags === type) return this.visible(local.value, flags)
-    if ((flags & GVF_LOCAL_ONLY) !== 0) return ''
-    const b = this.fs()?.readFile('ENV:' + name); return b ? this.visible(String.fromCharCode(...b), flags) : ''
+    let value: string | undefined
+    if ((flags & GVF_GLOBAL_ONLY) === 0 && local?.flags === type) value = local.value
+    else if ((flags & GVF_LOCAL_ONLY) === 0) {
+      const bytes = this.fs()?.readFile('ENV:' + name)
+      if (bytes) value = String.fromCharCode(...bytes)
+    }
+    if (value === undefined) return { value: '', result: -1, ioErr: 205 }
+    const visible = this.visible(value, flags)
+    const capacity = (flags & (GVF_BINARY_VAR | GVF_DONT_NULL_TERM)) !== 0 ? size : Math.max(0, size - 1)
+    const truncated = visible.slice(0, capacity)
+    return { value: truncated, result: truncated.length, ioErr: 0 }
   }
   set(name: string, value: string, flags: number): boolean {
     if (!name || name.includes(':') || ((flags & 0xff) !== LV_VAR && (flags & 0xff) !== LV_ALIAS)) return false

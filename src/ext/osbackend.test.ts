@@ -1354,7 +1354,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies DOS variables and includes both unnamed CLI reader overloads', () => {
     const variables = rows.filter((row) => row.name.startsWith('_dos var '))
     expect(variables).toHaveLength(3)
-    expect(variables.every((row) => row.status === 'partial')).toBe(true)
+    expect(variables.map((row) => [row.name, row.status])).toEqual([
+      ['_dos var del', 'faithful'], ['_dos var find', 'faithful'], ['_dos var value$', 'partial'],
+    ])
     expect(variables.find((row) => row.name === '_dos var del')).toMatchObject({
       workers: [34], osCalls: [expect.objectContaining({ library: 'dos.library', lvo: -912 })],
     })
