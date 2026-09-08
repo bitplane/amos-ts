@@ -4056,7 +4056,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       return VI(-1)
     },
     '_fh name$'(_, a) { return VS(rt.dos.file(n(a, 0))?.path ?? '') },
-    '_dos mode'(_, a) { return VI(rt.dos.file(n(a, 0)) && [0, 1].includes(n(a, 1)) && [-2, -1].includes(n(a, 2)) ? -1 : 0) },
+    '_dos mode'(_, a) { return VI(rt.dos.changeMode(n(a, 0), n(a, 1), n(a, 2)) ? -1 : 0) },
     '_dos print'(_, a) { return VI(rt.dos.write(rt.vfs, n(a, 0), new TextEncoder().encode(str(a[1] ?? VS('')))) < 0 ? 0 : -1) },
     '_dos input'(_, a) {
       const bytes = rt.dos.gets(n(a, 0), 65536); if (!bytes) return VS('')

@@ -895,15 +895,14 @@ describe('disk and DOS objects', () => {
     expect(() => runFs(['Print Disk State("Work")'])).toThrow(/Illegal function call/)
   })
 
-  it('Io Error$ gives the extension its OWN texts, and empty for an unused number', () => {
-    // twenty-six of them, at $a56a, ending exactly where routine 384 begins
+  it('Io Error$ follows the V37 dos.library Fault catalogue', () => {
     expect(p('Io Error$(205)')).toBe('object not found')
     expect(p('Io Error$(214)')).toBe('disk is write-protected')
     expect(p('Io Error$(218)')).toBe('device (or volume) is not mounted')
     expect(p('Io Error$(232)')).toBe('no more entries in directory')
     expect(p('"["+Io Error$(9999)+"]"')).toBe('[]')
-    // 206 is a real dos.library code the extension's table simply omits
-    expect(p('"["+Io Error$(206)+"]"')).toBe('[]')
+    // V37+ takes Fault(), so errors absent from AMCAF's pre-V37 table exist.
+    expect(p('"["+Io Error$(206)+"]"')).toBe('[bad stream name]')
   })
 
   it('Dos Hash lands every name in a 0..71 bucket', () => {

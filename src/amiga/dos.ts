@@ -346,6 +346,7 @@ export interface DosReport { error: number; type: number; argument: number; devi
 export interface DosFile {
   path: string
   mode: number
+  access: -2 | -1
   data: Uint8Array
   position: number
   ungot: number | null
@@ -378,14 +379,28 @@ export class DosSystem {
     this.lastReport = { error: error | 0, type: type | 0, argument: argument >>> 0, device: device >>> 0 }
     return true
   }
+  private samePath(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase() }
+  private canOwn(path: string, access: -2 | -1, exceptFile = 0, exceptLock = 0): boolean {
+    for (const [handle, file] of this.files) {
+      if (handle === exceptFile || !this.samePath(file.path, path)) continue
+      if (access === -1 || file.access === -1) return false
+    }
+    for (const [handle, lock] of this.locks) {
+      if (handle === exceptLock || !this.samePath(lock.path, path)) continue
+      if (access === -1 || lock.access === -1) return false
+    }
+    return true
+  }
   open(storage: DosStorage | null | undefined, path: string, mode: number): number {
     if (!storage || !path || ![1004, 1005, 1006].includes(mode | 0)) { this.ioErr = 205; return 0 }
+    const access: -2 | -1 = mode === 1005 ? -2 : -1
+    if (!this.canOwn(path, access)) { this.ioErr = 202; return 0 }
     const old = storage.readFile(path)
     if (!old && mode === 1005) { this.ioErr = 205; return 0 }
     const data = mode === 1006 ? new Uint8Array() : Uint8Array.from(old ?? [])
     if (mode === 1006 || (mode === 1004 && !old)) storage.writeFile(path, data)
     const handle = (0x7f40_0000 + this.nextFile++ * 4) >>> 0
-    this.files.set(handle, { path, mode: mode | 0, data, position: 0, ungot: null })
+    this.files.set(handle, { path, mode: mode | 0, access, data, position: 0, ungot: null })
     this.ioErr = 0
     return handle
   }
@@ -441,12 +456,28 @@ export class DosSystem {
   }
   lock(fs: DosFilesystem | null | undefined, path: string, access: number): number {
     if (!fs || ![-2, -1].includes(access) || fs.exists(path) === null) { this.ioErr = 205; return 0 }
+    if (!this.canOwn(path, access as -2 | -1)) { this.ioErr = 202; return 0 }
     const handle = (0x7f50_0000 + this.nextLock++ * 4) >>> 0
     this.locks.set(handle, { path, access: access as -2 | -1 })
     this.ioErr = 0
     return handle
   }
   unlock(handle: number): boolean { return this.locks.delete(handle >>> 0) }
+  changeMode(handle: number, type: number, access: number): boolean {
+    handle >>>= 0
+    if (![-2, -1].includes(access) || ![0, 1].includes(type)) { this.ioErr = 211; return false }
+    if (type === 0) {
+      const lock = this.locks.get(handle)
+      if (!lock || !this.canOwn(lock.path, access as -2 | -1, 0, handle)) { this.ioErr = lock ? 202 : 211; return false }
+      lock.access = access as -2 | -1
+    } else {
+      const file = this.files.get(handle)
+      if (!file || !this.canOwn(file.path, access as -2 | -1, handle)) { this.ioErr = file ? 202 : 211; return false }
+      file.access = access as -2 | -1
+    }
+    this.ioErr = 0
+    return true
+  }
   lockInfo(handle: number): DosLock | null { return this.locks.get(handle >>> 0) ?? null }
   parentLock(fs: DosFilesystem | null | undefined, handle: number): number {
     const lock = this.lockInfo(handle)

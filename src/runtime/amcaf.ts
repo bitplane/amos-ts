@@ -5301,13 +5301,10 @@ function saveBank(rt: Runtime, it: Interp): void {
  * table instead: a code byte, a NUL-terminated string, and a zero code to end.
  * It runs to $a7c6, which is exactly where routine 384 begins.
  *
- * The strings below are that table, character for character. DEVIATION: the
- * modelled machine is a Kickstart 3 A1200, so the real routine would take the
- * Fault() arm and dos.library's wording would win where the two differ. There
- * is no Fault() here to call, and this table is at least the same extension's
- * idea of the same errors. Anything not listed gets the empty string, which is
- * what both arms give: "If no error number exists, an empty string will be
- * returned".
+ * This runtime models a Kickstart 3 A1200, so it takes the V37+ arm through
+ * the shared dos.library English catalogue. The embedded table remains the
+ * evidence for its overlapping spellings; an unknown system error still
+ * returns empty, as the manual specifies.
  */
 /**
  * The tool types of an icon, one per line.

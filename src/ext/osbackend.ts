@@ -243,7 +243,7 @@ auditMany('faithful', 'shared native-style DOS handles provide raw and buffered 
   '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos f name',
   '_dos opin', '_dos opout', '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
 ])
-auditMany('partial', 'valid file handles and lock-mode constants are checked, but shared/exclusive filesystem packet locking is not enforced', [
+auditMany('partial', 'shared/exclusive ownership and ChangeMode upgrades are enforced across process DOS handles and locks; independent host filesystem mutation remains outside packet locking', [
   '_dos mode',
 ])
 auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [

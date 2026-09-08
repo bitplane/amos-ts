@@ -620,6 +620,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 0\tLoad: Object not found\nObject \n')
   })
 
+  it('enforces shared and exclusive ownership across DOS handles and locks', () => {
+    const { output } = run([
+      'H=_dos opout("RAM:mode") : _dos close H',
+      'A=_dos opin("RAM:mode") : B=_dos opin("RAM:mode")',
+      'Print _dos mode(A,1,-1) : _dos close B : Print _dos mode(A,1,-1)',
+      'N=_to str("RAM:mode") : Print _dos lock(N,-2)',
+      'Print _dos mode(A,1,-2) : L=_dos lock(N,-2) : Print L<>0,_dos lock(N,-1)',
+      '_dos unlock L : _dos close A : _str free N',
+    ].join('\n'))
+    expect(output).toBe(' 0\n-1\n 0\n-1\n-1\t 0\n')
+  })
+
   it('mutates and returns pointers into caller-owned DOS path strings', () => {
     const { output } = run([
       'P=_str alloc(40) : N=_to str("serial.prefs") : _str put "RAM:ENV/Sys",P',
