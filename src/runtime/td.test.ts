@@ -710,6 +710,20 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D camera ($219566 is $213df8 with its stor
     }
   })
 
+  it('orders a rotating object’s faces nearest-first rather than in fixed file order', () => {
+    const g = parseTdGeometry(parseTdFile(shipped('dice.3DO')))
+    const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+    const obj: TdFrame = { pos: [0, 0, 1500], angle: [0, 0, 0] }
+    const front = (angle: number) => tdInstanceFaces(g, tdMatrix(0, angle, 0), tdViewFor(eye, obj))
+    for (const angle of [0, TD_REVOLUTION / 8, TD_REVOLUTION / 4, TD_REVOLUTION / 2]) {
+      const depths = front(angle).map((face) => face.depth)
+      expect(depths).toEqual([...depths].sort((a, b) => a - b))
+    }
+    // Opposite faces exchange places after half a revolution. A file-order
+    // walk would return the same face first at both attitudes.
+    expect(front(0)[0]!.face.at).not.toBe(front(TD_REVOLUTION / 2)[0]!.face.at)
+  })
+
   it('drops the whole object when it is behind the eye', () => {
     const g = parseTdGeometry(parseTdFile(shipped('dice.3DO')))
     const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }

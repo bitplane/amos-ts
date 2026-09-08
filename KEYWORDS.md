@@ -27,7 +27,7 @@ carries those rows with what each one is waiting on.
 So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
-The evidence is not here. General keyword metadata and 1250 qualifying
+The evidence is not here. General keyword metadata and 1249 qualifying
 notes live in `src/coverage/status.ts`. OS DevKit operation verdicts and
 their binary call traces live in `src/ext/osbackend.ts`. This generator is
 the only path that combines that metadata into the committed inventory.

@@ -7168,10 +7168,10 @@ export const NOTES: Record<string, string> = {
     "Equal object numbers return zero before either is validated ($211d9c compares first), so Td Range(99,99) is " +
     "0 rather than \"Invalid object number\".",
   "td redraw":
-    "The model is the engine's and the rasteriser is ours. The polygons and their pens are right; the bits are " +
-    "not guaranteed identical, a long shallow edge can land a column either side of where Bresenham would have " +
-    "put it, and the phase of the two-pen dither — which pen falls on the even squares — is a choice, because it " +
-    "is decided inside the fill that is not reproduced.",
+    "The transforms, clipping, object priority and bitplane-3 occupancy model are the engine's. Faces are ordered " +
+    "front-to-back by view depth; the native engine instead walks view-dependent precedence tables embedded in " +
+    "each template, which can differ for intersecting compound blocks. The rasteriser is also ours: shallow edges " +
+    "and the phase of two-pen dithers are not guaranteed pixel-identical to the blitter fill.",
   "td surface points":
     "The four anchors at a4+$486f are consumed by Td Surface at $212e34..$212e80. They select the destination " +
     "block vertices used for surface slots 1..4; Td Surface's low two mode bits select the engine's matching rotation.",

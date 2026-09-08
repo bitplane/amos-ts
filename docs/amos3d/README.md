@@ -151,14 +151,14 @@ defect.
   high-level behavior, but use the port's reconstructed render state and face
   mapping rather than native object pointers.
 
-**Faithful, with the mechanism swapped.** `td redraw` is classified faithful
-and carries a note saying why the classification is not the whole story: the
-model is the engine's and the rasteriser is ours. The engine hands the blitter
-one EOR line per edge in line mode and area-fills the mask. There is no blitter
-here, so the same shapes are computed by a scanline fill, even-odd, with edges
-half-open at the bottom. Right polygons and right pens, not guaranteed
-identical bits, and the phase of the two-pen dither is a choice rather than a
-reading.
+**Faithful model, approximate renderer.** `td redraw` uses the engine's
+transforms, clipping, object priorities and bitplane-3 occupancy. Within an
+object the port orders faces front-to-back by view depth; the native engine
+uses view-dependent precedence tables embedded in each template, which matters
+for intersecting compound blocks. It also hands the blitter one EOR line per
+edge and area-fills the mask, while the port uses an even-odd scanline fill.
+The polygons and pens are right, but individual edge pixels and the two-pen
+dither phase are not guaranteed identical.
 
 **Faithful because the original does nothing.** `Td Debug` and `Td Pragma` are
 `link/unlk/rts` in the shipped library, stubs that survived with their bodies

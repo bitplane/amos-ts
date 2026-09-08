@@ -2382,6 +2382,8 @@ export interface TdScreenFace {
   fills: TdSurfaceFill[]
   /** the two pens the face's block is dithered in */
   colour: TdDither
+  /** mean view-space depth, used for the front-to-back occupancy pass */
+  depth: number
 }
 
 /**
@@ -2421,9 +2423,15 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView,
       points,
       fills: surface ? tdSurfaceFills(parseTdSurface(surface.file), points) : [],
       colour: obj?.colours[tdBlockForFace(blocks, i)] ?? [0, 0],
+      depth: projectedFace.reduce((sum, p) => sum + p.view[2], 0) / projectedFace.length,
     })
   }
-  return out
+  // The native renderer derives a view-dependent precedence walk from the
+  // template. Fixed file order is never valid: opposite sides of a rotating
+  // cube exchange which is in front. Mean view depth gives the same ordering
+  // for convex blocks and a deterministic fallback for compound objects;
+  // retain file order at equal depth because Array.sort is stable.
+  return out.sort((a, b) => a.depth - b.depth)
 }
 
 /**
