@@ -1686,6 +1686,16 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
 })
 
 describe('OS DevKit 1.61 Window-ID lifecycle', () => {
+  it('shares Intuition refresh state and rebuilds the live display', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 1,0,0,40,20,0,0,0,"Refresh" : W=_wnd id base(1)',
+      '_rfsh begin W : _rfsh end W,0 : _rfsh begin W : _rfsh end W,-1',
+      '_disp remake : _disp rethink',
+    ].join('\n'))
+    expect(rt.osdevkit.windowHandles.get(1)?.window).toMatchObject({ refreshDepth: 0, refreshComplete: true })
+  })
+
   it('opens, selects and closes an owned native window wrapper on the current screen', () => {
     const source = [
       'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',

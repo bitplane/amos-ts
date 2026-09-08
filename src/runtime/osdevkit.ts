@@ -2420,6 +2420,13 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (found) closeScreenId(rt, st(), found.id)
     },
     '_scr beep'(it) { rt.intuition.displayBeep(it.evalInt() >>> 0) },
+    '_rfsh begin'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.beginRefresh(window) },
+    '_rfsh end'(it) {
+      const [base, complete] = readArgs(it, 2); const window = windowAtBase(st(), base!)
+      if (window) rt.intuition.endRefresh(window, complete! !== 0)
+    },
+    '_disp remake'() { rt.buildCopperList() },
+    '_disp rethink'() { rt.buildCopperList() },
     '_scr move'(it) {
       const [base, dx, dy] = readArgs(it, 3); const found = screenRecordAtBase(st(), base!)
       const screen = found ? rt.screens.get(found.record.slot) : undefined

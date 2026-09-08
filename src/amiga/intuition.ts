@@ -421,6 +421,9 @@ export class Window {
   maxHeight = 0xffff
   /** Number of active old-style Request() overlays on this window. */
   requesterDepth = 0
+  /** BeginRefresh/EndRefresh nesting; Intuition permits an incomplete pass. */
+  refreshDepth = 0
+  refreshComplete = true
   /** HelpControl flags most recently installed for this window. */
   helpControlFlags = 0
 
@@ -1328,6 +1331,17 @@ export class Intuition {
   /** RefreshWindowFrame: invalidate this managed window's border decorations. */
   refreshWindowFrame(w: Window): void {
     if (this.windows.includes(w)) this.dirty = true
+  }
+
+  beginRefresh(w: Window): void {
+    if (!this.windows.includes(w)) return
+    w.refreshDepth++; w.refreshComplete = false
+  }
+
+  endRefresh(w: Window, complete: boolean): void {
+    if (!this.windows.includes(w) || w.refreshDepth === 0) return
+    w.refreshDepth--
+    if (complete) { w.refreshComplete = true; this.dirty = true }
   }
 
   /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */
