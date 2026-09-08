@@ -1412,6 +1412,10 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
       if (st2.appIcon === 0) {
         const diskObject = path === null ? rt.icons.def(3) : rt.icons.load(path)
         if (diskObject === 0) return VI(1)
+        if (path !== null) {
+          const icon = rt.icons.objects.get(diskObject)
+          if (icon) icon.currentX = icon.currentY = -0x8000_0000
+        }
         const port = rt.exec.messages.createPort()
         if (port === 0) { rt.icons.free(diskObject); return VI(1) }
         const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0, label)

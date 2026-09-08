@@ -16,6 +16,8 @@ import { DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
 import { JP_TYPE_JOYSTK, JPF_BUTTON_RED, JPF_JOY_UP } from '../amiga/lowlevel'
 import { GAMESUPPORT_ERRORS } from './gamesupport'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
+import { writeIcon } from '../amiga/icon'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 23 — `ExtNb equ 23-1` in the source, `$258(a5)` in the binary */
@@ -28,13 +30,14 @@ interface Boot {
   out: () => string
 }
 
-function boot(src: string): Boot {
+function boot(src: string, fs?: AmigaFS): Boot {
   let printed = ''
   const rt = new Runtime(tokenize(src, table, extensions), table, {
     extensions,
     extBindings: new Map([[GS_SLOT, gs]]),
     maxSteps: 200_000,
     onText: (t) => (printed += t),
+    ...(fs ? { fs } : {}),
   })
   return { rt, out: () => printed }
 }
@@ -1077,6 +1080,22 @@ describe('GameSupport: Gsiconify', () => {
 
   it('answers 1 without raising when the named DiskObject cannot be loaded', () => {
     expect(num('Print Gsiconify("Testing","data/MyIcon")')).toBe(1)
+  })
+
+  it('forces a named icon to NO_ICON_POSITION before adding it', () => {
+    const fs = new AmigaFS(); fs.mountMemory('RAM')
+    fs.writeFile('RAM:placed.info', writeIcon({
+      type: 3, normal: null, selected: null, defaultTool: '', toolTypes: [],
+      currentX: 123, currentY: 45, stackSize: 4096, drawer: false, drawerData: null, toolWindow: '',
+    }))
+    const b = boot('Print Gsiconify("Testing","RAM:placed")', fs)
+    b.rt.frame()
+    expect(b.rt.icons.objects.get(b.rt.gamesupport.diskObject)).toMatchObject({
+      currentX: -0x8000_0000, currentY: -0x8000_0000,
+    })
+    b.rt.workbench.activate(b.rt.gamesupport.appIcon)
+    for (let i = 0; i < 3; i++) b.rt.frame()
+    expect(b.out().trim()).toBe('0')
   })
 
   it('does not raise, which is the whole reason it is a function', () => {
