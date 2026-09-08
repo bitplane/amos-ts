@@ -35,4 +35,16 @@ describe('workbench.library AppMessages', () => {
       expect(exec.getMsg(port)).toBe(message)
     }
   })
+
+  it('owns automatic WBArg drop arrays and names inside the message allocation', () => {
+    const exec = new ExecMessageSystem(); const wb = new Workbench(exec); const port = exec.createPort()
+    const message = wb.activate(wb.add('icon', 3, 4, 0, port, 0, 0), {
+      args: [{ lock: 0x12345678, name: 'one.amos' }, { lock: 0x87654321, name: 'two.abk' }],
+    })
+    const args = exec.memory.readU32(message + 34)
+    expect(exec.messageLength(message)).toBe(86); expect(exec.memory.readU32(message + 30)).toBe(2)
+    expect([exec.memory.readU32(args), exec.memory.readU32(args + 8)]).toEqual([0x12345678, 0x87654321])
+    expect(exec.memory.cString(exec.memory.readU32(args + 4))).toBe('one.amos')
+    expect(exec.memory.cString(exec.memory.readU32(args + 12))).toBe('two.abk')
+  })
 })

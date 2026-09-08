@@ -122,7 +122,7 @@ auditMany('partial', 'shared Commodities brokers, Cx object graphs and native Ex
 auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [
   '_wb open', '_wb close', '_wb to back', '_wb to front',
 ])
-auditMany('partial', 'one workbench.library AppItem registry supplies native addresses, Exec ports and the complete public AppMessage prefix; desktop rendering and automatic icon-drop WBArg production remain incomplete', [
+auditMany('partial', 'one workbench.library AppItem registry supplies native addresses, Exec ports, the complete public AppMessage and owned automatic icon-drop WBArg/name payloads; desktop AppIcon/menu/window rendering remains incomplete', [
   '_app add icon', '_app add menu', '_app add wnd', '_app rem icon', '_app rem menu', '_app rem wnd', '_wb msg',
 ])
 
