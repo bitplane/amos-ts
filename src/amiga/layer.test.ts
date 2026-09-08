@@ -109,7 +109,7 @@ describe('the src/amiga layer boundary', () => {
    */
   it('README.md lists every module in this directory, and no others', () => {
     const table = readFileSync(join(here, 'README.md'), 'utf8')
-    const listed = new Set([...table.matchAll(/^\| `([a-z0-9.]+\.ts)`/gm)].map((m) => m[1]!))
+    const listed = new Set([...table.matchAll(/^\| `([a-z0-9.-]+\.ts)`/gm)].map((m) => m[1]!))
     const missing = sources().filter((f) => !listed.has(f))
     expect(missing, 'modules with no row in README.md').toEqual([])
     const phantom = [...listed].filter((f) => !sources().includes(f))

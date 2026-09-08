@@ -2116,7 +2116,7 @@ describe('AMOS 3D Td Background ($210c54)', () => {
     expect(rt.screen.point(10, 10)).toBe(12)
   })
 
-  it('draws behind 3D when called after Td Redraw', () => {
+  it.skipIf(!HAVE_OBJECTS)('draws behind 3D when called after Td Redraw', () => {
     const { rt } = run(`
       Screen Open 1,320,200,4,0 : Cls 3
       Screen Open 0,320,200,16,0 : Td Screen Height 150
