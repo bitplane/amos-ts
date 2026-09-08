@@ -116,12 +116,6 @@ auditMany('partial', 'shared Commodities brokers, Cx object graphs and native Ex
   '_cx id clear error', '_cx id activate', '_cx id inactivate', '_cx id attach', '_cx id remove',
   '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
 ])
-auditMany('partial', 'DOS local variables and global ENV: files share one backend; native LocalVar list layout and every binary/SAVE flag combination remain incomplete', [
-  '_dos var del', '_dos var find', '_dos var value$',
-])
-auditMany('partial', 'a shared ReadArgs template/result backend handles keyed, required, switch, numeric, multi and rest arguments; native RDArgs allocation and every quoting edge remain incomplete', [
-  '_cli read args', '_cli what arg$', '_cli what arg',
-])
 auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [
   '_wb open', '_wb close', '_wb to back', '_wb to front',
 ])
@@ -705,7 +699,7 @@ auditMany('partial', 'the exact DateStamp calendar exists, but dos.library DateT
 auditMany('partial', 'local precedence, hierarchical names, text/binary reads, ENV:/ENVARC: storage and exact public FindVar LocalVar records are shared; process-list sentinels, wrapper-buffer truncation/IoErr and remaining version edges are incomplete', [
   '_dos var del', '_dos var find', '_dos var value$',
 ])
-auditMany('partial', 'the shared ReadArgs template/result backend handles the documented field modes; native RDArgs allocation and every quoting edge remain incomplete', [
+auditMany('partial', 'the shared ReadArgs backend handles aliases, quoting/escapes, required, switch/toggle, keyword, numeric, multi redistribution and rest fields; native RDArgs allocation, prompting/default arrays and remaining parser limits are incomplete', [
   '_cli read args', '_cli what arg$', '_cli what arg',
 ])
 auditMany('partial', 'the Commodities event queue shares native Exec messages and GadTools filtering; scheduler-backed blocking remains incomplete', [

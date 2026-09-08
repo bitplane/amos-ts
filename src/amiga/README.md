@@ -140,7 +140,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `commodities.ts` | `commodities.library` brokers, Cx object graphs and Exec-backed event queues |
 | `dosvars.ts` | DOS local-variable records, lookup precedence, binary/text flags and global `ENV:`/`ENVARC:` files |
 | `iffparse.ts` | `iffparse.library` SCAN/STEP/RAWSTEP parsing, complex chunk scopes, public ContextNodes and streamed output |
-| `readargs.ts` | DOS `ReadArgs`: CLI tokenisation, templates and typed result arrays |
+| `readargs.ts` | DOS `ReadArgs`: aliases, quoted/escaped CLI tokenisation, template modifiers and typed result arrays |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |
 | `asl.ts` | `asl.library`'s three requesters: the tags, every word each puts on screen, and where the widgets go |
