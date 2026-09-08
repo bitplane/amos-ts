@@ -801,6 +801,12 @@ export interface UserGadget {
 export class Intuition {
   constructor(private readonly host: ScreenHost, private readonly exec?: ExecMessageSystem) {}
   doubleClickMicros = DEFAULT_DOUBLE_CLICK_MICROS
+  /** Screen pointers passed to DisplayBeep; zero means every open screen. */
+  readonly displayBeeps: number[] = []
+
+  displayBeep(screen: number): void {
+    if (screen === 0 || this.slotOf(screen) !== null) this.displayBeeps.push(screen >>> 0)
+  }
 
   doubleClick(firstSeconds: number, firstMicros: number, secondSeconds: number, secondMicros: number): boolean {
     return withinDoubleClick(firstSeconds, firstMicros, secondSeconds, secondMicros, this.doubleClickMicros)

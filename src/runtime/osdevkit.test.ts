@@ -784,6 +784,18 @@ describe('OS DevKit 1.61 system operations', () => {
     expect(rt.osdevkit.screenIds.size).toBe(0)
   })
 
+  it('routes screen beeps and all three requester wrappers through shared services', () => {
+    const { rt, output } = run([
+      '_scr id open 2,0,0,40,20,2,0,0,"Beep" : S=_scr id base(2)',
+      '_scr beep S : _scr id beep 2 : _scr beep 0',
+      'T=_to str("Title") : B=_to str("Body") : G=_to str("Yes|No")',
+      'Print _req easy(0,T,B,G) : Print _request choice(0,"Title","Body","Yes|No") : Print _disp alert(0,B,40)',
+    ].join('\n'))
+    expect(output).toBe(' 0\n 0\n 0\n')
+    expect(rt.intuition.displayBeeps).toEqual([expect.any(Number), expect.any(Number), 0])
+    expect(rt.osdevkit.requester).toBeNull()
+  })
+
   it('queries installed display-mode overscan into a native Rectangle', () => {
     expect(run([
       'R=_struct alloc(8) : Print _query overscan($21000,R,1)',

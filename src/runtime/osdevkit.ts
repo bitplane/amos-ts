@@ -39,6 +39,8 @@ import {
   A1200_ATTN_FLAGS, EXEC_SOFT_VERSION, EXEC_VERSION, systemCpu, systemFpu,
 } from '../amiga/ossystem'
 import type { Runtime } from './runtime'
+import type { Interp } from '../interp/interp'
+import { finishRequester, startRequester, type AlertSpec } from './requester'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
@@ -146,6 +148,7 @@ export interface OsDevKitState {
   toolTypePointers: Map<number, Map<string, number>>
   /** Stable FindDisplayInfo handles keyed by installed DisplayID. */
   displayInfoHandles: Map<number, number>
+  requester: { chan: number; spec: AlertSpec } | null
   /** Managed OpenLocale handles and their stable GetLocaleStr pointers. */
   locales: Map<number, Map<number, number>>
   /** Managed OpenCatalog handles and their stable translated string pointers. */
@@ -192,7 +195,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     commodities: new Commodities(exec.messages),
     dosVariables: new DosVariables(exec.pool, fs), readArgs: new ReadArgs(),
     dataTypes: new DataTypesService(exec.pool, SHIPPED_DATATYPES), dosNotifications: new Map(), dosSegments: new Map(),
-    tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(),
+    tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), requester: null,
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
     dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(),
     hardwareSprites: Array.from({ length: 8 }, () => null), aslRequests: new Map(),
@@ -200,6 +203,20 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     fonts: new Map(),
   }
   return state
+}
+
+function osRequester(rt: Runtime, it: Interp, state: OsDevKitState, spec: AlertSpec): number {
+  if (state.requester) {
+    const result = finishRequester(rt, state.requester.chan, state.requester.spec)
+    if (result === null) { it.block({ type: 'dialog', channel: state.requester.chan }, true); return 0 }
+    state.requester = null
+    return result.ret
+  }
+  const chan = startRequester(rt, spec)
+  if (chan === null) return 0
+  state.requester = { chan, spec }
+  it.block({ type: 'dialog', channel: chan }, true)
+  return 0
 }
 
 function defaultTagsAddress(state: OsDevKitState): number {
@@ -2402,6 +2419,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const found = screenRecordAtBase(st(), it.evalInt())
       if (found) closeScreenId(rt, st(), found.id)
     },
+    '_scr beep'(it) { rt.intuition.displayBeep(it.evalInt() >>> 0) },
     '_scr move'(it) {
       const [base, dx, dy] = readArgs(it, 3); const found = screenRecordAtBase(st(), base!)
       const screen = found ? rt.screens.get(found.record.slot) : undefined
@@ -2444,6 +2462,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr id close'(it) {
       closeScreenId(rt, st(), it.evalInt())
     },
+    '_scr id beep'(it) { rt.intuition.displayBeep(st().screenIds.get(it.evalInt())?.base ?? 0) },
     '_scr id from wb'(it) {
       const id = it.evalInt(); const address = rt.intuition.openWorkBench()
       if (address !== 0) bindScreenId(rt, st(), id, WB_SLOT)
@@ -3466,6 +3485,21 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const count = Math.min(capacity, data.length)
       for (let i = 0; i < count; i++) { const byte = rt.resolveWrite(buffer + i); if (byte) byte.data[byte.off] = data[i]! }
       return VI(count)
+    },
+    '_disp alert'(it, a) {
+      const number = n(a, 0) >>> 0
+      if ((number & 0x8000_0000) !== 0) return VI(0)
+      const result = osRequester(rt, it, st(), { kind: 'alert', title: '', body: cString(rt, n(a, 1) >>> 0), gadgets: ['Ok'] })
+      return VI(result !== 0 ? -1 : 0)
+    },
+    '_req easy'(it, a) {
+      return VI(osRequester(rt, it, st(), {
+        kind: 'alert', title: cString(rt, n(a, 1) >>> 0), body: cString(rt, n(a, 2) >>> 0),
+        gadgets: cString(rt, n(a, 3) >>> 0).split('|'),
+      }))
+    },
+    '_request choice'(it, a) {
+      return VI(osRequester(rt, it, st(), { kind: 'alert', title: str(a[1] ?? VS('')), body: str(a[2] ?? VS('')), gadgets: str(a[3] ?? VS('')).split('|') }))
     },
     '_lib version'(_, a) { return VI(libraryVersion(n(a, 0))) },
     '_lib revision'(_, a) { return VI(libraryRevision(n(a, 0))) },
