@@ -102,7 +102,10 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
 ])
 
 const auditMany = (status: OsBackendStatus, reason: string, names: readonly string[]): void => {
-  for (const name of names) AUDITED.set(name, { status, reason })
+  for (const name of names) {
+    if (AUDITED.has(name)) throw new Error(`duplicate OS backend audit verdict for ${name}`)
+    AUDITED.set(name, { status, reason })
+  }
 }
 
 auditMany('partial', 'shared iffparse handles implement SCAN/STEP/RAWSTEP, nested FORM/LIST/CAT/PROP scopes, streamed I/O and the exact public ContextNode prefix; native DOS stream-handle identity and installed callback handlers remain outside the backend', [
