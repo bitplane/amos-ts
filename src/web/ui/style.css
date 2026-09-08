@@ -1012,6 +1012,19 @@ pre.vw-hex {
   gap: 0.6rem;
 }
 
+.td-wireframe {
+  display: block;
+  width: min(100%, 60rem);
+  aspect-ratio: 8 / 5;
+  border: 1px solid var(--line-soft);
+  cursor: grab;
+  touch-action: none;
+}
+
+.td-wireframe:active {
+  cursor: grabbing;
+}
+
 /* what a container holds, which is a peek and not a second file manager */
 .fm-members {
   max-height: 16rem;

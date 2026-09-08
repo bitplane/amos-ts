@@ -659,7 +659,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
               if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation' || kind.group === 'model' || kind.group === 'data') {
-                const views = viewsFor(bytes, viewHost(name, full), kind.group)
+                const views = viewsFor(bytes, viewHost(name, full), kind.group, kind.name)
                 if (views !== null) {
                   const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
                   // Which tab, remembered as it changes rather than read back

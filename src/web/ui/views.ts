@@ -43,6 +43,8 @@ import type { View } from './viewer'
 import { Runtime } from '../../runtime/runtime'
 import { formLoad, formPlay, formSize } from '../../runtime/iffanim'
 import { encodeGif, type GifFrame } from '../gif'
+import { parseTdFile, parseTdTemplate } from '../../runtime/td'
+import { mountWireframe, objectWireframe, surfaceWireframe } from '../tdview'
 
 /** what a view needs the page to do, which is everything with a side effect */
 export interface ViewHost {
@@ -371,6 +373,38 @@ export function hexView(data: Uint8Array): View {
   }
 }
 
+function modelViews(bytes: Uint8Array, name: string): View[] {
+  if (name === 'AMOS 3D object') {
+    const model = objectWireframe(bytes)
+    return [{
+      id: 'wireframe', label: 'Wireframe', count: model.points.length,
+      mount: (host) => {
+        mountWireframe(host, model)
+        host.appendChild(facts([['points', String(model.points.length)], ['edges', String(model.edges.length)]]))
+      },
+    }, hexView(bytes)]
+  }
+  if (name === 'AMOS 3D surface') {
+    const model = surfaceWireframe(bytes)
+    return [{
+      id: 'surface', label: 'Surface', count: model.edges.length,
+      mount: (host) => {
+        mountWireframe(host, model, true)
+        host.appendChild(facts([['slots', String(model.points.length)], ['edges', String(model.edges.length)]]))
+      },
+    }, hexView(bytes)]
+  }
+  const template = parseTdTemplate(parseTdFile(bytes, 22))
+  return [{
+    id: 'template', label: 'Template',
+    mount: (host) => host.appendChild(facts([
+      ['faces', String(template.faces)],
+      ['records', String(template.records.length)],
+      ['sections', template.sections.join(', ')],
+    ])),
+  }, hexView(bytes)]
+}
+
 /**
  * A `.info`, as the two pictures and the settings it is.
  *
@@ -522,8 +556,9 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * which is what keeps a plain text file from growing a tab bar with one tab
  * on it.
  */
-export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string): View[] | null {
-  if (group === 'data' || group === 'model') return [hexView(bytes)]
+export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string, name = ''): View[] | null {
+  if (group === 'model') return modelViews(bytes, name)
+  if (group === 'data') return [hexView(bytes)]
   if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked
   // about first. `../kinds.ts` has already identified it.
