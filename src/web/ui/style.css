@@ -1002,6 +1002,14 @@ pre.vw-hex {
   white-space: pre;
   overflow-x: auto;
   word-break: normal;
+  user-select: text;
+  cursor: text;
+}
+
+.hex-more {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 /* what a container holds, which is a peek and not a second file manager */

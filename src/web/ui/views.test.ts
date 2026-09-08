@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { viewsFor, type ViewHost } from './views'
+import { formatHex, viewsFor, type ViewHost } from './views'
 
 /**
  * The banks are built here rather than imported from anywhere.
@@ -78,6 +78,15 @@ const host = (): ViewHost => ({ playModule: vi.fn(), playSample: vi.fn(), onStat
 const someSource = new Uint8Array([0, 4, 0, 0])
 
 describe('what a file can be looked at as', () => {
+  it('opens unrecognised data as hex', () => {
+    expect(viewsFor(new Uint8Array([1, 2, 3]), host(), 'data')?.map((v) => v.id)).toEqual(['hex'])
+  })
+
+  it('separates each hex row into groups of eight', () => {
+    const bytes = new Uint8Array(Array.from({ length: 16 }, (_, i) => i))
+    expect(formatHex(bytes)).toContain('06 07  08 09')
+  })
+
   it('gives a program its listing', () => {
     const views = viewsFor(amosFile(someSource, []), host())
     expect(views?.map((v) => v.id)).toEqual(['listing'])

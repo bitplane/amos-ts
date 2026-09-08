@@ -312,8 +312,22 @@ function amalView(data: Uint8Array): View {
   }
 }
 
-/** how much of a bank the hex view shows before it stops */
-const HEX_LIMIT = 4096
+/** how much more of a file each press reveals */
+const HEX_PAGE = 4096
+
+/** Lines for the selectable hex view, split into two groups of eight bytes. */
+export function formatHex(data: Uint8Array, length = data.length): string {
+  const lines: string[] = []
+  const shown = Math.min(data.length, length)
+  for (let at = 0; at < shown; at += 16) {
+    const row = data.subarray(at, Math.min(at + 16, shown))
+    const bytes = [...row].map((b) => b.toString(16).padStart(2, '0'))
+    const hex = `${bytes.slice(0, 8).join(' ').padEnd(23)}  ${bytes.slice(8).join(' ').padEnd(23)}`
+    const text = [...row].map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')
+    lines.push(`${at.toString(16).padStart(6, '0')}  ${hex}  ${text}`)
+  }
+  return lines.join('\n')
+}
 
 /**
  * Bytes, sixteen to a line, with the printable ones beside them.
@@ -322,31 +336,37 @@ const HEX_LIMIT = 4096
  * can: what IS this. Every bank this port learned to read started as somebody
  * looking at exactly this.
  */
-function hexView(data: Uint8Array): View {
+export function hexView(data: Uint8Array): View {
   return {
     id: 'hex',
     label: 'Hex',
     mount(host) {
-      const n = Math.min(data.length, HEX_LIMIT)
-      const lines: string[] = []
-      for (let at = 0; at < n; at += 16) {
-        const row = data.subarray(at, Math.min(at + 16, n))
-        const hex = [...row].map((b) => b.toString(16).padStart(2, '0')).join(' ')
-        // Latin-1's printable range, because that is what an Amiga wrote:
-        // anything outside it is a dot rather than a guess at what it meant.
-        const text = [...row].map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')
-        lines.push(`${at.toString(16).padStart(6, '0')}  ${hex.padEnd(47)}  ${text}`)
-      }
       const pre = document.createElement('pre')
       pre.className = 'fm-text vw-hex'
-      pre.textContent = lines.join('\n')
+      pre.draggable = false
       host.appendChild(pre)
-      if (data.length > HEX_LIMIT) {
-        const more = document.createElement('p')
-        more.className = 'fm-more'
-        more.textContent = `first ${HEX_LIMIT} of ${data.length} bytes`
-        host.appendChild(more)
+
+      const footer = document.createElement('div')
+      footer.className = 'fm-more hex-more'
+      const count = document.createElement('span')
+      const more = document.createElement('button')
+      more.type = 'button'
+      more.className = 'act'
+      more.textContent = 'more…'
+      footer.append(count, more)
+
+      let shown = Math.min(data.length, HEX_PAGE)
+      const render = (): void => {
+        pre.textContent = formatHex(data, shown)
+        count.textContent = `${shown} of ${data.length} bytes`
+        more.hidden = shown >= data.length
       }
+      more.addEventListener('click', () => {
+        shown = Math.min(data.length, shown + HEX_PAGE)
+        render()
+      })
+      render()
+      if (shown < data.length) host.appendChild(footer)
     },
   }
 }
@@ -503,6 +523,7 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * on it.
  */
 export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string): View[] | null {
+  if (group === 'data') return [hexView(bytes)]
   if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked
   // about first. `../kinds.ts` has already identified it.

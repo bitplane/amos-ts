@@ -203,7 +203,7 @@ function listingOf(bytes: Uint8Array): string | null {
  * dispatch that fills it, because two lists is how a row comes to have a
  * caret that reveals nothing (or a view nothing can reach).
  */
-const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'text', 'program', 'bank', 'icon'])
+const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'text', 'program', 'bank', 'icon', 'data'])
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
   const { vfs } = opts
@@ -623,6 +623,13 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
       mount: (rowEl) => {
         rowEl.draggable = true
         rowEl.addEventListener('dragstart', (e) => {
+          // Viewer content is selectable. Only the row's own summary is the
+          // drag handle; otherwise dragging across hex bytes starts dragging
+          // the whole file instead of selecting text.
+          if (!(rowEl.firstElementChild instanceof HTMLElement) || !rowEl.firstElementChild.contains(e.target as Node)) {
+            e.preventDefault()
+            return
+          }
           dragging = full
           e.dataTransfer?.setData('application/x-amos-path', full)
           if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
@@ -650,7 +657,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               // A program and a bank file are both SEVERAL things, and the
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
-              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation') {
+              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation' || kind.group === 'data') {
                 const views = viewsFor(bytes, viewHost(name, full), kind.group)
                 if (views !== null) {
                   const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
