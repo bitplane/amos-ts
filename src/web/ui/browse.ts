@@ -63,6 +63,8 @@ export interface BrowseOptions {
   /** overridden by the tests, which have no server */
   fetch?: typeof globalThis.fetch
   base?: string
+  /** begin fetching before the tab is first shown */
+  preload?: boolean
 }
 
 /** what a fragment turned out to name, and where the tab now is */
@@ -144,8 +146,44 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
   /** one item at a time: a second click while disks are in flight is ignored */
   let opening = false
 
+  function loading(): void {
+    host.textContent = ''
+    panel.setAttribute('aria-busy', 'true')
+
+    const head = document.createElement('div')
+    head.className = 'browse-loading-head'
+    head.setAttribute('role', 'status')
+    head.setAttribute('aria-live', 'polite')
+    const title = document.createElement('p')
+    title.className = 'browse-loading-title'
+    title.textContent = 'Loading the game library…'
+    const hint = document.createElement('p')
+    hint.className = 'browse-loading-hint'
+    hint.textContent = 'You can still drop an AMOS file or use the other tabs.'
+    head.append(title, hint)
+    host.appendChild(head)
+
+    const grid = document.createElement('div')
+    grid.className = 'browse-grid browse-skeletons'
+    grid.setAttribute('aria-hidden', 'true')
+    for (let i = 0; i < 8; i++) {
+      const card = document.createElement('div')
+      card.className = 'card browse-skeleton'
+      const art = document.createElement('div')
+      art.className = 'card-art skeleton-block'
+      const name = document.createElement('span')
+      name.className = 'skeleton-line skeleton-name'
+      const facts = document.createElement('span')
+      facts.className = 'skeleton-line skeleton-facts'
+      card.append(art, name, facts)
+      grid.appendChild(card)
+    }
+    host.appendChild(grid)
+  }
+
   function message(text: string, tone?: 'bad'): void {
     host.textContent = ''
+    panel.setAttribute('aria-busy', 'false')
     const p = document.createElement('p')
     p.className = tone === 'bad' ? 'browse-empty bad' : 'browse-empty'
     p.textContent = text
@@ -341,6 +379,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
 
   function render(library: Library): void {
     host.textContent = ''
+    panel.setAttribute('aria-busy', 'false')
     // Read what you are given. The player and the library publish from
     // different repositories on different triggers, so an index written by an
     // older generator is a normal few minutes, not a fault. Say what is
@@ -359,7 +398,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
 
   async function load(): Promise<void> {
     state = 'loading'
-    message('loading the library…')
+    loading()
     const url = urlFor(base, 'index.json')
     try {
       const r = await get(url)
@@ -389,6 +428,11 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     if (inFlight === null) inFlight = load().finally(() => (inFlight = null))
     return inFlight
   }
+
+  // The standalone page opens on Browse, so it can overlap this download
+  // with the rest of page construction instead of waiting for tab mounting.
+  // Embedders retain the old on-first-show behaviour unless they opt in.
+  if (opts.preload) void ready()
 
   return {
     panel,

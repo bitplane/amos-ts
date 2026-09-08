@@ -637,6 +637,7 @@ async function routeTo(path: string[]): Promise<void> {
 }
 
 const browse = createBrowseTab({
+  preload: true,
   onStatus: setStatus,
   onOpen: (item, bytes, how) =>
     openThing(
