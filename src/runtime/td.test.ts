@@ -176,6 +176,13 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D loading keywords (engine binary + the de
     expect(rt.td.objects.has('polygons')).toBe(true)
   })
 
+  it('always appends .3DO, as the startup suffix flag requires', () => {
+    const files = objectAndLinks('polygons.3DO')
+    // A suffixed argument receives the engine's suffix as well. Since there
+    // is no polygons.3DO.3DO this must take the object-not-found path.
+    expect(() => run('Td Load "polygons.3DO"', files)).toThrow(/Object file not found/)
+  })
+
   it('Td Screen Height takes 1 to 256 and not while objects are loaded', () => {
     // `cmp.l #1 / bcs` then `cmpi.l #$100 / bls` at $211526, then
     // `tst.l $4814(a4) / beq` — Dice_Spin sets 200 before its Td Object
@@ -443,8 +450,8 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
 
   it('resolves every face of the formerly multipart objects through their link groups', () => {
     for (const name of ['3d2.3DO', 'monitor2.3DO']) {
-      const { rt } = run(`Td Load "${name}"`, objectAndLinks(name))
-      const object = rt.td.objects.get(name.toLowerCase())!
+      const { rt } = run(`Td Load "${name.slice(0, -4)}"`, objectAndLinks(name))
+      const object = rt.td.objects.get(name.slice(0, -4).toLowerCase())!
       const geometry = tdObjectGeometry(object)
       expect(geometry.multipart, name).toBe(false)
       expect(geometry.faces.length, name).toBe(parseTdBlocks(object.file).length * 6)

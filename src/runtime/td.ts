@@ -279,10 +279,9 @@ const LINK_KIND: Record<number, { ext: string; missing: number; bad: number }> =
  * object that refers to it, which is why the engine looks each one up before
  * reading it off disc.
  *
- * DEVIATION: the engine gates the ".3DO" suffix on a flag at a4+$b1a
- * whose setter is not in any path traced so far. Every shipped demo loads by
- * bare name, so the suffix is always added here, and a name that already
- * carries an extension keeps it.
+ * The engine sets its suffix flag at startup ($210652), never clears it, and
+ * appends ".3DO" unconditionally. Callers therefore pass a bare object name;
+ * supplying the suffix itself really does look for `name.3DO.3DO`.
  */
 export function tdLoad(st: TdState, read: (path: string) => Uint8Array | null, name: string): TdObject {
   const clamped = name.slice(0, 199)
@@ -318,7 +317,7 @@ function tdLoadFile(
   const key = name.toLowerCase()
   const existing = st.objects.get(key)
   if (existing) return existing
-  const bytes = read(`${st.dir}${name}${/\.[^./]*$/.test(name) ? '' : ext}`)
+  const bytes = read(`${st.dir}${name}${ext}`)
   if (!bytes) tdError(missing)
   const file = parseTdFile(bytes, bad)
   const obj: TdObject = { name: key, file, linked: new Map(), colours: ext === '.3DO' ? tdBlockColours(file) : [] }

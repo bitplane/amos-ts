@@ -7182,9 +7182,8 @@ export const NOTES: Record<string, string> = {
     "There is no address space here for one to mean anything in, so this answers zero — the same reason peek, " +
     "poke and start are approximated.",
   "td load":
-    "The engine gates its \".3DO\" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every " +
-    "shipped demo loads by bare name, so the suffix is always added here and a name that already carries an " +
-    "extension keeps it.",
+    "The loader's suffix flag at a4+$b1a is set at startup ($210652) and has no writer that clears it, so Td Load " +
+    "always appends .3DO. Passing an already-suffixed name consequently asks AmigaDOS for name.3DO.3DO too.",
   "multi bload":
     "The only genuinely concurrent keyword in the extension: it CreateProc()s an AmigaDOS process — up to five at " +
     "once — which opens the file, reserves a bank the size of it under the eight characters given, reads it and " +
