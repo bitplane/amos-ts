@@ -523,7 +523,7 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * on it.
  */
 export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string): View[] | null {
-  if (group === 'data') return [hexView(bytes)]
+  if (group === 'data' || group === 'model') return [hexView(bytes)]
   if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked
   // about first. `../kinds.ts` has already identified it.

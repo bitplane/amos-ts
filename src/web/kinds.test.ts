@@ -145,6 +145,14 @@ describe('identifying a file for the Files panel', () => {
     expect(identify('Disk.info', file([0xe3, 0x10, 0x00, 0x01])).group).toBe('icon')
   })
 
+  it('recognises the three AMOS 3D file roles without confusing their shared envelope', () => {
+    const td = new Uint8Array([...'(0)'].map((c) => c.charCodeAt(0)))
+    expect(identify('ship.3DO', td)).toMatchObject({ group: 'model', name: 'AMOS 3D object' })
+    expect(identify('face.3DT', td)).toMatchObject({ group: 'model', name: 'AMOS 3D template' })
+    expect(identify('shade.3DS', td)).toMatchObject({ group: 'model', name: 'AMOS 3D surface' })
+    expect(identify('broken.3DO', new Uint8Array([1, 2, 3])).group).toBe('data')
+  })
+
   it('says data rather than guessing, and empty rather than data', () => {
     expect(identify('x', null).name).toBe('empty')
     expect(identify('x', new Uint8Array(0)).name).toBe('empty')

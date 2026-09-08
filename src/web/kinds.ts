@@ -39,6 +39,7 @@ import { isAdf, adfInfo } from '../amiga/adf'
 import { isAmosProgram } from '../loader/program'
 import { ICON_MAGIC } from '../amiga/icon'
 import { decodeMacPaint } from '../amiga/macpaint'
+import { parseTdFile } from '../runtime/td'
 
 /**
  * The kinds a row can be.
@@ -57,6 +58,7 @@ export type KindGroup =
   | 'music'
   | 'picture'
   | 'animation'
+  | 'model'
   | 'sound'
   | 'text'
   | 'document'
@@ -189,6 +191,20 @@ export function identify(name: string, bytes: Uint8Array | null): Kind {
   if (mod !== null) return kind('music', MOD_FORMAT_NAMES[mod], { format: mod })
 
   if (isIcon(bytes)) return kind('icon', 'Workbench icon')
+
+  // AMOS 3D's three files share the same `(length)<binary block>` envelope;
+  // the suffix is the part that says which interpretation that block has.
+  // Validate it through the runtime parser so the viewer does not grow a
+  // second, weaker format detector beside the backend it will use.
+  const tdKind = /\.(3do|3dt|3ds)$/i.exec(name)?.[1]?.toLowerCase()
+  if (tdKind !== undefined) {
+    try {
+      parseTdFile(bytes, tdKind === '3do' ? 21 : tdKind === '3dt' ? 22 : 23)
+      return kind('model', tdKind === '3do' ? 'AMOS 3D object' : tdKind === '3dt' ? 'AMOS 3D template' : 'AMOS 3D surface')
+    } catch {
+      // A suffix alone is not identification; malformed files fall through.
+    }
+  }
 
   // The animation datatype identifies FORM ANIM too, but naming it here
   // keeps this strong twelve-byte signature ahead of MacPaint's lone zero.
