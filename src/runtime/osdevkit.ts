@@ -1629,6 +1629,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_wnd box'(it) { const [base, x, y, width, height] = readArgs(it, 5); const window = windowAtBase(st(), base!); if (window) { rt.intuition.changeWindowBox(window, x!, y!, width!, height!); syncAllWindowBases(rt, st()) } },
     '_wnd size'(it) { const [base, width, height] = readArgs(it, 3); const window = windowAtBase(st(), base!); if (window) { rt.intuition.sizeWindow(window, width!, height!); syncAllWindowBases(rt, st()) } },
     '_wnd refresh frame'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.refreshWindowFrame(window) },
+    '_wnd zip'(it) {
+      const window = windowAtBase(st(), it.evalInt()); if (window) { rt.intuition.zipWindow(window); syncAllWindowBases(rt, st()) }
+    },
     '_wnd to back'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToBack(window) },
     '_wnd to front'(it) { const window = windowAtBase(st(), it.evalInt()); if (window) rt.intuition.windowToFront(window) },
     '_wnd in front of'(it) {
@@ -1649,6 +1652,14 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (window) window.setPointer(data!, height!, width!, xOffset!, yOffset!)
       structWrite(rt, base! + 74, 4, data!); structWrite(rt, base! + 78, 1, height!); structWrite(rt, base! + 79, 1, width!)
       structWrite(rt, base! + 80, 1, xOffset!); structWrite(rt, base! + 81, 1, yOffset!)
+    },
+    '_wnd set pointera'(it) {
+      const [base, tags] = readArgs(it, 2); const window = windowAtBase(st(), base!)
+      if (!window) return
+      const busy = tagItems(st(), tags!).find(item => item.tag === 0x8000_0098)
+      if (busy?.data) window.setPointer(0x8000_0000, 16, 1, 0, 0)
+      else if (busy) window.clearPointer()
+      syncAllWindowBases(rt, st())
     },
     '_wnd id data'(it) {
       it.expect('('); const id = it.evalInt(); it.expect(')'); it.expectOp('=')
@@ -3317,6 +3328,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_scr what vport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.viewPort ?? 0) },
     '_scr what rport'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0))?.record.rastPort ?? 0) },
+    '_scr what layer info'(_, a) { return VI(screenRecordAtBase(st(), n(a, 0)) ? (n(a, 0) + 224) >>> 0 : 0) },
     '_scr open'(_, a) {
       let definition = screenDefinitionAddress(st()); let temporary = 0
       if (a.length === 1) definition = n(a, 0) >>> 0

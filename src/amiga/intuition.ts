@@ -424,6 +424,8 @@ export class Window {
   /** BeginRefresh/EndRefresh nesting; Intuition permits an incomplete pass. */
   refreshDepth = 0
   refreshComplete = true
+  /** The pre-ZipWindow box, retained while the window occupies its alternate box. */
+  zipBox: { left: number; top: number; width: number; height: number } | null = null
   /** HelpControl flags most recently installed for this window. */
   helpControlFlags = 0
 
@@ -1401,6 +1403,18 @@ export class Intuition {
     if (width === w.width && height === w.height) return
     li.sizeLayer(w.layer, width - w.width, height - w.height)
     this.dirty = true
+  }
+
+  zipWindow(w: Window): void {
+    const screen = this.host.screenSize(w.screenSlot)
+    if (!this.open.includes(w) || !screen) return
+    if (w.zipBox) {
+      const box = w.zipBox; w.zipBox = null
+      this.changeWindowBox(w, box.left, box.top, box.width, box.height)
+    } else {
+      w.zipBox = { left: w.leftEdge, top: w.topEdge, width: w.width, height: w.height }
+      this.changeWindowBox(w, 0, 0, Math.min(screen.width, w.maxWidth), Math.min(screen.height, w.maxHeight))
+    }
   }
 
   /** ChangeWindowBox (-486): absolute geometry in one public operation. */

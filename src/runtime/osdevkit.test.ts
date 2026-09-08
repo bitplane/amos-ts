@@ -322,6 +322,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.intuition.windows).toHaveLength(0)
   })
 
+  it('shares Screen LayerInfo, SetWindowPointerA and ZipWindow state', () => {
+    const { rt, output } = run([
+      'Screen Open 0,100,60,4,Lowres : _scr id from pointer 1,Screen Base : S=_scr id base(1)',
+      '_wnd id open 2,10,8,40,20,0,0,0,"Zip" : W=_wnd id base(2) : T=_tag list alloc(1)',
+      '_tag set T,$80000098,1 : _tag done T : _wnd set pointera W,T : Print Hex$(_wnd what pointer(W)),_scr what layer info(S)=S+224',
+      '_wnd zip W : Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W)',
+      '_wnd zip W : Print _wnd what left(W),_wnd what top(W),_wnd what width(W),_wnd what height(W)',
+      'U=_tag list alloc(1) : _tag set U,$80000098,0 : _tag done U : _wnd set pointera W,U',
+    ].join('\n'))
+    expect(output).toBe('$80000000\t-1\n 0\t 0\t 96\t 60\n 10\t 8\t 40\t 20\n')
+    expect(rt.osdevkit.windowHandles.get(2)?.window.pointer).toBeNull()
+  })
+
   it('closes a managed native Window pointer through the raw lifecycle worker', () => {
     const { rt, output } = run([
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
