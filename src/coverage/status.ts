@@ -8470,11 +8470,9 @@ export const NOTES: Record<string, string> = {
     "places it. Every failure arm returns 1 and none raise --- which the guide says is why it is a function at " +
     "all. DEFECT: the LABEL is passed as `lea $2(a0),a0` with no terminator, so it runs on past the AMOS " +
     "string; the BugsFixed node records the identical mistake being fixed for the icon PATH, which routine 7 " +
-    "now copies and clr.b-terminates, and the text was missed. DEVIATION: workbench.library is not modelled and " +
-    "neither is icon.library's AppIcon half (src/amiga/icon.ts is the .info FILE FORMAT), so this takes the " +
-    "first arm and answers 1 --- which is what the routine does on any machine without Workbench 2. Reaching " +
-    "the other arm needs AddAppIconA/RemoveAppIcon on the Workbench screen intuition.ts already opens, plus a " +
-    "blocking WaitPort: this is the one keyword in the extension that suspends the program until the user acts.",
+    "now copies and clr.b-terminates, and the text was missed. The shared Icon/Workbench/Exec backends reproduce " +
+    "the DiskObject, AddAppIconA, WaitPort and teardown lifecycle; the interpreter yields and rewinds the function " +
+    "until Workbench activation rather than spinning the host thread.",
   "gsloadcodemod":
     "Routine 90 ($2854), UNDOCUMENTED, over a loadable-code format of the author's own. A GSMod is an ordinary " +
     "AmigaDOS loadable file whose first hunk carries \"GSMo\" ($47534d6f) somewhere in its first thirty-two " +

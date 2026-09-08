@@ -154,6 +154,10 @@ export interface GameSupportState {
    */
   workbench: boolean
   icon: boolean
+  /** $2a, $22 and the DiskObject retained across Gsiconify's WaitPort. */
+  iconPort: number
+  appIcon: number
+  diskObject: number
   /** the ProTracker half — see `GameSupportMusic` */
   music: GameSupportMusic
   /** $7a — sixteen eight-byte slots, `{ segment, header }` each */
@@ -242,6 +246,9 @@ export function newGameSupportState(rt?: Runtime): GameSupportState {
     lowlevel: true,
     workbench: libraryPresent('workbench.library'),
     icon: libraryPresent('icon.library'),
+    iconPort: 0,
+    appIcon: 0,
+    diskObject: 0,
     music: {
       // `move.l #$1,$0(a0)` / `#$ffffffff` into $4 and $8 / `move.w #$40,$18`
       replay: new Protracker(() => rt?.host.audio),
@@ -1392,24 +1399,36 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      * the icon's label runs on past the string into whatever the AMOS string
      * heap holds next.
      *
-     * ## Current scheduler boundary
-     *
-     * The shared Workbench backend now supplies AppIcon ownership and Exec
-     * supplies the port/message operations. What is still absent is suspension
-     * and resumption in the middle of an extension function call. Returning 0
-     * would claim a double-click that never occurred; retaining an AppIcon
-     * would leak one which the native routine removes before returning. Until
-     * the future task scheduler can resume this call after `WaitPort`, the
-     * honest headless result is therefore its non-raising error result, 1.
+     * The managed call uses the same DiskObject, Workbench AppIcon and Exec
+     * MsgPort backends as OS DevKit. Interpreter rewind preserves the three
+     * handles while the function yields at WaitPort, then re-enters the call
+     * and performs the binary's teardown after activation.
      */
-    'gsiconify'(_, a): Value {
-      void str(a[0]!)
-      if (a.length > 1) void str(a[1]!)
+    'gsiconify'(it, a): Value {
+      const label = str(a[0]!)
+      const path = a.length > 1 ? str(a[1]!) : null
       const st2 = rt.gamesupport
       if (!st2.workbench || !st2.icon) return VI(1)
-      // The libraries/backends exist, but this atomic handler cannot suspend
-      // at WaitPort and later continue its cleanup path.
-      return VI(1)
+      if (st2.appIcon === 0) {
+        const diskObject = path === null ? rt.icons.def(3) : rt.icons.load(path)
+        if (diskObject === 0) return VI(1)
+        const port = rt.exec.messages.createPort()
+        if (port === 0) { rt.icons.free(diskObject); return VI(1) }
+        const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0, label)
+        if (appIcon === 0) { rt.exec.messages.deletePort(port); rt.icons.free(diskObject); return VI(1) }
+        st2.diskObject = diskObject; st2.iconPort = port; st2.appIcon = appIcon
+      }
+      const message = rt.exec.messages.getMsg(st2.iconPort)
+      if (message === 0) {
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+        return VI(1)
+      }
+      rt.exec.messages.memory.free(message)
+      rt.workbench.remove(st2.appIcon, 'icon')
+      rt.exec.messages.deletePort(st2.iconPort)
+      rt.icons.free(st2.diskObject)
+      st2.iconPort = 0; st2.appIcon = 0; st2.diskObject = 0
+      return VI(0)
     },
 
     'gsopenc2plib'(_, a): Value {

@@ -1062,12 +1062,20 @@ describe('GameSupport: the code modules', () => {
 })
 
 describe('GameSupport: Gsiconify', () => {
-  it('answers 1 rather than inventing the blocking AppIcon interaction', () => {
-    // `tst.l $56(a2) / beq -> 1` and `tst.l $5a(a2) / beq -> 1`, the first two
-    // instructions of both forms. The guide: "the returned value will be 0 if
-    // the icon is double-clicked on, and 1 if an error occurred", and "this
-    // function needs at least workbench 2 to work".
-    expect(num('Print Gsiconify("Testing")')).toBe(1)
+  it('blocks on the default tool AppIcon and answers 0 after activation', () => {
+    const b = boot('Print Gsiconify("Testing")')
+    b.rt.frame()
+    expect(b.rt.interp.blocked).not.toBeNull()
+    expect(b.rt.icons.objects.get(b.rt.gamesupport.diskObject)?.type).toBe(3)
+    expect(b.rt.workbench.items.get(b.rt.gamesupport.appIcon)).toMatchObject({ label: 'Testing' })
+    expect(b.rt.workbench.activate(b.rt.gamesupport.appIcon)).toBeGreaterThan(0)
+    for (let i = 0; i < 3; i++) b.rt.frame()
+    expect(b.out().trim()).toBe('0')
+    expect(b.rt.workbench.items.size).toBe(0)
+    expect(b.rt.icons.objects.size).toBe(0)
+  })
+
+  it('answers 1 without raising when the named DiskObject cannot be loaded', () => {
     expect(num('Print Gsiconify("Testing","data/MyIcon")')).toBe(1)
   })
 
@@ -1075,7 +1083,10 @@ describe('GameSupport: Gsiconify', () => {
     // "This function will not handle errors in the normal way, since this
     // could leave the workbench screen at the front, and the user with no idea
     // why. That's why Gsiconify is implemented as a function"
-    expect(() => run('Print Gsiconify("")')).not.toThrow()
+    const b = boot('Print Gsiconify("")')
+    expect(() => b.rt.frame()).not.toThrow()
+    b.rt.workbench.activate(b.rt.gamesupport.appIcon)
+    expect(() => b.rt.frame()).not.toThrow()
   })
 
   it('reports both shared library backends', () => {
