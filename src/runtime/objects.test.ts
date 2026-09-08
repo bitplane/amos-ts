@@ -824,3 +824,21 @@ describe('object banks are in the bank list (banks.ts)', () => {
     expect(rt.resolveWrite(rt.bankBase(1))).toBeNull()
   })
 })
+
+describe('high-numbered editor accessory banks', () => {
+  it('give Start() a positive address that Bnk.OrAdr can resolve', () => {
+    const rt = new Runtime(tokenize('', table), table)
+    const data = new Uint8Array([1, 2, 3, 4])
+    rt.memBanks.set(65500, {
+      kind: 'memory',
+      number: 65500,
+      memType: 1,
+      name: 'Data',
+      flags: 1,
+      data,
+    })
+    const address = rt.bankBase(65500)
+    expect(address | 0).toBeGreaterThanOrEqual(1024)
+    expect(rt.bankOrAddr(address)).toEqual({ data, off: 0 })
+  })
+})

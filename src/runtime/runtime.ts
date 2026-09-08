@@ -963,6 +963,17 @@ export class Runtime {
   // ---- memory model: banks with fake base addresses ----
   /** Reserve'd banks (in addition to loaded memBanks) get data here */
   bankBase(n: number): number {
+    // The editor's own accessories keep their private banks at the top of
+    // the 16-bit number space (Sample Bank Maker uses 65500 and 65501).
+    // Extending the ordinary 1MB-per-number fiction that far wraps through
+    // 32 bits and produces a negative AMOS integer. Bnk.OrAdr then takes it
+    // for a bank NUMBER, exactly as its signed `cmp.l #1024` says, and an
+    // `Unpack Start(65500),x,y` reports "bank not reserved".
+    //
+    // The real addresses are allocated independently of bank numbers. Keep
+    // the useful deterministic layout here, but give the system-bank page a
+    // positive, non-overlapping run below the OS DevKit region.
+    if (n >= 0xffc0) return 0x30000000 + (0xffff - n) * 0x00100000
     return 0x01000000 + n * 0x00100000
   }
 

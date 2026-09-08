@@ -1353,7 +1353,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       if (rt.interp.done) {
         if (!ended) {
           ended = true
-          opts.onStatus?.('program ended')
+          // Returning from a program or accessory to AMOS is not the player
+          // ending. In particular, closing an editor accessory used to put
+          // "program ended" over the editor it had just returned to.
+          if (amos === null) opts.onStatus?.('program ended')
           if (amos !== null) {
             // `RunErr` (+ILib.s:1267) is one exit with a number in d0, and
             // `Ed_Errr` (+Edit.s:8261) branches on it and nothing else: 10 is
@@ -1409,6 +1412,18 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       try {
         rt.frame()
       } catch (e) {
+        if (e instanceof AmosRuntimeError && amos !== null) {
+          // The synchronous Amos.runIt path already feeds this through
+          // Ed_ErrRun. The browser-owned frame path used to take a parallel
+          // host-error exit, discard the Runtime and consequently discard
+          // the whole editor. Stop this invocation, then make the same
+          // editor return with the error number and VerPos it supplied.
+          rt.interp.halt('stopped', false)
+          amos.finishRun(e)
+          rt = amos.runtime ?? rt
+          ended = true
+          continue
+        }
         error = e instanceof AmosRuntimeError ? e.message : String(e)
         fail(error)
         console.error('amos-ts: program error:', e)
