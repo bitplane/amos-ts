@@ -160,6 +160,7 @@ export interface OsDevKitState {
   pools: Map<number, { requirements: number; puddleSize: number; thresholdSize: number; allocations: Set<number> }>
   bitMaps: Map<number, { width: number; flags: number; ownedPlanes: number[] }>
   hardwareSprites: Array<{ sprite: number; data: number; viewPort: number } | null>
+  extSprites: Map<number, { data: number; dataSize: number; source: number; width: number; height: number }>
   /** AllocAslRequest-owned public requester prefixes, keyed by native address. */
   aslRequests: Map<number, { type: number; pending: boolean; ownedStrings: number[]; allocTags: Array<{ tag: number; data: number }> }>
   layerInfos: Map<number, LayerInfo | null>
@@ -198,7 +199,7 @@ export const newOsDevKitState = (exec: ExecSystem, gadtools: GadTools, fs: () =>
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), requester: null,
     locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
     dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(),
-    hardwareSprites: Array.from({ length: 8 }, () => null), aslRequests: new Map(),
+    hardwareSprites: Array.from({ length: 8 }, () => null), extSprites: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
     fonts: new Map(),
   }
@@ -1728,6 +1729,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_spr free'(it) {
       const number = it.evalInt(); if (number >= 0 && number < 8) st().hardwareSprites[number] = null
+    },
+    '_spr a data free'(it) {
+      const sprite = it.evalInt() >>> 0; const held = st().extSprites.get(sprite)
+      if (!held) return
+      for (let i = 0; i < st().hardwareSprites.length; i++) if (st().hardwareSprites[i]?.sprite === sprite) st().hardwareSprites[i] = null
+      st().memory.freeMem(held.data); st().memory.freeMem(sprite); st().extSprites.delete(sprite)
     },
     '_spr move'(it) {
       const [viewPort, sprite, x, y] = readArgs(it, 4); const number = structRead(rt, sprite! + 10, 2, false)
@@ -3605,6 +3612,45 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       if (sprite === 0 || number < 0 || number >= 8 || st().hardwareSprites[number] !== null) return VI(-1)
       st().hardwareSprites[number] = { sprite, data: structRead(rt, sprite, 4, false), viewPort: 0 }
       structWrite(rt, sprite + 10, 2, number); return VI(number)
+    },
+    '_spr a data alloc'(_, a) {
+      const bitmap = n(a, 0) >>> 0; const tags = tagItems(st(), n(a, 1))
+      if (bitmap === 0) return VI(0)
+      const tagged = (id: number, fallback: number): number => tags.find(item => item.tag === id)?.data ?? fallback
+      const sourceWidth = structRead(rt, bitmap, 2, false) * 8; const sourceHeight = structRead(rt, bitmap + 2, 2, false)
+      const width = tagged(0x8100_0000, 16); const height = tagged(0x8100_0006, sourceHeight)
+      const xReplication = tagged(0x8100_0002, 0); const yReplication = tagged(0x8100_0004, 0)
+      if (![16, 32, 64].includes(width) || height <= 0 || sourceHeight <= 0) return VI(0)
+      const scale = (value: number, replication: number): number => replication >= 0 ? value >> replication : value << -replication
+      const rowBytes = width >>> 3; const dataSize = 4 + height * rowBytes * 2 + 4
+      const sprite = st().memory.alloc(12, { clear: true }); const data = st().memory.alloc(dataSize, { clear: true, chip: true })
+      if (sprite === 0 || data === 0) { if (sprite) st().memory.freeMem(sprite); if (data) st().memory.freeMem(data); return VI(0) }
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const sx = scale(x, xReplication), sy = scale(y, yReplication)
+        const color = sx < sourceWidth && sy < sourceHeight ? nativeBitmapPixel(rt, bitmap, sx, sy) : 0
+        for (let plane = 0; plane < 2; plane++) if ((color & (1 << plane)) !== 0) {
+          const at = data + 4 + y * rowBytes * 2 + plane * rowBytes + (x >>> 3)
+          const byte = rt.resolveWrite(at); if (byte) byte.data[byte.off] = byte.data[byte.off]! | (0x80 >>> (x & 7))
+        }
+      }
+      structWrite(rt, sprite, 4, data); structWrite(rt, sprite + 4, 2, height); structWrite(rt, sprite + 10, 2, 0xffff)
+      st().extSprites.set(sprite, { data, dataSize, source: bitmap, width, height }); return VI(sprite)
+    },
+    '_spr a get'(_, a) {
+      const sprite = n(a, 0) >>> 0; if (!st().extSprites.has(sprite)) return VI(-1)
+      const requested = tagItems(st(), n(a, 1)).find(item => item.tag === 0x8200_0020)?.data ?? -1
+      const number = requested === -1 ? st().hardwareSprites.findIndex(entry => entry === null) : requested
+      if (number < 0 || number >= 8 || st().hardwareSprites[number] !== null) return VI(-1)
+      st().hardwareSprites[number] = { sprite, data: structRead(rt, sprite, 4, false) >>> 0, viewPort: 0 }
+      structWrite(rt, sprite + 10, 2, number); return VI(number)
+    },
+    '_spr a change'(_, a) {
+      const viewPort = n(a, 0) >>> 0; const oldSprite = n(a, 1) >>> 0; const nextSprite = n(a, 2) >>> 0
+      if (!st().extSprites.has(nextSprite)) return VI(0)
+      const number = st().hardwareSprites.findIndex(entry => entry?.sprite === oldSprite)
+      if (number < 0) return VI(0)
+      st().hardwareSprites[number] = { sprite: nextSprite, data: structRead(rt, nextSprite, 4, false) >>> 0, viewPort }
+      structWrite(rt, nextSprite + 10, 2, number); return VI(-1)
     },
     '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {

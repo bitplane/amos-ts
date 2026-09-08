@@ -292,6 +292,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.hardwareSprites.every((entry) => entry === null)).toBe(true)
   })
 
+  it('converts BitMaps into V39 ExtSprites on the shared hardware-sprite slots', () => {
+    const { rt, output } = run([
+      'B=_bm alloc(16,2,2,0,0) : P0=_bm what plane(B,0) : P1=_bm what plane(B,1) : Poke P0,$80 : Poke P1,$40',
+      'T=_tag list alloc(2) : _tag set T,$81000000,16 : _tag set T,$81000006,2 : _tag done T',
+      'A=_spr a data alloc(B,T) : D=_spr a data alloc(B,T) : Print A<>0,D<>0,_struct uword(A,4),Hex$(Peek(_struct long(A,0)+4))',
+      'G=_tag list alloc(1) : _tag set G,$82000020,3 : _tag done G : Print _spr a get(A,G),_spr a change(0,A,D,0)',
+      '_spr a data free A : _spr a data free D : _bm free B',
+    ].join('\n'))
+    expect(output).toBe('-1\t-1\t 2\t$80\n 3\t-1\n')
+    expect(rt.osdevkit.extSprites.size).toBe(0)
+    expect(rt.osdevkit.hardwareSprites.every(entry => entry === null)).toBe(true)
+  })
+
   it('wires task priority, interrupt chains and message waits through shared Exec', () => {
     const { rt, output } = run([
       'T=_task find(0) : Print _task set pri(T,5),_task set pri(T,-3)',
