@@ -7572,9 +7572,10 @@ export const NOTES: Record<string, string> = {
   "open workbench":
     "The name is CONTESTED and this note covers both; each port qualifies its own, so a program gets the slot " +
     "it bound. AMCAF's is 'Tries to open the workbench again, if it has been closed previously' with AMOS's " +
-    "Close Workbench, and its routine does nothing at all. CRAFT's is routine 162 ($2d9e): OpenWorkBench at " +
+    "Close Workbench. CRAFT's is routine 162 ($2d9e): OpenWorkBench at " +
     "-$d2 off the IntuitionBase it finds at `-$18a6(a5)`, a base AMOS is already holding -- there is not one " +
-    "library-name string in the whole CRAFT hunk. It stashes `seq` on the result in `$3c6(a5)` and nothing in " +
+    "library-name string in the whole CRAFT hunk. Both use the shared Intuition Workbench lifecycle. CRAFT " +
+    "stashes `seq` on the result in `$3c6(a5)` and nothing in " +
     "the library reads it back.",
   "extbase":
     "Routine 133 ($3c8e), 30 bytes: `lsl.w #$4,d0 / lea $f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension " +

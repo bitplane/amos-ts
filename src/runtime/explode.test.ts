@@ -19,6 +19,7 @@ import { pp20Crunch } from '../amiga/powerpacker'
 import { PPK_EFFICIENCY, PPK_FORMATS } from './explode'
 import { XPK_PACKERS } from '../amiga/xpkmaster'
 import { DL_SIGNATURES } from '../amiga/decrunchlib.gen'
+import { WB_SLOT } from '../amiga/intuition'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 7 — `ExtNb equ 7-1`, line 16 of the source */
@@ -42,6 +43,12 @@ function run(src: string, fs?: AmigaFS): string {
   mustFinish(b.rt.runHeadless(3_000))
   return b.out().trim().replace(/\s+/g, ' ')
 }
+
+it('Open Workbench shares the core Intuition lifecycle', () => {
+  const b = boot('Open Workbench')
+  mustFinish(b.rt.runHeadless(20))
+  expect(b.rt.screens.has(WB_SLOT)).toBe(true)
+})
 
 /** a writable RAM: with one file on it */
 function withFile(name: string, bytes: Uint8Array): AmigaFS {

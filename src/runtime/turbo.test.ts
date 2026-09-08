@@ -7,6 +7,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { getPixel } from '../amiga/planar'
+import { WB_SLOT } from '../amiga/intuition'
 
 /**
  * TURBO Plus, verified against TURBO_DocsV2.15.Asc — the extension's own
@@ -100,8 +101,9 @@ describe('TURBO input (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(raw((rt) => rt.keyUp(69))).toBe(' 197\n')
   })
 
-  it('Workbench Open is the counterpart to Close Workbench, and does nothing here', () => {
-    expect(() => run('Close Workbench : Workbench Open')).not.toThrow()
+  it('Workbench Open is the counterpart to Close Workbench', () => {
+    const { rt } = run('Close Workbench : Workbench Open')
+    expect(rt.screens.has(WB_SLOT)).toBe(true)
   })
 
   it('Raw Key compares against the last keyboard byte, not the held set', () => {

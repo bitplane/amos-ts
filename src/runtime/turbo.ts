@@ -1569,9 +1569,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     'workbench open'() {
       // Routine 138 ($47fc) is fourteen bytes: `jsr -$d2(a6)` on the
       // intuition base AMOS keeps at -$18a6(a5), which is OpenWorkBench. The
-      // counterpart to AMOS's Close Workbench, which this port already treats
-      // as faithful because there is no Workbench memory to free. Reopening
-      // it is the same nothing in reverse.
+      rt.intuition.openWorkBench()
     },
     'vbl wait'(it) {
       // Vbl Wait x — "Wait until the raster beam has reached a given value".

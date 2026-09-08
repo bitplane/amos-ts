@@ -1132,9 +1132,8 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
      * this is the other half of it.
      */
     'open workbench'() {
-      // AMOS's own `Close Workbench` is a no-op in this port (instr.ts) --
-      // there is no Workbench screen to free -- so its other half has
-      // nothing to put back either
+      rt.intuition.openWorkBench()
+      rt.amosToFront()
     },
 
     /**
