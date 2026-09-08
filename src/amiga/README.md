@@ -139,7 +139,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `doubleclick.ts` | Intuition's seconds/micros double-click interval test |
 | `commodities.ts` | `commodities.library` brokers, Cx object graphs and Exec-backed event queues |
 | `dosvars.ts` | DOS local variables and global `ENV:` variable files |
-| `iffparse.ts` | `iffparse.library` FORM/chunk scope parsing and streamed output |
+| `iffparse.ts` | `iffparse.library` SCAN/STEP/RAWSTEP parsing, complex chunk scopes, public ContextNodes and streamed output |
 | `readargs.ts` | DOS `ReadArgs`: CLI tokenisation, templates and typed result arrays |
 | `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `gadtools.ts` | `gadtools.library`: the gadget kinds and their tags, the menu strip, and the message filter |

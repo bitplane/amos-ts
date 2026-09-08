@@ -105,7 +105,7 @@ const auditMany = (status: OsBackendStatus, reason: string, names: readonly stri
   for (const name of names) AUDITED.set(name, { status, reason })
 }
 
-auditMany('partial', 'shared iffparse handles implement nested FORM/chunk scanning, native-buffer reads and streamed output; full ParseIFF control modes and raw ContextNode layout remain incomplete', [
+auditMany('partial', 'shared iffparse handles implement SCAN/STEP/RAWSTEP, nested FORM/LIST/CAT/PROP scopes, streamed I/O and the exact public ContextNode prefix; native DOS stream-handle identity and installed callback handlers remain outside the backend', [
   '_iff init', '_base iff', '_iff parse', '_iff open in', '_iff open out', '_iff close',
   '_chunk current', '_chunk parent', '_chunk read', '_chunk write', '_chunk child', '_chunk end',
   '_chunk what size', '_chunk what scan', '_chunk what type', '_chunk what id',
