@@ -125,7 +125,7 @@ auditMany('partial', 'a shared ReadArgs template/result backend handles keyed, r
 auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [
   '_wb open', '_wb close', '_wb to back', '_wb to front',
 ])
-auditMany('partial', 'one workbench.library AppItem registry supplies native addresses and Exec ports; desktop rendering and complete AppMessage production remain incomplete', [
+auditMany('partial', 'one workbench.library AppItem registry supplies native addresses, Exec ports and the complete public AppMessage prefix; desktop rendering and automatic icon-drop WBArg production remain incomplete', [
   '_app add icon', '_app add menu', '_app add wnd', '_app rem icon', '_app rem menu', '_app rem wnd', '_wb msg',
 ])
 
