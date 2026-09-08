@@ -1375,8 +1375,19 @@ describe('Int 1.0: Wb Dt Image To Screen', () => {
     return encodeIlbm({ width, height, depth: 2, mode: 0x8004, palette: [0x000, 0xf00, 0x0f0, 0x00f], pixels })
   }
 
+  function windowsBmp(): Uint8Array {
+    const bmp = new Uint8Array(70)
+    const view = new DataView(bmp.buffer)
+    bmp.set([0x42, 0x4d]); view.setUint32(2, bmp.length, true); view.setUint32(10, 62, true)
+    view.setUint32(14, 40, true); view.setUint32(18, 2, true); view.setUint32(22, 1, true)
+    view.setUint16(26, 1, true); view.setUint16(28, 1, true); view.setUint32(46, 2, true)
+    bmp.set([0, 0, 0, 0, 0xff, 0xff, 0xff, 0], 54)
+    bmp.set([0x80, 0, 0, 0], 62)
+    return bmp
+  }
+
   function go(src: string): { rt: Runtime; out: string } {
-    const b = boot(src, { 'pic.iff': picture(24, 12), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
+    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
     mustFinish(b.rt.runHeadless(3_000))
     return { rt: b.rt, out: b.out().trim() }
   }
@@ -1438,6 +1449,12 @@ Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
   it('bank 0 writes nothing and raises nothing', () => {
     const r = go('Wb Dt Image To Screen 0,0,"pic.iff",0,1')
     expect(r.rt.memBanks.size).toBe(0)
+  })
+
+  it('loads a Windows BMP through the same datatype path', () => {
+    const r = go('Wb Dt Image To Screen 0,0,"pic.bmp",1,1')
+    const data = r.rt.memBanks.get(1)!.data
+    expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 1])
   })
 
   /**

@@ -13,8 +13,8 @@ const SUPPORT: Readonly<Record<string, Support>> = {
   jpeg: { level: 'decode', detail: 'baseline JPEG pictures' },
   macpaint: { level: 'decode', detail: 'PackBits monochrome pictures' },
   pcx: { level: 'identify', detail: 'identified; image decoding is not implemented' },
-  bmp: { level: 'identify', detail: 'identified; image decoding is not implemented' },
-  ico: { level: 'identify', detail: 'identified; image decoding is not implemented' },
+  bmp: { level: 'decode', detail: 'indexed and true-colour BMP, including RLE4/RLE8' },
+  ico: { level: 'decode', detail: 'Windows ICO bitmaps and transparency masks' },
 }
 
 const rowFor = (baseName: string): RowSpec => {

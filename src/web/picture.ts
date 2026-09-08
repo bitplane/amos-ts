@@ -29,8 +29,8 @@
  *
  * ## What it does not do
  *
- * GIF, PCX and BMP are identified by `../amiga/datatypes.gen.ts` and have no
- * decoder here; MacPaint is decoded through `../amiga/macpaint.ts`. The panel says so by name rather than
+ * GIF and PCX are identified by `../amiga/datatypes.gen.ts` and have no
+ * decoder here; MacPaint, BMP and ICO use their shared datatype decoders. The panel says so by name rather than
  * showing an empty box: a format this port can NAME and cannot READ is a
  * different state from one it does not recognise, and the row should say
  * which.
@@ -40,6 +40,7 @@ import { parsePacPic } from '../loader/pacpic'
 import { decodeJpeg } from '../amiga/jpeg'
 import { colourResolver } from '../amiga/planar'
 import { decodeMacPaint } from '../amiga/macpaint'
+import { decodeBmp, decodeIco, type IndexedBitmap } from '../amiga/windowsbitmap'
 
 export interface Picture {
   width: number
@@ -217,6 +218,19 @@ function fromMacPaint(bytes: Uint8Array): Picture | null {
   })
 }
 
+function fromIndexedBitmap(img: IndexedBitmap): Picture {
+  const pixels = new Uint8ClampedArray(img.width * img.height * 4)
+  for (let i = 0; i < img.pixels.length; i++) {
+    const colour = img.palette[img.pixels[i]!] ?? 0
+    pixels[i * 4] = ((colour >> 8) & 15) * 17
+    pixels[i * 4 + 1] = ((colour >> 4) & 15) * 17
+    pixels[i * 4 + 2] = (colour & 15) * 17
+    pixels[i * 4 + 3] = img.alpha?.[i] ?? 255
+  }
+  return { width: img.width, height: img.height, depth: img.depth, pixels,
+    displayWidth: img.width, displayHeight: img.height, mode: '' }
+}
+
 /**
  * Decode what `../web/kinds.ts` called a picture, or null.
  *
@@ -228,6 +242,14 @@ export function decodePicture(bytes: Uint8Array, name: string): Picture | null {
     if (name === 'ILBM') return fromIlbm(bytes)
     if (name === 'JPEG') return fromJpeg(bytes)
     if (name === 'MacPaint') return fromMacPaint(bytes)
+    if (name === 'Windows Bitmap') {
+      const image = decodeBmp(bytes)
+      return image ? fromIndexedBitmap(image) : null
+    }
+    if (name === 'Windows Icon') {
+      const image = decodeIco(bytes)
+      return image ? fromIndexedBitmap(image) : null
+    }
   } catch {
     // A truncated or damaged picture is a normal thing to find on a 30-year
     // old disk. The row says the format and shows nothing, which is more than

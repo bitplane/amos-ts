@@ -69,6 +69,7 @@ import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import { GID, obtainDataType } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { decodeMacPaint } from '../amiga/macpaint'
+import { decodeBmp, decodeIco } from '../amiga/windowsbitmap'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -1419,8 +1420,8 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * APPROXIMATED, and for one reason: what this port can turn into
      * bitplanes. `datatypes.library` reaches a decoder per format and
      * ../amiga/datatypes.ts identifies every one it ships. ILBM goes through
-     * ../amiga/ilbm.ts and MacPaint through ../amiga/macpaint.ts. Anything
-     * else --- a JPEG, which ../amiga/jpeg.ts decodes to 24-bit RGB and
+     * ../amiga/ilbm.ts, MacPaint through ../amiga/macpaint.ts, and Windows
+     * BMP/ICO through ../amiga/windowsbitmap.ts. Anything else --- a JPEG, which ../amiga/jpeg.ts decodes to 24-bit RGB and
      * nothing here quantises back down, or a format with no decoder at all
      * --- is error 38, "Cannot Read DataType", which is the library's own
      * answer for a file it cannot make a picture of.
@@ -1450,6 +1451,12 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         const mac = dt?.baseName === 'macpaint' ? decodeMacPaint(bytes) : null
         if (mac !== null) {
           pic = { width: mac.width, height: mac.height, depth: 1, mode: 0x8004, palette: [0xfff, 0], pixels: mac.pixels }
+        } else {
+          const windows = dt?.baseName === 'bmp' ? decodeBmp(bytes) : dt?.baseName === 'ico' ? decodeIco(bytes) : null
+          if (windows !== null) pic = {
+            width: windows.width, height: windows.height, depth: windows.depth,
+            mode: 0, palette: windows.palette, pixels: windows.pixels,
+          }
         }
       }
       if (pic === null) {
