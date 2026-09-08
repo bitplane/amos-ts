@@ -142,7 +142,7 @@ frame, not a property of the model.
 observable approximation separate from a changed mechanism and an original
 defect.
 
-**Approximated, meaning we fall short.** Four keywords:
+**Approximated, meaning we fall short.** Five keywords:
 
 - **`td advanced`**. Hands back an internal engine pointer. The runtime maps
   owned banks and structures, but not AMOS 3D's private native object arena, so
@@ -150,6 +150,8 @@ defect.
 - **`td visible`** and **`td surface points on/off`** preserve their observable
   high-level behavior, but use the port's reconstructed render state and face
   mapping rather than native object pointers.
+- **`td redraw`** uses reconstructed face precedence and a scanline rasteriser;
+  the limitations are described below.
 
 **Faithful model, approximate renderer.** `td redraw` uses the engine's
 transforms, clipping, object priorities and bitplane-3 occupancy. Within an

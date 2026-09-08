@@ -43,7 +43,7 @@ the only path that combines that metadata into the committed inventory.
 | amcaf-1.50           |      280 |      260 |           18 |       0 |     100% |
 | amon-1.03            |       18 |       18 |            0 |       0 |     100% |
 | amon-1.04            |       24 |       24 |            0 |       0 |     100% |
-| amos3d-1.0           |       64 |       60 |            4 |       0 |     100% |
+| amos3d-1.0           |       64 |       59 |            5 |       0 |     100% |
 | amospro-colours-1.0  |       27 |       27 |            0 |       0 |     100% |
 | amospro-compact-2.0  |        3 |        3 |            0 |       0 |     100% |
 | amospro-compiler-2.0 |       15 |       10 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6520 |          799 |      47 |      99% |
+| **total**            |     7422 |     6519 |          800 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -213,8 +213,8 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## amos3d-1.0 (100%)
 
-- **approximated** (4): `td advanced`, `td surface points`, `td surface points off`,
-  `td visible`
+- **approximated** (5): `td advanced`, `td redraw`, `td surface points`,
+  `td surface points off`, `td visible`
 
 ## amospro-compiler-2.0 (100%)
 

@@ -1302,7 +1302,6 @@ export const FAITHFUL = new Set<string>([
   // update on the Object Modeller coverdisk (Voodoo/Europress, 31/10/1992),
   // which documents the keyword the printed manual leaves out.
   'td priority',
-  'td redraw',
   'td bearing a',
   'td bearing b',
   'td bearing r',

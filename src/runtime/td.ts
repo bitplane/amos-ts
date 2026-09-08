@@ -27,13 +27,10 @@
  *
  * ## What is faithful here, and what is not
  *
- * The model is faithful: the file formats, the object and instance
- * structures, the transform chain, coordinate systems, visibility rules and
- * bitplane-3 occupancy model all come out of the engine. The edge stepping is
- * not pixel-exact. Reproducing
- * Voodoo's edge stepping and fill rule pixel-for-pixel is most of the work in
- * the engine and none of what a game depends on, so polygons are filled by
- * our own scanline code and that deviation carries a NOTES entry.
+ * File formats, transforms, coordinate systems and bitplane-3 occupancy come
+ * from the engine. Face precedence is reconstructed from view depth and the
+ * rasteriser uses scanlines rather than the blitter, so `Td Redraw` remains
+ * explicitly approximated.
  */
 import { AmosError, VI, int } from '../interp/values'
 import { RastPort } from '../amiga/graphics'
