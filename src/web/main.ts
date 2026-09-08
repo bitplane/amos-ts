@@ -3,7 +3,7 @@
  * Runtime at 50 frames a second, composite to a canvas, feed it keys and
  * mouse. `npm run dev` and open the page.
  *
- * The page is four tabs over one machine. Panels are built once and hidden,
+ * The page is five tabs over one machine. Panels are built once and hidden,
  * never unmounted, because a program keeps running while you are looking at
  * something else — see ./ui/tabs.ts.
  */
@@ -32,6 +32,8 @@ import type { InputSource } from './ui/catalogue'
 import { createExtensionsTab } from './ui/extensions'
 import { createProgramIndex } from './ui/programs'
 import { createLibsTab } from './ui/libs'
+import { createDataTypesPanel } from './ui/datatypes'
+import { createSupportTab } from './ui/support'
 import { createBrowseTab, type Via } from './ui/browse'
 import { createFilesTab } from './ui/files'
 import { modProgram, sampleProgram } from './modplay'
@@ -688,7 +690,8 @@ const extensions = createExtensionsTab(programs, (path) => {
   tabs.select('play')
 })
 const libs = createLibsTab()
-document.getElementById('panels')!.append(hardware.panel, extensions.panel, libs.panel)
+const support = createSupportTab(extensions, libs.panel, createDataTypesPanel())
+document.getElementById('panels')!.append(hardware.panel, support.panel)
 
 const tabs = mountTabs(document.getElementById('tabbar')!, [
   // Browse first, so it is what the page opens on: a visitor with no .AMOS
@@ -716,14 +719,7 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
   },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles, route: (p) => void routeTo(p) },
   { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
-  {
-    id: 'extensions',
-    label: 'Extensions',
-    panel: extensions.panel,
-    show: () => extensions.refresh(),
-    frame: () => extensions.refresh(),
-  },
-  { id: 'libs', label: 'Libs', panel: libs.panel },
+  { id: 'support', label: 'Support', panel: support.panel, show: support.refresh, frame: support.refresh },
 ])
 
 // The page's own loop, which is not the machine's: the player runs the Runtime

@@ -79,6 +79,28 @@ function usesList(uses: readonly ProgramUse[], run: (path: string) => void): HTM
   return wrap
 }
 
+function keywordList(e: Extension): HTMLElement {
+  const details = document.createElement('details')
+  details.className = 'support-sublist'
+  const summary = document.createElement('summary')
+  const names = e.tokens
+    .map((token) => token.name.replace(/^!/, '').trim())
+    .filter((name) => name !== '')
+  summary.textContent = `Keywords ${names.length}`
+  details.appendChild(summary)
+
+  const list = document.createElement('div')
+  list.className = 'uses keywords'
+  for (const name of names) {
+    const item = document.createElement('span')
+    item.className = 'keyword-token'
+    item.textContent = name
+    list.appendChild(item)
+  }
+  details.appendChild(list)
+  return details
+}
+
 function rowFor(
   e: Extension,
   tokens: number,
@@ -111,6 +133,7 @@ function rowFor(
           ['slot', slot === undefined ? '—' : String(slot)],
         ]),
       )
+      host.appendChild(keywordList(e))
       if (uses.length > 0) host.appendChild(usesList(uses, run))
     },
   }

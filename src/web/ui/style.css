@@ -170,7 +170,7 @@ a:focus-visible {
 /* ---- tabs ---------------------------------------------------------------- */
 
 /*
- * `[Play|Hardware|Files|Extensions|Libs]`, which is the one navigational
+ * `[Browse|Play|Files|Hardware|Support]`, which is the one navigational
  * idiom bitplane.net has. The outer brackets are generated, because nothing
  * sits between them and a button; the pipes are real elements from
  * ./tabs.ts, because a generated one would live inside the button it hangs
@@ -236,6 +236,15 @@ a:focus-visible {
 .tab:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
+}
+
+.support-sublist {
+  margin-top: 0.7rem;
+}
+
+.support-sublist > summary {
+  color: var(--accent);
+  cursor: pointer;
 }
 
 /* ---- the always-visible machine strip ------------------------------------ */
@@ -508,6 +517,15 @@ button.item-label:focus-visible {
   flex-wrap: wrap;
   gap: 0.3rem;
   margin-top: 0.6rem;
+}
+
+.keyword-token {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+  white-space: nowrap;
 }
 
 /* a program identified only as probable or ambiguous: offered, and marked */

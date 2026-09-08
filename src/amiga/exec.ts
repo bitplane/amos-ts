@@ -152,9 +152,28 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
     {
       version: 40,
       about:
-        'Workbench file-type descriptors and mask matching. Descriptor obtain/release is modelled; ' +
-        'datatype objects, layout and methods are not.',
+        'Workbench file-type descriptors, matching, object lifecycle, attributes, methods and window attachment.',
     },
+  ],
+  [
+    'diskfont.library',
+    { version: 40, about: 'Disk-backed TextFont loading shared by AMOS and extension font commands.' },
+  ],
+  [
+    'utility.library',
+    { version: 40, about: 'TagItem traversal and lookup used by native-style tag-list calls.' },
+  ],
+  [
+    'mathffp.library',
+    { version: 40, about: 'Motorola fast-floating-point conversion and arithmetic used by AMOS numeric values.' },
+  ],
+  [
+    'mathtrans.library',
+    { version: 40, about: 'Fast-floating-point transcendental service opened by extensions using AMOS maths.' },
+  ],
+  [
+    'amigaguide.library',
+    { version: 39, about: 'Process-wide AmigaGuide client handles and document launch lifecycle.' },
   ],
   // catalogs, FormatDate, collation and case — ../amiga/localelib.ts
   [

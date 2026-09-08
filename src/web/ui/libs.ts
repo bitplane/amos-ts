@@ -7,11 +7,9 @@
  * *no*: an extension that asks for something absent gets zero and takes its
  * fallback, which is behaviour worth being able to see.
  *
- * This is not every Amiga library the port models. `intuition.library`,
- * `decrunch.library`, `powerpacker.library` and `muimaster.library` are all
- * ported and none of them is in the map, because nothing reaches them through
- * `OpenLibrary` yet. Listing them here would mean claiming an answer the gate
- * does not give.
+ * This is specifically the resident set exposed through `OpenLibrary`.
+ * Format backends which no current native caller opens are separate from that
+ * set and do not appear here.
  */
 import { modelledLibraries, type ModelledLibrary } from '../../amiga/exec'
 import { createList, facts, type RowSpec } from './list'

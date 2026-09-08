@@ -131,7 +131,7 @@ export function ensureLib(rt: Runtime): boolean {
  * Load narrator-ts and its two tables.
  *
  * Split out of `ensureLib` because it wants no Runtime, and one caller has
- * none: the Libs tab's speech box drives `translator.library` directly so it
+ * none: the Support tab's translator row drives `translator.library` directly so it
  * can be tried without a program loaded. Both callers going through here is
  * the point. The JSON import below has already broken once in a way that only
  * showed on the dev server, and a test box that loaded the library its own
