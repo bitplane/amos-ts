@@ -391,11 +391,28 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
     }
     const geometry = tdObjectGeometry(object)
     expect(geometry.faces.length).toBe(23)
-    expect(geometry.faces.slice(0, 6).map((face) => face.vertices)).toEqual(
-      parseTdTemplate(object.linked.get(parseTdBlocks(object.file)[0]!.at + 0x0a)!.file).faceVertices,
-    )
+    const firstTemplate = parseTdTemplate(object.linked.get(parseTdBlocks(object.file)[0]!.at + 0x0a)!.file)
+    expect(geometry.faces.slice(0, 5).map((face) => face.vertices)).toEqual(firstTemplate.faceVertices.slice(0, 5))
+    // Its sixth face carries an external surface and therefore keeps the
+    // object's deliberately selected orientation instead of the default.
+    expect(geometry.faces[5]!.vertices).toEqual(parseTdGeometry(file).faces[5]!.vertices)
     // The tower's p5 contributes four triangular roof sides and a base.
     expect(geometry.faces.slice(18).map((face) => new Set(face.vertices).size)).toEqual([3, 3, 3, 3, 4])
+  })
+
+  it('keeps an object face’s own surface orientation over its template default', () => {
+    for (const name of ['game', 'over']) {
+      const file = parseTdFile(shipped(`${name}.3DO`))
+      const raw = parseTdGeometry(file)
+      const object: TdObject = { name, file, linked: new Map(), colours: tdBlockColours(file) }
+      const template = file.links.find((item) => item.type === 4)!
+      object.linked.set(template.offset, {
+        name: template.name, file: parseTdFile(shipped(`${template.name}.3DT`), 22), linked: new Map(), colours: [],
+      })
+      const resolved = tdObjectGeometry(object)
+      const explicit = raw.faces.find((face) => face.surface !== 0)!
+      expect(resolved.faces.find((face) => face.at === explicit.at)!.vertices).toEqual(explicit.vertices)
+    }
   })
 
   it('stops at the two objects that carry a second template', () => {

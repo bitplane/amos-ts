@@ -1675,7 +1675,14 @@ export function tdObjectGeometry(obj: TdObject): TdGeometry & { multipart: boole
     if (template.faceVertices.length !== template.faces) complete = false
     for (let i = 0; i < template.faceVertices.length; i++) {
       const at = raw.facesAt + (block.baseFace + i) * TD_FACE_SIZE
-      const vertices = template.faceVertices[i]!.map((point) => block.firstVertex + point)
+      // A non-blank object record overrides the template order. Surface
+      // links use that order to rotate/reflect their construction across a
+      // face (GAME and OVER deliberately differ); replacing it with the
+      // template order turns artwork upside down. Blank records inherit.
+      const explicit = raw.faces.find((face) => face.at === at)
+      const vertices = explicit && new Set(explicit.vertices).size >= 3
+        ? explicit.vertices
+        : template.faceVertices[i]!.map((point) => block.firstVertex + point)
       if (at + TD_FACE_SIZE > raw.facesEnd || vertices.some((point) => point >= raw.points.length)) {
         complete = false
         continue
