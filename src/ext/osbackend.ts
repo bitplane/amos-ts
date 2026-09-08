@@ -528,7 +528,7 @@ auditMany('faithful', 'all nine IntuiMessage fields and their exact long, unsign
   '_imsg what class', '_imsg what code', '_imsg what qualifier', '_imsg what item',
   '_imsg what x mouse', '_imsg what y mouse', '_imsg what seconds', '_imsg what micros', '_imsg what wnd',
 ])
-auditMany('partial', 'GadTools message filtering and reply accounting exist, but the workers native TypeOfMem guard and sentinel pointer are not represented', [
+auditMany('partial', 'native message filtering, cooked-field writes and reply ownership use the shared GadTools/Exec backends; only the MEMF_KICK rejection sentinel has no representable memory region', [
   '_gmsg get', '_gmsg reply',
 ])
 auditMany('faithful', 'the NotifyMessage request pointer at offset $1a is represented exactly', [
@@ -555,7 +555,7 @@ auditMany('faithful', 'signal-bit allocation/free, masked SetSignal state and ta
 auditMany('faithful', 'empty signal and port waits yield and re-enter the worker until shared Exec delivery wakes them', [
   '_port wait', '_sig wait',
 ])
-auditMany('partial', 'GetMsg FIFO removal exists, but the workers raw TypeOfMem guard is not represented', [
+auditMany('partial', 'GetMsg FIFO removal and its null-port error are exact; only the native MEMF_KICK rejection path has no representable memory region', [
   '_msg get',
 ])
 auditMany('faithful', 'AllocMem/FreeMem and arbitrary-alignment CopyMem behavior are modelled; the abs spelling aliases the same AllocMem worker', [

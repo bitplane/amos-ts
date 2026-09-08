@@ -6,7 +6,7 @@
  * through the library's Rbra trampolines by src/cli/osbackend.ts.
  */
 import type { Func, Instr } from '../interp/builtins'
-import { VI, VS, int, str } from '../interp/values'
+import { VI, VS, funcCall, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import {
   A1200_POOLS, MEMF, availMem, closeLibrary, libraryRevision, libraryVersion, type MemPool, openLibrary,
@@ -110,6 +110,8 @@ export interface OsDevKitState {
   fillPatternAddress: number
   areaPaths: Map<number, Array<{ kind: 'move' | 'draw' | 'ellipse'; values: number[] }>>
   gadtools: GadTools
+  /** Native IntuiMessage pointers currently owned by GT_GetIMsg callers. */
+  gadtoolsMessages: Set<number>
   gadgetDef: NewGadget & { textPointer: number; font: number }
   nativeGadgets: Map<number, UserGadget>
   newMenuLists: Map<number, { capacity: number; cursor: number; entries: NewMenu[] }>
@@ -191,7 +193,7 @@ export const newOsDevKitState = (
     windowEvent: { class: 0, code: 0, qualifier: 0, gadgetId: null, gadgetUserData: null, windowId: -1, mouseX: 0, mouseY: 0 },
     fillPatternAddress: 0,
     areaPaths: new Map(),
-    gadtools,
+    gadtools, gadtoolsMessages: new Set(),
     gadgetDef: { leftEdge: 0, topEdge: 0, width: 0, height: 0, gadgetText: '', gadgetID: 0, flags: 0, visualInfo: 0, userData: 0, textPointer: 0, font: 0 },
     nativeGadgets: new Map(),
     newMenuLists: new Map(), menuItemRefs: new Map(), menuItemAddresses: new Map(), nextMenuItemAddress: 0x7300_0000,
@@ -1324,6 +1326,58 @@ function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, po
   }
 }
 
+/** Run a native IntuiMessage allocation through the shared GT_GetIMsg filter. */
+function getGadToolsMessage(state: OsDevKitState, port: number): number {
+  if (port === 0) funcCall()
+  const memory = state.exec.messages.memory
+  let current = 0
+  const replyCurrent = (): void => {
+    if (current === 0) return
+    const replyPort = state.exec.messages.messageReplyPort(current)
+    state.exec.messages.replyMsg(current)
+    if (replyPort === 0) memory.free(current)
+    current = 0
+  }
+  const decoded = state.gadtools.getIMsg({
+    getMsg() {
+      // A swallowed message is replied by GT_GetIMsg before it asks for the
+      // next one.
+      replyCurrent()
+      current = state.exec.messages.getMsg(port)
+      if (current === 0) return null
+      const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
+      const signedWord = (at: number): number => (word(at) << 16) >> 16
+      return {
+        class: memory.readU32(current + 20), code: word(current + 24), qualifier: word(current + 26),
+        iaddress: memory.readU32(current + 28), mouseX: signedWord(current + 32), mouseY: signedWord(current + 34),
+        seconds: memory.readU32(current + 36), micros: memory.readU32(current + 40),
+      }
+    },
+  })
+  if (decoded === null) {
+    replyCurrent()
+    return 0
+  }
+  const setWord = (at: number, value: number): void => {
+    memory.writeU8(at, value >>> 8); memory.writeU8(at + 1, value)
+  }
+  memory.writeU32(current + 20, decoded.class)
+  setWord(current + 24, decoded.code); setWord(current + 26, decoded.qualifier)
+  memory.writeU32(current + 28, decoded.iaddress)
+  setWord(current + 32, decoded.mouseX); setWord(current + 34, decoded.mouseY)
+  memory.writeU32(current + 36, decoded.seconds); memory.writeU32(current + 40, decoded.micros)
+  state.gadtoolsMessages.add(current)
+  return current
+}
+
+function replyGadToolsMessage(state: OsDevKitState, message: number): void {
+  if (!state.gadtoolsMessages.delete(message >>> 0)) return
+  state.gadtools.replyIMsg()
+  const replyPort = state.exec.messages.messageReplyPort(message)
+  state.exec.messages.replyMsg(message)
+  if (replyPort === 0) state.exec.messages.memory.free(message)
+}
+
 function clearWindowPort(state: OsDevKitState, base: number): void {
   const window = windowAtBase(state, base); const port = window?.userPort ?? 0
   if (!window || port === 0) return
@@ -1948,7 +2002,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       st().exec.messages.putMsg(port, it.evalInt())
     },
     '_msg reply'(it) { st().exec.messages.replyMsg(it.evalInt()) },
-    '_gmsg reply'(it) { st().exec.messages.replyMsg(it.evalInt()) },
+    '_gmsg reply'(it) { replyGadToolsMessage(st(), it.evalInt()) },
     /** workers 1559/1561: Exec signal ownership and delivery. */
     '_sig free'(it) { st().exec.messages.freeSignal(it.evalInt()) },
     '_sig put'(it) {
@@ -4487,7 +4541,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     /** workers 1542/1543 and 1796: exact Message structure fields. */
     '_msg what length'(_, a) { return VI(st().exec.messages.messageLength(n(a, 0))) },
     '_msg what reply port'(_, a) { return VI(st().exec.messages.messageReplyPort(n(a, 0))) },
-    '_msg get'(_, a) { return VI(st().exec.messages.getMsg(n(a, 0))) },
+    '_msg get'(_, a) {
+      const port = n(a, 0)
+      if (port === 0) funcCall()
+      return VI(st().exec.messages.getMsg(port))
+    },
     /** workers 1559/1560: AllocSignal and masked SetSignal. */
     '_sig alloc'(_, a) { return VI(st().exec.messages.allocSignal(n(a, 0))) },
     '_sig set'(_, a) { return VI(st().exec.messages.setSignal(n(a, 0), n(a, 1))) },
@@ -4503,7 +4561,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       if (message === null) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
       return VI(message ?? 0)
     },
-    '_gmsg get'(_, a) { return VI(st().exec.messages.getMsg(n(a, 0))) },
+    '_gmsg get'(_, a) { return VI(getGadToolsMessage(st(), n(a, 0))) },
     /** worker 1563: cleared 22-byte native Interrupt allocation. */
     '_int alloc'() { return VI(st().exec.interrupts.alloc()) },
     /** workers 1447/1448 and 1456-1465: list allocation, search and field reads. */

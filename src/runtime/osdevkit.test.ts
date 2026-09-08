@@ -321,12 +321,24 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     const { rt, output } = run([
       'T=_task find(0) : Print _task set pri(T,5),_task set pri(T,-3)',
       'I=_int alloc : _nod set pri I,7 : _int add 4,I',
-      'P=_port create : M=_nod alloc(6) : _msg put P,M : Print _port wait(P)=M,_gmsg get(P)=M : _nod free M',
+      'P=_port create : M=_nod alloc(6) : _msg put P,M : Print _port wait(P)=M,_msg get(P)=M : _nod free M',
       '_int rem 4,I : _int free I : _port delete P',
     ].join('\n'))
     expect(output).toBe(' 0\t 5\n-1\t-1\n')
     expect(rt.exec.tasks.priority(rt.exec.tasks.currentTask)).toBe(-3)
     expect(rt.exec.interrupts.servers(4)).toEqual([])
+  })
+
+  it('routes native GadTools messages through filtering and reply ownership', () => {
+    const { rt, output } = run([
+      'P=_port create : M=_nod alloc(38) : _msg put P,M',
+      'G=_gmsg get(P) : Print G=M : _gmsg reply G : _port delete P',
+    ].join('\n'))
+    expect(output).toBe('-1\n')
+    expect(rt.gadtools.unreplied).toBe(0)
+    expect(rt.osdevkit.gadtoolsMessages.size).toBe(0)
+    expect(() => run('Print _msg get(0)')).toThrow(/illegal function call/i)
+    expect(() => run('Print _gmsg get(0)')).toThrow(/illegal function call/i)
   })
 
   it('suspends empty Exec waits and resumes on shared signal/message delivery', () => {
