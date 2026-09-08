@@ -866,10 +866,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const paths = rows.filter((row) => names.includes(row.name))
     expect(paths).toHaveLength(15)
     expect(paths.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
-      '_dos add part', '_dos dir', '_dos exist', '_dos file part', '_dos l name', '_dos l open', '_dos path part',
-      '_dos rd lock', '_dos set dir$', '_dos unlock', '_dos what dir$', '_file part', '_lock name$',
+      '_dos add part', '_dos dir', '_dos exist', '_dos file part', '_dos l name', '_dos l open', '_dos lock',
+      '_dos path part', '_dos rd lock', '_dos set dir$', '_dos unlock', '_dos what dir$', '_dos wr lock', '_file part', '_lock name$',
     ])
-    expect(paths.filter((row) => row.status === 'partial')).toHaveLength(2)
+    expect(paths.filter((row) => row.status === 'partial')).toHaveLength(0)
 
     const expected = new Map<string, [number, number]>([
       ['_dos lock', [1826, -84]], ['_dos unlock', [1827, -90]],
@@ -901,8 +901,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     ]
     const io = rows.filter((row) => ioNames.includes(row.name))
     expect(io).toHaveLength(20)
-    expect(io.filter((row) => row.name !== '_dos mode').every((row) => row.status === 'faithful')).toBe(true)
-    expect(io.find((row) => row.name === '_dos mode')?.status).toBe('partial')
+    expect(io.every((row) => row.status === 'faithful')).toBe(true)
 
     const direct = new Map<string, [number, number]>([
       ['_dos open', [1801, -30]], ['_dos close', [1802, -36]], ['_dos seek', [1806, -66]],

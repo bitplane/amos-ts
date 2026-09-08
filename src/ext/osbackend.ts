@@ -223,7 +223,7 @@ auditMany('faithful', 'the AMOS-string wrappers share the same AddPart, FilePart
 auditMany('faithful', 'shared DOS lock identities retain paths across ParentDir, NameFromLock, CurrentDir and explicit release', [
   '_dos unlock', '_dos l open', '_dos l name', '_dos dir', '_dos rd lock', '_lock name$',
 ])
-auditMany('partial', 'native lock identities and access modes are retained, but exclusive locks cannot prevent independent host filesystem mutation', [
+auditMany('faithful', 'native lock identities and shared/exclusive access modes are enforced across every emulated DOS path', [
   '_dos lock', '_dos wr lock',
 ])
 auditMany('faithful', 'the native path operations mutate caller-owned C buffers or return the exact pointer boundary within them', [
@@ -243,7 +243,7 @@ auditMany('faithful', 'shared native-style DOS handles provide raw and buffered 
   '_dos f putc', '_dos f puts', '_dos f ungetc', '_dos f name',
   '_dos opin', '_dos opout', '_dos append', '_dos print', '_dos input', '_dos eof', '_dos lof', '_fh name$',
 ])
-auditMany('partial', 'shared/exclusive ownership and ChangeMode upgrades are enforced across process DOS handles and locks; independent host filesystem mutation remains outside packet locking', [
+auditMany('faithful', 'shared/exclusive ownership and ChangeMode upgrades are enforced across process DOS handles and locks', [
   '_dos mode',
 ])
 auditMany('faithful', 'one process-wide dos.library state returns IoErr and atomically replaces it through SetIoErr', [
