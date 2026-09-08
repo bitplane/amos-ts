@@ -216,9 +216,15 @@ export function createList(host: HTMLElement): List {
           row.body(body)
           item.appendChild(body)
         } else {
-          // no body means no disclosure: without this the row still opens, to
-          // reveal nothing
-          summary.addEventListener('click', (e) => e.preventDefault())
+          // No body means no disclosure. If the row is somewhere the reader
+          // can go, the whole otherwise-inert summary goes there; its label
+          // and action buttons stop propagation above and keep their own
+          // single actions. This makes a drawer row behave like a row rather
+          // than a small link surrounded by dead space.
+          summary.addEventListener('click', (e) => {
+            e.preventDefault()
+            row.go?.()
+          })
         }
 
         row.mount?.(item)

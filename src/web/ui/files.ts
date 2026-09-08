@@ -227,6 +227,8 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
   let cwd = ''
   /** drawers the reader has opened in the left tree */
   const openDirs = new Set<string>()
+  /** volumes already offered to the tree, so a repaint does not reopen one */
+  const knownVolumes = new Set<string>()
   /** the entry being dragged, so ../main.ts's page-wide drop handler stands off */
   let dragging: string | null = null
 
@@ -735,7 +737,18 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
     if (cwd === '' || vfs.exists(cwd) !== 'dir') {
       cwd = vols.length > 0 ? `${vols[0]}:` : ''
     }
-    for (const v of vols) openDirs.add(`${v}:`)
+    // A newly mounted volume starts expanded. After that its twisty owns the
+    // state: adding every root on every repaint made closing a volume appear
+    // to do nothing, because the click removed it and refresh put it straight
+    // back before painting.
+    for (const v of vols) {
+      const root = `${v}:`
+      if (!knownVolumes.has(root)) {
+        knownVolumes.add(root)
+        openDirs.add(root)
+      }
+    }
+    for (const root of [...knownVolumes]) if (!vols.includes(root.slice(0, -1))) knownVolumes.delete(root)
     for (const p of [...openDirs]) if (vfs.exists(p) !== 'dir') openDirs.delete(p)
     paintTree()
     paintPane()
