@@ -149,9 +149,8 @@ export interface GameSupportState {
   /** $52 — non-zero when lowlevel.library opened, which here it does */
   lowlevel: boolean
   /**
-   * $56 and $5a — workbench.library and icon.library. The latter has a
-   * file-operation backend; the former and icon.library's AppIcon half do
-   * not. Both flags come from the process-wide library registry.
+   * $56 and $5a — workbench.library and icon.library. Both flags come from
+   * the process-wide library registry; their shared backends are present.
    */
   workbench: boolean
   icon: boolean
@@ -1393,29 +1392,23 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      * the icon's label runs on past the string into whatever the AMOS string
      * heap holds next.
      *
-     * ## Why this port answers 1
+     * ## Current scheduler boundary
      *
-     * `workbench.library` is not modelled, and `icon.library`'s model covers
-     * the `.info` file operations rather than its AppIcon half. The registry
-     * therefore opens icon.library but this still takes the first failure arm
-     * on workbench.library.
-     *
-     * So this takes the first arm, which is a real machine without Workbench
-     * 2, and is exactly what the routine does there. What would make the other
-     * arm reachable is `AddAppIconA`/`RemoveAppIcon` on the Workbench screen
-     * `../amiga/intuition.ts` already opens, plus a blocking `WaitPort` — this
-     * is the one keyword in the extension that suspends the program until the
-     * user acts, which EasyLife's `Eliconify Test` deliberately does not
-     * (it polls). Neither is GameSupport's to provide.
+     * The shared Workbench backend now supplies AppIcon ownership and Exec
+     * supplies the port/message operations. What is still absent is suspension
+     * and resumption in the middle of an extension function call. Returning 0
+     * would claim a double-click that never occurred; retaining an AppIcon
+     * would leak one which the native routine removes before returning. Until
+     * the future task scheduler can resume this call after `WaitPort`, the
+     * honest headless result is therefore its non-raising error result, 1.
      */
     'gsiconify'(_, a): Value {
       void str(a[0]!)
-      // the second form's path is never reached: the library test comes first
       if (a.length > 1) void str(a[1]!)
       const st2 = rt.gamesupport
       if (!st2.workbench || !st2.icon) return VI(1)
-      // still unreachable while workbench.library is absent, and deliberately
-      // not faked: there is no AppIcon to add and no port to wait on
+      // The libraries/backends exist, but this atomic handler cannot suspend
+      // at WaitPort and later continue its cleanup path.
       return VI(1)
     },
 

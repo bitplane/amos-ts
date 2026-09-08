@@ -506,8 +506,12 @@ Two registered products currently remain at 0%:
 - OrgAsm 1.0 reaches AmigaOS and then executes application-supplied 68k code.
 
 OS DevKit 1.61 is implemented incrementally over the runtime-wide AmigaOS
-services. Its remaining surface and current classifications are reported by
-`KEYWORDS.md`; it is no longer accurate to describe the extension as 0%.
+services. All operations which have a faithful or partial shared backend are
+now callable through the extension. The only handlerless keywords are the four
+that require a real 68k/AMOS ABI boundary: `_lib call`, `_call`, `a3 pointer`
+and `give me`. Its remaining fidelity/evidence gaps and current classifications
+are reported by `KEYWORDS.md`; its rounded 100% is not a claim that the 681
+explicitly approximated operations have complete binary fidelity.
 
 Their exact keyword counts and blockers belong in `KEYWORDS.md` and
 `UNIMPLEMENTED.md`; they are not copied here. Everything else registered has

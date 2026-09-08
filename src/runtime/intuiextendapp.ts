@@ -80,17 +80,13 @@
  * word (text), while d0, d1, a2 and a4 are all cleared, so the id, the user
  * data, the lock and the tag list are always zero.
  *
- * ## What this port answers
+ * ## Shared backend
  *
- * DEVIATION: workbench.library and icon.library's AppIcon/default-icon
- * operations are not modelled. The shared registry does open icon.library
- * for its implemented `.info` file operations, but these handlers retain the
- * same failure/no-op surface until the separate calls used here have a
- * backend. There is no Workbench backdrop here for an AppIcon to sit on.
- * GameSupport's `Gsiconify` reaches the same workbench.library boundary.
- *
- * That arm is a real machine's behaviour too. App.guide marks five of these
- * "System: v2.0+", and on 1.3 workbench.library does not exist.
+ * The public AddAppIconA/RemoveAppIcon and GetDefDiskObject/FreeDiskObject
+ * calls use the same Workbench and icon.library object spaces as OS DevKit.
+ * `Wb Get Wbicon` remains separate: its binary calls undocumented private
+ * vector -$1e, not GetDiskObject, and treating those unlike allocations as
+ * interchangeable would make `Wb Free Diskobject` corrupt ownership.
  *
  * The two `App Get` keywords are not on that list, because neither touches a
  * library. They read fields of whatever message `Wb Get Msg` last parked at
@@ -129,7 +125,7 @@ export const IE_WBTYPE = {
 /** what a routine that opened with `moveq #$ff,d3` answers when it gives up */
 const IE_APP_FAIL = -1
 
-export function makeIntuiextendAppInstructions(_rt: Runtime): Record<string, Instr> {
+export function makeIntuiextendAppInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /**
      * Wb Free Diskobject DEFICON, routine 250 ($4c06). icon.library
@@ -140,11 +136,12 @@ export function makeIntuiextendAppInstructions(_rt: Runtime): Record<string, Ins
      * structure IconObject", and it is the only one of the seven marked
      * "System: v1.3+" rather than v2.0.
      *
-     * This port does not expose a raw DiskObject pointer, so the argument is
-     * consumed and the managed icon backend has nothing it can free here.
+     * The shared icon backend owns the address and ignores alien pointers,
+     * matching the useful effect without letting one extension free another
+     * kind of native object.
      */
     'wb free diskobject'(it) {
-      it.evalInt()
+      rt.icons.free(it.evalInt() >>> 0)
     },
 
     /**
@@ -156,7 +153,7 @@ export function makeIntuiextendAppInstructions(_rt: Runtime): Record<string, Ins
      * one, and nothing checks it is not zero either.
      */
     'app free icon'(it) {
-      it.evalInt()
+      rt.workbench.remove(it.evalInt() >>> 0, 'icon')
     },
   }
 }
@@ -191,16 +188,18 @@ export function makeIntuiextendAppFunctions(rt: Runtime): Record<string, Func> {
      * string heap. GameSupport's `Gsiconify` makes the identical mistake with
      * the identical call, and its own guide records the author finding and
      * fixing it for a neighbouring argument. Nothing here reads past the
-     * string, because there is no AddAppIconA to read it.
+     * string. The managed backend retains object identity rather than reading
+     * beyond JavaScript's bounded string.
      *
      * app0: "APPADR=Adresse de la structure AppIcon", and $4b7a answers -1
      * when the library is not there or the call fails.
      */
     'app create icon': (_, a) => {
-      i0(a, 0)
-      i0(a, 1)
+      const diskObject = i0(a, 0) >>> 0
+      const port = i0(a, 1) >>> 0
       s0(a, 2)
-      return VI(IE_APP_FAIL)
+      const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0)
+      return VI(appIcon || IE_APP_FAIL)
     },
 
     /**
@@ -222,8 +221,7 @@ export function makeIntuiextendAppFunctions(rt: Runtime): Record<string, Func> {
      * is at $32 and do_ToolTypes at $36, and a long at $34 takes half of each.
      */
     'wb get deficon': (_, a) => {
-      i0(a, 0)
-      return VI(IE_APP_FAIL)
+      return VI(rt.icons.def(i0(a, 0)))
     },
 
     /**

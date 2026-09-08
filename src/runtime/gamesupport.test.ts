@@ -1062,7 +1062,7 @@ describe('GameSupport: the code modules', () => {
 })
 
 describe('GameSupport: Gsiconify', () => {
-  it('answers 1, the error result, because Workbench 2 is not here', () => {
+  it('answers 1 rather than inventing the blocking AppIcon interaction', () => {
     // `tst.l $56(a2) / beq -> 1` and `tst.l $5a(a2) / beq -> 1`, the first two
     // instructions of both forms. The guide: "the returned value will be 0 if
     // the icon is double-clicked on, and 1 if an error occurred", and "this
@@ -1078,12 +1078,9 @@ describe('GameSupport: Gsiconify', () => {
     expect(() => run('Print Gsiconify("")')).not.toThrow()
   })
 
-  it('reports the two libraries the way the port actually models them', () => {
-    // icon.library's file operations are now modelled; its AppIcon half and
-    // workbench.library are still absent. Gsiconify therefore still takes the
-    // first failure arm above, but the registry flags must tell the truth.
+  it('reports both shared library backends', () => {
     const { rt } = boot('')
-    expect(rt.gamesupport.workbench).toBe(false)
+    expect(rt.gamesupport.workbench).toBe(true)
     expect(rt.gamesupport.icon).toBe(true)
   })
 })

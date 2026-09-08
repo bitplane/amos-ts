@@ -1,10 +1,9 @@
 /**
  * IntuiExtend 2.01b, the AppWindow and icon group.
  *
- * Five of the seven go through workbench.library or icon.library. The latter
- * now has a file-operation backend, while the former and the AppIcon/default
- * icon operations are absent. The two `App Get` keywords touch no library at
- * all: they read an AppMessage, and those tests build one.
+ * Five of the seven go through the shared workbench.library or icon.library
+ * backends. The two `App Get` keywords touch no library at all: they read an
+ * AppMessage, and those tests build one.
  */
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
@@ -76,46 +75,57 @@ const out = (src: string, seed?: Seed): string =>
     .trim()
     .replace(/\s+/g, ' ')
 
-describe('IntuiExtend 2.01b — Workbench/AppIcon operations are absent', () => {
-  /** routine 51 still fails; routine 52 now sees the modelled icon library */
+describe('IntuiExtend 2.01b — Workbench/AppIcon operations', () => {
   it('exec reports the current workbench.library and icon.library registry', () => {
-    expect(openLibrary('workbench.library')).toBe(0)
+    expect(openLibrary('workbench.library')).toBeGreaterThan(0)
     expect(openLibrary('icon.library')).toBeGreaterThan(0)
   })
 
-  /** $4b7a `moveq #$ff,d3`, the arm taken when workspace+$8 is zero */
-  it('App Create Icon answers -1', () => {
-    expect(out('Print App Create Icon(0,0,"Amos")')).toBe('-1')
+  it('App Create Icon allocates in the shared Workbench backend', () => {
+    const b = boot('A=App Create Icon(0,0,"Amos")\nPrint A')
+    const address = Number(b.out().trim())
+    expect(address).toBeGreaterThan(0)
+    expect(b.rt.workbench.items.get(address)).toMatchObject({ kind: 'icon', object: 0, port: 0 })
   })
 
   /** and it takes a DiskObject, a MsgPort and a label, in that order */
   it('App Create Icon takes three arguments', () => {
     expect(ie.tokens.find((t) => t.name === 'app create icon')!.spec).toBe('00,0,2')
-    expect(out('P=Wb Create Msgport\nPrint App Create Icon(1234,P,"Amos")')).toBe('-1')
+    const b = boot('P=Wb Create Msgport\nA=App Create Icon(1234,P,"Amos")\nPrint P;A')
+    const [port, address] = b.out().trim().split(/\s+/).map(Number) as [number, number]
+    expect(b.rt.workbench.items.get(address)).toMatchObject({ kind: 'icon', object: 1234, port })
   })
 
-  /** $4be2 opens with the same `moveq #$ff,d3` before it tries workspace+$c */
-  it('Wb Get Deficon answers -1 for every icon type', () => {
+  it('Wb Get Deficon allocates every native default icon type', () => {
     const src = `For T=${IE_WBTYPE.DISK} To ${IE_WBTYPE.KICK}\nPrint Wb Get Deficon(T);\nNext T`
-    expect(out(src)).toBe('-1-1-1-1-1-1-1')
+    const b = boot(src)
+    const addresses = b.out().trim().split(/\s+/).map(Number)
+    expect(addresses).toHaveLength(7)
+    expect(addresses.map(p => b.rt.icons.objects.get(p)?.type)).toEqual([1, 2, 3, 4, 5, 6, 7])
   })
 
   /** nothing range-checks the type: it goes to the library as it arrives */
   it('Wb Get Deficon does not range-check the type', () => {
-    expect(out('Print Wb Get Deficon(0);" ";Wb Get Deficon(99)')).toBe('-1 -1')
+    const b = boot('Print Wb Get Deficon(0);" ";Wb Get Deficon(99)')
+    const addresses = b.out().trim().split(/\s+/).map(Number)
+    expect(addresses.map(p => b.rt.icons.objects.get(p)?.type)).toEqual([0, 99])
   })
 
   /**
    * The library test at $4c10 comes before the `tst.l (a0)` at $4c16, so an
    * address nothing allocated is never read through.
    */
-  it('Wb Free Diskobject does nothing and does not read its argument', () => {
-    expect(out('Wb Free Diskobject 12345\nWb Free Diskobject 0\nPrint 7')).toBe('7')
+  it('Wb Free Diskobject frees owned icons and ignores alien pointers', () => {
+    const b = boot('D=Wb Get Deficon(3)\nWb Free Diskobject D\nWb Free Diskobject 12345\nWb Free Diskobject 0\nPrint D')
+    const address = Number(b.out().trim())
+    expect(b.rt.icons.objects.has(address)).toBe(false)
   })
 
   /** the same shape, on workbench.library's RemoveAppIcon */
-  it('App Free Icon does nothing', () => {
-    expect(out('App Free Icon 12345\nPrint 7')).toBe('7')
+  it('App Free Icon removes owned AppIcons and ignores alien pointers', () => {
+    const b = boot('A=App Create Icon(0,0,"Amos")\nApp Free Icon A\nApp Free Icon 12345\nPrint A')
+    const address = Number(b.out().trim())
+    expect(b.rt.workbench.items.has(address)).toBe(false)
   })
 
   /**
