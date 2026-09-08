@@ -62,7 +62,7 @@ quietly stay on the list and a half-built one cannot quietly leave it.
 
 OS DevKit 1.61 is **in progress**, but all of its reusable backend-backed
 surface is now callable. `src/cli/osbackend.ts --json` currently classifies its 1,047
-keywords as 620 faithful backend operations, 423 partial ones and four that
+keywords as 622 faithful backend operations, 421 partial ones and four that
 need native 68k execution. Every faithful and partial row has an extension
 handler; a test enforces that invariant. “Partial” still matters: it records
 observable machine behaviour the shared service does not yet reproduce, and

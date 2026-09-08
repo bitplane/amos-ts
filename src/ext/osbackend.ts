@@ -555,7 +555,7 @@ auditMany('faithful', 'native Message FIFO delivery, reply routing and exact rep
 auditMany('faithful', 'signal-bit allocation/free, masked SetSignal state and task Signal delivery are modelled', [
   '_sig alloc', '_sig free', '_sig set', '_sig put',
 ])
-auditMany('partial', 'the immediate result is exact, but an empty wait cannot suspend and reschedule a TypeScript task', [
+auditMany('faithful', 'empty signal and port waits yield and re-enter the worker until shared Exec delivery wakes them', [
   '_port wait', '_sig wait',
 ])
 auditMany('partial', 'GetMsg FIFO removal exists, but the workers raw TypeOfMem guard is not represented', [

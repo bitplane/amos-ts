@@ -309,12 +309,30 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     const { rt, output } = run([
       'T=_task find(0) : Print _task set pri(T,5),_task set pri(T,-3)',
       'I=_int alloc : _nod set pri I,7 : _int add 4,I',
-      'P=_port create : Print _port wait(P),_gmsg get(P) : _gmsg reply 0',
+      'P=_port create : M=_nod alloc(6) : _msg put P,M : Print _port wait(P)=M,_gmsg get(P)=M : _nod free M',
       '_int rem 4,I : _int free I : _port delete P',
     ].join('\n'))
-    expect(output).toBe(' 0\t 5\n 0\t 0\n')
+    expect(output).toBe(' 0\t 5\n-1\t-1\n')
     expect(rt.exec.tasks.priority(rt.exec.tasks.currentTask)).toBe(-3)
     expect(rt.exec.interrupts.servers(4)).toEqual([])
+  })
+
+  it('suspends empty Exec waits and resumes on shared signal/message delivery', () => {
+    const signal = boot('Print _sig wait(32)')
+    signal.rt.frame()
+    expect(signal.rt.interp.blocked).not.toBeNull()
+    signal.rt.exec.messages.signal(signal.rt.exec.messages.currentTask, 32)
+    for (let i = 0; i < 3; i++) signal.rt.frame()
+    expect(signal.output().trim()).toBe('32')
+
+    const port = boot('P=_port create : _nod set name P,_to str("wait-test") : _port add P : Print _port wait(P)<>0')
+    port.rt.frame()
+    expect(port.rt.interp.blocked).not.toBeNull()
+    const address = port.rt.exec.messages.findPort('wait-test')
+    const message = port.rt.exec.messages.allocMessage()
+    port.rt.exec.messages.putMsg(address, message)
+    for (let i = 0; i < 3; i++) port.rt.frame()
+    expect(port.output().trim()).toBe('-1')
   })
 
   it('folds raw Window mutation and pointer calls into Window-ID Intuition state', () => {
@@ -377,7 +395,7 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       '_wnd id open 2,1,1,30,15,0,$C0000,0,"Ports" : _wnd id open 3,35,1,30,15,0,0,0,"Other"',
       'W=_wnd id base(2) : P=_port create : _wnd share port W,P : _wnd id activate 2',
       'Print _wnd what user port(W)=P,Hex$(_wnd wait port(W,$40000)),_wnd id event wnd',
-      '_wnd id activate 3 : _wnd id activate 2 : _wnd clear port W : Print _port wait(P)',
+      '_wnd id activate 3 : _wnd id activate 2 : _wnd clear port W : Print _gmsg get(P)',
       '_wnd unshare port W : Print _wnd what user port(W),_wnd what idcmp(W)',
       '_wnd close W : _wnd id close 3 : _port delete P : _scr id close 1',
     ].join('\n'))

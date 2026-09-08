@@ -3535,11 +3535,18 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd what active'() { return VI(windowBase(st(), rt.intuition.activeWindow)) },
     '_wnd what pointer'(_, a) { return VI(windowAtBase(st(), n(a, 0))?.pointer?.data ?? 0) },
     '_wnd what vport'(_, a) { return VI(windowViewPort(st(), windowAtBase(st(), n(a, 0)))) },
-    '_wnd wait port'(_, a) {
+    '_wnd wait port'(it, a) {
       const base = n(a, 0) >>> 0; const window = windowAtBase(st(), base)
-      return VI(window ? takeWindowEvent(st(), n(a, 1), base, window.userPort) : 0)
+      if (!window) return VI(0)
+      const event = takeWindowEvent(st(), n(a, 1), base, window.userPort)
+      if (event === 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(event)
     },
-    '_event wait port'(_, a) { return VI(takeWindowEvent(st(), n(a, 1), 0, n(a, 0) >>> 0)) },
+    '_event wait port'(it, a) {
+      const event = takeWindowEvent(st(), n(a, 1), 0, n(a, 0) >>> 0)
+      if (event === 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(event)
+    },
     '_wnd wdef left'() { return VI(structRead(rt, windowDefinitionAddress(st()), 2, false)) },
     '_wnd wdef top'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 2, 2, false)) },
     '_wnd wdef width'() { return VI(structRead(rt, windowDefinitionAddress(st()) + 4, 2, false)) },
@@ -4137,7 +4144,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_cx msg port'() { return VI(st().commodities.port) },
     '_cx id type'(_, a) { return VI(st().commodities.objects.get(st().commodities.ids.get(n(a, 0)) ?? 0)?.type ?? 0) },
     '_cx id error'(_, a) { return VI(st().commodities.objects.get(st().commodities.ids.get(n(a, 0)) ?? 0)?.error ?? 0) },
-    '_cx id wait event'() { return VI(st().commodities.next(true)) },
+    '_cx id wait event'(it) {
+      const type = st().commodities.next(true)
+      if (type === 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(type)
+    },
     '_cx id next event'() { return VI(st().commodities.next(false)) },
     '_cx id event type'() { return VI(st().commodities.current?.type ?? 0) },
     '_cx id event id'() { return VI(st().commodities.current?.id ?? 0) },
@@ -4469,10 +4480,18 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     /** workers 1559/1560: AllocSignal and masked SetSignal. */
     '_sig alloc'(_, a) { return VI(st().exec.messages.allocSignal(n(a, 0))) },
     '_sig set'(_, a) { return VI(st().exec.messages.setSignal(n(a, 0), n(a, 1))) },
-    '_sig wait'(_, a) { return VI(st().exec.messages.wait(n(a, 0)) ?? 0) },
+    '_sig wait'(it, a) {
+      const received = st().exec.messages.wait(n(a, 0))
+      if (received === null) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(received ?? 0)
+    },
     '_task find'(_, a) { const address = n(a, 0) >>> 0; return VI(st().exec.tasks.find(address === 0 ? null : cString(rt, address))) },
     '_task set pri'(_, a) { return VI(st().exec.tasks.setPriority(n(a, 0), n(a, 1))) },
-    '_port wait'(_, a) { return VI(st().exec.messages.waitPort(n(a, 0)) ?? 0) },
+    '_port wait'(it, a) {
+      const message = st().exec.messages.waitPort(n(a, 0))
+      if (message === null) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(message ?? 0)
+    },
     '_gmsg get'(_, a) { return VI(st().exec.messages.getMsg(n(a, 0))) },
     /** worker 1563: cleared 22-byte native Interrupt allocation. */
     '_int alloc'() { return VI(st().exec.interrupts.alloc()) },
