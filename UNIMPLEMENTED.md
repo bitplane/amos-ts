@@ -16,7 +16,9 @@ per-keyword notes.
 - **OS DevKit native calls:** `_lib call`, `_call`, `a3 pointer` and `give me`
   require executable 68k code or stable addresses for AMOS interpreter
   internals. The reusable library-backed OS DevKit operations are callable;
-  `src/cli/osbackend.ts --json` reports their fidelity separately.
+  Their operation-level verdicts live in `src/ext/osbackend.ts` and feed the
+  generated keyword inventory directly; `src/cli/osbackend.ts --json` adds
+  binary routine and library-call evidence without creating another list.
 - **OrgAsm 1.0 (`orgasm-1.0`):** its interface ultimately jumps into 68k code loaded by the
   program. Porting the surrounding Exec, Intuition and GadTools calls cannot
   make that code executable.
@@ -48,9 +50,9 @@ implementation; `src/runtime/README.md` defines that marker.
 Some approximations are ordinary implementation work rather than platform
 boundaries. Current examples include broader native tag/structure handling,
 remaining OS DevKit rendering details, additional decrunch handlers and a few
-codec paths that are conformant but not byte-identical. Treat
-`src/coverage/status.ts` and the OS DevKit audit as the backlog; do not maintain
-a second keyword list here.
+codec paths that are conformant but not byte-identical. Treat the metadata
+that generates `KEYWORDS.md` as the backlog; do not maintain another keyword
+list here.
 
 ## Compatibility sampling
 

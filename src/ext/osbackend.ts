@@ -101,6 +101,16 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_layer delete', { status: 'partial', reason: 'native ownership, chain deletion and exposure are integrated; bitmap restoration and executable backfill hooks are not' }],
 ])
 
+/**
+ * The operation-level OS DevKit verdict used by both the binary audit and the
+ * generated keyword manifest. It deliberately needs no fixture: the held
+ * binary is evidence checked by auditOsBackend, not a runtime dependency of
+ * coverage generation.
+ */
+export function osBackendVerdict(name: string): Readonly<{ status: OsBackendStatus; reason: string }> | undefined {
+  return AUDITED.get(name.replace(/^!/, '').trim().toLowerCase())
+}
+
 const auditMany = (status: OsBackendStatus, reason: string, names: readonly string[]): void => {
   for (const name of names) {
     if (AUDITED.has(name)) throw new Error(`duplicate OS backend audit verdict for ${name}`)
@@ -749,7 +759,7 @@ export function auditOsBackend(entries: TokenEntry[], code: Uint8Array): OsBacke
     const namespace = namespaceOf(name)
     const missing = MISSING.find((f) => f.names(name, namespace))
     const modelled = MODELLED.get(namespace)
-    const audited = AUDITED.get(name)
+    const audited = osBackendVerdict(name)
     // A leading `!` means this named token owns the following empty-name
     // entries: overload continuations in the binary token table. Keep one
     // keyword row, but cite and scan every implementation routine it exposes.

@@ -1,11 +1,14 @@
 /**
- * Coverage classification — the source of truth for KEYWORDS.md.
+ * General coverage metadata consumed by the KEYWORDS.md generator.
  *
  * Every implemented keyword defaults to "approximated" (works, passes our
  * tests, but not verified against the original). A keyword may only be
  * promoted to FAITHFUL when its behaviour has been checked against the
  * original 68k source (+Lib.s/+ILib.s/+W.s/extensions), the official
- * help manual, or byte-exact artifacts — and the test suite cites it.
+ * help manual, or byte-exact artifacts — and the test suite cites it. OS
+ * DevKit is classified by its operation-level binary audit in
+ * `src/ext/osbackend.ts`; genmanifest deliberately ignores this legacy set
+ * for that extension so the two cannot disagree.
  */
 
 /** Verified against the original implementation or real artifacts. */

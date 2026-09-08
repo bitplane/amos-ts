@@ -16,6 +16,7 @@ import { makeInstructions, makeFunctions, makeRawFunctions, extensionImpls } fro
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/source'
 import { FAITHFUL, NA, NA_GROUPS, NA_GROUP_OF, STRUCTURAL, noteFor } from '../coverage/status'
+import { osBackendVerdict } from '../ext/osbackend'
 
 /**
  * Where the manifest lives, resolved from THIS file rather than from the
@@ -151,8 +152,15 @@ function classify(name: string, ext: string): Status {
     ext === 'core' || CORE_EXTENSIONS.has(ext)
       ? new Set([...coreImplemented, ...(extImplemented.get(ext) ?? [])])
       : (extImplemented.get(ext) ?? new Set<string>())
-  if (impl.has(name)) return FAITHFUL.has(name) ? 'faithful' : 'approximated'
-  return 'missing'
+  if (!impl.has(name)) return 'missing'
+  if (ext === 'os-devkit-1.61') {
+    const verdict = osBackendVerdict(name)
+    if (!verdict) throw new Error(`OS DevKit keyword has no operation-level audit verdict: ${name}`)
+    if (verdict.status === 'review') throw new Error(`OS DevKit keyword still needs audit review: ${name}`)
+    return verdict.status === 'partial' ? 'approximated' : verdict.status
+  }
+  if (FAITHFUL.has(name)) return 'faithful'
+  return 'approximated'
 }
 
 /** rough functional area, for rollups */
@@ -369,10 +377,10 @@ carries those rows with what each one is waiting on.
 So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
-The evidence is not here. The classification, the assembly citations and the
-${noted} qualifying notes live in \`src/coverage/status.ts\`, which this file
-is generated from. Look a keyword up there for why it is classified the way it
-is.
+The evidence is not here. General keyword metadata and ${noted} qualifying
+notes live in \`src/coverage/status.ts\`. OS DevKit operation verdicts and
+their binary call traces live in \`src/ext/osbackend.ts\`. This generator is
+the only path that combines that metadata into the committed inventory.
 
 ## Summary
 

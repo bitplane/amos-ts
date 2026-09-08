@@ -27,10 +27,10 @@ carries those rows with what each one is waiting on.
 So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
-The evidence is not here. The classification, the assembly citations and the
-1250 qualifying notes live in `src/coverage/status.ts`, which this file
-is generated from. Look a keyword up there for why it is classified the way it
-is.
+The evidence is not here. General keyword metadata and 1250 qualifying
+notes live in `src/coverage/status.ts`. OS DevKit operation verdicts and
+their binary call traces live in `src/ext/osbackend.ts`. This generator is
+the only path that combines that metadata into the committed inventory.
 
 ## Summary
 
@@ -114,7 +114,7 @@ is.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      362 |          681 |       4 |     100% |
+| os-devkit-1.61       |     1047 |      655 |          388 |       4 |     100% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6227 |         1092 |      47 |      99% |
+| **total**            |     7422 |     6520 |          799 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -431,45 +431,24 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (100%)
 
-- **approximated** (681): `_ag display`, `_ag show`, `_alert`, `_amos name`, `_app add icon`,
-  `_app add menu`, `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`,
-  `_area draw`, `_area ellipse`, `_area end`, `_area move`, `_areg`, `_arg what lock`,
-  `_arg what str`, `_asl alloc`, `_asl do`, `_asl file$`, `_asl free`, `_asl what drawer`,
-  `_asl what file`, `_asl what font`, `_asl what nb args`, `_base cx`, `_base iff`, `_base tag`,
-  `_base topaz`, `_base wb`, `_bd draw`, `_blt clip`, `_blt clr`, `_blt msk bm to rp`,
-  `_blt pattern`, `_bm alloc`, `_bm free`, `_bm set plane`, `_bm what attr`, `_bob blit`,
-  `_cache ctrl`, `_calc ivg`, `_cat close`, `_cat open`, `_cat str`, `_chip set rev`,
-  `_chn new length`, `_chunk child`, `_chunk current`, `_chunk end`, `_chunk parent`,
-  `_chunk read`, `_chunk what id`, `_chunk what scan`, `_chunk what size`, `_chunk what type`,
+- **approximated** (388): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+  `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
+  `_area ellipse`, `_area end`, `_area move`, `_areg`, `_asl alloc`, `_asl do`, `_bd draw`,
+  `_blt clip`, `_blt clr`, `_blt msk bm to rp`, `_blt pattern`, `_bm alloc`, `_bm free`,
+  `_bm set plane`, `_bm what attr`, `_bob blit`, `_cache ctrl`, `_calc ivg`, `_cat open`,
+  `_chip set rev`, `_chn new length`, `_chunk child`, `_chunk end`, `_chunk read`,
   `_chunk write`, `_class get file`, `_cli read args`, `_cli what arg`, `_cli what arg$`,
   `_cop control`, `_cop load view`, `_cop make vport`, `_cop mrg`, `_cop scroll vport`,
-  `_cop vbeam pos`, `_cop wait bottom`, `_cop wait tof`, `_cx broker`, `_cx disable`,
-  `_cx enable`, `_cx id activate`, `_cx id attach`, `_cx id base`, `_cx id clear error`,
-  `_cx id create`, `_cx id delete`, `_cx id error`, `_cx id event data`, `_cx id event id`,
-  `_cx id event type`, `_cx id inactivate`, `_cx id next event`, `_cx id remove`, `_cx id type`,
-  `_cx id wait event`, `_cx init`, `_cx install`, `_cx msg port`, `_cx uninstall`, `_dbl click`,
-  `_disp alert`, `_disp info find`, `_disp info get`, `_disp remake`, `_disp rethink`,
-  `_dos add part`, `_dos append`, `_dos close`, `_dos date$`, `_dos day$`, `_dos dir`,
-  `_dos end notify`, `_dos eof`, `_dos err`, `_dos exist`, `_dos f getc`, `_dos f gets`,
-  `_dos f name`, `_dos f putc`, `_dos f puts`, `_dos f ungetc`, `_dos fault`, `_dos file part`,
-  `_dos input`, `_dos l name`, `_dos l open`, `_dos lock`, `_dos lof`, `_dos mode`,
-  `_dos msg notify`, `_dos new proc`, `_dos open`, `_dos opin`, `_dos opout`, `_dos path part`,
-  `_dos print`, `_dos rd lock`, `_dos read`, `_dos report`, `_dos seek`, `_dos seg load`,
-  `_dos seg unload`, `_dos set dir$`, `_dos set err`, `_dos sig notify`, `_dos time$`,
-  `_dos unlock`, `_dos var del`, `_dos var find`, `_dos var value$`, `_dos what dir$`,
-  `_dos wr lock`, `_dos write`, `_dreg`, `_dt add`, `_dt create`, `_dt delete`, `_dt do`,
-  `_dt init`, `_dt obtain`, `_dt refresh`, `_dt release`, `_dt remove`, `_dt set attrs`,
-  `_dt str$`, `_dt what attrs`, `_dt what methods`, `_dt what triggers`, `_event wait port`,
-  `_fh name$`, `_file part`, `_font add`, `_font ask`, `_font close`, `_font load`,
-  `_font open`, `_font rem`, `_fx balance`, `_fx bank`, `_fx play`, `_gad activate`, `_gad add`,
-  `_gad modif prop`, `_gad off`, `_gad on`, `_gad refresh`, `_gad remove`, `_gad set body`,
-  `_gad set fat`, `_gad set next`, `_gad set render`, `_gad set spec info`, `_gad set text`,
-  `_gad set user`, `_gad what activation`, `_gad what flags`, `_gad what h render`,
-  `_gad what height`, `_gad what left`, `_gad what next`, `_gad what render`,
-  `_gad what spec info`, `_gad what text`, `_gad what top`, `_gad what type`,
-  `_gad what user data`, `_gad what user id`, `_gad what width`, `_ggad create`,
-  `_ggad draw box`, `_ggad refresh`, `_ggad set attrs`, `_ggad what attrs`, `_gmn create`,
-  `_gmn end`, `_gmn free`, `_gmn layout`, `_gmn list alloc`, `_gmn list free`, `_gmn set`,
+  `_cop vbeam pos`, `_cop wait bottom`, `_cop wait tof`, `_cx id event data`, `_cx id event id`,
+  `_cx id event type`, `_cx id next event`, `_cx id wait event`, `_cx install`, `_disp alert`,
+  `_disp info get`, `_disp remake`, `_disp rethink`, `_dos date$`, `_dos day$`, `_dos fault`,
+  `_dos new proc`, `_dos report`, `_dos seg load`, `_dos seg unload`, `_dos time$`,
+  `_dos var value$`, `_dreg`, `_dt add`, `_dt create`, `_dt do`, `_dt obtain`, `_dt refresh`,
+  `_dt remove`, `_dt set attrs`, `_dt str$`, `_dt what attrs`, `_dt what methods`,
+  `_dt what triggers`, `_event wait port`, `_font add`, `_font ask`, `_font close`,
+  `_font load`, `_font open`, `_font rem`, `_fx balance`, `_fx play`, `_gad activate`,
+  `_gad add`, `_gad modif prop`, `_gad off`, `_gad on`, `_gad refresh`, `_gad remove`,
+  `_ggad create`, `_ggad draw box`, `_ggad refresh`, `_ggad set attrs`, `_ggad what attrs`,
   `_gmsg get`, `_gmsg reply`, `_gt activate`, `_gt add bob item`, `_gt add bob sub`,
   `_gt add image item`, `_gt add image sub`, `_gt add item`, `_gt add menu`, `_gt add sub`,
   `_gt base`, `_gt begin refresh`, `_gt bevel box`, `_gt bob`, `_gt boopsi`, `_gt button`,
@@ -485,86 +464,47 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_gt set mx`, `_gt set number`, `_gt set palette`, `_gt set scroller`, `_gt set slider`,
   `_gt set string`, `_gt set string mode`, `_gt set text`, `_gt string`, `_gt text`,
   `_gt v scroller`, `_gt v slider`, `_gt what attr`, `_gt what integer`, `_gt what string`,
-  `_help ctrl`, `_icon def`, `_icon del`, `_icon free`, `_icon get`, `_icon info`, `_icon kill`,
-  `_icon load`, `_icon put`, `_icon save`, `_id unique`, `_iff close`, `_iff init`,
+  `_icon def`, `_icon get`, `_icon info`, `_icon load`, `_icon put`, `_icon save`, `_iff close`,
   `_iff open in`, `_iff open out`, `_iff parse`, `_img draw`, `_img draw state`, `_img erase`,
-  `_int add`, `_it print`, `_it set`, `_it set corner`, `_it set draw`, `_it set font`,
-  `_it set next`, `_it set str`, `_it what back pen`, `_it what draw mode`, `_it what font`,
-  `_it what front pen`, `_it what left`, `_it what len`, `_it what next`, `_it what str`,
-  `_it what top`, `_joy init`, `_joy read`, `_joy set`, `_joy type`, `_key pressed`,
-  `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`,
-  `_lib close`, `_lib open`, `_lib revision`, `_lib version`, `_loc close`, `_loc init`,
-  `_loc open`, `_loc str`, `_lock name$`, `_low init`, `_mem avail`, `_mem type`, `_menu clear`,
-  `_menu off`, `_menu on`, `_menu set`, `_menu share`, `_menu what address`, `_menu what flags`,
-  `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`, `_menu what sub nb`,
-  `_menu what user`, `_mode best id`, `_mode coerce`, `_mouse report`, `_mouse unreport`,
-  `_msg get`, `_nmsg what nreq`, `_nr what user`, `_obj do`, `_obj free`, `_obj new`,
-  `_obj set attrs`, `_obj what attr`, `_path add`, `_path part`, `_pen find`, `_pen obtain`,
-  `_pen obtain best`, `_pen release`, `_pen set max`, `_pool alloc`, `_pool create`,
-  `_pool delete`, `_pool free`, `_port wait`, `_prfs get`, `_prfs get def`, `_prfs set`,
-  `_prg dir$`, `_prg name$`, `_print`, `_ptr clear`, `_ptr set`, `_query overscan`, `_req do`,
-  `_req easy`, `_req end`, `_req init`, `_request choice`, `_rfsh begin`, `_rfsh end`,
-  `_rgb32 load`, `_rgb32 set`, `_rgb4 load`, `_rgb4 set`, `_rp bf scroll`, `_rp clr eol`,
-  `_rp clr scr`, `_rp poly draw`, `_rp scroll`, `_rp set attrs`, `_rp what attrs`, `_scale bm`,
-  `_scale div`, `_scr beep`, `_scr close`, `_scr def bmap`, `_scr def body`, `_scr def font`,
-  `_scr def pens`, `_scr def pub`, `_scr def title`, `_scr def type`, `_scr def vmodes`,
-  `_scr dinf free`, `_scr dinf get`, `_scr hide title`, `_scr id aga colour`, `_scr id bar`,
-  `_scr id beep`, `_scr id clip`, `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`,
-  `_scr id def dri pens v2`, `_scr id ellipse`, `_scr id fill ellipse`, `_scr id fix dri pens`,
-  `_scr id from pointer`, `_scr id from pub`, `_scr id gr locate`, `_scr id gr writing`,
-  `_scr id ink`, `_scr id line`, `_scr id line to`, `_scr id paint`, `_scr id pattern off`,
-  `_scr id pattern on`, `_scr id plot`, `_scr id point`, `_scr id put bob`, `_scr id rect`,
-  `_scr id scroll`, `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`,
-  `_scr id set paint`, `_scr id tag open`, `_scr id text`, `_scr move`, `_scr open`,
-  `_scr position`, `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`,
-  `_scr set def title`, `_scr set title`, `_scr show title`, `_scr tag open`, `_scr to back`,
-  `_scr to front`, `_scr wdef bmap`, `_scr wdef font`, `_scr wdef title`, `_scr wdef type`,
-  `_scr wdef vmodes`, `_scr what active`, `_scr what b pen`, `_scr what barh`, `_scr what bmap`,
-  `_scr what d pen`, `_scr what def title`, `_scr what depth`, `_scr what first wnd`,
-  `_scr what font`, `_scr what front`, `_scr what height`, `_scr what layer`,
-  `_scr what layer info`, `_scr what next`, `_scr what rport`, `_scr what title`,
-  `_scr what type`, `_scr what vmodes`, `_scr what vport`, `_scr what width`,
-  `_scr what x mouse`, `_scr what y mouse`, `_sig wait`, `_sp balance`, `_sp check`,
+  `_int add`, `_it print`, `_it what len`, `_joy init`, `_joy read`, `_joy set`, `_joy type`,
+  `_key pressed`, `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`,
+  `_li new`, `_lib close`, `_lib open`, `_lib revision`, `_lib version`, `_loc open`,
+  `_loc str`, `_mem avail`, `_mem type`, `_mode best id`, `_mode coerce`, `_msg get`, `_obj do`,
+  `_obj new`, `_obj set attrs`, `_pen find`, `_pen obtain`, `_pen obtain best`, `_pen release`,
+  `_pen set max`, `_pool alloc`, `_pool create`, `_pool delete`, `_pool free`, `_print`,
+  `_ptr clear`, `_ptr set`, `_query overscan`, `_req do`, `_req easy`, `_req end`, `_req init`,
+  `_request choice`, `_rfsh begin`, `_rfsh end`, `_rgb32 load`, `_rgb32 set`, `_rgb4 load`,
+  `_rgb4 set`, `_rp bf scroll`, `_rp clr eol`, `_rp clr scr`, `_rp poly draw`, `_rp scroll`,
+  `_rp set attrs`, `_rp what attrs`, `_scale bm`, `_scale div`, `_scr beep`, `_scr close`,
+  `_scr def pub`, `_scr dinf free`, `_scr dinf get`, `_scr hide title`, `_scr id aga colour`,
+  `_scr id bar`, `_scr id base`, `_scr id beep`, `_scr id clip`, `_scr id close`, `_scr id cls`,
+  `_scr id colour`, `_scr id depth`, `_scr id ellipse`, `_scr id fill ellipse`,
+  `_scr id fix dri pens`, `_scr id from pointer`, `_scr id from pub`, `_scr id from wb`,
+  `_scr id get aga pal`, `_scr id get pal`, `_scr id gr locate`, `_scr id gr writing`,
+  `_scr id height`, `_scr id hide`, `_scr id in use`, `_scr id ink`, `_scr id line`,
+  `_scr id line to`, `_scr id mode`, `_scr id move`, `_scr id offset`, `_scr id open`,
+  `_scr id paint`, `_scr id pattern off`, `_scr id pattern on`, `_scr id plot`, `_scr id point`,
+  `_scr id put bob`, `_scr id rect`, `_scr id rport`, `_scr id scroll`, `_scr id set aga pal`,
+  `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`,
+  `_scr id set mouse pos`, `_scr id set paint`, `_scr id set pal`, `_scr id show`,
+  `_scr id tag open`, `_scr id text`, `_scr id use`, `_scr id vport`, `_scr id width`,
+  `_scr id x mouse`, `_scr id y mouse`, `_scr move`, `_scr open`, `_scr position`,
+  `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`, `_scr show title`,
+  `_scr tag open`, `_scr to back`, `_scr to front`, `_scr what active`, `_scr what front`,
+  `_scr what layer info`, `_scr what rport`, `_scr what vport`, `_sp balance`, `_sp check`,
   `_sp install`, `_sp mix`, `_sp play`, `_sp remove`, `_sp speed`, `_sp stop`, `_sp volume`,
   `_spr a change`, `_spr a data alloc`, `_spr a data free`, `_spr a get`, `_spr change`,
   `_spr free`, `_spr get`, `_spr move`, `_sys disown`, `_sys own`, `_sys view`, `_task find`,
-  `_task set pri`, `_time elapsed`, `_tool exist`, `_tool find`, `_tool get$`, `_tool match`,
-  `_tool val match$`, `_vp get mode`, `_wb close`, `_wb msg`, `_wb open`, `_wb to back`,
-  `_wb to front`, `_wnd activate`, `_wnd box`, `_wnd clear port`, `_wnd close`, `_wnd def bmap`,
-  `_wnd def body`, `_wnd def flags`, `_wnd def gad`, `_wnd def idcmp`, `_wnd def image`,
-  `_wnd def limits`, `_wnd def pens`, `_wnd def scr`, `_wnd def title`, `_wnd def type`,
-  `_wnd id activate`, `_wnd id bar`, `_wnd id bottom bdr`, `_wnd id box`, `_wnd id close`,
-  `_wnd id data`, `_wnd id event code`, `_wnd id event gadget`, `_wnd id event gt bank`,
-  `_wnd id event item`, `_wnd id event menu`, `_wnd id event next menu`,
-  `_wnd id event qualifier`, `_wnd id event sub`, `_wnd id event wnd`, `_wnd id event x mouse`,
-  `_wnd id event y mouse`, `_wnd id fill ellipse`, `_wnd id height`, `_wnd id inner height`,
-  `_wnd id inner width`, `_wnd id inner x mouse`, `_wnd id inner y mouse`, `_wnd id left bdr`,
-  `_wnd id limits`, `_wnd id lock`, `_wnd id mask event`, `_wnd id mouse`, `_wnd id move`,
-  `_wnd id next event`, `_wnd id open`, `_wnd id paint`, `_wnd id put bob`, `_wnd id right bdr`,
-  `_wnd id scroll`, `_wnd id set mouse pos`, `_wnd id size`, `_wnd id tag open`,
-  `_wnd id titles`, `_wnd id top bdr`, `_wnd id unlock`, `_wnd id wait event`, `_wnd id width`,
-  `_wnd id x`, `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`,
-  `_wnd in front of`, `_wnd move`, `_wnd open`, `_wnd refresh frame`, `_wnd scroll raster`,
-  `_wnd set idcmp`, `_wnd set limits`, `_wnd set pointera`, `_wnd set titles`,
-  `_wnd share port`, `_wnd size`, `_wnd tag open`, `_wnd to back`, `_wnd to front`,
-  `_wnd unshare port`, `_wnd wait port`, `_wnd wdef b pen`, `_wnd wdef bmap`, `_wnd wdef d pen`,
-  `_wnd wdef flags`, `_wnd wdef gad`, `_wnd wdef height`, `_wnd wdef idcmp`, `_wnd wdef image`,
-  `_wnd wdef left`, `_wnd wdef max height`, `_wnd wdef max width`, `_wnd wdef min height`,
-  `_wnd wdef min width`, `_wnd wdef scr`, `_wnd wdef title`, `_wnd wdef top`, `_wnd wdef type`,
-  `_wnd wdef width`, `_wnd what active`, `_wnd what b pen`, `_wnd what bdr bottom`,
-  `_wnd what bdr left`, `_wnd what bdr right`, `_wnd what bdr top`, `_wnd what count req`,
-  `_wnd what d pen`, `_wnd what descendant`, `_wnd what dm req`, `_wnd what ext data`,
-  `_wnd what first gad`, `_wnd what first req`, `_wnd what flags`, `_wnd what font`,
-  `_wnd what front`, `_wnd what height`, `_wnd what idcmp`, `_wnd what image`,
-  `_wnd what int msg`, `_wnd what layer`, `_wnd what left`, `_wnd what max height`,
-  `_wnd what max width`, `_wnd what menu`, `_wnd what min height`, `_wnd what min width`,
-  `_wnd what next`, `_wnd what parent`, `_wnd what pointer`, `_wnd what pointer height`,
-  `_wnd what pointer width`, `_wnd what pointer xoff`, `_wnd what pointer yoff`,
-  `_wnd what port`, `_wnd what rport`, `_wnd what scr`, `_wnd what scr title`,
-  `_wnd what title`, `_wnd what top`, `_wnd what user data`, `_wnd what user port`,
-  `_wnd what vport`, `_wnd what width`, `_wnd what x mouse`, `_wnd what y mouse`, `_wnd zip`,
-  `reserve as gt gadgets`, `reserve as gt menus`, `track add`, `track exist`, `track set`,
-  `track unset`
+  `_task set pri`, `_time elapsed`, `_vp get mode`, `_wb msg`, `_wnd activate`, `_wnd box`,
+  `_wnd clear port`, `_wnd close`, `_wnd id bar`, `_wnd id box`, `_wnd id close`,
+  `_wnd id fill ellipse`, `_wnd id limits`, `_wnd id lock`, `_wnd id mouse`, `_wnd id move`,
+  `_wnd id open`, `_wnd id paint`, `_wnd id put bob`, `_wnd id scroll`, `_wnd id size`,
+  `_wnd id tag open`, `_wnd id unlock`, `_wnd in front of`, `_wnd move`, `_wnd open`,
+  `_wnd refresh frame`, `_wnd scroll raster`, `_wnd set idcmp`, `_wnd set limits`,
+  `_wnd set pointera`, `_wnd set titles`, `_wnd share port`, `_wnd size`, `_wnd tag open`,
+  `_wnd to back`, `_wnd to front`, `_wnd unshare port`, `_wnd wait port`, `_wnd what active`,
+  `_wnd what pointer`, `_wnd what vport`, `_wnd zip`, `reserve as gt gadgets`,
+  `reserve as gt menus`
 
 ## powerbobs-1.0 (100%)
 
