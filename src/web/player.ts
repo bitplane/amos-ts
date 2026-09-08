@@ -1360,7 +1360,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
           if (amos !== null) {
             // `RunErr` (+ILib.s:1267) is one exit with a number in d0, and
             // `Ed_Errr` (+Edit.s:8261) branches on it and nothing else: 10 is
-            // End and goes to `Ed_Ligne`, 1000 is Edit, 1001 is Direct and
+            // End returns quietly to the editor, 1000 is Edit, 1001 is Direct and
             // opens the escape screen, 1002 is System. Where a stopped
             // program leaves you is that routine's answer and not this
             // loop's.

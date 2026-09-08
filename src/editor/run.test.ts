@@ -240,7 +240,9 @@ function stop(e: Edit, code: number, at = -1, text: string | null = null): numbe
 describe('when the program stops', () => {
   it('says nothing for End, and lets the program be run again', () => {
     const e = open()
+    const { seen } = asks(e, 2)
     expect(stop(e, 10)).toBe(0)
+    expect(seen).toEqual([])
     expect(e.editor.runned).toBe(null)
     expect(e.editor.running).toEqual([]) // Prg_Pull
     expect(edCall(e, ED.RUN)).toBe(0)

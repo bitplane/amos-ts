@@ -3430,8 +3430,13 @@ function errDirect(e: Edit, message = ''): void {
 /** `Ed_Errr` (:8261), which `Ed_ErrTest` and `Ed_ErrRun` both fall into */
 function errr(e: Edit, w: Edit, code: number, at: number, text: string | null): void {
   if (code >= 0 && code !== 1000) {
+    // `cmp.w #10,d1 / beq Ed_ErrEdit` at Ed_Errr: reaching the end of the
+    // source is a normal return to the editor, not an error to ask about.
+    // The no-dialogue host appeared quiet only because its implicit Direct
+    // answer suppressed End's text; the browser's real requester exposed the
+    // missing branch as “End of program at line …”.
+    if (code === 10) return errEdit(w, code, at, text)
     if (code === 1001) return errDirect(e)
-    // `cmp.w #10,d1 / beq Esc_Loop` (:9314): End says nothing either
     if (code === 1002) {
       e.editor.quit = true // Ed_System (:249)
       return
@@ -3439,7 +3444,7 @@ function errr(e: Edit, w: Edit, code: number, at: number, text: string | null): 
     // the code is not one of the three, so the user is asked which they want
     const got = getError(code, text)
     if (edLigne(e, w, at, got.text) === 1) {
-      return errDirect(e, code === 10 ? '' : `${got.text}.`)
+      return errDirect(e, `${got.text}.`)
     }
   }
   errEdit(w, code, at, text)
