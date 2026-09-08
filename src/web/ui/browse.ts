@@ -159,7 +159,7 @@ export function createBrowseTab(opts: BrowseOptions): BrowseTab {
     title.textContent = 'Loading the game library…'
     const hint = document.createElement('p')
     hint.className = 'browse-loading-hint'
-    hint.textContent = 'You can still drop an AMOS file or use the other tabs.'
+    hint.textContent = 'Drop a file or use another tab while this loads.'
     head.append(title, hint)
     host.appendChild(head)
 

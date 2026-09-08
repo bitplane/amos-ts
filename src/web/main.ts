@@ -714,8 +714,8 @@ const tabs = mountTabs(document.getElementById('tabbar')!, [
     show: () => player.focus(),
     route: (p) => void routeTo(p),
   },
-  { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   { id: 'files', label: 'Files', panel: filesPanel, show: refreshFiles, route: (p) => void routeTo(p) },
+  { id: 'hardware', label: 'Hardware', panel: hardware.panel, frame: hardware.frame },
   {
     id: 'extensions',
     label: 'Extensions',

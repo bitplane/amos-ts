@@ -33,12 +33,7 @@ export abstract class Cpu implements Device {
 
   get description(): string {
     const mhz = (this.hz / 1_000_000).toFixed(5).replace(/0+$/, '').replace(/\.$/, '')
-    return (
-      `Motorola ${this.name} at ${mhz} MHz. This port runs no 68k machine code ` +
-      `at all, on purpose: an interpreter would let keywords pass without ` +
-      `anyone reading the routine behind them. So the choice changes what a ` +
-      `program asking the model is told, and nothing else.`
-    )
+    return `Motorola ${this.name} at ${mhz} MHz. 68k execution is not implemented; “ignore clock” controls pacing.`
   }
 
   /**

@@ -382,12 +382,6 @@ export interface HardwareTab {
 export function createHardwareTab(machine: Machine, host: PageHost): HardwareTab {
   const panel = document.createElement('div')
 
-  const intro = document.createElement('p')
-  intro.className = 'panel-intro'
-  intro.textContent =
-    'Use the drop-downs to select components, expand sections to configure it.'
-  panel.appendChild(intro)
-
   const listHost = document.createElement('div')
   panel.appendChild(listHost)
   const list: List = createList(listHost)

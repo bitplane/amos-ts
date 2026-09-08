@@ -31,7 +31,6 @@
  * holds itself to: partial coverage is a state to leave, not one to record.
  */
 import { allExtensions, type Extension } from '../../ext/registry'
-import { renderMarkdown } from './markdown'
 import { extensionImpls } from '../../runtime/instr'
 import { createList, facts, type RowSpec } from './list'
 import type { ProgramIndex, ProgramIndexer, ProgramUse } from './programs'
@@ -105,21 +104,11 @@ function rowFor(
       ...(ported ? [] : [{ text: 'not ported', tone: 'warn' as const }]),
     ],
     body: (host) => {
-      const about = document.createElement('p')
-      about.className = 'about'
-      // Markdown, so a description can point at the manual it is describing
-      renderMarkdown(about, e.notes)
-      host.appendChild(about)
       host.appendChild(
         facts([
           ['id', e.id],
           ['keywords', String(tokens)],
-          // stated by the library itself where it has one, and that outranks
-          // both a manual's recommendation and where somebody installed it
-          ['slot', slot === undefined ? 'none stated' : `${slot}${e.statedSlot === undefined ? ' (recommended)' : ' (stated by the library)'}`],
-          ['evidence', e.evidence],
-          ['origin', e.origin],
-          ['format', e.format],
+          ['slot', slot === undefined ? '—' : String(slot)],
         ]),
       )
       if (uses.length > 0) host.appendChild(usesList(uses, run))
@@ -165,17 +154,13 @@ export function createExtensionsTab(
   const list = createList(listHost)
 
   const say = (idx: ProgramIndex): string => {
-    const head =
-      `${rows.length} extensions are registered and detokenise, so a program using one lists ` +
-      `with real keyword names. ${ported.size} of those identities are answered by a port, ` +
-      `which means this port declares the extension's own identity rather than merely sharing ` +
-      `a keyword name with it.`
-    if (idx.scanned === 0) return `${head} Drop an archive of AMOS programs and each row will list the ones that use it.`
+    const head = `${rows.length} extensions known; ${ported.size} ported.`
+    if (idx.scanned === 0) return `${head} Drop AMOS programs to find which extensions they use.`
     const tail =
       idx.unidentified.length > 0
-        ? ` ${idx.unidentified.length} hold a slot nothing in the registry explains, which is an extension still to be found.`
+        ? ` ${idx.unidentified.length} use an unknown extension slot.`
         : ''
-    return `${head} ${idx.scanned} programs read from the filesystem.${tail}`
+    return `${head} ${idx.scanned} programs scanned.${tail}`
   }
 
   let drawnAt = -1

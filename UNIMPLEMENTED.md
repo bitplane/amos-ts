@@ -16,7 +16,7 @@ per-keyword notes.
 - **OS DevKit native calls:** `_lib call`, `_call`, `a3 pointer` and `give me`
   require executable 68k code or stable addresses for AMOS interpreter
   internals. The reusable library-backed OS DevKit operations are callable;
-  Their operation-level verdicts live in `src/ext/osbackend.ts` and feed the
+  their operation-level verdicts live in `src/ext/osbackend.ts` and feed the
   generated keyword inventory directly; `src/cli/osbackend.ts --json` adds
   binary routine and library-call evidence without creating another list.
 - **OrgAsm 1.0 (`orgasm-1.0`):** its interface ultimately jumps into 68k code loaded by the

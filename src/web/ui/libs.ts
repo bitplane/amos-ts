@@ -58,12 +58,6 @@ export interface LibsTab {
 export function createLibsTab(): LibsTab {
   const panel = document.createElement('div')
 
-  const intro = document.createElement('p')
-  intro.className = 'panel-intro'
-  intro.textContent =
-    'The libraries OpenLibrary answers for, and the newest version each will admit to. Anything not listed answers zero, which is the case a well-written extension checks for and reports.'
-  panel.appendChild(intro)
-
   const listHost = document.createElement('div')
   panel.appendChild(listHost)
 
