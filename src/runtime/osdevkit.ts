@@ -2252,6 +2252,36 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [rp, dx, dy, x1, y1] = readArgs(it, 5); it.expect('to'); const [x2, y2] = readArgs(it, 2)
       const raster = nativeRaster(rt, rp!); if (raster) nativeScrollRaster(rt, raster, dx!, dy!, x1!, y1!, x2!, y2!)
     },
+    '_rp set attrs'(it) {
+      const [rp, list] = readArgs(it, 2); const address = rp! >>> 0
+      for (const item of tagItems(st(), list!)) switch (item.tag >>> 0) {
+        case 0x8000_0000: structWrite(rt, address + 52, 4, item.data); break // RPTAG_Font
+        case 0x8000_0001: structWrite(rt, address + 56, 1, item.data); break // RPTAG_SoftStyle
+        case 0x8000_0002: structWrite(rt, address + 25, 1, item.data); break // RPTAG_APen
+        case 0x8000_0003: structWrite(rt, address + 26, 1, item.data); break // RPTAG_BPen
+        case 0x8000_0004: structWrite(rt, address + 28, 1, item.data); break // RPTAG_DrMd
+        case 0x8000_0005: structWrite(rt, address + 27, 1, item.data); break // RPTAG_OutLinePen
+        case 0x8000_0006: structWrite(rt, address + 24, 1, item.data); break // RPTAG_WriteMask
+        case 0x8000_0007: st().rastPortMaxPens.set(address, item.data & 0xffff); break
+      }
+    },
+    '_rp what attrs'(it) {
+      const [rp, list] = readArgs(it, 2); const address = rp! >>> 0
+      for (const item of tagItems(st(), list!)) {
+        let value: number | undefined
+        switch (item.tag >>> 0) {
+          case 0x8000_0000: value = structRead(rt, address + 52, 4, false); break
+          case 0x8000_0001: value = structRead(rt, address + 56, 1, false); break
+          case 0x8000_0002: value = structRead(rt, address + 25, 1, false); break
+          case 0x8000_0003: value = structRead(rt, address + 26, 1, false); break
+          case 0x8000_0004: value = structRead(rt, address + 28, 1, false); break
+          case 0x8000_0005: value = structRead(rt, address + 27, 1, false); break
+          case 0x8000_0006: value = structRead(rt, address + 24, 1, false); break
+          case 0x8000_0007: value = st().rastPortMaxPens.get(address) ?? 0; break
+        }
+        if (value !== undefined && item.data !== 0) structWrite(rt, item.data, 4, value)
+      }
+    },
     '_scale bm'(it) {
       const args = it.evalInt() >>> 0; if (args === 0) return
       const srcX = structRead(rt, args, 2, false); const srcY = structRead(rt, args + 2, 2, false)

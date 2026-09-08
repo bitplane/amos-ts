@@ -1165,6 +1165,21 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect([...rt.osdevkit.rastPortMaxPens.values()]).toEqual([17])
   })
 
+  it('round-trips V39 RastPort attributes through native fields and the shared pen limit', () => {
+    const { rt, output } = run([
+      'R=_struct alloc(72) : O=_struct alloc(32) : S=_tag list alloc(8)',
+      '_tag set S,$80000000,$12345678 : _tag set S,$80000001,5 : _tag set S,$80000002,6 : _tag set S,$80000003,7',
+      '_tag set S,$80000004,2 : _tag set S,$80000005,8 : _tag set S,$80000006,$a5 : _tag set S,$80000007,31 : _tag done S',
+      '_rp set attrs R,S : Q=_tag list alloc(8)',
+      '_tag set Q,$80000000,O : _tag set Q,$80000001,O+4 : _tag set Q,$80000002,O+8 : _tag set Q,$80000003,O+12',
+      '_tag set Q,$80000004,O+16 : _tag set Q,$80000005,O+20 : _tag set Q,$80000006,O+24 : _tag set Q,$80000007,O+28 : _tag done Q',
+      '_rp what attrs R,Q : Print Hex$(_struct long(O,0)),_struct long(O,4),_struct long(O,8),_struct long(O,12)',
+      'Print _struct long(O,16),_struct long(O,20),Hex$(_struct long(O,24)),_struct long(O,28)',
+    ].join('\n'))
+    expect(output).toBe('$12345678\t 5\t 6\t 7\n 2\t 8\t$A5\t 31\n')
+    expect([...rt.osdevkit.rastPortMaxPens.values()]).toEqual([31])
+  })
+
   it('draws through caller-owned native RastPort, BitMap and plane pointers', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',
