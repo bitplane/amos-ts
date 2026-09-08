@@ -96,8 +96,8 @@ import {
 } from '../amiga/localelib'
 
 export { parseCatalog } from '../amiga/localelib'
-import { openLibrary } from '../amiga/exec'
 import type { Language } from '../amiga/language'
+import type { LibraryRegistry } from '../amiga/exec'
 
 /**
  * `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero.
@@ -109,8 +109,6 @@ import type { Language } from '../amiga/language'
  * the port models it as present, deliberately, even though the extension is
  * written to survive its absence (see the header).
  */
-const LOCALE_BASE = openLibrary('locale.library', 38)
-const LOCALE_PTR = LOCALE_BASE
 /** the Catalog pointer Open Catalog reports through `Catalog Active` */
 const CATALOG_PTR = 0x7f20_0000
 
@@ -119,6 +117,8 @@ const bytes = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.cha
 // ---- state -----------------------------------------------------------------
 
 export interface LocaleState {
+  /** locale.library base opened by the extension startup. */
+  localeBase: number
   /** +$04's live meaning — nulled by Close Catalog so lookups stop */
   catalog: Catalog | null
   /** +$04 as the library keeps it, which Close Catalog does NOT clear */
@@ -128,7 +128,8 @@ export interface LocaleState {
   emitText: string
 }
 
-export const newLocaleState = (): LocaleState => ({
+export const newLocaleState = (libraries: LibraryRegistry): LocaleState => ({
+  localeBase: libraries.open('locale.library', 38),
   catalog: null,
   catalogPtr: 0,
   emitPath: null,
@@ -280,7 +281,7 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
      * a pointer, so this answers with a stable non-zero one.
      */
     'locale active'() {
-      return VI(LOCALE_PTR)
+      return VI(st().localeBase)
     },
 
     /** =Locale String$(ID) — routine 6 ($53e), `GetLocaleStr` */

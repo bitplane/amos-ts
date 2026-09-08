@@ -8,9 +8,7 @@
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, funcCall, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
-import {
-  A1200_POOLS, MEMF, availMem, closeLibrary, libraryRevision, libraryVersion, type MemPool, openLibrary,
-} from '../amiga/exec'
+import { A1200_POOLS, MEMF, availMem, type MemPool } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
   CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
@@ -132,7 +130,6 @@ export interface OsDevKitState {
   gtLists: Map<number, number[]>
   gtMenuBanks: Map<number, { max: number; screenSlot: number; visualInfo: number; entries: NewMenu[]; strip: MenuStrip | null }>
   currentGtMenuBank: number
-  openLibraries: Set<number>
   lowlevelBase: number
   lowlevelClock: { last: number }
   iff: IffParse
@@ -205,7 +202,7 @@ export const newOsDevKitState = (
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
-    openLibraries: new Set(), lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: services.iff, iffBase: 0,
+    lowlevelBase: 0, lowlevelClock: { last: 0 }, iff: services.iff, iffBase: 0,
     commodities: services.commodities,
     dosVariables: services.dosVariables, readArgs: services.readArgs,
     dataTypes: services.dataTypes, dosNotifications: new Map(), dosSegments: new Map(),
@@ -1857,8 +1854,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (result) rt.vfs?.writeFile(result.path, result.bytes)
     },
     '_lib close'(it) {
-      const base = it.evalInt() >>> 0
-      if (st().openLibraries.delete(base)) closeLibrary(base)
+      rt.exec.libraries.close(it.evalInt())
     },
     '_sys own'() { rt.lowlevel.systemControl(SCON_TAKE_OVER_SYS, -1); rt.copperOn = false },
     '_sys disown'() { rt.lowlevel.systemControl(SCON_TAKE_OVER_SYS, 0); rt.copperOn = true },
@@ -3665,8 +3661,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_request choice'(it, a) {
       return VI(osRequester(rt, it, st(), { kind: 'alert', title: str(a[1] ?? VS('')), body: str(a[2] ?? VS('')), gadgets: str(a[3] ?? VS('')).split('|') }))
     },
-    '_lib version'(_, a) { return VI(libraryVersion(n(a, 0))) },
-    '_lib revision'(_, a) { return VI(libraryRevision(n(a, 0))) },
+    '_lib version'(_, a) { return VI(rt.exec.libraries.version(n(a, 0))) },
+    '_lib revision'(_, a) { return VI(rt.exec.libraries.revision(n(a, 0))) },
     '_cache ctrl'(_, a) { return VI(rt.machine.cpu.cacheControl(n(a, 0), n(a, 1))) },
     '_chip set rev'(_, a) { const old = st().chipRevision; const requested = n(a, 0); st().chipRevision = requested === -1 ? 0xf : requested & 0xf; return VI(old) },
     '_vp get mode'(_, a) { return VI(structRead(rt, n(a, 0) + 32, 2, false)) },
@@ -3767,7 +3763,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       st().hardwareSprites[number] = { sprite: nextSprite, data: structRead(rt, nextSprite, 4, false) >>> 0, viewPort }
       structWrite(rt, nextSprite + 10, 2, number); return VI(-1)
     },
-    '_loc init'() { return VI(openLibrary('locale.library', 36) === 0 ? 0 : -1) },
+    '_loc init'() { return VI(rt.exec.libraries.open('locale.library', 36) === 0 ? 0 : -1) },
     '_loc open'(_, a) {
       // The reproducible machine locale is the built-in English locale. A
       // named .language backend is intentionally left to the partial verdict.
@@ -3980,7 +3976,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wb close'() { return VI(rt.intuition.closeWorkBench() ? -1 : 0) },
     '_wb open'() { return VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0) },
     '_wb msg'() { return VI(rt.workbench.message) },
-    '_base wb'() { return VI(openLibrary('workbench.library', 36)) },
+    '_base wb'() { return VI(rt.exec.libraries.base('workbench.library', 36)) },
     '_app add icon'(_, a) { return VI(rt.workbench.add('icon', n(a, 0), n(a, 1), n(a, 2), n(a, 3), n(a, 5), n(a, 6))) },
     '_app add menu'(_, a) { return VI(rt.workbench.add('menu', n(a, 0), n(a, 1), n(a, 2), n(a, 3), 0, n(a, 4))) },
     '_app add wnd'(_, a) { return VI(rt.workbench.add('window', n(a, 0), n(a, 1), 0, n(a, 3), n(a, 2), n(a, 4))) },
@@ -3995,7 +3991,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_icon del'(_, a) { return VI(rt.icons.kill(str(a[0] ?? VS(''))) ? -1 : 0) },
     '_icon put'(_, a) { return VI(rt.icons.save(str(a[0] ?? VS('')), n(a, 1) >>> 0) ? -1 : 0) },
     '_icon info'(_, a) { const p = rt.icons.load(str(a[1] ?? VS(''))); if (p) rt.icons.free(p); return VI(p ? -1 : 0) },
-    '_dt init'() { return VI(openLibrary('datatypes.library', 39)) },
+    '_dt init'() { return VI(rt.exec.libraries.open('datatypes.library', 39)) },
     '_dt create'(_, a) {
       const path = cString(rt, n(a, 0)); const attrs = new Map(tagItems(st(), n(a, 1)).map(t => [t.tag, t.data]))
       return VI(st().dataTypes.create(path, rt.vfs?.readFile(path) ?? null, attrs))
@@ -4202,7 +4198,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_cli read args'(_, a) { return VI(st().readArgs.read(str(a[0] ?? VS('')), str(a[1] ?? VS(''))) ? -1 : 0) },
     '_cli what arg$'(_, a) { return VS(st().readArgs.string(n(a, 0), n(a, 1))) },
     '_cli what arg'(_, a) { return VI(st().readArgs.number(n(a, 0), n(a, 1))) },
-    '_cx init'() { st().commodities.base = openLibrary('commodities.library', 0); return VI(st().commodities.base) },
+    '_cx init'() { st().commodities.base = rt.exec.libraries.open('commodities.library', 0); return VI(st().commodities.base) },
     '_base cx'() { return VI(st().commodities.base) },
     '_cx install'(_, a) { return VI(st().commodities.install(str(a[0] ?? VS('')), n(a, 3), n(a, 4), n(a, 5))) },
     '_cx broker'() { return VI(st().commodities.broker) },
@@ -4219,7 +4215,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_cx id event type'() { return VI(st().commodities.current?.type ?? 0) },
     '_cx id event id'() { return VI(st().commodities.current?.id ?? 0) },
     '_cx id event data'() { return VI(st().commodities.current?.data ?? 0) },
-    '_iff init'() { st().iffBase = openLibrary('iffparse.library', 0); return VI(st().iffBase) },
+    '_iff init'() { st().iffBase = rt.exec.libraries.open('iffparse.library', 0); return VI(st().iffBase) },
     '_base iff'() { return VI(st().iffBase) },
     '_iff open in'(_, a) { const path = str(a[0] ?? VS('')); const bytes = rt.vfs?.readFile(path); return VI(bytes ? st().iff.openIn(path, bytes) : 0) },
     '_iff open out'(_, a) { return VI(st().iff.openOut(str(a[0] ?? VS('')))) },
@@ -4243,14 +4239,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_chunk what type'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.type ?? 0) },
     '_chunk what id'(_, a) { return VI(st().iff.context(n(a, 0) >>> 0)?.id ?? 0) },
     '_low init'() {
-      st().lowlevelBase = openLibrary('lowlevel.library', 0)
+      st().lowlevelBase = rt.exec.libraries.open('lowlevel.library', 0)
       st().lowlevelClock.last = Math.floor((rt.interp.tick * 65536) / 50)
       return VI(st().lowlevelBase)
     },
     '_lib open'(_, a) {
-      const base = openLibrary(str(a[0] ?? VS('')), n(a, 1))
-      if (base !== 0) st().openLibraries.add(base)
-      return VI(base)
+      return VI(rt.exec.libraries.open(str(a[0] ?? VS('')), n(a, 1)))
     },
     '_joy set'(_, a) {
       const port = n(a, 0); const old = (readJoyPort(rt.input.ports, port) & JP_TYPE_MASK) >>> 28
@@ -4521,15 +4515,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_cpu long'(_, a) { return VI(structRead(rt, n(a, 0), 4, true)) },
     /** workers 1589 and 1747-1751/1781/1794/1882/1152. */
     '_ibase lock'(_, a) { return VI(st().ibase.lock(n(a, 0))) },
-    '_base dos'() { return VI(openLibrary('dos.library', 36)) },
-    '_base gfx'() { return VI(openLibrary('graphics.library', 36)) },
-    '_base int'() { return VI(openLibrary('intuition.library', 36)) },
-    '_base gad'() { return VI(openLibrary('gadtools.library', 36)) },
-    '_base asl'() { return VI(openLibrary('asl.library', 36)) },
-    '_base icon'() { return VI(openLibrary('icon.library', 36)) },
-    '_base loc'() { return VI(openLibrary('locale.library', 36)) },
-    '_base dt'() { return VI(openLibrary('datatypes.library', 36)) },
-    '_base layers'() { return VI(openLibrary('layers.library', 36)) },
+    '_base dos'() { return VI(rt.exec.libraries.base('dos.library', 36)) },
+    '_base gfx'() { return VI(rt.exec.libraries.base('graphics.library', 36)) },
+    '_base int'() { return VI(rt.exec.libraries.base('intuition.library', 36)) },
+    '_base gad'() { return VI(rt.exec.libraries.base('gadtools.library', 36)) },
+    '_base asl'() { return VI(rt.exec.libraries.base('asl.library', 36)) },
+    '_base icon'() { return VI(rt.exec.libraries.base('icon.library', 36)) },
+    '_base loc'() { return VI(rt.exec.libraries.base('locale.library', 36)) },
+    '_base dt'() { return VI(rt.exec.libraries.base('datatypes.library', 36)) },
+    '_base layers'() { return VI(rt.exec.libraries.base('layers.library', 36)) },
     '_base topaz'() { return VI(topazTextAttrAddress(st())) },
     '_base tag'() { return VI(defaultTagsAddress(st())) },
     '_id unique'() { return VI(rt.uniqueIds.get()) },

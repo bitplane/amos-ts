@@ -7840,7 +7840,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     ids: ['locale-0.26'],
     init: (rt) => {
-      rt.locale = newLocaleState()
+      rt.locale = newLocaleState(rt.exec.libraries)
     },
     instructions: makeLocaleInstructions,
     functions: makeLocaleFunctions,
@@ -7920,7 +7920,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // this takes a filename and a mode. See medext.ts.
     ids: ['med-7.1'],
     init: (rt) => {
-      rt.medExt = newMedExtState()
+      rt.medExt = newMedExtState(rt.exec.libraries)
     },
     instructions: makeMedExtInstructions,
     functions: makeMedExtFunctions,
@@ -8190,7 +8190,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // See fileid.ts.
     ids: ['fileid-1.0'],
     init: (rt) => {
-      rt.fileId = newFileIdState()
+      rt.fileId = newFileIdState(rt.exec.libraries)
     },
     functions: makeFileIdFunctions,
     errors: FILEID_ERRORS,

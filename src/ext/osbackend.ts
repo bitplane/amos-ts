@@ -481,7 +481,7 @@ auditMany('faithful', 'the input.device pixel-position event is folded into the 
 auditMany('partial', 'bar, patterned area-fill, flood, scrolling and AMOS Bob images use the same Window-ID shared-RastPort adapter; fill operations use worker-sized transient scratch raster ownership, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
   '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
 ])
-auditMany('partial', 'synthetic library open/close and base metadata exist, but arbitrary resident loading, open counts and real build revisions do not', [
+auditMany('partial', 'the Runtime-owned Exec registry shares stable bases, version checks and open counts across live modules; arbitrary resident loading and real build revisions remain unavailable', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
 ])
 auditMany('missing', 'the worker invokes an arbitrary negative LVO with a complete 68k register frame, and no 68k execution backend exists', [

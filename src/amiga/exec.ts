@@ -391,6 +391,27 @@ export function modelledLibraryAt(base: number): ModelledLibrary | null {
 export const libraryVersion = (base: number): number => modelledLibraryAt(base)?.version ?? 0
 export const libraryRevision = (base: number): number => modelledLibraryAt(base)?.revision ?? 0
 
+/** Runtime-owned Exec resident-library opens and native lib_OpenCnt state. */
+export class LibraryRegistry {
+  private readonly counts = new Map<number, number>()
+  open(name: string, version = 0): number {
+    const base = openLibrary(name, version)
+    if (base !== 0) this.counts.set(base, (this.counts.get(base) ?? 0) + 1)
+    return base
+  }
+  /** Resolve an already-installed base without performing another OpenLibrary. */
+  base(name: string, version = 0): number { return openLibrary(name, version) }
+  close(base: number): void {
+    base >>>= 0
+    const count = this.counts.get(base) ?? 0
+    if (count <= 1) this.counts.delete(base)
+    else this.counts.set(base, count - 1)
+  }
+  openCount(base: number): number { return this.counts.get(base >>> 0) ?? 0 }
+  version(base: number): number { return libraryVersion(base) }
+  revision(base: number): number { return libraryRevision(base) }
+}
+
 /**
  * CloseLibrary — nothing to release.
  *

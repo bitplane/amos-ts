@@ -73,7 +73,7 @@ import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { openLibrary } from '../amiga/exec'
+import type { LibraryRegistry } from '../amiga/exec'
 
 /**
  * `ErrMsg` (source:277) at the end of FileID.s — eight NUL-separated German strings,
@@ -111,8 +111,8 @@ export interface FileIdState {
 }
 
 /** L0 (source:86), the cold start: one OpenLibrary and nothing else */
-export const newFileIdState = (): FileIdState => ({
-  base: openLibrary('fileid.library', 0),
+export const newFileIdState = (libraries: LibraryRegistry): FileIdState => ({
+  base: libraries.open('fileid.library', 0),
   fileInfo: 0,
   err: 0,
 })

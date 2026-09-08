@@ -68,7 +68,6 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { SerialLineParams, SerialPortHandle } from '../amiga/host'
-import { openLibrary } from '../amiga/exec'
 
 /**
  * The extension's own error table, in the order the strings sit in the binary
@@ -585,7 +584,7 @@ export function makeLSerialFunctions(rt: Runtime): Record<string, Func> {
           return VS('')
         case 2:
           if (library.length === 0) return VS('')
-          st.xprBase = openLibrary(library.replace(/\0+$/, ''))
+          st.xprBase = rt.exec.libraries.open(library.replace(/\0+$/, ''))
           return VS(st.xprBase === 0 ? '' : 'OK')
         case 3:
           // XProtocolCleanup then CloseLibrary, and nothing at all when the

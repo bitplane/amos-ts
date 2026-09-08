@@ -844,7 +844,6 @@ import {
   JPF_JOY_UP,
   readJoyPort,
 } from '../amiga/lowlevel'
-import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { PTREPLAY_LIBRARY } from '../amiga/ptreplay'
 import { Runtime } from './runtime'
@@ -1180,9 +1179,9 @@ export const TGE_ATTN_FLAGS = (1 << 0) | (1 << 1)
  * are bases and handles this port has no use for: a GMS call is a TypeScript
  * call here, so there is nothing for a module base to be.
  */
-function gmsInit(st: TheGameState): void {
+function gmsInit(rt: Runtime, st: TheGameState): void {
   if (st.gmsBase !== 0) return
-  const base = openLibrary(GMS_DPKERNEL, 2)
+  const base = rt.exec.libraries.open(GMS_DPKERNEL, 2)
   if (base === 0) tgeError(4)
   st.gmsBase = base
   st.gmsOwned = true
@@ -1780,7 +1779,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      */
     'g close req': () => {
       // exec tolerates a null base and there is nothing here to release
-      closeLibrary(0)
+      rt.exec.libraries.close(0)
     },
 
     /**
@@ -1798,7 +1797,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
     'g close reqtools': () => {
       const s = st()
       if (s.reqtoolsBase !== 0) s.reqtoolsCloses++
-      closeLibrary(s.reqtoolsBase)
+      rt.exec.libraries.close(s.reqtoolsBase)
     },
 
     /**
@@ -2235,7 +2234,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
 
       // AMOS_WB(0) then `Rbsr` into routine 90, in that order
       rt.amosToBack()
-      gmsInit(s)
+      gmsInit(rt, s)
       const slot = gmsSlot(n)
       // Free() + FreeMem() + table[N] = 0 before anything is allocated
       if (rt.screens.has(slot)) rt.closeScreen(slot)
@@ -2629,7 +2628,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * OpenLibrary instead, which reports the same message.
      */
     'g init gms'() {
-      gmsInit(st())
+      gmsInit(rt, st())
     },
 
     /**
@@ -2646,7 +2645,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
     'g close gms'() {
       const s = st()
       if (s.gmsBase === 0) return
-      closeLibrary(s.gmsBase)
+      rt.exec.libraries.close(s.gmsBase)
       s.gmsBase = 0
       s.gmsOwned = false
     },
@@ -2747,7 +2746,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const n = it.evalInt()
       rt.amosToBack()
-      gmsInit(s)
+      gmsInit(rt, s)
       const slot = gmsSlot(n)
       const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
       if (!data) tgeError(0)
@@ -3849,7 +3848,7 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      */
     'g open reqtools': () => {
       const s = st()
-      s.reqtoolsBase = openLibrary('reqtools.library')
+      s.reqtoolsBase = rt.exec.libraries.open('reqtools.library')
       return VI(s.reqtoolsBase)
     },
 

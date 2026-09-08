@@ -6,7 +6,7 @@
  * engine: extensions consume Exec here instead of growing private ports,
  * signal sets, interrupt chains or synthetic address spaces of their own.
  */
-import { MemPool } from './exec'
+import { LibraryRegistry, MemPool } from './exec'
 import { ExecInterruptSystem } from './osinterrupt'
 import { ExecListHeap, type ExecAddressSpace } from './oslist'
 import { ExecMessageSystem } from './osmessage'
@@ -25,6 +25,7 @@ export class ExecSystem {
   readonly tasks: ExecTaskSystem
   readonly messages: ExecMessageSystem
   readonly interrupts: ExecInterruptSystem
+  readonly libraries = new LibraryRegistry()
   lastAlert: ExecAlert | null = null
 
   constructor(base: number, reserved: number, addressSpace?: ExecAddressSpace) {

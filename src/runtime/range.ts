@@ -135,7 +135,6 @@ import type { Interp } from '../interp/interp'
 import type { Runtime } from './runtime'
 import { PAULA_CLOCK_NTSC, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
 import type { BankImage } from './objects'
-import { openLibrary } from '../amiga/exec'
 import { CIAF_PRTRBUSY, CIAF_PRTRPOUT, CIAF_PRTRSEL } from '../amiga/cia'
 
 export interface RangeState {
@@ -1454,7 +1453,7 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
     'library open': (_, a): Value => {
       const name = str(a[0] ?? VS(''))
       if (name.length === 0) return VI(0)
-      return VI(openLibrary(name.toLowerCase(), 0))
+      return VI(rt.exec.libraries.open(name.toLowerCase(), 0))
     },
 
     /**

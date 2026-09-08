@@ -103,7 +103,7 @@ import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
 import { MedPlayer, type MedBuild } from './med'
-import { openLibrary } from '../amiga/exec'
+import type { LibraryRegistry } from '../amiga/exec'
 
 /**
  * Routine 38's message table at $ec0 — ten NUL-separated German strings, and
@@ -179,10 +179,10 @@ export interface MedExtState {
  * allocation, no module, no player. Everything below the three bases is this
  * port's own bookkeeping or a Guide-documented library default.
  */
-export const newMedExtState = (): MedExtState => ({
-  medBase: openLibrary('medplayer.library', 7),
-  octaBase: openLibrary('octaplayer.library', 7),
-  octaMixBase: openLibrary('octamixplayer.library', 7),
+export const newMedExtState = (libraries: LibraryRegistry): MedExtState => ({
+  medBase: libraries.open('medplayer.library', 7),
+  octaBase: libraries.open('octaplayer.library', 7),
+  octaMixBase: libraries.open('octamixplayer.library', 7),
   module: null,
   mode: 0,
   player: null,

@@ -98,7 +98,6 @@ import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { openLibrary } from '../amiga/exec'
 import { DOSTRUE, execute } from '../amiga/process'
 import { JPF_BUTTON_BLUE, readJoyPort } from '../amiga/lowlevel'
 import { CIAF_PRTRBUSY, CIAF_PRTRSEL } from '../amiga/cia'
@@ -263,7 +262,7 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * for the rest.
      */
     'library open': (_, a): Value => {
-      const base = openLibrary(str(a[0] ?? VS('')), 0)
+      const base = rt.exec.libraries.open(str(a[0] ?? VS('')), 0)
       if (base === 0) ercoleErr(1)
       return VI(base)
     },

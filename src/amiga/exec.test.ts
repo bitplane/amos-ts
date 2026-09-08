@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  A1200_POOLS, ExecPool, MEMF, MemPool, availMem, closeLibrary, copyMem, libraryPresent, libraryRevision, libraryVersion,
+  A1200_POOLS, ExecPool, LibraryRegistry, MEMF, MemPool, availMem, closeLibrary, copyMem, libraryPresent, libraryRevision, libraryVersion,
   modelledLibraryAt, openLibrary,
 } from './exec'
 
@@ -132,6 +132,16 @@ describe('exec: OpenLibrary', () => {
     expect(libraryRevision(base)).toBe(0)
     expect(modelledLibraryAt(0)).toBeNull()
     expect(libraryVersion(0)).toBe(0)
+  })
+
+  it('owns OpenLibrary counts per emulated Exec instance', () => {
+    const a = new LibraryRegistry(), b = new LibraryRegistry()
+    const base = a.open('locale.library', 38)
+    expect(a.open('LOCALE.LIBRARY', 0)).toBe(base)
+    expect(a.openCount(base)).toBe(2)
+    expect(b.openCount(base)).toBe(0)
+    a.close(base); expect(a.openCount(base)).toBe(1)
+    a.close(base); expect(a.openCount(base)).toBe(0)
   })
 })
 

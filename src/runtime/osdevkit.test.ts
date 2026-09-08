@@ -805,7 +805,7 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     const { rt, output } = run(source, runtime => runtime.input.keys.add(32))
     expect(output).toBe('-1\t-1\n 3\t 3\t 1\t 1\t 3\n 0\t 32\n')
     expect(rt.copperOn).toBe(true)
-    expect(rt.osdevkit.openLibraries.size).toBe(0)
+    expect(rt.exec.libraries.openCount(rt.osdevkit.lowlevelBase)).toBe(1)
   })
 
   it('runs the exact word joins and sign extensions (workers 1752, 1757-1759)', () => {
