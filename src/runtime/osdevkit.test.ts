@@ -1322,6 +1322,18 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(run(source).output).toBe(' 1\n 1\t 0\n 0\n 1\t 0\t 1\n')
   })
 
+  it('clips the private BobBlit worker through native planar mask and minterm state', () => {
+    const source = [
+      'B=_struct alloc(18) : M=_struct alloc(8) : D=_bm alloc(16,2,2,0,0)',
+      'Doke B,1 : Doke B+2,2 : Doke B+4,2 : Doke B+6,0 : Doke B+8,0',
+      'Poke B+10,$80 : Poke B+12,$40 : Poke B+14,$40 : Poke B+16,$80 : Poke M+4,$C0 : Poke M+6,$C0',
+      '_bob blit B,M,0,0 To D,3,$C0',
+      'P0=_bm what plane(D,0) : P1=_bm what plane(D,1)',
+      'Print Hex$(Peek(P0)),Hex$(Peek(P0+2)),Hex$(Peek(P1)),Hex$(Peek(P1+2))',
+    ].join('\n')
+    expect(run(source).output).toBe('$80\t$40\t$40\t$80\n')
+  })
+
   it('adds, activates, updates, refreshes and removes raw native Gadget lists', () => {
     const { rt, output } = run([
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 2,0,0,60,30,0,0,0,"Gadgets" : W=_wnd id base(2)',

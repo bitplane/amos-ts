@@ -2271,6 +2271,33 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         nativeFillColor(rt, raster, x, y)
       }
     },
+    /**
+     * Private worker 44: Bob header/data and mask into a native BitMap.
+     * Header words are width-in-words, height, depth, X/Y hotspot; planes
+     * begin at +10 and the one-bit mask begins at mask+4.
+     */
+    '_bob blit'(it) {
+      const [bob, mask, x, y] = readArgs(it, 4); it.expect('to')
+      const [bitmap, planeMask, minterm] = readArgs(it, 3)
+      if (bob === 0 || mask === 0 || bitmap === 0) return
+      const widthWords = structRead(rt, bob!, 2, false); const height = structRead(rt, bob! + 2, 2, false)
+      const depth = Math.min(structRead(rt, bob! + 4, 2, false), structRead(rt, bitmap! + 5, 1, false)); const width = widthWords * 16
+      const signed14 = (value: number): number => (value << 18) >> 18
+      const left = x! - signed14(structRead(rt, bob! + 6, 2, false)); const top = y! - structRead(rt, bob! + 8, 2, true)
+      const rowBytes = widthWords * 2; const planeSize = rowBytes * height
+      for (let sy = 0; sy < height; sy++) for (let sx = 0; sx < width; sx++) {
+        const maskByte = rt.resolveAddr(mask! + 4 + sy * rowBytes + (sx >>> 3))
+        if (!maskByte || (maskByte.data[maskByte.off]! & (0x80 >>> (sx & 7))) === 0) continue
+        let source = 0
+        for (let plane = 0; plane < depth; plane++) {
+          const byte = rt.resolveAddr(bob! + 10 + plane * planeSize + sy * rowBytes + (sx >>> 3))
+          if (byte && (byte.data[byte.off]! & (0x80 >>> (sx & 7))) !== 0) source |= 1 << plane
+        }
+        const dx = left + sx, dy = top + sy; const old = nativeBitmapPixel(rt, bitmap!, dx, dy)
+        const changed = blitMinterm(source, old, depth, minterm!)
+        putNativeBitmapPixel(rt, bitmap!, dx, dy, (old & ~planeMask!) | (changed & planeMask!))
+      }
+    },
     /** workers 534-547 over caller-owned native RastPort and BitMap memory. */
     '_rp move'(it) {
       const [rp, x, y] = readArgs(it, 3)
