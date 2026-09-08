@@ -1298,15 +1298,16 @@ function setScreenMousePosition(rt: Runtime, slot: number, x: number, y: number)
 }
 
 /** GT_GetIMsg/GetMsg + the worker's 52-byte copy and immediate reply. */
-function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, port = state.windowPort): number {
+function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, port = state.windowPort, gadtools = false): number {
   if (port === 0) return 0
   const memory = state.exec.messages.memory
   for (;;) {
-    const message = state.exec.messages.getMsg(port)
+    const message = gadtools ? getGadToolsMessage(state, port) : state.exec.messages.getMsg(port)
     if (message === 0) return 0
     const cls = memory.readU32(message + 20) >>> 0
     const windowBase = memory.readU32(message + 44) >>> 0
-    if ((expectedWindow !== 0 && windowBase !== (expectedWindow >>> 0)) || (cls & (mask >>> 0)) === 0) { memory.free(message); continue }
+    const release = (): void => gadtools ? replyGadToolsMessage(state, message) : memory.free(message)
+    if ((expectedWindow !== 0 && windowBase !== (expectedWindow >>> 0)) || (cls & (mask >>> 0)) === 0) { release(); continue }
     const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
     const signedWord = (at: number): number => (word(at) << 16) >> 16
     const item = memory.readU32(message + 28) >>> 0
@@ -1321,7 +1322,7 @@ function takeWindowEvent(state: OsDevKitState, mask = -1, expectedWindow = 0, po
       mouseX: signedWord(message + 32),
       mouseY: signedWord(message + 34),
     }
-    memory.free(message)
+    release()
     return cls | 0
   }
 }
@@ -3603,12 +3604,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_wnd wait port'(it, a) {
       const base = n(a, 0) >>> 0; const window = windowAtBase(st(), base)
       if (!window) return VI(0)
-      const event = takeWindowEvent(st(), n(a, 1), base, window.userPort)
+      const event = takeWindowEvent(st(), n(a, 1), base, window.userPort, true)
       if (event === 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
       return VI(event)
     },
     '_event wait port'(it, a) {
-      const event = takeWindowEvent(st(), n(a, 1), 0, n(a, 0) >>> 0)
+      const event = takeWindowEvent(st(), n(a, 1), 0, n(a, 0) >>> 0, true)
       if (event === 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
       return VI(event)
     },

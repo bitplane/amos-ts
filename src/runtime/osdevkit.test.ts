@@ -425,6 +425,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'))
     expect(output).toBe('-1\t$40000\t 2\n 0\n 0\t 0\n')
     expect(rt.intuition.windows).toHaveLength(0)
+    expect(rt.gadtools.unreplied).toBe(0)
+    expect(rt.osdevkit.gadtoolsMessages.size).toBe(0)
   })
 
   it('filters arbitrary Intuition UserPorts through the shared event copy', () => {

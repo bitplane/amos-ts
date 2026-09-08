@@ -431,7 +431,7 @@ auditMany('partial', 'managed window lifecycle, geometry, ordering and titles ex
 auditMany('partial', 'the window state exists, but global native active/ViewPort identity is unavailable; _wnd what pointer also tests stale a0 before loading its argument', [
   '_wnd what active', '_wnd what vport', '_wnd what pointer',
 ])
-auditMany('partial', 'runtime windows now use shared mapped Exec UserPorts and native IntuiMessages; OS DevKit share/unshare policy, scheduler-backed blocking waits and reply ownership remain to be integrated', [
+auditMany('partial', 'managed windows share mapped Exec UserPorts, native IntuiMessages, GT_GetIMsg filtering, immediate reply ownership and scheduler-backed waits; arbitrary external Window pointers remain outside the adapter', [
   '_wnd wait port', '_wnd clear port', '_wnd share port', '_wnd unshare port',
 ])
 auditMany('faithful', 'the dynamically grown 28-byte Window-ID record, current selection and caller Data long are represented exactly', [
@@ -705,7 +705,7 @@ auditMany('partial', 'local precedence, hierarchical names, text/binary reads, E
 auditMany('partial', 'the shared ReadArgs backend handles aliases, quoting/escapes, required, switch/toggle, keyword, numeric, multi redistribution and rest fields; native RDArgs allocation, prompting/default arrays and remaining parser limits are incomplete', [
   '_cli read args', '_cli what arg$', '_cli what arg',
 ])
-auditMany('partial', 'the Commodities event queue shares native Exec messages and GadTools filtering; scheduler-backed blocking remains incomplete', [
+auditMany('partial', 'the event queue shares native Exec messages, GadTools filtering, immediate reply ownership and scheduler-backed blocking; arbitrary external port memory remains outside the adapter', [
   '_event wait port',
 ])
 
