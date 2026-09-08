@@ -5,12 +5,14 @@ export interface NativeColorMap {
   readonly components: Uint32Array
   readonly references: Uint16Array
   readonly exclusive: Uint8Array
+  /** graphics.library VideoControl state, keyed by the corresponding SET tag. */
+  readonly video: Map<number, number>
   freed: boolean
 }
 
 export function allocColorMap(count: number): NativeColorMap {
   const n = Math.max(0, count | 0)
-  return { count: n, components: new Uint32Array(n * 3), references: new Uint16Array(n), exclusive: new Uint8Array(n), freed: false }
+  return { count: n, components: new Uint32Array(n * 3), references: new Uint16Array(n), exclusive: new Uint8Array(n), video: new Map(), freed: false }
 }
 
 /** FreeColorMap(NULL) is harmless; retained objects become unusable. */

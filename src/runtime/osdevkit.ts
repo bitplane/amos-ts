@@ -2427,6 +2427,29 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_disp remake'() { rt.buildCopperList() },
     '_disp rethink'() { rt.buildCopperList() },
+    '_cop make vport'(it) { readArgs(it, 2); rt.buildCopperList() },
+    '_cop mrg'(it) { it.evalInt(); rt.buildCopperList() },
+    '_cop control'(it) {
+      const [mapAddress, list] = readArgs(it, 2); const map = st().colorMaps.get(mapAddress! >>> 0)
+      if (!map || map.freed) return
+      const getToSet = new Map<number, number>([
+        [0x8000_001b, 0x8000_000b], [0x8000_0013, 0x8000_0014], [0x8000_000f, 0x8000_0010], [0x8000_0011, 0x8000_0012],
+        [0x8000_0026, 0x8000_002a], [0x8000_0027, 0x8000_002b], [0x8000_0029, 0x8000_002d], [0x8000_0028, 0x8000_002c],
+        [0x8000_002e, 0x8000_002f], [0x8000_0032, 0x8000_0031], [0x8000_0034, 0x8000_0033], [0x8000_0036, 0x8000_0035],
+        [0x8000_0017, 0x8000_0005], [0x8000_0018, 0x8000_0007], [0x8000_0015, 0x8000_0001], [0x8000_0016, 0x8000_0003],
+        [0x8000_0019, 0x8000_0009], [0x8000_001a, 0x8000_000a], [0x8000_0039, 0x8000_0038],
+      ])
+      const clearToSet = new Map<number, number>([[0x8000_0004, 0x8000_0005], [0x8000_0006, 0x8000_0007], [0x8000_0000, 0x8000_0001], [0x8000_0002, 0x8000_0003], [0x8000_0008, 0x8000_0009], [0x8000_003a, 0x8000_0038]])
+      for (const item of tagItems(st(), list!)) {
+        const setTag = getToSet.get(item.tag >>> 0)
+        if (setTag !== undefined) { if (item.data !== 0) structWrite(rt, item.data, 4, map.video.get(setTag) ?? 0); continue }
+        const cleared = clearToSet.get(item.tag >>> 0)
+        if (cleared !== undefined) { map.video.set(cleared, 0); continue }
+        if ((item.tag >>> 0) === 0x8000_0037) { if (item.data !== 0) structWrite(rt, item.data, 4, 0); continue }
+        map.video.set(item.tag >>> 0, item.data)
+      }
+      rt.buildCopperList()
+    },
     '_scr move'(it) {
       const [base, dx, dy] = readArgs(it, 3); const found = screenRecordAtBase(st(), base!)
       const screen = found ? rt.screens.get(found.record.slot) : undefined

@@ -1215,6 +1215,20 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect([...rt.osdevkit.rastPortMaxPens.values()]).toEqual([31])
   })
 
+  it('keeps VideoControl attributes on the shared ColorMap across copper rebuilds', () => {
+    const { rt, output } = run([
+      'C=_cm alloc(4) : T=_tag list alloc(3)',
+      '_tag set T,$8000000B,$12345678 : _tag set T,$8000002A,17 : _tag set T,$80000001,1 : _tag done T : _cop control C,T',
+      'O=_struct alloc(12) : Q=_tag list alloc(3)',
+      '_tag set Q,$8000001B,O : _tag set Q,$80000026,O+4 : _tag set Q,$80000015,O+8 : _tag done Q : _cop control C,Q',
+      '_cop make vport 0,0',
+      '_cop mrg 0',
+      'Print Hex$(Leek(O)),Leek(O+4),Leek(O+8)',
+    ].join('\n'))
+    expect(output).toBe('$12345678\t 17\t 1\n')
+    expect([...rt.osdevkit.colorMaps.values()][0]?.video.get(0x8000_000b)).toBe(0x1234_5678)
+  })
+
   it('draws through caller-owned native RastPort, BitMap and plane pointers', () => {
     const source = [
       'P=_struct alloc(16) : B=_struct alloc(40) : R=_struct alloc(72)',
