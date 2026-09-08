@@ -43,6 +43,20 @@ export class Commodities {
     if (wait) this.messages.getMsg(this.port)
     const m = this.messages.memory
     this.current = { message, type: m.readU32(message + 20), id: m.readU32(message + 24), data: m.readU32(message + 28) }
+    // The worker has copied all three CxMsg fields before ReplyMsg. A message
+    // synthesized by this backend has no reply owner, so release it here.
+    if (this.messages.messageReplyPort(message) === 0) m.free(message)
+    else this.messages.replyMsg(message)
     return this.current.type
+  }
+
+  /** Deliver one CxMsg through the broker's real Exec port. */
+  post(type: number, id: number, data: number): number {
+    if (!this.port || !this.enabled) return 0
+    const message = this.messages.allocMessage(0, 32)
+    const m = this.messages.memory
+    m.writeU32(message + 20, type); m.writeU32(message + 24, id); m.writeU32(message + 28, data)
+    this.messages.putMsg(this.port, message)
+    return message
   }
 }

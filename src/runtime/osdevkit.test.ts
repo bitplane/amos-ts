@@ -728,6 +728,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.commodities.port).toBe(0)
   })
 
+  it('blocks for a CxMsg, copies its fields and replies through shared Exec', () => {
+    const b = boot([
+      'A=_cx init : E=_cx install("Tool","Title","Description",0,0,0)',
+      'Print _cx id wait event,_cx id event type,_cx id event id,_cx id event data',
+    ].join('\n'))
+    b.rt.frame()
+    expect(b.rt.interp.blocked).not.toBeNull()
+    expect(b.rt.osdevkit.commodities.post(7, 42, 1234)).toBeGreaterThan(0)
+    for (let i = 0; i < 3; i++) b.rt.frame()
+    expect(b.output()).toBe(' 7\t 7\t 42\t 1234\n')
+    expect(b.rt.exec.messages.pending(b.rt.osdevkit.commodities.port)).toBe(0)
+  })
+
   it('uses one iffparse backend for nested input chunks and native buffers', () => {
     const iff = Uint8Array.from([0x46,0x4f,0x52,0x4d, 0,0,0,14, 0x54,0x45,0x53,0x54, 0x44,0x41,0x54,0x41, 0,0,0,2, 0x12,0x34])
     const { output } = run([
