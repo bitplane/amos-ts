@@ -873,6 +873,18 @@ canvas.fm-shot {
   margin-bottom: 0.6rem;
 }
 
+.vw-zoomable {
+  cursor: zoom-in;
+}
+
+.vw-cell.zoomed {
+  grid-column: 1 / -1;
+}
+
+.vw-cell.zoomed .vw-zoomable {
+  cursor: zoom-out;
+}
+
 /* ---- the viewer inside a row: tabs over one file's several selves ------- */
 
 .vw-tabs {

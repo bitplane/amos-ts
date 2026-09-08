@@ -54,6 +54,7 @@
  * A caller wanting one answer for any file asks this first and falls through.
  * The fallthrough is the caller's policy and is deliberately not here.
  */
+import { decodeMacPaint } from './macpaint'
 
 /**
  * The jump table, from `datatypes_lib.fd`.
@@ -311,6 +312,7 @@ export class DataTypesService {
   create(path: string, bytes: Uint8Array | null, attributes: ReadonlyMap<number, number>): number {
     if (!bytes) return 0
     const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
+    if (descriptor.baseName === 'macpaint' && decodeMacPaint(bytes) === null) return 0
     const address = this.memory.alloc(48, { clear: true }); if (!address) return 0
     this.objects.set(address, { address, path, descriptor, attributes: new Map(attributes), window: 0, requester: 0, position: -1 })
     return address
@@ -318,6 +320,7 @@ export class DataTypesService {
   dispose(address: number): void { if (this.objects.delete(address)) this.memory.freeMem(address) }
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
+    if (descriptor.baseName === 'macpaint' && decodeMacPaint(bytes) === null) return 0
     const address = this.memory.alloc(32, { clear: true }); if (address) this.obtained.set(address, descriptor); return address
   }
   release(address: number): void { if (this.obtained.delete(address)) this.memory.freeMem(address) }

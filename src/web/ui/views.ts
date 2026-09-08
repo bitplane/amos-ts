@@ -40,6 +40,9 @@ import { readIcon, WB_TYPE, type Icon, type IconImage } from '../../amiga/icon'
 import { WB_PALETTE, WB3_PALETTE } from '../../amiga/intuition'
 import { facts } from './list'
 import type { View } from './viewer'
+import { Runtime } from '../../runtime/runtime'
+import { formLoad, formPlay, formSize } from '../../runtime/iffanim'
+import { encodeGif, type GifFrame } from '../gif'
 
 /** what a view needs the page to do, which is everything with a side effect */
 export interface ViewHost {
@@ -72,6 +75,18 @@ function canvasFor(pic: Picture): HTMLCanvasElement {
     cx.putImageData(img, 0, 0)
   }
   return canvas
+}
+
+function zoomable(canvas: HTMLCanvasElement, pic: Picture, cell: HTMLElement): void {
+  const normal = `min(100%, ${pic.displayWidth}px)`
+  const large = `min(100%, ${Math.max(pic.displayWidth, pic.width * 4)}px)`
+  canvas.title = 'click to enlarge'
+  canvas.classList.add('vw-zoomable')
+  canvas.addEventListener('click', () => {
+    const on = cell.classList.toggle('zoomed')
+    canvas.style.width = on ? large : normal
+    canvas.title = on ? 'click to shrink' : 'click to enlarge'
+  })
 }
 
 /**
@@ -118,7 +133,10 @@ function imagesView(bank: SpriteBank): View {
         // Each image at its own size rather than stretched to a tile: a
         // 16x16 icon beside a 64x48 ship is information about the bank.
         try {
-          cell.appendChild(canvasFor(spritePicture(bank, i)))
+          const pic = spritePicture(bank, i)
+          const canvas = canvasFor(pic)
+          zoomable(canvas, pic, cell)
+          cell.appendChild(canvas)
         } catch {
           const bad = document.createElement('div')
           bad.className = 'vw-bad'
@@ -133,6 +151,83 @@ function imagesView(bank: SpriteBank): View {
       host.appendChild(grid)
     },
   }
+}
+
+interface AnimFrame { picture: Picture; delay: number }
+
+/** Decode with the same BODY/DLTA machinery as the Iff Anim keyword. */
+export function decodeAnimation(data: Uint8Array): AnimFrame[] {
+  const sized = formSize(data, 0, 32767)
+  const buf = new Uint8Array(sized.bytes + 8)
+  const loaded = formLoad(data, 0, 32767, buf)
+  if (loaded.frames === 0) throw new Error('animation has no frames')
+  const table = new TokenTable(CORE_TOKENS)
+  const rt = new Runtime([], table)
+  let pos = formPlay(rt, buf, 0, 1, 0, false)
+  const out: AnimFrame[] = []
+  const snap = (): void => {
+    const s = rt.screen
+    out.push({
+      picture: pictureFromChunky({
+        width: s.width, height: s.height, depth: s.depth,
+        pixels: Uint8Array.from(s.pixels), palette: Array.from(s.palette),
+        hires: s.hires, laced: s.laced, ham: s.ham, ehb: s.ehb,
+      }),
+      delay: Math.max(2, (rt.iffReturn + 1) * 2),
+    })
+  }
+  snap()
+  rt.screen.doubleBuffer()
+  for (let i = 1; i < loaded.frames; i++) {
+    rt.screen.swap()
+    pos = formPlay(rt, buf, pos, 1, null, false)
+    snap()
+  }
+  return out
+}
+
+function animationViews(data: Uint8Array): View[] {
+  let decoded: AnimFrame[] | null = null
+  const frames = (): AnimFrame[] => (decoded ??= decodeAnimation(data))
+  return [
+    {
+      id: 'animation', label: 'Animation',
+      mount(host) {
+        const fs = frames()
+        const gifFrames: GifFrame[] = fs.map(({ picture: p, delay }) => ({
+          width: p.width, height: p.height, rgba: p.pixels, delay,
+        }))
+        const gif = encodeGif(gifFrames)
+        let binary = ''
+        for (let at = 0; at < gif.length; at += 0x8000) binary += String.fromCharCode(...gif.subarray(at, at + 0x8000))
+        const img = document.createElement('img')
+        img.className = 'fm-shot'
+        // A data URL belongs to the image and dies with it. A Blob URL would
+        // need a viewer teardown hook merely to avoid leaking one per redraw.
+        img.src = `data:image/gif;base64,${btoa(binary)}`
+        img.alt = `IFF animation, ${fs.length} frames`
+        img.title = 'right-click to save the animated GIF'
+        img.style.width = `min(100%, ${fs[0]!.picture.displayWidth}px)`
+        img.style.aspectRatio = `${fs[0]!.picture.displayWidth} / ${fs[0]!.picture.displayHeight}`
+        host.appendChild(img)
+      },
+    },
+    {
+      id: 'frames', label: 'Frames', count: frames().length,
+      mount(host) {
+        const grid = document.createElement('div')
+        grid.className = 'vw-grid'
+        frames().forEach(({ picture }, i) => {
+          const cell = document.createElement('figure'); cell.className = 'vw-cell'
+          const canvas = canvasFor(picture); zoomable(canvas, picture, cell)
+          cell.appendChild(canvas)
+          const cap = document.createElement('figcaption'); cap.textContent = `${i + 1}`; cell.appendChild(cap)
+          grid.appendChild(cell)
+        })
+        host.appendChild(grid)
+      },
+    },
+  ]
 }
 
 /** the samples in a `Samples` bank, each with a button that plays it */
@@ -408,6 +503,7 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * on it.
  */
 export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string): View[] | null {
+  if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked
   // about first. `../kinds.ts` has already identified it.
   if (group === 'icon') {

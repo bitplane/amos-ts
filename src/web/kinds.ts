@@ -38,6 +38,7 @@ import { detectModule, MOD_FORMAT_NAMES, type ModFormat } from '../amiga/modform
 import { isAdf, adfInfo } from '../amiga/adf'
 import { isAmosProgram } from '../loader/program'
 import { ICON_MAGIC } from '../amiga/icon'
+import { decodeMacPaint } from '../amiga/macpaint'
 
 /**
  * The kinds a row can be.
@@ -55,6 +56,7 @@ export type KindGroup =
   | 'packed'
   | 'music'
   | 'picture'
+  | 'animation'
   | 'sound'
   | 'text'
   | 'document'
@@ -188,15 +190,31 @@ export function identify(name: string, bytes: Uint8Array | null): Kind {
 
   if (isIcon(bytes)) return kind('icon', 'Workbench icon')
 
+  // The animation datatype identifies FORM ANIM too, but naming it here
+  // keeps this strong twelve-byte signature ahead of MacPaint's lone zero.
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'FORM' &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === 'ANIM') {
+    return kind('animation', 'IFF ANIM')
+  }
+
   // the ten shipped descriptors, now that nothing greedier can be caught by
   // MacPaint's one-byte mask
   const dt = obtainDataType(bytes, SHIPPED_DATATYPES)
   if (dt !== null) {
+    // macpaint.datatype's descriptor mask is only one zero byte. It is a
+    // prefilter for the datatype's decoder, not enough to identify a file on
+    // its own; without that decoder every HUNK library and config beginning
+    // with zero was labelled MacPaint. Its conventional suffixes are the
+    // only extra evidence available here.
+    if (dt.baseName === 'macpaint' && decodeMacPaint(bytes) === null) {
+      // fall through to text/data rather than accepting the weak descriptor
+    } else {
     if (dt.groupID === GID.PICTURE) return kind('picture', dt.name)
     if (dt.groupID === GID.SOUND) return kind('sound', dt.name)
     if (dt.groupID === GID.TEXT) return kind('text', dt.name)
     if (dt.groupID === GID.DOCUMENT) return kind('document', dt.name)
     return kind('data', dt.name)
+    }
   }
 
   // The two places a name is allowed to decide. A listing typed into the

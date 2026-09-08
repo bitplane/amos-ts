@@ -62,7 +62,7 @@ export function createLibsTab(): LibsTab {
   panel.appendChild(listHost)
 
   // the map is fixed at build time, so this list is drawn once and never again
-  createList(listHost).render(modelledLibraries().map(rowFor))
+  createList(listHost).render(modelledLibraries().sort((a, b) => a.name.localeCompare(b.name)).map(rowFor))
 
   return { panel }
 }

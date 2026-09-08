@@ -119,6 +119,17 @@ describe('identifying a file for the Files panel', () => {
     expect(identify('untitled', mod).group).toBe('music')
   })
 
+  it('does not let MacPaint claim arbitrary zero-prefixed Amiga files', () => {
+    expect(identify('AMOSPro_Compiler.Lib', new Uint8Array(4096)).name).toBe('data')
+  })
+
+  it('accepts MacPaint only when its bitmap stream decodes completely', () => {
+    // 405 PackBits runs of 128 white bytes make the 51,840-byte bitmap.
+    const mac = new Uint8Array(512 + 405 * 2)
+    for (let at = 512; at < mac.length; at += 2) mac.set([0x81, 0], at)
+    expect(identify('painting', mac).name).toBe('MacPaint')
+  })
+
   it('knows an IFF picture and an IFF sound apart', () => {
     const form = (kind: string): Uint8Array => {
       const d = new Uint8Array(64)

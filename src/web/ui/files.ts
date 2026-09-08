@@ -100,6 +100,7 @@ const ICONS: Readonly<Record<KindGroup, string>> = {
   packed: '🗜️',
   music: '🎵',
   picture: '🖼️',
+  animation: '🎞️',
   sound: '🔊',
   text: '📄',
   document: '📄',
@@ -202,7 +203,7 @@ function listingOf(bytes: Uint8Array): string | null {
  * dispatch that fills it, because two lists is how a row comes to have a
  * caret that reveals nothing (or a view nothing can reach).
  */
-const VIEWABLE = new Set<KindGroup>(['picture', 'text', 'program', 'bank', 'icon'])
+const VIEWABLE = new Set<KindGroup>(['picture', 'animation', 'text', 'program', 'bank', 'icon'])
 
 export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab {
   const { vfs } = opts
@@ -649,7 +650,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               // A program and a bank file are both SEVERAL things, and the
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
-              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon') {
+              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation') {
                 const views = viewsFor(bytes, viewHost(name, full), kind.group)
                 if (views !== null) {
                   const viewer = createViewer(bodyEl, views, viewerTabs.get(full))

@@ -29,8 +29,8 @@
  *
  * ## What it does not do
  *
- * GIF, PCX, BMP and MacPaint are all identified by `../amiga/datatypes.gen.ts`
- * and none of them has a decoder here. The panel says so by name rather than
+ * GIF, PCX and BMP are identified by `../amiga/datatypes.gen.ts` and have no
+ * decoder here; MacPaint is decoded through `../amiga/macpaint.ts`. The panel says so by name rather than
  * showing an empty box: a format this port can NAME and cannot READ is a
  * different state from one it does not recognise, and the row should say
  * which.
@@ -39,6 +39,7 @@ import { parseIlbm } from '../amiga/ilbm'
 import { parsePacPic } from '../loader/pacpic'
 import { decodeJpeg } from '../amiga/jpeg'
 import { colourResolver } from '../amiga/planar'
+import { decodeMacPaint } from '../amiga/macpaint'
 
 export interface Picture {
   width: number
@@ -200,6 +201,22 @@ function fromJpeg(bytes: Uint8Array): Picture | null {
   }
 }
 
+function fromMacPaint(bytes: Uint8Array): Picture | null {
+  const img = decodeMacPaint(bytes)
+  if (img === null) return null
+  return pictureFromChunky({
+    width: img.width,
+    height: img.height,
+    depth: 1,
+    pixels: img.pixels,
+    palette: [0xfff, 0x000],
+    hires: true,
+    laced: true,
+    ham: false,
+    ehb: false,
+  })
+}
+
 /**
  * Decode what `../web/kinds.ts` called a picture, or null.
  *
@@ -210,6 +227,7 @@ export function decodePicture(bytes: Uint8Array, name: string): Picture | null {
   try {
     if (name === 'ILBM') return fromIlbm(bytes)
     if (name === 'JPEG') return fromJpeg(bytes)
+    if (name === 'MacPaint') return fromMacPaint(bytes)
   } catch {
     // A truncated or damaged picture is a normal thing to find on a 30-year
     // old disk. The row says the format and shows nothing, which is more than
