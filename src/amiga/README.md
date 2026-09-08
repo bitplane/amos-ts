@@ -211,6 +211,7 @@ is still never run.
 | `ilbm.ts` | IFF ILBM: BMHD/CMAP/CAMG/BODY, ByteRun1, and the EHB palette |
 | `macpaint.ts` | MacPaint: the 512-byte header and PackBits-compressed monochrome bitmap |
 | `windowsbitmap.ts` | Windows BMP and ICO indexed/true-colour pictures, RLE and icon transparency |
+| `pcx.ts` | ZSoft PCX: RLE, packed/planar indexed pixels and 24-bit RGB |
 | `jpeg.ts` | baseline JPEG, ISO/IEC 10918-1, Huffman and 8-bit tables |
 | `opalvision.ts` | OpalVision, Opal Technology's 24-bit framebuffer, and `opal.library` |
 | `opalreq.ts` | `opalreq.library` 1.10's synchronous file-request boundary and public structure |

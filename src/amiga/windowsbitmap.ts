@@ -57,7 +57,8 @@ function decodeRle(data: Uint8Array, start: number, end: number, width: number, 
   return pixels
 }
 
-function quantise(rgb: Uint8Array, width: number, height: number): IndexedBitmap {
+/** RGB24 to the shared fixed RGB332 palette used when an Amiga needs indices. */
+export function quantiseRgb(rgb: Uint8Array, width: number, height: number): IndexedBitmap {
   const pixels = new Uint8Array(width * height)
   const palette = Array.from({ length: 256 }, (_, value) => {
     const r = ((value >> 5) & 7) * 255 / 7
@@ -123,7 +124,7 @@ function decodeDib(data: Uint8Array, options: DibOptions): IndexedBitmap | null 
         rgb[target + 2] = data[source]!
       }
     }
-    const out = quantise(rgb, width, height)
+    const out = quantiseRgb(rgb, width, height)
     pixels = out.pixels
     palette.push(...out.palette)
   }

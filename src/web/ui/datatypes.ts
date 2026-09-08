@@ -12,7 +12,7 @@ const SUPPORT: Readonly<Record<string, Support>> = {
   ilbm: { level: 'decode', detail: 'planar, HAM and extra-half-brite pictures' },
   jpeg: { level: 'decode', detail: 'baseline JPEG pictures' },
   macpaint: { level: 'decode', detail: 'PackBits monochrome pictures' },
-  pcx: { level: 'identify', detail: 'identified; image decoding is not implemented' },
+  pcx: { level: 'decode', detail: 'packed and planar indexed PCX plus 24-bit RGB' },
   bmp: { level: 'decode', detail: 'indexed and true-colour BMP, including RLE4/RLE8' },
   ico: { level: 'decode', detail: 'Windows ICO bitmaps and transparency masks' },
 }

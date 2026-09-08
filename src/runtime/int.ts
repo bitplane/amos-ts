@@ -70,6 +70,7 @@ import { GID, obtainDataType } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { decodeMacPaint } from '../amiga/macpaint'
 import { decodeBmp, decodeIco } from '../amiga/windowsbitmap'
+import { decodePcx } from '../amiga/pcx'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -1452,7 +1453,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         if (mac !== null) {
           pic = { width: mac.width, height: mac.height, depth: 1, mode: 0x8004, palette: [0xfff, 0], pixels: mac.pixels }
         } else {
-          const windows = dt?.baseName === 'bmp' ? decodeBmp(bytes) : dt?.baseName === 'ico' ? decodeIco(bytes) : null
+          const windows = dt?.baseName === 'bmp' ? decodeBmp(bytes)
+            : dt?.baseName === 'ico' ? decodeIco(bytes)
+              : dt?.baseName === 'pcx' ? decodePcx(bytes) : null
           if (windows !== null) pic = {
             width: windows.width, height: windows.height, depth: windows.depth,
             mode: 0, palette: windows.palette, pixels: windows.pixels,

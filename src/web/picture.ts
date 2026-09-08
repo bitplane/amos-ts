@@ -41,6 +41,7 @@ import { decodeJpeg } from '../amiga/jpeg'
 import { colourResolver } from '../amiga/planar'
 import { decodeMacPaint } from '../amiga/macpaint'
 import { decodeBmp, decodeIco, type IndexedBitmap } from '../amiga/windowsbitmap'
+import { decodePcx } from '../amiga/pcx'
 
 export interface Picture {
   width: number
@@ -248,6 +249,10 @@ export function decodePicture(bytes: Uint8Array, name: string): Picture | null {
     }
     if (name === 'Windows Icon') {
       const image = decodeIco(bytes)
+      return image ? fromIndexedBitmap(image) : null
+    }
+    if (name === 'Zsoft PCX') {
+      const image = decodePcx(bytes)
       return image ? fromIndexedBitmap(image) : null
     }
   } catch {

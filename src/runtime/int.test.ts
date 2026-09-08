@@ -1386,8 +1386,18 @@ describe('Int 1.0: Wb Dt Image To Screen', () => {
     return bmp
   }
 
+  function zsoftPcx(): Uint8Array {
+    const pcx = new Uint8Array(128 + 2 + 769)
+    const view = new DataView(pcx.buffer)
+    pcx.set([0x0a, 5, 1, 8]); view.setUint16(8, 1, true)
+    pcx[65] = 1; view.setUint16(66, 2, true)
+    pcx.set([0, 1], 128); pcx[130] = 0x0c
+    pcx.set([0xff, 0xff, 0xff], 134)
+    return pcx
+  }
+
   function go(src: string): { rt: Runtime; out: string } {
-    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
+    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'pic.pcx': zsoftPcx(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
     mustFinish(b.rt.runHeadless(3_000))
     return { rt: b.rt, out: b.out().trim() }
   }
@@ -1455,6 +1465,12 @@ Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
     const r = go('Wb Dt Image To Screen 0,0,"pic.bmp",1,1')
     const data = r.rt.memBanks.get(1)!.data
     expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 1])
+  })
+
+  it('loads a ZSoft PCX through the same datatype path', () => {
+    const r = go('Wb Dt Image To Screen 0,0,"pic.pcx",1,1')
+    const data = r.rt.memBanks.get(1)!.data
+    expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 8])
   })
 
   /**
