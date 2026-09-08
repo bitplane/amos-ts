@@ -5502,15 +5502,7 @@ export class Runtime {
     if (opts.onText) this.host.onText = opts.onText
     this.onText = this.host.onText
     const io: AmosIO = {
-      write: (text) => {
-        this.onText?.(text)
-        // A typed line prints to the screen like anything else --- on the
-        // machine it prints to the editor's escape screen, which is a screen.
-        // A host that wants to show the answer in its own console gets a copy
-        // rather than a redirect.
-        if (this.interp.direct !== 0) this.onDirectText?.(text)
-        this.screen.writeText(text)
-      },
+      write: (text) => this.writeText(text),
       locate: (x, y) => this.screen.locate(x, y),
       cls: () => this.screen.cls(),
       pen: (n) => {
@@ -5737,6 +5729,13 @@ export class Runtime {
     const s = this.screens.get(this.currentIndex)
     if (!s) throw new AmosError(`screen not opened: ${this.currentIndex}`, 47)
     return s
+  }
+
+  /** The one AMOS output path shared by core Print and extension PutStr wrappers. */
+  writeText(text: string): void {
+    this.onText?.(text)
+    if (this.interp.direct !== 0) this.onDirectText?.(text)
+    this.screen.writeText(text)
   }
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {

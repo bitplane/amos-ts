@@ -2511,6 +2511,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       closeScreenId(rt, st(), it.evalInt())
     },
     '_scr id beep'(it) { rt.intuition.displayBeep(st().screenIds.get(it.evalInt())?.base ?? 0) },
+    '_print'(it) { rt.writeText(`${it.evalStr()}\n`) },
     '_scr id from wb'(it) {
       const id = it.evalInt(); const address = rt.intuition.openWorkBench()
       if (address !== 0) bindScreenId(rt, st(), id, WB_SLOT)
@@ -3381,6 +3382,20 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const candidates = DISPLAY_MODES.filter(mode => (monitor === 0 || (mode.id & 0xffff_1000) === (monitor & 0xffff_1000)) && (!avoidFlicker || (mode.id & 4) === 0))
       candidates.sort((left, right) => Math.abs(left.width - width) + Math.abs(left.height - height) - Math.abs(right.width - width) - Math.abs(right.height - height))
       return VI(candidates[0]?.id ?? -1)
+    },
+    '_calc ivg'(_, a) {
+      const view = n(a, 0) >>> 0; const target = n(a, 1) >>> 0
+      if (view === 0 || target === 0) return VI(0)
+      let previousBottom = structRead(rt, view + 12, 2, true); let current = structRead(rt, view, 4, false) >>> 0
+      const seen = new Set<number>()
+      while (current !== 0 && !seen.has(current)) {
+        seen.add(current)
+        const top = structRead(rt, current + 30, 2, true)
+        if (current === target) return VI(Math.max(0, top - previousBottom))
+        previousBottom = top + structRead(rt, current + 26, 2, false)
+        current = structRead(rt, current, 4, false) >>> 0
+      }
+      return VI(0)
     },
     '_pen find'(_, a) { return VI(findColor(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3), n(a, 4))) },
     '_pen obtain best'(_, a) { return VI(obtainBestPen(st().colorMaps.get(n(a, 0) >>> 0) ?? null, n(a, 1), n(a, 2), n(a, 3))) },

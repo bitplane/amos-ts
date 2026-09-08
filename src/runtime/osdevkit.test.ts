@@ -1183,6 +1183,15 @@ describe('OS DevKit 1.61 native graphics records', () => {
     )
   })
 
+  it('calculates inter-ViewPort dead lines and prints through the shared AMOS output path', () => {
+    const { output } = run([
+      'V=_struct alloc(18) : A=_struct alloc(40) : B=_struct alloc(40)',
+      'Loke V,A : Doke V+12,5 : Loke A,B : Doke A+26,20 : Doke A+30,10 : Doke B+26,8 : Doke B+30,40',
+      '_print "OS DevKit" : Print _calc ivg(V,A),_calc ivg(V,B),_calc ivg(V,0)',
+    ].join('\n'))
+    expect(output).toBe('OS DevKit\n 5\t 10\t 0\n')
+  })
+
   it('exposes and replaces the graphics system active View', () => {
     expect(run([
       '_scr id open 1,3,4,80,40,3,$8004,0,"View" : V=_sys view',
