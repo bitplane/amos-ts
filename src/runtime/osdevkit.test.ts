@@ -251,7 +251,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('$0\t$A\n$F\t$3\n$8123\n$12345678\t-9\t 0\n')
     expect(rt.machine.cpu.cacheBits).toBe(9)
     expect(rt.osdevkit.chipRevision).toBe(0xf)
-    expect(rt.osdevkit.amosName).toBe('~abcdefghijklmnopqrstuvwxyz0123')
+    expect(rt.osdevkit.amosName).toBe('~abcdefghijklmnopqrstuvwxyz01234')
+    expect(rt.osdevkit.editorRefreshRequested).toBe(true)
   })
 
   it('shares V39 pool allocations with the native arena and owns their lifetime', () => {

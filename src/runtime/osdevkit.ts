@@ -31,7 +31,7 @@ import {
   type NativeColorMap,
 } from '../amiga/oscolormap'
 import {
-  chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, valLong, valWord,
+  chrLong, chrWord, extendByte, extendWithinWord, extendWord, joinWord, osAmosName, valLong, valWord,
 } from '../amiga/osscalar'
 import {
   A1200_ATTN_FLAGS, EXEC_SOFT_VERSION, EXEC_VERSION, systemCpu, systemFpu,
@@ -153,6 +153,7 @@ export interface OsDevKitState {
   catalogs: Map<number, { catalog: Catalog; strings: Map<number, number> }>
   chipRevision: number
   amosName: string
+  editorRefreshRequested: boolean
   dataRegisters: Int32Array
   addressRegisters: Int32Array
   pools: Map<number, { requirements: number; puddleSize: number; thresholdSize: number; allocations: Set<number> }>
@@ -207,7 +208,7 @@ export const newOsDevKitState = (
     dosVariables: services.dosVariables, readArgs: services.readArgs,
     dataTypes: services.dataTypes, dosNotifications: new Map(), dosSegments: new Map(),
     tracker: new OsResourceTracker(), toolTypePointers: new Map(), displayInfoHandles: new Map(), requester: null,
-    locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '',
+    locales: new Map(), catalogs: new Map(), chipRevision: 0xf, amosName: '', editorRefreshRequested: false,
     dataRegisters: new Int32Array(8), addressRegisters: new Int32Array(8), pools: new Map(), bitMaps: new Map(),
     hardwareSprites: Array.from({ length: 8 }, () => null), extSprites: new Map(), aslRequests: new Map(),
     layerInfos: new Map(), layers: new Map(),
@@ -1741,7 +1742,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (font !== undefined) structWrite(rt, rp! + 52, 4, font)
       drawNativeText(rt, st(), rp!, value)
     },
-    '_amos name'(it) { st().amosName = `~${it.evalStr()}`.slice(0, 31) },
+    '_amos name'(it) {
+      st().amosName = osAmosName(it.evalStr())
+      st().editorRefreshRequested = true
+    },
     '_dreg'(it) {
       it.expect('('); const register = it.evalInt(); it.expect(')'); it.expectOp('='); const value = it.evalInt()
       if (register >= 0 && register < 8) st().dataRegisters[register] = value

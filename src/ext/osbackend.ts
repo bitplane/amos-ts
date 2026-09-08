@@ -301,7 +301,7 @@ auditMany('partial', 'the complete eight-data/eight-address longword register fr
 auditMany('missing', 'the worker jumps to arbitrary native code with the saved register frame, and no 68k execution backend exists', [
   '_call',
 ])
-auditMany('partial', 'the tilde-prefixed, 31-byte-truncated extension name is modelled, but the native editor refresh flag is not exposed', [
+auditMany('faithful', 'the tilde prefix, 31-byte payload limit and editor refresh request are retained exactly', [
   '_amos name',
 ])
 auditMany('faithful', 'the token is encoded with the extension null function and has no worker or side effect', [

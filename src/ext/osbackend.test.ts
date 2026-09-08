@@ -1079,7 +1079,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       status: 'partial', routines: [40, 41], workers: [40, 41], osCalls: [],
     })
     expect(rows.find((row) => row.name === '_call')).toMatchObject({ status: 'missing', workers: [43] })
-    expect(rows.find((row) => row.name === '_amos name')).toMatchObject({ status: 'partial', workers: [1478] })
+    expect(rows.find((row) => row.name === '_amos name')).toMatchObject({ status: 'faithful', workers: [1478] })
     expect(rows.find((row) => row.name === '_low init')).toMatchObject({
       status: 'faithful', routines: [], workers: [], osCalls: [],
     })
