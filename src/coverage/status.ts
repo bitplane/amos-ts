@@ -11420,13 +11420,13 @@ export const NOTES: Record<string, string> = {
     "explaining, leaving both argument descriptions blank and saying \"DONT USE\"",
   "g iconify":
     "Routines 61 ($24d8) and 71 ($28c8), the two-argument and three-argument forms. Opens icon.library (name at " +
-    "block +$94) and then workbench.library (+$a6), and if the SECOND open fails it closes the first and returns " +
-    "having done nothing. That is the arm every call takes here: workbench.library is not modelled, the same wall " +
-    "GameSupport's Gsiconify meets, and nothing is faked past it",
+    "block +$94) and then workbench.library (+$a6). The shared Icon/Workbench/Exec backends own its DiskObject, " +
+    "AppIcon and MsgPort. The two-argument form yields while waiting; the third argument returns immediately only " +
+    "when it is 1, as the guide specifies",
   "g icon check":
     "Routine 72 ($2a44). GetMsg on the port at block +$b22, RemoveAppIcon through workbench.library at +$b8, then " +
-    "the port drained and deleted. `tst.l a0 / beq` on the port is the first thing it does and there is never one, " +
-    "because G Iconify could not open workbench.library",
+    "the port drained and deleted. `tst.l a0 / beq` on the port is the first thing it does; the shared backends " +
+    "reproduce that lifecycle and release the DiskObject after activation",
   "g ptload":
     "Routine 15 ($18ca). `adda.w #2,a0` first, because an AMOS string is its length word and then its bytes. " +
     "THREE DEFECTS in seven instructions, all reproduced: OpenLibrary is called on every invocation and its result " +

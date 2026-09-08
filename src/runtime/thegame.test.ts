@@ -18,6 +18,7 @@ import { Runtime } from './runtime'
 import { Screen } from './screen'
 import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
+import { writeIcon } from '../amiga/icon'
 import {
   PT_PLAY_VOLUME,
   TGE_ENCRYPT_BANK_NAME,
@@ -107,6 +108,14 @@ const withRam = (data = modFile([0, 0, 0, 0])): AmigaFS => {
   const fs = new AmigaFS()
   fs.mountMemory('RAM')
   fs.writeFile('RAM:song.mod', data)
+  return fs
+}
+
+const withIcon = (): AmigaFS => {
+  const fs = withRam()
+  fs.writeFile('RAM:icon.info', writeIcon({
+    type: 3, normal: null, selected: null, defaultTool: '', toolTypes: [], stackSize: 4096, drawer: false,
+  }))
   return fs
 }
 
@@ -400,17 +409,39 @@ describe('the host and OS keywords', () => {
     expect(b).toBe(a)
   })
 
-  /**
-   * The routine could not open workbench.library, so it closed icon.library
-   * and returned; there is no AppIcon and no port to check.
-   */
-  it('G Iconify does nothing and =G Icon Check stays false', () => {
-    expect(vals(['G Iconify "Title","RAM:icon"', 'Print G Icon Check'], withRam())).toEqual([0])
+  it('the multitasking form registers an AppIcon and initially reports no click', () => {
+    const rt = boot(['G Iconify "Title","RAM:icon",1', 'Print G Icon Check'], withIcon())
+    expect(printed(rt)).toEqual([0])
+    expect(rt.thegame.iconUp).toBe(true)
+    expect(rt.workbench.items.get(rt.thegame.appIcon)).toMatchObject({ kind: 'icon', label: 'Title' })
   })
 
-  it('G Iconify takes the three-argument form too', () => {
-    const rt = run('G Iconify "Title","RAM:icon",1', withRam())
+  it('G Icon Check consumes the Workbench activation and releases the lifecycle', () => {
+    const rt = boot(['G Iconify "Title","RAM:icon",1', 'Wait 2', 'Print G Icon Check'], withIcon())
+    rt.frame()
+    expect(rt.thegame.iconUp).toBe(true)
+    expect(rt.workbench.activate(rt.thegame.appIcon)).toBeGreaterThan(0)
+    for (let i = 0; i < 4; i++) rt.frame()
+    expect(printed(rt)).toEqual([-1])
     expect(rt.thegame.iconUp).toBe(false)
+    expect(rt.workbench.items.size).toBe(0)
+    expect(rt.icons.objects.size).toBe(0)
+  })
+
+  it('the two-argument form blocks until Workbench activates the icon', () => {
+    const rt = boot(['G Iconify "Title","RAM:icon"', 'Print 7'], withIcon())
+    rt.frame()
+    expect(rt.interp.blocked).not.toBeNull()
+    expect(rt.workbench.activate(rt.thegame.appIcon)).toBeGreaterThan(0)
+    for (let i = 0; i < 3; i++) rt.frame()
+    expect(printed(rt)).toEqual([7])
+    expect(rt.thegame.iconUp).toBe(false)
+  })
+
+  it('a missing icon path follows GetDiskObject failure without leaking', () => {
+    const rt = run('G Iconify "Title","RAM:missing",1', withRam())
+    expect(rt.thegame.iconUp).toBe(false)
+    expect(rt.workbench.items.size).toBe(0)
   })
 
   /** dos.library's Execute, and the value register is never set */

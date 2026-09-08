@@ -197,8 +197,8 @@ export function makeIntuiextendAppFunctions(rt: Runtime): Record<string, Func> {
     'app create icon': (_, a) => {
       const diskObject = i0(a, 0) >>> 0
       const port = i0(a, 1) >>> 0
-      s0(a, 2)
-      const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0)
+      const label = s0(a, 2)
+      const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0, label)
       return VI(appIcon || IE_APP_FAIL)
     },
 

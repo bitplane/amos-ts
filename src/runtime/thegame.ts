@@ -956,6 +956,10 @@ export interface TheGameState {
   prevY: number
   /** whether those two hold a real reading yet */
   seeded: boolean
+  /** block +$b22 and the two handles owned by the live Workbench AppIcon */
+  iconPort: number
+  appIcon: number
+  diskObject: number
   /** whether an AppIcon is on the Workbench, and whether it has been clicked */
   iconUp: boolean
   iconClicked: boolean
@@ -1061,6 +1065,9 @@ export function newTheGameState(rt: Runtime): TheGameState {
     prevX: 0,
     prevY: 0,
     seeded: false,
+    iconPort: 0,
+    appIcon: 0,
+    diskObject: 0,
     iconUp: false,
     iconClicked: false,
     fibLeak: 0,
@@ -1975,22 +1982,40 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      *     tst.l d0 / bne -> the work
      *     movea.l $a2(a3),a1 / CloseLibrary / bra exit
      *
-     * That is the arm every call takes here. This port has no
-     * `workbench.library` — the same wall GameSupport's `Gsiconify` meets —
-     * and nothing is faked past it: there is no AppIcon to add, no message
-     * port to wait on, and `=G Icon Check` therefore answers 0 for ever.
-     *
-     * Both arguments are still evaluated, because the machine pops them before
-     * it reaches the failure test.
+     * Both libraries now use their runtime-wide backends. The two-argument
+     * form yields and re-enters this statement until Workbench queues its
+     * AppMessage; the three-argument form returns immediately only when MULTI
+     * is 1, exactly as the guide directs.
      */
     'g iconify': (it) => {
-      it.evalStr()
+      const title = it.evalStr()
       it.expect(',')
-      it.evalStr()
-      if (it.accept(',')) it.evalInt()
-      // workbench.library is not modelled, so the open fails and the routine
-      // closes icon.library and leaves
-      st().iconUp = false
+      const path = it.evalStr()
+      let multi = 0
+      if (it.accept(',')) multi = it.evalInt()
+      const s = st()
+      if (!s.iconUp) {
+        const diskObject = rt.icons.load(path)
+        if (diskObject === 0) return
+        const port = rt.exec.messages.createPort()
+        if (port === 0) { rt.icons.free(diskObject); return }
+        const appIcon = rt.workbench.add('icon', 0, 0, 0, port, diskObject, 0, title)
+        if (appIcon === 0) { rt.exec.messages.deletePort(port); rt.icons.free(diskObject); return }
+        s.diskObject = diskObject; s.iconPort = port; s.appIcon = appIcon
+        s.iconUp = true; s.iconClicked = false
+      }
+      if (multi === 1) return
+      const message = rt.exec.messages.getMsg(s.iconPort)
+      if (message === 0) {
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+        return
+      }
+      rt.exec.messages.memory.free(message)
+      rt.workbench.remove(s.appIcon, 'icon')
+      rt.exec.messages.deletePort(s.iconPort)
+      rt.icons.free(s.diskObject)
+      s.iconUp = false; s.iconClicked = true
+      s.iconPort = 0; s.appIcon = 0; s.diskObject = 0
     },
 
     /**
@@ -3711,11 +3736,24 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      *
      * `GetMsg` on the port at block +$b22, `RemoveAppIcon` through
      * `workbench.library` at +$b8, then the port is drained and deleted. The
-     * first instruction after loading the port is `tst.l a0 / beq` — and there
-     * is never a port here, because `G Iconify` could not open
-     * `workbench.library`.
+     * first instruction after loading the port is `tst.l a0 / beq`.
      */
-    'g icon check': () => VI(st().iconClicked ? -1 : 0),
+    'g icon check': () => {
+      const s = st()
+      if (!s.iconUp) return VI(0)
+      const message = rt.exec.messages.getMsg(s.iconPort)
+      if (message === 0) return VI(0)
+      rt.exec.messages.memory.free(message)
+      rt.workbench.remove(s.appIcon, 'icon')
+      for (let pending = rt.exec.messages.getMsg(s.iconPort); pending !== 0; pending = rt.exec.messages.getMsg(s.iconPort)) {
+        rt.exec.messages.memory.free(pending)
+      }
+      rt.exec.messages.deletePort(s.iconPort)
+      rt.icons.free(s.diskObject)
+      s.iconUp = false; s.iconClicked = true
+      s.iconPort = 0; s.appIcon = 0; s.diskObject = 0
+      return VI(-1)
+    },
 
     /**
      * Routine 81 ($2be0) — `=G Word$(TEXT$,N,SEP)`. The guide's node is the
