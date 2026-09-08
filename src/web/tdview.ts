@@ -3,7 +3,10 @@ import {
   parseTdFile,
   parseTdGeometry,
   parseTdSurface,
+  tdBlockColours,
+  tdObjectGeometry,
   tdSurfaceSlots,
+  type TdObject,
   type TdPoint,
 } from '../runtime/td'
 
@@ -30,8 +33,18 @@ const uniqueEdges = (polygons: readonly (readonly number[])[]): Array<[number, n
 }
 
 /** A `.3DO` as the exact points and face edges exposed by the runtime parser. */
-export function objectWireframe(bytes: Uint8Array): Wireframe {
-  const geometry = parseTdGeometry(parseTdFile(bytes))
+export function objectWireframe(bytes: Uint8Array, readLinked?: (name: string) => Uint8Array | null): Wireframe {
+  const file = parseTdFile(bytes)
+  if (!readLinked) {
+    const geometry = parseTdGeometry(file)
+    return { points: geometry.points, edges: uniqueEdges(geometry.faces.map((face) => face.vertices)) }
+  }
+  const linked = new Map<number, TdObject>()
+  for (const link of file.links.filter((item) => item.type === 4)) {
+    const data = readLinked(`${link.name}${/\.3dt$/i.test(link.name) ? '' : '.3DT'}`)
+    if (data) linked.set(link.offset, { name: link.name.toLowerCase(), file: parseTdFile(data, 22), linked: new Map(), colours: [] })
+  }
+  const geometry = tdObjectGeometry({ name: '', file, linked, colours: tdBlockColours(file) })
   return { points: geometry.points, edges: uniqueEdges(geometry.faces.map((face) => face.vertices)) }
 }
 

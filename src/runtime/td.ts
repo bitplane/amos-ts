@@ -1498,6 +1498,8 @@ export interface TdTemplate {
    * which is what bounds `Td Surface`'s face arguments at $212cac and $212d06.
    */
   faces: number
+  /** four template-local point indices for each face, in winding order */
+  faceVertices: number[][]
 }
 
 export function parseTdTemplate(file: TdFile): TdTemplate {
@@ -1516,7 +1518,20 @@ export function parseTdTemplate(file: TdFile): TdTemplate {
     if (at + 4 > b.length) break
     records.push({ at, target: (u32(at) + delta) | 0 })
   }
-  return { block: b, sections, records, delta, faces: b[0x1a] ?? 0 }
+  const faces = b[0x1a] ?? 0
+  // The final section carries four byte-sized point indices per face. (The
+  // six bytes before it belong to the on-disc wrapper stripped by parseTdFile.)
+  // p5's triangular sides
+  // repeat their first point here; p8's six quads use all four. These are the
+  // defaults an object inherits before any per-face surface links are applied.
+  const faceVertices: number[][] = []
+  const faceAt = sections[1]
+  for (let i = 0; i < faces; i++) {
+    const at = faceAt + i * 4
+    if (at + 4 > b.length) break
+    faceVertices.push([b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!])
+  }
+  return { block: b, sections, records, delta, faces, faceVertices }
 }
 
 // ---- geometry ----
@@ -1635,6 +1650,40 @@ export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean
     faces.push({ at, surface: v.getUint32(at, false), vertices })
   }
   return { points, faces, pointsAt, facesAt, facesEnd, multipart }
+}
+
+/**
+ * Resolve the geometry of a loaded object, including faces inherited from
+ * each block's `.3DT` template.
+ *
+ * A `.3DO` reserves one sixteen-byte face record per template face, but an
+ * untouched face is all zeroes: only its optional external surface belongs
+ * to the object. The original engine keeps the actual four point indices in
+ * the template's final section. Reading the object records alone therefore
+ * makes untextured walls and roofs disappear.
+ */
+export function tdObjectGeometry(obj: TdObject): TdGeometry & { multipart: boolean } {
+  const raw = parseTdGeometry(obj.file)
+  const b = obj.file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const faces: TdFace[] = []
+  let complete = true
+  for (const block of parseTdBlocks(obj.file)) {
+    const linked = obj.linked.get(block.at + 0x0a)
+    if (!linked) { complete = false; continue }
+    const template = parseTdTemplate(linked.file)
+    if (template.faceVertices.length !== template.faces) complete = false
+    for (let i = 0; i < template.faceVertices.length; i++) {
+      const at = raw.facesAt + (block.baseFace + i) * TD_FACE_SIZE
+      const vertices = template.faceVertices[i]!.map((point) => block.firstVertex + point)
+      if (at + TD_FACE_SIZE > raw.facesEnd || vertices.some((point) => point >= raw.points.length)) {
+        complete = false
+        continue
+      }
+      faces.push({ at, surface: v.getUint32(at, false), vertices })
+    }
+  }
+  return { ...raw, faces, multipart: raw.multipart || !complete }
 }
 
 // ---- blocks and colour ----
@@ -2311,7 +2360,6 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView,
   const blocks = obj ? parseTdBlocks(obj.file) : []
   const out: TdScreenFace[] = []
   for (const [i, face] of g.faces.entries()) {
-    if (face.surface === 0) continue
     const vertices = inst?.surfaceVertices?.get(face.at) ?? face.vertices
     const projectedFace = vertices.map((n) => projected[n]!)
     if (projectedFace.some((p) => p.status !== 0)) continue
@@ -2437,7 +2485,7 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
       out.push({ n, faces: [] })
       continue
     }
-    const g = parseTdGeometry(inst.object.file)
+    const g = tdObjectGeometry(inst.object)
     // Td Anim deforms this instance's own copy of the points
     if (inst.points) g.points = inst.points
     const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])

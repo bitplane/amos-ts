@@ -11,7 +11,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { loadHunks } from '../amiga/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdObjectGeometry, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift, type TdObject } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -317,6 +317,16 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D templates (relocation at $2199ba)', () =
     expect(recs('p5.3DT')).toBe(26)
     expect(recs('p8.3DT')).toBe(56)
   })
+
+  it('reads the face topology inherited by p8 boxes and p5 roofs', () => {
+    expect(parseTdTemplate(parseTdFile(shipped('p8.3DT'), 22)).faceVertices).toEqual([
+      [0, 1, 2, 3], [4, 5, 1, 0], [7, 6, 5, 4],
+      [3, 2, 6, 7], [2, 1, 5, 6], [0, 3, 7, 4],
+    ])
+    expect(parseTdTemplate(parseTdFile(shipped('p5.3DT'), 22)).faceVertices).toEqual([
+      [0, 4, 1, 0], [1, 4, 2, 1], [2, 4, 3, 2], [3, 4, 0, 3], [0, 1, 2, 3],
+    ])
+  })
 })
 
 describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, face walk at $217ee2)', () => {
@@ -370,6 +380,22 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
     const geometry = parseTdGeometry(file)
     expect(blocks.map((block) => block.firstVertex)).toEqual([0, 5])
     expect(geometry.faces[blocks[1]!.baseFace]!.vertices.every((point) => point >= 5)).toBe(true)
+  })
+
+  it('restores church walls and roofs from its linked templates', () => {
+    const file = parseTdFile(shipped('church.3DO'))
+    const object: TdObject = { name: 'church', file, linked: new Map(), colours: tdBlockColours(file) }
+    for (const link of file.links.filter((item) => item.type === 4)) {
+      const templateFile = parseTdFile(shipped(`${link.name}.3DT`), 22)
+      object.linked.set(link.offset, { name: link.name, file: templateFile, linked: new Map(), colours: [] })
+    }
+    const geometry = tdObjectGeometry(object)
+    expect(geometry.faces.length).toBe(23)
+    expect(geometry.faces.slice(0, 6).map((face) => face.vertices)).toEqual(
+      parseTdTemplate(object.linked.get(parseTdBlocks(object.file)[0]!.at + 0x0a)!.file).faceVertices,
+    )
+    // The tower's p5 contributes four triangular roof sides and a base.
+    expect(geometry.faces.slice(18).map((face) => new Set(face.vertices).size)).toEqual([3, 3, 3, 3, 4])
   })
 
   it('stops at the two objects that carry a second template', () => {

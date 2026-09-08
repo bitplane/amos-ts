@@ -550,6 +550,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
       },
       playSample: (bankNumber, data, index) => opts.playSample?.(name, bankNumber, data, index),
       onStatus: opts.onStatus,
+      readSibling: (sibling) => vfs.read(joinAmigaPath(cwd, sibling)),
     }
   }
 

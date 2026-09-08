@@ -12,6 +12,13 @@ describe('AMOS 3D viewer models', () => {
     expect(model.edges.every(([a, b]) => a < model.points.length && b < model.points.length)).toBe(true)
   })
 
+  it('loads linked templates for an object whose default faces are not repeated in the object file', () => {
+    const root = 'fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects'
+    const model = objectWireframe(readFileSync(`${root}/church.3DO`), (name) => readFileSync(`${root}/${name}`))
+    expect(model.points.length).toBe(29)
+    expect(model.edges.length).toBe(44)
+  })
+
   it('maps a surface onto a face without inventing a 3D mesh', () => {
     const model = surfaceWireframe(readFileSync(`${ROOT}/td1s1.3DS`))
     expect(model.points.length).toBeGreaterThanOrEqual(5)

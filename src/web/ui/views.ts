@@ -53,6 +53,8 @@ export interface ViewHost {
   /** run `Sam Play n` over this bank */
   playSample(bankNumber: number, data: Uint8Array, index: number): void
   onStatus(text: string): void
+  /** read a file beside the one being viewed */
+  readSibling(name: string): Uint8Array | null
 }
 
 /** 901120 -> "880K", the way a disk was always described */
@@ -373,9 +375,9 @@ export function hexView(data: Uint8Array): View {
   }
 }
 
-function modelViews(bytes: Uint8Array, name: string): View[] {
+function modelViews(bytes: Uint8Array, name: string, hostApi: ViewHost): View[] {
   if (name === 'AMOS 3D object') {
-    const model = objectWireframe(bytes)
+    const model = objectWireframe(bytes, hostApi.readSibling)
     return [{
       id: 'wireframe', label: 'Wireframe', count: model.points.length,
       mount: (host) => {
@@ -557,7 +559,7 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * on it.
  */
 export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string, name = ''): View[] | null {
-  if (group === 'model') return modelViews(bytes, name)
+  if (group === 'model') return modelViews(bytes, name, hostApi)
   if (group === 'data') return [hexView(bytes)]
   if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked

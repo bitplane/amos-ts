@@ -72,7 +72,7 @@ function amosFile(source: Uint8Array, banks: number[][]): Uint8Array {
   ])
 }
 
-const host = (): ViewHost => ({ playModule: vi.fn(), playSample: vi.fn(), onStatus: vi.fn() })
+const host = (): ViewHost => ({ playModule: vi.fn(), playSample: vi.fn(), onStatus: vi.fn(), readSibling: vi.fn(() => null) })
 
 /** the tokenised `Print "hi"` a listing needs to be non-empty */
 const someSource = new Uint8Array([0, 4, 0, 0])
