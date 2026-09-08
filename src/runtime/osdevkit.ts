@@ -57,7 +57,7 @@ import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
 import { findToolType, matchToolValue } from '../amiga/icon'
-import { DISPLAY_MODES, displayModeOf } from '../amiga/displayinfo'
+import { DISPLAY_MODES, displayInfoData, displayModeOf } from '../amiga/displayinfo'
 import { getCatalogStr, getLocaleStr, parseCatalog, type Catalog } from '../amiga/localelib'
 
 const SCREEN_CTRL_BASE = 0x4800_0000
@@ -3405,6 +3405,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         st().displayInfoHandles.set(id, handle)
       }
       return VI(handle)
+    },
+    '_disp info get'(_, a) {
+      const handle = n(a, 0) >>> 0; const buffer = n(a, 1) >>> 0; const capacity = Math.max(0, n(a, 2))
+      const id = handle === 0 ? n(a, 4) >>> 0 : structRead(rt, handle, 4, false) >>> 0
+      const mode = displayModeOf(id); const data = mode ? displayInfoData(mode, n(a, 3) >>> 0) : null
+      if (!data || buffer === 0 || capacity === 0) return VI(0)
+      const count = Math.min(capacity, data.length)
+      for (let i = 0; i < count; i++) { const byte = rt.resolveWrite(buffer + i); if (byte) byte.data[byte.off] = data[i]! }
+      return VI(count)
     },
     '_lib version'(_, a) { return VI(libraryVersion(n(a, 0))) },
     '_lib revision'(_, a) { return VI(libraryRevision(n(a, 0))) },

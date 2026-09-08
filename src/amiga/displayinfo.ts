@@ -110,3 +110,39 @@ export const DISPLAY_MODES: readonly DisplayMode[] = (
 export function displayModeOf(id: number): DisplayMode | null {
   return DISPLAY_MODES.find((m) => m.id === id) ?? null
 }
+
+export const DISPLAY_INFO_TAG = {
+  DISPLAY: 0x8000_0000,
+  DIMENSIONS: 0x8000_1000,
+  MONITOR: 0x8000_2000,
+  NAME: 0x8000_3000,
+} as const
+
+/**
+ * The public records returned by graphics.library/GetDisplayInfoData.
+ * Unknown timing fields stay zero; geometry and names come from the same
+ * installed-mode rows used by FindDisplayInfo and BestModeID.
+ */
+export function displayInfoData(mode: DisplayMode, tag: number): Uint8Array | null {
+  const size = tag === DISPLAY_INFO_TAG.DIMENSIONS ? 88 : tag === DISPLAY_INFO_TAG.MONITOR ? 96 :
+    tag === DISPLAY_INFO_TAG.DISPLAY || tag === DISPLAY_INFO_TAG.NAME ? 56 : 0
+  if (size === 0) return null
+  const bytes = new Uint8Array(size); const view = new DataView(bytes.buffer)
+  view.setUint32(0, tag >>> 0); view.setUint32(4, mode.id >>> 0); view.setUint32(12, size)
+  if (tag === DISPLAY_INFO_TAG.DISPLAY) {
+    view.setUint32(18, 0x270 | ((mode.id & MODE_KEY.LACE) !== 0 ? 1 : 0))
+    view.setUint8(40, 8); view.setUint8(41, 8); view.setUint8(42, 8)
+  } else if (tag === DISPLAY_INFO_TAG.DIMENSIONS) {
+    view.setUint16(16, 8); view.setUint16(18, 1); view.setUint16(20, 1)
+    view.setUint16(22, mode.width); view.setUint16(24, mode.height)
+    // Nominal, MaxOScan, VideoOScan, TxtOScan and StdOScan are Rectangles.
+    for (const offset of [26, 34, 42, 50, 58]) {
+      view.setInt16(offset, 0); view.setInt16(offset + 2, 0)
+      view.setInt16(offset + 4, mode.width - 1); view.setInt16(offset + 6, mode.height - 1)
+    }
+  } else if (tag === DISPLAY_INFO_TAG.NAME) {
+    const encoded = new TextEncoder().encode(mode.name)
+    bytes.set(encoded.subarray(0, 31), 16)
+  }
+  return bytes
+}

@@ -190,6 +190,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe('$10000200\n$10000000\n-1\t-1\t-1\t 0\n$89ABCDEF\t 0\n')
   })
 
+  it('fills display database records from the same installed PAL mode rows', () => {
+    const { output } = run([
+      'B=_struct alloc(96) : H=_disp info find($29004)',
+      'Print _disp info get(H,B,88,$80001000,0),Hex$(Leek(B)),Hex$(Leek(B+4)),Leek(B+12)',
+      'Print Deek(B+16),Deek(B+22),Deek(B+24),Deek(B+30),Deek(B+32)',
+      'Print _disp info get(0,B,20,$80003000,$29004),Chr$(Peek(B+16))+Chr$(Peek(B+17))+Chr$(Peek(B+18))',
+    ].join('\n'))
+    expect(output).toBe(' 88\t$80001000\t$29004\t 88\n 8\t 640\t 512\t 639\t 511\n 20\tPAL\n')
+  })
+
   it('shares Locale strings and catalog parsing through managed native handles', () => {
     const { rt, output } = run([
       'L=_loc open(0) : P=_loc str(L,$27) : Print _loc init,L<>0,_str get(P),_loc str(L,$27)=P',
