@@ -45,6 +45,13 @@ import { formLoad, formPlay, formSize } from '../../runtime/iffanim'
 import { encodeGif, type GifFrame } from '../gif'
 import { parseTdFile, parseTdTemplate } from '../../runtime/td'
 import { mountWireframe, objectWireframe, surfaceWireframe } from '../tdview'
+import { AmigaGuide, parseAmigaGuide, type AmigaGuideInline } from '../../amiga/amigaguide'
+
+function latin1(data: Uint8Array): string {
+  const chunks: string[] = []
+  for (let at = 0; at < data.length; at += 0x8000) chunks.push(String.fromCharCode(...data.subarray(at, at + 0x8000)))
+  return chunks.join('')
+}
 
 /** what a view needs the page to do, which is everything with a side effect */
 export interface ViewHost {
@@ -316,6 +323,59 @@ function amalView(data: Uint8Array): View {
   }
 }
 
+function guideViews(data: Uint8Array, path: string, hostApi: ViewHost): View[] | null {
+  const parsed = parseAmigaGuide(data); if (!parsed) return null
+  return [{
+    id: 'guide', label: 'Guide', count: parsed.nodes.size,
+    mount(host) {
+      const library = new AmigaGuide(name => name === path ? data : hostApi.readSibling(name))
+      const handle = library.open(path, 0); const bar = document.createElement('div'); bar.className = 'ag-nav'
+      const page = document.createElement('article'); page.className = 'ag-page'; host.append(bar, page)
+      const button = (label: string, action: () => boolean): HTMLButtonElement => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = label
+        b.addEventListener('click', () => { if (action()) render() }); return b
+      }
+      const back = button('←', () => library.back(handle)); const forward = button('→', () => library.forward(handle))
+      const toc = button('Contents', () => library.command(handle, 'TOC'))
+      const index = button('Index', () => library.command(handle, 'INDEX'))
+      const title = document.createElement('span'); bar.append(back, forward, toc, index, title)
+      const append = (items: AmigaGuideInline[], parent: HTMLElement): void => {
+        const styles = new Set<string>()
+        for (const item of items) {
+          if (item.type === 'command') {
+            const toggles: Record<string, [string, boolean]> = { B: ['b', true], UB: ['b', false], I: ['i', true], UI: ['i', false], U: ['u', true], UU: ['u', false] }
+            const toggle = toggles[item.name]
+            if (toggle) { if (toggle[1]) styles.add(toggle[0]); else styles.delete(toggle[0]) }
+            continue
+          }
+          const el = item.type === 'link' ? document.createElement('button') : document.createElement('span')
+          el.className = [...styles].map(style => `ag-${style}`).join(' ')
+          if (item.type === 'text') el.textContent = item.text
+          else {
+            el.classList.add('ag-link'); append(item.label, el)
+            el.addEventListener('click', () => { if (library.navigate(handle, item.target)) render() })
+          }
+          parent.appendChild(el)
+        }
+      }
+      function render(): void {
+        const node = library.current(handle); page.replaceChildren(); if (!node) return
+        const heading = document.createElement('h3'); heading.textContent = node.title; page.appendChild(heading); append(node.content, page)
+        const client = library.active.get(handle)!; title.textContent = `${client.documentPath} / ${node.id}`
+        back.disabled = client.history.length === 0; forward.disabled = client.future.length === 0
+        toc.disabled = !node.toc; index.disabled = !node.index
+      }
+      render()
+    },
+  }, {
+    id: 'source', label: 'Source',
+    mount(host) {
+      const pre = document.createElement('pre'); pre.className = 'fm-text'
+      pre.textContent = latin1(data); host.appendChild(pre)
+    },
+  }]
+}
+
 /** how much more of a file each press reveals */
 const HEX_PAGE = 4096
 
@@ -558,8 +618,9 @@ function viewForBank(bank: Bank, hostApi: ViewHost, index: number): View {
  * which is what keeps a plain text file from growing a tab bar with one tab
  * on it.
  */
-export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string, name = ''): View[] | null {
+export function viewsFor(bytes: Uint8Array, hostApi: ViewHost, group?: string, name = '', path = name): View[] | null {
   if (group === 'model') return modelViews(bytes, name, hostApi)
+  if (group === 'document') return guideViews(bytes, path, hostApi)
   if (group === 'data') return [hexView(bytes)]
   if (group === 'animation') return animationViews(bytes)
   // A `.info` is not an AMOS file and never parses as one, so it is asked

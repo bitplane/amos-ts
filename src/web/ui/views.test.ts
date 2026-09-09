@@ -82,6 +82,12 @@ describe('what a file can be looked at as', () => {
     expect(viewsFor(new Uint8Array([1, 2, 3]), host(), 'data')?.map((v) => v.id)).toEqual(['hex'])
   })
 
+  it('opens AmigaGuide documents through guide and source views', () => {
+    const guide = new Uint8Array(ascii('@database manual.guide\n@node MAIN Main\nHello\n@endnode'))
+    expect(viewsFor(guide, host(), 'document', 'AmigaGuide', 'RAM:manual.guide')?.map(view => [view.id, view.count]))
+      .toEqual([['guide', 1], ['source', undefined]])
+  })
+
   it('separates each hex row into groups of eight', () => {
     const bytes = new Uint8Array(Array.from({ length: 16 }, (_, i) => i))
     expect(formatHex(bytes)).toContain('06 07  08 09')

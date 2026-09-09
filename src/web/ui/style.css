@@ -1062,6 +1062,41 @@ pre.fm-text {
   color: var(--dim);
 }
 
+.ag-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+}
+
+.ag-nav span {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
+
+.ag-page {
+  max-height: 32rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--dim);
+}
+
+.ag-page h3 { color: var(--fg); margin: 0 0 0.6rem; }
+.ag-b { font-weight: bold; }
+.ag-i { font-style: italic; }
+.ag-u { text-decoration: underline; }
+
+button.ag-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
 .fm-more {
   color: var(--faint);
   font-size: var(--fs-label);

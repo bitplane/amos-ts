@@ -49,6 +49,13 @@ export function guideTarget(raw: string): AmigaGuideTarget {
     : { raw, document: raw.slice(0, slash + 6), node: raw.slice(slash + 7) }
 }
 
+/** Resolve an external guide beside the database containing its link. */
+export function resolveGuidePath(from: string, relative: string): string {
+  if (relative.includes(':')) return relative
+  const slash = from.lastIndexOf('/'); const colon = from.lastIndexOf(':')
+  return `${from.slice(0, Math.max(slash, colon) + 1)}${relative}`
+}
+
 /** Parse inline escapes without interpreting executable SYSTEM/RX commands. */
 export function parseGuideInline(text: string): AmigaGuideInline[] {
   const out: AmigaGuideInline[] = []; let plain = ''; let at = 0
@@ -188,7 +195,7 @@ export class AmigaGuide {
   }
 
   /** Follow a parsed target. The caller supplies AmigaDOS path resolution. */
-  navigate(handle: number, target: AmigaGuideTarget, resolve: (from: string, relative: string) => string = (_from, relative) => relative): boolean {
+  navigate(handle: number, target: AmigaGuideTarget, resolve: (from: string, relative: string) => string = resolveGuidePath): boolean {
     const client = this.active.get(handle >>> 0); if (!client?.document) return false
     let document = client.document; let documentPath = client.documentPath
     if (target.document) {

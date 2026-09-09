@@ -574,7 +574,7 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
       },
       playSample: (bankNumber, data, index) => opts.playSample?.(name, bankNumber, data, index),
       onStatus: opts.onStatus,
-      readSibling: (sibling) => vfs.read(joinAmigaPath(cwd, sibling)),
+      readSibling: (sibling) => vfs.read(sibling.includes(':') ? sibling : joinAmigaPath(cwd, sibling)),
     }
   }
 
@@ -684,8 +684,8 @@ export function createFilesTab(host: HTMLElement, opts: FilesOptions): FilesTab 
               // A program and a bank file are both SEVERAL things, and the
               // viewer is what puts a tab over each of them. A program with
               // no banks gets one tab and the bar hides itself.
-              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation' || kind.group === 'model' || kind.group === 'data') {
-                const views = viewsFor(bytes, viewHost(name, full), kind.group, kind.name)
+              if (kind.group === 'program' || kind.group === 'bank' || kind.group === 'icon' || kind.group === 'animation' || kind.group === 'model' || kind.group === 'data' || kind.group === 'document') {
+                const views = viewsFor(bytes, viewHost(name, full), kind.group, kind.name, full)
                 if (views !== null) {
                   const viewer = createViewer(bodyEl, views, viewerTabs.get(full))
                   // Which tab, remembered as it changes rather than read back
