@@ -60,7 +60,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt refresh', { status: 'partial', reason: 'attachment and attributes refresh on the shared object; datatype-class layout/rendering remains incomplete' }],
   ['_dt what methods', { status: 'partial', reason: 'stable class-specific native method lists include picture drawing and AmigaGuide DTM_GOTO; remaining methods are incomplete' }],
   ['_dt what triggers', { status: 'partial', reason: 'a stable native trigger list is exposed, without format-specific trigger methods' }],
-  ['_dt do', { status: 'partial', reason: 'dispatches native layout, removal, picture-draw and AmigaGuide DTM_GOTO messages; remaining class methods are incomplete' }],
+  ['_dt do', { status: 'partial', reason: 'dispatches native frame-box, layout, removal, picture-draw and AmigaGuide DTM_GOTO messages; trigger, copy and write methods remain incomplete' }],
   ['_dt str$', { status: 'partial', reason: 'the built-in DataTypes strings are exposed; locale/catalog selection remains incomplete' }],
   ['_sys own', { status: 'partial', reason: 'shared SystemControlA takeover state is retained; no scheduler or interrupt suppression exists for ownership to affect yet' }],
   ['_sys disown', { status: 'partial', reason: 'shared SystemControlA takeover state is released; no scheduler or interrupt suppression exists for ownership to affect yet' }],

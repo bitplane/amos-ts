@@ -109,6 +109,17 @@ describe('datatype class objects', () => {
       .toEqual([3, 2, 5, 4])
   })
 
+  it('answers the native FrameInfo shape for picture and document classes', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const picture = service.create('RAM:pic.iff', encodeIlbm({ width: 8, height: 6, depth: 2, mode: 0,
+      palette: [0, 0x111, 0x222, 0x333], pixels: new Uint8Array(48) }), new Map())
+    const pv = new DataView(service.frameBox(picture)!.buffer)
+    expect([pv.getUint32(12), pv.getUint32(16), pv.getUint32(20), pv.getUint32(32)]).toEqual([8, 6, 2, 6])
+    const guide = service.create('RAM:a.guide', Buffer.from('@database a\n@node main\nhello\n@endnode'), new Map())
+    const gv = new DataView(service.frameBox(guide)!.buffer)
+    expect([gv.getUint32(16), gv.getUint32(20), gv.getUint32(32)]).toEqual([1, 0, 2])
+  })
+
   it('owns decoded 8SVX sample attributes', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))

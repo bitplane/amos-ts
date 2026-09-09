@@ -521,6 +521,18 @@ export class DataTypesService {
     o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, totalV - visibleV)))
     return true
   }
+  frameBox(address: number): Uint8Array | null {
+    const o = this.objects.get(address); if (!o) return null
+    const held = o.attributes.get(DTA.FrameInfo)
+    if (held) return Uint8Array.from(this.memory.buffer.subarray(held - this.memory.base, held - this.memory.base + 36))
+    const width = o.attributes.get(DTA.TotalPHoriz) ?? o.attributes.get(DTA.TotalHoriz) ?? 0
+    const height = o.attributes.get(DTA.TotalPVert) ?? o.attributes.get(DTA.TotalVert) ?? 0
+    const frame = new Uint8Array(36); const view = new DataView(frame.buffer)
+    view.setInt16(4, 1); view.setInt16(6, 1); view.setUint32(12, width); view.setUint32(16, height)
+    view.setUint32(20, o.descriptor.groupID === GID.PICTURE ? ((o.media && typeof o.media !== 'string' && 'depth' in o.media) ? o.media.depth : 0) : 0)
+    view.setUint32(32, o.descriptor.groupID === GID.PICTURE ? 0x6 : (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT ? 0x2 : 0))
+    return frame
+  }
   goTo(address: number, nodeName: string): boolean {
     const o = this.objects.get(address); const guide = o?.media
     if (!o || !guide || typeof guide === 'string' || !('nodes' in guide)) return false
@@ -530,8 +542,9 @@ export class DataTypesService {
     const buffer = this.bytes(o.owned, raw); const name = this.string(o.owned, node.id); const title = this.string(o.owned, node.title)
     o.attributes.set(TDTA.Buffer, buffer); o.attributes.set(TDTA.BufferLen, text.length)
     o.attributes.set(DTA.NodeName, name); o.attributes.set(DTA.Title, title)
-    o.attributes.set(DTA.TotalVert, text.split('\n').length); o.attributes.set(DTA.VisibleVert, text.split('\n').length)
-    o.attributes.set(DTA.TotalHoriz, Math.max(0, ...text.split('\n').map(line => line.length)))
+    const lines = text.split('\n'); const width = Math.max(0, ...lines.map(line => line.length)); const height = lines.length
+    o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height)
+    o.attributes.set(DTA.TotalHoriz, width); o.attributes.set(DTA.TotalPHoriz, width)
     return true
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,

@@ -754,6 +754,16 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
   })
 
+  it('copies DTM_FRAMEBOX into the caller-sized native FrameInfo', () => {
+    const ilbm = encodeIlbm({ width: 7, height: 5, depth: 1, mode: 0, palette: [0, 0xfff], pixels: new Uint8Array(35) })
+    const { output } = run([
+      'O=_dt create(_to str("RAM:image.iff"),0) : Reserve As Data 1,60 : M=Start(1) : F=M+24',
+      'Loke M,$601 : Loke M+12,F : Loke M+16,36',
+      'Print _dt do(O,0,0,M),Leek(F+12),Leek(F+16),Leek(F+20),Leek(F+32) : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(output).toBe(' 1\t 7\t 5\t 1\t 6\n')
+  })
+
   it('shares DOS variables through ENV: and parses CLI templates once', () => {
     const { rt, output } = run([
       '_dos var value$("Editor",256)="AMOS Pro"',

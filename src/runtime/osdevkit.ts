@@ -4019,6 +4019,13 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const method = structRead(rt, message, 4, false)
       if (method === DTM.ProcLayout || method === DTM.AsyncLayout) return VI(st().dataTypes.layout(object) ? 1 : 0)
       if (method === DTM.RemoveDTObject) return VI(st().dataTypes.remove(object, n(a, 1) >>> 0))
+      if (method === DTM.FrameBox) {
+        const frame = st().dataTypes.frameBox(object); const output = structRead(rt, message + 12, 4, false)
+        const size = Math.min(36, structRead(rt, message + 16, 4, false))
+        if (!frame || !output || size <= 0) return VI(0)
+        for (let i = 0; i < size; i++) { const target = rt.resolveWrite(output + i); if (!target) return VI(0); target.data[target.off] = frame[i]! }
+        return VI(1)
+      }
       if (method === DTM.GoTo) return VI(st().dataTypes.goTo(object, cString(rt, structRead(rt, message + 8, 4, false))) ? 1 : 0)
       if (method === DTM.Draw) {
         const rp = structRead(rt, message + 4, 4, false)
