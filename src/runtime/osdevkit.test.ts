@@ -18,7 +18,7 @@ const os = extensionById('os-devkit-1.61')!
 
 function boot(source: string, prepare?: (rt: Runtime) => void, launch?: { commandName: string; currentDir: string }): { rt: Runtime; output: () => string } {
   const extensions = new Map([[20, os.table]])
-  const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume()); fs.mount('ENV', new MemoryVolume())
+  const fs = new AmigaFS(); fs.mount('RAM', new MemoryVolume()); fs.mount('ENV', new MemoryVolume()); fs.mount('CLIPS', new MemoryVolume())
   if (launch) fs.currentDir = launch.currentDir
   let output = ''
   const rt = new Runtime(tokenize(source, core, extensions), core, {
@@ -777,6 +777,19 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:hit.8svx', sample))
     expect(output).toBe(' 1\n')
     expect((rt.audio as NullAudio).events.map(event => event.kind)).toEqual(['play', 'stop'])
+  })
+
+  it('dispatches datatype copy and write through shared clipboard and DOS handles', () => {
+    const guide = Buffer.from('@database manual\n@node main\nCopy me\n@endnode', 'latin1')
+    const { rt, output } = run([
+      'O=_dt create(_to str("RAM:manual.guide"),0) : Reserve As Data 1,20 : M=Start(1)',
+      'Loke M,$607 : C=_dt do(O,0,0,M)',
+      'H=_dos open(_to str("RAM:copy.guide"),1006) : Loke M,$650 : Loke M+8,H : Loke M+12,1',
+      'Print C,_dt do(O,0,0,M) : _dos close H : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:manual.guide', guide))
+    expect(output).toBe(' 1\t 1\n')
+    expect(String.fromCharCode(...rt.vfs!.readFile('CLIPS:0')!)).toContain('Copy me')
+    expect(rt.vfs!.readFile('RAM:copy.guide')).toEqual(Uint8Array.from(guide))
   })
 
   it('shares DOS variables through ENV: and parses CLI templates once', () => {

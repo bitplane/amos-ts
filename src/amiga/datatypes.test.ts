@@ -16,7 +16,7 @@ import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
 import { MemPool } from './exec'
-import { encodeIlbm } from './ilbm'
+import { encodeIlbm, parseIlbm } from './ilbm'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
 
@@ -159,6 +159,18 @@ describe('datatype class objects', () => {
     expect(stringAt(attrs.get(DTA.NodeName)!)).toBe('other')
     const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
     expect(Array.from({ length: 7 }, (_, i) => dv.getUint32(methods - memory.base + i * 4))).toContain(DTM.GoTo)
+    expect(String.fromCharCode(...service.copyBytes(object)!)).toContain('Read this.')
+    expect(service.writeBytes(object, 1)).toEqual(Uint8Array.from(bytes))
+    expect(service.writeBytes(object, 0)).toBeNull()
+  })
+
+  it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const source = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0, palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
+    const object = service.create('RAM:p.iff', source, new Map())
+    expect(service.writeBytes(object, 1)).toEqual(source)
+    expect(parseIlbm(service.writeBytes(object, 0)!)).toMatchObject({ width: 2, height: 1, depth: 1 })
+    expect(service.writeBytes(object, 99)).toBeNull()
   })
 })
 

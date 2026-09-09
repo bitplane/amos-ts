@@ -4028,6 +4028,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       }
       if (method === DTM.GoTo) return VI(st().dataTypes.goTo(object, cString(rt, structRead(rt, message + 8, 4, false))) ? 1 : 0)
       if (method === DTM.Trigger) return VI(st().dataTypes.trigger(object, structRead(rt, message + 8, 4, false)) ? 1 : 0)
+      if (method === DTM.Copy) {
+        const bytes = st().dataTypes.copyBytes(object); if (!bytes || !rt.vfs) return VI(0)
+        rt.vfs.writeFile('CLIPS:0', bytes); return VI(1)
+      }
+      if (method === DTM.Write) {
+        const bytes = st().dataTypes.writeBytes(object, structRead(rt, message + 12, 4, false)); if (!bytes) return VI(0)
+        return VI(rt.dos.write(rt.vfs, structRead(rt, message + 8, 4, false), bytes) === bytes.length ? 1 : 0)
+      }
       if (method === DTM.Draw) {
         const rp = structRead(rt, message + 4, 4, false)
         const drawn = withNativeRastPort(rt, st(), rp, port => st().dataTypes.draw(object, port,

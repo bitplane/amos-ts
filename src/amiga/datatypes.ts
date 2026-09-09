@@ -54,7 +54,7 @@
  * The fallthrough is the caller's policy and is deliberately not here.
  */
 import { decodeMacPaint } from './macpaint'
-import { parseIlbm } from './ilbm'
+import { encodeIlbm, parseIlbm } from './ilbm'
 import { decodeBmp, decodeIco, quantiseRgb, type IndexedBitmap } from './windowsbitmap'
 import { decodePcx } from './pcx'
 import { decodeGif } from './gif'
@@ -350,6 +350,7 @@ export interface DataTypeObject {
   /** allocations owned by the class object and released with it */
   owned: number[]
   media: IndexedBitmap | Voice8svx | AmigaGuideDocument | string | null
+  source: Uint8Array
   soundPlaying: boolean
 }
 
@@ -467,7 +468,7 @@ export class DataTypesService {
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag, value)
     this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? guide ?? text, soundPlaying: false })
+      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
@@ -545,6 +546,23 @@ export class DataTypesService {
     sink.play(0, voice.left, voice.rate, o.attributes.get(SDTA.Volume) ?? 64, loopStart,
       voice.repeat > 0 ? Math.min(voice.left.length, voice.oneShot + voice.repeat) : undefined)
     o.soundPlaying = true; return true
+  }
+  copyBytes(address: number): Uint8Array | null {
+    const o = this.objects.get(address); if (!o) return null
+    const buffer = o.attributes.get(TDTA.Buffer); const length = o.attributes.get(TDTA.BufferLen)
+    if (!buffer || length === undefined) return null
+    return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
+  }
+  writeBytes(address: number, mode: number): Uint8Array | null {
+    const o = this.objects.get(address); if (!o || (mode !== 0 && mode !== 1)) return null
+    if (mode === 1) return Uint8Array.from(o.source)
+    const image = o.media
+    if (image && typeof image !== 'string' && 'pixels' in image) {
+      return encodeIlbm({ width: image.width, height: image.height, depth: image.depth,
+        mode: o.attributes.get(PDTA.ModeID) ?? 0, palette: image.palette, pixels: image.pixels })
+    }
+    if (o.descriptor.baseName === 'ilbm' || o.descriptor.baseName === '8svx' || o.descriptor.baseName === 'ascii') return Uint8Array.from(o.source)
+    return null
   }
   goTo(address: number, nodeName: string): boolean {
     const o = this.objects.get(address); const guide = o?.media
