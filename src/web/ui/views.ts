@@ -340,16 +340,24 @@ function guideViews(data: Uint8Array, path: string, hostApi: ViewHost): View[] |
       const index = button('Index', () => library.command(handle, 'INDEX'))
       const title = document.createElement('span'); bar.append(back, forward, toc, index, title)
       const append = (items: AmigaGuideInline[], parent: HTMLElement): void => {
-        const styles = new Set<string>()
+        const styles = new Set<string>(); let foreground = ''; let background = ''
+        const pens: Readonly<Record<string, string>> = {
+          TEXT: 'var(--fg)', SHINE: 'var(--fg)', SHADOW: 'var(--faint)', FILL: 'var(--dim)',
+          FILLTEXT: 'var(--fg)', BACKGROUND: 'var(--bg)', BACK: 'var(--bg)', HIGHLIGHT: 'var(--accent)',
+        }
         for (const item of items) {
           if (item.type === 'command') {
             const toggles: Record<string, [string, boolean]> = { B: ['b', true], UB: ['b', false], I: ['i', true], UI: ['i', false], U: ['u', true], UU: ['u', false] }
             const toggle = toggles[item.name]
             if (toggle) { if (toggle[1]) styles.add(toggle[0]); else styles.delete(toggle[0]) }
+            if (item.name === 'FG') foreground = pens[item.argument.trim().toUpperCase()] ?? ''
+            if (item.name === 'BG') background = pens[item.argument.trim().toUpperCase()] ?? ''
             continue
           }
           const el = item.type === 'link' ? document.createElement('button') : document.createElement('span')
           el.className = [...styles].map(style => `ag-${style}`).join(' ')
+          if (foreground) el.style.color = foreground
+          if (background) el.style.backgroundColor = background
           if (item.type === 'text') el.textContent = item.text
           else {
             el.classList.add('ag-link'); append(item.label, el)
@@ -360,6 +368,11 @@ function guideViews(data: Uint8Array, path: string, hostApi: ViewHost): View[] |
       }
       function render(): void {
         const node = library.current(handle); page.replaceChildren(); if (!node) return
+        page.style.whiteSpace = node.wordWrap || node.smartWrap ? 'pre-wrap' : 'pre'
+        page.style.maxWidth = node.width > 0 ? `${node.width}ch` : ''
+        page.style.maxHeight = node.height > 0 ? `${node.height * 1.4}em` : ''
+        page.style.fontFamily = node.font ? 'monospace' : ''
+        page.style.fontSize = node.fontSize > 0 ? `${Math.max(8, node.fontSize)}px` : ''
         const heading = document.createElement('h3'); heading.textContent = node.title; page.appendChild(heading); append(node.content, page)
         const client = library.active.get(handle)!; title.textContent = `${client.documentPath} / ${node.id}`
         back.disabled = client.history.length === 0; forward.disabled = client.future.length === 0

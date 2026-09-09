@@ -8,6 +8,9 @@ describe('AmigaGuide database parser', () => {
   it('models nodes, navigation, formatting and local or external links', () => {
     const guide = parseAmigaGuide(`@DATABASE "Manual.guide"
 @TITLE "A manual"
+@WORDWRAP
+@WIDTH 72
+@FONT topaz.font 8
 @NODE MAIN "Contents"
 @TOC contents
 Read @{B}this@{UB}, @{
@@ -19,7 +22,8 @@ Text with an @@ sign.
     expect(guide).not.toBeNull()
     expect(guide!.database).toBe('Manual.guide')
     expect(guide!.entryNode).toBe('MAIN')
-    expect(guide!.nodes.get('main')).toMatchObject({ title: 'Contents', toc: { document: '', node: 'contents' } })
+    expect(guide!.nodes.get('main')).toMatchObject({ title: 'Contents', wordWrap: true, width: 72,
+      font: 'topaz.font', fontSize: 8, toc: { document: '', node: 'contents' } })
     const content = guide!.nodes.get('main')!.content
     expect(content.filter(item => item.type === 'link')).toEqual([
       { type: 'link', label: [{ type: 'text', text: 'locally' }], target: { raw: 'topic', document: '', node: 'topic' }, command: 'link' },
@@ -28,6 +32,13 @@ Text with an @@ sign.
     expect(parseGuideInline('a@@b @{SYSTEM "delete all"}')).toEqual([
       { type: 'text', text: 'a@b ' }, { type: 'command', name: 'SYSTEM', argument: '"delete all"' },
     ])
+  })
+
+  it('retains unquoted metadata containing spaces and chained directives', () => {
+    const guide = parseAmigaGuide('@database Intuition Index.guide @Author CIERP Philippe\n@Version 2.0\n@node Main\ntext\n@endnode')!
+    expect(guide.database).toBe('Intuition Index.guide')
+    expect(guide.author).toBe('CIERP Philippe')
+    expect(guide.version).toBe('2.0')
   })
 
   it('rejects ordinary text and incomplete databases', () => {

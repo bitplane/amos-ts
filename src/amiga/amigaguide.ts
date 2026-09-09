@@ -19,6 +19,12 @@ export interface AmigaGuideNode {
   index?: AmigaGuideTarget
   next?: AmigaGuideTarget
   previous?: AmigaGuideTarget
+  wordWrap: boolean
+  smartWrap: boolean
+  width: number
+  height: number
+  font: string
+  fontSize: number
   content: AmigaGuideInline[]
 }
 
@@ -28,6 +34,12 @@ export interface AmigaGuideDocument {
   author: string
   version: string
   master: string
+  wordWrap: boolean
+  smartWrap: boolean
+  width: number
+  height: number
+  font: string
+  fontSize: number
   entryNode: string
   nodes: Map<string, AmigaGuideNode>
 }
@@ -103,36 +115,74 @@ export function parseAmigaGuide(source: string | Uint8Array): AmigaGuideDocument
     text = chunks.join('')
   }
   if (!/^\s*@?database\b/im.test(text)) return null
-  const document: AmigaGuideDocument = { database: '', title: '', author: '', version: '', master: '', entryNode: '', nodes: new Map() }
-  let current: { id: string; title: string; lines: string[]; nav: Map<string, AmigaGuideTarget> } | null = null
+  const document: AmigaGuideDocument = { database: '', title: '', author: '', version: '', master: '', wordWrap: false,
+    smartWrap: false, width: 0, height: 0, font: '', fontSize: 0, entryNode: '', nodes: new Map() }
+  type BuildingNode = { id: string; title: string; lines: string[]; nav: Map<string, AmigaGuideTarget>;
+    wordWrap: boolean; smartWrap: boolean; width: number; height: number; font: string; fontSize: number }
+  let current: BuildingNode | null = null
+  const metadata = (name: string, rest: string): void => {
+    const value = rest.trim().replace(/^"(.*)"$/, '$1')
+    if (name === 'DATABASE') document.database = value
+    else if (name === 'TITLE') document.title = value
+    else if (name === 'AUTHOR') document.author = value
+    else if (name === 'VERSION') document.version = value
+    else if (name === 'MASTER') document.master = value
+  }
   const finish = (): void => {
     if (!current) return
-    const node: AmigaGuideNode = { id: current.id, title: current.title, content: parseGuideInline(current.lines.join('\n')) }
+    const node: AmigaGuideNode = { id: current.id, title: current.title, content: parseGuideInline(current.lines.join('\n')),
+      wordWrap: current.wordWrap, smartWrap: current.smartWrap, width: current.width, height: current.height,
+      font: current.font, fontSize: current.fontSize }
     const toc = current.nav.get('TOC'); const index = current.nav.get('INDEX'); const next = current.nav.get('NEXT')
     const previous = current.nav.get('PREV') ?? current.nav.get('PREVIOUS')
     if (toc) node.toc = toc; if (index) node.index = index; if (next) node.next = next; if (previous) node.previous = previous
     document.nodes.set(node.id.toLowerCase(), node); current = null
   }
   for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!current && /^\s*@/.test(line)) {
+      const parts = [...line.matchAll(/@([A-Za-z]+)\b/g)]
+      if (parts.length > 1) {
+        for (let i = 0; i < parts.length; i++) {
+          const start = parts[i]!.index! + parts[i]![0].length; const end = parts[i + 1]?.index ?? line.length
+          metadata(parts[i]![1]!.toUpperCase(), line.slice(start, end))
+        }
+        continue
+      }
+    }
     const directive = /^\s*@?([A-Za-z]+)\b\s*(.*)$/.exec(line)
     if (!directive) { if (current) current.lines.push(line); continue }
     const name = directive[1]!.toUpperCase(); const rest = directive[2]!.trim()
     if (name === 'NODE') {
       finish(); const id = word(rest, 0); if (!id) continue
       const title = word(rest, id.end)
-      current = { id: id.value, title: title?.value ?? id.value, lines: [], nav: new Map() }; continue
+      current = { id: id.value, title: title?.value ?? id.value, lines: [], nav: new Map(), wordWrap: document.wordWrap,
+        smartWrap: document.smartWrap, width: document.width, height: document.height, font: document.font, fontSize: document.fontSize }; continue
     }
     if (name === 'ENDNODE') { finish(); continue }
     if (current && navigation.has(name)) {
       const target = word(rest, 0); if (target) current.nav.set(name, guideTarget(target.value)); continue
     }
+    if (name === 'WORDWRAP' || name === 'SMARTWRAP') {
+      if (current) { if (name === 'WORDWRAP') current.wordWrap = true; else current.smartWrap = true }
+      else if (name === 'WORDWRAP') document.wordWrap = true; else document.smartWrap = true
+      continue
+    }
+    if (name === 'WIDTH' || name === 'HEIGHT') {
+      const value = Math.max(0, Number.parseInt(rest, 10) || 0)
+      if (current) { if (name === 'WIDTH') current.width = value; else current.height = value }
+      else if (name === 'WIDTH') document.width = value; else document.height = value
+      continue
+    }
+    if (name === 'FONT') {
+      const font = word(rest, 0); const size = font ? word(rest, font.end) : null
+      if (font) {
+        if (current) { current.font = font.value; current.fontSize = Number.parseInt(size?.value ?? '', 10) || 0 }
+        else { document.font = font.value; document.fontSize = Number.parseInt(size?.value ?? '', 10) || 0 }
+      }
+      continue
+    }
     if (current) { current.lines.push(line); continue }
-    const value = word(rest, 0)?.value ?? rest
-    if (name === 'DATABASE') document.database = value
-    else if (name === 'TITLE') document.title = value
-    else if (name === 'AUTHOR') document.author = value
-    else if (name === 'VERSION') document.version = value
-    else if (name === 'MASTER') document.master = value
+    metadata(name, rest)
   }
   finish()
   document.entryNode = document.nodes.has('main') ? document.nodes.get('main')!.id : (document.nodes.values().next().value?.id ?? '')
@@ -199,7 +249,9 @@ export class AmigaGuide {
     const client = this.active.get(handle >>> 0); if (!client?.document) return false
     let document = client.document; let documentPath = client.documentPath
     if (target.document) {
-      documentPath = resolve(client.documentPath, target.document)
+      // External links are relative to NewAmigaGuide's nag_Lock, not to the
+      // last secondary database visited through that client.
+      documentPath = resolve(client.name, target.document)
       const loaded = this.load(documentPath); if (!loaded) return false
       document = loaded
     }
