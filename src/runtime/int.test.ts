@@ -21,6 +21,7 @@ import { encodeIlbm, parseIlbm } from '../amiga/ilbm'
 import { AmigaFS } from '../amiga/vfs'
 import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP } from '../amiga/controller'
 import { encodeGif } from '../web/gif'
+import { encodeJpeg } from '../amiga/jpeg'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 25 — "alter extension number 25 to :APSystem/AMOSPro_Int.Lib" */
@@ -1403,8 +1404,19 @@ describe('Int 1.0: Wb Dt Image To Screen', () => {
     return encodeGif([{ width: 2, height: 1, rgba, delay: 1 }])
   }
 
+  function jpeg(): Uint8Array {
+    const rgb = new Uint8Array(16 * 8 * 3)
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 16; x++) {
+      const at = (y * 16 + x) * 3
+      rgb[at] = x < 8 ? 255 : 0
+      rgb[at + 1] = x < 8 ? 0 : 255
+      rgb[at + 2] = y < 4 ? 0 : 255
+    }
+    return encodeJpeg(rgb, 16, 8, { quality: 90 })
+  }
+
   function go(src: string): { rt: Runtime; out: string } {
-    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'pic.pcx': zsoftPcx(), 'pic.gif': gif(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
+    const b = boot(src, { 'pic.iff': picture(24, 12), 'pic.bmp': windowsBmp(), 'pic.pcx': zsoftPcx(), 'pic.gif': gif(), 'pic.jpg': jpeg(), 'junk.dat': new Uint8Array([9, 9, 9, 9]) })
     mustFinish(b.rt.runHeadless(3_000))
     return { rt: b.rt, out: b.out().trim() }
   }
@@ -1484,6 +1496,15 @@ Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
     const r = go('Wb Dt Image To Screen 0,0,"pic.gif",1,1')
     const data = r.rt.memBanks.get(1)!.data
     expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 2, 0, 1, 0, 8])
+  })
+
+  it('quantises a JPEG through the same datatype path', () => {
+    const r = go('Wb Dt Image To Screen 0,0,"pic.jpg",1,1')
+    const data = r.rt.memBanks.get(1)!.data
+    expect([data[0], data[1], data[2], data[3], data[6], data[7]]).toEqual([0, 16, 0, 8, 0, 8])
+    // Eight planes, eight rows and one 16-pixel word per row: 128 plane bytes.
+    // The extension reserves its 16-byte prefix plus a three-byte RGB palette.
+    expect(data.length).toBe(16 + 128 + 256 * 3)
   })
 
   /**

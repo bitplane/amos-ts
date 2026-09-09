@@ -69,9 +69,10 @@ import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import { GID, obtainDataType } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { decodeMacPaint } from '../amiga/macpaint'
-import { decodeBmp, decodeIco } from '../amiga/windowsbitmap'
+import { decodeBmp, decodeIco, quantiseRgb } from '../amiga/windowsbitmap'
 import { decodePcx } from '../amiga/pcx'
 import { decodeGif } from '../amiga/gif'
+import { decodeJpeg } from '../amiga/jpeg'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -1424,11 +1425,8 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * ../amiga/datatypes.ts identifies every one it ships. ILBM goes through
      * ../amiga/ilbm.ts, MacPaint through ../amiga/macpaint.ts, and Windows
      * BMP/ICO through ../amiga/windowsbitmap.ts, PCX through ../amiga/pcx.ts,
-     * and GIF through ../amiga/gif.ts. Anything else --- a JPEG, which
-     * ../amiga/jpeg.ts decodes to 24-bit RGB and nothing here quantises back down,
-     * or a format with no decoder at all
-     * --- is error 38, "Cannot Read DataType", which is the library's own
-     * answer for a file it cannot make a picture of.
+     * GIF through ../amiga/gif.ts, and JPEG through ../amiga/jpeg.ts plus the
+     * shared RGB-to-indexed conversion used by true-colour PCX and BMP.
      */
     'wb dt image to screen': (it) => {
       const st = s()
@@ -1456,7 +1454,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         if (mac !== null) {
           pic = { width: mac.width, height: mac.height, depth: 1, mode: 0x8004, palette: [0xfff, 0], pixels: mac.pixels }
         } else {
-          const windows = dt?.baseName === 'bmp' ? decodeBmp(bytes)
+          const jpeg = dt?.baseName === 'jpeg' ? decodeJpeg(bytes) : null
+          const windows = jpeg !== null ? quantiseRgb(jpeg.pixels, jpeg.width, jpeg.height)
+            : dt?.baseName === 'bmp' ? decodeBmp(bytes)
             : dt?.baseName === 'ico' ? decodeIco(bytes)
               : dt?.baseName === 'pcx' ? decodePcx(bytes)
                 : dt?.baseName === 'gif' ? decodeGif(bytes) : null
