@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { parseAmigaGuide, parseGuideInline } from './amigaguide'
+import { AmigaGuide, parseAmigaGuide, parseGuideInline } from './amigaguide'
 import { describeIf } from '../testing/fixture'
 import { walkMatching } from '../cli/walk'
 
@@ -33,6 +33,34 @@ Text with an @@ sign.
   it('rejects ordinary text and incomplete databases', () => {
     expect(parseAmigaGuide('ordinary text')).toBeNull()
     expect(parseAmigaGuide('@database empty.guide')).toBeNull()
+  })
+})
+
+describe('amigaguide.library clients', () => {
+  it('loads, navigates and keeps cross-database history', () => {
+    const files = new Map<string, Uint8Array>([
+      ['RAM:main.guide', Buffer.from('@database main.guide\n@node MAIN Main\n@{"Topic" link topic}\n@endnode\n@node topic Topic\n@next last\nBody\n@endnode\n@node last Last\n@endnode', 'latin1')],
+      ['RAM:other.guide', Buffer.from('@database other.guide\n@node start Other\n@endnode', 'latin1')],
+    ])
+    const library = new AmigaGuide(path => files.get(path) ?? null)
+    const handle = library.open('RAM:main.guide', 7)
+    expect(library.current(handle)?.title).toBe('Main')
+    expect(library.command(handle, 'LINK topic')).toBe(true)
+    expect(library.current(handle)?.title).toBe('Topic')
+    expect(library.command(handle, 'NEXT')).toBe(true)
+    expect(library.navigate(handle, { raw: 'other.guide/start', document: 'other.guide', node: 'start' },
+      (_from, relative) => `RAM:${relative}`)).toBe(true)
+    expect(library.current(handle)?.title).toBe('Other')
+    expect(library.back(handle)).toBe(true)
+    expect(library.current(handle)?.title).toBe('Last')
+    expect(library.forward(handle)).toBe(true)
+    expect(library.current(handle)?.title).toBe('Other')
+    expect(library.close(handle)).toBe(true)
+  })
+
+  it('retains an opaque client when presentation cannot load the document', () => {
+    const library = new AmigaGuide(); const handle = library.open('RAM:missing.guide', 0)
+    expect(handle).not.toBe(0); expect(library.current(handle)).toBeNull()
   })
 })
 

@@ -568,7 +568,7 @@ export class Runtime {
   /** Process-wide dos.library command-line template parser and current result. */
   readonly readArgs = new ReadArgs()
   /** One amigaguide.library client registry shared by native-facing modules. */
-  readonly amigaGuide = new AmigaGuide()
+  readonly amigaGuide = new AmigaGuide(path => this.vfs?.readFile(path) ?? null)
   /** Process-wide lowlevel.library ownership and future scheduler controls. */
   readonly lowlevel = new LowLevelSystem()
   /** Shared stoneplayer.library control state; decoding awaits a held binary. */

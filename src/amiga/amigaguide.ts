@@ -138,6 +138,11 @@ export interface AmigaGuideLaunch {
   screen: number
   baseName: string
   context: number
+  documentPath: string
+  document: AmigaGuideDocument | null
+  currentNode: string
+  history: Array<{ documentPath: string; node: string }>
+  future: Array<{ documentPath: string; node: string }>
 }
 
 /**
@@ -150,11 +155,24 @@ export class AmigaGuide {
   readonly active = new Map<number, AmigaGuideLaunch>()
   lastLaunch: AmigaGuideLaunch | null = null
 
+  constructor(private readonly readFile: (path: string) => Uint8Array | null = () => null) {}
+
+  private load(path: string): AmigaGuideDocument | null {
+    const bytes = this.readFile(path)
+    return bytes ? parseAmigaGuide(bytes) : null
+  }
+
+  private node(document: AmigaGuideDocument, name: string): AmigaGuideNode | null {
+    return document.nodes.get(name.toLowerCase()) ?? null
+  }
+
   open(name: string, screen: number, baseName = '', context = 0): number {
     if (name === '') return 0
     const handle = this.nextHandle
     this.nextHandle += 0x100
-    const launch = { handle, name, screen: screen >>> 0, baseName, context: context >>> 0 }
+    const document = this.load(name); const currentNode = document?.entryNode ?? ''
+    const launch: AmigaGuideLaunch = { handle, name, screen: screen >>> 0, baseName, context: context >>> 0,
+      documentPath: name, document, currentNode, history: [], future: [] }
     this.active.set(handle, launch)
     this.lastLaunch = launch
     return handle
@@ -162,5 +180,57 @@ export class AmigaGuide {
 
   close(handle: number): boolean {
     return this.active.delete(handle >>> 0)
+  }
+
+  current(handle: number): AmigaGuideNode | null {
+    const client = this.active.get(handle >>> 0)
+    return client?.document ? this.node(client.document, client.currentNode) : null
+  }
+
+  /** Follow a parsed target. The caller supplies AmigaDOS path resolution. */
+  navigate(handle: number, target: AmigaGuideTarget, resolve: (from: string, relative: string) => string = (_from, relative) => relative): boolean {
+    const client = this.active.get(handle >>> 0); if (!client?.document) return false
+    let document = client.document; let documentPath = client.documentPath
+    if (target.document) {
+      documentPath = resolve(client.documentPath, target.document)
+      const loaded = this.load(documentPath); if (!loaded) return false
+      document = loaded
+    }
+    const node = this.node(document, target.node || document.entryNode); if (!node) return false
+    client.history.push({ documentPath: client.documentPath, node: client.currentNode }); client.future.length = 0
+    client.document = document; client.documentPath = documentPath; client.currentNode = node.id
+    return true
+  }
+
+  back(handle: number): boolean {
+    const client = this.active.get(handle >>> 0); const previous = client?.history.pop()
+    if (!client || !previous) return false
+    const document = previous.documentPath === client.documentPath ? client.document : this.load(previous.documentPath)
+    if (!document || !this.node(document, previous.node)) { client.history.push(previous); return false }
+    client.future.push({ documentPath: client.documentPath, node: client.currentNode })
+    client.document = document; client.documentPath = previous.documentPath; client.currentNode = previous.node; return true
+  }
+
+  forward(handle: number): boolean {
+    const client = this.active.get(handle >>> 0); const next = client?.future.pop()
+    if (!client || !next) return false
+    const document = next.documentPath === client.documentPath ? client.document : this.load(next.documentPath)
+    if (!document || !this.node(document, next.node)) { client.future.push(next); return false }
+    client.history.push({ documentPath: client.documentPath, node: client.currentNode })
+    client.document = document; client.documentPath = next.documentPath; client.currentNode = next.node; return true
+  }
+
+  command(handle: number, command: string, resolve?: (from: string, relative: string) => string): boolean {
+    const client = this.active.get(handle >>> 0); const node = this.current(handle); if (!client || !node) return false
+    const match = /^\s*(\S+)(?:\s+(.+?))?\s*$/.exec(command); if (!match) return false
+    const verb = match[1]!.toUpperCase(); const argument = match[2]?.replace(/^"|"$/g, '') ?? ''
+    if (verb === 'LINK' || verb === 'ALINK') return argument !== '' && this.navigate(handle, guideTarget(argument), resolve)
+    if (verb === 'NEXT' && node.next) return this.navigate(handle, node.next, resolve)
+    if ((verb === 'PREV' || verb === 'PREVIOUS') && node.previous) return this.navigate(handle, node.previous, resolve)
+    if (verb === 'TOC' && node.toc) return this.navigate(handle, node.toc, resolve)
+    if (verb === 'INDEX' && node.index) return this.navigate(handle, node.index, resolve)
+    if (verb === 'BACK') return this.back(handle)
+    if (verb === 'FORWARD') return this.forward(handle)
+    return false
   }
 }
