@@ -4019,6 +4019,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const method = structRead(rt, message, 4, false)
       if (method === DTM.ProcLayout || method === DTM.AsyncLayout) return VI(st().dataTypes.layout(object) ? 1 : 0)
       if (method === DTM.RemoveDTObject) return VI(st().dataTypes.remove(object, n(a, 1) >>> 0))
+      if (method === DTM.GoTo) return VI(st().dataTypes.goTo(object, cString(rt, structRead(rt, message + 8, 4, false))) ? 1 : 0)
       if (method === DTM.Draw) {
         const rp = structRead(rt, message + 4, 4, false)
         const drawn = withNativeRastPort(rt, st(), rp, port => st().dataTypes.draw(object, port,

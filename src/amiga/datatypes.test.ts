@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
+import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, TDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
@@ -102,6 +102,23 @@ describe('datatype class objects', () => {
     expect(attrs.get(SDTA.Period)).toBeGreaterThan(0)
     const sample = attrs.get(SDTA.Sample)!
     expect([...memory.buffer.subarray(sample - memory.base, sample - memory.base + 4)]).toEqual([1, 2, 3, 4])
+  })
+
+  it('uses the shared AmigaGuide document for DTM_GOTO node state', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const bytes = Buffer.from('@database Manual.guide\n@node MAIN Main\nStart\n@endnode\n@node other Other\nRead @{B}this@{UB}.\n@endnode', 'latin1')
+    const object = service.create('RAM:Manual.guide', bytes, new Map())
+    expect(object).not.toBe(0); expect(service.goTo(object, 'OTHER')).toBe(true)
+    const attrs = service.objects.get(object)!.attributes
+    const stringAt = (address: number): string => {
+      let text = ''; for (let at = address - memory.base; memory.buffer[at] !== 0; at++) text += String.fromCharCode(memory.buffer[at]!)
+      return text
+    }
+    const text = stringAt(attrs.get(TDTA.Buffer)!)
+    expect(text).toContain('Read this.')
+    expect(stringAt(attrs.get(DTA.NodeName)!)).toBe('other')
+    const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
+    expect(Array.from({ length: 7 }, (_, i) => dv.getUint32(methods - memory.base + i * 4))).toContain(DTM.GoTo)
   })
 })
 

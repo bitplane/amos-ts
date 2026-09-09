@@ -63,6 +63,7 @@ import { decode8svx, type Voice8svx } from './iff8svx'
 import { decodeDataTypeText } from './datatype-text'
 import { samPeriod } from './paula'
 import type { RastPort } from './graphics'
+import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 
 /**
  * The jump table, from `datatypes_lib.fd`.
@@ -168,6 +169,7 @@ export const DTA = {
   TopVert: DUMMY + 11, VisibleVert: DUMMY + 12, TotalVert: DUMMY + 13, VertUnit: DUMMY + 14,
   TopHoriz: DUMMY + 15, VisibleHoriz: DUMMY + 16, TotalHoriz: DUMMY + 17, HorizUnit: DUMMY + 18,
   TriggerMethods: DUMMY + 21, Methods: DUMMY + 24,
+  NodeName: DUMMY + 19, Title: DUMMY + 20,
   BaseName: DUMMY + 30, GroupID: DUMMY + 31,
 } as const
 export const PDTA = {
@@ -343,7 +345,11 @@ export interface DataTypeObject {
   position: number
   /** allocations owned by the class object and released with it */
   owned: number[]
-  media: IndexedBitmap | Voice8svx | string | null
+  media: IndexedBitmap | Voice8svx | AmigaGuideDocument | string | null
+}
+
+function guideText(items: readonly AmigaGuideInline[]): string {
+  return items.map(item => item.type === 'text' ? item.text : item.type === 'link' ? guideText(item.label) : '').join('')
 }
 
 function pictureFor(bytes: Uint8Array, descriptor: DataTypeHeader): IndexedBitmap | null {
@@ -418,7 +424,9 @@ export class DataTypesService {
     const picture = descriptor.groupID === GID.PICTURE ? pictureFor(bytes, descriptor) : null
     const sound = descriptor.groupID === GID.SOUND ? decode8svx(bytes) : null
     const text = descriptor.baseName === 'ascii' ? decodeDataTypeText(bytes, descriptor.name) : null
-    if ((descriptor.groupID === GID.PICTURE && !picture) || (descriptor.groupID === GID.SOUND && !sound) || (descriptor.baseName === 'ascii' && text === null)) return 0
+    const guide = descriptor.baseName === 'amigaguide' ? parseAmigaGuide(bytes) : null
+    if ((descriptor.groupID === GID.PICTURE && !picture) || (descriptor.groupID === GID.SOUND && !sound) ||
+      (descriptor.baseName === 'ascii' && text === null) || (descriptor.baseName === 'amigaguide' && !guide)) return 0
     const address = this.memory.alloc(48, { clear: true }); if (!address) return 0
     const owned: number[] = []
     const computed = picture ? this.pictureAttrs(owned, picture, descriptor.baseName === 'ilbm' ? parseIlbm(bytes).mode : 0)
@@ -434,7 +442,8 @@ export class DataTypesService {
     computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, 1)
     for (const [tag, value] of attributes) computed.set(tag, value)
     this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? text })
+      owned, media: picture ?? sound ?? guide ?? text })
+    if (guide) this.goTo(address, guide.entryNode)
     return address
   }
   dispose(address: number): void {
@@ -468,7 +477,8 @@ export class DataTypesService {
       dv.setUint32(at, play); dv.setUint32(at + 8, 2); dv.setUint32(at + 12, pause); dv.setUint32(at + 20, 1)
       this.methodLists.set(kind, address); return address
     }
-    const values = o.descriptor.groupID === GID.PICTURE ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw, DTM.Write, 0]
+    const values = o.descriptor.baseName === 'amigaguide' ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.GoTo, DTM.Copy, DTM.Write, 0]
+      : o.descriptor.groupID === GID.PICTURE ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw, DTM.Write, 0]
         : o.descriptor.groupID === GID.SOUND ? [DTM.ProcLayout, DTM.AsyncLayout, DTM.Trigger, DTM.Write, 0]
           : [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Copy, DTM.Write, 0]
     const address = this.memory.alloc(values.length * 4, { clear: true }); if (!address) return 0
@@ -480,6 +490,18 @@ export class DataTypesService {
     const o = this.objects.get(address); if (!o) return false
     o.attributes.set(DTA.Methods, this.methodList(address, false))
     o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
+    return true
+  }
+  goTo(address: number, nodeName: string): boolean {
+    const o = this.objects.get(address); const guide = o?.media
+    if (!o || !guide || typeof guide === 'string' || !('nodes' in guide)) return false
+    const node = guide.nodes.get(nodeName.toLowerCase()); if (!node) return false
+    const text = guideText(node.content); const raw = new Uint8Array(text.length + 1)
+    for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
+    const buffer = this.bytes(o.owned, raw); const name = this.string(o.owned, node.id); const title = this.string(o.owned, node.title)
+    o.attributes.set(TDTA.Buffer, buffer); o.attributes.set(TDTA.BufferLen, text.length)
+    o.attributes.set(DTA.NodeName, name); o.attributes.set(DTA.Title, title)
+    o.attributes.set(DTA.TotalVert, text.split('\n').length); o.attributes.set(DTA.VisibleVert, text.split('\n').length)
     return true
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
