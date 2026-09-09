@@ -10,6 +10,7 @@ import { BankImage, ObjectBank } from './objects'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { KIND } from '../amiga/gadtools'
 import { writeIcon } from '../amiga/icon'
+import { encodeIlbm } from '../amiga/ilbm'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
@@ -739,7 +740,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
   })
 
   it('integrates DataTypes objects, attributes and window attachment on the shared backend', () => {
-    const ilbm = Uint8Array.from([0x46,0x4f,0x52,0x4d,0,0,0,4,0x49,0x4c,0x42,0x4d])
+    const ilbm = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0x000, 0xfff], pixels: Uint8Array.from([0, 1]) })
     const { rt, output } = run([
       'T=_tag list alloc(1) : _tag set T,$80001001,77 : _tag done T',
       'O=_dt create(_to str("RAM:image.iff"),T) : Print _dt init<>0,O<>0,_dt add(O,123,0,4)',

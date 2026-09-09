@@ -11,10 +11,12 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTF, DTHD, GID, LVO, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
+import { DTA, DTF, DTHD, GID, LVO, PDTA, SDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
+import { MemPool } from './exec'
+import { encodeIlbm } from './ilbm'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -47,6 +49,43 @@ describe('the jump table', () => {
     }
     expect(offsets.get('datatypesPrivate1'), 'the private slot is first').toBe(-30)
     for (const [name, lvo] of Object.entries(LVO)) expect(offsets.get(name), name).toBe(lvo)
+  })
+})
+
+describe('datatype class objects', () => {
+  const pool = (): MemPool => new MemPool(0x100000, 0x100000)
+
+  it('owns decoded picture attributes and native class buffers', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const file = encodeIlbm({ width: 3, height: 2, depth: 2, mode: 0x8004,
+      palette: [0x000, 0xf00, 0x0f0, 0x00f], pixels: Uint8Array.from([0, 1, 2, 3, 0, 1]) })
+    const object = service.create('RAM:pic.iff', file, new Map())
+    const attrs = service.objects.get(object)!.attributes
+    expect(attrs.get(DTA.NominalHoriz)).toBe(3)
+    expect(attrs.get(DTA.NominalVert)).toBe(2)
+    expect(attrs.get(PDTA.ModeID)).toBe(0x8004)
+    expect(attrs.get(PDTA.NumColors)).toBe(4)
+    const header = attrs.get(PDTA.BitMapHeader)!
+    expect(new DataView(memory.buffer.buffer).getUint16(header - memory.base)).toBe(3)
+    expect(memory.buffer[attrs.get(PDTA.ColorRegisters)! - memory.base + 3]).toBe(255)
+    service.dispose(object)
+    expect(memory.typeOfMem(header)).toBe(0)
+  })
+
+  it('owns decoded 8SVX sample attributes', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
+    const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)
+    const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body]
+    const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]), ...chunk('BODY', [1, 2, 3, 4])]
+    const file = Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id('8SVX'), ...body])
+    const object = service.create('RAM:hit.8svx', file, new Map())
+    const attrs = service.objects.get(object)!.attributes
+    expect(attrs.get(SDTA.SampleLength)).toBe(4)
+    expect(attrs.get(SDTA.Volume)).toBe(64)
+    expect(attrs.get(SDTA.Period)).toBeGreaterThan(0)
+    const sample = attrs.get(SDTA.Sample)!
+    expect([...memory.buffer.subarray(sample - memory.base, sample - memory.base + 4)]).toEqual([1, 2, 3, 4])
   })
 })
 

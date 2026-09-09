@@ -55,6 +55,14 @@
  * The fallthrough is the caller's policy and is deliberately not here.
  */
 import { decodeMacPaint } from './macpaint'
+import { parseIlbm } from './ilbm'
+import { decodeBmp, decodeIco, quantiseRgb, type IndexedBitmap } from './windowsbitmap'
+import { decodePcx } from './pcx'
+import { decodeGif } from './gif'
+import { decodeJpeg } from './jpeg'
+import { decode8svx, type Voice8svx } from './iff8svx'
+import { decodeDataTypeText } from './datatype-text'
+import { samPeriod } from './paula'
 
 /**
  * The jump table, from `datatypes_lib.fd`.
@@ -152,6 +160,24 @@ export const GID = {
   MOVIE: 'movi',
 } as const
 
+/** Release 40.15 datatype class tags used by the managed object backend. */
+const DUMMY = 0x80001000
+export const DTA = {
+  Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
+  NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
+  BaseName: DUMMY + 30, GroupID: DUMMY + 31,
+} as const
+export const PDTA = {
+  ModeID: DUMMY + 200, BitMapHeader: DUMMY + 201, BitMap: DUMMY + 202,
+  ColorRegisters: DUMMY + 203, CRegs: DUMMY + 204, NumColors: DUMMY + 209,
+} as const
+export const TDTA = { Buffer: DUMMY + 300, BufferLen: DUMMY + 301 } as const
+const SDUMMY = DUMMY + 500
+export const SDTA = {
+  VoiceHeader: SDUMMY + 1, Sample: SDUMMY + 2, SampleLength: SDUMMY + 3,
+  Period: SDUMMY + 4, Volume: SDUMMY + 5, Cycles: SDUMMY + 6,
+} as const
+
 export type GroupID = (typeof GID)[keyof typeof GID]
 
 /** one descriptor, with the offsets already resolved to the things they named */
@@ -186,6 +212,11 @@ export interface DataTypeHeader {
 /** IFF chunk id, four characters */
 function fourCC(b: Uint8Array, at: number): string {
   return String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
+}
+
+function fourCCValue(text: string): number {
+  return (((text.charCodeAt(0) & 0xff) << 24) | ((text.charCodeAt(1) & 0xff) << 16) |
+    ((text.charCodeAt(2) & 0xff) << 8) | (text.charCodeAt(3) & 0xff)) >>> 0
 }
 
 /** a NUL-terminated string at an offset, which is what the four pointers name */
@@ -299,6 +330,31 @@ export interface DataTypeObject {
   window: number
   requester: number
   position: number
+  /** allocations owned by the class object and released with it */
+  owned: number[]
+  media: IndexedBitmap | Voice8svx | string | null
+}
+
+function pictureFor(bytes: Uint8Array, descriptor: DataTypeHeader): IndexedBitmap | null {
+  try {
+    if (descriptor.baseName === 'ilbm') {
+      const image = parseIlbm(bytes)
+      return { width: image.width, height: image.height, depth: image.depth, pixels: image.pixels, palette: [...image.palette] }
+    }
+    if (descriptor.baseName === 'macpaint') {
+      const image = decodeMacPaint(bytes)
+      return image && { ...image, depth: 1, palette: [0xfff, 0] }
+    }
+    if (descriptor.baseName === 'bmp') return decodeBmp(bytes)
+    if (descriptor.baseName === 'ico') return decodeIco(bytes)
+    if (descriptor.baseName === 'pcx') return decodePcx(bytes)
+    if (descriptor.baseName === 'gif') return decodeGif(bytes)
+    if (descriptor.baseName === 'jpeg') {
+      const image = decodeJpeg(bytes)
+      return image && quantiseRgb(image.pixels, image.width, image.height)
+    }
+  } catch { return null }
+  return null
 }
 
 /** Shared native-facing DataTypes object lifecycle used by OS extensions. */
@@ -309,15 +365,70 @@ export class DataTypesService {
   private triggers = 0
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[]) {}
 
+  private bytes(owned: number[], data: Uint8Array): number {
+    const address = this.memory.alloc(Math.max(1, data.length), { clear: true })
+    if (!address) return 0
+    this.memory.buffer.set(data, address - this.memory.base); owned.push(address); return address
+  }
+  private string(owned: number[], text: string): number {
+    const data = new Uint8Array(text.length + 1)
+    for (let i = 0; i < text.length; i++) data[i] = text.charCodeAt(i) & 0xff
+    return this.bytes(owned, data)
+  }
+  private pictureAttrs(owned: number[], image: IndexedBitmap, mode = 0): Map<number, number> {
+    const attrs = new Map<number, number>([[DTA.NominalHoriz, image.width], [DTA.NominalVert, image.height],
+      [PDTA.ModeID, mode], [PDTA.NumColors, image.palette.length]])
+    const header = new Uint8Array(20); const hv = new DataView(header.buffer)
+    hv.setUint16(0, image.width); hv.setUint16(2, image.height); header[8] = image.depth
+    hv.setInt16(16, image.width); hv.setInt16(18, image.height)
+    attrs.set(PDTA.BitMapHeader, this.bytes(owned, header))
+    const regs = new Uint8Array(image.palette.length * 3)
+    const cregs = new Uint8Array(image.palette.length * 12)
+    image.palette.forEach((colour, i) => {
+      const rgb = [((colour >> 8) & 15) * 17, ((colour >> 4) & 15) * 17, (colour & 15) * 17]
+      regs.set(rgb, i * 3)
+      for (let c = 0; c < 3; c++) cregs[i * 12 + c * 4] = rgb[c]!
+    })
+    attrs.set(PDTA.ColorRegisters, this.bytes(owned, regs)); attrs.set(PDTA.CRegs, this.bytes(owned, cregs))
+    return attrs
+  }
+  private soundAttrs(owned: number[], voice: Voice8svx): Map<number, number> {
+    const sample = this.bytes(owned, new Uint8Array(voice.left.buffer, voice.left.byteOffset, voice.left.byteLength))
+    const vh = new Uint8Array(20); const v = new DataView(vh.buffer)
+    v.setUint32(0, voice.oneShot); v.setUint32(4, voice.repeat); v.setUint16(12, voice.rate)
+    vh[14] = 1; vh[15] = voice.compression; v.setUint32(16, voice.volume)
+    return new Map([[SDTA.VoiceHeader, this.bytes(owned, vh)], [SDTA.Sample, sample],
+      [SDTA.SampleLength, voice.left.length], [SDTA.Period, samPeriod(voice.rate)],
+      [SDTA.Volume, Math.min(64, (voice.volume * 64) >>> 16)], [SDTA.Cycles, 1]])
+  }
+
   create(path: string, bytes: Uint8Array | null, attributes: ReadonlyMap<number, number>): number {
     if (!bytes) return 0
     const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
-    if (descriptor.baseName === 'macpaint' && decodeMacPaint(bytes) === null) return 0
+    const picture = descriptor.groupID === GID.PICTURE ? pictureFor(bytes, descriptor) : null
+    const sound = descriptor.groupID === GID.SOUND ? decode8svx(bytes) : null
+    const text = descriptor.baseName === 'ascii' ? decodeDataTypeText(bytes, descriptor.name) : null
+    if ((descriptor.groupID === GID.PICTURE && !picture) || (descriptor.groupID === GID.SOUND && !sound) || (descriptor.baseName === 'ascii' && text === null)) return 0
     const address = this.memory.alloc(48, { clear: true }); if (!address) return 0
-    this.objects.set(address, { address, path, descriptor, attributes: new Map(attributes), window: 0, requester: 0, position: -1 })
+    const owned: number[] = []
+    const computed = picture ? this.pictureAttrs(owned, picture, descriptor.baseName === 'ilbm' ? parseIlbm(bytes).mode : 0)
+      : sound ? this.soundAttrs(owned, sound) : new Map<number, number>()
+    if (text !== null) {
+      const raw = new Uint8Array(text.length + 1); for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
+      computed.set(TDTA.Buffer, this.bytes(owned, raw)); computed.set(TDTA.BufferLen, text.length)
+    }
+    computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
+    computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
+    for (const [tag, value] of attributes) computed.set(tag, value)
+    this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
+      owned, media: picture ?? sound ?? text })
     return address
   }
-  dispose(address: number): void { if (this.objects.delete(address)) this.memory.freeMem(address) }
+  dispose(address: number): void {
+    const object = this.objects.get(address); if (!object) return
+    for (const owned of object.owned) this.memory.freeMem(owned)
+    this.objects.delete(address); this.memory.freeMem(address)
+  }
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
     if (descriptor.baseName === 'macpaint' && decodeMacPaint(bytes) === null) return 0
