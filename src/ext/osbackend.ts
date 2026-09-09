@@ -54,7 +54,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt create', { status: 'partial', reason: 'shared objects decode installed picture and sound classes, FTXT, and parsed AmigaGuide documents; remaining class methods are incomplete' }],
   ['_dt delete', { status: 'faithful', reason: 'shared datatype object allocation and disposal have one native-address lifecycle' }],
   ['_dt set attrs', { status: 'partial', reason: 'native TagItem attributes persist on shared objects; arbitrary datatype-class side effects remain incomplete' }],
-  ['_dt what attrs', { status: 'partial', reason: 'generic, picture, sound, FTXT and AmigaGuide node attributes write through caller pointers; native BitMap and richer layout objects remain incomplete' }],
+  ['_dt what attrs', { status: 'partial', reason: 'generic, picture, sound, FTXT and AmigaGuide attributes include native planar BitMap and FrameInfo records; remaining class attributes are incomplete' }],
   ['_dt add', { status: 'partial', reason: 'object/window/requester attachment and position are retained without full class rendering' }],
   ['_dt remove', { status: 'partial', reason: 'shared attachment state is removed and returns its prior position; class rendering cleanup remains incomplete' }],
   ['_dt refresh', { status: 'partial', reason: 'attachment and attributes refresh on the shared object; datatype-class layout/rendering remains incomplete' }],

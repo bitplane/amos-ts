@@ -69,6 +69,16 @@ describe('datatype class objects', () => {
     const header = attrs.get(PDTA.BitMapHeader)!
     expect(new DataView(memory.buffer.buffer).getUint16(header - memory.base)).toBe(3)
     expect(memory.buffer[attrs.get(PDTA.ColorRegisters)! - memory.base + 3]).toBe(255)
+    const bitmap = attrs.get(PDTA.BitMap)!; const bitmapAt = bitmap - memory.base
+    expect(memory.buffer[bitmapAt + 5]).toBe(2)
+    expect(new DataView(memory.buffer.buffer).getUint16(bitmapAt)).toBe(2)
+    const plane0 = new DataView(memory.buffer.buffer).getUint32(bitmapAt + 8)
+    const plane1 = new DataView(memory.buffer.buffer).getUint32(bitmapAt + 12)
+    expect([...memory.buffer.subarray(plane0 - memory.base, plane0 - memory.base + 4)]).toEqual([0x40, 0, 0xa0, 0])
+    expect([...memory.buffer.subarray(plane1 - memory.base, plane1 - memory.base + 4)]).toEqual([0x20, 0, 0x80, 0])
+    const frame = attrs.get(DTA.FrameInfo)! - memory.base
+    expect([0, 4, 8, 12, 16, 20, 32].map(at => new DataView(memory.buffer.buffer).getUint32(frame + at)))
+      .toEqual([0, 0x00010001, 0x04040400, 3, 2, 2, 6])
     service.dispose(object)
     expect(memory.typeOfMem(header)).toBe(0)
   })
@@ -86,6 +96,17 @@ describe('datatype class objects', () => {
     const rp = new RastPort(new BitMap(4, 3, 2, 2))
     expect(service.draw(object, rp, 1, 1, 2, 2, 1, 0)).toBe(true)
     expect([rp.point(1, 1), rp.point(2, 1), rp.point(1, 2), rp.point(2, 2)]).toEqual([1, 2, 2, 1])
+  })
+
+  it('derives visible units and clamps scrolling during layout', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const file = encodeIlbm({ width: 8, height: 6, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: new Uint8Array(48) })
+    const object = service.create('RAM:pic.iff', file, new Map([[DTA.Width, 3], [DTA.Height, 2], [DTA.TopHoriz, 99], [DTA.TopVert, 4]]))
+    expect(service.layout(object)).toBe(true)
+    const attrs = service.objects.get(object)!.attributes
+    expect([attrs.get(DTA.VisibleHoriz), attrs.get(DTA.VisibleVert), attrs.get(DTA.TopHoriz), attrs.get(DTA.TopVert)])
+      .toEqual([3, 2, 5, 4])
   })
 
   it('owns decoded 8SVX sample attributes', () => {

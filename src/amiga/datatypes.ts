@@ -170,6 +170,9 @@ export const DTA = {
   TopHoriz: DUMMY + 15, VisibleHoriz: DUMMY + 16, TotalHoriz: DUMMY + 17, HorizUnit: DUMMY + 18,
   TriggerMethods: DUMMY + 21, Methods: DUMMY + 24,
   NodeName: DUMMY + 19, Title: DUMMY + 20,
+  Busy: DUMMY + 28, Sync: DUMMY + 29,
+  Domain: DUMMY + 104, Width: DUMMY + 107, Height: DUMMY + 108, FrameInfo: DUMMY + 116,
+  SelectDomain: DUMMY + 121, TotalPVert: DUMMY + 122, TotalPHoriz: DUMMY + 123,
   BaseName: DUMMY + 30, GroupID: DUMMY + 31,
 } as const
 export const PDTA = {
@@ -406,6 +409,22 @@ export class DataTypesService {
       for (let c = 0; c < 3; c++) cregs[i * 12 + c * 4] = rgb[c]!
     })
     attrs.set(PDTA.ColorRegisters, this.bytes(owned, regs)); attrs.set(PDTA.CRegs, this.bytes(owned, cregs))
+    const rowBytes = ((image.width + 15) >> 4) << 1
+    const bitmap = new Uint8Array(40); const bv = new DataView(bitmap.buffer)
+    bv.setUint16(0, rowBytes); bv.setUint16(2, image.height); bitmap[5] = image.depth
+    for (let plane = 0; plane < Math.min(8, image.depth); plane++) {
+      const bits = new Uint8Array(rowBytes * image.height)
+      for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+        if ((image.pixels[y * image.width + x]! & (1 << plane)) !== 0) bits[y * rowBytes + (x >> 3)]! |= 0x80 >> (x & 7)
+      }
+      bv.setUint32(8 + plane * 4, this.bytes(owned, bits))
+    }
+    attrs.set(PDTA.BitMap, this.bytes(owned, bitmap))
+    const frame = new Uint8Array(36); const fv = new DataView(frame.buffer)
+    fv.setInt16(4, 1); fv.setInt16(6, 1); frame[8] = 4; frame[9] = 4; frame[10] = 4
+    fv.setUint32(12, image.width); fv.setUint32(16, image.height); fv.setUint32(20, image.depth)
+    fv.setUint32(32, 0x2 | 0x4) // FIF_SCROLLABLE | FIF_REMAPPABLE
+    attrs.set(DTA.FrameInfo, this.bytes(owned, frame))
     return attrs
   }
   private soundAttrs(owned: number[], voice: Voice8svx): Map<number, number> {
@@ -437,9 +456,12 @@ export class DataTypesService {
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
-    const width = picture?.width ?? 0; const height = picture?.height ?? (text?.split('\n').length ?? 0)
+    const lines = text?.split('\n') ?? []
+    const width = picture?.width ?? Math.max(0, ...lines.map(line => line.length)); const height = picture?.height ?? lines.length
     computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, 1)
     computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, 1)
+    computed.set(DTA.Width, width); computed.set(DTA.Height, height); computed.set(DTA.TotalPHoriz, width); computed.set(DTA.TotalPVert, height)
+    computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag, value)
     this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text })
@@ -490,6 +512,13 @@ export class DataTypesService {
     const o = this.objects.get(address); if (!o) return false
     o.attributes.set(DTA.Methods, this.methodList(address, false))
     o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
+    const hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 1); const vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 1)
+    const totalH = Math.max(0, o.attributes.get(DTA.TotalHoriz) ?? 0); const totalV = Math.max(0, o.attributes.get(DTA.TotalVert) ?? 0)
+    const visibleH = Math.min(totalH, Math.max(0, Math.floor((o.attributes.get(DTA.Width) ?? totalH * hUnit) / hUnit)))
+    const visibleV = Math.min(totalV, Math.max(0, Math.floor((o.attributes.get(DTA.Height) ?? totalV * vUnit) / vUnit)))
+    o.attributes.set(DTA.VisibleHoriz, visibleH); o.attributes.set(DTA.VisibleVert, visibleV)
+    o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, totalH - visibleH)))
+    o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, totalV - visibleV)))
     return true
   }
   goTo(address: number, nodeName: string): boolean {
@@ -502,6 +531,7 @@ export class DataTypesService {
     o.attributes.set(TDTA.Buffer, buffer); o.attributes.set(TDTA.BufferLen, text.length)
     o.attributes.set(DTA.NodeName, name); o.attributes.set(DTA.Title, title)
     o.attributes.set(DTA.TotalVert, text.split('\n').length); o.attributes.set(DTA.VisibleVert, text.split('\n').length)
+    o.attributes.set(DTA.TotalHoriz, Math.max(0, ...text.split('\n').map(line => line.length)))
     return true
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
