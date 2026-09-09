@@ -2,10 +2,9 @@
  * `datatypes.library` — what a file IS, and which class handles it.
  *
  * Commodore's answer to the question every file manager asks. The library
- * itself decodes nothing: it identifies data and names the class library that
- * knows how to read it, and the classes (`picture.datatype`, `sound.datatype`
- * and the per-format ones under them) do the work. Keeping that split is why
- * this file has no importers outside the layer and needs none.
+ * itself identifies data and names the class library that handles it. This
+ * service also owns the decoded class-object state used by the runtime's
+ * datatype methods.
  *
  * ## Evidence
  *
@@ -63,6 +62,7 @@ import { decodeJpeg } from './jpeg'
 import { decode8svx, type Voice8svx } from './iff8svx'
 import { decodeDataTypeText } from './datatype-text'
 import { samPeriod } from './paula'
+import type { RastPort } from './graphics'
 
 /**
  * The jump table, from `datatypes_lib.fd`.
@@ -165,6 +165,9 @@ const DUMMY = 0x80001000
 export const DTA = {
   Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
   NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
+  TopVert: DUMMY + 11, VisibleVert: DUMMY + 12, TotalVert: DUMMY + 13, VertUnit: DUMMY + 14,
+  TopHoriz: DUMMY + 15, VisibleHoriz: DUMMY + 16, TotalHoriz: DUMMY + 17, HorizUnit: DUMMY + 18,
+  TriggerMethods: DUMMY + 21, Methods: DUMMY + 24,
   BaseName: DUMMY + 30, GroupID: DUMMY + 31,
 } as const
 export const PDTA = {
@@ -176,6 +179,14 @@ const SDUMMY = DUMMY + 500
 export const SDTA = {
   VoiceHeader: SDUMMY + 1, Sample: SDUMMY + 2, SampleLength: SDUMMY + 3,
   Period: SDUMMY + 4, Volume: SDUMMY + 5, Cycles: SDUMMY + 6,
+} as const
+
+/** Release 40.15 datatypesclass.h method IDs. */
+export const DTM = {
+  FrameBox: 0x601, ProcLayout: 0x602, AsyncLayout: 0x603, RemoveDTObject: 0x604,
+  Select: 0x605, ClearSelected: 0x606, Copy: 0x607, Print: 0x608, AbortPrint: 0x609,
+  GoTo: 0x630, Trigger: 0x631, ObtainDrawInfo: 0x640, Draw: 0x641,
+  ReleaseDrawInfo: 0x642, Write: 0x650,
 } as const
 
 export type GroupID = (typeof GID)[keyof typeof GID]
@@ -361,8 +372,7 @@ function pictureFor(bytes: Uint8Array, descriptor: DataTypeHeader): IndexedBitma
 export class DataTypesService {
   readonly objects = new Map<number, DataTypeObject>()
   readonly obtained = new Map<number, DataTypeHeader>()
-  private methods = 0
-  private triggers = 0
+  private readonly methodLists = new Map<string, number>()
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[]) {}
 
   private bytes(owned: number[], data: Uint8Array): number {
@@ -419,6 +429,9 @@ export class DataTypesService {
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
+    const width = picture?.width ?? 0; const height = picture?.height ?? (text?.split('\n').length ?? 0)
+    computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, 1)
+    computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, 1)
     for (const [tag, value] of attributes) computed.set(tag, value)
     this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? text })
@@ -442,13 +455,43 @@ export class DataTypesService {
     const o = this.objects.get(object); if (!o || (window !== 0 && o.window !== window)) return -1
     const old = o.position; o.window = 0; o.requester = 0; o.position = -1; return old
   }
-  methodList(triggers = false): number {
-    const existing = triggers ? this.triggers : this.methods; if (existing) return existing
-    const values = triggers ? [0x401, 0] : [0x100, 0x101, 0x102, 0x103, 0]
+  methodList(object: number, triggers = false): number {
+    const o = this.objects.get(object); if (!o) return 0
+    if (triggers && o.descriptor.groupID !== GID.SOUND) return 0
+    const kind = triggers ? `trigger:${o.descriptor.groupID}` : `method:${o.descriptor.groupID}`
+    const existing = this.methodLists.get(kind); if (existing) return existing
+    if (triggers) {
+      // DTMethod is { label, command, trigger function }, terminated by zeros.
+      const play = this.string([], 'Play'); const pause = this.string([], 'Pause')
+      const address = this.memory.alloc(36, { clear: true }); if (!address) return 0
+      const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
+      dv.setUint32(at, play); dv.setUint32(at + 8, 2); dv.setUint32(at + 12, pause); dv.setUint32(at + 20, 1)
+      this.methodLists.set(kind, address); return address
+    }
+    const values = o.descriptor.groupID === GID.PICTURE ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw, DTM.Write, 0]
+        : o.descriptor.groupID === GID.SOUND ? [DTM.ProcLayout, DTM.AsyncLayout, DTM.Trigger, DTM.Write, 0]
+          : [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Copy, DTM.Write, 0]
     const address = this.memory.alloc(values.length * 4, { clear: true }); if (!address) return 0
     const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
-    values.forEach((value, i) => dv.setUint32(at + i * 4, value)); if (triggers) this.triggers = address; else this.methods = address
+    values.forEach((value, i) => dv.setUint32(at + i * 4, value)); this.methodLists.set(kind, address)
     return address
+  }
+  layout(address: number): boolean {
+    const o = this.objects.get(address); if (!o) return false
+    o.attributes.set(DTA.Methods, this.methodList(address, false))
+    o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
+    return true
+  }
+  draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
+    topHoriz = 0, topVert = 0): boolean {
+    const o = this.objects.get(address); const image = o?.media
+    if (!o || !image || typeof image === 'string' || !('pixels' in image)) return false
+    const w = width > 0 ? width : image.width; const h = height > 0 ? height : image.height
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const sx = x + topHoriz; const sy = y + topVert
+      if (sx >= 0 && sy >= 0 && sx < image.width && sy < image.height) rp.putPixel(left + x, top + y, image.pixels[sy * image.width + sx]!)
+    }
+    return true
   }
 }
 

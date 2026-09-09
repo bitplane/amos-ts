@@ -50,7 +50,7 @@ import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
 import { joinAmigaPath } from '../amiga/vfs'
-import { DataTypesService, dataTypeString } from '../amiga/datatypes'
+import { DataTypesService, DTM, dataTypeString } from '../amiga/datatypes'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
@@ -4011,9 +4011,24 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_dt add'(_, a) { return VI(st().dataTypes.add(n(a, 0) >>> 0, n(a, 1) >>> 0, n(a, 2) >>> 0, n(a, 3))) },
     '_dt remove'(_, a) { return VI(st().dataTypes.remove(n(a, 1) >>> 0, n(a, 0) >>> 0)) },
-    '_dt what methods'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? st().dataTypes.methodList(false) : 0) },
-    '_dt what triggers'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? st().dataTypes.methodList(true) : 0) },
-    '_dt do'(_, a) { return VI(st().dataTypes.objects.has(n(a, 0) >>> 0) ? 1 : 0) },
+    '_dt what methods'(_, a) { return VI(st().dataTypes.methodList(n(a, 0) >>> 0, false)) },
+    '_dt what triggers'(_, a) { return VI(st().dataTypes.methodList(n(a, 0) >>> 0, true)) },
+    '_dt do'(_, a) {
+      const object = n(a, 0) >>> 0; const message = n(a, 3) >>> 0
+      if (!st().dataTypes.objects.has(object) || !message) return VI(0)
+      const method = structRead(rt, message, 4, false)
+      if (method === DTM.ProcLayout || method === DTM.AsyncLayout) return VI(st().dataTypes.layout(object) ? 1 : 0)
+      if (method === DTM.RemoveDTObject) return VI(st().dataTypes.remove(object, n(a, 1) >>> 0))
+      if (method === DTM.Draw) {
+        const rp = structRead(rt, message + 4, 4, false)
+        const drawn = withNativeRastPort(rt, st(), rp, port => st().dataTypes.draw(object, port,
+          structRead(rt, message + 8, 4, true), structRead(rt, message + 12, 4, true),
+          structRead(rt, message + 16, 4, true), structRead(rt, message + 20, 4, true),
+          structRead(rt, message + 24, 4, true), structRead(rt, message + 28, 4, true)))
+        return VI(drawn ? 1 : 0)
+      }
+      return VI(0)
+    },
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },
     '_dos err'() { return VI(rt.dos.ioErr) },
     '_dos open'(_, a) { return VI(rt.dos.open(rt.vfs, cString(rt, n(a, 0)), n(a, 1))) },

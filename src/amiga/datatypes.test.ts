@@ -11,12 +11,13 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTA, DTF, DTHD, GID, LVO, PDTA, SDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
+import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
 import { MemPool } from './exec'
 import { encodeIlbm } from './ilbm'
+import { BitMap, RastPort } from './graphics'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -70,6 +71,21 @@ describe('datatype class objects', () => {
     expect(memory.buffer[attrs.get(PDTA.ColorRegisters)! - memory.base + 3]).toBe(255)
     service.dispose(object)
     expect(memory.typeOfMem(header)).toBe(0)
+  })
+
+  it('advertises native picture methods, lays out and draws decoded pixels', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const file = encodeIlbm({ width: 3, height: 2, depth: 2, mode: 0,
+      palette: [0x000, 0xf00, 0x0f0, 0x00f], pixels: Uint8Array.from([0, 1, 2, 3, 2, 1]) })
+    const object = service.create('RAM:pic.iff', file, new Map())
+    const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
+    expect([0, 1, 2, 3].map(i => dv.getUint32(methods - memory.base + i * 4)))
+      .toEqual([DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw])
+    expect(service.layout(object)).toBe(true)
+    expect(service.objects.get(object)!.attributes.get(DTA.Methods)).toBe(methods)
+    const rp = new RastPort(new BitMap(4, 3, 2, 2))
+    expect(service.draw(object, rp, 1, 1, 2, 2, 1, 0)).toBe(true)
+    expect([rp.point(1, 1), rp.point(2, 1), rp.point(1, 2), rp.point(2, 2)]).toEqual([1, 2, 2, 1])
   })
 
   it('owns decoded 8SVX sample attributes', () => {
