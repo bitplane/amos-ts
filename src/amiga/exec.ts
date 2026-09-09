@@ -173,7 +173,7 @@ const MODELLED: ReadonlyMap<string, Modelled> = new Map([
   ],
   [
     'amigaguide.library',
-    { version: 39, about: 'Process-wide AmigaGuide client handles and document launch lifecycle.' },
+    { version: 39, about: 'Parsed AmigaGuide documents, client navigation and launch lifecycle.' },
   ],
   // catalogs, FormatDate, collation and case — ../amiga/localelib.ts
   [

@@ -6,7 +6,7 @@ type Support = { level: 'decode' | 'identify'; detail: string }
 
 const SUPPORT: Readonly<Record<string, Support>> = {
   '8svx': { level: 'decode', detail: 'sample data and Fibonacci compression' },
-  amigaguide: { level: 'decode', detail: 'AmigaGuide source and node text' },
+  amigaguide: { level: 'decode', detail: 'nodes, links, navigation and source text' },
   ascii: { level: 'decode', detail: 'IFF FTXT character chunks' },
   gif: { level: 'decode', detail: 'GIF87a/GIF89a indexed pictures, interlace and transparency' },
   ilbm: { level: 'decode', detail: 'planar, HAM and extra-half-brite pictures' },
