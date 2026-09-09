@@ -18,6 +18,7 @@ import { describeIf, describeWith } from '../testing/fixture'
 import { MemPool } from './exec'
 import { encodeIlbm } from './ilbm'
 import { BitMap, RastPort } from './graphics'
+import { NullAudio } from './paula'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -121,7 +122,7 @@ describe('datatype class objects', () => {
   })
 
   it('owns decoded 8SVX sample attributes', () => {
-    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const memory = pool(); const audio = new NullAudio(); const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => audio)
     const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
     const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)
     const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body]
@@ -134,6 +135,13 @@ describe('datatype class objects', () => {
     expect(attrs.get(SDTA.Period)).toBeGreaterThan(0)
     const sample = attrs.get(SDTA.Sample)!
     expect([...memory.buffer.subarray(sample - memory.base, sample - memory.base + 4)]).toEqual([1, 2, 3, 4])
+    const triggers = service.methodList(object, true); const tv = new DataView(memory.buffer.buffer)
+    expect([tv.getUint32(triggers - memory.base), tv.getUint32(triggers - memory.base + 8), tv.getUint32(triggers - memory.base + 12)])
+      .toEqual([expect.any(Number), 2, 0])
+    expect(service.trigger(object, 2)).toBe(true)
+    expect(audio.events.at(-1)).toMatchObject({ kind: 'play', voice: 0, freq: 8000, volume: 64, loop: false })
+    expect(service.trigger(object, 1)).toBe(false)
+    service.dispose(object); expect(audio.events.at(-1)).toMatchObject({ kind: 'stop', voice: 0 })
   })
 
   it('uses the shared AmigaGuide document for DTM_GOTO node state', () => {

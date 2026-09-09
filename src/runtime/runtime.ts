@@ -562,7 +562,7 @@ export class Runtime {
   /** One commodities.library broker and message space over shared Exec messages. */
   readonly commodities = new Commodities(this.exec.messages)
   /** One datatypes.library object space backed by the installed descriptors. */
-  readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES)
+  readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES, () => this.audio)
   /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
   readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)
   /** Process-wide dos.library command-line template parser and current result. */

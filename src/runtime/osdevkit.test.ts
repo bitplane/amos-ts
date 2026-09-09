@@ -11,6 +11,7 @@ import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { KIND } from '../amiga/gadtools'
 import { writeIcon } from '../amiga/icon'
 import { encodeIlbm } from '../amiga/ilbm'
+import { NullAudio } from '../amiga/paula'
 
 const core = new TokenTable(CORE_TOKENS)
 const os = extensionById('os-devkit-1.61')!
@@ -762,6 +763,20 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'Print _dt do(O,0,0,M),Leek(F+12),Leek(F+16),Leek(F+20),Leek(F+32) : _dt delete O',
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
     expect(output).toBe(' 1\t 7\t 5\t 1\t 6\n')
+  })
+
+  it('dispatches sound.datatype STM_PLAY through shared audio', () => {
+    const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
+    const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)
+    const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body]
+    const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]), ...chunk('BODY', [1, 2, 3, 4])]
+    const sample = Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id('8SVX'), ...body])
+    const { rt, output } = run([
+      'O=_dt create(_to str("RAM:hit.8svx"),0) : Reserve As Data 1,16 : M=Start(1)',
+      'Loke M,$631 : Loke M+8,2 : Print _dt do(O,0,0,M) : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:hit.8svx', sample))
+    expect(output).toBe(' 1\n')
+    expect((rt.audio as NullAudio).events.map(event => event.kind)).toEqual(['play', 'stop'])
   })
 
   it('shares DOS variables through ENV: and parses CLI templates once', () => {

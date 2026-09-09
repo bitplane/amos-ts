@@ -62,6 +62,7 @@ import { decodeJpeg } from './jpeg'
 import { decode8svx, type Voice8svx } from './iff8svx'
 import { decodeDataTypeText } from './datatype-text'
 import { samPeriod } from './paula'
+import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 
@@ -349,6 +350,7 @@ export interface DataTypeObject {
   /** allocations owned by the class object and released with it */
   owned: number[]
   media: IndexedBitmap | Voice8svx | AmigaGuideDocument | string | null
+  soundPlaying: boolean
 }
 
 function guideText(items: readonly AmigaGuideInline[]): string {
@@ -382,7 +384,8 @@ export class DataTypesService {
   readonly objects = new Map<number, DataTypeObject>()
   readonly obtained = new Map<number, DataTypeHeader>()
   private readonly methodLists = new Map<string, number>()
-  constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[]) {}
+  constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[],
+    private readonly audio: () => AudioSink | null = () => null) {}
 
   private bytes(owned: number[], data: Uint8Array): number {
     const address = this.memory.alloc(Math.max(1, data.length), { clear: true })
@@ -464,12 +467,13 @@ export class DataTypesService {
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag, value)
     this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? guide ?? text })
+      owned, media: picture ?? sound ?? guide ?? text, soundPlaying: false })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
   dispose(address: number): void {
     const object = this.objects.get(address); if (!object) return
+    if (object.soundPlaying) this.audio()?.stop(0)
     for (const owned of object.owned) this.memory.freeMem(owned)
     this.objects.delete(address); this.memory.freeMem(address)
   }
@@ -493,10 +497,10 @@ export class DataTypesService {
     const existing = this.methodLists.get(kind); if (existing) return existing
     if (triggers) {
       // DTMethod is { label, command, trigger function }, terminated by zeros.
-      const play = this.string([], 'Play'); const pause = this.string([], 'Pause')
-      const address = this.memory.alloc(36, { clear: true }); if (!address) return 0
+      const play = this.string([], 'Play'); const command = this.string([], 'PLAY')
+      const address = this.memory.alloc(24, { clear: true }); if (!address) return 0
       const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
-      dv.setUint32(at, play); dv.setUint32(at + 8, 2); dv.setUint32(at + 12, pause); dv.setUint32(at + 20, 1)
+      dv.setUint32(at, play); dv.setUint32(at + 4, command); dv.setUint32(at + 8, 2)
       this.methodLists.set(kind, address); return address
     }
     const values = o.descriptor.baseName === 'amigaguide' ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.GoTo, DTM.Copy, DTM.Write, 0]
@@ -532,6 +536,15 @@ export class DataTypesService {
     view.setUint32(20, o.descriptor.groupID === GID.PICTURE ? ((o.media && typeof o.media !== 'string' && 'depth' in o.media) ? o.media.depth : 0) : 0)
     view.setUint32(32, o.descriptor.groupID === GID.PICTURE ? 0x6 : (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT ? 0x2 : 0))
     return frame
+  }
+  trigger(address: number, fn: number): boolean {
+    const o = this.objects.get(address); const voice = o?.media
+    if (!o || !voice || typeof voice === 'string' || !('left' in voice) || fn !== 2) return false
+    const sink = this.audio(); if (!sink) return false
+    const loopStart = voice.repeat > 0 ? Math.min(voice.left.length, voice.oneShot) : -1
+    sink.play(0, voice.left, voice.rate, o.attributes.get(SDTA.Volume) ?? 64, loopStart,
+      voice.repeat > 0 ? Math.min(voice.left.length, voice.oneShot + voice.repeat) : undefined)
+    o.soundPlaying = true; return true
   }
   goTo(address: number, nodeName: string): boolean {
     const o = this.objects.get(address); const guide = o?.media
