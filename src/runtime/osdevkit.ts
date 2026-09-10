@@ -928,6 +928,17 @@ function closeScreenId(rt: Runtime, state: OsDevKitState, id: number): void {
   if (state.currentScreenId === id) state.currentScreenId = -1
 }
 
+/** Workers 2995/2996 replace the ID first, then retain LockPubScreen ownership. */
+function bindPublicScreenId(rt: Runtime, state: OsDevKitState, id: number, name: string): boolean {
+  closeScreenId(rt, state, id)
+  const address = rt.intuition.lockPubScreen(name)
+  if (address === 0) return false
+  const slot = address === SCREEN_CTRL_BASE + WB_SLOT * SCREEN_CTRL_SLOT ? WB_SLOT : rt.intuition.slotOf(address)
+  if (slot !== null && bindScreenId(rt, state, id, slot, false, true)) return true
+  rt.intuition.unlockPubScreen(address)
+  return false
+}
+
 function currentScreenRaster(rt: Runtime, state: OsDevKitState): NativeRaster | null {
   const record = state.screenIds.get(state.currentScreenId)
   if (!record) return null
@@ -2606,14 +2617,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_scr id beep'(it) { rt.intuition.displayBeep(st().screenIds.get(it.evalInt())?.base ?? 0) },
     '_print'(it) { rt.writeText(`${it.evalStr()}\n`) },
     '_scr id from wb'(it) {
-      const id = it.evalInt(); const address = rt.intuition.openWorkBench()
-      if (address !== 0) bindScreenId(rt, st(), id, WB_SLOT)
+      bindPublicScreenId(rt, st(), it.evalInt(), 'Workbench')
     },
     '_scr id from pub'(it) {
-      const id = it.evalInt(); it.expect(','); const address = rt.intuition.lockPubScreen(it.evalStr())
-      if (address === 0) return
-      const slot = address === SCREEN_CTRL_BASE + WB_SLOT * SCREEN_CTRL_SLOT ? WB_SLOT : rt.intuition.slotOf(address)
-      if (slot === null || !bindScreenId(rt, st(), id, slot, false, true)) rt.intuition.unlockPubScreen(address)
+      const id = it.evalInt(); it.expect(','); bindPublicScreenId(rt, st(), id, it.evalStr())
     },
     '_scr pub unlock'(it) { rt.intuition.unlockPubScreen(it.evalInt() >>> 0) },
     /** Workers 2993/2994 delegate to ScreenToFront/ScreenToBack; “hide” does not make the screen invisible. */

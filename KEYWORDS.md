@@ -114,7 +114,7 @@ the only path that combines that metadata into the committed inventory.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      696 |          347 |       4 |     100% |
+| os-devkit-1.61       |     1047 |      697 |          346 |       4 |     100% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6560 |          759 |      47 |      99% |
+| **total**            |     7422 |     6561 |          758 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -431,7 +431,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (100%)
 
-- **approximated** (347): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (346): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_areg`, `_asl alloc`, `_asl do`, `_bd draw`,
   `_blt clip`, `_blt clr`, `_blt msk bm to rp`, `_blt pattern`, `_bm alloc`, `_bm free`,
@@ -478,7 +478,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_rp set attrs`, `_rp what attrs`, `_scale bm`, `_scale div`, `_scr beep`, `_scr close`,
   `_scr def pub`, `_scr dinf free`, `_scr dinf get`, `_scr hide title`, `_scr id beep`,
   `_scr id clip`, `_scr id fill ellipse`, `_scr id fix dri pens`, `_scr id from pointer`,
-  `_scr id from pub`, `_scr id from wb`, `_scr id open`, `_scr id put bob`, `_scr id scroll`,
+  `_scr id from pub`, `_scr id open`, `_scr id put bob`, `_scr id scroll`,
   `_scr id set mouse pos`, `_scr id tag open`, `_scr move`, `_scr open`, `_scr position`,
   `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`, `_scr show title`,
   `_scr tag open`, `_scr to back`, `_scr to front`, `_scr what active`, `_scr what front`,

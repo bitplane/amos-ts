@@ -1566,6 +1566,14 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect([screen.offsetX, screen.offsetY]).toEqual([7, 9])
   })
 
+  it('retains the Workbench public-screen lock for a Screen-ID binding', () => {
+    const { output } = run([
+      '_scr id from wb 4 : Print _wb close',
+      '_scr id close 4 : Print _wb close',
+    ].join('\n'))
+    expect(output).toBe(' 0\n-1\n')
+  })
+
   it('shares the Intuition public-screen registry and lock ownership', () => {
     const source = [
       'N=_to str("Workbench") : _scr def pub N : P=_scr pub lock(N)',
