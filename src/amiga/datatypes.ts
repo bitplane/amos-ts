@@ -169,16 +169,17 @@ export const GID = {
 /** Release 40.15 datatype class tags used by the managed object backend. */
 const DUMMY = 0x80001000
 export const DTA = {
-  Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
-  NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
   TopVert: DUMMY + 11, VisibleVert: DUMMY + 12, TotalVert: DUMMY + 13, VertUnit: DUMMY + 14,
   TopHoriz: DUMMY + 15, VisibleHoriz: DUMMY + 16, TotalHoriz: DUMMY + 17, HorizUnit: DUMMY + 18,
-  TriggerMethods: DUMMY + 21, Methods: DUMMY + 24,
-  NodeName: DUMMY + 19, Title: DUMMY + 20,
-  Busy: DUMMY + 28, Sync: DUMMY + 29,
+  NodeName: DUMMY + 19, Title: DUMMY + 20, TriggerMethods: DUMMY + 21, Data: DUMMY + 22,
+  TextFont: DUMMY + 23, Methods: DUMMY + 24, PrinterStatus: DUMMY + 25,
+  PrinterProc: DUMMY + 26, LayoutProc: DUMMY + 27, Busy: DUMMY + 28, Sync: DUMMY + 29,
+  BaseName: DUMMY + 30, GroupID: DUMMY + 31,
+  Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
+  SourceType: DUMMY + 101, Handle: DUMMY + 102,
+  NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
   Domain: DUMMY + 104, Width: DUMMY + 107, Height: DUMMY + 108, FrameInfo: DUMMY + 116,
   SelectDomain: DUMMY + 121, TotalPVert: DUMMY + 122, TotalPHoriz: DUMMY + 123,
-  BaseName: DUMMY + 30, GroupID: DUMMY + 31,
 } as const
 export const PDTA = {
   ModeID: DUMMY + 200, BitMapHeader: DUMMY + 201, BitMap: DUMMY + 202,
@@ -413,6 +414,7 @@ export class DataTypesService {
   readonly objects = new Map<number, DataTypeObject>()
   readonly obtained = new Map<number, DataTypeHeader>()
   private readonly methodLists = new Map<string, number>()
+  private readonly nativeDescriptors = new Map<DataTypeHeader, number>()
   private readonly dataTypeClass: BoopsiClass
   private readonly classes = new Map<string, BoopsiClass>()
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[],
@@ -475,6 +477,28 @@ export class DataTypesService {
     for (let i = 0; i < text.length; i++) data[i] = text.charCodeAt(i) & 0xff
     return this.bytes(owned, data)
   }
+  private put16(address: number, value: number): void {
+    const at = address - this.memory.base; this.memory.buffer[at] = value >>> 8; this.memory.buffer[at + 1] = value
+  }
+  private put32(address: number, value: number): void { this.put16(address, value >>> 16); this.put16(address + 2, value) }
+  /** Shared `struct DataType` and relocated `DataTypeHeader`, as returned by ObtainDataTypeA. */
+  private descriptorAddress(descriptor: DataTypeHeader): number {
+    const old = this.nativeDescriptors.get(descriptor); if (old) return old
+    const record = this.memory.alloc(58, { clear: true }); const header = this.memory.alloc(DTHD.SIZEOF, { clear: true })
+    if (!record || !header) { if (record) this.memory.freeMem(record); if (header) this.memory.freeMem(header); return 0 }
+    const name = this.string([], descriptor.name); const baseName = this.string([], descriptor.baseName)
+    const pattern = this.string([], descriptor.pattern); const mask = this.memory.alloc(Math.max(2, descriptor.mask.length * 2), { clear: true })
+    if (!name || !baseName || !pattern || !mask) return 0
+    descriptor.mask.forEach((value, i) => this.put16(mask + i * 2, value))
+    this.put32(header + DTHD.Name, name); this.put32(header + DTHD.BaseName, baseName)
+    this.put32(header + DTHD.Pattern, pattern); this.put32(header + DTHD.Mask, mask)
+    this.put32(header + DTHD.GroupID, fourCCValue(descriptor.groupID))
+    this.put32(header + DTHD.ID, fourCCValue(descriptor.id))
+    this.put16(header + DTHD.MaskLen, descriptor.mask.length); this.put16(header + DTHD.Flags, descriptor.flags)
+    this.put16(header + DTHD.Priority, descriptor.priority)
+    this.put32(record + 28, header); this.put32(record + 54, 58)
+    this.nativeDescriptors.set(descriptor, record); this.obtained.set(record, descriptor); return record
+  }
   private pictureAttrs(owned: number[], image: IndexedBitmap, mode = 0): Map<number, number> {
     const attrs = new Map<number, number>([[DTA.NominalHoriz, image.width], [DTA.NominalVert, image.height],
       [PDTA.ModeID, mode], [PDTA.NumColors, image.palette.length]])
@@ -535,6 +559,7 @@ export class DataTypesService {
       computed.set(TDTA.Buffer, this.bytes(owned, raw)); computed.set(TDTA.BufferLen, text.length)
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
+    computed.set(DTA.SourceType, 2); computed.set(DTA.Handle, 0); computed.set(DTA.DataType, this.descriptorAddress(descriptor))
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
     const lines = text?.split('\n') ?? []
     const width = picture?.width ?? Math.max(0, ...lines.map(line => line.length)); const height = picture?.height ?? lines.length
@@ -547,6 +572,7 @@ export class DataTypesService {
     if (!object) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
     const address = object.address
     const shared = object.instData<{ attributes: Map<number, number> }>(this.dataTypeClass).attributes
+    shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false, selectionDomain: 0 })
     if (guide) this.goTo(address, guide.entryNode)
@@ -610,9 +636,9 @@ export class DataTypesService {
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
     if (descriptor.baseName === 'macpaint' && decodeMacPaint(bytes) === null) return 0
-    const address = this.memory.alloc(32, { clear: true }); if (address) this.obtained.set(address, descriptor); return address
+    return this.descriptorAddress(descriptor)
   }
-  release(address: number): void { if (this.obtained.delete(address)) this.memory.freeMem(address) }
+  release(_address: number): void { /* shared descriptors remain owned by datatypes.library */ }
   add(object: number, window: number, requester: number, position: number): number {
     const o = this.objects.get(object); if (!o) return 0; o.window = window; o.requester = requester; o.position = position; return position
   }

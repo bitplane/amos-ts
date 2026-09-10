@@ -88,6 +88,27 @@ describe('datatype class objects', () => {
     expect(memory.typeOfMem(header)).toBe(0)
   })
 
+  it('shares a complete native DataType descriptor between obtain and DTA_DataType', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const file = encodeIlbm({ width: 1, height: 1, depth: 1, mode: 0, palette: [0, 0xfff], pixels: Uint8Array.of(1) })
+    const descriptor = service.obtain(file); const again = service.obtain(file)
+    expect(descriptor).toBe(again)
+    const object = service.create('RAM:pic.iff', file, new Map())
+    expect(service.attr(object, DTA.DataType)).toBe(descriptor)
+    expect(service.attr(object, DTA.Data)).toBe(object)
+    expect(service.attr(object, DTA.SourceType)).toBe(2)
+    const dv = new DataView(memory.buffer.buffer)
+    const header = dv.getUint32(descriptor - memory.base + 28)
+    expect(dv.getUint32(descriptor - memory.base + 54)).toBe(58)
+    expect(dv.getUint32(header - memory.base + DTHD.GroupID)).toBe(0x70696374)
+    expect(dv.getUint32(header - memory.base + DTHD.ID)).toBe(0x696c626d)
+    expect(dv.getUint16(header - memory.base + DTHD.MaskLen)).toBe(byName('ILBM').mask.length)
+    const mask = dv.getUint32(header - memory.base + DTHD.Mask)
+    expect([0, 1, 2, 3].map(i => dv.getUint16(mask - memory.base + i * 2))).toEqual([0x46, 0x4f, 0x52, 0x4d])
+    service.release(descriptor)
+    expect(memory.typeOfMem(descriptor)).not.toBe(0)
+  })
+
   it('advertises native picture methods, lays out and draws decoded pixels', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const file = encodeIlbm({ width: 3, height: 2, depth: 2, mode: 0,
