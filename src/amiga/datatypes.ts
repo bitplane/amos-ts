@@ -1046,11 +1046,7 @@ export class DataTypesService {
       if (raw[at] === 13 && raw[at + 1] === 10) at++
       start = at + 1
     }
-    let delimiters = '\t *-,()<>[];"'
-    if (delimiterAddress && this.memory.sizeOf(delimiterAddress)) {
-      delimiters = ''; const base = delimiterAddress - this.memory.base; const available = this.memory.sizeOf(delimiterAddress)
-      for (let i = 0; i < available && this.memory.buffer[base + i] !== 0; i++) delimiters += String.fromCharCode(this.memory.buffer[base + i]!)
-    }
+    const delimiters = this.mappedString(delimiterAddress, '\t *-,()<>[];"')
     const ranges: Array<{ start: number; length: number; lf: boolean }> = []
     for (const line of physical) {
       let offset = 0
@@ -1180,6 +1176,13 @@ export class DataTypesService {
     return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
   }
 
+  private mappedString(address: number, fallback = ''): string {
+    const available = this.memory.sizeOf(address); if (!address || !available) return fallback
+    let value = ''; const base = address - this.memory.base
+    for (let i = 0; i < available && this.memory.buffer[base + i] !== 0; i++) value += String.fromCharCode(this.memory.buffer[base + i]!)
+    return value
+  }
+
   private syncTextSelection(o: DataTypeObject, hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 8),
     vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 8)): void {
     const text = this.textBytes(o); const box = this.selection(o)
@@ -1193,7 +1196,13 @@ export class DataTypesService {
     const firstCol = Math.max(0, Math.min(lines[firstLine]!.length, Math.floor(box.left / hUnit)))
     const lastCol = Math.max(0, Math.min(lines[lastLine]!.length,
       Math.floor((box.left + Math.max(0, box.width - 1)) / hUnit) + 1))
-    o.textSelection = { start: starts[firstLine]! + firstCol, end: starts[lastLine]! + lastCol }
+    let selection = { start: starts[firstLine]! + firstCol, end: starts[lastLine]! + lastCol }
+    if ((o.attributes.get(TDTA.WordSelect) ?? 0) !== 0) {
+      const delimiters = this.mappedString(o.attributes.get(TDTA.WordDelim) ?? 0, '\t *-,()<>[];"') + '\r\n'
+      while (selection.start > 0 && !delimiters.includes(source[selection.start - 1]!)) selection.start--
+      while (selection.end < source.length && !delimiters.includes(source[selection.end]!)) selection.end++
+    }
+    o.textSelection = selection
   }
 
   /** Decode the public PDTA records each time: callers may legally alter them in mapped memory. */

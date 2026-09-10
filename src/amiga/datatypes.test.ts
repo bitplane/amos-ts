@@ -319,6 +319,9 @@ describe('datatype class objects', () => {
     expect(service.refresh(object, [], 1, 0, rp)).toBe(true); expect(rp.cpX).toBe(32)
     expect(service.clearSelected(object)).toBe(true)
     expect(String.fromCharCode(...service.copyBytes(object)!)).toBe('one\nfour')
+    service.setAttrs(object, [{ tag: TDTA.WordSelect, data: 1 }])
+    expect(service.select(object, { minX: 8, minY: 8, maxX: 8, maxY: 8 })).toBe(true)
+    expect(String.fromCharCode(...service.copyBytes(object)!)).toBe('four')
   })
 
   it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
