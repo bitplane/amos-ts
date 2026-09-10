@@ -61,9 +61,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const dt = rows.filter((row) => row.namespace === '_dt')
     expect(dt).toHaveLength(14)
     expect(dt.filter((row) => row.status === 'faithful').map((row) => row.name).sort())
-      .toEqual(['_dt add', '_dt create', '_dt delete', '_dt init', '_dt obtain', '_dt refresh', '_dt release', '_dt remove',
+      .toEqual(['_dt add', '_dt create', '_dt delete', '_dt do', '_dt init', '_dt obtain', '_dt refresh', '_dt release', '_dt remove',
         '_dt set attrs', '_dt str$', '_dt what attrs', '_dt what methods', '_dt what triggers'])
-    expect(dt.filter((row) => row.status === 'partial')).toHaveLength(1)
+    expect(dt.filter((row) => row.status === 'partial')).toHaveLength(0)
     expect(dt.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(dt.some((row) => row.status === 'review')).toBe(false)
   })

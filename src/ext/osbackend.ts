@@ -60,7 +60,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt refresh', { status: 'faithful', reason: 'refresh updates and lays out the shared object and renders picture/text media plus the native V39 sound icon through the Window RastPort' }],
   ['_dt what methods', { status: 'faithful', reason: 'stable terminated method arrays exactly match the highest held picture 39.14, sound 39.5, text 39.7 and AmigaGuide 39.15 binaries' }],
   ['_dt what triggers', { status: 'faithful', reason: 'native terminated DTMethod tables expose sound Play and AmigaGuide Contents, Index, Retrace and Browse navigation exactly as held binaries do' }],
-  ['_dt do', { status: 'partial', reason: 'all advertised media methods dispatch, including print options, selection, write, sound play and AmigaGuide navigation/SYSTEM; AmigaGuide ARexx execution remains unavailable' }],
+  ['_dt do', { status: 'faithful', reason: 'all advertised media methods dispatch through the shared objects, including print options, selection, write, sound play and AmigaGuide navigation, SYSTEM and RX/RXS public-port delivery' }],
   ['_dt str$', { status: 'faithful', reason: 'the held V39 English strings use their native error, type and group IDs under the port’s modeled built-in English system locale' }],
   ['_sys own', { status: 'partial', reason: 'shared SystemControlA takeover state is retained; no scheduler or interrupt suppression exists for ownership to affect yet' }],
   ['_sys disown', { status: 'partial', reason: 'shared SystemControlA takeover state is released; no scheduler or interrupt suppression exists for ownership to affect yet' }],
