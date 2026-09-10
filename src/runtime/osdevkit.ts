@@ -4697,11 +4697,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         leftEdge: data(0x8003_0001), topEdge: data(0x8003_0003),
         width: data(0x8003_0005), height: data(0x8003_0007),
         gadgetText: cString(rt, data(0x8003_0009) >>> 0),
+        textAttr: n(a, 2) >>> 0,
         gadgetID: data(0x8003_0010) & 0xffff, flags: n(a, 3),
         visualInfo: data(0x8008_0034) >>> 0, userData: data(0x8003_0011) >>> 0,
       }
-      // a[2] is ng_TextAttr. Managed font rendering has no native pointer for
-      // this field; the remaining public NewGadget fields are retained above.
       return VI(st().gadtools.createGadget(kind, previous, ng, tags)?.address ?? 0)
     },
     '_gt make image'(_, a) { return VI(makeGtImage(rt, st(), n(a, 0))) },
