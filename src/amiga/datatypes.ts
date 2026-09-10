@@ -391,23 +391,28 @@ function guideText(items: readonly AmigaGuideInline[]): string {
   return items.map(item => item.type === 'text' ? item.text : item.type === 'link' ? guideText(item.label) : '').join('')
 }
 
-function pictureFor(bytes: Uint8Array, descriptor: DataTypeHeader): IndexedBitmap | null {
+export interface DataTypePicture extends IndexedBitmap { mode: number }
+
+/** Decode through the concrete class named by an already-obtained descriptor. */
+export function decodeDataTypePicture(bytes: Uint8Array, descriptor: DataTypeHeader): DataTypePicture | null {
   try {
     if (descriptor.baseName === 'ilbm') {
       const image = parseIlbm(bytes)
-      return { width: image.width, height: image.height, depth: image.depth, pixels: image.pixels, palette: [...image.palette] }
+      return { width: image.width, height: image.height, depth: image.depth, pixels: image.pixels, palette: [...image.palette], mode: image.mode }
     }
     if (descriptor.baseName === 'macpaint') {
       const image = decodeMacPaint(bytes)
-      return image && { ...image, depth: 1, palette: [0xfff, 0] }
+      return image && { ...image, depth: 1, palette: [0xfff, 0], mode: 0x8004 }
     }
-    if (descriptor.baseName === 'bmp') return decodeBmp(bytes)
-    if (descriptor.baseName === 'ico') return decodeIco(bytes)
-    if (descriptor.baseName === 'pcx') return decodePcx(bytes)
-    if (descriptor.baseName === 'gif') return decodeGif(bytes)
+    const indexed = descriptor.baseName === 'bmp' ? decodeBmp(bytes)
+      : descriptor.baseName === 'ico' ? decodeIco(bytes)
+        : descriptor.baseName === 'pcx' ? decodePcx(bytes)
+          : descriptor.baseName === 'gif' ? decodeGif(bytes) : null
+    if (indexed) return { ...indexed, mode: 0 }
     if (descriptor.baseName === 'jpeg') {
       const image = decodeJpeg(bytes)
-      return image && quantiseRgb(image.pixels, image.width, image.height)
+      const indexedJpeg = image && quantiseRgb(image.pixels, image.width, image.height)
+      return indexedJpeg && { ...indexedJpeg, mode: 0 }
     }
   } catch { return null }
   return null
@@ -551,14 +556,14 @@ export class DataTypesService {
   create(path: string, bytes: Uint8Array | null, attributes: ReadonlyMap<number, number>): number {
     if (!bytes) return 0
     const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
-    const picture = descriptor.groupID === GID.PICTURE ? pictureFor(bytes, descriptor) : null
+    const picture = descriptor.groupID === GID.PICTURE ? decodeDataTypePicture(bytes, descriptor) : null
     const sound = descriptor.groupID === GID.SOUND ? decode8svx(bytes) : null
     const text = descriptor.baseName === 'ascii' ? decodeDataTypeText(bytes, descriptor.name) : null
     const guide = descriptor.baseName === 'amigaguide' ? parseAmigaGuide(bytes) : null
     if ((descriptor.groupID === GID.PICTURE && !picture) || (descriptor.groupID === GID.SOUND && !sound) ||
       (descriptor.baseName === 'ascii' && text === null) || (descriptor.baseName === 'amigaguide' && !guide)) return 0
     const owned: number[] = []
-    const computed = picture ? this.pictureAttrs(owned, picture, descriptor.baseName === 'ilbm' ? parseIlbm(bytes).mode : 0)
+    const computed = picture ? this.pictureAttrs(owned, picture, picture.mode)
       : sound ? this.soundAttrs(owned, sound) : new Map<number, number>()
     if (text !== null) {
       const raw = new Uint8Array(text.length + 1); for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff

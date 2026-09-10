@@ -66,13 +66,8 @@ import { joyDatOf } from '../amiga/gameport'
 import { ICON_BANK } from './banks'
 import { ASL_TYPE, type AslFileSetup } from '../amiga/asl'
 import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
-import { GID, obtainDataType } from '../amiga/datatypes'
+import { GID, decodeDataTypePicture, obtainDataType } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
-import { decodeMacPaint } from '../amiga/macpaint'
-import { decodeBmp, decodeIco, quantiseRgb } from '../amiga/windowsbitmap'
-import { decodePcx } from '../amiga/pcx'
-import { decodeGif } from '../amiga/gif'
-import { decodeJpeg } from '../amiga/jpeg'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -1446,26 +1441,7 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       if (!bytes) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
       const dt = obtainDataType(bytes, SHIPPED_DATATYPES)
       if (dt && dt.groupID !== GID.PICTURE) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
-      let pic: IlbmImage | null = null
-      try {
-        pic = parseIlbm(bytes)
-      } catch {
-        const mac = dt?.baseName === 'macpaint' ? decodeMacPaint(bytes) : null
-        if (mac !== null) {
-          pic = { width: mac.width, height: mac.height, depth: 1, mode: 0x8004, palette: [0xfff, 0], pixels: mac.pixels }
-        } else {
-          const jpeg = dt?.baseName === 'jpeg' ? decodeJpeg(bytes) : null
-          const windows = jpeg !== null ? quantiseRgb(jpeg.pixels, jpeg.width, jpeg.height)
-            : dt?.baseName === 'bmp' ? decodeBmp(bytes)
-            : dt?.baseName === 'ico' ? decodeIco(bytes)
-              : dt?.baseName === 'pcx' ? decodePcx(bytes)
-                : dt?.baseName === 'gif' ? decodeGif(bytes) : null
-          if (windows !== null) pic = {
-            width: windows.width, height: windows.height, depth: windows.depth,
-            mode: 0, palette: windows.palette, pixels: windows.pixels,
-          }
-        }
-      }
+      const pic = dt ? decodeDataTypePicture(bytes, dt) : null
       if (pic === null) {
         // NOT one of routine 83's arms. Nothing in it loads 38, and 38 is the
         // only message in the table for a picture that will not read, so this
