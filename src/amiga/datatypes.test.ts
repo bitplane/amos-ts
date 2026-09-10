@@ -348,6 +348,9 @@ describe('datatype class objects', () => {
     expect(audio.events.at(-1)).toMatchObject({ length: 2, volume: 17 })
     expect(audio.events.at(-1)!.freq).toBeCloseTo(7093.79, 1)
     expect([...audio.voiceState[0]!.pcm!]).toEqual([-2, 2])
+    expect(service.setAttrs(object, [{ tag: SDTA.Volume, data: 99 }, { tag: SDTA.Period, data: 400 }])).toBe(2)
+    expect(audio.voiceState[0]!.volume).toBe(64)
+    expect(audio.voiceState[0]!.freq).toBeCloseTo(8867.24, 1)
   })
 })
 

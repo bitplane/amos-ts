@@ -774,6 +774,7 @@ export class DataTypesService {
   }
   private applySet(address: number, items: readonly { tag: number; data: number }[]): void {
     const o = this.objects.get(address); if (!o) return
+    const sink = o.soundPlaying ? this.audio() : null
     for (const item of items) {
       if (item.tag === DTA.SelectDomain && item.data && this.memory.sizeOf(item.data) >= 8) {
         if (!o.selectionDomain) { o.selectionDomain = this.memory.alloc(8, { clear: true }); if (o.selectionDomain) o.owned.push(o.selectionDomain) }
@@ -788,6 +789,8 @@ export class DataTypesService {
         if (item.tag === GA.Width) view.setInt16(4, item.data)
         else view.setInt16(6, item.data)
       }
+      if (sink && item.tag === SDTA.Volume) sink.setVolume(0, Math.max(0, Math.min(64, item.data)))
+      if (sink && item.tag === SDTA.Period) sink.setFrequency(0, periodToHz(Math.max(1, item.data)))
     }
     this.clampScroll(o)
   }
