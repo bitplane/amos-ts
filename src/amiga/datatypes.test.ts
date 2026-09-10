@@ -70,6 +70,14 @@ describe('datatype class objects', () => {
     expect(attrs.get(DTA.NominalVert)).toBe(2)
     expect(attrs.get(PDTA.ModeID)).toBe(0x8004)
     expect(attrs.get(PDTA.NumColors)).toBe(4)
+    expect(attrs.get(PDTA.GRegs)).not.toBe(attrs.get(PDTA.CRegs))
+    expect([...memory.buffer.subarray(attrs.get(PDTA.ColorTable)! - memory.base,
+      attrs.get(PDTA.ColorTable)! - memory.base + 4)]).toEqual([0, 1, 2, 3])
+    expect(attrs.get(PDTA.DestBitMap)).toBe(attrs.get(PDTA.BitMap))
+    expect(attrs.get(PDTA.ClassBitMap)).toBe(attrs.get(PDTA.BitMap))
+    expect([PDTA.Allocated, PDTA.NumAlloc, PDTA.Screen, PDTA.FreeSourceBitMap, PDTA.NumSparse, PDTA.SparseTable]
+      .map(tag => attrs.get(tag))).toEqual([0, 0, 0, 0, 0, 0])
+    expect(attrs.get(PDTA.Remap)).toBe(1)
     const header = attrs.get(PDTA.BitMapHeader)!
     expect(new DataView(memory.buffer.buffer).getUint16(header - memory.base)).toBe(3)
     expect(memory.buffer[attrs.get(PDTA.ColorRegisters)! - memory.base + 3]).toBe(255)

@@ -197,7 +197,12 @@ export const DTA = {
 } as const
 export const PDTA = {
   ModeID: DUMMY + 200, BitMapHeader: DUMMY + 201, BitMap: DUMMY + 202,
-  ColorRegisters: DUMMY + 203, CRegs: DUMMY + 204, NumColors: DUMMY + 209,
+  ColorRegisters: DUMMY + 203, CRegs: DUMMY + 204, GRegs: DUMMY + 205,
+  ColorTable: DUMMY + 206, ColorTable2: DUMMY + 207, Allocated: DUMMY + 208,
+  NumColors: DUMMY + 209, NumAlloc: DUMMY + 210, Remap: DUMMY + 211,
+  Screen: DUMMY + 212, FreeSourceBitMap: DUMMY + 213, Grab: DUMMY + 214,
+  DestBitMap: DUMMY + 215, ClassBitMap: DUMMY + 216, NumSparse: DUMMY + 217,
+  SparseTable: DUMMY + 218,
 } as const
 export const TDTA = {
   Buffer: DUMMY + 300, BufferLen: DUMMY + 301, LineList: DUMMY + 302,
@@ -563,6 +568,9 @@ export class DataTypesService {
       for (let c = 0; c < 3; c++) cregs[i * 12 + c * 4] = rgb[c]!
     })
     attrs.set(PDTA.ColorRegisters, this.bytes(owned, regs)); attrs.set(PDTA.CRegs, this.bytes(owned, cregs))
+    attrs.set(PDTA.GRegs, this.bytes(owned, cregs))
+    const pens = Uint8Array.from({ length: image.palette.length }, (_, i) => i)
+    attrs.set(PDTA.ColorTable, this.bytes(owned, pens)); attrs.set(PDTA.ColorTable2, this.bytes(owned, pens))
     const rowBytes = ((image.width + 15) >> 4) << 1
     const bitmap = new Uint8Array(40); const bv = new DataView(bitmap.buffer)
     bv.setUint16(0, rowBytes); bv.setUint16(2, image.height); bitmap[5] = image.depth
@@ -573,7 +581,12 @@ export class DataTypesService {
       }
       bv.setUint32(8 + plane * 4, this.bytes(owned, bits))
     }
-    attrs.set(PDTA.BitMap, this.bytes(owned, bitmap))
+    const bitmapAddress = this.bytes(owned, bitmap)
+    attrs.set(PDTA.BitMap, bitmapAddress); attrs.set(PDTA.DestBitMap, bitmapAddress); attrs.set(PDTA.ClassBitMap, bitmapAddress)
+    attrs.set(PDTA.Allocated, 0); attrs.set(PDTA.NumAlloc, 0); attrs.set(PDTA.Remap, 1)
+    attrs.set(PDTA.Screen, 0); attrs.set(PDTA.FreeSourceBitMap, 0)
+    attrs.set(PDTA.Grab, this.bytes(owned, new Uint8Array(4)))
+    attrs.set(PDTA.NumSparse, 0); attrs.set(PDTA.SparseTable, 0)
     const frame = new Uint8Array(36); const fv = new DataView(frame.buffer)
     fv.setInt16(4, 1); fv.setInt16(6, 1); frame[8] = 4; frame[9] = 4; frame[10] = 4
     fv.setUint32(12, image.width); fv.setUint32(16, image.height); fv.setUint32(20, image.depth)
