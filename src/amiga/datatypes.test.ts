@@ -19,7 +19,7 @@ import { MemPool } from './exec'
 import { encodeIlbm, parseIlbm } from './ilbm'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
-import { doMethodA } from './boopsi'
+import { GA, doMethodA } from './boopsi'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -81,8 +81,8 @@ describe('datatype class objects', () => {
     const frame = attrs.get(DTA.FrameInfo)! - memory.base
     expect([0, 4, 8, 12, 16, 20, 32].map(at => new DataView(memory.buffer.buffer).getUint32(frame + at)))
       .toEqual([0, 0x00010001, 0x04040400, 3, 2, 2, 6])
-    expect(service.setAttrs(object, [{ tag: DTA.Width, data: 99 }], 12, 34)).toBe(1)
-    expect(service.attr(object, DTA.Width)).toBe(99)
+    expect(service.setAttrs(object, [{ tag: GA.Width, data: 99 }], 12, 34)).toBe(1)
+    expect(service.attr(object, GA.Width)).toBe(99)
     expect(service.objects.get(object)).toMatchObject({ window: 12, requester: 34 })
     service.dispose(object)
     expect(memory.typeOfMem(header)).toBe(0)
@@ -132,7 +132,7 @@ describe('datatype class objects', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const file = encodeIlbm({ width: 8, height: 6, depth: 1, mode: 0,
       palette: [0, 0xfff], pixels: new Uint8Array(48) })
-    const object = service.create('RAM:pic.iff', file, new Map([[DTA.Width, 3], [DTA.Height, 2], [DTA.TopHoriz, 99], [DTA.TopVert, 4]]))
+    const object = service.create('RAM:pic.iff', file, new Map([[GA.Width, 3], [GA.Height, 2], [DTA.TopHoriz, 99], [DTA.TopVert, 4]]))
     expect(service.layout(object)).toBe(true)
     const attrs = service.objects.get(object)!.attributes
     expect([attrs.get(DTA.VisibleHoriz), attrs.get(DTA.VisibleVert), attrs.get(DTA.TopHoriz), attrs.get(DTA.TopVert)])
@@ -140,7 +140,7 @@ describe('datatype class objects', () => {
     const domain = attrs.get(DTA.Domain)!; const dv = new DataView(memory.buffer.buffer)
     expect([dv.getInt16(domain - memory.base + 4), dv.getInt16(domain - memory.base + 6)]).toEqual([3, 2])
     expect(service.setAttrs(object, [{ tag: DTA.TotalHoriz, data: 4 }, { tag: DTA.TopHoriz, data: 99 },
-      { tag: DTA.Width, data: 7 }])).toBe(3)
+      { tag: GA.Width, data: 7 }])).toBe(3)
     expect(attrs.get(DTA.TopHoriz)).toBe(1)
     expect(dv.getInt16(domain - memory.base + 4)).toBe(7)
   })

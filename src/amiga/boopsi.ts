@@ -84,6 +84,11 @@ export const OM_REMMEMBER = OM_DUMMY + 10
 /** `opu_Flags`: this update is one of a run and more are coming. */
 export const OPUF_INTERIM = 1
 
+/** Public gadgetclass placement tags (`intuition/gadgetclass.h`). */
+export const GA = {
+  Left: 0x80030001, Top: 0x80030003, Width: 0x80030005, Height: 0x80030007,
+} as const
+
 /** The base of every message: `struct _struct_Msg { ULONG MethodID; }`. */
 export interface Msg {
   readonly MethodID: number
@@ -303,23 +308,27 @@ export class Boopsi {
   ensureIntuitionClasses(): void {
     if (this.intuitionClassesReady) return
     this.intuitionClassesReady = true
-    const make = (id: string, superId: string): void => {
+    const make = (id: string, superId: string, instSize = 0): void => {
       this.makeClass(id, superId, (cl, obj, msg) => {
         if (msg.MethodID === OM_NEW) {
           const made = this.objectAt(doSuperMethodA(cl, obj, msg))
           if (!made) return 0
           const attrs = made.instData<{ attrs: Map<number, number> }>(cl)
           attrs.attrs = new Map()
-          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE) attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
+          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE && this.classAcceptsTag(cl, tag.tag)) {
+            attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
+          }
+          this.syncGadget(made, (msg as OpSet).attrs)
           return made.address
         }
         if (msg.MethodID === OM_SET || msg.MethodID === OM_UPDATE) {
           const attrs = (obj as BoopsiObject).instData<{ attrs?: Map<number, number> }>(cl)
           attrs.attrs ??= new Map()
           let used = 0
-          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE) {
+          for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE && this.classAcceptsTag(cl, tag.tag)) {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0); used++
           }
+          this.syncGadget(obj as BoopsiObject, (msg as OpSet).attrs)
           return used
         }
         if (msg.MethodID === OM_GET) {
@@ -330,14 +339,14 @@ export class Boopsi {
           return 1
         }
         return doSuperMethodA(cl, obj, msg)
-      })
+      }, instSize)
     }
 
-    make('imageclass', 'rootclass')
+    make('imageclass', 'rootclass', 20)
     make('frameiclass', 'imageclass')
     make('sysiclass', 'imageclass')
     make('fillrectclass', 'imageclass')
-    make('gadgetclass', 'rootclass')
+    make('gadgetclass', 'rootclass', 44)
     make('buttongclass', 'gadgetclass')
     make('frbuttonclass', 'buttongclass')
     make('propgclass', 'gadgetclass')
@@ -345,6 +354,22 @@ export class Boopsi {
     make('groupgclass', 'gadgetclass')
     make('modelclass', 'rootclass')
     make('icclass', 'rootclass')
+  }
+
+  private syncGadget(obj: BoopsiObject, attrs: readonly TagItem[]): void {
+    if (!this.memory || !obj.cl.isA(this.classes.get('gadgetclass')!)) return
+    const gadget = this.classes.get('gadgetclass')!; const at = obj.address + gadget.instOffset
+    for (const tag of attrs) {
+      if (tag.tag === GA.Left) this.write16(at + 4, tag.data)
+      else if (tag.tag === GA.Top) this.write16(at + 6, tag.data)
+      else if (tag.tag === GA.Width) this.write16(at + 8, tag.data)
+      else if (tag.tag === GA.Height) this.write16(at + 10, tag.data)
+    }
+  }
+
+  private classAcceptsTag(cl: BoopsiClass, tag: number): boolean {
+    if (cl.id === 'gadgetclass') return ((tag & 0xffff0000) >>> 0) === 0x80030000
+    return true
   }
 
   /**

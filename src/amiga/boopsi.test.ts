@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   Boopsi,
+  GA,
   OM_ADDTAIL,
   OM_DISPOSE,
   OM_GET,
@@ -230,6 +231,20 @@ describe('BOOPSI: classes', () => {
     expect(getAttr(A_Depth, o)).toBe(4)
     b.disposeObject(o)
     expect(b.objectAt(o.address)).toBeNull()
+  })
+
+  it('maps gadgetclass geometry into its native 44-byte instance', () => {
+    const memory = new MemPool(0x3a10_0000, 0x0010_0000); const b = new Boopsi(memory)
+    b.ensureIntuitionClasses(); const cl = b.findClass('gadgetclass')!; const handle = b.classHandle(cl)
+    const o = b.newObjectA('strgclass', [{ tag: GA.Left, data: -2 }, { tag: GA.Top, data: 3 },
+      { tag: GA.Width, data: 120 }, { tag: GA.Height, data: 14 }])!
+    const dv = new DataView(memory.buffer.buffer); const at = (address: number): number => address - memory.base
+    expect([dv.getInt16(at(o.address + 4)), dv.getInt16(at(o.address + 6)), dv.getInt16(at(o.address + 8)),
+      dv.getInt16(at(o.address + 10))]).toEqual([-2, 3, 120, 14])
+    expect(dv.getUint16(at(handle + 34))).toBe(44)
+    expect(memory.sizeOf(o.allocation)).toBe(56)
+    expect(setAttrsA(o, [{ tag: GA.Width, data: 99 }])).toBeGreaterThan(0)
+    expect(dv.getInt16(at(o.address + 8))).toBe(99)
   })
 
   it('MakeClass refuses an unknown superclass and registers a named one', () => {

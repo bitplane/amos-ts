@@ -66,7 +66,7 @@ import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 import {
-  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doMethodA, doSuperMethodA, getAttr, setAttrsA,
+  Boopsi, GA, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doMethodA, doSuperMethodA, getAttr, setAttrsA,
   type BoopsiClass, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from './boopsi'
 
@@ -180,7 +180,7 @@ export const DTA = {
   ObjAuthor: DUMMY + 110, ObjAnnotation: DUMMY + 111, ObjCopyright: DUMMY + 112,
   ObjVersion: DUMMY + 113, ObjectID: DUMMY + 114, UserData: DUMMY + 115,
   NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
-  Domain: DUMMY + 104, Width: DUMMY + 107, Height: DUMMY + 108, FrameInfo: DUMMY + 116,
+  Domain: DUMMY + 104, FrameInfo: DUMMY + 116,
   SelectDomain: DUMMY + 121, TotalPVert: DUMMY + 122, TotalPHoriz: DUMMY + 123,
 } as const
 export const PDTA = {
@@ -433,23 +433,25 @@ export class DataTypesService {
     this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
       if (msg.MethodID === OM_NEW) {
         // gadgetclass must not retain a second copy of datatype attributes.
-        const made = this.boopsi.objectAt(doSuperMethodA(cl, obj, { MethodID: OM_NEW, attrs: [] } as OpSet))
+        const made = this.boopsi.objectAt(doSuperMethodA(cl, obj, msg))
         if (!made) return 0
         const data = made.instData<{ attributes: Map<number, number> }>(cl)
         data.attributes = new Map()
-        for (const item of (msg as OpSet).attrs) if (item.tag !== TAG_DONE) data.attributes.set(item.tag >>> 0, item.data)
+        for (const item of (msg as OpSet).attrs) if (item.tag !== TAG_DONE && ((item.tag & 0xffff0000) >>> 0) !== 0x80030000) {
+          data.attributes.set(item.tag >>> 0, item.data)
+        }
         return made.address
       }
       if (msg.MethodID === OM_SET || msg.MethodID === OM_UPDATE) {
         const data = (obj as BoopsiObject).instData<{ attributes?: Map<number, number> }>(cl)
         data.attributes ??= new Map()
-        let used = 0
+        const inherited = doSuperMethodA(cl, obj, msg); let used = 0
         const items = (msg as OpSet).attrs
-        for (const item of items) if (item.tag !== TAG_DONE) {
+        for (const item of items) if (item.tag !== TAG_DONE && ((item.tag & 0xffff0000) >>> 0) !== 0x80030000) {
           data.attributes.set(item.tag >>> 0, item.data); used++
         }
         this.applySet((obj as BoopsiObject).address, items)
-        return used
+        return inherited + used
       }
       if (msg.MethodID === OM_GET) {
         const get = msg as OpGet
@@ -584,14 +586,14 @@ export class DataTypesService {
     const width = picture?.width ?? Math.max(0, ...lines.map(line => line.length)); const height = picture?.height ?? lines.length
     computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, unit)
     computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, unit)
-    computed.set(DTA.Width, width * unit); computed.set(DTA.Height, height * unit)
+    computed.set(GA.Width, width * unit); computed.set(GA.Height, height * unit)
     computed.set(DTA.TotalPHoriz, width * unit); computed.set(DTA.TotalPVert, height * unit)
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag >>> 0, value)
     const domain = this.memory.alloc(8, { clear: true })
     if (!domain) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
     owned.push(domain); const domainView = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + domain - this.memory.base, 8)
-    domainView.setInt16(4, computed.get(DTA.Width) ?? width); domainView.setInt16(6, computed.get(DTA.Height) ?? height)
+    domainView.setInt16(4, computed.get(GA.Width) ?? width); domainView.setInt16(6, computed.get(GA.Height) ?? height)
     computed.set(DTA.Domain, domain)
     const object = this.boopsi.newObjectA(this.classFor(descriptor), [...computed].map(([tag, data]) => ({ tag, data })))
     if (!object) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
@@ -620,7 +622,7 @@ export class DataTypesService {
     this.layout(address)
     if (rastPort === undefined) return false
     if (held.descriptor.groupID === GID.PICTURE) return this.draw(address, rastPort, 0, 0,
-      held.attributes.get(DTA.Width) ?? 0, held.attributes.get(DTA.Height) ?? 0,
+      getAttr(GA.Width, held.object) ?? 0, getAttr(GA.Height, held.object) ?? 0,
       held.attributes.get(DTA.TopHoriz) ?? 0, held.attributes.get(DTA.TopVert) ?? 0)
     if (held.descriptor.groupID === GID.TEXT || held.descriptor.groupID === GID.DOCUMENT) return this.drawText(address, rastPort)
     return true
@@ -721,8 +723,8 @@ export class DataTypesService {
     o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
     const hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 1); const vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 1)
     const totalH = Math.max(0, o.attributes.get(DTA.TotalHoriz) ?? 0); const totalV = Math.max(0, o.attributes.get(DTA.TotalVert) ?? 0)
-    const visibleH = Math.min(totalH, Math.max(0, Math.floor((o.attributes.get(DTA.Width) ?? totalH * hUnit) / hUnit)))
-    const visibleV = Math.min(totalV, Math.max(0, Math.floor((o.attributes.get(DTA.Height) ?? totalV * vUnit) / vUnit)))
+    const visibleH = Math.min(totalH, Math.max(0, Math.floor((getAttr(GA.Width, o.object) ?? totalH * hUnit) / hUnit)))
+    const visibleV = Math.min(totalV, Math.max(0, Math.floor((getAttr(GA.Height, o.object) ?? totalV * vUnit) / vUnit)))
     o.attributes.set(DTA.VisibleHoriz, visibleH); o.attributes.set(DTA.VisibleVert, visibleV)
     o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, totalH - visibleH)))
     o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, totalV - visibleV)))
@@ -738,9 +740,9 @@ export class DataTypesService {
           o.attributes.set(DTA.SelectDomain, o.selectionDomain)
         }
       }
-      if (item.tag === DTA.Width || item.tag === DTA.Height) {
+      if (item.tag === GA.Width || item.tag === GA.Height) {
         const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + o.domain - this.memory.base, 8)
-        if (item.tag === DTA.Width) view.setInt16(4, item.data)
+        if (item.tag === GA.Width) view.setInt16(4, item.data)
         else view.setInt16(6, item.data)
       }
     }
