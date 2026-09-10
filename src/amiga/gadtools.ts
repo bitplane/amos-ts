@@ -1922,6 +1922,7 @@ export function contentOf(g: Gadget): string {
     case KIND.STRING:
       return g.string ?? ''
     case KIND.NUMBER:
+      return formatNumber(g.number ?? 0, g.format)
     case KIND.INTEGER:
       return String(g.number ?? 0)
     case KIND.TEXT:
@@ -1935,6 +1936,16 @@ export function contentOf(g: Gadget): string {
     default:
       return ''
   }
+}
+
+/** The `%ld`/width subset the native NUMBER and SLIDER gadgets consume. */
+function formatNumber(value: number, format = '%ld'): string {
+  const match = /%([0 ]?)(\d*)ld/.exec(format)
+  if (!match) return String(value)
+  const raw = String(value)
+  const width = Number(match[2] || 0)
+  const rendered = raw.padStart(width, match[1] === '0' ? '0' : ' ')
+  return format.slice(0, match.index) + rendered + format.slice(match.index + match[0].length)
 }
 
 /**
@@ -1960,10 +1971,63 @@ export function renderGadget(rp: RastPort, g: Gadget, dri: DrawInfo, bordered = 
     drawBevelBox(rp, g.leftEdge, g.topEdge, g.width, g.height, dri, { recessed: frame === 'recessed' })
   }
 
+  const shine = penOf(dri, PEN.SHINE)
+  const shadow = penOf(dri, PEN.SHADOW)
+  const textPen = g.disabled ? shadow : (g.frontPen ?? penOf(dri, PEN.TEXT))
+  if (g.kind === KIND.CHECKBOX) {
+    const size = Math.max(3, Math.min(g.width, g.height) - 2)
+    drawBevelBox(rp, g.leftEdge + 1, g.topEdge + 1, size, size, dri, { recessed: true })
+    if (g.checked) {
+      rp.draw(g.leftEdge + 2, g.topEdge + 2, g.leftEdge + size - 1, g.topEdge + size - 1, textPen)
+      rp.draw(g.leftEdge + size - 1, g.topEdge + 2, g.leftEdge + 2, g.topEdge + size - 1, textPen)
+    }
+  } else if (g.kind === KIND.MX && rp.font) {
+    const step = rp.font.ySize + (g.spacing ?? 1)
+    for (let index = 0; index < (g.labels?.length ?? 0); index++) {
+      const y = g.topEdge + index * step
+      const selected = index === (g.active ?? 0)
+      rp.draw(g.leftEdge, y + 2, g.leftEdge + 2, y, selected ? shadow : shine)
+      rp.draw(g.leftEdge + 2, y, g.leftEdge + 4, y + 2, selected ? shadow : shine)
+      rp.draw(g.leftEdge + 4, y + 2, g.leftEdge + 2, y + 4, selected ? shine : shadow)
+      rp.draw(g.leftEdge + 2, y + 4, g.leftEdge, y + 2, selected ? shine : shadow)
+      if (selected) rp.plot(g.leftEdge + 2, y + 2, textPen)
+      rp.text(g.leftEdge + 8, y + rp.font.baseline, g.labels![index]!, textPen)
+    }
+    return
+  } else if (g.kind === KIND.PALETTE) {
+    const count = Math.max(1, g.numColors ?? (1 << Math.min(g.paletteDepth ?? 1, 8)))
+    const cols = Math.max(1, Math.ceil(Math.sqrt(count)))
+    const rows = Math.ceil(count / cols)
+    const cellW = Math.max(1, Math.floor((g.width - 4) / cols))
+    const cellH = Math.max(1, Math.floor((g.height - 4) / rows))
+    for (let index = 0; index < count; index++) {
+      const x = g.leftEdge + 2 + (index % cols) * cellW
+      const y = g.topEdge + 2 + Math.floor(index / cols) * cellH
+      rp.rectFill(x, y, x + cellW - 1, y + cellH - 1, (g.colorOffset ?? 0) + index)
+      if (index === (g.color ?? 1)) drawBevelBox(rp, x, y, cellW, cellH, dri, { recessed: true })
+    }
+    return
+  } else if ((g.kind === KIND.SLIDER || g.kind === KIND.SCROLLER) && g.width > 4 && g.height > 4) {
+    const horizontal = g.horizontal !== false
+    const min = g.kind === KIND.SLIDER ? g.min ?? 0 : 0
+    const max = g.kind === KIND.SLIDER ? g.max ?? 15 : Math.max(0, (g.total ?? 0) - (g.visible ?? 2))
+    const value = g.kind === KIND.SLIDER ? g.level ?? 0 : g.top ?? 0
+    const ratio = max <= min ? 0 : Math.max(0, Math.min(1, (value - min) / (max - min)))
+    const knobW = horizontal ? Math.max(4, g.kind === KIND.SCROLLER ? Math.floor(g.width * Math.min(1, (g.visible ?? 2) / Math.max(1, g.total ?? 0))) : 6) : g.width - 4
+    const knobH = horizontal ? g.height - 4 : Math.max(4, g.kind === KIND.SCROLLER ? Math.floor(g.height * Math.min(1, (g.visible ?? 2) / Math.max(1, g.total ?? 0))) : 4)
+    const x = g.leftEdge + 2 + (horizontal ? Math.floor((g.width - 4 - knobW) * ratio) : 0)
+    const y = g.topEdge + 2 + (horizontal ? 0 : Math.floor((g.height - 4 - knobH) * ratio))
+    rp.rectFill(x, y, x + knobW - 1, y + knobH - 1, penOf(dri, PEN.FILL))
+    drawBevelBox(rp, x, y, knobW, knobH, dri)
+  }
+
   const body = contentOf(g)
   if (body === '' || rp.font === null) return
-  const pen = penOf(dri, g.disabled ? PEN.SHADOW : PEN.TEXT)
+  const pen = textPen
   const inset = frame === null ? 1 : 2
   const baseline = g.topEdge + Math.floor((g.height - rp.font.ySize) / 2) + rp.font.baseline
-  rp.text(g.leftEdge + inset, baseline, body, pen)
+  const textWidth = body.length * rp.font.xSize
+  const x = g.justification === GTJ_RIGHT ? g.leftEdge + g.width - inset - textWidth
+    : g.justification === GTJ_CENTER ? g.leftEdge + Math.floor((g.width - textWidth) / 2) : g.leftEdge + inset
+  rp.text(x, baseline, body, pen)
 }

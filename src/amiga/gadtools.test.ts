@@ -757,15 +757,14 @@ describe('rendering a gadget', () => {
     expect(contentOf(gt.createGadget(KIND.PALETTE, null, ng())!)).toBe('')
   })
 
-  it('paints the interior in BACKGROUNDPEN before the frame', () => {
+  it('paints a palette grid and its selected-colour frame', () => {
     const rp = port()
     rp.rectFill(0, 0, 30, 20, 9)
-    // PALETTE, because its interior is imagery rather than text and so the
-    // whole inside should be background with nothing drawn over it
     renderGadget(rp, built(KIND.PALETTE), dri())
     expect(rp.point(2, 2)).toBe(PEN.SHINE)
     expect(rp.point(21, 11)).toBe(PEN.SHADOW)
-    for (let y = 3; y < 11; y++) for (let x = 3; x < 21; x++) expect(rp.point(x, y)).toBe(PEN.BACKGROUND)
+    expect(rp.point(4, 4)).toBe(0)
+    expect(rp.point(15, 4)).toBe(PEN.SHADOW)
     // outside the gadget is untouched
     expect(rp.point(28, 18)).toBe(9)
   })

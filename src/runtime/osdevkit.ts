@@ -1254,9 +1254,21 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
   if (gadget.image) native.image = gadget.image; else delete native.image
   if (gadget.selectImage) native.selectImage = gadget.selectImage; else delete native.selectImage
   const visual = state.gadtools.visualInfo(gadget.visualInfo)
-  if (visual && !gadget.image && gadget.kind !== KIND.STRING && gadget.kind !== KIND.INTEGER) {
+  const nativeRendered = gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER
+    || gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER
+  if (visual && !gadget.image && !nativeRendered) {
     native.render = (rp, left, top) => renderGadget(rp, { ...gadget, leftEdge: left, topEdge: top }, visual.drawInfo, gadget.border)
-  } else delete native.render
+    delete native.borders
+  } else {
+    delete native.render
+    if (visual && !gadget.image) {
+      const right = gadget.width - 1; const bottom = gadget.height - 1
+      native.borders = [
+        { leftEdge: 0, topEdge: 0, pen: visual.drawInfo.pens[3] ?? 0, xy: [0, bottom, 0, 0, right, 0] },
+        { leftEdge: 0, topEdge: 0, pen: visual.drawInfo.pens[4] ?? 0, xy: [right, 0, right, bottom, 0, bottom] },
+      ]
+    } else delete native.borders
+  }
   return native
 }
 
