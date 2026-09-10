@@ -11,8 +11,7 @@ import { OsCStringHeap } from '../amiga/oscstring'
 import { A1200_POOLS, MEMF, availMem, type MemPool } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
-  AUTOKNOB, CUSTOMSCREEN, FREEHORIZ, FREEVERT, GACT_GADGIMMEDIATE, GACT_LONGINT, GACT_RELVERIFY,
-  GFLG_GADGDISABLED, GTYP_BOOLGADGET, GTYP_PROPGADGET, GTYP_STRGADGET, MAXBODY, MAXPOT,
+  CUSTOMSCREEN, GFLG_GADGDISABLED, MAXPOT,
   IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, WFLG_REPORTMOUSE, type UserGadget, type Window,
 } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
@@ -21,7 +20,7 @@ import {
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
 import {
-  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, fullMenuNum, itemNum, menuNum, renderGadget, subNum,
+  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, fullMenuNum, intuitionGadget, itemNum, menuNum, renderGadget, subNum,
   type Gadget, type GadgetKind, type GadTools, type MenuItem, type MenuStrip, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
@@ -1211,48 +1210,8 @@ function menuItemAddress(state: OsDevKitState, item: MenuItem | null): number {
 }
 
 function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
-  let native = state.nativeGadgets.get(gadget.address)
-  if (!native) {
-    native = {
-      leftEdge: gadget.leftEdge, topEdge: gadget.topEdge, width: gadget.width, height: gadget.height,
-      id: gadget.address, kind: GTYP_BOOLGADGET, flags: gadget.flags,
-    }
-    state.nativeGadgets.set(gadget.address, native)
-  }
-  native.leftEdge = gadget.leftEdge; native.topEdge = gadget.topEdge; native.width = gadget.width; native.height = gadget.height
-  native.flags = gadget.flags | (gadget.disabled ? GFLG_GADGDISABLED : 0)
-  native.kind = gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER
-    ? GTYP_STRGADGET
-    : gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER ? GTYP_PROPGADGET : GTYP_BOOLGADGET
-  native.activation = (gadget.immediate ? GACT_GADGIMMEDIATE : 0) | (gadget.relVerify ? GACT_RELVERIFY : 0)
-  if (gadget.kind === KIND.INTEGER) native.activation |= GACT_LONGINT
-  if (gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER) {
-    const horizontal = gadget.horizontal !== false
-    const ratio = (value: number, span: number): number => span <= 0 ? 0 : Math.max(0, Math.min(MAXPOT, Math.trunc(value * MAXPOT / span)))
-    let pot = 0; let body = MAXBODY
-    if (gadget.kind === KIND.SCROLLER) {
-      const total = Math.max(0, gadget.total ?? 0); const visible = Math.max(0, gadget.visible ?? 2)
-      body = total <= 0 ? MAXBODY : Math.max(1, Math.min(MAXBODY, Math.trunc(visible * MAXBODY / total)))
-      pot = ratio(gadget.top ?? 0, Math.max(0, total - visible))
-    } else {
-      const min = gadget.min ?? 0; const max = gadget.max ?? 15
-      pot = ratio((gadget.level ?? 0) - min, max - min)
-    }
-    native.prop = {
-      flags: AUTOKNOB | (horizontal ? FREEHORIZ : FREEVERT),
-      horizPot: horizontal ? pot : 0, vertPot: horizontal ? 0 : pot,
-      horizBody: horizontal ? body : MAXBODY, vertBody: horizontal ? MAXBODY : body,
-    }
-  } else delete native.prop
-  if (gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER) {
-    const buffer = gadget.kind === KIND.STRING ? gadget.string ?? '' : String(gadget.number ?? 0)
-    const info = native.strInfo ?? { buffer, maxChars: 11, bufferPos: buffer.length, longInt: 0 }
-    info.buffer = buffer; info.maxChars = (gadget.maxChars ?? 10) + 1
-    info.bufferPos = Math.min(info.bufferPos, buffer.length); info.longInt = gadget.kind === KIND.INTEGER ? gadget.number ?? 0 : 0
-    native.strInfo = info
-  }
-  if (gadget.image) native.image = gadget.image; else delete native.image
-  if (gadget.selectImage) native.selectImage = gadget.selectImage; else delete native.selectImage
+  const native = intuitionGadget(gadget, state.nativeGadgets.get(gadget.address))
+  state.nativeGadgets.set(gadget.address, native)
   const visual = state.gadtools.visualInfo(gadget.visualInfo)
   const nativeRendered = gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER
     || gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER

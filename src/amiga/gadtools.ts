@@ -122,7 +122,11 @@
  * really does travel inside a tag value. Addresses are never reused.
  */
 import type { RastPort } from './graphics'
-import { IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MOUSEMOVE, type GadgetImage, type IntuiMessage } from './intuition'
+import {
+  AUTOKNOB, FREEHORIZ, FREEVERT, GACT_GADGIMMEDIATE, GACT_LONGINT, GACT_RELVERIFY,
+  GFLG_GADGDISABLED, GTYP_BOOLGADGET, GTYP_PROPGADGET, GTYP_STRGADGET, IDCMP_GADGETDOWN,
+  IDCMP_GADGETUP, IDCMP_MOUSEMOVE, MAXBODY, MAXPOT, type GadgetImage, type IntuiMessage, type UserGadget,
+} from './intuition'
 /**
  * The jump table, from `gadtools_lib.fd`.
  *
@@ -2063,4 +2067,44 @@ export function renderGadget(rp: RastPort, g: Gadget, dri: DrawInfo, bordered = 
   const x = g.justification === GTJ_RIGHT ? g.leftEdge + g.width - inset - textWidth
     : g.justification === GTJ_CENTER ? g.leftEdge + Math.floor((g.width - textWidth) / 2) : g.leftEdge + inset
   rp.text(x, baseline, body, pen)
+}
+
+/** Build or refresh the Intuition gadget which carries a GadTools object. */
+export function intuitionGadget(g: Gadget, reuse?: UserGadget): UserGadget {
+  const native = reuse ?? { leftEdge: 0, topEdge: 0, width: 0, height: 0, id: g.address }
+  native.leftEdge = g.leftEdge; native.topEdge = g.topEdge; native.width = g.width; native.height = g.height
+  native.id = g.address
+  native.flags = g.flags | (g.disabled ? GFLG_GADGDISABLED : 0)
+  native.kind = g.kind === KIND.STRING || g.kind === KIND.INTEGER ? GTYP_STRGADGET
+    : g.kind === KIND.SCROLLER || g.kind === KIND.SLIDER ? GTYP_PROPGADGET : GTYP_BOOLGADGET
+  native.activation = (g.immediate ? GACT_GADGIMMEDIATE : 0) | (g.relVerify ? GACT_RELVERIFY : 0)
+  if (g.kind === KIND.INTEGER) native.activation |= GACT_LONGINT
+  if (g.kind === KIND.SCROLLER || g.kind === KIND.SLIDER) {
+    const horizontal = g.horizontal !== false
+    const ratio = (value: number, span: number): number => span <= 0 ? 0 : Math.max(0, Math.min(MAXPOT, Math.trunc(value * MAXPOT / span)))
+    let pot = 0; let body = MAXBODY
+    if (g.kind === KIND.SCROLLER) {
+      const total = Math.max(0, g.total ?? 0); const visible = Math.max(0, g.visible ?? 2)
+      body = total <= 0 ? MAXBODY : Math.max(1, Math.min(MAXBODY, Math.trunc(visible * MAXBODY / total)))
+      pot = ratio(g.top ?? 0, Math.max(0, total - visible))
+    } else {
+      const min = g.min ?? 0; const max = g.max ?? 15
+      pot = ratio((g.level ?? 0) - min, max - min)
+    }
+    native.prop = {
+      flags: AUTOKNOB | (horizontal ? FREEHORIZ : FREEVERT),
+      horizPot: horizontal ? pot : 0, vertPot: horizontal ? 0 : pot,
+      horizBody: horizontal ? body : MAXBODY, vertBody: horizontal ? MAXBODY : body,
+    }
+  } else delete native.prop
+  if (g.kind === KIND.STRING || g.kind === KIND.INTEGER) {
+    const buffer = g.kind === KIND.STRING ? g.string ?? '' : String(g.number ?? 0)
+    const info = native.strInfo ?? { buffer, maxChars: 11, bufferPos: buffer.length, longInt: 0 }
+    info.buffer = buffer; info.maxChars = (g.maxChars ?? 10) + 1; info.bufferPos = Math.min(info.bufferPos, buffer.length)
+    info.longInt = g.kind === KIND.INTEGER ? g.number ?? 0 : 0
+    native.strInfo = info
+  } else delete native.strInfo
+  if (g.image) native.image = g.image; else delete native.image
+  if (g.selectImage) native.selectImage = g.selectImage; else delete native.selectImage
+  return native
 }
