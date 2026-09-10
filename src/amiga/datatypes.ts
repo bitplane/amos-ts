@@ -421,6 +421,29 @@ function guideText(items: readonly AmigaGuideInline[]): string {
 
 export interface DataTypePicture extends IndexedBitmap { mode: number }
 
+/*
+ * The V39.5 sound.datatype data hunk: a 54x24, two-plane Image used by
+ * GM_RENDER. Rows are word-rounded to eight bytes per plane. Keeping the
+ * native planes here also keeps refresh and BOOPSI rendering on one path.
+ */
+const SOUND_ICON_PLANES = Uint8Array.from((
+  '000000100200000000000028040000000000006808000400000000a810000c00' +
+  '0000012820000c000000f22800c00c0000010e2803000c0000010a280c000c00' +
+  '00010a2800000c0000010a2800000c0000010a2807e00c0000010a2800000c00' +
+  '00010a2800000c0000010a280c000c0000010e2803000c000000f22800c00c00' +
+  '0000012820000c00000000a810000c000000006808000c000000002804000c00' +
+  '0000001002000c000000000000000c000000000000000c007ffffffffffffc00' +
+  '00000000000000000000001000000000ffffff93f77ff800d555555144555000' +
+  'd55554d155555000d55505d151155000d554f1d154555000d554f5d151455000' +
+  'd554f5d155155000d554f5d154555000d554f5d150155000d554f5d155555000' +
+  'd554f5d154055000d554f5d151555000d554f1d154555000d55501d154155000' +
+  'd55500d155155000d555415145455000d555551155555000d555555151555000' +
+  'd555554155555000d555555154555000d5555551555550008000000000000000'
+).match(/../g)!.map(byte => Number.parseInt(byte, 16)))
+const SOUND_ICON_WIDTH = 54
+const SOUND_ICON_HEIGHT = 24
+const SOUND_ICON_ROW_BYTES = 8
+
 /** Decode through the concrete class named by an already-obtained descriptor. */
 export function decodeDataTypePicture(bytes: Uint8Array, descriptor: DataTypeHeader): DataTypePicture | null {
   try {
@@ -631,8 +654,10 @@ export class DataTypesService {
     computed.set(DTA.SourceType, 2); computed.set(DTA.Handle, 0); computed.set(DTA.DataType, this.descriptorAddress(descriptor))
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
     const lines = (text ?? (guide ? guideText(guide.nodes.get(guide.entryNode.toLowerCase())?.content ?? []) : '')).split('\n')
-    const unit = picture ? 1 : 8
-    const width = picture?.width ?? Math.max(0, ...lines.map(line => line.length)); const height = picture?.height ?? lines.length
+    const unit = picture || sound ? 1 : 8
+    const width = picture?.width ?? (sound ? SOUND_ICON_WIDTH : Math.max(0, ...lines.map(line => line.length)))
+    const height = picture?.height ?? (sound ? SOUND_ICON_HEIGHT : lines.length)
+    computed.set(DTA.NominalHoriz, width); computed.set(DTA.NominalVert, height)
     computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, unit)
     computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, unit)
     computed.set(GA.Width, width * unit); computed.set(GA.Height, height * unit)
@@ -674,7 +699,7 @@ export class DataTypesService {
     this.layout(address)
     // sound.datatype advertises Trigger/Copy/Write, not Draw. Refreshing it
     // updates the gadget state but has no media pixels to send to a RastPort.
-    if (held.descriptor.groupID === GID.SOUND) return true
+    if (held.descriptor.groupID === GID.SOUND) return rastPort ? this.drawSound(rastPort) : true
     if (rastPort === undefined) return false
     if (held.descriptor.groupID === GID.PICTURE) return this.draw(address, rastPort, 0, 0,
       getAttr(GA.Width, held.object) ?? 0, getAttr(GA.Height, held.object) ?? 0,
@@ -824,6 +849,16 @@ export class DataTypesService {
     const totalV = Math.max(0, o.attributes.get(DTA.TotalVert) ?? 0); const visibleV = Math.max(0, o.attributes.get(DTA.VisibleVert) ?? 0)
     o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, Math.max(0, totalH - visibleH))))
     o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, Math.max(0, totalV - visibleV))))
+  }
+  private drawSound(rp: RastPort): boolean {
+    const planeSize = SOUND_ICON_ROW_BYTES * SOUND_ICON_HEIGHT
+    for (let y = 0; y < SOUND_ICON_HEIGHT; y++) for (let x = 0; x < SOUND_ICON_WIDTH; x++) {
+      const mask = 0x80 >> (x & 7); const at = y * SOUND_ICON_ROW_BYTES + (x >> 3)
+      const pen = (SOUND_ICON_PLANES[at]! & mask ? 1 : 0) |
+        (SOUND_ICON_PLANES[planeSize + at]! & mask ? 2 : 0)
+      rp.plot(x, y, pen)
+    }
+    return true
   }
   frameBox(address: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o) return null
