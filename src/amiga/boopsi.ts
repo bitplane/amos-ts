@@ -96,6 +96,9 @@ export const GA = {
   ToggleSelect: 0x8003001c, SysGadget: 0x8003001d, SysGType: 0x8003001e,
   Previous: 0x8003001f, Next: 0x80030020, DrawInfo: 0x80030021,
   IntuiText: 0x80030022, LabelImage: 0x80030023, TabCycle: 0x80030024,
+  GadgetHelp: 0x80030025, Bounds: 0x80030026, RelSpecial: 0x80030027,
+  TextAttr: 0x80030028, ReadOnly: 0x80030029, Underscore: 0x8003002a,
+  ActivateKey: 0x8003002b, BackFill: 0x8003002c, GadgetHelpText: 0x8003002d, UserInput: 0x8003002e,
 } as const
 /** Public imageclass fields (`intuition/imageclass.h`). */
 export const IA = {
@@ -332,7 +335,8 @@ export class Boopsi {
           for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE && this.classAcceptsTag(cl, tag.tag)) {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
           }
-          this.syncGadget(made, (msg as OpSet).attrs)
+          this.initGadget(made)
+          this.syncGadget(made, (msg as OpSet).attrs, true)
           this.syncImage(made, (msg as OpSet).attrs)
           return made.address
         }
@@ -343,7 +347,7 @@ export class Boopsi {
           for (const tag of (msg as OpSet).attrs) if (tag.tag !== TAG_DONE && this.classAcceptsTag(cl, tag.tag)) {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0); used++
           }
-          this.syncGadget(obj as BoopsiObject, (msg as OpSet).attrs)
+          this.syncGadget(obj as BoopsiObject, (msg as OpSet).attrs, false)
           this.syncImage(obj as BoopsiObject, (msg as OpSet).attrs)
           const inherited = cl.id === 'gadgetclass' ? 0 : doSuperMethodA(cl, obj, {
             ...msg, attrs: (msg as OpSet).attrs.filter(tag => {
@@ -372,7 +376,7 @@ export class Boopsi {
     make('frameiclass', 'imageclass')
     make('sysiclass', 'imageclass')
     make('fillrectclass', 'imageclass')
-    make('gadgetclass', 'rootclass', 44)
+    make('gadgetclass', 'rootclass', 56)
     make('buttongclass', 'gadgetclass')
     make('frbuttonclass', 'buttongclass')
     make('propgclass', 'gadgetclass')
@@ -382,7 +386,15 @@ export class Boopsi {
     make('icclass', 'rootclass')
   }
 
-  private syncGadget(obj: BoopsiObject, attrs: readonly TagItem[]): void {
+  private initGadget(obj: BoopsiObject): void {
+    if (!this.memory || !obj.cl.isA(this.classes.get('gadgetclass')!)) return
+    const at = obj.address + this.classes.get('gadgetclass')!.instOffset
+    this.write16(at + 12, 0x8000) // GFLG_EXTENDED
+    this.write16(at + 16, 5) // GTYP_CUSTOMGADGET
+    this.write32(at + 44, 8) // GMORE_BOOPSIGADGET
+  }
+
+  private syncGadget(obj: BoopsiObject, attrs: readonly TagItem[], creating: boolean): void {
     if (!this.memory || !obj.cl.isA(this.classes.get('gadgetclass')!)) return
     const gadget = this.classes.get('gadgetclass')!; const at = obj.address + gadget.instOffset
     const word = (off: number): number => {
@@ -412,7 +424,29 @@ export class Boopsi {
       else if (tag.tag === GA.ID) this.write16(at + 38, tag.data)
       else if (tag.tag === GA.UserData) this.write32(at + 40, tag.data)
       else if (tag.tag === GA.SpecialInfo) this.write32(at + 34, tag.data)
-      else if (tag.tag === GA.Previous) this.write32(at, tag.data)
+      else if (tag.tag === GA.Next) this.write32(at, tag.data)
+      else if (tag.tag === GA.Previous && creating && tag.data !== 0) {
+        const previous = this.objectAt(tag.data)
+        if (previous?.cl.isA(gadget)) {
+          const previousAt = previous.address + gadget.instOffset
+          const p = previousAt - this.memory.base; const b = this.memory.buffer
+          const next = (((b[p]! << 24) | (b[p + 1]! << 16) | (b[p + 2]! << 8) | b[p + 3]!) >>> 0)
+          this.write32(at, next); this.write32(previousAt, obj.address)
+        }
+      }
+      else if (tag.tag === GA.RelSpecial) flag(12, 0x4000, tag.data !== 0)
+      else if (tag.tag === GA.GadgetHelp) {
+        const moreAt = at + 44; const p = moreAt - this.memory.base; const b = this.memory.buffer
+        const more = (((b[p]! << 24) | (b[p + 1]! << 16) | (b[p + 2]! << 8) | b[p + 3]!) >>> 0)
+        this.write32(moreAt, tag.data !== 0 ? more | 2 : more & ~2)
+      }
+      else if (tag.tag === GA.Bounds && tag.data !== 0) {
+        const p = tag.data - this.memory.base; const b = this.memory.buffer
+        if (p < 0 || p + 8 > b.length) continue
+        for (let i = 0; i < 8; i++) b[at + 48 - this.memory.base + i] = b[p + i]!
+        const m = at + 44 - this.memory.base
+        this.write32(at + 44, ((((b[m]! << 24) | (b[m + 1]! << 16) | (b[m + 2]! << 8) | b[m + 3]!) >>> 0) | 1) >>> 0)
+      }
       else {
         const activation = new Map<number, number>([[GA.EndGadget, 0x04], [GA.Immediate, 0x02], [GA.RelVerify, 0x01],
           [GA.FollowMouse, 0x08], [GA.RightBorder, 0x10], [GA.LeftBorder, 0x20], [GA.TopBorder, 0x40],
@@ -439,10 +473,13 @@ export class Boopsi {
     if (tag === GA.SpecialInfo) return u32(34)
     if (tag === GA.ID) return u16(38)
     if (tag === GA.UserData) return u32(40)
+    if (tag === GA.Next) return u32(0)
     if (tag === GA.Highlight) return flags & 3
     if (tag === GA.Disabled) return flags & 0x100 ? 1 : 0
     if (tag === GA.Selected) return flags & 0x80 ? 1 : 0
     if (tag === GA.TabCycle) return flags & 0x200 ? 1 : 0
+    if (tag === GA.RelSpecial) return flags & 0x4000 ? 1 : 0
+    if (tag === GA.GadgetHelp) return u32(44) & 2 ? 1 : 0
     const act = new Map<number, number>([[GA.EndGadget, 0x04], [GA.Immediate, 0x02], [GA.RelVerify, 0x01],
       [GA.FollowMouse, 0x08], [GA.RightBorder, 0x10], [GA.LeftBorder, 0x20], [GA.TopBorder, 0x40],
       [GA.BottomBorder, 0x80], [GA.ToggleSelect, 0x100]])

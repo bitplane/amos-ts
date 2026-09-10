@@ -234,7 +234,7 @@ describe('BOOPSI: classes', () => {
     expect(b.objectAt(o.address)).toBeNull()
   })
 
-  it('maps gadgetclass geometry into its native 44-byte instance', () => {
+  it('maps gadgetclass geometry into its native 56-byte ExtGadget instance', () => {
     const memory = new MemPool(0x3a10_0000, 0x0010_0000); const b = new Boopsi(memory)
     b.ensureIntuitionClasses(); const cl = b.findClass('gadgetclass')!; const handle = b.classHandle(cl)
     const o = b.newObjectA('strgclass', [{ tag: GA.Left, data: -2 }, { tag: GA.Top, data: 3 },
@@ -242,8 +242,10 @@ describe('BOOPSI: classes', () => {
     const dv = new DataView(memory.buffer.buffer); const at = (address: number): number => address - memory.base
     expect([dv.getInt16(at(o.address + 4)), dv.getInt16(at(o.address + 6)), dv.getInt16(at(o.address + 8)),
       dv.getInt16(at(o.address + 10))]).toEqual([-2, 3, 120, 14])
-    expect(dv.getUint16(at(handle + 34))).toBe(44)
-    expect(memory.sizeOf(o.allocation)).toBe(56)
+    expect(dv.getUint16(at(handle + 34))).toBe(56)
+    expect(memory.sizeOf(o.allocation)).toBe(72)
+    expect([dv.getUint16(at(o.address + 12)), dv.getUint16(at(o.address + 16)), dv.getUint32(at(o.address + 44))])
+      .toEqual([0x8000, 5, 8])
     expect(setAttrsA(o, [{ tag: GA.Width, data: 99 }])).toBeGreaterThan(0)
     expect(dv.getInt16(at(o.address + 8))).toBe(99)
     dv.setInt16(at(o.address + 8), 77)
@@ -252,6 +254,22 @@ describe('BOOPSI: classes', () => {
       { tag: GA.UserData, data: 0xfeedface }])).toBe(3)
     expect([getAttr(GA.Disabled, o), getAttr(GA.ID, o), getAttr(GA.UserData, o)])
       .toEqual([1, 0x1234, 0xfeedface])
+  })
+
+  it('links ExtGadgets and maps their bounds and help state', () => {
+    const memory = new MemPool(0x3a10_0000, 0x0010_0000); const b = new Boopsi(memory)
+    b.ensureIntuitionClasses(); const first = b.newObjectA('gadgetclass')!
+    const bounds = memory.alloc(8, { clear: true }); const dv = new DataView(memory.buffer.buffer)
+    dv.setInt16(bounds - memory.base, -2); dv.setInt16(bounds - memory.base + 2, 3)
+    dv.setInt16(bounds - memory.base + 4, 40); dv.setInt16(bounds - memory.base + 6, 12)
+    const second = b.newObjectA('gadgetclass', [{ tag: GA.Previous, data: first.address },
+      { tag: GA.Bounds, data: bounds }, { tag: GA.GadgetHelp, data: 1 }, { tag: GA.RelSpecial, data: 1 }])!
+    expect(dv.getUint32(first.address - memory.base)).toBe(second.address)
+    expect(getAttr(GA.Next, first)).toBe(second.address)
+    expect([dv.getInt16(second.address - memory.base + 48), dv.getInt16(second.address - memory.base + 50),
+      dv.getInt16(second.address - memory.base + 52), dv.getInt16(second.address - memory.base + 54)])
+      .toEqual([-2, 3, 40, 12])
+    expect([getAttr(GA.GadgetHelp, second), getAttr(GA.RelSpecial, second)]).toEqual([1, 1])
   })
 
   it('maps imageclass attributes into the native 20-byte Image', () => {
