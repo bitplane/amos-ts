@@ -415,8 +415,11 @@ auditMany('faithful', 'workers 2999 and 3000 delegate screen deltas to MoveScree
   '_scr id move', '_scr id offset',
 ])
 auditMany('partial', 'the selected Screen-ID shares ECS/AGA palette state and captures system, private or caller-memory DrawInfo pens for native screens and GadTools; invalid external-pointer behavior is managed safely', [
+  '_scr id fix dri pens',
+])
+auditMany('faithful', 'workers 3001-3004 compose GetRGB4/SetRGB4 and GetRGB32/LoadRGB32 over the selected owned ViewPort ColorMap, including the binary component-word packing', [
   '_scr id get pal', '_scr id set pal', '_scr id get aga pal', '_scr id set aga pal',
-  '_scr id colour', '_scr id aga colour', '_scr id fix dri pens',
+  '_scr id colour', '_scr id aga colour',
 ])
 auditMany('partial', 'Screen-ID mouse reads and positioning share display offsets and resolution conversion; positioning updates host input directly rather than delivering an input.device event', [
   '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
