@@ -96,6 +96,11 @@ describe('datatype class objects', () => {
     expect(service.objects.get(object)).toMatchObject({ window: 12, requester: 34 })
     service.dispose(object)
     expect(memory.typeOfMem(header)).toBe(0)
+    expect(service.objects.has(object)).toBe(false)
+    expect(service.attr(object, PDTA.BitMap)).toBeNull()
+    expect(service.doMethod(object, { MethodID: DTM.FrameBox })).toBe(0)
+    expect(service.refresh(object, [], 12, 0)).toBe(false)
+    expect(memory.typeOfMem(object)).toBe(0)
   })
 
   it('shares a complete native DataType descriptor between obtain and DTA_DataType', () => {
