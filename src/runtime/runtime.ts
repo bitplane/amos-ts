@@ -565,7 +565,14 @@ export class Runtime {
   readonly commodities = new Commodities(this.exec.messages)
   /** One datatypes.library object space backed by the installed descriptors. */
   readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES, () => this.audio, this.boopsi,
-    () => this.host?.printer ?? null, () => this.host?.printerPage ?? null)
+    () => this.host?.printer ?? null, () => this.host?.printerPage ?? null,
+    () => {
+      const process = this.host?.process
+      const execute = process?.execute
+      return execute
+        ? command => execute.call(process, { command, io: { input: 'console', output: 'console' } }) === true
+        : null
+    })
   /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
   readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)
   /** Process-wide dos.library command-line template parser and current result. */

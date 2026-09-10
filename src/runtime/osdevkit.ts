@@ -4123,6 +4123,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         return VI(st().dataTypes.doMethod(object, { MethodID: method, triggerFunction,
           triggerData: (triggerFunction & 0x00ff0000) === 0x00030000 ? cString(rt, data) : '' }))
       }
+      if (method === DTM.Print) return VI(st().dataTypes.doMethod(object, { MethodID: method,
+        printAttrs: new Map(tagItems(st(), structRead(rt, message + 12, 4, false)).map(item => [item.tag, item.data])) }))
       return VI(st().dataTypes.doMethod(object, { MethodID: method, window: n(a, 1) >>> 0 }))
     },
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },

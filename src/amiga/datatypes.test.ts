@@ -232,6 +232,15 @@ describe('datatype class objects', () => {
     expect(service.trigger(object, 11, 'SYSTEM nope')).toBe(false)
   })
 
+  it('routes AmigaGuide SYSTEM commands through the shared process seam', () => {
+    const memory = pool(); let command = ''
+    const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => null, undefined,
+      () => null, () => null, () => value => { command = value; return true })
+    const object = service.create('RAM:a.guide', Buffer.from('@database a\n@node main\nhello\n@endnode'), new Map())
+    expect(service.trigger(object, 0x0003000b, 'SYSTEM C:List RAM:')).toBe(true)
+    expect(command).toBe('C:List RAM:')
+  })
+
   it('prints text and pictures through the shared host backends', () => {
     const memory = pool(); let text = ''; const pages: PrinterPage[] = []
     const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => null, undefined,
@@ -240,8 +249,10 @@ describe('datatype class objects', () => {
     expect(service.doMethod(guide, { MethodID: DTM.Print })).toBe(1); expect(text).toContain('hello')
     const picture = service.create('RAM:p.iff', encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
       palette: [0, 0xf00], pixels: Uint8Array.from([0, 1]) }), new Map())
-    expect(service.doMethod(picture, { MethodID: DTM.Print })).toBe(1)
-    expect(pages[0]).toMatchObject({ width: 2, height: 1, srcX: 0, srcY: 0 })
+    expect(service.doMethod(picture, { MethodID: DTM.Print,
+      printAttrs: new Map([[DTA.DestCols, 320], [DTA.DestRows, 200], [DTA.Special, 0x44]]) })).toBe(1)
+    expect(pages[0]).toMatchObject({ width: 2, height: 1, srcX: 0, srcY: 0,
+      destCols: 320, destRows: 200, special: 0x44 })
     expect([...pages[0]!.pixels]).toEqual([0, 0, 0, 255, 255, 0, 0, 255])
   })
 

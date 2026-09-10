@@ -193,6 +193,7 @@ export const DTA = {
   NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
   Domain: DUMMY + 104, FrameInfo: DUMMY + 116,
   SelectDomain: DUMMY + 121, TotalPVert: DUMMY + 122, TotalPHoriz: DUMMY + 123,
+  DestCols: DUMMY + 400, DestRows: DUMMY + 401, Special: DUMMY + 402, RastPort: DUMMY + 403,
 } as const
 export const PDTA = {
   ModeID: DUMMY + 200, BitMapHeader: DUMMY + 201, BitMap: DUMMY + 202,
@@ -406,6 +407,7 @@ export interface DataTypeMethodMessage extends Msg {
   topHoriz?: number
   topVert?: number
   select?: { minX: number; minY: number; maxX: number; maxY: number }
+  printAttrs?: ReadonlyMap<number, number>
 }
 
 function guideText(items: readonly AmigaGuideInline[]): string {
@@ -459,7 +461,8 @@ export class DataTypesService {
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[],
     private readonly audio: () => AudioSink | null = () => null, private readonly boopsi = new Boopsi(memory),
     private readonly textPrinter: () => ((text: string) => void) | null = () => null,
-    private readonly pagePrinter: () => ((page: PrinterPage) => void) | null = () => null) {
+    private readonly pagePrinter: () => ((page: PrinterPage) => void) | null = () => null,
+    private readonly systemCommand: () => ((command: string) => boolean) | null = () => null) {
     this.boopsi.ensureIntuitionClasses()
     const existing = this.boopsi.findClass('datatypesclass')
     this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
@@ -695,7 +698,7 @@ export class DataTypesService {
       case DTM.Trigger:
         return this.trigger(address, message.triggerFunction ?? 0, message.triggerData) ? 1 : 0
       case DTM.Print:
-        return this.print(address) ? 1 : 0
+        return this.print(address, message.printAttrs) ? 1 : 0
       case DTM.Copy: {
         const bytes = this.copyBytes(address)
         return bytes && message.putCopy?.(bytes) ? 1 : 0
@@ -853,7 +856,7 @@ export class DataTypesService {
     return null
   }
 
-  print(address: number): boolean {
+  print(address: number, attrs: ReadonlyMap<number, number> = new Map()): boolean {
     const o = this.objects.get(address); if (!o) return false
     const image = this.nativePicture(o)
     if (image) {
@@ -867,7 +870,7 @@ export class DataTypesService {
         pixels[i * 4 + 3] = 255
       }
       sink({ pixels, width: image.width, height: image.height, srcX: 0, srcY: 0,
-        special: 0, destCols: 0, destRows: 0 })
+        special: attrs.get(DTA.Special) ?? 0, destCols: attrs.get(DTA.DestCols) ?? 0, destRows: attrs.get(DTA.DestRows) ?? 0 })
       return true
     }
     if (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT) {
@@ -1005,9 +1008,11 @@ export class DataTypesService {
       return !!next && visit(next.id)
     }
     if (fn === STM.Command) {
-      const command = /^\s*(?:a?link)\s+(.+?)\s*$/i.exec(data)
-      const target = command?.[1]?.replace(/^"|"$/g, '')
-      return !!target && local({ document: '', node: target })
+      const command = /^\s*(\S+)\s+(.+?)\s*$/i.exec(data); const verb = command?.[1]?.toLowerCase()
+      const target = command?.[2]?.replace(/^"|"$/g, '')
+      if ((verb === 'link' || verb === 'alink') && target) return local({ document: '', node: target })
+      if (verb === 'system' && target) return this.systemCommand()?.(target) === true
+      return false
     }
     if (fn === STM.NextField || fn === STM.PrevField || fn === STM.ActivateField) {
       if (!current) return false
