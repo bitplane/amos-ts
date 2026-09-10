@@ -43,7 +43,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
     expect(rows.find((row) => row.name === '_dos open')).toMatchObject({ status: 'faithful', family: 'dos' })
     expect(rows.find((row) => row.name === '_dt obtain')).toMatchObject({
-      status: 'partial',
+      status: 'faithful',
       osCalls: [{ library: 'datatypes.library', lvo: -36 }],
     })
     expect(rows.find((row) => row.name === '_ggad create')).toMatchObject({
@@ -61,8 +61,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     const dt = rows.filter((row) => row.namespace === '_dt')
     expect(dt).toHaveLength(14)
     expect(dt.filter((row) => row.status === 'faithful').map((row) => row.name).sort())
-      .toEqual(['_dt delete', '_dt init', '_dt release', '_dt what triggers'])
-    expect(dt.filter((row) => row.status === 'partial')).toHaveLength(10)
+      .toEqual(['_dt add', '_dt delete', '_dt init', '_dt obtain', '_dt release', '_dt remove', '_dt what methods', '_dt what triggers'])
+    expect(dt.filter((row) => row.status === 'partial')).toHaveLength(6)
     expect(dt.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(dt.some((row) => row.status === 'review')).toBe(false)
   })
