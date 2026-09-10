@@ -1759,6 +1759,13 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.gtListViewMode).toEqual({ top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 })
   })
 
+  it('rejects invalid high-level GadTools bank selections', () => {
+    expect(() => run('_gt gadgets bank 0')).toThrow(/illegal function call/i)
+    expect(() => run('_gt gadgets bank 65536')).toThrow(/illegal function call/i)
+    expect(() => run('_gt menus bank -1')).toThrow(/illegal function call/i)
+    expect(() => run('_gt menus bank 65536')).toThrow(/illegal function call/i)
+  })
+
   it('routes scalar display, palette, scroller and slider state through shared GadTools', () => {
     const source = [
       'Screen Open 0,100,60,4,Lowres : _scr id from pointer 1,Screen Base : Reserve As Gt Gadgets 9,8,0',

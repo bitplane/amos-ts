@@ -6,7 +6,7 @@
  * through the library's Rbra trampolines by src/cli/osbackend.ts.
  */
 import type { Func, Instr } from '../interp/builtins'
-import { VI, VS, funcCall, int, str } from '../interp/values'
+import { AmosError, VI, VS, funcCall, int, str } from '../interp/values'
 import { OsCStringHeap } from '../amiga/oscstring'
 import { A1200_POOLS, MEMF, availMem, type MemPool } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
@@ -3024,7 +3024,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       })
       st().currentGtGadgetBank = number!
     },
-    '_gt gadgets bank'(it) { st().currentGtGadgetBank = it.evalInt() & 0xffff },
+    '_gt gadgets bank'(it) {
+      const number = it.evalInt()
+      if (number <= 0 || number > 0xffff) throw new AmosError('illegal function call', 23)
+      st().currentGtGadgetBank = number
+    },
     '_gt gadgets remove'(it) {
       const bank = st().gtGadgetBanks.get(it.evalInt() & 0xffff); if (bank) detachGtBank(rt, st(), bank)
     },
@@ -3335,7 +3339,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const visualInfo = st().gadtools.getVisualInfo(screenSlot!, { numPens: pens.length, pens, depth: screen.depth }).address
       st().gtMenuBanks.set(number!, { max: max!, screenSlot: screenSlot!, visualInfo, entries: [], strip: null }); st().currentGtMenuBank = number!
     },
-    '_gt menus bank'(it) { st().currentGtMenuBank = it.evalInt() },
+    '_gt menus bank'(it) {
+      const number = it.evalInt()
+      if (number <= 0 || number > 0xffff) throw new AmosError('illegal function call', 23)
+      st().currentGtMenuBank = number
+    },
     '_gt menus erase'(it) {
       const number = it.evalInt(); const bank = st().gtMenuBanks.get(number)
       if (!bank) return
