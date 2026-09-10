@@ -3969,7 +3969,9 @@ export const FAITHFUL = new Set<string>([
   // Gadget the point falls in --- the GadgetID and not the index --- with the
   // box INCLUSIVE on all four edges, which is one pixel wider than the gadget
   // on each side.
-  'gui x gad', 'gui y gad', 'gui gad width', 'gui gad height',
+  // `Gui Gad Adr` returns the shared GadTools object's address; it no longer
+  // mints a second GUI-only identity for the same struct Gadget.
+  'gui x gad', 'gui y gad', 'gui gad width', 'gui gad height', 'gui gad adr',
   'gui kind', 'gui gadget', 'gui check', 'gui range',
   // `Gui To Front` is WindowToFront AND ActivateWindow, which the 1.6 history
   // dates ("Now Gui To Front activate the window too"); `Gui To Back` is
