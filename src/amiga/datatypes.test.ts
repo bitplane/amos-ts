@@ -193,7 +193,7 @@ describe('datatype class objects', () => {
 
   it('uses the shared AmigaGuide document for DTM_GOTO node state', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
-    const bytes = Buffer.from('@database Manual.guide\n@author Fred\n@version 2.1\n@node MAIN Main\nStart\n@endnode\n@node other Other\nRead @{B}this@{UB}.\n@endnode', 'latin1')
+    const bytes = Buffer.from('@database Manual.guide\n@author Fred\n@version 2.1\n@node MAIN Main\nStart\n@endnode\n@node other Other\n@wordwrap\nRead @{B}this@{UB}.\n@endnode', 'latin1')
     const object = service.create('RAM:Manual.guide', bytes, new Map())
     expect(object).not.toBe(0); expect(service.goTo(object, 'OTHER')).toBe(true)
     const attrs = service.objects.get(object)!.attributes
@@ -207,9 +207,14 @@ describe('datatype class objects', () => {
     expect(stringAt(attrs.get(DTA.ObjName)!)).toBe('Manual.guide')
     expect(stringAt(attrs.get(DTA.ObjAuthor)!)).toBe('Fred')
     expect(stringAt(attrs.get(DTA.ObjVersion)!)).toBe('2.1')
+    expect(stringAt(attrs.get(TDTA.WordDelim)!)).toBe('\t *-,()<>[];"')
+    expect(attrs.get(TDTA.WordWrap)).toBe(1)
     const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
     expect(Array.from({ length: 8 }, (_, i) => dv.getUint32(methods - memory.base + i * 4)))
       .toEqual([DTM.ClearSelected, DTM.Print, DTM.Copy, DTM.GoTo, DTM.Trigger, DTM.RemoveDTObject, DTM.FrameBox, 0xffffffff])
+    const triggers = attrs.get(DTA.TriggerMethods)!
+    expect(Array.from({ length: 5 }, (_, i) => dv.getUint32(triggers - memory.base + i * 12 + 8)))
+      .toEqual([3, 4, 5, 6, 7])
     expect(String.fromCharCode(...service.copyBytes(object)!)).toContain('Read this.')
     const rp = new RastPort(new BitMap(96, 16, 2, 12))
     expect(service.refresh(object, [], 1, 0, rp)).toBe(true)
@@ -272,6 +277,8 @@ describe('datatype class objects', () => {
     const file = Uint8Array.from([...id('FORM'), ...be(chars.length + 4), ...id('FTXT'), ...chars])
     const object = service.create('RAM:t.ftxt', file, new Map())
     const attrs = service.objects.get(object)!.attributes; const list = attrs.get(TDTA.LineList)!
+    expect([attrs.get(TDTA.WordSelect), attrs.get(TDTA.WordWrap)]).toEqual([0, 0])
+    expect(attrs.get(DTA.Methods)).not.toBe(0)
     const view = new DataView(memory.buffer.buffer); const first = view.getUint32(list - memory.base)
     const second = view.getUint32(first - memory.base)
     expect(view.getUint32(first - memory.base + 12)).toBe(3)

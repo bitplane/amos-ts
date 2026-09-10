@@ -180,12 +180,14 @@ export const GID = {
 /** Release 40.15 datatype class tags used by the managed object backend. */
 const DUMMY = 0x80001000
 export const DTA = {
+  TextAttr: DUMMY + 10,
   TopVert: DUMMY + 11, VisibleVert: DUMMY + 12, TotalVert: DUMMY + 13, VertUnit: DUMMY + 14,
   TopHoriz: DUMMY + 15, VisibleHoriz: DUMMY + 16, TotalHoriz: DUMMY + 17, HorizUnit: DUMMY + 18,
   NodeName: DUMMY + 19, Title: DUMMY + 20, TriggerMethods: DUMMY + 21, Data: DUMMY + 22,
   TextFont: DUMMY + 23, Methods: DUMMY + 24, PrinterStatus: DUMMY + 25,
   PrinterProc: DUMMY + 26, LayoutProc: DUMMY + 27, Busy: DUMMY + 28, Sync: DUMMY + 29,
   BaseName: DUMMY + 30, GroupID: DUMMY + 31,
+  ErrorLevel: DUMMY + 32, ErrorNumber: DUMMY + 33, ErrorString: DUMMY + 34,
   Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
   SourceType: DUMMY + 101, Handle: DUMMY + 102,
   ObjAuthor: DUMMY + 110, ObjAnnotation: DUMMY + 111, ObjCopyright: DUMMY + 112,
@@ -643,6 +645,12 @@ export class DataTypesService {
       const raw = new Uint8Array(text.length + 1); for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
       computed.set(TDTA.Buffer, this.bytes(owned, raw)); computed.set(TDTA.BufferLen, text.length)
     }
+    if (text !== null || guide) {
+      computed.set(TDTA.WordSelect, 0)
+      computed.set(TDTA.WordDelim, this.string(owned, '\t *-,()<>[];"'))
+      computed.set(TDTA.WordWrap, guide?.wordWrap ? 1 : 0)
+      computed.set(DTA.TextAttr, 0)
+    }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
     if (sound?.name) computed.set(DTA.ObjName, this.string(owned, sound.name))
     if (guide) {
@@ -663,6 +671,8 @@ export class DataTypesService {
     computed.set(GA.Width, width * unit); computed.set(GA.Height, height * unit)
     computed.set(DTA.TotalPHoriz, width * unit); computed.set(DTA.TotalPVert, height * unit)
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
+    computed.set(DTA.PrinterStatus, 0); computed.set(DTA.PrinterProc, 0); computed.set(DTA.LayoutProc, 0)
+    computed.set(DTA.ErrorLevel, 0); computed.set(DTA.ErrorNumber, 0); computed.set(DTA.ErrorString, 0)
     for (const [tag, value] of attributes) computed.set(tag >>> 0, value)
     const domain = this.memory.alloc(8, { clear: true })
     if (!domain) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
@@ -678,6 +688,8 @@ export class DataTypesService {
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
       guideNode: '', guideHistory: [], guideField: -1, textLayoutOwned: [], textLayoutKey: '', textSelection: null,
       selectionDomain: 0, domain })
+    shared.set(DTA.Methods, this.methodList(address, false))
+    shared.set(DTA.TriggerMethods, this.methodList(address, true))
     if (guide) this.goTo(address, guide.entryNode)
     else if (text !== null) this.rebuildTextLines(this.objects.get(address)!)
     return address
@@ -770,15 +782,21 @@ export class DataTypesService {
   }
   methodList(object: number, triggers = false): number {
     const o = this.objects.get(object); if (!o) return 0
-    if (triggers && o.descriptor.groupID !== GID.SOUND) return 0
+    if (triggers && o.descriptor.groupID !== GID.SOUND && o.descriptor.baseName !== 'amigaguide') return 0
     const kind = triggers ? `trigger:${o.descriptor.groupID}` : `method:${o.descriptor.groupID}`
     const existing = this.methodLists.get(kind); if (existing) return existing
     if (triggers) {
       // DTMethod is { label, command, trigger function }, terminated by zeros.
-      const play = this.string([], 'Play'); const command = this.string([], 'PLAY')
-      const address = this.memory.alloc(24, { clear: true }); if (!address) return 0
+      const methods = o.descriptor.baseName === 'amigaguide'
+        ? [['Contents', 'CONTENTS', STM.Contents], ['Index', 'INDEX', STM.Index], ['Retrace', 'RETRACE', STM.Retrace],
+          ['Browse <', 'PREVIOUS', STM.BrowsePrev], ['Browse >', 'NEXT', STM.BrowseNext]] as const
+        : [['Play', 'PLAY', STM.Play]] as const
+      const address = this.memory.alloc((methods.length + 1) * 12, { clear: true }); if (!address) return 0
       const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
-      dv.setUint32(at, play); dv.setUint32(at + 4, command); dv.setUint32(at + 8, 2)
+      methods.forEach(([label, command, fn], i) => {
+        dv.setUint32(at + i * 12, this.string([], label)); dv.setUint32(at + i * 12 + 4, this.string([], command))
+        dv.setUint32(at + i * 12 + 8, fn)
+      })
       this.methodLists.set(kind, address); return address
     }
     /*
@@ -999,6 +1017,7 @@ export class DataTypesService {
     const buffer = this.bytes(o.owned, raw); const name = this.string(o.owned, node.id); const title = this.string(o.owned, node.title)
     o.attributes.set(TDTA.Buffer, buffer); o.attributes.set(TDTA.BufferLen, text.length)
     o.attributes.set(DTA.NodeName, name); o.attributes.set(DTA.Title, title)
+    o.attributes.set(TDTA.WordWrap, node.wordWrap ? 1 : 0)
     const lines = text.split('\n'); const width = Math.max(0, ...lines.map(line => line.length)); const height = lines.length
     const hUnit = o.attributes.get(DTA.HorizUnit) ?? 8; const vUnit = o.attributes.get(DTA.VertUnit) ?? 8
     o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height * vUnit)
