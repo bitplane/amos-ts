@@ -80,6 +80,9 @@ describe('datatype class objects', () => {
     const frame = attrs.get(DTA.FrameInfo)! - memory.base
     expect([0, 4, 8, 12, 16, 20, 32].map(at => new DataView(memory.buffer.buffer).getUint32(frame + at)))
       .toEqual([0, 0x00010001, 0x04040400, 3, 2, 2, 6])
+    expect(service.setAttrs(object, [{ tag: DTA.Width, data: 99 }], 12, 34)).toBe(1)
+    expect(service.attr(object, DTA.Width)).toBe(99)
+    expect(service.objects.get(object)).toMatchObject({ window: 12, requester: 34 })
     service.dispose(object)
     expect(memory.typeOfMem(header)).toBe(0)
   })

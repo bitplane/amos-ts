@@ -1831,14 +1831,12 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_dt delete'(it) { st().dataTypes.dispose(it.evalInt() >>> 0) },
     '_dt release'(it) { st().dataTypes.release(it.evalInt() >>> 0) },
     '_dt set attrs'(it) {
-      const [object, window, requester, tags] = readArgs(it, 4); const o = st().dataTypes.objects.get(object! >>> 0); if (!o) return
-      o.window = window! >>> 0; o.requester = requester! >>> 0
-      for (const tag of tagItems(st(), tags! >>> 0)) o.attributes.set(tag.tag, tag.data)
+      const [object, window, requester, tags] = readArgs(it, 4)
+      st().dataTypes.setAttrs(object! >>> 0, tagItems(st(), tags! >>> 0), window, requester)
     },
     '_dt refresh'(it) {
-      const [object, window, requester, tags] = readArgs(it, 4); const o = st().dataTypes.objects.get(object! >>> 0); if (!o) return
-      o.window = window! >>> 0; o.requester = requester! >>> 0
-      for (const tag of tagItems(st(), tags! >>> 0)) o.attributes.set(tag.tag, tag.data)
+      const [object, window, requester, tags] = readArgs(it, 4)
+      st().dataTypes.setAttrs(object! >>> 0, tagItems(st(), tags! >>> 0), window, requester)
     },
     '_dos var value$'(it) {
       it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')
@@ -4032,8 +4030,8 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       return VI(st().dataTypes.create(path, rt.vfs?.readFile(path) ?? null, attrs))
     },
     '_dt what attrs'(_, a) {
-      const o = st().dataTypes.objects.get(n(a, 0) >>> 0); if (!o) return VI(0); let count = 0
-      for (const tag of tagItems(st(), n(a, 1))) { const value = o.attributes.get(tag.tag); if (value !== undefined && tag.data !== 0) { structWrite(rt, tag.data, 4, value); count++ } }
+      const object = n(a, 0) >>> 0; if (!st().dataTypes.objects.has(object)) return VI(0); let count = 0
+      for (const tag of tagItems(st(), n(a, 1))) { const value = st().dataTypes.attr(object, tag.tag); if (value !== null && tag.data !== 0) { structWrite(rt, tag.data, 4, value); count++ } }
       return VI(count)
     },
     '_dt obtain'(_, a) {

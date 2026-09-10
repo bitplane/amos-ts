@@ -66,7 +66,7 @@ import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 import {
-  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doSuperMethodA,
+  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doSuperMethodA, getAttr, setAttrsA,
   type BoopsiClass, type BoopsiObject, type OpGet, type OpSet,
 } from './boopsi'
 
@@ -531,6 +531,17 @@ export class DataTypesService {
   }
   dispose(address: number): void {
     const object = this.objects.get(address)?.object; if (object) this.boopsi.disposeObject(object)
+  }
+  /** SetDTAttrsA: the datatype class receives the same OM_SET as any BOOPSI caller. */
+  setAttrs(address: number, attributes: readonly { tag: number; data: number }[], window = 0, requester = 0): number {
+    const held = this.objects.get(address); if (!held) return 0
+    held.window = window >>> 0; held.requester = requester >>> 0
+    return setAttrsA(held.object, attributes)
+  }
+  /** GetDTAttrsA's per-tag lookup through OM_GET. */
+  attr(address: number, id: number): number | null {
+    const object = this.objects.get(address)?.object
+    return object ? getAttr(id >>> 0, object) : null
   }
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
