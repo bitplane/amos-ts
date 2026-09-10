@@ -379,6 +379,7 @@ export interface DataTypeObject {
   /** replaceable allocations backing TDTA_LineList after buffer mutation */
   textLayoutOwned: number[]
   textLayoutKey: string
+  textSelection: { start: number; end: number } | null
   /** stable internal IBox returned by DTA_SelectDomain while highlighted */
   selectionDomain: number
   /** stable public IBox returned by DTA_Domain */
@@ -624,7 +625,8 @@ export class DataTypesService {
     shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
-      guideNode: '', guideHistory: [], textLayoutOwned: [], textLayoutKey: '', selectionDomain: 0, domain })
+      guideNode: '', guideHistory: [], textLayoutOwned: [], textLayoutKey: '', textSelection: null,
+      selectionDomain: 0, domain })
     if (guide) this.goTo(address, guide.entryNode)
     else if (text !== null) this.rebuildTextLines(this.objects.get(address)!)
     return address
@@ -765,6 +767,7 @@ export class DataTypesService {
         if (o.selectionDomain) {
           this.memory.buffer.copyWithin(o.selectionDomain - this.memory.base, item.data - this.memory.base, item.data - this.memory.base + 8)
           o.attributes.set(DTA.SelectDomain, o.selectionDomain)
+          this.syncTextSelection(o)
         }
       }
       if (item.tag === GA.Width || item.tag === GA.Height) {
@@ -820,9 +823,10 @@ export class DataTypesService {
   }
   copyBytes(address: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o) return null
-    const buffer = o.attributes.get(TDTA.Buffer); const length = o.attributes.get(TDTA.BufferLen)
-    if (buffer && length !== undefined) {
-      return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
+    const text = this.textBytes(o)
+    if (text) {
+      const selected = o.textSelection
+      return selected ? text.slice(selected.start, selected.end) : text
     }
     const image = this.nativePicture(o)
     if (image) {
@@ -857,7 +861,7 @@ export class DataTypesService {
       return true
     }
     if (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT) {
-      const sink = this.textPrinter(); const bytes = this.copyBytes(address)
+      const sink = this.textPrinter(); const bytes = this.textBytes(o)
       if (!sink || !bytes) return false
       let text = ''; for (const byte of bytes) text += String.fromCharCode(byte)
       sink(text); return true
@@ -866,11 +870,22 @@ export class DataTypesService {
   }
 
   select(address: number, rect: { minX: number; minY: number; maxX: number; maxY: number }): boolean {
-    const o = this.objects.get(address); if (!o || o.descriptor.groupID !== GID.PICTURE) return false
+    const o = this.objects.get(address)
+    if (!o || (o.descriptor.groupID !== GID.PICTURE && o.descriptor.groupID !== GID.TEXT && o.descriptor.groupID !== GID.DOCUMENT)) return false
     let boxAddress = o.selectionDomain
     if (boxAddress === 0 || this.memory.sizeOf(boxAddress) < 8) {
       boxAddress = this.memory.alloc(8, { clear: true }); if (!boxAddress) return false
       o.owned.push(boxAddress); o.selectionDomain = boxAddress
+    }
+    if (o.descriptor.groupID !== GID.PICTURE) {
+      const hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 8)
+      const vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 8)
+      const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + boxAddress - this.memory.base, 8)
+      view.setInt16(0, Math.min(rect.minX, rect.maxX)); view.setInt16(2, Math.min(rect.minY, rect.maxY))
+      view.setInt16(4, Math.abs(rect.maxX - rect.minX) + 1); view.setInt16(6, Math.abs(rect.maxY - rect.minY) + 1)
+      o.attributes.set(DTA.SelectDomain, boxAddress)
+      this.syncTextSelection(o, hUnit, vUnit)
+      return o.textSelection !== null
     }
     const image = this.nativePicture(o); if (!image) return false
     const left = Math.max(0, Math.min(image.width - 1, Math.min(rect.minX, rect.maxX)))
@@ -885,7 +900,7 @@ export class DataTypesService {
 
   clearSelected(address: number): boolean {
     const o = this.objects.get(address); if (!o) return false
-    o.attributes.set(DTA.SelectDomain, 0); return true
+    o.attributes.set(DTA.SelectDomain, 0); o.textSelection = null; return true
   }
   writeBytes(address: number, mode: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o || (mode !== 0 && mode !== 1)) return null
@@ -998,7 +1013,7 @@ export class DataTypesService {
   }
 
   private drawText(address: number, rp: RastPort): boolean {
-    const o = this.objects.get(address); const bytes = o && this.copyBytes(address)
+    const o = this.objects.get(address); const bytes = o && this.textBytes(o)
     if (!o || !bytes) return false
     let text = ''; for (const byte of bytes) text += String.fromCharCode(byte)
     const lines = text.replace(/\r\n?/g, '\n').split('\n')
@@ -1011,6 +1026,28 @@ export class DataTypesService {
       rp.text(0, row * unit + baseline, line)
     }
     return true
+  }
+
+  private textBytes(o: DataTypeObject): Uint8Array | null {
+    const buffer = o.attributes.get(TDTA.Buffer); const length = o.attributes.get(TDTA.BufferLen)
+    if (!buffer || length === undefined || length < 0 || this.memory.sizeOf(buffer) < length) return null
+    return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
+  }
+
+  private syncTextSelection(o: DataTypeObject, hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 8),
+    vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 8)): void {
+    const text = this.textBytes(o); const box = this.selection(o)
+    if (!text || !box || (o.descriptor.groupID !== GID.TEXT && o.descriptor.groupID !== GID.DOCUMENT)) {
+      o.textSelection = null; return
+    }
+    const source = String.fromCharCode(...text); const lines = source.split('\n'); const starts: number[] = []
+    let offset = 0; for (const line of lines) { starts.push(offset); offset += line.length + 1 }
+    const firstLine = Math.max(0, Math.min(lines.length - 1, Math.floor(box.top / vUnit)))
+    const lastLine = Math.max(firstLine, Math.min(lines.length - 1, Math.floor((box.top + Math.max(0, box.height - 1)) / vUnit)))
+    const firstCol = Math.max(0, Math.min(lines[firstLine]!.length, Math.floor(box.left / hUnit)))
+    const lastCol = Math.max(0, Math.min(lines[lastLine]!.length,
+      Math.floor((box.left + Math.max(0, box.width - 1)) / hUnit) + 1))
+    o.textSelection = { start: starts[firstLine]! + firstCol, end: starts[lastLine]! + lastCol }
   }
 
   /** Decode the public PDTA records each time: callers may legally alter them in mapped memory. */

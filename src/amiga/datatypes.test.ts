@@ -257,6 +257,21 @@ describe('datatype class objects', () => {
     expect(view.getUint32(second - memory.base + 4)).toBe(first)
   })
 
+  it('copies and clears a text selection while drawing the complete buffer', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const id = (text: string): number[] => [...text].map(char => char.charCodeAt(0))
+    const be = (value: number): number[] => [value >>> 24, value >>> 16, value >>> 8, value].map(byte => byte & 255)
+    const chars = [...id('CHRS'), ...be(8), ...Buffer.from('one\nfour', 'latin1')]
+    const file = Uint8Array.from([...id('FORM'), ...be(chars.length + 4), ...id('FTXT'), ...chars])
+    const object = service.create('RAM:t.ftxt', file, new Map())
+    expect(service.select(object, { minX: 8, minY: 0, maxX: 15, maxY: 15 })).toBe(true)
+    expect(String.fromCharCode(...service.copyBytes(object)!)).toBe('ne\nfo')
+    const rp = new RastPort(new BitMap(96, 24, 2, 12))
+    expect(service.refresh(object, [], 1, 0, rp)).toBe(true); expect(rp.cpX).toBe(32)
+    expect(service.clearSelected(object)).toBe(true)
+    expect(String.fromCharCode(...service.copyBytes(object)!)).toBe('one\nfour')
+  })
+
   it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const source = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0, palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
