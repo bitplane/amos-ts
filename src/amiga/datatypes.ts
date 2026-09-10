@@ -626,10 +626,19 @@ export class DataTypesService {
       dv.setUint32(at, play); dv.setUint32(at + 4, command); dv.setUint32(at + 8, 2)
       this.methodLists.set(kind, address); return address
     }
-    const values = o.descriptor.baseName === 'amigaguide' ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.GoTo, DTM.Copy, DTM.Write, 0]
-      : o.descriptor.groupID === GID.PICTURE ? [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw, DTM.Write, 0]
-        : o.descriptor.groupID === GID.SOUND ? [DTM.ProcLayout, DTM.AsyncLayout, DTM.Trigger, DTM.Write, 0]
-          : [DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Copy, DTM.Write, 0]
+    /*
+     * These are the actual ULONG arrays in the highest held base-class
+     * binaries: picture 39.14@$2f9c, sound 39.5@$16fc, text 39.7@$387e and
+     * amigaguide 39.15@$b126. They end in -1, not TAG_DONE. Concrete format
+     * classes inherit their base class's list.
+     */
+    const values = o.descriptor.baseName === 'amigaguide'
+      ? [DTM.ClearSelected, DTM.Print, DTM.Copy, DTM.GoTo, DTM.Trigger, DTM.RemoveDTObject, DTM.FrameBox, 0xffffffff]
+      : o.descriptor.groupID === GID.PICTURE
+        ? [DTM.FrameBox, DTM.Select, DTM.ClearSelected, DTM.Copy, DTM.Print, DTM.Write, 0xffffffff]
+        : o.descriptor.groupID === GID.SOUND
+          ? [DTM.Trigger, DTM.Copy, DTM.Write, 0xffffffff]
+          : [DTM.ClearSelected, DTM.Print, DTM.Copy, DTM.Write, 0xffffffff]
     const address = this.memory.alloc(values.length * 4, { clear: true }); if (!address) return 0
     const at = address - this.memory.base; const dv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
     values.forEach((value, i) => dv.setUint32(at + i * 4, value)); this.methodLists.set(kind, address)
