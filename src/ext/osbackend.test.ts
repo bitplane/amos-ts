@@ -1348,8 +1348,8 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(expected.size).toBe(69)
     expect(idRows).toHaveLength(69)
     for (const [name, workers] of expected) expect(rows.find((row) => row.name === name)?.workers).toEqual(workers)
-    expect(idRows.filter((row) => row.status === 'faithful')).toHaveLength(54)
-    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(15)
+    expect(idRows.filter((row) => row.status === 'faithful')).toHaveLength(55)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(14)
     expect(idRows.some((row) => row.status === 'review')).toBe(false)
     expect(rows.find((row) => row.name === '_wnd id set mouse pos')?.osCalls).toEqual([
       expect.objectContaining({ library: 'exec.library', lvo: -456 }),

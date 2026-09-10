@@ -501,7 +501,10 @@ auditMany('faithful', 'one Window-ID adapter synchronizes native state, coordina
   '_wnd id set line', '_wnd id point',
 ])
 auditMany('partial', 'Window-ID open/close owns shared Intuition windows, native RastPort records and the private Requester; tag opening handles the core V39 geometry, pen, IDCMP, title, screen and limit tags rather than the entire WA_* surface', [
-  '_wnd id open', '_wnd id close', '_wnd id tag open',
+  '_wnd id open', '_wnd id tag open',
+])
+auditMany('faithful', 'worker 3045 clears the 28-byte Window-ID record and selected state, closes the shared native Window, and releases both titles, requester, RastPort and BitMap ownership exactly', [
+  '_wnd id close',
 ])
 auditMany('partial', 'WindowLimits, MoveWindow, SizeWindow and ChangeWindowBox share Intuition geometry and public fields; off-screen movement remains safely clamped by the host window policy', [
   '_wnd id limits', '_wnd id move', '_wnd id size', '_wnd id box',
