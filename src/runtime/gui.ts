@@ -5503,6 +5503,20 @@ export function guiPost(
   at?: [number, number],
   qualifier?: number,
 ): void {
+  if (code >= 0) {
+    const w = rt.gui.windows.get(window)
+    const gadget = w?.nativeGadgets.get(code)
+    if (w && gadget) {
+      if (gadget.disabled) return
+      const tag = GUI_SET_TAGS[gadget.kind]?.[0]
+      if (tag !== undefined) {
+        const data = tag === TAG.GTST_String || tag === TAG.GTTX_Text ? rt.gadtools.stringRef(text) : result
+        setNativeGadget(rt.gui, w, code, tag, data)
+        rt.gui.attrsOf(w, code)[0] = result
+        if (text !== '') w.strings.set(code, text)
+      }
+    }
+  }
   const e: GuiEvent = { code, result, text, window }
   if (qualifier !== undefined) e.qualifier = qualifier
   if (at !== undefined) {

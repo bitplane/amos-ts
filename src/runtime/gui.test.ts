@@ -239,6 +239,7 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(rt.gui.readCode()).toBe(-1)
     expect(rt.gui.readCodeText()).toBe('typed')
     expect(rt.gui.eventWindow()).toBe(1)
+    expect(rt.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(false)
   })
 })
 
@@ -475,6 +476,12 @@ describeWith('the gadget group', exampleBank(), (bank) => {
     const on = run(`${open} : Gui Set 1,2,-1,1 : Gui Set 1,2,-1,0`, bank)
     expect(on.gui.windows.get(1)!.ghosted.has(2)).toBe(false)
     expect(on.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(false)
+  })
+
+  it('drops input for a gadget disabled through shared GadTools state', () => {
+    const rt = run(`${open} : Gui Set 1,2,-1,1`, bank)
+    guiPost(rt, 1, 2, 1)
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.NOTHING)
   })
 
   /** routine 241 checks the attribute first, then the gadget, both as error 9 */
