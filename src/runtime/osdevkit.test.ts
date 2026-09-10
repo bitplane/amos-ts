@@ -757,6 +757,22 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
   })
 
+  it('attaches datatype BOOPSI gadgets to the shared Intuition window list', () => {
+    const ilbm = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
+    const { rt, output } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      'W=_wnd open(Screen Base,1,2,60,30,0,$40)',
+      'T=_tag list alloc(4) : _tag set T,$80030001,3 : _tag set T,$80030003,4',
+      '_tag set T,$80030005,20 : _tag set T,$80030007,10 : _tag done T',
+      'O=_dt create(_to str("RAM:image.iff"),T) : Print _dt add(O,W,0,-1)',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(output).toBe(' 0\n')
+    expect(rt.intuition.windows[0]!.gadgets).toEqual([expect.objectContaining({
+      leftEdge: 3, topEdge: 4, width: 20, height: 10,
+    })])
+  })
+
   it('copies DTM_FRAMEBOX into the caller-sized native FrameInfo', () => {
     const ilbm = encodeIlbm({ width: 7, height: 5, depth: 1, mode: 0, palette: [0, 0xfff], pixels: new Uint8Array(35) })
     const { output } = run([

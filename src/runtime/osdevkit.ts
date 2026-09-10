@@ -43,7 +43,7 @@ import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import {
-  OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
+  GA, OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
   doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
@@ -1220,7 +1220,7 @@ function nativeGadgetList(rt: Runtime, state: OsDevKitState, first: number, coun
 function nativeBoopsiGadget(object: BoopsiObject): UserGadget {
   const attr = (id: number, fallback = 0): number => getAttr(id, object) ?? fallback
   return {
-    leftEdge: attr(0x8003_0001), topEdge: attr(0x8003_0002), width: attr(0x8003_0003), height: attr(0x8003_0004),
+    leftEdge: attr(GA.Left), topEdge: attr(GA.Top), width: attr(GA.Width), height: attr(GA.Height),
     id: object.address, flags: attr(0x8003_000e) !== 0 ? GFLG_GADGDISABLED : 0,
   }
 }
@@ -4044,8 +4044,23 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const source = n(a, 1); const path = cString(rt, source); const bytes = path ? rt.vfs?.readFile(path) ?? null : null
       return VI(st().dataTypes.obtain(bytes))
     },
-    '_dt add'(_, a) { return VI(st().dataTypes.add(n(a, 0) >>> 0, n(a, 1) >>> 0, n(a, 2) >>> 0, n(a, 3))) },
-    '_dt remove'(_, a) { return VI(st().dataTypes.remove(n(a, 1) >>> 0, n(a, 0) >>> 0)) },
+    '_dt add'(_, a) {
+      const object = n(a, 0) >>> 0; const windowBase = n(a, 1) >>> 0; const requester = n(a, 2) >>> 0; const position = n(a, 3)
+      const window = windowAtBase(st(), windowBase); const boopsi = rt.boopsi.objectAt(object)
+      if (window && boopsi) {
+        const actual = rt.intuition.addWindowGadgets(window, [nativeBoopsiGadget(boopsi)], position)
+        return VI(st().dataTypes.add(object, windowBase, requester, actual))
+      }
+      return VI(st().dataTypes.add(object, windowBase, requester, position))
+    },
+    '_dt remove'(_, a) {
+      const windowBase = n(a, 0) >>> 0; const object = n(a, 1) >>> 0; const window = windowAtBase(st(), windowBase)
+      if (window) {
+        const gadget = window.gadgets.find(item => item.id === object)
+        if (gadget) rt.intuition.detachWindowGadget(window, gadget)
+      }
+      return VI(st().dataTypes.remove(object, windowBase))
+    },
     '_dt what methods'(_, a) { return VI(st().dataTypes.methodList(n(a, 0) >>> 0, false)) },
     '_dt what triggers'(_, a) { return VI(st().dataTypes.methodList(n(a, 0) >>> 0, true)) },
     '_dt do'(_, a) {
